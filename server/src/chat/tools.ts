@@ -333,7 +333,7 @@ function browserTool(exec: TurnExec, name: BrowserToolName, description: string,
       const r = await rt.relay.call({ userId: spec.userId, windowId: spec.windowId!, turnId: spec.turnId, chatId: spec.chatId, tool: name, args, signal: exec.abort.signal })
       const content: McpContent[] = []
       const shared: { path: string; alt?: string }[] = []
-      // a screenshot reaches the model like an image read: the team's "Send images and PDF pages to the AI" switch, an
+      // a screenshot reaches the model like an image read: the team's "Send images, PDF pages and video frames to the AI" switch, an
       // engine that takes images and the per-turn image budget (FileService.toolImage); else a note in its place.
       // One the AI chose to show the person is shown either way (the chat, not the model)
       const notes = new Set<string>()

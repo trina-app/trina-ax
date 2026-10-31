@@ -34,6 +34,9 @@ export const ReadInput = z.strictObject({
   limit: z.number().int().min(1).max(20000).optional().describe('Number of lines (default 2000)'),
   pages: z.string().max(100).optional().describe('PDF only: pages to read, e.g. "3", "1-5" or "1-3,7". At most 20 pages per call; required for PDFs over 10 pages.'),
   as_images: z.boolean().optional().describe('PDF only: also show the pages as images, even pages that have text (charts, tables, layout). Pages without a text layer are always shown as images.'),
+  time: z.string().max(40).optional().describe('Video and audio only: the part to read, e.g. "1:00-2:30", "90-150" (seconds) or "0:05" (one moment). Without it: the whole file, as far as one read goes (the result says what to read next).'),
+  frames: z.number().int().min(0).max(20).optional().describe('Video only: how many pictures, evenly spaced (0-20; default up to 12). Fewer give bigger pictures: 1-4 for small text on a screen. 0: the transcript only (then a read covers up to 30 minutes of sound).'),
+  transcript: z.boolean().optional().describe('Video and audio only: false skips the transcript of the sound.'),
 })
 export const WriteInput = z.strictObject({
   file_path: relPath,
@@ -138,7 +141,7 @@ export const FILE_TOOLS = {
   list: { input: ListInput, description: 'List a folder in the team drive. Only things you are allowed to see are shown. Folders end with "/".' },
   glob: { input: GlobInput, description: 'Find files by name pattern (e.g. "**/*.pdf"). Returns paths relative to the team root. Folders you cannot access are skipped.' },
   grep: { input: GrepInput, description: 'Search file contents with a regular expression (ripgrep). Also searches text extracted from .docx/.pptx/.xlsx/.pdf. Images have no searchable text, and scanned PDF pages may have none: read them to see them. Folders you cannot access are skipped.' },
-  read: { input: ReadInput, description: 'Read a file. Text returns numbered lines (cat -n style); use offset/limit for long files. Word/Excel/PowerPoint files are converted to text. Images (PNG, JPEG, GIF, WebP, HEIC, TIFF, BMP) are shown to you as images. PDFs: give pages (e.g. "1-5"; at most 20 per call, required over 10 pages); pages with text come back as text, pages without a text layer (scans) as images; as_images also shows text pages as images.' },
+  read: { input: ReadInput, description: 'Read a file. Text returns numbered lines (cat -n style); use offset/limit for long files. Word/Excel/PowerPoint files are converted to text. Images (PNG, JPEG, GIF, WebP, HEIC, TIFF, BMP) are shown to you as images. PDFs: give pages (e.g. "1-5"; at most 20 per call, required over 10 pages); pages with text come back as text, pages without a text layer (scans) as images; as_images also shows text pages as images. Videos (mp4, mov, m4v, webm, mkv, avi, 3gp) come back as frames (pictures with their times) and a timed transcript of the sound; audio files (mp3, m4a, wav, aac, flac, ogg, opus, amr, aiff, caf, wma) as a timed transcript. Use time (e.g. "1:00-2:30") to look at a part, frames for how many pictures, transcript: false to skip the sound.' },
   write: { input: WriteInput, description: 'Create a text file or overwrite one. An existing file must be read first in this conversation turn. If someone else changed it since you read it, your version is saved as a conflict copy instead. The server checks access on each call: call it when asked, even if the folder looks read-only.' },
   edit: { input: EditInput, description: 'Replace an exact string in a text file you have read in this turn. old_string must be unique unless replace_all is true. The server checks access on each call: call it when asked, even if the folder looks read-only.' },
 } as const

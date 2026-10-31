@@ -17,7 +17,9 @@ Use a dedicated server or VM. **systemd must be PID 1 and cgroup v2 must be avai
 
 These are install requirements, not a capacity benchmark. One installation is one team.
 
-Linux servers run no OCR. When the AI reads a photo or a scanned PDF page it sees the image itself (Admin > Team settings, "Send images and PDF pages to the AI", on by default), and scanned documents and photos are not text-searchable, as with Claude Code's own search. The installer no longer installs tesseract.
+Linux servers run no OCR. When the AI reads a photo or a scanned PDF page it sees the image itself (Admin > Team settings, "Send images, PDF pages and video frames to the AI", on by default), and scanned documents and photos are not text-searchable, as with Claude Code's own search. The installer no longer installs tesseract.
+
+The AI reads video and audio files with the distribution's ffmpeg and ffprobe (the `ffmpeg` package, 5.1 or newer, installed by apt with the other packages; never part of the kit): frames and, when allowed in Team settings › Voice input, a transcript. Its decoders read files people upload, so keep Debian / Ubuntu security updates on (for example the `unattended-upgrades` package); they ship ffmpeg's security fixes. Without ffmpeg the AI says it cannot read video on this server.
 
 The server learns its own public address from the release feed (`https://updates.trina.app/ip`, once over IPv4 and once over IPv6, at start and every 30 minutes) and refuses web addresses the AI opens that lead back to it (through the router or NAT in front of the server). While it does not know it (no internet, or that outbound connection blocked), every web address the AI opens needs a person and scheduled tasks open none. `MYCEL_EXIT_ADDRESS_CHECK=off` in `/etc/default/mycel` stops the check (the server then keeps asking).
 

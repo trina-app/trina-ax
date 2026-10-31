@@ -3,14 +3,15 @@
 // members may add their own external-service connections (Settings > External services), whether AI reads send images
 // and PDF pages to the AI (server/src/files/vision.ts), how many tool rounds one answer may take (Claude Code
 // --max-turns, docs/DECISIONS.md "Tool rounds per answer"), voice input (off, OpenRouter
-// with the team's key, or whisper.cpp on this server; docs/DECISIONS.md "Voice input through OpenRouter"), and the team
+// with the team's key, or whisper.cpp on this server; docs/DECISIONS.md "Voice input through OpenRouter") and whether
+// the AI's video and audio reads turn sound into text ("AI reads video and audio"), and the team
 // logo (the tab icon and the home-screen app icon; shared/src/team-icon.ts), and for the owner the ownership transfer
 // (TransferOwner.tsx). The OpenRouter key is sealed in the
 // browser (lib/seal.ts), asks for the password again, and is never shown again (only its last 4 characters).
 import { useEffect, useRef, useState } from 'react'
 import { ExternalLink, RotateCcw, Upload } from 'lucide-react'
 import { teamIconUrl, TEAM_ICON_TYPES } from '@mycel/shared'
-import { ANSWER_STEP_LIMIT_MAX, ANSWER_STEP_LIMIT_MIN, DEFAULT_ANSWER_STEP_LIMIT, DEFAULT_SPEECH_MODEL, TeamSettings, type Locale, type SpeechProvider } from '@mycel/shared/api'
+import { ANSWER_STEP_LIMIT_MAX, ANSWER_STEP_LIMIT_MIN, DEFAULT_ANSWER_STEP_LIMIT, DEFAULT_SPEECH_MODEL, mediaTranscriptsDefault, TeamSettings, type Locale, type SpeechProvider } from '@mycel/shared/api'
 import { api, API, errorText } from '../../lib/api'
 import { canSeal, sealSecret } from '../../lib/seal'
 import { LOCALES, useLocale, useT } from '../../i18n'
@@ -102,7 +103,7 @@ export default function TeamSettingsPage() {
                 <AiVisionSwitch value={f.aiVision} onChange={(v) => setF({ ...f, aiVision: v })} />
                 <AiSubagentsSwitch value={f.aiSubagents} onChange={(v) => setF({ ...f, aiSubagents: v })} />
                 <AnswerStepLimitField value={f.answerStepLimit} onChange={(v) => setF((x) => (x ? { ...x, answerStepLimit: v } : x))} />
-                <SpeechSection provider={f.speechProvider} model={f.speechModel} saved={state.data!} onChange={(p) => setF({ ...f, ...p })}
+                <SpeechSection provider={f.speechProvider} model={f.speechModel} transcripts={f.aiMediaTranscripts} saved={state.data!} onChange={(p) => setF({ ...f, ...p })}
                   onSaved={(r) => state.setData(r)} />
               </div>
               <Button variant="primary" className="mt-4" busy={busy} disabled={!windowOk || !f.teamName.trim()} onClick={save}>
@@ -261,7 +262,7 @@ export function PersonalIntegrationsSwitch({ value, onChange }: { value: boolean
   )
 }
 
-/** "Send images and PDF pages to the AI" (default on; server/src/files/vision.ts). Off: AI reads send no pixels. */
+/** "Send images, PDF pages and video frames to the AI" (default on; server/src/files/vision.ts). Off: AI reads send no pixels. */
 export function AiVisionSwitch({ value, onChange }: { value: boolean; onChange: (v: boolean) => void }) {
   const t = useT()
   return (
@@ -311,10 +312,12 @@ export function AnswerStepLimitField({ value, onChange }: { value: number; onCha
 
 const PROVIDERS: SpeechProvider[] = ['off', 'openrouter', 'local']
 
-/** Voice input: the provider (saved with the form), the OpenRouter model and the OpenRouter key (saved on its own). */
-export function SpeechSection({ provider, model, saved, onChange, onSaved }: {
-  provider: SpeechProvider; model: string; saved: TeamSettings
-  onChange: (p: { speechProvider?: SpeechProvider; speechModel?: string }) => void
+/** Voice input: the provider (saved with the form), the OpenRouter model and the OpenRouter key (saved on its own), and
+ * "Turn video sound into text" for the AI's video and audio reads (aiMediaTranscripts; null = this provider's default,
+ * and a new provider starts from its default again). */
+export function SpeechSection({ provider, model, transcripts, saved, onChange, onSaved }: {
+  provider: SpeechProvider; model: string; transcripts: boolean | null; saved: TeamSettings
+  onChange: (p: { speechProvider?: SpeechProvider; speechModel?: string; aiMediaTranscripts?: boolean | null }) => void
   /** the provider / model were saved together with the key */
   onSaved: (s: TeamSettings) => void
 }) {
@@ -355,11 +358,17 @@ export function SpeechSection({ provider, model, saved, onChange, onSaved }: {
         <p className="mt-0.5 text-xs text-muted">{t('speech.desc')}</p>
       </div>
       <Field label={t('speech.provider')}>
-        <select className={inputCls} value={provider} onChange={(e) => onChange({ speechProvider: e.target.value as SpeechProvider })} data-testid="team-speech-provider">
+        <select className={inputCls} value={provider} onChange={(e) => onChange({ speechProvider: e.target.value as SpeechProvider, aiMediaTranscripts: null })} data-testid="team-speech-provider">
           {PROVIDERS.map((p) => <option key={p} value={p}>{t(`speech.${p}`)}</option>)}
         </select>
       </Field>
       {provider === 'local' && <p className="text-xs text-muted">{t('speech.localHint')}</p>}
+      {provider !== 'off' && (
+        <div data-testid="team-media-transcripts" data-on={(transcripts ?? mediaTranscriptsDefault(provider)) ? 'true' : 'false'}>
+          <Switch checked={transcripts ?? mediaTranscriptsDefault(provider)} onChange={(v) => onChange({ aiMediaTranscripts: v })} label={t('speech.mediaTranscripts')} />
+          <p className={`mt-1 text-xs ${provider === 'openrouter' ? 'text-warn' : 'text-faint'}`}>{t(provider === 'openrouter' ? 'speech.mediaTranscriptsOpenRouter' : 'speech.mediaTranscriptsLocal')}</p>
+        </div>
+      )}
       {provider === 'openrouter' && (
         <div className="space-y-3">
           <p className="text-xs text-warn" data-testid="team-speech-privacy">{t('speech.privacy')}</p>

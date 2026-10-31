@@ -9,7 +9,8 @@ import path from 'node:path'
 import { DEFAULT_LOCALE, type Locale } from '@mycel/shared/api'
 import type { AppContext } from '../context'
 import { JobServiceImpl } from '../jobs/service'
-import { transcribe, transcribeConfig, type TranscribeConfig } from '../jobs/transcribe'
+import { transcribe, type TranscribeConfig } from '../jobs/transcribe'
+import { cleanMediaWork } from '../files/media'
 import { SPEECH_NO_KEY, SPEECH_OFF, transcribeOpenRouter } from '../jobs/openrouter-stt'
 import { getTeamSettings } from '../admin/settings'
 import { credentialsOf } from '../credentials/store'
@@ -51,7 +52,9 @@ export function componentC(ctx: AppContext): ComponentC {
   const attachments = new Attachments(ctx, files, teamRefs)
   const uploads = new UploadSessions(ctx, files, attachments)
   const jobs = new JobServiceImpl(ctx)
-  const stt = transcribeConfig(ctx.config.dataDir)
+  // one speech configuration for voice input jobs and the AI's video / audio reads (files/media.ts)
+  const stt = ctx.files.speech
+  ctx.files.speechKey = () => readSpeechKey(credentialsOf(ctx))
   const locale = (userId: string): Locale => ((ctx.db.query('SELECT locale FROM users WHERE id = ?').get(userId) as { locale: Locale } | null)?.locale ?? DEFAULT_LOCALE)
   const c: ComponentC = {
     // the renderer of the HWP Preview plugin while it is usable, otherwise every page is refused ('disabled')
@@ -93,6 +96,8 @@ export function componentC(ctx: AppContext): ComponentC {
       run('jobs', () => jobs.sweep())
       run('thumbs', () => attachments.sweep())
       run('teamRefs', () => teamRefs.sweep())
+      // transcripts of video and audio reads: 30 days, 200 MB (files/media.ts TranscriptCache)
+      run('mediacache', () => ctx.files.transcripts.prune())
       // converter work folders and spooled small uploads left behind by a crash
       run('scratch', () => {
         let n = 0
@@ -149,6 +154,9 @@ export function startComponentC(ctx: AppContext): ComponentC {
   ctx.services.jobs = c.jobs
   const failed = c.jobs.recover()
   if (failed) ctx.log.info('jobs interrupted by the restart marked failed', { count: failed })
+  // no video or audio read survives a restart: their copies (up to 1 GB each) go now, not with the 24 h scratch sweep
+  const left = cleanMediaWork(path.join(ctx.config.dataDir, 'work'))
+  if (left) ctx.log.info('work folders of interrupted video reads removed', { count: left })
   const first = setTimeout(() => c.sweep(), 30_000)
   const timer = setInterval(() => c.sweep(), SWEEP_EVERY_MS)
   first.unref?.(); timer.unref?.()

@@ -56,6 +56,7 @@ Run `bash "$OFFICE_DIR/office-uninstall.sh"` from the extracted kit to remove th
 - 502 at public address: confirm the tunnel points to the configured loopback app port.
 - CA warning: verify the fingerprint and correct hostname/IP; do not bypass browser warnings.
 - Missing AI: distinguish missing Claude executable, missing login, version mismatch and provider/network failure. Do not paste credentials into logs or Issues.
+- Video and audio files: the AI cannot read them on an office Mac yet and says so (Linux servers read them as frames and a transcript).
 
 Use desktop/mobile browsers or the published `Trina-AX-Setup-<version>-win-x64.exe`. A Mac desktop DMG is not published; the office ZIP is the server. [Troubleshooting](TROUBLESHOOTING.md) · [FAQ](FAQ.md) · [Configuration and legacy paths](CONFIGURATION.md).
 

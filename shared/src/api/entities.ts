@@ -470,6 +470,13 @@ export type AuditEntry = z.infer<typeof AuditEntry>
 export const SpeechProvider = z.enum(['off', 'openrouter', 'local'])
 export type SpeechProvider = z.infer<typeof SpeechProvider>
 export const DEFAULT_SPEECH_MODEL = 'openai/whisper-large-v3-turbo'
+/** "Turn video sound into text" (TeamSettings.aiMediaTranscripts) when the admin has not chosen: on when the speech
+ * provider is this server (the sound stays here), off for OpenRouter (team files' sound would go to a third party).
+ * The one place this default lives (docs/DECISIONS.md "AI reads video and audio"). */
+export const mediaTranscriptsDefault = (provider: SpeechProvider): boolean => provider === 'local'
+/** whether AI reads of video and audio files transcribe their sound: never with voice input off */
+export const mediaTranscriptsOn = (s: { speechProvider: SpeechProvider; aiMediaTranscripts: boolean | null }): boolean =>
+  s.speechProvider !== 'off' && (s.aiMediaTranscripts ?? mediaTranscriptsDefault(s.speechProvider))
 /** an OpenRouter model id: "<vendor>/<model>" */
 export const SpeechModel = z.string().max(128).regex(/^[a-z0-9][a-z0-9._-]*\/[A-Za-z0-9][A-Za-z0-9._:-]*$/)
 
@@ -504,9 +511,9 @@ export const TeamSettings = z.object({
   /** members may add their own external-service connections (Settings > External services; default on). Off: none can
    * be added and the ones there are left out of chats (team connections are not affected). */
   personalIntegrations: z.boolean(),
-  /** "Send images and PDF pages to the AI" (default on): an AI read of a photo, screenshot or scanned PDF page gives
-   * the model the image (like Claude Code). Off: no pixels go to the provider; a Mac server reads the text with Apple
-   * Vision instead, a Linux server says the image is not shown. */
+  /** "Send images, PDF pages and video frames to the AI" (default on): an AI read of a photo, screenshot, scanned PDF
+   * page or video gives the model the image (like Claude Code). Off: no pixels go to the provider; a Mac server reads
+   * the text with Apple Vision instead, a Linux server says the image is not shown. */
   aiVision: z.boolean(),
   /** "Let the AI split work into sub-tasks" (default on): Claude Code's Agent tool, like Claude Code. Sub-agents have the
    * same tools as the AI (minus asking the person, memories, the chat title, schedules, video and the browser) and the
@@ -519,5 +526,9 @@ export const TeamSettings = z.object({
   speechProvider: SpeechProvider,
   /** the OpenRouter speech-to-text model */
   speechModel: SpeechModel,
+  /** "Turn video sound into text": AI reads of video and audio files transcribe the sound with the speech provider.
+   * null = not chosen: mediaTranscriptsDefault (on for this server, off for OpenRouter). A change of speechProvider
+   * puts it back to null, so a choice made for one provider never sends sound to another. */
+  aiMediaTranscripts: z.boolean().nullable(),
 })
 export type TeamSettings = z.infer<typeof TeamSettings>

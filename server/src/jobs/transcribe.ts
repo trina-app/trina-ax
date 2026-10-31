@@ -106,13 +106,21 @@ async function sharedModel(cfg: TranscribeConfig, spec: ModelSpec): Promise<stri
 }
 
 export async function ensureModel(cfg: TranscribeConfig, h?: Pick<JobHandle, 'progress' | 'signal'>, locale: Locale = DEFAULT_LOCALE): Promise<string> {
+  const ready = await modelReady(cfg)
+  if (ready) return ready
+  if (!downloading) downloading = download(cfg, path.join(cfg.modelDir, modelSpec(cfg).file), h, locale).finally(() => { downloading = null })
+  return downloading
+}
+
+/** The model file when it is on this server already (the shared folder or <data>/models/whisper), else null: never
+ * downloads (an AI read of a video must not start a 488 MB download; voice input does that on first use). */
+export async function modelReady(cfg: TranscribeConfig): Promise<string | null> {
   const spec = modelSpec(cfg)
   const shared = await sharedModel(cfg, spec)
   if (shared) return shared
   const file = path.join(cfg.modelDir, spec.file)
   try { if (fs.statSync(file).size === spec.size) return file } catch { /* not there yet */ }
-  if (!downloading) downloading = download(cfg, file, h, locale).finally(() => { downloading = null })
-  return downloading
+  return null
 }
 
 async function download(cfg: TranscribeConfig, file: string, h: Pick<JobHandle, 'progress' | 'signal'> | undefined, locale: Locale): Promise<string> {
@@ -176,26 +184,34 @@ export async function transcribe(cfg: TranscribeConfig, input: string, name: str
     if (cfg.ffmpegBin) audio = await convertToWav(cfg.ffmpegBin, work, audio, h, loc, 0.5)
     const label = LABELS.run[loc]
     h.progress(0.55, label)
-    const lang = o.language && /^[a-z]{2}$/.test(o.language) ? o.language : 'auto'
-    const r = await runIsolated({
-      cmd: cfg.whisperBin, workDir: work, readPaths: [model], gpu: true, timeoutMs: 60 * 60_000, signal: h.signal,
-      args: ['-m', model, '-f', audio, '-l', lang, '-oj', '-of', 'out', '-np', '-pp', '-t', String(cfg.threads)],
-      onStderr: (s) => {
-        const m = /progress\s*=\s*(\d+)%/g
-        let last: RegExpExecArray | null = null, k: RegExpExecArray | null
-        while ((k = m.exec(s))) last = k
-        if (last) h.progress(0.55 + 0.45 * (Number(last[1]) / 100), label)
-      },
-    })
-    if (h.signal.aborted) throw new Error('aborted')
-    // read without following a link (tools/isolate.ts readOutput): whisper could leave one in place of out.json
-    const out = r.code === 0 ? readOutput(work, 'out.json', WHISPER_JSON_MAX) : null
-    if (!out?.ok) {
-      const why = r.killed ?? (r.code !== 0 ? 'exit ' + r.code : 'no output')
-      throw fail('받아쓰기에 실패했습니다.', `Transcription failed (${why}).`, 'Transkripsi gagal.', `文字起こしに失敗しました（${why}）。`, `La transcripción falló (${why}).`, 'internal')
-    }
-    return parseWhisperJson(out.bytes.toString('utf8'))
+    return await whisperFile(cfg, model, work, audio, { language: o.language, signal: h.signal, timeoutMs: 60 * 60_000, onProgress: (f) => h.progress(0.55 + 0.45 * f, label) })
   } finally { fs.rmSync(work, { recursive: true, force: true }) }
+}
+
+/** whisper.cpp (isolated) on `audio`, a file in the work folder `work` that the server made; `model` from ensureModel /
+ * modelReady. Throws a JobFailure (localized) when it fails; 'aborted' when `signal` fired. */
+export async function whisperFile(cfg: TranscribeConfig, model: string, work: string, audio: string,
+  o: { language?: string; signal?: AbortSignal; timeoutMs: number; onProgress?: (fraction: number) => void }): Promise<TranscribeResult> {
+  if (!cfg.whisperBin) throw MISSING_WHISPER()
+  const lang = o.language && /^[a-z]{2}$/.test(o.language) ? o.language : 'auto'
+  const r = await runIsolated({
+    cmd: cfg.whisperBin, workDir: work, readPaths: [model], gpu: true, timeoutMs: o.timeoutMs, signal: o.signal,
+    args: ['-m', model, '-f', audio, '-l', lang, '-oj', '-of', 'out', '-np', '-pp', '-t', String(cfg.threads)],
+    onStderr: (s) => {
+      const m = /progress\s*=\s*(\d+)%/g
+      let last: RegExpExecArray | null = null, k: RegExpExecArray | null
+      while ((k = m.exec(s))) last = k
+      if (last) o.onProgress?.(Number(last[1]) / 100)
+    },
+  })
+  if (o.signal?.aborted) throw new Error('aborted')
+  // read without following a link (tools/isolate.ts readOutput): whisper could leave one in place of out.json
+  const out = r.code === 0 ? readOutput(work, 'out.json', WHISPER_JSON_MAX) : null
+  if (!out?.ok) {
+    const why = r.killed ?? (r.code !== 0 ? 'exit ' + r.code : 'no output')
+    throw fail('받아쓰기에 실패했습니다.', `Transcription failed (${why}).`, 'Transkripsi gagal.', `文字起こしに失敗しました（${why}）。`, `La transcripción falló (${why}).`, 'internal')
+  }
+  return parseWhisperJson(out.bytes.toString('utf8'))
 }
 
 /** ffmpeg (isolated) in `work`: `audio` -> work/audio.wav, 16 kHz mono 16-bit PCM. Returns "audio.wav". */

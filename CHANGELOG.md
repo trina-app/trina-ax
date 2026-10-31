@@ -3,6 +3,15 @@
 Published artifacts and authoritative release notes are in [GitHub Releases](https://github.com/trina-app/trina-ax/releases).
 This file summarizes user-visible changes; it is not a list of every commit.
 
+## Unreleased
+
+**Upgrade note:** no database migrations. One new team setting, "Turn video sound into text" (Admin > Team settings > Voice input): it starts at its default, on when voice input runs on this server and off when it uses OpenRouter. Linux servers use the distribution's `ffmpeg` package (the installer already installs it, and now warns when ffmpeg or ffprobe is missing). Keep the server's security updates on: ffmpeg's decoders read files people upload.
+
+- Chat: the AI reads video and audio files, like a Claude Code user with ffmpeg and whisper. Reading a video (mp4, mov, m4v, webm, mkv, avi, 3gp) gives evenly spaced frames as images with their times and a timed transcript of the sound between them; an audio file (mp3, m4a, wav, aac, flac, ogg, opus, amr, aiff, caf, wma) gives the transcript. The AI can look at a part (`time`, for example "1:00-2:30"), ask for fewer, bigger frames for small text on a screen, or skip the sound. A read covers up to 10 minutes of sound next to frames and 30 minutes without them, and says what to read next (a 1-hour meeting takes two reads). Files up to 1 GB. The step reads "Watch video · …" / "Listen to audio · …". Linux servers only: an office Mac says it cannot read video yet.
+- Privacy: the sound of a video or audio file is turned into text by the team's speech provider only while "Turn video sound into text" is on. With OpenRouter, turning it on sends the sound of team files (meeting recordings, calls) to OpenRouter and its provider, which the setting says; a new provider starts from its own default again. Confidential chats never send sound out (a transcript the server already made may be used there). This server's speech model is never downloaded by a read. Transcripts are kept by content on the server for up to 30 days (200 MB, not in backups), so reading the same file again costs nothing, and each new transcript is an activity record without its words. In all five languages.
+- Admin > Team settings: "Send images and PDF pages to the AI" is now "Send images, PDF pages and video frames to the AI" (the same setting); video frames follow it, the API engine and the per-answer image limit like images.
+- Security: video decoding runs in the converter isolation with allow-lists of formats and decoders (by decoder name, checked on Debian 12's ffmpeg 5.1 and Debian 13's 7.1), one thread, time and memory limits; frames come on ffmpeg's output and are drawn again by the image normalizer. A playlist or concat file disguised as a video never opens another file. Only a video's length, size, codecs and frame rate reach the AI, never its title, comment or subtitle text, and the transcript is marked as file content, not instructions.
+
 ## 0.2.16 — 2026-11-01
 
 [Published release and notes](https://github.com/trina-app/trina-ax/releases/tag/v0.2.16).

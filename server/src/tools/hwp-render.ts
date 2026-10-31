@@ -8,7 +8,7 @@ import type { ToolRegistry } from './registry'
 
 /** Offered only while the HWP Preview plugin is usable for the company (installed, on, runnable
  * here) and the admin allowed page images to go to the AI provider; otherwise engines never see it.
- * The page image follows the team's "Send images and PDF pages to the AI" switch, the engine (the API engine and a
+ * The page image follows the team's "Send images, PDF pages and video frames to the AI" switch, the engine (the API engine and a
  * connection without a chat turn take text only) and the per-turn image budget, like a read (FileService.toolImage):
  * otherwise the AI gets the page facts and a note. */
 export function registerHwpRender(ctx: AppContext, reg: ToolRegistry) {

@@ -109,7 +109,7 @@ describe('HWP availability follows the plugin state', () => {
     await coreStillWorks()
   })
 
-  test('the page image follows "Send images and PDF pages to the AI", the engine and the per-turn image budget, like a read', async () => {
+  test('the page image follows "Send images, PDF pages and video frames to the AI", the engine and the per-turn image budget, like a read', async () => {
     const call = async (t: ReturnType<CApp['toolCtx']>) => (await makeHandler(app.ctx.files, app.ctx.db, t)({ jsonrpc: '2.0', id: 4, method: 'tools/call', params: { name: 'hwp_render', arguments: { source: SRC, page: 1, format: 'png' } } })).result
     const imgs = (r: { content: { type: string }[] }) => r.content.filter((c) => c.type === 'image')
     const text = (r: { content: { type: string; text?: string }[] }) => r.content.map((c) => c.text ?? '').join('\n')

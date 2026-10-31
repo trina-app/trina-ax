@@ -4,6 +4,7 @@
 // (docs/DECISIONS.md "언어"). A label is always "<words> + what the AI touched" (a path, a query, a remembered text),
 // and only the words are translated.
 import type { Locale } from './api/common'
+import { mediaKind, type MediaKind } from './media'
 
 type T = Record<Locale, string>
 const t = (ko: string, en: string, id: string, ja: string, es: string): T => ({ ko, en, id, ja, es })
@@ -57,6 +58,19 @@ export const BROWSER_STEP_VERB: Record<string, T> = {
   tabs_select: t('탭 바꾸기', 'Switch tab', 'Ganti tab', "タブを切り替え", "Cambiar pestaña"),
   tabs_close: t('탭 닫기', 'Close tab', 'Tutup tab', "タブを閉じる", "Cerrar pestaña"),
 }
+/** A read of a video or an audio file has its own verb ("Watch video · promo.mp4"), chosen by the file's extension. */
+export const READ_MEDIA_VERB: Record<MediaKind, T> = {
+  video: t('영상 보기', 'Watch video', 'Tonton video', "動画を見る", "Ver video"),
+  audio: t('오디오 듣기', 'Listen to audio', 'Dengarkan audio', "音声を聞く", "Escuchar audio"),
+}
+
+/** Whether a stored read step was a video or an audio read (by its verb, in any language): the web app's icon. */
+export function mediaStepKind(step: { tool?: string; label: string }): MediaKind | null {
+  if (step.tool !== 'read') return null
+  for (const k of ['video', 'audio'] as const) for (const v of Object.values(READ_MEDIA_VERB[k])) if (step.label === v || step.label.startsWith(v + ' ')) return k
+  return null
+}
+
 export const BROWSER_STEP_FALLBACK: T = t('브라우저', 'Browser', 'Browser', "ブラウザー", "Navegador")
 
 /** Whole-label templates ({x} = what the AI touched, never translated). */
@@ -116,7 +130,11 @@ export function stepLabel(tool: string, input: unknown, locale: Locale, browserT
     case 'list': return `${verb} · ${clip(a.path || '/', 80)}`
     case 'glob': return `${verb} "${clip(a.pattern, 60)}"${a.path ? ` · ${clip(a.path, 50)}` : ''}`
     case 'grep': return `${verb} "${clip(a.pattern, 60)}"${a.path ? ` · ${clip(a.path, 50)}` : ''}`
-    case 'read': case 'write': case 'edit': return `${verb} · ${clip(a.file_path, 90)}`
+    case 'read': {
+      const k = mediaKind(String(a.file_path ?? ''))
+      return `${k ? READ_MEDIA_VERB[k][locale] : verb} · ${clip(a.file_path, 90)}`
+    }
+    case 'write': case 'edit': return `${verb} · ${clip(a.file_path, 90)}`
     case 'edit_files': {
       // the first file and how many more ("+29": a number, the same in every language)
       const files = Array.isArray(a.file_paths) ? [...new Set(a.file_paths)] : []
@@ -204,6 +222,7 @@ export function localizeStep(step: { kind: string; tool?: string; label: string;
   else if (tool === 'remember') label = retemplate(['remembered', 'notRemembered'], step.label, locale)
   else if (tool === 'forget') label = retemplate(['forgot'], step.label, locale)
   else if (BROWSER_STEP_VERB[tool] || step.kind === 'browser' || browserTools?.has(tool)) label = reverb(BROWSER_STEP_VERB[tool] ?? BROWSER_STEP_FALLBACK, step.label, locale)
+  else if (tool === 'read') label = reverb(READ_MEDIA_VERB.video, step.label, locale) ?? reverb(READ_MEDIA_VERB.audio, step.label, locale) ?? reverb(FILE_STEP_VERB.read!, step.label, locale)
   else if (FILE_STEP_VERB[tool]) label = reverb(FILE_STEP_VERB[tool]!, step.label, locale)
   const detail = step.detail !== undefined ? (retemplate(['notAnswered', 'webSearchRefused'], step.detail, locale) ?? step.detail) : undefined
   return { label: label ?? step.label, ...(detail !== undefined ? { detail } : {}) }

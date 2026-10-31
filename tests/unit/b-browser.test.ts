@@ -122,7 +122,7 @@ describe('browser tools', () => {
     } finally { stop() }
   })
 
-  test('screenshots follow "Send images and PDF pages to the AI" and count toward the turn\'s image budget, like a read', async () => {
+  test('screenshots follow "Send images, PDF pages and video frames to the AI" and count toward the turn\'s image budget, like a read', async () => {
     const stop = serve(desk, (c) => ({ callId: c.callId, ok: true, content: [{ type: 'text', text: 'shot' }, { type: 'image', mime: 'image/png', data: PNG, shareToChat: c.args.save_to_disk === true }] }))
     const ask = async (...ds: unknown[]) => {
       const chat = await h.api('alice').call(API.createChat, { body: {} })

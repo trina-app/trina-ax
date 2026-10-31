@@ -7,9 +7,9 @@
 // A sub-task (Claude Code's Agent tool, docs/DECISIONS.md "Sub-agents") is one row like Claude Code's "Agent(...)": its
 // sub-agent's steps (Step.parentId) open under it, and while it works its latest step shows beneath it.
 import clsx from 'clsx'
-import { Brain, Check, ChevronDown, ChevronRight, CircleAlert, CirclePause, CircleStop, FileSearch, Globe, Info, Loader2, MessageCircleQuestion, Monitor, Shapes, Workflow, Wrench } from 'lucide-react'
+import { AudioLines, Brain, Check, ChevronDown, ChevronRight, CircleAlert, CirclePause, CircleStop, FileSearch, Film, Globe, Info, Loader2, MessageCircleQuestion, Monitor, Shapes, Workflow, Wrench } from 'lucide-react'
 import { useState } from 'react'
-import { localizeStep } from '@mycel/shared'
+import { localizeStep, mediaStepKind } from '@mycel/shared'
 import type { Step } from '@mycel/shared/api'
 import { useLocale, useT } from '../../i18n'
 import { safeHref } from '../../lib/safeLinks'
@@ -37,7 +37,9 @@ function StepRow({ step, live, kids = [] }: { step: Step; live: boolean; kids?: 
   const words = localizeStep(step, useLocale())
   const [open, setOpen] = useState(false)
   const subtask = step.tool === 'agent'
-  const Icon = subtask ? Workflow : step.kind === 'tool' && step.tool && FILE_TOOLS.has(step.tool) ? FileSearch : ICON[step.kind] ?? Wrench
+  // a read of a video or an audio file ("Watch video · …") shows a film / sound icon
+  const media = step.kind === 'tool' ? mediaStepKind(step) : null
+  const Icon = subtask ? Workflow : media === 'video' ? Film : media === 'audio' ? AudioLines : step.kind === 'tool' && step.tool && FILE_TOOLS.has(step.tool) ? FileSearch : ICON[step.kind] ?? Wrench
   const hidden = step.subtask?.hidden ?? 0
   const expandable = !!(step.detail || step.sources?.length || step.images?.length || (subtask && (kids.length || hidden)))
   const running = step.status === 'running' && live

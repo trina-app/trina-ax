@@ -5,11 +5,11 @@ import type { Database } from 'bun:sqlite'
 
 export const VISION_TEXT = {
   off: {
-    ko: '이 팀은 AI에게 이미지를 보내지 않도록 설정되어 있어 이미지를 보여 줄 수 없습니다. 관리자가 팀 설정에서 "이미지와 PDF 페이지를 AI에게 보내기"를 켤 수 있습니다.',
-    en: 'This team does not send images to the AI, so the image was not shown. An admin can turn on "Send images and PDF pages to the AI" in Team settings.',
-    id: 'Tim ini tidak mengirim gambar ke AI, jadi gambar tidak ditampilkan. Admin dapat mengaktifkan "Kirim gambar dan halaman PDF ke AI" di Pengaturan tim.',
-    ja: 'このチームは画像を AI に送信しない設定のため、画像は表示されませんでした。管理者は「チーム設定」で「画像と PDF のページを AI に送信」をオンにできます。',
-    es: 'Este equipo no envía imágenes a la IA, por lo que la imagen no se mostró. Un administrador puede activar "Enviar imágenes y páginas PDF a la IA" en la configuración del equipo.',
+    ko: '이 팀은 AI에게 이미지를 보내지 않도록 설정되어 있어 이미지를 보여 줄 수 없습니다. 관리자가 팀 설정에서 "이미지·PDF 페이지·영상 장면을 AI에게 보내기"를 켤 수 있습니다.',
+    en: 'This team does not send images to the AI, so the image was not shown. An admin can turn on "Send images, PDF pages and video frames to the AI" in Team settings.',
+    id: 'Tim ini tidak mengirim gambar ke AI, jadi gambar tidak ditampilkan. Admin dapat mengaktifkan "Kirim gambar, halaman PDF, dan cuplikan video ke AI" di Pengaturan tim.',
+    ja: 'このチームは画像を AI に送信しない設定のため、画像は表示されませんでした。管理者は「チーム設定」で「画像・PDF のページ・動画の場面を AI に送信」をオンにできます。',
+    es: 'Este equipo no envía imágenes a la IA, por lo que la imagen no se mostró. Un administrador puede activar "Enviar imágenes, páginas PDF y fotogramas de video a la IA" en la configuración del equipo.',
   },
   engine: {
     ko: '이 대화의 AI 엔진(API 엔진)은 글자만 읽을 수 있어 이미지를 보여 줄 수 없습니다. 이미지를 보려면 Claude나 Codex를 사용하세요.',

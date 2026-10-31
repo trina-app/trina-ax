@@ -255,7 +255,7 @@ test('settings: the team time zone', async ({ page }) => {
   await expect(page.getByTestId('team-time-zone')).toHaveValue('Asia/Jakarta')
 })
 
-// "Send images and PDF pages to the AI" (server/src/files/vision.ts): on by default; the admin's switch saves only it
+// "Send images, PDF pages and video frames to the AI" (server/src/files/vision.ts): on by default; the admin's switch saves only it
 test('settings: the team turns sending images and PDF pages to the AI off', async ({ page }) => {
   await reset(page)
   const errors = watchConsole(page)
@@ -263,7 +263,7 @@ test('settings: the team turns sending images and PDF pages to the AI off', asyn
   await page.goto('/admin/settings')
   const sw = page.getByTestId('team-ai-vision')
   await expect(sw).toHaveAttribute('data-on', 'true')
-  await expect(sw).toContainText('이미지와 PDF 페이지를 AI에게 보내기')
+  await expect(sw).toContainText('이미지·PDF 페이지·영상 장면을 AI에게 보내기')
   const saved = page.waitForRequest((r) => r.url().endsWith('/api/admin/settings') && r.method() === 'PATCH')
   await sw.getByRole('checkbox').uncheck({ force: true })
   await page.getByRole('button', { name: '저장', exact: true }).click()
@@ -271,6 +271,37 @@ test('settings: the team turns sending images and PDF pages to the AI off', asyn
   await expect(page.getByText('저장했어요.')).toBeVisible()
   await page.reload()
   await expect(page.getByTestId('team-ai-vision')).toHaveAttribute('data-on', 'false')
+  expect(realErrors(errors)).toEqual([])
+})
+
+// "Turn video sound into text" (TeamSettings.aiMediaTranscripts, docs/DECISIONS.md "AI reads video and audio"): in the
+// voice input section; its default follows the speech provider (on for this server, off for OpenRouter) and a new
+// provider starts from its own default again
+test('settings: "Turn video sound into text" follows the speech provider until the admin chooses', async ({ page }) => {
+  await reset(page)
+  const errors = watchConsole(page)
+  await signIn(page)
+  await page.goto('/admin/settings')
+  const sw = page.getByTestId('team-media-transcripts')
+  // the mock team transcribes on this server: on by default, and the sound stays here
+  await expect(sw).toHaveAttribute('data-on', 'true')
+  await expect(sw).toContainText('영상 소리를 글로 바꾸기')
+  await expect(sw).toContainText('서버 밖으로 나가지 않아요')
+  const saved = page.waitForRequest((r) => r.url().endsWith('/api/admin/settings') && r.method() === 'PATCH')
+  await sw.getByText('영상 소리를 글로 바꾸기').click()
+  await expect(sw).toHaveAttribute('data-on', 'false')
+  await page.getByRole('button', { name: '저장', exact: true }).click()
+  expect((await saved).postDataJSON()).toEqual({ aiMediaTranscripts: false })
+  await expect(page.getByText('저장했어요.')).toBeVisible()
+  await page.reload()
+  await expect(page.getByTestId('team-media-transcripts')).toHaveAttribute('data-on', 'false')
+  // OpenRouter: back to its own default (off), with the warning that the sound leaves the server
+  await page.getByTestId('team-speech-provider').selectOption('openrouter')
+  await expect(sw).toHaveAttribute('data-on', 'false')
+  await expect(sw).toContainText('OpenRouter와 그 제공사로')
+  // voice input off: no switch
+  await page.getByTestId('team-speech-provider').selectOption('off')
+  await expect(sw).toHaveCount(0)
   expect(realErrors(errors)).toEqual([])
 })
 

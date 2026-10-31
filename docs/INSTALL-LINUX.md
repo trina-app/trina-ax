@@ -94,7 +94,8 @@ cd dist/linux && sudo ./install-linux.sh install --from . --allow-unsigned --eng
   (`electron-winstaller` exited with 127)로 멈추면, bun이 `node` 대신 쓰는 `/tmp/bun-node-*/node`가 지워진 bun을 가리키는
   것이다(이전 빌드의 bun을 지운 경우, 2026-10-30 QA). `--ignore-scripts`로 다시 하거나 그 폴더를 지운다.
 - 직접 만든 키트는 서명이 없으므로 `--allow-unsigned`가 필요하고, 진단이 그렇다고 알린다.
-- Linux 서버는 글자 인식(OCR)을 하지 않는다. AI가 사진·스캔 PDF 페이지를 읽으면 이미지를 직접 보고(관리자 > 팀 설정 "이미지와 PDF 페이지를 AI에게 보내기", 기본 켜짐), 스캔 문서와 사진은 글자로 검색되지 않는다. Claude Code의 검색과 같다.
+- Linux 서버는 글자 인식(OCR)을 하지 않는다. AI가 사진·스캔 PDF 페이지를 읽으면 이미지를 직접 보고(관리자 > 팀 설정 "이미지·PDF 페이지·영상 장면을 AI에게 보내기", 기본 켜짐), 스캔 문서와 사진은 글자로 검색되지 않는다. Claude Code의 검색과 같다.
+- AI는 영상·오디오 파일을 배포판의 ffmpeg·ffprobe(`ffmpeg` 패키지 5.1 이상, 다른 패키지와 함께 apt로 설치, 키트에 넣지 않음)로 읽는다. 장면과, 팀 설정 › 음성 입력에서 허용하면 받아쓰기. 디코더가 사람들이 올린 파일을 읽으므로 Debian·Ubuntu 보안 업데이트를 켜 둔다(예: `unattended-upgrades` 패키지; ffmpeg 보안 수정이 이 길로 온다). ffmpeg가 없으면 AI가 이 서버에서는 영상을 읽을 수 없다고 말한다.
 
 소스 빌드 버전은 예시입니다. 소스의 버전에서 고유한 개발 버전을 정하세요. 공식 릴리스 설치·업데이트에는 서명 확인을 우회하지 마세요.
 

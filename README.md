@@ -120,11 +120,12 @@ Self-hosting is not offline: the context a request needs goes to the AI provider
 
 <br>
 
-- Selected context goes to the chosen AI provider, and configured integrations receive their requests. Each Codex web search sends the conversation so far to OpenAI's search service. The server asks `updates.trina.app` for its own public address every 30 minutes (`MYCEL_EXIT_ADDRESS_CHECK=off` turns that off). [Details](docs/security-and-permissions.md)
+- Selected context goes to the chosen AI provider, and configured integrations receive their requests. Each Codex web search sends the conversation so far to OpenAI's search service. The sound of video and audio files the AI reads goes to OpenRouter when the team chose OpenRouter for speech and allowed it. The server asks `updates.trina.app` for its own public address every 30 minutes (`MYCEL_EXIT_ADDRESS_CHECK=off` turns that off). [Details](docs/security-and-permissions.md)
 - Server operators can read stored files and chats, including Trina operators for hosting. App administrators do not get a browser for everyone's private conversations.
 - Removing folder access does not erase earlier answers. Wider-sharing confirmation is not universal data-loss prevention.
 - No security certification, perfect answers, guaranteed savings or automatic legal, financial or HR decisions. Review outputs and deployment boundaries.
 - The AI sees photos and scanned PDF pages as images (an admin can turn this off), but Linux servers run no OCR: scanned documents and photos are not text-searchable there.
+- On Linux servers the AI also reads video and audio files: evenly spaced frames go to the AI provider like images, and the sound is turned into text by the team's speech provider only when an admin allows it ("Turn video sound into text"). With OpenRouter as the provider, the sound of team files goes to OpenRouter and its provider; confidential chats never send it. Office Macs cannot read video yet.
 - HWP/HWPX text extraction is available. [Visual previews](resources/hwp/README.md) come as the optional HWP Preview plugin, which needs macOS or Linux with glibc 2.39 or newer, so Debian 12 does **not** support them.
 - In managed installations, eligible personal connections take priority, followed by connections assigned to a person, a group, then the whole team. Fresh Trina teams allow shared subscriptions by default; existing saved choices persist. Connection-level consent still applies. **This software setting does not grant permission under Anthropic's or OpenAI's terms.** The local demo disables AI; development and office local-login modes have different connection behavior. [Connection details](docs/FAQ.md)
 

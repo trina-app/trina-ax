@@ -33,6 +33,8 @@ export const DEFAULT_SETTINGS: TeamSettingsT = {
    * through OpenRouter") */
   speechProvider: 'off',
   speechModel: DEFAULT_SPEECH_MODEL,
+  /** not chosen: the default follows the speech provider (shared mediaTranscriptsDefault) */
+  aiMediaTranscripts: null,
 }
 
 const FIELDS = Object.keys(TeamSettings.shape) as (keyof TeamSettingsT)[]
@@ -65,6 +67,10 @@ export function getTeamSettings(db: Database): TeamSettingsT {
 
 export function updateTeamSettings(db: Database, patch: Partial<TeamSettingsT>): TeamSettingsT {
   tzCache.delete(db)
+  // "Turn video sound into text" was chosen for one speech provider: another provider starts from its own default again
+  // (the admin agreed to sound going to this server, not to OpenRouter)
+  if (patch.speechProvider !== undefined && patch.aiMediaTranscripts === undefined && patch.speechProvider !== getTeamSettings(db).speechProvider)
+    patch = { ...patch, aiMediaTranscripts: null }
   db.transaction(() => {
     for (const [k, v] of Object.entries(patch)) if (v !== undefined && (FIELDS as string[]).includes(k)) setSetting(db, k, v)
     if (patch.defaultLocale !== undefined) syncFollowingLocales(db)

@@ -27,7 +27,7 @@ export const SPEECH_NO_KEY = () => fail(
   '음성 입력에 쓸 OpenRouter 키가 없습니다. 관리자가 관리 › 팀 설정에서 키를 넣어야 합니다.',
   'There is no OpenRouter key for voice input. An admin must add it in Admin › Team settings.',
   'Belum ada kunci OpenRouter untuk input suara. Admin harus menambahkannya di Admin › Pengaturan tim.', "音声入力用のOpenRouterキーがありません。管理者が「管理 › チーム設定」で追加してください。", "No hay clave de OpenRouter para la entrada de voz. Un administrador debe añadirla en Administración › Configuración del equipo.")
-const TOO_LARGE = () => fail(
+export const TOO_LARGE = () => fail(
   '녹음이 너무 깁니다(최대 25 MB, 약 13분). 짧게 나눠서 다시 해 주세요.',
   'The recording is too long (max 25 MB, about 13 minutes). Split it into shorter parts and try again.',
   'Rekaman terlalu panjang (maks. 25 MB, sekitar 13 menit). Bagi menjadi bagian yang lebih pendek lalu coba lagi.', "録音が長すぎます（最大25 MB、約13分）。短く分割して再試行してください。", "La grabación es demasiado larga (máximo 25 MB, unos 13 minutos). Divídala en partes más cortas y vuelva a intentarlo.", 'payload_too_large')
@@ -105,36 +105,50 @@ export async function transcribeOpenRouter(cfg: TranscribeConfig, key: string, m
     } else { audio = readOutput(path.dirname(input), path.basename(input), OPENROUTER_MAX_BYTES); format = x }
     if (!audio.ok && audio.why === 'too_large') throw TOO_LARGE()
     if (!audio.ok) throw UNREADABLE()
-    const size = audio.bytes.length
-    // 16 kHz mono 16-bit PCM: 32 000 bytes a second after the 44-byte header
-    const wavSec = format === 'wav' && cfg.ffmpegBin ? Math.max(0, size - 44) / 32_000 : null
-    const lang = o.language && /^[a-z]{2}$/.test(o.language) ? o.language : undefined
-    const body = JSON.stringify({
-      model,
-      input_audio: { data: audio.bytes.toString('base64'), format },
-      ...(lang ? { language: lang } : {}),
-      response_format: 'verbose_json',
-      provider: { zdr: true, data_collection: 'deny' },
-    })
     h.progress(0.4, LABELS.run[loc])
-    let res: Response
-    try {
-      res = await fetch(cfg.openRouterUrl, {
-        method: 'POST', body, redirect: 'error',
-        headers: { authorization: `Bearer ${key}`, 'content-type': 'application/json', 'x-title': PRODUCT.displayName },
-        signal: AbortSignal.any([h.signal, AbortSignal.timeout(OPENROUTER_TIMEOUT_MS)]),
-      })
-    } catch (e) {
-      if (h.signal.aborted) throw e
-      throw PROVIDER_DOWN()
-    }
-    if (!res.ok) { await res.body?.cancel().catch(() => {}); throw openRouterFailure(res.status) }
-    let j: OrAnswer
-    try { j = await res.json() as OrAnswer } catch (e) {
-      if (h.signal.aborted) throw e
-      throw PROVIDER_DOWN()
-    }
+    const r = await sendToOpenRouter(cfg, key, model, audio.bytes, format, { language: o.language, signal: h.signal, wavSeconds: format === 'wav' && !!cfg.ffmpegBin })
     h.progress(1, LABELS.run[loc])
-    return parseOpenRouter(j ?? {}, { language: lang ?? null, durationSec: wavSec })
+    return r
   } finally { fs.rmSync(work, { recursive: true, force: true }) }
+}
+
+/**
+ * One request to OpenRouter's speech-to-text API: `audio` (at most OPENROUTER_MAX_BYTES) in `format`, zero data
+ * retention and no data collection requested, no redirects, OPENROUTER_TIMEOUT_MS (or `timeoutMs`, if shorter) plus
+ * `signal`. Failures are JobFailures that never hold the key. `wavSeconds`: the audio is 16 kHz mono 16-bit WAV made by
+ * the server, so its length is known from its size when the answer has none.
+ */
+export async function sendToOpenRouter(cfg: TranscribeConfig, key: string, model: string, audio: Uint8Array, format: string,
+  o: { language?: string; signal?: AbortSignal; timeoutMs?: number; wavSeconds?: boolean }): Promise<TranscribeResult> {
+  if (audio.byteLength > OPENROUTER_MAX_BYTES) throw TOO_LARGE()
+  // 16 kHz mono 16-bit PCM: 32 000 bytes a second after the 44-byte header
+  const wavSec = o.wavSeconds ? Math.max(0, audio.byteLength - 44) / 32_000 : null
+  const lang = o.language && /^[a-z]{2}$/.test(o.language) ? o.language : undefined
+  const body = JSON.stringify({
+    model,
+    input_audio: { data: Buffer.from(audio.buffer, audio.byteOffset, audio.byteLength).toString('base64'), format },
+    ...(lang ? { language: lang } : {}),
+    response_format: 'verbose_json',
+    provider: { zdr: true, data_collection: 'deny' },
+  })
+  const signals = [AbortSignal.timeout(Math.max(1, Math.min(OPENROUTER_TIMEOUT_MS, o.timeoutMs ?? OPENROUTER_TIMEOUT_MS)))]
+  if (o.signal) signals.push(o.signal)
+  let res: Response
+  try {
+    res = await fetch(cfg.openRouterUrl, {
+      method: 'POST', body, redirect: 'error',
+      headers: { authorization: `Bearer ${key}`, 'content-type': 'application/json', 'x-title': PRODUCT.displayName },
+      signal: AbortSignal.any(signals),
+    })
+  } catch (e) {
+    if (o.signal?.aborted) throw e
+    throw PROVIDER_DOWN()
+  }
+  if (!res.ok) { await res.body?.cancel().catch(() => {}); throw openRouterFailure(res.status) }
+  let j: OrAnswer
+  try { j = await res.json() as OrAnswer } catch (e) {
+    if (o.signal?.aborted) throw e
+    throw PROVIDER_DOWN()
+  }
+  return parseOpenRouter(j ?? {}, { language: lang ?? null, durationSec: wavSec })
 }

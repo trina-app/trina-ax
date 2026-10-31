@@ -71,7 +71,7 @@ const VISION_QUEUE_MAX = 32
 /** Why no pixels go to the model for this call; null: they do. */
 export type VisionBlock = 'off' | 'engine' | 'connection'
 
-/** The team's switch "Send images and PDF pages to the AI" (Team settings; default on). */
+/** The team's switch "Send images, PDF pages and video frames to the AI" (Team settings; default on). */
 export function visionOn(db: Database): boolean {
   return getTeamSettings(db).aiVision
 }

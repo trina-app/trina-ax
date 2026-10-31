@@ -99,6 +99,8 @@ describe('server and relay texts', () => {
 const KOREAN_ALLOWED: Record<string, { why: string; also?: RegExp }> = {
   'server/src/safe-ops/strings.ts': { why: 'safe image/PowerPoint workflow messages (ko next to en/id/ja/es)' },
   'server/src/files/vision-text.ts': { why: 'notes the AI gets instead of an image (ko next to en/id/ja/es)' },
+  'server/src/files/media-text.ts': { why: 'notes the AI gets about a video or audio read (ko next to en/id/ja/es)' },
+  'server/src/files/media.ts': { why: 'a whisper marker dropped from transcripts', also: /MUSIC\|음악/ },
   'server/src/notifications/text.ts': { why: 'generic push notification texts (ko next to en/id/ja/es)' },
   'desktop/src/common/i18n.ts': { why: 'the desktop dictionary (ko next to en/id/ja/es)', also: /^\s*'[\w.]+': '/ },
   'desktop/src/common/locales.ts': { why: 'the name 한국어 in the language picker', also: /label: '한국어'/ },
