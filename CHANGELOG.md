@@ -8,6 +8,7 @@ This file summarizes user-visible changes; it is not a list of every commit.
 - Codex web search steps: a step whose query Codex has not named yet reads "Searching the web…", and an open of a search result reads "Opening a search result" instead of "Web search: " with nothing after it. A search the team server refused to send (it named an address instead of one of its results) now shows as failed with the reason, not as a done (green) step; the address was never opened. In all five languages.
 - Chat: a step cut off by Stop or by the per-answer time limit now says "Stopped here" / "Paused here" in words next to its grey icon, not only to screen readers.
 - Admin > System > Diagnostics: "Public address of the server" says whether the server knows its public address (IPv4 / IPv6, or from the relay), does not know it yet, or has the check turned off (`MYCEL_EXIT_ADDRESS_CHECK=off`), and what "not known" means: every web address the AI opens asks a person and scheduled tasks open none. The address itself is never shown. Installed servers and office Macs.
+- Scheduled tasks: the card (when the AI creates a task, and "다시 확인") lists an address whose query is longer than 200 characters apart, with the query highlighted, and says runs never open it (such an address always needs a person, and nobody is there during a run). "Opens without asking" now counts only the addresses a run really opens.
 
 ## 0.2.12 — 2026-10-30
 

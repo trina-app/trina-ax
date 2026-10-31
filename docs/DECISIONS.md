@@ -3799,8 +3799,11 @@ refused. The founder left it to us; decision: keep the protection, make every in
   instruction"; the AI's result says so too. The addresses are still stored as the card showed them, so runs open them
   once the server knows its address. The review card's request id covers the task, not the wording, so a change of
   state between showing and answering does not void the answer. One address is said in the singular in English and
-  Spanish ("the address below"; before, "the 1 addresses"). Not done (follow-up): an address in the instruction with a
-  query over 200 characters always needs a person, so runs never open it, and the card does not single it out yet.
+  Spanish ("the address below"; before, "the 1 addresses"). An address in the instruction with a query over 200
+  characters always needs a person, so runs never open it: the card (create and "다시 확인") lists such addresses apart
+  ("Addresses runs never open (long query)", the query highlighted) with a line that says so, the promise line counts
+  only the others, and the AI's result says it too (feat/small-batch-1031). They are still stored with the task, as
+  before; the gate's rule does not change.
 - **Limits.** A server whose requests leave from more than one address (several uplinks, per-destination policy
   routing) learns the one its requests to the feed use, like the relay. A changed office address is refused from the
   next round on (≤ 30 minutes; the relay reconnects at once). The feed sees each server's address every 30 minutes (it

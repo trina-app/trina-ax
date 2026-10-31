@@ -4,9 +4,10 @@
 // schedule_create asks the person first on a server card (docs/DECISIONS.md "Outbound web channels"): a run happens
 // with nobody watching, its message is the AI's text, and that text used to make every address in it "typed by the
 // person" (web_fetch without a card, on every run). The card shows the title, the schedule, the whole instruction and
-// the addresses in it (long random-looking parts highlighted), and the "allow" team connections the run could send to
-// without asking; the person creates it, creates it without those sends, or declines. Only what the card showed is
-// carried into runs (schedules.allowed_urls, write_connections).
+// the addresses in it (long random-looking parts highlighted; an address with a query over 200 characters listed
+// apart, its query highlighted, as one runs never open: it always needs a person), and the "allow" team connections
+// the run could send to without asking; the person creates it, creates it without those sends, or declines. Only what
+// the card showed is carried into runs (schedules.allowed_urls, write_connections).
 import { z } from 'zod'
 import type { Locale } from '@mycel/shared/api'
 import type { AppContext } from '../context'
@@ -17,7 +18,7 @@ import { describeSchedule, needsReview, ScheduleInput, zonedParts, type Schedule
 import { usable } from '../integrations/connections/store'
 import { egressOf, egressSettled } from './egress'
 import type { ToolRegistry } from './registry'
-import { extractUrls, opaqueParts, type ConfirmExtra } from './url-gate'
+import { extractUrls, MAX_UNCONFIRMED_QUERY, opaqueParts, type ConfirmExtra } from './url-gate'
 
 export const SCHEDULE_TOOL_NAMES = ['schedule_create', 'schedule_list', 'schedule_delete'] as const
 
@@ -84,6 +85,22 @@ export const TEXT = {
     ja: 'このサーバーでは、実行時に下の1件のアドレスをまだ開けません。チームサーバーが自分の公開アドレスを把握していないため、このアドレスには人の確認が必要ですが、実行中は確認する人がいません。サーバーが公開アドレスを把握すると、確認なしで開きます。アドレスを通じてデータが外部に送られる可能性があるため、全体を確認してください。',
     es: 'En este servidor, las ejecuciones aún no pueden abrir la dirección de abajo: el servidor del equipo no conoce su propia dirección pública, así que la dirección necesita que alguien la confirme, y durante una ejecución no hay nadie. Cuando el servidor conozca su dirección pública, las ejecuciones la abrirán sin preguntar. Una dirección puede sacar datos; revísela completa.',
   } satisfies L5,
+  /** addresses with a query over MAX_UNCONFIRMED_QUERY characters: a person must confirm each one every time
+   * (url-gate.ts ③), and nobody is there during a run, so runs never open them */
+  longQuery: {
+    ko: '주소 뒤에 긴 내용({max}자 넘는 쿼리)이 붙은 아래 주소 {n}개는 실행 때 열지 않아요(강조 표시). 이런 주소는 늘 사람이 확인해야 하는데, 실행 중에는 확인할 사람이 없어요.',
+    en: 'Runs never open the {n} addresses with a long query (over {max} characters, highlighted below): such an address always needs a person to confirm it, and nobody is there during a run.',
+    id: 'Tugas tidak pernah membuka {n} alamat dengan kueri panjang (lebih dari {max} karakter, disorot di bawah) saat berjalan: alamat seperti itu selalu perlu dikonfirmasi seseorang, dan tidak ada yang mengawasi saat tugas berjalan.',
+    ja: '長いクエリ（{max}文字超、下で強調表示）が付いた{n}件のアドレスは実行時に開きません。このようなアドレスは毎回人の確認が必要ですが、実行中は確認する人がいません。',
+    es: 'Las ejecuciones nunca abren las {n} direcciones con una consulta larga (más de {max} caracteres, resaltadas abajo): una dirección así siempre necesita que alguien la confirme, y durante una ejecución no hay nadie.',
+  } satisfies L5,
+  longQueryOne: {
+    ko: '주소 뒤에 긴 내용({max}자 넘는 쿼리)이 붙은 아래 주소 1개는 실행 때 열지 않아요(강조 표시). 이런 주소는 늘 사람이 확인해야 하는데, 실행 중에는 확인할 사람이 없어요.',
+    en: 'Runs never open the address with a long query (over {max} characters, highlighted below): such an address always needs a person to confirm it, and nobody is there during a run.',
+    id: 'Tugas tidak pernah membuka 1 alamat dengan kueri panjang (lebih dari {max} karakter, disorot di bawah) saat berjalan: alamat seperti itu selalu perlu dikonfirmasi seseorang, dan tidak ada yang mengawasi saat tugas berjalan.',
+    ja: '長いクエリ（{max}文字超、下で強調表示）が付いた1件のアドレスは実行時に開きません。このようなアドレスは毎回人の確認が必要ですが、実行中は確認する人がいません。',
+    es: 'Las ejecuciones nunca abren la dirección con una consulta larga (más de {max} caracteres, resaltada abajo): una dirección así siempre necesita que alguien la confirme, y durante una ejecución no hay nadie.',
+  } satisfies L5,
   opaque: {
     ko: '알아보기 어려운 긴 문자열이 있어요(강조 표시). 내용을 실어 보낼 수 있으니 무엇인지 확인해 주세요.',
     en: 'It contains long strings that are hard to read (highlighted). They can carry data; check what they are.',
@@ -102,6 +119,10 @@ export const TEXT = {
   labelUrls: {
     ko: '실행 때 묻지 않고 여는 주소', en: 'Addresses opened without asking on each run', id: 'Alamat yang dibuka tanpa bertanya setiap kali berjalan',
     ja: '実行時に確認なしで開くアドレス', es: 'Direcciones que abre sin preguntar en cada ejecución',
+  } satisfies L5,
+  labelUrlsLongQuery: {
+    ko: '실행 때 열지 않는 주소(긴 쿼리)', en: 'Addresses runs never open (long query)', id: 'Alamat yang tidak pernah dibuka saat berjalan (kueri panjang)',
+    ja: '実行時に開かないアドレス（長いクエリ）', es: 'Direcciones que las ejecuciones nunca abren (consulta larga)',
   } satisfies L5,
   labelUrlsBlocked: {
     ko: '지시문의 주소(지금은 실행 때 열 수 없음)', en: 'Addresses in the instruction (runs cannot open them yet)', id: 'Alamat dalam instruksi (belum bisa dibuka saat berjalan)',
@@ -132,18 +153,28 @@ export function scheduleWhen(s: Pick<ScheduleInputT, 'repeat' | 'time' | 'weekda
  * AI's schedule_create; 'review': a task nobody confirmed, shown again to its owner to resume (chat/schedule-review.ts).
  * `urlsOpen`: can a run open addresses without a person on this server now? Not while it does not know its own exit
  * address (tools/egress.ts egressOf): then every address needs a person, and the card says so instead of promising. */
-export function scheduleCard(input: Pick<ScheduleInputT, 'title' | 'prompt' | 'repeat' | 'time' | 'weekday' | 'day' | 'date'>, connections: string[], L: Locale, mode: 'create' | 'review' = 'create', o: { urlsOpen?: boolean } = {}): { question: string; urls: string[]; extra: ConfirmExtra } {
+export function scheduleCard(input: Pick<ScheduleInputT, 'title' | 'prompt' | 'repeat' | 'time' | 'weekday' | 'day' | 'date'>, connections: string[], L: Locale, mode: 'create' | 'review' = 'create', o: { urlsOpen?: boolean } = {}): { question: string; urls: string[]; longQuery: string[]; extra: ConfirmExtra } {
   const open = o.urlsOpen !== false
   const urls = [...new Set(extractUrls(input.prompt))]
+  // a query over MAX_UNCONFIRMED_QUERY characters always needs a person (url-gate.ts ③): runs never open such an
+  // address, wherever it came from, so the card lists them apart with their query highlighted instead of promising them
+  const longQuery = urls.filter((u) => new URL(u).search.slice(1).length > MAX_UNCONFIRMED_QUERY)
+  const opens = urls.filter((u) => !longQuery.includes(u))
   const promptMarks = opaqueParts(input.prompt)
   // the title is the AI's: one line, so it cannot add lines that look like the server's own
   const lines = [fill(TEXT[mode === 'review' ? 'reviewQuestion' : 'question'][L], { title: input.title.replace(/\s+/g, ' ').trim(), when: scheduleWhen(input, L) })]
-  if (urls.length) lines.push(fill(TEXT[urls.length === 1 ? (open ? 'urlsOne' : 'urlsBlockedOne') : open ? 'urls' : 'urlsBlocked'][L], { n: String(urls.length) }))
+  if (opens.length) lines.push(fill(TEXT[opens.length === 1 ? (open ? 'urlsOne' : 'urlsBlockedOne') : open ? 'urls' : 'urlsBlocked'][L], { n: String(opens.length) }))
+  if (longQuery.length) lines.push(fill(TEXT[longQuery.length === 1 ? 'longQueryOne' : 'longQuery'][L], { n: String(longQuery.length), max: String(MAX_UNCONFIRMED_QUERY) }))
   if (promptMarks.length) lines.push(TEXT.opaque[L])
   if (connections.length) lines.push(fill(TEXT.connections[L], { names: connections.join(', ') }))
   const details = [{ label: TEXT.labelPrompt[L], text: input.prompt, ...(promptMarks.length ? { marks: promptMarks } : {}) }]
-  if (urls.length) { const t = urls.join('\n'); const m = opaqueParts(t); details.push({ label: TEXT[open ? 'labelUrls' : 'labelUrlsBlocked'][L], text: t, ...(m.length ? { marks: m } : {}) }) }
-  return { question: lines.join('\n\n'), urls, extra: { details } }
+  if (opens.length) { const t = opens.join('\n'); const m = opaqueParts(t); details.push({ label: TEXT[open ? 'labelUrls' : 'labelUrlsBlocked'][L], text: t, ...(m.length ? { marks: m } : {}) }) }
+  if (longQuery.length) {
+    const t = longQuery.join('\n')
+    // the query first, so the whole of it is highlighted (a random-looking part inside it is part of that mark)
+    details.push({ label: TEXT.labelUrlsLongQuery[L], text: t, marks: [...new Set([...longQuery.map((u) => new URL(u).search), ...opaqueParts(t)])] })
+  }
+  return { question: lines.join('\n\n'), urls, longQuery, extra: { details } }
 }
 
 /** The card's answers: with "allow" team connections the person picks whether runs may send to them. */
@@ -198,8 +229,9 @@ export function registerScheduleTools(ctx: AppContext, reg: ToolRegistry) {
         : (await person.confirm(card.question, TEXT.create[L], TEXT.deny[L], card.extra)) ? 'create' : null
       if (answer !== 'create' && answer !== 'create_write') throw new ToolError('the user did not allow this scheduled task, so it was not created. Do not try again unless the user asks; tell the user it was not created.')
       const s = rt.schedules.create(t.user.id, parsed.data, new Date(), { allowedUrls: card.urls, writeConnections: answer === 'create_write' ? writable.map((r) => r.id) : [] })
-      const blocked = !urlsOpen && card.urls.length ? ' This server does not know its own public internet address yet, so its runs cannot open the web addresses in the prompt until it does (the card said so); tell the user.' : ''
-      return { text: `Scheduled "${s.title}": ${describeSchedule(s)}. First run: ${local(s.next_run_at)}. Id ${s.id}. The user can turn it off in Settings › Scheduled tasks.${blocked}`, summary: `schedule_create ${s.id} ${s.repeat} ${s.time} (confirmed by the user${answer === 'create_write' ? `, may send to ${writable.length} connections` : ''})`, structured: { id: s.id, nextRunAt: s.next_run_at } }
+      const blocked = !urlsOpen && card.urls.length > card.longQuery.length ? ' This server does not know its own public internet address yet, so its runs cannot open the web addresses in the prompt until it does (the card said so); tell the user.' : ''
+      const longQuery = card.longQuery.length ? ` Its runs never open ${card.longQuery.length === 1 ? 'the address' : `the ${card.longQuery.length} addresses`} with a query over ${MAX_UNCONFIRMED_QUERY} characters: such an address always needs a person to confirm it (the card said so); tell the user.` : ''
+      return { text: `Scheduled "${s.title}": ${describeSchedule(s)}. First run: ${local(s.next_run_at)}. Id ${s.id}. The user can turn it off in Settings › Scheduled tasks.${blocked}${longQuery}`, summary: `schedule_create ${s.id} ${s.repeat} ${s.time} (confirmed by the user${answer === 'create_write' ? `, may send to ${writable.length} connections` : ''})`, structured: { id: s.id, nextRunAt: s.next_run_at } }
     },
   })
   reg.register({

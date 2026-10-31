@@ -19,7 +19,7 @@ import { noteEgressIp } from '../../server/src/tools/egress'
 import { toolRegistry } from '../../server/src/tools/registry'
 import { TurnFiles } from '../../server/src/files/service'
 import { gateUrl, LINK_BUDGET, linkBudgetFrom, opaqueParts, rememberUrls, type ConfirmExtra, type TurnPerson } from '../../server/src/tools/url-gate'
-import { scheduleCard } from '../../server/src/tools/schedules'
+import { scheduleCard, TEXT as SCHEDULE_TEXT } from '../../server/src/tools/schedules'
 import { fixPromptWords } from '../../web/src/lib/artifacts'
 import { migrate, MIGRATIONS_DIR, openDb, readMigrations } from '../../server/src/db'
 import { searchSources } from '../../server/src/chat/turn'
@@ -201,6 +201,57 @@ describe('scheduled tasks (F1, review M4)', () => {
     expect(instruction!.text).toBe(prompt)
     expect(instruction!.marks).toEqual(['c2fsyxj5ltk4nzy1ndmy'])
     expect(addresses!.text).toBe(secretUrl)
+  })
+
+  test('an address with a long query: the card lists it apart, highlighted, and says runs never open it (they do not)', async () => {
+    clear()
+    const longUrl = `https://report.example.org/save?d=${'abc123'.repeat(40)}`
+    const p2 = `${prompt} Then send it to ${longUrl}.`
+    const asked: Asked[] = []
+    const r = await create(person('create', asked), turnIn(await chatWith()), { prompt: p2 })
+    expect(r.isError).toBeFalsy()
+    const card = asked[0]!
+    // the address that opens is promised alone; the long one has its own line
+    expect(card.question).toContain('On each run it opens the address below without asking')
+    expect(card.question).toContain('Runs never open the address with a long query (over 200 characters, highlighted below)')
+    const [, opens, never] = card.extra!.details!
+    expect(opens).toMatchObject({ label: 'Addresses opened without asking on each run', text: secretUrl })
+    expect(never!.label).toBe('Addresses runs never open (long query)')
+    expect(never!.text).toBe(longUrl)
+    expect(never!.marks![0]).toBe(new URL(longUrl).search)
+    // the AI is told too, so it does not promise the person otherwise
+    expect(r.text).toContain('never open the address with a query over 200 characters')
+    // the run: the long one still needs a person, and nobody is there
+    const row = h.ctx.db.query("SELECT id FROM schedules WHERE user_id = 'alice'").get() as { id: string }
+    expect(h.rt().schedules.runDue(new Date(Date.now() + 4 * 86400_000))).toEqual([row.id])
+    const msg = h.ctx.db.query("SELECT chat_id FROM messages WHERE role = 'user' AND content = ?").get(p2) as { chat_id: string }
+    expect(await gateUrl(h.ctx.db, msg.chat_id, secretUrl, null)).toBe('seen')
+    expect(gateUrl(h.ctx.db, msg.chat_id, longUrl, null)).rejects.toThrow(/long query part/)
+  })
+
+  test('the long-query line in five languages, on "다시 확인" too, and while the server does not know its address', () => {
+    const longUrl = `https://report.example.org/save?d=${'x'.repeat(201)}`
+    const input = { title: 't', prompt: `Read ${secretUrl} and ${longUrl} and ${longUrl}&more=1.`, repeat: 'daily' as const, time: '09:00' }
+    for (const L of ['ko', 'en', 'id', 'ja', 'es'] as const) {
+      for (const mode of ['create', 'review'] as const) {
+        const c = scheduleCard(input, [], L, mode)
+        expect(c.longQuery).toHaveLength(2)
+        expect(c.question).toContain(SCHEDULE_TEXT.longQuery[L].replace('{n}', '2').replace('{max}', '200'))
+        expect(c.question).toContain(SCHEDULE_TEXT.urlsOne[L])
+        expect(c.question).not.toContain('{')
+        expect(c.extra.details!.map((d) => d.label)).toEqual([SCHEDULE_TEXT.labelPrompt[L], SCHEDULE_TEXT.labelUrls[L], SCHEDULE_TEXT.labelUrlsLongQuery[L]])
+        // every address is still the task's, as before
+        expect(c.urls).toHaveLength(3)
+      }
+      // only long ones while the address is unknown: no "once the server knows its address, runs open them"
+      const only = scheduleCard({ ...input, prompt: `Send to ${longUrl}.` }, [], L, 'create', { urlsOpen: false })
+      expect(only.question).toContain(SCHEDULE_TEXT.longQueryOne[L].replace('{max}', '200'))
+      expect(only.question).not.toContain(SCHEDULE_TEXT.urlsBlockedOne[L])
+      expect(only.extra.details).toHaveLength(2)
+    }
+    // exactly 200 characters still opens
+    const edge = scheduleCard({ ...input, prompt: `Read https://a.example/?q=${'y'.repeat(198)}.` }, [], 'en')
+    expect(edge.longQuery).toEqual([])
   })
 
   test('nobody to confirm (no person): not created', async () => {
