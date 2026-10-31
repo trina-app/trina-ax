@@ -1,6 +1,12 @@
-// The app's own open dialog for the team page's <input type=file> on macOS (main/app-window.ts answerFileChoosers):
-// one file or several, a folder for webkitdirectory, and the input's accept as a filter. Pure: unit-tested in
-// tests/unit/e-desktop-common.test.ts.
+// The app's own open dialog for the team page's <input type=file> in the Mac App Store build (main/app-window.ts
+// answerFileChoosers): one file or several, a folder for webkitdirectory, and the input's accept as a filter. Pure:
+// unit-tested in tests/unit/e-desktop-common.test.ts.
+
+/** Only the Mac App Store (sandboxed) build answers file inputs itself; elsewhere Electron's own dialog opens.
+ * MYCEL_DESKTOP_TEST_FILE_CHOOSER=1 turns it on in an unpacked app (tests), never in a packaged one. */
+export function answersFileChoosers(mas: boolean, packaged: boolean, forced?: string): boolean {
+  return mas || (!packaged && forced === '1')
+}
 
 export interface FileInput {
   /** the chooser asked for several files (CDP Page.fileChooserOpened mode selectMultiple) */
@@ -16,7 +22,7 @@ export interface OpenDialogChoice {
 
 /** extensions of the types the team page's inputs ask for (image/*, the team icon's types) */
 const TYPE_EXTENSIONS: Record<string, string[]> = {
-  'image/*': ['png', 'jpg', 'jpeg', 'gif', 'webp', 'heic', 'heif', 'avif', 'bmp', 'tif', 'tiff', 'svg'],
+  'image/*': ['png', 'apng', 'jpg', 'jpeg', 'jfif', 'gif', 'webp', 'heic', 'heif', 'avif', 'jxl', 'bmp', 'ico', 'tif', 'tiff', 'svg'],
   'image/png': ['png'],
   'image/jpeg': ['jpg', 'jpeg'],
   'image/gif': ['gif'],
@@ -26,8 +32,8 @@ const TYPE_EXTENSIONS: Record<string, string[]> = {
   'application/pdf': ['pdf'],
 }
 
-/** accept as a dialog filter. A type not listed above (or anything unusual) means no filter at all: the dialog never
- * hides a file the page would take. */
+/** accept as a dialog filter. image/* lists the common image formats, so only a rare one (a camera's raw file, for
+ * example) is hidden; a type not listed above, or anything unusual, means no filter at all. */
 export function acceptFilter(accept: string): OpenDialogChoice['filters'] {
   const extensions = new Set<string>()
   for (const raw of accept.split(',')) {

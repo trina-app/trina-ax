@@ -53,6 +53,8 @@ export interface AppWindowOptions {
   classifier: HostClassifier
   /** a kit build's team address (common/kit.ts), or null */
   suggestedTeam?: string | null
+  /** the app answers the team page's file input with its own dialog (common/file-chooser.ts answersFileChoosers) */
+  answerFileChoosers?: boolean
   /** the team list changed (the menu is rebuilt) */
   onTeamsChanged(): void
 }
@@ -334,7 +336,7 @@ export class AppWindow {
     await app.webContents.loadURL('about:blank').catch(() => {})
     await guardAppView(app.webContents, () => this.allowedOrigins())
     if (this.app !== app) return
-    if (process.platform === 'darwin') await this.answerFileChoosers(app)
+    if (this.o.answerFileChoosers) await this.answerFileChoosers(app)
     if (this.app !== app) return
     // office network first when it answers with the pinned certificate within 1 s
     const origin = await this.pickOrigin()
@@ -356,26 +358,34 @@ export class AppWindow {
   }
 
   /**
-   * Upload / Attach on macOS: Electron opens no file chooser for a page shown in a WebContentsView (the team page is
-   * one; electron/electron#42018). So the chooser is intercepted over the debugger guardAppView attached, the app's own
-   * open dialog asks (one at a time; several files, a folder or the accept filter as the input says,
+   * Upload / Attach in the Mac App Store (sandboxed) build: there the team page's <input type=file> opened no chooser
+   * at all in a smoke test (Electron 44.7.2). The cause is not confirmed: outside the sandbox Electron opens its own
+   * dialog for a page in a WebContentsView (electron/electron#42013, fixed in Electron 30), so the direct-download Mac
+   * app and Windows keep it. In the store build the chooser is intercepted over the debugger guardAppView attached, the
+   * app's own open dialog asks (one at a time; several files, a folder or the accept filter as the input says,
    * common/file-chooser.ts), and the picked files are set on the input. Only the top frame of the team page at the team
    * address or its office address is answered, as for the bridge (common/trust.ts); an artifact or a preview frame
-   * gets nothing. The setting is kept by the browser process across this view's navigations (team or office address);
-   * a team switch makes a new view and sets it again. Not on Windows: the problem was seen on macOS only.
+   * gets nothing. The setting belongs to this debugger session: the renderer's DevTools page agent holds it and gets it
+   * back when the view changes renderer (team address <-> office address); a team switch makes a new view and sets it
+   * again.
    */
   private async answerFileChoosers(app: WebContentsView) {
     const dbg = app.webContents.debugger
     if (!dbg.isAttached()) return
+    // main-frame documents so far: files picked for one document are not set on the next one (events come in order)
+    let documents = 0
     dbg.on('message', (_e, method, params: any, sessionId?: string) => {
       // the page's own session only (frames attached through auto-attach have a sessionId)
-      if (method !== 'Page.fileChooserOpened' || sessionId || typeof params?.backendNodeId !== 'number') return
-      void this.chooseFiles(app, String(params.frameId), params.backendNodeId, params.mode === 'selectMultiple')
+      if (sessionId) return
+      if (method === 'Page.frameNavigated' && !params?.frame?.parentId) documents++
+      if (method !== 'Page.fileChooserOpened' || typeof params?.backendNodeId !== 'number') return
+      const opened = documents
+      void this.chooseFiles(app, String(params.frameId), params.backendNodeId, params.mode === 'selectMultiple', () => documents === opened)
     })
     await dbg.sendCommand('Page.setInterceptFileChooserDialog', { enabled: true }).catch(() => {})
   }
 
-  private async chooseFiles(app: WebContentsView, frameId: string, backendNodeId: number, multiple: boolean) {
+  private async chooseFiles(app: WebContentsView, frameId: string, backendNodeId: number, multiple: boolean, sameDocument: () => boolean) {
     if (this.choosingFiles || this.app !== app || this.win.isDestroyed()) return
     const dbg = app.webContents.debugger
     this.choosingFiles = true
@@ -387,6 +397,9 @@ export class AppWindow {
       const r = await dialog.showOpenDialog(this.win, openDialogChoice({ multiple, attributes: node?.attributes }))
       // cancelled: the input keeps what it had
       if (r.canceled || !r.filePaths.length || this.app !== app) return
+      // the page loaded again meanwhile (a recheck moved it to the office address, a reload): backendNodeId now points
+      // at nothing, or at another node
+      if (!sameDocument()) return debug('file chooser: the page changed while the dialog was open, nothing set')
       await dbg.sendCommand('DOM.setFileInputFiles', { backendNodeId, files: r.filePaths })
     } catch (e) {
       debug('file chooser', e instanceof Error ? e.message : String(e)) // the view closed or navigated meanwhile

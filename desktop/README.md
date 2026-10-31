@@ -15,11 +15,11 @@ desktop/
     browser-result.ts      pane result -> BrowserResult on the wire (<= 20 items, size caps)
     teams.ts               teams.json, partitions per team, fingerprints
     trust.ts               who may use the bridge (top frame of the app view, team origin only)
-    file-chooser.ts        the open dialog for the team page's file input on macOS (multiple, folder, accept filter)
+    file-chooser.ts        the store build's own open dialog for the team page's file input (multiple, folder, accept)
     i18n.ts                ko / en / id / ja / es strings of the desktop's own screens
   src/main/
     main.ts                lifecycle, mycel-ui:// protocol, IPC (sender checks), menu
-    app-window.ts          window layout, teams, team page view, direct-connection switching, file chooser (macOS)
+    app-window.ts          window layout, teams, team page view, direct-connection switching, file chooser (store build)
     security.ts            webPreferences, navigation / frame guards, permissions, WebRTC, RTCPeerConnection removal
     direct.ts              /api/connect-info, pinned LAN probe, certificate pinning, session cookie mirroring
     pane/pane.ts           BrowserPane: tabs (WebContentsView), CDP tools, prompts, password and card-field refusal, cancel

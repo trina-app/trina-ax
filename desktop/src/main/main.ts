@@ -11,6 +11,8 @@
  *                                    the checks see them as DNS names answering with this computer's address
  *   MYCEL_DESKTOP_UPDATE_TEST  auto-install | notice | off: the updater's mode in an unpacked app (./updater.ts);
  *                              MYCEL_DESKTOP_UPDATE_FIRST_MS the first check's delay
+ *   MYCEL_DESKTOP_TEST_FILE_CHOOSER  1: answer the team page's file input with the app's own dialog, as the Mac App
+ *                              Store build does (common/file-chooser.ts)
  */
 import { existsSync, readFileSync } from 'node:fs'
 import { dirname, extname, join, normalize, sep } from 'node:path'
@@ -22,6 +24,7 @@ import { asUiLocale, DEFAULT_UI_LOCALE, STRINGS, t, type UiKey, type UiLocale } 
 import { isOwnUiUrl, isTrustedAppSender, UI_SCHEME } from '../common/trust'
 import { partitionFor } from '../common/teams'
 import { NO_KIT, parseKit, type Kit } from '../common/kit'
+import { answersFileChoosers } from '../common/file-chooser'
 import { AppWindow, type AllowAllOutcome } from './app-window'
 import { debug } from './debug'
 import { HostClassifier } from './pane/classify'
@@ -308,6 +311,7 @@ async function createWindow() {
     appVersion: app.getVersion(),
     classifier: new HostClassifier(testPublic, testMapped),
     suggestedTeam: kit.team,
+    answerFileChoosers: answersFileChoosers(process.mas === true, app.isPackaged, process.env.MYCEL_DESKTOP_TEST_FILE_CHOOSER),
     onTeamsChanged: () => buildMenu(),
   })
   win.win.on('closed', () => {
