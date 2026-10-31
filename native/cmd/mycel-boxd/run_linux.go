@@ -479,13 +479,21 @@ func oomKills(cg string) int64 {
 
 func execIn(r *request, stopped <-chan struct{}) (map[string]any, error) {
 	b := boxOf(r.Box)
+	name := containerName(r.Box)
 	b.mu.Lock()
 	running := b.running
+	if running {
+		// a command can end the box's main process (`pkill sleep`, VM test 2026-10-31): the box then stopped by
+		// itself. Clean up and say so; the server's next ensure starts it again.
+		if st, err := inspect(name, "{{.State.Status}}"); err != nil || st != "running" {
+			stopLocked(b, pathsOf(*stateDir, *runDir, r.Box), false)
+			running = false
+		}
+	}
 	b.mu.Unlock()
 	if !running {
-		return nil, fmt.Errorf("the box does not run")
+		return nil, fmt.Errorf("box_stopped: the box does not run")
 	}
-	name := containerName(r.Box)
 	b.touch()
 	defer b.touch()
 	cg := cgroupDir(name)

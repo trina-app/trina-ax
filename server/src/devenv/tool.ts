@@ -132,8 +132,17 @@ export function boxShellTool(h: BoxShellHost) {
 
       const timeoutMs = (a.data.timeout_sec ?? 120) * 1000
       const started = Date.now()
-      const w = await withChangeWindow(ctx, project, { userId: h.userId, turnId: h.turnId }, { command: a.data.command.slice(0, 500) }, () =>
-        client.exec({ box: project.id, cwd, command: a.data.command, timeoutMs, background: !!a.data.background, actor: h.userId, ...(a.data.log_name ? { logName: a.data.log_name } : {}) }, h.signal))
+      const execReq = { box: project.id, cwd, command: a.data.command, timeoutMs, background: !!a.data.background, actor: h.userId, ...(a.data.log_name ? { logName: a.data.log_name } : {}) }
+      const w = await withChangeWindow(ctx, project, { userId: h.userId, turnId: h.turnId }, { command: a.data.command.slice(0, 500) }, async () => {
+        let r = await client.exec(execReq, h.signal)
+        // the box stopped since ensure (an earlier command ended its main process, the idle stop): the command did
+        // not run, so start the box again and run it once more
+        if (!r.ok && r.message.startsWith('box_stopped')) {
+          const again = await client.ensure({ box: project.id, folder: project.folderPath, network: s.network, limits: s.limits, denyAddrs })
+          if (again.ok) r = await client.exec(execReq, h.signal)
+        }
+        return r
+      })
       markSeen(ctx, project.id, h.userId)
       const r = w.value
       let destinations: string[] = []
