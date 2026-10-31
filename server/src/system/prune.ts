@@ -26,7 +26,8 @@
 // number to the next folder made). It must also be owned by the account that owns its parent folder and hold no mount
 // point (/proc/self/mountinfo on Linux; elsewhere its device must be its parent's). Then it is renamed to .prune-<hex>
 // in the same folder (atomic), checked once more under that name (same dev, inode and mtime: a rename keeps the mtime
-// and moves the ctime; anything else is renamed back and left), and only that name is removed, depth first, stopping
+// and moves the ctime; anything else is renamed back and left, or, when its old name is taken again meanwhile, renamed
+// to .prune-hold-<hex>, which no run removes and every run reports), and only that name is removed, depth first, stopping
 // at another file system. So an installer or `mycel-ctl update` that brings a new folder in under the old name
 // meanwhile loses nothing to this removal, and a removal cut short (the server stopped, a file that cannot go) leaves no
 // half folder that still looks like a version; a .prune-* a day old is removed by a later run.
@@ -104,6 +105,10 @@ const SHA12 = /^[0-9a-f]{12}$/
 const ENGINE_NAME = /^[a-z][a-z0-9_-]{0,31}$/
 /** a folder this module renamed on its way out */
 const TRASH = /^\.prune-[0-9a-f]{12}$/
+/** a folder that changed while it was being taken out and could not get its name back: never removed by a run, reported
+ * by every run (Diagnostics) until someone looks at it and renames or removes it */
+const HOLD = /^\.prune-hold-[0-9a-f]{12}$/
+const HELD = 'changed while a run was taking it out, and its old name was taken again: kept, never removed by a run; look at it, then rename it back or remove it'
 
 function lstat(p: string): fs.Stats | null {
   try { return fs.lstatSync(p) } catch { return null }
@@ -211,6 +216,7 @@ export async function pruneVersions(o: PruneOptions): Promise<PruneResult> {
     if (!st) continue
     if (st.isSymbolicLink()) { res.left.push({ path: rel, why: 'a link (never followed)' }); continue }
     if (!st.isDirectory()) { res.left.push({ path: rel, why: 'not a folder' }); continue }
+    if (HOLD.test(name)) { res.errors.push({ path: rel, error: HELD }); continue }
     const kind: PruneItem['kind'] | null = TRASH.test(name) ? 'trash' : name.startsWith('.staging-') ? 'staging' : name.endsWith('.partial') ? 'partial' : isVersion(name) ? 'version' : null
     if (!kind) { res.left.push({ path: rel, why: 'not a version folder' }); continue }
     if (kind === 'version' && keep.has(name)) continue
@@ -250,6 +256,7 @@ export async function pruneVersions(o: PruneOptions): Promise<PruneResult> {
         const rel = `engines/${name}/${sub}`
         const s = lstat(path.join(dir, sub))
         if (!s) continue
+        if (s.isDirectory() && HOLD.test(sub)) { res.errors.push({ path: rel, error: HELD }); continue }
         const trash = TRASH.test(sub)
         if (!s.isDirectory() || !(SHA12.test(sub) || trash)) { res.left.push({ path: rel, why: s.isSymbolicLink() ? 'a link (never followed)' : 'not an engine folder' }); continue }
         if (s.dev !== st.dev) { res.left.push({ path: rel, why: MOUNT }); continue }
@@ -313,7 +320,15 @@ export async function pruneVersions(o: PruneOptions): Promise<PruneResult> {
           let back = false
           if (t && !lstat(abs)) { try { fs.renameSync(gone, abs); back = true } catch {} }
           if (back) res.left.push({ path: c.rel, why: REPLACED })
-          else if (t) res.errors.push({ path: c.rel, error: `changed while it was being taken out; it is now ${path.relative(app, gone)}: look at it and rename it back` })
+          else if (t) {
+            // the old name is taken again: out of the clean-up's reach (a .prune-* goes a day later), and reported
+            const hold = path.join(path.dirname(gone), `.prune-hold-${crypto.randomBytes(6).toString('hex')}`)
+            let held = false
+            try { fs.renameSync(gone, hold); held = true } catch {}
+            res.errors.push(held
+              ? { path: path.relative(app, hold), error: `${HELD} (it was ${c.rel})` }
+              : { path: c.rel, error: `changed while it was being taken out; it is now ${path.relative(app, gone)}, which a run a day from now removes: look at it first, then rename it back` })
+          }
           continue
         }
       }

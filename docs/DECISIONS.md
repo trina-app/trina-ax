@@ -4206,3 +4206,16 @@ Trina should feel like Claude Code, which has WebSearch.
   - A folder owned by another account is reported in a dry run too (before, the dry run listed it as removed); the
     owner compared is the parent folder's, so `admin.js prune-versions --dry-run` works as root and shows the same as
     the server account would. A leftover `.prune-*` under a day old says "renamed for removal in the last 24 hours".
+- **Third review (2026-11-01).**
+  - `autoUpdateTick` decides again once it holds the lock (the team's window, running answers, the hold rules): the
+    first decision was made before waiting for a prune, and a long first prune could have taken the clock past the
+    window, or answers could have started that the update would interrupt. When the second decision says no, the lock
+    is given back and the reason returned (`outside_window`, `busy`, …) and logged.
+  - A `.prune-*` folder that changed after the rename and whose old name was taken again meanwhile was left as
+    `.prune-*` with "rename it back", but a run a day later would have removed it. It is now renamed to
+    `.prune-hold-<hex>`, which no run removes and every run reports as an error (so Admin › System › Diagnostics keeps
+    the warning until someone looks at it and renames or removes it); if even that rename fails, the message says that
+    a run a day later removes it.
+  - Tests: `g-prune.test.ts` + 2 (the decision made again after the wait: past the window and an answer started, each
+    returns without updating and gives the lock back; it fails without the second decision; a held folder survives
+    runs 4 and 30 days later and stays in the record's errors).

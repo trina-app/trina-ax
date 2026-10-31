@@ -8,6 +8,7 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import type { AppConfig } from '../../server/src/app-config'
+import { setSetting, teamTimeZone } from '../../server/src/admin/settings'
 import { createContext, type AppContext } from '../../server/src/context'
 import { openDb } from '../../server/src/db'
 import { silentLogger } from '../../server/src/log'
@@ -15,6 +16,7 @@ import { writeManifest } from '../../server/src/system/bundle'
 import { resolveLayout } from '../../server/src/system/layout'
 import { OpsService } from '../../server/src/system/ops'
 import { lastPrune, parseMountinfo, PRUNE_FIRST_MS, PRUNE_RECORD, pruneVersions, type PruneResult } from '../../server/src/system/prune'
+import { zonedParts } from '../../server/src/system/time-zone'
 import { UpdateManager, verifyBundleDir } from '../../server/src/system/update'
 
 const ROOT = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'mycel-prune-')))
@@ -258,6 +260,33 @@ describe('another process at work during the run', () => {
     expect(fs.readFileSync(path.join(app, 'versions', '9.0.0', 'new-file'), 'utf8')).toBe('x')
   })
 
+  test('a folder that changed after the rename and whose old name is taken again is held, never removed, and reported', async () => {
+    const app = await install({ versions: ['9.0.0', '9.1.0', '9.2.0'], current: '9.2.0' })
+    const data = path.join(app, '..', 'data')
+    const r = await pruneVersions({ appDir: app, running: '9.2.0', now: later, dataDir: data, race: (rel, step) => {
+      if (rel !== 'versions/9.0.0' || step !== 'renamed') return
+      // written into just before the rename, and a new 9.0.0 made at once: renaming back is no longer possible
+      const trash = fs.readdirSync(path.join(app, 'versions')).find((n) => n.startsWith('.prune-'))!
+      fs.writeFileSync(path.join(app, 'versions', trash, 'new-file'), 'x')
+      const t = new Date(Date.now() + 5 * DAY); fs.utimesSync(path.join(app, 'versions', trash), t, t)
+      fs.mkdirSync(path.join(app, 'versions', '9.0.0'))
+    } })
+    const held = fs.readdirSync(path.join(app, 'versions')).filter((n) => n.startsWith('.prune-'))
+    expect(held).toHaveLength(1)
+    expect(held[0]).toMatch(/^\.prune-hold-[0-9a-f]{12}$/)
+    expect(fs.readFileSync(path.join(app, 'versions', held[0]!, 'new-file'), 'utf8')).toBe('x')
+    expect(r.errors).toEqual([{ path: `versions/${held[0]}`, error: expect.stringMatching(/never removed by a run; look at it.*\(it was versions\/9\.0\.0\)$/) }])
+    expect(r.removed.map((x) => x.path)).toEqual(['versions/9.1.0'])
+    // later runs (days later) never remove it and keep reporting it (Diagnostics shows the record's errors)
+    for (const days of [4, 30]) {
+      const again = await pruneVersions({ appDir: app, running: '9.2.0', now: () => new Date(Date.now() + days * DAY), dataDir: data })
+      expect(again.errors).toContainEqual({ path: `versions/${held[0]}`, error: expect.stringContaining('never removed by a run') })
+      expect(again.removed.map((x) => x.path)).not.toContain(`versions/${held[0]}`)
+      expect(fs.existsSync(path.join(app, 'versions', held[0]!, 'new-file'))).toBe(true)
+      expect(lastPrune(data)?.errors.map((e) => e.path)).toContain(`versions/${held[0]}`)
+    }
+  })
+
   test('a folder that holds a mount point (a bind mount has its parent\'s device) is never removed', async () => {
     expect(parseMountinfo('22 1 8:1 / / rw - ext4 /dev/sda1 rw\n36 22 8:1 /srv/a\\040b /var/lib/x/app/versions/0.1.0/web/my\\040data rw - ext4 /dev/sda1 rw\nbroken\n'))
       .toEqual(['/', '/var/lib/x/app/versions/0.1.0/web/my data'])
@@ -434,6 +463,38 @@ describe('the server runs it, and says what it keeps', () => {
     const rec = lastPrune(path.join(base, 'data'))!
     fs.writeFileSync(path.join(base, 'data', PRUNE_RECORD), JSON.stringify({ ...rec, errors: [{ path: 'versions/0.0.9', error: 'EACCES: permission denied' }] }))
     expect(await line()).toMatchObject({ status: 'warn', detail: expect.stringContaining('Old versions could not be removed: versions/0.0.9: EACCES: permission denied') })
+  })
+
+  test('after waiting for the lock the automatic update decides again: past the window, or answers running, it does not go', async () => {
+    const tz = teamTimeZone(ctx.db)
+    const at = new Date('2026-11-03T03:30:00Z')
+    const hm = (d: Date) => { const p = zonedParts(d, tz); return `${String(p.h).padStart(2, '0')}:${String(p.min).padStart(2, '0')}` }
+    // a window of four minutes around `at` (team time zone); waiting for the prune takes the clock five minutes on
+    setSetting(ctx.db, 'updateWindow', `${hm(new Date(at.getTime() - 2 * 60_000))}-${hm(new Date(at.getTime() + 2 * 60_000))}`)
+    let clock = at
+    const was = ctx.config.update.auto
+    ctx.config.update.auto = true
+    try {
+      for (const after of ['outside_window', 'busy'] as const) {
+        clock = at
+        const o = new OpsService(ctx, { layout: resolveLayout(ctx.config, { MYCEL_INSTALL_BASE: base, MYCEL_LABEL: 'mycel' }, 'linux'), platform: 'linux', engines: async () => [], launcherStatus: async () => null, now: () => clock })
+        Object.defineProperty(o.updates, 'feedUsable', { get: () => true })
+        o.updates.checkFeed = async () => ({ version: '999.0.0', minFrom: null, urgent: false, needsRoot: false, notes: '', publishedAt: at.toISOString(), bundles: [] })
+        let waited = false
+        o.lockAfterPrune = async (name) => {
+          waited = true
+          if (after === 'outside_window') clock = new Date(at.getTime() + 5 * 60_000)
+          else o.queue = () => ({ running: 1, queued: 0, concurrency: 3 }) // an answer started meanwhile
+          return o.tryLock(name)
+        }
+        expect(await o.autoUpdateTick()).toBe(after)
+        expect(waited).toBe(true) // the first decision was "go"
+        expect(o.busyWith).toBeNull() // and the lock is given back
+      }
+    } finally {
+      ctx.config.update.auto = was
+      setSetting(ctx.db, 'updateWindow', null)
+    }
   })
 
   test('an automatic update that finds a prune holding the lock waits for it instead of skipping the hour', async () => {

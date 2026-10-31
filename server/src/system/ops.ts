@@ -125,16 +125,27 @@ export class OpsService {
     if (!this.autoUpdates) return 'off'
     if (!this.updates.feedUsable) return 'no_feed'
     const feed = await this.updates.checkFeed()
-    let last: { version: string; at: string } | null = null
-    try { last = JSON.parse(fs.readFileSync(this.autoFile(), 'utf8')) } catch {}
-    const s = getTeamSettings(this.ctx.db)
-    const d = autoUpdateDecision({ feed, current: this.ctx.version, installId: installId(this.ctx.db), now: this.now(), tz: teamTimeZone(this.ctx.db),
-      window: s.updateWindow, running: this.queue().running, history: this.updates.history(), lastAttempt: last })
-    if (!d.go) return d.why
+    const decide = () => {
+      let last: { version: string; at: string } | null = null
+      try { last = JSON.parse(fs.readFileSync(this.autoFile(), 'utf8')) } catch {}
+      const s = getTeamSettings(this.ctx.db)
+      return autoUpdateDecision({ feed, current: this.ctx.version, installId: installId(this.ctx.db), now: this.now(), tz: teamTimeZone(this.ctx.db),
+        window: s.updateWindow, running: this.queue().running, history: this.updates.history(), lastAttempt: last })
+    }
+    const first = decide()
+    if (!first.go) return first.why
     const log = this.ctx.log.child({ c: 'update' })
     if (!await this.lockAfterPrune('update')) {
-      log.info('automatic update: another operation runs, trying again in an hour', { to: d.version, holder: this.busy })
+      log.info('automatic update: another operation runs, trying again in an hour', { to: first.version, holder: this.busy })
       return 'busy'
+    }
+    // decided again with the lock held: waiting for a prune may have taken the clock past the team's window, or answers
+    // may have started meanwhile (an update now would interrupt them)
+    const d = decide()
+    if (!d.go) {
+      this.unlock()
+      log.info('automatic update: not now after all', { to: first.version, why: d.why })
+      return d.why
     }
     log.info('automatic update', { to: d.version })
     try {
