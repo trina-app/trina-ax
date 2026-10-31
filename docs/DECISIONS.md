@@ -3785,7 +3785,11 @@ refused. The founder left it to us; decision: keep the protection, make every in
   `MYCEL_EXIT_ADDRESS_CHECK=off`: every web address asks, unattended runs open none. Hosted servers may reach the feed
   already (HWP plugin downloads; the tenant chain blocks only private ranges), self-installs need outbound https to it
   (INSTALL-LINUX). Right after a start, web_fetch and the schedule card wait for the first round (at most 6 s) instead of
-  asking at once. The card wording no longer names an office ("its own public address", 해요체).
+  asking at once. The card wording no longer names an office ("its own public address", 해요체). Admin › System ›
+  Diagnostics shows "Public address of the server" (QA 0.2.12 N5, `exit_address`, installed servers and office Macs):
+  known (IPv4 / IPv6, or reported by the relay; ok), not known (warn: every web address asks and scheduled tasks open
+  none, and the feed address it asks), or turned off by `MYCEL_EXIT_ADDRESS_CHECK=off` (warn, the same consequence).
+  Never the address itself; the hosted cloud points at support instead of the network.
 - **Unattended runs say why.** A scheduled run's person is marked `unattended`: the gate raises no card (it could only
   go unanswered) and tells the AI "nobody can confirm it here" — while the exit address is unknown, with the reason and
   that writing the address into the task changes nothing (QA: the AI told the person to do exactly that); for an address

@@ -6,7 +6,7 @@ import os from 'node:os'
 import path from 'node:path'
 import type { CheckStatus, ConnectionStatus, DiagnosticCheck, Diagnostics, Locale } from '@mycel/shared/api'
 import { FirewallStatus, PfStatus, type StatusFile } from '@mycel/shared/install'
-import type { LauncherStatus } from '@mycel/shared'
+import { PRODUCT, type LauncherStatus } from '@mycel/shared'
 import { getTeamSettings, installId, teamDefaultLocale, teamTimeZone } from '../admin/settings'
 import type { AppContext } from '../context'
 import { allowedCredentialKinds, DEFAULT_PROXY_PORT, isManaged } from '../app-config'
@@ -34,6 +34,7 @@ import { audit } from '../admin/audit'
 import { autoUpdateDecision, runUpdate } from './update-job'
 import { zonedParts } from './time-zone'
 import { getChatRuntime } from '../chat/runtime'
+import { egressSettled, egressStatus, EXIT_ADDRESS_URL, exitAddressCheckOff } from '../tools/egress'
 
 /** after a failed nightly backup, the next try waits this long */
 export const DAILY_BACKUP_RETRY_MS = 60 * 60_000
@@ -271,6 +272,18 @@ export class OpsService {
       : c.state === 'replaced' ? { s: 'fail' as const, d: t(M.relayReplaced) }
       : { s: 'fail' as const, d: t(M.relayOffline) }
     add('relay', 'relay', t(M.relay), relay.s, relay.d)
+
+    // this server's public exit address (tools/egress.ts), where it is learned (installed servers, office Macs): known or
+    // not and from where, never the address itself. Unknown: every web address the AI opens asks, and scheduled tasks
+    // open none (QA 0.2.12 N5). Right after a start the first check gets its moment.
+    if (prod || this.ctx.config.office) {
+      await egressSettled(this.ctx)
+      const ex = egressStatus(this.ctx)
+      const families = [ex.ipv4 ? 'IPv4' : '', ex.ipv6 ? 'IPv6' : ''].filter(Boolean).join(', ')
+      if (ex.known) add('exit_address', 'connection', t(M.exitAddress), 'ok', t(families ? M.exitAddressKnown(families) : M.exitAddressKnownRelay))
+      else if (exitAddressCheckOff()) add('exit_address', 'connection', t(M.exitAddress), 'warn', t(M.exitAddressOff(`${PRODUCT.envPrefix}EXIT_ADDRESS_CHECK=off`)))
+      else add('exit_address', 'connection', t(M.exitAddress), 'warn', t(M.exitAddressUnknown(EXIT_ADDRESS_URL)))
+    }
 
     // disk (tab 7 "디스크 단계")
     const team = diskSpace(L.teamRoot), data = diskSpace(L.dataDir)

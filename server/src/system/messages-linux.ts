@@ -62,6 +62,21 @@ export function hostedMessages(): Partial<MT> {
   return {
     relayOff: withSupport({ ko: '팀 주소(중계) 연결이 설정되어 있지 않습니다.', en: 'The team address (relay) connection is not set up.', id: 'Koneksi alamat tim (relay) belum diatur.', ja: "チームアドレス（中継）の接続が設定されていません。", es: "La conexión a la dirección del equipo (retransmisión) no está configurada." }),
     relayOffline: withSupport({ ko: '팀 주소(중계)에 연결되지 않습니다. 몇 분 뒤에도 그대로면', en: 'The team address (relay) cannot be reached. If this lasts a few minutes,', id: 'Alamat tim (relay) tidak terjangkau. Jika berlangsung beberapa menit,', ja: "チームアドレス（中継）に接続できません。数分続く場合は、", es: "No se puede conectar con la dirección del equipo (retransmisión). Si dura varios minutos," }),
+    // the hosted cloud: the customer cannot check the server's network or its environment file
+    exitAddressUnknown: (): T => withSupport({
+      ko: '아직 몰라요. 모르는 동안에는 AI가 여는 웹 주소마다 사람에게 묻고, 예약 작업은 웹 주소를 하나도 열지 않아요.',
+      en: 'Not known. Until the server knows it, every web address the AI opens asks a person, and scheduled tasks open none.',
+      id: 'Belum diketahui. Selama belum diketahui, setiap alamat web yang dibuka AI ditanyakan ke seseorang, dan tugas terjadwal tidak membuka satu pun.',
+      ja: "まだ把握していません。把握するまでは、AIが開くWebアドレスはすべて人に確認し、定期タスクはWebアドレスを1つも開きません。",
+      es: "Desconocida. Mientras el servidor no la conozca, cada dirección web que abre la IA pregunta a una persona y las tareas programadas no abren ninguna.",
+    }),
+    exitAddressOff: (): T => withSupport({
+      ko: '확인이 꺼져 있어서 서버가 자기 공인 주소를 몰라요. AI가 여는 웹 주소마다 사람에게 묻고, 예약 작업은 웹 주소를 하나도 열지 않아요.',
+      en: 'The check is turned off, so the server does not know it. Every web address the AI opens asks a person, and scheduled tasks open none.',
+      id: 'Pemeriksaan dimatikan, jadi server tidak mengetahuinya. Setiap alamat web yang dibuka AI ditanyakan ke seseorang, dan tugas terjadwal tidak membuka satu pun.',
+      ja: "確認がオフのため、サーバーは自分の公開アドレスを把握していません。AIが開くWebアドレスはすべて人に確認し、定期タスクはWebアドレスを1つも開きません。",
+      es: "La comprobación está desactivada, así que el servidor no la conoce. Cada dirección web que abre la IA pregunta a una persona y las tareas programadas no abren ninguna.",
+    }),
     relayReplaced: withSupport({ ko: '다른 서버가 같은 팀 주소로 연결해 이 팀의 연결을 대신했습니다.', en: 'Another server connected with this team\'s address and replaced this team\'s connection.', id: 'Server lain terhubung dengan alamat tim ini dan menggantikan koneksi tim ini.', ja: "別のサーバーがこのチームのアドレスで接続し、このチームの接続を置き換えました。", es: "Otro servidor se conectó con la dirección del equipo y reemplazó su conexión." }),
     engineNotLoggedIn: { ko: '로그인되어 있지 않습니다. 관리자 > AI 엔진에서 다시 연결해 주세요.', en: 'Not signed in. Connect it again in Admin > AI engines.', id: 'Belum masuk. Hubungkan lagi di Admin > Mesin AI.', ja: "ログインしていません。「管理 > AIエンジン」で再接続してください。", es: "No hay sesión iniciada. Vuelva a conectar en Administración > Motores de IA." },
     engineSetupToken: { ko: 'AI 계정이 연결되어 있지 않습니다. 관리자 > AI 엔진에서 연결해 주세요.', en: 'No AI account is connected. Connect one in Admin > AI engines.', id: 'Belum ada akun AI yang terhubung. Hubungkan di Admin > Mesin AI.', ja: "AIアカウントが接続されていません。「管理 > AIエンジン」で接続してください。", es: "No hay ninguna cuenta de IA conectada. Conecte una en Administración > Motores de IA." },

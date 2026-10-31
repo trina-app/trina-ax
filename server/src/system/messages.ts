@@ -52,6 +52,37 @@ export const M = {
   relayOffline: { ko: '중계 서버에 연결되지 않습니다. 맥의 인터넷 연결을 확인해 주세요. 사무실 안 직접 연결은 계속 됩니다.', en: 'Cannot reach the relay. Check the Mac\'s internet connection. Direct connections in the office still work.', id: 'Tidak dapat menjangkau relay. Periksa koneksi internet Mac. Koneksi langsung di kantor tetap berfungsi.', ja: "中継サーバーに接続できません。Macのインターネット接続を確認してください。社内の直接接続は引き続き使えます。", es: "No se puede conectar con el servidor de retransmisión. Revise la conexión a internet de la Mac. Las conexiones directas de la oficina siguen funcionando." },
   relayReplaced: { ko: '다른 맥의 서버가 같은 팀 주소로 연결해 이 서버의 연결을 대신했습니다. 의도한 일이 아니면 팀 키를 바꿔 주세요.', en: 'A server on another Mac connected with this team\'s address and replaced this one. If you did not do this, rotate the team key.', id: 'Server di Mac lain terhubung dengan alamat tim ini dan menggantikan server ini. Jika bukan Anda, ganti kunci tim.', ja: "別のMac上のサーバーがこのチームのアドレスで接続し、このサーバーを置き換えました。心当たりがない場合は、チームキーを更新してください。", es: "Un servidor en otra Mac se conectó con la dirección del equipo y reemplazó a este. Si no lo hizo usted, renueve la clave del equipo." },
 
+  // this server's public exit address (tools/egress.ts): known or not, never the address itself (QA 0.2.12 N5)
+  exitAddress: { ko: '서버의 공인 주소', en: 'Public address of the server', id: 'Alamat publik server', ja: "サーバーの公開アドレス", es: "Dirección pública del servidor" },
+  exitAddressKnown: (families: string): T => ({
+    ko: `알고 있어요(${families}). AI가 여는 웹 주소는 평소 규칙을 따르고, 서버 자신으로 되돌아오는 주소는 거절해요.`,
+    en: `Known (${families}). Web addresses the AI opens follow the normal rules; addresses that lead back to this server are refused.`,
+    id: `Diketahui (${families}). Alamat web yang dibuka AI mengikuti aturan biasa; alamat yang mengarah kembali ke server ini ditolak.`,
+    ja: `把握しています（${families}）。AIが開くWebアドレスは通常のルールに従い、このサーバー自身に戻るアドレスは拒否します。`,
+    es: `Conocida (${families}). Las direcciones web que abre la IA siguen las reglas normales; las que llevan de vuelta a este servidor se rechazan.`,
+  }),
+  exitAddressKnownRelay: {
+    ko: '알고 있어요(중계 서버가 알려 줌). AI가 여는 웹 주소는 평소 규칙을 따르고, 서버 자신으로 되돌아오는 주소는 거절해요.',
+    en: 'Known (reported by the relay). Web addresses the AI opens follow the normal rules; addresses that lead back to this server are refused.',
+    id: 'Diketahui (dilaporkan relay). Alamat web yang dibuka AI mengikuti aturan biasa; alamat yang mengarah kembali ke server ini ditolak.',
+    ja: "把握しています（中継サーバーからの報告）。AIが開くWebアドレスは通常のルールに従い、このサーバー自身に戻るアドレスは拒否します。",
+    es: "Conocida (informada por el servidor de retransmisión). Las direcciones web que abre la IA siguen las reglas normales; las que llevan de vuelta a este servidor se rechazan.",
+  },
+  exitAddressUnknown: (url: string): T => ({
+    ko: `아직 몰라요. 모르는 동안에는 AI가 여는 웹 주소마다 사람에게 묻고, 예약 작업은 웹 주소를 하나도 열지 않아요. 서버는 시작할 때와 30분마다 ${url} 에 물어요. 서버가 이 주소에 https로 접속할 수 있는지 확인해 주세요.`,
+    en: `Not known. Until the server knows it, every web address the AI opens asks a person, and scheduled tasks open none. The server asks ${url} at start and every 30 minutes; check that it can reach that address over https.`,
+    id: `Belum diketahui. Selama belum diketahui, setiap alamat web yang dibuka AI ditanyakan ke seseorang, dan tugas terjadwal tidak membuka satu pun. Server bertanya ke ${url} saat mulai dan setiap 30 menit; periksa apakah server bisa menjangkau alamat itu lewat https.`,
+    ja: `まだ把握していません。把握するまでは、AIが開くWebアドレスはすべて人に確認し、定期タスクはWebアドレスを1つも開きません。サーバーは起動時と30分ごとに${url}に問い合わせます。サーバーがこのアドレスにhttpsで接続できるか確認してください。`,
+    es: `Desconocida. Mientras el servidor no la conozca, cada dirección web que abre la IA pregunta a una persona y las tareas programadas no abren ninguna. El servidor pregunta a ${url} al iniciar y cada 30 minutos; compruebe que puede llegar a esa dirección por https.`,
+  }),
+  exitAddressOff: (setting: string): T => ({
+    ko: `확인이 꺼져 있어요(${setting}). 그래서 서버가 자기 공인 주소를 몰라요. AI가 여는 웹 주소마다 사람에게 묻고, 예약 작업은 웹 주소를 하나도 열지 않아요. 켜려면 서버 환경 파일에서 이 설정을 빼고 서버를 다시 시작하세요.`,
+    en: `The check is turned off (${setting}), so the server does not know it. Every web address the AI opens asks a person, and scheduled tasks open none. To turn it on, remove that setting from the server's environment file and restart the server.`,
+    id: `Pemeriksaan dimatikan (${setting}), jadi server tidak mengetahuinya. Setiap alamat web yang dibuka AI ditanyakan ke seseorang, dan tugas terjadwal tidak membuka satu pun. Untuk menyalakannya, hapus pengaturan itu dari berkas lingkungan server lalu mulai ulang server.`,
+    ja: `確認がオフになっています（${setting}）。そのため、サーバーは自分の公開アドレスを把握していません。AIが開くWebアドレスはすべて人に確認し、定期タスクはWebアドレスを1つも開きません。オンにするには、サーバーの環境ファイルからこの設定を削除し、サーバーを再起動してください。`,
+    es: `La comprobación está desactivada (${setting}), así que el servidor no la conoce. Cada dirección web que abre la IA pregunta a una persona y las tareas programadas no abren ninguna. Para activarla, quite esa opción del archivo de entorno del servidor y reinicie el servidor.`,
+  }),
+
   diskTeam: { ko: '디스크 여유 공간(팀 폴더)', en: 'Free disk space (team folder)', id: 'Ruang disk kosong (folder tim)', ja: "ディスク空き容量（チームフォルダー）", es: "Espacio libre en disco (carpeta del equipo)" },
   diskData: { ko: '디스크 여유 공간(서버 데이터)', en: 'Free disk space (server data)', id: 'Ruang disk kosong (data server)', ja: "ディスク空き容量（サーバーデータ）", es: "Espacio libre en disco (datos del servidor)" },
   diskLow: (free: number, pct: number): T => ({ ko: `남은 공간 ${gb(free)} (${pct}%). 15% 아래입니다. 휴지통 비우기·오래된 버전 정리로 공간을 늘려 주세요.`, en: `${gb(free)} free (${pct}%), below 15%. Empty the trash or clean up old versions.`, id: `${gb(free)} kosong (${pct}%), di bawah 15%. Kosongkan tempat sampah atau hapus versi lama.`, ja: `空き容量${gb(free)}（${pct}%）で、15%を下回っています。ゴミ箱を空にするか、古いバージョンを整理してください。`, es: `${gb(free, 'es')} libres (${pct}%), menos del 15%. Vacíe la papelera o elimine versiones antiguas.` }),

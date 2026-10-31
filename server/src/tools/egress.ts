@@ -74,6 +74,12 @@ export function egressOf(ctx: object): { known: boolean; ips: string[] } {
   return { known: !!e && (e.relay || !!e.v4 || (!!e.v6 && e.v4NoRoute)), ips: e?.ips ?? [] }
 }
 
+/** What Admin › System › Diagnostics says about it (system/ops.ts): known or not, and from where. Never the address. */
+export function egressStatus(ctx: object): { known: boolean; relay: boolean; ipv4: boolean; ipv6: boolean } {
+  const e = byCtx.get(ctx)
+  return { known: egressOf(ctx).known, relay: !!e?.relay, ipv4: !!e?.v4, ipv6: !!e?.v6 }
+}
+
 /** Right after a start the first round may still run: wait for it, at most `ms`, before deciding "unknown". */
 export async function egressSettled(ctx: object, ms = EGRESS_WAIT_MS): Promise<void> {
   const first = byCtx.get(ctx)?.first

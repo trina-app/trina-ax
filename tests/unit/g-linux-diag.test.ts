@@ -17,6 +17,7 @@ import { engineStatusMessages, hostMessages } from '../../server/src/system/mess
 import { OpsService } from '../../server/src/system/ops'
 import { launcherStatus } from '../../server/src/native'
 import { T as ENGINE_T } from '../../server/src/admin/engines'
+import { EXIT_ADDRESS_URL, learnExitAddresses, noteEgressIp } from '../../server/src/tools/egress'
 
 const MAC_WORDS = /맥|\bMac\b|pbpaste|launchctl|\/Library|menubar|메뉴바|Time Machine|\/var\/at|LaunchDaemon|Finder/
 
@@ -45,7 +46,8 @@ describe('wording', () => {
     'subscriptionRejected', 'modelProxy', 'modelProxyOk', 'modelProxyPortInUse', 'modelProxyNotStarted', 'engineCodexLogin', 'engineCheckFailed', 'queue', 'queueDetail', 'queueLong',
     'firewall', 'firewallOk', 'firewallMissing', 'firewallStale', 'firewallOff', 'sandbox', 'sandboxOk', 'sandboxMissing', 'cronDeny', 'cronDenyOk', 'cronDenyMissing',
     'launcher', 'launcherOk', 'launcherDown', 'launcherNotRunning', 'launcherDenied', 'launcherTimeout', 'sockets', 'socketsOk', 'socketsTooLong', 'lan', 'lanOk', 'lanFailed',
-    'backups', 'backupNone', 'backupOld', 'backupOk', 'backupFailed', 'backupNoSpace', 'restoreFailed', 'update', 'updateOk', 'updateRolledBack', 'releaseSig', 'releaseUnsigned', 'releaseSigned']
+    'backups', 'backupNone', 'backupOld', 'backupOk', 'backupFailed', 'backupNoSpace', 'restoreFailed', 'update', 'updateOk', 'updateRolledBack', 'releaseSig', 'releaseUnsigned', 'releaseSigned',
+    'exitAddress', 'exitAddressKnown', 'exitAddressKnownRelay', 'exitAddressUnknown', 'exitAddressOff']
   for (const host of ['linux', 'hosted'] as const) {
     test(`${host}: no Mac, launchctl, pbpaste or /Library in what it can show`, () => {
       const m = hostMessages(host, { id: 'mycel', base: '/var/lib/mycel' }) as unknown as Record<string, unknown>
@@ -156,6 +158,52 @@ describe('diagnostics of an installed Linux server', () => {
     expect(hd.checks.find((c) => c.id === 'sockets')).toBeUndefined()
     expect(hd.checks.find((c) => c.id === 'update')!.detail).toContain('the hosting provider installs updates')
     for (const c of hd.checks) expect(`${c.detail ?? ''}`).not.toMatch(/sudo |systemctl|journalctl/)
+  })
+  test('the public exit address (QA 0.2.12 N5): unknown, turned off, known by family or by the relay; never the address itself', async () => {
+    const env = 'MYCEL_EXIT_ADDRESS_CHECK'
+    const before = process.env[env]
+    const exit = async (o: { hosted?: boolean } = {}, locale: 'en' | 'ko' = 'en') => (await ops(o).diagnostics(locale)).checks.find((c) => c.id === 'exit_address')!
+    try {
+      delete process.env[env]
+      const unknown = await exit()
+      expect(unknown).toMatchObject({ group: 'connection', label: 'Public address of the server', status: 'warn' })
+      // what "unknown" means for the team, and what the server does about it
+      expect(unknown.detail).toContain('every web address the AI opens asks a person, and scheduled tasks open none')
+      expect(unknown.detail).toContain(EXIT_ADDRESS_URL)
+      expect((await exit({}, 'ko')).detail).toContain('예약 작업은 웹 주소를 하나도 열지 않아요')
+      // the hosted cloud: nothing to check on a server the customer cannot reach, so support instead
+      const hosted = await exit({ hosted: true })
+      expect(hosted.detail).not.toContain(EXIT_ADDRESS_URL)
+      expect(hosted.detail).toContain('Contact the hosting support team')
+      process.env[env] = 'off'
+      const off = await exit()
+      expect(off.status).toBe('warn')
+      expect(off.detail).toContain('MYCEL_EXIT_ADDRESS_CHECK=off')
+      expect(off.detail).toContain('scheduled tasks open none')
+      // learned from the feed: which families, never the address
+      learnExitAddresses(ctx, { v4: { ip: '203.0.113.7', family: 4 }, v6: { error: 'no route' } })
+      const known = await exit()
+      expect(known).toMatchObject({ status: 'ok', detail: 'Known (IPv4). Web addresses the AI opens follow the normal rules; addresses that lead back to this server are refused.' })
+      learnExitAddresses(ctx, { v4: { ip: '203.0.113.7', family: 4 }, v6: { ip: '2001:db8::7', family: 6 } })
+      const both = await exit({}, 'ko')
+      expect(both.detail).toContain('알고 있어요(IPv4, IPv6)')
+      const d = JSON.stringify(await ops().diagnostics('en'))
+      expect(d).not.toContain('203.0.113.7')
+      expect(d).not.toContain('2001:db8::7')
+    } finally {
+      if (before === undefined) delete process.env[env]; else process.env[env] = before
+    }
+  })
+  test('the exit address the relay reported counts as known', async () => {
+    const other = createContext({ config: { ...ctx.config, dataDir: path.join(root, 'relay-data') }, db: openDb(':memory:'), log: silentLogger })
+    try {
+      const layout = resolveLayout(other.config, { MYCEL_INSTALL_BASE: base, MYCEL_LABEL: 'mycel' }, 'linux')
+      const diag = async () => (await new OpsService(other, { layout, platform: 'linux', engines: async () => [], launcherStatus: async () => status, procSysDir: procSys, atDir: path.join(root, 'etc') }).diagnostics('en')).checks.find((c) => c.id === 'exit_address')!
+      expect((await diag()).status).toBe('warn')
+      noteEgressIp(other, '198.51.100.9')
+      expect(await diag()).toMatchObject({ status: 'ok', detail: expect.stringContaining('Known (reported by the relay)') })
+      expect((await diag()).detail).not.toContain('198.51.100.9')
+    } finally { await other.close() }
   })
   test('the launcher protocol: {"op":"status"} -> one status line (an older launcher\'s error = null)', async () => {
     const s2 = path.join(root, 's2.sock')
