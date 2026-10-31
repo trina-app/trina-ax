@@ -226,7 +226,7 @@ describe('scheduled tasks (F1, review M4)', () => {
     expect(h.rt().schedules.runDue(new Date(Date.now() + 4 * 86400_000))).toEqual([row.id])
     const msg = h.ctx.db.query("SELECT chat_id FROM messages WHERE role = 'user' AND content = ?").get(p2) as { chat_id: string }
     expect(await gateUrl(h.ctx.db, msg.chat_id, secretUrl, null)).toBe('seen')
-    expect(gateUrl(h.ctx.db, msg.chat_id, longUrl, null)).rejects.toThrow(/long query part/)
+    await expect(gateUrl(h.ctx.db, msg.chat_id, longUrl, null)).rejects.toThrow(/long query part/)
   })
 
   test('the long-query line in five languages, on "다시 확인" too, and while the server does not know its address', () => {

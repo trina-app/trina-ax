@@ -262,8 +262,9 @@ test('this repository: the server and office notice bundles carry the Public Suf
       expect(notice).toContain('MPL-2.0')
       const mpl = fs.readFileSync(path.join(artifact, 'licenses/public-suffix-list/MPL-2.0.txt'))
       expect(mpl.toString('utf8').startsWith('Mozilla Public License Version 2.0')).toBe(true)
-      // the licence text exactly as Mozilla publishes it (https://www.mozilla.org/media/MPL/2.0/index.txt)
-      expect(sha(mpl)).toBe('1f256ecad192880510e84ad60474eab7589218784b9a50bc7ceee34c2b91f1d5')
+      // the licence text exactly as Mozilla publishes it (https://www.mozilla.org/media/MPL/2.0/index.txt, as served on
+      // 2026-10-31; its copy before 2026-02 had http:// in Exhibit A, sha256 1f256eca…)
+      expect(sha(mpl)).toBe('3f3d9e0024b1921b067d6f7f88deb4a60cbe7a78e76c64e3f1d7fc3b779b9d04')
     }
   } finally { fs.rmSync(root, { recursive: true, force: true }) }
 })
