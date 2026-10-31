@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!-- Mac App Store: the app itself (README.md). App Sandbox with the app group Electron needs; the application
+     identifier and team match the provisioning profile. Outgoing connections: the team server and the websites of the
+     browser pane. Files: what the person picks or saves, and the Downloads folder. Microphone: voice input in chats. -->
+<plist version="1.0">
+<dict>
+	<key>com.apple.security.app-sandbox</key>
+	<true/>
+	<key>com.apple.application-identifier</key>
+	<string>YWW96288YY.app.trina.ax</string>
+	<key>com.apple.developer.team-identifier</key>
+	<string>YWW96288YY</string>
+	<key>com.apple.security.application-groups</key>
+	<array>
+		<string>YWW96288YY.app.trina.ax</string>
+	</array>
+	<key>com.apple.security.network.client</key>
+	<true/>
+	<key>com.apple.security.files.user-selected.read-write</key>
+	<true/>
+	<key>com.apple.security.files.downloads.read-write</key>
+	<true/>
+	<key>com.apple.security.device.audio-input</key>
+	<true/>
+	<key>com.apple.security.device.microphone</key>
+	<true/>
+</dict>
+</plist>
