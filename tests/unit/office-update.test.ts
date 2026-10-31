@@ -521,12 +521,14 @@ describe('Admin > System endpoints', () => {
 })
 
 describe('desktop updater configuration', () => {
-  test('Windows packaged = electron-updater; Mac = notice; unpacked = off (tests can force a mode)', () => {
+  test('Windows packaged = electron-updater; Mac = notice; Mac App Store and unpacked = off (tests can force a mode)', () => {
     expect(updateMode('win32', true)).toBe('auto-install')
     expect(updateMode('darwin', true)).toBe('notice')
     expect(updateMode('linux', true)).toBe('off')
     expect(updateMode('win32', false)).toBe('off')
     expect(updateMode('darwin', false, 'auto-install')).toBe('auto-install')
+    expect(updateMode('darwin', true, undefined, true)).toBe('off') // the store updates it
+    expect(updateMode('darwin', true, 'notice', true)).toBe('off')
   })
   test('the feed is the team address + /downloads/, with the session as a Bearer token; never plain http on the internet', () => {
     const tok = 'a'.repeat(43)

@@ -8,14 +8,17 @@
 // NSIS: no publisherName, so electron-updater does not ask for a signature; the sha512 in latest.yml is checked.
 // macOS: no automatic install (that needs an Apple-signed app); /downloads/index.json is read with the team page's
 // own cookies and a newer Mac item is announced once per version, with a link to Settings > Apps.
+// Mac App Store build (process.mas): nothing; the store updates it, and the store does not allow pointing to another
+// download (editions/trina/mac-app-store).
 export const FIRST_CHECK_MS = 20_000
 export const CHECK_EVERY_MS = 4 * 3600_000
 
 export type UpdateMode = 'auto-install' | 'notice' | 'off'
 
-/** what this build does: electron-updater only in a packaged Windows app (MYCEL_DESKTOP_UPDATE_TEST forces a mode in
- * development and tests) */
-export function updateMode(platform: string, packaged: boolean, forced?: string): UpdateMode {
+/** what this build does: electron-updater only in a packaged Windows app, never in a Mac App Store build
+ * (MYCEL_DESKTOP_UPDATE_TEST forces a mode in development and tests, not in a store build) */
+export function updateMode(platform: string, packaged: boolean, forced?: string, mas = false): UpdateMode {
+  if (mas) return 'off'
   if (forced === 'auto-install' || forced === 'notice' || forced === 'off') return forced
   if (!packaged) return 'off'
   if (platform === 'win32') return 'auto-install'

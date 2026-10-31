@@ -5,6 +5,7 @@
 // background and installs when the app quits, or at once with the "다시 시작" prompt / menu item.
 // macOS: a notice once per new version found in /downloads/index.json (read with the team page's own cookies) with a
 // button that opens Settings > Apps; the app is not replaced (that needs an Apple-signed build).
+// Mac App Store build (process.mas): off; the store updates it.
 import { existsSync, readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { app, dialog, session, type BaseWindow } from 'electron'
@@ -35,7 +36,7 @@ export class DesktopUpdater {
   private updater: typeof import('electron-updater').autoUpdater | null = null
 
   constructor(private host: UpdaterHost) {
-    this.mode = updateMode(process.platform, app.isPackaged, process.env.MYCEL_DESKTOP_UPDATE_TEST)
+    this.mode = updateMode(process.platform, app.isPackaged, process.env.MYCEL_DESKTOP_UPDATE_TEST, process.mas === true)
   }
 
   start() {
