@@ -3,9 +3,11 @@
 package main
 
 import (
+	"fmt"
 	"os/exec"
 	"sync"
 	"syscall"
+	"time"
 )
 
 type turnEnv struct {
@@ -17,6 +19,9 @@ type turnEnv struct {
 func setupLinux() error { return nil }
 
 func beginTurn(req *request, chat string) (*turnEnv, error) {
+	if req.CodeSandbox {
+		return nil, fmt.Errorf("code_sandbox_unavailable: not supported on macOS yet")
+	}
 	markChat(chat, 1)
 	takeSlot(0)
 	return &turnEnv{chat: chat}, nil
@@ -47,9 +52,15 @@ func (t *turnEnv) cleanup() {
 
 func platformStatus(ev map[string]any) {
 	ev["os"] = "darwin"
+	ev["codeSandbox"] = map[string]any{"available": false, "reason": "not supported on macOS yet"}
 	if *sandboxProfile != "" {
 		ev["sandbox"] = "sandbox-exec"
 	} else {
 		ev["sandbox"] = "none"
 	}
+}
+
+// runCode: the code sandbox is Linux only for now (code.go).
+func runCode(ct *codeTurn, req *codeRequest, timeout time.Duration, stopped <-chan struct{}) (map[string]any, error) {
+	return nil, fmt.Errorf("code_unavailable: not supported on macOS yet")
 }

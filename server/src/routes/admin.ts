@@ -35,6 +35,8 @@ import { registerCredentialRoutes } from './credentials'
 import { assertConcurrencyAllowed, concurrencyMax } from '../system/limits'
 import { checkApiEngineUrl } from '../system/egress'
 import { feature } from '../system/deployment'
+import { CODE_SANDBOX_CHANGED, codeSandboxAvailability, codeSandboxConsent, codeSandboxInForce, codeSandboxResponse, codeSandboxScope, setCodeSandbox } from '../admin/code-sandbox'
+import { CODE_SANDBOX_WARNING_VERSION } from '@mycel/shared/api'
 import { readTeamIcon, removeTeamIcon, saveTeamIcon, TEAM_ICON_CHANGED, teamIconInfo } from '../admin/team-icon'
 
 async function enginesResponse(ctx: AppContext, cache: EngineStatusCache, locale: Locale) {
@@ -253,6 +255,35 @@ export const adminRoutes: RouteModule = {
     kit.handle(API.deleteBudget, ({ params, auth }) => {
       deleteBudget(ctx.db, params.id)
       audit(ctx.db, { actor: auth.user.id, action: 'budget.delete', target: params.id })
+    })
+
+    // ---------------- code sandbox (docs/DECISIONS.md "Code sandbox") ----------------
+    kit.handle(API.codeSandbox, () => codeSandboxResponse(ctx, true))
+    kit.handle(API.updateCodeSandbox, async ({ c, body, auth }) => {
+      const locale = c.get('locale')
+      const groups = new Set(listGroups(ctx).map((g) => g.id))
+      if (body.scope.groupIds.some((g) => !groups.has(g))) fail('validation', msg('unknownGroups', locale), { fields: { 'body.scope.groupIds': 'unknown group' } })
+      const people = new Set((ctx.db.query('SELECT id FROM users WHERE deleted_at IS NULL').all() as { id: string }[]).map((u) => u.id))
+      if (body.scope.userIds.some((u) => !people.has(u))) fail('validation', msg('unknownUsers', locale), { fields: { 'body.scope.userIds': 'unknown person' } })
+      const before = { scope: codeSandboxScope(ctx), inForce: codeSandboxInForce(ctx) }
+      let consent = null
+      if (body.scope.mode !== 'off') {
+        const avail = await codeSandboxAvailability(ctx, true)
+        if (!avail.available) fail('conflict', msg('codeSandboxUnavailable', locale), { params: { reason: 'code_sandbox_unavailable', why: avail.reason ?? 'launcher' } })
+        if (codeSandboxConsent(ctx)?.warningVersion !== CODE_SANDBOX_WARNING_VERSION) {
+          if (body.acceptWarning !== CODE_SANDBOX_WARNING_VERSION) fail('conflict', msg('codeSandboxWarning', locale), { params: { reason: 'code_sandbox_warning', warningVersion: CODE_SANDBOX_WARNING_VERSION } })
+          consent = { by: { id: auth.user.id, name: auth.user.name }, at: new Date().toISOString(), warningVersion: CODE_SANDBOX_WARNING_VERSION }
+        }
+      }
+      setCodeSandbox(ctx, body.scope, consent)
+      // the consent is its own record (who, when, which warning); the scope change names before and after
+      if (consent) audit(ctx.db, { actor: auth.user.id, action: 'code_sandbox.consent', target: null, detail: { warningVersion: consent.warningVersion, at: consent.at } })
+      const after = { scope: codeSandboxScope(ctx), inForce: codeSandboxInForce(ctx) }
+      if (JSON.stringify(before) !== JSON.stringify(after)) {
+        audit(ctx.db, { actor: auth.user.id, action: 'code_sandbox.scope', target: null, detail: { before: before.scope, after: after.scope } })
+        ctx.services.realtime.publishEach(() => CODE_SANDBOX_CHANGED)
+      }
+      return codeSandboxResponse(ctx)
     })
 
     kit.handle(API.settings, () => getTeamSettings(ctx.db))

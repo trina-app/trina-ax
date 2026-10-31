@@ -39,6 +39,7 @@ import type { ChatRuntime } from './runtime'
 import { blankTeamAttachment, stopReasonOf, type MessageRow } from './store'
 import { BROWSER_TOOL_NAMES } from '../realtime/browser-tools'
 import { buildToolSet, type ChatToolSet } from './tools'
+import { codeSandboxAvailability, codeSandboxFor } from '../admin/code-sandbox'
 import { addSources, clearScope, sourceKey, sourceLabel, sourceOf, widening, type ReadSource } from './read-scope'
 import { authorize } from '../policy/authorize'
 import { readRegular, sha256 } from '../files/store'
@@ -114,6 +115,8 @@ export class TurnExec {
   private runningAtStop: ReadonlySet<string> = new Set()
   status: 'starting' | 'running' | 'finished' = 'starting'
   browser = false
+  /** the code sandbox is on for this turn (chat/code-sandbox.ts): the programs the launcher found */
+  codeSandbox: { runtimes?: Record<string, boolean> } | null = null
   principal: Principal | null = null
   private templateScope = false
   /** office-network hosts the person allowed "once" in this turn */
@@ -276,6 +279,13 @@ export class TurnExec {
 
     this.browser = spec.clientKind === 'desktop' && !!spec.windowId && await rt.relay.waitForWindow(spec.userId, spec.windowId)
     if (this.stopReason) return
+    // the code sandbox (docs/DECISIONS.md "Code sandbox"): Claude Code and Codex turns through the launcher, never an
+    // approved template run (its scope is fixed); the scope names the person and the launcher says it can run code
+    if ((claude || codex) && !this.templateScope && codeSandboxFor(rt.ctx, spec.userId)) {
+      const avail = await codeSandboxAvailability(rt.ctx).catch(() => null)
+      if (avail?.available) this.codeSandbox = { runtimes: avail.runtimes }
+      if (this.stopReason) return
+    }
     const toolSet = buildToolSet(this)
     this.toolSet = toolSet
     const extraTools = toolSet.list().map((t) => t.name)
@@ -411,6 +421,7 @@ export class TurnExec {
           stash: resume ? fs.readFileSync(rt.sessionStash(spec.chatId, sid)) : null, model, maxTurns: rt.maxEngineTurns, timeoutMs: LAUNCHER_BACKSTOP_MS, extraTools, proxyToken, tokenKind,
           ...(tunnelPort !== null && proxyToken ? { tunnel: { port: tunnelPort, token: proxyToken } } : {}),
         }, claude)
+        if (this.codeSandbox) lr.codeSandbox = true
         const { exit, stderr } = await this.launch(core, lr, (l) => { for (const e of parser.push(l)) this.onEvent(e, errors) })
         this.closeThinking()
         if (exit?.session?.b64) this.stashSession(sid, exit.session.b64)
@@ -551,6 +562,7 @@ export class TurnExec {
             authJson: dummyAuthJson({ credentialId: c.credentialId, kind, planType: meta.planType ?? null, fedramp: meta.fedramp === true }, t) }
         }
         const lr = buildCodexLaunch({ webSearch, turnId: spec.turnId, chatDir, token, systemPrompt: o.systemPrompt, message: o.message, timeoutMs: LAUNCHER_BACKSTOP_MS, extraTools: o.extraTools, model, proxy, ...(m ? { managed: m } : {}) }, codex)
+        if (this.codeSandbox) lr.codeSandbox = true
         const { exit, stderr, notes } = await this.launch(core, lr, (l) => { for (const e of parser.push(l)) this.onEvent(e, errors) })
         this.closeThinking()
         try { prepareCodexTurn(codex, chatDir) } catch (e) { rt.log.warn('codex home restore failed', { err: e }) } // a refreshed login goes back to its place

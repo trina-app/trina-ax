@@ -4,7 +4,9 @@
 //	R/                  cgroup.subtree_control = +memory +pids +cpu
 //	R/supervisor/       the launcher itself (a cgroup with processes cannot enable controllers for its children)
 //	R/turns/            memory.max = all turns' budget, memory.high = 90 %, swap 0, pids.max = (turns + 1) × per turn
+//	                    + turns × per code run
 //	R/turns/t-<turnId>  memory.max/high, swap 0, pids.max, cpu.max, memory.oom.group = 1 (the whole turn dies on OOM)
+//	R/turns/c-<turnId>  one code run of that turn (code_linux.go): half its memory and processes, oom.group = 1
 //	R/turns/login       codex-login
 //
 // The turn's first process (bwrap's monitor) is created directly inside its cgroup (clone3 CLONE_INTO_CGROUP via
@@ -174,7 +176,8 @@ func (r *cgRoot) applyTurnsLimits(l plan.Limits) {
 	_ = writeCg(r.turns, "memory.max", strconv.FormatInt(budget, 10))
 	_ = writeCg(r.turns, "memory.high", strconv.FormatInt(budget*9/10, 10))
 	_ = writeCg(r.turns, "memory.swap.max", "0") // missing without swap accounting
-	_ = writeCg(r.turns, "pids.max", strconv.Itoa((l.MaxConcurrency+1)*l.TurnPidsMax))
+	// every turn may have one code run beside it (code_linux.go newCode), with its own processes
+	_ = writeCg(r.turns, "pids.max", strconv.Itoa((l.MaxConcurrency+1)*l.TurnPidsMax+l.MaxConcurrency*codePids(l)))
 }
 
 // newTurn creates R/turns/<name> with the per-turn limits and returns it opened (for CLONE_INTO_CGROUP).

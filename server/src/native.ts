@@ -5,7 +5,7 @@ import path from 'node:path'
 import net from 'node:net'
 import crypto from 'node:crypto'
 import type { Subprocess } from 'bun'
-import { LauncherForget, LauncherStatus as LauncherStatusSchema, type LaunchEvent, type LauncherStatus, type LaunchRequest } from '@mycel/shared'
+import { LauncherCode, LauncherCodeExit, LauncherForget, LauncherStatus as LauncherStatusSchema, type LaunchEvent, type LauncherStatus, type LaunchRequest } from '@mycel/shared'
 import { connectUnix } from './system/sockets'
 
 async function waitReady(p: Subprocess<any, 'pipe', any>, what: string, ms = 5000) {
@@ -209,6 +209,17 @@ export async function launcherForget(sock: string, chatId: string): Promise<{ ok
   const e = events.find((x) => x.ev === 'forgot' || x.ev === 'error')
   if (e?.ev === 'forgot') return { ok: !!e.ok, ...(e.message ? { message: String(e.message) } : {}) }
   return { ok: false, message: e?.message ? String(e.message) : 'launcher unreachable' }
+}
+
+/** Run one program for a live code-sandbox turn (docs/DECISIONS.md "Code sandbox"; launcher op "code"). Aborting
+ * the signal closes the connection, which stops the run. */
+export async function launcherCode(sock: string, req: Omit<LauncherCode, 'op'>, signal?: AbortSignal): Promise<{ ok: true; exit: LauncherCodeExit } | { ok: false; message: string }> {
+  const body = LauncherCode.parse({ op: 'code', ...req })
+  const { events } = await exchange(sock, body, (e) => e.ev === 'code_exit' || e.ev === 'error', (body.timeoutMs ?? 60_000) + 30_000, signal)
+  const e = events.find((x) => x.ev === 'code_exit' || x.ev === 'error')
+  const exit = LauncherCodeExit.safeParse(e)
+  if (exit.success) return { ok: true, exit: exit.data }
+  return { ok: false, message: e?.ev === 'error' && e.message ? String(e.message) : signal?.aborted ? 'stopped' : 'launcher unreachable' }
 }
 
 export const randomSecret = () => crypto.randomBytes(32).toString('hex')

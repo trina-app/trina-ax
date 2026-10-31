@@ -164,6 +164,8 @@ type request struct {
 	} `json:"codexHome"`
 	// F1 only: the AI connection of the turn's real Codex login (unused by managed turns)
 	CredentialID string `json:"credentialId"`
+	// the team's code sandbox is on for this turn's person: code runs ("code" op, code.go) may use this turn
+	CodeSandbox bool `json:"codeSandbox"`
 }
 
 // credential variables an engine must never get through its environment (other processes of the engine account
@@ -490,6 +492,9 @@ func serve(c *net.UnixConn) {
 		} else {
 			forgetChat(line, o)
 		}
+		return
+	case "code": // code.go: one run for a live code-sandbox turn
+		serveCode(line, o, r)
 		return
 	case "codex-status":
 		codexStatus(o)

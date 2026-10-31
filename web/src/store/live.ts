@@ -89,6 +89,11 @@ export function dispatch(ev: ServerEvent) {
         void browserSettingsBridge()?.get().catch(() => null)
         return
       }
+      if (ev.data.code === 'code_sandbox_changed') {
+        // an admin changed who gets the code sandbox: the composer badge follows (GET /api/me carries it)
+        void useSession.getState().refreshMe()
+        return
+      }
       if (ev.data.code === 'team_icon_changed') {
         // an admin set or removed the team logo: the tab icon follows (GET /api/me carries its version)
         void useSession.getState().refreshMe()

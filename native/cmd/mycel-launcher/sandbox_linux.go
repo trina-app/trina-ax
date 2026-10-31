@@ -55,6 +55,7 @@ var lx struct {
 	cgFdOK       bool   // clone3 CLONE_INTO_CGROUP works here (else mycel-sandbox cgexec puts the turn in its cgroup)
 	sbxFiles     []string
 	diskDefault  int64
+	code         codeState // code_linux.go
 }
 
 // libMount: how /lib, /lib64, /lib32, /libx32 appear in the sandbox (same as on the host: a link or a folder).
@@ -105,6 +106,9 @@ func setupLinux() error {
 	}
 	if err := setupCgroupsAtStart(); err != nil {
 		return err
+	}
+	if lx.bwrap {
+		setupCode() // after the cgroups: a code run needs its own
 	}
 	return nil
 }
@@ -383,6 +387,9 @@ type turnEnv struct {
 	// bridge: the real path of --bridge for this turn, the one mcp.json names (main.go). An update switches
 	// app/current under a running launcher, so the path seen at start can be an older version.
 	bridge string
+	// codeID: the turn id under which code runs may use this turn (code.go); "" = no code sandbox
+	codeID string
+	stopFn func()
 }
 
 // bridgeReal is this turn's bridge (main.go sets it before the engine starts); the path from the start is only the
@@ -417,6 +424,18 @@ func beginTurn(req *request, chat string) (*turnEnv, error) {
 			t.cleanup()
 			return nil, err
 		}
+	}
+	if req.CodeSandbox {
+		if err := codeAllowed(t.limits); err != nil {
+			t.cleanup()
+			return nil, err
+		}
+		if t.cg == nil {
+			t.cleanup()
+			return nil, fmt.Errorf("code_sandbox_unavailable: the turn has no cgroup")
+		}
+		t.codeID = req.TurnID
+		registerCodeTurn(req.TurnID, chat, t)
 	}
 	return t, nil
 }
@@ -539,6 +558,9 @@ func (t *turnEnv) procAttr() *syscall.SysProcAttr {
 // started begins the disk watch (spec 3.3.7 step 5): every 2 s the chat folder's size in blocks (at most 50 000
 // entries counted); over the limit the turn is stopped and its folder emptied afterwards.
 func (t *turnEnv) started(pid int, stop func()) {
+	t.mu.Lock()
+	t.stopFn = stop
+	t.mu.Unlock()
 	if !lx.bwrap || t.diskMax <= 0 || t.login {
 		return
 	}
@@ -551,16 +573,25 @@ func (t *turnEnv) started(pid int, stop func()) {
 			case <-t.watchEnd:
 				return
 			case <-tk.C:
-				if folderBytes(t.chat, 50000) > t.diskMax {
-					t.mu.Lock()
-					t.diskHit = true
-					t.mu.Unlock()
-					stop()
+				if overDisk(t.chat, t.diskMax) {
+					t.hitDisk()
 					return
 				}
 			}
 		}
 	}()
+}
+
+// hitDisk: the chat folder passed the turn disk limit (the turn's watch or a code run's): the turn stops, cleanup
+// empties the folder.
+func (t *turnEnv) hitDisk() {
+	t.mu.Lock()
+	t.diskHit = true
+	stop := t.stopFn
+	t.mu.Unlock()
+	if stop != nil {
+		stop()
+	}
 }
 
 func (t *turnEnv) stderr(p []byte) { t.errs.add(p) }
@@ -618,6 +649,9 @@ func (t *turnEnv) cleanup() {
 	t.done = true
 	hit := t.diskHit
 	t.mu.Unlock()
+	if t.codeID != "" {
+		unregisterCodeTurn(t.codeID) // stops a run that is still going
+	}
 	if t.watchEnd != nil {
 		select {
 		case <-t.watchEnd:
@@ -647,16 +681,28 @@ func (t *turnEnv) cleanup() {
 	}
 }
 
-// folderBytes sums the allocated size of everything under dir (links not followed), stopping after max entries.
-func folderBytes(dir string, max int) int64 {
-	var total int64
+// diskEntriesMax: a chat folder with more entries than this counts as over its disk limit (the walk stops there, so
+// a crowd of small files cannot hide a big one behind it).
+const diskEntriesMax = 50000
+
+// overDisk: the chat folder holds more than max bytes, or more entries than diskEntriesMax.
+func overDisk(dir string, max int64) bool {
+	b, complete := folderBytes(dir, diskEntriesMax)
+	return !complete || b > max
+}
+
+// folderBytes sums the allocated size of everything under dir (links not followed), stopping after max entries
+// (complete = false).
+func folderBytes(dir string, max int) (total int64, complete bool) {
 	n := 0
+	complete = true
 	_ = filepath.WalkDir(dir, func(p string, d fs.DirEntry, err error) error {
 		if err != nil {
 			return nil
 		}
 		n++
 		if n > max {
+			complete = false
 			return filepath.SkipAll
 		}
 		var st unix.Stat_t
@@ -665,7 +711,7 @@ func folderBytes(dir string, max int) int64 {
 		}
 		return nil
 	})
-	return total
+	return total, complete
 }
 
 // proxyPortSquat (spec 3.4.4): a process of the engine account listening on the model proxy port (taken while the
@@ -748,6 +794,7 @@ func platformStatus(ev map[string]any) {
 		ev["seccomp"] = lx.seccomp
 		ev["listen"] = map[bool]string{true: "allowed", false: "denied"}[*allowListen]
 	}
+	codeStatus(ev)
 	ev["kernel"] = lx.kernel
 	ev["cgroup"] = lx.cgState
 	if l, err := currentLimits(); err == nil {

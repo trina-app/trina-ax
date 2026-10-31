@@ -157,6 +157,39 @@ export const UpdateEnginesBody = z.object({
   limitFallback: z.boolean().optional(),
 })
 
+// ---------------- code sandbox (docs/DECISIONS.md "Code sandbox", D1) ----------------
+/** The version of the warning an owner or admin accepts before the code sandbox goes on. A new version (other words,
+ * other risks) asks again: the stored consent then names an older one. */
+export const CODE_SANDBOX_WARNING_VERSION = 1
+/** Who gets the code sandbox: 'off' (default) = nobody, 'everyone', or 'selected' = the people in userIds and the
+ * members of groupIds. Owners and admins too only when the scope names them. */
+export const CodeSandboxScope = MemberEngineChoice
+export type CodeSandboxScope = z.infer<typeof CodeSandboxScope>
+/** The consent the audit log also records: who accepted which warning version, and when. */
+export const CodeSandboxConsent = z.object({ by: UserRef.nullable(), at: IsoTime, warningVersion: z.number().int().min(1) })
+export type CodeSandboxConsent = z.infer<typeof CodeSandboxConsent>
+/** Can this installation run code at all? reason: why not (platform: not Linux with the bwrap sandbox, e.g. the office
+ * Mac; plan: the hosted plan does not include it; setup: bash or the per-run cgroups are missing; launcher: no answer). */
+export const CodeSandboxAvailability = z.object({
+  available: z.boolean(),
+  reason: z.enum(['platform', 'plan', 'setup', 'launcher']).optional(),
+  /** the programs found in the distro's /usr/bin (bash, python3, jq, unzip, ...) */
+  runtimes: z.record(z.string(), z.boolean()).optional(),
+})
+export type CodeSandboxAvailability = z.infer<typeof CodeSandboxAvailability>
+export const CodeSandboxResponse = z.object({
+  scope: CodeSandboxScope,
+  /** the last accepted warning; null = never accepted */
+  consent: CodeSandboxConsent.nullable(),
+  warningVersion: z.number().int().min(1),
+  availability: CodeSandboxAvailability,
+})
+export type CodeSandboxResponse = z.infer<typeof CodeSandboxResponse>
+/** Turning it on (a scope other than 'off') needs acceptWarning = the current warning version unless the stored
+ * consent already has it. */
+export const UpdateCodeSandboxBody = z.object({ scope: CodeSandboxScope, acceptWarning: z.number().int().min(1).optional() })
+export type UpdateCodeSandboxBody = z.infer<typeof UpdateCodeSandboxBody>
+
 // ---------------- budgets, settings, usage, audit ----------------
 export const BudgetBody = z.object({
   subjectType: z.enum(['team', 'group', 'user']),
@@ -238,6 +271,8 @@ export const ADMIN = {
   updateBudget: endpoint({ method: 'PATCH', path: '/api/admin/budgets/:id', auth: 'admin', owner: 'A', body: BudgetBody.partial(), response: Budget, summary: 'Change a budget.' }),
   deleteBudget: endpoint({ method: 'DELETE', path: '/api/admin/budgets/:id', auth: 'admin', owner: 'A', response: empty, status: 204, summary: 'Delete a budget.' }),
 
+  codeSandbox: endpoint({ method: 'GET', path: '/api/admin/code-sandbox', auth: 'admin', owner: 'A', response: CodeSandboxResponse, summary: 'Who gets the code sandbox (the AI runs bash / python3 without network), the accepted warning, whether this server can run it.' }),
+  updateCodeSandbox: endpoint({ method: 'PUT', path: '/api/admin/code-sandbox', auth: 'admin', owner: 'A', body: UpdateCodeSandboxBody, response: CodeSandboxResponse, summary: 'Set who gets the code sandbox; turning it on needs the current warning accepted (recorded in the audit log).' }),
   settings: endpoint({ method: 'GET', path: '/api/admin/settings', auth: 'admin', owner: 'A', response: TeamSettings, summary: 'Team settings.' }),
   updateSettings: endpoint({ method: 'PATCH', path: '/api/admin/settings', auth: 'admin', owner: 'A', body: UpdateSettingsBody, response: TeamSettings, summary: 'Change team settings (team name change also renames the relay address: owner only).' }),
   putTeamIcon: endpoint({ method: 'PUT', path: '/api/admin/team-icon', auth: 'admin', owner: 'A', query: TeamIconQuery, body: binary(TEAM_ICON_MAX_BYTES), response: TeamIconInfo, summary: 'Set the team logo (tab icon, home-screen app icon): PNG, JPEG or WebP up to 1 MiB, 32–4096 px a side; audited.' }),

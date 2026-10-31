@@ -20,6 +20,7 @@ import { Card, Loadable, useAction, useLoad } from './common'
 import { timeZoneOptions } from '../../lib/time-zones'
 import { checkIconFile } from '../../lib/team-icon'
 import TransferOwnerCard from './TransferOwner'
+import CodeSandboxCard from './CodeSandbox'
 
 export default function TeamSettingsPage() {
   const t = useT()
@@ -110,6 +111,7 @@ export default function TeamSettingsPage() {
           )
         }
       </Loadable>
+      <CodeSandboxCard />
       <TeamIconCard />
       {isOwner(me) && <TransferOwnerCard ownerId={me.user.id} />}
     </>

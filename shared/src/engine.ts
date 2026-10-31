@@ -84,6 +84,9 @@ export const LaunchRequest = z.object({
   codexHome: z.object({ authJson: z.string().max(16 * 1024) }).optional(),
   /** F1 only: the AI connection the turn's real Codex login belongs to (one turn per connection at a time) */
   credentialId: z.string().max(64).optional(),
+  /** the code sandbox is on for this turn's person (docs/DECISIONS.md "Code sandbox"): the launcher then accepts
+   * LauncherCode requests for this turn id while it runs, and refuses the turn when it cannot run code */
+  codeSandbox: z.boolean().optional(),
 })
 export type LaunchRequest = z.infer<typeof LaunchRequest>
 export const LaunchEvent = z.discriminatedUnion('ev', [
@@ -129,9 +132,32 @@ export const LauncherStatus = z.object({
   turnMemoryMaxMiB: z.number().int().optional(),
   planError: z.string().optional(),
   firewall: z.object({ loaded: z.boolean(), at: z.string().nullable().optional(), rules: z.number().int().optional(), problem: z.string().optional() }).nullable().optional(),
+  /** code runs (LauncherCode): available, else why not (the launcher's own words); runtimes found in /usr/bin */
+  codeSandbox: z.object({ available: z.boolean(), reason: z.string().optional(), runtimes: z.record(z.string(), z.boolean()).optional() }).optional(),
 }).passthrough()
 export type LauncherStatus = z.infer<typeof LauncherStatus>
 /** {"op":"forget","chatId"}: delete <agent root>/<chatId> (the server cannot: the folder is the engine account's).
  * Answer {"ev":"forgot","ok"} or {"ev":"error","message"} ("busy: …" while a turn of that chat runs). */
 export const LauncherForget = z.object({ op: z.literal('forget'), chatId: z.string().regex(/^[A-Za-z0-9_-]{1,64}$/) })
 export type LauncherForget = z.infer<typeof LauncherForget>
+
+/** {"op":"code"}: run one program for a live turn started with codeSandbox (docs/DECISIONS.md "Code sandbox"). The
+ * launcher runs it in its own bubblewrap (no network, only <chat>/work at /work, the distro's /usr read-only) and its
+ * own cgroup; the chat folder comes from the turn, never from this request. Answer: one LauncherCodeExit or
+ * {"ev":"error","message"} ("code_busy: …" while another run of the turn is going). {"op":"kill"} or closing the
+ * connection stops the run. */
+export const LauncherCode = z.object({
+  op: z.literal('code'),
+  turnId: z.string().regex(/^[A-Za-z0-9_-]{1,64}$/),
+  lang: z.enum(['bash', 'python']),
+  code: z.string().min(1).max(256 * 1024),
+  timeoutMs: z.number().int().positive().optional(),
+})
+export type LauncherCode = z.infer<typeof LauncherCode>
+/** signal: timeout (the run's time limit), oom (the run's memory limit), disk_limit (the chat folder passed the turn
+ * disk limit: the turn stops too), stopped (the server or the turn's end), "" = it ended by itself. stdout and stderr
+ * keep the first 64 KiB each (truncated says more was dropped). */
+export const LauncherCodeExit = z.object({
+  ev: z.literal('code_exit'), code: z.number().int(), signal: z.string(), stdout: z.string(), stderr: z.string(), truncated: z.boolean(), ms: z.number(),
+})
+export type LauncherCodeExit = z.infer<typeof LauncherCodeExit>

@@ -20,6 +20,7 @@ import { limitIp, RateLimiter, reauthKey } from './rate-limit'
 import { isLoopback } from '../http/tunnel'
 import { USER_COLS, getUser, localeChoice, parsePrefs, userRef, type UserRow } from './users'
 import { canChooseEngine } from '../admin/engine-choice'
+import { codeSandboxBadge } from '../admin/code-sandbox'
 import { teamIconVersion } from '../admin/team-icon'
 import { deploymentOf, featuresOf } from '../system/deployment'
 import { safeOpsEnabled } from '../safe-ops/runner'
@@ -236,6 +237,7 @@ export class AuthService implements SessionService {
         id: u.id, username: u.username, name: u.name, email: u.email, role: u.role, locale: u.locale, localeChoice: localeChoice(u),
         mustChangePassword: !!u.must_change_password, prefs,
         canChooseEngine: choose,
+        codeSandbox: codeSandboxBadge(this.ctx, u.id),
       },
       groups,
       team: { name: settings.teamName, defaultLocale: settings.defaultLocale, browserAllowAll: settings.browserAllowAll, iconVersion: teamIconVersion(this.ctx.config.dataDir), voiceInput: voiceInputOn(this.db), chatTrashRetentionDays: settings.chatTrashRetentionDays },

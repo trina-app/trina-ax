@@ -1,6 +1,7 @@
 package plan
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -97,5 +98,23 @@ func TestControlPlaneFields(t *testing.T) {
 	}
 	if _, err := Parse([]byte(strings.Replace(cp, `"maxActiveMembers":12,"display":{"name":{"ko":"팀","en":"Team","id":"Tim"}}`, `"maxActiveMembers":null,"display":null`, 1))); err != nil {
 		t.Fatal(err)
+	}
+}
+
+// docs/DECISIONS.md "Code sandbox": a plan file decides; without the field the plan does not include it, without a
+// file (self-install) it does
+func TestCodeSandboxField(t *testing.T) {
+	base := `{"format":1,"plan":"team","maxConcurrency":3,"memoryMiB":4096,"cpuCores":2,"diskGiB":40%s}`
+	for extra, want := range map[string]bool{"": false, `,"codeSandbox":false`: false, `,"codeSandbox":true`: true} {
+		p, err := Parse([]byte(fmt.Sprintf(base, extra)))
+		if err != nil {
+			t.Fatalf("%q: %v", extra, err)
+		}
+		if got := Compute(p).CodeSandbox; got != want {
+			t.Errorf("%q: codeSandbox %v, want %v", extra, got, want)
+		}
+	}
+	if !Defaults(4096, 2).CodeSandbox {
+		t.Error("self-install defaults without the code sandbox")
 	}
 }

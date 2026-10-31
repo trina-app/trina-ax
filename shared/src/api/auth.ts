@@ -28,6 +28,9 @@ export const Me = z.object({
     /** may pick the engine / model (composer, retry with another model, own default): owner and admins always, others
      * when Admin > AI engines allows them. Absent (older server) = admins only. */
     canChooseEngine: z.boolean().optional(),
+    /** the AI may run code for this person (Admin > Team settings "Code sandbox", and this server can run it): the
+     * composer shows a badge. Absent (older server) = off. */
+    codeSandbox: z.boolean().optional(),
   }),
   groups: z.array(z.object({ id: Uuid7, name: z.string() })),
   team: z.object({

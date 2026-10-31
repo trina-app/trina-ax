@@ -10,7 +10,7 @@
 // files also arrive from the file screen / preview ("Ask AI about this", "Add to current chat", drag from the preview).
 // "/" at the start lists the team skills (SkillMenu).
 import clsx from 'clsx'
-import { ArrowUp, Camera, Check, Clock, FileAudio, FileText, FolderOpen, Loader2, MessageCircleQuestion, Mic, MicOff, Monitor, Paperclip, Smartphone, Square, X, ChevronDown } from 'lucide-react'
+import { ArrowUp, Camera, Check, Clock, FileAudio, FileText, FolderOpen, Loader2, MessageCircleQuestion, Mic, MicOff, Monitor, Paperclip, Smartphone, Square, Terminal, X, ChevronDown } from 'lucide-react'
 import { useEffect, useId, useImperativeHandle, useRef, useState, type Ref } from 'react'
 import { MESSAGE_ATTACHMENTS_MAX, SMALL_UPLOAD_MAX, uuidv7, type Attachment, type EngineId, type FileEntry, type TranscribeResult } from '@mycel/shared/api'
 import { api, API, errorText } from '../../lib/api'
@@ -628,6 +628,12 @@ export default function Composer({
                     e.target.value = ''
                   }}
                 />
+                {me?.user.codeSandbox && (
+                  // the AI may run code for this person (Admin > Team settings "Code sandbox"): always in sight
+                  <span className="ml-1 inline-flex shrink-0 items-center gap-1 rounded-full bg-accent-soft px-2 py-0.5 text-xs text-accent-text" title={t('composer.codeSandboxHint')} data-testid="code-sandbox-badge">
+                    <Terminal size={12} aria-hidden /> {t('composer.codeSandbox')}
+                  </span>
+                )}
                 {onEngine && (
                   <div className="relative">
                     <button type="button" aria-haspopup="listbox" aria-expanded={engineMenu} onClick={() => setEngineMenu((v) => !v)} className="ml-1 flex items-center gap-1 rounded-lg px-2 py-1.5 text-xs text-muted hover:bg-hover" data-testid="engine-picker">

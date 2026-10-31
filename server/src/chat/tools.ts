@@ -21,6 +21,7 @@ import { visionText } from '../files/vision-text'
 import { recordSkillRead } from '../admin/skill-usage'
 import { templateToolRefusal } from './schedule-templates'
 import { cleanAiTitle, graphemes, setAiTitle, titleToolOffered } from './title'
+import { runCodeTool } from './code-sandbox'
 
 interface Tool {
   name: string
@@ -64,6 +65,10 @@ export function buildToolSet(exec: TurnExec): ChatToolSet {
     try { if (t.available && !t.available({ userId: exec.spec.userId, chatId: exec.spec.chatId, browser: exec.browser })) continue } catch { continue }
     add(wrapRegistered(exec, t))
   }
+  if (exec.codeSandbox) add(runCodeTool({
+    db: exec.rt.db, turnId: exec.spec.turnId, userId: exec.spec.userId, signal: exec.abort.signal,
+    sock: async () => { const l = (await exec.rt.core()).launcher as { path?: unknown } | null; return l && typeof l.path === 'string' ? l.path : null },
+  }, exec.codeSandbox.runtimes))
   if (exec.browser) for (const t of PANE_TOOLS) add(browserTool(exec, t.name as BrowserToolName, t.description, t.inputSchema as unknown as Record<string, unknown>))
   // per-person tools (external-service connections), built from saved data at the start of the turn
   const prompt: string[] = []

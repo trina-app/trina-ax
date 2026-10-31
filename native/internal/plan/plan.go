@@ -32,7 +32,10 @@ type Plan struct {
 	ReadMaxMiB               int    `json:"readMaxMiB"`
 	ConvMemoryMaxMiB         *int   `json:"convMemoryMaxMiB"`
 	LocalBackupRetentionDays int    `json:"localBackupRetentionDays"`
-	UpdatedAt                string `json:"updatedAt"`
+	// CodeSandbox: the plan lets an admin turn on the code sandbox (docs/DECISIONS.md "Code sandbox"). A plan file
+	// without the field means no: the hosted service writes it for the plans that include it.
+	CodeSandbox *bool  `json:"codeSandbox"`
+	UpdatedAt   string `json:"updatedAt"`
 	// The control plane's additions (shared/src/cloud-protocol/files.ts PlanFile, control-plane 3.5.6): the server
 	// reads them (seats, the admin's plan card); the runtime only checks their shape.
 	MaxActiveMembers *int            `json:"maxActiveMembers"`
@@ -153,6 +156,8 @@ type Limits struct {
 	ServerMemoryMaxMiB   int `json:"serverMemoryMaxMiB"`
 	ServerMemoryHighMiB  int `json:"serverMemoryHighMiB"`
 	LocalBackupRetention int `json:"localBackupRetentionDays"`
+	// CodeSandbox: code runs (the launcher's "code" op) are allowed. Without a plan file (self-install): yes.
+	CodeSandbox bool `json:"codeSandbox"`
 }
 
 func clamp(v, lo, hi int) int {
@@ -195,6 +200,7 @@ func Compute(p *Plan) Limits {
 		TurnPidsMax: p.TurnPidsMax, TurnDiskMaxMiB: p.TurnDiskMaxMiB, ConvMiB: conv, ReserveMiB: p.ReserveMiB,
 		ReadMaxMiB: p.ReadMaxMiB, LauncherMemoryMaxMiB: budget, ServerMemoryMaxMiB: p.ReserveMiB + conv,
 		ServerMemoryHighMiB: p.ReserveMiB + int(math.Floor(float64(conv)*0.75)), LocalBackupRetention: p.LocalBackupRetentionDays,
+		CodeSandbox: p.CodeSandbox != nil && *p.CodeSandbox,
 	}
 }
 
@@ -217,7 +223,7 @@ func Defaults(memMiB, cores int) Limits {
 	return Limits{
 		Plan: "", MaxConcurrency: 16, MemoryMiB: memMiB, CPUCores: cores, TurnBudgetMiB: budget, TurnMaxMiB: turnMax,
 		TurnHighMiB: int(math.Floor(float64(turnMax) * 0.85)), TurnPidsMax: 256, TurnDiskMaxMiB: 1024, ConvMiB: conv,
-		ReserveMiB: reserve, ReadMaxMiB: 200, LocalBackupRetention: 14,
+		ReserveMiB: reserve, ReadMaxMiB: 200, LocalBackupRetention: 14, CodeSandbox: true,
 	}
 }
 

@@ -15,3 +15,17 @@ func TestReservedTurnFiles(t *testing.T) {
 		}
 	}
 }
+
+func TestCapBuf(t *testing.T) {
+	c := &capBuf{max: 4}
+	_, _ = c.Write([]byte("ab"))
+	_, _ = c.Write([]byte("cdef"))
+	if c.text() != "abcd" || c.dropped != 2 {
+		t.Fatalf("%q %d", c.text(), c.dropped)
+	}
+	u := &capBuf{max: 4}
+	_, _ = u.Write([]byte("aé€")) // 1 + 2 + 3 bytes: the cut leaves half of the euro sign
+	if u.text() != "aé" {
+		t.Fatalf("cut character kept: %q", u.text())
+	}
+}

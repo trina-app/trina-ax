@@ -53,6 +53,9 @@ export const PlanFile = z.object({
   convMemoryMaxMiB: z.number().int().min(256).max(65_536).nullable().default(null),
   /** local backups kept on the tenant; the cloud keeps 3 (the off-site copy is the long one) */
   localBackupRetentionDays: z.number().int().min(1).max(30).default(14),
+  /** the plan includes the code sandbox (AI code runs without network; the team admin still turns it on). The runtime
+   * reads a missing field as false. */
+  codeSandbox: z.boolean().default(false),
   /** when the control plane made this plan (always written by it; a hand-written self-host file may leave it out) */
   updatedAt: IsoTime.optional(),
   // ---- control plane additions (control-plane 3.5.6) ----
