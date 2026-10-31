@@ -21,7 +21,9 @@ for os in darwin linux; do
     out="bin/$os-$arch"; mkdir -p "$out"
     cmds="$CMDS"; if [[ $os == linux ]]; then cmds="$CMDS $LINUX_CMDS"; fi
     for c in $cmds; do
-      CGO_ENABLED=0 GOOS=$os GOARCH=$arch go build -trimpath -ldflags "-s -w" -o "$out/$c" "./cmd/$c"
+      # reproducible: no commit stamp (-buildvcs=false) and no build paths (-trimpath), so a release whose native/ sources
+      # and Go version did not change has byte-identical programs, and its root files do not count as changed (needsRoot)
+      CGO_ENABLED=0 GOOS=$os GOARCH=$arch go build -trimpath -buildvcs=false -ldflags "-s -w" -o "$out/$c" "./cmd/$c"
     done
     echo "built $out"
   done
