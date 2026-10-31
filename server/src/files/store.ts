@@ -37,6 +37,29 @@ export function readRegular(abs: string, maxBytes = 200 * 1024 * 1024): { bytes:
   } finally { fs.closeSync(fd) }
 }
 
+/**
+ * sha256 of a regular, singly linked file (no final symlink followed), read in 4 MiB pieces: no size limit and never
+ * the whole file in memory. Synchronous, for checks that run inside authorize(); same refusals as readRegular.
+ */
+export function sha256Regular(abs: string): string {
+  let fd: number
+  try { fd = fs.openSync(abs, C.O_RDONLY | C.O_NOFOLLOW | (C.O_NONBLOCK ?? 0)) } catch (e: any) {
+    if (e.code === 'ELOOP' || e.code === 'EMLINK') throw new Denied('symbolic links are not followed')
+    if (e.code === 'ENOENT') throw new ToolError('not found', 'not_found')
+    throw new ToolError(`cannot open file (${e.code})`)
+  }
+  try {
+    const st = fs.fstatSync(fd)
+    if (st.isDirectory()) throw new ToolError('this is a folder; use list', 'is_folder')
+    if (!st.isFile()) throw new Denied('not a regular file')
+    if (st.nlink > 1) throw new Denied('hard-linked files are refused')
+    const h = crypto.createHash('sha256')
+    const buf = Buffer.allocUnsafe(4 * 1024 * 1024)
+    for (let pos = 0; ;) { const n = fs.readSync(fd, buf, 0, buf.length, pos); if (n <= 0) break; h.update(buf.subarray(0, n)); pos += n }
+    return h.digest('hex')
+  } finally { fs.closeSync(fd) }
+}
+
 /** Current sha256 of an existing regular file, or null if missing. */
 export function currentHash(abs: string): string | null {
   try { return sha256(readRegular(abs).bytes) } catch (e) { if (e instanceof ToolError && e.code === 'not_found') return null; throw e }

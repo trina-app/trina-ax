@@ -1,7 +1,7 @@
 import fs from 'node:fs'
 import path from 'node:path'
 import type { Database } from 'bun:sqlite'
-import { sha256, readRegular } from '../files/store'
+import { sha256, sha256Regular } from '../files/store'
 import { ToolError } from '../policy/errors'
 
 /** Content-addressed, durable and independent of the feature switch. Copies and
@@ -28,7 +28,9 @@ export class Quarantine {
     if (this.db.query("SELECT 1 FROM safe_ops_publications WHERE destination=? AND state!='conflict' LIMIT 1").get(path.relative(this.root,abs))) return true
     if (this.db.query('SELECT 1 FROM safe_ops_inodes WHERE identity=?').get(`${st.dev}:${st.ino}`)) return true
     if (!st.isFile() || !this.db.query('SELECT 1 FROM safe_ops_artifacts WHERE size=? LIMIT 1').get(st.size)) return false
-    return this.hasBytes(readRegular(abs, 32 * 1024 ** 2).bytes)
+    // streamed, whatever the size: a cap here made every read of a larger file with the size of a quarantined one fail
+    // ("file is too large") in authorize(), before any reader ran
+    return this.hasHash(sha256Regular(abs))
   }
   assertBytes(bytes: Uint8Array) {
     if (this.hasBytes(bytes)) throw new ToolError('Generated output is download-only; indexing, text extraction and in-app previews are disabled.', 'safe_ops_quarantined')
