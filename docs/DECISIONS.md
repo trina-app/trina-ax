@@ -4902,6 +4902,35 @@ under the answer like the Claude app's sources.
     sheet names without ranges, slides only in the notes part, no sections. Measured extraction on an Apple M-series
     Mac: 25-60 ms for a 10-page PDF, a 12-slide deck, a 12-section Word file or a 500-row sheet; a 2-vCPU x86 server
     is about twice as slow and real documents are larger, so roughly 1-3 hours for 10,000 documents with the pause.
+  - **Grep's labels read only up to each match** (0.2.19, `files/place-index.ts`). Before, grep read a matching
+    document's whole cached text again for its labels. Now a text of 1 MB or more gets a place index when it is cached
+    (`<text>.places.json`: about every 64 KB the byte offset and number of a line and the walk's state before it), and
+    the walk to each matching line starts at the last point before it; lines that cannot be a mark are stepped over as
+    bytes (form feeds and quotes are single ASCII bytes in UTF-8). An index counts only for the very cache file it was
+    made from (device, inode, size, mtime, ctime: a text written again or moved walks from line 1) or, for an admitted
+    copy (safe operations), for the same text hash. Without one (text cached before 0.2.19, small texts) the walk
+    reads in 64 KB pieces from line 1 to the last match. The labels are the same (fuzzed against `locsOfLines`).
+    An index is at most 4 MB, counted point by point while it is made: a sheet name has no length limit (a cell can
+    be a `# sheet:` line) and is in every point after it, so a crafted spreadsheet gets no index instead of a JSON
+    string of gigabytes. The old index is removed before its text is written again.
+    Measured on an Apple M-series Mac, one grep over two 50 MB cached texts (a 5,000-page PDF, a 75-sheet
+    spreadsheet; one match near the end of each, or 275 matches spread out): before 0.47-0.68 s and about 700 MB peak
+    server memory (105-109 MB without labels); with the index 34-52 ms and 108 MB, as without labels; without it
+    0.09-0.16 s and 109-113 MB. Caching such a text takes about 0.08 s more (the index is made by reading the written
+    file once; 58 ms for 48 MB).
+  - **Background extraction runs below interactive work** (0.2.19, `tools/isolate.ts backgroundPrefix`). Every
+    `update(…, { background: true })` (this re-make, what a search left to the background queue, the semantic
+    re-index) runs its converters at lower priority, not only behind foreground jobs for a slot: Linux `nice -n 10` and
+    `ionice -t -c 2 -n 7` in front of the converter cgroup helper and bwrap (each execs the next; no root change), macOS
+    `taskpolicy -c utility` in front of sandbox-exec. In the converter cgroup the kernel weighs converters by their
+    nice value against each other, so the AI's grep, uploads and previews go first (measured in the Linux test image,
+    one CPU: 2.21 s of CPU for a foreground converter against 0.23 s for a background one); the cgroup's share against
+    the server process is unchanged. nice does nothing on macOS (a nice 10 process got 0.99 of a normal one's CPU with
+    15 busy processes on 10 cores; `-c utility` 0.19 and 1.1 times as long when idle; `-b` 0.01 and 6.6 times, too
+    slow). A background converter may wait for the CPU, so its wall-clock limit is 3 times its usual one (its CPU-time
+    limit in the cgroup is not), and a busy server does not leave a document without text. The priority is decided
+    when each converter starts: after a person's grep joined the job, its next converter runs at normal priority; one
+    already running stays low (an unprivileged process cannot raise its priority again).
 - **Search pieces** stop at a page, slide, sheet or section and keep their place (`chunkDoc`; `semantic.db` gets
   `chunks.loc` and `files.format`, added in place: an older server ignores both). A sheet piece's place is the A1
   range of its rows. Structure lines (`=== Slide 3 ===`, `# sheet: …`, `# row 9`) are not part of a piece's text.
