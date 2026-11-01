@@ -5595,6 +5595,21 @@ did not say so.
   (`failed`), never dropped silently. Same class: the `.mcp.json` switch `enableAllProjectMcpServers` is tested by
   truthiness in the CLI (`projectConfig.enableAllProjectMcpServers`), so the guard now removes any truthy value, not
   only `true`. Tests: `tests/unit/office-claude-json-failclosed.test.ts`.
+- **Review round of that fix (independent reviewer).** The top-level `env` of `~/.claude.json` is a way in of its own:
+  the CLI copies it into its own environment at every start, before any question (2.1.312:
+  `applySafeConfigEnvironmentVariables`, `Object.assign(process.env, filterSettingsEnv(globalConfig.env))`), so a
+  `BASH_ENV`, `NODE_OPTIONS`, proxy or `ANTHROPIC_BASE_URL` a turn planted would act in the owner's unsandboxed `claude`.
+  The guard empties it like the MCP keys (same copy; restore lists each variable, secret-named values masked, and puts
+  back only missing names); `projects[*].env` is not read by the CLI and stays. A turn could also lock the file
+  (`chflags uchg`, an ACL denying delete: checked with sandbox-exec), so the guard could neither rewrite nor move it
+  while the CLI still read it: engine.sb now denies `file-write-flags` and `file-write-acl` on those names (the CLI
+  needs neither), and the guard runs `chflags nouchg,nouappnd` and `chmod -N` on the file (and the backups folder, never
+  the home, which has an ACL of its own) and tries once more. Indentation multiplied deeply nested files (400 KB became
+  399 MB), so the guard and its copies write compact JSON unless small (1 MB) and shallow (20 levels). A cleanup that
+  fails is audited as `engine.claude_json_mcp_failed`, not as "removed"; `check` says when a file could not be read just
+  now instead of "nothing". Left for later: `projects[*].allowedTools` and `hasTrustDialogAccepted` (they let the
+  owner's own session in that folder skip a question, but start nothing by themselves), and a turn process that
+  outlives its turn (N8).
 - Review round 1 (independent reviewer): prototype pollution through a planted `__proto__` project in restore,
   restore while the running server was still on the Mac's login, trusting start copies without `--yes`, a reinstall
   after uninstall counted as existing, a fail-open first copy, link wording, pruning order in one millisecond: all

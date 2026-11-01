@@ -303,7 +303,7 @@ export function configure(home: string, args: string[], env: Record<string, stri
   // (engine/claude-json-guard.ts), so not without the owner's yes when there are any (office test O3)
   if (wasAuth === 'subscription' && s.claudeAuth === 'local-login' && !args.includes('--remove-claude-mcp')) {
     const scan = scanClaudeMcp(path.resolve(arg(args, '--as-home') ?? home), env.HOME || os.homedir())
-    if (scan.findings.length || scan.backupsLink)
+    if (scan.findings.length || scan.backupsLink || scan.unchecked.length)
       throw new Error(`${headline(scan)} (teamax claude-mcp check lists them). With this Mac's own Claude login the server removes them at every start and after every AI turn, keeping a copy in config/claude-mcp-backups. Add --remove-claude-mcp to switch anyway, or stay in the setup-token mode`)
   }
   // --as-home: the folder the settings are meant for (office-install.sh --check-only writes them into a scratch one)

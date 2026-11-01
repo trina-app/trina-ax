@@ -2,7 +2,9 @@
 //   probe read <file> | write <file> | list <dir> | tcp <ip> <port> | talk <ip> <port> | unix <socket path> | exec <program>
 //         | stat <path> | realpath <path> | procs | procargs <pid> | hold <ms> [ignored ...] | watchargv <needle> <marker> <ms>
 //         | net <ip> <port> | udp <ip> <port> | symlink <target> <link> | hardlink <file> <new> | rename <from> <to>
-//         | mkdir <dir>
+//         | mkdir <dir> | chflags <path> | acl <path>
+// chflags = set the user-immutable flag (then clear it again), acl = set an empty extended ACL: both lock a file
+// against a program that would rewrite or move it, without changing what it reads.
 // net = TCP connect where only the sandbox's answer counts: exit 1 when the connect is refused with EPERM (the sandbox
 // said no), 0 otherwise (connected, or nothing listens: ECONNREFUSED). udp = one datagram, exit 1 on EPERM.
 // stat exits 0 (found), 1 (EPERM: the sandbox said no), 3 (ENOENT) or 4 (other error), so a test can tell "denied"
@@ -23,6 +25,9 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#ifdef __APPLE__
+#include <sys/acl.h>
+#endif
 #include <sys/socket.h>
 #include <sys/stat.h>
 #include <sys/sysctl.h>
@@ -120,6 +125,13 @@ int main(int argc, char **argv) {
     return r < 0 ? fail(op) : 0;
   }
   if (!strcmp(op, "mkdir")) { if (mkdir(a, 0700) < 0) return fail("mkdir"); rmdir(a); return 0; }
+#ifdef __APPLE__
+  if (!strcmp(op, "chflags")) { if (chflags(a, UF_IMMUTABLE) < 0) return fail("chflags"); chflags(a, 0); return 0; }
+  if (!strcmp(op, "acl")) {
+    acl_t acl = acl_init(1); if (!acl) return fail("acl_init");
+    int r = acl_set_file(a, ACL_TYPE_EXTENDED, acl); acl_free(acl); return r < 0 ? fail("acl_set_file") : 0;
+  }
+#endif
   if (!strcmp(op, "unix")) {
     struct sockaddr_un su; memset(&su, 0, sizeof su); su.sun_family = AF_UNIX;
     strncpy(su.sun_path, a, sizeof su.sun_path - 1);

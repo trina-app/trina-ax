@@ -1235,6 +1235,7 @@ export const ja: Record<MessageKey, string> = {
   'audit.act.proxy.refused': "AIエンジンのリクエストをブロック",
   'audit.act.engine.subscription_rejected': "Claudeのサブスクリプショントークンを拒否",
   'audit.act.engine.claude_json_mcp_removed': "MacのClaude設定からMCPサーバーを削除",
+  'audit.act.engine.claude_json_mcp_failed': "MacのClaude設定からMCP設定を削除できませんでした",
   'audit.act.proxy.connect_refused': "Codexのネットワークトンネルをブロック",
   'audit.act.engine.codex_auth': "Codexのログイン情報を書き戻せず（要確認）",
   'audit.act.engine.codex_login': "エンジンアカウントでCodexにログイン",

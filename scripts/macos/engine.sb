@@ -143,6 +143,10 @@
     ;; symbolic link cannot be created there (nor renamed onto them), a hard link cannot be made to them.
     (deny file-write-create (require-all (vnode-type SYMLINK) (claude-json-names)))
     (deny file-link (claude-json-names))
+    ;; nor a lock (review of the 0.2.19 S2 fix): `chflags uchg` or an ACL that denies deleting a file there kept the
+    ;; server's MCP cleanup from rewriting or moving it, while the CLI still read it. Claude Code needs neither: it
+    ;; writes a temp file, sets its mode and renames it.
+    (deny file-write-flags file-write-acl (claude-json-names))
     ;; the refresh lock (names above): empty folders and a pid record, nothing a turn can hide data in for another
     ;; turn beyond a few bytes; no links there either
     (allow file-read* file-write* (refresh-lock-names))

@@ -1269,6 +1269,7 @@ export const id: Record<MessageKey, string> = {
   'audit.act.proxy.refused': 'Permintaan mesin AI diblokir',
   'audit.act.engine.subscription_rejected': 'Token langganan Claude ditolak',
   'audit.act.engine.claude_json_mcp_removed': 'Server MCP dihapus dari konfigurasi Claude Mac',
+  'audit.act.engine.claude_json_mcp_failed': 'Pengaturan MCP tidak dapat dihapus dari konfigurasi Claude Mac',
   'audit.act.proxy.connect_refused': 'Terowongan jaringan Codex diblokir',
   'audit.act.engine.codex_auth': 'Login Codex tidak ditulis kembali (periksa)',
   'audit.act.engine.codex_login': 'Akun mesin masuk ke Codex',

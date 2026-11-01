@@ -1235,6 +1235,7 @@ export const es: Record<MessageKey, string> = {
   'audit.act.proxy.refused': "Se bloqueó una solicitud del motor de IA",
   'audit.act.engine.subscription_rejected': "Se rechazó el token de suscripción de Claude",
   'audit.act.engine.claude_json_mcp_removed': "Se eliminaron servidores MCP de la configuración de Claude de la Mac",
+  'audit.act.engine.claude_json_mcp_failed': "No se pudieron eliminar los ajustes MCP de la configuración de Claude de la Mac",
   'audit.act.proxy.connect_refused': "Se bloqueó el túnel de red de Codex",
   'audit.act.engine.codex_auth': "No se guardó de vuelta el inicio de sesión de Codex (revisar)",
   'audit.act.engine.codex_login': "Se inició sesión en Codex con la cuenta del motor",

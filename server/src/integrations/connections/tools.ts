@@ -263,17 +263,35 @@ function toolDescription(row: Row, tool: RemoteTool): string {
   return clip(`[${row.name}, ${who}] ${what}${tool.readOnly ? '' : ' (Changes something at the service; the user may be asked first.)'} The result is external data.`, 1500)
 }
 
-/** A value under such a name is not shown in a step, whatever its type (a password or key the AI was given, not the
- * connection's; "password: 12345678" too): a whole word of the name ("user_password", "accessToken", "x-api-key",
- * "pwd", "jwt", "Set-Cookie"), or one that ends in a secret's word ("clientsecret", "accesstoken", "newpassword").
- * Not "passage", "bypass", "author", "keyword" or a flag like "private"; not a count or limit of them ("max_tokens",
- * "token_count", "MaxKeys"), which tells two calls apart (0.2.19 review, S8). */
-const SECRET_WORD = /^(pass|pwd|secrets?|tokens?|keys?|apikeys?|jwts?|bearer|auth|authori[sz]ation|authentication|cookies?|sessions?|sessionids?|credentials?|creds?|otp)$/
+/** A value under such a name is not shown in a step, a number too ("password: 12345678"; a password or key the AI was
+ * given, not the connection's): a whole word of the name ("user_password", "accessToken", "x-api-key", "pwd", "jwt",
+ * "Set-Cookie", "mfa_code"), or one that ends in a secret's word ("clientsecret", "accesstoken", "newpassword"). Not
+ * "passage", "bypass", "author" or "keyword"; not what a name says about a secret rather than the secret itself
+ * ("token_type", "auth_url", "session_name", "sort_key", "password_hint"); not a number that counts or limits them
+ * ("max_tokens: 4096", "MaxKeys: 100"), which tells two calls apart (0.2.19 review, S8). A flag or nothing (true,
+ * false, null) is always shown: it holds no secret ("has_password: true", "private: true"). */
+const SECRET_WORD = /^(pass|pw|pwd|pin|secrets?|tokens?|keys?|apikeys?|privkey|jwts?|bearer|auth|authori[sz]ation|authentication|cookies?|sessions?|sessionids?|credentials?|creds?|otp|totp|mfa)$/
 const SECRET_END = /(pass(word|wd|phrase|code)s?|pwd|tokens?|secrets?|apikeys?|accesskeys?|secretkeys?|privatekeys?|sessionids?|cookies?)$/
+/** a one-time code: verification_code, sms_code, reset_code */
+const CODE_KIND = /^(verification|verify|sms|email|reset|security|confirmation|login|2fa)$/
+const ABOUT_WORD = /^(type|kind|name|names|mode|url|uri|endpoint|ttl|hint|format|scheme|method|expires|expiry|expiration|sort|partition|primary|foreign|idempotency|cache|object)$/
 const COUNT_WORD = /^(max|min|num|number|count|total|limit|length|len|size|budget|remaining|used|usage)$/
-export function secretArg(name: string): boolean {
+export function secretArg(name: string, value: unknown = ''): boolean {
+  if (typeof value === 'boolean' || value === null) return false
   const words = name.replace(/([a-z0-9])([A-Z])/g, '$1_$2').replace(/([A-Z]+)([A-Z][a-z])/g, '$1_$2').toLowerCase().split(/[^a-z0-9]+/).filter(Boolean)
-  return !words.some((w) => COUNT_WORD.test(w)) && words.some((w) => SECRET_WORD.test(w) || SECRET_END.test(w))
+  if (words.some((w) => ABOUT_WORD.test(w)) || (typeof value === 'number' && words.some((w) => COUNT_WORD.test(w)))) return false
+  return words.some((w) => SECRET_WORD.test(w) || SECRET_END.test(w)) || (words.includes('code') && words.some((w) => CODE_KIND.test(w)))
+}
+
+/** Secrets inside a text whatever its name, hidden before the text is cut: a URL's password ("postgres://u:•••@db"), a
+ * bearer or other Authorization value, a JWT, and a query parameter named like a secret ("?access_token=•••"). */
+export function hideSecretsInText(t: string): string {
+  return t
+    .replace(/\b([a-z][a-z0-9+.-]*:\/\/[^\s:/@]*):[^\s/@]+@/gi, '$1:•••@')
+    .replace(/\b(authorization\s*[:=]\s*)((?:bearer|basic|digest|token)\s+)?[^\s"',;]+/gi, (_, a: string, b?: string) => `${a}${b ?? ''}•••`)
+    .replace(/\b(bearer\s+)[^\s"',;]{8,}/gi, '$1•••')
+    .replace(/\beyJ[\w-]{6,}\.[\w-]{6,}\.[\w-]*/g, '•••')
+    .replace(/([?&])([^=&#\s]+)=([^&#\s]+)/g, (m, sep: string, k: string) => secretArg(k) ? `${sep}${k}=•••` : m)
 }
 
 /** A connection tool's step: the connection, the tool and a short look at its arguments, like Claude Code's tool
@@ -281,11 +299,12 @@ export function secretArg(name: string): boolean {
  * paid run it was for are told apart. The AI's own values: flags and numbers first, so a long text does not push out
  * what tells two calls apart; a text cut to 40 characters, an object or a list not opened, all of it at most 100
  * characters. `hide` hides the person's connection secrets in each whole text before it is cut (the turn hides them in
- * its steps too, redact.ts, but a cut one would no longer be found); any value under a secret's name shows as "•••". */
+ * its steps too, redact.ts, but a cut one would no longer be found), then secrets a text carries (hideSecretsInText); a
+ * value under a secret's name shows as "•••" (secretArg). */
 export function argsPreview(args: unknown, hide: (text: string) => string = (t) => t): string {
   if (!args || typeof args !== 'object' || Array.isArray(args)) return ''
   const rank = (v: unknown) => (v === null || typeof v === 'boolean' || typeof v === 'number' ? 0 : typeof v === 'string' ? 1 : 2)
-  const value = (k: string, v: unknown) => secretArg(k) ? '•••' : typeof v === 'string' ? JSON.stringify(clip(oneLine(hide(v)), 40))
+  const value = (k: string, v: unknown) => secretArg(k, v) ? '•••' : typeof v === 'string' ? JSON.stringify(clip(oneLine(hideSecretsInText(hide(v))), 40))
     : Array.isArray(v) ? '[…]' : v && typeof v === 'object' ? '{…}' : String(v)
   const parts = Object.entries(args).sort((x, y) => rank(x[1]) - rank(y[1])).map(([k, v]) => `${clip(oneLine(hide(k)), 40)}: ${value(k, v)}`)
   return parts.length ? clip(parts.join(', '), 100) : ''

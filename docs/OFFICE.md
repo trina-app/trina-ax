@@ -402,7 +402,8 @@ bun scripts/release/publish.ts --channel stable --build --version 0.2.1
   (`~/.claude.json.backup`, `~/.claude/backups/`)에서 **MCP 서버를 지우고**, 그 자리에 링크가 있으면 보통 파일로 바꿉니다
   (관리자 → 기록에 `engine.claude_json_mcp_removed`). 샌드박스는 그 이름들에 링크를 만들지 못하게 합니다. 파일은 Claude Code와
   똑같이 읽고(맨 앞 BOM은 건너뜀), 읽거나 다시 쓸 수 없는 파일(JSON이 아니거나 너무 깊게 중첩됨)은 통째로
-  `~/TeamAX/config/claude-mcp-backups/moved-…`로 옮기고 그 자리에 빈 설정 `{}`을 둡니다(기록에 남음). 이 맥 계정에서
+  `~/TeamAX/config/claude-mcp-backups/moved-…`로 옮기고 그 자리에 빈 설정 `{}`을 둡니다(기록에 남음). 맨 위의 `env`도
+  지웁니다(사본에 남음): Claude Code가 그 값을 자기가 실행하는 모든 명령의 환경에 넣기 때문입니다. 이 맥 계정에서
   터미널 `claude`는 **로그인(`/login`) 말고 쓰지 마세요**. 로그인이 만료돼 다시 로그인하기 전에 `claude mcp list`가
   "No MCP servers configured"인지 보세요.
 - **지운 MCP 설정은 사본으로 남습니다**(0.2.19부터). 지우기 전에 `~/TeamAX/config/claude-mcp-backups/claude-mcp-<시각>-install.json`

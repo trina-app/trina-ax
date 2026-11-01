@@ -34,6 +34,7 @@ function entryLine(e: McpEntry): string {
   const n = mcpNames(e)
   if (e.key === 'mcpServers') return `${where}: ${n.length} MCP server${n.length === 1 ? '' : 's'} (${list(n)})`
   if (e.key === 'enabledMcpjsonServers') return `${where}: approved .mcp.json server${n.length === 1 ? '' : 's'} (${list(n)})`
+  if (e.key === 'env') return `${where}: ${n.length} environment variable${n.length === 1 ? '' : 's'} the CLI sets for every command it runs (${list(n)})`
   return `${where}: every .mcp.json server approved`
 }
 
@@ -41,11 +42,13 @@ function entryLine(e: McpEntry): string {
 export function countText(f: McpFinding | undefined): string {
   if (!f) return ''
   const user = f.entries.filter((e) => e.project === null && e.key === 'mcpServers').reduce((n, e) => n + mcpNames(e).length, 0)
-  const userOther = f.entries.some((e) => e.project === null && e.key !== 'mcpServers')
+  const userOther = f.entries.some((e) => e.project === null && e.key !== 'mcpServers' && e.key !== 'env')
+  const env = f.entries.filter((e) => e.project === null && e.key === 'env').reduce((n, e) => n + mcpNames(e).length, 0)
   const projects = new Set(f.entries.filter((e) => e.project !== null).map((e) => e.project)).size
   const parts = [
     ...(user ? [`${user} user MCP server${user === 1 ? '' : 's'}`] : []),
     ...(userOther ? ['user-scope .mcp.json approvals'] : []),
+    ...(env ? [`${env} environment variable${env === 1 ? '' : 's'}`] : []),
     ...(projects ? [`MCP settings of ${projects} project${projects === 1 ? '' : 's'}`] : []),
   ]
   return parts.join(', ')
@@ -63,6 +66,7 @@ export function findingLines(r: ReturnType<typeof findClaudeJsonMcp>): string[] 
     else if (f.entries.length) out.push(`${name} (an older copy the Claude CLI keeps): ${f.entries.length} MCP setting${f.entries.length === 1 ? '' : 's'} (${list(f.entries.map(mcpKeyPath))})`)
   }
   if (r.backupsLink) out.push('~/.claude/backups is a link: it is removed (the folder it points to is not changed)')
+  for (const u of r.unchecked) out.push(`${shown(u)}: could not be read just now; run the check again`)
   return out
 }
 
@@ -73,6 +77,7 @@ export function headline(r: ReturnType<typeof findClaudeJsonMcp>): string {
   if (what) return `this Mac account's Claude config (~/.claude.json) has MCP settings this server removes: ${what}`
   const moved = r.findings.some((f) => f.note === '(moved aside)')
   const links = r.backupsLink || r.findings.some((f) => f.note === '(link replaced)' || f.note === '(hard link replaced)')
+  if (!links && !moved && r.unchecked.length) return 'not every Claude config file of this Mac account (~/.claude.json) could be checked just now: run the check again'
   const parts = [...(links || !moved ? ['a link or hard link it replaces'] : []), ...(moved ? ['a file it cannot read or write back as JSON, which it moves aside'] : [])]
   return `this server would change this Mac account's Claude config files (~/.claude.json): ${parts.join('; ')}`
 }
@@ -136,7 +141,7 @@ export function mergeBackup(cfg: Record<string, unknown>, entries: McpBackup['fi
   const skipped: string[] = []
   for (const e of entries) {
     if (!('value' in e)) continue // left out of the copy (too large)
-    if (e.key !== 'mcpServers' && e.key !== 'enabledMcpjsonServers' && e.key !== 'enableAllProjectMcpServers') continue
+    if (e.key !== 'mcpServers' && e.key !== 'enabledMcpjsonServers' && e.key !== 'enableAllProjectMcpServers' && e.key !== 'env') continue
     let o: Record<string, unknown> = cfg
     if (e.project !== null) {
       if (typeof e.project !== 'string' || UNSAFE.has(e.project)) { skipped.push(`project ${JSON.stringify(e.project)}`); continue }
@@ -163,6 +168,15 @@ export function mergeBackup(cfg: Record<string, unknown>, entries: McpBackup['fi
       const more = want.filter((n, i) => !cur.includes(n) && want.indexOf(n) === i)
       o.enabledMcpjsonServers = [...cur, ...more]
       for (const n of more) added.push(`${where}: approved .mcp.json server ${safe(n)}`)
+    } else if (e.key === 'env' && e.project === null && isObj(e.value)) {
+      if (!isObj(mine('env'))) o.env = {}
+      const cur = o.env as Record<string, unknown>
+      for (const [n, v] of Object.entries(e.value)) {
+        if (UNSAFE.has(n)) { skipped.push(`${where}: environment variable ${JSON.stringify(n)}`); continue }
+        if (own(cur, n)) continue
+        cur[n] = v
+        added.push(`${where}: environment variable ${safe(n)}=${SECRET_NAME.test(n) && typeof v === 'string' ? `\u2022\u2022\u2022 (${v.length} characters)` : serverWhat(v)}`)
+      }
     } else if (e.key === 'enableAllProjectMcpServers' && e.value === true && mine('enableAllProjectMcpServers') !== true) {
       o.enableAllProjectMcpServers = true
       added.push(`${where}: every .mcp.json server approved`)
