@@ -12,6 +12,7 @@
 // where no engine turn can read or write), and office-install.sh lists what would go (findClaudeJsonMcp), stops a new
 // install until the owner agrees (--remove-claude-mcp) or picks the setup-token mode, which never touches the file,
 // and then saves the copy itself before the server first starts (office/claude-mcp.ts).
+import crypto from 'node:crypto'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
@@ -189,7 +190,7 @@ export interface McpBackup {
   /** the account's home the entries came from (files are relative to it) */
   home: string
   note: string
-  files: Record<string, (McpEntry | { project: string | null; key: McpKey; names: string[]; omitted: string })[]>
+  files: Record<string, (McpEntry | { project: string | null; key: McpKey; names: string[]; omitted: string; sha256: string })[]>
 }
 
 /** Saves what the plans take out to a new file in `dir` (700, the file 600, never over another file); returns its path.
@@ -204,10 +205,10 @@ export function saveMcpBackup(dir: string, home: string, plans: Pick<Plan, 'file
   for (const p of plans) {
     if (!p.taken.length) continue
     files[path.relative(home, p.file)] = p.taken.map((e) => {
-      const n = (JSON.stringify(e.value) ?? '').length
-      chars += n
+      const text = JSON.stringify(e.value) ?? ''
+      chars += text.length
       return chars <= BACKUP_MAX_CHARS ? { project: e.project, key: e.key, value: e.value }
-        : { project: e.project, key: e.key, names: mcpNames(e), omitted: `too large to keep (${n} characters)` }
+        : { project: e.project, key: e.key, names: mcpNames(e), omitted: `too large to keep (${text.length} characters)`, sha256: crypto.createHash('sha256').update(text).digest('hex') }
     })
   }
   const doc: McpBackup = {

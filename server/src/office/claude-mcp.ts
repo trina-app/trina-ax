@@ -19,11 +19,17 @@ export const FOUND = 3
 
 export const backupDirOf = (home: string) => path.join(officePaths(home).config, CLAUDE_MCP_BACKUPS)
 
-const shown = (rel: string) => `~/${rel}`
-const list = (names: string[]) => names.length > 6 ? `${names.slice(0, 6).join(', ')} and ${names.length - 6} more` : names.join(', ')
+/** A name from a Claude config as one visible line: control characters (a line break could fake another line, an
+ * escape sequence recolour or erase one) and direction marks are shown escaped, as JSON. Names can come from a turn. */
+export const safe = (v: unknown): string => {
+  const t = String(v)
+  return /[\u0000-\u001f\u007f-\u009f\u200e\u200f\u202a-\u202e\u2066-\u2069\u2028\u2029]/.test(t) ? JSON.stringify(t).replace(/[\u200e\u200f\u202a-\u202e\u2066-\u2069]/g, (c) => `\\u${c.charCodeAt(0).toString(16).padStart(4, '0')}`) : t
+}
+const shown = (rel: string) => `~/${safe(rel)}`
+const list = (names: string[]) => { const n = names.map(safe); return n.length > 6 ? `${n.slice(0, 6).join(', ')} and ${n.length - 6} more` : n.join(', ') }
 
 function entryLine(e: McpEntry): string {
-  const where = e.project === null ? 'user scope' : `project ${e.project}`
+  const where = e.project === null ? 'user scope' : `project ${safe(e.project)}`
   const n = mcpNames(e)
   if (e.key === 'mcpServers') return `${where}: ${n.length} MCP server${n.length === 1 ? '' : 's'} (${list(n)})`
   if (e.key === 'enabledMcpjsonServers') return `${where}: approved .mcp.json server${n.length === 1 ? '' : 's'} (${list(n)})`
@@ -49,7 +55,7 @@ export function findingLines(r: ReturnType<typeof findClaudeJsonMcp>): string[] 
   const out: string[] = []
   for (const f of r.findings) {
     const name = shown(f.file)
-    if (f.note === '(link replaced)') out.push(`${name} is a link${f.target ? ` to ${f.target}` : ''}: it becomes ${f.emptied ? 'an empty Claude config {} (what it points to is outside your home or in the server\'s folders, or not a JSON file, and is not copied)' : 'a regular file with that content'}; the file it points to is not changed`)
+    if (f.note === '(link replaced)') out.push(`${name} is a link${f.target ? ` to ${safe(f.target)}` : ''}: it becomes ${f.emptied ? 'an empty Claude config {} (what it points to is outside your home or in the server\'s folders, or not a JSON file, and is not copied)' : 'a regular file with that content'}; the file it points to is not changed`)
     if (f.note === '(hard link replaced)') out.push(`${name} has other hard links: it is written as a new file`)
     if (f.file === '.claude.json') for (const e of f.entries) out.push(`${name}: ${entryLine(e)}`)
     else if (f.entries.length) out.push(`${name} (an older copy the Claude CLI keeps): ${f.entries.length} MCP setting${f.entries.length === 1 ? '' : 's'} (${list(f.entries.map(mcpKeyPath))})`)
@@ -103,12 +109,19 @@ const isObj = (v: unknown): v is Record<string, unknown> => !!v && typeof v === 
 const UNSAFE = new Set(['__proto__'])
 const own = (o: Record<string, unknown>, k: string) => Object.prototype.hasOwnProperty.call(o, k)
 
-/** what a server would run: its command line or address */
-function serverWhat(v: unknown): string {
-  if (!isObj(v)) return '?'
-  if (typeof v.url === 'string') return v.url
-  const args = Array.isArray(v.args) ? v.args.map((a) => String(a)) : []
-  return [String(v.command ?? '?'), ...args].join(' ').slice(0, 200)
+/** values of env / headers entries named like a secret are not printed (the owner's own keys, on a terminal) */
+const SECRET_NAME = /(token|secret|passw|pwd|key|auth|cookie|credential|session)/i
+
+/** Everything a server entry would make Claude Code run or send, in full, as one escaped JSON line: command, every
+ * argument, env and headers (values of secret-named ones masked), url, and any other field. Nothing is cut: the
+ * listing is what the owner checks before --yes, and a server a turn planted may hide its part anywhere (review 2). */
+export function serverWhat(v: unknown): string {
+  const mask = (o: unknown) => isObj(o)
+    ? Object.fromEntries(Object.entries(o).map(([k, x]) => [k, SECRET_NAME.test(k) && typeof x === 'string' ? `\u2022\u2022\u2022 (${x.length} characters)` : x]))
+    : o
+  const shownV = isObj(v) ? { ...v, ...(own(v, 'env') ? { env: mask(v.env) } : {}), ...(own(v, 'headers') ? { headers: mask(v.headers) } : {}) } : v
+  // JSON.stringify escapes control characters; direction marks too, so the line reads as it is
+  return (JSON.stringify(shownV) ?? 'null').replace(/[\u200e\u200f\u202a-\u202e\u2066-\u2069\u2028\u2029]/g, (c) => `\\u${c.charCodeAt(0).toString(16).padStart(4, '0')}`)
 }
 
 /** Merges the copy's ~/.claude.json entries into `cfg` without replacing anything there; returns what it added and
@@ -127,7 +140,7 @@ export function mergeBackup(cfg: Record<string, unknown>, entries: McpBackup['fi
       if (!own(projects, e.project) || !isObj(projects[e.project])) projects[e.project] = {}
       o = projects[e.project] as Record<string, unknown>
     }
-    const where = e.project === null ? 'user scope' : `project ${e.project}`
+    const where = e.project === null ? 'user scope' : `project ${safe(e.project)}`
     const mine = (k: string) => own(o, k) ? o[k] : undefined
     if (e.key === 'mcpServers' && isObj(e.value)) {
       if (!isObj(mine('mcpServers'))) o.mcpServers = {}
@@ -136,7 +149,7 @@ export function mergeBackup(cfg: Record<string, unknown>, entries: McpBackup['fi
         if (UNSAFE.has(n)) { skipped.push(`${where}: MCP server ${JSON.stringify(n)}`); continue }
         if (own(cur, n)) continue
         cur[n] = v
-        added.push(`${where}: MCP server ${n} (${serverWhat(v)})`)
+        added.push(`${where}: MCP server ${safe(n)} ${serverWhat(v)}`)
       }
     } else if (e.key === 'enabledMcpjsonServers' && Array.isArray(e.value)) {
       const had = mine('enabledMcpjsonServers')
@@ -144,7 +157,7 @@ export function mergeBackup(cfg: Record<string, unknown>, entries: McpBackup['fi
       const want = e.value as unknown[]
       const more = want.filter((n, i) => !cur.includes(n) && want.indexOf(n) === i)
       o.enabledMcpjsonServers = [...cur, ...more]
-      for (const n of more) added.push(`${where}: approved .mcp.json server ${String(n)}`)
+      for (const n of more) added.push(`${where}: approved .mcp.json server ${safe(n)}`)
     } else if (e.key === 'enableAllProjectMcpServers' && e.value === true && mine('enableAllProjectMcpServers') !== true) {
       o.enableAllProjectMcpServers = true
       added.push(`${where}: every .mcp.json server approved`)
@@ -193,7 +206,7 @@ export function claudeMcpCommand(home: string, args: string[], env: Record<strin
     for (const f of files) {
       let what = ''
       try { const b = readBackup(f); what = `${b.when}, ${Object.values(b.files).reduce((n, e) => n + e.length, 0)} setting(s) from ${Object.keys(b.files).map(shown).join(', ')}` } catch (e) { what = (e as Error).message }
-      out(`${f}  (${what})`)
+      out(`${f}  (${safe(what)})`)
     }
     return 0
   }

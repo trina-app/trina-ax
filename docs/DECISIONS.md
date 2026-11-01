@@ -5565,7 +5565,10 @@ did not say so.
 - Review round 1 (independent reviewer): prototype pollution through a planted `__proto__` project in restore,
   restore while the running server was still on the Mac's login, trusting start copies without `--yes`, a reinstall
   after uninstall counted as existing, a fail-open first copy, link wording, pruning order in one millisecond: all
-  fixed above, with tests.
+  fixed above, with tests. Round 2: the listing before `--yes` showed no `env`, cut commands at 200 characters and
+  printed names raw (a line break faked another entry): every server is now one escaped JSON line in full (values of
+  secret-named `env`/`headers` entries masked), names are escaped in `check` too; an oversized value's placeholder
+  carries its SHA-256 (two different ones are two copies); an install counts as running only with its LaunchAgent.
 - Tests: `tests/unit/office-claude-mcp.test.ts` (fake homes: the copy's values and modes, links, a link in place of the
   copy folder, pruning and size, the read-only scan, the CLI's output, restore and its refusals, configure, the
   installer's stop / go paths with a fake launchctl), `tests/security/r4b-office-subscription.test.ts` (switching back).

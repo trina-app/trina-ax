@@ -44,10 +44,12 @@
 //                                  automatic updates (./update-cli.ts, docs/OFFICE.md "자동 업데이트"): the third
 //                                  LaunchAgent (<label>.update) checks the release feed every night
 //   uninstall-agent                stop and remove the LaunchAgents (office-uninstall.sh)
-//   claude-mcp check [--summary] | backups | restore FILE [--yes]
+//   claude-mcp check [--summary] | backups | restore FILE [--yes] | save
 //                                  the MCP settings local-login removes from this Mac account's ~/.claude.json
 //                                  (./claude-mcp.ts): what would go (office-install.sh runs it; exit 3 = something),
-//                                  the copies kept in config/claude-mcp-backups, and putting one back
+//                                  the copies kept in config/claude-mcp-backups, putting one back (lists every server
+//                                  first; writes with --yes), and save: a copy now (office-install.sh, before the
+//                                  server first starts)
 // Every command takes --home <dir> (default: the folder above app/).
 import fs from 'node:fs'
 import os from 'node:os'

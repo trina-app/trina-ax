@@ -143,6 +143,10 @@ fi
 # removes nothing, so it counts as new.
 MCP_FOUND=0 MCP_STOP=0
 MCP_KEEP="$PREFIX/config/claude-mcp-backups"
+# running this way now: its program and its LaunchAgent are there (office-uninstall.sh keeps config/ only;
+# `teamax uninstall-agent` keeps app/ but no agent removes anything then)
+MCP_LABEL=$(sed -n 's/^TEAMAX_LABEL=//p' "$PREFIX/config/office.env" 2>/dev/null | head -n 1 || true)
+MCP_PLIST="${TEAMAX_AGENTS_DIR:-$HOME/Library/LaunchAgents}/${MCP_LABEL:-app.team-ax.office}.plist"
 if [ "$SUBSCRIPTION" = 0 ]; then
   MCP_CODE=0
   if [ "$UPDATE" = 1 ]; then
@@ -153,7 +157,7 @@ if [ "$SUBSCRIPTION" = 0 ]; then
     if [ "$MCP_CODE" = 3 ]; then
       MCP_FOUND=1
       printf '%s\n' "$MCP_OUT" | sed 's/^/office-install: /'
-      if [ -f "$PREFIX/config/office.env" ] && [ -d "$PREFIX/app" ]; then
+      if [ -f "$PREFIX/config/office.env" ] && [ -d "$PREFIX/app" ] && [ -f "$MCP_PLIST" ]; then
         say "the installation in $PREFIX already removes them; from $VERSION on it first keeps a copy in $MCP_KEEP (only you can read it)"
       elif [ "$REMOVE_MCP" = 1 ]; then
         say "--remove-claude-mcp: the server removes them when it starts; a copy goes to $MCP_KEEP first (only you can read it)"
@@ -205,7 +209,7 @@ chmod 755 "$PREFIX"
 LABEL=$(sed -n 's/^TEAMAX_LABEL=//p' "$PREFIX/config/office.env")
 # the copy of the MCP settings the server is about to remove, before anything else changes (config/ is 700 now)
 if [ "$MCP_FOUND" = 1 ]; then
-  MCP_COPY=$("$BUN_SRC" "$SRC/app/server/src/office.js" claude-mcp save --home "$PREFIX" --user-home "$HOME" 2>&1) || die "could not save a copy of the MCP settings in ~/.claude.json, so nothing else was changed (only config/office.env was written): $MCP_COPY"
+  MCP_COPY=$("$BUN_SRC" "$SRC/app/server/src/office.js" claude-mcp save --home "$PREFIX" --user-home "$HOME" 2>&1) || die "could not save a copy of the MCP settings in ~/.claude.json, so nothing else was changed (only the settings and tokens in $PREFIX/config were written): $MCP_COPY"
   say "copy of the MCP settings in ~/.claude.json: $MCP_COPY"
 fi
 

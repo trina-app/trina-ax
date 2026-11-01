@@ -402,7 +402,7 @@ bun scripts/release/publish.ts --channel stable --build --version 0.2.1
   `teamax claude-mcp check`는 지금 지울 것을 보여 주고(아무것도 바꾸지 않음), `teamax claude-mcp backups`는 사본 목록입니다.
 - **되돌리기**: 서버가 더 이상 지우지 않게 한 뒤(`teamax configure --claude-token-file <파일> && teamax restart`, 또는 Trina AX를
   치울 때 `teamax uninstall-agent`를 먼저) `~/TeamAX/teamax claude-mcp restore <사본>`. 이미 있는 설정은 그대로 두고 없는 것만
-  넣습니다. 어느 사본이든 AI 턴이 심은 서버가 섞였을 수 있어서(특히 `-turn`) 먼저 서버마다 명령·주소를 보여 주고, 확인한 뒤
+  넣습니다. 어느 사본이든 AI 턴이 심은 서버가 섞였을 수 있어서(특히 `-turn`) 먼저 서버마다 전부(명령·인자·`env`·헤더·주소; 키처럼 보이는 이름의 값은 가림)를 한 줄씩 보여 주고, 확인한 뒤
   `--yes`를 붙여야 넣습니다. 서버가 아직 이 맥의 로그인으로 돌고 있으면(토큰으로 바꾸고 `restart` 전) 넣지 않습니다. `office-uninstall.sh`는
   `config/`를 남기므로 사본도 남습니다(일반 JSON이라 직접 옮겨도 됨). `--delete-data`는 사본도 지웁니다.
 - 구독 토큰 방식에서 이 맥의 로그인 방식으로 되돌릴 때(`teamax configure --claude-auth local-login`)도 `~/.claude.json`에 MCP
