@@ -1366,11 +1366,12 @@ export class MockServer {
       return undefined
     },
     settings: () => this.settings,
-    speechKey: () => this.speechKey,
+    // SpeechKeyStatus.hosted (0.2.17): the hosting service's free hours; none on this mock server
+    speechKey: () => ({ ...this.speechKey, hosted: null }),
     speechHost: () => this.speechHost,
     setSpeechKey: (c) => {
       this.speechKey = c.body.sealed ? { set: true, hint: 'mock', updatedAt: now() } : { set: false, hint: null, updatedAt: null }
-      return this.speechKey
+      return { ...this.speechKey, hosted: null }
     },
     updateSettings: (c) => {
       const before = this.settings.defaultLocale
