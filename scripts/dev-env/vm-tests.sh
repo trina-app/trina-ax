@@ -1,6 +1,7 @@
 #!/bin/bash
 # Isolation and limit tests of mycel-boxd on the dev-env-test VM (after vm-setup.sh). Run as root ON THE TEST VM ONLY.
-#   scripts/dev-env/vm-tests.sh            (LONG=1 also waits for the idle stop, about 6 minutes)
+#   scripts/dev-env/vm-tests.sh            (LONG=1 also waits for the idle stop, about 6 minutes;
+#                                           REMOTION=1 also installs Remotion and renders a video, about 2 minutes)
 # Output: PASS/FAIL lines and numbers; save it as results/vm-<date>.txt.
 set -uo pipefail
 HERE=$(cd "$(dirname "$0")" && pwd)
@@ -77,6 +78,18 @@ D="exec works again"; ok x 'true' 10
 x 'timeout 10 sh -c "while :; do :; done & while :; do :; done & wait"; true' 20 >/dev/null 2>&1 &
 sleep 5; echo "host while CPU burn: $( { /usr/bin/time -f %e sh -c 'ls / >/dev/null'; } 2>&1 )"; wait
 r=$(x 'dd if=/dev/zero of=/cache/fill bs=1M 2>&1 | tail -1; rm -f /cache/fill' 300 2>&1); echo "volume fill: $r"; D="volume full stops at its size"; ok sh -c "echo '$r' | grep -q 'No space'"
+
+# Video render in the limits above (open network: npm and Chrome downloads). in-box/remotion.sh also prints its numbers.
+if [ "${REMOTION:-0}" = 1 ]; then
+  echo "== remotion (5 s, 720p)"
+  r=$(x "$(cat "$HERE/in-box/remotion.sh")" 1500 2>&1); echo "$r"
+  D="remotion: Chrome finds its libraries"; ok grep -q 'chrome_missing_libraries none' <<<"$r"
+  D="remotion: a font with Hangul in the image"; no grep -q 'fonts_with_hangul 0 ' <<<"$r"
+  D="remotion: no OOM kill during the render"; ok grep -q 'oom_kills 0$' <<<"$r"
+  D="remotion: 1280x720, 150 frames"; ok grep -q 'video h264,1280,720,150' <<<"$r"
+  D="remotion: render ended well"; ok grep -q 'result ok$' <<<"$r"
+  D="box survives the render"; ok x 'true' 10
+fi
 
 echo "== offline"
 D="network change restarts the box offline"; ok ctl "{\"op\":\"ensure\",\"box\":\"web\",\"folder\":\"projects/web\",\"network\":\"offline\",\"limits\":$LIM,\"denyAddrs\":[]}"

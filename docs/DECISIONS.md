@@ -5181,3 +5181,21 @@ the P0 spike (`docs/research/dev-env-p0-spike.md` on `spike/dev-env-p0`). Archiv
   refused, change window with versions and background changes, the credential card, the conflict copy, preview link
   life and cookie handling), `native/cmd/mycel-boxd/plan_test.go` (request checks, podman arguments without an engine,
   stdin-only command text, network rules, process list, conntrack lines).
+
+### Dev environment: what stops a release, and what stops a trial with one team (2026-11-01)
+
+The box can render Remotion video in the current limits after a small image change (NSS, fonts). Numbers:
+`docs/research/dev-env-test-vm-plan.md` "Remotion". The limits stay as they are.
+
+| Item | State | Blocks a release | Blocks a controlled trial for one team |
+|---|---|---|---|
+| Separate preview domain | Code ready; needs a wildcard host on another registrable domain and a proxy | Yes | No for rendering (the video is a file in the project folder). Yes for the Preview button: without the domain it stays off. |
+| Egress allowlist | Not built. An open box reaches the whole internet, but not private ranges, metadata or the team server | Yes | No, if the team accepts in writing that code in a box can send project files out. Use one project with no secrets. |
+| Credential helper | Not built. No credentials in the box; `git push` and `npm publish` fail | Yes | No. It removes a feature, not a protection. Public npm packages work. |
+| Folder quota | Not built. The 4 GiB volume does not cover `/work`: a command can fill the disk that holds the team folder | Yes | Yes on a server that other teams share. No on a VM for this team only, with a disk alert: the damage stays with that team, but a full disk can still stop its server. |
+| WebSocket preview | Not built; the gateway answers 501 | Yes, for most dev servers | No. Vite falls back to reloads. Remotion Studio through the preview is not tested. |
+
+Three more items stop the trial, and they are not in the table: the isolation re-run on a throwaway host is not done;
+the Remotion numbers need a real box (`REMOTION=1`); and the rule that boxd is not installed on a team server stays
+until the owner changes it, as a trial needs boxd (root) on that team's server and a build of this branch.
+

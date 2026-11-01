@@ -1,9 +1,11 @@
-# Project box image (dev environment EXPERIMENT): Debian 13 slim + node/npm, python3/venv/pip, git. No AI engine and no
+# Project box image (dev environment EXPERIMENT): Debian 13 slim + node/npm, python3/venv/pip, git, and what headless
+# Chrome needs (Remotion, Puppeteer, Playwright): NSS and fonts. The root file system is read-only, so a box cannot add
+# them with apt. Remotion brings its own Chrome and ffmpeg (box volume). No AI engine and no
 # credential helper inside (hole 6): the engine runs outside the box, in the launcher's sandbox, and only box_shell
 # commands enter the box. Pin the base by digest when this leaves the experiment.
 FROM docker.io/library/debian:trixie-slim
 RUN apt-get update && apt-get install -y --no-install-recommends nodejs npm python3 python3-venv python3-pip git \
-      ca-certificates curl procps less \
+      ca-certificates curl procps less libnss3 fontconfig fonts-liberation fonts-noto-cjk \
     && rm -rf /var/lib/apt/lists/* \
     && mkdir -p /work /cache \
     && ! command -v claude && ! command -v codex

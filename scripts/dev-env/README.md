@@ -5,13 +5,14 @@ P0 numbers: `docs/research/dev-env-p0-spike.md` (branch `spike/dev-env-p0`).
 
 | File | What |
 |---|---|
-| `Containerfile` | box image: Debian 13 slim, node/npm, python3/pip, git. No AI engine (the build fails if one is in it). |
+| `Containerfile` | box image: Debian 13 slim, node/npm, python3/pip, git, NSS and fonts for headless Chrome. No AI engine (the build fails if one is in it). |
 | `make-seccomp.py` | box seccomp profile = podman default + the engine filter's denies (from the spike) |
 | `build-image.sh` | root: seccomp profile to `/etc/mycel-boxd/`, image `localhost/mycel-devbox:1` for the box account |
 | `vm-setup.sh` | root, TEST VM ONLY: accounts, stand-in team folders and targets, boxd as a transient unit |
-| `vm-tests.sh` | root, TEST VM ONLY: isolation, network, limits, preview, stop, idle stop; PASS/FAIL lines |
+| `vm-tests.sh` | root, TEST VM ONLY: isolation, network, limits, preview, stop, idle stop; PASS/FAIL lines. `REMOTION=1` adds a video render. |
 | `boxctl.py` | small boxd client for the tests (run as the server stand-in account) |
 | `in-box/isolation.sh` | the spike's isolation probe, sent into the box |
+| `in-box/remotion.sh` | render probe, sent into the box: 5 s of 720p; time, memory, disk |
 
 Server switches (all off by default):
 

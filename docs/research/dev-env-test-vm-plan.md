@@ -79,6 +79,7 @@ apt-get install -y golang-go bc time jq && (cd native && CGO_ENABLED=0 go build 
 scripts/dev-env/vm-setup.sh /tmp/mycel-boxd
 scripts/dev-env/vm-tests.sh | tee /root/vm-tests.txt
 LONG=1 scripts/dev-env/vm-tests.sh | tail -3      # also the idle stop (about 6 minutes)
+REMOTION=1 scripts/dev-env/vm-tests.sh | tee /root/vm-tests-remotion.txt   # also a video render (about 2 minutes)
 ```
 
 Copy `/root/vm-tests.txt` back into `scripts/dev-env/results/`. Expected time: 30 minutes. Load: one box with 1 CPU
@@ -138,3 +139,38 @@ The two failures:
 
 Re-run needed for: the changed flood, recovery and volume-fill steps, and the idle stop (`LONG=1`, not run). It needs
 a throwaway Debian 13 host with root, as before, for about 30 minutes; no new host was approved.
+
+## Remotion (2026-11-01)
+
+Question: can a box render video for a customer (for example Remotion) inside the current limits? Answer: yes, after
+one image change. Not yet measured in a real box: the numbers below come from a stand-in on the shared server, a
+Docker container with the same image, limits and seccomp profile (differences and all lines:
+`scripts/dev-env/results/remotion-standin.txt`). `REMOTION=1` runs the same probe in a real box. The stand-in tests
+nothing about isolation.
+
+Remotion 4.0.539, one composition with text and SVG, no video or image inputs, 30 fps, 1280x720, 1 CPU:
+
+| Memory limit | Length | Render | Peak, anon + shmem | Result |
+|---|---|---|---|---|
+| 1536 MiB | 5 s | 25.0 to 27.0 s (5 runs) | 977 to 1249 MiB | video correct, no OOM |
+| 1024 MiB | 5 s | 30.6 s | 992 MiB | video correct, no OOM |
+| 768 MiB | 5 s | stopped at 14.4 s | 696 MiB | OOM kill, no video |
+| 1536 MiB | 60 s | 117.4 s | 1239 MiB | video correct, no OOM |
+
+Install: 14 s for npm (peak 358 MiB) and 6 s for Chrome. Other peaks: 198 processes (limit 512), 45 MiB in `/tmp` (limit
+256 MiB). Disk: 971 MiB of the 4 GiB volume (`node_modules` 790, cache 181). No limit change is necessary.
+
+- **Image.** Without a change Chrome does not start (`libnspr4.so` is missing), and a box cannot use apt (read-only
+  root). The image now has `libnss3`, `fontconfig`, `fonts-liberation` and `fonts-noto-cjk`: 187 MB more (691 to 878
+  MB in Docker). The image rules forbid only an AI engine and a credential helper, so these are permitted. Chromium's
+  other libraries are not necessary for this render. No system ffmpeg: Remotion brings its own, and its own Chrome.
+  A frame of the video was examined: Hangul and Latin text are correct.
+- **Concurrency.** Remotion's default chose 1 Chrome tab under the 1 CPU quota, so no flag is necessary.
+- **Time limit.** `box_shell` stops a command after 120 s by default. A 60 s video needs 117 s, so very near the limit: the
+  AI must set `timeout_sec` (at most 1800 s) or use `background`. At the measured speed the upper limit is about 15
+  minutes of simple video per command.
+- **Not measured:** video or image inputs, 1080p, audio, heavy effects. These can need more memory or time. The 768
+  and 1024 MiB runs show the floor for this simple render only, so keep 1.5 GB for customers.
+- **Licence.** Remotion is free for a company with up to 3 employees and for evaluation. A larger for-profit company
+  needs a Remotion Company License. We do not ship Remotion: the customer installs it into the box, so the customer
+  holds the licence.
