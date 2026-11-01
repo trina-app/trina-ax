@@ -1278,7 +1278,7 @@ export const es: Record<MessageKey, string> = {
   'skills.aiList': "Habilidades: {skills} · en la lista de la IA con su descripción: {described} · solo con el nombre: {nameOnly}",
   'skills.aiListUnlisted': " · fuera de la lista (la IA las encuentra buscando): {unlisted}",
   'skills.aiListHint': "Las instrucciones de la IA tienen espacio para unos 8000 caracteres de habilidades. Sus habilidades personales y las que más usa reciben primero su descripción; la IA lee el texto completo de una habilidad cuando la usa.",
-  'skills.aiRules': "Reglas del equipo: la IA sigue los primeros {followed} de {rules} archivos de reglas (por nombre de archivo).",
+  'skills.aiRules': "Reglas del equipo: la IA sigue los primeros {followed} de {rules, plural, one {# archivo de reglas} other {# archivos de reglas}} (por nombre de archivo).",
   'skills.tabReview': "Por revisar",
   'skills.tabMine': "Mis sugerencias",
   'skills.tabChanges': "Cambios recientes",

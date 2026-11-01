@@ -1278,7 +1278,7 @@ export const ja: Record<MessageKey, string> = {
   'skills.aiList': "スキル{skills}個 · AIのリストに説明付き：{described}個 · 名前のみ：{nameOnly}個",
   'skills.aiListUnlisted': " · リスト外（AIが検索して見つけます）：{unlisted}個",
   'skills.aiListHint': "AIの指示に入るスキルの一覧は約8,000文字です。自分のスキルとよく使うスキルに先に説明が付き、AIはスキルを使うときに全文を読みます。",
-  'skills.aiRules': "チームルール：AIはルールファイル{rules}個のうち、ファイル名順で最初の{followed}個に従います。",
+  'skills.aiRules': "チームルール：AIはルールファイル{rules, plural, one {#個} other {#個}}のうち、ファイル名順で最初の{followed}個に従います。",
   'skills.tabReview': "審査待ち",
   'skills.tabMine': "自分の提案",
   'skills.tabChanges': "最近の変更",

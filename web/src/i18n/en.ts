@@ -1315,7 +1315,7 @@ export const en: Record<MessageKey, string> = {
   'skills.aiList': 'Skills: {skills} · in the AI\'s list with their description: {described} · by name only: {nameOnly}',
   'skills.aiListUnlisted': ' · not in the list (the AI finds them by searching): {unlisted}',
   'skills.aiListHint': 'The AI\'s instructions have room for about 8,000 characters of skills. Your own skills and the ones you use most get their description first; the AI reads a skill\'s full text when it uses one.',
-  'skills.aiRules': 'Team rules: the AI follows the first {followed} of {rules} rule files (by file name).',
+  'skills.aiRules': 'Team rules: the AI follows the first {followed} of {rules, plural, one {# rule file} other {# rule files}} (by file name).',
   'skills.tabReview': 'To review',
   'skills.tabMine': 'My suggestions',
   'skills.tabChanges': 'Recent changes',
