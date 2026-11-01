@@ -4665,3 +4665,49 @@ upstream, no `claude-*` name among them). This makes it a supported setting inst
 - Tests: `tests/unit/anthropic-gateway.test.ts` (config and conflicts, key format, OpenRouter and model-list key
   checks, subscription and Anthropic connections off and never forwarded or checked, the allow-list with a fake gateway,
   count_tokens 404, engine environment, admin model list, prices).
+
+## Hosted speech-to-text (feat/hosted-speech, 2026-11-01)
+
+Founder decision: hosted teams get speech-to-text included, 10 free hours a team a month, through OpenRouter's
+`openai/whisper-large-v3-turbo` on DeepInfra (US, $0.012 an hour of sound), with Groq (US, $0.04 an hour) as the
+fallback when DeepInfra is down. Test report: `plans/stt-hosted-2026-11-01/STT-DEEPINFRA-TEST.md` (private).
+
+- **Pinning.** OpenRouter's transcription endpoint ignores `provider.only` / `order` / `ignore`. The pin is the
+  hosting service's guardrail `trina-hosted-stt` on every hosted key: providers DeepInfra and Groq only, this model
+  only, zero data retention, no training or publication. OpenRouter picks between the two; measured with 20 parallel
+  requests twice: 34 of 40 DeepInfra, 6 Groq, every chat model refused. Both are on OpenRouter's ZDR list for the model;
+  Groq's OpenRouter data policy: no training, no prompt retention, no publishing (US). Groq answers the language as a
+  name ("Korean"); `parseOpenRouter` maps names to codes (feat/stt-openrouter-tune).
+- **Key.** The control plane (trina-cloud) makes one OpenRouter key per hosted team with a monthly dollar limit as a
+  backstop and hands it over with the tenant command `hosted-speech-key-set` (`{ key | null }` on stdin; mycel-ctl
+  → `admin.js hosted-speech-key`, hosted servers only). The server stores it like the team's own key, encrypted with
+  the credentials vault, under `speech.hostedKey` (AAD `speech.hosted|openrouter-api-key`). It is never in a response,
+  log line or audit row, not even its last characters; the audit row `speech.hosted_key` says `set` or `removed`.
+  `credentials-rekey` re-encrypts it. A server that is not hosted removes it at start (a hosted team's backup restored
+  on the team's own server).
+- **Which key.** The team's own key (Admin › Team settings › Voice input) always comes first and is never counted. The
+  hosting key is used only without one.
+- **Defaults.** With the hosting key and no speech provider chosen, `speechProvider` reads `openrouter`
+  (`getTeamSettings`): voice input is on. "Turn video sound into text" defaults on with the hosting key
+  (`mediaTranscriptsDefault(provider, cores, hostedKey)`) and stays off by default with the team's own key. An admin's
+  choice, `off` too, always wins. Confidential chats are unchanged: no sound goes out from them.
+- **Free hours.** `credentials/hosted-speech.ts`: seconds of sound sent with the hosting key, per calendar month in
+  Korea time (UTC+9), one settings row `speech.hostedUsage` (`{month, seconds}`, no sound, text or key). Every OpenRouter
+  speech request goes through `TranscribeConfig.meter` (`jobs/openrouter-stt.ts postAudio`): refused before it is sent
+  when the month's 10 hours are used ("This month's 10 free hours … are used up …", in the person's language), counted
+  after OpenRouter answered, with the `duration` it heard (else the WAV's length). Retries and second tries in another
+  language count, because they were sent. A video read checks before it cuts any sound (note `freeUsed`); a request
+  that goes past the end is answered, the next is refused. OpenRouter refusing the hosting key (401/402/403: taken
+  away, the team suspended, or the backstop reached) says hosted transcription is not available, not "add credits".
+  `GET /api/admin/speech-key` adds `hosted: {month, usedSec, freeSec}` (null without the hosting key), shown as "This
+  month: N of 10 free transcription hours used".
+- **Second try.** A provider failure (408, 500, 502, 503, 504, 524, 529) or no answer in time is sent once more, if
+  the caller has 5 s left (each try gets at most 60 s); OpenRouter may route it to the other provider. Only both
+  failing is shown ("did not answer, twice"). Other refusals are not sent again. This applies to the team's own key too.
+- **Known limits.** ax-hostd keeps tenant-command jobs in its journal on the host, so the hosting key is on the host's
+  disk in clear like an enroll token; it is limited to speech-to-text on one model, has a small monthly dollar limit and
+  can be deleted at OpenRouter at any time. Open windows learn that voice input turned on at their next `GET /api/me`
+  (the key comes from admin.js, a separate process, which cannot send the realtime notice).
+- Tests: `c-speech-hosted` (defaults, precedence, counting, month rollover, refusal, retries, a Groq answer, the
+  admin.js command, the key in no response, row or log line), `c-speech-openrouter` (two tries on 5xx), the contract
+  vectors, `mycel-ctl` `TestTenantHostedSpeechKeySet`.
