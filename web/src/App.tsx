@@ -10,6 +10,7 @@ import { useSendQueue } from './store/sendQueue'
 import { startLive, stopLive } from './store/live'
 import { useSession } from './store/session'
 import Layout from './components/Layout'
+import { ChunkErrorBoundary } from './components/ChunkErrorBoundary'
 import { AnnounceProvider, Button, DialogHost, Spinner, Toaster } from './components/ui'
 import { AcceptInvite, ForcedPassword, Login, ResetPassword, Setup } from './pages/Auth'
 import Home from './pages/Home'
@@ -96,6 +97,8 @@ function Gate() {
       </Routes>
     )
   return (
+    // a lazy route that is gone after a server update: reload once instead of a blank page (lib/chunk-reload.ts)
+    <ChunkErrorBoundary>
     <Suspense fallback={<Splash />}>
       <Routes>
         <Route element={<Layout />}>
@@ -122,6 +125,7 @@ function Gate() {
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
     </Suspense>
+    </ChunkErrorBoundary>
   )
 }
 

@@ -69,6 +69,7 @@ export const id: Record<MessageKey, string> = {
   "dev.banner": "Mode pengembangan: tanpa isolasi akun OS produksi. Mesin yang aktif berjalan sebagai pengguna OS server.",
   'update.ready': 'Versi baru sudah siap.',
   'update.reload': 'Muat ulang',
+  'update.chunkFailed': 'Bagian halaman ini tidak bisa dimuat. Muat ulang untuk mendapatkan versi terbaru.',
   'notice.accessChanged': 'Akses folder kamu berubah: {paths}',
 
   'role.owner': 'Owner',

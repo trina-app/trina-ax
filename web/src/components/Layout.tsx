@@ -17,6 +17,7 @@ import ManagedNoticesBanner from './ManagedNoticesBanner'
 import ScheduleReviewBanner from './ScheduleReviewBanner'
 import SearchDialog from './SearchDialog'
 import Sidebar from './Sidebar'
+import { ChunkErrorBoundary } from './ChunkErrorBoundary'
 import { IconButton, Spinner } from './ui'
 
 const ArtifactPanel = lazy(() => import('./ArtifactPanel'))
@@ -112,7 +113,10 @@ export default function Layout() {
             </IconButton>
           </div>
           <div className="min-h-0 flex-1">
-            <Outlet />
+            {/* a page that cannot be loaded after a server update: here, with the sidebar still there (another page resets it) */}
+            <ChunkErrorBoundary resetKey={location.pathname}>
+              <Outlet />
+            </ChunkErrorBoundary>
           </div>
         </main>
         {panel && (
@@ -124,11 +128,13 @@ export default function Layout() {
               'md:w-[46%] md:max-w-[880px] md:min-w-[360px]',
             )}
           >
-            <Suspense fallback={<Spinner className="p-6" />}>
-              {panel.kind === 'artifact' && <ArtifactPanel chatId={panel.chatId} artifactKey={panel.artifactKey} versionId={panel.versionId} onClose={closeSidePanel} />}
-              {panel.kind === 'file' && <FilePanel key={panel.key} file={panel.file} onClose={closeSidePanel} />}
-              {panel.kind === 'browser' && <BrowserPanel onClose={closeSidePanel} />}
-            </Suspense>
+            <ChunkErrorBoundary resetKey={panel.kind}>
+              <Suspense fallback={<Spinner className="p-6" />}>
+                {panel.kind === 'artifact' && <ArtifactPanel chatId={panel.chatId} artifactKey={panel.artifactKey} versionId={panel.versionId} onClose={closeSidePanel} />}
+                {panel.kind === 'file' && <FilePanel key={panel.key} file={panel.file} onClose={closeSidePanel} />}
+                {panel.kind === 'browser' && <BrowserPanel onClose={closeSidePanel} />}
+              </Suspense>
+            </ChunkErrorBoundary>
           </div>
         )}
       </div>

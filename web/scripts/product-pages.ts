@@ -1,7 +1,9 @@
 // The product's name in the files the browser reads before the app runs (shared/src/product.ts is the one place it is
-// written): index.html (title, home-screen title, noscript), /manifest.webmanifest and /sw.js (its offline page).
+// written): index.html (title, home-screen title, noscript), /manifest.webmanifest and /sw.js (its offline page, and
+// its cache name per build).
 // The templates are web/index.html and web/pwa/*; their __PRODUCT_*__ placeholders are filled here, at build (emitted
 // into dist/) and by the dev server (served from memory). A placeholder left over fails the build.
+import crypto from 'node:crypto'
 import fs from 'node:fs'
 import path from 'node:path'
 import type { Plugin } from 'vite'
@@ -37,9 +39,17 @@ export function fillProduct(text: string, file: string, inString = false): strin
   return out
 }
 
-export function pwaFile(name: keyof typeof PWA_FILES): string {
+/** The service worker's cache name part for a build: a hash of the build's emitted file names (hashed names, so it
+ * changes exactly when a file changes); 'dev' for the dev server (which registers no worker). */
+export function staticBuildId(files: Iterable<string>): string {
+  return crypto.createHash('sha256').update([...files].filter((f) => f.startsWith('assets/')).sort().join('\n')).digest('hex').slice(0, 16)
+}
+
+export function pwaFile(name: keyof typeof PWA_FILES, build = 'dev'): string {
   let text = fillProduct(fs.readFileSync(path.join(PWA_DIR, name), 'utf8'), `web/pwa/${name}`, true)
   if (name === 'sw.js') {
+    if (!/^[a-z0-9]{1,32}$/.test(build)) throw new Error(`sw.js: bad build id ${build}`)
+    text = text.replace('__STATIC_BUILD__', build)
     // JSON is embedded inside an HTML script inside a JS template literal: escape each boundary.
     const messages = Object.fromEntries(Object.entries({ ko, en, id, ja, es }).map(([locale, dict]) => [locale, {
       title: dict['conn.cantReach'], hint: dict['conn.cantReachHint'], retry: dict['common.retry'],
@@ -75,8 +85,9 @@ export function productPages(): Plugin {
         res.end(pwaFile(name))
       })
     },
-    generateBundle() {
-      for (const name of Object.keys(PWA_FILES) as (keyof typeof PWA_FILES)[]) this.emitFile({ type: 'asset', fileName: name, source: pwaFile(name) })
+    generateBundle(_options, bundle) {
+      const build = staticBuildId(Object.keys(bundle))
+      for (const name of Object.keys(PWA_FILES) as (keyof typeof PWA_FILES)[]) this.emitFile({ type: 'asset', fileName: name, source: pwaFile(name, build) })
     },
   }
 }

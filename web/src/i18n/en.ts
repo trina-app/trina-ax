@@ -69,6 +69,7 @@ export const en: Record<MessageKey, string> = {
   "dev.banner": "Development mode: no production OS account isolation. Enabled engines run as the server OS user.",
   'update.ready': 'A new version is ready.',
   'update.reload': 'Reload',
+  'update.chunkFailed': 'This part of the page could not be loaded. Reload to get the current version.',
   'notice.accessChanged': 'Your folder access changed: {paths}',
 
   'role.owner': 'Owner',

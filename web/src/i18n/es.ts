@@ -67,6 +67,7 @@ export const es: Record<MessageKey, string> = {
   "dev.banner": "Modo de desarrollo: sin aislamiento de cuentas del sistema operativo para producción. Los motores habilitados se ejecutan como el usuario del sistema del servidor.",
   'update.ready': "Hay una nueva versión disponible.",
   'update.reload': "Recargar",
+  'update.chunkFailed': "No se pudo cargar esta parte de la página. Vuelva a cargarla para obtener la versión actual.",
   'notice.accessChanged': "Cambió su acceso a las carpetas: {paths}",
   'role.owner': "Propietario",
   'role.admin': "Administrador",
