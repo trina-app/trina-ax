@@ -620,6 +620,26 @@ describe('long OpenRouter pieces: whisper names one language for a whole piece f
     expect(packed).toBe(0)
     expect(r.out.text).toContain('In a confidential chat the sound is not sent to an outside service')
   })
+  test('locked confidential or switched off while the first answer comes: no retry, the first answer stays, no lookup', async () => {
+    probe = audioOnly(600)
+    const chat = turn()
+    reply = (b) => {
+      A.ctx.db.query('INSERT OR IGNORE INTO safe_ops_chats(chat_id, material) SELECT chat_id, 1 FROM turns WHERE id = ?').run(chat)
+      return recorded(b.language === 'ko' ? 'qa-meeting-p1-ko' : 'qa-meeting-p1')
+    }
+    const locked = await read({ file_path: put('locked.m4a') }, { turnId: chat })
+    expect(hits.map((h) => h.language ?? 'auto')).toEqual(['auto'])
+    expect(locked.out.text).toContain('language: ja)')
+    // nothing more goes to OpenRouter from that chat, not even the generation's id (its lookup would start after 50 ms)
+    const mine = `gen-stt-test-${generations}`
+    await Bun.sleep(200)
+    expect(lookups).not.toContain(mine)
+    hits.length = 0
+    reply = (b) => { updateTeamSettings(A.ctx.db, { aiMediaTranscripts: false }); return recorded(b.language === 'ko' ? 'qa-meeting-p1-ko' : 'qa-meeting-p1') }
+    const off = await read({ file_path: put('off.m4a') })
+    expect(hits.map((h) => h.language ?? 'auto')).toEqual(['auto'])
+    expect(off.out.text).toContain('language: ja)')
+  })
 })
 
 describe('slow local transcripts: frames first, measured pieces, small servers, voice input first, silence', () => {

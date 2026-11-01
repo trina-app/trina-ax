@@ -856,6 +856,12 @@ export class FileService {
     const requests: { generation?: string; served?: string }[] = []
     let stopped: string | null = null
     let failure: string | null = null
+    /** why no sound may go to the provider now (the switch, the provider, the chat's confidentiality), or null */
+    const sendBlocked = (): MediaTextKey | null => {
+      const now = getTeamSettings(this.db)
+      if (now.speechProvider !== provider || !mediaTranscriptsOn(now, cores)) return now.speechProvider === 'off' ? 'voiceOff' : 'transcriptsOff'
+      return provider === 'openrouter' && confidentialTurn(this.db, ctx.turnId) ? 'confidential' : null
+    }
     // the audit row covers every piece handed to the provider, also when the read then fails, is stopped or loses access
     try {
       for (let k = Math.floor(w.from / pieceSec); k * pieceSec < w.to; k++) {
@@ -879,9 +885,8 @@ export class FileService {
           if (budget() < need) { stopped = ctx.turnId ? 'time' : 'connection'; break }
           // right before new sound is cut and sent, as things are now (a read runs for minutes): the switch and the
           // provider, the chat's confidentiality (a safe workflow may lock it meanwhile), the person's access to the file
-          const now = getTeamSettings(this.db)
-          if (now.speechProvider !== provider || !mediaTranscriptsOn(now, cores)) { stopped = now.speechProvider === 'off' ? 'voiceOff' : 'transcriptsOff'; break }
-          if (provider === 'openrouter' && confidentialTurn(this.db, ctx.turnId)) { stopped = 'confidential'; break }
+          const block = sendBlocked()
+          if (block) { stopped = block; break }
           this.recheckSource(ctx, src)
           const wav = `audio-${k}.wav`
           try {
@@ -927,10 +932,12 @@ export class FileService {
               // (neither the team's nor English, whisper unsure of its words, or another piece of the file heard
               // otherwise: longRetryLanguage), the piece runs once more told the file's language, else the team's, and
               // the answer whisper is surer of is kept (keepLongRetry). A told language is never reported as heard; a
-              // retry that fails keeps the first answer.
+              // retry that fails keeps the first answer. The sound goes again only after the same checks as a new
+              // piece (the first answer can take a minute): switched off or locked meanwhile, the first answer stays.
               if (speech.provider === 'openrouter' && !language && len >= LONG_PIECE_SEC && typeof answer === 'object') {
                 const told = longRetryLanguage(answer, { team, file: media.heardLanguage(heard) })
-                if (told && budget() >= need) {
+                if (told && budget() >= need && !sendBlocked()) {
+                  this.recheckSource(ctx, src)
                   let again: Awaited<ReturnType<typeof ask>> | null = null
                   try { again = await ask(told) } catch {
                     ctx.signal?.throwIfAborted()
@@ -979,7 +986,8 @@ export class FileService {
         const routed = requests.length ? { served: servedCounts(requests), generations: requests.flatMap((r) => (r.generation ? [r.generation] : [])) } : {}
         const row = audit(this.db, { actor: ctx.user.id, action: 'media.transcribe', target: src.rel,
           detail: { seconds: Math.round(sentSec), provider, model, pieces: made, cached, ...(silent ? { silent } : {}), ok: made > 0 && !failure && !ctx.signal?.aborted, ...(ctx.turnId ? {} : { via: 'connection' }), ...routed } })
-        if (requests.some((r) => r.generation && !r.served)) this.noteServed(row, requests)
+        // nothing more goes to OpenRouter from a chat locked confidential meanwhile, not even the ids
+        if (requests.some((r) => r.generation && !r.served) && !confidentialTurn(this.db, ctx.turnId)) this.noteServed(row, requests)
       }
     }
     if (stopped === 'slow') notes.push(say('slow', { min: Math.round(media.HOSTED_LOCAL_NEW_SEC / 60) }))

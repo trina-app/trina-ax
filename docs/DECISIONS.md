@@ -4555,7 +4555,10 @@ path with the real ffmpeg and OpenRouter, and the rule was also applied to every
   time an answer left out counts as -1 (told `ko`, the QA meeting's English last part dropped 55 s of English and would
   otherwise have won). A told language is never reported as heard (`Piece.hint` as before, `language: null` for voice
   input). A retry that fails keeps the first answer; it starts only with time for it, and a confidential chat sends
-  nothing, retry included. The sound is packed once for both requests. Short pieces keep the earlier rules.
+  nothing, retry included. In a read the retry goes only after the same checks as a new piece (the switch, the
+  provider, a confidential lock, the person's access to the file), since the first answer can take a minute; switched
+  off or locked meanwhile, the first answer stays (review of the branch). The sound is packed once for both requests.
+  Short pieces keep the earlier rules.
   - Measured on DeepInfra answers: QA meeting (Korean team) Hangul CER 97.7% -> 20.3%, English WER 59% -> 28%, timestamps
     of its lines within 0.16 s (were 4.3 s off); as one 13-minute voice recording Hangul 8.1%, English 37%. A Japanese
     meeting stays Japanese (checked, told `ko`, kept). 10 minutes of Korean, a Korean-English meeting, English on a
@@ -4593,9 +4596,10 @@ path with the real ffmpeg and OpenRouter, and the rule was also applied to every
   provider that does not exist was answered by DeepInfra; Groq still served 9 of the 87 requests of this test, 5 of
   the 41 the read path sent one at a time, and its retry of the QA meeting wrote invented Korean over two minutes of
   English),
-  so a hosted key pins DeepInfra with its own provider guardrail; the field takes effect the day OpenRouter applies it.
+  so a hosted key limits the providers with its own provider guardrail; the field takes effect the day OpenRouter applies it.
   The answer does not name the provider. The `media.transcribe` audit row now also holds `generations` (OpenRouter's
   generation id of each request, retries included) and `served` (requests by provider, `unknown` until known): the
   read looks each id up at OpenRouter (`GET /api/v1/generation`, the key in the header only, no sound or text, no
-  redirects) about 8 s after the row is written, up to three tries, and fills `served` in that row. No transcript
-  words. Voice input has no audit row and none was added.
+  redirects) about 8 s after the row is written, up to three tries, and fills `served` in that row (not when the chat
+  was locked confidential during the read: nothing more goes to OpenRouter from it). No transcript words. Voice input
+  has no audit row and none was added.

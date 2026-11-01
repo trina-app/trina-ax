@@ -272,12 +272,17 @@ export async function sendToOpenRouter(cfg: TranscribeConfig, key: string, model
     if (o.signal?.aborted) throw e
     throw PROVIDER_DOWN()
   }
-  const generation = generationId(res.headers.get('x-generation-id'))
-  const served = providerSlug(res.headers.get('x-provider-name'))
-  return { ...parseOpenRouter(j ?? {}, { language: lang ?? null, durationSec: o.seconds ?? null }), ...(generation ? { generation } : {}), ...(served ? { served } : {}) }
+  return { ...parseOpenRouter(j ?? {}, { language: lang ?? null, durationSec: o.seconds ?? null }), ...requestOf(res.headers) }
 }
 
 // ---------------- which provider served a request ----------------
+/** An answer's generation id and the provider that served it, from its headers (`X-Generation-Id`; the provider only
+ * when the answer names it): only the fields found. */
+export function requestOf(headers: Headers): { generation?: string; served?: string } {
+  const generation = generationId(headers.get('x-generation-id'))
+  const served = providerSlug(headers.get('x-provider-name'))
+  return { ...(generation ? { generation } : {}), ...(served ? { served } : {}) }
+}
 /** OpenRouter's generation id ("gen-stt-1793497549-g9WWurhY5bOSKVBoplrc"), or undefined for anything else */
 export const generationId = (v: unknown): string | undefined => (typeof v === 'string' && /^gen-[A-Za-z0-9_-]{1,120}$/.test(v) ? v : undefined)
 /** a provider's name as a slug ("DeepInfra" -> "deepinfra"), or undefined */
