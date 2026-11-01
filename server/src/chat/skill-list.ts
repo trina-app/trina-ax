@@ -181,19 +181,22 @@ export function skillTokens(text: string): string[] {
 
 const tokenMatch = (a: string, b: string) => a === b || (a.length >= 4 && b.length >= 4 && !HANGUL.test(a) && (a.startsWith(b) || b.startsWith(a)))
 
-/** The words of a skill's path that say something (its folders and file name, not "skills", "users", the id). */
-function pathWords(p: string): string {
+/** The words of a skill's path that say something, not "skills", "users", the id: `own` is the skill's own file or
+ * folder name ("견적서" of skills/영업/견적서/SKILL.md or skills/영업/견적서.md), `parents` the folders above it. */
+function pathWords(p: string): { own: string; parents: string } {
   const segs = p.split('/')
-  const rest = segs[0] === 'users' ? segs.slice(3) : segs.slice(1)
-  return rest.map((s) => (s === 'SKILL.md' ? '' : s.replace(/\.md$/, ''))).join(' ')
+  const rest = (segs[0] === 'users' ? segs.slice(3) : segs.slice(1)).filter((s) => s !== 'SKILL.md').map((s) => s.replace(/\.md$/, ''))
+  return { own: rest.at(-1) ?? '', parents: rest.slice(0, -1).join(' ') }
 }
 
 export interface SkillMatch { skill: Skill; score: number; words: number }
 
 /**
- * Skills that match `query` by words, best first. Each word of the query found in the name counts 3, in the
- * description 1, in the folders and file name 1; the whole query inside the name 3 more. Then usage (as in the list)
- * and a skill whose folders share a word with the chat's project folder add a little. Only skills with a word match.
+ * Skills that match `query` by words, best first. Each word of the query found in the name or in the skill's own
+ * folder or file name counts 3 (people name the folder in their language and the skill in another: "견적서/SKILL.md"
+ * with "name: quote"), in the description 1, in the folders above it 1; the whole query inside the name or that folder
+ * or file name 3 more. Then usage (as in the list) and a skill whose folders share a word with the chat's project
+ * folder add a little. Only skills with a word match.
  */
 export function matchSkills(skills: readonly Skill[], query: string, o: { scores?: ReadonlyMap<string, number>; projectFolder?: string | null; limit?: number } = {}): SkillMatch[] {
   const q = [...new Set(skillTokens(query))].slice(0, 200)
@@ -202,21 +205,32 @@ export function matchSkills(skills: readonly Skill[], query: string, o: { scores
   const project = new Set(o.projectFolder ? skillTokens(o.projectFolder.split('/').filter((s) => s !== 'groups' && s !== 'shared' && s !== 'users').join(' ')) : [])
   const out: SkillMatch[] = []
   for (const s of skills) {
-    const name = skillTokens(s.name), description = skillTokens(s.description), where = skillTokens(pathWords(s.path))
+    const at = pathWords(s.path)
+    const name = [...skillTokens(s.name), ...skillTokens(at.own)], description = skillTokens(s.description), parents = skillTokens(at.parents)
     let score = 0, words = 0
     for (const t of q) {
-      const n = name.some((x) => tokenMatch(x, t)), d = description.some((x) => tokenMatch(x, t)), p = where.some((x) => tokenMatch(x, t))
+      const n = name.some((x) => tokenMatch(x, t)), d = description.some((x) => tokenMatch(x, t)), p = parents.some((x) => tokenMatch(x, t))
       if (n || d || p) words++
       score += (n ? 3 : 0) + (d ? 1 : 0) + (p ? 1 : 0)
     }
     if (!words) continue
-    if (whole.length >= 2 && fold(s.name).includes(whole)) score += 3
+    if (whole.length >= 2 && (fold(s.name).includes(whole) || fold(at.own).includes(whole))) score += 3
+    const where = [...parents, ...skillTokens(at.own)]
     const used = o.scores?.get(s.path) ?? 0
     if (used > 0) score += Math.min(2, Math.log2(1 + used))
     if (project.size && where.some((x) => project.has(x))) score += 1
     out.push({ skill: s, score, words })
   }
   return out.sort((a, b) => b.score - a.score || a.skill.name.localeCompare(b.skill.name) || a.skill.path.localeCompare(b.skill.path)).slice(0, o.limit ?? FIND_SKILLS_MAX)
+}
+
+/** What find_skills gives when no word matches (Korean words against English descriptions, QA): the skills this
+ * person uses most (usage as in the list), then their own, then by name, at most `limit`. `used`: how many of them were
+ * used at all. Only `skills`, the person's own list: nothing they cannot read. */
+export function frequentSkills(skills: readonly Skill[], scores: ReadonlyMap<string, number>, limit = FIND_SKILLS_MAX): { skills: Skill[]; used: number } {
+  const used = (s: Skill) => scores.get(s.path) ?? 0
+  const top = [...skills].sort((a, b) => used(b) - used(a) || Number(isPersonalSkill(b.path)) - Number(isPersonalSkill(a.path)) || a.name.localeCompare(b.name) || a.path.localeCompare(b.path)).slice(0, limit)
+  return { skills: top, used: top.filter((s) => used(s) > 0).length }
 }
 
 /** The skills worth naming in front of this message when the list is cut: a few with a clear word match. */

@@ -10,7 +10,7 @@ import { makeEnv } from '../lib/env'
 import { newId } from '../../server/src/db'
 import { listSkills, MAX_FILES, scanSkills, skillIssues, type Skill } from '../../server/src/chat/skills'
 import {
-  buildSkillList, chatSkillOrder, descriptionOrder, hintSkills, listedFor, matchSkills, recordListed, resolveSkill, shortDescription,
+  buildSkillList, chatSkillOrder, descriptionOrder, frequentSkills, hintSkills, listedFor, matchSkills, recordListed, resolveSkill, shortDescription,
   skillChanges, skillChangesText, skillTokens, SKILL_LINE_DESCRIPTION_MAX, SKILL_LIST_BUDGET, usageScores,
 } from '../../server/src/chat/skill-list'
 import { buildSubagentPrompt, buildTurnContext, buildTurnPrompt, neutralizeTags, skillHintsBlock, skillsSection, SKILL_FILES_MAX, teamRuleFiles, teamRules } from '../../server/src/chat/prompt'
@@ -173,6 +173,32 @@ describe('find_skills and the skill tool\'s name lookup', () => {
     expect(used[0]!.skill.path).toBe('skills/weekly.md')
     const inProject = matchSkills(skills, '확인', { projectFolder: 'groups/영업' })
     expect(inProject[0]!.skill.path).toBe('skills/영업/계약.md')
+  })
+  test("the skill's own folder or file name counts like its name: a Korean folder over an English name and description", () => {
+    const list = [
+      ...skills,
+      sk('skills/sales/견적서/SKILL.md', 'quote', 'Builds a price quote for a customer'),
+      sk('skills/sales/notes.md', 'Notes', '견적서 메모를 모은다'),
+      sk('skills/견적서-자료/archive.md', 'Archive', 'Old files'),
+    ]
+    const r = matchSkills(list, '견적서 만들기')
+    // "quote" in skills/sales/견적서/: as high as a skill whose name says it, above a description or a parent folder
+    expect(r[0]!.skill.name === 'quote' || r[1]!.skill.name === 'quote').toBe(true)
+    const rank = (n: string) => r.findIndex((m) => m.skill.name === n)
+    expect(rank('quote')).toBeLessThan(rank('Notes'))
+    expect(rank('quote')).toBeLessThan(rank('Archive'))
+    // a file name too (skills/영업/계약.md, named "계약 검토")
+    expect(matchSkills([sk('skills/legal/계약서.md', 'Contract review', 'Check the clauses'), sk('skills/legal/b.md', 'B', '계약서 사본')], '계약서')[0]!.skill.name).toBe('Contract review')
+  })
+  test('no word in common: the skills used most, then personal ones, then by name; only the given list', () => {
+    const scores = new Map([['skills/finance/close.md', 3], ['skills/weekly.md', 1]])
+    const top = frequentSkills(skills, scores)
+    expect(top.skills.map((s) => s.path).slice(0, 3)).toEqual(['skills/finance/close.md', 'skills/weekly.md', 'users/alice/skills/weekly.md'])
+    expect(top.used).toBe(2)
+    expect(top.skills).toHaveLength(skills.length)
+    expect(frequentSkills(skills, new Map(), 2)).toEqual({ skills: [skills[4]!, skills[2]!], used: 0 })
+    // a person who cannot read skills/finance passes a list without it: it is never named
+    expect(frequentSkills(skills.filter((s) => !s.path.startsWith('skills/finance/')), scores).skills.map((s) => s.path)).not.toContain('skills/finance/close.md')
   })
   test('hints: only a clear word match, at most three', () => {
     expect(hintSkills(skills, '고객 견적서 좀 만들어 줘').map((s) => s.name)).toEqual(['견적서-작성'])

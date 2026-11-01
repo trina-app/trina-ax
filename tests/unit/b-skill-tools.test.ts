@@ -131,8 +131,8 @@ describe('offered to every engine under the same names', () => {
     for (const type of ['general-purpose', 'Explore']) expect(defs[type].tools).toEqual(expect.arrayContaining(['mcp__team__skill', 'mcp__team__find_skills']))
     const skillCalls = events(r.turnId, 'skill')
     expect(skillCalls.map((e) => [e.summary, e.parent])).toEqual([['skill -> not found', 'toolu_S1'], ['skill -> skills/영업/견적서-작성.md', 'toolu_S1']])
-    // alice cannot read skills/finance: nothing of it is found for her
-    expect(events(r.turnId, 'find_skills')[0]!.summary).toBe('find_skills -> 0 found')
+    // alice cannot read skills/finance: nothing of it is found for her (she is shown her own frequent skills instead)
+    expect(events(r.turnId, 'find_skills')[0]!.summary).toBe('find_skills -> 0 found, 3 frequent')
   })
 
   test('the instructions of the three engines and of the sub-agents hold the same skill list', async () => {
@@ -169,6 +169,25 @@ describe('the skill tool and find_skills check access on every call', () => {
     // an admin does not see a member's personal skill either
     const carol = (await send('carol', await newChat('carol'), fake(tool('skill', { name: 'users/alice/skills/draft-mail/SKILL.md' })))).content
     expect(carol).toContain('No skill called')
+  })
+
+  test('no word in common: the skills the person uses most, never one they cannot read', async () => {
+    const tool = (name: string, args: unknown) => ({ tool: name, args, sayResult: true })
+    const alice = (await send('alice', await newChat('alice'), fake(tool('skill', { name: 'Weekly' }), SEP, tool('find_skills', { query: '월말 결산' })))).content.split('\n----\n')
+    const found = alice[1]!
+    expect(found).toContain('No skill matches "월말 결산" by its words (3 skills searched). These are the skills this user uses most')
+    const lines = found.split('\n').filter((l) => l.startsWith('- '))
+    // every skill she can use, the ones she used (Weekly just now; earlier tests used 견적서 작성 too) before her own
+    // unused one
+    expect([...lines].sort()).toEqual(['- Weekly: team weekly report (skills/weekly.md)', `- draft-mail [personal]: ${MINE} drafts a mail (users/alice/skills/draft-mail/SKILL.md)`, '- 견적서 작성: 고객에게 보낼 견적서를 만든다 (skills/영업/견적서-작성.md)'].sort())
+    expect(lines.at(-1)).toContain('draft-mail [personal]')
+    expect(found).not.toContain(FIN)
+    expect(found).not.toContain('Month close')
+    // bob reads skills/finance but not alice's own skill
+    const bob = (await send('bob', await newChat('bob'), fake(tool('find_skills', { query: '월말 결산' })))).content
+    expect(bob).toContain('No skill matches "월말 결산" by its words (3 skills searched).')
+    expect(bob).toContain('- Month close: ' + FIN)
+    expect(bob).not.toContain(MINE)
   })
 
   test('a loaded team skill is a use (team skills only), joins the read scope and is outside content', async () => {

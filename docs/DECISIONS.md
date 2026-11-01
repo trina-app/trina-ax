@@ -5268,3 +5268,20 @@ works in the new folder: the form says so. If the folder cannot be made, turning
   Chinese, `region` (`cn` / `tw`).
 - Tests: `tests/unit/make-file-pdf-fonts.test.ts` (the detection, the order, the preamble; a Japanese PDF in a Korean
   team is drawn with Hiragino on a Mac, Noto Sans CJK JP with the bundled fonts, and no Korean face).
+
+## find_skills: own folder names, and frequent skills when nothing matches (fix/batch-0218, 2026-11-01)
+
+- QA: `find_skills` with Korean words against skills written in English (names and descriptions) found nothing, and
+  the AI was told only "No skill matches", so it went on as if there were no skill.
+- **The skill's own folder or file name counts like its name** (3 a word; the folders above it still 1): a team names
+  `skills/영업/견적서/SKILL.md` in its language and the skill inside it "quote". Before, that folder counted 1, the same
+  as a word in another skill's description, and the tie went by name.
+- **No word in common: the frequent skills instead of nothing.** `frequentSkills`: the person's own list (`listSkills`,
+  the same folder checks as before, so a skill they cannot read is never named), by usage (`usageScores`, as for the
+  list in the instructions), then their own skills, then by name, at most 10, with the note "No skill matches … by its
+  words; these are the skills this user uses most; their descriptions may be in another language than the request".
+  The step's summary is `find_skills -> 0 found, N frequent`. No translation table and no model call: the AI reads the
+  descriptions and judges, as it does with the list in its instructions.
+- Tests: `tests/unit/skill-list.test.ts` (the folder name over a description and a parent folder; the fallback order;
+  only the given list), `tests/unit/b-skill-tools.test.ts` (a real turn: the frequent skills of each person, never a
+  skill of a folder they cannot read).

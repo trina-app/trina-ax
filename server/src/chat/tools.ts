@@ -12,8 +12,8 @@ import { newId } from '../db'
 import { PANE_TOOLS, scriptsOf, urlsOf } from '../realtime/browser-tools'
 import { browserUrl, isPrivateHost, staticPrivateHost } from '../realtime/private-net'
 import { cleanMemoryText, MEMORY_ITEM_MAX, neutralizeTags, skillBlock } from './prompt'
-import { isPersonalSkill, listSkills, readSkill, skillFolder } from './skills'
-import { matchSkills, resolveSkill, shortDescription, usageScores } from './skill-list'
+import { isPersonalSkill, listSkills, readSkill, skillFolder, type Skill } from './skills'
+import { frequentSkills, matchSkills, resolveSkill, shortDescription, usageScores } from './skill-list'
 import { addSources, sourceOf } from './read-scope'
 import type { Principal } from '../policy/access'
 import { tr } from './i18n'
@@ -46,7 +46,7 @@ export const B_TOOL_DESCRIPTIONS = {
   ask_user: 'Ask the user a question and wait for the answer. Offer options when you can; allowText also shows a text box on the card. The user can always answer in their own words from the message box instead. Returns {"answer": ...} with an option value or the user\'s own text (a list of them when multiple), or {"skipped": true} when the user does not answer in time.',
   set_title: 'Name this new chat: a short title in the user\'s language that says what the person wants (2-60 characters). Call it once, early in your answer. Never put keys, tokens, passwords, personal data or quotes of the message in it.',
   skill: 'Load one of the user\'s skills (a saved team or personal workflow) by its name as listed under Team skills in your instructions, and get its full steps. Call it when a request matches a skill, before you follow it; then follow the steps and say which skill you used. A folder skill\'s other files are read with read, relative to the folder the result names.',
-  find_skills: 'Search the skills the user can use by words (their names, descriptions and folders), best first, at most 10. Use it when no skill in your instructions\' list clearly fits but the request looks like a saved workflow (the list may be cut). Then load the one that fits with skill.',
+  find_skills: 'Search the skills the user can use by words (their names, descriptions and folders), best first, at most 10; with no word in common it lists the skills the user uses most. Use it when no skill in your instructions\' list clearly fits but the request looks like a saved workflow (the list may be cut). Then load the one that fits with skill.',
 } as const
 
 /** A turn's tool set, plus what per-person tools add: a section for the instructions and their own step labels. */
@@ -247,10 +247,22 @@ function skillTools(exec: TurnExec): Tool[] {
         const user = person()
         if (!user) return { ...text('Access denied: this account is disabled.', true), summary: 'find_skills -> denied: account disabled' }
         const skills = listSkills(rt.files, user)
-        const hits = matchSkills(skills, a.data.query, { scores: usageScores(rt.db, spec.userId, skills.map((s) => s.path)), projectFolder: exec.projectFolder })
+        const scores = usageScores(rt.db, spec.userId, skills.map((s) => s.path))
+        const hits = matchSkills(skills, a.data.query, { scores, projectFolder: exec.projectFolder })
         const q = neutralizeTags(clipName(a.data.query, 80))
-        if (!hits.length) return { ...text(`No skill this user can use matches "${q}" (${skills.length} skill${skills.length === 1 ? '' : 's'} searched). Try other words: what the workflow is for, or part of its name.`), summary: 'find_skills -> 0 found' }
-        const lines = hits.map(({ skill: s }) => `- ${neutralizeTags(clipName(s.name, 64))}${isPersonalSkill(s.path) ? ' [personal]' : ''}${s.description.trim() ? ': ' + neutralizeTags(shortDescription(s.description, 300)) : ''} (${s.path})`)
+        const line = (s: Skill) => `- ${neutralizeTags(clipName(s.name, 64))}${isPersonalSkill(s.path) ? ' [personal]' : ''}${s.description.trim() ? ': ' + neutralizeTags(shortDescription(s.description, 300)) : ''} (${s.path})`
+        const searched = `${skills.length} skill${skills.length === 1 ? '' : 's'} searched`
+        if (!hits.length) {
+          if (!skills.length) return { ...text(`No skill this user can use matches "${q}" (${searched}).`), summary: 'find_skills -> 0 found' }
+          // no word in common (Korean words against English descriptions, other words for the same thing): the skills
+          // the person uses most, so the AI can still judge from their descriptions, instead of nothing
+          const top = frequentSkills(skills, scores)
+          const head = top.used
+            ? `No skill matches "${q}" by its words (${searched}). These are the skills this user uses most; their descriptions may be in another language than the request. Load one with skill if it fits; otherwise try other words or go on without a skill:`
+            : `No skill matches "${q}" by its words (${searched}). These are skills this user can use; their descriptions may be in another language than the request. Load one with skill if it fits; otherwise try other words or go on without a skill:`
+          return { ...text([head, ...top.skills.map(line)].join('\n')), summary: `find_skills -> 0 found, ${top.skills.length} frequent` }
+        }
+        const lines = hits.map(({ skill: s }) => line(s))
         return { ...text([`${hits.length} skill${hits.length === 1 ? '' : 's'} matching "${q}", best first. Load the one that fits with skill (its name) before you follow it:`, ...lines].join('\n')), summary: `find_skills -> ${hits.length} found` }
       },
     },
