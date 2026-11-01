@@ -4518,8 +4518,9 @@ Claude Code's skill listing now (read from Claude Code 2.1.312; the repo pins 2.
    the API engine start fresh every turn, so their list is always current and needs no note.
 6. **Caps are said, not silent.** The walk reads 1,000 entries per skills root (was 200); over it, skill managers
    (and the owner of a personal skills folder) see a skill issue `too_many`. A scan reads each folder's listing once
-   (`authorize`'s `dirs` memo, read-only scans only; every step is still lstat'ed and realpath-checked), so 1,000
-   skills in one folder take about 0.2 s instead of 2 s. Team rules stay the first 10 by file name; the instructions
+   (`authorize`'s `dirs` memo: made by one synchronous walk for one person and dropped with it, never passed to a
+   write, and it only says which names a folder had: every step is still lstat'ed and realpath-checked and access is
+   decided on the names found on disk), so 1,000 skills in one folder take about 0.2 s instead of 2 s. Team rules stay the first 10 by file name; the instructions
    name how many more were left out and skill managers see `too_many_rules`. The Team skills page says, only when
    something is left out, "skills 120 · in the AI's list with their description 64 · by name only 56" and how many
    rule files the AI follows (`SkillsOverview.aiList`).

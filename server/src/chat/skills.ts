@@ -188,7 +188,13 @@ export function skillFileKind(root: string, rel: string, text: string): 'skill' 
 
 /** Read exactly one authorized entry using the same link/size checks as the file tools. A personal entry is a skill
  * only for its owner (the folder rules give nobody else access; this check does not depend on them). */
-export function readSkill(files: FileService, user: Principal, inputPath: string, scan?: Scan): Skill | null {
+export function readSkill(files: FileService, user: Principal, inputPath: string): Skill | null {
+  return readSkillIn(files, user, inputPath, null)
+}
+
+/** readSkill inside one listing walk (walkSkillEntries: its rules and folder listings); never exported, so a memo of
+ * folder listings cannot outlive the synchronous walk that made it */
+function readSkillIn(files: FileService, user: Principal, inputPath: string, scan: Scan | null): Skill | null {
   try {
     const r = authorize(files.fx, scan?.rules ?? files.rules(), user, inputPath, 'read', scan ? { dirs: scan.dirs } : {})
     const root = skillRootLength(r.segs)
@@ -262,7 +268,7 @@ export function listSkills(files: FileService, user: Principal): Skill[] {
 export function scanSkills(files: FileService, user: Principal): { skills: Skill[]; capped: string[] } {
   const out: Skill[] = []
   const capped = walkSkillEntries(files, user, (rel, scan) => {
-    const skill = readSkill(files, user, rel, scan)
+    const skill = readSkillIn(files, user, rel, scan)
     if (skill) out.push(skill)
   })
   const personal = new Set(out.filter((s) => isPersonalSkill(s.path)).map((s) => nameKey(s.name)))
