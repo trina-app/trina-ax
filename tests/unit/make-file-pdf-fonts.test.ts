@@ -15,7 +15,8 @@ import os from 'node:os'
 import path from 'node:path'
 import zlib from 'node:zlib'
 import { bundledFontDir, which } from '../../server/src/config'
-import { findConverters, PDF_FONTS, typstArgs } from '../../server/src/tools/make-file'
+import { findConverters, PDF_FONTS, pdfFonts, pdfLanguage, typstArgs, typstPreamble } from '../../server/src/tools/make-file'
+import { updateTeamSettings } from '../../server/src/admin/settings'
 import { makeHandler } from '../../server/src/mcp/protocol'
 import { makeCApp, type CApp } from '../lib/c-app'
 
@@ -91,6 +92,48 @@ describe('typst command line', () => {
   })
 })
 
+describe('the language of a PDF and its font order', () => {
+  test('the writing decides: Hangul Korean, kana Japanese, Han alone Chinese (simplified or traditional)', () => {
+    expect(pdfLanguage('# 3분기 보고서\n\n매출이 늘었어요.', 'en')).toBe('ko')
+    expect(pdfLanguage('# 第3四半期の報告\n\n売上が増えました。カタカナも。', 'ko')).toBe('ja')
+    // a Korean report naming a Japanese product, a Japanese one naming a Korean company: the main writing wins
+    expect(pdfLanguage('신제품 「スマートウォッチ」 출시 계획과 일정, 예산을 정리했어요.', 'ko')).toBe('ko')
+    expect(pdfLanguage('韓国の「삼성」との打ち合わせについて、議事録をまとめました。', 'ko')).toBe('ja')
+    expect(pdfLanguage('这是我们的季度报告，销售额增长了。', 'ko')).toBe('zh-Hans')
+    expect(pdfLanguage('這是我們的季度報告，銷售額增長了。', 'ko')).toBe('zh-Hant')
+    // Han characters alone in a Japanese team: Japanese
+    expect(pdfLanguage('第三四半期売上報告', 'ja')).toBe('ja')
+  })
+  test('no CJK: the team language when it is written in Latin letters, else English', () => {
+    expect(pdfLanguage('Quarterly report: sales grew.', 'es')).toBe('es')
+    expect(pdfLanguage('Quarterly report: sales grew.', 'id')).toBe('id')
+    expect(pdfLanguage('Quarterly report: sales grew.', 'ko')).toBe('en')
+    expect(pdfLanguage('Quarterly report: sales grew.', 'ja')).toBe('en')
+  })
+  test("a Japanese PDF lists the JP faces first and sets typst's lang to ja; Chinese gets its own faces and region", () => {
+    const ja = pdfFonts('ja')
+    expect(ja[0]).toBe('Hiragino Sans')
+    expect(ja.indexOf('Noto Sans CJK JP')).toBeLessThan(ja.indexOf('Noto Sans CJK KR'))
+    expect(ja.indexOf('Apple SD Gothic Neo')).toBeGreaterThan(ja.indexOf('Noto Sans CJK JP'))
+    expect(typstPreamble('ja')).toContain('#set text(font: ("Hiragino Sans", "Hiragino Kaku Gothic ProN", "Noto Sans CJK JP"')
+    expect(typstPreamble('ja')).toContain('lang: "ja")')
+    expect(pdfFonts('zh-Hant').indexOf('Noto Sans CJK TC')).toBeLessThan(pdfFonts('zh-Hant').indexOf('Noto Sans CJK SC'))
+    expect(typstPreamble('zh-Hant')).toContain('lang: "zh", region: "tw")')
+    expect(typstPreamble('zh-Hans')).toContain('lang: "zh", region: "cn")')
+    // Korean, and Latin-script documents, keep the order they had
+    expect(pdfFonts('ko')).toEqual(PDF_FONTS)
+    expect(pdfFonts('en')).toEqual(PDF_FONTS)
+    expect(PDF_FONTS[0]).toBe('Pretendard')
+    expect(typstPreamble('ko')).toContain('lang: "ko")')
+    // every list names each bundled family once and ends with the Latin fallbacks
+    for (const l of ['ko', 'ja', 'zh-Hans', 'zh-Hant', 'en'] as const) {
+      const f = pdfFonts(l)
+      for (const n of ['Noto Sans CJK KR', 'Noto Sans CJK JP', 'Noto Sans CJK SC', 'Noto Sans CJK TC']) expect(f.filter((x) => x === n)).toHaveLength(1)
+      expect(f.slice(-3)).toEqual(['Helvetica Neue', 'Arial', 'Libertinus Serif'])
+    }
+  })
+})
+
 const typst = process.env.MYCEL_TYPST_BIN ?? which('typst')
 const pdffonts = which('pdffonts')
 const required = process.env.MYCEL_FONT_DIR !== undefined
@@ -117,5 +160,20 @@ describe.skipIf(!runnable)('make_file pdf: Korean, Japanese and Chinese are draw
     if (bundledFontDir()) expect(fonts).toMatch(/NotoSansCJKkr-Regular/)
     // the headings and **bold** are drawn with a bold face, not the regular one
     if (bundledFontDir()) expect(fonts).toMatch(/NotoSansCJKkr-Bold/)
+  })
+
+  test('a Japanese PDF is drawn with the JP face first (in a Korean team too), not Korean-style kanji', async () => {
+    updateTeamSettings(A.ctx.db, { defaultLocale: 'ko' })
+    const h = makeHandler(A.ctx.files, A.ctx.db, A.toolCtx('alice', null))
+    const md = '# 第3四半期の報告\n\n売上が増えました。骨・直・角の字形を確認します。\n'
+    const r = await h({ jsonrpc: '2.0', id: 2, method: 'tools/call', params: { name: 'make_file', arguments: { content: md, format: 'pdf', output: 'users/alice/out/ja.pdf' } } })
+    expect(r.result.isError, r.result.content[0].text).toBeFalsy()
+    const file = path.join(A.team, 'users/alice/out/ja.pdf')
+    const listed = Bun.spawnSync([pdffonts!, file]).stdout.toString().split('\n').slice(2).filter(Boolean).map((l) => l.split(/\s+/)[0]!.replace(/^[A-Z]{6}\+/, ''))
+    console.log(listed)
+    // the first face drawn is a Japanese one (a Mac's Hiragino, or the bundled Noto Sans CJK JP); no Korean face at all
+    expect(listed[0]).toMatch(bundledFontDir() ? /^NotoSansCJKjp-/ : /^(Hiragino|NotoSansCJKjp-|NotoSansJP|YuGothic)/)
+    expect(listed.join(' ')).not.toMatch(/AppleSDGothic|NotoSansCJKkr|Pretendard|Malgun/)
+    expect(unmapped(fs.readFileSync(file), '第3四半期の報告売上が増えました骨直角')).toEqual([])
   })
 })

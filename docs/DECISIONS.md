@@ -5252,3 +5252,19 @@ works in the new folder: the form says so. If the folder cannot be made, turning
   logged once per occurrence: audit `schedule.waited` (`originalDue`, `runningChatId`; label in Activity, five
   languages) and an info line. A long wait also writes `schedule.coalesced` when it starts, like any late start.
 - Tests: `tests/unit/schedule-edit.test.ts` ("runs of one task never overlap").
+
+## PDF language and font order follow the document (fix/batch-0218, 2026-11-01)
+
+- make_file's PDFs were always `lang: "ko"` with the Korean faces first, so the Han characters of a Japanese or
+  Chinese document came out in Korean shapes (on a Mac: Apple SD Gothic Neo; on Linux: Noto Sans CJK KR).
+- `tools/make-file.ts pdfLanguage(text, team)` reads the source (the first 200,000 characters): kana over Hangul is
+  Japanese, Hangul Korean, Han characters alone Chinese (traditional when more of 50 common traditional-only characters
+  than simplified-only ones appear, else simplified; Japanese in a Japanese team). Text without CJK takes the team
+  language when it is written in Latin letters (en, es, id), else English (`lang: "ko"` on English text would change its
+  quotes). Cheap and local: no model call, no extra dependency.
+- `pdfFonts(lang)`: the language's own faces (a Mac's first, then the bundled Noto Sans CJK family of that script, then
+  other systems'), then the other three CJK groups (a Japanese report quoting a Korean name still draws it), then the
+  Latin fallbacks. Korean and Latin-script documents keep the order they had (`PDF_FONTS`). Typst gets `lang` and, for
+  Chinese, `region` (`cn` / `tw`).
+- Tests: `tests/unit/make-file-pdf-fonts.test.ts` (the detection, the order, the preamble; a Japanese PDF in a Korean
+  team is drawn with Hiragino on a Mac, Noto Sans CJK JP with the bundled fonts, and no Korean face).

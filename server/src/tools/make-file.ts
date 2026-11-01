@@ -2,7 +2,8 @@
 // - docx / pptx: pandoc --sandbox --fail-if-warnings (a missing or remote image is an error, not a silent hole),
 //   optional --reference-doc template from skills/
 // - pdf: pandoc -t typst, then typst compile --root <work folder> (nothing outside the work folder can be read,
-//   remote images are never fetched); Korean-capable fonts first. A Linux bundle brings its own (Noto Sans CJK in
+//   remote images are never fetched); the fonts and typst's language follow the document's writing (pdfLanguage: a
+//   Japanese document gets Japanese faces first, Chinese Chinese ones, else the team's language). A Linux bundle brings its own (Noto Sans CJK in
 //   app/<v>/fonts, given to typst with --font-path and to the converter isolation read-only): a Linux server has no
 //   Korean, Japanese or Chinese font, and without one those characters came out as empty boxes. A Mac uses its own.
 // - xlsx: exceljs (CSV, or every Markdown pipe table becomes a sheet); numbers become numbers, header row bold,
@@ -24,6 +25,7 @@ import path from 'node:path'
 import ExcelJS from 'exceljs'
 import type { z } from 'zod'
 import type { MakeFileInput } from '@mycel/shared'
+import type { Locale } from '@mycel/shared/api'
 import type { AppContext } from '../context'
 import { teamDefaultLocale, teamTimeZone } from '../admin/settings'
 import { ext } from '../files/extract'
@@ -72,7 +74,73 @@ function freshName(work: string, base: string, x: string): string {
   }
 }
 const IMAGE_EXT = new Set(['png', 'jpg', 'jpeg', 'gif', 'webp', 'svg', 'bmp', 'tif', 'tiff'])
-export const PDF_FONTS = ['Pretendard', 'Apple SD Gothic Neo', 'Noto Sans CJK KR', 'Noto Sans KR', 'Malgun Gothic', 'Helvetica Neue', 'Arial', 'Libertinus Serif']
+/** The faces of each CJK writing system, a Mac's own first, then the bundled Noto Sans CJK family (one .ttc holds all
+ * four), then other systems'. Han characters look different in each (骨, 直, 角 …): the document's own language must
+ * come first, or a Japanese PDF gets Korean-style kanji. */
+const CJK_FONTS = {
+  ko: ['Pretendard', 'Apple SD Gothic Neo', 'Noto Sans CJK KR', 'Noto Sans KR', 'Malgun Gothic'],
+  ja: ['Hiragino Sans', 'Hiragino Kaku Gothic ProN', 'Noto Sans CJK JP', 'Noto Sans JP', 'Yu Gothic'],
+  'zh-Hans': ['PingFang SC', 'Hiragino Sans GB', 'Heiti SC', 'Noto Sans CJK SC', 'Noto Sans SC', 'Microsoft YaHei'],
+  'zh-Hant': ['PingFang TC', 'Heiti TC', 'Noto Sans CJK TC', 'Noto Sans TC', 'Microsoft JhengHei'],
+} as const
+type CjkScript = keyof typeof CJK_FONTS
+const LATIN_FONTS = ['Helvetica Neue', 'Arial', 'Libertinus Serif']
+/** a PDF's language: the team's languages and the two Chinese scripts */
+export type PdfLanguage = Locale | 'zh-Hans' | 'zh-Hant'
+/** typst's lang (and region) for each */
+const TYPST_LANG: Record<PdfLanguage, string> = { ko: 'lang: "ko"', en: 'lang: "en"', id: 'lang: "id"', ja: 'lang: "ja"', es: 'lang: "es"', 'zh-Hans': 'lang: "zh", region: "cn"', 'zh-Hant': 'lang: "zh", region: "tw"' }
+
+/** The fonts of a PDF in `lang`: its own CJK faces first, the other CJK faces (a Japanese report quoting a Korean name
+ * still draws it), then Latin fallbacks. A language without CJK of its own keeps Korean first, as before. */
+export function pdfFonts(lang: PdfLanguage): string[] {
+  const first: CjkScript = lang === 'ja' || lang === 'zh-Hans' || lang === 'zh-Hant' ? lang : 'ko'
+  return [...CJK_FONTS[first], ...(Object.keys(CJK_FONTS) as CjkScript[]).filter((k) => k !== first).flatMap((k) => CJK_FONTS[k]), ...LATIN_FONTS]
+}
+/** the font list of a Korean (or Latin-script) PDF */
+export const PDF_FONTS = pdfFonts('ko')
+
+const SIMPLIFIED = new Set('们这说时会来个为国学对发经过还进实现与关从开问长东车门见电话体书业产动机后头间两样么认义务网络页数据'.split(''))
+const TRADITIONAL = new Set('們這說時會來個為國學對發經過還進實現與關從開問長東車門見電話體書業產動機後頭間兩樣麼認義務網絡頁數據'.split(''))
+
+/**
+ * The language a PDF is set in, from its text: Hangul makes it Korean, kana Japanese (whichever there is more of),
+ * Han characters alone Chinese (traditional when more of its common characters are, else simplified; Japanese when the
+ * team's language is). Text without CJK takes the team's language when that is written in Latin letters, else
+ * English. Only the first 200,000 characters are looked at.
+ */
+export function pdfLanguage(text: string, team: Locale): PdfLanguage {
+  let hangul = 0, kana = 0, han = 0, simp = 0, trad = 0
+  const end = Math.min(text.length, 200_000)
+  for (let i = 0; i < end; i++) {
+    const c = text.charCodeAt(i)
+    if ((c >= 0xac00 && c <= 0xd7a3) || (c >= 0x1100 && c <= 0x11ff) || (c >= 0x3130 && c <= 0x318f)) hangul++
+    else if ((c >= 0x3040 && c <= 0x30ff) || (c >= 0x31f0 && c <= 0x31ff) || (c >= 0xff66 && c <= 0xff9f)) kana++
+    else if ((c >= 0x4e00 && c <= 0x9fff) || (c >= 0x3400 && c <= 0x4dbf) || (c >= 0xf900 && c <= 0xfaff)) {
+      han++
+      const ch = text[i]!
+      if (SIMPLIFIED.has(ch)) simp++
+      else if (TRADITIONAL.has(ch)) trad++
+    }
+  }
+  if (kana > hangul || (kana > 0 && kana === hangul && team === 'ja')) return 'ja'
+  if (hangul > 0) return 'ko'
+  if (han > 0) return team === 'ja' ? 'ja' : trad > simp ? 'zh-Hant' : 'zh-Hans'
+  return team === 'en' || team === 'es' || team === 'id' ? team : 'en'
+}
+
+/** The first lines of a PDF's typst document: page, the language's fonts and typst language, headings, tables. */
+export function typstPreamble(lang: PdfLanguage): string {
+  return [
+    `#set page(paper: "a4", margin: (x: 2cm, y: 2.2cm), numbering: "1")`,
+    `#set text(font: (${pdfFonts(lang).map((f) => JSON.stringify(f)).join(', ')}), size: 10.5pt, ${TYPST_LANG[lang]})`,
+    `#set par(justify: false, leading: 0.75em)`,
+    `#show heading: set block(above: 1.2em, below: 0.6em)`,
+    `#set table(stroke: 0.5pt + luma(180), inset: 6pt)`,
+    // pandoc's typst output uses this helper for horizontal rules
+    `#let horizontalrule = line(start: (25%,0%), end: (75%,0%))`,
+    '',
+  ].join('\n')
+}
 
 export interface Converters {
   pandoc: string | null
@@ -168,7 +236,7 @@ export class MakeFile {
           fs.writeFileSync(path.join(work, input), kind === 'tsv' ? tsvToCsv(text) : text)
           from = 'csv'
         }
-        if (a.format === 'pdf') await this.pdf(work, input, from)
+        if (a.format === 'pdf') await this.pdf(work, input, from, text)
         else {
           // without images pandoc reads only the files on its command line (--sandbox); with images it must read
           // the copies, which are the only image paths left in the tree (and the OS sandbox, when there is one,
@@ -304,20 +372,12 @@ export class MakeFile {
     return { local, rel: r.rel }
   }
 
-  private async pdf(work: string, input: string, from: 'json' | 'csv') {
+  /** `text`: the document's source, whose writing decides the language and font order (pdfLanguage) */
+  private async pdf(work: string, input: string, from: 'json' | 'csv', text: string) {
     if (!this.conv.typst) throw new ToolError(missingConverter('typst'))
     const t = await runIsolated({ cmd: this.conv.pandoc!, args: ['--sandbox', '--fail-if-warnings', '-f', from, '-t', 'typst', '-o', 'body.typ', input], workDir: work, timeoutMs: 120_000 })
     if (t.code !== 0) throw new ToolError(convertError('pandoc', t.stderr, t.killed, work))
-    const pre = [
-      `#set page(paper: "a4", margin: (x: 2cm, y: 2.2cm), numbering: "1")`,
-      `#set text(font: (${PDF_FONTS.map((f) => JSON.stringify(f)).join(', ')}), size: 10.5pt, lang: "ko")`,
-      `#set par(justify: false, leading: 0.75em)`,
-      `#show heading: set block(above: 1.2em, below: 0.6em)`,
-      `#set table(stroke: 0.5pt + luma(180), inset: 6pt)`,
-      // pandoc's typst output uses this helper for horizontal rules
-      `#let horizontalrule = line(start: (25%,0%), end: (75%,0%))`,
-      '',
-    ].join('\n')
+    const pre = typstPreamble(pdfLanguage(text, teamDefaultLocale(this.ctx.db)))
     const body = readOutput(work, 'body.typ', MAX_TYPST)
     if (!body.ok) throw new ToolError(body.why === 'too_large' ? 'the document is too large to convert' : 'the converter produced no file')
     const doc = freshName(work, 'doc', 'typ')
