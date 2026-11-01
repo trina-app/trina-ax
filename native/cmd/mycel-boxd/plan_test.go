@@ -24,6 +24,7 @@ func TestCheckRequest(t *testing.T) {
 	bad := []request{
 		{Op: "rm"},
 		{Op: "ps", Box: "../x"},
+		{Op: "ensure", Box: "p1", Folder: "", Network: "open", Limits: okLimits},
 		{Op: "ensure", Box: "p1", Folder: "../etc", Network: "open", Limits: okLimits},
 		{Op: "ensure", Box: "p1", Folder: "/etc", Network: "open", Limits: okLimits},
 		{Op: "ensure", Box: "p1", Folder: "a", Network: "host", Limits: okLimits},

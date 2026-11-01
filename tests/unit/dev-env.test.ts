@@ -13,7 +13,7 @@ import { ask, startHarness, type Harness, type TestSocket } from '../lib/b-harne
 import { setBoxdClient, type BoxdClient } from '../../server/src/devenv/boxd'
 import { devEnvFlag, devEnvSetting, mayUseBox, OFF_SETTING, saveDevEnvSetting, newConsent } from '../../server/src/devenv/setting'
 import { diffSnapshots, readInside, skipName, takeSnapshot, SnapshotStore } from '../../server/src/devenv/snapshot'
-import { boxCwd, newDestinations, usesCredentials } from '../../server/src/devenv/tool'
+import { boxCwd, boxShellTool, newDestinations, usesCredentials } from '../../server/src/devenv/tool'
 import { _previewLinks, issuePreview, previewBase, previewFetch, sameSite, TOKEN_TTL_MS } from '../../server/src/devenv/preview'
 import { fileEvent } from '../../server/src/files/store'
 import { stepLabel } from '@mycel/shared'
@@ -164,6 +164,83 @@ describe('the setting', () => {
     await h.api('carol').call(API.updateDevEnv, { params: { id: projectId }, body: { ...body, network: 'open' } })
     delete process.env.MYCEL_DEV_ENV
     try { await expect(h.api('alice').call(API.devEnv, { params: { id: projectId } })).rejects.toMatchObject({ status: 404 }) } finally { process.env.MYCEL_DEV_ENV = '1' }
+  })
+})
+
+describe('a project on the team root', () => {
+  const body = { enabled: true, scope: { mode: 'writers' as const, groupIds: [], userIds: [] }, acceptWarning: DEV_ENV_WARNING_VERSION }
+  const rootProject = (id: string, name: string) => {
+    h.ctx.db.query('INSERT INTO projects (id, name, folder_path, instructions, created_by, created_at) VALUES (?,?,?,?,?,?)').run(id, name, '', '', 'carol', new Date().toISOString())
+    return id
+  }
+  const folderOf = (id: string) => (h.ctx.db.query('SELECT folder_path FROM projects WHERE id = ?').get(id) as { folder_path: string }).folder_path
+
+  test('turning on gives it a folder of its own, audited, and a name clash takes the next name', async () => {
+    fs.mkdirSync(path.join(h.team, 'projects', '배너 영상'), { recursive: true })
+    const id = rootProject('root-project-1', '배너 영상')
+    expect((await h.api('carol').call(API.devEnv, { params: { id } })).needsFolder).toBe(true)
+    const r = await h.api('carol').call(API.updateDevEnv, { params: { id }, body })
+    expect(folderOf(id)).toBe('projects/배너 영상-2')
+    expect(fs.statSync(path.join(h.team, 'projects', '배너 영상-2')).isDirectory()).toBe(true)
+    expect(r).toMatchObject({ needsFolder: false, setting: { enabled: true } })
+    expect(h.ctx.db.query("SELECT actor_id, detail FROM audit_log WHERE action = 'dev_env.folder' AND target = ?").all(id))
+      .toEqual([{ actor_id: 'carol', detail: JSON.stringify({ before: '', after: 'projects/배너 영상-2' }) }])
+    // inherits the same access as the team root: no new rule
+    expect(h.ctx.db.query("SELECT 1 FROM folder_rules r JOIN folders f ON f.id = r.folder_id WHERE f.path = 'projects/배너 영상-2'").all()).toEqual([])
+    // the second save keeps the folder
+    await h.api('carol').call(API.updateDevEnv, { params: { id }, body })
+    expect(folderOf(id)).toBe('projects/배너 영상-2')
+  })
+
+  test('a project already on with no folder gets one at the next save', async () => {
+    const id = rootProject('root-project-2', 'Already on')
+    saveDevEnvSetting(h.ctx.db, id, { ...OFF_SETTING, enabled: true, consent: newConsent({ id: 'carol', name: 'Carol Park' }) })
+    await h.api('carol').call(API.updateDevEnv, { params: { id }, body: { enabled: true, scope: body.scope } })
+    expect(folderOf(id)).toBe('projects/Already on')
+  })
+
+  test('turning it off or a refused turn-on makes no folder', async () => {
+    const id = rootProject('root-project-3', 'Stays')
+    await h.api('carol').call(API.updateDevEnv, { params: { id }, body: { enabled: false, scope: body.scope } })
+    await expect(h.api('carol').call(API.updateDevEnv, { params: { id }, body: { enabled: true, scope: body.scope } })).rejects.toMatchObject({ body: { params: { reason: 'dev_env_warning' } } })
+    expect(folderOf(id)).toBe('')
+    expect(fs.existsSync(path.join(h.team, 'projects', 'Stays'))).toBe(false)
+  })
+
+  test('no folder can be made: refused with a clear message, the setting stays off', async () => {
+    const id = rootProject('root-project-4', 'No room')
+    const dir = path.join(h.team, 'projects')
+    fs.renameSync(dir, dir + '.away')
+    fs.writeFileSync(dir, 'a file where the folder should be')
+    try {
+      await expect(h.api('carol').call(API.updateDevEnv, { params: { id }, body })).rejects.toMatchObject({ status: 409, body: { params: { reason: 'dev_env_folder' } } })
+    } finally { fs.rmSync(dir); fs.renameSync(dir + '.away', dir) }
+    expect(folderOf(id)).toBe('')
+    expect(devEnvSetting(h.ctx.db, id).enabled).toBe(false)
+    expect(h.ctx.db.query("SELECT action FROM audit_log WHERE action LIKE 'dev_env.%' AND target = ?").all(id)).toEqual([])
+  })
+
+  test('box_shell on a project still without a folder says what to do and does not call boxd', async () => {
+    const id = rootProject('root-project-5', 'Old state')
+    saveDevEnvSetting(h.ctx.db, id, { ...OFF_SETTING, enabled: true, consent: newConsent({ id: 'carol', name: 'Carol Park' }) })
+    calls.length = 0
+    const tool = boxShellTool({ ctx: h.ctx, project: { id, folderPath: '', name: 'Old state' }, userId: 'carol', turnId: 't', signal: new AbortController().signal, confirm: async () => null, redact: (s) => s })
+    const r = await tool.call({ command: 'true' })
+    expect(r.isError).toBe(true)
+    expect((r.content[0] as { text: string }).text).toContain('no folder of its own')
+    expect(calls).toEqual([])
+  })
+
+  test('without the flag a save is 404 and changes nothing', async () => {
+    const id = rootProject('root-project-6', 'Flag off')
+    delete process.env.MYCEL_DEV_ENV
+    try {
+      await expect(h.api('carol').call(API.updateDevEnv, { params: { id }, body })).rejects.toMatchObject({ status: 404 })
+    } finally { process.env.MYCEL_DEV_ENV = '1' }
+    expect(folderOf(id)).toBe('')
+    expect(devEnvFlag({})).toBe(false)
+    expect(devEnvFlag({ MYCEL_DEV_ENV: '0' })).toBe(false)
+    expect(devEnvFlag({ MYCEL_DEV_ENV: 'true' })).toBe(false)
   })
 })
 

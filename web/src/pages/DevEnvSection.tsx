@@ -161,6 +161,7 @@ function DevEnvForm({ project, d, groups, onClose, onSaved }: { project: Project
             <option value="offline">{t('devEnv.netOffline')}</option>
           </select>
         </Field>
+        {enabled && d.needsFolder && <p className="rounded-lg border border-warn/40 bg-warn/10 p-3 text-xs">{t('devEnv.needsFolder')}</p>}
         {needsWarning && (
           <div className="rounded-lg border border-warn/40 bg-warn/10 p-3">
             <p className="mb-2 font-medium">{t('devEnv.warningTitle')}</p>

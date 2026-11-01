@@ -34,6 +34,7 @@ export const ko = {
   'devEnv.warningTitle': "켜기 전에 확인하세요",
   'devEnv.warningBody': "AI가 이 프로젝트 폴더에서 아무 프로그램이나 실행할 수 있습니다. 폴더에 쓸 수 있는 사람 모두가 같은 상자를 씁니다.\n- 한 사람이 바꾼 코드나 남겨 둔 프로세스가 다른 사람의 다음 명령에 영향을 줍니다.\n- 상자에는 로그인 정보가 없습니다. git push 같은 명령은 각자 자기 컴퓨터에서 하세요.\n- 미리보기는 실행 중인 코드를 보여 줍니다. 별도 주소에서 열리고 짧게만 유효합니다.\n- 명령, 바뀐 파일, 접속한 주소는 활동 기록에 남습니다.\n이 기능은 실험 중이며 언제든 꺼질 수 있습니다.",
   'devEnv.accept': "위험을 이해했고 이 프로젝트에서 켭니다",
+  'devEnv.needsFolder': "이 프로젝트에는 자체 폴더가 없습니다. 저장하면 projects/ 아래에 빈 폴더를 새로 만들어 프로젝트 폴더로 지정합니다. 이후 이 프로젝트의 AI는 그 폴더에서 작업합니다. 팀 루트의 파일은 옮겨지지 않습니다.",
 
   'common.cancel': '취소',
   'common.choose': '선택',
@@ -1242,6 +1243,7 @@ export const ko = {
   'audit.act.budget.delete': '사용 한도 삭제',
   'audit.act.dev_env.consent': "개발 환경 경고 동의",
   'audit.act.dev_env.setting': "개발 환경 설정 변경",
+  'audit.act.dev_env.folder': "개발 환경 프로젝트 폴더 생성",
   'audit.act.dev_env.command': "개발 환경 명령",
   'audit.act.dev_env.preview': "개발 환경 미리보기 링크",
   'audit.act.dev_env.stop': "개발 환경 상자 멈춤",

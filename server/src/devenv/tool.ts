@@ -101,6 +101,8 @@ export function boxShellTool(h: BoxShellHost) {
       const what = h.redact(`box_shell ${a.data.command.slice(0, 200)}`)
       // never trust the start of the turn alone: the admin may have turned it off, the folder rules may have changed
       if (!mayUseBox(ctx.db, ctx.files, project, h.userId)) return { ...text('The dev environment is off for this project or for you now. Do not try again.', true), summary: `${what} -> off` }
+      // a turn that began before the project got its folder, or a project turned on before turn-on gave it one
+      if (project.folderPath === '') return { ...text('Error: this project has no folder of its own, so it has no box. An admin must open Dev environment on the project page and save it (this creates the folder), then start a new message. Do not try again.', true), summary: `${what} -> no project folder` }
       const cwd = boxCwd(a.data.cwd)
       if (cwd === null) return { ...text('Invalid input: cwd must be a folder inside the project folder.', true), summary: `${what} -> bad cwd` }
       const client = boxd()

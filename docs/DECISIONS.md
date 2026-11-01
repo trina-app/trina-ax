@@ -5208,3 +5208,8 @@ least 4 GB; boxd reports a smaller VM as not available, with the reason (below 3
 3.8 GB). A box at its limit leaves about 1.3 GB for the server and the AI answers. The trial on one server is in
 `scripts/dev-env/TRIAL.md`; `mycel-boxd` stays out of the install kit.
 
+**Project on the team root:** a project with `folder_path = ''` has no folder for a box, and boxd keeps refusing the
+team root. When an admin turns dev mode on, or saves it again, the server creates `projects/<name>` as for a new project
+(a name clash takes the next name) and makes it the project folder (audit `dev_env.folder`). The folder has no rules of
+its own, so it inherits the access of the team root. Files on the team root do not move, and the AI of the project then
+works in the new folder: the form says so. If the folder cannot be made, turning on is refused and nothing changes.

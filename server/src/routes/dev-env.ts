@@ -1,12 +1,16 @@
 // Dev environment EXPERIMENT (docs/DECISIONS.md "Dev environment (experiment)"): per-project setting, box state,
 // stop / restart, preview links, activity. Every endpoint answers 404 while the server runs without MYCEL_DEV_ENV=1,
 // so the feature does not exist for clients of a normal install.
+import fs from 'node:fs'
+import path from 'node:path'
 import { API, DEV_ENV_WARNING_VERSION, type DevEnvAvailability, type DevEnvBox, type DevEnvProjectResponse, type DevEnvActivity } from '@mycel/shared/api'
 import type { AppContext } from '../context'
 import type { RouteModule } from './module'
 import { fail } from '../http/errors'
 import { audit } from '../admin/audit'
-import { canRead } from '../chat/projects'
+import { ensureFolderRow } from '../admin/folders'
+import { canRead, ensureProjectFolderEx, projectFolderName } from '../chat/projects'
+import type { Locale } from '@mycel/shared/api'
 import type { Principal } from '../policy/access'
 import { boxd } from '../devenv/boxd'
 import { devEnvFlag, devEnvInForce, devEnvSetting, mayUseBox, newConsent, saveDevEnvSetting } from '../devenv/setting'
@@ -34,6 +38,33 @@ async function boxState(projectId: string, withPs: boolean): Promise<DevEnvBox |
   return { state: b.state, startedAt: b.startedAt, lastActiveAt: b.lastActiveAt, memoryMiB: b.memoryMiB, processes: ps?.ok ? ps.value.processes : [] }
 }
 
+/**
+ * A project on the team root (folder_path '') has no folder for a box: boxd refuses the whole team root. Turning on
+ * gives the project projects/<name>, made like a new project folder and named like one (a name clash takes the next
+ * name). The new folder has no rules of its own, so it inherits the access the project had on the team root. Files on
+ * the team root stay there. Refuses when the folder cannot be made.
+ */
+function giveProjectFolder(ctx: AppContext, p: Principal, project: { id: string; name: string }, locale: Locale): string {
+  const root = ctx.files.fx.root
+  let top: string | null = null
+  try {
+    fs.mkdirSync(path.join(root, 'projects'), { recursive: true, mode: 0o700 })
+    const taken = (ctx.db.query('SELECT path FROM folders').all() as { path: string }[]).map((f) => f.path)
+    const f = ensureProjectFolderEx(ctx.files, p, `projects/${projectFolderName(path.join(root, 'projects'), 'projects', taken, project.name, project.id)}`, locale)
+    top = f.createdTop
+    ctx.db.transaction(() => {
+      ensureFolderRow(ctx.db, f.path)
+      ctx.db.query('UPDATE projects SET folder_path = ? WHERE id = ?').run(f.path, project.id)
+      audit(ctx.db, { actor: p.id, action: 'dev_env.folder', target: project.id, detail: { before: '', after: f.path } })
+    })()
+    return f.path
+  } catch (e) {
+    if (top) try { fs.rmSync(top, { recursive: true, force: true }) } catch {}
+    ctx.log.warn('dev env project folder failed', { err: e })
+    return fail('conflict', 'This project has no folder of its own and the server could not create one under projects/. Choose a folder for the project, then try again.', { params: { reason: 'dev_env_folder' } })
+  }
+}
+
 export const devEnvRoutes: RouteModule = {
   name: 'dev-env',
   owner: 'B',
@@ -55,7 +86,7 @@ export const devEnvRoutes: RouteModule = {
       const mayUse = mayUseBox(ctx.db, ctx.files, { id, folderPath }, p.id)
       return {
         availability: await availability(), setting: devEnvSetting(ctx.db, id), warningVersion: DEV_ENV_WARNING_VERSION,
-        mayUse, mayManage: isAdmin(p), box: await boxState(id, mayUse || isAdmin(p)),
+        mayUse, mayManage: isAdmin(p), needsFolder: folderPath === '', box: await boxState(id, mayUse || isAdmin(p)),
       }
     }
 
@@ -64,7 +95,7 @@ export const devEnvRoutes: RouteModule = {
       return response(ref.id, ref.folderPath, p)
     })
 
-    kit.handle(API.updateDevEnv, async ({ params, body, auth }) => {
+    kit.handle(API.updateDevEnv, async ({ c, params, body, auth }) => {
       const { p, r, ref } = project(params.id, auth.user.id)
       if (r.folder_path === 'users' || r.folder_path.startsWith('users/')) fail('validation', 'The dev environment is for team folders only, not personal projects.')
       const groups = new Set((ctx.db.query('SELECT id FROM groups').all() as { id: string }[]).map((g) => g.id))
@@ -73,11 +104,17 @@ export const devEnvRoutes: RouteModule = {
       if (body.scope.userIds.some((u) => !people.has(u))) fail('validation', 'Unknown person.', { fields: { 'body.scope.userIds': 'unknown person' } })
       const before = devEnvSetting(ctx.db, ref.id)
       let consent = before.consent
+      let folderPath = ref.folderPath
       if (body.enabled) {
         const a = await availability()
         if (!a.available) fail('conflict', 'This server cannot run dev environments.', { params: { reason: 'dev_env_unavailable', why: a.reason ?? 'boxd' } })
         if (consent?.warningVersion !== DEV_ENV_WARNING_VERSION) {
           if (body.acceptWarning !== DEV_ENV_WARNING_VERSION) fail('conflict', 'Accept the dev environment warning first.', { params: { reason: 'dev_env_warning', warningVersion: DEV_ENV_WARNING_VERSION } })
+        }
+        // read again: an earlier save of this project may have ended while this one waited above
+        folderPath = (ctx.db.query('SELECT folder_path FROM projects WHERE id = ?').get(ref.id) as { folder_path: string } | null)?.folder_path ?? fail('not_found')
+        if (folderPath === '') folderPath = giveProjectFolder(ctx, p, r, c.get('locale'))
+        if (consent?.warningVersion !== DEV_ENV_WARNING_VERSION) {
           consent = newConsent({ id: auth.user.id, name: auth.user.name })
           audit(ctx.db, { actor: auth.user.id, action: 'dev_env.consent', target: ref.id, detail: { warningVersion: DEV_ENV_WARNING_VERSION } })
         }
@@ -88,7 +125,7 @@ export const devEnvRoutes: RouteModule = {
       // off, or a change the box must start again for (network, limits): stop it; the next command starts it again
       const changed = before.network !== after.network || JSON.stringify(before.limits) !== JSON.stringify(after.limits)
       if (!devEnvInForce(after) || changed) await boxd()?.stop(ref.id).catch(() => null)
-      return response(ref.id, ref.folderPath, p)
+      return response(ref.id, folderPath, p)
     })
 
     kit.handle(API.devEnvBox, async ({ params, body, auth }) => {

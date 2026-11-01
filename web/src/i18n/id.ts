@@ -35,6 +35,7 @@ export const id: Record<MessageKey, string> = {
   'devEnv.warningTitle': "Baca ini sebelum mengaktifkan",
   'devEnv.warningBody': "AI dapat menjalankan program apa pun di folder proyek ini. Semua orang yang dapat menulis folder memakai kotak yang sama.\n- Kode yang diubah satu orang, atau proses yang ditinggalkannya, memengaruhi perintah berikutnya orang lain.\n- Kotak tidak memiliki login. Lakukan git push dan sejenisnya di komputer Anda sendiri.\n- Pratinjau menampilkan kode yang berjalan, di alamat terpisah dan hanya berlaku sebentar.\n- Perintah, berkas yang berubah, dan alamat yang dihubungi tercatat di log aktivitas.\nFitur ini eksperimen dan dapat dimatikan kapan saja.",
   'devEnv.accept': "Saya memahami risikonya dan mengaktifkannya untuk proyek ini",
+  'devEnv.needsFolder': "Proyek ini belum punya folder sendiri. Saat Anda menyimpan, folder kosong baru dibuat di bawah projects/ dan menjadi folder proyek. AI proyek ini lalu bekerja di folder tersebut. File di root tim tidak dipindahkan.",
 
   'common.cancel': 'Batal',
   'common.choose': 'Pilih',
@@ -1243,6 +1244,7 @@ export const id: Record<MessageKey, string> = {
   'audit.act.budget.delete': 'Menghapus batas penggunaan',
   'audit.act.dev_env.consent': "Peringatan lingkungan pengembangan diterima",
   'audit.act.dev_env.setting': "Pengaturan lingkungan pengembangan diubah",
+  'audit.act.dev_env.folder': "Folder proyek lingkungan pengembangan dibuat",
   'audit.act.dev_env.command': "Perintah lingkungan pengembangan",
   'audit.act.dev_env.preview': "Tautan pratinjau lingkungan pengembangan",
   'audit.act.dev_env.stop': "Kotak lingkungan pengembangan dihentikan",

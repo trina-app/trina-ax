@@ -1,8 +1,8 @@
 # Remotion probe, sent into the box by vm-tests.sh (REMOTION=1): install Remotion, render 5 s of 720p, report time, memory
 # and disk. One "remotion: <name> <value>" line per result; the verdict is the last line. Variables at the top of the
-# text: CONCURRENCY (Chrome tabs, 0 = Remotion's own default), FRAMES (150 = 5 s), VERSION. /work/node_modules is the box
-# volume.
-: "${CONCURRENCY:=1}" "${FRAMES:=150}" "${VERSION:=4.0.539}"
+# text: CONCURRENCY (Chrome tabs, 0 = Remotion's own default), FRAMES (150 = 5 s), WIDTH and HEIGHT, VERSION.
+# /work/node_modules is the box volume.
+: "${CONCURRENCY:=1}" "${FRAMES:=150}" "${WIDTH:=1280}" "${HEIGHT:=720}" "${VERSION:=4.0.539}"
 cd /work || exit 1
 now() { date +%s.%N; }
 took() { awk -v a="$1" -v b="$2" 'BEGIN{printf "%.1f", b-a}'; }
@@ -15,10 +15,10 @@ import { registerRoot } from 'remotion'
 import { Root } from './Root'
 registerRoot(Root)
 TS
-echo "export const FRAMES = $FRAMES" > src/frames.ts
+printf 'export const FRAMES = %s\nexport const WIDTH = %s\nexport const HEIGHT = %s\n' "$FRAMES" "$WIDTH" "$HEIGHT" > src/frames.ts
 cat > src/Root.tsx <<'TSX'
 import React from 'react'
-import { FRAMES } from './frames'
+import { FRAMES, HEIGHT, WIDTH } from './frames'
 import { AbsoluteFill, Composition, interpolate, spring, useCurrentFrame, useVideoConfig } from 'remotion'
 const Scene: React.FC = () => {
   const frame = useCurrentFrame()
@@ -27,7 +27,7 @@ const Scene: React.FC = () => {
   const hue = interpolate(frame, [0, FRAMES], [200, 320])
   return (
     <AbsoluteFill style={{ background: `linear-gradient(${frame * 2}deg, hsl(${hue},70%,35%), hsl(${hue + 60},70%,20%))`, alignItems: 'center', justifyContent: 'center', fontFamily: 'sans-serif', color: 'white' }}>
-      <svg width="1280" height="720" style={{ position: 'absolute' }}>
+      <svg width={WIDTH} height={HEIGHT} style={{ position: 'absolute' }}>
         {Array.from({ length: 24 }, (_, i) => <circle key={i} r={18 + i} fill="white" opacity={0.12} cx={640 + 420 * Math.cos(i + frame / 25)} cy={360 + 240 * Math.sin(i * 2 + frame / 25)} />)}
       </svg>
       <div style={{ fontSize: 96, fontWeight: 700, transform: `scale(${pop})` }}>개발 환경 Remotion</div>
@@ -35,7 +35,7 @@ const Scene: React.FC = () => {
     </AbsoluteFill>
   )
 }
-export const Root: React.FC = () => <Composition id="Main" component={Scene} durationInFrames={FRAMES} fps={30} width={1280} height={720} />
+export const Root: React.FC = () => <Composition id="Main" component={Scene} durationInFrames={FRAMES} fps={30} width={WIDTH} height={HEIGHT} />
 TSX
 
 # the sampler: memory the kernel cannot give back (anon + shmem, which holds /tmp and /dev/shm), all charged memory
@@ -82,6 +82,6 @@ echo "remotion: disk_mib node_modules $(du -sm node_modules | cut -f1), cache $(
 probe=$(npx --no-install remotion ffprobe -v error -show_entries stream=codec_name,width,height,nb_frames -show_entries format=duration -of csv=p=0 out/video.mp4 2>/dev/null | tr '\n' ' ')
 echo "remotion: video $probe"
 case "$rc:$oom:$probe" in
-  0:0:*1280,720*) echo "remotion: result ok" ;;
+  0:0:*",$WIDTH,$HEIGHT,"*) echo "remotion: result ok" ;;
   *) echo "remotion: result failed"; exit 1 ;;
 esac

@@ -231,3 +231,18 @@ The default box limit is now 2.5 GB (2560 MiB) and 1 CPU, for more margin than t
 above were measured at 1.5 GB. Dev mode needs a team VM of at least 4 GB: boxd refuses a VM below 3.5 GB (3584 MiB),
 as a 4 GB VM reports about 3.8 GB. The trial on one team server follows `scripts/dev-env/TRIAL.md`.
 
+## Plan sizes (2026-11-01)
+
+Real box runs at the plan sizes, on m8i instances. The isolation probe had 0 FAIL on both plans. Render time of the
+Remotion test:
+
+| Render | Team (1.5 CPU, 4 GB) | Business (3 CPU, 8 GB) |
+| --- | --- | --- |
+| 720p, 5 s | 21 s | 17 s |
+| 720p, 30 s | 59 s | 51 s |
+| 1080p, 30 s | 95 s | 66 s |
+
+Peak unreclaimable memory was about 1.3 to 1.4 GB, with no OOM kill. On Lightsail 4 GB, 720p 5 s took about 67 s.
+
+`in-box/remotion.sh` now takes `WIDTH` and `HEIGHT` and checks the video against them. Before this change the check
+expected 1280x720, so a good 1080p video gave `result failed`.

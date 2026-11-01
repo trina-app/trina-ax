@@ -35,6 +35,7 @@ export const en: Record<MessageKey, string> = {
   'devEnv.warningTitle': "Read this before you turn it on",
   'devEnv.warningBody': "The AI can run any program in this project folder. Everyone who can write the folder uses the same box.\n- Code that one person changed, or a process they left running, affects the next command of another person.\n- The box has no logins. Do git push and similar commands on your own computer.\n- A preview shows running code. It opens on a separate address and is valid for a short time only.\n- Commands, changed files and contacted addresses are kept in the activity log.\nThis feature is an experiment and can be turned off at any time.",
   'devEnv.accept': "I understand the risks and turn it on for this project",
+  'devEnv.needsFolder': "This project has no folder of its own. When you save, a new empty folder is created under projects/ and becomes the project folder. The AI of this project then works in that folder. Files in the team root do not move.",
 
   'common.cancel': 'Cancel',
   'common.choose': 'Choose',
@@ -1243,6 +1244,7 @@ export const en: Record<MessageKey, string> = {
   'audit.act.budget.delete': 'Removed a usage limit',
   'audit.act.dev_env.consent': "Dev environment warning accepted",
   'audit.act.dev_env.setting': "Dev environment setting changed",
+  'audit.act.dev_env.folder': "Dev environment project folder created",
   'audit.act.dev_env.command': "Dev environment command",
   'audit.act.dev_env.preview': "Dev environment preview link",
   'audit.act.dev_env.stop': "Dev environment box stopped",

@@ -78,6 +78,8 @@ export const DevEnvProjectResponse = z.object({
   mayUse: z.boolean(),
   /** the caller may change the setting (owner or admin) */
   mayManage: z.boolean(),
+  /** the project is on the team root: turning on creates a folder of its own under projects/ */
+  needsFolder: z.boolean(),
   box: DevEnvBox.nullable(),
 })
 export type DevEnvProjectResponse = z.infer<typeof DevEnvProjectResponse>
