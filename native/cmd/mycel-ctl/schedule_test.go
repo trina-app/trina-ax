@@ -791,16 +791,111 @@ func TestScheduledUpdateHoldsAFailedRelease(t *testing.T) {
 	if readFailed(&env{base: tb.base}) != nil {
 		t.Fatal("hold of 0.2.19 kept after 0.2.20 went in")
 	}
-	// a hold is no longer than a week, also after many failures; one that ends further ahead (the clock went back)
-	// does not count
+	// a hold is no longer than a week, also after many failures (before the root files were in: 20 hours); one that
+	// ends further ahead (the clock went back a long way) does not count
 	for n, want := range map[int]time.Duration{1: 20 * time.Hour, 2: 44 * time.Hour, 3: 92 * time.Hour, 4: failHoldMax, 50: failHoldMax} {
-		if got := failHold(n); got != want {
-			t.Errorf("failHold(%d) = %v, want %v", n, got, want)
+		if got := failHold(n, true); got != want {
+			t.Errorf("failHold(%d, app) = %v, want %v", n, got, want)
+		}
+	}
+	for n, want := range map[int]time.Duration{1: time.Hour, 2: 2 * time.Hour, 5: 16 * time.Hour, 6: 20 * time.Hour, 50: 20 * time.Hour} {
+		if got := failHold(n, false); got != want {
+			t.Errorf("failHold(%d, root) = %v, want %v", n, got, want)
 		}
 	}
 	now := at("2026-11-01T00:00:00Z").t
-	if (&failedUpdate{Until: now.Add(8 * 24 * time.Hour)}).active(now) || !(&failedUpdate{Until: now.Add(time.Hour)}).active(now) {
+	if (&failedUpdate{Until: now.Add(8 * 24 * time.Hour)}).active(now) || !(&failedUpdate{Until: now.Add(time.Hour)}).active(now) ||
+		!(&failedUpdate{Until: now.Add(failHoldMax + 30*time.Minute)}).active(now) {
 		t.Fatal("active")
+	}
+}
+
+// A failure before the root files are in (here the download: the bundle is gone) is held only an hour, doubling, and
+// the deferral keeps its time: the launcher and the sandbox are not held back for long by a failure that may pass, or
+// that the server account caused (it shares the disk). An administrator's failed `--version <older>` leaves the hold
+// of the newer release as it is.
+func TestScheduledUpdateShortHoldBeforeRootFiles(t *testing.T) {
+	f := newFeedServer(t)
+	publishSince(t, f, "/server/stable.json", "0.2.19", true, "0.2.19")
+	bundle := "/bundles/0.2.19.tar.zst"
+	f.mu.Lock()
+	saved := f.files[bundle]
+	delete(f.files, bundle)
+	f.mu.Unlock()
+	tb := schedBase(t, f)
+	must(t, os.WriteFile(filepath.Join(tb.base, "root/update-deferred.json"), []byte(`{"version":"0.2.19","since":"2026-10-31T18:00:00Z","turns":1}`), 0o644))
+	r := &schedRun{clock: at("2026-11-01T18:10:00Z"), window: "03:00-05:00", zone: "Asia/Seoul"}
+	scheduledHooks(t, tb, r)
+	if code, res := tb.scheduled(t, f); code != 1 || res.Result != "error" || !strings.Contains(res.Detail, "HTTP 404") {
+		t.Fatalf("download: %d %+v", code, res)
+	}
+	h := readFailed(&env{base: tb.base})
+	if h == nil || h.RootIn || h.Failures != 1 || !h.Until.Equal(at("2026-11-01T19:10:00Z").t) {
+		t.Fatalf("hold %+v", h)
+	}
+	if d := readDeferred(&env{base: tb.base}); d == nil || !d.Since.Equal(at("2026-10-31T18:00:00Z").t) {
+		t.Fatalf("the deferral must keep its time: %+v", d)
+	}
+	r.clock = at("2026-11-01T18:40:00Z")
+	if code, res := tb.scheduled(t, f); code != 0 || !res.Skipped || !strings.Contains(res.Detail, "release 0.2.19 failed here") {
+		t.Fatalf("within the hour: %d %+v", code, res)
+	}
+	// an hour on, the bundle is back: in it goes, and the hold and the deferral end
+	f.mu.Lock()
+	f.files[bundle] = saved
+	f.mu.Unlock()
+	r.clock = at("2026-11-01T19:10:00Z")
+	if code, res := tb.scheduled(t, f); code != 0 || res.Skipped || !res.RootUpdated || !res.AppUpdated {
+		t.Fatalf("an hour on: %d %+v", code, res)
+	}
+	if readFailed(&env{base: tb.base}) != nil || readDeferred(&env{base: tb.base}) != nil {
+		t.Fatal("hold or deferral kept after the update")
+	}
+
+	// a hold of 0.2.20 stays when an administrator's roll-back to 0.2.18 fails
+	f = newFeedServer(t)
+	publishSince(t, f, "/server/stable.json", "0.2.20", true, "0.2.20")
+	f.publish("/server/0.2.18/release.json", "0.2.18", true)
+	tb = schedBase(t, f)
+	r = &schedRun{clock: at("2026-11-01T18:10:00Z"), window: "03:00-05:00", zone: "Asia/Seoul"}
+	scheduledHooks(t, tb, r)
+	switches := 0
+	rollBackOnSwitch(t, tb, &switches, func() bool { return false })
+	if code, _ := tb.scheduled(t, f); code != 10 {
+		t.Fatalf("0.2.20: %d", code)
+	}
+	must(t, os.Remove(filepath.Join(tb.base, "app/current")))
+	must(t, os.Symlink("versions/0.2.20", filepath.Join(tb.base, "app/current"))) // say an administrator got 0.2.20 in, then wants 0.2.18 back
+	tb.health.Store("0.2.20")
+	if code, _ := tb.update(t, "--version", "0.2.18", "--pubkey", f.key); code == 0 {
+		t.Fatal("the roll-back was meant to fail")
+	}
+	if h := readFailed(&env{base: tb.base}); h == nil || h.Version != "0.2.20" {
+		t.Fatalf("the hold of 0.2.20 was replaced: %+v", h)
+	}
+}
+
+// A release root failed here stays root's to try again, also when the root files are in place and an app of 0.2.19 or
+// newer could take it (the app leaves it to root, update-job.ts rootHold): one back-off decides, and the timer's
+// "tries it again after" is true. Without such a record the app takes it.
+func TestScheduledUpdateRetriesWhatItHeld(t *testing.T) {
+	f := newFeedServer(t)
+	publishSince(t, f, "/server/stable.json", "0.2.21", true, "0.2.21")
+	tb, _ := feedBase(t, f, "0.2.20", "0.2.21")
+	updateTestHook = nil
+	defaultsDir = t.TempDir()
+	t.Cleanup(func() { defaultsDir = "/etc/default" })
+	must(t, os.WriteFile(filepath.Join(tb.base, "root/mycel-launcher"), []byte("launcher 0.2.21"), 0o755))
+	must(t, os.WriteFile(filepath.Join(tb.base, "root/mycel-ctl"), []byte("ctl"), 0o755))
+	r := &schedRun{clock: at("2026-11-01T18:10:00Z"), window: "03:00-05:00", zone: "Asia/Seoul"}
+	scheduledHooks(t, tb, r)
+	if code, res := tb.scheduled(t, f); code != 0 || !res.Skipped || res.Detail != "release 0.2.21 does not change root files" || f.downloaded() != 0 {
+		t.Fatalf("no record: %d %+v", code, res)
+	}
+	b, _ := json.Marshal(failedUpdate{Version: "0.2.21", Result: "rolled_back", At: at("2026-10-31T18:10:00Z").t, Failures: 1, Until: at("2026-11-01T14:10:00Z").t, RootIn: true})
+	must(t, os.WriteFile(filepath.Join(tb.base, "root/update-failed.json"), b, 0o644))
+	if code, res := tb.scheduled(t, f); code != 0 || res.Skipped || !res.AppUpdated || r.switched != "0.2.21" || readFailed(&env{base: tb.base}) != nil {
+		t.Fatalf("held by root, hold over: %d %+v", code, res)
 	}
 }
 

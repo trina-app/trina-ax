@@ -131,7 +131,8 @@ export class OpsService {
       try { last = JSON.parse(fs.readFileSync(this.autoFile(), 'utf8')) } catch {}
       const s = getTeamSettings(this.ctx.db)
       return autoUpdateDecision({ feed, current: this.ctx.version, installId: installId(this.ctx.db), now: this.now(), tz: teamTimeZone(this.ctx.db),
-        window: s.updateWindow, running: this.queue().running, history: this.updates.history(), lastAttempt: last, rootVersion: this.updates.rootVersion() })
+        window: s.updateWindow, running: this.queue().running, history: this.updates.history(), lastAttempt: last, rootVersion: this.updates.rootVersion(),
+        rootHold: this.rootUpdateFailure()?.version ?? null })
     }
     const first = decide()
     if (!first.go) return first.why
@@ -219,10 +220,10 @@ export class OpsService {
     return { autoUpdate: o.autoUpdate === true, allowUnsigned: o.allowUnsigned === true, timerEnabled }
   }
 
-  /** The release the root update timer holds after it failed or was rolled back here (root/update-failed.json, root's
-   * file 0644, native/cmd/mycel-ctl/schedule.go; 0.2.19 review S1). null when there is none, or its hold is over (one
-   * that ends more than a week ahead does not count either, like mycel-ctl). Only shown; mycel-ctl decides. */
-  rootUpdateHold(): { version: string; rolledBack: boolean; until: Date } | null {
+  /** The release whose update by root failed or was rolled back here (root/update-failed.json, root's file 0644,
+   * native/cmd/mycel-ctl/schedule.go; 0.2.19 review S1), its hold over or not: the root update timer tries it again
+   * itself, so the app's own updater leaves it (autoUpdateDecision rootHold). null when there is none. */
+  rootUpdateFailure(): { version: string; rolledBack: boolean; until: Date } | null {
     const L = this.layout
     if (!L.rootDir) return null
     let j: unknown
@@ -231,9 +232,16 @@ export class OpsService {
     const o = j as Record<string, unknown>
     const until = typeof o.until === 'string' ? new Date(o.until) : null
     if (typeof o.version !== 'string' || !/^[0-9A-Za-z][0-9A-Za-z.+_-]{0,49}$/.test(o.version) || !until || Number.isNaN(until.getTime())) return null
-    const left = until.getTime() - this.now().getTime()
-    if (left <= 0 || left > 7 * 86_400_000) return null
     return { version: o.version, rolledBack: o.result === 'rolled_back', until }
+  }
+
+  /** rootUpdateFailure while its hold lasts (one that ends more than a week and an hour ahead does not count, like
+   * mycel-ctl: the clock went back a long way). Only shown; mycel-ctl decides. */
+  rootUpdateHold(): { version: string; rolledBack: boolean; until: Date } | null {
+    const h = this.rootUpdateFailure()
+    if (!h) return null
+    const left = h.until.getTime() - this.now().getTime()
+    return left > 0 && left <= 7 * 86_400_000 + 3600_000 ? h : null
   }
 
   /** role-account install: the engine runs as another account (launcher LaunchDaemon) */

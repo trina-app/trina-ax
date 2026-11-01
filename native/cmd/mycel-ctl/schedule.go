@@ -18,11 +18,12 @@ package main
 //     answers or not, so a team that is always busy (or a server account that keeps answers going) cannot hold the
 //     launcher and the sandbox back for longer than that;
 //   - not for a release whose update failed or was rolled back here a short while ago (root/update-failed.json,
-//     0.2.19 review S1): 20 hours after the first failure (the next day's window), then 44 and 92 hours, at most a
-//     week. An administrator's `mycel-ctl update` ignores the hold; a newer release in the feed ends it. Without it
-//     every check of the window downloaded the release again (about 600 MB) and restarted the server. The root files
-//     go in before the app is switched, so a failure the app causes (a server account that lies) holds back only the
-//     app, never the launcher and the sandbox.
+//     0.2.19 review S1): when the app failed (the root files in place), 20 hours after the first failure (the next
+//     day's window), then 44 and 92 hours, at most a week; before the root files were in, 1 hour, doubling up to 20,
+//     and the deferral keeps its time. An administrator's `mycel-ctl update` ignores the hold; a newer release in the
+//     feed ends it. Without it every check of the window downloaded the release again (about 600 MB) and restarted
+//     the server. The root files go in before the app is switched, so a failure the app causes (a server account that
+//     lies) holds back only the app for long, never the launcher and the sandbox.
 //
 // Outside the window the check ends at once, without network. Before 0.2.19 the timer ran at 04:30 + up to 90 minutes
 // in the server's own zone (UTC on most Linux servers: 13:30-15:00 in Korea) and cut answers off after 10 minutes.
@@ -347,22 +348,31 @@ type failedUpdate struct {
 	At       time.Time `json:"at"`
 	Failures int       `json:"failures"`
 	Until    time.Time `json:"until"`
+	// RootIn: the root files were in place when it failed (the app failed: switch, health, roll-back)
+	RootIn bool `json:"rootIn"`
 }
 
 // failHoldMax: the longest hold, the app's own AUTO_HOLD_MS (server/src/system/update-job.ts)
 const failHoldMax = 7 * 24 * time.Hour
 
-// failHold is the hold after the n-th failure in a row of one version: 20 hours, so the next day's window opens again
-// (also after a failure late in a window up to 4 hours long), then 44 and 92 hours, then a week.
-func failHold(n int) time.Duration {
+// failHold is the hold after the n-th failure in a row of one version. When the app failed (the root files in place):
+// 20 hours, so the next day's window opens again (also after a failure late in a window up to 4 hours long), then 44
+// and 92 hours, then a week. Before the root files were in (a download cut short, a hash that does not match, a full
+// disk): 1, 2, 4, 8 and 16 hours, then 20, so the launcher and the sandbox are not held back for long by a failure
+// that may pass (or that the server account caused).
+func failHold(n int, rootIn bool) time.Duration {
+	if !rootIn {
+		d := time.Hour
+		for i := 1; i < n && d < 20*time.Hour; i++ {
+			d *= 2
+		}
+		return min(d, 20*time.Hour)
+	}
 	d := 20 * time.Hour
 	for i := 1; i < n && d < failHoldMax; i++ {
 		d = 2*d + 4*time.Hour
 	}
-	if d > failHoldMax {
-		d = failHoldMax
-	}
-	return d
+	return min(d, failHoldMax)
 }
 
 func readFailed(e *env) *failedUpdate {
@@ -377,9 +387,10 @@ func readFailed(e *env) *failedUpdate {
 	return &f
 }
 
-// active: the hold lasts at now. One that ends more than failHoldMax ahead (the clock went back since) does not count.
+// active: the hold lasts at now. One that ends more than failHoldMax (and an hour) ahead does not count: the clock went
+// back a long way since.
 func (f *failedUpdate) active(now time.Time) bool {
-	return now.Before(f.Until) && f.Until.Sub(now) <= failHoldMax
+	return now.Before(f.Until) && f.Until.Sub(now) <= failHoldMax+time.Hour
 }
 
 func (f *failedUpdate) String() string {
@@ -395,18 +406,21 @@ func (f *failedUpdate) String() string {
 		f.Version, what, f.At.UTC().Format(time.RFC3339), f.Result, d, f.Failures, f.Until.UTC().Format(time.RFC3339))
 }
 
-// noteFailed records a failure of version (a second one of the same version in a row holds it longer).
-func noteFailed(e *env, version, result, detail string) *failedUpdate {
+// noteFailed records a failure of version (a second one of the same version in a row holds it longer). A hold of a
+// newer version stays as it is (an administrator's failed `--version <older>`): nil then.
+func noteFailed(e *env, version, result, detail string, rootIn bool) *failedUpdate {
 	now := e.now().UTC().Truncate(time.Second)
 	detail = strings.Join(strings.Fields(detail), " ")
 	if r := []rune(detail); len(r) > 300 {
 		detail = string(r[:300]) + "…"
 	}
-	f := failedUpdate{Version: version, Result: result, Detail: detail, At: now, Failures: 1}
+	f := failedUpdate{Version: version, Result: result, Detail: detail, At: now, Failures: 1, RootIn: rootIn}
 	if old := readFailed(e); old != nil && old.Version == version && old.Failures > 0 {
 		f.Failures = min(old.Failures+1, 100)
+	} else if old != nil && compareVersions(old.Version, version) > 0 {
+		return nil
 	}
-	f.Until = now.Add(failHold(f.Failures))
+	f.Until = now.Add(failHold(f.Failures, rootIn))
 	b, _ := json.Marshal(f)
 	_ = writeRootFile(e.root("update-failed.json"), append(b, '\n'), 0o644)
 	return &f

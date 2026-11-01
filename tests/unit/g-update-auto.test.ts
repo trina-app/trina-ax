@@ -107,6 +107,13 @@ describe('roll-out, window, decision', () => {
     expect(autoUpdateDecision({ ...base, history: rolledBack })).toMatchObject({ why: 'held' })
     expect(autoUpdateDecision({ ...base, history: [{ ...rolledBack[0]!, at: new Date(now.getTime() - 8 * 86_400_000).toISOString() }] })).toEqual({ go: true, version: '1.1.0' })
     expect(autoUpdateDecision({ ...base, lastAttempt: { version: '1.1.0', at: now.toISOString() } })).toMatchObject({ why: 'held' })
+    // what the bootstrap writes for a roll-back: from the failed version to the previous one (native/cmd/mycel-bootstrap)
+    const bootstrap = [{ at: new Date(now.getTime() - 86_400_000).toISOString(), from: '1.1.0', to: '1.0.0', result: 'rolled_back' as const, detail: 'exited 3 times' }]
+    expect(autoUpdateDecision({ ...base, history: bootstrap })).toMatchObject({ why: 'held' })
+    expect(autoUpdateDecision({ ...base, history: [{ ...bootstrap[0]!, from: '1.0.5' }] })).toEqual({ go: true, version: '1.1.0' })
+    // a release root's update failed here (root/update-failed.json) is the root update timer's to try again (0.2.19 review S1)
+    expect(autoUpdateDecision({ ...base, rootHold: '1.1.0' })).toMatchObject({ go: false, why: 'held' })
+    expect(autoUpdateDecision({ ...base, rootHold: '1.0.9' })).toEqual({ go: true, version: '1.1.0' })
     expect(autoUpdateDecision({ ...base, window: '00:00-25:00' })).toMatchObject({ go: false, why: 'outside_window' })
     expect(autoUpdateDecision({ ...base, tz: 'UTC' })).toMatchObject({ why: 'outside_window' })
     expect(autoUpdateDecision({ ...base, running: 1 })).toMatchObject({ why: 'busy' })

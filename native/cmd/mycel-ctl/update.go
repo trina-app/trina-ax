@@ -86,8 +86,10 @@ type updater struct {
 	deferred  bool
 	turnedOff bool
 	// attempted: the run began to bring the release in (a download, or a --bundle unpacked); a failure from then on
-	// holds the release from the update timer (root/update-failed.json, schedule.go)
+	// holds the release from the update timer (root/update-failed.json, schedule.go). rootIn: its root files are in
+	// place (updateRoot finished), so what failed was the app: the long hold
 	attempted bool
+	rootIn    bool
 	// hooks for tests (default: the real thing)
 	liveTurns func() (int, error)
 	runAsSrv  func(args []string, env []string) (string, error)
@@ -213,10 +215,15 @@ func cmdUpdate(e *env, args []string) (int, error) {
 		if detail == "" && err != nil {
 			detail = err.Error()
 		}
-		h := noteFailed(e, res.To, res.Result, detail)
-		// it found its quiet moment: after the hold, the next try waits for one again rather than the last resort
-		clearDeferred(e)
-		res.Notes = append(res.Notes, h.String())
+		if h := noteFailed(e, res.To, res.Result, detail, u.rootIn); h != nil {
+			res.Notes = append(res.Notes, h.String())
+		}
+		if u.rootIn {
+			// the root files are in and the run found its quiet moment: after the hold, the app's next try waits for
+			// one again rather than the last resort. Before that the deferral keeps its time, so a failure (a download
+			// the server account cut short, say) does not start the three days again.
+			clearDeferred(e)
+		}
 	}
 	return finish(resultCodes[res.Result], err)
 }
@@ -254,7 +261,7 @@ func (u *updater) gate(onlyRoot bool) (bool, error) {
 	u.res.To = feed.Version
 	root := rootVersion(u.e)
 	why := notNewer(feed.Version, u.res.From, root)
-	if why == "" && onlyRoot && !rootJob(feed, root, u.res.From) {
+	if why == "" && onlyRoot && !rootJob(feed, root, u.res.From) && !heldHere(u.e, feed.Version) {
 		why = "release " + feed.Version + " does not change root files"
 	}
 	if why == "" && feed.Version == u.res.From && root == feed.Version {
@@ -384,7 +391,7 @@ func (u *updater) run(version, bundleFile string, onlyRoot bool) error {
 		if err != nil {
 			return err
 		}
-		u.res.To, needsRoot = feed.Version, rootJob(feed, rootVersion(u.e), u.res.From)
+		u.res.To, needsRoot = feed.Version, rootJob(feed, rootVersion(u.e), u.res.From) || heldHere(u.e, feed.Version)
 		if version == "" {
 			if why := notNewer(feed.Version, u.res.From, rootVersion(u.e)); why != "" {
 				u.res.Result, u.res.Skipped, u.res.Detail = "ok", true, why
@@ -420,6 +427,7 @@ func (u *updater) run(version, bundleFile string, onlyRoot bool) error {
 	if err := u.updateRoot(dir, m.Version); err != nil {
 		return err
 	}
+	u.rootIn = true
 	if onlyRoot && !u.res.RootUpdated && bundleFile != "" {
 		u.res.Result, u.res.Skipped, u.res.Detail = "ok", true, "the release changes no root files"
 		return nil
@@ -458,6 +466,15 @@ func rootNeeded(f *ReleaseFeed, root string) bool {
 // no app/current is there to take it).
 func rootJob(f *ReleaseFeed, root, app string) bool {
 	return rootNeeded(f, root) || f.NeedsRoot && (app == "" || compareVersions(app, lastOldUpdater) <= 0)
+}
+
+// heldHere: root's update of version failed here (root/update-failed.json, the hold over or not). The timer tries it
+// again itself after the hold, also when the root files are in place and the app could take it: the app's own
+// updater leaves such a release to root (server/src/system/update-job.ts autoUpdateDecision rootHold), so one
+// back-off decides when it comes again.
+func heldHere(e *env, version string) bool {
+	h := readFailed(e)
+	return h != nil && h.Version == version
 }
 
 // notNewer says why the channel's newest release (an update without --version: the update timer, a plain

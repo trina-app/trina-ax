@@ -87,14 +87,21 @@ export function autoUpdateDecision(o: {
   history: History; lastAttempt?: { version: string; at: string } | null
   /** root/VERSION of this install (releaseNeedsRoot); null = unknown */
   rootVersion?: string | null
+  /** the version root's update failed here (root/update-failed.json, native/cmd/mycel-ctl schedule.go), held or not:
+   * the root update timer tries it again after its own back-off, so this updater leaves it (0.2.19 review S1) */
+  rootHold?: string | null
 }): AutoDecision {
   const f = o.feed
   if (!f) return { go: false, why: 'no_feed' }
   if (compareVersions(f.version, o.current) <= 0) return { go: false, why: 'up_to_date' }
   if (releaseNeedsRoot(f, o.rootVersion ?? null)) return { go: false, why: 'needs_root' }
   if (!inRollout(f, o.installId)) return { go: false, why: 'rollout' }
+  if (o.rootHold && o.rootHold === f.version) return { go: false, why: 'held' }
   const recent = (at: string) => o.now.getTime() - Date.parse(at) < AUTO_HOLD_MS
-  if (o.history.some((h) => h.to === f.version && h.result !== 'ok' && recent(h.at))) return { go: false, why: 'held' }
+  // the bootstrap records a roll-back as from <failed> to <previous> (native/cmd/mycel-bootstrap), a refused version as
+  // to <it>
+  const failed = (h: History[number]) => h.result !== 'ok' && (h.to === f.version || (h.result === 'rolled_back' && h.from === f.version))
+  if (o.history.some((h) => failed(h) && recent(h.at))) return { go: false, why: 'held' }
   if (o.lastAttempt && o.lastAttempt.version === f.version && recent(o.lastAttempt.at)) return { go: false, why: 'held' }
   if (!inWindow(o.window, o.now, o.tz)) return { go: false, why: 'outside_window' }
   if (o.running > 0) return { go: false, why: 'busy' }
