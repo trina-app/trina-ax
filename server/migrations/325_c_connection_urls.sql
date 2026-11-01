@@ -8,8 +8,8 @@
 --     integration_id: the connection; user_id: the person of the turn; turn_id: the answer it came back in;
 --     free_turn_id: the answer that opened it without a card.
 --   chat_sent_marks: what the AI sent in tool inputs of this chat, for that check: the first 16 bytes of the SHA-256
---     of each address, of its query, and of each 20-character window of a long random-looking part (tools/
---     sent-marks.ts). Hashes only: no input text is kept.
+--     of each address (also folded), its host and path, its query, and each 20-character window of a long
+--     random-looking part (tools/connection-urls.ts). Hashes only: no input text is kept.
 -- New tables only: chat_seen_urls (and its CHECK on source) is not rebuilt. An older build ignores both tables (it
 -- opens the database; save_url and these rows are just not there), so this migration needs no newer reader.
 -- Additive only.

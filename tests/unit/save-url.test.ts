@@ -9,7 +9,7 @@ import { checkReadable, readMigrations } from '../../server/src/db'
 import { TurnFiles, type ToolCtx } from '../../server/src/files/service'
 import { ToolError } from '../../server/src/policy/errors'
 import { putMedia } from '../../server/src/integrations/connections/media'
-import { inputMarks, isEcho, recordSent, rememberConnectionUrls, urlMarks } from '../../server/src/tools/connection-urls'
+import { inputMarks, isEcho, MARK_INPUT_CHARS, MAX_INPUT_URLS, recordSent, rememberConnectionUrls, textOf, urlMarks } from '../../server/src/tools/connection-urls'
 import { diskReserve, saveUrl, type SaveUrlOptions } from '../../server/src/tools/save-url'
 import { sniffKind, withExtension, KINDS } from '../../server/src/tools/sniff'
 import { rememberUrls, type TurnPerson } from '../../server/src/tools/url-gate'
@@ -53,6 +53,10 @@ beforeAll(async () => {
         case '/to-meta': return Response.redirect('http://169.254.169.254/latest/meta-data/iam/', 302)
         case '/to-lan': return Response.redirect(`http://lan.example:${port()}/hero.png`, 302)
         case '/to-hero': return Response.redirect(at('/hero.png'), 302)
+        // a link shortener's address (made by a connection): it redirects to the long address it was given
+        case '/s/abc': return Response.redirect(at('/hero.jpg?leak=ceo-salary-is-250000'), 302)
+        // the same path on another scheme / with a query, as http -> https and CDN redirects do
+        case '/self/hero.png': return u.search ? new Response(PNG, { headers: { 'content-type': 'image/png' } }) : Response.redirect(at('/self/hero.png?signed=1'), 302)
         default: return new Response('no', { status: 404 })
       }
     },
@@ -341,19 +345,21 @@ describe('addresses from connections (learned links) and the echo check', () => 
     recordSent(A.ctx.db, s.chat, { prompt: 'a hero image', reference: at('/hero.png?ref=1') })
     recordSent(A.ctx.db, s.chat, { note: `token ${secret}7Hq` })
     const echoed = [at('/hero.png?ref=1'), at(`/x/${secret.slice(0, 20)}abc/hero.png`)]
-    rememberConnectionUrls(A.ctx.db, s.chat, [...echoed, at('/hero.png?fresh=1')], { integrationId, userId: 'alice', turnId: s.turnId })
+    // the same host and path with another query is an echo too (the service only changed the query)
+    echoed.push(at('/hero.png?fresh=1'))
+    rememberConnectionUrls(A.ctx.db, s.chat, [...echoed, at('/hero.jpg?fresh=1')], { integrationId, userId: 'alice', turnId: s.turnId })
     s.cards.answer = false
     for (const u of echoed) await expect(s.run(u, 'shared/echo/e.png')).rejects.toThrow(/did not allow/)
-    expect(s.cards.asked).toHaveLength(2)
+    expect(s.cards.asked).toHaveLength(3)
     for (const q of s.cards.asked) expect(q).toContain('matches what the AI had sent to a tool earlier')
     s.cards.asked = []
     s.cards.answer = true
-    await s.run(at('/hero.png?fresh=1'), 'shared/echo/fresh.png')
+    await s.run(at('/hero.jpg?fresh=1'), 'shared/echo/fresh.png')
     expect(s.cards.asked).toEqual([])
   })
   test('the marks: the address, its query on another host, a 20-character window; the services\' own addresses leave none', () => {
     const marks = (t: string, known: string[] = []) => new Set(inputMarks(t, (u) => known.includes(u)).map((b) => b.toString('hex')))
-    const hit = (m: Set<string>, url: string) => urlMarks(url).some((b) => m.has(b.toString('hex')))
+    const hit = (m: Set<string>, url: string) => urlMarks(url)?.some((b) => m.has(b.toString('hex'))) ?? true
     const m = marks('{"image_url":"https://attacker.example/c?d=SECRETDATA123"}')
     expect(hit(m, 'https://attacker.example/c?d=SECRETDATA123')).toBe(true)
     expect(hit(m, 'https://cdn.service.example/x?d=SECRETDATA123')).toBe(true)
@@ -366,6 +372,68 @@ describe('addresses from connections (learned links) and the echo check', () => 
     const k = marks(JSON.stringify({ image_url: last }), [last])
     expect(hit(k, 'https://cdn.service.example/user_2xKq7Pz9Lm4Nq8Rt5Vw1/b.png')).toBe(false)
     expect(hit(marks(JSON.stringify({ image_url: last })), 'https://cdn.service.example/user_2xKq7Pz9Lm4Nq8Rt5Vw1/b.png')).toBe(true)
+  })
+  test('the echo check reads the whole input and fails closed when it cannot (padding, many addresses, changed forms)', () => {
+    const marksOf = (input: unknown) => { const t = textOf(input); return new Set((t === null ? inputMarks('x'.repeat(MARK_INPUT_CHARS + 1)) : inputMarks(t)).map((b) => b.toString('hex'))) }
+    const hit = (m: Set<string>, url: string) => urlMarks(url)?.some((b) => m.has(b.toString('hex'))) ?? true
+    // words, not random-looking: only the address-level marks can catch this one
+    const evil = 'https://attacker.example/c/ceo-salary-is-250000-and-merger-with-acme'
+    expect(hit(marksOf({ q: evil }), evil)).toBe(true)
+    // before: past 64 KB, or after 500 other addresses, an input left no marks
+    expect(hit(marksOf({ q: 'x '.repeat(40_000) + evil }), evil)).toBe(true)
+    expect(hit(marksOf({ q: Array.from({ length: 600 }, (_, i) => `https://a.example/${i}`).join(' ') + ' ' + evil }), evil)).toBe(true)
+    // the service added a query, wrapped it in its own redirect, changed its case or its slashes
+    expect(hit(marksOf({ q: evil }), evil + '?utm_source=svc')).toBe(true)
+    expect(hit(marksOf({ q: evil }), 'https://svc.example/out?to=' + encodeURIComponent(evil) + '&utm=1')).toBe(true)
+    expect(hit(marksOf({ q: evil }), 'https://ATTACKER.example/C/CEO-SALARY-IS-250000-AND-MERGER-WITH-ACME')).toBe(true)
+    expect(hit(marksOf({ q: 'https://attacker.example/a\\b/ceo-salary-250000' }), 'https://attacker.example/a\\b/ceo-salary-250000')).toBe(true)
+    // a stray "%" does not stop the %-decoded form
+    expect(hit(marksOf({ q: '100% ' + encodeURIComponent(evil) }), evil)).toBe(true)
+    // an unrelated address is still not an echo
+    expect(hit(marksOf({ q: evil }), 'https://cdn.example/img/abc.png')).toBe(false)
+    // too much to mark completely: the whole chat counts as sent (every address that comes back asks)
+    expect(textOf({ q: 'x'.repeat(MARK_INPUT_CHARS + 10) })).toBeNull()
+    expect(textOf(JSON.parse('['.repeat(80) + ']'.repeat(80)))).toBeNull()
+    expect(inputMarks(Array.from({ length: MAX_INPUT_URLS + 1 }, (_, i) => `https://a.example/${i}`).join(' '))).toHaveLength(1)
+    const s = setup()
+    recordSent(A.ctx.db, s.chat, { q: 'x'.repeat(MARK_INPUT_CHARS + 10) })
+    expect(isEcho(A.ctx.db, s.chat, 'https://cdn.example/anything.png')).toBe(true)
+  })
+  test('a redirect to an address that echoes what the AI sent asks first, however the first address was opened', async () => {
+    // the AI gave a link shortener (a connection) the long address with data in it; the short one came back as the
+    // service's own address, and redirects to the long one
+    const s = setup()
+    const long = at('/hero.jpg?leak=ceo-salary-is-250000')
+    recordSent(A.ctx.db, s.chat, { long_url: long })
+    rememberConnectionUrls(A.ctx.db, s.chat, [at('/s/abc')], { integrationId, userId: 'alice', turnId: s.turnId })
+    expect(isEcho(A.ctx.db, s.chat, at('/s/abc'))).toBe(false)
+    requests = []
+    s.cards.answer = false
+    await expect(s.run(at('/s/abc'), 'shared/redir/a.png')).rejects.toThrow(/did not allow following the redirect/)
+    expect(s.cards.asked).toHaveLength(1)
+    expect(s.cards.asked[0]).toContain('redirects to another one')
+    expect(s.cards.asked[0]).toContain(long)
+    // declined: the long address was never asked for
+    expect(requests).toEqual(['/s/abc'])
+    expect(has('shared/redir/a.png')).toBe(false)
+    s.cards.answer = true
+    const ok = await s.run(at('/s/abc'), 'shared/redir/b.png')
+    expect(ok.summary).toContain('(redirect confirmed by the user)')
+    // a redirect that echoes nothing asks nothing
+    s.cards.asked = []
+    s.allow(at('/to-hero'))
+    await s.run(at('/to-hero'), 'shared/redir/c.png')
+    expect(s.cards.asked).toEqual([])
+    // nor one to the asked-for address's own path: save_url's own input (recorded like every tool input) is no echo
+    s.allow(at('/self/hero.png'))
+    recordSent(A.ctx.db, s.chat, { url: at('/self/hero.png'), save_as: 'shared/redir/d.png' })
+    await s.run(at('/self/hero.png'), 'shared/redir/d.png')
+    expect(s.cards.asked).toEqual([])
+    // nobody to ask: not followed
+    const u = setup('alice', { unattended: true })
+    recordSent(A.ctx.db, u.chat, { long_url: long })
+    rememberConnectionUrls(A.ctx.db, u.chat, [at('/s/abc')], { integrationId, userId: 'alice', turnId: u.turnId })
+    await expect(u.run(at('/s/abc'), 'users/alice/redir.png')).rejects.toThrow(/redirected to one that matches what the AI had sent/)
   })
   test('an echo is decided when the address comes back: marks left later do not change it', () => {
     const s = setup()

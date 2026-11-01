@@ -5,7 +5,10 @@
 //     addresses open without asking (learned within the link budget), and so do addresses that came back from a
 //     connection the person can use in this chat (①c, tools/connection-urls.ts), unless they echo what the AI sent;
 //     any other address, a long query or an unknown exit address asks on the server's card.
-//   - The download (tools/download.ts): every hop checked and pinned, at most 5 redirects, streamed to a work file.
+//   - The download (tools/download.ts): every hop checked and pinned, at most 5 redirects, streamed to a work file. A
+//     redirect to an address that echoes what the AI sent in this chat (tools/connection-urls.ts isEcho: a link
+//     shortener a connection made, a service's "/out?to=<the AI's address>") asks the person first, whatever opened
+//     the first address; in a scheduled run it is not followed.
 //     Up to 1 GB it just downloads; over 1 GB (from Content-Length, or reached while streaming: nothing past 1 GB is
 //     written before the answer) the person is asked on a card with the size and the server's free disk; in a
 //     scheduled run such a file is skipped. No other size limit. The only hard stop is the disk: a download that would
@@ -40,7 +43,8 @@ import { downloadToFile, type DownloadOptions } from './download'
 import { egressOf, egressSettled } from './egress'
 import { placeProduced } from './make-file'
 import { ACCEPTED, refusedName, sniffKind, withExtension, type FileKind } from './sniff'
-import { gateUrl } from './url-gate'
+import { isEcho, urlMarks } from './connection-urls'
+import { gateUrl, normUrl, TEXT as GATE_TEXT } from './url-gate'
 import { precheckTarget } from './web-fetch'
 
 /** larger downloads ask the person first (save_url's card) */
@@ -70,6 +74,13 @@ export const TEXT = {
   },
   allow: { ko: '받기', en: 'Download', id: 'Unduh', ja: 'ダウンロード', es: 'Descargar' },
   deny: { ko: '그만두기', en: 'Stop', id: 'Batalkan', ja: 'やめる', es: 'Cancelar' },
+  redirectEcho: {
+    ko: 'AI가 저장하려는 주소가 다른 주소로 넘어가요. 그런데 넘어가는 주소(또는 그 일부)가 AI가 앞서 이 대화에서 도구에 보낸 내용과 같아요. 짧은 주소 서비스처럼 서비스가 받은 내용을 되돌려 준 것일 수 있으니 주소 전체를 확인해 주세요.\n\n{url}',
+    en: 'The address the AI is saving from redirects to another one, and that address (or part of it) matches what the AI had sent to a tool earlier in this conversation. A service may have kept what it was sent and given it back (like a link shortener), so check the whole address:\n\n{url}',
+    id: 'Alamat yang ingin disimpan AI dialihkan ke alamat lain, dan alamat itu (atau sebagiannya) sama dengan isi yang dikirim AI ke sebuah alat sebelumnya di percakapan ini. Layanan mungkin menyimpan apa yang dikirim kepadanya lalu mengembalikannya (seperti pemendek tautan), jadi periksa seluruh alamatnya:\n\n{url}',
+    ja: 'AIが保存しようとしているアドレスは別のアドレスに転送されます。転送先のアドレス（またはその一部）は、この会話でAIが先にツールへ送った内容と一致します。短縮URLサービスのように、サービスが受け取った内容を返した可能性があるため、アドレス全体を確認してください：\n\n{url}',
+    es: 'La dirección desde la que la IA quiere guardar redirige a otra, y esa dirección (o parte de ella) coincide con lo que la IA envió antes a una herramienta en esta conversación. Un servicio puede haber guardado lo que recibió y devolverlo (como un acortador de enlaces); revise la dirección completa:\n\n{url}',
+  },
   diskFull: {
     ko: '서버 디스크 여유가 {free}밖에 없어요. 이 파일{size}을 받으면 디스크에 꼭 남겨 둬야 하는 {reserve}보다 적게 남아서 받지 않았어요. 파일이나 휴지통을 정리한 뒤 다시 해 주세요.',
     en: 'The server has only {free} of free disk space. Downloading this file{size} would leave less than the {reserve} that must stay free, so it was not downloaded. Free up space (files, trash) and try again.',
@@ -203,6 +214,7 @@ export async function saveUrl(ctx: AppContext, a: Input, t: ToolCtx, o: SaveUrlO
       else if (how === 'site') confirmed = ' (site allowed in this chat)'
       await widen()
       let largeOk = false
+      const own = new Set((urlMarks(normUrl(source) ?? source) ?? []).map((m) => m.toString('hex')))
       const r = await downloadToFile(source, tmp, {
         lookup: o.lookup, testAllow: o.testAllow, insecureTlsForTests: o.insecureTlsForTests, connectTimeoutMs: o.connectTimeoutMs, idleTimeoutMs: o.idleTimeoutMs, roomStep: o.roomStep,
         blockedIps, signal: t.signal,
@@ -214,6 +226,19 @@ export async function saveUrl(ctx: AppContext, a: Input, t: ToolCtx, o: SaveUrlO
           const question = fill(TEXT[total === null ? 'largeUnknown' : 'large'][L], { size: shown, free: Number.isFinite(free) ? humanBytes(free) : '?' }).replace('{url}', () => source.length > 2000 ? source.slice(0, 2000) + '…' : source)
           if (!(await t.person.confirm(question, TEXT.allow[L], TEXT.deny[L]))) throw new ToolError(`the user chose not to download this ${shown} file, so nothing was saved. Do not try to get it another way; ask the user what they want`)
           largeOk = true
+        },
+        // a redirect to an address that echoes what the AI sent (a link shortener or a service's "/out?to=" given the
+        // AI's address): the person decides, whatever opened the first address (tools/connection-urls.ts). What the
+        // asked-for address itself carries does not count (this call's own input left those marks: http -> https of
+        // the same path is no echo), nor what a hop the person allowed carries
+        onRedirect: async (next) => {
+          const u = normUrl(next)
+          if (!u || !isEcho(ctx.db, chatId, u, own)) return
+          if (!t.person || t.person.unattended) throw new ToolError('the address redirected to one that matches what the AI had sent to a tool earlier in this chat (a service may have kept it and given it back, like a link shortener), which needs a person to confirm it, and nobody can confirm it here, so nothing was saved')
+          const question = TEXT.redirectEcho[L].replace('{url}', () => u.length > 2000 ? u.slice(0, 2000) + '…' : u)
+          if (!(await t.person.confirm(question, GATE_TEXT.allow[L], GATE_TEXT.deny[L]))) throw new ToolError('the user did not allow following the redirect, so nothing was saved. Do not try to get it another way; ask the user what they want')
+          for (const m of urlMarks(u) ?? []) own.add(m.toString('hex'))
+          confirmed += ' (redirect confirmed by the user)'
         },
         room: (more) => room(more, fs.existsSync(tmp)),
         sniff: (b, ct) => { kind = judge(b, ct) },

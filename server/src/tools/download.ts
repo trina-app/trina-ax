@@ -4,7 +4,7 @@
 // name looked up once and every address public (not private, LAN, link-local / metadata, this machine or its networks,
 // nor this server's own exit address), then the connection pinned to that address (our own HTTP/1.1 GET over
 // node:net / node:tls, no proxy from the environment, no second lookup). Redirects are followed by hand, at most 5, each
-// new address checked again from the start. No cookies or credentials are sent; `Accept-Encoding: identity`.
+// new address checked again from the start (and shown to the caller first: `onRedirect`). No cookies or credentials are sent; `Accept-Encoding: identity`.
 //
 // The body goes to the file as it arrives (never whole in memory): read in socket-sized pieces, with backpressure (a
 // full queue pauses the socket). Limits are the caller's: a hard maximum (generate_video), a size above which the
@@ -17,7 +17,7 @@ import net from 'node:net'
 import tls from 'node:tls'
 import { PRODUCT, SOURCE_CODE } from '@mycel/shared'
 import { ToolError } from '../policy/errors'
-import { resolveTarget, type ResolveOptions, type Target } from './web-fetch'
+import { precheckTarget, resolveTarget, type ResolveOptions, type Target } from './web-fetch'
 
 export const DOWNLOAD_MAX_REDIRECTS = 5
 /** per hop: the name lookup, the connection and the answer's head */
@@ -50,6 +50,9 @@ export interface DownloadOptions extends Pick<ResolveOptions, 'lookup' | 'testAl
   roomStep?: number
   /** the first SNIFF_BYTES bytes (all of a shorter body), before anything is written: throws to stop */
   sniff?: (first: Buffer, contentType: string) => void
+  /** before a redirect is followed, with its address (after the checks that need no lookup, before the lookup and
+   * the hop's time limit): throws to stop. save_url's echo check (the person may be asked meanwhile) */
+  onRedirect?: (next: string) => Promise<void> | void
   signal?: AbortSignal
   connectTimeoutMs?: number
   idleTimeoutMs?: number
@@ -251,6 +254,11 @@ export async function downloadToFile(rawUrl: string, dst: string, o: DownloadOpt
   let current = rawUrl
   for (let hop = 0; ; hop++) {
     if (o.httpsOnly && !/^https:\/\//i.test(current)) throw new ToolError(hop ? 'the download redirected to an address that is not https' : 'the address is not https')
+    if (hop && o.onRedirect) {
+      precheckTarget(current, { testAllow: o.testAllow, blockedIps: o.blockedIps })
+      await o.onRedirect(current)
+      if (o.signal?.aborted) throw stopped()
+    }
     const deadline = Date.now() + connectMs
     const t = await resolveTarget(current, { lookup: o.lookup, testAllow: o.testAllow, blockedIps: o.blockedIps, deadline })
     if (o.signal?.aborted) throw stopped()

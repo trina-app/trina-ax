@@ -5019,14 +5019,30 @@ stop; a scheduled run skips files over 1 GB.
   "image_url" echoed in a job result): then the "service's address" is one the AI chose, and opening it without a card
   would send what the AI put in it. Every tool input of a chat leaves marks before the call runs (`chat/tools.ts` for
   the server's and the connections' tools, `chat/turn.ts` tool_start for the engine's own, such as web search): the
-  first 16 bytes of the SHA-256 of each address, of its query (8+ characters), and of each 20-character window of a
-  long random-looking part (`opaqueParts`; long parts sampled to 64 windows). No input text is kept. An address that
+  first 16 bytes of the SHA-256 of each address (also with its case and runs of `/` and `\` folded), of its host and
+  path (16+ characters: a service that only added or changed the query), of its query (8+ characters), and of each
+  20-character window of a long random-looking part (`opaqueParts`; long parts sampled to 64 windows); an address that
+  comes back also carries the marks of every address written inside it, %-decoded (a service's `/out?to=<the AI's
+  address>`). The input is every string in it as the AI wrote it (not JSON-escaped), read whole. No input text is kept. An address that
   comes back carrying a mark is remembered as an echo and always asks, with its own card text ("this address (or part
   of it) matches what the AI had sent to a tool earlier"), and never offers "allow this site". Decided when the address
   comes back (later marks do not change it). Addresses that came from the services themselves leave no marks when the
   AI sends them on, so an image-to-image chain (the last result as the next input) does not ask every time. More than
-  50,000 marks in a chat: every new address is an echo. What stays open: a service that keeps what it was sent and
-  returns it later in pieces shorter than a mark; the budget and the long-query card still apply to those.
+  50,000 marks in a chat, or one input too large to mark completely (over 4 MiB of text, 5,000 addresses, 2,000
+  random-looking parts or 20,000 marks, nested deeper than 64): every new address is an echo (fail closed).
+  save_url also checks every redirect against the marks: a hop to an echo asks ("redirects to another one, and that
+  address … matches what the AI had sent", five languages), whatever opened the first address, and a scheduled run
+  does not follow it; declined, the echo address is never requested. What stays open: a service that keeps what it was
+  sent and returns it later in pieces shorter than a mark or otherwise changed (re-encoded, or in another chat); the
+  budget and the long-query card still apply to those.
+- **Review before merge (2026-11-01).** The first version of the echo check read only the first 64 KB, the first 500
+  addresses, 200 random-looking parts and 2,000 marks of an input, and left no marks for the rest: an AI could put 64 KB
+  of padding in front of `https://attacker/…<data>` in an argument of a tool that repeats its input (an error message
+  that quotes the value, a created item given back), and save_url then opened the repeated address with no card (shown
+  in a real turn: `tests/security/save-url-echo.test.ts` "padding"). It also matched addresses only exactly: a service
+  that added `?utm_source=…`, wrapped the address in its own redirect or changed its case, a value JSON escaping changed
+  (`\` → `\\`), or a link shortener whose short address redirects to the AI's long one, all opened without a card.
+  Fixed as above (whole input, fail closed, folded / host-and-path / nested marks, the redirect check).
 - **MCP answers.** tools/call may be up to 25 MB (`MCP_CALL_MAX_BYTES`; initialize and tools/list keep 1 MB, the AI's
   text keeps 40,000 characters). `pinnedRequest` now looks for the answer's head only in the first 256 KB and calls
   `until` (the event-stream check) only after a read that brings a line break: before, every network piece re-read the
@@ -5065,13 +5081,16 @@ stop; a scheduled run skips files over 1 GB.
   version, no request before the path / skills / wider-audience checks or after a declined card, redirects into private
   addresses, the card over the line by Content-Length and while streaming (nothing past the line before the answer), a
   scheduled run skipping, the disk reserve up front and while streaming, mcp-file handles across chats and people,
-  sniffing, connection addresses within the budget, echoes by address / query / window, the image-to-image
-  exemption, a connection the person cannot use, migration 325's reader level), `c-integrations-media.test.ts` (the
+  sniffing, connection addresses within the budget, echoes
+  by address / query / window and by host-and-path, behind padding and 600 other addresses, re-encoded, nested in a
+  redirect parameter, an input too large to mark (fail closed), a shortener's redirect to an echo (card, never requested
+  when declined, not followed in a scheduled run), the image-to-image exemption, a connection the person cannot use,
+  migration 325's reader level), `c-integrations-media.test.ts` (the
   synthetic Higgsfield-like fixture `tests/fixtures/higgsfield-mcp/tools-call.json` — written by hand, not recorded:
   result address, resource link, inline image as a handle; a 3 MB answer works and a 26 MB one is refused; echoes
   through MCP and api_request; the sweep), `tests/security/save-url-echo.test.ts` (a real turn: the echoed address
-  asks and is not opened when declined, the service's own address passes the gate without a card, web_fetch still
-  asks, a handle from another chat is not found), `frame-embed.test.ts`, `web/test/unit/frame-files.test.ts`,
+  asks and is not opened when declined, also behind 64 KB of padding, the service's own address passes the gate
+  without a card, web_fetch still asks, a handle from another chat is not found), `frame-embed.test.ts`, `web/test/unit/frame-files.test.ts`,
   `web/test/e2e/frame-files.spec.ts` (the relative image shown as `data:` in the frame, the web image a placeholder with
   the note, an unreadable and a narrower file not inlined, static mode, an artifact), with `sandbox-exfil.spec.ts`
   unchanged.

