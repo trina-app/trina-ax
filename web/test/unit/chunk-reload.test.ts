@@ -7,11 +7,12 @@ import vm from 'node:vm'
 import { createElement } from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { ChunkErrorBoundary } from '../../src/components/ChunkErrorBoundary'
-import { CHUNK_RELOAD_GUARD_MS, CHUNK_RELOAD_KEY, isChunkLoadError, reloadForChunkError, reloadOnce } from '../../src/lib/chunk-reload'
-import { mayReloadNow, reloadWouldLose, serverUnreachable } from '../../src/lib/reload-guard'
+import { _resetChunkReloadForTest, CHUNK_RELOAD_GUARD_MS, CHUNK_RELOAD_KEY, isChunkLoadError, reloadForChunkError, reloadOnce } from '../../src/lib/chunk-reload'
+import { keepUnsentAsDrafts, mayReloadNow, reloadWouldLose, serverUnreachable, unfinishedWork } from '../../src/lib/reload-guard'
 import { markBusy } from '../../src/lib/busy'
 import { readDraft, writeDraft } from '../../src/lib/localData'
 import { useChats } from '../../src/store/chats'
+import { useSession } from '../../src/store/session'
 import { useUi } from '../../src/store/ui'
 import { currentLocale, translate } from '../../src/i18n'
 import { pwaFile, staticBuildId } from '../../scripts/product-pages'
@@ -118,10 +119,16 @@ describe('nothing typed is lost by a reload after a server update', () => {
   const message = (o: Record<string, unknown>) => ({ id: String(Math.random()), chatId: chat, role: 'user', content: 'the quarterly numbers, please', status: 'done', ...o }) as never
   const showing = (...messages: never[]) => useChats.setState({ threads: { [chat]: { messages, nextCursor: null, stale: false } } })
   const releases: (() => void)[] = []
+  const drafts = () => {
+    const m = new Map<string, string>()
+    return { m, getItem: (k: string) => m.get(k) ?? null, setItem: (k: string, v: string) => { m.set(k, v) }, removeItem: (k: string) => { m.delete(k) }, key: (i: number) => [...m.keys()][i] ?? null, get length() { return m.size } }
+  }
+  const session = useSession.getState().status
   afterEach(() => {
     for (const r of releases.splice(0)) r()
     useChats.setState({ threads: {} })
     useUi.setState({ conn: 'idle' })
+    useSession.setState({ status: session })
   })
 
   test('the same check as the update watcher: a message being sent or not sent, an answer streaming, a draft, an upload, a recording', () => {
@@ -157,14 +164,32 @@ describe('nothing typed is lost by a reload after a server update', () => {
     }
   })
   test('a draft is kept for its chat across a reload, and while there is one the page does not reload by itself', () => {
-    const m = new Map<string, string>()
-    const s = { getItem: (k: string) => m.get(k) ?? null, setItem: (k: string, v: string) => { m.set(k, v) }, removeItem: (k: string) => { m.delete(k) }, key: (i: number) => [...m.keys()][i] ?? null, get length() { return m.size } }
+    const s = drafts()
     // what the composer writes on each change, and starts from after the reload
     writeDraft('u1', chat, 'half-typed question about the Q3 report', s)
     expect(readDraft('u1', chat, s)).toBe('half-typed question about the Q3 report')
     expect(readDraft('u2', chat, s)).toBe('')
     releases.push(markBusy('draft'))
     expect(mayReloadNow()).toBe(false)
+    // nothing to finish for the person: a draft is kept anyway, as is an answer that streams (on the server)
+    expect(unfinishedWork()).toBe(false)
+    showing(message({ role: 'assistant', status: 'streaming' }))
+    expect(unfinishedWork()).toBe(false)
+  })
+  test('a reload the person asks for keeps the text of a message not sent (or still being sent) as its chat\'s draft, once', () => {
+    const s = drafts()
+    useSession.setState({ status: { kind: 'signed-in', me: { user: { id: 'u1' } } } } as never)
+    writeDraft('u1', chat, 'and a follow-up', s)
+    showing(message({ content: 'the quarterly numbers, please', local: { clientMessageId: 'c1', state: 'failed' } }), message({ content: 'already answered' }))
+    expect(unfinishedWork()).toBe(true)
+    keepUnsentAsDrafts(s)
+    keepUnsentAsDrafts(s)
+    expect(readDraft('u1', chat, s)).toBe('and a follow-up\n\nthe quarterly numbers, please')
+    // signed out: nothing is written
+    useSession.setState({ status: { kind: 'signed-out' } } as never)
+    const empty = drafts()
+    keepUnsentAsDrafts(empty)
+    expect(empty.m.size).toBe(0)
   })
   test('the boundary: held while something would be lost (the line says to finish it first, the one reload is not used up); later it reloads', () => {
     const g = globalThis as { window?: unknown; location?: unknown }
@@ -199,6 +224,7 @@ describe('nothing typed is lost by a reload after a server update', () => {
     } finally {
       g.window = saved.window
       g.location = saved.location
+      _resetChunkReloadForTest()
     }
   })
 })

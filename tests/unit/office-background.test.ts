@@ -150,7 +150,7 @@ describe('a converter stopped by a limit: no text is kept, the file is tried aga
   }
   const text = (c: OfficeCache, rel: string) => (fs.existsSync(c.cachePath(rel)) ? fs.readFileSync(c.cachePath(rel), 'utf8') : null)
 
-  test('a background timeout keeps no text; until its retry time nobody tries it; the retry runs at normal priority and keeps the text', async () => {
+  test('a background timeout keeps no text; until its retry time nobody tries it; then it is tried again and keeps the text', async () => {
     const { c, rel, st } = setup()
     await c.update(rel, { background: true })
     expect(text(c, rel)).toBeNull()
@@ -166,8 +166,8 @@ describe('a converter stopped by a limit: no text is kept, the file is tried aga
     expect(c.waitsForRetry(rel, st())).toBe(false)
     c.result = () => 'the report text'
     await c.update(rel, { background: true })
-    // the first try below interactive work; the retry like a foreground one, with the normal limits
-    expect(c.runs).toEqual([{ background: true, lastTry: false }, { background: false, lastTry: false }])
+    // a retry before the last one still gives way to people's work
+    expect(c.runs).toEqual([{ background: true, lastTry: false }, { background: true, lastTry: false }])
     expect(text(c, rel)).toBe('the report text')
     expect(c.fresh(rel, st())).toBe(true)
     expect(c.waitsForRetry(rel, st())).toBe(false)
@@ -187,9 +187,10 @@ describe('a converter stopped by a limit: no text is kept, the file is tried aga
     expect(c.runs).toHaveLength(2)
     c.clock += 3 * OFFICE_RETRY_FIRST_MS
     expect(c.waitsForRetry(rel, st())).toBe(false)
-    // the last try: a part that a converter was stopped on would give its labelled line, not fail the text
-    await c.update(rel)
-    expect(c.runs.map((r) => r.lastTry)).toEqual([false, false, true])
+    // the last try runs like a foreground one (normal priority and limits), and a part that a converter was stopped
+    // on would give its labelled line instead of failing the text
+    await c.update(rel, { background: true })
+    expect(c.runs).toEqual([{ background: true, lastTry: false }, { background: true, lastTry: false }, { background: false, lastTry: true }])
     expect(text(c, rel)).toBe('')
     expect(c.fresh(rel, st())).toBe(true)
     expect(c.waitsForRetry(rel, st())).toBe(false)
@@ -255,14 +256,21 @@ describe('a converter stopped by a limit: no text is kept, the file is tried aga
     expect(text(c, rel)).toBe('found at last')
   })
 
-  // the converters' own failures, through the real extraction: a converter killed by a signal (the converter cgroup's
-  // memory.max, a CPU rlimit) is a ConverterStopped; one that answers with an error is not. Run in a child process
-  // without the sandbox (MYCEL_ISOLATION=none, read once per process), so a shell script can stand for pdftotext.
-  test.skipIf(!unix)('a converter killed by a signal is "stopped" (tried again); one that exits with an error is not', async () => {
+  // the converters' own failures, through the real extraction: a converter killed with SIGKILL (the converter cgroup's
+  // memory.max, the system short of memory) is a ConverterStopped; one that crashes, hits its CPU-time limit or answers
+  // with an error is not (the same at any priority). A pandoc run with the slide and heading marks that is stopped is
+  // not run again without them for the text cache (its text would lack the labels); a read still is. Run in a child
+  // process without the sandbox (MYCEL_ISOLATION=none, read once per process), so shell scripts can stand for them.
+  test.skipIf(!unix)('a converter killed with SIGKILL is "stopped" (tried again); a crash, the CPU limit or an error is not', async () => {
     const W = tmp('stopped-')
     const kill = path.join(W, 'kill-pdftotext'), fail = path.join(W, 'fail-pdftotext')
+    const segv = path.join(W, 'segv-pdftotext'), xcpu = path.join(W, 'xcpu-pdftotext'), pandoc = path.join(W, 'pandoc')
     fs.writeFileSync(kill, '#!/bin/sh\nkill -9 $$\n', { mode: 0o755 })
+    fs.writeFileSync(segv, '#!/bin/sh\nkill -SEGV $$\n', { mode: 0o755 })
+    fs.writeFileSync(xcpu, '#!/bin/sh\nkill -XCPU $$\n', { mode: 0o755 })
     fs.writeFileSync(fail, '#!/bin/sh\necho "Syntax Error: damaged" >&2\nexit 1\n', { mode: 0o755 })
+    // killed when it is given the marks filter (-L); without it, plain text
+    fs.writeFileSync(pandoc, '#!/bin/sh\nfor a in "$@"; do [ "$a" = "-L" ] && kill -9 $$; done\ncat >/dev/null\necho "body text without labels"\n', { mode: 0o755 })
     const root = path.join(W, 'team')
     fs.mkdirSync(path.join(root, 'shared'), { recursive: true })
     fs.writeFileSync(path.join(root, 'shared', 'scan.pdf'), '%PDF-1.4 not really')
@@ -272,8 +280,12 @@ describe('a converter stopped by a limit: no text is kept, the file is tried aga
       import { ConverterStopped, extractText } from ${JSON.stringify(path.resolve(import.meta.dir, '../../server/src/files/extract'))}
       import { OfficeCache } from ${JSON.stringify(path.resolve(import.meta.dir, '../../server/src/files/search'))}
       const out: Record<string, unknown> = {}
-      for (const [k, bin] of Object.entries({ kill: ${JSON.stringify(kill)}, fail: ${JSON.stringify(fail)} })) {
+      for (const [k, bin] of Object.entries({ kill: ${JSON.stringify(kill)}, segv: ${JSON.stringify(segv)}, xcpu: ${JSON.stringify(xcpu)}, fail: ${JSON.stringify(fail)} })) {
         try { await extractText('a.pdf', Buffer.from('%PDF-1.4'), { pandoc: null, pdftotext: bin }); out[k] = 'text' }
+        catch (e) { out[k] = e instanceof ConverterStopped ? 'stopped' : (e as Error).message }
+      }
+      for (const [k, strict] of [['pandocCache', true], ['pandocRead', false]] as const) {
+        try { out[k] = await extractText('a.odt', Buffer.from('odt bytes'), { pandoc: ${JSON.stringify(pandoc)}, pdftotext: null, stoppedPartFails: strict }) }
         catch (e) { out[k] = e instanceof ConverterStopped ? 'stopped' : (e as Error).message }
       }
       const c = new OfficeCache(${JSON.stringify(path.join(W, 'cache'))}, { root: ${JSON.stringify(root)}, caseInsensitive: false } as never, { pandoc: null, pdftotext: ${JSON.stringify(kill)} })
@@ -286,7 +298,10 @@ describe('a converter stopped by a limit: no text is kept, the file is tried aga
     expect(p.exitCode).toBe(0)
     const out = JSON.parse(p.stdout.toString().trim().split('\n').at(-1)!)
     expect(out.kill).toBe('stopped')
+    for (const k of ['segv', 'xcpu']) expect(out[k]).toMatch(/^could not convert the file to text \((segv|xcpu)-pdftotext: exit 1(39|52)\)$/)
     expect(out.fail).toContain('could not convert the file to text (fail-pdftotext: Syntax Error: damaged)')
+    expect(out.pandocCache).toBe('stopped')
+    expect(out.pandocRead).toContain('body text without labels')
     expect(out).toMatchObject({ cached: false, waits: true })
   }, 30_000)
 })

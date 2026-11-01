@@ -69,7 +69,7 @@ export const ko = {
   'update.ready': '새 버전이 준비됐어요.',
   'update.reload': '새로 고침',
   'update.chunkFailed': '이 부분을 불러오지 못했어요. 새로 고침하면 최신 버전으로 열려요.',
-  'update.chunkUnsent': '이 부분을 불러오지 못했어요. 지금 새로 고침하면 아직 보내지 않은 메시지나 진행 중인 업로드·녹음이 사라져요. 먼저 마친 뒤 새로 고침하면 최신 버전으로 열려요.',
+  'update.chunkUnsent': '이 부분을 불러오지 못했어요. 아직 끝나지 않은 메시지나 업로드·녹음이 있어요. 먼저 마친 뒤 새로 고침하면 최신 버전으로 열려요. 지금 새로 고침하면 보내지 못한 메시지는 입력창으로 돌아가요.',
   'update.notesMore': '릴리스 노트 전체 보기',
   'update.notesLess': '접기',
   'notice.accessChanged': '폴더 권한이 바뀌었어요: {paths}',

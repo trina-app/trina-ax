@@ -68,7 +68,7 @@ export const es: Record<MessageKey, string> = {
   'update.ready': "Hay una nueva versión disponible.",
   'update.reload': "Recargar",
   'update.chunkFailed': "No se pudo cargar esta parte de la página. Vuelva a cargarla para obtener la versión actual.",
-  'update.chunkUnsent': "No se pudo cargar esta parte de la página. Si la vuelve a cargar ahora, se perderá un mensaje aún sin enviar, una subida o una grabación: termínelo primero y luego vuelva a cargarla para obtener la versión actual.",
+  'update.chunkUnsent': "No se pudo cargar esta parte de la página. Hay un mensaje, una subida o una grabación sin terminar: termine eso primero y luego vuelva a cargar la página para obtener la versión actual. Si la vuelve a cargar ahora, el mensaje que no se envió vuelve a su cuadro de texto.",
   'update.notesMore': "Notas de la versión completas",
   'update.notesLess': "Mostrar menos",
   'notice.accessChanged': "Cambió su acceso a las carpetas: {paths}",

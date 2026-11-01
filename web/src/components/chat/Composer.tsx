@@ -157,6 +157,8 @@ export default function Composer({
   // a non-empty draft or an upload means "don't reload the page by yourself" after an update
   useEffect(() => (text.trim() ? markBusy('draft') : undefined), [text])
   useEffect(() => (files.some((f) => f.status === 'uploading') ? markBusy('upload') : undefined), [files])
+  // a recording being uploaded and transcribed is still only in this tab
+  useEffect(() => (transcribing ? markBusy('recording') : undefined), [transcribing])
   useEffect(() => {
     if (recorder.state !== 'recording') return
     const release = markBusy('recording')

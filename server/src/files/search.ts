@@ -178,14 +178,15 @@ export const OFFICE_QUEUE_PER_OWNER = 200
 export const OFFICE_SYSTEM_OWNER = 'system'
 
 /**
- * A file whose converters a limit stopped (files/extract.ts ConverterStopped: the wall clock, a kill by the converter
- * cgroup or a CPU rlimit) gets no text: on a busy server that can pass (a background converter waits for the CPU
- * behind people's work), and an empty text would stand for "no text" until the file changes. Its version is left
+ * A file whose converters were stopped (files/extract.ts ConverterStopped: the wall clock, a SIGKILL from the
+ * converter cgroup's memory.max) gets no text: on a busy server that can pass (a background converter waits for the
+ * CPU behind people's work), and an empty text would stand for "no text" until the file changes. Its version is left
  * stale and tried again after OFFICE_RETRY_FIRST_MS, then OFFICE_RETRY_FACTOR times as long after each stop; until
- * then no search tries it (grep counts it in `retryLater`). A retry's converters run at normal priority with the
- * normal limits (the background allowance is for the first try), and a part a converter was stopped on fails the
- * whole text (Tools.stoppedPartFails) except in the last try. After OFFICE_RETRY_MAX stopped tries an empty text is
- * kept for that version, as for any file that has no text. Kept in memory: a restart tries such a file again.
+ * then no search tries it (grep counts it in `retryLater`). Until the last try a part a converter was stopped on
+ * fails the whole text (Tools.stoppedPartFails), and a retry runs at the caller's priority; the last try runs its
+ * converters at normal priority with the normal limits (as a foreground extraction), so the final word comes from such
+ * a run, and keeps a stopped part's labelled line. After OFFICE_RETRY_MAX stopped tries an empty text is kept for that
+ * version, as for any file that has no text. Kept in memory: a restart tries such a file again.
  */
 export const OFFICE_RETRY_MAX = 3
 export const OFFICE_RETRY_FIRST_MS = 2 * 60_000
@@ -390,8 +391,8 @@ export class OfficeCache {
         if (!input) { fs.rmSync(this.cachePath(rel), { force: true }); return }
         let text: string
         // a background job's converters run below interactive work (tools/isolate.ts backgroundPrefix) while no
-        // foreground caller has joined it; a retry's run at normal priority
-        try { text = await inBackground(() => ticket.low && !retry, () => this.extract(rel, input.bytes, { lastTry })) } catch (e) {
+        // foreground caller has joined it; those of the last try at normal priority
+        try { text = await inBackground(() => ticket.low && !lastTry, () => this.extract(rel, input.bytes, { lastTry })) } catch (e) {
           // an upgrade that fails (a timeout on a busy server, the converters' memory limit) keeps the older text of
           // these very bytes: grep goes on with it, and the next start tries again
           if (kept && this.provenance(rel)?.source === sha256(input.bytes)) return

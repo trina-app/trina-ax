@@ -5,6 +5,7 @@ import { BrowserRelay } from '../lib/browserRelay'
 import { browserSettingsBridge } from '../lib/desktop'
 import { openTeamFile } from '../lib/sidePanel'
 import { navigateTo } from '../lib/nav'
+import { keepUnsentAsDrafts } from '../lib/reload-guard'
 import { Emitter } from '../lib/emitter'
 import { defaultWsBase, RealtimeClient, type ConnState } from '../lib/realtime'
 import { t } from '../i18n'
@@ -156,7 +157,7 @@ export function startLive() {
       if (firstServerVersion === null) firstServerVersion = serverVersion
       else if (serverVersion !== firstServerVersion) {
         useUi.getState().setUpdateReady(true)
-        toast({ level: 'info', text: t('update.ready'), sticky: true, action: { label: t('update.reload'), run: () => location.reload() } })
+        toast({ level: 'info', text: t('update.ready'), sticky: true, action: { label: t('update.reload'), run: () => { keepUnsentAsDrafts(); location.reload() } } })
       }
     },
   })

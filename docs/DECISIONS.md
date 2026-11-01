@@ -4935,15 +4935,18 @@ under the answer like the Claude app's sources.
     `OFFICE_RETRY_MAX`, `files/extract.ts ConverterStopped`). Even at 3 times the wall clock a background converter
     can be stopped on a busy Mac (`-c utility` gets about 0.19 of a normal process's CPU under load: a converter that
     took 8.9 s in the foreground was killed at the 37.5 s cap). Writing the usual empty text then would mean "no text
-    for this version" until the file changes. A timeout or a signal (the converter cgroup's memory.max, which all
-    converters share; a CPU rlimit) is a `ConverterStopped` (a ToolError with the same message); the per-run memory
-    and output limits and a converter's own error are the file's own and still give an empty text at once. A stopped
-    file is left stale and tried again after 2 minutes, then 8 (factor 4), by whatever comes next (a grep, the queue,
-    the semantic re-index, an upload); until then nobody tries it, and grep and the content search count it as
-    `retryLater`. A retry runs its converters at normal priority with the normal limits, so the final word comes from
-    a run like 0.2.18's; a part a converter was stopped on (docx headers, pptx notes) fails the whole text except in
-    the last try (`Tools.stoppedPartFails`), so a busy moment does not keep a "not read" line either. After 3 stopped
-    tries the empty text is kept. The retries are in memory (at most 10,000 files): a restart tries such a file again,
+    for this version" until the file changes. A timeout or a SIGKILL (the converter cgroup's memory.max, which all
+    converters share; the system short of memory) is a `ConverterStopped` (a ToolError with the same message). What the
+    file itself causes is the same at any priority and still gives an empty text at once: the per-run memory and
+    output limits, the CPU-time limit (SIGXCPU), a crash (SIGSEGV, SIGABRT), a converter's own error. A stopped file is
+    left stale and tried again after 2 minutes, then 8 (factor 4), by whatever comes next (a grep, the queue, the
+    semantic re-index, an upload); until then nobody tries it, and grep and the content search count it as
+    `retryLater`. A retry before the last runs at the caller's priority (background work still gives way); the last
+    try runs its converters at normal priority with the normal limits, so the final word comes from a run like
+    0.2.18's. Until the last try a part a converter was stopped on (docx headers, pptx notes) fails the whole text
+    (`Tools.stoppedPartFails`), and so does a pandoc run with the marks filter (no second run without it, whose text
+    would lack the slide and heading labels), so a busy moment does not keep a "not read" line or unlabelled text
+    either. After 3 stopped tries the empty text is kept. The retries are in memory (at most 10,000 files): a restart tries such a file again,
     which is cheap. The semantic index does not record a file that waits (it would keep it without pieces until the
     file changes) and drops the pieces of its older version meanwhile, as grep never shows an older version's text.
 - **Search pieces** stop at a page, slide, sheet or section and keep their place (`chunkDoc`; `semantic.db` gets

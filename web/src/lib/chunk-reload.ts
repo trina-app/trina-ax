@@ -53,6 +53,8 @@ export function reloadOnce(d: ReloadOnceDeps): boolean {
 let reloading = false
 /** a reload for a failed chunk is under way */
 export const chunkReloading = () => reloading
+/** tests only */
+export function _resetChunkReloadForTest() { reloading = false }
 
 /** Reload for `e` when it is a failed chunk (reloadOnce). true = reloading (also when one already is). */
 export function reloadForChunkError(e: unknown): boolean {

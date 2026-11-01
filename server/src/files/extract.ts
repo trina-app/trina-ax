@@ -30,15 +30,17 @@ export interface Tools {
   textLayerOnly?: boolean
   /** the text cache (files/search.ts OfficeCache): a part that a converter was stopped on (ConverterStopped: the
    * headers, footers and comments of a .docx, the notes and charts of a .pptx) fails the whole text, so the file is
-   * tried again later, instead of a labelled line that says the part was not read */
+   * tried again later, instead of a labelled line that says the part was not read; so does a pandoc run with the
+   * slide and heading marks (no second run without them, whose text would lack the labels) */
   stoppedPartFails?: boolean
 }
 
 /**
- * A converter that a limit of its run stopped: the wall clock, or a signal (the converter cgroup's memory.max, which
- * all converters share, a CPU rlimit). On a busy server that can pass, so the text cache keeps no text for the file
- * and tries it again later (files/search.ts OfficeCache). Its message is the one the person or the AI sees, as before.
- * The memory and output limits of one run are the file's own size and stay plain ToolErrors.
+ * A converter that was stopped from outside: its wall clock ran out, or it was killed (SIGKILL: the converter cgroup's
+ * memory.max, which all converters share, or the system short of memory). On a busy server that can pass, so the text
+ * cache keeps no text for the file and tries it again later (files/search.ts OfficeCache). Its message is the one the
+ * person or the AI sees, as before. What the file itself causes stays a plain ToolError: the memory and output limits
+ * of one run, the CPU-time limit (SIGXCPU: the same CPU time at any priority), a crash (SIGSEGV, SIGABRT).
  */
 export class ConverterStopped extends ToolError {}
 
@@ -64,8 +66,8 @@ async function pipeThrough(cmd: string[], input: Uint8Array, timeoutMs = 20000, 
   const r = await runIsolated({ cmd: cmd[0]!, args: cmd.slice(1), stdin: input, timeoutMs, signal, maxStdout: 32 * 1024 * 1024, env: { LANG: 'C.UTF-8', LC_ALL: 'C.UTF-8' }, ...(readPaths ? { readPaths } : {}) })
   const name = cmd[0]!.split('/').pop()
   if (r.killed === 'timeout') throw new ConverterStopped(`could not convert the file to text (${name}: took too long)`)
-  // a signal: killed by the converter cgroup (memory.max) or a CPU rlimit (runIsolated gives 128 + the signal)
-  if (r.code !== null && r.code >= 128) throw new ConverterStopped(`could not convert the file to text (${name}: ${r.stderr.trim().slice(0, 200) || 'exit ' + r.code})`)
+  // SIGKILL (runIsolated gives 128 + the signal): the converter cgroup's memory.max, the system short of memory
+  if (r.code === 128 + 9) throw new ConverterStopped(`could not convert the file to text (${name}: ${r.stderr.trim().slice(0, 200) || 'exit ' + r.code})`)
   if (r.code !== 0) throw new ToolError(`could not convert the file to text (${name}: ${r.stderr.trim().slice(0, 200) || 'exit ' + r.code})`)
   return r.stdout.toString('utf8')
 }
@@ -130,8 +132,9 @@ export async function officeWorkerText(e: string, bytes: Uint8Array, signal?: Ab
     if (r.code === TOOL_ERROR_EXIT) throw new ToolError(r.stderr.trim().slice(0, 500))
     // stopped by runIsolated for another reason (its work folder replaced)
     if (r.code === null) throw tooComplex('the reader ran out of memory or time')
-    // killed by the converter cgroup (memory.max) or a CPU rlimit: a signal (128 + the signal)
-    if (r.code >= 128) throw new ConverterStopped(tooComplex('the reader ran out of memory or time').message)
+    // killed by the converter cgroup (memory.max) or a CPU rlimit: a signal (128 + the signal); only a SIGKILL may pass
+    // on a less busy server (pipeThrough)
+    if (r.code >= 128) { const why = tooComplex('the reader ran out of memory or time'); throw r.code === 128 + 9 ? new ConverterStopped(why.message) : why }
     if (r.code !== 0) throw new ToolError(`could not convert the file to text (office reader: ${r.stderr.trim().split('\n')[0]?.slice(0, 200) || 'exit ' + r.code})`)
     return r.stdout.toString('utf8')
   })
@@ -149,10 +152,13 @@ export async function extractText(name: string, bytes: Uint8Array, tools: Tools,
       if (!tools.pandoc) throw new ToolError('pandoc is not installed on the server')
       // a body line that starts like a section label (`=== `) gets a space in front, so only the real labels of the
       // extra text below are at the start of a line; then the slide and heading marks (pandocMarks) become labels
-      const body = pandocBody(tools.pandoc, e, bytes, signal)
+      const body = pandocBody(tools.pandoc, e, bytes, signal, tools.stoppedPartFails)
       if (e === 'odt') return body
-      const [text, extra] = await Promise.all([body, extraText(e, bytes, signal, tools.stoppedPartFails)])
-      return extra ? `${text.trimEnd()}\n\n${extra}\n` : text
+      // both are waited for, so no converter of this file still runs when the text (or its failure) is given
+      const [text, extra] = await Promise.allSettled([body, extraText(e, bytes, signal, tools.stoppedPartFails)])
+      if (text.status === 'rejected') throw text.reason
+      if (extra.status === 'rejected') throw extra.reason
+      return extra.value ? `${text.value.trimEnd()}\n\n${extra.value}\n` : text.value
     }
     case 'xlsx': case 'xls': case 'ods': case 'hwp': case 'hwpx':
       return officeWorkerText(e, bytes, signal)
@@ -232,8 +238,8 @@ export function markLines(text: string, kind: 'slides' | 'headings'): string {
 }
 
 /** pandoc's plain text of a .docx / .pptx / .odt with slide and heading labels; without them when the filter fails
- * (an old pandoc), as before. */
-async function pandocBody(pandoc: string, e: 'docx' | 'pptx' | 'odt', bytes: Uint8Array, signal?: AbortSignal): Promise<string> {
+ * (an old pandoc), as before. `stoppedFails` (Tools.stoppedPartFails): a filtered run that was stopped fails. */
+async function pandocBody(pandoc: string, e: 'docx' | 'pptx' | 'odt', bytes: Uint8Array, signal?: AbortSignal, stoppedFails = false): Promise<string> {
   const kind = e === 'pptx' ? 'slides' : 'headings'
   const plain = [pandoc, '--sandbox', '-f', e, '-t', 'plain', '--wrap=none']
   let filter: string | null = null
@@ -243,7 +249,7 @@ async function pandocBody(pandoc: string, e: 'docx' | 'pptx' | 'odt', bytes: Uin
       return markLines(quoteLines(await pipeThrough([...plain, '-L', filter, '-M', `mycel-marks=${kind}`], bytes, 20_000, signal, [path.dirname(filter)])), kind)
     } catch (err) {
       signal?.throwIfAborted()
-      if (!(err instanceof ToolError)) throw err
+      if (!(err instanceof ToolError) || (stoppedFails && err instanceof ConverterStopped)) throw err
       // the same pandoc without the filter: a damaged file fails again with its own message
     }
   }
