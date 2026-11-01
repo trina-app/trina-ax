@@ -134,26 +134,31 @@ export async function refreshWindowsApp(o: WindowsAppOptions): Promise<WindowsAp
   const log = o.log ?? (() => {})
   const work = path.join(o.dataDir, 'updates')
   const lock = path.join(work, 'windows.lock')
-  // one run at a time: the server's timer and the admin command are two processes. The lock appears with its pid in
-  // it (a link to a file written first), so nobody reads it empty. A dead pid's lock, or one older than any run, is
-  // taken over by moving it aside and checking that what was moved is the lock that was read (its inode): a second
-  // taker that moved the first taker's fresh lock puts it back and stops. A run removes the lock only while it is its own.
-  let myLock: number
+  // one run at a time: the server's timer and the admin command are two processes. The lock appears with its pid and a
+  // random token in it (a link to a file written first), so nobody reads it empty. A dead pid's lock, or one older than
+  // any run, is taken over by moving it aside and checking that what was moved is the lock that was read (its inode and
+  // its text): a second taker that moved the first taker's fresh lock puts it back and stops. A run removes the lock only
+  // while it is its own, by inode and text: Linux file systems hand a removed file's inode number to the next new file.
+  let myLock: { ino: number; text: string }
+  const readText = (p: string) => { try { return fs.readFileSync(p, 'utf8') } catch { return '' } }
   try {
     fs.mkdirSync(work, { recursive: true, mode: 0o700 })
-    const mine = `${lock}.${process.pid}-${Math.random().toString(36).slice(2, 8)}`
-    fs.writeFileSync(mine, String(process.pid), { mode: 0o600 })
+    const token = Math.random().toString(36).slice(2, 10)
+    const mine = `${lock}.${process.pid}-${token}`
+    const text = `${process.pid} ${token}`
+    fs.writeFileSync(mine, text, { mode: 0o600 })
     try {
-      myLock = fs.statSync(mine).ino
+      myLock = { ino: fs.statSync(mine).ino, text }
       try { fs.linkSync(mine, lock) } catch (e) {
         if ((e as NodeJS.ErrnoException).code !== 'EEXIST') throw e
         let seen: fs.Stats
         try { seen = fs.statSync(lock) } catch { return { kind: 'busy', version: null, message: 'another run took the lock' } }
-        const pid = Number((() => { try { return fs.readFileSync(lock, 'utf8') } catch { return '' } })())
+        const seenText = readText(lock)
+        const pid = Number(seenText.split(' ')[0])
         if (pidAlive(pid) && now().getTime() - seen.mtimeMs < WINDOWS_LOCK_STALE_MS) return { kind: 'busy', version: null, message: `another run is at it (pid ${pid})` }
         const aside = `${mine}.stale`
         try { fs.renameSync(lock, aside) } catch { return { kind: 'busy', version: null, message: 'another run took the lock' } }
-        if (fs.statSync(aside).ino !== seen.ino) {
+        if (fs.statSync(aside).ino !== seen.ino || readText(aside) !== seenText) {
           try { fs.linkSync(aside, lock) } catch {}
           fs.rmSync(aside, { force: true })
           return { kind: 'busy', version: null, message: 'another run took the lock' }
@@ -201,7 +206,7 @@ export async function refreshWindowsApp(o: WindowsAppOptions): Promise<WindowsAp
       return done({ kind: 'failed', version: w.version, message: msg })
     }
   } finally {
-    try { if (fs.statSync(lock).ino === myLock) fs.rmSync(lock, { force: true }) } catch {}
+    try { if (fs.statSync(lock).ino === myLock.ino && readText(lock) === myLock.text) fs.rmSync(lock, { force: true }) } catch {}
   }
 }
 
