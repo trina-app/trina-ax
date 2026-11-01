@@ -13,7 +13,7 @@ import { readApiEngine, type ApiEngineConf } from '../engine/api-agent'
 import { catalogModels, codexCatalogFor, writeLockedCatalog, type CodexConf } from '../engine/codex'
 import { findCodexBin } from '../config'
 import type { AppContext } from '../context'
-import { DEFAULT_PROXY_PORT } from '../app-config'
+import { anthropicGateway, DEFAULT_PROXY_PORT } from '../app-config'
 
 export interface EngineConfs {
   claude: ClaudeConf | null
@@ -50,8 +50,11 @@ export class LocalEngines implements EngineProvider {
     if (config.engine.authMode === 'managed') {
       // the team's AI connections behind the model proxy; a person without one gets a clear error from the turn
       if (!fs.existsSync(engineConfig.claudeBin)) problems['claude-code'] = 'engine_missing'
-      else claude = { bin: engineConfig.claudeBin, authMode: 'managed', agentHome: path.join(config.dataDir, 'agent-home'),
-        modelProxy: { baseUrl: `http://127.0.0.1:${config.engine.proxyPort ?? DEFAULT_PROXY_PORT}` } }
+      else {
+        const g = anthropicGateway(config)
+        claude = { bin: engineConfig.claudeBin, authMode: 'managed', agentHome: path.join(config.dataDir, 'agent-home'),
+          modelProxy: { baseUrl: `http://127.0.0.1:${config.engine.proxyPort ?? DEFAULT_PROXY_PORT}` }, ...(g ? { gatewayModels: g.models } : {}) }
+      }
     } else if (fs.existsSync(engineConfig.claudeBin)) {
       // office mode: through the CONNECT tunnel of the local proxy (startLocalCore starts it, security round 4b)
       claude = { bin: engineConfig.claudeBin, authMode: 'local-login', agentHome: path.join(config.dataDir, 'agent-home'), ...(config.office ? { connectProxy: true } : {}) }

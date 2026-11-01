@@ -16,6 +16,7 @@ import type { Database } from 'bun:sqlite'
 import { audit } from '../admin/audit'
 import { budgetBlock } from '../admin/budgets'
 import { codexConnectHandler, type ConnectOpts } from './connect'
+import { gatewayModelIds } from '../app-config'
 import type { CredentialBroker } from '../credentials/broker'
 import type { Family } from '../credentials/resolve'
 import { handleCodex } from './codex-path'
@@ -146,6 +147,9 @@ export function unreachable(req: Request): Response {
 // it: an MCP connector (mcp_servers), code execution (container), server tools such as web_fetch, or image / document
 // blocks the API downloads from a URL. Only what Claude Code needs passes: POST /v1/messages (and count_tokens),
 // custom tools plus the web_search server tool, and content blocks whose data is inline. Anything else is a 403.
+// With an Anthropic-compatible gateway (engine.anthropicGateway) the model must be one of its configured ids: a
+// claude-* name would reach Anthropic through the gateway at Anthropic's price, an unknown one is not what the
+// owner chose.
 
 /** content block types that carry nothing the API would fetch or run */
 const BLOCK_TYPES = new Set(['text', 'image', 'document', 'tool_use', 'tool_result', 'thinking', 'redacted_thinking', 'server_tool_use', 'web_search_tool_result', 'tool_reference', 'search_result'])
@@ -183,14 +187,16 @@ function checkBlocks(v: unknown, depth: number): string | null {
   return null
 }
 
-/** null = forward; else why the request is refused. `body` is the parsed JSON (null when there is none / not JSON). */
-export function checkProxyRequest(method: string, url: URL, body: unknown): string | null {
+/** null = forward; else why the request is refused. `body` is the parsed JSON (null when there is none / not JSON).
+ * `models`: the gateway's model ids (exactly these; absent = a Claude model name). */
+export function checkProxyRequest(method: string, url: URL, body: unknown, models?: ReadonlySet<string>): string | null {
   if (method !== 'POST' || !PROXY_PATHS.has(url.pathname)) return `${method} ${url.pathname.slice(0, 80)} is not forwarded`
   for (const [k, v] of url.searchParams) if (k !== 'beta' || v !== 'true') return 'unexpected query parameter'
   if (!body || typeof body !== 'object' || Array.isArray(body)) return 'the body must be a JSON object'
   const b = body as Record<string, unknown>
   for (const k of ['mcp_servers', 'container']) if (k in b) return `${k} is not allowed`
-  if (typeof b.model !== 'string' || !MODEL_RE.test(b.model)) return 'model is not a Claude model name'
+  if (models) { if (typeof b.model !== 'string' || !models.has(b.model)) return 'model is not one of this server\'s gateway models' }
+  else if (typeof b.model !== 'string' || !MODEL_RE.test(b.model)) return 'model is not a Claude model name'
   if (b.tools !== undefined) {
     if (!Array.isArray(b.tools)) return 'tools must be a list'
     for (const t of b.tools as Record<string, unknown>[]) {
@@ -282,10 +288,12 @@ export async function startModelProxy(o: ProxyOpts): Promise<ModelProxy> {
       const row = admitted
       if (!o.broker) return apiError(503, 'api_error', 'no AI connection path on this team server')
       const broker = o.broker
+      const gateway = broker.gateway ?? null
       const body = await req.arrayBuffer()
       let parsed: unknown = null
       try { if (body.byteLength) parsed = JSON.parse(new TextDecoder().decode(body)) } catch {}
-      const refused = (confidentialTurn(db,row.turn_id) && externalSearch(parsed) ? 'search is disabled for this confidential conversation' : null) ?? checkProxyRequest(req.method, url, parsed)
+      const refused = (confidentialTurn(db,row.turn_id) && externalSearch(parsed) ? 'search is disabled for this confidential conversation' : null)
+        ?? checkProxyRequest(req.method, url, parsed, gateway ? new Set(gatewayModelIds(gateway)) : undefined)
       if (refused) {
         refusedAudit(row, refused)
         return apiError(403, 'permission_error', `refused by the team server: ${refused}`)
@@ -325,7 +333,9 @@ export async function startModelProxy(o: ProxyOpts): Promise<ModelProxy> {
       if (beta.size) headers.set('anthropic-beta', [...beta].join(','))
       else headers.delete('anthropic-beta')
 
+      // a gateway's turn is priced by the id it was asked for (server.json prices), not by what the answer calls it
       let model = String((parsed as { model?: unknown }).model ?? 'unknown')
+      const answerModel = (m: unknown) => (!gateway && typeof m === 'string' ? m : model)
       // the engine hanging up (turn stopped) cancels the upstream request too
       const abort = new AbortController()
       req.signal.addEventListener('abort', () => abort.abort(), { once: true })
@@ -381,7 +391,7 @@ export async function startModelProxy(o: ProxyOpts): Promise<ModelProxy> {
             if (!l.startsWith('data:')) continue
             try {
               const ev = JSON.parse(l.slice(5))
-              if (ev.type === 'message_start') { Object.assign(usage, ev.message?.usage ?? {}); model = ev.message?.model ?? model }
+              if (ev.type === 'message_start') { Object.assign(usage, ev.message?.usage ?? {}); model = answerModel(ev.message?.model) }
               if (ev.type === 'message_delta' && ev.usage) Object.assign(usage, ev.usage)
             } catch {}
           }
@@ -404,7 +414,10 @@ export async function startModelProxy(o: ProxyOpts): Promise<ModelProxy> {
         return new Response(stream, { status: up.status, headers: outHeaders })
       }
       const text = await up.text()
-      if (counts) try { const j = JSON.parse(text); if (j.usage) record(j.model ?? model, j.usage) } catch {}
+      if (counts) try { const j = JSON.parse(text); if (j.usage) record(answerModel(j.model), j.usage) } catch {}
+      // a gateway without token counting (OpenRouter answers 404): passed on as it came, not logged as a failure (a
+      // side request; the answer itself is on /v1/messages, and the connection stays as it is)
+      if (gateway && up.status === 404 && url.pathname === '/v1/messages/count_tokens') return expectedAnswer(new Response(text, { status: up.status, headers: outHeaders }))
       return new Response(text, { status: up.status, headers: outHeaders })
   }
 

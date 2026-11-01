@@ -1424,6 +1424,8 @@ export const es: Record<MessageKey, string> = {
   'credentials.kind.anthropic-oauth.desc': "Un token creado con claude setup-token",
   'credentials.kind.anthropic-api-key': "Clave de API de Claude",
   'credentials.kind.anthropic-api-key.desc': "Una clave de API de la consola de Anthropic. Pago por uso, diseñada para equipos",
+  "credentials.kind.gateway": "Clave de API de {label}",
+  "credentials.kind.gateway.desc": "Este servidor usa Claude Code con los modelos de {label} (configurado en server.json). Pago por uso; las conversaciones van a {label} y al fabricante del modelo",
   'credentials.kind.chatgpt': "Plan de ChatGPT (Codex)",
   'credentials.kind.chatgpt.desc': "Iniciar sesión con una cuenta de ChatGPT",
   'credentials.kind.openai-api-key': "Clave de API de OpenAI (Codex)",

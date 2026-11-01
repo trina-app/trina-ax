@@ -1461,6 +1461,8 @@ export const id: Record<MessageKey, string> = {
   'credentials.kind.anthropic-oauth.desc': 'Token yang dibuat dengan claude setup-token',
   'credentials.kind.anthropic-api-key': 'Kunci API Claude',
   'credentials.kind.anthropic-api-key.desc': 'Kunci API dari konsol Anthropic. Bayar sesuai pemakaian, cocok untuk tim',
+  'credentials.kind.gateway': 'Kunci API untuk {label}',
+  'credentials.kind.gateway.desc': 'Server ini menjalankan Claude Code dengan model {label} (diatur di server.json). Bayar sesuai pemakaian; percakapan dikirim ke {label} dan pembuat modelnya',
   'credentials.kind.chatgpt': 'Paket ChatGPT (Codex)',
   'credentials.kind.chatgpt.desc': 'Masuk dengan akun ChatGPT',
   'credentials.kind.openai-api-key': 'Kunci API OpenAI (Codex)',

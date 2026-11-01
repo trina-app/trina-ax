@@ -63,6 +63,9 @@ export const CredentialsResponse = z.object({
   items: z.array(Credential), memberOwn: z.boolean(), sharedSubscriptions: z.boolean(), allowedKinds: z.array(CredentialKind),
   /** price table date (costs are estimates at list prices) */
   pricesAsOf: z.string(),
+  /** server.json engine.anthropicGateway: Claude API keys are that gateway's keys (any format of the safe shape);
+   * absent or null = Anthropic's */
+  anthropicGateway: z.object({ label: z.string() }).nullable().optional(),
 })
 export type CredentialsResponse = z.infer<typeof CredentialsResponse>
 const Label = z.string().trim().min(1).max(60)
@@ -97,7 +100,7 @@ export const UpdateCredentialSettingsBody = CredentialSettings.partial().extend(
   /** Required when enabling shared subscriptions; not a grant of hosting/resale rights. */
   acknowledgedSharedSubscriptionRisk: z.boolean().optional(),
 })
-export const MyCredentialsResponse = z.object({ allowed: z.boolean(), allowedKinds: z.array(CredentialKind), items: z.array(Credential) })
+export const MyCredentialsResponse = z.object({ allowed: z.boolean(), allowedKinds: z.array(CredentialKind), items: z.array(Credential), anthropicGateway: z.object({ label: z.string() }).nullable().optional() })
 export const CreateMyCredentialBody = CreateCredentialBody.omit({ assignments: true, priority: true, password: true })
 export const StartMyLoginBody = StartCredentialLoginBody.omit({ assignments: true, priority: true, password: true })
 

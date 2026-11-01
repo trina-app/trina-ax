@@ -179,7 +179,7 @@ export async function chatEnginesFor(ctx: AppContext, p: Person, problems: Engin
   // the API engine has one model, the one the owner set (its display name is the label)
   const api = readApiEngine(ctx.config.dataDir)
   const of = (id: EngineId) => id === 'api' && api ? { label: api.label, models: [{ id: api.model, label: api.label }] }
-    : { label: ENGINE_LABELS[id], models: id === 'claude-code' ? CLAUDE_MODELS : codexModels(env) }
+    : { label: ENGINE_LABELS[id], models: id === 'claude-code' ? env.claudeModels ?? CLAUDE_MODELS : codexModels(env) }
   // the same cached checks as Admin > AI engines; managed: an engine this person has no usable AI connection for is
   // left out (an engine whose only connection is assigned to a group shows only for that group's members)
   const cache = engineStatusCache(ctx)

@@ -9,6 +9,7 @@
 // personal connection is never a candidate, whatever the settings say.
 import type { Database } from 'bun:sqlite'
 import type { CredentialKind } from '@mycel/shared/api'
+import type { AllowedKinds } from '../app-config'
 import { memberOwnAllowed } from './policy'
 export { MEMBER_OWN_KEY, memberOwnAllowed } from './policy'
 import { ROW_COLS, SUBSCRIPTION, unusable, type CredRow, type Unusable } from './store'
@@ -58,7 +59,7 @@ export function candidates(db: Database, userId: string, engine: CredEngine, exc
     || a.row.created_at.localeCompare(b.row.created_at) || a.row.id.localeCompare(b.row.id))
 }
 
-export function resolveCredential(db: Database, q: { userId: string; engine: CredEngine; now?: Date; exclude?: ReadonlySet<string>; allowedKinds: ReadonlySet<CredentialKind> }): Resolution {
+export function resolveCredential(db: Database, q: { userId: string; engine: CredEngine; now?: Date; exclude?: ReadonlySet<string>; allowedKinds: AllowedKinds }): Resolution {
   const now = q.now ?? new Date()
   const list = candidates(db, q.userId, q.engine, q.exclude)
   const skipped: { id: string; why: Unusable }[] = []
@@ -76,11 +77,11 @@ export function resolveCredential(db: Database, q: { userId: string; engine: Cre
 }
 
 /** Does this person have a usable connection for the engine now? (composer engine list, Admin > AI engines) */
-export const hasCredentialFor = (db: Database, userId: string, engine: CredEngine, allowedKinds: ReadonlySet<CredentialKind>, now?: Date) =>
+export const hasCredentialFor = (db: Database, userId: string, engine: CredEngine, allowedKinds: AllowedKinds, now?: Date) =>
   resolveCredential(db, { userId, engine, allowedKinds, now }).ok
 
 /** usable team (not personal) connections of a family: Admin > AI engines and the diagnostics */
-export function teamCredentialSummary(db: Database, family: Family, allowedKinds: ReadonlySet<CredentialKind>, now = new Date()): { total: number; usable: number; expiring: number; reasons: Unusable[] } {
+export function teamCredentialSummary(db: Database, family: Family, allowedKinds: AllowedKinds, now = new Date()): { total: number; usable: number; expiring: number; reasons: Unusable[] } {
   const kinds = KINDS_OF[family]
   const rows = db.query(`SELECT ${ROW_COLS} FROM engine_credentials WHERE owner_user_id IS NULL AND kind IN (${kinds.map(() => '?').join(',')})`).all(...kinds) as CredRow[]
   let usable = 0, expiring = 0

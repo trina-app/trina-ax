@@ -1424,6 +1424,8 @@ export const ja: Record<MessageKey, string> = {
   'credentials.kind.anthropic-oauth.desc': "claude setup-tokenで作成したトークン",
   'credentials.kind.anthropic-api-key': "Claude APIキー",
   'credentials.kind.anthropic-api-key.desc': "AnthropicコンソールのAPIキーです。従量課金で、チーム利用向けです",
+  "credentials.kind.gateway": "{label}のAPIキー",
+  "credentials.kind.gateway.desc": "このサーバーはClaude Codeを{label}のモデルで動かします（server.jsonで設定）。従量課金で、会話は{label}とモデルの提供元に送られます",
   'credentials.kind.chatgpt': "ChatGPTプラン（Codex）",
   'credentials.kind.chatgpt.desc': "ChatGPTアカウントでログイン",
   'credentials.kind.openai-api-key': "OpenAI APIキー（Codex）",

@@ -1461,6 +1461,8 @@ export const en: Record<MessageKey, string> = {
   'credentials.kind.anthropic-oauth.desc': 'A token made with claude setup-token',
   'credentials.kind.anthropic-api-key': 'Claude API key',
   'credentials.kind.anthropic-api-key.desc': 'An API key from the Anthropic console. Pay as you go, made for team use',
+  'credentials.kind.gateway': 'API key for {label}',
+  'credentials.kind.gateway.desc': 'This server runs Claude Code on {label} models (set in server.json). Pay as you go; conversations go to {label} and the model\'s maker',
   'credentials.kind.chatgpt': 'ChatGPT plan (Codex)',
   'credentials.kind.chatgpt.desc': 'Sign in with a ChatGPT account',
   'credentials.kind.openai-api-key': 'OpenAI API key (Codex)',

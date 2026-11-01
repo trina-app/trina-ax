@@ -5,7 +5,7 @@
 // 401 / long 429 state belongs to that connection only (one subscription at its limit does not stop the others).
 import type { CredentialKind } from '@mycel/shared/api'
 import { audit } from '../admin/audit'
-import type { ModelUpstreams } from '../app-config'
+import { anthropicGateway, type AnthropicGatewayConf, type ModelUpstreams } from '../app-config'
 import type { ProxyTurnEvent } from '../proxy/model-proxy'
 import { ensureFresh } from './chatgpt-tokens'
 import { ctAll, fmtTime } from './i18n'
@@ -30,6 +30,9 @@ export type ForRequest =
 
 export interface CredentialBroker {
   readonly upstreams: ModelUpstreams
+  /** engine.anthropicGateway: the anthropic family goes there (upstreams.anthropic), on its models only (the proxy's
+   * allow-list); absent or null = Anthropic */
+  readonly gateway?: AnthropicGatewayConf | null
   /** the connection bound to this token, if it can be used now, and what to put on the request */
   forRequest(t: TokenBinding, want: Family): Promise<ForRequest>
   /** the upstream answered 401. API keys and Claude tokens: marked refused ('refused'). ChatGPT: refreshed once (or
@@ -54,7 +57,11 @@ export function onUsage(cc: CredCtx, fn: (userId: string, credentialId: string) 
 const LIMIT_AUDIT_MS = 10 * 60_000
 
 export function createBroker(cc: CredCtx): CredentialBroker {
-  setUnknownPriceHook((model) => audit(cc.db, { actor: null, action: 'credential.unknown_price', target: null, detail: { model: model.slice(0, 100) } }))
+  const gateway = anthropicGateway(cc.config)
+  setUnknownPriceHook((model) => {
+    audit(cc.db, { actor: null, action: 'credential.unknown_price', target: null, detail: { model: model.slice(0, 100) } })
+    cc.log.warn('a model has no price: its cost is counted at the most expensive price of its family', { model: model.slice(0, 100), ...(gateway ? { hint: 'engine.anthropicGateway.prices' } : {}) })
+  })
   const limitAudited = new Map<string, number>()
   const add = cc.db.query("UPDATE turns SET input_tokens = input_tokens + ?, output_tokens = output_tokens + ?, cost_usd = COALESCE(cost_usd, 0) + ?, usage_source = 'proxy' WHERE id = ?")
   const day = cc.db.query(`INSERT INTO credential_usage_daily (credential_id, day, requests, input_tokens, output_tokens, cost_usd) VALUES (?, ?, 1, ?, ?, ?)
@@ -64,6 +71,7 @@ export function createBroker(cc: CredCtx): CredentialBroker {
 
   return {
     upstreams: cc.upstreams,
+    gateway,
 
     async forRequest(t, want) {
       if (!t.credentialId || t.family !== want) return fail(403, 'permission_error', 'this token is not bound to an AI connection of this kind', { type: 'auth' })
@@ -138,7 +146,7 @@ export function createBroker(cc: CredCtx): CredentialBroker {
       const row = getRow(cc.db, credentialId)
       if (!row) return
       const n = (x: unknown) => (typeof x === 'number' && Number.isFinite(x) && x > 0 ? x : 0)
-      const cost = costOf(row.kind, model, usage)
+      const cost = costOf(row.kind, model, usage, gateway)
       let input: number, output: number
       if (familyOfKind(row.kind) === 'anthropic') {
         const u = usage as ClaudeUsage

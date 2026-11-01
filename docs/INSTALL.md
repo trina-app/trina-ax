@@ -397,6 +397,7 @@ server.json (`engine`), for operators:
 | `authMode` | `"managed"` (AI connections behind the model proxy). `"subscription"` and `"proxy"` are read as `"managed"`; this release's installer still writes `"subscription"` so a rollback starts. `"local-login"`: dev / office with the Mac's own login. |
 | `credentialKinds` | the kinds this server allows, default all four: `["anthropic-oauth","anthropic-api-key","chatgpt","openai-api-key"]`. The hosted cloud's enrollment may write `["anthropic-api-key","openai-api-key"]`: subscription kinds then cannot be added and existing ones show as "off on this server" (never deleted). |
 | `modelUpstreams` | tests only: `{ "anthropic", "openai", "chatgpt", "openaiAuth" }` addresses (https, or http to 127.0.0.1). `modelUpstream` is the older name of `anthropic`. |
+| `anthropicGateway` | Claude Code on another company's models through an Anthropic-compatible address (OpenRouter, DeepSeek, Kimi, GLM): `{ "baseUrl", "models": { "default", "opus"?, "sonnet"?, "haiku"? }, "label"?, "prices"? }`. Only those model ids are forwarded; Claude subscription connections (and Claude API keys added for Anthropic) are off while it is set. Not with `modelUpstreams.anthropic`. [Configuration](CONFIGURATION.md#anthropic-compatible-gateway). |
 
 Rotating the key of the stored secrets: `admin.js credentials-rekey` (same `sudo -u _axserver … admin.js` form as
 2.5). The key files are left out of backups: on another machine the connections must be connected again.

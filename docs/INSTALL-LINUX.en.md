@@ -96,6 +96,8 @@ Then follow **permissions → AI connection → invite the team → first skill 
 4. Invite a small group, copy a [starter skill](../examples/README.md), and review its result against sources.
 5. Make a backup and practice [restore](BACKUP-RESTORE.md) before real rollout.
 
+Claude Code on other models (DeepSeek, Kimi, GLM and others through OpenRouter or a provider's Anthropic-compatible API): set `engine.anthropicGateway` in `/var/lib/mycel/config/server.json`, restart with `sudo systemctl restart mycel-server`, and add the gateway's key in Admin → AI connections. Conversations then go to the gateway provider and the model's vendor, and Claude subscription connections are off. [Anthropic-compatible gateway](CONFIGURATION.md#anthropic-compatible-gateway).
+
 ## Upgrade and rollback
 
 Read the [latest release](https://github.com/trina-app/trina-ax/releases/latest) and admin actions, make a full backup plus an encrypted off-host archive, then review diagnostics. The signed Trina feed is `https://updates.trina.app/server/stable.json`. App-only updates can apply during the configured window when no answers are running; root changes require the update timer or `sudo mycel-ctl update`. Check `sudo mycel-ctl status` afterward and test login and a permitted file.

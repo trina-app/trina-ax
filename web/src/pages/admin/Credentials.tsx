@@ -29,7 +29,13 @@ const TONE: Record<Credential['state'], 'ok' | 'warn' | 'danger' | 'neutral'> = 
 const CLAUDE_TOKEN_RE = /^sk-ant-oat\d{2}-[A-Za-z0-9_-]{20,1000}$/
 const ANTHROPIC_KEY_RE = /^sk-ant-api\d{2}-[A-Za-z0-9_-]{20,300}$/
 const OPENAI_KEY_RE = /^sk-[A-Za-z0-9_-]{20,300}$/
-const formatOk = (kind: CredentialKind, s: string) => kind === 'anthropic-oauth' ? CLAUDE_TOKEN_RE.test(s) : kind === 'anthropic-api-key' ? ANTHROPIC_KEY_RE.test(s) : kind === 'openai-api-key' ? OPENAI_KEY_RE.test(s) && !s.startsWith('sk-ant-') : true
+/** a key of the server's Anthropic-compatible gateway (server/src/credentials/validate.ts GATEWAY_KEY_RE), never an Anthropic one */
+const GATEWAY_KEY_RE = /^[A-Za-z0-9._-]{20,300}$/
+/** the server's Anthropic-compatible gateway (server.json engine.anthropicGateway), when it has one */
+type Gateway = { label: string } | null | undefined
+const formatOk = (kind: CredentialKind, s: string, gateway?: Gateway) => kind === 'anthropic-oauth' ? CLAUDE_TOKEN_RE.test(s)
+  : kind === 'anthropic-api-key' ? (gateway ? GATEWAY_KEY_RE.test(s) && !/^sk-ant-/i.test(s) : ANTHROPIC_KEY_RE.test(s))
+  : kind === 'openai-api-key' ? OPENAI_KEY_RE.test(s) && !s.startsWith('sk-ant-') : true
 
 export default function Credentials() {
   const t = useT()
@@ -141,10 +147,10 @@ export default function Credentials() {
             <p className="mt-4 text-xs text-faint">{t('credentials.costNote', { date: d.pricesAsOf })}</p>
           </Card>
           {adding && (
-            <AddCredential allowedKinds={d.allowedKinds} sharedSubscriptions={d.sharedSubscriptions} groups={groups.data ?? []} users={users.data ?? []} onClose={() => setAdding(false)} onDone={() => { setAdding(false); void state.reload() }} />
+            <AddCredential allowedKinds={d.allowedKinds} gateway={d.anthropicGateway} sharedSubscriptions={d.sharedSubscriptions} groups={groups.data ?? []} users={users.data ?? []} onClose={() => setAdding(false)} onDone={() => { setAdding(false); void state.reload() }} />
           )}
           {replacing && (
-            <AddCredential allowedKinds={d.allowedKinds} sharedSubscriptions={d.sharedSubscriptions} groups={[]} users={[]} replace={replacing} onClose={() => setReplacing(null)} onDone={() => { setReplacing(null); void state.reload() }} />
+            <AddCredential allowedKinds={d.allowedKinds} gateway={d.anthropicGateway} sharedSubscriptions={d.sharedSubscriptions} groups={[]} users={[]} replace={replacing} onClose={() => setReplacing(null)} onDone={() => { setReplacing(null); void state.reload() }} />
           )}
           {editing && <EditCredential c={editing} groups={groups.data ?? []} users={users.data ?? []} onClose={() => setEditing(null)} onSaved={() => { setEditing(null); void state.reload() }} />}
         </>
@@ -238,8 +244,8 @@ function TargetPicker({ value, onChange, groups, users }: { value: CredentialAss
  * Add a connection (owner: the team's; personal: one's own), or put a new token / key on one (replace), or sign the
  * ChatGPT plan in again (replace of a chatgpt connection).
  */
-export function AddCredential({ allowedKinds, groups, users, replace, personal, sharedSubscriptions = false, onClose, onDone }: {
-  allowedKinds: CredentialKind[]; groups: Group[]; users: User[]; replace?: Credential; personal?: boolean; sharedSubscriptions?: boolean; onClose: () => void; onDone: () => void
+export function AddCredential({ allowedKinds, gateway, groups, users, replace, personal, sharedSubscriptions = false, onClose, onDone }: {
+  allowedKinds: CredentialKind[]; gateway?: Gateway; groups: Group[]; users: User[]; replace?: Credential; personal?: boolean; sharedSubscriptions?: boolean; onClose: () => void; onDone: () => void
 }) {
   const t = useT()
   const locale = useLocale()
@@ -256,7 +262,7 @@ export function AddCredential({ allowedKinds, groups, users, replace, personal, 
   const subscription = kind !== null && SUBSCRIPTION.has(kind)
   const sharingBlocked = subscription && !personal && !sharedSubscriptions
   const needsPassword = !personal
-  const ready = kind !== null && !sharingBlocked && (replace || label.trim().length > 0) && (kind === 'chatgpt' || formatOk(kind, secret.trim())) && (!subscription || replace || ack) && (!needsPassword || password.length > 0)
+  const ready = kind !== null && !sharingBlocked && (replace || label.trim().length > 0) && (kind === 'chatgpt' || formatOk(kind, secret.trim(), gateway)) && (!subscription || replace || ack) && (!needsPassword || password.length > 0)
 
   // ChatGPT sign-in progress: the WebSocket event, and a poll in case the socket is down
   useEffect(() => {
@@ -331,12 +337,14 @@ export function AddCredential({ allowedKinds, groups, users, replace, personal, 
                 {kinds.map((k) => {
                   const policyOff = !personal && SUBSCRIPTION.has(k) && !sharedSubscriptions
                   const off = !allowedKinds.includes(k) || policyOff
+                  // with a gateway the Claude API key is the gateway's
+                  const via = k === 'anthropic-api-key' ? gateway : null
                   return (
                     <label key={k} className={`flex items-start gap-2 rounded-lg border border-line p-2 text-sm ${off ? 'opacity-60' : 'cursor-pointer hover:bg-hover'}`}>
                       <input type="radio" name="kind" disabled={off} checked={kind === k} onChange={() => { setKind(k); setError(null) }} data-testid={`kind-${k}`} />
                       <span>
-                        <span className="font-medium">{t(`credentials.kind.${k}` as MessageKey)}</span>
-                        <span className="block text-xs text-muted">{policyOff ? t('credentials.sharedSubscriptionsOff') : off ? t('credentials.kindOff') : t(`credentials.kind.${k}.desc` as MessageKey)}</span>
+                        <span className="font-medium">{via ? t('credentials.kind.gateway', { label: via.label }) : t(`credentials.kind.${k}` as MessageKey)}</span>
+                        <span className="block text-xs text-muted">{policyOff ? t('credentials.sharedSubscriptionsOff') : off ? t('credentials.kindOff') : via ? t('credentials.kind.gateway.desc', { label: via.label }) : t(`credentials.kind.${k}.desc` as MessageKey)}</span>
                       </span>
                     </label>
                   )
@@ -357,9 +365,9 @@ export function AddCredential({ allowedKinds, groups, users, replace, personal, 
             {(kind === 'anthropic-api-key' || kind === 'openai-api-key') && (
               <p className="text-sm text-muted">
                 {t('credentials.apiKey.hint')}{' '}
-                <a className="inline-flex items-center gap-1 text-accent-text underline" href={kind === 'anthropic-api-key' ? 'https://platform.claude.com/settings/keys' : 'https://platform.openai.com/api-keys'} target="_blank" rel="noreferrer noopener">
+                {!(kind === 'anthropic-api-key' && gateway) && <a className="inline-flex items-center gap-1 text-accent-text underline" href={kind === 'anthropic-api-key' ? 'https://platform.claude.com/settings/keys' : 'https://platform.openai.com/api-keys'} target="_blank" rel="noreferrer noopener">
                   {t(kind === 'anthropic-api-key' ? 'credentials.apiKey.consoleAnthropic' : 'credentials.apiKey.consoleOpenai')} <ExternalLink size={12} aria-hidden />
-                </a>
+                </a>}
               </p>
             )}
             {kind && !replace && (
@@ -369,7 +377,7 @@ export function AddCredential({ allowedKinds, groups, users, replace, personal, 
             )}
             {kind && kind !== 'chatgpt' && (
               <Field label={t(kind === 'anthropic-oauth' ? 'credentials.setupToken.paste' : 'credentials.apiKey.paste')}
-                error={secret.trim() && !formatOk(kind, secret.trim()) ? t(kind === 'anthropic-oauth' ? 'credentials.setupToken.invalidFormat' : 'credentials.apiKey.invalidFormat') : null}>
+                error={secret.trim() && !formatOk(kind, secret.trim(), gateway) ? t(kind === 'anthropic-oauth' ? 'credentials.setupToken.invalidFormat' : 'credentials.apiKey.invalidFormat') : null}>
                 <input className={inputCls} type="password" autoComplete="off" spellCheck={false} value={secret} onChange={(e) => setSecret(e.target.value)} data-testid="credential-secret" />
               </Field>
             )}
@@ -493,7 +501,7 @@ export function MyCredentials() {
               ))}
             </ul>
           )}
-          {adding && <AddCredential personal allowedKinds={d.allowedKinds} groups={[]} users={[]} onClose={() => setAdding(false)} onDone={() => { setAdding(false); void state.reload() }} />}
+          {adding && <AddCredential personal allowedKinds={d.allowedKinds} gateway={d.anthropicGateway} groups={[]} users={[]} onClose={() => setAdding(false)} onDone={() => { setAdding(false); void state.reload() }} />}
         </Card>
       )}
     </Loadable>

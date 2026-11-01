@@ -4,6 +4,7 @@
 // their own connections, and only while the team allows them. Secrets arrive sealed (seal.ts) and are checked
 // without spending tokens (validate.ts). Audit details hold kinds, labels, hints (last 4) and plans, never a secret.
 import type { Credential, CredentialAssignment, CredentialKind, Locale, SealPurpose, SpendLimit } from '@mycel/shared/api'
+import { anthropicGateway, gatewayHost } from '../app-config'
 import { audit } from '../admin/audit'
 import { setSetting } from '../admin/settings'
 import { newId } from '../db'
@@ -13,7 +14,7 @@ import { MEMBER_OWN_KEY, memberOwnAllowed } from './resolve'
 import { SHARED_SUBSCRIPTIONS_KEY, sharedSubscriptionsAllowed } from './policy'
 import { SealError } from './seal'
 import {
-  CLAUDE_TOKEN_LIFETIME_MS, fingerprintOf, getRow, listRows, mainSecret, metaOf, secretOf, SUBSCRIPTION, toCredential, writeSecret,
+  CLAUDE_TOKEN_LIFETIME_MS, fingerprintOf, getRow, listRows, mainSecret, metaOf, otherGateway, secretOf, SUBSCRIPTION, toCredential, writeSecret,
   type CredCtx, type CredMeta, type CredRow, type Secrets,
 } from './store'
 import { formatProblem, verifySecret } from './validate'
@@ -22,6 +23,9 @@ import { ensureFresh } from './chatgpt-tokens'
 type ApiKind = Exclude<CredentialKind, 'chatgpt'>
 const secretOfKind = (kind: ApiKind, s: string): Secrets[ApiKind] => (kind === 'anthropic-oauth' ? { token: s } : { key: s })
 const hintOf = (kind: CredentialKind, s: string) => (kind === 'anthropic-api-key' || kind === 'openai-api-key' ? s.slice(-4) : null)
+/** the gateway (engine.anthropicGateway) an Anthropic API key added now is for: it is only ever sent there (store.ts
+ * otherGateway); undefined = Anthropic */
+const gatewayOf = (cc: CredCtx) => { const g = anthropicGateway(cc.config); return g ? gatewayHost(g) : undefined }
 
 /** open a sealed secret for this purpose, or answer 400 (never says what it was) */
 export async function unsealOrFail(cc: CredCtx, sealed: Parameters<CredCtx['sealer']['unseal']>[0], purpose: SealPurpose, locale: Locale): Promise<string> {
@@ -84,7 +88,8 @@ function checkCreatePolicy(cc: CredCtx, i: CreateInput, locale: Locale) {
 /** POST /api/admin/credentials, POST /api/me/credentials (the secret already unsealed) */
 export async function createCredential(cc: CredCtx, i: CreateInput, locale: Locale): Promise<Credential> {
   if (!cc.allowedKinds.has(i.kind)) fail('validation', ct('kindNotAllowed', locale), { fields: { 'body.kind': 'not allowed on this server' } })
-  const bad = formatProblem(i.kind, i.secret)
+  const gateway = gatewayOf(cc)
+  const bad = formatProblem(i.kind, i.secret, !!gateway)
   if (bad) fail('validation', ct(bad, locale), { fields: { 'body.sealed': bad === 'badClaudeToken' ? 'not a Claude subscription token' : 'not an API key of this kind' } })
   if (SUBSCRIPTION.has(i.kind) && i.acknowledgedPlanNotice !== true) fail('validation', ct('planNotice', locale), { fields: { 'body.acknowledgedPlanNotice': 'required for a subscription' } })
   checkCreatePolicy(cc, i, locale)
@@ -96,7 +101,7 @@ export async function createCredential(cc: CredCtx, i: CreateInput, locale: Loca
   const now = cc.now()
   const id = insertRow(cc, {
     kind: i.kind, label: i.label, secret: secretOfKind(i.kind, i.secret), ownerUserId: i.ownerUserId, priority: i.priority, assignments: i.assignments,
-    createdBy: i.actor, meta: i.kind === 'anthropic-oauth' ? { issuedAt: new Date(now).toISOString() } : {},
+    createdBy: i.actor, meta: i.kind === 'anthropic-oauth' ? { issuedAt: new Date(now).toISOString() } : i.kind === 'anthropic-api-key' && gateway ? { gateway } : {},
     expiresAt: i.kind === 'anthropic-oauth' ? new Date(now + CLAUDE_TOKEN_LIFETIME_MS).toISOString() : null,
     checkedAt: check.result === 'ok' ? new Date(now).toISOString() : null,
   })
@@ -113,7 +118,8 @@ export async function replaceSecret(cc: CredCtx, id: string, secret: string, act
   if (!row) return fail('not_found')
   if (row.kind === 'chatgpt') return fail('conflict', ct('sameKind', locale))
   const kind = row.kind as ApiKind
-  const bad = formatProblem(kind, secret)
+  const gateway = gatewayOf(cc)
+  const bad = formatProblem(kind, secret, !!gateway)
   if (bad) fail('validation', ct(bad, locale), { fields: { 'body.sealed': 'not a token or key of this kind' } })
   if (duplicateOf(cc, kind, fingerprintOf(secret), id)) fail('conflict', ct('duplicate', locale))
   const check = await verifySecret(cc, kind, secret)
@@ -124,6 +130,8 @@ export async function replaceSecret(cc: CredCtx, id: string, secret: string, act
     fingerprint: fingerprintOf(secret), hint: hintOf(kind, secret), status: 'ok', status_code: null, limited_until: null,
     checked_at: check.result === 'ok' ? new Date(now).toISOString() : null,
     ...(kind === 'anthropic-oauth' ? { expires_at: new Date(now + CLAUDE_TOKEN_LIFETIME_MS).toISOString(), meta: JSON.stringify({ ...meta, issuedAt: new Date(now).toISOString() }) } : {}),
+    // the new key is for where Claude requests go now (an Anthropic key's connection can take a gateway's key, and back)
+    ...(kind === 'anthropic-api-key' ? { meta: JSON.stringify({ ...meta, gateway }) } : {}),
   }))()
   const r = getRow(cc.db, id)!
   audit(cc.db, { actor, action: 'credential.secret_replaced', target: id, detail: { kind, ...(r.hint ? { hint: r.hint } : {}), verified: check.result === 'ok' } })
@@ -178,6 +186,8 @@ export async function checkCredential(cc: CredCtx, id: string, actor: string, lo
     const f = await ensureFresh(cc, id, { force: true })
     result = f.ok ? 'ok' : f.permanent ? 'invalid' : 'unverified'
     if (f.ok) cc.db.query('UPDATE engine_credentials SET checked_at = ? WHERE id = ?').run(now, id)
+  } else if (!cc.allowedKinds.has(row.kind) || otherGateway(row, cc.allowedKinds)) {
+    // off on this server (a Claude subscription token or an Anthropic key while the gateway is on): nothing is sent
   } else {
     const s = secretOf(cc, row as CredRow & { kind: ApiKind })
     if (s) {
