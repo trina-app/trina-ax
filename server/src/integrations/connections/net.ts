@@ -1,9 +1,9 @@
 // Requests to external services (docs/INTEGRATIONS.md): https only, the web_fetch address rules (tools/web-fetch.ts
 // resolveTarget: public internet addresses only, never the office network, this server or the office's own exit
 // address), one DNS answer pinned for the connection, no proxy from the environment, no redirects followed, 30 s and
-// 1 MiB (counted while reading, also without Content-Length; a long answer such as an MCP tools/list has its own
-// deadline and fails sooner only when it stops coming, NetRequest.long). Errors carry a reason code, never the remote
-// body.
+// 1 MiB (counted while reading, also without Content-Length; the requests of a check end by its deadline, and an MCP
+// tools/list page may take until then while it keeps coming, NetRequest.long). Errors carry a reason code, never the
+// remote body.
 import { PRODUCT } from '@mycel/shared'
 import { ToolError } from '../../policy/errors'
 import { decode, pinnedRequest, resolveTarget, type ResolveOptions } from '../../tools/web-fetch'
@@ -36,9 +36,10 @@ export interface NetRequest {
   maxBytes?: number
   signal?: AbortSignal
   until?: (body: Buffer, head: { status: number; headers: Record<string, string> }) => boolean
-  /** a long answer that may keep coming for longer than the 30 s: read until `deadline` (epoch ms), failing with
-   * 'timeout' sooner only when no bytes arrive for `idleMs`; `reason` when the deadline ends it (mcp.ts tools/list) */
-  long?: { deadline: number; idleMs: number; reason: Reason }
+  /** a check's own deadline (mcp.ts listTools): the request ends by `deadline` (epoch ms) at the latest, failing with
+   * `reason` when that is what ends it. With `idleMs` (a tools/list page, which may keep coming for longer than the
+   * 30 s) the answer is read until the deadline, failing with 'timeout' sooner only when no bytes arrive for that long. */
+  long?: { deadline: number; reason: Reason; idleMs?: number }
 }
 
 function reasonOf(e: unknown): Reason {
@@ -57,22 +58,26 @@ export async function serviceRequest(url: string, r: NetRequest, o: NetOptions =
   if (u.protocol !== 'https:' || u.username || u.password) throw new NetError('unreachable')
   const short = Date.now() + (o.timeoutMs ?? TIMEOUT_MS)
   const max = r.maxBytes ?? MAX_BODY
+  const long = r.long
+  if (long && Date.now() >= long.deadline) throw new NetError(long.reason)
+  // the name lookup has the 30 s and the check's deadline; the answer too, unless it may take until the deadline
+  const lookupBy = long ? Math.min(short, long.deadline) : short
+  const readBy = long?.idleMs ? long.deadline : lookupBy
+  let by = lookupBy
   let res
-  let reading = false
   try {
-    // the name lookup has the 30 s also for a long answer
-    const target = await resolveTarget(u.href, { lookup: o.lookup, testAllow: o.testAllow, blockedIps: o.blockedIps, deadline: Math.min(short, r.long?.deadline ?? short) })
+    const target = await resolveTarget(u.href, { lookup: o.lookup, testAllow: o.testAllow, blockedIps: o.blockedIps, deadline: lookupBy })
     if (r.signal?.aborted) throw new ToolError('stopped')
-    reading = true
+    by = readBy
     res = await pinnedRequest(target, {
-      method: r.method, body: r.body ?? null, deadline: r.long?.deadline ?? short, idleMs: r.long?.idleMs, maxBytes: max, insecureTlsForTests: o.insecureTlsForTests, signal: r.signal, until: r.until,
+      method: r.method, body: r.body ?? null, deadline: readBy, idleMs: long?.idleMs, maxBytes: max, insecureTlsForTests: o.insecureTlsForTests, signal: r.signal, until: r.until,
       headers: [['User-Agent', USER_AGENT], ['Accept-Encoding', 'identity'], ...r.headers],
     })
   } catch (e) {
     if (e instanceof NetError) throw e
     if (r.signal?.aborted) throw new NetError('timeout')
-    // a long answer that kept coming until its deadline, not one that stopped
-    if (reading && r.long && e instanceof Error && /did not answer in time/.test(e.message)) throw new NetError(r.long.reason)
+    // ended by the check's deadline: not by the 30 s, nor by a pause in a long answer ("stopped sending")
+    if (long && by === long.deadline && e instanceof Error && /did not answer in time/.test(e.message)) throw new NetError(long.reason)
     throw new NetError(reasonOf(e))
   }
   let body = res.body

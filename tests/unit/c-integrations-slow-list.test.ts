@@ -2,15 +2,17 @@
 // 30 s of a request cut it every time): tools/list is read for as long as bytes keep coming (mcp.ts MCP_LIST_IDLE_MS)
 // up to the check's own limit (MCP_LIST_TIMEOUT_MS); one that stops sending fails at the idle limit. A connected server
 // whose check fails for now keeps the list saved before and stays connected, with the reason (Settings: "last check
-// failed"); a call that goes through clears that, and an error a failed call left. Tool calls keep their fixed 30 s, a
-// turn never waits for a check, and a step shows a short look at an MCP call's arguments. The limits are small here
-// (the net options tests may set), the code is the same.
+// failed"); so does one in an error that was only for now. A call that goes through clears that, and an error a failed
+// call left, never a needed sign-in. One deadline bounds the whole check. Tool calls keep their fixed 30 s, a turn
+// never waits for a check, and a step shows a short look at an MCP call's arguments (secrets hidden before the cut).
+// The limits are small here (the net options tests may set), the code is the same.
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from 'bun:test'
 import { makeCApp, type CApp, type Person } from '../lib/c-app'
-import { FakeServices } from '../lib/fake-services'
+import { API_KEY, FakeServices } from '../lib/fake-services'
 import { integrationsOf } from '../../server/src/integrations/connections/service'
 import { MCP_LIST_IDLE_MS, MCP_LIST_TIMEOUT_MS } from '../../server/src/integrations/connections/mcp'
 import { TIMEOUT_MS } from '../../server/src/integrations/connections/net'
+import { secretHider } from '../../server/src/integrations/connections/hide'
 import { getRow } from '../../server/src/integrations/connections/store'
 import { TEXT } from '../../server/src/integrations/connections/text'
 import { argsPreview, integrationToolProvider } from '../../server/src/integrations/connections/tools'
@@ -122,7 +124,7 @@ describe('reading a slow tools/list', () => {
     expect(stored(id)).toEqual({ status: 'connected', last_error: null })
   })
 
-  test('a tool call keeps its fixed limit: a slow answer fails and marks an error; a call that goes through clears it; a check that fails then is no "connected"', async () => {
+  test('a tool call keeps its fixed limit: a slow answer fails and marks an error; a call that goes through clears it', async () => {
     const svc = integrationsOf(A.ctx)
     // 3 pieces 350 ms apart: 700 ms, past REQUEST_MS, with no pause of IDLE_MS (the list's rule is not the calls')
     fake.pace = { methods: ['tools/call'], pieces: 3, gapMs: 350 }
@@ -130,11 +132,63 @@ describe('reading a slow tools/list', () => {
       await expect(svc.callTool(getRow(A.ctx.db, id)!, 's0', {})).rejects.toThrow('did not answer within 30 seconds')
     } finally { fake.pace = null }
     expect(stored(id)).toEqual({ status: 'error', last_error: 'timeout' })
-    // not connected before this check: its failure stays an error
+    // an error that was only for now (the row of a connection the 30 s cut before): a check that fails for now too
+    // keeps the saved list and says so, it is not "Error"
     fake.pace = { methods: ['tools/list'], pieces: 10, gapMs: 50, stallAfter: 3 }
-    try { expect((await refresh(id)).r.body).toMatchObject({ status: 'error', lastError: TEXT.timeout.en }) } finally { fake.pace = null }
+    try { expect((await refresh(id)).r.body).toMatchObject({ status: 'connected', lastError: TEXT.timeout.en }) } finally { fake.pace = null }
+    fake.pace = { methods: ['tools/call'], pieces: 3, gapMs: 350 }
+    try { await expect(svc.callTool(getRow(A.ctx.db, id)!, 's0', {})).rejects.toThrow() } finally { fake.pace = null }
     await svc.callTool(getRow(A.ctx.db, id)!, 's0', {})
     expect(stored(id)).toEqual({ status: 'connected', last_error: null })
+  })
+
+  test('a failure that stops the calls too is an error, and a check that fails for now does not make it "connected"', async () => {
+    // the service sends us elsewhere: not only for now
+    fake.listStatus = 307
+    expect((await refresh(id)).r.body).toMatchObject({ status: 'error', lastError: TEXT.redirect.en.replace('{status}', '307') })
+    fake.listStatus = null
+    fake.pace = { methods: ['tools/list'], pieces: 10, gapMs: 50, stallAfter: 3 }
+    try { expect((await refresh(id)).r.body).toMatchObject({ status: 'error', lastError: TEXT.timeout.en }) } finally { fake.pace = null }
+    expect((await refresh(id)).r.body).toMatchObject({ status: 'connected', lastError: null })
+  })
+
+  test('a call that goes through never clears a sign-in that is needed', async () => {
+    A.ctx.db.query("UPDATE integrations SET status='needs_auth', last_error='refused:401' WHERE id=?").run(id)
+    await integrationsOf(A.ctx).callTool(getRow(A.ctx.db, id)!, 's0', {})
+    expect(stored(id)).toEqual({ status: 'needs_auth', last_error: 'refused:401' })
+    expect((await refresh(id)).r.body).toMatchObject({ status: 'connected', lastError: null })
+  })
+
+  test('api_request: only a 2xx answer clears an error', async () => {
+    const api = (await post('alice', '/api/integrations', { kind: 'http', name: 'Tasks API', url: `${fake.base}/api/v1`, auth: 'bearer', secret: API_KEY })).body
+    expect(api.status).toBe('connected')
+    const svc = integrationsOf(A.ctx)
+    const req = { method: 'GET', body: null, contentType: null }
+    A.ctx.db.query("UPDATE integrations SET status='error', last_error='http_status:503' WHERE id=?").run(api.id)
+    // the AI's path is not there: says nothing about the service
+    expect((await svc.apiRequest(getRow(A.ctx.db, api.id)!, `${fake.base}/api/v1/`, req)).status).toBe(404)
+    expect(stored(api.id)).toEqual({ status: 'error', last_error: 'http_status:503' })
+    expect((await svc.apiRequest(getRow(A.ctx.db, api.id)!, `${fake.base}/api/v1/tasks`, req)).status).toBe(200)
+    expect(stored(api.id)).toEqual({ status: 'connected', last_error: null })
+  })
+
+  test('one deadline for the whole check: a new session after a lost one does not start the time again', async () => {
+    fake.tools = Array.from({ length: 4 }, (_, i) => tool(`s${i}`))
+    fake.pageSize = 2
+    // each page takes about 2.25 s; the server forgets our session while the first is coming, so the second page is
+    // refused (404) and a new session starts. Its first page would end past the check's limit: the check ends there
+    fake.pace = { methods: ['tools/list'], pieces: 10, gapMs: 250 }
+    const forget = setTimeout(() => fake.sessions.clear(), 1500)
+    try {
+      const { r, ms } = await refresh(id)
+      expect(r.body).toMatchObject({ status: 'connected', lastError: TEXT.list_timeout.en })
+      expect(ms).toBeGreaterThanOrEqual(LIST_MS)
+      expect(ms).toBeLessThan(LIST_MS + 1500)
+    } finally { clearTimeout(forget); fake.pace = null }
+    expect((await refresh(id)).r.body).toMatchObject({ status: 'connected', lastError: null })
+    fake.tools = Array.from({ length: 60 }, (_, i) => tool(`s${i}`))
+    fake.pageSize = 1000
+    expect((await refresh(id)).r.body.tools).toHaveLength(60)
   })
 
   test('a chat turn never waits for a slow check: it uses the saved list, and its calls go through meanwhile', async () => {
@@ -170,5 +224,11 @@ describe('reading a slow tools/list', () => {
     expect(long).not.toContain('\n')
     expect(argsPreview({ options: { size: '1k' }, refs: ['x'], note: null })).toBe('note: null, options: {…}, refs: […]')
     for (const nothing of [null, undefined, 'text', 3, ['a']]) expect(argsPreview(nothing)).toBe('')
+    // a stored secret is hidden in the whole text before it is cut (a cut one could not be found later); a text
+    // under a secret's name is not shown
+    const secret = 'CANARY-' + 'k'.repeat(60)
+    const hidden = argsPreview({ note: `use ${secret} here`, api_key: 'typed-key', password: 'pw', max_tokens: 5 }, secretHider([secret]))
+    expect(hidden).toBe('max_tokens: 5, note: "use [hidden key] here", api_key: •••, password: •••')
+    expect(hidden).not.toContain('CANARY')
   })
 })

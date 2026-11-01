@@ -121,14 +121,14 @@ export class McpClient {
     return this.post({ jsonrpc: '2.0', id: crypto.randomUUID(), method, params }, o)
   }
 
-  /** initialize + notifications/initialized, once per session */
-  start(signal?: AbortSignal): Promise<void> {
+  /** initialize + notifications/initialized, once per session; `long`: a check's deadline (listTools) */
+  start(signal?: AbortSignal, long?: NetRequest['long']): Promise<void> {
     this.ready ??= (async () => {
-      const r = await this.request('initialize', { protocolVersion: MCP_PROTOCOL, capabilities: {}, clientInfo: { name: 'team-integrations', version: '1.0' } }, { signal })
+      const r = await this.request('initialize', { protocolVersion: MCP_PROTOCOL, capabilities: {}, clientInfo: { name: 'team-integrations', version: '1.0' } }, { signal, long })
       const v = typeof r?.protocolVersion === 'string' ? r.protocolVersion : ''
       if (!r || !/^\d{4}-\d{2}-\d{2}$/.test(v)) throw new McpError('not_mcp')
       this.version = KNOWN_VERSIONS.has(v) ? v : MCP_PROTOCOL
-      await this.post({ jsonrpc: '2.0', method: 'notifications/initialized' }, { signal })
+      await this.post({ jsonrpc: '2.0', method: 'notifications/initialized' }, { signal, long })
     })().catch((e) => { this.ready = null; this.sessionId = null; this.version = null; throw e })
     return this.ready
   }
@@ -139,9 +139,9 @@ export class McpClient {
    * kept). `total`: how many usable tools the pages read listed (counted on past the ceiling within a page, so people
    * and the AI can be told "1,000 of 1,200"); `more`: some were not kept, or pages were left unread; `unread`: pages
    * were left unread, so the service offers more than `total` ("1,000 of more than 1,000"). `deadline` (epoch ms): when
-   * the pages must all be in (MCP_LIST_TIMEOUT_MS; one for a whole check, also when it starts a new session). */
+   * the check must be done (MCP_LIST_TIMEOUT_MS; one for a whole check, service.ts check): initialize ends by it too. */
   async listTools(signal?: AbortSignal, deadline = Date.now() + (this.net.listTimeoutMs ?? MCP_LIST_TIMEOUT_MS)): Promise<{ tools: RemoteTool[]; more: boolean; total: number; unread: boolean }> {
-    await this.start(signal)
+    await this.start(signal, { deadline, reason: 'list_timeout' })
     const long = { deadline, idleMs: this.net.listIdleMs ?? MCP_LIST_IDLE_MS, reason: 'list_timeout' as const }
     const tools: RemoteTool[] = []
     const seen = new Set<string>()

@@ -17,7 +17,7 @@ import { egressOf } from '../../tools/egress'
 import { checkHostName, isLocalAddress, isPublicAddress } from '../../tools/web-fetch'
 import { secretHider } from './hide'
 import { MCP_LIST_TIMEOUT_MS, McpClient, McpError } from './mcp'
-import { NetError, serviceRequest, type NetOptions, type NetResponse } from './net'
+import { NetError, serviceRequest, TIMEOUT_MS, type NetOptions, type NetResponse } from './net'
 import { authorizationUrl, discover, GrantError, register, revoke, tokenRequest, type OAuthClient, type OAuthSecret, type OAuthServer, type OAuthTokens } from './oauth'
 import {
   accessOf, activeUser, connectionAad, disabledTools, flowAad, getRow, isAdmin, MAX_DISABLED_TOOLS, mayUse, savedTools, SecretBox, selectRows, setAccess, StoreError, toolListsOf, usable, view,
@@ -401,17 +401,19 @@ export class Integrations {
     if (s) this.setStatus(row, s.status, s.reason)
   }
 
-  /** Check the connection now; MCP: save its tool list. Returns the row as stored afterwards. A connected MCP server
-   * whose list could not be read this time (slow, away for a moment) keeps the list saved before and stays connected,
-   * with the reason (lastError): its tools keep working, and Settings says the last check failed and which list the AI
-   * uses (not "Error"). The next check that reads the list, or a call that goes through (used), clears it. */
+  /** Check the connection now; MCP: save its tool list. Returns the row as stored afterwards. An MCP server with a
+   * saved list, connected or in an error that was only for now (PASSING), whose list could not be read this time for
+   * such a reason keeps that list and is connected, with the reason (lastError): its tools keep working, and Settings
+   * says the last check failed and which list the AI uses (not "Error"). The next check that reads the list, or a call
+   * that goes through (used), clears it. */
   async check(row: Row, signal?: AbortSignal): Promise<Row> {
     try {
       if (row.kind === 'mcp') {
-        // one deadline for the whole check, also when it starts a new session or signs in again (mcp.ts listTools)
+        // one deadline for the whole check: every request of it ends by then, and no new session or token refresh
+        // starts that would end later (withMcp, mcp.ts listTools)
         const deadline = Date.now() + (this.net.listTimeoutMs ?? MCP_LIST_TIMEOUT_MS)
         // the list has the connection's secrets hidden (mcp.ts toolOf): the AI and the people who use it read it
-        const { tools, more, total, unread } = await this.withMcp(row, (c) => c.listTools(signal, deadline))
+        const { tools, more, total, unread } = await this.withMcp(row, (c) => c.listTools(signal, deadline), deadline)
         // more than the server keeps (its hard ceiling): the total is saved so Settings and the AI's instructions can
         // say "1,000 of 1,200", or "1,000 of more than 1,000" when reading stopped with pages left (mcp.ts listTools)
         this.setStatus(row, 'connected', null, { tools: JSON.stringify(tools), total: more ? Math.max(total, tools.length) : null, totalMore: unread })
@@ -422,9 +424,13 @@ export class Integrations {
         else this.setStatus(row, 'connected', null)
       }
     } catch (e) {
-      const s = statusOf(e) ?? { status: 'error', reason: 'unreachable' }
-      const kept = row.kind === 'mcp' && row.status === 'connected' && s.status === 'error' && PASSING.test(s.reason) && savedTools(this.db, row).length > 0
-      this.setStatus(row, kept ? 'connected' : s.status, s.reason)
+      const s = statusOf(e)
+      // the row as it is now: a call during the check may have found a sign-in needed (that stays), or an error
+      const now = getRow(this.db, row.id)
+      if (now && now.version === row.version && now.status === 'needs_auth' && row.status !== 'needs_auth') return now
+      const working = now?.status === 'connected' || (now?.status === 'error' && PASSING.test(now.last_error ?? ''))
+      const kept = !!s && row.kind === 'mcp' && s.status === 'error' && PASSING.test(s.reason) && working && savedTools(this.db, now!).length > 0
+      this.setStatus(row, kept ? 'connected' : s?.status ?? 'error', s?.reason ?? 'unreachable')
     }
     return getRow(this.db, row.id) ?? row
   }
@@ -441,14 +447,16 @@ export class Integrations {
   }
   private dropClient(id: string) { for (const k of [...this.clients.keys()]) if (k.startsWith(id + ':')) this.clients.delete(k) }
 
-  /** Run against the MCP server: a new session when the server forgot ours, one token refresh after a 401. */
-  private async withMcp<T>(row: Row, fn: (c: McpClient) => Promise<T>): Promise<T> {
+  /** Run against the MCP server: a new session when the server forgot ours, one token refresh after a 401. `deadline`
+   * (a check's): neither once it has passed, nor a token refresh (its own 30 s) that would end after it. */
+  private async withMcp<T>(row: Row, fn: (c: McpClient) => Promise<T>, deadline = Infinity): Promise<T> {
     let renewed = false, refreshed = false
     for (;;) {
       const c = this.client(row)
       try { return await fn(c) } catch (e) {
+        if (Date.now() >= deadline) throw e
         if (e instanceof McpError && e.code === 'session_gone' && !renewed) { renewed = true; this.dropClient(row.id); continue }
-        if (e instanceof McpError && e.code === 'unauthorized' && row.auth === 'oauth' && !refreshed && row.secret_enc) {
+        if (e instanceof McpError && e.code === 'unauthorized' && row.auth === 'oauth' && !refreshed && row.secret_enc && Date.now() + (this.net.timeoutMs ?? TIMEOUT_MS) <= deadline) {
           refreshed = true
           const s = this.secretOf(row)
           if (s.type === 'oauth') { await this.oauthToken(row, s.tokens.accessToken); this.dropClient(row.id); continue }
@@ -534,7 +542,9 @@ export class Integrations {
       client = old?.type === 'oauth' && old.server.issuer === setup.server.issuer && old.client.redirectUri === redirectUri ? old.client : await register(setup.server, redirectUri, this.net)
     } catch (e) {
       const reason = e instanceof NetError ? e.reason : 'oauth_unsupported'
-      this.setStatus(row, row.secret_enc ? row.status : 'needs_auth', reason)
+      // signed in already: the row stays as it is (the answer says why signing in again failed; a connected row with a
+      // reason would read as "the last check failed")
+      if (!row.secret_enc) this.setStatus(row, 'needs_auth', reason)
       return fail('validation', say(reason as Reason, L, { status: e instanceof NetError ? e.status ?? '?' : '?' }))
     }
     const flowId = newId(), state = crypto.randomBytes(32).toString('base64url'), verifier = crypto.randomBytes(48).toString('base64url')

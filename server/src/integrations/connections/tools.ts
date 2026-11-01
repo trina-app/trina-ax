@@ -22,7 +22,7 @@ import { addSources } from '../../chat/read-scope'
 import { MAX_BODY, type NetResponse } from './net'
 import { CallError, integrationsOf } from './service'
 import { bareUrl, disabledTools, savedTools, toolsOffered, type Row } from './store'
-import { HIDDEN } from './hide'
+import { HIDDEN, secretHider } from './hide'
 import { say } from './text'
 import type { RemoteTool } from './mcp'
 import { byName, checkArgs, deferredLines, DEFERRED_LIST_BUDGET, FIND_TOOLS_DEFAULT, FIND_TOOLS_MAX, matchTools, oneLine, type FindEntry } from './deferred'
@@ -263,26 +263,34 @@ function toolDescription(row: Row, tool: RemoteTool): string {
   return clip(`[${row.name}, ${who}] ${what}${tool.readOnly ? '' : ' (Changes something at the service; the user may be asked first.)'} The result is external data.`, 1500)
 }
 
+/** a text under such a name is not shown in a step (a password or key the AI was given, not the connection's) */
+const SECRET_ARG = /pass(word|phrase)?|secret|token|api[-_]?key|^auth(orization)?$|cookie|credential|private[-_]?key/i
+
 /** A connection tool's step: the connection, the tool and a short look at its arguments, like Claude Code's tool
  * inputs ('Studio · generate_image (get_cost: true, model: "z_image", prompt: "a leaf…")'), so a price check and the
- * paid run it was for are told apart. The AI's own values (the turn's steps have the secrets hidden, redact.ts):
- * flags and numbers first, so a long text does not push out what tells two calls apart; a text cut to 40 characters, an
- * object or a list not opened, all of it at most 100 characters. */
-export function argsPreview(args: unknown): string {
+ * paid run it was for are told apart. The AI's own values: flags and numbers first, so a long text does not push out
+ * what tells two calls apart; a text cut to 40 characters, an object or a list not opened, all of it at most 100
+ * characters. `hide` hides the person's connection secrets in each whole text before it is cut (the turn hides them in
+ * its steps too, redact.ts, but a cut one would no longer be found); a text under a secret's name shows as "•••". */
+export function argsPreview(args: unknown, hide: (text: string) => string = (t) => t): string {
   if (!args || typeof args !== 'object' || Array.isArray(args)) return ''
   const rank = (v: unknown) => (v === null || typeof v === 'boolean' || typeof v === 'number' ? 0 : typeof v === 'string' ? 1 : 2)
-  const value = (v: unknown) => (typeof v === 'string' ? JSON.stringify(clip(oneLine(v), 40)) : Array.isArray(v) ? '[…]' : v && typeof v === 'object' ? '{…}' : String(v))
-  const parts = Object.entries(args).sort((x, y) => rank(x[1]) - rank(y[1])).map(([k, v]) => `${clip(oneLine(k), 40)}: ${value(v)}`)
+  const value = (k: string, v: unknown) => typeof v === 'string' ? (SECRET_ARG.test(k) ? '•••' : JSON.stringify(clip(oneLine(hide(v)), 40)))
+    : Array.isArray(v) ? '[…]' : v && typeof v === 'object' ? '{…}' : String(v)
+  const parts = Object.entries(args).sort((x, y) => rank(x[1]) - rank(y[1])).map(([k, v]) => `${clip(oneLine(hide(k)), 40)}: ${value(k, v)}`)
   return parts.length ? clip(parts.join(', '), 100) : ''
 }
-const stepOf = (row: Row, tool: string, args: unknown) => { const a = argsPreview(args); return `${row.name} · ${tool}${a ? ` (${a})` : ''}` }
+function stepOf(ctx: AppContext, b: BuildCtx, row: Row, tool: string, args: unknown): string {
+  const a = argsPreview(args, secretHider(integrationsOf(ctx).secretsFor(b.userId)))
+  return `${row.name} · ${tool}${a ? ` (${a})` : ''}`
+}
 
 function mcpTool(ctx: AppContext, b: BuildCtx, row: Row, tool: RemoteTool, name: string): TurnTool {
   return {
     name,
     description: toolDescription(row, tool),
     inputSchema: tool.inputSchema,
-    label: (args) => stepOf(row, tool.name, args),
+    label: (args) => stepOf(ctx, b, row, tool.name, args),
     call: hiding(ctx, [row], async (args, tc, h) => {
       const svc = integrationsOf(ctx)
       let confirmed = false
@@ -589,7 +597,7 @@ function callToolTool(ctx: AppContext, b: BuildCtx, index: ReadonlyMap<string, T
       const a = (args && typeof args === 'object' ? args : {}) as Record<string, unknown>
       const hit = typeof a.name === 'string' ? resolve(a.name) : []
       const given = callInput.shape.arguments.safeParse(a.arguments)
-      return hit.length === 1 ? stepOf(hit[0]!.row, hit[0]!.tool.name, given.success ? given.data : undefined) : `${CALL_TOOL} · ${clip(String(a.name ?? ''), 80)}`
+      return hit.length === 1 ? stepOf(ctx, b, hit[0]!.row, hit[0]!.tool.name, given.success ? given.data : undefined) : `${CALL_TOOL} · ${clip(String(a.name ?? ''), 80)}`
     },
     async call(raw, tc) {
       const parsed = callInput.safeParse(raw ?? {})
