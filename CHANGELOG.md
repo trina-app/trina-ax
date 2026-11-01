@@ -3,7 +3,9 @@
 Published artifacts and authoritative release notes are in [GitHub Releases](https://github.com/trina-app/trina-ax/releases).
 This file summarizes user-visible changes; it is not a list of every commit.
 
-## Unreleased
+## 0.2.18 — 2026-11-01
+
+[Published release and notes](https://github.com/trina-app/trina-ax/releases/tag/v0.2.18).
 
 **Upgrade note:** two small database migrations (329 and 330, additions only: 329 adds a column to `chat_seen_urls`, 330 two columns and a trigger to `integrations`; the previous version still opens the database; the schema reader level stays 4). A connection whose tools an older server cut (Settings > External services says "100 of 150 tools") gets all of them when someone with the right to manage it presses "Check again".
 
@@ -18,6 +20,7 @@ This file summarizes user-visible changes; it is not a list of every commit.
 - Linux servers: the root update (`mycel-update.timer`, and `sudo mycel-ctl update` without `--version`) no longer installs a release older than the app that runs. A server on a pre-release build such as 0.2.18-pre.1, whose feed still named 0.2.17, would have been taken back to 0.2.17 by the timer (the app's own updater already ignored the older feed); it now keeps its version and logs `the feed's release 0.2.17 is older than the installed 0.2.18-pre.1…, not installed`. The order is the app updater's (semver: a release is newer than its pre-releases, `pre.1` before `qa4`, `0.2.10` after `0.2.9`). The same version is skipped without a download unless the root files are older than it, which then catch up. Going back on purpose still works: `sudo mycel-ctl update --version 0.2.17` (newer root files stay). mycel-ctl also reads versions exactly like the server in a few unusual forms (`1.0.0--1`, `1.2a.0`, 20-digit numbers), checked on one shared table by the Go and TypeScript tests.
 - Web research asks much less, closer to Claude Code. The AI now opens up to 30 search results and links of pages it read per answer without asking, and 150 per chat (was 8 and 30). A research answer that reads 25 search-result pages and follows 5 of their links used to ask 22 times; now it asks none (measured on 4 such answers in one chat: 90 questions before, 0 now). A scheduled task's run keeps 8 per run, since nobody is there to watch it. Operators can still set the numbers with `MYCEL_WEB_LINK_BUDGET` ("30,150", and a third number for scheduled runs).
 - Safety, which is what makes that possible: a search result or a link on a page that contains what the AI had sent to a tool earlier in the chat (a site can repeat what it was sent, with your data in it) now always asks, however many links are left, and the question says why. A redirect to such an address asks too, for pages the AI reads as it already did for files it saves. Before, only addresses from connected services were checked this way. Addresses the AI writes itself still ask once per site, and the other rules (long addresses, the office network, confidential chats) are unchanged. In all five languages.
+- Dev environment (experiment): the code is in this release, off by default. It needs `MYCEL_DEV_ENV=1` and the root helper `mycel-boxd`, which the installer does not add. Without them nothing changes.
 
 ## 0.2.17 — 2026-11-01
 
