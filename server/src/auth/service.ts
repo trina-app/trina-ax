@@ -22,6 +22,7 @@ import { USER_COLS, getUser, localeChoice, parsePrefs, userRef, type UserRow } f
 import { canChooseEngine } from '../admin/engine-choice'
 import { teamIconVersion } from '../admin/team-icon'
 import { deploymentOf, featuresOf } from '../system/deployment'
+import { windowsAppSourceOf } from '../system/windows-app'
 import { safeOpsEnabled } from '../safe-ops/runner'
 import { cancelPushSession } from '../notifications/push-events'
 
@@ -231,6 +232,7 @@ export class AuthService implements SessionService {
     const choose = canChooseEngine(this.ctx, { id: u.id, role: u.role })
     const prefs = parsePrefs(u.prefs)
     if (!choose) { delete prefs.engine; delete prefs.model }
+    const windowsApp = windowsAppSourceOf(this.ctx.config)
     return {
       user: {
         id: u.id, username: u.username, name: u.name, email: u.email, role: u.role, locale: u.locale, localeChoice: localeChoice(u),
@@ -243,7 +245,8 @@ export class AuthService implements SessionService {
       // office mode runs dev's engine setup on purpose (docs/OFFICE.md): the office's desks get no DEV banner
       server: { version: this.ctx.version, dev: this.ctx.config.mode === 'dev' && !this.ctx.config.office,
         deployment: deploymentOf(this.ctx.config), features: featuresOf(this.ctx.config), timeZone: settings.timeZone,
-        ...(safeOpsEnabled() ? { allChatsConfidential: true as const } : {}) },
+        ...(safeOpsEnabled() ? { allChatsConfidential: true as const } : {}),
+        ...(windowsApp ? { windowsApp } : {}) },
       passwordReset: u.password_reset_at ? { by: userRef(this.db, u.password_reset_by), at: u.password_reset_at } : null,
     }
   }

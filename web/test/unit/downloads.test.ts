@@ -3,7 +3,7 @@
 import { afterEach, describe, expect, test } from 'bun:test'
 import { createElement } from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
-import { DESKTOP_BRIDGE_GLOBAL, type DesktopBridge } from '@mycel/shared'
+import { DESKTOP_BRIDGE_GLOBAL, RELEASE_CHANNEL, type DesktopBridge } from '@mycel/shared'
 import { currentLocale, DICTS, translate } from '../../src/i18n'
 import { storeApp } from '../../src/lib/desktop'
 import { archNote, installSteps, offeredDownloads, orderDownloads, parseDownloads, showSteps } from '../../src/lib/downloads'
@@ -79,6 +79,28 @@ describe('desktop downloads', () => {
     expect(list).toContain('More info → Run anyway') // apps.winSmartScreen
     expect(list).not.toContain(translate(currentLocale(), 'apps.macStore'))
     expect(view({ downloads: 'none' })).toContain('office-install.sh') // apps.noDownloadsOwner
+  })
+  test("the owner's empty state names what this server does: an office Mac's command, a Linux server's feed or folder, nothing to run on the hosted service", () => {
+    type Props = Parameters<typeof DesktopDownloads>[0]
+    const view = (o: Partial<Props>) => renderToStaticMarkup(createElement(DesktopDownloads, { downloads: 'none', store: false, owner: true, here: 'windows', ...o }))
+    const host = new URL(RELEASE_CHANNEL.feed).host
+    expect(view({})).toContain('teamax desktop add')
+    const feed = view({ server: 'feed' })
+    expect(feed).toContain(translate(currentLocale(), 'apps.noDownloadsFeed'))
+    expect(feed).toContain(host)
+    expect(feed).toContain('INSTALL-LINUX')
+    expect(feed).not.toMatch(/teamax|office-install/)
+    const folder = view({ server: 'folder' })
+    expect(folder).toContain('desktop-refresh --from')
+    expect(folder).not.toMatch(/teamax|office-install/)
+    const hosted = view({ server: 'hosted' })
+    expect(hosted).toContain('You haven&#x27;t put a desktop app') // apps.noDownloadsYet, without the owner's second line
+    expect(hosted).not.toContain('mt-2')
+    for (const server of ['office', 'feed', 'folder', 'hosted'] as const) expect(view({ server, owner: false })).toBe(`<p class="text-sm text-muted">${translate(currentLocale(), 'apps.noDownloads')}</p>`)
+    for (const l of ['ko', 'en', 'id', 'ja', 'es'] as const) {
+      expect(translate(l, 'apps.noDownloadsOwnerFeed', { feed: host })).toContain(host)
+      expect(DICTS[l]['apps.noDownloadsOwnerLinux']).toContain('desktop-refresh --from')
+    }
   })
   test('a store build is what the desktop bridge says; a web browser or an older desktop app (no flag) is not one', () => {
     expect(storeApp()).toBe(false)

@@ -118,6 +118,27 @@ Every update brings one version folder, `app/versions/<version>` (about 540 MB u
 - The first update to 0.2.16 removes the versions collected so far ten minutes after it: in a test (Debian 13 container) 9 versions, 4.5 GB and about 40,000 files took 5 seconds. A slow disk may take tens of seconds; the server keeps answering meanwhile.
 - An older kit put in by the installer (`older`: the running version stays) is kept for one day only; switch to it within that day (`admin.js switch <version>`).
 
+### Windows app
+
+The Windows desktop app updates only from its own team server's `/downloads/latest.yml` (every 4 hours; installed when
+the app quits). Fifteen minutes after the server starts (an update restarts it) and every 6 hours after that, a Linux
+server puts the Windows installer and `latest.yml` of the release it runs into `data/downloads`; Settings › Apps shows
+the installer too.
+
+- Source: `office/<channel>.json` (signed) on the same feed as the server's. The signature, both files' size and
+  SHA-256, and that `latest.yml` names exactly that installer are checked. An app newer than the server waits until
+  the server has that release.
+- One Windows installer is kept (about 110 MB; older ones are removed). Nothing is downloaded when the free space left
+  afterwards would be under the team folder's write reserve (512 MB or 2% of the disk, whichever is larger). A newer
+  installer put there by hand stays.
+- Windows apps already installed need nothing: they pick up the new version at their next check.
+- Now, by hand: `trina_admin desktop-refresh` (`trina_admin` as in [BACKUP-RESTORE.md](BACKUP-RESTORE.md); JSON; not as
+  root). A version whose files did not match is tried again a day later; `--force` tries at once.
+- A server without internet: on another computer download `https://updates.trina.app/office/stable.json` (`beta.json`
+  on the beta channel) and the Windows installer and `latest.yml` it names (`office/<version>/`), put them in one folder
+  the server account can read and run `trina_admin desktop-refresh --from <folder>`. The same checks apply.
+- Office mode (Mac) does the same with its own update agent; on the hosted service the operator does.
+
 ## Safe PowerPoint (safe operations 1A, optional)
 
 Confidential-document PowerPoint ([SAFE-OPS-1A](SAFE-OPS-1A.md)) is off by default:

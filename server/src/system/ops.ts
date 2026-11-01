@@ -34,6 +34,7 @@ import { hostMessages, ML } from './messages-linux'
 import { audit } from '../admin/audit'
 import { autoUpdateDecision, runUpdate } from './update-job'
 import { zonedParts } from './time-zone'
+import { refreshWindowsApp, WINDOWS_EVERY_MS, WINDOWS_FIRST_MS, windowsAppFeedOf, type WindowsAppResult } from './windows-app'
 import { getChatRuntime } from '../chat/runtime'
 import { egressSettled, egressStatus, EXIT_ADDRESS_URL, exitAddressCheckOff } from '../tools/egress'
 
@@ -161,6 +162,21 @@ export class OpsService {
       log.warn('automatic update failed', { to: d.version, err: String(e).slice(0, 300) })
       return 'failed'
     } finally { this.unlock() }
+  }
+
+  /** Linux self-host: the feed this server takes its Windows desktop app from (system/windows-app.ts), else null */
+  windowsAppFeed(): string | null {
+    if (!this.layout.appDir) return null
+    return windowsAppFeedOf(this.ctx.config, this.platform())
+  }
+
+  /** The Windows app of this server's release into data/downloads, for the desks' app (system/windows-app.ts); null
+   * where this server does not do that. */
+  async refreshWindowsApp(o: { force?: boolean } = {}): Promise<WindowsAppResult | null> {
+    const feed = this.windowsAppFeed()
+    if (!feed) return null
+    const log = this.ctx.log.child({ c: 'update' })
+    return refreshWindowsApp({ dataDir: this.ctx.config.dataDir, version: this.ctx.version, channel: this.ctx.config.update.channel, feed, force: o.force, log: (line) => log.info(line) })
   }
 
   /** the prune that holds the lock now (seconds): lockAfterPrune waits for it */
@@ -672,6 +688,18 @@ export class OpsService {
         this.timers.push(hourly)
       }, PRUNE_FIRST_MS)
       this.timers.push(firstPrune as unknown as ReturnType<typeof setInterval>)
+    }
+    // Linux self-host: the Windows desktop app of the release this server runs, for the desks' app (system/windows-app.ts):
+    // 15 minutes after start (an update restarts the server; the bootstrap has decided by then), then every 6 hours
+    if (this.windowsAppFeed()) {
+      const offer = () => { void this.refreshWindowsApp().catch((e) => log.warn('Windows app not offered', { err: e })) }
+      const firstOffer = setTimeout(() => {
+        offer()
+        const every = setInterval(offer, WINDOWS_EVERY_MS)
+        ;(every as unknown as { unref?: () => void }).unref?.()
+        this.timers.push(every)
+      }, WINDOWS_FIRST_MS)
+      this.timers.push(firstOffer as unknown as ReturnType<typeof setInterval>)
     }
     // retention: old audit / tool / turn / token / job rows (system/retention.ts), hourly
     this.timers.push(setInterval(() => {

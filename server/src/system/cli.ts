@@ -20,6 +20,10 @@
 //                                                server (pid from status/status.json) so root/bootstrap starts it
 //   prune-versions [--dry-run]                   remove old version and engine folders now, as the server does hourly
 //                                                (system/prune.ts); --dry-run only lists what would go. JSON
+//   desktop-refresh [--from <folder>] [--force]  the Windows desktop app of this release into data/downloads now, as a
+//                                                Linux server does after each start (system/windows-app.ts); --from: the
+//                                                feed's <channel>.json, installer and latest.yml copied into a folder
+//                                                (no internet); --force tries a version that failed today again. JSON
 //   codex-login | codex-status | codex-logout   the engine account's own Codex (ChatGPT) sign-in, through the launcher:
 //                                                codex-login prints a URL and a one-time code (device auth). Older
 //                                                setup: in managed mode ChatGPT is connected from Admin > AI connections
@@ -61,6 +65,8 @@ import { ageDecrypt, ageEncrypt, isAgeFile, readFileChunks, writeAtomic, zstdCom
 import { extractTar, tarStream, type TarEntryInput } from './tar'
 import { compareVersions, UpdateManager } from './update'
 import { pruneVersions } from './prune'
+import { feedRootOf, folderFetch, refreshWindowsApp } from './windows-app'
+import { DEFAULT_FEED } from '../office/release'
 import { codexCommand } from './codex-login'
 import { archiveUpload, cloudBackupPrepare, cloudBackupUpload, relayKeyCommand, restoreArtifacts, restoreVerify, rotateSetupToken, setupStatus } from './cloud-admin'
 import { makeCredCtx } from '../credentials/store'
@@ -229,6 +235,19 @@ export async function main(argv: string[]): Promise<number> {
       const r = await pruneVersions({ appDir: layout.appDir, running: SERVER_VERSION, dataDir: dryRun ? null : cfg.dataDir, dryRun })
       out(r)
       return r.errors.length ? 1 : 0
+    }
+    case 'desktop-refresh': {
+      // the Windows desktop app of this server's release into data/downloads now, as the server does after each start
+      // (system/windows-app.ts); --from <folder>: from <channel>.json, the installer and latest.yml copied there
+      if (cfg.office) throw new Error('office mode offers the Windows app with its own updater (teamax update now; teamax desktop add)')
+      if (process.getuid?.() === 0) throw new Error('run desktop-refresh as the server account (trina_admin in docs/BACKUP-RESTORE.md), not as root')
+      const from = arg(args, '--from')
+      const feed = feedRootOf(cfg.update.feedUrl) ?? (from ? DEFAULT_FEED : null)
+      if (!feed) throw new Error('this server names no release feed (server.json update.feedUrl); copy the feed files into a folder and use --from <folder> (docs/INSTALL-LINUX.md "Windows app")')
+      const r = await refreshWindowsApp({ dataDir: cfg.dataDir, version: SERVER_VERSION, channel: cfg.update.channel, feed, force: args.includes('--force'),
+        ...(from ? { fetch: folderFetch(path.resolve(from), feed) } : {}) })
+      out(r)
+      return ['failed', 'no-room', 'busy', 'held'].includes(r.kind) ? 1 : 0
     }
     case 'relay-key':
       out(relayKeyCommand(cfg.dataDir, args))

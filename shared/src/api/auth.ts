@@ -71,6 +71,10 @@ export const Me = z.object({
     /** Safe operations 1A is on (MYCEL_SAFE_OPS_1A): every conversation is confidential, and so is every HTML / SVG
      * file preview (shown without scripts outside the desktop app). Absent = off. */
     allChatsConfidential: z.literal(true).optional(),
+    /** a Linux server's Windows desktop app in Settings > Apps (server/src/system/windows-app.ts): 'feed' = the server
+     * takes it from the signed release feed by itself after it starts or updates, 'folder' = no feed (the owner copies
+     * the release's files in). Absent: an office Mac (teamax desktop add), the hosted service, dev, or an older server. */
+    windowsApp: z.enum(['feed', 'folder']).optional(),
   }),
   /** last password reset by an admin / owner recovery: settings shows "last reset: who, when" (tab 5). by null = owner recovery on the server Mac */
   passwordReset: z.object({ by: UserRef.nullable(), at: IsoTime }).nullable().optional(),

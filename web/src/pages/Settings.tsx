@@ -10,6 +10,7 @@ import { Brain, CalendarClock, Download, Laptop, Monitor, Pencil, Plus, ShieldAl
 import { useEffect, useRef, useState } from 'react'
 import { Link, Navigate, NavLink, useNavigate, useParams } from 'react-router-dom'
 import type { EngineId, Memory, Schedule, ScheduleReviewCard, Session, Theme } from '@mycel/shared/api'
+import { RELEASE_CHANNEL } from '@mycel/shared'
 import { api, API, errorText, isApiError } from '../lib/api'
 import { formatDateTime, formatSize } from '../lib/format'
 import { archNote, installSteps, offeredDownloads, orderDownloads, parseDownloads, showSteps, type DownloadItem } from '../lib/downloads'
@@ -607,16 +608,24 @@ function Apps() {
         </Section>
       )}
       <Section title={t('apps.desktopTitle')} desc={t('apps.desktopDesc')}>
-        <DesktopDownloads downloads={downloads} store={store} owner={me.user.role === 'owner'} here={p} />
+        <DesktopDownloads downloads={downloads} store={store} owner={me.user.role === 'owner'} here={p}
+          server={me.server.deployment === 'hosted' ? 'hosted' : me.server.windowsApp ?? 'office'} />
       </Section>
     </>
   )
 }
 
+/** Where the team server's installers come from, for the owner's empty state: an office Mac (`teamax desktop add`), a
+ * Linux server that takes the Windows app from the release feed by itself (GET /api/me server.windowsApp 'feed') or
+ * one without a feed ('folder': desktop-refresh --from), the hosted service (nothing to run). */
+export type DownloadsSource = 'office' | 'feed' | 'folder' | 'hosted'
+const OWNER_HINT: Record<DownloadsSource, MessageKey | null> = { office: 'apps.noDownloadsOwner', feed: 'apps.noDownloadsOwnerFeed', folder: 'apps.noDownloadsOwnerLinux', hosted: null }
+const FEED_HOST = (() => { try { return new URL(RELEASE_CHANNEL.feed).host } catch { return RELEASE_CHANNEL.feed } })()
+
 /** The installers under Settings > Apps > Desktop app (exported for tests). Inside a Mac App Store build only the App
  * Store line: no installer, no install steps, and not the empty state either (it asks for an installer and tells the
  * owner how to add the .dmg). */
-export function DesktopDownloads({ downloads, store, owner, here }: { downloads: DownloadItem[] | null | 'none'; store: boolean; owner: boolean; here: Platform }) {
+export function DesktopDownloads({ downloads, store, owner, here, server = 'office' }: { downloads: DownloadItem[] | null | 'none'; store: boolean; owner: boolean; here: Platform; server?: DownloadsSource }) {
   const t = useT()
   const locale = useLocale()
   if (store) return <p className="text-sm text-muted">{t('apps.macStore')}</p>
@@ -625,8 +634,8 @@ export function DesktopDownloads({ downloads, store, owner, here }: { downloads:
       {downloads === null && <Skeleton lines={2} />}
       {downloads === 'none' && (
         <>
-          <p className="text-sm text-muted">{t(owner ? 'apps.noDownloadsYet' : 'apps.noDownloads')}</p>
-          {owner && <p className="mt-2 text-xs text-muted">{t('apps.noDownloadsOwner')}</p>}
+          <p className="text-sm text-muted">{t(!owner ? 'apps.noDownloads' : server === 'feed' ? 'apps.noDownloadsFeed' : 'apps.noDownloadsYet')}</p>
+          {owner && OWNER_HINT[server] && <p className="mt-2 text-xs text-muted">{t(OWNER_HINT[server]!, { feed: FEED_HOST })}</p>}
         </>
       )}
       {Array.isArray(downloads) && (

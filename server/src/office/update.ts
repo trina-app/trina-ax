@@ -14,7 +14,8 @@
 //      the agents, app -> app.failed, app.previous -> app, the old version's `office.js install`, wait for the old
 //      version; that version is not tried again by the nightly run (`teamax update now` tries again)
 //   6. the release's Windows desktop installer + latest.yml into data/downloads (index.json), so the desks' app
-//      (electron-updater, generic provider) updates from the office's own Mac
+//      (electron-updater, generic provider) updates from the office's own Mac (offerWindows; a Linux team server does
+//      the same after each of its updates, system/windows-app.ts)
 //
 // data/, team/, tls/ and config/ are never touched by an update (the installer keeps them; the rollback moves only
 // app folders). The updater's own files live in <home>/update/: settings.json (channel, time, paused), state.json
@@ -27,6 +28,7 @@ import path from 'node:path'
 import { compareVersions } from '../system/update'
 import { CHANNELS, decide, DEFAULT_FEED, manifestUrl, OFFICE_RELEASE_KEYS, ReleaseError, verifyRelease, VERSION_RE, type Channel, type OfficeRelease, type ReleaseFile } from './release'
 import { addInstaller, readIndex } from './desktop'
+import { reserveBytes, snapshotOf } from '../system/storage'
 import { loadSettings, officePaths, type OfficeSettings } from './settings'
 import { PRODUCT } from '@mycel/shared'
 
@@ -296,15 +298,20 @@ export interface RunResult { kind: ResultKind; version: string | null; message: 
 /** fetch and verify the channel's manifest */
 export async function fetchRelease(home: string, d: Pick<UpdateDeps, 'fetch'>, keys: readonly string[] = OFFICE_RELEASE_KEYS): Promise<OfficeRelease> {
   const set = readUpdateSettings(home)
-  const feed = feedOf(set)
-  const url = manifestUrl(feed, set.channel)
+  return fetchManifest(feedOf(set), set.channel, d, keys)
+}
+
+/** GET <feed>/<dir>/<channel>.json and verify it (signature with a baked key, the channel, every file on the feed); the
+ * office updater and a Linux server's Windows app (system/windows-app.ts). NotPublished for 404. */
+export async function fetchManifest(feed: string, channel: Channel, d: Pick<UpdateDeps, 'fetch'>, keys: readonly string[] = OFFICE_RELEASE_KEYS): Promise<OfficeRelease> {
+  const url = manifestUrl(feed, channel)
   let res: Response
   try { res = await d.fetch(`${url}?t=${Date.now()}`, { redirect: 'error', signal: AbortSignal.timeout(30_000), headers: { 'cache-control': 'no-cache' } }) } catch (e) { throw new UpdateFailure(`cannot reach ${feed}: ${(e as Error).message}`) }
-  if (res.status === 404) throw new NotPublished(`no ${set.channel} release published yet`)
+  if (res.status === 404) throw new NotPublished(`no ${channel} release published yet`)
   if (!res.ok) throw new UpdateFailure(`${url}: HTTP ${res.status}`)
   const buf = new Uint8Array(await res.arrayBuffer())
   if (buf.byteLength > MANIFEST_MAX) throw new UpdateFailure(`${url} is larger than a manifest`)
-  return verifyRelease(Buffer.from(buf).toString('utf8'), { keys, channel: set.channel, feed })
+  return verifyRelease(Buffer.from(buf).toString('utf8'), { keys, channel, feed })
 }
 
 /** Download a release file into `dir`, checking size and SHA-256 on the way. Returns the file. */
@@ -427,33 +434,83 @@ async function waitVersion(port: number, want: string, d: UpdateDeps, ms: number
 }
 
 /** Offer the release's Windows installer to the desks: data/downloads/<installer>, latest.yml, index.json. */
-export async function deliverWindows(home: string, r: OfficeRelease, d: Pick<UpdateDeps, 'fetch' | 'log'>): Promise<string | null> {
+export async function deliverWindows(home: string, r: OfficeRelease, d: Pick<UpdateDeps, 'fetch' | 'log'>, o: { statfs?: StatfsLike } = {}): Promise<string | null> {
   const w = r.windows
   if (!w) return null
-  const dir = path.join(officePaths(home).data, 'downloads')
-  const st = readUpdateState(home)
-  const items = readIndex(dir)
-  const have = items.find((i) => i.platform === 'windows' && i.file === w.installer.file && i.version === w.version)
-  if (have && st.desktop?.version === w.version && fs.existsSync(path.join(dir, w.installer.file)) && fs.existsSync(path.join(dir, 'latest.yml'))) return null
-  const newer = items.find((i) => i.platform === 'windows' && compareVersions(i.version, w.version) > 0)
-  if (newer) { d.log(`Windows app ${newer.version} is already offered (newer than ${w.version}); left as it is`); return null }
-  const tmp = path.join(updatePaths(home).download, 'windows')
-  const exe = await download(w.installer, tmp, d)
-  const yml = await download(w.latestYml, tmp, d)
-  checkLatestYml(fs.readFileSync(yml, 'utf8'), w.version, w.installer.file, sha256File(exe, 'sha512', 'base64'), w.installer.size)
-  // the same checks and index.json as `teamax desktop add` (./desktop.ts): an NSIS installer, the only Windows one
-  const added = addInstaller(dir, exe, { version: w.version })
-  if (added.item.sha256 !== w.installer.sha256) throw new UpdateFailure(`${w.installer.file} changed while it was offered`)
-  // latest.yml last: it never names a file that is not there yet
-  const dest = path.join(dir, 'latest.yml')
-  const t = path.join(dir, `.latest.yml.tmp-${process.pid}`)
-  fs.copyFileSync(yml, t)
-  fs.chmodSync(t, 0o600)
-  fs.renameSync(t, dest)
-  fs.rmSync(tmp, { recursive: true, force: true })
+  const res = await offerWindows(path.join(officePaths(home).data, 'downloads'), path.join(updatePaths(home).download, 'windows'), w, d, o)
+  if (res.kind === 'newer') { d.log(`Windows app ${res.version} is already offered (newer than ${w.version}); left as it is`); return null }
+  if (res.kind === 'no-room') throw new UpdateFailure(res.message)
+  if (res.kind === 'current') {
+    if (readUpdateState(home).desktop?.version !== w.version) patchUpdateState(home, (s) => { s.desktop = { version: w.version, at: new Date().toISOString() } })
+    return null
+  }
   patchUpdateState(home, (s) => { s.desktop = { version: w.version, at: new Date().toISOString() } })
   d.log(`Windows app ${w.version} offered to the desks (${w.installer.file}, latest.yml)`)
   return w.version
+}
+
+export type WindowsRelease = NonNullable<OfficeRelease['windows']>
+export type StatfsLike = (p: string) => { bsize: number | bigint; blocks: number | bigint; bfree: number | bigint; bavail: number | bigint }
+export type WindowsOffer =
+  | { kind: 'offered' | 'current'; version: string }
+  /** a newer Windows app is offered (put there by hand): left as it is, never replaced by an older one */
+  | { kind: 'newer'; version: string }
+  /** the disk has no room for the download (nothing was downloaded) */
+  | { kind: 'no-room'; message: string }
+
+/** `dir` offers exactly this release's Windows app: index.json lists the installer with its SHA-256, the file is there
+ * with that size, and latest.yml is the release's (by SHA-256). */
+export function windowsOffered(dir: string, w: WindowsRelease, items = readIndex(dir)): boolean {
+  const i = items.find((x) => x.platform === 'windows' && x.file === w.installer.file)
+  if (!i || i.version !== w.version || i.sha256 !== w.installer.sha256) return false
+  try {
+    if (fs.statSync(path.join(dir, w.installer.file)).size !== w.installer.size) return false
+    return sha256File(path.join(dir, 'latest.yml')) === w.latestYml.sha256
+  } catch { return false }
+}
+
+/** Room for `bytes` more next to `p`: what is left keeps the reserve below which the team folder refuses writes
+ * (system/storage.ts: max(512 MiB, 2% of the disk)), so a download never takes the team's last space. */
+export function roomFor(p: string, bytes: number, statfs: StatfsLike = (x) => fs.statfsSync(x)): { ok: boolean; freeBytes: number; needBytes: number } {
+  let at = path.resolve(p)
+  while (!fs.existsSync(at) && path.dirname(at) !== at) at = path.dirname(at)
+  const s = snapshotOf(statfs(at))
+  const needBytes = bytes + reserveBytes(s.totalBytes)
+  return { ok: s.freeBytes >= needBytes, freeBytes: s.freeBytes, needBytes }
+}
+
+/**
+ * Put a verified release's Windows installer and its latest.yml into the downloads folder `dir` (index.json), so the
+ * desks' app (electron-updater, generic provider = <team address>/downloads/) updates from its own team server. Both
+ * files are downloaded into `tmp` with their size and SHA-256 checked against the signed manifest, latest.yml must name
+ * exactly that installer (version, sha512, size), the installer gets the checks of `teamax desktop add` and replaces
+ * every older Windows installer in the folder (moved in, not copied: the folder needs room for one copy), and latest.yml
+ * comes last, so it never names a file that is not there. `tmp` is removed afterwards, whatever happened.
+ */
+export async function offerWindows(dir: string, tmp: string, w: WindowsRelease, d: Pick<UpdateDeps, 'fetch' | 'log'>, o: { statfs?: StatfsLike } = {}): Promise<WindowsOffer> {
+  const items = readIndex(dir)
+  if (windowsOffered(dir, w, items)) return { kind: 'current', version: w.version }
+  const newer = items.find((i) => i.platform === 'windows' && compareVersions(i.version, w.version) > 0)
+  if (newer) return { kind: 'newer', version: newer.version }
+  const room = roomFor(tmp, w.installer.size + w.latestYml.size, o.statfs)
+  if (!room.ok) return { kind: 'no-room', message: `not enough disk space for the Windows app ${w.version} (${Math.ceil(room.needBytes / 1048576)} MB needed with the reserve, ${Math.floor(room.freeBytes / 1048576)} MB free)` }
+  fs.rmSync(tmp, { recursive: true, force: true })
+  try {
+    const exe = await download(w.installer, tmp, d)
+    const yml = await download(w.latestYml, tmp, d)
+    checkLatestYml(fs.readFileSync(yml, 'utf8'), w.version, w.installer.file, sha256File(exe, 'sha512', 'base64'), w.installer.size)
+    // the same checks and index.json as `teamax desktop add` (./desktop.ts): an NSIS installer, the only Windows one
+    const added = addInstaller(dir, exe, { version: w.version, move: true })
+    if (added.item.sha256 !== w.installer.sha256 || added.item.file !== w.installer.file) throw new UpdateFailure(`${w.installer.file} changed while it was offered`)
+    // latest.yml last: it never names a file that is not there yet
+    const t = path.join(dir, `.latest.yml.tmp-${process.pid}`)
+    try {
+      fs.copyFileSync(yml, t)
+      fs.chmodSync(t, 0o600)
+      fs.renameSync(t, path.join(dir, 'latest.yml'))
+    } finally { fs.rmSync(t, { force: true }) }
+  } finally { fs.rmSync(tmp, { recursive: true, force: true }) }
+  return { kind: 'offered', version: w.version }
 }
 
 /** electron-updater's latest.yml of the installer: the version, a plain file name (no URL elsewhere), its sha512. */
