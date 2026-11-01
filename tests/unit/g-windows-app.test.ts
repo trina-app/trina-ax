@@ -173,7 +173,8 @@ describe('the signed release\'s Windows app into data/downloads', () => {
     const p = publish('0.4.0')
     const seen: string[] = []
     expect(await refreshWindowsApp(opts(s, p.files, { version: '0.3.0' }, seen))).toMatchObject({ kind: 'ahead', version: '0.4.0' })
-    expect(seen).toEqual([`${FEED}/office/stable.json`])
+    // the server's own release was looked for (a release before 0.2.19 has no such manifest), nothing downloaded
+    expect(seen).toEqual([`${FEED}/office/stable.json`, `${FEED}/office/0.3.0/stable.json`])
     expect(fs.existsSync(s.downloads)).toBe(false)
     // a pre-release server is older than the release of the same number
     expect((await refreshWindowsApp(opts(s, p.files, { version: '0.4.0-qa.1' }))).kind).toBe('ahead')
@@ -182,6 +183,46 @@ describe('the signed release\'s Windows app into data/downloads', () => {
     // a server newer than the feed's head gets the head's app (an older app is never put over a newer one)
     const s2 = server('behind-feed')
     expect((await refreshWindowsApp(opts(s2, publish('0.3.0').files, { version: '0.3.1' }))).kind).toBe('offered')
+  })
+
+  test('a server the channel has passed (a hosted tenant waiting for its wave) offers its own release\'s app, from that release\'s kept manifest', async () => {
+    const s = server('own-version')
+    const head = publish('0.4.0')
+    const own = publish('0.3.0')
+    const files = new Map([...head.files, ...own.files])
+    files.set(fileUrl(FEED, '0.3.0', 'stable.json'), own.files.get(`${FEED}/office/stable.json`)!)
+    files.set(`${FEED}/office/stable.json`, head.files.get(`${FEED}/office/stable.json`)!)
+    expect(await refreshWindowsApp(opts(s, files, { version: '0.3.0' }))).toMatchObject({ kind: 'offered', version: '0.3.0' })
+    expect(readIndex(s.downloads).map((i) => `${i.version} ${i.sha256}`)).toEqual([`0.3.0 ${sha(own.exe!)}`])
+    expect(fs.readFileSync(path.join(s.downloads, 'latest.yml'), 'utf8')).toBe(own.yml!)
+    // that manifest must be that version: another release's text in its place is refused, nothing changes
+    const s2 = server('own-version-wrong')
+    const wrong = new Map(files)
+    wrong.set(fileUrl(FEED, '0.3.0', 'stable.json'), publish('0.3.1').files.get(`${FEED}/office/stable.json`)!)
+    const r = await refreshWindowsApp(opts(s2, wrong, { version: '0.3.0' }))
+    expect(r.kind).toBe('failed')
+    expect(r.message).toContain('is the manifest of 0.3.1, not 0.3.0')
+    expect(fs.existsSync(s2.downloads)).toBe(false)
+    // and signed with a key this build does not trust: refused as well
+    const s3 = server('own-version-key')
+    const other = crypto.generateKeyPairSync('ed25519').privateKey.export({ format: 'pem', type: 'pkcs8' }) as string
+    const forged = new Map(files)
+    forged.set(fileUrl(FEED, '0.3.0', 'stable.json'), publish('0.3.0', { key: other }).files.get(`${FEED}/office/stable.json`)!)
+    expect((await refreshWindowsApp(opts(s3, forged, { version: '0.3.0' }))).message).toContain('unknown key')
+  })
+
+  test('the publisher keeps each version\'s manifest for good: uploaded once, a re-run with the same files keeps it, other files stop it', async () => {
+    const { versionManifestAction, versionManifestKey } = await import('../../scripts/release/publish')
+    const ctx = { keys: KEYS, feed: FEED }
+    const p = publish('0.3.0')
+    const signed = p.files.get(`${FEED}/office/stable.json`) as string
+    const rel = JSON.parse(JSON.parse(signed).payload) as OfficeRelease
+    expect(versionManifestKey('0.3.0', 'stable')).toBe('office/0.3.0/stable.json')
+    expect(versionManifestAction(null, rel, ctx)).toBe('upload')
+    expect(versionManifestAction(signed, { ...rel, publishedAt: new Date(Date.now() + 1000).toISOString() }, ctx)).toBe('keep')
+    const changed = { ...rel, windows: { ...rel.windows!, installer: { ...rel.windows!.installer, sha256: 'f'.repeat(64) } } }
+    expect(() => versionManifestAction(signed, changed, ctx)).toThrow(/already published with other files/)
+    expect(() => versionManifestAction(signed, rel, { ...ctx, keys: [publicKeyOf(crypto.generateKeyPairSync('ed25519').privateKey.export({ format: 'pem', type: 'pkcs8' }) as string)] })).toThrow(/does not verify/)
   })
 
   test('a file that does not match the signed manifest is refused, nothing offered changes, the version waits a day (--force tries again)', async () => {
@@ -298,6 +339,12 @@ describe('the signed release\'s Windows app into data/downloads', () => {
     await refreshWindowsApp(opts(s, p.files, { version: '0.3.1' }))
     expect(readWindowsState(s.data).last?.kind).toBe('held')
     expect(windowsDiagnostic(s.data, '0.3.1')).toMatchObject({ status: 'warn', text: { en: expect.stringContaining('desktop-refresh --force') } })
+    // a hosted tenant: the reason itself and the next update, no "a day later" (it has no daily run) and no command
+    const hostedHeld = windowsDiagnostic(s.data, '0.3.1', undefined, true)!
+    expect(hostedHeld.status).toBe('warn')
+    expect(hostedHeld.text.en).toContain('does not match the signed release')
+    expect(hostedHeld.text.en).toContain('next update')
+    expect(hostedHeld.text.en).not.toMatch(/a day later|trina_admin|desktop-refresh/)
     // "comes once this server runs 0.4.0" is not shown once the server runs 0.4.0 (the next run says what it did)
     await refreshWindowsApp(opts(s, publish('0.4.0').files, { version: '0.3.1' }))
     expect(windowsDiagnostic(s.data, '0.3.1')?.status).toBe('ok')
@@ -486,5 +533,5 @@ describe('admin.js desktop-refresh', () => {
     expect(JSON.parse(r.out)).toMatchObject({ kind: 'failed', message: expect.stringContaining('unknown key') })
     // no feed and no folder: what to do instead
     expect(run(null)).toMatchObject({ code: 1, err: expect.stringContaining('--from <folder>') })
-  })
+  }, 60_000) // four admin.js processes, each loading the server code (about 2 s apiece in a Linux container)
 })

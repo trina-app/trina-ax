@@ -6,7 +6,10 @@
 // updated. Here the Linux server does the same, from the same signed office manifest:
 //
 //   1. GET <feed>/<officeDir>/<channel>.json (the feed of server.json update.feedUrl, the server's own channel) and verify
-//      it like an office does (Ed25519 with a key baked into this build, the channel, every file on the feed)
+//      it like an office does (Ed25519 with a key baked into this build, the channel, every file on the feed); when that
+//      head is a newer release than this server, this server's own one instead: <feed>/<officeDir>/<version>/<channel>.json,
+//      which scripts/release/publish.ts keeps for every version from 0.2.19 on (verified the same way, and it must be
+//      that version)
 //   2. its Windows app is offered only when it is not newer than the version this server runs: the desks follow the
 //      server, so a server that has not taken a release yet does not hand out that release's app
 //   3. office/update.ts offerWindows: size and SHA-256 against the manifest, latest.yml naming exactly that installer,
@@ -192,6 +195,16 @@ export async function refreshWindowsApp(o: WindowsAppOptions): Promise<WindowsAp
       return done({ kind: 'failed', version: null, message: e instanceof ReleaseError || e instanceof UpdateFailure ? e.message : String(e) })
     }
     st.lastCheckAt = now().toISOString()
+    if (compareVersions(r.version, o.version) > 0) {
+      // the channel has moved on past this server (a hosted tenant waits for its rollout wave, a server that has not
+      // taken the release yet): this server's own release, from the manifest the feed keeps for every version
+      try {
+        r = await fetchManifest(o.feed, o.channel, { fetch: o.fetch ?? ((u, i) => fetch(u, i)) }, o.keys ?? OFFICE_RELEASE_KEYS, o.version)
+      } catch (e) {
+        // releases before 0.2.19 have none: the channel's head decides below (only an app not newer than this server)
+        if (!(e instanceof NotPublished)) return done({ kind: 'failed', version: null, message: e instanceof ReleaseError || e instanceof UpdateFailure ? e.message : String(e) })
+      }
+    }
     const w = r.windows
     if (!w) return done({ kind: 'none', version: r.version, message: `release ${r.version} has no Windows app` })
     if (compareVersions(w.version, o.version) > 0) return done({ kind: 'ahead', version: w.version, message: `this server runs ${o.version}; the Windows app ${w.version} follows when the server has it` })
@@ -310,7 +323,8 @@ export function windowsDiagnostic(dataDir: string, serverVersion: string, downlo
       if (offered) return { status: 'ok', text: WINDOWS_TEXT.checkFailed(offered.version, why) }
       return { status: 'warn', text: hosted ? WINDOWS_TEXT.failedHosted(why) : WINDOWS_TEXT.failed(why, st.failed?.version === last.version) }
     }
-    case 'held': return { status: 'warn', text: hosted ? WINDOWS_TEXT.failedHosted(why) : WINDOWS_TEXT.failed(why, true) }
+    // a hosted tenant has no daily run: the reason itself, not "tried again a day later"
+    case 'held': return { status: 'warn', text: hosted ? WINDOWS_TEXT.failedHosted((st.failed?.message ?? why).slice(0, 300)) : WINDOWS_TEXT.failed(why, true) }
     default: return { status: 'warn', text: hosted ? WINDOWS_TEXT.failedHosted(why) : WINDOWS_TEXT.failed(why) }
   }
 }

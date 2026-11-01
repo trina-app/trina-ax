@@ -14,8 +14,11 @@
 //   2. refuses to go back: the channel's current manifest (if any) must be older (the same version only re-uploads
 //      identical files; --if-newer: a newer channel is left as it is, no error), and a file already published under
 //      <dir>/<version>/ is never replaced by a different one (compared by content, not size)
-//   3. uploads <dir>/<version>/<files> to the R2 bucket, then signs (~/.config/<keyDir>/release-key.pem) and
-//      uploads <dir>/<channel>.json last, so the manifest never names a file that is not there
+//   3. uploads <dir>/<version>/<files> to the R2 bucket, then signs (~/.config/<keyDir>/release-key.pem) and uploads
+//      the same signed manifest as <dir>/<version>/<channel>.json (kept for good: a server that runs this version
+//      after the channel moved on still offers this version's Windows app, server/src/system/windows-app.ts; a re-run
+//      keeps the first one when it names the same files) and <dir>/<channel>.json last, so the manifest never names a
+//      file that is not there
 //   4. reads the manifest back through the feed and verifies it like an office does
 // --out DIR writes the feed into a folder instead (tests: a feed on this Mac, whose address --feed names, served to an
 // install switched to it with `teamax update feed`); --dry-run checks and signs, uploads nothing.
@@ -78,6 +81,21 @@ export function officeZipVersion(zip: string): string {
 
 export interface Artifact { key: string; file: string; type: string; meta: ReleaseFile }
 
+/** <dir>/<version>/<channel>.json: this version's signed manifest on that channel, never replaced */
+export const versionManifestKey = (version: string, channel: Channel) => `${DIR}/${version}/${channel}.json`
+
+/** What to do with <dir>/<version>/<channel>.json: upload it when it is not there; keep an earlier one (a re-run) when it
+ * verifies, is this version on this channel and names the same files; anything else stops the publish. */
+export function versionManifestAction(existing: string | null, release: OfficeRelease, ctx: { keys: readonly string[]; feed: string }): 'upload' | 'keep' {
+  if (existing === null) return 'upload'
+  const key = versionManifestKey(release.version, release.channel)
+  let prev: OfficeRelease
+  try { prev = verifyRelease(existing, { keys: ctx.keys, channel: release.channel, feed: ctx.feed }) } catch (e) { throw new Error(`${key} is on the feed but does not verify (${(e as Error).message}): look at it by hand`) }
+  const files = (r: OfficeRelease) => [...r.office, ...(r.windows ? [r.windows.installer, r.windows.latestYml] : [])].map((f) => `${f.file} ${f.sha256} ${f.size}`).sort().join('\n')
+  if (prev.version !== release.version || files(prev) !== files(release) || (prev.windows?.version ?? null) !== (release.windows?.version ?? null)) throw new Error(`${key} is already published with other files: publish a new version instead`)
+  return 'keep'
+}
+
 export function describe(feed: string, version: string, file: string, type: string): Artifact {
   const name = path.basename(file)
   return { key: `${DIR}/${version}/${name}`, file, type, meta: { file: name, url: fileUrl(feed, version, name), sha256: sha256(file), size: fs.statSync(file).size } }
@@ -131,6 +149,8 @@ async function main() {
 
   if (out) {
     for (const a of arts) { fs.mkdirSync(path.join(out, path.dirname(a.key)), { recursive: true }); fs.copyFileSync(a.file, path.join(out, a.key)) }
+    const vkey = path.join(out, versionManifestKey(version, channel))
+    if (versionManifestAction(fs.existsSync(vkey) ? fs.readFileSync(vkey, 'utf8') : null, release, { keys: OFFICE_RELEASE_KEYS, feed }) === 'upload') fs.writeFileSync(vkey, signed)
     fs.mkdirSync(path.join(out, DIR), { recursive: true })
     fs.writeFileSync(path.join(out, DIR, `${channel}.json`), signed)
     console.log(`written into ${out} (feed paths ${DIR}/…)`)
@@ -155,6 +175,12 @@ async function main() {
       ;(a as Artifact & { skip?: boolean }).skip = true
     }
   }
+  // this version's manifest on this channel (kept for good; a re-run keeps the first one)
+  const vkey = versionManifestKey(version, channel)
+  const have = await fetch(`${fileUrl(feed, version, `${channel}.json`)}?t=${Date.now()}`, { signal: AbortSignal.timeout(20_000) })
+  if (have.status !== 200 && have.status !== 404) throw new Error(`${vkey}: HTTP ${have.status}`)
+  const vaction = versionManifestAction(have.status === 200 ? await have.text() : null, release, { keys: OFFICE_RELEASE_KEYS, feed })
+  if (vaction === 'keep') console.log(`= ${vkey} (already there, same files)`)
   if (dry) { console.log('dry run: nothing uploaded'); return }
 
   const { Cloudflare } = await import('./cloudflare')
@@ -170,7 +196,10 @@ async function main() {
   const tmp = path.join(REPO, 'dist', `.${channel}.json.tmp-${process.pid}`)
   fs.mkdirSync(path.dirname(tmp), { recursive: true })
   fs.writeFileSync(tmp, signed)
-  try { await cf.putObject(account, `${DIR}/${channel}.json`, tmp, 'application/json') } finally { fs.rmSync(tmp, { force: true }) }
+  try {
+    if (vaction === 'upload') { console.log(`↑ ${vkey}`); await cf.putObject(account, vkey, tmp, 'application/json') }
+    await cf.putObject(account, `${DIR}/${channel}.json`, tmp, 'application/json')
+  } finally { fs.rmSync(tmp, { force: true }) }
   const back = await fetch(`${manifestUrl(feed, channel)}?t=${Date.now()}`, { signal: AbortSignal.timeout(20_000) })
   const got = verifyRelease(await back.text(), { keys: OFFICE_RELEASE_KEYS, channel, feed })
   if (got.version !== version) throw new Error(`the feed answers ${got.version}, not ${version}`)

@@ -9,7 +9,7 @@ import clsx from 'clsx'
 import { Brain, CalendarClock, Download, Laptop, Monitor, Pencil, Plus, ShieldAlert, Smartphone, Trash2 } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
 import { Link, Navigate, NavLink, useNavigate, useParams } from 'react-router-dom'
-import type { EngineId, Memory, Schedule, ScheduleReviewCard, Session, Theme } from '@mycel/shared/api'
+import type { EngineId, Me, Memory, Schedule, ScheduleReviewCard, Session, Theme } from '@mycel/shared/api'
 import { RELEASE_CHANNEL } from '@mycel/shared'
 import { api, API, errorText, isApiError } from '../lib/api'
 import { formatDateTime, formatSize } from '../lib/format'
@@ -609,7 +609,7 @@ function Apps() {
       )}
       <Section title={t('apps.desktopTitle')} desc={t('apps.desktopDesc')}>
         <DesktopDownloads downloads={downloads} store={store} owner={me.user.role === 'owner'} here={p}
-          server={me.server.deployment === 'hosted' ? (me.server.windowsApp === 'feed' ? 'hosted-feed' : 'hosted') : me.server.windowsApp ?? 'office'} />
+          server={downloadsSourceOf(me.server)} />
       </Section>
     </>
   )
@@ -620,6 +620,8 @@ function Apps() {
  * one without a feed ('folder': desktop-refresh --from), a hosted tenant that takes it from the feed ('hosted-feed':
  * nothing to run, Diagnostics says why when it is missing) or one that does not ('hosted'). */
 export type DownloadsSource = 'office' | 'feed' | 'folder' | 'hosted' | 'hosted-feed'
+export const downloadsSourceOf = (server: Pick<Me['server'], 'deployment' | 'windowsApp'>): DownloadsSource =>
+  server.deployment === 'hosted' ? (server.windowsApp === 'feed' ? 'hosted-feed' : 'hosted') : server.windowsApp ?? 'office'
 const OWNER_HINT: Record<DownloadsSource, MessageKey | null> = { office: 'apps.noDownloadsOwner', feed: 'apps.noDownloadsOwnerFeed', folder: 'apps.noDownloadsOwnerLinux', hosted: null, 'hosted-feed': 'apps.noDownloadsOwnerHosted' }
 const FEED_HOST = (() => { try { return new URL(RELEASE_CHANNEL.feed).host } catch { return RELEASE_CHANNEL.feed } })()
 

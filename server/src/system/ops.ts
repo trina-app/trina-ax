@@ -164,7 +164,8 @@ export class OpsService {
     } finally { this.unlock() }
   }
 
-  /** Linux self-host: the feed this server takes its Windows desktop app from (system/windows-app.ts), else null */
+  /** A Linux server (self-installed or a hosted tenant): the feed this server takes its Windows desktop app from
+   * (system/windows-app.ts), else null */
   windowsAppFeed(): string | null {
     if (!this.layout.appDir) return null
     return windowsAppFeedOf(this.ctx.config, this.platform())

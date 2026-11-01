@@ -142,7 +142,10 @@ you updated it.
   `trina_admin desktop-refresh --from /full/path` (not a relative path: `trina_admin` runs from `/`). The same checks
   apply. A release newer than the server is not offered (`ahead`): update the server first. The command exits non-zero
   unless the result is `offered`, `current` or `newer` (a newer installer put there by hand).
-- Office mode (Mac) does the same with its own update agent; on the hosted service the operator does.
+- When the channel has already moved on to a newer release, the server takes its own release's signed manifest
+  instead (`office/<version>/<channel>.json`, kept on the feed for every release from 0.2.19 on).
+- Office mode (Mac) does the same with its own update agent. A hosted tenant does only the run after each start (the
+  hosted service's update restarts it), from its own feed; its owner sees the result in Diagnostics.
 
 ## Safe PowerPoint (safe operations 1A, optional)
 

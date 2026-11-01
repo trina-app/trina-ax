@@ -26,7 +26,7 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { compareVersions } from '../system/update'
-import { CHANNELS, decide, DEFAULT_FEED, manifestUrl, OFFICE_RELEASE_KEYS, ReleaseError, verifyRelease, VERSION_RE, type Channel, type OfficeRelease, type ReleaseFile } from './release'
+import { CHANNELS, decide, DEFAULT_FEED, fileUrl, manifestUrl, OFFICE_RELEASE_KEYS, ReleaseError, verifyRelease, VERSION_RE, type Channel, type OfficeRelease, type ReleaseFile } from './release'
 import { addInstaller, ensureDir, planAdd, readIndex } from './desktop'
 import { reserveBytes, snapshotOf } from '../system/storage'
 import { loadSettings, officePaths, type OfficeSettings } from './settings'
@@ -302,16 +302,21 @@ export async function fetchRelease(home: string, d: Pick<UpdateDeps, 'fetch'>, k
 }
 
 /** GET <feed>/<dir>/<channel>.json and verify it (signature with a baked key, the channel, every file on the feed); the
- * office updater and a Linux server's Windows app (system/windows-app.ts). NotPublished for 404. */
-export async function fetchManifest(feed: string, channel: Channel, d: Pick<UpdateDeps, 'fetch'>, keys: readonly string[] = OFFICE_RELEASE_KEYS): Promise<OfficeRelease> {
-  const url = manifestUrl(feed, channel)
+ * office updater and a Linux server's Windows app (system/windows-app.ts). NotPublished for 404. `version`: that
+ * version's own copy, <feed>/<dir>/<version>/<channel>.json (scripts/release/publish.ts keeps it for good), which must
+ * be that version. */
+export async function fetchManifest(feed: string, channel: Channel, d: Pick<UpdateDeps, 'fetch'>, keys: readonly string[] = OFFICE_RELEASE_KEYS, version?: string): Promise<OfficeRelease> {
+  if (version !== undefined && !VERSION_RE.test(version)) throw new NotPublished(`${version} is not a release version`)
+  const url = version === undefined ? manifestUrl(feed, channel) : fileUrl(feed, version, `${channel}.json`)
   let res: Response
   try { res = await d.fetch(`${url}?t=${Date.now()}`, { redirect: 'error', signal: AbortSignal.timeout(30_000), headers: { 'cache-control': 'no-cache' } }) } catch (e) { throw new UpdateFailure(`cannot reach ${feed}: ${(e as Error).message}`) }
   if (res.status === 404) throw new NotPublished(`no ${channel} release published yet`)
   if (!res.ok) throw new UpdateFailure(`${url}: HTTP ${res.status}`)
   const buf = new Uint8Array(await res.arrayBuffer())
   if (buf.byteLength > MANIFEST_MAX) throw new UpdateFailure(`${url} is larger than a manifest`)
-  return verifyRelease(Buffer.from(buf).toString('utf8'), { keys, channel, feed })
+  const r = verifyRelease(Buffer.from(buf).toString('utf8'), { keys, channel, feed })
+  if (version !== undefined && r.version !== version) throw new ReleaseError(`${url} is the manifest of ${r.version}, not ${version}`)
+  return r
 }
 
 /** Download a release file into `dir`, checking size and SHA-256 on the way. Returns the file. `o.sha512` gets the
