@@ -230,11 +230,12 @@ export async function whisperFile(cfg: TranscribeConfig, model: string, work: st
   return parseWhisperJson(out.bytes.toString('utf8'))
 }
 
-/** ffmpeg (isolated) in `work`: `audio` -> work/audio.wav, 16 kHz mono 16-bit PCM. Returns "audio.wav". */
+/** ffmpeg (isolated) in `work`: `audio` -> work/audio.wav, 16 kHz mono 16-bit PCM, without the recording's tags (ffmpeg
+ * copies a title or comment into the WAV by default, and the WAV may go to OpenRouter). Returns "audio.wav". */
 export async function convertToWav(ffmpeg: string, work: string, audio: string, h: JobHandle, loc: Locale, at: number): Promise<string> {
   h.progress(at, LABELS.convert[loc])
   const r = await runIsolated({ cmd: ffmpeg, workDir: work, timeoutMs: 10 * 60_000, signal: h.signal,
-    args: ['-nostdin', '-hide_banner', '-loglevel', 'error', '-i', audio, '-vn', '-ar', '16000', '-ac', '1', '-c:a', 'pcm_s16le', 'audio.wav'] })
+    args: ['-nostdin', '-hide_banner', '-loglevel', 'error', '-i', audio, '-vn', '-map_metadata', '-1', '-fflags', '+bitexact', '-ar', '16000', '-ac', '1', '-c:a', 'pcm_s16le', 'audio.wav'] })
   if (h.signal.aborted) throw new Error('aborted')
   if (r.code !== 0) throw UNREADABLE()
   return 'audio.wav'

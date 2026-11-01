@@ -4,10 +4,10 @@ import type { Database } from 'bun:sqlite'
 import type { AuditEntry, Page } from '@mycel/shared/api'
 import { fail } from '../http/errors'
 
-/** Actions starting with "auth." are shown with source 'auth', the rest with source 'admin'. */
-export function audit(db: Database, e: { actor: string | null; action: string; target?: string | null; detail?: Record<string, unknown> | null }): void {
-  db.query('INSERT INTO audit_log (actor_id, action, target, detail, at) VALUES (?, ?, ?, ?, ?)')
-    .run(e.actor, e.action, e.target ?? null, e.detail ? JSON.stringify(e.detail) : null, new Date().toISOString())
+/** Actions starting with "auth." are shown with source 'auth', the rest with source 'admin'. Returns the row's id. */
+export function audit(db: Database, e: { actor: string | null; action: string; target?: string | null; detail?: Record<string, unknown> | null }): number {
+  return Number(db.query('INSERT INTO audit_log (actor_id, action, target, detail, at) VALUES (?, ?, ?, ?, ?)')
+    .run(e.actor, e.action, e.target ?? null, e.detail ? JSON.stringify(e.detail) : null, new Date().toISOString()).lastInsertRowid)
 }
 
 export interface AuditFilter {

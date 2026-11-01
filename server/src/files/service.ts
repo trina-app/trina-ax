@@ -37,7 +37,8 @@ import { normalizeForModel } from './vision'
 import { openChecked } from '../team-files/place'
 import { JobFailure } from '../jobs/service'
 import { converterInputName, modelReady, transcribeConfig, whisperFile, type TranscribeConfig } from '../jobs/transcribe'
-import { sendToOpenRouter } from '../jobs/openrouter-stt'
+import { openRouterAudio, openRouterServed, sendToOpenRouter, wavData, type OpenRouterAnswer } from '../jobs/openrouter-stt'
+import { keepLongRetry, LONG_PIECE_SEC, longRetryLanguage } from '../jobs/speech-language'
 import { pieceTurn, pieceWait } from '../jobs/whisper-turns'
 import * as media from './media'
 import { mediaText, personLocale, type MediaTextKey } from './media-text'
@@ -538,10 +539,20 @@ export class FileService {
     const speed = media.localSpeed(this.db, media.localModelName(this.speech.model), this.speech.threads)
     return { cpuCores: cpuBudget(), localPieceSec: media.LOCAL_PIECE_SEC, localSecPerSec: speed.measured ? speed.secPerSec : null, hostedNewSec: currentPlan() !== null ? media.HOSTED_LOCAL_NEW_SEC : null }
   }
+  /** A piece's WAV as OpenRouter gets it (jobs/openrouter-stt.ts openRouterAudio: quiet sound raised, FLAC), or the WAV
+   * itself when this ffmpeg cannot make one. A run that replaced its work folder or left a link: media_damaged. */
+  async mediaSendable(tools: media.MediaTools, work: string, wavName: string, wav: Buffer, o: { signal?: AbortSignal; timeoutMs: number; workBytes: number }): Promise<{ bytes: Buffer; format: string }> {
+    const r = await openRouterAudio(tools.ffmpeg, work, wavName, wav, o)
+    if (r.ok) return { bytes: r.bytes, format: r.format }
+    if (r.why === 'damaged') throw new ToolError('the sound could not be encoded', 'media_damaged')
+    return { bytes: wav, format: 'wav' }
+  }
   /** One piece of sound (16 kHz WAV, `wav` in the work folder as `wavName`) -> the team speech provider's transcript.
-   * `language`: a hint (ISO 639-1), else the provider detects it. */
-  async mediaTranscribe(p: MediaSpeech, work: string, wavName: string, wav: Buffer, o: { signal?: AbortSignal; timeoutMs: number; language?: string }): Promise<MediaAnswer> {
-    if (p.provider === 'openrouter') return sendToOpenRouter(this.speech, p.key, p.model, wav, 'wav', { signal: o.signal, timeoutMs: o.timeoutMs, wavSeconds: true, language: o.language })
+   * `language`: a hint (ISO 639-1), else the provider detects it. `send`: what goes to OpenRouter (mediaSendable),
+   * else the WAV. */
+  async mediaTranscribe(p: MediaSpeech, work: string, wavName: string, wav: Buffer, o: { signal?: AbortSignal; timeoutMs: number; language?: string; send?: { bytes: Buffer; format: string } }): Promise<MediaAnswer> {
+    // 16 kHz mono 16-bit PCM: 32 000 bytes a second
+    if (p.provider === 'openrouter') return sendToOpenRouter(this.speech, p.key, p.model, o.send?.bytes ?? wav, o.send?.format ?? 'wav', { signal: o.signal, timeoutMs: o.timeoutMs, seconds: (wavData(wav)?.length ?? Math.max(0, wav.length - 44)) / 32_000, language: o.language })
     // no temperature fallback: it took a piece of odd sound 5 times as long, which the read's plan cannot hold; and how
     // sure whisper.cpp is of the language it heard (a short piece alone may be told the team's language)
     let languageP: number | undefined
@@ -841,6 +852,8 @@ export class FileService {
     let covered = w.from, made = 0, sentSec = 0, newSec = 0, cached = 0, silent = 0, probed = false
     /** a language a retry proved for this file in this read: the next short pieces are told it at once */
     let proven: string | undefined
+    /** OpenRouter's requests of this read: their generation ids and the provider that served each, when known */
+    const requests: { generation?: string; served?: string }[] = []
     let stopped: string | null = null
     let failure: string | null = null
     // the audit row covers every piece handed to the provider, also when the read then fails, is stopped or loses access
@@ -877,13 +890,18 @@ export class FileService {
             if (voice.voiced < media.MIN_VOICED_SEC) { piece = media.SILENT_PIECE; silent++ }
             else {
               const short = voice.voiced < media.SHORT_SPEECH_SEC
+              // OpenRouter gets the piece raised when quiet and as FLAC, made once for the piece and its retry
+              const send = speech.provider === 'openrouter' ? await this.mediaSendable(tools, work, wav, bytes, { signal: ctx.signal, timeoutMs: budget(), workBytes: src.size + bytes.length }) : undefined
               newSec += len
               sentSec += len
               // its time counts in this server's speed only with real speech in it (room tone is quick for whisper.cpp)
               const measure = voice.loud >= media.SPEED_SPEECH_SEC
-              const ask = (lang: string | undefined) => speech!.provider === 'local'
-                ? this.localPiece(ctx, speech!, work, wav, bytes, len, lang, budget, need, measure)
-                : this.mediaTranscribe(speech!, work, wav, bytes, { signal: ctx.signal, timeoutMs: budget(), language: lang })
+              const ask = async (lang: string | undefined) => {
+                if (speech!.provider === 'local') return this.localPiece(ctx, speech!, work, wav, bytes, len, lang, budget, need, measure)
+                const r = await this.mediaTranscribe(speech!, work, wav, bytes, { signal: ctx.signal, timeoutMs: budget(), language: lang, send })
+                requests.push({ ...(r.generation ? { generation: r.generation } : {}), ...(r.served ? { served: r.served } : {}) })
+                return r
+              }
               // A short piece runs on whisper's own guess, or at once on a language a retry already proved in this read.
               // When whisper is unsure, it runs again told the file's language (the one most heard in pieces it was sure
               // of) or else the team's; that answer is kept by media.acceptRetry (not a caption or an invention, the same
@@ -902,6 +920,23 @@ export class FileService {
                     media.assertWork(work)
                   }
                   if (again && typeof again === 'object' && media.acceptRetry(answer, again, told)) { answer = again; language = told; proven = told }
+                }
+              }
+              // A long OpenRouter piece: whisper names one language for the whole request from its first 30 s (QA: a
+              // 13-minute Korean meeting came back translated into Japanese). When the language it heard is unlikely
+              // (neither the team's nor English, whisper unsure of its words, or another piece of the file heard
+              // otherwise: longRetryLanguage), the piece runs once more told the file's language, else the team's, and
+              // the answer whisper is surer of is kept (keepLongRetry). A told language is never reported as heard; a
+              // retry that fails keeps the first answer.
+              if (speech.provider === 'openrouter' && !language && len >= LONG_PIECE_SEC && typeof answer === 'object') {
+                const told = longRetryLanguage(answer, { team, file: media.heardLanguage(heard) })
+                if (told && budget() >= need) {
+                  let again: Awaited<ReturnType<typeof ask>> | null = null
+                  try { again = await ask(told) } catch {
+                    ctx.signal?.throwIfAborted()
+                    media.assertWork(work)
+                  }
+                  if (again && typeof again === 'object' && keepLongRetry(answer, again, told)) { answer = again; language = told; proven = told }
                 }
               }
               // whisper.cpp had no time for it after all, or voice input is using it: not made, nothing handed over
@@ -939,8 +974,12 @@ export class FileService {
       }
     } finally {
       if (sentSec || failure) {
-        audit(this.db, { actor: ctx.user.id, action: 'media.transcribe', target: src.rel,
-          detail: { seconds: Math.round(sentSec), provider, model, pieces: made, cached, ...(silent ? { silent } : {}), ok: made > 0 && !failure && !ctx.signal?.aborted, ...(ctx.turnId ? {} : { via: 'connection' }) } })
+        // which provider served each OpenRouter request (no words): what the answer said, else OpenRouter's record of
+        // the generation, looked up a few seconds later (noteServed)
+        const routed = requests.length ? { served: servedCounts(requests), generations: requests.flatMap((r) => (r.generation ? [r.generation] : [])) } : {}
+        const row = audit(this.db, { actor: ctx.user.id, action: 'media.transcribe', target: src.rel,
+          detail: { seconds: Math.round(sentSec), provider, model, pieces: made, cached, ...(silent ? { silent } : {}), ok: made > 0 && !failure && !ctx.signal?.aborted, ...(ctx.turnId ? {} : { via: 'connection' }), ...routed } })
+        if (requests.some((r) => r.generation && !r.served)) this.noteServed(row, requests)
       }
     }
     if (stopped === 'slow') notes.push(say('slow', { min: Math.round(media.HOSTED_LOCAL_NEW_SEC / 60) }))
@@ -977,6 +1016,22 @@ export class FileService {
       if (got.ok) { if (measure) media.recordLocalSpeed(this.db, model, threads, ran, len); return got.value }
       if (got.why === 'busy') return 'voiceBusy'
     }
+  }
+
+  /** Fills in which provider served a read's OpenRouter requests (audit row `row`, detail `served`) from OpenRouter's
+   * record of each generation, when the answers did not say; best effort, after the read. */
+  private noteServed(row: number, requests: { generation?: string; served?: string }[]) {
+    const key = this.speechKey()
+    if (!key) return
+    const ids = requests.flatMap((r) => (r.generation && !r.served ? [r.generation] : []))
+    void openRouterServed(this.speech, key, ids).then((found) => {
+      if (!Object.keys(found).length) return
+      const got = this.db.query("SELECT detail FROM audit_log WHERE id = ? AND action = 'media.transcribe'").get(row) as { detail: string | null } | null
+      if (!got?.detail) return
+      const detail = JSON.parse(got.detail) as Record<string, unknown>
+      detail.served = servedCounts(requests.map((r) => ({ served: r.served ?? (r.generation ? found[r.generation] : undefined) })))
+      this.db.query('UPDATE audit_log SET detail = ? WHERE id = ?').run(JSON.stringify(detail), row)
+    }).catch(() => { /* the ids stay in the row */ })
   }
 
   // ---------------- write / edit ----------------
@@ -1112,8 +1167,15 @@ export class FileService {
 
 type ReadArgs = { file_path: string; offset?: number; limit?: number; pages?: string; as_images?: boolean; time?: string; frames?: number; transcript?: boolean }
 interface BoundSource { rel: string; bytes: Buffer; hash: string; identity: string }
-/** a provider's answer for a piece; `languageP`: how sure whisper.cpp was of the language it heard (not from OpenRouter) */
-type MediaAnswer = TranscribeResult & { languageP?: number }
+/** a provider's answer for a piece; `languageP`: how sure whisper.cpp was of the language it heard (not from
+ * OpenRouter); OpenRouter's: how sure whisper was of its words, its generation id and provider (openrouter-stt.ts) */
+type MediaAnswer = OpenRouterAnswer & { languageP?: number }
+/** requests by the provider that served them ("unknown" until known): `{ deepinfra: 2 }` */
+function servedCounts(requests: { served?: string }[]): Record<string, number> {
+  const n: Record<string, number> = {}
+  for (const r of requests) n[r.served ?? 'unknown'] = (n[r.served ?? 'unknown'] ?? 0) + 1
+  return n
+}
 /** what transcribes a piece of a media read: OpenRouter with the team's key, or whisper.cpp with a model already here */
 type MediaSpeech = { provider: 'openrouter'; key: string; model: string } | { provider: 'local'; modelPath: string }
 interface MediaTranscript {

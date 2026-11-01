@@ -11,6 +11,8 @@ import { which } from '../../server/src/config'
 import * as media from '../../server/src/files/media'
 import { updateTeamSettings } from '../../server/src/admin/settings'
 import { makeCApp, type CApp } from '../lib/c-app'
+import { openRouterAudio, quietGainDb, wavData } from '../../server/src/jobs/openrouter-stt'
+import { convertToWav } from '../../server/src/jobs/transcribe'
 
 setDefaultTimeout(120_000)
 const ffmpeg = which('ffmpeg'), ffprobe = which('ffprobe')
@@ -82,6 +84,64 @@ T('the WAV of a piece, as ffmpeg writes it (a LIST chunk before the data): silen
     try {
       const bytes = await media.audioWav(tools!, w, name, 0, 0, 8, 'q.wav', { inputBytes: fs.statSync(f).size })
       expect(media.voiceOf(bytes).voiced).toBeGreaterThan(2)
+    } finally { media.dropWork(w) }
+  })
+})
+
+T('the sound OpenRouter gets: no tags, quiet sound raised, lossless FLAC (plans stt-hosted-2026-11-01)', () => {
+  /** the peak of an audio file in dBFS (ffmpeg's volumedetect) */
+  const peakOf = (f: string) => Number(/max_volume: (-?[\d.]+) dB/.exec(Bun.spawnSync([ffmpeg!, '-nostdin', '-i', f, '-af', 'volumedetect', '-f', 'null', '-']).stderr.toString())?.[1] ?? NaN)
+  test('a piece\'s WAV and a voice recording\'s WAV carry no title or comment of the file (ffmpeg copies them by default)', async () => {
+    const f = make('tagged.m4a', ['-f', 'lavfi', '-i', 'sine=frequency=440:sample_rate=44100:duration=2', '-metadata', 'title=SECRET-TITLE', '-metadata', 'comment=SECRET-COMMENT', '-c:a', 'aac'])
+    if (!f) return
+    const { w, name } = work(f)
+    try {
+      const piece = await media.audioWav(tools!, w, name, 0, 0, 2, 'a.wav', { inputBytes: fs.statSync(f).size })
+      expect(piece.includes(Buffer.from('SECRET'))).toBe(false)
+      expect(piece.includes(Buffer.from('Lavf'))).toBe(false)
+      const voice = await convertToWav(ffmpeg!, w, name, { progress() {}, signal: new AbortController().signal } as never, 'en', 0)
+      const bytes = fs.readFileSync(path.join(w, voice))
+      expect(bytes.subarray(0, 4).toString()).toBe('RIFF')
+      expect(bytes.includes(Buffer.from('SECRET'))).toBe(false)
+    } finally { media.dropWork(w) }
+  })
+  test('FLAC is the same sound as the WAV (16 kHz mono, no tags); quiet sound is raised by quietGainDb; the work folder keeps nothing', async () => {
+    const loud = make('loud.m4a', ['-f', 'lavfi', '-i', 'sine=frequency=440:sample_rate=44100:duration=4', '-af', 'volume=-14dB', '-metadata', 'title=SECRET-TITLE', '-c:a', 'aac'])
+    const quiet = make('quiet.m4a', ['-f', 'lavfi', '-i', 'sine=frequency=440:sample_rate=44100:duration=4', '-af', 'volume=-36dB', '-c:a', 'aac'])
+    if (!loud || !quiet) return
+    for (const [f, raised] of [[loud, false], [quiet, true]] as const) {
+      const { w, name } = work(f)
+      try {
+        const wav = await media.audioWav(tools!, w, name, 0, 0, 4, 'audio-0.wav', { inputBytes: fs.statSync(f).size })
+        const gain = quietGainDb(wav)
+        expect(gain > 0, f).toBe(raised)
+        const r = await openRouterAudio(ffmpeg!, w, 'audio-0.wav', wav, { workBytes: fs.statSync(f).size + wav.length })
+        expect(r.ok).toBe(true)
+        if (!r.ok) continue
+        expect(r.format).toBe('flac')
+        expect(r.gainDb).toBe(gain)
+        expect(r.bytes.subarray(0, 4).toString()).toBe('fLaC')
+        expect(r.bytes.includes(Buffer.from('SECRET'))).toBe(false)
+        expect(r.bytes.length).toBeLessThan(wav.length)
+        expect(fs.readdirSync(w).filter((n) => n.endsWith('.flac'))).toEqual([])
+        // decoded again: 16 kHz mono, the very samples when nothing was raised, louder by the gain otherwise
+        fs.writeFileSync(path.join(dir, 'back.flac'), r.bytes)
+        const info = Bun.spawnSync([ffprobe!, '-v', 'error', '-show_entries', 'stream=sample_rate,channels', '-of', 'csv=p=0', path.join(dir, 'back.flac')]).stdout.toString().trim()
+        expect(info).toBe('16000,1')
+        Bun.spawnSync([ffmpeg!, '-nostdin', '-loglevel', 'error', '-y', '-i', path.join(dir, 'back.flac'), '-c:a', 'pcm_s16le', path.join(dir, 'back.wav')])
+        fs.writeFileSync(path.join(dir, 'piece.wav'), wav)
+        if (!raised) expect(wavData(fs.readFileSync(path.join(dir, 'back.wav')))!.equals(wavData(wav)!)).toBe(true)
+        else expect(peakOf(path.join(dir, 'back.wav')) - peakOf(path.join(dir, 'piece.wav'))).toBeCloseTo(gain, 0)
+      } finally { media.dropWork(w) }
+    }
+  })
+  test('an ffmpeg that cannot make it: "failed" (the WAV goes as it is)', async () => {
+    const w = media.mediaWork(path.join(A.data, 'work'))
+    try {
+      const wav = Buffer.concat([Buffer.from('RIFF'), Buffer.alloc(64)])
+      fs.writeFileSync(path.join(w, 'audio-0.wav'), wav)
+      const no = fs.existsSync('/usr/bin/false') ? '/usr/bin/false' : '/bin/false'
+      expect(await openRouterAudio(no, w, 'audio-0.wav', wav, { workBytes: 64 })).toEqual({ ok: false, why: 'failed' })
     } finally { media.dropWork(w) }
   })
 })

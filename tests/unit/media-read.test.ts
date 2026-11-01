@@ -1,7 +1,8 @@
 // AI reads of video and audio files (docs/DECISIONS.md "AI reads video and audio"): `read` gives frames and a timed
 // transcript. The converters are replaced at FileService's seams (mediaTools / mediaProbe / mediaFrame / mediaAudio /
 // mediaTranscribe), so this runs without ffmpeg; files/media.ts's own converter runs are in media-ffmpeg.test.ts.
-// OpenRouter is a local fake here (never the real one), reached through the real request code.
+// OpenRouter is a local fake here (never the real one), reached through the real request code; the long-piece
+// language check answers with OpenRouter's recorded answers (tests/fixtures/stt).
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, setDefaultTimeout, spyOn, test } from 'bun:test'
 import fs from 'node:fs'
 import path from 'node:path'
@@ -20,6 +21,7 @@ import * as isolate from '../../server/src/tools/isolate'
 import crypto from 'node:crypto'
 import * as media from '../../server/src/files/media'
 import { READ_OUTPUT_TOKENS, VISION_TURN_IMAGES } from '../../server/src/files/vision'
+import { setServedDelayForTests } from '../../server/src/jobs/openrouter-stt'
 import { makeCApp, sha256hex, type CApp } from '../lib/c-app'
 
 setDefaultTimeout(60_000)
@@ -60,10 +62,30 @@ const SPEED = "DELETE FROM settings WHERE key = 'media.localSpeed'"
 const measured = (secPerSec: number) => A.ctx.db.query("INSERT INTO settings (key, value) VALUES ('media.localSpeed', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value")
   .run(JSON.stringify({ secPerSec, pieces: 20, model: media.localModelName(F().speech.model), threads: F().speech.threads, at: new Date().toISOString() }))
 
-// ---- the fake OpenRouter
+// ---- the fake OpenRouter: transcriptions (each answer with a generation id) and its record of a generation
 const hits: any[] = []
-let reply: () => Response = () => Response.json({ text: 'x' })
-const fakeOr = Bun.serve({ port: 0, hostname: '127.0.0.1', async fetch(req) { hits.push(await req.json().catch(() => null)); return reply() } })
+let reply: (body: any) => Response = () => Response.json({ text: 'x' })
+const lookups: string[] = []
+let generations = 0
+const fakeOr = Bun.serve({
+  port: 0, hostname: '127.0.0.1',
+  async fetch(req) {
+    const url = new URL(req.url)
+    if (req.method === 'GET' && url.pathname === '/api/v1/generation') {
+      lookups.push(url.searchParams.get('id') ?? '')
+      return Response.json({ data: { id: url.searchParams.get('id'), provider_name: 'DeepInfra', usage: 0.002 } })
+    }
+    const body = await req.json().catch(() => null)
+    hits.push(body)
+    const res = reply(body)
+    res.headers.set('x-generation-id', `gen-stt-test-${++generations}`)
+    return res
+  },
+})
+/** OpenRouter's recorded answers (tests/fixtures/stt): the QA meeting's two pieces heard as Japanese / English and told
+ * "ko", a Japanese meeting, and so on */
+const RECORDED = JSON.parse(fs.readFileSync(path.join(import.meta.dir, '..', 'fixtures', 'stt', 'openrouter-answers.json'), 'utf8')) as Record<string, object>
+const recorded = (name: string) => Response.json(RECORDED[name])
 
 // ---- converter seams
 let probe: media.MediaInfo
@@ -78,6 +100,8 @@ const spies: { mockRestore(): void }[] = []
  * says otherwise (the machine running the tests may have 2) */
 let cores: ReturnType<typeof spyOn<typeof os, 'availableParallelism'>>
 let local: { calls: number }
+/** pieces packed for OpenRouter (FileService.mediaSendable: FLAC; here the WAV as it is) */
+let packed = 0
 
 beforeAll(async () => {
   A = await makeCApp('media-read')
@@ -85,10 +109,11 @@ beforeAll(async () => {
   A.ctx.db.query("UPDATE users SET locale = 'en' WHERE id IN ('alice','bob')").run()
   F().speech.openRouterUrl = `http://127.0.0.1:${fakeOr.port}/api/v1/audio/transcriptions`
   fs.mkdirSync(path.join(A.team, 'users/alice'), { recursive: true })
+  setServedDelayForTests(50)
 })
-afterAll(async () => { fakeOr.stop(true); await A.close() })
+afterAll(async () => { setServedDelayForTests(null); fakeOr.stop(true); await A.close() })
 beforeEach(() => {
-  hits.length = 0; frames = []; audios = []; order = []; local = { calls: 0 }; clockMs = 0
+  hits.length = 0; lookups.length = 0; frames = []; audios = []; order = []; local = { calls: 0 }; clockMs = 0; packed = 0
   audioWav = (_start, seconds) => wav(Math.min(seconds, 2))
   // a fast server that measured itself (a test that plans pieces sets its own)
   A.ctx.db.query(SPEED).run()
@@ -108,6 +133,7 @@ beforeEach(() => {
     spyOn(F(), 'mediaDuration').mockResolvedValue(null),
     spyOn(F(), 'mediaFrame').mockImplementation(async (_t, _w, _n, _s, t: number, px: number) => { frames.push({ t, px }); order.push('frame'); return frameJpeg() }),
     spyOn(F(), 'mediaAudio').mockImplementation(async (_t, _w, _n, _s, start: number, seconds: number) => { audios.push({ start, seconds }); order.push('audio'); return audioWav(start, seconds) }),
+    spyOn(F(), 'mediaSendable').mockImplementation(async (_t, _w, _n, wav: Buffer) => { packed++; return { bytes: wav, format: 'flac' } }),
   )
   media.setClockForTests(() => Date.now() + clockMs)
   const real = F().mediaTranscribe.bind(F())
@@ -395,17 +421,19 @@ describe('who transcribes, and when sound may leave the server', () => {
     expect(getTeamSettings(A.ctx.db).aiMediaTranscripts).toBe(true)
     updateTeamSettings(A.ctx.db, { speechModel: 'openai/whisper-large-v3-turbo' })
   })
-  test('OpenRouter switched on: one request per 10-minute piece, WAV, zero data retention, the team model; cached after', async () => {
+  test('OpenRouter switched on: one request per 10-minute piece, FLAC, zero data retention, DeepInfra only, the team model; cached after', async () => {
     updateTeamSettings(A.ctx.db, { speechProvider: 'openrouter', aiMediaTranscripts: true })
     setKey(KEY)
     const rel = put('or.mp4')
     const a = await read({ file_path: rel })
     expect(hits.length).toBe(1)
+    expect(packed).toBe(1)
     expect(hits[0].model).toBe('openai/whisper-large-v3-turbo')
-    expect(hits[0].input_audio.format).toBe('wav')
-    expect(hits[0].provider).toEqual({ zdr: true, data_collection: 'deny' })
+    expect(hits[0].input_audio.format).toBe('flac')
+    expect(hits[0].provider).toEqual({ zdr: true, data_collection: 'deny', only: ['deepinfra'], allow_fallbacks: false })
     expect('language' in hits[0]).toBe(false)
-    expect(a.out.text).toContain('(OpenRouter, openai/whisper-large-v3-turbo; language: english)')
+    // the answer's "english" as whisper's code
+    expect(a.out.text).toContain('(OpenRouter, openai/whisper-large-v3-turbo; language: en)')
     expect(a.out.text).toContain('[0:02.0–0:03.0] hello from openrouter')
     expect(JSON.stringify(a.out)).not.toContain(KEY)
     // the next read (another turn, other frames) pays nothing: the piece comes from the cache
@@ -417,11 +445,15 @@ describe('who transcribes, and when sound may leave the server', () => {
     fs.appendFileSync(path.join(A.team, rel), 'changed')
     await read({ file_path: rel, frames: 0 })
     expect(hits.length).toBe(1)
-    // the audit row: who, which file, how much, which provider; never the words
-    const rows = A.ctx.db.query("SELECT actor_id, target, detail FROM audit_log WHERE action = 'media.transcribe' AND target = ?").all(rel) as { actor_id: string; target: string; detail: string }[]
-    expect(rows.length).toBe(2)
-    expect(JSON.parse(rows[0]!.detail)).toMatchObject({ provider: 'openrouter', model: 'openai/whisper-large-v3-turbo', pieces: 1, ok: true })
-    expect(rows.map((r) => r.detail).join()).not.toContain('hello')
+    // the audit row: who, which file, how much, which provider, and which one served each request (OpenRouter's record
+    // of the generation, looked up after the read: the answer does not name it); never the words
+    const rows = () => A.ctx.db.query("SELECT actor_id, target, detail FROM audit_log WHERE action = 'media.transcribe' AND target = ?").all(rel) as { actor_id: string; target: string; detail: string }[]
+    expect(rows().length).toBe(2)
+    expect(JSON.parse(rows()[0]!.detail)).toMatchObject({ provider: 'openrouter', model: 'openai/whisper-large-v3-turbo', pieces: 1, ok: true, generations: [expect.stringMatching(/^gen-stt-test-/)] })
+    for (let i = 0; i < 100 && rows().some((r) => !JSON.parse(r.detail).served?.deepinfra); i++) await Bun.sleep(20)
+    expect(rows().map((r) => JSON.parse(r.detail).served)).toEqual([{ deepinfra: 1 }, { deepinfra: 1 }])
+    expect(lookups.sort()).toEqual(rows().flatMap((r) => JSON.parse(r.detail).generations).sort())
+    expect(rows().map((r) => r.detail).join()).not.toContain('hello')
   })
   test('OpenRouter failures: a note in the person\'s language, frames still shown, the key never in it', async () => {
     updateTeamSettings(A.ctx.db, { speechProvider: 'openrouter', aiMediaTranscripts: true })
@@ -511,6 +543,85 @@ describe('who transcribes, and when sound may leave the server', () => {
 
 // QA on a 2 vCPU / 4 GB box (2026-11-01): local whisper.cpp needed 180-300 s for a 2-minute piece, took the frames'
 // time, slowed voice input to 336 s and invented lines over silence
+describe('long OpenRouter pieces: whisper names one language for a whole piece from its first 30 seconds', () => {
+  const setKey = (k: string | null) => writeSpeechKey(credentialsOf(A.ctx), k)
+  const auditOf = (rel: string) => (A.ctx.db.query("SELECT detail FROM audit_log WHERE action = 'media.transcribe' AND target = ?").all(rel) as { detail: string }[]).map((r) => JSON.parse(r.detail))
+  beforeEach(() => {
+    updateTeamSettings(A.ctx.db, { speechProvider: 'openrouter', aiMediaTranscripts: true, defaultLocale: 'ko' })
+    setKey(KEY)
+  })
+  test('the QA meeting on a Korean team: its first 10 minutes heard as Japanese are told "ko" and kept so; the English last part stays', async () => {
+    probe = audioOnly(791.4)
+    // OpenRouter's answers for the two pieces, as recorded: heard (no language) and told "ko"
+    reply = (b) => recorded(`qa-meeting-p${hits.length <= 2 ? 1 : 2}${b.language === 'ko' ? '-ko' : ''}`)
+    const rel = put('qa-meeting.m4a')
+    const r = await read({ file_path: rel })
+    expect(hits.map((h) => h.language ?? 'auto')).toEqual(['auto', 'ko', 'auto', 'ko'])
+    // the piece and its retry are the same sound, packed once
+    expect(hits[1].input_audio.data).toBe(hits[0].input_audio.data)
+    expect(packed).toBe(2)
+    expect(r.out.text).toContain('[0:01.8–0:04.5] 이 구간이 표시 없는 사과입니다.')
+    expect(r.out.text).not.toMatch(/[\p{Script=Hiragana}\p{Script=Katakana}]/u)
+    // the Korean was told, so only the English heard in the last piece is named
+    expect(r.out.text).toContain('(OpenRouter, openai/whisper-large-v3-turbo; language: en)')
+    // the seconds handed over count the sound once; each request is counted by who served it
+    for (let i = 0; i < 100 && !auditOf(rel)[0]?.served?.deepinfra; i++) await Bun.sleep(20)
+    expect(auditOf(rel)).toEqual([expect.objectContaining({ seconds: 791, pieces: 2, ok: true, served: { deepinfra: 4 }, generations: expect.any(Array) })])
+    expect(auditOf(rel)[0].generations.length).toBe(4)
+    expect(JSON.stringify(auditOf(rel))).not.toContain('구간')
+    // cached as made: the next read sends nothing and gives the same lines
+    hits.length = 0
+    const again = await read({ file_path: rel })
+    expect(hits).toEqual([])
+    expect(again.out.text).toContain('[0:01.8–0:04.5] 이 구간이 표시 없는 사과입니다.')
+    expect(again.out.text).toContain('language: en)')
+  })
+  test('a Japanese meeting on a Korean team: checked, and Japanese stays (told "ko", whisper was less sure)', async () => {
+    probe = audioOnly(84.2)
+    reply = (b) => recorded(b.language === 'ko' ? 'ja100-ko' : 'ja100')
+    const r = await read({ file_path: put('ja.m4a') })
+    expect(hits.length).toBe(2)
+    expect(r.out.text).toContain('language: ja)')
+    expect(r.out.text).toContain('おはようございます')
+  })
+  test('no check: Korean heard, sure English, a piece under a minute, and a short piece told the file\'s language', async () => {
+    probe = audioOnly(600)
+    reply = () => recorded('ko600')
+    await read({ file_path: put('ko.m4a') })
+    reply = () => recorded('en30')
+    await read({ file_path: put('en.m4a') })
+    // 50 seconds heard as Japanese: whisper's first 30 seconds are most of it
+    probe = audioOnly(50)
+    reply = () => recorded('qa-c00')
+    const short = await read({ file_path: put('short.m4a') })
+    expect(hits.map((h) => h.language ?? 'auto')).toEqual(['auto', 'auto', 'auto'])
+    expect(short.out.text).toContain('language: ja)')
+  })
+  test('a retry that fails keeps the first answer, cached, with no failure note; Stop during it ends the read', async () => {
+    probe = audioOnly(600)
+    reply = (b) => (b.language === 'ko' ? Response.json({ error: 'busy' }, { status: 503 }) : recorded('qa-meeting-p1'))
+    const rel = put('busy.m4a')
+    const r = await read({ file_path: rel })
+    expect(hits.length).toBe(2)
+    expect(r.out.text).not.toContain('The transcript failed')
+    expect(r.out.text).toContain('language: ja)')
+    expect(auditOf(rel)).toEqual([expect.objectContaining({ seconds: 600, pieces: 1, ok: true })])
+    hits.length = 0
+    expect((await read({ file_path: rel })).out.text).toContain('language: ja)')
+    expect(hits).toEqual([])
+  })
+  test('a confidential chat sends nothing, retry included', async () => {
+    probe = audioOnly(600)
+    reply = (b) => recorded(b.language === 'ko' ? 'qa-meeting-p1-ko' : 'qa-meeting-p1')
+    const secret = turn()
+    A.ctx.db.query('INSERT INTO safe_ops_chats(chat_id, material) SELECT chat_id, 1 FROM turns WHERE id = ?').run(secret)
+    const r = await read({ file_path: put('secret.m4a') }, { turnId: secret })
+    expect(hits).toEqual([])
+    expect(packed).toBe(0)
+    expect(r.out.text).toContain('In a confidential chat the sound is not sent to an outside service')
+  })
+})
+
 describe('slow local transcripts: frames first, measured pieces, small servers, voice input first, silence', () => {
   const localFails = (o: { timeoutMs: number }, reason: string) => { clockMs += o.timeoutMs; throw new JobFailure('internal', { ko: `받아쓰기에 실패했어요(${reason}).`, en: `Transcription failed (${reason}).`, id: `Transkripsi gagal (${reason}).`, ja: `文字起こしに失敗しました（${reason}）。`, es: `La transcripción falló (${reason}).` }, reason) }
   test('frames first (H2): whisper.cpp that runs into the read\'s time still leaves every frame, and the retry of frames skips the sound', async () => {

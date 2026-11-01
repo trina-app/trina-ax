@@ -12,7 +12,7 @@ import { JobServiceImpl } from '../jobs/service'
 import { transcribe, type TranscribeConfig } from '../jobs/transcribe'
 import { cleanMediaWork, localModelName, recordLocalSpeed } from '../files/media'
 import { SPEECH_NO_KEY, SPEECH_OFF, transcribeOpenRouter } from '../jobs/openrouter-stt'
-import { getTeamSettings } from '../admin/settings'
+import { getTeamSettings, teamDefaultLocale } from '../admin/settings'
 import { credentialsOf } from '../credentials/store'
 import { readSpeechKey } from '../credentials/speech-key'
 import { Artifacts } from '../tools/artifact'
@@ -80,7 +80,8 @@ export function componentC(ctx: AppContext): ComponentC {
             if (s.speechProvider !== 'openrouter') throw SPEECH_OFF()
             const key = readSpeechKey(credentialsOf(ctx))
             if (!key) throw SPEECH_NO_KEY()
-            return await transcribeOpenRouter(stt, key, s.speechModel, own, name, opts, h)
+            // a long recording heard in an unlikely language goes once more told the team's (jobs/speech-language.ts)
+            return await transcribeOpenRouter(stt, key, s.speechModel, own, name, { ...opts, team: teamDefaultLocale(ctx.db) }, h)
           } finally { fs.rmSync(own, { force: true }) }
         },
         // canceled while waiting for the transcription before it: the recording goes now, not with tomorrow's sweep
