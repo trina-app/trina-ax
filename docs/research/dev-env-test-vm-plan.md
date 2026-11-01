@@ -224,3 +224,10 @@ The three failures:
 **Re-run needed:** the flood, the new process limit step, the recovery steps and the volume step. The boxd stop path
 ran only as a unit test of the limit check, never in a real box. About 10 minutes with `scripts/dev-env/vm-tests.sh`
 (without `LONG=1` and `REMOTION=1`) on a throwaway host. No new host is approved.
+
+## Owner decision (2026-11-01)
+
+The default box limit is now 2.5 GB (2560 MiB) and 1 CPU, for more margin than the real box run showed. The numbers
+above were measured at 1.5 GB. Dev mode needs a team VM of at least 4 GB: boxd refuses a VM below 3.5 GB (3584 MiB),
+as a 4 GB VM reports about 3.8 GB. The trial on one team server follows `scripts/dev-env/TRIAL.md`.
+

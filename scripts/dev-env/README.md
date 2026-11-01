@@ -11,6 +11,7 @@ P0 numbers: `docs/research/dev-env-p0-spike.md` (branch `spike/dev-env-p0`).
 | `vm-setup.sh` | root, TEST VM ONLY: accounts, stand-in team folders and targets, boxd as a transient unit |
 | `vm-tests.sh` | root, TEST VM ONLY: isolation, network, limits, preview, stop, idle stop; PASS/FAIL lines. `REMOTION=1` adds a video render. |
 | `boxctl.py` | small boxd client for the tests (run as the server stand-in account) |
+| `TRIAL.md`, `install-trial.sh`, `uninstall-trial.sh` | root, one existing team server, owner approval only: build, install, remove, go back |
 | `in-box/isolation.sh` | the spike's isolation probe, sent into the box |
 | `in-box/flood.sh` | process flood, sent into the box: forks until the kernel refuses, then ends its children |
 | `in-box/remotion.sh` | render probe, sent into the box: 5 s of 720p; time, memory, disk |

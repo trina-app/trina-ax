@@ -32,7 +32,7 @@ export type DevEnvNetwork = z.infer<typeof DevEnvNetwork>
 /** Per-box limits. Defaults from the P0 spike (docs/research/dev-env-p0-spike.md section 4). */
 export const DevEnvLimits = z.object({
   cpus: z.number().min(0.25).max(4).default(1),
-  memoryMiB: z.number().int().min(256).max(8192).default(1536),
+  memoryMiB: z.number().int().min(256).max(8192).default(2560),
   pids: z.number().int().min(64).max(4096).default(512),
   diskGiB: z.number().int().min(1).max(32).default(4),
   idleStopMin: z.number().int().min(5).max(240).default(30),

@@ -53,6 +53,11 @@ func setup() error {
 	}
 	var uts unix.Utsname
 	unix.Uname(&uts)
+	mem := memTotalKiB()
+	avail.checks["memory"] = strconv.FormatInt(mem/1024, 10) + " MiB"
+	if why := hostMemoryProblem(mem); why != "" {
+		return fail(why)
+	}
 	avail.checks["kernel"] = unix.ByteSliceToString(uts.Release[:])
 	if !kernelAtLeast(avail.checks["kernel"], 5, 19) {
 		return fail("kernel 5.19 or newer is needed (idmapped bind mounts)")
@@ -480,6 +485,17 @@ func pidsRoom(cg string, wait time.Duration) bool {
 			return false
 		}
 	}
+}
+
+func memTotalKiB() int64 {
+	b, _ := os.ReadFile("/proc/meminfo")
+	for _, l := range strings.Split(string(b), "\n") {
+		if f := strings.Fields(l); len(f) >= 2 && f[0] == "MemTotal:" {
+			n, _ := strconv.ParseInt(f[1], 10, 64)
+			return n
+		}
+	}
+	return 0
 }
 
 func oomKills(cg string) int64 {

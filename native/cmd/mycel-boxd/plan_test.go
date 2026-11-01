@@ -140,3 +140,15 @@ func TestPidsAtLimit(t *testing.T) {
 		}
 	}
 }
+
+func TestHostMemoryProblem(t *testing.T) {
+	// 3.8 GB is what a 4 GB VM reports
+	for _, ok := range []int64{0, 3584 * 1024, 3891 * 1024, 8192 * 1024} {
+		if p := hostMemoryProblem(ok); p != "" {
+			t.Error(ok, p)
+		}
+	}
+	if p := hostMemoryProblem(2048 * 1024); !strings.Contains(p, "at least 4 GB") || !strings.Contains(p, "2.0 GB") {
+		t.Error(p)
+	}
+}

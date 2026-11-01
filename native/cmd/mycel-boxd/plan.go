@@ -66,6 +66,8 @@ const (
 	stopGrace    = 5
 	killGraceSec = 5
 	pidsHeadroom = 4
+	// a "4 GB" VM reports less than 4096 MiB (3.8 GB on the test server): the kernel keeps some for itself
+	minHostMiB = 3584
 	pidsWait     = 5 * time.Second
 )
 
@@ -149,6 +151,16 @@ type boxPaths struct {
 func pathsOf(root, run, box string) boxPaths {
 	d := path.Join(root, "boxes", box)
 	return boxPaths{Dir: d, Img: path.Join(d, "volume.img"), Vol: path.Join(d, "volume"), Work: path.Join(d, "work"), Run: path.Join(run, "boxes", box)}
+}
+
+// hostMemoryProblem: why this machine is too small for a box, or "". The default box limit (2.5 GB) leaves the server
+// and the engine turns too little on a smaller VM. 0 = not known: the other checks decide.
+func hostMemoryProblem(memTotalKiB int64) string {
+	mib := memTotalKiB / 1024
+	if mib == 0 || mib >= minHostMiB {
+		return ""
+	}
+	return fmt.Sprintf("the dev environment needs a team VM with at least 4 GB of memory; this one has %.1f GB", float64(mib)/1024)
 }
 
 // pidsAtLimit: from cgroup pids.current and pids.max. An exec needs a few processes of its own (runtime, timeout, bash).

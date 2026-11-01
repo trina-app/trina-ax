@@ -13,7 +13,7 @@ x() { ctl exec web "$@"; }                     # exec in the web box
 pass() { echo "PASS $*"; }; fail() { echo "FAIL $*"; }
 ok() { if "$@" >/dev/null 2>&1; then pass "$D"; else fail "$D"; fi; }
 no() { if "$@" >/dev/null 2>&1; then fail "$D"; else pass "$D"; fi; }
-LIM='{"cpus":1,"memoryMiB":1536,"pids":512,"diskGiB":4,"idleStopMin":5}'
+LIM='{"cpus":1,"memoryMiB":2560,"pids":512,"diskGiB":4,"idleStopMin":5}'
 VMIP=$(ip -4 route get 1.1.1.1 | awk '{for(i=1;i<=NF;i++) if($i=="src") print $(i+1)}')
 ens() { ctl "{\"op\":\"ensure\",\"box\":\"$1\",\"folder\":\"$2\",\"network\":\"$3\",\"limits\":$LIM,\"denyAddrs\":[\"$VMIP\"]}"; }
 

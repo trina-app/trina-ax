@@ -5202,3 +5202,9 @@ build of this branch. The isolation probe and Remotion passed in a real box.
 
 **Process limit:** a box that stays at its process limit for 5 s stops, and the next command starts it again and tells
 the AI. Nothing can enter a box at its limit, so without this stop the person gets only a runtime error.
+
+**Limits (owner, 2026-11-01):** 1 CPU and 2.5 GB without swap replace the 1.5 GB above. Dev mode needs a team VM of at
+least 4 GB; boxd reports a smaller VM as not available, with the reason (below 3584 MiB, as a 4 GB VM reports about
+3.8 GB). A box at its limit leaves about 1.3 GB for the server and the AI answers. The trial on one server is in
+`scripts/dev-env/TRIAL.md`; `mycel-boxd` stays out of the install kit.
+
