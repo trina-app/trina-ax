@@ -215,6 +215,45 @@ describe('the signed release\'s Windows app into data/downloads', () => {
     expect((await refreshWindowsApp(opts(s, p.files))).kind).toBe('offered')
   })
 
+  test('a full disk while latest.yml goes in changes nothing in the folder: index.json, the old installer and latest.yml stay', async () => {
+    const s = server('order')
+    const old = publish('0.3.0')
+    expect((await refreshWindowsApp(opts(s, old.files))).kind).toBe('offered')
+    const before = fs.readFileSync(path.join(s.downloads, 'index.json'), 'utf8')
+    // the temporary latest.yml cannot be written (a folder in its place: the write fails like a full disk would)
+    fs.mkdirSync(path.join(s.downloads, `.latest.yml.tmp-${process.pid}`))
+    const r = await refreshWindowsApp(opts(s, publish('0.3.1').files, { version: '0.3.1' }))
+    expect(r.kind).toBe('failed')
+    expect(fs.readFileSync(path.join(s.downloads, 'index.json'), 'utf8')).toBe(before)
+    expect(fs.existsSync(path.join(s.downloads, old.name))).toBe(true)
+    expect(fs.existsSync(path.join(s.downloads, 'Team-AX-Setup-0.3.1-win-x64.exe'))).toBe(false)
+    expect(fs.readFileSync(path.join(s.downloads, 'latest.yml'), 'utf8')).toBe(old.yml!)
+    expect(readWindowsState(s.data).failed).toBeNull() // a local problem: tried again at the next run
+  })
+
+  test('only latest.yml is wrong: that file alone is fetched again, the installer is not', async () => {
+    const s = server('yml-only')
+    const p = publish('0.3.0')
+    expect((await refreshWindowsApp(opts(s, p.files))).kind).toBe('offered')
+    fs.writeFileSync(path.join(s.downloads, 'latest.yml'), 'version: 0.0.1\n')
+    const seen: string[] = []
+    expect((await refreshWindowsApp(opts(s, p.files, {}, seen))).kind).toBe('offered')
+    expect(seen).toEqual([`${FEED}/office/stable.json`, fileUrl(FEED, '0.3.0', 'latest.yml')])
+    expect(fs.readFileSync(path.join(s.downloads, 'latest.yml'), 'utf8')).toBe(p.yml!)
+  })
+
+  test('a download that ends early is tried again at the next run, not held', async () => {
+    const s = server('short')
+    const p = publish('0.3.0')
+    const short = new Map(p.files)
+    short.set(fileUrl(FEED, '0.3.0', p.name), p.exe!.subarray(0, 1000))
+    const r = await refreshWindowsApp(opts(s, short))
+    expect(r.kind).toBe('failed')
+    expect(r.message).toContain('ended after 1000')
+    expect(readWindowsState(s.data).failed).toBeNull()
+    expect((await refreshWindowsApp(opts(s, p.files))).kind).toBe('offered')
+  })
+
   test('a file-system error here (the folder cannot be made) is not held against the release', async () => {
     const s = server('fs-error')
     fs.writeFileSync(s.downloads, 'a file where the folder should be')
@@ -240,6 +279,22 @@ describe('the signed release\'s Windows app into data/downloads', () => {
     await refreshWindowsApp(opts(s, publish('0.3.0').files))
     expect(windowsDiagnostic(s.data, '0.3.0')).toEqual({ status: 'ok', text: WINDOWS_TEXT.offered('0.3.0') })
     for (const l of ['ko', 'en', 'id', 'ja', 'es'] as const) expect(WINDOWS_TEXT.offered('0.3.0')[l]).toContain('0.3.0')
+    // the feed cannot be read now, but the folder still offers 0.3.0: no "not offered" warning
+    await refreshWindowsApp(opts(s, new Map(), { fetch: async () => { throw new Error('offline') } }))
+    expect(windowsDiagnostic(s.data, '0.3.0')).toMatchObject({ status: 'ok', text: { en: expect.stringContaining('The Windows app 0.3.0 is offered by this server. The last look') } })
+    // a release whose file did not match: held, and the advice names --force (a plain run would only say "held")
+    const exe = fakeExe()
+    const bad = Buffer.from(exe); bad[bad.length - 1] ^= 1
+    const p = publish('0.3.1', { exe, served: bad })
+    await refreshWindowsApp(opts(s, p.files, { version: '0.3.1' }))
+    expect(windowsDiagnostic(s.data, '0.3.1')!.text.en).toContain('desktop-refresh --force')
+    await refreshWindowsApp(opts(s, p.files, { version: '0.3.1' }))
+    expect(readWindowsState(s.data).last?.kind).toBe('held')
+    expect(windowsDiagnostic(s.data, '0.3.1')).toMatchObject({ status: 'warn', text: { en: expect.stringContaining('desktop-refresh --force') } })
+    // "comes once this server runs 0.4.0" is not shown once the server runs 0.4.0 (the next run says what it did)
+    await refreshWindowsApp(opts(s, publish('0.4.0').files, { version: '0.3.1' }))
+    expect(windowsDiagnostic(s.data, '0.3.1')?.status).toBe('ok')
+    expect(windowsDiagnostic(s.data, '0.4.0')).toBeNull()
   })
 
   test('a manifest with another key, a missing release, a release without a Windows app: nothing downloaded', async () => {
@@ -282,13 +337,24 @@ describe('the signed release\'s Windows app into data/downloads', () => {
     fs.writeFileSync(path.join(s.data, 'updates', 'windows.lock'), String(process.pid))
     const p = publish('0.3.0')
     expect((await refreshWindowsApp(opts(s, p.files))).kind).toBe('busy')
+    // the busy path leaves no temporary lock file behind
+    expect(fs.readdirSync(path.join(s.data, 'updates')).sort()).toEqual(['windows.lock'])
     // a live pid on a lock older than a run can take (the pid was reused) does not block for ever
     const old = new Date(Date.now() - 4 * 3600_000)
     fs.utimesSync(path.join(s.data, 'updates', 'windows.lock'), old, old)
     expect((await refreshWindowsApp(opts(s, p.files))).kind).toBe('offered')
     fs.writeFileSync(path.join(s.data, 'updates', 'windows.lock'), '999999999')
     expect((await refreshWindowsApp(opts(s, p.files))).kind).toBe('current')
-    expect(fs.existsSync(path.join(s.data, 'updates', 'windows.lock'))).toBe(false)
+    expect(fs.readdirSync(path.join(s.data, 'updates'))).toEqual([])
+    // a run never removes a lock that is not its own (another run took over meanwhile)
+    const slow: NonNullable<WindowsAppOptions['fetch']> = async (url, init) => {
+      fs.rmSync(path.join(s.data, 'updates', 'windows.lock'))
+      fs.writeFileSync(path.join(s.data, 'updates', 'windows.lock'), String(process.pid))
+      return fakeFetch(p.files)(url, init)
+    }
+    expect((await refreshWindowsApp(opts(s, p.files, { fetch: slow }))).kind).toBe('current')
+    expect(fs.readFileSync(path.join(s.data, 'updates', 'windows.lock'), 'utf8')).toBe(String(process.pid))
+    fs.rmSync(path.join(s.data, 'updates', 'windows.lock'))
   })
 
   test('without internet: the manifest and the two files copied into a folder are checked the same way (desktop-refresh --from)', async () => {

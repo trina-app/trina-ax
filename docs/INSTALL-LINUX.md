@@ -226,7 +226,8 @@ Windows 데스크톱 앱은 자기 팀 서버의 `/downloads/latest.yml`만 보�
 - 인터넷이 없는 서버: 다른 컴퓨터에서 서버 채널의 `https://updates.trina.app/office/stable.json`(beta 채널은 `beta.json`)과
   거기 적힌 Windows 설치 파일, `latest.yml`(`office/<버전>/`)을 받아 서버 계정이 읽을 수 있는 한 폴더에 두고
   `trina_admin desktop-refresh --from /전체/경로`(상대 경로는 안 됨: `trina_admin`은 `/`에서 돈다). 똑같이 확인한다. 그 릴리스가
-  서버보다 새로우면 넣지 않으니(`ahead`) 서버를 먼저 업데이트한다. 결과가 `offered`·`current`가 아니면 0이 아닌 값으로 끝난다.
+  서버보다 새로우면 넣지 않으니(`ahead`) 서버를 먼저 업데이트한다. 결과가 `offered`·`current`·`newer`(직접 올린 더 새 설치 파일)가
+  아니면 0이 아닌 값으로 끝난다.
 - 사무실 모드(맥)는 자기 업데이트 에이전트가 같은 일을 한다. 호스팅 서비스는 운영 측이 맡는다.
 
 ## 9. 요금제 파일(선택)과 자원 한도

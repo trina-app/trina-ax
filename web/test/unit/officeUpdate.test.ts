@@ -82,6 +82,11 @@ describe('release notes on the update cards', () => {
     expect(long.summary.length).toBeLessThanOrEqual(401)
     expect(long.summary.endsWith('…')).toBe(true)
     expect(long.more).toBe(true)
+    // a list stays a list (its lines kept); a cut never leaves half a link or an open bold span
+    expect(notesSummary('- one\n- two').summary).toBe('- one\n- two')
+    const link = notesSummary(`${'a '.repeat(190)}see [the long release page](https://example.test/notes) **and more words here**`)
+    expect(link.summary).not.toMatch(/\[[^\]]*$|\]\([^)]*$/)
+    expect((link.summary.match(/\*\*/g) ?? []).length % 2).toBe(0)
   })
   test('rendered as Markdown, closed to the summary: no raw ## or bullets on the card', () => {
     const html = renderToStaticMarkup(createElement(ReleaseNotes, { notes }))

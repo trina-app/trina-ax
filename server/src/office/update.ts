@@ -346,6 +346,8 @@ export async function download(f: ReleaseFile, dir: string, d: Pick<UpdateDeps, 
   }
   fs.closeSync(fd)
   const sha = h.digest('hex')
+  // shorter than the release: the connection ended early (said as a download problem, so it is simply tried again)
+  if (n < f.size) { fs.rmSync(part, { force: true }); throw new UpdateFailure(`download ${f.file}: it ended after ${n} of ${f.size} bytes`) }
   if (n !== f.size || sha !== f.sha256) { fs.rmSync(part, { force: true }); throw new UpdateFailure(`${f.file} does not match the signed release (size ${n}/${f.size}, SHA-256 ${sha.slice(0, 12)}… / ${f.sha256.slice(0, 12)}…)`) }
   fs.renameSync(part, dest)
   if (h512) o.sha512!(h512.digest('base64'))
@@ -499,9 +501,29 @@ export async function offerWindows(dir: string, tmp: string, w: WindowsRelease, 
   if (windowsOffered(dir, w, items)) return { kind: 'current', version: w.version }
   const newer = items.find((i) => i.platform === 'windows' && compareVersions(i.version, w.version) > 0)
   if (newer) return { kind: 'newer', version: newer.version }
-  const room = roomFor(tmp, w.installer.size + w.latestYml.size, o.statfs)
+  // the installer is already listed and in place (its SHA-256 recorded when it was added), only latest.yml is not the
+  // release's: that file alone (pinned by the signed manifest) is put right; the 110 MB file is not fetched or read again
+  const listed = items.find((i) => i.platform === 'windows' && i.file === w.installer.file && i.version === w.version && i.sha256 === w.installer.sha256)
+  const inPlace = !!listed && (() => { try { return fs.statSync(path.join(dir, w.installer.file)).size === w.installer.size } catch { return false } })()
+  const room = roomFor(tmp, (inPlace ? 0 : w.installer.size) + w.latestYml.size, o.statfs)
   if (!room.ok) return { kind: 'no-room', message: `not enough disk space for the Windows app ${w.version} (${Math.ceil(room.needBytes / 1048576)} MB needed with the reserve, ${Math.floor(room.freeBytes / 1048576)} MB free)` }
   fs.rmSync(tmp, { recursive: true, force: true })
+  if (inPlace) {
+    try {
+      const yml = await download(w.latestYml, tmp, d)
+      const text = fs.readFileSync(yml, 'utf8')
+      const val = (k: string) => ymlValue(text, k)
+      if (val('version') !== w.version || val('path') !== w.installer.file) throw new UpdateFailure(`latest.yml names ${val('path')} ${val('version')}, not ${w.installer.file} ${w.version}`)
+      const t = path.join(dir, `.latest.yml.tmp-${process.pid}`)
+      try {
+        fs.copyFileSync(yml, t)
+        fs.chmodSync(t, 0o600)
+        fs.renameSync(t, path.join(dir, 'latest.yml'))
+      } finally { fs.rmSync(t, { force: true }) }
+    } finally { fs.rmSync(tmp, { recursive: true, force: true }) }
+    return { kind: 'offered', version: w.version }
+  }
+  const wasThere = fs.existsSync(path.join(dir, w.installer.file))
   try {
     // the hashes on the way (a Linux server does this in its own process: no second pass over 110 MB there)
     let exe512 = ''
@@ -524,13 +546,21 @@ export async function offerWindows(dir: string, tmp: string, w: WindowsRelease, 
       if (added.item.sha256 !== w.installer.sha256 || added.item.file !== w.installer.file) throw new UpdateFailure(`${w.installer.file} changed while it was offered`)
       fs.renameSync(t, path.join(dir, 'latest.yml'))
     } finally { fs.rmSync(t, { force: true }) }
+  } catch (e) {
+    // moved in but not listed (index.json could not be written): not served, so not left to take 110 MB
+    const f = path.join(dir, w.installer.file)
+    if (!wasThere && fs.existsSync(f) && !readIndex(dir).some((i) => i.file === w.installer.file)) fs.rmSync(f, { force: true })
+    throw e
   } finally { fs.rmSync(tmp, { recursive: true, force: true }) }
   return { kind: 'offered', version: w.version }
 }
 
+/** a top-level `key: value` of latest.yml (quotes off) */
+export const ymlValue = (text: string, k: string): string | null => new RegExp(`^${k}:\\s*'?([^'\\n]*?)'?\\s*$`, 'm').exec(text)?.[1] ?? null
+
 /** electron-updater's latest.yml of the installer: the version, a plain file name (no URL elsewhere), its sha512. */
 export function checkLatestYml(text: string, version: string, file: string, sha512b64: string, size: number) {
-  const val = (k: string) => new RegExp(`^${k}:\\s*'?([^'\\n]*?)'?\\s*$`, 'm').exec(text)?.[1] ?? null
+  const val = (k: string) => ymlValue(text, k)
   if (val('version') !== version) throw new UpdateFailure(`latest.yml names version ${val('version')}, not ${version}`)
   if (val('path') !== file) throw new UpdateFailure(`latest.yml names ${val('path')}, not ${file}`)
   if (val('sha512') !== sha512b64) throw new UpdateFailure('latest.yml sha512 does not match the installer')

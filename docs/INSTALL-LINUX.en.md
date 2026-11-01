@@ -141,7 +141,7 @@ you updated it.
   `latest.yml` it names (`office/<version>/`), put them in one folder the server account can read and run
   `trina_admin desktop-refresh --from /full/path` (not a relative path: `trina_admin` runs from `/`). The same checks
   apply. A release newer than the server is not offered (`ahead`): update the server first. The command exits non-zero
-  unless the result is `offered` or `current`.
+  unless the result is `offered`, `current` or `newer` (a newer installer put there by hand).
 - Office mode (Mac) does the same with its own update agent; on the hosted service the operator does.
 
 ## Safe PowerPoint (safe operations 1A, optional)

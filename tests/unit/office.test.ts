@@ -352,7 +352,7 @@ describe('Host, Origin, cookies and client IP on the office address', () => {
     expect(inv2.url.startsWith('https://mini.local:8443/invite/')).toBe(true)
   })
 
-  test('do-it review 3: Admin > System tells office mode as it is (sandbox on, no relay, updates from a zip, no Codex, CA fingerprint, no mode change)', async () => {
+  test('do-it review 3: Admin > System tells office mode as it is (sandbox on, no relay, updates itself from the feed, no Codex, CA fingerprint, no mode change)', async () => {
     fs.mkdirSync(path.join(h.ctx.config.dataDir, 'tls'), { recursive: true })
     const local = h.client({ base: 'http://localhost:47830', via: 'direct', ip: '127.0.0.1' })
     await local.call('POST', '/api/auth/login', { username: 'director', password: 'owner horse battery 42' }, { origin: 'http://localhost:47830' })
@@ -373,7 +373,8 @@ describe('Host, Origin, cookies and client IP on the office address', () => {
     expect(by('pf_anchor').detail).toContain('운영 설치')
     if (process.platform === 'darwin') expect(by('sandbox')).toMatchObject({ status: 'ok' })
     expect(by('sandbox').detail).not.toMatch(/샌드박스 프로필을 쓰지 않아요|without the sandbox profile/)
-    expect(by('update').detail).toMatch(/zip/)
+    expect(by('update').detail).toMatch(/스스로 업데이트|updates itself/)
+    expect(by('update').detail).not.toMatch(/office-install\.sh|zip/)
     expect(d.checks.some((x: { id: string }) => x.id === 'engine.codex')).toBe(false)
     const conn = await local.call('GET', '/api/admin/connection')
     expect(conn.availableModes).toEqual(['direct-only'])
