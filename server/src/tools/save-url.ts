@@ -14,8 +14,8 @@
 //     scheduled run such a file is skipped. No other size limit. The only hard stop is the disk: a download that would
 //     leave less than diskReserve() free on the data disk or the team folder's disk is refused, up front and while it
 //     streams (the partial file is deleted).
-//   - The type comes from the first bytes, never from the site (tools/sniff.ts): PNG, JPEG, GIF, WebP, PDF, MP4, WebM,
-//     MP3, WAV, M4A; the extension is corrected to match. Images up to VISION_INPUT_MAX are also decoded by the isolated
+//   - The type comes from the first bytes, never from the site (tools/sniff.ts): PNG, JPEG, GIF, WebP, PDF, MP4, MOV,
+//     WebM, MP3, WAV, M4A, AAC, FLAC, Ogg (Vorbis, Opus); the extension is corrected to match. Images up to VISION_INPUT_MAX are also decoded by the isolated
 //     normalizer (files/vision.ts) as a check; the original bytes are saved.
 //   - Saved through placeProduced like make_file: the person's permissions checked again, never under skills/, a
 //     version of a file the AI read in this turn or a conflict copy, the per-turn file count, a file event with the
@@ -311,7 +311,7 @@ export const SAVE_URL_DESCRIPTION =
   'Download a file into the team folder, like `curl -o`: an image, PDF, video or audio file at an http(s) address, or a file a connected service returned ' +
   'inline (the mcp-file:<id> handle in its answer). Use it right away for what an image or video service generated (its result links expire), and to put ' +
   'images into HTML: save the image next to the page (save_as "landing/images/hero.png") and reference it by a relative path (<img src="images/hero.png"> in ' +
-  'landing/index.html). Previews show only team files: web addresses in a page stay blocked. Takes PNG, JPEG, GIF and WebP images, PDF, MP4 and WebM video, MP3, ' +
-  'WAV and M4A audio, judged by the file\'s bytes (the extension is corrected); not SVG, HTML, archives or programs. The address rules are web_fetch\'s: ' +
+  'landing/index.html). Previews show only team files: web addresses in a page stay blocked. Takes PNG, JPEG, GIF and WebP images, PDF, MP4, MOV and WebM video, MP3, ' +
+  'WAV, M4A, AAC, FLAC and Ogg / Opus audio, judged by the file\'s bytes (the extension is corrected); not SVG, HTML, archives or programs. The address rules are web_fetch\'s: ' +
   'addresses from this conversation (typed by the user, search results, links of fetched pages, answers of connected services) open without asking within ' +
   'a budget, others are shown to the user first. Files over 1 GB ask the user first.'

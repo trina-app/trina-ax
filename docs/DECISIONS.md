@@ -4964,7 +4964,8 @@ after a card, and an HTML preview showed no image at all (the frame's CSP allows
 had no folder to resolve `images/hero.png` against). Now it works the way Claude Code does with `curl -o`: save the
 image to a file, then reference the file from the HTML. Founder decisions (2026-11-01): addresses a connection returned are learned links, within
 the link budget and with the echo check; v1 takes images (PNG, JPEG, GIF, WebP), PDF, MP4 / WebM and MP3 / WAV / M4A,
-judged by their bytes, never SVG, HTML or archives; images also pass the isolated normalizer as a decode check and the
+judged by their bytes, never SVG, HTML or archives (later the same day, for what fal, Replicate and ElevenLabs return:
+also MOV, Ogg with Vorbis or Opus, FLAC and AAC in ADTS); images also pass the isolated normalizer as a decode check and the
 original bytes are saved. Then, the same day: no size limit by type and no hard limit at all — the download streams to
 disk, up to 1 GB without asking, above it a card with the size and the server's free disk; only the disk is a hard
 stop; a scheduled run skips files over 1 GB.
@@ -5001,9 +5002,12 @@ stop; a scheduled run skips files over 1 GB.
   against the turn's write budget (`maxWriteBytesPerTurn`, 50 MB, a loop guard for text writes): the card over 1 GB and
   the disk check bound them, the file count still applies (`placeProduced` option `turnBytes: false`).
 - **Type by the first bytes** (`server/src/tools/sniff.ts`), never by the site's or the service's word: PNG, JPEG, GIF,
-  WebP, PDF, MP4 (ISO brands; HEIC / AVIF and QuickTime `qt  ` are not MP4), WebM (EBML with DocType webm; Matroska is
-  not), MP3 (ID3 or a layer III frame header; AAC ADTS is not), WAV, M4A. Refusals name what it is (SVG, HTML, XML,
-  JSON / text, ZIP or Office, gzip, 7-Zip, RAR, a program, a script, HEIC, MOV, MKV). The extension follows the type and
+  WebP, PDF, MP4 (ISO brands; HEIC / AVIF are not), MOV (the QuickTime brand `qt  `, major or compatible, or an older
+  file that starts with a `moov` / `mdat` atom, after a `wide` / `free` / `skip` filler at most, whose size is not four
+  printable characters: `<!--mdat` is text), WebM (EBML with DocType webm; Matroska is not), MP3 (ID3 or a layer III
+  frame header), AAC (ADTS: the 12-bit sync with layer 0, a known sample rate, a frame at least its header's length),
+  WAV, M4A, FLAC (`fLaC`), Ogg (`OggS`; `.opus` when its first packet is `OpusHead`, `.ogg` otherwise). Refusals name
+  what it is (SVG, HTML, XML, JSON / text, ZIP or Office, gzip, 7-Zip, RAR, a program, a script, HEIC, MKV). The extension follows the type and
   the AI is told when it changed. Images up to `VISION_INPUT_MAX` (32 MiB, the normalizer's own input limit; the
   founder said "about 50 MB") are decoded by `mycel-safeops vision` in the converter isolation; a file that only starts
   like an image is refused; too many pixels to decode, or a larger file, is saved with a note that it was checked by
@@ -5081,7 +5085,8 @@ stop; a scheduled run skips files over 1 GB.
   version, no request before the path / skills / wider-audience checks or after a declined card, redirects into private
   addresses, the card over the line by Content-Length and while streaming (nothing past the line before the answer), a
   scheduled run skipping, the disk reserve up front and while streaming, mcp-file handles across chats and people,
-  sniffing, connection addresses within the budget, echoes
+  sniffing (MOV by brand and by atom, `<!--mdat` text refused, Ogg Vorbis / Opus, FLAC, AAC ADTS against MP3 headers)
+  and MOV / Opus / Ogg / FLAC / AAC saved under their own extensions, connection addresses within the budget, echoes
   by address / query / window and by host-and-path, behind padding and 600 other addresses, re-encoded, nested in a
   redirect parameter, an input too large to mark (fail closed), a shortener's redirect to an echo (card, never requested
   when declined, not followed in a scheduled run), the image-to-image exemption, a connection the person cannot use,

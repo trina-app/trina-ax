@@ -23,6 +23,12 @@ const PNG = Buffer.concat([Buffer.from('89504e470d0a1a0a0000000d4948445200000004
 const MP4 = Buffer.concat([Buffer.from('0000001c667479706973366d00000200', 'hex').subarray(0, 8), Buffer.from('isom\0\0\x02\0isomiso2mp41'), crypto.randomBytes(3000)])
 const PDF = Buffer.from('%PDF-1.7\n%âãÏÓ\n1 0 obj << /Type /Catalog >> endobj\ntrailer << >>\n%%EOF\n')
 const BIG = Buffer.concat([PNG.subarray(0, 64), Buffer.alloc(300_000, 7)])
+// what video and voice services also return (fal, Replicate, ElevenLabs): MOV, Ogg Opus / Vorbis, FLAC, AAC (ADTS)
+const MOV = Buffer.concat([Buffer.from('\0\0\0\x14ftypqt  \0\0\0\0qt  '), crypto.randomBytes(2000)])
+const OPUS = Buffer.concat([Buffer.from('OggS\0\x02'), Buffer.alloc(20), Buffer.from('\x01\x13OpusHead'), crypto.randomBytes(2000)])
+const VORBIS = Buffer.concat([Buffer.from('OggS\0\x02'), Buffer.alloc(20), Buffer.from('\x01\x1e\x01vorbis'), crypto.randomBytes(2000)])
+const FLAC = Buffer.concat([Buffer.from('fLaC\0\0\0\x22'), crypto.randomBytes(2000)])
+const AAC = Buffer.concat([Buffer.from('fff150802e7ffc', 'hex'), crypto.randomBytes(2000)])
 
 let A: CApp
 let cdn: ReturnType<typeof Bun.serve>
@@ -53,6 +59,11 @@ beforeAll(async () => {
         case '/to-meta': return Response.redirect('http://169.254.169.254/latest/meta-data/iam/', 302)
         case '/to-lan': return Response.redirect(`http://lan.example:${port()}/hero.png`, 302)
         case '/to-hero': return Response.redirect(at('/hero.png'), 302)
+        case '/clip.mp4': return new Response(MOV, { headers: { 'content-type': 'video/mp4' } })
+        case '/voice': return new Response(OPUS, { headers: { 'content-type': 'application/octet-stream' } })
+        case '/voice.mp3': return new Response(VORBIS, { headers: { 'content-type': 'audio/mpeg' } })
+        case '/song.wav': return new Response(FLAC, { headers: { 'content-type': 'audio/wav' } })
+        case '/speech.m4a': return new Response(AAC, { headers: { 'content-type': 'audio/mp4' } })
         // a link shortener's address (made by a connection): it redirects to the long address it was given
         case '/s/abc': return Response.redirect(at('/hero.jpg?leak=ceo-salary-is-250000'), 302)
         // the same path on another scheme / with a query, as http -> https and CDN redirects do
@@ -125,6 +136,19 @@ describe('saving', () => {
     expect(d.structured).toMatchObject({ path: 'users/alice/downloads/report.pdf', type: 'application/pdf' })
     const e = await s.run(at('/clip'), 'shared/videos/')
     expect(e.structured).toMatchObject({ path: 'shared/videos/clip.mp4', type: 'video/mp4' })
+  })
+  test('MOV, Ogg (Opus, Vorbis), FLAC and AAC files are taken and named by their bytes', async () => {
+    const s = setup()
+    s.allow(at('/clip.mp4'), at('/voice'), at('/voice.mp3'), at('/song.wav'), at('/speech.m4a'))
+    const mov = await s.run(at('/clip.mp4'), 'shared/media/clip.mp4')
+    expect(mov.structured).toMatchObject({ path: 'shared/media/clip.mov', type: 'video/quicktime' })
+    expect(mov.text).toContain('extension .mov')
+    expect((await s.run(at('/voice'))).structured).toMatchObject({ path: 'users/alice/downloads/voice.opus', type: 'audio/ogg' })
+    expect((await s.run(at('/voice.mp3'), 'shared/media/')).structured).toMatchObject({ path: 'shared/media/voice.ogg', type: 'audio/ogg' })
+    expect((await s.run(at('/song.wav'), 'shared/media/')).structured).toMatchObject({ path: 'shared/media/song.flac', type: 'audio/flac' })
+    expect((await s.run(at('/speech.m4a'), 'shared/media/')).structured).toMatchObject({ path: 'shared/media/speech.aac', type: 'audio/aac' })
+    expect(read('shared/media/clip.mov').equals(MOV)).toBe(true)
+    expect(read('users/alice/downloads/voice.opus').equals(OPUS)).toBe(true)
   })
   test('SVG, HTML and archives are refused by their bytes, whatever the site says; nothing is left behind', async () => {
     const s = setup()
@@ -301,7 +325,24 @@ describe('type sniffing', () => {
     expect(sniffKind(MP4)?.name).toBe('mp4')
     expect(sniffKind(Buffer.from('\0\0\0\x18ftypM4A \0\0\0\0M4A isom'))?.name).toBe('m4a')
     expect(sniffKind(Buffer.from('\0\0\0\x18ftypheic\0\0\0\0mif1heic'))).toBeNull()
-    expect(sniffKind(Buffer.from('\0\0\0\x14ftypqt  \0\0\0\0qt  '))).toBeNull()
+    // MOV (QuickTime): the qt brand, major or compatible, or an older file that starts with its movie / media atom
+    expect(sniffKind(Buffer.from('\0\0\0\x14ftypqt  \0\0\0\0qt  '))?.name).toBe('mov')
+    expect(sniffKind(Buffer.from('\0\0\0\x14ftypXXXX\0\0\0\0qt  '))?.name).toBe('mov')
+    expect(sniffKind(Buffer.from('\0\0\x01\x00moov\0\0\0\x6cmvhd'))?.name).toBe('mov')
+    expect(sniffKind(Buffer.from('\0\0\0\x08wide\x01\x23\x45\x67mdat'))?.name).toBe('mov')
+    expect(sniffKind(Buffer.from('<!--mdat--><html><script>alert(1)</script></html>'))).toBeNull() // text, not an atom size
+    expect(sniffKind(Buffer.from('\0\0\0\x08wide\0\0\0\x08free'))).toBeNull()
+    // Ogg (Vorbis or anything else: .ogg; Opus: .opus), FLAC, AAC in ADTS (layer 0; MP3 is layer III)
+    const ogg = (codec: string) => Buffer.concat([Buffer.from('OggS\0\x02'), Buffer.alloc(20), Buffer.from('\x01\x13'), Buffer.from(codec), Buffer.alloc(16)])
+    expect(ogg('OpusHead').subarray(28, 36).toString()).toBe('OpusHead')
+    expect(sniffKind(ogg('OpusHead'))?.name).toBe('opus')
+    expect(sniffKind(ogg('\x01vorbis\0'))?.name).toBe('ogg')
+    expect(sniffKind(Buffer.from('fLaC\0\0\0\x22\x10\0\x10\0'))?.name).toBe('flac')
+    expect(sniffKind(Buffer.from('fff150802e7ffc', 'hex'))?.name).toBe('aac')
+    expect(sniffKind(Buffer.from('fff950802e7ffc', 'hex'))?.name).toBe('aac') // MPEG-2 ADTS
+    expect(sniffKind(Buffer.from('fff17c802e7ffc', 'hex'))).toBeNull() // sample-rate index 15: no ADTS
+    expect(sniffKind(Buffer.from('fff3508000001f', 'hex'))?.name).toBe('mp3') // layer bits 01 = Layer III: MP3, not AAC
+    expect(sniffKind(Buffer.from('fff15080001ffc', 'hex'))).toBeNull() // a frame shorter than its own header
     expect(sniffKind(Buffer.concat([Buffer.from('1a45dfa3', 'hex'), Buffer.from('\x42\x82\x84webm')]))?.name).toBe('webm')
     expect(sniffKind(Buffer.concat([Buffer.from('1a45dfa3', 'hex'), Buffer.from('\x42\x82\x88matroska')]))).toBeNull()
     expect(sniffKind(Buffer.from('ID3\x04\0'))?.name).toBe('mp3')
@@ -314,6 +355,15 @@ describe('type sniffing', () => {
     expect(withExtension('hero.jpeg', KINDS.jpeg)).toEqual({ name: 'hero.jpeg', changed: false })
     expect(withExtension('report', KINDS.pdf)).toEqual({ name: 'report.pdf', changed: true })
     expect(withExtension('v1.2 final', KINDS.mp4)).toEqual({ name: 'v1.2 final.mp4', changed: true })
+    expect(withExtension('clip.mp4', KINDS.mov)).toEqual({ name: 'clip.mov', changed: true })
+    expect(withExtension('clip.qt', KINDS.mov)).toEqual({ name: 'clip.qt', changed: false })
+    expect(withExtension('voice.ogg', KINDS.opus)).toEqual({ name: 'voice.ogg', changed: false })
+    expect(withExtension('voice', KINDS.opus)).toEqual({ name: 'voice.opus', changed: true })
+    expect(withExtension('voice.opus', KINDS.ogg)).toEqual({ name: 'voice.ogg', changed: true })
+    expect(withExtension('song.mp3', KINDS.flac)).toEqual({ name: 'song.flac', changed: true })
+    expect(withExtension('speech.m4a', KINDS.aac)).toEqual({ name: 'speech.aac', changed: true })
+    // a corrected name never ends in a type a browser would run
+    for (const k of Object.values(KINDS)) for (const n of ['x.html', 'x.svg', 'x.htm', 'x.xml', 'x.png.html', 'x.html ']) expect(withExtension(n, k).name.endsWith('.' + k.ext) || withExtension(n, k).name.endsWith('.ogg') || withExtension(n, k).name.endsWith('.qt')).toBe(true)
   })
 })
 
