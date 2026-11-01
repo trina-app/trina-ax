@@ -75,14 +75,56 @@ test('copy answer, regenerate makes a branch, ‹ › switches back', async ({ p
   await expect(lastAnswer(page)).toHaveAttribute('data-status', 'done')
   await lastAnswer(page).hover()
   await lastAnswer(page).getByRole('button', { name: '답변 복사' }).click()
+  // "Copied" shows once the clipboard has it
+  await expect(lastAnswer(page).getByRole('button', { name: '복사됨' })).toBeVisible()
   const clip = await page.evaluate(() => navigator.clipboard.readText())
   expect(clip).toContain('Here is **the answer** for: first question')
+  // like Claude's copy: formatted text too (text/html), for Gmail, Outlook, Word and Google Docs (lib/richCopy.tsx)
+  const flavours = await page.evaluate(async () => {
+    const [item] = await navigator.clipboard.read()
+    const out: Record<string, string> = {}
+    for (const type of item!.types) out[type] = await (await item!.getType(type)).text()
+    return out
+  })
+  expect(Object.keys(flavours).sort()).toEqual(['text/html', 'text/plain'])
+  expect(flavours['text/plain']).toContain('| alpha | 1 |')
+  const html = flavours['text/html']!
+  expect(html).toContain('<strong>the answer</strong>')
+  expect(html).toMatch(/<table[^>]*border-collapse: collapse/)
+  expect(html).toMatch(/<th[^>]*>name<\/th>/)
+  expect(html).toMatch(/<td[^>]*>alpha<\/td>/)
+  expect(html).toMatch(/<pre[^>]*><code>print\("hi"\)<\/code><\/pre>/)
+  // the external image is a link, never an image that loads where it is pasted
+  expect(html).not.toMatch(/<img[^>]*evil\.example/)
+  expect(html).toContain('href="https://evil.example/collect?d=secret"')
+  expect(html).toContain('/files/view?path=marketing%2Fplan.md"')
   void context
   await lastAnswer(page).getByTestId('regenerate').click()
   await expect(lastAnswer(page)).toHaveAttribute('data-status', 'done')
   await expect(lastAnswer(page).getByTestId('branch-label')).toHaveText('2 / 2')
   await lastAnswer(page).getByRole('button', { name: '이전 버전' }).click()
   await expect(lastAnswer(page).getByTestId('branch-label')).toHaveText('1 / 2')
+})
+
+test('copy answer without the async clipboard (plain http on an office network): the copy command carries both flavours', async ({ page }) => {
+  // like http://192.168.x.x: no navigator.clipboard.write for the page; the clipboard itself is read by the test
+  await page.addInitScript(() => { Object.defineProperty(Clipboard.prototype, 'write', { value: () => Promise.reject(new DOMException('insecure', 'NotAllowedError')) }) })
+  await reset(page)
+  await signIn(page)
+  await ask(page, 'second question')
+  await expect(lastAnswer(page)).toHaveAttribute('data-status', 'done')
+  await lastAnswer(page).hover()
+  await lastAnswer(page).getByRole('button', { name: '답변 복사' }).click()
+  await expect(lastAnswer(page).getByRole('button', { name: '복사됨' })).toBeVisible()
+  const flavours = await page.evaluate(async () => {
+    const [item] = await navigator.clipboard.read()
+    const out: Record<string, string> = {}
+    for (const type of item!.types) out[type] = await (await item!.getType(type)).text()
+    return out
+  })
+  expect(flavours['text/plain']).toContain('Here is **the answer** for: second question')
+  expect(flavours['text/html']).toMatch(/<table[^>]*>/)
+  expect(flavours['text/html']).toContain('<strong>the answer</strong>')
 })
 
 test('edit the question makes a new branch; files changed in the turn are summarized', async ({ page }) => {

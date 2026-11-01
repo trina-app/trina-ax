@@ -8,6 +8,7 @@ import { useMemo, useState } from 'react'
 import { useShallow } from 'zustand/react/shallow'
 import { chatErrorReason, ERROR_MESSAGES, isDefaultErrorMessage, type Attachment, type EngineId } from '@mycel/shared/api'
 import { thumbnailUrl } from '../../lib/api'
+import { answerHtml } from '../../lib/richCopy'
 import { formatSize } from '../../lib/format'
 import { openArtifact, openTeamFile, useSidePanel } from '../../lib/sidePanel'
 import { TEAM_FILE_DRAG_TYPE } from '../../lib/teamAttach'
@@ -355,7 +356,7 @@ export function AssistantMessage({
         )}
         {!streaming && (
           <div className="mt-1.5 flex flex-wrap items-center gap-1 opacity-100 transition sm:opacity-0 sm:group-focus-within:opacity-100 sm:group-hover:opacity-100" data-testid="answer-actions">
-            {m.content && <CopyButton text={m.content} label={t('chat.copyAnswer')} />}
+            {m.content && <CopyButton text={m.content} html={() => answerHtml(m.content)} label={t('chat.copyAnswer')} />}
             <IconButton label={t('chat.regenerate')} disabled={busy} onClick={() => onRegenerate(m)} data-testid="regenerate">
               <RotateCcw size={13} />
             </IconButton>

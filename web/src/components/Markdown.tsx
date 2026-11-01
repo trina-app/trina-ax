@@ -267,10 +267,10 @@ const COMPONENTS: Components = {
 
 // cjk-friendly: "**마일스톤(◆)**으로" is bold (CommonMark ends emphasis only before punctuation or a space, and Korean
 // particles follow the closing ** directly)
-const REMARK = [remarkGfm, remarkCjkFriendly, mathRemark as never]
+export const REMARK = [remarkGfm, remarkCjkFriendly, mathRemark as never]
 
 /** Remove only parsed comments from raw HTML; keep all other HTML escaped by ReactMarkdown as before. */
-function hideHtmlComments() {
+export function hideHtmlComments() {
   return (tree: Root) => {
     function visit(node: Root | RootContent) {
       if (node.type === 'raw' && node.value.includes('<!--')) {
@@ -301,7 +301,7 @@ function hideHtmlComments() {
 const REHYPE = [hideHtmlComments, mathRehype as never]
 
 /** Keep the react-markdown default URL check (javascript: etc. become empty), but let our own download links through. */
-function urlTransform(url: string): string {
+export function urlTransform(url: string): string {
   if (/^(https?:|mailto:|tel:|\/|#|\.|data:image\/(png|jpeg|gif|webp);)/i.test(url)) return url
   if (!/^[a-z][a-z0-9+.-]*:/i.test(url)) return url // relative
   return ''

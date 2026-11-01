@@ -4735,3 +4735,31 @@ fallback when DeepInfra is down. Test report: `plans/stt-hosted-2026-11-01/STT-D
   given back without an answer, the month boundary, the hosted model, a pool running out mid-read, restore and
   export), `c-speech-openrouter` (two tries on 5xx), `media-read` (a second try after the same checks as a new piece),
   the contract vectors, `mycel-ctl` `TestTenantHostedSpeechKeySet`.
+## Copy an answer with its formatting (feat/small-batch-11-01, 2026-11-01)
+
+- **Two flavours, like Claude's copy.** The answer's "Copy" (`chat/Messages.tsx`, `CopyButton html`) writes one
+  clipboard item with `text/html` and `text/plain`. The plain text is the answer's Markdown, as before; the HTML is for
+  Gmail, Outlook, Word and Google Docs. The table's own "Copy table" (tab-separated text for Sheets/Excel) is unchanged.
+- **Same parser, mail-safe output** (`web/src/lib/richCopy.tsx`). The HTML comes from the answer's Markdown through
+  react-markdown with the screen's remark plugins (GFM, cjk-friendly, math) and the comment-hiding rehype step, with
+  copy-only components: plain elements with inline styles (mail programs and word processors drop classes and style
+  sheets). Tables get `border="1" cellpadding` and `border-collapse` with bordered `th`/`td` (Outlook's Word engine reads
+  the attributes, the rest the styles) and keep the GFM column alignment; code blocks are grey monospace `pre` blocks;
+  quotes get a left bar; task-list boxes become ☑/☐ (pastes drop form fields). It is rendered in the page with
+  `createRoot` + `flushSync` into a detached element (`react-dom/server` is not in the app's bundle; tests use it).
+- **Nothing loads where it is pasted.** External images become links (a pasted `<img>` would be fetched by the reader's
+  mail program, and its address can carry data out: the reason the screen never loads them); team-file images and
+  links become absolute `/files/view?path=` links (whoever opens one signs in and is checked); app links are made
+  absolute; `javascript:` and in-page anchors become text. Inline `data:image` pictures (png/jpeg/gif/webp only, as on
+  the screen) stay pictures. Math and Mermaid stay as their source; raw HTML stays text and hidden comments stay
+  hidden, as on the screen.
+- **Every path gets both** (`web/src/lib/clipboard.ts writeRich`): `navigator.clipboard.write` with a `ClipboardItem`
+  (https, and the desktop app, whose session allows `clipboard-sanitized-write` for the team origin); when that is
+  missing or refused (plain http on an office network, an older browser), `execCommand('copy')` with a `copy` listener
+  that sets both flavours (a selected hidden text area, which Safari needs); else the plain text. "Copied" shows once
+  the clipboard has it.
+- Tests: `web/test/unit/rich-copy.test.tsx` (tables to `<table>` with bordered cells and alignment, formatting, code and
+  math, links, images never loading, raw HTML and comments, the three clipboard paths); `web/test/e2e/chat.spec.ts`
+  (both flavours read back from the clipboard, the table, the external image only as a link; the copy-command path
+  with `clipboard.write` refused); `desktop/e2e/clipboard.spec.ts` (the team page writes both flavours to the
+  computer's clipboard through each path in Electron; what was on the clipboard is put back).

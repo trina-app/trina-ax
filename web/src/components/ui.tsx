@@ -6,6 +6,7 @@ import { cloneElement, createContext, isValidElement, useCallback, useContext, u
 import { create } from 'zustand'
 import { useT } from '../i18n'
 import { useUi } from '../store/ui'
+import { writeRich } from '../lib/clipboard'
 
 /** primary: the one main action; secondary (default): a bordered button; ghost: no border (also a plain "no": Deny on a
  * permission card, Skip, Reject of a suggestion, like Claude Code's "No"); danger: a destructive action with a border;
@@ -348,7 +349,14 @@ export function Toaster() {
 export function useCopy(timeout = 1500) {
   const [copied, setCopied] = useState(false)
   const copy = useCallback(
-    async (text: string) => {
+    /** `html`: formatted text as well (text/html beside the plain text, lib/clipboard.ts) */
+    async (text: string, html?: string) => {
+      if (html !== undefined) {
+        await writeRich({ html, plain: text })
+        setCopied(true)
+        setTimeout(() => setCopied(false), timeout)
+        return
+      }
       try {
         await navigator.clipboard.writeText(text)
       } catch {
@@ -370,12 +378,20 @@ export function useCopy(timeout = 1500) {
   return { copied, copy }
 }
 
-export function CopyButton({ text, label, className, showLabel }: { text: string | (() => string); label?: string; className?: string; showLabel?: boolean }) {
+/** `html`: also put formatted text on the clipboard (an answer: lib/richCopy.tsx), made at the click */
+export function CopyButton({ text, html, label, className, showLabel }: { text: string | (() => string); html?: () => string; label?: string; className?: string; showLabel?: boolean }) {
   const t = useT()
   const { copied, copy } = useCopy()
   const l = copied ? t('common.copied') : label ?? t('common.copy')
+  const click = () => {
+    const plain = typeof text === 'function' ? text() : text
+    let rich: string | undefined
+    // a failure to format still copies the text
+    try { rich = html?.() } catch { rich = undefined }
+    void copy(plain, rich)
+  }
   return (
-    <button type="button" aria-label={l} title={l} onClick={() => void copy(typeof text === 'function' ? text() : text)} className={clsx('inline-flex items-center gap-1 rounded-md px-1.5 py-1 text-xs text-faint transition hover:bg-hover hover:text-ink', className)}>
+    <button type="button" aria-label={l} title={l} onClick={click} className={clsx('inline-flex items-center gap-1 rounded-md px-1.5 py-1 text-xs text-faint transition hover:bg-hover hover:text-ink', className)}>
       {copied ? <Check size={13} className="text-ok" aria-hidden /> : <Copy size={13} aria-hidden />}
       {showLabel && <span>{l}</span>}
     </button>
