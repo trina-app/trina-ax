@@ -48,6 +48,9 @@ test('a confidential chat with voice input through OpenRouter: the composer says
   await page.getByTestId('composer-input').fill('confidential plan')
   await page.getByTestId('send').click()
   await expect(page).toHaveURL(/\/c\/[0-9a-f-]{36}$/)
+  // the page knows the chat is confidential (chat.updated, sent before the answer) before the mic is pressed; a click
+  // before that records, and the server refuses it (the next test)
+  await expect(page.getByTestId('assistant-message').last()).toHaveAttribute('data-status', 'done')
   await page.getByRole('button', { name: '음성으로 입력' }).click()
   await expect(page.getByRole('alert')).toContainText(NOTE)
   await expect(page.getByRole('status', { name: '녹음 중' })).toHaveCount(0)
