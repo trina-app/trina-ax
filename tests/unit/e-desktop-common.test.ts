@@ -22,6 +22,7 @@ import { BrowserResult } from '../../shared/src/api/browser'
 import { PRODUCT } from '@mycel/shared'
 import { SERVICE_HOSTS } from '@mycel/shared/service-hosts'
 import { PLURAL_PATTERN, pluralNames } from '@mycel/shared/plural'
+import { browserAction } from '../../desktop/src/common/browser-action'
 
 describe('team addresses', () => {
   test('a bare team name becomes <name>.treesoop.com over https', () => {
@@ -245,6 +246,27 @@ describe('site access "all", the team policy and Settings > Browser', () => {
     expect(none.record(undefined, t0 + REPEAT_HINT_WINDOW_MS + 1)).toBe(false)
     expect(none.record(undefined, t0 + REPEAT_HINT_WINDOW_MS + 2)).toBe(false)
     expect(none.record(undefined, t0 + REPEAT_HINT_WINDOW_MS + 3)).toBe(true)
+  })
+
+  // App review 2026-11-01: the question said "preview_start · https://…". It names the action in the step's words.
+  test('the question names what the AI does in plain words, never the tool', () => {
+    expect(browserAction('preview_start', 'ko')).toBe('브라우저 열기')
+    expect(browserAction('preview_start', 'en')).toBe('Open browser')
+    expect(browserAction('navigate', 'ja')).toBe('ページを開く')
+    expect(browserAction('computer', 'es')).toBe('Usar navegador')
+    expect(browserAction('form_input', 'id')).toBe('Isi formulir')
+    // a tool this build does not know, or a name that is not a tool: the general word
+    expect(browserAction('mystery_tool', 'en')).toBe('Browser')
+    expect(browserAction('constructor', 'ko')).toBe('브라우저')
+    const tools = ['preview_start', 'navigate', 'read_page', 'get_page_text', 'find', 'computer', 'form_input', 'javascript_tool', 'browser_batch', 'tabs_context', 'tabs_create', 'tabs_select', 'tabs_close', 'resize_window', 'read_console_messages', 'read_network_requests']
+    for (const l of UI_LOCALES.map((x) => x.id)) for (const tool of tools) {
+      const words = browserAction(tool, l)
+      expect({ tool, l, raw: words === tool || words.includes('_') }).toEqual({ tool, l, raw: false })
+    }
+    // the pane's question shows it, not the tool's name
+    const pane = readFileSync(join(import.meta.dir, '../../desktop/src/ui/pane.ts'), 'utf8')
+    expect(pane).toContain('${browserAction(p.tool, locale)} · ${p.url}')
+    expect(pane).not.toContain('${p.tool} · ')
   })
 
   test('the team page channels: sender checked, arguments checked, "all" only through the app\'s own dialog', () => {

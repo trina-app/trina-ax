@@ -19,6 +19,8 @@ const teamsJson = (userData: string) => JSON.parse(readFileSync(join(userData, '
 async function openShop(app: ElectronApplication, path = '/') {
   newTurn()
   const { callId } = await call(ACME, 'navigate', { url: `${SHOP}${path}` })
+  // the question names the action in the step's words, never the tool (app review 2026-11-01: "preview_start · …")
+  await expect((await chrome(app)).getByTestId('prompt-action').first()).toHaveText(`페이지 열기 · ${SHOP}${path}`)
   await answer(app, '이번만 허용', 'site')
   const r = await result(ACME, callId)
   expect(r.result.ok, text(r)).toBe(true)
@@ -260,6 +262,19 @@ test.describe('browser tools over the team WebSocket', () => {
       await (await teamPage(app, ACME)).reload()
       await bindWindow(await teamPage(app, ACME), ACME)
     }
+  })
+
+  // app review 2026-11-01: the question said "preview_start · https://…"; it names the action as the step does
+  test('opening the browser on a site asks in plain words, never with the tool name', async () => {
+    newTurn()
+    const c = await chrome(app)
+    const opened = await call(ACME, 'preview_start', { url: `${SHOP}/` })
+    const prompt = c.getByTestId('permission-prompt').first()
+    await expect(prompt.getByTestId('prompt-action')).toHaveText(`브라우저 열기 · ${SHOP}/`)
+    await expect(prompt).not.toContainText('preview_start')
+    await answer(app, '이번만 허용', 'site')
+    const r = await result(ACME, opened.callId)
+    expect(r.result.ok, text(r)).toBe(true)
   })
 })
 

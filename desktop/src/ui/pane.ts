@@ -5,6 +5,7 @@
 // allowed always; the same value as the team page's Settings > Browser, and "allow all" is off when the team turned
 // that choice off). The page itself is a separate view placed under this toolbar by the main process.
 import type { DesktopPaneState } from '@mycel/shared'
+import { browserAction } from '../common/browser-action'
 import { addActivity, dismissNotice, drivingLine, emptyActivity, markSeen, type ActivityView } from '../common/pane-activity'
 import { h, locale, onLocaleChange, tr, ui, type PaneActivity, type PanePrompt, type SiteSettings } from './dom'
 
@@ -214,7 +215,8 @@ function promptCard(p: PanePrompt, more: number) {
     { class: `prompt${isPrivate ? ' private' : ''}`, role: 'alertdialog', 'aria-labelledby': `p-${p.id}`, 'data-testid': 'permission-prompt', 'data-scope': p.scope },
     h('h2', { id: `p-${p.id}` }, tr(isPrivate ? 'perm.private.title' : 'perm.site.title', { host: p.host })),
     h('p', {}, tr(isPrivate ? 'perm.private.body' : 'perm.site.body')),
-    h('p', { class: 'url' }, `${p.tool} · ${p.url}`),
+    // what the AI does there in plain words (the step's words), not the tool's name such as preview_start
+    h('p', { class: 'url', 'data-testid': 'prompt-action' }, `${browserAction(p.tool, locale)} · ${p.url}`),
     // the third site question in a row (common/site-permissions.ts RepeatPromptHint): where the setting is
     p.hint && !isPrivate
       ? h(
