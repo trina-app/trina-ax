@@ -2,7 +2,7 @@
 // data, its checks (the same limits as shared/src/api/integrations.ts, so most mistakes show before anything is sent),
 // the request bodies it becomes, and the checks on what the server sends back (the sign-in address).
 // Keys are write-only: the form only ever holds a key the person is typing now; a stored one is `hasSecret`.
-import { ApiError, ERROR_MESSAGES, INTEGRATION_TOOLS_MAX, type Integration, type IntegrationAccess, type IntegrationAuth, type IntegrationInput, type IntegrationKind, type IntegrationPatch, type IntegrationStatus, type WritePolicy } from '@mycel/shared/api'
+import { ApiError, ERROR_MESSAGES, INTEGRATION_TOOLS_OLD_MAX, type Integration, type IntegrationAccess, type IntegrationAuth, type IntegrationInput, type IntegrationKind, type IntegrationPatch, type IntegrationStatus, type WritePolicy } from '@mycel/shared/api'
 import type { MessageKey } from '../i18n'
 
 /** how the connection proves who it is: sign in at the service (MCP only), a key, or nothing */
@@ -185,11 +185,12 @@ export function authorizationUrl(value: string): string {
 export const STATUS_TONE: Record<IntegrationStatus, 'ok' | 'warn' | 'danger'> = { connected: 'ok', needs_auth: 'warn', error: 'danger' }
 
 /** What Settings says under a connection's tools when the server holds fewer than the service offers: over the
- * server's ceiling (`toolsCapped`), or a list an older server cut at 100 (`toolsStale`: checking again saves every
- * tool); null when it holds them all, so a service with 186 tools just shows "186 tools". */
+ * server's ceiling of 1,000 tools or 4,000,000 characters (`toolsCapped`), or a list an older server cut at 100 tools or
+ * 256,000 characters (`toolsStale`: checking again saves every tool; INTEGRATION_TOOLS_OLD_MAX); null when it holds
+ * them all, so a service with 186 tools just shows "186 tools". */
 export function toolsShortfall(i: Pick<Integration, 'tools' | 'toolsTotal'>): 'integrations.toolsCapped' | 'integrations.toolsStale' | null {
   if (!i.toolsTotal || i.toolsTotal <= i.tools.length) return null
-  return i.tools.length >= INTEGRATION_TOOLS_MAX ? 'integrations.toolsCapped' : 'integrations.toolsStale'
+  return i.tools.length > INTEGRATION_TOOLS_OLD_MAX ? 'integrations.toolsCapped' : 'integrations.toolsStale'
 }
 
 /** sign-in (OAuth) is offered: an MCP server with sign-in that the person manages */

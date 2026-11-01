@@ -5368,7 +5368,10 @@ full definitions, after which the tool is called by its own name.
 8. **Settings** shows every tool with its switch ("도구 186개"). The "N of M" note stays for the ceiling. A list an
    older server cut at 100 says "The service offers 150 tools; 100 were saved when it was last checked. Check again to
    save all of them." (`toolsStale`), and the AI is told the same until someone checks the connection again; the server
-   does not check connections by itself after an update (no network without a person).
+   does not check connections by itself after an update (no network without a person). Which of the two a short list
+   is follows from its length (`INTEGRATION_TOOLS_OLD_MAX`): an older server kept at most 100 tools, while today's
+   4,000,000-character ceiling cuts only past 120 tools (33,000 characters a tool at most), so a list of 400 of 500 is
+   the ceiling and is not told to check again.
 9. **Sizes** for the Higgsfield-shaped catalog: before, 46 tools and about 252,000 characters of tool definitions in
    every request (all 186 would be about 1.02 million); now the two tools' definitions are about 1,500 characters, the
    instructions' part about 4,700 and a resumed message's part about 1,100. The API engine's request grows by under

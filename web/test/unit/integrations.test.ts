@@ -171,6 +171,8 @@ describe('the tool list in Settings', () => {
     expect(toolsShortfall(connection({ kind: 'mcp', tools: tools(100), toolsTotal: 150 }))).toBe('integrations.toolsStale')
     // over the server's ceiling
     expect(toolsShortfall(connection({ kind: 'mcp', tools: tools(INTEGRATION_TOOLS_MAX), toolsTotal: INTEGRATION_TOOLS_MAX + 200 }))).toBe('integrations.toolsCapped')
+    // over the 4,000,000 characters with fewer than 1,000 tools: checking again would not help
+    expect(toolsShortfall(connection({ kind: 'mcp', tools: tools(400), toolsTotal: 500 }))).toBe('integrations.toolsCapped')
     for (const d of Object.values(DICTS)) for (const k of ['integrations.toolsStale', 'integrations.toolsCapped', 'integrations.tools', 'integrations.toolsOf'] as const) expect(d[k]).toBeTruthy()
     expect(DICTS.ko['integrations.toolsStale']).toContain('다시 확인')
   })

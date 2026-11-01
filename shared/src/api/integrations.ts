@@ -32,6 +32,11 @@ export type IntegrationAccess = z.infer<typeof IntegrationAccess>
 /** the most tools the team server keeps of one MCP connection (every tool its service lists, up to this; a turn offers
  * the ones that do not fit an answer through find_tools / call_tool) */
 export const INTEGRATION_TOOLS_MAX = 1000
+/** what a server before the deferred tools kept of one MCP connection at most (100 tools, and 256,000 characters of
+ * schemas: Higgsfield's list stopped at 46). A list of more can only have been cut by today's ceiling (1,000 tools or
+ * 4,000,000 characters: at 33,000 characters a tool at most, that is past 120 tools), so only a list of at most this
+ * many is "saved before; check again". */
+export const INTEGRATION_TOOLS_OLD_MAX = 100
 
 /** one tool an MCP server offers (from tools/list, saved when the connection is checked) */
 export const IntegrationTool = z.object({

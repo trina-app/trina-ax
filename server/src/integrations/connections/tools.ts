@@ -15,6 +15,7 @@
 import crypto from 'node:crypto'
 import { z } from 'zod'
 import { TEAM_TOOL_PREFIX } from '@mycel/shared'
+import { INTEGRATION_TOOLS_OLD_MAX } from '@mycel/shared/api'
 import type { AppContext } from '../../context'
 import type { TurnTool, TurnToolContext, TurnToolProvider, TurnToolResult } from '../../services'
 import { addSources } from '../../chat/read-scope'
@@ -23,7 +24,7 @@ import { CallError, integrationsOf } from './service'
 import { bareUrl, disabledTools, savedTools, toolsOffered, type Row } from './store'
 import { HIDDEN } from './hide'
 import { say } from './text'
-import { MAX_TOOLS, type RemoteTool } from './mcp'
+import type { RemoteTool } from './mcp'
 import { byName, checkArgs, deferredLines, DEFERRED_LIST_BUDGET, FIND_TOOLS_DEFAULT, FIND_TOOLS_MAX, matchTools, oneLine, type FindEntry } from './deferred'
 import { putMedia, MEDIA_PREFIX, type MediaMeta } from './media'
 import { answerUrls, recordSent, rememberConnectionUrls } from '../../tools/connection-urls'
@@ -668,7 +669,8 @@ export function integrationToolProvider(ctx: AppContext): TurnToolProvider {
         // offers more than the server keeps of a connection
         const offered = toolsOffered(row)
         const capped = offered === null ? ''
-          : saved.length >= MAX_TOOLS ? ` (the service offers ${offered} tools; the team server keeps the first ${saved.length} of a connection; if the user needs one that is not here, say so)`
+          // more than an older server kept: today's ceiling (1,000 tools or 4,000,000 characters) cut it
+          : saved.length > INTEGRATION_TOOLS_OLD_MAX ? ` (the service offers ${offered} tools; the team server keeps the first ${saved.length} of a connection; if the user needs one that is not here, say so)`
             // a list saved before every tool was kept: checking the connection again gets the rest
             : ` (the service offers ${offered} tools; ${saved.length} were saved when the connection was last checked; if the user needs one that is not here, say so: whoever manages the connection can check it again in its settings)`
         const offNote = skipped ? ` (${skipped} more turned off by whoever manages this connection; do not try to reach them another way)` : ''

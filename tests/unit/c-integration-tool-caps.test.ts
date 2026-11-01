@@ -49,6 +49,17 @@ describe('a connection keeps every tool its service lists', () => {
     expect([again.body.tools.length, again.body.toolsTotal]).toEqual([150, undefined])
   })
 
+  test('more than an older server kept but fewer than 1,000: the character ceiling cut it, so "check again" is not said', async () => {
+    const big = (await A.json('/api/integrations', { as: 'alice' })).body.items.find((i: any) => i.name === 'Big')
+    // 150 kept of 200 offered: an older server kept 100 at most, so this was today's 4,000,000-character ceiling
+    A.ctx.db.query('UPDATE integrations SET tools_total = 200 WHERE id = ?').run(big.id)
+    try {
+      const line = prompt('alice').prompt!.split('\n').find((l) => l.startsWith('- Big '))!
+      expect(line).toContain('(the service offers 200 tools; the team server keeps the first 150 of a connection;')
+      expect(line).not.toContain('check it again')
+    } finally { A.ctx.db.query('UPDATE integrations SET tools_total = NULL WHERE id = ?').run(big.id) }
+  })
+
   test('a service with fewer tools; checking again after it shrank keeps what it lists now', async () => {
     fake.tools = many(30, 's')
     const small = await post('alice', '/api/integrations', { kind: 'mcp', name: 'Small', url: `${fake.base}/mcp-open?small`, auth: 'none' })
