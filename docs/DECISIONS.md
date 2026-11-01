@@ -3393,7 +3393,8 @@ medical edition "allow all websites" off by default.
   `chat_seen_urls.free_turn_id` with `source` fetched / search / allowed (migration 322, reader 1; old rows count as
   fetched), synchronously so parallel calls cannot share the last places. A scheduled run is one answer (8). The
   per-page link limit stays 500 (100 after audit data, review Q4). Addresses a connected service returned share this
-  budget for save_url, with an echo check ("save_url" below, 2026-11-01).
+  budget for save_url, with an echo check ("save_url" below, 2026-11-01). (Raised to 30 per answer and 150 per chat,
+  8 in a run nobody watches, with the echo check for every learned link: "Web links: a bigger budget" below.)
 - **Codex search.** `web_search="cached"` (Codex's default) instead of `live`; the model proxy writes
   `external_web_access: false` into every `web_search` tool (top level and `additional_tools`) and refuses
   `web_search_preview`, which ignores it; only a `namespace` entry is a mere container. The CONNECT tunnel (agent-own) cannot see bodies and relies on the CLI flag.
@@ -5388,3 +5389,86 @@ full definitions, after which the tool is called by its own name.
     hold the two and none of the 186, and a request naming one directly is refused; a tool turned off; a resumed
     session's short form; the 12-tool connection through the two in Claude Code, Codex and the API engine); `c-integration-tool-caps.test.ts` (150 kept, three connections over 200, an old
     list cut at 100, the 1 MB page); `step-labels-tools.test.ts`; `web/test/unit/integrations.test.ts`.
+
+## Web links: a bigger budget, the echo check for every learned link (feat/web-budget, 2026-11-01)
+
+Founder decision (2026-11-01): browsing should feel closer to Claude Code, which opens what it finds without asking,
+and keep the protections against sending data out. Per-person permissions and the team server's checks stay the
+deliberate difference. Deep research hit the old budget at once: 25 search-result pages in one answer gave 17 cards.
+
+- **The budget** (`DEFAULT_LINK_BUDGET` in `server/src/tools/url-gate.ts`, the one place the numbers are set). Learned
+  links (web search results, links of pages web_fetch read, and for save_url the addresses connections returned) open
+  without a card 30 per answer and 150 per chat (was 8 and 30). Operators: `MYCEL_WEB_LINK_BUDGET="<per answer>,<per
+  chat>[,<unattended>]"`; the old two-number form still works. No admin screen: there was none for the budget. A run
+  nobody watches (a scheduled run, a call outside a turn) keeps 8: nobody sees its steps as they happen and it cannot
+  raise a card, so it gets what every answer had (without the third number: the smaller of 8 and the per-answer number).
+  The card's text gives the numbers as before; an unattended run's refusal says "8 per scheduled run".
+- **The echo check for every learned link** (what makes the bigger budget safe for the address itself). Until now only
+  save_url's connection addresses were checked: a search result or a page's link that carried the AI's data opened
+  within the budget. Shown on main in a real turn (`tests/security/web-links.test.ts` run there): a result repeating the
+  key the AI put into its search query, a link a site gave back with the AI's address in it, and a search result that
+  redirected to such an address all reached the collecting site without a card. Now each web search result (when the
+  search ends: `chat/turn.ts rememberSearchResults`) and each link of a page web_fetch read is checked against the
+  chat's marks as it comes, with the same marks and functions as save_url (`chat_sent_marks`; `connection-urls.ts
+  webEcho`: the address, folded, its host and path, its query, an address inside it, 20-character windows of its
+  random-looking parts, case-folded; every new address is an echo after an input too large to mark), and remembered
+  with `chat_seen_urls.echo` (migration 329). An echo always asks, whatever is left of the budget, with its own text
+  ("from a web page or a search result … matches what the AI had sent to a tool earlier", five languages), never with
+  "allow this site", and spends none of the budget; where nobody can be asked it is refused, saying why. Decided when
+  the link comes (marks left later do not change it); a link that comes again as an echo stays one, as for connections.
+  Applies to web_fetch, the browser tools and save_url alike (they share `gateUrl`).
+- **The web's own addresses leave no marks.** A search result or a link of a fetched page (not an echo) is the web's,
+  like a connection's address: the AI sending it on (web_fetch's input, a browser tool's) leaves no marks, so reading
+  results, their pages and their links never turns them into echoes of themselves. For that, search results are now
+  kept in `chat_seen_urls` (source 'search') when the search ends, not only in the answer's steps (earlier chats keep
+  working from their steps). Addresses the person typed or allowed on a card still leave marks, as before: the AI may
+  have written their parts, and a typed address can carry the person's own data (a token).
+- **A page's own site.** A link on the page's own site (registrable domain; the host for an IP or a single label) does
+  not count the marks the page's own address carries: pages link to themselves with another query (`?page=2`,
+  `item?id=` of the next item, `/d/<id>/view` of `/d/<id>/edit`), and what the page's address carried went to that
+  site when it was opened (typed, learned, or after its card). Without this, every link of a typed forum, video or
+  document page shared its host and path or its id with the page and asked. A link to another site that carries it
+  still counts (a share link with the page's address, a site's "/out?to=<the AI's address>").
+- **Redirects.** web_fetch now checks every redirect hop against the marks like save_url, through one helper
+  (`connection-urls.ts redirectGuard`, save_url moved to it): a hop to an echo asks ("The address the AI is opening
+  redirects to another one…", five languages), declined it is never requested, a run nobody watches does not follow
+  it. What the asked-for address itself carries does not count for a hop on its own site (http → https of the same
+  path), nor what a hop the person allowed carries, on that hop's site; a hop to another site is checked in full. That
+  last part is new for save_url too (before, the asked-for address's marks counted for every hop): with the page's own
+  site rule above, a search site's own `/url?q=<the AI's address>` link is no echo as a link, and its redirect to the
+  other site must not be excused either. The time the card waits does not count against web_fetch's 15 seconds.
+- **Kept as they were.** The per-site card for addresses the AI wrote itself, with "allow this site in this
+  conversation" (Claude Code's first-time domain prompt), the card for a query over 200 characters, random-looking
+  parts and long names before the site, every address asking while the exit address is unknown, scheduled runs (card-
+  allowed addresses, and 8 learned links a run), refusing office-network, local, metadata and the server's own public
+  addresses, confidential chats (no web at all).
+- **What the budget still allows** (why there is one). Which links the AI picks, and in what order, can carry data: about
+  log2 of the links on the page a pick, at most 500 remembered a page, so about 9 bits. 30 an answer is about 270 bits
+  (34 bytes), 150 a chat about 1,350 bits (170 bytes); before, 72 and 270 bits (9 and 34 bytes). The old 30 a chat was
+  already enough for one short key; the new one allows a few lines. Accepted with the founder's decision (Claude Code
+  has no such limit). The echo check does not narrow this channel; the budget does.
+- **What the echo check does not stop** (as for save_url). A site that keeps what it was sent and gives it back later
+  changed (re-encoded, in words, in pieces shorter than a mark); readable data the AI writes into an address on a site
+  the person allowed for the chat (that allowance trusts the site and comes first, also for an echo without a random-
+  looking part); the in-app browser's own redirects (the desktop net-guard decides those). Costs, accepted: a result
+  whose address has a random-looking string the AI searched for (a commit hash it looked up) asks once; after the AI
+  opened an address the person typed or allowed whose page is one path with a query (`watch?v=`, `item?id=`), a link
+  to the same path from another site asks once (the host-and-path mark, which catches a site that only changed the
+  query of the AI's address; marking each query parameter instead would let web links drop it, a follow-up).
+- **Codex searches** name their query only when they end: it leaves its marks then, before its results are checked.
+- **Measured** (`tests/security/web-links.test.ts`: fake engine, real launcher, gate and web_fetch, a local server for
+  the web). Deep research of 4 answers in one chat, each 5 searches of 5 results, all 25 pages read and 5 of their own
+  next parts: before 22, 22, 22 and 24 cards = 90 for 120 pages (the same on unmodified main), after 0. A prompt-injected
+  page with 499 links: 29 of them open in one answer without a card (the search result that led there is the 30th), the
+  next 11 ask; the chat's next answer opens 30 more and asks for 2. The echoes above: 5 cards (the result, the
+  shortener's redirect, the person's card for the AI's own address on the repeating site, the link that site gave
+  back, its own redirector's hop), the collecting site never requested. On unmodified main the same turn raised only
+  the card for the AI's own address: the other four reached the collecting site without one.
+- **Migration 329** (`329_c_seen_url_echo.sql`): one column, `echo INTEGER NOT NULL DEFAULT 0`. No newer reader: 0.2.17
+  opens the database, ignores the column and writes 0 (a rollback goes back to 8 / 30 without the check).
+- Tests: `tests/unit/web-echo.test.ts` (results and page links by address, host and path, query, nested and window
+  marks; the page's own site and another; marks left later; no marks for the web's own addresses, marks for echoes and
+  allowed ones; fail closed; 500 links against 50,000 marks; web_fetch redirects asked, declined never requested, not
+  followed unattended, the card's time not counted; migration 329), `p0-exfil-server.test.ts` (30 / 150, the operator
+  setting, 8 unattended), `save-url.test.ts` (the shared redirect check, 30 per answer), `tests/security/web-links.test.ts`
+  (above); the fake engine has a main-level WebSearch (`{"webSearch": …}`).

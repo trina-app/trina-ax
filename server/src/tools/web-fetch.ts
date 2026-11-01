@@ -7,7 +7,8 @@
 //   original name as Host and TLS SNI — no second lookup, so DNS rebinding cannot switch the target
 // - our own HTTP/1.1 GET over node:net / node:tls: Bun's fetch and node:http follow HTTP(S)_PROXY from the
 //   environment and cannot be pinned to an address (measured), raw sockets can
-// - redirects followed by hand, at most 5, each hop checked again; 5 MB / 15 s limits; no cookies or credentials
+// - redirects followed by hand, at most 5, each hop checked again (and shown to the caller first: `onRedirect`, the
+//   echo check of tools/connection-urls.ts redirectGuard); 5 MB / 15 s limits; no cookies or credentials
 // - the text goes back wrapped as external data
 import dns from 'node:dns/promises'
 import net from 'node:net'
@@ -548,9 +549,16 @@ export interface FetchOptions extends ResolveOptions {
   pdftotext?: string | null
 }
 
+/** One web_fetch call: the test hooks plus what the tool decides per call. */
+export interface WebFetchCall extends FetchOptions {
+  /** called with each redirect's next address before it is looked up or requested (throw to stop); time spent here,
+   * a card waiting for the person, does not count against the time limit */
+  onRedirect?: (next: string) => Promise<void> | void
+}
+
 /** Fetch a page as text. Throws ToolError with a message for the model. */
-export async function webFetch(rawUrl: string, o: FetchOptions = {}): Promise<WebFetchResult> {
-  const deadline = Date.now() + (o.timeoutMs ?? FETCH_TIMEOUT_MS)
+export async function webFetch(rawUrl: string, o: WebFetchCall = {}): Promise<WebFetchResult> {
+  let deadline = Date.now() + (o.timeoutMs ?? FETCH_TIMEOUT_MS)
   let current = rawUrl
   for (let hop = 0; ; hop++) {
     const t = await resolveTarget(current, { ...o, deadline })
@@ -558,6 +566,11 @@ export async function webFetch(rawUrl: string, o: FetchOptions = {}): Promise<We
     if ([301, 302, 303, 307, 308].includes(r.status) && r.headers.location) {
       if (hop >= FETCH_MAX_REDIRECTS) throw new ToolError(`too many redirects (more than ${FETCH_MAX_REDIRECTS})`)
       try { current = new URL(r.headers.location, t.url).href } catch { throw new ToolError('the site redirected to an invalid URL') }
+      if (o.onRedirect) {
+        const t0 = Date.now()
+        await o.onRedirect(current)
+        deadline += Date.now() - t0
+      }
       continue
     }
     if (r.status >= 400) throw new ToolError(`the site answered HTTP ${r.status}`)

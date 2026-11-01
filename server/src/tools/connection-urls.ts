@@ -1,5 +1,5 @@
 // Web addresses that came back from an external-service connection, and the echo check (docs/DECISIONS.md "Outbound
-// web channels", "save_url"; migration 325).
+// web channels", "save_url", "Web links: a bigger budget"; migrations 325, 329).
 //
 // What a connection returns (an MCP tool's text or resource link, an api_request answer) can name files at the
 // service's own CDN: a generated image's signed URL. save_url may open such an address without a card, as a learned
@@ -21,9 +21,19 @@
 // does not ask every time. What is not caught: a service that keeps what it was sent and gives it back later in pieces
 // shorter than the marks, or changed in other ways (re-encoded, shortened in another chat); the query-length card
 // (MAX_UNCONFIRMED_QUERY) and the budget still apply to those.
+//
+// The same check covers every learned web link (2026-11-01, with the bigger link budget): a web search result and a
+// link of a page web_fetch read are checked against the marks as they come (webEcho; chat_seen_urls.echo), and an echo
+// always asks, so the budget only bounds which of the page's own links the AI picks. Search results and links of
+// fetched pages are the web's own addresses, like a service's: the AI sending one on (web_fetch's input) leaves no
+// marks. A link on the page's own site does not count what the page's address itself carries (a page links to itself
+// with ?page=2, an item list repeats its path): that went to the site already when the page was opened. web_fetch also
+// checks each redirect like save_url (redirectGuard).
 import crypto from 'node:crypto'
 import type { Database } from 'bun:sqlite'
-import { extractUrls, normUrl, opaqueParts } from './url-gate'
+import type { Locale } from '@mycel/shared/api'
+import { ToolError } from '../policy/errors'
+import { extractUrls, normUrl, opaqueParts, siteOf, TEXT as GATE_TEXT, type TurnPerson } from './url-gate'
 
 /** the window length of a random-looking part (the same as opaqueParts' minimum) */
 export const MARK_WINDOW = 20
@@ -136,10 +146,14 @@ export function textOf(input: unknown): string | null {
   return whole && size <= MARK_INPUT_CHARS ? out.join('\n') : null
 }
 
-/** The addresses that came back from connections in this chat (not echoes): left out of the marks. */
+/** The addresses that came from outside in this chat, not echoes: those connections returned, web search results and
+ * links of fetched pages (learned links). Left out of the marks: the AI sending one on chose nothing in it. Not the
+ * addresses the person typed or allowed (the AI may have written their parts; a typed address can carry the person's
+ * data). */
 function knownUrls(db: Database, chatId: string): (url: string) => boolean {
-  let set: Set<string> | null = null
-  return (url) => (set ??= new Set((db.query('SELECT url FROM chat_connection_urls WHERE chat_id = ? AND echo = 0').all(chatId) as { url: string }[]).map((r) => r.url))).has(url)
+  const conn = db.query('SELECT 1 FROM chat_connection_urls WHERE chat_id = ? AND url = ? AND echo = 0')
+  const web = db.query("SELECT 1 FROM chat_seen_urls WHERE chat_id = ? AND url = ? AND echo = 0 AND (source IS NULL OR source IN ('fetched', 'search'))")
+  return (url) => !!conn.get(chatId, url) || !!web.get(chatId, url)
 }
 
 /** Note what the AI sends in a tool input of this chat (every tool: the server's, the connections', the engine's own). */
@@ -159,13 +173,51 @@ export function recordSent(db: Database, chatId: string | null, input: unknown):
   } catch { /* a chat deleted meanwhile: nothing to keep */ }
 }
 
+/** Does an address carry one of the marks (`has`)? `except`: marks that do not count (hex). */
+function carries(url: string, has: (m: Buffer) => boolean, except?: ReadonlySet<string>): boolean {
+  const marks = urlMarks(url)
+  return marks === null || marks.some((m) => !except?.has(m.toString('hex')) && has(m))
+}
+
 /** Is this address (as it came back) an echo of what the AI sent in this chat? `except`: marks that do not count (hex;
  * save_url's redirect check: those of the address it was asked to save, which its own input left) */
 export function isEcho(db: Database, chatId: string, url: string, except?: ReadonlySet<string>): boolean {
   const has = db.query('SELECT 1 FROM chat_sent_marks WHERE chat_id = ? AND mark = ?')
   if (has.get(chatId, FULL)) return true
-  const marks = urlMarks(url)
-  return marks === null || marks.some((m) => !except?.has(m.toString('hex')) && !!has.get(chatId, m))
+  return carries(url, (m) => !!has.get(chatId, m), except)
+}
+
+/** isEcho for many addresses at once (a fetched page's links, a search's results): the chat's marks read once. */
+export type EchoCheck = (url: string) => boolean
+function echoCheck(db: Database, chatId: string, except?: (url: string) => ReadonlySet<string> | undefined): EchoCheck {
+  const set = new Set((db.query('SELECT mark FROM chat_sent_marks WHERE chat_id = ?').all(chatId) as { mark: Uint8Array }[]).map((r) => Buffer.from(r.mark).toString('hex')))
+  if (set.has(FULL.toString('hex'))) return () => true
+  if (!set.size) return () => false
+  return (url) => carries(url, (m) => set.has(m.toString('hex')), except?.(url))
+}
+
+/** The site an address belongs to (registrable domain), or its host when it has none (an IP address, a single label). */
+function siteKey(url: string): string | null {
+  try { return siteOf(url) ?? new URL(url).hostname.toLowerCase() } catch { return null }
+}
+
+/**
+ * The echo check of learned web links, decided as they come (url-gate rememberUrls): a web search's results (no
+ * `page`) or the links of the page web_fetch just read (`page`: the address asked for and the one it ended at after
+ * redirects). The page's own addresses are no echo (they were just opened). A link on the page's own site does not
+ * count the marks the page's address itself carries: pages link to themselves with another query (?page=2, ?id= of
+ * the next item), and what the page's address carried went to that site already when it was opened (after its card,
+ * or as the person typed it). A link to another site carrying them still counts (a share link with the page's
+ * address, the AI's address written out on a search page), and so does a redirect of an excused link to another site
+ * (redirectGuard: a search page's own /url?q=<the AI's address> goes to its own site; where it redirects to is checked
+ * in full).
+ */
+export function webEcho(db: Database, chatId: string, page: string[] = []): EchoCheck {
+  const pages = new Set(page.map((p) => normUrl(p)).filter((p): p is string => !!p))
+  const sites = new Set([...pages].map(siteKey).filter((x): x is string => !!x))
+  const own = new Set([...pages].flatMap((p) => urlMarks(p) ?? []).map((m) => m.toString('hex')))
+  const check = echoCheck(db, chatId, (url) => own.size && sites.has(siteKey(url) ?? '') ? own : undefined)
+  return (url) => !pages.has(url) && check(url)
 }
 
 /** Addresses written out in a connection's answer (as the AI sees it: secrets already hidden), http(s) only. */
@@ -191,4 +243,46 @@ export function rememberConnectionUrls(db: Database, chatId: string, urls: strin
       for (const u of urls) ins.run(chatId, u, o.integrationId, o.userId, o.turnId, isEcho(db, chatId, u) ? 1 : 0)
     })()
   } catch { /* a chat or connection deleted meanwhile */ }
+}
+
+/**
+ * The redirect check of save_url and web_fetch: a redirect to an address that echoes what the AI sent in this chat (a
+ * link shortener, a service's "/out?to=<the AI's address>") asks the person first, whatever opened the first address;
+ * where nobody can be asked it is not followed. What the asked-for address itself carries does not count for a hop on
+ * its own site (its own input left those marks: http -> https of the same path is no echo), nor what a hop the person
+ * allowed carries, on that hop's site. A hop to another site is checked in full: what went to one site is not passed on
+ * to another without the person (a page's own link excused by webEcho, /url?q=<the AI's address>, cannot redirect
+ * there either). Returns the check to call with each next address before it is requested, and whether the person
+ * allowed a hop.
+ */
+export function redirectGuard(db: Database, chatId: string | null, start: string, person: TurnPerson | null, words: {
+  /** the card's question, {url} for the address */
+  ask: Record<Locale, string>
+  /** for the AI: nobody could be asked / the person said no */
+  unattended: string
+  declined: string
+}): { check: (next: string) => Promise<void>; confirmed: () => boolean } {
+  // the marks that do not count, by the site they went to
+  const own = new Map<string, Set<string>>()
+  const excuse = (url: string) => {
+    const k = siteKey(url) ?? ''
+    const set = own.get(k) ?? new Set<string>()
+    for (const m of urlMarks(url) ?? []) set.add(m.toString('hex'))
+    own.set(k, set)
+  }
+  excuse(normUrl(start) ?? start)
+  let confirmed = false
+  return {
+    confirmed: () => confirmed,
+    async check(next) {
+      const u = normUrl(next)
+      if (!chatId || !u || !isEcho(db, chatId, u, own.get(siteKey(u) ?? ''))) return
+      if (!person || person.unattended) throw new ToolError(words.unattended)
+      const L = person.locale
+      const question = words.ask[L].replace('{url}', () => u.length > 2000 ? u.slice(0, 2000) + '…' : u)
+      if (!(await person.confirm(question, GATE_TEXT.allow[L], GATE_TEXT.deny[L]))) throw new ToolError(words.declined)
+      excuse(u)
+      confirmed = true
+    },
+  }
 }

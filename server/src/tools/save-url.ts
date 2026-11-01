@@ -43,8 +43,8 @@ import { downloadToFile, type DownloadOptions } from './download'
 import { egressOf, egressSettled } from './egress'
 import { placeProduced } from './make-file'
 import { ACCEPTED, refusedName, sniffKind, withExtension, type FileKind } from './sniff'
-import { isEcho, urlMarks } from './connection-urls'
-import { gateUrl, normUrl, TEXT as GATE_TEXT } from './url-gate'
+import { redirectGuard } from './connection-urls'
+import { gateUrl } from './url-gate'
 import { precheckTarget } from './web-fetch'
 
 /** larger downloads ask the person first (save_url's card) */
@@ -215,7 +215,14 @@ export async function saveUrl(ctx: AppContext, a: Input, t: ToolCtx, o: SaveUrlO
       else if (how === 'site') confirmed = ' (site allowed in this chat)'
       await widen()
       let largeOk = false
-      const own = new Set((urlMarks(normUrl(source) ?? source) ?? []).map((m) => m.toString('hex')))
+      // a redirect to an address that echoes what the AI sent (a link shortener or a service's "/out?to=" given the
+      // AI's address): the person decides, whatever opened the first address (tools/connection-urls.ts redirectGuard,
+      // shared with web_fetch)
+      const redirects = redirectGuard(ctx.db, chatId, source, t.person ?? null, {
+        ask: TEXT.redirectEcho,
+        unattended: 'the address redirected to one that matches what the AI had sent to a tool earlier in this chat (a service may have kept it and given it back, like a link shortener), which needs a person to confirm it, and nobody can confirm it here, so nothing was saved',
+        declined: 'the user did not allow following the redirect, so nothing was saved. Do not try to get it another way; ask the user what they want',
+      })
       const r = await downloadToFile(source, tmp, {
         lookup: o.lookup, testAllow: o.testAllow, insecureTlsForTests: o.insecureTlsForTests, connectTimeoutMs: o.connectTimeoutMs, idleTimeoutMs: o.idleTimeoutMs, roomStep: o.roomStep, totalTimeoutMs: o.totalTimeoutMs,
         blockedIps, signal: t.signal,
@@ -228,22 +235,11 @@ export async function saveUrl(ctx: AppContext, a: Input, t: ToolCtx, o: SaveUrlO
           if (!(await t.person.confirm(question, TEXT.allow[L], TEXT.deny[L]))) throw new ToolError(`the user chose not to download this ${shown} file, so nothing was saved. Do not try to get it another way; ask the user what they want`)
           largeOk = true
         },
-        // a redirect to an address that echoes what the AI sent (a link shortener or a service's "/out?to=" given the
-        // AI's address): the person decides, whatever opened the first address (tools/connection-urls.ts). What the
-        // asked-for address itself carries does not count (this call's own input left those marks: http -> https of
-        // the same path is no echo), nor what a hop the person allowed carries
-        onRedirect: async (next) => {
-          const u = normUrl(next)
-          if (!u || !isEcho(ctx.db, chatId, u, own)) return
-          if (!t.person || t.person.unattended) throw new ToolError('the address redirected to one that matches what the AI had sent to a tool earlier in this chat (a service may have kept it and given it back, like a link shortener), which needs a person to confirm it, and nobody can confirm it here, so nothing was saved')
-          const question = TEXT.redirectEcho[L].replace('{url}', () => u.length > 2000 ? u.slice(0, 2000) + '…' : u)
-          if (!(await t.person.confirm(question, GATE_TEXT.allow[L], GATE_TEXT.deny[L]))) throw new ToolError('the user did not allow following the redirect, so nothing was saved. Do not try to get it another way; ask the user what they want')
-          for (const m of urlMarks(u) ?? []) own.add(m.toString('hex'))
-          confirmed += ' (redirect confirmed by the user)'
-        },
+        onRedirect: redirects.check,
         room: (more) => room(more, fs.existsSync(tmp)),
         sniff: (b, ct) => { kind = judge(b, ct) },
       })
+      if (redirects.confirmed()) confirmed += ' (redirect confirmed by the user)'
       if (largeOk) confirmed += ' (large file confirmed by the user)'
       ctx.files.events.emit('external', { turnId: t.turnId, userId: t.user.id, source: 'save_url', url: r.url })
       first = r.first

@@ -14,7 +14,7 @@ import { putMedia } from '../../server/src/integrations/connections/media'
 import { inputMarks, isEcho, MARK_INPUT_CHARS, MAX_INPUT_URLS, recordSent, rememberConnectionUrls, textOf, urlMarks } from '../../server/src/tools/connection-urls'
 import { diskReserve, saveUrl, type SaveUrlOptions } from '../../server/src/tools/save-url'
 import { sniffKind, withExtension, KINDS } from '../../server/src/tools/sniff'
-import { rememberUrls, type TurnPerson } from '../../server/src/tools/url-gate'
+import { LINK_BUDGET, rememberUrls, type TurnPerson } from '../../server/src/tools/url-gate'
 import { noteEgressIp } from '../../server/src/tools/egress'
 import { makeCApp, type CApp, type Person } from '../lib/c-app'
 
@@ -420,15 +420,16 @@ describe('addresses from connections (learned links) and the echo check', () => 
   })
   test('an address a connection the person can use returned opens without a card, within the link budget', async () => {
     const s = setup()
-    const urls = Array.from({ length: 9 }, (_, i) => at(`/hero.png?v=${i}`))
+    const T = LINK_BUDGET.turn
+    const urls = Array.from({ length: T + 1 }, (_, i) => at(`/hero.png?v=${i}`))
     rememberConnectionUrls(A.ctx.db, s.chat, urls, { integrationId, userId: 'alice', turnId: s.turnId })
-    for (let i = 0; i < 8; i++) await s.run(urls[i]!, `shared/conn/${i}.png`)
+    for (let i = 0; i < T; i++) await s.run(urls[i]!, `shared/conn/${i}.png`)
     expect(s.cards.asked).toEqual([])
-    // the 9th in this answer: the person decides
+    // the next one in this answer: the person decides
     s.cards.answer = false
-    await expect(s.run(urls[8]!, 'shared/conn/8.png')).rejects.toThrow(/did not allow/)
-    expect(s.cards.asked[0]).toContain('as many addresses from web pages and search results without asking as it may (8 per answer')
-    // opening one of the first eight again is free
+    await expect(s.run(urls[T]!, `shared/conn/${T}.png`)).rejects.toThrow(/did not allow/)
+    expect(s.cards.asked[0]).toContain(`as many addresses from web pages and search results without asking as it may (${T} per answer`)
+    // opening one of the first ones again is free
     s.cards.asked = []
     await s.run(urls[0]!, 'shared/conn/0b.png')
     expect(s.cards.asked).toEqual([])

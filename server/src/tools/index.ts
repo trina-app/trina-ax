@@ -18,7 +18,8 @@ import { registerScheduleTools, SCHEDULE_TOOL_NAMES } from './schedules'
 import { registerSearch } from './search'
 import { registerDriveTools, DRIVE_TOOL_NAMES } from './drive'
 import { registerFileMoveTools, FILE_MOVE_TOOL_NAMES } from './file-moves'
-import { extractUrls, gateUrl, rememberUrls } from './url-gate'
+import { extractUrls, gateUrl, rememberUrls, TEXT as GATE_TEXT } from './url-gate'
+import { redirectGuard, webEcho } from './connection-urls'
 import { precheckTarget, webFetch, wrapExternal, type FetchOptions } from './web-fetch'
 import { SAVE_URL_DESCRIPTION, saveUrl, type SaveUrlOptions } from './save-url'
 
@@ -132,11 +133,18 @@ export function registerCTools(ctx: AppContext, o: { fetch?: FetchOptions; saveU
       // right after a start the server may still be learning its exit address (tools/egress.ts): a moment, not a card
       await egressSettled(ctx)
       const how = await gateUrl(ctx.db, chatId, a.url, t.person ?? null, { egressKnown: egressOf(ctx).known, turnId: t.turnId, userId: t.user.id })
-      const r = await webFetch(a.url, { ...o.fetch, blockedIps, maxChars: a.maxChars, pdftotext: ctx.engineConfig.pdftotext })
+      // a redirect to an address that echoes what the AI sent in this chat asks first, as in save_url
+      const redirects = redirectGuard(ctx.db, chatId, a.url, t.person ?? null, {
+        ask: GATE_TEXT.redirectEcho,
+        unattended: 'the address redirected to one that matches what the AI had sent to a tool earlier in this chat (a site may have kept it and given it back, like a link shortener), which needs a person to confirm it, and nobody can confirm it here, so it was not opened',
+        declined: 'the user did not allow following the redirect, so the page was not opened. Do not try other addresses to get around this; tell the user what you could not do',
+      })
+      const r = await webFetch(a.url, { ...o.fetch, blockedIps, maxChars: a.maxChars, pdftotext: ctx.engineConfig.pdftotext, onRedirect: redirects.check })
       ctx.files.events.emit('external', { turnId: t.turnId, userId: t.user.id, source: 'web_fetch', url: r.url })
-      // links on the page may be opened later in this chat without a card (rule ①: "an earlier web_fetch result")
-      if (chatId) rememberUrls(ctx.db, chatId, [r.url, ...extractUrls(r.text)])
-      return { text: wrapExternal(r), summary: `web_fetch ${a.url} -> ${r.text.length} chars${r.truncated ? ' (cut)' : ''}${how === 'confirmed' ? ' (confirmed by the user)' : how === 'site' ? ' (site allowed in this chat)' : ''}`.slice(0, 1000), structured: { url: r.url, ...(r.title ? { title: r.title } : {}), text: r.text, truncated: r.truncated } }
+      // links on the page may be opened later in this chat without a card (rule ①: "an earlier web_fetch result"),
+      // within the link budget, unless one carries what the AI sent before (an echo: always a card)
+      if (chatId) rememberUrls(ctx.db, chatId, [r.url, ...extractUrls(r.text)], 'fetched', webEcho(ctx.db, chatId, [a.url, r.url]))
+      return { text: wrapExternal(r), summary: `web_fetch ${a.url} -> ${r.text.length} chars${r.truncated ? ' (cut)' : ''}${how === 'confirmed' ? ' (confirmed by the user)' : how === 'site' ? ' (site allowed in this chat)' : ''}${redirects.confirmed() ? ' (redirect confirmed by the user)' : ''}`.slice(0, 1000), structured: { url: r.url, ...(r.title ? { title: r.title } : {}), text: r.text, truncated: r.truncated } }
     },
   })
 

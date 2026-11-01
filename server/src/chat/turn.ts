@@ -8,7 +8,8 @@ import fs from 'node:fs'
 import path from 'node:path'
 import crypto from 'node:crypto'
 import { CLAUDE_AGENT_TOOL_NAMES, FILE_TOOLS, TEAM_TOOL_PREFIX, type AgentStats, type EngineEvent } from '@mycel/shared'
-import { recordSent } from '../tools/connection-urls'
+import { recordSent, webEcho } from '../tools/connection-urls'
+import { normUrl, rememberUrls } from '../tools/url-gate'
 import type { ApiErrorBody, Attachment, EngineId, FileChange, FileChangeSummary, Locale, MessageStatus, Step, TurnRequest, TurnStopReason } from '@mycel/shared/api'
 import { buildClaudeLaunch, SUBSCRIPTION_DEFAULT_MODEL, type ClaudeConf } from '../engine/claude'
 import { buildCodexLaunch, CODEX_VERSION, prepareCodexTurn, type CodexConf } from '../engine/codex'
@@ -801,6 +802,9 @@ export class TurnExec {
           const ask = tool === 'web_search' && e.ok ? takeSearchAsk(this.searchAsks, e.summary ?? '', e.searchAction) : null
           if (!this.searchQueries.get(e.id)) {
             patch.label = e.summary && e.output === undefined ? tr('webSearch', this.spec.locale, { q: queryOf({ query: e.summary }) }) : tr(unnamedSearchKind(ask, e.searchAction), this.spec.locale)
+            // the query the AI wrote, known only now: its marks first, so results that repeat it are echoes
+            // (tools/connection-urls.ts; rememberSearchResults below)
+            if (e.summary && e.output === undefined) recordSent(this.rt.db, this.spec.chatId, { query: e.summary })
           }
           if (ask?.refused) { patch.status = 'error'; patch.detail = tr('webSearchRefused', this.spec.locale) }
         }
@@ -808,6 +812,7 @@ export class TurnExec {
         this.redactorNow = null // a call may have refreshed a token: read the secrets again
         if (tool === 'agent' && this.subtasks.has(e.id)) return this.endSubtask(e.id, e.ok, e.agent, patch)
         this.updateStep(e.id, patch)
+        if (patch.sources) this.rememberSearchResults(e.id)
         return
       }
       case 'agent_progress':
@@ -943,6 +948,18 @@ export class TurnExec {
     if (s.images && s.images.length > 20) s.images = s.images.slice(-20)
     this.dirty = true
     this.publishStep(s)
+  }
+
+  /** A web search's results become learned links of the chat now (tools/url-gate.ts ①, within the link budget), each
+   * checked for an echo of what the AI sent before (tools/connection-urls.ts webEcho; the search's own query
+   * included): an echo always asks. The addresses as the step keeps them (secrets hidden), the ones turnUrls gives
+   * the gate. Kept in the chat, so the AI sending one on (web_fetch's input) leaves no marks. */
+  private rememberSearchResults(stepRef: string) {
+    const s = this.steps.find((x) => x.id === stepId(stepRef))
+    const urls = (s?.sources ?? []).map((x) => normUrl(x.url)).filter((u): u is string => !!u)
+    if (!urls.length) return
+    try { rememberUrls(this.rt.db, this.spec.chatId, urls, 'search', webEcho(this.rt.db, this.spec.chatId)) }
+    catch (err) { this.rt.log.warn('remembering search results failed', { err, turn: this.id }) }
   }
 
   /** The oldest still-running step of a tool that no handler has patched yet. */

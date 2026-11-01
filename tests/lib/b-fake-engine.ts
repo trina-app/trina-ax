@@ -63,6 +63,9 @@
 //                                            with its structured result (tool_use_result) like Claude Code's.
 //                                            A child step {"model": "prompt"}: the child calls the model through the proxy
 //                                            with the turn's token, like Claude Code's sub-agents (its text is not said).
+//   @fake {"webSearch": {"query", "hits", "wrote", "textLinks"}}  (Claude) the main AI's WebSearch, like the child step
+//                                            above: the server's hits in the structured result (tool_use_result), then
+//                                            a short pause (the model reads the result before its next call)
 //   @fake {"init": {"tools": [...], "agents": [...]}}  what the init event reports (lockdown check tests)
 //   @fake {"echo": "agents" | "subagentPrompt" | "args"}  say the --agents file, the sub-agents' instructions, argv
 // Every team tool call carries Claude Code's _meta {"claudecode/toolUseId": <the tool_use id>}.
@@ -462,6 +465,15 @@ for (const d of directives) {
     const id = `toolu_${++toolN}`
     if (codex) out({ type: 'item.started', item: { id, type: 'mcp_tool_call', server: 'team', tool: d.toolStarted, arguments: d.args ?? {}, status: 'in_progress' } })
     else out({ type: 'assistant', message: { content: [{ type: 'tool_use', id, name: `mcp__team__${d.toolStarted}`, input: d.args ?? {} }] } })
+  } else if (d.webSearch && !codex) {
+    if (maxTurns > 0 && turnsUsed >= maxTurns) { finish({ maxTurns: true }); break }
+    turnsUsed++
+    closeBlock()
+    const id = `toolu_${++toolN}`, q = String(d.webSearch.query ?? 'q')
+    out({ type: 'assistant', message: { content: [{ type: 'tool_use', id, name: 'WebSearch', input: { query: q } }] } })
+    out({ type: 'user', tool_use_result: { query: q, results: [{ tool_use_id: 'srvtoolu_1', content: d.webSearch.hits ?? [] }, String(d.webSearch.wrote ?? '')], durationSeconds: 1 },
+      message: { content: [{ type: 'tool_result', tool_use_id: id, content: `Web search results for query: "${q}"\n\nLinks: ${JSON.stringify(d.webSearch.textLinks ?? d.webSearch.hits ?? [])}\n\n${d.webSearch.wrote ?? ''}` }] } })
+    await Bun.sleep(Number(d.webSearch.pause ?? 150))
   } else if (d.sleep) await Bun.sleep(Number(d.sleep))
   else if (d.saySplit !== undefined) await saySplit(String(d.saySplit))
   else if (d.refuseUnless !== undefined) { if (!String(model).includes(d.refuseUnless)) finish({ refused: true }) }
