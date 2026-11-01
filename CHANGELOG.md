@@ -6,6 +6,7 @@ This file summarizes user-visible changes; it is not a list of every commit.
 ## Unreleased
 
 - Grep on very large documents is fast again. To show where each line is ("[p.12]", "[시트 '매출' A12:F12]", "[슬라이드 3]"), the server used to read a matching document's whole text a second time. Now it reads only up to the matching lines, starting from a small index it keeps next to the text of documents of 1 MB or more. A grep over two 50 MB documents took 0.5–0.7 s and about 600 MB of extra server memory; it now takes 35–50 ms and no extra memory, the same as a grep without places (measured on a Mac). Documents whose text was made before this version have no index until they change; they are read in pieces, about 0.1–0.15 s and no extra memory. The labels are the same as before.
+- Remaking document text in the background (after an update, for files a search left for later, and for search by meaning) now gives way to people's work. Its converters run at lower CPU and disk priority: on Linux `nice` 10 with the lowest normal disk priority, on a Mac the "utility" level (`nice` has no effect on macOS). A person's grep, uploads and previews go first when the server is busy; an idle server still does the work at full speed. Because a background converter may have to wait, it gets three times as long before it is stopped (its CPU-time limit on Linux is unchanged). No root update is needed.
 
 ## 0.2.18 — 2026-11-01
 

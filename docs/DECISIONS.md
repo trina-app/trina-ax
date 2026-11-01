@@ -4915,6 +4915,19 @@ under the answer like the Claude app's sources.
     server memory (105-109 MB without labels); with the index 34-52 ms and 108 MB, as without labels; without it
     0.09-0.16 s and 109-113 MB. Caching such a text takes about 0.08 s more (the index is made by reading the written
     file once; 58 ms for 48 MB).
+  - **Background extraction runs below interactive work** (0.2.19, `tools/isolate.ts backgroundPrefix`). Every
+    `update(…, { background: true })` (this re-make, what a search left to the background queue, the semantic
+    re-index) runs its converters at lower priority, not only behind foreground jobs for a slot: Linux `nice -n 10` and
+    `ionice -t -c 2 -n 7` in front of the converter cgroup helper and bwrap (each execs the next; no root change), macOS
+    `taskpolicy -c utility` in front of sandbox-exec. In the converter cgroup the kernel weighs converters by their
+    nice value against each other, so the AI's grep, uploads and previews go first (measured in the Linux test image,
+    one CPU: 2.21 s of CPU for a foreground converter against 0.23 s for a background one); the cgroup's share against
+    the server process is unchanged. nice does nothing on macOS (a nice 10 process got 0.99 of a normal one's CPU with
+    15 busy processes on 10 cores; `-c utility` 0.19 and 1.1 times as long when idle; `-b` 0.01 and 6.6 times, too
+    slow). A background converter may wait for the CPU, so its wall-clock limit is 3 times its usual one (its CPU-time
+    limit in the cgroup is not), and a busy server does not leave a document without text. The priority is decided
+    when each converter starts: after a person's grep joined the job, its next converter runs at normal priority; one
+    already running stays low (an unprivileged process cannot raise its priority again).
 - **Search pieces** stop at a page, slide, sheet or section and keep their place (`chunkDoc`; `semantic.db` gets
   `chunks.loc` and `files.format`, added in place: an older server ignores both). A sheet piece's place is the A1
   range of its rows. Structure lines (`=== Slide 3 ===`, `# sheet: …`, `# row 9`) are not part of a piece's text.

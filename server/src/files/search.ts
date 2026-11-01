@@ -9,6 +9,7 @@ import { visiblePath, type FsCtx } from '../policy/authorize'
 import { ToolError } from '../policy/errors'
 import { walk } from '../policy/resolve'
 import { extractText, isOffice, OFFICE_EXT, type Tools } from './extract'
+import { inBackground } from '../tools/isolate'
 import { readRegular, sha256 } from './store'
 import { readMaxBytes, rgThreads } from '../system/limits'
 import { isLegacyKorean, isUtf8 } from '@mycel/shared/text-encoding'
@@ -341,7 +342,9 @@ export class OfficeCache {
         }, Math.min(50 * 1024 * 1024, readMaxBytes()))
         if (!input) { fs.rmSync(this.cachePath(rel), { force: true }); return }
         let text: string
-        try { text = await this.extract(rel, input.bytes) } catch {
+        // a background job's converters run below interactive work (tools/isolate.ts backgroundPrefix) while no
+        // foreground caller has joined it
+        try { text = await inBackground(() => ticket.low, () => this.extract(rel, input.bytes)) } catch {
           // an upgrade that fails (a timeout on a busy server, the converters' memory limit) keeps the older text of
           // these very bytes: grep goes on with it, and the next start tries again
           if (kept && this.provenance(rel)?.source === sha256(input.bytes)) return
