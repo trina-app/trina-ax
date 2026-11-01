@@ -121,9 +121,10 @@ idle minutes; a 404 for it starts a new one.
   8 MiB; a later page that does not fit in what is left is not kept), so a server that pages on forever costs at most
   that. The list is read for as long as it keeps coming: a page fails only when no bytes arrive for 30 seconds, and the
   check when it is not done 90 seconds after it began ("did not send its whole tool list within 90 seconds"), not at
-  the 30 s of other requests (Higgsfield sent its 1.07 MB at 17-38 KB/s, 30-65 s). Every request of a check ends by
-  that deadline, and no new session or token refresh starts that would end after it, so 90 s stays under the relay's
-  100 s wait for an answer and the server's 120 s idle limit and "Check again" is answered; tool calls keep the 30 s. The tool list is saved (`tools_json`): every tool the service lists, up to 1,000 tools and 4,000,000 characters
+  the 30 s of other requests (Higgsfield sent its 1.07 MB at 17-38 KB/s, 30-65 s). The check ends at that deadline:
+  its requests end by it, it stops waiting for a session (shared with the calls, which keep their own 30 s) at it, and
+  no token refresh starts that could end after it (a token still valid is used). So 90 s stays under the relay's 100 s
+  wait for an answer and the server's 120 s idle limit and "Check again" is answered; tool calls keep the 30 s. The tool list is saved (`tools_json`): every tool the service lists, up to 1,000 tools and 4,000,000 characters
   of schemas and descriptions per connection (past that Settings and the AI are told "N of M", or "N of more than M"
   when pages were left unread); a tool whose input schema is not an object or is over 32,000 characters is left out.
   Turns use the saved list only: nothing is fetched when a chat starts. The server keeps the parsed lists in memory by

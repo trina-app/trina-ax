@@ -85,6 +85,8 @@ export class FakeServices {
   pace: { methods: string[]; pieces: number; gapMs: number; stallAfter?: number } | null = null
   /** tools/list answers with this HTTP status (a service that is busy, failing or refusing) */
   listStatus: number | null = null
+  /** tools/call answers with this HTTP status */
+  callStatus: number | null = null
 
   constructor() {
     const { cert: c, key } = cert()
@@ -132,8 +134,8 @@ export class FakeServices {
     return new Response(stream, { headers: { 'content-type': 'text/event-stream', ...headers } })
   }
 
-  /** a JSON reply in pieces (pace) */
-  private paced(body: unknown): Response {
+  /** a JSON reply in pieces (pace), with the session the reply named */
+  private paced(body: unknown, headers: Record<string, string>): Response {
     const p = this.pace!
     const bytes = new TextEncoder().encode(JSON.stringify(body))
     const size = Math.ceil(bytes.length / p.pieces)
@@ -149,7 +151,7 @@ export class FakeServices {
       },
       cancel() { stop() },
     })
-    return new Response(stream, { headers: { 'content-type': 'application/json' } })
+    return new Response(stream, { headers: { 'content-type': 'application/json', ...headers } })
   }
 
   /** `plain`: the reply without pace */
@@ -157,6 +159,13 @@ export class FakeServices {
     const msg = await req.json().catch(() => null) as any
     if (!msg || msg.jsonrpc !== '2.0') return new Response('bad', { status: 400 })
     if (!/application\/json/.test(req.headers.get('accept') ?? '') || !/text\/event-stream/.test(req.headers.get('accept') ?? '')) return new Response('accept', { status: 406 })
+    if (!plain && this.pace?.methods.includes(msg.method) && !this.sse) {
+      const reply = await this.mcp(new Request(req.url, { method: 'POST', headers: req.headers, body: JSON.stringify(msg) }), auth, true)
+      // a refusal (an unknown session, a status set here) comes at once
+      if (!reply.ok || !/json/.test(reply.headers.get('content-type') ?? '')) return reply
+      const sid = reply.headers.get('mcp-session-id')
+      return this.paced(await reply.json(), sid ? { 'mcp-session-id': sid } : {})
+    }
     if (msg.method === 'initialize') {
       const sid = crypto.randomUUID()
       this.sessions.add(sid)
@@ -169,10 +178,7 @@ export class FakeServices {
     if (msg.method === 'notifications/initialized') return new Response(null, { status: 202 })
     const token = credential(req)
     if (msg.method === 'tools/list' && this.listStatus) return new Response('busy', { status: this.listStatus })
-    if (!plain && this.pace?.methods.includes(msg.method) && !this.sse) {
-      const reply = await this.mcp(new Request(req.url, { method: 'POST', headers: req.headers, body: JSON.stringify(msg) }), auth, true)
-      return this.paced(await reply.json())
-    }
+    if (msg.method === 'tools/call' && this.callStatus) return new Response('no', { status: this.callStatus })
     if (msg.method === 'tools/list' && this.endless) {
       const n = Number(msg.params?.cursor ?? 0)
       return this.mcpReply({ jsonrpc: '2.0', id: msg.id, result: { tools: this.endless(n), nextCursor: String(n + 1) } })

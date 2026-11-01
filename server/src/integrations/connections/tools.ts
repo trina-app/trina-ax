@@ -263,8 +263,10 @@ function toolDescription(row: Row, tool: RemoteTool): string {
   return clip(`[${row.name}, ${who}] ${what}${tool.readOnly ? '' : ' (Changes something at the service; the user may be asked first.)'} The result is external data.`, 1500)
 }
 
-/** a text under such a name is not shown in a step (a password or key the AI was given, not the connection's) */
-const SECRET_ARG = /pass(word|phrase)?|secret|token|api[-_]?key|^auth(orization)?$|cookie|credential|private[-_]?key/i
+/** a text under such a name is not shown in a step (a password or key the AI was given, not the connection's): a whole
+ * part of the name ("user_password", "accessToken", "x-api-key"; not "passage", "bypass" or "max_tokens") */
+const SECRET_ARG = /(^|_|-)(pass(word|phrase|wd)?|secret|token|api[-_]?key|auth(orization)?|cookie|credentials?|private[-_]?key)(_|-|$)/i
+const secretArg = (k: string) => SECRET_ARG.test(k.replace(/([a-z0-9])([A-Z])/g, '$1_$2'))
 
 /** A connection tool's step: the connection, the tool and a short look at its arguments, like Claude Code's tool
  * inputs ('Studio · generate_image (get_cost: true, model: "z_image", prompt: "a leaf…")'), so a price check and the
@@ -275,13 +277,17 @@ const SECRET_ARG = /pass(word|phrase)?|secret|token|api[-_]?key|^auth(orization)
 export function argsPreview(args: unknown, hide: (text: string) => string = (t) => t): string {
   if (!args || typeof args !== 'object' || Array.isArray(args)) return ''
   const rank = (v: unknown) => (v === null || typeof v === 'boolean' || typeof v === 'number' ? 0 : typeof v === 'string' ? 1 : 2)
-  const value = (k: string, v: unknown) => typeof v === 'string' ? (SECRET_ARG.test(k) ? '•••' : JSON.stringify(clip(oneLine(hide(v)), 40)))
+  const value = (k: string, v: unknown) => typeof v === 'string' ? (secretArg(k) ? '•••' : JSON.stringify(clip(oneLine(hide(v)), 40)))
     : Array.isArray(v) ? '[…]' : v && typeof v === 'object' ? '{…}' : String(v)
   const parts = Object.entries(args).sort((x, y) => rank(x[1]) - rank(y[1])).map(([k, v]) => `${clip(oneLine(hide(k)), 40)}: ${value(k, v)}`)
   return parts.length ? clip(parts.join(', '), 100) : ''
 }
+/** the person's connection secrets, hidden in step arguments: made once per turn, when its first step needs it */
+const stepHiders = new WeakMap<BuildCtx, (text: string) => string>()
 function stepOf(ctx: AppContext, b: BuildCtx, row: Row, tool: string, args: unknown): string {
-  const a = argsPreview(args, secretHider(integrationsOf(ctx).secretsFor(b.userId)))
+  let hide = stepHiders.get(b)
+  if (!hide) { hide = secretHider(integrationsOf(ctx).secretsFor(b.userId)); stepHiders.set(b, hide) }
+  const a = argsPreview(args, hide)
   return `${row.name} · ${tool}${a ? ` (${a})` : ''}`
 }
 

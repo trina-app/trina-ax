@@ -80,14 +80,17 @@ export class McpClient {
   private ready: Promise<void> | null = null
   usedAt = Date.now()
 
-  /** `hider` makes the function that hides the connection's secrets, when an answer is in (a refresh may have rotated them) */
-  constructor(readonly url: string, private auth: () => Promise<[string, string][]>, private net: NetOptions, private hider: () => Hide = () => keep) {}
+  /** `hider` makes the function that hides the connection's secrets, when an answer is in (a refresh may have rotated
+   * them); `auth` is told when a check's request must end (a token still valid is then not refreshed ahead of time) */
+  constructor(readonly url: string, private auth: (deadline?: number) => Promise<[string, string][]>, private net: NetOptions, private hider: () => Hide = () => keep) {}
 
   /** `read`: the answer's bytes are added to it (also when it is cut); `long`: net.ts NetRequest.long */
   private async post(message: Record<string, unknown>, o: Req = {}): Promise<Record<string, any> | null> {
     const { signal, maxBytes, read, long } = o
+    // past a check's deadline nothing starts, not even a token refresh
+    if (long && Date.now() >= long.deadline) throw new NetError(long.reason)
     const id = typeof message.id === 'string' ? message.id : null
-    const headers: [string, string][] = [['Content-Type', 'application/json'], ['Accept', 'application/json, text/event-stream'], ...(await this.auth())]
+    const headers: [string, string][] = [['Content-Type', 'application/json'], ['Accept', 'application/json, text/event-stream'], ...(await this.auth(long?.deadline))]
     if (this.version) headers.push(['MCP-Protocol-Version', this.version])
     if (this.sessionId) headers.push(['Mcp-Session-Id', this.sessionId])
     const res = await serviceRequest(this.url, {
@@ -121,14 +124,15 @@ export class McpClient {
     return this.post({ jsonrpc: '2.0', id: crypto.randomUUID(), method, params }, o)
   }
 
-  /** initialize + notifications/initialized, once per session; `long`: a check's deadline (listTools) */
-  start(signal?: AbortSignal, long?: NetRequest['long']): Promise<void> {
+  /** initialize + notifications/initialized, once per session (shared by a check and the calls: its own 30 s each,
+   * never a check's deadline; listTools stops waiting for it at its deadline) */
+  start(signal?: AbortSignal): Promise<void> {
     this.ready ??= (async () => {
-      const r = await this.request('initialize', { protocolVersion: MCP_PROTOCOL, capabilities: {}, clientInfo: { name: 'team-integrations', version: '1.0' } }, { signal, long })
+      const r = await this.request('initialize', { protocolVersion: MCP_PROTOCOL, capabilities: {}, clientInfo: { name: 'team-integrations', version: '1.0' } }, { signal })
       const v = typeof r?.protocolVersion === 'string' ? r.protocolVersion : ''
       if (!r || !/^\d{4}-\d{2}-\d{2}$/.test(v)) throw new McpError('not_mcp')
       this.version = KNOWN_VERSIONS.has(v) ? v : MCP_PROTOCOL
-      await this.post({ jsonrpc: '2.0', method: 'notifications/initialized' }, { signal, long })
+      await this.post({ jsonrpc: '2.0', method: 'notifications/initialized' }, { signal })
     })().catch((e) => { this.ready = null; this.sessionId = null; this.version = null; throw e })
     return this.ready
   }
@@ -139,9 +143,10 @@ export class McpClient {
    * kept). `total`: how many usable tools the pages read listed (counted on past the ceiling within a page, so people
    * and the AI can be told "1,000 of 1,200"); `more`: some were not kept, or pages were left unread; `unread`: pages
    * were left unread, so the service offers more than `total` ("1,000 of more than 1,000"). `deadline` (epoch ms): when
-   * the check must be done (MCP_LIST_TIMEOUT_MS; one for a whole check, service.ts check): initialize ends by it too. */
+   * the check must be done (MCP_LIST_TIMEOUT_MS; one for a whole check, service.ts check), also while it waits for the
+   * session to start. */
   async listTools(signal?: AbortSignal, deadline = Date.now() + (this.net.listTimeoutMs ?? MCP_LIST_TIMEOUT_MS)): Promise<{ tools: RemoteTool[]; more: boolean; total: number; unread: boolean }> {
-    await this.start(signal, { deadline, reason: 'list_timeout' })
+    await byDeadline(this.start(signal), deadline)
     const long = { deadline, idleMs: this.net.listIdleMs ?? MCP_LIST_IDLE_MS, reason: 'list_timeout' as const }
     const tools: RemoteTool[] = []
     const seen = new Set<string>()
@@ -183,6 +188,13 @@ export class McpClient {
     await this.start(signal)
     return (await this.request('tools/call', { name, arguments: args && typeof args === 'object' ? args : {} }, { signal, maxBytes: MCP_CALL_MAX_BYTES })) ?? {}
   }
+}
+
+/** `p`, or list_timeout at `deadline` (a check stops waiting for a session another request started) */
+function byDeadline<T>(p: Promise<T>, deadline: number): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined
+  const late = new Promise<never>((_, reject) => { timer = setTimeout(() => reject(new NetError('list_timeout')), Math.max(0, deadline - Date.now())) })
+  return Promise.race([p, late]).finally(() => clearTimeout(timer))
 }
 
 const clean = (s: unknown, max: number, hide: Hide) => (typeof s === 'string' ? hide(s).replace(/[\u0000-\u0008\u000b-\u001f\u007f]/g, ' ').trim().slice(0, max) : '')

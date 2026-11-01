@@ -300,23 +300,25 @@ export class Integrations {
     try { return this.box.open<Secret>(connectionAad(cur), cur.secret_enc, cur.key_version) }
     catch (e) { throw e instanceof StoreError && e.code === 'key_unsafe' ? new NetError('key_unsafe') : new NeedsAuth(row.auth === 'oauth' ? 'sign_in' : 'no_secret') }
   }
-  /** the header that carries the key or token */
-  async authHeaders(row: Row): Promise<[string, string][]> {
+  /** the header that carries the key or token; `deadline`: when a check's request must end (oauthToken) */
+  async authHeaders(row: Row, deadline?: number): Promise<[string, string][]> {
     if (row.auth === 'none') return []
     const s = this.secretOf(row)
     if (row.auth === 'oauth') {
       if (s.type !== 'oauth') throw new NeedsAuth('sign_in')
-      return [['Authorization', `Bearer ${await this.oauthToken(row)}`]]
+      return [['Authorization', `Bearer ${await this.oauthToken(row, undefined, deadline)}`]]
     }
     if (s.type !== 'key') throw new NeedsAuth('no_secret')
     return row.auth === 'bearer' ? [['Authorization', `Bearer ${s.key}`]] : [[row.auth_header ?? 'X-API-Key', s.key]]
   }
 
-  /** A usable access token: refreshed ahead of expiry or after a 401 (`rejected`), one refresh at a time per connection. */
-  private async oauthToken(row: Row, rejected?: string): Promise<string> {
+  /** A usable access token: refreshed ahead of expiry or after a 401 (`rejected`), one refresh at a time per connection.
+   * `deadline` (a check's): a token still valid is used as it is when a refresh (its own 30 s) could end after it. */
+  private async oauthToken(row: Row, rejected?: string, deadline?: number): Promise<string> {
     const s = this.secretOf(row) as OAuthSecret
     const fresh = s.tokens.expiresAt === null || s.tokens.expiresAt > this.now() + 60_000
-    if (fresh && s.tokens.accessToken !== rejected) return s.tokens.accessToken
+    const late = deadline !== undefined && Date.now() + (this.net.timeoutMs ?? TIMEOUT_MS) > deadline && s.tokens.expiresAt !== null && s.tokens.expiresAt > this.now()
+    if ((fresh || late) && s.tokens.accessToken !== rejected) return s.tokens.accessToken
     const pending = this.refreshes.get(row.id)
     if (pending) return pending
     if (!s.tokens.refreshToken) { this.setStatus(row, 'needs_auth', 'sign_in'); throw new NeedsAuth('sign_in') }
@@ -430,7 +432,8 @@ export class Integrations {
       if (now && now.version === row.version && now.status === 'needs_auth' && row.status !== 'needs_auth') return now
       const working = now?.status === 'connected' || (now?.status === 'error' && PASSING.test(now.last_error ?? ''))
       const kept = !!s && row.kind === 'mcp' && s.status === 'error' && PASSING.test(s.reason) && working && savedTools(this.db, now!).length > 0
-      this.setStatus(row, kept ? 'connected' : s?.status ?? 'error', s?.reason ?? 'unreachable')
+      // a failure we do not know (a JSON-RPC error on tools/list): not MCP as we can use it, never only for now
+      this.setStatus(row, kept ? 'connected' : s?.status ?? 'error', s?.reason ?? (row.kind === 'mcp' ? 'not_mcp' : 'unreachable'))
     }
     return getRow(this.db, row.id) ?? row
   }
@@ -441,7 +444,7 @@ export class Integrations {
     const c = this.clients.get(key)
     if (c && this.now() - c.usedAt < CLIENT_IDLE_MS) return c
     this.dropClient(row.id)
-    const fresh = new McpClient(row.url, () => this.authHeaders(row), this.net, () => this.hider([row]))
+    const fresh = new McpClient(row.url, (deadline) => this.authHeaders(row, deadline), this.net, () => this.hider([row]))
     this.clients.set(key, fresh)
     return fresh
   }
@@ -454,9 +457,12 @@ export class Integrations {
     for (;;) {
       const c = this.client(row)
       try { return await fn(c) } catch (e) {
-        if (Date.now() >= deadline) throw e
-        if (e instanceof McpError && e.code === 'session_gone' && !renewed) { renewed = true; this.dropClient(row.id); continue }
-        if (e instanceof McpError && e.code === 'unauthorized' && row.auth === 'oauth' && !refreshed && row.secret_enc && Date.now() + (this.net.timeoutMs ?? TIMEOUT_MS) <= deadline) {
+        const renew = e instanceof McpError && e.code === 'session_gone' && !renewed
+        const refresh = e instanceof McpError && e.code === 'unauthorized' && row.auth === 'oauth' && !refreshed && !!row.secret_enc
+        // a check without the time for it: its deadline ended it, not a lost session or a token to refresh
+        if ((renew && Date.now() >= deadline) || (refresh && Date.now() + (this.net.timeoutMs ?? TIMEOUT_MS) > deadline)) throw new NetError('list_timeout')
+        if (renew) { renewed = true; this.dropClient(row.id); continue }
+        if (refresh) {
           refreshed = true
           const s = this.secretOf(row)
           if (s.type === 'oauth') { await this.oauthToken(row, s.tokens.accessToken); this.dropClient(row.id); continue }
