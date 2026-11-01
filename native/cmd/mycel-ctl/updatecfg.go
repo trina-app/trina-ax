@@ -191,6 +191,10 @@ func settingsRestart(e *env, in *Install, maxWait time.Duration, force bool) (bo
 	n := 0
 	for {
 		c, err := settingsLiveTurns(e, in)
+		// the server's own backup or restore counts like an answer (status/status.json)
+		if m := (&updater{e: e, in: in}).serverMaintenance(); m != "" && c == 0 {
+			c = 1
+		}
 		if err == nil && c == 0 {
 			n = 0
 			break

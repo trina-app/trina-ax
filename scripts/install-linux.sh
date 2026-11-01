@@ -580,12 +580,13 @@ say "accounts: $SRV_USER=$SRV_UID $AGT_USER=$AGT_UID"
 
 # ---- stop the units and every process of both accounts before touching their folders ----
 # an update that holds root/.update.lock (mycel-ctl update) is replacing root files: wait for it instead of racing it
+# (as long as the update job may take: TimeoutStartSec=2h)
 # (the lock stays with this installer until it exits; stop_units then stops an update job that is still only waiting)
 if [ -d "$BASE/root" ] && [ ! -L "$BASE/root" ] && command -v flock >/dev/null 2>&1; then
   [ ! -L "$BASE/root/.update.lock" ] || die "$BASE/root/.update.lock is a link"
   [ -e "$BASE/root/.update.lock" ] || install -o root -g root -m 600 /dev/null "$BASE/root/.update.lock"
   exec 9<"$BASE/root/.update.lock"   # flock(2) needs no write access
-  flock -n 9 || { say "waiting for an update that is running (mycel-ctl update)"; flock -w 1800 9 || die "an update (mycel-ctl update) is still running after 30 minutes; run the installer again when it is done"; }
+  flock -n 9 || { say "waiting for an update that is running (mycel-ctl update)"; flock -w 7200 9 || die "an update (mycel-ctl update) is still running after 2 hours; run the installer again when it is done"; }
 fi
 stop_units
 kill_accounts

@@ -82,6 +82,7 @@ type updater struct {
 	busy      int
 	busyWith  string
 	deferred  bool
+	turnedOff bool
 	// hooks for tests (default: the real thing)
 	liveTurns  func() (int, error)
 	runAsSrv   func(args []string, env []string) (string, error)
@@ -202,20 +203,29 @@ func cmdUpdate(e *env, args []string) (int, error) {
 // gate is the scheduled run's first part (schedule.go): inside the team's window, a release this server needs, and a
 // quiet moment. false: nothing to do now (res says why).
 func (u *updater) gate(onlyRoot bool) (bool, error) {
+	if u.timerTurnedOff() {
+		u.res.Result, u.res.Skipped, u.res.Detail = "ok", true, "automatic updates are off ("+u.in.ID+"-update.timer disabled)"
+		return false, nil
+	}
 	s := u.readSchedule()
 	now := u.e.now().In(s.loc)
 	if !s.w.contains(now) {
-		// a team window no check has passed for three days (a window between two checks, or a server account that
-		// keeps moving it): the default window in the team's zone
+		// no check got inside the team's window for three days (a window that falls between two checks, or a server
+		// account that keeps moving the window or the zone): 03:00-05:00 in a zone root trusts (MYCEL_TEAM_TZ of
+		// /etc/default/<id>, else this machine's), not in the zone the server account said. Such a run does not
+		// count as a pass, so the count goes on until the team's own window lets a check in again.
 		def, _ := parseWindow(defaultUpdateWindow)
-		if since := windowPassed(u.e); u.e.now().Sub(since) >= scheduleLastResort && s.w != def && def.contains(now) {
-			s.w, s.note = def, joinNote(s.note, "no check got inside the team's window since "+since.UTC().Format(time.RFC3339)+", so the default")
+		loc, zone := fallbackZone(u.in.ID)
+		if since := windowPassed(u.e); u.e.now().Sub(since) >= scheduleLastResort && def.contains(u.e.now().In(loc)) {
+			s = updateSchedule{w: def, loc: loc, zone: zone, note: "no check got inside the team's window (" + s.String() + ") since " + since.UTC().Format(time.RFC3339) + ", so the default"}
+			now = u.e.now().In(loc)
 		} else {
 			u.res.Result, u.res.Skipped, u.res.Detail = "ok", true, "outside the update window "+s.String()
 			return false, nil
 		}
+	} else {
+		notePass(u.e)
 	}
-	notePass(u.e)
 	feed, err := u.fetchFeed("")
 	if err != nil {
 		return false, err
@@ -244,12 +254,9 @@ func (u *updater) gate(onlyRoot bool) (bool, error) {
 		u.res.Notes = append(u.res.Notes, fmt.Sprintf("a root update has waited for a quiet moment since %s: installing after at most %v even with answers running", d.Since.Format(time.RFC3339), u.maxWait))
 	}
 	quiet := u.waitQuiet(u.quietBy)
-	// turned off while it waited (`mycel-ctl auto-update off`, systemctl disable)
-	if u.in.Systemd && fileExists(systemdRunDir) {
-		if out, _ := exec.Command(u.e.systemctl, "is-enabled", u.in.ID+"-update.timer").Output(); strings.TrimSpace(string(out)) == "disabled" {
-			u.res.Result, u.res.Skipped, u.res.Detail = "ok", true, "automatic updates were turned off"
-			return false, nil
-		}
+	if u.turnedOff {
+		u.res.Result, u.res.Skipped, u.res.Detail = "ok", true, "automatic updates were turned off while it waited"
+		return false, nil
 	}
 	if quiet || u.force {
 		return true, nil
@@ -257,9 +264,24 @@ func (u *updater) gate(onlyRoot bool) (bool, error) {
 	return false, u.deferUpdate(feed.Version, "before the download")
 }
 
+// timerTurnedOff: the scheduled job's timer is disabled now (`mycel-ctl auto-update off`, systemctl disable): a run
+// started by hand, or one that waited while it was turned off, does nothing more.
+func (u *updater) timerTurnedOff() bool {
+	if !u.scheduled || !u.in.Systemd || !fileExists(systemdRunDir) {
+		return false
+	}
+	out, _ := exec.Command(u.e.systemctl, "is-enabled", u.in.ID+"-update.timer").Output()
+	return strings.TrimSpace(string(out)) == "disabled"
+}
+
 // deferUpdate ends a scheduled run that found no quiet moment (nothing changed after `when`): the next check in the
 // window tries again; the first deferral's time is kept for the last resort.
 func (u *updater) deferUpdate(version, when string) error {
+	if u.turnedOff {
+		u.res.Result, u.res.Skipped = "ok", !u.res.RootUpdated
+		u.res.Detail = "automatic updates were turned off while it waited (" + when + ")"
+		return errDeferred
+	}
 	noteDeferred(u.e, version, u.busy)
 	u.deferred = true
 	u.res.Result, u.res.Skipped = "ok", !u.res.RootUpdated
@@ -804,13 +826,17 @@ func (u *updater) waitForTurns() bool {
 		u.waitQuiet(u.e.now().Add(u.maxWait))
 		return true
 	}
-	return u.waitQuiet(u.quietBy) || u.force
+	return (u.waitQuiet(u.quietBy) || u.force) && !u.turnedOff
 }
 
 // waitQuiet asks the launcher until it runs no turn and the server runs no maintenance (true) or the deadline passes
 // (false; u.busy and u.busyWith are the last answers).
 func (u *updater) waitQuiet(deadline time.Time) bool {
-	for {
+	for i := 0; ; i++ {
+		if i > 0 && i%12 == 0 && u.timerTurnedOff() { // about once a minute
+			u.turnedOff = true
+			return false
+		}
 		n, err := u.liveTurns()
 		m := ""
 		if u.maintenance != nil {
@@ -1058,6 +1084,9 @@ func (u *updater) runAsServer(args []string, extraEnv []string) (string, error) 
 	cmd.Stdout, cmd.Stderr = &out, &out
 	cmd.WaitDelay = 5 * time.Second
 	err = cmd.Run()
+	if errors.Is(err, exec.ErrWaitDelay) && cmd.ProcessState != nil && cmd.ProcessState.Success() {
+		err = nil // it ended well; only a child it left kept the pipe open
+	}
 	return out.b.String(), err
 }
 

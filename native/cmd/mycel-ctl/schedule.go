@@ -193,7 +193,10 @@ func (u *updater) readSchedule() updateSchedule {
 		loc, zone := fallbackZone(u.in.ID)
 		return updateSchedule{w: def, loc: loc, zone: zone, note: "the team's update window could not be read (" + msg + "), so the default"}
 	}
-	if b, _ := json.Marshal(got); len(b) > 0 {
+	// kept only when it is a real window and zone (it is read back with a 4 KiB limit)
+	_, wok := parseWindow(got.Window)
+	_, zok := loadZone(got.TimeZone)
+	if b, _ := json.Marshal(got); wok && zok && len(b) < 512 {
 		if old, rerr := readRootFile(u.e.root("update-window.json"), 4<<10); rerr != nil || string(old) != string(b)+"\n" {
 			_ = writeRootFile(u.e.root("update-window.json"), append(b, '\n'), 0o644)
 		}

@@ -554,10 +554,12 @@ func TestScheduledUpdateCannotBeStopped(t *testing.T) {
 	if code, res := tb.scheduled(t, f); code != 0 || res.Skipped || !res.RootUpdated {
 		t.Fatalf("short window: %d %+v", code, res)
 	}
-	// a window that is never "now": the first check starts the count; three days later the default window applies
+	// a window that is never "now": the first check starts the count; three days later the default window applies, in
+	// the zone root trusts (MYCEL_TEAM_TZ of /etc/default/<id>)
 	f = newFeedServer(t)
 	f.channel("0.2.19", true)
 	tb = schedBase(t, f)
+	must(t, os.WriteFile(filepath.Join(defaultsDir, "mycel"), []byte("MYCEL_TEAM_TZ=Asia/Seoul\n"), 0o644))
 	r = &schedRun{clock: at("2026-11-01T18:10:00Z"), window: "12:00-13:00", zone: "Asia/Seoul"}
 	scheduledHooks(t, tb, r)
 	if code, res := tb.scheduled(t, f); code != 0 || !res.Skipped || !strings.Contains(res.Detail, "outside the update window 12:00-13:00 Asia/Seoul") {
@@ -567,6 +569,26 @@ func TestScheduledUpdateCannotBeStopped(t *testing.T) {
 	scheduledHooks(t, tb, r)
 	if code, res := tb.scheduled(t, f); code != 0 || res.Skipped || !res.RootUpdated {
 		t.Fatalf("three days: %d %+v", code, res)
+	}
+	// a server account that names a zone where it is always midday: the rescue does not use that zone
+	f = newFeedServer(t)
+	f.channel("0.2.19", true)
+	tb = schedBase(t, f)
+	must(t, os.WriteFile(filepath.Join(defaultsDir, "mycel"), []byte("MYCEL_TEAM_TZ=UTC\n"), 0o644))
+	r = &schedRun{clock: at("2026-11-01T03:10:00Z"), window: "03:00-05:00", zone: "Etc/GMT-7"} // 10:10 there, 03:10 UTC
+	scheduledHooks(t, tb, r)
+	if _, res := tb.scheduled(t, f); !res.Skipped || !strings.Contains(res.Detail, "outside the update window 03:00-05:00 Etc/GMT-7") {
+		t.Fatalf("lying zone, first: %+v", res)
+	}
+	r.clock = at("2026-11-04T03:10:00Z")
+	r.zone = "Etc/GMT+7" // and it keeps changing the zone
+	scheduledHooks(t, tb, r)
+	if code, res := tb.scheduled(t, f); code != 0 || res.Skipped || !res.RootUpdated {
+		t.Fatalf("lying zone, three days: %d %+v", code, res)
+	}
+	// a rescue run is no pass: the count goes on
+	if b, _ := os.ReadFile(filepath.Join(tb.base, "root/update-window-pass")); !strings.HasPrefix(string(b), "2026-11-01T03:10:00Z") {
+		t.Fatalf("pass record %q", b)
 	}
 	// a check inside the team's window resets the count
 	f = newFeedServer(t)
@@ -633,5 +655,19 @@ func TestAdminUpdateClearsDeferral(t *testing.T) {
 	}
 	if readDeferred(&env{base: tb.base}) != nil {
 		t.Fatal("deferral kept after an administrator's update")
+	}
+}
+
+// A scheduled run with the timer turned off (started by hand, or turned off meanwhile) does nothing.
+func TestScheduledUpdateTimerOff(t *testing.T) {
+	f := newFeedServer(t)
+	f.channel("0.2.19", true)
+	tb := schedBase(t, f)
+	systemdRunDir = t.TempDir()
+	must(t, os.WriteFile(filepath.Join(tb.fakeBin, "systemctl"), []byte("#!/bin/sh\n[ \"$1\" = is-enabled ] && { echo disabled; exit 1; }\nexit 0\n"), 0o755))
+	r := &schedRun{clock: at("2026-11-01T18:10:00Z"), window: "03:00-05:00", zone: "Asia/Seoul"}
+	scheduledHooks(t, tb, r)
+	if code, res := tb.scheduled(t, f); code != 0 || !res.Skipped || !strings.Contains(res.Detail, "automatic updates are off") || f.downloaded() != 0 {
+		t.Fatalf("%d %+v", code, res)
 	}
 }
