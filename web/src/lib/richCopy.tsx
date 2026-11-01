@@ -6,7 +6,7 @@
 // style sheets): bordered tables, grey code blocks, a quoted bar. Nothing in it loads by itself where it is pasted:
 // external images become links (a pasted <img> would be fetched by the reader's mail program, and its address can carry
 // data out, the reason the screen never loads them either), team-file images and links become links to the file on
-// the team server (whoever opens them signs in and is checked), math and Mermaid diagrams stay as their source, and
+// the team server at the same place (a page, sheet or slide; whoever opens them signs in and is checked), math and Mermaid diagrams stay as their source, and
 // raw HTML in the answer stays text (as on the screen). Hidden HTML comments stay hidden.
 import { createElement, type CSSProperties, type ReactElement, type ReactNode } from 'react'
 import { flushSync } from 'react-dom'
@@ -32,9 +32,31 @@ const S = {
 /** The cell's own alignment (a GFM column: react-markdown turns `align` into style.textAlign) over the default left. */
 const cellStyle = (style: CSSProperties | undefined, head: boolean): CSSProperties => ({ ...S.cell, ...(head ? S.head : {}), ...(style?.textAlign ? { textAlign: style.textAlign } : {}) })
 
+const keyOf = (part: string) => {
+  try { return decodeURIComponent(part.split('=')[0].replace(/\+/g, ' ')) } catch { return part.split('=')[0] }
+}
+
+/**
+ * The copy's address of a team file the answer links to: its preview page with every other query parameter the link
+ * had, in its order and spelling (&page=12, &sheet=…&range=…, &slide=3, and any other), so the pasted link opens the
+ * same place as a click on the screen. Only `path` is written again (fileShareUrl), and a download link's own
+ * `disposition` is left out: the copy links to the preview, as the screen opens it.
+ */
+export function teamFileCopyHref(href: string, path: string, origin: string): string {
+  let u: URL
+  try { u = new URL(href, origin) } catch { return fileShareUrl(path, 'preview') }
+  const download = u.pathname === '/api/files/download'
+  const rest = u.search
+    .slice(1)
+    .split('&')
+    .filter((part) => part && keyOf(part) !== 'path' && !(download && keyOf(part) === 'disposition'))
+    .map((part) => part.replace(/\(/g, '%28').replace(/\)/g, '%29'))
+  return fileShareUrl(path, 'preview') + rest.map((part) => '&' + part).join('')
+}
+
 function copyComponents(origin: string): Components {
   const abs = (href: string) => origin.replace(/\/+$/, '') + href
-  const fileLink = (path: string, children: ReactNode) => <a href={abs(fileShareUrl(path, 'preview'))}>{children}</a>
+  const fileLink = (href: string, path: string, children: ReactNode) => <a href={abs(teamFileCopyHref(href, path, origin))}>{children}</a>
   return {
     // border and cellpadding too: Outlook's Word engine and older pastes read the attributes, the rest the styles
     table: ({ children }) => <table border={1} cellPadding={6} cellSpacing={0} style={S.table}>{children}</table>,
@@ -53,7 +75,7 @@ function copyComponents(origin: string): Components {
       // footnote and heading anchors point into this page only
       if (!href || href.startsWith('#')) return <>{children}</>
       const l = classifyLink(href, origin)
-      if (l.kind === 'team-file') return fileLink(l.path, children)
+      if (l.kind === 'team-file') return fileLink(href, l.path, children)
       if (l.kind === 'app') return <a href={abs(l.href)}>{children}</a>
       if (l.kind === 'external') return <a href={l.href}>{children}</a>
       return <>{children}</>
@@ -61,7 +83,7 @@ function copyComponents(origin: string): Components {
     img: ({ src, alt }) => {
       const k = classifyImage(typeof src === 'string' ? src : undefined, origin)
       if (k.kind === 'inline-data') return <img src={k.src} alt={alt ?? ''} style={S.img} />
-      if (k.kind === 'team-file') return fileLink(k.path, alt || baseName(k.path))
+      if (k.kind === 'team-file') return fileLink(src as string, k.path, alt || baseName(k.path))
       if (k.kind === 'external') return <a href={k.href}>{alt || k.host}</a>
       return <>{alt ? `[${alt}]` : ''}</>
     },
