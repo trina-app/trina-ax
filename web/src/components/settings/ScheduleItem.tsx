@@ -2,14 +2,16 @@
 // with the reason next to it (aria-describedby), instead of a "Resume" that does nothing. The last run's result
 // (succeeded / finished with problems / failed) is shown with the result link (server/src/chat/schedule-outcome.ts).
 // A free-text task nobody confirmed on its card (needsReview) has "다시 확인" instead of "Resume": its card opens
-// below it (Settings › Scheduled tasks) and resuming happens there.
-import { ShieldAlert, Trash2 } from 'lucide-react'
+// below it (Settings › Scheduled tasks) and resuming happens there. "지금 실행" runs it once now (not a task nobody
+// confirmed: it never runs), the pencil opens its edit dialog (ScheduleEditDialog.tsx); a paused task says it does not
+// run.
+import { Pencil, Play, ShieldAlert, Trash2 } from 'lucide-react'
 import type { ReactNode } from 'react'
 import { Link } from 'react-router-dom'
 import type { Schedule } from '@mycel/shared/api'
 import { formatDateTime } from '../../lib/format'
 import { useLocale, useT } from '../../i18n'
-import { Badge, Button } from '../ui'
+import { Badge, Button, IconButton } from '../ui'
 
 type Tone = 'muted' | 'warn' | 'danger'
 /** How a last-run result reads: a clean success stays quiet, problems and failures stand out. */
@@ -20,29 +22,36 @@ export function outcomeTone(o: Schedule['lastOutcome']): Tone {
 }
 const toneCls: Record<Tone, string> = { muted: 'text-muted', warn: 'text-warn', danger: 'text-danger' }
 
-export function ScheduleItem({ s, tz, when, onToggle, onRemove, onReview, review }: {
+export function ScheduleItem({ s, tz, when, onToggle, onRemove, onReview, review, onRunNow, running, onEdit }: {
   s: Schedule; tz: string | null; when: string; onToggle: () => void; onRemove: () => void
   /** "다시 확인": open this task's card (needsReview only) */
   onReview?: () => void
   /** the card, while it is open */
   review?: ReactNode
+  /** "지금 실행" (absent: not offered) and whether that request is on its way */
+  onRunNow?: () => void
+  running?: boolean
+  /** open the edit dialog (absent: not offered) */
+  onEdit?: () => void
 }) {
   const t = useT(), locale = useLocale()
+  const name = s.templateId === 'daily-file-index' || s.templateId === 'weekly-summary' ? t(`scheduleTemplates.${s.templateId}`) : s.title
   const blocked = !s.enabled ? s.resumeBlockedReason ?? null : null
   const hintId = `schedule-${s.id}-blocked`
   const waiting = !!s.needsReview && !s.enabled && !blocked
   const reviewHintId = `schedule-${s.id}-review`
   return (
     <li className="px-4 py-3 text-sm" data-testid="schedule-item" data-review={waiting ? 'waiting' : undefined}>
-      <div className="flex items-start gap-3">
-        <span className="min-w-0 flex-1">
+      <div className="flex flex-wrap items-start gap-x-3 gap-y-2">
+        <span className="min-w-0 flex-[1_1_14rem]">
           <span className="flex items-center gap-2 font-medium">
-            {s.templateId === 'daily-file-index' || s.templateId === 'weekly-summary' ? t(`scheduleTemplates.${s.templateId}`) : s.title}
+            {name}
             {!s.enabled && <Badge>{t(blocked ? `schedules.${blocked}` : waiting ? 'schedules.reviewBadge' : 'schedules.paused')}</Badge>}
           </span>
           <span className="mt-0.5 block text-xs text-muted">{when}</span>
           <span className="mt-1 line-clamp-2 block text-xs text-faint">{s.templateId ? `${s.sourcePath} → ${s.outputPath}` : s.prompt}</span>
           {blocked && <span id={hintId} className="mt-1 block text-xs text-muted" data-testid="schedule-blocked-hint">{t(`schedules.${blocked}Hint`)}</span>}
+          {!s.enabled && !blocked && !waiting && <span className="mt-1 block text-xs text-muted" data-testid="schedule-paused-hint">{t('schedules.pausedHint')}</span>}
           {waiting && <span id={reviewHintId} className="mt-1 flex items-start gap-1 text-xs text-warn" data-testid="schedule-review-hint"><ShieldAlert size={13} className="mt-px shrink-0" aria-hidden />{t('schedules.reviewHint')}</span>}
           {s.pendingDueAt && <span className="mt-1 block text-xs text-muted">{t('scheduleTemplates.deferred', { time: formatDateTime(s.retryAt ?? s.pendingDueAt, locale, tz || undefined) })}</span>}
           {s.lastOutcome && <span className={`mt-1 block text-xs ${toneCls[outcomeTone(s.lastOutcome)]}`} data-testid="schedule-outcome" data-outcome={s.lastOutcome}>{t(`scheduleTemplates.outcome.${s.lastOutcome}`)}</span>}
@@ -57,18 +66,30 @@ export function ScheduleItem({ s, tz, when, onToggle, onRemove, onReview, review
             )}
           </span>
         </span>
-        {waiting ? (
-          <Button size="sm" variant="primary" aria-describedby={reviewHintId} aria-expanded={!!review} onClick={onReview} data-testid="schedule-review">
-            {t('schedules.review')}
-          </Button>
-        ) : (
-          <Button size="sm" disabled={!!blocked} aria-describedby={blocked ? hintId : undefined} onClick={blocked ? undefined : onToggle}>
-            {s.enabled ? t('schedules.pause') : t('schedules.resume')}
-          </Button>
-        )}
-        <button type="button" aria-label={t('schedules.delete')} title={t('schedules.delete')} className="rounded p-1 text-faint hover:bg-hover hover:text-danger" onClick={onRemove}>
-          <Trash2 size={15} />
-        </button>
+        <span className="ml-auto flex shrink-0 flex-wrap items-center justify-end gap-1">
+          {onRunNow && !waiting && (
+            <Button size="sm" busy={running} title={t('schedules.runNowHint')} onClick={onRunNow} data-testid="schedule-run-now">
+              {!running && <Play size={13} aria-hidden />} {t('schedules.runNow')}
+            </Button>
+          )}
+          {waiting ? (
+            <Button size="sm" variant="primary" aria-describedby={reviewHintId} aria-expanded={!!review} onClick={onReview} data-testid="schedule-review">
+              {t('schedules.review')}
+            </Button>
+          ) : (
+            <Button size="sm" disabled={!!blocked} aria-describedby={blocked ? hintId : undefined} onClick={blocked ? undefined : onToggle} data-testid="schedule-toggle">
+              {s.enabled ? t('schedules.pause') : t('schedules.resume')}
+            </Button>
+          )}
+          {onEdit && (
+            <IconButton label={t('schedules.editLabel', { title: name })} onClick={onEdit} data-testid="schedule-edit">
+              <Pencil size={15} />
+            </IconButton>
+          )}
+          <IconButton label={t('schedules.delete')} danger onClick={onRemove}>
+            <Trash2 size={15} />
+          </IconButton>
+        </span>
       </div>
       {review}
     </li>

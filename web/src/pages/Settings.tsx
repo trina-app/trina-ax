@@ -8,7 +8,7 @@
 import clsx from 'clsx'
 import { Brain, CalendarClock, Download, Laptop, Monitor, Pencil, Plus, ShieldAlert, Smartphone, Trash2 } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
-import { Link, Navigate, NavLink, useParams } from 'react-router-dom'
+import { Link, Navigate, NavLink, useNavigate, useParams } from 'react-router-dom'
 import type { EngineId, Memory, Schedule, ScheduleReviewCard, Session, Theme } from '@mycel/shared/api'
 import { api, API, errorText, isApiError } from '../lib/api'
 import { formatDateTime, formatSize } from '../lib/format'
@@ -33,6 +33,7 @@ import { Notifications } from '../components/settings/Notifications'
 import { InstallGuide } from '../components/settings/InstallGuide'
 import { ScheduleItem } from '../components/settings/ScheduleItem'
 import { MemoryForm } from '../components/settings/MemoryForm'
+import { ScheduleEditDialog } from '../components/settings/ScheduleEditDialog'
 import AskCard from '../components/chat/AskCard'
 import ConnectorConnections from './ConnectorConnections'
 import Integrations from './Integrations'
@@ -373,6 +374,32 @@ function Schedules() {
       throw e
     }
   }
+  // "지금 실행": a run now, in a new chat (the toast opens it); the list shows its result like a scheduled run's
+  const navigate = useNavigate()
+  const [starting, setStarting] = useState<string | null>(null)
+  const runNow = async (s: Schedule) => {
+    const generation = life.current
+    setStarting(s.id)
+    try {
+      const r = await api.call(API.runScheduleNow, { params: { id: s.id }, body: {} })
+      if (generation !== life.current) return
+      revision.current++
+      setItems((cur) => cur?.map((x) => (x.id === s.id ? r.schedule : x)) ?? null)
+      toast({ level: 'success', text: t('schedules.runStarted'), action: { label: t('schedules.openRun'), run: () => navigate(`/c/${r.chatId}`) } })
+    } catch (e) {
+      toast({ level: 'error', text: errorText(e, locale, t('error.network')) })
+    } finally {
+      if (generation === life.current) setStarting(null)
+    }
+  }
+  const [editing, setEditing] = useState<Schedule | null>(null)
+  const edited = (u: Schedule) => {
+    revision.current++
+    setItems((cur) => cur?.map((x) => (x.id === u.id ? u : x)) ?? null)
+    setEditing(null)
+    if (u.needsReview === false) schedulesChanged.emit()
+    toast({ level: 'success', text: t('schedules.edited') })
+  }
   const remove = async (s: Schedule) => {
     const generation = life.current
     if (!(await confirmDialog({ title: t('schedules.deleteTitle'), body: t('schedules.deleteBody', { title: s.title }), confirm: t('schedules.delete'), danger: true }))) return
@@ -398,6 +425,7 @@ function Schedules() {
           <ul className="divide-y divide-line rounded-xl border border-line" data-testid="schedule-list">
             {items.map((s) => (
               <ScheduleItem key={s.id} s={s} tz={tz} when={when(s)} onToggle={() => void toggle(s)} onRemove={() => void remove(s)} onReview={() => void openReview(s)}
+                onRunNow={() => void runNow(s)} running={starting === s.id} onEdit={() => setEditing(s)}
                 review={review?.id === s.id ? (
                   <div className="mt-2" data-testid="schedule-review-card">
                     <AskCard key={review.card.request.requestId} req={review.card} onAnswer={(requestId, body) => answerReview(s, requestId, body.kind === 'ask_user' ? body.answer : null)} />
@@ -408,6 +436,7 @@ function Schedules() {
           {tz && <p className="mt-2 text-xs text-faint">{t('schedules.timeZone', { tz })}</p>}
         </>
       )}
+      {editing && <ScheduleEditDialog key={editing.id} s={editing} tz={tz || null} onClose={() => setEditing(null)} onSaved={edited} />}
     </Section>
   )
 }

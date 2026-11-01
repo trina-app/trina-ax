@@ -141,6 +141,10 @@ export const SPECS: Record<string, Spec> = {
   listSchedules: { build: (c) => c.get('/api/schedules'), scope: 'self' },
   updateSchedule: { build: (c) => c.patch('/api/schedules/00000000-0000-7000-8000-000000000000', { enabled: false }), scope: 'self' },
   deleteSchedule: { build: (c) => c.del('/api/schedules/00000000-0000-7000-8000-000000000000'), scope: 'self' },
+  // run now and edit: own tasks only (each person's own are covered in tests/unit/schedule-edit.test.ts, incl. 404 to others)
+  runScheduleNow: { build: (c) => c.post('/api/schedules/00000000-0000-7000-8000-000000000000/run', {}), scope: 'self' },
+  scheduleEditCard: { build: (c) => c.post('/api/schedules/00000000-0000-7000-8000-000000000000/edit', { kind: 'task', title: 'x', prompt: 'x x x', repeat: 'daily', time: '09:00', projectId: null }), scope: 'self' },
+  editSchedule: { build: (c) => c.put('/api/schedules/00000000-0000-7000-8000-000000000000', { kind: 'template', time: '09:00', sourcePath: 'shared', outputPath: 'users/x' }), scope: 'self' },
   // nobody's task (each person's own waiting task is covered in tests/unit/schedule-review.test.ts, incl. 404 to others)
   getScheduleReview: { build: (c) => c.get('/api/schedules/00000000-0000-7000-8000-000000000000/review'), scope: 'nobody' },
   confirmScheduleReview: { build: (c) => c.post('/api/schedules/00000000-0000-7000-8000-000000000000/review', { requestId: 'schedule-review-x', answer: 'resume' }), scope: 'self' },

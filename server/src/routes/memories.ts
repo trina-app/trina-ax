@@ -2,7 +2,7 @@
 // Implements: MEMORIES (own memories only: list, add, correct, forget; admins can't see other people's, tab 1). Contract: shared/src/api/memories.ts
 // Also SKILLS (the team skills the caller can read, for the composer's "/" list; skill suggestions). Contract:
 // shared/src/api/skills.ts (the admin side of it, skill managers and changes, is in routes/admin.ts)
-// And SCHEDULES (the caller's own scheduled tasks, Settings). Contract: shared/src/api/schedules.ts
+// And SCHEDULES (the caller's own scheduled tasks, Settings: run now, edit, pause, delete). Contract: shared/src/api/schedules.ts
 import { API, type Locale } from '@mycel/shared/api'
 import type { RouteModule } from './module'
 import { fail } from '../http/errors'
@@ -22,6 +22,7 @@ import { registerPush } from './push'
 import { installPush } from '../notifications/push-service'
 import { needsReview, type ScheduleRow } from '../chat/schedules'
 import { awaitingReview, confirmReview, reviewCard } from '../chat/schedule-review'
+import { editCard, saveTask, saveTemplate } from '../chat/schedule-edit'
 import { approveSuggestion, createSuggestion, getSuggestion, listSuggestions, rejectSuggestion, skillsOverview } from '../skills/suggestions'
 
 type Row = { id: string; text: string; source_chat_id: string | null; created_at: string }
@@ -105,6 +106,16 @@ export const memoriesRoutes: RouteModule = {
       if (!s) return fail('not_found')
       return scheduleOut(s)
     })
+    // "지금 실행" and "수정" (chat/schedules.ts runNow, chat/schedule-edit.ts): the rules of a scheduled run, the card of
+    // schedule_create
+    kit.handle(API.runScheduleNow, ({ c, params, auth }) => {
+      const r = rt.schedules.runNow(auth.user.id, params.id, new Date(), c.get('locale'))
+      return { schedule: scheduleOut(r.row), chatId: r.chatId }
+    })
+    kit.handle(API.scheduleEditCard, ({ c, params, body, auth }) => editCard(ctx, rt, auth.user.id, params.id, body, c.get('locale')))
+    kit.handle(API.editSchedule, ({ c, params, body, auth }) => scheduleOut(body.kind === 'task'
+      ? saveTask(ctx, rt, auth.user.id, params.id, body, c.get('locale'))
+      : saveTemplate(ctx, rt, auth.user.id, params.id, body, c.get('locale'))))
     kit.handle(API.deleteSchedule, ({ params, auth }) => {
       if (!rt.schedules.delete(auth.user.id, params.id)) fail('not_found')
     })

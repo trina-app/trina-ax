@@ -10,7 +10,8 @@
 // run, cannot be resumed with the switch, and resumes when its owner confirms the same card again
 // (chat/schedule-review.ts, docs/DECISIONS.md "Scheduled tasks nobody confirmed").
 // The office Mac may be off at the time: a run that was missed happens once when the server is back, then the
-// schedule continues from now.
+// schedule continues from now. Its owner can also run it once now (runNow, "지금 실행") with the same rules, and edit
+// it through the same card (chat/schedule-edit.ts).
 import type { Database } from 'bun:sqlite'
 import { z } from 'zod'
 import { budgetBlock } from '../admin/budgets'
@@ -180,8 +181,36 @@ export class Schedules {
     const reason = enabled ? this.resumeBlockedReason(s, now) : null
     if (reason) throw new HttpError('conflict', tr(reason === 'completed' ? 'scheduleCompleted' : 'scheduleExpired', locale), { params: { reason: `schedule_${reason}` } })
     const next = enabled ? nextRun(s, now, this.rt.timeZone) : null
-    this.db.query('UPDATE schedules SET enabled = ?, next_run_at = ?, pending_due_at = NULL, retry_at = NULL WHERE id = ?').run(enabled && next ? 1 : 0, next?.toISOString() ?? null, id)
+    this.db.transaction(() => {
+      this.db.query('UPDATE schedules SET enabled = ?, next_run_at = ?, pending_due_at = NULL, retry_at = NULL WHERE id = ?').run(enabled && next ? 1 : 0, next?.toISOString() ?? null, id)
+      audit(this.db, { actor: userId, action: enabled ? 'schedule.resumed' : 'schedule.paused', target: id, detail: { nextRunAt: next?.toISOString() ?? null } })
+    })()
     return this.get(userId, id)
+  }
+
+  /** "지금 실행" (Settings): one run now with the rules of a scheduled run, as its person: unattended (nothing waits
+   * for anyone), only the addresses and connections its card allowed, the budgets, the person's access and, for a
+   * template, its folders. It is outside the schedule: the next run, on/off and a pending occurrence stay as they are;
+   * a paused task runs too (the person asked). Refused: a task nobody confirmed (it never runs), one that is running
+   * now, a used-up budget; a full queue is refused like a message (429). Audited. */
+  runNow(userId: string, id: string, now = new Date(), locale: Locale = this.rt.userLocale(userId)): { row: ScheduleRow; chatId: string } {
+    const s = this.get(userId, id)
+    if (!s) throw new HttpError('not_found')
+    if (needsReview(s)) throw new HttpError('conflict', tr('scheduleReview', locale), { params: { reason: 'schedule_review' } })
+    if (this.db.query("SELECT 1 FROM turns WHERE schedule_id = ? AND user_id = ? AND status IN ('queued','running') LIMIT 1").get(s.id, userId))
+      throw new HttpError('conflict', tr('scheduleRunning', locale), { params: { reason: 'schedule_running' } })
+    const blocked = budgetBlock(this.db, userId, locale, now)
+    if (blocked) throw new HttpError('budget_exceeded', blocked.message)
+    // its own occurrence key: never a whole minute, so never the key of a scheduled occurrence (turns_schedule_occurrence)
+    const t = now.getTime()
+    const dueAt = new Date(t % 60_000 === 0 ? t + 1 : t).toISOString()
+    const chatId = this.start(s, now, dueAt, (chat) => { if (chat) this.db.query('UPDATE schedules SET last_chat_id = ? WHERE id = ?').run(chat, s.id) }, 'manual')
+    if (!chatId) {
+      const again = budgetBlock(this.db, userId, locale, now)
+      throw again ? new HttpError('budget_exceeded', again.message) : new HttpError('forbidden')
+    }
+    audit(this.db, { actor: userId, action: 'schedule.run_now', target: s.id, detail: { scheduledFor: dueAt, template: s.template_id ?? undefined } })
+    return { row: this.get(userId, id)!, chatId }
   }
 
   delete(userId: string, id: string): boolean {
@@ -246,7 +275,7 @@ export class Schedules {
     return started
   }
 
-  private start(s: ScheduleRow, now: Date, originalDue: string, commit: (chatId: string | null) => void): string | null {
+  private start(s: ScheduleRow, now: Date, originalDue: string, commit: (chatId: string | null) => void, how: 'scheduled' | 'manual' = 'scheduled'): string | null {
     const user = this.db.query("SELECT id FROM users WHERE id = ? AND status = 'active' AND deleted_at IS NULL").get(s.user_id)
     if (!user) return null
     const locale = this.rt.userLocale(s.user_id)
@@ -272,7 +301,7 @@ export class Schedules {
           .run(s.template_source_path, s.template_output_path, s.id, originalDue)
       } },
       // Keep the client contract <=64 chars; uniqueness is the durable two-column occurrence key.
-      user: { parentId: null, content: s.prompt, attachments: [], clientMessageId: `s-${s.id}-${Date.parse(originalDue)}` },
+      user: { parentId: null, content: s.prompt, attachments: [], clientMessageId: `${how === 'manual' ? 'n' : 's'}-${s.id}-${Date.parse(originalDue)}` },
     })
     return turn.assistantMessage.chatId
   }

@@ -4786,3 +4786,39 @@ fallback when DeepInfra is down. Test report: `plans/stt-hosted-2026-11-01/STT-D
   correcting the AI's memory, another person's 404, audit lines without the text, no line for an unchanged text);
   `tests/security` (`createMemory` self, `updateMemory` only alice's own); `web/test/e2e/app.spec.ts` (add with the
   limit and the count, correct with Enter, Esc cancels, the first memory from the empty state).
+
+## Scheduled tasks: run now, edit, pause (feat/small-batch-11-01, 2026-11-01)
+
+- **Run now** (`POST /api/schedules/:id/run`, `chat/schedules.ts runNow`): one run now through the same `start()` as a
+  run at its time, so the same rules hold: client kind `schedule` (unattended: ask cards answer "no"), the message is
+  `auto_sent` and only the card's addresses (`allowed_urls`) open without asking, sends only to the connections the card
+  allowed (`write_connections`), the person's budgets and folder access, a template's folder checks at dispatch. It is
+  outside the schedule: `next_run_at`, `enabled`, `pending_due_at` and `last_run_at` stay (a one-time task is not used
+  up); only `last_chat_id` moves, and its result shows like a run's (the turn carries `schedule_id`). A paused task can be
+  run now (the person asked, like Claude's "Run now"). Its occurrence key is now with the milliseconds, moved off a whole
+  minute, so it never equals a scheduled occurrence (`turns_schedule_occurrence`). Refused: a task nobody confirmed (409
+  `schedule_review`: it never runs), one with a run queued or running (409 `schedule_running`), a used-up "block" budget
+  (`budget_exceeded`, nothing queued), a full queue (429, as for a message), anyone else's (404). Audited
+  `schedule.run_now`.
+- **Edit** (`POST /api/schedules/:id/edit` for the card, `PUT /api/schedules/:id` to save; `chat/schedule-edit.ts`). A
+  free-text task: title, instruction, repeat/time/weekday/day/date and the project it runs in. Checked like
+  schedule_create (`ScheduleInput`, a time still to come, a project the person can open; refusals are `validation` with
+  the field), then the same server card (`tools/schedules.ts scheduleCard` mode `edit`: "Change this scheduled task…",
+  the project's name, the whole instruction, the addresses, an address with a query over 200 characters listed apart,
+  the "allow" connections; answers save / save-with-sends / don't change). The answer is bound to the card's content
+  (`requestId`: the fields, project, addresses, connection versions, options); a change in between is 409
+  `schedule_card_changed` and the card is shown anew. Saving writes the card's record as at creation (`allowed_urls`,
+  `write_connections`, `confirmed_at`; a task nobody confirmed is confirmed by it) and keeps the task on or paused as it
+  was; a one-time task given a new time is a new occurrence (`last_run_at` cleared, so it can be turned on again). A
+  pending occurrence of the old version is dropped. A template: time, weekday (weekly) and its folders, checked by
+  `validateTemplateFolders` (source readable, output in the person's own folder; else `not_found`, as at creation) and
+  its instruction made again from the template (`templatePrompt`); no card. Audited `schedule.edited` with what changed
+  (`title`, `prompt`, `schedule`, `project`, `source`, `output`) and the counts, never the title or the instruction.
+- **Pause and resume** were there (`PATCH /api/schedules/:id`, "끄기" / "켜기", "꺼짐"); they are now audited
+  (`schedule.paused`, `schedule.resumed`), and a paused task says that it does not run at its times. The Korean words
+  stay 끄기/켜기 (the card's "다시 켜기" and the review flow use them).
+- UI: `components/settings/ScheduleItem.tsx` (Run now, the pencil), `ScheduleEditDialog.tsx` (the form, then the card in
+  the dialog; "Don't change" comes back to the form).
+- Tests: `tests/unit/schedule-edit.test.ts` (run now with the scheduled rules and the schedule untouched; refusals;
+  the edit card's long-query listing, binding, connections, field checks, project access, one-time re-arm, unconfirmed
+  tasks, templates; pause/resume audit); `tests/security` (the three routes, own only); `web/test/e2e/schedules.spec.ts`.
