@@ -3,6 +3,7 @@
 // the RouteKit checks it); members manage their own connections while the team allows them. Request bodies are never
 // written to the audit log here (credentials/service.ts writes field names, kinds, labels, hints only).
 import { API, type Locale } from '@mycel/shared/api'
+import { anthropicGateway, gatewayLabel } from '../app-config'
 import type { AppContext } from '../context'
 import { fail } from '../http/errors'
 import type { RouteKit } from '../http/route'
@@ -33,7 +34,9 @@ export function registerCredentialRoutes(kit: RouteKit, ctx: AppContext) {
     ctx.services.realtime.publishEach(() => ENGINES_CHANGED)
   }
 
-  kit.handle(API.listCredentials, ({ c }) => ({ items: listCredentials(cc(), loc(c)), memberOwn: memberOwnAllowed(ctx.db), sharedSubscriptions: sharedSubscriptionsAllowed(ctx.db), allowedKinds: [...cc().allowedKinds], pricesAsOf: PRICES_AS_OF }))
+  // the add dialog takes the gateway's key format and names the gateway (engine.anthropicGateway; never its address)
+  const gateway = () => { const g = anthropicGateway(ctx.config); return g ? { label: gatewayLabel(g) } : null }
+  kit.handle(API.listCredentials, ({ c }) => ({ items: listCredentials(cc(), loc(c)), memberOwn: memberOwnAllowed(ctx.db), sharedSubscriptions: sharedSubscriptionsAllowed(ctx.db), allowedKinds: [...cc().allowedKinds], pricesAsOf: PRICES_AS_OF, anthropicGateway: gateway() }))
   kit.handle(API.createCredential, async ({ c, body, auth }) => {
     const secret = await unsealOrFail(cc(), body.sealed, 'credential.create', loc(c))
     const r = await createCredential(cc(), { kind: body.kind, label: body.label, secret, assignments: body.assignments, priority: body.priority, ownerUserId: null, actor: auth.user.id, acknowledgedPlanNotice: body.acknowledgedPlanNotice }, loc(c))
@@ -71,7 +74,7 @@ export function registerCredentialRoutes(kit: RouteKit, ctx: AppContext) {
 
   // ---------------- one's own connections ----------------
   const ownAllowed = (locale: Locale) => { if (!memberOwnAllowed(ctx.db)) fail('forbidden', ct('memberOwnOff', locale)) }
-  kit.handle(API.myCredentials, ({ c, auth }) => ({ allowed: memberOwnAllowed(ctx.db), allowedKinds: [...cc().allowedKinds], items: myCredentials(cc(), auth.user.id, loc(c)) }))
+  kit.handle(API.myCredentials, ({ c, auth }) => ({ allowed: memberOwnAllowed(ctx.db), allowedKinds: [...cc().allowedKinds], items: myCredentials(cc(), auth.user.id, loc(c)), anthropicGateway: gateway() }))
   kit.handle(API.createMyCredential, async ({ c, body, auth }) => {
     ownAllowed(loc(c))
     const secret = await unsealOrFail(cc(), body.sealed, 'credential.create', loc(c))

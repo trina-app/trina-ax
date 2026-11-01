@@ -4603,3 +4603,65 @@ path with the real ffmpeg and OpenRouter, and the rule was also applied to every
   redirects) about 8 s after the row is written, up to three tries, and fills `served` in that row (not when the chat
   was locked confidential during the read: nothing more goes to OpenRouter from it). No transcript words. Voice input
   has no audit row and none was added.
+
+
+## Anthropic-compatible gateway (feat/anthropic-gateway, 2026-11-01)
+
+A self-hosted team can run the real Claude Code engine on another company's models through an address that speaks
+Anthropic's Messages API (OpenRouter; the Anthropic-compatible APIs of DeepSeek, Moonshot, Zhipu): `engine.anthropicGateway`
+in server.json (docs/CONFIGURATION.md "Anthropic-compatible gateway"). Before, a managed Linux install that pointed
+`modelUpstreams.anthropic` at OpenRouter answered once two checks were relaxed (the key format and the Claude model
+name; test of 2026-11-01: Claude Code 2.1.305 on `deepseek/deepseek-v4-pro`, folder permissions held, eleven requests
+upstream, no `claude-*` name among them). This makes it a supported setting instead of a test override.
+
+- **server.json only, managed mode only.** `{ baseUrl, models: { default, opus?, sonnet?, haiku? }, label?, prices? }`;
+  no admin screen. The server refuses to start with both `anthropicGateway` and `modelUpstreams.anthropic` /
+  `modelUpstream` (two answers to where Claude requests go), outside managed mode (a local-login engine never uses the
+  proxy), with a non-https address (http only to 127.0.0.1, like modelUpstreams: fake gateways in tests), with `/v1` at
+  the end of the address (the proxy adds `/v1/messages`), or with a model id that is not argv-safe or is `claude-*`.
+  `modelUpstreams` stays a test setting.
+- **No Claude credential ever goes to the gateway.** `allowedCredentialKinds` drops `anthropic-oauth` whenever the gateway
+  is set, whatever `credentialKinds` lists: such connections cannot be added and existing ones are `kind_off` (skipped
+  by resolve, refused by the broker, shown "off on this server"). The same holds for an Anthropic API key added before:
+  an `anthropic-api-key` connection remembers the gateway host it was made for (`meta.gateway`; absent = Anthropic) and
+  is `kind_off` anywhere else (`store.ts otherGateway`, carried as `allowedKinds.gateway` so every existing caller of
+  `unusable` applies it), so turning the gateway on never sends an `sk-ant-` key to a third party and turning it off
+  never sends a gateway key to Anthropic. "Check again" sends nothing for a `kind_off` connection, and `verifySecret`
+  never sends a subscription token or an `sk-ant-` value to the gateway. A key replaced on an Anthropic key connection
+  while the gateway is on moves that connection to the gateway (and back). Only `anthropic-api-key` carries the
+  gateway's key; no new kind.
+- **Key format.** With the gateway: 20–300 characters of `A–Z a–z 0–9 . _ -` (OpenRouter `sk-or-v1-…`, DeepSeek `sk-…`,
+  GLM `id.secret`), never `sk-ant-…`; without it `^sk-ant-api..` as before. The web dialog follows the server (the
+  list responses carry `anthropicGateway: { label }`), names the kind "API key for <label>" and drops the Anthropic
+  console link.
+- **Key check without tokens.** OpenRouter lists its models without a key, so its key is checked on `GET /api/v1/key`
+  (200 / 401; the API engine's check uses the same helper, `validate.ts openRouterKey`). Another gateway: `GET
+  <baseUrl>/v1/models` with the key, and when it answers, again without one: a list that also answers without a key
+  says nothing, so the connection is "checked on the first question" (the existing `unverified` state). No new codes.
+- **Model allow-list.** With the gateway the proxy forwards exactly the ids in `models` (count_tokens too) and refuses
+  everything else with a 403, `claude-*` included: a gateway hands a Claude name to Anthropic at Anthropic's price, and
+  an unknown id is not what the owner chose. Without the gateway `MODEL_RE` is unchanged.
+- **Engine environment.** In managed mode with the gateway Claude Code gets `ANTHROPIC_DEFAULT_OPUS_MODEL`,
+  `ANTHROPIC_DEFAULT_SONNET_MODEL`, `ANTHROPIC_DEFAULT_HAIKU_MODEL` and `ANTHROPIC_SMALL_FAST_MODEL` (missing ones are
+  `default`), so its aliases, the refusal retry's other model and its side requests all name a gateway model. A turn
+  nobody chose a model for gets `--model <default>`: with only the aliases set it would run on the sonnet entry, which
+  is not what "default" says. The launcher passes these variables through (it drops credential variables only).
+- **Admin model list.** Admin > AI engines, the team default and the composer list the gateway's ids (default first,
+  once each) instead of opus / sonnet / haiku; the web already showed what the server sends.
+- **Cost.** With the gateway an Anthropic API key connection is priced from `prices` (cache reads and writes at the
+  input price unless given), by the model id the request asked for (an answer may name it with a provider suffix).
+  OpenRouter reports what it charged in `usage.cost` (USD; non-streamed usage and the final `message_delta`, seen
+  2026-11-01), which the usage path already merges: it counts when above 0 and `is_byok` is not true (with the team's
+  own provider key it is only OpenRouter's fee). Another gateway's `cost` is not read (its unit is not documented). An
+  unpriced model stays at `CLAUDE_MAX` (budgets fill early, never late) and is logged once per model and start ("a
+  model has no price"), besides the existing `credential.unknown_price` audit.
+- **count_tokens.** OpenRouter answers `POST /v1/messages/count_tokens` with 404 (seen 2026-11-01). The proxy passes it
+  back unchanged without marking the connection or logging a failure; the next `/v1/messages` works (fake-upstream
+  test). Claude Code made no such call in the 2026-11-01 run.
+- **Data.** Requests go to the gateway provider and from there to the model's vendor; the docs say so where the setting
+  is described. Web search through the gateway worked on OpenRouter but reports `web_search_requests: 0`; with OpenRouter
+  its price is in `usage.cost`; with configured prices only the searches a gateway reports in `web_search_requests`
+  count (at Anthropic's $10 per 1,000).
+- Tests: `tests/unit/anthropic-gateway.test.ts` (config and conflicts, key format, OpenRouter and model-list key
+  checks, subscription and Anthropic connections off and never forwarded or checked, the allow-list with a fake gateway,
+  count_tokens 404, engine environment, admin model list, prices).

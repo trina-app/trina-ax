@@ -63,6 +63,9 @@ export interface ClaudeConf {
   agentHome: string
   /** managed mode: the model proxy's address (the kind of credential is the turn's AI connection's, per attempt) */
   modelProxy?: { baseUrl: string }
+  /** managed mode with an Anthropic-compatible gateway (app-config engine.anthropicGateway): its model ids. A turn
+   * nobody chose a model for runs on `default`; Claude Code's aliases and its small fast model name the others. */
+  gatewayModels?: { default: string; opus?: string; sonnet?: string; haiku?: string }
   /** local-login in office mode: the engine's HTTPS goes through the proxy's CONNECT tunnel (HTTPS_PROXY with a
    * per-turn token; the sandbox allows no other network, security round 4b) */
   connectProxy?: boolean
@@ -118,6 +121,9 @@ export function buildClaudeLaunch(i: {
 }, conf: ClaudeConf): LaunchRequest {
   const web = i.webSearch !== false
   const sub = !!i.subagents
+  // a gateway has no "Claude Code default": the turn names the gateway's default model
+  const gw = conf.authMode !== 'local-login' ? conf.gatewayModels : undefined
+  const model = i.model ?? gw?.default
   const args = [
     '-p', '--output-format', 'stream-json', '--verbose', '--include-partial-messages', '--include-hook-events',
     '--tools', [...(web ? ENGINE_BUILTIN_ALLOWED : []), ...(sub ? [CLAUDE_AGENT_TOOL] : [])].join(','),
@@ -135,7 +141,7 @@ export function buildClaudeLaunch(i: {
     '--append-system-prompt-file', '{SYSTEM_PROMPT_FILE}',
     ...(sub ? ['--agents', '{TURN_DIR}/agents.json', '--append-subagent-system-prompt-file', '{TURN_DIR}/subagent.md'] : []),
     '--max-turns', String(i.maxTurns),
-    ...(i.model ? ['--model', i.model] : []),
+    ...(model ? ['--model', model] : []),
     ...(i.resume ? ['--resume', i.sessionId] : ['--session-id', i.sessionId]),
   ]
   // temp files stay in the chat folder: with only TMPDIR, Claude Code still creates /tmp/claude-<uid> and
@@ -160,6 +166,15 @@ export function buildClaudeLaunch(i: {
     env.HOME = path.join(i.chatDir, '.home')
     env.CLAUDE_CONFIG_DIR = path.join(i.chatDir, '.claude')
     env.ANTHROPIC_BASE_URL = conf.modelProxy!.baseUrl
+    if (gw) {
+      // every model Claude Code picks by itself (opus / sonnet / haiku, a sub-agent's, the small fast model for its side
+      // requests) is one of the gateway's: never a claude-* id, which the proxy refuses (docs/DECISIONS.md
+      // "Anthropic-compatible gateway")
+      env.ANTHROPIC_DEFAULT_OPUS_MODEL = gw.opus ?? gw.default
+      env.ANTHROPIC_DEFAULT_SONNET_MODEL = gw.sonnet ?? gw.default
+      env.ANTHROPIC_DEFAULT_HAIKU_MODEL = gw.haiku ?? gw.default
+      env.ANTHROPIC_SMALL_FAST_MODEL = gw.haiku ?? gw.default
+    }
   }
   const loc = sessionLocation(conf, i.chatDir)
   const modelToken = conf.authMode !== 'local-login' && i.proxyToken ? { kind: i.tokenKind ?? 'oauth', value: i.proxyToken } : undefined

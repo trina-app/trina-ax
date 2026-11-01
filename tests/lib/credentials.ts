@@ -4,20 +4,20 @@ import fs from 'node:fs'
 import path from 'node:path'
 import type { Database } from 'bun:sqlite'
 import type { CredentialAssignment, CredentialKind } from '@mycel/shared/api'
-import type { ModelUpstreams } from '../../server/src/app-config'
+import type { AnthropicGatewayConf, ModelUpstreams } from '../../server/src/app-config'
 import { insertRow } from '../../server/src/credentials/service'
 import { makeCredCtx, type CredCtx, type Notice, type Secrets } from '../../server/src/credentials/store'
 import { accountRef } from '../../server/src/credentials/openai-oauth'
 
 export interface TestCred { cc: CredCtx; notices: { n: Notice; to?: string[] }[]; events: { userId: string; ev: unknown }[] }
 
-export function testCredCtx(db: Database, dir: string, o: { upstreams?: Partial<ModelUpstreams>; kinds?: CredentialKind[]; now?: () => number; fetch?: typeof fetch } = {}): TestCred {
+export function testCredCtx(db: Database, dir: string, o: { upstreams?: Partial<ModelUpstreams>; kinds?: CredentialKind[]; gateway?: AnthropicGatewayConf; now?: () => number; fetch?: typeof fetch } = {}): TestCred {
   fs.mkdirSync(dir, { recursive: true, mode: 0o700 })
   const notices: TestCred['notices'] = []
   const events: TestCred['events'] = []
   const cc = makeCredCtx({
     db, secretsDir: dir, log: { info() {}, warn() {}, error() {} },
-    config: { mode: 'dev', dataDir: path.join(dir, 'data'), engine: { authMode: 'managed', modelUpstreams: o.upstreams ?? {}, ...(o.kinds ? { credentialKinds: o.kinds } : {}) } },
+    config: { mode: 'dev', dataDir: path.join(dir, 'data'), engine: { authMode: 'managed', modelUpstreams: o.upstreams ?? {}, ...(o.kinds ? { credentialKinds: o.kinds } : {}), ...(o.gateway ? { anthropicGateway: o.gateway } : {}) } },
     notify: (n, to) => notices.push({ n, to }), publish: (userId, ev) => events.push({ userId, ev }), ...(o.now ? { now: o.now } : {}), ...(o.fetch ? { fetch: o.fetch } : {}),
   })
   return { cc, notices, events }
@@ -38,11 +38,11 @@ export function chatgptSecret(accountId: string, o: { access?: string; refresh?:
   }
 }
 
-export function addCred(cc: CredCtx, kind: CredentialKind, secret: string | Secrets['chatgpt'], o: { label?: string; priority?: number; owner?: string | null; assignments?: CredentialAssignment[]; createdAt?: string; disabled?: boolean; plan?: string } = {}): string {
+export function addCred(cc: CredCtx, kind: CredentialKind, secret: string | Secrets['chatgpt'], o: { label?: string; priority?: number; owner?: string | null; assignments?: CredentialAssignment[]; createdAt?: string; disabled?: boolean; plan?: string; gateway?: string } = {}): string {
   const value = kind === 'chatgpt' ? secret as Secrets['chatgpt'] : kind === 'anthropic-oauth' ? { token: secret as string } : { key: secret as string }
   const id = insertRow(cc, {
     kind, label: o.label ?? kind, secret: value, ownerUserId: o.owner ?? null, priority: o.priority ?? 100, assignments: o.assignments ?? [], createdBy: null,
-    meta: kind === 'chatgpt' ? { planType: o.plan ?? 'pro', accountRef: accountRef((value as Secrets['chatgpt']).accountId) } : {},
+    meta: kind === 'chatgpt' ? { planType: o.plan ?? 'pro', accountRef: accountRef((value as Secrets['chatgpt']).accountId) } : o.gateway ? { gateway: o.gateway } : {},
     expiresAt: kind === 'anthropic-oauth' ? new Date(Date.now() + 365 * 86400_000).toISOString() : null, checkedAt: new Date().toISOString(),
   })
   if (o.createdAt) cc.db.query('UPDATE engine_credentials SET created_at = ? WHERE id = ?').run(o.createdAt, id)

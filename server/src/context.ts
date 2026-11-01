@@ -5,7 +5,7 @@ import os from 'node:os'
 import path from 'node:path'
 import type { Database } from 'bun:sqlite'
 import { uuidv7 } from '@mycel/shared'
-import { DEFAULT_PROXY_PORT, isManaged, type AppConfig } from './app-config'
+import { anthropicGateway, DEFAULT_PROXY_PORT, gatewayHost, gatewayModelIds, isManaged, type AppConfig } from './app-config'
 import { resolveLayout } from './system/layout'
 import { defaultConfig, engineSandboxProfile, findCodexBin, type ServerConfig } from './config'
 import { brokerOf, startCredentialMaintenance } from './credentials/maintenance'
@@ -185,6 +185,8 @@ export function createContext(o: ContextOptions): AppContext {
   // every change under skills/ is audited and announced to the owner and admins (skills/changes.ts)
   trackSkillChanges(ctx)
   if (config.engine.authModeAlias) log.info(`authMode "${config.engine.authModeAlias}" is read as "managed"`)
+  const gateway = anthropicGateway(config)
+  if (gateway) log.info('engine.anthropicGateway: Claude requests go to the gateway, on its models only; Claude subscription connections are off', { gateway: gatewayHost(gateway), models: gatewayModelIds(gateway) })
   // managed mode: the older single token file / company keys / Codex login become AI connections (once), the daily
   // ChatGPT refresh and expiry notices run (credentials/maintenance.ts)
   if (isManaged(config)) startCredentialMaintenance(ctx)

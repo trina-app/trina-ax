@@ -1460,6 +1460,8 @@ export const ko = {
   'credentials.kind.anthropic-oauth.desc': 'claude setup-token으로 만든 토큰',
   'credentials.kind.anthropic-api-key': 'Claude API 키',
   'credentials.kind.anthropic-api-key.desc': 'Anthropic 콘솔의 API 키. 쓴 만큼 요금, 팀 사용에 맞는 방식',
+  'credentials.kind.gateway': '{label} API 키',
+  'credentials.kind.gateway.desc': '이 서버는 Claude Code를 {label}의 모델로 돌려요(server.json 설정). 쓴 만큼 요금, 대화는 게이트웨이({label})와 모델 회사로 가요',
   'credentials.kind.chatgpt': 'ChatGPT 플랜 (Codex)',
   'credentials.kind.chatgpt.desc': 'ChatGPT 계정으로 로그인',
   'credentials.kind.openai-api-key': 'OpenAI API 키 (Codex)',
