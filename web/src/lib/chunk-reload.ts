@@ -9,9 +9,11 @@
 // already show their content without them on a failure, so they do not reload the page: on a weak connection that would
 // only trade a plain code block for the offline page.
 // No loop: at most one automatic reload per CHUNK_RELOAD_GUARD_MS in a tab (sessionStorage); a failure soon after one
-// (the new build cannot load either: offline, a broken server) stays on screen with the button. Not while an upload, a
-// draft or a recording would be lost (lib/busy.ts), and not without sessionStorage (nothing would stop a loop).
-import { isBusy } from './busy'
+// (the new build cannot load either: offline, a broken server) stays on screen with the button. Not while something would
+// be lost (an upload, a draft, a recording, a message still being sent or not sent, an answer streaming) or the server
+// cannot be reached (lib/reload-guard.ts, the same check as the UpdateWatcher), and not without sessionStorage (nothing
+// would stop a loop). Where it does not reload because something would be lost, the line says so.
+import { mayReloadNow } from './reload-guard'
 
 export const CHUNK_RELOAD_KEY = 'mycel.chunkReloadAt'
 export const CHUNK_RELOAD_GUARD_MS = 5 * 60_000
@@ -31,12 +33,13 @@ export function isChunkLoadError(e: unknown): boolean {
 export interface ReloadOnceDeps {
   storage: Pick<Storage, 'getItem' | 'setItem'> | null
   now: number
+  /** a reload now would lose something, or the server cannot be reached (lib/reload-guard.ts mayReloadNow) */
   busy: boolean
   reload: () => void
 }
 
 /** Reload unless one was done less than CHUNK_RELOAD_GUARD_MS ago in this tab, something is busy, or there is no storage
- * to remember it in. true = reloading. */
+ * to remember it in. true = reloading. A busy page does not use up the one reload. */
 export function reloadOnce(d: ReloadOnceDeps): boolean {
   if (d.busy || !d.storage) return false
   let last: number
@@ -57,6 +60,6 @@ export function reloadForChunkError(e: unknown): boolean {
   if (!isChunkLoadError(e)) return false
   let storage: Storage | null = null
   try { storage = window.sessionStorage } catch {}
-  reloading = reloadOnce({ storage, now: Date.now(), busy: isBusy(), reload: () => location.reload() })
+  reloading = reloadOnce({ storage, now: Date.now(), busy: !mayReloadNow(), reload: () => location.reload() })
   return reloading
 }

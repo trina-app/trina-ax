@@ -68,6 +68,7 @@ export const ja: Record<MessageKey, string> = {
   'update.ready': "新しいバージョンを利用できます。",
   'update.reload': "再読み込み",
   'update.chunkFailed': "この部分を読み込めませんでした。再読み込みすると最新のバージョンで開きます。",
+  'update.chunkUnsent': "この部分を読み込めませんでした。今再読み込みすると、まだ送信していないメッセージや、進行中のアップロード・録音が失われます。先に済ませてから再読み込みすると、最新のバージョンで開きます。",
   'update.notesMore': "リリースノートをすべて表示",
   'update.notesLess': "折りたたむ",
   'notice.accessChanged': "フォルダーへのアクセス権が変更されました：{paths}",

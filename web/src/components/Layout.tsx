@@ -5,7 +5,7 @@ import { Menu, MessageSquarePlus, ShieldAlert, WifiOff, RefreshCw } from 'lucide
 import { lazy, Suspense, useEffect, useState } from 'react'
 import { Outlet, useLocation, useNavigate } from 'react-router-dom'
 import { PRODUCT } from '@mycel/shared'
-import { isBusy } from '../lib/busy'
+import { mayReloadNow } from '../lib/reload-guard'
 import { setNavigator } from '../lib/nav'
 import { closeSidePanel, openArtifact, setSidePanel, useSidePanel } from '../lib/sidePanel'
 import { useT } from '../i18n'
@@ -199,14 +199,14 @@ export function AttentionTitle() {
   return null
 }
 
-/** After the server reports a new version: reload by itself once nothing would be lost (checked every 60 s). */
+/** After the server reports a new version: reload by itself once nothing would be lost and the server can be reached
+ * (lib/reload-guard.ts; checked every 60 s). */
 function UpdateWatcher() {
   const ready = useUi((s) => s.updateReady)
   useEffect(() => {
     if (!ready) return
     const timer = setInterval(() => {
-      const streaming = Object.values(useChats.getState().threads).some((th) => th.messages.some((m) => m.status === 'streaming' || m.local))
-      if (!streaming && !isBusy()) location.reload()
+      if (mayReloadNow()) location.reload()
     }, 60_000)
     return () => clearInterval(timer)
   }, [ready])

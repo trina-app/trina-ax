@@ -1,12 +1,18 @@
 // After a server update (lib/chunk-reload.ts, components/ChunkErrorBoundary.tsx, pwa/sw.js): a lazy part that cannot be
-// imported reloads the page once and never in a loop, the boundary shows a spinner or a Reload button instead of a blank
-// page and passes other errors on, and the service worker keeps one cache per build.
-import { describe, expect, test } from 'bun:test'
+// imported reloads the page once and never in a loop, never while something typed or picked would be lost (a draft, a
+// message not sent yet, an upload, a recording) or the server is out of reach, the boundary shows a spinner or a Reload
+// button instead of a blank page and passes other errors on, and the service worker keeps one cache per build.
+import { afterEach, describe, expect, test } from 'bun:test'
 import vm from 'node:vm'
 import { createElement } from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { ChunkErrorBoundary } from '../../src/components/ChunkErrorBoundary'
-import { CHUNK_RELOAD_GUARD_MS, CHUNK_RELOAD_KEY, isChunkLoadError, reloadOnce } from '../../src/lib/chunk-reload'
+import { CHUNK_RELOAD_GUARD_MS, CHUNK_RELOAD_KEY, isChunkLoadError, reloadForChunkError, reloadOnce } from '../../src/lib/chunk-reload'
+import { mayReloadNow, reloadWouldLose, serverUnreachable } from '../../src/lib/reload-guard'
+import { markBusy } from '../../src/lib/busy'
+import { readDraft, writeDraft } from '../../src/lib/localData'
+import { useChats } from '../../src/store/chats'
+import { useUi } from '../../src/store/ui'
 import { currentLocale, translate } from '../../src/i18n'
 import { pwaFile, staticBuildId } from '../../scripts/product-pages'
 
@@ -97,9 +103,103 @@ describe('the boundary instead of a blank page', () => {
     b.componentDidUpdate({ resetKey: '/settings' })
     expect(next).toEqual({ error: null, decided: false })
   })
-  test('every language has the line', async () => {
+  test('every language has the lines', async () => {
     const { DICTS } = await import('../../src/i18n')
-    for (const l of ['ko', 'en', 'id', 'ja', 'es'] as const) expect(DICTS[l]['update.chunkFailed'].length).toBeGreaterThan(10)
+    for (const l of ['ko', 'en', 'id', 'ja', 'es'] as const) {
+      expect(DICTS[l]['update.chunkFailed'].length).toBeGreaterThan(10)
+      expect(DICTS[l]['update.chunkUnsent'].length).toBeGreaterThan(10)
+      expect(DICTS[l]['update.chunkUnsent']).not.toBe(DICTS[l]['update.chunkFailed'])
+    }
+  })
+})
+
+describe('nothing typed is lost by a reload after a server update', () => {
+  const chat = '0190a4c0-0000-7000-8000-000000000001'
+  const message = (o: Record<string, unknown>) => ({ id: String(Math.random()), chatId: chat, role: 'user', content: 'the quarterly numbers, please', status: 'done', ...o }) as never
+  const showing = (...messages: never[]) => useChats.setState({ threads: { [chat]: { messages, nextCursor: null, stale: false } } })
+  const releases: (() => void)[] = []
+  afterEach(() => {
+    for (const r of releases.splice(0)) r()
+    useChats.setState({ threads: {} })
+    useUi.setState({ conn: 'idle' })
+  })
+
+  test('the same check as the update watcher: a message being sent or not sent, an answer streaming, a draft, an upload, a recording', () => {
+    expect(reloadWouldLose()).toBe(false)
+    expect(mayReloadNow()).toBe(true)
+    for (const m of [
+      message({ local: { clientMessageId: 'c1', state: 'sending' } }), // the server restarts: the send retries for 30 s
+      message({ local: { clientMessageId: 'c1', state: 'failed' } }), // "not sent [send again]": only in this tab's memory
+      message({ role: 'assistant', status: 'streaming' }),
+    ]) {
+      showing(m)
+      expect(reloadWouldLose()).toBe(true)
+      expect(mayReloadNow()).toBe(false)
+    }
+    showing(message({}))
+    expect(reloadWouldLose()).toBe(false)
+    for (const kind of ['draft', 'upload', 'recording'] as const) {
+      const release = markBusy(kind)
+      expect(reloadWouldLose()).toBe(true)
+      release()
+      expect(reloadWouldLose()).toBe(false)
+    }
+  })
+  test('not while the server is out of reach (the reload would land on the offline page)', () => {
+    for (const conn of ['reconnecting', 'offline'] as const) {
+      useUi.setState({ conn })
+      expect(serverUnreachable()).toBe(true)
+      expect(mayReloadNow()).toBe(false)
+    }
+    for (const conn of ['open', 'idle', 'connecting'] as const) {
+      useUi.setState({ conn })
+      expect(serverUnreachable()).toBe(false)
+    }
+  })
+  test('a draft is kept for its chat across a reload, and while there is one the page does not reload by itself', () => {
+    const m = new Map<string, string>()
+    const s = { getItem: (k: string) => m.get(k) ?? null, setItem: (k: string, v: string) => { m.set(k, v) }, removeItem: (k: string) => { m.delete(k) }, key: (i: number) => [...m.keys()][i] ?? null, get length() { return m.size } }
+    // what the composer writes on each change, and starts from after the reload
+    writeDraft('u1', chat, 'half-typed question about the Q3 report', s)
+    expect(readDraft('u1', chat, s)).toBe('half-typed question about the Q3 report')
+    expect(readDraft('u2', chat, s)).toBe('')
+    releases.push(markBusy('draft'))
+    expect(mayReloadNow()).toBe(false)
+  })
+  test('the boundary: held while something would be lost (the line says to finish it first, the one reload is not used up); later it reloads', () => {
+    const g = globalThis as { window?: unknown; location?: unknown }
+    const saved = { window: g.window, location: g.location }
+    const store = memory()
+    let reloads = 0
+    g.window = { sessionStorage: store }
+    g.location = { reload: () => { reloads++ } }
+    try {
+      const chunk = new TypeError('Failed to fetch dynamically imported module: https://team.test/assets/Files-x1.js')
+      showing(message({ local: { clientMessageId: 'c1', state: 'failed' } }))
+      const b = new ChunkErrorBoundary({ children: createElement('p', null, 'page'), resetKey: '/files' })
+      b.state = { error: chunk, decided: false, reloading: false }
+      b.setState = ((p: object) => { b.state = { ...b.state, ...p } }) as never
+      b.componentDidCatch(chunk)
+      expect(reloads).toBe(0)
+      expect(b.state).toMatchObject({ decided: true, reloading: false, unsent: true })
+      const line = renderToStaticMarkup(b.render() as never)
+      expect(line).toContain(translate(currentLocale(), 'update.chunkUnsent'))
+      expect(line).toContain(`>${translate(currentLocale(), 'update.reload')}</button>`)
+      expect(store.m.has(CHUNK_RELOAD_KEY)).toBe(false)
+      // out of reach: held too, with the usual line (nothing would be lost)
+      showing(message({}))
+      useUi.setState({ conn: 'reconnecting' })
+      expect(reloadForChunkError(chunk)).toBe(false)
+      expect(reloads).toBe(0)
+      // the message was sent and the server is back: the next failed chunk reloads, once
+      useUi.setState({ conn: 'open' })
+      expect(reloadForChunkError(chunk)).toBe(true)
+      expect(reloads).toBe(1)
+      expect(store.m.has(CHUNK_RELOAD_KEY)).toBe(true)
+    } finally {
+      g.window = saved.window
+      g.location = saved.location
+    }
   })
 })
 

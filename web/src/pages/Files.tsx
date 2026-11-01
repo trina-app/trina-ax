@@ -19,6 +19,7 @@ import { iconKind, previewKind, type FileIconKind } from '../lib/preview'
 import { openTeamFile } from '../lib/sidePanel'
 import { useTeamAttach } from '../lib/useTeamAttach'
 import { cancelUpload, uploadFile, type UploadProgress } from '../lib/upload'
+import { markBusy } from '../lib/busy'
 import { useLocale, useT } from '../i18n'
 import { accessChanged, filesChanged, reloadAsked } from '../store/live'
 import { toast } from '../store/ui'
@@ -350,7 +351,9 @@ export default function Files() {
       setUploads((u) => [...u, item])
       const patch = (p: Partial<UploadItem>) => setUploads((u) => u.map((x) => (x.id === item.id ? { ...x, ...p } : x)))
       const target = { kind: 'path', path: joinPath(folder, file.name), onExists: 'rename' } as const
-      uploadFile(file, target, { client: api, signal: item.abort.signal, onProgress: (progress) => patch({ progress }) }).then(
+      // a reload would lose the upload (the picked file is gone after it): the page does not reload by itself meanwhile
+      const release = markBusy('upload')
+      uploadFile(file, target, { client: api, signal: item.abort.signal, onProgress: (progress) => patch({ progress }) }).finally(release).then(
         () => {
           patch({ status: 'done' })
           setTimeout(() => setUploads((u) => u.filter((x) => x.id !== item.id)), 4000)

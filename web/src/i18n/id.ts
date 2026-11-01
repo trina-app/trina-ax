@@ -70,6 +70,7 @@ export const id: Record<MessageKey, string> = {
   'update.ready': 'Versi baru sudah siap.',
   'update.reload': 'Muat ulang',
   'update.chunkFailed': 'Bagian halaman ini tidak bisa dimuat. Muat ulang untuk mendapatkan versi terbaru.',
+  'update.chunkUnsent': 'Bagian halaman ini tidak bisa dimuat. Memuat ulang sekarang akan menghilangkan pesan yang belum terkirim, unggahan, atau rekaman: selesaikan dulu, lalu muat ulang untuk mendapatkan versi terbaru.',
   'update.notesMore': 'Catatan rilis lengkap',
   'update.notesLess': 'Tampilkan lebih sedikit',
   'notice.accessChanged': 'Akses folder kamu berubah: {paths}',
