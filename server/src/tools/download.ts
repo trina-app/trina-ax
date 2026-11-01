@@ -46,6 +46,8 @@ export interface DownloadOptions extends Pick<ResolveOptions, 'lookup' | 'testAl
   /** "about to write `more` bytes": throws to stop. Called with the announced size (0 when unknown) before the body,
    * then after every ROOM_STEP bytes with what is still announced (or the next ROOM_STEP when the size is unknown) */
   room?: (more: number) => void
+  /** tests only: look at the disk after this many bytes instead of ROOM_STEP */
+  roomStep?: number
   /** the first SNIFF_BYTES bytes (all of a shorter body), before anything is written: throws to stop */
   sniff?: (first: Buffer, contentType: string) => void
   signal?: AbortSignal
@@ -286,15 +288,16 @@ async function save(conn: Conn, h: Head, url: string, dst: string, o: DownloadOp
   let size = 0
   let first: Buffer | null = null
   let sniffed: Buffer = Buffer.alloc(0)
-  let nextRoom = ROOM_STEP
+  const step = o.roomStep ?? ROOM_STEP
+  let nextRoom = step
   const write = async (b: Buffer) => {
     let off = 0
     while (off < b.length) { const { bytesWritten } = await fh.write(b, off, b.length - off); off += bytesWritten }
     hash.update(b)
     size += b.length
     if (o.room && size >= nextRoom) {
-      nextRoom = size + ROOM_STEP
-      o.room(announced !== null ? Math.max(0, announced - size) : ROOM_STEP)
+      nextRoom = size + step
+      o.room(announced !== null ? Math.max(0, announced - size) : step)
     }
   }
   const emit = async (b: Buffer) => {

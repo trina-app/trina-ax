@@ -2,6 +2,7 @@
 //   componentC(ctx).artifacts.apply(...)      B: artifact tool calls from the engine stream
 //   componentC(ctx).attachments.byIds(...)    B: attachments of a message being sent
 //   componentC(ctx).files.remove(...)         anyone who needs the trash
+import { sweepMedia } from '../integrations/connections/media'
 import fs from 'node:fs'
 import { HwpPreviews } from '../files/hwp-preview'
 import { pluginsOf } from '../plugins/manager'
@@ -109,6 +110,8 @@ export function componentC(ctx: AppContext): ComponentC {
       run('teamRefs', () => teamRefs.sweep())
       // transcripts of video and audio reads: 30 days, 200 MB (files/media.ts TranscriptCache)
       run('mediacache', () => ctx.files.transcripts.prune())
+      // images and files connections returned inline, kept a day for save_url (integrations/connections/media.ts)
+      run('connectionMedia', () => sweepMedia(ctx.config.dataDir))
       // converter work folders and spooled small uploads left behind by a crash
       run('scratch', () => {
         let n = 0

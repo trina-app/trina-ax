@@ -25,6 +25,7 @@ import { visionText } from '../files/vision-text'
 import { recordSkillRead, recordSkillUse } from '../admin/skill-usage'
 import { templateToolRefusal } from './schedule-templates'
 import { cleanAiTitle, graphemes, setAiTitle, titleToolOffered } from './title'
+import { recordSent } from '../tools/connection-urls'
 
 interface Tool {
   name: string
@@ -98,6 +99,9 @@ export function buildToolSet(exec: TurnExec): ChatToolSet {
       if (refusal) return { ...text(refusal, true), summary: 'scheduled template scope refused' }
       const t = tools.get(name)!
       exec.noteTaint(name, args)
+      // what the AI sends leaves marks, so an address that a connection repeats back is not taken as the service's own
+      // (tools/connection-urls.ts; before the call: its own answer is checked against them)
+      recordSent(exec.rt.db, exec.spec.chatId, args)
       if (name === 'make_file') {
         // under skills/: the person confirms first (the file layer refuses the save otherwise)
         const no = await exec.confirmSkillWrite(name, args, files)
@@ -125,6 +129,7 @@ export function buildToolSet(exec: TurnExec): ChatToolSet {
     beforeFileTool: async (name, args, caller) => {
       const refusal = templateToolRefusal(exec.rt.ctx, exec.spec.userId, exec.id, name, args, templateWrites)
       if (refusal) return { refusal, summary: 'scheduled template scope refused' }
+      recordSent(exec.rt.db, exec.spec.chatId, args)
       if (name !== 'write' && name !== 'edit') return null
       // skills/ first (team skills and rules: the person confirms what changes), then the wider-audience check
       const no = await exec.confirmSkillWrite(name, args, caller?.files)

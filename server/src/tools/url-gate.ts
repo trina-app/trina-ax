@@ -18,6 +18,9 @@
 //     one with a user name or password, never in a confidential chat. Like Claude Code's "don't ask again for this
 //     domain", but for one conversation;
 //   ② any other URL: a confirmation card with the full URL, raised by the server inside the tool call;
+//   ①c save_url only (`connection`): addresses that came back in this chat from an external-service connection the
+//     person can use now (tools/connection-urls.ts), learned links within the same budget, unless the AI had sent the
+//     address or a random-looking part of it to a tool of this chat before it came back (an echo: always a card);
 //   ③ also a card when the query string is longer than 200 characters, even for a URL from ①;
 //   and a card for every URL while this server's own public exit address is unknown (tools/egress.ts).
 // The caller looks nothing up in DNS before this says yes (tools/index.ts web_fetch, chat/tools.ts browser tools): a
@@ -30,6 +33,7 @@ import { getDomain } from 'tldts'
 import type { ConfirmDetail, Locale } from '@mycel/shared/api'
 import { ToolError } from '../policy/errors'
 import { isConfidentialChat } from '../safe-ops/confidential'
+import { usable } from '../integrations/connections/store'
 
 /** ③: a query string this long always needs a person, wherever the URL came from */
 export const MAX_UNCONFIRMED_QUERY = 200
@@ -134,29 +138,52 @@ export function chatUrls(db: Database, chatId: string): Set<string> {
 }
 
 type SeenRow = { source: string | null; free_turn_id: string | null }
+/** An address a connection returned in this chat (tools/connection-urls.ts); echo = always a card. */
+type ConnectionUrl = { echo: boolean; integrationId: string; freeTurnId: string | null }
+function connectionUrl(db: Database, chatId: string, url: string): ConnectionUrl | null {
+  const r = db.query('SELECT integration_id, echo, free_turn_id FROM chat_connection_urls WHERE chat_id = ? AND url = ?').get(chatId, url) as { integration_id: string; echo: number; free_turn_id: string | null } | null
+  return r ? { echo: !!r.echo, integrationId: r.integration_id, freeTurnId: r.free_turn_id } : null
+}
+type Origin = { origin: 'typed' | 'allowed' | 'learned' | 'echo'; row: SeenRow | null; conn?: ConnectionUrl }
 
 /** Where an address of ① came from: typed by the person, allowed by the person, or learned (search result, link of a
- * fetched page); null = not in the conversation. */
-function originOf(db: Database, chatId: string | null, url: string, person: TurnPerson | null): { origin: 'typed' | 'allowed' | 'learned'; row: SeenRow | null } | null {
+ * fetched page, and with `connection` an address a connection returned: ①c); 'echo': only a connection's echo of what
+ * the AI sent; null = not in the conversation. */
+function originOf(db: Database, chatId: string | null, url: string, person: TurnPerson | null, o: { connection?: boolean; userId?: string | null } = {}): Origin | null {
   const row = chatId ? db.query('SELECT source, free_turn_id FROM chat_seen_urls WHERE chat_id = ? AND url = ?').get(chatId, url) as SeenRow | null : null
   if (chatId && typedUrls(db, chatId).has(url)) return { origin: 'typed', row }
   if (row?.source === 'allowed') return { origin: 'allowed', row }
   if (row) return { origin: 'learned', row }
   if (person) for (const u of person.turnUrls()) if (normUrl(u) === url) return { origin: 'learned', row }
   if (chatId && searchUrls(db, chatId).has(url)) return { origin: 'learned', row }
+  if (o.connection && chatId && o.userId) {
+    const c = connectionUrl(db, chatId, url)
+    // only while the person can still use the connection it came from (removed, or their access taken away: a card)
+    if (c && usable(db, o.userId).some((r) => r.id === c.integrationId)) return { origin: c.echo ? 'echo' : 'learned', row, conn: c }
+  }
   return null
+}
+
+/** Learned addresses opened without a card so far, in this answer and in this chat (web pages and search results, and
+ * addresses from connections: one budget). */
+function budgetUsed(db: Database, chatId: string, turn: string): { turn: number; chat: number } {
+  const count = (sql: string, ...args: string[]) => (db.query(sql).get(...args) as { n: number }).n
+  return {
+    turn: count('SELECT COUNT(*) AS n FROM chat_seen_urls WHERE chat_id = ? AND free_turn_id = ?', chatId, turn) + count('SELECT COUNT(*) AS n FROM chat_connection_urls WHERE chat_id = ? AND free_turn_id = ?', chatId, turn),
+    chat: count('SELECT COUNT(*) AS n FROM chat_seen_urls WHERE chat_id = ? AND free_turn_id IS NOT NULL', chatId) + count('SELECT COUNT(*) AS n FROM chat_connection_urls WHERE chat_id = ? AND free_turn_id IS NOT NULL', chatId),
+  }
 }
 
 /** A learned address opened without a card: counted once per chat (the same address again is free). Synchronous, so
  * parallel calls of one answer cannot all pass the same last place. false = over the budget (the person decides). */
-function spendLinkBudget(db: Database, chatId: string, url: string, turnId: string | null, row: SeenRow | null): boolean {
-  if (row?.free_turn_id) return true
+function spendLinkBudget(db: Database, chatId: string, url: string, turnId: string | null, from: Origin): boolean {
+  if (from.conn ? from.conn.freeTurnId : from.row?.free_turn_id) return true
   if (url.length > 4000) return false
   const turn = turnId ?? ''
-  const nTurn = (db.query('SELECT COUNT(*) AS n FROM chat_seen_urls WHERE chat_id = ? AND free_turn_id = ?').get(chatId, turn) as { n: number }).n
-  const nChat = (db.query('SELECT COUNT(*) AS n FROM chat_seen_urls WHERE chat_id = ? AND free_turn_id IS NOT NULL').get(chatId) as { n: number }).n
-  if (nTurn >= LINK_BUDGET.turn || nChat >= LINK_BUDGET.chat) return false
-  db.query(`INSERT INTO chat_seen_urls (chat_id, url, source, free_turn_id) VALUES (?, ?, 'search', ?)
+  const used = budgetUsed(db, chatId, turn)
+  if (used.turn >= LINK_BUDGET.turn || used.chat >= LINK_BUDGET.chat) return false
+  if (from.conn) db.query('UPDATE chat_connection_urls SET free_turn_id = ? WHERE chat_id = ? AND url = ?').run(turn, chatId, url)
+  else db.query(`INSERT INTO chat_seen_urls (chat_id, url, source, free_turn_id) VALUES (?, ?, 'search', ?)
     ON CONFLICT (chat_id, url) DO UPDATE SET free_turn_id = excluded.free_turn_id`).run(chatId, url, turn)
   return true
 }
@@ -287,6 +314,13 @@ export const TEXT = {
     ja: 'AIが確認なしで開けるウェブページや検索結果のアドレスの上限に達しました（回答ごとに{turn}件、会話ごとに{chat}件）。どのアドレスを開くかによってもデータが外部に送られる可能性があるため、アドレス全体を確認してください：\n\n{url}',
     es: 'La IA ya abrió sin preguntar todas las direcciones de páginas web y resultados de búsqueda que puede ({turn} por respuesta, {chat} por conversación). La dirección que elige también puede sacar datos; revise la dirección completa:\n\n{url}',
   },
+  echo: {
+    ko: 'AI가 연결된 서비스의 답에 나온 주소를 열려고 해요. 그런데 이 주소(또는 그 일부)는 AI가 앞서 이 대화에서 도구에 보낸 내용과 같아요. 서비스가 받은 내용을 되돌려 준 것일 수 있으니 주소 전체를 확인해 주세요.\n\n{url}',
+    en: 'The AI wants to open an address from a connected service\'s answer, but the address (or part of it) matches what the AI had sent to a tool earlier in this conversation. The service may have repeated what it was sent, so check the whole address:\n\n{url}',
+    id: 'AI ingin membuka alamat dari jawaban layanan yang terhubung, tetapi alamat itu (atau sebagiannya) sama dengan isi yang dikirim AI ke sebuah alat sebelumnya di percakapan ini. Layanan mungkin mengulang apa yang dikirim kepadanya, jadi periksa seluruh alamatnya:\n\n{url}',
+    ja: 'AIが連携サービスの回答にあったアドレスを開こうとしています。ただし、このアドレス（またはその一部）は、この会話でAIが先にツールへ送った内容と一致します。サービスが受け取った内容をそのまま返した可能性があるため、アドレス全体を確認してください：\n\n{url}',
+    es: 'La IA quiere abrir una dirección de la respuesta de un servicio conectado, pero la dirección (o parte de ella) coincide con lo que la IA envió antes a una herramienta en esta conversación. El servicio puede haber repetido lo que recibió; revise la dirección completa:\n\n{url}',
+  },
   opaque: {
     ko: '주소에 알아보기 어려운 긴 문자열이 있어요(강조 표시). 내용을 실어 보낼 수 있으니 무엇인지 확인해 주세요.',
     en: 'The address contains long strings that are hard to read (highlighted). They can carry data; check what they are.',
@@ -326,7 +360,7 @@ export type GateResult = 'seen' | 'site' | 'confirmed'
  * person of the turn; the sites they allowed in this chat (①b) count only for them (none without it).
  * Decides from the address text and the database alone: the caller looks the name up only after a yes.
  */
-export async function gateUrl(db: Database, chatId: string | null, rawUrl: string, person: TurnPerson | null, o: { egressKnown?: boolean; turnId?: string | null; userId?: string | null } = {}): Promise<GateResult> {
+export async function gateUrl(db: Database, chatId: string | null, rawUrl: string, person: TurnPerson | null, o: { egressKnown?: boolean; turnId?: string | null; userId?: string | null; connection?: boolean } = {}): Promise<GateResult> {
   const url = normUrl(rawUrl)
   if (!url) throw new ToolError('only http and https URLs can be fetched')
   const parsed = new URL(url)
@@ -345,16 +379,17 @@ export async function gateUrl(db: Database, chatId: string | null, rawUrl: strin
   // a user name or password in the address (the in-app browser takes one; web_fetch refuses it before this) is data
   // for the site: never covered by a site allowance
   const userinfo = !!(parsed.username || parsed.password)
-  let why: 'unseen' | 'longQuery' | 'noEgress' | 'budget' = long ? 'longQuery' : noEgress ? 'noEgress' : 'unseen'
+  let why: 'unseen' | 'longQuery' | 'noEgress' | 'budget' | 'echo' = long ? 'longQuery' : noEgress ? 'noEgress' : 'unseen'
   if (!long && !noEgress) {
-    const from = originOf(db, chatId, url, person)
+    const from = originOf(db, chatId, url, person, o)
     if (from?.origin === 'typed' || from?.origin === 'allowed') return 'seen'
     // ①b: a site the person allowed in this conversation, outside the link budget
     if (site && !marks.length && !userinfo && allowedSites(db, chatId, o.userId).has(site)) return 'site'
     if (from?.origin === 'learned') {
-      if (chatId && spendLinkBudget(db, chatId, url, o.turnId ?? null, from.row)) return 'seen'
+      if (chatId && spendLinkBudget(db, chatId, url, o.turnId ?? null, from)) return 'seen'
       why = 'budget'
     }
+    if (from?.origin === 'echo') why = 'echo'
   }
   // nobody to ask (no turn, or a scheduled run): say why, so the AI tells the person what really happened
   if (!person || person.unattended) {
@@ -362,6 +397,8 @@ export async function gateUrl(db: Database, chatId: string | null, rawUrl: strin
       ? `this address came from a web page or search result, the AI already opened as many of those without asking as allowed (${LINK_BUDGET.turn} per answer, ${LINK_BUDGET.chat} per chat), and nobody can confirm it here, so it was not opened`
       : why === 'noEgress'
         ? 'this server does not know its own public internet address yet, so every web address needs a person to confirm it, and nobody can confirm it here, so it was not opened. It is not because of this address or the instruction (writing the address into a scheduled task does not change it); tell the user the server could not open web addresses this time'
+        : why === 'echo'
+          ? 'this address came back from a connected service, but the AI had sent this address or a part of it to a tool earlier in this chat (the service may have repeated it), so it needs a person to confirm it, and nobody can confirm it here, so it was not opened'
         : why === 'longQuery'
           ? `this address has a long query part (over ${MAX_UNCONFIRMED_QUERY} characters), which always needs a person to confirm it, even when it appeared in the conversation or the task, and nobody can confirm it here, so it was not opened`
           : 'this address did not appear in the conversation and nobody can confirm it here, so it was not opened')
@@ -377,7 +414,7 @@ export async function gateUrl(db: Database, chatId: string | null, rawUrl: strin
   // the card of an address that looks like it carries data (a marked part, a user name or password): that is the card
   // an AI's first try to send something out raises, and one click there would trust the whole site for the rest of the
   // chat. The next plain address of the site offers it.
-  const offerSite = !!(site && person.choose && !long && !noEgress && !marks.length && !userinfo && siteScope(db, chatId, o.userId))
+  const offerSite = !!(site && person.choose && why !== 'echo' && !long && !noEgress && !marks.length && !userinfo && siteScope(db, chatId, o.userId))
   if (offerSite) lines.push(TEXT.site[L].replace('{site}', () => siteLabel(site!)))
   const extra: ConfirmExtra | undefined = marks.length ? { details: [{ label: TEXT.labelUrl[L], text: readable, marks }] } : undefined
   const question = lines.join('\n\n')

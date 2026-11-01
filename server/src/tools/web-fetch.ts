@@ -241,8 +241,9 @@ export interface PinnedRequestInit {
   deadline: number
   maxBytes: number
   insecureTlsForTests?: boolean
-  /** called with the body so far (de-chunked) after each read once the head is in: true = the answer is complete, e.g.
-   * an event stream that stays open after the reply (external-service connections, integrations/connections/mcp.ts) */
+  /** called with the body so far (de-chunked) after each read that brings a line break, once the head is in: true = the
+   * answer is complete, e.g. an event stream that stays open after the reply (external-service connections,
+   * integrations/connections/mcp.ts) */
   until?: (body: Buffer, head: { status: number; headers: Record<string, string> }) => boolean
   /** stops the request (the socket is closed) */
   signal?: AbortSignal
@@ -296,13 +297,16 @@ export function pinnedRequest(t: Target, o: PinnedRequestInit): Promise<RawRespo
       chunks.push(d)
       tail = Buffer.concat([tail, d]).subarray(-4)
       // the answer may be complete before the socket closes (see pinnedRequest)
-      if (!head_) head_ = framingOf(Buffer.concat(chunks))
+      // the head is looked for in the first 256 KB only (a bigger "head" is no HTTP answer: parseResponse says so)
+      if (!head_ && size <= 256 * 1024) head_ = framingOf(Buffer.concat(chunks))
       const f = head_?.framing ?? 'close'
       let complete = !!head_ && (noBody || head_.status === 204 || head_.status === 304) ? true
         : f === 'close' ? false
         : f === 'chunked' ? tail.toString('latin1') === '\r\n\r\n' && chunkedComplete(Buffer.concat(chunks), head_!.body)
         : size - head_!.body >= f.length
-      if (!complete && head_ && o.until) {
+      // `until` looks at the whole body so far: only after a read that brings a line break (an event stream's reply ends
+      // with a blank line), so a large answer (an MCP image of several MB) is not re-read with every network piece
+      if (!complete && head_ && o.until && d.includes(0x0a)) {
         const all = Buffer.concat(chunks)
         const h = parseResponse(all.subarray(0, head_.body), false, true)
         const raw = all.subarray(head_.body)

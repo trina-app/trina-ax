@@ -8,6 +8,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import crypto from 'node:crypto'
 import { CLAUDE_AGENT_TOOL_NAMES, FILE_TOOLS, TEAM_TOOL_PREFIX, type AgentStats, type EngineEvent } from '@mycel/shared'
+import { recordSent } from '../tools/connection-urls'
 import type { ApiErrorBody, Attachment, EngineId, FileChange, FileChangeSummary, Locale, MessageStatus, Step, TurnRequest, TurnStopReason } from '@mycel/shared/api'
 import { buildClaudeLaunch, SUBSCRIPTION_DEFAULT_MODEL, type ClaudeConf } from '../engine/claude'
 import { buildCodexLaunch, CODEX_VERSION, prepareCodexTurn, type CodexConf } from '../engine/codex'
@@ -759,6 +760,9 @@ export class TurnExec {
         // a plain step under its sub-task
         const tool = CLAUDE_AGENT_TOOL_NAMES.includes(e.name) && !e.parentId ? 'agent' : e.name.startsWith(TEAM_TOOL_PREFIX) ? e.name.slice(TEAM_TOOL_PREFIX.length) : e.name
         this.toolNames.set(e.id, tool)
+        // the engine's own tools (web search, sub-agents) leave their echo marks here; the server's tools when they are
+        // called (chat/tools.ts), before the call reaches the service (tools/connection-urls.ts)
+        if (!e.name.startsWith(TEAM_TOOL_PREFIX)) recordSent(this.rt.db, this.spec.chatId, e.input)
         if (tool === 'agent') return this.startSubtask(e.id, e.input)
         // naming the chat is not part of the answer: the new title itself shows in the sidebar and the header
         if (HIDDEN_STEP_TOOLS.has(tool)) return

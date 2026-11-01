@@ -7,6 +7,10 @@ import { hideDeep } from './hide'
 import { NetError, serviceRequest, type NetOptions } from './net'
 
 export const MCP_PROTOCOL = '2025-06-18'
+/** the most a tools/call answer may be: an image or audio block comes inline as base64 (a generated image of a few MB
+ * is common). Everything else (initialize, tools/list) keeps the 1 MiB of net.ts; the AI still gets at most
+ * MAX_RESULT_CHARS of text (tools.ts), the bytes go to the chat's media store. */
+export const MCP_CALL_MAX_BYTES = 25 * 1024 * 1024
 const KNOWN_VERSIONS = new Set(['2024-11-05', '2025-03-26', '2025-06-18', '2025-11-25'])
 /** tools kept per connection, pages read, input schema size */
 export const MAX_TOOLS = 100
@@ -58,13 +62,13 @@ export class McpClient {
   /** `hider` makes the function that hides the connection's secrets, when an answer is in (a refresh may have rotated them) */
   constructor(readonly url: string, private auth: () => Promise<[string, string][]>, private net: NetOptions, private hider: () => Hide = () => keep) {}
 
-  private async post(message: Record<string, unknown>, signal?: AbortSignal): Promise<Record<string, any> | null> {
+  private async post(message: Record<string, unknown>, signal?: AbortSignal, maxBytes?: number): Promise<Record<string, any> | null> {
     const id = typeof message.id === 'string' ? message.id : null
     const headers: [string, string][] = [['Content-Type', 'application/json'], ['Accept', 'application/json, text/event-stream'], ...(await this.auth())]
     if (this.version) headers.push(['MCP-Protocol-Version', this.version])
     if (this.sessionId) headers.push(['Mcp-Session-Id', this.sessionId])
     const res = await serviceRequest(this.url, {
-      method: 'POST', headers, body: Buffer.from(JSON.stringify(message)), signal,
+      method: 'POST', headers, body: Buffer.from(JSON.stringify(message)), signal, ...(maxBytes ? { maxBytes } : {}),
       // an event stream may stay open after our reply: stop reading once it is in
       until: id ? (body, head) => /text\/event-stream/i.test(head.headers['content-type'] ?? '') && !!findReply(sseEvents(body.toString('utf8')).map(parse), id) : undefined,
     }, this.net)
@@ -89,8 +93,8 @@ export class McpClient {
     return reply.result && typeof reply.result === 'object' ? reply.result : {}
   }
 
-  private request(method: string, params: Record<string, unknown>, signal?: AbortSignal) {
-    return this.post({ jsonrpc: '2.0', id: crypto.randomUUID(), method, params }, signal)
+  private request(method: string, params: Record<string, unknown>, signal?: AbortSignal, maxBytes?: number) {
+    return this.post({ jsonrpc: '2.0', id: crypto.randomUUID(), method, params }, signal, maxBytes)
   }
 
   /** initialize + notifications/initialized, once per session */
@@ -138,7 +142,7 @@ export class McpClient {
 
   async callTool(name: string, args: unknown, signal?: AbortSignal): Promise<Record<string, any>> {
     await this.start(signal)
-    return (await this.request('tools/call', { name, arguments: args && typeof args === 'object' ? args : {} }, signal)) ?? {}
+    return (await this.request('tools/call', { name, arguments: args && typeof args === 'object' ? args : {} }, signal, MCP_CALL_MAX_BYTES)) ?? {}
   }
 }
 

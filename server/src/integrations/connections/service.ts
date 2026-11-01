@@ -617,7 +617,7 @@ function callMessage(e: unknown, row: Row): string {
   if (e instanceof NetError) {
     const words: Record<string, string> = {
       timeout: 'did not answer within 30 seconds', private_address: 'points to a private, local or office address, which is not allowed', blocked_port: 'uses a port other than 443',
-      tls: 'has a certificate that could not be verified', redirect: `redirected (HTTP ${e.status}); redirects are not followed`, too_large: 'sent an answer over 1 MB',
+      tls: 'has a certificate that could not be verified', redirect: `redirected (HTTP ${e.status}); redirects are not followed`, too_large: 'sent an answer that is too large (over 25 MB for a tool call, 1 MB otherwise)',
       key_unsafe: 'cannot be used: the server\'s key folder is unsafe', unreachable: 'could not be reached',
     }
     return `${row.name} ${words[e.reason] ?? 'could not be reached'}`

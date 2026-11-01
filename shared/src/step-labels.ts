@@ -25,6 +25,7 @@ export const FILE_STEP_VERB: Record<string, T> = {
   rename_file: t('이름 바꾸기', 'Rename', 'Ganti nama', "名前を変更", "Cambiar nombre"),
   artifact: t('아티팩트', 'Artifact', 'Artefak', "アーティファクト", "Artefacto"),
   web_fetch: t('웹 페이지 가져오기', 'Fetch page', 'Ambil halaman', "ページを取得", "Obtener página"),
+  save_url: t('파일 받아 저장', 'Download file', 'Unduh berkas', "ファイルをダウンロード", "Descargar archivo"),
   hwp_render: t('한글 문서 쪽 보기', 'View HWP page', 'Lihat halaman HWP', "HWPのページを表示", "Ver página HWP"),
   search: t('뜻으로 찾기', 'Search by meaning', 'Cari berdasarkan makna', "意味で検索", "Buscar por significado"),
   schedule_create: t('예약 작업 만들기', 'Create scheduled task', 'Buat tugas terjadwal', "定期タスクを作成", "Crear tarea programada"),
@@ -148,6 +149,7 @@ export function stepLabel(tool: string, input: unknown, locale: Locale, browserT
     case 'rename_file': return `${verb} · ${clip(a.path, 90)}`
     case 'artifact': return `${verb} · ${clip(a.title ?? a.key, 80)}`
     case 'web_fetch': return `${verb} · ${clip(a.url, 80)}`
+    case 'save_url': return `${verb} · ${clip(a.save_as || a.url, 80)}`
     case 'hwp_render': return `${verb} · ${clip(a.source, 80)}${typeof a.page === 'number' ? ` #${a.page}` : ''}`
     case 'search': case 'drive_search': return `${verb} "${clip(a.query, 60)}"${a.path ? ` · ${clip(a.path, 50)}` : ''}`
     case 'schedule_create': return `${verb} · ${clip(a.title, 80)}`

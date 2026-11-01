@@ -26,6 +26,7 @@ import { MD_WORDS } from '../../server/src/system/export'
 import { RESTORED } from '../../server/src/team-files/place'
 import { TEXT as URL_GATE_TEXT } from '../../server/src/tools/url-gate'
 import { TEXT as FILE_MOVE_TEXT } from '../../server/src/tools/file-moves'
+import { TEXT as SAVE_URL_TEXT } from '../../server/src/tools/save-url'
 import { TEXT as SCHEDULE_CARD_TEXT } from '../../server/src/tools/schedules'
 import { TEXT as INTEGRATION_TEXT } from '../../server/src/integrations/connections/text'
 import { TEXT as TEAM_ICON_TEXT } from '../../server/src/admin/team-icon'
@@ -66,6 +67,7 @@ describe('server and relay texts', () => {
     checkTable('engines', ENGINE_TEXT)
     checkTable('url gate', URL_GATE_TEXT, 2)
     checkTable('file moves', FILE_MOVE_TEXT)
+    checkTable('save_url cards and refusals', SAVE_URL_TEXT, 6)
     checkTable('scheduled task card', SCHEDULE_CARD_TEXT, 10)
     checkTable('external-service connections', INTEGRATION_TEXT)
     checkTable('team logo', TEAM_ICON_TEXT)
@@ -145,6 +147,7 @@ const KOREAN_ALLOWED: Record<string, { why: string; also?: RegExp }> = {
   'server/src/integrations/connections/text.ts': { why: 'external-service connection texts: the confirmation card, refusals, check results (ko next to en/id/ja/es)' },
   'server/src/admin/team-icon.ts': { why: 'team logo upload refusals (ko next to en/id/ja/es)' },
   'server/src/tools/higgsfield.ts': { why: 'the video confirmation card (ko next to en/id/ja/es)' },
+  'server/src/tools/save-url.ts': { why: 'the large-download card and the disk refusal (ko next to en/id/ja/es)' },
   'server/src/chat/runtime.ts': { why: 'queue-full messages (ko next to en/id/ja/es)' },
   'server/src/system/limits.ts': { why: 'plan limit messages: seats, concurrency (ko next to en/id/ja/es)' },
   'server/src/system/storage.ts': { why: 'the storage notice (ko next to en/id/ja/es)' },

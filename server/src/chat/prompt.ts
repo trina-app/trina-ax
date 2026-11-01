@@ -370,6 +370,7 @@ export function buildSubagentPrompt(files: FileService, i: PromptInput, tools: s
     has.has('make_file') ? 'To produce Word / PowerPoint / Excel / PDF files, write Markdown or CSV and convert it with make_file.' : '',
     has.has('move_files') ? 'To move, copy or rename files of any type, use move_files, copy_files and rename_file; write only saves text.' : '',
     has.has('artifact') ? 'For things the user will look at or reuse (a web page, a diagram, a document draft, code), use the artifact tool.' : '',
+    has.has('save_url') ? SAVE_URL_RULE : '',
   ]
   const sections: string[] = [[...base, '', ...personLines(files, i, true)].filter((l) => l !== '').join('\n'), ENVIRONMENT]
   if (rules) sections.push(`## Team rules (from skills/)\n${rules}`)
@@ -385,6 +386,9 @@ export function sourceLinkRule(search: boolean): string {
   return 'When your answer relies on a team file, link it where you mention it: /files/view?path=<team path, URL-encoded>, adding &page=N for a PDF page, &slide=N for a slide or &sheet=<sheet name, URL-encoded> for a sheet you actually looked at. grep and read show these places as [p.12], `=== Slide 3 ===` and `# sheet: name · A1:F40`.' +
     (search ? ' search results include such links, ready to use.' : '')
 }
+
+/** save_url, like Claude Code's `curl -o`, and the one thing about previews the AI cannot see for itself */
+export const SAVE_URL_RULE = 'To keep a file from the web or one a connected service made (an image, PDF, video or audio), save it into the team folder with save_url, right away (result links expire). Previews of pages (HTML files, artifacts) show only team files, never web addresses: save each outside image with save_url next to the page and reference it by a relative path (<img src="images/hero.png">).'
 
 export function buildTurnPrompt(files: FileService, i: PromptInput): string {
   const tools = new Set(i.tools)
@@ -409,6 +413,7 @@ export function buildTurnPrompt(files: FileService, i: PromptInput): string {
     // write only saves text: without these the AI told people it could not move a PDF or an image they attached (2026-10-28)
     tools.has('move_files') ? 'To move, copy or rename files of any type (PDF, images, Office files, chat attachments), use move_files, copy_files and rename_file; write only saves text. Files the user attached in a chat are in their .attachments folder: move them to keep them for the team.' : '',
     tools.has('artifact') ? 'For things the user will look at or reuse (a web page, a diagram, a document draft, code), use the artifact tool instead of pasting long code in the answer.' : '',
+    tools.has('save_url') ? SAVE_URL_RULE : '',
     tools.has('ask_user') ? 'If you need a decision from the user before continuing, ask with ask_user (short question, options when possible). Do not ask about things you can find out yourself.' : '',
     tools.has('remember') ? 'Use remember only for lasting facts or preferences the user wants you to keep (one short sentence, under 300 characters). Use forget with the id when asked to forget.' : '',
     tools.has('set_title') ? TITLE_RULE : '',

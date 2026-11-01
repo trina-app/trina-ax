@@ -380,11 +380,17 @@ export class MakeFile {
  * Put a produced file into the team folder (policy checked again) and record it: the AI's new files (make_file, and
  * generated media such as generate_video). An existing file the AI has not read in this turn is kept (conflict copy).
  */
-export async function placeProduced(ctx: AppContext, files: TeamFiles, c: ToolCtx, segs: string[], produced: string, tool = 'make_file', guard?: () => void): Promise<MadeFile> {
+/** placeProduced options. `turnBytes: false`: the file does not count against the turn's write budget
+ * (maxWriteBytesPerTurn, a guard against an AI writing in a loop): save_url's downloads, which the person sized on a
+ * card over 1 GB and the disk check bounds (tools/save-url.ts). `detail`: more for the file event (the source URL). */
+export interface PlaceOptions { turnBytes?: boolean; detail?: Record<string, unknown> }
+
+export async function placeProduced(ctx: AppContext, files: TeamFiles, c: ToolCtx, segs: string[], produced: string, tool = 'make_file', guard?: () => void, po: PlaceOptions = {}): Promise<MadeFile> {
   const cfg = ctx.engineConfig
   // lstat, never the size of what a link left by a converter points at (hashFile below refuses such a link anyway)
   const size = checkRegular(produced).size
-  if (c.files.bytesWritten + size > cfg.maxWriteBytesPerTurn) throw new ToolError('write limit for this turn reached')
+  const counted = po.turnBytes !== false
+  if (counted && c.files.bytesWritten + size > cfg.maxWriteBytesPerTurn) throw new ToolError('write limit for this turn reached')
   assertStorageRoomForAI(size) // the team disk near full (system/storage.ts; Linux / a plan)
   const fx = files.fx
   // Finish asynchronous work BEFORE the fresh principal/content/conflict check. The final
@@ -427,12 +433,12 @@ export async function placeProduced(ctx: AppContext, files: TeamFiles, c: ToolCt
   installFile(fx.root, target, produced)
   consumeSkillApproval(c, rel0)
   const rel = target.join('/')
-  c.files.bytesWritten += size
+  if (counted) c.files.bytesWritten += size
   c.files.filesWritten.add(rel)
   c.files.readHashes.set(rel, sha)
   // a conflict copy is told to both people and listed in the original's history (before the copy's own event)
   if (conflictOf) recordConflictCopy(ctx.db, ctx.files.events, { original: conflictOf, copy: rel, userId: c.user.id, turnId: c.turnId, size, sha256: sha, tool })
-  fileEvent(ctx.db, { turnId: c.turnId, userId: c.user.id, path: rel, action, size, sha256: sha, detail: { tool, ...(conflictOf ? { conflictCopyOf: conflictOf } : {}) } })
+  fileEvent(ctx.db, { turnId: c.turnId, userId: c.user.id, path: rel, action, size, sha256: sha, detail: { tool, ...po.detail, ...(conflictOf ? { conflictCopyOf: conflictOf } : {}) } })
   // All office consumers already run in workers; PPTX was validated before this
   // publication. Never add an in-process document parser here.
   files.extractText(rel)

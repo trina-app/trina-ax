@@ -1,9 +1,9 @@
 // The non-file engine tools of component C, registered into the MCP tool registry of this server instance:
-// make_file, share_file, artifact, web_fetch (design tab 3 "도구 목록"), and move_files / copy_files / rename_file
+// make_file, share_file, artifact, web_fetch (design tab 3 "도구 목록"), save_url (tools/save-url.ts), and move_files / copy_files / rename_file
 // (tools/file-moves.ts). Inputs are the shared contracts
 // (shared/src/tools.ts); the engine sees mcp__team__<name>.
 import { registerHwpRender } from './hwp-render'
-import { ArtifactInput, MakeFileInput, ShareFileInput, WebFetchInput } from '@mycel/shared'
+import { ArtifactInput, MakeFileInput, SaveUrlInput, ShareFileInput, WebFetchInput } from '@mycel/shared'
 import { fileShareUrl } from '@mycel/shared/api'
 import type { AppContext } from '../context'
 import type { ToolCtx } from '../files/service'
@@ -20,8 +20,9 @@ import { registerDriveTools, DRIVE_TOOL_NAMES } from './drive'
 import { registerFileMoveTools, FILE_MOVE_TOOL_NAMES } from './file-moves'
 import { extractUrls, gateUrl, rememberUrls } from './url-gate'
 import { precheckTarget, webFetch, wrapExternal, type FetchOptions } from './web-fetch'
+import { SAVE_URL_DESCRIPTION, saveUrl, type SaveUrlOptions } from './save-url'
 
-export const C_TOOL_NAMES = ['hwp_render', 'make_file', 'share_file', 'artifact', 'web_fetch'] as const
+export const C_TOOL_NAMES = ['hwp_render', 'make_file', 'share_file', 'artifact', 'web_fetch', 'save_url'] as const
 
 const human = (n: number) => (n < 1024 ? `${n} B` : n < 1048576 ? `${(n / 1024).toFixed(1)} KB` : `${(n / 1048576).toFixed(1)} MB`)
 
@@ -34,7 +35,7 @@ function turnOf(ctx: AppContext, c: ToolCtx): { chatId: string; messageId: strin
   return { chatId: t.chat_id, messageId: t.message_id }
 }
 
-export function registerCTools(ctx: AppContext, o: { fetch?: FetchOptions } = {}) {
+export function registerCTools(ctx: AppContext, o: { fetch?: FetchOptions; saveUrl?: SaveUrlOptions } = {}) {
   const reg = toolRegistry(ctx.files)
   if (reg.has('make_file')) return
   const c = componentC(ctx)
@@ -101,7 +102,8 @@ export function registerCTools(ctx: AppContext, o: { fetch?: FetchOptions } = {}
     name: 'artifact',
     description: 'Create or change an artifact shown next to the chat (html, react, svg, mermaid, markdown, code). ' +
       '"create" or "rewrite" with full `content`; "update" with `edits` [{ old, new }] (each `old` must appear exactly once in the latest version). ' +
-      '`key` names the artifact within this chat; every change is a new version.',
+      '`key` names the artifact within this chat; every change is a new version. ' +
+      'The preview shows only team files, never web addresses: save an image into the team folder first (save_url) and reference it by its team path (<img src="landing/images/hero.png">).',
     input: ArtifactInput,
     describe: (a) => `artifact ${a.action} ${a.key}`,
     run(a, t) {
@@ -136,6 +138,15 @@ export function registerCTools(ctx: AppContext, o: { fetch?: FetchOptions } = {}
       if (chatId) rememberUrls(ctx.db, chatId, [r.url, ...extractUrls(r.text)])
       return { text: wrapExternal(r), summary: `web_fetch ${a.url} -> ${r.text.length} chars${r.truncated ? ' (cut)' : ''}${how === 'confirmed' ? ' (confirmed by the user)' : how === 'site' ? ' (site allowed in this chat)' : ''}`.slice(0, 1000), structured: { url: r.url, ...(r.title ? { title: r.title } : {}), text: r.text, truncated: r.truncated } }
     },
+  })
+
+  reg.register({
+    name: 'save_url',
+    description: SAVE_URL_DESCRIPTION,
+    input: SaveUrlInput,
+    // the full address is in the audit line (tool_events), as for web_fetch
+    describe: (a) => `save_url ${a.url}`,
+    run: (a, t) => saveUrl(ctx, a, t, o.saveUrl ?? { lookup: o.fetch?.lookup, testAllow: o.fetch?.testAllow, insecureTlsForTests: o.fetch?.insecureTlsForTests }),
   })
   registerHwpRender(ctx, reg)
   for (const name of C_TOOL_NAMES) exposeToTurns(name)

@@ -141,6 +141,13 @@ export const AskUserOutput = z.union([z.object({ answer: z.union([z.string(), z.
 // Web search is Claude Code's built-in WebSearch (runs on Anthropic's side). We keep only our own fetch.
 export const WebFetchInput = z.strictObject({ url: z.string().url().max(4000), maxChars: z.number().int().min(100).max(200000).optional() })
 export const WebFetchOutput = z.object({ url: z.string(), title: z.string().optional(), text: z.string(), truncated: z.boolean() })
+/** save_url (server/src/tools/save-url.ts): a file from the web, or one a connected service returned inline
+ * (mcp-file:<id>), saved into the team folder. */
+export const SaveUrlInput = z.strictObject({
+  url: z.string().min(1).max(4000).describe('The http(s) address of the file, or an mcp-file:<id> handle from a connected service\'s answer'),
+  save_as: z.string().max(300).optional().describe('Team path to save to, e.g. "landing/images/hero.png" (next to the page that shows it). A path ending in "/" keeps the file\'s own name. Default: users/<you>/images/ for images, users/<you>/downloads/ for other files'),
+})
+export const SaveUrlOutput = z.object({ url: z.string(), path: z.string(), size: z.number(), sha256: z.string(), type: z.string(), conflictCopyOf: z.string().optional() })
 
 export const ToolError = z.object({ error: z.object({ code: z.string(), message: z.string() }) })
 /** File tools return plain text (like Claude Code's built-ins). */
@@ -151,7 +158,7 @@ export const FILE_TOOLS = {
   glob: { input: GlobInput, description: 'Find files by name pattern (e.g. "**/*.pdf"). Returns paths relative to the team root. Folders you cannot access are skipped.' },
   grep: { input: GrepInput, description: 'Search file contents with a regular expression (ripgrep). Also searches text extracted from .docx/.pptx/.xlsx/.pdf. Images have no searchable text, and scanned PDF pages may have none: read them to see them. Folders you cannot access are skipped.' },
   read: { input: ReadInput, description: 'Read a file. Text returns numbered lines (cat -n style); use offset/limit for long files. Word/Excel/PowerPoint files are converted to text. Images (PNG, JPEG, GIF, WebP, HEIC, TIFF, BMP) are shown to you as images. PDFs: give pages (e.g. "1-5"; at most 20 per call, required over 10 pages); pages with text come back as text, pages without a text layer (scans) as images; as_images also shows text pages as images. Videos (mp4, mov, m4v, webm, mkv, avi, 3gp) come back as frames (pictures with their times) and a timed transcript of the sound; audio files (mp3, m4a, wav, aac, flac, ogg, opus, amr, aiff, caf, wma) as a timed transcript. Use time (e.g. "1:00-2:30") to look at a part, frames for how many pictures, transcript: false to skip the sound.' },
-  write: { input: WriteInput, description: 'Create a text file or overwrite one. An existing file must be read first in this conversation turn. If someone else changed it since you read it, your version is saved as a conflict copy instead. The server checks access on each call: call it when asked, even if the folder looks read-only.' },
+  write: { input: WriteInput, description: 'Create a text file or overwrite one. An existing file must be read first in this conversation turn. If someone else changed it since you read it, your version is saved as a conflict copy instead. The server checks access on each call: call it when asked, even if the folder looks read-only. An HTML page\'s preview shows only team files: put images next to it (save_url saves one from the web) and use relative paths.' },
   edit: { input: EditInput, description: 'Replace an exact string in a text file you have read in this turn. old_string must be unique unless replace_all is true. The server checks access on each call: call it when asked, even if the folder looks read-only.' },
 } as const
 export type FileToolName = keyof typeof FILE_TOOLS
@@ -172,6 +179,7 @@ export const OTHER_TOOLS = {
   skill: { input: SkillInput, output: TextOutput },
   find_skills: { input: FindSkillsInput, output: TextOutput },
   web_fetch: { input: WebFetchInput, output: WebFetchOutput },
+  save_url: { input: SaveUrlInput, output: SaveUrlOutput },
 } as const
 
 /** Exactly what the engine may have, in addition to mcp__team__<file tool>. Lockdown test asserts this. */

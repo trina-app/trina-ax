@@ -19,6 +19,11 @@ import { bareUrl, disabledTools, savedTools, toolsOffered, type Row } from './st
 import { HIDDEN } from './hide'
 import { say } from './text'
 import type { RemoteTool } from './mcp'
+import { putMedia, MEDIA_PREFIX, type MediaMeta } from './media'
+import { answerUrls, rememberConnectionUrls } from '../../tools/connection-urls'
+import { KINDS } from '../../tools/sniff'
+import { imageSize } from '../../uploads/image'
+import { normalizeForModel, visionBlock, VISION_INPUT_MAX, VISION_TURN_BYTES, VISION_TURN_IMAGES } from '../../files/vision'
 
 export const MAX_RESULT_CHARS = 40_000
 /** integration tools offered in one turn (the engines' tool lists and command lines stay bounded) */
@@ -157,18 +162,82 @@ async function gate(ctx: AppContext, row: Row, what: string, sent: Sent, b: Buil
 }
 
 // ---------------- MCP tools ----------------
-/** The text of a tools/call result (`hide`: before anything is cut; the joined text is hidden again by the caller). */
-function mcpText(r: Record<string, any>, hide: (text: string) => string): { text: string; isError: boolean } {
+/** An inline block of an answer (image / audio, or an embedded file's base64 blob) that was kept for save_url. */
+interface Kept { meta: MediaMeta; bytes: Buffer; label: string }
+const human = (n: number) => (n < 1024 ? `${n} B` : n < 1048576 ? `${Math.round(n / 1024)} KB` : `${(n / 1048576).toFixed(1)} MB`)
+
+/** The base64 of an inline block, decoded (null: none, or not base64). */
+function blockBytes(c: Record<string, any>): Buffer | null {
+  const d = c.type === 'resource' ? c.resource?.blob : c.data
+  if (typeof d !== 'string' || !d || d.length > 40 * 1024 * 1024 || !/^[A-Za-z0-9+/=\s_-]+$/.test(d)) return null
+  const b = Buffer.from(d, 'base64')
+  return b.length ? b : null
+}
+
+/** The text of a tools/call result (`hide`: before anything is cut; the joined text is hidden again by the caller).
+ * Inline images, audio and embedded files are kept for save_url (`keep`) and named by their handle; resource links are
+ * returned too (their https addresses are learned links for save_url). */
+function mcpText(r: Record<string, any>, hide: (text: string) => string, keep?: (c: Record<string, any>) => Kept | null): { text: string; isError: boolean; links: string[]; kept: Kept[] } {
   const parts: string[] = []
+  const links: string[] = []
+  const kept: Kept[] = []
+  const handle = (c: Record<string, any>, what: string) => {
+    const k = keep?.(c)
+    if (!k) return false
+    kept.push(k)
+    parts.push(`[${what} ${k.label}: ${MEDIA_PREFIX}${k.meta.id} (save it with save_url to put it in the team folder)]`)
+    return true
+  }
   for (const c of Array.isArray(r.content) ? r.content : []) {
     if (!c || typeof c !== 'object') continue
     if (c.type === 'text' && typeof c.text === 'string') parts.push(c.text)
     else if (c.type === 'resource' && typeof c.resource?.text === 'string') parts.push(c.resource.text)
-    else if (c.type === 'resource' || c.type === 'resource_link') parts.push(`[resource ${hide(String(c.uri ?? c.resource?.uri ?? '')).slice(0, 300)}]`)
+    else if (c.type === 'resource' && typeof c.resource?.blob === 'string' && handle(c, 'file')) continue
+    else if (c.type === 'resource' || c.type === 'resource_link') {
+      const uri = String(c.uri ?? c.resource?.uri ?? '')
+      if (/^https?:\/\//i.test(uri)) links.push(uri)
+      parts.push(`[resource ${hide(uri).slice(0, 300)}]`)
+    } else if ((c.type === 'image' || c.type === 'audio') && handle(c, c.type)) continue
     else if (c.type === 'image' || c.type === 'audio') parts.push(`[${c.type} ${hide(String(c.mimeType ?? '')).slice(0, 100)}, not shown]`)
   }
   if (!parts.length && r.structuredContent !== undefined) { try { parts.push(JSON.stringify(r.structuredContent)) } catch {} }
-  return { text: parts.join('\n\n') || '(no content)', isError: r.isError === true }
+  return { text: parts.join('\n\n') || '(no content)', isError: r.isError === true, links, kept }
+}
+
+/** Keep an inline block of this chat's answer (media.ts); its label says what the bytes are (sniffed) and how big. */
+function keeper(ctx: AppContext, o: { chatId: string; userId: string; integrationId: string }, hide: (text: string) => string) {
+  return (c: Record<string, any>): Kept | null => {
+    const bytes = blockBytes(c)
+    if (!bytes) return null
+    // the declared type is the service's text: its secrets hidden before it is kept or shown (hide.ts)
+    const declared = hide(String((c.type === 'resource' ? c.resource?.mimeType : c.mimeType) ?? '').slice(0, 300))
+    let meta: MediaMeta | null
+    try { meta = putMedia(ctx.engineConfig.dataDir, { ...o, bytes, declared }) } catch (e) { ctx.log.warn('connection media not kept', { err: e }); return null }
+    if (!meta) return null
+    const kind = meta.kind ? KINDS[meta.kind] : null
+    const dim = kind?.image ? imageSize(bytes) : null
+    const label = [kind ? kind.mime : `unknown type (said ${declared.replace(/[^\w.+/-]/g, ' ').slice(0, 60) || 'nothing'}; save_url will refuse it)`, dim ? `${dim.width}×${dim.height}` : '', human(bytes.length)].filter(Boolean).join(' ')
+    return { meta, bytes, label }
+  }
+}
+
+/** The kept images the model may see too, like Claude Code shows an MCP image: when the team allows images to go to
+ * the AI and the engine takes them (files/vision.ts visionBlock), each one rebuilt by the isolated normalizer, within
+ * the turn's image limits. */
+async function modelImages(ctx: AppContext, tc: TurnToolContext, kept: Kept[]): Promise<{ type: 'image'; data: string; mimeType: string }[]> {
+  const out: { type: 'image'; data: string; mimeType: string }[] = []
+  if (!kept.some((k) => k.meta.kind && KINDS[k.meta.kind].image) || visionBlock(ctx.db, tc.turnId)) return out
+  const turn = tc.files.files
+  for (const k of kept) {
+    if (!k.meta.kind || !KINDS[k.meta.kind].image || k.bytes.length > VISION_INPUT_MAX) continue
+    let jpeg: Buffer
+    try { jpeg = await normalizeForModel(k.bytes, ctx.files.visionTools(), tc.signal) } catch { continue }
+    if (turn.imageCount >= VISION_TURN_IMAGES || turn.imageBytes + jpeg.length > VISION_TURN_BYTES) break
+    turn.imageCount++
+    turn.imageBytes += jpeg.length
+    out.push({ type: 'image', mimeType: 'image/jpeg', data: jpeg.toString('base64') })
+  }
+  return out
 }
 
 function mcpTool(ctx: AppContext, b: BuildCtx, row: Row, tool: RemoteTool, name: string): TurnTool {
@@ -202,12 +271,15 @@ function mcpTool(ctx: AppContext, b: BuildCtx, row: Row, tool: RemoteTool, name:
         // the person's access is checked again before the answer is delivered
         svc.forCall(tc.userId, row.id)
         noteAnswer(ctx, chat, current)
-        const { text: raw, isError } = mcpText(r, h.hide)
+        const { text: raw, isError, links, kept } = mcpText(r, h.hide, keeper(ctx, { chatId: chat, userId: tc.userId, integrationId: current.id }, h.hide))
         const text = h.hide(raw)
+        // the addresses the answer names (as the AI sees them) may be saved with save_url without a card
+        rememberConnectionUrls(ctx.db, chat, answerUrls(text, links.map(h.hide)), { integrationId: current.id, userId: tc.userId, turnId: tc.turnId })
+        const images = await modelImages(ctx, tc, kept)
         return {
-          content: [{ type: 'text', text: wrap(current, `Answer of ${t.name} from ${current.name}${isError ? ' (the service reported an error)' : ''}.`, text) }],
+          content: [{ type: 'text', text: wrap(current, `Answer of ${t.name} from ${current.name}${isError ? ' (the service reported an error)' : ''}.${images.length ? ` ${images.length === 1 ? 'Its image is' : 'Its images are'} shown below.` : ''}`, text) }, ...images],
           ...(isError ? { isError: true } : {}),
-          summary: `${name} -> ${isError ? 'error answer' : 'ok'} (${text.length} chars)${confirmed ? ' (confirmed by the user)' : ''}`,
+          summary: `${name} -> ${isError ? 'error answer' : 'ok'} (${text.length} chars${kept.length ? `, ${kept.length} file${kept.length === 1 ? '' : 's'} kept: ${kept.map((k) => `${MEDIA_PREFIX}${k.meta.id} ${k.meta.kind ?? 'unknown'} ${k.meta.size} B sha256 ${k.meta.sha256.slice(0, 16)}`).join(', ')}` : ''})${confirmed ? ' (confirmed by the user)' : ''}`,
         }
       } catch (e) {
         if (!(e instanceof CallError)) throw e
@@ -357,6 +429,8 @@ function apiRequestTool(ctx: AppContext, b: BuildCtx, rows: Row[]): TurnTool {
         const ct = res.headers['content-type'] ?? ''
         const redirect = res.status >= 300 && res.status < 400
         const body = h.hide(a.method === 'HEAD' ? '' : redirect ? `Location: ${res.headers.location ?? '(none)'}` : httpText(res))
+        // addresses in the answer (a file the API made) may be saved with save_url without a card; a redirect is not followed
+        if (!redirect) rememberConnectionUrls(ctx.db, chat, answerUrls(body), { integrationId: row.id, userId: tc.userId, turnId: tc.turnId })
         const head = redirect
           ? `${row.name} answered ${a.method} ${u.pathname} with a redirect (HTTP ${res.status}); redirects are not followed.`
           : `${row.name} answered ${a.method} ${u.pathname}: HTTP ${res.status}${ct ? `, ${ct.split(';')[0]}` : ''}, ${res.body.length} bytes${res.truncated ? ' (cut at 1 MB)' : ''}.`
