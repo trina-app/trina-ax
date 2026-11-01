@@ -595,6 +595,47 @@ func cmdCredentialsEscrowOut(e *env, args []string) (int, error) {
 	return t.passOn(raw)
 }
 
+// orKeyRE: an OpenRouter API key (shared/src/cloud-protocol OpenRouterApiKey)
+var orKeyRE = regexp.MustCompile(`^sk-or-[A-Za-z0-9_-]{16,200}$`)
+
+// hosted-speech-key-set < { key: "sk-or-…" | null }: the hosting service's speech-to-text key for this team (hosted
+// voice input and video sound, 10 free hours a month), kept by admin.js hosted-speech-key encrypted with the
+// credentials vault. The key goes only on admin.js's stdin: never in an argument, an error or the answer { ok, set }.
+// No restart: the server reads it at its next speech request.
+func cmdHostedSpeechKeySet(e *env, args []string) (int, error) {
+	t := newTenant(e, "hosted-speech-key-set")
+	if c, err := t.open(args); err != nil {
+		return c, err
+	}
+	_, m, err := t.stdinJSON(4 << 10)
+	if err != nil {
+		return 1, err
+	}
+	if len(m) != 1 || m["key"] == nil {
+		return 1, fmt.Errorf("stdin must be { key }")
+	}
+	var key *string
+	if json.Unmarshal(m["key"], &key) != nil {
+		return 1, fmt.Errorf("key: a string or null")
+	}
+	if key != nil && !orKeyRE.MatchString(*key) {
+		return 1, fmt.Errorf("key: not an OpenRouter key")
+	}
+	in, _ := json.Marshal(map[string]*string{"key": key})
+	raw, err := t.admin(in, 30*time.Second, "hosted-speech-key")
+	if err != nil {
+		return 1, err
+	}
+	var r struct {
+		OK  bool  `json:"ok"`
+		Set *bool `json:"set"`
+	}
+	if json.Unmarshal(bytes.TrimSpace(raw), &r) != nil || !r.OK || r.Set == nil {
+		return 1, errNoJSONOut
+	}
+	return t.out(map[string]any{"ok": true, "set": *r.Set})
+}
+
 // ---------------------------------------------------------------- as the server account
 
 // serverWriteTargets: the only files server-write may replace (relative to the base).

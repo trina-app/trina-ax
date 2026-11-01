@@ -19,7 +19,8 @@
 //	mycel-ctl codex-login
 //	mycel-ctl supervise
 //	mycel-ctl notices-set | set-server-config | relay-registration-set | relay-key-proof | idle-wait | prepare-stop |
-//	          backup-prepare | backup-upload | export | reset-link | setup-token-rotate | credentials-escrow-out
+//	          backup-prepare | backup-upload | export | reset-link | setup-token-rotate | credentials-escrow-out |
+//	          hosted-speech-key-set
 //	          (the hosted service's tenant commands, tenant.go)
 package main
 
@@ -144,6 +145,8 @@ func runEnv(e *env, args []string) int {
 		code, err = cmdSetupTokenRotate(e, rest)
 	case "credentials-escrow-out":
 		code, err = cmdCredentialsEscrowOut(e, rest)
+	case "hosted-speech-key-set":
+		code, err = cmdHostedSpeechKeySet(e, rest)
 	case "server-write": // internal: re-executed as the server account (tenant.go asServer)
 		code, err = cmdServerWrite(e, rest)
 	case "server-config-merge": // internal: re-executed as the server account

@@ -238,6 +238,44 @@ func TestTenantAdminCommands(t *testing.T) {
 	}
 }
 
+func TestTenantHostedSpeechKeySet(t *testing.T) {
+	tb := newTestBase(t, "0.3.0")
+	f := &fakeTenant{adminOut: map[string]string{"hosted-speech-key": `{"ok":true,"set":true}`}}
+	f.install(t)
+	key := "sk-or-v1-" + strings.Repeat("0a", 32)
+	code, out, errs := tb.tctl(`{"key":"`+key+`"}`, "hosted-speech-key-set", "--json")
+	if code != 0 || len(f.adminCalls) != 1 || strings.Join(f.adminCalls[0], " ") != "hosted-speech-key" {
+		t.Fatalf("%d %q %s %v", code, out, errs, f.adminCalls)
+	}
+	// the key goes on admin.js's stdin only: never in its argv, the answer or stderr
+	if f.adminStdin[0] != `{"key":"`+key+`"}` || strings.Contains(out, key) || strings.Contains(errs, key) {
+		t.Fatalf("key handling: stdin %q out %q err %q", f.adminStdin[0], out, errs)
+	}
+	if m := jsonOf(t, out); m["ok"] != true || m["set"] != true || f.restarts != 0 {
+		t.Fatalf("answer %q, %d restarts", out, f.restarts)
+	}
+	// null takes it away
+	f.adminOut["hosted-speech-key"] = `{"ok":true,"set":false}`
+	if code, out, _ := tb.tctl(`{"key":null}`, "hosted-speech-key-set", "--json"); code != 0 || jsonOf(t, out)["set"] != false || f.adminStdin[1] != `{"key":null}` {
+		t.Fatalf("null: %d %q %v", code, out, f.adminStdin)
+	}
+	// refused before admin.js runs
+	f.adminCalls = nil
+	for _, bad := range []string{``, `{}`, `{"key":"sk-or-short"}`, `{"key":"` + key + `","x":1}`, `{"key":1}`, `{"key":"` + key + `; rm -rf /"}`, `[1]`} {
+		if code, out, errs := tb.tctl(bad, "hosted-speech-key-set", "--json"); code == 0 || out != "" || strings.Contains(errs, key) {
+			t.Fatalf("accepted %q: %d %q %s", bad, code, out, errs)
+		}
+	}
+	if len(f.adminCalls) != 0 {
+		t.Fatalf("admin.js ran for refused stdin: %v", f.adminCalls)
+	}
+	// an admin.js answer without set is not passed on
+	f.adminOut["hosted-speech-key"] = `{"ok":true}`
+	if code, out, _ := tb.tctl(`{"key":null}`, "hosted-speech-key-set", "--json"); code == 0 || out != "" {
+		t.Fatalf("an answer without set got through: %d %q", code, out)
+	}
+}
+
 func TestTenantIdleWaitPrepareStop(t *testing.T) {
 	tb := newTestBase(t, "0.3.0")
 	systemdRunDir = t.TempDir()
