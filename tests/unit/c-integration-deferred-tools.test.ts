@@ -262,6 +262,39 @@ describe('a tool turned off is unreachable', () => {
 })
 
 describe('the per-answer budget no longer drops tools', () => {
+  test(`Claude Code's line: a connection over ${MAX_TURN_TOOL_CHARS} characters of definitions is looked up, a small one stays`, async () => {
+    expect(MAX_TURN_TOOL_CHARS).toBe(50_000)
+    const before = fake.tools
+    const made: string[] = []
+    try {
+      fake.tools = small(5, 'n')
+      made.push((await post('dana', '/api/integrations', { kind: 'mcp', name: 'Notes', url: `${fake.base}/mcp-open?notes`, auth: 'none' })).body.id)
+      // 12 tools of the big catalog: about 70,000 characters, under the old 256,000 (sent whole before), over 50,000
+      fake.tools = bigCatalog(12)
+      made.push((await post('dana', '/api/integrations', { kind: 'mcp', name: 'Mid', url: `${fake.base}/mcp-open?mid`, auth: 'none' })).body.id)
+      const mid = bigCatalog(12).reduce((n, t) => n + t.name.length + JSON.stringify(t.inputSchema).length + t.description.length, 0)
+      expect(mid).toBeGreaterThan(MAX_TURN_TOOL_CHARS)
+      expect(mid).toBeLessThan(256_000)
+      const d = turn('dana')
+      const names = [...d.tools.keys()]
+      // by name: Mid first, does not fit and is looked up; Notes fits
+      expect(names.filter((n) => n.startsWith('my_mid__'))).toEqual([])
+      expect(names.filter((n) => n.startsWith('my_notes__'))).toHaveLength(5)
+      expect(names).toEqual(expect.arrayContaining([FIND_TOOLS, CALL_TOOL]))
+      expect(defs([...d.tools.values()])).toBeLessThanOrEqual(MAX_TURN_TOOL_CHARS + 3_000)
+      expect(d.prompt).toContain('- Mid (personal connection, MCP server): 12 tools, not loaded')
+      expect(d.prompt).toContain('- Notes (personal connection, MCP server): 5 tools named my_notes__…')
+      const name = bigCatalog(12)[0].name
+      expect((await d.call(FIND_TOOLS, { query: `select:my_mid__${name}` })).text).toContain(`## my_mid__${name}`)
+      const r = await d.call(CALL_TOOL, { name: `my_mid__${name}`, arguments: { prompt: 'a cat' } })
+      expect(r.isError).toBe(false)
+      expect(fake.calls.at(-1)).toMatchObject({ name, args: { prompt: 'a cat' } })
+    } finally {
+      fake.tools = before
+      for (const id of made) await A.json(`/api/integrations/${id}`, { method: 'DELETE', as: 'dana' })
+    }
+  })
+
   test(`connections that fit stay tools of their own; the one over ${MAX_TURN_TOOLS} tools is looked up, none is left out`, async () => {
     const before = fake.tools
     const made: string[] = []

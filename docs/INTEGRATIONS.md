@@ -119,8 +119,9 @@ idle minutes; a 404 for it starts a new one.
   `-` only. With the engine's `mcp__team__` the full name stays within 64 characters: longer or clashing names are cut and
   given a short hash; the server maps each back to the remote name.
 - **Tools to look up** (docs/DECISIONS.md "Connection tools: deferred, found and called"): one answer offers at most
-  200 connection tools with 256,000 characters of definitions as tools of their own. A connection that does not fit
-  (Higgsfield: 186 tools, about 1 MB) is deferred, like Claude Code's MCP tools: the instructions list its tool names
+  200 connection tools with 50,000 characters of definitions as tools of their own (Claude Code defers MCP tools past
+  about 10% of the context). A connection that does not fit (Higgsfield: 186 tools, about 1 MB; a service of a dozen
+  tools with long schemas) is deferred, like Claude Code's MCP tools: the instructions list its tool names
   (8,000 characters at most), `find_tools(query)` returns matching tools with their input schemas and
   `call_tool(name, arguments)` runs one after checking the arguments against the stored schema (a bounded check that
   runs none of the service's regular expressions), with every check of the tool itself. The two names are the same for Claude Code, Codex, the API engine and sub-agents, so the engines'
@@ -205,7 +206,7 @@ connections with their address and the first 1,000 characters of their notes.
 | Request | 30 s, no redirects, standard ports |
 | Answer | 1 MiB while reading; 40,000 characters to the AI |
 | Request body (`api_request`) | 1 MiB |
-| MCP tools | 100 per connection, 256,000 schema characters per connection, 32,000 per tool; 200 per turn |
+| MCP tools | 1,000 per connection, 4,000,000 schema and description characters per connection, 32,000 per tool schema; as tools of their own 200 and 50,000 characters per answer, the rest through `find_tools` / `call_tool` |
 | Sign-in flow | 10 minutes, 20 per person per hour |
 
 ## Not in phase 1

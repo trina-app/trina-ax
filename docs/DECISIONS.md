@@ -5306,14 +5306,16 @@ full definitions, after which the tool is called by its own name.
    shared), 4,000,000 characters of schemas and descriptions together, 100 `tools/list` pages (was 100, 256,000, 20).
    One schema may still be 32,000 characters. Over the ceiling the rest is said as before ("1,000 of 1,200",
    `tools_total`, migration 327). Up to 2,000 names can be turned off (was 500). No migration.
-2. **An answer offers what fits as tools of their own, the rest is looked up.** The budget is the one an answer had:
-   200 connection tools and 256,000 characters of names, descriptions and input schemas together (the old per-connection
-   schema cap, now for the whole answer). Whole connections are taken in the order the turn lists them (personal first,
-   by name): one that fits what is left is offered tool by tool as before, one that does not is deferred. So small
-   connections are unchanged, and the per-answer cap no longer leaves a connection with no tools (0.2.17 told the AI
-   "0 of the 30 tools"). Claude Code would defer them all; we keep the direct tools where they fit, so nothing
-   changes for teams without a big catalog. Lowering the budget to Claude Code's 10% (about 50,000 characters) is one
-   constant (`tools.ts MAX_TURN_TOOL_CHARS`).
+2. **An answer offers what fits as tools of their own, the rest is looked up.** The budget: 200 connection tools and
+   50,000 characters of names, descriptions and input schemas together (`tools.ts MAX_TURN_TOOLS`,
+   `MAX_TURN_TOOL_CHARS`). 50,000 is Claude Code's line (founder, 2026-11-01: behave like Claude Code): its `auto` mode
+   defers MCP tools when they are over 10% of the context, 20,000 of 200,000 tokens at 2.5 characters per token. The
+   first version kept the old per-connection schema cap of 256,000 characters for the whole answer; that sent a
+   dozen-tool service with long schemas (about 70,000 characters) with every model request. Whole connections are
+   taken in the order the turn lists them (personal first, by name): one that fits what is left is offered tool by tool
+   as before, one that does not is deferred. So small connections are unchanged, and the per-answer cap no longer
+   leaves a connection with no tools (0.2.17 told the AI "0 of the 30 tools"). Claude Code by default defers them all;
+   we keep the direct tools where they fit.
 3. **Two tools reach the deferred ones, for every engine and sub-agent: `find_tools(query, max_results)` and
    `call_tool(name, arguments)`.** Chosen over making a found tool callable in the next request of the same turn
    because every engine fixes its tools when the turn starts: Claude Code's `--allowedTools` and the model proxy's
@@ -5375,10 +5377,11 @@ full definitions, after which the tool is called by its own name.
     and its budget, the same instructions each turn, #150 found by words and by name with its schema, call_tool's
     argument check sending nothing, a run that is external data, the short name and JSON-text arguments, a write
     asking on the card and refused in a scheduled run, a tool turned off before or during the turn neither found nor
-    run, a taken-away team connection, three connections over 200 tools with none left out, the matcher, the list, the
-    schema check and hostile schemas (branching self-references, backtracking patterns, big values), JSON-text
-    arguments leaving echo marks); `c-integration-deferred-turns.test.ts` (whole turns: Claude Code, Codex, the API
-    engine and a general-purpose sub-agent each find and run #150; the allowed tools, Codex's enabled tools, the API
-    request and the proxy's names hold the two and none of the 186, and a request naming one directly is refused; a
-    tool turned off; a resumed session's short form); `c-integration-tool-caps.test.ts` (150 kept, three connections over 200, an old
+    run, a taken-away team connection, three connections over 200 tools with none left out, a 12-tool connection over
+    50,000 characters looked up next to a small one kept, the matcher, the list, the schema check and hostile schemas
+    (branching self-references, backtracking patterns, big values), JSON-text arguments leaving echo marks);
+    `c-integration-deferred-turns.test.ts` (whole turns: Claude Code, Codex, the API engine and a general-purpose
+    sub-agent each find and run #150; the allowed tools, Codex's enabled tools, the API request and the proxy's names
+    hold the two and none of the 186, and a request naming one directly is refused; a tool turned off; a resumed
+    session's short form; the 12-tool connection through the two in Claude Code, Codex and the API engine); `c-integration-tool-caps.test.ts` (150 kept, three connections over 200, an old
     list cut at 100, the 1 MB page); `step-labels-tools.test.ts`; `web/test/unit/integrations.test.ts`.

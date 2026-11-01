@@ -190,3 +190,58 @@ describe('turned off, and a chat that goes on', () => {
     expect(message).not.toContain(`- ${TOOL_150}\n`)
   })
 })
+
+describe("a mid-sized connection over Claude Code's 10% line (MAX_TURN_TOOL_CHARS)", () => {
+  // erin: a small connection that stays tools of its own, and 12 tools of the big catalog (about 70,000 characters of
+  // definitions: under the old 256,000 they went to the engine whole, now they are looked up)
+  const MID = 'my_mid__' + bigCatalog(12)[0]!.name
+  const midArgs = { prompt: 'a cat on a sofa' }
+  beforeAll(async () => {
+    const before = svc.tools
+    try {
+      svc.tools = bigCatalog(3).map((t) => ({ ...t, name: 'note_' + t.name }))
+      await h.api('erin').call(API.createIntegration, { body: { kind: 'mcp', name: 'Notes', url: `${svc.base}/mcp-open?notes`, auth: 'none', writePolicy: 'ask' } })
+      svc.tools = bigCatalog(12)
+      await h.api('erin').call(API.createIntegration, { body: { kind: 'mcp', name: 'Mid', url: `${svc.base}/mcp-open?mid`, auth: 'none', writePolicy: 'ask' } })
+    } finally { svc.tools = before }
+  })
+  const mine = (names: string[], key: string) => names.filter((n) => n.includes(`my_${key}__`))
+  const midFind = { tool: 'find_tools', args: { query: `select:${MID}` }, sayResult: true }
+  const midRun = { tool: 'call_tool', args: { name: MID, arguments: midArgs }, sayResult: true }
+
+  test('Claude Code and Codex: the small one by name, the mid-sized one through find_tools and call_tool', async () => {
+    for (const engine of [undefined, 'codex' as EngineId]) {
+      const before = svc.calls.length
+      const r = await send('erin', await newChat('erin', engine), fake({ echo: 'args' }, SEP, midFind, SEP, midRun), engine)
+      const [argsJson, found, ran] = r.content.split('\n----\n')
+      const argv = JSON.parse(argsJson!) as string[]
+      const names = engine
+        ? JSON.parse(argv.find((a) => a.startsWith('mcp_servers.team.enabled_tools='))!.slice('mcp_servers.team.enabled_tools='.length)) as string[]
+        : argv[argv.indexOf('--allowedTools') + 1]!.split(',')
+      expect(mine(names, 'notes')).toHaveLength(3)
+      expect(mine(names, 'mid')).toEqual([])
+      expect(names.some((n) => n.endsWith('find_tools')) && names.some((n) => n.endsWith('call_tool'))).toBe(true)
+      expect(found).toContain(`## ${MID}`)
+      expect(ran).toContain('<external_data source="Mid">')
+      expect(svc.calls.slice(before).map((c) => [c.name, c.args])).toEqual([[MID.slice('my_mid__'.length), midArgs]])
+    }
+  })
+
+  test('the API engine: the small one as functions of their own, the mid-sized one through the two', async () => {
+    seen.length = 0
+    const before = svc.calls.length
+    script.push(
+      sse({ calls: [{ id: 'm1', name: 'find_tools', args: JSON.stringify({ query: `select:${MID}` }) }] }),
+      sse({ calls: [{ id: 'm2', name: 'call_tool', args: JSON.stringify({ name: MID, arguments: midArgs }) }] }),
+      sse({ text: ['Done.'] }),
+    )
+    const r = await send('erin', await newChat('erin', 'api' as EngineId), 'make a picture', 'api' as EngineId)
+    expect(r.content).toBe('Done.')
+    const fns = seen[0].tools.map((t: any) => t.function.name) as string[]
+    expect(mine(fns, 'notes')).toHaveLength(3)
+    expect(mine(fns, 'mid')).toEqual([])
+    expect(fns).toEqual(expect.arrayContaining(['find_tools', 'call_tool']))
+    expect(String(seen[0].messages[0].content)).toContain('- Mid (personal connection, MCP server): 12 tools, not loaded')
+    expect(svc.calls.slice(before).map((c) => [c.name, c.args])).toEqual([[MID.slice('my_mid__'.length), midArgs]])
+  })
+})

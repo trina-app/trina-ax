@@ -34,9 +34,11 @@ import { normalizeForModel, visionBlock, VISION_INPUT_MAX, VISION_TURN_BYTES, VI
 export const MAX_RESULT_CHARS = 40_000
 /** connection tools offered as tools of their own in one answer: at most this many, with at most MAX_TURN_TOOL_CHARS of
  * names, descriptions and input schemas together (what every model request of the answer carries; the engines' tool
- * lists and command lines stay bounded). A connection that does not fit is offered through find_tools / call_tool. */
+ * lists and command lines stay bounded). A connection that does not fit is offered through find_tools / call_tool.
+ * 50,000 characters is Claude Code's line for deferring MCP tools: about 10% of a 200K-token context at 2.5 characters
+ * per token (docs/DECISIONS.md "Connection tools: deferred, found and called"). */
 export const MAX_TURN_TOOLS = 200
-export const MAX_TURN_TOOL_CHARS = 256_000
+export const MAX_TURN_TOOL_CHARS = 50_000
 /** the two tools that reach the connection tools not offered on their own */
 export const FIND_TOOLS = 'find_tools'
 export const CALL_TOOL = 'call_tool'
