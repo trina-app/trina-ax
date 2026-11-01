@@ -4858,3 +4858,85 @@ fallback when DeepInfra is down. Test report: `plans/stt-hosted-2026-11-01/STT-D
   `tests/unit/c-integration-tool-toggles.test.ts` (a real turn: not offered to the engine, not in the proxy token's
   names, `checkToolNames` refuses it, on again it is in both); `tests/security` (the route); `web/test/e2e/
   integrations.spec.ts` (switch, keyboard, refresh, admin switch, member's view and 403).
+
+## Sources under each answer (feat/sources, 2026-11-01)
+
+Plan: `plans/skills-sources-2026-11-01/PLAN-B-SOURCES.md` (founder: no inline [1] chips in v1). Claude Code has no
+citation chips: it names `path:line` in its text and the tool calls are the record. Trina does the same, plus a list
+under the answer like the Claude app's sources.
+
+- **Places in documents** (`server/src/files/locations.ts`). The extractors leave structure in the text, and one module
+  reads it back for a line, a range of lines or a search piece:
+  - PDF: a form feed before each page after the first (pdftotext already did; `native/ocr` now writes one between
+    pages instead of an empty line, one entry per page also when a page cannot be drawn). Pages are counted as a PDF
+    viewer counts them (the physical page, not the printed label).
+  - Spreadsheets (`office-parse.ts`): the sheet label is `# sheet: <name> · A1:F40 (tab-separated)` (the sheet's
+    bounded range) and a `# row N` line stands where blank rows were left out, so each row's real number is known. The
+    cells are exactly sheet_to_csv's as before (rows are grouped by quote parity: a quoted cell may hold line breaks).
+    Hidden rows and merged cells count as rows (A1 ranges are of the sheet, as Excel numbers it).
+  - PowerPoint: `=== Slide N ===` before each slide's text. pandoc's pptx reader gives each slide header the id
+    `slide-N`, N its place in `p:sldIdLst` with hidden slides counted (checked with pandoc 3.9: a hidden slide and a
+    reordered list), which is PowerPoint's own numbering and `ooxml.ts slideOrder` for the notes and charts part.
+  - Word and OpenDocument: Markdown headings (`## 환불 정책`). Both come from one pandoc Lua filter (`extract.ts
+    MARKS_LUA`, written once per process into a private folder the converter may read) that marks slide headers and
+    headings with lines starting with U+0001 (no Office XML text can hold it); `markLines` turns the marks into labels
+    after `quoteLines`. A body line that starts like a heading gets a space in front, like `=== ` lines before. When the
+    filter fails (an old pandoc) the text is pandoc's plain text as before.
+  - Hangul: .hwpx paragraphs whose paragraph shape is an outline level (`<hh:heading type="OUTLINE" level="L">`, 개요)
+    and .hwp 5 paragraphs whose PARA_SHAPE (DocInfo tag 25, attribute bits 23-24 = 1, level bits 25-27) is one become
+    Markdown headings. Documents without outline shapes read exactly as before.
+  - The text cache format is 6 (`TEXT_CACHE_VERSION`): the cache is emptied at start and made again as before (grep
+    extracts what it needs, the rest in the background queue). Text cached before gives what it can: pages always,
+    sheet names without ranges, no slides or sections.
+- **Search pieces** stop at a page, slide, sheet or section and keep their place (`chunkDoc`; `semantic.db` gets
+  `chunks.loc` and `files.format`, added in place: an older server ignores both). A sheet piece's place is the A1
+  range of its rows. Structure lines (`=== Slide 3 ===`, `# sheet: …`, `# row 9`) are not part of a piece's text.
+- **One-time re-index** (`CHUNK_FORMAT` 2). Documents indexed before are made again in the background, newest first:
+  the search tool's own refresh never takes them (it would wait), only the background runs. Their text is extracted
+  with background priority (`OfficeCache.update(…, { background: true })`: a person's grep or upload goes first) and
+  their old pieces answer searches until the new ones replace them in one transaction. A search that comes during a
+  background run asks it to stop after the current batch of 16 pieces (a file cut off keeps its old pieces and is done
+  later), then runs its own. While older pieces are left, the next background run starts after a pause as long as the
+  last run took (60 s at most each): at most half the server's time. `files.format` says what is left, so a restart
+  goes on where it stopped. Plain text files are not made again (their pieces are the same).
+  - Cost: measured on an Apple M-series Mac with the real model (multilingual-e5-small q8), 76 ms per 800-character
+    Korean piece with 2 threads, 131 ms with one; a 2-vCPU x86 cloud server is about twice as slow (~0.15 s a piece).
+    With extraction (~0.5 s a document) and the half-time pause: about (pieces × 0.15 s + 0.5 s) × 2 per document, e.g.
+    2,000 documents of 15 pieces ≈ 3.5 hours, 10,000 ≈ 17 hours on a 2-vCPU box. Searching stays complete meanwhile
+    (old pieces); only their place labels come later.
+- **What the AI sees.** search: `1. 매출보고서.pdf · p.12 — finance/매출보고서.pdf (match 0.83)` and a ready-made link
+  `[매출보고서.pdf · p.12](/files/view?path=…&page=12)`; grep content: `path [p.12]:line:text` (the place of each
+  line of a document, from the very text ripgrep searched: the admitted copy, or the cache); read: the sheet labels,
+  slide labels and headings in the text. Labels are in the person's language (시트 / 슬라이드 / sheet / slide …). A file,
+  sheet or heading name in a label has no line breaks or control characters, no `<` (no prompt block tag can be opened
+  or closed) and at most 80 characters (60 for sheets and headings). The turn prompt says how to link a place
+  (`SOURCE_LINK_RULE`): `/files/view?path=…&page=N` / `&slide=N` / `&sheet=…`. The API engine's link guard compares the
+  path only, so a link with a place to a file a tool named passes; the guard is not widened to the other engines here.
+- **"참고한 파일"** (`server/src/files/sources.ts`). `TurnFiles.sources` (shared by every agent of the turn through the
+  `view` proxy; a sub-agent's view knows its Agent call id) gets each file whose content went to the model: read (also
+  images, PDFs by pages, video and audio, `hwp_render` pages; attachments are read with read), search passages and grep
+  content lines, with the places (the pages read, the lines' places for a read by lines or a grep, a search piece's
+  place) and the sha256 when the tool had it. Names alone (grep files_with_matches and count, list, glob) are not
+  content and are left out. A whole-file read has no places. At most 500 files an answer, 20 places a file.
+  - At the end of the turn it is saved with the answer: **migration 217_b_message_sources** (a new table, `ON DELETE
+    CASCADE` from messages, so it goes with the message and the chat; additive, `min_compatible_reader` 1, schema reader
+    level stays 4, so 0.2.16 still opens the database and ignores the table). A regenerated answer has its own rows.
+  - `Message.sourceCount` (finished answers) is the stored count; the list is `GET
+    /api/chats/:id/messages/:messageId/sources` (the chat's owner only, like every message route). Each time it is
+    asked for, every file is checked for the viewer as they are now: `authorize(read)` + `visiblePath` with today's
+    rules, the person reloaded (a disabled account sees nothing). A file that fails (access taken away, deleted, moved,
+    quarantined) is only counted in `unavailable`: no name, path or folder. Moves are not followed (unlike attachments).
+  - The list is on the screen only: not in notifications, exports, files or the engine's history, so the wider-audience
+    check and confidential chats (1A) are unchanged. Step labels still carry the paths the AI used, as before (re-checking
+    them is a separate change).
+- **Screen** (`web/src/components/chat/SourcesList.tsx`). A collapsed "참고한 파일 N개" under the answer (after the saved
+  files summary); open: "AI가 이 답변을 쓰며 열어 본 파일이에요. 답에 쓰지 않은 파일도 있을 수 있어요." (it is what the AI
+  opened, not evidence), each file with its folder and place chips, "검색 결과로만 봄" when the AI saw only search or grep
+  results of it, "하위 작업이 읽음" when only a sub-agent opened it, "볼 수 없는 파일 N개", and "N개 더 보기" after 20. A
+  chip opens the preview there; the name opens it at the first place. Five languages.
+- **Previews open at a place** (`SidePanel` file `at`, `/files/view?…&page=` links): PDF scrolls to the page and keeps it
+  in view while the pages above are drawn, until the person scrolls; a spreadsheet opens the sheet tab and marks and
+  scrolls to the range's cells (SheetJS cell ids); PowerPoint goes to the slide (`goToSlide`, the renderer lists hidden
+  slides too); Hangul opens at a page `hwp_render` drew. Word and Hangul sections open at the top.
+- Not in v1: inline [1] chips in the answer (founder), re-checking step labels, the hallucinated-link guard for Claude
+  and Codex, the mobile app's list (it shows the answer as before).

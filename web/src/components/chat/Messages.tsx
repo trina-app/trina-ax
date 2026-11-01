@@ -1,7 +1,7 @@
 // One message of the visible branch. User messages: bubble, attachments (image thumbnails), edit, "‹ 2/3 ›",
 // "sending" / "not sent [send again]". Answers: steps, queue position, Markdown, artifact cards, ask_user cards,
 // file summary, end state (error / stopped / paused at the per-answer limit with "continue"), the note that a long
-// conversation reached the AI only in part, copy, regenerate, branch switch.
+// conversation reached the AI only in part, the files the AI looked at ("참고한 파일"), copy, regenerate, branch switch.
 import clsx from 'clsx'
 import { AlertTriangle, BookmarkPlus, ChevronDown, ChevronLeft, ChevronRight, CirclePause, FileAudio, FileText, FileX, FolderOpen, History, Loader2, Pencil, Play, RotateCcw, Shapes, Sparkles, Square } from 'lucide-react'
 import { useMemo, useState } from 'react'
@@ -22,6 +22,7 @@ import { Button, CopyButton, IconButton, inputCls } from '../ui'
 import AskCard from './AskCard'
 import SuggestSkillDialog from '../SuggestSkillDialog'
 import FileSummary from './FileSummary'
+import SourcesList from './SourcesList'
 import Steps from './Steps'
 import { ENGINE_LABEL, EngineOptions, type EnginePick } from './EngineMenu'
 
@@ -310,6 +311,7 @@ export function AssistantMessage({
           <AskCard key={r.request.requestId} req={r} />
         ))}
         {m.files && <FileSummary files={m.files} onAskOwnFolder={onAskOwnFolder} disabled={busy} />}
+        {!streaming && m.sourceCount ? <SourcesList chatId={chatId} messageId={m.id} count={m.sourceCount} /> : null}
         {m.status === 'error' && (
           <div role="alert" className="mt-3 flex flex-wrap items-start gap-2 rounded-xl bg-danger-soft px-3 py-2 text-sm text-danger" data-testid="answer-error">
             <AlertTriangle size={16} className="mt-2 shrink-0" aria-hidden />

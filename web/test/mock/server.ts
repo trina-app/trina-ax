@@ -34,12 +34,12 @@ import {
 } from '@mycel/shared/api'
 import fs from 'node:fs'
 import * as XLSX from 'xlsx'
-import { CCITT_SCAN, JPX_SCAN, makeCidPdf, makeImagePdf, makePdf } from '../../../tests/lib/pdf'
+import { CCITT_SCAN, JPX_SCAN, makeCidPdf, makeImagePdf, makePagedPdf, makePdf } from '../../../tests/lib/pdf'
 import { serveWeb } from '../../../server/src/routes/web-static'
 import { TEXT as TEAM_ICON_TEXT } from '../../../server/src/admin/team-icon'
 import { checkTeamIcon, TEAM_ICON_MAX_BYTES, type TeamIconFile } from '@mycel/shared'
 import { Sealer } from '../../../server/src/credentials/seal'
-import type { Credential, CredentialKind, CredentialLogin } from '@mycel/shared/api'
+import type { Credential, CredentialKind, CredentialLogin, MessageSourceFile } from '@mycel/shared/api'
 import type { Integration, IntegrationAccess, IntegrationFlow, IntegrationInput, IntegrationPatch, IntegrationTool } from '@mycel/shared/api'
 import { SkillsOverview } from '@mycel/shared/api'
 import os from 'node:os'
@@ -185,6 +185,7 @@ export class MockServer {
     this.groups = []
     this.invites = []
     this.chats = []
+    this.sources.clear()
     this.messages = []
     this.artifacts = []
     this.allConfidential = false
@@ -290,6 +291,8 @@ export class MockServer {
   // ---------------- access (simplified policy) ----------------
   /** folders taken away from everyone by POST /__test/revoke (an admin's rule change) */
   revoked = new Set<string>()
+  /** answers' "참고한 파일" as recorded (GET .../messages/:messageId/sources checks each against the viewer now) */
+  sources = new Map<string, MessageSourceFile[]>()
   /** POST /__test/confidential {all: true}: Safe operations 1A is on (Me.server.allChatsConfidential) */
   allConfidential = false
   /** POST /__test/artifact: what the next "artifact" answer writes */
@@ -626,6 +629,8 @@ export class MockServer {
       ? ''
       : capped
         ? 'Sorting the applications into the table.\n\n- Read 20 of 40 so far\n- Scored each one against the job description\n- Saved the first half to the shared sheet\n\nThe rest are still in the folder; this answer stopped before reaching them.'
+      : /sources/i.test(prompt)
+        ? '매출은 [report.pdf · p.4](/files/view?path=docs%2Fsources%2Freport.pdf&page=4)에 있어요. 채널별 금액은 [budget.xlsx · 시트 \'매출\' A40:C44](/files/view?path=docs%2Fsources%2Fbudget.xlsx&sheet=%EB%A7%A4%EC%B6%9C&range=A40:C44)을 보면 돼요.'
       : prompt.includes('answered:')
         ? `You chose ${prompt.split('answered:')[1]}.`
         : /artifact|react/i.test(prompt)
@@ -659,6 +664,19 @@ export class MockServer {
         assistant.error = { code: text.code, message: text.ko, ...(fixture[1] ? {} : { params: { reason } }) }
       } else if (fixture?.[2] === 'unknown') assistant.error.message = 'Unknown upstream failure'
       else if (fixture?.[2] === 'future') assistant.error.params = { reason: 'future_failure' }
+    }
+    if (/sources/i.test(prompt)) {
+      // like server/src/files/sources.ts: what the answer read or saw passages of, a sub-agent's read marked; one file
+      // nobody can open (secret/) only counts
+      const list: MessageSourceFile[] = [
+        { path: 'docs/sources/report.pdf', name: 'report.pdf', locs: [{ kind: 'page', page: 4 }, { kind: 'page', page: 5 }], via: ['read', 'search'] },
+        { path: 'docs/sources/budget.xlsx', name: 'budget.xlsx', locs: [{ kind: 'sheet', sheet: '매출', range: 'A40:C44' }], via: ['search'] },
+        { path: 'docs/sources/deck.pptx', name: 'deck.pptx', locs: [{ kind: 'slide', slide: 5 }], via: ['read'], subagent: true },
+        { path: 'marketing/plan.md', name: 'plan.md', locs: [], via: ['grep'] },
+        { path: 'secret/payroll.csv', name: 'payroll.csv', locs: [], via: ['read'] },
+      ]
+      this.sources.set(assistant.id, list)
+      assistant.sourceCount = list.length
     }
     if (/files/i.test(prompt)) {
       this.putFile('marketing/report.md', '# Report\n')
@@ -812,6 +830,16 @@ export class MockServer {
       return chat
     },
     listMessages: (c) => ({ items: this.path(c.params.id!), nextCursor: null }),
+    messageSources: (c) => {
+      const m = this.messages.find((x) => x.id === c.params.messageId && x.chatId === c.params.id) ?? fail('not_found', 404)
+      const files: MessageSourceFile[] = []
+      let unavailable = 0
+      for (const f of this.sources.get(m.id) ?? []) {
+        if (this.files.get(f.path)?.type === 'file' && this.access(f.path, c.user) !== 'none') files.push(f)
+        else unavailable++
+      }
+      return { files, unavailable }
+    },
     listTurnRequests: (c) => ({ items: [...this.openAsks.values()].filter((r) => r.chatId === c.params.id) }),
     sendMessage: (c) => {
       const chat = this.chats.find((x) => x.id === c.params.id) ?? fail('not_found', 404)
@@ -2044,6 +2072,12 @@ function officeFixtures(): [string, Uint8Array][] {
   const wb = XLSX.utils.book_new()
   XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([['month', 'spend'], ['July', 1200], ['August', 900]]), 'Q3 spend')
   out.push(['docs/spend.xlsx', new Uint8Array(XLSX.write(wb, { type: 'array', bookType: 'xlsx' }) as ArrayBuffer)])
+  // the files an answer's "참고한 파일" points into (a page, a sheet range, a slide): long enough to scroll
+  out.push(['docs/sources/report.pdf', makePagedPdf(Array.from({ length: 6 }, (_, i) => [`Sales report page ${i + 1}`, ...Array.from({ length: 30 }, (_, k) => `line ${k + 1} of page ${i + 1}`)]))])
+  const budget = XLSX.utils.book_new()
+  XLSX.utils.book_append_sheet(budget, XLSX.utils.aoa_to_sheet([['summary'], ['see 매출']]), '요약')
+  XLSX.utils.book_append_sheet(budget, XLSX.utils.aoa_to_sheet([['month', 'channel', 'spend'], ...Array.from({ length: 80 }, (_, i) => [`m${i + 1}`, i % 2 ? 'naver' : 'instagram', 1000 + i])]), '매출')
+  out.push(['docs/sources/budget.xlsx', new Uint8Array(XLSX.write(budget, { type: 'array', bookType: 'xlsx' }) as ArrayBuffer)])
   // a sheet whose cells link to javascript: and to a web page
   const links = XLSX.utils.aoa_to_sheet([['evil cell', 'web cell']])
   links.A1!.l = { Target: 'javascript:top.document.title="pwned-xlsx"' }
@@ -2054,11 +2088,12 @@ function officeFixtures(): [string, Uint8Array][] {
   const docs = [
     ['brand.docx', 'docx', '# Brand guidelines\n\nPrimary color: mint.\n'],
     ['kickoff.pptx', 'pptx', '# Q4 kickoff\n\n- Launch in November\n'],
+    ['sources/deck.pptx', 'pptx', Array.from({ length: 6 }, (_, i) => `## Deck slide ${i + 1}\n\n- point ${i + 1}\n`).join('\n')],
     ['links.docx', 'docx', '# Links\n\n[evil link](javascript:top.document.title="pwned-docx") and [web link](https://example.com/doc) and [app link](/admin/members)\n'],
   ] as const
   for (const [name, to, md] of docs) {
     try {
-      const tmp = `${process.env.TMPDIR ?? '/tmp'}/mycel-mock-${process.pid}-${name}`
+      const tmp = `${process.env.TMPDIR ?? '/tmp'}/mycel-mock-${process.pid}-${name.replace(/\//g, '-')}`
       const p = Bun.spawnSync(['pandoc', '-f', 'markdown', '-t', to, '-o', tmp], { stdin: enc.encode(md) })
       if (p.exitCode === 0 && (name !== 'links.docx' || withAltChunk(tmp))) {
         out.push([`docs/${name}`, new Uint8Array(fs.readFileSync(tmp))])

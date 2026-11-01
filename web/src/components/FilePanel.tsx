@@ -17,6 +17,7 @@ import { formatSize } from '../lib/format'
 import { parentPath } from '../lib/paths'
 import { decodePreviewText, languageOf, previewKind, previewLimit, PREVIEW_TEXT_MAX, serverPreview, type PreviewKind } from '../lib/preview'
 import { openTeamFile, type PreviewFile } from '../lib/sidePanel'
+import type { SourceLoc } from '@mycel/shared/api'
 import { TEAM_FILE_DRAG_TYPE } from '../lib/teamAttach'
 import { useTeamAttach } from '../lib/useTeamAttach'
 import { useLocale, useT } from '../i18n'
@@ -239,14 +240,14 @@ export default function FilePanel({ file, onClose }: { file: PreviewFile; onClos
             {error.text}
           </p>
         ) : kind === 'hwp' && file.source === 'team' ? (
-          <Suspense fallback={<p className="p-6 text-sm text-faint">{t('common.loading')}</p>}><HwpView key={file.path} path={file.path} download={download} /></Suspense>
+          <Suspense fallback={<p className="p-6 text-sm text-faint">{t('common.loading')}</p>}><HwpView key={file.path} path={file.path} download={download} startPage={file.at?.kind === 'page' ? file.at.page : undefined} /></Suspense>
         ) : !blob ? (
           <p className="flex items-center gap-2 p-6 text-sm text-faint">
             <Loader2 size={14} className="animate-spin" aria-hidden /> {t('common.loading')}
           </p>
         ) : (
           <Suspense fallback={<p className="p-6 text-sm text-faint">{t('common.loading')}</p>}>
-            <Viewer kind={kind} blob={blob} width={width} name={file.name} />
+            <Viewer kind={kind} blob={blob} width={width} name={file.name} at={file.source === 'team' ? file.at : undefined} />
           </Suspense>
         )}
       </div>
@@ -254,16 +255,18 @@ export default function FilePanel({ file, onClose }: { file: PreviewFile; onClos
   )
 }
 
-function Viewer({ kind, blob, width, name }: { kind: PreviewKind; blob: Blob; width: number; name: string }) {
+/** `at`: the place to open the file at (an answer's source, a link): a PDF page, a slide, a sheet and its range. Word
+ * and Hangul previews have no such place and open at the top. */
+function Viewer({ kind, blob, width, name, at }: { kind: PreviewKind; blob: Blob; width: number; name: string; at?: SourceLoc }) {
   switch (kind) {
     case 'pdf':
-      return <PdfView blob={blob} width={width} />
+      return <PdfView blob={blob} width={width} startPage={at?.kind === 'page' ? at.page : undefined} />
     case 'docx':
       return <DocxView blob={blob} />
     case 'pptx':
-      return <PptxView blob={blob} width={width} />
+      return <PptxView blob={blob} width={width} startSlide={at?.kind === 'slide' ? at.slide : undefined} />
     case 'sheet':
-      return <SheetView blob={blob} />
+      return <SheetView blob={blob} startSheet={at?.kind === 'sheet' ? at.sheet : undefined} range={at?.kind === 'sheet' ? at.range : undefined} />
     case 'image':
     case 'audio':
     case 'video':

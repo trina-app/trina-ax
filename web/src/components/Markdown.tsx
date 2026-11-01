@@ -16,6 +16,7 @@ import remarkMath from 'remark-math'
 import { fileUrl, saveBlob, startDownload } from '../lib/api'
 import { classifyImage, classifyLink, isDisplayableImagePath, prepareMarkdown } from '../lib/markdown'
 import { previewKind } from '../lib/preview'
+import type { SourceLoc } from '@mycel/shared/api'
 import { openTeamFile } from '../lib/sidePanel'
 import { baseName } from '../lib/paths'
 import { useT } from '../i18n'
@@ -185,12 +186,12 @@ function CopyableTable({ children }: { children: ReactNode }) {
 // ---------------- links and images ----------------
 /** A file the AI made or mentioned: a chip that opens the preview panel. A file without a viewer opens the panel
  *  too, which shows the "can't be previewed" notice and a download button. */
-function TeamFileLink({ path, children }: { path: string; children: ReactNode }) {
+function TeamFileLink({ path, at, children }: { path: string; at?: SourceLoc; children: ReactNode }) {
   const t = useT()
   const canPreview = previewKind(path) !== null
   return (
     <span className="not-prose my-1 inline-flex max-w-full items-stretch overflow-hidden rounded-xl border border-line bg-surface align-middle text-sm font-medium text-ink shadow-sm">
-      <button type="button" onClick={() => openTeamFile(path)} className="inline-flex min-w-0 items-center gap-2 px-3 py-1.5 text-left hover:bg-hover" title={canPreview ? t('common.preview') : t('preview.unsupportedShort')}>
+      <button type="button" onClick={() => openTeamFile(path, at)} className="inline-flex min-w-0 items-center gap-2 px-3 py-1.5 text-left hover:bg-hover" title={canPreview ? t('common.preview') : t('preview.unsupportedShort')}>
         {canPreview ? <Eye size={15} className="shrink-0 text-accent-text" aria-hidden /> : <FileText size={15} className="shrink-0 text-accent-text" aria-hidden />}
         <span className="break-all">{children}</span>
       </button>
@@ -240,7 +241,7 @@ const COMPONENTS: Components = {
   table: ({ children }) => <CopyableTable>{children}</CopyableTable>,
   a: ({ href, children }) => {
     const l = classifyLink(href, origin())
-    if (l.kind === 'team-file') return <TeamFileLink path={l.path}>{children}</TeamFileLink>
+    if (l.kind === 'team-file') return <TeamFileLink path={l.path} at={l.at}>{children}</TeamFileLink>
     if (l.kind === 'app') return <Link to={l.href}>{children}</Link>
     if (l.kind === 'external')
       return (
