@@ -4668,14 +4668,18 @@ upstream, no `claude-*` name among them). This makes it a supported setting inst
 
 ## Hosted speech-to-text (feat/hosted-speech, 2026-11-01)
 
-Founder decision: hosted teams get speech-to-text included, 10 free hours a team a month, through OpenRouter's
+Founder decision: hosted teams (every plan, the free one too) get speech-to-text included, 10 free hours a team a
+month in one pool shared by voice input and video and audio reads, through OpenRouter's
 `openai/whisper-large-v3-turbo` on DeepInfra (US, $0.012 an hour of sound), with Groq (US, $0.04 an hour) as the
 fallback when DeepInfra is down. Test report: `plans/stt-hosted-2026-11-01/STT-DEEPINFRA-TEST.md` (private).
 
 - **Pinning.** OpenRouter's transcription endpoint ignores `provider.only` / `order` / `ignore`. The pin is the
   hosting service's guardrail `trina-hosted-stt` on every hosted key: providers DeepInfra and Groq only, this model
-  only, zero data retention, no training or publication. OpenRouter picks between the two; measured with 20 parallel
-  requests twice: 34 of 40 DeepInfra, 6 Groq, every chat model refused. Both are on OpenRouter's ZDR list for the model;
+  only, zero data retention, no training or publication. The keys live in their own OpenRouter workspace ("Trina
+  hosted STT", apart from the account's other keys) whose provider sort is `price` (OpenRouter has no "this provider
+  first" setting; `price` puts DeepInfra, the cheaper, first and keeps Groq as the fallback), and whose default
+  guardrail has the same rules. Measured with 20 parallel requests twice: 40 of 40 DeepInfra in that workspace, against
+  34 of 40 (6 Groq) with the key in the default workspace without the sort; every chat model refused. Both are on OpenRouter's ZDR list for the model;
   Groq's OpenRouter data policy: no training, no prompt retention, no publishing (US). Groq answers the language as a
   name ("Korean"); `parseOpenRouter` maps names to codes (feat/stt-openrouter-tune).
 - **Key.** The control plane (trina-cloud) makes one OpenRouter key per hosted team with a monthly dollar limit as a
