@@ -82,7 +82,7 @@ var updateTestHook func(u *updater)
 func cmdUpdate(e *env, args []string) (int, error) {
 	fs := flag.NewFlagSet("update", flag.ContinueOnError)
 	e.flags(fs)
-	version := fs.String("version", "", "update to this version (from the feed); default: the channel's newest")
+	version := fs.String("version", "", "update to this version (from the feed; an older one too: a roll-back); default: the channel's newest, only when it is newer than the app that runs")
 	bundleFile := fs.String("bundle", "", "update from this release archive (<v>-linux-<arch>.tar.zst) instead of the feed")
 	onlyRoot := fs.Bool("only-if-needs-root", false, "do nothing unless the release changes root files (the update timer)")
 	asJSON := fs.Bool("json", false, "JSON output")
@@ -114,6 +114,8 @@ func cmdUpdate(e *env, args []string) (int, error) {
 		}
 		if *asJSON {
 			printJSON(e.stdout, res)
+		} else if res.Skipped {
+			fmt.Fprintf(e.stdout, "%s: nothing changed, %s stays: %s\n", res.Result, orNone(res.From), res.Detail)
 		} else {
 			fmt.Fprintf(e.stdout, "%s: %s -> %s (root files updated: %v, app updated: %v) %s\n", res.Result, orNone(res.From), orNone(res.To), res.RootUpdated, res.AppUpdated, res.Detail)
 		}
@@ -180,6 +182,12 @@ func (u *updater) run(version, bundleFile string, onlyRoot bool) error {
 			return err
 		}
 		u.res.To, needsRoot = feed.Version, feed.NeedsRoot
+		if version == "" {
+			if why := notNewer(feed.Version, u.res.From, rootVersion(u.e)); why != "" {
+				u.res.Result, u.res.Skipped, u.res.Detail = "ok", true, why
+				return nil
+			}
+		}
 		if onlyRoot && !needsRoot {
 			u.res.Result, u.res.Skipped, u.res.Detail = "ok", true, "release "+feed.Version+" does not change root files"
 			return nil
@@ -217,6 +225,29 @@ func (u *updater) run(version, bundleFile string, onlyRoot bool) error {
 		return nil
 	}
 	return u.updateApp(dir, m.Version)
+}
+
+// notNewer says why the channel's newest release (an update without --version: the update timer, a plain
+// `mycel-ctl update`) is not installed, or "" to go on. Like the app's own updater (server/src/system/update.ts
+// status, update-job.ts autoUpdateDecision), it must be newer than the version that runs: a pre-release or a test
+// build newer than the channel stays when the feed still names an older release. The same version is skipped too,
+// unless root files are older than it or root/VERSION is missing (the app came to it without them): then only the
+// root files catch up. --version and --bundle are an admin's explicit choice (a roll-back too) and are not checked:
+// root files newer than the release stay anyway (updateRoot), and the app goes to the version asked for.
+func notNewer(feed, app, root string) string {
+	if app == "" {
+		return "" // no app/current: nothing runs that a downgrade could replace
+	}
+	switch c := compareVersions(feed, app); {
+	case c < 0:
+		return fmt.Sprintf("the feed's release %s is older than the installed %s, not installed (to go back to it, run `mycel-ctl update --version %s`)", feed, app, feed)
+	case c == 0 && root != "" && compareVersions(root, feed) >= 0:
+		if root != feed {
+			return "already at " + feed + " (root files " + root + ")"
+		}
+		return "already at " + feed
+	}
+	return ""
 }
 
 // workDir is a fresh folder under BASE/.install-tmp (root 700; the installer and mycel-ctl share it). An update-*
@@ -815,14 +846,21 @@ func (u *updater) restartServer() error {
 	return nil
 }
 
-// compareVersions orders semver like server/src/system/update.ts compareVersions: -1, 0, 1.
+// compareVersions orders versions exactly like server/src/system/update.ts compareVersions (the app's own updater,
+// the installer's `admin.js compare-versions` and the release scripts): -1, 0, 1. Semver: numbers compare as numbers,
+// a release is newer than its pre-releases, pre-release identifiers compare one by one (all-digit ones as numbers, so
+// rc.10 is newer than rc.9; numeric before text; text by bytes; more identifiers newer when the rest is equal), build
+// metadata (+...) is ignored. To give the same answer on every input, numbers are read the way JavaScript reads them:
+// a part of the main version is its leading digits (parseInt, none = 0), an identifier is numeric only when it is all
+// digits (/^\d+$/), and both become float64 like a JavaScript number. testdata/version-order.json is checked by both
+// sides (TestCompareVersionsMatchesServer here, tests/unit/g-update.test.ts there).
 func compareVersions(a, b string) int {
-	split := func(v string) ([]int, []string) {
+	split := func(v string) ([]float64, []string) {
 		core := strings.SplitN(v, "+", 2)[0]
 		main, pre, hasPre := strings.Cut(core, "-")
-		var nums []int
+		var nums []float64
 		for _, x := range strings.Split(main, ".") {
-			n, _ := strconv.Atoi(x)
+			n, _ := jsNumber(x[:len(x)-len(strings.TrimLeft(x, "0123456789"))])
 			nums = append(nums, n)
 		}
 		if !hasPre {
@@ -833,7 +871,7 @@ func compareVersions(a, b string) int {
 	xn, xp := split(a)
 	yn, yp := split(b)
 	for i := 0; i < len(xn) || i < len(yn); i++ {
-		var p, q int
+		var p, q float64
 		if i < len(xn) {
 			p = xn[i]
 		}
@@ -868,18 +906,18 @@ func compareVersions(a, b string) int {
 		if p == q {
 			continue
 		}
-		pn, perr := strconv.Atoi(p)
-		qn, qerr := strconv.Atoi(q)
+		pn, pok := jsNumber(p)
+		qn, qok := jsNumber(q)
 		switch {
-		case perr == nil && qerr == nil:
+		case pok && qok:
 			if pn < qn {
 				return -1
 			}
 			if pn > qn {
 				return 1
 			}
-		case (perr == nil) != (qerr == nil):
-			if perr == nil {
+		case pok != qok:
+			if pok {
 				return -1
 			}
 			return 1
@@ -891,4 +929,14 @@ func compareVersions(a, b string) int {
 		}
 	}
 	return 0
+}
+
+// jsNumber reads an all-digit string as JavaScript's Number() does (the nearest float64); ok is false for "" and
+// anything else.
+func jsNumber(s string) (float64, bool) {
+	if s == "" || strings.TrimLeft(s, "0123456789") != "" {
+		return 0, false
+	}
+	n, err := strconv.ParseFloat(s, 64)
+	return n, err == nil || errors.Is(err, strconv.ErrRange)
 }

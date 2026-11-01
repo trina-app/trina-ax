@@ -102,6 +102,8 @@ Claude Code on other models (DeepSeek, Kimi, GLM and others through OpenRouter o
 
 Read the [latest release](https://github.com/trina-app/trina-ax/releases/latest) and admin actions, make a full backup plus an encrypted off-host archive, then review diagnostics. The signed Trina feed is `https://updates.trina.app/server/stable.json`. App-only updates can apply during the configured window when no answers are running; root changes require the update timer or `sudo mycel-ctl update`. Check `sudo mycel-ctl status` afterward and test login and a permitted file.
 
+The update timer and `sudo mycel-ctl update` without `--version` install the feed's release only when it is newer than the app that runs, in the same version order as the app's own updater (a server on a pre-release such as 0.2.18-pre.1 skips a 0.2.17 feed and says so); to go back on purpose, give the version: `sudo mycel-ctl update --version <version>` (newer root files stay).
+
 For manual updates, download and verify the new kit as above, then use `sudo ./install-linux.sh update --from .`. A startup failure can roll the app back; it does **not** undo database migrations or file changes. Do not assume an older binary can read every future database. Restore from a verified pre-update backup when needed, using a compatible release.
 
 ### Kept versions

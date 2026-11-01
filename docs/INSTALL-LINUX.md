@@ -187,6 +187,7 @@ description: 허용된 회의록의 결정과 할 일을 정리합니다.
   bootstrap이 이전 버전으로 되돌리고, 그 버전은 7일 동안 자동으로 다시 시도하지 않는다. 피드의 단계적 배포(`rollout`)를 따른다.
 - **root 부분(실행기·샌드박스·유닛, root가 따로 두는 1A 프로그램 `mycel-safeops`·`pandoc`)이 바뀌는 릴리스**: 관리자 › 시스템 › 업데이트에 "관리자 권한 필요"가 보이고 진단이 경고한다.
   `mycel-update.timer`(매일 04:30 ± 90분)가 처리하거나 직접 `sudo mycel-ctl update`.
+- **더 오래된 릴리스로 내려가지 않음**: `mycel-update.timer`와 `--version` 없는 `sudo mycel-ctl update`는 피드의 버전이 지금 돌고 있는 앱보다 새로울 때만 설치한다(서버의 앱 업데이트와 같은 버전 순서. 0.2.18-pre.1 같은 사전 릴리스가 돌면 0.2.17 피드는 건너뛰고 그렇게 적는다). 일부러 되돌리려면 버전을 준다: `sudo mycel-ctl update --version <버전>`(더 새 root 부분은 그대로 둔다).
 - 끄기: 설치 때 `--no-auto-update`(타이머 끔), `server.json`의 `update.auto`를 `false`(앱 자동 업데이트 끔).
 - **보관하는 버전**: 업데이트마다 버전 폴더 하나(`app/versions/<버전>`, 압축을 푼 크기 약 540 MB)가 생긴다. 서버가 켜진 지
   10분 뒤(bootstrap이 새 버전을 확인한 뒤)와 그 뒤 매시간, 되돌리기에 쓰는 것만 남기고 지운다. 서버 계정이 하므로 root 단계가 없다.

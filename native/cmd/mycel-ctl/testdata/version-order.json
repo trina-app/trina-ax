@@ -1,0 +1,33 @@
+{
+  "about": "Version order shared by mycel-ctl (update.go compareVersions, TestCompareVersionsMatchesServer) and the server (server/src/system/update.ts compareVersions, tests/unit/g-update.test.ts). ascending: each is older than every later one. same: equal. pairs: [a, b, compareVersions(a, b)] where JavaScript's reading of numbers decides.",
+  "ascending": [
+    "0.2.9",
+    "0.2.10",
+    "0.2.17-devenv.1",
+    "0.2.17",
+    "0.2.18-pre.1.805103ac",
+    "0.2.18-qa4.x",
+    "0.2.18",
+    "0.10.0",
+    "1.0.0-1",
+    "1.0.0-alpha",
+    "1.0.0-alpha.1",
+    "1.0.0-beta.2",
+    "1.0.0-beta.10",
+    "1.0.0-rc-1",
+    "1.0.0-rc-2",
+    "1.0.0"
+  ],
+  "same": [
+    ["0.2.18", "0.2.18+build.7"],
+    ["1.2", "1.2.0"],
+    ["1.0.0-rc.01", "1.0.0-rc.1"]
+  ],
+  "pairs": [
+    ["1.0.0--1", "1.0.0-0", 1],
+    ["1.2a.0", "1.2.0", 0],
+    ["1.0.0-a..b", "1.0.0-a.0.b", 1],
+    ["1.0.0-", "1.0.0", -1],
+    ["1.0.0-100000000000000000000", "1.0.0-99999999999999999999", 0]
+  ]
+}
