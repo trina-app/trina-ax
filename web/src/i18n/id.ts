@@ -1709,6 +1709,7 @@ export const id: Record<MessageKey, string> = {
   'integrations.noTools': 'Layanan ini tidak memberi alat apa pun. Coba periksa lagi.',
   'integrations.toolsOf': '{n} dari {total} alat',
   'integrations.toolsCapped': 'Layanan ini menyediakan {total} alat; AI hanya dapat memakai {n} alat pertama.',
+  'integrations.toolsStale': 'Layanan ini menyediakan {total} alat; hanya {n} yang tersimpan saat terakhir diperiksa. Periksa lagi untuk menyimpan semuanya.',
   'integrations.readOnly': 'Hanya baca',
   'integrations.toolsHint': 'Alat hanya-baca langsung dijalankan AI; yang lain mengikuti pengaturan penulisan.',
   'integrations.toolsOff': "{n} nonaktif",

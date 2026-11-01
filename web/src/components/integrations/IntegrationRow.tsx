@@ -10,7 +10,7 @@ import { useEffect, useId, useRef, useState, type ReactNode } from 'react'
 import type { Integration, IntegrationFlow } from '@mycel/shared/api'
 import { api, API, errorText } from '../../lib/api'
 import { formatDateTime } from '../../lib/format'
-import { authorizationUrl, canSignIn, STATUS_TONE } from '../../lib/integrations'
+import { authorizationUrl, canSignIn, STATUS_TONE, toolsShortfall } from '../../lib/integrations'
 import { mobileApp } from '../../lib/mobile'
 import { useLocale, useT } from '../../i18n'
 import { toast } from '../../store/ui'
@@ -206,6 +206,7 @@ export function IntegrationRow({ i, actions, onEdit, teamBadge, extra }: {
   const phone = !!mobileApp()
   const KindIcon = i.kind === 'mcp' ? Waypoints : Globe
   const off = i.tools.filter((x) => x.enabled === false).length
+  const short = toolsShortfall(i)
   const meta: string[] = []
   if (i.auth === 'bearer' || i.auth === 'header') meta.push(t(i.hasSecret ? 'integrations.keySaved' : 'integrations.keyMissing'))
   if (i.auth === 'oauth' && i.hasSecret) meta.push(i.account ? t('integrations.account', { account: i.account }) : t('integrations.signedIn'))
@@ -259,7 +260,7 @@ export function IntegrationRow({ i, actions, onEdit, teamBadge, extra }: {
         <div className="mt-2 pl-7">
           <button type="button" aria-expanded={open} aria-controls={toolsId} onClick={() => setOpen((v) => !v)} className="inline-flex items-center gap-1 rounded text-xs font-medium text-accent-text hover:underline" data-testid="integration-tools-toggle">
             {open ? <ChevronDown size={14} aria-hidden /> : <ChevronRight size={14} aria-hidden />}
-            {i.toolsTotal ? t('integrations.toolsOf', { n: i.tools.length, total: i.toolsTotal }) : t('integrations.tools', { n: i.tools.length })}
+            {short ? t('integrations.toolsOf', { n: i.tools.length, total: i.toolsTotal! }) : t('integrations.tools', { n: i.tools.length })}
             {off > 0 && <span className="font-normal text-muted" data-testid="integration-tools-off"> · {t('integrations.toolsOff', { n: off })}</span>}
           </button>
           {open && (
@@ -294,7 +295,7 @@ export function IntegrationRow({ i, actions, onEdit, teamBadge, extra }: {
                 </ul>
               )}
               <p className="mt-1.5 text-xs text-faint">
-                {i.toolsTotal ? <span className="block" data-testid="integration-tools-capped">{t('integrations.toolsCapped', { n: i.tools.length, total: i.toolsTotal })}</span> : null}
+                {short && <span className="block" data-testid="integration-tools-capped">{t(short, { n: i.tools.length, total: i.toolsTotal! })}</span>}
                 {i.tools.length > 0 && `${t(i.canManage ? 'integrations.toolsSwitchHint' : 'integrations.toolsManagedHint')} `}
                 {t('integrations.toolsHint')}
                 {i.toolsUpdatedAt && ` ${t('integrations.toolsChecked', { date: formatDateTime(i.toolsUpdatedAt, locale) })}`}

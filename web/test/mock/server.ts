@@ -1812,10 +1812,18 @@ export class MockServer {
     else if (keyed && secret === 'wrong-key') set('error', '서비스가 키를 거절했어요(401). 키를 확인해 주세요.')
     else {
       set('connected', null)
-      if (x.kind === 'mcp' && new URL(x.url).hostname.startsWith('many.')) {
-        // a "many." host offers 150 tools: the server keeps the first 100 and says "100 of 150"
-        x.tools = Array.from({ length: 100 }, (_, i) => ({ name: `tool_${i}`, title: null, description: `Tool ${i}`, readOnly: true, enabled: !x.disabledTools.includes(`tool_${i}`) }))
-        x.toolsTotal = 150
+      const host = new URL(x.url).hostname
+      const many = (n: number) => Array.from({ length: n }, (_, i) => ({ name: `tool_${i}`, title: null, description: `Tool ${i}`, readOnly: i % 2 === 0, enabled: !x.disabledTools.includes(`tool_${i}`) }))
+      if (x.kind === 'mcp' && host.startsWith('many.')) {
+        // a "many." host offers 186 tools (like Higgsfield): the server keeps them all
+        x.tools = many(186)
+        delete x.toolsTotal
+        x.toolsUpdatedAt = now()
+      } else if (x.kind === 'mcp' && host.startsWith('stale.')) {
+        // a "stale." host: its first list is the one an older server cut at 100 of 150; checking again saves all 150
+        x.tools = many(x.checks > 1 ? 150 : 100)
+        if (x.checks > 1) delete x.toolsTotal
+        else x.toolsTotal = 150
         x.toolsUpdatedAt = now()
       } else if (x.kind === 'mcp') {
         // like server/src/integrations/connections/store.ts disabledTools: a tool turned off stays off, a new one is on

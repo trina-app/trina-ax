@@ -1669,6 +1669,7 @@ export const ja: Record<MessageKey, string> = {
   'integrations.noTools': "サービスからツールが提示されませんでした。再確認してください。",
   'integrations.toolsOf': "{total}個中{n}個のツール",
   'integrations.toolsCapped': "このサービスには{total}個のツールがありますが、AIが使えるのは最初の{n}個だけです。",
+  'integrations.toolsStale': "このサービスには{total}個のツールがありますが、前回の確認で保存されたのは{n}個です。再確認するとすべて保存されます。",
   'integrations.readOnly': "読み取り専用",
   'integrations.toolsHint': "読み取り専用ツールはすぐに実行します。それ以外は書き込み設定に従います。",
   'integrations.toolsOff': "{n, plural, one {#件オフ} other {#件オフ}}",

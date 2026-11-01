@@ -2,9 +2,9 @@
 // bodies the contract accepts, sends only what changed, never sends a stored key anywhere new, and the sign-in address
 // from the server is opened only when it is https.
 import { describe, expect, test } from 'bun:test'
-import { ApiError, IntegrationInput, IntegrationPatch, type Integration } from '@mycel/shared/api'
+import { ApiError, INTEGRATION_TOOLS_MAX, IntegrationInput, IntegrationPatch, type Integration } from '@mycel/shared/api'
 import {
-  authorizationUrl, authOf, covers, dropsSecret, emptyForm, formFrom, needsKey, normalAccess, sameAccess, serverFieldErrors, splitByScope, toInput, toPatch, urlProblem, validate, withKind,
+  authorizationUrl, authOf, covers, dropsSecret, emptyForm, formFrom, needsKey, normalAccess, sameAccess, serverFieldErrors, splitByScope, toInput, toPatch, toolsShortfall, urlProblem, validate, withKind,
   type IntegrationForm,
 } from '../../src/lib/integrations'
 import { DICTS } from '../../src/i18n'
@@ -160,5 +160,18 @@ describe('what comes back from the server', () => {
     const { mine, team } = splitByScope(items)
     expect(mine.map((x) => x.id)).toEqual(['c', 'b'])
     expect(team.map((x) => x.id)).toEqual(['d', 'a'])
+  })
+})
+
+describe('the tool list in Settings', () => {
+  const tools = (n: number) => Array.from({ length: n }, (_, i) => ({ name: `t${i}`, title: null, description: '', readOnly: false, enabled: true }))
+  test('every tool the service lists is there: "186 tools", no "N of M"; a short list says why', () => {
+    expect(toolsShortfall(connection({ kind: 'mcp', tools: tools(186) }))).toBeNull()
+    // a list an older server cut at 100: checking again saves the rest
+    expect(toolsShortfall(connection({ kind: 'mcp', tools: tools(100), toolsTotal: 150 }))).toBe('integrations.toolsStale')
+    // over the server's ceiling
+    expect(toolsShortfall(connection({ kind: 'mcp', tools: tools(INTEGRATION_TOOLS_MAX), toolsTotal: INTEGRATION_TOOLS_MAX + 200 }))).toBe('integrations.toolsCapped')
+    for (const d of Object.values(DICTS)) for (const k of ['integrations.toolsStale', 'integrations.toolsCapped', 'integrations.tools', 'integrations.toolsOf'] as const) expect(d[k]).toBeTruthy()
+    expect(DICTS.ko['integrations.toolsStale']).toContain('다시 확인')
   })
 })

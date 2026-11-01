@@ -1709,6 +1709,7 @@ export const en: Record<MessageKey, string> = {
   'integrations.noTools': 'The service listed no tools. Try checking again.',
   'integrations.toolsOf': '{n} of {total} tools',
   'integrations.toolsCapped': 'The service offers {total} tools; the AI can use the first {n}.',
+  'integrations.toolsStale': 'The service offers {total} tools; {n} were saved when it was last checked. Check again to save all of them.',
   'integrations.readOnly': 'Read-only',
   'integrations.toolsHint': 'The AI runs read-only tools right away; the others follow the write setting.',
   'integrations.toolsOff': "{n, plural, one {# off} other {# off}}",
