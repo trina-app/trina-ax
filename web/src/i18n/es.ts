@@ -898,6 +898,7 @@ export const es: Record<MessageKey, string> = {
   'apps.noDownloadsFeed': "La aplicación de Windows aparece aquí sola unos 15 minutos después de que el servidor del equipo se inicie o se actualice.",
   'apps.noDownloadsOwnerFeed': "El servidor la descarga de {feed} y comprueba su firma; después, las aplicaciones de Windows se actualizan desde aquí. Si no aparece, Administración › Sistema › Diagnóstico indica el motivo («Aplicación de Windows»; docs/INSTALL-LINUX.en.md).",
   'apps.noDownloadsOwnerLinux': "Este servidor no tiene un canal de versiones. Copie los archivos de la versión al servidor y ejecute allí trina_admin desktop-refresh --from <folder> (docs/INSTALL-LINUX.en.md, «Windows app»).",
+  'apps.noDownloadsOwnerHosted': "El servidor del equipo la descarga del canal de versiones firmado después de cada actualización. Si no aparece, Administración › Sistema › Diagnóstico indica el motivo («Aplicación de Windows»).",
   'apps.thisComputer': "Para esta computadora",
   'apps.winHow': "Abra el archivo descargado ({productFile}-Setup-….exe). Se instala de inmediato sin contraseña de administrador y abre {product}.",
   'apps.winSmartScreen': "Si aparece una ventana azul con \"Windows protegió su PC\", haga clic en Más información → Ejecutar de todas formas. Esta compilación no tiene una firma verificada, por lo que Windows muestra una advertencia una vez.",

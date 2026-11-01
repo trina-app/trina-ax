@@ -922,6 +922,7 @@ export const ko = {
   'apps.noDownloadsFeed': '팀 서버가 시작하거나 업데이트하고 15분쯤 지나면 Windows 앱이 여기에 저절로 나타나요.',
   'apps.noDownloadsOwnerFeed': '서버가 {feed}에서 받아 서명을 확인하고, Windows 앱은 여기서 업데이트돼요. 나타나지 않으면 관리자 › 시스템 › 진단의 "Windows 앱" 줄에 이유가 있어요(docs/INSTALL-LINUX.md 8a).',
   'apps.noDownloadsOwnerLinux': '이 서버에는 릴리스 피드가 없어요. 릴리스 파일을 서버에 복사하고 서버에서 trina_admin desktop-refresh --from <폴더>를 실행하세요(docs/INSTALL-LINUX.md 8a).',
+  'apps.noDownloadsOwnerHosted': '팀 서버가 업데이트될 때마다 서명된 릴리스 피드에서 받아 와요. 나타나지 않으면 관리자 › 시스템 › 진단의 "Windows 앱" 줄에 이유가 있어요.',
   'apps.thisComputer': '이 컴퓨터용',
   'apps.winHow': '내려받은 파일({productFile}-Setup-….exe)을 여세요. 관리자 암호 없이 바로 설치되고 {product} 앱이 열려요.',
   'apps.winSmartScreen': '"Windows의 PC 보호" 파란 창이 나오면 추가 정보 → 실행을 누르세요. 서명 확인이 안 된 빌드라 처음 한 번 나오는 경고예요.',

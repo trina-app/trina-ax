@@ -477,7 +477,11 @@ export class OpsService {
 
     // updates
     if (this.ctx.config.office) add('update', 'update', t(M.update), 'ok', t(M.updateOffice(this.ctx.version)))
-    else if (host === 'hosted') add('update', 'update', t(M.update), 'ok', t(ML.updateManaged(this.ctx.version)))
+    else if (host === 'hosted') {
+      add('update', 'update', t(M.update), 'ok', t(ML.updateManaged(this.ctx.version)))
+      const win = this.windowsAppFeed() ? windowsDiagnostic(this.ctx.config.dataDir, this.ctx.version, undefined, true) : null
+      if (win) add('windows_app', 'update', t(WINDOWS_TEXT.label), win.status, t(win.text))
+    }
     else if (!this.updates.installed) add('update', 'update', t(M.update), 'ok', t(M.updateDev))
     else {
       const h = this.updates.history().at(-1)
@@ -692,15 +696,16 @@ export class OpsService {
       }, PRUNE_FIRST_MS)
       this.timers.push(firstPrune as unknown as ReturnType<typeof setInterval>)
     }
-    // Linux self-host: the Windows desktop app of the release this server runs, for the desks' app (system/windows-app.ts):
+    // Linux server: the Windows desktop app of the release this server runs, for the desks' app (system/windows-app.ts):
     // 15 minutes after start (an update restarts the server; the bootstrap has decided by then), then every 6 hours. A
     // server whose automatic updates are off (update.auto false, --no-auto-update) asks the feed only after a start,
-    // that is after its owner updated it, and never on its own between starts.
+    // that is after its owner updated it, and never on its own between starts; so does a hosted tenant (the control
+    // plane's `mycel-ctl update` restarts it, and its update gate is over by the 15th minute).
     if (this.windowsAppFeed()) {
       const offer = () => { void this.refreshWindowsApp().catch((e) => log.warn('Windows app not offered', { err: e })) }
       const firstOffer = setTimeout(() => {
         offer()
-        if (!this.ctx.config.update.auto) return
+        if (!this.ctx.config.update.auto || isHosted(this.ctx.config)) return
         const every = setInterval(offer, WINDOWS_EVERY_MS)
         ;(every as unknown as { unref?: () => void }).unref?.()
         this.timers.push(every)

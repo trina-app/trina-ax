@@ -898,6 +898,7 @@ export const ja: Record<MessageKey, string> = {
   'apps.noDownloadsFeed': "チームサーバーの起動または更新から約15分後に、Windowsアプリがここに自動で表示されます。",
   'apps.noDownloadsOwnerFeed': "サーバーが{feed}からダウンロードして署名を確認し、Windowsアプリはここから更新されます。表示されない場合は、管理 › システム › 診断の「Windowsアプリ」に理由が表示されます（docs/INSTALL-LINUX.en.md）。",
   'apps.noDownloadsOwnerLinux': "このサーバーにはリリースフィードがありません。リリースのファイルをサーバーにコピーし、サーバーでtrina_admin desktop-refresh --from <folder>を実行してください（docs/INSTALL-LINUX.en.md「Windows app」）。",
+  'apps.noDownloadsOwnerHosted': "チームサーバーが更新のたびに署名付きのリリースフィードからダウンロードします。表示されない場合は、管理 › システム › 診断の「Windowsアプリ」に理由が表示されます。",
   'apps.thisComputer': "このコンピューター用",
   'apps.winHow': "ダウンロードしたファイル（{productFile}-Setup-….exe）を開いてください。管理者パスワードなしですぐにインストールされ、{product}が開きます。",
   'apps.winSmartScreen': "青い「WindowsによってPCが保護されました」画面が表示された場合は、「詳細情報」→「実行」をクリックしてください。このビルドには検証済みの署名がないため、Windowsが一度警告します。",

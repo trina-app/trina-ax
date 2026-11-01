@@ -923,6 +923,7 @@ export const en: Record<MessageKey, string> = {
   'apps.noDownloadsFeed': 'The Windows app appears here by itself about 15 minutes after the team server starts or updates.',
   'apps.noDownloadsOwnerFeed': 'The server downloads it from {feed} and checks its signature, and the Windows apps then update from here. If it does not appear, Admin › System › Diagnostics says why ("Windows app"; docs/INSTALL-LINUX.en.md).',
   'apps.noDownloadsOwnerLinux': 'This server has no release feed. Copy the release files to the server and run trina_admin desktop-refresh --from <folder> there (docs/INSTALL-LINUX.en.md, "Windows app").',
+  'apps.noDownloadsOwnerHosted': 'The team server downloads it from the signed release feed after each update. If it does not appear, Admin › System › Diagnostics says why ("Windows app").',
   'apps.thisComputer': 'For this computer',
   'apps.winHow': 'Open the downloaded file ({productFile}-Setup-….exe). It installs right away without an administrator password and opens {product}.',
   'apps.winSmartScreen': 'If a blue "Windows protected your PC" window appears, click More info → Run anyway. This build has no verified signature, so Windows warns once.',

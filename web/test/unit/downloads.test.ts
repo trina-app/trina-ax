@@ -80,7 +80,7 @@ describe('desktop downloads', () => {
     expect(list).not.toContain(translate(currentLocale(), 'apps.macStore'))
     expect(view({ downloads: 'none' })).toContain('office-install.sh') // apps.noDownloadsOwner
   })
-  test("the owner's empty state names what this server does: an office Mac's command, a Linux server's feed or folder, nothing to run on the hosted service", () => {
+  test("the owner's empty state names what this server does: an office Mac's command, a Linux server's feed or folder, nothing to run on the hosted service (Diagnostics when its feed should have brought it)", () => {
     type Props = Parameters<typeof DesktopDownloads>[0]
     const view = (o: Partial<Props>) => renderToStaticMarkup(createElement(DesktopDownloads, { downloads: 'none', store: false, owner: true, here: 'windows', ...o }))
     const host = new URL(RELEASE_CHANNEL.feed).host
@@ -96,7 +96,13 @@ describe('desktop downloads', () => {
     const hosted = view({ server: 'hosted' })
     expect(hosted).toContain('You haven&#x27;t put a desktop app') // apps.noDownloadsYet, without the owner's second line
     expect(hosted).not.toContain('mt-2')
-    for (const server of ['office', 'feed', 'folder', 'hosted'] as const) expect(view({ server, owner: false })).toBe(`<p class="text-sm text-muted">${translate(currentLocale(), 'apps.noDownloads')}</p>`)
+    // a hosted tenant that takes it from the feed: "appears by itself", and Diagnostics, not a command
+    const hostedFeed = view({ server: 'hosted-feed' })
+    expect(hostedFeed).toContain(translate(currentLocale(), 'apps.noDownloadsFeed'))
+    expect(hostedFeed).toContain('Diagnostics')
+    expect(hostedFeed).not.toMatch(/teamax|desktop-refresh|INSTALL-LINUX|office-install/)
+    for (const server of ['office', 'feed', 'folder', 'hosted', 'hosted-feed'] as const) expect(view({ server, owner: false })).toBe(`<p class="text-sm text-muted">${translate(currentLocale(), 'apps.noDownloads')}</p>`)
+    for (const l of ['ko', 'en', 'id', 'ja', 'es'] as const) expect(DICTS[l]['apps.noDownloadsOwnerHosted']).not.toMatch(/trina_admin|desktop-refresh|INSTALL-LINUX/)
     for (const l of ['ko', 'en', 'id', 'ja', 'es'] as const) {
       expect(translate(l, 'apps.noDownloadsOwnerFeed', { feed: host })).toContain(host)
       expect(DICTS[l]['apps.noDownloadsOwnerLinux']).toContain('desktop-refresh --from')

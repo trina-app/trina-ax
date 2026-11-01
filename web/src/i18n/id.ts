@@ -923,6 +923,7 @@ export const id: Record<MessageKey, string> = {
   'apps.noDownloadsFeed': 'Aplikasi Windows muncul di sini dengan sendirinya sekitar 15 menit setelah server tim mulai atau diperbarui.',
   'apps.noDownloadsOwnerFeed': 'Server mengunduhnya dari {feed} dan memeriksa tanda tangannya, lalu aplikasi Windows diperbarui dari sini. Kalau tidak muncul, Admin › Sistem › Diagnostik menjelaskan alasannya ("Aplikasi Windows"; docs/INSTALL-LINUX.en.md).',
   'apps.noDownloadsOwnerLinux': 'Server ini tidak punya feed rilis. Salin file rilis ke server lalu jalankan trina_admin desktop-refresh --from <folder> di sana (docs/INSTALL-LINUX.en.md, "Windows app").',
+  'apps.noDownloadsOwnerHosted': 'Server tim mengunduhnya dari feed rilis yang ditandatangani setiap kali diperbarui. Kalau tidak muncul, Admin › Sistem › Diagnostik menjelaskan alasannya ("Aplikasi Windows").',
   'apps.thisComputer': 'Untuk komputer ini',
   'apps.winHow': 'Buka file yang diunduh ({productFile}-Setup-….exe). Langsung terpasang tanpa kata sandi administrator dan {product} terbuka.',
   'apps.winSmartScreen': 'Kalau muncul jendela biru "Windows protected your PC", klik Info selengkapnya → Tetap jalankan. Build ini belum punya tanda tangan yang terverifikasi, jadi Windows memperingatkan sekali.',

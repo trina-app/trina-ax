@@ -18,7 +18,7 @@ import { resolveLayout } from '../../server/src/system/layout'
 import { OpsService } from '../../server/src/system/ops'
 import {
   downloadsDirOf, feedRootOf, folderFetch, readWindowsState, refreshWindowsApp, WINDOWS_EVERY_MS, WINDOWS_FIRST_MS, WINDOWS_TEXT, windowsAppFeedOf,
-  windowsDiagnostic, type WindowsAppOptions,
+  windowsAppSourceOf, windowsDiagnostic, type WindowsAppOptions,
 } from '../../server/src/system/windows-app'
 import { WORK } from '../lib/env'
 
@@ -107,11 +107,15 @@ const opts = (s: { data: string }, files: Map<string, Uint8Array | string>, over
 
 describe('which servers fill /downloads/ themselves', () => {
   const cfg = (o: Partial<AppConfig> = {}) => ({ mode: 'prod' as const, office: false, update: { channel: 'stable' as const, feedUrl: 'https://updates.example.test/server/stable.json' }, ...o })
-  test('a Linux server (self-installed, Trina-hosted on its own machine) with a feed; not office, hosted, dev, a Mac, or no feed', () => {
+  test('a Linux server (self-installed, Trina-hosted on its own machine, a hosted tenant) with a feed; not office, dev, a Mac, or no feed', () => {
     expect(windowsAppFeedOf(cfg(), 'linux')).toBe('https://updates.example.test')
     expect(windowsAppFeedOf(cfg({ deployment: 'self' }), 'linux')).toBe('https://updates.example.test')
     expect(windowsAppFeedOf(cfg({ office: true }), 'linux')).toBeNull()
-    expect(windowsAppFeedOf(cfg({ deployment: 'hosted' }), 'linux')).toBeNull()
+    expect(windowsAppFeedOf(cfg({ deployment: 'hosted' }), 'linux')).toBe('https://updates.example.test')
+    // where it comes from, for the owner's hint: a hosted tenant without a feed has nothing its owner could run
+    expect(windowsAppSourceOf(cfg({ deployment: 'hosted' }), 'linux')).toBe('feed')
+    expect(windowsAppSourceOf(cfg({ deployment: 'hosted', update: { channel: 'stable', feedUrl: null } }), 'linux')).toBeNull()
+    expect(windowsAppSourceOf(cfg({ update: { channel: 'stable', feedUrl: null } }), 'linux')).toBe('folder')
     expect(windowsAppFeedOf(cfg({ mode: 'dev' }), 'linux')).toBeNull()
     expect(windowsAppFeedOf(cfg(), 'darwin')).toBeNull()
     expect(windowsAppFeedOf(cfg({ update: { channel: 'stable', feedUrl: null } }), 'linux')).toBeNull()
@@ -278,7 +282,10 @@ describe('the signed release\'s Windows app into data/downloads', () => {
     expect(d.text.en).toContain('trina_admin desktop-refresh')
     await refreshWindowsApp(opts(s, publish('0.3.0').files))
     expect(windowsDiagnostic(s.data, '0.3.0')).toEqual({ status: 'ok', text: WINDOWS_TEXT.offered('0.3.0') })
-    for (const l of ['ko', 'en', 'id', 'ja', 'es'] as const) expect(WINDOWS_TEXT.offered('0.3.0')[l]).toContain('0.3.0')
+    for (const l of ['ko', 'en', 'id', 'ja', 'es'] as const) {
+      expect(WINDOWS_TEXT.offered('0.3.0')[l]).toContain('0.3.0')
+      expect(WINDOWS_TEXT.failedHosted('x')[l]).not.toMatch(/trina_admin|desktop-refresh/)
+    }
     // the feed cannot be read now, but the folder still offers 0.3.0: no "not offered" warning
     await refreshWindowsApp(opts(s, new Map(), { fetch: async () => { throw new Error('offline') } }))
     expect(windowsDiagnostic(s.data, '0.3.0')).toMatchObject({ status: 'ok', text: { en: expect.stringContaining('The Windows app 0.3.0 is offered by this server. The last look') } })
@@ -396,9 +403,10 @@ describe('the ops service of an installed Linux server', () => {
     const made: { kind: 'timeout' | 'interval'; ms: number; fn: () => void }[] = []
     const real = { setTimeout: globalThis.setTimeout, setInterval: globalThis.setInterval }
     const fake = (kind: 'timeout' | 'interval') => ((fn: () => void, ms: number) => { made.push({ kind, ms, fn }); return { unref() {} } }) as unknown as typeof setTimeout
-    const started = (auto: boolean) => {
+    const started = (auto: boolean, hosted = false) => {
       made.length = 0
       ctx.config.update.auto = auto
+      ctx.config.deployment = hosted ? 'hosted' : undefined
       const o = ops()
       expect(o.windowsAppFeed()).toBe(`http://127.0.0.1:${feed.port}`)
       let runs = 0
@@ -417,11 +425,14 @@ describe('the ops service of an installed Linux server', () => {
         globalThis.setTimeout = real.setTimeout; globalThis.setInterval = real.setInterval
         ;(o as unknown as { timers: unknown[] }).timers.splice(0)
         ctx.config.update.auto = undefined
+        ctx.config.deployment = undefined
       }
     }
     expect(started(true)).toEqual({ every: true, runs: 2 })
     // automatic updates off: only after a start (that is, after its owner updated it), never on its own in between
     expect(started(false)).toEqual({ every: false, runs: 1 })
+    // a hosted tenant: only after a start (the control plane's update restarts it), even if server.json said auto
+    expect(started(true, true)).toEqual({ every: false, runs: 1 })
     // the real run: it reads <feed>/office/stable.json and refuses a manifest this build cannot verify
     const r = await ops().refreshWindowsApp()
     expect(r?.kind).toBe('failed')
@@ -432,14 +443,24 @@ describe('the ops service of an installed Linux server', () => {
     const line = (await ops().diagnostics('en')).checks.find((c) => c.id === 'windows_app')
     expect(line).toMatchObject({ status: 'warn', group: 'update' })
     expect(line?.detail).toContain('unknown key')
+    expect(line?.detail).toContain('trina_admin desktop-refresh')
+    // a hosted tenant's owner gets the same line without a server command (it has no shell there)
+    ctx.config.deployment = 'hosted'
+    try {
+      const hosted = (await ops().diagnostics('en')).checks.find((c) => c.id === 'windows_app')
+      expect(hosted).toMatchObject({ status: 'warn', group: 'update' })
+      expect(hosted?.detail).toContain('unknown key')
+      expect(hosted?.detail).toContain('contact support')
+      expect(hosted?.detail).not.toMatch(/trina_admin|sudo|INSTALL-LINUX/)
+    } finally { ctx.config.deployment = undefined }
   })
 
-  test('not on a Mac, not in office mode, not on the hosted service', () => {
+  test('not on a Mac or in office mode; a hosted tenant does it from its own feed', () => {
     expect(ops('darwin').windowsAppFeed()).toBeNull()
     ctx.config.office = true
     try { expect(ops().windowsAppFeed()).toBeNull() } finally { ctx.config.office = false }
     ctx.config.deployment = 'hosted'
-    try { expect(ops().windowsAppFeed()).toBeNull() } finally { ctx.config.deployment = undefined }
+    try { expect(ops().windowsAppFeed()).toBe(`http://127.0.0.1:${feed.port}`) } finally { ctx.config.deployment = undefined }
   })
 })
 

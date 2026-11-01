@@ -18,8 +18,11 @@
 // `admin.js desktop-refresh`, also with `--from /full/path` for a server without internet (the manifest and the two files
 // copied there; checked the same way). Admin › System › Diagnostics shows the last result ("Windows app").
 // Existing Windows apps need nothing new: they already ask /downloads/latest.yml every 4 hours.
-// Not here: office mode (its own updater), the hosted service (the control plane owns its servers), development, a
-// Mac role-account install (no feed), and a server whose server.json names no feed.
+// The hosted service: its control plane updates a tenant by running `mycel-ctl update` in it (the tenant fetches the
+// bundle from the same feed itself; its firewall lets https out), and every update restarts the server, so a tenant
+// does only the run after a start: never the 6-hourly one, never a release newer than itself, its own channel.
+// Not here: office mode (its own updater), development, a Mac role-account install (no feed), and a server whose
+// server.json names no feed.
 import fs from 'node:fs'
 import path from 'node:path'
 import { PRODUCT } from '@mycel/shared'
@@ -58,11 +61,13 @@ export function feedRootOf(feedUrl: string | null | undefined): string | null {
 type WindowsCfg = Pick<AppConfig, 'mode' | 'office' | 'update'> & { deployment?: AppConfig['deployment'] }
 
 /** Where a Linux server's Windows app comes from (GET /api/me server.windowsApp, the owner's hint in Settings > Apps):
- * 'feed' = by itself from the release feed, 'folder' = a server whose server.json names no feed (the owner copies the
- * release's files in: desktop-refresh --from), null = not a Linux server of its own (office Mac, hosted, dev). */
+ * 'feed' = by itself from the release feed (a self-installed server, or a hosted tenant), 'folder' = a self-installed
+ * server whose server.json names no feed (the owner copies the release's files in: desktop-refresh --from), null = none
+ * (office Mac, dev, a Mac role-account install, a hosted tenant without a feed: its owner has no shell). */
 export function windowsAppSourceOf(cfg: WindowsCfg, platform: NodeJS.Platform = process.platform): 'feed' | 'folder' | null {
-  if (platform !== 'linux' || cfg.mode !== 'prod' || cfg.office || isHosted(cfg as Record<string, unknown>)) return null
-  return feedRootOf(cfg.update.feedUrl) ? 'feed' : 'folder'
+  if (platform !== 'linux' || cfg.mode !== 'prod' || cfg.office) return null
+  if (feedRootOf(cfg.update.feedUrl)) return 'feed'
+  return isHosted(cfg as Record<string, unknown>) ? null : 'folder'
 }
 
 /** This server puts the Windows app into its downloads folder by itself: the feed it uses, else null (see the header). */
@@ -267,6 +272,14 @@ export const WINDOWS_TEXT = {
       es: `La aplicación de Windows no se ofrece: ${why}. Después de corregirlo, ejecute ${c} en el servidor (docs/INSTALL-LINUX.en.md, «Windows app»).`,
     }
   },
+  /** a hosted tenant: its owner has no shell, the run after the next update tries again */
+  failedHosted: (why: string): T => ({
+    ko: `Windows 앱을 올리지 못했어요: ${why}. 팀 서버가 다음에 업데이트되면 다시 시도해요. 계속되면 지원팀에 알려 주세요.`,
+    en: `The Windows app is not offered: ${why}. It is tried again after the team server's next update; if this stays, contact support.`,
+    id: `Aplikasi Windows tidak tersedia: ${why}. Dicoba lagi setelah pembaruan server tim berikutnya; jika tetap begini, hubungi dukungan.`,
+    ja: `Windowsアプリを配布できませんでした：${why}。チームサーバーの次回の更新後に再試行します。解決しない場合はサポートにお問い合わせください。`,
+    es: `La aplicación de Windows no se ofrece: ${why}. Se volverá a intentar después de la próxima actualización del servidor del equipo; si sigue así, contacte con soporte.`,
+  }),
   /** the folder still offers an app; only the last look at the feed failed */
   checkFailed: (v: string, why: string): T => ({
     ko: `Windows 앱 ${v}을(를) 이 서버에서 받을 수 있어요. 마지막 릴리스 피드 확인은 실패했어요: ${why}`,
@@ -279,7 +292,7 @@ export const WINDOWS_TEXT = {
 
 /** The diagnostics line for the last run: null before the first one (15 minutes after start), and while a result from
  * before this server's own update would only confuse ("comes once this server runs 0.2.19" on 0.2.19) */
-export function windowsDiagnostic(dataDir: string, serverVersion: string, downloadsDir = downloadsDirOf(dataDir)): { status: 'ok' | 'warn'; text: T } | null {
+export function windowsDiagnostic(dataDir: string, serverVersion: string, downloadsDir = downloadsDirOf(dataDir), hosted = false): { status: 'ok' | 'warn'; text: T } | null {
   const st = readWindowsState(dataDir)
   const last = st.last
   if (!last) return null
@@ -295,9 +308,9 @@ export function windowsDiagnostic(dataDir: string, serverVersion: string, downlo
       // the feed could not be read (no version): the folder may well still offer the app
       const offered = last.version === null ? readIndex(downloadsDir).find((i) => i.platform === 'windows') : undefined
       if (offered) return { status: 'ok', text: WINDOWS_TEXT.checkFailed(offered.version, why) }
-      return { status: 'warn', text: WINDOWS_TEXT.failed(why, st.failed?.version === last.version) }
+      return { status: 'warn', text: hosted ? WINDOWS_TEXT.failedHosted(why) : WINDOWS_TEXT.failed(why, st.failed?.version === last.version) }
     }
-    case 'held': return { status: 'warn', text: WINDOWS_TEXT.failed(why, true) }
-    default: return { status: 'warn', text: WINDOWS_TEXT.failed(why) }
+    case 'held': return { status: 'warn', text: hosted ? WINDOWS_TEXT.failedHosted(why) : WINDOWS_TEXT.failed(why, true) }
+    default: return { status: 'warn', text: hosted ? WINDOWS_TEXT.failedHosted(why) : WINDOWS_TEXT.failed(why) }
   }
 }
