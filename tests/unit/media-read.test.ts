@@ -517,6 +517,37 @@ describe('who transcribes, and when sound may leave the server', () => {
     expect(r.out.text).toMatch(/Access denied/)
     expect(rows(swap)).toEqual([expect.objectContaining({ seconds: 600, pieces: 1 })])
   })
+  test("a provider failure's second try goes only after the same checks as a new piece (the switch, a confidential lock, the file)", async () => {
+    updateTeamSettings(A.ctx.db, { speechProvider: 'openrouter', aiMediaTranscripts: true })
+    setKey(KEY)
+    probe = audioOnly(300)
+    // DeepInfra fails once: the piece goes again and its answer is used
+    let n = 0
+    reply = () => (n++ === 0 ? Response.json({ error: 'down' }, { status: 502 }) : Response.json({ text: 'the second try' }))
+    let r = await read({ file_path: put('retry-ok.m4a') })
+    expect(hits.length).toBe(2)
+    expect(r.out.text).toContain('the second try')
+    // the admin turns the switch off while the first try is out: no second try
+    hits.length = 0
+    reply = () => { updateTeamSettings(A.ctx.db, { aiMediaTranscripts: false }); return Response.json({ error: 'down' }, { status: 502 }) }
+    r = await read({ file_path: put('retry-off.m4a') })
+    expect(hits.length).toBe(1)
+    expect(r.out.text).not.toContain('To read on')
+    // the chat is locked confidential meanwhile: no second try
+    updateTeamSettings(A.ctx.db, { aiMediaTranscripts: true })
+    hits.length = 0
+    const t = turn()
+    reply = () => { A.ctx.db.query('INSERT OR IGNORE INTO safe_ops_chats(chat_id, material) SELECT chat_id, 1 FROM turns WHERE id = ?').run(t); return Response.json({ error: 'down' }, { status: 503 }) }
+    r = await read({ file_path: put('retry-lock.m4a') }, { turnId: t })
+    expect(hits.length).toBe(1)
+    // the file changed meanwhile: no second try, the read stops with "changed"
+    hits.length = 0
+    const swap = put('retry-swap.m4a')
+    reply = () => { fs.writeFileSync(path.join(A.team, swap), 'other bytes'); return Response.json({ error: 'down' }, { status: 502 }) }
+    r = await read({ file_path: swap })
+    expect(hits.length).toBe(1)
+    expect(r.out.text).toMatch(/Access denied/)
+  })
   test('this server: whisper.cpp or its model missing says so and never downloads the model', async () => {
     const dl: string[] = []
     const srv = Bun.serve({ port: 0, hostname: '127.0.0.1', fetch(req) { dl.push(req.url); return new Response('no') } })
@@ -602,7 +633,8 @@ describe('long OpenRouter pieces: whisper names one language for a whole piece f
     reply = (b) => (b.language === 'ko' ? Response.json({ error: 'busy' }, { status: 503 }) : recorded('qa-meeting-p1'))
     const rel = put('busy.m4a')
     const r = await read({ file_path: rel })
-    expect(hits.length).toBe(2)
+    // the retry's provider failure is tried once more (postAudio), then the retry counts as failed
+    expect(hits.map((h) => h.language ?? 'auto')).toEqual(['auto', 'ko', 'ko'])
     expect(r.out.text).not.toContain('The transcript failed')
     expect(r.out.text).toContain('language: ja)')
     expect(auditOf(rel)).toEqual([expect.objectContaining({ seconds: 600, pieces: 1, ok: true })])

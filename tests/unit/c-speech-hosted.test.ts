@@ -14,6 +14,9 @@ import { credentialsOf } from '../../server/src/credentials/store'
 import { dropHostedSpeechKey, readSpeechKey, speechKeySource, speechKeyStatus, voiceInputOn, writeHostedSpeechKey, writeSpeechKey, HOSTED_SPEECH_KEY_SETTING } from '../../server/src/credentials/speech-key'
 import { chargeHostedSpeech, hostedSpeechLeft, hostedSpeechMonth, hostedSpeechUsage, HOSTED_SPEECH_FREE_SEC, HOSTED_SPEECH_USAGE_SETTING } from '../../server/src/credentials/hosted-speech'
 import { rekeyCredentials } from '../../server/src/credentials/rekey'
+import { hostedSpeechMeter } from '../../server/src/credentials/hosted-speech'
+import { sendToOpenRouter } from '../../server/src/jobs/openrouter-stt'
+import { DEFAULT_SPEECH_MODEL } from '@mycel/shared/api'
 import { setHostedSpeechKey } from '../../server/src/system/cloud-tenant'
 import * as media from '../../server/src/files/media'
 import { makeCApp, type CApp } from '../lib/c-app'
@@ -188,9 +191,12 @@ describe('the month (Korea time)', () => {
     expect(hostedSpeechUsage(A.ctx.db, nov1kst).usedSec).toBe(0)
     chargeHostedSpeech(A.ctx.db, 60, nov1kst)
     expect(hostedSpeechUsage(A.ctx.db, nov1kst)).toEqual({ month: '2026-11', usedSec: 60, freeSec: HOSTED_SPEECH_FREE_SEC })
-    expect(hostedSpeechUsage(A.ctx.db, oct31kst).usedSec).toBe(0)
+    // the month never goes back: a clock set back into October keeps counting November's row (no fresh 10 hours)
+    expect(hostedSpeechUsage(A.ctx.db, oct31kst).usedSec).toBe(60)
+    chargeHostedSpeech(A.ctx.db, 30, oct31kst)
+    expect(hostedSpeechUsage(A.ctx.db, nov1kst).usedSec).toBe(90)
     const raw = (A.ctx.db.query('SELECT value FROM settings WHERE key = ?').get(HOSTED_SPEECH_USAGE_SETTING) as { value: string }).value
-    expect(JSON.parse(raw)).toEqual({ month: '2026-11', seconds: 60 })
+    expect(JSON.parse(raw)).toEqual({ month: '2026-11', seconds: 90 })
   })
   test('a broken row counts as nothing used and is replaced; zero or bad seconds are not counted', () => {
     A.ctx.db.query("INSERT INTO settings (key, value) VALUES (?, 'not json')").run(HOSTED_SPEECH_USAGE_SETTING)
@@ -244,7 +250,8 @@ describe('video reads with the hosting key', () => {
     spyOn(F(), 'mediaProbe').mockImplementation(async () => ({ ...video(18), video: null, format: 'mp3' }))
     await read(put('pool.m4a'))
     expect(hits.map((h) => h.auth)).toEqual([`Bearer ${HOSTED}`, `Bearer ${HOSTED}`, `Bearer ${HOSTED}`])
-    expect(hostedSpeechUsage(A.ctx.db).usedSec).toBe(7.5)
+    // voice input (no ffmpeg here): the 2.5 s OpenRouter heard; each read: the 2 s WAV the server made and sent
+    expect(hostedSpeechUsage(A.ctx.db).usedSec).toBe(6.5)
     chargeHostedSpeech(A.ctx.db, HOSTED_SPEECH_FREE_SEC)
     hits.length = 0
     expect((await voice()).error!.message).toContain('free hours of transcription are used up')
@@ -308,3 +315,116 @@ describe('admin.js hosted-speech-key (mycel-ctl hosted-speech-key-set)', () => {
     expect(dump).not.toContain('HOSTED-CANARY')
   })
 })
+
+describe('the meter: every request is held before it goes, counted once, given back without an answer', () => {
+  const send = (o: { seconds?: number | null; cfg?: ReturnType<typeof C>['transcribe'] } = {}) =>
+    sendToOpenRouter(o.cfg ?? C().transcribe, HOSTED, DEFAULT_SPEECH_MODEL, wav(1), 'wav', { seconds: o.seconds === undefined ? 30 : o.seconds })
+  test('requests sent at the same time cannot all pass the last seconds of the month', async () => {
+    chargeHostedSpeech(A.ctx.db, HOSTED_SPEECH_FREE_SEC - 1)
+    const got = await Promise.allSettled([1, 2, 3, 4, 5].map(() => send({ seconds: 600 })))
+    expect(got.filter((g) => g.status === 'fulfilled').length).toBe(1)
+    expect(got.filter((g) => g.status === 'rejected').map((g) => ((g as PromiseRejectedResult).reason as Error).message))
+      .toEqual(Array(4).fill(expect.stringContaining('free hours of transcription are used up')))
+    expect(hits.length).toBe(1)
+    expect(hostedSpeechUsage(A.ctx.db).usedSec).toBe(HOSTED_SPEECH_FREE_SEC - 1 + 600)
+  })
+  test('the length of what was sent counts, whatever the answer claims; an answer alone counts at most the month', async () => {
+    for (const duration of [-5, 1e12, Number.MAX_VALUE, 'ten', null, 0.5]) {
+      reply = () => Response.json({ text: 'x', duration })
+      await send({ seconds: 30 })
+    }
+    expect(hostedSpeechUsage(A.ctx.db).usedSec).toBe(180)
+    // without the server's own length (no ffmpeg): what OpenRouter heard, never below 0 or past the month
+    reply = () => Response.json({ text: 'x', duration: -5 })
+    await send({ seconds: null })
+    expect(hostedSpeechUsage(A.ctx.db).usedSec).toBe(180)
+    reply = () => Response.json({ text: 'x', duration: 1e12 })
+    await send({ seconds: null })
+    expect(hostedSpeechUsage(A.ctx.db).usedSec).toBe(180 + HOSTED_SPEECH_FREE_SEC)
+  })
+  test('no answer gives the hold back: both tries failing, a refusal, Stop', async () => {
+    reply = () => Response.json({}, { status: 503 })
+    await expect(send()).rejects.toThrow('did not answer, twice')
+    expect(hits.length).toBe(2)
+    reply = () => Response.json({}, { status: 401 })
+    await expect(send()).rejects.toThrow('Hosted transcription is not available')
+    reply = () => Response.json({}, { status: 400 })
+    await expect(send()).rejects.toThrow('HTTP 400')
+    const stop = new AbortController()
+    reply = () => { stop.abort(); return Response.json({ text: 'late' }) }
+    await sendToOpenRouter(C().transcribe, HOSTED, DEFAULT_SPEECH_MODEL, wav(1), 'wav', { seconds: 30, signal: stop.signal }).catch(() => null)
+    expect(hostedSpeechUsage(A.ctx.db).usedSec).toBe(0)
+    // a failure then an answer: counted once
+    replies = [() => Response.json({}, { status: 502 })]
+    reply = () => Response.json({ text: 'ok' })
+    await send()
+    expect(hostedSpeechUsage(A.ctx.db).usedSec).toBe(30)
+  })
+  test("a second try is checked again: the month used up meanwhile refuses it", async () => {
+    replies = [() => { chargeHostedSpeech(A.ctx.db, HOSTED_SPEECH_FREE_SEC); return Response.json({}, { status: 502 }) }]
+    await expect(send()).rejects.toThrow('free hours of transcription are used up')
+    expect(hits.length).toBe(1)
+  })
+  test('a request sent in the last minute of a month counts in that month, not in the next', async () => {
+    let clock = Date.parse('2026-10-31T14:59:30Z') // 23:59:30 KST, 31 October
+    const cfg = { ...C().transcribe, meter: hostedSpeechMeter(A.ctx.db, () => HOSTED, () => clock) }
+    reply = () => { clock = Date.parse('2026-10-31T15:00:30Z'); return Response.json({ text: 'x', duration: 45 }) }
+    await send({ cfg, seconds: 45 })
+    expect(hostedSpeechUsage(A.ctx.db, Date.parse('2026-10-31T14:59:30Z')).usedSec).toBe(45)
+    expect(hostedSpeechUsage(A.ctx.db, clock).usedSec).toBe(0)
+    // and a hold of October given back in November takes nothing from November
+    chargeHostedSpeech(A.ctx.db, 100, clock)
+    clock = Date.parse('2026-10-31T14:59:30Z')
+    reply = () => { clock = Date.parse('2026-10-31T15:01:00Z'); return Response.json({}, { status: 400 }) }
+    await send({ cfg, seconds: 45 }).catch(() => null)
+    expect(hostedSpeechUsage(A.ctx.db, clock).usedSec).toBe(100)
+  })
+  test("the hosting key goes with its one model; the team's own key with the team's choice", async () => {
+    updateTeamSettings(A.ctx.db, { speechModel: 'openai/whisper-large-v3' })
+    try {
+      await voice()
+      expect(hits[0]!.body.model).toBe(DEFAULT_SPEECH_MODEL)
+      writeSpeechKey(credentialsOf(A.ctx), TEAM)
+      await voice()
+      expect(hits[1]!.body.model).toBe('openai/whisper-large-v3')
+    } finally { updateTeamSettings(A.ctx.db, { speechModel: DEFAULT_SPEECH_MODEL }) }
+  })
+  test('voice input: a second try only while voice input is still on OpenRouter', async () => {
+    replies = [() => { updateTeamSettings(A.ctx.db, { speechProvider: 'off' }); return Response.json({}, { status: 502 }) }]
+    const job = await voice()
+    expect(job.status).toBe('failed')
+    expect(hits.length).toBe(1)
+    expect(hostedSpeechUsage(A.ctx.db).usedSec).toBe(0)
+  })
+})
+
+describe('a read whose month runs out on the way', () => {
+  beforeEach(() => {
+    F().speech.openRouterUrl = `http://127.0.0.1:${fake.port}/api/v1/audio/transcriptions`
+    spies.push(
+      spyOn(os, 'availableParallelism').mockReturnValue(2),
+      spyOn(F(), 'mediaTools').mockReturnValue({ ffmpeg: '/fake/ffmpeg', ffprobe: '/fake/ffprobe' }),
+      spyOn(F(), 'mediaProbe').mockImplementation(async () => ({ ...video(1500), video: null, format: 'mp3' })),
+      spyOn(F(), 'mediaDuration').mockResolvedValue(null),
+      spyOn(F(), 'mediaSendable').mockImplementation(async (_t, _w, _n, bytes: Buffer) => ({ bytes, format: 'wav' })),
+      spyOn(F(), 'mediaAudio').mockImplementation(async () => {
+        // speech-like noise, so the piece is not skipped as silence
+        const b = wav(2)
+        for (let i = 44; i + 1 < b.length; i += 2) b.writeInt16LE(Math.round(Math.sin(i / 7) * 8000), i)
+        return b
+      }),
+    )
+  })
+  test('stops before the next piece with the free-hours note (no "failed"), nothing more is sent', async () => {
+    fs.mkdirSync(path.join(A.team, 'users/alice'), { recursive: true })
+    const rel = 'users/alice/long-meeting.m4a'
+    fs.writeFileSync(path.join(A.team, rel), 'fake long media')
+    reply = () => { chargeHostedSpeech(A.ctx.db, HOSTED_SPEECH_FREE_SEC); return Response.json({ text: 'the first piece', language: 'en' }) }
+    const out = await F().call('read', { file_path: rel }, A.toolCtx('alice', A.turn('alice', A.chat('alice'))))
+    expect(hits.length).toBe(1)
+    expect(out.text).toContain('the first piece')
+    expect(out.text).toContain("This month's 10 free hours of transcription are used up")
+    expect(out.text).not.toContain('The transcript failed')
+  })
+})
+

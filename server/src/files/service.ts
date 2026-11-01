@@ -36,6 +36,7 @@ import { visionText } from './vision-text'
 import { normalizeForModel } from './vision'
 import { openChecked } from '../team-files/place'
 import { JobFailure } from '../jobs/service'
+import { FREE_USED, HOSTED_SPEECH_MODEL } from '../credentials/hosted-speech'
 import { converterInputName, modelReady, transcribeConfig, whisperFile, type TranscribeConfig } from '../jobs/transcribe'
 import { openRouterAudio, openRouterServed, sendToOpenRouter, wavData, type OpenRouterAnswer } from '../jobs/openrouter-stt'
 import { keepLongRetry, LONG_PIECE_SEC, longRetryLanguage } from '../jobs/speech-language'
@@ -552,10 +553,10 @@ export class FileService {
   }
   /** One piece of sound (16 kHz WAV, `wav` in the work folder as `wavName`) -> the team speech provider's transcript.
    * `language`: a hint (ISO 639-1), else the provider detects it. `send`: what goes to OpenRouter (mediaSendable),
-   * else the WAV. */
-  async mediaTranscribe(p: MediaSpeech, work: string, wavName: string, wav: Buffer, o: { signal?: AbortSignal; timeoutMs: number; language?: string; send?: { bytes: Buffer; format: string } }): Promise<MediaAnswer> {
+   * else the WAV. `again`: whether OpenRouter may get the sound once more after a provider failure (sendToOpenRouter). */
+  async mediaTranscribe(p: MediaSpeech, work: string, wavName: string, wav: Buffer, o: { signal?: AbortSignal; timeoutMs: number; language?: string; send?: { bytes: Buffer; format: string }; again?: () => boolean }): Promise<MediaAnswer> {
     // 16 kHz mono 16-bit PCM: 32 000 bytes a second
-    if (p.provider === 'openrouter') return sendToOpenRouter(this.speech, p.key, p.model, o.send?.bytes ?? wav, o.send?.format ?? 'wav', { signal: o.signal, timeoutMs: o.timeoutMs, seconds: (wavData(wav)?.length ?? Math.max(0, wav.length - 44)) / 32_000, language: o.language })
+    if (p.provider === 'openrouter') return sendToOpenRouter(this.speech, p.key, p.model, o.send?.bytes ?? wav, o.send?.format ?? 'wav', { signal: o.signal, timeoutMs: o.timeoutMs, seconds: (wavData(wav)?.length ?? Math.max(0, wav.length - 44)) / 32_000, language: o.language, again: o.again })
     // no temperature fallback: it took a piece of odd sound 5 times as long, which the read's plan cannot hold; and how
     // sure whisper.cpp is of the language it heard (a short piece alone may be told the team's language)
     let languageP: number | undefined
@@ -822,8 +823,10 @@ export class FileService {
     const provider = s.speechProvider
     const hosted = currentPlan() !== null
     const pieceSec = provider === 'local' ? media.LOCAL_PIECE_SEC : media.TRANSCRIPT_PIECE_SEC
-    const model = provider === 'openrouter' ? s.speechModel : media.localModelName(this.speech.model)
-    const label = provider === 'openrouter' ? `OpenRouter, ${s.speechModel}` : `this server, ${model}`
+    // the hosting service's key is for its one model (its guardrail at OpenRouter refuses any other)
+    const orModel = free ? HOSTED_SPEECH_MODEL : s.speechModel
+    const model = provider === 'openrouter' ? orModel : media.localModelName(this.speech.model)
+    const label = provider === 'openrouter' ? `OpenRouter, ${orModel}` : `this server, ${model}`
     // whether new pieces may be made, and with what
     let blocked: MediaTextKey | null = null
     let speech: MediaSpeech | null = null
@@ -833,7 +836,7 @@ export class FileService {
       else if (!key) blocked = 'noKey'
       // the month's free hours are used (a piece that would go past them still goes; the next request is refused)
       else if (free && free.leftSec <= 0) blocked = 'freeUsed'
-      else speech = { provider, key, model: s.speechModel }
+      else speech = { provider, key, model: orModel }
     } else if (!this.speech.whisperBin) blocked = 'noWhisper'
     else {
       const modelPath = await modelReady(this.speech)
@@ -863,11 +866,13 @@ export class FileService {
     const requests: { generation?: string; served?: string }[] = []
     let stopped: string | null = null
     let failure: string | null = null
-    /** why no sound may go to the provider now (the switch, the provider, the chat's confidentiality), or null */
+    /** why no sound may go to the provider now (the switch, the provider, the chat's confidentiality, the month's free
+     * hours of the hosting key), or null */
     const sendBlocked = (): MediaTextKey | null => {
       const now = getTeamSettings(this.db)
       if (now.speechProvider !== provider || !mediaTranscriptsOn(now, cores, free !== null)) return now.speechProvider === 'off' ? 'voiceOff' : 'transcriptsOff'
-      return provider === 'openrouter' && confidentialTurn(this.db, ctx.turnId) ? 'confidential' : null
+      if (provider === 'openrouter' && confidentialTurn(this.db, ctx.turnId)) return 'confidential'
+      return free && (this.speechFree()?.leftSec ?? 1) <= 0 ? 'freeUsed' : null
     }
     // the audit row covers every piece handed to the provider, also when the read then fails, is stopped or loses access
     try {
@@ -910,7 +915,12 @@ export class FileService {
               const measure = voice.loud >= media.SPEED_SPEECH_SEC
               const ask = async (lang: string | undefined) => {
                 if (speech!.provider === 'local') return this.localPiece(ctx, speech!, work, wav, bytes, len, lang, budget, need, measure)
-                const r = await this.mediaTranscribe(speech!, work, wav, bytes, { signal: ctx.signal, timeoutMs: budget(), language: lang, send })
+                // a provider failure's second try sends the sound again: only after the same checks as a new piece
+                const r = await this.mediaTranscribe(speech!, work, wav, bytes, { signal: ctx.signal, timeoutMs: budget(), language: lang, send, again: () => {
+                  if (sendBlocked()) return false
+                  this.recheckSource(ctx, src)
+                  return true
+                } })
                 requests.push({ ...(r.generation ? { generation: r.generation } : {}), ...(r.served ? { served: r.served } : {}) })
                 return r
               }
@@ -968,6 +978,8 @@ export class FileService {
             media.assertWork(work)
             // whisper.cpp ran out of the read's time: not a failure, the next read goes on from here (its speed is noted)
             if (e instanceof JobFailure && e.reason === 'timeout') { stopped = 'time'; break }
+            // the month's free hours ran out during the read (voice input or another read used the last of them)
+            if (e instanceof JobFailure && e.reason === FREE_USED) { stopped = 'freeUsed'; break }
             // whisper.cpp's own failure names its reason only; OpenRouter's says what to do (no credits, the key)
             if (e instanceof JobFailure) failure = e.reason ?? e.messages[personLocale(this.db, ctx.user.id)] ?? e.message
             else if (e instanceof ToolError && MEDIA_NOTE[e.code]) failure = say(MEDIA_NOTE[e.code]!)

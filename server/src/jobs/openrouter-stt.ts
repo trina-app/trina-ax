@@ -15,6 +15,7 @@ import type { JobHandle } from '../services'
 import { readOutput, runIsolated, type OutputRead } from '../tools/isolate'
 import { converterInputName, convertToWav, fail, LABELS, UNREADABLE, type TranscribeConfig } from './transcribe'
 import { keepLongRetry, languageCode, LONG_PIECE_SEC, longRetryLanguage, scoreSegments, type ScoredAnswer } from './speech-language'
+import { meterSeconds } from '../credentials/hosted-speech'
 
 /** formats the API takes as they are (when there is no ffmpeg) */
 const DIRECT = new Set(['wav', 'mp3', 'flac', 'ogg', 'm4a', 'aac'])
@@ -194,9 +195,11 @@ export async function openRouterAudio(ffmpeg: string, work: string, name: string
 
 /** Send one server-owned audio file to OpenRouter. `input` is not modified. `team`: the team's language; a recording of
  * LONG_PIECE_SEC or more that whisper heard in an unlikely language is sent once more told it, and the answer whisper
- * is surer of is kept (speech-language.ts; the told language is then not reported as heard). */
+ * is surer of is kept (speech-language.ts; the told language is then not reported as heard). `again`: whether the sound
+ * may go once more now (voice input still on OpenRouter), asked before that retry and before a provider failure's
+ * second try (sendToOpenRouter). */
 export async function transcribeOpenRouter(cfg: TranscribeConfig, key: string, model: string, input: string, name: string,
-  o: { language?: string; locale?: Locale; team?: string }, h: JobHandle): Promise<TranscribeResult> {
+  o: { language?: string; locale?: Locale; team?: string; again?: () => boolean }, h: JobHandle): Promise<TranscribeResult> {
   const loc = o.locale ?? DEFAULT_LOCALE
   const x = (/\.([a-z0-9]{1,8})$/i.exec(name)?.[1] ?? '').toLowerCase()
   if (!cfg.ffmpegBin && !DIRECT.has(x)) {
@@ -228,12 +231,12 @@ export async function transcribeOpenRouter(cfg: TranscribeConfig, key: string, m
     if (!audio.ok && audio.why === 'too_large') throw TOO_LARGE()
     if (!audio.ok) throw UNREADABLE()
     h.progress(0.4, LABELS.run[loc])
-    let r = await sendToOpenRouter(cfg, key, model, audio.bytes, format, { language: o.language, signal: h.signal, seconds })
+    let r = await sendToOpenRouter(cfg, key, model, audio.bytes, format, { language: o.language, signal: h.signal, seconds, again: o.again })
     const told = !o.language && o.team && (seconds ?? r.durationSec ?? 0) >= LONG_PIECE_SEC ? longRetryLanguage(r, { team: o.team }) : undefined
-    if (told) {
+    if (told && (!o.again || o.again())) {
       h.progress(0.7, LABELS.run[loc])
       // a retry that fails keeps the first answer (Stop still ends the job)
-      const again = await sendToOpenRouter(cfg, key, model, audio.bytes, format, { language: told, signal: h.signal, seconds }).catch(() => { h.signal.throwIfAborted(); return null })
+      const again = await sendToOpenRouter(cfg, key, model, audio.bytes, format, { language: told, signal: h.signal, seconds, again: o.again }).catch(() => { h.signal.throwIfAborted(); return null })
       if (again && keepLongRetry(r, again, told)) r = { ...again, language: null }
     }
     h.progress(1, LABELS.run[loc])
@@ -244,11 +247,13 @@ export async function transcribeOpenRouter(cfg: TranscribeConfig, key: string, m
 /**
  * One request to OpenRouter's speech-to-text API: `audio` (at most OPENROUTER_MAX_BYTES) in `format`, zero data
  * retention and no data collection requested, only OPENROUTER_STT_PROVIDERS, no redirects, OPENROUTER_TIMEOUT_MS (or
- * `timeoutMs`, if shorter) plus `signal`. Failures are JobFailures that never hold the key. `seconds`: the length of
- * the sound when the server knows it (the WAV it made), for an answer without one.
+ * `timeoutMs`, if shorter) plus `signal`; through the free-hours meter and once more after a provider failure
+ * (postAudio). Failures are JobFailures that never hold the key. `seconds`: the length of the sound when the server
+ * knows it (the WAV it made), for an answer without one and for the meter. `again`: whether the sound may go once more
+ * now (the caller's checks for new sound), asked before that second try; false keeps the first failure.
  */
 export async function sendToOpenRouter(cfg: TranscribeConfig, key: string, model: string, audio: Uint8Array, format: string,
-  o: { language?: string; signal?: AbortSignal; timeoutMs?: number; seconds?: number | null }): Promise<OpenRouterAnswer> {
+  o: { language?: string; signal?: AbortSignal; timeoutMs?: number; seconds?: number | null; again?: () => boolean }): Promise<OpenRouterAnswer> {
   if (audio.byteLength > OPENROUTER_MAX_BYTES) throw TOO_LARGE()
   const lang = o.language && /^[a-z]{2}$/.test(o.language) ? o.language : undefined
   const body = JSON.stringify({
@@ -258,7 +263,7 @@ export async function sendToOpenRouter(cfg: TranscribeConfig, key: string, model
     response_format: 'verbose_json',
     provider: openRouterRouting(),
   })
-  const res = await postAudio(cfg, key, body, { signal: o.signal, timeoutMs: o.timeoutMs, seconds: o.seconds ?? null })
+  const res = await postAudio(cfg, key, body, { signal: o.signal, timeoutMs: o.timeoutMs, seconds: o.seconds ?? null, again: o.again })
   if (!res.ok) { await res.body?.cancel().catch(() => {}); throw openRouterFailure(res.status) }
   let j: OrAnswer
   try { j = await res.json() as OrAnswer } catch (e) {
@@ -324,45 +329,53 @@ const RETRY_STATUS = new Set([408, 500, 502, 503, 504, 524, 529])
 export const RETRY_MIN_MS = 5_000
 
 /**
- * POST one speech request: through the meter (cfg.meter: the hosting key's free hours are checked before and counted
- * after, from the seconds OpenRouter heard, else `seconds`), and once more when the provider failed (RETRY_STATUS) or
- * did not answer in time, if the caller's time allows. Both failing says so (PROVIDER_DOWN_TWICE); the first failure
- * alone is never shown. Stop (`signal`) ends it at once. The answer of a successful or refused request is returned as
- * it is; OpenRouter's refusal of the hosting key is the meter's failure. The key is only in the header.
+ * POST one speech request, and once more when the provider failed (RETRY_STATUS) or did not answer in time, if the
+ * caller's time allows and `again` (the caller's checks for new sound: a read's switch, provider, confidential lock and
+ * the person's access) still says yes. Both failing says so (PROVIDER_DOWN_TWICE); the first failure alone is shown
+ * only when no second try went. Every request goes through the meter (cfg.meter: the hosting key's free hours): checked
+ * and held before it is sent, then counted once with the length of what was sent (`seconds`, else what OpenRouter says
+ * it heard) when it is answered, or given back when it is not. Stop (`signal`) ends it at once. The answer of a
+ * successful or refused request is returned as it is; OpenRouter's refusal of the hosting key is the meter's failure.
+ * The key is only in the header.
  */
-async function postAudio(cfg: TranscribeConfig, key: string, body: string, o: { signal?: AbortSignal; timeoutMs?: number; seconds: number | null }): Promise<Response> {
-  cfg.meter?.before(key)
+async function postAudio(cfg: TranscribeConfig, key: string, body: string, o: { signal?: AbortSignal; timeoutMs?: number; seconds: number | null; again?: () => boolean }): Promise<Response> {
   const started = Date.now()
   const left = () => (o.timeoutMs === undefined ? OPENROUTER_TIMEOUT_MS : o.timeoutMs - (Date.now() - started))
   for (let attempt = 0; ; attempt++) {
-    // each try gets OPENROUTER_TIMEOUT_MS, never more than the caller has left
-    const signals = [AbortSignal.timeout(Math.max(1, Math.min(OPENROUTER_TIMEOUT_MS, left())))]
-    if (o.signal) signals.push(o.signal)
+    // a second try is a request of its own: checked again (the month may be used up meanwhile) and held
+    const hold = cfg.meter?.before(key, o.seconds) ?? null
     let res: Response | null = null
     try {
+      // each try gets OPENROUTER_TIMEOUT_MS, never more than the caller has left
+      const signals = [AbortSignal.timeout(Math.max(1, Math.min(OPENROUTER_TIMEOUT_MS, left())))]
+      if (o.signal) signals.push(o.signal)
       res = await fetch(cfg.openRouterUrl, {
         method: 'POST', body, redirect: 'error',
         headers: { authorization: `Bearer ${key}`, 'content-type': 'application/json', 'x-title': PRODUCT.displayName },
         signal: AbortSignal.any(signals),
       })
     } catch (e) {
+      cfg.meter?.release(hold)
       if (o.signal?.aborted) throw e
     }
     if (res && !RETRY_STATUS.has(res.status)) {
       if (res.ok) {
-        if (cfg.meter) {
-          const j = await res.clone().json().catch(() => null) as { duration?: unknown } | null
-          const heard = typeof j?.duration === 'number' && Number.isFinite(j.duration) && j.duration >= 0 ? j.duration : o.seconds
-          cfg.meter.after(key, heard ?? 0)
-        }
+        // the length of what was sent (the WAV the server made); without one, what OpenRouter says it heard
+        let sec = o.seconds
+        if (sec === null && hold) sec = meterSeconds((await res.clone().json().catch(() => null) as { duration?: unknown } | null)?.duration)
+        cfg.meter?.after(hold, sec ?? 0)
       } else {
+        cfg.meter?.release(hold)
         const f = cfg.meter?.refused(key, res.status)
         if (f) { await res.body?.cancel().catch(() => {}); throw f }
       }
       return res
     }
-    if (res) await res.body?.cancel().catch(() => {})
+    if (res) { cfg.meter?.release(hold); await res.body?.cancel().catch(() => {}) }
     if (attempt > 0) throw PROVIDER_DOWN_TWICE()
-    if (left() < RETRY_MIN_MS) throw res ? openRouterFailure(res.status) : PROVIDER_DOWN()
+    const first = () => (res ? openRouterFailure(res.status) : PROVIDER_DOWN())
+    if (left() < RETRY_MIN_MS) throw first()
+    // the sound goes again only after the same checks as new sound (the first try can take a minute)
+    if (o.again && !o.again()) throw first()
   }
 }

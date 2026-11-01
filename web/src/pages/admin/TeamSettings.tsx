@@ -406,9 +406,12 @@ export function SpeechSection({ provider, model, transcripts, saved, onChange, o
       {provider === 'openrouter' && (
         <div className="space-y-3">
           <p className={`text-xs ${hostedKey ? 'text-muted' : 'text-warn'}`} data-testid="team-speech-privacy">{t(hostedKey ? 'speech.privacyHosted' : 'speech.privacy')}</p>
-          <Field label={t('speech.model')}>
-            <input className={inputCls} value={model} placeholder={DEFAULT_SPEECH_MODEL} spellCheck={false} maxLength={128} onChange={(e) => onChange({ speechModel: e.target.value.trim() })} onBlur={() => { if (!model) onChange({ speechModel: DEFAULT_SPEECH_MODEL }) }} />
-          </Field>
+          {/* the hosting service's key is for its one model; the team picks a model for its own key */}
+          {!hostedKey && (
+            <Field label={t('speech.model')}>
+              <input className={inputCls} value={model} placeholder={DEFAULT_SPEECH_MODEL} spellCheck={false} maxLength={128} onChange={(e) => onChange({ speechModel: e.target.value.trim() })} onBlur={() => { if (!model) onChange({ speechModel: DEFAULT_SPEECH_MODEL }) }} />
+            </Field>
+          )}
           <Loadable state={key} lines={1}>
             {(k) => (
               <div className="space-y-2">

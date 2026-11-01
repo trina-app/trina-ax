@@ -15,7 +15,7 @@ import { SPEECH_NO_KEY, SPEECH_OFF, transcribeOpenRouter } from '../jobs/openrou
 import { getTeamSettings, teamDefaultLocale } from '../admin/settings'
 import { credentialsOf } from '../credentials/store'
 import { readHostedSpeechKey, readSpeechKey, speechKeySource } from '../credentials/speech-key'
-import { hostedSpeechLeft, hostedSpeechMeter } from '../credentials/hosted-speech'
+import { HOSTED_SPEECH_MODEL, hostedSpeechLeft, hostedSpeechMeter } from '../credentials/hosted-speech'
 import { Artifacts } from '../tools/artifact'
 import { findConverters, MakeFile } from '../tools/make-file'
 import { Attachments } from '../uploads/attachments'
@@ -84,8 +84,12 @@ export function componentC(ctx: AppContext): ComponentC {
             if (s.speechProvider !== 'openrouter') throw SPEECH_OFF()
             const key = readSpeechKey(credentialsOf(ctx))
             if (!key) throw SPEECH_NO_KEY()
-            // a long recording heard in an unlikely language goes once more told the team's (jobs/speech-language.ts)
-            return await transcribeOpenRouter(stt, key, s.speechModel, own, name, { ...opts, team: teamDefaultLocale(ctx.db) }, h)
+            // the hosting service's key is for its one model (its guardrail at OpenRouter refuses any other)
+            const model = speechKeySource(ctx.db) === 'hosted' ? HOSTED_SPEECH_MODEL : s.speechModel
+            // a long recording heard in an unlikely language goes once more told the team's (jobs/speech-language.ts);
+            // that, or a provider failure's second try, sends the recording again only while voice input is still on
+            // OpenRouter
+            return await transcribeOpenRouter(stt, key, model, own, name, { ...opts, team: teamDefaultLocale(ctx.db), again: () => getTeamSettings(ctx.db).speechProvider === 'openrouter' }, h)
           } finally { fs.rmSync(own, { force: true }) }
         },
         // canceled while waiting for the transcription before it: the recording goes now, not with tomorrow's sweep

@@ -42,6 +42,8 @@ const FIELDS = Object.keys(TeamSettings.shape) as (keyof TeamSettingsT)[]
 /** The hosting service's speech-to-text key (credentials/speech-key.ts, set only by the control plane through mycel-ctl
  * hosted-speech-key-set). While it is here and no admin chose a speech provider, voice input defaults to OpenRouter. */
 export const HOSTED_SPEECH_KEY_SETTING = 'speech.hostedKey'
+/** this month's seconds of sound sent with that key (credentials/hosted-speech.ts) */
+export const HOSTED_SPEECH_USAGE_SETTING = 'speech.hostedUsage'
 
 export function getSetting<T>(db: Database, key: string): T | undefined {
   const row = db.query('SELECT value FROM settings WHERE key = ?').get(key) as { value: string } | null
