@@ -111,20 +111,29 @@ JSON or event-stream answers (reading stops once our reply has arrived, so a str
 idle minutes; a 404 for it starts a new one.
 
 - **Check** (on create, on change of address or key, "Check again"): `initialize` → `notifications/initialized` →
-  `tools/list` with every cursor page (at most 20). The tool list is saved (`tools_json`); at most 100 tools and
-  256,000 characters of schemas per connection; a tool whose input schema is not an object or is over 32,000 characters
+  `tools/list` with every cursor page (at most 100; one page may be 8 MiB). The tool list is saved (`tools_json`): every
+  tool the service lists, up to 1,000 tools and 4,000,000 characters of schemas and descriptions per connection (past
+  that Settings and the AI are told "N of M"); a tool whose input schema is not an object or is over 32,000 characters
   is left out. Turns use the saved list only: nothing is fetched when a chat starts.
 - **Tool names** for the engine: `my_<slug>__<tool>` (personal) and `team_<slug>__<tool>` (team), letters, digits, `_` and
   `-` only. With the engine's `mcp__team__` the full name stays within 64 characters: longer or clashing names are cut and
-  given a short hash; the server maps each back to the remote name. At most 200 such tools per turn.
+  given a short hash; the server maps each back to the remote name.
+- **Tools to look up** (docs/DECISIONS.md "Connection tools: deferred, found and called"): one answer offers at most
+  200 connection tools with 256,000 characters of definitions as tools of their own. A connection that does not fit
+  (Higgsfield: 186 tools, about 1 MB) is deferred, like Claude Code's MCP tools: the instructions list its tool names
+  (8,000 characters at most), `find_tools(query)` returns matching tools with their input schemas and
+  `call_tool(name, arguments)` runs one after checking the arguments against the stored schema, with every check of
+  the tool itself. The two names are the same for Claude Code, Codex, the API engine and sub-agents, so the engines'
+  tool lists and the model proxy's names stay fixed for the turn.
 - **Single tools on and off**, like the tool switches of Claude's connectors: whoever manages the connection (the
   owner of a personal one, an admin for a team one) turns a tool off with its switch (`POST
   /api/integrations/:id/tools {name, enabled}`; people who only use a team connection see which are off). The names
   that are off are kept per connection (`integrations.disabled_tools`, migration 328); every other tool is on, so a
   tool the service adds later is on, and a name stays off when its tool disappears and comes back. A tool that is off is
   left out where the turn's tools are made (`tools.ts integrationToolProvider`), so it is in neither the engine's tool
-  list nor the model proxy's names for the turn (a request naming it stops the answer), and the instructions say how
-  many are off; a call of one turned off during the turn is refused before anything is sent. A change moves the
+  list nor the model proxy's names for the turn (a request naming it stops the answer), nor in the list of tools to look
+  up, `find_tools` or `call_tool`, and the instructions say how many are off; a call of one turned off during the turn
+  is refused before anything is sent. At most 2,000 names are kept off per connection. A change moves the
   connection's version on (a write being asked about is asked again) and is audited (`changed: ["tools"]`, the tool's
   name for team connections only).
 - Descriptions start with `[<connection name>, personal|team connection]`. Remote descriptions are the service's words

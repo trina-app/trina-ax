@@ -4526,7 +4526,8 @@ Claude Code's skill listing now (read from Claude Code 2.1.312; the repo pins 2.
    name how many more were left out and skill managers see `too_many_rules`. The Team skills page says, only when
    something is left out, "skills 120 · in the AI's list with their description 64 · by name only 56" and how many
    rule files the AI follows (`SkillsOverview.aiList`).
-7. **External-service tools: shown, not lifted** (founder, 2026-11-01). The caps stay 100 tools per MCP connection
+7. **External-service tools: shown, not lifted** (founder, 2026-11-01; lifted since by "Connection tools: deferred,
+   found and called" below). The caps stay 100 tools per MCP connection
    and 200 per answer, and there is no `find_tools` / `call_tool`. A check counts every tool the service lists
    (`integrations.tools_total`, migration 327): Settings > External services says "100 of 150 tools", and the AI's
    instructions say how many of a connection's tools it has when either cap left some out. The order of connections
@@ -5285,3 +5286,91 @@ works in the new folder: the form says so. If the folder cannot be made, turning
 - Tests: `tests/unit/skill-list.test.ts` (the folder name over a description and a parent folder; the fallback order;
   only the given list), `tests/unit/b-skill-tools.test.ts` (a real turn: the frequent skills of each person, never a
   skill of a folder they cannot read).
+
+## Connection tools: deferred, found and called (feat/mcp-deferred-tools, 2026-11-01)
+
+Plan A ("Skills: the whole list, the skill tool", item 7) kept the caps of external-service tools and only said them,
+"until a customer hits it". Higgsfield's MCP server does: its `tools/list` is 186 tools in one page of about 1.07 MB
+(2026-11). 0.2.17 kept at most 100 tools and 256,000 characters of schemas per connection, so a catalog shaped like
+Higgsfield's (`tests/lib/big-catalog.ts`: 186 tools, 1.03 MB) kept its first 46 tools, sent their 252,000 characters
+with every model request of every answer, and left 140 unreachable; the switches of 0.2.17 only listed the 46.
+This replaces item 7 there and the 500-name limit of "Turn single tools of a connection off".
+
+What Claude Code does (read from the 2.1.312 executable; the repo pins 2.1.305): MCP tools are deferred by default
+(`ENABLE_TOOL_SEARCH` unset means always; `auto` defers when they are over 10% of the context, `auto:N` another share,
+counted in tokens or at 2.5 characters per token). Their names are listed in a reminder, `ToolSearch` takes keywords or
+`select:<name>,…` (5 results by default) and returns `tool_reference` blocks that the Anthropic API expands into the
+full definitions, after which the tool is called by its own name.
+
+1. **A connection keeps every tool its service lists**, up to a hard ceiling: 1,000 tools (`INTEGRATION_TOOLS_MAX`,
+   shared), 4,000,000 characters of schemas and descriptions together, 100 `tools/list` pages (was 100, 256,000, 20).
+   One schema may still be 32,000 characters. Over the ceiling the rest is said as before ("1,000 of 1,200",
+   `tools_total`, migration 327). Up to 2,000 names can be turned off (was 500). No migration.
+2. **An answer offers what fits as tools of their own, the rest is looked up.** The budget is the one an answer had:
+   200 connection tools and 256,000 characters of names, descriptions and input schemas together (the old per-connection
+   schema cap, now for the whole answer). Whole connections are taken in the order the turn lists them (personal first,
+   by name): one that fits what is left is offered tool by tool as before, one that does not is deferred. So small
+   connections are unchanged, and the per-answer cap no longer leaves a connection with no tools (0.2.17 told the AI
+   "0 of the 30 tools"). Claude Code would defer them all; we keep the direct tools where they fit, so nothing
+   changes for teams without a big catalog. Lowering the budget to Claude Code's 10% (about 50,000 characters) is one
+   constant (`tools.ts MAX_TURN_TOOL_CHARS`).
+3. **Two tools reach the deferred ones, for every engine and sub-agent: `find_tools(query, max_results)` and
+   `call_tool(name, arguments)`.** Chosen over making a found tool callable in the next request of the same turn
+   because every engine fixes its tools when the turn starts: Claude Code's `--allowedTools` and the model proxy's
+   exact names for the attempt (`proxy_tokens.tools.team`, checked on every request, children included) and the init
+   lockdown check, Codex's `mcp_servers.team.enabled_tools` on its command line, and each sub-agent's definition.
+   Changing them in the middle of an answer would need a list-changed notice, a new proxy token and a Codex restart,
+   and the API's server-side tool search exists only for Anthropic (Claude Code's own `ToolSearch` stays denied: it
+   would load tools from anywhere). Two fixed names need none of that: the engines and the proxy see exactly
+   `find_tools` and `call_tool` (a request naming one of the 186 directly still stops the answer), and the server
+   decides what `call_tool` may run: only an enabled tool of a connection this person may use in this turn, checked
+   again when it runs. The API engine's 1,024-character description limit fits both.
+4. **The list in the instructions** ("### Tools to look up" under "## Connected services"): per deferred connection a
+   header with the prefix of its full names (`my_<slug>__` / `team_<slug>__`), then every tool name with the first
+   sentence of its description, within 8,000 characters (the skill list's budget). When they do not all fit, the
+   descriptions get shorter for every tool alike (160, 100, 60, 40), then names only, then the names that fit in order
+   and "… N more: find them with find_tools". Higgsfield's 186 names alone fit (about 4,400 characters). The order is
+   the services' own, so the instructions stay the same from turn to turn (prompt cache). A resumed Claude session
+   keeps its first instructions and gets the "Connected services" part again with every message (`<turn_context>`):
+   there it gets a short form without the list that points to find_tools (`TurnToolProvider.context`), so the list is
+   not repeated into the history with each message. Sub-agents get the full list in their instructions.
+5. **find_tools** matches words in the tool's name (camelCase and snake_case split, 3), title (2), description (1)
+   and connection name (1), plus 3 when the whole query is in the name; Korean, Japanese and Chinese in two-letter
+   pieces; English words with a longer form ("video" finds "videos"). `select:` takes full names, the names the list
+   shows, or the service's own names. At most 10 results (5 by default), each with its full name, its connection,
+   whether it only reads, its description and its input schema, within 40,000 characters (past that a tool is named
+   with "select:" for its schema). Every call reads the connection again: one taken away, needing a sign-in, or a tool
+   turned off or gone since the turn began is not found. It calls no service and adds nothing to the read scope; the
+   descriptions and schemas are the services' own words, as in the tool definitions they replace (the same trust as
+   connecting the server), with `<external_data` tags neutralised.
+6. **call_tool** takes the full name (the listed name or the service's name when only one tool has it), checks
+   `arguments` against the stored input schema first (`deferred.ts checkArgs`: type, enum, const, required,
+   properties, additionalProperties, items, allOf / anyOf / oneOf, local `$ref`, lengths, pattern, bounds; words it does
+   not know pass, so a valid call is never refused for one, and the service checks again) and answers a mismatch with
+   the problems and the schema, sending nothing. Arguments sent as JSON text are taken when they are an object. Then
+   it runs exactly what the tool itself runs (`mcpTool`): who may use the connection now, a tool turned off since
+   refused, the write card / allow / deny and the scheduled-run rule, the answer as external data, the read scope,
+   kept media and images, secrets hidden. The audit row is `call_tool` with the real tool in its summary
+   (`my_studio__video_analysis_create -> ok …`); the step under the answer is the tool's own label
+   ("Studio · video_analysis_create"); find_tools' step is "도구 찾기 "…"" in the five languages.
+7. **Unchanged:** a tool turned off is in no list, never found and never run; confidential chats get no connection
+   tools (providers are skipped, `find_tools` and `call_tool` are not local tools); approved template runs refuse
+   them; HTTP connections keep `api_request`; results stay external data.
+8. **Settings** shows every tool with its switch ("도구 186개"). The "N of M" note stays for the ceiling. A list an
+   older server cut at 100 says "The service offers 150 tools; 100 were saved when it was last checked. Check again to
+   save all of them." (`toolsStale`), and the AI is told the same until someone checks the connection again; the server
+   does not check connections by itself after an update (no network without a person).
+9. **Sizes** for the Higgsfield-shaped catalog: before, 46 tools and about 252,000 characters of tool definitions in
+   every request (all 186 would be about 1.02 million); now the two tools' definitions are about 1,500 characters, the
+   instructions' part about 4,700 and a resumed message's part about 1,100. The API engine's request grows by under
+   2,500 characters of tools for the connection.
+10. Tests: `tests/unit/c-integration-deferred-tools.test.ts` (all 186 kept and switchable, the ceiling said, the list
+    and its budget, the same instructions each turn, #150 found by words and by name with its schema, call_tool's
+    argument check sending nothing, a run that is external data, the short name and JSON-text arguments, a write
+    asking on the card and refused in a scheduled run, a tool turned off before or during the turn neither found nor
+    run, a taken-away team connection, three connections over 200 tools with none left out, the matcher, the list and
+    the schema check); `c-integration-deferred-turns.test.ts` (whole turns: Claude Code, Codex, the API engine and a
+    general-purpose sub-agent each find and run #150; the allowed tools, Codex's enabled tools, the API request and the
+    proxy's names hold the two and none of the 186, and a request naming one directly is refused; a tool turned off;
+    a resumed session's short form); `c-integration-tool-caps.test.ts` (150 kept, three connections over 200, an old
+    list cut at 100, the 1 MB page); `step-labels-tools.test.ts`; `web/test/unit/integrations.test.ts`.
