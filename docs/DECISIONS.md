@@ -4479,3 +4479,55 @@ folders, and a team folder has many files; there the tool did more harm than goo
 - **Before turning it on by default again**: CP949 like grep, the file name and heading in each chunk, a keyword
   score mixed in, and memory while indexing; then the same test on a folder of thousands of files.
 - Tests: the tool lists in `c-tools` and `i-wiring` have no `search`; `g-semantic-lazy`: only `on` turns it on.
+
+## Skills: the whole list, the skill tool (Plan A, 2026-11-01)
+
+The AI knew a skill only from the instructions' `## Team skills` list, cut at 50 entries without a word (personal
+skills first, then team skills by name): a team with plugin skills or many folders lost the rest, though "/name"
+still worked. Each line also carried the path and the whole description (up to 1,024 characters). This works like
+Claude Code's skill listing now (read from Claude Code 2.1.312; the repo pins 2.1.305, which looks the same):
+
+1. **Every skill is one line**: `- name [personal]: description`, the description on one line and cut at 160
+   characters, no path (a name two skills share gets its path). The lines have a fixed budget of 8,000 characters
+   (`SKILL_LIST_BUDGET`; Claude Code: 1% of a 200K context x 4 characters). Over it every name stays and descriptions
+   go first to the person's own skills, then by usage (each use counts 0.5^(days/7); other people's uses of a skill
+   the person can read count a quarter, a tie-break for new members), then by name. When even the names do not fit,
+   the most important ones stay and the last line says how many more there are. The budget is not a team setting.
+2. **The order is fixed for a chat** (`chat_skill_lists.ranked`, migration 326): computed at its first turn, so the
+   instructions stay the same from turn to turn and the engines' prompt cache holds (Codex and the API engine build
+   them every turn). A skill added later comes after the fixed ones.
+3. **Two tools, for all three engines and the sub-agents** (general-purpose and Explore): `skill(name)` loads the
+   full text, like Claude Code's Skill tool, as a `<team_skill>` block with the same rules as "/name" (resource base,
+   no scripts, allowed-tools grants nothing); `find_skills(query)` matches words in names, descriptions and folders
+   (Korean in two-letter pieces, so particles do not matter; English words with a simple plural), plus usage and a
+   little for a skill whose folders share a word with the chat's project folder; top 10. Both walk the skills of the
+   person as they are now on every call (`listSkills`, then `readSkill` through `authorize`), so a skill in a folder
+   they cannot read is never named, found or loaded, by the main AI or a sub-agent; a personal skill only for its
+   owner. A loaded skill counts as a use (team skills only, as before), joins the chat's read scope like "/name" and
+   counts as outside content like a read of its file. Reading a skill's file by path still works. They are in the
+   turn's tool list, so the model proxy's exact names for the turn, `--allowedTools` and Codex's `enabled_tools`
+   carry them. Claude Code's own `Skill` and `ToolSearch` stay denied (they read `.claude/skills` from disk, past the
+   folder permissions, and Codex and the API engine have nothing like them); Codex's skills stay off. Confidential
+   chats keep them (they read only team files). A scheduled template run refuses them like any non-file tool.
+4. **When the list is cut**, the server puts up to 3 skills whose words clearly match the message in a
+   `<skill_hints>` block in front of it (not for "/name"). The instructions stay as they were, so the cache holds.
+5. **A resumed Claude session** keeps the instructions it started with. Fresh instructions record what they listed
+   (`chat_skill_lists.listed`: path, name and a hash of name, description and text, with the session id); a resumed
+   turn's `<turn_context>` says which skills were added, changed or removed since then (at most 2,000 characters).
+   A session whose start was not recorded (older, or another session) is told its list may be out of date. Codex and
+   the API engine start fresh every turn, so their list is always current and needs no note.
+6. **Caps are said, not silent.** The walk reads 1,000 entries per skills root (was 200); over it, skill managers
+   (and the owner of a personal skills folder) see a skill issue `too_many`. A scan reads each folder's listing once
+   (`authorize`'s `dirs` memo, read-only scans only; every step is still lstat'ed and realpath-checked), so 1,000
+   skills in one folder take about 0.2 s instead of 2 s. Team rules stay the first 10 by file name; the instructions
+   name how many more were left out and skill managers see `too_many_rules`. The Team skills page says, only when
+   something is left out, "skills 120 · in the AI's list with their description 64 · by name only 56" and how many
+   rule files the AI follows (`SkillsOverview.aiList`).
+7. **External-service tools: shown, not lifted** (founder, 2026-11-01). The caps stay 100 tools per MCP connection
+   and 200 per answer, and there is no `find_tools` / `call_tool`. A check counts every tool the service lists
+   (`integrations.tools_total`, migration 327): Settings > External services says "100 of 150 tools", and the AI's
+   instructions say how many of a connection's tools it has when either cap left some out. The order of connections
+   is unchanged (by name), so the tool list stays the same from turn to turn.
+
+This replaces the 50-entry index in "Skills: folder permissions and personal skills" above; the rest of that entry
+stands.
