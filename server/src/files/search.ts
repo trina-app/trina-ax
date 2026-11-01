@@ -14,6 +14,7 @@ import { readMaxBytes, rgThreads } from '../system/limits'
 import { isLegacyKorean, isUtf8 } from '@mycel/shared/text-encoding'
 import type { SourceLoc } from '@mycel/shared/api'
 import { locLabel, locsOfLines, structureOf } from './locations'
+import { makePlaceIndex, placesOfLines, readPlaceIndex, writePlaceIndex, type PlaceIndex } from './place-index'
 
 type Lang = 'ko' | 'en' | 'id' | 'ja' | 'es'
 
@@ -225,6 +226,8 @@ export class OfficeCache {
     return (this.provenance(rel) as { format?: string } | null)?.format === TEXT_CACHE_VERSION
   }
   cachePath(rel: string) { return path.join(this.dir, rel + '.txt') }
+  /** the place index of a large text (files/place-index.ts) */
+  placesPath(rel: string) { return this.cachePath(rel) + '.places.json' }
   private provenance(rel: string): { source: string; text: string } | null {
     try { return JSON.parse(readRegular(this.cachePath(rel) + '.source.json', 1024).bytes.toString('utf8')) } catch { return null }
   }
@@ -235,7 +238,7 @@ export class OfficeCache {
     if (!meta || meta.source !== sha256(source) || this.fx.quarantine?.hasHash(meta.source)) return null
     const abs = this.cachePath(rel)
     const text = admission.read(abs, () => fs.lstatSync(abs))
-    return text && meta.text === sha256(text.bytes) ? text : null
+    return text && meta.text === sha256(text.bytes) ? { ...text, hash: meta.text } : null
   }
   fresh(rel: string, st: fs.Stats) {
     if (this.fx.quarantine?.hasFile(path.join(this.fx.root, rel))) return false
@@ -277,9 +280,34 @@ export class OfficeCache {
     const dst = this.cachePath(rel)
     if (!this.marked) { fs.writeFileSync(path.join(this.dir, VERSION_FILE), FOLDER_VERSION + '\n', { mode: 0o600 }); this.marked = true }
     fs.mkdirSync(path.dirname(dst), { recursive: true, mode: 0o700 })
-    fs.writeFileSync(dst, text, { mode: 0o600 })
-    fs.utimesSync(dst, st.atime, st.mtime)
-    fs.writeFileSync(dst + '.source.json', JSON.stringify({ source, text: sha256(Buffer.from(text)), format: TEXT_CACHE_VERSION }), { mode: 0o600 })
+    const bytes = Buffer.from(text)
+    const hash = sha256(bytes)
+    // a large text gets its place index (grep's labels, files/place-index.ts), made from the very file written
+    let places: PlaceIndex | null = null
+    const fd = fs.openSync(dst, 'w+', 0o600)
+    try {
+      fs.writeFileSync(fd, bytes)
+      fs.futimesSync(fd, st.atime, st.mtime)
+      try { places = makePlaceIndex(fd, structureOf(rel), hash) } catch {}
+    } finally { fs.closeSync(fd) }
+    fs.writeFileSync(dst + '.source.json', JSON.stringify({ source, text: hash, format: TEXT_CACHE_VERSION }), { mode: 0o600 })
+    writePlaceIndex(this.placesPath(rel), places)
+  }
+  /**
+   * The places of some lines of rel's cached text at `abs` (files/locations.ts locsOfLines), read in pieces up to the
+   * last line asked for, from the last point of its place index before each line where it has a usable one. `abs`
+   * is the cache itself (a live search), or an admitted copy of it whose sha256 is `admitted`. Null when the text
+   * cannot be read.
+   */
+  linePlaces(abs: string, rel: string, lines: number[], admitted?: string): Map<number, SourceLoc> | null {
+    let fd: number
+    try { fd = fs.openSync(abs, fs.constants.O_RDONLY | fs.constants.O_NOFOLLOW | (fs.constants.O_NONBLOCK ?? 0)) } catch { return null }
+    try {
+      const st = fs.fstatSync(fd)
+      if (!st.isFile() || st.nlink > 1 || st.size > RG_MAX_FILE) return null
+      const kind = structureOf(rel)
+      return placesOfLines(fd, st.size, kind, lines, kind ? readPlaceIndex(this.placesPath(rel), kind, st, admitted) : null)
+    } catch { return null } finally { fs.closeSync(fd) }
   }
   /**
    * (Re)extract one file unless its text is fresh; content is read through the checked fd. When the file cannot be
@@ -605,6 +633,8 @@ export async function grepFiles(d: SearchDeps, baseSegs: string[], baseIsFile: b
   /** countSkips: false for pass 2, which reads the same files as pass 1 again (a long line would count twice) */
   const admission = new SearchAdmission(d.fx.quarantine)
   const snapshots = new Map<string, string>()
+  /** the sha256 of each office text admitted into the snapshot (its place index is matched by it) */
+  const admittedTexts = new Map<string, string>()
   let admissionLimited = false
   let live = false
   const run = async (args: string[], cwd: string, h: (rec: string) => boolean | void, timeoutMs: number, countSkips = true) => {
@@ -649,7 +679,9 @@ export async function grepFiles(d: SearchDeps, baseSegs: string[], baseIsFile: b
             // the cache too. Stale/redacted or quarantined originals never enter rg.
             const source = admission.read(path.join(d.fx.root, real), validate)
             if (!source || !d.office.fresh(real, source.st)) continue
-            input = d.office.admittedText(real, source.bytes, admission)
+            const text = d.office.admittedText(real, source.bytes, admission)
+            if (text) admittedTexts.set(real, text.hash)
+            input = text
           } else input = admission.read(path.join(cwd, rel), validate)
           if (!input) { stats.filtered++; continue }
           if (bytes + input.bytes.length > 256 * 1024 ** 2) { admissionLimited = true; break }
@@ -727,15 +759,16 @@ export async function grepFiles(d: SearchDeps, baseSegs: string[], baseIsFile: b
       const r3 = await run([...common, '--glob', '*.txt', ...excludeArgs(excludes), ...patArgs, '--', ...croots], d.office.dir, handler(map, isCurrent), lastLeft)
       placing = null
       if (r3.killed === 'timeout') timedOut = true
-      // the place of each document line, from the very text ripgrep searched (the admitted copy, or the cache itself)
+      // the place of each document line, from the very text ripgrep searched (the admitted copy, or the cache itself),
+      // read only up to the last matching line, from the nearest point of its place index (files/place-index.ts)
       if (placed.length) {
         const dir = live ? d.office.dir : (snapshots.get(d.office.dir) ?? null)
         const byFile = new Map<string, typeof placed>()
         for (const p of placed) byFile.set(p.real, [...(byFile.get(p.real) ?? []), p])
         for (const [real, ps] of byFile) {
-          let text: string
-          try { text = dir ? readRegular(path.join(dir, real + '.txt'), RG_MAX_FILE).bytes.toString('utf8') : '' } catch { continue }
-          const locs = locsOfLines(text, real, ps.map((p) => p.line))
+          const lines = ps.map((p) => p.line)
+          const locs = dir ? d.office.linePlaces(path.join(dir, real + '.txt'), real, lines, live ? undefined : admittedTexts.get(real) ?? '') : locsOfLines('', real, lines)
+          if (!locs) continue
           for (const p of ps) {
             const loc = locs.get(p.line)
             if (!loc) continue

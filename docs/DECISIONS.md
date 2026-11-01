@@ -4902,6 +4902,19 @@ under the answer like the Claude app's sources.
     sheet names without ranges, slides only in the notes part, no sections. Measured extraction on an Apple M-series
     Mac: 25-60 ms for a 10-page PDF, a 12-slide deck, a 12-section Word file or a 500-row sheet; a 2-vCPU x86 server
     is about twice as slow and real documents are larger, so roughly 1-3 hours for 10,000 documents with the pause.
+  - **Grep's labels read only up to each match** (0.2.19, `files/place-index.ts`). Before, grep read a matching
+    document's whole cached text again for its labels. Now a text of 1 MB or more gets a place index when it is cached
+    (`<text>.places.json`: about every 64 KB the byte offset and number of a line and the walk's state before it), and
+    the walk to each matching line starts at the last point before it; lines that cannot be a mark are stepped over as
+    bytes (form feeds and quotes are single ASCII bytes in UTF-8). An index counts only for the very cache file it was
+    made from (device, inode, size, mtime, ctime: a text written again or moved walks from line 1) or, for an admitted
+    copy (safe operations), for the same text hash. Without one (text cached before 0.2.19, small texts) the walk
+    reads in 64 KB pieces from line 1 to the last match. The labels are the same (fuzzed against `locsOfLines`).
+    Measured on an Apple M-series Mac, one grep over two 50 MB cached texts (a 5,000-page PDF, a 75-sheet
+    spreadsheet; one match near the end of each, or 275 matches spread out): before 0.47-0.68 s and about 700 MB peak
+    server memory (105-109 MB without labels); with the index 34-52 ms and 108 MB, as without labels; without it
+    0.09-0.16 s and 109-113 MB. Caching such a text takes about 0.08 s more (the index is made by reading the written
+    file once; 58 ms for 48 MB).
 - **Search pieces** stop at a page, slide, sheet or section and keep their place (`chunkDoc`; `semantic.db` gets
   `chunks.loc` and `files.format`, added in place: an older server ignores both). A sheet piece's place is the A1
   range of its rows. Structure lines (`=== Slide 3 ===`, `# sheet: …`, `# row 9`) are not part of a piece's text.

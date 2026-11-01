@@ -1,8 +1,9 @@
 // Places in documents (docs/DECISIONS.md "Sources under each answer"): the extractors keep page breaks, real sheet rows,
 // slide starts and headings (files/extract.ts, office-parse.ts, hwp.ts, native/ocr); search pieces never cross them and
 // keep their place (files/locations.ts chunkDoc); grep, read and search show short place labels the AI can copy, with
-// file and sheet names that cannot break out of the prompt's blocks.
-import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from 'bun:test'
+// file and sheet names that cannot break out of the prompt's blocks. Grep's labels of a large document are read from
+// the nearest point of its place index up to the matching line (files/place-index.ts), the same labels as before.
+import { afterAll, beforeAll, describe, expect, setDefaultTimeout, spyOn, test } from 'bun:test'
 import fs from 'node:fs'
 import path from 'node:path'
 import zlib from 'node:zlib'
@@ -19,6 +20,7 @@ import { OfficeCache, TEXT_CACHE_VERSION } from '../../server/src/files/search'
 import { sha256 } from '../../server/src/files/store'
 import os from 'node:os'
 import type { SourceLoc } from '@mycel/shared/api'
+import { checkpoints, LineReader, PLACE_INDEX_MIN, placesOfLines } from '../../server/src/files/place-index'
 
 setDefaultTimeout(60_000)
 const pandoc = which('pandoc')
@@ -353,5 +355,172 @@ describe('the text cache of the previous format (0.2.16) is kept and made again 
     await cache.update(rel, { background: true, upgrade: true })
     expect(fs.readFileSync(dst, 'utf8')).toBe('')
     fs.rmSync(W, { recursive: true, force: true })
+  })
+})
+
+describe('large documents: grep reads only up to the matching lines (place index, files/place-index.ts)', () => {
+  // a seeded generator: the same texts every run
+  function rng(seed: number) {
+    return () => { seed = (seed + 0x6d2b79f5) | 0; let t = Math.imul(seed ^ (seed >>> 15), 1 | seed); t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t; return ((t ^ (t >>> 14)) >>> 0) / 4294967296 }
+  }
+  const W = fs.mkdtempSync(path.join(fs.realpathSync(os.tmpdir()), 'places-'))
+  afterAll(() => fs.rmSync(W, { recursive: true, force: true }))
+  const open = (name: string, text: string) => { const f = path.join(W, name); fs.writeFileSync(f, text); return fs.openSync(f, 'r') }
+  const sorted = (m: Map<number, SourceLoc>) => [...m.entries()].sort((a, b) => a[0] - b[0])
+
+  test('the lines as text.split gives them: no line feed at the end, an empty text, lines longer than a read piece', () => {
+    for (const text of ['', '\n', 'a', 'a\n', 'a\n\nb', '﻿첫 줄\r\n둘째', 'x'.repeat(200_000) + '\n' + 'y'.repeat(70_000), '한'.repeat(40_000) + '\nend\n']) {
+      const fd = open('split.txt', text)
+      const r = new LineReader(fd, fs.fstatSync(fd).size)
+      const got: string[] = []
+      while (r.advance()) got.push(r.text())
+      fs.closeSync(fd)
+      expect(got).toEqual(text.split('\n'))
+    }
+  })
+
+  test('every kind: the places from an index, a part of one, or a walk from line 1 are those of the whole text', () => {
+    const rnd = rng(20261101)
+    const pick = <T,>(a: T[]) => a[Math.floor(rnd() * a.length)]!
+    const words = ['alpha', '매출', '"', 'x"y', '\t', ' ', '　', 'end', '#tag', '\r', '"메모"', 'é']
+    const body = () => Array.from({ length: Math.floor(rnd() * 6) }, () => pick(words)).join(pick(['', ' ', '\t']))
+    const n = () => Math.floor(rnd() * 900)
+    const lines: Record<string, () => string> = {
+      'a.pdf': () => pick([body(), body() + '\f' + body(), '\f', '\f\f', '', body() + '\f', '\f' + body(), 'x\f\f\fy']),
+      'a.xlsx': () => pick([body(), body(), '', '   ', '　', `# sheet: 시트${n()} · A1:F${n()} (tab-separated)`, '# sheet: old (tab-separated)', `# row ${n()}`, '#x', '"a', 'b"', '"q""q"', `${body()}\t"${body()}`]),
+      'a.pptx': () => pick([body(), '', `=== Slide ${n()} ===`, '=== Notes ===', '=== x\ry ===', '==== no', '=', body()]),
+      'a.docx': () => pick([body(), '', '# 제목', '## h2 ', '###### six', '####### seven', '#nospace', ' # indented', '=== The headers ===', '=x', '# ', '#\tt', body()]),
+      'a.txt': () => body(),
+    }
+    let compared = 0
+    for (let round = 0; round < 60; round++) {
+      for (const [name, line] of Object.entries(lines)) {
+        let text = Array.from({ length: 1 + Math.floor(rnd() * 300) }, line).join('\n')
+        if (rnd() < 0.3) text += '\n'
+        if (rnd() < 0.1) text = '﻿' + text
+        if (rnd() < 0.1) text += '\n' + 'z'.repeat(70_000) + '\n# row 5\nlast'
+        const fd = open(name, text)
+        const size = fs.fstatSync(fd).size
+        const kind = structureOfName(name)
+        const total = text.split('\n').length
+        const all = Array.from({ length: total + 2 }, (_, i) => i + 1)
+        const at = kind ? checkpoints(fd, size, kind, 1 + Math.floor(rnd() * 300)) : null
+        for (const want of [all, all.filter(() => rnd() < 0.1), [total], [total + 1], [1]]) {
+          const whole = sorted(locsOfLines(text, name, want))
+          for (const points of [null, at, at && at.slice(0, at.length >> 1)]) {
+            expect(sorted(placesOfLines(fd, size, kind, want, points))).toEqual(whole)
+            compared++
+          }
+        }
+        fs.closeSync(fd)
+      }
+    }
+    expect(compared).toBe(60 * 5 * 5 * 3)
+  })
+
+  /** a ~1.3 MB spreadsheet text: sheets, `# row N` lines, cells over two lines, a needle in the middle and near the end */
+  function bigSheet(): { text: string; needles: number[] } {
+    const out: string[] = []
+    const needles: number[] = []
+    for (let sh = 1; sh <= 5; sh++) {
+      out.push(`# sheet: 매출 ${sh} · A1:D9000 (tab-separated)`)
+      let row = 1
+      for (let r = 0; r < 8000; r++) {
+        if (r % 1000 === 999) { row += 2; out.push(`# row ${row}`) }
+        if (r % 3000 === 7) out.push(`${row}\t"두 줄`)
+        let s = `${row}\t항목 ${sh}-${r}\t${r * 13}\t보통`
+        if (r % 3000 === 7) s = `메모"\t${r}\tx\ty`
+        if ((sh === 2 && r === 4000) || (sh === 5 && r === 7990)) { s += ' BIG-NEEDLE'; needles.push(out.length + 1) }
+        out.push(s)
+        row++
+      }
+    }
+    return { text: out.join('\n') + '\n', needles }
+  }
+  const structureOfName = (name: string) => ({ pdf: 'pages', xlsx: 'sheets', pptx: 'slides', docx: 'headings' } as const)[name.split('.').pop() as 'pdf'] ?? null
+
+  /** bytes read through fds opened on files whose path passes `which`, while `f` runs */
+  async function bytesRead(which: (p: string) => boolean, f: () => unknown): Promise<number> {
+    const fds = new Set<number>()
+    let n = 0
+    const openSync = fs.openSync.bind(fs), readSync = fs.readSync.bind(fs)
+    const o = spyOn(fs, 'openSync').mockImplementation(((p: any, ...a: any[]) => { const fd = (openSync as any)(p, ...a); if (typeof p === 'string' && which(p)) fds.add(fd); return fd }) as any)
+    const r = spyOn(fs, 'readSync').mockImplementation(((fd: number, ...a: any[]) => { const k = (readSync as any)(fd, ...a); if (fds.has(fd)) n += k; return k }) as any)
+    try { await f() } finally { o.mockRestore(); r.mockRestore() }
+    return n
+  }
+
+  test('the text cache writes an index next to a large text only; one that no longer fits its text is not used', async () => {
+    const root = path.join(W, 'team'), dir = path.join(W, 'textcache')
+    fs.mkdirSync(path.join(root, 'shared'), { recursive: true })
+    const { text, needles } = bigSheet()
+    expect(Buffer.byteLength(text)).toBeGreaterThan(PLACE_INDEX_MIN)
+    const texts = new Map([['shared/big.xlsx', text], ['shared/small.xlsx', '# sheet: s · A1:B2 (tab-separated)\na\tb']])
+    class Fake extends OfficeCache { protected override extract(rel: string) { return Promise.resolve(texts.get(rel)!) } }
+    const cache = new Fake(dir, { root, caseInsensitive: false } as never, { pandoc: null, pdftotext: null })
+    for (const rel of texts.keys()) { fs.writeFileSync(path.join(root, rel), 'bytes of ' + rel); await cache.update(rel) }
+    expect(fs.existsSync(cache.placesPath('shared/big.xlsx'))).toBe(true)
+    expect(fs.existsSync(cache.placesPath('shared/small.xlsx'))).toBe(false)
+    const want = sorted(locsOfLines(text, 'big.xlsx', needles))
+    // rows: the `# row N` lines skip two, a cell over two lines is one row
+    expect(want.map(([, l]) => l)).toEqual([{ kind: 'sheet', sheet: '매출 2', range: 'A4009:D4009' }, { kind: 'sheet', sheet: '매출 5', range: 'A8005:D8005' }])
+    // with the index: a few read pieces around the two lines, not the 1.3 MB before them
+    const abs = cache.cachePath('shared/big.xlsx')
+    let got: Map<number, SourceLoc> | null = null
+    const read = await bytesRead((p) => p === abs, () => { got = cache.linePlaces(abs, 'shared/big.xlsx', needles) })
+    expect(sorted(got!)).toEqual(want)
+    expect(read).toBeGreaterThan(0)
+    expect(read).toBeLessThan(400 * 1024)
+    // the same text written again in place with other places (same size): the index of the old text is not used
+    const other = text.replace('# sheet: 매출 2 ·', '# sheet: 매출 9 ·')
+    fs.writeFileSync(abs, other)
+    expect(sorted(cache.linePlaces(abs, 'shared/big.xlsx', needles)!)).toEqual(sorted(locsOfLines(other, 'big.xlsx', needles)))
+    // a copy of the cache (the index was made for the cache file, not for any file with the same text) walks from line 1
+    const copy = path.join(W, 'copy.xlsx.txt')
+    fs.copyFileSync(cache.cachePath('shared/small.xlsx'), copy)
+    expect(sorted(cache.linePlaces(copy, 'shared/small.xlsx', [2])!)).toEqual([[2, { kind: 'sheet', sheet: 's', range: 'A1:B1' }]])
+    // a text that becomes small loses its index
+    texts.set('shared/big.xlsx', 'small now')
+    fs.writeFileSync(path.join(root, 'shared/big.xlsx'), 'changed bytes')
+    await cache.update('shared/big.xlsx')
+    expect(fs.existsSync(cache.placesPath('shared/big.xlsx'))).toBe(false)
+  })
+
+  test('grep of a large document: the same labels, a live search and a search of admitted copies alike', async () => {
+    const A = await makeCApp('sources-locations-large')
+    try {
+      A.ctx.db.query("UPDATE users SET locale = 'ko' WHERE id = 'alice'").run()
+      const { text, needles } = bigSheet()
+      const office = A.ctx.files.office as any
+      const extract = office.extract.bind(office)
+      office.extract = (rel: string, b: Buffer) => rel === 'shared/큰표.xlsx' ? Promise.resolve(text) : extract(rel, b)
+      fs.writeFileSync(path.join(A.team, 'shared', '큰표.xlsx'), 'placeholder bytes')
+      const rows = text.split('\n')
+      const locs = locsOfLines(text, '큰표.xlsx', needles)
+      const want = needles.map((n) => `shared/큰표.xlsx [${locLabel(locs.get(n)!, 'ko')}]:${n}:${rows[n - 1]}`).join('\n')
+      expect(want).toContain("[시트 '매출 5' A8005:D8005]")
+      const h = () => makeHandler(A.ctx.files, A.ctx.db, { ...A.toolCtx('alice', null), files: new TurnFiles() })
+      const grep = async () => (await h()({ jsonrpc: '2.0', id: 1, method: 'tools/call', params: { name: 'grep', arguments: { pattern: 'BIG-NEEDLE', path: 'shared', output_mode: 'content' } } })).result.content[0].text as string
+      // the first grep extracts the text (and writes its index)
+      expect(await grep()).toBe(want)
+      expect(fs.existsSync(office.placesPath('shared/큰표.xlsx'))).toBe(true)
+      const cacheText = office.cachePath('shared/큰표.xlsx')
+      let out = ''
+      const live = await bytesRead((p) => p === cacheText, async () => { out = await grep() })
+      expect(out).toBe(want)
+      expect(live).toBeGreaterThan(0)
+      expect(live).toBeLessThan(400 * 1024)
+      // once something is in quarantine, grep searches admitted copies; their index is matched by the text's hash
+      A.ctx.files.quarantine.add(Buffer.from('unrelated quarantined bytes'), 'pptx')
+      const copied = await bytesRead((p) => p.includes(`${path.sep}search-inputs${path.sep}`) && p.endsWith('.txt'), async () => { out = await grep() })
+      expect(out).toBe(want)
+      expect(copied).toBeGreaterThan(0)
+      expect(copied).toBeLessThan(400 * 1024)
+      // without the index (a text cached before 0.2.19): the same labels, read in pieces from line 1 to the last match
+      fs.rmSync(office.placesPath('shared/큰표.xlsx'))
+      const walked = await bytesRead((p) => p.includes(`${path.sep}search-inputs${path.sep}`) && p.endsWith('.txt'), async () => { out = await grep() })
+      expect(out).toBe(want)
+      expect(walked).toBeGreaterThan(Buffer.byteLength(text) * 0.9)
+    } finally { await A.close() }
   })
 })

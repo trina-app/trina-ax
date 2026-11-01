@@ -34,7 +34,75 @@ const ROW = /^# row (\d{1,7})$/
 
 /** what a line is, for chunking: its place, whether it only marks structure (left out of a piece's text), and the
  * key a piece must not cross */
-interface LineAt { text: string; loc: SourceLoc | null; key: string; marker: boolean; row?: number }
+export interface LineAt { text: string; loc: SourceLoc | null; key: string; marker: boolean; row?: number }
+
+/** Where walkLines is between two lines: all it carries from one line to the next. A large text's place index
+ * (files/place-index.ts) keeps it at points of the text, so a later walk can start there instead of at line 1. */
+export interface WalkState {
+  page: number
+  slide: number | null
+  heading: string | null
+  sheet: { name: string; c0: string; c1: string; ranged: boolean } | null
+  row: number
+  inQuote: boolean
+}
+export const walkStart = (): WalkState => ({ page: 1, slide: null, heading: null, sheet: null, row: 1, inQuote: false })
+
+/**
+ * One line of walkLines: `onLine` gets its place, and `s` moves past it. Returns false when `onLine` stopped.
+ */
+export function walkLine(s: WalkState, kind: Structure, raw: string, no: number, onLine: (l: LineAt, lineNo: number) => boolean | void): boolean {
+  if (kind === 'pages') {
+    // a form feed starts the next page; the empty parts around it (an empty page) are not lines of their own
+    const parts = raw.split('\f')
+    for (let k = 0; k < parts.length; k++) {
+      if (k > 0) s.page++
+      if (parts.length > 1 && !parts[k]) continue
+      if (onLine({ text: parts[k]!, loc: { kind: 'page', page: s.page }, key: String(s.page), marker: false }, no) === false) return false
+    }
+    return true
+  }
+  if (kind === 'slides') {
+    const m = SLIDE.exec(raw)
+    if (m) s.slide = Number(m[1])
+    else if (SECTION.test(raw)) s.slide = null
+    const marker = !!m || SECTION.test(raw)
+    const slide = s.slide
+    return onLine({ text: raw, loc: slide ? { kind: 'slide', slide } : null, key: slide ? String(slide) : '', marker }, no) !== false
+  }
+  if (kind === 'headings') {
+    const h = HEADING.exec(raw)
+    if (h) s.heading = cleanLabel(h[2]!, 120) || null
+    else if (SECTION.test(raw)) s.heading = null
+    const marker = !h && SECTION.test(raw)
+    const heading = s.heading
+    return onLine({ text: raw, loc: heading ? { kind: 'heading', heading } : null, key: heading ?? '', marker }, no) !== false
+  }
+  if (kind === 'sheets') {
+    const m = s.inQuote ? null : SHEET.exec(raw)
+    if (m) {
+      // a new object (never changed in place): a state kept in a place index stays as it was
+      s.sheet = { name: m[1]!, c0: m[2] ?? '', c1: m[4] ?? '', ranged: !!m[2] }
+      s.row = m[3] ? Number(m[3]) : 1
+      s.inQuote = false
+      return onLine({ text: raw, loc: { kind: 'sheet', sheet: s.sheet.name }, key: 'sheet:' + s.sheet.name, marker: true }, no) !== false
+    }
+    const sheet = s.sheet
+    const r = s.inQuote ? null : ROW.exec(raw)
+    if (r && sheet) {
+      s.row = Number(r[1])
+      return onLine({ text: raw, loc: { kind: 'sheet', sheet: sheet.name }, key: 'sheet:' + sheet.name, marker: true }, no) !== false
+    }
+    const at = s.row
+    let q = 0
+    for (let p = raw.indexOf('"'); p >= 0; p = raw.indexOf('"', p + 1)) q++
+    if (q % 2 === 1) s.inQuote = !s.inQuote
+    if (!s.inQuote) s.row++
+    const loc: SourceLoc | null = sheet ? { kind: 'sheet', sheet: sheet.name, ...(sheet.ranged && raw.trim() ? { range: `${sheet.c0}${at}:${sheet.c1}${at}` } : {}) } : null
+    return onLine({ text: raw, loc, key: sheet ? 'sheet:' + sheet.name : '', marker: false, ...(sheet?.ranged && raw.trim() ? { row: at } : {}) }, no) !== false
+  }
+  return onLine({ text: raw, loc: null, key: '', marker: false }, no) !== false
+}
 
 /**
  * Walk the lines of `text` with their place. A PDF line with a form feed in it is given as its parts (each part on its
@@ -42,67 +110,8 @@ interface LineAt { text: string; loc: SourceLoc | null; key: string; marker: boo
  */
 export function walkLines(text: string, kind: Structure, onLine: (l: LineAt, lineNo: number) => boolean | void): void {
   const lines = text.split('\n')
-  let page = 1
-  let slide: number | null = null
-  let heading: string | null = null
-  let sheet: { name: string; c0: string; c1: string; ranged: boolean } | null = null
-  let row = 1
-  let inQuote = false
-  for (let i = 0; i < lines.length; i++) {
-    const raw = lines[i]!
-    const no = i + 1
-    if (kind === 'pages') {
-      // a form feed starts the next page; the empty parts around it (an empty page) are not lines of their own
-      const parts = raw.split('\f')
-      for (let k = 0; k < parts.length; k++) {
-        if (k > 0) page++
-        if (parts.length > 1 && !parts[k]) continue
-        if (onLine({ text: parts[k]!, loc: { kind: 'page', page }, key: String(page), marker: false }, no) === false) return
-      }
-      continue
-    }
-    if (kind === 'slides') {
-      const m = SLIDE.exec(raw)
-      if (m) slide = Number(m[1])
-      else if (SECTION.test(raw)) slide = null
-      const marker = !!m || SECTION.test(raw)
-      if (onLine({ text: raw, loc: slide ? { kind: 'slide', slide } : null, key: slide ? String(slide) : '', marker }, no) === false) return
-      continue
-    }
-    if (kind === 'headings') {
-      const h = HEADING.exec(raw)
-      if (h) heading = cleanLabel(h[2]!, 120) || null
-      else if (SECTION.test(raw)) heading = null
-      const marker = !h && SECTION.test(raw)
-      if (onLine({ text: raw, loc: heading ? { kind: 'heading', heading } : null, key: heading ?? '', marker }, no) === false) return
-      continue
-    }
-    if (kind === 'sheets') {
-      const s = inQuote ? null : SHEET.exec(raw)
-      if (s) {
-        sheet = { name: s[1]!, c0: s[2] ?? '', c1: s[4] ?? '', ranged: !!s[2] }
-        row = s[3] ? Number(s[3]) : 1
-        inQuote = false
-        if (onLine({ text: raw, loc: { kind: 'sheet', sheet: sheet.name }, key: 'sheet:' + sheet.name, marker: true }, no) === false) return
-        continue
-      }
-      const r = inQuote ? null : ROW.exec(raw)
-      if (r && sheet) {
-        row = Number(r[1])
-        if (onLine({ text: raw, loc: { kind: 'sheet', sheet: sheet.name }, key: 'sheet:' + sheet.name, marker: true }, no) === false) return
-        continue
-      }
-      const at = row
-      let q = 0
-      for (let p = raw.indexOf('"'); p >= 0; p = raw.indexOf('"', p + 1)) q++
-      if (q % 2 === 1) inQuote = !inQuote
-      if (!inQuote) row++
-      const loc: SourceLoc | null = sheet ? { kind: 'sheet', sheet: sheet.name, ...(sheet.ranged && raw.trim() ? { range: `${sheet.c0}${at}:${sheet.c1}${at}` } : {}) } : null
-      if (onLine({ text: raw, loc, key: sheet ? 'sheet:' + sheet.name : '', marker: false, ...(sheet?.ranged && raw.trim() ? { row: at } : {}) }, no) === false) return
-      continue
-    }
-    if (onLine({ text: raw, loc: null, key: '', marker: false }, no) === false) return
-  }
+  const s = walkStart()
+  for (let i = 0; i < lines.length; i++) if (!walkLine(s, kind, lines[i]!, i + 1, onLine)) return
 }
 
 /** The places of some lines (1-based line numbers of the text as read and grep number it). */
@@ -114,10 +123,15 @@ export function locsOfLines(text: string, name: string, lineNos: Iterable<number
   const last = Math.max(...want)
   walkLines(text, kind, (l, no) => {
     if (no > last) return false
-    // a PDF line split by a form feed: the place of its last part (the page the line's text goes on)
-    if (want.has(no) && l.loc && (!l.marker || !out.has(no))) out.set(no, l.loc)
+    notePlace(out, want, l, no)
   })
   return out
+}
+
+/** The place of a wanted line, as locsOfLines takes it from walkLines (also files/place-index.ts placesOfLines). */
+export function notePlace(out: Map<number, SourceLoc>, want: Set<number>, l: LineAt, no: number): void {
+  // a PDF line split by a form feed: the place of its last part (the page the line's text goes on)
+  if (want.has(no) && l.loc && (!l.marker || !out.has(no))) out.set(no, l.loc)
 }
 
 /** The places a range of lines covers (a read by offset/limit), in order, at most `max`. */
