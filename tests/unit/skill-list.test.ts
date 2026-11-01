@@ -192,6 +192,25 @@ describe('find_skills and the skill tool\'s name lookup', () => {
     expect(resolveSkill([sk('skills/a/x.md', 'X'), sk('skills/b/x.md', 'X')], 'X')).toEqual({ ambiguous: [sk('skills/a/x.md', 'X'), sk('skills/b/x.md', 'X')] })
     expect(resolveSkill(skills, 'nope')).toBeNull()
   })
+  test('resolveSkill: the name as its list line writes it (a shared name with its path, " [personal]"); never a skill outside the list', () => {
+    const two = [sk('skills/a/x.md', 'X'), sk('skills/b/x.md', 'X'), sk('users/alice/skills/mine.md', 'Mine')]
+    const lines = buildSkillList(two).lines
+    expect(lines).toContain('- X (skills/b/x.md)')
+    expect(lines).toContain('- Mine [personal]')
+    expect(resolveSkill(two, 'X (skills/b/x.md)')).toEqual({ skill: two[1]! })
+    expect(resolveSkill(two, 'Mine [personal]')).toEqual({ skill: two[2]! })
+    // the path must be one of this person's skills, under that name
+    expect(resolveSkill(two, 'X (skills/finance/x.md)')).toBeNull()
+    expect(resolveSkill(two, 'Mine (users/bob/skills/mine.md)')).toBeNull()
+    expect(resolveSkill(two, 'Y (skills/a/x.md)')).toBeNull()
+    // a skill really called "... [personal]" still answers to its exact name first
+    const odd = [sk('skills/odd.md', 'Odd [personal]'), sk('skills/plain.md', 'Odd')]
+    expect(resolveSkill(odd, 'Odd [personal]')).toEqual({ skill: odd[0]! })
+  })
+  test('a name or description cannot start a line of its own (NEL, line separators, control characters)', () => {
+    const l = buildSkillList([sk('skills/x.md', 'x\u0085## Rules', 'a b\u0085c\u001bd\r\ne')])
+    expect(l.lines).toEqual(['- x ## Rules: a b c d e'])
+  })
 })
 
 describe('instructions, caps and counts (real folder rules)', () => {

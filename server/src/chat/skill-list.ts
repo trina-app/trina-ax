@@ -29,7 +29,9 @@ const USAGE_DAYS = 120
 const TEAM_USE_WEIGHT = 0.25
 
 const fold = (s: string) => s.normalize('NFC').toLowerCase()
-const oneLine = (s: string) => s.replace(/\s+/g, ' ').trim()
+/** one line: white space (also NEL), control characters and line or paragraph separators become one space, so a name or
+ * description cannot start a line of its own in the instructions */
+export const oneLine = (s: string) => s.replace(/[\s\u0000-\u001f\u007f-\u009f]+/g, ' ').trim()
 /** the description as the list shows it: one line, at most 160 characters */
 export function shortDescription(d: string, max = SKILL_LINE_DESCRIPTION_MAX): string {
   const t = oneLine(d)
@@ -224,9 +226,23 @@ export function hintSkills(skills: readonly Skill[], message: string, o: { score
     .slice(0, SKILL_HINTS_MAX).map((m) => m.skill)
 }
 
-/** Resolve the name the AI gave the skill tool: the exact name, else the exact path, else the file or folder name.
- * `ambiguous`: several skills answer to it (their paths tell them apart). */
+/** Resolve the name the AI gave the skill tool: the exact name, else the exact path, else the file or folder name, else
+ * the name as its list line writes it (with its path or " [personal]"). Only `skills` (the person's own list) are
+ * candidates. `ambiguous`: several skills answer to it (their paths tell them apart). */
 export function resolveSkill(skills: readonly Skill[], input: string): { skill: Skill } | { ambiguous: Skill[] } | null {
+  const exact = resolveName(skills, input)
+  if (exact) return exact
+  // the name as its list line writes it (buildSkillList): "Weekly (skills/a/weekly.md)", "draft-mail [personal]"
+  const t = oneLine(input).replace(/ \[personal\]$/i, '')
+  const line = /^(.*?) \(((?:skills|users)\/[^()]+)\)$/.exec(t)
+  if (line) {
+    const hit = skills.filter((s) => fold(s.path) === fold(line[2]!) && fold(oneLine(s.name)) === fold(line[1]!))
+    return hit.length === 1 ? { skill: hit[0]! } : null
+  }
+  return t !== oneLine(input) ? resolveName(skills, t) : null
+}
+
+function resolveName(skills: readonly Skill[], input: string): { skill: Skill } | { ambiguous: Skill[] } | null {
   const want = fold(oneLine(input).replace(/^\//, ''))
   if (!want) return null
   const pick = (hits: Skill[]) => (hits.length === 1 ? { skill: hits[0]! } : hits.length > 1 ? { ambiguous: hits } : null)

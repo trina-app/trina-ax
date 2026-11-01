@@ -9,7 +9,7 @@ import type { Locale } from '@mycel/shared/api'
 import type { FileService } from '../files/service'
 import type { Principal } from '../policy/access'
 import { isPersonalSkill, isSkillManifest, listSkills, managedSkillRoots, personalSkillsDir, skillFileKind, skillFolder, SKILL_FILE_MAX_BYTES, type Skill } from './skills'
-import { buildSkillList, shortDescription, type SkillList } from './skill-list'
+import { buildSkillList, oneLine, shortDescription, type SkillList } from './skill-list'
 import { authorize } from '../policy/authorize'
 import { readRegular } from '../files/store'
 import { zonedParts } from '../system/time-zone'
@@ -303,7 +303,7 @@ export function skillHintsBlock(skills: readonly Skill[]): string {
   return [
     '<skill_hints>',
     'Note from the server (the user did not write this): your skill list is cut, and these skills match words of this message. If one fits the request, load it with the skill tool before you answer; if none fits, ignore this.',
-    ...skills.map((s) => `- ${neutralizeTags(s.name.replace(/\s+/g, ' '))}${isPersonalSkill(s.path) ? ' [personal]' : ''}${s.description.trim() ? ': ' + neutralizeTags(shortDescription(s.description, 300)) : ''}`),
+    ...skills.map((s) => `- ${neutralizeTags(oneLine(s.name))}${isPersonalSkill(s.path) ? ' [personal]' : ''}${s.description.trim() ? ': ' + neutralizeTags(shortDescription(s.description, 300)) : ''}`),
     '</skill_hints>',
   ].join('\n')
 }
