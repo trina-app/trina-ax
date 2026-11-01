@@ -83,7 +83,11 @@ func verifyPath(p string, o bundle.Options) VerifyResult {
 			return r
 		}
 		dir = real
-		if b := filepath.Base(filepath.Clean(real)); bundle.ValidVersion(b) && strings.ContainsAny(b, "0123456789") {
+		b := filepath.Base(filepath.Clean(p)) // the name given (app/<v>), else the folder a link names (app/current)
+		if !(bundle.ValidVersion(b) && strings.ContainsAny(b, "0123456789")) {
+			b = filepath.Base(filepath.Clean(real))
+		}
+		if bundle.ValidVersion(b) && strings.ContainsAny(b, "0123456789") {
 			want = b // app/<v>: the folder name must be the manifest's version (bootstrap rule)
 		}
 	} else {

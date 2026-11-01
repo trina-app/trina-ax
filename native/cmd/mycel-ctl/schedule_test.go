@@ -25,14 +25,15 @@ func TestUpdateWindowMatchesServer(t *testing.T) {
 	b, err := os.ReadFile("testdata/update-window.json")
 	must(t, err)
 	var tab struct {
-		Cases []struct {
+		Default string `json:"default"`
+		Cases   []struct {
 			Window, Zone, At, Why string
 			Inside                bool
 		} `json:"cases"`
 	}
 	must(t, json.Unmarshal(b, &tab))
-	if len(tab.Cases) < 10 {
-		t.Fatal("window table not read")
+	if len(tab.Cases) < 10 || tab.Default != defaultUpdateWindow {
+		t.Fatalf("window table not read, or its default %q is not %q", tab.Default, defaultUpdateWindow)
 	}
 	for _, c := range tab.Cases {
 		w, ok := parseWindow(c.Window)
@@ -510,6 +511,11 @@ func TestVerifyBundleThroughLink(t *testing.T) {
 	if r := verifyPath(filepath.Join(app, "current"), bundle.Options{Keys: []string{k}}); r.OK || !strings.Contains(r.Error, `folder is "0.2.17"`) {
 		t.Fatalf("%+v", r)
 	}
+	// a link named like a version keeps the name rule of that name (it fails closed, as before)
+	must(t, os.Symlink("versions/0.2.17", filepath.Join(app, "0.2.16")))
+	if r := verifyPath(filepath.Join(app, "0.2.16"), bundle.Options{Keys: []string{k}}); r.OK || !strings.Contains(r.Error, `folder is "0.2.16"`) {
+		t.Fatalf("%+v", r)
+	}
 	if r := verifyPath(filepath.Join(app, "nothing"), bundle.Options{Keys: []string{k}}); r.OK {
 		t.Fatal("a missing path verified")
 	}
@@ -533,5 +539,99 @@ func TestAdminEnvFollowsAllowUnsigned(t *testing.T) {
 	in.AllowUnsigned = true
 	if !has(adminEnv(in)) || !has(serverEnv(in)) {
 		t.Fatal("allow-unsigned install: admin.js and the server must agree")
+	}
+}
+
+// Review round 1: what the server account says can move the root update but not stop it. A window between two checks
+// (shorter than 30 minutes) is the default; a team window no check got into for three days gives the default window;
+// when admin.js cannot answer, the last window it gave (root's copy) is used, not the server's own UTC clock.
+func TestScheduledUpdateCannotBeStopped(t *testing.T) {
+	f := newFeedServer(t)
+	f.channel("0.2.19", true)
+	tb := schedBase(t, f)
+	r := &schedRun{clock: at("2026-11-01T18:10:00Z"), window: "03:20-03:29", zone: "Asia/Seoul"} // 03:10 KST
+	scheduledHooks(t, tb, r)
+	if code, res := tb.scheduled(t, f); code != 0 || res.Skipped || !res.RootUpdated {
+		t.Fatalf("short window: %d %+v", code, res)
+	}
+	// a window that is never "now": the first check starts the count; three days later the default window applies
+	f = newFeedServer(t)
+	f.channel("0.2.19", true)
+	tb = schedBase(t, f)
+	r = &schedRun{clock: at("2026-11-01T18:10:00Z"), window: "12:00-13:00", zone: "Asia/Seoul"}
+	scheduledHooks(t, tb, r)
+	if code, res := tb.scheduled(t, f); code != 0 || !res.Skipped || !strings.Contains(res.Detail, "outside the update window 12:00-13:00 Asia/Seoul") {
+		t.Fatalf("first: %d %+v", code, res)
+	}
+	r.clock = at("2026-11-04T18:10:00Z") // three days on, 03:10 KST
+	scheduledHooks(t, tb, r)
+	if code, res := tb.scheduled(t, f); code != 0 || res.Skipped || !res.RootUpdated {
+		t.Fatalf("three days: %d %+v", code, res)
+	}
+	// a check inside the team's window resets the count
+	f = newFeedServer(t)
+	f.channel("0.2.19", false)
+	tb = schedBase(t, f)
+	r = &schedRun{clock: at("2026-11-04T03:10:00Z"), window: "12:00-13:00", zone: "Asia/Seoul"} // 12:10 KST: inside
+	scheduledHooks(t, tb, r)
+	tb.scheduled(t, f)
+	r.clock = at("2026-11-04T18:10:00Z")
+	scheduledHooks(t, tb, r)
+	if _, res := tb.scheduled(t, f); !res.Skipped || !strings.Contains(res.Detail, "outside the update window 12:00-13:00") {
+		t.Fatalf("passed recently: %+v", res)
+	}
+	// admin.js cannot answer: the window it gave last, not 03:00-05:00 on the server's UTC clock
+	f = newFeedServer(t)
+	f.channel("0.2.19", true)
+	tb = schedBase(t, f)
+	r = &schedRun{clock: at("2026-11-02T04:30:00Z"), window: "03:00-05:00", zone: "Asia/Seoul"} // 13:30 KST
+	scheduledHooks(t, tb, r)
+	tb.scheduled(t, f)
+	r.window = ""
+	r.clock = at("2026-11-02T03:30:00Z") // 12:30 KST, 03:30 UTC
+	scheduledHooks(t, tb, r)
+	if _, res := tb.scheduled(t, f); !res.Skipped || !strings.Contains(res.Detail, "outside the update window 03:00-05:00 Asia/Seoul; admin.js did not answer") {
+		t.Fatalf("cached window: %+v", res)
+	}
+}
+
+// The server's own maintenance (a backup, a restore) counts like a running answer.
+func TestScheduledUpdateWaitsForMaintenance(t *testing.T) {
+	f := newFeedServer(t)
+	f.channel("0.2.19", true)
+	tb := schedBase(t, f)
+	r := &schedRun{clock: at("2026-11-01T19:30:00Z"), window: "03:00-05:00", zone: "Asia/Seoul"}
+	scheduledHooks(t, tb, r)
+	must(t, os.MkdirAll(filepath.Join(tb.base, "status"), 0o755))
+	write := func(m string) {
+		must(t, os.WriteFile(filepath.Join(tb.base, "status/status.json"), []byte(fmt.Sprintf(`{"writtenAt":%q,"maintenance":%s}`, r.clock.now().Format(time.RFC3339Nano), m)), 0o644))
+	}
+	write(`"backup"`)
+	old := updateTestHook
+	updateTestHook = func(u *updater) { old(u); u.sleep = func(d time.Duration) { r.clock.sleep(d); write(`"backup"`) } }
+	code, res := tb.scheduled(t, f)
+	if code != 0 || !res.Skipped || !strings.Contains(res.Detail, "0 running answer(s) and the server's backup did not finish") {
+		t.Fatalf("%d %+v", code, res)
+	}
+	// an old status file says nothing
+	updateTestHook = old
+	must(t, os.WriteFile(filepath.Join(tb.base, "status/status.json"), []byte(`{"writtenAt":"2026-11-01T00:00:00Z","maintenance":"backup"}`), 0o644))
+	r.clock = at("2026-11-01T19:40:00Z")
+	if code, res := tb.scheduled(t, f); code != 0 || res.Skipped || !res.RootUpdated {
+		t.Fatalf("stale: %d %+v", code, res)
+	}
+}
+
+// Any update that goes through clears the deferral (an administrator's too): the next release is not forced through.
+func TestAdminUpdateClearsDeferral(t *testing.T) {
+	f := newFeedServer(t)
+	f.channel("0.2.19", true)
+	tb, _ := feedBase(t, f, "0.2.18", "0.2.18")
+	must(t, os.WriteFile(filepath.Join(tb.base, "root/update-deferred.json"), []byte(`{"version":"0.2.19","since":"2026-10-01T00:00:00Z","turns":1}`), 0o644))
+	if code, r := tb.update(t, "--pubkey", f.key); code != 0 || r.Skipped {
+		t.Fatalf("%d %+v", code, r)
+	}
+	if readDeferred(&env{base: tb.base}) != nil {
+		t.Fatal("deferral kept after an administrator's update")
 	}
 }

@@ -58,6 +58,7 @@ import fsp from 'node:fs/promises'
 import path from 'node:path'
 import { loadAppConfig } from '../app-config'
 import { SERVER_VERSION, createContext } from '../context'
+import { Database } from 'bun:sqlite'
 import { openDb } from '../db'
 import { createLogger, silentLogger } from '../log'
 import { BackupManager, endSessions, inspectDbCopy, vacuumInto, withoutHostingKey } from './backup'
@@ -333,7 +334,8 @@ export async function main(argv: string[]): Promise<number> {
     }
     // the root update timer's window (mycel-ctl update --scheduled): the same window and zone the app's own updater keeps
     case 'update-window': {
-      const db = openDb(dbFile)
+      // read only, no migration: root asks every 15 minutes, also right after a switch while the old server still runs
+      const db = new Database(dbFile, { readonly: true, strict: true })
       try { console.log(JSON.stringify(updateWindowAnswer(getTeamSettings(db), teamTimeZone(db)))) } finally { db.close() }
       return 0
     }

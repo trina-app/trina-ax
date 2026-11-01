@@ -10,7 +10,7 @@ import { OFFICE_RELEASE_KEYS } from '../../server/src/office/release'
 import { silentLogger } from '../../server/src/log'
 import { writeManifest } from '../../server/src/system/bundle'
 import { RELEASE_PUBLIC_KEYS, UpdateManager, inRollout, releaseNeedsRoot, type ReleaseFeed } from '../../server/src/system/update'
-import { autoUpdateDecision, inWindow, updateWindowAnswer } from '../../server/src/system/update-job'
+import { autoUpdateDecision, DEFAULT_UPDATE_WINDOW, inWindow, updateWindowAnswer } from '../../server/src/system/update-job'
 import { resolveLayout } from '../../server/src/system/layout'
 import { getOps, systemTestHooks } from '../../server/src/routes/system'
 import { OWNER_PW, harness, testConfig, withOwner, type Client, type Harness } from './a-lib'
@@ -71,9 +71,10 @@ describe('roll-out, window, decision', () => {
   })
   test('the same windows as the root update timer (native/cmd/mycel-ctl testdata/update-window.json)', () => {
     const t = JSON.parse(fs.readFileSync(path.resolve(import.meta.dir, '..', '..', 'native', 'cmd', 'mycel-ctl', 'testdata', 'update-window.json'), 'utf8')) as {
-      cases: { window: string; zone: string; at: string; inside: boolean; why: string }[]
+      default: string; cases: { window: string; zone: string; at: string; inside: boolean; why: string }[]
     }
     expect(t.cases.length).toBeGreaterThanOrEqual(10)
+    expect(t.default).toBe(DEFAULT_UPDATE_WINDOW)
     for (const c of t.cases) expect({ ...c, got: inWindow(c.window, new Date(c.at), c.zone) }).toEqual({ ...c, got: c.inside })
   })
   test('admin.js update-window: the team\'s window or the default, and the zone', () => {

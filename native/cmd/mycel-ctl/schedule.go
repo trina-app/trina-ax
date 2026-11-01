@@ -5,14 +5,18 @@ package main
 //
 //   - inside the team's update window, in the team's time zone: Admin > Settings > Update time, the same window the
 //     app's own updater keeps (server/src/system/update-job.ts inWindow, DEFAULT_UPDATE_WINDOW 03:00-05:00), read
-//     through the running app's admin.js (`update-window`, as the server account). A window that never opens (equal
-//     ends; the app stores an invalid window that way) or an answer that cannot be read gives 03:00-05:00 in the
-//     team's zone, so a team setting can move the root update but never stop it (`mycel-ctl auto-update off` does);
-//   - when no answer runs. It waits for a quiet moment until the window closes (at most an hour per run; the next
-//     check of the window carries on), and never cuts a running answer off. A root release that found no quiet
-//     moment for three days (root/update-deferred.json) is installed in the next window after the old wait of
-//     --max-wait seconds, running answers or not, so a team that is always busy (or a server account that keeps
-//     answers going) cannot hold the launcher and the sandbox back for longer than that.
+//     through the running app's admin.js (`update-window`, as the server account) and kept in root/update-window.json
+//     for when admin.js cannot answer (an older app after a roll-back). A window that never opens (equal ends; the app
+//     stores an invalid window that way), one shorter than 30 minutes (the checks are 15 minutes apart, plus up to 5
+//     minutes of the timer's random delay) or nothing readable gives 03:00-05:00 in the team's zone; and a team window
+//     no check has passed for three days (root/update-window-pass) gives 03:00-05:00 too. So a team setting (or a
+//     server account that lies) can move the root update but never stop it: `mycel-ctl auto-update off` does;
+//   - when no answer runs and the server runs no maintenance (a backup, a restore: status/status.json). It waits for
+//     a quiet moment until the window closes (at most an hour per run; the next check of the window carries on), and
+//     never cuts a running answer off. A root release that found no quiet moment for three days
+//     (root/update-deferred.json) is installed in the next window after the old wait of --max-wait seconds, running
+//     answers or not, so a team that is always busy (or a server account that keeps answers going) cannot hold the
+//     launcher and the sandbox back for longer than that.
 //
 // Outside the window the check ends at once, without network. Before 0.2.19 the timer ran at 04:30 + up to 90 minutes
 // in the server's own zone (UTC on most Linux servers: 13:30-15:00 in Korea) and cut answers off after 10 minutes.
@@ -43,6 +47,8 @@ const (
 	scheduleLastResort = 72 * time.Hour
 	// schedulePoll: how often a waiting run asks the launcher again
 	schedulePoll = 5 * time.Second
+	// scheduleMinWindow: a shorter window could fall between two checks every day
+	scheduleMinWindow = 30
 )
 
 var (
@@ -68,6 +74,9 @@ func (w updateWindow) String() string {
 
 // open: equal ends never open (update-job.ts inWindow: from <= to && at >= from && at < to).
 func (w updateWindow) open() bool { return w.from != w.to }
+
+// minutes the window lasts (0 for one that never opens)
+func (w updateWindow) minutes() int { return ((w.to-w.from)%1440 + 1440) % 1440 }
 
 // contains: the wall-clock time of t (in t's zone) is inside the window, like inWindow.
 func (w updateWindow) contains(t time.Time) bool {
@@ -171,13 +180,31 @@ func (u *updater) readSchedule() updateSchedule {
 		}
 	}
 	if err != nil {
-		loc, zone := fallbackZone(u.in.ID)
 		msg := strings.TrimSpace(err.Error())
 		if len(msg) > 120 {
 			msg = msg[:120] + "…"
 		}
+		// the last answer that could be read (root's own copy): a UTC server must not fall back to 03:00 UTC
+		if b, rerr := readRootFile(u.e.root("update-window.json"), 4<<10); rerr == nil && json.Unmarshal(b, &got) == nil && got.Window != "" {
+			s := u.scheduleOf(got.Window, got.TimeZone)
+			s.note = joinNote("admin.js did not answer ("+msg+"), so the last window it gave", s.note)
+			return s
+		}
+		loc, zone := fallbackZone(u.in.ID)
 		return updateSchedule{w: def, loc: loc, zone: zone, note: "the team's update window could not be read (" + msg + "), so the default"}
 	}
+	if b, _ := json.Marshal(got); len(b) > 0 {
+		if old, rerr := readRootFile(u.e.root("update-window.json"), 4<<10); rerr != nil || string(old) != string(b)+"\n" {
+			_ = writeRootFile(u.e.root("update-window.json"), append(b, '\n'), 0o644)
+		}
+	}
+	return u.scheduleOf(got.Window, got.TimeZone)
+}
+
+// scheduleOf checks what admin.js said (the server account's answer): a known zone, a window that opens and lasts.
+func (u *updater) scheduleOf(window, zone string) updateSchedule {
+	def, _ := parseWindow(defaultUpdateWindow)
+	got := struct{ Window, TimeZone string }{window, zone}
 	s := updateSchedule{w: def}
 	if l, ok := loadZone(got.TimeZone); ok {
 		s.loc, s.zone = l, got.TimeZone
@@ -190,6 +217,8 @@ func (u *updater) readSchedule() updateSchedule {
 		s.note = joinNote(s.note, fmt.Sprintf("the team's window %q is not HH:MM-HH:MM, so the default", got.Window))
 	case !w.open():
 		s.note = joinNote(s.note, "the team's window "+w.String()+" never opens, so the default for root updates")
+	case w.minutes() < scheduleMinWindow:
+		s.note = joinNote(s.note, fmt.Sprintf("the team's window %s is shorter than %d minutes (the checks are 15 minutes apart), so the default", w, scheduleMinWindow))
 	default:
 		s.w = w
 	}
@@ -201,6 +230,23 @@ func joinNote(a, b string) string {
 		return b
 	}
 	return a + "; " + b
+}
+
+// ---------- root/update-window-pass: the last check the team's window let through ----------
+
+// windowPassed reads when a check last got inside the window; a missing record starts the count now.
+func windowPassed(e *env) time.Time {
+	if b, err := readRootFile(e.root("update-window-pass"), 256); err == nil {
+		if t, err := time.Parse(time.RFC3339, strings.TrimSpace(string(b))); err == nil {
+			return t
+		}
+	}
+	notePass(e)
+	return e.now()
+}
+
+func notePass(e *env) {
+	_ = writeRootFile(e.root("update-window-pass"), []byte(e.now().UTC().Format(time.RFC3339)+"\n"), 0o644)
 }
 
 // ---------- root/update-deferred.json: since when a root release waits for a quiet moment ----------

@@ -493,6 +493,13 @@ export function runningAnswers(home: string, now = Date.now()): number | null {
   return typeof j.queue?.running === 'number' ? j.queue.running : null
 }
 
+/** the server's own maintenance running now (status.json: a backup, a restore), null for none or an old file */
+export function serverMaintenance(home: string, now = Date.now()): string | null {
+  const j = readJson(path.join(home, 'status', 'status.json')) as { writtenAt?: string; maintenance?: unknown } | null
+  if (!j?.writtenAt || now - Date.parse(j.writtenAt) > 120_000) return null
+  return typeof j.maintenance === 'string' && j.maintenance ? j.maintenance.slice(0, 40) : null
+}
+
 function toolEnv(home: string): Record<string, string> {
   const p = officePaths(home)
   const env: Record<string, string> = { ...(process.env as Record<string, string>), MYCEL_CONFIG: p.serverJson, MYCEL_MODE: 'dev' }
@@ -751,24 +758,29 @@ async function install(home: string, current: string, r: OfficeRelease, d: Updat
     // running answers finish first. The nightly run waits until quietBy and then leaves the update for a later run;
     // "update now" (and the last resort) waits idleWaitMs, then an answer still running is interrupted. A count the
     // server did not write lately (status.json older than 2 minutes) counts as running while the server answers.
-    const busy = async (): Promise<number | null> => {
-      const n = runningAnswers(home, d.now().getTime())
-      if (n !== null) return n
-      return (await d.health(s.appPort)) === null ? 0 : null
+    // what keeps the update waiting, '' for nothing: running answers, the server's own maintenance (a backup)
+    const busy = async (): Promise<string> => {
+      const now = d.now().getTime()
+      const m = serverMaintenance(home, now)
+      const n = runningAnswers(home, now)
+      if (n !== null) return n > 0 ? `${n} answer(s) still running` : m ? `the server's ${m} still running` : ''
+      return (await d.health(s.appPort)) === null ? '' : 'answers may be running (the server has not said lately)'
     }
-    const patient = o.reason === 'schedule' && !!o.quietBy && !o.lastResort
-    const idleEnd = patient ? o.quietBy!.getTime() : d.now().getTime() + (o.idleWaitMs ?? IDLE_WAIT_MS)
-    let n = await busy()
-    while (n !== 0 && d.now().getTime() < idleEnd) {
-      phase('wait-idle', n === null ? 'waiting: the server has not said lately whether answers are running' : `waiting for ${n} running answer(s) to finish`, target)
+    let patient = o.reason === 'schedule' && !!o.quietBy && !o.lastResort
+    let idleEnd = patient ? o.quietBy!.getTime() : d.now().getTime() + (o.idleWaitMs ?? IDLE_WAIT_MS)
+    let why = await busy()
+    while (why && d.now().getTime() < idleEnd) {
+      phase('wait-idle', `waiting: ${why}`, target)
       await d.sleep(15_000)
-      n = await busy()
+      // "update now" while the nightly run waits: it waits as "update now" does from here
+      if (patient && takeRequest(home)) { patient = false; idleEnd = d.now().getTime() + (o.idleWaitMs ?? IDLE_WAIT_MS); d.log('update now asked while waiting') }
+      why = await busy()
     }
-    if (n !== 0 && patient) {
+    if (why && patient) {
       const since = patchUpdateState(home, (x) => { x.deferred = { version: target, since: x.deferred?.since ?? d.now().toISOString() } }).deferred!.since
-      return { kind: 'skipped', version: target, message: `${n === null ? 'answers may be running' : `${n} answer(s) still running`} when the update window's wait ended (${o.quietBy!.toISOString()}); ${target} waits for a quiet moment in the update window (deferred since ${since})` }
+      return { kind: 'skipped', version: target, message: `${why} when the update window's wait ended (${o.quietBy!.toISOString()}); ${target} waits for a quiet moment in the update window (deferred since ${since})` }
     }
-    if (n !== 0) d.log(`${n === null ? 'answers may still be running' : `${n} answer(s) still running`}: installing anyway${o.lastResort ? ' (deferred for 3 days)' : ''}`)
+    if (why) d.log(`${why}: installing anyway${o.lastResort ? ' (deferred for 3 days)' : ''}`)
     phase('backup', 'backing up the database (pre-update)', target)
     const app = path.join(home, 'app')
     const bk = await d.exec([path.join(app, 'bin', 'bun'), path.join(app, 'server', 'src', 'admin.js'), 'backup', '--scope', 'db', '--kind', 'pre-update'], { cwd: home, env: toolEnv(home), capture: true, timeoutMs: 15 * 60_000 })

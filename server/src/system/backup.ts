@@ -120,6 +120,8 @@ export interface BackupManagerOptions {
 
 export class BackupManager {
   private running: Promise<BackupMeta> | null = null
+  /** a backup runs now (the nightly one too: it does not take the ops lock) */
+  get busy(): boolean { return this.running !== null }
   constructor(private o: BackupManagerOptions) {}
 
   private now() { return this.o.now?.() ?? new Date() }

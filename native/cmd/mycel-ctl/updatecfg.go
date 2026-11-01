@@ -266,9 +266,8 @@ func cmdUpdateSwitch(e *env, args []string, name string) (int, error) {
 		if in.Hosted {
 			return 1, fmt.Errorf("a hosted server is updated by the hosting service's control plane, not by itself")
 		}
-		if in, err = setInstallBool(e, "autoUpdate", on); err != nil {
-			return 1, err
-		}
+		// server.json and the timer first, install.json last: a step that fails leaves install.json as it was, and
+		// status shows what disagrees
 		if err := settingsAsServer(e, in, "server-update-auto", "--auto="+fmt.Sprint(on)); err != nil {
 			return 1, fmt.Errorf("server.json update.auto: %v", err)
 		}
@@ -277,6 +276,9 @@ func cmdUpdateSwitch(e *env, args []string, name string) (int, error) {
 			if o, err := exec.Command(e.systemctl, verb, "--now", in.ID+"-update.timer").CombinedOutput(); err != nil {
 				return 1, fmt.Errorf("systemctl %s %s-update.timer: %v %s", verb, in.ID, err, strings.TrimSpace(string(o)))
 			}
+		}
+		if in, err = setInstallBool(e, "autoUpdate", on); err != nil {
+			return 1, err
 		}
 	case "allow-unsigned":
 		if !on {

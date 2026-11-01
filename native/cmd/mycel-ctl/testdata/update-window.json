@@ -1,5 +1,6 @@
 {
-  "_": "The team's update window in the team's time zone, as the app's own updater (server/src/system/update-job.ts inWindow, tests/unit/g-update-auto.test.ts) and the root update timer (native/cmd/mycel-ctl/schedule.go, TestUpdateWindowMatchesServer) read it. Starts inclusive, ends exclusive, may pass midnight; equal ends never open.",
+  "_": "The team's update window in the team's time zone, as the app's own updater (server/src/system/update-job.ts inWindow, tests/unit/g-update-auto.test.ts) and the root update timer (native/cmd/mycel-ctl/schedule.go, TestUpdateWindowMatchesServer) read it. Starts inclusive, ends exclusive, may pass midnight; equal ends never open. default: the window when the team has none (update-job.ts DEFAULT_UPDATE_WINDOW, schedule.go defaultUpdateWindow).",
+  "default": "03:00-05:00",
   "cases": [
     { "window": "03:00-05:00", "zone": "Asia/Seoul", "at": "2026-11-01T18:00:00Z", "inside": true, "why": "03:00 KST" },
     { "window": "03:00-05:00", "zone": "Asia/Seoul", "at": "2026-11-01T19:59:00Z", "inside": true, "why": "04:59 KST" },

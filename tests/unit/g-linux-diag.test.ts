@@ -137,6 +137,14 @@ describe('diagnostics of an installed Linux server', () => {
     expect((await checks()).find((x) => x.id === 'update_root')!.detail).toContain('Automatic updates are off on this server')
     inst({}); if (!fs.existsSync(link)) fs.symlinkSync(path.join(units, 'mycel-update.timer'), link); ctx.config.update = { ...ctx.config.update, auto: true }
     expect((await checks()).find((x) => x.id === 'update_root')!.detail).toContain('The update timer installs it in the team\'s update window')
+    // a window that never opens, or is too short for the 15-minute checks
+    for (const w of ['00:00-00:00', '03:00-03:20']) {
+      ctx.db.query("INSERT INTO settings (key, value) VALUES ('updateWindow', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value").run(JSON.stringify(w))
+      const a = (await checks()).find((x) => x.id === 'auto_update')!
+      expect(a).toMatchObject({ status: 'warn' })
+      expect(a.detail).toContain('shorter than 30 minutes')
+    }
+    ctx.db.query("DELETE FROM settings WHERE key = 'updateWindow'").run()
     // unsigned versions accepted
     inst({ allowUnsigned: true })
     c = await checks()

@@ -188,7 +188,8 @@ fi
 stop_units() {
   have_systemd || return 0
   local u
-  for u in "$ID-update.timer" "$ID-firewall.timer" "$ID-server.service" "$ID-launcher.service"; do
+  # the update job too: a scheduled one may wait up to an hour for a quiet moment (mycel-ctl update --scheduled)
+  for u in "$ID-update.timer" "$ID-update.service" "$ID-firewall.timer" "$ID-server.service" "$ID-launcher.service"; do
     systemctl stop "$u" >/dev/null 2>&1 || true
   done
 }
@@ -578,6 +579,14 @@ AGT_GID=$(id -g "$AGT_USER")
 say "accounts: $SRV_USER=$SRV_UID $AGT_USER=$AGT_UID"
 
 # ---- stop the units and every process of both accounts before touching their folders ----
+# an update that holds root/.update.lock (mycel-ctl update) is replacing root files: wait for it instead of racing it
+# (the lock stays with this installer until it exits; stop_units then stops an update job that is still only waiting)
+if [ -d "$BASE/root" ] && [ ! -L "$BASE/root" ] && command -v flock >/dev/null 2>&1; then
+  [ ! -L "$BASE/root/.update.lock" ] || die "$BASE/root/.update.lock is a link"
+  [ -e "$BASE/root/.update.lock" ] || install -o root -g root -m 600 /dev/null "$BASE/root/.update.lock"
+  exec 9<"$BASE/root/.update.lock"   # flock(2) needs no write access
+  flock -n 9 || { say "waiting for an update that is running (mycel-ctl update)"; flock -w 1800 9 || die "an update (mycel-ctl update) is still running after 30 minutes; run the installer again when it is done"; }
+fi
 stop_units
 kill_accounts
 

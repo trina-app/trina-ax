@@ -510,7 +510,12 @@ export class OpsService {
       const autoOn = !rs || (rs.autoUpdate && rs.timerEnabled !== false && !!this.ctx.config.update.auto)
       if (rs) {
         const s = getTeamSettings(this.ctx.db)
-        add('auto_update', 'update', t(ML.autoUpdate), autoOn ? 'ok' : 'warn', t(autoOn ? ML.autoUpdateOn(s.updateWindow ?? DEFAULT_UPDATE_WINDOW, teamTimeZone(this.ctx.db)) : ML.autoUpdateOff))
+        const w = s.updateWindow ?? DEFAULT_UPDATE_WINDOW
+        // a window that never opens, or is too short for the 15-minute checks: the app's own updates never run, and
+        // the root update timer uses 03:00-05:00 instead (native/cmd/mycel-ctl/schedule.go)
+        const [from, to] = w.split('-').map((x) => Number(x.slice(0, 2)) * 60 + Number(x.slice(3, 5))) as [number, number]
+        const long = (((to - from) % 1440) + 1440) % 1440 >= 30
+        add('auto_update', 'update', t(ML.autoUpdate), autoOn && long ? 'ok' : 'warn', t(!autoOn ? ML.autoUpdateOff : long ? ML.autoUpdateOn(w, teamTimeZone(this.ctx.db)) : ML.autoUpdateWindowShort(w)))
         if (rs.allowUnsigned || process.env.MYCEL_ALLOW_UNSIGNED === '1') add('unsigned_updates', 'update', t(ML.unsignedUpdates), 'warn', t(ML.unsignedAllowed))
       }
       if (us.needsRoot && us.available) add('update_root', 'update', t(M.update), 'warn', t(ML.updateNeedsRoot(us.available.version, autoOn)))
@@ -642,6 +647,7 @@ export class OpsService {
       logsDir: this.layout.logDir,
       connection: { mode: c.mode, state: c.state, address: c.address, detail: c.detail },
       queue: { running: d.queue.running, queued: d.queue.queued },
+      maintenance: this.busy ?? (this.backups.busy ? 'backup' : null),
       firewall: get('pf_anchor'),
       sandbox: get('sandbox'),
       lastBackupAt: this.backups.latest()?.createdAt ?? null,

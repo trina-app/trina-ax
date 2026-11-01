@@ -264,6 +264,31 @@ describe('a whole update run (fake bundle, fake health)', () => {
     const r3 = await runUpdate(home, { reason: 'schedule', deps: f.deps, ...short, quietBy: new Date(now().getTime() + 60_000) })
     expect(r3.kind).toBe('skipped')
     expect(r3.message).toContain('answers may be running')
+    // the server's own backup counts too, and "update now" asked meanwhile ends the long wait (idleWaitMs from there)
+    const status2 = (m: string | null) => fs.writeFileSync(path.join(home, 'status', 'status.json'), JSON.stringify({ writtenAt: now().toISOString(), queue: { running: 0 }, maintenance: m }))
+    f.deps.sleep = async (ms) => { await sleep(ms); status2('backup') }
+    status2('backup')
+    const r5 = await runUpdate(home, { reason: 'schedule', deps: f.deps, ...short, quietBy: new Date(now().getTime() + 60_000) })
+    expect(r5.message).toContain("the server's backup still running")
+    let asked = false
+    f.deps.sleep = async (ms) => { await sleep(ms); status2('backup'); if (!asked) { asked = true; fs.writeFileSync(path.join(home, 'update', 'request.json'), JSON.stringify({ action: 'now', by: 'test', at: new Date().toISOString() })) } }
+    const t0 = now().getTime()
+    const r6 = await runUpdate(home, { reason: 'schedule', deps: f.deps, ...short, quietBy: new Date(now().getTime() + 3600_000) })
+    expect(r6.kind).toBe('updated')
+    expect(now().getTime() - t0).toBeLessThan(10 * 60_000) // not the hour of the nightly wait
+    expect(fs.existsSync(path.join(home, 'update', 'request.json'))).toBe(false)
+    expect(readUpdateState(home).deferred).toBeNull()
+    expect(fs.existsSync(path.join(home, 'update', 'download'))).toBe(false)
+  })
+
+  withZip('the last resort: deferred for 3 days, waits idleWaitMs, then installs', async () => {
+    const home = makeHome('run-busy-last', '0.2.0')
+    const files = new Map<string, Uint8Array | string>()
+    publish(files, '0.3.0', makeZip('0.3.0'))
+    const f = fakeDeps(home, files)
+    const now = () => f.deps.now!()
+    const status = (running: number) => { fs.mkdirSync(path.join(home, 'status'), { recursive: true }); fs.writeFileSync(path.join(home, 'status', 'status.json'), JSON.stringify({ writtenAt: now().toISOString(), queue: { running } })) }
+    const sleep = f.deps.sleep!
     // the last resort (deferred for 3 days): waits idleWaitMs, then installs
     f.deps.sleep = async (ms) => { await sleep(ms); status(1) }
     status(1)

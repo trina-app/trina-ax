@@ -2,6 +2,7 @@ package main
 
 import (
 	"bufio"
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
@@ -79,12 +80,15 @@ type updater struct {
 	quietBy   time.Time
 	force     bool
 	busy      int
+	busyWith  string
 	deferred  bool
 	// hooks for tests (default: the real thing)
 	liveTurns  func() (int, error)
 	runAsSrv   func(args []string, env []string) (string, error)
 	restartSrv func() error
 	sleep      func(time.Duration)
+	// maintenance is the server's own operation running now (a backup, a restore), "" for none (status/status.json)
+	maintenance func() string
 }
 
 // errDeferred: a scheduled run left the update for later (answers kept running); nothing is an error.
@@ -152,6 +156,7 @@ func cmdUpdate(e *env, args []string) (int, error) {
 	u.runAsSrv = u.runAsServer
 	u.restartSrv = u.restartServer
 	u.sleep = time.Sleep
+	u.maintenance = u.serverMaintenance
 	if updateTestHook != nil {
 		updateTestHook(u)
 	}
@@ -179,6 +184,8 @@ func cmdUpdate(e *env, args []string) (int, error) {
 		return finish(30, err)
 	}
 	defer unlock()
+	// what runs now (the scheduled gate waited without the lock: an administrator may have updated meanwhile)
+	res.From = currentVersion(e.base)
 	err = u.run(*version, *bundleFile, *onlyRoot)
 	if errors.Is(err, errDeferred) {
 		err = nil
@@ -186,8 +193,8 @@ func cmdUpdate(e *env, args []string) (int, error) {
 	if err != nil && res.Result == "ok" {
 		res.Result = "error"
 	}
-	if u.scheduled && err == nil && res.Result == "ok" && !res.Skipped && !u.deferred {
-		clearDeferred(e)
+	if err == nil && res.Result == "ok" && !res.Skipped && !u.deferred {
+		clearDeferred(e) // any update that went through (an administrator's too): nothing waits any more
 	}
 	return finish(resultCodes[res.Result], err)
 }
@@ -198,9 +205,17 @@ func (u *updater) gate(onlyRoot bool) (bool, error) {
 	s := u.readSchedule()
 	now := u.e.now().In(s.loc)
 	if !s.w.contains(now) {
-		u.res.Result, u.res.Skipped, u.res.Detail = "ok", true, "outside the update window "+s.String()
-		return false, nil
+		// a team window no check has passed for three days (a window between two checks, or a server account that
+		// keeps moving it): the default window in the team's zone
+		def, _ := parseWindow(defaultUpdateWindow)
+		if since := windowPassed(u.e); u.e.now().Sub(since) >= scheduleLastResort && s.w != def && def.contains(now) {
+			s.w, s.note = def, joinNote(s.note, "no check got inside the team's window since "+since.UTC().Format(time.RFC3339)+", so the default")
+		} else {
+			u.res.Result, u.res.Skipped, u.res.Detail = "ok", true, "outside the update window "+s.String()
+			return false, nil
+		}
 	}
+	notePass(u.e)
 	feed, err := u.fetchFeed("")
 	if err != nil {
 		return false, err
@@ -228,7 +243,15 @@ func (u *updater) gate(onlyRoot bool) (bool, error) {
 		u.force, u.quietBy = true, u.e.now().Add(u.maxWait)
 		u.res.Notes = append(u.res.Notes, fmt.Sprintf("a root update has waited for a quiet moment since %s: installing after at most %v even with answers running", d.Since.Format(time.RFC3339), u.maxWait))
 	}
-	if u.waitQuiet(u.quietBy) || u.force {
+	quiet := u.waitQuiet(u.quietBy)
+	// turned off while it waited (`mycel-ctl auto-update off`, systemctl disable)
+	if u.in.Systemd && fileExists(systemdRunDir) {
+		if out, _ := exec.Command(u.e.systemctl, "is-enabled", u.in.ID+"-update.timer").Output(); strings.TrimSpace(string(out)) == "disabled" {
+			u.res.Result, u.res.Skipped, u.res.Detail = "ok", true, "automatic updates were turned off"
+			return false, nil
+		}
+	}
+	if quiet || u.force {
 		return true, nil
 	}
 	return false, u.deferUpdate(feed.Version, "before the download")
@@ -240,9 +263,38 @@ func (u *updater) deferUpdate(version, when string) error {
 	noteDeferred(u.e, version, u.busy)
 	u.deferred = true
 	u.res.Result, u.res.Skipped = "ok", !u.res.RootUpdated
-	u.res.Detail = fmt.Sprintf("%d running answer(s) did not finish by %s (%s); the update to %s waits for a quiet moment in the update window",
-		u.busy, u.quietBy.Format("15:04 MST"), when, version)
+	what := fmt.Sprintf("%d running answer(s)", u.busy)
+	if u.busyWith != "" {
+		what = fmt.Sprintf("%d running answer(s) and the server's %s", u.busy, u.busyWith)
+	}
+	u.res.Detail = fmt.Sprintf("%s did not finish by %s (%s); the update to %s waits for a quiet moment in the update window",
+		what, u.quietBy.Format("15:04 MST"), when, version)
 	return errDeferred
+}
+
+// serverMaintenance is the operation the server reports in status/status.json (written every 30 s; the server
+// account's file, read without following a link): a backup, a restore, an update, an export. Older or missing: "".
+func (u *updater) serverMaintenance() string {
+	b, err := readSmall(filepath.Join(u.e.base, "status", "status.json"), 1<<20)
+	if err != nil {
+		return ""
+	}
+	var st struct {
+		WrittenAt   string  `json:"writtenAt"`
+		Maintenance *string `json:"maintenance"`
+	}
+	if json.Unmarshal(b, &st) != nil || st.Maintenance == nil || *st.Maintenance == "" {
+		return ""
+	}
+	at, err := time.Parse(time.RFC3339Nano, st.WrittenAt)
+	if err != nil || u.e.now().Sub(at) > 2*time.Minute {
+		return ""
+	}
+	m := *st.Maintenance
+	if len(m) > 40 || strings.ContainsAny(m, "\n\r") {
+		m = "maintenance"
+	}
+	return m
 }
 
 // lockUpdate takes BASE/root/.update.lock (flock); a second update at the same time is "busy".
@@ -755,14 +807,19 @@ func (u *updater) waitForTurns() bool {
 	return u.waitQuiet(u.quietBy) || u.force
 }
 
-// waitQuiet asks the launcher until it runs no turn (true) or the deadline passes (false; u.busy is the last count).
+// waitQuiet asks the launcher until it runs no turn and the server runs no maintenance (true) or the deadline passes
+// (false; u.busy and u.busyWith are the last answers).
 func (u *updater) waitQuiet(deadline time.Time) bool {
 	for {
 		n, err := u.liveTurns()
-		if err == nil && n == 0 {
+		m := ""
+		if u.maintenance != nil {
+			m = u.maintenance()
+		}
+		if err == nil && n == 0 && m == "" {
 			return true
 		}
-		u.busy = n
+		u.busy, u.busyWith = n, m
 		if !u.e.now().Before(deadline) {
 			return false
 		}
@@ -993,8 +1050,15 @@ func (u *updater) runAsServer(args []string, extraEnv []string) (string, error) 
 	cmd.Dir = "/"
 	cmd.Env = append(adminEnv(u.in), extraEnv...)
 	cmd.SysProcAttr = &syscall.SysProcAttr{Credential: &syscall.Credential{Uid: uint32(srv.uid), Gid: uint32(srv.gid), Groups: []uint32{}}}
-	out, err := cmd.CombinedOutput()
-	return string(out), err
+	// the server account's program: at most 1 MiB of output kept, and a child left holding the pipe does not keep
+	// this waiting past the program's own end
+	var out limitedBuffer
+	out.b = &bytes.Buffer{}
+	out.max = 1 << 20
+	cmd.Stdout, cmd.Stderr = &out, &out
+	cmd.WaitDelay = 5 * time.Second
+	err = cmd.Run()
+	return out.b.String(), err
 }
 
 // adminEnv is admin.js's environment: the installation's, and MYCEL_ALLOW_UNSIGNED=1 when the install accepts unsigned
