@@ -137,8 +137,10 @@ fi
 # ---- this Mac account's ~/.claude.json (this Mac's own login only; docs/OFFICE.md 8, office test O3) ----
 # The server empties its MCP settings at every start and after every AI turn (an MCP server an AI turn planted there
 # would run outside the sandbox the next time `claude` runs here), keeping a copy in config/claude-mcp-backups. Say
-# what that removes; a new install stops until the owner agrees. An installation that already runs this way goes on
-# (from this version it keeps a copy), and the automatic update never stops here.
+# what that removes; a new install stops until the owner agrees, and then this script saves the copy itself before the
+# server first starts (it stops when it cannot). An installation that already runs this way goes on (from this version
+# the server keeps a copy), and the automatic update never stops here. An uninstalled one (config/ kept, no app/)
+# removes nothing, so it counts as new.
 MCP_FOUND=0 MCP_STOP=0
 MCP_KEEP="$PREFIX/config/claude-mcp-backups"
 if [ "$SUBSCRIPTION" = 0 ]; then
@@ -151,7 +153,7 @@ if [ "$SUBSCRIPTION" = 0 ]; then
     if [ "$MCP_CODE" = 3 ]; then
       MCP_FOUND=1
       printf '%s\n' "$MCP_OUT" | sed 's/^/office-install: /'
-      if [ -f "$PREFIX/config/office.env" ]; then
+      if [ -f "$PREFIX/config/office.env" ] && [ -d "$PREFIX/app" ]; then
         say "the installation in $PREFIX already removes them; from $VERSION on it first keeps a copy in $MCP_KEEP (only you can read it)"
       elif [ "$REMOVE_MCP" = 1 ]; then
         say "--remove-claude-mcp: the server removes them when it starts; a copy goes to $MCP_KEEP first (only you can read it)"
@@ -163,14 +165,15 @@ if [ "$SUBSCRIPTION" = 0 ]; then
     fi
   fi
 fi
-MCP_WHY="With this Mac's own Claude login (the default) the server empties these MCP settings at every start and after
-  every AI turn, so that an MCP server an AI turn might plant there can never run outside the sandbox when 'claude' is
-  used on this account. To keep them, either
+MCP_WHY="With this Mac's own Claude login (the default) the server makes these changes at every start and after every
+  AI turn, so that an MCP server an AI turn might plant there can never run outside the sandbox when 'claude' is used
+  on this account. To keep the file as it is, either
     - install with --claude-token-file <file> (the output of 'claude setup-token'; recommended): the server then never
       reads or changes ~/.claude.json, or
     - install as another macOS user that is used only for $PRODUCT_NAME.
-  To let the server remove them, run this again with --remove-claude-mcp. It first keeps a copy in $MCP_KEEP
-  (only you can read it); '$PREFIX/teamax claude-mcp restore <copy>' puts it back once the server no longer removes it."
+  To let the server go ahead, run this again with --remove-claude-mcp. A copy of the MCP settings is kept in $MCP_KEEP
+  first (only you can read it); '$PREFIX/teamax claude-mcp restore <copy>' puts it back once the server no longer
+  removes it."
 if [ "$MCP_STOP" = 1 ] && [ "$CHECK_ONLY" != 1 ]; then
   die "stopped; nothing was changed. $MCP_WHY"
 fi
@@ -191,7 +194,7 @@ if [ "$CHECK_ONLY" = 1 ]; then
   # read-only: compared with what $PREFIX already offers
   [ "$DESKTOP" = 0 ] || "$BUN_SRC" "$SRC/app/server/src/office.js" desktop --home "$PREFIX" add-from --dry-run "${DESKTOP_ARGS[@]}" | sed 's/^/  /'
   say "check only: nothing changed"
-  [ "$MCP_STOP" = 0 ] || die "the install would stop at the MCP settings above. $MCP_WHY"
+  [ "$MCP_STOP" = 0 ] || die "the install would stop at the Claude config changes above. $MCP_WHY"
   exit 0
 fi
 
@@ -200,6 +203,11 @@ mkdir -p "$PREFIX"
 chmod 755 "$PREFIX"
 "$BUN_SRC" "$SRC/app/server/src/office.js" configure --home "$PREFIX" "${CONF_ARGS[@]}" > /dev/null
 LABEL=$(sed -n 's/^TEAMAX_LABEL=//p' "$PREFIX/config/office.env")
+# the copy of the MCP settings the server is about to remove, before anything else changes (config/ is 700 now)
+if [ "$MCP_FOUND" = 1 ]; then
+  MCP_COPY=$("$BUN_SRC" "$SRC/app/server/src/office.js" claude-mcp save --home "$PREFIX" --user-home "$HOME" 2>&1) || die "could not save a copy of the MCP settings in ~/.claude.json, so nothing else was changed (only config/office.env was written): $MCP_COPY"
+  say "copy of the MCP settings in ~/.claude.json: $MCP_COPY"
+fi
 
 # ---- stop a running installation before its program is replaced (the server and its cloudflared) ----
 launchctl bootout "gui/$(id -u)/$LABEL.tunnel" >/dev/null 2>&1 || true
@@ -237,10 +245,6 @@ if [ "$DESKTOP" = 1 ]; then
 fi
 
 if [ "$UPDATE" = 1 ]; then say "updated to $VERSION"; exit 0; fi
-if [ "$MCP_FOUND" = 1 ]; then
-  say "copies of the MCP settings the server removed from ~/.claude.json:"
-  "$PREFIX/app/bin/bun" "$PREFIX/app/server/src/office.js" claude-mcp backups --home "$PREFIX" | sed 's/^/  /' || true
-fi
 
 # ---- what the owner still has to do (needs an admin or a person; shown, not run) ----
 FW=$(/usr/libexec/ApplicationFirewall/socketfilterfw --getglobalstate 2>/dev/null || true)

@@ -145,14 +145,21 @@ describe('the server keeps a copy of what it removes', () => {
     const plan = [{ file: m.file, taken: [{ project: null, key: 'mcpServers' as const, value: { s: { command: 'x' } } }] }]
     const t0 = Date.parse('2026-11-01T00:00:00Z')
     saveMcpBackup(dir, m.home, plan, 'start', new Date(t0))
-    for (let i = 1; i <= 25; i++) saveMcpBackup(dir, m.home, plan, 'turn', new Date(t0 + i * 1000))
+    const planted = (i: number) => [{ file: m.file, taken: [{ project: null, key: 'mcpServers' as const, value: { [`s${i}`]: { command: 'x' } } }] }]
+    for (let i = 1; i <= 25; i++) saveMcpBackup(dir, m.home, planted(i), 'turn', new Date(t0 + i * 1000))
     const names = listMcpBackups(dir).map((f) => path.basename(f))
     expect(names.filter((x) => x.endsWith('-start.json'))).toHaveLength(1)
     expect(names.filter((x) => /-turn(-\d+)?\.json$/.test(x))).toHaveLength(20)
     expect(names).not.toContain('claude-mcp-2026-11-01T00-00-01-000Z-turn.json') // the oldest turn copies went
-    // the same moment twice: a second file, never over the first
-    const a = saveMcpBackup(dir, m.home, plan, 'start', new Date(t0)), b = saveMcpBackup(dir, m.home, plan, 'start', new Date(t0))
+    // the same settings as the newest copy: no new file (the installer's copy and the first start's)
+    const newest = listMcpBackups(dir).at(-1)!
+    expect(saveMcpBackup(dir, m.home, planted(25), 'start', new Date(t0 + 99_000))).toBe(newest)
+    // other settings at the same moment twice: a second file, never over the first, listed after it
+    const other = (v: string) => [{ file: m.file, taken: [{ project: null, key: 'mcpServers' as const, value: { [v]: { command: v } } }] }]
+    const a = saveMcpBackup(dir, m.home, other('a'), 'turn', new Date(t0 + 50_000)), b = saveMcpBackup(dir, m.home, other('b'), 'turn', new Date(t0 + 50_000))
     expect(a).not.toBe(b)
+    expect(path.basename(b)).toMatch(/-turn-2\.json$/)
+    expect(listMcpBackups(dir).slice(-2)).toEqual([a, b])
     expect(fs.readdirSync(dir).filter((x) => x.startsWith('.tmp'))).toEqual([])
     const huge = { project: null, key: 'mcpServers' as const, value: { big: { command: 'x', args: ['y'.repeat(5 * 1024 * 1024)] }, b2: {} } }
     const c = read(saveMcpBackup(dir, m.home, [{ file: m.file, taken: [huge] }], 'start')) as McpBackup
@@ -191,6 +198,14 @@ describe('what would be removed: read only', () => {
     expect(text).toContain('~/.claude.json.backup (an older copy the Claude CLI keeps): 6 MCP settings')
     expect(text).not.toContain('canary-token') // names only
     expect(text).not.toContain('/Users/owner/empty') // the CLI's own empty values are not a finding
+    // a link: what becomes of it is said, an empty config when its target is not copied
+    const l = fakeMac(null)
+    fs.writeFileSync(path.join(l.base, 'outside.json'), JSON.stringify(config()))
+    fs.symlinkSync(path.join(l.base, 'outside.json'), l.file)
+    const lo: string[] = []
+    expect(claudeMcpCommand(l.inst, ['check'], l.env, (s) => lo.push(s))).toBe(FOUND)
+    expect(lo[0]).toContain('a link or hard link it replaces')
+    expect(lo.join('\n')).toContain('it becomes an empty Claude config {}')
     const one: string[] = []
     expect(claudeMcpCommand(m.inst, ['check', '--summary'], m.env, (s) => one.push(s))).toBe(FOUND)
     expect(one).toHaveLength(1)
@@ -215,8 +230,13 @@ describe('teamax claude-mcp restore', () => {
     j.projects['/Users/owner/web'].enabledMcpjsonServers = ['lint', 'other']
     fs.writeFileSync(m.file, JSON.stringify(j))
     fs.chmodSync(m.file, 0o640)
+    const ask: string[] = []
+    expect(claudeMcpCommand(m.inst, ['restore', m.copy], m.env, (s) => ask.push(s))).toBe(1) // lists, changes nothing
+    expect(ask.join('\n')).toContain('user scope: MCP server notes (https://mcp.example.com/notes)')
+    expect(ask.join('\n')).toContain('Nothing was changed')
+    expect(read(m.file).mcpServers).toEqual({ github: { command: 'my-new-github' } })
     const out: string[] = []
-    expect(claudeMcpCommand(m.inst, ['restore', m.copy], m.env, (s) => out.push(s))).toBe(0)
+    expect(claudeMcpCommand(m.inst, ['restore', m.copy, '--yes'], m.env, (s) => out.push(s))).toBe(0)
     const k = read(m.file)
     expect(k.mcpServers).toEqual({ github: { command: 'my-new-github' }, notes: config().mcpServers.notes })
     expect(k.projects['/Users/owner/app'].mcpServers).toEqual({ db: { command: 'db-mcp', args: ['--ro'] } })
@@ -228,45 +248,77 @@ describe('teamax claude-mcp restore', () => {
     expect(out.join('\n')).toContain('user scope: MCP server notes (https://mcp.example.com/notes)')
     expect(out.join('\n')).not.toContain('MCP server github')
     const again: string[] = []
-    expect(claudeMcpCommand(m.inst, ['restore', m.copy], m.env, (s) => again.push(s))).toBe(0)
+    expect(claudeMcpCommand(m.inst, ['restore', m.copy, '--yes'], m.env, (s) => again.push(s))).toBe(0)
     expect(again[0]).toMatch(/^nothing to put back/)
   })
 
-  test('refused while this installation removes them (local-login with its agent); a copy made after an AI turn needs --yes', () => {
+  test('refused while this installation may remove or read them: local-login with its agent, or the token mode not restarted yet', () => {
     const m = guarded()
-    fs.mkdirSync(officePaths(m.inst, m.env).agentsDir, { recursive: true })
-    fs.writeFileSync(officePaths(m.inst, m.env).plist('app.team-ax.office'), '<plist/>')
-    expect(() => claudeMcpCommand(m.inst, ['restore', m.copy], m.env, () => {})).toThrow(/nothing was put back: .*would remove them again/)
+    const p = officePaths(m.inst, m.env)
+    fs.mkdirSync(p.agentsDir, { recursive: true })
+    fs.writeFileSync(p.plist('app.team-ax.office'), '<plist/>')
+    expect(() => claudeMcpCommand(m.inst, ['restore', m.copy, '--yes'], m.env, () => {})).toThrow(/nothing was put back: .*would remove them again/)
     expect(read(m.file).mcpServers).toEqual({})
-    // the setup-token mode: the server no longer touches the file
-    fs.mkdirSync(path.join(m.inst, 'config'), { recursive: true })
-    fs.writeFileSync(path.join(m.inst, 'config', 'office.env'), 'TEAMAX_CLAUDE_AUTH=subscription\n')
-    expect(claudeMcpCommand(m.inst, ['restore', m.copy], m.env, () => {})).toBe(0)
+    // `teamax configure --claude-token-file` without `teamax restart`: office.env says subscription, the running
+    // server (its server.json) is still on this Mac's login, and its engine could read them (review round 1)
+    fs.mkdirSync(p.config, { recursive: true })
+    fs.writeFileSync(p.env, 'TEAMAX_CLAUDE_AUTH=subscription\n')
+    fs.writeFileSync(p.serverJson, JSON.stringify({ engine: { authMode: 'local-login' } }))
+    expect(() => claudeMcpCommand(m.inst, ['restore', m.copy, '--yes'], m.env, () => {})).toThrow(/would remove them again/)
+    fs.rmSync(p.serverJson)
+    expect(() => claudeMcpCommand(m.inst, ['restore', m.copy, '--yes'], m.env, () => {})).toThrow(/would remove them again/)
+    // restarted in the setup-token mode: the server no longer touches the file
+    fs.writeFileSync(p.serverJson, JSON.stringify({ engine: { authMode: 'subscription' } }))
+    expect(claudeMcpCommand(m.inst, ['restore', m.copy, '--yes'], m.env, () => {})).toBe(0)
     expect(Object.keys(read(m.file).mcpServers)).toEqual(['github', 'notes'])
-    const t = guarded('turn')
+    // no agent (teamax uninstall-agent): allowed in local-login too
+    const u = guarded()
+    expect(claudeMcpCommand(u.inst, ['restore', u.copy, '--yes'], u.env, () => {})).toBe(0)
+  })
+
+  test('every copy lists its servers first, also one from a start (a turn the server could not clean up after may be in it)', () => {
+    for (const when of ['turn', 'start'] as const) {
+      const t = guarded(when)
+      const out: string[] = []
+      expect(claudeMcpCommand(t.inst, ['restore', t.copy], t.env, (s) => out.push(s))).toBe(1)
+      expect(out[0]).toContain(when === 'turn' ? 'saved after an AI turn' : 'saved at a server start')
+      expect(out.join('\n')).toContain('MCP server github (npx -y gh-mcp)')
+      expect(read(t.file).mcpServers).toEqual({})
+    }
+  })
+
+  test('a planted "__proto__" project or server name reaches nothing but its own key (review round 1)', () => {
+    const m = fakeMac(null)
+    fs.writeFileSync(m.file, '{"projects":{"__proto__":{"enabledMcpjsonServers":["evil"],"mcpServers":{"evil":{"command":"/bin/sh"}}},'
+      + '"/Users/owner/web":{"enabledMcpjsonServers":["lint"],"mcpServers":{"constructor":{"command":"ok-1"},"toString":{"command":"ok-2"},"__proto__":{"command":"evil-2"}}}}}')
+    const copy = guardClaudeJsonFamilyKeep(m.home, { backupDir: path.join(m.inst, 'config', 'claude-mcp-backups') }).backup!
+    expect(copy).toBeTruthy()
+    fs.writeFileSync(m.file, '{}')
     const out: string[] = []
-    expect(claudeMcpCommand(t.inst, ['restore', t.copy], t.env, (s) => out.push(s))).toBe(1)
-    expect(out[0]).toContain('saved after an AI turn')
-    expect(out.join('\n')).toContain('MCP server github (npx -y gh-mcp)')
-    expect(read(t.file).mcpServers).toEqual({})
-    expect(claudeMcpCommand(t.inst, ['restore', t.copy, '--yes'], t.env, () => {})).toBe(0)
-    expect(Object.keys(read(t.file).mcpServers)).toEqual(['github', 'notes'])
+    expect(claudeMcpCommand(m.inst, ['restore', copy, '--yes'], m.env, (s) => out.push(s))).toBe(0)
+    const k = read(m.file)
+    expect(Object.keys(k.projects)).toEqual(['/Users/owner/web'])
+    expect(k.projects['/Users/owner/web'].enabledMcpjsonServers).toEqual(['lint']) // was ["evil", "lint"]
+    expect(Object.keys(k.projects['/Users/owner/web'].mcpServers).sort()).toEqual(['constructor', 'toString'])
+    expect(({} as Record<string, unknown>).enabledMcpjsonServers).toBeUndefined() // Object.prototype untouched
+    expect(out.join('\n')).toContain('left out (not a usable name): project "__proto__"')
+    expect(out.join('\n')).toContain('left out (not a usable name): project /Users/owner/web: MCP server "__proto__"')
   })
 
   test('a config that is not JSON is left alone; a missing one is created 600', () => {
     const m = guarded()
     fs.writeFileSync(m.file, 'not json{')
-    expect(() => claudeMcpCommand(m.inst, ['restore', m.copy], m.env, () => {})).toThrow(/cannot be read as a Claude config/)
+    expect(() => claudeMcpCommand(m.inst, ['restore', m.copy, '--yes'], m.env, () => {})).toThrow(/cannot be read as a Claude config/)
     expect(fs.readFileSync(m.file, 'utf8')).toBe('not json{')
     fs.rmSync(m.file)
-    expect(claudeMcpCommand(m.inst, ['restore', m.copy], m.env, () => {})).toBe(0)
+    expect(claudeMcpCommand(m.inst, ['restore', m.copy, '--yes'], m.env, () => {})).toBe(0)
     expect(mode(m.file)).toBe(0o600)
     expect(read(m.file).projects['/Users/owner/site']).toEqual({ mcpServers: { cms: { command: 'cms-mcp' } }, enabledMcpjsonServers: ['x'] })
   })
 
   test('mergeBackup skips values left out of a copy', () => {
     const cfg: Record<string, unknown> = {}
-    expect(mergeBackup(cfg, [{ project: null, key: 'mcpServers', names: ['big'], omitted: 'too large' }])).toEqual([])
+    expect(mergeBackup(cfg, [{ project: null, key: 'mcpServers', names: ['big'], omitted: 'too large' }])).toEqual({ added: [], skipped: [] })
     expect(cfg).toEqual({})
   })
 })
@@ -292,6 +344,7 @@ describe('office-install.sh lists them and a new install stops', () => {
   beforeAll(() => {
     fs.mkdirSync(path.join(B, 'app', 'bin', 'darwin-arm64'), { recursive: true })
     fs.mkdirSync(path.join(B, 'app', 'server', 'src'), { recursive: true })
+    fs.mkdirSync(path.join(B, 'app', 'native', 'bin', 'darwin-arm64'), { recursive: true })
     fs.writeFileSync(path.join(B, 'app', 'VERSION'), '9.9.9\n')
     fs.symlinkSync(process.execPath, path.join(B, 'app', 'bin', 'darwin-arm64', 'bun'))
     // never a real LaunchAgent from this test: `install` (and any launchctl) only says it was called
@@ -317,11 +370,43 @@ describe('office-install.sh lists them and a new install stops', () => {
     expect(r.out).toContain('2 user MCP servers, MCP settings of 4 projects')
     expect(r.out).toContain('~/.claude.json: project /Users/owner/app: 1 MCP server (db)')
     expect(r.out).toContain('check only: nothing changed')
-    expect(r.out).toContain('the install would stop at the MCP settings above')
+    expect(r.out).toContain('the install would stop at the Claude config changes above')
     expect(r.out).toContain('--claude-token-file')
     expect(r.out).toContain('--remove-claude-mcp')
     expect(fs.readFileSync(m.file, 'utf8')).toBe(before)
     expect(fs.existsSync(prefixOf(m))).toBe(false)
+  })
+
+  test('install with --remove-claude-mcp: the installer saves the copy before the server starts; when it cannot, it stops there', () => {
+    const m = fakeMac()
+    const before = fs.readFileSync(m.file, 'utf8')
+    const r = run(m, ['--remove-claude-mcp', '--no-open'])
+    expect(r.out).toContain('FAKE-INSTALL') // reached the (stubbed) agent start
+    expect(r.code).toBe(0)
+    const copies = listMcpBackups(path.join(prefixOf(m), 'config', 'claude-mcp-backups'))
+    expect(copies).toHaveLength(1)
+    expect(r.out).toContain(`copy of the MCP settings in ~/.claude.json: ${copies[0]}`)
+    const b = read(copies[0]!) as McpBackup
+    expect(b.when).toBe('install')
+    expect(b.files['.claude.json']![0]).toEqual({ project: null, key: 'mcpServers', value: config().mcpServers })
+    expect(mode(copies[0]!)).toBe(0o600)
+    expect(fs.readFileSync(m.file, 'utf8')).toBe(before) // the server removes them when it starts, not the installer
+    // the server's first start then finds the same settings: no second copy
+    const db = openDb(path.join(m.base, 'app.db'))
+    try {
+      const ctx = { config: { office: true, dataDir: path.join(prefixOf(m), 'data'), teamRoot: path.join(prefixOf(m), 'team'), engine: { authMode: 'local-login' } } as any, db, log: silentLogger }
+      expect(guardOfficeClaudeJson(ctx, 'start', m.home).length).toBeGreaterThan(0)
+      expect(listMcpBackups(path.join(prefixOf(m), 'config', 'claude-mcp-backups'))).toEqual(copies)
+    } finally { db.close() }
+    // a copy that cannot be saved: nothing but config/office.env was written
+    const f = fakeMac()
+    fs.mkdirSync(path.join(prefixOf(f), 'config'), { recursive: true, mode: 0o700 })
+    fs.symlinkSync(f.base, path.join(prefixOf(f), 'config', 'claude-mcp-backups'))
+    const bad = run(f, ['--remove-claude-mcp', '--no-open'])
+    expect(bad.code).not.toBe(0)
+    expect(bad.out).toContain('could not save a copy of the MCP settings')
+    expect(bad.out).not.toContain('FAKE-')
+    expect(fs.existsSync(path.join(prefixOf(f), 'app'))).toBe(false)
   })
 
   test('install: stops before anything is written; with --remove-claude-mcp check-only goes through', () => {
@@ -349,9 +434,14 @@ describe('office-install.sh lists them and a new install stops', () => {
     const sub = run(m, ['--check-only', '--claude-token-file', token])
     expect(sub.code).toBe(0)
     expect(sub.out).not.toContain('MCP settings')
-    // an installation made before this version (it already removes them): goes on, says a copy is kept from now on
+    // uninstalled (office-uninstall.sh keeps config/, removes app/): nothing removes them now, so it is a new install
     fs.mkdirSync(path.join(prefixOf(m), 'config'), { recursive: true })
     fs.writeFileSync(path.join(prefixOf(m), 'config', 'office.env'), 'TEAMAX_LABEL=app.team-ax.office-o3test\n')
+    const gone = run(m, ['--check-only'])
+    expect(gone.code).not.toBe(0)
+    expect(gone.out).toContain('the install would stop')
+    // an installation made before this version (it already removes them): goes on, says a copy is kept from now on
+    fs.mkdirSync(path.join(prefixOf(m), 'app'), { recursive: true })
     const again = run(m, ['--check-only'])
     expect(again.code).toBe(0)
     expect(again.out).toContain('2 user MCP servers')

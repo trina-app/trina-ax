@@ -5523,33 +5523,49 @@ not read the owner's MCP servers (their `env`/`headers` often hold keys). But on
 Claude Code it deleted their MCP setups without a word (the test Mac: 2 user servers, 4 projects), and `--check-only`
 did not say so.
 
-- **Not chosen: a config folder of the engine's own (`CLAUDE_CONFIG_DIR` / another HOME) in local-login.** Claude Code
-  names its keychain item after the config folder: `Claude Code-credentials` plus, when `CLAUDE_CONFIG_DIR` is set,
-  `-<first 8 hex of sha256(folder)>` (read from the 2.1.312 code). A custom folder therefore does not find the Mac's
-  login, and every installed office would lose its AI at the update until someone logs in again. The newer override
-  `CLAUDE_SECURESTORAGE_CONFIG_DIR` (in 2.1.309-2.1.312; unknown in the pinned 2.1.305, absent in older CLIs such as the
-  test Mac's 2.1.251) would keep the name, but the login state in `.claude.json` (account, plan, the model default) and
-  a real turn with it cannot be checked without running the real CLI against a real account. It would also not change
-  the residual that matters most: the sandbox still has to open the same keychain item. The mode that gives the
-  engine its own HOME and `CLAUDE_CONFIG_DIR` already exists: the setup-token mode (`--claude-token-file`, round 4b),
-  where the guard does not run; the installer now points there.
+- **Not chosen (for now): a config folder of the engine's own in local-login.** It would be the root fix: the engine
+  would no longer read or write the owner's `~/.claude.json` at all, so nothing would have to be removed. It does not
+  work with what installed offices run today:
+  - `CLAUDE_CONFIG_DIR`: Claude Code names its keychain item after the config folder: `Claude Code-credentials` plus,
+    when `CLAUDE_CONFIG_DIR` is set, `-<first 8 hex of sha256(folder)>` (read from the 2.1.312 code). A custom folder
+    does not find the Mac's login, so every installed office would lose its AI at the nightly update until someone
+    logs in again. The newer override `CLAUDE_SECURESTORAGE_CONFIG_DIR` (in 2.1.309-2.1.312; not checked in the pinned
+    2.1.305, absent in older CLIs such as the test Mac's 2.1.251) keeps the default name.
+  - Another HOME without `CLAUDE_CONFIG_DIR` keeps the item's name, but `/usr/bin/security`, which the CLI runs to read
+    it, then finds no keychain at all (`HOME=<empty folder> security default-keychain`: "A default keychain could not be
+    found"; checked read-only on a Mac), and the session files the launcher restores and collects
+    (`~/.claude/projects/<chat>`) and engine.sb's login rules (`USER_HOME`) would move with it.
+  - Either way the account and plan the CLI keeps in `.claude.json` would be missing, and a real turn with the Mac's
+    login is the only proof, which this change could not run (no real CLI against a real account here).
+  Follow-up: a separate config folder gated on a CLI that has `CLAUDE_SECURESTORAGE_CONFIG_DIR`, proven with one real
+  login turn, then the guard can go. Today the mode that already gives the engine its own HOME and
+  `CLAUDE_CONFIG_DIR` is the setup-token mode (`--claude-token-file`, round 4b), where the guard does not run; the
+  installer points there.
 - **Chosen: a copy first, a list, a yes.** `guardClaudeJsonFamilyKeep` reads every file, saves what it will take out to
-  `<home>/config/claude-mcp-backups/claude-mcp-<time>-<start|turn>.json` (the secrets folder: 700, files 600, never over
-  another file; no engine turn can read or write it, and a link at `~/.claude.json` into it is reset to `{}` like any
-  link into the server's folders), and only then writes the cleaned files. A copy that cannot be saved does not stop
-  the removal (the guard is a security boundary); it is logged as an error. Copies made after a turn (`-turn`, which a
-  turn may have planted) are kept up to the newest 20; copies from a start are never removed; values beyond 4 M
-  characters in one copy keep only their names. The audit entry names the copy, never its values.
+  `<home>/config/claude-mcp-backups/claude-mcp-<time>-<install|start|turn>.json` (the secrets folder: 700, files 600,
+  never over another file, none when the newest copy holds the same; no engine turn can read or write it, and a link at
+  `~/.claude.json` into it is reset to `{}` like any link into the server's folders), and only then writes the cleaned
+  files. A copy that cannot be saved does not stop the removal (the guard is a security boundary); it is logged as an
+  error. So that the owner's settings never depend on that, the installer saves the first copy itself (`claude-mcp
+  save`) before the server starts and stops when it cannot. Copies made after a turn are kept up to the newest 20;
+  others are never removed; values beyond 4 M characters in one copy keep only their names. The audit entry names the
+  copy, never its values.
 - `findClaudeJsonMcp` is the same plan without writing (it does not even remove a link in place of
   `~/.claude/backups`). `teamax claude-mcp check` prints it (names and counts, exit 3), and `office-install.sh` runs it
   before anything is written: a **new** local-login install with findings stops (`--check-only` lists them and exits
   non-zero) until `--remove-claude-mcp`, `--claude-token-file`, or another macOS user. An installation that already runs
-  (office.env exists) goes on and says that it now keeps copies, because stopping would leave the old version removing
-  them without a copy; `--update` (the nightly updater) never stops. `teamax configure --claude-auth local-login` from the
-  setup-token mode asks the same.
-- `teamax claude-mcp restore <copy>` merges a copy's `~/.claude.json` entries back without replacing anything there,
-  only while the server does not remove them (setup-token mode, or no LaunchAgent); a `-turn` copy needs `--yes` after
-  it lists each server's command.
+  (office.env and app/ exist) goes on and says that it now keeps copies, because stopping would leave the old version
+  removing them without a copy; one uninstalled with its config/ kept counts as new. `--update` (the nightly updater)
+  never stops. `teamax configure --claude-auth local-login` from the setup-token mode asks the same.
+- `teamax claude-mcp restore <copy>` merges a copy's `~/.claude.json` entries back without replacing anything there
+  (own properties only; a `__proto__` name is left out), only while the server neither removes nor could read them:
+  no LaunchAgent, or both office.env and the running server's server.json in the setup-token mode (configure without
+  restart is refused). Every copy may hold a server a turn planted (after a turn, or at a start after a turn the server
+  could not clean up after), so restore always lists each server's command or address and writes only with `--yes`.
+- Review round 1 (independent reviewer): prototype pollution through a planted `__proto__` project in restore,
+  restore while the running server was still on the Mac's login, trusting start copies without `--yes`, a reinstall
+  after uninstall counted as existing, a fail-open first copy, link wording, pruning order in one millisecond: all
+  fixed above, with tests.
 - Tests: `tests/unit/office-claude-mcp.test.ts` (fake homes: the copy's values and modes, links, a link in place of the
   copy folder, pruning and size, the read-only scan, the CLI's output, restore and its refusals, configure, the
   installer's stop / go paths with a fake launchctl), `tests/security/r4b-office-subscription.test.ts` (switching back).

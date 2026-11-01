@@ -9,8 +9,9 @@
 // removal is written to the log and the audit list. The office Mac is dedicated to this server (docs/OFFICE.md 8).
 // Nothing is removed without a copy (0.2.19, office test O3: on a Mac its owner also used for Claude Code it silently
 // deleted their MCP servers): what is emptied is first saved to <home>/config/claude-mcp-backups/ (700, files 600,
-// where no engine turn can read or write), and office-install.sh lists what would go (findClaudeJsonMcp) and stops a
-// new install until the owner agrees (--remove-claude-mcp) or picks the setup-token mode, which never touches the file.
+// where no engine turn can read or write), and office-install.sh lists what would go (findClaudeJsonMcp), stops a new
+// install until the owner agrees (--remove-claude-mcp) or picks the setup-token mode, which never touches the file,
+// and then saves the copy itself before the server first starts (office/claude-mcp.ts).
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
@@ -89,35 +90,41 @@ function replaceWith(file: string, j: Record<string, unknown>, mode: number) {
 /** What a link at the file may keep (security round 4b): the content it points to when that is a regular file inside
  * the account's home and outside the server's own folders, else nothing ({}): a link out of the home, to a folder, to the
  * server's config or to a file a turn controls must not become the Mac user's Claude config. */
-function linkedContent(file: string, o: GuardOptions): Record<string, unknown> {
+function linkedContent(file: string, o: GuardOptions): { j: Record<string, unknown>; copied: boolean } {
+  const none = { j: {}, copied: false }
   const home = o.home ?? os.homedir()
   let target: string
-  try { target = fs.realpathSync(file) } catch { return {} }
+  try { target = fs.realpathSync(file) } catch { return none }
   let realHome = home
   try { realHome = fs.realpathSync(home) } catch {}
-  if (!inside(realHome, target) || target === realHome) return {}
+  if (!inside(realHome, target) || target === realHome) return none
   for (const d of o.privateDirs ?? []) {
     let rd = d
     try { rd = fs.realpathSync(d) } catch {}
-    if (inside(rd, target)) return {}
+    if (inside(rd, target)) return none
   }
   try {
     const st = fs.lstatSync(target)
-    if (!st.isFile()) return {}
-    return parseObject(fs.readFileSync(target, 'utf8')) ?? {}
-  } catch { return {} }
+    if (!st.isFile()) return none
+    const j = parseObject(fs.readFileSync(target, 'utf8'))
+    return j ? { j, copied: true } : none
+  } catch { return none }
 }
 
 /** What the guard would write in place of a file: its cleaned content, the mode and what it takes out of it. */
-interface Plan { file: string; j: Record<string, unknown>; mode: number; taken: McpEntry[]; note: '(link replaced)' | '(hard link replaced)' | null }
+interface Plan {
+  file: string; j: Record<string, unknown>; mode: number; taken: McpEntry[]; note: '(link replaced)' | '(hard link replaced)' | null
+  /** a link: false when what it points to is not copied (outside the home, the server's folders, not a JSON file) */
+  linkCopied?: boolean
+}
 
 /** Reads the file and works out what the guard does with it; writes nothing. null: the file is left alone. */
 function planGuard(file: string, o: GuardOptions): Plan | null {
   let st: fs.Stats
   try { st = fs.lstatSync(file) } catch { return null }
   if (st.isSymbolicLink()) {
-    const j = linkedContent(file, o)
-    return { file, j, mode: 0o600, taken: takeMcp(j), note: '(link replaced)' }
+    const { j, copied } = linkedContent(file, o)
+    return { file, j, mode: 0o600, taken: takeMcp(j), note: '(link replaced)', linkCopied: copied }
   }
   if (!st.isFile()) return null // a folder or anything else: nothing the CLI reads as its config
   let text: string
@@ -167,15 +174,17 @@ export function claudeJsonFiles(home = os.homedir(), o: { readOnly?: boolean } =
 export const CLAUDE_MCP_BACKUPS = 'claude-mcp-backups'
 const BACKUP_FILE = /^claude-mcp-.+\.json$/
 /** copies made after a turn (a turn may plant servers again and again) are kept up to this many, the newest; copies
- * made at a server start (what was there before the server, or added while it was stopped) are never removed */
+ * made by the installer or at a server start (what was there before the server, or added while it was stopped) are
+ * never removed */
 const KEEP_TURN_BACKUPS = 20
 /** values beyond this many characters in one copy are left out (their names are kept) */
 const BACKUP_MAX_CHARS = 4 * 1024 * 1024
 
 export interface McpBackup {
   savedAt: string
-  /** 'start': found at a server start (or by the installer's check); 'turn': found after an AI turn, which may have
-   * planted it */
+  /** 'install': saved by office-install.sh before the server first removes them; 'start': found at a server start;
+   * 'turn': found after an AI turn. Any of them may hold a server a turn planted (a start after a turn the server could
+   * not clean up after), so restore lists every command and asks for --yes. */
   when: string
   /** the account's home the entries came from (files are relative to it) */
   home: string
@@ -184,7 +193,8 @@ export interface McpBackup {
 }
 
 /** Saves what the plans take out to a new file in `dir` (700, the file 600, never over another file); returns its path.
- * A link in place of `dir` is refused. */
+ * A link in place of `dir` is refused. When the newest copy there holds exactly the same settings, no new file is made
+ * and that copy's path is returned (the installer's copy and the first start's, or one server planted again). */
 export function saveMcpBackup(dir: string, home: string, plans: Pick<Plan, 'file' | 'taken'>[], when: string, now = new Date()): string {
   fs.mkdirSync(dir, { recursive: true, mode: 0o700 })
   if (!fs.lstatSync(dir).isDirectory()) throw new Error(`${dir} is not a folder`)
@@ -202,10 +212,13 @@ export function saveMcpBackup(dir: string, home: string, plans: Pick<Plan, 'file
   }
   const doc: McpBackup = {
     savedAt: now.toISOString(), when, home,
-    note: when === 'turn'
-      ? 'MCP settings the office server removed from this Mac account\'s Claude config after an AI turn. The turn may have put them there: check every command before you put one back.'
-      : 'MCP settings the office server removed from this Mac account\'s Claude config. Put them back with `teamax claude-mcp restore <this file>` once the server no longer removes them (the setup-token mode, or after `teamax uninstall-agent`).',
+    note: `MCP settings the office server removed from this Mac account's Claude config (${when === 'turn' ? 'after an AI turn, which may have put them there' : when === 'install' ? 'saved by the installer' : 'at a server start'}). `
+      + 'Check every command before you put one back: `teamax claude-mcp restore <this file>` lists them, once the server no longer removes them (the setup-token mode, or after `teamax uninstall-agent`).',
     files,
+  }
+  const newest = listMcpBackups(dir).at(-1)
+  if (newest) {
+    try { if (JSON.stringify((JSON.parse(fs.readFileSync(newest, 'utf8')) as McpBackup).files) === JSON.stringify(files)) return newest } catch {}
   }
   const stamp = now.toISOString().replace(/[:.]/g, '-')
   const tmp = path.join(dir, `.tmp-${process.pid}-${Date.now()}-${Math.random().toString(36).slice(2)}`)
@@ -213,15 +226,24 @@ export function saveMcpBackup(dir: string, home: string, plans: Pick<Plan, 'file
   try {
     for (let i = 1; ; i++) {
       const f = path.join(dir, `claude-mcp-${stamp}-${when}${i > 1 ? `-${i}` : ''}.json`)
-      try { fs.linkSync(tmp, f); if (when === 'turn') pruneTurnBackups(dir); return f } catch (e) {
+      try { fs.linkSync(tmp, f) } catch (e) {
         if ((e as NodeJS.ErrnoException).code !== 'EEXIST' || i >= 100) throw e
+        continue
       }
+      if (when === 'turn') try { pruneTurnBackups(dir) } catch {} // the copy is saved; pruning is housekeeping
+      return f
     }
   } finally { fs.rmSync(tmp, { force: true }) }
 }
 
+/** oldest first: by time, then the -2, -3 ... of copies made in the same millisecond */
+const byAge = (a: string, b: string) => {
+  const key = (n: string) => n.replace(/-(\d+)\.json$/, (_, d: string) => `~${d.padStart(4, '0')}`).replace(/\.json$/, '~0001')
+  return key(a) < key(b) ? -1 : key(a) > key(b) ? 1 : 0
+}
+
 function pruneTurnBackups(dir: string) {
-  const turn = fs.readdirSync(dir).filter((n) => BACKUP_FILE.test(n) && /-turn(-\d+)?\.json$/.test(n)).sort()
+  const turn = fs.readdirSync(dir).filter((n) => BACKUP_FILE.test(n) && /-turn(-\d+)?\.json$/.test(n)).sort(byAge)
   for (const n of turn.slice(0, Math.max(0, turn.length - KEEP_TURN_BACKUPS))) fs.rmSync(path.join(dir, n), { force: true })
 }
 
@@ -229,7 +251,7 @@ function pruneTurnBackups(dir: string) {
 export function listMcpBackups(dir: string): string[] {
   let names: string[] = []
   try { names = fs.readdirSync(dir) } catch {}
-  return names.filter((n) => BACKUP_FILE.test(n)).sort().map((n) => path.join(dir, n))
+  return names.filter((n) => BACKUP_FILE.test(n)).sort(byAge).map((n) => path.join(dir, n))
 }
 
 export interface FamilyResult {
@@ -272,6 +294,8 @@ export interface McpFinding {
   note: Plan['note']
   /** where a link points */
   target?: string
+  /** a link whose target is not copied: the file becomes an empty config {} */
+  emptied?: boolean
   entries: McpEntry[]
 }
 
@@ -285,7 +309,7 @@ export function findClaudeJsonMcp(home = os.homedir(), o: Omit<GuardOptions, 'ho
     if (!p) continue
     let target: string | undefined
     if (p.note === '(link replaced)') try { target = fs.readlinkSync(f) } catch {}
-    findings.push({ file: path.relative(home, f), note: p.note, ...(target ? { target } : {}), entries: p.taken })
+    findings.push({ file: path.relative(home, f), note: p.note, ...(target ? { target } : {}), ...(p.linkCopied === false ? { emptied: true } : {}), entries: p.taken })
   }
   let backupsLink = false
   try { backupsLink = fs.lstatSync(path.join(home, '.claude', 'backups')).isSymbolicLink() } catch {}

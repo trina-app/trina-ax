@@ -103,10 +103,11 @@ rm ~/Downloads/team.example.com.tunnel-token ~/Downloads/claude-token.txt
 설치기가 지울 것을 이름과 개수로 보여 주고(`--check-only`도 같음) **새 설치를 멈춥니다**. 고르세요.
 - 남기기: 구독 토큰(`--claude-token-file`)으로 설치합니다. 이 방식의 서버는 `~/.claude.json`을 읽지도 바꾸지도 않습니다. 또는
   Trina AX만 쓰는 다른 맥 사용자로 설치합니다.
-- 지우기: `--remove-claude-mcp`를 붙여 다시 실행합니다. 서버는 지우기 전에 사본을 `~/TeamAX/config/claude-mcp-backups/`
-  (이 맥 사용자만 읽음)에 둡니다.
+- 지우기: `--remove-claude-mcp`를 붙여 다시 실행합니다. 설치기가 서버를 켜기 전에 사본을 `~/TeamAX/config/claude-mcp-backups/`
+  (이 맥 사용자만 읽음)에 두고, 사본을 못 두면 거기서 멈춥니다.
 
-이미 설치된 맥과 자동 업데이트는 멈추지 않고, 이 버전부터 지우기 전에 사본을 둡니다. 확인·사본·되돌리기:
+이미 설치된 맥과 자동 업데이트는 멈추지 않고, 이 버전부터 서버가 지우기 전에 사본을 둡니다(`office-uninstall.sh`로 프로그램을
+지운 뒤 다시 설치하면 새 설치로 봅니다). 확인·사본·되돌리기:
 `~/TeamAX/teamax claude-mcp check | backups | restore <사본>`(8장).
 
 > **앱 포트(`--app-port`)를 바꿨다면**: Cloudflare 터널도 그 포트를 가리켜야 합니다. 설치 담당자 맥에서
@@ -395,13 +396,14 @@ bun scripts/release/publish.ts --channel stable --build --version 0.2.1
   (관리자 → 기록에 `engine.claude_json_mcp_removed`). 샌드박스는 그 이름들에 링크를 만들지 못하게 합니다. 이 맥 계정에서
   터미널 `claude`는 **로그인(`/login`) 말고 쓰지 마세요**. 로그인이 만료돼 다시 로그인하기 전에 `claude mcp list`가
   "No MCP servers configured"인지 보세요.
-- **지운 MCP 설정은 사본으로 남습니다**(0.2.19부터). 지우기 전에 `~/TeamAX/config/claude-mcp-backups/claude-mcp-<시각>-start.json`
-  (서버 시작 때) 또는 `…-turn.json`(AI 답 뒤)에 그대로 둡니다. 폴더 700·파일 600이라 이 맥 사용자만 읽고 엔진은 읽지도 쓰지도
+- **지운 MCP 설정은 사본으로 남습니다**(0.2.19부터). 지우기 전에 `~/TeamAX/config/claude-mcp-backups/claude-mcp-<시각>-install.json`
+  (설치기), `…-start.json`(서버 시작 때) 또는 `…-turn.json`(AI 답 뒤)에 그대로 둡니다(바로 앞 사본과 같으면 새로 만들지 않음). 폴더 700·파일 600이라 이 맥 사용자만 읽고 엔진은 읽지도 쓰지도
   못합니다. 기록 항목에 사본 이름이 나오고, 값(키가 든 `env` 등)은 사본에만 있습니다. `-turn` 사본은 최근 20개만 남깁니다.
   `teamax claude-mcp check`는 지금 지울 것을 보여 주고(아무것도 바꾸지 않음), `teamax claude-mcp backups`는 사본 목록입니다.
 - **되돌리기**: 서버가 더 이상 지우지 않게 한 뒤(`teamax configure --claude-token-file <파일> && teamax restart`, 또는 Trina AX를
   치울 때 `teamax uninstall-agent`를 먼저) `~/TeamAX/teamax claude-mcp restore <사본>`. 이미 있는 설정은 그대로 두고 없는 것만
-  넣습니다. `-turn` 사본은 그 턴이 심은 서버일 수 있어서 명령을 보여 주고 `--yes`를 붙여야 넣습니다. `office-uninstall.sh`는
+  넣습니다. 어느 사본이든 AI 턴이 심은 서버가 섞였을 수 있어서(특히 `-turn`) 먼저 서버마다 명령·주소를 보여 주고, 확인한 뒤
+  `--yes`를 붙여야 넣습니다. 서버가 아직 이 맥의 로그인으로 돌고 있으면(토큰으로 바꾸고 `restart` 전) 넣지 않습니다. `office-uninstall.sh`는
   `config/`를 남기므로 사본도 남습니다(일반 JSON이라 직접 옮겨도 됨). `--delete-data`는 사본도 지웁니다.
 - 구독 토큰 방식에서 이 맥의 로그인 방식으로 되돌릴 때(`teamax configure --claude-auth local-login`)도 `~/.claude.json`에 MCP
   설정이 있으면 멈추고, `--remove-claude-mcp`를 붙여야 바꿉니다.

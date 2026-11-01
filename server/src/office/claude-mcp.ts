@@ -1,14 +1,16 @@
-// `teamax claude-mcp check | backups | restore FILE [--yes]` (docs/OFFICE.md 8, office test O3). With this Mac's own
+// `teamax claude-mcp check | backups | restore FILE [--yes] | save` (docs/OFFICE.md 8, office test O3). With this Mac's own
 // Claude login (local-login, the default) the server empties the MCP settings of the Mac user's ~/.claude.json and its
 // backups at every start and after every AI turn (engine/claude-json-guard.ts), saving a copy to
 // <home>/config/claude-mcp-backups first. office-install.sh runs `check` before anything is installed: it says what
 // would be removed and a new install stops until the owner agrees (--remove-claude-mcp) or uses the setup-token mode,
-// in which the server never touches ~/.claude.json. `restore` puts a copy back once the server no longer removes it.
+// in which the server never touches ~/.claude.json; then `save` keeps a copy before the server first starts (the
+// install stops when it cannot). `restore` lists a copy's servers and, with --yes, merges it back once the server no
+// longer removes them.
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import {
-  CLAUDE_MCP_BACKUPS, findClaudeJsonMcp, listMcpBackups, mcpKeyPath, mcpNames, type McpBackup, type McpEntry, type McpFinding,
+  CLAUDE_MCP_BACKUPS, findClaudeJsonMcp, listMcpBackups, mcpKeyPath, mcpNames, saveMcpBackup, type McpBackup, type McpEntry, type McpFinding,
 } from '../engine/claude-json-guard'
 import { loadSettings, officePaths } from './settings'
 
@@ -47,7 +49,7 @@ export function findingLines(r: ReturnType<typeof findClaudeJsonMcp>): string[] 
   const out: string[] = []
   for (const f of r.findings) {
     const name = shown(f.file)
-    if (f.note === '(link replaced)') out.push(`${name} is a link${f.target ? ` to ${f.target}` : ''}: it becomes a regular file (the file it points to is not changed)`)
+    if (f.note === '(link replaced)') out.push(`${name} is a link${f.target ? ` to ${f.target}` : ''}: it becomes ${f.emptied ? 'an empty Claude config {} (what it points to is outside your home or in the server\'s folders, or not a JSON file, and is not copied)' : 'a regular file with that content'}; the file it points to is not changed`)
     if (f.note === '(hard link replaced)') out.push(`${name} has other hard links: it is written as a new file`)
     if (f.file === '.claude.json') for (const e of f.entries) out.push(`${name}: ${entryLine(e)}`)
     else if (f.entries.length) out.push(`${name} (an older copy the Claude CLI keeps): ${f.entries.length} MCP setting${f.entries.length === 1 ? '' : 's'} (${list(f.entries.map(mcpKeyPath))})`)
@@ -60,7 +62,8 @@ export function headline(r: ReturnType<typeof findClaudeJsonMcp>): string {
   const main = countText(r.findings.find((f) => f.file === '.claude.json'))
   const copies = r.findings.filter((f) => f.file !== '.claude.json' && f.entries.length).length
   const what = [main, ...(copies ? [`the same kind of settings in ${copies} older cop${copies === 1 ? 'y' : 'ies'} the Claude CLI keeps`] : [])].filter(Boolean).join('; ')
-  return `this Mac account's Claude config (~/.claude.json) has MCP settings this server removes${what ? `: ${what}` : ' or a link it replaces'}`
+  return what ? `this Mac account's Claude config (~/.claude.json) has MCP settings this server removes: ${what}`
+    : 'this server would change this Mac account\'s Claude config files (~/.claude.json): a link or hard link it replaces'
 }
 
 /** the folders whose files are never copied into the config through a link (as the server's guard) */
@@ -76,11 +79,15 @@ export function scanClaudeMcp(home: string, userHome: string) {
   return findClaudeJsonMcp(userHome, { privateDirs: privateDirsOf(home) })
 }
 
-/** The installation removes MCP settings now: local-login and its LaunchAgent installed (a restore would be undone at
- * the next start or AI turn). */
+/** The installation may remove (and its engine read) MCP settings now: its LaunchAgent is installed and either
+ * office.env or the server.json the running server was started with says local-login (`teamax configure
+ * --claude-token-file` without `teamax restart` leaves the running server on this Mac's login). */
 export function guardActive(home: string, env: Record<string, string | undefined> = process.env): boolean {
   const s = loadSettings(home)
-  return s.claudeAuth === 'local-login' && fs.existsSync(officePaths(home, env).plist(s.label))
+  const p = officePaths(home, env)
+  if (!fs.existsSync(p.plist(s.label))) return false
+  if (s.claudeAuth === 'local-login') return true
+  try { return (JSON.parse(fs.readFileSync(p.serverJson, 'utf8')) as { engine?: { authMode?: string } }).engine?.authMode !== 'subscription' } catch { return true }
 }
 
 function readBackup(file: string): McpBackup {
@@ -91,6 +98,10 @@ function readBackup(file: string): McpBackup {
 }
 
 const isObj = (v: unknown): v is Record<string, unknown> => !!v && typeof v === 'object' && !Array.isArray(v)
+/** the one name whose assignment reaches Object.prototype (a copy may hold what a turn planted); with own-property
+ * checks every other name ("constructor", "toString") is an ordinary key */
+const UNSAFE = new Set(['__proto__'])
+const own = (o: Record<string, unknown>, k: string) => Object.prototype.hasOwnProperty.call(o, k)
 
 /** what a server would run: its command line or address */
 function serverWhat(v: unknown): string {
@@ -100,38 +111,46 @@ function serverWhat(v: unknown): string {
   return [String(v.command ?? '?'), ...args].join(' ').slice(0, 200)
 }
 
-/** Merges the copy's ~/.claude.json entries into `cfg` without replacing anything there; returns what it added. */
-export function mergeBackup(cfg: Record<string, unknown>, entries: McpBackup['files'][string]): string[] {
+/** Merges the copy's ~/.claude.json entries into `cfg` without replacing anything there; returns what it added and
+ * what it left out (names that are not plain keys). Only own properties are read or written. */
+export function mergeBackup(cfg: Record<string, unknown>, entries: McpBackup['files'][string]): { added: string[]; skipped: string[] } {
   const added: string[] = []
+  const skipped: string[] = []
   for (const e of entries) {
     if (!('value' in e)) continue // left out of the copy (too large)
+    if (e.key !== 'mcpServers' && e.key !== 'enabledMcpjsonServers' && e.key !== 'enableAllProjectMcpServers') continue
     let o: Record<string, unknown> = cfg
     if (e.project !== null) {
-      if (!isObj(cfg.projects)) cfg.projects = {}
+      if (typeof e.project !== 'string' || UNSAFE.has(e.project)) { skipped.push(`project ${JSON.stringify(e.project)}`); continue }
+      if (!own(cfg, 'projects') || !isObj(cfg.projects)) cfg.projects = {}
       const projects = cfg.projects as Record<string, unknown>
-      if (!isObj(projects[e.project])) projects[e.project] = {}
+      if (!own(projects, e.project) || !isObj(projects[e.project])) projects[e.project] = {}
       o = projects[e.project] as Record<string, unknown>
     }
     const where = e.project === null ? 'user scope' : `project ${e.project}`
+    const mine = (k: string) => own(o, k) ? o[k] : undefined
     if (e.key === 'mcpServers' && isObj(e.value)) {
-      if (!isObj(o.mcpServers)) o.mcpServers = {}
+      if (!isObj(mine('mcpServers'))) o.mcpServers = {}
       const cur = o.mcpServers as Record<string, unknown>
       for (const [n, v] of Object.entries(e.value)) {
-        if (n in cur) continue
+        if (UNSAFE.has(n)) { skipped.push(`${where}: MCP server ${JSON.stringify(n)}`); continue }
+        if (own(cur, n)) continue
         cur[n] = v
         added.push(`${where}: MCP server ${n} (${serverWhat(v)})`)
       }
     } else if (e.key === 'enabledMcpjsonServers' && Array.isArray(e.value)) {
-      const cur = Array.isArray(o.enabledMcpjsonServers) ? o.enabledMcpjsonServers as unknown[] : []
-      const more = e.value.filter((n) => !cur.includes(n))
+      const had = mine('enabledMcpjsonServers')
+      const cur = Array.isArray(had) ? had as unknown[] : []
+      const want = e.value as unknown[]
+      const more = want.filter((n, i) => !cur.includes(n) && want.indexOf(n) === i)
       o.enabledMcpjsonServers = [...cur, ...more]
       for (const n of more) added.push(`${where}: approved .mcp.json server ${String(n)}`)
-    } else if (e.key === 'enableAllProjectMcpServers' && e.value === true && o.enableAllProjectMcpServers !== true) {
+    } else if (e.key === 'enableAllProjectMcpServers' && e.value === true && mine('enableAllProjectMcpServers') !== true) {
       o.enableAllProjectMcpServers = true
       added.push(`${where}: every .mcp.json server approved`)
     }
   }
-  return added
+  return { added, skipped }
 }
 
 function writeConfig(file: string, j: Record<string, unknown>) {
@@ -146,7 +165,7 @@ function writeConfig(file: string, j: Record<string, unknown>) {
   fs.renameSync(tmp, file)
 }
 
-const USAGE = 'usage: teamax claude-mcp check [--summary] | backups | restore <file> [--yes]'
+const USAGE = 'usage: teamax claude-mcp check [--summary] | backups | restore <file> [--yes] | save'
 
 export function claudeMcpCommand(home: string, args: string[], env: Record<string, string | undefined> = process.env, out: (s: string) => void = console.log): number {
   const [sub = 'check', ...rest] = args.filter((a, i) => !(a === '--home' || args[i - 1] === '--home'))
@@ -159,6 +178,14 @@ export function claudeMcpCommand(home: string, args: string[], env: Record<strin
     out(headline(r))
     if (!rest.includes('--summary')) for (const l of lines) out(`  ${l}`)
     return FOUND
+  }
+  if (sub === 'save') {
+    // office-install.sh, before the server first starts: a copy of what it will remove (it stops when this fails)
+    const r = scanClaudeMcp(home, userHome)
+    const plans = r.findings.filter((f) => f.entries.length).map((f) => ({ file: path.join(userHome, f.file), taken: f.entries }))
+    if (!plans.length) { out('nothing to keep'); return 0 }
+    out(saveMcpBackup(dir, userHome, plans, 'install'))
+    return 0
   }
   if (sub === 'backups') {
     const files = listMcpBackups(dir)
@@ -191,11 +218,15 @@ export function claudeMcpCommand(home: string, args: string[], env: Record<strin
     } catch (e) {
       if ((e as NodeJS.ErrnoException).code !== 'ENOENT') throw new Error(`${target} cannot be read as a Claude config (${(e as Error).message}); nothing was changed`)
     }
-    const added = mergeBackup(cfg, entries)
+    const { added, skipped } = mergeBackup(cfg, entries)
+    for (const k of skipped) out(`left out (not a usable name): ${k}`)
     if (!added.length) { out(`nothing to put back: ${target} already has every setting in ${file}`); return 0 }
-    if (b.when === 'turn' && !rest.includes('--yes')) {
-      out(`${file} was saved after an AI turn, which may have put these there. Check each one, then run this again with --yes:`)
+    if (!rest.includes('--yes')) {
+      // every copy may hold a server an AI turn planted (after a turn, or at a start after a turn the server could not
+      // clean up after): the owner checks each command first
+      out(`${file} (${b.when === 'turn' ? 'saved after an AI turn, which may have put them there' : `saved ${b.when === 'install' ? 'by the installer' : 'at a server start'}`}) would put back:`)
       for (const a of added) out(`  ${a}`)
+      out('Check that you know every command and address, then run this again with --yes. Nothing was changed.')
       return 1
     }
     writeConfig(target, cfg)
