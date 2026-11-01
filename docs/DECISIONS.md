@@ -5025,7 +5025,8 @@ stop; a scheduled run skips files over 1 GB.
   the server's and the connections' tools, `chat/turn.ts` tool_start for the engine's own, such as web search): the
   first 16 bytes of the SHA-256 of each address (also with its case and runs of `/` and `\` folded), of its host and
   path (16+ characters: a service that only added or changed the query), of its query (8+ characters), and of each
-  20-character window of a long random-looking part (`opaqueParts`; long parts sampled to 64 windows); an address that
+  20-character window of a long random-looking part (`opaqueParts`; long parts sampled to 64 windows, folded to one
+  case so a part moved into a host — the URL parser lowercases hosts — or otherwise re-cased still matches); an address that
   comes back also carries the marks of every address written inside it, %-decoded (a service's `/out?to=<the AI's
   address>`). The input is every string in it as the AI wrote it (not JSON-escaped), read whole. No input text is kept. An address that
   comes back carrying a mark is remembered as an echo and always asks, with its own card text ("this address (or part
@@ -5047,12 +5048,24 @@ stop; a scheduled run skips files over 1 GB.
   that added `?utm_source=…`, wrapped the address in its own redirect or changed its case, a value JSON escaping changed
   (`\` → `\\`), or a link shortener whose short address redirects to the AI's long one, all opened without a card.
   Fixed as above (whole input, fail closed, folded / host-and-path / nested marks, the redirect check).
+- **Second review (2026-11-01).** A follow-up review of that fix found one more way through and three hardening gaps.
+  The way through: the random-looking-part windows were compared exactly, so an opaque secret the AI sent as plain text
+  (not inside a URL) and a service returned re-cased — the obvious vehicle being a subdomain `<data>.attacker.test`,
+  which the URL parser lowercases — did not match the window marks; address-level marks only exist for a URL the AI
+  wrote, so nothing caught it. Fixed by folding the window marks to one case (`windows` in `connection-urls.ts`).
+  Hardening, same review: (a) a download now has a total wall-clock budget (`DOWNLOAD_TOTAL_TIMEOUT_MS`, 30 minutes;
+  time spent waiting for the person's card does not count), so a server dripping one byte just inside the idle time-out
+  cannot keep a download alive forever; (b) kept MCP media has a per-person cap (1 GiB) and a server-wide cap (4 GiB)
+  across chats besides the 200 MiB per chat, the oldest evicted first, so many chats or many people cannot fill the
+  disk with day-old media; (c) a non-image saved from a body of unknown length that ends only at the connection close
+  (no Content-Length, not chunked — a cut-off cannot be told from a complete file, and unlike an image it is not
+  decoded as a check) is saved with a note that completeness could not be verified.
 - **MCP answers.** tools/call may be up to 25 MB (`MCP_CALL_MAX_BYTES`; initialize and tools/list keep 1 MB, the AI's
   text keeps 40,000 characters). `pinnedRequest` now looks for the answer's head only in the first 256 KB and calls
   `until` (the event-stream check) only after a read that brings a line break: before, every network piece re-read the
   whole body, quadratic for a multi-megabyte image. Image and audio blocks and `resource.blob` are decoded and kept
-  for the chat (`<data>/connection-media/<chat>/<id>.bin` + `.json`, 0600, 24 hours, at most 200 MiB per chat, the
-  oldest go first, swept hourly); the AI gets `[image image/png 1024×1024 812 KB: mcp-file:<id> (save it with save_url
+  for the chat (`<data>/connection-media/<chat>/<id>.bin` + `.json`, 0600, 24 hours, at most 200 MiB per chat, 1 GiB
+  per person and 4 GiB server-wide, the oldest go first, swept hourly); the AI gets `[image image/png 1024×1024 812 KB: mcp-file:<id> (save it with save_url
   …)]`. A handle is 128 random bits and opens only in its chat for the person of that turn; saving it makes no network
   call and goes through the same type, image and placement checks. When the team allows images for the AI and the
   engine takes them (`visionBlock`), each image block is also shown to the model, rebuilt by the normalizer, within the

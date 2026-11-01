@@ -10,7 +10,8 @@
 //   - the address itself (also with its case and its runs of / and \ folded), its host and path (16+ characters: the
 //     service added or changed the query), or its query string (8+ characters), was in an input;
 //   - an address written inside it (%-decoded: https://svc.example/out?to=<the AI's address>) was in an input;
-//   - a 20-character window of a long random-looking part of it (opaqueParts) was in one.
+//   - a 20-character window of a long random-looking part of it (opaqueParts, folded to one case so a part moved into
+//     a host or re-cased still matches) was in one.
 // The whole input is read, each string as the AI wrote it (not JSON-escaped). An input too large to mark completely
 // (MARK_INPUT_CHARS, MAX_INPUT_URLS, MAX_INPUT_PARTS, INPUT_MARKS) marks the chat as a whole: every address that comes
 // back afterwards is an echo (fail closed; before, the part past the limits left no marks, so 64 KB of padding or 500
@@ -52,7 +53,9 @@ const folded = (u: string) => u.toLowerCase().replace(/[\\/]+/g, '/')
 function hostPath(u: URL): string { return folded(u.host + u.pathname) }
 
 /** Windows of the long random-looking parts of `text` (as written and %-decoded), `every`: all of them (an address
- * that came back) or an even sample of PART_WINDOWS per part (an input). null: more parts than `maxParts`. */
+ * that came back) or an even sample of PART_WINDOWS per part (an input). null: more parts than `maxParts`. Each window
+ * is lowercased (folded) so a part moved into a host (which the URL parser lowercases) or re-cased still matches:
+ * opaqueParts decides what is random-looking from the original case, the mark only compares case-insensitively. */
 function windows(text: string, every: boolean, maxParts = 200): string[] | null {
   const out = new Set<string>()
   for (const form of new Set([text, decoded(text)])) {
@@ -61,7 +64,7 @@ function windows(text: string, every: boolean, maxParts = 200): string[] | null 
     for (const p of parts) {
       const count = p.length - MARK_WINDOW + 1
       const step = every || count <= PART_WINDOWS ? 1 : count / PART_WINDOWS
-      for (let i = 0; i < count; i += step) out.add(p.slice(Math.floor(i), Math.floor(i) + MARK_WINDOW))
+      for (let i = 0; i < count; i += step) out.add(p.slice(Math.floor(i), Math.floor(i) + MARK_WINDOW).toLowerCase())
     }
   }
   return [...out]

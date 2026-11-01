@@ -4,7 +4,9 @@
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from 'bun:test'
 import crypto from 'node:crypto'
 import fs from 'node:fs'
+import os from 'node:os'
 import path from 'node:path'
+import nodeNet from 'node:net'
 import { checkReadable, readMigrations } from '../../server/src/db'
 import { TurnFiles, type ToolCtx } from '../../server/src/files/service'
 import { ToolError } from '../../server/src/policy/errors'
@@ -289,6 +291,48 @@ describe('size: no limit, a card over the line, the disk as the only hard stop',
   })
 })
 
+describe('a body of unknown length that ends at the connection close', () => {
+  test('a non-image is saved with a note that completeness could not be verified', async () => {
+    // a raw server that sends a PDF with no Content-Length and no chunked framing, then closes
+    const body = Buffer.concat([Buffer.from('HTTP/1.1 200 OK\r\nContent-Type: application/octet-stream\r\n\r\n'), PDF])
+    const raw = nodeNet.createServer((sock) => { sock.on('error', () => {}); sock.on('data', () => sock.end(body)) })
+    await new Promise<void>((r) => raw.listen(0, '127.0.0.1', () => r()))
+    try {
+      const url = `http://files.example:${(raw.address() as nodeNet.AddressInfo).port}/report`
+      const s = setup()
+      s.allow(url)
+      const r = await s.run(url, 'shared/openended/report.pdf')
+      expect(r.structured).toMatchObject({ path: 'shared/openended/report.pdf', type: 'application/pdf' })
+      expect(r.text).toContain("did not send the file's length")
+      expect(read('shared/openended/report.pdf').equals(PDF)).toBe(true)
+    } finally { raw.close() }
+  })
+})
+
+describe('kept MCP media: caps across chats', () => {
+  // 500-byte items that sniff as PNG; a fresh data dir so other tests' kept media do not count
+  const item = () => Buffer.concat([PNG.subarray(0, 64), crypto.randomBytes(436)])
+  const bin = (dir: string, m: { chatId: string; id: string }) => fs.existsSync(path.join(dir, 'connection-media', m.chatId, `${m.id}.bin`))
+  test('past the per-person cap the oldest across that person\'s chats go first', () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'media-user-'))
+    const put = (chat: string, user: string) => { Bun.sleepSync(3); return putMedia(dir, { chatId: chat, userId: user, integrationId: 'x', bytes: item(), declared: 'image/png' }, { user: 1200 })! }
+    const a = put('capa', 'alice'), b = put('capb', 'alice'), c = put('capc', 'alice')
+    // bob's item in between is not touched by alice's per-person cap
+    const bob = put('capd', 'bob')
+    expect(bin(dir, a)).toBe(false) // 3 × 500 > 1200: the oldest of alice's went
+    expect(bin(dir, b) && bin(dir, c) && bin(dir, bob)).toBe(true)
+    fs.rmSync(dir, { recursive: true, force: true })
+  })
+  test('past the server-wide cap the oldest across everyone go first', () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'media-total-'))
+    const put = (chat: string, user: string) => { Bun.sleepSync(3); return putMedia(dir, { chatId: chat, userId: user, integrationId: 'x', bytes: item(), declared: 'image/png' }, { total: 1200 })! }
+    const a = put('tota', 'alice'), b = put('totb', 'bob'), c = put('totc', 'carol')
+    expect(bin(dir, a)).toBe(false) // 3 × 500 > 1200: the oldest overall went, whoever's it was
+    expect(bin(dir, b) && bin(dir, c)).toBe(true)
+    fs.rmSync(dir, { recursive: true, force: true })
+  })
+})
+
 describe('mcp-file handles', () => {
   test('saved without the network, only in their chat and only by their person', async () => {
     const s = setup()
@@ -422,6 +466,16 @@ describe('addresses from connections (learned links) and the echo check', () => 
     const k = marks(JSON.stringify({ image_url: last }), [last])
     expect(hit(k, 'https://cdn.service.example/user_2xKq7Pz9Lm4Nq8Rt5Vw1/b.png')).toBe(false)
     expect(hit(marks(JSON.stringify({ image_url: last })), 'https://cdn.service.example/user_2xKq7Pz9Lm4Nq8Rt5Vw1/b.png')).toBe(true)
+  })
+  test('a random-looking part moved into a host (lowercased) or re-cased is still an echo', () => {
+    // the AI sends an opaque secret as bare text (not a URL); the service returns it re-cased. The window mark folds
+    // case, so a part moved into a host (the URL parser lowercases hosts) or otherwise re-cased still matches.
+    const secret = 'A1B2C3D4E5F6G7H8J9K0'
+    const m = new Set(inputMarks(JSON.stringify({ note: `please keep ${secret} for me` })).map((b) => b.toString('hex')))
+    const hit = (url: string) => urlMarks(url)?.some((b) => m.has(b.toString('hex'))) ?? true
+    expect(hit(`https://${secret.toLowerCase()}.attacker.test/x.png`)).toBe(true) // moved into a subdomain (forced lowercase)
+    expect(hit(`https://cdn.svc.test/p/${secret.toLowerCase()}zz.png`)).toBe(true) // re-cased in a path segment
+    expect(hit('https://cdn.svc.test/p/unrelated-12ab34cd56.png')).toBe(false) // an unrelated part is not an echo
   })
   test('the echo check reads the whole input and fails closed when it cannot (padding, many addresses, changed forms)', () => {
     const marksOf = (input: unknown) => { const t = textOf(input); return new Set((t === null ? inputMarks('x'.repeat(MARK_INPUT_CHARS + 1)) : inputMarks(t)).map((b) => b.toString('hex'))) }

@@ -101,7 +101,7 @@ const fill = (s: string, v: Record<string, string>) => s.replace(/\{(\w+)\}/g, (
 export const humanBytes = (n: number) => n < 1024 ? `${n} B` : n < 1024 ** 2 ? `${Math.round(n / 1024)} KB` : n < 1024 ** 3 ? `${(n / 1024 ** 2).toFixed(1)} MB` : `${(n / 1024 ** 3).toFixed(1)} GB`
 
 /** Test hooks (never from the model's input): the download's test allowances, the disk and the image check. */
-export interface SaveUrlOptions extends Pick<DownloadOptions, 'lookup' | 'testAllow' | 'insecureTlsForTests' | 'connectTimeoutMs' | 'idleTimeoutMs' | 'roomStep'> {
+export interface SaveUrlOptions extends Pick<DownloadOptions, 'lookup' | 'testAllow' | 'insecureTlsForTests' | 'connectTimeoutMs' | 'idleTimeoutMs' | 'roomStep' | 'totalTimeoutMs'> {
   statfs?: (p: string) => StatFs
   normalize?: (bytes: Uint8Array, signal?: AbortSignal) => Promise<unknown>
   askAbove?: number
@@ -192,6 +192,7 @@ export async function saveUrl(ctx: AppContext, a: Input, t: ToolCtx, o: SaveUrlO
     let sha: string
     let from: string
     let confirmed = ''
+    let openEnded = false
     if (handle) {
       const item = getMedia(ctx.engineConfig.dataDir, chatId, t.user.id, source)
       if (!item) throw new ToolError(`no file ${source.slice(0, 60)} in this chat: an mcp-file handle works only in the chat whose connection answer named it, for 24 hours. Call the service again to get the file`)
@@ -216,7 +217,7 @@ export async function saveUrl(ctx: AppContext, a: Input, t: ToolCtx, o: SaveUrlO
       let largeOk = false
       const own = new Set((urlMarks(normUrl(source) ?? source) ?? []).map((m) => m.toString('hex')))
       const r = await downloadToFile(source, tmp, {
-        lookup: o.lookup, testAllow: o.testAllow, insecureTlsForTests: o.insecureTlsForTests, connectTimeoutMs: o.connectTimeoutMs, idleTimeoutMs: o.idleTimeoutMs, roomStep: o.roomStep,
+        lookup: o.lookup, testAllow: o.testAllow, insecureTlsForTests: o.insecureTlsForTests, connectTimeoutMs: o.connectTimeoutMs, idleTimeoutMs: o.idleTimeoutMs, roomStep: o.roomStep, totalTimeoutMs: o.totalTimeoutMs,
         blockedIps, signal: t.signal,
         askAbove: o.askAbove ?? ASK_ABOVE_BYTES,
         onLarge: async ({ size: total, received }) => {
@@ -249,6 +250,7 @@ export async function saveUrl(ctx: AppContext, a: Input, t: ToolCtx, o: SaveUrlO
       size = r.size
       sha = r.sha256
       from = r.url
+      openEnded = r.openEnded
     }
     const k = kind as FileKind | null
     if (!k) throw new ToolError('internal: no file type')
@@ -271,6 +273,10 @@ export async function saveUrl(ctx: AppContext, a: Input, t: ToolCtx, o: SaveUrlO
         }
       }
     }
+    // a non-image body the site gave no length for (not chunked either) ends only at the connection close: a cut-off
+    // cannot be told from a complete file, and unlike an image it is not decoded as a check, so say completeness is
+    // unverified (images above already fail the decode check when truncated)
+    if (!k.image && openEnded) notes.push(`The site did not send the file's length (the connection just closed), so there is no way to confirm the ${k.label} file is complete; if it will not open, download it again.`)
     // the name: the one asked for, or the address's, with the extension of what the file really is
     const baseName = firstName || (handle ? `${k.media === 'image' ? 'image' : 'file'}-${crypto.randomBytes(3).toString('hex')}` : 'download')
     const named = withExtension(baseName, k)

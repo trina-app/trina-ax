@@ -35,6 +35,12 @@ const RAW: Record<string, (s: nodeNet.Socket) => void> = {
   '/continue': (s) => s.end('HTTP/1.1 100 Continue\r\n\r\nHTTP/1.1 200 OK\r\nContent-Length: 2\r\n\r\nok'),
   '/gzip': (s) => s.end('HTTP/1.1 200 OK\r\nContent-Encoding: gzip\r\nContent-Length: 2\r\n\r\nzz'),
   '/nohead': (s) => s.end('not http at all'),
+  // a slow drip: one byte at a time, each inside the idle time-out, never ending (a never-closing download)
+  '/drip': (s) => {
+    s.write('HTTP/1.1 200 OK\r\nContent-Type: application/octet-stream\r\n\r\n')
+    const t = setInterval(() => { if (s.destroyed) { clearInterval(t); return } s.write('x') }, 80)
+    s.on('close', () => clearInterval(t))
+  },
 }
 
 beforeAll(async () => {
@@ -139,6 +145,16 @@ describe('downloadToFile', () => {
     f = dst()
     await downloadToFile(rawAt('/continue'), f, LOCAL)
     expect(fs.readFileSync(f, 'utf8')).toBe('ok')
+  })
+  test('openEnded is set only when the length is unknown and the body is not chunked (ends at the close)', async () => {
+    expect((await downloadToFile(at('/png'), dst(), LOCAL)).openEnded).toBe(false) // Content-Length
+    expect((await downloadToFile(rawAt('/chunked'), dst(), LOCAL)).openEnded).toBe(false) // chunked framing
+    expect((await downloadToFile(rawAt('/close'), dst(), LOCAL)).openEnded).toBe(true) // close-delimited
+  })
+  test('a slow drip is stopped by the total time limit (the idle time-out alone never trips); the partial file is deleted', async () => {
+    const f = dst()
+    await expect(downloadToFile(rawAt('/drip'), f, { ...LOCAL, idleTimeoutMs: 10_000, totalTimeoutMs: 500 })).rejects.toThrow(/time limit/)
+    expect(fs.existsSync(f)).toBe(false)
   })
   test('a body cut off before its Content-Length, or a site that stops sending, fails and the partial file is deleted', async () => {
     let f = dst()

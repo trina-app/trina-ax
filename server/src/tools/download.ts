@@ -10,6 +10,8 @@
 // full queue pauses the socket). Limits are the caller's: a hard maximum (generate_video), a size above which the
 // caller is asked first (save_url's card over 1 GB: known from Content-Length before anything is written, or reached
 // while streaming, when nothing past it is written until the answer), and a disk check up front and while streaming.
+// The whole transfer has a wall-clock budget too (DOWNLOAD_TOTAL_TIMEOUT_MS; the idle time-out alone would let a
+// server drip bytes forever); time spent waiting for the person's card does not count against it.
 // A failure deletes the partial file.
 import crypto from 'node:crypto'
 import fs from 'node:fs'
@@ -24,6 +26,9 @@ export const DOWNLOAD_MAX_REDIRECTS = 5
 export const DOWNLOAD_CONNECT_TIMEOUT_MS = 15_000
 /** no bytes for this long while the body arrives (not while the person is asked) */
 export const DOWNLOAD_IDLE_TIMEOUT_MS = 30_000
+/** the whole transfer may take at most this long (time spent asking the person does not count): the idle time-out
+ * alone lets a server drip one byte just inside it forever, so a slow drip cannot keep a download alive without end */
+export const DOWNLOAD_TOTAL_TIMEOUT_MS = 30 * 60_000
 /** the bytes the type is judged by before anything is written */
 export const SNIFF_BYTES = 64
 /** the disk is looked at again after every this many bytes */
@@ -56,6 +61,8 @@ export interface DownloadOptions extends Pick<ResolveOptions, 'lookup' | 'testAl
   signal?: AbortSignal
   connectTimeoutMs?: number
   idleTimeoutMs?: number
+  /** the whole transfer's wall-clock budget (time asking the person does not count); default DOWNLOAD_TOTAL_TIMEOUT_MS */
+  totalTimeoutMs?: number
 }
 
 export interface Downloaded {
@@ -67,6 +74,9 @@ export interface Downloaded {
   contentType: string
   /** the first SNIFF_BYTES bytes */
   first: Buffer
+  /** the body had no declared length (no Content-Length, not chunked): it ended only when the connection closed, so a
+   * truncated transfer cannot be told from a complete one. The caller validates the bytes or warns. */
+  openEnded: boolean
 }
 
 const stopped = () => new ToolError('stopped')
@@ -251,12 +261,22 @@ export function announcedSize(headers: Record<string, string>): number | null {
 export async function downloadToFile(rawUrl: string, dst: string, o: DownloadOptions = {}): Promise<Downloaded> {
   const connectMs = o.connectTimeoutMs ?? DOWNLOAD_CONNECT_TIMEOUT_MS
   const idleMs = o.idleTimeoutMs ?? DOWNLOAD_IDLE_TIMEOUT_MS
+  const totalMs = o.totalTimeoutMs ?? DOWNLOAD_TOTAL_TIMEOUT_MS
+  // the transfer's own clock: time spent waiting for the person (onLarge / onRedirect cards) does not count
+  const startedAt = Date.now()
+  let pausedMs = 0
+  const pause = async <T>(p: Promise<T> | T): Promise<T> => { const t0 = Date.now(); try { return await p } finally { pausedMs += Date.now() - t0 } }
+  const overTotal = () => Date.now() - startedAt - pausedMs > totalMs
+  const checkTotal = () => { if (overTotal()) throw new ToolError(`the download took longer than the time limit (${Math.round(totalMs / 60_000)} minutes) and was stopped, so nothing was saved`) }
+  // onLarge pauses the clock (save calls it); onRedirect is called here
+  const so: DownloadOptions = { ...o, onLarge: o.onLarge ? (x) => pause(o.onLarge!(x)) : undefined }
   let current = rawUrl
   for (let hop = 0; ; hop++) {
+    checkTotal()
     if (o.httpsOnly && !/^https:\/\//i.test(current)) throw new ToolError(hop ? 'the download redirected to an address that is not https' : 'the address is not https')
     if (hop && o.onRedirect) {
       precheckTarget(current, { testAllow: o.testAllow, blockedIps: o.blockedIps })
-      await o.onRedirect(current)
+      await pause(o.onRedirect(current))
       if (o.signal?.aborted) throw stopped()
     }
     const deadline = Date.now() + connectMs
@@ -274,13 +294,15 @@ export async function downloadToFile(rawUrl: string, dst: string, o: DownloadOpt
       if (h.status < 200 || h.status >= 300) throw new ToolError(`unexpected HTTP status ${h.status}`)
       const enc = (h.headers['content-encoding'] ?? '').trim().toLowerCase()
       if (enc && enc !== 'identity') throw new ToolError(`the site sent the file compressed (Content-Encoding ${enc.slice(0, 40)}), which downloads do not take`)
-      return await save(conn, h, t.url.href, dst, o, idleMs)
+      return await save(conn, h, t.url.href, dst, so, idleMs, checkTotal)
     } finally { conn.close() }
   }
 }
 
-async function save(conn: Conn, h: Head, url: string, dst: string, o: DownloadOptions, idleMs: number): Promise<Downloaded> {
+async function save(conn: Conn, h: Head, url: string, dst: string, o: DownloadOptions, idleMs: number, checkTotal: () => void = () => {}): Promise<Downloaded> {
   const announced = announcedSize(h.headers)
+  // no declared length and not chunked: the body ends only at the connection close, so a cut-off looks complete
+  const openEnded = announced === null && !/chunked/i.test(h.headers['transfer-encoding'] ?? '')
   if (o.maxBytes !== undefined && announced !== null && announced > o.maxBytes) throw new ToolError(`the file is larger than the limit (${announced} bytes, at most ${o.maxBytes})`)
   o.room?.(announced ?? 0)
   let asked = false
@@ -325,6 +347,7 @@ async function save(conn: Conn, h: Head, url: string, dst: string, o: DownloadOp
   try {
     for await (const piece of bodyOf(conn, h)) {
       if (o.signal?.aborted) throw stopped()
+      checkTotal()
       if (first === null) {
         sniffed = sniffed.length ? Buffer.concat([sniffed, piece]) : piece
         if (sniffed.length < SNIFF_BYTES) continue
@@ -347,5 +370,5 @@ async function save(conn: Conn, h: Head, url: string, dst: string, o: DownloadOp
     fs.rmSync(dst, { force: true })
     throw e
   }
-  return { url, size, sha256: hash.digest('hex'), contentType, first }
+  return { url, size, sha256: hash.digest('hex'), contentType, first, openEnded }
 }

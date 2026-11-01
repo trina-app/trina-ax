@@ -2,8 +2,8 @@
 // `resource.blob`), kept for a while so the AI can save one with save_url("mcp-file:<id>") without the service being
 // asked again, and without the bytes ever going through the AI's text (docs/DECISIONS.md "save_url").
 //   <data>/connection-media/<chat id>/<id>.bin + <id>.json (who, which connection, what it is), 0600 in 0700 folders
-//   kept 24 hours; at most 200 MiB per chat (the oldest go first); one item is at most what one answer can carry
-//   (MCP_CALL_MAX_BYTES of base64)
+//   kept 24 hours; at most 200 MiB per chat, 1 GiB per person and 4 GiB server-wide (the oldest go first); one item is
+//   at most what one answer can carry (MCP_CALL_MAX_BYTES of base64)
 // A handle opens only in the chat it was made in and only for the person of that turn; the id is 128 random bits.
 import crypto from 'node:crypto'
 import fs from 'node:fs'
@@ -12,6 +12,10 @@ import { sniffKind, type FileKind } from '../../tools/sniff'
 
 export const MEDIA_TTL_MS = 24 * 3600_000
 export const MEDIA_CHAT_MAX = 200 * 1024 * 1024
+/** kept inline media across all of one person's chats, and across the whole server: the oldest go first when a new
+ * item would push a total over its cap (so many chats, or many people, cannot fill the disk with day-old media) */
+export const MEDIA_USER_MAX = 1024 * 1024 * 1024
+export const MEDIA_TOTAL_MAX = 4 * 1024 * 1024 * 1024
 export const MEDIA_PREFIX = 'mcp-file:'
 const ID = /^[A-Za-z0-9_-]{22}$/
 const CHAT = /^[A-Za-z0-9-]{1,64}$/
@@ -37,16 +41,51 @@ function drop(dir: string, id: string) {
   fs.rmSync(path.join(dir, `${id}.json`), { force: true })
 }
 
+/** Every kept item across all chats (its folder and meta), expired ones dropped on the way. */
+function allItems(dataDir: string, now: number): { dir: string; meta: MediaMeta }[] {
+  let chats: string[] = []
+  try { chats = fs.readdirSync(root(dataDir)) } catch { return [] }
+  const out: { dir: string; meta: MediaMeta }[] = []
+  for (const c of chats) {
+    const dir = path.join(root(dataDir), c)
+    for (const m of items(dir)) {
+      if (now - m.createdAt > MEDIA_TTL_MS) { drop(dir, m.id); continue }
+      out.push({ dir, meta: m })
+    }
+  }
+  return out
+}
+
+/** Drop the oldest items that match `pick` until adding `incoming` bytes would fit under `cap`. */
+function evictToFit(all: { dir: string; meta: MediaMeta }[], pick: (m: MediaMeta) => boolean, cap: number, incoming: number): { dir: string; meta: MediaMeta }[] {
+  let total = all.reduce((n, x) => n + (pick(x.meta) ? x.meta.size : 0), 0)
+  if (total + incoming <= cap) return all
+  const gone = new Set<string>()
+  for (const x of all.filter((y) => pick(y.meta)).sort((a, b) => a.meta.createdAt - b.meta.createdAt)) {
+    if (total + incoming <= cap) break
+    drop(x.dir, x.meta.id); gone.add(x.meta.id); total -= x.meta.size
+  }
+  return all.filter((x) => !gone.has(x.meta.id))
+}
+
 /** Keep one inline item for this chat; the handle (mcp-file:<id>) and what the bytes are (sniffed, not declared). */
-export function putMedia(dataDir: string, o: { chatId: string; userId: string; integrationId: string; bytes: Buffer; declared: string }): MediaMeta | null {
-  if (!CHAT.test(o.chatId) || !o.bytes.length || o.bytes.length > MEDIA_CHAT_MAX) return null
+export function putMedia(dataDir: string, o: { chatId: string; userId: string; integrationId: string; bytes: Buffer; declared: string }, limits: { chat?: number; user?: number; total?: number } = {}): MediaMeta | null {
+  const chatMax = limits.chat ?? MEDIA_CHAT_MAX
+  const userMax = limits.user ?? MEDIA_USER_MAX
+  const totalMax = limits.total ?? MEDIA_TOTAL_MAX
+  if (!CHAT.test(o.chatId) || !o.bytes.length || o.bytes.length > chatMax) return null
   const dir = chatDir(dataDir, o.chatId)
   fs.mkdirSync(dir, { recursive: true, mode: 0o700 })
   // expired ones first, then the oldest until the new one fits
   const now = Date.now()
   const kept = items(dir).filter((m) => { if (now - m.createdAt > MEDIA_TTL_MS) { drop(dir, m.id); return false } return true }).sort((a, b) => a.createdAt - b.createdAt)
   let total = kept.reduce((n, m) => n + m.size, 0)
-  while (kept.length && total + o.bytes.length > MEDIA_CHAT_MAX) { const m = kept.shift()!; drop(dir, m.id); total -= m.size }
+  while (kept.length && total + o.bytes.length > chatMax) { const m = kept.shift()!; drop(dir, m.id); total -= m.size }
+  // then across chats: this person's total, and the whole server's (the new item is not written yet, so it is not in
+  // `all`; a single item is capped at chatMax, well under both caps, so it always fits after eviction)
+  let all = allItems(dataDir, now)
+  all = evictToFit(all, (m) => m.userId === o.userId, userMax, o.bytes.length)
+  evictToFit(all, () => true, totalMax, o.bytes.length)
   const id = crypto.randomBytes(16).toString('base64url')
   const meta: MediaMeta = {
     id, chatId: o.chatId, userId: o.userId, integrationId: o.integrationId, size: o.bytes.length,
