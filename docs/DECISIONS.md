@@ -5436,7 +5436,12 @@ deliberate difference. Deep research hit the old budget at once: 25 search-resul
   path), nor what a hop the person allowed carries, on that hop's site; a hop to another site is checked in full. That
   last part is new for save_url too (before, the asked-for address's marks counted for every hop): with the page's own
   site rule above, a search site's own `/url?q=<the AI's address>` link is no echo as a link, and its redirect to the
-  other site must not be excused either. The time the card waits does not count against web_fetch's 15 seconds.
+  other site must not be excused either. An address the AI wrote inside its own address (`/url?q=<address>`, a share
+  page's `?u=`, as written or %-encoded) leaves marks of its own, as one inside a returned address already counted: an
+  open redirector on a site the person allowed, or one the person confirmed, cannot take readable data on to another
+  site without a card (found in review: before, only the outer address was marked, so that hop or a link to it on the
+  page passed). Not covered: a redirector that takes its target without `http(s)://` or encoded another way. The time
+  the card waits does not count against web_fetch's 15 seconds.
 - **Kept as they were.** The per-site card for addresses the AI wrote itself, with "allow this site in this
   conversation" (Claude Code's first-time domain prompt), the card for a query over 200 characters, random-looking
   parts and long names before the site, every address asking while the exit address is unknown, scheduled runs (card-
@@ -5469,6 +5474,6 @@ deliberate difference. Deep research hit the old budget at once: 25 search-resul
 - Tests: `tests/unit/web-echo.test.ts` (results and page links by address, host and path, query, nested and window
   marks; the page's own site and another; marks left later; no marks for the web's own addresses, marks for echoes and
   allowed ones; fail closed; 500 links against 50,000 marks; web_fetch redirects asked, declined never requested, not
-  followed unattended, the card's time not counted; migration 329), `p0-exfil-server.test.ts` (30 / 150, the operator
+  followed unattended, the card's time not counted, an address inside the AI's own address; migration 329), `p0-exfil-server.test.ts` (30 / 150, the operator
   setting, 8 unattended), `save-url.test.ts` (the shared redirect check, 30 per answer), `tests/security/web-links.test.ts`
   (above); the fake engine has a main-level WebSearch (`{"webSearch": …}`).
