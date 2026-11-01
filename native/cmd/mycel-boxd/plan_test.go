@@ -129,3 +129,14 @@ func TestPsAndConn(t *testing.T) {
 		t.Errorf("%q %d", c.text(), c.dropped)
 	}
 }
+
+func TestPidsAtLimit(t *testing.T) {
+	for _, c := range []struct {
+		cur, max string
+		want     bool
+	}{{"512\n", "512\n", true}, {"508", "512", true}, {"507", "512", false}, {"3", "max\n", false}, {"", "512", false}, {"3", "", false}} {
+		if pidsAtLimit(c.cur, c.max) != c.want {
+			t.Error(c)
+		}
+	}
+}

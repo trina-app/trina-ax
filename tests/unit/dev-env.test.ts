@@ -196,6 +196,7 @@ describe('the turn', () => {
     calls.length = 0
     const rs = await ask(h, alice, 'alice', chat.id, fake({ tool: 'box_shell', args: { command: 'echo after-stop' }, sayResult: true }))
     expect(rs.done.content).toContain('Exit code 0.')
+    expect(rs.done.content).toContain('The box had stopped and started again, so processes that ran in it ended (the box does not run).')
     expect(calls.map((c) => c.op)).toEqual(['ensure', 'exec', 'ensure', 'exec'])
     // background changes (a dev server between commands) show up at the next command
     fs.writeFileSync(path.join(h.team, FOLDER, 'src/gen.ts'), 'generated')

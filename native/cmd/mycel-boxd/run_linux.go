@@ -466,6 +466,22 @@ func cgroupDir(name string) string {
 	return filepath.Join("/sys/fs/cgroup", cg)
 }
 
+// pidsRoom: true when the box has room for a command, or when that is still not so after wait.
+func pidsRoom(cg string, wait time.Duration) bool {
+	read := func(f string) string {
+		v, _ := os.ReadFile(filepath.Join(cg, f))
+		return string(v)
+	}
+	for end := time.Now().Add(wait); ; time.Sleep(250 * time.Millisecond) {
+		if !pidsAtLimit(read("pids.current"), read("pids.max")) {
+			return true
+		}
+		if time.Now().After(end) {
+			return false
+		}
+	}
+}
+
 func oomKills(cg string) int64 {
 	b, _ := os.ReadFile(filepath.Join(cg, "memory.events"))
 	for _, l := range strings.Split(string(b), "\n") {
@@ -494,9 +510,18 @@ func execIn(r *request, stopped <-chan struct{}) (map[string]any, error) {
 	if !running {
 		return nil, fmt.Errorf("box_stopped: the box does not run")
 	}
+	cg := cgroupDir(name)
+	// at the process limit nothing can enter the box, not even this exec (VM test 2026-11-01). The box does not die, it
+	// waits: give processes a moment to end, then stop it with a reason. The server's next ensure starts it again.
+	if !pidsRoom(cg, pidsWait) {
+		b.mu.Lock()
+		stopLocked(b, pathsOf(*stateDir, *runDir, r.Box), false)
+		b.mu.Unlock()
+		log.Printf("box %s: stopped at its process limit", r.Box)
+		return nil, fmt.Errorf("box_stopped: the box stopped because it stayed at its process limit")
+	}
 	b.touch()
 	defer b.touch()
-	cg := cgroupDir(name)
 	oom0 := oomKills(cg)
 	timeout := time.Duration(r.TimeoutMs) * time.Millisecond
 	if r.Background {

@@ -139,7 +139,10 @@ export function boxShellTool(h: BoxShellHost) {
         // not run, so start the box again and run it once more
         if (!r.ok && r.message.startsWith('box_stopped')) {
           const again = await client.ensure({ box: project.id, folder: project.folderPath, network: s.network, limits: s.limits, denyAddrs })
-          if (again.ok) r = await client.exec(execReq, h.signal)
+          if (again.ok) {
+            notes.push(`The box had stopped and started again, so processes that ran in it ended (${r.message.slice('box_stopped: '.length, 200)}).`)
+            r = await client.exec(execReq, h.signal)
+          }
         }
         return r
       })

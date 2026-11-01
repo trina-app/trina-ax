@@ -5195,7 +5195,10 @@ The box can render Remotion video in the current limits after a small image chan
 | Folder quota | Not built. The 4 GiB volume does not cover `/work`: a command can fill the disk that holds the team folder | Yes | Yes on a server that other teams share. No on a VM for this team only, with a disk alert: the damage stays with that team, but a full disk can still stop its server. |
 | WebSocket preview | Not built; the gateway answers 501 | Yes, for most dev servers | No. Vite falls back to reloads. Remotion Studio through the preview is not tested. |
 
-Three more items stop the trial, and they are not in the table: the isolation re-run on a throwaway host is not done;
-the Remotion numbers need a real box (`REMOTION=1`); and the rule that boxd is not installed on a team server stays
-until the owner changes it, as a trial needs boxd (root) on that team's server and a build of this branch.
+Two more items stop the trial, and they are not in the table: the corrected flood and process limit steps need a
+re-run in a real box (60 PASS, 3 FAIL on 2026-11-01, see the test VM plan); and the rule that boxd is not installed on
+a team server stays until the owner changes it for the trial, as a trial needs boxd (root) on that team's server and a
+build of this branch. The isolation probe and Remotion passed in a real box.
 
+**Process limit:** a box that stays at its process limit for 5 s stops, and the next command starts it again and tells
+the AI. Nothing can enter a box at its limit, so without this stop the person gets only a runtime error.

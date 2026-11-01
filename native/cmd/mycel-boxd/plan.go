@@ -65,6 +65,8 @@ const (
 	tmpSize      = "256m"
 	stopGrace    = 5
 	killGraceSec = 5
+	pidsHeadroom = 4
+	pidsWait     = 5 * time.Second
 )
 
 // checkRequest validates what every op needs; the folder is checked again on disk (run_linux.go openFolder).
@@ -147,6 +149,14 @@ type boxPaths struct {
 func pathsOf(root, run, box string) boxPaths {
 	d := path.Join(root, "boxes", box)
 	return boxPaths{Dir: d, Img: path.Join(d, "volume.img"), Vol: path.Join(d, "volume"), Work: path.Join(d, "work"), Run: path.Join(run, "boxes", box)}
+}
+
+// pidsAtLimit: from cgroup pids.current and pids.max. An exec needs a few processes of its own (runtime, timeout, bash).
+// False when a value cannot be read: the exec then says what is wrong by itself.
+func pidsAtLimit(current, max string) bool {
+	c, err1 := strconv.Atoi(strings.TrimSpace(current))
+	m, err2 := strconv.Atoi(strings.TrimSpace(max)) // "max" = no limit
+	return err1 == nil && err2 == nil && c+pidsHeadroom >= m
 }
 
 func containerName(box string) string { return "mycel-box-" + box }

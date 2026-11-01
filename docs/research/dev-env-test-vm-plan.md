@@ -143,10 +143,10 @@ a throwaway Debian 13 host with root, as before, for about 30 minutes; no new ho
 ## Remotion (2026-11-01)
 
 Question: can a box render video for a customer (for example Remotion) inside the current limits? Answer: yes, after
-one image change. Not yet measured in a real box: the numbers below come from a stand-in on the shared server, a
-Docker container with the same image, limits and seccomp profile (differences and all lines:
-`scripts/dev-env/results/remotion-standin.txt`). `REMOTION=1` runs the same probe in a real box. The stand-in tests
-nothing about isolation.
+one image change, and a real box confirms it (see "Real box" below). The render takes about 3 times longer in a real
+box than in the stand-in, so use the real box numbers for time. The table below comes from a stand-in on the shared
+server, a Docker container with the same image, limits and seccomp profile (differences and all lines:
+`scripts/dev-env/results/remotion-standin.txt`). The stand-in tests nothing about isolation.
 
 Remotion 4.0.539, one composition with text and SVG, no video or image inputs, 30 fps, 1280x720, 1 CPU:
 
@@ -166,11 +166,61 @@ Install: 14 s for npm (peak 358 MiB) and 6 s for Chrome. Other peaks: 198 proces
   other libraries are not necessary for this render. No system ffmpeg: Remotion brings its own, and its own Chrome.
   A frame of the video was examined: Hangul and Latin text are correct.
 - **Concurrency.** Remotion's default chose 1 Chrome tab under the 1 CPU quota, so no flag is necessary.
-- **Time limit.** `box_shell` stops a command after 120 s by default. A 60 s video needs 117 s, so very near the limit: the
-  AI must set `timeout_sec` (at most 1800 s) or use `background`. At the measured speed the upper limit is about 15
-  minutes of simple video per command.
+- **Time limit.** `box_shell` stops a command after 120 s by default. In a real box a 5 s video needs 70.5 s, so the
+  AI must set `timeout_sec` (at most 1800 s) or use `background` for a longer video. The stand-in's speed gave "about
+  15 minutes of video per command"; that number was wrong for a real box. At the real speed the estimate is about 5
+  minutes of simple video per command. No long video was measured in a real box.
 - **Not measured:** video or image inputs, 1080p, audio, heavy effects. These can need more memory or time. The 768
   and 1024 MiB runs show the floor for this simple render only, so keep 1.5 GB for customers.
 - **Licence.** Remotion is free for a company with up to 3 employees and for evaluation. A larger for-profit company
   needs a Remotion Company License. We do not ship Remotion: the customer installs it into the box, so the customer
   holds the licence.
+
+## Real box run (2026-11-01)
+
+The owner chose to run the tests on a team server: Debian 13, kernel 6.12.107, 2 vCPU, 3.8 GB, with `REMOTION=1` and
+`LONG=1`. Logs: `scripts/dev-env/results/vm-tests-real-box-20261101.txt`, `results/run.log`. Result: **60 PASS, 3 FAIL.**
+
+That server has a live Trina install. `vm-setup.sh` caused no port clash and no account clash. The dummy interface
+held 169.254.169.254 on that host during the test. The host accounts and files, and that interface, were removed
+after the run. The host stayed healthy during the flood. Do this again only with the owner's approval: the rule for
+this experiment is still a throwaway host.
+
+| Area | Result |
+|---|---|
+| Box start | 2.8 s |
+| Isolation probe, folder checks, no AI engine, network, exec control, preview socket | all PASS |
+| Memory bomb | OOM kill after 2.0 s, reported as `oom` |
+| Idle stop (`LONG=1`, first run) | PASS |
+| Box stopped by its main process: `box_stopped`, ensure, exec | PASS, but see failure 1 |
+| Remotion, 5 s, 720p | PASS: render **70.5 s** (not the 26 s of the stand-in), npm 36.5 s, Chrome 13.3 s |
+| Remotion memory | charged peak 1535 of 1536 MiB, unreclaimable peak 1035 MiB, no OOM kill |
+| Remotion, other | 121 processes, 37 MiB in `/tmp`, disk 963 MiB, h264 1280x720, 150 frames, 5.0 s |
+
+The charged peak is at the limit because the file cache fills all free memory; the kernel can take that back. The
+unreclaimable peak is the number that matters, and 501 MiB stays free. Heavier videos have less margin.
+
+The three failures:
+
+1. **"box survives the process flood" and "pids limit holds": a test bug that showed a product gap.** The flood was
+   a bash loop. At the process limit bash retries fork for 15 s, then ends with exit 254, and its `pkill` does not run.
+   A copy of the same step under the same pids limit in Docker gave exit 254 after 17 s and left the box full; there,
+   the box stayed `running`, and an exec could not enter until the 30 s sleeps ended. It was not an OOM kill (the
+   exit has no `oom` signal). The process count line was not printed because bash ended first. **Not explained:** in
+   the real box, `box_stopped` came a moment later, so the box had stopped. Docker does not show that, and the log does
+   not say which step stopped it. That also means the PASS of "exec after the main process was killed" in this run
+   proves nothing. Fixed:
+   - **boxd:** before an exec it reads `pids.current` and `pids.max`. If the box stays at its limit for 5 s, boxd stops
+     the box and answers `box_stopped: the box stopped because it stayed at its process limit`.
+   - **Server:** `box_shell` starts the box again, runs the command, and tells the AI that the processes in the box
+     ended.
+   - **Test:** `in-box/flood.sh` forks until the kernel refuses, prints the count, and ends its own children. A new
+     step holds the box at its limit and expects the stop with that reason. In Docker the flood forked 507 processes,
+     ended with exit 0, and left 3 processes.
+2. **"volume full stops at its size": a test bug.** The limit held: dd stopped at 4112711680 bytes (3.8 GiB).
+   `No space left on device` is the first of dd's four lines, `tail -1` dropped it, and `rm` after dd hid the exit code.
+   Confirmed in Docker with a small volume. The test now checks the error line and the size (at most 4 GiB).
+
+**Re-run needed:** the flood, the new process limit step, the recovery steps and the volume step. The boxd stop path
+ran only as a unit test of the limit check, never in a real box. About 10 minutes with `scripts/dev-env/vm-tests.sh`
+(without `LONG=1` and `REMOTION=1`) on a throwaway host. No new host is approved.

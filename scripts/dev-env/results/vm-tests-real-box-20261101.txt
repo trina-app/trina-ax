@@ -1,0 +1,127 @@
+== status
+{"available": true, "boxes": [], "checks": {"conntrack": "yes", "image": "ae0ada8807b1be56e80380e6697a11c5345b5a40a2a804480cc5efafa67ae2c5", "kernel": "6.12.107+deb13-cloud-amd64", "mkfs": "/usr/sbin/mkfs.xfs", "podman": "podman version 5.4.2"}, "ev": "status"}
+== start
+PASS ensure web (open)
+start s: 2.804508703
+PASS a second box while one runs (max-running 1)
+PASS folder through a link
+PASS folder outside the team root
+== isolation probe (inside)
+[exit 0  425 ms]
+-- what is mounted (sources other than overlay/tmpfs/proc/sys/dev)
+/ /
+/cache /cache
+/etc/hostname /containers/overlay-containers/ed224ace456204eaaf88301fdda8a376a05b8cb73aa4e26d41008f8682ac9cd7/userdata/hostname
+/etc/hosts /containers/overlay-containers/ed224ace456204eaaf88301fdda8a376a05b8cb73aa4e26d41008f8682ac9cd7/userdata/hosts
+/etc/resolv.conf /containers/overlay-containers/ed224ace456204eaaf88301fdda8a376a05b8cb73aa4e26d41008f8682ac9cd7/userdata/resolv.conf
+/run /
+/run/.containerenv /containers/overlay-containers/ed224ace456204eaaf88301fdda8a376a05b8cb73aa4e26d41008f8682ac9cd7/userdata/.containerenv
+/run/podman-init /usr/bin/catatonit
+/tmp /
+/var/tmp /
+/work /srv/mycel/team/projects/web
+/work/.venv /venv
+/work/node_modules /node_modules
+-- files
+PASS other team folder by host path
+PASS server secrets by host path
+PASS Mac home mount (/Users, /mnt/mac)
+PASS podman socket / storage of the box account
+PASS host root through /proc/1/root
+PASS write the image (/usr/bin)
+PASS write /etc
+PASS other team folder in the box's own folder tree
+PASS find other folder's file anywhere
+-- kernel surface
+CapPrm:	0000000000000000
+CapEff:	0000000000000000
+CapBnd:	0000000000000000
+NoNewPrivs:	1
+Seccomp:	2
+PASS new user namespace (unshare -Ur)
+PASS new mount namespace (unshare -m)
+PASS mount tmpfs
+PASS read the kernel log
+PASS io_uring_setup syscall -> Operation not permitted
+PASS bpf syscall -> Operation not permitted
+PASS keyctl syscall -> Operation not permitted
+PASS perf_event_open syscall -> Operation not permitted
+PASS userfaultfd syscall -> Operation not permitted
+PASS ptrace(PTRACE_ATTACH, 1) syscall -> Operation not permitted
+PASS socket AF_PACKET -> Function not implemented
+PASS socket AF_VSOCK -> Function not implemented
+PASS socket AF_ALG -> Function not implemented
+-- limits seen from inside
+pids.max=512 memory.max=1610612736 cpu.max=100000 100000
+df: Filesystem      Size  Used Avail Use% Mounted on
+df: /dev/nvme0n1p1   79G   16G   60G  21% /work
+df: /dev/loop0      4.0G  110M  3.9G   3% /cache
+df: tmpfs           256M     0  256M   0% /tmp
+-- engine and credentials (hole 1, hole 6)
+PASS an AI engine in the box
+== files
+[exit 0  111 ms]
+PASS box file stored as the server account
+PASS sed -i and cp -p work
+[exit 0  118 ms]
+PASS node_modules stays in the box volume
+PASS box state paths not in mountinfo
+KNOWN folder path seen in the box: /srv/mycel/team/projects/web
+== network (open)
+PASS internet https
+PASS LAN 10.99.0.1
+PASS metadata 169.254.169.254
+PASS team server on the VM address :8080
+PASS SMTP 25
+PASS change the box rules
+PASS destination log (netlog) has example.com's address
+== exec control
+PASS time limit
+PASS a stopped command is killed in the box
+[exit 0  159 ms]
+PASS background dev server listed
+PASS preview socket owned by the server account, 0600
+PASS preview through the socket
+PASS preview socket refused to another account
+== limits
+memory bomb: [exit 137 oom 1991 ms]
+PASS memory bomb ends as oom
+fork flood: [exit 254  15900 ms]
+FAIL box survives the process flood
+FAIL pids limit holds (at most 512 processes)
+PASS exec after the main process was killed says box_stopped
+PASS ensure starts the stopped box again
+PASS exec works again
+host while CPU burn: 0.00
+volume fill: [exit 0  30738 ms]
+4112711680 bytes (4.1 GB, 3.8 GiB) copied, 30.4928 s, 135 MB/s
+FAIL volume full stops at its size
+== remotion (5 s, 720p)
+[exit 0  123607 ms]
+remotion: install_seconds 36.5 (exit 0)
+remotion: browser_seconds 13.3 (exit 0)
+remotion: chrome_missing_libraries none
+remotion: fonts_with_hangul 15 (fc-list: /usr/bin/fc-list)
+remotion: render_seconds 70.5 (exit 0, concurrency 1)
+remotion: chrome_tabs Concurrency = 1x
+remotion: install_peak_unreclaimable_mib 393
+remotion: render_peak_unreclaimable_mib 1035
+remotion: render_peak_charged_mib 1535
+remotion: render_peak_tmp_mib 37
+remotion: render_peak_pids 121
+remotion: oom_kills 0
+remotion: disk_mib node_modules 786, cache 175, output 2
+remotion: video h264,1280,720,150 5.000000 
+remotion: result ok
+PASS remotion: Chrome finds its libraries
+PASS remotion: a font with Hangul in the image
+PASS remotion: no OOM kill during the render
+PASS remotion: 1280x720, 150 frames
+PASS remotion: render ended well
+PASS box survives the render
+== offline
+PASS network change restarts the box offline
+PASS offline: no internet
+== teardown
+{"ev": "ok"}
+PASS no mounts left

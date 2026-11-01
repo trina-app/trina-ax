@@ -67,9 +67,17 @@ D="preview socket refused to another account"; no runuser -u nobody -- curl -fsS
 echo "== limits"
 r=$(x 'python3 -c "b=[]
 while True: b.append(bytearray(64<<20))"' 60 2>&1 | tail -1); echo "memory bomb: $r"; D="memory bomb ends as oom"; ok sh -c "echo '$r' | grep -q oom"
-r=$(x 'n=0; for i in $(seq 1 2000); do sleep 30 2>/dev/null & [ $? -ne 0 ] && n=$((n+1)); done 2>/dev/null; echo "procs $(ls /proc | grep -c "^[0-9]")"; pkill -f "^sleep 30$"; true' 60 2>&1 | head -1); echo "fork flood: $r"
+# the flood forks until the kernel says no and ends its own children. A bash loop cannot do this test: bash gives up on
+# fork errors after 15 s (exit 254) and leaves its children, so nothing can enter the box until they end (2026-11-01).
+r=$(x "$(cat "$HERE/in-box/flood.sh")" 60 2>&1); echo "fork flood: $r"
+n=$(sed -n 's/^forked \([0-9]*\).*/\1/p' <<<"$r"); D="pids limit stops the flood (at most 512 processes)"; ok test "${n:-0}" -gt 100 -a "${n:-0}" -le 512
 D="box survives the process flood"; ok x 'true' 10
-D="pids limit holds (at most 512 processes)"; ok bash -c "[ \"\$(echo '$r' | grep -o '[0-9]*\$')\" -le 512 ]"
+# keep the box at its limit: nothing can enter it, so boxd stops it after 5 s and says why
+ctl "$(jq -nc --arg c "HOLD=30"$'\n'"$(cat "$HERE/in-box/flood.sh")" '{op:"exec",box:"web",command:$c,timeoutMs:10000,background:true,logName:"flood",actor:"vm"}')" >/dev/null
+sleep 3
+D="exec at the process limit: the box stops and says why"; ok bash -c "runuser -u mycel -- python3 -I $HERE/boxctl.py $S exec web 'true' 10 2>&1 | grep -q 'box_stopped: the box stopped because it stayed at its process limit'"
+D="ensure starts the box after the process limit"; ok ens web projects/web open
+D="exec works after the process limit"; ok x 'true' 10
 # a command that ends the box's main process stops the box; the next exec says box_stopped and ensure starts it again
 x 'pkill -f "^sleep infinity$"; true' 10 >/dev/null 2>&1; sleep 2
 D="exec after the main process was killed says box_stopped"; ok bash -c "runuser -u mycel -- python3 -I $HERE/boxctl.py $S exec web 'true' 10 2>&1 | grep -q box_stopped"
@@ -77,7 +85,9 @@ D="ensure starts the stopped box again"; ok ens web projects/web open
 D="exec works again"; ok x 'true' 10
 x 'timeout 10 sh -c "while :; do :; done & while :; do :; done & wait"; true' 20 >/dev/null 2>&1 &
 sleep 5; echo "host while CPU burn: $( { /usr/bin/time -f %e sh -c 'ls / >/dev/null'; } 2>&1 )"; wait
-r=$(x 'dd if=/dev/zero of=/cache/fill bs=1M 2>&1 | tail -1; rm -f /cache/fill' 300 2>&1); echo "volume fill: $r"; D="volume full stops at its size"; ok sh -c "echo '$r' | grep -q 'No space'"
+r=$(x 'dd if=/dev/zero of=/cache/fill bs=1M 2>&1; rm -f /cache/fill' 300 2>&1); echo "volume fill: $r"
+D="volume full stops with No space left"; ok grep -q 'No space left on device' <<<"$r"
+n=$(sed -n 's/^\([0-9]*\) bytes.*/\1/p' <<<"$r"); D="volume full stops at its size (at most 4 GiB)"; ok test "${n:-0}" -gt 3000000000 -a "${n:-0}" -le 4294967296
 
 # Video render in the limits above (open network: npm and Chrome downloads). in-box/remotion.sh also prints its numbers.
 if [ "${REMOTION:-0}" = 1 ]; then
