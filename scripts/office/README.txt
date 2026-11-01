@@ -8,6 +8,8 @@ Trina AX 사무실 모드 (맥 한 대 + 같은 네트워크의 데스크 PC들)
    예: curl -fsSL https://claude.ai/install.sh | bash -s 2.1.305 (받은 키트의 버전 우선).
    기본 local-login에서는 전용 Mac 사용자로, 허용된 계정에 로그인해요.
      터미널에서  claude  실행 → /login → 구독 계정으로 로그인
+   이 방식에서는 서버가 이 맥 사용자의 ~/.claude.json에서 MCP 설정을 비워요. 거기 MCP 서버가 있으면 설치기가 보여 주고 멈춰요.
+   남기려면 --claude-token-file로, 지워도 되면 --remove-claude-mcp를 붙여요 (사본: ~/TeamAX/config/claude-mcp-backups).
 
 2. 최신 릴리스의 TrinaAX-office-<버전>-mac.zip이 맞는지 SHA256SUMS로 확인한 뒤 풀어 주세요.
    shasum -a 256 <ZIP 경로> 결과를 SHA256SUMS와 비교해 주세요. 설치 명령에 --check-only를 먼저 붙여 점검해요.
@@ -55,6 +57,9 @@ Mac DMG는 배포하지 않아요. 위의 DMG 단계는 직접 만든 파일이 
 Trina AX office mode (one Mac + the desk PCs on its network). Full offline English runbook: app/docs/OFFICE.en.md. Korean: app/docs/OFFICE.md. PDFs are included only when built; the runbooks contain the steps when PDFs are absent.
   1. Install Claude Code separately using the tested version in app/versions.json; the ZIP does not include it.
      Run claude and /login as the dedicated Mac user with a permitted account; confirm claude auth status.
+     In this mode the server empties the MCP settings of this user's ~/.claude.json: if it has MCP servers the installer
+     lists them and stops (keep them: --claude-token-file; let them go: --remove-claude-mcp, a copy is kept in
+     ~/TeamAX/config/claude-mcp-backups).
   2. bash ~/Downloads/TrinaAX-office-<version>/office-install.sh [--public-host <name> --tunnel-token-file <file>]
      (no sudo; installs into ~/TeamAX; the internet address and its connector token come from the owner's Mac)
   3. Print the desk card (~/TeamAX/teamax card): the address and the certificate thumbprint.

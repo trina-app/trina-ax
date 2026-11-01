@@ -71,7 +71,15 @@ describe('office settings: --claude-token-file switches Claude to subscription m
     expect(fs.existsSync(officePaths(home).claudeToken)).toBe(false)
     configure(home, ['--claude-token-file', path.join(BASE, 'good.txt')])
     expect(configure(home, ['--lan-port', '18443']).claudeAuth).toBe('subscription') // kept by later configure runs
-    expect(configure(home, ['--claude-auth', 'local-login']).claudeAuth).toBe('local-login')
+    // back to this Mac's login: it looks at the Mac user's ~/.claude.json (a fake home here, never the real one) and,
+    // since local-login empties its MCP settings, asks first when there are any (office test O3, office-claude-mcp.test.ts)
+    const macHome = path.join(BASE, 'mac-home-b')
+    fs.mkdirSync(macHome, { recursive: true })
+    const env = { ...process.env, HOME: macHome }
+    fs.writeFileSync(path.join(macHome, '.claude.json'), JSON.stringify({ mcpServers: { mine: { command: 'my-mcp' } } }))
+    expect(() => configure(home, ['--claude-auth', 'local-login'], env)).toThrow(/--remove-claude-mcp/)
+    fs.writeFileSync(path.join(macHome, '.claude.json'), JSON.stringify({ mcpServers: {} }))
+    expect(configure(home, ['--claude-auth', 'local-login'], env).claudeAuth).toBe('local-login')
     expect(() => settingsFrom(home, { TEAMAX_PROXY_PORT: '47830' })).toThrow(/must differ/)
   })
 })

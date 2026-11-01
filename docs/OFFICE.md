@@ -98,6 +98,17 @@ rm ~/Downloads/team.example.com.tunnel-token ~/Downloads/claude-token.txt
 `--check-only`를 붙이면 확인만 하고 아무것도 바꾸지 않습니다. 포트가 다른 프로그램에 잡혀 있으면 설치 전에 멈추고
 `--lan-port`·`--app-port`·`--helper-port`로 다른 번호를 고르라고 알려 줍니다.
 
+**이 맥 사용자의 `~/.claude.json`에 MCP 서버가 있으면**(토큰 없이 설치할 때만): 이 방식에서는 서버가 시작할 때와 AI 답마다
+그 파일의 MCP 설정(사용자·프로젝트의 MCP 서버, `.mcp.json` 승인, Claude CLI가 두는 그 파일의 사본)을 비웁니다(8장). 그래서
+설치기가 지울 것을 이름과 개수로 보여 주고(`--check-only`도 같음) **새 설치를 멈춥니다**. 고르세요.
+- 남기기: 구독 토큰(`--claude-token-file`)으로 설치합니다. 이 방식의 서버는 `~/.claude.json`을 읽지도 바꾸지도 않습니다. 또는
+  Trina AX만 쓰는 다른 맥 사용자로 설치합니다.
+- 지우기: `--remove-claude-mcp`를 붙여 다시 실행합니다. 서버는 지우기 전에 사본을 `~/TeamAX/config/claude-mcp-backups/`
+  (이 맥 사용자만 읽음)에 둡니다.
+
+이미 설치된 맥과 자동 업데이트는 멈추지 않고, 이 버전부터 지우기 전에 사본을 둡니다. 확인·사본·되돌리기:
+`~/TeamAX/teamax claude-mcp check | backups | restore <사본>`(8장).
+
 > **앱 포트(`--app-port`)를 바꿨다면**: Cloudflare 터널도 그 포트를 가리켜야 합니다. 설치 담당자 맥에서
 > `bun scripts/office/public-address.ts set team.example.com --port <새 포트> --cert <cert 파일>`을 한 번 더 실행하세요
 > (맥 미니는 다시 할 일이 없음). 안 하면 인터넷 주소가 **502**를 내고, 설치기·`teamax public-address status`가 이 명령을
@@ -384,6 +395,16 @@ bun scripts/release/publish.ts --channel stable --build --version 0.2.1
   (관리자 → 기록에 `engine.claude_json_mcp_removed`). 샌드박스는 그 이름들에 링크를 만들지 못하게 합니다. 이 맥 계정에서
   터미널 `claude`는 **로그인(`/login`) 말고 쓰지 마세요**. 로그인이 만료돼 다시 로그인하기 전에 `claude mcp list`가
   "No MCP servers configured"인지 보세요.
+- **지운 MCP 설정은 사본으로 남습니다**(0.2.19부터). 지우기 전에 `~/TeamAX/config/claude-mcp-backups/claude-mcp-<시각>-start.json`
+  (서버 시작 때) 또는 `…-turn.json`(AI 답 뒤)에 그대로 둡니다. 폴더 700·파일 600이라 이 맥 사용자만 읽고 엔진은 읽지도 쓰지도
+  못합니다. 기록 항목에 사본 이름이 나오고, 값(키가 든 `env` 등)은 사본에만 있습니다. `-turn` 사본은 최근 20개만 남깁니다.
+  `teamax claude-mcp check`는 지금 지울 것을 보여 주고(아무것도 바꾸지 않음), `teamax claude-mcp backups`는 사본 목록입니다.
+- **되돌리기**: 서버가 더 이상 지우지 않게 한 뒤(`teamax configure --claude-token-file <파일> && teamax restart`, 또는 Trina AX를
+  치울 때 `teamax uninstall-agent`를 먼저) `~/TeamAX/teamax claude-mcp restore <사본>`. 이미 있는 설정은 그대로 두고 없는 것만
+  넣습니다. `-turn` 사본은 그 턴이 심은 서버일 수 있어서 명령을 보여 주고 `--yes`를 붙여야 넣습니다. `office-uninstall.sh`는
+  `config/`를 남기므로 사본도 남습니다(일반 JSON이라 직접 옮겨도 됨). `--delete-data`는 사본도 지웁니다.
+- 구독 토큰 방식에서 이 맥의 로그인 방식으로 되돌릴 때(`teamax configure --claude-auth local-login`)도 `~/.claude.json`에 MCP
+  설정이 있으면 멈추고, `--remove-claude-mcp`를 붙여야 바꿉니다.
 - 사무실 네트워크에는 **https만** 열리고, **맥 미니와 같은 사무실 대역**(예: 192.168.1.0/24)에서 온 연결만 받습니다(VPN·다른
   대역은 403). 평문 앱 포트는 맥 미니 안(`127.0.0.1`)에서만. 인증서 페이지(8442)는 인증서와 안내만 주고 API가 없습니다.
   서버는 자기 주소로 온 요청만 받습니다(다른 Host는 421). 로그인 쿠키는 `__Host-`·Secure·HttpOnly, 로그인 시도 제한은

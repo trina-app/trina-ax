@@ -22,6 +22,12 @@
 #                        Mac's login: the AI engine can no longer read the Mac's Claude login. Without it the engine uses
 #                        this Mac's own Claude login (it must be logged in). Later: <prefix>/teamax configure
 #                        --claude-token-file FILE && <prefix>/teamax restart (back: --claude-auth local-login)
+#   --remove-claude-mcp  without --claude-token-file the server empties the MCP settings of this Mac account's
+#                        ~/.claude.json (and the copies the Claude CLI keeps of it) at every start and after every AI
+#                        turn: an MCP server an AI turn might plant there would run outside the sandbox the next time
+#                        `claude` runs on this account. A new install lists them and stops unless you pass this; what
+#                        is removed is saved to <prefix>/config/claude-mcp-backups first (700; <prefix>/teamax
+#                        claude-mcp backups | restore). To keep them use --claude-token-file or another macOS user.
 #   --no-open            do not open the setup page in the browser
 #   --no-desktop         do not offer the desktop app installers found next to the bundle (below)
 #   --update             run by the automatic updater (docs/OFFICE.md "자동 업데이트", server/src/office/update.ts):
@@ -30,7 +36,8 @@
 #   --check-only         run the checks, print what would happen, change nothing
 #
 # Checks: macOS 13+, not root, this Mac's architecture is in the bundle, Claude Code is installed and logged in
-# (`claude auth status`; not needed with --claude-token-file), the ports are free (after stopping this installation's own agent). Codex is not used in
+# (`claude auth status`; not needed with --claude-token-file), no MCP settings in ~/.claude.json the server would remove
+# (see --remove-claude-mcp; not with --claude-token-file), the ports are free (after stopping this installation's own agent). Codex is not used in
 # office mode (the office's data goes to Anthropic only). Then: copies app/ (only this Mac's architecture) into <prefix>/app, keeps the previous one
 # as app.previous, removes the download quarantine from the copied programs, writes config/office.env, installs and
 # starts the LaunchAgent (server/src/office/cli.ts install), waits until the server answers and prints the address
@@ -45,7 +52,7 @@ umask 022
 SRC=$(cd "$(dirname "$0")" && pwd)
 PREFIX="$HOME/TeamAX"
 CONF_ARGS=()
-OPEN=1 CHECK_ONLY=0 DESKTOP=1 UPDATE=0 TOKEN_FILE=
+OPEN=1 CHECK_ONLY=0 DESKTOP=1 UPDATE=0 TOKEN_FILE= REMOVE_MCP=0
 die() { echo "office-install: $*" >&2; exit 1; }
 say() { echo "office-install: $*"; }
 # the product's names (app/product.env, written by build-office.ts from shared/src/product.ts): read, never sourced
@@ -57,11 +64,12 @@ while [ $# -gt 0 ]; do
     --prefix) PREFIX=$2; shift 2 ;;
     --lan-port|--helper-port|--app-port|--label|--run-dir|--public-host|--tunnel-token-file) [ $# -ge 2 ] || die "$1 needs a value"; CONF_ARGS+=("$1" "$2"); shift 2 ;;
     --claude-token-file) [ $# -ge 2 ] || die "$1 needs a value"; [ -f "$2" ] || die "$2: no such file (the output of 'claude setup-token')"; TOKEN_FILE=$(cd "$(dirname "$2")" && pwd)/$(basename "$2"); CONF_ARGS+=("$1" "$TOKEN_FILE"); shift 2 ;;
+    --remove-claude-mcp) REMOVE_MCP=1; shift ;;
     --no-open) OPEN=0; shift ;;
     --no-desktop) DESKTOP=0; shift ;;
     --update) UPDATE=1; OPEN=0; DESKTOP=0; shift ;;
     --check-only) CHECK_ONLY=1; shift ;;
-    -h|--help) sed -n '2,41p' "$0"; exit 0 ;;
+    -h|--help) awk 'NR > 1 && /^#/ { print; next } NR > 1 { exit }' "$0"; exit 0 ;;
     *) die "unknown option $1 (see --help)" ;;
   esac
 done
@@ -125,6 +133,47 @@ else
   say "Use 'claude' on this Mac account only to log in again (/login); check 'claude mcp list' shows no servers first."
 fi
 fi
+
+# ---- this Mac account's ~/.claude.json (this Mac's own login only; docs/OFFICE.md 8, office test O3) ----
+# The server empties its MCP settings at every start and after every AI turn (an MCP server an AI turn planted there
+# would run outside the sandbox the next time `claude` runs here), keeping a copy in config/claude-mcp-backups. Say
+# what that removes; a new install stops until the owner agrees. An installation that already runs this way goes on
+# (from this version it keeps a copy), and the automatic update never stops here.
+MCP_FOUND=0 MCP_STOP=0
+MCP_KEEP="$PREFIX/config/claude-mcp-backups"
+if [ "$SUBSCRIPTION" = 0 ]; then
+  MCP_CODE=0
+  if [ "$UPDATE" = 1 ]; then
+    MCP_OUT=$("$BUN_SRC" "$SRC/app/server/src/office.js" claude-mcp check --summary --home "$PREFIX" --user-home "$HOME" 2>&1) || MCP_CODE=$?
+    [ "$MCP_CODE" != 3 ] || say "$MCP_OUT; the server keeps a copy of what it removes in $MCP_KEEP"
+  else
+    MCP_OUT=$("$BUN_SRC" "$SRC/app/server/src/office.js" claude-mcp check --home "$PREFIX" --user-home "$HOME" 2>&1) || MCP_CODE=$?
+    if [ "$MCP_CODE" = 3 ]; then
+      MCP_FOUND=1
+      printf '%s\n' "$MCP_OUT" | sed 's/^/office-install: /'
+      if [ -f "$PREFIX/config/office.env" ]; then
+        say "the installation in $PREFIX already removes them; from $VERSION on it first keeps a copy in $MCP_KEEP (only you can read it)"
+      elif [ "$REMOVE_MCP" = 1 ]; then
+        say "--remove-claude-mcp: the server removes them when it starts; a copy goes to $MCP_KEEP first (only you can read it)"
+      else
+        MCP_STOP=1
+      fi
+    elif [ "$MCP_CODE" != 0 ]; then
+      die "could not check ~/.claude.json for MCP settings: $MCP_OUT"
+    fi
+  fi
+fi
+MCP_WHY="With this Mac's own Claude login (the default) the server empties these MCP settings at every start and after
+  every AI turn, so that an MCP server an AI turn might plant there can never run outside the sandbox when 'claude' is
+  used on this account. To keep them, either
+    - install with --claude-token-file <file> (the output of 'claude setup-token'; recommended): the server then never
+      reads or changes ~/.claude.json, or
+    - install as another macOS user that is used only for $PRODUCT_NAME.
+  To let the server remove them, run this again with --remove-claude-mcp. It first keeps a copy in $MCP_KEEP
+  (only you can read it); '$PREFIX/teamax claude-mcp restore <copy>' puts it back once the server no longer removes it."
+if [ "$MCP_STOP" = 1 ] && [ "$CHECK_ONLY" != 1 ]; then
+  die "stopped; nothing was changed. $MCP_WHY"
+fi
 if [ "$CHECK_ONLY" = 1 ]; then
   # settings are validated by the same code the install uses, written into a throwaway folder
   T=$(mktemp -d)
@@ -142,6 +191,7 @@ if [ "$CHECK_ONLY" = 1 ]; then
   # read-only: compared with what $PREFIX already offers
   [ "$DESKTOP" = 0 ] || "$BUN_SRC" "$SRC/app/server/src/office.js" desktop --home "$PREFIX" add-from --dry-run "${DESKTOP_ARGS[@]}" | sed 's/^/  /'
   say "check only: nothing changed"
+  [ "$MCP_STOP" = 0 ] || die "the install would stop at the MCP settings above. $MCP_WHY"
   exit 0
 fi
 
@@ -187,6 +237,10 @@ if [ "$DESKTOP" = 1 ]; then
 fi
 
 if [ "$UPDATE" = 1 ]; then say "updated to $VERSION"; exit 0; fi
+if [ "$MCP_FOUND" = 1 ]; then
+  say "copies of the MCP settings the server removed from ~/.claude.json:"
+  "$PREFIX/app/bin/bun" "$PREFIX/app/server/src/office.js" claude-mcp backups --home "$PREFIX" | sed 's/^/  /' || true
+fi
 
 # ---- what the owner still has to do (needs an admin or a person; shown, not run) ----
 FW=$(/usr/libexec/ApplicationFirewall/socketfilterfw --getglobalstate 2>/dev/null || true)

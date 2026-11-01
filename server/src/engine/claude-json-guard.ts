@@ -7,38 +7,62 @@
 // load it (--strict-mcp-config, --setting-sources ''), so office mode removes whatever MCP configuration it finds there,
 // at server start and after every Claude turn: the values are emptied, every other key stays as it was, and the
 // removal is written to the log and the audit list. The office Mac is dedicated to this server (docs/OFFICE.md 8).
+// Nothing is removed without a copy (0.2.19, office test O3: on a Mac its owner also used for Claude Code it silently
+// deleted their MCP servers): what is emptied is first saved to <home>/config/claude-mcp-backups/ (700, files 600,
+// where no engine turn can read or write), and office-install.sh lists what would go (findClaudeJsonMcp) and stops a
+// new install until the owner agrees (--remove-claude-mcp) or picks the setup-token mode, which never touches the file.
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import type { AppContext } from '../context'
 import { audit } from '../admin/audit'
+import { resolveLayout } from '../system/layout'
 
 /** keys (top level and in projects[*]) that make an interactive `claude` start MCP servers */
 const PROJECT_KEYS = ['mcpServers', 'enabledMcpjsonServers', 'enableAllProjectMcpServers'] as const
+export type McpKey = typeof PROJECT_KEYS[number]
+
+/** one MCP setting taken out of a Claude config: its project (null: user scope), its key and what it held */
+export interface McpEntry { project: string | null; key: McpKey; value: unknown }
 
 const nonEmpty = (k: string, v: unknown): boolean =>
   k === 'enableAllProjectMcpServers' ? v === true
     : Array.isArray(v) ? v.length > 0
       : !!v && typeof v === 'object' && Object.keys(v).length > 0
 
-/** Empties the MCP keys of a parsed ~/.claude.json in place; returns the key paths that held something. */
-export function stripMcp(j: Record<string, unknown>): string[] {
-  const out: string[] = []
-  const clear = (o: Record<string, unknown>, at: string) => {
+/** "mcpServers" or "projects[\"/Users/x/app\"].mcpServers" */
+export const mcpKeyPath = (e: Pick<McpEntry, 'project' | 'key'>) => e.project === null ? e.key : `projects[${JSON.stringify(e.project)}].${e.key}`
+
+/** the server names an entry holds (mcpServers: its keys; enabledMcpjsonServers: its names; the switch: none) */
+export function mcpNames(e: Pick<McpEntry, 'value'>): string[] {
+  const v = e.value
+  if (Array.isArray(v)) return v.map((x) => String(x))
+  return v && typeof v === 'object' ? Object.keys(v) : []
+}
+
+/** Empties the MCP keys of a parsed ~/.claude.json in place; returns what they held. */
+export function takeMcp(j: Record<string, unknown>): McpEntry[] {
+  const out: McpEntry[] = []
+  const clear = (o: Record<string, unknown>, project: string | null) => {
     for (const k of PROJECT_KEYS) {
       if (!(k in o) || !nonEmpty(k, o[k])) continue
-      out.push(`${at}${k}`)
+      out.push({ project, key: k, value: o[k] })
       o[k] = k === 'enableAllProjectMcpServers' ? false : Array.isArray(o[k]) ? [] : {}
     }
   }
-  clear(j, '')
+  clear(j, null)
   const projects = j.projects
   if (projects && typeof projects === 'object' && !Array.isArray(projects)) {
     for (const [p, v] of Object.entries(projects as Record<string, unknown>)) {
-      if (v && typeof v === 'object' && !Array.isArray(v)) clear(v as Record<string, unknown>, `projects[${JSON.stringify(p)}].`)
+      if (v && typeof v === 'object' && !Array.isArray(v)) clear(v as Record<string, unknown>, p)
     }
   }
   return out
+}
+
+/** Empties the MCP keys of a parsed ~/.claude.json in place; returns the key paths that held something. */
+export function stripMcp(j: Record<string, unknown>): string[] {
+  return takeMcp(j).map(mcpKeyPath)
 }
 
 export interface GuardOptions {
@@ -84,56 +108,188 @@ function linkedContent(file: string, o: GuardOptions): Record<string, unknown> {
   } catch { return {} }
 }
 
+/** What the guard would write in place of a file: its cleaned content, the mode and what it takes out of it. */
+interface Plan { file: string; j: Record<string, unknown>; mode: number; taken: McpEntry[]; note: '(link replaced)' | '(hard link replaced)' | null }
+
+/** Reads the file and works out what the guard does with it; writes nothing. null: the file is left alone. */
+function planGuard(file: string, o: GuardOptions): Plan | null {
+  let st: fs.Stats
+  try { st = fs.lstatSync(file) } catch { return null }
+  if (st.isSymbolicLink()) {
+    const j = linkedContent(file, o)
+    return { file, j, mode: 0o600, taken: takeMcp(j), note: '(link replaced)' }
+  }
+  if (!st.isFile()) return null // a folder or anything else: nothing the CLI reads as its config
+  let text: string
+  try { text = fs.readFileSync(file, 'utf8') } catch { return null }
+  const j = parseObject(text)
+  if (!j) return null
+  const taken = takeMcp(j)
+  const linked = st.nlink > 1
+  if (!taken.length && !linked) return null
+  return { file, j, mode: st.mode & 0o777, taken, note: linked ? '(hard link replaced)' : null }
+}
+
+const planKeys = (p: Plan) => [...(p.note ? [p.note] : []), ...p.taken.map(mcpKeyPath)]
+
 /**
  * Removes MCP configuration from the file (default: the account's ~/.claude.json). Returns the removed key paths
  * (empty: nothing found, the file is not touched). A missing or unreadable file is left alone. A symbolic link at the
  * file is replaced by a regular file (round 4b: before, a link was skipped, so a server planted in the file it points to
  * survived until the next interactive `claude`): with the cleaned content it pointed to when that is a regular file in
  * the home (and not in `privateDirs`), else an empty config `{}`; the result then starts with "(link replaced)". A file
- * with other hard links is written as a new file too ("(hard link replaced)").
+ * with other hard links is written as a new file too ("(hard link replaced)"). Keeps no copy: guardClaudeJsonFamily
+ * with `backupDir` does.
  */
 export function guardClaudeJson(file = path.join(os.homedir(), '.claude.json'), o: GuardOptions = {}): string[] {
-  let st: fs.Stats
-  try { st = fs.lstatSync(file) } catch { return [] }
-  if (st.isSymbolicLink()) {
-    const j = linkedContent(file, o)
-    const removed = stripMcp(j)
-    replaceWith(file, j, 0o600)
-    return ['(link replaced)', ...removed]
-  }
-  if (!st.isFile()) return [] // a folder or anything else: nothing the CLI reads as its config
-  let text: string
-  try { text = fs.readFileSync(file, 'utf8') } catch { return [] }
-  const j = parseObject(text)
-  if (!j) return []
-  const removed = stripMcp(j)
-  const linked = st.nlink > 1
-  if (!removed.length && !linked) return []
-  replaceWith(file, j, st.mode & 0o777)
-  return linked ? ['(hard link replaced)', ...removed] : removed
+  const p = planGuard(file, o)
+  if (!p) return []
+  replaceWith(p.file, p.j, p.mode)
+  return planKeys(p)
 }
 
 /** The Claude config files of an account the CLI may load or restore from: ~/.claude.json, the older
  * ~/.claude.json.backup and every ~/.claude/backups/.claude.json.backup.<time> (it restores the newest when the config
- * is unreadable). A link in place of the backups folder is removed (the CLI would follow it). */
-export function claudeJsonFiles(home = os.homedir()): string[] {
+ * is unreadable). A link in place of the backups folder is removed (the CLI would follow it), unless `readOnly`. */
+export function claudeJsonFiles(home = os.homedir(), o: { readOnly?: boolean } = {}): string[] {
   const out = [path.join(home, '.claude.json'), path.join(home, '.claude.json.backup')]
   const dir = path.join(home, '.claude', 'backups')
   try {
     const st = fs.lstatSync(dir)
-    if (st.isSymbolicLink()) fs.unlinkSync(dir)
+    if (st.isSymbolicLink()) { if (!o.readOnly) fs.unlinkSync(dir) }
     else if (st.isDirectory()) for (const n of fs.readdirSync(dir)) if (n.startsWith('.claude.json.backup')) out.push(path.join(dir, n))
   } catch {}
   return out
 }
 
-/** guardClaudeJson on every file of claudeJsonFiles; returns "<file name>: <key path>" for each finding */
-export function guardClaudeJsonFamily(home = os.homedir(), o: Omit<GuardOptions, 'home'> = {}): string[] {
-  const out: string[] = []
-  for (const f of claudeJsonFiles(home)) {
-    try { for (const k of guardClaudeJson(f, { ...o, home })) out.push(`${path.relative(home, f)}: ${k}`) } catch {}
+/** where office mode keeps what it removed, in the installation's secrets folder (<home>/config: 700, no engine turn
+ * can read or write it, not in backups or archives) */
+export const CLAUDE_MCP_BACKUPS = 'claude-mcp-backups'
+const BACKUP_FILE = /^claude-mcp-.+\.json$/
+/** copies made after a turn (a turn may plant servers again and again) are kept up to this many, the newest; copies
+ * made at a server start (what was there before the server, or added while it was stopped) are never removed */
+const KEEP_TURN_BACKUPS = 20
+/** values beyond this many characters in one copy are left out (their names are kept) */
+const BACKUP_MAX_CHARS = 4 * 1024 * 1024
+
+export interface McpBackup {
+  savedAt: string
+  /** 'start': found at a server start (or by the installer's check); 'turn': found after an AI turn, which may have
+   * planted it */
+  when: string
+  /** the account's home the entries came from (files are relative to it) */
+  home: string
+  note: string
+  files: Record<string, (McpEntry | { project: string | null; key: McpKey; names: string[]; omitted: string })[]>
+}
+
+/** Saves what the plans take out to a new file in `dir` (700, the file 600, never over another file); returns its path.
+ * A link in place of `dir` is refused. */
+export function saveMcpBackup(dir: string, home: string, plans: Pick<Plan, 'file' | 'taken'>[], when: string, now = new Date()): string {
+  fs.mkdirSync(dir, { recursive: true, mode: 0o700 })
+  if (!fs.lstatSync(dir).isDirectory()) throw new Error(`${dir} is not a folder`)
+  fs.chmodSync(dir, 0o700)
+  let chars = 0
+  const files: McpBackup['files'] = {}
+  for (const p of plans) {
+    if (!p.taken.length) continue
+    files[path.relative(home, p.file)] = p.taken.map((e) => {
+      const n = (JSON.stringify(e.value) ?? '').length
+      chars += n
+      return chars <= BACKUP_MAX_CHARS ? { project: e.project, key: e.key, value: e.value }
+        : { project: e.project, key: e.key, names: mcpNames(e), omitted: `too large to keep (${n} characters)` }
+    })
   }
-  return out
+  const doc: McpBackup = {
+    savedAt: now.toISOString(), when, home,
+    note: when === 'turn'
+      ? 'MCP settings the office server removed from this Mac account\'s Claude config after an AI turn. The turn may have put them there: check every command before you put one back.'
+      : 'MCP settings the office server removed from this Mac account\'s Claude config. Put them back with `teamax claude-mcp restore <this file>` once the server no longer removes them (the setup-token mode, or after `teamax uninstall-agent`).',
+    files,
+  }
+  const stamp = now.toISOString().replace(/[:.]/g, '-')
+  const tmp = path.join(dir, `.tmp-${process.pid}-${Date.now()}-${Math.random().toString(36).slice(2)}`)
+  fs.writeFileSync(tmp, JSON.stringify(doc, null, 2) + '\n', { mode: 0o600, flag: 'wx' })
+  try {
+    for (let i = 1; ; i++) {
+      const f = path.join(dir, `claude-mcp-${stamp}-${when}${i > 1 ? `-${i}` : ''}.json`)
+      try { fs.linkSync(tmp, f); if (when === 'turn') pruneTurnBackups(dir); return f } catch (e) {
+        if ((e as NodeJS.ErrnoException).code !== 'EEXIST' || i >= 100) throw e
+      }
+    }
+  } finally { fs.rmSync(tmp, { force: true }) }
+}
+
+function pruneTurnBackups(dir: string) {
+  const turn = fs.readdirSync(dir).filter((n) => BACKUP_FILE.test(n) && /-turn(-\d+)?\.json$/.test(n)).sort()
+  for (const n of turn.slice(0, Math.max(0, turn.length - KEEP_TURN_BACKUPS))) fs.rmSync(path.join(dir, n), { force: true })
+}
+
+/** the copies in `dir`, oldest first */
+export function listMcpBackups(dir: string): string[] {
+  let names: string[] = []
+  try { names = fs.readdirSync(dir) } catch {}
+  return names.filter((n) => BACKUP_FILE.test(n)).sort().map((n) => path.join(dir, n))
+}
+
+export interface FamilyResult {
+  /** "<file name>: <key path>" for each finding */
+  removed: string[]
+  /** the copy of what was removed (null: nothing to keep, or no backupDir) */
+  backup: string | null
+  /** why the copy could not be saved (the settings were removed anyway: the guard is a security boundary) */
+  backupError: string | null
+}
+
+/** guardClaudeJson on every file of claudeJsonFiles. With `backupDir`, what is removed is saved there first (one file
+ * for all of them); a copy that cannot be saved does not stop the removal (backupError says why). */
+export function guardClaudeJsonFamilyKeep(home = os.homedir(), o: Omit<GuardOptions, 'home'> & { backupDir?: string; when?: string } = {}): FamilyResult {
+  const plans: Plan[] = []
+  for (const f of claudeJsonFiles(home)) {
+    try { const p = planGuard(f, { ...o, home }); if (p) plans.push(p) } catch {}
+  }
+  let backup: string | null = null
+  let backupError: string | null = null
+  if (o.backupDir && plans.some((p) => p.taken.length)) {
+    try { backup = saveMcpBackup(o.backupDir, home, plans, o.when ?? 'start') } catch (e) { backupError = (e as Error).message }
+  }
+  const removed: string[] = []
+  for (const p of plans) {
+    try { replaceWith(p.file, p.j, p.mode); for (const k of planKeys(p)) removed.push(`${path.relative(home, p.file)}: ${k}`) } catch {}
+  }
+  return { removed, backup, backupError }
+}
+
+/** guardClaudeJson on every file of claudeJsonFiles; returns "<file name>: <key path>" for each finding (no copy) */
+export function guardClaudeJsonFamily(home = os.homedir(), o: Omit<GuardOptions, 'home'> = {}): string[] {
+  return guardClaudeJsonFamilyKeep(home, o).removed
+}
+
+export interface McpFinding {
+  /** relative to the home: .claude.json, .claude.json.backup, .claude/backups/.claude.json.backup.<time> */
+  file: string
+  /** the file is a link (it becomes a regular file; what it points to is not changed) or has other hard links */
+  note: Plan['note']
+  /** where a link points */
+  target?: string
+  entries: McpEntry[]
+}
+
+/** What the guard would do to the account's Claude config files, without changing anything (office-install.sh,
+ * `teamax claude-mcp check`). `backupsLink`: a link in place of ~/.claude/backups, which it removes. */
+export function findClaudeJsonMcp(home = os.homedir(), o: Omit<GuardOptions, 'home'> = {}): { findings: McpFinding[]; backupsLink: boolean } {
+  const findings: McpFinding[] = []
+  for (const f of claudeJsonFiles(home, { readOnly: true })) {
+    let p: Plan | null = null
+    try { p = planGuard(f, { ...o, home }) } catch {}
+    if (!p) continue
+    let target: string | undefined
+    if (p.note === '(link replaced)') try { target = fs.readlinkSync(f) } catch {}
+    findings.push({ file: path.relative(home, f), note: p.note, ...(target ? { target } : {}), entries: p.taken })
+  }
+  let backupsLink = false
+  try { backupsLink = fs.lstatSync(path.join(home, '.claude', 'backups')).isSymbolicLink() } catch {}
+  return { findings, backupsLink }
 }
 
 /** Office mode with the Mac user's own login only (other modes keep the CLI's config inside the chat folder). */
@@ -141,18 +297,24 @@ export function claudeJsonGuarded(ctx: Pick<AppContext, 'config'>): boolean {
   return !!ctx.config.office && ctx.config.engine.authMode === 'local-login'
 }
 
-/** At server start and after every Claude turn in office mode (~/.claude.json and its backups); never throws. `home`:
- * tests (a fake home). */
+/** the installation's copies of removed MCP settings (<home>/config/claude-mcp-backups in office mode) */
+export function claudeMcpBackupDir(ctx: Pick<AppContext, 'config'>): string {
+  return path.join(resolveLayout(ctx.config).secretsDir, CLAUDE_MCP_BACKUPS)
+}
+
+/** At server start and after every Claude turn in office mode (~/.claude.json and its backups); never throws. What it
+ * removes is saved to claudeMcpBackupDir first. `home`: tests (a fake home). */
 export function guardOfficeClaudeJson(ctx: Pick<AppContext, 'config' | 'db' | 'log'>, when: 'start' | 'turn', home?: string): string[] {
   if (!claudeJsonGuarded(ctx)) return []
   try {
     const privateDirs = [path.dirname(ctx.config.dataDir), ctx.config.dataDir, ctx.config.teamRoot]
-    const removed = guardClaudeJsonFamily(home ?? os.homedir(), { privateDirs })
-    if (removed.length) {
-      ctx.log.warn('removed MCP servers or a link from ~/.claude.json (office mode: an interactive claude would run them unsandboxed)', { when, keys: removed })
-      audit(ctx.db, { actor: null, action: 'engine.claude_json_mcp_removed', target: '~/.claude.json', detail: { when, keys: removed.slice(0, 20) } })
+    const r = guardClaudeJsonFamilyKeep(home ?? os.homedir(), { privateDirs, backupDir: claudeMcpBackupDir(ctx), when })
+    if (r.backupError) ctx.log.error('could not save a copy of the MCP settings before removing them from ~/.claude.json', { when, err: r.backupError })
+    if (r.removed.length) {
+      ctx.log.warn('removed MCP servers or a link from ~/.claude.json (office mode: an interactive claude would run them unsandboxed)', { when, keys: r.removed, backup: r.backup })
+      audit(ctx.db, { actor: null, action: 'engine.claude_json_mcp_removed', target: '~/.claude.json', detail: { when, keys: r.removed.slice(0, 20), ...(r.backup ? { backup: path.basename(r.backup) } : {}) } })
     }
-    return removed
+    return r.removed
   } catch (e) {
     ctx.log.warn('could not check ~/.claude.json for MCP servers', { err: e })
     return []
