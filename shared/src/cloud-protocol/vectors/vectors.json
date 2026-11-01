@@ -210,6 +210,20 @@
       "http://acme.localhost:19100"
      ]
     }
+   },
+   {
+    "command": "hosted-speech-key-set",
+    "args": {},
+    "stdin": {
+     "key": "sk-or-test-vector-not-a-key-0123456789"
+    }
+   },
+   {
+    "command": "hosted-speech-key-set",
+    "args": {},
+    "stdin": {
+     "key": null
+    }
    }
   ],
   "refused": [
@@ -302,6 +316,23 @@
      ]
     },
     "why": "http to another machine"
+   },
+   {
+    "command": "hosted-speech-key-set",
+    "args": {},
+    "stdin": {
+     "key": "sk-or-short"
+    },
+    "why": "not an OpenRouter key"
+   },
+   {
+    "command": "hosted-speech-key-set",
+    "args": {},
+    "stdin": {
+     "key": "sk-or-test-vector-not-a-key-0123456789",
+     "extra": 1
+    },
+    "why": "unknown stdin field"
    }
   ]
  },

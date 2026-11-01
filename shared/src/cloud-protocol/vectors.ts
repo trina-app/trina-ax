@@ -72,6 +72,9 @@ export function buildVectors() {
         { command: 'backup-prepare', args: { kind: 'daily' }, stdin: null },
         // https, or http to this machine (dev)
         { command: 'set-server-config', args: {}, stdin: { publicOrigins: ['https://acme.treesoop.com', 'http://acme.localhost:19100'] } },
+        // the hosting service's speech key, and taking it away
+        { command: 'hosted-speech-key-set', args: {}, stdin: { key: 'sk-or-test-vector-not-a-key-0123456789' } },
+        { command: 'hosted-speech-key-set', args: {}, stdin: { key: null } },
       ],
       refused: [
         { command: 'sh', args: {}, stdin: null, why: 'not a command' },
@@ -82,6 +85,8 @@ export function buildVectors() {
         { command: '__proto__', args: {}, stdin: null, why: 'not a command' },
         { command: 'reset-link', args: { username: '../root' }, stdin: null, why: 'username rule' },
         { command: 'set-server-config', args: {}, stdin: { publicOrigins: ['http://evil.example'] }, why: 'http to another machine' },
+        { command: 'hosted-speech-key-set', args: {}, stdin: { key: 'sk-or-short' }, why: 'not an OpenRouter key' },
+        { command: 'hosted-speech-key-set', args: {}, stdin: { key: 'sk-or-test-vector-not-a-key-0123456789', extra: 1 }, why: 'unknown stdin field' },
       ],
     },
     enroll: {

@@ -72,9 +72,9 @@ describe('cloud-protocol: tenant commands', () => {
     expect(tenantCommandProblem('idle-wait', { max: { $gt: 1 } }, null)).not.toBeNull()
     expect(tenantCommandProblem('reset-link', { owner: true, username: 'kim' }, null)).not.toBeNull()
   })
-  test('the fifteen commands of control-plane 3.5.3', () => {
+  test('the fifteen commands of control-plane 3.5.3, and the hosting service\'s speech key', () => {
     expect(Object.keys(TENANT_COMMANDS).sort()).toEqual([
-      'apply-plan', 'backup-prepare', 'backup-upload', 'credentials-escrow-out', 'export', 'idle-wait', 'notices-set',
+      'apply-plan', 'backup-prepare', 'backup-upload', 'credentials-escrow-out', 'export', 'hosted-speech-key-set', 'idle-wait', 'notices-set',
       'prepare-stop', 'relay-key-proof', 'relay-registration-set', 'reset-link', 'set-server-config', 'setup-token-rotate',
       'status', 'update',
     ])
