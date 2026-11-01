@@ -22,6 +22,7 @@
 import fs from 'node:fs'
 import path from 'node:path'
 import { PRODUCT } from '@mycel/shared'
+import type { Locale } from '@mycel/shared/api'
 import type { AppConfig } from '../app-config'
 import { DEFAULT_FEED, OFFICE_RELEASE_KEYS, ReleaseError, type Channel } from '../office/release'
 import { fetchManifest, NotPublished, offerWindows, UpdateFailure, type FetchLike, type StatfsLike } from '../office/update'
@@ -132,18 +133,26 @@ export async function refreshWindowsApp(o: WindowsAppOptions): Promise<WindowsAp
   const log = o.log ?? (() => {})
   const work = path.join(o.dataDir, 'updates')
   const lock = path.join(work, 'windows.lock')
-  // one run at a time: the server's timer and the admin command are two processes
+  // one run at a time: the server's timer and the admin command are two processes. The lock appears with its pid in
+  // it (a link to a file written first), so nobody reads it empty; a dead pid's lock, or one older than any run, is
+  // taken over by moving it aside first, so two takers cannot both remove it
   try {
     fs.mkdirSync(work, { recursive: true, mode: 0o700 })
+    const mine = `${lock}.${process.pid}-${Math.random().toString(36).slice(2, 8)}`
+    fs.writeFileSync(mine, String(process.pid), { mode: 0o600 })
     try {
-      fs.writeFileSync(lock, String(process.pid), { flag: 'wx', mode: 0o600 })
-    } catch {
-      const pid = Number((() => { try { return fs.readFileSync(lock, 'utf8') } catch { return '' } })())
-      const age = (() => { try { return now().getTime() - fs.statSync(lock).mtimeMs } catch { return Infinity } })()
-      if (pidAlive(pid) && age < WINDOWS_LOCK_STALE_MS) return { kind: 'busy', version: null, message: `another run is at it (pid ${pid})` }
-      fs.rmSync(lock, { force: true })
-      fs.writeFileSync(lock, String(process.pid), { flag: 'wx', mode: 0o600 })
-    }
+      const take = () => { fs.linkSync(mine, lock) }
+      try { take() } catch (e) {
+        if ((e as NodeJS.ErrnoException).code !== 'EEXIST') throw e
+        const pid = Number((() => { try { return fs.readFileSync(lock, 'utf8') } catch { return '' } })())
+        const age = (() => { try { return now().getTime() - fs.statSync(lock).mtimeMs } catch { return Infinity } })()
+        if (pidAlive(pid) && age < WINDOWS_LOCK_STALE_MS) return { kind: 'busy', version: null, message: `another run is at it (pid ${pid})` }
+        const aside = `${mine}.stale`
+        try { fs.renameSync(lock, aside) } catch { return { kind: 'busy', version: null, message: 'another run took the lock' } }
+        fs.rmSync(aside, { force: true })
+        try { take() } catch { return { kind: 'busy', version: null, message: 'another run took the lock' } }
+      }
+    } finally { fs.rmSync(mine, { force: true }) }
   } catch (e) {
     return { kind: 'busy', version: null, message: `cannot take ${lock}: ${(e as Error).message}` }
   }
@@ -176,8 +185,10 @@ export async function refreshWindowsApp(o: WindowsAppOptions): Promise<WindowsAp
       return done({ kind: res.kind, version: res.version, message: res.kind === 'newer' ? `newer than the release's ${w.version}` : null })
     } catch (e) {
       const msg = (e as Error).message
-      // office/update.ts download(): "download <file>: …" is the connection; anything else is what came (or the folder)
-      if (!/^download [^:\s]+: /.test(msg)) st.failed = { version: w.version, at: now().toISOString(), message: msg.slice(0, 500) }
+      // held only for what came from the feed (size, hash, latest.yml, the installer checks): office/update.ts download()
+      // says "download <file>: …" for the connection, and a file-system error (a full disk, permissions) has a code
+      const local = typeof (e as NodeJS.ErrnoException).code === 'string'
+      if (!local && !/^download [^:\s]+: /.test(msg)) st.failed = { version: w.version, at: now().toISOString(), message: msg.slice(0, 500) }
       return done({ kind: 'failed', version: w.version, message: msg })
     }
   } finally {
@@ -200,5 +211,57 @@ export function folderFetch(dir: string, feed: string = DEFAULT_FEED): FetchLike
       if (!st.isFile()) return new Response('not found', { status: 404 })
     } catch { return new Response('not found', { status: 404 }) }
     return new Response(Bun.file(file))
+  }
+}
+
+type T = Record<Locale, string>
+const cmd = '`trina_admin desktop-refresh`'
+/** Admin › System › Diagnostics, "Windows app" (ops.ts): what the last run did, so the owner sees why no installer is
+ * offered (Settings › Apps points here). */
+export const WINDOWS_TEXT = {
+  label: { ko: 'Windows 앱', en: 'Windows app', id: 'Aplikasi Windows', ja: 'Windowsアプリ', es: 'Aplicación de Windows' } as T,
+  offered: (v: string): T => ({
+    ko: `Windows 앱 ${v}을(를) 이 서버에서 받을 수 있고, 팀원의 Windows 앱은 여기서 스스로 업데이트해요.`,
+    en: `The Windows app ${v} is offered by this server; the desks' Windows apps update from it by themselves.`,
+    id: `Aplikasi Windows ${v} tersedia dari server ini; aplikasi Windows di meja tim memperbarui dirinya dari sini.`,
+    ja: `Windowsアプリ${v}をこのサーバーから配布しています。各端末のWindowsアプリはここから自動で更新されます。`,
+    es: `Este servidor ofrece la aplicación de Windows ${v}; las aplicaciones de Windows de los puestos se actualizan solas desde aquí.`,
+  }),
+  newer: (v: string): T => ({
+    ko: `손으로 올린 더 새 Windows 앱 ${v}을(를) 그대로 둬요.`,
+    en: `A newer Windows app put here by hand (${v}) stays as it is.`,
+    id: `Aplikasi Windows yang lebih baru yang ditaruh manual (${v}) dibiarkan.`,
+    ja: `手動で置いた新しいWindowsアプリ（${v}）はそのままにします。`,
+    es: `Se mantiene la aplicación de Windows más reciente puesta a mano (${v}).`,
+  }),
+  ahead: (v: string, server: string): T => ({
+    ko: `Windows 앱 ${v}은(는) 이 서버가 ${v}이(가) 되면 들어와요(지금 ${server}).`,
+    en: `The Windows app ${v} comes once this server runs ${v} (it runs ${server}).`,
+    id: `Aplikasi Windows ${v} hadir setelah server ini menjalankan ${v} (sekarang ${server}).`,
+    ja: `Windowsアプリ${v}は、このサーバーが${v}になると配布されます（現在${server}）。`,
+    es: `La aplicación de Windows ${v} llegará cuando este servidor ejecute ${v} (ahora ${server}).`,
+  }),
+  none: { ko: '릴리스 피드에 이 릴리스의 Windows 앱이 없어요.', en: 'The release feed has no Windows app for this release.', id: 'Feed rilis tidak punya aplikasi Windows untuk rilis ini.', ja: 'リリースフィードにこのリリースのWindowsアプリがありません。', es: 'El canal de versiones no tiene aplicación de Windows para esta versión.' } as T,
+  failed: (why: string): T => ({
+    ko: `Windows 앱을 올리지 못했어요: ${why}. 고친 뒤 서버에서 ${cmd}를 실행해 주세요(docs/INSTALL-LINUX.md 8a).`,
+    en: `The Windows app is not offered: ${why}. After fixing it, run ${cmd} on the server (docs/INSTALL-LINUX.en.md, "Windows app").`,
+    id: `Aplikasi Windows tidak tersedia: ${why}. Setelah diperbaiki, jalankan ${cmd} di server (docs/INSTALL-LINUX.en.md, "Windows app").`,
+    ja: `Windowsアプリを配布できませんでした：${why}。修正後、サーバーで${cmd}を実行してください（docs/INSTALL-LINUX.en.md「Windows app」）。`,
+    es: `La aplicación de Windows no se ofrece: ${why}. Después de corregirlo, ejecute ${cmd} en el servidor (docs/INSTALL-LINUX.en.md, «Windows app»).`,
+  }),
+}
+
+/** The diagnostics line for the last run: null before the first one (15 minutes after start) */
+export function windowsDiagnostic(dataDir: string, serverVersion: string): { status: 'ok' | 'warn'; text: T } | null {
+  const last = readWindowsState(dataDir).last
+  if (!last) return null
+  const v = last.version ?? ''
+  switch (last.kind) {
+    case 'offered': case 'current': return { status: 'ok', text: WINDOWS_TEXT.offered(v) }
+    case 'newer': return { status: 'ok', text: WINDOWS_TEXT.newer(v) }
+    case 'ahead': return { status: 'ok', text: WINDOWS_TEXT.ahead(v, serverVersion) }
+    case 'none': return { status: 'ok', text: WINDOWS_TEXT.none }
+    case 'busy': return null
+    default: return { status: 'warn', text: WINDOWS_TEXT.failed((last.message ?? last.kind).slice(0, 300)) }
   }
 }

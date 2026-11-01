@@ -216,6 +216,9 @@ export interface AddOptions {
    * copied when both are on one file system, so the folder never needs room for two copies (the caller compares the
    * SHA-256 the result names with what it expects; another file system falls back to the copy) */
   move?: boolean
+  /** with `move`: the SHA-256 the caller checked while downloading `src` (a rename does not change the bytes), so the
+   * moved file is not read a second time */
+  sha256?: string
 }
 /** What adding would do, decided without changing anything (dry runs and the real add use the same answer). */
 export type AddPlan =
@@ -283,7 +286,7 @@ export function addInstaller(dir: string, src: string, o: AddOptions = {}): AddR
       }
       if (!moved) fs.copyFileSync(real, tmp, fs.constants.COPYFILE_EXCL)
       fs.chmodSync(tmp, 0o600)
-      sha = sha256File(tmp)
+      sha = moved && o.sha256 && /^[0-9a-f]{64}$/.test(o.sha256) ? o.sha256 : sha256File(tmp)
       if ((!moved && sha !== sha256File(real)) || fs.statSync(tmp).size !== plan.item.size) throw new Error(`${src} changed while it was copied; try again`)
       fs.renameSync(tmp, dest)
     } finally { fs.rmSync(tmp, { force: true }) }

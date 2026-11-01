@@ -213,7 +213,8 @@ description: 허용된 회의록의 결정과 할 일을 정리합니다.
 
 Windows 데스크톱 앱은 자기 팀 서버의 `/downloads/latest.yml`만 보고 업데이트한다(4시간마다, 앱을 닫을 때 설치). 리눅스 서버는
 켜진 지 15분 뒤(업데이트 뒤에도 다시 켜짐)와 그 뒤 6시간마다 지금 돌고 있는 릴리스의 Windows 설치 파일과 `latest.yml`을
-`data/downloads`에 넣는다. 설정 › 앱에도 그 파일이 보인다.
+`data/downloads`에 넣는다. 설정 › 앱에도 그 파일이 보이고, 관리자 › 시스템 › 진단의 "Windows 앱" 줄에 마지막 결과가 보인다.
+자동 업데이트를 끈 서버(`--no-auto-update`, `update.auto: false`)는 켜질 때만(곧 직접 업데이트한 뒤에만) 피드를 본다.
 
 - 출처: 서버 피드와 같은 곳의 `office/<채널>.json`(서명됨). 서명, 두 파일의 크기·SHA-256, `latest.yml`이 그 설치 파일을 가리키는지
   확인한다. 서버보다 새 버전의 앱은 서버가 그 릴리스를 받은 뒤에 넣는다.
@@ -222,9 +223,10 @@ Windows 데스크톱 앱은 자기 팀 서버의 `/downloads/latest.yml`만 보�
 - 이미 깔린 Windows 앱은 따로 할 일이 없다. 다음 확인 때 새 버전을 받는다.
 - 지금 하기: `trina_admin desktop-refresh`(10장의 `trina_admin`, 결과는 JSON, root로는 안 됨). 받은 파일이 맞지 않던 버전은 하루
   뒤에 다시 시도하고, `--force`는 바로 다시 한다.
-- 인터넷이 없는 서버: 다른 컴퓨터에서 `https://updates.trina.app/office/stable.json`(beta 채널은 `beta.json`)과 거기 적힌 Windows
-  설치 파일, `latest.yml`(`office/<버전>/`)을 받아 서버 계정이 읽을 수 있는 한 폴더에 두고
-  `trina_admin desktop-refresh --from <폴더>`. 똑같이 확인한다.
+- 인터넷이 없는 서버: 다른 컴퓨터에서 서버 채널의 `https://updates.trina.app/office/stable.json`(beta 채널은 `beta.json`)과
+  거기 적힌 Windows 설치 파일, `latest.yml`(`office/<버전>/`)을 받아 서버 계정이 읽을 수 있는 한 폴더에 두고
+  `trina_admin desktop-refresh --from /전체/경로`(상대 경로는 안 됨: `trina_admin`은 `/`에서 돈다). 똑같이 확인한다. 그 릴리스가
+  서버보다 새로우면 넣지 않으니(`ahead`) 서버를 먼저 업데이트한다. 결과가 `offered`·`current`가 아니면 0이 아닌 값으로 끝난다.
 - 사무실 모드(맥)는 자기 업데이트 에이전트가 같은 일을 한다. 호스팅 서비스는 운영 측이 맡는다.
 
 ## 9. 요금제 파일(선택)과 자원 한도

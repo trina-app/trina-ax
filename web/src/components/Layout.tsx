@@ -128,7 +128,7 @@ export default function Layout() {
               'md:w-[46%] md:max-w-[880px] md:min-w-[360px]',
             )}
           >
-            <ChunkErrorBoundary resetKey={panel.kind}>
+            <ChunkErrorBoundary resetKey={panel.kind === 'file' ? `file:${panel.key}` : panel.kind}>
               <Suspense fallback={<Spinner className="p-6" />}>
                 {panel.kind === 'artifact' && <ArtifactPanel chatId={panel.chatId} artifactKey={panel.artifactKey} versionId={panel.versionId} onClose={closeSidePanel} />}
                 {panel.kind === 'file' && <FilePanel key={panel.key} file={panel.file} onClose={closeSidePanel} />}

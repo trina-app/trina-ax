@@ -123,7 +123,9 @@ Every update brings one version folder, `app/versions/<version>` (about 540 MB u
 The Windows desktop app updates only from its own team server's `/downloads/latest.yml` (every 4 hours; installed when
 the app quits). Fifteen minutes after the server starts (an update restarts it) and every 6 hours after that, a Linux
 server puts the Windows installer and `latest.yml` of the release it runs into `data/downloads`; Settings › Apps shows
-the installer too.
+the installer too, and the "Windows app" line of Admin › System › Diagnostics shows the last result. A server whose
+automatic updates are off (`--no-auto-update`, `update.auto: false`) asks the feed only when it starts, that is after
+you updated it.
 
 - Source: `office/<channel>.json` (signed) on the same feed as the server's. The signature, both files' size and
   SHA-256, and that `latest.yml` names exactly that installer are checked. An app newer than the server waits until
@@ -134,9 +136,12 @@ the installer too.
 - Windows apps already installed need nothing: they pick up the new version at their next check.
 - Now, by hand: `trina_admin desktop-refresh` (`trina_admin` as in [BACKUP-RESTORE.md](BACKUP-RESTORE.md); JSON; not as
   root). A version whose files did not match is tried again a day later; `--force` tries at once.
-- A server without internet: on another computer download `https://updates.trina.app/office/stable.json` (`beta.json`
-  on the beta channel) and the Windows installer and `latest.yml` it names (`office/<version>/`), put them in one folder
-  the server account can read and run `trina_admin desktop-refresh --from <folder>`. The same checks apply.
+- A server without internet: on another computer download the server's channel file
+  `https://updates.trina.app/office/stable.json` (`beta.json` on the beta channel) and the Windows installer and
+  `latest.yml` it names (`office/<version>/`), put them in one folder the server account can read and run
+  `trina_admin desktop-refresh --from /full/path` (not a relative path: `trina_admin` runs from `/`). The same checks
+  apply. A release newer than the server is not offered (`ahead`): update the server first. The command exits non-zero
+  unless the result is `offered` or `current`.
 - Office mode (Mac) does the same with its own update agent; on the hosted service the operator does.
 
 ## Safe PowerPoint (safe operations 1A, optional)

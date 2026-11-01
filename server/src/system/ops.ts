@@ -34,7 +34,7 @@ import { hostMessages, ML } from './messages-linux'
 import { audit } from '../admin/audit'
 import { autoUpdateDecision, runUpdate } from './update-job'
 import { zonedParts } from './time-zone'
-import { refreshWindowsApp, WINDOWS_EVERY_MS, WINDOWS_FIRST_MS, windowsAppFeedOf, type WindowsAppResult } from './windows-app'
+import { refreshWindowsApp, WINDOWS_EVERY_MS, WINDOWS_FIRST_MS, WINDOWS_TEXT, windowsAppFeedOf, windowsDiagnostic, type WindowsAppResult } from './windows-app'
 import { getChatRuntime } from '../chat/runtime'
 import { egressSettled, egressStatus, EXIT_ADDRESS_URL, exitAddressCheckOff } from '../tools/egress'
 
@@ -488,6 +488,9 @@ export class OpsService {
       const cur = this.updates.currentLinkTarget()
       const signed = !!cur && fs.existsSync(path.join(this.layout.appDir!, 'versions', cur, 'manifest.sig'))
       add('release_signature', 'update', t(M.releaseSig), signed ? 'ok' : 'warn', t(signed ? M.releaseSigned : M.releaseUnsigned))
+      // the Windows desktop app this server offers its desks (system/windows-app.ts): what its last run did
+      const win = this.windowsAppFeed() ? windowsDiagnostic(this.ctx.config.dataDir, this.ctx.version) : null
+      if (win) add('windows_app', 'update', t(WINDOWS_TEXT.label), win.status, t(win.text))
       // the version folders kept after the last clean-up (system/prune.ts); none recorded yet in the first minutes
       const pr = lastPrune(this.ctx.config.dataDir)
       if (pr && !pr.dryRun && pr.kept.length) {
@@ -690,11 +693,14 @@ export class OpsService {
       this.timers.push(firstPrune as unknown as ReturnType<typeof setInterval>)
     }
     // Linux self-host: the Windows desktop app of the release this server runs, for the desks' app (system/windows-app.ts):
-    // 15 minutes after start (an update restarts the server; the bootstrap has decided by then), then every 6 hours
+    // 15 minutes after start (an update restarts the server; the bootstrap has decided by then), then every 6 hours. A
+    // server whose automatic updates are off (update.auto false, --no-auto-update) asks the feed only after a start,
+    // that is after its owner updated it, and never on its own between starts.
     if (this.windowsAppFeed()) {
       const offer = () => { void this.refreshWindowsApp().catch((e) => log.warn('Windows app not offered', { err: e })) }
       const firstOffer = setTimeout(() => {
         offer()
+        if (!this.ctx.config.update.auto) return
         const every = setInterval(offer, WINDOWS_EVERY_MS)
         ;(every as unknown as { unref?: () => void }).unref?.()
         this.timers.push(every)

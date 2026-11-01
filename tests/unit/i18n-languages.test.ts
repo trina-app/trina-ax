@@ -137,6 +137,7 @@ const KOREAN_ALLOWED: Record<string, { why: string; also?: RegExp }> = {
   'server/src/routes/system.ts': { why: 'system screen texts (ko next to en/id/ja/es)' },
   'server/src/system/export.ts': { why: 'export headings (ko next to en/id/ja/es)' },
   'server/src/system/prune.ts': { why: 'the kept-versions line in diagnostics (ko next to en/id/ja/es)' },
+  'server/src/system/windows-app.ts': { why: 'the Windows app line in diagnostics (ko next to en/id/ja/es)' },
   'server/src/system/messages.ts': { why: 'diagnostics texts (ko next to en/id/ja/es)' },
   'server/src/team-files/errors.ts': { why: 'file errors (ko next to en/id/ja/es)' },
   'server/src/team-files/place.ts': { why: 'restored names (ko next to en/id/ja/es)', also: /복원됨\|/ },

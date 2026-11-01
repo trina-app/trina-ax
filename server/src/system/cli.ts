@@ -243,11 +243,20 @@ export async function main(argv: string[]): Promise<number> {
       if (process.getuid?.() === 0) throw new Error('run desktop-refresh as the server account (trina_admin in docs/BACKUP-RESTORE.md), not as root')
       const from = arg(args, '--from')
       const feed = feedRootOf(cfg.update.feedUrl) ?? (from ? DEFAULT_FEED : null)
-      if (!feed) throw new Error('this server names no release feed (server.json update.feedUrl); copy the feed files into a folder and use --from <folder> (docs/INSTALL-LINUX.md "Windows app")')
+      if (!feed) throw new Error('this server names no release feed (server.json update.feedUrl); copy the feed files into a folder and use --from <folder> (docs/INSTALL-LINUX.en.md "Windows app")')
+      if (from !== null) {
+        // trina_admin runs from / (docs/BACKUP-RESTORE.md): a relative folder would be looked for there
+        if (!path.isAbsolute(from)) throw new Error(`--from needs the folder's full path (got ${from})`)
+        const manifest = path.join(from, `${cfg.update.channel}.json`)
+        try { fs.accessSync(manifest, fs.constants.R_OK) } catch {
+          throw new Error(`${manifest} is missing or not readable by this account: copy office/${cfg.update.channel}.json of the feed (this server's channel) and the files it names into ${from}`)
+        }
+      }
       const r = await refreshWindowsApp({ dataDir: cfg.dataDir, version: SERVER_VERSION, channel: cfg.update.channel, feed, force: args.includes('--force'),
         ...(from ? { fetch: folderFetch(path.resolve(from), feed) } : {}) })
       out(r)
-      return ['failed', 'no-room', 'busy', 'held'].includes(r.kind) ? 1 : 0
+      // 0 only when the folder offers this release's app (or a newer one put there by hand); 'ahead': update the server first
+      return ['offered', 'current', 'newer'].includes(r.kind) ? 0 : 1
     }
     case 'relay-key':
       out(relayKeyCommand(cfg.dataDir, args))
@@ -338,7 +347,7 @@ export async function main(argv: string[]): Promise<number> {
       return 0
     }
     default:
-      console.error('usage: admin.js backup|list-backups|archive|restore-archive|restore-team|stage-restore|stage-update|switch|rollback|prune-versions|codex-login|codex-status|codex-logout|credentials-rekey|drive-rekey|lan-cert|install-state|compare-versions|relay-key|setup-status|setup-token-rotate|cloud-backup|restore-artifacts|restore-verify|cloud-status|reset-link|credentials-escrow-out|hosted-speech-key (see server/src/system/cli.ts)')
+      console.error('usage: admin.js backup|list-backups|archive|restore-archive|restore-team|stage-restore|stage-update|switch|rollback|prune-versions|desktop-refresh|codex-login|codex-status|codex-logout|credentials-rekey|drive-rekey|lan-cert|install-state|compare-versions|relay-key|setup-status|setup-token-rotate|cloud-backup|restore-artifacts|restore-verify|cloud-status|reset-link|credentials-escrow-out|hosted-speech-key (see server/src/system/cli.ts)')
       return 2
   }
 }

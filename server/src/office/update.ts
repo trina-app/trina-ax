@@ -27,7 +27,7 @@ import os from 'node:os'
 import path from 'node:path'
 import { compareVersions } from '../system/update'
 import { CHANNELS, decide, DEFAULT_FEED, manifestUrl, OFFICE_RELEASE_KEYS, ReleaseError, verifyRelease, VERSION_RE, type Channel, type OfficeRelease, type ReleaseFile } from './release'
-import { addInstaller, readIndex } from './desktop'
+import { addInstaller, ensureDir, planAdd, readIndex } from './desktop'
 import { reserveBytes, snapshotOf } from '../system/storage'
 import { loadSettings, officePaths, type OfficeSettings } from './settings'
 import { PRODUCT } from '@mycel/shared'
@@ -314,17 +314,22 @@ export async function fetchManifest(feed: string, channel: Channel, d: Pick<Upda
   return verifyRelease(Buffer.from(buf).toString('utf8'), { keys, channel, feed })
 }
 
-/** Download a release file into `dir`, checking size and SHA-256 on the way. Returns the file. */
-export async function download(f: ReleaseFile, dir: string, d: Pick<UpdateDeps, 'fetch'>): Promise<string> {
+/** Download a release file into `dir`, checking size and SHA-256 on the way. Returns the file. `o.sha512` gets the
+ * file's SHA-512 (base64, electron-updater's latest.yml), computed on the way too. */
+export async function download(f: ReleaseFile, dir: string, d: Pick<UpdateDeps, 'fetch'>, o: { sha512?: (b64: string) => void } = {}): Promise<string> {
   fs.mkdirSync(dir, { recursive: true, mode: 0o700 })
   const dest = path.join(dir, f.file)
-  if (fs.existsSync(dest) && fs.statSync(dest).size === f.size && sha256File(dest) === f.sha256) return dest // already here (an earlier try)
+  if (fs.existsSync(dest) && fs.statSync(dest).size === f.size && sha256File(dest) === f.sha256) { // already here (an earlier try)
+    o.sha512?.(sha256File(dest, 'sha512', 'base64'))
+    return dest
+  }
   const part = `${dest}.part`
   fs.rmSync(part, { force: true })
   let res: Response
   try { res = await d.fetch(f.url, { redirect: 'error', signal: AbortSignal.timeout(60 * 60_000) }) } catch (e) { throw new UpdateFailure(`download ${f.file}: ${(e as Error).message}`) }
   if (!res.ok || !res.body) throw new UpdateFailure(`download ${f.file}: HTTP ${res.status}`)
   const h = crypto.createHash('sha256')
+  const h512 = o.sha512 ? crypto.createHash('sha512') : null
   const fd = fs.openSync(part, 'wx', 0o600)
   let n = 0
   try {
@@ -332,6 +337,7 @@ export async function download(f: ReleaseFile, dir: string, d: Pick<UpdateDeps, 
       n += c.byteLength
       if (n > f.size) throw new UpdateFailure(`${f.file} is larger than the release says (${f.size} bytes)`)
       h.update(c)
+      h512?.update(c)
       fs.writeSync(fd, c)
     }
   } catch (e) {
@@ -342,6 +348,7 @@ export async function download(f: ReleaseFile, dir: string, d: Pick<UpdateDeps, 
   const sha = h.digest('hex')
   if (n !== f.size || sha !== f.sha256) { fs.rmSync(part, { force: true }); throw new UpdateFailure(`${f.file} does not match the signed release (size ${n}/${f.size}, SHA-256 ${sha.slice(0, 12)}… / ${f.sha256.slice(0, 12)}…)`) }
   fs.renameSync(part, dest)
+  if (h512) o.sha512!(h512.digest('base64'))
   return dest
 }
 
@@ -496,17 +503,25 @@ export async function offerWindows(dir: string, tmp: string, w: WindowsRelease, 
   if (!room.ok) return { kind: 'no-room', message: `not enough disk space for the Windows app ${w.version} (${Math.ceil(room.needBytes / 1048576)} MB needed with the reserve, ${Math.floor(room.freeBytes / 1048576)} MB free)` }
   fs.rmSync(tmp, { recursive: true, force: true })
   try {
-    const exe = await download(w.installer, tmp, d)
+    // the hashes on the way (a Linux server does this in its own process: no second pass over 110 MB there)
+    let exe512 = ''
+    const exe = await download(w.installer, tmp, d, { sha512: (b) => { exe512 = b } })
     const yml = await download(w.latestYml, tmp, d)
-    checkLatestYml(fs.readFileSync(yml, 'utf8'), w.version, w.installer.file, sha256File(exe, 'sha512', 'base64'), w.installer.size)
-    // the same checks and index.json as `teamax desktop add` (./desktop.ts): an NSIS installer, the only Windows one
-    const added = addInstaller(dir, exe, { version: w.version, move: true })
-    if (added.item.sha256 !== w.installer.sha256 || added.item.file !== w.installer.file) throw new UpdateFailure(`${w.installer.file} changed while it was offered`)
-    // latest.yml last: it never names a file that is not there yet
+    checkLatestYml(fs.readFileSync(yml, 'utf8'), w.version, w.installer.file, exe512, w.installer.size)
+    // the same checks as `teamax desktop add` (./desktop.ts: an NSIS installer, the only Windows one), decided before
+    // anything in the folder changes
+    const plan = planAdd(dir, exe, { version: w.version })
+    if (plan.action === 'refused') throw new UpdateFailure(plan.reason)
+    if (plan.item.file !== w.installer.file) throw new UpdateFailure(`${w.installer.file} would be offered as ${plan.item.file}`)
+    // latest.yml goes into the folder first under a name that is never served, so a full disk stops here, before
+    // index.json changes; it takes its own name last, so it never names a file that is not there yet
+    ensureDir(dir)
     const t = path.join(dir, `.latest.yml.tmp-${process.pid}`)
     try {
       fs.copyFileSync(yml, t)
       fs.chmodSync(t, 0o600)
+      const added = addInstaller(dir, exe, { version: w.version, move: true, sha256: w.installer.sha256 })
+      if (added.item.sha256 !== w.installer.sha256 || added.item.file !== w.installer.file) throw new UpdateFailure(`${w.installer.file} changed while it was offered`)
       fs.renameSync(t, path.join(dir, 'latest.yml'))
     } finally { fs.rmSync(t, { force: true }) }
   } finally { fs.rmSync(tmp, { recursive: true, force: true }) }

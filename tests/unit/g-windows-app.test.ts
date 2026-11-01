@@ -17,8 +17,8 @@ import { serveDownload } from '../../server/src/routes/downloads'
 import { resolveLayout } from '../../server/src/system/layout'
 import { OpsService } from '../../server/src/system/ops'
 import {
-  downloadsDirOf, feedRootOf, folderFetch, readWindowsState, refreshWindowsApp, WINDOWS_EVERY_MS, WINDOWS_FIRST_MS, windowsAppFeedOf,
-  type WindowsAppOptions,
+  downloadsDirOf, feedRootOf, folderFetch, readWindowsState, refreshWindowsApp, WINDOWS_EVERY_MS, WINDOWS_FIRST_MS, WINDOWS_TEXT, windowsAppFeedOf,
+  windowsDiagnostic, type WindowsAppOptions,
 } from '../../server/src/system/windows-app'
 import { WORK } from '../lib/env'
 
@@ -215,6 +215,33 @@ describe('the signed release\'s Windows app into data/downloads', () => {
     expect((await refreshWindowsApp(opts(s, p.files))).kind).toBe('offered')
   })
 
+  test('a file-system error here (the folder cannot be made) is not held against the release', async () => {
+    const s = server('fs-error')
+    fs.writeFileSync(s.downloads, 'a file where the folder should be')
+    const p = publish('0.3.0')
+    const r = await refreshWindowsApp(opts(s, p.files))
+    expect(r.kind).toBe('failed')
+    expect(readWindowsState(s.data).failed).toBeNull()
+    expect(fs.readdirSync(path.join(s.data, 'updates'))).toEqual([])
+    fs.rmSync(s.downloads)
+    expect((await refreshWindowsApp(opts(s, p.files))).kind).toBe('offered')
+  })
+
+  test('Diagnostics says what the last run did (nothing before the first run)', async () => {
+    const s = server('diag')
+    expect(windowsDiagnostic(s.data, '0.3.0')).toBeNull()
+    await refreshWindowsApp(opts(s, publish('0.4.0').files))
+    expect(windowsDiagnostic(s.data, '0.3.0')).toEqual({ status: 'ok', text: WINDOWS_TEXT.ahead('0.4.0', '0.3.0') })
+    await refreshWindowsApp(opts(s, publish('0.3.0').files, { statfs: disk(0.5) }))
+    const d = windowsDiagnostic(s.data, '0.3.0')!
+    expect(d.status).toBe('warn')
+    expect(d.text.en).toContain('not enough disk space')
+    expect(d.text.en).toContain('trina_admin desktop-refresh')
+    await refreshWindowsApp(opts(s, publish('0.3.0').files))
+    expect(windowsDiagnostic(s.data, '0.3.0')).toEqual({ status: 'ok', text: WINDOWS_TEXT.offered('0.3.0') })
+    for (const l of ['ko', 'en', 'id', 'ja', 'es'] as const) expect(WINDOWS_TEXT.offered('0.3.0')[l]).toContain('0.3.0')
+  })
+
   test('a manifest with another key, a missing release, a release without a Windows app: nothing downloaded', async () => {
     const s = server('refused')
     const other = crypto.generateKeyPairSync('ed25519').privateKey.export({ format: 'pem', type: 'pkcs8' }) as string
@@ -303,31 +330,42 @@ describe('the ops service of an installed Linux server', () => {
     const made: { kind: 'timeout' | 'interval'; ms: number; fn: () => void }[] = []
     const real = { setTimeout: globalThis.setTimeout, setInterval: globalThis.setInterval }
     const fake = (kind: 'timeout' | 'interval') => ((fn: () => void, ms: number) => { made.push({ kind, ms, fn }); return { unref() {} } }) as unknown as typeof setTimeout
-    const o = ops()
-    expect(o.windowsAppFeed()).toBe(`http://127.0.0.1:${feed.port}`)
-    let runs = 0
-    o.refreshWindowsApp = async () => { runs++; return null }
-    globalThis.setTimeout = fake('timeout'); globalThis.setInterval = fake('interval') as unknown as typeof setInterval
-    try {
-      o.start()
-      const first = made.find((t) => t.kind === 'timeout' && t.ms === WINDOWS_FIRST_MS)!
-      expect(first).toBeDefined()
-      first.fn()
-      expect(runs).toBe(1)
-      const every = made.find((t) => t.kind === 'interval' && t.ms === WINDOWS_EVERY_MS)!
-      expect(every).toBeDefined()
-      every.fn()
-      expect(runs).toBe(2)
-    } finally {
-      globalThis.setTimeout = real.setTimeout; globalThis.setInterval = real.setInterval
-      ;(o as unknown as { timers: unknown[] }).timers.splice(0)
+    const started = (auto: boolean) => {
+      made.length = 0
+      ctx.config.update.auto = auto
+      const o = ops()
+      expect(o.windowsAppFeed()).toBe(`http://127.0.0.1:${feed.port}`)
+      let runs = 0
+      o.refreshWindowsApp = async () => { runs++; return null }
+      globalThis.setTimeout = fake('timeout'); globalThis.setInterval = fake('interval') as unknown as typeof setInterval
+      try {
+        o.start()
+        const first = made.find((t) => t.kind === 'timeout' && t.ms === WINDOWS_FIRST_MS)!
+        expect(first).toBeDefined()
+        first.fn()
+        expect(runs).toBe(1)
+        const every = made.find((t) => t.kind === 'interval' && t.ms === WINDOWS_EVERY_MS)
+        every?.fn()
+        return { every: !!every, runs }
+      } finally {
+        globalThis.setTimeout = real.setTimeout; globalThis.setInterval = real.setInterval
+        ;(o as unknown as { timers: unknown[] }).timers.splice(0)
+        ctx.config.update.auto = undefined
+      }
     }
+    expect(started(true)).toEqual({ every: true, runs: 2 })
+    // automatic updates off: only after a start (that is, after its owner updated it), never on its own in between
+    expect(started(false)).toEqual({ every: false, runs: 1 })
     // the real run: it reads <feed>/office/stable.json and refuses a manifest this build cannot verify
     const r = await ops().refreshWindowsApp()
     expect(r?.kind).toBe('failed')
     expect(r?.message).toContain('unknown key')
     expect(asked).toEqual(['/office/stable.json'])
     expect(fs.existsSync(path.join(base, 'data', 'downloads'))).toBe(false)
+    // and Admin › System › Diagnostics says so
+    const line = (await ops().diagnostics('en')).checks.find((c) => c.id === 'windows_app')
+    expect(line).toMatchObject({ status: 'warn', group: 'update' })
+    expect(line?.detail).toContain('unknown key')
   })
 
   test('not on a Mac, not in office mode, not on the hosted service', () => {
@@ -336,5 +374,30 @@ describe('the ops service of an installed Linux server', () => {
     try { expect(ops().windowsAppFeed()).toBeNull() } finally { ctx.config.office = false }
     ctx.config.deployment = 'hosted'
     try { expect(ops().windowsAppFeed()).toBeNull() } finally { ctx.config.deployment = undefined }
+  })
+})
+
+describe('admin.js desktop-refresh', () => {
+  const base = path.join(BASE, 'cli')
+  const run = (feedUrl: string | null, ...args: string[]) => {
+    for (const d of ['team', 'data']) fs.mkdirSync(path.join(base, d), { recursive: true })
+    const cfgFile = path.join(base, 'server.json')
+    fs.writeFileSync(cfgFile, JSON.stringify({ mode: 'dev', dataDir: path.join(base, 'data'), teamRoot: path.join(base, 'team'), update: { channel: 'stable', feedUrl } }))
+    const p = Bun.spawnSync([process.execPath, path.resolve(import.meta.dir, '../../server/src/system/cli.ts'), 'desktop-refresh', ...args], { env: { ...process.env, MYCEL_CONFIG: cfgFile, MYCEL_MODE: 'dev' } })
+    return { code: p.exitCode, out: p.stdout.toString(), err: p.stderr.toString() }
+  }
+  test('--from: a full path, the server channel\'s manifest in it; a release this build cannot verify exits non-zero; nothing on the network', () => {
+    const dir = path.join(BASE, 'cli-copied')
+    fs.mkdirSync(dir, { recursive: true })
+    expect(run('https://updates.example.test/server/stable.json', '--from', 'relative/folder')).toMatchObject({ code: 1, err: expect.stringContaining('full path') })
+    expect(run('https://updates.example.test/server/stable.json', '--from', dir)).toMatchObject({ code: 1, err: expect.stringContaining('stable.json is missing') })
+    // signed with a test key: this build refuses it, and says so with exit 1
+    const p = publish('0.3.0', { feed: 'https://updates.example.test' })
+    for (const [url, body] of p.files) fs.writeFileSync(path.join(dir, url.split('/').pop()!), body)
+    const r = run('https://updates.example.test/server/stable.json', '--from', dir)
+    expect(r.code).toBe(1)
+    expect(JSON.parse(r.out)).toMatchObject({ kind: 'failed', message: expect.stringContaining('unknown key') })
+    // no feed and no folder: what to do instead
+    expect(run(null)).toMatchObject({ code: 1, err: expect.stringContaining('--from <folder>') })
   })
 })
