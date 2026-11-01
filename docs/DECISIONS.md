@@ -5342,12 +5342,19 @@ full definitions, after which the tool is called by its own name.
    with "select:" for its schema). Every call reads the connection again: one taken away, needing a sign-in, or a tool
    turned off or gone since the turn began is not found. It calls no service and adds nothing to the read scope; the
    descriptions and schemas are the services' own words, as in the tool definitions they replace (the same trust as
-   connecting the server), with `<external_data` tags neutralised.
+   connecting the server), with `<external_data` tags neutralised, and said to be (here and in the list in the
+   instructions) what a tool does, never instructions.
 6. **call_tool** takes the full name (the listed name or the service's name when only one tool has it), checks
    `arguments` against the stored input schema first (`deferred.ts checkArgs`: type, enum, const, required,
-   properties, additionalProperties, items, allOf / anyOf / oneOf, local `$ref`, lengths, pattern, bounds; words it does
-   not know pass, so a valid call is never refused for one, and the service checks again) and answers a mismatch with
-   the problems and the schema, sending nothing. Arguments sent as JSON text are taken when they are an object. Then
+   properties, additionalProperties, items, allOf / anyOf / oneOf, local `$ref`, lengths, bounds; words it does not
+   know pass, so a valid call is never refused for one, and the service checks again) and answers a mismatch with the
+   problems and the schema, sending nothing. The schema is the service's, so the check is bounded (`CHECK_STEPS`
+   20,000: schema nodes, enum entries, names, long strings; past it the rest passes): branches that refer back to the
+   schema three times per level took minutes on the server's one thread. `pattern` and `patternProperties` are not run
+   (a regular expression that backtracks takes about a second per string in JavaScriptCore; with patternProperties any
+   other name passes). Arguments sent as JSON text are taken when they are an object, and their strings leave the
+   echo marks as the service gets them (`tools/connection-urls.ts`): the marks of the text itself miss an address
+   written with `\u` or `\/` escapes, which the service gets and may repeat unescaped. Then
    it runs exactly what the tool itself runs (`mcpTool`): who may use the connection now, a tool turned off since
    refused, the write card / allow / deny and the scheduled-run rule, the answer as external data, the read scope,
    kept media and images, secrets hidden. The audit row is `call_tool` with the real tool in its summary
@@ -5368,9 +5375,10 @@ full definitions, after which the tool is called by its own name.
     and its budget, the same instructions each turn, #150 found by words and by name with its schema, call_tool's
     argument check sending nothing, a run that is external data, the short name and JSON-text arguments, a write
     asking on the card and refused in a scheduled run, a tool turned off before or during the turn neither found nor
-    run, a taken-away team connection, three connections over 200 tools with none left out, the matcher, the list and
-    the schema check); `c-integration-deferred-turns.test.ts` (whole turns: Claude Code, Codex, the API engine and a
-    general-purpose sub-agent each find and run #150; the allowed tools, Codex's enabled tools, the API request and the
-    proxy's names hold the two and none of the 186, and a request naming one directly is refused; a tool turned off;
-    a resumed session's short form); `c-integration-tool-caps.test.ts` (150 kept, three connections over 200, an old
+    run, a taken-away team connection, three connections over 200 tools with none left out, the matcher, the list, the
+    schema check and hostile schemas (branching self-references, backtracking patterns, big values), JSON-text
+    arguments leaving echo marks); `c-integration-deferred-turns.test.ts` (whole turns: Claude Code, Codex, the API
+    engine and a general-purpose sub-agent each find and run #150; the allowed tools, Codex's enabled tools, the API
+    request and the proxy's names hold the two and none of the 186, and a request naming one directly is refused; a
+    tool turned off; a resumed session's short form); `c-integration-tool-caps.test.ts` (150 kept, three connections over 200, an old
     list cut at 100, the 1 MB page); `step-labels-tools.test.ts`; `web/test/unit/integrations.test.ts`.

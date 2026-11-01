@@ -122,8 +122,8 @@ idle minutes; a 404 for it starts a new one.
   200 connection tools with 256,000 characters of definitions as tools of their own. A connection that does not fit
   (Higgsfield: 186 tools, about 1 MB) is deferred, like Claude Code's MCP tools: the instructions list its tool names
   (8,000 characters at most), `find_tools(query)` returns matching tools with their input schemas and
-  `call_tool(name, arguments)` runs one after checking the arguments against the stored schema, with every check of
-  the tool itself. The two names are the same for Claude Code, Codex, the API engine and sub-agents, so the engines'
+  `call_tool(name, arguments)` runs one after checking the arguments against the stored schema (a bounded check that
+  runs none of the service's regular expressions), with every check of the tool itself. The two names are the same for Claude Code, Codex, the API engine and sub-agents, so the engines'
   tool lists and the model proxy's names stay fixed for the turn.
 - **Single tools on and off**, like the tool switches of Claude's connectors: whoever manages the connection (the
   owner of a personal one, an admin for a team one) turns a tool off with its switch (`POST

@@ -56,6 +56,15 @@ const tokenMatch = (a: string, b: string) => a === b || (a.length >= 4 && b.leng
 /** What find_tools searches: a tool of this turn with its full name and where it comes from. */
 export interface FindEntry { name: string; short: string; connection: string; tool: RemoteTool }
 
+const MAX_QUERY_WORDS = 32
+/** the words of an entry, made once (find_tools may be called many times in one turn over thousands of tools) */
+const entryWords = new WeakMap<FindEntry, { name: string[]; title: string[]; description: string[]; connection: string[] }>()
+function wordsOf(e: FindEntry) {
+  let w = entryWords.get(e)
+  if (!w) entryWords.set(e, (w = { name: toolTokens(e.tool.name), title: toolTokens(e.tool.title ?? ''), description: toolTokens(e.tool.description), connection: toolTokens(e.connection) }))
+  return w
+}
+
 /**
  * Tools that match `query`, best first. "select:<name>,<name>" picks tools by name (the full name, the name the list
  * shows, or the service's own name), in that order. Otherwise each word of the query found in the tool's name counts 3,
@@ -71,12 +80,13 @@ export function matchTools(entries: readonly FindEntry[], query: string, limit =
     }
     return out.slice(0, limit)
   }
-  const words = [...new Set(toolTokens(q))].slice(0, 100)
+  // a query is a few words; more only add work (every word is compared with every word of every tool)
+  const words = [...new Set(toolTokens(q))].slice(0, MAX_QUERY_WORDS)
   if (!words.length) return []
   const whole = fold(oneLine(q)).replace(/[\s-]+/g, '_')
   const scored: { e: FindEntry; score: number; i: number }[] = []
   for (const [i, e] of entries.entries()) {
-    const name = toolTokens(e.tool.name), title = toolTokens(e.tool.title ?? ''), description = toolTokens(e.tool.description), connection = toolTokens(e.connection)
+    const { name, title, description, connection } = wordsOf(e)
     let score = 0, hits = 0
     for (const w of words) {
       const n = name.some((x) => tokenMatch(x, w)), t = title.some((x) => tokenMatch(x, w)), d = description.some((x) => tokenMatch(x, w)), c = connection.some((x) => tokenMatch(x, w))
@@ -184,49 +194,59 @@ function resolveRef(root: Json, ref: string): unknown {
 }
 const show = (v: unknown) => { const s = JSON.stringify(v) ?? String(v); return s.length > 60 ? s.slice(0, 59) + '…' : s }
 const MAX_DEPTH = 40
+/** schema nodes one check visits at most: the schema is the service's, and allOf / anyOf branches that refer back to
+ * themselves would otherwise grow the work with every level (three self-references per level: hours on the server's
+ * one thread). Past this the check stops and what was not looked at passes (the service checks again). */
+export const CHECK_STEPS = 20_000
+/** characters of a string counted as one step when its length is measured */
+const STEP_CHARS = 256
 
 /**
  * What is wrong with `value` as input for a tool with this input schema (empty: nothing found), at most `max` problems.
  * A subset of JSON Schema that MCP servers use: type (also lists, and OpenAPI's nullable), enum, const, required,
  * properties, additionalProperties, items / prefixItems, allOf, anyOf / oneOf (one branch must fit), local $ref,
- * string lengths and pattern, number bounds, array lengths. Everything else (formats, if/then, not, unknown words)
- * passes, so a valid call is never refused for a keyword this check does not know; the service checks again.
+ * string lengths, number bounds, array lengths. Everything else (formats, if/then, not, unknown words) passes, so a
+ * valid call is never refused for a keyword this check does not know; the service checks again. `pattern` and
+ * `patternProperties` are not run: they are the service's regular expressions, and one that backtracks can hold the
+ * server for a second or more per string (an object with patternProperties takes any other argument name). The work is
+ * bounded (CHECK_STEPS: schema nodes, enum entries, required names, argument names, long strings), and a schema or
+ * value the check cannot follow (nested too deep to compare) passes.
  */
 export function checkArgs(schema: Json, value: unknown, max = 10): string[] {
   const out: string[] = []
-  walk(schema, schema, value, '', 0, out, max)
-  return out
+  try { walk({ root: schema, steps: CHECK_STEPS }, schema, value, '', 0, out, max) } catch { return out.slice(0, max) }
+  return out.slice(0, max)
 }
 
-function walk(root: Json, s: unknown, v: unknown, at: string, depth: number, out: string[], max: number): void {
-  if (out.length >= max || depth > MAX_DEPTH) return
+interface Walk { root: Json; steps: number }
+
+function walk(w: Walk, s: unknown, v: unknown, at: string, depth: number, out: string[], max: number): void {
+  if (out.length >= max || depth > MAX_DEPTH || --w.steps < 0) return
+  const root = w.root
   const where = at || '(arguments)'
   if (s === false) { out.push(`${where}: not allowed`); return }
   if (!isObj(s)) return
-  if (typeof s.$ref === 'string') { const r = resolveRef(root, s.$ref); if (r !== undefined) walk(root, r, v, at, depth + 1, out, max) }
+  if (typeof s.$ref === 'string') { const r = resolveRef(root, s.$ref); if (r !== undefined) walk(w, r, v, at, depth + 1, out, max) }
   const types = (Array.isArray(s.type) ? s.type : typeof s.type === 'string' ? [s.type] : null) as unknown[] | null
   if (types && types.every((t) => typeof t === 'string' && KNOWN_TYPES.has(t))) {
     const allowed = s.nullable === true ? [...types, 'null'] : types
     if (!allowed.some((t) => isType(v, t as string))) { out.push(`${where}: should be ${allowed.join(' or ')}, not ${v === null ? 'null' : Array.isArray(v) ? 'an array' : typeof v}`); return }
   }
-  if (Array.isArray(s.enum) && !s.enum.some((e) => same(e, v))) { out.push(`${where}: should be one of ${s.enum.slice(0, 12).map(show).join(', ')}${s.enum.length > 12 ? ', …' : ''}`); return }
+  if (Array.isArray(s.enum) && (w.steps -= s.enum.length) >= 0 && !s.enum.some((e) => same(e, v))) { out.push(`${where}: should be one of ${s.enum.slice(0, 12).map(show).join(', ')}${s.enum.length > 12 ? ', …' : ''}`); return }
   if ('const' in s && !same(s.const, v)) { out.push(`${where}: should be ${show(s.const)}`); return }
-  for (const sub of Array.isArray(s.allOf) ? s.allOf : []) walk(root, sub, v, at, depth + 1, out, max)
+  for (const sub of Array.isArray(s.allOf) ? s.allOf : []) walk(w, sub, v, at, depth + 1, out, max)
   for (const key of ['anyOf', 'oneOf'] as const) {
     const branches = s[key]
     if (!Array.isArray(branches) || !branches.length) continue
-    const tries = branches.map((b) => { const o: string[] = []; walk(root, b, v, at, depth + 1, o, 3); return o })
+    const tries = branches.map((b) => { const o: string[] = []; walk(w, b, v, at, depth + 1, o, 3); return o })
     if (!tries.some((t) => !t.length)) out.push(`${where}: does not fit any of the allowed forms (${tries[0]![0] ?? 'first form'})`)
   }
-  if (typeof v === 'string') {
-    const n = [...v].length
+  if (typeof v === 'string' && (typeof s.minLength === 'number' || typeof s.maxLength === 'number')) {
+    if ((w.steps -= Math.floor(v.length / STEP_CHARS)) < 0) return
+    let n = 0
+    for (const _ of v) n++
     if (typeof s.minLength === 'number' && n < s.minLength) out.push(`${where}: at least ${s.minLength} characters`)
     if (typeof s.maxLength === 'number' && n > s.maxLength) out.push(`${where}: at most ${s.maxLength} characters`)
-    if (typeof s.pattern === 'string' && s.pattern.length <= 1000) {
-      let re: RegExp | null = null
-      try { re = new RegExp(s.pattern, 'u') } catch { try { re = new RegExp(s.pattern) } catch { re = null } }
-      if (re && !re.test(v)) out.push(`${where}: should match ${show(s.pattern)}`)
-    }
   }
   if (typeof v === 'number') {
     if (typeof s.minimum === 'number' && (s.exclusiveMinimum === true ? v <= s.minimum : v < s.minimum)) out.push(`${where}: at least ${s.minimum}${s.exclusiveMinimum === true ? ' (exclusive)' : ''}`)
@@ -238,24 +258,25 @@ function walk(root: Json, s: unknown, v: unknown, at: string, depth: number, out
     if (typeof s.minItems === 'number' && v.length < s.minItems) out.push(`${where}: at least ${s.minItems} items`)
     if (typeof s.maxItems === 'number' && v.length > s.maxItems) out.push(`${where}: at most ${s.maxItems} items`)
     const tuple = Array.isArray(s.prefixItems) ? s.prefixItems : Array.isArray(s.items) ? s.items : null
-    if (tuple) tuple.forEach((sub, i) => { if (i < v.length) walk(root, sub, v[i], `${at}[${i}]`, depth + 1, out, max) })
+    if (tuple) tuple.forEach((sub, i) => { if (i < v.length) walk(w, sub, v[i], `${at}[${i}]`, depth + 1, out, max) })
     const rest = tuple ? (Array.isArray(s.prefixItems) ? s.items : s.additionalItems) : s.items
-    if (rest !== undefined && !Array.isArray(rest)) for (let i = tuple?.length ?? 0; i < v.length && out.length < max; i++) walk(root, rest, v[i], `${at}[${i}]`, depth + 1, out, max)
+    if (rest !== undefined && !Array.isArray(rest)) for (let i = tuple?.length ?? 0; i < v.length && out.length < max && w.steps >= 0; i++) walk(w, rest, v[i], `${at}[${i}]`, depth + 1, out, max)
   }
   if (isObj(v)) {
     const props = isObj(s.properties) ? s.properties : {}
     for (const r of Array.isArray(s.required) ? s.required : []) {
+      if (out.length >= max || --w.steps < 0) return
       if (typeof r === 'string' && !Object.hasOwn(v, r)) out.push(`${at ? at + '.' : ''}${r}: required`)
     }
-    const patterns: RegExp[] = []
-    if (isObj(s.patternProperties)) for (const p of Object.keys(s.patternProperties)) { try { patterns.push(new RegExp(p, 'u')) } catch { patterns.push(/(?:)/) } }
+    // names the service's patternProperties may allow are not tested against them (see checkArgs): any name passes
+    const patterned = isObj(s.patternProperties) && Object.keys(s.patternProperties).length > 0
     for (const [k, x] of Object.entries(v)) {
-      if (out.length >= max) return
+      if (out.length >= max || --w.steps < 0) return
       const path = at ? `${at}.${k}` : k
-      if (Object.hasOwn(props, k)) { walk(root, props[k], x, path, depth + 1, out, max); continue }
-      if (patterns.some((p) => p.test(k))) continue
+      if (Object.hasOwn(props, k)) { walk(w, props[k], x, path, depth + 1, out, max); continue }
+      if (patterned) continue
       if (s.additionalProperties === false) out.push(`${path}: not an argument of this tool${Object.keys(props).length ? ` (it takes ${Object.keys(props).slice(0, 20).join(', ')})` : ''}`)
-      else if (isObj(s.additionalProperties)) walk(root, s.additionalProperties, x, path, depth + 1, out, max)
+      else if (isObj(s.additionalProperties)) walk(w, s.additionalProperties, x, path, depth + 1, out, max)
     }
   }
 }
