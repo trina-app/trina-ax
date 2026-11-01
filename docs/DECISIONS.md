@@ -5580,6 +5580,21 @@ did not say so.
   no LaunchAgent, or both office.env and the running server's server.json in the setup-token mode (configure without
   restart is refused). Every copy may hold a server a turn planted (after a turn, or at a start after a turn the server
   could not clean up after), so restore always lists each server's command or address and writes only with `--yes`.
+- **Fail closed (0.2.19 release review, S2).** Two bypasses older than 0.2.19: a leading UTF-8 BOM made `JSON.parse`
+  throw, so the guard (and the installer's scan) skipped a file Claude Code loads (2.1.312 drops one BOM, then
+  `JSON.parse`, read from its code), and very deep nesting parsed but made `JSON.stringify` overflow, which was
+  swallowed, so the planted server stayed without a log line. Now `parseClaudeJson` reads every file as the CLI does, and
+  a file the guard cannot read (except a momentary EMFILE/ENFILE/EAGAIN/EINTR/ENOMEM), parse or write back (nesting
+  beyond 1000 levels is not even tried: the overflow takes 1-2 s per file) is renamed whole into the copies folder as
+  `moved-<time>-<start|turn>-<n><its name>` (600; after a turn the newest 20 are kept; next to itself as
+  `.teamax-moved-…` when that fails, a name neither the CLI, the guard nor engine.sb opens) and replaced by `{}`. What
+  could be taken out of it still goes to the usual copy, so `restore` can list it; the moved file itself is only listed
+  by `backups`. Not chosen: writing the parts that can be written (more code for a case only a turn creates) or
+  leaving an unparseable file in place because the CLI cannot read it either (a later, more lenient CLI or an owner who
+  "fixes" it would load it). Anything that still cannot be cleaned or moved is logged as an error and audited
+  (`failed`), never dropped silently. Same class: the `.mcp.json` switch `enableAllProjectMcpServers` is tested by
+  truthiness in the CLI (`projectConfig.enableAllProjectMcpServers`), so the guard now removes any truthy value, not
+  only `true`. Tests: `tests/unit/office-claude-json-failclosed.test.ts`.
 - Review round 1 (independent reviewer): prototype pollution through a planted `__proto__` project in restore,
   restore while the running server was still on the Mac's login, trusting start copies without `--yes`, a reinstall
   after uninstall counted as existing, a fail-open first copy, link wording, pruning order in one millisecond: all

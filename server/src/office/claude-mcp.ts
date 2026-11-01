@@ -10,7 +10,8 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import {
-  CLAUDE_MCP_BACKUPS, findClaudeJsonMcp, listMcpBackups, mcpKeyPath, mcpNames, saveMcpBackup, type McpBackup, type McpEntry, type McpFinding,
+  CLAUDE_MCP_BACKUPS, findClaudeJsonMcp, listMcpBackups, listMovedConfigs, mcpKeyPath, mcpNames, parseClaudeJson, saveMcpBackup, type McpBackup,
+  type McpEntry, type McpFinding,
 } from '../engine/claude-json-guard'
 import { loadSettings, officePaths } from './settings'
 
@@ -57,6 +58,7 @@ export function findingLines(r: ReturnType<typeof findClaudeJsonMcp>): string[] 
     const name = shown(f.file)
     if (f.note === '(link replaced)') out.push(`${name} is a link${f.target ? ` to ${safe(f.target)}` : ''}: it becomes ${f.emptied ? 'an empty Claude config {} (what it points to is outside your home or in the server\'s folders, or not a JSON file, and is not copied)' : 'a regular file with that content'}; the file it points to is not changed`)
     if (f.note === '(hard link replaced)') out.push(`${name} has other hard links: it is written as a new file`)
+    if (f.note === '(moved aside)') out.push(`${name} ${f.why ?? 'cannot be read as JSON'}: it is moved whole to config/${CLAUDE_MCP_BACKUPS} (only you can read it there) and an empty Claude config {} takes its place`)
     if (f.file === '.claude.json') for (const e of f.entries) out.push(`${name}: ${entryLine(e)}`)
     else if (f.entries.length) out.push(`${name} (an older copy the Claude CLI keeps): ${f.entries.length} MCP setting${f.entries.length === 1 ? '' : 's'} (${list(f.entries.map(mcpKeyPath))})`)
   }
@@ -68,8 +70,11 @@ export function headline(r: ReturnType<typeof findClaudeJsonMcp>): string {
   const main = countText(r.findings.find((f) => f.file === '.claude.json'))
   const copies = r.findings.filter((f) => f.file !== '.claude.json' && f.entries.length).length
   const what = [main, ...(copies ? [`the same kind of settings in ${copies} older cop${copies === 1 ? 'y' : 'ies'} the Claude CLI keeps`] : [])].filter(Boolean).join('; ')
-  return what ? `this Mac account's Claude config (~/.claude.json) has MCP settings this server removes: ${what}`
-    : 'this server would change this Mac account\'s Claude config files (~/.claude.json): a link or hard link it replaces'
+  if (what) return `this Mac account's Claude config (~/.claude.json) has MCP settings this server removes: ${what}`
+  const moved = r.findings.some((f) => f.note === '(moved aside)')
+  const links = r.backupsLink || r.findings.some((f) => f.note === '(link replaced)' || f.note === '(hard link replaced)')
+  const parts = [...(links || !moved ? ['a link or hard link it replaces'] : []), ...(moved ? ['a file it cannot read or write back as JSON, which it moves aside'] : [])]
+  return `this server would change this Mac account's Claude config files (~/.claude.json): ${parts.join('; ')}`
 }
 
 /** the folders whose files are never copied into the config through a link (as the server's guard) */
@@ -201,13 +206,15 @@ export function claudeMcpCommand(home: string, args: string[], env: Record<strin
     return 0
   }
   if (sub === 'backups') {
-    const files = listMcpBackups(dir)
-    if (!files.length) { out(`no copies of removed MCP settings (${dir})`); return 0 }
+    const files = listMcpBackups(dir), moved = listMovedConfigs(dir)
+    if (!files.length && !moved.length) { out(`no copies of removed MCP settings (${dir})`); return 0 }
     for (const f of files) {
       let what = ''
       try { const b = readBackup(f); what = `${b.when}, ${Object.values(b.files).reduce((n, e) => n + e.length, 0)} setting(s) from ${Object.keys(b.files).map(shown).join(', ')}` } catch (e) { what = (e as Error).message }
       out(`${f}  (${safe(what)})`)
     }
+    // whole files the server could not read or write back (S2): not something restore reads; an AI turn may have made it
+    for (const f of moved) out(`${f}  (a whole Claude config file moved aside: it could not be read or written back as JSON; it may hold what an AI turn put there, so check it before you copy anything from it)`)
     return 0
   }
   if (sub === 'restore') {
@@ -225,7 +232,7 @@ export function claudeMcpCommand(home: string, args: string[], env: Record<strin
     let cfg: Record<string, unknown> = {}
     try {
       const text = fs.readFileSync(target, 'utf8')
-      const j = JSON.parse(text)
+      const j = parseClaudeJson(text) // as Claude Code reads it (a leading BOM is dropped)
       if (!isObj(j)) throw new Error('not a JSON object')
       cfg = j
     } catch (e) {

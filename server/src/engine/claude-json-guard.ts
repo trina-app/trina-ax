@@ -12,6 +12,10 @@
 // where no engine turn can read or write), and office-install.sh lists what would go (findClaudeJsonMcp), stops a new
 // install until the owner agrees (--remove-claude-mcp) or picks the setup-token mode, which never touches the file,
 // and then saves the copy itself before the server first starts (office/claude-mcp.ts).
+// It fails closed (0.2.19 review, S2): it reads the files as Claude Code does (a leading BOM is dropped: the guard used
+// to skip such a file, which the CLI loads), and a file it cannot read, parse or write back (very deep nesting made the
+// write throw, and the planted server stayed without a word) is moved whole into that copies folder and replaced by an
+// empty config {}; that is logged and audited too. Nothing that may hold MCP settings stays at a name the CLI reads.
 import crypto from 'node:crypto'
 import fs from 'node:fs'
 import os from 'node:os'
@@ -27,8 +31,10 @@ export type McpKey = typeof PROJECT_KEYS[number]
 /** one MCP setting taken out of a Claude config: its project (null: user scope), its key and what it held */
 export interface McpEntry { project: string | null; key: McpKey; value: unknown }
 
+/** the approval switch counts when it is merely truthy: Claude Code tests `projectConfig.enableAllProjectMcpServers` so
+ * (2.1.312), and a 1 or "yes" there approved every .mcp.json server past the guard (S2) */
 const nonEmpty = (k: string, v: unknown): boolean =>
-  k === 'enableAllProjectMcpServers' ? v === true
+  k === 'enableAllProjectMcpServers' ? !!v
     : Array.isArray(v) ? v.length > 0
       : !!v && typeof v === 'object' && Object.keys(v).length > 0
 
@@ -76,16 +82,53 @@ export interface GuardOptions {
 
 const inside = (dir: string, p: string) => { const r = path.relative(dir, p); return r === '' || (!!r && !r.startsWith('..') && !path.isAbsolute(r)) }
 
-/** a JSON object, or null */
-function parseObject(text: string): Record<string, unknown> | null {
-  try { const j = JSON.parse(text); return j && typeof j === 'object' && !Array.isArray(j) ? j as Record<string, unknown> : null } catch { return null }
+const isObj = (v: unknown): v is Record<string, unknown> => !!v && typeof v === 'object' && !Array.isArray(v)
+
+/** A Claude config file's text read as Claude Code reads its global config (2.1.312: one leading BOM dropped, then
+ * JSON.parse); throws when it cannot. JSON.parse alone threw on the BOM, so the guard skipped a file the CLI loads (S2). */
+export function parseClaudeJson(text: string): unknown {
+  return JSON.parse(text.charCodeAt(0) === 0xfeff ? text.slice(1) : text)
 }
 
+/** a JSON object, or null */
+function parseObject(text: string): Record<string, unknown> | null {
+  try { const j = parseClaudeJson(text); return isObj(j) ? j : null } catch { return null }
+}
+
+/** Deeper than any Claude config. JSON.parse takes far deeper nesting, but JSON.stringify overflows the stack at some
+ * ten thousand levels (S2: the write threw and the planted server stayed), and only after 1-2 s per file: a turn may
+ * leave many backup files. */
+const MAX_DEPTH = 1000
+/** nested more than `limit` levels (no recursion; stops at the first such level) */
+function tooDeep(v: unknown, limit = MAX_DEPTH): boolean {
+  const stack: [unknown, number][] = [[v, 0]]
+  while (stack.length) {
+    const [x, d] = stack.pop()!
+    if (!x || typeof x !== 'object') continue
+    if (d >= limit) return true
+    for (const y of Array.isArray(x) ? x : Object.values(x)) if (y && typeof y === 'object') stack.push([y, d + 1])
+  }
+  return false
+}
+
+/** the file's new text, or null when it cannot be made (nested too deeply, or too large for one string) */
+function textOf(j: Record<string, unknown>): string | null {
+  if (tooDeep(j)) return null
+  try { return JSON.stringify(j, null, 2) } catch { return null }
+}
+
+const errText = (e: unknown) => (e as NodeJS.ErrnoException)?.code ?? (e as Error)?.message ?? String(e)
+
 /** same folder, then rename: the CLI never sees a half-written file, and a link at `file` is replaced, not followed */
-function replaceWith(file: string, j: Record<string, unknown>, mode: number) {
-  const tmp = `${file}.tmp.teamax-${process.pid}-${Date.now()}`
-  fs.writeFileSync(tmp, JSON.stringify(j, null, 2), { mode, flag: 'wx' })
-  fs.renameSync(tmp, file)
+function replaceWith(file: string, text: string, mode: number) {
+  const tmp = `${file}.tmp.teamax-${process.pid}-${crypto.randomBytes(6).toString('hex')}`
+  try {
+    fs.writeFileSync(tmp, text, { mode, flag: 'wx' })
+    fs.renameSync(tmp, file)
+  } catch (e) {
+    if ((e as NodeJS.ErrnoException).code !== 'EEXIST') fs.rmSync(tmp, { force: true })
+    throw e
+  }
 }
 
 /** What a link at the file may keep (security round 4b): the content it points to when that is a regular file inside
@@ -114,35 +157,116 @@ function linkedContent(file: string, o: GuardOptions): { j: Record<string, unkno
 
 /** What the guard would write in place of a file: its cleaned content, the mode and what it takes out of it. */
 interface Plan {
-  file: string; j: Record<string, unknown>; mode: number; taken: McpEntry[]; note: '(link replaced)' | '(hard link replaced)' | null
+  file: string; j: Record<string, unknown>; mode: number; taken: McpEntry[]; note: '(link replaced)' | '(hard link replaced)' | '(moved aside)' | null
   /** a link: false when what it points to is not copied (outside the home, the server's folders, not a JSON file) */
   linkCopied?: boolean
+  /** the cleaned content; null when it cannot be written: the file is then moved aside whole (a link: removed) and an
+   * empty config {} takes its place */
+  text: string | null
+  /** why a file is moved aside ("is not JSON") */
+  why?: string
 }
 
-/** Reads the file and works out what the guard does with it; writes nothing. null: the file is left alone. */
+/** read errors that say nothing about the file (the guard runs again after the next turn); any other one moves it aside */
+const FOR_NOW = new Set(['EMFILE', 'ENFILE', 'EAGAIN', 'EINTR', 'ENOMEM'])
+
+/** Reads the file and works out what the guard does with it; writes nothing. null: the file is left alone. Throws only
+ * when it could not be read for a moment (FOR_NOW). */
 function planGuard(file: string, o: GuardOptions): Plan | null {
   let st: fs.Stats
   try { st = fs.lstatSync(file) } catch { return null }
   if (st.isSymbolicLink()) {
     const { j, copied } = linkedContent(file, o)
-    return { file, j, mode: 0o600, taken: takeMcp(j), note: '(link replaced)', linkCopied: copied }
+    const taken = takeMcp(j), text = textOf(j) // null: what it points to cannot be written back, the link becomes {}
+    return { file, j, mode: 0o600, taken, note: '(link replaced)', linkCopied: copied && text !== null, text }
   }
   if (!st.isFile()) return null // a folder or anything else: nothing the CLI reads as its config
-  let text: string
-  try { text = fs.readFileSync(file, 'utf8') } catch { return null }
-  const j = parseObject(text)
-  if (!j) return null
+  const aside = (why: string): Plan => ({ file, j: {}, mode: 0o600, taken: [], note: '(moved aside)', text: null, why })
+  let raw: string
+  try { raw = fs.readFileSync(file, 'utf8') } catch (e) {
+    if (FOR_NOW.has(errText(e))) throw e
+    return aside(`cannot be read (${errText(e)})`) // the CLI cannot either, but the owner might "fix" it (chmod) one day
+  }
+  let j: unknown
+  try { j = parseClaudeJson(raw) } catch { return aside('is not JSON') } // a later, more lenient CLI might still read it
+  if (!isObj(j)) return null // a list, a text, a number: the CLI finds no settings in it
   const taken = takeMcp(j)
   const linked = st.nlink > 1
   if (!taken.length && !linked) return null
-  return { file, j, mode: st.mode & 0o777, taken, note: linked ? '(hard link replaced)' : null }
+  const text = textOf(j)
+  if (text === null) return { file, j, mode: st.mode & 0o777, taken, note: '(moved aside)', text, why: 'cannot be written back as JSON (nested too deeply or too large)' }
+  return { file, j, mode: st.mode & 0o777, taken, note: linked ? '(hard link replaced)' : null, text }
 }
 
-const planKeys = (p: Plan) => [...(p.note ? [p.note] : []), ...p.taken.map(mcpKeyPath)]
+/** what the guard did with a file: `moved` where the whole file went, `why` when it had to move or empty it */
+interface Applied { moved: string | null; why: string | null }
+
+/** Writes the plan. When the cleaned content cannot be written, it fails closed (S2): a link is replaced by {} or
+ * removed (what it points to is never changed), a file is moved whole into `keepDir` (or next to itself) and {} takes
+ * its place (no file at all is safe too: the CLI starts from its defaults). Throws only when the file stays as it was. */
+function applyPlan(p: Plan, keepDir: string | undefined, when: string): Applied {
+  let why = p.why ?? null
+  if (p.text !== null) {
+    try { replaceWith(p.file, p.text, p.mode); return { moved: null, why: null } } catch (e) { why = `could not be written (${errText(e)})` }
+  }
+  if (p.note === '(link replaced)') {
+    try { replaceWith(p.file, '{}', 0o600) } catch { fs.unlinkSync(p.file) }
+    return { moved: null, why }
+  }
+  const moved = moveAside(p.file, keepDir, when)
+  try { replaceWith(p.file, '{}', 0o600) } catch {}
+  return { moved, why }
+}
+
+const planKeys = (p: Plan, a: Applied) => [
+  ...(a.why && p.note !== '(link replaced)' ? [`(moved aside: ${a.why})`] : p.note ? [p.note] : []),
+  ...p.taken.map(mcpKeyPath),
+]
+
+/** a whole config file the guard moved aside: moved-<time>-<start|turn>-<n><its name> (".claude.json",
+ * ".claude.json.backup.<time>") */
+const MOVED_FILE = /^moved-(.+Z)-([a-z]+)-(\d+)(\..+)$/
+const movedAge = (n: string) => { const m = MOVED_FILE.exec(n); return m ? `${m[1]}~${m[3]!.padStart(4, '0')}` : n }
+
+/** Moves a config file out of the CLI's reach, whole: into `dir` (the copies folder, 700, the file 600, never over
+ * another file; after a turn the newest KEEP_TURN_BACKUPS are kept), else next to itself under a name neither the CLI
+ * nor a turn's sandbox opens. Returns where it went; throws when it could not be moved. */
+function moveAside(file: string, dir: string | undefined, when: string, now = new Date()): string {
+  const stamp = now.toISOString().replace(/[:.]/g, '-')
+  if (dir) {
+    try {
+      ensureCopyDir(dir)
+      for (let i = 1; i < 100; i++) {
+        const to = path.join(dir, `moved-${stamp}-${when}-${i}${path.basename(file)}`)
+        if (fs.existsSync(to)) continue
+        try { fs.renameSync(file, to) } catch (e) {
+          if ((e as NodeJS.ErrnoException).code !== 'EXDEV') throw e
+          fs.copyFileSync(file, to, fs.constants.COPYFILE_EXCL) // another disk: a copy, then the file goes
+          fs.unlinkSync(file)
+        }
+        try { fs.chmodSync(to, 0o600) } catch {}
+        if (when === 'turn') try { pruneTurnCopies(dir) } catch {}
+        return to
+      }
+    } catch {}
+  }
+  // not ".claude.json…": the CLI never reads it, our own list never takes it up again, engine.sb opens no other name here
+  const to = path.join(path.dirname(file), `.teamax-moved-${stamp}-${crypto.randomBytes(4).toString('hex')}${path.basename(file)}`)
+  fs.renameSync(file, to)
+  return to
+}
+
+/** the whole config files the guard moved into `dir`, oldest first */
+export function listMovedConfigs(dir: string): string[] {
+  let names: string[] = []
+  try { names = fs.readdirSync(dir) } catch {}
+  return names.filter((n) => MOVED_FILE.test(n)).sort((a, b) => movedAge(a) < movedAge(b) ? -1 : movedAge(a) > movedAge(b) ? 1 : 0).map((n) => path.join(dir, n))
+}
 
 /**
  * Removes MCP configuration from the file (default: the account's ~/.claude.json). Returns the removed key paths
- * (empty: nothing found, the file is not touched). A missing or unreadable file is left alone. A symbolic link at the
+ * (empty: nothing found, the file is not touched). A missing file is left alone; one that cannot be read, parsed or
+ * written back is moved aside next to itself and replaced by {} ("(moved aside: …)"). A symbolic link at the
  * file is replaced by a regular file (round 4b: before, a link was skipped, so a server planted in the file it points to
  * survived until the next interactive `claude`): with the cleaned content it pointed to when that is a regular file in
  * the home (and not in `privateDirs`), else an empty config `{}`; the result then starts with "(link replaced)". A file
@@ -152,8 +276,7 @@ const planKeys = (p: Plan) => [...(p.note ? [p.note] : []), ...p.taken.map(mcpKe
 export function guardClaudeJson(file = path.join(os.homedir(), '.claude.json'), o: GuardOptions = {}): string[] {
   const p = planGuard(file, o)
   if (!p) return []
-  replaceWith(p.file, p.j, p.mode)
-  return planKeys(p)
+  return planKeys(p, applyPlan(p, undefined, 'start'))
 }
 
 /** The Claude config files of an account the CLI may load or restore from: ~/.claude.json, the older
@@ -193,19 +316,30 @@ export interface McpBackup {
   files: Record<string, (McpEntry | { project: string | null; key: McpKey; names: string[]; omitted: string; sha256: string })[]>
 }
 
-/** Saves what the plans take out to a new file in `dir` (700, the file 600, never over another file); returns its path.
- * A link in place of `dir` is refused. When the newest copy there holds exactly the same settings, no new file is made
- * and that copy's path is returned (the installer's copy and the first start's, or one server planted again). */
-export function saveMcpBackup(dir: string, home: string, plans: Pick<Plan, 'file' | 'taken'>[], when: string, now = new Date()): string {
+/** the copies folder: made 700 when missing; a link or anything but a folder in its place is refused */
+function ensureCopyDir(dir: string) {
   fs.mkdirSync(dir, { recursive: true, mode: 0o700 })
   if (!fs.lstatSync(dir).isDirectory()) throw new Error(`${dir} is not a folder`)
   fs.chmodSync(dir, 0o700)
+}
+
+/** Saves what the plans take out to a new file in `dir` (700, the file 600, never over another file); returns its path.
+ * A link in place of `dir` is refused. When the newest copy there holds exactly the same settings, no new file is made
+ * and that copy's path is returned (the installer's copy and the first start's, or one server planted again). A value
+ * nested too deeply to write keeps only its names. */
+export function saveMcpBackup(dir: string, home: string, plans: Pick<Plan, 'file' | 'taken'>[], when: string, now = new Date()): string {
+  ensureCopyDir(dir)
   let chars = 0
   const files: McpBackup['files'] = {}
   for (const p of plans) {
     if (!p.taken.length) continue
     files[path.relative(home, p.file)] = p.taken.map((e) => {
-      const text = JSON.stringify(e.value) ?? ''
+      let text: string | null = null
+      if (!tooDeep(e.value)) try { text = JSON.stringify(e.value) ?? '' } catch {} // else nested too deeply to write (S2)
+      if (text === null) {
+        const names = mcpNames(e)
+        return { project: e.project, key: e.key, names, omitted: 'nested too deeply to keep', sha256: crypto.createHash('sha256').update(JSON.stringify(names)).digest('hex') }
+      }
       chars += text.length
       return chars <= BACKUP_MAX_CHARS ? { project: e.project, key: e.key, value: e.value }
         : { project: e.project, key: e.key, names: mcpNames(e), omitted: `too large to keep (${text.length} characters)`, sha256: crypto.createHash('sha256').update(text).digest('hex') }
@@ -231,7 +365,7 @@ export function saveMcpBackup(dir: string, home: string, plans: Pick<Plan, 'file
         if ((e as NodeJS.ErrnoException).code !== 'EEXIST' || i >= 100) throw e
         continue
       }
-      if (when === 'turn') try { pruneTurnBackups(dir) } catch {} // the copy is saved; pruning is housekeeping
+      if (when === 'turn') try { pruneTurnCopies(dir) } catch {} // the copy is saved; pruning is housekeeping
       return f
     }
   } finally { fs.rmSync(tmp, { force: true }) }
@@ -243,9 +377,13 @@ const byAge = (a: string, b: string) => {
   return key(a) < key(b) ? -1 : key(a) > key(b) ? 1 : 0
 }
 
-function pruneTurnBackups(dir: string) {
-  const turn = fs.readdirSync(dir).filter((n) => BACKUP_FILE.test(n) && /-turn(-\d+)?\.json$/.test(n)).sort(byAge)
+/** copies and moved files made after a turn: each kind kept up to the newest KEEP_TURN_BACKUPS */
+function pruneTurnCopies(dir: string) {
+  const names = fs.readdirSync(dir)
+  const turn = names.filter((n) => BACKUP_FILE.test(n) && /-turn(-\d+)?\.json$/.test(n)).sort(byAge)
+  const moved = listMovedConfigs(dir).filter((f) => MOVED_FILE.exec(path.basename(f))?.[2] === 'turn')
   for (const n of turn.slice(0, Math.max(0, turn.length - KEEP_TURN_BACKUPS))) fs.rmSync(path.join(dir, n), { force: true })
+  for (const f of moved.slice(0, Math.max(0, moved.length - KEEP_TURN_BACKUPS))) fs.rmSync(f, { force: true })
 }
 
 /** the copies in `dir`, oldest first */
@@ -262,25 +400,38 @@ export interface FamilyResult {
   backup: string | null
   /** why the copy could not be saved (the settings were removed anyway: the guard is a security boundary) */
   backupError: string | null
+  /** whole files moved out of the CLI's reach (they could not be read, parsed or written back), into backupDir */
+  moved: string[]
+  /** "<file name>: <why>" for each file that may still hold MCP settings: it could not be checked, cleaned or moved */
+  failed: string[]
 }
 
 /** guardClaudeJson on every file of claudeJsonFiles. With `backupDir`, what is removed is saved there first (one file
- * for all of them); a copy that cannot be saved does not stop the removal (backupError says why). */
+ * for all of them); a copy that cannot be saved does not stop the removal (backupError says why). A file that cannot
+ * be read, parsed or written back is moved there whole and replaced by {} (moved); nothing fails silently (failed). */
 export function guardClaudeJsonFamilyKeep(home = os.homedir(), o: Omit<GuardOptions, 'home'> & { backupDir?: string; when?: string } = {}): FamilyResult {
+  const when = o.when ?? 'start'
+  const rel = (f: string) => path.relative(home, f)
   const plans: Plan[] = []
+  const failed: string[] = []
   for (const f of claudeJsonFiles(home)) {
-    try { const p = planGuard(f, { ...o, home }); if (p) plans.push(p) } catch {}
+    try { const p = planGuard(f, { ...o, home }); if (p) plans.push(p) } catch (e) { failed.push(`${rel(f)}: could not be read for now (${errText(e)})`) }
   }
   let backup: string | null = null
   let backupError: string | null = null
   if (o.backupDir && plans.some((p) => p.taken.length)) {
-    try { backup = saveMcpBackup(o.backupDir, home, plans, o.when ?? 'start') } catch (e) { backupError = (e as Error).message }
+    try { backup = saveMcpBackup(o.backupDir, home, plans, when) } catch (e) { backupError = (e as Error).message }
   }
   const removed: string[] = []
+  const moved: string[] = []
   for (const p of plans) {
-    try { replaceWith(p.file, p.j, p.mode); for (const k of planKeys(p)) removed.push(`${path.relative(home, p.file)}: ${k}`) } catch {}
+    try {
+      const a = applyPlan(p, o.backupDir, when)
+      if (a.moved) moved.push(a.moved)
+      for (const k of planKeys(p, a)) removed.push(`${rel(p.file)}: ${k}`)
+    } catch (e) { failed.push(`${rel(p.file)}: could not be cleaned or moved aside (${errText(e)})`) }
   }
-  return { removed, backup, backupError }
+  return { removed, backup, backupError, moved, failed }
 }
 
 /** guardClaudeJson on every file of claudeJsonFiles; returns "<file name>: <key path>" for each finding (no copy) */
@@ -297,6 +448,8 @@ export interface McpFinding {
   target?: string
   /** a link whose target is not copied: the file becomes an empty config {} */
   emptied?: boolean
+  /** note '(moved aside)': why ("is not JSON") */
+  why?: string
   entries: McpEntry[]
 }
 
@@ -310,7 +463,7 @@ export function findClaudeJsonMcp(home = os.homedir(), o: Omit<GuardOptions, 'ho
     if (!p) continue
     let target: string | undefined
     if (p.note === '(link replaced)') try { target = fs.readlinkSync(f) } catch {}
-    findings.push({ file: path.relative(home, f), note: p.note, ...(target ? { target } : {}), ...(p.linkCopied === false ? { emptied: true } : {}), entries: p.taken })
+    findings.push({ file: path.relative(home, f), note: p.note, ...(target ? { target } : {}), ...(p.linkCopied === false ? { emptied: true } : {}), ...(p.why ? { why: p.why } : {}), entries: p.taken })
   }
   let backupsLink = false
   try { backupsLink = fs.lstatSync(path.join(home, '.claude', 'backups')).isSymbolicLink() } catch {}
@@ -335,13 +488,17 @@ export function guardOfficeClaudeJson(ctx: Pick<AppContext, 'config' | 'db' | 'l
     const privateDirs = [path.dirname(ctx.config.dataDir), ctx.config.dataDir, ctx.config.teamRoot]
     const r = guardClaudeJsonFamilyKeep(home ?? os.homedir(), { privateDirs, backupDir: claudeMcpBackupDir(ctx), when })
     if (r.backupError) ctx.log.error('could not save a copy of the MCP settings before removing them from ~/.claude.json', { when, err: r.backupError })
-    if (r.removed.length) {
-      ctx.log.warn('removed MCP servers or a link from ~/.claude.json (office mode: an interactive claude would run them unsandboxed)', { when, keys: r.removed, backup: r.backup })
-      audit(ctx.db, { actor: null, action: 'engine.claude_json_mcp_removed', target: '~/.claude.json', detail: { when, keys: r.removed.slice(0, 20), ...(r.backup ? { backup: path.basename(r.backup) } : {}) } })
+    if (r.failed.length) ctx.log.error('could not remove MCP settings from ~/.claude.json: an interactive claude may still run them unsandboxed', { when, failed: r.failed })
+    if (r.removed.length) ctx.log.warn('removed MCP servers or a link from ~/.claude.json (office mode: an interactive claude would run them unsandboxed)', { when, keys: r.removed, backup: r.backup, moved: r.moved })
+    if (r.removed.length || r.failed.length) {
+      audit(ctx.db, { actor: null, action: 'engine.claude_json_mcp_removed', target: '~/.claude.json', detail: {
+        when, keys: r.removed.slice(0, 20), ...(r.backup ? { backup: path.basename(r.backup) } : {}),
+        ...(r.moved.length ? { moved: r.moved.map((f) => path.basename(f)) } : {}), ...(r.failed.length ? { failed: r.failed.slice(0, 20) } : {}),
+      } })
     }
     return r.removed
   } catch (e) {
-    ctx.log.warn('could not check ~/.claude.json for MCP servers', { err: e })
+    ctx.log.error('could not check ~/.claude.json for MCP servers', { err: e })
     return []
   }
 }
