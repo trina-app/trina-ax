@@ -33,6 +33,8 @@ type Status struct {
 	Disk        map[string]any    `json:"disk"`
 	Health      map[string]any    `json:"health"`
 	History     []json.RawMessage `json:"history"`
+	// Updates: automatic updates and unsigned versions (update audit P3: both used to be invisible)
+	Updates *UpdateSettings `json:"updates"`
 }
 
 func cmdStatus(e *env, args []string) (int, error) {
@@ -67,6 +69,7 @@ func cmdStatus(e *env, args []string) (int, error) {
 		fmt.Fprintf(e.stdout, "  plan: %s, %d concurrent, turn %d MiB, converters %d MiB\n", orNone(s.Plan.Plan), s.Plan.MaxConcurrency, s.Plan.TurnMaxMiB, s.Plan.ConvMiB)
 	}
 	fmt.Fprintf(e.stdout, "  disk: %v%% used\n  health: %v\n", s.Disk["percent"], s.Health)
+	printUpdateSettings(e.stdout, s.Updates, in, in.Systemd && fileExists(systemdRunDir))
 	return 0, nil
 }
 
@@ -100,8 +103,9 @@ func unitNames(id string) []string {
 }
 
 func collectStatus(e *env, in *Install) Status {
-	s := Status{ID: in.ID, Base: in.Base, Version: currentVersion(in.Base), RootVersion: rootVersion(e), Units: map[string]string{}, History: []json.RawMessage{}}
-	if in.Systemd && fileExists("/run/systemd/system") {
+	s := Status{ID: in.ID, Base: in.Base, Version: currentVersion(in.Base), RootVersion: rootVersion(e), Units: map[string]string{}, History: []json.RawMessage{},
+		Updates: collectUpdateSettings(e, in)}
+	if in.Systemd && fileExists(systemdRunDir) {
 		for _, u := range unitNames(in.ID) {
 			out, _ := exec.Command(e.systemctl, "is-active", u).Output()
 			s.Units[u] = strings.TrimSpace(string(out))

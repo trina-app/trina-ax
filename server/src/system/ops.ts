@@ -32,7 +32,7 @@ import { pruneOld } from './retention'
 import { configureStorageGuard, levelOf, snapshotOf, storageRoom, StorageMonitor } from './storage'
 import { hostMessages, ML } from './messages-linux'
 import { audit } from '../admin/audit'
-import { autoUpdateDecision, runUpdate } from './update-job'
+import { autoUpdateDecision, DEFAULT_UPDATE_WINDOW, runUpdate } from './update-job'
 import { zonedParts } from './time-zone'
 import { refreshWindowsApp, WINDOWS_EVERY_MS, WINDOWS_FIRST_MS, WINDOWS_TEXT, windowsAppFeedOf, windowsDiagnostic, type WindowsAppResult } from './windows-app'
 import { getChatRuntime } from '../chat/runtime'
@@ -92,7 +92,7 @@ export class OpsService {
     this.backups = new BackupManager({ db: ctx.db, dbFile: path.join(ctx.config.dataDir, 'app.db'), layout: this.layout, log: ctx.log.child({ c: 'backup' }), version: ctx.version, now: o.now })
     this.updates = new UpdateManager({
       appDir: this.layout.appDir, dataDir: ctx.config.dataDir, version: ctx.version, channel: ctx.config.update.channel,
-      feedUrl: ctx.config.update.feedUrl, log: ctx.log.child({ c: 'update' }), allowUnsigned: o.allowUnsignedUpdates,
+      feedUrl: ctx.config.update.feedUrl, log: ctx.log.child({ c: 'update' }), allowUnsigned: o.allowUnsignedUpdates, rootDir: this.layout.rootDir,
     })
     // the team disk (system/storage.ts): writes are refused near full where the resource limits apply
     configureStorageGuard({ root: this.layout.teamRoot })
@@ -131,7 +131,7 @@ export class OpsService {
       try { last = JSON.parse(fs.readFileSync(this.autoFile(), 'utf8')) } catch {}
       const s = getTeamSettings(this.ctx.db)
       return autoUpdateDecision({ feed, current: this.ctx.version, installId: installId(this.ctx.db), now: this.now(), tz: teamTimeZone(this.ctx.db),
-        window: s.updateWindow, running: this.queue().running, history: this.updates.history(), lastAttempt: last })
+        window: s.updateWindow, running: this.queue().running, history: this.updates.history(), lastAttempt: last, rootVersion: this.updates.rootVersion() })
     }
     const first = decide()
     if (!first.go) return first.why
@@ -202,6 +202,21 @@ export class OpsService {
   async lockAfterPrune(name: string): Promise<boolean> {
     if (this.busy === 'prune' && this.pruning) await this.pruning.catch(() => null)
     return this.tryLock(name)
+  }
+
+  /** A Linux self-install's update switches (root/install.json, root 0644: autoUpdate, allowUnsigned) and whether the root
+   * update timer is enabled (systemd's link timers.target.wants/<id>-update.timer; null without systemd). null when
+   * there is no install.json (dev, the Mac). Only shown; the root tool decides (`mycel-ctl auto-update`, `allow-unsigned`). */
+  rootUpdateSettings(): { autoUpdate: boolean; allowUnsigned: boolean; timerEnabled: boolean | null } | null {
+    const L = this.layout
+    if (!L.rootDir) return null
+    let j: unknown
+    try { j = JSON.parse(fs.readFileSync(path.join(L.rootDir, 'install.json'), 'utf8')) } catch { return null }
+    if (!j || typeof j !== 'object' || Array.isArray(j)) return null
+    const o = j as Record<string, unknown>
+    const id = typeof o.id === 'string' && /^[a-z][a-z0-9-]{0,30}$/.test(o.id) ? o.id : null
+    const timerEnabled = o.systemd === false || !id ? null : fs.existsSync(path.join(L.unitDir, 'timers.target.wants', `${id}-update.timer`))
+    return { autoUpdate: o.autoUpdate === true, allowUnsigned: o.allowUnsigned === true, timerEnabled }
   }
 
   /** role-account install: the engine runs as another account (launcher LaunchDaemon) */
@@ -489,7 +504,16 @@ export class OpsService {
       if (h && h.result !== 'ok' && this.now().getTime() - Date.parse(h.at) < 7 * 86400_000) add('update', 'update', t(M.update), 'warn', t(M.updateRolledBack(h.to, h.detail ?? '')))
       else add('update', 'update', t(M.update), 'ok', t(M.updateOk(this.ctx.version)))
       const us = this.updates.status()
-      if (us.needsRoot && us.available) add('update_root', 'update', t(M.update), 'warn', t(ML.updateNeedsRoot(us.available.version)))
+      // a Linux self-install: whether it updates by itself, and whether it takes unsigned versions (root/install.json
+      // and the root update timer; update audit P3: both were invisible here)
+      const rs = this.platform() === 'linux' ? this.rootUpdateSettings() : null
+      const autoOn = !rs || (rs.autoUpdate && rs.timerEnabled !== false && !!this.ctx.config.update.auto)
+      if (rs) {
+        const s = getTeamSettings(this.ctx.db)
+        add('auto_update', 'update', t(ML.autoUpdate), autoOn ? 'ok' : 'warn', t(autoOn ? ML.autoUpdateOn(s.updateWindow ?? DEFAULT_UPDATE_WINDOW, teamTimeZone(this.ctx.db)) : ML.autoUpdateOff))
+        if (rs.allowUnsigned || process.env.MYCEL_ALLOW_UNSIGNED === '1') add('unsigned_updates', 'update', t(ML.unsignedUpdates), 'warn', t(ML.unsignedAllowed))
+      }
+      if (us.needsRoot && us.available) add('update_root', 'update', t(M.update), 'warn', t(ML.updateNeedsRoot(us.available.version, autoOn)))
       const cur = this.updates.currentLinkTarget()
       const signed = !!cur && fs.existsSync(path.join(this.layout.appDir!, 'versions', cur, 'manifest.sig'))
       add('release_signature', 'update', t(M.releaseSig), signed ? 'ok' : 'warn', t(signed ? M.releaseSigned : M.releaseUnsigned))

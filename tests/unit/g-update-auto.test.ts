@@ -9,8 +9,8 @@ import { getSetting, setSetting } from '../../server/src/admin/settings'
 import { OFFICE_RELEASE_KEYS } from '../../server/src/office/release'
 import { silentLogger } from '../../server/src/log'
 import { writeManifest } from '../../server/src/system/bundle'
-import { RELEASE_PUBLIC_KEYS, UpdateManager, inRollout, type ReleaseFeed } from '../../server/src/system/update'
-import { autoUpdateDecision, inWindow } from '../../server/src/system/update-job'
+import { RELEASE_PUBLIC_KEYS, UpdateManager, inRollout, releaseNeedsRoot, type ReleaseFeed } from '../../server/src/system/update'
+import { autoUpdateDecision, inWindow, updateWindowAnswer } from '../../server/src/system/update-job'
 import { resolveLayout } from '../../server/src/system/layout'
 import { getOps, systemTestHooks } from '../../server/src/routes/system'
 import { OWNER_PW, harness, testConfig, withOwner, type Client, type Harness } from './a-lib'
@@ -69,6 +69,17 @@ describe('roll-out, window, decision', () => {
     expect(inWindow('23:00-01:00', new Date('2026-10-21T00:30:00Z'), 'UTC')).toBe(true)
     expect(inWindow('23:00-01:00', new Date('2026-10-21T01:30:00Z'), 'UTC')).toBe(false)
   })
+  test('the same windows as the root update timer (native/cmd/mycel-ctl testdata/update-window.json)', () => {
+    const t = JSON.parse(fs.readFileSync(path.resolve(import.meta.dir, '..', '..', 'native', 'cmd', 'mycel-ctl', 'testdata', 'update-window.json'), 'utf8')) as {
+      cases: { window: string; zone: string; at: string; inside: boolean; why: string }[]
+    }
+    expect(t.cases.length).toBeGreaterThanOrEqual(10)
+    for (const c of t.cases) expect({ ...c, got: inWindow(c.window, new Date(c.at), c.zone) }).toEqual({ ...c, got: c.inside })
+  })
+  test('admin.js update-window: the team\'s window or the default, and the zone', () => {
+    expect(updateWindowAnswer({ updateWindow: null }, 'Asia/Seoul')).toEqual({ window: '03:00-05:00', timeZone: 'Asia/Seoul', custom: false })
+    expect(updateWindowAnswer({ updateWindow: '01:00-02:00' }, 'UTC')).toEqual({ window: '01:00-02:00', timeZone: 'UTC', custom: true })
+  })
   test('window starts are inclusive, ends exclusive, including midnight and the null default', () => {
     const at = (time: string) => new Date(`2026-10-21T${time}:00Z`)
     for (const [window, start, end] of [['00:00-23:59', '00:00', '23:59'], ['23:59-00:00', '23:59', '00:00'], ['23:00-01:00', '23:00', '01:00'], [null, '03:00', '05:00']] as const) {
@@ -98,6 +109,27 @@ describe('roll-out, window, decision', () => {
     expect(autoUpdateDecision({ ...base, window: '00:00-25:00' })).toMatchObject({ go: false, why: 'outside_window' })
     expect(autoUpdateDecision({ ...base, tz: 'UTC' })).toMatchObject({ why: 'outside_window' })
     expect(autoUpdateDecision({ ...base, running: 1 })).toMatchObject({ why: 'busy' })
+  })
+  test('rootSince: root files older than it need root even when needsRoot is false (update audit P4)', () => {
+    for (const [needsRoot, rootSince, root, want] of [
+      [true, undefined, '9.9.9', true], [false, undefined, '0.0.1', false], [false, '1.0.5', '1.0.4', true], [false, '1.0.5', '1.0.5', false],
+      [false, '1.0.5', '1.1.0-pre.1', false], [false, '1.0.5', '1.0.5-pre.1', true], [false, '1.0.5', null, true], [false, '1.0.5', 'not a version!', true],
+    ] as const) expect({ needsRoot, rootSince, root, got: releaseNeedsRoot({ needsRoot, rootSince }, root) }).toEqual({ needsRoot, rootSince, root, got: want })
+    const now = new Date('2026-10-21T18:30:00Z')
+    const base = { feed: feed({ rootSince: '1.0.5' }), current: '1.0.4', installId: 'i', now, tz: 'Asia/Seoul', window: null, running: 0, history: [] }
+    expect(autoUpdateDecision({ ...base, rootVersion: '1.0.4' })).toMatchObject({ go: false, why: 'needs_root' })
+    expect(autoUpdateDecision({ ...base, rootVersion: null })).toMatchObject({ go: false, why: 'needs_root' })
+    expect(autoUpdateDecision({ ...base, rootVersion: '1.0.5' })).toEqual({ go: true, version: '1.1.0' })
+    // the manager reads root/VERSION
+    const rootDir = path.join(W, 'root-since')
+    fs.mkdirSync(rootDir, { recursive: true })
+    const mgr = new UpdateManager({ appDir: null, dataDir: path.join(W, 'data'), version: '1.0.4', channel: 'stable', feedUrl: null, log: silentLogger, rootDir })
+    expect(mgr.rootVersion()).toBeNull()
+    expect(mgr.needsRoot(feed({ rootSince: '1.0.5' }))).toBe(true)
+    fs.writeFileSync(path.join(rootDir, 'VERSION'), '1.0.5\n')
+    expect(mgr.rootVersion()).toBe('1.0.5')
+    expect(mgr.needsRoot(feed({ rootSince: '1.0.5' }))).toBe(false)
+    expect(mgr.needsRoot(feed({ rootSince: '1.0.6' }))).toBe(true)
   })
 })
 

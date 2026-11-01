@@ -144,8 +144,27 @@ export const ReleaseFeed = z.object({
   /** staged roll-out for self-installed servers (absent = everyone): an install takes the release automatically when
    * sha256(salt + install id)'s first two bytes % 100 < percent. the hosted cloud ignores it (the control plane picks). */
   rollout: z.object({ percent: z.number().min(0).max(100), salt: z.string().max(100) }).optional(),
+  /** the oldest release with this release's root files (scripts/release/publish-server.ts, feeds from 0.2.19 on):
+   * root/VERSION older than it needs the root update even when needsRoot is false (releaseNeedsRoot) */
+  rootSince: z.string().optional(),
 })
 export type ReleaseFeed = z.infer<typeof ReleaseFeed>
+
+const VERSION_NAME = /^[0-9A-Za-z][0-9A-Za-z.+_-]{0,49}$/
+
+/**
+ * Does this server need root for the release (`sudo mycel-ctl update`, the root update timer)? needsRoot says its root
+ * files differ from those of the channel heads it was published over; a server that skipped a release can still be
+ * behind (update audit 2026-11-01 P4: root files of 0.2.17, a 0.2.18 that changed them, a 0.2.19 that did not). So
+ * root/VERSION (`rootVersion`, null when unknown) older than rootSince needs root too. The same rule as
+ * native/cmd/mycel-ctl/update.go rootNeeded; a feed without rootSince keeps the old meaning.
+ */
+export function releaseNeedsRoot(feed: Pick<ReleaseFeed, 'needsRoot' | 'rootSince'>, rootVersion: string | null): boolean {
+  if (feed.needsRoot) return true
+  if (!feed.rootSince) return false
+  if (!VERSION_NAME.test(feed.rootSince) || !rootVersion || !VERSION_NAME.test(rootVersion)) return true
+  return compareVersions(rootVersion, feed.rootSince) < 0
+}
 
 /** Is this install in the release's roll-out? */
 export function inRollout(feed: Pick<ReleaseFeed, 'rollout'>, installId: string): boolean {
@@ -167,6 +186,8 @@ export interface UpdateManagerOptions {
   allowUnsigned?: boolean
   env?: Record<string, string | undefined>
   fetch?: typeof fetch
+  /** the root-owned folder of the install (root/VERSION: the root files' version, releaseNeedsRoot); null in dev */
+  rootDir?: string | null
 }
 
 interface CheckRecord { at: string; feed: ReleaseFeed | null; error: string | null }
@@ -190,6 +211,13 @@ export class UpdateManager {
     return fs.existsSync(path.join(this.versionsDir(), cur, 'manifest.sig'))
   }
   private versionsDir() { return path.join(this.o.appDir!, 'versions') }
+  /** root/VERSION (the version the root files came from), null when there is none or it cannot be read */
+  rootVersion(): string | null {
+    if (!this.o.rootDir) return null
+    try { const v = fs.readFileSync(path.join(this.o.rootDir, 'VERSION'), 'utf8').trim(); return VERSION_NAME.test(v) ? v : null } catch { return null }
+  }
+  /** the release needs root on this server (releaseNeedsRoot with this install's root/VERSION) */
+  needsRoot(feed: Pick<ReleaseFeed, 'needsRoot' | 'rootSince'>): boolean { return releaseNeedsRoot(feed, this.rootVersion()) }
   private stateFile() { return path.join(this.o.appDir!, 'state.json') }
   private checkFile() { return path.join(this.o.dataDir, 'update-check.json') }
 
@@ -236,7 +264,7 @@ export class UpdateManager {
       available = { version: chk.feed.version, notes: chk.feed.notes, publishedAt: chk.feed.publishedAt, needsBackupRestoreToRollBack: false }
     }
     const prev = st.previous && st.previous !== this.o.version && this.stagedVersions().includes(st.previous) ? st.previous : null
-    const needsRoot = !!(available && chk?.feed && chk.feed.version === available.version && chk.feed.needsRoot)
+    const needsRoot = !!(available && chk?.feed && chk.feed.version === available.version && this.needsRoot(chk.feed))
     return { current: this.o.version, channel: this.o.channel, available, lastCheckedAt: chk?.at ?? null, previous: prev, feed: this.feedUsable, needsRoot }
   }
 

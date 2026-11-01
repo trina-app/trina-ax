@@ -275,7 +275,11 @@ func TestUpdateExplicitVersionMayGoBack(t *testing.T) {
 	for _, channel := range []string{"0.2.18", "0.2.17"} {
 		f := newFeedServer(t)
 		f.channel(channel, true)
-		f.publish("/server/0.2.17/release.json", "0.2.17", true)
+		if channel != "0.2.17" {
+			// (not for the channel's own version: a second build of it is another archive once a second has passed
+			// between the two, and the channel feed names the first one)
+			f.publish("/server/0.2.17/release.json", "0.2.17", true)
+		}
 		tb, switched := feedBase(t, f, "0.2.18-pre.1.805103ac", "0.2.18-pre.1.805103ac")
 		code, r := tb.update(t, "--version", "0.2.17", "--pubkey", f.key)
 		if code != 0 || r.Result != "ok" || r.Skipped || !r.AppUpdated || r.RootUpdated || r.To != "0.2.17" || *switched != "0.2.17" {

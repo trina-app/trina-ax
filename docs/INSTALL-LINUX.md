@@ -93,7 +93,9 @@ cd dist/linux && sudo ./install-linux.sh install --from . --allow-unsigned --eng
   onnxruntime·sharp 리눅스 파일은 패키지에 들어 있다. 이 옵션 없이 `bun install`이 `node: command not found`
   (`electron-winstaller` exited with 127)로 멈추면, bun이 `node` 대신 쓰는 `/tmp/bun-node-*/node`가 지워진 bun을 가리키는
   것이다(이전 빌드의 bun을 지운 경우, 2026-10-30 QA). `--ignore-scripts`로 다시 하거나 그 폴더를 지운다.
-- 직접 만든 키트는 서명이 없으므로 `--allow-unsigned`가 필요하고, 진단이 그렇다고 알린다.
+- 직접 만든 키트는 서명이 없으므로 `--allow-unsigned`가 필요하고, 진단이 그렇다고 알린다. 이 설정은 repair·update에도 남으므로
+  서명된 릴리스로 옮긴 뒤에는 `sudo mycel-ctl allow-unsigned off`(설치기는 `--require-signed`)로 되돌린다. 켜져 있는 동안
+  `sudo mycel-ctl status`와 관리자 › 진단이 경고한다.
 - Linux 서버는 글자 인식(OCR)을 하지 않는다. AI가 사진·스캔 PDF 페이지를 읽으면 이미지를 직접 보고(관리자 > 팀 설정 "이미지·PDF 페이지·영상 장면을 AI에게 보내기", 기본 켜짐), 스캔 문서와 사진은 글자로 검색되지 않는다. Claude Code의 검색과 같다.
 - AI는 영상·오디오 파일을 배포판의 ffmpeg·ffprobe(`ffmpeg` 패키지 5.1 이상, 다른 패키지와 함께 apt로 설치, 키트에 넣지 않음)로 읽는다. 장면과, 팀 설정 › 음성 입력에서 허용하면 받아쓰기. 디코더가 사람들이 올린 파일을 읽으므로 Debian·Ubuntu 보안 업데이트를 켜 둔다(예: `unattended-upgrades` 패키지; ffmpeg 보안 수정이 이 길로 온다). ffmpeg가 없으면 AI가 이 서버에서는 영상을 읽을 수 없다고 말한다.
 
@@ -186,9 +188,16 @@ description: 허용된 회의록의 결정과 할 일을 정리합니다.
   업데이트 창(관리자 › 설정 › 업데이트 시간, 기본 03:00–05:00) 안에서, 답변이 하나도 돌지 않을 때만. 새 버전이 켜지지 않으면
   bootstrap이 이전 버전으로 되돌리고, 그 버전은 7일 동안 자동으로 다시 시도하지 않는다. 피드의 단계적 배포(`rollout`)를 따른다.
 - **root 부분(실행기·샌드박스·유닛, root가 따로 두는 1A 프로그램 `mycel-safeops`·`pandoc`)이 바뀌는 릴리스**: 관리자 › 시스템 › 업데이트에 "관리자 권한 필요"가 보이고 진단이 경고한다.
-  `mycel-update.timer`(매일 04:30 ± 90분)가 처리하거나 직접 `sudo mycel-ctl update`.
+  `mycel-update.timer`가 15분마다 확인하고, 팀 시간대의 업데이트 시간(관리자 › 설정 › 업데이트 시간, 비었으면 03:00–05:00)
+  안에서 진행 중인 답변이 없을 때만 설치한다. 답변이 돌고 있으면 끊지 않고 조용해질 때까지 기다린다(한 번에 최대 1시간,
+  업데이트 시간이 끝나면 다음 날). 사흘 동안 그런 때가 없으면 다음 업데이트 시간에 최대 10분 기다린 뒤 설치한다. 업데이트
+  시간 밖의 확인은 네트워크 없이 바로 끝난다. 바로 하려면 `sudo mycel-ctl update`. 피드의 `rootSince`(그 릴리스와 같은 root
+  부분을 가진 가장 오래된 릴리스)보다 root 부분(`root/VERSION`)이 오래된 서버는 `needsRoot`가 꺼진 릴리스도 root 업데이트로
+  받는다(root 릴리스를 건너뛴 서버).
 - **더 오래된 릴리스로 내려가지 않음**: `mycel-update.timer`와 `--version` 없는 `sudo mycel-ctl update`는 피드의 버전이 지금 돌고 있는 앱보다 새로울 때만 설치한다(서버의 앱 업데이트와 같은 버전 순서. 0.2.18-pre.1 같은 사전 릴리스가 돌면 0.2.17 피드는 건너뛰고 그렇게 적는다). 일부러 되돌리려면 버전을 준다: `sudo mycel-ctl update --version <버전>`(더 새 root 부분은 그대로 둔다).
-- 끄기: 설치 때 `--no-auto-update`(타이머 끔), `server.json`의 `update.auto`를 `false`(앱 자동 업데이트 끔).
+- 끄기·켜기: `sudo mycel-ctl auto-update off|on`(타이머와 `server.json`의 `update.auto`를 함께 바꾸고 답변이 없을 때 서버를
+  다시 시작한다. 설치 때는 `--no-auto-update`/`--auto-update`). repair·update는 이 플래그가 없으면 지금 타이머 상태를 그대로
+  둔다. 꺼져 있으면 `sudo mycel-ctl status`와 관리자 › 진단이 경고한다.
 - **보관하는 버전**: 업데이트마다 버전 폴더 하나(`app/versions/<버전>`, 압축을 푼 크기 약 540 MB)가 생긴다. 서버가 켜진 지
   10분 뒤(bootstrap이 새 버전을 확인한 뒤)와 그 뒤 매시간, 되돌리기에 쓰는 것만 남기고 지운다. 서버 계정이 하므로 root 단계가 없다.
   - 남김: 지금 버전(`app/current`), 이전 버전(`app/state.json`의 `previous`. 관리자 › 시스템 › 업데이트 "되돌리기"와, 지금

@@ -107,6 +107,49 @@ describe('diagnostics of an installed Linux server', () => {
   })
   afterAll(async () => { server.close(); await ctx.close(); fs.rmSync(root, { recursive: true, force: true }) })
 
+  test('automatic updates and unsigned versions are shown; the needs-root line knows whether the timer is on (update audit P3)', async () => {
+    const units = path.join(root, 'units')
+    fs.mkdirSync(path.join(units, 'timers.target.wants'), { recursive: true })
+    fs.writeFileSync(path.join(units, 'mycel-update.timer'), '[Timer]\n')
+    fs.mkdirSync(path.join(base, 'app', 'versions'), { recursive: true })
+    const link = path.join(units, 'timers.target.wants', 'mycel-update.timer')
+    const updOps = () => new OpsService(ctx, { layout: resolveLayout(ctx.config, { MYCEL_INSTALL_BASE: base, MYCEL_LABEL: 'mycel', MYCEL_UNIT_DIR: units }, 'linux'), platform: 'linux', engines: async () => [], launcherStatus: async () => status, procSysDir: procSys, atDir: path.join(root, 'etc') })
+    const checks = async () => (await updOps().diagnostics('en')).checks
+    const inst = (o: object) => fs.writeFileSync(path.join(base, 'root', 'install.json'), JSON.stringify({ format: 1, id: 'mycel', systemd: true, autoUpdate: true, allowUnsigned: false, ...o }, null, 2))
+    ctx.config.deployment = undefined
+    ctx.config.update = { ...ctx.config.update, auto: true }
+    inst({})
+    fs.symlinkSync(path.join(units, 'mycel-update.timer'), link)
+    let c = await checks()
+    expect(c.find((x) => x.id === 'auto_update')).toMatchObject({ status: 'ok', label: 'Automatic updates' })
+    expect(c.find((x) => x.id === 'auto_update')!.detail).toContain('03:00-05:00')
+    expect(c.find((x) => x.id === 'unsigned_updates')).toBeUndefined()
+    // off three ways: install.json, the timer, the app's own updates
+    for (const off of [() => inst({ autoUpdate: false }), () => fs.rmSync(link), () => { ctx.config.update = { ...ctx.config.update, auto: false } }]) {
+      inst({}); if (!fs.existsSync(link)) fs.symlinkSync(path.join(units, 'mycel-update.timer'), link); ctx.config.update = { ...ctx.config.update, auto: true }
+      off()
+      const a = (await checks()).find((x) => x.id === 'auto_update')!
+      expect(a).toMatchObject({ status: 'warn' })
+      expect(a.detail).toContain('sudo mycel-ctl auto-update on')
+    }
+    // a release that needs root: "the update timer installs it" only while the timer is on
+    fs.writeFileSync(path.join(ctx.config.dataDir, 'update-check.json'), JSON.stringify({ at: new Date().toISOString(), error: null, feed: { version: '99.0.0', minFrom: null, urgent: false, needsRoot: true, notes: '', publishedAt: new Date().toISOString(), bundles: [] } }))
+    expect((await checks()).find((x) => x.id === 'update_root')!.detail).toContain('Automatic updates are off on this server')
+    inst({}); if (!fs.existsSync(link)) fs.symlinkSync(path.join(units, 'mycel-update.timer'), link); ctx.config.update = { ...ctx.config.update, auto: true }
+    expect((await checks()).find((x) => x.id === 'update_root')!.detail).toContain('The update timer installs it in the team\'s update window')
+    // unsigned versions accepted
+    inst({ allowUnsigned: true })
+    c = await checks()
+    expect(c.find((x) => x.id === 'unsigned_updates')).toMatchObject({ status: 'warn', label: 'Unsigned versions' })
+    expect(c.find((x) => x.id === 'unsigned_updates')!.detail).toContain('sudo mycel-ctl allow-unsigned off')
+    // the hosted service updates its tenants: neither line
+    c = (await (() => { ctx.config.deployment = 'hosted'; return updOps() })().diagnostics('en')).checks
+    expect(c.find((x) => x.id === 'auto_update')).toBeUndefined()
+    ctx.config.deployment = undefined
+    fs.rmSync(path.join(ctx.config.dataDir, 'update-check.json'), { force: true })
+    fs.rmSync(path.join(base, 'root', 'install.json'), { force: true })
+    fs.rmSync(path.join(base, 'app'), { recursive: true, force: true })
+  })
   test('firewall: missing, stale, not loaded, ok', async () => {
     expect((await check({}, 'pf_anchor'))).toMatchObject({ status: 'fail', label: 'AI engine firewall (nftables)' })
     expect((await check({}, 'pf_anchor'))!.detail).toContain('sudo mycel-ctl firewall apply')

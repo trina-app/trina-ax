@@ -24,8 +24,12 @@
 #                         deployment "hosted", no automatic updates (the control plane runs mycel-ctl update)
 #   --plan FILE           plan.json for this tenant (mycel-ctl apply-plan; spec 3.8.5)
 #   --codex-models FILE   with --engine codex: models_cache.json of that Codex version, locked into model_catalog.json
-#   --allow-unsigned      accept kits without a release signature (development and test builds)
-#   --no-auto-update      self-install: do not enable the daily root-level update timer
+#   --allow-unsigned      accept kits without a release signature (development and test builds). Kept for repair /
+#                         update; --require-signed (or `sudo mycel-ctl allow-unsigned off`) turns it back off.
+#   --no-auto-update      self-install: no automatic updates (the root update timer, which updates inside the team's
+#                         update window when no answer runs, and the server's own app-only updates). Kept for repair /
+#                         update; --auto-update (or `sudo mycel-ctl auto-update on`) turns them back on. Without either
+#                         flag, repair and update keep the timer as it is now (on or off by hand).
 #   --public-host HOST    the team's public address https://HOST (server.json tunnel.host), for example a Cloudflare
 #                         Tunnel that delivers it to 127.0.0.1:<port> (the tunnel itself is set up apart from this
 #                         installer). "none" removes it. Kept for repair / update; earlier allowFrom / countries stay.
@@ -89,7 +93,9 @@ while [ $# -gt 0 ]; do
     --plan) val "$@"; PLAN=$2; shift 2 ;;
     --codex-models) val "$@"; CODEX_MODELS=$2; shift 2 ;;
     --allow-unsigned) ALLOW_UNSIGNED=1; SET+=(unsigned); shift ;;
+    --require-signed) ALLOW_UNSIGNED=0; SET+=(signed); shift ;;
     --no-auto-update) AUTO_UPDATE=0; SET+=(noauto); shift ;;
+    --auto-update) AUTO_UPDATE=1; SET+=(auto); shift ;;
     --public-host) val "$@"; PUBLIC_HOST=$2; SET+=(pubhost); shift 2 ;;
     --app-connectors) APP_CONNECTORS=1; SET+=(appconn); shift ;;
     --no-app-connectors) APP_CONNECTORS=0; SET+=(appconn); shift ;;
@@ -103,6 +109,9 @@ while [ $# -gt 0 ]; do
   esac
 done
 given() { local s; for s in ${SET[@]+"${SET[@]}"}; do [ "$s" = "$1" ] && return 0; done; return 1; }
+! { given auto && given noauto; } || die "--auto-update and --no-auto-update exclude each other"
+! { given signed && given unsigned; } || die "--require-signed and --allow-unsigned exclude each other"
+! { given auto && given hosted; } || die "--auto-update is for self-installs; the hosted service updates its tenants"
 
 [ "$(uname -s)" = Linux ] || die "Linux only (macOS: scripts/install-macos.sh)"
 [ "$CMD" = check ] || [ "$(id -u)" = 0 ] || die "run as root (sudo), or \`$0 check --from <kit>\` to only check"
@@ -120,8 +129,8 @@ if [ "$CMD" = repair ] || [ "$CMD" = update ] || [ "$CMD" = uninstall ]; then
     given proxy || PROXY_PORT=$(j proxyPort)
     given tls || TLS_PORT=$(j tlsPort)
     given hosted || { [ "$(j hosted)" = true ] && HOSTED=1; }
-    given unsigned || { [ "$(j allowUnsigned)" = true ] && ALLOW_UNSIGNED=1; }
-    given noauto || { [ "$(j autoUpdate)" = false ] && AUTO_UPDATE=0; }
+    given unsigned || given signed || { [ "$(j allowUnsigned)" = true ] && ALLOW_UNSIGNED=1; }
+    given noauto || given auto || { [ "$(j autoUpdate)" = false ] && AUTO_UPDATE=0; }
     given nosystemd || { [ "$(j systemd)" = false ] && SYSTEMD=0; }
     given pubhost || { h=$(j publicHost); [ "$h" = null ] || PUBLIC_HOST=$h; }
     given appconn || case "$(j appConnectors)" in true) APP_CONNECTORS=1 ;; false) APP_CONNECTORS=0 ;; esac
@@ -162,6 +171,20 @@ case "$ID" in system|user|machine|capsule) SLICE="" ;; *) SLICE="${ID//-/_}.slic
 UNITS=("$ID-firewall.service" "$ID-firewall.timer" "$ID-launcher.service" "$ID-server.service" "$ID-update.service" "$ID-update.timer" ${SLICE:+"$SLICE"})
 UNIT_DIR=/etc/systemd/system
 have_systemd() { [ -d /run/systemd/system ] && command -v systemctl >/dev/null 2>&1; }
+# repair / update without --auto-update / --no-auto-update: the update timer as it is now is the setting (turned on or
+# off by hand, `systemctl enable|disable`); a repair used to turn a timer an administrator had turned on off again
+if { [ "$CMD" = repair ] || [ "$CMD" = update ]; } && [ "$HOSTED" = 0 ] && [ "$SYSTEMD" = 1 ] && ! given auto && ! given noauto \
+   && have_systemd && [ -f "$UNIT_DIR/$ID-update.timer" ]; then
+  case "$(systemctl is-enabled "$ID-update.timer" 2>/dev/null || true)" in
+    enabled) [ "$AUTO_UPDATE" = 1 ] || say "$ID-update.timer is on (turned on after the install): automatic updates stay on"; AUTO_UPDATE=1 ;;
+    disabled) [ "$AUTO_UPDATE" = 0 ] || say "$ID-update.timer is off (turned off after the install): automatic updates stay off"; AUTO_UPDATE=0 ;;
+  esac
+fi
+# the two settings that are easy to forget: kept from install.json (or the timer) unless given now
+if { [ "$CMD" = repair ] || [ "$CMD" = update ]; } && [ "$HOSTED" = 0 ]; then
+  [ "$AUTO_UPDATE" = 1 ] || given noauto || warn "automatic updates stay off on this server: new versions come only with \`sudo mycel-ctl update\`; --auto-update (or \`sudo mycel-ctl auto-update on\`) turns them on"
+  [ "$ALLOW_UNSIGNED" = 0 ] || given unsigned || warn "this install still accepts unsigned kits and versions (an earlier --allow-unsigned): --require-signed (or \`sudo mycel-ctl allow-unsigned off\`) accepts signed releases only"
+fi
 stop_units() {
   have_systemd || return 0
   local u
@@ -262,7 +285,8 @@ fi
 ITMP="$BASE/.install-tmp"
 RKIT="$BASE/.install-kit"
 if [ "$CMD" = repair ] && [ -z "$FROM" ]; then
-  [ "$ALLOW_UNSIGNED" = 0 ] || die "repair of an unsigned (--allow-unsigned) install needs --from <kit>: the installed copy is not signed, so root cannot trust it"
+  # the installed copy is used only when it verifies as a signed release (below, without --allow-unsigned), also on an
+  # install that accepts unsigned versions: a signed version there is as trustworthy as anywhere
   CURV=$(readlink "$BASE/app/current" 2>/dev/null | sed -n 's#^versions/\([0-9A-Za-z][0-9A-Za-z.+_-]*\)$#\1#p')
   [ -n "$CURV" ] || die "repair: app/current names no version; give --from <kit>"
   [ -x "$BASE/root/mycel-ctl" ] && [ "$(stat -c %U "$BASE/root/mycel-ctl")" = root ] || die "repair: root/mycel-ctl missing; give --from <kit>"
@@ -273,7 +297,7 @@ if [ "$CMD" = repair ] && [ -z "$FROM" ]; then
   # a root-only copy first: the server account can change app/versions, never this copy (verified, then installed)
   cp -a --no-preserve=ownership "$BASE/app/versions/$CURV" "$RKIT/app/$CURV"
   chown -R root:root "$RKIT"
-  "$BASE/root/mycel-ctl" verify-bundle "$RKIT/app/$CURV" >/dev/null || die "repair: the installed version $CURV does not verify against the release key; give --from <kit>"
+  "$BASE/root/mycel-ctl" verify-bundle "$RKIT/app/$CURV" >/dev/null || die "repair: the installed version $CURV is not a signed release that verifies against the release key (an unsigned build cannot be checked: root cannot trust it); give --from <kit>"
   printf '%s\n' "$CURV" > "$RKIT/VERSION"
   FROM="$RKIT"
 fi

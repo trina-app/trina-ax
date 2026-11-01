@@ -1,0 +1,21 @@
+{
+  "_": "The team's update window in the team's time zone, as the app's own updater (server/src/system/update-job.ts inWindow, tests/unit/g-update-auto.test.ts) and the root update timer (native/cmd/mycel-ctl/schedule.go, TestUpdateWindowMatchesServer) read it. Starts inclusive, ends exclusive, may pass midnight; equal ends never open.",
+  "cases": [
+    { "window": "03:00-05:00", "zone": "Asia/Seoul", "at": "2026-11-01T18:00:00Z", "inside": true, "why": "03:00 KST" },
+    { "window": "03:00-05:00", "zone": "Asia/Seoul", "at": "2026-11-01T19:59:00Z", "inside": true, "why": "04:59 KST" },
+    { "window": "03:00-05:00", "zone": "Asia/Seoul", "at": "2026-11-01T20:00:00Z", "inside": false, "why": "05:00 KST" },
+    { "window": "03:00-05:00", "zone": "Asia/Seoul", "at": "2026-11-02T04:30:00Z", "inside": false, "why": "13:30 KST: the old 04:30 UTC timer" },
+    { "window": "03:00-05:00", "zone": "UTC", "at": "2026-11-02T04:30:00Z", "inside": true, "why": "04:30 UTC" },
+    { "window": "23:00-01:00", "zone": "Asia/Seoul", "at": "2026-11-01T14:30:00Z", "inside": true, "why": "23:30 KST" },
+    { "window": "23:00-01:00", "zone": "Asia/Seoul", "at": "2026-11-01T15:59:00Z", "inside": true, "why": "00:59 KST" },
+    { "window": "23:00-01:00", "zone": "Asia/Seoul", "at": "2026-11-01T16:00:00Z", "inside": false, "why": "01:00 KST" },
+    { "window": "00:00-00:00", "zone": "UTC", "at": "2026-11-01T00:00:00Z", "inside": false, "why": "equal ends" },
+    { "window": "12:34-12:34", "zone": "UTC", "at": "2026-11-01T12:34:00Z", "inside": false, "why": "equal ends" },
+    { "window": "00:00-23:59", "zone": "UTC", "at": "2026-11-01T23:59:00Z", "inside": false, "why": "the end minute" },
+    { "window": "02:00-03:00", "zone": "America/New_York", "at": "2026-03-08T07:30:00Z", "inside": false, "why": "03:30 EDT: 02:00-03:00 does not exist that night" },
+    { "window": "01:00-02:00", "zone": "America/New_York", "at": "2026-11-01T05:30:00Z", "inside": true, "why": "the first 01:30 (EDT)" },
+    { "window": "01:00-02:00", "zone": "America/New_York", "at": "2026-11-01T06:30:00Z", "inside": true, "why": "the second 01:30 (EST)" },
+    { "window": "03:00-05:00", "zone": "Europe/Berlin", "at": "2026-10-25T01:30:00Z", "inside": false, "why": "02:30 CET, after the clocks went back" },
+    { "window": "03:00-05:00", "zone": "Europe/Berlin", "at": "2026-10-25T02:30:00Z", "inside": true, "why": "03:30 CET" }
+  ]
+}

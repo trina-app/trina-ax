@@ -1,9 +1,13 @@
-# Daily root-level update check (self-install only; hosted tenants are updated by the control plane, spec 3.2.4).
+# Root-level update check (self-install only; hosted tenants are updated by the control plane, spec 3.2.4). Every 15
+# minutes in server time; the job (`mycel-ctl update --scheduled`) goes on only inside the team's update window
+# (Admin > Settings > Update time, in the team's time zone; 03:00-05:00 when empty) and only when no answer runs.
+# Outside the window a check ends at once, without network. Placeholders: only those every released renderer knows (an
+# older mycel-ctl renders this file during `mycel-ctl update`).
 [Unit]
 Description=Team AX root-level update check (@ID@)
 [Timer]
-OnCalendar=*-*-* 04:30:00
-RandomizedDelaySec=90min
+OnCalendar=*-*-* *:00/15:00
+RandomizedDelaySec=5min
 Persistent=true
 Unit=@ID@-update.service
 [Install]

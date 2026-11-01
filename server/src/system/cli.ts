@@ -44,6 +44,10 @@
 //   credentials-escrow-out --recipient age1…     the AI connections' key age-armored to the CP's escrow recipient
 //   hosted-speech-key < { key | null }           the hosting service's speech-to-text key (stdin only), JSON { ok, set }
 //
+// For the root update timer (`mycel-ctl update --scheduled`, native/cmd/mycel-ctl/schedule.go):
+//   update-window                                the team's update window and time zone, one JSON line
+//                                                { window, timeZone, custom } (system/update-job.ts updateWindowAnswer)
+//
 // Run by scripts/install-macos.sh as root with the admin.js of the bundle it installs (no config, explicit paths only):
 //   lan-cert --cert F --key F [--fingerprint F]  make or keep the office TLS certificate (system/lan-cert.ts); JSON
 //   install-state --current V|'' --version V --state F --out F
@@ -64,6 +68,8 @@ import { walkTree } from './manifest'
 import { ageDecrypt, ageEncrypt, isAgeFile, readFileChunks, writeAtomic, zstdCompress, zstdDecompress } from './streams'
 import { extractTar, tarStream, type TarEntryInput } from './tar'
 import { compareVersions, UpdateManager } from './update'
+import { updateWindowAnswer } from './update-job'
+import { getTeamSettings, teamTimeZone } from '../admin/settings'
 import { pruneVersions } from './prune'
 import { feedRootOf, folderFetch, refreshWindowsApp } from './windows-app'
 import { DEFAULT_FEED } from '../office/release'
@@ -325,6 +331,12 @@ export async function main(argv: string[]): Promise<number> {
       try { out(setHostedSpeechKey({ db, secretsDir: layout.secretsDir, config: cfg, log }, input)) } finally { db.close() }
       return 0
     }
+    // the root update timer's window (mycel-ctl update --scheduled): the same window and zone the app's own updater keeps
+    case 'update-window': {
+      const db = openDb(dbFile)
+      try { console.log(JSON.stringify(updateWindowAnswer(getTeamSettings(db), teamTimeZone(db)))) } finally { db.close() }
+      return 0
+    }
     // the engine account's Codex login (server/src/system/codex-login.ts)
     case 'codex-login':
     case 'codex-status':
@@ -347,7 +359,7 @@ export async function main(argv: string[]): Promise<number> {
       return 0
     }
     default:
-      console.error('usage: admin.js backup|list-backups|archive|restore-archive|restore-team|stage-restore|stage-update|switch|rollback|prune-versions|desktop-refresh|codex-login|codex-status|codex-logout|credentials-rekey|drive-rekey|lan-cert|install-state|compare-versions|relay-key|setup-status|setup-token-rotate|cloud-backup|restore-artifacts|restore-verify|cloud-status|reset-link|credentials-escrow-out|hosted-speech-key (see server/src/system/cli.ts)')
+      console.error('usage: admin.js backup|list-backups|archive|restore-archive|restore-team|stage-restore|stage-update|switch|rollback|prune-versions|desktop-refresh|codex-login|codex-status|codex-logout|credentials-rekey|drive-rekey|lan-cert|install-state|compare-versions|relay-key|setup-status|setup-token-rotate|cloud-backup|restore-artifacts|restore-verify|cloud-status|reset-link|credentials-escrow-out|hosted-speech-key|update-window (see server/src/system/cli.ts)')
       return 2
   }
 }

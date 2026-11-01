@@ -45,11 +45,14 @@ type UpdateResult struct {
 var resultCodes = map[string]int{"ok": 0, "rolled_back": 10, "verify_failed": 20, "busy": 30, "error": 1}
 
 // ReleaseFeed is server/src/system/update.ts ReleaseFeed (the signed channel manifest <feed>/server/<channel>.json).
-// A Linux bundle is the entry with os "linux" and the machine's arch. needsRoot: the release changes root files.
+// A Linux bundle is the entry with os "linux" and the machine's arch. needsRoot: the release's root files differ from
+// those of the channel heads it was published over; rootSince (feeds from 0.2.19 on): the oldest release with the
+// same root files as this one (rootNeeded).
 type ReleaseFeed struct {
 	Version     string `json:"version"`
 	MinFrom     string `json:"minFrom"`
 	NeedsRoot   bool   `json:"needsRoot"`
+	RootSince   string `json:"rootSince"`
 	Notes       string `json:"notes"`
 	PublishedAt string `json:"publishedAt"`
 	Bundles     []struct {
@@ -70,11 +73,22 @@ type updater struct {
 	work          string
 	arch          string
 	res           *UpdateResult
+	// scheduled: the update timer's run (--scheduled, schedule.go): wait for a quiet moment until quietBy, and leave
+	// the update for later rather than cut answers off, unless force (the last resort)
+	scheduled bool
+	quietBy   time.Time
+	force     bool
+	busy      int
+	deferred  bool
 	// hooks for tests (default: the real thing)
 	liveTurns  func() (int, error)
 	runAsSrv   func(args []string, env []string) (string, error)
 	restartSrv func() error
+	sleep      func(time.Duration)
 }
+
+// errDeferred: a scheduled run left the update for later (answers kept running); nothing is an error.
+var errDeferred = errors.New("deferred")
 
 // updateTestHook replaces the parts of an update that need a real launcher and server account (tests only).
 var updateTestHook func(u *updater)
@@ -85,6 +99,7 @@ func cmdUpdate(e *env, args []string) (int, error) {
 	version := fs.String("version", "", "update to this version (from the feed; an older one too: a roll-back); default: the channel's newest, only when it is newer than the app that runs")
 	bundleFile := fs.String("bundle", "", "update from this release archive (<v>-linux-<arch>.tar.zst) instead of the feed")
 	onlyRoot := fs.Bool("only-if-needs-root", false, "do nothing unless the release changes root files (the update timer)")
+	scheduled := fs.Bool("scheduled", false, "the update timer: only inside the team's update window (team time zone) and only when no answer runs; waits for a quiet moment instead of interrupting answers")
 	asJSON := fs.Bool("json", false, "JSON output")
 	maxWait := fs.Int("max-wait", 600, "seconds to wait for running turns before replacing root files")
 	healthWait := fs.Int("health-timeout", 180, "seconds to wait for the new version's /api/health")
@@ -95,6 +110,9 @@ func cmdUpdate(e *env, args []string) (int, error) {
 	}
 	if *version != "" && *bundleFile != "" {
 		return 2, usageError{"--version and --bundle exclude each other"}
+	}
+	if *scheduled && (*version != "" || *bundleFile != "") {
+		return 2, usageError{"--scheduled takes the channel's release: not with --version or --bundle"}
 	}
 	if *version != "" && !bundle.ValidVersion(*version) {
 		return 2, usageError{"bad --version"}
@@ -128,25 +146,103 @@ func cmdUpdate(e *env, args []string) (int, error) {
 	if err != nil {
 		return finish(1, err)
 	}
-	unlock, err := lockUpdate(e.root(".update.lock"))
-	if err != nil {
-		res.Result = "busy"
-		return finish(30, err)
-	}
-	defer unlock()
 	u := &updater{e: e, in: in, keys: append(append([]string{}, bundle.ReleaseKeys...), extra...), maxWait: time.Duration(*maxWait) * time.Second,
-		healthTimeout: time.Duration(*healthWait) * time.Second, arch: runtime.GOARCH, res: res}
+		healthTimeout: time.Duration(*healthWait) * time.Second, arch: runtime.GOARCH, res: res, scheduled: *scheduled}
 	u.liveTurns = u.launcherLiveTurns
 	u.runAsSrv = u.runAsServer
 	u.restartSrv = u.restartServer
+	u.sleep = time.Sleep
 	if updateTestHook != nil {
 		updateTestHook(u)
 	}
+	if u.scheduled {
+		// the window and a quiet moment first, without the lock: an administrator's `mycel-ctl update` meanwhile is not
+		// "busy", and nothing is downloaded while answers run
+		if goOn, err := u.gate(*onlyRoot); err != nil || !goOn {
+			if errors.Is(err, errDeferred) {
+				err = nil
+			}
+			if err != nil && res.Result == "ok" {
+				res.Result = "error"
+			}
+			return finish(resultCodes[res.Result], err)
+		}
+	}
+	unlock, err := lockUpdate(e.root(".update.lock"))
+	if err != nil {
+		res.Result = "busy"
+		if u.scheduled {
+			// an administrator's update runs now: the timer has nothing to do
+			res.Result, res.Skipped, res.Detail = "ok", true, "another update is running"
+			return finish(0, nil)
+		}
+		return finish(30, err)
+	}
+	defer unlock()
 	err = u.run(*version, *bundleFile, *onlyRoot)
+	if errors.Is(err, errDeferred) {
+		err = nil
+	}
 	if err != nil && res.Result == "ok" {
 		res.Result = "error"
 	}
+	if u.scheduled && err == nil && res.Result == "ok" && !res.Skipped && !u.deferred {
+		clearDeferred(e)
+	}
 	return finish(resultCodes[res.Result], err)
+}
+
+// gate is the scheduled run's first part (schedule.go): inside the team's window, a release this server needs, and a
+// quiet moment. false: nothing to do now (res says why).
+func (u *updater) gate(onlyRoot bool) (bool, error) {
+	s := u.readSchedule()
+	now := u.e.now().In(s.loc)
+	if !s.w.contains(now) {
+		u.res.Result, u.res.Skipped, u.res.Detail = "ok", true, "outside the update window "+s.String()
+		return false, nil
+	}
+	feed, err := u.fetchFeed("")
+	if err != nil {
+		return false, err
+	}
+	u.res.To = feed.Version
+	root := rootVersion(u.e)
+	why := notNewer(feed.Version, u.res.From, root)
+	if why == "" && onlyRoot && !rootNeeded(feed, root) {
+		why = "release " + feed.Version + " does not change root files"
+	}
+	if why == "" && feed.Version == u.res.From && root == feed.Version {
+		why = "already at " + feed.Version
+	}
+	if why != "" {
+		clearDeferred(u.e)
+		u.res.Result, u.res.Skipped, u.res.Detail = "ok", true, why
+		return false, nil
+	}
+	u.quietBy = s.w.end(now)
+	if lim := now.Add(scheduleRunWait); lim.Before(u.quietBy) {
+		u.quietBy = lim
+	}
+	if d := readDeferred(u.e); d != nil && u.e.now().Sub(d.Since) >= scheduleLastResort {
+		// the last resort: the old wait, then on (answers still running then are interrupted)
+		u.force, u.quietBy = true, u.e.now().Add(u.maxWait)
+		u.res.Notes = append(u.res.Notes, fmt.Sprintf("a root update has waited for a quiet moment since %s: installing after at most %v even with answers running", d.Since.Format(time.RFC3339), u.maxWait))
+	}
+	if u.waitQuiet(u.quietBy) || u.force {
+		return true, nil
+	}
+	return false, u.deferUpdate(feed.Version, "before the download")
+}
+
+// deferUpdate ends a scheduled run that found no quiet moment (nothing changed after `when`): the next check in the
+// window tries again; the first deferral's time is kept for the last resort.
+func (u *updater) deferUpdate(version, when string) error {
+	noteDeferred(u.e, version, u.busy)
+	u.deferred = true
+	u.res.Result, u.res.Skipped = "ok", !u.res.RootUpdated
+	u.res.Detail = fmt.Sprintf("%d running answer(s) did not finish by %s (%s); the update to %s waits for a quiet moment in the update window",
+		u.busy, u.quietBy.Format("15:04 MST"), when, version)
+	return errDeferred
 }
 
 // lockUpdate takes BASE/root/.update.lock (flock); a second update at the same time is "busy".
@@ -181,7 +277,7 @@ func (u *updater) run(version, bundleFile string, onlyRoot bool) error {
 		if err != nil {
 			return err
 		}
-		u.res.To, needsRoot = feed.Version, feed.NeedsRoot
+		u.res.To, needsRoot = feed.Version, rootNeeded(feed, rootVersion(u.e))
 		if version == "" {
 			if why := notNewer(feed.Version, u.res.From, rootVersion(u.e)); why != "" {
 				u.res.Result, u.res.Skipped, u.res.Detail = "ok", true, why
@@ -225,6 +321,24 @@ func (u *updater) run(version, bundleFile string, onlyRoot bool) error {
 		return nil
 	}
 	return u.updateApp(dir, m.Version)
+}
+
+// rootNeeded: does this server need the release's root files? needsRoot says they differ from the releases at the
+// channel heads when it was published, which a server that skipped a release can miss (update audit P4: 0.2.17 root
+// files, a 0.2.18 that changed them, a 0.2.19 that did not: needsRoot false). rootSince names the oldest release with
+// this release's root files, so root/VERSION older than it (or missing, or not a version) needs them too. A feed
+// without rootSince (published before 0.2.19) keeps the old meaning.
+func rootNeeded(f *ReleaseFeed, root string) bool {
+	if f.NeedsRoot {
+		return true
+	}
+	if f.RootSince == "" {
+		return false
+	}
+	if !bundle.ValidVersion(f.RootSince) || root == "" || !bundle.ValidVersion(root) {
+		return true
+	}
+	return compareVersions(root, f.RootSince) < 0
 }
 
 // notNewer says why the channel's newest release (an update without --version: the update timer, a plain
@@ -503,8 +617,17 @@ func (u *updater) updateRoot(dir, v string) error {
 			from[rel] = bsrc
 		}
 	}
+	systemd := u.in.Systemd && fileExists(systemdRunDir)
 	if len(diff) == 0 {
-		return nil
+		// root files already those of v: say so (rootNeeded compares root/VERSION with the feed's rootSince, and a server
+		// whose files are right would otherwise be sent here again by every check)
+		if rv := rootVersion(u.e); rv == "" || compareVersions(rv, v) < 0 {
+			if err := writeRootFile(u.e.root("VERSION"), []byte(v+"\n"), 0o644); err != nil {
+				return err
+			}
+			u.res.Notes = append(u.res.Notes, "root files already match "+v+": root/VERSION is "+v+" now")
+		}
+		return u.syncUnits(systemd, false)
 	}
 	stage := u.e.root(".new")
 	if err := os.RemoveAll(stage); err != nil {
@@ -525,7 +648,9 @@ func (u *updater) updateRoot(dir, v string) error {
 			return fmt.Errorf("copy of root/%s changed", rel)
 		}
 	}
-	u.waitForTurns()
+	if !u.waitForTurns() {
+		return u.deferUpdate(v, "root files not replaced")
+	}
 	units := false
 	for _, rel := range diff {
 		dest := u.e.root(rel)
@@ -549,14 +674,8 @@ func (u *updater) updateRoot(dir, v string) error {
 		return err
 	}
 	u.res.RootUpdated = true
-	systemd := u.in.Systemd && fileExists(systemdRunDir)
-	if units && systemd {
-		if _, _, err := renderUnits(u.in, u.e.root("systemd"), systemdUnitDir); err != nil {
-			return fmt.Errorf("units: %v", err)
-		}
-		if out, err := exec.Command(u.e.systemctl, "daemon-reload").CombinedOutput(); err != nil {
-			return fmt.Errorf("daemon-reload: %v %s", err, out)
-		}
+	if err := u.syncUnits(systemd, units); err != nil {
+		return err
 	}
 	if _, err := firewallApply(u.e); err != nil {
 		return fmt.Errorf("firewall: %v", err)
@@ -567,6 +686,25 @@ func (u *updater) updateRoot(dir, v string) error {
 		}
 	} else {
 		u.res.Notes = append(u.res.Notes, "no systemd: restart `mycel-ctl supervise` to run the new root files")
+	}
+	return nil
+}
+
+// syncUnits renders the units from root/systemd and root/install.json on every update (not only when a template
+// changed), so units an older tool left disagreeing with install.json (--allow-unsigned, update audit P3) are right
+// again; daemon-reload when anything changed (or the templates did).
+func (u *updater) syncUnits(systemd, templates bool) error {
+	if !systemd {
+		return nil
+	}
+	_, changed, err := renderUnits(u.in, u.e.root("systemd"), systemdUnitDir)
+	if err != nil {
+		return fmt.Errorf("units: %v", err)
+	}
+	if changed || templates {
+		if out, err := exec.Command(u.e.systemctl, "daemon-reload").CombinedOutput(); err != nil {
+			return fmt.Errorf("daemon-reload: %v %s", err, out)
+		}
 	}
 	return nil
 }
@@ -606,19 +744,29 @@ func copyFile(src, dest string) error {
 	return cerr
 }
 
-// waitForTurns waits until the launcher runs no turn, at most maxWait. Turns still running then become
-// "interrupted" when the launcher restarts (the server is not told to stop taking turns, spec 3.6.5).
-func (u *updater) waitForTurns() {
-	deadline := time.Now().Add(u.maxWait)
+// waitForTurns waits until the launcher runs no turn before a restart. An administrator's update waits at most
+// maxWait; turns still running then become "interrupted" when the launcher restarts (the server is not told to stop
+// taking turns, spec 3.6.5). A scheduled run waits until quietBy and then gives up (false) instead, unless force.
+func (u *updater) waitForTurns() bool {
+	if !u.scheduled {
+		u.waitQuiet(u.e.now().Add(u.maxWait))
+		return true
+	}
+	return u.waitQuiet(u.quietBy) || u.force
+}
+
+// waitQuiet asks the launcher until it runs no turn (true) or the deadline passes (false; u.busy is the last count).
+func (u *updater) waitQuiet(deadline time.Time) bool {
 	for {
 		n, err := u.liveTurns()
 		if err == nil && n == 0 {
-			return
+			return true
 		}
-		if time.Now().After(deadline) {
-			return
+		u.busy = n
+		if !u.e.now().Before(deadline) {
+			return false
 		}
-		time.Sleep(2 * time.Second)
+		u.sleep(schedulePoll)
 	}
 }
 
@@ -737,6 +885,10 @@ func (u *updater) updateApp(dir, v string) error {
 			return err
 		}
 	}
+	if u.scheduled && !u.waitForTurns() {
+		// root files may be new already; the app (a server restart) waits like the rest
+		return u.deferUpdate(v, "the app not switched yet")
+	}
 	u.res.AppUpdated = true
 	systemd := u.in.Systemd && fileExists(systemdRunDir)
 	sw := []string{"switch", v}
@@ -830,7 +982,14 @@ func (u *updater) runAsServer(args []string, extraEnv []string) (string, error) 
 		return "", err
 	}
 	b := u.in.Base
-	cmd := exec.Command(filepath.Join(b, "app", "current", "bin", "bun"), append([]string{filepath.Join(b, "app", "current", "server", "src", "admin.js")}, args...)...)
+	// a hung admin.js must not hold the update timer's job (TimeoutStartSec): update-window is a settings read
+	limit := 10 * time.Minute
+	if args[0] == "update-window" {
+		limit = 2 * time.Minute
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), limit)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, filepath.Join(b, "app", "current", "bin", "bun"), append([]string{filepath.Join(b, "app", "current", "server", "src", "admin.js")}, args...)...)
 	cmd.Dir = "/"
 	cmd.Env = append([]string{"PATH=/usr/bin:/bin", "HOME=" + filepath.Join(b, "data"), "LANG=C.UTF-8", "MYCEL_MODE=prod",
 		"MYCEL_CONFIG=" + filepath.Join(b, "config", "server.json"), "MYCEL_INSTALL_BASE=" + b, "MYCEL_LABEL=" + u.in.ID}, extraEnv...)

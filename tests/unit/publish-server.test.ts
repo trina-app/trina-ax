@@ -12,10 +12,10 @@ import { productEnv } from '../../shared/src/product'
 import { RELEASE_CHANNEL } from '../../shared/src/release-channel'
 import { silentLogger } from '../../server/src/log'
 import { writeManifest } from '../../server/src/system/bundle'
-import { ReleaseFeed, UpdateManager, verifyBundleDir, verifySignature } from '../../server/src/system/update'
+import { ReleaseFeed, UpdateManager, releaseNeedsRoot, verifyBundleDir, verifySignature } from '../../server/src/system/update'
 import { kitName } from '../../scripts/build-bundle'
 import { signLinuxBuild } from '../../scripts/release/release-ci'
-import { dirStore, publishServer, type LinuxArch, type PublishServerOptions } from '../../scripts/release/publish-server'
+import { dirStore, publishServer, rootSinceOf, type LinuxArch, type PublishServerOptions } from '../../scripts/release/publish-server'
 import { publicKeyOfPem } from '../../scripts/release/sign'
 
 const ROOT = path.resolve(import.meta.dir, '../..')
@@ -175,6 +175,36 @@ describe('publish-server', () => {
     await publishServer(opts(b030, f3, { channel: 'stable' }))
     const safeops = await signedBuilds('b031-safeops', '0.3.1', { server: 'new app', safeops: 'new' })
     expect((await publishServer(opts(safeops, f3, { channel: 'stable', version: '0.3.1' }))).needsRoot).toBe(true)
+  })
+
+  test('rootSince: the oldest release with these root files, so a server that skipped a root release still gets it (update audit P4)', async () => {
+    const feed = path.join(T, 'feed-rs')
+    expect(await publishServer(opts(b030, feed, { channel: 'stable' }))).toMatchObject({ needsRoot: true, rootSince: '0.3.0' })
+    const a031 = await signedBuilds('rs-031', '0.3.1', { server: 'new app' })
+    expect(await publishServer(opts(a031, feed, { channel: 'stable', version: '0.3.1' }))).toMatchObject({ needsRoot: false, rootSince: '0.3.0' })
+    const a032 = await signedBuilds('rs-032', '0.3.2', { server: 'newer app' })
+    expect(await publishServer(opts(a032, feed, { channel: 'stable', version: '0.3.2' }))).toMatchObject({ needsRoot: false, rootSince: '0.3.0' })
+    const r033 = await signedBuilds('rs-033', '0.3.3', { root: 'new launcher' })
+    expect(await publishServer(opts(r033, feed, { channel: 'stable', version: '0.3.3' }))).toMatchObject({ needsRoot: true, rootSince: '0.3.3' })
+    const a034 = await signedBuilds('rs-034', '0.3.4', { root: 'new launcher', server: '0.3.4' })
+    expect(await publishServer(opts(a034, feed, { channel: 'stable', version: '0.3.4' }))).toMatchObject({ needsRoot: false, rootSince: '0.3.3' })
+    // the signed release.json carries it for both readers, and a server that skipped 0.3.3 needs root for 0.3.4
+    const rel = ReleaseFeed.parse(JSON.parse(fs.readFileSync(path.join(feed, 'server', '0.3.4', 'release.json'), 'utf8')))
+    expect(rel).toMatchObject({ needsRoot: false, rootSince: '0.3.3' })
+    expect(ProtocolReleaseFeed.parse(rel).rootSince).toBe('0.3.3')
+    expect(releaseNeedsRoot(rel, '0.3.2')).toBe(true)
+    expect(releaseNeedsRoot(rel, '0.3.3')).toBe(false)
+  })
+
+  test('rootSinceOf: heads from before rootSince, two channels, a forced needsRoot', () => {
+    expect(rootSinceOf('0.2.19', true, [{ version: '0.2.18', needsRoot: false, rootSince: '0.2.10' }])).toBe('0.2.19')
+    expect(rootSinceOf('0.2.19', false, [])).toBe('0.2.19')
+    // every release from 0.2.4 to 0.2.18 needed root: a head without rootSince is its own
+    expect(rootSinceOf('0.2.19', false, [{ version: '0.2.18', needsRoot: true }])).toBe('0.2.18')
+    // a head that did not need root and has no rootSince: unknown, so this version (later than the truth is safe)
+    expect(rootSinceOf('0.2.19', false, [{ version: '0.2.18', needsRoot: false }])).toBe('0.2.19')
+    // both heads share the root files: the newer of their rootSince
+    expect(rootSinceOf('0.2.19', false, [{ version: '0.2.18', needsRoot: false, rootSince: '0.2.16' }, { version: '0.2.19-beta.1', needsRoot: true }])).toBe('0.2.19-beta.1')
   })
 
   test('a head cut off before its signature (a stopped run) is recognised; a changed head is not', async () => {

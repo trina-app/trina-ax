@@ -73,7 +73,9 @@ cd dist/linux && sudo ./install-linux.sh install --from . --allow-unsigned --eng
 Without `--ignore-scripts`, `bun install` runs install scripts with bun's stand-in for `node`
 (`/tmp/bun-node-*/node`); if that points to a bun that was deleted, it stops with `node: command not found`
 (`electron-winstaller` exited with 127). Use `--ignore-scripts` or delete that folder. A self-built kit is unsigned,
-hence `--allow-unsigned`.
+hence `--allow-unsigned`. Repair and update keep that setting: after moving to signed releases, turn it off with
+`sudo mycel-ctl allow-unsigned off` (installer: `--require-signed`). `sudo mycel-ctl status` and Admin › Diagnostics warn
+while it is on.
 
 ## Install
 
@@ -100,7 +102,7 @@ Claude Code on other models (DeepSeek, Kimi, GLM and others through OpenRouter o
 
 ## Upgrade and rollback
 
-Read the [latest release](https://github.com/trina-app/trina-ax/releases/latest) and admin actions, make a full backup plus an encrypted off-host archive, then review diagnostics. The signed Trina feed is `https://updates.trina.app/server/stable.json`. App-only updates can apply during the configured window when no answers are running; root changes require the update timer or `sudo mycel-ctl update`. Check `sudo mycel-ctl status` afterward and test login and a permitted file.
+Read the [latest release](https://github.com/trina-app/trina-ax/releases/latest) and admin actions, make a full backup plus an encrypted off-host archive, then review diagnostics. The signed Trina feed is `https://updates.trina.app/server/stable.json`. App-only updates can apply during the configured window when no answers are running; root changes require the update timer or `sudo mycel-ctl update`. The update timer checks every 15 minutes and installs a root release only inside the team's update window (Admin › Settings › Update time, in the team time zone; 03:00–05:00 when empty) while no answer is running. It waits for a quiet moment instead of interrupting answers (at most an hour per check, then the next check or the next night); after three days without one it installs in the next window after waiting at most 10 minutes. A check outside the window ends at once, without network. A server whose root files (`root/VERSION`) are older than the feed's `rootSince` (the oldest release with the same root files) gets the root update even when `needsRoot` is false, so skipping a root release is safe. `sudo mycel-ctl auto-update off|on` turns automatic updates off or on (the timer and `server.json` `update.auto` together; installer: `--no-auto-update` / `--auto-update`); repair and update keep the timer as it is. `sudo mycel-ctl status` and Admin › Diagnostics warn while automatic updates are off. Check `sudo mycel-ctl status` afterward and test login and a permitted file.
 
 The update timer and `sudo mycel-ctl update` without `--version` install the feed's release only when it is newer than the app that runs, in the same version order as the app's own updater (a server on a pre-release such as 0.2.18-pre.1 skips a 0.2.17 feed and says so); to go back on purpose, give the version: `sudo mycel-ctl update --version <version>` (newer root files stay).
 

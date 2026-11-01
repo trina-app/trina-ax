@@ -1,12 +1,15 @@
-# Root-level update (linux-runtime spec 3.2.4): only works when the feed's next version needs root (launcher, sandbox
-# helper, units); app-only releases are applied by the server itself. Rendered by `mycel-ctl render-units` from <base>/root/systemd/.
+# Root-level update (linux-runtime spec 3.2.4): only works when the feed's release needs root on this server (launcher,
+# sandbox helper, units; root/VERSION older than the feed's rootSince); app-only releases are applied by the server
+# itself. --scheduled: inside the team's update window and when no answer runs; it waits for a quiet moment (at most an
+# hour per run) instead of interrupting answers (native/cmd/mycel-ctl/schedule.go). Rendered by `mycel-ctl
+# render-units` from <base>/root/systemd/.
 [Unit]
 Description=Team AX root-level update (@ID@)
 After=network-online.target
 Wants=network-online.target
 [Service]
 Type=oneshot
-ExecStart=@BASE@/root/mycel-ctl update --base @BASE@ --only-if-needs-root
+ExecStart=@BASE@/root/mycel-ctl update --base @BASE@ --only-if-needs-root --scheduled
 NoNewPrivileges=yes
 PrivateTmp=yes
-TimeoutStartSec=30min
+TimeoutStartSec=2h

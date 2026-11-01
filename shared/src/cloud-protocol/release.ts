@@ -34,6 +34,9 @@ export const ReleaseFeed = z.object({
   // ---- linux runtime (3.6.3) ----
   /** self-hosted servers apply it automatically only when sha256(salt + installId)[0..2] % 100 < percent */
   rollout: z.object({ percent: z.number().int().min(0).max(100), salt: z.string().min(1).max(64) }).optional(),
+  /** the oldest release with this release's root files (needsRoot only compares with the channel heads): an install
+   * whose root files are older than it needs the root update too (feeds from 0.2.19 on) */
+  rootSince: Version.optional(),
   // ---- control plane (3.7.1) ----
   /** SCHEMA_READER_LEVEL of this build (server/src/db.ts) */
   readerLevel: z.number().int().min(1).optional(),

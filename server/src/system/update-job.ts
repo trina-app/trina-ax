@@ -7,7 +7,7 @@ import type { UpdateHistoryEntry } from '@mycel/shared/install'
 import type { BackupManager } from './backup'
 import { enPlural, stepText, tr } from './messages'
 import { zonedParts } from './time-zone'
-import { UpdateError, compareVersions, inRollout, type ReleaseFeed, type UpdateManager } from './update'
+import { UpdateError, compareVersions, inRollout, releaseNeedsRoot, type ReleaseFeed, type UpdateManager } from './update'
 import type { z } from 'zod'
 
 export const UPDATE_WAIT_MS = 10 * 60_000
@@ -48,7 +48,7 @@ export async function runUpdate(d: RunUpdateDeps, target: string, o: { staged: b
     progress(0.3, stepText(d.locale, 'download'))
     const feed = await d.updates.checkFeed()
     if (!feed || feed.version !== target) throw new UpdateError(`version ${target} is not available`)
-    if (feed.needsRoot) throw new UpdateError(`version ${target} also changes root-owned parts: run \`sudo mycel-ctl update\``)
+    if (d.updates.needsRoot(feed)) throw new UpdateError(`version ${target} also changes root-owned parts: run \`sudo mycel-ctl update\``)
     await d.updates.download(feed, (f) => progress(0.3 + 0.5 * f, stepText(d.locale, 'download')))
   }
   // 4) switch and restart; the bootstrap health-checks and rolls back on failure
@@ -61,6 +61,12 @@ export async function runUpdate(d: RunUpdateDeps, target: string, o: { staged: b
 
 // ---------------- automatic updates (Linux self-host, update.auto) ----------------
 type History = z.infer<typeof UpdateHistoryEntry>[]
+
+/** What the root update timer keeps (admin.js update-window, native/cmd/mycel-ctl/schedule.go): the team's window (the
+ * default when empty; an invalid stored one is "00:00-00:00", which never opens) and its zone. */
+export function updateWindowAnswer(s: { updateWindow: string | null }, timeZone: string): { window: string; timeZone: string; custom: boolean } {
+  return { window: s.updateWindow ?? DEFAULT_UPDATE_WINDOW, timeZone, custom: s.updateWindow !== null }
+}
 
 /** "HH:mm-HH:mm" in the team's zone; a window may pass midnight ("23:00-01:00"). */
 export function inWindow(window: string | null, now: Date, tz: string): boolean {
@@ -79,11 +85,13 @@ export type AutoDecision = { go: true; version: string } | { go: false; why: 'no
 export function autoUpdateDecision(o: {
   feed: ReleaseFeed | null; current: string; installId: string; now: Date; tz: string; window: string | null; running: number
   history: History; lastAttempt?: { version: string; at: string } | null
+  /** root/VERSION of this install (releaseNeedsRoot); null = unknown */
+  rootVersion?: string | null
 }): AutoDecision {
   const f = o.feed
   if (!f) return { go: false, why: 'no_feed' }
   if (compareVersions(f.version, o.current) <= 0) return { go: false, why: 'up_to_date' }
-  if (f.needsRoot) return { go: false, why: 'needs_root' }
+  if (releaseNeedsRoot(f, o.rootVersion ?? null)) return { go: false, why: 'needs_root' }
   if (!inRollout(f, o.installId)) return { go: false, why: 'rollout' }
   const recent = (at: string) => o.now.getTime() - Date.parse(at) < AUTO_HOLD_MS
   if (o.history.some((h) => h.to === f.version && h.result !== 'ok' && recent(h.at))) return { go: false, why: 'held' }
