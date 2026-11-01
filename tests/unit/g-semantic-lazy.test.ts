@@ -71,7 +71,7 @@ describe('SemanticIndex.refresh does not load the model when nothing changed', (
     fs.mkdirSync(path.join(root, 'shared'))
     fs.writeFileSync(path.join(root, 'shared', 'a.md'), 'refund policy was decided in the october meeting, ten days')
     let calls = 0
-    const office = { fresh: () => true, update: async () => {}, cachePath: (r: string) => path.join(data, r) } as never
+    const office = { fresh: () => true, waitsForRetry: () => false, update: async () => {}, cachePath: (r: string) => path.join(data, r) } as never
     const idx = new SemanticIndex({ dataDir: data, root, office, embedder: async () => { calls++; return fakeEmbed } })
     await idx.refresh(10_000)
     expect(calls).toBe(1)

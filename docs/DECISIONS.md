@@ -4928,9 +4928,24 @@ under the answer like the Claude app's sources.
     the server process is unchanged. nice does nothing on macOS (a nice 10 process got 0.99 of a normal one's CPU with
     15 busy processes on 10 cores; `-c utility` 0.19 and 1.1 times as long when idle; `-b` 0.01 and 6.6 times, too
     slow). A background converter may wait for the CPU, so its wall-clock limit is 3 times its usual one (its CPU-time
-    limit in the cgroup is not), and a busy server does not leave a document without text. The priority is decided
-    when each converter starts: after a person's grep joined the job, its next converter runs at normal priority; one
-    already running stays low (an unprivileged process cannot raise its priority again).
+    limit in the cgroup is not). The priority is decided when each converter starts: after a person's grep joined the
+    job, its next converter runs at normal priority; one already running stays low (an unprivileged process cannot
+    raise its priority again).
+  - **A converter stopped by a limit leaves no text, and the file is tried again** (0.2.19, `files/search.ts`
+    `OFFICE_RETRY_MAX`, `files/extract.ts ConverterStopped`). Even at 3 times the wall clock a background converter
+    can be stopped on a busy Mac (`-c utility` gets about 0.19 of a normal process's CPU under load: a converter that
+    took 8.9 s in the foreground was killed at the 37.5 s cap). Writing the usual empty text then would mean "no text
+    for this version" until the file changes. A timeout or a signal (the converter cgroup's memory.max, which all
+    converters share; a CPU rlimit) is a `ConverterStopped` (a ToolError with the same message); the per-run memory
+    and output limits and a converter's own error are the file's own and still give an empty text at once. A stopped
+    file is left stale and tried again after 2 minutes, then 8 (factor 4), by whatever comes next (a grep, the queue,
+    the semantic re-index, an upload); until then nobody tries it, and grep and the content search count it as
+    `retryLater`. A retry runs its converters at normal priority with the normal limits, so the final word comes from
+    a run like 0.2.18's; a part a converter was stopped on (docx headers, pptx notes) fails the whole text except in
+    the last try (`Tools.stoppedPartFails`), so a busy moment does not keep a "not read" line either. After 3 stopped
+    tries the empty text is kept. The retries are in memory (at most 10,000 files): a restart tries such a file again,
+    which is cheap. The semantic index does not record a file that waits (it would keep it without pieces until the
+    file changes) and drops the pieces of its older version meanwhile, as grep never shows an older version's text.
 - **Search pieces** stop at a page, slide, sheet or section and keep their place (`chunkDoc`; `semantic.db` gets
   `chunks.loc` and `files.format`, added in place: an older server ignores both). A sheet piece's place is the A1
   range of its rows. Structure lines (`=== Slide 3 ===`, `# sheet: …`, `# row 9`) are not part of a piece's text.

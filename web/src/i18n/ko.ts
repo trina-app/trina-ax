@@ -490,6 +490,7 @@ export const ko = {
   'files.search.timedOut': '시간 제한으로 검색을 멈췄어요. 빠진 결과가 있을 수 있어요.',
   'files.search.indexing': '오피스 문서 {n}개를 색인하는 중이에요. 아직 검색하지 않았어요.',
   'files.search.notQueued': '오피스 문서 {n}개는 아직 검색하지도 색인하지도 않았어요. 기다리는 문서가 너무 많아요. 나중에 다시 검색해 주세요.',
+  'files.search.retryLater': '오피스 문서 {n}개는 검색하지 않았어요. 서버가 바쁘거나 파일이 아주 복잡해서 글자를 읽는 데 너무 오래 걸렸어요. 몇 분 뒤에 다시 검색해 주세요.',
   'files.search.longSkipped': '아주 긴 줄 {n}개는 건너뛰었어요.',
   'files.breadcrumb': '현재 위치',
   'files.upload': '올리기',

@@ -471,6 +471,7 @@ export const es: Record<MessageKey, string> = {
   'files.search.timedOut': "La búsqueda se detuvo al alcanzar el límite de tiempo. Pueden faltar algunos resultados.",
   'files.search.indexing': "Se está indexando {n, plural, one {# documento de Office} other {# documentos de Office}}. Aún no se han buscado.",
   'files.search.notQueued': "{n, plural, one {# documento de Office sigue sin buscarse ni indexarse} other {# documentos de Office siguen sin buscarse ni indexarse}}: hay demasiados en espera. Vuelva a buscar más tarde.",
+  'files.search.retryLater': "{n, plural, one {# documento de Office no se buscó} other {# documentos de Office no se buscaron}}: leer su texto tardó demasiado (un servidor ocupado o un archivo muy complejo). Vuelva a buscar en unos minutos.",
   'files.search.longSkipped': "Se {n, plural, one {omitió # línea muy larga} other {omitieron # líneas muy largas}}.",
   'files.breadcrumb': "Ubicación actual",
   'files.upload': "Subir",

@@ -8,7 +8,7 @@ import { atLeast, type Principal, type RuleSet } from '../policy/access'
 import { visiblePath, type FsCtx } from '../policy/authorize'
 import { ToolError } from '../policy/errors'
 import { walk } from '../policy/resolve'
-import { extractText, isOffice, OFFICE_EXT, type Tools } from './extract'
+import { ConverterStopped, extractText, isOffice, OFFICE_EXT, type Tools } from './extract'
 import { inBackground } from '../tools/isolate'
 import { readRegular, sha256 } from './store'
 import { readMaxBytes, rgThreads } from '../system/limits'
@@ -177,6 +177,24 @@ export const OFFICE_QUEUE_PER_OWNER = 200
  * person's owner key is 'user:' + id, so no user id can be the same key */
 export const OFFICE_SYSTEM_OWNER = 'system'
 
+/**
+ * A file whose converters a limit stopped (files/extract.ts ConverterStopped: the wall clock, a kill by the converter
+ * cgroup or a CPU rlimit) gets no text: on a busy server that can pass (a background converter waits for the CPU
+ * behind people's work), and an empty text would stand for "no text" until the file changes. Its version is left
+ * stale and tried again after OFFICE_RETRY_FIRST_MS, then OFFICE_RETRY_FACTOR times as long after each stop; until
+ * then no search tries it (grep counts it in `retryLater`). A retry's converters run at normal priority with the
+ * normal limits (the background allowance is for the first try), and a part a converter was stopped on fails the
+ * whole text (Tools.stoppedPartFails) except in the last try. After OFFICE_RETRY_MAX stopped tries an empty text is
+ * kept for that version, as for any file that has no text. Kept in memory: a restart tries such a file again.
+ */
+export const OFFICE_RETRY_MAX = 3
+export const OFFICE_RETRY_FIRST_MS = 2 * 60_000
+const OFFICE_RETRY_FACTOR = 4
+/** the most files whose retry is remembered; the oldest is forgotten (it is then tried as a new file) */
+const OFFICE_RETRY_TRACKED_MAX = 10_000
+/** the version of a file a retry is for: a changed file is a new file */
+const retryVersion = (st: fs.Stats) => `${st.dev}:${st.ino}:${Math.floor(st.mtimeMs)}:${st.size}`
+
 /** one extraction job: it waits with low priority until a foreground caller needs the same file */
 interface ExtractTicket { low: boolean; wake?: () => void }
 
@@ -207,6 +225,8 @@ export class OfficeCache {
   private queue = new Map<string, Map<string, number>>()
   private owners = new Map<string, string>()
   private worker: Promise<void> | null = null
+  /** files whose converters a limit stopped (OFFICE_RETRY_MAX): the version, the stopped tries, the next try's time */
+  private retries = new Map<string, { version: string; tries: number; next: number }>()
   constructor(readonly dir: string, private fx: FsCtx, private tools: Tools) {
     fs.mkdirSync(dir, { recursive: true, mode: 0o700 })
     // text of an older format is removed; an empty cache gets the version file only with its first text (a fresh
@@ -254,8 +274,28 @@ export class OfficeCache {
     }
     try { return Math.floor(fs.statSync(this.cachePath(rel)).mtimeMs) === Math.floor(st.mtimeMs) } catch { return false }
   }
-  /** the text of one file (a test can replace it) */
-  protected extract(rel: string, bytes: Buffer): Promise<string> { return extractText(rel, bytes, this.tools) }
+  /** the text of one file (a test can replace it); `lastTry`: a part a converter was stopped on gives a labelled line
+   * (as for a read) instead of failing the text */
+  protected extract(rel: string, bytes: Buffer, o: { lastTry?: boolean } = {}): Promise<string> {
+    return extractText(rel, bytes, { ...this.tools, stoppedPartFails: !o.lastTry })
+  }
+  /** the clock of the retries (a test can replace it) */
+  protected now(): number { return Date.now() }
+  /** the retry of this version of rel, if its converters were stopped (OFFICE_RETRY_MAX) */
+  private retryOf(rel: string, st: fs.Stats) {
+    const r = this.retries.get(rel)
+    return r && r.version === retryVersion(st) ? r : undefined
+  }
+  /** this version of rel waits for its retry: its converters were stopped by a limit a short while ago */
+  waitsForRetry(rel: string, st: fs.Stats): boolean {
+    const r = this.retryOf(rel, st)
+    return !!r && this.now() < r.next
+  }
+  private noteStopped(rel: string, st: fs.Stats, tries: number) {
+    this.retries.delete(rel)
+    if (this.retries.size >= OFFICE_RETRY_TRACKED_MAX) this.retries.delete(this.retries.keys().next().value!)
+    this.retries.set(rel, { version: retryVersion(st), tries, next: this.now() + OFFICE_RETRY_FIRST_MS * OFFICE_RETRY_FACTOR ** (tries - 1) })
+  }
   private async slot<T>(f: () => Promise<T>, t: ExtractTicket): Promise<T> {
     // a low job also waits while a foreground job waits, so a freed slot goes to the foreground first
     while (this.active >= OFFICE_EXTRACT_PARALLEL || (t.low && this.waitingHigh.length)) {
@@ -316,7 +356,8 @@ export class OfficeCache {
    * (Re)extract one file unless its text is fresh; content is read through the checked fd. When the file cannot be
    * read (too large, no access, not a regular file), its old text is removed: an empty text with the file's mtime
    * stands for "no text for this version", so the next search does not try it again until the file changes. When the
-   * file is gone, its text is deleted.
+   * file is gone, its text is deleted. A converter that a limit stopped leaves the file stale for a later retry
+   * (OFFICE_RETRY_MAX).
    */
   update(rel: string, o: { background?: boolean; upgrade?: boolean } = {}): Promise<void> {
     const running = this.inflight.get(rel)
@@ -325,11 +366,15 @@ export class OfficeCache {
     const job = this.slot(async () => {
       const abs = path.join(this.fx.root, ...rel.split('/'))
       let lst: fs.Stats
-      try { lst = fs.lstatSync(abs) } catch { fs.rmSync(this.cachePath(rel), { force: true }); return }
-      if (this.fx.quarantine?.hasFile(abs)) { fs.rmSync(this.cachePath(rel), {force:true}); return }
+      try { lst = fs.lstatSync(abs) } catch { this.retries.delete(rel); fs.rmSync(this.cachePath(rel), { force: true }); return }
+      if (this.fx.quarantine?.hasFile(abs)) { this.retries.delete(rel); fs.rmSync(this.cachePath(rel), {force:true}); return }
       // `upgrade`: text kept from an older format is made again too
       const kept = this.fresh(rel, lst)
       if (kept && (!o.upgrade || this.current(rel))) return
+      // converters stopped by a limit a short while ago: not again before the retry's time
+      const retry = this.retryOf(rel, lst)
+      if (retry && this.now() < retry.next) return
+      const lastTry = (retry?.tries ?? 0) + 1 >= OFFICE_RETRY_MAX
       let got: { bytes: Buffer; st: fs.Stats }
       try { got = readRegular(abs, Math.min(50 * 1024 * 1024, readMaxBytes())) } catch (e) {
         try { if (lst.isFile()) this.write(rel, '', lst); else fs.rmSync(this.cachePath(rel), { force: true }) } catch { fs.rmSync(this.cachePath(rel), { force: true }) }
@@ -345,13 +390,16 @@ export class OfficeCache {
         if (!input) { fs.rmSync(this.cachePath(rel), { force: true }); return }
         let text: string
         // a background job's converters run below interactive work (tools/isolate.ts backgroundPrefix) while no
-        // foreground caller has joined it
-        try { text = await inBackground(() => ticket.low, () => this.extract(rel, input.bytes)) } catch {
+        // foreground caller has joined it; a retry's run at normal priority
+        try { text = await inBackground(() => ticket.low && !retry, () => this.extract(rel, input.bytes, { lastTry })) } catch (e) {
           // an upgrade that fails (a timeout on a busy server, the converters' memory limit) keeps the older text of
           // these very bytes: grep goes on with it, and the next start tries again
           if (kept && this.provenance(rel)?.source === sha256(input.bytes)) return
+          // stopped by a limit: no text yet, tried again later (up to OFFICE_RETRY_MAX tries)
+          if (e instanceof ConverterStopped && !lastTry) { this.noteStopped(rel, input.st, (retry?.tries ?? 0) + 1); return }
           text = ''
         }
+        this.retries.delete(rel)
         this.write(rel, text, input.st, sha256(input.bytes))
       } finally { admission.close() }
     }, ticket).finally(() => this.inflight.delete(rel))
@@ -456,17 +504,21 @@ export class OfficeCache {
    * Make sure cached text exists for the office files under the roots. Extracts at most `budget` now and waits for
    * them until `deadline`; the rest (and those still running at the deadline) go on in the background. `pending` is
    * the number of files whose text was not ready at the answer and that wait or are being extracted; `notQueued` is
-   * the number of the other stale files (the queue did not take them; a later search adds them).
+   * the number of the other stale files (the queue did not take them; a later search adds them); `retryLater` the
+   * number of those whose converters a limit stopped (OFFICE_RETRY_MAX): they are not tried before their retry time.
    */
-  async refresh(rg: string, roots: string[], excludes: string[], filter: (rel: string) => fs.Stats | null, o: OfficeRefreshOpts = {}): Promise<{ pending: number; notQueued: number; timedOut: boolean }> {
-    if (!roots.length) return { pending: 0, notQueued: 0, timedOut: false }
+  async refresh(rg: string, roots: string[], excludes: string[], filter: (rel: string) => fs.Stats | null, o: OfficeRefreshOpts = {}): Promise<{ pending: number; notQueued: number; retryLater: number; timedOut: boolean }> {
+    if (!roots.length) return { pending: 0, notQueued: 0, retryLater: 0, timedOut: false }
     const budget = o.budget ?? 40
     const stale: string[] = []
-    const mtimes = new Map<string, number>()
+    const stats = new Map<string, fs.Stats>()
+    let retryLater = 0
     const listTimeout = Math.max(1, Math.min(o.listTimeoutMs ?? 60000, o.deadline ? o.deadline - Date.now() : Infinity))
     const listed = await runRg(rg, ['--files', '--null', ...RG_BASE, '--glob-case-insensitive', '--glob', OFFICE_GLOB, ...excludeArgs(excludes), '--', ...roots], this.fx.root, '\0', (r) => {
       const rel = strip(r); if (!isOffice(rel)) return
-      const st = filter(rel); if (st && !this.fresh(rel, st)) { stale.push(rel); mtimes.set(rel, Math.floor(st.mtimeMs)) }
+      const st = filter(rel); if (!st || this.fresh(rel, st)) return
+      if (this.waitsForRetry(rel, st)) { retryLater++; return }
+      stale.push(rel); stats.set(rel, st)
     }, listTimeout, { signal: o.signal })
     let timedOut = listed.killed === 'timeout'
     const now = stale.slice(0, budget)
@@ -491,9 +543,11 @@ export class OfficeCache {
         unfinished = batch.length
         break
       }
+      // a file of the batch whose converters a limit stopped waits for its retry
+      for (const r of batch) if (this.waitsForRetry(r, stats.get(r)!)) retryLater++
     }
-    const queued = later.length ? this.enqueue(later.map((rel) => ({ rel, mtime: mtimes.get(rel)! })), o.owner !== undefined ? 'user:' + o.owner : OFFICE_SYSTEM_OWNER) : 0
-    return { pending: queued + unfinished, notQueued: later.length - queued, timedOut }
+    const queued = later.length ? this.enqueue(later.map((rel) => ({ rel, mtime: Math.floor(stats.get(rel)!.mtimeMs) })), o.owner !== undefined ? 'user:' + o.owner : OFFICE_SYSTEM_OWNER) : 0
+    return { pending: queued + unfinished, notQueued: later.length - queued, retryLater, timedOut }
   }
 }
 
@@ -562,7 +616,7 @@ export interface GrepHit { path: string; line: number; text: string; loc?: Sourc
 
 export async function grepFiles(d: SearchDeps, baseSegs: string[], baseIsFile: boolean, o: GrepOpts) {
   const { roots, excludes } = rootsFor(d, baseSegs, baseIsFile)
-  const stats = { roots: roots.length, excludes: excludes.length, filtered: 0, officePending: 0, officeNotQueued: 0, longSkipped: 0 }
+  const stats = { roots: roots.length, excludes: excludes.length, filtered: 0, officePending: 0, officeNotQueued: 0, officeRetryLater: 0, longSkipped: 0 }
   const hits: GrepHit[] = []
   if (!roots.length) return { text: 'No matches', truncated: false, timedOut: false, stats, files: new Set<string>(), hits }
   // user glob: basename-only globs go to ripgrep; globs with "/" are matched here against the result path
@@ -740,6 +794,7 @@ export async function grepFiles(d: SearchDeps, baseSegs: string[], baseIsFile: b
       { budget: o.officeBudget ?? 40, signal: o.signal, owner: o.officeOwner, ...(o.strictTime ? { deadline } : {}) })
     stats.officePending = ref.pending
     stats.officeNotQueued = ref.notQueued
+    stats.officeRetryLater = ref.retryLater
     if (ref.timedOut && o.strictTime) timedOut = true
     const croots = roots.map((r) => (isOffice(r) ? r + '.txt' : r)).filter((r) => fs.existsSync(path.join(d.office.dir, r)))
     const lastLeft = o.strictTime ? deadline - Date.now() : d.timeoutMs
@@ -791,6 +846,7 @@ export async function grepFiles(d: SearchDeps, baseSegs: string[], baseIsFile: b
   else if (truncated) text += `\n... (results cut at ${o.limit}; narrow the search)`
   if (stats.officePending) text += `\n(${stats.officePending} office documents are still being indexed; search again in a minute for complete results)`
   if (stats.officeNotQueued) text += `\n(${stats.officeNotQueued} office documents were not searched; they are not in the index queue yet; search again later)`
+  if (stats.officeRetryLater) text += `\n(${stats.officeRetryLater} office documents were not searched: reading their text took too long (a busy server or a very complex file); search again in a few minutes)`
   if (stats.longSkipped) text += `\n(${stats.longSkipped} very long lines were skipped (ripgrep record over ${RG_MAX_RECORD_CHARS / 1024} K characters))`
   return { text, truncated, timedOut, stats, files, hits }
   } finally {

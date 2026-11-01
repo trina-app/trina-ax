@@ -26,7 +26,7 @@ put('.system/trash/old.md', '진료 예약 휴지통')
 put('shared/photo.png', 'not indexed')
 
 let embeds = 0
-const office = { fresh: () => true, update: async () => {}, cachePath: (r: string) => path.join(data, 'textcache', r + '.txt') } as never
+const office = { fresh: () => true, waitsForRetry: () => false, update: async () => {}, cachePath: (r: string) => path.join(data, 'textcache', r + '.txt') } as never
 const idx = new SemanticIndex({ dataDir: data, root, office, embedder: async () => async (t, k) => { embeds += t.length; return fakeEmbed(t, k) } })
 
 describe('chunkText', () => {

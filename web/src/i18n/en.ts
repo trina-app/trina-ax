@@ -491,6 +491,7 @@ export const en: Record<MessageKey, string> = {
   'files.search.timedOut': 'The search stopped at the time limit. Some results can be missing.',
   'files.search.indexing': 'Indexing {n, plural, one {# office document} other {# office documents}}. Not searched yet.',
   'files.search.notQueued': '{n, plural, one {# office document} other {# office documents}} not searched and not indexed yet: too many wait. Search again later.',
+  'files.search.retryLater': '{n, plural, one {# office document was} other {# office documents were}} not searched: reading the text took too long (a busy server or a very complex file). Search again in a few minutes.',
   'files.search.longSkipped': '{n, plural, one {# very long line was} other {# very long lines were}} skipped.',
   'files.breadcrumb': 'Current location',
   'files.upload': 'Upload',

@@ -257,7 +257,8 @@ export class SemanticIndex {
     return found
   }
 
-  private async textOf(rel: string, admission: SearchAdmission, background = false): Promise<{text: string; hash: string}> {
+  /** `retry`: an office file whose converters a limit stopped (files/search.ts OFFICE_RETRY_MAX); it has no text yet */
+  private async textOf(rel: string, admission: SearchAdmission, background = false): Promise<{text: string; hash: string; retry?: boolean}> {
     const abs = path.join(this.o.root, rel)
     const input = admission.read(abs, () => {
       if (this.o.quarantine?.hasFile(abs)) return false
@@ -269,7 +270,7 @@ export class SemanticIndex {
       // a background run (the re-index after an update) extracts with low priority: a search's own extraction first
       // text kept from an older cache format (OfficeCache.upgradeOld) is made again first: the pieces need its marks
       if (!this.o.office.fresh(rel, input.st) || !this.o.office.current(rel)) await this.o.office.update(rel, { background, upgrade: true })
-      if (!this.o.office.fresh(rel, input.st)) return {text:'',hash}
+      if (!this.o.office.fresh(rel, input.st)) return {text:'',hash,retry:this.o.office.waitsForRetry(rel, input.st)}
       const text = this.o.office.admittedText(rel, input.bytes, admission)
       return {text: text ? text.bytes.toString('utf8').slice(0, FILE_TEXT_MAX) : '', hash}
     }
@@ -315,8 +316,18 @@ export class SemanticIndex {
     const known = new Map((this.db.query('SELECT path, mtime, size, format FROM files').all() as { path: string; mtime: number; size: number; format: number }[]).map((r) => [r.path, r]))
     let changed = false
     for (const p of known.keys()) if (!now.has(p)) { this.drop(p); changed = true }
-    const stale = [...now].filter(([p, st]) => { const k = known.get(p); return !k || k.mtime !== Math.floor(st.mtimeMs) || k.size !== st.size })
-    const older = [...now].filter(([p, st]) => { const k = known.get(p); return !!k && k.mtime === Math.floor(st.mtimeMs) && k.size === st.size && k.format < CHUNK_FORMAT })
+    // an office file whose converters a limit stopped waits for its retry time (files/search.ts OFFICE_RETRY_MAX): a
+    // later run takes it then
+    const waits = (p: string, st: fs.Stats) => isOffice(p) && this.o.office.waitsForRetry(p, st)
+    const stale = [...now].filter(([p, st]) => {
+      const k = known.get(p)
+      if (k && k.mtime === Math.floor(st.mtimeMs) && k.size === st.size) return false
+      if (!waits(p, st)) return true
+      // the pieces of its older version go meanwhile (they are not the file's text any more)
+      if (k) { this.drop(p); changed = true }
+      return false
+    })
+    const older = [...now].filter(([p, st]) => { const k = known.get(p); return !!k && k.mtime === Math.floor(st.mtimeMs) && k.size === st.size && k.format < CHUNK_FORMAT && !waits(p, st) })
     const result = (doneStale: number, doneOlder: number): RefreshResult => ({ pending: stale.length - doneStale, upgrading: older.length - doneOlder })
     if (!stale.length && !(background && older.length)) { if (changed) this.cache = null; return result(0, 0) }
     const embed = await this.o.embedder()
@@ -333,7 +344,10 @@ export class SemanticIndex {
       if (Date.now() > until || yieldNow()) break
       const admission = new SearchAdmission(this.o.quarantine)
       try {
-      const input = await this.textOf(p, admission, background).catch(() => ({text:'',hash:''}))
+      const input = await this.textOf(p, admission, background).catch(() => ({text:'',hash:'',retry:false}))
+      // no text yet, but not "no text": the file is not recorded, so a later run takes it again; the pieces of an
+      // older version go, those of this version in an older format stay until then
+      if (input.retry) { if (!upgrade && known.has(p)) { this.drop(p); changed = true }; continue }
       const pieces = chunkDoc(input.text, p).slice(0, CHUNKS_PER_FILE_MAX)
       const vecs: Float32Array[] = []
       let cut = false

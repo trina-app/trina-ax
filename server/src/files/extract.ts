@@ -28,7 +28,19 @@ export interface Tools {
   /** a read for the AI (drive_read): never OCR. A PDF gives its text layer only (pdftotext, else PDFKit through
    * `mycel-ocr --layer` on a Mac without poppler); an image is no text at all (the caller shows it as an image). */
   textLayerOnly?: boolean
+  /** the text cache (files/search.ts OfficeCache): a part that a converter was stopped on (ConverterStopped: the
+   * headers, footers and comments of a .docx, the notes and charts of a .pptx) fails the whole text, so the file is
+   * tried again later, instead of a labelled line that says the part was not read */
+  stoppedPartFails?: boolean
 }
+
+/**
+ * A converter that a limit of its run stopped: the wall clock, or a signal (the converter cgroup's memory.max, which
+ * all converters share, a CPU rlimit). On a busy server that can pass, so the text cache keeps no text for the file
+ * and tries it again later (files/search.ts OfficeCache). Its message is the one the person or the AI sees, as before.
+ * The memory and output limits of one run are the file's own size and stay plain ToolErrors.
+ */
+export class ConverterStopped extends ToolError {}
 
 /** Images the macOS OCR tool reads (only for a read when image viewing is off: grep's text cache keeps to documents, an
  * image folder would mean minutes). */
@@ -51,7 +63,9 @@ function ocr(bin: string, bytes: Uint8Array, pdf: boolean, signal?: AbortSignal)
 async function pipeThrough(cmd: string[], input: Uint8Array, timeoutMs = 20000, signal?: AbortSignal, readPaths?: string[]): Promise<string> {
   const r = await runIsolated({ cmd: cmd[0]!, args: cmd.slice(1), stdin: input, timeoutMs, signal, maxStdout: 32 * 1024 * 1024, env: { LANG: 'C.UTF-8', LC_ALL: 'C.UTF-8' }, ...(readPaths ? { readPaths } : {}) })
   const name = cmd[0]!.split('/').pop()
-  if (r.killed === 'timeout') throw new ToolError(`could not convert the file to text (${name}: took too long)`)
+  if (r.killed === 'timeout') throw new ConverterStopped(`could not convert the file to text (${name}: took too long)`)
+  // a signal: killed by the converter cgroup (memory.max) or a CPU rlimit (runIsolated gives 128 + the signal)
+  if (r.code !== null && r.code >= 128) throw new ConverterStopped(`could not convert the file to text (${name}: ${r.stderr.trim().slice(0, 200) || 'exit ' + r.code})`)
   if (r.code !== 0) throw new ToolError(`could not convert the file to text (${name}: ${r.stderr.trim().slice(0, 200) || 'exit ' + r.code})`)
   return r.stdout.toString('utf8')
 }
@@ -110,12 +124,14 @@ export async function officeWorkerText(e: string, bytes: Uint8Array, signal?: Ab
       env: { BUN_RUNTIME_TRANSPILER_CACHE_PATH: '0', NO_COLOR: '1' },
     })
     if (r.killed === 'aborted') signal?.throwIfAborted()
-    if (r.killed === 'timeout') throw tooComplex(`reading it took longer than ${OFFICE_WORKER_TIMEOUT_MS / 1000} s`)
+    if (r.killed === 'timeout') throw new ConverterStopped(tooComplex(`reading it took longer than ${OFFICE_WORKER_TIMEOUT_MS / 1000} s`).message)
     if (r.killed === 'memory') throw tooComplex(`reading it needed more than ${OFFICE_WORKER_RSS_MIB} MB of memory`)
     if (r.killed === 'output') throw tooComplex(`more than ${OFFICE_TEXT_MAX / 1024 / 1024} MB of text`)
     if (r.code === TOOL_ERROR_EXIT) throw new ToolError(r.stderr.trim().slice(0, 500))
-    // killed by the converter cgroup (memory.max) or a CPU rlimit: a signal, no exit code
-    if (r.code === null || r.code >= 128) throw tooComplex('the reader ran out of memory or time')
+    // stopped by runIsolated for another reason (its work folder replaced)
+    if (r.code === null) throw tooComplex('the reader ran out of memory or time')
+    // killed by the converter cgroup (memory.max) or a CPU rlimit: a signal (128 + the signal)
+    if (r.code >= 128) throw new ConverterStopped(tooComplex('the reader ran out of memory or time').message)
     if (r.code !== 0) throw new ToolError(`could not convert the file to text (office reader: ${r.stderr.trim().split('\n')[0]?.slice(0, 200) || 'exit ' + r.code})`)
     return r.stdout.toString('utf8')
   })
@@ -135,7 +151,7 @@ export async function extractText(name: string, bytes: Uint8Array, tools: Tools,
       // extra text below are at the start of a line; then the slide and heading marks (pandocMarks) become labels
       const body = pandocBody(tools.pandoc, e, bytes, signal)
       if (e === 'odt') return body
-      const [text, extra] = await Promise.all([body, extraText(e, bytes, signal)])
+      const [text, extra] = await Promise.all([body, extraText(e, bytes, signal, tools.stoppedPartFails)])
       return extra ? `${text.trimEnd()}\n\n${extra}\n` : text
     }
     case 'xlsx': case 'xls': case 'ods': case 'hwp': case 'hwpx':
@@ -239,13 +255,14 @@ const EXTRA_WHAT = { docx: 'headers, footers and comments', pptx: 'speaker notes
 /**
  * The parts of a .docx / .pptx that pandoc drops, from the office worker. When they cannot be read, a labelled line
  * says so (the AI must not guess them); pandoc's body text is still given. Under the same size limit as the other
- * worker formats.
+ * worker formats. `stoppedFails` (Tools.stoppedPartFails): a worker that a limit stopped fails the whole text instead.
  */
-async function extraText(e: 'docx' | 'pptx', bytes: Uint8Array, signal?: AbortSignal): Promise<string> {
+async function extraText(e: 'docx' | 'pptx', bytes: Uint8Array, signal?: AbortSignal, stoppedFails = false): Promise<string> {
   const notRead = (why: string) => `${SECTION_MARK}The ${EXTRA_WHAT[e]} of this file were not read (${why}) ===`
   if (bytes.byteLength > inProcessParseMax()) return notRead('the file is over 32 MB')
   try { return (await officeWorkerText(`${e}-extra`, bytes, signal)).trim() } catch (err) {
     signal?.throwIfAborted()
+    if (stoppedFails && err instanceof ConverterStopped) throw err
     return notRead(err instanceof ToolError ? err.message.slice(0, 300) : 'the reader failed')
   }
 }

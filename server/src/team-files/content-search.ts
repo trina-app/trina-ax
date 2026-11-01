@@ -106,6 +106,6 @@ export async function searchFileContents(files: TeamFiles, userId: string, q: st
     const items = res.hits
       .map((h) => ({ path: h.path, name: h.path.slice(h.path.lastIndexOf('/') + 1), line: h.line, snippet: snippetOf(h.text, query) }))
       .sort((x, y) => x.path.localeCompare(y.path) || x.line - y.line)
-    return { items, truncated: res.truncated && !res.timedOut, timedOut: res.timedOut, indexing: res.stats.officePending, notQueued: res.stats.officeNotQueued, longSkipped: res.stats.longSkipped }
+    return { items, truncated: res.truncated && !res.timedOut, timedOut: res.timedOut, indexing: res.stats.officePending, notQueued: res.stats.officeNotQueued, retryLater: res.stats.officeRetryLater, longSkipped: res.stats.longSkipped }
   } finally { done() }
 }

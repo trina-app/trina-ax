@@ -150,7 +150,7 @@ describe('query handling', () => {
     fs.utimesSync(abs, new Date(), new Date(Date.now() + 60_000))
     const office = h.ctx.files.office
     const real = office.refresh.bind(office)
-    office.refresh = (async () => ({ pending: 1, notQueued: 0, timedOut: false })) as typeof office.refresh
+    office.refresh = (async () => ({ pending: 1, notQueued: 0, retryLater: 0, timedOut: false })) as typeof office.refresh
     try {
       const r = await search('alice', 'QA-XLSX-MARK-3141', '&path=shared')
       expect(r.items).toEqual([])
@@ -234,7 +234,7 @@ describe('limits', () => {
     const gate = new Promise<void>((r) => { release = r })
     let entered!: () => void
     const inRefresh = new Promise<void>((r) => { entered = r })
-    office.refresh = (async () => { entered(); await gate; return { pending: 0, notQueued: 0, timedOut: false } }) as typeof office.refresh
+    office.refresh = (async () => { entered(); await gate; return { pending: 0, notQueued: 0, retryLater: 0, timedOut: false } }) as typeof office.refresh
     try {
       const first = raw('alice', 'QA-STOPPED-4410', '&path=shared%2Ffs-stopped')
       await inRefresh

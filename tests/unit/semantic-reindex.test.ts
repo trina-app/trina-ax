@@ -25,6 +25,9 @@ function setup(name: string) {
   const extracted: { rel: string; background: boolean }[] = []
   /** documents whose cached text is of an older format (the text cache was emptied by the update) */
   const stale = new Set<string>()
+  /** documents whose next extraction a limit stops (files/search.ts OFFICE_RETRY_MAX), and those that wait for a retry */
+  const stops = new Set<string>()
+  const waits = new Set<string>()
   const put = (rel: string, bytes: string, text: string | null, mtime: number) => {
     const abs = path.join(root, rel)
     fs.mkdirSync(path.dirname(abs), { recursive: true })
@@ -35,11 +38,15 @@ function setup(name: string) {
   const office = {
     fresh: (rel: string) => !stale.has(rel),
     current: (rel: string) => !stale.has(rel),
-    update: async (rel: string, o: { background?: boolean } = {}) => { extracted.push({ rel, background: !!o.background }); stale.delete(rel) },
+    update: async (rel: string, o: { background?: boolean } = {}) => {
+      extracted.push({ rel, background: !!o.background })
+      if (stops.delete(rel)) waits.add(rel); else stale.delete(rel)
+    },
+    waitsForRetry: (rel: string) => waits.has(rel),
     admittedText: (rel: string) => (texts.has(rel) ? { bytes: Buffer.from(texts.get(rel)!) } : null),
     cachePath: (rel: string) => path.join(data, 'textcache', rel + '.txt'),
   } as never
-  return { root, data, texts, extracted, stale, put, office }
+  return { root, data, texts, extracted, stale, stops, waits, put, office }
 }
 
 const pages = (n: number, word: string) => Array.from({ length: n }, (_, i) => `${word} page ${i + 1} ${'내용 '.repeat(20)}`).join('\n\f')
@@ -153,6 +160,51 @@ describe('the re-index goes on after a restart and gives way to searches', () =>
     expect((await idx.query('출장 규정 FRESH-NOTE', () => true))?.[0]?.path).toBe('shared/fresh.md')
     delay = 0
     expect((await idx.refresh(60_000, { background: true })).upgrading).toBe(0)
+    idx.db.close()
+  })
+})
+
+describe('a document whose converters a limit stopped (no text yet, not "no text")', () => {
+  const s = setup('stopped')
+  const t0 = Date.parse('2026-10-20T00:00:00Z')
+  s.put('shared/plan.pdf', 'pdf-plan', pages(2, 'roadmap'), t0)
+  let embeds = 0
+  const embed: Embed = async (texts) => { embeds += texts.length; return texts.map(embedOne) }
+  const open = () => new SemanticIndex({ dataDir: s.data, root: s.root, office: s.office, embedder: async () => embed })
+  const recorded = (idx: SemanticIndex) => idx.db.query("SELECT path FROM files WHERE path = 'shared/plan.pdf'").get()
+
+  test('is not recorded without text; while it waits no run takes it (nor loads the model); after that one does', async () => {
+    const idx = open()
+    s.stale.add('shared/plan.pdf'); s.stops.add('shared/plan.pdf')
+    expect((await idx.refresh(60_000, { background: true })).pending).toBe(1)
+    expect(recorded(idx)).toBeNull()
+    // the next runs leave it to its retry time
+    s.extracted.length = 0
+    let models = 0
+    const counting = new SemanticIndex({ dataDir: s.data, root: s.root, office: s.office, embedder: async () => { models++; return embed } })
+    expect(await counting.refresh(60_000, { background: true })).toEqual({ pending: 0, upgrading: 0 })
+    expect(await counting.refresh(3000)).toEqual({ pending: 0, upgrading: 0 })
+    expect(models).toBe(0)
+    expect(s.extracted).toEqual([])
+    counting.db.close()
+    // its retry time came: indexed with its text
+    s.waits.delete('shared/plan.pdf')
+    expect((await idx.refresh(60_000, { background: true })).pending).toBe(0)
+    expect(recorded(idx)).not.toBeNull()
+    expect((await idx.query('roadmap page 2', () => true))?.[0]?.path).toBe('shared/plan.pdf')
+    idx.db.close()
+  })
+  test('a changed document that waits: the pieces of its older version go meanwhile', async () => {
+    const idx = open()
+    expect((await idx.query('roadmap page', () => true))?.[0]?.path).toBe('shared/plan.pdf')
+    s.put('shared/plan.pdf', 'pdf-plan, redacted', pages(2, 'redacted'), t0 + 3600_000)
+    s.stale.add('shared/plan.pdf'); s.stops.add('shared/plan.pdf')
+    await idx.refresh(60_000, { background: true })
+    expect(recorded(idx)).toBeNull()
+    expect((await idx.query('roadmap page', () => true))?.some((h) => h.path === 'shared/plan.pdf')).toBe(false)
+    s.waits.delete('shared/plan.pdf')
+    await idx.refresh(60_000, { background: true })
+    expect((await idx.query('redacted page', () => true))?.[0]?.path).toBe('shared/plan.pdf')
     idx.db.close()
   })
 })

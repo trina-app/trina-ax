@@ -219,6 +219,9 @@ export const FileContentHits = z.object({
   /** office documents that were not searched because their text is not made yet, and that the background queue did
    * not take (the person already has the most files in the queue); a later search adds them */
   notQueued: z.number().int().nonnegative(),
+  /** office documents that were not searched because reading their text took too long (a busy server, a very complex
+   * file: a converter stopped by its limit); a search a few minutes later reads them again (files/search.ts OFFICE_RETRY_MAX) */
+  retryLater: z.number().int().nonnegative(),
   /** matching lines that were skipped because their ripgrep record was longer than 64 K characters (a very long line,
    * or a long line with very many matches) */
   longSkipped: z.number().int().nonnegative(),

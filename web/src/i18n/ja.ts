@@ -471,6 +471,7 @@ export const ja: Record<MessageKey, string> = {
   'files.search.timedOut': "制限時間に達したため検索を停止しました。一部の結果が表示されない場合があります。",
   'files.search.indexing': "{n, plural, one {#件のOffice文書} other {#件のOffice文書}}の索引を作成中です。まだ検索されていません。",
   'files.search.notQueued': "{n, plural, one {#件のOffice文書} other {#件のOffice文書}}は、待機数が多いため検索も索引作成も行われていません。後で再検索してください。",
+  'files.search.retryLater': "{n, plural, one {#件のOffice文書} other {#件のOffice文書}}は検索されていません。サーバーが混んでいるか、ファイルがとても複雑なため、テキストの読み取りに時間がかかりすぎました。数分後にもう一度検索してください。",
   'files.search.longSkipped': "{n, plural, one {長すぎる#行を} other {長すぎる#行を}}スキップしました。",
   'files.breadcrumb': "現在の場所",
   'files.upload': "アップロード",
