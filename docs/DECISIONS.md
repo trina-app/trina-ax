@@ -4682,7 +4682,7 @@ fallback when DeepInfra is down. Test report: `plans/stt-hosted-2026-11-01/STT-D
   34 of 40 (6 Groq) with the key in the default workspace without the sort; every chat model refused. Both are on OpenRouter's ZDR list for the model;
   Groq's OpenRouter data policy: no training, no prompt retention, no publishing (US). Groq answers the language as a
   name ("Korean"); `parseOpenRouter` maps names to codes (feat/stt-openrouter-tune).
-- **Key.** The control plane (trina-cloud) makes one OpenRouter key per hosted team with a monthly dollar limit as a
+- **Key.** The hosting control plane makes one OpenRouter key per hosted team with a monthly dollar limit as a
   backstop and hands it over with the tenant command `hosted-speech-key-set` (`{ key | null }` on stdin; mycel-ctl
   → `admin.js hosted-speech-key`, hosted servers only). The server stores it like the team's own key, encrypted with
   the credentials vault, under `speech.hostedKey` (AAD `speech.hosted|openrouter-api-key`). It is never in a response,
