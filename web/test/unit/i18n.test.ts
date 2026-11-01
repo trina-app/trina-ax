@@ -141,7 +141,7 @@ describe('translations', () => {
     // a bare {count} right before a plural noun: none left (limits that are never 1 and numbers written with
     // separators, which no plural rule reads, are listed)
     const bare = /\{\w+\} (?:more |other |unread )?(?:people|times|uses|files|items|rows|lines|notifications|questions|tokens|members|chats|skills|personas|veces|usos|archivos|elementos|filas|líneas|notificaciones|preguntas|seleccionados|caracteres)(?![\p{L}])/u
-    const notCounts = new Set(['preview.sheetRowsCut', 'ask.skillLines', 'composer.answerTooLong'])
+    const notCounts = new Set(['preview.sheetRowsCut', 'ask.skillLines', 'composer.answerTooLong', 'memory.hint', 'memory.tooLong'])
     for (const loc of ['en', 'es'] as const) for (const [k, v] of Object.entries(DICTS[loc])) expect({ loc, k, bare: !notCounts.has(k) && bare.test(v) }).toEqual({ loc, k, bare: false })
   })
   test('steps of older answers follow the language on screen', () => {
