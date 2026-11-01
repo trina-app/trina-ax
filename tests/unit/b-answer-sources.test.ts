@@ -42,7 +42,10 @@ function sse(calls: { id: string; name: string; args: unknown }[], text?: string
   return lines.map((l) => `data: ${l}\n\n`).join('') + 'data: [DONE]\n\n'
 }
 
+// search by meaning is off by default (MYCEL_SEMANTIC=on turns it on); these turns use it with a stand-in embedder
+const semanticBefore = process.env.MYCEL_SEMANTIC
 beforeAll(async () => {
+  process.env.MYCEL_SEMANTIC = 'on'
   setSearchEmbedderForTests(embed)
   mock = Bun.serve({ port: 0, hostname: '127.0.0.1', async fetch(req) { if (req.method === 'GET') return Response.json({ data: [{ id: 'm-1' }] }); await req.json(); return new Response(script.shift() ?? sse([], '(no script)')) } })
   h = await startHarness({ name: 'b-answer-sources' })
@@ -54,7 +57,11 @@ beforeAll(async () => {
   alice = await h.ws('alice', { windowId: 'win-alice-sources' })
   await alice.next('hello')
 })
-afterAll(async () => { setSearchEmbedderForTests(null); alice?.close(); await h.close(); mock.stop(true) })
+afterAll(async () => {
+  setSearchEmbedderForTests(null)
+  if (semanticBefore === undefined) delete process.env.MYCEL_SEMANTIC; else process.env.MYCEL_SEMANTIC = semanticBefore
+  alice?.close(); await h.close(); mock.stop(true)
+})
 
 const sourcesOf = (chatId: string, messageId: string, user = 'alice'): Promise<MessageSources> => h.api(user).call(API.messageSources, { params: { id: chatId, messageId } })
 const summary = (s: MessageSources) => s.files.map((f) => ({ path: f.path, via: [...f.via] as string[], ...(f.subagent ? { subagent: true } : {}) }))

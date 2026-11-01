@@ -267,7 +267,8 @@ export class SemanticIndex {
     const hash = sha256(input.bytes)
     if (isOffice(rel)) {
       // a background run (the re-index after an update) extracts with low priority: a search's own extraction first
-      if (!this.o.office.fresh(rel, input.st)) await this.o.office.update(rel, { background })
+      // text kept from an older cache format (OfficeCache.upgradeOld) is made again first: the pieces need its marks
+      if (!this.o.office.fresh(rel, input.st) || !this.o.office.current(rel)) await this.o.office.update(rel, { background, upgrade: true })
       if (!this.o.office.fresh(rel, input.st)) return {text:'',hash}
       const text = this.o.office.admittedText(rel, input.bytes, admission)
       return {text: text ? text.bytes.toString('utf8').slice(0, FILE_TEXT_MAX) : '', hash}

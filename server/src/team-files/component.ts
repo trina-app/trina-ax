@@ -12,7 +12,8 @@ import { JobServiceImpl } from '../jobs/service'
 import { transcribe, type TranscribeConfig } from '../jobs/transcribe'
 import { cleanMediaWork, localModelName, recordLocalSpeed } from '../files/media'
 import { SPEECH_NO_KEY, SPEECH_OFF, transcribeOpenRouter } from '../jobs/openrouter-stt'
-import { getTeamSettings, teamDefaultLocale } from '../admin/settings'
+import { getTeamSettings, installId, teamDefaultLocale } from '../admin/settings'
+import { firstRefreshMs } from '../tools/search'
 import { credentialsOf } from '../credentials/store'
 import { readHostedSpeechKey, readSpeechKey, speechKeySource } from '../credentials/speech-key'
 import { HOSTED_SPEECH_MODEL, hostedSpeechLeft, hostedSpeechMeter } from '../credentials/hosted-speech'
@@ -170,6 +171,16 @@ export function startComponentC(ctx: AppContext): ComponentC {
   const first = setTimeout(() => c.sweep(), 30_000)
   const timer = setInterval(() => c.sweep(), SWEEP_EVERY_MS)
   first.unref?.(); timer.unref?.()
-  ctx.onClose(async () => { clearTimeout(first); clearInterval(timer); await c.jobs.close() })
+  // the text of documents kept from the previous cache format is made again in the background (files/search.ts
+  // OfficeCache.upgradeOld; grep uses the old text meanwhile), starting when the semantic index would
+  const stopUpgrade = new AbortController()
+  const upgrade = process.env.NODE_ENV === 'test' ? null : setTimeout(() => {
+    const t0 = Date.now()
+    void ctx.files.office.upgradeOld({ signal: stopUpgrade.signal })
+      .then((n) => { if (n) ctx.log.info('document text made again in the new format', { files: n, ms: Date.now() - t0 }) })
+      .catch((e) => ctx.log.warn('document text upgrade stopped', { err: String(e) }))
+  }, firstRefreshMs(installId(ctx.db)))
+  upgrade?.unref?.()
+  ctx.onClose(async () => { clearTimeout(first); clearInterval(timer); if (upgrade) clearTimeout(upgrade); stopUpgrade.abort(); await c.jobs.close() })
   return c
 }

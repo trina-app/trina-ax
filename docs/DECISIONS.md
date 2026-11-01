@@ -4885,13 +4885,21 @@ under the answer like the Claude app's sources.
   - Hangul: .hwpx paragraphs whose paragraph shape is an outline level (`<hh:heading type="OUTLINE" level="L">`, 개요)
     and .hwp 5 paragraphs whose PARA_SHAPE (DocInfo tag 25, attribute bits 23-24 = 1, level bits 25-27) is one become
     Markdown headings. Documents without outline shapes read exactly as before.
-  - The text cache format is 6 (`TEXT_CACHE_VERSION`): the cache is emptied at start and made again as before (grep
-    extracts what it needs, the rest in the background queue). Text cached before gives what it can: pages always,
-    sheet names without ranges, no slides or sections.
+  - The text cache format is 6 (`TEXT_CACHE_VERSION`). Search by meaning is off by default (above), so grep is the
+    search people have: the format-5 text of 0.2.16 is **kept**, not emptied (`UPGRADABLE_VERSIONS`; older formats
+    are still removed at start). Each sidecar now names its format (`current()`); kept text stays `fresh` for grep
+    and is made again in the background by `OfficeCache.upgradeOld` (started by `startComponentC` when the semantic
+    index would start: 20 s, or 10-15 minutes on a hosted server): newest first, one file at a time with background
+    priority, a pause as long as each extraction after it (at most half of one slot). A restart goes on with the files
+    whose sidecar is not format 6. Until a file is done its old text answers grep and gives what it can: pages always,
+    sheet names without ranges, slides only in the notes part, no sections. Measured extraction on an Apple M-series
+    Mac: 25-60 ms for a 10-page PDF, a 12-slide deck, a 12-section Word file or a 500-row sheet; a 2-vCPU x86 server
+    is about twice as slow and real documents are larger, so roughly 1-3 hours for 10,000 documents with the pause.
 - **Search pieces** stop at a page, slide, sheet or section and keep their place (`chunkDoc`; `semantic.db` gets
   `chunks.loc` and `files.format`, added in place: an older server ignores both). A sheet piece's place is the A1
   range of its rows. Structure lines (`=== Slide 3 ===`, `# sheet: …`, `# row 9`) are not part of a piece's text.
-- **One-time re-index** (`CHUNK_FORMAT` 2). Documents indexed before are made again in the background, newest first:
+- **One-time re-index** (`CHUNK_FORMAT` 2; only where search by meaning is on, `MYCEL_SEMANTIC=on`). Documents indexed
+  before are made again in the background, newest first:
   the search tool's own refresh never takes them (it would wait), only the background runs. Their text is extracted
   with background priority (`OfficeCache.update(…, { background: true })`: a person's grep or upload goes first) and
   their old pieces answer searches until the new ones replace them in one transaction. A search that comes during a
@@ -4901,16 +4909,18 @@ under the answer like the Claude app's sources.
   goes on where it stopped. Plain text files are not made again (their pieces are the same).
   - Cost: measured on an Apple M-series Mac with the real model (multilingual-e5-small q8), 76 ms per 800-character
     Korean piece with 2 threads, 131 ms with one; a 2-vCPU x86 cloud server is about twice as slow (~0.15 s a piece).
-    With extraction (~0.5 s a document) and the half-time pause: about (pieces × 0.15 s + 0.5 s) × 2 per document, e.g.
-    2,000 documents of 15 pieces ≈ 3.5 hours, 10,000 ≈ 17 hours on a 2-vCPU box. Searching stays complete meanwhile
-    (old pieces); only their place labels come later.
-- **What the AI sees.** search: `1. 매출보고서.pdf · p.12 — finance/매출보고서.pdf (match 0.83)` and a ready-made link
+    With extraction (~0.3 s a document) and the half-time pause: about (pieces × 0.15 s + 0.3 s) × 2 per document, e.g.
+    2,000 documents of 15 pieces ≈ 3 hours, 10,000 ≈ 15 hours on a 2-vCPU box. Searching stays complete meanwhile
+    (old pieces); only their place labels come later. The text it embeds is made again first when it is still of the
+    old cache format (`update(…, { upgrade: true })`).
+- **What the AI sees.** search (when on): `1. 매출보고서.pdf · p.12 — finance/매출보고서.pdf (match 0.83)` and a ready-made link
   `[매출보고서.pdf · p.12](/files/view?path=…&page=12)`; grep content: `path [p.12]:line:text` (the place of each
-  line of a document, from the very text ripgrep searched: the admitted copy, or the cache); read: the sheet labels,
+  line of a document, from the very text ripgrep searched: the admitted copy, or the cache; only for the AI's grep, not
+  the file screen's content search); read: the sheet labels,
   slide labels and headings in the text. Labels are in the person's language (시트 / 슬라이드 / sheet / slide …). A file,
   sheet or heading name in a label has no line breaks or control characters, no `<` (no prompt block tag can be opened
   or closed) and at most 80 characters (60 for sheets and headings). The turn prompt says how to link a place
-  (`SOURCE_LINK_RULE`): `/files/view?path=…&page=N` / `&slide=N` / `&sheet=…`. The API engine's link guard compares the
+  (`sourceLinkRule`): `/files/view?path=…&page=N` / `&slide=N` / `&sheet=…`. The API engine's link guard compares the
   path only, so a link with a place to a file a tool named passes; the guard is not widened to the other engines here.
 - **"참고한 파일"** (`server/src/files/sources.ts`). `TurnFiles.sources` (shared by every agent of the turn through the
   `view` proxy; a sub-agent's view knows its Agent call id) gets each file whose content went to the model: read (also
@@ -4918,7 +4928,7 @@ under the answer like the Claude app's sources.
   content lines, with the places (the pages read, the lines' places for a read by lines or a grep, a search piece's
   place) and the sha256 when the tool had it. Names alone (grep files_with_matches and count, list, glob) are not
   content and are left out. A whole-file read has no places. At most 500 files an answer, 20 places a file.
-  - At the end of the turn it is saved with the answer: **migration 217_b_message_sources** (a new table, `ON DELETE
+  - At the end of the turn it is saved with the answer: **migration 218_b_message_sources** (a new table, `ON DELETE
     CASCADE` from messages, so it goes with the message and the chat; additive, `min_compatible_reader` 1, schema reader
     level stays 4, so 0.2.16 still opens the database and ignores the table). A regenerated answer has its own rows.
   - `Message.sourceCount` (finished answers) is the stored count; the list is `GET

@@ -153,6 +153,9 @@ function legacyKoreanHead(head: Buffer, size: number, wholeFile: () => Buffer): 
  * labels, Word / Hangul headings, sheet ranges and `# row N` lines, OCR page breaks, files/locations.ts), so the
  * old text is made again. */
 export const TEXT_CACHE_VERSION = '6'
+/** older formats whose text is still right, only without the newer labels: kept at the update (grep goes on using it)
+ * and made again in the background (OfficeCache.upgradeOld); any other older format is removed at start */
+const UPGRADABLE_VERSIONS = new Set(['5'])
 const VERSION_FILE = '.format-version' // cache files all end in .txt, so no file of the team folder has this name
 
 /** office files extracted at the same time by one server (foreground and background together) */
@@ -202,7 +205,17 @@ export class OfficeCache {
     let version: string | null = null
     try { version = fs.readFileSync(path.join(dir, VERSION_FILE), 'utf8').trim() } catch {}
     if (version === TEXT_CACHE_VERSION) { this.marked = true; return }
+    if (version && UPGRADABLE_VERSIONS.has(version)) {
+      // each file's own sidecar says its format (current()); an older server sees the new version and starts over
+      fs.writeFileSync(path.join(dir, VERSION_FILE), TEXT_CACHE_VERSION + '\n', { mode: 0o600 })
+      this.marked = true
+      return
+    }
     for (const e of fs.readdirSync(dir)) fs.rmSync(path.join(dir, e), { recursive: true, force: true })
+  }
+  /** the file's cached text is of the current format (text kept from an upgradable older format is fresh, not current) */
+  current(rel: string): boolean {
+    return (this.provenance(rel) as { format?: string } | null)?.format === TEXT_CACHE_VERSION
   }
   cachePath(rel: string) { return path.join(this.dir, rel + '.txt') }
   private provenance(rel: string): { source: string; text: string } | null {
@@ -259,7 +272,7 @@ export class OfficeCache {
     fs.mkdirSync(path.dirname(dst), { recursive: true, mode: 0o700 })
     fs.writeFileSync(dst, text, { mode: 0o600 })
     fs.utimesSync(dst, st.atime, st.mtime)
-    fs.writeFileSync(dst + '.source.json', JSON.stringify({ source, text: sha256(Buffer.from(text)) }), { mode: 0o600 })
+    fs.writeFileSync(dst + '.source.json', JSON.stringify({ source, text: sha256(Buffer.from(text)), format: TEXT_CACHE_VERSION }), { mode: 0o600 })
   }
   /**
    * (Re)extract one file unless its text is fresh; content is read through the checked fd. When the file cannot be
@@ -267,7 +280,7 @@ export class OfficeCache {
    * stands for "no text for this version", so the next search does not try it again until the file changes. When the
    * file is gone, its text is deleted.
    */
-  update(rel: string, o: { background?: boolean } = {}): Promise<void> {
+  update(rel: string, o: { background?: boolean; upgrade?: boolean } = {}): Promise<void> {
     const running = this.inflight.get(rel)
     if (running) { if (!o.background) this.raise(running.ticket); return running.job }
     const ticket: ExtractTicket = { low: !!o.background }
@@ -276,7 +289,8 @@ export class OfficeCache {
       let lst: fs.Stats
       try { lst = fs.lstatSync(abs) } catch { fs.rmSync(this.cachePath(rel), { force: true }); return }
       if (this.fx.quarantine?.hasFile(abs)) { fs.rmSync(this.cachePath(rel), {force:true}); return }
-      if (this.fresh(rel, lst)) return
+      // `upgrade`: text kept from an older format is made again too
+      if (this.fresh(rel, lst) && (!o.upgrade || this.current(rel))) return
       let got: { bytes: Buffer; st: fs.Stats }
       try { got = readRegular(abs, Math.min(50 * 1024 * 1024, readMaxBytes())) } catch (e) {
         try { if (lst.isFile()) this.write(rel, '', lst); else fs.rmSync(this.cachePath(rel), { force: true }) } catch { fs.rmSync(this.cachePath(rel), { force: true }) }
@@ -297,6 +311,40 @@ export class OfficeCache {
     }, ticket).finally(() => this.inflight.delete(rel))
     this.inflight.set(rel, { job, ticket })
     return job
+  }
+  /**
+   * Make again, in the background, the text kept from an older format at the update (UPGRADABLE_VERSIONS): newest
+   * first, one file at a time with background priority (a person's grep or upload goes first), and after each file a
+   * pause as long as it took, so it takes at most half of one extraction slot. Until a file is done, grep uses its old
+   * text. Each file's sidecar says its format, so after a restart it goes on with what is left. Returns the files done.
+   */
+  async upgradeOld(o: { signal?: AbortSignal; minPauseMs?: number } = {}): Promise<number> {
+    const old: { rel: string; mtime: number }[] = []
+    const visit = (sub: string) => {
+      let names: fs.Dirent[]
+      try { names = fs.readdirSync(path.join(this.dir, sub), { withFileTypes: true }) } catch { return }
+      for (const e of names) {
+        const rel = sub ? `${sub}/${e.name}` : e.name
+        if (e.isDirectory()) visit(rel)
+        else if (e.isFile() && e.name.endsWith('.txt.source.json')) {
+          const src = rel.slice(0, -'.txt.source.json'.length)
+          if (this.current(src)) continue
+          try { old.push({ rel: src, mtime: fs.statSync(this.cachePath(src)).mtimeMs }) } catch {}
+        }
+      }
+    }
+    visit('')
+    old.sort((a, b) => b.mtime - a.mtime)
+    let done = 0
+    for (const { rel } of old) {
+      if (o.signal?.aborted) break
+      const t0 = Date.now()
+      await this.update(rel, { background: true, upgrade: true }).catch(() => {})
+      done++
+      const pause = Math.max(o.minPauseMs ?? 100, Date.now() - t0)
+      await new Promise<void>((r) => { const t = setTimeout(r, pause); o.signal?.addEventListener('abort', () => { clearTimeout(t); r() }, { once: true }) })
+    }
+    return done
   }
   /** for tests and tools: resolves when no extraction runs and the background queue is empty */
   async idle() { while (this.worker || this.inflight.size) await Promise.all([this.worker, ...[...this.inflight.values()].map((x) => x.job)].map((p) => p?.catch(() => {}))) }

@@ -34,6 +34,7 @@ function setup(name: string) {
   }
   const office = {
     fresh: (rel: string) => !stale.has(rel),
+    current: (rel: string) => !stale.has(rel),
     update: async (rel: string, o: { background?: boolean } = {}) => { extracted.push({ rel, background: !!o.background }); stale.delete(rel) },
     admittedText: (rel: string) => (texts.has(rel) ? { bytes: Buffer.from(texts.get(rel)!) } : null),
     cachePath: (rel: string) => path.join(data, 'textcache', rel + '.txt'),

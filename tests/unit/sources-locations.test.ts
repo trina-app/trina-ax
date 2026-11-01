@@ -15,6 +15,9 @@ import { ocrBin, which } from '../../server/src/config'
 import { makeHandler } from '../../server/src/mcp/protocol'
 import { TurnFiles } from '../../server/src/files/service'
 import { makeCApp, type CApp } from '../lib/c-app'
+import { OfficeCache, TEXT_CACHE_VERSION } from '../../server/src/files/search'
+import { sha256 } from '../../server/src/files/store'
+import os from 'node:os'
 import type { SourceLoc } from '@mycel/shared/api'
 
 setDefaultTimeout(60_000)
@@ -263,5 +266,60 @@ describe('tool outputs (read, grep)', () => {
     const got = files.sources.entries().map((e) => ({ path: e.path, via: [...e.via].sort(), locs: [...e.locs.values()] }))
     expect(got.find((e) => e.path === 'shared/예산.xlsx')).toEqual({ path: 'shared/예산.xlsx', via: ['grep', 'read'], locs: [{ kind: 'sheet', sheet: '매출', range: 'A4:B4' }] })
     if (pdftotext) expect(got.find((e) => e.path === 'shared/long.pdf')?.locs).toEqual([{ kind: 'page', page: 3 }])
+  })
+})
+
+describe('the text cache of the previous format (0.2.16) is kept and made again in the background', () => {
+  test('format 5: grep goes on with the old text; upgradeOld makes it again, newest first; other old formats go', async () => {
+    const W = fs.mkdtempSync(path.join(fs.realpathSync(os.tmpdir()), 'cache-upgrade-'))
+    const root = path.join(W, 'team'), dir = path.join(W, 'textcache')
+    fs.mkdirSync(path.join(root, 'shared'), { recursive: true })
+    const wb = XLSX.utils.book_new()
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([['항목', '금액'], [], ['합계', 300]]), '매출')
+    const bytes = XLSX.write(wb, { type: 'buffer', bookType: 'xlsx' }) as Buffer
+    const tools = { pandoc: null, pdftotext: null }
+    const fx = { root, caseInsensitive: false } as never
+    const files = ['shared/old.xlsx', 'shared/new.xlsx']
+    for (const [i, rel] of files.entries()) {
+      fs.writeFileSync(path.join(root, rel), bytes)
+      const t = new Date(Date.parse('2026-10-01T00:00:00Z') + i * 3600_000)
+      fs.utimesSync(path.join(root, rel), t, t)
+    }
+    // what 0.2.16 left: format 5, the text without range or row lines, sidecars without a format
+    const old = '# sheet: 매출 (tab-separated)\n항목\t금액\n합계\t300'
+    fs.mkdirSync(path.join(dir, 'shared'), { recursive: true })
+    fs.writeFileSync(path.join(dir, '.format-version'), '5\n')
+    for (const rel of files) {
+      const dst = path.join(dir, rel + '.txt')
+      fs.writeFileSync(dst, old)
+      const st = fs.statSync(path.join(root, rel))
+      fs.utimesSync(dst, st.atime, st.mtime)
+      fs.writeFileSync(dst + '.source.json', JSON.stringify({ source: sha256(bytes), text: sha256(Buffer.from(old)) }))
+    }
+    const order: string[] = []
+    class Watched extends OfficeCache { protected override extract(rel: string, b: Buffer) { order.push(rel); return super.extract(rel, b) } }
+    const cache = new Watched(dir, fx, tools)
+    expect(fs.readFileSync(path.join(dir, '.format-version'), 'utf8').trim()).toBe(TEXT_CACHE_VERSION)
+    for (const rel of files) {
+      expect(fs.readFileSync(cache.cachePath(rel), 'utf8')).toBe(old)
+      expect(cache.fresh(rel, fs.statSync(path.join(root, rel)))).toBe(true)
+      expect(cache.current(rel)).toBe(false)
+    }
+    // a person's grep meanwhile: the old text is fresh, nothing is extracted for it
+    await cache.update('shared/old.xlsx')
+    expect(order).toEqual([])
+    expect(await cache.upgradeOld({ minPauseMs: 0 })).toBe(2)
+    expect(order).toEqual(['shared/new.xlsx', 'shared/old.xlsx'])
+    for (const rel of files) {
+      expect(cache.current(rel)).toBe(true)
+      expect(fs.readFileSync(cache.cachePath(rel), 'utf8')).toBe('# sheet: 매출 · A1:B3 (tab-separated)\n항목\t금액\n# row 3\n합계\t300')
+    }
+    // nothing left: a second run (a restart) does nothing
+    expect(await cache.upgradeOld({ minPauseMs: 0 })).toBe(0)
+    // an older format than 5 is still removed at start
+    fs.writeFileSync(path.join(dir, '.format-version'), '4\n')
+    new OfficeCache(dir, fx, tools)
+    expect(fs.readdirSync(dir)).toEqual([])
+    fs.rmSync(W, { recursive: true, force: true })
   })
 })

@@ -381,7 +381,10 @@ export function buildSubagentPrompt(files: FileService, i: PromptInput, tools: s
 
 /** Answers name the team files they used with links to the place (docs/DECISIONS.md "Sources under each answer"): the
  * search tool gives ready-made ones; the list under the answer is the server's own record, not the AI's. */
-export const SOURCE_LINK_RULE = 'When your answer relies on a team file, link it where you mention it. search results include ready-made links to the place (page, sheet, slide); for other files use /files/view?path=<team path, URL-encoded>, adding &page=N for a PDF page, &slide=N for a slide or &sheet=<sheet name, URL-encoded> for a sheet you actually looked at. grep and read show these places as [p.12], `=== Slide 3 ===` and `# sheet: name · A1:F40`.'
+export function sourceLinkRule(search: boolean): string {
+  return 'When your answer relies on a team file, link it where you mention it: /files/view?path=<team path, URL-encoded>, adding &page=N for a PDF page, &slide=N for a slide or &sheet=<sheet name, URL-encoded> for a sheet you actually looked at. grep and read show these places as [p.12], `=== Slide 3 ===` and `# sheet: name · A1:F40`.' +
+    (search ? ' search results include such links, ready to use.' : '')
+}
 
 export function buildTurnPrompt(files: FileService, i: PromptInput): string {
   const tools = new Set(i.tools)
@@ -401,7 +404,7 @@ export function buildTurnPrompt(files: FileService, i: PromptInput): string {
     // A9 S17: answers left out the files that were already as asked
     BULK_REPORT_RULE,
     tools.has('search') ? 'To find documents by meaning (the user describes something but you don\'t know the words or file names), use search, then read the files it points to; grep is for exact words.' : '',
-    SOURCE_LINK_RULE,
+    sourceLinkRule(tools.has('search')),
     tools.has('make_file') ? 'To produce Word / PowerPoint / Excel / PDF files, write Markdown or CSV and convert it with make_file.' : '',
     // write only saves text: without these the AI told people it could not move a PDF or an image they attached (2026-10-28)
     tools.has('move_files') ? 'To move, copy or rename files of any type (PDF, images, Office files, chat attachments), use move_files, copy_files and rename_file; write only saves text. Files the user attached in a chat are in their .attachments folder: move them to keep them for the team.' : '',
