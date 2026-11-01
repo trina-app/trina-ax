@@ -196,7 +196,7 @@ describe('a service that repeats the key, in real turns', () => {
     const listed = (await h.api('alice').call(API.listIntegrations, {})).items.find((i) => i.id === board.id)!
     expect(listed.tools.map((x) => x.name)).not.toContain(`leak_${MCP_KEY}`)
     expect(listed.tools.find((x) => x.name === 'whoami')).toMatchObject({ title: `Who am I (${HIDDEN})`, description: `Shows who you are. Your token is ${HIDDEN}.` })
-    const saved = getRow(h.ctx.db, board.id)!.tools_json
+    const saved = (h.ctx.db.query('SELECT tools_json FROM integrations WHERE id = ?').get(board.id) as { tools_json: string }).tools_json
     expect(saved).toContain(`"default":"${HIDDEN}"`)
     expect(leaked(saved + JSON.stringify(listed), secrets())).toEqual([])
   })

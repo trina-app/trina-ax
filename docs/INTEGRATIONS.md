@@ -111,10 +111,15 @@ JSON or event-stream answers (reading stops once our reply has arrived, so a str
 idle minutes; a 404 for it starts a new one.
 
 - **Check** (on create, on change of address or key, "Check again"): `initialize` → `notifications/initialized` →
-  `tools/list` with every cursor page (at most 100; one page may be 8 MiB). The tool list is saved (`tools_json`): every
-  tool the service lists, up to 1,000 tools and 4,000,000 characters of schemas and descriptions per connection (past
-  that Settings and the AI are told "N of M"); a tool whose input schema is not an object or is over 32,000 characters
-  is left out. Turns use the saved list only: nothing is fetched when a chat starts.
+  `tools/list` with its cursor pages until the list kept is full, at most 20 pages and 16 MiB together (one page may be
+  8 MiB; a later page that does not fit in what is left is not kept), so a server that pages on forever costs at most
+  that. The tool list is saved (`tools_json`): every tool the service lists, up to 1,000 tools and 4,000,000 characters
+  of schemas and descriptions per connection (past that Settings and the AI are told "N of M", or "N of more than M"
+  when pages were left unread); a tool whose input schema is not an object or is over 32,000 characters is left out.
+  Turns use the saved list only: nothing is fetched when a chat starts. The server keeps the parsed lists in memory by
+  connection and `tools_rev` (moved by a trigger whenever `tools_json` changes; at most 64 MiB of saved JSON, the list
+  used longest ago first), so a turn reads the connections without their lists and parses only a list that changed;
+  who may use a connection and which of its tools are off are read with every turn and call.
 - **Tool names** for the engine: `my_<slug>__<tool>` (personal) and `team_<slug>__<tool>` (team), letters, digits, `_` and
   `-` only. With the engine's `mcp__team__` the full name stays within 64 characters: longer or clashing names are cut and
   given a short hash; the server maps each back to the remote name.
@@ -207,6 +212,7 @@ connections with their address and the first 1,000 characters of their notes.
 | Answer | 1 MiB while reading; 40,000 characters to the AI |
 | Request body (`api_request`) | 1 MiB |
 | MCP tools | 1,000 per connection, 4,000,000 schema and description characters per connection, 32,000 per tool schema; as tools of their own 200 and 50,000 characters per answer, the rest through `find_tools` / `call_tool` |
+| Reading `tools/list` (a check) | 8 MiB a page, 20 pages and 16 MiB together; stops once the list kept is full |
 | Sign-in flow | 10 minutes, 20 per person per hour |
 
 ## Not in phase 1

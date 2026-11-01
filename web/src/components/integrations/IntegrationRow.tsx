@@ -260,7 +260,7 @@ export function IntegrationRow({ i, actions, onEdit, teamBadge, extra }: {
         <div className="mt-2 pl-7">
           <button type="button" aria-expanded={open} aria-controls={toolsId} onClick={() => setOpen((v) => !v)} className="inline-flex items-center gap-1 rounded text-xs font-medium text-accent-text hover:underline" data-testid="integration-tools-toggle">
             {open ? <ChevronDown size={14} aria-hidden /> : <ChevronRight size={14} aria-hidden />}
-            {short ? t('integrations.toolsOf', { n: i.tools.length, total: i.toolsTotal! }) : t('integrations.tools', { n: i.tools.length })}
+            {short ? t(short === 'integrations.toolsCappedMore' ? 'integrations.toolsOfMore' : 'integrations.toolsOf', { n: i.tools.length, total: i.toolsTotal! }) : t('integrations.tools', { n: i.tools.length })}
             {off > 0 && <span className="font-normal text-muted" data-testid="integration-tools-off"> · {t('integrations.toolsOff', { n: off })}</span>}
           </button>
           {open && (

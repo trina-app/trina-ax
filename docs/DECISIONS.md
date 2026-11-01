@@ -5304,9 +5304,13 @@ counted in tokens or at 2.5 characters per token). Their names are listed in a r
 full definitions, after which the tool is called by its own name.
 
 1. **A connection keeps every tool its service lists**, up to a hard ceiling: 1,000 tools (`INTEGRATION_TOOLS_MAX`,
-   shared), 4,000,000 characters of schemas and descriptions together, 100 `tools/list` pages (was 100, 256,000, 20).
-   One schema may still be 32,000 characters. Over the ceiling the rest is said as before ("1,000 of 1,200",
-   `tools_total`, migration 327). Up to 2,000 names can be turned off (was 500). No migration.
+   shared), 4,000,000 characters of schemas and descriptions together (was 100 and 256,000). A check reads `tools/list`
+   only until the list kept is full, at most 20 pages and 16 MiB of them together (`mcp.ts MCP_LIST_MAX_PAGES`,
+   `MCP_LIST_TOTAL_BYTES`, fix/mcp-load; the first version here read up to 100 pages of 8 MiB, about 800 MiB from a
+   server that pages on forever). One schema may still be 32,000 characters. Over the ceiling the rest is said as before
+   ("1,000 of 1,200", `tools_total`, migration 327), or "1,000 of more than 1,000" when pages were left unread
+   (`tools_total_more`, migration 330). Up to 2,000 names can be turned off (was 500). Raising the ceilings needed no
+   migration.
 2. **An answer offers what fits as tools of their own, the rest is looked up.** The budget: 200 connection tools and
    50,000 characters of names, descriptions and input schemas together (`tools.ts MAX_TURN_TOOLS`,
    `MAX_TURN_TOOL_CHARS`). 50,000 is Claude Code's line (founder, 2026-11-01: behave like Claude Code): its `auto` mode

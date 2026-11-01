@@ -1709,6 +1709,8 @@ export const ko = {
   'integrations.toolsOf': '도구 {total}개 중 {n}개',
   'integrations.toolsCapped': '이 서비스는 도구 {total}개를 제공하는데, AI는 앞의 {n}개만 쓸 수 있어요.',
   'integrations.toolsStale': '이 서비스는 도구 {total}개를 제공하는데, 지난번 확인 때 {n}개만 저장됐어요. 다시 확인하면 전부 저장돼요.',
+  'integrations.toolsOfMore': '도구 {total}개 이상 중 {n}개',
+  'integrations.toolsCappedMore': '이 서비스는 도구를 {total}개 넘게 제공하는데, AI는 앞의 {n}개만 쓸 수 있어요.',
   'integrations.readOnly': '읽기 전용',
   'integrations.toolsHint': '읽기 전용 도구는 AI가 바로 쓰고, 나머지는 쓰기 설정을 따라요.',
   'integrations.toolsOff': "{n}개 꺼짐",

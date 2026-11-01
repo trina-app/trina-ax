@@ -15,12 +15,16 @@ export const MCP_CALL_MAX_BYTES = 25 * 1024 * 1024
 /** the most one tools/list page may be. A big service sends its whole catalog in one page (Higgsfield: 186 tools,
  * about 1.07 MB in 2026-11), over net.ts's 1 MiB; what is kept is capped below (MAX_TOOLS, MAX_SCHEMAS_CHARS). */
 export const MCP_LIST_MAX_BYTES = 8 * 1024 * 1024
+/** the most one check reads of tools/list, all pages together, and how many pages it asks for: a server that pages
+ * on forever (or sends pages of tools that cannot be kept) costs at most this, not 100 pages of 8 MiB. Reading stops
+ * sooner once the list kept is full (MAX_TOOLS, MAX_SCHEMAS_CHARS). */
+export const MCP_LIST_TOTAL_BYTES = 16 * 1024 * 1024
+export const MCP_LIST_MAX_PAGES = 20
 const KNOWN_VERSIONS = new Set(['2024-11-05', '2025-03-26', '2025-06-18', '2025-11-25'])
 /** tools kept per connection: every tool a service lists, up to this hard ceiling (docs/DECISIONS.md "Connection
  * tools: deferred, found and called"). A turn offers what fits its budget as tools and the rest through find_tools /
  * call_tool (tools.ts), so a big catalog no longer goes to the engine whole with every turn. */
 export const MAX_TOOLS = INTEGRATION_TOOLS_MAX
-const MAX_PAGES = 100
 /** one tool's input schema */
 const MAX_SCHEMA_CHARS = 32_000
 /** all kept input schemas and descriptions of one connection together (what tools_json holds; Higgsfield's is about
@@ -70,7 +74,8 @@ export class McpClient {
   /** `hider` makes the function that hides the connection's secrets, when an answer is in (a refresh may have rotated them) */
   constructor(readonly url: string, private auth: () => Promise<[string, string][]>, private net: NetOptions, private hider: () => Hide = () => keep) {}
 
-  private async post(message: Record<string, unknown>, signal?: AbortSignal, maxBytes?: number): Promise<Record<string, any> | null> {
+  /** `read`: the answer's bytes are added to it (also when it is cut) */
+  private async post(message: Record<string, unknown>, signal?: AbortSignal, maxBytes?: number, read?: { bytes: number }): Promise<Record<string, any> | null> {
     const id = typeof message.id === 'string' ? message.id : null
     const headers: [string, string][] = [['Content-Type', 'application/json'], ['Accept', 'application/json, text/event-stream'], ...(await this.auth())]
     if (this.version) headers.push(['MCP-Protocol-Version', this.version])
@@ -81,6 +86,7 @@ export class McpClient {
       until: id ? (body, head) => /text\/event-stream/i.test(head.headers['content-type'] ?? '') && !!findReply(sseEvents(body.toString('utf8')).map(parse), id) : undefined,
     }, this.net)
     this.usedAt = Date.now()
+    if (read) read.bytes += res.body.length
     if (res.status === 401) throw new McpError('unauthorized', 401, res.headers['www-authenticate'] ?? '')
     if (res.status === 403) throw new McpError('forbidden', 403)
     if (res.status === 404 && this.sessionId) throw new McpError('session_gone', 404)
@@ -101,8 +107,8 @@ export class McpClient {
     return reply.result && typeof reply.result === 'object' ? reply.result : {}
   }
 
-  private request(method: string, params: Record<string, unknown>, signal?: AbortSignal, maxBytes?: number) {
-    return this.post({ jsonrpc: '2.0', id: crypto.randomUUID(), method, params }, signal, maxBytes)
+  private request(method: string, params: Record<string, unknown>, signal?: AbortSignal, maxBytes?: number, read?: { bytes: number }) {
+    return this.post({ jsonrpc: '2.0', id: crypto.randomUUID(), method, params }, signal, maxBytes, read)
   }
 
   /** initialize + notifications/initialized, once per session */
@@ -117,18 +123,30 @@ export class McpClient {
     return this.ready
   }
 
-  /** every page of tools/list; tools without a usable input schema are left out; at most MAX_TOOLS (and
-   * MAX_SCHEMAS_CHARS) kept. `total`: how many usable tools the server listed in the pages read (counted on past the
-   * ceiling, so people and the AI can be told "1,000 of 1,200"); `more`: some were not kept, or pages were left unread */
-  async listTools(signal?: AbortSignal): Promise<{ tools: RemoteTool[]; more: boolean; total: number }> {
+  /** the pages of tools/list; tools without a usable input schema are left out; at most MAX_TOOLS (and
+   * MAX_SCHEMAS_CHARS) kept. Reading stops once the list kept is full, after MCP_LIST_MAX_PAGES pages, or at
+   * MCP_LIST_TOTAL_BYTES (a later page that does not fit in what is left is not read whole, and the pages before it are
+   * kept). `total`: how many usable tools the pages read listed (counted on past the ceiling within a page, so people
+   * and the AI can be told "1,000 of 1,200"); `more`: some were not kept, or pages were left unread; `unread`: pages
+   * were left unread, so the service offers more than `total` ("1,000 of more than 1,000"). */
+  async listTools(signal?: AbortSignal): Promise<{ tools: RemoteTool[]; more: boolean; total: number; unread: boolean }> {
     await this.start(signal)
     const tools: RemoteTool[] = []
     const seen = new Set<string>()
+    const read = { bytes: 0 }
     let cursor: string | undefined
     let full = false
     let size = 0
-    for (let page = 0; page < MAX_PAGES; page++) {
-      const r = await this.request('tools/list', cursor ? { cursor } : {}, signal, MCP_LIST_MAX_BYTES)
+    for (let page = 0; page < MCP_LIST_MAX_PAGES; page++) {
+      const room = MCP_LIST_TOTAL_BYTES - read.bytes
+      if (room <= 0) break
+      const cap = Math.min(MCP_LIST_MAX_BYTES, room)
+      let r: Record<string, any> | null
+      try { r = await this.request('tools/list', cursor ? { cursor } : {}, signal, cap, read) } catch (e) {
+        // cut by what is left of the check's bytes, not by the page limit: the pages read are kept
+        if (page > 0 && cap < MCP_LIST_MAX_BYTES && e instanceof NetError && e.reason === 'too_large') break
+        throw e
+      }
       const list = Array.isArray(r?.tools) ? r!.tools : null
       if (!list) throw new McpError('not_mcp')
       const hide = this.hider()
@@ -143,9 +161,10 @@ export class McpClient {
         tools.push(tool)
       }
       cursor = typeof r?.nextCursor === 'string' && r.nextCursor ? r.nextCursor : undefined
-      if (!cursor) break
+      // the list kept is full: the pages after this one would only be counted
+      if (!cursor || full || tools.length >= MAX_TOOLS) break
     }
-    return { tools, more: full || !!cursor, total: seen.size }
+    return { tools, more: full || !!cursor, total: seen.size, unread: !!cursor }
   }
 
   async callTool(name: string, args: unknown, signal?: AbortSignal): Promise<Record<string, any>> {

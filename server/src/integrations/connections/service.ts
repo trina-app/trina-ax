@@ -20,7 +20,7 @@ import { McpClient, McpError } from './mcp'
 import { NetError, serviceRequest, type NetOptions, type NetResponse } from './net'
 import { authorizationUrl, discover, GrantError, register, revoke, tokenRequest, type OAuthClient, type OAuthSecret, type OAuthServer, type OAuthTokens } from './oauth'
 import {
-  accessOf, activeUser, connectionAad, disabledTools, flowAad, getRow, isAdmin, MAX_DISABLED_TOOLS, mayUse, savedTools, SecretBox, setAccess, StoreError, usable, view,
+  accessOf, activeUser, connectionAad, disabledTools, flowAad, getRow, isAdmin, MAX_DISABLED_TOOLS, mayUse, savedTools, SecretBox, selectRows, setAccess, StoreError, toolListsOf, usable, view,
   type FlowRow, type Row, type Viewer,
 } from './store'
 import { say, type Reason, type TextKey } from './text'
@@ -99,12 +99,12 @@ export class Integrations {
 
   // ---------------- reading ----------------
   list(viewer: Viewer, locale: Locale): IntegrationList {
-    const personal = this.db.query("SELECT * FROM integrations WHERE scope = 'personal' AND owner_user_id = ? ORDER BY name, id").all(viewer.id) as Row[]
-    const team = (this.db.query("SELECT * FROM integrations WHERE scope = 'team' ORDER BY name, id").all() as Row[]).filter((r) => mayUse(this.db, r, viewer.id))
+    const personal = this.db.query(`${selectRows(this.db)} WHERE scope = 'personal' AND owner_user_id = ? ORDER BY name, id`).all(viewer.id) as Row[]
+    const team = (this.db.query(`${selectRows(this.db)} WHERE scope = 'team' ORDER BY name, id`).all() as Row[]).filter((r) => mayUse(this.db, r, viewer.id))
     return { items: [...personal, ...team].map((r) => view(this.db, r, viewer, locale)), personalAllowed: getTeamSettings(this.db).personalIntegrations }
   }
   listTeam(viewer: Viewer, locale: Locale): Integration[] {
-    return (this.db.query("SELECT * FROM integrations WHERE scope = 'team' ORDER BY name, id").all() as Row[]).map((r) => view(this.db, r, viewer, locale))
+    return (this.db.query(`${selectRows(this.db)} WHERE scope = 'team' ORDER BY name, id`).all() as Row[]).map((r) => view(this.db, r, viewer, locale))
   }
   /** connections this person may use in a chat now (tools.ts) */
   usable(userId: string): Row[] { return usable(this.db, userId) }
@@ -143,7 +143,7 @@ export class Integrations {
     const row: Row = {
       id, scope, owner_user_id: owner, created_by: viewer.id, kind: input.kind, name: oneLine(input.name), slug, url, auth: input.auth, auth_header: authHeader,
       secret_enc: null, key_version: 1, account: null, notes: cleanNotes(input.notes), write_policy: input.writePolicy ?? 'ask',
-      status: input.auth === 'oauth' ? 'needs_auth' : 'error', last_error: input.auth === 'oauth' ? 'sign_in' : input.auth === 'none' ? null : 'no_secret', tools_json: '[]', tools_updated_at: null,
+      status: input.auth === 'oauth' ? 'needs_auth' : 'error', last_error: input.auth === 'oauth' ? 'sign_in' : input.auth === 'none' ? null : 'no_secret', tools_rev: 0, tools_updated_at: null,
       last_used_at: null, version: 1, created_at: now, updated_at: now, disabled_tools: '[]',
     }
     if (input.secret !== undefined) {
@@ -152,9 +152,9 @@ export class Integrations {
     }
     this.db.transaction(() => {
       this.db.query(`INSERT INTO integrations (id, scope, owner_user_id, created_by, kind, name, slug, url, auth, auth_header, secret_enc, key_version, account, notes,
-        write_policy, status, last_error, tools_json, tools_updated_at, last_used_at, version, created_at, updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`)
+        write_policy, status, last_error, tools_json, tools_updated_at, last_used_at, version, created_at, updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,'[]',?,?,?,?,?)`)
         .run(row.id, row.scope, row.owner_user_id, row.created_by, row.kind, row.name, row.slug, row.url, row.auth, row.auth_header, row.secret_enc, row.key_version,
-          row.account, row.notes, row.write_policy, row.status, row.last_error, row.tools_json, row.tools_updated_at, row.last_used_at, row.version, row.created_at, row.updated_at)
+          row.account, row.notes, row.write_policy, row.status, row.last_error, row.tools_updated_at, row.last_used_at, row.version, row.created_at, row.updated_at)
       if (scope === 'team') setAccess(this.db, id, input.access ?? { everyone: false, groups: [], users: [] })
     })()
     audit(this.db, { actor: viewer.id, action: 'integration.create', target: id, detail: auditDetail(row, { slug, writePolicy: row.write_policy, access: scope === 'team' ? accessOf(this.db, id) : undefined }) })
@@ -197,15 +197,16 @@ export class Integrations {
       const sealed = this.sealFor(next, { type: 'key', key: patch.secret } satisfies KeySecret, L)
       next.secret_enc = sealed.enc; next.key_version = sealed.keyVersion; secret = 'replaced'
     } else if ((moved || patch.clearSecret) && row.secret_enc) { next.secret_enc = null; secret = 'removed' }
-    if (moved) { next.tools_json = '[]'; next.tools_updated_at = null; next.account = null }
+    // a moved connection's saved tools go too (the UPDATE below empties tools_json)
+    if (moved) { next.tools_updated_at = null; next.account = null }
     const recheck = moved || secret !== 'kept'
     if (recheck) { next.status = next.auth === 'oauth' && !next.secret_enc ? 'needs_auth' : 'error'; next.last_error = next.auth === 'none' || next.secret_enc ? null : next.auth === 'oauth' ? 'sign_in' : 'no_secret' }
     const accessBefore = row.scope === 'team' ? accessOf(this.db, id) : null
     const now = iso(this.now())
     this.db.transaction(() => {
-      const r = this.db.query(`UPDATE integrations SET name=?, notes=?, write_policy=?, url=?, auth=?, auth_header=?, secret_enc=?, key_version=?, account=?, tools_json=?,
-        tools_updated_at=?, status=?, last_error=?, version=version+1, updated_at=? WHERE id=? AND version=?`)
-        .run(next.name, next.notes, next.write_policy, next.url, next.auth, next.auth_header, next.secret_enc, next.key_version, next.account, next.tools_json,
+      const r = this.db.query(`UPDATE integrations SET name=?, notes=?, write_policy=?, url=?, auth=?, auth_header=?, secret_enc=?, key_version=?, account=?,
+        tools_json=CASE WHEN ? THEN '[]' ELSE tools_json END, tools_updated_at=?, status=?, last_error=?, version=version+1, updated_at=? WHERE id=? AND version=?`)
+        .run(next.name, next.notes, next.write_policy, next.url, next.auth, next.auth_header, next.secret_enc, next.key_version, next.account, moved ? 1 : 0,
           next.tools_updated_at, next.status, next.last_error, now, id, row.version)
       if (!r.changes) fail('conflict')
       if (patch.access) setAccess(this.db, id, patch.access)
@@ -230,7 +231,7 @@ export class Integrations {
     const L = locale
     const row = this.manageable(viewer, id)
     if (row.kind !== 'mcp') fieldError(L, 'name', 'toolsMcpOnly')
-    if (!savedTools(row).some((t) => t.name === name)) fieldError(L, 'name', 'toolUnknown')
+    if (!savedTools(this.db, row).some((t) => t.name === name)) fieldError(L, 'name', 'toolUnknown')
     const off = disabledTools(row)
     if (off.has(name) === !enabled) return view(this.db, row, viewer, L)
     if (enabled) off.delete(name)
@@ -238,7 +239,7 @@ export class Integrations {
       off.add(name)
       // names of tools the service no longer lists go first when the list is full
       if (off.size > MAX_DISABLED_TOOLS) {
-        const listed = new Set(savedTools(row).map((t) => t.name))
+        const listed = new Set(savedTools(this.db, row).map((t) => t.name))
         for (const n of [...off]) { if (off.size <= MAX_DISABLED_TOOLS) break; if (!listed.has(n)) off.delete(n) }
       }
     }
@@ -257,6 +258,7 @@ export class Integrations {
     this.db.query('DELETE FROM integrations WHERE id = ?').run(id)
     this.dropClient(id)
     this.recent.delete(id)
+    toolListsOf(this.db).drop(id)
     audit(this.db, { actor: viewer.id, action: 'integration.delete', target: id, detail: auditDetail(row) })
     if (old?.type === 'oauth') await this.revokeTokens(old)
   }
@@ -357,8 +359,8 @@ export class Integrations {
    * server started. A secret that cannot be read now is left out. For the turn's own outgoing text: the answer, the
    * steps, the audit lines and the chat title (redact.ts) never repeat one. */
   secretsFor(userId: string): string[] {
-    const personal = this.db.query("SELECT * FROM integrations WHERE scope = 'personal' AND owner_user_id = ? AND secret_enc IS NOT NULL").all(userId) as Row[]
-    const team = (this.db.query("SELECT * FROM integrations WHERE scope = 'team' AND secret_enc IS NOT NULL").all() as Row[]).filter((r) => mayUse(this.db, r, userId))
+    const personal = this.db.query(`${selectRows(this.db)} WHERE scope = 'personal' AND owner_user_id = ? AND secret_enc IS NOT NULL`).all(userId) as Row[]
+    const team = (this.db.query(`${selectRows(this.db)} WHERE scope = 'team' AND secret_enc IS NOT NULL`).all() as Row[]).filter((r) => mayUse(this.db, r, userId))
     const out: string[] = []
     for (const r of [...personal, ...team]) out.push(...(this.secretValues(r, true) ?? []))
     return out
@@ -383,10 +385,14 @@ export class Integrations {
   }
 
   // ---------------- checking ----------------
-  private setStatus(row: Row, status: Row['status'], reason: string | null, extra: { tools?: string; total?: number | null } = {}) {
+  /** `total`: how many tools the server offers when it keeps fewer (null: all of them); `totalMore`: the service offers
+   * more than `total` (the check stopped with pages of its list unread) */
+  private setStatus(row: Row, status: Row['status'], reason: string | null, extra: { tools?: string; total?: number | null; totalMore?: boolean } = {}) {
     const now = iso(this.now())
-    if (extra.tools !== undefined) this.db.query('UPDATE integrations SET status=?, last_error=?, tools_json=?, tools_total=?, tools_updated_at=?, updated_at=? WHERE id=? AND version=?').run(status, reason, extra.tools, extra.total ?? null, now, now, row.id, row.version)
-    else this.db.query('UPDATE integrations SET status=?, last_error=?, updated_at=? WHERE id=? AND version=?').run(status, reason, now, row.id, row.version)
+    if (extra.tools !== undefined) {
+      this.db.query('UPDATE integrations SET status=?, last_error=?, tools_json=?, tools_total=?, tools_total_more=?, tools_updated_at=?, updated_at=? WHERE id=? AND version=?')
+        .run(status, reason, extra.tools, extra.total ?? null, extra.totalMore ? 1 : 0, now, now, row.id, row.version)
+    } else this.db.query('UPDATE integrations SET status=?, last_error=?, updated_at=? WHERE id=? AND version=?').run(status, reason, now, row.id, row.version)
   }
 
   /** a call's failure -> what the connection's status says */
@@ -400,10 +406,10 @@ export class Integrations {
     try {
       if (row.kind === 'mcp') {
         // the list has the connection's secrets hidden (mcp.ts toolOf): the AI and the people who use it read it
-        const { tools, more, total } = await this.withMcp(row, (c) => c.listTools(signal))
+        const { tools, more, total, unread } = await this.withMcp(row, (c) => c.listTools(signal))
         // more than the server keeps (its hard ceiling): the total is saved so Settings and the AI's instructions can
-        // say "1,000 of 1,200"
-        this.setStatus(row, 'connected', null, { tools: JSON.stringify(tools), total: more ? Math.max(total, tools.length) : null })
+        // say "1,000 of 1,200", or "1,000 of more than 1,000" when reading stopped with pages left (mcp.ts listTools)
+        this.setStatus(row, 'connected', null, { tools: JSON.stringify(tools), total: more ? Math.max(total, tools.length) : null, totalMore: unread })
       } else {
         const res = await this.send(row, row.url, { method: 'GET', headers: [['Accept', 'application/json, text/plain;q=0.9, */*;q=0.5']], signal })
         if (res.status === 401 || res.status === 403) this.setStatus(row, 'needs_auth', `refused:${res.status}`)

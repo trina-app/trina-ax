@@ -55,6 +55,8 @@ export class FakeServices {
   // MCP
   tools: any[] = DEFAULT_TOOLS()
   pageSize = 2
+  /** tools/list pages on forever (a hostile or broken server): page n (from 0) has these tools and names a next one */
+  endless: ((page: number) => unknown[]) | null = null
   sse = false
   /** the event stream stays open after the reply (the client must stop reading by itself) */
   keepOpen = false
@@ -139,6 +141,10 @@ export class FakeServices {
     if (req.headers.get('mcp-protocol-version') !== '2025-06-18') return new Response('version', { status: 400 })
     if (msg.method === 'notifications/initialized') return new Response(null, { status: 202 })
     const token = credential(req)
+    if (msg.method === 'tools/list' && this.endless) {
+      const n = Number(msg.params?.cursor ?? 0)
+      return this.mcpReply({ jsonrpc: '2.0', id: msg.id, result: { tools: this.endless(n), nextCursor: String(n + 1) } })
+    }
     if (msg.method === 'tools/list') {
       const start = Number(msg.params?.cursor ?? 0)
       // "{token}" in a tool's words or name: the server writes its own token there

@@ -83,6 +83,9 @@ export const Integration = z.object({
    * an older server saved (it kept 100 at most; checking the connection again saves them all); absent when `tools` is
    * all of them */
   toolsTotal: z.number().int().nonnegative().optional(),
+  /** true: the service offers more than `toolsTotal` (the server stopped reading its list with pages left: the list it
+   * keeps was full, or it read 20 pages or 16 MiB), how many more is not known: "1,000 of more than 1,000 tools" */
+  toolsTotalMore: z.literal(true).optional(),
   toolsUpdatedAt: IsoTime.nullable(),
   /** team connections only (null for personal ones, and for people who may use but not manage it) */
   access: IntegrationAccess.nullable(),

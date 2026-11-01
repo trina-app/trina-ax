@@ -72,15 +72,29 @@ describe('a connection keeps every tool its service lists', () => {
   })
 
   test(`over the hard ceiling of ${MAX_TOOLS} the rest is said, not hidden`, async () => {
-    const before = fake.tools
+    const before = { tools: fake.tools, pageSize: fake.pageSize }
     fake.tools = small(MAX_TOOLS + 5, 'c')
+    let id = ''
     try {
+      // all in one page: the 5 past the ceiling are counted
+      fake.pageSize = 2000
       const r = await post('bob', '/api/integrations', { kind: 'mcp', name: 'Ceiling', url: `${fake.base}/mcp-open?ceiling`, auth: 'none' })
+      id = r.body.id
       expect(r.body.tools).toHaveLength(MAX_TOOLS)
-      expect(r.body.toolsTotal).toBe(MAX_TOOLS + 5)
+      expect([r.body.toolsTotal, r.body.toolsTotalMore]).toEqual([MAX_TOOLS + 5, undefined])
       expect(turn('bob').prompt).toContain(`(the service offers ${MAX_TOOLS + 5} tools; the team server keeps the first ${MAX_TOOLS} of a connection`)
-      await A.json(`/api/integrations/${r.body.id}`, { method: 'DELETE', as: 'bob' })
-    } finally { fake.tools = before }
+      // ${MAX_TOOLS} in the first page: the list kept is full, so the next page is not read and not counted
+      fake.pageSize = MAX_TOOLS
+      const pages = () => fake.seen.filter((s) => s.path === '/mcp-open?ceiling' && s.body.includes('tools/list')).length
+      const seen = pages()
+      const again = await post('bob', `/api/integrations/${id}/refresh`, {})
+      expect(pages() - seen).toBe(1)
+      expect([again.body.tools.length, again.body.toolsTotal, again.body.toolsTotalMore]).toEqual([MAX_TOOLS, MAX_TOOLS, true])
+      expect(turn('bob').prompt).toContain(`(the service offers more than ${MAX_TOOLS} tools; the team server keeps the first ${MAX_TOOLS} of a connection`)
+    } finally {
+      Object.assign(fake, before)
+      if (id) await A.json(`/api/integrations/${id}`, { method: 'DELETE', as: 'bob' })
+    }
   })
 })
 

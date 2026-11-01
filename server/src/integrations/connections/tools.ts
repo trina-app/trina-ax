@@ -277,7 +277,7 @@ function mcpTool(ctx: AppContext, b: BuildCtx, row: Row, tool: RemoteTool, name:
       try {
         chat = turnChat(ctx, tc)
         current = h.use(svc.forCall(tc.userId, row.id))
-        const t = savedTools(current).find((x) => x.name === tool.name)
+        const t = savedTools(ctx.db, current).find((x) => x.name === tool.name)
         if (!t) throw new CallError(`${current.name} no longer offers ${tool.name}`, 'tool gone')
         // turned off since the turn began: the person who manages the connection said no to this tool
         if (disabledTools(current).has(t.name)) throw new CallError(`${tool.name} of ${current.name} was turned off for the AI, so it did not run. Do not try it another way; tell the user (whoever manages the connection can turn it on in its settings).`, 'tool off')
@@ -491,7 +491,7 @@ type Now = { row: Row; tools: Map<string, RemoteTool>; off: Set<string> } | null
 function stillThere(ctx: AppContext, userId: string, e: TurnEntry, rows: Map<string, Now>): { row: Row; tool: RemoteTool } | null {
   if (!rows.has(e.row.id)) {
     let now: Now = null
-    try { const row = integrationsOf(ctx).forCall(userId, e.row.id); now = { row, tools: new Map(savedTools(row).map((t) => [t.name, t])), off: disabledTools(row) } }
+    try { const row = integrationsOf(ctx).forCall(userId, e.row.id); now = { row, tools: new Map(savedTools(ctx.db, row).map((t) => [t.name, t])), off: disabledTools(row) } }
     catch (x) { if (!(x instanceof CallError)) throw x }
     rows.set(e.row.id, now)
   }
@@ -645,7 +645,7 @@ export function integrationToolProvider(ctx: AppContext): TurnToolProvider {
         const key = connectionKey(row)
         if (row.status === 'needs_auth' || (row.auth !== 'none' && !row.secret_enc)) { lines.push(`- ${row.name} (${who} connection): not usable now, it needs ${row.auth === 'oauth' ? 'a new sign-in' : 'its key'} (the user can fix it in Settings > External services)`); continue }
         if (row.kind === 'http') { http.push(row); lines.push(`- ${row.name} (${who} connection, HTTP API): api_request with connection "${key}"`); continue }
-        const saved = savedTools(row)
+        const saved = savedTools(ctx.db, row)
         const off = disabledTools(row)
         const entries: TurnEntry[] = []
         let skipped = 0
@@ -667,12 +667,13 @@ export function integrationToolProvider(ctx: AppContext): TurnToolProvider {
         if (direct) { tools.push(...built); count += built.length; chars += cost } else deferred.push({ row, key, entries })
         // the hard ceiling is said, not hidden (docs/DECISIONS.md "Skills: the whole list, the skill tool"): the service
         // offers more than the server keeps of a connection
-        const offered = toolsOffered(row)
+        const offered = toolsOffered(ctx.db, row)
         const capped = offered === null ? ''
-          // more than an older server kept: today's ceiling (1,000 tools or 4,000,000 characters) cut it
-          : saved.length > INTEGRATION_TOOLS_OLD_MAX ? ` (the service offers ${offered} tools; the team server keeps the first ${saved.length} of a connection; if the user needs one that is not here, say so)`
+          // more than an older server kept, or reading stopped with pages left: today's ceiling (1,000 tools or
+          // 4,000,000 characters, 20 pages or 16 MiB read) cut it
+          : offered.more || saved.length > INTEGRATION_TOOLS_OLD_MAX ? ` (the service offers ${offered.more ? 'more than ' : ''}${offered.total} tools; the team server keeps the first ${saved.length} of a connection; if the user needs one that is not here, say so)`
             // a list saved before every tool was kept: checking the connection again gets the rest
-            : ` (the service offers ${offered} tools; ${saved.length} were saved when the connection was last checked; if the user needs one that is not here, say so: whoever manages the connection can check it again in its settings)`
+            : ` (the service offers ${offered.total} tools; ${saved.length} were saved when the connection was last checked; if the user needs one that is not here, say so: whoever manages the connection can check it again in its settings)`
         const offNote = skipped ? ` (${skipped} more turned off by whoever manages this connection; do not try to reach them another way)` : ''
         if (!entries.length && skipped && offered === null) lines.push(`- ${row.name} (${who} connection, MCP server): every tool is turned off by whoever manages this connection (they can turn them on in its settings)`)
         else if (direct) lines.push(`- ${row.name} (${who} connection, MCP server): ${entries.length} tools named ${key}__…${capped}${offNote}`)

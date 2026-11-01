@@ -185,11 +185,14 @@ export function authorizationUrl(value: string): string {
 export const STATUS_TONE: Record<IntegrationStatus, 'ok' | 'warn' | 'danger'> = { connected: 'ok', needs_auth: 'warn', error: 'danger' }
 
 /** What Settings says under a connection's tools when the server holds fewer than the service offers: over the
- * server's ceiling of 1,000 tools or 4,000,000 characters (`toolsCapped`), or a list an older server cut at 100 tools or
- * 256,000 characters (`toolsStale`: checking again saves every tool; INTEGRATION_TOOLS_OLD_MAX); null when it holds
- * them all, so a service with 186 tools just shows "186 tools". */
-export function toolsShortfall(i: Pick<Integration, 'tools' | 'toolsTotal'>): 'integrations.toolsCapped' | 'integrations.toolsStale' | null {
-  if (!i.toolsTotal || i.toolsTotal <= i.tools.length) return null
+ * server's ceiling of 1,000 tools or 4,000,000 characters (`toolsCapped`; `toolsCappedMore` when the server stopped
+ * reading the list with pages left, so it only knows the service offers more than `toolsTotal`), or a list an older
+ * server cut at 100 tools or 256,000 characters (`toolsStale`: checking again saves every tool;
+ * INTEGRATION_TOOLS_OLD_MAX); null when it holds them all, so a service with 186 tools just shows "186 tools". */
+export function toolsShortfall(i: Pick<Integration, 'tools' | 'toolsTotal' | 'toolsTotalMore'>): 'integrations.toolsCapped' | 'integrations.toolsCappedMore' | 'integrations.toolsStale' | null {
+  if (!i.toolsTotal) return null
+  if (i.toolsTotalMore) return i.toolsTotal >= i.tools.length ? 'integrations.toolsCappedMore' : null
+  if (i.toolsTotal <= i.tools.length) return null
   return i.tools.length > INTEGRATION_TOOLS_OLD_MAX ? 'integrations.toolsCapped' : 'integrations.toolsStale'
 }
 

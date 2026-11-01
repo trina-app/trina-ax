@@ -1670,6 +1670,8 @@ export const es: Record<MessageKey, string> = {
   'integrations.toolsOf': "{n} de {total} herramientas",
   'integrations.toolsCapped': "El servicio ofrece {total} herramientas; la IA puede usar las primeras {n}.",
   'integrations.toolsStale': "El servicio ofrece {total} herramientas; en la última comprobación se guardaron {n}. Vuelva a comprobarla para guardarlas todas.",
+  'integrations.toolsOfMore': "{n} de más de {total} herramientas",
+  'integrations.toolsCappedMore': "El servicio ofrece más de {total} herramientas; la IA puede usar las primeras {n}.",
   'integrations.readOnly': "Solo lectura",
   'integrations.toolsHint': "La IA ejecuta las herramientas de solo lectura de inmediato; las demás siguen la configuración de escritura.",
   'integrations.toolsOff': "{n, plural, one {# desactivada} other {# desactivadas}}",

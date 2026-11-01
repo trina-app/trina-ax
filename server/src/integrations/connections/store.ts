@@ -15,10 +15,15 @@ export interface Row {
   id: string; scope: 'personal' | 'team'; owner_user_id: string | null; created_by: string | null
   kind: 'mcp' | 'http'; name: string; slug: string; url: string; auth: 'none' | 'bearer' | 'header' | 'oauth'; auth_header: string | null
   secret_enc: string | null; key_version: number; account: string | null; notes: string | null; write_policy: 'ask' | 'allow' | 'deny'
-  status: 'connected' | 'needs_auth' | 'error'; last_error: string | null; tools_json: string; tools_updated_at: string | null
+  status: 'connected' | 'needs_auth' | 'error'; last_error: string | null; tools_updated_at: string | null
+  /** moves on whenever the saved tool list (tools_json) changes (migration 330). tools_json itself is not part of a
+   * row (it can be 4,000,000 characters): savedTools reads it, parsed once per tools_rev. */
+  tools_rev: number
   /** how many tools the server offers when that is more than tools_json keeps (the hard ceiling, mcp.ts MAX_TOOLS);
    * null otherwise */
   tools_total?: number | null
+  /** 1: the check stopped reading the server's list with pages left, so it offers more than tools_total */
+  tools_total_more?: number
   last_used_at: string | null; version: number; created_at: string; updated_at: string
   /** JSON list of the service's tool names turned off (migration 328); every other tool is on */
   disabled_tools: string
@@ -40,7 +45,77 @@ export function activeUser(db: Database, id: string): Viewer | null {
   return db.query("SELECT id, role FROM users WHERE id = ? AND status = 'active' AND deleted_at IS NULL AND must_change_password = 0").get(id) as Viewer | null
 }
 
-export function getRow(db: Database, id: string): Row | null { return db.query('SELECT * FROM integrations WHERE id = ?').get(id) as Row | null }
+/** at most this much saved tool JSON (characters, about its bytes) is kept parsed in memory per database, the list
+ * used longest ago going first. Connections that hold more together (each up to 4,000,000 characters; 20 personal
+ * and 50 team ones) have the lists that do not fit read and parsed again when used, as every turn did before. */
+export const TOOL_LISTS_MAX = 64 * 1024 * 1024
+
+/** Saved tool lists of connections, parsed, by connection and tools_rev: a turn (and a call) reads and parses only a
+ * list that changed. Only the service's definitions are held, frozen, never a decision: who may use a connection and
+ * which of its tools are turned off are read again with every turn and every call (usable, mayUse, disabledTools). */
+export class ToolLists {
+  private lists = new Map<string, { rev: number; tools: readonly RemoteTool[]; size: number }>()
+  /** the characters of saved JSON held */
+  size = 0
+  constructor(readonly max = TOOL_LISTS_MAX) {}
+  get(id: string, rev: number): readonly RemoteTool[] | undefined {
+    const e = this.lists.get(id)
+    if (!e || e.rev !== rev) return undefined
+    // the most recently used last
+    this.lists.delete(id)
+    this.lists.set(id, e)
+    return e.tools
+  }
+  set(id: string, rev: number, tools: readonly RemoteTool[], size: number): void {
+    this.drop(id)
+    if (size > this.max) return
+    this.lists.set(id, { rev, tools, size })
+    this.size += size
+    for (const [k, e] of this.lists) {
+      if (this.size <= this.max) break
+      this.lists.delete(k)
+      this.size -= e.size
+    }
+  }
+  drop(id: string): void {
+    const e = this.lists.get(id)
+    if (e) { this.lists.delete(id); this.size -= e.size }
+  }
+  /** the connections whose lists are held, used longest ago first */
+  ids(): string[] { return [...this.lists.keys()] }
+}
+
+/** A parsed list is shared by every turn that uses the connection: nothing may change it. */
+function freeze<T>(value: T): T {
+  const todo: unknown[] = [value]
+  while (todo.length) {
+    const v = todo.pop()
+    if (!v || typeof v !== 'object' || Object.isFrozen(v)) continue
+    Object.freeze(v)
+    for (const x of Object.values(v)) todo.push(x)
+  }
+  return value
+}
+
+const perDb = new WeakMap<Database, { columns: string; lists: ToolLists }>()
+function stateOf(db: Database) {
+  let s = perDb.get(db)
+  if (!s) {
+    const columns = (db.query('PRAGMA table_info(integrations)').all() as { name: string }[]).map((c) => c.name).filter((n) => n !== 'tools_json')
+    s = { columns: columns.join(', '), lists: new ToolLists() }
+    if (columns.length) perDb.set(db, s)
+  }
+  return s
+}
+
+/** "SELECT <every column but tools_json> FROM integrations": what reads a connection as a Row. Reading tools_json
+ * with the other columns copied every saved list out of the database with every turn. */
+export const selectRows = (db: Database) => `SELECT ${stateOf(db).columns} FROM integrations`
+
+/** this database's parsed tool lists (tests) */
+export const toolListsOf = (db: Database) => stateOf(db).lists
+
+export function getRow(db: Database, id: string): Row | null { return db.query(`${selectRows(db)} WHERE id = ?`).get(id) as Row | null }
 
 export function accessOf(db: Database, id: string): IntegrationAccess {
   const rows = db.query('SELECT subject_type, subject_id FROM integration_access WHERE integration_id = ? ORDER BY subject_type, subject_id').all(id) as { subject_type: string; subject_id: string }[]
@@ -78,24 +153,38 @@ export function usersOf(db: Database, id: string): Set<string> {
 /** Connections the person may use in a chat now, personal first. */
 export function usable(db: Database, userId: string): Row[] {
   if (!activeUser(db, userId)) return []
-  const personal = personalOn(db) ? db.query("SELECT * FROM integrations WHERE scope = 'personal' AND owner_user_id = ? ORDER BY name, id").all(userId) as Row[] : []
-  const team = (db.query("SELECT * FROM integrations WHERE scope = 'team' ORDER BY name, id").all() as Row[]).filter((r) => mayUse(db, r, userId))
+  const personal = personalOn(db) ? db.query(`${selectRows(db)} WHERE scope = 'personal' AND owner_user_id = ? ORDER BY name, id`).all(userId) as Row[] : []
+  const team = (db.query(`${selectRows(db)} WHERE scope = 'team' ORDER BY name, id`).all() as Row[]).filter((r) => mayUse(db, r, userId))
   return [...personal, ...team]
 }
 
-export function savedTools(row: Row): RemoteTool[] {
-  try { const v = JSON.parse(row.tools_json); return Array.isArray(v) ? v : [] } catch { return [] }
+/** The connection's saved tool list (tools_json), parsed once per tools_rev (ToolLists): the same frozen list for every
+ * turn and call until a check saves another one. A row read before the list changed gets the newer list. */
+export function savedTools(db: Database, row: Pick<Row, 'id' | 'tools_rev'>): readonly RemoteTool[] {
+  const lists = stateOf(db).lists
+  const held = lists.get(row.id, row.tools_rev)
+  if (held) return held
+  const r = db.query('SELECT tools_json, tools_rev FROM integrations WHERE id = ?').get(row.id) as { tools_json: string; tools_rev: number } | null
+  if (!r) return []
+  let tools: RemoteTool[] = []
+  try { const v = JSON.parse(r.tools_json); if (Array.isArray(v)) tools = v } catch {}
+  lists.set(row.id, r.tools_rev, freeze(tools), r.tools_json.length)
+  return tools
 }
 
 /** How many tools the connection's server offers when the server keeps fewer of them (over the hard ceiling, mcp.ts
- * MAX_TOOLS / MAX_SCHEMAS_CHARS), else null. */
-export function toolsOffered(row: Row): number | null {
-  const n = row.tools_total, kept = savedTools(row).length
+ * MAX_TOOLS / MAX_SCHEMAS_CHARS, or a list an older server cut), else null. `more`: it offers more than `total` (the
+ * check stopped reading its list with pages left, mcp.ts listTools). */
+export function toolsOffered(db: Database, row: Row): { total: number; more: boolean } | null {
+  const n = row.tools_total, more = row.tools_total_more === 1, kept = savedTools(db, row).length
   // none kept: a moved connection not checked again yet (its old count says nothing)
-  return typeof n === 'number' && kept > 0 && n > kept ? n : null
+  return typeof n === 'number' && kept > 0 && (n > kept || (more && n >= kept)) ? { total: n, more } : null
 }
 
-const toolsTotalOf = (row: Row): { toolsTotal?: number } => { const n = toolsOffered(row); return n === null ? {} : { toolsTotal: n } }
+const toolsTotalOf = (db: Database, row: Row): { toolsTotal?: number; toolsTotalMore?: true } => {
+  const n = toolsOffered(db, row)
+  return n === null ? {} : n.more ? { toolsTotal: n.total, toolsTotalMore: true } : { toolsTotal: n.total }
+}
 
 /** at most this many names are kept turned off per connection (twice the MAX_TOOLS a connection keeps, so every tool
  * can be off with room for names of tools the service no longer lists) */
@@ -116,8 +205,8 @@ export function view(db: Database, row: Row, viewer: Viewer, locale: Locale): In
     id: row.id, scope: row.scope, kind: row.kind, name: row.name, slug: row.slug, url: manage ? row.url : bareUrl(row.url), auth: row.auth, authHeader: row.auth_header,
     hasSecret: !!row.secret_enc, account: row.account, notes: row.notes, writePolicy: row.write_policy, status: row.status,
     lastError: reasonText(row.last_error, locale),
-    tools: ((off) => savedTools(row).map((t) => ({ name: t.name, title: t.title, description: t.description, readOnly: t.readOnly, enabled: !off.has(t.name) })))(disabledTools(row)),
-    ...toolsTotalOf(row),
+    tools: ((off) => savedTools(db, row).map((t) => ({ name: t.name, title: t.title, description: t.description, readOnly: t.readOnly, enabled: !off.has(t.name) })))(disabledTools(row)),
+    ...toolsTotalOf(db, row),
     toolsUpdatedAt: row.tools_updated_at, access: row.scope === 'team' && manage ? accessOf(db, row.id) : null,
     createdBy: creator, createdAt: row.created_at, updatedAt: row.updated_at, lastUsedAt: row.last_used_at, canManage: manage,
   }
