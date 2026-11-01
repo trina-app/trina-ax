@@ -721,7 +721,7 @@ describe('review of the small-server fixes', () => {
     expect(out.text).not.toContain('invented over silence')
     // the cache key is new: a piece wrongly kept as silence before is not used again
     expect(media.TranscriptCache.key({ file: 'f'.repeat(64), provider: 'local', model: 'm', piece: 0, pieceSec: 30 }))
-      .toBe(crypto.createHash('sha256').update(JSON.stringify(['transcript-v3', 'f'.repeat(64), 'local', 'm', 30, 0])).digest('hex'))
+      .toBe(crypto.createHash('sha256').update(JSON.stringify(['transcript-v4', 'f'.repeat(64), 'local', 'm', 30, 0])).digest('hex'))
   })
   test('the speed cannot be poisoned: short clips never set it first, one sample moves it at most 2x, a cut-off run only nudges it, a cap', () => {
     A.ctx.db.query(SPEED).run()
@@ -931,6 +931,29 @@ describe('review of the small-server fixes', () => {
     expect(media.writingSystem('The meeting is tomorrow at 3 pm.')).toBe('latin')
     expect(media.writingSystem('ちょっとチョコ')).toBe('cjk')
     expect(media.writingSystem('...')).toBeNull()
+  })
+  // measured on whisper small (the QA's short Korean TTS pieces): guessed ja at p 0.24-0.32 and written in kana; told
+  // "ko" they come back in Hangul. A retry from kana or Han to the Korean (or English) team's language is taken.
+  test('Korean speech that whisper guessed as Japanese (kana): the Hangul retry is taken on a Korean team', async () => {
+    shortFile(1)
+    spies.push(spyOn(F(), 'mediaTranscribe').mockImplementation(async (_p, _w, _n, _b, o) =>
+      o.language === 'ko' ? { text: '', language: 'ko', durationSec: 30, segments: [{ start: 0.5, end: 3, text: '오늘 회의 계획을 함께 살펴보겠습니다' }] }
+        : { text: '', language: 'ja', languageP: 0.32, durationSec: 30, segments: [{ start: 0.5, end: 3, text: 'スローイスミター' }] }))
+    const { out } = await read({ file_path: put('kana-for-korean.m4a') })
+    expect(out.text).toContain('오늘 회의 계획을 함께 살펴보겠습니다')
+    expect(out.text).not.toContain('スローイ')
+  })
+  test('a retry that is one of whisper\'s video-outro inventions is not taken', async () => {
+    shortFile(2)
+    spies.push(spyOn(F(), 'mediaTranscribe').mockImplementation(async (_p, _w, _n, _b, o) => {
+      const first = audios[audios.length - 1]!.start === 0
+      if (o.language) return { text: '', language: o.language, durationSec: 30, segments: [{ start: 0.5, end: 3, text: first ? '구독과 좋아요를 눌러주세요!' : '*Spanish language*' }] }
+      return { text: '', language: 'ja', languageP: 0.25, durationSec: 30, segments: first ? [{ start: 0.5, end: 3, text: 'よくサファイムにた' }] : [] }
+    }))
+    const { out } = await read({ file_path: put('outro.m4a') })
+    expect(out.text).not.toContain('구독')
+    expect(out.text).not.toContain('Spanish')
+    expect(media.acceptRetry({ text: 'x', language: 'en', durationSec: 1, segments: [{ start: 0, end: 1, text: 'ちょっと' }] }, { text: '', language: 'en', durationSec: 1, segments: [{ start: 0, end: 1, text: "I'll see you in the next video!" }] }, 'en')).toBe(false)
   })
   test('the file\'s language is told only when whisper.cpp is unsure: a sure short English piece after Korean stays English', async () => {
     probe = audioOnly(60)

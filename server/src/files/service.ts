@@ -886,9 +886,9 @@ export class FileService {
                 : this.mediaTranscribe(speech!, work, wav, bytes, { signal: ctx.signal, timeoutMs: budget(), language: lang })
               // A short piece runs on whisper's own guess, or at once on a language a retry already proved in this read.
               // When whisper is unsure, it runs again told the file's language (the one most heard in pieces it was sure
-              // of) or else the team's; that answer is kept only when it is not "(speaking in foreign language)" and is
-              // written like the first one (another writing system is a translation, measured); a retry that fails keeps
-              // the first answer. A told language is never reported as heard (real-server re-check N1 and its review).
+              // of) or else the team's; that answer is kept by media.acceptRetry (not a caption or an invention, the same
+              // writing system, or kana / Han turned Korean or English); a retry that fails keeps the first answer. A told
+              // language is never reported as heard (real-server re-check N1 and its reviews).
               let language = short ? proven : undefined
               let answer = await ask(language)
               if (language && typeof answer === 'object' && media.saysOtherLanguage(answer)) { language = undefined; answer = await ask(undefined) }
@@ -901,7 +901,7 @@ export class FileService {
                     ctx.signal?.throwIfAborted()
                     media.assertWork(work)
                   }
-                  if (again && typeof again === 'object' && !media.saysOtherLanguage(again) && media.sameWritingSystem(answer, again)) { answer = again; language = told; proven = told }
+                  if (again && typeof again === 'object' && media.acceptRetry(answer, again, told)) { answer = again; language = told; proven = told }
                 }
               }
               // whisper.cpp had no time for it after all, or voice input is using it: not made, nothing handed over

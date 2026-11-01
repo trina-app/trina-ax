@@ -4414,16 +4414,26 @@ the words and reads both; Trina has no shell, so `read` does it on the server. P
     봅시다.", Korean told `en` an English sentence). Only when whisper.cpp is unsure (its own probability under 0.5, read
     from its log line, so a read's pieces run without `-np`) it runs again told the file's language, the one most spoken
     in pieces whose language counts (`Piece.sure`: 8 s of sound or more, or whisper sure), else the team's. That answer
-    is kept only when it is not whisper's "(speaking in foreign language)" caption (`saysOtherLanguage`) and is in the
-    same writing system as the first (`writingSystem`: Hangul, Latin, kana/Han); a retry that fails keeps the first
-    answer (only Stop or a replaced work folder end the read). A language a retry proved is told to the read's next
+    is kept (`acceptRetry`) when it is not whisper's "(speaking in foreign language)" caption (`saysOtherLanguage`) or
+    one of its video-outro inventions ("구독과 좋아요를 눌러주세요!", "see you in the next video"), and is in the same writing
+    system as the first (`writingSystem`: Hangul, Latin, kana/Han), or the first was in kana or Han and the told language
+    is Korean or English; a retry that fails keeps the first answer (only Stop or a replaced work folder end the read). A language a retry proved is told to the read's next
     short pieces at once (an all-short file does not run every piece twice), and is dropped again for a piece that
     answers with the caption. A told language is never reported as heard (`Piece.hint`, cached as such), and an unsure
-    guess never becomes the file's language for other pieces. The cache key is `transcript-v3`.
-    - Measured (Debian 13, small, `-nf`) on the QA's 4-6 s Korean TTS pieces: whisper guessed ja, ko, ja at p
-      0.32-0.36; told `en` it gave romanized words once and only the caption twice; told `ko`, Korean words (garbled by
-      the TTS, as QA saw). With the writing-system rule a Korean piece that whisper wrote in kana keeps the kana: the
-      rule gives up that correction to never keep a translation.
+    guess never becomes the file's language for other pieces. The cache key is `transcript-v4`.
+    - How the retry rule was chosen (Debian 13, 2 CPUs, small, `-nf`, `-ojf`): 16 `say` clips of 3-7 s (Korean,
+      English, and Japanese and Chinese as controls, each clean and as a noisy phone copy) and 15 pieces of the QA's
+      recordings (its short Korean files and 5 s windows of its Korean / English meeting), each run on whisper's own
+      guess, told `ko` and told `en`, on a Korean and an English team (94 cases). Whisper was unsure (p < 0.5) only on
+      the QA's Korean TTS pieces: ja at p 0.24-0.32 written in kana, or nothing at all; every English, Japanese and
+      Chinese clip and every `say` Korean clip was sure (p 0.53-0.997), so no translation of a sure piece can happen.
+      Correct answers (right writing system, no caption or invention), in production order: same writing system only
+      (the previous rule) 81/94; whisper's mean token probability with a 0.05 margin 81/94 (it does not separate the
+      cases: its kana inventions scored 0.45-0.59, the Hangul retries 0.45-0.52); the kana/Han rule 83/94, and with
+      the invention filter the same 83/94 with three fewer invented sentences kept. Told every language regardless of
+      p (a stress test), the kana/Han rule would take Hangul for real Japanese and Chinese speakers (77-78/94): it only
+      holds because those are never unsure. On an English team a short Korean piece whisper is unsure of stays poor
+      (romanized or nothing), but it is never labelled `en` or replaced by an invention.
     - History: the first build told every short piece the team's language (real-server re-check N1: qa-test's team is
       English, so short Korean sentences came out as romanized nonsense labelled `en`); the next one told it the file's
       language up front and counted unsure guesses as heard (re-review of b5e89a8c). Longer pieces are always detected,

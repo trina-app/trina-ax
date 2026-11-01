@@ -164,7 +164,7 @@ export const SHORT_SPEECH_SEC = 8
 export const LANGUAGE_SURE = 0.5
 /** whisper's own caption when it was told a language the sound is not in ("(speaking in foreign language)", "[Foreign
  * language]"): measured on 4-6 s Korean pieces told "en" (auto had guessed ko or ja at p 0.32-0.36) */
-const OTHER_LANGUAGE = /^\s*[([][^)\]]*\b(foreign|non-english)\b[^)\]]*[)\]][\s.]*$/i
+const OTHER_LANGUAGE = /^\s*(?:[([][^)\]]*\b(foreign|non-english)\b[^)\]]*[)\]]|\*[^*]*\blanguage\b[^*]*\*)[\s.]*$/i
 /** Whether an answer holds nothing but that caption: the language it was told is not the sound's. */
 export function saysOtherLanguage(r: TranscribeResult): boolean {
   const lines = r.segments?.length ? r.segments.map((s) => s.text) : [r.text]
@@ -519,9 +519,10 @@ export interface Piece { segments: Segment[]; language: string | null; hint?: st
 export class TranscriptCache {
   constructor(readonly dir: string, readonly maxBytes = 200 * 1024 ** 2, readonly maxAgeMs = 30 * 86_400_000) {}
   /** v2: what the QA build's -50 dBFS gate kept as silence (quiet speech) is not used again; v3: a piece says whether
-   * its language counts as the file's (Piece.sure), and none told a language from an unsure guess is used again */
+   * its language counts as the file's (Piece.sure), and none told a language from an unsure guess is used again; v4:
+   * short pieces whisper wrote in kana for Korean speech are made again with the Hangul retry */
   static key(p: { file: string; provider: string; model: string; piece: number; pieceSec: number }): string {
-    return crypto.createHash('sha256').update(JSON.stringify(['transcript-v3', p.file, p.provider, p.model, p.pieceSec, p.piece])).digest('hex')
+    return crypto.createHash('sha256').update(JSON.stringify(['transcript-v4', p.file, p.provider, p.model, p.pieceSec, p.piece])).digest('hex')
   }
   private file(key: string) {
     if (!/^[0-9a-f]{64}$/.test(key)) throw new Error('bad cache key')
@@ -596,10 +597,20 @@ export function writingSystem(text: string): 'hangul' | 'latin' | 'cjk' | null {
   return best[1] ? best[0] : null
 }
 const answerText = (r: TranscribeResult) => (r.segments?.length ? r.segments.map((x) => x.text).join(' ') : r.text)
-/** Whether `again` is written like `first` (or `first` has no letters to compare). */
-export function sameWritingSystem(first: TranscribeResult, again: TranscribeResult): boolean {
-  const a = writingSystem(answerText(first))
-  return a === null || a === writingSystem(answerText(again))
+/** whisper's inventions of a video's end (subtitles of web videos in its training): told a language the sound is not
+ * clearly in, it gave these (measured: "구독과 좋아요를 눌러주세요!", "I'll see you in the next video!") */
+const OUTRO = /구독과?\s*좋아요|시청해\s*주셔서|다음\s*영상|next video|thanks? (you )?for watching|please subscribe|subtitles by/i
+/**
+ * Whether a short piece's retry, told `told`, replaces whisper's unsure first answer. Not when it is only the "foreign
+ * language" caption or a video-outro invention. Otherwise it must be written like the first answer (another writing
+ * system is a translation: English told "ko" came back in Korean), except from kana or Han to Korean or English: whisper
+ * small writes short Korean speech it guessed as Japanese in kana (measured on the QA's pieces: ja at p 0.24-0.32, told
+ * "ko" Hangul), and a real Japanese or Chinese speaker it was sure of (p 0.94-0.995 on every clip measured) is not retried.
+ */
+export function acceptRetry(first: TranscribeResult, again: TranscribeResult, told: string): boolean {
+  if (saysOtherLanguage(again) || OUTRO.test(answerText(again))) return false
+  const a = writingSystem(answerText(first)), b = writingSystem(answerText(again))
+  return a === null || a === b || (a === 'cjk' && (told === 'ko' || told === 'en'))
 }
 /** a piece of silence: nothing sent, nothing said */
 export const SILENT_PIECE: Piece = { segments: [], language: null }
