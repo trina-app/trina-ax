@@ -70,6 +70,8 @@ export const en: Record<MessageKey, string> = {
   'update.ready': 'A new version is ready.',
   'update.reload': 'Reload',
   'update.chunkFailed': 'This part of the page could not be loaded. Reload to get the current version.',
+  'update.notesMore': 'Full release notes',
+  'update.notesLess': 'Show less',
   'notice.accessChanged': 'Your folder access changed: {paths}',
 
   'role.owner': 'Owner',

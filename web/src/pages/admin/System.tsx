@@ -12,6 +12,7 @@ import { toast } from '../../store/ui'
 import { Badge, Button, Field, Modal, confirmDialog, inputCls } from '../../components/ui'
 import { Card, Loadable, ReauthDialog, useAction, useLoad } from './common'
 import OfficeUpdate from './OfficeUpdate'
+import { ReleaseNotes } from '../../components/ReleaseNotes'
 import { isOwner, useMeStrict } from '../../store/session'
 import { safeHref } from '../../lib/safeLinks'
 
@@ -512,7 +513,7 @@ function Update() {
             ) : u.available ? (
               <div className="rounded-lg border border-line p-3">
                 <p className="font-medium">{t('system.available', { version: u.available.version })}</p>
-                <p className="mt-1 text-xs whitespace-pre-wrap text-muted">{u.available.notes}</p>
+                <ReleaseNotes notes={u.available.notes} />
                 {u.available.needsBackupRestoreToRollBack && <p className="mt-1 text-xs text-warn">{t('system.oneWay')}</p>}
                 {u.needsRoot ? (
                   <p className="mt-2 text-xs text-warn" data-testid="update-needs-root">{t('system.updateNeedsRoot')}</p>

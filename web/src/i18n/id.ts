@@ -70,6 +70,8 @@ export const id: Record<MessageKey, string> = {
   'update.ready': 'Versi baru sudah siap.',
   'update.reload': 'Muat ulang',
   'update.chunkFailed': 'Bagian halaman ini tidak bisa dimuat. Muat ulang untuk mendapatkan versi terbaru.',
+  'update.notesMore': 'Catatan rilis lengkap',
+  'update.notesLess': 'Tampilkan lebih sedikit',
   'notice.accessChanged': 'Akses folder kamu berubah: {paths}',
 
   'role.owner': 'Owner',

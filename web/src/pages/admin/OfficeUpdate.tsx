@@ -10,7 +10,8 @@ import { api, API } from '../../lib/api'
 import { formatDateTime } from '../../lib/format'
 import { useLocale, useT, type MessageKey } from '../../i18n'
 import { Button, Field, Modal, inputCls } from '../../components/ui'
-import { finishedRun } from '../../lib/officeUpdate'
+import { finishedRun, shareOfficeStatus } from '../../lib/officeUpdate'
+import { ReleaseNotes } from '../../components/ReleaseNotes'
 import { toast } from '../../store/ui'
 import { Card, useAction } from './common'
 
@@ -23,6 +24,8 @@ export default function OfficeUpdate({ status, reload }: { status: OfficeUpdateS
   const [pw, setPw] = useState('')
   const u = status
   const active = !!u.running || u.requested
+  // the banner on every page shows what this card shows (a pause, another time, an update that happened)
+  useEffect(() => shareOfficeStatus(u), [u])
   // the run this page watched has ended: say how, and after an update load the new version's page
   const before = useRef<OfficeUpdateStatus | null>(null)
   useEffect(() => {
@@ -63,7 +66,7 @@ export default function OfficeUpdate({ status, reload }: { status: OfficeUpdateS
         {u.available && !active && (
           <div className="rounded-lg border border-line p-3">
             <p className="font-medium">{t('officeUpdate.available', { version: u.available.version })}</p>
-            {u.available.notes && <p className="mt-1 text-xs whitespace-pre-wrap text-muted">{u.available.notes}</p>}
+            {u.available.notes && <ReleaseNotes notes={u.available.notes} />}
           </div>
         )}
         {u.lastUpdate && (

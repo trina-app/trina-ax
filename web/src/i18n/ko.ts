@@ -69,6 +69,8 @@ export const ko = {
   'update.ready': '새 버전이 준비됐어요.',
   'update.reload': '새로 고침',
   'update.chunkFailed': '이 부분을 불러오지 못했어요. 새로 고침하면 최신 버전으로 열려요.',
+  'update.notesMore': '릴리스 노트 전체 보기',
+  'update.notesLess': '접기',
   'notice.accessChanged': '폴더 권한이 바뀌었어요: {paths}',
 
   'role.owner': '팀장',

@@ -68,6 +68,8 @@ export const ja: Record<MessageKey, string> = {
   'update.ready': "新しいバージョンを利用できます。",
   'update.reload': "再読み込み",
   'update.chunkFailed': "この部分を読み込めませんでした。再読み込みすると最新のバージョンで開きます。",
+  'update.notesMore': "リリースノートをすべて表示",
+  'update.notesLess': "折りたたむ",
   'notice.accessChanged': "フォルダーへのアクセス権が変更されました：{paths}",
   'role.owner': "オーナー",
   'role.admin': "管理者",

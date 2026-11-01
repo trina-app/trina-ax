@@ -415,6 +415,18 @@ describe('the Windows installer for the desks (data/downloads, latest.yml, index
   })
 })
 
+describe('Admin › System diagnostics in office mode', () => {
+  test('"Updates" says the Mac updates itself, not that it needs a newer zip, in every language', async () => {
+    const { M } = await import('../../server/src/system/messages')
+    const t = M.updateOffice('0.2.18')
+    for (const l of ['ko', 'en', 'id', 'ja', 'es'] as const) {
+      expect(t[l]).toContain('0.2.18')
+      expect(t[l]).not.toContain('office-install.sh')
+    }
+    expect(t.en).toContain('Automatic updates')
+  })
+})
+
 describe('the update LaunchAgent and the schedule', () => {
   test('plist: <label>.update, nightly StartCalendarInterval, not kept alive, not run at load, the log', () => {
     const s = settingsFrom('/Users/x/TeamAX', { TEAMAX_CLAUDE_BIN: '/Users/x/.local/bin/claude' })
