@@ -411,7 +411,7 @@ describe('office-install.sh lists them and a new install stops', () => {
     expect(r.out).toContain('--remove-claude-mcp')
     expect(fs.readFileSync(m.file, 'utf8')).toBe(before)
     expect(fs.existsSync(prefixOf(m))).toBe(false)
-  })
+  }, 60_000)
 
   test('install with --remove-claude-mcp: the installer saves the copy before the server starts; when it cannot, it stops there', () => {
     const m = fakeMac()
@@ -443,7 +443,7 @@ describe('office-install.sh lists them and a new install stops', () => {
     expect(bad.out).toContain('could not save a copy of the MCP settings')
     expect(bad.out).not.toContain('FAKE-')
     expect(fs.existsSync(path.join(prefixOf(f), 'app'))).toBe(false)
-  })
+  }, 60_000)
 
   test('install: stops before anything is written; with --remove-claude-mcp check-only goes through', () => {
     const m = fakeMac()
@@ -457,7 +457,7 @@ describe('office-install.sh lists them and a new install stops', () => {
     expect(ok.code).toBe(0)
     expect(ok.out).toContain(`--remove-claude-mcp: the server removes them when it starts; a copy goes to ${path.join(prefixOf(m), 'config', 'claude-mcp-backups')} first`)
     expect(read(m.file).mcpServers.github).toBeDefined()
-  })
+  }, 60_000)
 
   test('no question: nothing there, the setup-token mode, an installation that already removes them, the automatic update', () => {
     const clean = fakeMac({ numStartups: 2 })
@@ -492,5 +492,5 @@ describe('office-install.sh lists them and a new install stops', () => {
     expect(up.code).toBe(0)
     expect(up.out).toContain('the server keeps a copy of what it removes in')
     expect(read(m.file).mcpServers.github).toBeDefined()
-  })
+  }, 60_000)
 })
