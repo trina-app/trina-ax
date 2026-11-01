@@ -201,26 +201,26 @@ if [ -n "$PUBLIC" ]; then
   cat <<EOF
 
 인터넷 주소 / internet address:  https://$PUBLIC
-  데스크는 Edge로 이 주소를 열면 됩니다 (인증서 설치 필요 없음). 첫 설정(팀장 계정)은 이 맥에서만 합니다.
+  데스크는 Edge로 이 주소를 열면 돼요(인증서 설치 필요 없음). 첫 설정(팀장 계정)은 이 맥에서만 해요.
   desks open this address in Edge (no certificate to install). The first-run setup is done on this Mac only.
 EOF
 fi
 cat <<EOF
 
 데스크 카드를 인쇄하세요 / print the desk card:  $PREFIX/teamax card
-  카드의 지문(thumbprint)으로 데스크가 인증서를 확인합니다. 데스크가 많으면 $PREFIX/tls/ca.cer 를 USB로 나눠 주면 더 안전합니다.
+  카드의 지문(thumbprint)으로 데스크가 인증서를 확인해요. 데스크가 많으면 $PREFIX/tls/ca.cer 를 USB로 나눠 주면 더 안전해요.
 
 이 맥이 계속 켜져 있게 / keep this Mac running (docs/OFFICE.md):
   1. 잠자기 끄기·정전 후 자동 켜짐 (관리자 암호 필요, 한 번만) / never sleep, start after a power cut:
        sudo pmset -a sleep 0 disksleep 0 womp 1 autorestart 1
   2. 공유기에서 이 맥의 주소를 고정 (DHCP 예약) / reserve this Mac's address in the router (DHCP reservation)
-  3. 정전 뒤: FileVault가 켜져 있으면 맥 앞에서 암호를 한 번 입력하면 $PRODUCT_NAME 서버가 스스로 켜집니다.
+  3. 정전 뒤: FileVault가 켜져 있으면 맥 앞에서 암호를 한 번 입력해 주세요. 그러면 $PRODUCT_NAME 서버가 스스로 켜져요.
      after a power cut with FileVault on, type the Mac password once at the Mac; $PRODUCT_NAME starts by itself.
 EOF
 case "$FW" in
   *enabled*|*"State = 1"*|*"State = 2"*)
     cat <<EOF
-  4. 방화벽이 켜져 있습니다 / the firewall is on: when macOS asks whether "bun" may accept incoming connections,
+  4. 방화벽이 켜져 있어요 / the firewall is on: when macOS asks whether "bun" may accept incoming connections,
      click Allow. Or once, in Terminal:
        sudo /usr/libexec/ApplicationFirewall/socketfilterfw --add "$PREFIX/app/bin/bun" --unblockapp "$PREFIX/app/bin/bun"
 EOF

@@ -73,5 +73,22 @@ expect(safeLocalURL("http://evil.example:80", fallback: "F") == "F" && safeLocal
 f.firewall = "fail"
 expect(menuState(status: f, statusAge: 10, health: healthy, daemon: .running, lang: .en, product: "Acme").alert?.contains("refused") == false, "firewall alert does not promise a refusal the server does not make")
 
+// Korean in 해요체 (docs/DESIGN-SYSTEM.md "Copy and languages"), in every state the menu can show
+var fw = s!
+fw.firewall = "fail"; fw.overall = "fail"
+let koStates = [
+    menuState(status: s, statusAge: 10, health: nil, daemon: .disabled, lang: .ko, product: "Acme"),
+    menuState(status: s, statusAge: 10, health: nil, daemon: .notRunning, lang: .ko, product: "Acme"),
+    menuState(status: s, statusAge: 10, health: nil, daemon: .running, lang: .ko, product: "Acme"),
+    menuState(status: r, statusAge: 10, health: healthy, daemon: .running, lang: .ko, product: "Acme"),
+    menuState(status: fw, statusAge: 10, health: healthy, daemon: .running, lang: .ko, product: "Acme"),
+    menuState(status: s, statusAge: 600, health: healthy, daemon: .running, lang: .ko, product: "Acme"),
+]
+for k in koStates {
+    let all = ([k.headline] + k.lines + [k.alert ?? ""]).joined(separator: " ")
+    expect(!all.contains("니다") && !all.contains("니까"), "Korean menu text is 해요체: \(all)")
+}
+expect(koStates[4].alert == "AI 엔진 방화벽이 꺼져 있어요. 복구해야 해요(관리자 비밀번호 필요).", "firewall alert (ko)")
+
 print(failures == 0 ? "all menubar model tests passed" : "\(failures) failed")
 exit(failures == 0 ? 0 : 1)
