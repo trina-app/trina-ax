@@ -118,6 +118,7 @@ const KOREAN_ALLOWED: Record<string, { why: string; also?: RegExp }> = {
   'server/src/auth/messages.ts': { why: 'auth messages (ko next to en/id/ja/es)' },
   'server/src/chat/i18n.ts': { why: 'chat texts (ko next to en/id/ja/es)' },
   'server/src/credentials/i18n.ts': { why: 'AI connection texts: states, checks, notices (ko next to en/id/ja/es)' },
+  'server/src/credentials/hosted-speech.ts': { why: 'hosted transcription failures: free hours used up, hosting key refused (ko next to en/id/ja/es)' },
   'server/src/credentials/migrate.ts': { why: 'names of connections moved from the older setup (ko next to en/id/ja/es)' },
   'server/src/skills/text.ts': { why: 'team skills texts: the confirmation card, notices, errors (ko next to en/id/ja/es)' },
   'server/src/chat/prompt.ts': { why: 'the language name given to the model', also: /ko: 'Korean \(한국어\)'/ },
