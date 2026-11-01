@@ -4688,30 +4688,50 @@ fallback when DeepInfra is down. Test report: `plans/stt-hosted-2026-11-01/STT-D
   the credentials vault, under `speech.hostedKey` (AAD `speech.hosted|openrouter-api-key`). It is never in a response,
   log line or audit row, not even its last characters; the audit row `speech.hosted_key` says `set` or `removed`.
   `credentials-rekey` re-encrypts it. A server that is not hosted removes it at start (a hosted team's backup restored
-  on the team's own server).
+  on the team's own server). The team's export (`admin.js archive`, the tenant command `export`) leaves it out of its
+  database copy (row deleted with `secure_delete`): the export is the team's, the key is the hosting service's. An
+  in-app restore of an older backup keeps the hosting key and this month's count as they are now
+  (`system/backup.ts SERVER_OWN_SETTINGS`): a backup must neither bring back a key the hosting service has replaced or
+  taken away since, nor give the month's hours back (review of the branch).
 - **Which key.** The team's own key (Admin › Team settings › Voice input) always comes first and is never counted. The
-  hosting key is used only without one.
+  hosting key is used only without one, and only with its one model (`HOSTED_SPEECH_MODEL`, the guardrail's): the
+  model field of Team settings is for the team's own key and is hidden while the hosting key is in use.
 - **Defaults.** With the hosting key and no speech provider chosen, `speechProvider` reads `openrouter`
   (`getTeamSettings`): voice input is on. "Turn video sound into text" defaults on with the hosting key
   (`mediaTranscriptsDefault(provider, cores, hostedKey)`) and stays off by default with the team's own key. An admin's
   choice, `off` too, always wins. Confidential chats are unchanged: no sound goes out from them.
 - **Free hours.** `credentials/hosted-speech.ts`: seconds of sound sent with the hosting key, per calendar month in
   Korea time (UTC+9), one settings row `speech.hostedUsage` (`{month, seconds}`, no sound, text or key). Every OpenRouter
-  speech request goes through `TranscribeConfig.meter` (`jobs/openrouter-stt.ts postAudio`): refused before it is sent
-  when the month's 10 hours are used ("This month's 10 free hours … are used up …", in the person's language), counted
-  after OpenRouter answered, with the `duration` it heard (else the WAV's length). Retries and second tries in another
-  language count, because they were sent. A video read checks before it cuts any sound (note `freeUsed`); a request
-  that goes past the end is answered, the next is refused. OpenRouter refusing the hosting key (401/402/403: taken
+  speech request goes through `TranscribeConfig.meter` (`jobs/openrouter-stt.ts postAudio`), each try of it on its
+  own: refused before it is sent when the month's 10 hours are used ("This month's 10 free hours … are used up …", in
+  the person's language), else the sound's length is held against the month while the request is out (one synchronous
+  step with the check, so reads and voice input sent at the same moment cannot all pass the last minutes: the first
+  goes, the others are refused), then counted once when OpenRouter answered, or given back when it did not (both
+  tries failed, a refusal, Stop). What counts is the length of what was sent: the WAV the server made (every hosted
+  server has ffmpeg), else the `duration` OpenRouter says it heard; an answer cannot lower or blow up the count (a
+  negative, missing or absurd `duration` is ignored when the server knows the length, and one answer counts at most
+  the month's 10 hours). The count stays in the month the request was sent in (a request answered after midnight on
+  the 1st changes neither month), and the month never goes back (a clock set back keeps counting the newer month).
+  Retries and second tries in another language count, because they were sent. A video read checks before it cuts any
+  sound and before each new piece (note `freeUsed`, also when the pool runs out during the read); a request that goes
+  past the end is answered, the next is refused. OpenRouter refusing the hosting key (401/402/403: taken
   away, the team suspended, or the backstop reached) says hosted transcription is not available, not "add credits".
   `GET /api/admin/speech-key` adds `hosted: {month, usedSec, freeSec}` (null without the hosting key), shown as "This
   month: N of 10 free transcription hours used".
 - **Second try.** A provider failure (408, 500, 502, 503, 504, 524, 529) or no answer in time is sent once more, if
   the caller has 5 s left (each try gets at most 60 s); OpenRouter may route it to the other provider. Only both
   failing is shown ("did not answer, twice"). Other refusals are not sent again. This applies to the team's own key too.
+  The second try sends the sound again up to a minute after the first, so it goes only after the same checks as new
+  sound (`sendToOpenRouter`'s `again`): in a read the switch, the provider, the chat's confidentiality, the free hours
+  and the person's access to the file (as for a long piece's retry in another language, feat/stt-openrouter-tune); in
+  voice input that voice input is still on OpenRouter (also before a long recording's retry). Otherwise the first
+  failure stands. A retry in another language that meets a provider failure is tried once more like any request.
 - **Known limits.** ax-hostd keeps tenant-command jobs in its journal on the host, so the hosting key is on the host's
   disk in clear like an enroll token; it is limited to speech-to-text on one model, has a small monthly dollar limit and
   can be deleted at OpenRouter at any time. Open windows learn that voice input turned on at their next `GET /api/me`
   (the key comes from admin.js, a separate process, which cannot send the realtime notice).
 - Tests: `c-speech-hosted` (defaults, precedence, counting, month rollover, refusal, retries, a Groq answer, the
-  admin.js command, the key in no response, row or log line), `c-speech-openrouter` (two tries on 5xx), the contract
-  vectors, `mycel-ctl` `TestTenantHostedSpeechKeySet`.
+  admin.js command, the key in no response, row or log line; holds against parallel requests, answers' durations,
+  given back without an answer, the month boundary, the hosted model, a pool running out mid-read, restore and
+  export), `c-speech-openrouter` (two tries on 5xx), `media-read` (a second try after the same checks as a new piece),
+  the contract vectors, `mycel-ctl` `TestTenantHostedSpeechKeySet`.
