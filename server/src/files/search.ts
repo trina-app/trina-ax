@@ -285,6 +285,8 @@ export class OfficeCache {
     const hash = sha256(bytes)
     // a large text gets its place index (grep's labels, files/place-index.ts), made from the very file written
     let places: PlaceIndex | null = null
+    // the old index goes first, so it is never left next to a text it was not made from (a failed write below)
+    try { fs.rmSync(this.placesPath(rel), { force: true }) } catch {}
     const fd = fs.openSync(dst, 'w+', 0o600)
     try {
       fs.writeFileSync(fd, bytes)

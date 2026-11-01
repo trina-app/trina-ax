@@ -4910,6 +4910,9 @@ under the answer like the Claude app's sources.
     made from (device, inode, size, mtime, ctime: a text written again or moved walks from line 1) or, for an admitted
     copy (safe operations), for the same text hash. Without one (text cached before 0.2.19, small texts) the walk
     reads in 64 KB pieces from line 1 to the last match. The labels are the same (fuzzed against `locsOfLines`).
+    An index is at most 4 MB, counted point by point while it is made: a sheet name has no length limit (a cell can
+    be a `# sheet:` line) and is in every point after it, so a crafted spreadsheet gets no index instead of a JSON
+    string of gigabytes. The old index is removed before its text is written again.
     Measured on an Apple M-series Mac, one grep over two 50 MB cached texts (a 5,000-page PDF, a 75-sheet
     spreadsheet; one match near the end of each, or 275 matches spread out): before 0.47-0.68 s and about 700 MB peak
     server memory (105-109 MB without labels); with the index 34-52 ms and 108 MB, as without labels; without it

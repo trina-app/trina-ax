@@ -132,6 +132,14 @@ export function makePlaceIndex(fd: number, kind: Structure, text: string, o: { m
   const st = fs.fstatSync(fd)
   if (!kind || st.size < (o.min ?? PLACE_INDEX_MIN)) return null
   const at = checkpoints(fd, st.size, kind, o.every)
+  // the points share one sheet object, but its name has no length limit (a cell of a crafted spreadsheet can be a
+  // `# sheet:` line of megabytes) and the JSON repeats it in every point after it: count point by point and give up
+  // past the limit, never one string of all of them (a 28 MB text would take some 2 GB)
+  let bytes = 0
+  for (const c of at) {
+    const chars = (c[2].heading?.length ?? 0) + (c[2].sheet?.name.length ?? 0)
+    if (chars > PLACE_INDEX_MAX_BYTES || (bytes += Buffer.byteLength(JSON.stringify(c)) + 1) > PLACE_INDEX_MAX_BYTES) return null
+  }
   return { v: PLACE_INDEX_VERSION, kind, text, size: st.size, file: { dev: st.dev, ino: st.ino, mtimeMs: st.mtimeMs, ctimeMs: st.ctimeMs }, at }
 }
 

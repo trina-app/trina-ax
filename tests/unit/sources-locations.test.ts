@@ -20,7 +20,7 @@ import { OfficeCache, TEXT_CACHE_VERSION } from '../../server/src/files/search'
 import { sha256 } from '../../server/src/files/store'
 import os from 'node:os'
 import type { SourceLoc } from '@mycel/shared/api'
-import { checkpoints, LineReader, PLACE_INDEX_MIN, placesOfLines } from '../../server/src/files/place-index'
+import { checkpoints, LineReader, makePlaceIndex, PLACE_INDEX_MIN, placesOfLines } from '../../server/src/files/place-index'
 
 setDefaultTimeout(60_000)
 const pandoc = which('pandoc')
@@ -416,6 +416,27 @@ describe('large documents: grep reads only up to the matching lines (place index
       }
     }
     expect(compared).toBe(60 * 5 * 5 * 3)
+  })
+
+  test('a sheet name of any length: no index that repeats it in every point (one point at a time, given up early)', () => {
+    // a cell of a crafted spreadsheet can be a `# sheet:` line; its name is in the state of every later point
+    const rows = Array.from({ length: 20_000 }, (_, i) => `${i}\tvalue ${i}`).join('\n')
+    const text = (name: string) => `# sheet: ${name} · A1:B20000 (tab-separated)\n${rows}\n`
+    const stringify = spyOn(JSON, 'stringify')
+    try {
+      for (const name of ['N'.repeat(300_000), 'N'.repeat(5 * 1024 * 1024)]) {
+        const fd = open('long-name.xlsx.txt', text(name))
+        stringify.mockClear()
+        expect(makePlaceIndex(fd, 'sheets', 'hash', { min: 0, every: 4096 })).toBeNull()
+        // at most the points up to the limit were made into JSON, each on its own
+        expect(stringify.mock.calls.length).toBeLessThan(20)
+        expect(sorted(placesOfLines(fd, fs.fstatSync(fd).size, 'sheets', [20_001], null))).toEqual(sorted(locsOfLines(text(name), 'a.xlsx', [20_001])))
+        fs.closeSync(fd)
+      }
+    } finally { stringify.mockRestore() }
+    const fd = open('short-name.xlsx.txt', text('매출'))
+    expect(makePlaceIndex(fd, 'sheets', 'hash', { min: 0, every: 4096 })?.at.length).toBeGreaterThan(50)
+    fs.closeSync(fd)
   })
 
   /** a ~1.3 MB spreadsheet text: sheets, `# row N` lines, cells over two lines, a needle in the middle and near the end */
