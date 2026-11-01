@@ -1924,9 +1924,10 @@ voice input is optional and uses OpenRouter's speech-to-text API with a key that
   `{key: set, hint}` or `{key: removed}`). `credentials-rekey` encrypts it again and keeps its key file.
 - **Job.** `team-files/component.ts` reads the provider when the job runs. `off`: the job fails at once ("Voice input is
   off. An admin can turn it on …"). `local`: whisper.cpp as before (`jobs/transcribe.ts`). `openrouter`
-  (`jobs/openrouter-stt.ts`): ffmpeg (isolated) converts to 16 kHz mono WAV; without ffmpeg only
+  (`jobs/openrouter-stt.ts`): ffmpeg (isolated) converts to 16 kHz mono WAV, then FLAC with quiet sound raised (since
+  feat/stt-openrouter-tune, below); without ffmpeg only
   wav/mp3/flac/ogg/m4a/aac go as they are. Audio over 25 MB is refused before it is sent. Then one POST with base64
-  audio, `response_format: verbose_json`, `provider: {zdr: true, data_collection: deny}`, a 60 s timeout plus the job's
+  audio, `response_format: verbose_json`, `provider: {zdr: true, data_collection: deny}` (now also DeepInfra only), a 60 s timeout plus the job's
   abort signal, and no redirects. 401/403, 402, 429 and 5xx/network errors give localized failures (bad key, no
   credits, rate limited, provider down) that never hold the key. Without `segments`, one segment holds the whole text.
 - **Client.** `Me.team.voiceInput` is true for `local`, and for `openrouter` with a key. When it is false, the composer
@@ -4532,3 +4533,66 @@ Claude Code's skill listing now (read from Claude Code 2.1.312; the repo pins 2.
 
 This replaces the 50-entry index in "Skills: folder permissions and personal skills" above; the rest of that entry
 stands.
+## OpenRouter speech: the language of long pieces, quiet sound, FLAC, DeepInfra (feat/stt-openrouter-tune, 2026-11-01)
+
+The STT test for the hosted plan (OpenRouter `openai/whisper-large-v3-turbo`, DeepInfra US, $0.012 an hour; plans
+`stt-hosted-2026-11-01`) found four things to change in the request voice input and video / audio reads share
+(`jobs/openrouter-stt.ts`, `jobs/speech-language.ts`, `files/service.ts` mediaTranscript). Everything was measured again
+on its clips (macOS `say` meetings, the QA's 13-minute recording) through the real read path and the real voice input
+path with the real ffmpeg and OpenRouter, and the rule was also applied to every recorded answer pair
+(`tests/fixtures/stt`, `tests/unit/speech-language.test.ts`; the tests never call OpenRouter).
+
+- **The language of a long piece.** whisper names one language for a whole request from its first 30 seconds and
+  writes everything in it: the QA meeting's first 10 minutes were heard as Japanese and came back translated
+  (Hangul CER 97.7%). A piece (or a voice recording) of 60 s or more is still sent without a language first. It is sent
+  once more, told the file's language (the one most heard in its other pieces) or else the team's
+  (`longRetryLanguage`), when that is not what whisper heard and: what it heard is neither the team's language nor
+  English, or whisper was unsure of its words (mean `avg_logprob` under -0.4: its transcripts measured -0.04 to -0.36,
+  its translations into a wrong language -0.48 to -2.3), or another piece of the file was heard in another language.
+  The answer kept (`keepLongRetry`) is the one whisper is surer of: the retry wins only when it is not the "(foreign
+  language)" caption, at least a quarter of its speech time is in the told language's script (Japanese told `ko` stayed
+  Japanese), and its confidence is higher by 0.1 or more, where both are counted over the longer of the two answers and
+  time an answer left out counts as -1 (told `ko`, the QA meeting's English last part dropped 55 s of English and would
+  otherwise have won). A told language is never reported as heard (`Piece.hint` as before, `language: null` for voice
+  input). A retry that fails keeps the first answer; it starts only with time for it, and a confidential chat sends
+  nothing, retry included. The sound is packed once for both requests. Short pieces keep the earlier rules.
+  - Measured on DeepInfra answers: QA meeting (Korean team) Hangul CER 97.7% -> 20.3%, English WER 59% -> 28%, timestamps
+    of its lines within 0.16 s (were 4.3 s off); as one 13-minute voice recording Hangul 8.1%, English 37%. A Japanese
+    meeting stays Japanese (checked, told `ko`, kept). 10 minutes of Korean, a Korean-English meeting, English on a
+    Korean team: not checked. Of the QA meeting's 27 half-minute pieces as recorded both ways, the answer kept is in the
+    language mostly spoken in 26 (the 27th was heard as Korean, the team's language, with 16 s English and 12 s Korean).
+  - Not chosen: always telling long pieces the team's language (English sections lost a 30 s window each: English WER
+    36%, and a Japanese file would be forced into Korean); 30-second pieces each detected (`fr`, `ja`, `es` came back for
+    Korean, Hangul CER 51%). A per-window merge of the two answers (each 30 s from the one whisper is surer of)
+    measured Hangul 7.7% and English WER 23.5% on the WAV answers, but can drop or repeat a line at each switch; not
+    built.
+- **Language names.** Groq answers `"Korean"` / `"English"`, DeepInfra `ko` / `en`: the answer's language is read as
+  whisper's code (`languageCode`, whisper's own list of names and aliases); a name it does not know counts as none.
+- **Quiet sound** is raised before it is sent (`quietGainDb`): when the speech level (95th percentile of the RMS of
+  100 ms frames with sound) is under -40 dBFS it is raised to -40, by 20 dB at most, never past -1 dBFS for the loudest
+  0.1% of samples; louder sound is untouched. A room microphone peaking at -45 dBFS: 10.2% CER -> 0.6%. Room tone with
+  no speech stayed without words up to +20 dB and became "Thank you." from +30 dB, and so did ffmpeg's `loudnorm`
+  (I=-20), which also took 14 s for 10 minutes on one thread (it works at 192 kHz): not used.
+- **FLAC, not MP3.** The sound goes as 16 kHz mono FLAC (ffmpeg's own encoder, in the converter isolation with only the
+  WAV demuxer and PCM decoder, no tags, read back without following a link, a fresh name for every piece). It is
+  lossless, so the answers are the WAV's (same words and `avg_logprob`), at 38-49% of the size (10 minutes: 7.1-9.5 MB
+  instead of 19.2 MB). MP3 at 48, 64 and 96 kbps and 32 kbps Opus all changed what whisper wrote on the two-minute
+  Korean-English meeting (an English line came back translated into Korean: 5.4% CER as WAV or FLAC, 13.6-22.6% lossy;
+  DeepInfra gave the same answer every time). 10 minutes from this Mac on a good line: WAV 7.5-11.9 s, FLAC 7.7-8.2 s,
+  MP3 4.8-5.0 s; on the test report's slow line WAV took 45-57 s, FLAC 38 s, MP3 12 s. When ffmpeg cannot make the
+  FLAC the WAV goes as before; a run that replaced its work folder or left a link sends nothing. The 25 MB (about 13
+  minutes) limit is still the WAV's. ffmpeg 8.1 does not replace an existing output without `-y` and still exits 0: the
+  first build sent the first piece's MP3 again for the second; each piece's file now has its own name.
+- **No tags.** ffmpeg copies a file's title and comment into the WAV's LIST chunk by default, and that WAV went to
+  OpenRouter. The piece's WAV and voice input's WAV are made with `-map_metadata -1 -fflags +bitexact`.
+- **Routing.** The request asks for `provider: {zdr: true, data_collection: deny, only: [deepinfra], allow_fallbacks:
+  false}` (`OPENROUTER_STT_PROVIDERS`, one constant). OpenRouter's transcription endpoint ignores `only` today (a
+  provider that does not exist was answered by DeepInfra; Groq still served 9 of the 87 requests of this test, 5 of
+  the 41 the read path sent one at a time, and its retry of the QA meeting wrote invented Korean over two minutes of
+  English),
+  so a hosted key pins DeepInfra with its own provider guardrail; the field takes effect the day OpenRouter applies it.
+  The answer does not name the provider. The `media.transcribe` audit row now also holds `generations` (OpenRouter's
+  generation id of each request, retries included) and `served` (requests by provider, `unknown` until known): the
+  read looks each id up at OpenRouter (`GET /api/v1/generation`, the key in the header only, no sound or text, no
+  redirects) about 8 s after the row is written, up to three tries, and fills `served` in that row. No transcript
+  words. Voice input has no audit row and none was added.
