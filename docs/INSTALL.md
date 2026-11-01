@@ -388,7 +388,7 @@ them in the browser; nothing on the server's command line is needed.
 - One connection serves the whole team. Connections can be assigned to groups or people, ordered, given a monthly
   limit, switched off. When one hits its limit or is refused, the answer continues on the next one of the same engine.
 - Members can add their own connections (Settings > AI connections) by default; the owner can disable them.
-  Eligible personal connections take priority. Fresh Trina teams allow shared subscriptions by default; existing saved choices persist. Connection-level consent still applies. This software setting is not permission under provider terms; use only authorized accounts and plans.
+  Eligible personal connections take priority. On fresh Trina teams, one company connection can serve the whole team by default; existing saved choices persist. Connection-level consent still applies. This software setting is not permission under provider terms; use only authorized accounts and plans.
 
 server.json (`engine`), for operators:
 

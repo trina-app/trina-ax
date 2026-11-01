@@ -8,7 +8,7 @@ It is a company AI workspace for teams. People use a browser; IT operates self-h
 
 ## What does it cost?
 
-Self-hosted software is free; infrastructure, operations and AI usage are separate. Hosting in AWS Seoul, checked 2026-10-30: Starter $39/month up to 5 people, Team $69 up to 15, Business $129 up to 40, USD before tax and AI charges. [Current pricing/contact](https://ax.trina.app/#pricing). Hosting is contact-led; no hosted free trial is promised.
+Self-hosted software is free; infrastructure, operations and AI usage are separate. Hosting in AWS Seoul, checked 2026-11-02: a free plan for up to 3 people (limited spots), Starter $39/month up to 5 people, Team $69 up to 15, Business $129 up to 40, and a quote above 40; USD before tax and AI charges. [Current pricing](https://ax.trina.app/#pricing).
 
 ## Can we try it without an AI account?
 
@@ -18,7 +18,7 @@ Yes. [The local demo](QUICKSTART.md) starts with fictional files and AI disabled
 
 Managed installations can use permitted Claude subscription/Anthropic API and ChatGPT/OpenAI API connections, subject to operator settings and provider terms. Eligible personal → person-assigned → group-assigned → whole-team is the selection order. Another person's private connection is not selected for you.
 
-Fresh Trina teams allow shared subscriptions by default. Existing saved choices persist. Connection-level consent still applies, including to new connections when the setting was already on. This is a software capability, not permission under Anthropic's or OpenAI's plans or terms. Use only authorized accounts/plans; do not assume one personal subscription covers a company. Provider limits and charges remain separate.
+On fresh Trina teams, one company connection can serve the whole team by default, and people can also connect their own. Existing saved choices persist. Connection-level consent still applies, including to new connections when the setting was already on. This is a software capability, not permission under Anthropic's or OpenAI's plans or terms. Use only authorized accounts/plans; do not assume one personal subscription covers a company. Provider limits and charges remain separate.
 
 Development and office local-login modes use the server OS user's CLI login; they do not use the managed selector in the same way. The one-command demo disables engines entirely. Office mode is Claude-only; choose Linux managed installation when you need its connection capabilities.
 

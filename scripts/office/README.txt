@@ -44,7 +44,7 @@ Trina AX 사무실 모드 (맥 한 대 + 같은 네트워크의 데스크 PC들)
 명령:  ~/TeamAX/teamax status | info | card | logs | restart | setup-link | reset-link | backup | archive <파일>
        | public-address status | set <주소> <토큰 파일> | off | desktop list | add <설치 파일> | remove <파일>
 첫 주: 권한 → AI 연결 → 팀원 초대 → 첫 스킬 → 첫 백업 (OFFICE.md 3·5장의 전체 절차).
-구독 공유는 새 팀에서 기본으로 켜져 있고, 저장된 선택은 그대로예요. 연결마다 받는 동의와 제공사 약관상 허가는 서로 별개예요.
+새 팀은 회사 연결 하나를 팀 전체가 쓰는 설정이 기본으로 켜져 있고, 저장된 선택은 그대로예요. 연결마다 받는 동의와 제공사 약관상 허가는 서로 별개예요.
 Mac DMG는 배포하지 않아요. 위의 DMG 단계는 직접 만든 파일이 있을 때만 써요.
 업데이트: https://updates.trina.app/office/stable.json (로그인한 동안 야간 확인).
           먼저 외부 암호화 백업을 검증해 주세요. 앱을 이전 버전으로 되돌려도 DB·파일은 되돌아가지 않아요.
@@ -74,7 +74,7 @@ Trina AX office mode (one Mac + the desk PCs on its network). Full offline Engli
      does not start). Coming from 0.1.0, run this zip's office-install.sh once. ~/TeamAX/teamax update status | now | pause
 
 First week: permissions → AI connection → invite the team → first skill → first backup.
-Fresh team subscription sharing is ON; saved choices persist. Connection consent is not provider permission.
+Fresh teams: one company connection serves the whole team (ON); saved choices persist. Connection consent is not provider permission.
 Verify the exact ZIP against its release SHA256SUMS, run --check-only first, and keep an encrypted off-host backup.
 A Mac desktop DMG is not published; use the DMG steps only with your own verified build. App rollback does not restore data.
 Internet is required for cloud AI even when local file browsing works offline.

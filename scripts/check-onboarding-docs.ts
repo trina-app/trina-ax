@@ -27,7 +27,7 @@ export function localLinkProblems(file: string, root = ROOT): string[] {
 export function checkOnboarding(): string[] {
   const errors = ENTRY.flatMap(file => localLinkProblems(file))
   const readme = fs.readFileSync(path.join(ROOT, 'README.md'), 'utf8')
-  const documentedOn = readme.includes('Fresh Trina teams allow shared subscriptions by default')
+  const documentedOn = readme.includes('one company connection can serve the whole team by default')
   if (documentedOn !== PRODUCT.sharedSubscriptionsDefault) errors.push('README fresh-team default disagrees with PRODUCT; review defaults and all translations')
   const exRoot = path.join(ROOT, 'examples')
   const names = fs.readdirSync(path.join(exRoot, 'skills')).sort()

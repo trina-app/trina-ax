@@ -61,7 +61,7 @@ bun run demo        # → http://127.0.0.1:19760 · 用 alice / teamax-demo-1 �
 | **公司文件夹就是知识库** | `shared/`、`groups/`、`projects/` 和个人文件夹，都带版本历史。能提取 PDF、Office 和 HWP/HWPX 文件里的文字。 |
 | **团队技能，像文件一样管理** | 一个技能就是一个 `SKILL.md` 文件。谁能用由文件夹规则决定，AI 要改动技能前会先找人确认。 |
 | **每次文件调用都查权限** | 你无权访问的文件，在文件页面、AI 回答、搜索、预览、版本历史和回收站里都不会出现。 |
-| **用你们自己的 AI 连接** | 接入 Claude 或 OpenAI，订阅或 API Key 都行，可以分配给个人、某个组或整个团队。按人统计用量，还能设置上限。自托管时，还可以通过 [Anthropic 兼容网关](docs/CONFIGURATION.md#anthropic-compatible-gateway)让 Claude Code 使用 DeepSeek、Kimi、GLM 等其他模型。 |
+| **用你们自己的 AI 连接** | 把公司的 Claude 或 OpenAI 账号接入一次，也可以让每个人接入自己的账号。按人统计用量，还能设置上限。自托管时，还可以通过 [Anthropic 兼容网关](docs/CONFIGURATION.md#anthropic-compatible-gateway)让 Claude Code 使用 DeepSeek、Kimi、GLM 等其他模型。 |
 | **自托管或托管** | 可以部署在 Linux 服务器或办公室的 Mac 上，也可以用 Trina 在 AWS 首尔区域的托管服务。电脑和手机用浏览器访问，另有 Windows 安装包。 |
 
 > [!NOTE]
@@ -107,10 +107,10 @@ flowchart LR
 | 适合 | 没有 IT 人员的团队 | 有 IT 负责人的团队 | 有一台专用 Mac 的小办公室 | 先体验一下 |
 | 谁来运维 | Trina（AWS 首尔） | 你们的 IT 团队 | 办公室里负责维护的同事 | 你自己 |
 | AI | 你们获得授权的 Claude 或 OpenAI 连接 | 同上 | Claude（不含 Codex） | 关闭 |
-| 费用 | $39/月起 + AI 用量费 | 软件免费 + 自备服务器 | 软件免费 | 免费 |
-| 开始 | [联系 Trina](https://ax.trina.app/#contact) | [Linux 指南](docs/INSTALL-LINUX.en.md) | [办公室 Mac 指南](docs/OFFICE.en.md) | [快速开始](docs/QUICKSTART.md) |
+| 费用 | 3 人以内免费，之后 $39/月起 + AI 用量费 | 软件免费 + 自备服务器 | 软件免费 | 免费 |
+| 开始 | [查看套餐](https://ax.trina.app/#pricing) | [Linux 指南](docs/INSTALL-LINUX.en.md) | [办公室 Mac 指南](docs/OFFICE.en.md) | [快速开始](docs/QUICKSTART.md) |
 
-Trina 提供的是工作空间，不是 AI 本身：请只使用你们获得授权的 Claude 和 OpenAI 账号与套餐。托管套餐价格（2026-10-30 核对，美元，不含税）：**Starter $39/月（最多 5 人）、Team $69（15 人）、Business $129（40 人）**。AI 用量另计。托管需要先联系我们开通，并不是注册即用的免费试用。[最新价格](https://ax.trina.app/#pricing)
+Trina 提供的是工作空间，不是 AI 本身：请只使用你们获得授权的 Claude 和 OpenAI 账号与套餐。托管套餐价格（2026-11-02 核对，美元，不含税）：**免费（最多 3 人，名额有限）、Starter $39/月（最多 5 人）、Team $69（15 人）、Business $129（40 人）**，超过 40 人另行报价。AI 用量另计。[最新价格](https://ax.trina.app/#pricing)
 
 Linux 自托管需要 Debian 12/13 或 Ubuntu 24.04、启用 cgroup v2 的 systemd、amd64 或 arm64 架构，建议 4 GB 内存，磁盘至少 20 GB。安装、升级和从备份恢复都由你们的 IT 团队负责。
 
@@ -129,7 +129,7 @@ Linux 自托管需要 Debian 12/13 或 Ubuntu 24.04、启用 cgroup v2 的 syste
 - 不具备任何安全认证，不保证回答完美、一定省钱，也不会自动做出法务、财务或人事决策。请自行审核输出结果和部署边界。
 - AI 会把照片和扫描版 PDF 页面当作图片来看（管理员可以关闭），但 Linux 服务器不做 OCR：在 Linux 上，扫描件和照片无法按文字搜索。
 - 支持提取 HWP/HWPX 的文字。[可视化预览](resources/hwp/README.md)由可选的 HWP Preview 插件提供，需要 macOS 或 glibc 2.39 及以上的 Linux，因此 Debian 12 **不**支持。
-- 在受管安装中，符合条件的本人连接优先，然后依次是分配给个人、组和整个团队的连接。新建的 Trina 团队默认允许共享订阅；已经保存过的选择保持不变。每个连接自身的同意要求仍然适用。**这个软件设置并不代表你获得了 Anthropic 或 OpenAI 条款下的许可。** 本地演示禁用 AI；开发模式和办公室本地登录模式的连接行为有所不同。[连接详情](docs/FAQ.md)
+- 在受管安装中，符合条件的本人连接优先，然后依次是分配给个人、组和整个团队的连接。新建的 Trina 团队默认可以让一个公司连接供整个团队使用；已经保存过的选择保持不变。每个连接自身的同意要求仍然适用。**这个软件设置并不代表你获得了 Anthropic 或 OpenAI 条款下的许可。** 本地演示禁用 AI；开发模式和办公室本地登录模式的连接行为有所不同。[连接详情](docs/FAQ.md)
 
 </details>
 

@@ -91,7 +91,7 @@ On your workstation open a local SSH tunnel: `ssh -L 47820:127.0.0.1:47820 <serv
 Then follow **permissions → AI connection → invite the team → first skill → first backup**:
 
 1. Admin → Groups/Folders: assign sources and verify access with two pilot accounts.
-2. Owner → Admin → AI connections: connect an authorized Claude or Codex account/API key. Fresh teams allow shared subscriptions by default; saved choices persist. Personal connections take priority; connection consent is separate. This setting is not permission under provider terms. Use HTTPS for credential setup.
+2. Owner → Admin → AI connections: connect an authorized Claude or Codex account/API key. On fresh teams one company connection can serve the whole team by default; saved choices persist. Personal connections take priority; connection consent is separate. This setting is not permission under provider terms. Use HTTPS for credential setup.
 3. Configure an HTTPS address before inviting colleagues. A separately installed tunnel/reverse proxy must reach `127.0.0.1:47820`; register its hostname with `sudo ./install-linux.sh repair --public-host team.example.com`. Tunnel credentials are managed outside this installer. Official relay registration needs an issued connection code; it is not a free hostname signup.
 4. Invite a small group, copy a [starter skill](../examples/README.md), and review its result against sources.
 5. Make a backup and practice [restore](BACKUP-RESTORE.md) before real rollout.

@@ -61,7 +61,7 @@ A fictional team with six starter skills. AI is off, so no AI account is needed.
 | **Company folders are the knowledge** | `shared/`, `groups/`, `projects/` and personal folders, with version history. Text from PDF, Office and HWP/HWPX files. |
 | **Team skills, governed like files** | A skill is a `SKILL.md` file. Folder rules decide who can use it, and the AI asks a person before it changes one. |
 | **Permissions on every file call** | Files you can't access stay invisible in Files, AI answers, search, previews, version history and trash. |
-| **Your AI connection** | Claude or OpenAI, by subscription or API key, for a person, a group or the whole team. Usage per person, with limits. Self-hosted, Claude Code can also run on other models such as DeepSeek, Kimi or GLM through an [Anthropic-compatible gateway](docs/CONFIGURATION.md#anthropic-compatible-gateway). |
+| **Your AI connection** | Connect the company's Claude or OpenAI account once, or let people connect their own. Usage per person, with limits. Self-hosted, Claude Code can also run on other models such as DeepSeek, Kimi or GLM through an [Anthropic-compatible gateway](docs/CONFIGURATION.md#anthropic-compatible-gateway). |
 | **Self-host or hosted** | A Linux server, an office Mac, or Trina hosting in AWS Seoul. Browser on desktop and phone, plus a Windows installer. |
 
 ## Under the hood
@@ -104,10 +104,10 @@ A skill is a reusable set of instructions, not model training or extra access. P
 | Best for | Teams without IT | Teams with an IT owner | A small office with a dedicated Mac | Looking around |
 | Who runs it | Trina, in AWS Seoul | Your IT | Your office operator | You |
 | AI | Your authorized Claude or OpenAI connection | Same | Claude (no Codex) | Off |
-| Cost | From $39/month + AI usage | Free software + your server | Free software | Free |
-| Start | [Contact Trina](https://ax.trina.app/#contact) | [Linux guide](docs/INSTALL-LINUX.en.md) | [Office guide](docs/OFFICE.en.md) | [Quickstart](docs/QUICKSTART.md) |
+| Cost | Free up to 3 people, then from $39/month + AI usage | Free software + your server | Free software | Free |
+| Start | [See the plans](https://ax.trina.app/#pricing) | [Linux guide](docs/INSTALL-LINUX.en.md) | [Office guide](docs/OFFICE.en.md) | [Quickstart](docs/QUICKSTART.md) |
 
-Trina provides the workspace, not the AI: use only Claude and OpenAI accounts and plans authorized for your use. Hosted plans, checked 2026-10-30, USD before tax: **Starter $39/month (up to 5 people), Team $69 (15), Business $129 (40)**. AI usage is separate. Hosting is contact-led, not an instant free trial. [Current pricing](https://ax.trina.app/#pricing)
+Trina provides the workspace, not the AI: use only Claude and OpenAI accounts and plans authorized for your use. Hosted plans, checked 2026-11-02, USD before tax: **Free (up to 3 people, limited spots), Starter $39/month (up to 5 people), Team $69 (15), Business $129 (40)**, and a quote above 40 people. AI usage is separate. [Current pricing](https://ax.trina.app/#pricing)
 
 Linux self-hosting needs Debian 12/13 or Ubuntu 24.04, systemd with cgroup v2, amd64 or arm64, 4 GB RAM recommended and 20 GB disk minimum. Your IT team installs, updates and restores backups.
 
@@ -127,7 +127,7 @@ Self-hosting is not offline: the context a request needs goes to the AI provider
 - The AI sees photos and scanned PDF pages as images (an admin can turn this off), but Linux servers run no OCR: scanned documents and photos are not text-searchable there.
 - On Linux servers the AI also reads video and audio files: evenly spaced frames go to the AI provider like images, and the sound is turned into text by the team's speech provider only when an admin allows it ("Turn video sound into text"). With OpenRouter as the provider, the sound of team files goes to OpenRouter and its provider; confidential chats never send it. Office Macs cannot read video yet.
 - HWP/HWPX text extraction is available. [Visual previews](resources/hwp/README.md) come as the optional HWP Preview plugin, which needs macOS or Linux with glibc 2.39 or newer, so Debian 12 does **not** support them.
-- In managed installations, eligible personal connections take priority, followed by connections assigned to a person, a group, then the whole team. Fresh Trina teams allow shared subscriptions by default; existing saved choices persist. Connection-level consent still applies. **This software setting does not grant permission under Anthropic's or OpenAI's terms.** The local demo disables AI; development and office local-login modes have different connection behavior. [Connection details](docs/FAQ.md)
+- In managed installations, eligible personal connections take priority, followed by connections assigned to a person, a group, then the whole team. On fresh Trina teams, one company connection can serve the whole team by default; existing saved choices persist. Connection-level consent still applies. **This software setting does not grant permission under Anthropic's or OpenAI's terms.** The local demo disables AI; development and office local-login modes have different connection behavior. [Connection details](docs/FAQ.md)
 
 </details>
 

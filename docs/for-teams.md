@@ -15,7 +15,7 @@ A skill is a reusable procedure. A skill manager creates `skills/<name>/SKILL.md
 Choose an owner and a server operator, then create the owner account.
 
 1. **Permissions:** verify allowed and blocked files with two fictional accounts.
-2. **AI connection:** select an authorized provider account and plan. New teams enable subscription sharing by default, but provider permission is separate.
+2. **AI connection:** select an authorized provider account and plan. On new teams one company connection can serve the whole team by default, but provider permission is separate.
 3. **Invite the team:** invite a small pilot group and confirm roles and folder access.
 4. **First skill:** compare figures, dates and owners against source files; a person decides whether to share. Usage costs can be estimates, not invoices.
 5. **First backup:** perform a [restore drill](BACKUP-RESTORE.md) with IT. A backup file alone does not prove recoverability.

@@ -30,6 +30,6 @@ The server asks for confirmation when tracked restricted context is written to a
 
 Linux and role-account Mac installations add dedicated engine accounts and OS isolation. Office Mac runs as the logged-in user; development mode is not production account isolation. [Detailed permission model (Korean)](PERMISSIONS.md) · [IT handoff](for-admins.md).
 
-New teams allow subscription sharing by default, existing saved settings persist, eligible personal connections take priority, and connection-level consent still applies. Software settings are not permission under provider terms. Use only authorized accounts and plans.
+On new teams one company connection can serve the whole team by default, existing saved settings persist, eligible personal connections take priority, and connection-level consent still applies. Software settings are not permission under provider terms. Use only authorized accounts and plans.
 
 Report security problems [privately](../SECURITY.md).

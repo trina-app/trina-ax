@@ -61,7 +61,7 @@ Un equipo ficticio con seis skills iniciales. La IA está desactivada, así que 
 | **El conocimiento está en las carpetas de la empresa** | `shared/`, `groups/`, `projects/` y carpetas personales, con historial de versiones. Extracción de texto de archivos PDF, Office y HWP/HWPX. |
 | **Skills del equipo, gestionadas como archivos** | Una skill es un archivo `SKILL.md`. Las reglas de la carpeta deciden quién puede usarla, y la IA pide confirmación a una persona antes de modificar alguna. |
 | **Permisos en cada llamada a archivos** | Los archivos a los que no tienes acceso no aparecen en Archivos, las respuestas de la IA, la búsqueda, las vistas previas, el historial de versiones ni la papelera. |
-| **Tu conexión de IA** | Claude u OpenAI, con suscripción o clave de API, para una persona, un grupo o todo el equipo. Uso por persona, con límites. Si lo alojas tú, Claude Code también puede usar otros modelos, como DeepSeek, Kimi o GLM, a través de una [pasarela compatible con Anthropic](docs/CONFIGURATION.md#anthropic-compatible-gateway). |
+| **Tu conexión de IA** | Conecta una vez la cuenta de Claude u OpenAI de la empresa, o deja que cada persona conecte la suya. Uso por persona, con límites. Si lo alojas tú, Claude Code también puede usar otros modelos, como DeepSeek, Kimi o GLM, a través de una [pasarela compatible con Anthropic](docs/CONFIGURATION.md#anthropic-compatible-gateway). |
 | **Autoalojado o con el hosting de Trina** | Un servidor Linux, un Mac de la oficina o el hosting de Trina en AWS (Seúl). En el navegador de escritorio y del teléfono, además de un instalador para Windows. |
 
 ## Por dentro
@@ -104,10 +104,10 @@ Una skill es un conjunto reutilizable de instrucciones: no entrena el modelo ni 
 | Ideal para | Equipos sin personal de TI | Equipos con un responsable de TI | Una oficina pequeña con un Mac dedicado | Echar un vistazo |
 | Quién lo gestiona | Trina, en AWS (Seúl) | Tu equipo de TI | Quien se encarga de la oficina | Tú |
 | IA | Tu conexión autorizada de Claude u OpenAI | Igual | Claude (sin Codex) | Desactivada |
-| Precio | Desde 39 USD/mes + uso de IA | Software gratuito + tu servidor | Software gratuito | Gratis |
-| Cómo empezar | [Contactar](https://ax.trina.app/#contact) | [Guía de Linux](docs/INSTALL-LINUX.en.md) | [Guía de Mac de oficina](docs/OFFICE.en.md) | [Inicio rápido](docs/QUICKSTART.md) |
+| Precio | Gratis hasta 3 personas, luego desde 39 USD/mes + uso de IA | Software gratuito + tu servidor | Software gratuito | Gratis |
+| Cómo empezar | [Ver los planes](https://ax.trina.app/#pricing) | [Guía de Linux](docs/INSTALL-LINUX.en.md) | [Guía de Mac de oficina](docs/OFFICE.en.md) | [Inicio rápido](docs/QUICKSTART.md) |
 
-Trina ofrece el espacio de trabajo, no la IA: usa solo cuentas y planes de Claude y OpenAI cuyo uso tengas autorizado. Planes de hosting (consultados el 30 de octubre de 2026; precios en USD sin impuestos): **Starter 39 USD/mes (hasta 5 personas), Team 69 (15), Business 129 (40)**. El uso de IA va aparte. El hosting empieza con una consulta, no con una prueba gratuita inmediata. [Precios actuales](https://ax.trina.app/#pricing)
+Trina ofrece el espacio de trabajo, no la IA: usa solo cuentas y planes de Claude y OpenAI cuyo uso tengas autorizado. Planes de hosting (consultados el 2 de noviembre de 2026; precios en USD sin impuestos): **Gratis (hasta 3 personas, plazas limitadas), Starter 39 USD/mes (hasta 5 personas), Team 69 (15), Business 129 (40)**, y presupuesto a partir de 40 personas. El uso de IA va aparte. [Precios actuales](https://ax.trina.app/#pricing)
 
 El autoalojamiento en Linux requiere Debian 12/13 o Ubuntu 24.04, systemd con cgroup v2, amd64 o arm64, 4 GB de RAM (recomendado) y al menos 20 GB de disco. Tu equipo de TI se encarga de la instalación, las actualizaciones y la restauración de copias de seguridad.
 
@@ -127,7 +127,7 @@ Autoalojar no significa funcionar sin conexión: el contexto que necesita cada p
 - La IA ve las fotos y las páginas escaneadas de PDF como imágenes (un administrador puede desactivarlo), pero los servidores Linux no hacen OCR: en ellos, los documentos escaneados y las fotos no se pueden buscar como texto.
 - En los servidores Linux, la IA también lee archivos de video y audio: los fotogramas, repartidos a intervalos regulares, se envían al proveedor de IA como imágenes, y el sonido lo convierte en texto el proveedor de voz del equipo solo si un administrador lo permite ("Convertir el sonido de los videos en texto"). Si el proveedor de voz es OpenRouter, el sonido de los archivos del equipo va a OpenRouter y a su proveedor; los chats confidenciales nunca lo envían. Los Mac de oficina todavía no leen video.
 - Se puede extraer el texto de archivos HWP/HWPX. Las [vistas previas visuales](resources/hwp/README.md) se ofrecen con el plugin opcional HWP Preview, que requiere macOS o Linux con glibc 2.39 o posterior, así que Debian 12 **no** las admite.
-- En las instalaciones gestionadas, tienen prioridad las conexiones personales elegibles; después, las asignadas a una persona, a un grupo y, por último, a todo el equipo. Los equipos de Trina recién creados permiten suscripciones compartidas por defecto; las opciones ya guardadas se conservan. El consentimiento a nivel de cada conexión se sigue aplicando. **Este ajuste del software no concede ningún permiso conforme a los términos de Anthropic u OpenAI.** La demo local desactiva la IA; los modos de desarrollo y de inicio de sesión local de Mac de oficina gestionan las conexiones de otra manera. [Detalles de conexión](docs/FAQ.md)
+- En las instalaciones gestionadas, tienen prioridad las conexiones personales elegibles; después, las asignadas a una persona, a un grupo y, por último, a todo el equipo. En los equipos de Trina recién creados, una conexión de la empresa puede servir a todo el equipo por defecto; las opciones ya guardadas se conservan. El consentimiento a nivel de cada conexión se sigue aplicando. **Este ajuste del software no concede ningún permiso conforme a los términos de Anthropic u OpenAI.** La demo local desactiva la IA; los modos de desarrollo y de inicio de sesión local de Mac de oficina gestionan las conexiones de otra manera. [Detalles de conexión](docs/FAQ.md)
 
 </details>
 

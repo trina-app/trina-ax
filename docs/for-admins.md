@@ -23,7 +23,7 @@ By default one answer may use tools up to 150 times (tools the AI uses together 
 | Role-account Mac | [Detailed installation](INSTALL.md) | Separate accounts and LaunchDaemons; operator-maintained source bundle, not a released desktop DMG |
 | Fictional local evaluation | [Quick try](QUICKSTART.md) | AI disabled, loopback only, not a production isolation test |
 
-After owner creation: **permissions → AI connection → invite the team → first skill → first backup**. Managed connections prefer eligible personal credentials. Subscription sharing is on for fresh teams; existing choices and connection-level consent remain. Provider authorization is separate.
+After owner creation: **permissions → AI connection → invite the team → first skill → first backup**. Managed connections prefer eligible personal credentials. On fresh teams one company connection can serve the whole team; existing choices and connection-level consent remain. Provider authorization is separate.
 
 Pilot acceptance: demonstrate two users' different file access, review a skill result against its sources, inspect usage and perform an encrypted off-host backup/restore drill. [Starter examples](../examples/README.md) · [Backup and restore](BACKUP-RESTORE.md).
 
