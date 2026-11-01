@@ -1,6 +1,8 @@
 // The AI's tools for external-service connections (docs/INTEGRATIONS.md), made for one person at the start of each turn
 // from the saved tool lists (no network then): each MCP tool of a connection the person may use, named
-// my_<slug>__<tool> (personal) or team_<slug>__<tool> (team), and one api_request for HTTP API connections.
+// my_<slug>__<tool> (personal) or team_<slug>__<tool> (team), and one api_request for HTTP API connections. A tool
+// whoever manages the connection turned off (store.ts disabledTools) is left out here, so it is in neither the engine's
+// tool list nor the model proxy's list of names for the turn (chat/turn.ts turnTools), and a call of it is refused.
 // Every call checks again who may use the connection, refuses or asks on the server's card before anything that changes
 // something at the service (writePolicy), wraps the answer as external data and adds where it came from to the chat's
 // read scope (so saving it somewhere more people can see asks first). Every result leaves through `hiding`, which hides
@@ -13,7 +15,7 @@ import type { TurnTool, TurnToolContext, TurnToolProvider, TurnToolResult } from
 import { addSources } from '../../chat/read-scope'
 import { MAX_BODY, type NetResponse } from './net'
 import { CallError, integrationsOf } from './service'
-import { bareUrl, savedTools, toolsOffered, type Row } from './store'
+import { bareUrl, disabledTools, savedTools, toolsOffered, type Row } from './store'
 import { HIDDEN } from './hide'
 import { say } from './text'
 import type { RemoteTool } from './mcp'
@@ -187,6 +189,8 @@ function mcpTool(ctx: AppContext, b: BuildCtx, row: Row, tool: RemoteTool, name:
         current = h.use(svc.forCall(tc.userId, row.id))
         const t = savedTools(current).find((x) => x.name === tool.name)
         if (!t) throw new CallError(`${current.name} no longer offers ${tool.name}`, 'tool gone')
+        // turned off since the turn began: the person who manages the connection said no to this tool
+        if (disabledTools(current).has(t.name)) throw new CallError(`${tool.name} of ${current.name} was turned off for the AI, so it did not run. Do not try it another way; tell the user (whoever manages the connection can turn it on in its settings).`, 'tool off')
         if (!t.readOnly) {
           confirmed = await gate(ctx, current, t.name, { text: JSON.stringify(args ?? {}, null, 2), fields: recipientFields(args) }, b, tc)
           // the card may have waited for minutes: rules, settings and the connection are read again
@@ -385,9 +389,12 @@ export function integrationToolProvider(ctx: AppContext): TurnToolProvider {
         const key = connectionKey(row)
         if (row.status === 'needs_auth' || (row.auth !== 'none' && !row.secret_enc)) { lines.push(`- ${row.name} (${who} connection): not usable now, it needs ${row.auth === 'oauth' ? 'a new sign-in' : 'its key'} (the user can fix it in Settings > External services)`); continue }
         if (row.kind === 'http') { http.push(row); lines.push(`- ${row.name} (${who} connection, HTTP API): api_request with connection "${key}"`); continue }
-        let n = 0, turnFull = false
+        let n = 0, turnFull = false, skipped = 0
         const saved = savedTools(row)
+        const off = disabledTools(row)
         for (const t of saved) {
+          // turned off by whoever manages the connection: never built, so neither the engine nor the model proxy has it
+          if (off.has(t.name)) { skipped++; continue }
           if (tools.length >= MAX_TURN_TOOLS) { turnFull = true; break }
           const name = toolName(key, t.name, taken)
           if (!name) continue
@@ -403,7 +410,10 @@ export function integrationToolProvider(ctx: AppContext): TurnToolProvider {
           : offered !== null
             ? ` (${n} of the ${offered} tools the service offers: the team server keeps the first ${saved.length} of a connection; if the user needs one that is not here, say so)`
             : ''
-        lines.push(`- ${row.name} (${who} connection, MCP server): ${n} tools named ${key}__…${capped}`)
+        const offNote = skipped ? ` (${skipped} more turned off by whoever manages this connection; do not try to reach them another way)` : ''
+        lines.push(n || !skipped || turnFull || offered !== null
+          ? `- ${row.name} (${who} connection, MCP server): ${n} tools named ${key}__…${capped}${offNote}`
+          : `- ${row.name} (${who} connection, MCP server): every tool is turned off by whoever manages this connection (they can turn them on in its settings)`)
       }
       if (http.length) tools.push(apiRequestTool(ctx, b, http))
       const prompt = lines.length ? [

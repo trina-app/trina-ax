@@ -11,6 +11,8 @@ export const INTEGRATION_SPECS: Record<string, Spec> = {
   updateIntegration: { build: c => c.patch(`/api/integrations/${NONE}`, { name: 'x' }), scope: 'nobody' },
   deleteIntegration: { build: c => c.del(`/api/integrations/${NONE}`), scope: 'nobody' },
   refreshIntegration: { build: c => c.post(`/api/integrations/${NONE}/refresh`, {}), scope: 'nobody' },
+  // turning one tool off: the manager of the connection only (owner / admin rules are in tests/unit/c-integrations-tools.test.ts)
+  setIntegrationTool: { build: c => c.post(`/api/integrations/${NONE}/tools`, { name: 'search', enabled: false }), scope: 'nobody' },
   authorizeIntegration: { build: c => c.post(`/api/integrations/${NONE}/authorize`, {}), scope: 'nobody' },
   integrationFlow: { build: c => c.get(`/api/integrations/flows/${NONE}`), scope: 'nobody' },
   listTeamIntegrations: { build: c => c.get('/api/admin/integrations'), scope: 'byLevel' },

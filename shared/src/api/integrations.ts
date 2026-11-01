@@ -36,6 +36,9 @@ export const IntegrationTool = z.object({
   description: z.string(),
   /** the server marked it read-only (MCP readOnlyHint): the AI may run it without asking */
   readOnly: z.boolean(),
+  /** offered to the AI; whoever manages the connection turns single tools off (setIntegrationTool). A tool the service
+   * adds later is on. Older servers omit it (every tool on). */
+  enabled: z.boolean().optional(),
 })
 export type IntegrationTool = z.infer<typeof IntegrationTool>
 
@@ -137,6 +140,7 @@ export const INTEGRATIONS = {
   deleteIntegration: endpoint({ method: 'DELETE', path: '/api/integrations/:id', auth: 'user', owner: 'C', response: empty, status: 204, summary: 'Delete a connection (OAuth: revocation is tried, the local tokens go first).' }),
   refreshIntegration: endpoint({ method: 'POST', path: '/api/integrations/:id/refresh', auth: 'user', owner: 'C', body: z.object({}), response: Integration, summary: 'Check the connection now; MCP: save its current tool list.' }),
   authorizeIntegration: endpoint({ method: 'POST', path: '/api/integrations/:id/authorize', auth: 'user', owner: 'C', body: z.object({}), response: z.object({ flowId: z.string(), authorizationUrl: z.string().url(), expiresAt: IsoTime }), summary: 'Start signing in at an MCP server (OAuth with PKCE) in a browser window.' }),
+  setIntegrationTool: endpoint({ method: 'POST', path: '/api/integrations/:id/tools', auth: 'user', owner: 'C', body: z.object({ name: z.string().min(1).max(200), enabled: z.boolean() }).strict(), response: Integration, summary: 'Turn one tool of an MCP connection on or off for the AI (whoever manages the connection). New tools are on.' }),
   integrationFlow: endpoint({ method: 'GET', path: '/api/integrations/flows/:id', auth: 'user', owner: 'C', response: IntegrationFlow, summary: 'Poll a sign-in started by this same session.' }),
   listTeamIntegrations: endpoint({ method: 'GET', path: '/api/admin/integrations', auth: 'admin', owner: 'C', response: z.object({ items: z.array(Integration) }), summary: 'Every team connection, with who may use it.' }),
   createTeamIntegration: endpoint({ method: 'POST', path: '/api/admin/integrations', auth: 'admin', owner: 'C', status: 201, body: IntegrationInput, response: Integration, summary: 'A team connection; access says who may use it (default: nobody until set).' }),

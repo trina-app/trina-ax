@@ -19,6 +19,8 @@ export interface Row {
   /** how many tools the server offers when that is more than tools_json keeps (MAX_TOOLS); null otherwise */
   tools_total?: number | null
   last_used_at: string | null; version: number; created_at: string; updated_at: string
+  /** JSON list of the service's tool names turned off (migration 328); every other tool is on */
+  disabled_tools: string
 }
 export interface FlowRow {
   id: string; integration_id: string; integration_version: number; user_id: string; session_id: string; state_hash: string
@@ -93,6 +95,13 @@ export function toolsOffered(row: Row): number | null {
 
 const toolsTotalOf = (row: Row): { toolsTotal?: number } => { const n = toolsOffered(row); return n === null ? {} : { toolsTotal: n } }
 
+/** at most this many names are kept turned off per connection (the service lists at most MAX_TOOLS at a time) */
+export const MAX_DISABLED_TOOLS = 500
+/** The service's tool names turned off for this connection. A bad value turns nothing off (the column is ours alone). */
+export function disabledTools(row: Pick<Row, 'disabled_tools'>): Set<string> {
+  try { const v = JSON.parse(row.disabled_tools ?? '[]'); return new Set(Array.isArray(v) ? v.filter((x): x is string => typeof x === 'string') : []) } catch { return new Set() }
+}
+
 /** The address without its query: what people who only use a connection (and the AI) see of it. */
 export const bareUrl = (u: string) => { const x = new URL(u); return x.origin + x.pathname }
 
@@ -104,7 +113,7 @@ export function view(db: Database, row: Row, viewer: Viewer, locale: Locale): In
     id: row.id, scope: row.scope, kind: row.kind, name: row.name, slug: row.slug, url: manage ? row.url : bareUrl(row.url), auth: row.auth, authHeader: row.auth_header,
     hasSecret: !!row.secret_enc, account: row.account, notes: row.notes, writePolicy: row.write_policy, status: row.status,
     lastError: reasonText(row.last_error, locale),
-    tools: savedTools(row).map((t) => ({ name: t.name, title: t.title, description: t.description, readOnly: t.readOnly })),
+    tools: ((off) => savedTools(row).map((t) => ({ name: t.name, title: t.title, description: t.description, readOnly: t.readOnly, enabled: !off.has(t.name) })))(disabledTools(row)),
     ...toolsTotalOf(row),
     toolsUpdatedAt: row.tools_updated_at, access: row.scope === 'team' && manage ? accessOf(db, row.id) : null,
     createdBy: creator, createdAt: row.created_at, updatedAt: row.updated_at, lastUsedAt: row.last_used_at, canManage: manage,

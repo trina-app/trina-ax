@@ -117,6 +117,16 @@ idle minutes; a 404 for it starts a new one.
 - **Tool names** for the engine: `my_<slug>__<tool>` (personal) and `team_<slug>__<tool>` (team), letters, digits, `_` and
   `-` only. With the engine's `mcp__team__` the full name stays within 64 characters: longer or clashing names are cut and
   given a short hash; the server maps each back to the remote name. At most 200 such tools per turn.
+- **Single tools on and off**, like the tool switches of Claude's connectors: whoever manages the connection (the
+  owner of a personal one, an admin for a team one) turns a tool off with its switch (`POST
+  /api/integrations/:id/tools {name, enabled}`; people who only use a team connection see which are off). The names
+  that are off are kept per connection (`integrations.disabled_tools`, migration 328); every other tool is on, so a
+  tool the service adds later is on, and a name stays off when its tool disappears and comes back. A tool that is off is
+  left out where the turn's tools are made (`tools.ts integrationToolProvider`), so it is in neither the engine's tool
+  list nor the model proxy's names for the turn (a request naming it stops the answer), and the instructions say how
+  many are off; a call of one turned off during the turn is refused before anything is sent. A change moves the
+  connection's version on (a write being asked about is asked again) and is audited (`changed: ["tools"]`, the tool's
+  name for team connections only).
 - Descriptions start with `[<connection name>, personal|team connection]`. Remote descriptions are the service's words
   (cut to 1,000 characters): tool descriptions are part of what the AI reads, so connecting a server means trusting it
   that far.
@@ -172,8 +182,8 @@ connections with their address and the first 1,000 characters of their notes.
 
 ## Audit
 
-- Admin audit log: `integration.create`, `integration.update` (also access changes, with before/after, and a completed
-  sign-in: `changed: ["signIn"]`), `integration.delete`. Team connections are named with their host; a member's own
+- Admin audit log: `integration.create`, `integration.update` (also access changes, with before/after, a completed
+  sign-in: `changed: ["signIn"]`, and a tool turned on or off: `changed: ["tools"]`), `integration.delete`. Team connections are named with their host; a member's own
   connections only by scope, kind and auth (no name or address).
 - Each call is a `tool_events` row with a summary only: the tool, `api_request <connection> <METHOD> <path> -> <status>`,
   "confirmed by the user" or why it was refused. No arguments, bodies, query strings or secrets.
@@ -192,7 +202,7 @@ connections with their address and the first 1,000 characters of their notes.
 ## Not in phase 1
 
 Gmail / Calendar / Slack style OAuth apps (each needs its own app registration), office-network APIs, file upload or
-download (binary), per-tool switches, an admin allow-list of hosts, mobile OAuth return, multi-replica locking of refreshes
+download (binary), an admin allow-list of hosts, mobile OAuth return, multi-replica locking of refreshes
 (one active app server per team, like Drive), a rekey command for this key directory, reconnect notifications.
 
 ## Tests

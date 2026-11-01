@@ -422,12 +422,13 @@ export function Tabs<T extends string>({ value, onChange, items, label }: { valu
  * canvas, surface and subtle) with a white knob; on: a --c-accent track with a white knob in light (>= 3:1, as in Claude's
  * apps) and a --c-accent-ink knob in dark (a white one would be 2.85:1 on the dark accent). The focus ring sits 2px
  * outside the track, so it shows on the accent. */
-export function Switch({ checked, onChange, label, disabled }: { checked: boolean; onChange: (v: boolean) => void; label: string; disabled?: boolean }) {
+/** `hideLabel`: the label is for screen readers only (a row whose name is already beside the switch). */
+export function Switch({ checked, onChange, label, disabled, hideLabel, testId }: { checked: boolean; onChange: (v: boolean) => void; label: string; disabled?: boolean; hideLabel?: boolean; testId?: string }) {
   return (
     <label className={clsx('inline-flex cursor-pointer items-center gap-2 text-sm', disabled && 'cursor-not-allowed opacity-60')}>
-      <input type="checkbox" className="peer sr-only" checked={checked} disabled={disabled} onChange={(e) => onChange(e.target.checked)} />
+      <input type="checkbox" className="peer sr-only" checked={checked} disabled={disabled} onChange={(e) => onChange(e.target.checked)} data-testid={testId} />
       <span className="relative h-5 w-9 shrink-0 rounded-full bg-field-border transition peer-checked:bg-accent peer-focus-visible:outline-2 peer-focus-visible:outline-offset-2 peer-focus-visible:outline-accent after:absolute after:top-0.5 after:left-0.5 after:h-4 after:w-4 after:rounded-full after:bg-white after:transition peer-checked:after:translate-x-4 dark:peer-checked:after:bg-accent-ink" aria-hidden />
-      <span>{label}</span>
+      <span className={hideLabel ? 'sr-only' : undefined}>{label}</span>
     </label>
   )
 }

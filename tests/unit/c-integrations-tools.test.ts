@@ -413,3 +413,83 @@ describe('api_request', () => {
     await A.json(`/api/integrations/${id}`, { method: 'DELETE', as: 'alice' })
   })
 })
+
+describe('single tools turned off (docs/DECISIONS.md "Turn single tools of a connection off")', () => {
+  const toggle = (as: Person, id: string, name: string, enabled: boolean) => post(as, `/api/integrations/${id}/tools`, { name, enabled })
+  test('whoever manages the connection turns a tool off; it is not offered in any turn and the prompt says so; on again, it is back', async () => {
+    const r = await toggle('alice', tasks.id, 'create_task', false)
+    expect(r.status).toBe(200)
+    expect(r.body.tools.map((t: any) => [t.name, t.enabled])).toEqual([['search_tasks', true], ['create_task', false], ['inject', true], ['rpc_fail', true]])
+    const a = turn('alice')
+    expect(a.tools.has('my_tasks__create_task')).toBe(false)
+    expect(a.tools.has('my_tasks__search_tasks')).toBe(true)
+    expect(a.prompt).toContain('Tasks (personal connection, MCP server): 3 tools named my_tasks__… (1 more turned off by whoever manages this connection')
+    // the same answer again changes nothing; the list keeps its order
+    expect((await toggle('alice', tasks.id, 'create_task', false)).status).toBe(200)
+    expect(JSON.parse((A.ctx.db.query('SELECT disabled_tools FROM integrations WHERE id = ?').get(tasks.id) as { disabled_tools: string }).disabled_tools)).toEqual(['create_task'])
+    // every tool off: the connection says so instead of listing none
+    for (const n of ['search_tasks', 'inject', 'rpc_fail']) await toggle('alice', tasks.id, n, false)
+    const none = turn('alice')
+    expect([...none.tools.keys()].filter((k) => k.startsWith('my_tasks__'))).toEqual([])
+    expect(none.prompt).toContain('Tasks (personal connection, MCP server): every tool is turned off by whoever manages this connection')
+    for (const n of ['search_tasks', 'inject', 'rpc_fail', 'create_task']) await toggle('alice', tasks.id, n, true)
+    expect(turn('alice').tools.has('my_tasks__create_task')).toBe(true)
+    // audit: a member's own connection without the tool's name; changes counted
+    const lines = A.ctx.db.query("SELECT detail FROM audit_log WHERE action = 'integration.update' AND target = ? ORDER BY id").all(tasks.id).map((x) => JSON.parse((x as { detail: string }).detail))
+    expect(lines.filter((d) => d.changed?.includes('tools'))).toHaveLength(8)
+    expect(JSON.stringify(lines)).not.toContain('create_task')
+  })
+
+  test('team connections: admins only; members who use it cannot change it; another member\'s personal one is not found', async () => {
+    expect((await toggle('erin', team.id, 'inject', false)).status).toBe(403)
+    expect((await toggle('bob', tasks.id, 'search_tasks', false)).status).toBe(404)
+    expect((await toggle('carol', tasks.id, 'search_tasks', false)).status).toBe(404) // an admin is not the owner
+    const r = await toggle('carol', team.id, 'inject', false)
+    expect(r.status).toBe(200)
+    try {
+      expect(turn('erin').tools.has('team_teamboard__inject')).toBe(false)
+      expect(turn('alice').tools.has('team_teamboard__inject')).toBe(false)
+      expect(turn('alice').tools.has('team_teamboard__search_tasks')).toBe(true)
+      // people who only use it see which tools are off
+      const list = await A.json('/api/integrations', { as: 'erin' })
+      expect(list.body.items.find((i: any) => i.id === team.id).tools.find((t: any) => t.name === 'inject').enabled).toBe(false)
+      const audit = A.ctx.db.query("SELECT detail FROM audit_log WHERE action = 'integration.update' AND target = ? ORDER BY id DESC LIMIT 1").get(team.id) as { detail: string }
+      expect(JSON.parse(audit.detail)).toMatchObject({ scope: 'team', name: 'Team board', changed: ['tools'], enabled: false, tool: 'inject', off: 1 })
+      // only a tool the service lists; MCP connections only
+      expect((await toggle('carol', team.id, 'no_such_tool', false)).status).toBe(400)
+      expect((await toggle('alice', aipm.id, 'GET', false)).status).toBe(400)
+    } finally { await toggle('carol', team.id, 'inject', true) }
+  })
+
+  test('a tool turned off during a turn is refused when it is called; nothing reaches the service', async () => {
+    const a = turn('alice')
+    await toggle('alice', tasks.id, 'search_tasks', false)
+    try {
+      const before = fake.calls.length
+      const r = await a.call('my_tasks__search_tasks', { q: 'x' })
+      expect(r.isError).toBe(true)
+      expect(r.text).toContain('was turned off for the AI')
+      expect(r.summary).toBe('my_tasks__search_tasks -> tool off')
+      expect(fake.calls.length).toBe(before)
+    } finally { await toggle('alice', tasks.id, 'search_tasks', true) }
+  })
+
+  test('a tool the service adds later is on; one that was off stays off, also after it disappears and comes back', async () => {
+    const saved = fake.tools
+    await toggle('alice', tasks.id, 'inject', false)
+    try {
+      fake.tools = [...saved.filter((t: any) => t.name !== 'inject'), { name: 'archive_task', description: 'Archive a task', inputSchema: { type: 'object' } }]
+      const r = await post('alice', `/api/integrations/${tasks.id}/refresh`, {})
+      expect(r.body.tools.find((t: any) => t.name === 'archive_task').enabled).toBe(true)
+      expect(turn('alice').tools.has('my_tasks__archive_task')).toBe(true)
+      fake.tools = [...saved]
+      const back = await post('alice', `/api/integrations/${tasks.id}/refresh`, {})
+      expect(back.body.tools.find((t: any) => t.name === 'inject').enabled).toBe(false)
+      expect(turn('alice').tools.has('my_tasks__inject')).toBe(false)
+    } finally {
+      fake.tools = saved
+      await post('alice', `/api/integrations/${tasks.id}/refresh`, {})
+      await toggle('alice', tasks.id, 'inject', true)
+    }
+  })
+})

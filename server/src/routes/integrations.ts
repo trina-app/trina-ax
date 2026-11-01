@@ -22,6 +22,7 @@ export function registerIntegrationRoutes(kit: RouteKit, ctx: AppContext) {
   kit.handle(API.createIntegration, ({ c, auth, body }) => svc().create(viewer(auth), body, 'personal', c.get('locale')))
   kit.handle(API.updateIntegration, ({ c, auth, params, body }) => svc().update(viewer(auth), params.id, body, c.get('locale')))
   kit.handle(API.deleteIntegration, async ({ auth, params }) => { await svc().remove(viewer(auth), params.id) })
+  kit.handle(API.setIntegrationTool, ({ c, auth, params, body }) => svc().setTool(viewer(auth), params.id, body.name, body.enabled, c.get('locale')))
   kit.handle(API.refreshIntegration, ({ c, auth, params }) => svc().refresh(viewer(auth), params.id, c.get('locale')))
   kit.handle(API.authorizeIntegration, ({ c, auth, params }) => svc().authorize(viewer(auth), auth.session.id, params.id, linkBase(c, ctx), c.get('locale')))
   kit.handle(API.integrationFlow, ({ auth, params }) => svc().flow(auth.user.id, auth.session.id, params.id))

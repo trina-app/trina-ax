@@ -1,6 +1,8 @@
 // One external-service connection in a list (Settings > External services, Admin > External services): name, kind,
 // state and why it failed, the stored key or signed-in account (never the key itself), last use, the MCP server's
-// tools; and, for people who manage it, check again / sign in / edit / delete. Signing in (MCP OAuth) opens the
+// tools (with a switch each for whoever manages it, like Claude's connector tools: a tool turned off is not offered to
+// the AI, server/src/integrations/connections/tools.ts; tools the service adds later are on); and, for people who
+// manage it, check again / sign in / edit / delete. Signing in (MCP OAuth) opens the
 // service's page in a window reserved during the click and polls the flow until the server has the tokens.
 import clsx from 'clsx'
 import { ChevronDown, ChevronRight, Globe, LogIn, Pencil, RefreshCw, Trash2, Waypoints } from 'lucide-react'
@@ -12,7 +14,7 @@ import { authorizationUrl, canSignIn, STATUS_TONE } from '../../lib/integrations
 import { mobileApp } from '../../lib/mobile'
 import { useLocale, useT } from '../../i18n'
 import { toast } from '../../store/ui'
-import { Badge, Button, IconButton, confirmDialog } from '../ui'
+import { Badge, Button, IconButton, Switch, confirmDialog } from '../ui'
 
 /** A blank window opened during the click (a window opened later, after the server answers, is blocked as a popup).
  * The phone app has no sign-in return yet: no window there. */
@@ -129,6 +131,20 @@ export function useIntegrationActions({ add, replace, reload }: { add: (i: Integ
   const t = useT()
   const locale = useLocale()
   const [checking, setChecking] = useState<string | null>(null)
+  // one tool on or off for the AI (a second click while its request is on its way is ignored)
+  const switching = useRef(new Set<string>())
+  const setTool = async (i: Integration, name: string, enabled: boolean) => {
+    const key = `${i.id}\n${name}`
+    if (switching.current.has(key)) return
+    switching.current.add(key)
+    try {
+      replace(await api.call(API.setIntegrationTool, { params: { id: i.id }, body: { name, enabled } }))
+    } catch (e) {
+      toast({ level: 'error', text: errorText(e, locale, t('error.network')) })
+    } finally {
+      switching.current.delete(key)
+    }
+  }
   const refresh = async (i: Integration) => {
     setChecking(i.id)
     try {
@@ -167,7 +183,7 @@ export function useIntegrationActions({ add, replace, reload }: { add: (i: Integ
     else if (i.status === 'needs_auth') toast({ level: 'info', text: t('integrations.savedNeedsSignIn') })
     else toast({ level: 'success', text: created ? t('integrations.connected') : t('common.saved') })
   }
-  return { checking, refresh, remove, signIn, saved }
+  return { checking, refresh, remove, signIn, saved, setTool }
 }
 
 export type IntegrationActions = ReturnType<typeof useIntegrationActions>
@@ -189,6 +205,7 @@ export function IntegrationRow({ i, actions, onEdit, teamBadge, extra }: {
   const checking = actions.checking === i.id
   const phone = !!mobileApp()
   const KindIcon = i.kind === 'mcp' ? Waypoints : Globe
+  const off = i.tools.filter((x) => x.enabled === false).length
   const meta: string[] = []
   if (i.auth === 'bearer' || i.auth === 'header') meta.push(t(i.hasSecret ? 'integrations.keySaved' : 'integrations.keyMissing'))
   if (i.auth === 'oauth' && i.hasSecret) meta.push(i.account ? t('integrations.account', { account: i.account }) : t('integrations.signedIn'))
@@ -243,6 +260,7 @@ export function IntegrationRow({ i, actions, onEdit, teamBadge, extra }: {
           <button type="button" aria-expanded={open} aria-controls={toolsId} onClick={() => setOpen((v) => !v)} className="inline-flex items-center gap-1 rounded text-xs font-medium text-accent-text hover:underline" data-testid="integration-tools-toggle">
             {open ? <ChevronDown size={14} aria-hidden /> : <ChevronRight size={14} aria-hidden />}
             {i.toolsTotal ? t('integrations.toolsOf', { n: i.tools.length, total: i.toolsTotal }) : t('integrations.tools', { n: i.tools.length })}
+            {off > 0 && <span className="font-normal text-muted" data-testid="integration-tools-off"> · {t('integrations.toolsOff', { n: off })}</span>}
           </button>
           {open && (
             <div id={toolsId} className="mt-2">
@@ -250,20 +268,34 @@ export function IntegrationRow({ i, actions, onEdit, teamBadge, extra }: {
                 <p className="text-xs text-faint">{t('integrations.noTools')}</p>
               ) : (
                 <ul className="divide-y divide-line rounded-lg border border-line" data-testid="integration-tools">
-                  {i.tools.map((x) => (
-                    <li key={x.name} className="px-3 py-2 text-xs" data-testid="integration-tool" data-read-only={x.readOnly ? 'true' : 'false'}>
-                      <p className="flex flex-wrap items-center gap-x-2 gap-y-1">
-                        <span className="font-medium break-all text-ink">{x.title || x.name}</span>
-                        {x.title && x.title !== x.name && <code className="break-all text-faint">{x.name}</code>}
-                        {x.readOnly && <Badge tone="ok">{t('integrations.readOnly')}</Badge>}
-                      </p>
-                      {x.description && <p className="mt-0.5 line-clamp-3 break-words text-muted">{x.description}</p>}
-                    </li>
-                  ))}
+                  {i.tools.map((x) => {
+                    const on = x.enabled !== false
+                    return (
+                      <li key={x.name} className="flex items-start gap-3 px-3 py-2 text-xs" data-testid="integration-tool" data-read-only={x.readOnly ? 'true' : 'false'} data-enabled={on ? 'true' : 'false'}>
+                        <div className="min-w-0 flex-1">
+                          <p className="flex flex-wrap items-center gap-x-2 gap-y-1">
+                            <span className={clsx('font-medium break-all', on ? 'text-ink' : 'text-muted')}>{x.title || x.name}</span>
+                            {x.title && x.title !== x.name && <code className="break-all text-faint">{x.name}</code>}
+                            {x.readOnly && <Badge tone="ok">{t('integrations.readOnly')}</Badge>}
+                            {!on && !i.canManage && <Badge>{t('integrations.toolOff')}</Badge>}
+                          </p>
+                          {x.description && <p className="mt-0.5 line-clamp-3 break-words text-muted">{x.description}</p>}
+                        </div>
+                        {i.canManage && (
+                          <span className="shrink-0 pt-0.5">
+                            {/* never disabled while saving: a disabled control loses keyboard focus (setTool ignores a second click) */}
+                            <Switch checked={on} hideLabel label={t('integrations.toolSwitch', { name: x.title || x.name })}
+                              onChange={(v) => void actions.setTool(i, x.name, v)} testId="integration-tool-switch" />
+                          </span>
+                        )}
+                      </li>
+                    )
+                  })}
                 </ul>
               )}
               <p className="mt-1.5 text-xs text-faint">
                 {i.toolsTotal ? <span className="block" data-testid="integration-tools-capped">{t('integrations.toolsCapped', { n: i.tools.length, total: i.toolsTotal })}</span> : null}
+                {i.tools.length > 0 && `${t(i.canManage ? 'integrations.toolsSwitchHint' : 'integrations.toolsManagedHint')} `}
                 {t('integrations.toolsHint')}
                 {i.toolsUpdatedAt && ` ${t('integrations.toolsChecked', { date: formatDateTime(i.toolsUpdatedAt, locale) })}`}
               </p>

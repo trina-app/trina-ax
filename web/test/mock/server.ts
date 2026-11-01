@@ -1492,6 +1492,14 @@ export class MockServer {
       this.integrationSecrets.delete(x.id)
       return undefined
     },
+    // like server/src/integrations/connections/service.ts setTool: whoever manages it, a tool the service lists
+    setIntegrationTool: (c) => {
+      const x = this.manageableIntegration(c.user, c.params.id)
+      if (x.kind !== 'mcp' || !x.tools.some((t) => t.name === c.body.name)) fail('validation', 400, '이 서비스가 지금 알려 준 도구 목록에 없는 도구예요.', { 'body.name': 'unknown tool' })
+      x.disabledTools = c.body.enabled ? x.disabledTools.filter((n) => n !== c.body.name) : [...new Set([...x.disabledTools, c.body.name])]
+      x.tools = x.tools.map((t) => ({ ...t, enabled: !x.disabledTools.includes(t.name) }))
+      return this.integrationView(x, c.user)
+    },
     refreshIntegration: (c) => {
       const x = this.manageableIntegration(c.user, c.params.id)
       this.checkIntegration(x)
@@ -1679,7 +1687,7 @@ export class MockServer {
   // ---------------- external services ----------------
   integrationView(x: MockIntegration, u: User): Integration {
     const canManage = x.scope === 'personal' ? x.ownerId === u.id : u.role !== 'member'
-    const { ownerId: _o, checks: _c, ...rest } = x
+    const { ownerId: _o, checks: _c, disabledTools: _d, ...rest } = x
     return { ...rest, hasSecret: this.integrationSecrets.has(x.id), access: x.scope === 'team' && canManage ? x.access : null, canManage }
   }
   /** may use it in their chats: the owner of a personal one; the access rule of a team one (admins are not implied) */
@@ -1708,7 +1716,7 @@ export class MockServer {
       id: uuidv7(), scope, kind: body.kind, name: body.name, slug, url: body.url, auth: body.auth, authHeader: body.auth === 'header' ? body.authHeader ?? null : null,
       account: null, notes: body.kind === 'http' ? body.notes ?? null : null, writePolicy: body.writePolicy, status: 'needs_auth', lastError: null, tools: [], toolsUpdatedAt: null,
       access: scope === 'team' ? body.access ?? NO_ACCESS : null, createdBy: { id: u.id, name: u.name }, createdAt: now(), updatedAt: now(), lastUsedAt: null,
-      ownerId: scope === 'personal' ? u.id : null, checks: 0,
+      ownerId: scope === 'personal' ? u.id : null, checks: 0, disabledTools: [],
     }
     if (body.secret && (body.auth === 'bearer' || body.auth === 'header')) this.integrationSecrets.set(x.id, body.secret)
     this.integrations.push(x)
@@ -1760,11 +1768,12 @@ export class MockServer {
       set('connected', null)
       if (x.kind === 'mcp' && new URL(x.url).hostname.startsWith('many.')) {
         // a "many." host offers 150 tools: the server keeps the first 100 and says "100 of 150"
-        x.tools = Array.from({ length: 100 }, (_, i) => ({ name: `tool_${i}`, title: null, description: `Tool ${i}`, readOnly: true }))
+        x.tools = Array.from({ length: 100 }, (_, i) => ({ name: `tool_${i}`, title: null, description: `Tool ${i}`, readOnly: true, enabled: !x.disabledTools.includes(`tool_${i}`) }))
         x.toolsTotal = 150
         x.toolsUpdatedAt = now()
       } else if (x.kind === 'mcp') {
-        x.tools = FAKE_MCP_TOOLS.slice(0, x.checks > 1 ? 3 : 2)
+        // like server/src/integrations/connections/store.ts disabledTools: a tool turned off stays off, a new one is on
+        x.tools = FAKE_MCP_TOOLS.slice(0, x.checks > 1 ? 3 : 2).map((t) => ({ ...t, enabled: !x.disabledTools.includes(t.name) }))
         x.toolsUpdatedAt = now()
       }
     }
@@ -1977,7 +1986,7 @@ function mimeOf(path: string): string | null {
   return ({ md: 'text/markdown', csv: 'text/csv', txt: 'text/plain', html: 'text/html', png: 'image/png', jpg: 'image/jpeg', pdf: 'application/pdf', json: 'application/json' } as Record<string, string>)[e] ?? null
 }
 
-type MockIntegration = Omit<Integration, 'hasSecret' | 'canManage'> & { ownerId: string | null; checks: number }
+type MockIntegration = Omit<Integration, 'hasSecret' | 'canManage'> & { ownerId: string | null; checks: number; disabledTools: string[] }
 const NO_ACCESS: IntegrationAccess = { everyone: false, groups: [], users: [] }
 /** what the fake MCP server offers: two tools at first, a third once it is checked again */
 const FAKE_MCP_TOOLS: IntegrationTool[] = [

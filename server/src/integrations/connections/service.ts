@@ -20,7 +20,7 @@ import { McpClient, McpError } from './mcp'
 import { NetError, serviceRequest, type NetOptions, type NetResponse } from './net'
 import { authorizationUrl, discover, GrantError, register, revoke, tokenRequest, type OAuthClient, type OAuthSecret, type OAuthServer, type OAuthTokens } from './oauth'
 import {
-  accessOf, activeUser, connectionAad, flowAad, getRow, isAdmin, mayUse, SecretBox, setAccess, StoreError, usable, view,
+  accessOf, activeUser, connectionAad, disabledTools, flowAad, getRow, isAdmin, MAX_DISABLED_TOOLS, mayUse, savedTools, SecretBox, setAccess, StoreError, usable, view,
   type FlowRow, type Row, type Viewer,
 } from './store'
 import { say, type Reason, type TextKey } from './text'
@@ -144,7 +144,7 @@ export class Integrations {
       id, scope, owner_user_id: owner, created_by: viewer.id, kind: input.kind, name: oneLine(input.name), slug, url, auth: input.auth, auth_header: authHeader,
       secret_enc: null, key_version: 1, account: null, notes: cleanNotes(input.notes), write_policy: input.writePolicy ?? 'ask',
       status: input.auth === 'oauth' ? 'needs_auth' : 'error', last_error: input.auth === 'oauth' ? 'sign_in' : input.auth === 'none' ? null : 'no_secret', tools_json: '[]', tools_updated_at: null,
-      last_used_at: null, version: 1, created_at: now, updated_at: now,
+      last_used_at: null, version: 1, created_at: now, updated_at: now, disabled_tools: '[]',
     }
     if (input.secret !== undefined) {
       const sealed = this.sealFor(row, { type: 'key', key: input.secret } satisfies KeySecret, L)
@@ -221,6 +221,33 @@ export class Integrations {
     if (old?.type === 'oauth' && (secret !== 'kept')) void this.revokeTokens(old)
     const cur = getRow(this.db, id)!
     return view(this.db, recheck ? await this.check(cur) : cur, viewer, L)
+  }
+
+  /** One tool of an MCP connection on or off for the AI, by whoever manages the connection (manageable: the owner of a
+   * personal one, an admin for a team one). Only a tool the service lists now can be changed; names stay off when the
+   * tool disappears. The version moves on, so a write the AI asked for before is asked again (tools.ts). */
+  setTool(viewer: Viewer, id: string, name: string, enabled: boolean, locale: Locale): Integration {
+    const L = locale
+    const row = this.manageable(viewer, id)
+    if (row.kind !== 'mcp') fieldError(L, 'name', 'toolsMcpOnly')
+    if (!savedTools(row).some((t) => t.name === name)) fieldError(L, 'name', 'toolUnknown')
+    const off = disabledTools(row)
+    if (off.has(name) === !enabled) return view(this.db, row, viewer, L)
+    if (enabled) off.delete(name)
+    else {
+      off.add(name)
+      // names of tools the service no longer lists go first when the list is full
+      if (off.size > MAX_DISABLED_TOOLS) {
+        const listed = new Set(savedTools(row).map((t) => t.name))
+        for (const n of [...off]) { if (off.size <= MAX_DISABLED_TOOLS) break; if (!listed.has(n)) off.delete(n) }
+      }
+    }
+    const r = this.db.query('UPDATE integrations SET disabled_tools=?, version=version+1, updated_at=? WHERE id=? AND version=?')
+      .run(JSON.stringify([...off].sort()), iso(this.now()), id, row.version)
+    if (!r.changes) fail('conflict')
+    // a member's own connection: not which tool (its name says which service), as for its name and address
+    audit(this.db, { actor: viewer.id, action: 'integration.update', target: id, detail: { ...auditDetail(row), changed: ['tools'], enabled, ...(row.scope === 'team' ? { tool: name } : {}), off: off.size } })
+    return view(this.db, getRow(this.db, id)!, viewer, L)
   }
 
   async remove(viewer: Viewer, id: string): Promise<void> {

@@ -4822,3 +4822,39 @@ fallback when DeepInfra is down. Test report: `plans/stt-hosted-2026-11-01/STT-D
 - Tests: `tests/unit/schedule-edit.test.ts` (run now with the scheduled rules and the schedule untouched; refusals;
   the edit card's long-query listing, binding, connections, field checks, project access, one-time re-arm, unconfirmed
   tasks, templates; pause/resume audit); `tests/security` (the three routes, own only); `web/test/e2e/schedules.spec.ts`.
+
+## Turn single tools of a connection off (feat/small-batch-11-01, 2026-11-01)
+
+- **Like Claude's connector tool switches.** Each tool of an MCP connection has a switch in its tool list
+  (`components/integrations/IntegrationRow.tsx`), for whoever manages the connection (`service.ts manageable`: the owner
+  of a personal one; an admin for a team one, a member who uses it gets 403, anyone else 404). People who only use a team
+  connection see an "Off" badge and no switch. There is no per-person override of a team connection: the admin decides
+  for everyone, as for its write setting.
+- **Stored as the names that are off** (`integrations.disabled_tools`, a JSON list; migration 328, additive, reader 1;
+  the schema reader level stays 4. C's range is 300–399; 327 is all-skills' (landed), 325 is feat/save-url's (still
+  waiting to land). `db.ts migrate` applies every number a database has not recorded, not only higher ones, so 328 landing
+  before 325 is fine).
+  Like `tools_json` it is safe-ops policy: 328 makes `safe_ops_integrations_update` again with the column in it, so a
+  change advances the policy generation (319_c_policy_epoch.sql; `safe-ops-policy-epoch.test.ts` lists it).
+  Everything else is on, so a tool the service adds later is on (said under the list). A name stays when the tool
+  leaves the service's list, so a tool that comes back is still off (a refresh that
+  briefly drops a write tool must not turn it on again); at most 500 names, the ones no longer listed going first. Only a
+  tool the service lists now can be switched (`validation` otherwise); HTTP connections have none. A rollback to 0.2.16
+  ignores the column and offers every tool again (said in the upgrade note).
+- **Filtered where the turn's tools are made, nowhere else** (`tools.ts integrationToolProvider.build`): a tool that is
+  off is not built, so it is in neither the engine's tool list nor the model proxy's exact names for the turn
+  (`chat/turn.ts turnTools` → `proxy_tokens.tools.team`; a model request naming it stops the answer as outside the
+  lockdown) nor the sub-agents' list. The instructions say "N more turned off by whoever manages this connection", or
+  that every tool is off. A call of a tool turned off during the turn is refused (`tool off`) before anything is sent.
+  How MCP results are handled is unchanged.
+- A switch moves the connection's version on (a write the AI is waiting on a card for is asked again; a schedule card
+  that listed the connection is shown anew) and is audited as `integration.update` with `changed: ["tools"]`, on/off and
+  the count; the tool's name for team connections only (a member's own connection is never named in the audit, and a
+  tool name can say which service it is). No toast: the switch is the state. A switch is never disabled while its
+  request runs (a disabled control loses keyboard focus); a second click meanwhile is ignored.
+- Tests: `tests/unit/c-integrations-tools.test.ts` (off is not built, the prompt line, every tool off, on again, admins
+  only for team connections, unknown tool and HTTP refused, turned off mid-turn refused with no call sent, a new tool on
+  after a refresh, an old one still off after it comes back, audit without the name for personal ones);
+  `tests/unit/c-integration-tool-toggles.test.ts` (a real turn: not offered to the engine, not in the proxy token's
+  names, `checkToolNames` refuses it, on again it is in both); `tests/security` (the route); `web/test/e2e/
+  integrations.spec.ts` (switch, keyboard, refresh, admin switch, member's view and 403).
