@@ -11,7 +11,8 @@
 // anything else gets a Markdown answer with a table, code, math, a Mermaid diagram and an external image.
 // Test-only controls: POST /__test/download-only {path} (a generated, quarantined file: FileEntry.downloadOnly), POST /__test/reset {setup?: boolean, teamLocale?: 'ko'|'en'|'id' (default ko), usersFollowTeam?:
 // boolean (seeded people have no own language), mustChange?: username (signs in with a temporary password)}, POST /__test/drop-ws, POST /__test/server-version,
-// POST /__test/revoke {path} (a folder becomes invisible to everyone + access_changed notice),
+// POST /__test/revoke {path} (a folder becomes invisible to everyone + access_changed notice), POST /__test/skills
+// {files: [{path, name, description}]} (skill files; skills/임원/ is for admins only),
 // POST /__test/schedule-review (the owner gets a scheduled task nobody confirmed, paused for review; "siteask" with
 // "ask" is an address card that offers "allow this site in this conversation"),
 // POST /__test/confidential {all?: boolean} (Safe operations 1A on: every chat confidential; otherwise a chat becomes
@@ -298,6 +299,8 @@ export class MockServer {
       return owner === user.id || user.role === 'owner' ? 'write' : 'none'
     }
     if (path === 'finance' || path.startsWith('finance/')) return user.role === 'owner' ? 'read' : 'none'
+    // a skills folder only admins can read (POST /__test/skills puts skills there): members never see its skills
+    if (path === 'skills/임원' || path.startsWith('skills/임원/')) return user.role === 'member' ? 'none' : 'read'
     return 'write'
   }
 
@@ -318,6 +321,20 @@ export class MockServer {
   managed(u: User): string[] {
     if (u.role === 'owner' || u.role === 'admin') return ['skills']
     return this.skillManagers.filter((g) => (g.subjectType === 'user' && g.subjectId === u.id) || (g.subjectType === 'group' && u.groupIds.includes(g.subjectId))).map((g) => g.path)
+  }
+  /** like server/src/chat/skills.ts listSkills: skills/**.md and the caller's own users/<id>/skills/ with a name header,
+   * only where the caller can read */
+  skillsFor(u: User): { path: string; name: string; description: string; personal?: true }[] {
+    const mine = `users/${u.id}/skills/`
+    const out: { path: string; name: string; description: string; personal?: true }[] = []
+    for (const [p, n] of this.files) {
+      if (n.type !== 'file' || !p.endsWith('.md') || !(p.startsWith('skills/') || p.startsWith(mine)) || this.access(p, u) === 'none') continue
+      const head = /^---\n([\s\S]*?)\n---/.exec(dec.decode(n.data!))?.[1]
+      const name = head ? /^name:\s*(.+)$/m.exec(head)?.[1]?.trim() : undefined
+      if (!name) continue
+      out.push({ path: p, name, description: /^description:\s*(.+)$/m.exec(head!)?.[1]?.trim() ?? '', ...(p.startsWith(mine) ? { personal: true as const } : {}) })
+    }
+    return out.sort((a, b) => a.name.localeCompare(b.name) || a.path.localeCompare(b.path))
   }
   manages(u: User, folder: string) {
     return this.managed(u).some((m) => folder === m || folder.startsWith(m + '/'))
@@ -650,8 +667,9 @@ export class MockServer {
     frequentQuestions: () => ({ items: [], days: 30, sampled: false }),
     popularSkills: () => ({ items: [], days: 30 }),
     listSkillIssues: () => ({ items: [] }),
-    // the owner's checklist on the home screen asks for it (a 404 here was only a console error before)
-    listSkills: () => ({ items: [] }),
+    // the "/" menu, the Skills page and the owner's checklist on the home screen: like the server, the skills the caller
+    // can read (none in the seed; POST /__test/skills adds some)
+    listSkills: (c) => ({ items: this.skillsFor(c.user) }),
     health: () => ({ ok: true, version: this.serverVersion, schema: { applied: 2, readerLevel: 1 }, uptimeSec: 1, time: now() }),
     setupStatus: () => ({ needed: this.setupNeeded, teamName: this.setupNeeded ? null : this.settings.teamName, defaultLocale: this.settings.defaultLocale }),
     setup: (c) => {
@@ -1792,6 +1810,13 @@ export class MockServer {
       this.downloadOnly.add(String(body.path))
     }
     else if (p === '/__test/artifact') this.nextArtifact = { type: (['html', 'svg', 'react', 'mermaid'] as const).find((t) => t === body.type) ?? 'html', content: String(body.content) }
+    else if (p === '/__test/skills') {
+      // skill files: [{path, name, description}] (a name header each), e.g. skills/weekly.md or users/bob/skills/x.md
+      for (const f of (body.files as { path: string; name: string; description?: string }[]) ?? []) {
+        for (let d = f.path.lastIndexOf('/'); d > 0; d = f.path.lastIndexOf('/', d - 1)) this.files.set(f.path.slice(0, d), this.files.get(f.path.slice(0, d)) ?? { type: 'folder', mtime: now() })
+        this.putFile(f.path, `---\nname: ${f.name}\ndescription: ${f.description ?? ''}\n---\n${f.name} steps\n`)
+      }
+    }
     else if (p === '/__test/revoke') {
       // like the server after a folder-rule change: the folder is gone for everyone, who get an access_changed notice
       this.revoked.add(String(body.path))

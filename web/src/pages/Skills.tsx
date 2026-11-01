@@ -1,6 +1,7 @@
-// 팀 스킬 (docs/DECISIONS.md "팀 스킬 관리"): suggestions to review for the folders I manage ([등록] writes the skill under
-// skills/, [거절] turns it down), my own suggestions with their status, and for the owner and admins every recent change
-// under skills/ with a link to its version history (where the previous version can be restored).
+// 팀 스킬 (docs/DECISIONS.md "팀 스킬 관리"): the skills I can use (everyone, read-only: components/AvailableSkills.tsx),
+// suggestions to review for the folders I manage ([등록] writes the skill under skills/, [거절] turns it down), my own
+// suggestions with their status, and for the owner and admins every recent change under skills/ with a link to its
+// version history (where the previous version can be restored).
 import { Bot, History, Lightbulb } from 'lucide-react'
 import { useCallback, useEffect, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
@@ -12,12 +13,13 @@ import { useLocale, useT } from '../i18n'
 import { skillsChanged } from '../store/live'
 import { isAdmin, useMeStrict } from '../store/session'
 import { toast } from '../store/ui'
+import { AvailableSkills } from '../components/AvailableSkills'
 import { Markdown } from '../components/Markdown'
 import { PopularSkills } from '../components/PopularSkills'
 import { SkillIssues } from '../components/SkillIssues'
 import { Badge, Button, EmptyState, ErrorNote, Field, Modal, PageHeader, Skeleton, Tabs, inputCls, promptDialog } from '../components/ui'
 
-type Tab = 'review' | 'mine' | 'changes'
+type Tab = 'skills' | 'review' | 'mine' | 'changes'
 
 const historyLink = (c: SkillChange) => {
   if (c.change === 'delete') return '/trash'
@@ -34,7 +36,7 @@ export default function Skills() {
   const [overview, setOverview] = useState<SkillsOverview | null>(null)
   const [error, setError] = useState<string | null>(null)
   const manages = !!overview?.managedFolders.length
-  const [tab, setTab] = useState<Tab>(params.get('mine') ? 'mine' : params.get('review') ? 'review' : 'mine')
+  const [tab, setTab] = useState<Tab>(params.get('mine') ? 'mine' : params.get('review') ? 'review' : 'skills')
   const [review, setReview] = useState<SkillSuggestion[] | null>(null)
   const [mine, setMine] = useState<SkillSuggestion[] | null>(null)
   const [changes, setChanges] = useState<SkillChange[] | null>(null)
@@ -75,10 +77,12 @@ export default function Skills() {
 
   const tabs: { id: Tab; label: string }[] = [
     ...(manages ? [{ id: 'review' as const, label: `${t('skills.tabReview')}${overview!.pendingReview ? ` (${overview!.pendingReview})` : ''}` }] : []),
+    // what everyone can use, members included (before: a member's page listed no skill at all)
+    { id: 'skills', label: t('skills.tabSkills') },
     { id: 'mine', label: t('skills.tabMine') },
     ...(isAdmin(me) ? [{ id: 'changes' as const, label: t('skills.tabChanges') }] : []),
   ]
-  const current = tabs.some((x) => x.id === tab) ? tab : 'mine'
+  const current = tabs.some((x) => x.id === tab) ? tab : 'skills'
 
   return (
     <div className="flex h-full flex-col overflow-y-auto">
@@ -93,6 +97,7 @@ export default function Skills() {
             {manages && <p className="mb-3 text-xs text-muted">{t('skills.managedHint', { folders: overview.managedFolders.map((f) => f + '/').join(', ') })}</p>}
             <Tabs value={current} onChange={setTab} items={tabs} label={t('skills.title')} />
             <div className="mt-4">
+              {current === 'skills' && <AvailableSkills key={`skills-${me.user.id}`} />}
               {current === 'review' && <SuggestionList items={review} empty={t('skills.noReview')} onOpen={setOpen} testId="review-list" />}
               {current === 'mine' && <SuggestionList items={mine} empty={t('skills.noMine')} testId="mine-list" />}
               {current === 'changes' && <ChangeList items={changes} />}

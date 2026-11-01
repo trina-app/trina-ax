@@ -108,6 +108,9 @@ test('"스킬로 제안" from an answer → the manager reviews, edits and regis
   await page.getByTestId('suggest-send').click()
   await expect(page.getByText('스킬을 제안했어요. 검토가 끝나면 알려 드려요.')).toBeVisible()
   await page.getByTestId('nav-skills').click()
+  // the page opens on the skills Bob can use; his suggestion is on "내 제안"
+  await expect(page.getByRole('tab', { name: '쓸 수 있는 스킬' })).toHaveAttribute('aria-selected', 'true')
+  await page.getByRole('tab', { name: '내 제안' }).click()
   const mine = page.getByTestId('mine-list').getByTestId('suggestion')
   await expect(mine).toHaveAttribute('data-status', 'pending')
   await expect(mine).toContainText('주간 보고')
@@ -131,6 +134,7 @@ test('"스킬로 제안" from an answer → the manager reviews, edits and regis
   // the suggester hears it and sees it registered
   await expect(page.getByText('제안한 스킬이 등록됐어요')).toBeVisible()
   await page.reload()
+  await page.getByRole('tab', { name: '내 제안' }).click()
   await expect(page.getByTestId('mine-list').getByTestId('suggestion')).toHaveAttribute('data-status', 'approved')
   await expect(page.getByTestId('mine-list')).toContainText('skills/주간-보고서.md')
   // (the first-time folder card probes folders the member cannot see: those 404s are expected)
@@ -156,4 +160,59 @@ test('[거절] with a note: the suggester sees the reason', async ({ page }) => 
   const s = page.getByTestId('mine-list').getByTestId('suggestion')
   await expect(s).toHaveAttribute('data-status', 'rejected')
   await expect(s.getByTestId('review-note')).toContainText('비슷한 스킬이 이미 있어요')
+})
+
+// App review 2026-11-01: a member's Team skills page listed no skills, only their own suggestions (admins at least had
+// "최근 변경"). The first tab lists what each person can use, read-only, from the same list as the "/" menu.
+test('"쓸 수 있는 스킬": every person sees the skills they can use, members too, without managers\' controls', async ({ page, browser }) => {
+  await reset(page)
+  const errors = watchConsole(page)
+  expect((await page.request.post('/__test/skills', { data: { files: [
+    { path: 'skills/quote.md', name: '견적서', description: '고객 견적서 초안을 만들어요' },
+    { path: 'skills/weekly/SKILL.md', name: 'weekly', description: '주간 보고서' },
+    { path: 'skills/임원/board.md', name: '이사회 메모', description: '관리자만 읽는 폴더' },
+    { path: 'users/bob/skills/tone.md', name: '내 말투', description: 'Bob의 메일 말투' },
+  ] } })).ok()).toBeTruthy()
+  await signIn(page, BOB)
+  await page.getByTestId('nav-skills').click()
+  await expect(page.getByRole('tab', { name: '쓸 수 있는 스킬' })).toHaveAttribute('aria-selected', 'true')
+  // only "내 제안" besides it: no review, no recent changes
+  await expect(page.getByRole('tab')).toHaveCount(2)
+  const list = page.getByTestId('skill-list')
+  await expect(list.getByTestId('skill-row')).toHaveCount(3)
+  await expect(list).toContainText('견적서')
+  await expect(list).toContainText('고객 견적서 초안을 만들어요')
+  await expect(list).toContainText('skills/weekly/SKILL.md')
+  // a skill in a folder Bob cannot read is not his to use; his own personal skill is marked
+  await expect(list).not.toContainText('이사회 메모')
+  await expect(list.getByTestId('skill-row').filter({ hasText: '내 말투' })).toContainText('개인')
+  // read-only: use it in a chat, or open its file
+  await expect(list.getByRole('button')).toHaveCount(6)
+  await list.getByTestId('skill-row').filter({ hasText: '견적서' }).getByRole('button', { name: '견적서 스킬을 채팅에서 쓰기' }).click()
+  await expect(page.getByTestId('composer-input')).toHaveValue('/견적서 ')
+  await page.goto('/skills')
+  await page.getByTestId('skill-row').filter({ hasText: 'weekly' }).getByRole('button', { name: 'weekly 스킬 파일 보기' }).click()
+  await expect(page).toHaveURL(/\/files\?path=skills%2Fweekly&select=skills%2Fweekly%2FSKILL\.md/)
+
+  // the owner: the admins-only folder's skill too, next to the managers' tabs
+  const ctx = await browser.newContext({ baseURL: new URL(page.url()).origin, locale: 'ko-KR' })
+  const owner = await ctx.newPage()
+  await signIn(owner, OWNER)
+  await owner.goto('/skills')
+  await expect(owner.getByRole('tab', { name: '쓸 수 있는 스킬' })).toHaveAttribute('aria-selected', 'true')
+  await expect(owner.getByRole('tab', { name: '최근 변경' })).toBeVisible()
+  await expect(owner.getByTestId('skill-row')).toHaveCount(3)
+  await expect(owner.getByTestId('skill-list')).toContainText('이사회 메모')
+  await expect(owner.getByTestId('skill-list')).not.toContainText('내 말투')
+  await ctx.close()
+  expect(realErrors(errors).filter((e) => !/status of 404/.test(e))).toEqual([])
+})
+
+test('no skill to use yet: the tab says so and how one gets there', async ({ page }) => {
+  await reset(page)
+  await signIn(page, BOB)
+  await page.goto('/skills')
+  await expect(page.getByTestId('skill-list')).toHaveCount(0)
+  await expect(page.getByText('아직 쓸 수 있는 스킬이 없어요.')).toBeVisible()
+  await expect(page.getByText('"스킬로 제안"을 눌러 제안할 수 있어요')).toBeVisible()
 })
