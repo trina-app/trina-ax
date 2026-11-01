@@ -77,15 +77,15 @@ export default function TeamSettingsPage() {
                     ))}
                   </select>
                 </Field>
-                <Field label={t('teamSettings.updateChannel')}>
-                  <select className={inputCls} value={f.updateChannel} onChange={(e) => setF({ ...f, updateChannel: e.target.value as TeamSettings['updateChannel'] })}>
-                    <option value="stable">{t('teamSettings.stable')}</option>
-                    <option value="beta">{t('teamSettings.beta')}</option>
-                  </select>
-                </Field>
-                <Field label={t('teamSettings.updateWindow')} hint={t('teamSettings.updateWindowHint')} error={windowOk ? null : t('teamSettings.updateWindowBad')}>
-                  <input className={inputCls} placeholder="02:00-05:00" value={f.updateWindow ?? ''} onChange={(e) => setF({ ...f, updateWindow: e.target.value.trim() || null })} />
-                </Field>
+                {/* the update window drives every automatic update of this server: the app's own (Linux), the root update
+                    timer (mycel-ctl) and an office Mac's update agent, in the team time zone. A hosted server is updated
+                    by its control plane, so it has none. (No channel here: the channel is the installation's own,
+                    server.json on Linux and `teamax update channel` on an office Mac; update audit O1.) */}
+                {me.server.features?.selfUpdate !== false && (
+                  <Field label={t('teamSettings.updateWindow')} hint={t('teamSettings.updateWindowHint')} error={windowOk ? null : t('teamSettings.updateWindowBad')}>
+                    <input className={inputCls} placeholder="02:00-05:00" value={f.updateWindow ?? ''} onChange={(e) => setF({ ...f, updateWindow: e.target.value.trim() || null })} />
+                  </Field>
+                )}
                 <Field label={t('teamSettings.auditDays')}>
                   <input className={inputCls} type="number" min={7} max={3650} value={f.auditRetentionDays} onChange={num('auditRetentionDays', 7, 3650)} />
                 </Field>

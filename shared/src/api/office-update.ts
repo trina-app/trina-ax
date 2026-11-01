@@ -19,9 +19,14 @@ export const OfficeUpdateStatus = z.object({
   channel: Channel,
   /** automatic updates off ("자동 업데이트 끄기", `teamax update pause`) */
   paused: z.boolean(),
-  /** nightly time, HH:MM in the server Mac's local time */
+  /** the start of the update window, HH:MM in timeZone (older pages show it) */
   time: z.string(),
-  /** the next nightly window; null while paused or without the update agent */
+  /** the team's update window, HH:mm-HH:mm (Admin > Team settings; 03:00-05:00 when empty), in timeZone */
+  window: z.string().optional(),
+  /** the team's time zone (IANA) the window and nextWindowAt are shown in */
+  timeZone: z.string().optional(),
+  /** the update agent's next run inside the window; null while paused, without the update agent, or when the window
+   * never opens */
   nextWindowAt: IsoTime.nullable(),
   lastCheckAt: IsoTime.nullable(),
   last: z.object({ kind: OfficeUpdateResult, at: IsoTime, version: z.string().nullable(), message: z.string().nullable() }).nullable(),

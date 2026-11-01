@@ -182,7 +182,7 @@ trina_admin restore-team --backup BACKUP_ID --to "$HOME/TeamAX/recovered-team-ne
 
 Use a real backup ID and a new destination. Compare the recovered files, then upload only the required files with appropriate permissions. For an archive extraction drill, the same CLI accepts `restore-archive --in FILE --to NEW_FOLDER --password-stdin`; use a private input channel, never a password argument. Extraction alone does not stop the live server or terminate its sessions. Admin → System → Backups → Restore restores the database at the next server start and leaves current team files unchanged.
 
-Before updates, inspect release/admin notes and verify the off-host archive. The signed office feed is `https://updates.trina.app/office/stable.json`; signature/hash checks must not be bypassed. The updater waits for active answers, takes a database backup, stages the new app and checks health. Startup failure can restore the previous **app**, but does not roll back the database or files. Use a compatible version and pre-update backup for data recovery.
+Before updates, inspect release/admin notes and verify the off-host archive. The signed office feed is `https://updates.trina.app/office/stable.json`; signature/hash checks must not be bypassed. The update agent wakes every 15 minutes and updates only inside the team's update window (Admin › Team settings › Automatic update window, in the team time zone; 03:00–05:00 when empty: the same setting as a Linux server's). It waits for active answers instead of cutting them off (until the window closes, at most an hour per run; after three days of that it waits at most 10 minutes; "Update now" waits at most 10 minutes), takes a database backup, stages the new app and checks health. Startup failure can restore the previous **app**, but does not roll back the database or files. Use a compatible version and pre-update backup for data recovery.
 
 ```sh
 ~/TeamAX/teamax update status
@@ -191,8 +191,10 @@ Before updates, inspect release/admin notes and verify the off-host archive. The
 ~/TeamAX/teamax update pause
 ~/TeamAX/teamax update resume
 ~/TeamAX/teamax update channel stable
-~/TeamAX/teamax update time 02:30
+~/TeamAX/teamax update time 02:30    # the team's update window: 02:30-04:30 in the team time zone (or 02:00-05:00)
 ```
+
+`teamax update time` changes the same setting as Admin › Team settings. Up to 0.2.18 it kept this Mac's own clock time; that value only counts while the team setting is empty.
 
 For a manual update, download the exact new ZIP, repeat checksum/preflight checks and rerun its installer against the same office home. Review `~/TeamAX/logs/update.log` if it fails. The update agent runs while the account is signed in. Do not assume every prior binary can read a newer database.
 

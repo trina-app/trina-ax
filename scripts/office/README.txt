@@ -70,7 +70,8 @@ Trina AX office mode (one Mac + the desk PCs on its network). Full offline Engli
   5. Desktop app (optional): put Trina-AX-Setup-<version>-win-x64.exe / Trina-AX-<version>-mac-universal.dmg in the same folder
      as this zip before installing and they are offered under Settings → Apps (a file elsewhere in ~/Downloads only after
      you answer yes); later: ~/TeamAX/teamax desktop add <file>.
-  Updates: automatic from 0.2.0 (every night at 03:00 from https://updates.trina.app, rolled back if the new version
+  Updates: automatic from 0.2.0 (from https://updates.trina.app in the team's update window, 03:00-05:00 in the team
+     time zone unless Admin > Team settings says otherwise, when no answer is running; rolled back if the new version
      does not start). Coming from 0.1.0, run this zip's office-install.sh once. ~/TeamAX/teamax update status | now | pause
 
 First week: permissions → AI connection → invite the team → first skill → first backup.

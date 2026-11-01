@@ -42,7 +42,7 @@
 //                                  No restart needed.
 //   update [status|check|now|pause|resume|channel stable|beta|time HH:MM|run]
 //                                  automatic updates (./update-cli.ts, docs/OFFICE.md "자동 업데이트"): the third
-//                                  LaunchAgent (<label>.update) checks the release feed every night
+//                                  LaunchAgent (<label>.update) checks the release feed in the team's update window
 //   uninstall-agent                stop and remove the LaunchAgents (office-uninstall.sh)
 //   claude-mcp check [--summary] | backups | restore FILE [--yes] | save
 //                                  the MCP settings local-login removes from this Mac account's ~/.claude.json
@@ -887,7 +887,7 @@ export async function main(argv: string[]): Promise<number> {
       for (const o of origins) lines(`  desks     ${o}  ${(await answers(`${o}/api/health`)) ? 'answers' : 'no answer'}`)
       for (const o of helperOrigins(s, origins).slice(0, 1)) lines(`  CA page   ${o}  ${(await answers(o)) ? 'answers' : 'no answer'}`)
       const uv = updateView(home)
-      lines(`  updates   ${uv.current} · ${uv.channel} · ${!uv.agentInstalled ? 'no update agent (office-install.sh from a 0.2.0+ zip)' : uv.paused ? 'paused (teamax update resume)' : `every night ${uv.time}`}${uv.last ? ` · last: ${uv.last.kind}` : ''}`)
+      lines(`  updates   ${uv.current} · ${uv.channel} · ${!uv.agentInstalled ? 'no update agent (office-install.sh from a 0.2.0+ zip)' : uv.paused ? 'paused (teamax update resume)' : `window ${uv.window} ${uv.timeZone}`}${uv.last ? ` · last: ${uv.last.kind}` : ''}`)
       lines(`  log       ${p.officeLog}`)
       return 0
     }

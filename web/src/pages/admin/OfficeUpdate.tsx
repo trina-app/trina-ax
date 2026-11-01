@@ -54,8 +54,11 @@ export default function OfficeUpdate({ status, reload }: { status: OfficeUpdateS
           <p className="text-warn">{t('officeUpdate.noAgent')}</p>
         ) : u.paused ? (
           <p className="text-muted">{t('officeUpdate.paused')}</p>
+        ) : u.nextWindowAt ? (
+          // the team's window and zone (update audit O2): the date in that zone too, not the browser's
+          <p className="text-muted">{t('officeUpdate.schedule', { window: u.window ?? u.time, zone: u.timeZone ?? '', date: formatDateTime(u.nextWindowAt, locale, u.timeZone) })}</p>
         ) : (
-          <p className="text-muted">{t('officeUpdate.schedule', { time: u.time, date: formatDateTime(u.nextWindowAt, locale) })}</p>
+          <p className="text-warn">{t('officeUpdate.windowClosed', { window: u.window ?? u.time })}</p>
         )}
         {u.lastCheckAt && (
           <p className="text-xs text-faint">

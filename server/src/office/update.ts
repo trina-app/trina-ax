@@ -1,13 +1,17 @@
 // Office mode automatic updates (docs/OFFICE.md "자동 업데이트"). The third LaunchAgent of an installation,
-// <label>.update (app.team-ax.office.update), runs `office.js update run` every night at the chosen time (default 03:00)
-// and when someone asks (`teamax update now`, Admin > System "지금 업데이트": a request file + launchctl kickstart):
+// <label>.update (app.team-ax.office.update), runs `office.js update run` every 15 minutes, and that run goes on only
+// inside the team's update window in the team's time zone (Admin > Team settings, 03:00-05:00 when empty: the same
+// window as a Linux server's updates, officeSchedule; update audit 2026-11-01 O1), and when someone asks (`teamax update
+// now`, Admin > System "지금 업데이트": a request file + launchctl kickstart):
 //
 //   1. GET <feed>/<dir>/<channel>.json (the only address contacted: RELEASE_CHANNEL.feed), verify the Ed25519
 //      signature with a key baked into this build (./release.ts), the channel, no downgrade, not below minFrom
 //   2. download the office zip, check its size and SHA-256, unpack it into update/staging/ (what an earlier failed
 //      release left there and in update/download is removed first)
-//   3. the new bundle's own installer with --check-only, wait until no answer is running (10 min at most), a database
-//      backup (admin.js backup --scope db --kind pre-update)
+//   3. the new bundle's own installer with --check-only, wait until no answer is running, a database backup (admin.js
+//      backup --scope db --kind pre-update). The nightly run waits until the window closes (at most an hour) and then
+//      leaves the update for the next check rather than cut an answer off; after three days of that it waits at most
+//      10 minutes, like "update now" (O4, the Linux root update's rule: native/cmd/mycel-ctl/schedule.go)
 //   4. the new bundle's own installer with --update: it stops the agents, copies its app/ next to the old one, keeps
 //      the old one as app.previous, swaps, starts the server and cloudflared again
 //   5. /api/health on 127.0.0.1 must answer with the new version (and still after 15 s); otherwise roll back: stop
@@ -21,11 +25,15 @@
 // app folders). The updater's own files live in <home>/update/: settings.json (channel, time, paused), state.json
 // (what the web and `teamax update status` show), request.json (an "update now" waiting for the agent), lock, the
 // download and the unpacked bundle. Its log is logs/update.log.
+import { Database } from 'bun:sqlite'
 import crypto from 'node:crypto'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
+import { TeamSettings } from '@mycel/shared/api'
+import { defaultTimeZone, isValidTimeZone, zonedParts, zonedToUtc } from '../system/time-zone'
 import { compareVersions } from '../system/update'
+import { DEFAULT_UPDATE_WINDOW, inWindow } from '../system/update-job'
 import { CHANNELS, decide, DEFAULT_FEED, fileUrl, manifestUrl, OFFICE_RELEASE_KEYS, ReleaseError, verifyRelease, VERSION_RE, type Channel, type OfficeRelease, type ReleaseFile } from './release'
 import { addInstaller, ensureDir, planAdd, readIndex } from './desktop'
 import { reserveBytes, snapshotOf } from '../system/storage'
@@ -36,7 +44,8 @@ import { PRODUCT } from '@mycel/shared'
 
 export interface UpdateSettings {
   channel: Channel
-  /** local time of the nightly check, HH:MM */
+  /** before 0.2.19: the nightly time in this Mac's clock, HH:MM (`teamax update time`). The schedule is the team's update
+   * window now (officeSchedule); a time other than 03:00 set before still counts while the team has no window. */
   time: string
   paused: boolean
   /** tests only: a feed on this Mac (http://127.0.0.1:<port>); anything else is ignored */
@@ -61,8 +70,10 @@ export interface UpdateState {
   running: { pid: number; since: string; step: UpdateStep; phase: string; target: string | null } | null
   /** the Windows desktop app last put into data/downloads */
   desktop: { version: string; at: string } | null
+  /** a nightly update that found answers running until its window closed, since when (the last resort after 3 days) */
+  deferred?: { version: string; since: string } | null
 }
-const emptyState = (): UpdateState => ({ lastCheckAt: null, last: null, available: null, lastUpdate: null, failed: {}, running: null, desktop: null })
+const emptyState = (): UpdateState => ({ lastCheckAt: null, last: null, available: null, lastUpdate: null, failed: {}, running: null, desktop: null, deferred: null })
 
 export interface UpdatePaths { dir: string; settings: string; state: string; request: string; lock: string; download: string; staging: string; log: string }
 export function updatePaths(home: string): UpdatePaths {
@@ -129,14 +140,72 @@ function pidAlive(pid: number): boolean {
   try { process.kill(pid, 0); return true } catch (e) { return (e as NodeJS.ErrnoException).code === 'EPERM' }
 }
 
-/** The next nightly window after `now` (local time), or null while paused. */
-export function nextWindow(time: string, now = new Date(), paused = false): Date | null {
+// ---- the schedule: the team's update window (one setting for every kind of install) -----------------------------
+
+export interface OfficeSchedule {
+  /** "HH:mm-HH:mm" in timeZone (update-job.ts inWindow: equal ends never open) */
+  window: string
+  timeZone: string
+  /** team = Admin > Team settings; legacy = `teamax update time` of an older version; default = 03:00-05:00 */
+  source: 'team' | 'legacy' | 'default'
+}
+
+const plus = (hhmm: string, min: number) => { const [h, m] = hhmm.split(':').map(Number) as [number, number]; const t = (h * 60 + m + min) % 1440; return `${String(Math.floor(t / 60)).padStart(2, '0')}:${String(t % 60).padStart(2, '0')}` }
+
+/** The team's update window and time zone, read from the database (read only; the same values the server's
+ * getTeamSettings / teamTimeZone give: an invalid stored window is "00:00-00:00", which never opens). A team without a
+ * window gets the time an older `teamax update time` set (as its window's start, two hours long), else 03:00-05:00. */
+export function officeSchedule(home: string, env: Record<string, string | undefined> = process.env): OfficeSchedule {
+  let window: string | null = null, tz: string | null = null
+  try {
+    const db = new Database(path.join(officePaths(home).data, 'app.db'), { readonly: true })
+    try {
+      for (const r of db.query("SELECT key, value FROM settings WHERE key IN ('updateWindow', 'timeZone')").all() as { key: string; value: string }[]) {
+        let v: unknown
+        try { v = JSON.parse(r.value) } catch { v = undefined }
+        if (r.key === 'updateWindow') window = TeamSettings.shape.updateWindow.safeParse(v).success ? (v as string | null) : '00:00-00:00'
+        else if (isValidTimeZone(v)) tz = v
+      }
+    } finally { db.close() }
+  } catch { /* no database yet, or not readable: the defaults */ }
+  const timeZone = tz ?? defaultTimeZone(env)
+  if (window) return { window, timeZone, source: 'team' }
+  const legacy = readUpdateSettings(home).time
+  if (legacy !== DEFAULT_UPDATE_SETTINGS.time) return { window: `${legacy}-${plus(legacy, 120)}`, timeZone, source: 'legacy' }
+  return { window: DEFAULT_UPDATE_WINDOW, timeZone, source: 'default' }
+}
+
+/** When the window that holds `now` closes (the next end after now, in the window's zone). */
+export function windowEnd(window: string, timeZone: string, now: Date): Date {
+  const to = window.split('-')[1]!
+  const [h, m] = to.split(':').map(Number) as [number, number]
+  const p = zonedParts(now, timeZone)
+  let end = zonedToUtc(p.y, p.m, p.d, h, m, timeZone)
+  if (end.getTime() <= now.getTime()) {
+    const next = zonedParts(new Date(now.getTime() + 86_400_000), timeZone)
+    end = zonedToUtc(next.y, next.m, next.d, h, m, timeZone)
+  }
+  return end
+}
+
+/** The agent's next run that the window lets go on (it starts every 15 minutes: :00, :15, :30, :45), or null while
+ * paused or when the window never opens. */
+export function nextRunAt(s: Pick<OfficeSchedule, 'window' | 'timeZone'>, now = new Date(), paused = false): Date | null {
   if (paused) return null
-  const m = TIME_RE.exec(time) ?? TIME_RE.exec(DEFAULT_UPDATE_SETTINGS.time)!
-  const d = new Date(now)
-  d.setHours(Number(m[1]), Number(m[2]), 0, 0)
-  if (d.getTime() <= now.getTime()) d.setDate(d.getDate() + 1)
-  return d
+  const q = 15 * 60_000
+  let t = Math.ceil((now.getTime() + 1) / q) * q
+  for (let i = 0; i < 2 * 96; i++, t += q) if (inWindow(s.window, new Date(t), s.timeZone)) return new Date(t)
+  return null
+}
+
+/** A run of the agent now: does the window let it go on, and until when may it wait for running answers. */
+export function scheduledRun(home: string, now = new Date()): { go: false; schedule: OfficeSchedule } | { go: true; schedule: OfficeSchedule; quietBy: Date; lastResort: boolean } {
+  const schedule = officeSchedule(home)
+  if (!inWindow(schedule.window, now, schedule.timeZone)) return { go: false, schedule }
+  const end = windowEnd(schedule.window, schedule.timeZone, now)
+  const quietBy = new Date(Math.min(end.getTime(), now.getTime() + RUN_WAIT_MS))
+  const d = readUpdateState(home).deferred
+  return { go: true, schedule, quietBy, lastResort: !!d && now.getTime() - Date.parse(d.since) >= LAST_RESORT_MS }
 }
 
 export const installedVersion = (home: string): string | null => {
@@ -150,10 +219,10 @@ export const updateLabel = (s: Pick<OfficeSettings, 'label'>) => `${s.label}.upd
 const xml = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;')
 
 /** The update agent: not kept alive, not run at load, a normal process (Background throttles disk I/O: unpacking the
- * zip took a minute, and "update now" is waited for); launchd starts it at the nightly time (and after a wake if the
- * Mac slept through it) and when kickstarted. PATH has Claude Code's folder (the new installer checks it). */
-export function updatePlist(s: OfficeSettings, time: string, envPath: string): string {
-  const m = TIME_RE.exec(time) ?? TIME_RE.exec(DEFAULT_UPDATE_SETTINGS.time)!
+ * zip took a minute, and "update now" is waited for); launchd starts it every 15 minutes (and after a wake if the Mac
+ * slept through one) and when kickstarted. A run outside the team's update window ends at once, without network or a
+ * log line (update-cli.ts `update run`). PATH has Claude Code's folder (the new installer checks it). */
+export function updatePlist(s: OfficeSettings, envPath: string): string {
   const p = officePaths(s.home)
   const args = [path.join(s.home, 'app', 'bin', 'bun'), path.join(s.home, 'app', 'server', 'src', 'office.js'), 'update', 'run', '--home', s.home]
   const env: Record<string, string> = { PATH: envPath, HOME: os.homedir(), LANG: 'ko_KR.UTF-8', NO_COLOR: '1', TEAMAX_HOME: s.home, ...(s.claudeBin ? { TEAMAX_CLAUDE_BIN: s.claudeBin } : {}) }
@@ -170,7 +239,7 @@ export function updatePlist(s: OfficeSettings, time: string, envPath: string): s
 ${Object.entries(env).map(([k, v]) => `    <key>${k}</key><string>${xml(v)}</string>`).join('\n')}
   </dict>
   <key>StartCalendarInterval</key>
-  <dict><key>Hour</key><integer>${Number(m[1])}</integer><key>Minute</key><integer>${Number(m[2])}</integer></dict>
+  <array>${[0, 15, 30, 45].map((min) => `<dict><key>Minute</key><integer>${min}</integer></dict>`).join('')}</array>
   <key>RunAtLoad</key><false/>
   <key>ProcessType</key><string>Standard</string>
   <key>StandardOutPath</key><string>${xml(path.join(p.logs, 'update.log'))}</string>
@@ -186,7 +255,11 @@ export interface OfficeUpdateView {
   current: string
   channel: Channel
   paused: boolean
+  /** the window's start (older web pages show it) */
   time: string
+  /** the team's update window and its zone (officeSchedule) */
+  window: string
+  timeZone: string
   nextWindowAt: string | null
   lastCheckAt: string | null
   last: UpdateState['last']
@@ -205,9 +278,11 @@ export function updateView(home: string, o: { now?: Date; agentInstalled?: boole
   const available = st.available && compareVersions(st.available.version, current) > 0 ? st.available : null
   const s = (() => { try { return loadSettings(home) } catch { return null } })()
   const agentInstalled = o.agentInstalled ?? (s ? fs.existsSync(officePaths(home).plist(updateLabel(s))) : false)
-  const next = nextWindow(set.time, o.now ?? new Date(), set.paused)
+  const sched = officeSchedule(home)
+  const next = nextRunAt(sched, o.now ?? new Date(), set.paused)
   return {
-    current, channel: set.channel, paused: set.paused, time: set.time, nextWindowAt: agentInstalled && next ? next.toISOString() : null,
+    current, channel: set.channel, paused: set.paused, time: sched.window.slice(0, 5), window: sched.window, timeZone: sched.timeZone,
+    nextWindowAt: agentInstalled && next ? next.toISOString() : null,
     lastCheckAt: st.lastCheckAt, last: st.last, available, lastUpdate: st.lastUpdate,
     running: st.running ? { since: st.running.since, step: st.running.step ?? 'check', phase: st.running.phase, target: st.running.target } : null,
     requested: fs.existsSync(updatePaths(home).request), agentInstalled, desktop: st.desktop,
@@ -281,6 +356,10 @@ const MANIFEST_MAX = 256 * 1024
 export const HEALTH_WAIT_MS = 150_000
 export const STABLE_MS = 15_000
 export const IDLE_WAIT_MS = 10 * 60_000
+/** a nightly run waits for a quiet moment at most this long (the agent's next start in the window goes on) */
+export const RUN_WAIT_MS = 60 * 60_000
+/** an update deferred this long goes in after IDLE_WAIT_MS even with answers running */
+export const LAST_RESORT_MS = 72 * 3600_000
 
 export interface RunOptions {
   /** 'schedule' = the nightly run (honours pause and earlier failures); 'now' = asked for; 'check' = look only */
@@ -290,6 +369,11 @@ export interface RunOptions {
   healthWaitMs?: number
   stableMs?: number
   idleWaitMs?: number
+  /** the nightly run inside the team's window (scheduledRun): wait for running answers until then and leave the update
+   * for a later run instead of interrupting them; without it a run waits idleWaitMs and goes on */
+  quietBy?: Date
+  /** the update was deferred for 3 days: wait idleWaitMs, then go on */
+  lastResort?: boolean
   /** release public keys (tests sign with their own) */
   keys?: readonly string[]
 }
@@ -401,7 +485,8 @@ export async function unpack(zip: string, version: string, home: string, d: Pick
   return dir
 }
 
-/** answers running on the server right now (status/status.json, written every 30 s); null = unknown */
+/** answers running on the server right now (status/status.json, written every 30 s); null = unknown (old or missing:
+ * the caller asks the server whether it is up, update audit O4: an unknown count used to mean "do not wait") */
 export function runningAnswers(home: string, now = Date.now()): number | null {
   const j = readJson(path.join(home, 'status', 'status.json')) as { writtenAt?: string; queue?: { running?: number } } | null
   if (!j?.writtenAt || now - Date.parse(j.writtenAt) > 120_000) return null
@@ -452,6 +537,8 @@ export async function deliverWindows(home: string, r: OfficeRelease, d: Pick<Upd
   const w = r.windows
   if (!w) return null
   const res = await offerWindows(path.join(officePaths(home).data, 'downloads'), path.join(updatePaths(home).download, 'windows'), w, d, o)
+  // update/download/ itself when nothing else waits there (O9: an empty folder was left after every update)
+  try { fs.rmdirSync(updatePaths(home).download) } catch {}
   if (res.kind === 'newer') { d.log(`Windows app ${res.version} is already offered (newer than ${w.version}); left as it is`); return null }
   if (res.kind === 'no-room') throw new UpdateFailure(res.message)
   if (res.kind === 'current') {
@@ -619,6 +706,7 @@ export async function runUpdate(home: string, o: RunOptions): Promise<RunResult>
     })
     if (dec.kind === 'older' || dec.kind === 'too-old') return finish({ kind: 'refused', version: r.version, message: dec.reason })
     if (dec.kind === 'current') {
+      if (o.reason !== 'check') patchUpdateState(home, (s) => { s.deferred = null })
       if (o.reason !== 'check') await deliverWindows(home, r, d).catch((e) => d.log(`Windows app not offered: ${(e as Error).message}`))
       return finish({ kind: 'up-to-date', version: current, message: null })
     }
@@ -660,12 +748,27 @@ async function install(home: string, current: string, r: OfficeRelease, d: Updat
     phase('precheck', `checking the new installer (${target})`, target)
     const chk = await d.exec(['/bin/bash', path.join(bundle, 'office-install.sh'), '--prefix', home, '--update', '--check-only'], { cwd: bundle, env: { ...toolEnv(home), TEAMAX_UPDATE_RUN: '1' }, capture: true, timeoutMs: 5 * 60_000 })
     if (chk.code !== 0) return fail(`the new installer's check failed: ${chk.out.split('\n').slice(-3).join(' ').slice(0, 600)}`)
-    // running answers finish first (an answer that is still running after 10 minutes is interrupted)
-    const idleEnd = d.now().getTime() + (o.idleWaitMs ?? IDLE_WAIT_MS)
-    for (let n = runningAnswers(home, d.now().getTime()); n && n > 0 && d.now().getTime() < idleEnd; n = runningAnswers(home, d.now().getTime())) {
-      phase('wait-idle', `waiting for ${n} running answer(s) to finish`, target)
-      await d.sleep(15_000)
+    // running answers finish first. The nightly run waits until quietBy and then leaves the update for a later run;
+    // "update now" (and the last resort) waits idleWaitMs, then an answer still running is interrupted. A count the
+    // server did not write lately (status.json older than 2 minutes) counts as running while the server answers.
+    const busy = async (): Promise<number | null> => {
+      const n = runningAnswers(home, d.now().getTime())
+      if (n !== null) return n
+      return (await d.health(s.appPort)) === null ? 0 : null
     }
+    const patient = o.reason === 'schedule' && !!o.quietBy && !o.lastResort
+    const idleEnd = patient ? o.quietBy!.getTime() : d.now().getTime() + (o.idleWaitMs ?? IDLE_WAIT_MS)
+    let n = await busy()
+    while (n !== 0 && d.now().getTime() < idleEnd) {
+      phase('wait-idle', n === null ? 'waiting: the server has not said lately whether answers are running' : `waiting for ${n} running answer(s) to finish`, target)
+      await d.sleep(15_000)
+      n = await busy()
+    }
+    if (n !== 0 && patient) {
+      const since = patchUpdateState(home, (x) => { x.deferred = { version: target, since: x.deferred?.since ?? d.now().toISOString() } }).deferred!.since
+      return { kind: 'skipped', version: target, message: `${n === null ? 'answers may be running' : `${n} answer(s) still running`} when the update window's wait ended (${o.quietBy!.toISOString()}); ${target} waits for a quiet moment in the update window (deferred since ${since})` }
+    }
+    if (n !== 0) d.log(`${n === null ? 'answers may still be running' : `${n} answer(s) still running`}: installing anyway${o.lastResort ? ' (deferred for 3 days)' : ''}`)
     phase('backup', 'backing up the database (pre-update)', target)
     const app = path.join(home, 'app')
     const bk = await d.exec([path.join(app, 'bin', 'bun'), path.join(app, 'server', 'src', 'admin.js'), 'backup', '--scope', 'db', '--kind', 'pre-update'], { cwd: home, env: toolEnv(home), capture: true, timeoutMs: 15 * 60_000 })
@@ -697,6 +800,7 @@ async function install(home: string, current: string, r: OfficeRelease, d: Updat
   patchUpdateState(home, (x) => {
     x.lastUpdate = { from: current, to: target, at: d.now().toISOString(), result: 'updated', error: null }
     x.available = null
+    x.deferred = null
     delete x.failed[target]
   })
   // tidy: the unpacked bundle, the zip, an older failed app folder
