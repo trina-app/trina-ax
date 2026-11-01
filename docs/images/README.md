@@ -19,7 +19,7 @@ Captured 2026-10-30 (Asia/Jakarta) from the local `docs/team-first` worktree bas
 
 The audit's live meeting-summary chat and HR-vs-sales answer pair need a permitted test-provider connection. This set substitutes clearly labeled marketing/finance file-access evidence, not fabricated answers. Live AI result and populated-usage captures remain pending.
 
-`github-social-preview.png` is a separate 1280×640 original typographic card, rendered in Playwright from text and simple shapes. It is not an application screenshot and has not been uploaded to GitHub. The older `demo-workspace.png` is retained as an existing historical capture; it is not used in the new README.
+`github-social-preview.png` is the repository's 1280×640 social preview card (2026-11-01), rendered in Playwright from text, the logo and `readme/after-trina-deck.png` (a real output, fictional company; labeled in the card). The older `demo-workspace.png` is retained as an existing historical capture; it is not used in the new README.
 
 ## README hero and comparison images (`readme/`, 2026-10-31)
 
