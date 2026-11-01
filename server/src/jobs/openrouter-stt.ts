@@ -21,14 +21,18 @@ const DIRECT = new Set(['wav', 'mp3', 'flac', 'ogg', 'm4a', 'aac'])
 /** audio larger than this (after conversion) is refused before it is sent */
 export const OPENROUTER_MAX_BYTES = 25 * 1024 * 1024
 export const OPENROUTER_TIMEOUT_MS = 60_000
-/** The providers OpenRouter may send the sound to: DeepInfra (US; $0.012 an hour of sound, zero data retention, no
- * training; plans stt-hosted-2026-11-01). OpenRouter's transcription endpoint does not apply `only` /
- * `allow_fallbacks` yet (its STT guide; measured: a provider that does not exist was answered by DeepInfra, and 9 of
- * 54 parallel requests went to Groq), so the key's own provider guardrail is what pins it today; the request asks
- * for it anyway, and is pinned the day the endpoint honours it. */
-export const OPENROUTER_STT_PROVIDERS: readonly string[] = ['deepinfra']
-/** the request's `provider` object */
-export const openRouterRouting = () => ({ zdr: true, data_collection: 'deny', only: [...OPENROUTER_STT_PROVIDERS], allow_fallbacks: false })
+/** The providers OpenRouter may send the sound to, in the order it should try them: DeepInfra (US; $0.012 an hour of
+ * sound, zero data retention, no training; plans stt-hosted-2026-11-01), then Groq when DeepInfra is down (the
+ * founder; the hosted key's guardrail allows these two). OpenRouter's transcription endpoint does not apply `order` /
+ * `only` / `allow_fallbacks` yet (its STT guide; measured: a provider that does not exist was answered by DeepInfra,
+ * and 9 of 54 parallel requests went to Groq), so the key's own provider guardrail is what limits it today; the
+ * request asks for it anyway, and is routed so the day the endpoint honours it. */
+export const OPENROUTER_STT_PROVIDERS: readonly string[] = ['deepinfra', 'groq']
+/** the request's `provider` object: the listed providers in their order, the next one when one is down (fallbacks on),
+ * and none outside the list (`only`) */
+export const openRouterRouting = () => ({
+  zdr: true, data_collection: 'deny', order: [...OPENROUTER_STT_PROVIDERS], only: [...OPENROUTER_STT_PROVIDERS], allow_fallbacks: true,
+})
 
 export const SPEECH_OFF = () => fail(
   '음성 입력이 꺼져 있어요. 관리자가 관리 › 팀 설정에서 켤 수 있어요.',

@@ -421,7 +421,7 @@ describe('who transcribes, and when sound may leave the server', () => {
     expect(getTeamSettings(A.ctx.db).aiMediaTranscripts).toBe(true)
     updateTeamSettings(A.ctx.db, { speechModel: 'openai/whisper-large-v3-turbo' })
   })
-  test('OpenRouter switched on: one request per 10-minute piece, FLAC, zero data retention, DeepInfra only, the team model; cached after', async () => {
+  test('OpenRouter switched on: one request per 10-minute piece, FLAC, zero data retention, DeepInfra then Groq, the team model; cached after', async () => {
     updateTeamSettings(A.ctx.db, { speechProvider: 'openrouter', aiMediaTranscripts: true })
     setKey(KEY)
     const rel = put('or.mp4')
@@ -430,7 +430,7 @@ describe('who transcribes, and when sound may leave the server', () => {
     expect(packed).toBe(1)
     expect(hits[0].model).toBe('openai/whisper-large-v3-turbo')
     expect(hits[0].input_audio.format).toBe('flac')
-    expect(hits[0].provider).toEqual({ zdr: true, data_collection: 'deny', only: ['deepinfra'], allow_fallbacks: false })
+    expect(hits[0].provider).toEqual({ zdr: true, data_collection: 'deny', order: ['deepinfra', 'groq'], only: ['deepinfra', 'groq'], allow_fallbacks: true })
     expect('language' in hits[0]).toBe(false)
     // the answer's "english" as whisper's code
     expect(a.out.text).toContain('(OpenRouter, openai/whisper-large-v3-turbo; language: en)')

@@ -1927,7 +1927,7 @@ voice input is optional and uses OpenRouter's speech-to-text API with a key that
   (`jobs/openrouter-stt.ts`): ffmpeg (isolated) converts to 16 kHz mono WAV, then FLAC with quiet sound raised (since
   feat/stt-openrouter-tune, below); without ffmpeg only
   wav/mp3/flac/ogg/m4a/aac go as they are. Audio over 25 MB is refused before it is sent. Then one POST with base64
-  audio, `response_format: verbose_json`, `provider: {zdr: true, data_collection: deny}` (now also DeepInfra only), a 60 s timeout plus the job's
+  audio, `response_format: verbose_json`, `provider: {zdr: true, data_collection: deny}` (now also DeepInfra, then Groq), a 60 s timeout plus the job's
   abort signal, and no redirects. 401/403, 402, 429 and 5xx/network errors give localized failures (bad key, no
   credits, rate limited, provider down) that never hold the key. Without `segments`, one segment holds the whole text.
 - **Client.** `Me.team.voiceInput` is true for `local`, and for `openrouter` with a key. When it is false, the composer
@@ -4585,8 +4585,11 @@ path with the real ffmpeg and OpenRouter, and the rule was also applied to every
   first build sent the first piece's MP3 again for the second; each piece's file now has its own name.
 - **No tags.** ffmpeg copies a file's title and comment into the WAV's LIST chunk by default, and that WAV went to
   OpenRouter. The piece's WAV and voice input's WAV are made with `-map_metadata -1 -fflags +bitexact`.
-- **Routing.** The request asks for `provider: {zdr: true, data_collection: deny, only: [deepinfra], allow_fallbacks:
-  false}` (`OPENROUTER_STT_PROVIDERS`, one constant). OpenRouter's transcription endpoint ignores `only` today (a
+- **Routing.** The request asks for `provider: {zdr: true, data_collection: deny, order: [deepinfra, groq], only:
+  [deepinfra, groq], allow_fallbacks: true}` (`OPENROUTER_STT_PROVIDERS`, one constant): DeepInfra first, Groq when
+  DeepInfra is down (the founder: a fallback, and the hosted key's guardrail allows these two), never a provider outside
+  the list. It first asked for DeepInfra alone with fallbacks off, which would have left no fallback while DeepInfra is
+  down once OpenRouter applies the field. OpenRouter's transcription endpoint ignores `only` today (a
   provider that does not exist was answered by DeepInfra; Groq still served 9 of the 87 requests of this test, 5 of
   the 41 the read path sent one at a time, and its retry of the QA meeting wrote invented Korean over two minutes of
   English),

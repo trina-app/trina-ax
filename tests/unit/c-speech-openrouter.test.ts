@@ -1,5 +1,5 @@
 // Voice input through OpenRouter (docs/DECISIONS.md "Voice input through OpenRouter"): the transcription job picks the
-// team's speech provider; 'openrouter' sends the audio (base64 JSON, zero data retention requested, DeepInfra only) to
+// team's speech provider; 'openrouter' sends the audio (base64 JSON, zero data retention requested, DeepInfra then Groq) to
 // a fake OpenRouter here (never the real one) and maps its answers and failures. No ffmpeg in most of these tests: wav
 // goes as is. The answers of the long-recording language check are shaped like OpenRouter's recorded ones (plans
 // stt-hosted-2026-11-01 results/: verbose_json segments with avg_logprob).
@@ -95,14 +95,16 @@ describe('OpenRouter transcription', () => {
     expect(Buffer.from(h.body.input_audio.data, 'base64').equals(Buffer.from(bytes))).toBe(true)
     expect(h.body.language).toBe('ko')
     expect(h.body.response_format).toBe('verbose_json')
-    expect(h.body.provider).toEqual({ zdr: true, data_collection: 'deny', only: ['deepinfra'], allow_fallbacks: false })
+    expect(h.body.provider).toEqual({ zdr: true, data_collection: 'deny', order: ['deepinfra', 'groq'], only: ['deepinfra', 'groq'], allow_fallbacks: true })
   })
-  test('the providers the request asks for are one constant (DeepInfra only, no fallbacks)', () => {
-    expect(OPENROUTER_STT_PROVIDERS).toEqual(['deepinfra'])
-    expect(openRouterRouting()).toEqual({ zdr: true, data_collection: 'deny', only: ['deepinfra'], allow_fallbacks: false })
+  test('the providers the request asks for are one constant (DeepInfra first, Groq when it is down, no other)', () => {
+    expect(OPENROUTER_STT_PROVIDERS).toEqual(['deepinfra', 'groq'])
+    expect(openRouterRouting()).toEqual({ zdr: true, data_collection: 'deny', order: ['deepinfra', 'groq'], only: ['deepinfra', 'groq'], allow_fallbacks: true })
     // a fresh copy each time: nobody can change the next request's list through it
-    openRouterRouting().only.push('groq')
-    expect(openRouterRouting().only).toEqual(['deepinfra'])
+    openRouterRouting().only.push('openai')
+    openRouterRouting().order.push('openai')
+    expect(openRouterRouting().only).toEqual(['deepinfra', 'groq'])
+    expect(openRouterRouting().order).toEqual(['deepinfra', 'groq'])
   })
   test('the answer\'s language as whisper\'s code: Groq\'s "Korean" / "English" are ko / en', async () => {
     expect(['Korean', 'English', 'japanese', ' Chinese ', 'ko', 'EN', 'haw', 'Cantonese', 'Mandarin'].map(languageCode)).toEqual(['ko', 'en', 'ja', 'zh', 'ko', 'en', 'haw', 'yue', 'zh'])
