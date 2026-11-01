@@ -146,12 +146,14 @@ export interface TurnTool {
 
 /**
  * Tools made for one person at the start of each turn (external-service connections: integrations/connections/
- * tools.ts), from saved data only (no network). `prompt`: a short section for the AI's instructions about them.
+ * tools.ts), from saved data only (no network). `prompt`: a short section for the AI's instructions about them;
+ * `context`: what a resumed session gets of it with every message instead (default: `prompt`), when the full section is
+ * too long to repeat each turn (a resumed session keeps its first instructions).
  * Register in init(): (ctx.services.turnToolProviders ??= []).push(provider)
  */
 export interface TurnToolProvider {
   name: string
-  build(t: { userId: string; chatId: string; turnId: string; browser: boolean; scheduled: boolean }): { tools: TurnTool[]; prompt?: string | null }
+  build(t: { userId: string; chatId: string; turnId: string; browser: boolean; scheduled: boolean }): { tools: TurnTool[]; prompt?: string | null; context?: string | null }
 }
 
 export interface JobHandle {

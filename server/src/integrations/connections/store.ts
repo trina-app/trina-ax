@@ -16,7 +16,8 @@ export interface Row {
   kind: 'mcp' | 'http'; name: string; slug: string; url: string; auth: 'none' | 'bearer' | 'header' | 'oauth'; auth_header: string | null
   secret_enc: string | null; key_version: number; account: string | null; notes: string | null; write_policy: 'ask' | 'allow' | 'deny'
   status: 'connected' | 'needs_auth' | 'error'; last_error: string | null; tools_json: string; tools_updated_at: string | null
-  /** how many tools the server offers when that is more than tools_json keeps (MAX_TOOLS); null otherwise */
+  /** how many tools the server offers when that is more than tools_json keeps (the hard ceiling, mcp.ts MAX_TOOLS);
+   * null otherwise */
   tools_total?: number | null
   last_used_at: string | null; version: number; created_at: string; updated_at: string
   /** JSON list of the service's tool names turned off (migration 328); every other tool is on */
@@ -86,7 +87,8 @@ export function savedTools(row: Row): RemoteTool[] {
   try { const v = JSON.parse(row.tools_json); return Array.isArray(v) ? v : [] } catch { return [] }
 }
 
-/** How many tools the connection's server offers when the server keeps fewer of them (mcp.ts MAX_TOOLS), else null. */
+/** How many tools the connection's server offers when the server keeps fewer of them (over the hard ceiling, mcp.ts
+ * MAX_TOOLS / MAX_SCHEMAS_CHARS), else null. */
 export function toolsOffered(row: Row): number | null {
   const n = row.tools_total, kept = savedTools(row).length
   // none kept: a moved connection not checked again yet (its old count says nothing)
@@ -95,8 +97,9 @@ export function toolsOffered(row: Row): number | null {
 
 const toolsTotalOf = (row: Row): { toolsTotal?: number } => { const n = toolsOffered(row); return n === null ? {} : { toolsTotal: n } }
 
-/** at most this many names are kept turned off per connection (the service lists at most MAX_TOOLS at a time) */
-export const MAX_DISABLED_TOOLS = 500
+/** at most this many names are kept turned off per connection (twice the MAX_TOOLS a connection keeps, so every tool
+ * can be off with room for names of tools the service no longer lists) */
+export const MAX_DISABLED_TOOLS = 2000
 /** The service's tool names turned off for this connection. A bad value turns nothing off (the column is ours alone). */
 export function disabledTools(row: Pick<Row, 'disabled_tools'>): Set<string> {
   try { const v = JSON.parse(row.disabled_tools ?? '[]'); return new Set(Array.isArray(v) ? v.filter((x): x is string => typeof x === 'string') : []) } catch { return new Set() }

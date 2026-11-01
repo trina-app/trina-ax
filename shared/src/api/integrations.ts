@@ -29,6 +29,10 @@ export const IntegrationAccess = z.object({
 })
 export type IntegrationAccess = z.infer<typeof IntegrationAccess>
 
+/** the most tools the team server keeps of one MCP connection (every tool its service lists, up to this; a turn offers
+ * the ones that do not fit an answer through find_tools / call_tool) */
+export const INTEGRATION_TOOLS_MAX = 1000
+
 /** one tool an MCP server offers (from tools/list, saved when the connection is checked) */
 export const IntegrationTool = z.object({
   name: z.string(),
@@ -70,8 +74,9 @@ export const Integration = z.object({
   /** why the last check failed, in words a person can act on (never a secret or a raw server body) */
   lastError: z.string().nullable(),
   tools: z.array(IntegrationTool),
-  /** how many tools the service offers when that is more than the AI can use of it (the first 100: `tools`); absent
-   * when `tools` is all of them */
+  /** how many tools the service offers when that is more than `tools` holds: over INTEGRATION_TOOLS_MAX, or a list
+   * an older server saved (it kept 100 at most; checking the connection again saves them all); absent when `tools` is
+   * all of them */
   toolsTotal: z.number().int().nonnegative().optional(),
   toolsUpdatedAt: IsoTime.nullable(),
   /** team connections only (null for personal ones, and for people who may use but not manage it) */

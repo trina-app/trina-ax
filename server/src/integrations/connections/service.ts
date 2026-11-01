@@ -401,7 +401,8 @@ export class Integrations {
       if (row.kind === 'mcp') {
         // the list has the connection's secrets hidden (mcp.ts toolOf): the AI and the people who use it read it
         const { tools, more, total } = await this.withMcp(row, (c) => c.listTools(signal))
-        // more than the server keeps: the total is saved so Settings and the AI's instructions can say "100 of 150"
+        // more than the server keeps (its hard ceiling): the total is saved so Settings and the AI's instructions can
+        // say "1,000 of 1,200"
         this.setStatus(row, 'connected', null, { tools: JSON.stringify(tools), total: more ? Math.max(total, tools.length) : null })
       } else {
         const res = await this.send(row, row.url, { method: 'GET', headers: [['Accept', 'application/json, text/plain;q=0.9, */*;q=0.5']], signal })

@@ -106,13 +106,14 @@ describe('tools made per person', () => {
     }
   })
 
-  test('limits: at most 100 tools per connection are kept', async () => {
+  test('limits: every tool the service lists is kept (up to the hard ceiling, c-integration-deferred-tools.test.ts)', async () => {
     const saved = fake.tools
     fake.tools = Array.from({ length: 130 }, (_, i) => ({ name: `t${i}`, description: '', inputSchema: { type: 'object' } }))
     fake.pageSize = 50
     try {
       const r = await post('alice', `/api/integrations/${tasks.id}/refresh`, {})
-      expect(r.body.tools).toHaveLength(100)
+      expect(r.body.tools).toHaveLength(130)
+      expect(r.body.toolsTotal).toBeUndefined()
     } finally {
       fake.tools = saved; fake.pageSize = 2
       await post('alice', `/api/integrations/${tasks.id}/refresh`, {})

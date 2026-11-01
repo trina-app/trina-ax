@@ -53,6 +53,8 @@ export const B_TOOL_DESCRIPTIONS = {
 export interface ChatToolSet extends TurnToolSet {
   /** sections for the AI's instructions from per-person tools (connected services) */
   prompt: string[]
+  /** the same for a resumed session's turn context (shorter where a provider says so) */
+  context: string[]
   /** the step label a per-person tool gives its call, or null for the shared labels */
   stepLabel(name: string, input: unknown, locale: Locale): string | null
 }
@@ -91,6 +93,7 @@ export function buildToolSet(exec: TurnExec): ChatToolSet {
   if (exec.browser) for (const t of PANE_TOOLS) add(browserTool(exec, t.name as BrowserToolName, t.description, t.inputSchema as unknown as Record<string, unknown>))
   // per-person tools (external-service connections), built from saved data at the start of the turn
   const prompt: string[] = []
+  const context: string[] = []
   const labels = new Map<string, (args: unknown, locale: Locale) => string>()
   for (const p of confidential ? [] : exec.rt.ctx.services.turnToolProviders ?? []) {
     let built: ReturnType<typeof p.build>
@@ -98,9 +101,12 @@ export function buildToolSet(exec: TurnExec): ChatToolSet {
     catch (e) { exec.rt.log.warn('turn tool provider failed', { provider: p.name, err: e }); continue }
     for (const t of built.tools) if (add(wrapRegistered(exec, t)) && t.label) labels.set(t.name, t.label.bind(t))
     if (built.prompt) prompt.push(built.prompt)
+    const ctxText = built.context === undefined ? built.prompt : built.context
+    if (ctxText) context.push(ctxText)
   }
   return {
     prompt,
+    context,
     stepLabel(name, input, locale) { try { return labels.get(name)?.(input, locale) ?? null } catch { return null } },
     list: () => [...tools.values()].map(({ name, description, inputSchema }) => ({ name, description, inputSchema })),
     has: (n) => tools.has(n),

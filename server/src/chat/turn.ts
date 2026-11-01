@@ -377,7 +377,7 @@ export class TurnExec {
       if (!resumed) return message
       const before = listedFor(rt.db, spec.chatId, sessionId, spec.userId)
       const changes = skillChangesText(before === 'stale' ? 'stale' : skillChanges(before, skills), neutralizeTags)
-      return `${buildTurnContext(rt.files, { ...promptInput(false), skillChanges: changes })}\n\n${message}`
+      return `${buildTurnContext(rt.files, { ...promptInput(false), connected: toolSet.context.join('\n\n') || null, skillChanges: changes })}\n\n${message}`
     }
     // the API engine always answers with the owner's one model: the turn records it (usage by model), never empty
     const { turn, token } = core.turns.create(spec.userId, spec.chatId, spec.engine, api ? api.model : spec.model, spec.turnId)

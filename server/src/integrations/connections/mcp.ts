@@ -3,6 +3,7 @@
 // initialize -> notifications/initialized -> tools/list (cursor pages) -> tools/call. The server's words that are cut
 // here (an error message, tool descriptions) have the connection's secrets hidden first (hide.ts).
 import crypto from 'node:crypto'
+import { INTEGRATION_TOOLS_MAX } from '@mycel/shared/api'
 import { hideDeep } from './hide'
 import { NetError, serviceRequest, type NetOptions } from './net'
 
@@ -12,15 +13,19 @@ export const MCP_PROTOCOL = '2025-06-18'
  * MAX_RESULT_CHARS of text (tools.ts), the bytes go to the chat's media store. */
 export const MCP_CALL_MAX_BYTES = 25 * 1024 * 1024
 /** the most one tools/list page may be. A big service sends its whole catalog in one page (Higgsfield: 186 tools,
- * about 1.07 MB in 2026-11), over net.ts's 1 MiB; what is kept is still capped below (MAX_TOOLS, MAX_SCHEMAS_CHARS). */
+ * about 1.07 MB in 2026-11), over net.ts's 1 MiB; what is kept is capped below (MAX_TOOLS, MAX_SCHEMAS_CHARS). */
 export const MCP_LIST_MAX_BYTES = 8 * 1024 * 1024
 const KNOWN_VERSIONS = new Set(['2024-11-05', '2025-03-26', '2025-06-18', '2025-11-25'])
-/** tools kept per connection, pages read, input schema size */
-export const MAX_TOOLS = 100
-const MAX_PAGES = 20
+/** tools kept per connection: every tool a service lists, up to this hard ceiling (docs/DECISIONS.md "Connection
+ * tools: deferred, found and called"). A turn offers what fits its budget as tools and the rest through find_tools /
+ * call_tool (tools.ts), so a big catalog no longer goes to the engine whole with every turn. */
+export const MAX_TOOLS = INTEGRATION_TOOLS_MAX
+const MAX_PAGES = 100
+/** one tool's input schema */
 const MAX_SCHEMA_CHARS = 32_000
-/** all kept input schemas of one connection together (they all go to the engine with every turn) */
-const MAX_SCHEMAS_CHARS = 256_000
+/** all kept input schemas and descriptions of one connection together (what tools_json holds; Higgsfield's is about
+ * 1.07 million characters) */
+export const MAX_SCHEMAS_CHARS = 4_000_000
 const MAX_DESCRIPTION = 1000
 
 export class McpError extends Error {
@@ -112,9 +117,9 @@ export class McpClient {
     return this.ready
   }
 
-  /** every page of tools/list; tools without a usable input schema are left out; at most MAX_TOOLS kept. `total`: how
-   * many usable tools the server listed in the pages read (counted on past the cap, so people and the AI can be told
-   * "100 of 150"); `more`: some were not kept, or pages were left unread */
+  /** every page of tools/list; tools without a usable input schema are left out; at most MAX_TOOLS (and
+   * MAX_SCHEMAS_CHARS) kept. `total`: how many usable tools the server listed in the pages read (counted on past the
+   * ceiling, so people and the AI can be told "1,000 of 1,200"); `more`: some were not kept, or pages were left unread */
   async listTools(signal?: AbortSignal): Promise<{ tools: RemoteTool[]; more: boolean; total: number }> {
     await this.start(signal)
     const tools: RemoteTool[] = []
