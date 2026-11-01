@@ -8,7 +8,9 @@
 --   session_id: the Claude session those instructions started (a resumed session is told what changed since); NULL for
 --     engines that start fresh every turn
 -- Only the chat's own person's skills (the team skills they can read, their own personal skills). Additive only.
-CREATE TABLE chat_skill_lists (
+-- IF NOT EXISTS: pre-release builds of this change numbered it 326 (outside the B range); a test server that ran one has
+-- the table already.
+CREATE TABLE IF NOT EXISTS chat_skill_lists (
   chat_id TEXT PRIMARY KEY REFERENCES chats(id) ON DELETE CASCADE,
   user_id TEXT NOT NULL,
   ranked TEXT NOT NULL,

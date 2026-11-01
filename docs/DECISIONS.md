@@ -4493,7 +4493,7 @@ Claude Code's skill listing now (read from Claude Code 2.1.312; the repo pins 2.
    go first to the person's own skills, then by usage (each use counts 0.5^(days/7); other people's uses of a skill
    the person can read count a quarter, a tie-break for new members), then by name. When even the names do not fit,
    the most important ones stay and the last line says how many more there are. The budget is not a team setting.
-2. **The order is fixed for a chat** (`chat_skill_lists.ranked`, migration 326): computed at its first turn, so the
+2. **The order is fixed for a chat** (`chat_skill_lists.ranked`, migration 217): computed at its first turn, so the
    instructions stay the same from turn to turn and the engines' prompt cache holds (Codex and the API engine build
    them every turn). A skill added later comes after the fixed ones.
 3. **Two tools, for all three engines and the sub-agents** (general-purpose and Explore): `skill(name)` loads the
