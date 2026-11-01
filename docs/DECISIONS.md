@@ -962,7 +962,7 @@ owner가 LinkedIn 글쓰기 화면에서 시험하다가 페이지 위에 노란
 - **AI 도구 `search`**(`server/src/tools/search.ts`): 정확한 낱말·파일 이름을 모를 때 뜻으로 찾는다. 결과는 그 사람이 읽을 수 있는 파일의 구절과 경로(grep과 같은 `visiblePath`), 읽은 범위(readPaths)에 더해진다. 정확한 낱말은 계속 grep.
 - **모델**: `Xenova/multilingual-e5-small`(q8, 약 120 MB, 한국어·영어), 서버 안에서 transformers.js + onnxruntime으로 돈다. 문서 내용은 서버 밖으로 나가지 않는다. 처음 쓸 때 `<data>/models`에 **고정 리비전**(`761b726d…`)의 파일 4개를 내려받고 SHA-256을 확인한 뒤에만 불러온다(라이브러리의 자체 다운로드는 끔). 못 받으면 10분 뒤 다시.
 - **색인**: `<data>/semantic.db`(app.db와 따로). 일반 글 파일과 grep 글자 캐시의 문서(office·PDF·한글, OCR 포함)를 약 800자 조각으로, 파일 mtime·크기로 새 것만 다시. 점 폴더(.system: 휴지통·기록·백업)는 넣지 않는다. 질의 직전 3초, 그 밖에는 5분마다 뒤에서(최대 1분) 따라잡는다. 질의는 메모리에 올린 벡터를 전부 비교(작은 팀 기준).
-- **끄기·없는 곳**: `MYCEL_SEMANTIC=off`. onnxruntime-node는 macOS arm64만 있어 인텔 맥은 모델을 못 불러 도구가 "쓸 수 없음"을 말하고 grep만 쓴다.
+- **끄기·없는 곳**: `MYCEL_SEMANTIC=off`(2026-11-01부터 기본 꺼짐, 켜려면 `on`: 맨 아래 "Search by meaning off by default"). onnxruntime-node는 macOS arm64만 있어 인텔 맥은 모델을 못 불러 도구가 "쓸 수 없음"을 말하고 grep만 쓴다.
 - **번들**: 서버 빌드에서 `@huggingface/transformers`는 external(Bun.build가 네이티브 모듈 경로를 이 저장소 절대 경로로 박았다), `scripts/vendor-semantic.ts`가 서버 옆 `node_modules`에 darwin-arm64만 남겨 복사(약 76 MB, onnxruntime-web 제외). 사무실 모드 zip +25 MB. 사무실 모드 갱신 설치에서 Claude로 끝까지 확인.
 
 
@@ -4454,3 +4454,28 @@ the words and reads both; Trina has no shell, so `read` does it on the server. P
   a real iPhone HEVC file on a 4 GB / 2 vCPU box (memory, the 90 s frame budget); a 1-hour meeting recording in two
   reads; an mp3 with cover art; a confidential chat with OpenRouter (no request); one real OpenRouter call to see
   whether `segments` (timestamps) come back for `openai/whisper-large-v3-turbo`.
+
+## Search by meaning off by default (feat/semantic-default-off, 2026-11-01)
+
+CEO decision: the `search` tool is off unless `MYCEL_SEMANTIC=on` (before: on unless `off`). Trina is built for team
+folders, and a team folder has many files; there the tool did more harm than good.
+
+- **Measured** (Apple M1 Pro, main `91cc66c9`, the real `SemanticIndex` and `localEmbedder`, no thread limit). 28
+  questions worded without the documents' words (document "자녀 돌잔치 10만 원", question "아이 첫 생일 축하금 줘?").
+  - 35 files of a made-up 12-person office: the right file among the 8 passages the AI gets for 26/28, first for 19/28.
+  - The same 35 plus about 2,900 internal planning text files (16,292 chunks): among the 8 for 16/28, first for 11/28.
+    Scores bunch at 0.83–0.88, so review reports and test expense CSVs came ahead of the right document.
+  - Indexing 26 chunks/s on about 3.6 cores (10 min 24 s for the 16,292 chunks; with the background schedule, 1 minute
+    every 5, about 55 minutes on that Mac, slower on a 2-core Linux server). Peak memory about 1.9 GB (390 MB on the
+    small folder; the 150–300 MB above is the model alone). Whether that is ONNX's arena growing to the largest batch
+    or a leak was not checked.
+  - Query 7–13 ms. A Korean question did not find an English contract. CP949 CSVs (Korean Excel's default) are
+    indexed as mojibake: `SemanticIndex.textOf` decodes plain text as UTF-8 only, while grep reads CP949.
+  - ripgrep on the large folder: 0.1–0.5 s, and it found two of the misses directly (`위약|late delivery`, the agency name).
+- **Off means**: the tool is not registered, so the prompts do not mention it (`chat/prompt.ts` checks the tool list),
+  nothing is indexed in the background and the model is neither downloaded nor loaded. An existing `<data>/semantic.db`
+  and `<data>/models/Xenova/multilingual-e5-small` stay on disk and are used again with `on`; nothing deletes them.
+  Bundles still carry the runtime (`scripts/vendor-semantic.ts`), so `on` needs no other build.
+- **Before turning it on by default again**: CP949 like grep, the file name and heading in each chunk, a keyword
+  score mixed in, and memory while indexing; then the same test on a folder of thousands of files.
+- Tests: the tool lists in `c-tools` and `i-wiring` have no `search`; `g-semantic-lazy`: only `on` turns it on.

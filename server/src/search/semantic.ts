@@ -3,7 +3,7 @@
 // English, ~120 MB, downloaded once into <data>/models, then offline), kept in <data>/semantic.db. A query returns
 // the closest chunks of the files the person may read (the same visibility check as grep), for the AI's search tool.
 // No document text leaves the server. Off on machines where the model runtime can't load (Intel Macs: onnxruntime
-// ships darwin-arm64 only) or with MYCEL_SEMANTIC=off; the AI then has grep only, as before.
+// ships darwin-arm64 only) and unless MYCEL_SEMANTIC=on (tools/search.ts); the AI then has grep only, as before.
 import { Database } from 'bun:sqlite'
 import { SearchAdmission } from '../files/search-admission'
 import type { Quarantine } from '../safe-ops/quarantine'

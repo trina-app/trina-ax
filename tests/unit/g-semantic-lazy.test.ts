@@ -6,7 +6,7 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { localEmbedder, modelFilesOk, SemanticIndex, SEMANTIC_MODEL, type Embed } from '../../server/src/search/semantic'
-import { firstRefreshMs } from '../../server/src/tools/search'
+import { firstRefreshMs, semanticEnabled } from '../../server/src/tools/search'
 import { setLimitsPlatformForTests, setPlanForTests } from '../../server/src/system/limits'
 
 const fakeEmbed: Embed = async (texts) => texts.map(() => new Float32Array(384).fill(0.1))
@@ -113,5 +113,21 @@ describe('shared model folder and timing', () => {
     expect(firstRefreshMs('install-a')).toBe(a)
     setLimitsPlatformForTests(null)
     setPlanForTests(undefined)
+  })
+})
+
+describe('off by default (2026-11-01)', () => {
+  test('only MYCEL_SEMANTIC=on turns it on', () => {
+    const before = process.env.MYCEL_SEMANTIC
+    try {
+      delete process.env.MYCEL_SEMANTIC
+      expect(semanticEnabled()).toBe(false)
+      for (const v of ['off', '1', 'true', 'ON', '']) { process.env.MYCEL_SEMANTIC = v; expect(semanticEnabled()).toBe(false) }
+      process.env.MYCEL_SEMANTIC = 'on'
+      expect(semanticEnabled()).toBe(true)
+    } finally {
+      if (before === undefined) delete process.env.MYCEL_SEMANTIC
+      else process.env.MYCEL_SEMANTIC = before
+    }
   })
 })

@@ -1,7 +1,9 @@
 // The engine's "search" tool: team documents by meaning (server/src/search/semantic.ts), for questions whose words or
 // file names the AI doesn't know ("where did we decide the refund policy?"). Results are passages of files the person
-// can read (the same visibility check as grep); the AI reads the files it needs. Not registered when it is off
-// (MYCEL_SEMANTIC=off), and it says so when the model can't run here; grep stays the tool for exact words.
+// can read (the same visibility check as grep); the AI reads the files it needs. Off unless MYCEL_SEMANTIC=on (not
+// registered, no index, no model): on a folder of thousands of files it ranked unrelated passages first, used up to
+// ~1.9 GB while indexing and took most cores for minutes (docs/DECISIONS.md, 2026-11-01). When on, it says so when the
+// model can't run here; grep stays the tool for exact words.
 import { createHash } from 'node:crypto'
 import path from 'node:path'
 import { z } from 'zod'
@@ -31,7 +33,7 @@ export function firstRefreshMs(id: string): number {
 }
 
 export function semanticEnabled(): boolean {
-  return process.env.MYCEL_SEMANTIC !== 'off'
+  return process.env.MYCEL_SEMANTIC === 'on'
 }
 
 /** Registers the search tool and, outside tests, keeps the index up to date in the background. */
