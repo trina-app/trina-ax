@@ -4763,3 +4763,26 @@ fallback when DeepInfra is down. Test report: `plans/stt-hosted-2026-11-01/STT-D
   (both flavours read back from the clipboard, the table, the external image only as a link; the copy-command path
   with `clipboard.write` refused); `desktop/e2e/clipboard.spec.ts` (the team page writes both flavours to the
   computer's clipboard through each path in Electron; what was on the clipboard is put back).
+
+## Add and correct my memories (feat/small-batch-11-01, 2026-11-01)
+
+- **Like Claude's memory, in place.** Settings › Memory lists what the AI remembers; besides Forget and Forget
+  everything, "Add memory" opens a field at the top of the list and the pencil on a row turns that row into the same
+  field (`web/src/components/settings/MemoryForm.tsx`). Enter saves, Esc cancels (not while an IME is composing), the
+  count follows the folded text. One form at a time.
+- **The AI's limits, one check.** `server/src/chat/prompt.ts cleanMemoryText` folds runs of spaces and line breaks into
+  one space, trims, and refuses an empty text or one over `MEMORY_TEXT_MAX` (300, `shared/src/api/memories.ts`, also
+  `MEMORY_ITEM_MAX`). `remember` (chat/tools.ts) and the new routes use it; the body itself is at most 2,000 characters
+  like `RememberInput`. Refusals are `validation` with the words under the field (`body.text`) in the person's language.
+- **Routes** (`server/src/routes/memories.ts`): `POST /api/memories` (201, a new memory of the caller: `source 'user'`,
+  no chat, no turn) and `PATCH /api/memories/:id` (own only: anyone else's is `not_found`, unchanged). A correction
+  replaces the text and makes it the person's (`source 'user'`); its source chat stays. Memories keep no earlier
+  versions, the AI's or the person's (as before). `memory.changed` gains `updated`.
+- **Audit without the text.** Admins never see memories (tab 1), so the audit lines carry the id and the length only:
+  `memory.create`, `memory.update` (none when the folded text is unchanged), and now also `memory.delete` and
+  `memory.clear` (the count) for the person's own deletes. The AI's `remember` and `forget` stay in the tool log as
+  before (id only).
+- Tests: `tests/unit/b-api.test.ts` (folding, empty and over-300 refused like remember, the 2,000-character body cap,
+  correcting the AI's memory, another person's 404, audit lines without the text, no line for an unchanged text);
+  `tests/security` (`createMemory` self, `updateMemory` only alice's own); `web/test/e2e/app.spec.ts` (add with the
+  limit and the count, correct with Enter, Esc cancels, the first memory from the empty state).

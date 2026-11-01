@@ -68,6 +68,8 @@ export const TEXT = {
   attachMoved: STEP_TEXT.attachMoved,
   attachUnavailable: STEP_TEXT.attachUnavailable,
   subtask: STEP_TEXT.subtask,
+  memoryEmpty: t('기억할 내용을 적어 주세요.', 'Write what the AI should remember.', 'Tulis apa yang harus diingat AI.', "AIに覚えてほしい内容を入力してください。", "Escriba lo que la IA debe recordar."),
+  memoryTooLong: t('메모리는 한 줄에 {max}자까지 쓸 수 있어요(지금 {n}자). 줄여 주세요.', 'A memory can be one line of up to {max} characters (this is {n}). Make it shorter.', 'Memori bisa berupa satu baris hingga {max} karakter (ini {n}). Persingkat.', "メモリーは1行{max}文字までです（現在{n}文字）。短くしてください。", "Una memoria puede ser una línea de hasta {max} caracteres (esta tiene {n}). Acórtela."),
   rememberConfirm: t('AI가 다음 내용을 기억하려고 해요. 기억할까요?\n\n{text}', 'The AI wants to remember this about you. OK?\n\n{text}', 'AI ingin mengingat hal ini tentang Anda. Boleh?\n\n{text}', "AIが自分について次の内容を記憶しようとしています。よろしいですか？\n\n{text}", "La IA quiere recordar esto sobre usted. ¿Está de acuerdo?\n\n{text}"),
   yes: t('기억하기', 'Remember', 'Ingat', "記憶", "Recordar"),
   no: t('기억하지 않기', 'Don’t remember', 'Jangan ingat', "記憶しない", "No recordar"),

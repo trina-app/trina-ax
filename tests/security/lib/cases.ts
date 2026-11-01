@@ -147,6 +147,10 @@ export const SPECS: Record<string, Spec> = {
   listSchedulesAwaitingReview: { build: (c) => c.get('/api/admin/schedule-reviews'), scope: 'byLevel' },
   listMemories: { build: (c) => c.get('/api/memories'), scope: 'self',
     check: (r, w, who) => { if (who !== 'memberIn' && r.text.includes(C.aliceMemory)) throw new Error(`${who} sees alice's memory`) } },
+  // adding is each person's own (a new memory of the caller); correcting someone else's is never allowed
+  createMemory: { build: (c) => c.post('/api/memories', { text: 'matrix memory' }), scope: 'self' },
+  updateMemory: { build: (c, w) => c.patch(`/api/memories/${w.ids.memory}`, { text: 'pwned memory' }), scope: 'own-alice',
+    check: (r, w, who) => { if (who !== 'memberIn' && r.status < 300) throw new Error(`${who} changed alice's memory`) } },
   deleteMemory: { build: (c, w) => c.del(`/api/memories/${w.ids.memory}`), scope: 'own-alice',
     check: (r, w, who) => { if (who !== 'memberIn' && r.status < 300) throw new Error(`${who} deleted alice's memory`) } },
   clearMemories: { build: (c) => c.del('/api/memories'), scope: 'self' },

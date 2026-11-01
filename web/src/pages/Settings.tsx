@@ -6,7 +6,7 @@
 // connections are made by the owner in Admin > AI connections), and the external services the AI may use with the
 // member's own accounts (Integrations.tsx).
 import clsx from 'clsx'
-import { Brain, CalendarClock, Download, Laptop, Monitor, ShieldAlert, Smartphone, Trash2 } from 'lucide-react'
+import { Brain, CalendarClock, Download, Laptop, Monitor, Pencil, Plus, ShieldAlert, Smartphone, Trash2 } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
 import { Link, Navigate, NavLink, useParams } from 'react-router-dom'
 import type { EngineId, Memory, Schedule, ScheduleReviewCard, Session, Theme } from '@mycel/shared/api'
@@ -25,13 +25,14 @@ import { MyCredentials } from './admin/Credentials'
 import { BrowserSettings } from './BrowserSettings'
 import { settingsTabs } from './settingsTabs'
 import { browserSettingsBridge, storeApp } from '../lib/desktop'
-import { Badge, Button, EmptyState, ErrorNote, Field, PageHeader, Skeleton, confirmDialog, inputCls } from '../components/ui'
+import { Badge, Button, EmptyState, ErrorNote, Field, IconButton, PageHeader, Skeleton, confirmDialog, inputCls } from '../components/ui'
 import { SourceCodeLinks, useServerSource } from '../components/SourceCodeLink'
 import { DriveConnection } from '../components/settings/DriveConnection'
 import { ScheduleTemplates } from '../components/settings/ScheduleTemplates'
 import { Notifications } from '../components/settings/Notifications'
 import { InstallGuide } from '../components/settings/InstallGuide'
 import { ScheduleItem } from '../components/settings/ScheduleItem'
+import { MemoryForm } from '../components/settings/MemoryForm'
 import AskCard from '../components/chat/AskCard'
 import ConnectorConnections from './ConnectorConnections'
 import Integrations from './Integrations'
@@ -411,12 +412,15 @@ function Schedules() {
   )
 }
 
+/** What the AI remembers: newest first; add one, correct one in place (MemoryForm), forget one or all. */
 function Memories() {
   const t = useT()
   const locale = useLocale()
   const [items, setItems] = useState<Memory[] | null>(null)
   const [cursor, setCursor] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
+  // the one form open: 'new', or the id of the memory being corrected
+  const [editing, setEditing] = useState<string | null>(null)
   const load = async (more = false) => {
     try {
       const r = await api.call(API.listMemories, { query: { limit: 100, cursor: more ? cursor ?? undefined : undefined } })
@@ -450,18 +454,51 @@ function Memories() {
       toast({ level: 'error', text: errorText(e, locale, t('error.network')) })
     }
   }
+  // the server's words go under the field (MemoryForm shows what is thrown)
+  const saving = async (run: () => Promise<Memory>, done: (m: Memory) => void, said: string) => {
+    let m: Memory
+    try {
+      m = await run()
+    } catch (e) {
+      throw new Error(errorText(e, locale, t('error.network')))
+    }
+    done(m)
+    setEditing(null)
+    toast({ level: 'success', text: said })
+  }
+  const add = (text: string) => saving(() => api.call(API.createMemory, { body: { text } }), (m) => setItems((cur) => [m, ...(cur ?? []).filter((x) => x.id !== m.id)]), t('memory.added'))
+  const update = (id: string, text: string) => saving(() => api.call(API.updateMemory, { params: { id }, body: { text } }), (m) => setItems((cur) => cur?.map((x) => (x.id === m.id ? m : x)) ?? null), t('memory.updated'))
+  const addButton = (
+    <Button size="sm" onClick={() => setEditing('new')} disabled={editing === 'new'} data-testid="memory-add">
+      <Plus size={14} aria-hidden /> {t('memory.add')}
+    </Button>
+  )
   return (
     <Section title={t('settings.memory')} desc={t('memory.desc')}>
       {error && <ErrorNote onRetry={() => void load()}>{error}</ErrorNote>}
       {!items && !error && <Skeleton lines={3} />}
-      {items && !items.length && <EmptyState icon={<Brain size={26} />} title={t('memory.empty')} />}
-      {items && items.length > 0 && (
+      {items && (items.length > 0 || editing === 'new') && <div className="mb-3 flex justify-end">{addButton}</div>}
+      {items && !items.length && editing !== 'new' && (
+        <EmptyState icon={<Brain size={26} />} title={t('memory.empty')}>
+          <div className="mt-3">{addButton}</div>
+        </EmptyState>
+      )}
+      {items && (items.length > 0 || editing === 'new') && (
         <>
           <ul className="divide-y divide-line rounded-xl border border-line" data-testid="memory-list">
-            {items.map((m) => (
-              <li key={m.id} className="flex items-start gap-3 px-4 py-3 text-sm">
+            {editing === 'new' && (
+              <li className="px-4 py-3 text-sm" data-testid="memory-new">
+                <MemoryForm submitLabel={t('memory.add')} onSubmit={add} onCancel={() => setEditing(null)} testId="memory-form" />
+              </li>
+            )}
+            {items.map((m) => editing === m.id ? (
+              <li key={m.id} className="px-4 py-3 text-sm" data-testid="memory-item" data-editing="true">
+                <MemoryForm initial={m.text} submitLabel={t('common.save')} onSubmit={(text) => update(m.id, text)} onCancel={() => setEditing(null)} testId="memory-form" />
+              </li>
+            ) : (
+              <li key={m.id} className="group flex items-start gap-2 px-4 py-3 text-sm" data-testid="memory-item">
                 <span className="min-w-0 flex-1">
-                  <span className="block whitespace-pre-wrap">{m.text}</span>
+                  <span className="block break-words whitespace-pre-wrap" data-testid="memory-text">{m.text}</span>
                   <span className="mt-0.5 block text-xs text-faint">
                     {formatDateTime(m.createdAt, locale)}
                     {m.sourceChatId && (
@@ -474,9 +511,12 @@ function Memories() {
                     )}
                   </span>
                 </span>
-                <button type="button" aria-label={t('memory.forget')} title={t('memory.forget')} className="rounded p-1 text-faint hover:bg-hover hover:text-danger" onClick={() => remove(m)}>
+                <IconButton label={t('memory.editLabel')} onClick={() => setEditing(m.id)} data-testid="memory-edit">
+                  <Pencil size={15} />
+                </IconButton>
+                <IconButton label={t('memory.forget')} danger onClick={() => void remove(m)} data-testid="memory-forget">
                   <Trash2 size={15} />
-                </button>
+                </IconButton>
               </li>
             ))}
           </ul>
@@ -486,9 +526,11 @@ function Memories() {
                 {t('common.loadMore')}
               </Button>
             )}
-            <Button size="sm" variant="danger" onClick={clear}>
-              {t('memory.clear')}
-            </Button>
+            {items.length > 0 && (
+              <Button size="sm" variant="danger" onClick={clear}>
+                {t('memory.clear')}
+              </Button>
+            )}
           </div>
         </>
       )}

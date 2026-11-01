@@ -5,7 +5,7 @@
 //  + <previous_conversation> when a new engine session starts (tab 3 "이어가기 실패·엔진 교체").
 import fs from 'node:fs'
 import { PRODUCT, TEAM_TOOL_PREFIX } from '@mycel/shared'
-import type { Locale } from '@mycel/shared/api'
+import { MEMORY_TEXT_MAX, type Locale } from '@mycel/shared/api'
 import type { FileService } from '../files/service'
 import type { Principal } from '../policy/access'
 import { isPersonalSkill, isSkillManifest, listSkills, managedSkillRoots, personalSkillsDir, skillFileKind, skillFolder, SKILL_FILE_MAX_BYTES, type Skill } from './skills'
@@ -15,7 +15,15 @@ import { readRegular } from '../files/store'
 import { zonedParts } from '../system/time-zone'
 import { MAX_CONCURRENT_SUBAGENTS } from '../engine/claude'
 
-export const MEMORY_ITEM_MAX = 300
+export const MEMORY_ITEM_MAX = MEMORY_TEXT_MAX
+/** A memory's text as it is kept: runs of spaces and line breaks folded into one space, trimmed; refused when empty or
+ * longer than MEMORY_ITEM_MAX. The one check for the AI's remember (chat/tools.ts) and the person's own (routes). */
+export function cleanMemoryText(raw: string): { ok: true; text: string } | { ok: false; problem: 'empty' } | { ok: false; problem: 'too_long'; length: number } {
+  const text = raw.replace(/\s+/g, ' ').trim()
+  if (!text) return { ok: false, problem: 'empty' }
+  if (text.length > MEMORY_ITEM_MAX) return { ok: false, problem: 'too_long', length: text.length }
+  return { ok: true, text }
+}
 export const MEMORY_BLOCK_MAX = 4096
 export const HISTORY_MAX_CHARS = 40_000
 /** team rule files (skills/*.md without a skill header) the AI follows: the first ten by file name. More are not

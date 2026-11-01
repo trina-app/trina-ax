@@ -162,7 +162,7 @@ export const ServerEvent = z.discriminatedUnion('type', [
   ev('browser.call', z.object({ windowId: z.string(), call: BrowserCall })),
   /** the turn stopped; abandon this call */
   ev('browser.cancel', z.object({ windowId: z.string(), callId: z.string() })),
-  ev('memory.changed', z.object({ change: z.enum(['created', 'deleted', 'cleared']), memory: Memory.nullable() })),
+  ev('memory.changed', z.object({ change: z.enum(['created', 'updated', 'deleted', 'cleared']), memory: Memory.nullable() })),
   /** budget warnings, scheduled update, engine trouble (shown as a banner/toast) */
   ev('notice', z.object({ level: z.enum(['info', 'warn', 'error']), code: z.string(), message: z.string(), error: ApiErrorBody.optional(),
     /** an app address to open from the banner (e.g. the version history of a changed team skill) */

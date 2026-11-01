@@ -858,6 +858,25 @@ export class MockServer {
       return undefined
     },
     listMemories: () => ({ items: this.memories, nextCursor: null }),
+    // like server/src/routes/memories.ts: folded to one line, 1–300 characters (the AI's limits), newest first
+    createMemory: (c) => {
+      const text = String(c.body.text).replace(/\s+/g, ' ').trim()
+      if (!text) fail('validation', 400, '기억할 내용을 적어 주세요.', { 'body.text': 'empty' })
+      if (text.length > 300) fail('validation', 400, `메모리는 한 줄에 300자까지 쓸 수 있어요(지금 ${text.length}자). 줄여 주세요.`, { 'body.text': 'too long' })
+      const m: Memory = { id: uuidv7(), text, sourceChatId: null, createdAt: now() }
+      this.memories.unshift(m)
+      this.publish({ type: 'memory.changed', data: { change: 'created', memory: m } })
+      return { status: 201, body: m }
+    },
+    updateMemory: (c) => {
+      const m = this.memories.find((x) => x.id === c.params.id) ?? fail('not_found', 404)
+      const text = String(c.body.text).replace(/\s+/g, ' ').trim()
+      if (!text) fail('validation', 400, '기억할 내용을 적어 주세요.', { 'body.text': 'empty' })
+      if (text.length > 300) fail('validation', 400, `메모리는 한 줄에 300자까지 쓸 수 있어요(지금 ${text.length}자). 줄여 주세요.`, { 'body.text': 'too long' })
+      m.text = text
+      this.publish({ type: 'memory.changed', data: { change: 'updated', memory: m } })
+      return m
+    },
     deleteMemory: (c) => {
       this.memories = this.memories.filter((m) => m.id !== c.params.id)
       return undefined

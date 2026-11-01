@@ -1,12 +1,16 @@
 // Route module "memories" — owner: component B (docs/WORKPLAN.md).
-// Implements: MEMORIES (own memories only; admins can't see other people's, tab 1). Contract: shared/src/api/memories.ts
+// Implements: MEMORIES (own memories only: list, add, correct, forget; admins can't see other people's, tab 1). Contract: shared/src/api/memories.ts
 // Also SKILLS (the team skills the caller can read, for the composer's "/" list; skill suggestions). Contract:
 // shared/src/api/skills.ts (the admin side of it, skill managers and changes, is in routes/admin.ts)
 // And SCHEDULES (the caller's own scheduled tasks, Settings). Contract: shared/src/api/schedules.ts
-import { API } from '@mycel/shared/api'
+import { API, type Locale } from '@mycel/shared/api'
 import type { RouteModule } from './module'
 import { fail } from '../http/errors'
 import { getChatRuntime } from '../chat/runtime'
+import { cleanMemoryText, MEMORY_ITEM_MAX } from '../chat/prompt'
+import { tr } from '../chat/i18n'
+import { newId } from '../db'
+import { audit } from '../admin/audit'
 import { decodeCursor, encodeCursor } from '../chat/store'
 import { listSkills, skillInfo, skillIssues } from '../chat/skills'
 import { teamRuleFiles } from '../chat/prompt'
@@ -42,13 +46,50 @@ export const memoriesRoutes: RouteModule = {
       const last = items[items.length - 1]
       return { items: items.map((r) => rt.store.toMemory(r)), nextCursor: rows.length > limit && last ? encodeCursor({ t: last.created_at, id: last.id }) : null }
     })
+    // the person's own memories, with the AI's limits (prompt.ts cleanMemoryText). Kept as the person's (source
+    // 'user'); the audit line has the id and the length, never the text (admins can't see memories, tab 1). Memories
+    // keep no earlier versions, the AI's or the person's: a correction replaces the text.
+    const memoryText = (raw: string, L: Locale): string => {
+      const c = cleanMemoryText(raw)
+      if (c.ok) return c.text
+      const m = c.problem === 'empty' ? tr('memoryEmpty', L) : tr('memoryTooLong', L, { max: String(MEMORY_ITEM_MAX), n: String(c.length) })
+      return fail('validation', m, { fields: { 'body.text': m } })
+    }
+    const memoryRow = (id: string) => ctx.db.query('SELECT id, text, source_chat_id, created_at FROM memories WHERE id = ?').get(id) as Row
+    kit.handle(API.createMemory, ({ c, body, auth }) => {
+      const text = memoryText(body.text, c.get('locale'))
+      const id = newId()
+      ctx.db.transaction(() => {
+        ctx.db.query("INSERT INTO memories (id, user_id, text, source_chat_id, source, created_turn_id, created_at) VALUES (?,?,?,NULL,'user',NULL,?)").run(id, auth.user.id, text, new Date().toISOString())
+        audit(ctx.db, { actor: auth.user.id, action: 'memory.create', target: id, detail: { chars: text.length } })
+      })()
+      const memory = rt.store.toMemory(memoryRow(id))
+      rt.hub.publish(auth.user.id, { type: 'memory.changed', data: { change: 'created', memory } })
+      return memory
+    })
+    kit.handle(API.updateMemory, ({ c, params, body, auth }) => {
+      const text = memoryText(body.text, c.get('locale'))
+      const changed = ctx.db.transaction(() => {
+        const before = ctx.db.query('SELECT text FROM memories WHERE id = ? AND user_id = ?').get(params.id, auth.user.id) as { text: string } | null
+        if (!before) return fail('not_found')
+        if (before.text === text) return false
+        ctx.db.query("UPDATE memories SET text = ?, source = 'user' WHERE id = ? AND user_id = ?").run(text, params.id, auth.user.id)
+        audit(ctx.db, { actor: auth.user.id, action: 'memory.update', target: params.id, detail: { chars: text.length } })
+        return true
+      })()
+      const memory = rt.store.toMemory(memoryRow(params.id))
+      if (changed) rt.hub.publish(auth.user.id, { type: 'memory.changed', data: { change: 'updated', memory } })
+      return memory
+    })
     kit.handle(API.deleteMemory, ({ params, auth }) => {
       const r = ctx.db.query('DELETE FROM memories WHERE id = ? AND user_id = ?').run(params.id, auth.user.id)
       if (!r.changes) fail('not_found')
+      audit(ctx.db, { actor: auth.user.id, action: 'memory.delete', target: params.id })
       rt.hub.publish(auth.user.id, { type: 'memory.changed', data: { change: 'deleted', memory: null } })
     })
     kit.handle(API.clearMemories, ({ auth }) => {
-      ctx.db.query('DELETE FROM memories WHERE user_id = ?').run(auth.user.id)
+      const r = ctx.db.query('DELETE FROM memories WHERE user_id = ?').run(auth.user.id)
+      if (r.changes) audit(ctx.db, { actor: auth.user.id, action: 'memory.clear', target: null, detail: { count: r.changes } })
       rt.hub.publish(auth.user.id, { type: 'memory.changed', data: { change: 'cleared', memory: null } })
     })
     const scheduleOut = (s: ScheduleRow) => ({ id: s.id, title: s.title, prompt: s.prompt, repeat: s.repeat, time: s.time, weekday: s.weekday, day: s.day, date: s.date,

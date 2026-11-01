@@ -11,7 +11,7 @@ import type { TurnTool, TurnToolContext } from '../services'
 import { newId } from '../db'
 import { PANE_TOOLS, scriptsOf, urlsOf } from '../realtime/browser-tools'
 import { browserUrl, isPrivateHost, staticPrivateHost } from '../realtime/private-net'
-import { MEMORY_ITEM_MAX, neutralizeTags, skillBlock } from './prompt'
+import { cleanMemoryText, MEMORY_ITEM_MAX, neutralizeTags, skillBlock } from './prompt'
 import { isPersonalSkill, listSkills, readSkill, skillFolder } from './skills'
 import { matchSkills, resolveSkill, shortDescription, usageScores } from './skill-list'
 import { addSources, sourceOf } from './read-scope'
@@ -251,9 +251,9 @@ function bTools(exec: TurnExec): Tool[] {
       async call(args) {
         const a = RememberInput.safeParse(args)
         if (!a.success) return text(zodText(a.error), true)
-        const value = a.data.text.replace(/\s+/g, ' ').trim()
-        if (!value) return text('Invalid input: text is empty', true)
-        if (value.length > MEMORY_ITEM_MAX) return text(`Too long (${value.length} characters). Keep a memory under ${MEMORY_ITEM_MAX} characters.`, true)
+        const clean = cleanMemoryText(a.data.text)
+        if (!clean.ok) return clean.problem === 'empty' ? text('Invalid input: text is empty', true) : text(`Too long (${clean.length} characters). Keep a memory under ${MEMORY_ITEM_MAX} characters.`, true)
+        const value = clean.text
         let source: 'ai' | 'user' = 'ai'
         if (exec.tainted) {
           // this conversation has seen outside content: the person confirms before anything is kept (tab 3)
