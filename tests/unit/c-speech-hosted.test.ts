@@ -16,6 +16,8 @@ import { chargeHostedSpeech, hostedSpeechLeft, hostedSpeechMonth, hostedSpeechUs
 import { rekeyCredentials } from '../../server/src/credentials/rekey'
 import { hostedSpeechMeter } from '../../server/src/credentials/hosted-speech'
 import { sendToOpenRouter } from '../../server/src/jobs/openrouter-stt'
+import { applyPendingRestore, keepServerSettings, withoutHostingKey } from '../../server/src/system/backup'
+import { openDb } from '../../server/src/db'
 import { DEFAULT_SPEECH_MODEL } from '@mycel/shared/api'
 import { setHostedSpeechKey } from '../../server/src/system/cloud-tenant'
 import * as media from '../../server/src/files/media'
@@ -428,3 +430,41 @@ describe('a read whose month runs out on the way', () => {
   })
 })
 
+describe("restores and exports: the hosting service's rows", () => {
+  const tmp = () => fs.mkdtempSync(path.join(os.tmpdir(), 'hosted-rows-'))
+  const rows = (file: string) => {
+    const d = openDb(file)
+    try { return Object.fromEntries((d.query("SELECT key, value FROM settings WHERE key IN ('speech.hostedKey', 'speech.hostedUsage')").all() as { key: string; value: string }[]).map((r) => [r.key, r.value])) } finally { d.close() }
+  }
+  const put = (file: string, kv: Record<string, string>) => {
+    const d = openDb(file)
+    try { for (const [k, v] of Object.entries(kv)) d.query('INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value').run(k, v) } finally { d.close() }
+  }
+  test('a restore keeps the current key and month count (an older backup gives no hours back), or none when there is none', () => {
+    const dir = tmp()
+    const live = path.join(dir, 'app.db'), staged = path.join(dir, 'restore-staged.db')
+    put(live, { 'speech.hostedKey': '{"enc":"NEW","keyVersion":1}', 'speech.hostedUsage': '{"month":"2026-11","seconds":30000}' })
+    put(staged, { 'speech.hostedKey': '{"enc":"OLD","keyVersion":1}', 'speech.hostedUsage': '{"month":"2026-11","seconds":10}' })
+    fs.writeFileSync(path.join(dir, 'restore-pending.json'), JSON.stringify({ format: 1, file: staged, backupId: 'b1', requestedAt: new Date().toISOString(), requestedBy: null }))
+    expect(applyPendingRestore(dir, A.ctx.log).applied).toBe(true)
+    expect(rows(live)).toEqual({ 'speech.hostedKey': '{"enc":"NEW","keyVersion":1}', 'speech.hostedUsage': '{"month":"2026-11","seconds":30000}' })
+    // a server without them: the restored copy brings none back
+    const other = path.join(dir, 'other.db'), none = path.join(dir, 'none.db')
+    put(other, { 'speech.hostedKey': '{"enc":"OLD","keyVersion":1}', 'speech.hostedUsage': '{"month":"2026-11","seconds":10}' })
+    put(none, { x: '1' })
+    keepServerSettings(none, other)
+    expect(rows(other)).toEqual({})
+    fs.rmSync(dir, { recursive: true, force: true })
+  })
+  test("an export's database copy has no hosting key, not even in its free pages", () => {
+    const dir = tmp()
+    const file = path.join(dir, 'archive.sqlite')
+    const marker = 'HOSTED-CIPHERTEXT-MARKER-' + 'x'.repeat(40)
+    put(file, { 'speech.hostedKey': JSON.stringify({ enc: marker, keyVersion: 1 }), 'speech.openrouterKey': '{"enc":"TEAM","keyVersion":1,"hint":"abcd"}' })
+    withoutHostingKey(file)
+    expect(fs.readFileSync(file).includes(marker)).toBe(false)
+    const d = openDb(file)
+    try { expect(d.query("SELECT key FROM settings WHERE key LIKE 'speech.%'").all()).toEqual([{ key: 'speech.openrouterKey' }]) } finally { d.close() }
+    fs.rmSync(dir, { recursive: true, force: true })
+  })
+})

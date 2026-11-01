@@ -27,6 +27,7 @@ import { diffManifest, toManifest, walkTree, type Manifest } from './manifest'
 import { readFileChunks, writeAtomic, zstdCompress, zstdDecompress } from './streams'
 import { extractTar, tarStream, type TarEntryInput } from './tar'
 import { backupRetentionDays } from './limits'
+import { HOSTED_SPEECH_KEY_SETTING, HOSTED_SPEECH_USAGE_SETTING } from '../admin/settings'
 
 export const BACKUP_RETENTION_DAYS = 14
 /** days local backups are kept: the plan's localBackupRetentionDays (the hosted cloud: 3, the off-site copy is the real
@@ -435,6 +436,43 @@ export function endSessions(file: string): void {
 }
 
 /**
+ * Settings rows that belong to this server and the hosting service, not to the team's data: a restore keeps the
+ * current ones (or that there are none), whatever the backup holds. The hosting service's speech-to-text key: an older
+ * backup must not bring back a key the hosting service has replaced or taken away since. This month's count of its
+ * free hours: restoring a backup must not give the month's hours back (credentials/hosted-speech.ts).
+ */
+export const SERVER_OWN_SETTINGS = [HOSTED_SPEECH_KEY_SETTING, HOSTED_SPEECH_USAGE_SETTING] as const
+const ownIn = SERVER_OWN_SETTINGS.map(() => '?').join(', ')
+
+/** Put the SERVER_OWN_SETTINGS rows of the database `live` (none when it is missing) into the copy `staged`. */
+export function keepServerSettings(live: string, staged: string): void {
+  let rows: { key: string; value: string }[] = []
+  if (fs.existsSync(live)) {
+    const d = new Database(live, { readonly: true })
+    try { rows = d.query(`SELECT key, value FROM settings WHERE key IN (${ownIn})`).all(...SERVER_OWN_SETTINGS) as typeof rows } finally { d.close() }
+  }
+  const d = new Database(staged)
+  try {
+    d.transaction(() => {
+      d.query(`DELETE FROM settings WHERE key IN (${ownIn})`).run(...SERVER_OWN_SETTINGS)
+      for (const r of rows) d.query('INSERT INTO settings (key, value) VALUES (?, ?)').run(r.key, r.value)
+    })()
+    d.run('PRAGMA wal_checkpoint(TRUNCATE)') // the copy is moved without side files
+  } finally { d.close() }
+}
+
+/** A copy of the database that leaves the server for the team (archive, archiveUpload: the export) holds no key of the
+ * hosting service's: its row goes and its bytes are overwritten (secure_delete). The team's own keys stay (encrypted). */
+export function withoutHostingKey(file: string): void {
+  const d = new Database(file)
+  try {
+    d.run('PRAGMA secure_delete = ON')
+    d.query('DELETE FROM settings WHERE key = ?').run(HOSTED_SPEECH_KEY_SETTING)
+    d.run('PRAGMA wal_checkpoint(TRUNCATE)')
+  } finally { d.close() }
+}
+
+/**
  * Called by the server at start, BEFORE the DB is opened: if a restore was staged, keep the current DB files in
  * data/backups/before-restore-<time>/ and put the staged copy in place. Failures leave the current DB untouched.
  */
@@ -457,6 +495,8 @@ export function applyPendingRestore(dataDir: string, log: Pick<Logger, 'info' | 
     // backup would be signed in again. The restore screen says everyone signs in again (design tab 5), so it is so.
     endSessions(p.file)
     const live = path.join(dataDir, 'app.db')
+    // the hosting service's key and this month's free hours stay as they are now (SERVER_OWN_SETTINGS)
+    try { keepServerSettings(live, p.file) } catch (e) { log.error('could not keep this server\'s own settings in the restored database', { err: e }) }
     const keep = path.join(dataDir, 'backups', `before-restore-${stamp(new Date())}`)
     fs.mkdirSync(keep, { recursive: true, mode: 0o700 })
     const moved: string[] = []

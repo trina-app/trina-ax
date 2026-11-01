@@ -52,7 +52,7 @@ import { loadAppConfig } from '../app-config'
 import { SERVER_VERSION, createContext } from '../context'
 import { openDb } from '../db'
 import { createLogger, silentLogger } from '../log'
-import { BackupManager, endSessions, inspectDbCopy, vacuumInto } from './backup'
+import { BackupManager, endSessions, inspectDbCopy, vacuumInto, withoutHostingKey } from './backup'
 import { planInstallState } from './install-plan'
 import { ensureLanCert } from './lan-cert'
 import { resolveLayout } from './layout'
@@ -149,6 +149,8 @@ export async function main(argv: string[]): Promise<number> {
       const tmpDb = path.join(cfg.dataDir, `archive-${process.pid}.sqlite`)
       await vacuumInto(dbFile, tmpDb)
       try {
+        // an archive leaves the server: the hosting service's key does not go with it
+        withoutHostingKey(tmpDb)
         const tree = await walkTree(cfg.teamRoot, { exclude: ['.system/backups'] })
         const entries: TarEntryInput[] = [
           { name: 'db', type: 'dir' }, { name: 'db/app.sqlite', type: 'file', source: tmpDb },
