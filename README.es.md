@@ -10,7 +10,7 @@ Claude Code y Codex en un servidor de tu empresa, con tus archivos, las skills d
 
 [Sitio web](https://ax.trina.app) · [Pruébalo en 10 minutos](#pruébalo-en-10-minutos) · [Autoalojamiento](docs/for-admins.md) · [Documentación](docs/README.md)
 
-[English](README.md) · [한국어](README.ko.md) · [日本語](README.ja.md) · Español
+[English](README.md) · [한국어](README.ko.md) · [日本語](README.ja.md) · Español · [简体中文](README.zh-CN.md)
 
 <img src="docs/images/readme/hero-day-one.gif" width="100%" alt="Una persona recién incorporada al equipo escribe una sola línea: “Write a proposal for Trina Logistics”. La IA lee la skill de propuestas del CEO y los archivos de ventas del equipo, y después guarda una presentación de 7 diapositivas que se abre junto al chat.">
 

@@ -10,7 +10,7 @@ Claude Code and Codex on one company server, with your files, your team's skills
 
 [Website](https://ax.trina.app) · [Try it in 10 minutes](#try-it-in-10-minutes) · [Self-host](docs/for-admins.md) · [Docs](docs/README.md)
 
-English · [한국어](README.ko.md) · [日本語](README.ja.md) · [Español](README.es.md)
+English · [한국어](README.ko.md) · [日本語](README.ja.md) · [Español](README.es.md) · [简体中文](README.zh-CN.md)
 
 <img src="docs/images/readme/hero-day-one.gif" width="100%" alt="A new team member types one line, 'Write a proposal for Trina Logistics.' The AI reads the CEO's proposal skill and the team's sales files, then saves a 7-page deck that opens next to the chat.">
 

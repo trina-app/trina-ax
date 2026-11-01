@@ -10,7 +10,7 @@
 
 [Web サイト](https://ax.trina.app) · [10分で試す](#10分で試す) · [セルフホスト](docs/for-admins.md) · [ドキュメント](docs/README.md)
 
-[English](README.md) · [한국어](README.ko.md) · 日本語 · [Español](README.es.md)
+[English](README.md) · [한국어](README.ko.md) · 日本語 · [Español](README.es.md) · [简体中文](README.zh-CN.md)
 
 <img src="docs/images/readme/hero-day-one.gif" width="100%" alt="新しく入ったメンバーが「Write a proposal for Trina Logistics.」と1行入力すると、AI が社長の提案書スキルとチームの営業資料を読み、7ページの提案書を保存してチャットの横に開きます。">
 
