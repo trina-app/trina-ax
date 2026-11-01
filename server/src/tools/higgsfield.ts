@@ -15,7 +15,8 @@ import { componentC } from '../team-files/component'
 import { placeProduced } from './make-file'
 import { inSkills } from '../skills/guard'
 import type { ToolRegistry } from './registry'
-import { resolveTarget } from './web-fetch'
+import { downloadToFile, type DownloadOptions } from './download'
+import { egressOf } from './egress'
 
 export const HIGGSFIELD_API = 'https://api.higgsfield.ai'
 /** testing only: a local stand-in for the API (its result URLs may then be http / local too) */
@@ -87,16 +88,11 @@ export async function runHiggsfield(o: { key: string; endpoint: string; body: Re
   }
 }
 
-/** The result file: https only, a public address, at most 200 MB. */
-export async function downloadVideo(url: string, dst: string, fetchFn: typeof fetch = fetch, check?: (u: string) => Promise<unknown>): Promise<number> {
-  if (!check && !url.startsWith('https://')) throw new ToolError('the video address is not https')
-  await (check ?? ((u: string) => resolveTarget(u)))(url)
-  const res = await fetchFn(url)
-  if (!res.ok) throw new ToolError(`could not download the video (HTTP ${res.status})`)
-  const buf = new Uint8Array(await res.arrayBuffer())
-  if (buf.length > DOWNLOAD_MAX) throw new ToolError('the video is larger than 200 MB')
-  fs.writeFileSync(dst, buf)
-  return buf.length
+/** The result file, at most 200 MB, through the hardened download (tools/download.ts): https on every hop, each
+ * redirect's address checked again (public addresses only: never private, LAN, metadata or this server), the connection
+ * pinned to the checked address, streamed to disk. `o`: the office's exit addresses, and test hooks. */
+export async function downloadVideo(url: string, dst: string, o: DownloadOptions = {}): Promise<number> {
+  return (await downloadToFile(url, dst, { httpsOnly: true, maxBytes: DOWNLOAD_MAX, ...o })).size
 }
 
 const slug = (s: string) => s.toLowerCase().replace(/[^\p{L}\p{N}]+/gu, '-').replace(/^-+|-+$/g, '').slice(0, 40) || 'video'
@@ -129,7 +125,8 @@ export function registerHiggsfield(ctx: AppContext, reg: ToolRegistry): boolean 
       const work = fs.mkdtempSync(path.join(os.tmpdir(), 'mycel-hf-'))
       try {
         const tmp = path.join(work, 'video.mp4')
-        const size = await downloadVideo(r.videoUrl, tmp, fetch, process.env.MYCEL_HIGGSFIELD_API ? async () => {} : undefined)
+        // a local stand-in API (MYCEL_HIGGSFIELD_API, testing only) serves its result from a local address over http
+        const size = await downloadVideo(r.videoUrl, tmp, { blockedIps: () => egressOf(ctx).ips, signal: t.signal, ...(process.env.MYCEL_HIGGSFIELD_API ? { httpsOnly: false, testAllow: () => true } : {}) })
         const target = (a.save_as?.replace(/\.mp4$/i, '') ?? `users/${t.user.id}/videos/${slug(a.prompt)}`) + '.mp4'
         const made = await placeProduced(ctx, componentC(ctx).files, t, target.split('/').filter(Boolean), tmp, 'generate_video')
         return {

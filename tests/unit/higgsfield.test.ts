@@ -1,5 +1,5 @@
 // generate_video's Higgsfield client (server/src/tools/higgsfield.ts) against a stand-in fetch: submit + poll, every
-// terminal status, a wrong key, the key file format and the download checks. No real API calls.
+// terminal status, a wrong key, the key file format and the download's https rule. No real API calls.
 import { afterAll, describe, expect, test } from 'bun:test'
 import fs from 'node:fs'
 import os from 'node:os'
@@ -54,14 +54,9 @@ describe('key file and download', () => {
     fs.writeFileSync(path.join(d, 'secrets', 'higgsfield.key'), 'only-one-part')
     expect(higgsfieldKey(d)).toBeNull()
   })
-  test('downloadVideo: https only, address checked, bytes saved', async () => {
-    const dst = path.join(W, 'v.mp4')
-    await expect(downloadVideo('http://cdn.example/v.mp4', dst)).rejects.toThrow(/not https/)
-    let checked = ''
-    const n = await downloadVideo('https://cdn.example/v.mp4', dst, (async () => new Response(new Uint8Array([1, 2, 3]))) as unknown as typeof fetch, async (u) => { checked = u })
-    expect(n).toBe(3)
-    expect(checked).toBe('https://cdn.example/v.mp4')
-    expect([...fs.readFileSync(dst)]).toEqual([1, 2, 3])
+  // the download itself (https on every hop, each redirect's address checked, streamed): tests/unit/download.test.ts
+  test('downloadVideo: https only', async () => {
+    await expect(downloadVideo('http://cdn.example/v.mp4', path.join(W, 'v.mp4'))).rejects.toThrow(/not https/)
   })
   test('the confirmation card exists in every language with the same placeholders', () => {
     for (const l of ['ko', 'en', 'id'] as const) for (const p of ['{duration}', '{aspect}', '{resolution}', '{prompt}']) expect(TEXT.confirm[l]).toContain(p)
