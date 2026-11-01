@@ -445,8 +445,8 @@ export const UploadTarget = z.discriminatedUnion('kind', [
   z.object({ kind: z.literal('path'), path: RelPath, onExists: z.enum(['fail', 'replace', 'rename']).default('rename') }),
   /** a chat attachment, stored in users/<me>/.attachments/<chatId>/ */
   z.object({ kind: z.literal('attachment'), chatId: Uuid7, name: z.string().min(1).max(255) }),
-  /** audio for transcription (not kept in the team folder) */
-  z.object({ kind: z.literal('transcribe'), name: z.string().min(1).max(255) }),
+  /** audio for transcription (not kept in the team folder); chatId as in TranscribeFields */
+  z.object({ kind: z.literal('transcribe'), name: z.string().min(1).max(255), chatId: Uuid7.optional() }),
 ])
 export type UploadTarget = z.infer<typeof UploadTarget>
 export const UploadSession = z.object({

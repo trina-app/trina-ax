@@ -20,7 +20,9 @@
 // answer writes exactly this), POST /__test/connection {…ConnectionStatus fields} (Admin > System > Connection shows
 // them until the next reset), POST /__test/speech-host {…SpeechHost fields} (this server's cores, speed and hosting
 // for "Turn video sound into text", until the next reset), POST /__test/skill-list {…SkillsOverview.aiList} (the Team
-// skills page's "how many skills the AI sees" counts, until the next reset).
+// skills page's "how many skills the AI sees" counts, until the next reset), POST /__test/speech {provider, key?: boolean}
+// (the team's speech provider and whether an OpenRouter key is set), GET-or-POST /__test/transcribe-chats (the chat id
+// each voice input named, null for a new chat; a confidential chat's recording with OpenRouter is refused, 403).
 // External services: an address on a "down." host fails its check, the key "wrong-key" is refused, the fake MCP server
 // offers two tools at the first check and a third from the next one (one on a "many." host offers 150, of which the
 // first 100 are kept), and a sign-in completes on the second poll.
@@ -128,6 +130,8 @@ export class MockServer {
   /** the team logo (Admin > Team settings): served by the real serveWeb() at /team-icon, /favicon.ico, the manifest */
   teamIcon: TeamIconFile | null = null
   speechKey: { set: boolean; hint: string | null; updatedAt: string | null } = { set: false, hint: null, updatedAt: null }
+  /** the chat id each voice input named (null: a new chat) */
+  transcribeChats: (string | null)[] = []
   /** GET /api/admin/speech-host: a 4-core self-installed server that has not measured its speed yet */
   speechHost = { cpuCores: 4, localPieceSec: 30, localSecPerSec: null as number | null, hostedNewSec: null as number | null }
   /** every request the client made (method + path), for assertions */
@@ -219,6 +223,7 @@ export class MockServer {
     this.settings = defaultSettings()
     this.teamIcon = null
     this.speechKey = { set: false, hint: null, updatedAt: null }
+    this.transcribeChats = []
     this.speechHost = { cpuCores: 4, localPieceSec: 30, localSecPerSec: null, hostedNewSec: null }
     if (o.teamLocale) this.settings.defaultLocale = o.teamLocale
     this.activeLeaf.clear()
@@ -387,7 +392,7 @@ export class MockServer {
     return {
       user: { id: u.id, username: u.username, name: u.name, email: u.email, role: u.role, locale: u.localeChoice ?? this.settings.defaultLocale, localeChoice: u.localeChoice, mustChangePassword: u.mustChangePassword, prefs, canChooseEngine: choose },
       groups: this.groups.filter((g) => u.groupIds.includes(g.id)).map((g) => ({ id: g.id, name: g.name })),
-      team: { name: this.settings.teamName, defaultLocale: this.settings.defaultLocale, browserAllowAll: this.settings.browserAllowAll, iconVersion: this.teamIcon?.version ?? null, voiceInput: this.settings.speechProvider === 'local' || (this.settings.speechProvider === 'openrouter' && this.speechKey.set), chatTrashRetentionDays: this.settings.chatTrashRetentionDays },
+      team: { name: this.settings.teamName, defaultLocale: this.settings.defaultLocale, browserAllowAll: this.settings.browserAllowAll, iconVersion: this.teamIcon?.version ?? null, voiceInput: this.settings.speechProvider === 'local' || (this.settings.speechProvider === 'openrouter' && this.speechKey.set), ...(this.settings.speechProvider === 'openrouter' && this.speechKey.set ? { voiceInputOutside: true as const } : {}), chatTrashRetentionDays: this.settings.chatTrashRetentionDays },
       session: { id: '0192f0a0-0000-7000-8000-000000000000', client: 'web', expiresAt: new Date(Date.now() + 30 * 86400_000).toISOString(), tempLogin: u.mustChangePassword && this.tempLogins.has(u.id) },
       server: {
         version: this.serverVersion, dev: !this.cloud, deployment: this.cloud ? 'hosted' : 'self', timeZone: this.settings.timeZone,
@@ -1120,6 +1125,7 @@ export class MockServer {
       return new Response(a.data as unknown as BodyInit, { headers: { 'content-type': a.mime } })
     },
     createUploadSession: (c) => {
+      if (c.body.target.kind === 'transcribe') this.transcribeGate(c.body.target.chatId)
       const s: UploadSession & { chunks: Map<number, Uint8Array> } = { id: uuidv7(), target: c.body.target, size: c.body.size, sha256: c.body.sha256, chunkSize: UPLOAD_CHUNK_SIZE, chunkCount: Math.ceil(c.body.size / UPLOAD_CHUNK_SIZE), received: [], expiresAt: new Date(Date.now() + 86400_000).toISOString(), chunks: new Map() }
       this.uploads.set(s.id, s)
       const { chunks: _x, ...out } = s
@@ -1165,7 +1171,10 @@ export class MockServer {
       j.status = 'canceled'
       return j
     },
-    transcribe: (c) => ({ status: 202, body: { jobId: this.transcribeJob(c.user) } }),
+    transcribe: (c) => {
+      this.transcribeGate(c.body.chatId)
+      return { status: 202, body: { jobId: this.transcribeJob(c.user) } }
+    },
     pollCalls: () => ({ calls: [] }),
     postResult: () => undefined,
 
@@ -1839,6 +1848,15 @@ export class MockServer {
     return out
   }
 
+  /** like the server (component C checkTranscribe): a confidential chat's recording never goes to OpenRouter */
+  transcribeGate(chatId: string | undefined) {
+    this.transcribeChats.push(chatId ?? null)
+    const confidential = chatId ? !!this.chats.find((x) => x.id === chatId)?.confidential : this.allConfidential
+    if (confidential && this.settings.speechProvider === 'openrouter' && this.speechKey.set) {
+      throw new Fail('forbidden', 403, '기밀 대화라서 녹음을 바깥 음성 서비스(OpenRouter)로 보내지 않았어요. 글로 입력해 주세요.', undefined, { reason: 'confidential' })
+    }
+  }
+
   transcribeJob(user: User): string {
     const id = uuidv7()
     const job: Job = { id, kind: 'transcribe', status: 'running', progress: null, message: null, result: null, error: null, createdAt: now(), finishedAt: null }
@@ -1949,6 +1967,11 @@ export class MockServer {
       this.publish({ type: 'queue.position', data: { chatId, messageId: assistant.id, turnId: assistant.turnId, position, epoch: this.epoch, revision: ++this.queueRevision } })
     }
     else if (p === '/__test/confidential') this.allConfidential = body.all === true
+    else if (p === '/__test/speech') {
+      this.settings.speechProvider = body.provider === 'openrouter' || body.provider === 'off' ? body.provider : 'local'
+      this.speechKey = body.key ? { set: true, hint: 'mock', updatedAt: now() } : { set: false, hint: null, updatedAt: null }
+    }
+    else if (p === '/__test/transcribe-chats') return Response.json(this.transcribeChats)
     else if (p === '/__test/file') {
       // a team file for a test (POST {path, text} or {path, base64}); its folders are made too
       const path = String(body.path)

@@ -330,6 +330,7 @@ export const en: Record<MessageKey, string> = {
   'voice.failed': 'Transcription failed.',
   'voice.empty': "Nothing was recognized. Please record again.",
   'voice.offAdmin': "Voice input is off. Turn it on in Admin › Team settings.",
+  'voice.confidential': "Voice input isn't available in confidential chats: recordings aren't sent to the outside speech service (OpenRouter). Please type instead.",
 
   'steps.label': 'Steps',
   'steps.summary': '{n, plural, one {# step} other {# steps}}',

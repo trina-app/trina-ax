@@ -41,6 +41,9 @@ export const Me = z.object({
     /** voice input works (Admin > Team settings: OpenRouter with a key, or on this server). false: the composer hides
      * the mic (admins see a hint). Absent (older server) = on. */
     voiceInput: z.boolean().optional(),
+    /** voice input goes to an outside service (OpenRouter): a confidential chat's composer says it is not used there
+     * (the server refuses it either way). Absent: on this server, off, or an older server. */
+    voiceInputOutside: z.literal(true).optional(),
     /** days a deleted chat stays in the chat trash, and days a deleted account's chats and memories stay (Admin > Team
      * settings chatTrashRetentionDays; the purge uses the current value). Absent (older server) = the default, 7. */
     chatTrashRetentionDays: z.number().int().min(1).max(365).optional(),

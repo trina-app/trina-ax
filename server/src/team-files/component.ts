@@ -12,7 +12,9 @@ import type { AppContext } from '../context'
 import { JobServiceImpl } from '../jobs/service'
 import { transcribe, type TranscribeConfig } from '../jobs/transcribe'
 import { cleanMediaWork, localModelName, recordLocalSpeed } from '../files/media'
-import { SPEECH_NO_KEY, SPEECH_OFF, transcribeOpenRouter } from '../jobs/openrouter-stt'
+import { SPEECH_CONFIDENTIAL, SPEECH_NO_KEY, SPEECH_OFF, transcribeOpenRouter } from '../jobs/openrouter-stt'
+import { confidentialDictation } from '../safe-ops/confidential'
+import { HttpError } from '../http/errors'
 import { getTeamSettings, installId, teamDefaultLocale } from '../admin/settings'
 import { firstRefreshMs } from '../tools/search'
 import { credentialsOf } from '../credentials/store'
@@ -39,7 +41,10 @@ export interface ComponentC {
   jobs: JobServiceImpl
   transcribe: TranscribeConfig
   /** start a transcription job for a server-owned audio file (moved into the job; removed when it ends) */
-  startTranscribe(userId: string, file: string, name: string, o?: { language?: string }): string
+  /** Voice input for `chatId` (absent: a chat not created yet) may not start: a confidential chat's recording while
+   * the speech provider is OpenRouter. Throws a 403 with the person's note; the job checks again when it runs. */
+  checkTranscribe(userId: string, chatId?: string): void
+  startTranscribe(userId: string, file: string, name: string, o?: { language?: string; chatId?: string }): string
   /** run every retention sweep now (also runs hourly) */
   sweep(): Record<string, number>
 }
@@ -69,7 +74,16 @@ export function componentC(ctx: AppContext): ComponentC {
     artifacts: new Artifacts(ctx),
     makeFile: new MakeFile(ctx, files, findConverters(ctx.engineConfig.pandoc)),
     transcribe: stt,
+    checkTranscribe(userId, chatId) {
+      if (getTeamSettings(ctx.db).speechProvider === 'openrouter' && confidentialDictation(ctx.db, chatId)) {
+        throw new HttpError('forbidden', SPEECH_CONFIDENTIAL().messages[locale(userId)], { params: { reason: 'confidential' } })
+      }
+    },
     startTranscribe(userId, file, name, o = {}) {
+      // a confidential chat's recording never goes out (refused here before it is kept, and again when the job runs:
+      // the chat may be locked, or the provider changed, while it waits)
+      c.checkTranscribe(userId, o.chatId)
+      const sendable = () => !confidentialDictation(ctx.db, o.chatId)
       const dir = path.join(ctx.config.dataDir, 'work')
       fs.mkdirSync(dir, { recursive: true, mode: 0o700 })
       const own = path.join(dir, `stt-in-${crypto.randomUUID()}`)
@@ -84,14 +98,15 @@ export function componentC(ctx: AppContext): ComponentC {
             // voice input also tells how fast whisper.cpp is here, before the first video read needs it
             if (s.speechProvider === 'local') return await transcribe(stt, own, name, { ...opts, onTimed: (ms, sec) => { if (sec > 0) recordLocalSpeed(ctx.db, localModelName(stt.model), stt.threads, ms, sec) } }, h)
             if (s.speechProvider !== 'openrouter') throw SPEECH_OFF()
+            if (!sendable()) throw SPEECH_CONFIDENTIAL()
             const key = readSpeechKey(credentialsOf(ctx))
             if (!key) throw SPEECH_NO_KEY()
             // the hosting service's key is for its one model (its guardrail at OpenRouter refuses any other)
             const model = speechKeySource(ctx.db) === 'hosted' ? HOSTED_SPEECH_MODEL : s.speechModel
             // a long recording heard in an unlikely language goes once more told the team's (jobs/speech-language.ts);
             // that, or a provider failure's second try, sends the recording again only while voice input is still on
-            // OpenRouter
-            return await transcribeOpenRouter(stt, key, model, own, name, { ...opts, team: teamDefaultLocale(ctx.db), again: () => getTeamSettings(ctx.db).speechProvider === 'openrouter' }, h)
+            // OpenRouter and the chat has not become confidential
+            return await transcribeOpenRouter(stt, key, model, own, name, { ...opts, team: teamDefaultLocale(ctx.db), again: () => getTeamSettings(ctx.db).speechProvider === 'openrouter' && sendable() }, h)
           } finally { fs.rmSync(own, { force: true }) }
         },
         // canceled while waiting for the transcription before it: the recording goes now, not with tomorrow's sweep
@@ -128,7 +143,8 @@ export function componentC(ctx: AppContext): ComponentC {
       return r
     },
   }
-  uploads.transcribe = (userId, file, name) => c.startTranscribe(userId, file, name)
+  uploads.transcribe = (userId, file, name, chatId) => c.startTranscribe(userId, file, name, { chatId })
+  uploads.transcribeCheck = (userId, chatId) => c.checkTranscribe(userId, chatId)
   // live updates for AI tool writes (stage-1 file tools emit 'changed')
   ctx.files.events.on('changed', (e: { path: string; action: 'create' | 'update'; userId: string; userName: string; turnId: string | null }) => {
     publishChanges(ctx, [{ path: e.path, action: e.action, by: { id: e.userId, name: e.userName }, turnId: e.turnId }])

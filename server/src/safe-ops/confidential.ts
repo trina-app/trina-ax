@@ -45,6 +45,12 @@ export function relockWorkedChats(db: Database) {
     WHERE t.id IN (SELECT turn_id FROM safe_ops_workflows UNION SELECT turn_id FROM safe_ops_publications UNION SELECT turn_id FROM safe_ops_sources)
     ON CONFLICT(chat_id) DO UPDATE SET material=1 WHERE material=0`).run()
 }
+/** Voice input for this chat (POST /api/transcribe and upload sessions name it): a recording for a confidential
+ * chat never goes to an outside speech service. A chat not created yet (no id) is what a new chat is: confidential
+ * only while 1A is on, like confidentialTurn without a turn. The caller has checked that the chat is the person's. */
+export function confidentialDictation(db: Database, chatId: string | null | undefined): boolean {
+  return chatId ? confidentialChat(db, chatId) : safeOpsEnabled()
+}
 /** The same answer as confidentialChat: for showing the flag (Chat.confidential; it marks nothing either). */
 export function isConfidentialChat(db: Database, chatId: string): boolean {
   return confidentialChat(db, chatId)

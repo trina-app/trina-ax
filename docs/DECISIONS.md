@@ -5213,3 +5213,28 @@ team root. When an admin turns dev mode on, or saves it again, the server create
 (a name clash takes the next name) and makes it the project folder (audit `dev_env.folder`). The folder has no rules of
 its own, so it inherits the access of the team root. Files on the team root do not move, and the AI of the project then
 works in the new folder: the form says so. If the folder cannot be made, turning on is refused and nothing changes.
+
+## Voice input in confidential chats (fix/batch-0218, 2026-11-01)
+
+- **Problem.** A confidential chat (Safe operations 1A worked in it, or 1A is on) never sends the sound of files out,
+  but voice input went to the team's speech provider as in any chat, OpenRouter with the team's key or the hosting
+  service's, because the server did not know which chat a recording was for.
+- **The composer names the chat** (`chatId` in `POST /api/transcribe`'s fields and in an upload session's `transcribe`
+  target). The server checks it is the caller's own chat (404 otherwise) and is the gate:
+  `componentC.checkTranscribe` refuses (403 `forbidden`, `params.reason: 'confidential'`, the person's note in five
+  languages, 해요체) when the provider is OpenRouter and `confidentialDictation(chatId)` holds, before the recording is
+  written anywhere; a long upload is refused when its session is made and again at complete (the recording is dropped).
+  The job checks again when it runs (the chat may have been locked, or the provider changed, while it waited) and
+  before a second send (`again`). On this server ("On this server", whisper.cpp) a confidential chat's recording is
+  transcribed as before: nothing leaves the server.
+- **A chat not created yet** (the new-chat page, no id) is what a new chat is: confidential only while 1A is on
+  (`safeOpsEnabled()`, as `confidentialTurn` without a turn). There is no per-person chat mode; this is the default
+  every new chat gets. An older web app that sends no chat id is treated the same way.
+- **The composer says it first**: `Me.team.voiceInputOutside` (voice input goes to OpenRouter with a key) and the
+  chat's `confidential` flag (`useConfidentialChat`) make the mic show the note instead of recording, so nobody talks for
+  minutes into a recording that will be refused. The server's refusal shows in the same place when the page did not
+  know (the provider changed after it loaded).
+- Tests: `tests/unit/c-speech-confidential.test.ts` (refused with nothing sent or kept, 해요체, ordinary chats, on this
+  server, new chats with and without 1A, another person's chat, locked while queued, locked during the first try, upload
+  sessions at create and complete), `a-speech-settings.test.ts` (the Me flag), `web/test/unit/voice.test.ts`,
+  `upload.test.ts`, `web/test/e2e/voice.spec.ts`.

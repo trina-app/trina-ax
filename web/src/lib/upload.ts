@@ -93,7 +93,7 @@ async function uploadSmall(file: File, target: UploadTarget, o: UploadOptions): 
     const attachment = await o.client.call(API.uploadAttachment, { body: { fields: { chatId: target.chatId, name: target.name }, file, filename: target.name }, signal: o.signal })
     out = { kind: 'attachment', attachment }
   } else {
-    const { jobId } = await o.client.call(API.transcribe, { body: { fields: {}, file, filename: target.name }, signal: o.signal })
+    const { jobId } = await o.client.call(API.transcribe, { body: { fields: target.chatId ? { chatId: target.chatId } : {}, file, filename: target.name }, signal: o.signal })
     out = { kind: 'transcribe', jobId }
   }
   o.onProgress?.({ phase: 'finishing', loaded: file.size, total: file.size })

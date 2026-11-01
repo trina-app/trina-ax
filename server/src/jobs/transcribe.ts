@@ -81,7 +81,7 @@ export const LABELS = {
   run: { ko: '받아쓰는 중', en: 'Transcribing', id: 'Mentranskripsi', ja: "文字起こし中", es: "Transcribiendo" },
 }
 
-export const fail = (ko: string, en: string, id: string, ja: string, es: string, code: 'unavailable' | 'bad_request' | 'internal' | 'rate_limited' | 'payload_too_large' = 'unavailable', reason?: string) => new JobFailure(code, { ko, en, id, ja, es }, reason)
+export const fail = (ko: string, en: string, id: string, ja: string, es: string, code: 'unavailable' | 'bad_request' | 'internal' | 'rate_limited' | 'payload_too_large' | 'forbidden' = 'unavailable', reason?: string) => new JobFailure(code, { ko, en, id, ja, es }, reason)
 
 export const MISSING_WHISPER = () => fail(
   '받아쓰기 도구(whisper.cpp)가 서버에 없어요. 서버 맥에서 `brew install whisper-cpp`를 실행한 뒤 다시 해 주세요.',

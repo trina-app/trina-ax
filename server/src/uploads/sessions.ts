@@ -25,8 +25,9 @@ export const DISK_MARGIN = 1024 * 1024 * 1024
 
 interface Row { id: string; user_id: string; target: string; size: number; sha256: string; chunk_size: number; received: string; expires_at: string; result: string | null }
 
-/** What happens with a finished transcribe upload (component C jobs, installed by routes/jobs.ts). */
-export type TranscribeStarter = (userId: string, file: string, name: string) => string
+/** What happens with a finished transcribe upload (component C jobs, installed by routes/jobs.ts). `chatId`: the chat
+ * the voice input is for (absent: a chat not created yet). */
+export type TranscribeStarter = (userId: string, file: string, name: string, chatId?: string) => string
 
 export class UploadSessions {
   /** running sha256 over the contiguous prefix of chunks (only kept in memory; a restart re-hashes at complete) */
@@ -34,6 +35,8 @@ export class UploadSessions {
   /** complete() in progress: a retried complete (client timed out during the hash of a big file) joins it */
   private completing = new Map<string, Promise<UploadComplete>>()
   transcribe: TranscribeStarter | null = null
+  /** refuses a transcribe upload before it starts (a confidential chat's recording that would go out) */
+  transcribeCheck: ((userId: string, chatId?: string) => void) | null = null
 
   constructor(private ctx: AppContext, private files: TeamFiles, private attachments: Attachments) {
     fs.mkdirSync(this.dir(), { recursive: true, mode: 0o700 })
@@ -82,6 +85,9 @@ export class UploadSessions {
       if (bad) fileError('validation', 'badName', { name: bad })
     } else if (!this.transcribe) {
       throw new HttpError('unavailable')
+    } else {
+      if (t.chatId) this.attachments.assertOwnChat(userId, t.chatId)
+      this.transcribeCheck?.(userId, t.chatId)
     }
   }
 
@@ -166,7 +172,12 @@ export class UploadSessions {
       result = { kind: 'attachment', attachment: await this.attachments.create(userId, target.chatId, target.name, this.part(id), sha) }
     } else {
       if (!this.transcribe) throw new HttpError('unavailable')
-      result = { kind: 'transcribe', jobId: this.transcribe(userId, this.part(id), target.name) }
+      // checked again here: the chat may be gone or locked confidential during a long upload; refused, nothing of the
+      // recording is kept
+      try {
+        if (target.chatId) this.attachments.assertOwnChat(userId, target.chatId)
+        result = { kind: 'transcribe', jobId: this.transcribe(userId, this.part(id), target.name, target.chatId) }
+      } catch (e) { this.drop(id); throw e }
     }
     fs.rmSync(this.part(id), { force: true })
     this.ctx.db.query('UPDATE upload_sessions SET result = ? WHERE id = ?').run(JSON.stringify(result), id)

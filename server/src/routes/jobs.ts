@@ -32,11 +32,14 @@ export const jobsRoutes: RouteModule = {
       return C.jobs.get(params.id)!
     })
     kit.handle(API.transcribe, ({ c, body, auth }) => mapErrors(c.get('locale'), async () => {
-      if (body.fields.chatId) C.attachments.assertOwnChat(auth.user.id, body.fields.chatId)
+      const chatId = body.fields.chatId
+      if (chatId) C.attachments.assertOwnChat(auth.user.id, chatId)
+      // a confidential chat's recording never goes to OpenRouter: refused before it is written anywhere
+      C.checkTranscribe(auth.user.id, chatId)
       const name = body.file.name || 'audio.webm'
       const p = await writeTemp(path.join(ctx.config.dataDir, 'work'), body.file)
       try {
-        return { jobId: C.startTranscribe(auth.user.id, p, name, { language: body.fields.language }) }
+        return { jobId: C.startTranscribe(auth.user.id, p, name, { language: body.fields.language, chatId }) }
       } catch (e) { fs.rmSync(p, { force: true }); throw e }
     }))
   },

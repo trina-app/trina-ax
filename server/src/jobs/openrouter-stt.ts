@@ -43,6 +43,15 @@ export const SPEECH_NO_KEY = () => fail(
   '음성 입력에 쓸 OpenRouter 키가 없어요. 관리자가 관리 › 팀 설정에서 키를 넣어야 해요.',
   'There is no OpenRouter key for voice input. An admin must add it in Admin › Team settings.',
   'Belum ada kunci OpenRouter untuk input suara. Admin harus menambahkannya di Admin › Pengaturan tim.', "音声入力用のOpenRouterキーがありません。管理者が「管理 › チーム設定」で追加してください。", "No hay clave de OpenRouter para la entrada de voz. Un administrador debe añadirla en Administración › Configuración del equipo.")
+/** voice input in a confidential chat while the provider is OpenRouter: the recording stays on the server (a
+ * provider on this server still transcribes it) */
+export const SPEECH_CONFIDENTIAL = () => fail(
+  '기밀 대화라서 녹음을 바깥 음성 서비스(OpenRouter)로 보내지 않았어요. 글로 입력해 주세요. 관리자가 음성 입력을 "이 서버에서"로 바꾸면 기밀 대화에서도 쓸 수 있어요.',
+  'This is a confidential chat, so the recording was not sent to the outside speech service (OpenRouter). Please type instead. Voice input works in confidential chats when an admin sets it to "On this server".',
+  'Ini percakapan rahasia, jadi rekaman tidak dikirim ke layanan suara luar (OpenRouter). Silakan ketik saja. Input suara bisa dipakai di percakapan rahasia jika admin mengaturnya ke "Di server ini".',
+  'これは機密チャットのため、録音を外部の音声サービス（OpenRouter）に送りませんでした。文字で入力してください。管理者が音声入力を「このサーバー上」に変更すると、機密チャットでも使えます。',
+  'Este es un chat confidencial, así que la grabación no se envió al servicio de voz externo (OpenRouter). Escriba el mensaje. La entrada de voz funciona en chats confidenciales si un administrador la configura como "En este servidor".',
+  'forbidden', 'confidential')
 export const TOO_LARGE = () => fail(
   '녹음이 너무 길어요(최대 25 MB, 약 13분). 짧게 나눠서 다시 해 주세요.',
   'The recording is too long (max 25 MB, about 13 minutes). Split it into shorter parts and try again.',

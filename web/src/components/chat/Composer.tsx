@@ -12,7 +12,7 @@
 import clsx from 'clsx'
 import { ArrowUp, Camera, Check, Clock, FileAudio, FileText, FolderOpen, Loader2, MessageCircleQuestion, Mic, MicOff, Monitor, Paperclip, Smartphone, Square, X, ChevronDown } from 'lucide-react'
 import { useEffect, useId, useImperativeHandle, useRef, useState, type Ref } from 'react'
-import { MESSAGE_ATTACHMENTS_MAX, SMALL_UPLOAD_MAX, uuidv7, type Attachment, type EngineId, type FileEntry, type TranscribeResult } from '@mycel/shared/api'
+import { isUuid7, MESSAGE_ATTACHMENTS_MAX, SMALL_UPLOAD_MAX, uuidv7, type Attachment, type EngineId, type FileEntry, type TranscribeResult } from '@mycel/shared/api'
 import { api, API, errorText } from '../../lib/api'
 import { markBusy } from '../../lib/busy'
 import { readDraft, writeDraft } from '../../lib/localData'
@@ -20,7 +20,8 @@ import { mergeDraft } from '../../lib/composerDraft'
 import { fmtDuration, formatSize } from '../../lib/format'
 import { previewKind, serverPreview } from '../../lib/preview'
 import { RecorderError, useRecorder } from '../../lib/recorder'
-import { micState, SPEECH_SETTINGS_PATH } from '../../lib/voice'
+import { micState, SPEECH_SETTINGS_PATH, voiceBlockedHere } from '../../lib/voice'
+import { useConfidentialChat } from '../../lib/confidential'
 import { navigateTo } from '../../lib/nav'
 import { openFilePreview, openTeamFile } from '../../lib/sidePanel'
 import { loadChips, patchStash, readStash, registerComposer, saveChips, subscribeStash, TEAM_FILE_DRAG_TYPE, writeStash, type AttachResult } from '../../lib/teamAttach'
@@ -97,6 +98,10 @@ export default function Composer({
   const userId = me?.user.id ?? '-'
   // voice input off (Admin > Team settings): no mic for members, a hint to the setting for admins
   const mic = micState(me)
+  // the chat voice input is for (a new chat has none yet: the server then answers for a new chat); a confidential
+  // chat's recording never goes to an outside speech service
+  const voiceChatId = isUuid7(draftId) ? draftId : null
+  const confidential = useConfidentialChat(voiceChatId)
   const [text, setText] = useState(() => initialText ?? readDraft(userId, draftId))
   const skillMenu = useSkillMenu(text, setText)
   // the chips live outside the component too (lib/teamAttach stash): leaving the page and coming back, or adding
@@ -340,6 +345,10 @@ export default function Composer({
 
   const startVoice = async () => {
     setError(null)
+    if (voiceBlockedHere(me, confidential)) {
+      setError(t('voice.confidential'))
+      return
+    }
     try {
       await recorder.start()
     } catch (e) {
@@ -356,7 +365,7 @@ export default function Composer({
     }
     setTranscribing(true)
     try {
-      const r = await uploadFile(file, { kind: 'transcribe', name: file.name }, { client: api })
+      const r = await uploadFile(file, { kind: 'transcribe', name: file.name, ...(voiceChatId ? { chatId: voiceChatId } : {}) }, { client: api })
       if (r.kind !== 'transcribe') throw new Error('unexpected upload result')
       const job = await waitForJob(r.jobId)
       if (job.status !== 'done' || !job.result) throw new Error(job.error?.message ?? t('voice.failed'))

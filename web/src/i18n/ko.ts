@@ -329,6 +329,7 @@ export const ko = {
   'voice.failed': '받아쓰기에 실패했어요.',
   'voice.empty': '알아들은 말이 없어요. 다시 녹음해 주세요.',
   'voice.offAdmin': "음성 입력이 꺼져 있어요. 관리 › 팀 설정에서 켤 수 있어요.",
+  'voice.confidential': "기밀 대화에서는 녹음을 바깥 음성 서비스(OpenRouter)로 보내지 않아서 음성 입력을 쓸 수 없어요. 글로 입력해 주세요.",
 
   'steps.label': '작업 단계',
   'steps.summary': '작업 {n}단계',

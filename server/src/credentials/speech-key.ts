@@ -112,6 +112,11 @@ export function rekeySpeechKey(db: Database, from: Vault, next: Vault): { versio
   return { versions, write: () => { for (const w of writes) w() } }
 }
 
+/** Voice input goes to an outside service now (OpenRouter with a key): the composer says at once that it is not used
+ * in a confidential chat (Me.team.voiceInputOutside; the server refuses it there either way). */
+export function voiceInputOutside(db: Database): boolean {
+  return getTeamSettings(db).speechProvider === 'openrouter' && speechKeySource(db) !== null
+}
 /** Voice input works now: on this server, or OpenRouter with the team's key or the hosting service's. */
 export function voiceInputOn(db: Database): boolean {
   const p = getTeamSettings(db).speechProvider

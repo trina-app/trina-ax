@@ -330,6 +330,7 @@ export const id: Record<MessageKey, string> = {
   'voice.failed': 'Transkripsi gagal.',
   'voice.empty': 'Tidak ada suara yang dikenali. Coba rekam lagi.',
   'voice.offAdmin': "Input suara nonaktif. Aktifkan di Admin › Pengaturan tim.",
+  'voice.confidential': "Input suara tidak tersedia di percakapan rahasia: rekaman tidak dikirim ke layanan suara luar (OpenRouter). Silakan ketik saja.",
 
   'steps.label': 'Langkah kerja',
   'steps.summary': '{n} langkah',

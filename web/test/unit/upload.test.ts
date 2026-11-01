@@ -15,6 +15,7 @@ class MemStorage {
 /** A tiny upload-session server: records calls, can fail chunk PUTs on purpose. */
 function fakeServer(o: { failChunk?: Set<number>; dropAfterStore?: Set<number> } = {}) {
   const calls: string[] = []
+  const transcribeFields: Record<string, string>[] = []
   const sessions = new Map<string, UploadSession & { chunks: Map<number, number> }>()
   const fetchFn = (async (input: RequestInfo | URL, init?: RequestInit) => {
     const url = new URL(String(input), 'http://t')
@@ -24,6 +25,11 @@ function fakeServer(o: { failChunk?: Set<number>; dropAfterStore?: Set<number> }
     if (method === 'POST' && url.pathname === '/api/files/upload') {
       const fd = init!.body as FormData
       return json(entry(`${fd.get('folder')}/${fd.get('name')}`), 201)
+    }
+    if (method === 'POST' && url.pathname === '/api/transcribe') {
+      const fd = init!.body as FormData
+      transcribeFields.push(Object.fromEntries([...fd.entries()].filter(([, v]) => typeof v === 'string')) as Record<string, string>)
+      return json({ jobId: uuidv7() }, 202)
     }
     if (method === 'POST' && url.pathname === '/api/upload-sessions') {
       const b = JSON.parse(String(init!.body))
@@ -49,7 +55,7 @@ function fakeServer(o: { failChunk?: Set<number>; dropAfterStore?: Set<number> }
         }
         return json({ received: [...s.chunks.keys()].sort((a, b) => a - b) })
       }
-      if (m[4]) return json({ kind: 'path', entry: entry((s.target as { path: string }).path) })
+      if (m[4]) return json(s.target.kind === 'transcribe' ? { kind: 'transcribe', jobId: uuidv7() } : { kind: 'path', entry: entry((s.target as { path: string }).path) })
       if (method === 'DELETE') {
         sessions.delete(s.id)
         return new Response(null, { status: 204 })
@@ -59,7 +65,7 @@ function fakeServer(o: { failChunk?: Set<number>; dropAfterStore?: Set<number> }
     }
     return json({ error: { code: 'not_found', message: 'nf' } }, 404)
   }) as typeof fetch
-  return { calls, sessions, client: new ApiClient({ baseUrl: '', fetch: fetchFn }) }
+  return { calls, sessions, transcribeFields, client: new ApiClient({ baseUrl: '', fetch: fetchFn }) }
 }
 
 const bigFile = (chunks: number, extra = 10) => new File([new Uint8Array(UPLOAD_CHUNK_SIZE * chunks + extra).fill(7)], 'big.bin', { lastModified: 1 })
@@ -76,6 +82,20 @@ describe('uploads', () => {
     const r = await uploadFile(new File(['hello'], 'a.txt'), { kind: 'path', path: 'docs/a.txt', onExists: 'rename' }, { client: s.client, storage: null })
     expect(r.kind === 'path' && r.entry.path).toBe('docs/a.txt')
     expect(s.calls).toEqual(['POST /api/files/upload'])
+  })
+
+  test('voice input names its chat (the server refuses to send a confidential chat\'s recording out), small and chunked', async () => {
+    const s = fakeServer()
+    const chatId = uuidv7()
+    const r = await uploadFile(new File(['abc'], 'voice.webm'), { kind: 'transcribe', name: 'voice.webm', chatId }, { client: s.client, storage: null })
+    expect(r.kind).toBe('transcribe')
+    expect(s.transcribeFields).toEqual([{ chatId }])
+    // a new chat (no id yet): no chat field
+    await uploadFile(new File(['abc'], 'voice.webm'), { kind: 'transcribe', name: 'voice.webm' }, { client: s.client, storage: null })
+    expect(s.transcribeFields[1]).toEqual({})
+    const long = await uploadFile(bigFile(1), { kind: 'transcribe', name: 'long.webm', chatId }, { client: s.client, storage: null, retryDelayMs: 0 })
+    expect(long.kind).toBe('transcribe')
+    expect([...s.sessions.values()][0]!.target).toEqual({ kind: 'transcribe', name: 'long.webm', chatId })
   })
 
   test('large files use a chunked session: create, every chunk, complete', async () => {
