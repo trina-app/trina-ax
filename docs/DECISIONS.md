@@ -3392,7 +3392,8 @@ medical edition "allow all websites" off by default.
   Addresses the person typed or allowed are outside it; an address already counted opens again for free. Counted in
   `chat_seen_urls.free_turn_id` with `source` fetched / search / allowed (migration 322, reader 1; old rows count as
   fetched), synchronously so parallel calls cannot share the last places. A scheduled run is one answer (8). The
-  per-page link limit stays 500 (100 after audit data, review Q4).
+  per-page link limit stays 500 (100 after audit data, review Q4). Addresses a connected service returned share this
+  budget for save_url, with an echo check ("save_url" below, 2026-11-01).
 - **Codex search.** `web_search="cached"` (Codex's default) instead of `live`; the model proxy writes
   `external_web_access: false` into every `web_search` tool (top level and `additional_tools`) and refuses
   `web_search_preview`, which ignores it; only a `namespace` entry is a mere container. The CONNECT tunnel (agent-own) cannot see bodies and relies on the CLI flag.
@@ -4954,3 +4955,123 @@ under the answer like the Claude app's sources.
   slides too); Hangul opens at a page `hwp_render` drew. Word and Hangul sections open at the top.
 - Not in v1: inline [1] chips in the answer (founder), re-checking step labels, the hallucinated-link guard for Claude
   and Codex, the mobile app's list (it shows the answer as before).
+
+## save_url: files from the web into the team folder, team images in previews (feat/save-url, 2026-11-01)
+
+The AI could make an image with a connected service (Higgsfield's MCP server, for one) but not keep it: there was no
+binary save tool, an MCP image block became the words "[image image/png, not shown]", a result address opened only
+after a card, and an HTML preview showed no image at all (the frame's CSP allows only `data:` and `blob:`, and the page
+had no folder to resolve `images/hero.png` against). Now it works the way Claude Code does with `curl -o`: save the
+image to a file, then reference the file from the HTML. Founder decisions (2026-11-01): addresses a connection returned are learned links, within
+the link budget and with the echo check; v1 takes images (PNG, JPEG, GIF, WebP), PDF, MP4 / WebM and MP3 / WAV / M4A,
+judged by their bytes, never SVG, HTML or archives; images also pass the isolated normalizer as a decode check and the
+original bytes are saved. Then, the same day: no size limit by type and no hard limit at all — the download streams to
+disk, up to 1 GB without asking, above it a card with the size and the server's free disk; only the disk is a hard
+stop; a scheduled run skips files over 1 GB.
+
+- **`save_url { url, save_as }`** (`server/src/tools/save-url.ts`). `url`: an http(s) address or an `mcp-file:<id>`
+  handle. Order: the path the person may write (no request otherwise; never `skills/`), the address rules that need no
+  lookup (`precheckTarget`), where the address came from (`gateUrl`: the card when needed, no DNS before it), the
+  wider-audience card (`confirmWidening`, before a long download), the download, the type, the image check, then
+  `placeProduced` (permissions again, version snapshot of a file read in this turn or a conflict copy, the turn's file
+  count, a file event with `{tool: 'save_url', url, type}`, the change published). The audit line has the path, size,
+  type, full sha256 and the full address (and the one asked for, after redirects); an `external` event is emitted.
+  Without a turn's wider-audience check it saves only into the person's own folder (fail closed, like make_file).
+  Default folder: `users/<me>/images/` for images, `users/<me>/downloads/` otherwise. Not offered in confidential chats
+  (not a local tool) nor over the remote MCP connector.
+- **The download** (`server/src/tools/download.ts`, shared with generate_video, whose old download checked only the
+  first address and then followed redirects with a plain `fetch`: fixed in its own first commit). Every hop is resolved
+  and checked again with web_fetch's `resolveTarget` and the socket pinned to that address; at most 5 redirects;
+  `Accept-Encoding: identity` (a compressed answer is refused); 15 s per hop to the answer's head, then 30 s without
+  data ends it (not while the person is asked). The body goes to a new 0600 file in `<data>/work/save-url-*` as it
+  arrives, with backpressure; any failure deletes the partial file (the hourly scratch sweep takes what a crash leaves).
+- **Size.** No limit by type. Over 1 GB (`ASK_ABOVE_BYTES`): known from Content-Length, the card comes before anything
+  is written; unknown (chunked or close-delimited), the download writes up to 1 GB, pauses (the socket stays paused,
+  the idle timer off) and asks; "Download" goes on with no limit, "Stop" deletes it. In a scheduled run such a file is
+  skipped with a note for the summary. The card says the size and the server's free disk ("이 파일은 3.2 GB예요. 서버
+  디스크 여유는 40 GB예요. 받을까요?", five languages; `largeUnknown` when the size was not announced).
+- **The disk is the only hard stop.** A download is refused when it would leave less than `diskReserve()` free on the
+  data disk or on the team folder's disk: 10% of the disk, at least 5 GiB, at most 20 GiB. 5 GiB keeps room for what
+  the server itself needs to keep working (the database and its WAL, the copy made before a migration, version history
+  and trash, logs); 10% scales with bigger disks, where the team folder grows faster; the 20 GiB cap keeps a large Mac
+  disk that is 90% full usable (10% of 2 TB would block everything below 200 GB free). Checked before the body (with
+  the announced size) and after every 64 MiB while it streams (with what is still announced, or the next 64 MiB). The
+  refusal carries a sentence for the person in their language (해요체 in Korean). The team's own storage guard
+  (`assertStorageRoomForAI`, Linux / a plan) applies at placement as for every AI write. save_url's bytes do not count
+  against the turn's write budget (`maxWriteBytesPerTurn`, 50 MB, a loop guard for text writes): the card over 1 GB and
+  the disk check bound them, the file count still applies (`placeProduced` option `turnBytes: false`).
+- **Type by the first bytes** (`server/src/tools/sniff.ts`), never by the site's or the service's word: PNG, JPEG, GIF,
+  WebP, PDF, MP4 (ISO brands; HEIC / AVIF and QuickTime `qt  ` are not MP4), WebM (EBML with DocType webm; Matroska is
+  not), MP3 (ID3 or a layer III frame header; AAC ADTS is not), WAV, M4A. Refusals name what it is (SVG, HTML, XML,
+  JSON / text, ZIP or Office, gzip, 7-Zip, RAR, a program, a script, HEIC, MOV, MKV). The extension follows the type and
+  the AI is told when it changed. Images up to `VISION_INPUT_MAX` (32 MiB, the normalizer's own input limit; the
+  founder said "about 50 MB") are decoded by `mycel-safeops vision` in the converter isolation; a file that only starts
+  like an image is refused; too many pixels to decode, or a larger file, is saved with a note that it was checked by
+  its first bytes only. No normalizer on the server: images are refused (fail closed).
+- **Addresses from connections (①c in `url-gate.ts`, save_url only).** URLs written out in an MCP answer's text, its
+  https resource links, and URLs in an api_request answer are remembered per chat (`chat_connection_urls`, migration
+  325) with the connection and the person. save_url opens one without a card while the person can still use that
+  connection, within the same budget as search results and fetched links (counted across both tables: 8 per answer, 30
+  per chat). web_fetch does not take them (it still asks): the founder decision names save_url. A long query (over 200
+  characters) and an unknown exit address still ask, as for every address. An address with a hidden key in it
+  (`[hidden key]`) is not remembered.
+- **The echo check** (`server/src/tools/connection-urls.ts`). A service may repeat what it was sent (a request log, an
+  "image_url" echoed in a job result): then the "service's address" is one the AI chose, and opening it without a card
+  would send what the AI put in it. Every tool input of a chat leaves marks before the call runs (`chat/tools.ts` for
+  the server's and the connections' tools, `chat/turn.ts` tool_start for the engine's own, such as web search): the
+  first 16 bytes of the SHA-256 of each address, of its query (8+ characters), and of each 20-character window of a
+  long random-looking part (`opaqueParts`; long parts sampled to 64 windows). No input text is kept. An address that
+  comes back carrying a mark is remembered as an echo and always asks, with its own card text ("this address (or part
+  of it) matches what the AI had sent to a tool earlier"), and never offers "allow this site". Decided when the address
+  comes back (later marks do not change it). Addresses that came from the services themselves leave no marks when the
+  AI sends them on, so an image-to-image chain (the last result as the next input) does not ask every time. More than
+  50,000 marks in a chat: every new address is an echo. What stays open: a service that keeps what it was sent and
+  returns it later in pieces shorter than a mark; the budget and the long-query card still apply to those.
+- **MCP answers.** tools/call may be up to 25 MB (`MCP_CALL_MAX_BYTES`; initialize and tools/list keep 1 MB, the AI's
+  text keeps 40,000 characters). `pinnedRequest` now looks for the answer's head only in the first 256 KB and calls
+  `until` (the event-stream check) only after a read that brings a line break: before, every network piece re-read the
+  whole body, quadratic for a multi-megabyte image. Image and audio blocks and `resource.blob` are decoded and kept
+  for the chat (`<data>/connection-media/<chat>/<id>.bin` + `.json`, 0600, 24 hours, at most 200 MiB per chat, the
+  oldest go first, swept hourly); the AI gets `[image image/png 1024×1024 812 KB: mcp-file:<id> (save it with save_url
+  …)]`. A handle is 128 random bits and opens only in its chat for the person of that turn; saving it makes no network
+  call and goes through the same type, image and placement checks. When the team allows images for the AI and the
+  engine takes them (`visionBlock`), each image block is also shown to the model, rebuilt by the normalizer, within the
+  turn's image limits (Claude Code shows MCP images too).
+- **Previews show team files** (`web/src/lib/frame-files.ts`; the CSP is unchanged). Before an HTML or SVG page goes
+  into the frame (scripted or static), it is parsed with DOMParser and its image and media references (`img src` /
+  `srcset`, `source`, `video poster`, `audio` / `video src`, `link rel=icon`, SVG `image href`, `url()` in style
+  attributes and `<style>`) become `data:` URLs of team files, fetched with the viewer's permissions: relative to the
+  HTML file's folder, `/…` from the team root, never above it; image and media extensions only; at most 50 files, 10 MB
+  each, 30 MB together. Missing, not allowed or too large: a grey placeholder. Web images stay blocked, as a
+  placeholder, with a note above the frame ("바깥 이미지 N개는 미리보기에서 막혀요 — AI에게 파일로 저장해 달라고
+  하세요", five languages). An HTML file passes itself as `embedIn` and the download answers 403 `embed_narrower` for a
+  file that someone who can read the page cannot read (`server/src/team-files/embed.ts`): a scripted page can still
+  make the browser connect to a host name it chose (lib/artifacts.ts `frameRunsScripts`), so a shared page must never
+  see a restricted image of the person looking at it. Artifacts resolve against the team root without `embedIn` (only
+  the chat's owner sees them, and their AI acted with the same permissions). Not in v1: images a script makes while the
+  page runs (a React artifact's `<img>`). The frame's key is a short hash of the page, not the page text.
+- **The AI is told** in save_url's, write's and artifact's descriptions and a line of the system prompt (sub-agents
+  too): save the image with save_url next to the page, right away (result links expire), and reference it by a relative
+  path; previews show only team files.
+- **Migration 325** (`325_c_connection_urls.sql`): two new tables, `chat_connection_urls` and `chat_sent_marks`, both
+  `ON DELETE CASCADE` from their chat (and the connection and person). The plan's way (add `'connection'` to the CHECK
+  of `chat_seen_urls.source`) needs a table rebuild, which the migration rules do not allow (server/src/db.ts:
+  additive only, never rebuild or rename). No `min_compatible_reader`: the schema reader level stays 4, and 0.2.16
+  (reader 4) opens a database with 325 applied (it ignores the new tables; a rollback only loses save_url's learned
+  links and marks, which then ask again).
+- Tests: `tests/unit/download.test.ts` (generate_video's download: every hop, metadata / LAN / mapped-IPv6 / localhost
+  / ftp redirects, private DNS answers, the exit address, TLS, framing, cut-off and stalled bodies), `save-url.test.ts`
+  (type by bytes against a lying Content-Type, SVG / HTML / ZIP refused, extensions, decode check, conflict copy and
+  version, no request before the path / skills / wider-audience checks or after a declined card, redirects into private
+  addresses, the card over the line by Content-Length and while streaming (nothing past the line before the answer), a
+  scheduled run skipping, the disk reserve up front and while streaming, mcp-file handles across chats and people,
+  sniffing, connection addresses within the budget, echoes by address / query / window, the image-to-image
+  exemption, a connection the person cannot use, migration 325's reader level), `c-integrations-media.test.ts` (the
+  synthetic Higgsfield-like fixture `tests/fixtures/higgsfield-mcp/tools-call.json` — written by hand, not recorded:
+  result address, resource link, inline image as a handle; a 3 MB answer works and a 26 MB one is refused; echoes
+  through MCP and api_request; the sweep), `tests/security/save-url-echo.test.ts` (a real turn: the echoed address
+  asks and is not opened when declined, the service's own address passes the gate without a card, web_fetch still
+  asks, a handle from another chat is not found), `frame-embed.test.ts`, `web/test/unit/frame-files.test.ts`,
+  `web/test/e2e/frame-files.spec.ts` (the relative image shown as `data:` in the frame, the web image a placeholder with
+  the note, an unreadable and a narrower file not inlined, static mode, an artifact), with `sandbox-exfil.spec.ts`
+  unchanged.
