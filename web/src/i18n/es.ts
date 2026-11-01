@@ -1193,6 +1193,7 @@ export const es: Record<MessageKey, string> = {
   'audit.act.engines.update': "Cambió la configuración del motor de IA",
   'audit.act.storage.warn': "Almacenamiento superior al 80% (administradores avisados)",
   'audit.act.schedule.deferred': "Pospuso una tarea programada (cola llena)",
+  'audit.act.schedule.waited': "Tarea programada en espera (su ejecución anterior seguía en curso)",
   'audit.act.schedule.review_paused': "Tarea programada en pausa hasta que su propietario la revise",
   'audit.act.schedule.reconfirmed': "Tarea programada revisada y reanudada",
   'audit.act.schedule.paused': "Pausó una tarea programada",

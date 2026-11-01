@@ -5238,3 +5238,17 @@ works in the new folder: the form says so. If the folder cannot be made, turning
   server, new chats with and without 1A, another person's chat, locked while queued, locked during the first try, upload
   sessions at create and complete), `a-speech-settings.test.ts` (the Me flag), `web/test/unit/voice.test.ts`,
   `upload.test.ts`, `web/test/e2e/voice.spec.ts`.
+
+## Scheduled runs of one task never overlap (fix/batch-0218, 2026-11-01)
+
+- "Run now" was refused while a run of the task was queued or running, but `runDue` did not look: pressing "지금 실행"
+  just before the task's time started its timed run next to it, two chats doing the same work (a template writing the
+  same output file twice at once).
+- **The timed run waits, it is not skipped.** Run now is outside the schedule (it never moves the next run or uses up a
+  one-time task, "Scheduled tasks: run now, edit, pause"), so skipping would make it do exactly that. While a run of
+  the same task (`turns.schedule_id`, `queued` or `running`) is going, `runDue` leaves the occurrence as it is
+  (`next_run_at` or `pending_due_at` keep its key; nothing is written, so a restart still runs it) and starts it at the
+  first tick (30 s) after that run ends, keyed by the time it was due; the schedule then goes on from there. The wait is
+  logged once per occurrence: audit `schedule.waited` (`originalDue`, `runningChatId`; label in Activity, five
+  languages) and an info line. A long wait also writes `schedule.coalesced` when it starts, like any late start.
+- Tests: `tests/unit/schedule-edit.test.ts` ("runs of one task never overlap").

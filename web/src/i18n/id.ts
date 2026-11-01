@@ -1227,6 +1227,7 @@ export const id: Record<MessageKey, string> = {
   'audit.act.engines.update': 'Mengubah pengaturan mesin AI',
   'audit.act.storage.warn': 'Penyimpanan lebih dari 80% (admin diberi tahu)',
   'audit.act.schedule.deferred': 'Tugas terjadwal ditunda (antrean penuh)',
+  'audit.act.schedule.waited': "Tugas terjadwal menunggu (jalannya sebelumnya masih berlangsung)",
   'audit.act.schedule.review_paused': 'Tugas terjadwal dijeda sampai pemiliknya memeriksanya',
   'audit.act.schedule.reconfirmed': 'Tugas terjadwal diperiksa lagi dan dilanjutkan',
   'audit.act.schedule.paused': "Menjeda tugas terjadwal",

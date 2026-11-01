@@ -1193,6 +1193,7 @@ export const ja: Record<MessageKey, string> = {
   'audit.act.engines.update': "AIエンジンの設定を変更",
   'audit.act.storage.warn': "ストレージ使用率80%超過（管理者に通知）",
   'audit.act.schedule.deferred': "定期タスクを延期（待機列が満杯）",
+  'audit.act.schedule.waited': "定期タスクを待機（前の実行がまだ進行中）",
   'audit.act.schedule.review_paused': "定期タスクを本人の確認まで一時停止",
   'audit.act.schedule.reconfirmed': "定期タスクを再確認して再開",
   'audit.act.schedule.paused': "定期タスクを一時停止",

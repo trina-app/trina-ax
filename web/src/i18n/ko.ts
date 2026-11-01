@@ -1226,6 +1226,7 @@ export const ko = {
   'audit.act.engines.update': 'AI 엔진 설정 변경',
   'audit.act.storage.warn': '저장 공간 80% 넘음 알림',
   'audit.act.schedule.deferred': '예약 작업 미룸(대기열 가득)',
+  'audit.act.schedule.waited': "예약 작업 기다림(이전 실행이 아직 진행 중)",
   'audit.act.schedule.review_paused': '예약 작업 확인 대기로 멈춤',
   'audit.act.schedule.reconfirmed': '예약 작업을 다시 확인하고 켬',
   'audit.act.schedule.paused': "예약 작업 끔",

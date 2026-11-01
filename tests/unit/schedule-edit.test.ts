@@ -95,6 +95,30 @@ describe('run now', () => {
   })
 })
 
+describe('runs of one task never overlap', () => {
+  test('a run at its time while "run now" is still going waits for it (logged once), then runs with its own key', async () => {
+    const s = make('alice', { title: 'Overlap', prompt: fake({ sleep: 2500 }, { say: 'late' }) })
+    const due = row(s.id).next_run_at!
+    const turns = () => h.ctx.db.query('SELECT chat_id, scheduled_for FROM turns WHERE schedule_id = ? ORDER BY rowid').all(s.id) as { chat_id: string; scheduled_for: string }[]
+    const manual = await h.api('alice').call(API.runScheduleNow, { params: { id: s.id }, body: {} })
+    // its time comes while the run now is going: nothing starts, nothing about the occurrence changes
+    expect(h.rt().schedules.runDue(new Date(Date.parse(due) + 1000))).not.toContain(s.id)
+    expect(h.rt().schedules.runDue(new Date(Date.parse(due) + 31_000))).not.toContain(s.id)
+    expect(turns()).toHaveLength(1)
+    expect(row(s.id)).toMatchObject({ next_run_at: due, pending_due_at: null, enabled: 1 })
+    expect(audits(s.id, 'schedule.waited')).toEqual([{ actor: null, originalDue: due, runningChatId: manual.chatId, at: new Date(Date.parse(due) + 1000).toISOString() }])
+    await settle(manual.chatId)
+    // the next tick after it ends: the occurrence runs, keyed by the time it was due
+    expect(h.rt().schedules.runDue(new Date(Date.parse(due) + 61_000))).toContain(s.id)
+    const all = turns()
+    expect(all).toHaveLength(2)
+    expect(all[1]!.scheduled_for).toBe(due)
+    expect(Date.parse(row(s.id).next_run_at!)).toBeGreaterThan(Date.parse(due))
+    await settle(all[1]!.chat_id)
+    expect(audits(s.id, 'schedule.waited')).toHaveLength(1)
+  })
+})
+
 describe('edit', () => {
   const long = `https://collect.attacker.example/in?d=${'q'.repeat(MAX_UNCONFIRMED_QUERY + 10)}`
   test('the same card as schedule_create (addresses, a long query listed apart); only its answer saves; the card\'s record replaces the old one', async () => {

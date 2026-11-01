@@ -1227,6 +1227,7 @@ export const en: Record<MessageKey, string> = {
   'audit.act.engines.update': 'Changed AI engine settings',
   'audit.act.storage.warn': 'Storage over 80% (admins told)',
   'audit.act.schedule.deferred': 'Scheduled task postponed (queue full)',
+  'audit.act.schedule.waited': "Scheduled task waited (its previous run was still going)",
   'audit.act.schedule.review_paused': 'Scheduled task paused until its owner checks it',
   'audit.act.schedule.reconfirmed': 'Scheduled task checked again and resumed',
   'audit.act.schedule.paused': "Paused a scheduled task",

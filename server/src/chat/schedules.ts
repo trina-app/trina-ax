@@ -11,7 +11,8 @@
 // (chat/schedule-review.ts, docs/DECISIONS.md "Scheduled tasks nobody confirmed").
 // The office Mac may be off at the time: a run that was missed happens once when the server is back, then the
 // schedule continues from now. Its owner can also run it once now (runNow, "지금 실행") with the same rules, and edit
-// it through the same card (chat/schedule-edit.ts).
+// it through the same card (chat/schedule-edit.ts). Runs of one task never overlap: "run now" is refused while one is
+// queued or running, and a run at its time waits for one (runDue), then runs.
 import type { Database } from 'bun:sqlite'
 import { z } from 'zod'
 import { budgetBlock } from '../admin/budgets'
@@ -242,6 +243,11 @@ export class Schedules {
       // a free-text task nobody confirmed never runs (made before the card, or by an older build): paused for review
       if (needsReview(s)) { this.pauseForReview(s, now); continue }
       const originalDue = s.pending_due_at ?? s.next_run_at!
+      // a run of the same task is still queued or running ("지금 실행" just before its time, or a slow earlier run):
+      // this occurrence waits for it and starts at a tick after it ends, never next to it (two runs would write the
+      // same output). Nothing is written meanwhile: next_run_at / pending_due_at keep its key, so a restart still runs it.
+      const running = this.runningChat(s)
+      if (running) { this.noteWaiting(s, originalDue, running, now); continue }
       // Durable before admission: crash here leaves this exact occurrence pending for the next process.
       this.db.query('UPDATE schedules SET pending_due_at=COALESCE(pending_due_at,?) WHERE id=?').run(originalDue, s.id)
       const next = s.repeat === 'once' ? null : nextRun(s, now, this.rt.timeZone)
@@ -273,6 +279,20 @@ export class Schedules {
       }
     }
     return started
+  }
+
+  /** The chat of a run of this task that is queued or running now, or null. */
+  private runningChat(s: ScheduleRow): string | null {
+    return (this.db.query("SELECT chat_id FROM turns WHERE schedule_id = ? AND user_id = ? AND status IN ('queued','running') LIMIT 1").get(s.id, s.user_id) as { chat_id: string } | null)?.chat_id ?? null
+  }
+
+  /** An occurrence waits for the run before it: logged once (audit `schedule.waited`), not at every tick. */
+  private noteWaiting(s: ScheduleRow, originalDue: string, runningChatId: string, now: Date) {
+    const seen = this.db.query("SELECT 1 FROM audit_log WHERE action = 'schedule.waited' AND target = ? AND json_extract(detail, '$.originalDue') = ? LIMIT 1").get(s.id, originalDue)
+    if (seen) return
+    this.db.query("INSERT INTO audit_log(actor_id,action,target,detail) VALUES(NULL,'schedule.waited',?,?)")
+      .run(s.id, JSON.stringify({ originalDue, runningChatId, at: now.toISOString() }))
+    this.rt.log.info('scheduled run waits for the run of the same task before it', { schedule: s.id, originalDue })
   }
 
   private start(s: ScheduleRow, now: Date, originalDue: string, commit: (chatId: string | null) => void, how: 'scheduled' | 'manual' = 'scheduled'): string | null {

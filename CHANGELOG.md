@@ -7,6 +7,7 @@ This file summarizes user-visible changes; it is not a list of every commit.
 
 - Copying an answer keeps where a file link points. A link to a team file at a page, a sheet (and its rows) or a slide pasted as a link to the start of the file, because the copy dropped `&page=2`, `&sheet=…`, `&range=…` and `&slide=…`; now the pasted link keeps every part of the address the link in the app had.
 - Voice input in confidential chats no longer goes to OpenRouter. The server did not know which chat a recording was for, so a confidential chat's voice input went to the team's speech provider like any other (the sound of files never did). Now the message box tells the server the chat, and the server refuses to send a confidential chat's recording out; the message box says so before you start recording ("기밀 대화에서는 녹음을 바깥 음성 서비스(OpenRouter)로 보내지 않아서 음성 입력을 쓸 수 없어요."), in all five languages. With "On this server" voice input still works there, since nothing leaves the server. A new chat counts as confidential only while every chat is (Safe operations 1A).
+- Scheduled tasks: pressing "Run now" just before a task's time no longer starts its timed run at the same moment. The timed run now waits until the run that is going has finished, then runs once (Admin › Activity log shows "Scheduled task waited"); it is not skipped, so a one-time task still runs at its time.
 
 ## 0.2.17 — 2026-11-01
 
