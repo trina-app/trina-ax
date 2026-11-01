@@ -193,8 +193,17 @@ export function windowEnd(window: string, timeZone: string, now: Date): Date {
 export function nextRunAt(s: Pick<OfficeSchedule, 'window' | 'timeZone'>, now = new Date(), paused = false): Date | null {
   if (paused) return null
   const q = 15 * 60_000
-  let t = Math.ceil((now.getTime() + 1) / q) * q
-  for (let i = 0; i < 2 * 96; i++, t += q) if (inWindow(s.window, new Date(t), s.timeZone)) return new Date(t)
+  const up = (t: number) => Math.ceil(t / q) * q
+  // inside the window now: the next start; else the first start after the window opens today, tomorrow or the day
+  // after (a few zone conversions: the web asks for this every few seconds while an update runs)
+  const next = up(now.getTime() + 1)
+  if (inWindow(s.window, new Date(next), s.timeZone)) return new Date(next)
+  const [h, m] = s.window.slice(0, 5).split(':').map(Number) as [number, number]
+  for (let day = 0; day < 3; day++) {
+    const p = zonedParts(new Date(now.getTime() + day * 86_400_000), s.timeZone)
+    const t = up(zonedToUtc(p.y, p.m, p.d, h, m, s.timeZone).getTime())
+    if (t > now.getTime() && inWindow(s.window, new Date(t), s.timeZone)) return new Date(t)
+  }
   return null
 }
 
