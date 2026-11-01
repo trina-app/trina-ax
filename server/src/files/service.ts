@@ -839,6 +839,8 @@ export class FileService {
     const pieces: media.Piece[] = []
     const notes: string[] = []
     let covered = w.from, made = 0, sentSec = 0, newSec = 0, cached = 0, silent = 0, probed = false
+    /** a language a retry proved for this file in this read: the next short pieces are told it at once */
+    let proven: string | undefined
     let stopped: string | null = null
     let failure: string | null = null
     // the audit row covers every piece handed to the provider, also when the read then fails, is stopped or loses access
@@ -875,24 +877,38 @@ export class FileService {
             if (voice.voiced < media.MIN_VOICED_SEC) { piece = media.SILENT_PIECE; silent++ }
             else {
               const short = voice.voiced < media.SHORT_SPEECH_SEC
-              let language = short ? media.transcriptLanguages(heard)[0] : undefined
               newSec += len
               sentSec += len
+              // its time counts in this server's speed only with real speech in it (room tone is quick for whisper.cpp)
+              const measure = voice.loud >= media.SPEED_SPEECH_SEC
               const ask = (lang: string | undefined) => speech!.provider === 'local'
-                ? this.localPiece(ctx, speech!, work, wav, bytes, len, lang, budget, need)
+                ? this.localPiece(ctx, speech!, work, wav, bytes, len, lang, budget, need, measure)
                 : this.mediaTranscribe(speech!, work, wav, bytes, { signal: ctx.signal, timeoutMs: budget(), language: lang })
+              // A short piece runs on whisper's own guess, or at once on a language a retry already proved in this read.
+              // When whisper is unsure, it runs again told the file's language (the one most heard in pieces it was sure
+              // of) or else the team's; that answer is kept only when it is not "(speaking in foreign language)" and is
+              // written like the first one (another writing system is a translation, measured); a retry that fails keeps
+              // the first answer. A told language is never reported as heard (real-server re-check N1 and its review).
+              let language = short ? proven : undefined
               let answer = await ask(language)
-              // whisper.cpp unsure of a short piece with nothing else heard: again, told the team's language, while the
-              // time allows; its own guess stays when there is no time, or when told the team's language it answers
-              // only "(speaking in foreign language)" (measured: an English team's 4 s of Korean)
-              if (short && !language && typeof answer === 'object' && answer.languageP !== undefined && answer.languageP < media.LANGUAGE_SURE && answer.language !== team
-                && budget() >= need) {
-                const again = await ask(team)
-                if (typeof again === 'object' && !media.saysOtherLanguage(again)) { answer = again; language = team }
+              if (language && typeof answer === 'object' && media.saysOtherLanguage(answer)) { language = undefined; answer = await ask(undefined) }
+              if (short && !language && typeof answer === 'object' && answer.languageP !== undefined && answer.languageP < media.LANGUAGE_SURE) {
+                const told = media.heardLanguage(heard) ?? team
+                if (told !== answer.language && budget() >= need) {
+                  let again: Awaited<ReturnType<typeof ask>> | null = null
+                  try { again = await ask(told) } catch {
+                    // Stop and a replaced work folder end the read; any other failure keeps the first answer
+                    ctx.signal?.throwIfAborted()
+                    media.assertWork(work)
+                  }
+                  if (again && typeof again === 'object' && !media.saysOtherLanguage(again) && media.sameWritingSystem(answer, again)) { answer = again; language = told; proven = told }
+                }
               }
               // whisper.cpp had no time for it after all, or voice input is using it: not made, nothing handed over
               if (answer === 'time' || answer === 'voiceBusy') { sentSec -= len; stopped = answer; break }
-              piece = media.pieceOf(answer, start, len, voice, language)
+              // its language counts as the file's when the piece is long, or whisper was sure of it
+              const sure = !short || (answer.languageP !== undefined && answer.languageP >= media.LANGUAGE_SURE)
+              piece = media.pieceOf(answer, start, len, voice, language, !language && sure)
               made++
             }
             // the cache is a saving, not a requirement (a full disk must not lose the transcript just made)
@@ -940,8 +956,9 @@ export class FileService {
   /** One piece through whisper.cpp in its turn (jobs/whisper-turns.ts: voice input goes first, and a piece running when
    * it comes starts again after it), timed for this server's speed. `needMs`: what the read planned for it (the
    * measured speed, or the default for a read's probe piece); after a wait for voice input it is checked again.
+   * `measure`: its time counts in this server's speed (a piece with real speech in it).
    * 'time': no time left for it; 'voiceBusy': voice input kept whisper.cpp longer than PIECE_WAIT_MS. */
-  private async localPiece(ctx: ToolCtx, speech: MediaSpeech, work: string, wav: string, bytes: Buffer, len: number, language: string | undefined, budget: () => number, needMs: number): Promise<MediaAnswer | 'time' | 'voiceBusy'> {
+  private async localPiece(ctx: ToolCtx, speech: MediaSpeech, work: string, wav: string, bytes: Buffer, len: number, language: string | undefined, budget: () => number, needMs: number, measure = true): Promise<MediaAnswer | 'time' | 'voiceBusy'> {
     const model = media.localModelName(this.speech.model), threads = this.speech.threads
     for (let first = true; ; first = false) {
       const need = first ? needMs : Math.min(needMs, media.localPieceNeedsMs(media.localSpeed(this.db, model, threads).secPerSec, len))
@@ -953,11 +970,11 @@ export class FileService {
           return await this.mediaTranscribe(speech, work, wav, bytes, { signal: ctx.signal ? AbortSignal.any([ctx.signal, yieldSignal]) : yieldSignal, timeoutMs: budget(), language })
         } catch (e) {
           // stopped by the read's time: it would have taken at least this long
-          if (e instanceof JobFailure && e.reason === 'timeout') media.recordLocalSpeed(this.db, model, threads, media.now() - t0, len, true)
+          if (measure && e instanceof JobFailure && e.reason === 'timeout') media.recordLocalSpeed(this.db, model, threads, media.now() - t0, len, true)
           throw e
         } finally { ran = media.now() - t0 }
       }, { signal: ctx.signal, waitMs: Math.min(pieceWait(), budget() - need) })
-      if (got.ok) { media.recordLocalSpeed(this.db, model, threads, ran, len); return got.value }
+      if (got.ok) { if (measure) media.recordLocalSpeed(this.db, model, threads, ran, len); return got.value }
       if (got.why === 'busy') return 'voiceBusy'
     }
   }

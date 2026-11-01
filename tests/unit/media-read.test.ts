@@ -721,7 +721,7 @@ describe('review of the small-server fixes', () => {
     expect(out.text).not.toContain('invented over silence')
     // the cache key is new: a piece wrongly kept as silence before is not used again
     expect(media.TranscriptCache.key({ file: 'f'.repeat(64), provider: 'local', model: 'm', piece: 0, pieceSec: 30 }))
-      .toBe(crypto.createHash('sha256').update(JSON.stringify(['transcript-v2', 'f'.repeat(64), 'local', 'm', 30, 0])).digest('hex'))
+      .toBe(crypto.createHash('sha256').update(JSON.stringify(['transcript-v3', 'f'.repeat(64), 'local', 'm', 30, 0])).digest('hex'))
   })
   test('the speed cannot be poisoned: short clips never set it first, one sample moves it at most 2x, a cut-off run only nudges it, a cap', () => {
     A.ctx.db.query(SPEED).run()
@@ -821,7 +821,7 @@ describe('review of the small-server fixes', () => {
   })
   // real-server re-check of 88b0818c (N1): qa-test's team language is English, so short Korean sentences were told
   // "en" and came out as romanized nonsense labelled en
-  test('a short Korean piece on an English team: told the language heard in the file\'s other pieces, not the team\'s', async () => {
+  test('a short Korean piece on an English team: the file\'s language, never the team\'s', async () => {
     updateTeamSettings(A.ctx.db, { defaultLocale: 'en' })
     try {
       probe = audioOnly(60)
@@ -831,10 +831,11 @@ describe('review of the small-server fixes', () => {
       spies.push(spyOn(F(), 'mediaTranscribe').mockImplementation(async (_p, _w, _n, _b, o) => {
         asked.push(o.language)
         const a = audios[audios.length - 1]!
-        return { text: '', language: o.language ?? 'ko', languageP: 0.97, durationSec: 30, segments: [{ start: 1, end: 3, text: a.start === 0 ? '회의를 시작할게요' : '네 좋아요' }] }
+        // the short piece: whisper is unsure, but its guess is Korean, the file's language, so it stays (never told "en")
+        return { text: '', language: o.language ?? 'ko', languageP: a.start === 0 ? 0.97 : 0.4, durationSec: 30, segments: [{ start: 1, end: 3, text: a.start === 0 ? '회의를 시작할게요' : '네 좋아요' }] }
       }))
       const { out } = await read({ file_path: put('ko-on-en.m4a') })
-      expect(asked).toEqual([undefined, 'ko'])
+      expect(asked).toEqual([undefined, undefined])
       expect(out.text).toContain('네 좋아요')
       // the hint is not reported as heard: the one detected language is Korean
       expect(out.text).toContain('(this server, whisper.cpp small; language: ko)')
@@ -883,6 +884,110 @@ describe('review of the small-server fixes', () => {
       expect(media.saysOtherLanguage({ text: '', language: 'en', durationSec: 1, segments: [{ start: 0, end: 1, text: '[Foreign language]' }] })).toBe(true)
       expect(media.saysOtherLanguage({ text: '', language: 'en', durationSec: 1, segments: [{ start: 0, end: 1, text: 'We speak a foreign language here.' }] })).toBe(false)
     } finally { updateTeamSettings(A.ctx.db, { defaultLocale: 'ko' }) }
+  })
+  // re-review of b5e89a8c: the hints of short pieces
+  const shortFile = (n: number, seconds = 4) => { probe = audioOnly(n * 30); audioWav = (_s, len) => realWav(len, (t) => t < seconds) }
+  const team = (l: 'en' | 'ko') => updateTeamSettings(A.ctx.db, { defaultLocale: l })
+  test('an unsure guess is not "heard": it never becomes the language told to the rest of the file', async () => {
+    shortFile(2)
+    const asked: (string | undefined)[] = []
+    spies.push(spyOn(F(), 'mediaTranscribe').mockImplementation(async (_p, _w, _n, _b, o) => {
+      asked.push(o.language)
+      const first = audios[audios.length - 1]!.start === 0
+      if (o.language) return { text: '', language: o.language, durationSec: 30, segments: [{ start: 0.5, end: 3, text: '(speaking in foreign language)' }] }
+      return first ? { text: '', language: 'ja', languageP: 0.3, durationSec: 30, segments: [{ start: 0.5, end: 3, text: 'ちょっと' }] }
+        : { text: '', language: 'ko', languageP: 0.9, durationSec: 30, segments: [{ start: 0.5, end: 3, text: '네 좋아요' }] }
+    }))
+    const { out } = await read({ file_path: put('unsure-first.m4a') })
+    // piece 0: unsure "ja", told the team's "ko" it only says the caption, so "ja" stays, unsure; piece 1 is not told "ja"
+    expect(asked).toEqual([undefined, 'ko', undefined])
+    expect(out.text).toContain('네 좋아요')
+  })
+  test('a language a retry proved is told to the file\'s next short pieces at once (not every piece run twice)', async () => {
+    team('en')
+    try {
+      shortFile(3)
+      const asked: (string | undefined)[] = []
+      spies.push(spyOn(F(), 'mediaTranscribe').mockImplementation(async (_p, _w, _n, _b, o) => {
+        asked.push(o.language)
+        return o.language === 'en' ? { text: '', language: 'en', durationSec: 30, segments: [{ start: 0.5, end: 3, text: 'yes we can' }] }
+          : { text: '', language: 'la', languageP: 0.3, durationSec: 30, segments: [{ start: 0.5, end: 3, text: 'yes vi kan' }] }
+      }))
+      const { out } = await read({ file_path: put('all-short.m4a') })
+      expect(asked).toEqual([undefined, 'en', 'en', 'en'])
+      expect(out.text).not.toContain('vi kan')
+    } finally { team('ko') }
+  })
+  test('a told language that comes back in another writing system is a translation: the first answer stays', async () => {
+    // measured: English told "ko" gave "이제 Friday에 입장해 봅시다.", Korean told "en" gave "The meeting is tomorrow at 3 pm."
+    shortFile(1)
+    spies.push(spyOn(F(), 'mediaTranscribe').mockImplementation(async (_p, _w, _n, _b, o) =>
+      o.language === 'ko' ? { text: '', language: 'ko', durationSec: 30, segments: [{ start: 0.5, end: 3, text: '이제 Friday에 입장해 봅시다.' }] }
+        : { text: '', language: 'en', languageP: 0.4, durationSec: 30, segments: [{ start: 0.5, end: 3, text: "Let's go in on Friday." }] }))
+    const { out } = await read({ file_path: put('translated.m4a') })
+    expect(out.text).toContain("Let's go in on Friday.")
+    expect(out.text).not.toContain('입장해')
+    expect(media.writingSystem('이제 Friday에 입장해 봅시다.')).toBe('hangul')
+    expect(media.writingSystem('The meeting is tomorrow at 3 pm.')).toBe('latin')
+    expect(media.writingSystem('ちょっとチョコ')).toBe('cjk')
+    expect(media.writingSystem('...')).toBeNull()
+  })
+  test('the file\'s language is told only when whisper.cpp is unsure: a sure short English piece after Korean stays English', async () => {
+    probe = audioOnly(60)
+    audioWav = (start, len) => realWav(len, (t) => start === 0 || t < 4)
+    const asked: (string | undefined)[] = []
+    spies.push(spyOn(F(), 'mediaTranscribe').mockImplementation(async (_p, _w, _n, _b, o) => {
+      asked.push(o.language)
+      const first = audios[audios.length - 1]!.start === 0
+      return first ? { text: '', language: 'ko', languageP: 0.98, durationSec: 30, segments: [{ start: 1, end: 29, text: '한국어 회의' }] }
+        : { text: '', language: o.language ?? 'en', languageP: 0.93, durationSec: 30, segments: [{ start: 0.5, end: 3, text: o.language ? '번역된 말' : 'Thanks everyone.' }] }
+    }))
+    const { out } = await read({ file_path: put('ko-then-en.m4a') })
+    expect(asked).toEqual([undefined, undefined])
+    expect(out.text).toContain('Thanks everyone.')
+    expect(out.text).toContain('languages: ko, en')
+  })
+  test('unsure of a short piece: told the language heard (sure) in the file, not the team\'s, when written alike', async () => {
+    probe = audioOnly(60)
+    audioWav = (start, len) => realWav(len, (t) => start === 0 || t < 4)
+    const asked: (string | undefined)[] = []
+    spies.push(spyOn(F(), 'mediaTranscribe').mockImplementation(async (_p, _w, _n, _b, o) => {
+      asked.push(o.language)
+      if (audios[audios.length - 1]!.start === 0) return { text: '', language: 'es', languageP: 0.97, durationSec: 30, segments: [{ start: 1, end: 29, text: 'la reunión de hoy' }] }
+      return o.language === 'es' ? { text: '', language: 'es', durationSec: 30, segments: [{ start: 0.5, end: 3, text: 'muchas gracias' }] }
+        : { text: '', language: 'en', languageP: 0.35, durationSec: 30, segments: [{ start: 0.5, end: 3, text: 'much as grassy us' }] }
+    }))
+    const { out } = await read({ file_path: put('es-then-short.m4a') })
+    expect(asked).toEqual([undefined, undefined, 'es'])
+    expect(out.text).toContain('muchas gracias')
+    expect(out.text).toContain('(this server, whisper.cpp small; language: es)')
+  })
+  test('a retry that fails keeps the first answer, cached, with no failure note', async () => {
+    shortFile(1)
+    spies.push(spyOn(F(), 'mediaTranscribe').mockImplementation(async (_p, _w, _n, _b, o) => {
+      local.calls++
+      if (o.language) throw new JobFailure('internal', { ko: '받아쓰기에 실패했어요(exit 1).', en: 'Transcription failed (exit 1).', id: 'x', ja: 'x', es: 'x' }, 'exit 1')
+      return { text: '', language: 'la', languageP: 0.2, durationSec: 30, segments: [{ start: 0.5, end: 3, text: 'the first answer' }] }
+    }))
+    const rel = put('retry-fails.m4a')
+    const { out } = await read({ file_path: rel })
+    expect(local.calls).toBe(2)
+    expect(out.text).toContain('the first answer')
+    expect(out.text).not.toContain('failed')
+    local.calls = 0
+    expect((await read({ file_path: rel })).out.text).toContain('the first answer')
+    expect(local.calls).toBe(0)
+  })
+  test('a piece with little real speech (room tone) does not count in the speed', async () => {
+    measured(2)
+    probe = audioOnly(30)
+    // a quiet hum at -60 dBFS all through: sound (above -70), but under 3 s above -50
+    audioWav = (_s, len) => realWav(len, () => -57)
+    spies.push(spyOn(F(), 'mediaTranscribe').mockImplementation(async () => { clockMs += 3_000; return { text: '', language: 'en', languageP: 0.9, durationSec: 30, segments: [] } }))
+    await read({ file_path: put('room-tone.m4a') })
+    expect(media.localSpeed(A.ctx.db, media.localModelName(F().speech.model), F().speech.threads).secPerSec).toBe(2)
+    expect(media.voiceOf(realWav(5, () => -57)).loud).toBe(0)
+    expect(media.voiceOf(realWav(5, () => -30)).loud).toBeGreaterThan(4)
   })
   test('whisper.cpp that finished just as voice input came keeps its answer', async () => {
     const work = media.mediaWork(path.join(A.data, 'work'))

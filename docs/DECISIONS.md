@@ -4368,7 +4368,8 @@ the words and reads both; Trina has no shell, so `read` does it on the server. P
     read plan no piece at all): a sample counts at most half or twice the value it meets, weighted by its length
     (0.3 for a 30 s piece, a sixth of that for a 5 s dictation); a clip under 10 s is never the first measurement; a
     run stopped by its time counts only when that is slower than the value; the value stays within 0.05-6 s a second
-    (`LOCAL_SPEED_MAX`, also when read back). And a read whose measured speed lets no piece start still starts its
+    (`LOCAL_SPEED_MAX`, also when read back); a piece with under 3 s above -50 dBFS (room tone, a hum: quick for
+    whisper.cpp) is not measured. And a read whose measured speed lets no piece start still starts its
     first new piece when the time holds one at the default speed, so a wrong value is measured again and comes down.
     A piece costs at least a whole 30 s window, plus 5 s, times 1.2 (`localPieceNeedsMs`); a piece starts only when
     that fits in the time left, and the plan is checked again with the new speed before each piece. A piece stopped by
@@ -4408,19 +4409,25 @@ the words and reads both; Trina has no shell, so `read` does it on the server. P
     cached as silence for 30 days, and next to one loud word two of its three lines were dropped; the cache key is
     `transcript-v2`, so nothing kept by that build is used. Room tone is sound now, and whisper.cpp decides there as
     before the change. Each piece keeps its language and the header names the languages by how long they are spoken
-    (`transcriptLanguages`), never from a silent piece. A piece with under 8 s of sound is told a language, since
-    whisper's guess on a few seconds is often wrong: the one most spoken in the file's other pieces (the window's
-    pieces in the cache, then each piece made); with none heard yet it guesses itself, and only when whisper.cpp is
-    unsure (its own probability under 0.5, read from its log line, so a read's pieces run without `-np`) it is done
-    again told the team's language, unless that answer is only whisper's "(speaking in foreign language)" caption
-    (`saysOtherLanguage`): then its own guess stays. Measured (Debian 13, small, `-nf`) on the QA's 4-6 s Korean TTS
-    pieces: whisper guessed ja, ko, ja at p 0.32-0.36; told `en` it gave romanized words once and only that caption
-    twice; told `ko`, Korean words (garbled by the TTS, as QA saw). So on an English team a short Korean piece with no
-    other piece heard can still come out poorly, but it is never labelled `en`. The first build told every short piece
-    the team's language (real-server re-check N1: qa-test's team is English, so short Korean sentences came out as
-    romanized nonsense labelled `en`). A piece that
-    was told keeps that apart (`Piece.hint`, cached as such) and is never counted as the language heard. Longer pieces
-    are detected, so an English video in a Korean team stays English.
+    (`transcriptLanguages`), never from a silent piece. A piece with under 8 s of sound runs on whisper's own guess
+    first, since a told language can come back as a translation (measured: English told `ko` gave "이제 Friday에 입장해
+    봅시다.", Korean told `en` an English sentence). Only when whisper.cpp is unsure (its own probability under 0.5, read
+    from its log line, so a read's pieces run without `-np`) it runs again told the file's language, the one most spoken
+    in pieces whose language counts (`Piece.sure`: 8 s of sound or more, or whisper sure), else the team's. That answer
+    is kept only when it is not whisper's "(speaking in foreign language)" caption (`saysOtherLanguage`) and is in the
+    same writing system as the first (`writingSystem`: Hangul, Latin, kana/Han); a retry that fails keeps the first
+    answer (only Stop or a replaced work folder end the read). A language a retry proved is told to the read's next
+    short pieces at once (an all-short file does not run every piece twice), and is dropped again for a piece that
+    answers with the caption. A told language is never reported as heard (`Piece.hint`, cached as such), and an unsure
+    guess never becomes the file's language for other pieces. The cache key is `transcript-v3`.
+    - Measured (Debian 13, small, `-nf`) on the QA's 4-6 s Korean TTS pieces: whisper guessed ja, ko, ja at p
+      0.32-0.36; told `en` it gave romanized words once and only the caption twice; told `ko`, Korean words (garbled by
+      the TTS, as QA saw). With the writing-system rule a Korean piece that whisper wrote in kana keeps the kana: the
+      rule gives up that correction to never keep a translation.
+    - History: the first build told every short piece the team's language (real-server re-check N1: qa-test's team is
+      English, so short Korean sentences came out as romanized nonsense labelled `en`); the next one told it the file's
+      language up front and counted unsure guesses as heard (re-review of b5e89a8c). Longer pieces are always detected,
+      so an English video in a Korean team stays English.
   - **The window** keeps a sentence that began just before it (`end > from && start < to`).
   - **Settings form.** Picking another provider in the form shows that provider's default; picking the saved one
     again brings the saved choice back. Only a save that changes the provider resets it (`transcriptsAfterProvider`).

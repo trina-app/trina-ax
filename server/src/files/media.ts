@@ -148,6 +148,10 @@ export function localPiecesThatFit(budgetMs: number, secPerSec: number, pieceSec
  * and whisper.cpp decides there as before. */
 const VOICE_FRAME_SEC = 0.1
 const VOICE_RMS = 32768 * 10 ** (-70 / 20)
+/** a frame of real speech (or music) for the speed: above -50 dBFS RMS; a piece with less than SPEED_SPEECH_SEC of it
+ * (room tone, a hum) is quick for whisper.cpp and would drag the measured speed down */
+const LOUD_RMS = 32768 * 10 ** (-50 / 20)
+export const SPEED_SPEECH_SEC = 3
 /** less sound than this in a piece: it is silence, and whisper.cpp is not run on it (it invents lines over silence and
  * names a language for them, QA L2) */
 export const MIN_VOICED_SEC = 0.3
@@ -166,7 +170,11 @@ export function saysOtherLanguage(r: TranscribeResult): boolean {
   const lines = r.segments?.length ? r.segments.map((s) => s.text) : [r.text]
   return lines.some((t) => t.trim()) && lines.every((t) => !t.trim() || OTHER_LANGUAGE.test(t))
 }
-export interface Voice { /** seconds with sound */ voiced: number; /** per 100 ms frame from the start of the WAV */ frames: boolean[] }
+export interface Voice {
+  /** seconds with sound */ voiced: number
+  /** seconds above LOUD_RMS (real speech) */ loud: number
+  /** per 100 ms frame from the start of the WAV */ frames: boolean[]
+}
 /** Where a server-made WAV has sound (its data chunk; any other chunk, such as ffmpeg's LIST, is skipped). */
 export function voiceOf(wav: Uint8Array): Voice {
   const b = Buffer.from(wav.buffer, wav.byteOffset, wav.byteLength)
@@ -178,15 +186,18 @@ export function voiceOf(wav: Uint8Array): Voice {
       pos += 8 + size + (size & 1)
     }
   }
-  if (!data) return { voiced: Infinity, frames: [] }
+  if (!data) return { voiced: Infinity, loud: Infinity, frames: [] }
   const per = Math.round(16_000 * VOICE_FRAME_SEC)
   const frames: boolean[] = []
+  let loud = 0
   for (let f = 0; (f + 1) * per * 2 <= data.length; f++) {
     let sum = 0
     for (let i = 0; i < per; i++) { const x = data.readInt16LE((f * per + i) * 2); sum += x * x }
-    frames.push(Math.sqrt(sum / per) > VOICE_RMS)
+    const rms = Math.sqrt(sum / per)
+    frames.push(rms > VOICE_RMS)
+    if (rms > LOUD_RMS) loud++
   }
-  return { voiced: frames.filter(Boolean).length * VOICE_FRAME_SEC, frames }
+  return { voiced: frames.filter(Boolean).length * VOICE_FRAME_SEC, loud: loud * VOICE_FRAME_SEC, frames }
 }
 /** Whether there is sound near [start, end] seconds of a piece (whisper's times are off by up to about half a second). */
 export function soundNear(v: Voice, start: number, end: number): boolean {
@@ -494,9 +505,10 @@ export function cleanMediaWork(base: string): number {
 
 // ---------------- the transcript cache ----------------
 export interface Segment { start: number; end: number; text: string }
-/** `language`: the language heard (the provider's own guess); `hint`: the language it was told instead (the team's,
- * for a piece with little speech), never reported as heard */
-export interface Piece { segments: Segment[]; language: string | null; hint?: string }
+/** `language`: the language heard (the provider's own guess); `hint`: the language it was told instead (a piece with
+ * little speech), never reported as heard; `sure`: the language counts as the file's (whisper was sure, or the piece had
+ * SHORT_SPEECH_SEC of sound or more), so a short piece may be told it */
+export interface Piece { segments: Segment[]; language: string | null; hint?: string; sure?: boolean }
 
 /**
  * Transcripts by content: `<data>/mediacache/<key>.json` (0700 folder, 0600 files), the key a sha256 of the file's
@@ -506,9 +518,10 @@ export interface Piece { segments: Segment[]; language: string | null; hint?: st
  */
 export class TranscriptCache {
   constructor(readonly dir: string, readonly maxBytes = 200 * 1024 ** 2, readonly maxAgeMs = 30 * 86_400_000) {}
-  /** v2: what the QA build's -50 dBFS gate kept as silence (quiet speech) is not used again */
+  /** v2: what the QA build's -50 dBFS gate kept as silence (quiet speech) is not used again; v3: a piece says whether
+   * its language counts as the file's (Piece.sure), and none told a language from an unsure guess is used again */
   static key(p: { file: string; provider: string; model: string; piece: number; pieceSec: number }): string {
-    return crypto.createHash('sha256').update(JSON.stringify(['transcript-v2', p.file, p.provider, p.model, p.pieceSec, p.piece])).digest('hex')
+    return crypto.createHash('sha256').update(JSON.stringify(['transcript-v3', p.file, p.provider, p.model, p.pieceSec, p.piece])).digest('hex')
   }
   private file(key: string) {
     if (!/^[0-9a-f]{64}$/.test(key)) throw new Error('bad cache key')
@@ -522,7 +535,7 @@ export class TranscriptCache {
       if (!Array.isArray(j.segments)) return null
       const now = new Date()
       try { fs.utimesSync(this.file(key), now, now) } catch { /* fine */ }
-      return { language: typeof j.language === 'string' ? j.language : null, ...(typeof j.hint === 'string' ? { hint: j.hint } : {}), segments: j.segments.filter((s) => typeof s?.start === 'number' && typeof s?.end === 'number' && typeof s?.text === 'string') }
+      return { language: typeof j.language === 'string' ? j.language : null, ...(typeof j.hint === 'string' ? { hint: j.hint } : {}), ...(j.sure === true ? { sure: true } : {}), segments: j.segments.filter((s) => typeof s?.start === 'number' && typeof s?.end === 'number' && typeof s?.text === 'string') }
     } catch { return null }
   }
   set(key: string, piece: Piece) {
@@ -556,7 +569,7 @@ export class TranscriptCache {
 
 /** A provider's answer for one piece -> the piece's segments in file time (whisper's music / blank markers dropped, and
  * lines whose time holds no sound at all: whisper invents them over silence). The language only when a line is left. */
-export function pieceOf(r: TranscribeResult, offset: number, length: number, voice?: Voice, hint?: string): Piece {
+export function pieceOf(r: TranscribeResult, offset: number, length: number, voice?: Voice, hint?: string, sure = false): Piece {
   const raw = r.segments?.length ? r.segments : r.text ? [{ start: 0, end: length, text: r.text }] : []
   const segments = raw
     .filter((s) => !voice || soundNear(voice, Math.max(0, s.start), Math.min(Math.max(s.end, s.start), length)))
@@ -564,7 +577,29 @@ export function pieceOf(r: TranscribeResult, offset: number, length: number, voi
     .filter((s) => s.text && !/^\[(BLANK_AUDIO|MUSIC|음악|music|silence)\]$/i.test(s.text))
   // told the language: what comes back is the hint, not a guess
   if (hint) return { segments, language: null, hint }
-  return { segments, language: segments.length ? r.language : null }
+  return { segments, language: segments.length ? r.language : null, ...(sure && segments.length && r.language ? { sure } : {}) }
+}
+/** The language most spoken in the pieces whose language counts as heard (Piece.sure), or undefined. */
+export const heardLanguage = (pieces: Piece[]): string | undefined => transcriptLanguages(pieces.filter((p) => p.sure))[0]
+
+/** The writing system most of a text's letters are in: a told language that changes it gave a translation, not a
+ * transcript (measured: English told "ko" gave "이제 Friday에 입장해 봅시다.", Korean told "en" an English sentence). Kana
+ * and Han count as one (Japanese mixes them; Chinese and Japanese guesses swap). null: no letters. */
+export function writingSystem(text: string): 'hangul' | 'latin' | 'cjk' | null {
+  const n = { hangul: 0, latin: 0, cjk: 0 }
+  for (const ch of text) {
+    if (/\p{Script=Hangul}/u.test(ch)) n.hangul++
+    else if (/\p{Script=Latin}/u.test(ch)) n.latin++
+    else if (/[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}]/u.test(ch)) n.cjk++
+  }
+  const best = (Object.entries(n) as [keyof typeof n, number][]).sort((a, b) => b[1] - a[1])[0]!
+  return best[1] ? best[0] : null
+}
+const answerText = (r: TranscribeResult) => (r.segments?.length ? r.segments.map((x) => x.text).join(' ') : r.text)
+/** Whether `again` is written like `first` (or `first` has no letters to compare). */
+export function sameWritingSystem(first: TranscribeResult, again: TranscribeResult): boolean {
+  const a = writingSystem(answerText(first))
+  return a === null || a === writingSystem(answerText(again))
 }
 /** a piece of silence: nothing sent, nothing said */
 export const SILENT_PIECE: Piece = { segments: [], language: null }
