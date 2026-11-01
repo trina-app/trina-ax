@@ -1726,6 +1726,8 @@ export const ko = {
   'integrations.delete': '{name} 삭제',
   'integrations.checked': '연결을 확인했어요.',
   'integrations.checkFailed': '연결을 확인하지 못했어요. 목록에서 이유를 확인해 주세요.',
+  'integrations.checkFailedKept': '마지막 확인에 실패했어요. {reason} AI는 {date}에 받은 도구 목록을 계속 써요.',
+  'integrations.lastCheckFailed': '마지막 확인에 실패했어요. {reason}',
   'integrations.connected': '연결했어요.',
   'integrations.savedWithError': '저장했지만 연결을 확인하지 못했어요. 목록에서 이유를 확인해 주세요.',
   'integrations.savedNeedsSignIn': '저장했어요. 로그인을 마쳐야 AI가 쓸 수 있어요.',

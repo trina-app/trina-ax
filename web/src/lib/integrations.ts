@@ -196,6 +196,15 @@ export function toolsShortfall(i: Pick<Integration, 'tools' | 'toolsTotal' | 'to
   return i.tools.length > INTEGRATION_TOOLS_OLD_MAX ? 'integrations.toolsCapped' : 'integrations.toolsStale'
 }
 
+/** What Settings says under a connection that is connected although its last check failed (the server keeps a
+ * connected MCP server whose list could not be read this time, slow or away for a moment, with the list saved before:
+ * integrations/connections/service.ts check): why, and which list the AI uses. null: nothing failed, or the row's
+ * status says it (an error, a sign-in needed). */
+export function lastCheckNote(i: Pick<Integration, 'status' | 'lastError' | 'toolsUpdatedAt'>): { key: 'integrations.checkFailedKept' | 'integrations.lastCheckFailed'; reason: string; date: string | null } | null {
+  if (i.status !== 'connected' || !i.lastError) return null
+  return i.toolsUpdatedAt ? { key: 'integrations.checkFailedKept', reason: i.lastError, date: i.toolsUpdatedAt } : { key: 'integrations.lastCheckFailed', reason: i.lastError, date: null }
+}
+
 /** sign-in (OAuth) is offered: an MCP server with sign-in that the person manages */
 export const canSignIn = (i: Integration) => i.kind === 'mcp' && i.auth === 'oauth' && i.canManage
 

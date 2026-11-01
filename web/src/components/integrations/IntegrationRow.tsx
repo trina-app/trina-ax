@@ -1,16 +1,17 @@
 // One external-service connection in a list (Settings > External services, Admin > External services): name, kind,
-// state and why it failed, the stored key or signed-in account (never the key itself), last use, the MCP server's
-// tools (with a switch each for whoever manages it, like Claude's connector tools: a tool turned off is not offered to
-// the AI, server/src/integrations/connections/tools.ts; tools the service adds later are on); and, for people who
-// manage it, check again / sign in / edit / delete. Signing in (MCP OAuth) opens the
-// service's page in a window reserved during the click and polls the flow until the server has the tokens.
+// state and why it failed (or, connected, that its last check failed and which tool list the AI keeps using), the
+// stored key or signed-in account (never the key itself), last use, the MCP server's tools (with a switch each for
+// whoever manages it, like Claude's connector tools: a tool turned off is not offered to the AI,
+// server/src/integrations/connections/tools.ts; tools the service adds later are on); and, for people who manage it,
+// check again / sign in / edit / delete. Signing in (MCP OAuth) opens the service's page in a window reserved during
+// the click and polls the flow until the server has the tokens.
 import clsx from 'clsx'
 import { ChevronDown, ChevronRight, Globe, LogIn, Pencil, RefreshCw, Trash2, Waypoints } from 'lucide-react'
 import { useEffect, useId, useRef, useState, type ReactNode } from 'react'
 import type { Integration, IntegrationFlow } from '@mycel/shared/api'
 import { api, API, errorText } from '../../lib/api'
 import { formatDateTime } from '../../lib/format'
-import { authorizationUrl, canSignIn, STATUS_TONE, toolsShortfall } from '../../lib/integrations'
+import { authorizationUrl, canSignIn, lastCheckNote, STATUS_TONE, toolsShortfall } from '../../lib/integrations'
 import { mobileApp } from '../../lib/mobile'
 import { useLocale, useT } from '../../i18n'
 import { toast } from '../../store/ui'
@@ -150,7 +151,8 @@ export function useIntegrationActions({ add, replace, reload }: { add: (i: Integ
     try {
       const r = await api.call(API.refreshIntegration, { params: { id: i.id }, body: {} })
       replace(r)
-      toast(r.status === 'connected' ? { level: 'success', text: t('integrations.checked') } : { level: 'warn', text: t('integrations.checkFailed') })
+      // connected with a reason: the check failed, the tools saved before stay (the row says so)
+      toast(r.status === 'connected' && !r.lastError ? { level: 'success', text: t('integrations.checked') } : { level: 'warn', text: t('integrations.checkFailed') })
     } catch (e) {
       toast({ level: 'error', text: errorText(e, locale, t('error.network')) })
     } finally {
@@ -207,6 +209,7 @@ export function IntegrationRow({ i, actions, onEdit, teamBadge, extra }: {
   const KindIcon = i.kind === 'mcp' ? Waypoints : Globe
   const off = i.tools.filter((x) => x.enabled === false).length
   const short = toolsShortfall(i)
+  const note = lastCheckNote(i)
   const meta: string[] = []
   if (i.auth === 'bearer' || i.auth === 'header') meta.push(t(i.hasSecret ? 'integrations.keySaved' : 'integrations.keyMissing'))
   if (i.auth === 'oauth' && i.hasSecret) meta.push(i.account ? t('integrations.account', { account: i.account }) : t('integrations.signedIn'))
@@ -228,6 +231,11 @@ export function IntegrationRow({ i, actions, onEdit, teamBadge, extra }: {
           {i.lastError && i.status !== 'connected' && (
             <p className="mt-1 text-xs break-words text-danger" data-testid="integration-error">
               {i.lastError}
+            </p>
+          )}
+          {note && (
+            <p className="mt-1 text-xs break-words text-warn" data-testid="integration-check-failed">
+              {t(note.key, { reason: note.reason, date: note.date ? formatDateTime(note.date, locale) : '' })}
             </p>
           )}
           <p className="mt-1 text-xs text-muted" data-testid="integration-meta">

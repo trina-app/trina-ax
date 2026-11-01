@@ -1727,6 +1727,8 @@ export const en: Record<MessageKey, string> = {
   'integrations.delete': 'Delete {name}',
   'integrations.checked': 'Connection checked.',
   'integrations.checkFailed': 'Could not check the connection. See the list for the reason.',
+  'integrations.checkFailedKept': 'Last check failed: {reason} The AI keeps using the tool list from {date}.',
+  'integrations.lastCheckFailed': 'Last check failed: {reason}',
   'integrations.connected': 'Connected.',
   'integrations.savedWithError': 'Saved, but the connection check failed. See the list for the reason.',
   'integrations.savedNeedsSignIn': 'Saved. Finish signing in so the AI can use it.',

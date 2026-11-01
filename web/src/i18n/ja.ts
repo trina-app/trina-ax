@@ -1687,6 +1687,8 @@ export const ja: Record<MessageKey, string> = {
   'integrations.delete': "{name}を削除",
   'integrations.checked': "接続を確認しました。",
   'integrations.checkFailed': "接続を確認できませんでした。一覧で理由を確認してください。",
+  'integrations.checkFailedKept': "前回の確認に失敗しました：{reason} AIは{date}のツール一覧を引き続き使います。",
+  'integrations.lastCheckFailed': "前回の確認に失敗しました：{reason}",
   'integrations.connected': "接続しました。",
   'integrations.savedWithError': "保存しましたが、接続確認に失敗しました。一覧で理由を確認してください。",
   'integrations.savedNeedsSignIn': "保存しました。AIが使えるようにログインを完了してください。",

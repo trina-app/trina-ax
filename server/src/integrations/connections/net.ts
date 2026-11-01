@@ -1,7 +1,9 @@
 // Requests to external services (docs/INTEGRATIONS.md): https only, the web_fetch address rules (tools/web-fetch.ts
 // resolveTarget: public internet addresses only, never the office network, this server or the office's own exit
 // address), one DNS answer pinned for the connection, no proxy from the environment, no redirects followed, 30 s and
-// 1 MiB (counted while reading, also without Content-Length). Errors carry a reason code, never the remote body.
+// 1 MiB (counted while reading, also without Content-Length; a long answer such as an MCP tools/list has its own
+// deadline and fails sooner only when it stops coming, NetRequest.long). Errors carry a reason code, never the remote
+// body.
 import { PRODUCT } from '@mycel/shared'
 import { ToolError } from '../../policy/errors'
 import { decode, pinnedRequest, resolveTarget, type ResolveOptions } from '../../tools/web-fetch'
@@ -15,6 +17,9 @@ export const USER_AGENT = `${PRODUCT.artifactBase}-integrations/1.0`
 export interface NetOptions extends Pick<ResolveOptions, 'lookup' | 'testAllow' | 'blockedIps'> {
   insecureTlsForTests?: boolean
   timeoutMs?: number
+  /** tests: mcp.ts MCP_LIST_IDLE_MS and MCP_LIST_TIMEOUT_MS */
+  listIdleMs?: number
+  listTimeoutMs?: number
 }
 
 export class NetError extends Error {
@@ -31,11 +36,14 @@ export interface NetRequest {
   maxBytes?: number
   signal?: AbortSignal
   until?: (body: Buffer, head: { status: number; headers: Record<string, string> }) => boolean
+  /** a long answer that may keep coming for longer than the 30 s: read until `deadline` (epoch ms), failing with
+   * 'timeout' sooner only when no bytes arrive for `idleMs`; `reason` when the deadline ends it (mcp.ts tools/list) */
+  long?: { deadline: number; idleMs: number; reason: Reason }
 }
 
 function reasonOf(e: unknown): Reason {
   const m = e instanceof Error ? e.message : ''
-  if (/in time/.test(m)) return 'timeout'
+  if (/in time|stopped sending/.test(m)) return 'timeout'
   if (/ports 80 and 443/.test(m)) return 'blocked_port'
   if (/private|local network|single-label|office's own/.test(m)) return 'private_address'
   if (/TLS|certificate/i.test(m)) return 'tls'
@@ -47,19 +55,24 @@ export async function serviceRequest(url: string, r: NetRequest, o: NetOptions =
   let u: URL
   try { u = new URL(url) } catch { throw new NetError('unreachable') }
   if (u.protocol !== 'https:' || u.username || u.password) throw new NetError('unreachable')
-  const deadline = Date.now() + (o.timeoutMs ?? TIMEOUT_MS)
+  const short = Date.now() + (o.timeoutMs ?? TIMEOUT_MS)
   const max = r.maxBytes ?? MAX_BODY
   let res
+  let reading = false
   try {
-    const target = await resolveTarget(u.href, { lookup: o.lookup, testAllow: o.testAllow, blockedIps: o.blockedIps, deadline })
+    // the name lookup has the 30 s also for a long answer
+    const target = await resolveTarget(u.href, { lookup: o.lookup, testAllow: o.testAllow, blockedIps: o.blockedIps, deadline: Math.min(short, r.long?.deadline ?? short) })
     if (r.signal?.aborted) throw new ToolError('stopped')
+    reading = true
     res = await pinnedRequest(target, {
-      method: r.method, body: r.body ?? null, deadline, maxBytes: max, insecureTlsForTests: o.insecureTlsForTests, signal: r.signal, until: r.until,
+      method: r.method, body: r.body ?? null, deadline: r.long?.deadline ?? short, idleMs: r.long?.idleMs, maxBytes: max, insecureTlsForTests: o.insecureTlsForTests, signal: r.signal, until: r.until,
       headers: [['User-Agent', USER_AGENT], ['Accept-Encoding', 'identity'], ...r.headers],
     })
   } catch (e) {
     if (e instanceof NetError) throw e
     if (r.signal?.aborted) throw new NetError('timeout')
+    // a long answer that kept coming until its deadline, not one that stopped
+    if (reading && r.long && e instanceof Error && /did not answer in time/.test(e.message)) throw new NetError(r.long.reason)
     throw new NetError(reasonOf(e))
   }
   let body = res.body

@@ -4,7 +4,7 @@
 import { describe, expect, test } from 'bun:test'
 import { ApiError, INTEGRATION_TOOLS_MAX, IntegrationInput, IntegrationPatch, type Integration } from '@mycel/shared/api'
 import {
-  authorizationUrl, authOf, covers, dropsSecret, emptyForm, formFrom, needsKey, normalAccess, sameAccess, serverFieldErrors, splitByScope, toInput, toPatch, toolsShortfall, urlProblem, validate, withKind,
+  authorizationUrl, authOf, covers, dropsSecret, emptyForm, formFrom, lastCheckNote, needsKey, normalAccess, sameAccess, serverFieldErrors, splitByScope, toInput, toPatch, toolsShortfall, urlProblem, validate, withKind,
   type IntegrationForm,
 } from '../../src/lib/integrations'
 import { DICTS } from '../../src/i18n'
@@ -178,5 +178,18 @@ describe('the tool list in Settings', () => {
     expect(toolsShortfall(connection({ kind: 'mcp', tools: tools(40), toolsTotal: 40, toolsTotalMore: true }))).toBe('integrations.toolsCappedMore')
     for (const d of Object.values(DICTS)) for (const k of ['integrations.toolsStale', 'integrations.toolsCapped', 'integrations.toolsCappedMore', 'integrations.tools', 'integrations.toolsOf', 'integrations.toolsOfMore'] as const) expect(d[k]).toBeTruthy()
     expect(DICTS.ko['integrations.toolsStale']).toContain('다시 확인')
+  })
+})
+
+describe('a connection whose last check failed', () => {
+  test('connected with a reason: the check failed for now and the AI keeps the list saved before; an error or a sign-in says it in the row', () => {
+    const reason = 'The service did not answer within 30 seconds.'
+    expect(lastCheckNote(connection({ kind: 'mcp' }))).toBeNull()
+    expect(lastCheckNote(connection({ kind: 'mcp', status: 'connected', lastError: reason, toolsUpdatedAt: at }))).toEqual({ key: 'integrations.checkFailedKept', reason, date: at })
+    expect(lastCheckNote(connection({ kind: 'mcp', status: 'connected', lastError: reason }))).toEqual({ key: 'integrations.lastCheckFailed', reason, date: null })
+    expect(lastCheckNote(connection({ kind: 'mcp', status: 'error', lastError: reason, toolsUpdatedAt: at }))).toBeNull()
+    expect(lastCheckNote(connection({ kind: 'mcp', status: 'needs_auth', lastError: reason, toolsUpdatedAt: at }))).toBeNull()
+    for (const d of Object.values(DICTS)) for (const k of ['integrations.checkFailedKept', 'integrations.lastCheckFailed'] as const) expect(d[k]).toContain('{reason}')
+    for (const d of Object.values(DICTS)) expect(d['integrations.checkFailedKept']).toContain('{date}')
   })
 })

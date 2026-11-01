@@ -1727,6 +1727,8 @@ export const id: Record<MessageKey, string> = {
   'integrations.delete': 'Hapus {name}',
   'integrations.checked': 'Koneksi sudah diperiksa.',
   'integrations.checkFailed': 'Koneksi tidak bisa diperiksa. Lihat alasannya di daftar.',
+  'integrations.checkFailedKept': 'Pemeriksaan terakhir gagal: {reason} AI tetap memakai daftar alat dari {date}.',
+  'integrations.lastCheckFailed': 'Pemeriksaan terakhir gagal: {reason}',
   'integrations.connected': 'Terhubung.',
   'integrations.savedWithError': 'Tersimpan, tetapi pemeriksaan koneksi gagal. Lihat alasannya di daftar.',
   'integrations.savedNeedsSignIn': 'Tersimpan. Selesaikan proses masuk agar AI bisa memakainya.',

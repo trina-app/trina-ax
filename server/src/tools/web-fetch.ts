@@ -240,6 +240,9 @@ export interface PinnedRequestInit {
   headers?: [string, string][]
   body?: Buffer | null
   deadline: number
+  /** also fails ("the site stopped sending") when no bytes arrive for this long, from the start and after each read: a
+   * big answer that keeps coming may take until the deadline, one that stops does not (an MCP tools/list, mcp.ts) */
+  idleMs?: number
   maxBytes: number
   insecureTlsForTests?: boolean
   /** called with the body so far (de-chunked) after each read that brings a line break, once the head is in: true = the
@@ -277,8 +280,14 @@ export function pinnedRequest(t: Target, o: PinnedRequestInit): Promise<RawRespo
     const sock: net.Socket = t.url.protocol === 'https:'
       ? tls.connect({ host: t.ip, port: t.port, servername: net.isIP(t.host) ? undefined : t.host, ALPNProtocols: ['http/1.1'], rejectUnauthorized: !o.insecureTlsForTests })
       : net.connect({ host: t.ip, port: t.port })
-    const timer = setTimeout(() => { sock.destroy(); reject(new ToolError('the site did not answer in time')) }, remaining)
-    const stop = () => { clearTimeout(timer); sock.destroy(); reject(new ToolError('stopped')) }
+    let idle: ReturnType<typeof setTimeout> | undefined
+    const clear = () => { clearTimeout(timer); clearTimeout(idle) }
+    const late = (why: string) => () => { clear(); sock.destroy(); reject(new ToolError(why)) }
+    const timer = setTimeout(late('the site did not answer in time'), remaining)
+    const quiet = late('the site stopped sending')
+    const waitIdle = () => { if (o.idleMs) { clearTimeout(idle); idle = setTimeout(quiet, o.idleMs) } }
+    waitIdle()
+    const stop = () => { clear(); sock.destroy(); reject(new ToolError('stopped')) }
     if (o.signal?.aborted) return stop()
     o.signal?.addEventListener('abort', stop, { once: true })
     sock.once('close', () => o.signal?.removeEventListener('abort', stop))
@@ -288,10 +297,11 @@ export function pinnedRequest(t: Target, o: PinnedRequestInit): Promise<RawRespo
     let head_: ReturnType<typeof framingOf> = null
     let tail = Buffer.alloc(0)
     let ended = false
-    const done = () => { clearTimeout(timer); try { resolve(parseResponse(Buffer.concat(chunks), truncated, noBody)) } catch (e) { reject(e) } }
+    const done = () => { clear(); try { resolve(parseResponse(Buffer.concat(chunks), truncated, noBody)) } catch (e) { reject(e) } }
     sock.once(t.url.protocol === 'https:' ? 'secureConnect' : 'connect', () => sock.write(req))
     sock.on('data', (d: Buffer) => {
       if (ended) return
+      waitIdle()
       size += d.length
       // headers + body; the cap applies to the raw stream (compressed bodies are capped again after decoding)
       if (size > o.maxBytes + 64 * 1024) { truncated = true; ended = true; chunks.push(d.subarray(0, Math.max(0, d.length - (size - o.maxBytes - 64 * 1024)))); sock.destroy(); return done() }
@@ -320,7 +330,7 @@ export function pinnedRequest(t: Target, o: PinnedRequestInit): Promise<RawRespo
     sock.on('end', done)
     sock.on('close', () => { if (!truncated) done() })
     sock.on('error', (e: NodeJS.ErrnoException) => {
-      clearTimeout(timer)
+      clear()
       reject(new ToolError(/CERT|SSL|TLS|self.signed|altname/i.test(String(e.code) + e.message) ? `TLS certificate problem: ${e.message}` : `could not connect (${e.code ?? e.message})`))
     })
   })

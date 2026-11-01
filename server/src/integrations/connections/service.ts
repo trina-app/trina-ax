@@ -16,7 +16,7 @@ import { resolveLayout } from '../../system/layout'
 import { egressOf } from '../../tools/egress'
 import { checkHostName, isLocalAddress, isPublicAddress } from '../../tools/web-fetch'
 import { secretHider } from './hide'
-import { McpClient, McpError } from './mcp'
+import { MCP_LIST_TIMEOUT_MS, McpClient, McpError } from './mcp'
 import { NetError, serviceRequest, type NetOptions, type NetResponse } from './net'
 import { authorizationUrl, discover, GrantError, register, revoke, tokenRequest, type OAuthClient, type OAuthSecret, type OAuthServer, type OAuthTokens } from './oauth'
 import {
@@ -401,12 +401,17 @@ export class Integrations {
     if (s) this.setStatus(row, s.status, s.reason)
   }
 
-  /** Check the connection now; MCP: save its tool list. Returns the row as stored afterwards. */
+  /** Check the connection now; MCP: save its tool list. Returns the row as stored afterwards. A connected MCP server
+   * whose list could not be read this time (slow, away for a moment) keeps the list saved before and stays connected,
+   * with the reason (lastError): its tools keep working, and Settings says the last check failed and which list the AI
+   * uses (not "Error"). The next check that reads the list, or a call that goes through (used), clears it. */
   async check(row: Row, signal?: AbortSignal): Promise<Row> {
     try {
       if (row.kind === 'mcp') {
+        // one deadline for the whole check, also when it starts a new session or signs in again (mcp.ts listTools)
+        const deadline = Date.now() + (this.net.listTimeoutMs ?? MCP_LIST_TIMEOUT_MS)
         // the list has the connection's secrets hidden (mcp.ts toolOf): the AI and the people who use it read it
-        const { tools, more, total, unread } = await this.withMcp(row, (c) => c.listTools(signal))
+        const { tools, more, total, unread } = await this.withMcp(row, (c) => c.listTools(signal, deadline))
         // more than the server keeps (its hard ceiling): the total is saved so Settings and the AI's instructions can
         // say "1,000 of 1,200", or "1,000 of more than 1,000" when reading stopped with pages left (mcp.ts listTools)
         this.setStatus(row, 'connected', null, { tools: JSON.stringify(tools), total: more ? Math.max(total, tools.length) : null, totalMore: unread })
@@ -417,8 +422,9 @@ export class Integrations {
         else this.setStatus(row, 'connected', null)
       }
     } catch (e) {
-      const s = statusOf(e)
-      this.setStatus(row, s?.status ?? 'error', s?.reason ?? 'unreachable')
+      const s = statusOf(e) ?? { status: 'error', reason: 'unreachable' }
+      const kept = row.kind === 'mcp' && row.status === 'connected' && s.status === 'error' && PASSING.test(s.reason) && savedTools(this.db, row).length > 0
+      this.setStatus(row, kept ? 'connected' : s.status, s.reason)
     }
     return getRow(this.db, row.id) ?? row
   }
@@ -477,7 +483,8 @@ export class Integrations {
     try {
       const res = await this.send(row, url, { method: req.method, headers: [['Accept', 'application/json, text/plain;q=0.9, */*;q=0.5'], ...(req.contentType ? [['Content-Type', req.contentType] as [string, string]] : [])], body: req.body, signal })
       if (res.status === 401) this.setStatus(row, 'needs_auth', 'refused:401')
-      this.used(row)
+      // only a 2xx says the API works (a 4xx may be the AI's path, a 5xx the service's trouble)
+      this.used(row, res.status >= 200 && res.status < 300)
       return res
     } catch (e) {
       if (!signal?.aborted) this.noteFailure(row, e)
@@ -488,7 +495,14 @@ export class Integrations {
   private async send(row: Row, url: string, r: { method: string; headers: [string, string][]; body?: Buffer | null; signal?: AbortSignal }) {
     return serviceRequest(url, { ...r, headers: [...r.headers, ...(await this.authHeaders(row))] }, this.net)
   }
-  private used(row: Row) { this.db.query('UPDATE integrations SET last_used_at=? WHERE id=?').run(iso(this.now()), row.id) }
+  /** `works`: the call went through, so what a failed check or call left (an error, or "the last check failed") is
+   * cleared; a sign-in that is needed is not (no call runs then, tools.ts) */
+  private used(row: Row, works = true) {
+    const now = iso(this.now())
+    this.db.query('UPDATE integrations SET last_used_at=? WHERE id=?').run(now, row.id)
+    if (works) this.db.query("UPDATE integrations SET status='connected', last_error=NULL, updated_at=? WHERE id=? AND version=? AND status IN ('connected','error') AND (status='error' OR last_error IS NOT NULL)")
+      .run(now, row.id, row.version)
+  }
 
   // ---------------- signing in (OAuth, MCP only) ----------------
   private liveSession(user: string, session: string) {
@@ -586,6 +600,11 @@ export class Integrations {
     } catch { return failed('exchange') }
   }
 }
+
+/** reasons a check fails for now while the service and its saved tools may still work: no answer in time, not
+ * reachable, a list over the limits, the service busy or failing (HTTP 408, 429, 5xx). Not a refused key or sign-in,
+ * an address that is not allowed, a redirect or a bad certificate: those stop the calls too. */
+const PASSING = /^(timeout|list_timeout|unreachable|too_large|http_status:(408|429|5\d\d))$/
 
 /** What a failure says about the connection (null: nothing to record, e.g. the call was stopped). */
 function statusOf(e: unknown): { status: Row['status']; reason: string } | null {

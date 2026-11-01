@@ -59,7 +59,9 @@ describe('tools made per person', () => {
     expect(a.tools.get('my_tasks__create_task')!.description).toStartWith('[Tasks, personal connection] Create a task: Create a task')
     expect(a.tools.get('my_tasks__create_task')!.description).toContain('Changes something')
     expect(a.tools.get('team_teamboard__search_tasks')!.description).toStartWith('[Team board, team connection]')
-    expect(a.tools.get('my_tasks__create_task')!.label!({ title: 'x' }, 'ko')).toBe('Tasks · create_task')
+    // the step shows a short look at the arguments, like Claude Code's tool inputs
+    expect(a.tools.get('my_tasks__create_task')!.label!({ title: 'x' }, 'ko')).toBe('Tasks · create_task (title: "x")')
+    expect(a.tools.get('my_tasks__create_task')!.label!({}, 'ko')).toBe('Tasks · create_task')
     expect(a.tools.get('api_request')!.label!({ connection: 'my_aipm', method: 'post', path: '/tasks?x=1' }, 'en')).toBe('AI PM · POST /tasks')
     const api = a.tools.get('api_request')!
     expect(api.description).toContain('"my_aipm": AI PM (personal connection)')

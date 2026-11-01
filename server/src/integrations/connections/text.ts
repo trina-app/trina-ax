@@ -36,6 +36,8 @@ export const TEXT = {
   // why a check failed (lastError)
   unreachable: t('서비스에 연결하지 못했어요. 주소를 확인해 주세요.', 'Could not reach the service. Check the address.', 'Tidak dapat menghubungi layanan. Periksa alamatnya.', "サービスに接続できませんでした。アドレスを確認してください。", "No se pudo conectar con el servicio. Revise la dirección."),
   timeout: t('서비스가 30초 안에 답하지 않았어요.', 'The service did not answer within 30 seconds.', 'Layanan tidak menjawab dalam 30 detik.', "サービスが30秒以内に応答しませんでした。", "El servicio no respondió en 30 segundos."),
+  // its tools/list kept coming but did not end in time (mcp.ts MCP_LIST_TIMEOUT_MS)
+  list_timeout: t('서비스가 90초 안에 도구 목록을 다 보내지 않았어요.', 'The service did not send its whole tool list within 90 seconds.', 'Layanan tidak mengirim seluruh daftar alatnya dalam 90 detik.', "サービスが90秒以内にツール一覧をすべて送信しませんでした。", "El servicio no envió su lista completa de herramientas en 90 segundos."),
   private_address: t('사내망이나 이 서버의 주소에는 연결할 수 없어요. 인터넷의 공개 주소를 넣어 주세요.', 'Addresses on the office network or of this server cannot be used. Use a public internet address.', 'Alamat di jaringan kantor atau server ini tidak bisa dipakai. Pakai alamat publik di internet.', "社内ネットワークやこのサーバーのアドレスは使用できません。公開インターネットアドレスを使ってください。", "No se pueden usar direcciones de la red interna ni de este servidor. Use una dirección pública de internet."),
   blocked_port: t('https 기본 포트(443)만 쓸 수 있어요.', 'Only the standard https port (443) can be used.', 'Hanya port https standar (443) yang bisa dipakai.', "標準のhttpsポート（443）のみ使用できます。", "Solo se puede usar el puerto https estándar (443)."),
   tls: t('서비스의 보안 인증서를 확인하지 못했어요.', 'The service’s security certificate could not be verified.', 'Sertifikat keamanan layanan tidak dapat diverifikasi.', "サービスのセキュリティ証明書を確認できませんでした。", "No se pudo verificar el certificado de seguridad del servicio."),
@@ -52,7 +54,7 @@ export const TEXT = {
 }
 export type TextKey = keyof typeof TEXT
 /** a reason a connection check failed (integrations.last_error holds "<reason>" or "<reason>:<status>") */
-export type Reason = 'unreachable' | 'timeout' | 'private_address' | 'blocked_port' | 'tls' | 'refused' | 'no_secret' | 'sign_in' | 'redirect'
+export type Reason = 'unreachable' | 'timeout' | 'list_timeout' | 'private_address' | 'blocked_port' | 'tls' | 'refused' | 'no_secret' | 'sign_in' | 'redirect'
   | 'http_status' | 'not_mcp' | 'too_large' | 'oauth_unsupported' | 'oauth_failed' | 'key_unsafe'
 
 export const say = (key: TextKey, locale: Locale, vars: Record<string, string | number> = {}) =>

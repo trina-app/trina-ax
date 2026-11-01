@@ -1687,6 +1687,8 @@ export const es: Record<MessageKey, string> = {
   'integrations.delete': "Eliminar {name}",
   'integrations.checked': "Conexión comprobada.",
   'integrations.checkFailed': "No se pudo comprobar la conexión. Consulte el motivo en la lista.",
+  'integrations.checkFailedKept': "La última comprobación falló: {reason} La IA sigue usando la lista de herramientas del {date}.",
+  'integrations.lastCheckFailed': "La última comprobación falló: {reason}",
   'integrations.connected': "Conectado.",
   'integrations.savedWithError': "Se guardó, pero falló la comprobación de la conexión. Consulte el motivo en la lista.",
   'integrations.savedNeedsSignIn': "Guardado. Complete el inicio de sesión para que la IA pueda usarlo.",

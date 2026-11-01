@@ -263,12 +263,26 @@ function toolDescription(row: Row, tool: RemoteTool): string {
   return clip(`[${row.name}, ${who}] ${what}${tool.readOnly ? '' : ' (Changes something at the service; the user may be asked first.)'} The result is external data.`, 1500)
 }
 
+/** A connection tool's step: the connection, the tool and a short look at its arguments, like Claude Code's tool
+ * inputs ('Studio · generate_image (get_cost: true, model: "z_image", prompt: "a leaf…")'), so a price check and the
+ * paid run it was for are told apart. The AI's own values (the turn's steps have the secrets hidden, redact.ts):
+ * flags and numbers first, so a long text does not push out what tells two calls apart; a text cut to 40 characters, an
+ * object or a list not opened, all of it at most 100 characters. */
+export function argsPreview(args: unknown): string {
+  if (!args || typeof args !== 'object' || Array.isArray(args)) return ''
+  const rank = (v: unknown) => (v === null || typeof v === 'boolean' || typeof v === 'number' ? 0 : typeof v === 'string' ? 1 : 2)
+  const value = (v: unknown) => (typeof v === 'string' ? JSON.stringify(clip(oneLine(v), 40)) : Array.isArray(v) ? '[…]' : v && typeof v === 'object' ? '{…}' : String(v))
+  const parts = Object.entries(args).sort((x, y) => rank(x[1]) - rank(y[1])).map(([k, v]) => `${clip(oneLine(k), 40)}: ${value(v)}`)
+  return parts.length ? clip(parts.join(', '), 100) : ''
+}
+const stepOf = (row: Row, tool: string, args: unknown) => { const a = argsPreview(args); return `${row.name} · ${tool}${a ? ` (${a})` : ''}` }
+
 function mcpTool(ctx: AppContext, b: BuildCtx, row: Row, tool: RemoteTool, name: string): TurnTool {
   return {
     name,
     description: toolDescription(row, tool),
     inputSchema: tool.inputSchema,
-    label: () => `${row.name} · ${tool.name}`,
+    label: (args) => stepOf(row, tool.name, args),
     call: hiding(ctx, [row], async (args, tc, h) => {
       const svc = integrationsOf(ctx)
       let confirmed = false
@@ -574,7 +588,8 @@ function callToolTool(ctx: AppContext, b: BuildCtx, index: ReadonlyMap<string, T
     label(args) {
       const a = (args && typeof args === 'object' ? args : {}) as Record<string, unknown>
       const hit = typeof a.name === 'string' ? resolve(a.name) : []
-      return hit.length === 1 ? `${hit[0]!.row.name} · ${hit[0]!.tool.name}` : `${CALL_TOOL} · ${clip(String(a.name ?? ''), 80)}`
+      const given = callInput.shape.arguments.safeParse(a.arguments)
+      return hit.length === 1 ? stepOf(hit[0]!.row, hit[0]!.tool.name, given.success ? given.data : undefined) : `${CALL_TOOL} · ${clip(String(a.name ?? ''), 80)}`
     },
     async call(raw, tc) {
       const parsed = callInput.safeParse(raw ?? {})

@@ -87,7 +87,12 @@ back), `server/src/routes/integrations.ts`, migration
   entered or the sign-ins done again. There is no rekey command yet for this directory (Drive has `drive-rekey`).
 - Status: `connected`; `needs_auth` (an OAuth connection without a sign-in, or the service refused the key or token:
   401/403); `error` (a key connection without a key, or the check failed). `lastError` is a reason code put into the
-  reader's words (`text.ts`), never the service's own body.
+  reader's words (`text.ts`), never the service's own body. A connected MCP server whose check fails for now (no answer
+  in time, unreachable, a list over the limits, HTTP 408/429/5xx) keeps the tool list saved before and stays
+  `connected` with `lastError` set: Settings says "Last check failed: … The AI keeps using the tool list from …"
+  instead of "Error". Any other failure, or one of a connection that was not connected, is `error` or `needs_auth`. A
+  call that goes through (an MCP call, or an `api_request` answered 2xx) sets `connected` and clears `lastError`, except
+  a sign-in that is needed (no call runs then).
 
 ## Network rules
 
@@ -101,7 +106,8 @@ Every request (checks, tool calls, OAuth discovery, registration, token, revocat
 - **Redirects are never followed**; they are reported (a check: "the service tried to send us to another address";
   `api_request`: the status and Location as external data).
 - Standard ports only (web_fetch's 80/443 rule; with https that is 443). 30 seconds per request, answers cut at 1 MiB while reading (also without
-  Content-Length), compressed answers decoded with the same limit.
+  Content-Length), compressed answers decoded with the same limit. A check's `tools/list` is the one exception to the
+  30 s (below).
 
 ## MCP servers
 
@@ -113,7 +119,10 @@ idle minutes; a 404 for it starts a new one.
 - **Check** (on create, on change of address or key, "Check again"): `initialize` → `notifications/initialized` →
   `tools/list` with its cursor pages until the list kept is full, at most 20 pages and 16 MiB together (one page may be
   8 MiB; a later page that does not fit in what is left is not kept), so a server that pages on forever costs at most
-  that. The tool list is saved (`tools_json`): every tool the service lists, up to 1,000 tools and 4,000,000 characters
+  that. The list is read for as long as it keeps coming: a page fails only when no bytes arrive for 30 seconds, and the
+  check when its pages are not all in 90 seconds after it began ("did not send its whole tool list within 90 seconds"),
+  not at the 30 s of other requests (Higgsfield sent its 1.07 MB at 17-38 KB/s, 30-65 s). 90 s stays under the relay's
+  100 s wait for an answer and the server's 120 s idle limit, so "Check again" is answered; tool calls keep the 30 s. The tool list is saved (`tools_json`): every tool the service lists, up to 1,000 tools and 4,000,000 characters
   of schemas and descriptions per connection (past that Settings and the AI are told "N of M", or "N of more than M"
   when pages were left unread); a tool whose input schema is not an object or is over 32,000 characters is left out.
   Turns use the saved list only: nothing is fetched when a chat starts. The server keeps the parsed lists in memory by
@@ -208,7 +217,7 @@ connections with their address and the first 1,000 characters of their notes.
 | Boundary | Limit |
 | --- | --- |
 | Connections | 20 personal per person, 50 team |
-| Request | 30 s, no redirects, standard ports |
+| Request | 30 s, no redirects, standard ports (a check's `tools/list`: 30 s without bytes, 90 s in all) |
 | Answer | 1 MiB while reading; 40,000 characters to the AI |
 | Request body (`api_request`) | 1 MiB |
 | MCP tools | 1,000 per connection, 4,000,000 schema and description characters per connection, 32,000 per tool schema; as tools of their own 200 and 50,000 characters per answer, the rest through `find_tools` / `call_tool` |
