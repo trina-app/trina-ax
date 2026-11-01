@@ -3,7 +3,7 @@ import { z } from 'zod'
 import { Uuid7 } from '../ids'
 import { EngineId, IsoTime, PageQuery, QueryBool, RelPath, page } from './common'
 import { endpoint, empty } from './endpoint'
-import { Chat, Message, Project } from './entities'
+import { Chat, Message, MessageSources, Project } from './entities'
 import { TurnRequest } from './ws'
 
 // ---------------- chats ----------------
@@ -171,6 +171,7 @@ export const CHATS = {
   listMessages: endpoint({ method: 'GET', path: '/api/chats/:id/messages', auth: 'user', owner: 'B', query: ListMessagesQuery, response: MessagesPage, summary: 'Active branch of the conversation, paged backwards.' }),
   sendMessage: endpoint({ method: 'POST', path: '/api/chats/:id/messages', auth: 'user', owner: 'B', status: 202, body: SendMessageBody, response: TurnStarted, summary: 'Save the message, create the empty answer, queue the turn. Send the X-Mycel-Window header so browser tools reach this window.' }),
   stop: endpoint({ method: 'POST', path: '/api/chats/:id/stop', auth: 'user', owner: 'B', response: StopResponse, summary: 'Stop the running or queued turn of this chat.' }),
+  messageSources: endpoint({ method: 'GET', path: '/api/chats/:id/messages/:messageId/sources', auth: 'user', owner: 'B', response: MessageSources, summary: 'The files the AI read or saw passages of for this answer, each checked against the viewer\'s access now (no name or path for the others).' }),
   regenerate: endpoint({ method: 'POST', path: '/api/chats/:id/messages/:messageId/regenerate', auth: 'user', owner: 'B', status: 202, body: RegenerateBody, response: TurnStarted, summary: 'New answer to the same user message (sibling of :messageId, an assistant message).' }),
   editMessage: endpoint({ method: 'POST', path: '/api/chats/:id/messages/:messageId/edit', auth: 'user', owner: 'B', status: 202, body: EditMessageBody, response: TurnStarted, summary: 'Edited copy of user message :messageId as a new branch, then answer it.' }),
   selectBranch: endpoint({ method: 'POST', path: '/api/chats/:id/branch', auth: 'user', owner: 'B', body: SelectBranchBody, response: MessagesPage, summary: 'Switch the visible branch ("< 2/3 >"); returns the newest page of the new path.' }),

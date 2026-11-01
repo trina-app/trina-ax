@@ -5,7 +5,7 @@ import { HwpPage } from '../hwp'
 import { Uuid7 } from '../ids'
 import { Access, IsoTime, PageQuery, QueryBool, RelPath, SMALL_UPLOAD_MAX, UPLOAD_CHUNK_SIZE, UPLOAD_SESSION_MAX, page } from './common'
 import { binary, endpoint, empty, multipart, stream } from './endpoint'
-import { Attachment, FileEntry, FileHistoryEvent, FileVersion, TrashItem, UploadSession, UploadTarget, UserRef } from './entities'
+import { Attachment, FileEntry, FileHistoryEvent, FileVersion, SourceLoc, TrashItem, UploadSession, UploadTarget, UserRef } from './entities'
 
 export const PathQuery = z.object({ path: RelPath })
 
@@ -123,11 +123,38 @@ export const CONTENT_SHA_HEADER = 'x-content-sha256'
  * - download: the download endpoint itself
  */
 export const FILE_VIEW_PATH = '/files/view'
-export function fileShareUrl(path: string, mode: 'preview' | 'download'): string {
-  // '(' and ')' are encoded too (encodeURIComponent keeps them): a Markdown link to 'Report (final).pptx' or a
-  // conflict copy then has no bare parenthesis that a renderer or a model can cut the URL at.
-  const q = 'path=' + encodeURIComponent(path).replace(/\(/g, '%28').replace(/\)/g, '%29')
-  return mode === 'preview' ? `${FILE_VIEW_PATH}?${q}` : `/api/files/download?${q}&disposition=attachment`
+// '(' and ')' are encoded too (encodeURIComponent keeps them): a Markdown link to 'Report (final).pptx' or a
+// conflict copy then has no bare parenthesis that a renderer or a model can cut the URL at.
+const urlPart = (s: string) => encodeURIComponent(s).replace(/\(/g, '%28').replace(/\)/g, '%29')
+export function fileShareUrl(path: string, mode: 'preview' | 'download', at?: SourceLoc | null): string {
+  const q = 'path=' + urlPart(path)
+  return mode === 'preview' ? `${FILE_VIEW_PATH}?${q}${at ? locQuery(at) : ''}` : `/api/files/download?${q}&disposition=attachment`
+}
+
+/** The place in the file as query parameters of a preview link: &page=12, &sheet=…&range=A1:F40, &slide=3 (a heading
+ * has none: Word and Hangul previews open at the top). */
+export function locQuery(at: SourceLoc): string {
+  switch (at.kind) {
+    case 'page': return `&page=${at.page}`
+    case 'slide': return `&slide=${at.slide}`
+    case 'sheet': return `&sheet=${urlPart(at.sheet)}${at.range ? `&range=${at.range}` : ''}`
+    default: return ''
+  }
+}
+
+/** The place a preview link names (locQuery), or null. Anything malformed is ignored, never guessed. */
+export function locFromQuery(q: URLSearchParams): SourceLoc | null {
+  const n = (v: string | null) => (v && /^\d{1,7}$/.test(v) && Number(v) > 0 ? Number(v) : null)
+  const page = n(q.get('page'))
+  if (page) return { kind: 'page', page }
+  const slide = n(q.get('slide'))
+  if (slide) return { kind: 'slide', slide }
+  const sheet = q.get('sheet')
+  if (sheet && sheet.length <= 200) {
+    const range = q.get('range')
+    return SourceLoc.safeParse({ kind: 'sheet', sheet, ...(range ? { range } : {}) }).data ?? { kind: 'sheet', sheet }
+  }
+  return null
 }
 
 // ---------------- attachments + upload sessions ----------------

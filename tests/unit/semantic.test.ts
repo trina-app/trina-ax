@@ -68,7 +68,7 @@ describe('SemanticIndex', () => {
   })
   test('no embedder (model unavailable): refresh does nothing, query says null', async () => {
     const off = new SemanticIndex({ dataDir: fs.mkdtempSync(path.join(W, 'd')), root, office, embedder: async () => null })
-    expect(await off.refresh()).toEqual({ pending: 0 })
+    expect(await off.refresh()).toEqual({ pending: 0, upgrading: 0 })
     expect(await off.query('x', () => true)).toBeNull()
   })
 })

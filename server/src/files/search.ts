@@ -12,6 +12,10 @@ import { extractText, isOffice, OFFICE_EXT, type Tools } from './extract'
 import { readRegular, sha256 } from './store'
 import { readMaxBytes, rgThreads } from '../system/limits'
 import { isLegacyKorean, isUtf8 } from '@mycel/shared/text-encoding'
+import type { SourceLoc } from '@mycel/shared/api'
+import { locLabel, locsOfLines, structureOf } from './locations'
+
+type Lang = 'ko' | 'en' | 'id' | 'ja' | 'es'
 
 export const RG_BASE = ['--no-config', '--no-ignore', '--hidden', '--no-follow', '--one-file-system', '--max-filesize', '50M',
   '--regex-size-limit', '20M', '--dfa-size-limit', '50M', '--max-columns', '2000', '--max-columns-preview', '--no-messages']
@@ -145,9 +149,10 @@ function legacyKoreanHead(head: Buffer, size: number, wholeFile: () => Buffer): 
 // ---------------- office text sidecar cache ----------------
 /** Extracted text of .docx/.pptx/.xlsx/.pdf files, mirrored under <dataDir>/textcache/<path>.txt (server-only). */
 /** The text format of the cache. Change it when extractText gives other text for the same file (2: docx headers,
- * footers and comments, pptx notes and charts; 3: body lines that start like a section label are indented), so the
+ * footers and comments, pptx notes and charts; 3: body lines that start like a section label are indented; 6: slide
+ * labels, Word / Hangul headings, sheet ranges and `# row N` lines, OCR page breaks, files/locations.ts), so the
  * old text is made again. */
-export const TEXT_CACHE_VERSION = '5'
+export const TEXT_CACHE_VERSION = '6'
 const VERSION_FILE = '.format-version' // cache files all end in .txt, so no file of the team folder has this name
 
 /** office files extracted at the same time by one server (foreground and background together) */
@@ -441,6 +446,9 @@ export interface GrepOpts {
   officeOwner?: string
   /** stop the search (kill ripgrep, stop waiting for office text) when this signal aborts */
   signal?: AbortSignal
+  /** place labels for the lines of documents ("p.12", "sheet '매출' A12:F12"; files/locations.ts) in this language;
+   * without it, no labels (the file screen's content search) */
+  lang?: Lang
 }
 
 /** the longest ripgrep --json record that grep reads (UTF-16 units); the line of a longer record is skipped
@@ -449,8 +457,9 @@ export interface GrepOpts {
  * escaped characters can also be skipped. */
 export const RG_MAX_RECORD_CHARS = 64 * 1024
 
-/** One matching line (content mode): the shown path, its 1-based line number and the line text. */
-export interface GrepHit { path: string; line: number; text: string }
+/** One matching line (content mode): the shown path, its 1-based line number and the line text; for a document line,
+ * its page, sheet row, slide or section when known (files/locations.ts). */
+export interface GrepHit { path: string; line: number; text: string; loc?: SourceLoc }
 
 export async function grepFiles(d: SearchDeps, baseSegs: string[], baseIsFile: boolean, o: GrepOpts) {
   const { roots, excludes } = rootsFor(d, baseSegs, baseIsFile)
@@ -487,6 +496,9 @@ export async function grepFiles(d: SearchDeps, baseSegs: string[], baseIsFile: b
   let truncated = false
   const push = (s: string) => { if (out.length >= o.limit) { truncated = true; return false } out.push(s); return true }
   let last: { file: string; line: number } | null = null
+  /** document lines of the result whose place label is added once ripgrep is done: index in `out` (and in `hits`) */
+  const placed: { out: number; hit: number; real: string; line: number; sep: string; text: string }[] = []
+  let placing: string | null = null
   /** files that are legacy Korean text (decided once per file, only for files with results) */
   const legacy = new Map<string, boolean>()
   const isLegacy = (real: string) => {
@@ -506,7 +518,11 @@ export async function grepFiles(d: SearchDeps, baseSegs: string[], baseIsFile: b
       last = { file: m.shown, line: ln }
       const sep = j.type === 'match' ? ':' : '-'
       const pushed = push(o.lineNumbers ? `${m.shown}${sep}${ln}${sep}${text}` : `${m.shown}${sep}${text}`)
-      if (pushed) { files.add(m.real); if (j.type === 'match') hits.push({ path: m.shown, line: ln, text }) }
+      if (pushed) {
+        files.add(m.real)
+        if (j.type === 'match') hits.push({ path: m.shown, line: ln, text })
+        if (placing && structureOf(m.real)) placed.push({ out: out.length - 1, hit: j.type === 'match' ? hits.length - 1 : -1, real: m.real, line: ln, sep, text })
+      }
       return pushed
     }
     const parts = rec.split('\0')
@@ -640,8 +656,29 @@ export async function grepFiles(d: SearchDeps, baseSegs: string[], baseIsFile: b
         if (!current.has(real)) { const st = visiblePath(d.fx, d.rules, d.user, real); current.set(real, !!st && d.office.fresh(real, st)) }
         return current.get(real)!
       }
+      // the AI's grep only (it gives the language): the file screen's content search shows its own snippets
+      placing = o.mode === 'content' && o.lang ? d.office.dir : null
       const r3 = await run([...common, '--glob', '*.txt', ...excludeArgs(excludes), ...patArgs, '--', ...croots], d.office.dir, handler(map, isCurrent), lastLeft)
+      placing = null
       if (r3.killed === 'timeout') timedOut = true
+      // the place of each document line, from the very text ripgrep searched (the admitted copy, or the cache itself)
+      if (placed.length) {
+        const dir = live ? d.office.dir : (snapshots.get(d.office.dir) ?? null)
+        const byFile = new Map<string, typeof placed>()
+        for (const p of placed) byFile.set(p.real, [...(byFile.get(p.real) ?? []), p])
+        for (const [real, ps] of byFile) {
+          let text: string
+          try { text = dir ? readRegular(path.join(dir, real + '.txt'), RG_MAX_FILE).bytes.toString('utf8') : '' } catch { continue }
+          const locs = locsOfLines(text, real, ps.map((p) => p.line))
+          for (const p of ps) {
+            const loc = locs.get(p.line)
+            if (!loc) continue
+            const tag = `${p.real} [${locLabel(loc, o.lang)}]`
+            out[p.out] = o.lineNumbers ? `${tag}${p.sep}${p.line}${p.sep}${p.text}` : `${tag}${p.sep}${p.text}`
+            if (p.hit >= 0) hits[p.hit]!.loc = loc
+          }
+        }
+      }
     }
   }
   truncated ||= admissionLimited

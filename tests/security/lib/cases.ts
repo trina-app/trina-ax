@@ -118,6 +118,7 @@ export const SPECS: Record<string, Spec> = {
   sendMessage: { build: (c, w) => c.post(`/api/chats/${w.ids.chatA}/messages`, { clientMessageId: cm(), attachmentIds: [], content: 'hi from intruder' }), scope: 'own-alice-chat',
     check: (r, w, who) => { if (who !== 'memberIn' && r.status < 300) throw new Error(`${who} posted into alice's chat`) } },
   stop: { build: (c, w) => c.post(`/api/chats/${w.ids.chatA}/stop`), scope: 'own-alice-chat' },
+  messageSources: { build: (c, w) => c.get(`/api/chats/${w.ids.chatA}/messages/${w.ids.assistantMsg}/sources`), scope: 'own-alice-chat' },
   regenerate: { build: (c, w) => c.post(`/api/chats/${w.ids.chatA}/messages/${w.ids.assistantMsg}/regenerate`, { clientMessageId: cm() }), scope: 'own-alice-chat' },
   editMessage: { build: (c, w) => c.post(`/api/chats/${w.ids.chatA}/messages/${w.ids.userMsg}/edit`, { clientMessageId: cm(), content: 'x' }), scope: 'own-alice-chat' },
   selectBranch: { build: (c, w) => c.post(`/api/chats/${w.ids.chatA}/branch`, { messageId: w.ids.userMsg }), scope: 'own-alice-chat' },

@@ -4,6 +4,7 @@ import type { ApiErrorBody, Attachment, Chat, ChatRunState, EngineId, FileChange
 import { STEP_TEXT } from '@mycel/shared'
 import { newId } from '../db'
 import { isConfidentialChat } from '../safe-ops/confidential'
+import { sourceCount } from '../files/sources'
 
 export interface ChatRow {
   id: string; user_id: string; project_id: string | null; title: string; engine: string; model: string | null
@@ -163,6 +164,8 @@ export class ChatStore {
       // only when it paused at a limit: every other message keeps its earlier shape
       ...(r.role === 'assistant' && stopReasonOf(r.stop_reason) ? { stopReason: stopReasonOf(r.stop_reason) } : {}),
       ...(r.role === 'assistant' && r.history_trimmed === 1 ? { historyTrimmed: true } : {}),
+      // a finished answer's "참고한 파일" count; the list itself is checked for the viewer when it is opened
+      ...(() => { const n = r.role === 'assistant' && r.status !== 'streaming' && !live ? sourceCount(this.db, r.id) : 0; return n ? { sourceCount: n } : {} })(),
     }
   }
   turnUsage(turnId: string): Usage | null {

@@ -214,6 +214,39 @@ export const FileChangeSummary = z.object({
 })
 export type FileChangeSummary = z.infer<typeof FileChangeSummary>
 
+/**
+ * Where in a file a passage is (docs/DECISIONS.md "Sources under each answer"): a PDF page (1-based, as a PDF viewer
+ * counts), a spreadsheet sheet with the A1 range of the rows, a slide (its number in the show order, hidden slides
+ * counted, as PowerPoint numbers them), or the heading of a Word / Hangul section. Absent when it is not known.
+ */
+export const SourceLoc = z.discriminatedUnion('kind', [
+  z.object({ kind: z.literal('page'), page: z.number().int().positive() }),
+  z.object({ kind: z.literal('sheet'), sheet: z.string().max(200), range: z.string().regex(/^[A-Z]{1,3}\d{1,7}(?::[A-Z]{1,3}\d{1,7})?$/).optional() }),
+  z.object({ kind: z.literal('slide'), slide: z.number().int().positive() }),
+  z.object({ kind: z.literal('heading'), heading: z.string().max(200) }),
+])
+export type SourceLoc = z.infer<typeof SourceLoc>
+
+/** One file of an answer's "참고한 파일" list (GET /api/chats/:id/messages/:messageId/sources), as the viewer may see it
+ * now: the AI read it, or saw passages of it in search / grep results, while it wrote the answer. */
+export const MessageSourceFile = z.object({
+  path: RelPath,
+  name: z.string(),
+  /** places the AI looked at (pages, sheets, slides, sections), at most 20; empty: the file as a whole */
+  locs: z.array(SourceLoc).max(20),
+  /** how: 'read' (the read tool), 'search' (passages of search by meaning), 'grep' (matching lines) */
+  via: z.array(z.enum(['read', 'search', 'grep'])).min(1),
+  /** a sub-agent of the answer (not the main AI) opened it; absent: the main AI did */
+  subagent: z.literal(true).optional(),
+})
+export type MessageSourceFile = z.infer<typeof MessageSourceFile>
+export const MessageSources = z.object({
+  files: z.array(MessageSourceFile),
+  /** files the viewer may not open now (access taken away, deleted, moved): counted only, no name or path */
+  unavailable: z.number().int().nonnegative(),
+})
+export type MessageSources = z.infer<typeof MessageSources>
+
 export const MessageStatus = z.enum(['streaming', 'done', 'error', 'stopped'])
 export type MessageStatus = z.infer<typeof MessageStatus>
 /** Why a finished answer ended before the AI was done: it reached the per-answer limit of tool calls (`tool_limit`,
@@ -253,6 +286,9 @@ export const Message = z.object({
   /** answers only: the AI got only the recent part of this conversation (the history a fresh engine session gets is
    * cut at 40,000 characters, and a session resumed from such a start keeps that); absent: all of it */
   historyTrimmed: z.boolean().optional(),
+  /** finished answers only: how many team files the AI read or saw passages of while writing it ("참고한 파일 N개");
+   * the list itself, checked against the viewer's access, comes from GET .../messages/:messageId/sources. Absent: none */
+  sourceCount: z.number().int().positive().optional(),
 })
 export type Message = z.infer<typeof Message>
 

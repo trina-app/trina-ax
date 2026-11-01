@@ -66,6 +66,65 @@ export function formulaStubsAsText(ws: XLSX.WorkSheet): void {
   }
 }
 
+/** A sheet name on one line (the `# sheet:` label is parsed back by files/locations.ts). */
+const labelName = (s: string) => s.replace(/[\u0000-\u001f\u007f\u2028\u2029]+/g, ' ').trim()
+
+/** The rows of a bounded sheet that sheet_to_csv gives with `blankrows: false` (its own test: a cell with a value or a
+ * formula without one), 0-based, in order. */
+function filledRows(ws: XLSX.WorkSheet, r: XLSX.Range): number[] {
+  const data = (ws as { '!data'?: (XLSX.CellObject | undefined)[][] })['!data'] ?? []
+  const out: number[] = []
+  for (let R = r.s.r; R <= r.e.r; R++) {
+    const row = data[R]
+    if (!row) continue
+    for (let C = r.s.c; C <= r.e.c; C++) {
+      const c = row[C]
+      if (c && (c.v != null || (c.f != null && !(c as { F?: string }).F))) { out.push(R); break }
+    }
+  }
+  return out
+}
+
+/** CSV text split into records: a quoted field may hold line breaks (an even number of quotes ends a record). */
+export function csvRecords(csv: string): string[] {
+  if (!csv) return []
+  const out: string[] = []
+  let cur: string | null = null
+  let quotes = 0
+  for (const line of csv.split('\n')) {
+    cur = cur === null ? line : cur + '\n' + line
+    for (let i = line.indexOf('"'); i >= 0; i = line.indexOf('"', i + 1)) quotes++
+    if (quotes % 2 === 0) { out.push(cur); cur = null; quotes = 0 }
+  }
+  if (cur !== null) out.push(cur)
+  return out
+}
+
+/**
+ * A sheet as tab-separated text under its label `# sheet: <name> · A1:F40 (tab-separated)` (the sheet's real range).
+ * Blank rows are left out as before; where rows were left out, a `# row N` line gives the real row number of the next
+ * one, so a part of the text maps back to its A1 range (files/locations.ts). A sheet without cells is labelled
+ * without a range.
+ */
+function sheetPart(name: string, ws: XLSX.WorkSheet): string {
+  const csv = XLSX.utils.sheet_to_csv(ws, { FS: '\t', blankrows: false })
+  if (!ws['!ref']) return `# sheet: ${labelName(name)} (tab-separated)\n` + csv
+  const r = XLSX.utils.decode_range(ws['!ref'])
+  const rows = filledRows(ws, r)
+  const records = csvRecords(csv)
+  // the two must agree record for record; if they ever do not, the text stays as sheet_to_csv gave it (no row lines)
+  if (rows.length !== records.length) return `# sheet: ${labelName(name)} (tab-separated)\n` + csv
+  const range = `${XLSX.utils.encode_col(r.s.c)}${r.s.r + 1}:${XLSX.utils.encode_col(r.e.c)}${r.e.r + 1}`
+  const out: string[] = [`# sheet: ${labelName(name)} · ${range} (tab-separated)`]
+  let next = r.s.r
+  rows.forEach((R, i) => {
+    if (R !== next) out.push(`# row ${R + 1}`)
+    out.push(records[i]!)
+    next = R + 1
+  })
+  return out.join('\n')
+}
+
 export function sheetText(bytes: Uint8Array): string {
   if (isZip(bytes)) checkZip(bytes)
   let wb: XLSX.WorkBook
@@ -81,7 +140,7 @@ export function sheetText(bytes: Uint8Array): string {
     const ws = wb.Sheets[s]!
     formulaStubsAsText(ws)
     boundRange(ws)
-    const part = `# sheet: ${s} (tab-separated)\n` + XLSX.utils.sheet_to_csv(ws, { FS: '\t', blankrows: false })
+    const part = sheetPart(s, ws)
     size += Buffer.byteLength(part, 'utf8') + 2
     if (size > OFFICE_TEXT_MAX) throw tooComplex(`more than ${OFFICE_TEXT_MAX / 1024 / 1024} MB of text`)
     out.push(part)

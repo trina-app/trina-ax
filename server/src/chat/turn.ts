@@ -23,6 +23,7 @@ import type { LaunchHandle } from '../native'
 import type { LaunchRequest } from '@mycel/shared'
 import type { Principal } from '../policy/access'
 import { TurnFiles } from '../files/service'
+import { saveSources } from '../files/sources'
 import { buildSubagentPrompt, buildTurnContext, buildTurnPrompt, continuationBlock, historyTrimmed, neutralizeTags, skillBlock, skillHintsBlock, type PromptInput } from './prompt'
 import { buildAgentDefinitions, initProblem, LOCAL_LOGIN_CONFIDENTIAL_SUBAGENTS, PARENT_ONLY_TOOLS, SUBTASK_STEPS_KEPT, subtaskSummary } from './subagents'
 import { getTeamSettings } from '../admin/settings'
@@ -1305,6 +1306,11 @@ export class TurnExec {
         this.content, JSON.stringify(this.storedSteps()), status, this.error ? JSON.stringify(this.error) : null, files ? JSON.stringify(files) : null,
         stopReason, this.historyTrimmed ? 1 : 0, new Date().toISOString(), this.spec.assistantId)
       if (stopReason) db.query('UPDATE turns SET stop_reason = ? WHERE id = ?').run(stopReason, this.id)
+      // the answer's "참고한 파일" (files/sources.ts): what every agent of the turn read or saw passages of. A failure
+      // here loses the list only, never the turn's own end state below
+      if (this.files.sources.size) {
+        try { saveSources(db, this.spec.assistantId, this.files.sources) } catch (e) { this.rt.log.warn('saving the answer\'s sources failed', { err: e, turn: this.id }) }
+      }
       if (this.subtasks.size) {
         const n = this.subagentTotals()
         db.query('UPDATE turns SET subagents = ?, subagent_tool_uses = ?, subagent_tokens = ? WHERE id = ?').run(n.subagents, n.toolUses, n.tokens, this.id)

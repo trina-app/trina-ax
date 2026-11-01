@@ -27,6 +27,7 @@ import { audit } from '../admin/audit'
 import { tr } from '../chat/i18n'
 import { chatEnginesFor, checkChatEngineChange, newChatEngine, turnEngine, type TurnEngine } from '../admin/engine-choice'
 import { budgetBlock } from '../admin/budgets'
+import { viewSources } from '../files/sources'
 
 const WINDOW_RE = /^[A-Za-z0-9_-]{8,64}$/
 export const windowOf = (c: Context<AppEnv>) => { const w = c.req.header(WINDOW_HEADER); return w && WINDOW_RE.test(w) ? w : null }
@@ -225,6 +226,15 @@ export const chatsRoutes: RouteModule = {
     kit.handle(API.listMessages, ({ params, query, auth }) => {
       const chat = ownChat(rt, auth, params.id, { deleted: true })
       return messagesPage(rt, chat, query.cursor, query.limit ?? 50)
+    })
+
+    // "참고한 파일" under an answer: each file checked again for this person now (files/sources.ts); a file they cannot
+    // open is only counted. The chat is the caller's own, as for every message route.
+    kit.handle(API.messageSources, ({ params, auth }) => {
+      const chat = ownChat(rt, auth, params.id, { deleted: true })
+      const m = messageInChat(rt, chat.id, params.messageId)
+      if (m.role !== 'assistant') return { files: [], unavailable: 0 }
+      return viewSources(ctx.db, ctx.files.fx, () => ctx.files.rules(), auth.user.id, m.id)
     })
 
     kit.handle(API.sendMessage, ({ c, params, body, auth }) => {

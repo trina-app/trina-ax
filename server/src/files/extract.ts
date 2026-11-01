@@ -48,8 +48,8 @@ function ocr(bin: string, bytes: Uint8Array, pdf: boolean, signal?: AbortSignal)
   return pipeThrough([bin, '--max-pages', String(OCR_PAGES_MAX)], bytes, pdf ? 240_000 : 30_000, signal)
 }
 
-async function pipeThrough(cmd: string[], input: Uint8Array, timeoutMs = 20000, signal?: AbortSignal): Promise<string> {
-  const r = await runIsolated({ cmd: cmd[0]!, args: cmd.slice(1), stdin: input, timeoutMs, signal, maxStdout: 32 * 1024 * 1024, env: { LANG: 'C.UTF-8', LC_ALL: 'C.UTF-8' } })
+async function pipeThrough(cmd: string[], input: Uint8Array, timeoutMs = 20000, signal?: AbortSignal, readPaths?: string[]): Promise<string> {
+  const r = await runIsolated({ cmd: cmd[0]!, args: cmd.slice(1), stdin: input, timeoutMs, signal, maxStdout: 32 * 1024 * 1024, env: { LANG: 'C.UTF-8', LC_ALL: 'C.UTF-8' }, ...(readPaths ? { readPaths } : {}) })
   const name = cmd[0]!.split('/').pop()
   if (r.killed === 'timeout') throw new ToolError(`could not convert the file to text (${name}: took too long)`)
   if (r.code !== 0) throw new ToolError(`could not convert the file to text (${name}: ${r.stderr.trim().slice(0, 200) || 'exit ' + r.code})`)
@@ -132,8 +132,8 @@ export async function extractText(name: string, bytes: Uint8Array, tools: Tools,
     case 'docx': case 'pptx': case 'odt': {
       if (!tools.pandoc) throw new ToolError('pandoc is not installed on the server')
       // a body line that starts like a section label (`=== `) gets a space in front, so only the real labels of the
-      // extra text below are at the start of a line
-      const body = pipeThrough([tools.pandoc, '--sandbox', '-f', e, '-t', 'plain', '--wrap=none'], bytes, 20_000, signal).then(quoteLines)
+      // extra text below are at the start of a line; then the slide and heading marks (pandocMarks) become labels
+      const body = pandocBody(tools.pandoc, e, bytes, signal)
       if (e === 'odt') return body
       const [text, extra] = await Promise.all([body, extraText(e, bytes, signal)])
       return extra ? `${text.trimEnd()}\n\n${extra}\n` : text
@@ -160,6 +160,78 @@ export async function extractText(name: string, bytes: Uint8Array, tools: Tools,
       return decodeText(bytes)
     }
   }
+}
+
+/**
+ * A pandoc Lua filter that marks where each slide starts (PowerPoint: pandoc's slide headers have the id slide-N, N its
+ * place in the show order, hidden slides included, like PowerPoint's own numbers) and which paragraphs are headings
+ * (Word, OpenDocument). The marks are lines that start with U+0001, which no Office XML text can hold; markLines turns
+ * them into `=== Slide N ===` and Markdown headings, so files/locations.ts can tell the slide or section of any line.
+ */
+const MARKS_LUA = `function Pandoc(doc)
+  local kind = pandoc.utils.stringify(doc.meta['mycel-marks'] or '')
+  local out = pandoc.List()
+  for _, b in ipairs(doc.blocks) do
+    if b.t == 'Header' and kind == 'slides' then
+      local n = b.identifier:match('^slide%-(%d+)$')
+      if n then out:insert(pandoc.RawBlock('plain', '\\1S' .. n)) end
+      out:insert(b)
+    elseif b.t == 'Header' and kind == 'headings' then
+      local inl = pandoc.List({ pandoc.Str('\\1H' .. tostring(math.min(b.level, 6)) .. '\\1') })
+      inl:extend(b.content)
+      out:insert(pandoc.Plain(inl))
+    else
+      out:insert(b)
+    end
+  end
+  doc.blocks = out
+  return doc
+end
+`
+let marksDir: string | null = null
+/** The filter file, written once per process into a private folder the converter may read (tools/isolate.ts). */
+function marksFilter(): string {
+  if (marksDir && fs.existsSync(path.join(marksDir, 'marks.lua'))) return path.join(marksDir, 'marks.lua')
+  const dir = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'pandoc-marks-')))
+  fs.writeFileSync(path.join(dir, 'marks.lua'), MARKS_LUA, { mode: 0o400 })
+  if (!marksDir) process.once('exit', () => { try { if (marksDir) fs.rmSync(marksDir, { recursive: true, force: true }) } catch {} })
+  marksDir = dir
+  return path.join(dir, 'marks.lua')
+}
+
+/** The marks of MARKS_LUA as labels: `=== Slide N ===` before a slide's text, `## heading` for a heading. A body line
+ * that already starts like a Markdown heading gets a space in front (like quoteLines for `=== `), so only real
+ * headings start a line with `#`. */
+export function markLines(text: string, kind: 'slides' | 'headings'): string {
+  return text.split('\n').map((line) => {
+    if (line.charCodeAt(0) === 1) {
+      const slide = /^\u0001S(\d{1,6})$/.exec(line)
+      if (slide && kind === 'slides') return `${SECTION_MARK}Slide ${Number(slide[1])} ===`
+      const h = /^\u0001H([1-6])\u0001(.*)$/.exec(line)
+      if (h && kind === 'headings') return `${'#'.repeat(Number(h[1]))} ${h[2]!.trim()}`
+      return line.replace(/\u0001/g, '')
+    }
+    return kind === 'headings' && /^#{1,6}(?:\s|$)/.test(line) ? ' ' + line : line
+  }).join('\n')
+}
+
+/** pandoc's plain text of a .docx / .pptx / .odt with slide and heading labels; without them when the filter fails
+ * (an old pandoc), as before. */
+async function pandocBody(pandoc: string, e: 'docx' | 'pptx' | 'odt', bytes: Uint8Array, signal?: AbortSignal): Promise<string> {
+  const kind = e === 'pptx' ? 'slides' : 'headings'
+  const plain = [pandoc, '--sandbox', '-f', e, '-t', 'plain', '--wrap=none']
+  let filter: string | null = null
+  try { filter = marksFilter() } catch { filter = null }
+  if (filter) {
+    try {
+      return markLines(quoteLines(await pipeThrough([...plain, '-L', filter, '-M', `mycel-marks=${kind}`], bytes, 20_000, signal, [path.dirname(filter)])), kind)
+    } catch (err) {
+      signal?.throwIfAborted()
+      if (!(err instanceof ToolError)) throw err
+      // the same pandoc without the filter: a damaged file fails again with its own message
+    }
+  }
+  return quoteLines(await pipeThrough(plain, bytes, 20_000, signal))
 }
 
 const EXTRA_WHAT = { docx: 'headers, footers and comments', pptx: 'speaker notes and chart data' } as const

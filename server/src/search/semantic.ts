@@ -12,16 +12,21 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { isOffice } from '../files/extract'
 import type { OfficeCache } from '../files/search'
+import { chunkDoc } from '../files/locations'
 import { onnxThreads } from '../system/limits'
+import type { SourceLoc } from '@mycel/shared/api'
 
 export const SEMANTIC_MODEL = 'Xenova/multilingual-e5-small'
 const DIM = 384
-const CHUNK = 800
 const FILE_TEXT_MAX = 2 * 1024 * 1024
 const CHUNKS_PER_FILE_MAX = 300
 const TEXT_EXT = new Set(['md', 'markdown', 'txt', 'text', 'csv', 'tsv', 'json', 'yaml', 'yml', 'html', 'htm', 'xml', 'log', 'rtf', 'tex', 'srt', 'vtt'])
 const BATCH = 16
 const RETRY_MS = 10 * 60_000
+/** How a file's pieces were made. 2 (0.2.17): pieces stop at pages, slides, sheets and sections and keep their place
+ * (files/locations.ts). Office and PDF files indexed before are made again once, in the background, newest first,
+ * while their old pieces still answer searches (SemanticIndex.refresh). Plain text pieces are the same as before. */
+export const CHUNK_FORMAT = 2
 
 export type Embed = (texts: string[], kind: 'query' | 'passage') => Promise<Float32Array[]>
 
@@ -169,27 +174,28 @@ export function localEmbedder(modelDir: string, log?: { warn(m: string, d?: obje
   return Object.assign(get, { loaded: () => model !== null, checkIdle, unload })
 }
 
-/** ~800-character pieces along paragraph / line breaks, long lines cut. */
+/** ~800-character pieces along paragraph / line breaks, long lines cut (plain text; documents: files/locations.ts
+ * chunkDoc, which also keeps each piece's place). */
 export function chunkText(text: string): string[] {
-  const out: string[] = []
-  let cur = ''
-  const push = () => { const c = cur.trim(); if (c) out.push(c); cur = '' }
-  for (const raw of text.split(/\n/)) {
-    let line = raw.replace(/[ \t\f\v]+/g, ' ').trimEnd()
-    while (line.length > CHUNK) { if (cur) push(); out.push(line.slice(0, CHUNK).trim()); line = line.slice(CHUNK) }
-    if (cur.length + line.length + 1 > CHUNK) push()
-    cur += (cur ? '\n' : '') + line
-  }
-  push()
-  return out.filter((c) => c.replace(/\s/g, '').length >= 10)
+  return chunkDoc(text, '').map((p) => p.text)
 }
 
-export interface SemanticHit { path: string; score: number; text: string }
+export interface SemanticHit { path: string; score: number; text: string; loc: SourceLoc | null; hash: string }
+
+/** What a refresh left: `pending` new or changed files not indexed yet (search does not find them yet), `upgrading`
+ * files whose older pieces (CHUNK_FORMAT) still answer until they are made again. */
+export interface RefreshResult { pending: number; upgrading: number }
+
+const parseLoc = (s: string | null): SourceLoc | null => { if (!s) return null; try { return JSON.parse(s) as SourceLoc } catch { return null } }
 
 export class SemanticIndex {
   readonly db: Database
-  private cache: { paths: string[]; texts: string[]; hashes: string[]; vecs: Float32Array } | null = null
-  private running: Promise<{ pending: number }> | null = null
+  private cache: { paths: string[]; texts: string[]; hashes: string[]; locs: (string | null)[]; vecs: Float32Array } | null = null
+  private running: Promise<RefreshResult> | null = null
+  /** the run in `running` is a background one (it gives way to a search: `wanted`) */
+  private runningBackground = false
+  /** searches waiting for the index: a background run stops after the current batch of pieces */
+  private wanted = 0
 
   constructor(private o: { dataDir: string; root: string; office: OfficeCache; embedder: () => Promise<Embed | null>; quarantine?: Quarantine }) {
     this.db = new Database(path.join(o.dataDir, 'semantic.db'), { create: true })
@@ -210,6 +216,19 @@ export class SemanticIndex {
       this.db.query("INSERT OR REPLACE INTO meta (k, v) VALUES ('model', ?)").run(SEMANTIC_MODEL)
       this.db.query("INSERT OR REPLACE INTO meta (k, v) VALUES ('provenance', '2')").run()
     }
+    // CHUNK_FORMAT 2: each piece's place, and how each file's pieces were made (older rows: 1). An older server
+    // ignores both columns.
+    if (!(this.db.query('PRAGMA table_info(chunks)').all() as { name: string }[]).some((c) => c.name === 'loc')) this.db.exec('ALTER TABLE chunks ADD COLUMN loc TEXT')
+    if (!(this.db.query('PRAGMA table_info(files)').all() as { name: string }[]).some((c) => c.name === 'format')) this.db.exec('ALTER TABLE files ADD COLUMN format INTEGER NOT NULL DEFAULT 1')
+    // plain text is cut as before: only documents are made again
+    const older = this.db.query('SELECT path FROM files WHERE format < ?').all(CHUNK_FORMAT) as { path: string }[]
+    const plain = older.filter((r) => !isOffice(r.path))
+    if (plain.length) this.db.transaction(() => { const up = this.db.query('UPDATE files SET format = ? WHERE path = ?'); for (const r of plain) up.run(CHUNK_FORMAT, r.path) })()
+  }
+
+  /** files whose pieces are of an older CHUNK_FORMAT (they are made again in the background) */
+  upgrading(): number {
+    return (this.db.query('SELECT COUNT(*) AS n FROM files WHERE format < ?').get(CHUNK_FORMAT) as { n: number }).n
   }
 
   /** Files the index can hold: plain text and documents, outside dot folders (.system: trash, history, backups). */
@@ -238,7 +257,7 @@ export class SemanticIndex {
     return found
   }
 
-  private async textOf(rel: string, admission: SearchAdmission): Promise<{text: string; hash: string}> {
+  private async textOf(rel: string, admission: SearchAdmission, background = false): Promise<{text: string; hash: string}> {
     const abs = path.join(this.o.root, rel)
     const input = admission.read(abs, () => {
       if (this.o.quarantine?.hasFile(abs)) return false
@@ -247,7 +266,8 @@ export class SemanticIndex {
     if (!input) return {text:'', hash:''}
     const hash = sha256(input.bytes)
     if (isOffice(rel)) {
-      if (!this.o.office.fresh(rel, input.st)) await this.o.office.update(rel)
+      // a background run (the re-index after an update) extracts with low priority: a search's own extraction first
+      if (!this.o.office.fresh(rel, input.st)) await this.o.office.update(rel, { background })
       if (!this.o.office.fresh(rel, input.st)) return {text:'',hash}
       const text = this.o.office.admittedText(rel, input.bytes, admission)
       return {text: text ? text.bytes.toString('utf8').slice(0, FILE_TEXT_MAX) : '', hash}
@@ -256,45 +276,84 @@ export class SemanticIndex {
     return {text: buf.subarray(0, 8000).includes(0) ? '' : buf.toString('utf8'), hash}
   }
 
-  /** Bring the index up to date: new / changed files are embedded (at most `budgetMs` now, the rest stays pending). */
-  refresh(budgetMs = 3000): Promise<{ pending: number }> {
-    return (this.running ??= this.doRefresh(budgetMs).finally(() => { this.running = null }))
+  /**
+   * Bring the index up to date: new / changed files are embedded (at most `budgetMs` now, the rest stays pending).
+   * A background run (`background`) also makes again, newest first, the files whose pieces are of an older
+   * CHUNK_FORMAT; their old pieces answer searches until then. A search does not wait for a background run: it asks it
+   * to stop after the current batch of pieces (a file cut off keeps its old pieces and is done again later) and then
+   * runs its own, which takes new and changed files only.
+   */
+  async refresh(budgetMs = 3000, o: { background?: boolean } = {}): Promise<RefreshResult> {
+    if (o.background) return this.running ?? this.start(budgetMs, true)
+    this.wanted++
+    try {
+      // the background run stops after its current batch; one still busy after the search's own budget (a slow
+      // extraction) is left to finish: the search answers from the pieces there are
+      const until = Date.now() + budgetMs
+      while (this.running && this.runningBackground) {
+        const left = until - Date.now()
+        if (left <= 0) return { pending: 0, upgrading: this.upgrading() }
+        let timer: ReturnType<typeof setTimeout> | undefined
+        await Promise.race([this.running.catch(() => {}), new Promise<void>((r) => { timer = setTimeout(r, left) })])
+        clearTimeout(timer)
+      }
+      return await (this.running ?? this.start(Math.max(0, until - Date.now()), false))
+    } finally { this.wanted-- }
   }
 
-  private async doRefresh(budgetMs: number): Promise<{ pending: number }> {
+  private start(budgetMs: number, background: boolean): Promise<RefreshResult> {
+    this.runningBackground = background
+    const run = this.doRefresh(budgetMs, background).finally(() => { if (this.running === run) { this.running = null; this.runningBackground = false } })
+    this.running = run
+    return run
+  }
+
+  private async doRefresh(budgetMs: number, background: boolean): Promise<RefreshResult> {
     // the folder is compared first: with nothing new or changed the model is not loaded at all (it is 150–300 MB)
     const now = this.walk()
-    const known = new Map((this.db.query('SELECT path, mtime, size FROM files').all() as { path: string; mtime: number; size: number }[]).map((r) => [r.path, r]))
+    const known = new Map((this.db.query('SELECT path, mtime, size, format FROM files').all() as { path: string; mtime: number; size: number; format: number }[]).map((r) => [r.path, r]))
     let changed = false
     for (const p of known.keys()) if (!now.has(p)) { this.drop(p); changed = true }
     const stale = [...now].filter(([p, st]) => { const k = known.get(p); return !k || k.mtime !== Math.floor(st.mtimeMs) || k.size !== st.size })
-    if (!stale.length) { if (changed) this.cache = null; return { pending: 0 } }
+    const older = [...now].filter(([p, st]) => { const k = known.get(p); return !!k && k.mtime === Math.floor(st.mtimeMs) && k.size === st.size && k.format < CHUNK_FORMAT })
+    const result = (doneStale: number, doneOlder: number): RefreshResult => ({ pending: stale.length - doneStale, upgrading: older.length - doneOlder })
+    if (!stale.length && !(background && older.length)) { if (changed) this.cache = null; return result(0, 0) }
     const embed = await this.o.embedder()
-    if (!embed) { if (changed) this.cache = null; return { pending: 0 } }
+    if (!embed) { if (changed) this.cache = null; return { pending: 0, upgrading: older.length } }
     // newest first: what people just saved is what they ask about
     stale.sort((a, b) => b[1].mtimeMs - a[1].mtimeMs)
+    older.sort((a, b) => b[1].mtimeMs - a[1].mtimeMs)
+    const work = [...stale.map((x) => ({ x, upgrade: false })), ...(background ? older.map((x) => ({ x, upgrade: true })) : [])]
     const until = Date.now() + budgetMs
-    let done = 0
-    for (const [p, st] of stale) {
-      if (Date.now() > until) break
+    let doneStale = 0, doneOlder = 0
+    /** a search wants the index: a background run gives way (between files, and between batches of a file) */
+    const yieldNow = () => background && this.wanted > 0
+    for (const { x: [p, st], upgrade } of work) {
+      if (Date.now() > until || yieldNow()) break
       const admission = new SearchAdmission(this.o.quarantine)
       try {
-      const input = await this.textOf(p, admission).catch(() => ({text:'',hash:''}))
-      const chunks = chunkText(input.text).slice(0, CHUNKS_PER_FILE_MAX)
+      const input = await this.textOf(p, admission, background).catch(() => ({text:'',hash:''}))
+      const pieces = chunkDoc(input.text, p).slice(0, CHUNKS_PER_FILE_MAX)
       const vecs: Float32Array[] = []
-      for (let i = 0; i < chunks.length; i += BATCH) vecs.push(...await embed(chunks.slice(i, i + BATCH), 'passage'))
+      let cut = false
+      for (let i = 0; i < pieces.length; i += BATCH) {
+        if (yieldNow()) { cut = true; break }
+        vecs.push(...await embed(pieces.slice(i, i + BATCH).map((c) => c.text), 'passage'))
+      }
+      if (cut) break
+      // the file may have changed while it was read and embedded: the stat of the walk goes with the text
       this.db.transaction(() => {
         this.db.query('DELETE FROM chunks WHERE path = ?').run(p)
-        const ins = this.db.query('INSERT INTO chunks (path, n, text, vec) VALUES (?, ?, ?, ?)')
-        chunks.forEach((c, i) => ins.run(p, i, c, new Uint8Array(vecs[i]!.buffer, vecs[i]!.byteOffset, vecs[i]!.byteLength)))
-        this.db.query('INSERT OR REPLACE INTO files (path, mtime, size, source_hash) VALUES (?, ?, ?, ?)').run(p, Math.floor(st.mtimeMs), st.size, input.hash)
+        const ins = this.db.query('INSERT INTO chunks (path, n, text, vec, loc) VALUES (?, ?, ?, ?, ?)')
+        pieces.forEach((c, i) => ins.run(p, i, c.text, new Uint8Array(vecs[i]!.buffer, vecs[i]!.byteOffset, vecs[i]!.byteLength), c.loc ? JSON.stringify(c.loc) : null))
+        this.db.query('INSERT OR REPLACE INTO files (path, mtime, size, source_hash, format) VALUES (?, ?, ?, ?, ?)').run(p, Math.floor(st.mtimeMs), st.size, input.hash, CHUNK_FORMAT)
       })()
       changed = true
-      done++
+      if (upgrade) doneOlder++; else doneStale++
       } finally { admission.close() }
     }
     if (changed) this.cache = null
-    return { pending: stale.length - done }
+    return result(doneStale, doneOlder)
   }
 
   private drop(p: string) {
@@ -304,10 +363,10 @@ export class SemanticIndex {
 
   private load() {
     if (this.cache) return this.cache
-    const rows = this.db.query('SELECT c.path, c.text, c.vec, f.source_hash FROM chunks c JOIN files f ON f.path=c.path').all() as { path: string; text: string; source_hash: string; vec: Uint8Array }[]
+    const rows = this.db.query('SELECT c.path, c.text, c.vec, c.loc, f.source_hash FROM chunks c JOIN files f ON f.path=c.path').all() as { path: string; text: string; source_hash: string; loc: string | null; vec: Uint8Array }[]
     const vecs = new Float32Array(rows.length * DIM)
     rows.forEach((r, i) => vecs.set(new Float32Array(r.vec.buffer, r.vec.byteOffset, DIM), i * DIM))
-    return (this.cache = { paths: rows.map((r) => r.path), texts: rows.map((r) => r.text), hashes: rows.map((r) => r.source_hash), vecs })
+    return (this.cache = { paths: rows.map((r) => r.path), texts: rows.map((r) => r.text), hashes: rows.map((r) => r.source_hash), locs: rows.map((r) => r.loc), vecs })
   }
 
   /** Closest chunks among the files `visible` allows (best chunk per file first, then more chunks), at most `limit`. */
@@ -319,7 +378,7 @@ export class SemanticIndex {
     return admission.transaction(() => {
     // Keep provenance with the cached text: another index connection may refresh
     // its files table while this process still holds an older in-memory vector.
-    const { paths, texts, hashes, vecs } = this.load()
+    const { paths, texts, hashes, locs, vecs } = this.load()
     const allowed = new Map<string, boolean>()
     const scored: SemanticHit[] = []
     for (let i = 0; i < paths.length; i++) {
@@ -332,7 +391,7 @@ export class SemanticIndex {
       if (!ok) continue
       let s = 0
       for (let k = 0, o = i * DIM; k < DIM; k++) s += vecs[o + k]! * qv![k]!
-      scored.push({ path: p, score: s, text: texts[i]! })
+      scored.push({ path: p, score: s, text: texts[i]!, loc: parseLoc(locs[i] ?? null), hash: hashes[i] ?? '' })
     }
     scored.sort((a, b) => b.score - a.score)
     // one chunk per file first so a long document doesn't fill the list, then the next best chunks

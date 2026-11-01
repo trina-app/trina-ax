@@ -237,8 +237,11 @@ describe('PDF pages (Claude Code Read contract)', () => {
           const rel = `${ALICE}/${file}`
           fs.rmSync(A.ctx.files.office.cachePath(rel), { force: true })
           await A.ctx.files.office.update(rel)
-          const hit = new RegExp(`${file}:(\\d+):.*${word}`).exec(texts(await h.call('grep', { pattern: word, path: ALICE, output_mode: 'content', '-n': true })))
+          // the place label after the path (0.2.17, files/locations.ts) does not change the line number
+          const hit = new RegExp(`${file} \\[p\\.(\\d+)\\]:(\\d+):.*${word}`).exec(texts(await h.call('grep', { pattern: word, path: ALICE, output_mode: 'content', '-n': true })))
           expect(hit).not.toBeNull()
+          expect(hit![1]).toBe(file === 'mixed.pdf' ? '3' : '9')
+          hit!.splice(1, 1)
           const line = await h.call('read', { file_path: rel, offset: Number(hit![1]), limit: 1 })
           expect(line.result.isError).toBeUndefined()
           expect(texts(line)).toContain(word)

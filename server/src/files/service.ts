@@ -17,6 +17,9 @@ import { badSegment, hiddenEntry } from '../policy/names'
 import { detectCaseInsensitive } from '../policy/resolve'
 import { ext, extractText, isOffice } from './extract'
 import { globFiles, grepFiles, OfficeCache } from './search'
+import { SOURCE_LOCS_MAX, SourceLog } from './sources'
+import { locsOfRange } from './locations'
+import type { SourceLoc } from '@mycel/shared/api'
 import { atomicWrite, conflictCopyName, fileEvent, moveToTrash, readRegular, recordConflictCopy, saveVersion, sha256 } from './store'
 import { newId } from '../db'
 import { consumeSkillApproval, editedText, requireSkillApproval } from '../skills/guard'
@@ -79,6 +82,11 @@ export class TurnFiles {
   readHashes: Map<string, string> = new ReadHashes(this.allReads)
   /** team-folder files whose content went to the model in this turn (read, grep results): the chat's read scope */
   readPaths = new Set<string>()
+  /** the same files per file with how and where (files/sources.ts): the answer's "참고한 파일" list. Shared by every
+   * agent of the turn, so a sub-agent's reads are in it, marked with `agent` */
+  readonly sources = new SourceLog()
+  /** the sub-agent whose state this is (the id of its Agent call), null for the main AI (forAgent) */
+  readonly agent: string | null = null
   /** image blocks sent to the model in this turn (files/vision.ts VISION_TURN_IMAGES / VISION_TURN_BYTES) */
   imageBytes = 0
   imageCount = 0
@@ -112,7 +120,7 @@ export class TurnFiles {
    */
   forAgent(agent: string): TurnFiles {
     let v = this.agents.get(agent)
-    if (!v) { v = this.view(); this.agents.set(agent, v) }
+    if (!v) { v = this.view(agent); this.agents.set(agent, v) }
     return v
   }
 
@@ -141,12 +149,13 @@ export class TurnFiles {
     return { files: agent ? this.forAgent(agent) : this, agent, known: true }
   }
 
-  /** this turn's state with read-before-write hashes of its own */
-  private view(): TurnFiles {
+  /** this turn's state with read-before-write hashes of its own; `agent`: the sub-agent it is for (its sources are
+   * marked so), null for a call whose agent is not known */
+  private view(agent: string | null = null): TurnFiles {
     const own = new ReadHashes(this.allReads)
     return new Proxy(this, {
-      get: (t, k) => (k === 'readHashes' ? own : Reflect.get(t, k, t)),
-      set: (t, k, v) => (k === 'readHashes' ? false : Reflect.set(t, k, v, t)),
+      get: (t, k) => (k === 'readHashes' ? own : k === 'agent' ? agent : Reflect.get(t, k, t)),
+      set: (t, k, v) => (k === 'readHashes' || k === 'agent' ? false : Reflect.set(t, k, v, t)),
     })
   }
 }
@@ -265,8 +274,15 @@ export class FileService {
     const res = await grepFiles({ fx: this.fx, rules, user: ctx.user, rg: this.cfg.rg, timeoutMs: this.cfg.grepTimeoutMs, office: this.office }, r.segs, isFile, {
       officeOwner: ctx.user.id, pattern: a.pattern, glob: a.glob, type: a.type, mode: a.output_mode ?? 'files_with_matches', ignoreCase: a['-i'],
       lineNumbers: a['-n'] ?? true, before: a['-B'] ?? ctxN, after: a['-A'] ?? ctxN, limit: a.head_limit ?? 200, multiline: a.multiline,
+      lang: personLocale(this.db, ctx.user.id),
     })
     for (const f of res.files) ctx.files.readPaths.add(f)
+    // content mode: the files whose lines the AI saw (names alone, files_with_matches and count, are not content)
+    if ((a.output_mode ?? 'files_with_matches') === 'content') {
+      const locs = new Map<string, SourceLoc[]>()
+      for (const h of res.hits) if (h.loc) locs.set(h.path, [...(locs.get(h.path) ?? []), h.loc])
+      for (const f of res.files) ctx.files.sources.note(f, 'grep', { agent: ctx.files.agent, locs: locs.get(f) })
+    }
     return { text: res.text, summary: `grep ${r.rel || '.'} pattern(len=${a.pattern.length}) mode=${a.output_mode ?? 'files_with_matches'} -> ${res.text === 'No matches' ? 0 : res.text.split('\n').length} lines, filtered=${res.stats.filtered}` }
   }
 
@@ -294,8 +310,10 @@ export class FileService {
     // the plan's read limit (system/limits.ts readMaxBytes; 200 MB without a plan, as before)
     const { bytes } = readRegular(r.abs, readMaxBytes())
     const text = await extractText(r.rel, bytes, { pandoc: this.cfg.pandoc, pdftotext: this.cfg.pdftotext, ocr: this.cfg.ocr, quarantine: this.quarantine }, ctx.signal)
-    ctx.files.readHashes.set(r.rel, sha256(bytes))
+    const hash = sha256(bytes)
+    ctx.files.readHashes.set(r.rel, hash)
     ctx.files.readPaths.add(r.rel)
+    ctx.files.sources.note(r.rel, 'read', { agent: ctx.files.agent, sha256: hash, locs: partLocs(r.rel, text, a) })
     return numberedLines(r.rel, text, a)
   }
 
@@ -328,6 +346,7 @@ export class FileService {
     beforeDelivery()
     ctx.files.readHashes.set(src.rel, src.hash)
     ctx.files.readPaths.add(src.rel)
+    ctx.files.sources.note(src.rel, 'read', { agent: ctx.files.agent, sha256: src.hash })
     ctx.files.imageBytes += jpeg.length
     ctx.files.imageCount++
     const text = `Image ${src.rel} (shown below).`
@@ -354,7 +373,11 @@ export class FileService {
     // pages, as before image reads
     const ocrText = !!block && !!this.cfg.ocr
     const why = (b: VisionBlock) => visionText(this.db, ctx.user.id, b)
-    const record = () => { ctx.files.readHashes.set(src.rel, src.hash); ctx.files.readPaths.add(src.rel) }
+    const record = (locs: SourceLoc[] = []) => {
+      ctx.files.readHashes.set(src.rel, src.hash)
+      ctx.files.readPaths.add(src.rel)
+      ctx.files.sources.note(src.rel, 'read', { agent: ctx.files.agent, sha256: src.hash, locs })
+    }
 
     if (a.pages === undefined && (a.offset !== undefined || a.limit !== undefined)) {
       // the same extraction as the grep text cache (OfficeCache: pdftotext, then Apple Vision when a page has no text
@@ -364,8 +387,9 @@ export class FileService {
         : null
       // the pages without a text layer, named for a read by pages (not when the Apple Vision text is the fallback)
       const layers = ocrText ? [] : await pdfLayer(src.bytes, tools, ctx.signal)
-      record()
-      const out = numberedLines(src.rel, cached ?? layerText(layers), a)
+      const lines = cached ?? layerText(layers)
+      record(partLocs(src.rel, lines, a))
+      const out = numberedLines(src.rel, lines, a)
       const scanned = layers.flatMap((p, i) => (isScannedPage(p) ? [i + 1] : []))
       if (scanned.length) out.text += `\n\n${visionText(this.db, ctx.user.id, 'scanned', { pages: pageList(scanned) })} ${block ? why(block) : visionText(this.db, ctx.user.id, 'scannedHint', { first: scanned[0]! })}`
       return out
@@ -447,7 +471,8 @@ export class FileService {
     else if (noPixels) text(why(block!))
     const beforeDelivery = images ? () => this.recheckSource(ctx, src) : undefined
     beforeDelivery?.()
-    record()
+    // the pages of a read by pages; a read of the whole (short) file is the file
+    record(a.pages !== undefined ? pages.slice(0, SOURCE_LOCS_MAX).map((page) => ({ kind: 'page' as const, page })) : [])
     const plain = content.map((c) => (c.type === 'text' ? c.text : '[page image]')).join('\n\n')
     return { text: plain, content, beforeDelivery, summary: `read ${src.rel} -> pages ${pageList(pages)} of ${n}, ${images} image${images === 1 ? '' : 's'}` }
   }
@@ -762,6 +787,7 @@ export class FileService {
       beforeDelivery()
       ctx.files.readHashes.set(src.rel, src.hash)
       ctx.files.readPaths.add(src.rel)
+      ctx.files.sources.note(src.rel, 'read', { agent: ctx.files.agent, sha256: src.hash })
       const plain = content.map((c) => (c.type === 'text' ? c.text : '[frame image]')).join('\n')
       return {
         text: plain, content, beforeDelivery,
@@ -1235,6 +1261,14 @@ function diskRoom(base: string, size: number): boolean {
   } catch { return true }
 }
 const identity = (s: fs.Stats) => [s.dev, s.ino, s.size, s.mtimeMs, s.ctimeMs, s.nlink].join(':')
+
+/** The places a read by lines covered (offset / limit given: pages, sheets with their rows, slides, sections); a read
+ * of the whole file is the file (no places). */
+function partLocs(rel: string, text: string, a: { offset?: number; limit?: number }): SourceLoc[] {
+  if (a.offset === undefined && a.limit === undefined) return []
+  const off = a.offset ?? 1
+  return locsOfRange(text, rel, off, off + (a.limit ?? 2000) - 1, SOURCE_LOCS_MAX)
+}
 
 /** Text as numbered lines (cat -n), from `offset` (1-based), `limit` lines (default 2000), long lines cut. */
 function numberedLines(rel: string, text: string, a: { offset?: number; limit?: number }): ToolOutput {
