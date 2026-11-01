@@ -34,7 +34,7 @@ export function SkillIssues({ folder, className }: { folder?: string; className?
       <p className="flex items-center gap-1.5 font-medium"><AlertTriangle size={13} aria-hidden /> {t('skills.issues.title')}</p>
       <ul className="mt-1 space-y-0.5">
         {shown.map((i) => (
-          <li key={i.path} data-testid="skill-issue" data-problem={i.problem}>
+          <li key={`${i.problem}:${i.path}`} data-testid="skill-issue" data-problem={i.problem}>
             <button type="button" className="font-mono hover:underline" onClick={() => navigateTo(`/files?path=${encodeURIComponent(parentPath(i.path))}&select=${encodeURIComponent(i.path)}`)}>{i.path}</button>
             {': '}{t(`skills.issues.${i.problem}`, { folder: parentPath(i.path).split('/').pop() ?? '' })}
           </li>
