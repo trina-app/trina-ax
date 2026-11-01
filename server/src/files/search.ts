@@ -157,6 +157,13 @@ export const TEXT_CACHE_VERSION = '6'
  * and made again in the background (OfficeCache.upgradeOld); any other older format is removed at start */
 const UPGRADABLE_VERSIONS = new Set(['5'])
 const VERSION_FILE = '.format-version' // cache files all end in .txt, so no file of the team folder has this name
+/** What the folder's version file says: the oldest format whose server may use the folder's text as its own. Format 6
+ * text only adds label lines that a format-5 server reads as plain text (it parses none of them), so the file keeps
+ * saying 5 and 0.2.16 keeps the cache after a rollback instead of emptying it; each file's own sidecar says its format
+ * (current()), and what 0.2.16 writes meanwhile has none, so it is made again after the next update. A later format
+ * that a format-5 server must not use raises this too. '6' was written by test builds before the rollback fix. */
+const FOLDER_VERSION = '5'
+const KEPT_FOLDER_VERSIONS = new Set([FOLDER_VERSION, ...UPGRADABLE_VERSIONS, TEXT_CACHE_VERSION])
 
 /** office files extracted at the same time by one server (foreground and background together) */
 export const OFFICE_EXTRACT_PARALLEL = 4
@@ -204,10 +211,10 @@ export class OfficeCache {
     // server leaves the folder empty)
     let version: string | null = null
     try { version = fs.readFileSync(path.join(dir, VERSION_FILE), 'utf8').trim() } catch {}
-    if (version === TEXT_CACHE_VERSION) { this.marked = true; return }
-    if (version && UPGRADABLE_VERSIONS.has(version)) {
-      // each file's own sidecar says its format (current()); an older server sees the new version and starts over
-      fs.writeFileSync(path.join(dir, VERSION_FILE), TEXT_CACHE_VERSION + '\n', { mode: 0o600 })
+    if (version && KEPT_FOLDER_VERSIONS.has(version)) {
+      // each file's own sidecar says its format (current()): text of an upgradable older format is kept and made
+      // again in the background (upgradeOld)
+      if (version !== FOLDER_VERSION) fs.writeFileSync(path.join(dir, VERSION_FILE), FOLDER_VERSION + '\n', { mode: 0o600 })
       this.marked = true
       return
     }
@@ -268,7 +275,7 @@ export class OfficeCache {
   }
   private write(rel: string, text: string, st: fs.Stats, source = '') {
     const dst = this.cachePath(rel)
-    if (!this.marked) { fs.writeFileSync(path.join(this.dir, VERSION_FILE), TEXT_CACHE_VERSION + '\n', { mode: 0o600 }); this.marked = true }
+    if (!this.marked) { fs.writeFileSync(path.join(this.dir, VERSION_FILE), FOLDER_VERSION + '\n', { mode: 0o600 }); this.marked = true }
     fs.mkdirSync(path.dirname(dst), { recursive: true, mode: 0o700 })
     fs.writeFileSync(dst, text, { mode: 0o600 })
     fs.utimesSync(dst, st.atime, st.mtime)
@@ -290,7 +297,8 @@ export class OfficeCache {
       try { lst = fs.lstatSync(abs) } catch { fs.rmSync(this.cachePath(rel), { force: true }); return }
       if (this.fx.quarantine?.hasFile(abs)) { fs.rmSync(this.cachePath(rel), {force:true}); return }
       // `upgrade`: text kept from an older format is made again too
-      if (this.fresh(rel, lst) && (!o.upgrade || this.current(rel))) return
+      const kept = this.fresh(rel, lst)
+      if (kept && (!o.upgrade || this.current(rel))) return
       let got: { bytes: Buffer; st: fs.Stats }
       try { got = readRegular(abs, Math.min(50 * 1024 * 1024, readMaxBytes())) } catch (e) {
         try { if (lst.isFile()) this.write(rel, '', lst); else fs.rmSync(this.cachePath(rel), { force: true }) } catch { fs.rmSync(this.cachePath(rel), { force: true }) }
@@ -305,7 +313,12 @@ export class OfficeCache {
         }, Math.min(50 * 1024 * 1024, readMaxBytes()))
         if (!input) { fs.rmSync(this.cachePath(rel), { force: true }); return }
         let text: string
-        try { text = await this.extract(rel, input.bytes) } catch { text = '' }
+        try { text = await this.extract(rel, input.bytes) } catch {
+          // an upgrade that fails (a timeout on a busy server, the converters' memory limit) keeps the older text of
+          // these very bytes: grep goes on with it, and the next start tries again
+          if (kept && this.provenance(rel)?.source === sha256(input.bytes)) return
+          text = ''
+        }
         this.write(rel, text, input.st, sha256(input.bytes))
       } finally { admission.close() }
     }, ticket).finally(() => this.inflight.delete(rel))
@@ -320,12 +333,17 @@ export class OfficeCache {
    */
   async upgradeOld(o: { signal?: AbortSignal; minPauseMs?: number } = {}): Promise<number> {
     const old: { rel: string; mtime: number }[] = []
-    const visit = (sub: string) => {
+    // the scan reads every sidecar: it lets the server's other work (chats) in every few hundred files, so tens of
+    // thousands of documents on a small server do not hold up the event loop at once
+    let seen = 0
+    const visit = async (sub: string): Promise<void> => {
       let names: fs.Dirent[]
       try { names = fs.readdirSync(path.join(this.dir, sub), { withFileTypes: true }) } catch { return }
       for (const e of names) {
+        if (o.signal?.aborted) return
+        if (++seen % 256 === 0) await new Promise<void>((r) => setImmediate(r))
         const rel = sub ? `${sub}/${e.name}` : e.name
-        if (e.isDirectory()) visit(rel)
+        if (e.isDirectory()) await visit(rel)
         else if (e.isFile() && e.name.endsWith('.txt.source.json')) {
           const src = rel.slice(0, -'.txt.source.json'.length)
           if (this.current(src)) continue
@@ -333,7 +351,7 @@ export class OfficeCache {
         }
       }
     }
-    visit('')
+    await visit('')
     old.sort((a, b) => b.mtime - a.mtime)
     let done = 0
     for (const { rel } of old) {

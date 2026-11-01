@@ -184,7 +184,7 @@ export interface SemanticHit { path: string; score: number; text: string; loc: S
 
 /** What a refresh left: `pending` new or changed files not indexed yet (search does not find them yet), `upgrading`
  * files whose older pieces (CHUNK_FORMAT) still answer until they are made again. */
-export interface RefreshResult { pending: number; upgrading: number }
+export interface RefreshResult { pending: number; upgrading: number; /** the model could not load (it is tried again after RETRY_MS) */ noModel?: true }
 
 const parseLoc = (s: string | null): SourceLoc | null => { if (!s) return null; try { return JSON.parse(s) as SourceLoc } catch { return null } }
 
@@ -320,7 +320,7 @@ export class SemanticIndex {
     const result = (doneStale: number, doneOlder: number): RefreshResult => ({ pending: stale.length - doneStale, upgrading: older.length - doneOlder })
     if (!stale.length && !(background && older.length)) { if (changed) this.cache = null; return result(0, 0) }
     const embed = await this.o.embedder()
-    if (!embed) { if (changed) this.cache = null; return { pending: 0, upgrading: older.length } }
+    if (!embed) { if (changed) this.cache = null; return { pending: 0, upgrading: older.length, noModel: true } }
     // newest first: what people just saved is what they ask about
     stale.sort((a, b) => b[1].mtimeMs - a[1].mtimeMs)
     older.sort((a, b) => b[1].mtimeMs - a[1].mtimeMs)

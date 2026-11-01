@@ -90,6 +90,14 @@ describe('documents indexed before 0.2.17', () => {
     expect(idx.upgrading()).toBe(0)
     idx.db.close()
   })
+  test('without the model the run says so (the server does not start the next one at once)', async () => {
+    const idx = open()
+    idx.db.exec('UPDATE chunks SET loc = NULL; UPDATE files SET format = 1 WHERE path LIKE \'%.pdf\'')
+    idx.db.close()
+    const none = new SemanticIndex({ dataDir: s.data, root: s.root, office: s.office, embedder: async () => null })
+    expect(await none.refresh(60_000, { background: true })).toEqual({ pending: 0, upgrading: 2, noModel: true })
+    none.db.close()
+  })
 })
 
 describe('the re-index goes on after a restart and gives way to searches', () => {

@@ -4891,7 +4891,11 @@ under the answer like the Claude app's sources.
     and is made again in the background by `OfficeCache.upgradeOld` (started by `startComponentC` when the semantic
     index would start: 20 s, or 10-15 minutes on a hosted server): newest first, one file at a time with background
     priority, a pause as long as each extraction after it (at most half of one slot). A restart goes on with the files
-    whose sidecar is not format 6. Until a file is done its old text answers grep and gives what it can: pages always,
+    whose sidecar is not format 6. An extraction that fails during the upgrade (a timeout on a busy server, the
+    converters' memory limit) keeps the older text of the same bytes instead of leaving the file without text. The
+    folder's version file keeps saying 5 (`FOLDER_VERSION`): format 6 only adds label lines that 0.2.16 reads as plain
+    text, so a rollback to 0.2.16 keeps the cache instead of emptying it (its own new text has no format in its sidecar
+    and is made again after the next update; review of the branch). Until a file is done its old text answers grep and gives what it can: pages always,
     sheet names without ranges, slides only in the notes part, no sections. Measured extraction on an Apple M-series
     Mac: 25-60 ms for a 10-page PDF, a 12-slide deck, a 12-section Word file or a 500-row sheet; a 2-vCPU x86 server
     is about twice as slow and real documents are larger, so roughly 1-3 hours for 10,000 documents with the pause.

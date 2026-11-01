@@ -66,8 +66,9 @@ export function registerSearch(ctx: AppContext, reg: ToolRegistry): boolean {
       const t0 = Date.now()
       try {
         const r = await index.refresh(BACKGROUND_BUDGET_MS, { background: true })
-        // the re-index of older pieces (and a backlog of new files) goes on after a pause as long as this run took
-        if ((r.upgrading > 0 || r.pending > 0) && !closed && !soon) {
+        // the re-index of older pieces (and a backlog of new files) goes on after a pause as long as this run took;
+        // without the model (it could not load) the regular runs try again, not one every few seconds
+        if ((r.upgrading > 0 || r.pending > 0) && !r.noModel && !closed && !soon) {
           soon = setTimeout(() => { soon = null; void tick() }, Math.max(REINDEX_PAUSE_MIN_MS, Date.now() - t0))
           soon.unref?.()
         }

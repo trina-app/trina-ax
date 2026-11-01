@@ -299,7 +299,8 @@ describe('the text cache of the previous format (0.2.16) is kept and made again 
     const order: string[] = []
     class Watched extends OfficeCache { protected override extract(rel: string, b: Buffer) { order.push(rel); return super.extract(rel, b) } }
     const cache = new Watched(dir, fx, tools)
-    expect(fs.readFileSync(path.join(dir, '.format-version'), 'utf8').trim()).toBe(TEXT_CACHE_VERSION)
+    // the folder keeps saying 5: format 6 text only adds label lines, so 0.2.16 keeps the cache after a rollback
+    expect(fs.readFileSync(path.join(dir, '.format-version'), 'utf8').trim()).toBe('5')
     for (const rel of files) {
       expect(fs.readFileSync(cache.cachePath(rel), 'utf8')).toBe(old)
       expect(cache.fresh(rel, fs.statSync(path.join(root, rel)))).toBe(true)
@@ -316,10 +317,41 @@ describe('the text cache of the previous format (0.2.16) is kept and made again 
     }
     // nothing left: a second run (a restart) does nothing
     expect(await cache.upgradeOld({ minPauseMs: 0 })).toBe(0)
+    expect(fs.readFileSync(path.join(dir, '.format-version'), 'utf8').trim()).toBe('5')
     // an older format than 5 is still removed at start
     fs.writeFileSync(path.join(dir, '.format-version'), '4\n')
     new OfficeCache(dir, fx, tools)
     expect(fs.readdirSync(dir)).toEqual([])
+    fs.rmSync(W, { recursive: true, force: true })
+  })
+  test('an upgrade whose extraction fails keeps the older text of the same bytes; a changed file does not', async () => {
+    const W = fs.mkdtempSync(path.join(fs.realpathSync(os.tmpdir()), 'cache-upgrade-fail-'))
+    const root = path.join(W, 'team'), dir = path.join(W, 'textcache')
+    fs.mkdirSync(path.join(root, 'shared'), { recursive: true })
+    const fx = { root, caseInsensitive: false } as never
+    const tools = { pandoc: null, pdftotext: null }
+    const rel = 'shared/deck.pptx'
+    const bytes = Buffer.from('pptx bytes')
+    fs.writeFileSync(path.join(root, rel), bytes)
+    const old = 'slide text of 0.2.16'
+    fs.mkdirSync(path.join(dir, 'shared'), { recursive: true })
+    fs.writeFileSync(path.join(dir, '.format-version'), '5\n')
+    const dst = path.join(dir, rel + '.txt')
+    fs.writeFileSync(dst, old)
+    const st = fs.statSync(path.join(root, rel))
+    fs.utimesSync(dst, st.atime, st.mtime)
+    fs.writeFileSync(dst + '.source.json', JSON.stringify({ source: sha256(bytes), text: sha256(Buffer.from(old)) }))
+    // the converter fails (a timeout on a busy server, its memory limit)
+    class Failing extends OfficeCache { protected override extract(): Promise<string> { return Promise.reject(new Error('took too long')) } }
+    const cache = new Failing(dir, fx, tools)
+    expect(await cache.upgradeOld({ minPauseMs: 0 })).toBe(1)
+    expect(fs.readFileSync(dst, 'utf8')).toBe(old)
+    expect(cache.fresh(rel, fs.statSync(path.join(root, rel)))).toBe(true)
+    expect(cache.current(rel)).toBe(false)
+    // the file changed meanwhile: its old text is not of these bytes, so it goes ("no text for this version")
+    fs.writeFileSync(path.join(root, rel), 'other pptx bytes')
+    await cache.update(rel, { background: true, upgrade: true })
+    expect(fs.readFileSync(dst, 'utf8')).toBe('')
     fs.rmSync(W, { recursive: true, force: true })
   })
 })
