@@ -2,6 +2,7 @@
 // (shared with the web app: shared/src/step-labels.ts), confirmation cards.
 import { CHAT_ERROR_MESSAGES, type ApiErrorBody, type ChatErrorReason, type Locale } from '@mycel/shared/api'
 import { STEP_TEXT } from '@mycel/shared'
+import { fillPlurals } from '@mycel/shared/plural'
 
 type T = Record<Locale, string>
 const t = (ko: string, en: string, id: string, ja: string, es: string): T => ({ ko, en, id, ja, es })
@@ -77,8 +78,8 @@ export const TEXT = {
   notAnswered: STEP_TEXT.notAnswered,
   browserSite: t('사내망 주소 {host}를 열어도 될까요?', 'May the AI open the office-network address {host}?', 'Bolehkan AI membuka alamat jaringan kantor {host}?', "AIが社内ネットワークのアドレス{host}を開いてもよろしいですか？", "¿Puede la IA abrir la dirección de red interna {host}?"),
   widenConfirm: t('AI가 볼 수 있는 사람이 더 적은 내용({sources})을 읽은 뒤 {target}에 저장하려고 해요. 이곳은 {n}명이 볼 수 있어요. 저장할까요?',
-    'The AI read content fewer people can see ({sources}) and now wants to save to {target}, which {n} people can see. Save it?',
-    'AI membaca konten yang hanya bisa dilihat lebih sedikit orang ({sources}) dan sekarang ingin menyimpan ke {target}, yang bisa dilihat {n} orang. Simpan?', "AIは閲覧できる人が少ない内容（{sources}）を読み取り、{n}人が閲覧できる{target}に保存しようとしています。保存しますか？", "La IA leyó contenido que menos personas pueden ver ({sources}) y quiere guardarlo en {target}, visible para {n} personas. ¿Guardarlo?"),
+    'The AI read content fewer people can see ({sources}) and now wants to save to {target}, which {n, plural, one {# person} other {# people}} can see. Save it?',
+    'AI membaca konten yang hanya bisa dilihat lebih sedikit orang ({sources}) dan sekarang ingin menyimpan ke {target}, yang bisa dilihat {n} orang. Simpan?', "AIは閲覧できる人が少ない内容（{sources}）を読み取り、{n}人が閲覧できる{target}に保存しようとしています。保存しますか？", "La IA leyó contenido que menos personas pueden ver ({sources}) y quiere guardarlo en {target}, visible para {n, plural, one {# persona} other {# personas}}. ¿Guardarlo?"),
   widenSave: t('저장하기', 'Save', 'Simpan', "保存", "Guardar"),
   widenDont: t('저장하지 않기', 'Don’t save', 'Jangan simpan', "保存しない", "No guardar"),
   scopeMine: t('내 개인 폴더나 앱 안 브라우저', 'your personal folder or the in-app browser', 'folder pribadi Anda atau browser di aplikasi', "自分の個人フォルダーまたはアプリ内ブラウザー", "su carpeta personal o el navegador integrado"),
@@ -92,7 +93,8 @@ export const TEXT = {
 } satisfies Record<string, T>
 
 export function tr(key: keyof typeof TEXT, locale: Locale, vars: Record<string, string> = {}): string {
-  let s = TEXT[key][locale] ?? TEXT[key].en
+  // a count first ("{n, plural, one {# person} other {# people}}", shared/src/plural.ts), then the plain values
+  let s = fillPlurals(TEXT[key][locale] ?? TEXT[key].en, vars, locale)
   for (const [k, v] of Object.entries(vars)) s = s.split(`{${k}}`).join(v)
   return s
 }

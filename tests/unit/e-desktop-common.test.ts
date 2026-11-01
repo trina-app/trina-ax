@@ -21,6 +21,7 @@ import { isOwnUiUrl, isTrustedAppSender, UI_ORIGIN } from '../../desktop/src/com
 import { BrowserResult } from '../../shared/src/api/browser'
 import { PRODUCT } from '@mycel/shared'
 import { SERVICE_HOSTS } from '@mycel/shared/service-hosts'
+import { PLURAL_PATTERN, pluralNames } from '@mycel/shared/plural'
 
 describe('team addresses', () => {
   test('a bare team name becomes <name>.treesoop.com over https', () => {
@@ -378,6 +379,8 @@ describe('UI strings', () => {
           expect(tr(key, params)).toBe(t(locale, key, params))
         }
       }
+      // a count takes the same form in the pane's toolbar as in the main process
+      for (const n of ['1', '2']) expect(tr('pane.promptsMore', { n })).toBe(t(locale, 'pane.promptsMore', { n }))
     }
     const template = '{app} {domain} {host} {unknown}'
     expect(renderer({ locale: 'en', strings: { 'app.name': 'Edition App', 'welcome.subtitle': template } })('welcome.subtitle', { app: 'ignored', domain: 'ignored.test', host: 'shop.test' }))
@@ -394,7 +397,8 @@ describe('UI strings', () => {
   })
 
   test('placeholders are the same in every language', () => {
-    const ph = (s: string) => (s.match(/\{\w+\}/g) ?? []).sort().join(',')
+    // a count's name too ("{n, plural, one {# more question} other {# more questions}}" next to Korean "{n}개")
+    const ph = (s: string) => [...pluralNames(s).map((n) => `{${n}}`), ...(s.replace(PLURAL_PATTERN, '').match(/\{\w+\}/g) ?? [])].sort().join(',')
     for (const k of Object.keys(STRINGS.ko) as (keyof typeof STRINGS.ko)[]) {
       expect(ph(STRINGS.en[k])).toBe(ph(STRINGS.ko[k]))
       expect(ph(STRINGS.id[k])).toBe(ph(STRINGS.ko[k]))

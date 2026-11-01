@@ -3,6 +3,7 @@
 import { create } from 'zustand'
 import { getDesktopBridge, PRODUCT } from '@mycel/shared'
 import { DEFAULT_LOCALE, LOCALE_NAMES, LOCALE_ORDER, asLocale, type Locale } from '@mycel/shared/api'
+import { PLURAL_PATTERN, fillPlurals, pluralNames } from '@mycel/shared/plural'
 import { RECENT_LOCALE_KEY, SIGN_IN_LOCALE_KEY } from './recovery-locale'
 import { en } from './en'
 import { ja } from './ja'
@@ -17,28 +18,11 @@ export const LOCALES: { id: Locale; label: string }[] = LOCALE_ORDER.map((l) => 
 
 export type Params = Record<string, string | number>
 
-/** "{n, plural, one {# step} other {# steps}}": the form Intl.PluralRules picks for the number, # = the number. */
-const PLURAL = /\{(\w+), plural,((?:\s*(?:zero|one|two|few|many|other)\s*\{[^{}]*\})+)\s*\}/g
-const FORM = /(zero|one|two|few|many|other)\s*\{([^{}]*)\}/g
-const pluralRules = new Map<string, Intl.PluralRules>()
-function pluralForm(locale: string, n: number): string {
-  let r = pluralRules.get(locale)
-  if (!r) {
-    try {
-      r = new Intl.PluralRules(locale)
-    } catch {
-      r = new Intl.PluralRules('en')
-    }
-    pluralRules.set(locale, r)
-  }
-  return r.select(n)
-}
-
-/** The placeholders of a text, plural ones included (the same in every language). */
+/** The placeholders of a text, plural ones included ("{n, plural, one {# step} other {# steps}}"; the same in every
+ * language). */
 export function placeholdersOf(template: string): string[] {
-  const names = new Set<string>()
-  for (const m of template.matchAll(PLURAL)) names.add(m[1]!)
-  for (const m of template.replace(PLURAL, '').matchAll(/\{(\w+)\}/g)) names.add(m[1]!)
+  const names = new Set<string>(pluralNames(template))
+  for (const m of template.replace(PLURAL_PATTERN, '').matchAll(/\{(\w+)\}/g)) names.add(m[1]!)
   return [...names].sort()
 }
 
@@ -47,15 +31,8 @@ export const PRODUCT_PARAMS: Params = { product: PRODUCT.displayName, productFil
 
 export function format(template: string, callerParams?: Params, locale: string = DEFAULT_LOCALE): string {
   const params: Params = { ...PRODUCT_PARAMS, ...callerParams }
-  const withPlurals = template.replace(PLURAL, (all, k: string, forms: string) => {
-    const v = params[k]
-    const n = typeof v === 'number' ? v : Number(v)
-    if (v === undefined || !Number.isFinite(n)) return all
-    const byForm = new Map([...forms.matchAll(FORM)].map((m) => [m[1]!, m[2]!]))
-    const text = byForm.get(pluralForm(locale, n)) ?? byForm.get('other') ?? ''
-    return text.replace(/#/g, String(v))
-  })
-  return withPlurals.replace(/\{(\w+)\}/g, (all, k: string) => (params[k] !== undefined ? String(params[k]) : all))
+  // "{n, plural, one {# step} other {# steps}}": the form for the number in this language (shared/src/plural.ts)
+  return fillPlurals(template, params, locale).replace(/\{(\w+)\}/g, (all, k: string) => (params[k] !== undefined ? String(params[k]) : all))
 }
 
 export function translate(locale: Locale, key: MessageKey, params?: Params): string {

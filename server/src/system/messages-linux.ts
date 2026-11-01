@@ -111,10 +111,10 @@ export const ML = {
   safeOps: { ko: '안전한 PowerPoint(1A)', en: 'Safe PowerPoint (1A)', id: 'PowerPoint aman (1A)', ja: "安全なPowerPoint（1A）", es: "PowerPoint seguro (1A)" },
   safeOpsReady: (memory: number, pids: number, cpus: number): T => ({
     ko: `켜져 있고 준비됐어요. 서버와 AI 엔진의 자원 그룹 한도: 메모리 ${gib(memory)}, 작업 ${pids}개, CPU ${cpus}개. 1A 작업을 한 채팅은 1A를 끈 뒤에도 웹·커넥터 도구 없이 남아요.`,
-    en: `On and ready. Resource group of the server and the AI engines: ${gib(memory)} memory, ${pids} tasks, ${cpus} CPUs. Chats that ran a 1A job keep web and connector tools off even after 1A is turned off.`,
+    en: `On and ready. Resource group of the server and the AI engines: ${gib(memory)} memory, ${enPlural(pids, 'task', 'tasks')}, ${enPlural(cpus, 'CPU', 'CPUs')}. Chats that ran a 1A job keep web and connector tools off even after 1A is turned off.`,
     id: `Aktif dan siap. Grup sumber daya server dan mesin AI: memori ${gib(memory)}, ${pids} tugas, ${cpus} CPU. Chat yang menjalankan pekerjaan 1A tetap tanpa alat web dan konektor meski 1A dimatikan.`,
     ja: `有効で準備ができています。サーバーとAIエンジンの資源グループ：メモリ${gib(memory)}、タスク${pids}個、CPU ${cpus}個。1Aの処理を行ったチャットは、1Aを無効にした後もウェブとコネクタのツールが使えないままです。`,
-    es: `Activado y listo. Grupo de recursos del servidor y los motores de IA: ${gib(memory)} de memoria, ${pids} tareas, ${cpus} CPU. Los chats que ejecutaron un trabajo 1A siguen sin herramientas web ni conectores aunque se desactive 1A.`,
+    es: `Activado y listo. Grupo de recursos del servidor y los motores de IA: ${gib(memory)} de memoria, ${enPlural(pids, 'tarea', 'tareas')}, ${cpus} CPU. Los chats que ejecutaron un trabajo 1A siguen sin herramientas web ni conectores aunque se desactive 1A.`,
   }),
   /** reason: ready.ts Readiness; detail: the technical cause (paths, cgroup files), shown as is */
   safeOpsNotReady: (reason: 'unavailable' | 'programs' | 'group' | 'memory', detail: string, hosted: boolean): T => {

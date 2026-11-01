@@ -10,6 +10,7 @@
 // edit with the person's approval on the card, or on the Files screen.
 import { CopyFilesInput, MoveFilesInput, RenameFileInput } from '@mycel/shared'
 import type { Locale } from '@mycel/shared/api'
+import { fillPlurals } from '@mycel/shared/plural'
 import type { AppContext } from '../context'
 import type { ToolCtx } from '../files/service'
 import { Denied, ToolError } from '../policy/errors'
@@ -23,18 +24,19 @@ export const FILE_MOVE_TOOL_NAMES = ['move_files', 'copy_files', 'rename_file'] 
 
 const t = (ko: string, en: string, id: string, ja: string, es: string): Record<Locale, string> => ({ ko, en, id, ja, es })
 export const TEXT = {
-  move: t('AI가 {n}개 항목을 {to} 폴더로 옮기려고 해요.', 'The AI wants to move {n} item(s) to {to}.', 'AI ingin memindahkan {n} item ke {to}.', "AIが{n}個の項目を{to}に移動しようとしています。", "La IA quiere mover {n} elementos a {to}."),
-  copy: t('AI가 파일 {n}개를 {to} 폴더에 복사하려고 해요.', 'The AI wants to copy {n} file(s) to {to}.', 'AI ingin menyalin {n} berkas ke {to}.', "AIが{n}個のファイルを{to}にコピーしようとしています。", "La IA quiere copiar {n} archivos a {to}."),
-  added: t('지금보다 {n}명이 더 볼 수 있게 돼요.', '{n} more people will be able to see them.', '{n} orang lagi akan bisa melihatnya.', "閲覧できる人が{n}人増えます。", "{n} personas más podrán verlos."),
-  lost: t('지금 볼 수 있는 {n}명은 더 이상 볼 수 없게 돼요.', '{n} people who can see them now will no longer be able to.', '{n} orang yang kini bisa melihatnya tidak akan bisa lagi.', "現在閲覧できる{n}人が閲覧できなくなります。", "{n} personas que ahora pueden verlos dejarán de tener acceso."),
-  askMove: t('옮길까요?', 'Move them?', 'Pindahkan?', "移動しますか？", "¿Moverlos?"),
-  askCopy: t('복사할까요?', 'Copy them?', 'Salin?', "コピーしますか？", "¿Copiarlos?"),
+  move: t('AI가 {n}개 항목을 {to} 폴더로 옮기려고 해요.', 'The AI wants to move {n, plural, one {# item} other {# items}} to {to}.', 'AI ingin memindahkan {n} item ke {to}.', "AIが{n}個の項目を{to}に移動しようとしています。", "La IA quiere mover {n, plural, one {# elemento} other {# elementos}} a {to}."),
+  copy: t('AI가 파일 {n}개를 {to} 폴더에 복사하려고 해요.', 'The AI wants to copy {n, plural, one {# file} other {# files}} to {to}.', 'AI ingin menyalin {n} berkas ke {to}.', "AIが{n}個のファイルを{to}にコピーしようとしています。", "La IA quiere copiar {n, plural, one {# archivo} other {# archivos}} a {to}."),
+  added: t('지금보다 {n}명이 더 볼 수 있게 돼요.', '{n, plural, one {# more person} other {# more people}} will be able to see {count, plural, one {it} other {them}}.', '{n} orang lagi akan bisa melihatnya.', "{count, plural, one {この項目} other {これらの項目}}を閲覧できる人が{n}人増えます。", "{n, plural, one {# persona más podrá} other {# personas más podrán}} {count, plural, one {verlo} other {verlos}}."),
+  lost: t('지금 볼 수 있는 {n}명은 더 이상 볼 수 없게 돼요.', '{n, plural, one {# person} other {# people}} who can see {count, plural, one {it} other {them}} now will no longer be able to.', '{n} orang yang kini bisa melihatnya tidak akan bisa lagi.', "{count, plural, one {この項目} other {これらの項目}}を現在閲覧できる{n}人が閲覧できなくなります。", "{n, plural, one {# persona que ahora puede} other {# personas que ahora pueden}} {count, plural, one {verlo} other {verlos}} {n, plural, one {dejará} other {dejarán}} de tener acceso."),
+  askMove: t('옮길까요?', '{count, plural, one {Move it?} other {Move them?}}', 'Pindahkan?', "{count, plural, one {移動しますか？} other {移動しますか？}}", "{count, plural, one {¿Moverlo?} other {¿Moverlos?}}"),
+  askCopy: t('복사할까요?', '{count, plural, one {Copy it?} other {Copy them?}}', 'Salin?', "{count, plural, one {コピーしますか？} other {コピーしますか？}}", "{count, plural, one {¿Copiarlo?} other {¿Copiarlos?}}"),
   more: t('외 {n}개', 'and {n} more', 'dan {n} lainnya', "ほか{n}個", "y {n} más"),
   yesMove: t('옮기기', 'Move', 'Pindahkan', "移動", "Mover"),
   yesCopy: t('복사하기', 'Copy', 'Salin', "コピー", "Copiar"),
   no: t('하지 않기', 'Don’t', 'Jangan', "実行しない", "No hacerlo"),
 }
-const fill = (s: string, v: Record<string, string | number>) => s.replace(/\{(\w+)\}/g, (_, k) => String(v[k]))
+/** A count's form first ("{n, plural, one {# item} other {# items}}", shared/src/plural.ts), then the plain values. */
+const fill = (s: string, v: Record<string, string | number>, L: Locale) => fillPlurals(s, v, L).replace(/\{(\w+)\}/g, (_, k) => String(v[k]))
 
 const SKILLS = 'skills/ (team skills and rules) cannot be changed with this tool: use write / edit, which ask the user, or the Files screen'
 // Match the policy resolver's dot/empty-segment normalization before checking protected skills paths.
@@ -72,9 +74,11 @@ export function registerFileMoveTools(ctx: AppContext, reg: ToolRegistry) {
     if (added > 0 || lost > 0) {
       if (!tc.person) throw new ToolError(`this would change who can see these files (${added} more, ${lost} fewer people) and nobody can confirm it here, so nothing was ${verb}. Ask the user to do it in a chat or on the Files screen.`)
       const L = tc.person.locale
-      const names = ok.slice(0, 10).map(nameOf).join('\n') + (ok.length > 10 ? `\n${fill(TEXT.more[L], { n: ok.length - 10 })}` : '')
-      const question = [fill(TEXT[mode][L], { n: ok.length, to: folder || '/' }), added ? fill(TEXT.added[L], { n: added }) : '', lost ? fill(TEXT.lost[L], { n: lost }) : '',
-        TEXT[mode === 'move' ? 'askMove' : 'askCopy'][L]].filter(Boolean).join(' ') + '\n\n' + names
+      const names = ok.slice(0, 10).map(nameOf).join('\n') + (ok.length > 10 ? `\n${fill(TEXT.more[L], { n: ok.length - 10 }, L)}` : '')
+      // n: people, count: the items ("1 more person will be able to see it")
+      const count = ok.length
+      const question = [fill(TEXT[mode][L], { n: count, to: folder || '/' }, L), added ? fill(TEXT.added[L], { n: added, count }, L) : '', lost ? fill(TEXT.lost[L], { n: lost, count }, L) : '',
+        fill(TEXT[mode === 'move' ? 'askMove' : 'askCopy'][L], { count }, L)].filter(Boolean).join(' ') + '\n\n' + names
       if (!(await tc.person.confirm(question, TEXT[mode === 'move' ? 'yesMove' : 'yesCopy'][L], TEXT.no[L]))) {
         throw new ToolError(`the user did not allow this, so nothing was ${verb}. Do not put these files anywhere else that changes who can see them; ask the user what they want.`)
       }

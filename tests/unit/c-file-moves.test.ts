@@ -18,12 +18,12 @@ const png = Uint8Array.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0, 
 
 type Asked = { answer: boolean; questions: string[]; beforeAnswer?: () => Promise<void> }
 let rpcId = 0
-async function call(user: Person, name: string, args: unknown, o: { person?: Asked; turn?: boolean } = {}) {
+async function call(user: Person, name: string, args: unknown, o: { person?: Asked; turn?: boolean; locale?: 'ko' | 'en' | 'es' } = {}) {
   const turnId = o.turn ? A.turn(user, A.chat(user)) : null
   const tc = A.toolCtx(user, turnId)
   if (o.person) {
     const p = o.person
-    tc.person = { locale: 'ko', async confirm(q) { p.questions.push(q); await p.beforeAnswer?.(); return p.answer }, *turnUrls() {} }
+    tc.person = { locale: o.locale ?? 'ko', async confirm(q) { p.questions.push(q); await p.beforeAnswer?.(); return p.answer }, *turnUrls() {} }
   }
   const h = makeHandler(A.ctx.files, A.ctx.db, tc)
   const r = await h({ jsonrpc: '2.0', id: ++rpcId, method: 'tools/call', params: { name, arguments: args } })
@@ -80,6 +80,26 @@ describe('move_files', () => {
     expect(r.isError).toBe(false)
     expect(p.questions[0]).toMatch(/볼 수 있는 \d+명은 더 이상 볼 수 없게 돼요/)
     expect(has('users/alice/to-hide.md')).toBe(true)
+  })
+
+  // App review 2026-11-01 sweep: "move 1 item(s)", "1 more people will be able to see them"
+  test('English and Spanish cards count one item and one person in the singular', async () => {
+    put('shared/one-en.md', 'x')
+    const en = ask(false)
+    await call('alice', 'move_files', { paths: ['shared/one-en.md'], to_folder: 'users/alice' }, { person: en, locale: 'en' })
+    expect(en.questions[0]).toContain('The AI wants to move 1 item to users/alice.')
+    expect(en.questions[0]).not.toContain('(s)')
+    const lost = /(\d+) (person|people) who can see (it|them) now will no longer be able to\. Move (it|them)\?/.exec(en.questions[0]!)
+    expect(lost).not.toBeNull()
+    expect(lost![2]).toBe(lost![1] === '1' ? 'person' : 'people')
+    expect([lost![3], lost![4]]).toEqual(['it', 'it'])
+    put('users/alice/one-es.md', 'x')
+    const es = ask(false)
+    await call('alice', 'copy_files', { paths: ['users/alice/one-es.md'], to_folder: 'shared' }, { person: es, locale: 'es' })
+    expect(es.questions[0]).toContain('La IA quiere copiar 1 archivo a shared.')
+    const added = /(\d+) (persona más podrá|personas más podrán) verlo\. ¿Copiarlo\?/.exec(es.questions[0]!)
+    expect(added).not.toBeNull()
+    expect(added![2]).toBe(added![1] === '1' ? 'persona más podrá' : 'personas más podrán')
   })
 
   test('with nobody to ask (no chat person), a change of audience is refused and nothing moves', async () => {

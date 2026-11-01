@@ -117,6 +117,33 @@ describe('translations', () => {
     // "1 steps" style texts: a count right before an English plural noun must use the plural form
     for (const [k, v] of Object.entries(DICTS.en)) expect({ k, bare: /\{n\} \w+s\b/.test(v) }).toEqual({ k, bare: false })
   })
+  // App review 2026-11-01: "1 uses · 1 people" on the Skills page. Any count, not only {n}, and "people" too.
+  test('every count before a plural noun has its singular form (English, Spanish)', () => {
+    expect(translate('en', 'skills.popularCount', { uses: 1, users: 1 })).toBe('1 use · 1 person')
+    expect(translate('en', 'skills.popularCount', { uses: 5, users: 2 })).toBe('5 uses · 2 people')
+    expect(translate('es', 'skills.popularCount', { uses: 1, users: 1 })).toBe('1 uso · 1 persona')
+    expect(translate('es', 'skills.popularCount', { uses: 4, users: 3 })).toBe('4 usos · 3 personas')
+    expect(translate('ja', 'skills.popularCount', { uses: 1, users: 1 })).toBe('1回使用 · 1人')
+    expect(translate('ko', 'skills.popularCount', { uses: 1, users: 1 })).toBe('1회 · 1명')
+    expect(translate('id', 'skills.popularCount', { uses: 1, users: 1 })).toBe('1 kali · 1 orang')
+    expect(translate('en', 'home.frequentCount', { count: 1 })).toBe('1 time')
+    expect(translate('es', 'home.frequentCount', { count: 1 })).toBe('1 vez')
+    expect(translate('en', 'files.shareBody', { n: 1 })).toBe('1 more person will see this file.')
+    expect(translate('es', 'files.shareBody', { n: 1 })).toBe('1 persona más podrá ver este archivo.')
+    expect(translate('en', 'files.narrowBody', { n: 1 })).toContain('means 1 other person can no longer see it')
+    expect(translate('es', 'files.narrowBody', { n: 2 })).toContain('2 personas dejarán de poder verlo')
+    expect(translate('en', 'projects.shareBody', { n: 1 })).toMatch(/^1 more person will see this folder\./)
+    expect(translate('en', 'notifications.unread', { count: 1 })).toBe('1 unread notification')
+    expect(translate('es', 'notifications.unread', { count: 1 })).toBe('1 notificación sin leer')
+    expect(translate('en', 'connected.last', { time: 'today', files: '1', size: '2 KB' })).toBe('Last today · 1 file · 2 KB')
+    expect(translate('es', 'picker.selected', { n: '1' })).toBe('Seleccionados: 1')
+    expect(translate('en', 'credentials.month', { tokens: '1,204' })).toBe('Tokens this month: 1,204')
+    // a bare {count} right before a plural noun: none left (limits that are never 1 and numbers written with
+    // separators, which no plural rule reads, are listed)
+    const bare = /\{\w+\} (?:more |other |unread )?(?:people|times|uses|files|items|rows|lines|notifications|questions|tokens|members|chats|skills|personas|veces|usos|archivos|elementos|filas|líneas|notificaciones|preguntas|seleccionados|caracteres)(?![\p{L}])/u
+    const notCounts = new Set(['preview.sheetRowsCut', 'ask.skillLines', 'composer.answerTooLong'])
+    for (const loc of ['en', 'es'] as const) for (const [k, v] of Object.entries(DICTS[loc])) expect({ loc, k, bare: !notCounts.has(k) && bare.test(v) }).toEqual({ loc, k, bare: false })
+  })
   test('steps of older answers follow the language on screen', () => {
     expect(localizeStep({ kind: 'tool', tool: 'read', label: 'Read · shared/fruit.md' }, 'ko').label).toBe('파일 읽기 · shared/fruit.md')
     expect(localizeStep({ kind: 'tool', tool: 'remember', label: '기억함: I prefer short answers.' }, 'en').label).toBe('Remembered: I prefer short answers.')
