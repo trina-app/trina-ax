@@ -581,6 +581,12 @@ describe('the update LaunchAgent and the schedule', () => {
     expect(nextRunAt({ window: '00:00-00:00', timeZone: 'UTC' }, new Date('2026-11-01T15:00:00Z'))).toBeNull()
     // a window that does not start on a quarter: the first start after it opens
     expect(nextRunAt({ window: '22:51-00:51', timeZone: 'Asia/Jakarta' }, new Date('2026-11-01T15:00:00Z'))!.toISOString()).toBe('2026-11-01T16:00:00.000Z')
+    // clock changes: the evening before spring-forward shows the next night, not the one after; a start the clocks skip
+    // (02:30 that night) gets the first quarter of the window that exists
+    const ny = { window: '03:00-05:00', timeZone: 'America/New_York' }
+    expect(nextRunAt(ny, new Date('2026-03-08T04:30:00Z'))!.toISOString()).toBe('2026-03-08T07:00:00.000Z') // 23:30 EST Mar 7
+    expect(nextRunAt({ window: '02:30-04:00', timeZone: 'America/New_York' }, new Date('2026-03-08T04:30:00Z'))!.toISOString()).toBe('2026-03-08T07:00:00.000Z') // 03:00 EDT
+    expect(nextRunAt(ny, new Date('2026-11-01T03:30:00Z'))!.toISOString()).toBe('2026-11-01T08:00:00.000Z') // 23:30 EDT Oct 31 -> 03:00 EST
     expect(windowEnd('03:00-05:00', 'Asia/Jakarta', new Date('2026-11-01T20:10:00Z')).toISOString()).toBe('2026-11-01T22:00:00.000Z')
     expect(windowEnd('23:00-01:00', 'Asia/Seoul', new Date('2026-11-01T14:30:00Z')).toISOString()).toBe('2026-11-01T16:00:00.000Z')
   })

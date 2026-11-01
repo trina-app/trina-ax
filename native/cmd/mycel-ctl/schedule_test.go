@@ -664,6 +664,7 @@ func TestScheduledUpdateTimerOff(t *testing.T) {
 	f.channel("0.2.19", true)
 	tb := schedBase(t, f)
 	systemdRunDir = t.TempDir()
+	t.Cleanup(func() { systemdRunDir = "/run/systemd/system" })
 	must(t, os.WriteFile(filepath.Join(tb.fakeBin, "systemctl"), []byte("#!/bin/sh\n[ \"$1\" = is-enabled ] && { echo disabled; exit 1; }\nexit 0\n"), 0o755))
 	r := &schedRun{clock: at("2026-11-01T18:10:00Z"), window: "03:00-05:00", zone: "Asia/Seoul"}
 	scheduledHooks(t, tb, r)

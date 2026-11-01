@@ -199,10 +199,20 @@ export function nextRunAt(s: Pick<OfficeSchedule, 'window' | 'timeZone'>, now = 
   const next = up(now.getTime() + 1)
   if (inWindow(s.window, new Date(next), s.timeZone)) return new Date(next)
   const [h, m] = s.window.slice(0, 5).split(':').map(Number) as [number, number]
+  const today = zonedParts(now, s.timeZone)
   for (let day = 0; day < 3; day++) {
-    const p = zonedParts(new Date(now.getTime() + day * 86_400_000), s.timeZone)
-    const t = up(zonedToUtc(p.y, p.m, p.d, h, m, s.timeZone).getTime())
+    // calendar days in the team's zone (not now + 24 h: a day around a clock change is 23 or 25 hours)
+    const c = new Date(Date.UTC(today.y, today.m - 1, today.d + day, 12))
+    const [y, mo, d] = [c.getUTCFullYear(), c.getUTCMonth() + 1, c.getUTCDate()]
+    const start = zonedToUtc(y, mo, d, h, m, s.timeZone)
+    const t = up(start.getTime())
     if (t > now.getTime() && inWindow(s.window, new Date(t), s.timeZone)) return new Date(t)
+    // a start the clocks skip that night (02:30 on a spring-forward night): the quarters of that day
+    const sp = zonedParts(start, s.timeZone)
+    if (sp.h !== h || sp.min !== m) {
+      const from = zonedToUtc(y, mo, d, 0, 0, s.timeZone).getTime()
+      for (let x = up(Math.max(from, now.getTime() + 1)); x < from + 25 * 3600_000; x += q) if (inWindow(s.window, new Date(x), s.timeZone)) return new Date(x)
+    }
   }
   return null
 }
@@ -552,9 +562,13 @@ async function waitVersion(port: number, want: string, d: UpdateDeps, ms: number
 export async function deliverWindows(home: string, r: OfficeRelease, d: Pick<UpdateDeps, 'fetch' | 'log'>, o: { statfs?: StatfsLike } = {}): Promise<string | null> {
   const w = r.windows
   if (!w) return null
-  const res = await offerWindows(path.join(officePaths(home).data, 'downloads'), path.join(updatePaths(home).download, 'windows'), w, d, o)
-  // update/download/ itself when nothing else waits there (O9: an empty folder was left after every update)
-  try { fs.rmdirSync(updatePaths(home).download) } catch {}
+  let res: Awaited<ReturnType<typeof offerWindows>>
+  try { res = await offerWindows(path.join(officePaths(home).data, 'downloads'), path.join(updatePaths(home).download, 'windows'), w, d, o) }
+  finally {
+    // update/download/ itself when nothing else waits there (O9: an empty folder was left after every update; a failed
+    // download too). rmdir removes only an empty folder: a deferred release's zip stays
+    try { fs.rmdirSync(updatePaths(home).download) } catch {}
+  }
   if (res.kind === 'newer') { d.log(`Windows app ${res.version} is already offered (newer than ${w.version}); left as it is`); return null }
   if (res.kind === 'no-room') throw new UpdateFailure(res.message)
   if (res.kind === 'current') {
