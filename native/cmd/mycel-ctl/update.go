@@ -991,11 +991,23 @@ func (u *updater) runAsServer(args []string, extraEnv []string) (string, error) 
 	defer cancel()
 	cmd := exec.CommandContext(ctx, filepath.Join(b, "app", "current", "bin", "bun"), append([]string{filepath.Join(b, "app", "current", "server", "src", "admin.js")}, args...)...)
 	cmd.Dir = "/"
-	cmd.Env = append([]string{"PATH=/usr/bin:/bin", "HOME=" + filepath.Join(b, "data"), "LANG=C.UTF-8", "MYCEL_MODE=prod",
-		"MYCEL_CONFIG=" + filepath.Join(b, "config", "server.json"), "MYCEL_INSTALL_BASE=" + b, "MYCEL_LABEL=" + u.in.ID}, extraEnv...)
+	cmd.Env = append(adminEnv(u.in), extraEnv...)
 	cmd.SysProcAttr = &syscall.SysProcAttr{Credential: &syscall.Credential{Uid: uint32(srv.uid), Gid: uint32(srv.gid), Groups: []uint32{}}}
 	out, err := cmd.CombinedOutput()
 	return string(out), err
+}
+
+// adminEnv is admin.js's environment: the installation's, and MYCEL_ALLOW_UNSIGNED=1 when the install accepts unsigned
+// versions, as the server unit has it (serverEnv): without it `admin.js switch` of a signed running version refused an
+// unsigned one that mycel-ctl had just accepted ("bundle is not signed"; seen in the 0.2.14 -> 0.2.19 container run).
+func adminEnv(in *Install) []string {
+	b := in.Base
+	env := []string{"PATH=/usr/bin:/bin", "HOME=" + filepath.Join(b, "data"), "LANG=C.UTF-8", "MYCEL_MODE=prod",
+		"MYCEL_CONFIG=" + filepath.Join(b, "config", "server.json"), "MYCEL_INSTALL_BASE=" + b, "MYCEL_LABEL=" + in.ID}
+	if in.AllowUnsigned {
+		env = append(env, "MYCEL_ALLOW_UNSIGNED=1")
+	}
+	return env
 }
 
 func (u *updater) restartServer() error {

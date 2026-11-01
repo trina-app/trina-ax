@@ -514,3 +514,24 @@ func TestVerifyBundleThroughLink(t *testing.T) {
 		t.Fatal("a missing path verified")
 	}
 }
+
+// admin.js (switch, update-window) gets the server's MYCEL_ALLOW_UNSIGNED: an allow-unsigned install switches to an
+// unsigned version mycel-ctl accepted (the e2e run from a signed 0.2.14 to an unsigned build stopped there)
+func TestAdminEnvFollowsAllowUnsigned(t *testing.T) {
+	in := testInstall(t, "/var/lib/mycel")
+	has := func(env []string) bool {
+		for _, v := range env {
+			if v == "MYCEL_ALLOW_UNSIGNED=1" {
+				return true
+			}
+		}
+		return false
+	}
+	if has(adminEnv(in)) {
+		t.Fatal("signed-only install gives admin.js MYCEL_ALLOW_UNSIGNED")
+	}
+	in.AllowUnsigned = true
+	if !has(adminEnv(in)) || !has(serverEnv(in)) {
+		t.Fatal("allow-unsigned install: admin.js and the server must agree")
+	}
+}
