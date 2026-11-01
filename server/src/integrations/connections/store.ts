@@ -16,6 +16,8 @@ export interface Row {
   kind: 'mcp' | 'http'; name: string; slug: string; url: string; auth: 'none' | 'bearer' | 'header' | 'oauth'; auth_header: string | null
   secret_enc: string | null; key_version: number; account: string | null; notes: string | null; write_policy: 'ask' | 'allow' | 'deny'
   status: 'connected' | 'needs_auth' | 'error'; last_error: string | null; tools_json: string; tools_updated_at: string | null
+  /** how many tools the server offers when that is more than tools_json keeps (MAX_TOOLS); null otherwise */
+  tools_total?: number | null
   last_used_at: string | null; version: number; created_at: string; updated_at: string
 }
 export interface FlowRow {
@@ -82,6 +84,15 @@ export function savedTools(row: Row): RemoteTool[] {
   try { const v = JSON.parse(row.tools_json); return Array.isArray(v) ? v : [] } catch { return [] }
 }
 
+/** How many tools the connection's server offers when the server keeps fewer of them (mcp.ts MAX_TOOLS), else null. */
+export function toolsOffered(row: Row): number | null {
+  const n = row.tools_total, kept = savedTools(row).length
+  // none kept: a moved connection not checked again yet (its old count says nothing)
+  return typeof n === 'number' && kept > 0 && n > kept ? n : null
+}
+
+const toolsTotalOf = (row: Row): { toolsTotal?: number } => { const n = toolsOffered(row); return n === null ? {} : { toolsTotal: n } }
+
 /** The address without its query: what people who only use a connection (and the AI) see of it. */
 export const bareUrl = (u: string) => { const x = new URL(u); return x.origin + x.pathname }
 
@@ -94,6 +105,7 @@ export function view(db: Database, row: Row, viewer: Viewer, locale: Locale): In
     hasSecret: !!row.secret_enc, account: row.account, notes: row.notes, writePolicy: row.write_policy, status: row.status,
     lastError: reasonText(row.last_error, locale),
     tools: savedTools(row).map((t) => ({ name: t.name, title: t.title, description: t.description, readOnly: t.readOnly })),
+    ...toolsTotalOf(row),
     toolsUpdatedAt: row.tools_updated_at, access: row.scope === 'team' && manage ? accessOf(db, row.id) : null,
     createdBy: creator, createdAt: row.created_at, updatedAt: row.updated_at, lastUsedAt: row.last_used_at, canManage: manage,
   }

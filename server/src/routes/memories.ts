@@ -9,6 +9,7 @@ import { fail } from '../http/errors'
 import { getChatRuntime } from '../chat/runtime'
 import { decodeCursor, encodeCursor } from '../chat/store'
 import { listSkills, skillInfo, skillIssues } from '../chat/skills'
+import { teamRuleFiles } from '../chat/prompt'
 import { popularSkills } from '../skills/popular'
 import { createFromTemplate, SCHEDULE_TEMPLATES } from '../chat/schedule-templates'
 import { installNotifications } from '../notifications/service'
@@ -79,7 +80,7 @@ export const memoriesRoutes: RouteModule = {
     kit.handle(API.listSkillIssues, ({ auth }) => {
       let p
       try { p = ctx.files.principal(auth.user.id) } catch { return fail('forbidden') }
-      return { items: skillIssues(ctx.files, p) }
+      return { items: skillIssues(ctx.files, p, { rules: teamRuleFiles(ctx.files, p) }) }
     })
     // "스킬로 제안" → [등록] / [거절] (skills/suggestions.ts): the suggester and the managers of the target folder only
     kit.handle(API.skillsOverview, ({ auth }) => skillsOverview(ctx, auth.user.id))

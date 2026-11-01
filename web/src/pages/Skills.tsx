@@ -17,6 +17,7 @@ import { AvailableSkills } from '../components/AvailableSkills'
 import { Markdown } from '../components/Markdown'
 import { PopularSkills } from '../components/PopularSkills'
 import { SkillIssues } from '../components/SkillIssues'
+import { SkillListNote } from '../components/SkillListNote'
 import { Badge, Button, EmptyState, ErrorNote, Field, Modal, PageHeader, Skeleton, Tabs, inputCls, promptDialog } from '../components/ui'
 
 type Tab = 'skills' | 'review' | 'mine' | 'changes'
@@ -89,6 +90,7 @@ export default function Skills() {
       <PageHeader title={t('skills.title')} desc={t('skills.desc')} />
       <div className="w-full max-w-4xl p-4 sm:p-6">
         <SkillIssues key={`issues-${me.user.id}`} className="mb-5" />
+        <SkillListNote list={overview?.aiList} className="mb-5" />
         <PopularSkills key={me.user.id} />
         {error && <ErrorNote onRetry={() => void load()}>{error}</ErrorNote>}
         {!overview && !error && <Skeleton lines={5} />}

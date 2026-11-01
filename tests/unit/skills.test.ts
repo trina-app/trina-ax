@@ -67,7 +67,9 @@ describe('"/name" in a message', () => {
 describe('prompt', () => {
   test('the skill list and how to save one (only for people who can write skills/)', () => {
     const forAlice = skillsSection(files(true), alice)
-    expect(forAlice).toContain('- 주간 보고서 (skills/weekly.md): 이번 주 회의록으로 주간 보고서를 만든다')
+    // one line per skill: its name and what it is for (the skill tool loads it; no path, skill-list.ts)
+    expect(forAlice).toContain('- 주간 보고서: 이번 주 회의록으로 주간 보고서를 만든다')
+    expect(forAlice).not.toContain('skills/weekly.md')
     expect(forAlice).not.toContain('월말 결산')
     expect(forAlice).not.toContain('To save a workflow')
     expect(skillsSection(files(true), admin)).toContain('To save a workflow')

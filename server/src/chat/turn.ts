@@ -23,10 +23,11 @@ import type { LaunchHandle } from '../native'
 import type { LaunchRequest } from '@mycel/shared'
 import type { Principal } from '../policy/access'
 import { TurnFiles } from '../files/service'
-import { buildSubagentPrompt, buildTurnContext, buildTurnPrompt, continuationBlock, historyTrimmed, skillBlock, type PromptInput } from './prompt'
+import { buildSubagentPrompt, buildTurnContext, buildTurnPrompt, continuationBlock, historyTrimmed, neutralizeTags, skillBlock, skillHintsBlock, type PromptInput } from './prompt'
 import { buildAgentDefinitions, initProblem, LOCAL_LOGIN_CONFIDENTIAL_SUBAGENTS, PARENT_ONLY_TOOLS, SUBTASK_STEPS_KEPT, subtaskSummary } from './subagents'
 import { getTeamSettings } from '../admin/settings'
 import { invokedSkill, listSkills, skillFolder } from './skills'
+import { buildSkillList, chatSkillOrder, descriptionOrder, hintSkills, listedFor, recordListed, skillChanges, skillChangesText, usageScores } from './skill-list'
 import { describeSchedule, scheduledRunBlock, type ScheduleRow } from './schedules'
 import { safeModel } from './engines'
 import { engineError, stepLabel, tr, turnLimitError } from './i18n'
@@ -166,6 +167,8 @@ export class TurnExec {
   private toolSet: ChatToolSet | null = null
   /** what this Claude attempt was started with (the init check, docs/DECISIONS.md "Sub-agents") */
   private lockdown: { webSearch: boolean; subagents: boolean; team?: ReadonlySet<string> } = { webSearch: true, subagents: false }
+  /** the folder of the chat's project (find_skills prefers skills whose folders share its words), null: none */
+  projectFolder: string | null = null
   /** the sub-tasks of this answer (Claude Code's Agent calls), by the call's id: for the end audit row and the totals */
   private subtasks = new Map<string, { type: string; description: string; stats: AgentStats; done: boolean }>()
   /** the stored secrets of the person's connections, hidden in the answer, the steps, the audit lines and the title
@@ -293,6 +296,7 @@ export class TurnExec {
     }
     if (!resume && userMsg.parent_id === null) this.newSession()
     const project = rt.projectForChat(chat.project_id, this.principal)
+    this.projectFolder = project?.folderPath ?? null
     if (rt.projectTaints(project, spec.userId)) this.taint()
     // project instructions go into the prompt: their folder joins the read scope (tab 7)
     if (project && project.instructions.trim()) addSources(rt.db, spec.chatId, [sourceOf(rt.db, rt.files.rules(), project.folderPath)])
@@ -306,10 +310,16 @@ export class TurnExec {
     const webSearch = !this.templateScope && !confidential
     const subagents = !!claude && !this.templateScope && getTeamSettings(rt.db).aiSubagents
       && !(claude.authMode === 'local-login' && confidential && !LOCAL_LOGIN_CONFIDENTIAL_SUBAGENTS)
+    // the skills of this turn (chat/skill-list.ts), one walk for the instructions, the hints and "/name": every skill
+    // the person can use, one line each, the descriptions in the chat's fixed order (so the instructions stay the same
+    // from turn to turn)
+    const skills = listSkills(rt.files, this.principal)
+    const skillScores = usageScores(rt.db, spec.userId, skills.map((s) => s.path))
+    const skillList = buildSkillList(skills, { order: chatSkillOrder(rt.db, spec.chatId, spec.userId, () => descriptionOrder(skills, skillScores)), tag: neutralizeTags })
     const promptInput = (fresh: boolean): PromptInput => ({
       user: this.principal!, groupNames: rt.groupNames(this.principal!), locale: spec.locale, timeZone: rt.timeZone,
       memories: rt.memoriesForPrompt(spec.userId), project, browser: this.browser, tools: extraTools,
-      history: fresh ? rt.history(userMsg.parent_id) : null, connected: toolSet.prompt.join('\n\n') || null, subagents,
+      history: fresh ? rt.history(userMsg.parent_id) : null, connected: toolSet.prompt.join('\n\n') || null, subagents, skillList,
     })
     // what a general-purpose sub-agent may use, and the instructions every sub-agent gets (memories and history never)
     const turnTools = [...Object.keys(FILE_TOOLS), ...extraTools]
@@ -323,15 +333,18 @@ export class TurnExec {
     // connection, a refusal retry) gets at most 40,000 characters of history; a resumed one keeps what it started with.
     // The attempt that answers sets it last.
     // claudeAttempt: the prompt is for a Claude attempt (the Agent rule when it has sub-agents); the Codex fallback gets none
-    const prompt = (fresh: boolean, claudeAttempt = true) => {
+    // fresh instructions that start a Claude session (`sessionId`) list the skills as they are now: what a later resumed
+    // turn of that session is compared with (skill-list.ts). Codex and the API engine start fresh every turn.
+    const prompt = (fresh: boolean, claudeAttempt = true, sessionId: string | null = null) => {
       const input = { ...promptInput(fresh), subagents: subagents && claudeAttempt }
       this.historyTrimmed = fresh ? historyTrimmed(input.history) : before?.role === 'assistant' && before.history_trimmed === 1
+      if (fresh && sessionId) { try { recordListed(rt.db, spec.chatId, skills, sessionId) } catch (e) { rt.log.warn('skill list record failed', { err: e, turn: this.id }) } }
       return buildTurnPrompt(rt.files, input)
     }
     // "/<skill name> …": that skill goes in front of the message for this turn (skills.ts); its folder joins the read
     // scope like a file the AI read. The list is that of the person who runs the turn (the sender; for a scheduled run
     // the schedule owner): team skills they can read and their own personal skills
-    const invoked = invokedSkill(listSkills(rt.files, this.principal), userMsg.content)
+    const invoked = invokedSkill(skills, userMsg.content)
     if (invoked) addSources(rt.db, spec.chatId, [sourceOf(rt.db, rt.files.rules(), skillFolder(invoked.skill.path))])
     // a scheduled task's run: nobody is watching (waitForPerson answers at once), and the AI is told so
     let scheduled = ''
@@ -343,9 +356,18 @@ export class TurnExec {
     // else) is read knowing the work was cut off there (the session or the history has what it did)
     const cutOff = before?.role === 'assistant' ? stopReasonOf(before.stop_reason) : null
     const continued = cutOff ? `${continuationBlock(cutOff)}\n\n` : ''
-    const message = scheduled + continued + (invoked ? `${skillBlock(invoked.skill, invoked.input)}\n\n` : '') + composeMessage(userMsg, atts)
-    // a resumed Claude session keeps its first system prompt: what changes per turn travels with the message
-    const claudeMessage = (resumed: boolean) => (resumed ? `${buildTurnContext(rt.files, promptInput(false))}\n\n${message}` : message)
+    // the skill list is cut (more skills than fit): the few whose words match this message go in front of it, so the
+    // AI does not miss one only because it is listed by name only (not for a "/name" message: that skill is given)
+    const hints = !invoked && skillList.cut ? skillHintsBlock(hintSkills(skills, userMsg.content, { scores: skillScores, projectFolder: this.projectFolder })) : ''
+    const message = scheduled + continued + (hints ? `${hints}\n\n` : '') + (invoked ? `${skillBlock(invoked.skill, invoked.input)}\n\n` : '') + composeMessage(userMsg, atts)
+    // a resumed Claude session keeps its first system prompt: what changes per turn travels with the message, with the
+    // skills added, changed or removed since that session's instructions listed them
+    const claudeMessage = (resumed: boolean, sessionId: string) => {
+      if (!resumed) return message
+      const before = listedFor(rt.db, spec.chatId, sessionId, spec.userId)
+      const changes = skillChangesText(before === 'stale' ? 'stale' : skillChanges(before, skills), neutralizeTags)
+      return `${buildTurnContext(rt.files, { ...promptInput(false), skillChanges: changes })}\n\n${message}`
+    }
     // the API engine always answers with the owner's one model: the turn records it (usage by model), never empty
     const { turn, token } = core.turns.create(spec.userId, spec.chatId, spec.engine, api ? api.model : spec.model, spec.turnId)
     this.registered = true
@@ -409,7 +431,7 @@ export class TurnExec {
         // first call can never pass as the main AI's because its Agent line was not read yet (fails closed)
         this.files.subagents ||= subagents
         const lr = buildClaudeLaunch({ webSearch, subagents: subagentLaunch(),
-          turnId: spec.turnId, chatDir, token, systemPrompt: prompt(!resume), message: claudeMessage(resume), sessionId: sid, resume,
+          turnId: spec.turnId, chatDir, token, systemPrompt: prompt(!resume, true, sid), message: claudeMessage(resume, sid), sessionId: sid, resume,
           stash: resume ? fs.readFileSync(rt.sessionStash(spec.chatId, sid)) : null, model, maxTurns, timeoutMs: LAUNCHER_BACKSTOP_MS, extraTools, proxyToken, tokenKind,
           ...(tunnelPort !== null && proxyToken ? { tunnel: { port: tunnelPort, token: proxyToken } } : {}),
         }, claude)

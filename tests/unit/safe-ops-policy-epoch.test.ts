@@ -23,7 +23,8 @@ const policy: Record<string, string> = {
 const bookkeeping: Record<string, string> = {
   users: 'name email locale created_at prefs last_seen_at locale_follows_team password_reset_by password_reset_at temp_password_failures',
   groups: 'name description', group_members: '', folders: 'created_at', folder_rules: 'updated_by updated_at',
-  integrations: 'created_by name notes last_error tools_updated_at last_used_at created_at updated_at',
+  // tools_total: how many tools the service offers (a count for Settings and the instructions; tools_json is the policy)
+  integrations: 'created_by name notes last_error tools_updated_at tools_total last_used_at created_at updated_at',
   integration_access: '', connected_folders: 'created_by created_at last_sync_at last_status last_error files bytes',
 }
 

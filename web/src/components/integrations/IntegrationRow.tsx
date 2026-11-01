@@ -242,7 +242,7 @@ export function IntegrationRow({ i, actions, onEdit, teamBadge, extra }: {
         <div className="mt-2 pl-7">
           <button type="button" aria-expanded={open} aria-controls={toolsId} onClick={() => setOpen((v) => !v)} className="inline-flex items-center gap-1 rounded text-xs font-medium text-accent-text hover:underline" data-testid="integration-tools-toggle">
             {open ? <ChevronDown size={14} aria-hidden /> : <ChevronRight size={14} aria-hidden />}
-            {t('integrations.tools', { n: i.tools.length })}
+            {i.toolsTotal ? t('integrations.toolsOf', { n: i.tools.length, total: i.toolsTotal }) : t('integrations.tools', { n: i.tools.length })}
           </button>
           {open && (
             <div id={toolsId} className="mt-2">
@@ -263,6 +263,7 @@ export function IntegrationRow({ i, actions, onEdit, teamBadge, extra }: {
                 </ul>
               )}
               <p className="mt-1.5 text-xs text-faint">
+                {i.toolsTotal ? <span className="block" data-testid="integration-tools-capped">{t('integrations.toolsCapped', { n: i.tools.length, total: i.toolsTotal })}</span> : null}
                 {t('integrations.toolsHint')}
                 {i.toolsUpdatedAt && ` ${t('integrations.toolsChecked', { date: formatDateTime(i.toolsUpdatedAt, locale) })}`}
               </p>

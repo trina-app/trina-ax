@@ -18,7 +18,9 @@ export interface Skill extends SkillInfo { body: string }
 const SKILLS_DIR = 'skills'
 const USERS_DIR = 'users'
 const MAX_DEPTH = 3
-const MAX_FILES = 200
+/** entries read per skill root (team skills/, a person's own users/<id>/skills/), team rule files included. Over it the
+ * rest is not read: skill managers see a "too_many" issue (skillIssues), never a silent cut */
+export const MAX_FILES = 1000
 export const SKILL_BODY_MAX = 16_000
 export const SKILL_FILE_MAX_BYTES = 128 * 1024
 const HEADER_MAX = 8 * 1024
@@ -186,9 +188,9 @@ export function skillFileKind(root: string, rel: string, text: string): 'skill' 
 
 /** Read exactly one authorized entry using the same link/size checks as the file tools. A personal entry is a skill
  * only for its owner (the folder rules give nobody else access; this check does not depend on them). */
-export function readSkill(files: FileService, user: Principal, inputPath: string): Skill | null {
+export function readSkill(files: FileService, user: Principal, inputPath: string, scan?: Scan): Skill | null {
   try {
-    const r = authorize(files.fx, files.rules(), user, inputPath, 'read')
+    const r = authorize(files.fx, scan?.rules ?? files.rules(), user, inputPath, 'read', scan ? { dirs: scan.dirs } : {})
     const root = skillRootLength(r.segs)
     if (root === null || (root === 3 && r.segs[1] !== user.id)) return null
     if (r.segs.length > root + MAX_DEPTH || !r.rel.endsWith('.md') || isSkillResource(files.fx.root, r.rel)) return null
@@ -200,38 +202,51 @@ export function readSkill(files: FileService, user: Principal, inputPath: string
 
 /** Visit the accessible entry candidates under skills/ and under the caller's own users/<id>/skills/: legacy .md
  * files and folder SKILL.md files, capped per root (team skills cannot push personal skills out). Never descend into
- * a skill package. */
-function walkSkillEntries(files: FileService, user: Principal, visit: (rel: string) => void) {
-  walkSkillRoot(files, user, SKILLS_DIR, visit)
-  walkSkillRoot(files, user, personalSkillsDir(user.id), visit)
+ * a skill package. Returns the roots whose walk stopped at the cap (some entries there were not visited). */
+function walkSkillEntries(files: FileService, user: Principal, visit: (rel: string, scan: Scan) => void): string[] {
+  const capped: string[] = []
+  // one synchronous scan: the folder rules and each folder's listing are read once (a folder of 1,000 skills was
+  // listed again for every entry it holds)
+  const scan: Scan = { rules: files.rules(), dirs: new Map() }
+  for (const root of [SKILLS_DIR, personalSkillsDir(user.id)]) if (walkSkillRoot(files, user, root, (rel) => visit(rel, scan), scan)) capped.push(root)
+  return capped
 }
 
-function walkSkillRoot(files: FileService, user: Principal, rootRel: string, visit: (rel: string) => void) {
+/** What one synchronous walk reuses (never across an await): the folder rules and the folder listings it read. */
+interface Scan { rules: ReturnType<FileService['rules']>; dirs: Map<string, string[]> }
+
+/** true: the root has more entries than MAX_FILES (the rest were not visited) */
+function walkSkillRoot(files: FileService, user: Principal, rootRel: string, visit: (rel: string) => void, scan: Scan): boolean {
   let seen = 0
+  let capped = false
   const walk = (rel: string, depth: number) => {
     let names: string[]
     try {
-      const r = authorize(files.fx, files.rules(), user, rel, 'list')
+      const r = authorize(files.fx, scan.rules, user, rel, 'list', { dirs: scan.dirs })
       if (!r.st?.isDirectory()) return
-      names = fs.readdirSync(r.abs).sort()
+      const listed = scan.dirs.get(r.abs) ?? fs.readdirSync(r.abs)
+      scan.dirs.set(r.abs, listed)
+      names = [...listed].sort()
     } catch { return }
     if (depth > 1 && names.includes('SKILL.md')) {
-      if (seen++ < MAX_FILES) visit(`${rel}/SKILL.md`)
+      if (seen < MAX_FILES) { seen++; visit(`${rel}/SKILL.md`) } else capped = true
       return
     }
     for (const n of names) {
-      if (seen >= MAX_FILES) break
+      if (capped) break
       if (n.startsWith('.')) continue
       const child = `${rel}/${n}`
       let st: fs.Stats
-      try { st = authorize(files.fx, files.rules(), user, child, 'list').st! } catch { continue }
+      try { st = authorize(files.fx, scan.rules, user, child, 'list', { dirs: scan.dirs }).st! } catch { continue }
       if (st.isDirectory()) { if (depth < MAX_DEPTH) walk(child, depth + 1); continue }
       if (!st.isFile() || st.nlink > 1 || !n.endsWith('.md')) continue
+      if (seen >= MAX_FILES) { capped = true; break }
       seen++
       visit(child)
     }
   }
   walk(rootRel, 1)
+  return capped
 }
 
 const nameKey = (s: string) => s.normalize('NFC').toLowerCase()
@@ -240,26 +255,43 @@ const nameKey = (s: string) => s.normalize('NFC').toLowerCase()
  * read, and their own personal skills. A personal skill with the same name as a team skill replaces that team skill
  * in this person's list only (other people still get the team skill). */
 export function listSkills(files: FileService, user: Principal): Skill[] {
+  return scanSkills(files, user).skills
+}
+
+/** listSkills, and the roots whose walk stopped at MAX_FILES (skills/ or the caller's users/<id>/skills). */
+export function scanSkills(files: FileService, user: Principal): { skills: Skill[]; capped: string[] } {
   const out: Skill[] = []
-  walkSkillEntries(files, user, (rel) => {
-    const skill = readSkill(files, user, rel)
+  const capped = walkSkillEntries(files, user, (rel, scan) => {
+    const skill = readSkill(files, user, rel, scan)
     if (skill) out.push(skill)
   })
   const personal = new Set(out.filter((s) => isPersonalSkill(s.path)).map((s) => nameKey(s.name)))
-  return out.filter((s) => isPersonalSkill(s.path) || !personal.has(nameKey(s.name)))
+  const skills = out.filter((s) => isPersonalSkill(s.path) || !personal.has(nameKey(s.name)))
     .sort((a, b) => a.name.localeCompare(b.name) || a.path.localeCompare(b.path))
+  return { skills, capped }
 }
 
-export interface SkillIssue { path: string; problem: SkillProblem }
+/** Skill managers (docs/DECISIONS.md "팀 스킬 관리"): write on skills/ or on one of its folders. The topmost such
+ * folders, [] for everyone else. */
+export function managedSkillRoots(files: FileService, user: Principal): string[] {
+  const rules = files.rules()
+  const writable = [SKILLS_DIR, ...(rules.ruleFolders?.() ?? []).filter((f) => f.startsWith(SKILLS_DIR + '/') && f.split('/').length <= 3)]
+    .filter((f) => rules.access(user, f.split('/')) === 'write')
+  return writable.filter((f) => !writable.some((g) => g !== f && f.startsWith(g + '/')))
+}
+
+export interface SkillIssue { path: string; problem: SkillProblem | 'too_many' | 'too_many_rules' }
 
 /** Entries that look like skills but do not load (R2-SKILL-03): a SKILL.md that fails validation, or a legacy file
  * with a header that fails. Only entries the caller can read are checked, so a path the caller cannot read never
- * shows. A file without a header is a team rule, not an issue. */
-export function skillIssues(files: FileService, user: Principal): SkillIssue[] {
+ * shows. A file without a header is a team rule, not an issue. A root with more entries than MAX_FILES is one issue
+ * (`too_many`) for the people who manage it: skill managers for skills/, the owner for their personal skills. More
+ * team rule files than the AI follows (`too_many_rules`, prompt.ts teamRules) is one for skill managers. */
+export function skillIssues(files: FileService, user: Principal, o: { rules?: { total: number; followed: number } } = {}): SkillIssue[] {
   const out: SkillIssue[] = []
-  walkSkillEntries(files, user, (rel) => {
+  const capped = walkSkillEntries(files, user, (rel, scan) => {
     try {
-      const r = authorize(files.fx, files.rules(), user, rel, 'read')
+      const r = authorize(files.fx, scan.rules, user, rel, 'read', { dirs: scan.dirs })
       if (isSkillResource(files.fx.root, r.rel)) return
       if (!r.st?.isFile()) return
       if (r.st.size > SKILL_FILE_MAX_BYTES) { out.push({ path: r.rel, problem: 'too_large' }); return }
@@ -268,7 +300,10 @@ export function skillIssues(files: FileService, user: Principal): SkillIssue[] {
       if (!check.ok && (isSkillManifest(r.rel) || hasFrontmatter(text))) out.push({ path: r.rel, problem: check.problem })
     } catch { /* not readable: say nothing */ }
   })
-  return out.sort((a, b) => a.path.localeCompare(b.path))
+  const manager = managedSkillRoots(files, user).length > 0
+  for (const root of capped) if (root !== SKILLS_DIR || manager) out.push({ path: root, problem: 'too_many' })
+  if (manager && o.rules && o.rules.total > o.rules.followed) out.push({ path: SKILLS_DIR, problem: 'too_many_rules' })
+  return out.sort((a, b) => a.path.localeCompare(b.path) || a.problem.localeCompare(b.problem))
 }
 
 /** Longest explicit name wins, then file aliases, then a personal skill before a team skill. Folder skills never

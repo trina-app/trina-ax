@@ -35,6 +35,8 @@ export const FILE_STEP_VERB: Record<string, T> = {
   drive_read: t('Google Drive 파일 읽기', 'Read Google Drive file', 'Baca berkas Google Drive', "Google ドライブのファイルを読む", "Leer archivo de Google Drive"),
   generate_video: t('동영상 만들기', 'Generate video', 'Buat video', "動画を生成", "Generar video"),
   ask_user: t('질문', 'Question', 'Pertanyaan', "質問", "Pregunta"),
+  skill: t('스킬 사용', 'Use skill', 'Pakai skill', "スキルを使用", "Usar habilidad"),
+  find_skills: t('스킬 찾기', 'Find skills', 'Cari skill', "スキルを探す", "Buscar habilidades"),
   remember: t('기억하기', 'Remember', 'Ingat', "記憶", "Recordar"),
   forget: t('기억 지우기', 'Forget', 'Lupakan', "忘れる", "Olvidar"),
 }
@@ -153,6 +155,8 @@ export function stepLabel(tool: string, input: unknown, locale: Locale, browserT
     case 'drive_list': return a.folderId && a.folderId !== 'root' ? `${verb} · ${clip(a.folderId, 60)}` : verb!
     case 'drive_read': return `${verb} · ${clip(a.fileId, 60)}`
     case 'generate_video': return `${verb} · ${clip(a.prompt, 80)}`
+    case 'skill': return `${verb} · ${clip(a.name, 80)}`
+    case 'find_skills': return `${verb} "${clip(a.query, 60)}"`
     case 'ask_user': return stepText('asked', locale, { q: clip(a.question, 120) })
     case 'remember': return stepText('remembered', locale, { text: clip(a.text, 120) })
     case 'forget': return stepText('forgot', locale)

@@ -28,7 +28,10 @@ export const PopularSkills = z.object({
 })
 export type PopularSkills = z.infer<typeof PopularSkills>
 /** Why a skill entry does not load (R2-SKILL-03). The screens translate the code. */
-export const SkillProblem = z.enum(['too_large', 'header', 'location', 'name', 'name_folder', 'description', 'compatibility'])
+export const SkillProblem = z.enum(['too_large', 'header', 'location', 'name', 'name_folder', 'description', 'compatibility',
+  // a whole folder, for the people who manage it: more entries than the server reads (1,000 per skills folder), or more
+  // team rule files than the AI follows (10)
+  'too_many', 'too_many_rules'])
 export type SkillProblem = z.infer<typeof SkillProblem>
 export const SkillIssue = z.object({ path: z.string(), problem: SkillProblem })
 export type SkillIssue = z.infer<typeof SkillIssue>
@@ -107,6 +110,19 @@ export const SkillsOverview = z.object({
   pendingReview: z.number().int().nonnegative(),
   /** the caller's own suggestions still waiting */
   myPending: z.number().int().nonnegative(),
+  /** what the AI's instructions hold of the caller's skills (server/src/chat/skill-list.ts): every name while they
+   * fit in the list's budget, descriptions while they fit; the rest the AI finds with find_skills. Team rules: how many
+   * skills/*.md rule files there are and how many the AI follows (the first 10). Absent from older servers. */
+  aiList: z.object({
+    skills: z.number().int().nonnegative(),
+    described: z.number().int().nonnegative(),
+    nameOnly: z.number().int().nonnegative(),
+    unlisted: z.number().int().nonnegative(),
+    /** the list did not fit: some descriptions (or names) are left out of it */
+    cut: z.boolean(),
+    rules: z.number().int().nonnegative(),
+    rulesFollowed: z.number().int().nonnegative(),
+  }).optional(),
 })
 export type SkillsOverview = z.infer<typeof SkillsOverview>
 

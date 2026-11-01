@@ -121,6 +121,15 @@ export const SetTitleInput = z.strictObject({
 })
 export const SetTitleOutput = z.object({ ok: z.literal(true), title: z.string() })
 
+/** Load one skill by the name the instructions list (server/src/chat/tools.ts, like Claude Code's Skill tool). */
+export const SkillInput = z.strictObject({
+  name: z.string().min(1).max(300).describe('The skill\'s name as listed under Team skills in your instructions (a path from find_skills works too).'),
+})
+/** Search the skills the person can use by words (name, description, folders). */
+export const FindSkillsInput = z.strictObject({
+  query: z.string().min(1).max(500).describe('A few words of what the user wants, in their language, e.g. "quote for a customer" or "weekly report".'),
+})
+
 export const AskUserInput = z.strictObject({
   question: z.string().min(1).max(2000),
   options: z.array(z.strictObject({ label: z.string(), value: z.string() })).max(20).optional(),
@@ -160,6 +169,8 @@ export const OTHER_TOOLS = {
   forget: { input: ForgetInput, output: ForgetOutput },
   ask_user: { input: AskUserInput, output: AskUserOutput },
   set_title: { input: SetTitleInput, output: SetTitleOutput },
+  skill: { input: SkillInput, output: TextOutput },
+  find_skills: { input: FindSkillsInput, output: TextOutput },
   web_fetch: { input: WebFetchInput, output: WebFetchOutput },
 } as const
 

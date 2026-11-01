@@ -26,7 +26,7 @@ export const MAX_SUBAGENT_TURNS = 50
  */
 export const PARENT_ONLY_TOOLS: ReadonlySet<string> = new Set(['ask_user', 'set_title', 'remember', 'forget', ...SCHEDULE_TOOLS, 'generate_video', ...BROWSER_TOOL_NAMES])
 /** what the read-only Explore helper may use (of the tools the turn has) */
-export const EXPLORE_TOOLS: ReadonlySet<string> = new Set(['list', 'glob', 'grep', 'read', 'search', 'drive_list', 'drive_read', 'drive_search', 'hwp_render', 'web_fetch'])
+export const EXPLORE_TOOLS: ReadonlySet<string> = new Set(['list', 'glob', 'grep', 'read', 'search', 'skill', 'find_skills', 'drive_list', 'drive_read', 'drive_search', 'hwp_render', 'web_fetch'])
 
 export interface AgentDefinition {
   description: string

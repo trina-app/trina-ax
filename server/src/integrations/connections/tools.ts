@@ -13,7 +13,7 @@ import type { TurnTool, TurnToolContext, TurnToolProvider, TurnToolResult } from
 import { addSources } from '../../chat/read-scope'
 import { MAX_BODY, type NetResponse } from './net'
 import { CallError, integrationsOf } from './service'
-import { bareUrl, savedTools, type Row } from './store'
+import { bareUrl, savedTools, toolsOffered, type Row } from './store'
 import { HIDDEN } from './hide'
 import { say } from './text'
 import type { RemoteTool } from './mcp'
@@ -385,16 +385,25 @@ export function integrationToolProvider(ctx: AppContext): TurnToolProvider {
         const key = connectionKey(row)
         if (row.status === 'needs_auth' || (row.auth !== 'none' && !row.secret_enc)) { lines.push(`- ${row.name} (${who} connection): not usable now, it needs ${row.auth === 'oauth' ? 'a new sign-in' : 'its key'} (the user can fix it in Settings > External services)`); continue }
         if (row.kind === 'http') { http.push(row); lines.push(`- ${row.name} (${who} connection, HTTP API): api_request with connection "${key}"`); continue }
-        let n = 0
-        for (const t of savedTools(row)) {
-          if (tools.length >= MAX_TURN_TOOLS) break
+        let n = 0, turnFull = false
+        const saved = savedTools(row)
+        for (const t of saved) {
+          if (tools.length >= MAX_TURN_TOOLS) { turnFull = true; break }
           const name = toolName(key, t.name, taken)
           if (!name) continue
           taken.add(name)
           tools.push(mcpTool(ctx, b, row, t, name))
           n++
         }
-        lines.push(`- ${row.name} (${who} connection, MCP server): ${n} tools named ${key}__…`)
+        // the caps are said, not hidden (docs/DECISIONS.md "Skills: the whole list, the skill tool"): the service
+        // offers more than the server keeps per connection, or this answer's tool limit left some out
+        const offered = toolsOffered(row)
+        const capped = turnFull
+          ? ` (${n} of the ${offered ?? saved.length} tools the service offers: one answer can have at most ${MAX_TURN_TOOLS} tools from all connections together; if the user needs one that is not here, say so)`
+          : offered !== null
+            ? ` (${n} of the ${offered} tools the service offers: the team server keeps the first ${saved.length} of a connection; if the user needs one that is not here, say so)`
+            : ''
+        lines.push(`- ${row.name} (${who} connection, MCP server): ${n} tools named ${key}__…${capped}`)
       }
       if (http.length) tools.push(apiRequestTool(ctx, b, http))
       const prompt = lines.length ? [

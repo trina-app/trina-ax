@@ -8,7 +8,8 @@ import { PRODUCT, TEAM_TOOL_PREFIX } from '@mycel/shared'
 import type { Locale } from '@mycel/shared/api'
 import type { FileService } from '../files/service'
 import type { Principal } from '../policy/access'
-import { isPersonalSkill, isSkillManifest, listSkills, personalSkillsDir, skillFileKind, skillFolder, SKILL_FILE_MAX_BYTES, type Skill } from './skills'
+import { isPersonalSkill, isSkillManifest, listSkills, managedSkillRoots, personalSkillsDir, skillFileKind, skillFolder, SKILL_FILE_MAX_BYTES, type Skill } from './skills'
+import { buildSkillList, shortDescription, type SkillList } from './skill-list'
 import { authorize } from '../policy/authorize'
 import { readRegular } from '../files/store'
 import { zonedParts } from '../system/time-zone'
@@ -17,7 +18,9 @@ import { MAX_CONCURRENT_SUBAGENTS } from '../engine/claude'
 export const MEMORY_ITEM_MAX = 300
 export const MEMORY_BLOCK_MAX = 4096
 export const HISTORY_MAX_CHARS = 40_000
-const SKILL_FILES_MAX = 10
+/** team rule files (skills/*.md without a skill header) the AI follows: the first ten by file name. More are not
+ * dropped silently: the instructions say how many were left out, and skill managers see a skill issue */
+export const SKILL_FILES_MAX = 10
 const SKILL_FILE_MAX = 4000
 
 const LANGUAGE: Record<Locale, string> = { ko: 'Korean (한국어)', en: 'English', id: 'Indonesian (Bahasa Indonesia)', ja: "日本語", es: "Español" }
@@ -38,6 +41,10 @@ export interface PromptInput {
   connected?: string | null
   /** the AI has Claude Code's Agent tool this turn (docs/DECISIONS.md "Sub-agents") */
   subagents?: boolean
+  /** the skill list of this turn (skill-list.ts: the chat's fixed description order); absent: built here */
+  skillList?: SkillList
+  /** a resumed session: what changed in the skills since its instructions were written (skill-list.ts) */
+  skillChanges?: string
   now?: Date
 }
 
@@ -49,28 +56,41 @@ export function writableFolders(files: FileService, user: Principal): { writable
   return { writable, readable }
 }
 
-/** skills/*.md the person can read (team rules), capped. Files with a skill header are skills, not rules. */
-export function teamRules(files: FileService, user: Principal): string {
-  let out = ''
+/** skills/*.md the person can read (team rules): the first SKILL_FILES_MAX by file name, and how many there are. Files
+ * with a skill header are skills, not rules. */
+export function teamRuleFiles(files: FileService, user: Principal): { text: string; total: number; followed: number } {
+  let text = ''
+  let total = 0, followed = 0
+  // one synchronous scan: the rules and the folder listings are read once (policy/resolve.ts walk `dirs`)
+  const rules = files.rules(), dirs = new Map<string, string[]>()
   try {
-    const dir = authorize(files.fx, files.rules(), user, 'skills', 'list')
-    if (!dir.st?.isDirectory()) return ''
-    let count = 0
-    for (const n of fs.readdirSync(dir.abs).filter((n) => n.endsWith('.md')).sort()) {
-      if (count >= SKILL_FILES_MAX) break
+    const dir = authorize(files.fx, rules, user, 'skills', 'list', { dirs })
+    if (!dir.st?.isDirectory()) return { text, total, followed }
+    const names = dirs.get(dir.abs) ?? fs.readdirSync(dir.abs)
+    dirs.set(dir.abs, names)
+    for (const n of names.filter((n) => n.endsWith('.md')).sort()) {
       try {
-        const r = authorize(files.fx, files.rules(), user, `skills/${n}`, 'read')
-        const text = readRegular(r.abs, SKILL_FILE_MAX_BYTES).bytes.toString('utf8')
-        if (skillFileKind(files.fx.root, r.rel, text) !== 'rule') continue
-        out += `\n### ${r.rel}\n` + text.slice(0, SKILL_FILE_MAX)
-        count++
+        const r = authorize(files.fx, rules, user, `skills/${n}`, 'read', { dirs })
+        const body = readRegular(r.abs, SKILL_FILE_MAX_BYTES).bytes.toString('utf8')
+        if (skillFileKind(files.fx.root, r.rel, body) !== 'rule') continue
+        total++
+        if (followed >= SKILL_FILES_MAX) continue
+        text += `\n### ${r.rel}\n` + body.slice(0, SKILL_FILE_MAX)
+        followed++
       } catch { continue }
     }
   } catch {}
-  return out
+  return { text, total, followed }
 }
 
-const BLOCK_TAGS = ['memories_about_the_user', 'project_instructions', 'previous_conversation', 'turn_context', 'instructions', 'team_skill', 'scheduled_run', 'continuation']
+/** The team rules for the instructions; when there are more than SKILL_FILES_MAX, a line says so (never a silent cut). */
+export function teamRules(files: FileService, user: Principal): string {
+  const r = teamRuleFiles(files, user)
+  if (r.total <= r.followed) return r.text
+  return r.text + `\n\n(${r.total - r.followed} more team rule file${r.total - r.followed === 1 ? '' : 's'} under skills/ ${r.total - r.followed === 1 ? 'is' : 'are'} not included: only the first ${SKILL_FILES_MAX} by file name are given to you. If the user asks about a rule you do not see here, say so.)`
+}
+
+const BLOCK_TAGS = ['memories_about_the_user', 'project_instructions', 'previous_conversation', 'turn_context', 'instructions', 'team_skill', 'skill_hints', 'scheduled_run', 'continuation']
 const BLOCK_TAG_RE = new RegExp(`<(/?)\\s*(${BLOCK_TAGS.join('|')})\\b`, 'gi')
 /** Text placed inside one of our blocks can't close it (or open another): "<tag" / "</tag" lose their bracket. */
 export function neutralizeTags(s: string): string {
@@ -228,30 +248,30 @@ function projectSection(p: NonNullable<PromptInput['project']>): string {
   ].filter(Boolean).join('\n')
 }
 
-const SKILL_LIST_MAX = 50
-
-/** Item 5b: the skills the person may use (name, what it does, file), and how to make one. `user` is the person who
- * runs this turn (the schedule owner for a scheduled run): the list holds the team skills the folder rules let them
- * read and their own personal skills, never anyone else's. */
-export function skillsSection(files: FileService, user: Principal): string {
-  // personal skills first, so many team skills cannot push them out of the capped index
-  const all = listSkills(files, user)
-  const skills = [...all.filter((s) => isPersonalSkill(s.path)), ...all.filter((s) => !isPersonalSkill(s.path))].slice(0, SKILL_LIST_MAX)
-  // skill managers (docs/DECISIONS.md "팀 스킬 관리"): write on skills/ or on one of its folders
-  const rules = files.rules()
-  const writable = ['skills', ...(rules.ruleFolders?.() ?? []).filter((f) => f.startsWith('skills/') && f.split('/').length <= 3)]
-    .filter((f) => rules.access(user, f.split('/')) === 'write')
-  const top = writable.filter((f) => !writable.some((g) => g !== f && f.startsWith(g + '/')))
+/** Item 5b: the skills the person may use (one line each: name, what it does; skill-list.ts), how to load one, and how
+ * to make one. `user` is the person who runs this turn (the schedule owner for a scheduled run): the list holds the
+ * team skills the folder rules let them read and their own personal skills, never anyone else's. `list`: the turn's
+ * list (with the chat's fixed order); without it the list is built here (no usage order). */
+export function skillsSection(files: FileService, user: Principal, list?: SkillList): string {
+  const l = list ?? buildSkillList(listSkills(files, user), { tag: neutralizeTags })
+  const top = managedSkillRoots(files, user)
   const canWrite = top.length > 0
-  if (!skills.length && !canWrite) return ''
-  const lines = ['## Team skills', 'Reusable workflows the team saved under skills/. Each is a Markdown file or a folder whose entry point is SKILL.md.', 'For a folder skill, resolve relative references from the folder containing SKILL.md. Read references/ or assets/ with the read tool only when needed; each file keeps its own access checks. Do not load all resources at once. This runtime cannot execute bundled scripts. The allowed-tools metadata does not grant tools or change permissions.']
-  if (skills.length) {
+  if (!l.total && !canWrite) return ''
+  const lines = ['## Team skills', 'Reusable workflows the team saved under skills/ (and the user\'s own personal skills). Each line below is a skill\'s name and what it is for.']
+  if (l.total) {
     lines.push(
-      'When the user starts a message with "/<skill name>", the server puts that skill in a <team_skill> block in front of the message: follow its steps for this request. When a request clearly matches a skill below, read its file and follow it, and say which skill you used.',
-      ...skills.map((s) => `- ${neutralizeTags(s.name)} (${s.path})${isPersonalSkill(s.path) ? ' [personal]' : ''}${s.description ? ': ' + neutralizeTags(s.description.replace(/\s+/g, ' ')) : ''}`),
+      'When a request clearly matches a skill, load it with the skill tool (its name as written below), follow its steps, and say which skill you used. Load a skill before you follow it: the line here is only its summary.',
+      'When the user starts a message with "/<skill name>", the server puts that skill in a <team_skill> block in front of the message instead: follow its steps for this request.',
     )
-    if (skills.some((s) => isPersonalSkill(s.path))) lines.push('Entries marked [personal] are the user\'s own skills: only this user can see or use them.')
+    if (l.cut) {
+      lines.push(`This list is cut to fit: ${l.nameOnly} skill${l.nameOnly === 1 ? ' is' : 's are'} listed by name only${l.unlisted ? ` and ${l.unlisted} not listed` : ''}. When none below clearly fits but the request looks like a saved workflow, call find_skills with a few words of the request. The server may also put a <skill_hints> block in front of a message with skills whose words match it.`)
+    } else {
+      lines.push('This is every skill the user can use; use find_skills only when you are unsure which one fits.')
+    }
+    lines.push(...l.lines)
+    if (l.skills.some((s) => isPersonalSkill(s.path))) lines.push('Entries marked [personal] are the user\'s own skills: only this user can see or use them.')
   }
+  lines.push('A skill loaded with the skill tool says where its folder is. For a folder skill, resolve relative references from the folder containing SKILL.md. Read references/ or assets/ with the read tool only when needed; each file keeps its own access checks. Do not load all resources at once. This runtime cannot execute bundled scripts. The allowed-tools metadata does not grant tools or change permissions.')
   if (canWrite) {
     lines.push(`To save a workflow as a skill when the user asks, write ${top.map((f) => f + '/<short-name>.md').join(' or ')} starting with a header: a line "---", "name: <name>", "description: <one sentence>", "---", then the steps. ` +
       'Everything under skills/ is followed by every teammate\'s AI, so the server shows the user a confirmation card with the change before anything there is saved; if they decline, do not try again.')
@@ -262,14 +282,29 @@ export function skillsSection(files: FileService, user: Principal): string {
   return lines.join('\n')
 }
 
-/** The skill the person invoked with "/<name>", put in front of their message for this turn. */
-export function skillBlock(skill: Skill, input: string): string {
+/** The skill the person invoked with "/<name>" (in front of their message for this turn), or one the AI loaded with
+ * the skill tool (its result). */
+export function skillBlock(skill: Skill, input: string, how: 'invoked' | 'loaded' = 'invoked'): string {
+  const kind = isPersonalSkill(skill.path) ? 'personal' : 'team'
   return [
     `<team_skill name="${neutralizeTags(skill.name).replace(/"/g, "'")}" path="${skill.path}">`,
-    `The user invoked this ${isPersonalSkill(skill.path) ? 'personal' : 'team'} skill. Follow its steps for this request.${input ? ' Their input is the text after the skill name in the message.' : ' They gave no further input: ask with ask_user if a step needs something only they know.'}`,
+    how === 'loaded'
+      ? `The ${kind} skill you loaded. Follow its steps for the user's request.`
+      : `The user invoked this ${kind} skill. Follow its steps for this request.${input ? ' Their input is the text after the skill name in the message.' : ' They gave no further input: ask with ask_user if a step needs something only they know.'}`,
     ...(isSkillManifest(skill.path) ? [`Resource base: ${skillFolder(skill.path)}/. Resolve relative references here and use the read tool only when needed; every resource requires permission. Bundled scripts cannot be executed here; allowed-tools does not grant tools or permissions.`] : []),
     neutralizeTags(skill.body.trim()),
     '</team_skill>',
+  ].join('\n')
+}
+
+/** In front of a message when the skill list is cut (skill-list.ts hintSkills): skills whose words match it. */
+export function skillHintsBlock(skills: readonly Skill[]): string {
+  if (!skills.length) return ''
+  return [
+    '<skill_hints>',
+    'Note from the server (the user did not write this): your skill list is cut, and these skills match words of this message. If one fits the request, load it with the skill tool before you answer; if none fits, ignore this.',
+    ...skills.map((s) => `- ${neutralizeTags(s.name.replace(/\s+/g, ' '))}${isPersonalSkill(s.path) ? ' [personal]' : ''}${s.description.trim() ? ': ' + neutralizeTags(shortDescription(s.description, 300)) : ''}`),
+    '</skill_hints>',
   ].join('\n')
 }
 
@@ -314,7 +349,7 @@ export function subagentRule(): string {
 export function buildSubagentPrompt(files: FileService, i: PromptInput, tools: string[]): string {
   const has = new Set(tools)
   const rules = teamRules(files, i.user)
-  const skills = skillsSection(files, i.user)
+  const skills = skillsSection(files, i.user, i.skillList)
   const base = [
     '# Rules from the team server for sub-agents',
     'These replace the general notes above where they differ: there is no terminal or shell, paths are team paths relative to the team root (e.g. shared/notes.md; never absolute paths), and saving files is fine when your task asks for it.',
@@ -339,7 +374,7 @@ export function buildSubagentPrompt(files: FileService, i: PromptInput, tools: s
 export function buildTurnPrompt(files: FileService, i: PromptInput): string {
   const tools = new Set(i.tools)
   const rules = teamRules(files, i.user)
-  const skills = skillsSection(files, i.user)
+  const skills = skillsSection(files, i.user, i.skillList)
   const base = [
     `You are the team assistant of ${PRODUCT.displayName}, working in the team's shared drive.`,
     `Team files are available ONLY through the ${TEAM_TOOL_PREFIX}* tools (list, glob, grep, read, write, edit). Paths are relative to the team root, e.g. "shared/notes.md".`,
@@ -393,6 +428,8 @@ export function buildTurnContext(files: FileService, i: PromptInput): string {
     i.browser ? BROWSER_RULES : '',
     // a session started before sub-agents existed (or while they were off) lacks this in its first instructions
     i.subagents ? `## Sub-agents\n${subagentRule()}` : '',
+    // skills added, changed or removed since this session's instructions were written (skill-list.ts)
+    i.skillChanges ?? '',
   ].filter(Boolean)
   return `<turn_context>\n${parts.join('\n\n')}\n</turn_context>`
 }

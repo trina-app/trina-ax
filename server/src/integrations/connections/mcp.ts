@@ -105,13 +105,15 @@ export class McpClient {
     return this.ready
   }
 
-  /** every page of tools/list; tools without a usable input schema are left out; at most MAX_TOOLS */
-  async listTools(signal?: AbortSignal): Promise<{ tools: RemoteTool[]; more: boolean }> {
+  /** every page of tools/list; tools without a usable input schema are left out; at most MAX_TOOLS kept. `total`: how
+   * many usable tools the server listed in the pages read (counted on past the cap, so people and the AI can be told
+   * "100 of 150"); `more`: some were not kept, or pages were left unread */
+  async listTools(signal?: AbortSignal): Promise<{ tools: RemoteTool[]; more: boolean; total: number }> {
     await this.start(signal)
     const tools: RemoteTool[] = []
     const seen = new Set<string>()
     let cursor: string | undefined
-    let more = false
+    let full = false
     let size = 0
     for (let page = 0; page < MAX_PAGES; page++) {
       const r = await this.request('tools/list', cursor ? { cursor } : {}, signal)
@@ -121,16 +123,17 @@ export class McpClient {
       for (const t of list) {
         const tool = toolOf(t, hide)
         if (!tool || seen.has(tool.name)) continue
-        const cost = JSON.stringify(tool.inputSchema).length + tool.description.length
-        if (tools.length >= MAX_TOOLS || size + cost > MAX_SCHEMAS_CHARS) { more = true; break }
-        size += cost
         seen.add(tool.name)
+        if (full) continue
+        const cost = JSON.stringify(tool.inputSchema).length + tool.description.length
+        if (tools.length >= MAX_TOOLS || size + cost > MAX_SCHEMAS_CHARS) { full = true; continue }
+        size += cost
         tools.push(tool)
       }
       cursor = typeof r?.nextCursor === 'string' && r.nextCursor ? r.nextCursor : undefined
-      if (!cursor || more) break
+      if (!cursor) break
     }
-    return { tools, more: more || !!cursor }
+    return { tools, more: full || !!cursor, total: seen.size }
   }
 
   async callTool(name: string, args: unknown, signal?: AbortSignal): Promise<Record<string, any>> {

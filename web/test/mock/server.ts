@@ -19,9 +19,11 @@
 // confidential when a message in it says "confidential"), POST /__test/artifact {type, content} (the next "artifact"
 // answer writes exactly this), POST /__test/connection {…ConnectionStatus fields} (Admin > System > Connection shows
 // them until the next reset), POST /__test/speech-host {…SpeechHost fields} (this server's cores, speed and hosting
-// for "Turn video sound into text", until the next reset).
+// for "Turn video sound into text", until the next reset), POST /__test/skill-list {…SkillsOverview.aiList} (the Team
+// skills page's "how many skills the AI sees" counts, until the next reset).
 // External services: an address on a "down." host fails its check, the key "wrong-key" is refused, the fake MCP server
-// offers two tools at the first check and a third from the next one, and a sign-in completes on the second poll.
+// offers two tools at the first check and a third from the next one (one on a "many." host offers 150, of which the
+// first 100 are kept), and a sign-in completes on the second poll.
 import { z } from 'zod'
 // Keep the server renderer outside the browser TypeScript program; this module runs only in Bun.
 const hwpEngine = import('../../../server/src/files/' + 'hwp-engine.ts').then(m => new m.NativeHwpEngine())
@@ -39,6 +41,7 @@ import { checkTeamIcon, TEAM_ICON_MAX_BYTES, type TeamIconFile } from '@mycel/sh
 import { Sealer } from '../../../server/src/credentials/seal'
 import type { Credential, CredentialKind, CredentialLogin } from '@mycel/shared/api'
 import type { Integration, IntegrationAccess, IntegrationFlow, IntegrationInput, IntegrationPatch, IntegrationTool } from '@mycel/shared/api'
+import { SkillsOverview } from '@mycel/shared/api'
 import os from 'node:os'
 import path from 'node:path'
 import { MockPlugins } from './plugins'
@@ -168,6 +171,7 @@ export class MockServer {
     this.setupNeeded = !!o.setup
     this.usersFollowTeam = !!o.usersFollowTeam
     this.serverVersion = '0.1.0'
+    this.aiList = undefined
     this.cloud = false
     this.epoch = uuidv7()
     this.seq = 0
@@ -310,6 +314,8 @@ export class MockServer {
   }
   /** POST /__test/download-only {path}: a file Safe operations 1A generated (quarantined: FileEntry.downloadOnly) */
   downloadOnly = new Set<string>()
+  /** POST /__test/skill-list: what GET /api/skills/overview says of the AI's skill list (server/src/chat/skill-list.ts) */
+  aiList: SkillsOverview['aiList'] = undefined
 
   // ---------------- team skills (like server/src/skills/*) ----------------
   skillChange(c: SkillChange) {
@@ -1180,6 +1186,7 @@ export class MockServer {
       suggestFolders: ['skills', 'skills/재무'],
       pendingReview: this.suggestions.filter((s) => s.status === 'pending' && this.manages(c.user, s.targetFolder)).length,
       myPending: this.suggestions.filter((s) => s.status === 'pending' && s.suggester.id === c.user.id).length,
+      ...(this.aiList ? { aiList: this.aiList } : {}),
     }),
     listSkillSuggestions: (c) => ({
       items: this.suggestions.filter((s) => (c.query.scope === 'review' ? this.manages(c.user, s.targetFolder) : s.suggester.id === c.user.id)).map((s) => this.suggestionFor(s, c.user)),
@@ -1674,7 +1681,12 @@ export class MockServer {
     else if (keyed && secret === 'wrong-key') set('error', '서비스가 키를 거절했어요(401). 키를 확인해 주세요.')
     else {
       set('connected', null)
-      if (x.kind === 'mcp') {
+      if (x.kind === 'mcp' && new URL(x.url).hostname.startsWith('many.')) {
+        // a "many." host offers 150 tools: the server keeps the first 100 and says "100 of 150"
+        x.tools = Array.from({ length: 100 }, (_, i) => ({ name: `tool_${i}`, title: null, description: `Tool ${i}`, readOnly: true }))
+        x.toolsTotal = 150
+        x.toolsUpdatedAt = now()
+      } else if (x.kind === 'mcp') {
         x.tools = FAKE_MCP_TOOLS.slice(0, x.checks > 1 ? 3 : 2)
         x.toolsUpdatedAt = now()
       }
@@ -1784,6 +1796,7 @@ export class MockServer {
     else if (p === '/__test/drop-ws') for (const ws of this.sockets) ws.close(WsClose.serviceRestart, 'restart')
     else if (p === '/__test/server-version') this.serverVersion = String(body.version)
     else if (p === '/__test/cloud') this.cloud = body.on !== false
+    else if (p === '/__test/skill-list') this.aiList = SkillsOverview.shape.aiList.parse(body)
     else if (p === '/__test/connection') this.connection = { ...this.connection, ...(body as unknown as Partial<ConnectionStatus>) }
     else if (p === '/__test/speech-host') this.speechHost = { ...this.speechHost, ...(body as unknown as Partial<typeof this.speechHost>) }
     else if (p === '/__test/memory') this.memories.push({ id: uuidv7(), text: String(body.text), sourceChatId: null, createdAt: now() })

@@ -36,10 +36,11 @@ export interface Authorized {
 const hidden = (input: unknown) => `not found or no access: '${typeof input === 'string' ? input : ''}'`
 
 export function authorize(fx: FsCtx, rules: RuleSet, user: Principal, input: unknown, op: Op,
-  opts: { mustExist?: boolean; createDirs?: boolean; download?: boolean } = {}): Authorized {
+  opts: { mustExist?: boolean; createDirs?: boolean; download?: boolean; dirs?: Map<string, string[]> } = {}): Authorized {
   const mustExist = opts.mustExist ?? op !== 'write'
   const segs = parseInput(input)
-  const w = walk(fx.root, segs, fx.caseInsensitive)
+  // `dirs`: a read-only scan's memo of folder listings (resolve.ts walk); never for a write
+  const w = walk(fx.root, segs, fx.caseInsensitive, op === 'write' ? undefined : opts.dirs)
   const full = [...w.actual, ...w.missing]
 
   // permission is decided on the actual names (plus not-yet-existing names as typed)

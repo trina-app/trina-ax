@@ -14,6 +14,9 @@ const LOCAL_TOOLS = new Set([
   'forget',
   'ask_user',
   'set_title',
+  // the person's own skills, read through the same checks as read (chat/tools.ts skillTools)
+  'skill',
+  'find_skills',
 ])
 /** Is this conversation confidential (local tools only: no browser, connectors, web fetch or provider web search)?
  * While 1A is on, every conversation is: a turn may start a 1A workflow at any moment, and egress must already be off

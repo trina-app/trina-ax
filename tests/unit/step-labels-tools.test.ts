@@ -12,7 +12,7 @@ import { DRIVE_TOOL_NAMES } from '../../server/src/tools/drive'
 const LOCALES: Locale[] = ['ko', 'en', 'id', 'ja', 'es']
 const NONE = new Set<string>()
 // set_title has no step (the new title shows in the sidebar); connected services label their own tools
-const TOOLS = [...Object.keys(FILE_TOOLS), ...C_TOOL_NAMES, ...FILE_MOVE_TOOL_NAMES, ...SCHEDULE_TOOL_NAMES, ...DRIVE_TOOL_NAMES, 'search', 'generate_video', 'ask_user', 'remember', 'forget']
+const TOOLS = [...Object.keys(FILE_TOOLS), ...C_TOOL_NAMES, ...FILE_MOVE_TOOL_NAMES, ...SCHEDULE_TOOL_NAMES, ...DRIVE_TOOL_NAMES, 'search', 'generate_video', 'ask_user', 'remember', 'forget', 'skill', 'find_skills']
 const INPUT: Record<string, Record<string, unknown>> = {
   hwp_render: { source: 'qa-hwp/report.hwpx', page: 2, format: 'png' },
   schedule_create: { title: 'Weekly digest', prompt: 'x', repeat: 'weekly', time: '09:00', weekday: 1 },
@@ -22,6 +22,8 @@ const INPUT: Record<string, Record<string, unknown>> = {
   drive_list: { folderId: '1AbC' },
   drive_read: { fileId: '1XyZ' },
   generate_video: { prompt: 'a cat on a sofa' },
+  skill: { name: '견적서 작성' },
+  find_skills: { query: '견적' },
 }
 
 describe('step labels of the built-in tools', () => {
@@ -33,6 +35,12 @@ describe('step labels of the built-in tools', () => {
         expect(stepLabel(tool, INPUT[tool] ?? {}, L, NONE).startsWith(tool), `${tool} ${L}`).toBe(false)
       }
     }
+  })
+
+  test('skills: the skill loaded, the words searched', () => {
+    expect(stepLabel('skill', INPUT.skill, 'ko', NONE)).toBe('스킬 사용 · 견적서 작성')
+    expect(stepLabel('find_skills', INPUT.find_skills, 'en', NONE)).toBe('Find skills "견적"')
+    expect(localizeStep({ kind: 'tool', tool: 'skill', label: '스킬 사용 · 견적서 작성' }, 'en').label).toBe('Use skill · 견적서 작성')
   })
 
   test('the new ones: words, then what the AI touched', () => {

@@ -98,10 +98,11 @@ describe('listing and reading (real folder rules)', () => {
     const a = skillsSection(e.files, who('alice')), b = skillsSection(e.files, who('bob')), c = skillsSection(e.files, who('carol'))
     expect(a).not.toContain(FIN)
     expect(a).toContain(MINE)
-    expect(a).toContain('users/alice/skills/weekly.md) [personal]')
+    expect(a).toContain(`- Weekly [personal]: ${MINE}`)
+    expect(a).not.toContain('- Weekly: team weekly report')
     expect(a).toContain('users/alice/skills/<short-name>.md')
     expect(b).toContain(FIN)
-    expect(b).toContain('skills/weekly.md')
+    expect(b).toContain('- Weekly: team weekly report')
     for (const s of [b, c]) { expect(s).not.toContain(MINE); expect(s).not.toContain(MINE_PKG); expect(s).not.toContain('users/alice') }
     expect(c).toContain(FIN)
     // a personal file without a header is not a team rule, for nobody (team rules are skills/*.md only)

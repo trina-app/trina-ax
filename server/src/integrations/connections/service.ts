@@ -356,9 +356,9 @@ export class Integrations {
   }
 
   // ---------------- checking ----------------
-  private setStatus(row: Row, status: Row['status'], reason: string | null, extra: { tools?: string } = {}) {
+  private setStatus(row: Row, status: Row['status'], reason: string | null, extra: { tools?: string; total?: number | null } = {}) {
     const now = iso(this.now())
-    if (extra.tools !== undefined) this.db.query('UPDATE integrations SET status=?, last_error=?, tools_json=?, tools_updated_at=?, updated_at=? WHERE id=? AND version=?').run(status, reason, extra.tools, now, now, row.id, row.version)
+    if (extra.tools !== undefined) this.db.query('UPDATE integrations SET status=?, last_error=?, tools_json=?, tools_total=?, tools_updated_at=?, updated_at=? WHERE id=? AND version=?').run(status, reason, extra.tools, extra.total ?? null, now, now, row.id, row.version)
     else this.db.query('UPDATE integrations SET status=?, last_error=?, updated_at=? WHERE id=? AND version=?').run(status, reason, now, row.id, row.version)
   }
 
@@ -373,8 +373,9 @@ export class Integrations {
     try {
       if (row.kind === 'mcp') {
         // the list has the connection's secrets hidden (mcp.ts toolOf): the AI and the people who use it read it
-        const { tools } = await this.withMcp(row, (c) => c.listTools(signal))
-        this.setStatus(row, 'connected', null, { tools: JSON.stringify(tools) })
+        const { tools, more, total } = await this.withMcp(row, (c) => c.listTools(signal))
+        // more than the server keeps: the total is saved so Settings and the AI's instructions can say "100 of 150"
+        this.setStatus(row, 'connected', null, { tools: JSON.stringify(tools), total: more ? Math.max(total, tools.length) : null })
       } else {
         const res = await this.send(row, row.url, { method: 'GET', headers: [['Accept', 'application/json, text/plain;q=0.9, */*;q=0.5']], signal })
         if (res.status === 401 || res.status === 403) this.setStatus(row, 'needs_auth', `refused:${res.status}`)
