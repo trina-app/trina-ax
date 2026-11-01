@@ -86,6 +86,15 @@ export const ServerConfigPatch = z.strictObject({
   engine: z.strictObject({ credentialKinds: z.array(CredentialKind).min(1).max(4) }).optional(),
 }).refine((p) => p.relay !== undefined || p.publicOrigins !== undefined || p.engine !== undefined, 'nothing to change')
 
+/** An OpenRouter API key ("sk-or-v1-…"). It is only ever in hosted-speech-key-set's stdin. */
+export const OpenRouterApiKey = z.string().regex(/^sk-or-[A-Za-z0-9_-]{16,200}$/)
+/** hosted-speech-key-set's stdin: the OpenRouter key the hosting service gives this team for speech-to-text (hosted
+ * voice input and video sound, 10 free hours a team a month, counted by the app), or null to take it away. The app
+ * keeps it encrypted with its credentials vault and never shows, logs or audits it; a key the team entered itself
+ * always comes first. */
+export const HostedSpeechKeyInput = z.strictObject({ key: OpenRouterApiKey.nullable() })
+export type HostedSpeechKeyInput = z.infer<typeof HostedSpeechKeyInput>
+
 export const BackupKindArg = z.enum(['daily', 'manual', 'pre-update', 'final'])
 
 /** backup-prepare's answer (admin.js cloud-backup prepare) */
@@ -164,6 +173,8 @@ export const TENANT_COMMANDS = {
     args: z.union([z.strictObject({ owner: z.literal(true) }), z.strictObject({ username: AccountUsername })]),
     stdin: null, output: z.object({ url: HttpsUrl, expiresAt: IsoTime }), timeoutSec: 30,
   },
+  /** the hosting service's speech-to-text key (HostedSpeechKeyInput); `set`: whether the server holds one now */
+  'hosted-speech-key-set': { args: NoArgs, stdin: HostedSpeechKeyInput, output: z.object({ ok: z.literal(true), set: z.boolean() }), timeoutSec: 30 },
   'setup-token-rotate': { args: NoArgs, stdin: null, output: z.object({ setupToken: z.string().regex(/^[A-Za-z0-9_-]{24,128}$/) }), timeoutSec: 120 },
   /** keyAge decrypts to the key file's line: "<base64 32 bytes>" for version 1, "credentials.key.<N> <base64>" for a
    * later version (after credentials-rekey). The control plane keeps it as is and hands it back in
