@@ -61,7 +61,7 @@ Un equipo ficticio con seis skills iniciales. La IA está desactivada, así que 
 | **El conocimiento está en las carpetas de la empresa** | `shared/`, `groups/`, `projects/` y carpetas personales, con historial de versiones. Extracción de texto de archivos PDF, Office y HWP/HWPX. |
 | **Skills del equipo, gestionadas como archivos** | Una skill es un archivo `SKILL.md`. Las reglas de la carpeta deciden quién puede usarla, y la IA pide confirmación a una persona antes de modificar alguna. |
 | **Permisos en cada llamada a archivos** | Los archivos a los que no tienes acceso no aparecen en Archivos, las respuestas de la IA, la búsqueda, las vistas previas, el historial de versiones ni la papelera. |
-| **Tu conexión de IA** | Claude u OpenAI, con suscripción o clave de API, para una persona, un grupo o todo el equipo. Uso por persona, con límites. |
+| **Tu conexión de IA** | Claude u OpenAI, con suscripción o clave de API, para una persona, un grupo o todo el equipo. Uso por persona, con límites. Si lo alojas tú, Claude Code también puede usar otros modelos, como DeepSeek, Kimi o GLM, a través de una [pasarela compatible con Anthropic](docs/CONFIGURATION.md#anthropic-compatible-gateway). |
 | **Autoalojado o con el hosting de Trina** | Un servidor Linux, un Mac de la oficina o el hosting de Trina en AWS (Seúl). En el navegador de escritorio y del teléfono, además de un instalador para Windows. |
 
 ## Por dentro

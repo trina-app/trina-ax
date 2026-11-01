@@ -61,7 +61,7 @@ A fictional team with six starter skills. AI is off, so no AI account is needed.
 | **Company folders are the knowledge** | `shared/`, `groups/`, `projects/` and personal folders, with version history. Text from PDF, Office and HWP/HWPX files. |
 | **Team skills, governed like files** | A skill is a `SKILL.md` file. Folder rules decide who can use it, and the AI asks a person before it changes one. |
 | **Permissions on every file call** | Files you can't access stay invisible in Files, AI answers, search, previews, version history and trash. |
-| **Your AI connection** | Claude or OpenAI, by subscription or API key, for a person, a group or the whole team. Usage per person, with limits. |
+| **Your AI connection** | Claude or OpenAI, by subscription or API key, for a person, a group or the whole team. Usage per person, with limits. Self-hosted, Claude Code can also run on other models such as DeepSeek, Kimi or GLM through an [Anthropic-compatible gateway](docs/CONFIGURATION.md#anthropic-compatible-gateway). |
 | **Self-host or hosted** | A Linux server, an office Mac, or Trina hosting in AWS Seoul. Browser on desktop and phone, plus a Windows installer. |
 
 ## Under the hood

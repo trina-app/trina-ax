@@ -61,11 +61,11 @@ bun run demo        # → http://127.0.0.1:19760 · 用 alice / teamax-demo-1 �
 | **公司文件夹就是知识库** | `shared/`、`groups/`、`projects/` 和个人文件夹，都带版本历史。能提取 PDF、Office 和 HWP/HWPX 文件里的文字。 |
 | **团队技能，像文件一样管理** | 一个技能就是一个 `SKILL.md` 文件。谁能用由文件夹规则决定，AI 要改动技能前会先找人确认。 |
 | **每次文件调用都查权限** | 你无权访问的文件，在文件页面、AI 回答、搜索、预览、版本历史和回收站里都不会出现。 |
-| **用你们自己的 AI 连接** | 接入 Claude 或 OpenAI，订阅或 API Key 都行，可以分配给个人、某个组或整个团队。按人统计用量，还能设置上限。 |
+| **用你们自己的 AI 连接** | 接入 Claude 或 OpenAI，订阅或 API Key 都行，可以分配给个人、某个组或整个团队。按人统计用量，还能设置上限。自托管时，还可以通过 [Anthropic 兼容网关](docs/CONFIGURATION.md#anthropic-compatible-gateway)让 Claude Code 使用 DeepSeek、Kimi、GLM 等其他模型。 |
 | **自托管或托管** | 可以部署在 Linux 服务器或办公室的 Mac 上，也可以用 Trina 在 AWS 首尔区域的托管服务。电脑和手机用浏览器访问，另有 Windows 安装包。 |
 
 > [!NOTE]
-> **如果你所在的地区无法直接使用 Claude 或 OpenAI**：除了 Claude Code 和 Codex，所有者还可以在**管理 › AI 引擎 › API 引擎**（英文界面为 Admin › AI engines › API engine）里给团队配置一个“API 引擎”，接入任何兼容 OpenAI Chat Completions API 且支持工具调用的服务，比如 DeepSeek、通义千问（Qwen）的兼容接口、OpenRouter，自托管时也可以接本地的 Ollama / LM Studio。它和其他引擎用的是同一套文件工具，同样会按每个人的文件夹权限做检查。这项功能目前还是实验性的：它只是服务器里内置的一个轻量智能体循环，并不是 Claude Code 或 Codex，没有子代理，每次回答最多 30 轮工具调用，小型本地模型也可能调错工具。目前只用本地 Ollama 上的 qwen3:4b 实测过（列出共享文件夹），其他服务还没有逐一测试。
+> **如果你所在的地区无法直接使用 Claude 或 OpenAI**：自托管时，可以在服务器的 `server.json` 里配置 [Anthropic 兼容网关](docs/CONFIGURATION.md#anthropic-compatible-gateway)（`engine.anthropicGateway`），让真正的 Claude Code 通过 OpenRouter，或 DeepSeek、Kimi、GLM 等提供的 Anthropic 兼容接口，使用这些模型。开启后，Claude 订阅和 Anthropic 的密钥都不会发往网关，也只转发你在配置里写明的模型；每个人的文件夹权限照样逐一检查。目前已用 OpenRouter 上的 `deepseek/deepseek-v4-pro` 实测过。另外还有一个实验性的、兼容 OpenAI 接口的 API 引擎（管理 › AI 引擎 › API 引擎）。
 
 ## 底层原理
 

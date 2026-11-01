@@ -61,7 +61,7 @@ bun run demo --locale ko   # → http://127.0.0.1:19760 · alice / teamax-demo-1
 | **회사 폴더가 곧 지식** | `shared/`, `groups/`, `projects/`, 개인 폴더에 버전 기록이 남아요. PDF, 오피스 문서, HWP/HWPX의 글자도 읽어요. |
 | **파일처럼 관리하는 팀 스킬** | 스킬은 `SKILL.md` 파일 하나예요. 누가 쓸지는 폴더 규칙이 정하고, AI가 스킬을 바꾸려면 사람의 확인을 받아야 해요. |
 | **파일을 열 때마다 권한 확인** | 볼 수 없는 파일은 파일 화면, AI 답, 검색, 미리보기, 버전 기록, 휴지통 어디에도 나오지 않아요. |
-| **AI 연결은 회사가 고르기** | Claude나 OpenAI를 구독 또는 API 키로 연결하고, 사람·그룹·팀 전체에 나눠 줘요. 사람별 사용량을 보고 한도도 걸 수 있어요. |
+| **AI 연결은 회사가 고르기** | Claude나 OpenAI를 구독 또는 API 키로 연결하고, 사람·그룹·팀 전체에 나눠 줘요. 사람별 사용량을 보고 한도도 걸 수 있어요. 자체 설치라면 [Anthropic 호환 게이트웨이](docs/CONFIGURATION.md#anthropic-compatible-gateway)로 Claude Code를 DeepSeek·Kimi·GLM 같은 다른 모델로도 돌릴 수 있어요. |
 | **직접 설치 또는 호스팅** | 리눅스 서버, 사무실 맥, AWS 서울의 트리나 호스팅 중에 고르세요. 컴퓨터·휴대폰 브라우저와 Windows 설치본으로 써요. |
 
 ## 속을 들여다보면
