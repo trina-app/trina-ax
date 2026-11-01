@@ -63,3 +63,19 @@ describe('more tools than the server keeps', () => {
     expect(built.prompt).toContain('- Small (personal connection, MCP server): 0 tools named my_small__… (0 of the 30 tools the service offers: one answer can have at most 200 tools from all connections together')
   })
 })
+
+describe('a big catalog in one page', () => {
+  test('over 1 MiB in one tools/list page (Higgsfield sends 186 tools, about 1.07 MB) is read; the caps still apply', async () => {
+    const before = { tools: fake.tools, pageSize: fake.pageSize }
+    fake.tools = many(185, 'h').map((t) => ({ ...t, description: `${t.description} ${'x'.repeat(6000)}` }))
+    fake.pageSize = 1000
+    try {
+      const r = await post('bob', '/api/integrations', { kind: 'mcp', name: 'Catalog', url: `${fake.base}/mcp-open?catalog`, auth: 'none' })
+      expect(r.status).toBe(201)
+      expect(r.body.status).toBe('connected')
+      expect(r.body.tools).toHaveLength(MAX_TOOLS)
+      expect(r.body.toolsTotal).toBe(185)
+      await A.json(`/api/integrations/${r.body.id}`, { method: 'DELETE', as: 'bob' })
+    } finally { Object.assign(fake, before) }
+  })
+})

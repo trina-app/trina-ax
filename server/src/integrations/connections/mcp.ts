@@ -8,9 +8,12 @@ import { NetError, serviceRequest, type NetOptions } from './net'
 
 export const MCP_PROTOCOL = '2025-06-18'
 /** the most a tools/call answer may be: an image or audio block comes inline as base64 (a generated image of a few MB
- * is common). Everything else (initialize, tools/list) keeps the 1 MiB of net.ts; the AI still gets at most
+ * is common). initialize keeps the 1 MiB of net.ts, tools/list has its own cap below; the AI still gets at most
  * MAX_RESULT_CHARS of text (tools.ts), the bytes go to the chat's media store. */
 export const MCP_CALL_MAX_BYTES = 25 * 1024 * 1024
+/** the most one tools/list page may be. A big service sends its whole catalog in one page (Higgsfield: 186 tools,
+ * about 1.07 MB in 2026-11), over net.ts's 1 MiB; what is kept is still capped below (MAX_TOOLS, MAX_SCHEMAS_CHARS). */
+export const MCP_LIST_MAX_BYTES = 8 * 1024 * 1024
 const KNOWN_VERSIONS = new Set(['2024-11-05', '2025-03-26', '2025-06-18', '2025-11-25'])
 /** tools kept per connection, pages read, input schema size */
 export const MAX_TOOLS = 100
@@ -120,7 +123,7 @@ export class McpClient {
     let full = false
     let size = 0
     for (let page = 0; page < MAX_PAGES; page++) {
-      const r = await this.request('tools/list', cursor ? { cursor } : {}, signal)
+      const r = await this.request('tools/list', cursor ? { cursor } : {}, signal, MCP_LIST_MAX_BYTES)
       const list = Array.isArray(r?.tools) ? r!.tools : null
       if (!list) throw new McpError('not_mcp')
       const hide = this.hider()
