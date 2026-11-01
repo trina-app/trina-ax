@@ -312,6 +312,9 @@ export function AnswerStepLimitField({ value, onChange }: { value: number; onCha
 
 const PROVIDERS: SpeechProvider[] = ['off', 'openrouter', 'local']
 
+/** hours of sound with one decimal ("1.5"); any use shows at least 0.1 */
+export const speechHours = (sec: number): string => String(sec <= 0 ? 0 : Math.max(0.1, Math.round(sec / 360) / 10))
+
 /** "Turn video sound into text" after the form's provider changed to `next`: another provider than the saved one starts
  * from its own default (null), and the saved provider gets the saved choice back (QA L4: an admin's "off" must not
  * turn on by picking another provider and back). The server resets the choice only when a save changes the provider. */
@@ -319,16 +322,17 @@ export const transcriptsAfterProvider = (next: SpeechProvider, saved: Pick<TeamS
   next === saved.speechProvider ? saved.aiMediaTranscripts : null
 
 /** The switch with what it means on this server: where the sound goes, the piece length and how a read goes on, a
- * hosted server's cap, the speed measured here, and why it starts off on a small server (shared mediaTranscriptsDefault). */
-export function MediaTranscriptsSwitch({ provider, value, host, onChange }: { provider: SpeechProvider; value: boolean | null; host: SpeechHost; onChange: (v: boolean) => void }) {
+ * hosted server's cap, the speed measured here, and why it starts off on a small server (shared mediaTranscriptsDefault).
+ * `hostedKey`: OpenRouter goes with the hosting service's key (on by default, its free hours). */
+export function MediaTranscriptsSwitch({ provider, value, host, hostedKey = false, onChange }: { provider: SpeechProvider; value: boolean | null; host: SpeechHost; hostedKey?: boolean; onChange: (v: boolean) => void }) {
   const t = useT()
-  const on = value ?? mediaTranscriptsDefault(provider, host.cpuCores)
+  const on = value ?? mediaTranscriptsDefault(provider, host.cpuCores, hostedKey)
   const local = provider === 'local'
   const perMinute = host.localSecPerSec === null ? null : host.localSecPerSec * 60
   return (
     <div data-testid="team-media-transcripts" data-on={on ? 'true' : 'false'}>
       <Switch checked={on} onChange={onChange} label={t('speech.mediaTranscripts')} />
-      <p className={`mt-1 text-xs ${local ? 'text-faint' : 'text-warn'}`}>{local ? t('speech.mediaTranscriptsLocal', { sec: host.localPieceSec }) : t('speech.mediaTranscriptsOpenRouter')}</p>
+      <p className={`mt-1 text-xs ${local ? 'text-faint' : hostedKey ? 'text-muted' : 'text-warn'}`}>{local ? t('speech.mediaTranscriptsLocal', { sec: host.localPieceSec }) : hostedKey ? t('speech.mediaTranscriptsHostedKey') : t('speech.mediaTranscriptsOpenRouter')}</p>
       {local && value === null && mediaTranscriptsOffSmall(provider, host.cpuCores) && <p className="mt-1 text-xs text-muted" data-testid="team-media-transcripts-small">{t('speech.mediaTranscriptsSmall', { cores: host.cpuCores })}</p>}
       {local && host.hostedNewSec !== null && <p className="mt-1 text-xs text-faint">{t('speech.mediaTranscriptsHosted', { min: Math.round(host.hostedNewSec / 60) })}</p>}
       {local && perMinute !== null && (
@@ -354,6 +358,8 @@ export function SpeechSection({ provider, model, transcripts, saved, onChange, o
   const signedIn = useSession((s) => s.signedIn)
   const key = useLoad(() => api.call(API.speechKey))
   const host = useLoad(() => api.call(API.speechHost))
+  // a hosted server's key from the hosting service, used while the team has none of its own (its free hours)
+  const hostedKey = provider === 'openrouter' && !!key.data?.hosted && !key.data.set
   const [secret, setSecret] = useState('')
   const [password, setPassword] = useState('')
   const [busy, setBusy] = useState(false)
@@ -378,7 +384,7 @@ export function SpeechSection({ provider, model, transcripts, saved, onChange, o
     await api.call(API.me).then(signedIn, () => {})
   }
   const remove = async () => {
-    if (await confirmDialog({ title: t('speech.removeConfirm'), confirm: t('speech.removeKey'), danger: true })) await send(null)
+    if (await confirmDialog({ title: t(key.data?.hosted ? 'speech.removeConfirmHosted' : 'speech.removeConfirm'), confirm: t('speech.removeKey'), danger: true })) await send(null)
   }
   return (
     <section id="speech" className="space-y-3 border-t border-line pt-4 sm:col-span-2" data-testid="team-speech" aria-labelledby="speech-title">
@@ -394,19 +400,24 @@ export function SpeechSection({ provider, model, transcripts, saved, onChange, o
       {provider === 'local' && <p className="text-xs text-muted">{t('speech.localHint')}</p>}
       {provider !== 'off' && (
         <Loadable state={host} lines={1}>
-          {(h) => <MediaTranscriptsSwitch provider={provider} value={transcripts} host={h} onChange={(v) => onChange({ aiMediaTranscripts: v })} />}
+          {(h) => <MediaTranscriptsSwitch provider={provider} value={transcripts} host={h} hostedKey={hostedKey} onChange={(v) => onChange({ aiMediaTranscripts: v })} />}
         </Loadable>
       )}
       {provider === 'openrouter' && (
         <div className="space-y-3">
-          <p className="text-xs text-warn" data-testid="team-speech-privacy">{t('speech.privacy')}</p>
+          <p className={`text-xs ${hostedKey ? 'text-muted' : 'text-warn'}`} data-testid="team-speech-privacy">{t(hostedKey ? 'speech.privacyHosted' : 'speech.privacy')}</p>
           <Field label={t('speech.model')}>
             <input className={inputCls} value={model} placeholder={DEFAULT_SPEECH_MODEL} spellCheck={false} maxLength={128} onChange={(e) => onChange({ speechModel: e.target.value.trim() })} onBlur={() => { if (!model) onChange({ speechModel: DEFAULT_SPEECH_MODEL }) }} />
           </Field>
           <Loadable state={key} lines={1}>
             {(k) => (
               <div className="space-y-2">
-                <p className="text-sm" data-testid="team-speech-key-state">{k.set ? t('speech.keySet', { hint: k.hint ?? '' }) : t('speech.keyNone')}</p>
+                <p className="text-sm" data-testid="team-speech-key-state">{k.set ? t('speech.keySet', { hint: k.hint ?? '' }) : k.hosted ? t('speech.hostedKeyInUse') : t('speech.keyNone')}</p>
+                {k.hosted && (
+                  <p className="text-xs text-muted" data-testid="team-speech-hosted-usage" data-used-sec={k.hosted.usedSec}>
+                    {k.set ? t('speech.hostedOwnKey') : t('speech.hostedUsage', { used: speechHours(k.hosted.usedSec), free: speechHours(k.hosted.freeSec) })}
+                  </p>
+                )}
                 <a href="https://openrouter.ai/keys" target="_blank" rel="noreferrer noopener" className="inline-flex items-center gap-1 text-xs text-accent-text hover:underline">
                   {t('speech.getKey')} <ExternalLink size={12} aria-hidden />
                 </a>
