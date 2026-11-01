@@ -35,7 +35,9 @@ export const ReleaseFeed = z.object({
   /** self-hosted servers apply it automatically only when sha256(salt + installId)[0..2] % 100 < percent */
   rollout: z.object({ percent: z.number().int().min(0).max(100), salt: z.string().min(1).max(64) }).optional(),
   /** the oldest release with this release's root files (needsRoot only compares with the channel heads): an install
-   * whose root files are older than it needs the root update too (feeds from 0.2.19 on) */
+   * whose root files are older than it needs the root update, one at it or newer does not (feeds from 0.2.19 on). In
+   * such a feed needsRoot stays true while rootSince is newer than 0.2.18, for the updaters of 0.2.18 and older that
+   * read only needsRoot (scripts/release/publish-server.ts) */
   rootSince: Version.optional(),
   // ---- control plane (3.7.1) ----
   /** SCHEMA_READER_LEVEL of this build (server/src/db.ts) */

@@ -46,9 +46,11 @@ type UpdateResult struct {
 var resultCodes = map[string]int{"ok": 0, "rolled_back": 10, "verify_failed": 20, "busy": 30, "error": 1}
 
 // ReleaseFeed is server/src/system/update.ts ReleaseFeed (the signed channel manifest <feed>/server/<channel>.json).
-// A Linux bundle is the entry with os "linux" and the machine's arch. needsRoot: the release's root files differ from
-// those of the channel heads it was published over; rootSince (feeds from 0.2.19 on): the oldest release with the
-// same root files as this one (rootNeeded).
+// A Linux bundle is the entry with os "linux" and the machine's arch. rootSince (feeds from 0.2.19 on): the oldest
+// release with the same root files as this one (rootNeeded). needsRoot: in a feed without rootSince, the release's
+// root files differ from those of the channel heads it was published over; in one with rootSince, it is kept for the
+// updaters of 0.2.18 and older, which read only needsRoot (publish-server.ts: true while rootSince is newer than
+// 0.2.18, so such a server never takes a release without the root files it needs).
 type ReleaseFeed struct {
 	Version     string `json:"version"`
 	MinFrom     string `json:"minFrom"`
@@ -83,11 +85,16 @@ type updater struct {
 	busyWith  string
 	deferred  bool
 	turnedOff bool
+	// attempted: the run began to bring the release in (a download, or a --bundle unpacked); a failure from then on
+	// holds the release from the update timer (root/update-failed.json, schedule.go)
+	attempted bool
 	// hooks for tests (default: the real thing)
-	liveTurns  func() (int, error)
-	runAsSrv   func(args []string, env []string) (string, error)
-	restartSrv func() error
-	sleep      func(time.Duration)
+	liveTurns func() (int, error)
+	runAsSrv  func(args []string, env []string) (string, error)
+	// runVersionAdmin runs app/versions/<v>'s admin.js as the server account (nil: not asked)
+	runVersionAdmin func(v string, args []string, env []string) (string, error)
+	restartSrv      func() error
+	sleep           func(time.Duration)
 	// maintenance is the server's own operation running now (a backup, a restore), "" for none (status/status.json)
 	maintenance func() string
 }
@@ -155,6 +162,7 @@ func cmdUpdate(e *env, args []string) (int, error) {
 		healthTimeout: time.Duration(*healthWait) * time.Second, arch: runtime.GOARCH, res: res, scheduled: *scheduled}
 	u.liveTurns = u.launcherLiveTurns
 	u.runAsSrv = u.runAsServer
+	u.runVersionAdmin = u.runVersionAsServer
 	u.restartSrv = u.restartServer
 	u.sleep = time.Sleep
 	u.maintenance = u.serverMaintenance
@@ -194,8 +202,21 @@ func cmdUpdate(e *env, args []string) (int, error) {
 	if err != nil && res.Result == "ok" {
 		res.Result = "error"
 	}
-	if err == nil && res.Result == "ok" && !res.Skipped && !u.deferred {
+	switch {
+	case err == nil && res.Result == "ok" && !res.Skipped && !u.deferred:
 		clearDeferred(e) // any update that went through (an administrator's too): nothing waits any more
+		clearFailedUpTo(e, res.To)
+	case res.Result != "ok" && u.attempted && bundle.ValidVersion(res.To):
+		// the release came in and then failed (an administrator's run too): the update timer leaves it for a while
+		// instead of downloading it and restarting the server again at every check of the window (0.2.19 review S1)
+		detail := res.Detail
+		if detail == "" && err != nil {
+			detail = err.Error()
+		}
+		h := noteFailed(e, res.To, res.Result, detail)
+		// it found its quiet moment: after the hold, the next try waits for one again rather than the last resort
+		clearDeferred(e)
+		res.Notes = append(res.Notes, h.String())
 	}
 	return finish(resultCodes[res.Result], err)
 }
@@ -233,7 +254,7 @@ func (u *updater) gate(onlyRoot bool) (bool, error) {
 	u.res.To = feed.Version
 	root := rootVersion(u.e)
 	why := notNewer(feed.Version, u.res.From, root)
-	if why == "" && onlyRoot && !rootNeeded(feed, root) {
+	if why == "" && onlyRoot && !rootJob(feed, root, u.res.From) {
 		why = "release " + feed.Version + " does not change root files"
 	}
 	if why == "" && feed.Version == u.res.From && root == feed.Version {
@@ -241,8 +262,19 @@ func (u *updater) gate(onlyRoot bool) (bool, error) {
 	}
 	if why != "" {
 		clearDeferred(u.e)
+		clearFailedUpTo(u.e, u.res.From) // a hold of a version the app has reached is over
 		u.res.Result, u.res.Skipped, u.res.Detail = "ok", true, why
 		return false, nil
+	}
+	// a release that failed here a short while ago waits (root/update-failed.json); a newer one ends the hold
+	if h := readFailed(u.e); h != nil {
+		switch {
+		case compareVersions(feed.Version, h.Version) > 0:
+			clearFailed(u.e)
+		case feed.Version == h.Version && h.active(u.e.now()):
+			u.res.Result, u.res.Skipped, u.res.Detail = "ok", true, h.String()
+			return false, nil
+		}
 	}
 	u.quietBy = s.w.end(now)
 	if lim := now.Add(scheduleRunWait); lim.Before(u.quietBy) {
@@ -342,6 +374,7 @@ func (u *updater) run(version, bundleFile string, onlyRoot bool) error {
 	dir := filepath.Join(work, "bundle")
 	needsRoot := true
 	if bundleFile != "" {
+		u.attempted = true
 		if err := extractBundle(bundleFile, dir); err != nil {
 			u.res.Result = "verify_failed"
 			return err
@@ -351,7 +384,7 @@ func (u *updater) run(version, bundleFile string, onlyRoot bool) error {
 		if err != nil {
 			return err
 		}
-		u.res.To, needsRoot = feed.Version, rootNeeded(feed, rootVersion(u.e))
+		u.res.To, needsRoot = feed.Version, rootJob(feed, rootVersion(u.e), u.res.From)
 		if version == "" {
 			if why := notNewer(feed.Version, u.res.From, rootVersion(u.e)); why != "" {
 				u.res.Result, u.res.Skipped, u.res.Detail = "ok", true, why
@@ -369,6 +402,7 @@ func (u *updater) run(version, bundleFile string, onlyRoot bool) error {
 		if feed.MinFrom != "" && u.res.From != "" && compareVersions(u.res.From, feed.MinFrom) < 0 {
 			return fmt.Errorf("%s cannot update to %s by itself (needs %s or newer first)", u.res.From, feed.Version, feed.MinFrom)
 		}
+		u.attempted = true
 		if err := u.download(feed, dir); err != nil {
 			return err
 		}
@@ -397,22 +431,33 @@ func (u *updater) run(version, bundleFile string, onlyRoot bool) error {
 	return u.updateApp(dir, m.Version)
 }
 
-// rootNeeded: does this server need the release's root files? needsRoot says they differ from the releases at the
-// channel heads when it was published, which a server that skipped a release can miss (update audit P4: 0.2.17 root
-// files, a 0.2.18 that changed them, a 0.2.19 that did not: needsRoot false). rootSince names the oldest release with
-// this release's root files, so root/VERSION older than it (or missing, or not a version) needs them too. A feed
-// without rootSince (published before 0.2.19) keeps the old meaning.
+// lastOldUpdater is the last release whose updaters (the app's own and mycel-ctl) read only the feed's needsRoot and
+// whose admin.js has no `update-window` (rootSince and the windowed update timer came with 0.2.19).
+const lastOldUpdater = "0.2.18"
+
+// rootNeeded: does this server need the release's root files? rootSince names the oldest release with this release's
+// root files, so root/VERSION older than it (or missing, or not a version) needs them; one at rootSince or newer has
+// them. needsRoot only compared with the releases at the channel heads when it was published, which a server that
+// skipped a release can miss (update audit P4: 0.2.17 root files, a 0.2.18 that changed them, a 0.2.19 that did not),
+// and in a feed with rootSince it is the flag for 0.2.18 and older (true while rootSince is newer than 0.2.18), so it
+// is not read here. A feed without rootSince (published before 0.2.19) keeps the old meaning. The same rule as
+// server/src/system/update.ts releaseNeedsRoot.
 func rootNeeded(f *ReleaseFeed, root string) bool {
-	if f.NeedsRoot {
-		return true
-	}
 	if f.RootSince == "" {
-		return false
+		return f.NeedsRoot
 	}
 	if !bundle.ValidVersion(f.RootSince) || root == "" || !bundle.ValidVersion(root) {
 		return true
 	}
 	return compareVersions(root, f.RootSince) < 0
+}
+
+// rootJob: is the release the root update timer's (--only-if-needs-root)? Its root files are needed here, or the app
+// that runs is 0.2.18 or older (a server whose app the bootstrap rolled back to one, 0.2.19 review S3) and reads only
+// needsRoot: it refuses a release with needsRoot, so root installs it, the root files already in place (and so when
+// no app/current is there to take it).
+func rootJob(f *ReleaseFeed, root, app string) bool {
+	return rootNeeded(f, root) || f.NeedsRoot && (app == "" || compareVersions(app, lastOldUpdater) <= 0)
 }
 
 // notNewer says why the channel's newest release (an update without --version: the update timer, a plain
@@ -1060,11 +1105,24 @@ func copyTree(src, dest string, owner account) error {
 // runAsServer runs the CURRENT version's admin.js as the server account (its SERVER_VERSION is the running one, so
 // `switch <new>` is not "already running"), with an empty environment besides the installation's.
 func (u *updater) runAsServer(args []string, extraEnv []string) (string, error) {
+	return u.runAdmin(filepath.Join(u.in.Base, "app", "current"), args, extraEnv)
+}
+
+// runVersionAsServer runs the admin.js of app/versions/<v> instead (readSchedule: `update-window` of the root files'
+// version when the app that runs is older and does not know the command). The folder is the server account's like
+// app/current, and the program runs as that account: it can say nothing it could not say through app/current.
+func (u *updater) runVersionAsServer(v string, args []string, extraEnv []string) (string, error) {
+	if !bundle.ValidVersion(v) {
+		return "", fmt.Errorf("bad version %q", v)
+	}
+	return u.runAdmin(filepath.Join(u.in.Base, "app", "versions", v), args, extraEnv)
+}
+
+func (u *updater) runAdmin(dir string, args []string, extraEnv []string) (string, error) {
 	srv, err := lookupAccount(u.in.ServerUser)
 	if err != nil {
 		return "", err
 	}
-	b := u.in.Base
 	// a hung admin.js must not hold the update timer's job (TimeoutStartSec): update-window is a settings read
 	limit := 10 * time.Minute
 	if args[0] == "update-window" {
@@ -1072,7 +1130,7 @@ func (u *updater) runAsServer(args []string, extraEnv []string) (string, error) 
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), limit)
 	defer cancel()
-	cmd := exec.CommandContext(ctx, filepath.Join(b, "app", "current", "bin", "bun"), append([]string{filepath.Join(b, "app", "current", "server", "src", "admin.js")}, args...)...)
+	cmd := exec.CommandContext(ctx, filepath.Join(dir, "bin", "bun"), append([]string{filepath.Join(dir, "server", "src", "admin.js")}, args...)...)
 	cmd.Dir = "/"
 	cmd.Env = append(adminEnv(u.in), extraEnv...)
 	cmd.SysProcAttr = &syscall.SysProcAttr{Credential: &syscall.Credential{Uid: uint32(srv.uid), Gid: uint32(srv.gid), Groups: []uint32{}}}

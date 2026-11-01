@@ -418,7 +418,8 @@ func TestUpdateRefusals(t *testing.T) {
 	mkArchive(t, signedBundle(t, "0.2.0", priv, "older launcher"), newer, nil)
 	code, out, _ = tb.ctl("", "update", "--bundle", newer, "--pubkey", k, "--json")
 	json.Unmarshal([]byte(out), &r)
-	if r.RootUpdated || len(r.Notes) != 1 || !strings.Contains(r.Notes[0], "newer") {
+	// (the second note: the roll-back holds 0.2.0 from the update timer, root/update-failed.json)
+	if r.RootUpdated || len(r.Notes) != 2 || !strings.Contains(r.Notes[0], "newer") || !strings.Contains(r.Notes[1], "2 time(s) in a row") {
 		t.Fatalf("newer root files: %d %s", code, out)
 	}
 }

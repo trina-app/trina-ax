@@ -137,6 +137,26 @@ describe('diagnostics of an installed Linux server', () => {
     expect((await checks()).find((x) => x.id === 'update_root')!.detail).toContain('Automatic updates are off on this server')
     inst({}); if (!fs.existsSync(link)) fs.symlinkSync(path.join(units, 'mycel-update.timer'), link); ctx.config.update = { ...ctx.config.update, auto: true }
     expect((await checks()).find((x) => x.id === 'update_root')!.detail).toContain('The update timer installs it in the team\'s update window')
+    // a release the update timer holds after it was rolled back here (root/update-failed.json, 0.2.19 review S1): said
+    // instead, with the time in the team's zone
+    const failed = path.join(base, 'root', 'update-failed.json')
+    const hold = (until: number, result = 'rolled_back') => fs.writeFileSync(failed, JSON.stringify({ version: '99.0.0', result, detail: 'exited 3 times', at: new Date().toISOString(), failures: 1, until: new Date(until).toISOString() }))
+    hold(Date.now() + 20 * 3600_000)
+    c = await checks()
+    expect(c.find((x) => x.id === 'update_root')).toBeUndefined()
+    const held = c.find((x) => x.id === 'update_held')!
+    expect(held).toMatchObject({ status: 'warn' })
+    expect(held.detail).toMatch(/^The new version 99\.0\.0 did not start properly on this server and was rolled back\. The update timer tries it again in the update window after \d{4}-\d\d-\d\d \d\d:\d\d \(.+\); to try it now, run `sudo mycel-ctl update` there\.$/)
+    hold(Date.now() + 3600_000, 'error')
+    expect((await checks()).find((x) => x.id === 'update_held')!.detail).toContain('Installing the new version 99.0.0 failed on this server.')
+    // over, or more than a week ahead (the clock went back): the plain line again
+    for (const until of [Date.now() - 60_000, Date.now() + 8 * 86_400_000]) {
+      hold(until)
+      c = await checks()
+      expect(c.find((x) => x.id === 'update_held')).toBeUndefined()
+      expect(c.find((x) => x.id === 'update_root')!.detail).toContain('The update timer installs it')
+    }
+    fs.rmSync(failed)
     // a window that never opens, or is too short for the 15-minute checks
     for (const w of ['00:00-00:00', '03:00-03:20']) {
       ctx.db.query("INSERT INTO settings (key, value) VALUES ('updateWindow', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value").run(JSON.stringify(w))

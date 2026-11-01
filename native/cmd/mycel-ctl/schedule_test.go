@@ -117,6 +117,9 @@ type schedRun struct {
 	calls    int
 	switched string
 	asked    []string // admin.js commands and their MYCEL_TEAM_TZ
+	// the admin.js of app/versions/<v> (readSchedule when the app that runs cannot answer): its window ("" = fails)
+	versionWindow string
+	versionAsked  []string
 }
 
 // scheduledHooks: the run's clock, admin.js (update-window, switch) and the launcher's running turns are fakes.
@@ -147,6 +150,13 @@ func scheduledHooks(t *testing.T, tb *testBase, r *schedRun) {
 				return "", nil
 			}
 			return "", fmt.Errorf("unexpected %v", args)
+		}
+		u.runVersionAdmin = func(v string, args []string, env []string) (string, error) {
+			r.versionAsked = append(r.versionAsked, v+" "+args[0])
+			if args[0] != "update-window" || r.versionWindow == "" {
+				return "", fmt.Errorf("exit status 1")
+			}
+			return fmt.Sprintf(`{"window":%q,"timeZone":%q,"custom":true}`, r.versionWindow, r.zone) + "\n", nil
 		}
 		u.restartSrv = func() error { return nil }
 		u.healthTimeout = 3 * time.Second
@@ -670,5 +680,210 @@ func TestScheduledUpdateTimerOff(t *testing.T) {
 	scheduledHooks(t, tb, r)
 	if code, res := tb.scheduled(t, f); code != 0 || !res.Skipped || !strings.Contains(res.Detail, "automatic updates are off") || f.downloaded() != 0 {
 		t.Fatalf("%d %+v", code, res)
+	}
+}
+
+// rollBackOnSwitch makes `admin.js switch` a version the bootstrap rolls back (unless ok() says this one starts):
+// app/current and /api/health stay at the old version and app/state.json records the roll-back, as the bootstrap does.
+func rollBackOnSwitch(t *testing.T, tb *testBase, switches *int, ok func() bool) {
+	prev := updateTestHook
+	updateTestHook = func(u *updater) {
+		prev(u)
+		inner := u.runAsSrv
+		u.runAsSrv = func(args []string, env []string) (string, error) {
+			if args[0] != "switch" {
+				return inner(args, env)
+			}
+			*switches++
+			if ok() {
+				return inner(args, env)
+			}
+			st := `{"format":1,"current":"0.2.18","previous":null,"pending":null,"pendingSince":null,"attempts":0,"history":[{"at":"x","from":"` + args[1] + `","to":"0.2.18","result":"rolled_back","detail":"exited 3 times before it was healthy"}]}`
+			return "", os.WriteFile(filepath.Join(tb.base, "app/state.json"), []byte(st), 0o644)
+		}
+	}
+}
+
+// 0.2.19 review S1: a release the bootstrap rolls back is not downloaded and switched again at every check of the
+// window. Three checks 15 minutes apart: one download and one switch, then the hold (root/update-failed.json, 20
+// hours). The next day's window tries again; a second failure in a row holds it longer. An administrator's
+// `mycel-ctl update` tries at once, and one that goes through ends the hold; so does a newer release.
+func TestScheduledUpdateHoldsAFailedRelease(t *testing.T) {
+	f := newFeedServer(t)
+	publishSince(t, f, "/server/stable.json", "0.2.19", true, "0.2.19")
+	tb := schedBase(t, f)
+	// waiting for a quiet moment since long ago: this check is the last resort
+	must(t, os.WriteFile(filepath.Join(tb.base, "root/update-deferred.json"), []byte(`{"version":"0.2.19","since":"2026-10-25T00:00:00Z","turns":1}`), 0o644))
+	r := &schedRun{clock: at("2026-11-01T18:10:00Z"), window: "03:00-05:00", zone: "Asia/Seoul"} // 03:10 KST
+	scheduledHooks(t, tb, r)
+	switches, starts := 0, false
+	rollBackOnSwitch(t, tb, &switches, func() bool { return starts })
+	code, res := tb.scheduled(t, f)
+	if code != 10 || res.Result != "rolled_back" || !res.RootUpdated || f.downloaded() != 1 || switches != 1 {
+		t.Fatalf("first check: %d %+v (downloads %d, switches %d)", code, res, f.downloaded(), switches)
+	}
+	h := readFailed(&env{base: tb.base})
+	if h == nil || h.Version != "0.2.19" || h.Result != "rolled_back" || h.Failures != 1 || !h.At.Equal(at("2026-11-01T18:10:00Z").t) ||
+		!h.Until.Equal(at("2026-11-02T14:10:00Z").t) || !strings.Contains(h.Detail, "exited 3 times") {
+		t.Fatalf("hold %+v", h)
+	}
+	if readDeferred(&env{base: tb.base}) != nil {
+		t.Fatal("the deferral stays after the run found its quiet moment: the retry would interrupt answers")
+	}
+	if b, err := os.Stat(filepath.Join(tb.base, "root/update-failed.json")); err != nil || b.Mode().Perm() != 0o644 {
+		t.Fatalf("root/update-failed.json must be root's, readable by the app: %v", err)
+	}
+	// the next two checks of the same window: nothing downloaded, nothing restarted
+	for _, when := range []string{"2026-11-01T18:25:00Z", "2026-11-01T18:40:00Z"} {
+		r.clock = at(when)
+		code, res := tb.scheduled(t, f)
+		if code != 0 || !res.Skipped || !strings.Contains(res.Detail, "release 0.2.19 was rolled back here at 2026-11-01T18:10:00Z (rolled_back: exited 3 times before it was healthy; 1 time(s) in a row): the update timer tries it again after 2026-11-02T14:10:00Z; `sudo mycel-ctl update` tries it now") {
+			t.Fatalf("%s: %d %+v", when, code, res)
+		}
+	}
+	if f.downloaded() != 1 || switches != 1 {
+		t.Fatalf("three checks: %d downloads and %d switches, want 1 and 1", f.downloaded(), switches)
+	}
+	// the next day's window: tried once more; a second failure holds it 44 hours
+	r.clock = at("2026-11-02T18:10:00Z")
+	if code, res := tb.scheduled(t, f); code != 10 || res.Result != "rolled_back" || res.RootUpdated || f.downloaded() != 2 || switches != 2 {
+		t.Fatalf("next day: %d %+v", code, res)
+	}
+	if h := readFailed(&env{base: tb.base}); h == nil || h.Failures != 2 || !h.Until.Equal(at("2026-11-04T14:10:00Z").t) {
+		t.Fatalf("second hold %+v", h)
+	}
+	r.clock = at("2026-11-03T18:10:00Z")
+	if code, res := tb.scheduled(t, f); code != 0 || !res.Skipped || !strings.Contains(res.Detail, "2 time(s) in a row") || f.downloaded() != 2 {
+		t.Fatalf("the day after: %d %+v", code, res)
+	}
+	// an administrator's update ignores the hold: it fails (held longer) and then goes through, which ends the hold
+	if code, res := tb.update(t, "--pubkey", f.key); code != 10 || f.downloaded() != 3 || switches != 3 {
+		t.Fatalf("by hand: %d %+v", code, res)
+	}
+	if h := readFailed(&env{base: tb.base}); h == nil || h.Failures != 3 || !h.Until.Equal(at("2026-11-07T14:10:00Z").t) {
+		t.Fatalf("third hold %+v", h)
+	}
+	starts = true
+	if code, res := tb.update(t, "--pubkey", f.key); code != 0 || res.Result != "ok" || !res.AppUpdated || f.downloaded() != 4 || currentVersion(tb.base) != "0.2.19" {
+		t.Fatalf("by hand, starts: %d %+v", code, res)
+	}
+	if readFailed(&env{base: tb.base}) != nil {
+		t.Fatal("hold kept after the update went through")
+	}
+
+	// a newer release ends the hold at once
+	f = newFeedServer(t)
+	publishSince(t, f, "/server/stable.json", "0.2.19", true, "0.2.19")
+	tb = schedBase(t, f)
+	r = &schedRun{clock: at("2026-11-01T18:10:00Z"), window: "03:00-05:00", zone: "Asia/Seoul"}
+	scheduledHooks(t, tb, r)
+	switches, starts = 0, false
+	rollBackOnSwitch(t, tb, &switches, func() bool { return starts })
+	if code, _ := tb.scheduled(t, f); code != 10 || readFailed(&env{base: tb.base}) == nil {
+		t.Fatalf("rolled back: %d", code)
+	}
+	publishSince(t, f, "/server/stable.json", "0.2.20", true, "0.2.20")
+	starts = true
+	r.clock = at("2026-11-01T18:25:00Z")
+	if code, res := tb.scheduled(t, f); code != 0 || res.Skipped || !res.AppUpdated || res.To != "0.2.20" || r.switched != "0.2.20" {
+		t.Fatalf("newer release: %d %+v", code, res)
+	}
+	if readFailed(&env{base: tb.base}) != nil {
+		t.Fatal("hold of 0.2.19 kept after 0.2.20 went in")
+	}
+	// a hold is no longer than a week, also after many failures; one that ends further ahead (the clock went back)
+	// does not count
+	for n, want := range map[int]time.Duration{1: 20 * time.Hour, 2: 44 * time.Hour, 3: 92 * time.Hour, 4: failHoldMax, 50: failHoldMax} {
+		if got := failHold(n); got != want {
+			t.Errorf("failHold(%d) = %v, want %v", n, got, want)
+		}
+	}
+	now := at("2026-11-01T00:00:00Z").t
+	if (&failedUpdate{Until: now.Add(8 * 24 * time.Hour)}).active(now) || !(&failedUpdate{Until: now.Add(time.Hour)}).active(now) {
+		t.Fatal("active")
+	}
+}
+
+// 0.2.19 review S1: the bootstrap rolled 0.2.19 back to 0.2.18, whose admin.js has no update-window, before any check
+// read the window. The root files' version (0.2.19) still has its folder: its admin.js gives the team's window, so a
+// UTC server does not retry at 03:00-05:00 UTC (12:00-14:00 in Korea). The 0.2.18 app reads only needsRoot, so the
+// timer installs the app although the root files are there.
+func TestScheduledUpdateWindowAfterRollBack(t *testing.T) {
+	f := newFeedServer(t)
+	publishSince(t, f, "/server/stable.json", "0.2.19", true, "0.2.19")
+	tb := schedBase(t, f)
+	must(t, os.WriteFile(filepath.Join(tb.base, "root/VERSION"), []byte("0.2.19\n"), 0o644))
+	must(t, os.MkdirAll(filepath.Join(tb.base, "app/versions/0.2.19/server/src"), 0o755))
+	must(t, os.WriteFile(filepath.Join(tb.base, "app/versions/0.2.19/server/src/admin.js"), []byte("// 0.2.19\n"), 0o644))
+	// 12:10 KST = 03:10 UTC; the 0.2.18 admin.js does not know update-window
+	r := &schedRun{clock: at("2026-11-02T03:10:00Z"), zone: "Asia/Seoul", versionWindow: "03:00-05:00"}
+	scheduledHooks(t, tb, r)
+	code, res := tb.scheduled(t, f)
+	if code != 0 || !res.Skipped || res.Detail != "outside the update window 03:00-05:00 Asia/Seoul; read by 0.2.19's admin.js (the app that runs, 0.2.18, cannot tell it)" || f.downloaded() != 0 {
+		t.Fatalf("%d %+v", code, res)
+	}
+	if strings.Join(r.versionAsked, ",") != "0.2.19 update-window" || !strings.Contains(tb.file("root/update-window.json"), `"timeZone":"Asia/Seoul"`) {
+		t.Fatalf("asked %q, kept %q", r.versionAsked, tb.file("root/update-window.json"))
+	}
+	// 03:10 KST: the team's window; root installs the app (the 0.2.18 app would refuse a release with needsRoot)
+	r.clock = at("2026-11-02T18:10:00Z")
+	if code, res := tb.scheduled(t, f); code != 0 || res.Skipped || !res.AppUpdated || r.switched != "0.2.19" {
+		t.Fatalf("in the window: %d %+v", code, res)
+	}
+	// an app that answers itself is asked alone
+	r.versionAsked = nil
+	r.window, r.clock = "03:00-05:00", at("2026-11-03T03:10:00Z")
+	if _, res := tb.scheduled(t, f); !res.Skipped || res.Detail != "already at 0.2.19" && !strings.Contains(res.Detail, "outside the update window 03:00-05:00 Asia/Seoul") || len(r.versionAsked) != 0 {
+		t.Fatalf("answered by the app: %+v %q", res, r.versionAsked)
+	}
+}
+
+// 0.2.19 review S3: a feed with rootSince keeps needsRoot true for the updaters of 0.2.18 and older (publish-server.ts).
+// An app of 0.2.19 or newer with the root files of rootSince takes such a release itself (the timer leaves it); an
+// app of 0.2.18 or older refuses it, so the timer installs it even when the root files are there; and a server whose
+// root files are older gets them.
+func TestRootJobForOldApps(t *testing.T) {
+	for _, c := range []struct {
+		needsRoot        bool
+		since, root, app string
+		need, job        bool
+	}{
+		{true, "0.2.19", "0.2.19", "0.2.19", false, false},
+		{true, "0.2.19", "0.2.19", "0.2.18", false, true},
+		{true, "0.2.19", "0.2.19", "0.2.17", false, true},
+		{true, "0.2.19", "0.2.19", "", false, true},
+		{true, "0.2.19", "0.2.18", "0.2.19", true, true},
+		{false, "0.2.19", "0.2.19", "0.2.18", false, false},
+		{true, "", "0.2.19", "0.2.19", true, true}, // a feed from before rootSince
+		{false, "", "0.2.10", "0.2.10", false, false},
+	} {
+		fd := &ReleaseFeed{NeedsRoot: c.needsRoot, RootSince: c.since}
+		if got := rootNeeded(fd, c.root); got != c.need {
+			t.Errorf("rootNeeded %+v = %v", c, got)
+		}
+		if got := rootJob(fd, c.root, c.app); got != c.job {
+			t.Errorf("rootJob %+v = %v", c, got)
+		}
+	}
+	// an app-only 0.2.20 (needsRoot for old updaters, rootSince 0.2.19)
+	for _, c := range []struct {
+		app, root string
+		skipped   bool
+		rootUpd   bool
+	}{{"0.2.19", "0.2.19", true, false}, {"0.2.18", "0.2.19", false, false}, {"0.2.18", "0.2.18", false, true}} {
+		f := newFeedServer(t)
+		publishSince(t, f, "/server/stable.json", "0.2.20", true, "0.2.19")
+		tb, switched := feedBase(t, f, c.app, c.root)
+		if c.root == "0.2.19" { // its root files are those of the release (the same as 0.2.19's)
+			must(t, os.WriteFile(filepath.Join(tb.base, "root/mycel-launcher"), []byte("launcher 0.2.20"), 0o755))
+			must(t, os.WriteFile(filepath.Join(tb.base, "root/mycel-ctl"), []byte("ctl"), 0o755))
+		}
+		code, r := tb.update(t, "--only-if-needs-root", "--pubkey", f.key)
+		if code != 0 || r.Skipped != c.skipped || r.RootUpdated != c.rootUpd || (c.skipped != (*switched == "")) {
+			t.Fatalf("app %s root %s: %d %+v switched %q", c.app, c.root, code, r, *switched)
+		}
+		if c.skipped && (r.Detail != "release 0.2.20 does not change root files" || f.downloaded() != 0) {
+			t.Fatalf("app %s root %s: %+v", c.app, c.root, r)
+		}
 	}
 }

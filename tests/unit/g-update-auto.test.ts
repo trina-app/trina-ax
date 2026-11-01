@@ -115,12 +115,16 @@ describe('roll-out, window, decision', () => {
     for (const [needsRoot, rootSince, root, want] of [
       [true, undefined, '9.9.9', true], [false, undefined, '0.0.1', false], [false, '1.0.5', '1.0.4', true], [false, '1.0.5', '1.0.5', false],
       [false, '1.0.5', '1.1.0-pre.1', false], [false, '1.0.5', '1.0.5-pre.1', true], [false, '1.0.5', null, true], [false, '1.0.5', 'not a version!', true],
+      // with rootSince, needsRoot is for the updaters of 0.2.18 and older (0.2.19 review S3): rootSince alone decides here
+      [true, '1.0.5', '1.0.5', false], [true, '1.0.5', '1.0.4', true], [true, '1.0.5', null, true],
     ] as const) expect({ needsRoot, rootSince, root, got: releaseNeedsRoot({ needsRoot, rootSince }, root) }).toEqual({ needsRoot, rootSince, root, got: want })
     const now = new Date('2026-10-21T18:30:00Z')
     const base = { feed: feed({ rootSince: '1.0.5' }), current: '1.0.4', installId: 'i', now, tz: 'Asia/Seoul', window: null, running: 0, history: [] }
     expect(autoUpdateDecision({ ...base, rootVersion: '1.0.4' })).toMatchObject({ go: false, why: 'needs_root' })
     expect(autoUpdateDecision({ ...base, rootVersion: null })).toMatchObject({ go: false, why: 'needs_root' })
     expect(autoUpdateDecision({ ...base, rootVersion: '1.0.5' })).toEqual({ go: true, version: '1.1.0' })
+    // an app-only release keeps needsRoot for old servers: this server takes it by itself all the same
+    expect(autoUpdateDecision({ ...base, feed: feed({ needsRoot: true, rootSince: '1.0.5' }), rootVersion: '1.0.5' })).toEqual({ go: true, version: '1.1.0' })
     // the manager reads root/VERSION
     const rootDir = path.join(W, 'root-since')
     fs.mkdirSync(rootDir, { recursive: true })

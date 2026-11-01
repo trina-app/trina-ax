@@ -145,7 +145,8 @@ export const ReleaseFeed = z.object({
    * sha256(salt + install id)'s first two bytes % 100 < percent. the hosted cloud ignores it (the control plane picks). */
   rollout: z.object({ percent: z.number().min(0).max(100), salt: z.string().max(100) }).optional(),
   /** the oldest release with this release's root files (scripts/release/publish-server.ts, feeds from 0.2.19 on):
-   * root/VERSION older than it needs the root update even when needsRoot is false (releaseNeedsRoot) */
+   * root/VERSION older than it needs the root update, one at it or newer does not, whatever needsRoot says (that is
+   * for the updaters of 0.2.18 and older then; releaseNeedsRoot) */
   rootSince: z.string().optional(),
 })
 export type ReleaseFeed = z.infer<typeof ReleaseFeed>
@@ -153,15 +154,16 @@ export type ReleaseFeed = z.infer<typeof ReleaseFeed>
 const VERSION_NAME = /^[0-9A-Za-z][0-9A-Za-z.+_-]{0,49}$/
 
 /**
- * Does this server need root for the release (`sudo mycel-ctl update`, the root update timer)? needsRoot says its root
- * files differ from those of the channel heads it was published over; a server that skipped a release can still be
- * behind (update audit 2026-11-01 P4: root files of 0.2.17, a 0.2.18 that changed them, a 0.2.19 that did not). So
- * root/VERSION (`rootVersion`, null when unknown) older than rootSince needs root too. The same rule as
- * native/cmd/mycel-ctl/update.go rootNeeded; a feed without rootSince keeps the old meaning.
+ * Does this server need root for the release (`sudo mycel-ctl update`, the root update timer)? rootSince names the
+ * oldest release with this release's root files, so root/VERSION (`rootVersion`, null when unknown) older than it
+ * needs root and one at it or newer has them. needsRoot only compared with the channel heads it was published over,
+ * which a server that skipped a release can miss (update audit 2026-11-01 P4: root files of 0.2.17, a 0.2.18 that
+ * changed them, a 0.2.19 that did not), and in a feed with rootSince it is kept true for the updaters of 0.2.18 and
+ * older, which read nothing else (scripts/release/publish-server.ts, 0.2.19 review S3): it is not read then. A feed
+ * without rootSince keeps the old meaning. The same rule as native/cmd/mycel-ctl/update.go rootNeeded.
  */
 export function releaseNeedsRoot(feed: Pick<ReleaseFeed, 'needsRoot' | 'rootSince'>, rootVersion: string | null): boolean {
-  if (feed.needsRoot) return true
-  if (!feed.rootSince) return false
+  if (!feed.rootSince) return feed.needsRoot
   if (!VERSION_NAME.test(feed.rootSince) || !rootVersion || !VERSION_NAME.test(rootVersion)) return true
   return compareVersions(rootVersion, feed.rootSince) < 0
 }

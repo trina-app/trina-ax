@@ -24,8 +24,12 @@
 // compared through their manifest-linux-<arch>.json; unknown counts as "differs". Root releases are
 // applied by the root update timer (`mycel-ctl update`), the others by the server itself.
 // rootSince: the oldest release with this release's root files (rootSinceOf). needsRoot alone only compares with the
-// heads, so a server that skipped a root release missed it (update audit 2026-11-01 P4); an installation compares its
-// root/VERSION with rootSince (mycel-ctl rootNeeded, server releaseNeedsRoot). Older installations ignore the field.
+// heads, so a server that skipped a root release missed it (update audit 2026-11-01 P4); an installation of 0.2.19 or
+// newer compares its root/VERSION with rootSince only (mycel-ctl rootNeeded, server releaseNeedsRoot). Installations
+// of 0.2.18 and older ignore rootSince and read needsRoot alone, so needsRoot (auto) stays true while rootSince is
+// newer than 0.2.18 (NEEDS_ROOT_ONLY_UNTIL, 0.2.19 review S3): otherwise such a server's app would take an app-only
+// release onto its old root files and then refuse every later one. `--needs-root no` turns that off too (only once no
+// server runs 0.2.18 or older).
 // The release key: TEAMAX_RELEASE_KEY or ~/.config/<keyDir>/release-key.pem (keygen.ts); the Cloudflare token:
 // CLOUDFLARE_API_TOKEN or ~/.config/treesoop/secrets.env (cloudflare.ts). Neither is printed.
 // --out writes the feed into a folder (tests; --feed names where it will be served, --trust the temporary keys it is
@@ -47,6 +51,8 @@ import { RELEASE_VERSION_RE, type Channel } from './release-ci'
 import { checkSigningKey, hashFile, remoteHash, signDetached, verifyDetached } from './sign'
 
 export type LinuxArch = 'amd64' | 'arm64'
+/** the last release whose updaters (the app's own, mycel-ctl, the root timer) read only needsRoot, not rootSince */
+export const NEEDS_ROOT_ONLY_UNTIL = '0.2.18'
 type RootFiles = Record<string, { sha256: string; size: number; mode: number }>
 /** the files whose change needs root: root/, and the programs root keeps its own copy of for safe operations 1A */
 export const rootManaged = (k: string) => k.startsWith('root/') || (LINUX_ROOT_COPIES as readonly string[]).includes(k)
@@ -294,6 +300,9 @@ export interface PublishServerResult {
   needsRoot: boolean | null
   /** the oldest release with this release's root files (rootSinceOf); null when skipped, or a release.json from before */
   rootSince?: string | null
+  /** this release's root files differ from the heads' (needsRoot before the rule for 0.2.18 and older); null when
+   * release.json was there already or nothing was published */
+  rootChanged?: boolean | null
   uploaded: string[]
 }
 
@@ -323,6 +332,7 @@ export async function publishServer(o: PublishServerOptions): Promise<PublishSer
   const relKey = releaseManifestPath(o.version)
   let rel = await o.store.get(relKey)
   let relSig: string
+  let changed: boolean | null = null
   if (rel) {
     const s = await o.store.get(relKey + '.sig')
     if (!s || !verifyDetached(rel, utf8(s), o.keys)) throw new Error(`${relKey} is on the feed, but its signature is missing or does not verify: look at it by hand`)
@@ -341,6 +351,17 @@ export async function publishServer(o: PublishServerOptions): Promise<PublishSer
     }
     // an unreadable other head: nothing known to share root files with
     const rootSince = rootSinceOf(o.version, needsRoot, other === undefined ? [] : heads.map((h) => h.feed))
+    changed = needsRoot
+    // servers on 0.2.18 or older read only needsRoot: one whose root files are older than rootSince must not take this
+    // release by itself (0.2.19 review S3). Newer servers decide by rootSince alone.
+    if (!needsRoot && compareVersions(rootSince, NEEDS_ROOT_ONLY_UNTIL) > 0) {
+      if (o.needsRoot === 'auto') {
+        needsRoot = true
+        log(`needsRoot true for servers on ${NEEDS_ROOT_ONLY_UNTIL} or older (they ignore rootSince ${rootSince}); the root files did not change`)
+      } else {
+        log(`warning: --needs-root no: a server on ${NEEDS_ROOT_ONLY_UNTIL} or older with root files older than ${rootSince} takes this release without them and then refuses later ones`)
+      }
+    }
     const r = {
       version: o.version, minFrom: o.minFrom, urgent: false, needsRoot, rootSince, notes: o.notes, publishedAt: (o.now?.() ?? new Date()).toISOString(), bundles,
       minReaderRequired: Math.max(...builds.map((b) => b.readerLevel)),
@@ -378,20 +399,20 @@ export async function publishServer(o: PublishServerOptions): Promise<PublishSer
     if (headDone && !todo.length) {
       log(`${o.channel} is already at ${o.version} with these files`)
       if (!o.dryRun) await verifyFeed({ feed, channel: o.channel, version: o.version, keys: o.keys, fetch: o.store.fetch, builds })
-      return { status: o.dryRun ? 'dry-run' : 'unchanged', channel: o.channel, version: o.version, previous: head?.feed.version ?? null, needsRoot: release.needsRoot, rootSince: release.rootSince ?? null, uploaded: [] }
+      return { status: o.dryRun ? 'dry-run' : 'unchanged', channel: o.channel, version: o.version, previous: head?.feed.version ?? null, needsRoot: release.needsRoot, rootSince: release.rootSince ?? null, rootChanged: changed, uploaded: [] }
     }
     if (!headDone) {
       todo.push({ key: headKey, file: small('head.json', rel), type: 'application/json' })
       todo.push({ key: headKey + '.sig', file: small('head.json.sig', relSig), type: 'application/json' })
     }
     log(`${o.channel}: ${head?.feed.version ?? '(none)'} -> ${o.version}, needsRoot ${release.needsRoot}, rootSince ${release.rootSince ?? '(none)'}`)
-    if (o.dryRun) { log(`dry run: would upload ${todo.map((u) => u.key).join(', ')}`); return { status: 'dry-run', channel: o.channel, version: o.version, previous: head?.feed.version ?? null, needsRoot: release.needsRoot, rootSince: release.rootSince ?? null, uploaded: [] } }
+    if (o.dryRun) { log(`dry run: would upload ${todo.map((u) => u.key).join(', ')}`); return { status: 'dry-run', channel: o.channel, version: o.version, previous: head?.feed.version ?? null, needsRoot: release.needsRoot, rootSince: release.rootSince ?? null, rootChanged: changed, uploaded: [] } }
     for (const u of todo) { log(`↑ ${u.key}`); await o.store.put(u.key, u.file, u.type) }
 
     // 4. read back as an installation does
     await verifyFeed({ feed, channel: o.channel, version: o.version, keys: o.keys, fetch: o.store.fetch, builds })
     log(`published: ${feed}/${headKey} → ${o.version}`)
-    return { status: 'published', channel: o.channel, version: o.version, previous: head?.feed.version ?? null, needsRoot: release.needsRoot, rootSince: release.rootSince ?? null, uploaded: todo.map((u) => u.key) }
+    return { status: 'published', channel: o.channel, version: o.version, previous: head?.feed.version ?? null, needsRoot: release.needsRoot, rootSince: release.rootSince ?? null, rootChanged: changed, uploaded: todo.map((u) => u.key) }
   } finally {
     fs.rmSync(tmp, { recursive: true, force: true })
   }

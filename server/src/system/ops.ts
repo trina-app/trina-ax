@@ -23,7 +23,7 @@ import { connectionStatus } from './connection'
 import { diskSpace, resolveLayout, type InstallLayout } from './layout'
 import { M as MAC_M, tr, uptimeText } from './messages'
 import { engineSockets, maxSocketPathBytes, probeSocket, tooLongSockets, underSandboxDeniedTmp } from './sockets'
-import { UpdateManager } from './update'
+import { compareVersions, UpdateManager } from './update'
 import { lastPrune, PRUNE_FIRST_MS, pruneVersions, PRUNE_TEXT, type PruneResult } from './prune'
 import { configurePlan, currentPlan, effectiveConcurrency, planDiskBytes, planFileProblem } from './limits'
 import { configureNotices, noticesFileProblem } from './managed'
@@ -217,6 +217,23 @@ export class OpsService {
     const id = typeof o.id === 'string' && /^[a-z][a-z0-9-]{0,30}$/.test(o.id) ? o.id : null
     const timerEnabled = o.systemd === false || !id ? null : fs.existsSync(path.join(L.unitDir, 'timers.target.wants', `${id}-update.timer`))
     return { autoUpdate: o.autoUpdate === true, allowUnsigned: o.allowUnsigned === true, timerEnabled }
+  }
+
+  /** The release the root update timer holds after it failed or was rolled back here (root/update-failed.json, root's
+   * file 0644, native/cmd/mycel-ctl/schedule.go; 0.2.19 review S1). null when there is none, or its hold is over (one
+   * that ends more than a week ahead does not count either, like mycel-ctl). Only shown; mycel-ctl decides. */
+  rootUpdateHold(): { version: string; rolledBack: boolean; until: Date } | null {
+    const L = this.layout
+    if (!L.rootDir) return null
+    let j: unknown
+    try { j = JSON.parse(fs.readFileSync(path.join(L.rootDir, 'update-failed.json'), 'utf8')) } catch { return null }
+    if (!j || typeof j !== 'object' || Array.isArray(j)) return null
+    const o = j as Record<string, unknown>
+    const until = typeof o.until === 'string' ? new Date(o.until) : null
+    if (typeof o.version !== 'string' || !/^[0-9A-Za-z][0-9A-Za-z.+_-]{0,49}$/.test(o.version) || !until || Number.isNaN(until.getTime())) return null
+    const left = until.getTime() - this.now().getTime()
+    if (left <= 0 || left > 7 * 86_400_000) return null
+    return { version: o.version, rolledBack: o.result === 'rolled_back', until }
   }
 
   /** role-account install: the engine runs as another account (launcher LaunchDaemon) */
@@ -518,7 +535,15 @@ export class OpsService {
         add('auto_update', 'update', t(ML.autoUpdate), autoOn && long ? 'ok' : 'warn', t(!autoOn ? ML.autoUpdateOff : long ? ML.autoUpdateOn(w, teamTimeZone(this.ctx.db)) : ML.autoUpdateWindowShort(w)))
         if (rs.allowUnsigned || process.env.MYCEL_ALLOW_UNSIGNED === '1') add('unsigned_updates', 'update', t(ML.unsignedUpdates), 'warn', t(ML.unsignedAllowed))
       }
-      if (us.needsRoot && us.available) add('update_root', 'update', t(M.update), 'warn', t(ML.updateNeedsRoot(us.available.version, autoOn)))
+      // a release that failed or was rolled back here: the update timer leaves it for a while (mycel-ctl), said instead
+      // of "the update timer installs it"
+      const held = rs && autoOn ? this.rootUpdateHold() : null
+      const heldNow = held && compareVersions(held.version, this.ctx.version) > 0 ? held : null
+      if (us.needsRoot && us.available && heldNow?.version !== us.available.version) add('update_root', 'update', t(M.update), 'warn', t(ML.updateNeedsRoot(us.available.version, autoOn)))
+      if (heldNow) {
+        const tz = teamTimeZone(this.ctx.db), p = zonedParts(heldNow.until, tz), z = (n: number) => String(n).padStart(2, '0')
+        add('update_held', 'update', t(M.update), 'warn', t(ML.updateHeld(heldNow.version, heldNow.rolledBack, `${p.y}-${z(p.m)}-${z(p.d)} ${z(p.h)}:${z(p.min)} (${tz})`)))
+      }
       const cur = this.updates.currentLinkTarget()
       const signed = !!cur && fs.existsSync(path.join(this.layout.appDir!, 'versions', cur, 'manifest.sig'))
       add('release_signature', 'update', t(M.releaseSig), signed ? 'ok' : 'warn', t(signed ? M.releaseSigned : M.releaseUnsigned))

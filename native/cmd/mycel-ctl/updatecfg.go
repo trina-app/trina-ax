@@ -52,8 +52,11 @@ type UpdateSettings struct {
 	WindowNote string `json:"windowNote,omitempty"`
 	// Deferred: a root update waits for a quiet moment in the team's window (schedule.go)
 	Deferred *deferredUpdate `json:"deferred,omitempty"`
-	Warnings []string        `json:"warnings,omitempty"`
-	Notes    []string        `json:"notes,omitempty"`
+	// Held: a release that failed or was rolled back here, which the update timer leaves until Held.Until
+	// (root/update-failed.json, schedule.go); only while the hold lasts
+	Held     *failedUpdate `json:"held,omitempty"`
+	Warnings []string      `json:"warnings,omitempty"`
+	Notes    []string      `json:"notes,omitempty"`
 }
 
 // autoUpdatesOn: every part of automatic updates is on (a hosted server has none of its own: the control plane updates).
@@ -63,6 +66,9 @@ func (s *UpdateSettings) autoUpdatesOn(systemd bool) bool {
 
 func collectUpdateSettings(e *env, in *Install) *UpdateSettings {
 	s := &UpdateSettings{AutoUpdate: in.AutoUpdate, AllowUnsigned: in.AllowUnsigned, Deferred: readDeferred(e)}
+	if h := readFailed(e); h != nil && h.active(e.now()) {
+		s.Held = h
+	}
 	systemd := in.Systemd && fileExists(systemdRunDir)
 	if systemd {
 		out, _ := exec.Command(e.systemctl, "is-enabled", in.ID+"-update.timer").Output() // exit 1 when disabled
@@ -77,6 +83,7 @@ func collectUpdateSettings(e *env, in *Install) *UpdateSettings {
 		// the team's window and zone, from the running app (admin.js update-window, as the server account)
 		u := &updater{e: e, in: in}
 		u.runAsSrv = u.runAsServer
+		u.runVersionAdmin = u.runVersionAsServer
 		if statusScheduleHook != nil {
 			statusScheduleHook(u)
 		}
@@ -347,6 +354,9 @@ func printUpdateSettings(w io.Writer, s *UpdateSettings, in *Install, systemd bo
 	fmt.Fprintf(w, "  unsigned versions: %s\n", map[bool]string{true: "ALLOWED", false: "refused (signed releases only)"}[s.AllowUnsigned])
 	if d := s.Deferred; d != nil {
 		fmt.Fprintf(w, "  root update to %s waits for a quiet moment since %s (%d answer(s) were running)\n", d.Version, d.Since.Format(time.RFC3339), d.Turns)
+	}
+	if h := s.Held; h != nil {
+		fmt.Fprintf(w, "  HELD: %s\n", h.String())
 	}
 	for _, x := range s.Warnings {
 		fmt.Fprintln(w, "  WARNING: "+x)

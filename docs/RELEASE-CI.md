@@ -64,8 +64,10 @@ Worker(`scripts/release/worker.js`)는 이 경로만 읽기 전용으로 내준�
 - 사무실 맥: 매일 밤 `<feed>/<officeDir>/<channel>.json`을 본다(`docs/OFFICE.md` 6장).
 - 리눅스 서버: `<feed>/server/<channel>.json`과 `.sig`를 본다.
   - 앱만 바뀐 릴리스는 서버가 업데이트 창(기본 03:00–05:00) 안에서 스스로 적용한다.
-  - root 부분(실행기·샌드박스·유닛, root가 따로 두는 1A 프로그램 `mycel-safeops`·`pandoc`)이 바뀐 릴리스(`needsRoot`)는 `mycel-update.timer`(매일 04:30 ± 90분)가 적용한다.
-  - `needsRoot`는 `publish-server.ts`가 정한다. 새 묶음의 `root/` 파일과 `native/mycel-safeops`·`bin/pandoc`(`build-bundle.ts` `LINUX_ROOT_COPIES`)을 두 채널 머리 버전의 `manifest-linux-<arch>.json`과 비교하고, 비교할 수 없으면 "바뀜"으로 둔다.
+  - root 부분(실행기·샌드박스·유닛, root가 따로 두는 1A 프로그램 `mycel-safeops`·`pandoc`)이 바뀐 릴리스는 `mycel-update.timer`(15분마다 확인, 팀의 업데이트 시간 안에서)가 적용한다.
+  - `publish-server.ts`가 새 묶음의 `root/` 파일과 `native/mycel-safeops`·`bin/pandoc`(`build-bundle.ts` `LINUX_ROOT_COPIES`)을 두 채널 머리 버전의 `manifest-linux-<arch>.json`과 비교하고(비교할 수 없으면 "바뀜"), 그 결과로 `rootSince`(같은 root 부분을 가진 가장 오래된 릴리스)를 정한다. 0.2.19 이상 서버는 `root/VERSION`과 `rootSince`만 비교한다.
+  - **`needsRoot`는 0.2.18 이하 서버용이다.** 0.2.14–0.2.18 서버는 `rootSince`를 모르고 `needsRoot`만 본다. 그래서 `--needs-root auto`는 `rootSince`가 0.2.18보다 새로우면 root 부분이 안 바뀌어도 `needsRoot`를 켠다(`NEEDS_ROOT_ONLY_UNTIL`, 0.2.19 리뷰 S3). 꺼 두면 0.2.18 서버의 앱이 0.2.20 같은 앱만 바뀐 릴리스를 스스로 받아 0.2.18 root 부분 위에서 돌고, 그 뒤 모든 릴리스를 거절한다(옛 타이머는 `needsRoot`만 보므로 root 부분도 설치하지 않는다). 0.2.19부터 root 부분이 바뀌었으니 앞으로의 릴리스는 사실상 모두 `needsRoot: true`다. 0.2.18 이하 서버의 앱은 그런 릴리스를 받지 않고, root 타이머가 root 부분과 앱을 같이 설치한다. 0.2.19 이상 서버는 `rootSince`로 판단하므로 앱만 바뀐 릴리스를 그대로 스스로 받는다(앱이 0.2.18 이하로 되돌려진 서버는 root 타이머가 받는다).
+  - 배포 전 확인: `publish-server.ts --dry-run`(또는 로그)의 `needsRoot true for servers on 0.2.18 or older` 줄과 `rootSince`. `--needs-root no`는 이 규칙도 끈다(경고를 남긴다). 0.2.18 이하 서버가 하나도 남지 않았을 때만 쓴다.
 
 ## 3. 지키는 것
 

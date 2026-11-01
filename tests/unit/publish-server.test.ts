@@ -153,47 +153,74 @@ describe('publish-server', () => {
     expect(fs.readFileSync(path.join(feed, 'server', 'beta.json')).equals(rel)).toBe(true)
   })
 
-  test('needsRoot: off when no root/ file changed since the heads of both channels, on when one did', async () => {
+  // rootChanged is what needsRoot was before the rule for 0.2.18 and older (below): a rootSince newer than 0.2.18 keeps
+  // needsRoot true for them, so these releases (0.3.x) all have it
+  test('root files changed: no when no root/ file changed since the heads of both channels, yes when one did', async () => {
     const feed = path.join(T, 'feed-e')
     await publishServer(opts(b030, feed, { channel: 'stable' }))
     const same = await signedBuilds('b031-same', '0.3.1', { server: 'new app' })
-    expect((await publishServer(opts(same, feed, { channel: 'stable', version: '0.3.1' }))).needsRoot).toBe(false)
+    expect(await publishServer(opts(same, feed, { channel: 'stable', version: '0.3.1' }))).toMatchObject({ rootChanged: false, needsRoot: true, rootSince: '0.3.0' })
     const changed = await signedBuilds('b032-root', '0.3.2', { root: 'new launcher' })
-    expect((await publishServer(opts(changed, feed, { channel: 'stable', version: '0.3.2' }))).needsRoot).toBe(true)
+    expect(await publishServer(opts(changed, feed, { channel: 'stable', version: '0.3.2' }))).toMatchObject({ rootChanged: true, needsRoot: true, rootSince: '0.3.2' })
     // beta at 0.3.2 (root changed there), stable at 0.3.1: 0.3.3 with 0.3.2's root still changes stable's root
     await publishServer(opts(changed, feed, { channel: 'beta', version: '0.3.2' }))
     const f2 = path.join(T, 'feed-e2')
     await publishServer(opts(b030, f2, { channel: 'stable' }))
     await publishServer(opts(changed, f2, { channel: 'beta', version: '0.3.2' }))
     const b033 = await signedBuilds('b033', '0.3.3', { root: 'new launcher', server: '0.3.3' })
-    expect((await publishServer(opts(b033, f2, { channel: 'beta', version: '0.3.3' }))).needsRoot).toBe(true)
-    // forced either way
+    expect((await publishServer(opts(b033, f2, { channel: 'beta', version: '0.3.3' }))).rootChanged).toBe(true)
+    // forced: `--needs-root no` turns the rule for 0.2.18 and older off too (it says so)
     const b034 = await signedBuilds('b034', '0.3.4', { root: 'new launcher', server: '0.3.4' })
-    expect((await publishServer(opts(b034, f2, { channel: 'beta', version: '0.3.4', needsRoot: false }))).needsRoot).toBe(false)
+    const lines: string[] = []
+    expect(await publishServer(opts(b034, f2, { channel: 'beta', version: '0.3.4', needsRoot: false, log: (l) => lines.push(l) }))).toMatchObject({ rootChanged: false, needsRoot: false, rootSince: '0.3.3' })
+    expect(lines.join('\n')).toContain('warning: --needs-root no: a server on 0.2.18 or older')
     // only a program root keeps its own copy of (safe operations 1A) changed: root must install it, the app cannot
     const f3 = path.join(T, 'feed-e3')
     await publishServer(opts(b030, f3, { channel: 'stable' }))
     const safeops = await signedBuilds('b031-safeops', '0.3.1', { server: 'new app', safeops: 'new' })
-    expect((await publishServer(opts(safeops, f3, { channel: 'stable', version: '0.3.1' }))).needsRoot).toBe(true)
+    expect((await publishServer(opts(safeops, f3, { channel: 'stable', version: '0.3.1' }))).rootChanged).toBe(true)
   })
 
   test('rootSince: the oldest release with these root files, so a server that skipped a root release still gets it (update audit P4)', async () => {
     const feed = path.join(T, 'feed-rs')
     expect(await publishServer(opts(b030, feed, { channel: 'stable' }))).toMatchObject({ needsRoot: true, rootSince: '0.3.0' })
     const a031 = await signedBuilds('rs-031', '0.3.1', { server: 'new app' })
-    expect(await publishServer(opts(a031, feed, { channel: 'stable', version: '0.3.1' }))).toMatchObject({ needsRoot: false, rootSince: '0.3.0' })
+    expect(await publishServer(opts(a031, feed, { channel: 'stable', version: '0.3.1' }))).toMatchObject({ rootChanged: false, rootSince: '0.3.0' })
     const a032 = await signedBuilds('rs-032', '0.3.2', { server: 'newer app' })
-    expect(await publishServer(opts(a032, feed, { channel: 'stable', version: '0.3.2' }))).toMatchObject({ needsRoot: false, rootSince: '0.3.0' })
+    expect(await publishServer(opts(a032, feed, { channel: 'stable', version: '0.3.2' }))).toMatchObject({ rootChanged: false, rootSince: '0.3.0' })
     const r033 = await signedBuilds('rs-033', '0.3.3', { root: 'new launcher' })
-    expect(await publishServer(opts(r033, feed, { channel: 'stable', version: '0.3.3' }))).toMatchObject({ needsRoot: true, rootSince: '0.3.3' })
+    expect(await publishServer(opts(r033, feed, { channel: 'stable', version: '0.3.3' }))).toMatchObject({ rootChanged: true, needsRoot: true, rootSince: '0.3.3' })
     const a034 = await signedBuilds('rs-034', '0.3.4', { root: 'new launcher', server: '0.3.4' })
-    expect(await publishServer(opts(a034, feed, { channel: 'stable', version: '0.3.4' }))).toMatchObject({ needsRoot: false, rootSince: '0.3.3' })
+    expect(await publishServer(opts(a034, feed, { channel: 'stable', version: '0.3.4' }))).toMatchObject({ rootChanged: false, needsRoot: true, rootSince: '0.3.3' })
     // the signed release.json carries it for both readers, and a server that skipped 0.3.3 needs root for 0.3.4
     const rel = ReleaseFeed.parse(JSON.parse(fs.readFileSync(path.join(feed, 'server', '0.3.4', 'release.json'), 'utf8')))
-    expect(rel).toMatchObject({ needsRoot: false, rootSince: '0.3.3' })
+    expect(rel).toMatchObject({ needsRoot: true, rootSince: '0.3.3' })
     expect(ProtocolReleaseFeed.parse(rel).rootSince).toBe('0.3.3')
     expect(releaseNeedsRoot(rel, '0.3.2')).toBe(true)
     expect(releaseNeedsRoot(rel, '0.3.3')).toBe(false)
+  })
+
+  // 0.2.19 review S3: servers on 0.2.14-0.2.18 ignore rootSince and take a release by itself when needsRoot is false
+  // (v0.2.18 server/src/system/update-job.ts and mycel-ctl read only needsRoot). An app-only 0.2.20 with needsRoot false
+  // would put the 0.2.20 app on a 0.2.18 server's root files, which then refuses every later release. So needsRoot
+  // stays true while rootSince is newer than 0.2.18; servers of 0.2.19 and later decide by rootSince alone.
+  test('needsRoot stays true for servers on 0.2.18 or older while rootSince is newer (0.2.19 review S3)', async () => {
+    const feed = path.join(T, 'feed-s3')
+    const b0218 = await signedBuilds('s3-0218', '0.2.18')
+    await publishServer(opts(b0218, feed, { channel: 'stable', version: '0.2.18' }))
+    const b0219 = await signedBuilds('s3-0219', '0.2.19', { root: 'launcher 0.2.19' })
+    expect(await publishServer(opts(b0219, feed, { channel: 'stable', version: '0.2.19' }))).toMatchObject({ rootChanged: true, needsRoot: true, rootSince: '0.2.19' })
+    const lines: string[] = []
+    const a0220 = await signedBuilds('s3-0220', '0.2.20', { root: 'launcher 0.2.19', server: 'app 0.2.20' })
+    expect(await publishServer(opts(a0220, feed, { channel: 'stable', version: '0.2.20', log: (l) => lines.push(l) }))).toMatchObject({ rootChanged: false, needsRoot: true, rootSince: '0.2.19' })
+    expect(lines.join('\n')).toContain('needsRoot true for servers on 0.2.18 or older (they ignore rootSince 0.2.19)')
+    const rel = ReleaseFeed.parse(JSON.parse(fs.readFileSync(path.join(feed, 'server', '0.2.20', 'release.json'), 'utf8')))
+    // a 0.2.18 server reads needsRoot: it refuses the release, and its root timer installs root files and app together
+    expect(rel.needsRoot).toBe(true)
+    // a 0.2.19 server with 0.2.19's root files takes it by itself (Update now, its own updater); one with older root files does not
+    expect(releaseNeedsRoot(rel, '0.2.19')).toBe(false)
+    expect(releaseNeedsRoot(rel, '0.2.18')).toBe(true)
+    expect(releaseNeedsRoot(rel, null)).toBe(true)
   })
 
   test('rootSinceOf: heads from before rootSince, two channels, a forced needsRoot', () => {

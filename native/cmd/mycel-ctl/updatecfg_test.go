@@ -228,6 +228,31 @@ func TestStatusShowsDeferredUpdate(t *testing.T) {
 	}
 }
 
+// a release the update timer holds after it failed here is shown while the hold lasts (0.2.19 review S1)
+func TestStatusShowsHeldUpdate(t *testing.T) {
+	tb, _ := switchBase(t, true)
+	now := time.Now().UTC().Truncate(time.Second)
+	hold := func(until time.Time) {
+		b, _ := json.Marshal(failedUpdate{Version: "0.2.19", Result: "rolled_back", Detail: "exited 3 times before it was healthy", At: now.Add(-time.Hour), Failures: 1, Until: until})
+		must(t, os.WriteFile(filepath.Join(tb.base, "root/update-failed.json"), append(b, '\n'), 0o644))
+	}
+	hold(now.Add(19 * time.Hour))
+	code, out, _ := tb.ctl("", "status")
+	if code != 0 || !strings.Contains(out, "HELD: release 0.2.19 was rolled back here at "+now.Add(-time.Hour).Format(time.RFC3339)) ||
+		!strings.Contains(out, "tries it again after "+now.Add(19*time.Hour).Format(time.RFC3339)+"; `sudo mycel-ctl update` tries it now") {
+		t.Fatalf("%d\n%s", code, out)
+	}
+	code, out, _ = tb.ctl("", "status", "--detail", "--json")
+	var st Status
+	if code != 0 || json.Unmarshal([]byte(out), &st) != nil || st.Updates == nil || st.Updates.Held == nil || st.Updates.Held.Version != "0.2.19" {
+		t.Fatalf("json: %d %s", code, out)
+	}
+	hold(now.Add(-time.Minute)) // over: not shown
+	if _, out, _ := tb.ctl("", "status"); strings.Contains(out, "HELD") {
+		t.Fatalf("an old hold shown:\n%s", out)
+	}
+}
+
 // install.json keeps every other key and line when one switch changes; a file without the key gets it
 func TestSetInstallBool(t *testing.T) {
 	tb := newTestBase(t, "0.2.18")

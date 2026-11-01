@@ -16,7 +16,13 @@ package main
 //     never cuts a running answer off. A root release that found no quiet moment for three days
 //     (root/update-deferred.json) is installed in the next window after the old wait of --max-wait seconds, running
 //     answers or not, so a team that is always busy (or a server account that keeps answers going) cannot hold the
-//     launcher and the sandbox back for longer than that.
+//     launcher and the sandbox back for longer than that;
+//   - not for a release whose update failed or was rolled back here a short while ago (root/update-failed.json,
+//     0.2.19 review S1): 20 hours after the first failure (the next day's window), then 44 and 92 hours, at most a
+//     week. An administrator's `mycel-ctl update` ignores the hold; a newer release in the feed ends it. Without it
+//     every check of the window downloaded the release again (about 600 MB) and restarted the server. The root files
+//     go in before the app is switched, so a failure the app causes (a server account that lies) holds back only the
+//     app, never the launcher and the sandbox.
 //
 // Outside the window the check ends at once, without network. Before 0.2.19 the timer ran at 04:30 + up to 90 minutes
 // in the server's own zone (UTC on most Linux servers: 13:30-15:00 in Korea) and cut answers off after 10 minutes.
@@ -34,6 +40,8 @@ import (
 	"strings"
 	"time"
 	_ "time/tzdata" // the team's zone on a server without /usr/share/zoneinfo
+
+	"mycel/native/internal/bundle"
 )
 
 // defaultUpdateWindow is server/src/system/update-job.ts DEFAULT_UPDATE_WINDOW (testdata/update-window.json checks
@@ -165,17 +173,16 @@ func (u *updater) readSchedule() updateSchedule {
 		}
 	}
 	def, _ := parseWindow(defaultUpdateWindow)
-	out, err := u.runAsSrv([]string{"update-window"}, env)
-	var got struct {
-		Window   string `json:"window"`
-		TimeZone string `json:"timeZone"`
-	}
-	if err == nil {
-		err = errors.New("no answer")
-		for _, l := range strings.Split(out, "\n") {
-			l = strings.TrimSpace(l)
-			if strings.HasPrefix(l, "{") && json.Unmarshal([]byte(l), &got) == nil && got.Window != "" {
-				err = nil
+	got, err := windowAnswer(u.runAsSrv([]string{"update-window"}, env))
+	via := ""
+	if err != nil {
+		// the app that runs is older than its root files and has no update-window (the bootstrap rolled a 0.2.19 back
+		// to 0.2.18 before any check read the window, 0.2.19 review S1): the root files' version (root/VERSION, root's
+		// own record) has its app folder there, and its admin.js reads the same settings, read only. Without it a UTC
+		// server would retry at 03:00-05:00 UTC, midday in Korea.
+		if v := u.rootFilesApp(); v != "" {
+			if g, verr := windowAnswer(u.runVersionAdmin(v, []string{"update-window"}, env)); verr == nil {
+				got, err, via = g, nil, v
 			}
 		}
 	}
@@ -201,7 +208,46 @@ func (u *updater) readSchedule() updateSchedule {
 			_ = writeRootFile(u.e.root("update-window.json"), append(b, '\n'), 0o644)
 		}
 	}
-	return u.scheduleOf(got.Window, got.TimeZone)
+	s := u.scheduleOf(got.Window, got.TimeZone)
+	if via != "" {
+		s.note = joinNote("read by "+via+"'s admin.js (the app that runs, "+orNone(currentVersion(u.e.base))+", cannot tell it)", s.note)
+	}
+	return s
+}
+
+type windowReply struct {
+	Window   string `json:"window"`
+	TimeZone string `json:"timeZone"`
+}
+
+// windowAnswer reads admin.js update-window's output: its JSON line (other lines, a warning on stderr, are skipped).
+func windowAnswer(out string, err error) (windowReply, error) {
+	var got windowReply
+	if err != nil {
+		return got, err
+	}
+	for _, l := range strings.Split(out, "\n") {
+		l = strings.TrimSpace(l)
+		var g windowReply
+		if strings.HasPrefix(l, "{") && json.Unmarshal([]byte(l), &g) == nil && g.Window != "" {
+			return g, nil
+		}
+	}
+	return got, errors.New("no answer")
+}
+
+// rootFilesApp names the version whose admin.js may answer update-window when the app that runs does not: the root
+// files' version (root/VERSION), when it is newer than 0.2.18 (it has the command), is not what runs (that was asked
+// already) and its folder holds an admin.js. "" for none.
+func (u *updater) rootFilesApp() string {
+	v := rootVersion(u.e)
+	if u.runVersionAdmin == nil || !bundle.ValidVersion(v) || v == currentVersion(u.e.base) || compareVersions(v, lastOldUpdater) <= 0 {
+		return ""
+	}
+	if st, err := os.Lstat(filepath.Join(u.e.base, "app", "versions", v, "server", "src", "admin.js")); err != nil || !st.Mode().IsRegular() {
+		return ""
+	}
+	return v
 }
 
 // scheduleOf checks what admin.js said (the server account's answer): a known zone, a window that opens and lasts.
@@ -229,8 +275,8 @@ func (u *updater) scheduleOf(window, zone string) updateSchedule {
 }
 
 func joinNote(a, b string) string {
-	if a == "" {
-		return b
+	if a == "" || b == "" {
+		return a + b
 	}
 	return a + "; " + b
 }
@@ -285,5 +331,94 @@ func noteDeferred(e *env, version string, turns int) {
 func clearDeferred(e *env) {
 	if err := os.Remove(e.root("update-deferred.json")); err != nil && !errors.Is(err, fs.ErrNotExist) {
 		return
+	}
+}
+
+// ---------- root/update-failed.json: a release that failed here, which the update timer leaves for a while ----------
+
+// failedUpdate is the release whose update last failed or was rolled back here (0.2.19 review S1: the 15-minute
+// timer downloaded it again, about 600 MB, and restarted the server at every check of the window). The update timer
+// leaves that version until Until; an administrator's `mycel-ctl update` ignores the hold. A newer release in the
+// feed ends it, and so does an update to it or past it. Root's file (0644: Admin > Diagnostics reads it).
+type failedUpdate struct {
+	Version  string    `json:"version"`
+	Result   string    `json:"result"`
+	Detail   string    `json:"detail,omitempty"`
+	At       time.Time `json:"at"`
+	Failures int       `json:"failures"`
+	Until    time.Time `json:"until"`
+}
+
+// failHoldMax: the longest hold, the app's own AUTO_HOLD_MS (server/src/system/update-job.ts)
+const failHoldMax = 7 * 24 * time.Hour
+
+// failHold is the hold after the n-th failure in a row of one version: 20 hours, so the next day's window opens again
+// (also after a failure late in a window up to 4 hours long), then 44 and 92 hours, then a week.
+func failHold(n int) time.Duration {
+	d := 20 * time.Hour
+	for i := 1; i < n && d < failHoldMax; i++ {
+		d = 2*d + 4*time.Hour
+	}
+	if d > failHoldMax {
+		d = failHoldMax
+	}
+	return d
+}
+
+func readFailed(e *env) *failedUpdate {
+	b, err := readRootFile(e.root("update-failed.json"), 8<<10)
+	if err != nil {
+		return nil
+	}
+	var f failedUpdate
+	if json.Unmarshal(b, &f) != nil || !bundle.ValidVersion(f.Version) || f.At.IsZero() || f.Until.IsZero() {
+		return nil
+	}
+	return &f
+}
+
+// active: the hold lasts at now. One that ends more than failHoldMax ahead (the clock went back since) does not count.
+func (f *failedUpdate) active(now time.Time) bool {
+	return now.Before(f.Until) && f.Until.Sub(now) <= failHoldMax
+}
+
+func (f *failedUpdate) String() string {
+	what := "failed"
+	if f.Result == "rolled_back" {
+		what = "was rolled back"
+	}
+	d := f.Detail
+	if d != "" {
+		d = ": " + d
+	}
+	return fmt.Sprintf("release %s %s here at %s (%s%s; %d time(s) in a row): the update timer tries it again after %s; `sudo mycel-ctl update` tries it now",
+		f.Version, what, f.At.UTC().Format(time.RFC3339), f.Result, d, f.Failures, f.Until.UTC().Format(time.RFC3339))
+}
+
+// noteFailed records a failure of version (a second one of the same version in a row holds it longer).
+func noteFailed(e *env, version, result, detail string) *failedUpdate {
+	now := e.now().UTC().Truncate(time.Second)
+	detail = strings.Join(strings.Fields(detail), " ")
+	if r := []rune(detail); len(r) > 300 {
+		detail = string(r[:300]) + "…"
+	}
+	f := failedUpdate{Version: version, Result: result, Detail: detail, At: now, Failures: 1}
+	if old := readFailed(e); old != nil && old.Version == version && old.Failures > 0 {
+		f.Failures = min(old.Failures+1, 100)
+	}
+	f.Until = now.Add(failHold(f.Failures))
+	b, _ := json.Marshal(f)
+	_ = writeRootFile(e.root("update-failed.json"), append(b, '\n'), 0o644)
+	return &f
+}
+
+func clearFailed(e *env) {
+	_ = os.Remove(e.root("update-failed.json"))
+}
+
+// clearFailedUpTo ends a hold of version or an older one (an update reached it; a newer release came).
+func clearFailedUpTo(e *env, version string) {
+	if f := readFailed(e); f != nil && version != "" && compareVersions(version, f.Version) >= 0 {
+		clearFailed(e)
 	}
 }
