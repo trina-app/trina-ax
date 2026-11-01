@@ -6,7 +6,7 @@ import desktopConfig from '../desktop/electron-builder.config'
 import { checkSkill, listSkills, skillIssues } from '../server/src/chat/skills'
 
 const ROOT = path.resolve(import.meta.dir, '..')
-export const ENTRY = ['README.md', 'README.ko.md', 'README.ja.md', 'README.es.md', 'SUPPORT.md', 'docs/README.md', 'docs/QUICKSTART.md', 'docs/QUICKSTART.ko.md', 'docs/for-teams.md', 'docs/for-teams.ko.md', 'docs/for-admins.md', 'docs/for-admins.ko.md', 'docs/INSTALL-LINUX.md', 'docs/INSTALL-LINUX.en.md', 'docs/OFFICE.md', 'docs/OFFICE.en.md', 'docs/FAQ.md', 'docs/FAQ.ko.md', 'docs/BACKUP-RESTORE.md', 'docs/CONFIGURATION.md', 'docs/TROUBLESHOOTING.md', 'docs/DEVELOPMENT.md', 'examples/README.md', 'examples/README.ko.md']
+export const ENTRY = ['README.md', 'README.ko.md', 'README.ja.md', 'README.es.md', 'README.zh-CN.md', 'SUPPORT.md', 'docs/README.md', 'docs/QUICKSTART.md', 'docs/QUICKSTART.ko.md', 'docs/for-teams.md', 'docs/for-teams.ko.md', 'docs/for-admins.md', 'docs/for-admins.ko.md', 'docs/INSTALL-LINUX.md', 'docs/INSTALL-LINUX.en.md', 'docs/OFFICE.md', 'docs/OFFICE.en.md', 'docs/FAQ.md', 'docs/FAQ.ko.md', 'docs/BACKUP-RESTORE.md', 'docs/CONFIGURATION.md', 'docs/TROUBLESHOOTING.md', 'docs/DEVELOPMENT.md', 'examples/README.md', 'examples/README.ko.md']
 export function localLinkProblems(file: string, root = ROOT): string[] {
   const text = fs.readFileSync(path.join(root, file), 'utf8').replace(/```[\s\S]*?```/g, '')
   const problems: string[] = []

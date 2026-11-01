@@ -10,7 +10,7 @@ Claude Code and Codex on one company server, with your files, your team's skills
 
 [Website](https://ax.trina.app) · [Try it in 10 minutes](#try-it-in-10-minutes) · [Self-host](docs/for-admins.md) · [Docs](docs/README.md)
 
-English · [한국어](README.ko.md) · [日本語](README.ja.md) · [Español](README.es.md)
+English · [한국어](README.ko.md) · [日本語](README.ja.md) · [Español](README.es.md) · [简体中文](README.zh-CN.md)
 
 <img src="docs/images/readme/hero-day-one.gif" width="100%" alt="A new team member types one line, 'Write a proposal for Trina Logistics.' The AI reads the CEO's proposal skill and the team's sales files, then saves a 7-page deck that opens next to the chat.">
 
@@ -61,7 +61,7 @@ A fictional team with six starter skills. AI is off, so no AI account is needed.
 | **Company folders are the knowledge** | `shared/`, `groups/`, `projects/` and personal folders, with version history. Text from PDF, Office and HWP/HWPX files. |
 | **Team skills, governed like files** | A skill is a `SKILL.md` file. Folder rules decide who can use it, and the AI asks a person before it changes one. |
 | **Permissions on every file call** | Files you can't access stay invisible in Files, AI answers, search, previews, version history and trash. |
-| **Your AI connection** | Claude or OpenAI, by subscription or API key, for a person, a group or the whole team. Usage per person, with limits. |
+| **Your AI connection** | Claude or OpenAI, by subscription or API key, for a person, a group or the whole team. Usage per person, with limits. Self-hosted, Claude Code can also run on other models such as DeepSeek, Kimi or GLM through an [Anthropic-compatible gateway](docs/CONFIGURATION.md#anthropic-compatible-gateway). |
 | **Self-host or hosted** | A Linux server, an office Mac, or Trina hosting in AWS Seoul. Browser on desktop and phone, plus a Windows installer. |
 
 ## Under the hood

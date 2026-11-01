@@ -10,7 +10,7 @@
 
 [Web サイト](https://ax.trina.app) · [10分で試す](#10分で試す) · [セルフホスト](docs/for-admins.md) · [ドキュメント](docs/README.md)
 
-[English](README.md) · [한국어](README.ko.md) · 日本語 · [Español](README.es.md)
+[English](README.md) · [한국어](README.ko.md) · 日本語 · [Español](README.es.md) · [简体中文](README.zh-CN.md)
 
 <img src="docs/images/readme/hero-day-one.gif" width="100%" alt="新しく入ったメンバーが「Write a proposal for Trina Logistics.」と1行入力すると、AI が社長の提案書スキルとチームの営業資料を読み、7ページの提案書を保存してチャットの横に開きます。">
 
@@ -61,7 +61,7 @@ bun run demo        # → http://127.0.0.1:19760 · alice / teamax-demo-1 でロ
 | **会社のフォルダーがそのまま知識に** | `shared/`、`groups/`、`projects/`、個人フォルダーを、バージョン履歴付きで扱います。PDF、Office、HWP/HWPX ファイルからテキストも読み取ります。 |
 | **チームスキルもファイルと同じように管理** | スキルの実体は `SKILL.md` ファイルです。誰が使えるかはフォルダーのルールで決まり、AI がスキルを変更する前には人に確認を求めます。 |
 | **ファイル操作のたびに権限チェック** | アクセス権のないファイルは、ファイル画面、AI の回答、検索、プレビュー、バージョン履歴、ごみ箱のどこにも表示されません。 |
-| **自分たちの AI 接続を使う** | Claude または OpenAI を、サブスクリプションか API キーで接続します。接続は個人、グループ、チーム全体のいずれかに割り当てられます。使用量は人ごとに確認でき、上限も設定できます。 |
+| **自分たちの AI 接続を使う** | Claude または OpenAI を、サブスクリプションか API キーで接続します。接続は個人、グループ、チーム全体のいずれかに割り当てられます。使用量は人ごとに確認でき、上限も設定できます。セルフホストなら [Anthropic 互換ゲートウェイ](docs/CONFIGURATION.md#anthropic-compatible-gateway)で、Claude Code を DeepSeek、Kimi、GLM などほかのモデルでも動かせます。 |
 | **セルフホストもホスティングも** | Linux サーバー、オフィスの Mac、AWS ソウルリージョンの Trina ホスティングから選べます。パソコンやスマートフォンのブラウザーで使えるほか、Windows 用インストーラーもあります。 |
 
 ## 内部構造
