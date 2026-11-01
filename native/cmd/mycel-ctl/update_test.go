@@ -248,6 +248,27 @@ func TestUpdateFeedSameVersion(t *testing.T) {
 	}
 }
 
+// The refusal never keeps a server from updating when it cannot tell what runs: no app/current (a fresh or broken
+// install), a link that names no version, root/VERSION missing or unreadable; an app the bootstrap rolled back under
+// newer root files takes the newer release again, as before.
+func TestNotNewerNeverBlocksUnknownState(t *testing.T) {
+	for _, c := range []struct{ feed, app, root, want string }{
+		{"0.2.17", "", "", ""},
+		{"0.2.17", "", "0.2.18", ""},
+		{"0.2.17", "versions", "0.2.17", ""}, // app/current -> versions/ (no version folder)
+		{"0.2.17", "0.2.17", "", ""},
+		{"0.2.17", "0.2.17", "garbage", ""},
+		{"0.2.17", "0.2.17", "0.2.16", ""},
+		{"0.2.18", "0.2.17", "0.2.18", ""}, // rolled back: tried again
+		{"0.2.17", "0.2.17", "0.2.17", "already at 0.2.17"},
+		{"0.2.17", "0.2.18", "0.2.18", "older than the installed 0.2.18"},
+	} {
+		if got := notNewer(c.feed, c.app, c.root); (c.want == "") != (got == "") || !strings.Contains(got, c.want) {
+			t.Errorf("notNewer(%q, %q, %q) = %q, want %q", c.feed, c.app, c.root, got, c.want)
+		}
+	}
+}
+
 // An admin goes back on purpose with --version: an older release is installed (the app; root files newer than it
 // stay), from the channel or from <feed>/server/<v>/release.json.
 func TestUpdateExplicitVersionMayGoBack(t *testing.T) {
