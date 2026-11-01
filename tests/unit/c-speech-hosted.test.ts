@@ -237,6 +237,20 @@ describe('video reads with the hosting key', () => {
     expect(F().mediaAudio).not.toHaveBeenCalled()
     expect(out.text).toContain("This month's 10 free hours of transcription are used up")
   })
+  test('one pool: voice input, a video read and an audio read count together, and a used-up pool stops them all', async () => {
+    reply = () => Response.json({ text: 'hello', duration: 2.5, segments: [{ start: 0, end: 2.5, text: 'hello from the hosted key' }], language: 'en' })
+    await voice()
+    await read(put('pool.mp4'))
+    spyOn(F(), 'mediaProbe').mockImplementation(async () => ({ ...video(18), video: null, format: 'mp3' }))
+    await read(put('pool.m4a'))
+    expect(hits.map((h) => h.auth)).toEqual([`Bearer ${HOSTED}`, `Bearer ${HOSTED}`, `Bearer ${HOSTED}`])
+    expect(hostedSpeechUsage(A.ctx.db).usedSec).toBe(7.5)
+    chargeHostedSpeech(A.ctx.db, HOSTED_SPEECH_FREE_SEC)
+    hits.length = 0
+    expect((await voice()).error!.message).toContain('free hours of transcription are used up')
+    expect((await read(put('pool2.mp4'))).text).toContain('free hours of transcription are used up')
+    expect(hits).toEqual([])
+  })
   test("with the team's own key it is off by default again (the team picks where its files' sound goes)", async () => {
     writeSpeechKey(credentialsOf(A.ctx), TEAM)
     const out = await read(put('h3.mp4'))
