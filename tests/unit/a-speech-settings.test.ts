@@ -35,7 +35,7 @@ describe('speech provider setting', () => {
     expect(s.speechModel).toBe('openai/whisper-large-v3-turbo')
     expect((await owner.call('GET', '/api/me')).team.voiceInput).toBe(false)
     expect((await member.client.call('GET', '/api/me')).team.voiceInput).toBe(false)
-    expect(await owner.call('GET', '/api/admin/speech-key')).toEqual({ set: false, hint: null, updatedAt: null })
+    expect(await owner.call('GET', '/api/admin/speech-key')).toEqual({ set: false, hint: null, updatedAt: null, hosted: null })
   })
   test("an admin picks 'local': audited as settings.update, everyone is told, voice input on", async () => {
     h.hub.events.length = 0
@@ -94,7 +94,7 @@ describe('the OpenRouter key', () => {
   })
   test('remove (null, password again): voice input off again', async () => {
     const r = await owner.call('PUT', '/api/admin/speech-key', { sealed: null, password: OWNER_PW })
-    expect(r).toEqual({ set: false, hint: null, updatedAt: null })
+    expect(r).toEqual({ set: false, hint: null, updatedAt: null, hosted: null })
     expect(readSpeechKey(credentialsOf(h.ctx))).toBeNull()
     expect((await member.client.call('GET', '/api/me')).team.voiceInput).toBe(false)
   })

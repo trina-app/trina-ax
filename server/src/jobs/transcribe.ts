@@ -15,6 +15,7 @@ import { readOutput, runIsolated } from '../tools/isolate'
 import { JobFailure } from './service'
 import { whisperThreads } from '../system/limits'
 import { dictationTurn } from './whisper-turns'
+import type { SpeechMeter } from '../credentials/hosted-speech'
 
 export const WHISPER_MODELS = {
   tiny: { file: 'ggml-tiny.bin', size: 77_691_713, sha256: 'be07e048e1e599ad46341c8d2a135645097a538221678b7acdd1b1919c6e1b21' },
@@ -52,6 +53,9 @@ export interface TranscribeConfig {
   threads: number
   /** OpenRouter's speech-to-text endpoint (fixed; tests point it at a local fake) */
   openRouterUrl: string
+  /** every OpenRouter speech request goes through it: the hosting service's free hours (credentials/hosted-speech.ts;
+   * set by component C, which has the credentials vault). Absent: nothing is counted. */
+  meter?: SpeechMeter
 }
 export const OPENROUTER_STT_URL = 'https://openrouter.ai/api/v1/audio/transcriptions'
 

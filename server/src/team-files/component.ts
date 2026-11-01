@@ -14,7 +14,8 @@ import { cleanMediaWork, localModelName, recordLocalSpeed } from '../files/media
 import { SPEECH_NO_KEY, SPEECH_OFF, transcribeOpenRouter } from '../jobs/openrouter-stt'
 import { getTeamSettings, teamDefaultLocale } from '../admin/settings'
 import { credentialsOf } from '../credentials/store'
-import { readSpeechKey } from '../credentials/speech-key'
+import { readHostedSpeechKey, readSpeechKey, speechKeySource } from '../credentials/speech-key'
+import { hostedSpeechLeft, hostedSpeechMeter } from '../credentials/hosted-speech'
 import { Artifacts } from '../tools/artifact'
 import { findConverters, MakeFile } from '../tools/make-file'
 import { Attachments } from '../uploads/attachments'
@@ -55,6 +56,9 @@ export function componentC(ctx: AppContext): ComponentC {
   // one speech configuration for voice input jobs and the AI's video / audio reads (files/media.ts)
   const stt = ctx.files.speech
   ctx.files.speechKey = () => readSpeechKey(credentialsOf(ctx))
+  // the hosting service's key: its requests count against the month's free hours (credentials/hosted-speech.ts)
+  stt.meter = hostedSpeechMeter(ctx.db, () => readHostedSpeechKey(credentialsOf(ctx)))
+  ctx.files.speechFree = () => (speechKeySource(ctx.db) === 'hosted' ? { leftSec: hostedSpeechLeft(ctx.db) } : null)
   const locale = (userId: string): Locale => ((ctx.db.query('SELECT locale FROM users WHERE id = ?').get(userId) as { locale: Locale } | null)?.locale ?? DEFAULT_LOCALE)
   const c: ComponentC = {
     // the renderer of the HWP Preview plugin while it is usable, otherwise every page is refused ('disabled')

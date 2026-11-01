@@ -180,7 +180,13 @@ export const TeamIconInfo = z.object({
 })
 export type TeamIconInfo = z.infer<typeof TeamIconInfo>
 /** The team's OpenRouter key for voice input: never returned, only whether one is set and its last 4 characters. */
-export const SpeechKeyStatus = z.object({ set: z.boolean(), hint: z.string().nullable(), updatedAt: IsoTime.nullable() })
+/** A hosted server's free speech-to-text hours this calendar month (Korea time), for Team settings › Voice input:
+ * seconds of sound sent with the hosting service's key (it may go a little past freeSec), never the key. */
+export const HostedSpeechUsage = z.object({ month: z.string().regex(/^\d{4}-\d{2}$/), usedSec: z.number().nonnegative(), freeSec: z.number().int().positive() })
+export type HostedSpeechUsage = z.infer<typeof HostedSpeechUsage>
+/** The team's own OpenRouter key (last 4 characters only) and `hosted`: the hosting service's key is on this server
+ * (used when the team has none) with this month's free hours; null when there is none. */
+export const SpeechKeyStatus = z.object({ set: z.boolean(), hint: z.string().nullable(), updatedAt: IsoTime.nullable(), hosted: HostedSpeechUsage.nullable() })
 export type SpeechKeyStatus = z.infer<typeof SpeechKeyStatus>
 /** How this server turns the sound of video and audio files into text itself (the 'local' speech provider), for the
  * "Turn video sound into text" switch: its default (mediaTranscriptsDefault with cpuCores) and what one read does. */

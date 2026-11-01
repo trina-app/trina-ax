@@ -30,7 +30,7 @@ export const DEFAULT_SETTINGS: TeamSettingsT = {
   /** tool rounds per answer (Claude Code --max-turns; chat/runtime.ts maxEngineTurns) */
   answerStepLimit: DEFAULT_ANSWER_STEP_LIMIT,
   /** voice input is off until an admin picks OpenRouter (with a key) or this server (docs/DECISIONS.md "Voice input
-   * through OpenRouter") */
+   * through OpenRouter"); a hosted server with the hosting service's key starts on OpenRouter (getTeamSettings) */
   speechProvider: 'off',
   speechModel: DEFAULT_SPEECH_MODEL,
   /** not chosen: the default follows the speech provider (shared mediaTranscriptsDefault) */
@@ -38,6 +38,10 @@ export const DEFAULT_SETTINGS: TeamSettingsT = {
 }
 
 const FIELDS = Object.keys(TeamSettings.shape) as (keyof TeamSettingsT)[]
+
+/** The hosting service's speech-to-text key (credentials/speech-key.ts, set only by the control plane through mycel-ctl
+ * hosted-speech-key-set). While it is here and no admin chose a speech provider, voice input defaults to OpenRouter. */
+export const HOSTED_SPEECH_KEY_SETTING = 'speech.hostedKey'
 
 export function getSetting<T>(db: Database, key: string): T | undefined {
   const row = db.query('SELECT value FROM settings WHERE key = ?').get(key) as { value: string } | null
@@ -62,6 +66,9 @@ export function getTeamSettings(db: Database): TeamSettingsT {
     // Equal endpoints keep updates closed and let the admin read, replace or clear the setting.
     else if (r.key === 'updateWindow') out[r.key] = '00:00-00:00'
   }
+  // a hosted team that has not chosen gets voice input through the hosting service's key (10 free hours a month); an
+  // admin's choice, "off" too, always wins
+  if (!rows.some((r) => r.key === 'speechProvider') && db.query('SELECT 1 FROM settings WHERE key = ?').get(HOSTED_SPEECH_KEY_SETTING)) out.speechProvider = 'openrouter'
   return out as TeamSettingsT
 }
 

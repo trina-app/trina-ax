@@ -476,15 +476,19 @@ export const DEFAULT_SPEECH_MODEL = 'openai/whisper-large-v3-turbo'
 export const SMALL_SERVER_CORES = 2
 /** "Turn video sound into text" (TeamSettings.aiMediaTranscripts) when the admin has not chosen: on when the speech
  * provider is this server (the sound stays here) and it has more than SMALL_SERVER_CORES cores, off on a smaller one
- * (too slow; frames still go) and off for OpenRouter (team files' sound would go to a third party). `cpuCores`: the
- * server's (system/limits.ts cpuBudget; GET /api/admin/speech-host for the settings page). An admin's choice always
- * wins. The one place this default lives (docs/DECISIONS.md "AI reads video and audio"). */
-export const mediaTranscriptsDefault = (provider: SpeechProvider, cpuCores: number): boolean => provider === 'local' && cpuCores > SMALL_SERVER_CORES
+ * (too slow; frames still go), off for OpenRouter with the team's own key (team files' sound would go to a third party
+ * the team did not pick for it) and on for OpenRouter with the hosting service's key (`hostedKey`: the hosted plan's
+ * speech-to-text, zero data retention, 10 free hours a month; docs/DECISIONS.md "Hosted speech-to-text"). `cpuCores`:
+ * the server's (system/limits.ts cpuBudget; GET /api/admin/speech-host for the settings page). An admin's choice
+ * always wins. The one place this default lives (docs/DECISIONS.md "AI reads video and audio"). */
+export const mediaTranscriptsDefault = (provider: SpeechProvider, cpuCores: number, hostedKey = false): boolean =>
+  provider === 'local' ? cpuCores > SMALL_SERVER_CORES : provider === 'openrouter' && hostedKey
 /** whether the default is off only because this server is small (the read and the settings switch say so) */
 export const mediaTranscriptsOffSmall = (provider: SpeechProvider, cpuCores: number): boolean => provider === 'local' && !mediaTranscriptsDefault(provider, cpuCores)
-/** whether AI reads of video and audio files transcribe their sound: never with voice input off */
-export const mediaTranscriptsOn = (s: { speechProvider: SpeechProvider; aiMediaTranscripts: boolean | null }, cpuCores: number): boolean =>
-  s.speechProvider !== 'off' && (s.aiMediaTranscripts ?? mediaTranscriptsDefault(s.speechProvider, cpuCores))
+/** whether AI reads of video and audio files transcribe their sound: never with voice input off. `hostedKey`: OpenRouter
+ * goes with the hosting service's key (mediaTranscriptsDefault) */
+export const mediaTranscriptsOn = (s: { speechProvider: SpeechProvider; aiMediaTranscripts: boolean | null }, cpuCores: number, hostedKey = false): boolean =>
+  s.speechProvider !== 'off' && (s.aiMediaTranscripts ?? mediaTranscriptsDefault(s.speechProvider, cpuCores, hostedKey))
 /** an OpenRouter model id: "<vendor>/<model>" */
 export const SpeechModel = z.string().max(128).regex(/^[a-z0-9][a-z0-9._-]*\/[A-Za-z0-9][A-Za-z0-9._:-]*$/)
 
@@ -530,12 +534,14 @@ export const TeamSettings = z.object({
   /** tool rounds per answer (Claude Code `--max-turns`, default 150): at the limit the answer pauses and "continue" goes
    * on. Sub-agents keep their own 50 rounds each; the API engine keeps its own 30 */
   answerStepLimit: z.number().int().min(ANSWER_STEP_LIMIT_MIN).max(ANSWER_STEP_LIMIT_MAX),
-  /** voice input: 'off' (default) | 'openrouter' (needs the OpenRouter key, Admin > Team settings) | 'local' */
+  /** voice input: 'off' (default; 'openrouter' on a hosted server with the hosting service's key) | 'openrouter' (the
+   * team's OpenRouter key, Admin > Team settings, else the hosting service's) | 'local' */
   speechProvider: SpeechProvider,
   /** the OpenRouter speech-to-text model */
   speechModel: SpeechModel,
   /** "Turn video sound into text": AI reads of video and audio files transcribe the sound with the speech provider.
-   * null = not chosen: mediaTranscriptsDefault (on for this server unless it is small, off for OpenRouter). A change of speechProvider
+   * null = not chosen: mediaTranscriptsDefault (on for this server unless it is small, off for OpenRouter with the
+   * team's key, on with the hosting service's key). A change of speechProvider
    * puts it back to null, so a choice made for one provider never sends sound to another. */
   aiMediaTranscripts: z.boolean().nullable(),
 })

@@ -62,6 +62,11 @@ const PROVIDER_DOWN = () => fail(
   '음성 인식 서비스(OpenRouter)에 연결할 수 없어요. 잠시 뒤 다시 해 주세요.',
   'The speech service (OpenRouter) is not reachable. Please try again later.',
   'Layanan suara (OpenRouter) tidak dapat dihubungi. Coba lagi nanti.', "音声サービス（OpenRouter）に接続できません。後で再試行してください。", "No se puede conectar con el servicio de voz (OpenRouter). Vuelva a intentarlo más tarde.")
+/** a provider failed or did not answer in time twice (the second time OpenRouter may have sent it to the other one) */
+const PROVIDER_DOWN_TWICE = () => fail(
+  '음성 인식 서비스(OpenRouter)가 두 번 보내도 답하지 않았어요. 잠시 뒤 다시 해 주세요.',
+  'The speech service (OpenRouter) did not answer, twice. Please try again later.',
+  'Layanan suara (OpenRouter) tidak menjawab, dua kali. Coba lagi nanti.', "音声サービス（OpenRouter）が2回とも応答しませんでした。後で再試行してください。", "El servicio de voz (OpenRouter) no respondió, dos veces. Vuelva a intentarlo más tarde.")
 const REFUSED = (status: number) => fail(
   `OpenRouter가 요청을 거절했어요(HTTP ${status}).`,
   `OpenRouter refused the request (HTTP ${status}).`,
@@ -253,19 +258,7 @@ export async function sendToOpenRouter(cfg: TranscribeConfig, key: string, model
     response_format: 'verbose_json',
     provider: openRouterRouting(),
   })
-  const signals = [AbortSignal.timeout(Math.max(1, Math.min(OPENROUTER_TIMEOUT_MS, o.timeoutMs ?? OPENROUTER_TIMEOUT_MS)))]
-  if (o.signal) signals.push(o.signal)
-  let res: Response
-  try {
-    res = await fetch(cfg.openRouterUrl, {
-      method: 'POST', body, redirect: 'error',
-      headers: { authorization: `Bearer ${key}`, 'content-type': 'application/json', 'x-title': PRODUCT.displayName },
-      signal: AbortSignal.any(signals),
-    })
-  } catch (e) {
-    if (o.signal?.aborted) throw e
-    throw PROVIDER_DOWN()
-  }
+  const res = await postAudio(cfg, key, body, { signal: o.signal, timeoutMs: o.timeoutMs, seconds: o.seconds ?? null })
   if (!res.ok) { await res.body?.cancel().catch(() => {}); throw openRouterFailure(res.status) }
   let j: OrAnswer
   try { j = await res.json() as OrAnswer } catch (e) {
@@ -321,4 +314,55 @@ export async function openRouterServed(cfg: TranscribeConfig, key: string, ids: 
     left = left.filter((id) => !(id in found))
   }
   return found
+}
+
+// ---------------- one request, a second try, the free-hours meter ----------------
+/** OpenRouter's answers when the provider failed or did not answer in time: the request goes once more (OpenRouter may
+ * then send it to the other allowed provider: DeepInfra or Groq for the hosting key) */
+const RETRY_STATUS = new Set([408, 500, 502, 503, 504, 524, 529])
+/** a second try starts only with at least this much of the caller's time left */
+export const RETRY_MIN_MS = 5_000
+
+/**
+ * POST one speech request: through the meter (cfg.meter: the hosting key's free hours are checked before and counted
+ * after, from the seconds OpenRouter heard, else `seconds`), and once more when the provider failed (RETRY_STATUS) or
+ * did not answer in time, if the caller's time allows. Both failing says so (PROVIDER_DOWN_TWICE); the first failure
+ * alone is never shown. Stop (`signal`) ends it at once. The answer of a successful or refused request is returned as
+ * it is; OpenRouter's refusal of the hosting key is the meter's failure. The key is only in the header.
+ */
+async function postAudio(cfg: TranscribeConfig, key: string, body: string, o: { signal?: AbortSignal; timeoutMs?: number; seconds: number | null }): Promise<Response> {
+  cfg.meter?.before(key)
+  const started = Date.now()
+  const left = () => (o.timeoutMs === undefined ? OPENROUTER_TIMEOUT_MS : o.timeoutMs - (Date.now() - started))
+  for (let attempt = 0; ; attempt++) {
+    // each try gets OPENROUTER_TIMEOUT_MS, never more than the caller has left
+    const signals = [AbortSignal.timeout(Math.max(1, Math.min(OPENROUTER_TIMEOUT_MS, left())))]
+    if (o.signal) signals.push(o.signal)
+    let res: Response | null = null
+    try {
+      res = await fetch(cfg.openRouterUrl, {
+        method: 'POST', body, redirect: 'error',
+        headers: { authorization: `Bearer ${key}`, 'content-type': 'application/json', 'x-title': PRODUCT.displayName },
+        signal: AbortSignal.any(signals),
+      })
+    } catch (e) {
+      if (o.signal?.aborted) throw e
+    }
+    if (res && !RETRY_STATUS.has(res.status)) {
+      if (res.ok) {
+        if (cfg.meter) {
+          const j = await res.clone().json().catch(() => null) as { duration?: unknown } | null
+          const heard = typeof j?.duration === 'number' && Number.isFinite(j.duration) && j.duration >= 0 ? j.duration : o.seconds
+          cfg.meter.after(key, heard ?? 0)
+        }
+      } else {
+        const f = cfg.meter?.refused(key, res.status)
+        if (f) { await res.body?.cancel().catch(() => {}); throw f }
+      }
+      return res
+    }
+    if (res) await res.body?.cancel().catch(() => {})
+    if (attempt > 0) throw PROVIDER_DOWN_TWICE()
+    if (left() < RETRY_MIN_MS) throw res ? openRouterFailure(res.status) : PROVIDER_DOWN()
+  }
 }

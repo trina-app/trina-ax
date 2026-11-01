@@ -25,7 +25,7 @@ export function rekeyCredentials(cc: CredCtx): number {
   })()
   // the older keys go once no row needs them (rows that never decrypted keep theirs: nothing lost that worked)
   const still = new Set((cc.db.query('SELECT DISTINCT key_version AS v FROM engine_credentials').all() as { v: number }[]).map((x) => x.v))
-  if (speech.version !== null) still.add(speech.version)
+  for (const v of speech.versions) still.add(v)
   for (let v = 1; v < next; v++) if (!still.has(v)) fs.rmSync(cc.vault.keyPath(v), { force: true })
   ;(cc as { vault: Vault }).vault = nv
   cc.cache.clear()

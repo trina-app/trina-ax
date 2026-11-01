@@ -5,6 +5,7 @@
 //   cloud-status                         the app's part of TenantStatus (no names, mail, IPs, chats or tokens)
 //   reset-link [--username U]            a one-time password reset link at publicOrigins[0]: { url, expiresAt }
 //   credentials-escrow-out --recipient R the AI connections' key, age-armored to R: { keyAge, keyVersion } | { absent }
+//   hosted-speech-key < { key | null }   the hosting service's speech-to-text key, kept encrypted: { ok, set }
 import fs from 'node:fs'
 import path from 'node:path'
 import type { Database } from 'bun:sqlite'
@@ -17,6 +18,12 @@ import type { BackupMeta } from './backup'
 import { lastUploadedLocalId } from './cloud-admin'
 import { seatsUsed } from './limits'
 import { ageArmorTo } from './streams'
+import { HostedSpeechKeyInput } from '@mycel/shared/cloud-protocol'
+import { isHosted } from './deployment'
+import { makeCredCtx } from '../credentials/store'
+import { writeHostedSpeechKey } from '../credentials/speech-key'
+import { audit } from '../admin/audit'
+import type { Logger } from '../log'
 
 export class CloudTenantError extends Error { name = 'CloudTenantError' }
 
@@ -82,3 +89,18 @@ export async function credentialsEscrowOut(secretsDir: string, recipient: string
   return { keyAge: await ageArmorTo(line + '\n', [recipient]), keyVersion: v }
 }
 
+/**
+ * hosted-speech-key: the OpenRouter key the hosting service made for this team (hosted voice input and video sound,
+ * 10 free hours a month; credentials/speech-key.ts), or null to take it away. Hosted servers only. The key comes on
+ * stdin (never in argv), is stored encrypted with the credentials vault, and is in no output, error or audit row: the
+ * audit says "set" or "removed". The server reads it at its next speech request (no restart).
+ */
+export function setHostedSpeechKey(o: { db: Database; secretsDir: string; config: AppConfig; log: Pick<Logger, 'info' | 'warn' | 'error'> }, input: unknown): { ok: true; set: boolean } {
+  if (!isHosted(o.config)) throw new CloudTenantError('hosted-speech-key is for hosted servers only (server.json deployment "hosted")')
+  const p = HostedSpeechKeyInput.safeParse(input)
+  if (!p.success) throw new CloudTenantError('stdin must be { key: an OpenRouter key | null }')
+  const cc = makeCredCtx({ db: o.db, secretsDir: o.secretsDir, config: o.config, log: o.log })
+  const set = writeHostedSpeechKey(cc, p.data.key)
+  audit(o.db, { actor: null, action: 'speech.hosted_key', target: null, detail: { key: set ? 'set' : 'removed' } })
+  return { ok: true, set }
+}

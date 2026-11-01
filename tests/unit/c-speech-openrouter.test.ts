@@ -129,14 +129,16 @@ describe('OpenRouter transcription', () => {
       expect('language' in hits[0]!.body).toBe(false)
     } finally { updateTeamSettings(A.ctx.db, { speechModel: 'openai/whisper-large-v3-turbo' }) }
   })
-  test('401 bad key, 402 no credits, 429 rate limited, 5xx provider down: localized failures without the key', async () => {
-    const cases: [number, string][] = [[401, 'refused the key'], [402, 'no credits'], [429, 'Too many requests'], [503, 'not reachable']]
-    for (const [status, words] of cases) {
+  test('401 bad key, 402 no credits, 429 rate limited, 5xx provider down (tried twice): localized failures without the key', async () => {
+    const cases: [number, string, number][] = [[401, 'refused the key', 1], [402, 'no credits', 1], [429, 'Too many requests', 1], [503, 'did not answer, twice', 2]]
+    for (const [status, words, tries] of cases) {
+      hits.length = 0
       reply = () => Response.json({ error: { message: 'nope ' + KEY } }, { status })
       const job = await run(wav())
       expect(job.status).toBe('failed')
       expect(job.error!.message).toContain(words)
       expect(JSON.stringify(job)).not.toContain(KEY)
+      expect(hits.length).toBe(tries)
     }
   })
   test('the job speaks the person\'s language (ko)', async () => {

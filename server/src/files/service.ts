@@ -180,6 +180,9 @@ export class FileService {
   /** the team's OpenRouter key for transcripts, read for one request (set by component C: the credentials vault needs
    * the app context); null: none */
   speechKey: () => string | null = () => null
+  /** reads go with the hosting service's key: this month's free seconds left (credentials/hosted-speech.ts; set by
+   * component C); null: the team's own key, or none */
+  speechFree: () => { leftSec: number } | null = () => null
   /** transcripts of video and audio reads by content (files/media.ts) */
   readonly transcripts: media.TranscriptCache
   constructor(readonly db: Database, readonly cfg: ServerConfig) {
@@ -812,8 +815,10 @@ export class FileService {
     const cores = cpuBudget()
     const none = (key: MediaTextKey, provider = s.speechProvider): MediaTranscript => ({ segments: [], from: w.from, covered: w.from, notes: [say(key)], label: '', languages: [], provider, made: 0, cached: 0, silent: 0, stopped: key })
     if (s.speechProvider === 'off') return none('voiceOff')
+    // the hosting service's key turns it on by default (its free hours); the team's own key does not
+    const free = s.speechProvider === 'openrouter' ? this.speechFree() : null
     // off by default on a small server (shared mediaTranscriptsDefault): the note says why, and that an admin can turn it on
-    if (!mediaTranscriptsOn(s, cores)) return none(s.aiMediaTranscripts === null && mediaTranscriptsOffSmall(s.speechProvider, cores) ? 'transcriptsOffSmall' : 'transcriptsOff')
+    if (!mediaTranscriptsOn(s, cores, free !== null)) return none(s.aiMediaTranscripts === null && mediaTranscriptsOffSmall(s.speechProvider, cores) ? 'transcriptsOffSmall' : 'transcriptsOff')
     const provider = s.speechProvider
     const hosted = currentPlan() !== null
     const pieceSec = provider === 'local' ? media.LOCAL_PIECE_SEC : media.TRANSCRIPT_PIECE_SEC
@@ -826,6 +831,8 @@ export class FileService {
       const key = confidentialTurn(this.db, ctx.turnId) ? null : this.speechKey()
       if (confidentialTurn(this.db, ctx.turnId)) blocked = 'confidential'
       else if (!key) blocked = 'noKey'
+      // the month's free hours are used (a piece that would go past them still goes; the next request is refused)
+      else if (free && free.leftSec <= 0) blocked = 'freeUsed'
       else speech = { provider, key, model: s.speechModel }
     } else if (!this.speech.whisperBin) blocked = 'noWhisper'
     else {
@@ -859,7 +866,7 @@ export class FileService {
     /** why no sound may go to the provider now (the switch, the provider, the chat's confidentiality), or null */
     const sendBlocked = (): MediaTextKey | null => {
       const now = getTeamSettings(this.db)
-      if (now.speechProvider !== provider || !mediaTranscriptsOn(now, cores)) return now.speechProvider === 'off' ? 'voiceOff' : 'transcriptsOff'
+      if (now.speechProvider !== provider || !mediaTranscriptsOn(now, cores, free !== null)) return now.speechProvider === 'off' ? 'voiceOff' : 'transcriptsOff'
       return provider === 'openrouter' && confidentialTurn(this.db, ctx.turnId) ? 'confidential' : null
     }
     // the audit row covers every piece handed to the provider, also when the read then fails, is stopped or loses access

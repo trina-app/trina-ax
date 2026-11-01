@@ -117,6 +117,13 @@ export const MEDIA_TEXT = {
     ja: '文字起こしに使う OpenRouter キーがないため、文字起こししませんでした。管理者が「チーム設定 › 音声入力」で追加できます。',
     es: 'No hay clave de OpenRouter para las transcripciones, por lo que el sonido no se transcribió. Un administrador puede añadirla en Configuración del equipo › Entrada de voz.',
   },
+  freeUsed: {
+    ko: '이번 달 무료 받아쓰기 10시간을 다 써서 소리를 받아쓰지 않았어요. 다음 달 1일에 다시 생겨요. 관리자가 팀 설정 › 음성 입력에 팀의 OpenRouter 키를 넣으면 바로 이어서 쓸 수 있어요.',
+    en: 'This month\'s 10 free hours of transcription are used up, so the sound was not transcribed. They come back on the 1st. An admin can add the team\'s own OpenRouter key in Team settings › Voice input to go on now.',
+    id: '10 jam transkripsi gratis bulan ini sudah habis, jadi suara tidak ditranskripsi. Jatahnya kembali tanggal 1. Admin dapat menambahkan kunci OpenRouter tim di Pengaturan tim › Input suara untuk lanjut sekarang.',
+    ja: '今月の無料文字起こし10時間を使い切ったため、文字起こししませんでした。来月1日にまた使えます。管理者が「チーム設定 › 音声入力」でチームの OpenRouter キーを追加すれば、すぐに続けられます。',
+    es: 'Se agotaron las 10 horas gratuitas de transcripción de este mes, por lo que el sonido no se transcribió. Vuelven el día 1. Un administrador puede añadir la clave de OpenRouter del equipo en Configuración del equipo › Entrada de voz para seguir ahora.',
+  },
   confidential: {
     ko: '기밀 대화에서는 소리를 바깥 서비스로 보내지 않아 받아쓰지 않았어요.',
     en: 'In a confidential chat the sound is not sent to an outside service, so it was not transcribed.',
