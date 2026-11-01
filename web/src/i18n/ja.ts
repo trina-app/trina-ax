@@ -359,6 +359,7 @@ export const ja: Record<MessageKey, string> = {
   'preview.tooLarge': "このファイルは大きすぎてプレビューできません（{size}）。ダウンロードして開いてください。",
   'preview.unsupported': "この形式はプレビューできません。ダウンロードして開いてください。",
   'preview.truncated': "ファイルの先頭部分のみ表示しています。",
+  'preview.externalImages': "{n, plural, one {Web上の画像#件はプレビューでブロックされます。AIにファイルとして保存するよう頼んでください} other {Web上の画像#件はプレビューでブロックされます。AIにファイルとして保存するよう頼んでください}}",
   'preview.photoBusy': "多数の写真のプレビューを作成中です。しばらくしてから再試行してください。",
   'preview.photoUnavailable': "この写真はここではプレビューできません。ダウンロードして開いてください。",
   'preview.unsupportedShort': "この形式のプレビューはありません",

@@ -9,7 +9,7 @@
 // "sub-agent" (a sub-task step with its sub-agent's steps under it, Step.parentId), "stop-cut" (a step still running
 // when the person presses Stop ends stopped, Step.stopped);
 // anything else gets a Markdown answer with a table, code, math, a Mermaid diagram and an external image.
-// Test-only controls: POST /__test/download-only {path} (a generated, quarantined file: FileEntry.downloadOnly), POST /__test/reset {setup?: boolean, teamLocale?: 'ko'|'en'|'id' (default ko), usersFollowTeam?:
+// Test-only controls: POST /__test/file {path, text | base64} (a team file and its folders), POST /__test/download-only {path} (a generated, quarantined file: FileEntry.downloadOnly), POST /__test/reset {setup?: boolean, teamLocale?: 'ko'|'en'|'id' (default ko), usersFollowTeam?:
 // boolean (seeded people have no own language), mustChange?: username (signs in with a temporary password)}, POST /__test/drop-ws, POST /__test/server-version,
 // POST /__test/revoke {path} (a folder becomes invisible to everyone + access_changed notice), POST /__test/skills
 // {files: [{path, name, description}]} (skill files; skills/임원/ is for admins only),
@@ -980,6 +980,14 @@ export class MockServer {
     download: (c) => {
       const n = this.files.get(c.query.path!)
       if (!n || n.type !== 'file' || this.access(c.query.path!, c.user) === 'none') fail('not_found', 404)
+      // an HTML file's preview (lib/frame-files.ts): like server/src/team-files/embed.ts, only a file everyone who can
+      // read the page can read too
+      const embedIn = c.query.embedIn as string | undefined
+      if (embedIn !== undefined) {
+        if (!this.files.has(embedIn) || this.access(embedIn, c.user) === 'none') fail('not_found', 404)
+        if (this.users.some((u) => u.status === 'active' && this.access(embedIn, u) !== 'none' && this.access(c.query.path!, u) === 'none'))
+          throw new Fail('forbidden', 403, undefined, undefined, { reason: 'embed_narrower' })
+      }
       return new Response(n!.data! as unknown as BodyInit, { headers: { 'content-type': mimeOf(c.query.path!) ?? 'application/octet-stream', 'content-length': String(n!.data!.byteLength), 'content-disposition': 'attachment', 'x-content-type-options': 'nosniff', 'content-security-policy': "sandbox; default-src 'none'" } })
     },
     upload: (c) => {
@@ -1941,6 +1949,13 @@ export class MockServer {
       this.publish({ type: 'queue.position', data: { chatId, messageId: assistant.id, turnId: assistant.turnId, position, epoch: this.epoch, revision: ++this.queueRevision } })
     }
     else if (p === '/__test/confidential') this.allConfidential = body.all === true
+    else if (p === '/__test/file') {
+      // a team file for a test (POST {path, text} or {path, base64}); its folders are made too
+      const path = String(body.path)
+      const parts = path.split('/')
+      for (let i = 1; i < parts.length; i++) { const d = parts.slice(0, i).join('/'); if (!this.files.has(d)) this.files.set(d, { type: 'folder', mtime: now() }) }
+      this.putFile(path, typeof body.base64 === 'string' ? new Uint8Array(Buffer.from(body.base64, 'base64')) : String(body.text ?? ''))
+    }
     else if (p === '/__test/download-only') {
       this.putFile(String(body.path), 'PK generated deck')
       this.downloadOnly.add(String(body.path))

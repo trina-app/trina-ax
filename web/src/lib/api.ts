@@ -93,8 +93,10 @@ export function thumbnailUrl(attachmentId: string): string {
  * Fetch a team file's bytes for an in-app preview, never more than `max`: a Content-Length above it is refused at
  * once, and a response without one (chunked, or a relay that drops the header) is read up to `max` and then cut off.
  */
-export async function fetchFileBlob(path: string, max = 60 * 1024 * 1024, signal?: AbortSignal, o: { truncate?: boolean } = {}): Promise<Blob> {
-  const res = await api.call(API.download, { query: { path, disposition: 'attachment', preview: 'true' }, signal })
+export async function fetchFileBlob(path: string, max = 60 * 1024 * 1024, signal?: AbortSignal, o: { truncate?: boolean; embedIn?: string } = {}): Promise<Blob> {
+  // embedIn: the HTML file whose preview puts this file into its page (lib/frame-files.ts; the server refuses a file
+  // that some readers of that page cannot read)
+  const res = await api.call(API.download, { query: { path, disposition: 'attachment', preview: 'true', ...(o.embedIn !== undefined ? { embedIn: o.embedIn } : {}) }, signal })
   return readBounded(res, max, o)
 }
 

@@ -8,6 +8,8 @@ import { fileError, mapErrors } from '../team-files/errors'
 import { HeicPreviews, isHeic, noPreviewError } from '../files/heic-preview'
 import { componentC } from '../team-files/component'
 import { contentDisposition, streamFile } from '../team-files/download'
+import { embedNarrower } from '../team-files/embed'
+import { authorize } from '../policy/authorize'
 import { searchFileContents } from '../team-files/content-search'
 import { findFiles, recentFiles } from '../team-files/find'
 import { hashFile, writeTemp } from '../team-files/place'
@@ -60,6 +62,15 @@ export const filesRoutes: RouteModule = {
 
     kit.handle(API.download, ({ c, query, auth }) => mapErrors(c.get('locale'), () => {
       const f = svc.fileForDownload(auth.user.id, query.path, !query.preview && query.disposition === 'attachment')
+      // a file an HTML file's preview puts into the page (team-files/embed.ts): only one that everyone who can read the
+      // page can read too; the person must be able to read the page as well (404 like any other file otherwise)
+      if (query.embedIn !== undefined) {
+        const me = svc.principal(auth.user.id)
+        const rules = svc.rules()
+        const page = authorize(svc.fx, rules, me, query.embedIn, 'read')
+        const file = authorize(svc.fx, rules, me, query.path, 'read')
+        if (embedNarrower(ctx.db, rules, page.segs, file.segs)) fileError('forbidden', 'embedNarrower', undefined, { reason: 'embed_narrower' })
+      }
       // Browser-owned Fetch Metadata also blocks stale clients and img/iframe/fetch
       // consumers that request attachment bytes without the explicit preview flag.
       // Headerless API/native clients may still perform an authorized download.

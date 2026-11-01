@@ -19,6 +19,9 @@ import { TYPE_LABEL } from './artifactLabels'
 import FolderPicker from './FolderPicker'
 import { CodeBlock, Markdown, MermaidBlock } from './Markdown'
 import SandboxFrame, { StaticFrame } from './SandboxFrame'
+import ExternalImagesNote from './ExternalImagesNote'
+import { useFrameFiles } from '../lib/useFrameFiles'
+import type { FrameFiles } from '../lib/frame-files'
 import { CopyButton, IconButton, Spinner } from './ui'
 
 let compiler: Promise<CompileFn> | null = null
@@ -54,12 +57,17 @@ export default function ArtifactPanel({ chatId, artifactKey, versionId, onClose 
   const type: ArtifactType | undefined = writing ? live!.type : artifact?.type ?? summary?.type ?? live?.type
   const title = (writing ? live!.title : summary?.title ?? live?.title) || artifactKey
 
+  // an HTML or SVG artifact's team images and clips as data: URLs (lib/frame-files.ts; an artifact has no folder: paths
+  // are from the team root). A React artifact makes its images while it runs: not covered (they stay blocked).
+  const inlines = !writing && !!artifact && (artifact.type === 'html' || artifact.type === 'svg')
+  const files = useFrameFiles(inlines ? artifact!.content : null, { folder: '' })
   const [frameDoc, setFrameDoc] = useState<FrameDoc | null>(null)
   useEffect(() => {
     let alive = true
     setFrameDoc(null)
     setRuntimeError(null)
     if (writing || !artifact || !FRAME_TYPES.includes(artifact.type)) return
+    if (inlines && !files) return
     const msgs = {
       unsupportedImports: (list: string) => t('artifact.unsupportedImports', { list }),
       compileError: (m: string) => t('artifact.compileError', { message: m }),
@@ -67,14 +75,14 @@ export default function ArtifactPanel({ chatId, artifactKey, versionId, onClose 
     }
     const run = async () => {
       const compile = artifact.type === 'react' ? await (compiler ??= sucraseCompile()) : null
-      if (alive) setFrameDoc(buildArtifactDocument(artifact.type, artifact.content, location.origin, compile, msgs))
+      if (alive) setFrameDoc(buildArtifactDocument(artifact.type, inlines && files ? files.html : artifact.content, location.origin, compile, msgs))
     }
     void run()
     return () => {
       alive = false
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [artifact, writing])
+  }, [artifact, writing, files])
 
   const saveTo = async (folder: string) => {
     if (!artifact) return
@@ -193,8 +201,13 @@ export default function ArtifactPanel({ chatId, artifactKey, versionId, onClose 
         ) : frameDoc && !frameDoc.ok ? (
           // the error and "ask the AI to fix it" are in the bar above
           <p className="p-6 text-sm text-muted">{t('artifact.buildFailed')}</p>
-        ) : scripts === false && artifact && type ? (
-          <StaticArtifact key={artifact.id} type={type} content={artifact.content} title={title} />
+        ) : scripts === false && artifact && type && (!inlines || files) ? (
+          <StaticArtifact key={artifact.id} type={type} content={artifact.content} title={title} files={inlines ? files : null} />
+        ) : frameDoc && scripts && files?.external ? (
+          <div className="flex h-full min-h-0 flex-col">
+            <ExternalImagesNote count={files.external} />
+            <SandboxFrame key={artifact?.id} html={frameDoc.html} title={title} onError={setRuntimeError} className="min-h-0 w-full flex-1 border-0 bg-white" />
+          </div>
         ) : frameDoc && scripts ? (
           <SandboxFrame key={artifact?.id} html={frameDoc.html} title={title} onError={setRuntimeError} />
         ) : (
@@ -207,7 +220,7 @@ export default function ArtifactPanel({ chatId, artifactKey, versionId, onClose 
 }
 
 /** An artifact in a confidential chat outside the desktop app: nothing of it runs (lib/artifacts.ts frameRunsScripts). */
-function StaticArtifact({ type, content, title }: { type: ArtifactType; content: string; title: string }) {
+function StaticArtifact({ type, content, title, files }: { type: ArtifactType; content: string; title: string; files: FrameFiles | null }) {
   const t = useT()
   if (type === 'mermaid')
     return (
@@ -215,12 +228,18 @@ function StaticArtifact({ type, content, title }: { type: ArtifactType; content:
         <MermaidBlock code={content} />
       </div>
     )
-  const html = staticSource(type, content)
+  const html = staticSource(type, files ? files.html : content)
   if (html === null)
     return (
       <p className="p-6 text-sm text-muted" data-testid="static-notice">
         {t('artifact.needsScripts')}
       </p>
     )
-  return <StaticFrame html={html} title={title} gutter={type === 'html'} />
+  if (!files?.external) return <StaticFrame html={html} title={title} gutter={type === 'html'} />
+  return (
+    <div className="flex h-full min-h-0 flex-col">
+      <ExternalImagesNote count={files.external} />
+      <StaticFrame html={html} title={title} gutter={type === 'html'} />
+    </div>
+  )
 }

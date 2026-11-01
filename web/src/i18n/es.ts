@@ -359,6 +359,7 @@ export const es: Record<MessageKey, string> = {
   'preview.tooLarge': "Este archivo es demasiado grande para la vista previa ({size}). Descárguelo para abrirlo.",
   'preview.unsupported': "Este formato no admite vista previa. Descárguelo para abrirlo.",
   'preview.truncated': "Solo se muestra el principio del archivo.",
+  'preview.externalImages': "{n, plural, one {# imagen de la web está bloqueada en la vista previa: pida a la IA que la guarde como archivo} other {# imágenes de la web están bloqueadas en la vista previa: pida a la IA que las guarde como archivos}}",
   'preview.photoBusy': "Se están generando muchas vistas previas de fotos. Vuelva a intentarlo en un momento.",
   'preview.photoUnavailable': "No se puede mostrar una vista previa de esta foto aquí. Descárguela para abrirla.",
   'preview.unsupportedShort': "Sin vista previa para este formato",

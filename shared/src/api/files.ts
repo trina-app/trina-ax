@@ -50,6 +50,9 @@ export const DownloadQuery = z.object({
   /** inline (preview, images in answers) or attachment (save as) */
   disposition: z.enum(['inline', 'attachment']).default('attachment'),
   preview: QueryBool.optional(),
+  /** the HTML file whose preview puts this file into its page: refused (403, reason embed_narrower) unless everyone who
+   * can read that page can read this file too (server/src/team-files/embed.ts) */
+  embedIn: RelPath.optional(),
 })
 
 export const UploadFields = z.object({

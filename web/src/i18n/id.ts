@@ -397,6 +397,7 @@ export const id: Record<MessageKey, string> = {
   'hwp.loss': "Perender mendeteksi kemungkinan konten hilang. Unduh dokumen asli untuk memeriksanya.",
   'preview.unsupported': 'Format ini tidak bisa dipratinjau. Unduh untuk membukanya.',
   'preview.truncated': 'Hanya bagian awal file yang ditampilkan.',
+  'preview.externalImages': '{n} gambar dari web diblokir di pratinjau — minta AI menyimpannya sebagai berkas',
   'preview.photoBusy': 'Banyak pratinjau foto sedang dibuat. Coba lagi sebentar lagi.',
   'preview.photoUnavailable': 'Foto ini tidak bisa dipratinjau di sini. Unduh untuk membukanya.',
   'preview.unsupportedShort': 'Format ini tidak bisa dipratinjau',

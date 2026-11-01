@@ -396,6 +396,7 @@ export const ko = {
   'hwp.loss': "일부 내용이 빠졌을 수 있어요. 원본을 내려받아 확인해 주세요.",
   'preview.unsupported': '이 형식은 미리 볼 수 없어요. 내려받아서 열어 주세요.',
   'preview.truncated': '파일 앞부분만 보여요.',
+  'preview.externalImages': '바깥 이미지 {n}개는 미리보기에서 막혀요 — AI에게 파일로 저장해 달라고 하세요',
   'preview.photoBusy': '지금 사진 미리보기를 만드는 사람이 많아요. 잠시 뒤에 다시 시도해 주세요.',
   'preview.photoUnavailable': '이 사진은 여기서 미리 볼 수 없어요. 내려받아서 열어 주세요.',
   'preview.unsupportedShort': '미리 볼 수 없는 형식',

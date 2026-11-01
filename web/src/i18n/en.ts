@@ -397,6 +397,7 @@ export const en: Record<MessageKey, string> = {
   'hwp.loss': "The renderer detected possible missing content. Download the original to inspect it.",
   'preview.unsupported': "This format can't be previewed. Download it to open it.",
   'preview.truncated': 'Only the beginning of the file is shown.',
+  'preview.externalImages': '{n, plural, one {# image from the web is blocked in the preview — ask the AI to save it as a file} other {# images from the web are blocked in the preview — ask the AI to save them as files}}',
   'preview.photoBusy': 'Many photo previews are being made now. Try again in a moment.',
   'preview.photoUnavailable': "This photo can't be previewed here. Download it to open it.",
   'preview.unsupportedShort': 'No preview for this format',

@@ -23,6 +23,8 @@ import { useTeamAttach } from '../lib/useTeamAttach'
 import { useLocale, useT } from '../i18n'
 import { CodeBlock, Markdown } from './Markdown'
 import SandboxFrame, { StaticFrame } from './SandboxFrame'
+import ExternalImagesNote from './ExternalImagesNote'
+import { useFrameFiles } from '../lib/useFrameFiles'
 import { toast } from '../store/ui'
 import { Button, confirmDialog, IconButton } from './ui'
 
@@ -247,7 +249,7 @@ export default function FilePanel({ file, onClose }: { file: PreviewFile; onClos
           </p>
         ) : (
           <Suspense fallback={<p className="p-6 text-sm text-faint">{t('common.loading')}</p>}>
-            <Viewer kind={kind} blob={blob} width={width} name={file.name} at={file.source === 'team' ? file.at : undefined} />
+            <Viewer kind={kind} blob={blob} width={width} name={file.name} at={file.source === 'team' ? file.at : undefined} path={file.source === 'team' ? file.path : null} />
           </Suspense>
         )}
       </div>
@@ -257,7 +259,7 @@ export default function FilePanel({ file, onClose }: { file: PreviewFile; onClos
 
 /** `at`: the place to open the file at (an answer's source, a link): a PDF page, a slide, a sheet and its range. Word
  * and Hangul previews have no such place and open at the top. */
-function Viewer({ kind, blob, width, name, at }: { kind: PreviewKind; blob: Blob; width: number; name: string; at?: SourceLoc }) {
+function Viewer({ kind, blob, width, name, at, path }: { kind: PreviewKind; blob: Blob; width: number; name: string; at?: SourceLoc; path: string | null }) {
   switch (kind) {
     case 'pdf':
       return <PdfView blob={blob} width={width} startPage={at?.kind === 'page' ? at.page : undefined} />
@@ -272,7 +274,7 @@ function Viewer({ kind, blob, width, name, at }: { kind: PreviewKind; blob: Blob
     case 'video':
       return <MediaView kind={kind} blob={blob} name={name} />
     default:
-      return <TextKinds kind={kind} blob={blob} name={name} />
+      return <TextKinds kind={kind} blob={blob} name={name} path={path} />
   }
 }
 
@@ -298,7 +300,8 @@ function MediaView({ kind, blob, name }: { kind: 'image' | 'audio' | 'video'; bl
   )
 }
 
-function TextKinds({ kind, blob, name }: { kind: PreviewKind; blob: Blob; name: string }) {
+/** `path`: the team file (its folder is where the page's relative images are; null for a file from this computer) */
+function TextKinds({ kind, blob, name, path }: { kind: PreviewKind; blob: Blob; name: string; path: string | null }) {
   const t = useT()
   const [text, setText] = useState<string | null>(null)
   // HTML / SVG next to a confidential chat (or with every chat confidential) run no scripts outside the desktop app
@@ -311,6 +314,11 @@ function TextKinds({ kind, blob, name }: { kind: PreviewKind; blob: Blob; name: 
       live = false
     }
   }, [blob])
+  const framed = kind === 'html' || kind === 'svg'
+  const page = text === null || !framed ? null : kind === 'svg' ? `<div style="display:grid;place-items:center;min-height:100vh">${text}</div>` : text
+  // the page's team images and clips as data: URLs (lib/frame-files.ts), each only if everyone who can read this page
+  // can read it too (embedIn); null while they are fetched
+  const files = useFrameFiles(page, { folder: path === null ? null : parentPath(path), embedIn: path ?? undefined })
   if (text === null) return null
   const cut = blob.size > MAX_TEXT && <p className="px-4 pb-4 text-xs text-faint">{t('preview.truncated')}</p>
   if (kind === 'markdown')
@@ -320,11 +328,25 @@ function TextKinds({ kind, blob, name }: { kind: PreviewKind; blob: Blob; name: 
         {cut}
       </div>
     )
-  if ((kind === 'html' || kind === 'svg') && scripts === null) return null
-  const page = kind === 'svg' ? `<div style="display:grid;place-items:center;min-height:100vh">${text}</div>` : text
-  if ((kind === 'html' || kind === 'svg') && !scripts) return <StaticFrame html={page} title={name} gutter={kind === 'html'} className="min-h-[70vh] w-full flex-1 border-0 bg-white" />
-  if (kind === 'html') return <SandboxFrame html={wrapHtml(page, location.origin, { gutter: true })} title={name} className="h-full min-h-[70vh] w-full border-0 bg-white" />
-  if (kind === 'svg') return <SandboxFrame html={wrapHtml(page, location.origin)} title={name} className="h-full min-h-[70vh] w-full border-0 bg-white" />
+  if (framed && scripts === null) return null
+  if (framed && !files)
+    return (
+      <p className="flex items-center gap-2 p-6 text-sm text-faint">
+        <Loader2 size={14} className="animate-spin" aria-hidden /> {t('common.loading')}
+      </p>
+    )
+  if (framed && files) {
+    const frame = scripts
+      ? <SandboxFrame html={wrapHtml(files.html, location.origin, kind === 'html' ? { gutter: true } : {})} title={name} className="h-full min-h-[70vh] w-full border-0 bg-white" />
+      : <StaticFrame html={files.html} title={name} gutter={kind === 'html'} className="min-h-[70vh] w-full flex-1 border-0 bg-white" />
+    if (!files.external) return frame
+    return (
+      <div className="flex h-full min-h-0 flex-col">
+        <ExternalImagesNote count={files.external} />
+        {frame}
+      </div>
+    )
+  }
   if (kind === 'csv') {
     const rows = Papa.parse<string[]>(text, { skipEmptyLines: true, delimiter: name.toLowerCase().endsWith('.tsv') ? '\t' : '' }).data.slice(0, 2000)
     return (
