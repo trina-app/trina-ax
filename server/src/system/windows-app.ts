@@ -186,20 +186,25 @@ export async function refreshWindowsApp(o: WindowsAppOptions): Promise<WindowsAp
     return r
   }
   try {
+    const deps = { fetch: o.fetch ?? ((u: string, i?: RequestInit) => fetch(u, i)) }
+    const keys = o.keys ?? OFFICE_RELEASE_KEYS
     let r
     try {
-      r = await fetchManifest(o.feed, o.channel, { fetch: o.fetch ?? ((u, i) => fetch(u, i)) }, o.keys ?? OFFICE_RELEASE_KEYS)
+      r = await fetchManifest(o.feed, o.channel, deps, keys)
     } catch (e) {
       st.lastCheckAt = now().toISOString()
       if (e instanceof NotPublished) return done({ kind: 'none', version: null, message: e.message })
-      return done({ kind: 'failed', version: null, message: e instanceof ReleaseError || e instanceof UpdateFailure ? e.message : String(e) })
+      // a head this build cannot read (signed with a newer key, a newer format) while its own release's still verifies
+      const own = e instanceof ReleaseError ? await fetchManifest(o.feed, o.channel, deps, keys, o.version).catch(() => null) : null
+      if (!own) return done({ kind: 'failed', version: null, message: e instanceof ReleaseError || e instanceof UpdateFailure ? e.message : String(e) })
+      r = own
     }
     st.lastCheckAt = now().toISOString()
     if (compareVersions(r.version, o.version) > 0) {
       // the channel has moved on past this server (a hosted tenant waits for its rollout wave, a server that has not
       // taken the release yet): this server's own release, from the manifest the feed keeps for every version
       try {
-        r = await fetchManifest(o.feed, o.channel, { fetch: o.fetch ?? ((u, i) => fetch(u, i)) }, o.keys ?? OFFICE_RELEASE_KEYS, o.version)
+        r = await fetchManifest(o.feed, o.channel, deps, keys, o.version)
       } catch (e) {
         // releases before 0.2.19 have none: the channel's head decides below (only an app not newer than this server)
         if (!(e instanceof NotPublished)) return done({ kind: 'failed', version: null, message: e instanceof ReleaseError || e instanceof UpdateFailure ? e.message : String(e) })
@@ -237,6 +242,8 @@ export function folderFetch(dir: string, feed: string = DEFAULT_FEED): FetchLike
     if (!u.startsWith(feed.replace(/\/+$/, '') + '/')) return new Response('not found', { status: 404 })
     const name = decodeURIComponent(u.split('/').pop() ?? '')
     if (!/^[A-Za-z0-9][A-Za-z0-9._+-]{0,150}$/.test(name)) return new Response('not found', { status: 404 })
+    // a version's own manifest (<dir>/<version>/<channel>.json) is not in such a folder: the head there is the one copied
+    if (name.endsWith('.json') && /\/office\/[^/]+\/[^/]+$/.test(new URL(u).pathname)) return new Response('not found', { status: 404 })
     const file = path.join(root, name)
     try {
       const st = fs.statSync(file)

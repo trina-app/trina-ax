@@ -310,7 +310,7 @@ export async function fetchManifest(feed: string, channel: Channel, d: Pick<Upda
   const url = version === undefined ? manifestUrl(feed, channel) : fileUrl(feed, version, `${channel}.json`)
   let res: Response
   try { res = await d.fetch(`${url}?t=${Date.now()}`, { redirect: 'error', signal: AbortSignal.timeout(30_000), headers: { 'cache-control': 'no-cache' } }) } catch (e) { throw new UpdateFailure(`cannot reach ${feed}: ${(e as Error).message}`) }
-  if (res.status === 404) throw new NotPublished(`no ${channel} release published yet`)
+  if (res.status === 404) throw new NotPublished(version === undefined ? `no ${channel} release published yet` : `the feed keeps no ${channel} manifest of ${version}`)
   if (!res.ok) throw new UpdateFailure(`${url}: HTTP ${res.status}`)
   const buf = new Uint8Array(await res.arrayBuffer())
   if (buf.byteLength > MANIFEST_MAX) throw new UpdateFailure(`${url} is larger than a manifest`)

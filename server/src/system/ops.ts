@@ -701,7 +701,8 @@ export class OpsService {
     // 15 minutes after start (an update restarts the server; the bootstrap has decided by then), then every 6 hours. A
     // server whose automatic updates are off (update.auto false, --no-auto-update) asks the feed only after a start,
     // that is after its owner updated it, and never on its own between starts; so does a hosted tenant (the control
-    // plane's `mycel-ctl update` restarts it, and its update gate is over by the 15th minute).
+    // plane's `mycel-ctl update` restarts it; its health gate may still be open at the 15th minute, which is harmless:
+    // a failed gate restores the tenant's whole snapshot, the downloads folder with it).
     if (this.windowsAppFeed()) {
       const offer = () => { void this.refreshWindowsApp().catch((e) => log.warn('Windows app not offered', { err: e })) }
       const firstOffer = setTimeout(() => {

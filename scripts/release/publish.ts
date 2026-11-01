@@ -92,8 +92,12 @@ export function versionManifestAction(existing: string | null, release: OfficeRe
   let prev: OfficeRelease
   try { prev = verifyRelease(existing, { keys: ctx.keys, channel: release.channel, feed: ctx.feed }) } catch (e) { throw new Error(`${key} is on the feed but does not verify (${(e as Error).message}): look at it by hand`) }
   const files = (r: OfficeRelease) => [...r.office, ...(r.windows ? [r.windows.installer, r.windows.latestYml] : [])].map((f) => `${f.file} ${f.sha256} ${f.size}`).sort().join('\n')
-  if (prev.version !== release.version || files(prev) !== files(release) || (prev.windows?.version ?? null) !== (release.windows?.version ?? null)) throw new Error(`${key} is already published with other files: publish a new version instead`)
-  return 'keep'
+  const office = (r: OfficeRelease) => r.office.map((f) => `${f.file} ${f.sha256} ${f.size}`).sort().join('\n')
+  if (prev.version !== release.version) throw new Error(`${key} is the manifest of ${prev.version}: look at it by hand`)
+  if (files(prev) === files(release) && (prev.windows?.version ?? null) === (release.windows?.version ?? null)) return 'keep'
+  // a re-run that adds the Windows installer to a release published without it: the same office files, more files
+  if (!prev.windows && release.windows && office(prev) === office(release)) return 'upload'
+  throw new Error(`${key} is already published with other files: publish a new version instead`)
 }
 
 export function describe(feed: string, version: string, file: string, type: string): Artifact {
@@ -149,8 +153,8 @@ async function main() {
 
   if (out) {
     for (const a of arts) { fs.mkdirSync(path.join(out, path.dirname(a.key)), { recursive: true }); fs.copyFileSync(a.file, path.join(out, a.key)) }
-    const vkey = path.join(out, versionManifestKey(version, channel))
-    if (versionManifestAction(fs.existsSync(vkey) ? fs.readFileSync(vkey, 'utf8') : null, release, { keys: OFFICE_RELEASE_KEYS, feed }) === 'upload') fs.writeFileSync(vkey, signed)
+    // a local feed (tests, QA): rebuilt files overwrite the old ones, so the version's manifest is written again too
+    fs.writeFileSync(path.join(out, versionManifestKey(version, channel)), signed)
     fs.mkdirSync(path.join(out, DIR), { recursive: true })
     fs.writeFileSync(path.join(out, DIR, `${channel}.json`), signed)
     console.log(`written into ${out} (feed paths ${DIR}/…)`)
@@ -159,13 +163,16 @@ async function main() {
 
   // the channel never goes back, and a published file is never replaced by another one
   const cur = await fetch(`${manifestUrl(feed, channel)}?t=${Date.now()}`, { signal: AbortSignal.timeout(20_000) }).catch(() => null)
+  // --if-newer on a channel that is ahead: its head stays, but this version's manifest on that channel still goes up
+  // (a server of that channel that runs this version offers its Windows app from it)
+  let headStays = false
   if (cur?.ok) {
     const prev = verifyRelease(await cur.text(), { keys: OFFICE_RELEASE_KEYS, channel, feed })
     if (compareVersions(version, prev.version) < 0) {
-      if (process.argv.includes('--if-newer')) { console.log(`${channel} is at ${prev.version}, newer than ${version}: left as it is`); return }
-      throw new Error(`${channel} is at ${prev.version}; ${version} is older (the offices never go back)`)
-    }
-    console.log(`${channel} is at ${prev.version} now`)
+      if (!process.argv.includes('--if-newer')) throw new Error(`${channel} is at ${prev.version}; ${version} is older (the offices never go back)`)
+      console.log(`${channel} is at ${prev.version}, newer than ${version}: its head is left as it is`)
+      headStays = true
+    } else console.log(`${channel} is at ${prev.version} now`)
   } else if (cur && cur.status !== 404) throw new Error(`${manifestUrl(feed, channel)}: HTTP ${cur.status}`)
   for (const a of arts) {
     // by content: a rebuilt zip of the same version has the same size but other bytes, and the manifest names the hash
@@ -198,6 +205,7 @@ async function main() {
   fs.writeFileSync(tmp, signed)
   try {
     if (vaction === 'upload') { console.log(`↑ ${vkey}`); await cf.putObject(account, vkey, tmp, 'application/json') }
+    if (headStays) return
     await cf.putObject(account, `${DIR}/${channel}.json`, tmp, 'application/json')
   } finally { fs.rmSync(tmp, { force: true }) }
   const back = await fetch(`${manifestUrl(feed, channel)}?t=${Date.now()}`, { signal: AbortSignal.timeout(20_000) })

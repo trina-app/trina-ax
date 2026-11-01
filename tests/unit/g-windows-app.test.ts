@@ -203,6 +203,11 @@ describe('the signed release\'s Windows app into data/downloads', () => {
     expect(r.kind).toBe('failed')
     expect(r.message).toContain('is the manifest of 0.3.1, not 0.3.0')
     expect(fs.existsSync(s2.downloads)).toBe(false)
+    // a head this build cannot read (another key), while the server's own release's manifest verifies: that one
+    const s4 = server('own-version-head-bad')
+    const badHead = new Map(files)
+    badHead.set(`${FEED}/office/stable.json`, publish('0.4.0', { key: crypto.generateKeyPairSync('ed25519').privateKey.export({ format: 'pem', type: 'pkcs8' }) as string }).files.get(`${FEED}/office/stable.json`)!)
+    expect(await refreshWindowsApp(opts(s4, badHead, { version: '0.3.0' }))).toMatchObject({ kind: 'offered', version: '0.3.0' })
     // and signed with a key this build does not trust: refused as well
     const s3 = server('own-version-key')
     const other = crypto.generateKeyPairSync('ed25519').privateKey.export({ format: 'pem', type: 'pkcs8' }) as string
@@ -222,6 +227,14 @@ describe('the signed release\'s Windows app into data/downloads', () => {
     expect(versionManifestAction(signed, { ...rel, publishedAt: new Date(Date.now() + 1000).toISOString() }, ctx)).toBe('keep')
     const changed = { ...rel, windows: { ...rel.windows!, installer: { ...rel.windows!.installer, sha256: 'f'.repeat(64) } } }
     expect(() => versionManifestAction(signed, changed, ctx)).toThrow(/already published with other files/)
+    // a re-run that adds the Windows installer to a release first published without one: replaced
+    const noWin = publish('0.3.0', { windows: null }).files.get(`${FEED}/office/stable.json`) as string
+    expect(versionManifestAction(noWin, rel, ctx)).toBe('upload')
+    // ...but not one that changes the office zip at the same time
+    const zipNoWin = JSON.parse(JSON.parse(noWin).payload) as OfficeRelease
+    expect(() => versionManifestAction(noWin, { ...rel, office: [{ ...zipNoWin.office[0]!, sha256: 'e'.repeat(64) }] }, ctx)).toThrow(/other files/)
+    // another version's text in that place
+    expect(() => versionManifestAction(publish('0.3.1').files.get(`${FEED}/office/stable.json`) as string, rel, ctx)).toThrow(/manifest of 0.3.1/)
     expect(() => versionManifestAction(signed, rel, { ...ctx, keys: [publicKeyOf(crypto.generateKeyPairSync('ed25519').privateKey.export({ format: 'pem', type: 'pkcs8' }) as string)] })).toThrow(/does not verify/)
   })
 
@@ -358,7 +371,8 @@ describe('the signed release\'s Windows app into data/downloads', () => {
     const r = await refreshWindowsApp(opts(s, publish('0.3.0', { key: other }).files, {}, seen))
     expect(r.kind).toBe('failed')
     expect(r.message).toContain('unknown key')
-    expect(seen).toEqual([`${FEED}/office/stable.json`])
+    // the server's own release's manifest was tried too (absent here), nothing downloaded
+    expect(seen).toEqual([`${FEED}/office/stable.json`, `${FEED}/office/0.3.0/stable.json`])
     expect((await refreshWindowsApp(opts(s, new Map()))).kind).toBe('none')
     expect((await refreshWindowsApp(opts(s, publish('0.3.0', { windows: null }).files))).kind).toBe('none')
     expect((await refreshWindowsApp(opts(s, new Map(), { fetch: async () => { throw new Error('offline') } }))).message).toContain('cannot reach')
@@ -419,8 +433,13 @@ describe('the signed release\'s Windows app into data/downloads', () => {
     for (const [url, body] of p.files) fs.writeFileSync(path.join(dir, url.split('/').pop()!), body)
     expect((await refreshWindowsApp(opts(s, p.files, { fetch: folderFetch(dir, FEED) }))).kind).toBe('offered')
     expect(readIndex(s.downloads)[0]!.sha256).toBe(sha(p.exe!))
+    // a server older than the release copied there: not offered ("update the server first"), the folder's head is
+    // never taken for the server's own version's manifest
+    const s2 = server('folder-older')
+    expect(await refreshWindowsApp(opts(s2, p.files, { version: '0.2.9', fetch: folderFetch(dir, FEED) }))).toMatchObject({ kind: 'ahead', version: '0.3.0' })
     // nothing outside the feed's addresses and plain names
     const f = folderFetch(dir, FEED)
+    expect((await f(`${FEED}/office/0.2.9/stable.json`)).status).toBe(404)
     expect((await f('https://elsewhere.test/office/stable.json')).status).toBe(404)
     expect((await f(`${FEED}/office/0.3.0/..%2F..%2Fx`)).status).toBe(404)
   })
@@ -484,7 +503,8 @@ describe('the ops service of an installed Linux server', () => {
     const r = await ops().refreshWindowsApp()
     expect(r?.kind).toBe('failed')
     expect(r?.message).toContain('unknown key')
-    expect(asked).toEqual(['/office/stable.json'])
+    // the head, then this server's own release's manifest (this fake answers every path with the same head)
+    expect(asked).toEqual(['/office/stable.json', `/office/${ctx.version}/stable.json`])
     expect(fs.existsSync(path.join(base, 'data', 'downloads'))).toBe(false)
     // and Admin › System › Diagnostics says so
     const line = (await ops().diagnostics('en')).checks.find((c) => c.id === 'windows_app')
