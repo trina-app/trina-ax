@@ -41,6 +41,7 @@ test('External services: every tool of a big service is listed with its switch; 
   }
   // 186 tools (like Higgsfield's MCP server): all of them, no "N of M"
   const big = await add('Big tools', 'https://many.tools.example/mcp')
+  await big.getByTestId('integration-toggle').click()
   const toggle = big.getByTestId('integration-tools-toggle')
   await expect(toggle).toHaveText('도구 186개')
   await toggle.click()
@@ -56,6 +57,7 @@ test('External services: every tool of a big service is listed with its switch; 
   await expect(big.getByTestId('integration-tools-off')).toHaveText(' · 1개 꺼짐')
   // a list an older server cut at 100: said, with what to do; "check again" saves them all
   const old = await add('Old list', 'https://stale.tools.example/mcp')
+  await old.getByTestId('integration-toggle').click()
   await expect(old.getByTestId('integration-tools-toggle')).toHaveText('도구 150개 중 100개')
   await old.getByTestId('integration-tools-toggle').click()
   await expect(old.getByTestId('integration-tools-capped')).toHaveText('이 서비스는 도구 150개를 제공하는데, 지난번 확인 때 100개만 저장됐어요. 다시 확인하면 전부 저장돼요.')

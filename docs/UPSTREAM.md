@@ -264,3 +264,14 @@ Resolutions, because this repository has more on that page than core:
 - `Skills.tsx` keeps `SkillIssues` and `SkillListNote`. Only the page's `PopularSkills` card goes; `PopularSkills.tsx` stays for the new-chat home with its keys.
 - `es` and `ja` get the new keys (`fromTeam`, `search`, `uses`, `usesHint`, `noMatch`, `moreNamed`). `skills.desc`, `availableHint`, `useNamed` and `viewFileNamed` go in all five languages.
 - `web/test/mock/server.ts` is unchanged: this repository already has `listSkills`.
+
+
+## 2026-11-02 External services: Connected and Discover
+
+Source change from potenlab/team-ax `b09811f` and `7e0d692` (branch `feat/connectors-discover`, core PR #28, on top of PR #27, not yet on core main), ported by hand. No core history was imported.
+
+- Taken as they are: `web/src/pages/Integrations.tsx` and `web/src/pages/admin/Integrations.tsx` (identical to core before this), and the new `ConnectorsView.tsx`, `lib/connectors.ts` and `web/test/unit/connectors.test.ts`.
+- Core's patch applied without conflict: `IntegrationDialog.tsx`, `lib/integrations.ts`, `web/test/e2e/a11y.spec.ts`, `web/test/e2e/integrations.spec.ts`.
+- `IntegrationRow.tsx` rebuilt on this repository's own version: the tool switches, the tool counts and the `danger` delete button stay, and the "last check failed" note also shows on the line.
+- `es` and `ja` get every new key; `integrations.desc` and `integrations.admin.desc` go in all five languages.
+- The list of 39 services and their logos (`web/public/icons/connectors`) came in with the same change.

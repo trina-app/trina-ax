@@ -1,20 +1,23 @@
-// One external-service connection in a list (Settings > External services, Admin > External services): name, kind,
-// state and why it failed (or, connected, that its last check failed and which tool list the AI keeps using), the
-// stored key or signed-in account (never the key itself), last use, the MCP server's tools (with a switch each for
-// whoever manages it, like Claude's connector tools: a tool turned off is not offered to the AI,
-// server/src/integrations/connections/tools.ts; tools the service adds later are on); and, for people who manage it,
-// check again / sign in / edit / delete. Signing in (MCP OAuth) opens the service's page in a window reserved during
-// the click and polls the flow until the server has the tokens.
+// One external-service connection in a list (Settings > External services, Admin > External services): one line with
+// the name, kind or what is wrong (it failed, or, connected, its last check failed), and its state. A click opens the
+// rest: the address, which tool list the AI keeps using, the stored key or signed-in account (never the key itself),
+// last use, the MCP server's tools (with a switch each for whoever manages it, like Claude's connector tools: a tool
+// turned off is not offered to the AI, server/src/integrations/connections/tools.ts; tools the service adds later are
+// on), and for people who manage it check again / sign in / edit / delete. Signing in stays on the line while it is what
+// the connection needs. Signing in (MCP OAuth) opens the service's page in a window reserved during the click and polls
+// the flow until the server has the tokens.
 import clsx from 'clsx'
-import { ChevronDown, ChevronRight, Globe, LogIn, Pencil, RefreshCw, Trash2, Waypoints } from 'lucide-react'
+import { Check, ChevronDown, ChevronRight, Globe, LogIn, Pencil, RefreshCw, Trash2, Waypoints } from 'lucide-react'
 import { useEffect, useId, useRef, useState, type ReactNode } from 'react'
 import type { Integration, IntegrationFlow } from '@mycel/shared/api'
 import { api, API, errorText } from '../../lib/api'
+import { connectorFor } from '../../lib/connectors'
 import { formatDateTime } from '../../lib/format'
 import { authorizationUrl, canSignIn, lastCheckNote, STATUS_TONE, toolsShortfall } from '../../lib/integrations'
 import { mobileApp } from '../../lib/mobile'
 import { useLocale, useT } from '../../i18n'
 import { toast } from '../../store/ui'
+import { ConnectorLogo } from './ConnectorsView'
 import { Badge, Button, IconButton, Switch, confirmDialog } from '../ui'
 
 /** A blank window opened during the click (a window opened later, after the server answers, is blocked as a popup).
@@ -201,34 +204,73 @@ export function IntegrationRow({ i, actions, onEdit, teamBadge, extra }: {
 }) {
   const t = useT()
   const locale = useLocale()
+  const [details, setDetails] = useState(false)
   const [open, setOpen] = useState(false)
+  const detailsId = useId()
   const toolsId = useId()
   const flow = actions.signIn.state?.id === i.id ? actions.signIn.state : null
   const checking = actions.checking === i.id
   const phone = !!mobileApp()
   const KindIcon = i.kind === 'mcp' ? Waypoints : Globe
+  const listed = connectorFor(i.url)
+  const kindLabel = t(i.kind === 'mcp' ? 'integrations.kind.mcp' : 'integrations.kind.http')
   const off = i.tools.filter((x) => x.enabled === false).length
   const short = toolsShortfall(i)
   const note = lastCheckNote(i)
+  const failing = !!i.lastError && i.status !== 'connected'
   const meta: string[] = []
   if (i.auth === 'bearer' || i.auth === 'header') meta.push(t(i.hasSecret ? 'integrations.keySaved' : 'integrations.keyMissing'))
   if (i.auth === 'oauth' && i.hasSecret) meta.push(i.account ? t('integrations.account', { account: i.account }) : t('integrations.signedIn'))
   meta.push(i.lastUsedAt ? t('integrations.lastUsed', { date: formatDateTime(i.lastUsedAt, locale) }) : t('integrations.neverUsed'))
+  const signInButton = canSignIn(i) && !phone && !flow && (
+    <Button size="sm" variant={i.status === 'needs_auth' ? 'primary' : 'secondary'} className="shrink-0" onClick={() => void actions.signIn.start(i.id)} data-testid="integration-signin-start">
+      <LogIn size={14} aria-hidden /> {t(i.hasSecret ? 'integrations.signInAgain' : 'integrations.signIn')}
+    </Button>
+  )
   return (
-    <li className="px-4 py-3" data-testid="integration-row" data-name={i.name} data-scope={i.scope} data-status={i.status}>
-      <div className="flex flex-wrap items-start gap-x-3 gap-y-2">
-        <KindIcon size={16} className="mt-0.5 shrink-0 text-faint" aria-hidden />
-        <div className="min-w-0 flex-1">
-          <p className="flex flex-wrap items-center gap-x-2 gap-y-1 text-sm">
-            <span className="font-medium break-words">{i.name}</span>
-            <span className="text-xs text-muted">{t(i.kind === 'mcp' ? 'integrations.kind.mcp' : 'integrations.kind.http')}</span>
-            <Badge tone={STATUS_TONE[i.status]}>{t(`integrations.status.${i.status}`)}</Badge>
-            {teamBadge && i.scope === 'team' && <Badge tone="accent">{t('integrations.teamBadge')}</Badge>}
-            {i.writePolicy === 'allow' && <Badge tone="warn">{t('integrations.write.allow')}</Badge>}
-            {i.writePolicy === 'deny' && <Badge>{t('integrations.write.deny')}</Badge>}
-          </p>
-          <p className="mt-0.5 text-xs break-all text-faint">{i.url}</p>
-          {i.lastError && i.status !== 'connected' && (
+    <li className="py-1" data-testid="integration-row" data-name={i.name} data-scope={i.scope} data-status={i.status}>
+      <div className="flex items-center gap-1">
+        <button
+          type="button"
+          aria-expanded={details}
+          aria-controls={details ? detailsId : undefined}
+          onClick={() => setDetails((v) => !v)}
+          className="flex min-w-0 flex-1 items-center gap-3 rounded-lg p-2 text-left hover:bg-hover"
+          data-testid="integration-toggle"
+        >
+          {listed ? <ConnectorLogo c={listed} className="size-9" /> : (
+            <span className="flex size-9 shrink-0 items-center justify-center rounded-lg border border-line bg-subtle text-muted">
+              <KindIcon size={16} aria-hidden />
+            </span>
+          )}
+          <span className="min-w-0 flex-1">
+            <span className="flex flex-wrap items-center gap-x-2 gap-y-0.5">
+              <span className="max-w-full truncate text-sm font-medium" title={i.name}>{i.name}</span>
+              {teamBadge && i.scope === 'team' && <Badge tone="accent">{t('integrations.teamBadge')}</Badge>}
+              {i.writePolicy === 'allow' && <Badge tone="warn">{t('integrations.write.allow')}</Badge>}
+            </span>
+            <span className={clsx('mt-0.5 block truncate text-xs', failing ? 'text-danger' : note ? 'text-warn' : 'text-muted')} title={i.lastError ?? undefined}>
+              {i.lastError ?? kindLabel}
+            </span>
+          </span>
+          {i.status === 'connected' ? (
+            <span className="flex shrink-0 items-center text-ok" title={t('integrations.status.connected')}>
+              <Check size={16} aria-hidden />
+              <span className="sr-only">{t('integrations.status.connected')}</span>
+            </span>
+          ) : (
+            // beside a sign-in button a phone's width goes to the name: the button says the same
+            <Badge tone={STATUS_TONE[i.status]} className={clsx('shrink-0', signInButton && 'max-sm:hidden')}>{t(`integrations.status.${i.status}`)}</Badge>
+          )}
+          <ChevronDown size={15} className={clsx('shrink-0 text-faint transition-transform', details && 'rotate-180')} aria-hidden />
+        </button>
+        {i.status === 'needs_auth' && signInButton}
+      </div>
+      {flow && <SignInPanel flow={flow} onRetry={() => void actions.signIn.start(i.id)} onCancel={actions.signIn.cancel} />}
+      {details && (
+        <div id={detailsId} className="pr-2 pb-3 pl-2 sm:pl-14" data-testid="integration-details">
+          <p className="text-xs break-all text-faint">{i.url}</p>
+          {failing && (
             <p className="mt-1 text-xs break-words text-danger" data-testid="integration-error">
               {i.lastError}
             </p>
@@ -241,73 +283,69 @@ export function IntegrationRow({ i, actions, onEdit, teamBadge, extra }: {
           <p className="mt-1 text-xs text-muted" data-testid="integration-meta">
             {meta.join(' · ')}
           </p>
+          {i.writePolicy === 'deny' && <p className="mt-1"><Badge>{t('integrations.write.deny')}</Badge></p>}
           {canSignIn(i) && phone && <p className="mt-1 text-xs text-muted">{t('integrations.signIn.phone')}</p>}
           {extra}
-        </div>
-        {i.canManage && (
-          <div className="flex flex-wrap items-center gap-1 max-sm:w-full max-sm:pl-7">
-            {canSignIn(i) && !phone && !flow && (
-              <Button size="sm" variant={i.status === 'needs_auth' ? 'primary' : 'secondary'} onClick={() => void actions.signIn.start(i.id)} data-testid="integration-signin-start">
-                <LogIn size={14} aria-hidden /> {t(i.hasSecret ? 'integrations.signInAgain' : 'integrations.signIn')}
+          {i.canManage && (
+            <div className="mt-2 flex flex-wrap items-center gap-1">
+              {i.status !== 'needs_auth' && signInButton}
+              <Button size="sm" disabled={checking} onClick={() => void actions.refresh(i)} data-testid="integration-refresh">
+                <RefreshCw size={14} className={clsx(checking && 'animate-spin')} aria-hidden /> {t('integrations.refresh')}
               </Button>
-            )}
-            <Button size="sm" disabled={checking} onClick={() => void actions.refresh(i)} data-testid="integration-refresh">
-              <RefreshCw size={14} className={clsx(checking && 'animate-spin')} aria-hidden /> {t('integrations.refresh')}
-            </Button>
-            <IconButton label={t('integrations.edit', { name: i.name })} onClick={onEdit} data-testid="integration-edit">
-              <Pencil size={15} />
-            </IconButton>
-            <IconButton label={t('integrations.delete', { name: i.name })} danger onClick={() => void actions.remove(i)} data-testid="integration-delete">
-              <Trash2 size={15} />
-            </IconButton>
-          </div>
-        )}
-      </div>
-      {flow && <SignInPanel flow={flow} onRetry={() => void actions.signIn.start(i.id)} onCancel={actions.signIn.cancel} />}
-      {i.kind === 'mcp' && (i.tools.length > 0 || i.status === 'connected') && (
-        <div className="mt-2 pl-7">
-          <button type="button" aria-expanded={open} aria-controls={toolsId} onClick={() => setOpen((v) => !v)} className="inline-flex items-center gap-1 rounded text-xs font-medium text-accent-text hover:underline" data-testid="integration-tools-toggle">
-            {open ? <ChevronDown size={14} aria-hidden /> : <ChevronRight size={14} aria-hidden />}
-            {short ? t(short === 'integrations.toolsCappedMore' ? 'integrations.toolsOfMore' : 'integrations.toolsOf', { n: i.tools.length, total: i.toolsTotal! }) : t('integrations.tools', { n: i.tools.length })}
-            {off > 0 && <span className="font-normal text-muted" data-testid="integration-tools-off"> · {t('integrations.toolsOff', { n: off })}</span>}
-          </button>
-          {open && (
-            <div id={toolsId} className="mt-2">
-              {!i.tools.length ? (
-                <p className="text-xs text-faint">{t('integrations.noTools')}</p>
-              ) : (
-                <ul className="divide-y divide-line rounded-lg border border-line" data-testid="integration-tools">
-                  {i.tools.map((x) => {
-                    const on = x.enabled !== false
-                    return (
-                      <li key={x.name} className="flex items-start gap-3 px-3 py-2 text-xs" data-testid="integration-tool" data-read-only={x.readOnly ? 'true' : 'false'} data-enabled={on ? 'true' : 'false'}>
-                        <div className="min-w-0 flex-1">
-                          <p className="flex flex-wrap items-center gap-x-2 gap-y-1">
-                            <span className={clsx('font-medium break-all', on ? 'text-ink' : 'text-muted')}>{x.title || x.name}</span>
-                            {x.title && x.title !== x.name && <code className="break-all text-faint">{x.name}</code>}
-                            {x.readOnly && <Badge tone="ok">{t('integrations.readOnly')}</Badge>}
-                            {!on && !i.canManage && <Badge>{t('integrations.toolOff')}</Badge>}
-                          </p>
-                          {x.description && <p className="mt-0.5 line-clamp-3 break-words text-muted">{x.description}</p>}
-                        </div>
-                        {i.canManage && (
-                          <span className="shrink-0 pt-0.5">
-                            {/* never disabled while saving: a disabled control loses keyboard focus (setTool ignores a second click) */}
-                            <Switch checked={on} hideLabel label={t('integrations.toolSwitch', { name: x.title || x.name })}
-                              onChange={(v) => void actions.setTool(i, x.name, v)} testId="integration-tool-switch" />
-                          </span>
-                        )}
-                      </li>
-                    )
-                  })}
-                </ul>
+              <IconButton label={t('integrations.edit', { name: i.name })} onClick={onEdit} data-testid="integration-edit">
+                <Pencil size={15} />
+              </IconButton>
+              <IconButton label={t('integrations.delete', { name: i.name })} danger onClick={() => void actions.remove(i)} data-testid="integration-delete">
+                <Trash2 size={15} />
+              </IconButton>
+            </div>
+          )}
+          {i.kind === 'mcp' && (i.tools.length > 0 || i.status === 'connected') && (
+            <div className="mt-2">
+              <button type="button" aria-expanded={open} aria-controls={toolsId} onClick={() => setOpen((v) => !v)} className="inline-flex items-center gap-1 rounded text-xs font-medium text-accent-text hover:underline" data-testid="integration-tools-toggle">
+                {open ? <ChevronDown size={14} aria-hidden /> : <ChevronRight size={14} aria-hidden />}
+                {short ? t(short === 'integrations.toolsCappedMore' ? 'integrations.toolsOfMore' : 'integrations.toolsOf', { n: i.tools.length, total: i.toolsTotal! }) : t('integrations.tools', { n: i.tools.length })}
+                {off > 0 && <span className="font-normal text-muted" data-testid="integration-tools-off"> · {t('integrations.toolsOff', { n: off })}</span>}
+              </button>
+              {open && (
+                <div id={toolsId} className="mt-2">
+                  {!i.tools.length ? (
+                    <p className="text-xs text-faint">{t('integrations.noTools')}</p>
+                  ) : (
+                    <ul className="divide-y divide-line rounded-lg border border-line" data-testid="integration-tools">
+                      {i.tools.map((x) => {
+                        const on = x.enabled !== false
+                        return (
+                          <li key={x.name} className="flex items-start gap-3 px-3 py-2 text-xs" data-testid="integration-tool" data-read-only={x.readOnly ? 'true' : 'false'} data-enabled={on ? 'true' : 'false'}>
+                            <div className="min-w-0 flex-1">
+                              <p className="flex flex-wrap items-center gap-x-2 gap-y-1">
+                                <span className={clsx('font-medium break-all', on ? 'text-ink' : 'text-muted')}>{x.title || x.name}</span>
+                                {x.title && x.title !== x.name && <code className="break-all text-faint">{x.name}</code>}
+                                {x.readOnly && <Badge tone="ok">{t('integrations.readOnly')}</Badge>}
+                                {!on && !i.canManage && <Badge>{t('integrations.toolOff')}</Badge>}
+                              </p>
+                              {x.description && <p className="mt-0.5 line-clamp-3 break-words text-muted">{x.description}</p>}
+                            </div>
+                            {i.canManage && (
+                              <span className="shrink-0 pt-0.5">
+                                {/* never disabled while saving: a disabled control loses keyboard focus (setTool ignores a second click) */}
+                                <Switch checked={on} hideLabel label={t('integrations.toolSwitch', { name: x.title || x.name })}
+                                  onChange={(v) => void actions.setTool(i, x.name, v)} testId="integration-tool-switch" />
+                              </span>
+                            )}
+                          </li>
+                        )
+                      })}
+                    </ul>
+                  )}
+                  <p className="mt-1.5 text-xs text-faint">
+                    {short && <span className="block" data-testid="integration-tools-capped">{t(short, { n: i.tools.length, total: i.toolsTotal! })}</span>}
+                    {i.tools.length > 0 && `${t(i.canManage ? 'integrations.toolsSwitchHint' : 'integrations.toolsManagedHint')} `}
+                    {t('integrations.toolsHint')}
+                    {i.toolsUpdatedAt && ` ${t('integrations.toolsChecked', { date: formatDateTime(i.toolsUpdatedAt, locale) })}`}
+                  </p>
+                </div>
               )}
-              <p className="mt-1.5 text-xs text-faint">
-                {short && <span className="block" data-testid="integration-tools-capped">{t(short, { n: i.tools.length, total: i.toolsTotal! })}</span>}
-                {i.tools.length > 0 && `${t(i.canManage ? 'integrations.toolsSwitchHint' : 'integrations.toolsManagedHint')} `}
-                {t('integrations.toolsHint')}
-                {i.toolsUpdatedAt && ` ${t('integrations.toolsChecked', { date: formatDateTime(i.toolsUpdatedAt, locale) })}`}
-              </p>
             </div>
           )}
         </div>
@@ -320,7 +358,7 @@ function SignInPanel({ flow, onRetry, onCancel }: { flow: SignInState; onRetry: 
   const t = useT()
   const failed = !WAITING.has(flow.state)
   return (
-    <div className="mt-3 ml-7 space-y-2 rounded-xl border border-line bg-subtle p-3 text-sm" data-testid="integration-signin">
+    <div className="mx-2 mt-1 mb-2 space-y-2 rounded-xl border border-line bg-subtle p-3 text-sm sm:ml-14" data-testid="integration-signin">
       {failed ? (
         <p role="alert" className="text-danger">
           {flow.state === 'expired' ? t('integrations.signIn.expired') : flow.reason || t('integrations.signIn.failed')}

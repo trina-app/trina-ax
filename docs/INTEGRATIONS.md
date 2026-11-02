@@ -242,6 +242,27 @@ connections with their address and the first 1,000 characters of their notes.
 | Reading `tools/list` (a check) | 8 MiB a page, 20 pages and 16 MiB together; stops once the list kept is full |
 | Sign-in flow | 10 minutes, 20 per person per hour |
 
+## Discover
+
+Settings and Admin > External services have two tabs: **Connected**, one line per connection with its details a click
+away, and **Discover**, MCP servers to add by name (`web/src/lib/connectors.ts`). An entry is only a name and an address
+for the add dialog: nothing about it is special on the server, the person still chooses what the AI may change, an admin
+still chooses who may use it, and the sign-in, checks and asking are those of any other connection. "Add connection"
+and the link under the list take any MCP server or API by its address.
+
+The services come from the remote servers listed on [mcpservers.org](https://mcpservers.org/remote-mcp-servers), starting
+with its featured ones and those with a curated logo. A listing is not enough: a service is listed here only if it
+answers the way this server needs, Streamable HTTP and OAuth with dynamic client registration (see above). Checked on
+2026-11-02 with an unauthenticated `initialize` and the public OAuth metadata, not with a real sign-in, so a service can
+still refuse a client it does not know. Left out because they need an app of their own: Slack, GitHub, Asana, HubSpot,
+Box, Zoom, Docusign, PagerDuty, Granola, Clerk. Google Drive has its own integration.
+
+Logos are files in `web/public/icons/connectors`, because the content security policy loads no image from elsewhere,
+and a connection whose address matches a listed service shows its logo too. They come from svgl.app and Simple Icons as
+listed by mcpservers.org. `web/test/unit/connectors.test.ts` checks that an SVG can run nothing and load nothing, because
+these files are served from the team's own address. Each logo is its owner's trademark and is used only to name that
+service.
+
 ## Not in phase 1
 
 Gmail / Calendar / Slack style OAuth apps (each needs its own app registration), office-network APIs, file upload or

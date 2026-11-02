@@ -5793,3 +5793,12 @@ on every call as before.
   nowhere in clear), `web/test/e2e/integration-requests.spec.ts` (both screens, the host warning),
   `tests/security/lib/integrations-cases.ts` (the routes' levels).
 - Needed in the core too (potenlab/team-ax): everything here; nothing is Trina-specific.
+## External services: Connected and Discover (feat/connectors-discover, 2026-11-02)
+
+The screen was a long card per connection, and the only way in was typing an MCP address. It now follows the Team skills page: a title row with tabs and a search, one line per connection (name, kind or why it failed, its state) with the details a click away, and a Discover tab of services to add by name next to "Add connection" for anything else.
+
+- **Discover is a list in the web app, not a server feature.** An entry fills the add dialog with a name and an address, so sign-in, keys, access rules and the write policy stay exactly as they are, and a team connection still starts with only the admin who added it.
+- **The list starts from mcpservers.org, and only services that can work are kept**: each address was checked for what this server needs (`docs/INTEGRATIONS.md` "Discover"). Slack, GitHub, Asana, HubSpot, Box, Zoom and others need an app of their own, so they are left out rather than failing at sign-in.
+- **Real logos** (asked for on 2026-11-02, instead of the first version's letter tiles): files of our own under `web/public/icons/connectors`, because the content security policy loads no image from elsewhere, on a white tile in both themes because most are drawn for a light background. Each is its owner's trademark, used only to name the service. A test keeps the SVGs free of anything that can run or load.
+- **What needs attention stays on the line**: a failing connection shows why without opening it, signing in stays there while the connection needs it, and so does "Run without asking", because it is a warning about what the AI may do.
+- **This repository also keeps** the switch per tool, "100 of 185 tools" and "a check failed, the AI keeps the saved list" in the details. That last one stays on the line as well, in the warning colour, because it needs attention.

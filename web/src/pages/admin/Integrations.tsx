@@ -2,19 +2,22 @@
 // the whole team, groups, people. Admins manage them all but use one in their own chats only when the rule includes
 // them, so each row says so. Members' personal connections are not listed (nobody but the owner can use those); below,
 // the requests that ask a member to connect a service as their own (components/integrations/RequestDialog.tsx).
-import { Cable, Plus } from 'lucide-react'
+// "Discover" adds a known service by name; "Add connection" takes any MCP server or API by its address.
+import { Cable } from 'lucide-react'
 import { useCallback, useEffect, useState } from 'react'
 import type { Group, Integration, User } from '@mycel/shared/api'
 import { api, API } from '../../lib/api'
+import type { Connector } from '../../lib/connectors'
 import { covers, isEmptyAccess, NOBODY } from '../../lib/integrations'
 import { useT } from '../../i18n'
 import { useMeStrict } from '../../store/session'
 import { reloadAsked } from '../../store/live'
-import { Badge, Button, EmptyState } from '../../components/ui'
+import { Badge, EmptyState } from '../../components/ui'
+import { afterAdded, ConnectorDiscover, ConnectorsHeader, matchesQuery, type ConnectorTab } from '../../components/integrations/ConnectorsView'
 import { IntegrationDialog } from '../../components/integrations/IntegrationDialog'
-import { IntegrationRow, useIntegrationActions } from '../../components/integrations/IntegrationRow'
 import { TeamRequests } from '../../components/integrations/RequestDialog'
-import { Card, Loadable, useLoad } from './common'
+import { IntegrationRow, useIntegrationActions } from '../../components/integrations/IntegrationRow'
+import { Loadable, useLoad } from './common'
 
 export default function AdminIntegrations() {
   const t = useT()
@@ -22,7 +25,9 @@ export default function AdminIntegrations() {
   const state = useLoad(async () => (await api.call(API.listTeamIntegrations)).items)
   const groups = useLoad(async () => (await api.call(API.listGroups)).items)
   const users = useLoad(async () => (await api.call(API.listUsers)).items)
-  const [dialog, setDialog] = useState<{ existing?: Integration } | null>(null)
+  const [dialog, setDialog] = useState<{ existing?: Integration; connector?: Connector } | null>(null)
+  const [tab, setTab] = useState<ConnectorTab>('connected')
+  const [query, setQuery] = useState('')
   const reloadList = state.reload
   const reload = useCallback(() => void reloadList(), [reloadList])
   useEffect(() => reloadAsked.on(() => void reloadList()), [reloadList])
@@ -34,46 +39,45 @@ export default function AdminIntegrations() {
   const person = { id: me.user.id, groupIds: me.groups.map((g) => g.id) }
   return (
     <>
-      <Card
-        title={t('admin.integrations')}
-        desc={t('integrations.admin.desc')}
-        actions={
-          <Button size="sm" variant="primary" onClick={() => setDialog({})} data-testid="integration-add">
-            <Plus size={14} aria-hidden /> {t('integrations.add')}
-          </Button>
-        }
-      >
-        <Loadable state={state}>
-          {(list) =>
-            !list.length ? (
+      <ConnectorsHeader title={t('admin.integrations')} tab={tab} onTab={setTab} query={query} onQuery={setQuery} onAdd={() => setDialog({})} />
+      <Loadable state={state}>
+        {(list) => {
+          if (tab === 'discover') return <ConnectorDiscover connected={list} query={query} onAdd={(c) => setDialog({ connector: c })} onCustom={() => setDialog({})} />
+          if (!list.length) {
+            return (
               <EmptyState icon={<Cable size={26} />} title={t('integrations.admin.empty')}>
                 <p>{t('integrations.admin.emptyHint')}</p>
               </EmptyState>
-            ) : (
-              <ul className="-m-4 divide-y divide-line" data-testid="team-integrations">
-                {[...list].sort((a, b) => a.name.localeCompare(b.name)).map((i) => (
-                  <IntegrationRow
-                    key={i.id}
-                    i={i}
-                    actions={actions}
-                    onEdit={() => setDialog({ existing: i })}
-                    extra={<AccessLine i={i} groups={groups.data ?? []} users={users.data ?? []} mine={covers(i.access, person)} />}
-                  />
-                ))}
-              </ul>
             )
           }
-        </Loadable>
-      </Card>
-      <TeamRequests />
+          const shown = [...list].filter((i) => matchesQuery(i, query)).sort((a, b) => a.name.localeCompare(b.name))
+          if (!shown.length) return <EmptyState title={t('integrations.noMatch', { q: query.trim() })} />
+          return (
+            <ul className="-mx-2 divide-y divide-line" data-testid="team-integrations">
+              {shown.map((i) => (
+                <IntegrationRow
+                  key={i.id}
+                  i={i}
+                  actions={actions}
+                  onEdit={() => setDialog({ existing: i })}
+                  extra={<AccessLine i={i} groups={groups.data ?? []} users={users.data ?? []} mine={covers(i.access, person)} />}
+                />
+              ))}
+            </ul>
+          )
+        }}
+      </Loadable>
+      {tab === 'connected' && <div className="mt-8"><TeamRequests /></div>}
       {dialog && (
         <IntegrationDialog
           scope="team"
           existing={dialog.existing}
+          connector={dialog.connector}
           onClose={() => setDialog(null)}
           onSaved={(i, next) => {
             setDialog(null)
             actions.saved(i, next, !dialog.existing)
+            if (tab === 'discover') afterAdded(setTab, setQuery)
           }}
         />
       )}

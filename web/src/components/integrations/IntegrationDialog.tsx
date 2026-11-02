@@ -1,12 +1,14 @@
 // Add or edit an external-service connection: kind (MCP server / API), name, address, how it signs in (OAuth / key /
 // none) and which header carries a key, the key (write-only: editing shows only that one is saved, with replace /
 // remove), usage notes for an API, what the AI may change there (ask / allow / refuse), and for a team connection who
-// may use it. Checked here like the contract; the server's field errors are shown at their fields.
+// may use it. Checked here like the contract; the server's field errors are shown at their fields. Adding a service
+// from Discover (`connector`) leaves out what the list already answers: kind, name, address and how it signs in.
 import clsx from 'clsx'
 import { TriangleAlert, UserPlus } from 'lucide-react'
 import { useId, useRef, useState, type ReactNode } from 'react'
 import type { Group, Integration, IntegrationAccess, IntegrationKind, User, WritePolicy } from '@mycel/shared/api'
 import { api, API, errorText } from '../../lib/api'
+import type { Connector } from '../../lib/connectors'
 import {
   covers, dropsSecret, emptyForm, formFrom, isEmptyAccess, methodsFor, NOTES_MAX, serverFieldErrors, toInput, toPatch, validate, withKind,
   type FormField, type IntegrationForm, type SignInMethod,
@@ -20,9 +22,11 @@ import { reserveSignInWindow } from './IntegrationRow'
 
 const POLICIES: WritePolicy[] = ['ask', 'allow', 'deny']
 
-export function IntegrationDialog({ scope, existing, onClose, onSaved }: {
+export function IntegrationDialog({ scope, existing, connector, onClose, onSaved }: {
   scope: 'personal' | 'team'
   existing?: Integration
+  /** adding this service from Discover */
+  connector?: Connector
   onClose: () => void
   /** saved. `signIn`: sign in at the service next, in the window reserved during the click (null: none could open) */
   onSaved: (i: Integration, signIn: { window: Window | null } | null) => void
@@ -31,7 +35,11 @@ export function IntegrationDialog({ scope, existing, onClose, onSaved }: {
   const locale = useLocale()
   const me = useMeStrict()
   const team = scope === 'team'
-  const [f, setF] = useState<IntegrationForm>(() => (existing ? formFrom(existing) : emptyForm('mcp', team ? { everyone: false, groups: [], users: [me.user.id] } : null)))
+  const [f, setF] = useState<IntegrationForm>(() => {
+    if (existing) return formFrom(existing)
+    const blank = emptyForm('mcp', team ? { everyone: false, groups: [], users: [me.user.id] } : null)
+    return connector ? { ...blank, name: connector.name, url: connector.url } : blank
+  })
   const [touched, setTouched] = useState<Partial<Record<FormField, boolean>>>({})
   const [submitted, setSubmitted] = useState(false)
   const [server, setServer] = useState<Partial<Record<FormField, string | null>>>({})
@@ -58,6 +66,7 @@ export function IntegrationDialog({ scope, existing, onClose, onSaved }: {
   const blur = (k: FormField) => () => setTouched((x) => ({ ...x, [k]: true }))
 
   const save = async () => {
+    if (busy) return
     setSubmitted(true)
     if (Object.keys(errors).length) {
       requestAnimationFrame(() => body.current?.querySelector<HTMLElement>('[aria-invalid="true"]')?.focus())
@@ -79,7 +88,8 @@ export function IntegrationDialog({ scope, existing, onClose, onSaved }: {
       win?.close()
       const fields = serverFieldErrors(e)
       setServer(fields)
-      if (!Object.keys(fields).length) setError(errorText(e, locale, t('error.network')))
+      // from Discover the name and address are not on screen, so an error about them has to say so here
+      if (!Object.keys(fields).length || connector) setError(errorText(e, locale, t('error.network')))
       else requestAnimationFrame(() => body.current?.querySelector<HTMLElement>('[aria-invalid="true"]')?.focus())
     } finally {
       setBusy(false)
@@ -91,7 +101,7 @@ export function IntegrationDialog({ scope, existing, onClose, onSaved }: {
       open
       onClose={onClose}
       width={600}
-      title={existing ? t('integrations.editTitle') : team ? t('integrations.addTeamTitle') : t('integrations.addTitle')}
+      title={existing ? t('integrations.editTitle') : connector ? t('integrations.discover.add', { name: connector.name }) : team ? t('integrations.addTeamTitle') : t('integrations.addTitle')}
       footer={
         <>
           <Button variant="ghost" onClick={onClose}>
@@ -112,7 +122,11 @@ export function IntegrationDialog({ scope, existing, onClose, onSaved }: {
         }}
       >
         <div ref={body} className="space-y-5">
-          {existing ? (
+          {connector ? (
+            <p className="text-sm text-muted" data-testid="connector-summary">
+              {t('integrations.field.url')}: <span className="font-medium break-all text-ink">{connector.url}</span>
+            </p>
+          ) : existing ? (
             <p className="text-sm text-muted">
               {t('integrations.field.kind')}: <span className="font-medium text-ink">{t(existing.kind === 'mcp' ? 'integrations.kind.mcp' : 'integrations.kind.http')}</span>
             </p>
@@ -124,19 +138,23 @@ export function IntegrationDialog({ scope, existing, onClose, onSaved }: {
               options={(['mcp', 'http'] as const).map((k) => ({ value: k, label: t(`integrations.kind.${k}`), desc: t(`integrations.kind.${k}.desc`), testId: `integration-kind-${k}` }))}
             />
           )}
-          <Field label={t('integrations.field.name')} hint={t('integrations.field.nameHint')} error={errorOf('name')}>
-            <input className={inputCls} value={f.name} maxLength={80} placeholder={t('integrations.field.namePlaceholder')} onChange={(e) => change({ name: e.target.value }, 'name')} onBlur={blur('name')} data-autofocus={existing ? true : undefined} data-testid="integration-name" />
-          </Field>
-          <Field label={t('integrations.field.url')} hint={t(f.kind === 'mcp' ? 'integrations.field.urlHint.mcp' : 'integrations.field.urlHint.http')} error={errorOf('url')}>
-            <input className={inputCls} type="url" inputMode="url" autoComplete="off" spellCheck={false} value={f.url} placeholder={f.kind === 'mcp' ? 'https://mcp.example.com/mcp' : 'https://api.example.com/v1'} onChange={(e) => change({ url: e.target.value }, 'url')} onBlur={blur('url')} data-testid="integration-url" />
-          </Field>
-          <Choices<SignInMethod>
-            legend={t('integrations.field.auth')}
-            value={f.method}
-            onChange={(m) => change({ method: m }, 'method', 'secret', 'headerName')}
-            error={errorOf('method')}
-            options={methodsFor(f.kind).map((m) => ({ value: m, label: t(`integrations.auth.${m}`), desc: t(`integrations.auth.${m}.desc`), testId: `integration-auth-${m}` }))}
-          />
+          {!connector && (
+            <>
+              <Field label={t('integrations.field.name')} hint={t('integrations.field.nameHint')} error={errorOf('name')}>
+                <input className={inputCls} value={f.name} maxLength={80} placeholder={t('integrations.field.namePlaceholder')} onChange={(e) => change({ name: e.target.value }, 'name')} onBlur={blur('name')} data-autofocus={existing ? true : undefined} data-testid="integration-name" />
+              </Field>
+              <Field label={t('integrations.field.url')} hint={t(f.kind === 'mcp' ? 'integrations.field.urlHint.mcp' : 'integrations.field.urlHint.http')} error={errorOf('url')}>
+                <input className={inputCls} type="url" inputMode="url" autoComplete="off" spellCheck={false} value={f.url} placeholder={f.kind === 'mcp' ? 'https://mcp.example.com/mcp' : 'https://api.example.com/v1'} onChange={(e) => change({ url: e.target.value }, 'url')} onBlur={blur('url')} data-testid="integration-url" />
+              </Field>
+              <Choices<SignInMethod>
+                legend={t('integrations.field.auth')}
+                value={f.method}
+                onChange={(m) => change({ method: m }, 'method', 'secret', 'headerName')}
+                error={errorOf('method')}
+                options={methodsFor(f.kind).map((m) => ({ value: m, label: t(`integrations.auth.${m}`), desc: t(`integrations.auth.${m}.desc`), testId: `integration-auth-${m}` }))}
+              />
+            </>
+          )}
           {f.method === 'key' && (
             <KeySection f={f} existing={existing} change={change} errorOf={errorOf} blur={blur} />
           )}

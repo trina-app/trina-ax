@@ -205,6 +205,16 @@ export function lastCheckNote(i: Pick<Integration, 'status' | 'lastError' | 'too
   return i.toolsUpdatedAt ? { key: 'integrations.checkFailedKept', reason: i.lastError, date: i.toolsUpdatedAt } : { key: 'integrations.lastCheckFailed', reason: i.lastError, date: null }
 }
 
+/** An address without what does not change the service (letter case, a trailing slash), to compare two of them. */
+export function canonicalService(url: string): string {
+  try {
+    const u = new URL(url)
+    return `${u.host}${u.pathname.replace(/\/+$/, '')}`.toLowerCase()
+  } catch {
+    return url.trim().toLowerCase()
+  }
+}
+
 /** sign-in (OAuth) is offered: an MCP server with sign-in that the person manages */
 export const canSignIn = (i: Integration) => i.kind === 'mcp' && i.auth === 'oauth' && i.canManage
 

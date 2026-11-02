@@ -7,6 +7,7 @@
 | Team AX/Trina 코드 | [LICENSE](../LICENSE), [NOTICE](../NOTICE) | 별도 라이선스·권리 미확정 부분을 새로 허락하지 않음 |
 | 공유 cloud 프로토콜 | [폴더 한정 MIT](../shared/src/cloud-protocol/LICENSE) | ee/cloud 및 shared의 다른 폴더까지 확대하지 않음 |
 | 역사적 Trina 웹사이트 | [Apache-2.0](../editions/trina/branding/LICENSE.website-upstream.txt), [원 저작권 출처](../editions/trina/branding/NOTICE.website-upstream.md) | 새 서버판 전체가 Apache라는 뜻이 아님 |
+| 외부 서비스 로고 | `web/public/icons/connectors`: svgl.app, Simple Icons와 각 서비스 사이트에서 받음. 목록은 mcpservers.org 기준 | 각 로고는 그 소유자의 상표이고 서비스를 가리키는 데만 쓴다. 이 저장소의 라이선스가 로고에 권리를 주지 않는다 |
 | 사이트 글꼴 | 사이트(ax.trina.app)와 함께 비공개 `trina-ax-core`로 옮김. OFL 원문·Trina UI 변경 기록도 그쪽에 있다 | 사이트 배포물에 함께 넣는다 |
 | 사이트 정적 출력 | 비공개 `trina-ax-core`의 `editions/trina/website/public/licenses/` | 실제 dist의 바이트 확인 필요; 대응 소스 제공과 별개 |
 
