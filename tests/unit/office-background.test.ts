@@ -129,7 +129,9 @@ describe('the text cache asks for background priority only for background jobs',
 })
 
 describe('the office workers: background work takes at most one, people go first (extract.ts officeWorkerSlot)', () => {
-  const settle = () => Bun.sleep(5)
+  // the lines move in microtasks: a few turns of the event loop are enough, and no timer waits behind a busy loop (a
+  // `ps` of the priority test above that timed out goes on, blocking it)
+  const settle = async () => { for (let i = 0; i < 4; i++) await new Promise<void>((r) => setImmediate(r)) }
   /** every holder lets go after its test, also a test that failed: the workers are shared by the whole file */
   const held: (() => void)[] = []
   afterEach(() => { for (const finish of held.splice(0)) finish() })
@@ -416,7 +418,7 @@ describe('the office workers: background work takes at most one, people go first
       h1.finish(); h2.finish(); b.finish()
       await Promise.all([p1.done, p2.done, h1.done, h2.done, b.done])
     }
-  })
+  }, 30_000)
 
   test.each([['first', 0], ['second', 1]] as const)('a person joins the %s of two background jobs on their turn: the other keeps the turn', async (_, joined) => {
     const started: string[] = []
