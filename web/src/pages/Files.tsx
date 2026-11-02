@@ -8,7 +8,7 @@
 // uploaded into it. The "move" action stays the keyboard way to do the same.
 // A whole folder goes up from the picker or a drop, with its subfolders (lib/folderUpload.ts, components/FolderUploads.tsx).
 import clsx from 'clsx'
-import { ArchiveRestore, BookmarkPlus, ChevronRight, Copy, Download, Eye, File as FileIcon, FileImage, FileSpreadsheet, FileText, Folder, FolderInput, FolderPlus, FolderUp, History, Home, Loader2, Lock, MessageSquarePlus, MoreHorizontal, Paperclip, Pencil, Presentation, Search, Sparkles, RefreshCw, Trash2, Upload, X, FileCode, FileArchive, FileAudio, FileVideo } from 'lucide-react'
+import { ArchiveRestore, BookmarkPlus, ChevronRight, Copy, Download, Eye, File as FileIcon, FileImage, FileSpreadsheet, FileText, Folder, FolderInput, FolderPlus, FolderUp, History, Home, Lock, MessageSquarePlus, MoreHorizontal, Paperclip, Pencil, Presentation, Search, Sparkles, RefreshCw, Trash2, Upload, X, FileCode, FileArchive, FileAudio, FileVideo } from 'lucide-react'
 import { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import type { FileEntry, FileHistoryEvent, FileVersion, HistoryResponse, TrashItem, TreeResponse } from '@mycel/shared/api'
@@ -20,12 +20,14 @@ import { baseName, crumbs, isConflictCopy, isInside, joinPath, nameProblem, pare
 import { iconKind, previewKind, type FileIconKind } from '../lib/preview'
 import { openTeamFile } from '../lib/sidePanel'
 import { useTeamAttach } from '../lib/useTeamAttach'
-import { cancelUpload, uploadFile, uploadLabel, uploadPercent, type UploadProgress } from '../lib/upload'
+import { cancelUpload, uploadFile } from '../lib/upload'
+import { addFileUpload, dropFileUpload, patchFileUpload } from '../lib/fileUploads'
 import { markBusy } from '../lib/busy'
 import { useLocale, useT } from '../i18n'
 import { accessChanged, filesChanged, reloadAsked } from '../store/live'
 import { toast } from '../store/ui'
 import { contentQueryReady, FileContentResults } from '../components/FileContentSearch'
+import FileUploads from '../components/FileUploads'
 import FolderPicker from '../components/FolderPicker'
 import FolderUploads, { startFolderUpload, useFolderUploadsSettled } from '../components/FolderUploads'
 import SuggestSkillDialog from '../components/SuggestSkillDialog'
@@ -35,18 +37,6 @@ import { useMeStrict } from '../store/session'
 import { Badge, Button, EmptyState, ErrorNote, IconButton, Modal, Skeleton, Tabs, confirmDialog, promptDialog } from '../components/ui'
 
 const ICONS: Record<FileIconKind, typeof FileIcon> = { folder: Folder, image: FileImage, pdf: FileText, doc: FileText, sheet: FileSpreadsheet, slides: Presentation, audio: FileAudio, video: FileVideo, code: FileCode, archive: FileArchive, text: FileText, other: FileIcon }
-
-interface UploadItem {
-  id: number
-  name: string
-  folder: string
-  progress: UploadProgress | null
-  status: 'uploading' | 'done' | 'failed'
-  error?: string
-  abort: AbortController
-}
-
-let uploadSeq = 0
 
 /** phones have no folder picker (the attribute can be there and do nothing); the button also hides on a small screen */
 const canPickFolder = typeof HTMLInputElement !== 'undefined' && 'webkitdirectory' in HTMLInputElement.prototype
@@ -96,7 +86,6 @@ export default function Files() {
   const [tree, setTree] = useState<TreeResponse | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [loadingMore, setLoadingMore] = useState(false)
-  const [uploads, setUploads] = useState<UploadItem[]>([])
   const [drag, setDrag] = useState(false)
   const [history, setHistory] = useState<string | null>(params.get('history'))
   const [suggesting, setSuggesting] = useState<string | null>(null)
@@ -354,16 +343,14 @@ export default function Files() {
     if (into === undefined && tree && !canWrite) return toast({ level: 'warn', text: t('files.readOnlyFolder') })
     const folder = into ?? path
     for (const file of list) {
-      const item: UploadItem = { id: ++uploadSeq, name: file.name, folder, progress: null, status: 'uploading', abort: new AbortController() }
-      setUploads((u) => [...u, item])
-      const patch = (p: Partial<UploadItem>) => setUploads((u) => u.map((x) => (x.id === item.id ? { ...x, ...p } : x)))
+      const item = addFileUpload(file.name, folder)
       const target = { kind: 'path', path: joinPath(folder, file.name), onExists: 'rename' } as const
       // a reload would lose the upload (the picked file is gone after it): the page does not reload by itself meanwhile
       const release = markBusy('upload')
-      uploadFile(file, target, { client: api, signal: item.abort.signal, onProgress: (progress) => patch({ progress }) }).finally(release).then(
+      uploadFile(file, target, { client: api, signal: item.abort.signal, onProgress: (progress) => patchFileUpload(item.id, { progress }) }).finally(release).then(
         () => {
-          patch({ status: 'done' })
-          setTimeout(() => setUploads((u) => u.filter((x) => x.id !== item.id)), 4000)
+          patchFileUpload(item.id, { status: 'done' })
+          setTimeout(() => dropFileUpload(item.id), 4000)
           if (folder === path) void load()
         },
         (e) => {
@@ -371,9 +358,9 @@ export default function Files() {
             // cancelled: drop the server's half-received session too (it holds disk space and counts against the
             // person's open uploads for a day otherwise)
             void cancelUpload(file, target, api)
-            return setUploads((u) => u.filter((x) => x.id !== item.id))
+            return dropFileUpload(item.id)
           }
-          patch({ status: 'failed', error: errorText(e, locale, t('error.network')) })
+          patchFileUpload(item.id, { status: 'failed', error: errorText(e, locale, t('error.network')) })
         },
       )
     }
@@ -724,7 +711,7 @@ export default function Files() {
             </nav>
           )}
           {isSkillsPath(path) && <SkillIssues folder={path} className="mx-4 mb-2 sm:mx-6" />}
-          {uploads.length > 0 && <UploadList items={uploads} here={path} onDismiss={(id) => setUploads((u) => u.filter((x) => x.id !== id))} />}
+          <FileUploads here={path} />
           <FolderUploads here={path} />
           {/* computer files over the list go to this folder; over a folder row, into that folder (the row shows it) */}
           <div className={clsx('scroll-thin relative min-h-0 flex-1 overflow-y-auto px-2 pb-6 sm:px-4', drag && !over && 'bg-accent-soft/40 ring-2 ring-accent ring-inset')}>
@@ -1034,44 +1021,6 @@ function FileRow({ e, selected, checked, onCheck, draggable, onDragStart, onDrag
         )}
       </td>
     </tr>
-  )
-}
-
-function UploadList({ items, here, onDismiss }: { items: UploadItem[]; here: string; onDismiss: (id: number) => void }) {
-  const t = useT()
-  const locale = useLocale()
-  return (
-    <ul className="mx-4 mb-2 space-y-1 rounded-xl border border-line bg-surface p-2 sm:mx-6" aria-label={t('files.uploads')} data-testid="upload-list">
-      {items.map((u) => {
-        // the bar follows the label: empty while hashing, full while the server finishes
-        const pct = u.progress?.phase === 'finishing' ? 100 : (uploadPercent(u.progress) ?? 0)
-        return (
-          <li key={u.id} className="flex items-center gap-2 text-xs">
-            {u.status === 'uploading' ? <Loader2 size={13} className="shrink-0 animate-spin text-accent-text" aria-hidden /> : u.status === 'done' ? <span className="text-ok">✓</span> : <span className="text-danger">!</span>}
-            <span className="min-w-0 flex-1 truncate">
-              {/* dropped on a folder row: where it goes */}
-              {u.folder !== here && <span className="text-faint">{baseName(u.folder) || t('files.root')}/</span>}
-              {u.name}
-            </span>
-            {u.status === 'uploading' && (
-              <span className="shrink-0 text-faint">
-                {uploadLabel(u.progress, t)}
-                {u.progress && ` · ${formatSize(u.progress.total, locale)}`}
-              </span>
-            )}
-            {u.status === 'failed' && <span className="max-w-[50%] truncate text-danger">{u.error}</span>}
-            {u.status === 'uploading' && (
-              <div className="h-1 w-20 shrink-0 overflow-hidden rounded bg-subtle" aria-hidden>
-                <div className="h-full bg-accent transition-[width]" style={{ width: `${pct}%` }} />
-              </div>
-            )}
-            <IconButton label={u.status === 'uploading' ? t('common.cancel') : t('common.close')} onClick={() => (u.status === 'uploading' ? u.abort.abort() : onDismiss(u.id))}>
-              <X size={13} />
-            </IconButton>
-          </li>
-        )
-      })}
-    </ul>
   )
 }
 

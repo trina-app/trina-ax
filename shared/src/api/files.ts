@@ -55,12 +55,17 @@ export const DownloadQuery = z.object({
   embedIn: RelPath.optional(),
 })
 
+/** The file's size as the sender read it: a file part of another size is refused before it is stored (a form field, so
+ * text on the wire). Senders that name none are served as before. */
+const SentSize = z.coerce.number().int().nonnegative().optional()
+
 export const UploadFields = z.object({
   /** target folder */
   folder: RelPath,
   /** file name (defaults to the part's filename) */
   name: z.string().min(1).max(255).optional(),
   onExists: z.enum(['fail', 'replace', 'rename']).default('rename'),
+  size: SentSize,
 })
 export const MkdirBody = z.object({ path: RelPath })
 /**
@@ -161,7 +166,7 @@ export function locFromQuery(q: URLSearchParams): SourceLoc | null {
 }
 
 // ---------------- attachments + upload sessions ----------------
-export const AttachmentUploadFields = z.object({ chatId: Uuid7, name: z.string().min(1).max(255).optional() })
+export const AttachmentUploadFields = z.object({ chatId: Uuid7, name: z.string().min(1).max(255).optional(), size: SentSize })
 export const CreateUploadSessionBody = z.object({
   target: UploadTarget,
   size: z.number().int().nonnegative().max(UPLOAD_SESSION_MAX),

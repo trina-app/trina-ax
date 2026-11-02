@@ -1,5 +1,7 @@
 import { describe, expect, test } from 'bun:test'
 import { ApiClient, ApiError, FileEntry, UPLOAD_CHUNK_SIZE, uuidv7, type UploadSession } from '@mycel/shared/api'
+import { currentLocale, translate } from '../../src/i18n'
+import { errorText } from '../../src/lib/api'
 import { cancelUpload, fingerprint, REMEMBER_MAX, sha256Hex, uploadFile, uploadLabel, uploadPercent, type UploadProgress } from '../../src/lib/upload'
 
 const entry = (path: string): FileEntry => ({ name: path.split('/').pop()!, path, type: 'file', size: 1, mtime: new Date().toISOString(), mime: null, access: 'write' })
@@ -12,11 +14,21 @@ class MemStorage {
   removeItem(k: string) { this.m.delete(k) }
 }
 
+/** One try of a chunk: the shares that went out, then how it ended. */
+type ChunkTry = { sent: number[]; end: 'ok' | 'net' | number }
+
 /** A tiny upload-session server: records calls, can fail chunk PUTs on purpose. With `sent`, each watched request
- * reports those shares of its body before it is answered, as lib/xhr.ts does. */
-function fakeServer(o: { failChunk?: Set<number>; dropAfterStore?: Set<number>; refuseCreate?: { code: string; status: number }[]; sent?: number[] } = {}) {
+ * reports those shares of its body before it is answered, as lib/xhr.ts does; `tries` scripts a chunk try by try. */
+function fakeServer(o: { failChunk?: Set<number>; dropAfterStore?: Set<number>; refuseCreate?: { code: string; status: number }[]; sent?: number[]; tries?: Record<number, ChunkTry[]>; storedSize?: number } = {}) {
   const calls: string[] = []
   const watched: string[] = []
+  const parts: { name: string; type: string; size: number; declared: FormDataEntryValue | null }[] = []
+  const chunkTries = new Map<number, number>()
+  const stored = (fd: FormData) => {
+    const file = fd.get('file') as File
+    parts.push({ name: file.name, type: file.type, size: file.size, declared: fd.get('size') })
+    return o.storedSize ?? file.size
+  }
   const transcribeFields: Record<string, string>[] = []
   const sessions = new Map<string, UploadSession & { chunks: Map<number, number> }>()
   const fetchFn = (async (input: RequestInfo | URL, init?: RequestInit) => {
@@ -26,10 +38,15 @@ function fakeServer(o: { failChunk?: Set<number>; dropAfterStore?: Set<number>; 
     expect(new Headers(init?.headers).get('x-mycel-csrf') ?? (method === 'GET' ? '1' : null)).toBe('1')
     if (method === 'POST' && url.pathname === '/api/files/upload') {
       const fd = init!.body as FormData
-      return json(entry(`${fd.get('folder')}/${fd.get('name')}`), 201)
+      return json({ ...entry(`${fd.get('folder')}/${fd.get('name')}`), size: stored(fd) }, 201)
+    }
+    if (method === 'POST' && url.pathname === '/api/uploads') {
+      const fd = init!.body as FormData
+      return json({ id: uuidv7(), name: fd.get('name'), path: 'users/u/.attachments/c/a.pdf', size: stored(fd), mime: 'application/pdf', kind: 'pdf' }, 201)
     }
     if (method === 'POST' && url.pathname === '/api/transcribe') {
       const fd = init!.body as FormData
+      stored(fd)
       transcribeFields.push(Object.fromEntries([...fd.entries()].filter(([, v]) => typeof v === 'string')) as Record<string, string>)
       return json({ jobId: uuidv7() }, 202)
     }
@@ -71,10 +88,21 @@ function fakeServer(o: { failChunk?: Set<number>; dropAfterStore?: Set<number>; 
   }) as typeof fetch
   const fetchWithProgress = async (input: string, init: RequestInit, onSent: (share: number) => void) => {
     watched.push(`${init.method} ${input}`)
+    const n = Number(/chunks\/(\d+)$/.exec(input)?.[1] ?? -1)
+    const script = o.tries?.[n]
+    if (script) {
+      const at = chunkTries.get(n) ?? 0
+      chunkTries.set(n, at + 1)
+      const step = script[Math.min(at, script.length - 1)]!
+      for (const share of step.sent) onSent(share)
+      if (step.end === 'net') throw new TypeError('Network request failed')
+      if (step.end !== 'ok') return json({ error: { code: 'internal', message: 'boom' } }, step.end)
+      return fetchFn(input, init)
+    }
     for (const share of o.sent ?? []) onSent(share)
     return fetchFn(input, init)
   }
-  return { calls, watched, sessions, transcribeFields, client: new ApiClient({ baseUrl: '', fetch: fetchFn, ...(o.sent ? { fetchWithProgress } : {}) }) }
+  return { calls, watched, parts, sessions, transcribeFields, client: new ApiClient({ baseUrl: '', fetch: fetchFn, ...(o.sent || o.tries ? { fetchWithProgress } : {}) }) }
 }
 
 const bigFile = (chunks: number, extra = 10) => new File([new Uint8Array(UPLOAD_CHUNK_SIZE * chunks + extra).fill(7)], 'big.bin', { lastModified: 1 })
@@ -96,7 +124,7 @@ describe('uploads', () => {
   test('a small file counts the bytes that went out, on the file\'s own size, and then says it is finishing', async () => {
     const s = fakeServer({ sent: [0.25, 0.5, 1] })
     const seen: UploadProgress[] = []
-    const r = await uploadFile(new File([new Uint8Array(1000)], 'a.pdf'), { kind: 'path', path: 'docs/a.pdf', onExists: 'rename' }, { client: s.client, storage: null, onProgress: (p) => seen.push(p) })
+    const r = await uploadFile(new File([new Uint8Array(1000)], 'a.pdf'), { kind: 'path', path: 'docs/a.pdf', onExists: 'rename' }, { client: s.client, storage: null, reportEveryMs: 0, onProgress: (p) => seen.push(p) })
     expect(r.kind).toBe('path')
     expect(s.watched).toEqual(['POST /api/files/upload'])
     expect(seen.slice(0, 4)).toEqual([
@@ -138,15 +166,124 @@ describe('uploads', () => {
   test('a large file counts the chunk that is on its way, on top of the chunks the server has', async () => {
     const s = fakeServer({ sent: [0.5, 1] })
     const seen: UploadProgress[] = []
-    await uploadFile(bigFile(1, 10), { kind: 'path', path: 'x/big.bin', onExists: 'rename' }, { client: s.client, storage: null, retryDelayMs: 0, onProgress: (p) => seen.push(p) })
+    const half = UPLOAD_CHUNK_SIZE / 2
+    await uploadFile(bigFile(1, half), { kind: 'path', path: 'x/big.bin', onExists: 'rename' }, { client: s.client, storage: null, retryDelayMs: 0, reportEveryMs: 0, onProgress: (p) => seen.push(p) })
     const sending = seen.filter((p) => p.phase === 'uploading').map((p) => p.loaded)
-    expect(sending).toContain(UPLOAD_CHUNK_SIZE / 2)
-    expect(sending).toContain(UPLOAD_CHUNK_SIZE + 5)
+    expect(sending).toContain(half)
+    expect(sending).toContain(UPLOAD_CHUNK_SIZE + half / 2)
     expect(sending).toEqual([...sending].sort((a, b) => a - b))
-    expect(Math.max(...sending)).toBe(UPLOAD_CHUNK_SIZE + 10)
+    expect(Math.max(...sending)).toBe(UPLOAD_CHUNK_SIZE + half)
     expect(s.watched.filter((c) => c.startsWith('PUT'))).toHaveLength(2)
     // the session calls around the chunks send no file bytes
     expect(s.watched.filter((c) => !c.startsWith('PUT'))).toEqual([])
+  })
+
+  describe('a chunk that is sent again', () => {
+    const run = async (tries: Record<number, ChunkTry[]>) => {
+      const s = fakeServer({ tries })
+      const seen: UploadProgress[] = []
+      await uploadFile(bigFile(2, 1000), { kind: 'path', path: 'x/big.bin', onExists: 'rename' }, { client: s.client, storage: null, retryDelayMs: 0, reportEveryMs: 0, onProgress: (p) => seen.push(p) })
+      const sending = seen.filter((p) => p.phase === 'uploading')
+      return { puts: s.watched.filter((c) => c.startsWith('PUT')).length, loaded: sending.map((p) => p.loaded), labels: seen.map((p) => uploadLabel(p, (k) => k)) }
+    }
+    const forward = (l: number[]) => expect(l).toEqual([...l].sort((a, b) => a - b))
+
+    test('a lost connection late in a chunk does not take the number back', async () => {
+      const r = await run({ 1: [{ sent: [0.3, 0.6, 0.9], end: 'net' }, { sent: [0.1, 0.5, 1], end: 'ok' }] })
+      expect(r.puts).toBe(4)
+      forward(r.loaded)
+      expect(Math.max(...r.loaded)).toBe(UPLOAD_CHUNK_SIZE * 2 + 1000)
+    })
+
+    test('a 503 does not either', async () => {
+      const r = await run({ 1: [{ sent: [0.5, 1], end: 503 }, { sent: [0.2, 1], end: 'ok' }] })
+      expect(r.puts).toBe(4)
+      forward(r.loaded)
+    })
+
+    test('on the first chunk the words do not go back to "preparing" after a number', async () => {
+      const r = await run({ 0: [{ sent: [0.5, 0.9], end: 'net' }, { sent: [0.005, 0.5, 1], end: 'ok' }] })
+      forward(r.loaded)
+      const firstNumber = r.labels.findIndex((l) => l.endsWith('%'))
+      expect(firstNumber).toBeGreaterThan(0)
+      expect(r.labels.slice(firstNumber)).not.toContain('files.preparing')
+    })
+
+    test('a chunk that fails for good still ends the upload', async () => {
+      const s = fakeServer({ tries: { 0: [{ sent: [0.5], end: 500 }] } })
+      await expect(uploadFile(bigFile(1), { kind: 'path', path: 'x/big.bin', onExists: 'rename' }, { client: s.client, storage: null, retryDelayMs: 0, onProgress: () => {} })).rejects.toBeInstanceOf(ApiError)
+      expect(s.watched.filter((c) => c.startsWith('PUT'))).toHaveLength(5)
+    })
+  })
+
+  describe('a small file goes as a copy in memory (WebKit bug 319985: a File from disk can go out with no bytes)', () => {
+    /** a File whose bytes are read through arrayBuffer(), as the page reads them */
+    const counted = (bytes: number, name: string, type: string, read: () => Promise<ArrayBuffer>) => Object.assign(new File([new Uint8Array(bytes)], name, { type }), { arrayBuffer: read })
+
+    test.each([
+      ['a chat attachment', { kind: 'attachment', chatId: uuidv7(), name: '보고서.pdf' }, '보고서.pdf'],
+      ['a team file', { kind: 'path', path: 'docs/보고서.pdf', onExists: 'rename' }, '보고서.pdf'],
+      ['voice input', { kind: 'transcribe', name: 'voice.webm' }, 'voice.webm'],
+    ] as const)('%s: read first, and the name, the type and the bytes go with it', async (_label, target, name) => {
+      const s = fakeServer()
+      let reads = 0
+      const file = counted(1000, 'picked-name.pdf', 'application/pdf', async () => { reads++; return new Uint8Array(1000).fill(7).buffer })
+      await uploadFile(file, target, { client: s.client, storage: null })
+      expect(reads).toBe(1)
+      expect(s.parts).toEqual([{ name, type: 'application/pdf', size: 1000, declared: target.kind === 'transcribe' ? null : '1000' }])
+    })
+
+    test('a file that cannot be read fails at once, and nothing is sent', async () => {
+      const s = fakeServer()
+      const gone = new DOMException('the file is gone', 'NotReadableError')
+      const file = counted(1000, 'a.pdf', 'application/pdf', async () => { throw gone })
+      expect(await uploadFile(file, { kind: 'path', path: 'a.pdf', onExists: 'rename' }, { client: s.client, storage: null }).catch((e: unknown) => e)).toBe(gone)
+      expect(s.calls).toEqual([])
+      // the screen's words for it: the network text, not a message of the browser
+      expect(errorText(gone, 'ko', 'network')).toBe('network')
+    })
+
+    test('cancelled while it is read: nothing is sent', async () => {
+      const s = fakeServer()
+      const stop = new AbortController()
+      const file = counted(1000, 'a.pdf', 'application/pdf', async () => { stop.abort(); return new ArrayBuffer(1000) })
+      const e = await uploadFile(file, { kind: 'path', path: 'a.pdf', onExists: 'rename' }, { client: s.client, storage: null, signal: stop.signal }).catch((x: unknown) => x)
+      expect((e as DOMException).name).toBe('AbortError')
+      expect(s.calls).toEqual([])
+    })
+  })
+
+  describe('the size the server kept', () => {
+    const attachment = () => ({ kind: 'attachment', chatId: uuidv7(), name: 'a.pdf' }) as const
+    const path = { kind: 'path', path: 'docs/a.pdf', onExists: 'rename' } as const
+    const thousand = () => new File([new Uint8Array(1000)], 'a.pdf')
+
+    test.each([['a chat attachment', attachment()], ['a team file', path]] as const)('%s: 0 bytes kept of 1000 is a failed upload, in words', async (_label, target) => {
+      const s = fakeServer({ storedSize: 0 })
+      const e = await uploadFile(thousand(), target, { client: s.client, storage: null }).catch((x: unknown) => x)
+      expect(e).toBeInstanceOf(ApiError)
+      expect(errorText(e, currentLocale(), 'network')).toBe(translate(currentLocale(), 'files.incompleteUpload'))
+    })
+
+    test('an empty file stays an upload (.gitkeep), and says it is empty', async () => {
+      const s = fakeServer()
+      const r = await uploadFile(new File([], '.gitkeep'), { kind: 'path', path: 'docs/.gitkeep', onExists: 'rename' }, { client: s.client, storage: null })
+      expect(r.kind).toBe('path')
+      expect(s.parts[0]).toMatchObject({ size: 0, declared: '0' })
+    })
+  })
+
+  test('the bytes are reported sparingly: a new whole percent, at most every 250 ms; the last byte at once', async () => {
+    const s = fakeServer({ sent: [0.1, 0.2, 0.3, 1] })
+    const seen: UploadProgress[] = []
+    await uploadFile(new File([new Uint8Array(1000)], 'a.pdf'), { kind: 'path', path: 'docs/a.pdf', onExists: 'rename' }, { client: s.client, storage: null, onProgress: (p) => seen.push(p) })
+    expect(seen.filter((p) => p.phase === 'uploading').map((p) => p.loaded)).toEqual([0, 100])
+    expect(seen.filter((p) => p.phase === 'finishing').length).toBeGreaterThan(0)
+
+    const same = fakeServer({ sent: [0.101, 0.102, 0.103, 0.2] })
+    const again: number[] = []
+    await uploadFile(new File([new Uint8Array(1000)], 'a.pdf'), { kind: 'path', path: 'docs/a.pdf', onExists: 'rename' }, { client: same.client, storage: null, reportEveryMs: 0, onProgress: (p) => p.phase === 'uploading' && again.push(p.loaded) })
+    expect(again).toEqual([0, 101, 200])
   })
 
   test('what a running upload says: a number only for bytes on their way, never 0 or 100', () => {

@@ -4,7 +4,7 @@
 import fs from 'node:fs'
 import path from 'node:path'
 import { expect, test, type Page } from '@playwright/test'
-import { reset, signIn } from './helpers'
+import { OWNER, reset, signIn } from './helpers'
 
 const CHIP = '[data-testid="attachment-chip"] [role="status"]'
 const ROW = '[data-testid="upload-list"] li'
@@ -50,8 +50,8 @@ test.describe('on a slow connection', () => {
     await page.getByTestId('file-input').setInputFiles(pdf('slow.pdf', 1_000_000))
     const chip = page.getByTestId('attachment-chip')
     await expect(chip).toContainText('마무리 중')
+    await expect(chip).toHaveAttribute('data-status', 'done')
     await expect(chip).toContainText('KB')
-    await expect(chip.getByRole('status')).toHaveCount(0)
     const shown = await seen(page)
     const pct = percents(shown)
     expect(pct.length, shown.join(' | ')).toBeGreaterThan(2)
@@ -59,7 +59,45 @@ test.describe('on a slow connection', () => {
     expect(Math.min(...pct)).toBeGreaterThan(0)
     expect(Math.max(...pct)).toBeLessThan(100)
     expect(shown[0]).toBe('준비 중')
-    expect(shown.at(-1)).toBe('마무리 중')
+    expect(shown.at(-2)).toBe('마무리 중')
+    expect(shown.at(-1)).toContain('slow.pdf 첨부했어요')
+  })
+
+  test('a screen reader: a fixed text while the number runs, and the end in the same live region', async ({ page }) => {
+    await reset(page)
+    await signIn(page)
+    await answerAfter(page, 400)
+    await slowUploads(page, 400_000)
+    await page.getByTestId('file-input').setInputFiles(pdf('slow.pdf', 1_000_000))
+    const chip = page.getByTestId('attachment-chip')
+    const status = chip.getByRole('status')
+    const region = await status.elementHandle()
+    await expect(status.locator('span[aria-hidden="true"]')).toContainText('%')
+    await expect(status.locator('.sr-only')).toHaveText('slow.pdf 첨부하는 중')
+    await expect(chip).toHaveAttribute('data-status', 'done')
+    expect(await region!.evaluate((el) => el.isConnected)).toBe(true)
+    await expect(status.locator('.sr-only')).toHaveText('slow.pdf 첨부했어요')
+    await expect(status.locator('span[aria-hidden="true"]')).toHaveCount(0)
+  })
+
+  test('a running upload writes nothing to the tab\'s storage: only a finished chip does', async ({ page }) => {
+    await page.addInitScript(() => {
+      const w = window as unknown as { __chips: number }
+      w.__chips = 0
+      const { setItem, removeItem } = Storage.prototype
+      Storage.prototype.setItem = function (k, v) { if (k.startsWith('mycel.chips:')) w.__chips++; return setItem.call(this, k, v) }
+      Storage.prototype.removeItem = function (k) { if (k.startsWith('mycel.chips:')) w.__chips++; return removeItem.call(this, k) }
+    })
+    await reset(page)
+    await signIn(page)
+    await page.getByTestId('file-input').setInputFiles(pdf('first.pdf', 1000))
+    const first = page.getByTestId('attachment-chip').first()
+    await expect(first).toHaveAttribute('data-status', 'done')
+    await page.evaluate(() => { (window as unknown as { __chips: number }).__chips = 0 })
+    await slowUploads(page, 400_000)
+    await page.getByTestId('file-input').setInputFiles(pdf('second.pdf', 1_000_000))
+    await expect(page.getByTestId('attachment-chip').nth(1)).toHaveAttribute('data-status', 'done')
+    expect(await page.evaluate(() => (window as unknown as { __chips: number }).__chips)).toBe(1)
   })
 
   test('chat, a chunked file: hashing shows no number, and the count never falls back', async ({ page }) => {
@@ -69,14 +107,30 @@ test.describe('on a slow connection', () => {
     await slowUploads(page, 4_000_000)
     await page.getByTestId('file-input').setInputFiles(pdf('big.pdf', 9 * 1024 * 1024))
     const chip = page.getByTestId('attachment-chip')
-    await expect(chip).toContainText('MB', { timeout: 40_000 })
+    await expect(chip).toHaveAttribute('data-status', 'done', { timeout: 40_000 })
     const shown = await seen(page)
     const pct = percents(shown)
     expect(pct.length, shown.join(' | ')).toBeGreaterThan(2)
     expect(pct).toEqual(ascending(pct))
     expect(Math.max(...pct)).toBeLessThan(100)
     expect(shown[0]).toBe('준비 중')
-    expect(shown.at(-1)).toBe('마무리 중')
+    expect(shown.at(-2)).toBe('마무리 중')
+  })
+
+  test('chat, a chunk that fails once and is sent again: the count stays where it was', async ({ page }) => {
+    await reset(page)
+    await signIn(page)
+    await record(page, CHIP)
+    // the first try of the second chunk ends in a 503 when its bytes are in; the upload sends it again by itself
+    let tries = 0
+    await page.route(/\/api\/upload-sessions\/[^/]+\/chunks\/1$/, (route) => (tries++ ? route.continue() : route.fulfill({ status: 503, contentType: 'application/json', body: JSON.stringify({ error: { code: 'unavailable', message: 'x' } }) })))
+    await slowUploads(page, 6_000_000)
+    await page.getByTestId('file-input').setInputFiles(pdf('again.pdf', 12 * 1024 * 1024))
+    await expect(page.getByTestId('attachment-chip')).toHaveAttribute('data-status', 'done', { timeout: 40_000 })
+    expect(tries).toBe(2)
+    const pct = percents(await seen(page))
+    expect(pct.length).toBeGreaterThan(1)
+    expect(pct).toEqual(ascending(pct))
   })
 
   test('file list: the same words, and the bar only goes forward', async ({ page }) => {
@@ -89,7 +143,8 @@ test.describe('on a slow connection', () => {
     await slowUploads(page, 4_000_000)
     await page.getByTestId('files-input').setInputFiles(pdf('big-list.pdf', 9 * 1024 * 1024))
     await expect(page.getByTestId('upload-list')).toContainText('마무리 중', { timeout: 40_000 })
-    await expect(page.locator(ROW).locator('.text-ok')).toBeVisible()
+    await expect(page.locator(ROW)).toHaveAttribute('data-status', 'done')
+    await expect(page.locator(ROW).getByRole('status')).toHaveText('big-list.pdf 올렸어요')
     const shown = await seen(page)
     const pct = percents(shown)
     expect(pct.length, shown.join(' | ')).toBeGreaterThan(2)
@@ -147,14 +202,65 @@ test.describe('without the service worker', () => {
     await page.route(/\/api\/uploads$/, (route) => route.fulfill({ status: 507, contentType: 'application/json', body: JSON.stringify({ error: { code: 'storage_full', message: '저장 공간이 가득 찼어요' } }) }))
     await page.getByTestId('file-input').setInputFiles(pdf('full.pdf', 1000))
     const chip = page.getByTestId('attachment-chip')
-    await expect(chip.locator('.text-danger')).toContainText('저장 공간')
+    await expect(chip.getByRole('alert')).toContainText('저장 공간')
+    await expect(chip.getByRole('alert')).toHaveClass(/text-danger/)
     await chip.getByRole('button').last().click()
     await expect(chip).toHaveCount(0)
     await page.unroute(/\/api\/uploads$/)
     await page.route(/\/api\/uploads$/, (route) => route.abort('connectionfailed'))
     await page.getByTestId('file-input').setInputFiles(pdf('lost.pdf', 1000))
-    await expect(chip.locator('.text-danger')).toBeVisible()
-    await expect(chip.locator('.text-danger')).not.toContainText('Network request failed')
+    await expect(chip).toHaveAttribute('data-status', 'failed')
+    await expect(chip.getByRole('alert')).not.toContainText('Network request failed')
+    await expect(chip.getByRole('alert')).not.toBeEmpty()
+  })
+
+  test('a server that kept another size: the chip is red, not attached', async ({ page }) => {
+    await reset(page)
+    await signIn(page)
+    await page.route(/\/api\/uploads$/, async (route) => {
+      const res = await route.fetch()
+      await route.fulfill({ response: res, json: { ...(await res.json()), size: 0 } })
+    })
+    await page.getByTestId('file-input').setInputFiles(pdf('empty-on-server.pdf', 1000))
+    const chip = page.getByTestId('attachment-chip')
+    await expect(chip.getByRole('alert')).toContainText('파일이 다 도착하지 않았어요')
+    await expect(chip).toHaveAttribute('data-status', 'failed')
+  })
+
+  test('the file list says a failure aloud too, and a row stays when the person comes back', async ({ page }) => {
+    await reset(page)
+    await signIn(page)
+    await page.goto('/files?path=marketing')
+    await expect(page.getByTestId('files-input')).toBeAttached()
+    await page.route(/\/api\/files\/upload$/, (route) => route.fulfill({ status: 507, contentType: 'application/json', body: JSON.stringify({ error: { code: 'storage_full', message: '저장 공간이 가득 찼어요' } }) }))
+    await page.getByTestId('files-input').setInputFiles(pdf('full.pdf', 1000))
+    const row = page.locator(ROW)
+    await expect(row.getByRole('alert')).toContainText('저장 공간')
+    await page.getByRole('link', { name: '프로젝트', exact: true }).click()
+    await expect(row).toHaveCount(0)
+    await page.getByRole('link', { name: '파일', exact: true }).click()
+    await expect(row.getByRole('alert')).toContainText('저장 공간')
+  })
+
+  test('sign-out: the next person in this tab sees no row of the last one', async ({ page }) => {
+    await reset(page)
+    await signIn(page)
+    await page.goto('/files?path=marketing')
+    await expect(page.getByTestId('files-input')).toBeAttached()
+    await page.route(/\/api\/files\/upload$/, (route) => route.fulfill({ status: 507, contentType: 'application/json', body: JSON.stringify({ error: { code: 'storage_full', message: 'x' } }) }))
+    await page.getByTestId('files-input').setInputFiles(pdf('private-name.pdf', 1000))
+    await expect(page.locator(ROW)).toContainText('private-name.pdf')
+    await page.getByTestId('account-menu').click()
+    await page.getByTestId('logout').click()
+    // no page load here (signIn would make one, and an empty page proves nothing): the same tab, as at a shared computer
+    await expect(page.getByTestId('login-username')).toBeVisible()
+    await page.getByTestId('login-username').fill(OWNER.username)
+    await page.getByTestId('login-password').fill(OWNER.password)
+    await page.getByTestId('login-submit').click()
+    await expect(page.getByTestId('account-menu')).toBeVisible()
+    await page.getByRole('link', { name: '파일', exact: true }).click()
+    await expect(page.getByTestId('files-input')).toBeAttached()
+    await expect(page.getByText('private-name.pdf')).toHaveCount(0)
   })
 })
 
@@ -165,6 +271,7 @@ test('from the file to the message: a watched upload goes through, in each engin
   await record(page, CHIP)
   await page.getByTestId('file-input').setInputFiles(pdf('report.pdf', 200 * 1024))
   const chip = page.getByTestId('attachment-chip')
+  await expect(chip).toHaveAttribute('data-status', 'done')
   await expect(chip).toContainText('KB')
   const shown = await seen(page)
   expect(shown.join(' | ')).not.toMatch(/(^|\D)(0|100)%/)

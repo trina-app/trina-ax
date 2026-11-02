@@ -48,6 +48,11 @@ export const filesRoutes: RouteModule = {
       const p = await writeTemp(tmpDir, file)
       return { p, sha: await hashFile(p) }
     }
+    /** A part of another size than the sender read lost bytes on the way (WebKit bug 319985 sends none at all): it stops
+     * here, before it takes a name or replaces a file. An empty file that says so is an upload like any other. */
+    const assertWhole = (file: File, size: number | undefined) => {
+      if (size !== undefined && size !== file.size) fileError('validation', 'incompleteUpload', { 'body.file': `expected ${size} bytes, got ${file.size}` })
+    }
 
     kit.handle(API.tree, ({ c, query, auth }) => mapErrors(c.get('locale'), () => svc.tree(auth.user.id, query.path, query.cursor, query.limit)))
 
@@ -117,6 +122,7 @@ export const filesRoutes: RouteModule = {
     }))
 
     kit.handle(API.upload, ({ c, body, auth }) => mapErrors(c.get('locale'), async () => {
+      assertWhole(body.file, body.fields.size)
       assertStorageRoom(body.file.size)
       const { p, sha } = await spool(body.file)
       try {
@@ -141,6 +147,7 @@ export const filesRoutes: RouteModule = {
 
     // ---------------- attachments ----------------
     kit.handle(API.uploadAttachment, ({ c, body, auth }) => mapErrors(c.get('locale'), async () => {
+      assertWhole(body.file, body.fields.size)
       assertStorageRoom(body.file.size)
       const { p, sha } = await spool(body.file)
       try { return await C.attachments.create(auth.user.id, body.fields.chatId, body.fields.name ?? (body.file.name || 'file'), p, sha) } finally { fs.rmSync(p, { force: true }) }

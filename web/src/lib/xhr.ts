@@ -11,13 +11,6 @@ export function xhrFetch(url: string, init: RequestInit, onSent: (share: number)
     const stop = () => xhr.abort()
     signal?.addEventListener('abort', stop, { once: true })
     const ended = () => signal?.removeEventListener('abort', stop)
-    xhr.open(init.method ?? 'GET', url)
-    xhr.responseType = 'blob'
-    xhr.withCredentials = init.credentials === 'include'
-    new Headers(init.headers).forEach((value, name) => xhr.setRequestHeader(name, value))
-    // a share, not bytes: the body of a form also holds its fields and boundaries. Set before send(), or no event comes.
-    xhr.upload.onprogress = (e) => { if (e.lengthComputable && e.total > 0) onSent(Math.min(1, e.loaded / e.total)) }
-    xhr.upload.onload = () => onSent(1)
     xhr.onload = () => {
       ended()
       const contentType = xhr.getResponseHeader('content-type')
@@ -35,6 +28,18 @@ export function xhrFetch(url: string, init: RequestInit, onSent: (share: number)
       ended()
       reject(signal?.reason ?? new DOMException('aborted', 'AbortError'))
     }
-    xhr.send(init.body as XMLHttpRequestBodyInit | null | undefined)
+    // a share, not bytes: the body of a form also holds its fields and boundaries. Set before send(), or no event comes.
+    xhr.upload.onprogress = (e) => { if (e.lengthComputable && e.total > 0) onSent(Math.min(1, e.loaded / e.total)) }
+    xhr.upload.onload = () => onSent(1)
+    try {
+      xhr.open(init.method ?? 'GET', url)
+      xhr.responseType = 'blob'
+      xhr.withCredentials = init.credentials === 'include'
+      new Headers(init.headers).forEach((value, name) => xhr.setRequestHeader(name, value))
+      xhr.send(init.body as XMLHttpRequestBodyInit | null | undefined)
+    } catch (e) {
+      ended()
+      reject(e)
+    }
   })
 }

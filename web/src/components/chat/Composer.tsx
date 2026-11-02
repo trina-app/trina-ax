@@ -25,7 +25,8 @@ import { useConfidentialChat } from '../../lib/confidential'
 import { navigateTo } from '../../lib/nav'
 import { openFilePreview, openTeamFile } from '../../lib/sidePanel'
 import { loadChips, patchStash, readStash, registerComposer, saveChips, subscribeStash, TEAM_FILE_DRAG_TYPE, writeStash, type AttachResult } from '../../lib/teamAttach'
-import { cancelUpload, uploadFile, uploadLabel, uploadPercent, type UploadProgress } from '../../lib/upload'
+import { cancelUpload, uploadFile, type UploadProgress } from '../../lib/upload'
+import { UploadLabel } from '../UploadLabel'
 import { useLocale, useT } from '../../i18n'
 import { waitForJob } from '../../store/jobs'
 import { useMe } from '../../store/session'
@@ -115,8 +116,11 @@ export default function Composer({
     writeStash(userId, draftId, next)
     setFilesState(next)
   }
-  // finished chips also survive a reload of this tab
-  useEffect(() => saveChips(userId, draftId, files.filter((f) => f.status === 'done' && f.attachment).map((f) => ({ id: f.id, source: f.source, name: f.name, size: f.size, path: f.path, attachment: f.attachment! }))), [userId, draftId, files])
+  // finished chips also survive a reload of this tab. Written when they change, not at each progress report of a running
+  // upload, which also makes a new `files`.
+  const finished = files.filter((f) => f.status === 'done' && f.attachment)
+  const finishedIds = finished.map((f) => f.id).join()
+  useEffect(() => saveChips(userId, draftId, finished.map((f) => ({ id: f.id, source: f.source, name: f.name, size: f.size, path: f.path, attachment: f.attachment! }))), [userId, draftId, finishedIds])
   useEffect(() => {
     const cur = restoreChips(userId, draftId)
     filesRef.current = cur
@@ -426,6 +430,7 @@ export default function Composer({
                 title={f.source === 'team' ? t('composer.teamFile', { path: f.attachment?.path ?? f.path ?? '' }) : undefined}
                 data-testid="attachment-chip"
                 data-source={f.source}
+                data-status={f.status}
               >
                 {f.source === 'team' ? (
                   <FolderOpen size={15} className="text-accent-text" aria-label={t('composer.teamFile', { path: f.attachment?.path ?? f.path ?? '' })} />
@@ -451,19 +456,26 @@ export default function Composer({
                   {/* the team folder it is in, visible without hovering (phones) */}
                   {f.source === 'team' && <span className="max-w-[180px] truncate text-[10px] leading-tight text-faint" data-testid="chip-folder">{folderOf(f.attachment?.path ?? f.path ?? '') || t('files.root')}</span>}
                 </span>
-                {f.status === 'uploading' ? (
+                {/* both stay through the whole upload, so a screen reader hears each change */}
+                <span className="flex items-center">
                   <span className="flex items-center gap-1 text-faint" role="status">
-                    <Loader2 size={12} className="animate-spin" aria-hidden />
-                    {/* a live region: the words are read out, a number that changes every moment is not */}
-                    {f.source === 'upload' && <span aria-hidden={uploadPercent(f.progress) !== null}>{uploadLabel(f.progress, t)}</span>}
+                    {f.status === 'uploading' && (
+                      <>
+                        <Loader2 size={12} className="animate-spin" aria-hidden />
+                        {f.source === 'upload' ? <UploadLabel progress={f.progress} busy={t('composer.attaching', { name: f.name })} /> : <span className="sr-only">{t('composer.attaching', { name: f.name })}</span>}
+                      </>
+                    )}
+                    {f.status === 'done' && (
+                      <>
+                        <span className="sr-only">{t('composer.attached', { name: f.name })}</span>
+                        {f.size !== null && formatSize(f.size, locale)}
+                      </>
+                    )}
                   </span>
-                ) : f.status === 'failed' ? (
-                  <span className="max-w-[160px] truncate text-danger" title={f.error}>
-                    {f.error}
+                  <span className="max-w-[160px] truncate text-danger" role="alert" title={f.error}>
+                    {f.status === 'failed' && f.error}
                   </span>
-                ) : (
-                  f.size !== null && <span className="text-faint">{formatSize(f.size, locale)}</span>
-                )}
+                </span>
                 <button type="button" aria-label={t('composer.removeAttachment', { name: f.name })} onClick={() => removeFile(f)} className="-my-1 -mr-1 rounded-md p-1 text-faint hover:bg-hover hover:text-ink max-sm:p-1.5">
                   <X size={14} />
                 </button>

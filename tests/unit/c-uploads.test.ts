@@ -22,6 +22,53 @@ const put = (id: string, n: number, data: Uint8Array, as: 'alice' | 'bob' = 'ali
 const create = (target: unknown, data: Uint8Array, as: 'alice' | 'bob' = 'alice') => A.json('/api/upload-sessions', { ...jsonBody({ target, size: data.length, sha256: sha256hex(data) }), as })
 const chunk = (d: Uint8Array, n: number) => d.subarray(n * UPLOAD_CHUNK_SIZE, (n + 1) * UPLOAD_CHUNK_SIZE)
 
+describe('the size the sender read (WebKit bug 319985: a file can go out with no bytes)', () => {
+  const form = (fields: Record<string, string>, bytes: number, name = 'a.pdf') => {
+    const fd = new FormData()
+    for (const [k, v] of Object.entries(fields)) fd.set(k, v)
+    fd.set('file', new File([new Uint8Array(bytes).fill(7)], name))
+    return fd
+  }
+  const send = (url: string, fd: FormData) => A.json(url, { method: 'POST', body: fd, as: 'alice' })
+  const inFolder = (name: string) => path.join(A.team, 'shared', name)
+
+  test('a team file: refused before it takes a name, in the person\'s words', async () => {
+    const r = await send('/api/files/upload', form({ folder: 'shared', name: 'lost.pdf', onExists: 'rename', size: '1000' }, 0))
+    expect(r.status).toBe(400)
+    expect(r.body.error).toMatchObject({ code: 'validation', fields: { 'body.file': 'expected 1000 bytes, got 0' } })
+    expect(fs.existsSync(inFolder('lost.pdf'))).toBe(false)
+  })
+
+  test('a file that is there is not replaced by a part that came empty', async () => {
+    expect((await send('/api/files/upload', form({ folder: 'shared', name: 'keep.pdf', onExists: 'rename' }, 100))).status).toBe(201)
+    expect((await send('/api/files/upload', form({ folder: 'shared', name: 'keep.pdf', onExists: 'replace', size: '100' }, 0))).status).toBe(400)
+    expect(fs.statSync(inFolder('keep.pdf')).size).toBe(100)
+  })
+
+  test('a chat attachment: refused, and nothing is stored', async () => {
+    const chatId = A.chat('alice')
+    const r = await send('/api/uploads', form({ chatId, name: 'lost.pdf', size: '1000' }, 10))
+    expect(r.status).toBe(400)
+    expect(r.body.error.code).toBe('validation')
+    expect(fs.existsSync(path.join(A.team, 'users', 'alice', '.attachments', chatId))).toBe(false)
+  })
+
+  test('a whole file passes, an empty file too, and a sender that names no size as before', async () => {
+    const chatId = A.chat('alice')
+    expect((await send('/api/uploads', form({ chatId, name: 'ok.pdf', size: '100' }, 100))).body).toMatchObject({ size: 100 })
+    expect((await send('/api/uploads', form({ chatId, name: 'old.pdf' }, 100))).body).toMatchObject({ size: 100 })
+    expect((await send('/api/files/upload', form({ folder: 'shared', name: '.gitkeep', onExists: 'rename', size: '0' }, 0, '.gitkeep'))).body).toMatchObject({ size: 0 })
+    expect((await send('/api/files/upload', form({ folder: 'shared', name: 'old.pdf', onExists: 'rename' }, 0))).body).toMatchObject({ size: 0 })
+  })
+
+  test('a size that is no size is a bad field', async () => {
+    const r = await send('/api/files/upload', form({ folder: 'shared', name: 'bad.pdf', onExists: 'rename', size: 'many' }, 10))
+    expect(r.status).toBe(400)
+    expect(r.body.error.code).toBe('validation')
+    expect(fs.existsSync(inFolder('bad.pdf'))).toBe(false)
+  })
+})
+
 describe('upload sessions', () => {
   // web/src/lib/folderUpload.ts depends on these answers
   test('a folder upload: folders one level at a time, a target with subfolders, the access check for each file', async () => {

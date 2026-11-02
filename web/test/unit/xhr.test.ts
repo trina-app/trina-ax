@@ -8,6 +8,8 @@ type Handler = ((e: { lengthComputable: boolean; loaded: number; total: number }
 /** The part of XMLHttpRequest that xhrFetch uses. The test plays the browser by calling the handlers. */
 class FakeXhr {
   static made: FakeXhr[] = []
+  /** changes each new request before it is used */
+  static prepare: ((x: FakeXhr) => void) | null = null
   upload = { onprogress: null as Handler, onload: null as (() => void) | null }
   onload: (() => void) | null = null
   onerror: (() => void) | null = null
@@ -23,7 +25,7 @@ class FakeXhr {
   status = 0
   response: unknown = null
   responseHeaders: Record<string, string> = {}
-  constructor() { FakeXhr.made.push(this) }
+  constructor() { FakeXhr.made.push(this); FakeXhr.prepare?.(this) }
   open(method: string, url: string) { this.method = method; this.url = url }
   setRequestHeader(k: string, v: string) { this.headers[k] = v }
   getResponseHeader(k: string) { return this.responseHeaders[k.toLowerCase()] ?? null }
@@ -40,6 +42,7 @@ class FakeXhr {
 const original = globalThis.XMLHttpRequest
 beforeEach(() => {
   FakeXhr.made = []
+  FakeXhr.prepare = null
   globalThis.XMLHttpRequest = FakeXhr as unknown as typeof XMLHttpRequest
 })
 afterEach(() => { globalThis.XMLHttpRequest = original })
@@ -125,6 +128,25 @@ describe('xhrFetch', () => {
     const r = xhrFetch('/x', { method: 'POST', signal: stop.signal }, () => {})
     last().answer(200, '{}')
     await r
+    stop.abort()
+    expect(last().aborted).toBe(false)
+  })
+
+  test('an abort without a signal (the browser ending the request) is an AbortError too', async () => {
+    const r = xhrFetch('/x', { method: 'POST' }, () => {})
+    last().abort()
+    expect(((await r.catch((x: unknown) => x)) as DOMException).name).toBe('AbortError')
+  })
+
+  test.each([
+    ['open', (x: FakeXhr) => { x.open = () => { throw new DOMException('bad method', 'SyntaxError') } }],
+    ['setRequestHeader', (x: FakeXhr) => { x.setRequestHeader = () => { throw new DOMException('bad header', 'SyntaxError') } }],
+    ['send', (x: FakeXhr) => { x.send = () => { throw new DOMException('not open', 'InvalidStateError') } }],
+  ] as const)('%s throwing rejects the call and lets go of the signal', async (_name, breakIt) => {
+    FakeXhr.prepare = breakIt
+    const stop = new AbortController()
+    const e = await xhrFetch('/x', { method: 'POST', headers: { 'x-a': '1' }, signal: stop.signal }, () => {}).catch((x: unknown) => x)
+    expect(e).toBeInstanceOf(DOMException)
     stop.abort()
     expect(last().aborted).toBe(false)
   })

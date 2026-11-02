@@ -2,11 +2,15 @@
 // upload session (8 MB chunks, sha256 checked by the server). A session survives a dropped connection and a page
 // reload: it is remembered per file (name, size, mtime, target) and continues from the chunks the server already has.
 import { createSHA256 } from 'hash-wasm'
+import { t } from '../i18n'
 import { UPLOADS_KEY } from './localData'
 import { API, ApiError, SMALL_UPLOAD_MAX, UPLOAD_CHUNK_SIZE, type ApiClient, type UploadComplete, type UploadSession, type UploadTarget } from '@mycel/shared/api'
 
 /** Up to this size one request is enough; bigger files go chunked. */
 export const SINGLE_REQUEST_MAX = 8 * 1024 * 1024
+/** The browser counts sent bytes many times a second, and each report redraws what shows it: a new whole percent, at most
+ * this often, is enough for a person. */
+const REPORT_EVERY_MS = 250
 
 /** `loaded` and `total` count the file's own bytes, in every phase. */
 export interface UploadProgress {
@@ -15,7 +19,7 @@ export interface UploadProgress {
   total: number
 }
 
-type Running = { phase: UploadProgress['phase'] | null; loaded: number; total: number } | null | undefined
+export type Running = { phase: UploadProgress['phase'] | null; loaded: number; total: number } | null | undefined
 
 /** The whole percent of a running upload, or null when there is no number to show: nothing has gone out yet, the file
  * is being hashed (a percent of that would fall back to 0 when the bytes start), or the server is taking the last of
@@ -41,6 +45,8 @@ export interface UploadOptions {
   storage?: Pick<Storage, 'getItem' | 'setItem' | 'removeItem'> | null
   /** wait between retries (tests pass 0) */
   retryDelayMs?: number
+  /** at least this long between reports of bytes on their way (tests pass 0) */
+  reportEveryMs?: number
   singleRequestMax?: number
 }
 
@@ -100,25 +106,49 @@ export async function uploadFile(file: File, target: UploadTarget, o: UploadOpti
   return uploadChunked(file, target, o)
 }
 
+/** Reports bytes on their way, sparingly (REPORT_EVERY_MS). A report of a new phase goes straight to o.onProgress. */
+function sparingly(o: UploadOptions) {
+  let at = 0
+  let percent = -1
+  return (p: UploadProgress) => {
+    const now = Date.now()
+    const pct = Math.floor((p.loaded / p.total) * 100)
+    if (pct === percent || now - at < (o.reportEveryMs ?? REPORT_EVERY_MS)) return
+    at = now
+    percent = pct
+    o.onProgress?.(p)
+  }
+}
+
 async function uploadSmall(file: File, target: UploadTarget, o: UploadOptions): Promise<UploadComplete> {
   const total = file.size
   const finishing = () => o.onProgress?.({ phase: 'finishing', loaded: total, total })
   o.onProgress?.({ phase: 'uploading', loaded: 0, total })
+  // WebKit bug 319985: Safari and iOS from 26.5 can send a File read from disk with no bytes (Content-Length: 0), and a
+  // page under a service worker is the reported case, as this app with web/pwa/sw.js is. A copy in memory goes out whole.
+  // This path is at most SINGLE_REQUEST_MAX, and the chunks of a larger file are slices, which the same report found safe.
+  const body = new Blob([await file.arrayBuffer()], { type: file.type })
+  o.signal?.throwIfAborted()
+  const report = sparingly(o)
   // the last byte out is not the end: the server still stores the file and answers
-  const onUploadProgress = o.onProgress && ((sent: number) => (sent < 1 ? o.onProgress!({ phase: 'uploading', loaded: Math.round(sent * total), total }) : finishing()))
+  const onUploadProgress = o.onProgress && ((sent: number) => (sent < 1 ? report({ phase: 'uploading', loaded: Math.round(sent * total), total }) : finishing()))
   const request = { signal: o.signal, onUploadProgress }
+  // the server refuses a part of another size before it stores it; this is for one that has no such check
+  const kept = (size: number | null) => { if (size !== total) throw new ApiError(400, { code: 'validation', message: t('files.incompleteUpload') }) }
   let out: UploadComplete
   if (target.kind === 'path') {
     const slash = target.path.lastIndexOf('/')
     const folder = slash < 0 ? '' : target.path.slice(0, slash)
     const name = target.path.slice(slash + 1)
-    const entry = await o.client.call(API.upload, { body: { fields: { folder, name, onExists: target.onExists }, file, filename: name }, ...request })
+    const entry = await o.client.call(API.upload, { body: { fields: { folder, name, onExists: target.onExists, size: total }, file: body, filename: name }, ...request })
+    kept(entry.size)
     out = { kind: 'path', entry }
   } else if (target.kind === 'attachment') {
-    const attachment = await o.client.call(API.uploadAttachment, { body: { fields: { chatId: target.chatId, name: target.name }, file, filename: target.name }, ...request })
+    const attachment = await o.client.call(API.uploadAttachment, { body: { fields: { chatId: target.chatId, name: target.name, size: total }, file: body, filename: target.name }, ...request })
+    kept(attachment.size)
     out = { kind: 'attachment', attachment }
   } else {
-    const { jobId } = await o.client.call(API.transcribe, { body: { fields: target.chatId ? { chatId: target.chatId } : {}, file, filename: target.name }, ...request })
+    const { jobId } = await o.client.call(API.transcribe, { body: { fields: target.chatId ? { chatId: target.chatId } : {}, file: body, filename: target.name }, ...request })
     out = { kind: 'transcribe', jobId }
   }
   finishing()
@@ -153,13 +183,19 @@ async function uploadChunked(file: File, target: UploadTarget, o: UploadOptions)
   const id = session.id
   const size = session.chunkSize
   let received = new Set(session.received)
-  const report = (onItsWay = 0) => o.onProgress?.({ phase: 'uploading', loaded: Math.min(total, received.size * size + onItsWay), total })
-  report()
+  // the most bytes reported so far: a chunk sent again does not take the number back (or a folder's sum, which adds these)
+  let shown = 0
+  const sentSoFar = (onItsWay = 0): UploadProgress => {
+    shown = Math.max(shown, Math.min(total, received.size * size + onItsWay))
+    return { phase: 'uploading', loaded: shown, total }
+  }
+  const report = sparingly(o)
+  o.onProgress?.(sentSoFar())
   for (let n = 0; n < session.chunkCount; n++) {
     if (received.has(n)) continue
     o.signal?.throwIfAborted()
     const chunk = file.slice(n * size, Math.min(total, (n + 1) * size))
-    const onUploadProgress = o.onProgress && ((sent: number) => report(Math.round(sent * chunk.size)))
+    const onUploadProgress = o.onProgress && ((sent: number) => report(sentSoFar(Math.round(sent * chunk.size))))
     const r = await withRetry(async () => {
       try {
         return await o.client.call(API.uploadChunk, { params: { id, n: String(n) }, body: chunk, signal: o.signal, onUploadProgress })
@@ -173,7 +209,7 @@ async function uploadChunked(file: File, target: UploadTarget, o: UploadOptions)
       }
     }, o)
     received = new Set(r.received)
-    report()
+    o.onProgress?.(sentSoFar())
   }
   o.onProgress?.({ phase: 'finishing', loaded: total, total })
   const done = await withRetry(() => o.client.call(API.completeUploadSession, { params: { id }, signal: o.signal }), o)

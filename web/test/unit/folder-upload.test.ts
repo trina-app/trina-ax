@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test'
-import { ApiClient, uuidv7 } from '@mycel/shared/api'
+import { ApiClient, UPLOAD_CHUNK_SIZE, uuidv7 } from '@mycel/shared/api'
 import { isBusy } from '../../src/lib/busy'
 import { DROP_DEPTH_MAX, droppedEntries, FOLDER_UPLOAD_CONCURRENCY, FolderUpload, isStorageRefusal, isSystemName, planFromEntries, planFromInput, type DropEntry, type FolderPlan, type FolderUploadCalls } from '../../src/lib/folderUpload'
 import { uploadFile } from '../../src/lib/upload'
@@ -266,7 +266,7 @@ describe('a folder upload', () => {
       maxFileSize: 1000,
       mkdir: async () => {},
       isFolder: async () => false,
-      upload: (f, path, signal, onProgress) => uploadFile(f, { kind: 'path', path, onExists: 'rename' }, { client, signal, onProgress, storage: null }),
+      upload: (f, path, signal, onProgress) => uploadFile(f, { kind: 'path', path, onExists: 'rename' }, { client, signal, onProgress, storage: null, reportEveryMs: 0 }),
       discard: async () => {},
     }
     const files = ['1', '2', '3', '4'].map((n) => ({ rel: `c/${n}-${uuidv7()}`, file: file(n, 100) }))
@@ -278,6 +278,48 @@ describe('a folder upload', () => {
     expect(seen).toEqual([...seen].sort((a, b) => a - b))
     // not only whole files: a part of a file was on the way
     expect(seen.some((n) => n % 100 !== 0)).toBe(true)
+  })
+
+  test('a large file whose chunk is sent again: the bytes of the folder do not fall, and end at its size', async () => {
+    const size = UPLOAD_CHUNK_SIZE * 2 + 1000
+    const big = new File([new Uint8Array(size).fill(7)], 'big.bin', { lastModified: 1 })
+    const json = (v: unknown, status = 200) => new Response(JSON.stringify(v), { status, headers: { 'content-type': 'application/json' } })
+    const session = { id: uuidv7(), target: { kind: 'path', path: 'c/big.bin', onExists: 'rename' }, size, sha256: '0'.repeat(64), chunkSize: UPLOAD_CHUNK_SIZE, chunkCount: 3, received: [] as number[], expiresAt: new Date(Date.now() + 1e6).toISOString() }
+    const fetchFn = (async (input: string, init: RequestInit) => {
+      if (input === '/api/upload-sessions') return json(session, 201)
+      if (input.endsWith('/complete')) return json({ kind: 'path', entry: { name: 'big.bin', path: 'c/big.bin', type: 'file', size, mtime: new Date().toISOString(), mime: null, access: 'write' } })
+      if (/chunks\/\d+$/.test(input) && init.method === 'PUT') {
+        session.received = [...new Set([...session.received, Number(/(\d+)$/.exec(input)![1])])].sort((a, b) => a - b)
+        return json({ received: session.received })
+      }
+      return json(session)
+    }) as unknown as typeof fetch
+    let tries = 0
+    const client = new ApiClient({
+      baseUrl: '',
+      fetch: fetchFn,
+      fetchWithProgress: async (input, init, onSent) => {
+        if (input.endsWith('/chunks/1') && !tries++) {
+          for (const share of [0.5, 0.9]) onSent(share)
+          throw new TypeError('Network request failed')
+        }
+        for (const share of [0.5, 1]) onSent(share)
+        return fetchFn(input, init)
+      },
+    })
+    const calls: FolderUploadCalls = {
+      maxFileSize: 1e12,
+      mkdir: async () => {},
+      isFolder: async () => false,
+      upload: (f, path, signal, onProgress) => uploadFile(f, { kind: 'path', path, onExists: 'rename' }, { client, signal, onProgress, storage: null, retryDelayMs: 0, reportEveryMs: 0 }),
+      discard: async () => {},
+    }
+    const seen: number[] = []
+    const run: FolderUpload = new FolderUpload({ files: [{ rel: 'c/big.bin', file: big }], folders: [], unreadable: [], skipped: 0 }, '', calls, () => seen.push(run.view.bytesDone))
+    await run.start()
+    expect(tries).toBe(2)
+    expect(seen).toEqual([...seen].sort((a, b) => a - b))
+    expect(run.view).toMatchObject({ status: 'done', bytesDone: size, bytesTotal: size })
   })
 
   test('a storage refusal is 507 or the disk check of session create, nothing else', () => {
