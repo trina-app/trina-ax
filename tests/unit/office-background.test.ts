@@ -441,7 +441,7 @@ describe('the office workers: background work takes at most one, people go first
     const started: string[] = []
     const t0 = Date.now()
     try {
-      const b1 = holder(started, 'b1', () => true), p = holder(started, 'p'), b2 = holder(started, 'b2', () => true), q = holder(started, 'q')
+      const b1 = holder(started, 'b1', () => true), p = holder(started, 'p'), b2 = holder(started, 'b2', () => true), b3 = holder(started, 'b3', () => true), q = holder(started, 'q')
       await settle()
       expect(started).toEqual(['b1', 'p'])
       setSystemTime(new Date(t0 + 10 * BACKGROUND_WAIT_MS))
@@ -450,10 +450,13 @@ describe('the office workers: background work takes at most one, people go first
       expect(started).toEqual(['b1', 'p', 'q'])
       b1.finish()
       await settle()
-      // b1 has ended: a new turn starts for b2, with a free worker it may take
+      // b1 has ended: a new turn starts for b2 (not woken before, so still first in line), with a free worker it may take
       expect(started).toEqual(['b1', 'p', 'q', 'b2'])
-      b2.finish(); q.finish()
-      await Promise.all([b1.done, b2.done, p.done, q.done])
+      b2.finish()
+      await settle()
+      expect(started).toEqual(['b1', 'p', 'q', 'b2', 'b3'])
+      b3.finish(); q.finish()
+      await Promise.all([b1.done, b2.done, b3.done, p.done, q.done])
     } finally { setSystemTime() }
   })
 
