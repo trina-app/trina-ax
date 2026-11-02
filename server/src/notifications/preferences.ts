@@ -17,5 +17,7 @@ export function eventEnabled(p: NotificationPreferences, event: NotificationEven
     case 'schedule.failure': return p.scheduleFailure
     case 'connection.reconnect': return p.connectionReconnect
     case 'skill.suggested': case 'skill.reviewed': return p.skillSuggestions
+    // no setting of their own: a job the person started, a box that stopped
+    case 'dev_env.job': case 'dev_env.box': return true
   }
 }

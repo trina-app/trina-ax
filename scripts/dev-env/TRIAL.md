@@ -179,6 +179,10 @@ the new image and seccomp profile at its next start. To start it now, use stop o
 box volume (`node_modules`, caches) and the project folder stay. The build needs a few minutes of CPU and the internet,
 so do it when nobody renders.
 
+- `make-seccomp.py` changed in 0.2.20: a box now has no `fallocate` and no ioctl of type `X`, because these calls can fill
+  the disk before boxd sees it. Run this build once after the update to 0.2.20. If you do not, the disk floor can come too
+  late, and boxd logs `the box seccomp profile allows fallocate or its ioctls` at each box start. This profile has not run
+  in a real box yet: if a box does not start after the build, that is the first thing to check.
 - If the `Containerfile` did not change, podman uses its layers, so the image stays the same and gets no new Debian
   packages.
 - If boxd says that the image or the seccomp profile is missing, it found that at its start, and it does not look again.
@@ -196,8 +200,15 @@ so do it when nobody renders.
 - The image with `ffmpeg` has not been built or tested in a real box. The build fails if `ffmpeg` has no `subtitles`
   filter. A render with subtitles has not run.
 - The step of `vm-tests.sh` that gives the image a new ID under the same name has not run.
-- Writes to `/work` have no size limit: a command can fill the disk that holds the team folder. Use a VM for this team
-  only, with a disk alert.
+- Writes to `/work` have no size limit of their own, and `diskGiB` limits only the box volume. boxd now stops a box when
+  the server disk comes under max(2 GiB, 5% of the disk), and the box stops with a reason that the people who may use it and
+  the admins get. This protects the server disk, but it is no quota: one project can still use all the space down to that
+  floor, and the stop ends what runs in the box. The disk floor, jobs, planted links and CPU as activity have tests for
+  their decisions, but the steps of `vm-tests.sh` (`JOBS=1`, with `LONG=1`) have not run in a real box. The threshold of 10%
+  of a core is an estimate until that run shows the number for an idle dev server. Keep the disk alert on the VM.
+- A job that only waits uses no CPU, so it does not keep the box: a slow download can stop at the idle time.
+- When a job ends, the person gets a notice and the next `box_shell` call gives the AI the result. The AI does not go on
+  by itself.
 
 The other open items are in `docs/DECISIONS.md` "Dev environment: what stops a release, and what stops a trial with one
 team": the preview domain, the egress allowlist, the credential helper and WebSocket preview. Code in a box can send

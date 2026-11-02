@@ -5,7 +5,7 @@ import { useEffect, useState } from 'react'
 import type { SkillIssue } from '@mycel/shared/api'
 import { api, API } from '../lib/api'
 import { parentPath } from '../lib/paths'
-import { isSkillsPath, issuesIn } from '../lib/skillIssues'
+import { isSkillsPath, issuesIn, issueText } from '../lib/skillIssues'
 import { navigateTo } from '../lib/nav'
 import { useT } from '../i18n'
 import { accessChanged, filesChanged, reloadAsked, skillsChanged } from '../store/live'
@@ -36,7 +36,7 @@ export function SkillIssues({ folder, className }: { folder?: string; className?
         {shown.map((i) => (
           <li key={`${i.problem}:${i.path}`} data-testid="skill-issue" data-problem={i.problem}>
             <button type="button" className="font-mono hover:underline" onClick={() => navigateTo(`/files?path=${encodeURIComponent(parentPath(i.path))}&select=${encodeURIComponent(i.path)}`)}>{i.path}</button>
-            {': '}{t(`skills.issues.${i.problem}`, { folder: parentPath(i.path).split('/').pop() ?? '' })}
+            {': '}{issueText(t, i)}
           </li>
         ))}
       </ul>

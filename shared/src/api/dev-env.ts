@@ -29,7 +29,9 @@ export type DevEnvConsent = z.infer<typeof DevEnvConsent>
 export const DevEnvNetwork = z.enum(['open', 'offline'])
 export type DevEnvNetwork = z.infer<typeof DevEnvNetwork>
 
-/** Per-box limits. Defaults from the P0 spike (docs/research/dev-env-p0-spike.md section 4). */
+/** Per-box limits. Defaults from the P0 spike (docs/research/dev-env-p0-spike.md section 4). diskGiB sizes only the box
+ * volume (node_modules, .venv, caches). /work is the team folder on the server's disk and has no size limit of its own:
+ * the box stops when the server disk comes under its floor (native/cmd/mycel-boxd/plan.go diskFloor). */
 export const DevEnvLimits = z.object({
   cpus: z.number().min(0.25).max(4).default(1),
   memoryMiB: z.number().int().min(256).max(8192).default(2560),
@@ -67,8 +69,18 @@ export const DevEnvBox = z.object({
   memoryMiB: z.number().nullable(),
   /** processes in the box besides its init and helpers: dev servers and watchers that earlier commands left */
   processes: z.array(DevEnvProcess),
+  /** a box that does not run: why boxd stopped it (disk, busy_max, idle, pids, exited), or null */
+  stopCode: z.string().nullable().optional(),
 })
 export type DevEnvBox = z.infer<typeof DevEnvBox>
+
+/** A long command that runs in the box (box_shell job): what the project page shows as progress. */
+export const DevEnvJob = z.object({
+  id: z.string(), name: z.string(), by: UserRef.nullable(), startedAt: IsoTime,
+  /** the last line of its log at the last poll, "" before the first */
+  lastLine: z.string(),
+})
+export type DevEnvJob = z.infer<typeof DevEnvJob>
 
 export const DevEnvProjectResponse = z.object({
   availability: DevEnvAvailability,
@@ -81,6 +93,8 @@ export const DevEnvProjectResponse = z.object({
   /** the project is on the team root: turning on creates a folder of its own under projects/ */
   needsFolder: z.boolean(),
   box: DevEnvBox.nullable(),
+  /** jobs that run now, for people who see the box; older servers omit it */
+  jobs: z.array(DevEnvJob).default([]),
 })
 export type DevEnvProjectResponse = z.infer<typeof DevEnvProjectResponse>
 

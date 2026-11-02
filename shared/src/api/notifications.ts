@@ -7,17 +7,25 @@ export type NotificationPreferences = z.infer<typeof NotificationPreferences>
 /** Events that can also go to OS push (push_deliveries refers to notification_inbox only). */
 export const PushEventType = z.enum(['schedule.success', 'schedule.failure', 'connection.reconnect'])
 export type PushEventType = z.infer<typeof PushEventType>
-/** Skill suggestion notices are inbox only (table skill_notices). */
-export const NotificationEventType = z.enum([...PushEventType.options, 'skill.suggested', 'skill.reviewed'])
+/** Skill suggestion notices are inbox only (table skill_notices), and so are dev environment notices (dev_env_notices). */
+export const NotificationEventType = z.enum([...PushEventType.options, 'skill.suggested', 'skill.reviewed', 'dev_env.job', 'dev_env.box'])
 export type NotificationEventType = z.infer<typeof NotificationEventType>
 export const InboxNotification = z.object({
   id: z.string(), eventType: NotificationEventType, sourceId: z.string(), code: NotificationEventType,
-  createdAt: z.string(), readAt: z.string().nullable(), chatId: z.string().nullable(), link: z.enum(['chat', 'connections', 'skills']).nullable(),
+  createdAt: z.string(), readAt: z.string().nullable(), chatId: z.string().nullable(), link: z.enum(['chat', 'connections', 'skills', 'project']).nullable(),
   /** scheduled runs only: succeeded / finished with problems / failed (the inbox text follows it; older servers omit it) */
   outcome: ScheduleRunOutcome.nullable().optional(),
   /** 'schedule.failure' only: scheduled tasks nobody confirmed were paused until their owner checks them again
    * (Settings › Scheduled tasks, "다시 확인"); older servers omit it */
   review: z.boolean().optional(),
+  /** 'dev_env.job' and 'dev_env.box' only, while the person can read the project folder, and 'dev_env.box' for an admin too.
+   * The text stays in the job's own row, not in the inbox. exitCode null: no exit code is known; note says why, in
+   * English, from boxd. stopCode: why the box stopped. */
+  devEnv: z.object({
+    projectId: z.string(), projectName: z.string(),
+    job: z.object({ name: z.string(), exitCode: z.number().int().nullable(), note: z.string(), tail: z.string() }).optional(),
+    stopCode: z.string().optional(),
+  }).optional(),
 })
 export type InboxNotification = z.infer<typeof InboxNotification>
 export const NOTIFICATIONS = {

@@ -16,3 +16,6 @@ func execIn(*request, <-chan struct{}) (map[string]any, error) { return nil, err
 func processes(string) ([]procInfo, error)                     { return nil, errLinux }
 func preview(string, int) (string, error)                      { return "", errLinux }
 func netlog(string) ([]string, error)                          { return nil, errLinux }
+func jobsOf(string) (map[string]any, error)                    { return nil, errLinux }
+func stopFor(string, chan struct{}, string, string) error      { return errLinux }
+func cpuUsec(string) (int64, bool)                             { return 0, false }

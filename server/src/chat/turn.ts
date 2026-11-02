@@ -51,7 +51,7 @@ import { audit as auditLog } from '../admin/audit'
 import { ANY_CONTENT, editedText, inSkills } from '../skills/guard'
 import { lineDiff } from '../skills/diff'
 import { st } from '../skills/text'
-import { parseSkill as parseSkillHeader, skillFileKind } from './skills'
+import { parseSkill as parseSkillHeader, skillFileKind, skillFileProblem } from './skills'
 import type { SkillWritePreview } from '@mycel/shared/api'
 import { issueProxyToken, revokeProxyTokens, type ProxyTurnEvent } from '../proxy/model-proxy'
 import { budgetBlock } from '../admin/budgets'
@@ -1161,7 +1161,8 @@ export class TurnExec {
     const d = after === null ? null : before === null ? null : lineDiff(r.exists ? before : '', after)
     const diff = d ? d.text : after === null ? st('producedFile', L, { format: String(a.format ?? '').toUpperCase() }) : st('whatFile', L)
     const what = skill ? st(r.exists ? 'whatSkill' : 'whatNewSkill', L, { name: skill.name }) : kind === 'rule' ? st(r.exists ? 'whatRule' : 'whatNewRule', L) : st('whatFile', L)
-    const preview: SkillWritePreview = { kind: 'skill_write', path: r.rel, isNew: !r.exists, skillName: skill?.name ?? null, diff, added: d?.added ?? 0, removed: d?.removed ?? 0, truncated: d?.truncated ?? false }
+    const problem = after !== null ? skillFileProblem(fs_.fx.root, r.rel, after) : null
+    const preview: SkillWritePreview = { kind: 'skill_write', path: r.rel, isNew: !r.exists, skillName: skill?.name ?? null, ...(problem ? { problem } : {}), diff, added: d?.added ?? 0, removed: d?.removed ?? 0, truncated: d?.truncated ?? false }
     const answer = await this.waitForPerson({
       kind: 'ask_user', origin: 'server', requestId: crypto.randomUUID(), question: st('confirm', L, { path: r.rel, what }),
       options: [{ label: st('save', L), value: 'save' }, { label: st('dont', L), value: 'skip' }], multiple: false, allowText: false, preview,

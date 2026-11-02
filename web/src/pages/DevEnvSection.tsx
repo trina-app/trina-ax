@@ -21,18 +21,30 @@ export function DevEnvSection({ project }: { project: Project }) {
   const [port, setPort] = useState('5173')
   const [busy, setBusy] = useState(false)
 
+  // a failed read keeps what the page shows: a server that restarts must not end the poll or close an open form
   const load = () =>
     api.call(API.devEnv, { params: { id: project.id } }).then(
       (x) => {
         setD(x)
-        api.call(API.devEnvActivity, { params: { id: project.id } }).then((r) => setActivity(r.items.slice(0, 15)), () => setActivity([]))
+        api.call(API.devEnvActivity, { params: { id: project.id } }).then((r) => setActivity(r.items.slice(0, 15)), () => {})
       },
-      (e) => (isApiError(e, 'not_found') ? setHidden(true) : setD(null)),
+      (e) => { if (isApiError(e, 'not_found')) setHidden(true) },
     )
   useEffect(() => {
+    setD(null)
+    setActivity([])
     void load()
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [project.id])
+  // a running job's last log line is its progress: the page follows it while one runs, and looks less often for a job
+  // that a chat starts while this page is open
+  const pollMs = hidden ? 0 : d?.jobs.length ? 10_000 : d?.setting.enabled && (d.mayUse || d.mayManage) ? 30_000 : 0
+  useEffect(() => {
+    if (!pollMs) return
+    const timer = setInterval(() => void load(), pollMs)
+    return () => clearInterval(timer)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pollMs, project.id])
   useEffect(() => {
     if (d?.mayManage) api.call(API.listGroups).then((r) => setGroups(r.items), () => setGroups([]))
   }, [d?.mayManage])
@@ -42,7 +54,7 @@ export function DevEnvSection({ project }: { project: Project }) {
   const fail = (e: unknown) => toast({ level: 'error', text: errorText(e, locale, t('error.network')) })
   const box = async (action: 'stop' | 'restart') => {
     setBusy(true)
-    try { setD(await api.call(API.devEnvBox, { params: { id: project.id }, body: { action } })) } catch (e) { fail(e) } finally { setBusy(false) }
+    try { setD(await api.call(API.devEnvBox, { params: { id: project.id }, body: { action } })) } catch (e) { fail(e); void load() } finally { setBusy(false) }
   }
   const preview = async () => {
     try {
@@ -82,6 +94,23 @@ export function DevEnvSection({ project }: { project: Project }) {
                 </span>
               )}
             </p>
+            {d.box.state !== 'running' && (d.box.stopCode === 'disk' || d.box.stopCode === 'busy_max') && (
+              <p className="rounded-lg border border-warn/40 bg-warn/10 p-2 text-xs" data-testid="dev-env-stop-reason">{t(`devEnv.stopped.${d.box.stopCode}`)}</p>
+            )}
+            {d.jobs.length > 0 && (
+              <div data-testid="dev-env-jobs">
+                <p className="mb-1 text-xs font-medium">{t('devEnv.jobs')}</p>
+                <ul className="space-y-0.5 text-xs">
+                  {d.jobs.map((j) => (
+                    <li key={j.id} className="flex gap-2">
+                      <span className="shrink-0 font-mono">{j.name}</span>
+                      <span className="shrink-0 text-faint">{formatRelative(j.startedAt, locale)}</span>
+                      <span className="min-w-0 truncate font-mono text-faint" title={j.lastLine}>{j.lastLine}</span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
             {d.box.processes.length > 0 && (
               <div>
                 <p className="mb-1 text-xs font-medium">{t('devEnv.processes')}</p>
@@ -161,6 +190,7 @@ function DevEnvForm({ project, d, groups, onClose, onSaved }: { project: Project
             <option value="offline">{t('devEnv.netOffline')}</option>
           </select>
         </Field>
+        <p className="text-xs text-faint">{t('devEnv.diskNote')}</p>
         {enabled && d.needsFolder && <p className="rounded-lg border border-warn/40 bg-warn/10 p-3 text-xs">{t('devEnv.needsFolder')}</p>}
         {needsWarning && (
           <div className="rounded-lg border border-warn/40 bg-warn/10 p-3">

@@ -16,6 +16,7 @@ import (
 	"os/user"
 	"path/filepath"
 	"runtime"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -327,6 +328,9 @@ func boxImage() (id, hash string, err error) {
 	if err != nil {
 		return "", "", fmt.Errorf("cannot read the box seccomp profile (scripts/dev-env/build-image.sh): %v", err)
 	}
+	if !fastAllocRefused(seccomp) {
+		log.Printf("the box seccomp profile allows fallocate or its ioctls, which can fill the disk before the watchdog sees it: run scripts/dev-env/build-image.sh")
+	}
 	return id, imageHash(id, seccomp), nil
 }
 
@@ -366,6 +370,11 @@ func ensure(r *request) (map[string]any, error) {
 	if runningCount(r.Box) >= *maxBoxes {
 		return nil, fmt.Errorf("another project box runs on this server; it stops after its idle time, or stop it from its project")
 	}
+	if free, total, err := diskSpace(); err == nil {
+		if why := diskStartRefused(free, total); why != "" {
+			return nil, errors.New(why)
+		}
+	}
 	if err := volume(p, r.Limits); err != nil {
 		return nil, fmt.Errorf("box volume: %v", err)
 	}
@@ -395,13 +404,18 @@ func ensure(r *request) (map[string]any, error) {
 	os.MkdirAll(p.Run, 0o700)
 	startConnLog(b, pid, p)
 	cg := cgroupDir(name)
+	watch := make(chan struct{})
 	boxes.Lock()
 	cgCache[r.Box] = cg
 	b.running = true
 	b.startedAt = time.Now()
 	b.lastActive = time.Now()
+	b.lastBusy = time.Time{}
+	b.cpuPrev, b.cpuAt = 0, time.Time{} // a new cgroup: its counter starts again
 	b.idle = time.Duration(r.Limits.IdleStopMin) * time.Minute
+	b.watch = watch
 	boxes.Unlock()
+	go watchBox(b, watch, cg)
 	log.Printf("started %s (%s)", r.Box, r.Network)
 	return infoOf(b, "running"), nil
 }
@@ -475,6 +489,10 @@ func stopLocked(b *box, p boxPaths, destroy bool) error {
 		delete(b.previews, port)
 	}
 	b.running = false
+	if b.watch != nil { // only a close: the watchdog itself can be the caller, so this must not wait for it
+		close(b.watch)
+		b.watch = nil
+	}
 	c := connLogs[b.id]
 	delete(connLogs, b.id)
 	boxes.Unlock()
@@ -488,6 +506,7 @@ func stopLocked(b *box, p boxPaths, destroy bool) error {
 			podmanOut("rm", "-f", name)
 		}
 	}
+	endJobs(b, p) // the last look at the logs: the volume goes next
 	// the folder is not reachable through boxd's paths while the box does not run
 	if mounted(p.Work) {
 		run("umount", p.Work)
@@ -503,6 +522,152 @@ func stopLocked(b *box, p boxPaths, destroy bool) error {
 	}
 	log.Printf("stopped %s (destroy %v)", b.id, destroy)
 	return err
+}
+
+// stopFor: stop a running box for a reason that people must see (the idle check). The check ran with no lock, so it is
+// done again here: a command that came since then is activity (execIn touches under b.mu), and watch refuses a later
+// start of the box.
+func stopFor(id string, watch chan struct{}, code, reason string) error {
+	b := boxOf(id)
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	boxes.Lock()
+	again := idleVerdict(time.Now(), b.lastActive, b.lastBusy, b.idle)
+	boxes.Unlock()
+	if again != code || !markStop(b, watch, code, reason) {
+		return nil
+	}
+	return stopLocked(b, pathsOf(*stateDir, *runDir, id), false)
+}
+
+// markStop records why the box stops, for the start that watch belongs to: a late watchdog does not touch the next
+// start of the box. The first reason stays: diskStop kills the box before it gets b.mu, and in that gap the idle check or
+// an exec can see the dead box. If their reason replaced "disk", nobody would hear of the disk floor.
+func markStop(b *box, watch chan struct{}, code, reason string) bool {
+	boxes.Lock()
+	defer boxes.Unlock()
+	if b.watch != watch || !b.running || stopKnown(b.stopCode, b.stoppedAt, b.startedAt) {
+		return false
+	}
+	b.stopCode, b.stopReason, b.stoppedAt = code, reason, time.Now()
+	return true
+}
+
+// diskSpace: free bytes for accounts that are not root, and the size of the disk of the team folder.
+func diskSpace() (free, total uint64, err error) {
+	var st unix.Statfs_t
+	if err := unix.Statfs(*teamRoot, &st); err != nil {
+		return 0, 0, err
+	}
+	size := uint64(st.Frsize)
+	if size == 0 {
+		size = uint64(st.Bsize)
+	}
+	return st.Bavail * size, uint64(st.Blocks) * size, nil
+}
+
+// watchBox runs for one start of one box and ends when the box stops. Only a statfs and a stat per poll, and no
+// podman: at 135 MB/s a slow poll goes far past the floor. A box in which a command ended the main process also ends
+// here, so status says stopped.
+func watchBox(b *box, watch chan struct{}, cg string) {
+	t := time.NewTicker(diskPoll)
+	defer t.Stop()
+	failed, seen := false, false
+	for {
+		select {
+		case <-watch:
+			return
+		case <-t.C:
+		}
+		free, total, err := diskSpace()
+		if err != nil {
+			if !failed {
+				log.Printf("box %s: cannot read the disk space: %v", b.id, err)
+			}
+			failed = true
+		} else {
+			failed = false
+			if diskLow(free, total) {
+				diskStop(b, watch, cg, diskStopReason(free, total))
+				return
+			}
+		}
+		if cg != "" {
+			_, err := os.Stat(filepath.Join(cg, "cgroup.procs"))
+			if seen && errors.Is(err, os.ErrNotExist) { // seen: a path that was never there says nothing about the box
+				autoStop(b, watch, stopExited, reasonExited)
+				return
+			}
+			seen = seen || err == nil
+		}
+	}
+}
+
+const reasonExited = "the main process of the box ended"
+
+// diskStop: at the floor every second counts, and `podman stop` gives the box stopGrace seconds to write on (about
+// 700 MB at 135 MB/s). So the kernel ends every process of the box first, and the usual stop then does the cleanup.
+func diskStop(b *box, watch chan struct{}, cg, reason string) {
+	if !markStop(b, watch, stopDisk, reason) { // before the kill: an exec that it ends finds the reason
+		return
+	}
+	log.Printf("box %s: stopped at the disk floor: %s", b.id, reason)
+	if cg != "" {
+		if err := os.WriteFile(filepath.Join(cg, "cgroup.kill"), []byte("1"), 0); err != nil {
+			log.Printf("box %s: cgroup.kill: %v", b.id, err)
+		}
+	}
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	boxes.Lock()
+	same := b.watch == watch
+	boxes.Unlock()
+	if same {
+		stopLocked(b, pathsOf(*stateDir, *runDir, b.id), false)
+	}
+}
+
+func autoStop(b *box, watch chan struct{}, code, reason string) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	if markStop(b, watch, code, reason) {
+		log.Printf("box %s: %s", b.id, reason)
+		stopLocked(b, pathsOf(*stateDir, *runDir, b.id), false)
+	}
+}
+
+// stopText: why boxd stopped this start of the box, or the default when it did not.
+func stopText(b *box, def string) string {
+	boxes.Lock()
+	defer boxes.Unlock()
+	if b.stopReason != "" && !b.stoppedAt.Before(b.startedAt) {
+		return b.stopReason
+	}
+	return def
+}
+
+// stoppedSince: the reason when boxd stopped the box after t, or "".
+func stoppedSince(b *box, t time.Time) string {
+	boxes.Lock()
+	defer boxes.Unlock()
+	if b.stopReason != "" && b.stoppedAt.After(t) {
+		return b.stopReason
+	}
+	return ""
+}
+
+func cpuUsec(id string) (int64, bool) {
+	boxes.Lock()
+	cg := cgroupDirCached(id)
+	boxes.Unlock()
+	if cg == "" {
+		return 0, false
+	}
+	st, err := os.ReadFile(filepath.Join(cg, "cpu.stat"))
+	if err != nil {
+		return 0, false
+	}
+	return cpuUsageUsec(string(st))
 }
 
 func cgroupDir(name string) string {
@@ -560,25 +725,46 @@ func execIn(r *request, stopped <-chan struct{}) (map[string]any, error) {
 		// a command can end the box's main process (`pkill sleep`, VM test 2026-10-31): the box then stopped by
 		// itself. Clean up and say so; the server's next ensure starts it again.
 		if st, err := inspect(name, "{{.State.Status}}"); err != nil || st != "running" {
+			markStop(b, b.watch, stopExited, reasonExited)
 			stopLocked(b, pathsOf(*stateDir, *runDir, r.Box), false)
 			running = false
 		}
 	}
+	if running {
+		b.touch() // under b.mu: the idle check does not stop the box under this command (stopFor)
+	}
+	if running && r.Background {
+		// a background command with the name of a job would write over the job's script and log
+		logName := r.LogName
+		if logName == "" {
+			logName = "background"
+		}
+		refreshJobs(b, pathsOf(*stateDir, *runDir, r.Box))
+		if j := b.jobs[logName]; j != nil && j.ended.IsZero() {
+			b.mu.Unlock()
+			return nil, fmt.Errorf("job %s still runs", logName)
+		}
+		if r.Job && !evictJobs(b.jobs) {
+			b.mu.Unlock()
+			return nil, fmt.Errorf("%d jobs run in this box; wait for one to end", maxJobs)
+		}
+	}
 	b.mu.Unlock()
 	if !running {
-		return nil, fmt.Errorf("box_stopped: the box does not run")
+		return nil, fmt.Errorf("box_stopped: %s", stopText(b, "the box does not run"))
 	}
 	cg := cgroupDir(name)
 	// at the process limit nothing can enter the box, not even this exec (VM test 2026-11-01). The box does not die, it
 	// waits: give processes a moment to end, then stop it with a reason. The server's next ensure starts it again.
 	if !pidsRoom(cg, pidsWait) {
+		const why = "the box stopped because it stayed at its process limit"
 		b.mu.Lock()
+		markStop(b, b.watch, stopPids, why)
 		stopLocked(b, pathsOf(*stateDir, *runDir, r.Box), false)
 		b.mu.Unlock()
 		log.Printf("box %s: stopped at its process limit", r.Box)
-		return nil, fmt.Errorf("box_stopped: the box stopped because it stayed at its process limit")
+		return nil, fmt.Errorf("box_stopped: %s", why)
 	}
-	b.touch()
 	defer b.touch()
 	oom0 := oomKills(cg)
 	timeout := time.Duration(r.TimeoutMs) * time.Millisecond
@@ -592,7 +778,11 @@ func execIn(r *request, stopped <-chan struct{}) (map[string]any, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), timeout+time.Duration(killGraceSec+10)*time.Second)
 	defer cancel()
 	c := podmanCmd(ctx, args...)
-	c.Stdin = strings.NewReader(execScript(r.Command, r.Background, r.LogName, "MYCEL_EOF_"+randHex(8)))
+	script := execScript(r.Command, r.Background, r.LogName, "MYCEL_EOF_"+randHex(8))
+	if r.Job {
+		script = jobScript(r.Command, r.LogName, "MYCEL_EOF_"+randHex(8))
+	}
+	c.Stdin = strings.NewReader(script)
 	so, se := &capBuf{max: outMax}, &capBuf{max: outMax}
 	c.Stdout, c.Stderr = so, se
 	start := time.Now()
@@ -614,6 +804,10 @@ func execIn(r *request, stopped <-chan struct{}) (map[string]any, error) {
 	if c.ProcessState != nil {
 		code = c.ProcessState.ExitCode()
 	}
+	reason := stoppedSince(b, start) // boxd ended the box under this command: that is why it ended, not its exit code
+	if signal == "" && reason != "" {
+		signal = "box_stopped"
+	}
 	if signal == "" {
 		if oomKills(cg) > oom0 {
 			signal = "oom"
@@ -625,8 +819,122 @@ func execIn(r *request, stopped <-chan struct{}) (map[string]any, error) {
 		}
 	}
 	_ = err
-	return map[string]any{"ev": "exit", "code": code, "signal": signal, "stdout": so.text(), "stderr": se.text(),
-		"truncated": so.dropped > 0 || se.dropped > 0, "ms": time.Since(start).Milliseconds()}, nil
+	ev := map[string]any{"ev": "exit", "code": code, "signal": signal, "stdout": so.text(), "stderr": se.text(),
+		"truncated": so.dropped > 0 || se.dropped > 0, "ms": time.Since(start).Milliseconds()}
+	if signal == "box_stopped" {
+		ev["reason"] = reason
+	}
+	if r.Job && code == 0 && signal == "" {
+		b.mu.Lock()
+		if b.running { // a stop after this exec ended leaves no job to look at
+			b.jobs[r.LogName] = &job{name: r.LogName, tag: tag, started: start}
+			ev["job"] = true
+		}
+		b.mu.Unlock()
+	}
+	return ev, nil
+}
+
+// liveTags: which of tags a process of the box has in its environment (as killTagged finds a command). The box can
+// make environments large, so each read has a cap. It stops when it found all of them.
+func liveTags(cg string, tags []string) map[string]bool {
+	found := map[string]bool{}
+	if cg == "" || len(tags) == 0 {
+		return found
+	}
+	buf := make([]byte, environMax)
+	for _, pid := range cgroupPids(cg) {
+		f, err := os.Open("/proc/" + strconv.Itoa(pid) + "/environ")
+		if err != nil {
+			continue
+		}
+		n, _ := io.ReadFull(f, buf)
+		f.Close()
+		for _, t := range tags {
+			if !found[t] && bytes.Contains(buf[:n], []byte("MYCEL_EXEC="+t+"\x00")) {
+				found[t] = true
+			}
+		}
+		if len(found) == len(tags) {
+			break
+		}
+	}
+	return found
+}
+
+const environMax = 256 << 10
+
+// refreshJobs reads the state of each open job. Caller holds b.mu and the box runs. Not an exec: an exec is activity.
+func refreshJobs(b *box, p boxPaths) {
+	var open []*job
+	var tags []string
+	for _, j := range b.jobs {
+		if j.ended.IsZero() {
+			open = append(open, j)
+			tags = append(tags, j.tag)
+		}
+	}
+	if len(open) == 0 {
+		return
+	}
+	boxes.Lock()
+	cg := cgroupDirCached(b.id)
+	boxes.Unlock()
+	alive := liveTags(cg, tags) // first: see jobEnded
+	for _, j := range open {
+		exit, err := readBoxFile(p.Vol, "cache/logs/"+j.name+".exit", exitFileMax, false)
+		ended, code := jobEnded(alive[j.tag], err == nil, exit)
+		readJobTail(j, p)
+		if ended {
+			j.code, j.ended = code, time.Now()
+		}
+	}
+}
+
+func readJobTail(j *job, p boxPaths) {
+	if b, err := readBoxFile(p.Vol, "cache/logs/"+j.name+".log", jobTailRead, true); err == nil {
+		j.tail = tailText(b, jobTailBytes, len(b) >= jobTailRead)
+	}
+}
+
+// endJobs: the box stopped, so each open job ended. Caller holds b.mu. The box may have written the exit file of a job
+// in its last moment. With no exit code, the job keeps why the box stopped.
+func endJobs(b *box, p boxPaths) {
+	why := stopText(b, "the box stopped")
+	now := time.Now()
+	vol := mounted(p.Vol)
+	for _, j := range b.jobs {
+		if !j.ended.IsZero() {
+			continue
+		}
+		if vol {
+			exit, err := readBoxFile(p.Vol, "cache/logs/"+j.name+".exit", exitFileMax, false)
+			_, j.code = jobEnded(false, err == nil, exit)
+			readJobTail(j, p)
+		}
+		j.ended = now
+		if j.code == nil {
+			j.why = why
+		}
+	}
+}
+
+// jobsOf: the "jobs" answer. Ended jobs stay until evictJobs needs the room, so a stopped box answers too. This must
+// not touch the box's activity time.
+func jobsOf(id string) (map[string]any, error) {
+	b := boxOf(id)
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	if b.running {
+		refreshJobs(b, pathsOf(*stateDir, *runDir, id))
+	}
+	now := time.Now()
+	list := make([]jobInfo, 0, len(b.jobs))
+	for _, j := range b.jobs {
+		list = append(list, j.info(now))
+	}
+	sort.Slice(list, func(i, k int) bool { return list[i].Name < list[k].Name })
+	return map[string]any{"ev": "jobs", "running": b.running, "jobs": list}, nil
 }
 
 func randHex(n int) string {
@@ -720,7 +1028,11 @@ func infoOf(b *box, state string) map[string]any {
 			}
 		}
 	}
-	return map[string]any{"box": b.id, "state": state, "startedAt": iso(b.startedAt), "lastActiveAt": iso(b.lastActive), "memoryMiB": mem}
+	info := map[string]any{"box": b.id, "state": state, "startedAt": iso(b.startedAt), "lastActiveAt": iso(b.lastActive), "memoryMiB": mem}
+	if b.stopCode != "" {
+		info["stopCode"], info["stopReason"], info["stoppedAt"] = b.stopCode, b.stopReason, iso(b.stoppedAt)
+	}
+	return info
 }
 
 var cgCache = map[string]string{}
@@ -735,16 +1047,18 @@ func statusEv() map[string]any {
 	list := []any{}
 	boxes.Lock()
 	ids := make([]*box, 0, len(boxes.m))
+	states := make([]string, 0, len(boxes.m))
 	for _, b := range boxes.m {
-		ids = append(ids, b)
-	}
-	boxes.Unlock()
-	for _, b := range ids {
 		state := "stopped"
 		if b.running {
 			state = "running"
 		}
-		list = append(list, infoOf(b, state))
+		ids = append(ids, b)
+		states = append(states, state)
+	}
+	boxes.Unlock()
+	for i, b := range ids {
+		list = append(list, infoOf(b, states[i]))
 	}
 	ev["boxes"] = list
 	return ev

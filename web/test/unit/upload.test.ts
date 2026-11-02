@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test'
-import { ApiClient, FileEntry, UPLOAD_CHUNK_SIZE, uuidv7, type UploadSession } from '@mycel/shared/api'
+import { ApiClient, FileEntry, UPLOAD_CHUNK_SIZE, uuidv7, type ApiError, type UploadSession } from '@mycel/shared/api'
 import { cancelUpload, fingerprint, REMEMBER_MAX, sha256Hex, uploadFile } from '../../src/lib/upload'
 
 const entry = (path: string): FileEntry => ({ name: path.split('/').pop()!, path, type: 'file', size: 1, mtime: new Date().toISOString(), mime: null, access: 'write' })
@@ -13,7 +13,7 @@ class MemStorage {
 }
 
 /** A tiny upload-session server: records calls, can fail chunk PUTs on purpose. */
-function fakeServer(o: { failChunk?: Set<number>; dropAfterStore?: Set<number> } = {}) {
+function fakeServer(o: { failChunk?: Set<number>; dropAfterStore?: Set<number>; refuseCreate?: { code: string; status: number }[] } = {}) {
   const calls: string[] = []
   const transcribeFields: Record<string, string>[] = []
   const sessions = new Map<string, UploadSession & { chunks: Map<number, number> }>()
@@ -32,6 +32,8 @@ function fakeServer(o: { failChunk?: Set<number>; dropAfterStore?: Set<number> }
       return json({ jobId: uuidv7() }, 202)
     }
     if (method === 'POST' && url.pathname === '/api/upload-sessions') {
+      const refused = o.refuseCreate?.shift()
+      if (refused) return json({ error: { code: refused.code, message: refused.code } }, refused.status)
       const b = JSON.parse(String(init!.body))
       const s = { id: uuidv7(), target: b.target, size: b.size, sha256: b.sha256, chunkSize: UPLOAD_CHUNK_SIZE, chunkCount: Math.ceil(b.size / UPLOAD_CHUNK_SIZE), received: [], expiresAt: new Date(Date.now() + 1e6).toISOString(), chunks: new Map() }
       sessions.set(s.id, s)
@@ -115,6 +117,17 @@ describe('uploads', () => {
     const puts = s.calls.filter((c) => c.startsWith('PUT'))
     expect(puts).toEqual([`PUT /api/upload-sessions/${id}/chunks/0`, `PUT /api/upload-sessions/${id}/chunks/1`, `PUT /api/upload-sessions/${id}/chunks/1`])
     expect(s.calls).toContain(`GET /api/upload-sessions/${id}`)
+  })
+
+  test('a 507 at session create ends the file at once, a 5xx there is retried', async () => {
+    const creates = (s: ReturnType<typeof fakeServer>) => s.calls.filter((c) => c === 'POST /api/upload-sessions').length
+    const full = fakeServer({ refuseCreate: [{ code: 'storage_full', status: 507 }] })
+    const refused = await uploadFile(bigFile(1), { kind: 'path', path: 'x/big.bin', onExists: 'rename' }, { client: full.client, storage: null, retryDelayMs: 0 }).catch((e: unknown) => e)
+    expect((refused as ApiError).code).toBe('storage_full')
+    expect(creates(full)).toBe(1)
+    const flaky = fakeServer({ refuseCreate: [{ code: 'internal', status: 500 }] })
+    await uploadFile(bigFile(1), { kind: 'path', path: 'x/big.bin', onExists: 'rename' }, { client: flaky.client, storage: null, retryDelayMs: 0 })
+    expect(creates(flaky)).toBe(2)
   })
 
   test('after a reload the same file continues the remembered session from the missing chunks', async () => {

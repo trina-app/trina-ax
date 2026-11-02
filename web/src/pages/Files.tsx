@@ -6,14 +6,16 @@
 // Drag and drop, like a file manager: a row dragged onto a folder row or a breadcrumb moves there (the selection when
 // that row is selected), with the selection's "move" rules and toast; computer files dropped on a folder row are
 // uploaded into it. The "move" action stays the keyboard way to do the same.
+// A whole folder goes up from the picker or a drop, with its subfolders (lib/folderUpload.ts, components/FolderUploads.tsx).
 import clsx from 'clsx'
-import { ArchiveRestore, BookmarkPlus, ChevronRight, Copy, Download, Eye, File as FileIcon, FileImage, FileSpreadsheet, FileText, Folder, FolderInput, FolderPlus, History, Home, Loader2, Lock, MessageSquarePlus, MoreHorizontal, Paperclip, Pencil, Presentation, Search, Sparkles, RefreshCw, Trash2, Upload, X, FileCode, FileArchive, FileAudio, FileVideo } from 'lucide-react'
+import { ArchiveRestore, BookmarkPlus, ChevronRight, Copy, Download, Eye, File as FileIcon, FileImage, FileSpreadsheet, FileText, Folder, FolderInput, FolderPlus, FolderUp, History, Home, Loader2, Lock, MessageSquarePlus, MoreHorizontal, Paperclip, Pencil, Presentation, Search, Sparkles, RefreshCw, Trash2, Upload, X, FileCode, FileArchive, FileAudio, FileVideo } from 'lucide-react'
 import { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import type { FileEntry, FileHistoryEvent, FileVersion, HistoryResponse, TrashItem, TreeResponse } from '@mycel/shared/api'
 import { api, API, errorText, fileUrl, isApiError, startDownload, versionDownloadUrl } from '../lib/api'
 import { canChange, canShare, chatDraggable, clickSelect, dragPayload, dragSet, dropRefusal, failureList, FILES_MOVE_DRAG_TYPE, moveMany, selectable, selectionState, shareMany, toggleAll, trashMany, type DropRefusal, type Outcome } from '../lib/bulkFiles'
 import { formatDateTime, formatSize } from '../lib/format'
+import { droppedEntries, planFromEntries, planFromInput, type FolderPlan } from '../lib/folderUpload'
 import { baseName, crumbs, isConflictCopy, isInside, joinPath, nameProblem, parentPath } from '../lib/paths'
 import { iconKind, previewKind, type FileIconKind } from '../lib/preview'
 import { openTeamFile } from '../lib/sidePanel'
@@ -25,6 +27,7 @@ import { accessChanged, filesChanged, reloadAsked } from '../store/live'
 import { toast } from '../store/ui'
 import { contentQueryReady, FileContentResults } from '../components/FileContentSearch'
 import FolderPicker from '../components/FolderPicker'
+import FolderUploads, { startFolderUpload, useFolderUploadsSettled } from '../components/FolderUploads'
 import SuggestSkillDialog from '../components/SuggestSkillDialog'
 import { SkillIssues } from '../components/SkillIssues'
 import { isSkillsPath } from '../lib/skillIssues'
@@ -44,6 +47,9 @@ interface UploadItem {
 }
 
 let uploadSeq = 0
+
+/** phones have no folder picker (the attribute can be there and do nothing); the button also hides on a small screen */
+const canPickFolder = typeof HTMLInputElement !== 'undefined' && 'webkitdirectory' in HTMLInputElement.prototype
 
 /** The folder (row or breadcrumb) under a drag: what a drop there would do, or why it would not. busy: a move is
  * still running. */
@@ -103,6 +109,7 @@ export default function Files() {
   const [moving, setMoving] = useState<FileEntry | null>(null)
   const [sharing, setSharing] = useState<FileEntry | null>(null)
   const fileInput = useRef<HTMLInputElement>(null)
+  const folderInput = useRef<HTMLInputElement>(null)
   // several items at once: the checked rows (paths), the row clicked last (Shift+click selects from it), the folder
   // picker open for them and the action running
   const [checked, setChecked] = useState<Set<string>>(() => new Set())
@@ -372,6 +379,29 @@ export default function Files() {
     }
   }
 
+  /** Upload a read folder into this folder, or into `into`, with the same check for write access as for a file. */
+  const startFolder = (plan: FolderPlan, into?: string) => {
+    if (into === undefined && tree && !canWrite) return toast({ level: 'warn', text: t('files.readOnlyFolder') })
+    if (!plan.files.length && !plan.folders.length && !plan.unreadable.length) return toast({ level: 'info', text: t('files.folderUpload.empty') })
+    startFolderUpload(plan, into ?? path, (view) => toast({ level: 'error', text: `${errText(view.refusal)} ${t('files.folderUpload.stopped', { n: view.waiting })}` }))
+  }
+
+  /** Computer files or folders dropped here. Only a folder takes the folder path: files go up one by one, as always. */
+  const dropUpload = (dt: DataTransfer, into?: string) => {
+    // read now: the browser empties both lists when the drop event ends. A folder is also in `files`, as a false file.
+    const entries = droppedEntries(dt)
+    const files = Array.from(dt.files)
+    if (!entries.some((e) => e.isDirectory)) return startUploads(files, into)
+    const release = markBusy('upload')
+    planFromEntries(entries).then((plan) => startFolder(plan, into), fail).finally(release)
+  }
+  // a folder upload ended (also one started before this page opened): the new files are listed
+  const folderUploadsSettled = useFolderUploadsSettled()
+  useEffect(() => {
+    if (folderUploadsSettled) void load()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [folderUploadsSettled])
+
   const mkdir = async () => {
     const name = await promptDialog({ title: t('files.newFolder'), label: t('files.folderName'), confirm: t('common.create'), validate: (v) => (nameProblem(v) ? t(`files.name.${nameProblem(v)!}`) : null) })
     if (!name) return
@@ -545,7 +575,7 @@ export default function Files() {
         setOver(null)
         setDrag(false)
         if (v.refusal) return
-        if (v.kind === 'upload') return startUploads(Array.from(ev.dataTransfer.files), target.path)
+        if (v.kind === 'upload') return dropUpload(ev.dataTransfer, target.path)
         const d = dragged.current
         endDrag()
         // the rows moved are this screen's own (the ref), never paths read from the drop. The drop must also carry
@@ -577,10 +607,11 @@ export default function Files() {
         if (e.currentTarget === e.target || !e.relatedTarget) setDrag(false)
       }}
       onDrop={(e) => {
-        if (!e.dataTransfer.files.length) return
+        // by type, not by the file list: the list of a dropped folder may be empty in some browsers
+        if (![...e.dataTransfer.types].includes('Files')) return
         e.preventDefault()
         setDrag(false)
-        if (view === 'files') startUploads(Array.from(e.dataTransfer.files))
+        if (view === 'files') dropUpload(e.dataTransfer)
       }}
     >
       <div className="flex flex-wrap items-center gap-2 border-b border-line px-4 py-3 sm:px-6">
@@ -618,6 +649,25 @@ export default function Files() {
             <Button size="sm" variant="ghost" onClick={mkdir} disabled={!canWrite} aria-label={t('files.newFolder')} title={t('files.newFolder')}>
               <FolderPlus size={15} aria-hidden /> <span className="max-sm:hidden">{t('files.newFolder')}</span>
             </Button>
+            {canPickFolder && (
+              <>
+                <Button size="sm" variant="ghost" className="max-sm:hidden" onClick={() => folderInput.current?.click()} disabled={!canWrite} data-testid="folder-upload-button">
+                  <FolderUp size={15} aria-hidden /> {t('files.uploadFolder')}
+                </Button>
+                <input
+                  ref={folderInput}
+                  type="file"
+                  hidden
+                  // not in React's types
+                  {...{ webkitdirectory: '' }}
+                  data-testid="folder-input"
+                  onChange={(e) => {
+                    startFolder(planFromInput(Array.from(e.target.files ?? [])))
+                    e.target.value = ''
+                  }}
+                />
+              </>
+            )}
             <Button size="sm" variant="primary" onClick={() => fileInput.current?.click()} disabled={!canWrite} data-testid="upload-button">
               <Upload size={15} aria-hidden /> {t('files.upload')}
             </Button>
@@ -675,6 +725,7 @@ export default function Files() {
           )}
           {isSkillsPath(path) && <SkillIssues folder={path} className="mx-4 mb-2 sm:mx-6" />}
           {uploads.length > 0 && <UploadList items={uploads} here={path} onDismiss={(id) => setUploads((u) => u.filter((x) => x.id !== id))} />}
+          <FolderUploads here={path} />
           {/* computer files over the list go to this folder; over a folder row, into that folder (the row shows it) */}
           <div className={clsx('scroll-thin relative min-h-0 flex-1 overflow-y-auto px-2 pb-6 sm:px-4', drag && !over && 'bg-accent-soft/40 ring-2 ring-accent ring-inset')}>
             {searching ? (

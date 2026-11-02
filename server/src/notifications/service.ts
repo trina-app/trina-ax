@@ -4,6 +4,7 @@ import type { AppContext } from '../context'
 import { newId } from '../db'
 import { HttpError } from '../http/errors'
 import { decodeCursor, encodeCursor } from '../chat/store'
+import { admins } from '../credentials/store'
 import { authorize } from '../policy/authorize'
 import { atLeast } from '../policy/access'
 import { readScope } from '../chat/read-scope'
@@ -20,10 +21,15 @@ const services = new WeakMap<AppContext, Notifications>()
 type Row = { id: string; user_id: string; event_type: NotificationEventType; source_id: string; created_at: string; read_at: string | null }
 type Terminal = { id: string; user_id: string; status: string; ended_at: string; run_outcome: string | null }
 export type SkillNoticeEvent = Extract<NotificationEventType, 'skill.suggested' | 'skill.reviewed'>
+export type DevEnvNoticeEvent = Extract<NotificationEventType, 'dev_env.job' | 'dev_env.box'>
 const isSkillEvent = (e: NotificationEventType): e is SkillNoticeEvent => e === 'skill.suggested' || e === 'skill.reviewed'
-/** One inbox over both tables: skill notices have their own table (migration 211, R2-SKILL-12). */
+const isDevEnvEvent = (e: NotificationEventType): e is DevEnvNoticeEvent => e === 'dev_env.job' || e === 'dev_env.box'
+const tableOf = (e: NotificationEventType) => isSkillEvent(e) ? 'skill_notices' : isDevEnvEvent(e) ? 'dev_env_notices' : 'notification_inbox'
+/** One inbox over the tables: skill notices (migration 211, R2-SKILL-12) and dev environment notices (migration 219) have
+ * their own tables, because notification_inbox has a fixed event_type CHECK list and tables are never rebuilt. */
 const INBOX = `(SELECT id,user_id,event_type,source_id,created_at,read_at,suppressed FROM notification_inbox
-  UNION ALL SELECT id,user_id,event_type,source_id,created_at,read_at,suppressed FROM skill_notices)`
+  UNION ALL SELECT id,user_id,event_type,source_id,created_at,read_at,suppressed FROM skill_notices
+  UNION ALL SELECT id,user_id,event_type,source_id,created_at,read_at,suppressed FROM dev_env_notices)`
 export class Notifications {
   constructor(readonly ctx: AppContext) {}
   private active(userId: string) { return !!this.ctx.db.query("SELECT 1 FROM users WHERE id=? AND status='active' AND deleted_at IS NULL").get(userId) }
@@ -37,14 +43,17 @@ export class Notifications {
   private record(userId: string, event: NotificationEventType, sourceId: string, at: string, always = false) {
     if (!this.active(userId) || at < this.cutoff()) return
     const enabled = always || eventEnabled(this.preferences(userId), event)
-    const table = isSkillEvent(event) ? 'skill_notices' : 'notification_inbox'
-    const r = this.ctx.db.query(`INSERT INTO ${table}(id,user_id,event_type,source_id,created_at,suppressed) VALUES(?,?,?,?,?,?) ON CONFLICT(user_id,event_type,source_id) DO NOTHING`)
+    const r = this.ctx.db.query(`INSERT INTO ${tableOf(event)}(id,user_id,event_type,source_id,created_at,suppressed) VALUES(?,?,?,?,?,?) ON CONFLICT(user_id,event_type,source_id) DO NOTHING`)
       .run(newId(), userId, event, sourceId, at, enabled ? 0 : 1)
     if (r.changes && enabled) this.signal(userId)
   }
   /** A skill suggestion to review, or the review result of an own suggestion. The source is the suggestion id only. */
   skillNotice(userId: string, event: SkillNoticeEvent, suggestionId: string, createdAt = new Date().toISOString()) {
     this.record(userId, event, suggestionId, createdAt)
+  }
+  /** A dev environment job ended, or boxd stopped a box. The source is the id of the job or the stop row only. */
+  devEnvNotice(userId: string, event: DevEnvNoticeEvent, sourceId: string, createdAt = new Date().toISOString()) {
+    this.record(userId, event, sourceId, createdAt)
   }
   afterTurn(turnId: string) {
     try {
@@ -63,6 +72,7 @@ export class Notifications {
     const db = this.ctx.db
     db.query('DELETE FROM notification_inbox WHERE created_at < ?').run(this.cutoff())
     db.query('DELETE FROM skill_notices WHERE created_at < ?').run(this.cutoff())
+    db.query('DELETE FROM dev_env_notices WHERE created_at < ?').run(this.cutoff())
     db.query('DELETE FROM schedule_outcomes WHERE created_at < ?').run(this.cutoff())
     const rows = db.query(`SELECT t.id,t.user_id,t.status,t.ended_at,t.run_outcome FROM turns t
       WHERE EXISTS(SELECT 1 FROM users u WHERE u.id=t.user_id AND u.status='active' AND u.deleted_at IS NULL)
@@ -98,12 +108,32 @@ export class Notifications {
     this.signal(userId)
     return result
   }
+  /** The job's text and the chat link only while the person can read the project folder now, as for a scheduled run. A
+   * stop notice has no log, and an admin must act on it, so an admin gets the project and the reason with no folder check;
+   * the link stays out, because that person cannot open the project. */
+  private devEnvOut(row: Row): InboxNotification {
+    const base = { id: row.id, eventType: row.event_type, sourceId: row.source_id, code: row.event_type, createdAt: row.created_at, readAt: row.read_at, chatId: null, link: null, outcome: null }
+    const db = this.ctx.db
+    const job = row.event_type === 'dev_env.job' ? db.query('SELECT project_id,name,chat_id,exit_code,end_note,log_tail FROM dev_env_jobs WHERE id=? AND user_id=?').get(row.source_id, row.user_id) as { project_id: string; name: string; chat_id: string | null; exit_code: number | null; end_note: string; log_tail: string } | null : null
+    const stop = row.event_type === 'dev_env.box' ? db.query('SELECT project_id,code FROM dev_env_stops WHERE id=?').get(row.source_id) as { project_id: string; code: string } | null : null
+    const projectId = job?.project_id ?? stop?.project_id
+    const project = projectId ? db.query('SELECT name,folder_path FROM projects WHERE id=?').get(projectId) as { name: string; folder_path: string } | null : null
+    if (!project) return base
+    const devEnv = { projectId: projectId!, projectName: project.name }
+    try { authorize(this.ctx.files.fx, this.ctx.files.rules(), this.ctx.files.principal(row.user_id), project.folder_path, 'read') } catch {
+      return stop && admins(db).includes(row.user_id) ? { ...base, devEnv: { ...devEnv, stopCode: stop.code } } : base
+    }
+    if (stop) return { ...base, link: 'project', devEnv: { ...devEnv, stopCode: stop.code } }
+    const chat = job!.chat_id ? db.query('SELECT id FROM chats WHERE id=? AND user_id=? AND deleted_at IS NULL').get(job!.chat_id, row.user_id) as { id: string } | null : null
+    return { ...base, chatId: chat?.id ?? null, link: chat ? 'chat' : 'project', devEnv: { ...devEnv, job: { name: job!.name, exitCode: job!.exit_code, note: job!.end_note, tail: job!.log_tail } } }
+  }
   private out(row: Row): InboxNotification {
     let chatId: string | null = null, outcome: ScheduleRunOutcome | null = null
     if (isSkillEvent(row.event_type)) {
       // The Skills screen checks access again when it opens the suggestion (?review= only when the viewer may review).
       return { id: row.id, eventType: row.event_type, sourceId: row.source_id, code: row.event_type, createdAt: row.created_at, readAt: row.read_at, chatId: null, link: 'skills', outcome: null }
     }
+    if (isDevEnvEvent(row.event_type)) return this.devEnvOut(row)
     if (row.event_type === 'schedule.failure' && row.source_id.startsWith(REVIEW_SOURCE)) {
       // paused tasks to check again: the schedules list, never a chat
       return { id: row.id, eventType: row.event_type, sourceId: row.source_id, code: row.event_type, createdAt: row.created_at, readAt: row.read_at, chatId: null, link: null, outcome: null, review: true }
@@ -164,7 +194,7 @@ export class Notifications {
     const db = this.ctx.db
     const args = [new Date().toISOString(), id, userId, this.cutoff()]
     const update = (table: string) => db.query(`UPDATE ${table} SET read_at=COALESCE(read_at,?) WHERE id=? AND user_id=? AND suppressed=0 AND created_at>=? RETURNING *`).get(...args) as Row | null
-    const r = update('notification_inbox') ?? update('skill_notices')
+    const r = update('notification_inbox') ?? update('skill_notices') ?? update('dev_env_notices')
     if (!r) throw new HttpError('not_found')
     this.signal(userId)
     return this.out(r)
@@ -185,6 +215,10 @@ export function installNotifications(ctx: AppContext) {
 export function notifySkillSuggestion(ctx: AppContext, userId: string, event: SkillNoticeEvent, suggestionId: string) {
   try { notificationsOf(ctx).skillNotice(userId, event, suggestionId) }
   catch { ctx.log.warn('skill notification recording failed') }
+}
+export function notifyDevEnv(ctx: AppContext, userId: string, event: DevEnvNoticeEvent, sourceId: string) {
+  try { notificationsOf(ctx).devEnvNotice(userId, event, sourceId) }
+  catch { ctx.log.warn('dev env notification recording failed') }
 }
 export function notifyConnectionReconnect(ctx: AppContext, userId: string, sourceId: string, createdAt?: string) {
   try { notificationsOf(ctx).connectionReconnect(userId, sourceId, createdAt) }

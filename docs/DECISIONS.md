@@ -5191,7 +5191,8 @@ the P0 spike (`docs/research/dev-env-p0-spike.md` on `spike/dev-env-p0`). Archiv
   below `--team-root` and mounted from that descriptor (idmapped server account → box account, nosuid, nodev). Host
   paths name the box id only. Rules (open: the spike's reject list plus the team server's addresses from
   `MYCEL_DEV_ENV_DENY_ADDRS`; offline: loopback only) load before any command, or the box stops. One running box per
-  server (`--max-running 1`, spike 4.4). Idle stop after 30 minutes without a command or preview connection. A boxd
+  server (`--max-running 1`, spike 4.4). Idle stop after 30 minutes without a command, a preview connection or CPU use
+  (CPU use since 2026-11-02). A boxd
   restart stops running boxes (fail closed).
 - **Hole 1, per-person credentials:** none in the box. No credential helper in this experiment; `git push`, `npm
   publish` and the like fail, and the tool description tells the AI to say so. The command text goes to the box on
@@ -5225,7 +5226,8 @@ the P0 spike (`docs/research/dev-env-p0-spike.md` on `spike/dev-env-p0`). Archiv
   counted and logged by the rules. Not yet joined into the server's audit.
 - **Web:** a "Dev environment" section on the project page (`web/src/pages/DevEnvSection.tsx`), hidden when the API is 404: state, box, running processes, stop / restart, a preview button with a port, the last activity; admins edit the setting and accept the warning in a dialog. Audit actions have words in five languages.
 - **Not in the experiment:** egress allowlist mode, credential helper, WebSocket preview, folder
-  size quota, hosted plans, macOS. Isolation and limits are tested only on the `dev-env-test` VM
+  size quota (a disk floor protects the server disk, see "Dev environment: disk floor, jobs, CPU as activity"), hosted
+  plans, macOS. Isolation and limits are tested only on the `dev-env-test` VM
   (`docs/research/dev-env-test-vm-plan.md`, `scripts/dev-env/vm-tests.sh`), never on a shared or team server.
 - Tests: `tests/unit/dev-env.test.ts` (flag, consent, scope and write access, admin API and audit, tool offered and
   refused, change window with versions and background changes, the credential card, the conflict copy, preview link
@@ -5242,7 +5244,7 @@ The box can render Remotion video in the current limits after a small image chan
 | Separate preview domain | Code ready; needs a wildcard host on another registrable domain and a proxy | Yes | No for rendering (the video is a file in the project folder). Yes for the Preview button: without the domain it stays off. |
 | Egress allowlist | Not built. An open box reaches the whole internet, but not private ranges, metadata or the team server | Yes | No, if the team accepts in writing that code in a box can send project files out. Use one project with no secrets. |
 | Credential helper | Not built. No credentials in the box; `git push` and `npm publish` fail | Yes | No. It removes a feature, not a protection. Public npm packages work. |
-| Folder quota | Not built. The 4 GiB volume does not cover `/work`: a command can fill the disk that holds the team folder | Yes | Yes on a server that other teams share. No on a VM for this team only, with a disk alert: the damage stays with that team, but a full disk can still stop its server. |
+| Folder quota | Not built, and not planned: the team file system has no project quota. The 4 GiB volume does not cover `/work`. Since 2026-11-02 a disk floor stops the box before the server disk fills (see "Dev environment: disk floor, jobs, CPU as activity"), but one project can still use all the space down to that floor | Yes | Yes on a server that other teams share. No on a VM for this team only, with a disk alert. |
 | WebSocket preview | Not built; the gateway answers 501 | Yes, for most dev servers | No. Vite falls back to reloads. Remotion Studio through the preview is not tested. |
 
 Two more items stopped the trial, and they were not in the table. Both are closed. The corrected flood and process
@@ -5265,6 +5267,109 @@ team root. When an admin turns dev mode on, or saves it again, the server create
 (a name clash takes the next name) and makes it the project folder (audit `dev_env.folder`). The folder has no rules of
 its own, so it inherits the access of the team root. Files on the team root do not move, and the AI of the project then
 works in the new folder: the form says so. If the folder cannot be made, turning on is refused and nothing changes.
+
+### Dev environment: disk floor, jobs, CPU as activity (feat/dev-env-video, 2026-11-02)
+
+The JDR team runs the dev environment on a server with 8 GB, 2 vCPU and no plan file, so the plan guard does not apply. A
+skill renders promo MP4s with ffmpeg through `box_shell`. Their notes: a runaway render can fill the server disk, and
+`box_shell` waits up to 1800 s with the chat waiting too. A test wrote 135 MB/s to the team disk.
+
+**Disk.** `diskGiB` sizes only the box volume. `/work` is the team folder on the server's disk, and the team file system
+has no project quota, so no per-project quota is built. The danger is a full server disk.
+
+- boxd runs one watchdog per running box, not per exec: a background render writes after `box_shell` returned. It reads
+  statfs of `--team-root` about every second, with no podman in the loop. A slower poll goes too far past the floor.
+- The floor is max(2 GiB, 5% of the disk) (`plan.go diskFloor`). Under it boxd records the reason, ends every process of
+  the box with `cgroup.kill`, and then does the usual stop. `podman stop` alone gives the box 5 s more, about 700 MB at the
+  measured speed.
+- `ensure` refuses while the free space is under the floor plus 1 GiB, with the reason in the error, so that a box does not
+  start just over the floor. `exec` answers `box_stopped: <reason>`. A command that the stop ended has the signal
+  `box_stopped`, not its exit code.
+- The floor and the 1 s poll assume that a box takes space at disk speed. `fallocate` takes it in much less than a second
+  and writes no data, so a box would pass the floor between two polls and the server would get ENOSPC first. The box
+  seccomp profile answers `fallocate` with EOPNOTSUPP (not EPERM): glibc `posix_fallocate` then falls back to writes, and
+  other tools go on with `write()`. `FS_IOC_RESVSP`, `FS_IOC_RESVSP64` and `FS_IOC_ZERO_RANGE` do the same as `fallocate`, so
+  the profile also refuses every ioctl of type `X`. An ERRNO rule next to a plain ALLOW does not work, so `ioctl` is allowed
+  by condition: 8 rules, one per bit of the type byte. The cost is that `FS_IOC_FSGETXATTR` and the XFS tools do not work in
+  a box. The profile is not in the kit, so this reaches a server when `build-image.sh` runs, and a box takes it at its next
+  start. boxd logs a line at each box start with an older profile. These rules have not run in a real box.
+- The server reads the stop from boxd's status (`stopCode`, `stopReason`, `stoppedAt`) and tells the people who may use the
+  box and the admins, once per stop (`dev_env_stops`, audit `dev_env.box_stopped`). It does this for the disk floor and the
+  CPU maximum. An idle stop is normal, so it stays quiet.
+- Before each command `box_shell` applies the rule of AI writes (`assertStorageRoomForAI`), so a team over its plan or near
+  a full disk gets the same refusal, with the text on how to free space. A command in the box then cannot free space, so
+  the text sends the AI to the file tools.
+
+**Jobs.** `background: true` stays the way to start a process and return at once, so a dev server makes no notice noise.
+`job: true` adds an exit status, a log and a notice.
+
+- The in-box wrapper writes the exit code to `/cache/logs/<name>.exit`, to a temporary name first. boxd reads that file and
+  the log tail from the box volume directly, because an exec counts as activity.
+- The box writes that volume and boxd is root. Each read goes through `readBoxFile` (`volread_linux.go`): openat2 with
+  `RESOLVE_NO_SYMLINKS | RESOLVE_BENEATH | RESOLVE_NO_XDEV`, `O_NONBLOCK` so a FIFO cannot hold boxd, fstat of the open
+  file for a regular file, and at most a fixed number of bytes with pread. An exit file counts only as a plain number from
+  0 to 255.
+- A job runs while a process of the box has its tag in its environment, or until its exit file appears. Without the tag a
+  killed wrapper looks like a job that never ends. boxd reads the tag first and the file second: in the other order a job
+  that ends between the two reads loses its exit code.
+- A stop unmounts the volume, so boxd reads each open job a last time before it unmounts and keeps the result in memory
+  (`jobs` op, also for a stopped box). A job with no exit code keeps why the box stopped. After a boxd restart nothing is
+  known, and the server ends the row with no exit code.
+- The server keeps jobs in `dev_env_jobs` (migration 219, additive), polls boxd every 10 s while one is open, and picks up
+  open rows after a restart. A job ends once: the update counts only the row that was open. The person who started it gets
+  a live notice with the exit code and the end of the log, an inbox entry with a link to the chat, and an audit line
+  (`dev_env.job`). The next `box_shell` call in the project gives the AI the result, once.
+- The inbox holds metadata only (`dev_env_notices`, its own table because `notification_inbox` has a fixed CHECK list and
+  tables are not rebuilt). The log stays in the job row, and the inbox shows it only while the person can read the project
+  folder. An admin who cannot read the folder still gets the project name and the reason of a box stop: such a notice has
+  no log, and the admin must act on it. There is no OS push for these notices. Log text goes through the person's redactor
+  before it is stored. The redactor knows whole values, so boxd cuts the tail at whole lines, the server cuts the last line
+  after it hides, and what can be the start of a value at the end of the text goes too. One line longer than 4 KiB stays in
+  part, and a value with a line break is cut like any other text.
+- Log text is text from the box, and the next `box_shell` call can be from another person. It goes to the AI in a section of
+  its own, with an end line that the box cannot know.
+- The wrapper's temporary exit file exists before the job starts, and the wrapper writes into it with no truncate, so a
+  log that filled the box volume does not lose the exit code. A script that cannot be written on a full volume does not run.
+- A plain background command with the name of a running job is refused: it would write over the job's script and log.
+- With no exit code, the notice and the inbox show why the job ended (`end_note`, boxd's text, in English).
+- **Out of scope:** the AI going on by itself when a job ends. A person must send the next message.
+- Compatibility: boxd and the server ship in one kit, and every new field is optional in both directions. An older boxd
+  ignores `job` and answers with no `job` field, so the server keeps no row and tells the AI that the job has no tracking. It
+  answers "unknown op" to `jobs`, so the server keeps the row, polls less, and ends the row after 7 days.
+
+**Idle stop.** It counted only commands and preview connections, so a background render died after `idleStopMin`. A box now
+also counts as active while its cgroup CPU use rises (`cpu.stat usage_usec`, read each minute). The decision is
+`plan.go idleVerdict`.
+
+- Threshold: 10% of one core. An idle dev server wakes only for timers and file watches, which we expect at about 1 to 2%
+  of a core and up to about 5% with a polling watcher. A render uses all of its limit, and the smallest limit is 0.25 CPU. A
+  share of the box's own limit is not used: at 0.25 CPU a share that a render passes easily is close to what an idle server
+  uses. These numbers are an estimate. `vm-tests.sh` prints the real number for an idle server, and that step has not run.
+- Hard maximum: CPU use keeps a box for at most 6 hours past the idle time after the last command or preview connection,
+  because an endless loop also uses CPU. Then the box stops with the code `busy_max`, and people are told.
+- A job that only waits uses no CPU, so it does not keep the box. A slow download can stop at the idle time.
+
+A box whose main process ended now also stops in boxd (the watchdog sees the cgroup go), so status says stopped, with the
+code `exited`.
+
+Tests: `native/cmd/mycel-boxd/plan_test.go` (each decision), `volread_linux_test.go` (links, a linked folder, a FIFO, the
+size cap; Linux only), `tests/unit/dev-env-jobs.test.ts` (the tracker with a fake boxd, the notice, the inbox, the AI's
+result, an older boxd, the stop notice, the storage rule). The steps with the real box are in `vm-tests.sh` (`JOBS=1`, with
+`LONG=1`) and have not run.
+
+## Folder upload on the file screen (feat/dev-env-video, 2026-11-02)
+
+A team copied 118 clips (1.9 GB) with tar over SSH. A customer needs a way with no SSH.
+
+- **No server change.** A session target can have subfolders, `createUploadSession` and `complete` both check access for each file, and the small upload does the same in `placeUpload`. The server makes one folder level per call, so the client makes the folders, parent first. `tests/unit/c-uploads.test.ts` holds these answers.
+- **Three files at a time.** A person has at most 10 open sessions, and a failed large file keeps its session for the resume. Closing the row drops those sessions: they count against the limit and hold storage for a day.
+- **A 409 from mkdir is not always "folder is there".** It is also a file of that name, or a name that differs only in case. The client reads the folder to know. If the read fails, the server's refusal goes to each file below, with no more requests.
+- **A folder of the same name is used, not renamed.** A person who uploads a folder a second time expects one folder. Files keep the single-file rule (`rename`), so that upload makes copies.
+- **The stop has two codes.** 507 comes from the storage rule. 413 comes from the real-disk check of session create, which keeps 1 GiB and runs after the storage rule, so a server with no plan file sees 413 first for large files. The client checks the file size first, so a 413 there is not about the file.
+- **507 no longer retries.** `retryable` took every status of 500 and more, so a large file waited about 15 seconds for an answer that does not change.
+- **Names go up in NFC.** macOS gives NFD, and the server keeps a new folder's name as sent. Only the file name is normalized in `placeUpload`.
+- **Links.** No browser API marks a link. From what we know of Chromium (not tested in a browser here), it leaves links out of a dropped folder, and the picker gives the content of the target. The client skips entries that are not a file or a folder and stops at 64 levels, the server's limit. The server writes file content only, so no link reaches the team folder.
+- **The runs live outside the page,** so an upload goes on when the person opens another page and the row is there when they come back. A closed tab ends the upload. The same folder picked again goes on from the remembered sessions and sends the finished files again as copies.
 
 ## Voice input in confidential chats (fix/batch-0218, 2026-11-01)
 

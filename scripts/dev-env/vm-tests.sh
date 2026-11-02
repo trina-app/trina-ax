@@ -1,7 +1,9 @@
 #!/bin/bash
 # Isolation and limit tests of mycel-boxd on the dev-env-test VM (after vm-setup.sh). Run as root ON THE TEST VM ONLY.
 #   scripts/dev-env/vm-tests.sh            (LONG=1 also waits for the idle stop, about 6 minutes;
-#                                           REMOTION=1 also installs Remotion and renders a video, about 2 minutes)
+#                                           REMOTION=1 also installs Remotion and renders a video, about 2 minutes;
+#                                           JOBS=1 also tests jobs, planted links and the disk floor, about 3 minutes;
+#                                           JOBS=1 LONG=1 also tests CPU as activity, about 20 minutes more)
 # Output: PASS/FAIL lines and numbers; save it as results/vm-<date>.txt.
 set -uo pipefail
 HERE=$(cd "$(dirname "$0")" && pwd)
@@ -115,6 +117,101 @@ ctl '{"op":"stop","box":"web"}' >/dev/null
 ens web projects/web open >/dev/null
 D="a box takes the new image at its next start"; ok test "$(pod inspect -f '{{.Image}}' mycel-box-web)" = "$img1"
 pod tag "$img0" localhost/mycel-devbox:1 # the built image goes back: the commit holds the state of this box
+
+# NOT YET RUN (written 2026-11-02, with no VM): every step in this block. The Go and bun tests cover the pure decisions
+# and the server with a fake boxd; only these steps show the real box, the real cgroup and the real disk.
+if [ "${JOBS:-0}" = 1 ]; then
+  job() { ctl "$(jq -nc --arg n "$1" --arg c "$2" '{op:"exec",box:"web",command:$c,timeoutMs:20000,background:true,job:true,logName:$n,actor:"vm"}')"; }
+  jobsj() { ctl '{"op":"jobs","box":"web"}'; }
+  jobq() { jobsj | jq -e --arg n "$1" ".jobs[] | select(.name==\$n) | $2" >/dev/null; }
+  statusq() { ctl '{"op":"status"}' | jq -e ".boxes[] | select(.box==\"web\") | $1" >/dev/null; }
+  export -f job jobsj jobq statusq
+  ens web projects/web open >/dev/null
+
+  echo "== jobs (NOT YET RUN)"
+  job exit7 'echo start; sleep 2; echo last-line; exit 7'
+  D="a job that runs shows as running"; ok jobq exit7 '.state=="running" and .code==null'
+  sleep 4
+  # the VM has no server, only boxctl as its stand-in: tests/unit/dev-env-jobs.test.ts covers the server after this answer
+  D="a job's exit reaches the server (stand-in)"; ok jobq exit7 '.state=="ended" and .code==7'
+  D="the jobs answer has the log tail and the last line"; ok jobq exit7 '.lastLine=="last-line" and (.tail | contains("start"))'
+  D="a job of a name that still runs is refused"; job twin 'sleep 20' >/dev/null; no job twin 'sleep 20'
+  x 'pkill -9 -f "/cache/run/twin.sh"; pkill -9 -f "^sleep 20$"; true' 10 >/dev/null 2>&1; sleep 1
+  D="a killed job ends with no exit code"; ok jobq twin '.state=="ended" and .code==null'
+  D="ffmpeg-style progress with carriage returns gives a last line"; job progress 'printf "frame=1\\rframe=2\\rframe=3\\r"' >/dev/null; sleep 2; ok jobq progress '.lastLine=="frame=3"'
+  a0=$(ctl '{"op":"status"}' | jq -r '.boxes[] | select(.box=="web") | .lastActiveAt'); sleep 2; jobsj >/dev/null
+  D="the jobs op is not activity"; ok statusq ".lastActiveAt == \"$a0\""
+
+  # boxd is root, the box writes the volume: a link must not make root read a host file. The canary is root's.
+  # after the existing `pkill sleep infinity` step boxd stops such a box by itself; here with no exec after it
+  x 'pkill -f "^sleep infinity$"; true' 10 >/dev/null 2>&1; sleep 3
+  D="status keeps working for a box that stopped by itself"; ok statusq '.state=="stopped" and .stopCode=="exited"'
+  ens web projects/web open >/dev/null
+
+  echo "== planted links (NOT YET RUN)"
+  C=/root/boxd-canary-$$; mkdir -p "$C"; echo "CANARY-$$" > "$C/planted.log"; echo 7 > "$C/planted.exit"; chmod 700 "$C"
+  job planted "HOST=$C"$'\n'"$(cat "$HERE/in-box/plant-links.sh")" >/dev/null
+  sleep 3 # phase 1: links at x.exit and x.log, to files of the host
+  r=$(jobsj); D="a link at x.exit and x.log does not reach a host file"; no grep -q "CANARY-$$" <<<"$r"
+  D="the job with a linked exit file still runs (no exit code read through the link)"; ok jobq planted '.state=="running"'
+  sleep 6 # phase 2: /cache/logs itself is a link to a host folder
+  r=$(jobsj); D="a linked logs folder does not reach a host file"; no grep -q "CANARY-$$" <<<"$r"
+  D="a linked logs folder gives no exit code"; ok jobq planted '.state=="running"'
+  sleep 6 # phase 3: a FIFO at x.exit
+  D="a FIFO at x.exit does not stop boxd"; ok timeout 5 runuser -u mycel -- python3 -I "$HERE/boxctl.py" "$S" '{"op":"jobs","box":"web"}'
+  D="boxd still answers after the FIFO"; ok timeout 5 runuser -u mycel -- python3 -I "$HERE/boxctl.py" "$S" '{"op":"status"}'
+  sleep 8; rm -rf "$C"
+
+  # Fill the team disk from a background job, not /cache: the box volume has its own limit. The box has no fallocate, so
+  # the host gets near the floor at once, and dd in the box then writes at disk speed, so the time from the floor to the
+  # stop is the real one.
+  echo "== disk floor (NOT YET RUN)"
+  F=$T/projects/web/fill.bin; P=$T/projects/web/fill-host.bin; trap 'rm -f "$F" "$P"' EXIT
+  D="fallocate is refused in the box (it takes space faster than the disk watchdog)"; no x 'fallocate -l 1M /work/fa.bin' 10
+  D="FS_IOC_RESVSP64 is refused in the box (it does what fallocate does)"; no x 'python3 -c "import fcntl, struct; f = open(\"/work/fa.bin\", \"wb\"); fcntl.ioctl(f, 0x4030582a, struct.pack(\"hhqqiI4i\", 0, 0, 0, 1 << 20, 0, 0, 0, 0, 0, 0))"' 10
+  D="other ioctls work in the box"; ok x 'python3 -c "import fcntl, os, termios; r, w = os.pipe(); fcntl.ioctl(r, termios.FIONREAD, bytes(4))"' 10
+  D="posix_fallocate in the box falls back to writes"; ok x 'python3 -c "import os; f = open(\"/work/fa.bin\", \"wb\"); os.posix_fallocate(f.fileno(), 0, 1 << 20)"; rm -f /work/fa.bin' 20
+  read -r avail size <<<"$(df -B1 --output=avail,size "$T" | tail -1)"
+  G=$((1<<30)); floor=$((size / 100 * 5)); [ "$floor" -lt $((2*G)) ] && floor=$((2*G))
+  fill=$((avail - floor - G)); echo "avail $avail size $size floor $floor fill first $fill"
+  if [ "$fill" -gt 0 ]; then
+    fallocate -l "$fill" "$P"
+    job fill "$(cat "$HERE/in-box/disk-fill.sh")" >/dev/null
+    t0=$(date +%s); for i in $(seq 1 180); do statusq '.state=="stopped"' && break; sleep 1; done; echo "stopped after $(( $(date +%s) - t0 )) s"
+    D="the box stops at the disk floor"; ok statusq '.state=="stopped" and .stopCode=="disk"'
+    D="status says how to free space"; ok statusq '.stopReason | contains("Free space")'
+    left=$(df -B1 --output=avail "$T" | tail -1 | tr -d ' '); echo "free after the stop: $left, floor $floor, past the floor: $((floor - left)) bytes"
+    D="the stop comes at most 500 MB past the floor"; ok test $((floor - left)) -le $((500 * 1024 * 1024))
+    D="the job of a stopped box shows why it ended"; ok jobq fill '.state=="ended" and .code==null and (.why | contains("server disk"))'
+    D="exec after the stop says box_stopped with the reason"; ok bash -c "runuser -u mycel -- python3 -I $HERE/boxctl.py $S exec web 'true' 10 2>&1 | grep -q 'box_stopped: the server disk'"
+    r=$(ens web projects/web open 2>&1); D="ensure refuses under the floor plus the margin, with the reason"; ok grep -q 'server disk' <<<"$r"
+    rm -f "$F" "$P"
+    D="ensure starts the box after the space is free"; ok ens web projects/web open
+  else
+    echo "SKIP disk floor: the disk is already near the floor"
+  fi
+  trap - EXIT
+
+  if [ "${LONG:-0}" = 1 ]; then
+    cgof() { echo "/sys/fs/cgroup$(pod inspect -f '{{.State.CgroupPath}}' mycel-box-web)"; }
+    echo "== CPU as activity (NOT YET RUN; idle time 5 minutes)"
+    ctl '{"op":"stop","box":"web"}' >/dev/null; ens web projects/web open >/dev/null
+    job render 'timeout 420 sh -c "while :; do :; done"; echo rendered' >/dev/null
+    sleep 400
+    D="a render longer than the idle time survives (no command for 6.5 minutes)"; ok statusq '.state=="running"'
+    sleep 40
+    D="its job ended by itself"; ok jobq render '.state=="ended" and .code==0'
+    sleep 460 # the idle check runs once a minute, so the last busy reading can come a minute after the render
+    D="after the render the box stops after its idle time"; ok statusq '.state=="stopped" and .stopCode=="idle"'
+    ens web projects/web open >/dev/null
+    ctl '{"op":"exec","box":"web","command":"python3 -m http.server 8000 --bind 127.0.0.1","timeoutMs":10000,"background":true,"logName":"idle-dev","actor":"vm"}' >/dev/null
+    sleep 30; cg=$(cgof); u0=$(awk '/^usage_usec/ {print $2}' "$cg/cpu.stat"); sleep 60; u1=$(awk '/^usage_usec/ {print $2}' "$cg/cpu.stat")
+    echo "idle dev server CPU: $(( (u1 - u0) / 600000 ))% of a core (the threshold is 10%)"
+    sleep 370
+    D="an idle dev server still stops"; ok statusq '.state=="stopped" and .stopCode=="idle"'
+    ens web projects/web open >/dev/null
+  fi
+fi
 
 echo "== offline"
 D="network change restarts the box offline"; ok ctl "{\"op\":\"ensure\",\"box\":\"web\",\"folder\":\"projects/web\",\"network\":\"offline\",\"limits\":$LIM,\"denyAddrs\":[]}"

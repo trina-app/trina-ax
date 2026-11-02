@@ -18,6 +18,7 @@ import { ApiErrorBody, ErrorCode, RelPath } from './common'
 import { BrowserCall, BrowserResult } from './browser'
 import { ArtifactSummary, ArtifactType, Chat, Job, JobKind, Memory, Message, MessageStatus, Step, UserRef } from './entities'
 import { CredentialLogin } from './credentials'
+import { SkillProblem } from './skills'
 
 export const WS_PATH = '/api/ws'
 export const WS_PING_INTERVAL_MS = 20_000
@@ -77,6 +78,8 @@ export const SkillWritePreview = z.object({
   isNew: z.boolean(),
   /** the skill's name from its header; null = a team rule (a .md without a header) or not Markdown */
   skillName: z.string().nullable(),
+  /** why this file does not load as a skill (the same codes as GET /api/skills/issues); absent: nothing to warn about */
+  problem: SkillProblem.optional(),
   /** "@@ … @@" unified diff of the text (a new file: every line added), or a one-line summary for other files */
   diff: z.string(),
   added: z.number().int().nonnegative(),

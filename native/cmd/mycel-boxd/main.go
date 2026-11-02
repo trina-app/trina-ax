@@ -36,6 +36,15 @@ type box struct {
 	idle       time.Duration
 	previews   map[int]net.Listener
 	running    bool
+	// the idle check (reaper)
+	lastBusy time.Time
+	cpuPrev  int64
+	cpuAt    time.Time
+	// why boxd stopped the box by itself; stays after the next start (status, the server keeps one notice per stop)
+	stopCode, stopReason string
+	stoppedAt            time.Time
+	watch                chan struct{} // closes at each stop: the end of this start's watchdog
+	jobs                 map[string]*job
 }
 
 var boxes = struct {
@@ -48,7 +57,7 @@ func boxOf(id string) *box {
 	defer boxes.Unlock()
 	b := boxes.m[id]
 	if b == nil {
-		b = &box{id: id, previews: map[int]net.Listener{}}
+		b = &box{id: id, previews: map[int]net.Listener{}, jobs: map[string]*job{}}
 		boxes.m[id] = b
 	}
 	return b
@@ -181,24 +190,51 @@ func serve(c *net.UnixConn) {
 			return
 		}
 		o.send(map[string]any{"ev": "netlog", "lines": lines})
+	case "jobs":
+		ev, err := jobsOf(req.Box)
+		if err != nil {
+			o.send(errEv(err))
+			return
+		}
+		o.send(ev)
 	}
 }
 
-// reaper stops boxes after their idle time (no command, no preview connection).
+// reaper stops boxes after their idle time: no command, no preview connection, and no CPU use (plan.go idleVerdict).
 func reaper() {
 	for range time.Tick(time.Minute) {
-		var idle []string
+		var running []*box
 		boxes.Lock()
-		for id, b := range boxes.m {
-			if b.running && b.idle > 0 && time.Since(b.lastActive) > b.idle {
-				idle = append(idle, id)
+		for _, b := range boxes.m {
+			if b.running {
+				running = append(running, b)
 			}
 		}
 		boxes.Unlock()
-		for _, id := range idle {
-			log.Printf("idle stop %s", id)
-			if err := stop(id, false); err != nil {
-				log.Printf("idle stop %s: %v", id, err)
+		for _, b := range running {
+			use, ok := cpuUsec(b.id) // reads a file: not under the lock
+			now := time.Now()
+			boxes.Lock()
+			if ok {
+				if !b.cpuAt.IsZero() && cpuBusy(b.cpuPrev, use, now.Sub(b.cpuAt)) {
+					b.lastBusy = now
+				}
+				b.cpuPrev, b.cpuAt = use, now
+			}
+			idle := b.idle
+			verdict := idleVerdict(now, b.lastActive, b.lastBusy, idle)
+			watch := b.watch
+			boxes.Unlock()
+			if verdict == "" {
+				continue
+			}
+			why := idleReason(idle)
+			if verdict == stopBusyMax {
+				why = busyMaxReason()
+			}
+			log.Printf("%s stop %s", verdict, b.id)
+			if err := stopFor(b.id, watch, verdict, why); err != nil {
+				log.Printf("%s stop %s: %v", verdict, b.id, err)
 			}
 		}
 	}

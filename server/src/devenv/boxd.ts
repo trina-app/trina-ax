@@ -2,7 +2,7 @@
 // runs podman itself: boxd owns every box. The socket path comes from MYCEL_BOXD_SOCK (the experiment has no
 // installer step yet); tests replace the whole client with setBoxdClient.
 import net from 'node:net'
-import { BoxdError, BoxdExit, BoxdNetlog, BoxdOk, BoxdPreview, BoxdPs, BoxdStatus, type BoxdRequest } from '@mycel/shared'
+import { BoxdError, BoxdExit, BoxdJobs, BoxdNetlog, BoxdOk, BoxdPreview, BoxdPs, BoxdStatus, type BoxdRequest } from '@mycel/shared'
 import { connectUnix } from '../system/sockets'
 
 export type BoxdResult<T> = { ok: true; value: T } | { ok: false; message: string }
@@ -17,6 +17,8 @@ export interface BoxdClient {
   preview(box: string, port: number): Promise<BoxdResult<import('zod').infer<typeof BoxdPreview>>>
   /** optional: new connections of the box (older helpers and fakes may not have it) */
   netlog?(box: string): Promise<BoxdResult<import('zod').infer<typeof BoxdNetlog>>>
+  /** optional: the tracked background commands of the box (older helpers answer "unknown op", fakes may not have it) */
+  jobs?(box: string): Promise<BoxdResult<import('zod').infer<typeof BoxdJobs>>>
 }
 
 /** One request, one reply line (the first line that parses); closing the connection stops an exec in boxd. */
@@ -64,6 +66,7 @@ export function socketBoxd(sock: string): BoxdClient {
     async ps(box) { return parse(await call(sock, { op: 'ps', box }, 10_000), BoxdPs) },
     async preview(box, port) { return parse(await call(sock, { op: 'preview', box, port }, 15_000), BoxdPreview) },
     async netlog(box) { return parse(await call(sock, { op: 'netlog', box }, 10_000), BoxdNetlog) },
+    async jobs(box) { return parse(await call(sock, { op: 'jobs', box }, 10_000), BoxdJobs) },
   }
 }
 

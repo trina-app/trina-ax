@@ -9,6 +9,7 @@ import { Globe, MessageCircleQuestion, ShieldAlert } from 'lucide-react'
 import { useEffect, useId, useState } from 'react'
 import { errorText } from '../../lib/api'
 import { forgetPicks, rememberPicks } from '../../lib/askAnswer'
+import { issueText } from '../../lib/skillIssues'
 import { useLocale, useT } from '../../i18n'
 import { useChats, type OpenRequest } from '../../store/chats'
 import type { ConfirmDetail, SkillWritePreview } from '@mycel/shared/api'
@@ -178,6 +179,7 @@ function SkillPreview({ p }: { p: SkillWritePreview }) {
         <p className="px-3 py-2 text-xs text-muted">{p.diff}</p>
       )}
       {p.truncated && <p className="border-t border-line px-3 py-1 text-[11px] text-faint">{t('ask.skillTruncated')}</p>}
+      {p.problem && <p className="border-t border-line bg-warn-soft px-3 py-1.5 text-xs text-warn" data-testid="skill-preview-problem">{issueText(t, { path: p.path, problem: p.problem })}</p>}
     </div>
   )
 }

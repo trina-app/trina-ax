@@ -4,6 +4,7 @@
 import fs from 'node:fs'
 import path from 'node:path'
 import { API, DEV_ENV_WARNING_VERSION, type DevEnvAvailability, type DevEnvBox, type DevEnvProjectResponse, type DevEnvActivity } from '@mycel/shared/api'
+import type { BoxdBoxInfo } from '@mycel/shared'
 import type { AppContext } from '../context'
 import type { RouteModule } from './module'
 import { fail } from '../http/errors'
@@ -15,6 +16,7 @@ import type { Principal } from '../policy/access'
 import { boxd } from '../devenv/boxd'
 import { devEnvFlag, devEnvInForce, devEnvSetting, mayUseBox, newConsent, saveDevEnvSetting } from '../devenv/setting'
 import { issuePreview, startPreviewGateway } from '../devenv/preview'
+import { runningJobs, startJobTracker } from '../devenv/jobs'
 
 const isAdmin = (p: Principal) => p.role === 'owner' || p.role === 'admin'
 
@@ -27,6 +29,11 @@ async function availability(): Promise<DevEnvAvailability> {
   return st.value.available ? { available: true } : { available: false, reason: 'platform', ...(st.value.reason ? { detail: st.value.reason.slice(0, 500) } : {}) }
 }
 
+/** Why this box does not run, when boxd stopped it. boxd keeps its last stop after the next start: a stop from before the
+ * last start is not why the box is stopped now (a person stopped it). startedAt null: boxd has no later start. */
+const stopOfThisStart = (b: BoxdBoxInfo) =>
+  b.state !== 'running' && b.stopCode && b.stoppedAt && (!b.startedAt || Date.parse(b.stoppedAt) >= Date.parse(b.startedAt)) ? b.stopCode : null
+
 async function boxState(projectId: string, withPs: boolean): Promise<DevEnvBox | null> {
   const c = boxd()
   if (!c) return null
@@ -35,7 +42,7 @@ async function boxState(projectId: string, withPs: boolean): Promise<DevEnvBox |
   const b = st.value.boxes.find((x) => x.box === projectId)
   if (!b) return { state: 'none', startedAt: null, lastActiveAt: null, memoryMiB: null, processes: [] }
   const ps = withPs && b.state === 'running' ? await c.ps(projectId) : null
-  return { state: b.state, startedAt: b.startedAt, lastActiveAt: b.lastActiveAt, memoryMiB: b.memoryMiB, processes: ps?.ok ? ps.value.processes : [] }
+  return { state: b.state, startedAt: b.startedAt, lastActiveAt: b.lastActiveAt, memoryMiB: b.memoryMiB, processes: ps?.ok ? ps.value.processes : [], stopCode: stopOfThisStart(b) }
 }
 
 /**
@@ -72,6 +79,8 @@ export const devEnvRoutes: RouteModule = {
     if (!devEnvFlag()) return
     const g = startPreviewGateway(ctx)
     if (g) ctx.onClose(() => g.stop())
+    const jobs = startJobTracker(ctx)
+    ctx.onClose(() => jobs.stop())
   },
   register(kit, ctx: AppContext) {
     const project = (id: string, userId: string) => {
@@ -87,6 +96,7 @@ export const devEnvRoutes: RouteModule = {
       return {
         availability: await availability(), setting: devEnvSetting(ctx.db, id), warningVersion: DEV_ENV_WARNING_VERSION,
         mayUse, mayManage: isAdmin(p), needsFolder: folderPath === '', box: await boxState(id, mayUse || isAdmin(p)),
+        jobs: mayUse || isAdmin(p) ? runningJobs(ctx.db, id) : [],
       }
     }
 
@@ -137,7 +147,9 @@ export const devEnvRoutes: RouteModule = {
       audit(ctx.db, { actor: p.id, action: body.action === 'stop' ? 'dev_env.stop' : 'dev_env.restart', target: ref.id, detail: r.ok ? null : { error: r.message.slice(0, 300) } })
       if (body.action === 'restart' && devEnvInForce(devEnvSetting(ctx.db, ref.id))) {
         const s = devEnvSetting(ctx.db, ref.id)
-        await c!.ensure({ box: ref.id, folder: ref.folderPath, network: s.network, limits: s.limits, denyAddrs: (process.env.MYCEL_DEV_ENV_DENY_ADDRS ?? '').split(',').map((x) => x.trim()).filter(Boolean) })
+        const up = await c!.ensure({ box: ref.id, folder: ref.folderPath, network: s.network, limits: s.limits, denyAddrs: (process.env.MYCEL_DEV_ENV_DENY_ADDRS ?? '').split(',').map((x) => x.trim()).filter(Boolean) })
+        // the box stopped and did not start: the person must see why (a nearly full disk, another box that runs)
+        if (!up.ok) fail('conflict', up.message.slice(0, 500), { params: { reason: 'dev_env_start' } })
       }
       return response(ref.id, ref.folderPath, p)
     })
@@ -162,7 +174,9 @@ export const devEnvRoutes: RouteModule = {
         ...audits.map((a) => {
           const d = parse(a.detail)
           const kind: DevEnvActivity['kind'] = a.action === 'dev_env.command' ? 'command' : a.action === 'dev_env.preview' ? 'preview' : 'box'
-          const text = kind === 'command' ? String(d?.command ?? '') : a.action.slice('dev_env.'.length)
+          const text = kind === 'command' ? String(d?.command ?? '')
+            : a.action === 'dev_env.job' ? `job ${String(d?.name ?? '')}: ${d?.code === null || d?.code === undefined ? 'no exit code' : `exit ${String(d.code)}`}`
+            : a.action.slice('dev_env.'.length)
           return { at: new Date(a.at).toISOString(), by: a.actor_id ? { id: a.actor_id, name: a.name ?? a.actor_id } : null, kind, text, detail: d }
         }),
         ...files.map((f) => ({ at: new Date(f.at.includes('T') ? f.at : f.at.replace(' ', 'T') + 'Z').toISOString(), by: { id: f.user_id, name: f.name ?? f.user_id }, kind: 'files' as const, text: `${f.action} ${f.path}`, detail: parse(f.detail) })),

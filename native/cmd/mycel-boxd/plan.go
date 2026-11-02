@@ -9,9 +9,22 @@
 //	{"op":"status"}                                     -> {"ev":"status","available","reason","checks","boxes"}
 //	{"op":"ensure","box","folder","network","limits"}  -> {"ev":"ok","box"}   make + start; rules load or the box stops
 //	{"op":"stop"|"destroy","box"}                       -> {"ev":"ok"}
-//	{"op":"exec","box","cwd","command","timeoutMs","background","logName","actor"} -> {"ev":"exit",...}
+//	{"op":"exec","box","cwd","command","timeoutMs","background","job","logName","actor"} -> {"ev":"exit",...}
 //	{"op":"ps","box"}                                   -> {"ev":"ps","processes"}
 //	{"op":"preview","box","port"}                       -> {"ev":"preview","socket"}
+//	{"op":"jobs","box"}                                 -> {"ev":"jobs","running","jobs"}
+//
+// A box in status also has stopCode, stopReason and stoppedAt after boxd stopped it by itself. An exec answer also has
+// job (the command runs as a tracked job) and reason (with the signal box_stopped). Every new field is optional, so an
+// older server ignores it, and a server that gets "unknown op" from an older boxd goes on without jobs.
+//
+// Disk: diskGiB sizes only the box volume. /work is the team folder on the server's disk, and the team file system has
+// no project quota, so one watchdog per running box stops the box when the server disk comes under diskFloor. It runs
+// per box and not per exec, because a background command writes after its exec returned.
+//
+// Jobs: exec with job true starts a background command in a wrapper that writes /cache/logs/<name>.exit. boxd reads that
+// file and the log from the box volume directly, because an exec counts as activity. The box writes that volume and
+// boxd is root, so each read refuses links and special files and caps the size (volread_linux.go).
 //
 // A box takes a new image or seccomp profile at its next start. A running box keeps running: a change must not kill a
 // running render. The image and profile are read at each ensure, so a rebuild needs no boxd restart. The exception: if
@@ -58,6 +71,7 @@ type request struct {
 	Command    string   `json:"command"`
 	TimeoutMs  int64    `json:"timeoutMs"`
 	Background bool     `json:"background"`
+	Job        bool     `json:"job"`
 	LogName    string   `json:"logName"`
 	Actor      string   `json:"actor"`
 	Port       int      `json:"port"`
@@ -74,6 +88,38 @@ const (
 	// a "4 GB" VM reports less than 4096 MiB (3.8 GB on the test server): the kernel keeps some for itself
 	minHostMiB = 3584
 	pidsWait   = 5 * time.Second
+
+	// a test wrote 135 MB/s to the team disk: at 1 s, about 135 MB goes past the floor before the watchdog sees it
+	diskPoll         = time.Second
+	diskFloorMin     = 2 << 30
+	diskFloorPercent = 5
+	// a box that starts just over the floor stops again at its first writes
+	diskStartMargin = 1 << 30
+	// EOPNOTSUPP: the box's answer to fallocate (scripts/dev-env/make-seccomp.py)
+	errnoNotSupported = 95
+
+	// CPU share of one core (10%) over the idle check that counts as activity. An idle dev server wakes only for timers
+	// and file watches, about 1 to 2% of a core, and up to about 5% with a polling watcher. A render uses all of its limit,
+	// and the smallest limit is 0.25 CPU, so a render is over this at every limit. A share of the box's own limit is not
+	// used: at 0.25 CPU, 10% of the limit is 2.5% of a core, which an idle dev server can reach.
+	cpuBusyShare = 0.10
+	// CPU use keeps a box for at most this time after the last command or preview connection: an endless loop also uses CPU
+	busyMax = 6 * time.Hour
+
+	maxJobs      = 32
+	exitFileMax  = 32
+	jobTailRead  = 16 << 10
+	jobTailBytes = 4 << 10
+	jobTailLines = 40
+)
+
+// why boxd stopped a box by itself (status: stopCode). The server tells people about stopDisk and stopBusyMax.
+const (
+	stopDisk    = "disk"
+	stopBusyMax = "busy_max"
+	stopIdle    = "idle"
+	stopPids    = "pids"
+	stopExited  = "exited"
 )
 
 // peerMay: the server may send every request. Root may only ask for status.
@@ -86,7 +132,7 @@ func checkRequest(r *request) error {
 	switch r.Op {
 	case "status":
 		return nil
-	case "ensure", "stop", "destroy", "exec", "ps", "preview", "netlog":
+	case "ensure", "stop", "destroy", "exec", "ps", "preview", "netlog", "jobs":
 	default:
 		return fmt.Errorf("unknown op")
 	}
@@ -128,6 +174,9 @@ func checkRequest(r *request) error {
 		}
 		if r.LogName != "" && !logNameRe.MatchString(r.LogName) {
 			return fmt.Errorf("bad log name")
+		}
+		if r.Job && (!r.Background || r.LogName == "") {
+			return fmt.Errorf("a job needs background and a log name")
 		}
 	case "preview":
 		if r.Port < 1024 || r.Port > 65535 {
@@ -263,9 +312,261 @@ func execScript(cmd string, background bool, logName, delim string) string {
 	if logName == "" {
 		logName = "background"
 	}
-	return "mkdir -p /cache/logs /cache/run\ncat > /cache/run/" + logName + ".sh <<'" + delim + "'\n" + cmd + "\n" + delim + "\n" +
+	return "mkdir -p /cache/logs /cache/run\ncat > /cache/run/" + logName + ".sh <<'" + delim + "' || exit 1\n" + cmd + "\n" + delim + "\n" +
 		"setsid nohup /bin/bash -l /cache/run/" + logName + ".sh > /cache/logs/" + logName + ".log 2>&1 < /dev/null &\n" +
 		"echo \"started pid $! (log /cache/logs/" + logName + ".log)\"\n"
+}
+
+// jobScript: what bash reads on stdin for a job. As a background command, plus a wrapper that writes the exit code. The
+// wrapper writes to a temporary name and renames it, so boxd never reads half a file. An exit file from an earlier job
+// of this name goes first, or it reads as the end of this job. The temporary file exists before the job starts and the
+// wrapper writes into it with no truncate, so a log that filled the box volume does not lose the exit code. On a full
+// volume a script that cannot be written does not run: half a script is worse than none.
+func jobScript(cmd, name, delim string) string {
+	log, exit := "/cache/logs/"+name+".log", "/cache/logs/"+name+".exit"
+	return "mkdir -p /cache/logs /cache/run\ncat > /cache/run/" + name + ".sh <<'" + delim + "' || exit 1\n" + cmd + "\n" + delim + "\n" +
+		"rm -f " + exit + " " + exit + ".tmp\n" +
+		"printf '   \\n' > " + exit + ".tmp || exit 1\n" +
+		"setsid nohup /bin/bash -c '/bin/bash -l /cache/run/" + name + ".sh; printf \"%3d\\n\" $? 1<> " + exit + ".tmp; mv -f " + exit + ".tmp " + exit + "' > " + log + " 2>&1 < /dev/null &\n" +
+		"echo \"started pid $! (log " + log + ")\"\n"
+}
+
+// fastAllocRefused: does this seccomp profile close the calls that take disk space faster than the watchdog polls
+// (make-seccomp.py): fallocate answers EOPNOTSUPP and ioctl has no plain ALLOW (FS_IOC_RESVSP)? An older profile has
+// neither. The profile is not in the kit.
+func fastAllocRefused(profile []byte) bool {
+	var p struct {
+		Syscalls []struct {
+			Names    []string `json:"names"`
+			Action   string   `json:"action"`
+			ErrnoRet int      `json:"errnoRet"`
+			Args     []any    `json:"args"`
+		} `json:"syscalls"`
+	}
+	if json.Unmarshal(profile, &p) != nil {
+		return false
+	}
+	refused := false
+	for _, s := range p.Syscalls {
+		for _, n := range s.Names {
+			if n == "fallocate" {
+				if s.Action != "SCMP_ACT_ERRNO" || s.ErrnoRet != errnoNotSupported {
+					return false
+				}
+				refused = true
+			}
+			if n == "ioctl" && len(s.Args) == 0 {
+				return false
+			}
+		}
+	}
+	return refused
+}
+
+// diskFloor: the free space under which a box stops, max(2 GiB, 5% of the disk).
+func diskFloor(total uint64) uint64 {
+	if f := total / 100 * diskFloorPercent; f > diskFloorMin {
+		return f
+	}
+	return diskFloorMin
+}
+
+// diskLow: from statfs of the team root. 0 = not known: the box stays.
+func diskLow(free, total uint64) bool { return total > 0 && free < diskFloor(total) }
+
+const freeSpaceHint = "Free space: empty the trash or delete files. An admin sees the details in Admin > System"
+
+func gib(n uint64) float64 { return float64(n) / (1 << 30) }
+
+// diskStartRefused: why a box must not start now, or "". The margin keeps a box from starting just over the floor.
+func diskStartRefused(free, total uint64) string {
+	if need := diskFloor(total) + diskStartMargin; total > 0 && free < need {
+		return fmt.Sprintf("the server disk has only %.1f GiB free and a box needs %.1f GiB free to start. %s", gib(free), gib(need), freeSpaceHint)
+	}
+	return ""
+}
+
+func diskStopReason(free, total uint64) string {
+	return fmt.Sprintf("the server disk has only %.1f GiB free, under the %.1f GiB that it must keep. %s", gib(free), gib(diskFloor(total)), freeSpaceHint)
+}
+
+// cpuUsageUsec: usage_usec from a cgroup cpu.stat.
+func cpuUsageUsec(stat string) (int64, bool) {
+	for _, l := range strings.Split(stat, "\n") {
+		if f := strings.Fields(l); len(f) == 2 && f[0] == "usage_usec" {
+			n, err := strconv.ParseInt(f[1], 10, 64)
+			return n, err == nil
+		}
+	}
+	return 0, false
+}
+
+// cpuBusy: did the box use more than cpuBusyShare of one core between two readings of usage_usec? False when the
+// counter went back: that is a new cgroup, not a reading of this one.
+func cpuBusy(prev, cur int64, elapsed time.Duration) bool {
+	if elapsed <= 0 || cur < prev {
+		return false
+	}
+	return float64(cur-prev)/float64(elapsed.Microseconds()) >= cpuBusyShare
+}
+
+// idleVerdict: why a running box must stop now, or "". lastActive: the last command or preview connection. lastBusy:
+// the last check with CPU use over cpuBusyShare. CPU use counts as activity, so a render survives its idle time and an
+// idle dev server does not. It counts only for busyMax after the idle time, because an endless loop also uses CPU.
+func idleVerdict(now, lastActive, lastBusy time.Time, idle time.Duration) string {
+	if idle <= 0 {
+		return ""
+	}
+	last := lastActive
+	if lastBusy.After(last) {
+		last = lastBusy
+	}
+	if now.Sub(last) > idle {
+		return stopIdle
+	}
+	if now.Sub(lastActive) > idle+busyMax {
+		return stopBusyMax
+	}
+	return ""
+}
+
+// stopKnown: this start of the box already has a reason for its stop.
+func stopKnown(code string, stoppedAt, startedAt time.Time) bool {
+	return code != "" && !stoppedAt.Before(startedAt)
+}
+
+func idleReason(idle time.Duration) string {
+	return fmt.Sprintf("the box stopped after %d minutes with no activity", int(idle/time.Minute))
+}
+
+func busyMaxReason() string {
+	return fmt.Sprintf("the box stopped because it used CPU for %d hours with no command (this limit stops an endless loop)", int(busyMax/time.Hour))
+}
+
+// job: one tracked background command of a box. tag: the MYCEL_EXEC value of its processes (while one lives, it runs).
+type job struct {
+	name, tag string
+	started   time.Time
+	ended     time.Time
+	code      *int
+	tail      string
+	why       string
+}
+
+// jobInfo: one job in the "jobs" answer. code: null while it runs, and when no exit code is known.
+type jobInfo struct {
+	Name     string `json:"name"`
+	State    string `json:"state"`
+	Code     *int   `json:"code"`
+	Seconds  int64  `json:"seconds"`
+	Tail     string `json:"tail"`
+	LastLine string `json:"lastLine"`
+	Why      string `json:"why,omitempty"`
+}
+
+func (j *job) info(now time.Time) jobInfo {
+	state, end := "running", now
+	if !j.ended.IsZero() {
+		state, end = "ended", j.ended
+	}
+	return jobInfo{Name: j.name, State: state, Code: j.code, Seconds: int64(end.Sub(j.started) / time.Second), Tail: j.tail, LastLine: lastLine(j.tail), Why: j.why}
+}
+
+// parseExit: the content of an exit file. The box writes this file, so only a plain number from 0 to 255 counts.
+func parseExit(b []byte) (int, bool) {
+	s := strings.TrimSpace(string(b))
+	if len(s) == 0 || len(s) > 3 {
+		return 0, false
+	}
+	for _, c := range s {
+		if c < '0' || c > '9' {
+			return 0, false
+		}
+	}
+	n, _ := strconv.Atoi(s)
+	return n, n <= 255
+}
+
+// jobEnded: from what boxd read, in this order: is a process of the job alive, then the exit file. In the other order a
+// job that ends between the two reads shows no exit code. An exit file ends a job, also when a process it left runs on.
+// With no exit file and no process, something killed the wrapper: the job ended and no exit code is known.
+func jobEnded(alive, exitFound bool, exit []byte) (ended bool, code *int) {
+	if exitFound {
+		if n, ok := parseExit(exit); ok {
+			return true, &n
+		}
+		return true, nil
+	}
+	return !alive, nil
+}
+
+var ansiRe = regexp.MustCompile("\x1b\\[[0-9;?]*[ -/]*[@-~]")
+
+// tailText: the end of a log as text a person can read: lines from \r too (ffmpeg writes its progress with \r), no
+// escape codes or other control bytes, valid UTF-8, at most max bytes and jobTailLines lines. cut: the bytes start
+// inside the file, so the first line may be a part of a line. A cut by size also drops the part of a line: the server
+// hides stored secrets by whole value, so a piece of a value must not reach it. Only one line longer than max stays in part.
+func tailText(b []byte, max int, cut bool) string {
+	s := strings.ToValidUTF8(string(b), "")
+	s = ansiRe.ReplaceAllString(s, "")
+	s = strings.ReplaceAll(strings.ReplaceAll(s, "\r\n", "\n"), "\r", "\n")
+	s = strings.Map(func(r rune) rune {
+		if r < 0x20 && r != '\n' && r != '\t' || r == 0x7f {
+			return -1
+		}
+		return r
+	}, s)
+	s = strings.TrimRight(s, " \t\n")
+	if cut {
+		if i := strings.IndexByte(s, '\n'); i >= 0 {
+			s = s[i+1:]
+		}
+	}
+	lines := strings.Split(s, "\n")
+	if len(lines) > jobTailLines {
+		lines = lines[len(lines)-jobTailLines:]
+	}
+	s = strings.Join(lines, "\n")
+	if len(s) > max {
+		s = s[len(s)-max:]
+		if i := strings.IndexByte(s, '\n'); i >= 0 {
+			s = s[i+1:]
+		}
+		for len(s) > 0 && !utf8.RuneStart(s[0]) {
+			s = s[1:]
+		}
+	}
+	return s
+}
+
+// lastLine: the last line with text of a tail, the progress line of a running job. The whole line: the server shortens it
+// after it hides stored secrets.
+func lastLine(tail string) string {
+	ls := strings.Split(tail, "\n")
+	for i := len(ls) - 1; i >= 0; i-- {
+		if l := strings.TrimSpace(ls[i]); l != "" {
+			return l
+		}
+	}
+	return ""
+}
+
+// evictJobs: make room for one more job. The oldest ended jobs go first, and a job that runs stays. False: all maxJobs
+// run. An old result goes only when the server had time to read it (it polls every few seconds).
+func evictJobs(m map[string]*job) bool {
+	for len(m) >= maxJobs {
+		var old *job
+		for _, j := range m {
+			if !j.ended.IsZero() && (old == nil || j.ended.Before(old.ended)) {
+				old = j
+			}
+		}
+		if old == nil {
+			return false
+		}
+		delete(m, old.name)
+	}
+	return true
 }
 
 // denyElem: one address of the team server for the reject sets (IPv4 or IPv6, a single address or a CIDR).

@@ -32,6 +32,14 @@ Text/Markdown and supported Office/PDF extraction and generation depend on insta
 
 Desktop and phone browsers work; a Windows installer is published. Mac office ZIP is a server bundle, not a released desktop DMG. Native mobile source is not an app-store release. This source supports EN/KO/ID/JA/ES throughout the app; check published builds’ release notes for availability.
 
+## How do we get large media into a project?
+
+Upload it in the web app. Open the project folder in Files, then use "Upload folder" or drop the folder on the page. Subfolders stay. Three files go up at a time, up to 20 GB per file. A large file goes on from the chunks that the server has after a dropped connection. No SSH is necessary. Open the app in a computer browser for this: phones cannot pick a folder.
+
+Keep the page open until the row shows that the upload is done. If a file fails, the others go on, and "Try again" sends the failed ones. If the storage or the server disk has no room, the upload stops and says so. Free space, then use "Try again". A web page cannot tell a link from a file, so the picker can send the content of a linked file. Remove links first if that is a problem. Files with the same name get a new name, so a second upload of the same folder makes copies.
+
+Connected folders and Google Drive do not fill a project folder. A connected folder is a read-only copy of a server folder at `connected/<name>`, with a limit of 100 MB per file. Google Drive gives the AI read access to a person's Drive. It does not put files in a project folder.
+
 ## Do updates and backups exist?
 
 [Latest release](https://github.com/trina-app/trina-ax/releases/latest) is the version source of truth. The Trina update feed serves signed Linux and office updates at `https://updates.trina.app`. Review release notes and back up first. App rollback is not data rollback. [Backup/restore](BACKUP-RESTORE.md).

@@ -165,6 +165,13 @@ export function parseSkill(text: string, rel?: string): { name: string; descript
   return r.ok ? { name: r.name, description: r.description, body: r.body } : null
 }
 
+/** The problem of an entry that looks like a skill: a SKILL.md, or another file with a header. null: it loads, or it
+ * is a team rule. */
+function loadProblem(text: string, rel: string): SkillProblem | null {
+  const check = checkSkill(text, rel)
+  return !check.ok && (isSkillManifest(rel) || hasFrontmatter(text)) ? check.problem : null
+}
+
 /** Even an invalid or unreadable manifest reserves its folder: resource files must not become separate skills.
  * This checks names only, never reads a manifest that the caller cannot access. */
 function isSkillResource(root: string, rel: string): boolean {
@@ -184,6 +191,33 @@ export function skillFileKind(root: string, rel: string, text: string): 'skill' 
   if (!rel.endsWith('.md') || isSkillResource(root, rel)) return 'other'
   if (parseSkill(text, rel)) return 'skill'
   return isSkillManifest(rel) || hasFrontmatter(text) ? 'other' : 'rule'
+}
+
+/** Why `text` does not load at `rel` (R2-SKILL-03), for a save: the confirmation card and the AI's write result. null
+ * for a file that loads, a team rule, a resource file and every path outside the skill roots: a project folder can
+ * hold a SKILL.md for another tool, so a check there gives false alarms. */
+export function skillFileProblem(root: string, rel: string, text: string): SkillProblem | null {
+  if (!rel.endsWith('.md') || skillRootLength(rel.split('/')) === null || isSkillResource(root, rel)) return null
+  return loadProblem(text, rel)
+}
+
+/** One line for the AI after it saved a skill file that does not load, so it can tell the person and fix the file.
+ * Empty when the file is not a problem. Tool results are in English; the screens use the codes. */
+export function skillWriteNote(root: string, rel: string, data: Buffer): string {
+  const problem = skillFileProblem(root, rel, data.toString('utf8'))
+  if (!problem) return ''
+  const how: Record<SkillProblem, string> = {
+    too_large: `the file is larger than ${SKILL_FILE_MAX_BYTES / 1024} KB`,
+    header: 'the header between the --- lines is broken',
+    location: `SKILL.md must be in its own folder inside the skill folder, at most ${MAX_DEPTH} levels down`,
+    name: isSkillManifest(rel)
+      ? `the name must have only lowercase a to z, 0 to 9 and hyphens, at most ${SKILL_NAME_MAX} characters, and be the same as the folder name; if the folder name has other characters, change the folder name too`
+      : `the name must be present, at most ${LEGACY_NAME_MAX} characters, with no /`,
+    name_folder: 'the name must be the same as the folder name',
+    description: `the description must be present, at most ${DESCRIPTION_MAX} characters`,
+    compatibility: 'the compatibility value must not be empty, at most 500 characters',
+  }
+  return `\nWarning: this skill file does not load, so nobody can use it as a skill: ${how[problem]}. Tell the user, and fix the file if they want this skill.`
 }
 
 /** Read exactly one authorized entry using the same link/size checks as the file tools. A personal entry is a skill
@@ -302,8 +336,8 @@ export function skillIssues(files: FileService, user: Principal, o: { rules?: { 
       if (!r.st?.isFile()) return
       if (r.st.size > SKILL_FILE_MAX_BYTES) { out.push({ path: r.rel, problem: 'too_large' }); return }
       const text = readRegular(r.abs, SKILL_FILE_MAX_BYTES).bytes.toString('utf8')
-      const check = checkSkill(text, r.rel)
-      if (!check.ok && (isSkillManifest(r.rel) || hasFrontmatter(text))) out.push({ path: r.rel, problem: check.problem })
+      const problem = loadProblem(text, r.rel)
+      if (problem) out.push({ path: r.rel, problem })
     } catch { /* not readable: say nothing */ }
   })
   const manager = managedSkillRoots(files, user).length > 0

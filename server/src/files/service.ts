@@ -23,6 +23,7 @@ import type { SourceLoc } from '@mycel/shared/api'
 import { atomicWrite, conflictCopyName, fileEvent, moveToTrash, readRegular, recordConflictCopy, saveVersion, sha256 } from './store'
 import { newId } from '../db'
 import { consumeSkillApproval, editedText, requireSkillApproval } from '../skills/guard'
+import { skillWriteNote } from '../chat/skills'
 import { cpuBudget, currentPlan, readMaxBytes } from '../system/limits'
 import { assertStorageRoomForAI } from '../system/storage'
 import type { McpContent } from '../turns'
@@ -1121,7 +1122,8 @@ export class FileService {
     seen.set(r.rel, sha256(data))
     ctx.files.bytesWritten += data.length
     ctx.files.filesWritten.add(r.rel)
-    return { text: `${r.exists ? 'Updated' : 'Created'} ${r.rel} (${human(data.length)})`, summary: `${tool} ${r.rel} -> ${r.exists ? 'update' : 'create'} ${data.length}B` }
+    const note = tool === 'write' ? skillWriteNote(this.fx.root, r.rel, data) : ''
+    return { text: `${r.exists ? 'Updated' : 'Created'} ${r.rel} (${human(data.length)})${note}`, summary: `${tool} ${r.rel} -> ${r.exists ? 'update' : 'create'} ${data.length}B` }
   }
 
   edit(ctx: ToolCtx, a: { file_path: string; old_string: string; new_string: string; replace_all?: boolean }): ToolOutput {
@@ -1154,7 +1156,7 @@ export class FileService {
     this.changed(ctx, r.rel, 'update')
     ctx.files.readHashes.set(r.rel, sha256(data))
     ctx.files.bytesWritten += data.length
-    return { text: `Edited ${r.rel} (${a.replace_all ? n : 1} replacement${(a.replace_all ? n : 1) > 1 ? 's' : ''})`, summary: `edit ${r.rel} -> ${a.replace_all ? n : 1} replacements` }
+    return { text: `Edited ${r.rel} (${a.replace_all ? n : 1} replacement${(a.replace_all ? n : 1) > 1 ? 's' : ''})${skillWriteNote(this.fx.root, r.rel, data)}`, summary: `edit ${r.rel} -> ${a.replace_all ? n : 1} replacements` }
   }
 
   /** 'changed' event { path, action, userId, turnId } for live file-screen updates (component C publishes files.changed) */

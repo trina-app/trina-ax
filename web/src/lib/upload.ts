@@ -55,7 +55,8 @@ export async function sha256Hex(blob: Blob, onProgress?: (done: number) => void,
   return h.digest('hex')
 }
 
-const retryable = (e: unknown) => !(e instanceof ApiError) || e.status >= 500 || e.code === 'rate_limited' || e.code === 'unavailable'
+// 507 storage_full is an answer, not a server fault: a person must free space first, so it ends the file at once
+const retryable = (e: unknown) => !(e instanceof ApiError) || (e.status >= 500 && e.code !== 'storage_full') || e.code === 'rate_limited' || e.code === 'unavailable'
 const sleep = (ms: number, signal?: AbortSignal) =>
   new Promise<void>((resolve, reject) => {
     const t = setTimeout(resolve, ms)

@@ -23,6 +23,31 @@ const create = (target: unknown, data: Uint8Array, as: 'alice' | 'bob' = 'alice'
 const chunk = (d: Uint8Array, n: number) => d.subarray(n * UPLOAD_CHUNK_SIZE, (n + 1) * UPLOAD_CHUNK_SIZE)
 
 describe('upload sessions', () => {
+  // web/src/lib/folderUpload.ts depends on these answers
+  test('a folder upload: folders one level at a time, a target with subfolders, the access check for each file', async () => {
+    const mkdir = (p: string) => A.json('/api/files/mkdir', { ...jsonBody({ path: p }), as: 'alice' })
+    expect((await mkdir('shared/up/raw')).status).toBe(404)
+    expect((await mkdir('shared/up')).status).toBe(201)
+    expect((await mkdir('shared/up/raw')).status).toBe(201)
+    expect((await mkdir('shared/up')).status).toBe(409)
+    const data = blob(UPLOAD_CHUNK_SIZE + 10)
+    const target = { kind: 'path', path: 'shared/up/raw/a.bin', onExists: 'rename' }
+    const s = await create(target, data)
+    expect(s.status).toBe(201)
+    await put(s.body.id, 0, chunk(data, 0))
+    await put(s.body.id, 1, chunk(data, 1))
+    expect((await A.json(`/api/upload-sessions/${s.body.id}/complete`, { method: 'POST', as: 'alice' })).body.entry.path).toBe('shared/up/raw/a.bin')
+    const again = await create(target, data)
+    await put(again.body.id, 0, chunk(data, 0))
+    await put(again.body.id, 1, chunk(data, 1))
+    expect((await A.json(`/api/upload-sessions/${again.body.id}/complete`, { method: 'POST', as: 'alice' })).body.entry.path).not.toBe('shared/up/raw/a.bin')
+    // no write access: the same answer for a folder and for a file below it, chunked or small
+    const denied = (await mkdir('groups/finance/up')).status
+    expect(denied).toBeGreaterThanOrEqual(403)
+    expect(denied).toBeLessThanOrEqual(404)
+    expect((await create({ kind: 'path', path: 'groups/finance/a.bin', onExists: 'rename' }, data)).status).toBe(denied)
+  })
+
   test('out-of-order chunks, resume from GET, re-sent chunk is a no-op, complete places the file', async () => {
     const data = blob(2 * UPLOAD_CHUNK_SIZE + 12345)
     expect((await create({ kind: 'path', path: 'shared/big/video.bin' }, data)).status).toBe(404) // the folder must exist
