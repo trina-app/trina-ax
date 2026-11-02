@@ -26,9 +26,9 @@ let projectId = ''
 const turnOn = (scope: { mode: 'writers' | 'selected'; groupIds: string[]; userIds: string[] } = { mode: 'writers', groupIds: [], userIds: [] }) =>
   savePcSetting(h.ctx.db, projectId, { enabled: true, scope, consent: newPcConsent({ id: 'carol', name: 'Carol Park' }) })
 
-/** the desktop app: answer pc.call frames with a scripted result */
+/** the desktop app: answer pc.call frames with a scripted result. Only calls that arrive from now on: `frames` keeps the calls of the earlier tests too. */
 function serve(sock: TestSocket, answer: (call: { callId: string; tool: string; args: Record<string, unknown>; project: { id: string; name: string } }) => unknown) {
-  const done = new Set<string>()
+  const done = new Set(sock.frames.flatMap((f) => f.type === 'pc.call' ? [f.data.call.callId] : []))
   const timer = setInterval(() => {
     for (const f of sock.frames) {
       if (f.type !== 'pc.call' || done.has(f.data.call.callId)) continue
@@ -39,6 +39,20 @@ function serve(sock: TestSocket, answer: (call: { callId: string; tool: string; 
     }
   }, 20)
   return () => clearInterval(timer)
+}
+/** the engine takes its own time to reach a tool call: wait for the thing, not for a guess of how long it takes */
+async function until<T>(get: () => T, ms = 15_000): Promise<NonNullable<T>> {
+  for (const end = Date.now() + ms; ; await Bun.sleep(20)) {
+    const v = get()
+    if (v) return v as NonNullable<T>
+    if (Date.now() > end) throw new Error('timed out waiting')
+  }
+}
+/** the server handles a socket's frames in order: when the pong is back, it has handled all that was sent before the ping */
+async function handled(sock: TestSocket) {
+  const t = Math.random()
+  sock.send({ type: 'ping', t })
+  await sock.next('pong', (f) => f.t === t, 20_000)
 }
 const okText = (callId: string, text: string, more: object = {}) => ({ callId, ok: true, content: [{ type: 'text', text }], approval: 'once', ...more })
 const deskApi = () => h.api('alice', { window: DESK, client: 'desktop' })
@@ -171,10 +185,9 @@ describe('a call', () => {
     try {
       const chat = await deskApi().call(API.createChat, { body: { projectId } })
       const r = await deskApi().call(API.sendMessage, { params: { id: chat.id }, body: { content: fake({ tool: 'pc_read', args: { file_path: 'a' }, sayResult: true }), clientMessageId: cm(), attachmentIds: [] } })
-      await Bun.sleep(150)
-      expect(id).not.toBe('')
+      await until(() => id)
       bob.send({ type: 'pc.result', result: okText(id, 'FORGED BY BOB') })
-      await Bun.sleep(100)
+      await handled(bob) // the forgery has met the open call: on a busy machine it could arrive after the real result and prove nothing
       desk.send({ type: 'pc.result', result: okText(id, 'from the app') })
       const d = await desk.next('message.done', (f) => f.data.messageId === r.assistantMessage.id, 20_000)
       expect(d.data.message.content).toContain('from the app')
@@ -199,17 +212,15 @@ describe('a call', () => {
     try {
       const chat = await deskApi().call(API.createChat, { body: { projectId } })
       const r = await deskApi().call(API.sendMessage, { params: { id: chat.id }, body: { content: fake({ tool: 'pc_shell', args: { command: 'echo x' }, sayResult: true }), clientMessageId: cm(), attachmentIds: [] } })
-      await Bun.sleep(150)
-      const exec = [...(h.rt() as unknown as { running: Map<string, { id: string; waitingForPerson: boolean }> }).running.values()].find((e) => e.id === r.turnId)!
+      await until(() => id)
+      const exec = await until(() => [...(h.rt() as unknown as { running: Map<string, { id: string; waitingForPerson: boolean }> }).running.values()].find((e) => e.id === r.turnId))
       expect(exec.waitingForPerson).toBe(false)
       desk.send({ type: 'pc.waiting', callId: id, waiting: true })
-      await Bun.sleep(80)
-      expect(exec.waitingForPerson).toBe(true)
+      await until(() => exec.waitingForPerson)
       desk.send({ type: 'pc.waiting', callId: id, waiting: false })
-      await Bun.sleep(80)
-      expect(exec.waitingForPerson).toBe(false)
+      await until(() => !exec.waitingForPerson)
       desk.send({ type: 'pc.waiting', callId: id, waiting: true })
-      await Bun.sleep(80)
+      await until(() => exec.waitingForPerson)
       // a result while it still says "waiting" ends the wait as well
       desk.send({ type: 'pc.result', result: okText(id, 'done') })
       await desk.next('message.done', (f) => f.data.messageId === r.assistantMessage.id, 20_000)
@@ -222,7 +233,7 @@ describe('a call', () => {
     try {
       const chat = await deskApi().call(API.createChat, { body: { projectId } })
       const r = await deskApi().call(API.sendMessage, { params: { id: chat.id }, body: { content: fake({ tool: 'pc_shell', args: { command: 'sleep 100' } }), clientMessageId: cm(), attachmentIds: [] } })
-      await Bun.sleep(150)
+      await until(() => id)
       await deskApi().call(API.stop, { params: { id: chat.id } })
       const c = await desk.next('pc.cancel', (f) => f.data.callId === id, 5000)
       expect(c.data.windowId).toBe(DESK)
@@ -238,7 +249,7 @@ describe('a call', () => {
     const call = await page.next('pc.call', () => true, 5000)
     const id = call.data.call.callId
     page.send({ type: 'pc.ack', callId: id })
-    await Bun.sleep(50)
+    await handled(page) // acked for certain: an acked call is the case that has to come back
     page.close()
     const again = await h.ws('alice', { windowId: 'win-pc-reload', client: 'desktop' })
     const replay = await again.next('pc.call', (f) => f.data.call.callId === id, 5000)

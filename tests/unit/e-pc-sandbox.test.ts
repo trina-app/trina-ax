@@ -1,7 +1,7 @@
 // Component E: the macOS jail of the PC runner, under the real sandbox-exec (docs/DECISIONS.md "PC runner"): what a command
 // can use (the dev tools), and what it cannot reach. A test here is a real attempt to get out, so each one looks at the
 // effect: the file that was not read, the file that was not written. macOS only.
-import { afterAll, beforeAll, describe, expect, test } from 'bun:test'
+import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from 'bun:test'
 import { spawnSync } from 'node:child_process'
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
 import { homedir, tmpdir } from 'node:os'
@@ -9,6 +9,9 @@ import { join } from 'node:path'
 import { commandEnv } from '../../desktop/src/common/pc-run'
 import { ancestors, sandboxProfile, sbString, secretFileRegex, toolFolders, type PcGrants } from '../../desktop/src/common/pc-sandbox'
 
+// Nearly every test here starts several real tools. git and python3 can go through the xcrun shims of macOS, which can take
+// seconds on a busy machine, and open, osascript and launchctl wait for services the jail refuses.
+setDefaultTimeout(30_000)
 const mac = process.platform === 'darwin' && existsSync('/usr/bin/sandbox-exec')
 const PATH = '/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin'
 const NO: PcGrants = { login: false, secretFiles: false }
