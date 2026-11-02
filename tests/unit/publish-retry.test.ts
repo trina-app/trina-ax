@@ -10,7 +10,7 @@ import os from 'node:os'
 import path from 'node:path'
 import zlib from 'node:zlib'
 import { OFFICE_PRODUCT, signRelease, type OfficeRelease } from '../../server/src/office/release'
-import { BUCKET, CfError, Cloudflare, openBucket, type Bucket } from '../../scripts/release/cloudflare'
+import { BUCKET, CfError, Cloudflare, listReport, openBucket, type Bucket } from '../../scripts/release/cloudflare'
 import { cloudflareStore } from '../../scripts/release/publish-server'
 import { alreadyPublished, publishToFeed, type Artifact } from '../../scripts/release/publish'
 import { ABSENT_READS, CONFIRM_READS, compareRemote, feedReader, publicKeyOfPem, remoteBytes, remoteHash, remoteSize, RETRY_TRIES, steadyFetch, thereAnyway, TransientError, type RemoteFile } from '../../scripts/release/sign'
@@ -607,6 +607,70 @@ describe('the Cloudflare API', () => {
     await expect(no(() => Response.json({ success: true }))).rejects.toBeInstanceOf(CfError)
     await expect(no(() => Response.json({ success: false, result: [] }))).rejects.toBeInstanceOf(CfError)
     await expect(no(listed([], true))).rejects.toThrow(/cut off/)
+  })
+
+  test('hasObject: an entry without a key stops: it may be the object, so it cannot mean "not there"', async () => {
+    const entries = (result: unknown[]) => () => Response.json({ success: true, errors: [], messages: [], result, result_info: { is_truncated: false } })
+    for (const result of [[{ size: 1, etag: 'e' }], [{ key: `${key}.sig` }, { size: 1 }], [{ key }, {}], [{ key: 5 }], [null]]) {
+      await expect(new FakeCloudflare([entries(result)]).hasObject('acct', key)).rejects.toThrow(/an entry of the list has no key/)
+    }
+    // the whole way: a head an old version must not replace, in a list that does not name it
+    const { feed, older, head } = betaAhead()
+    feed.fail('office/beta.json', 404)
+    const cf = new FakeCloudflare([entries([{ size: head.length }])])
+    await expect(run(feed, older, { ifNewer: true, bucket: { ...feed.the, holds: (k) => cf.hasObject('acct', k) } })).rejects.toThrow(/has no key/)
+    expect(feed.puts).toEqual([])
+    expect(feed.bucket.get('office/beta.json')!.equals(head)).toBe(true)
+  })
+
+  test('hasObject: result_info is optional: without it a list still answers', async () => {
+    const bare = (keys: string[]) => () => Response.json({ success: true, errors: [], messages: [], result: keys.map((k) => ({ key: k })) })
+    expect(await new FakeCloudflare([bare([key, `${key}.sig`])]).hasObject('acct', key)).toBe(true)
+    expect(await new FakeCloudflare([bare([`${key}.sig`])]).hasObject('acct', key)).toBe(false)
+    expect(await new FakeCloudflare([bare([])]).hasObject('acct', key)).toBe(false)
+  })
+
+  describe('listReport: the line of hosting.ts status', () => {
+    const prefixes = (cf: FakeCloudflare) => cf.calls.map((c) => new URL(`https://api.test${c.path}`).searchParams.get('prefix')!)
+    const STABLE = 'server/stable.json'
+
+    test('asks a key that may be there and one that cannot be, so the empty answer is seen', async () => {
+      const cf = new FakeCloudflare([listed([STABLE]), listed([])])
+      const line = await listReport(cf, 'acct')
+      expect(line).toBe(`bucket objects can be listed: yes (${STABLE} is there, a key that cannot exist is not)`)
+      const [first, second] = prefixes(cf)
+      expect(first).toBe(STABLE)
+      expect(second).toMatch(/^\.no-such-object\/[0-9a-f-]{36}$/)
+      expect(await listReport(new FakeCloudflare([listed([])]), 'acct')).toContain(`yes (${STABLE} is not there`)
+    })
+
+    test('a server in trouble is told from a read that cannot work; the token never shows', async () => {
+      for (const answer of [failed(502), failed(429), offline, () => new Response('<html>')]) {
+        const line = await listReport(new FakeCloudflare([answer]), 'acct')
+        expect(line).toStartWith('bucket objects can be listed: not known, the server is in trouble, try again')
+        expect(line).not.toContain('NO')
+        expect(line).not.toContain('test-token')
+      }
+      for (const answer of [failed(403), failed(404), () => Response.json({ success: true, result: [{}] })]) {
+        const line = await listReport(new FakeCloudflare([answer]), 'acct')
+        expect(line).toStartWith('bucket objects can be listed: NO, a publish stops on this')
+        expect(line).not.toContain('test-token')
+      }
+    })
+
+    test('trouble on the second question counts too', async () => {
+      expect(await listReport(new FakeCloudflare([listed([]), failed(403)]), 'acct')).toStartWith('bucket objects can be listed: NO')
+      expect(await listReport(new FakeCloudflare([listed([]), failed(502)]), 'acct')).toStartWith('bucket objects can be listed: not known')
+    })
+
+    test('a list that names a key that cannot exist is no list', async () => {
+      class Echo extends FakeCloudflare {
+        override async raw(method: string, p: string): Promise<Response> {
+          return listed([new URL(`https://api.test${p}`).searchParams.get('prefix')!])()
+        }
+      }
+      expect(await listReport(new Echo([]), 'acct')).toBe('bucket objects can be listed: NO, a publish cannot trust it (it names a key that cannot exist)')
+    })
   })
 
   test('hasObject: a server in trouble is transient, for the read around it to try again', async () => {

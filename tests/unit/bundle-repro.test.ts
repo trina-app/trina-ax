@@ -198,6 +198,13 @@ describe('the stream around a compressor', () => {
     await eventually(() => closed)
   })
 
+  test('something that is no async source fails the consumer at once, it does not leave it waiting', async () => {
+    for (const notASource of [new Uint8Array(1), [new Uint8Array(1)], {}, null]) {
+      await expect(collect(zstdCompress(notASource as unknown as AsyncIterable<Uint8Array>))).rejects.toThrow()
+      await expect(collect(gzipCompress(notASource as unknown as AsyncIterable<Uint8Array>))).rejects.toThrow()
+    }
+  }, 5_000)
+
   test('nothing is read before the consumer starts', async () => {
     let started = false
     const src = async function* () { started = true; yield new Uint8Array(1) }

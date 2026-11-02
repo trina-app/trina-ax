@@ -82,7 +82,7 @@ Worker(`scripts/release/worker.js`)는 이 경로만 읽기 전용으로 내준�
   - 빌드를 다시 하면 `createdAt`부터 달라지므로 다른 파일이고, 위 규칙대로 거부된다.
   - 보장은 같은 OS, 같은 Bun에서다. kit의 gzip 헤더에는 OS 바이트가 있어 맥에서 다시 서명한 kit은 리눅스 것과 다르고, 위 규칙대로 거부된다.
 - **머리는 마지막**: 버전 파일 → 파일 목록 → `release.json` → 채널 머리 순서로 올린다. 중간에 끊겨도 설치는 옛 머리를 계속 본다. 머리와 `.sig` 사이에서 끊긴 상태는 다음 실행이 알아보고 다시 올린다.
-- **다시 읽어 검증**: 올린 뒤 업데이트 주소로 머리를 읽는다. 설치된 서버의 `UpdateManager.checkFeed`와 같은 코드로 확인하고, 묶음과 kit도 내려받아 sha256을 비교한다. 사무실 피드도 같은 방식이다(`publish.ts`).
+- **다시 읽어 검증**: 올린 뒤 업데이트 주소로 머리를 읽는다. 설치된 서버의 `UpdateManager.checkFeed`와 같은 코드로 확인하고, 묶음과 kit도 내려받아 sha256을 비교한다. 사무실 피드(`publish.ts`)는 더 가볍다. 올린 파일마다 HEAD로 길이만 보고, 머리는 다시 읽어 서명과 버전을 확인한다. 파일을 내려받아 sha256을 비교하지는 않는다.
 - **리눅스 묶음은 서명 전에 검증**: 모든 파일이 manifest와 맞고, `mycel-ctl`이 그 아키텍처 것이고, kit 안의 manifest가 업데이트 묶음과 같은 서명본이고, kit의 `product.env`가 이 제품의 업데이트 주소를 가리켜야 한다.
 - **stable은 beta도 올린다**: stable 배포는 beta 채널이 더 새 버전이 아니면 beta 머리도 이 버전으로 옮긴다(beta를 받는 설치도 정식판을 받는다).
 - **비밀값**
@@ -146,7 +146,7 @@ Worker(`scripts/release/worker.js`)는 이 경로만 읽기 전용으로 내준�
 | publish: `release.json`이 `.sig` 없이 있다고 멈춤 | 둘 사이에서 끊겼다. 피드의 파일에 서명해 줄 수는 없어 사람이 본다 | 내용을 확인한 뒤 버킷에서 그 `release.json`만 지우고 "Re-run failed jobs" |
 | publish: `.sig`가 `release.json` 없이 있다고 멈춤 | `.sig`만 남았다. 새 `release.json`과 맞지 않는다 | 버킷에서 그 `.sig`만 지우고 "Re-run failed jobs" |
 | publish: `.sig`가 `release.json`을 검증하지 못한다고 멈춤 | 끊겨서 생기는 상태가 아니다. 둘 중 하나가 바뀌었다 | 지우지 않는다. 누가 왜 바꿨는지 먼저 본다. 고친 뒤 새 버전으로 낸다 |
-| publish: `HTTP 5xx`, 네트워크 오류로 멈춤 | 5번 읽어도 실패했다. 그 파일부터는 올라가지 않았다 | 잠시 뒤 "Re-run failed jobs" |
+| publish: `HTTP 5xx`, 네트워크 오류로 멈춤 | 5번 해도 실패했다. 올리기 전 확인이나 업로드에서 멈췄으면 머리는 그대로다. 올린 뒤 재확인에서 멈췄으면 그 파일이나 머리까지 이미 올라갔을 수 있다(로그의 `↑` 줄로 구분한다) | 잠시 뒤 "Re-run failed jobs". 이미 올라간 파일은 같은 바이트라 건너뛴다 |
 | publish: `HTTP 404, but the file is there`로 멈춤 | 피드는 404인데 버킷에는 있다. 아무것도 덮어쓰지 않았다 | Worker 배포를 본다(`hosting.ts status`) |
 | publish: `list <key>: HTTP …`로 멈춤 | 버킷 목록을 못 읽어 404를 확인할 수 없다. 아무것도 올리지 않았다 | 토큰 권한을 본다(`hosting.ts status`) |
 | "Re-run all jobs"나 workflow_dispatch로 다시 | 새로 빌드한 파일은 이미 올라간 것과 내용이 달라 거부된다 | 새 버전으로 태그 |

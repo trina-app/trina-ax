@@ -72,6 +72,8 @@ export class Cloudflare {
     const m = `list ${key}: HTTP ${r.status} ${(j?.errors ?? []).map((e) => `${e.code} ${e.message}`).join('; ')}`
     if (transientStatus(r.status) || (r.ok && !j)) throw new TransientError(m)
     if (!r.ok || j?.success !== true || !Array.isArray(j.result)) throw new CfError(m, r.status)
+    // the reference calls `key` optional: an entry without one may be this very object, so it cannot mean "not there"
+    if (j.result.some((x) => typeof x?.key !== 'string')) throw new CfError(`${m}: an entry of the list has no key`, r.status)
     if (j.result.some((x) => x.key === key)) return true
     // keys are in order and a key sorts before any other with it as a prefix, so a cut list cannot hide it; if it does, stop
     if (j.result_info?.is_truncated) throw new CfError(`${m}: the list is cut off`, r.status)
@@ -104,6 +106,23 @@ export interface Bucket {
   /** is the object there (Cloudflare.hasObject)? What a 404 from the feed is checked against before anything goes up */
   holds(key: string): Promise<boolean>
   put(key: string, file: string, contentType: string): Promise<void>
+}
+
+/**
+ * The line of `hosting.ts status` on the read a publish asks before anything goes up (Cloudflare.hasObject): one key that
+ * may be there and one that cannot be, so the empty answer every first upload depends on is seen too. A server in trouble
+ * is told from a read that cannot work: only the second stops a publish.
+ */
+export async function listReport(cf: Cloudflare, account: string, key = 'server/stable.json'): Promise<string> {
+  const line = 'bucket objects can be listed'
+  try {
+    const there = await cf.hasObject(account, key)
+    if (await cf.hasObject(account, `.no-such-object/${crypto.randomUUID()}`)) return `${line}: NO, a publish cannot trust it (it names a key that cannot exist)`
+    return `${line}: yes (${key} ${there ? 'is there' : 'is not there'}, a key that cannot exist is not)`
+  } catch (e) {
+    if (e instanceof TransientError) return `${line}: not known, the server is in trouble, try again (${e.message})`
+    return `${line}: NO, a publish stops on this (${(e as Error).message})`
+  }
 }
 
 export async function openBucket(cf: Cloudflare = new Cloudflare(), o: RetryOptions = {}): Promise<Bucket> {

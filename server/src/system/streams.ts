@@ -27,11 +27,12 @@ type Transform = NodeJS.ReadWriteStream & { destroy(e?: Error): void }
 
 /** src into z one chunk at a time; a source that fails destroys z with its error, and z closing ends this. */
 async function feed(src: Bytes, z: Transform): Promise<void> {
-  const it = src[Symbol.asyncIterator]()
+  let it: AsyncIterator<Uint8Array> | undefined
   let closed = false
   let release = () => {}
   ;(z as unknown as NodeJS.EventEmitter).once('close', () => { closed = true; release() })
   try {
+    it = src[Symbol.asyncIterator]() // in here: something that is no source must fail the consumer, not leave it waiting
     for (;;) {
       const next = await it.next()
       if (closed) return
@@ -42,7 +43,7 @@ async function feed(src: Bytes, z: Transform): Promise<void> {
   } catch (e) {
     z.destroy(e as Error)
   } finally {
-    await it.return?.(undefined)?.catch(() => {})
+    await it?.return?.(undefined)?.catch(() => {})
   }
 }
 
