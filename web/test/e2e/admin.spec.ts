@@ -1,4 +1,4 @@
-import { expect, test } from '@playwright/test'
+import { expect, test, type Page } from '@playwright/test'
 import { OWNER, realErrors, reset, signIn, watchConsole } from './helpers'
 import { DICTS, translate } from '../../src/i18n'
 import { PRODUCT } from '@mycel/shared'
@@ -256,6 +256,88 @@ test('settings: the team time zone', async ({ page }) => {
 })
 
 // "Send images, PDF pages and video frames to the AI" (server/src/files/vision.ts): on by default; the admin's switch saves only it
+// an office Mac: the mock server is not one, so what makes it one is answered here
+const officeStatus = (o: Record<string, unknown> = {}) => ({
+  current: '0.2.20', channel: 'stable', paused: false, time: '22:30', window: '22:30-00:30', windowSource: 'legacy', timeZone: 'Asia/Jakarta', nextWindowAt: '2026-11-02T15:30:00.000Z',
+  lastCheckAt: '2026-11-02T09:00:00.000Z', last: null, available: null, lastUpdate: null, running: null, requested: false, agentInstalled: true, desktop: null, ...o,
+})
+async function onOfficeMac(page: Page, status: () => object) {
+  await page.route('**/api/me', async (route) => {
+    const res = await route.fetch()
+    const me = await res.json()
+    await route.fulfill({ response: res, json: { ...me, server: { ...me.server, features: { ...me.server.features, officeUpdate: true } } } })
+  })
+  await page.route('**/api/admin/office-update', (route) => route.fulfill({ json: status() }))
+}
+const legacyHint = (page: Page) => page.getByText(translate('ko', 'teamSettings.updateWindowLegacy', { window: '22:30-00:30', zone: 'Asia/Jakarta' }), { exact: true })
+const plainHint = (page: Page) => page.getByText(DICTS.ko['teamSettings.updateWindowHint'], { exact: true })
+
+test('settings: an office Mac says which update window runs while the field is empty, and never writes it in', async ({ page }) => {
+  await reset(page)
+  await signIn(page)
+  let status = officeStatus()
+  await onOfficeMac(page, () => status)
+  await page.goto('/admin/settings')
+  const t = DICTS.ko
+  const field = page.getByLabel(t['teamSettings.updateWindow'], { exact: true })
+  const patches: unknown[] = []
+  page.on('request', (r) => {
+    if (r.method() === 'PATCH' && new URL(r.url()).pathname === '/api/admin/settings') patches.push(r.postDataJSON())
+  })
+  const save = async () => {
+    const saved = page.waitForResponse((r) => r.request().method() === 'PATCH' && new URL(r.url()).pathname === '/api/admin/settings')
+    await page.getByRole('button', { name: t['common.save'], exact: true }).click()
+    expect((await saved).ok()).toBe(true)
+  }
+  await expect(legacyHint(page)).toBeVisible()
+  await expect(field).toHaveAttribute('placeholder', '22:30-00:30')
+  await expect(field).toHaveValue('')
+  await expect(plainHint(page)).toHaveCount(0)
+  // typed, not saved yet: that time still runs
+  await field.fill('02:00-05:00')
+  await expect(legacyHint(page)).toBeVisible()
+  // saved: the team's own window, and nothing left to tell
+  status = officeStatus({ window: '02:00-05:00', time: '02:00', windowSource: 'team' })
+  await save()
+  await expect(plainHint(page)).toBeVisible()
+  await expect(legacyHint(page)).toHaveCount(0)
+  await expect(field).toHaveAttribute('placeholder', '02:00-05:00')
+  await expect(field).toHaveValue('02:00-05:00')
+  // emptied again: the old time counts again, and the page reads that from the server
+  status = officeStatus()
+  await field.fill('')
+  await save()
+  await expect(legacyHint(page)).toBeVisible()
+  await expect(field).toHaveAttribute('placeholder', '22:30-00:30')
+  await expect(field).toHaveValue('')
+  // only what was typed was ever saved
+  expect(patches).toEqual([{ updateWindow: '02:00-05:00' }, { updateWindow: null }])
+})
+
+test('settings: any other server keeps the update window field as it was', async ({ page }) => {
+  await reset(page)
+  await signIn(page)
+  // not an office Mac: this status, were it read, would change the field
+  await page.route('**/api/admin/office-update', (route) => route.fulfill({ json: officeStatus() }))
+  await page.goto('/admin/settings')
+  await expect(plainHint(page)).toBeVisible()
+  await expect(legacyHint(page)).toHaveCount(0)
+  await expect(page.getByLabel(DICTS.ko['teamSettings.updateWindow'], { exact: true })).toHaveAttribute('placeholder', '02:00-05:00')
+})
+
+test('system: a time zone this browser does not know leaves the update card standing', async ({ page }) => {
+  await reset(page)
+  const errors = watchConsole(page)
+  await signIn(page)
+  await onOfficeMac(page, () => officeStatus({ timeZone: 'Mars/Base', window: '03:00-05:00', windowSource: 'team', lastUpdate: { from: '0.2.19', to: '0.2.20', at: '2026-11-02T09:00:00.000Z', result: 'updated', error: null } }))
+  await page.goto('/admin/system')
+  const card = page.getByTestId('office-update')
+  await expect(card).toContainText('03:00-05:00(Mars/Base)')
+  await expect(card).toContainText(/마지막 확인 .+\(.+\/.+\)|마지막 확인 .+\(UTC\)/)
+  await expect(card).toContainText(/0\.2\.19 → 0\.2\.20 · .+\(/)
+  expect(errors.join('\n')).not.toContain('RangeError')
+})
+
 test('settings: the team turns sending images and PDF pages to the AI off', async ({ page }) => {
   await reset(page)
   const errors = watchConsole(page)
