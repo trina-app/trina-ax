@@ -189,7 +189,8 @@ describe('a gateway connection', () => {
     expect(calls).toEqual([{ url: 'https://openrouter.ai/api/v1/key', auth: 'Bearer sk-or-v1-' + 'x'.repeat(64) }, { url: 'https://openrouter.ai/api/v1/key', auth: 'Bearer sk-or-v1-' + 'd'.repeat(64) }])
     // OR_KEY is a connection of the fake gateway already (same database): the check runs before that would matter
     calls.length = 0
-    await expect(add(OR_KEY)).rejects.toThrow('This token or key is already connected.')
+    // the owner hears where the copy is (credentials/service.ts duplicateConflict), never the key
+    await expect(add(OR_KEY)).rejects.toThrow('This token or key is already used by the team connection')
     expect(calls).toEqual([])
   })
   test('the proxy forwards exactly the configured models: another id and any claude-* id are refused before anything goes out', async () => {

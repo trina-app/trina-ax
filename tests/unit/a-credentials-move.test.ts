@@ -17,8 +17,8 @@ const { cc, notices } = testCredCtx(env.db, path.join(env.fx.data, 'secrets'), {
 })
 const TOKEN = 'sk-ant-oat01-' + 'm'.repeat(40)
 const rows = () => env.db.query('SELECT id, owner_user_id AS owner FROM engine_credentials ORDER BY created_at, id').all() as { id: string; owner: string | null }[]
-const move = (moveFrom: string, actor = 'dana') => createCredential(cc, {
-  kind: 'anthropic-oauth', label: 'Team Max', secret: TOKEN, assignments: [], priority: 100, ownerUserId: null, actor, acknowledgedPlanNotice: true, moveFrom,
+const move = (moveFrom: string, actor = 'dana', assignments: { subjectType: 'group' | 'user'; subjectId: string }[] = []) => createCredential(cc, {
+  kind: 'anthropic-oauth', label: 'Team Max', secret: TOKEN, assignments, priority: 100, ownerUserId: null, actor, acknowledgedPlanNotice: true, moveFrom,
 }, 'en')
 const conflict = async (p: Promise<unknown>) => {
   try { await p } catch (e) { if (e instanceof HttpError) return { code: e.code, params: e.extra.params }; throw e }
@@ -42,6 +42,28 @@ test('moves: the personal copy goes, the team copy comes, the member is told (la
   expect(notices[0]!.n.message.en).toContain("'Alice Max'")
   expect(notices[0]!.n.message.en).toContain("'Team Max'")
   expect(JSON.stringify([notices, c])).not.toContain(TOKEN.slice(13))
+})
+
+test('moved to a team connection for other people: the member is told they cannot use it', async () => {
+  const p = addCred(cc, 'anthropic-oauth', TOKEN, { owner: 'alice', label: 'Alice Max' })
+  await move(p, 'dana', [{ subjectType: 'group', subjectId: 'finance' }])
+  expect(notices).toHaveLength(1)
+  expect(notices[0]!.to).toEqual(['alice'])
+  expect(notices[0]!.n.message.en).toContain('for other people')
+  // for her group: the usual notice
+  env.db.query('DELETE FROM engine_credentials').run()
+  notices.length = 0
+  const p2 = addCred(cc, 'anthropic-oauth', TOKEN, { owner: 'alice' })
+  await move(p2, 'dana', [{ subjectType: 'group', subjectId: 'marketing' }])
+  expect(notices[0]!.n.message.en).not.toContain('for other people')
+})
+
+test('two copies left by an older version: a move never leaves two (409, nothing removed)', async () => {
+  const p = addCred(cc, 'anthropic-oauth', TOKEN, { owner: 'alice', createdAt: '2026-01-01T00:00:00.000Z' })
+  const old = addCred(cc, 'anthropic-oauth', TOKEN, { owner: 'bob', createdAt: '2026-01-02T00:00:00.000Z' })
+  expect(await conflict(move(p))).toMatchObject({ code: 'conflict', params: { where: 'personal', credentialId: old } })
+  expect(rows().map((r) => r.id)).toEqual([p, old])
+  expect(notices).toEqual([])
 })
 
 test('a failure while writing the team copy leaves the personal copy as it was (never none)', async () => {

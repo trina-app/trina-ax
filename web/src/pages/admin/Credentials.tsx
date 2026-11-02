@@ -295,7 +295,7 @@ export function AddCredential({ allowedKinds, gateway, groups, users, replace, p
         const body = { kind: kind as Exclude<CredentialKind, 'chatgpt'>, label: label.trim(), sealed, ...(subscription ? { acknowledgedPlanNotice: ack } : {}) }
         const c = personal ? await api.call(API.createMyCredential, { body })
           : await api.call(API.createCredential, { body: { ...body, assignments, password, ...(move?.credentialId ? { moveFrom: move.credentialId } : {}) } })
-        toast({ level: 'success', text: move ? (move.where === 'own' ? t('credentials.movedOwn') : t('credentials.moved', { name: move.ownerName ?? '' })) : c.state === 'unverified' ? t('credentials.unverifiedSaved') : t('credentials.connected') })
+        toast({ level: 'success', text: move ? t('credentials.moved') : c.state === 'unverified' ? t('credentials.unverifiedSaved') : t('credentials.connected') })
       }
       setSecret('')
       onDone()
@@ -316,6 +316,10 @@ export function AddCredential({ allowedKinds, gateway, groups, users, replace, p
     onClose()
   }
   const kinds = (personal ? PERSONAL_KIND_ORDER : KIND_ORDER).filter((k) => !replace || k === replace.kind)
+  // moving a member's connection to a team connection picked for other people: that member may be left without AI
+  const mover = move?.where === 'personal' && move.ownerId ? users.find((u) => u.id === move.ownerId) : undefined
+  const leftOut = !!mover && assignments.length > 0
+    && !assignments.some((a) => (a.subjectType === 'user' && a.subjectId === mover.id) || (a.subjectType === 'group' && mover.groupIds.includes(a.subjectId)))
   const finished = login && ['done', 'failed', 'expired', 'cancelled'].includes(login.state)
 
   return (
@@ -402,6 +406,7 @@ export function AddCredential({ allowedKinds, gateway, groups, users, replace, p
               <div className="rounded-lg bg-subtle p-3 text-sm" data-testid="credential-move">
                 <p className="font-medium">{t('credentials.moveToTeam')}</p>
                 <p className="mt-1 text-muted">{move.where === 'own' ? t('credentials.moveOwnHint', { label: move.label ?? '' }) : t('credentials.moveHint', { name: move.ownerName ?? '', label: move.label ?? '' })}</p>
+                {leftOut && <p className="mt-1 text-warn" data-testid="credential-move-left-out">{t('credentials.moveLeftOut', { name: move.ownerName ?? '' })}</p>}
               </div>
             )}
             {kind && needsPassword && (

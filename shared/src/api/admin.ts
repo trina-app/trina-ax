@@ -3,7 +3,7 @@
 // Admins never see other people's chats or memories, and there is no "sign in as" (tab 1).
 import { z } from 'zod'
 import { UserId, Uuid7 } from '../ids'
-import { Access, EngineId, IsoTime, Locale, Ok, PageQuery, RelPath, Role, UserStatus, page } from './common'
+import { Access, EngineId, IsoTime, Locale, Ok, PageQuery, QueryBool, RelPath, Role, UserStatus, page } from './common'
 import { binary, endpoint, empty } from './endpoint'
 import { AuditEntry, Budget, EngineAccount, Folder, FolderRuleInput, Group, Invite, TeamSettings, User, UserRef } from './entities'
 import { Password, PersonName, Username } from './auth'
@@ -52,8 +52,8 @@ export const UsersResponse = z.object({
   items: z.array(User),
   /** "No AI": the active people who cannot use any AI connection now: no personal connection of theirs and no team
    * connection they may use, for every engine that answers them (server/src/credentials/access.ts, the same rules as
-   * the turn and the model proxy). A connection at a provider's short limit counts as usable. Absent when this server
-   * does not answer with AI connections (engine.authMode other than managed). */
+   * the turn and the model proxy). A connection at a provider's short limit counts as usable. Only when asked for
+   * (`?noAi=1`), and absent when this server does not answer with AI connections (engine.authMode other than managed). */
   noAi: z.array(UserId).optional(),
 })
 export type UsersResponse = z.infer<typeof UsersResponse>
@@ -232,7 +232,7 @@ export const AuditQuery = PageQuery.extend({
 })
 
 export const ADMIN = {
-  listUsers: endpoint({ method: 'GET', path: '/api/admin/users', auth: 'admin', owner: 'A', response: UsersResponse, summary: 'All members, and who cannot use AI now ("No AI").' }),
+  listUsers: endpoint({ method: 'GET', path: '/api/admin/users', auth: 'admin', owner: 'A', query: z.object({ noAi: QueryBool.optional() }), response: UsersResponse, summary: 'All members, and with ?noAi=1 who cannot use AI now ("No AI").' }),
   createUser: endpoint({ method: 'POST', path: '/api/admin/users', auth: 'admin', owner: 'A', status: 201, body: CreateUserBody, response: CreatedUser, summary: 'Add a member with a temporary password (alternative to an invite).' }),
   updateUser: endpoint({ method: 'PATCH', path: '/api/admin/users/:id', auth: 'admin', owner: 'A', body: UpdateUserBody, response: User, summary: 'Role, groups, disable (ends their sessions). Only the owner changes admins.' }),
   deleteUser: endpoint({ method: 'DELETE', path: '/api/admin/users/:id', auth: 'owner', owner: 'A', query: DeleteUserQuery, response: empty, status: 204, summary: 'Owner only. Remove a member: sessions end now, chats and memories are purged after the chat retention period; the personal folder goes to the owner or is deleted.' }),

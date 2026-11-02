@@ -92,6 +92,11 @@ test('switched off, expired or refused: No AI', () => {
 })
 
 describe('the engines that answer a person', () => {
+  test('an engine whose program is missing here answers nobody (as in the composer)', () => {
+    addCred(cc, 'chatgpt', chatgptSecret('acct-missing'))
+    expect(new Set(peopleWithoutAi(ctx, { problems: { codex: 'engine_missing' } }))).toEqual(new Set(EVERYONE))
+    expect(new Set(peopleWithoutAi(ctx, { problems: {} }))).toEqual(new Set(['alice', 'bob', 'erin']))
+  })
   test('a Codex connection helps the people who may pick Codex (owner, admins), not members on the team default', () => {
     addCred(cc, 'chatgpt', chatgptSecret('acct-team'))
     expect(noAi()).toEqual(new Set(['alice', 'bob', 'erin']))

@@ -57,8 +57,11 @@ export const adminRoutes: RouteModule = {
     const engineCache = engineStatusCache(ctx)
 
     // ---------------- users ----------------
-    kit.handle(API.listUsers, () => {
-      const noAi = peopleWithoutAi(ctx)
+    kit.handle(API.listUsers, ({ query }) => {
+      // "No AI" only for the screens that show it (Admin › Members, the owner's checklist)
+      let problems = {}
+      if (query.noAi) try { problems = getChatRuntime(ctx).engines.get().problems } catch { /* no chat runtime: none known */ }
+      const noAi = query.noAi ? peopleWithoutAi(ctx, { problems }) : null
       return { items: listUsers(ctx), ...(noAi ? { noAi } : {}) }
     })
     kit.handle(API.createUser, ({ c, body }) => createUser(c, ctx, body))

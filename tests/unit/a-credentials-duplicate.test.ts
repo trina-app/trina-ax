@@ -56,7 +56,7 @@ describe('the 409 says where the copy is', () => {
     const r = await team(CLAUDE('mia1'))
     expect(r.status).toBe(409)
     expect(r.body.error.code).toBe('conflict')
-    expect(r.body.error.params).toEqual({ reason: 'duplicate_credential', where: 'personal', credentialId: p.body.id, label: "Mia's Max", ownerName: 'MIA', movable: true })
+    expect(r.body.error.params).toEqual({ reason: 'duplicate_credential', where: 'personal', credentialId: p.body.id, label: "Mia's Max", ownerId: mia.id, ownerName: 'MIA', movable: true })
     expect(r.body.error.message).toContain('MIA')
     expect(r.body.error.message).toContain("Mia's Max")
     noSecretIn(r.body, { hint: true })
@@ -65,7 +65,7 @@ describe('the 409 says where the copy is', () => {
     const p = await own(mia.client, AKEY('mia2'), 'Mia key')
     const r = await own(admin.client, AKEY('mia2'))
     expect(r.status).toBe(409)
-    expect(r.body.error.params).toEqual({ reason: 'duplicate_credential', where: 'personal', credentialId: p.body.id, label: 'Mia key', ownerName: 'MIA' })
+    expect(r.body.error.params).toEqual({ reason: 'duplicate_credential', where: 'personal', credentialId: p.body.id, label: 'Mia key', ownerId: mia.id, ownerName: 'MIA' })
     noSecretIn(r.body, { hint: true })
   })
   test("a member adding someone else's: only \"already connected on this team\", never whose", async () => {
@@ -156,13 +156,15 @@ describe('Move it to the team', () => {
 })
 
 describe('No AI in the members list', () => {
-  test('GET /api/admin/users names the active people with no AI connection they can use', async () => {
-    const before = await admin.client.call('GET', '/api/admin/users')
+  test('GET /api/admin/users?noAi=1 names the active people with no AI connection they can use', async () => {
+    const before = await admin.client.call('GET', '/api/admin/users?noAi=1')
     expect(new Set(before.noAi)).toEqual(new Set(before.items.map((u: any) => u.id)))
+    // only when asked for (the other screens that list members do not pay for it)
+    expect((await admin.client.call('GET', '/api/admin/users')).noAi).toBeUndefined()
     await own(mia.client, AKEY('noai'))
-    expect((await owner.call('GET', '/api/admin/users')).noAi).not.toContain(mia.id)
+    expect((await owner.call('GET', '/api/admin/users?noAi=1')).noAi).not.toContain(mia.id)
     await team(AKEY('noai-team'))
-    expect((await owner.call('GET', '/api/admin/users')).noAi).toEqual([])
-    expect((await mia.client.try('GET', '/api/admin/users')).status).toBe(403)
+    expect((await owner.call('GET', '/api/admin/users?noAi=1')).noAi).toEqual([])
+    expect((await mia.client.try('GET', '/api/admin/users?noAi=1')).status).toBe(403)
   })
 })

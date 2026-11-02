@@ -101,12 +101,12 @@ export const CredentialLogin = z.object({
 export type CredentialLogin = z.infer<typeof CredentialLogin>
 /** The 409 `params` when the token / key is already connected on this team. The owner and admins hold the secret they
  * pasted, so they hear where the copy is: a team connection (`team`, its label) or someone's personal connection
- * (`personal`, the person's name and its label). A member hears where only when it is their own connection (`own`);
+ * (`personal`, the person's id and name and its label). A member hears where only when it is their own connection (`own`);
  * otherwise only that it is connected on this team (`elsewhere`), never whose. Never any part of the secret. */
 export const DuplicateCredentialParams = z.object({
   reason: z.literal('duplicate_credential'),
   where: z.enum(['team', 'personal', 'own', 'elsewhere']),
-  credentialId: Uuid7.optional(), label: z.string().optional(), ownerName: z.string().optional(),
+  credentialId: Uuid7.optional(), label: z.string().optional(), ownerId: z.string().optional(), ownerName: z.string().optional(),
   /** adding a team connection: the copy is a personal connection the owner can move to the team (send again with
    * `moveFrom: credentialId`, password re-entered) */
   movable: z.boolean().optional(),

@@ -194,7 +194,7 @@ function OwnerChecklist() {
   useEffect(() => {
     if (hidden) return
     let live = true
-    Promise.allSettled([api.call(API.engines), api.call(API.listUsers), api.call(API.listInvites), api.call(API.listFolders), api.call(API.listBackups), api.call(API.listSkills)]).then(([e, u, i, f, b, sk]) => {
+    Promise.allSettled([api.call(API.engines), api.call(API.listUsers, { query: { noAi: '1' } }), api.call(API.listInvites), api.call(API.listFolders), api.call(API.listBackups), api.call(API.listSkills)]).then(([e, u, i, f, b, sk]) => {
       if (!live) return
       setState({
         engine: e.status === 'fulfilled' && e.value.engines.some((x) => x.enabled && x.status === 'ok'),

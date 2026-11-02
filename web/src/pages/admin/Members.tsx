@@ -29,7 +29,7 @@ export default function Members() {
   const me = useMeStrict()
   const act = useAction()
   // the members and who cannot use AI now ("No AI": no AI connection of their own and none of the team's for them)
-  const users = useLoad(() => api.call(API.listUsers))
+  const users = useLoad(() => api.call(API.listUsers, { query: { noAi: '1' } }))
   const invites = useLoad(async () => (await api.call(API.listInvites)).items)
   const groups = useLoad(async () => (await api.call(API.listGroups)).items)
   const skillManagers = useSkillManagers()
