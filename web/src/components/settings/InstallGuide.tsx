@@ -1,17 +1,20 @@
 // Settings > Apps: how to add the app to the home screen (iPhone/iPad, Android, computer). The steps for this device
-// come first; on phones the other devices' steps open under one "다른 기기" line (computers list them all). An
-// installed app (lib/pwa.ts isStandalone) shows no steps, only the way to turn on push. The desktop app and the phone
-// app do not show this guide: they are already apps (lib/pwa.ts installGuideShown).
+// come first, and the phones' steps come with pictures (InstallPictures.tsx); on phones the other devices' steps open
+// under one "다른 기기" line (computers list them all). An installed app (lib/pwa.ts isStandalone) shows no steps, only
+// the way to turn on push. The desktop app and the phone app do not show this guide: they are already apps (lib/pwa.ts
+// installGuideShown).
 import { ChevronDown } from 'lucide-react'
 import { useState } from 'react'
 import { Link } from 'react-router-dom'
 import { guideOrder, isStandalone, platform, useInstallPrompt, type GuidePlatform } from '../../lib/pwa'
 import { useT, type MessageKey } from '../../i18n'
 import { Badge, Button, useMediaQuery } from '../ui'
+import { InstallPictures } from './InstallPictures'
 
-const GUIDE: Record<GuidePlatform, { title: MessageKey; steps: MessageKey[]; note?: MessageKey }> = {
-  ios: { title: 'apps.guideIos', steps: ['apps.iosStep1', 'apps.iosStep2', 'apps.iosStep3', 'apps.pushStep'], note: 'apps.iosPushNote' },
-  android: { title: 'apps.guideAndroid', steps: ['apps.androidStep1', 'apps.androidStep2', 'apps.androidStep3', 'apps.pushStep'] },
+/** A phone: where to start, then the pictures. A computer: numbered steps. */
+const GUIDE: Record<GuidePlatform, { title: MessageKey; start?: MessageKey; steps?: MessageKey[]; note?: MessageKey }> = {
+  ios: { title: 'apps.guideIos', start: 'apps.iosStep1', note: 'apps.iosPushNote' },
+  android: { title: 'apps.guideAndroid', start: 'apps.androidStep1' },
   desktop: { title: 'apps.guideDesktop', steps: ['apps.desktopStep1', 'apps.desktopStep2', 'apps.desktopStep3', 'apps.pushStep'], note: 'apps.desktopSafari' },
 }
 
@@ -33,21 +36,32 @@ export function InstallGuide() {
       </div>
     )
   const [here, ...others] = guideOrder(platform())
-  const guide = (g: GuidePlatform, mine: boolean) => (
-    <div key={g} data-testid={`install-guide-${g}`}>
-      <h3 className="text-sm font-semibold">
-        {t(GUIDE[g].title)}
-        {/* phones: in words, not a badge */}
-        {mine && (phone ? <span className="font-normal text-muted"> · {t('apps.thisDevice')}</span> : <Badge tone="accent" className="ml-2">{t('apps.thisDevice')}</Badge>)}
-      </h3>
-      <ol className="mt-1 list-decimal space-y-1 pl-5 text-sm text-muted">
-        {GUIDE[g].steps.map((k) => (
-          <li key={k}>{t(k, k === 'apps.pushStep' ? { button: t('push.enable') } : undefined)}</li>
-        ))}
-      </ol>
-      {GUIDE[g].note && <p className="mt-1 text-xs text-muted">{t(GUIDE[g].note)}</p>}
-    </div>
-  )
+  const guide = (g: GuidePlatform, mine: boolean) => {
+    const d = GUIDE[g]
+    return (
+      <div key={g} data-testid={`install-guide-${g}`}>
+        <h3 className="text-sm font-semibold">
+          {t(d.title)}
+          {/* phones: in words, not a badge */}
+          {mine && (phone ? <span className="font-normal text-muted"> · {t('apps.thisDevice')}</span> : <Badge tone="accent" className="ml-2">{t('apps.thisDevice')}</Badge>)}
+        </h3>
+        {d.steps ? (
+          <ol className="mt-1 list-decimal space-y-1 break-keep pl-5 text-sm text-muted">
+            {d.steps.map((k) => (
+              <li key={k}>{t(k, k === 'apps.pushStep' ? { button: t('push.enable') } : undefined)}</li>
+            ))}
+          </ol>
+        ) : (
+          <>
+            {d.start && <p className="mt-1 break-keep text-sm text-muted">{t(d.start)}</p>}
+            {g !== 'desktop' && <InstallPictures platform={g} />}
+            <p className="mt-3 break-keep text-sm text-muted">{t('apps.pushStep', { button: t('push.enable') })}</p>
+          </>
+        )}
+        {d.note && <p className="mt-1 break-keep text-xs text-muted">{t(d.note)}</p>}
+      </div>
+    )
+  }
   return (
     <div className="space-y-4" data-testid="install-guide">
       {install.canPrompt && (
