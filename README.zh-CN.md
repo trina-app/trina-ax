@@ -12,9 +12,9 @@ Claude Code 和 Codex 跑在公司的一台服务器上，公司文件、团队�
 
 [English](README.md) · [한국어](README.ko.md) · [日本語](README.ja.md) · [Español](README.es.md) · 简体中文
 
-<img src="docs/images/readme/hero-day-one.gif" width="100%" alt="新同事只输入了一行“Write a proposal for Trina Logistics.”，AI 就读取了 CEO 的提案技能和团队的销售资料，保存了一份 7 页的提案幻灯片，并在聊天窗口旁边打开。">
+https://github.com/user-attachments/assets/61f3469b-358d-4b3a-9233-c6b23b5db835
 
-<sub><b>入职第一天，只写一行：</b>输入“Write a proposal for Trina Logistics.”之后，AI 读了团队的销售资料，按 CEO 的 <code>proposal</code> 技能保存了一份 7 页的幻灯片。<br>真实应用（英文界面），公司是虚构的。生成用了 81 秒，动图做了加速。</sub>
+<sub><b>97 秒，请打开声音（英文）。</b>团队负责人只需把 Claude 设置一次，新同事入职第一天写的提案也像负责人做的一样。<br>动画演示，1:15 处是真实应用界面。公司是虚构的。</sub>
 
 </div>
 
