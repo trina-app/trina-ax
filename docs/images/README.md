@@ -28,7 +28,7 @@ Captured 2026-10-31 (Asia/Seoul) from a hosted Trina AX team (`potenlab.trina.ap
 | File | Evidence and limits |
 |---|---|
 | `readme/hero-day-one.gif` | Mina's chat: one typed request, the live steps (reading the `proposal` skill and the sales files), the "1 file saved" result and the generated 7-page deck opening in the file preview. Generation took 81.4 s; the clip is cut and sped up (8× during the steps, 1.5× on the deck pages, both labeled in the frame). 880 px, 9 fps, 19 s |
-| `readme/before-empty-claude.png` | The same request sent with `claude -p` in an empty folder on a developer Mac. The output text is verbatim; it was replayed in a terminal-styled page for a clean capture |
+| `readme/before-empty-claude.png` | The same request sent with `claude -p` in an empty folder on a developer Mac (2026-10-31). An excerpt in large type so it reads in the README table: the opening sentences and the six question headings, word for word, with `…` where text was cut. Replayed in a terminal-styled page for a clean capture |
 | `readme/after-trina-deck.png` | Cover of the deck from the hero run |
 | `readme/permission-answer.png` | Mina asking for last quarter's revenue; the file sits in `shared/Finance`, which she cannot read. Cropped to the question and the first paragraph of the live answer |
 
