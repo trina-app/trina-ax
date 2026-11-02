@@ -7,9 +7,10 @@ import { renderToStaticMarkup } from 'react-dom/server'
 import { DICTS, translate } from '../../src/i18n'
 import { notesSummary, ReleaseNotes } from '../../src/components/ReleaseNotes'
 import { formatDateTime } from '../../src/lib/format'
-import { bannerFor, cardZone, finishedRun, onOfficeStatus, shareOfficeStatus } from '../../src/lib/officeUpdate'
+import { bannerFor, cardZone, finishedRun, legacyWindow, onOfficeStatus, shareOfficeStatus } from '../../src/lib/officeUpdate'
 import { browserTimeZone } from '../../src/lib/time-zones'
 import OfficeUpdate from '../../src/pages/admin/OfficeUpdate'
+import { UpdateWindowField } from '../../src/pages/admin/TeamSettings'
 
 const me = (role: 'owner' | 'admin' | 'member') => ({ user: { role }, server: { timeZone: 'Asia/Seoul' } }) as unknown as Me
 const at = '2026-10-21T09:00:00.000Z'
@@ -110,6 +111,42 @@ describe('the times on the update card', () => {
     for (const d of Object.values(DICTS)) {
       expect(d['officeUpdate.lastCheck']).toContain('{zone}')
       expect(d['officeUpdate.lastUpdate']).toContain('{zone}')
+    }
+  })
+})
+
+describe('Team settings: the update window an office Mac runs while the field is empty', () => {
+  const legacy = st({ window: '22:30-00:30', windowSource: 'legacy', timeZone: 'Asia/Jakarta' })
+  const field = (o: Partial<Parameters<typeof UpdateWindowField>[0]>) => renderToStaticMarkup(createElement(UpdateWindowField, { value: null, ok: true, legacy: null, onChange: () => {}, ...o }))
+  const input = (html: string) => /<input[^>]*>/.exec(html)?.[0] ?? ''
+  test('a time set with `teamax update time` is told; the team\'s own window, the default and other servers are not', () => {
+    expect(legacyWindow(legacy, null)).toEqual({ window: '22:30-00:30', zone: 'Asia/Jakarta' })
+    expect(legacyWindow(legacy, '02:00-05:00')).toBeNull() // saved: that is the window now
+    expect(legacyWindow(st({ window: '03:00-05:00', windowSource: 'default', timeZone: 'Asia/Jakarta' }), null)).toBeNull()
+    expect(legacyWindow(st({ window: '02:00-05:00', windowSource: 'team', timeZone: 'Asia/Jakarta' }), '02:00-05:00')).toBeNull()
+    expect(legacyWindow(st(), null)).toBeNull() // a server too old to say
+    expect(legacyWindow(null, null)).toBeNull() // not an office Mac
+  })
+  test('shown as the placeholder and in the hint, never written into the field', () => {
+    const html = field({ legacy: legacyWindow(legacy, null) })
+    expect(input(html)).toContain('placeholder="22:30-00:30"')
+    expect(input(html)).toContain('value=""')
+    expect(html).toContain('In use now: 22:30-00:30 (Asia/Jakarta)')
+    expect(html).not.toContain('Empty = 03:00-05:00') // not what happens on this server
+  })
+  test('with nothing to tell, the field is as it was', () => {
+    const html = field({})
+    expect(input(html)).toContain('placeholder="02:00-05:00"')
+    expect(html).toContain(DICTS.en['teamSettings.updateWindowHint'])
+    expect(html).not.toContain('In use now')
+    expect(input(field({ value: '02:00-05:00' }))).toContain('value="02:00-05:00"')
+    expect(field({ ok: false })).toContain(DICTS.en['teamSettings.updateWindowBad'])
+  })
+  test('in every language', () => {
+    for (const d of Object.values(DICTS)) {
+      expect(d['teamSettings.updateWindowLegacy']).toContain('{window}')
+      expect(d['teamSettings.updateWindowLegacy']).toContain('{zone}')
+      expect(d['teamSettings.updateWindowLegacy']).toContain('teamax update time')
     }
   })
 })

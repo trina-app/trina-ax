@@ -1150,6 +1150,7 @@ export const ja: Record<MessageKey, string> = {
   'teamSettings.beta': "ベータ版",
   'teamSettings.updateWindow': "自動更新の時間帯",
   'teamSettings.updateWindowHint': "例：02:00-05:00（チームのタイムゾーン）。時は00～23、分は00～59です。空欄の場合は03:00-05:00です。このサーバーは、この時間帯に実行中の回答がないときにだけ自動で更新します。",
+  'teamSettings.updateWindowLegacy': "現在適用中：{window}（{zone}）。以前サーバーのMacで「teamax update time」により設定した時間帯です。ここに保存すると置き換わります。02:00-05:00の形式で、時は00～23、分は00～59です。",
   'teamSettings.updateWindowBad': "時は00～23、分は00～59で、HH:mm-HH:mmの形式を使ってください。",
   'teamSettings.auditDays': "操作ログの保持日数",
   'teamSettings.historyDays': "ファイルバージョンの保持日数",

@@ -19,6 +19,7 @@ import { isOwner, useMeStrict, useSession } from '../../store/session'
 import { toast } from '../../store/ui'
 import { Button, confirmDialog, Field, inputCls, Switch } from '../../components/ui'
 import { Card, Loadable, useAction, useLoad } from './common'
+import { legacyWindow } from '../../lib/officeUpdate'
 import { timeZoneOptions } from '../../lib/time-zones'
 import { checkIconFile } from '../../lib/team-icon'
 import TransferOwnerCard from './TransferOwner'
@@ -29,6 +30,8 @@ export default function TeamSettingsPage() {
   const signedIn = useSession((s) => s.signedIn)
   const act = useAction()
   const state = useLoad(() => api.call(API.settings))
+  // an office Mac only: what runs while the update window is empty (UpdateWindowField); no other server is asked
+  const office = useLoad(async () => (me.server.features?.officeUpdate ? api.call(API.officeUpdateStatus) : null))
   const [f, setF] = useState<TeamSettings | null>(null)
   const [busy, setBusy] = useState(false)
   // the form starts from the loaded settings once; saves keep it (a key save must not throw away other drafts)
@@ -45,6 +48,7 @@ export default function TeamSettingsPage() {
     const r = await act(() => api.call(API.updateSettings, { body: changed }), t('common.saved'))
     setBusy(false)
     if (r) { state.setData(r); setF(r) }
+    if (r && ('updateWindow' in changed || 'timeZone' in changed)) void office.reload()
     // people who follow the team default (maybe this admin) now see the new language: refresh the own view at once,
     // and the chat retention that the chat delete, chat trash and member delete dialogs name (read from /api/me)
     if (r && (changed.defaultLocale || changed.speechProvider || changed.chatTrashRetentionDays !== undefined)) await api.call(API.me).then(signedIn, () => {})
@@ -82,9 +86,7 @@ export default function TeamSettingsPage() {
                     by its control plane, so it has none. (No channel here: the channel is the installation's own,
                     server.json on Linux and `teamax update channel` on an office Mac; update audit O1.) */}
                 {me.server.features?.selfUpdate !== false && (
-                  <Field label={t('teamSettings.updateWindow')} hint={t('teamSettings.updateWindowHint')} error={windowOk ? null : t('teamSettings.updateWindowBad')}>
-                    <input className={inputCls} placeholder="02:00-05:00" value={f.updateWindow ?? ''} onChange={(e) => setF({ ...f, updateWindow: e.target.value.trim() || null })} />
-                  </Field>
+                  <UpdateWindowField value={f.updateWindow} ok={windowOk} legacy={legacyWindow(office.data, state.data?.updateWindow)} onChange={(v) => setF({ ...f, updateWindow: v })} />
                 )}
                 <Field label={t('teamSettings.auditDays')}>
                   <input className={inputCls} type="number" min={7} max={3650} value={f.auditRetentionDays} onChange={num('auditRetentionDays', 7, 3650)} />
@@ -233,6 +235,18 @@ export function TeamIconCard() {
         )}
       </div>
     </Card>
+  )
+}
+
+/** "Automatic update window". `legacy`: an office Mac runs a time set with an older `teamax update time` while this field
+ * is empty (lib/officeUpdate.ts legacyWindow). It is told, as the placeholder and in the hint, and never put into the
+ * field: saving would turn it into a team setting nobody chose. */
+export function UpdateWindowField({ value, ok, legacy, onChange }: { value: string | null; ok: boolean; legacy: { window: string; zone: string } | null; onChange: (v: string | null) => void }) {
+  const t = useT()
+  return (
+    <Field label={t('teamSettings.updateWindow')} hint={legacy ? t('teamSettings.updateWindowLegacy', legacy) : t('teamSettings.updateWindowHint')} error={ok ? null : t('teamSettings.updateWindowBad')}>
+      <input className={inputCls} placeholder={legacy?.window ?? '02:00-05:00'} value={value ?? ''} onChange={(e) => onChange(e.target.value.trim() || null)} />
+    </Field>
   )
 }
 

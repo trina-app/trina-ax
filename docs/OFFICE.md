@@ -305,7 +305,7 @@ Mac 데스크톱 DMG는 배포하지 않습니다. Windows 설치 파일은 GitH
 ~/TeamAX/teamax update time 02:30        # 팀의 업데이트 시간 바꾸기(02:30-04:30, 팀 시간대. 02:00-05:00처럼도 됨)
 ```
 `teamax update time`은 관리자 › 팀 설정의 자동 업데이트 시간과 같은 설정을 바꿉니다(0.2.18까지는 이 맥의 시계로 따로
-저장했고, 그 값은 팀 설정이 비어 있는 동안만 쓰입니다). 세 번째 LaunchAgent `app.team-ax.office.update`가 15분마다 이 일을
+저장했고, 그 값은 팀 설정이 비어 있는 동안만 쓰입니다. 그동안 팀 설정의 칸은 비어 있고, 적용 중인 시간을 자리표시자와 안내로 알려 줍니다). 세 번째 LaunchAgent `app.team-ax.office.update`가 15분마다 이 일을
 합니다(맥이 잠들어 있었다면 깨어날 때). 제거
 (`office-uninstall.sh`)하면 함께 지워집니다.
 

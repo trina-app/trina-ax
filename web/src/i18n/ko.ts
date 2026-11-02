@@ -1181,6 +1181,7 @@ export const ko = {
   'teamSettings.beta': '베타',
   'teamSettings.updateWindow': '자동 업데이트 시간',
   'teamSettings.updateWindowHint': '예: 02:00-05:00(팀 시간대). 시는 00–23, 분은 00–59. 비워 두면 03:00-05:00이에요. 이 서버는 이 시간 안에서, 진행 중인 답변이 없을 때만 스스로 업데이트해요.',
+  'teamSettings.updateWindowLegacy': '지금 적용 중: {window}({zone}). 예전에 서버 맥에서 "teamax update time"으로 정한 시간이에요. 여기에 저장하면 이 시간을 대신해요. 02:00-05:00처럼 쓰고, 시는 00–23, 분은 00–59예요.',
   'teamSettings.updateWindowBad': 'HH:mm-HH:mm 형식으로 시는 00–23, 분은 00–59로 입력해 주세요.',
   'teamSettings.auditDays': '기록 보관 (일)',
   'teamSettings.historyDays': '파일 버전 보관 (일)',

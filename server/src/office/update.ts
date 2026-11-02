@@ -276,8 +276,9 @@ export interface OfficeUpdateView {
   paused: boolean
   /** the window's start (older web pages show it) */
   time: string
-  /** the team's update window and its zone (officeSchedule) */
+  /** the team's update window, where it comes from and its zone (officeSchedule) */
   window: string
+  windowSource: OfficeSchedule['source']
   timeZone: string
   nextWindowAt: string | null
   lastCheckAt: string | null
@@ -300,7 +301,7 @@ export function updateView(home: string, o: { now?: Date; agentInstalled?: boole
   const sched = officeSchedule(home)
   const next = nextRunAt(sched, o.now ?? new Date(), set.paused)
   return {
-    current, channel: set.channel, paused: set.paused, time: sched.window.slice(0, 5), window: sched.window, timeZone: sched.timeZone,
+    current, channel: set.channel, paused: set.paused, time: sched.window.slice(0, 5), window: sched.window, windowSource: sched.source, timeZone: sched.timeZone,
     nextWindowAt: agentInstalled && next ? next.toISOString() : null,
     lastCheckAt: st.lastCheckAt, last: st.last, available, lastUpdate: st.lastUpdate,
     running: st.running ? { since: st.running.since, step: st.running.step ?? 'check', phase: st.running.phase, target: st.running.target } : null,

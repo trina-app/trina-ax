@@ -1182,6 +1182,7 @@ export const en: Record<MessageKey, string> = {
   'teamSettings.beta': 'Beta',
   'teamSettings.updateWindow': 'Automatic update window',
   'teamSettings.updateWindowHint': 'For example 02:00-05:00, in the team time zone. Hours 00–23, minutes 00–59. Empty = 03:00-05:00. This server installs updates by itself only inside this window and only when no answer is running.',
+  'teamSettings.updateWindowLegacy': 'In use now: {window} ({zone}), set earlier on the server Mac with "teamax update time". A window saved here replaces it. Write it like 02:00-05:00, with hours 00–23 and minutes 00–59.',
   'teamSettings.updateWindowBad': 'Use HH:mm-HH:mm with hours 00–23 and minutes 00–59.',
   'teamSettings.auditDays': 'Keep activity log (days)',
   'teamSettings.historyDays': 'Keep file versions (days)',

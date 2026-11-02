@@ -23,6 +23,9 @@ export const OfficeUpdateStatus = z.object({
   time: z.string(),
   /** the team's update window, HH:mm-HH:mm (Admin > Team settings; 03:00-05:00 when empty), in timeZone */
   window: z.string().optional(),
+  /** where the window comes from: team = Admin > Team settings; legacy = a time `teamax update time` of an older version
+   * set, which counts while the team setting is empty; default = 03:00-05:00 */
+  windowSource: z.enum(['team', 'legacy', 'default']).optional(),
   /** the team's time zone (IANA) the window and nextWindowAt are shown in */
   timeZone: z.string().optional(),
   /** the update agent's next run inside the window; null while paused, without the update agent, or when the window

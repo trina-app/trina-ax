@@ -547,6 +547,10 @@ describe('the update LaunchAgent and the schedule', () => {
     expect(officeSchedule(home).window).toBe('00:00-00:00')
     set('updateWindow', 'null')
     expect(officeSchedule(home)).toMatchObject({ window: '02:30-04:30', source: 'legacy' })
+    // the web's Team settings says what runs while its field is empty: the view names where the window comes from
+    expect(updateView(home, { agentInstalled: true })).toMatchObject({ window: '02:30-04:30', windowSource: 'legacy' })
+    set('updateWindow', JSON.stringify('22:00-23:00'))
+    expect(updateView(home, { agentInstalled: true })).toMatchObject({ window: '22:00-23:00', windowSource: 'team' })
     db.close()
     expect(() => writeUpdateSettings(path.join(BASE, 'settings-x'), { time: '25:00' })).toThrow(/HH:MM/)
   })
@@ -606,7 +610,7 @@ describe('the update LaunchAgent and the schedule', () => {
     fs.writeFileSync(path.join(home, 'update', 'state.json'), JSON.stringify({ deferred: { version: '0.2.19', since: '2026-10-28T20:00:00Z' } }))
     expect(scheduledRun(home, new Date('2026-11-01T20:00:00Z'))).toMatchObject({ go: true, lastResort: true })
     // the view says the window and its zone
-    expect(updateView(home, { now: new Date('2026-11-01T15:00:00Z'), agentInstalled: true })).toMatchObject({ window: '03:00-05:00', timeZone: 'Asia/Jakarta', time: '03:00', nextWindowAt: '2026-11-01T20:00:00.000Z' })
+    expect(updateView(home, { now: new Date('2026-11-01T15:00:00Z'), agentInstalled: true })).toMatchObject({ window: '03:00-05:00', windowSource: 'team', timeZone: 'Asia/Jakarta', time: '03:00', nextWindowAt: '2026-11-01T20:00:00.000Z' })
   })
 })
 
@@ -687,7 +691,7 @@ describe('teamax update status', () => {
     for (const timeZone of ['Asia/Jakarta', 'America/New_York']) {
       const shown = `${new Date(at).toLocaleString('ko-KR', { hour12: false, timeZone })} ${timeZone}`
       const text = viewText({
-        current: '0.2.20', channel: 'stable', paused: false, time: '03:00', window: '03:00-05:00', timeZone, nextWindowAt: at, lastCheckAt: at,
+        current: '0.2.20', channel: 'stable', paused: false, time: '03:00', window: '03:00-05:00', windowSource: 'default', timeZone, nextWindowAt: at, lastCheckAt: at,
         last: { kind: 'up-to-date', at, version: '0.2.20', message: null }, available: null, lastUpdate: { from: '0.2.19', to: '0.2.20', at, result: 'updated', error: null },
         running: null, requested: false, agentInstalled: true, desktop: { version: '0.2.20', at },
       })
@@ -697,7 +701,7 @@ describe('teamax update status', () => {
   })
   test('a time that never was stays a dash', () => {
     const text = viewText({
-      current: '0.2.20', channel: 'stable', paused: true, time: '03:00', window: '03:00-05:00', timeZone: 'Asia/Jakarta', nextWindowAt: null, lastCheckAt: null,
+      current: '0.2.20', channel: 'stable', paused: true, time: '03:00', window: '03:00-05:00', windowSource: 'default', timeZone: 'Asia/Jakarta', nextWindowAt: null, lastCheckAt: null,
       last: null, available: null, lastUpdate: null, running: null, requested: false, agentInstalled: true, desktop: null,
     })
     expect(text.split('\n').find((l) => l.startsWith('마지막 확인'))?.trimEnd().endsWith('-')).toBe(true)

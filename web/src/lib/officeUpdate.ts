@@ -9,6 +9,14 @@ const KEY = 'teamax.officeUpdate.dismissed'
  * send it (a page left open after a roll back): the team's zone from /api/me, else this browser's, else UTC. */
 export const cardZone = (s: Pick<OfficeUpdateStatus, 'timeZone'>, teamZone?: string | null): string => s.timeZone || teamZone || browserTimeZone() || 'UTC'
 
+/** What an office Mac runs while the update window in Team settings is empty, when that is not the plain default: a time
+ * `teamax update time` of an older version set (server/src/office/update.ts officeSchedule). Null once the team has saved
+ * a window of its own, and on any other server (no status). */
+export function legacyWindow(s: OfficeUpdateStatus | null | undefined, saved: string | null | undefined): { window: string; zone: string } | null {
+  if (s?.windowSource !== 'legacy' || saved || !s.window || !s.timeZone) return null
+  return { window: s.window, zone: s.timeZone }
+}
+
 /** The banner for owners and admins: a newer version on the feed, not being installed, not dismissed for that
  * version. `nightly` is the team's update window and its zone, when it installs by itself, as the server gives them
  * and the update card shows them (null when nothing installs by itself: automatic updates off, no update agent, a window

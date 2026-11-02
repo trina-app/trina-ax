@@ -1182,6 +1182,7 @@ export const id: Record<MessageKey, string> = {
   'teamSettings.beta': 'Beta',
   'teamSettings.updateWindow': 'Jam update otomatis',
   'teamSettings.updateWindowHint': 'Contoh 02:00-05:00, dalam zona waktu tim. Jam 00–23, menit 00–59. Kosong = 03:00-05:00. Server ini memasang pembaruan sendiri hanya dalam jam ini dan hanya saat tidak ada jawaban yang berjalan.',
+  'teamSettings.updateWindowLegacy': 'Berlaku sekarang: {window} ({zone}), diatur sebelumnya di Mac server dengan "teamax update time". Jam yang disimpan di sini menggantikannya. Tulis seperti 02:00-05:00, dengan jam 00–23 dan menit 00–59.',
   'teamSettings.updateWindowBad': 'Gunakan HH:mm-HH:mm dengan jam 00–23 dan menit 00–59.',
   'teamSettings.auditDays': 'Simpan log aktivitas (hari)',
   'teamSettings.historyDays': 'Simpan versi file (hari)',
