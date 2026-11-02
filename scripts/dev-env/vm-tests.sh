@@ -12,7 +12,8 @@ T=/srv/mycel/team
 ctl() { runuser -u mycel -- python3 -I "$HERE/boxctl.py" "$S" "$@"; }
 export -f ctl; export HERE S
 x() { ctl exec web "$@"; }                     # exec in the web box
-pass() { echo "PASS $*"; }; fail() { echo "FAIL $*"; }
+FAILS=0
+pass() { echo "PASS $*"; }; fail() { FAILS=$((FAILS + 1)); echo "FAIL $*"; }
 ok() { if "$@" >/dev/null 2>&1; then pass "$D"; else fail "$D"; fi; }
 no() { if "$@" >/dev/null 2>&1; then fail "$D"; else pass "$D"; fi; }
 LIM='{"cpus":1,"memoryMiB":2560,"pids":512,"diskGiB":4,"idleStopMin":5}'
@@ -206,7 +207,7 @@ if [ "${JOBS:-0}" = 1 ]; then
     ens web projects/web open >/dev/null
     ctl '{"op":"exec","box":"web","command":"python3 -m http.server 8000 --bind 127.0.0.1","timeoutMs":10000,"background":true,"logName":"idle-dev","actor":"vm"}' >/dev/null
     sleep 30; cg=$(cgof); u0=$(awk '/^usage_usec/ {print $2}' "$cg/cpu.stat"); sleep 60; u1=$(awk '/^usage_usec/ {print $2}' "$cg/cpu.stat")
-    echo "idle dev server CPU: $(( (u1 - u0) / 600000 ))% of a core (the threshold is 10%)"
+    echo "idle dev server CPU: $(awk -v d=$((u1 - u0)) 'BEGIN { printf "%.4f", d / 600000 }')% of a core (the threshold is 10%)"
     sleep 370
     D="an idle dev server still stops"; ok statusq '.state=="stopped" and .stopCode=="idle"'
     ens web projects/web open >/dev/null
@@ -220,3 +221,5 @@ D="offline: no internet"; no x 'curl -fsS -m 5 -o /dev/null https://example.com'
 if [ "${LONG:-0}" = 1 ]; then echo "== idle stop (6 min)"; sleep 370; D="idle box stopped"; ok bash -c "ctl '{\"op\":\"status\"}' | jq -e '.boxes[] | select(.box==\"web\") | .state==\"stopped\"'"; fi
 echo "== teardown"; ctl '{"op":"destroy","box":"web"}'
 D="no mounts left"; no grep -q mycel-boxd /proc/self/mountinfo
+echo "FAIL count: $FAILS"
+[ "$FAILS" = 0 ] || exit 1

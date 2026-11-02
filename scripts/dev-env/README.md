@@ -30,7 +30,7 @@ Server switches (all off by default):
 
 What limits disk use: `diskGiB` sizes only the box volume (`node_modules`, `.venv`, caches). `/work` is the team folder on
 the server's disk, with no size limit of its own: the team file system has no project quota. One watchdog per running box
-reads the free space of `--team-root` about every second. Under max(2 GiB, 5% of the disk) boxd stops the box and records
+reads the free space of `--team-root` every 100 ms. Under max(2 GiB, 5% of the disk) boxd stops the box and records
 why, and a box starts only with 1 GiB more than that free. Then the server tells the people who may use the box and the
 admins why, and `box_shell` applies the same rule as AI writes before each command.
 

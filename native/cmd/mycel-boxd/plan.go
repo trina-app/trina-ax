@@ -89,8 +89,9 @@ const (
 	minHostMiB = 3584
 	pidsWait   = 5 * time.Second
 
-	// a test wrote 135 MB/s to the team disk: at 1 s, about 135 MB goes past the floor before the watchdog sees it
-	diskPoll         = time.Second
+	// the VM test of 2026-11-02 wrote to the team disk with peaks of 500-740 MiB/s, and a 1 s poll went more than 500 MB
+	// past the floor. At 100 ms, about 74 MiB goes past the floor before the watchdog sees it.
+	diskPoll         = 100 * time.Millisecond
 	diskFloorMin     = 2 << 30
 	diskFloorPercent = 5
 	// a box that starts just over the floor stops again at its first writes

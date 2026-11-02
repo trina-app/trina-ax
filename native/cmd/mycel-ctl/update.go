@@ -759,6 +759,8 @@ func (u *updater) updateRoot(dir, v string) error {
 		}
 	}
 	systemd := u.in.Systemd && fileExists(systemdRunDir)
+	// before the files change: a process from before an older install-linux.sh update stays with no other sign
+	stale := systemd && u.boxdStale()
 	if len(diff) == 0 {
 		// root files already those of v: say so (rootNeeded compares root/VERSION with the feed's rootSince, and a server
 		// whose files are right would otherwise be sent here again by every check)
@@ -768,7 +770,16 @@ func (u *updater) updateRoot(dir, v string) error {
 			}
 			u.res.Notes = append(u.res.Notes, "root files already match "+v+": root/VERSION is "+v+" now")
 		}
-		return u.syncUnits(systemd, false)
+		if err := u.syncUnits(systemd, false); err != nil {
+			return err
+		}
+		if stale {
+			if !u.waitForTurns() {
+				return u.deferUpdate(v, boxdUnit+" not restarted")
+			}
+			u.restartBoxd()
+		}
+		return nil
 	}
 	stage := u.e.root(".new")
 	if err := os.RemoveAll(stage); err != nil {
@@ -792,7 +803,7 @@ func (u *updater) updateRoot(dir, v string) error {
 	if !u.waitForTurns() {
 		return u.deferUpdate(v, "root files not replaced")
 	}
-	units, boxd := false, false
+	units, boxd := false, stale
 	// also when a later step fails: the next run finds root/mycel-boxd already new and would not restart it
 	defer func() {
 		if boxd && systemd {
@@ -853,7 +864,34 @@ const (
 var (
 	boxdSock = "/run/mycel-boxd/boxd.sock"
 	boxdWait = 30 * time.Second
+	boxdExe  = func(pid string) string { return "/proc/" + pid + "/exe" }
 )
+
+// boxdStale: the service runs root/mycel-boxd, but its process has other content than that file. The path of the process
+// says "(deleted)" also for a file that was replaced with the same content, and that needs no restart, so this compares
+// the content, as install-trial.sh does. A service that runs another path, has no process, or has a program that cannot
+// be read is not stale: a restart stops the boxes.
+func (u *updater) boxdStale() bool {
+	unit, err := os.ReadFile(filepath.Join(systemdUnitDir, boxdUnit))
+	if err != nil || !strings.Contains(string(unit), "\nExecStart="+u.e.root(boxdProgram)+" ") {
+		return false
+	}
+	out, err := exec.Command(u.e.systemctl, "show", "-p", "MainPID", "--value", boxdUnit).Output()
+	pid := strings.TrimSpace(string(out))
+	if err != nil || pid == "" || pid == "0" {
+		return false
+	}
+	running, _, err := bundle.HashFile(boxdExe(pid))
+	if err != nil {
+		return false
+	}
+	file, _, err := bundle.HashFile(u.e.root(boxdProgram))
+	if err != nil || running == file {
+		return false
+	}
+	u.res.Notes = append(u.res.Notes, boxdUnit+" runs an old program, not the file "+u.e.root(boxdProgram)+": it restarts")
+	return true
+}
 
 // restartBoxd runs the new root/mycel-boxd after this update replaced it, before the team server restarts (updateApp).
 // A helper that starts stops the boxes that run (native/cmd/mycel-boxd setup fails closed), so only a changed program
