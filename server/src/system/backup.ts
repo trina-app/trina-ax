@@ -28,6 +28,7 @@ import { readFileChunks, writeAtomic, zstdCompress, zstdDecompress } from './str
 import { extractTar, tarStream, type TarEntryInput } from './tar'
 import { backupRetentionDays } from './limits'
 import { HOSTED_SPEECH_KEY_SETTING, HOSTED_SPEECH_USAGE_SETTING } from '../admin/settings'
+import { GRACE_KEY, GRACE_TOLD_KEY, planFreeBytes } from './storage'
 
 export const BACKUP_RETENTION_DAYS = 14
 /** days local backups are kept: the plan's localBackupRetentionDays (the hosted cloud: 3, the off-site copy is the real
@@ -61,8 +62,9 @@ export type BackupMeta = z.infer<typeof BackupMeta>
 
 export class BackupError extends Error {
   name = 'BackupError'
-  /** disk_space: not enough room for a backup (the owner can fix it by freeing space) */
-  constructor(message: string, readonly reason: 'disk_space' | 'other' = 'other') { super(message) }
+  /** disk_space: not enough room for a backup (the owner can fix it by freeing space). plan_space: the same under a plan
+   * smaller than the disk: a normal state of the team, not a fault of the server (diagnostics warn). */
+  constructor(message: string, readonly reason: 'disk_space' | 'plan_space' | 'other' = 'other') { super(message) }
 }
 
 export interface BackupProgress { (fraction: number | null, message: string): void }
@@ -161,7 +163,7 @@ export class BackupManager {
 
   latest(): BackupMeta | null { return this.metas().at(-1) ?? null }
 
-  lastError(): { at: string; message: string } | null {
+  lastError(): { at: string; message: string; reason?: BackupError['reason'] } | null {
     try { return JSON.parse(fs.readFileSync(path.join(this.o.layout.dbBackupsDir, 'last-error.json'), 'utf8')) } catch { return null }
   }
 
@@ -173,7 +175,7 @@ export class BackupManager {
       (e) => {
         try {
           fs.mkdirSync(this.o.layout.dbBackupsDir, { recursive: true, mode: 0o700 })
-          fs.writeFileSync(path.join(this.o.layout.dbBackupsDir, 'last-error.json'), JSON.stringify({ at: this.now().toISOString(), message: (e as Error).message }), { mode: 0o600 })
+          fs.writeFileSync(path.join(this.o.layout.dbBackupsDir, 'last-error.json'), JSON.stringify({ at: this.now().toISOString(), message: (e as Error).message, reason: e instanceof BackupError ? e.reason : 'other' }), { mode: 0o600 })
         } catch {}
         throw e
       },
@@ -186,6 +188,7 @@ export class BackupManager {
     const progress = o.progress ?? (() => {})
     const free = Math.min(diskSpace(L.dataDir).free, diskSpace(L.teamRoot).free)
     if (free < BACKUP_MIN_FREE_BYTES) throw new BackupError(`not enough free disk space for a backup (${Math.round(free / 1024 ** 2)} MB free, 2 GB needed)`, 'disk_space')
+    const newChain = o.scope === 'full' && this.planGate()
     await fsp.mkdir(L.dbBackupsDir, { recursive: true, mode: 0o700 })
     const now = this.now()
     let id = `${stamp(now)}-${o.kind}`
@@ -205,7 +208,7 @@ export class BackupManager {
     try {
       if (o.scope === 'full') {
         progress(0.1, 'team folder')
-        meta.team = await this.archiveTeam(id, now, (f) => progress(0.1 + 0.85 * f, 'team folder'))
+        meta.team = await this.archiveTeam(id, now, newChain, (f) => progress(0.1 + 0.85 * f, 'team folder'))
         meta.scope = meta.team.base ? 'incremental' : 'full'
         await fsp.writeFile(path.join(this.teamDir(id), 'meta.json'), JSON.stringify(meta, null, 1), { mode: 0o600 })
       }
@@ -222,12 +225,31 @@ export class BackupManager {
     return meta
   }
 
-  /** A full archive when there is none from the last 7 days (or the chain is long); otherwise an incremental. */
-  private async archiveTeam(id: string, now: Date, progress: (f: number) => void): Promise<NonNullable<BackupMeta['team']>> {
+  /**
+   * A plan smaller than the disk (system/storage.ts): a full backup needs the same room as on a real disk of the plan's
+   * size, because its bytes count in the plan's use. Without this, backups alone can take a team over the limit. A DB
+   * backup has no such check, so that an update does not stop, and neither has a mycel-ctl backup (the control plane's
+   * manual and final backups): no guard in that process.
+   * One exception: archives past the retention period count as room. Only a new backup lets prune drop them and the team
+   * cannot delete them, so an archive from a larger plan could hold the space for ever and stop all backups. Returns
+   * true: start a new chain, so that nothing builds on them.
+   */
+  private planGate(): boolean {
+    const free = planFreeBytes()
+    if (free === null || free >= BACKUP_MIN_FREE_BYTES) return false
+    const metas = this.metas()
+    const keep = this.retained(metas, false)
+    const aged = metas.filter((m) => !keep.has(m.id)).reduce((a, m) => a + m.db.size + (m.team?.archiveSize ?? 0), 0)
+    if (free + aged >= BACKUP_MIN_FREE_BYTES) return true
+    throw new BackupError(`not enough room under the plan's storage limit for a backup (${Math.round(free / 1024 ** 2)} MB free, 2 GB needed)`, 'plan_space')
+  }
+
+  /** A full archive when there is none from the last 7 days (or the chain is long, or `newChain`); otherwise an incremental. */
+  private async archiveTeam(id: string, now: Date, newChain: boolean, progress: (f: number) => void): Promise<NonNullable<BackupMeta['team']>> {
     const metas = this.metas()
     const prev = [...metas].reverse().find((m) => m.team)
     const lastFull = [...metas].reverse().find((m) => m.team && !m.team.base)
-    if (!prev || !lastFull || now.getTime() - Date.parse(lastFull.createdAt) >= FULL_EVERY_DAYS * 86400_000) return this.writeTeamArchive(id, null, {}, progress)
+    if (newChain || !prev || !lastFull || now.getTime() - Date.parse(lastFull.createdAt) >= FULL_EVERY_DAYS * 86400_000) return this.writeTeamArchive(id, null, {}, progress)
     let chainLen = 0
     try { chainLen = this.chain(prev.id).length } catch { return this.writeTeamArchive(id, null, {}, progress) }
     if (chainLen >= retentionDays()) return this.writeTeamArchive(id, null, {}, progress)
@@ -295,21 +317,30 @@ export class BackupManager {
     return out
   }
 
+  /** Backups inside the retention period and what they build on; with `newest`, also the newest ones (see prune). */
+  private retained(metas: BackupMeta[], newest: boolean): Set<string> {
+    const cutoff = this.now().getTime() - retentionDays() * 86400_000
+    const keep = new Set<string>()
+    const byId = new Map(metas.map((m) => [m.id, m]))
+    for (const m of metas) if (Date.parse(m.createdAt) >= cutoff) keep.add(m.id)
+    if (newest) {
+      keep.add(metas.at(-1)!.id)
+      const lastTeam = [...metas].reverse().find((m) => m.team)
+      if (lastTeam) keep.add(lastTeam.id)
+    }
+    for (const id of [...keep]) {
+      let b = byId.get(id)?.team?.base
+      while (b && !keep.has(b)) { keep.add(b); b = byId.get(b)?.team?.base }
+    }
+    return keep
+  }
+
   /** Delete backups older than the retention period that nothing kept builds on; always keeps the newest. */
   prune(): string[] {
     const metas = this.metas()
     if (!metas.length) return []
     const cutoff = this.now().getTime() - retentionDays() * 86400_000
-    const keep = new Set<string>()
-    const byId = new Map(metas.map((m) => [m.id, m]))
-    for (const m of metas) if (Date.parse(m.createdAt) >= cutoff) keep.add(m.id)
-    keep.add(metas.at(-1)!.id)
-    const lastTeam = [...metas].reverse().find((m) => m.team)
-    if (lastTeam) keep.add(lastTeam.id)
-    for (const id of [...keep]) {
-      let b = byId.get(id)?.team?.base
-      while (b && !keep.has(b)) { keep.add(b); b = byId.get(b)?.team?.base }
-    }
+    const keep = this.retained(metas, true)
     const removed: string[] = []
     for (const m of metas) {
       if (keep.has(m.id)) continue
@@ -441,9 +472,11 @@ export function endSessions(file: string): void {
  * Settings rows that belong to this server and the hosting service, not to the team's data: a restore keeps the
  * current ones (or that there are none), whatever the backup holds. The hosting service's speech-to-text key: an older
  * backup must not bring back a key the hosting service has replaced or taken away since. This month's count of its
- * free hours: restoring a backup must not give the month's hours back (credentials/hosted-speech.ts).
+ * free hours: restoring a backup must not give the month's hours back (credentials/hosted-speech.ts). The grace state
+ * of the plan's storage limit: a restore must not give a new 7 days, and an old state must not cut a new period short
+ * (system/storage.ts).
  */
-export const SERVER_OWN_SETTINGS = [HOSTED_SPEECH_KEY_SETTING, HOSTED_SPEECH_USAGE_SETTING] as const
+export const SERVER_OWN_SETTINGS = [HOSTED_SPEECH_KEY_SETTING, HOSTED_SPEECH_USAGE_SETTING, GRACE_KEY, GRACE_TOLD_KEY] as const
 const ownIn = SERVER_OWN_SETTINGS.map(() => '?').join(', ')
 
 /** Put the SERVER_OWN_SETTINGS rows of the database `live` (none when it is missing) into the copy `staged`. */

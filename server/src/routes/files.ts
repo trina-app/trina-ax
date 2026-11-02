@@ -163,7 +163,7 @@ export const filesRoutes: RouteModule = {
     kit.handle(API.attachTeamFile, ({ c, body, auth }) => mapErrors(c.get('locale'), () => C.teamRefs.create(auth.user.id, body.chatId, body.path)))
 
     // ---------------- chunked uploads ----------------
-    kit.handle(API.createUploadSession, ({ c, body, auth }) => mapErrors(c.get('locale'), () => { assertStorageRoom(body.size); return C.uploads.create(auth.user.id, body.target, body.size, body.sha256) }, 'target'))
+    kit.handle(API.createUploadSession, ({ c, body, auth }) => mapErrors(c.get('locale'), () => C.uploads.create(auth.user.id, body.target, body.size, body.sha256), 'target'))
     kit.handle(API.uploadChunk, ({ c, params, body, auth }) => mapErrors(c.get('locale'), () => C.uploads.putChunk(auth.user.id, params.id, Number(params.n), body)))
     kit.handle(API.getUploadSession, ({ c, params, auth }) => mapErrors(c.get('locale'), () => C.uploads.get(auth.user.id, params.id)))
     kit.handle(API.completeUploadSession, ({ c, params, auth }) => mapErrors(c.get('locale'), () => C.uploads.complete(auth.user.id, params.id)))

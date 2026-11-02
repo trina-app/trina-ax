@@ -176,7 +176,8 @@ function Storage() {
                 </div>
                 <p className="mt-1 text-xs text-faint">{t('storage.free', { free: formatSize(s.freeBytes, locale) })}</p>
               </div>
-              {s.writesRefused && <p className="text-xs text-danger" role="alert">{t('storage.refused')}</p>}
+              {s.writesRefused && <p className="text-xs text-danger" role="alert">{t(s.graceEndsAt ? 'storage.overRefused' : 'storage.refused')}</p>}
+              {s.graceEndsAt && !s.writesRefused && <p className="text-xs text-warn" role="status">{t('storage.grace', { date: formatDateTime(s.graceEndsAt, locale) })}</p>}
               {s.level !== 'ok' && <p className="text-xs text-warn">{t('storage.howToFree')}</p>}
               {s.breakdown && (
                 <ul className="grid gap-1 text-xs sm:grid-cols-2" data-testid="storage-breakdown">

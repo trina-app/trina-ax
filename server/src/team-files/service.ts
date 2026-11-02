@@ -16,6 +16,8 @@ import { atLeast, RuleSet, type Principal } from '../policy/access'
 import { authorize, siblingVisible, type Authorized } from '../policy/authorize'
 import { Denied, ToolError } from '../policy/errors'
 import { badSegment, hiddenEntry } from '../policy/names'
+import { currentPlan } from '../system/limits'
+import { assertStorageRoom, assertStorageRoomForAI } from '../system/storage'
 import { parseInput, verifyChain } from '../policy/resolve'
 import { getTeamSettings } from '../admin/settings'
 import { PRODUCT } from '@mycel/shared'
@@ -439,6 +441,9 @@ export class TeamFiles {
     let r = authorize(this.fx, rules, user, [...pr.segs, name].join('/'), 'write', { mustExist: false })
     const added = this.viewersAdded(rules, user.id, fr.segs, r.segs)
     if (o.dryRun) return { viewersAdded: added }
+    // with a plan, the team disk near full or over the plan's limit (system/storage.ts): a tool gets a tool error, the
+    // Files screen a 507. A server with no plan has no check here, as before.
+    if (currentPlan()) { if (o.tool) assertStorageRoomForAI(st.size); else assertStorageRoom(st.size) }
     const onExists = o.onExists ?? 'rename'
     let replaced = false
     let conflictOf: string | null = null
@@ -513,6 +518,7 @@ export class TeamFiles {
       }
     }
     walk([])
+    if (currentPlan()) assertStorageRoom(bytes)
     const tmp = path.join(pr.abs, PRODUCT.tmpPrefix + crypto.randomUUID())
     fs.mkdirSync(tmp, { mode: 0o700 })
     try {
@@ -719,14 +725,16 @@ export class TeamFiles {
     if (this.versionInTrash(v)) fileError('conflict', 'folderInTrash', { path: r.rel })
     if (!v.storage_path) fileError('not_found', 'noBlob')
     const blob = path.join(this.root, ...v.storage_path.split('/'))
-    checkRegular(blob)
+    const size = checkRegular(blob).size
+    let cur: string | null = null
     if (r.exists) {
       if (r.st!.isDirectory()) throw new ToolError('folder', 'is_folder')
       const st = checkRegular(r.abs)
-      const cur = await this.sha(r.abs, st)
+      cur = await this.sha(r.abs, st)
       if (cur === v.sha256) return { path: r.rel, conflict: false, entry: this.entry(user, rules, r.segs) }
-      snapshotVersion(this.ctx.db, this.root, r.rel, { userId, turnId: null }, 'restore', cur)
     }
+    if (currentPlan()) assertStorageRoom(size)
+    if (cur) snapshotVersion(this.ctx.db, this.root, r.rel, { userId, turnId: null }, 'restore', cur)
     installFile(this.root, r.segs, blob, { keepSource: true })
     fileEvent(this.ctx.db, { turnId: null, userId, path: r.rel, action: 'restore', size: v.size, sha256: v.sha256, detail: { versionId, version: v.version } })
     this.extractText(r.rel)

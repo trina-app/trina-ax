@@ -7,7 +7,7 @@ import path from 'node:path'
 import type { CheckStatus, ConnectionStatus, DiagnosticCheck, Diagnostics, Locale } from '@mycel/shared/api'
 import { FirewallStatus, PfStatus, type StatusFile } from '@mycel/shared/install'
 import { PRODUCT, type LauncherStatus } from '@mycel/shared'
-import { getTeamSettings, installId, teamDefaultLocale, teamTimeZone } from '../admin/settings'
+import { getSetting, getTeamSettings, installId, setSetting, teamDefaultLocale, teamTimeZone } from '../admin/settings'
 import type { AppContext } from '../context'
 import { allowedCredentialKinds, DEFAULT_PROXY_PORT, isManaged } from '../app-config'
 import { teamCredentialSummary } from '../credentials/resolve'
@@ -29,7 +29,7 @@ import { configurePlan, currentPlan, effectiveConcurrency, planDiskBytes, planFi
 import { configureNotices, noticesFileProblem } from './managed'
 import { feature, hostKind, isHosted } from './deployment'
 import { pruneOld } from './retention'
-import { configureStorageGuard, levelOf, snapshotOf, storageRoom, StorageMonitor } from './storage'
+import { cappedSnapshot, configureStorageGuard, levelOf, planView, reserveBytes, snapshotOf, storageState, StorageMonitor, timeIn } from './storage'
 import { hostMessages, ML } from './messages-linux'
 import { audit } from '../admin/audit'
 import { autoUpdateDecision, DEFAULT_UPDATE_WINDOW, runUpdate } from './update-job'
@@ -94,11 +94,15 @@ export class OpsService {
       appDir: this.layout.appDir, dataDir: ctx.config.dataDir, version: ctx.version, channel: ctx.config.update.channel,
       feedUrl: ctx.config.update.feedUrl, log: ctx.log.child({ c: 'update' }), allowUnsigned: o.allowUnsignedUpdates, rootDir: this.layout.rootDir,
     })
-    // the team disk (system/storage.ts): writes are refused near full where the resource limits apply
-    configureStorageGuard({ root: this.layout.teamRoot })
+    // the team disk (system/storage.ts): writes are refused near full where the resource limits apply; the grace state
+    // of a team over its plan's limit is kept in the settings table
+    configureStorageGuard({
+      root: this.layout.teamRoot, now: o.now ? () => this.now().getTime() : undefined,
+      store: { get: (k) => getSetting<string | null>(ctx.db, k) ?? null, set: (k, v) => setSetting(ctx.db, k, v) },
+    })
     this.storage = new StorageMonitor({
       db: ctx.db, teamRoot: this.layout.teamRoot, dataDir: this.layout.dataDir, appDir: this.layout.appDir, now: o.now ? () => this.now().getTime() : undefined,
-      audit: (detail) => audit(ctx.db, { actor: null, action: 'storage.warn', target: null, detail }),
+      audit: (detail, action = 'storage.warn') => audit(ctx.db, { actor: null, action, target: null, detail }),
       notify: (m) => {
         try {
           const admins = ctx.db.query("SELECT id, locale FROM users WHERE role IN ('owner','admin') AND status = 'active' AND deleted_at IS NULL").all() as { id: string; locale: Locale | null }[]
@@ -505,7 +509,8 @@ export class OpsService {
     // backups
     const lastB = this.backups.latest()
     const err = this.backups.lastError()
-    if (err && (!lastB || err.at > lastB.createdAt)) add('backups', 'backups', t(M.backups), 'fail', t(M.backupFailed(err.message)))
+    // no room under the plan's limit is a state of the team: `fail` makes the control plane roll updates back
+    if (err && (!lastB || err.at > lastB.createdAt)) add('backups', 'backups', t(M.backups), err.reason === 'plan_space' ? 'warn' : 'fail', t(M.backupFailed(err.message)))
     else if (!lastB) add('backups', 'backups', t(M.backups), 'warn', t(M.backupNone))
     else {
       const h = Math.floor((this.now().getTime() - Date.parse(lastB.createdAt)) / 3600_000)
@@ -569,7 +574,7 @@ export class OpsService {
     return {
       version: this.ctx.version,
       host: { os: `${process.platform} ${os.release()}`, arch: process.arch, hostname: os.hostname() },
-      disk: { teamFolderFreeBytes: Math.max(0, Math.floor(team.free)), dataFreeBytes: Math.max(0, Math.floor(data.free)) },
+      disk: { teamFolderFreeBytes: Math.max(0, Math.floor(cappedSnapshot()?.freeBytes ?? team.free)), dataFreeBytes: Math.max(0, Math.floor(data.free)) },
       queue: q,
       checks,
       generatedAt: this.now().toISOString(),
@@ -588,21 +593,35 @@ export class OpsService {
   private linuxStorage(add: (id: string, group: string, label: string, status: CheckStatus, detail: string | null) => void, t: (x: Parameters<typeof tr>[1]) => string,
     team: { free: number; total: number }, data: { free: number; total: number }) {
     const one = (id: string, d: { free: number; total: number }) => {
-      let s
-      try { s = snapshotOf(fs.statfsSync(id === 'disk.team' ? this.layout.teamRoot : this.layout.dataDir)) } catch { s = { totalBytes: d.total, freeBytes: d.free, usedBytes: d.total - d.free, percent: d.total ? Math.round(((d.total - d.free) / d.total) * 1000) / 10 : 0 } }
+      let real
+      try { real = snapshotOf(fs.statfsSync(id === 'disk.team' ? this.layout.teamRoot : this.layout.dataDir)) } catch { real = { totalBytes: d.total, freeBytes: d.free, usedBytes: d.total - d.free, percent: d.total ? Math.round(((d.total - d.free) / d.total) * 1000) / 10 : 0 } }
+      // the team disk by the view the writes are judged by (the plan's bytes on a larger disk), or Admin shows ok while
+      // writes are refused
+      const s = id === 'disk.team' ? planView(real) : real
       const lvl = levelOf(s.percent)
       const pct = Math.round(s.percent)
-      const refused = id === 'disk.team' && storageRoom(0)?.ok === false
-      if (lvl === 'full' || refused) add(id, 'disk', t(ML.storage), 'fail', t(ML.storageFull(s.freeBytes, pct)))
-      else if (lvl === 'high') add(id, 'disk', t(ML.storage), 'warn', t(ML.storageHigh(s.freeBytes, pct)))
+      const state = id === 'disk.team' ? storageState() : null
+      // `fail` only for the real disk. The control plane rolls an update back on `fail`, and a team over its plan's limit
+      // is a normal state of the team that can last a long time.
+      const realFull = levelOf(real.percent) === 'full'
+      if (state?.writesRefused) {
+        const realRefused = realFull || real.freeBytes < reserveBytes(real.totalBytes)
+        add(id, 'disk', t(ML.storage), realRefused ? 'fail' : 'warn', t(realRefused ? ML.storageFull(s.freeBytes, pct) : ML.storageOverPlan(s.freeBytes, pct)))
+      }
+      // writes still work in the grace period, so the "refused" line of a full disk does not apply
+      else if (state?.graceEndsAt) add(id, 'disk', t(ML.storage), 'warn', t(ML.storageGrace(s.freeBytes, pct, timeIn(state.graceEndsAt, teamTimeZone(this.ctx.db)))))
+      else if (realFull) add(id, 'disk', t(ML.storage), 'fail', t(ML.storageFull(s.freeBytes, pct)))
+      else if (lvl === 'high' || lvl === 'full') add(id, 'disk', t(ML.storage), 'warn', t(ML.storageHigh(s.freeBytes, pct)))
       else add(id, 'disk', t(ML.storage), 'ok', t(ML.storageOk(s.freeBytes, pct)))
-      return s
+      return real
     }
-    const s = one('disk.team', team)
+    const real = one('disk.team', team)
     // the data folder is on the same disk in every Linux install; a separate one gets its own line
     if (data.total !== team.total || data.free !== team.free) one('disk.data', data)
     const plan = planDiskBytes()
-    if (plan && Math.abs(s.totalBytes - plan) / plan > 0.1) add('disk.plan', 'disk', t(ML.storage), 'warn', t(ML.storagePlanMismatch(s.totalBytes / 1024 ** 3, plan / 1024 ** 3)))
+    // a disk smaller than the plan means that a grow failed. A larger one is normal after a move to a smaller plan (a
+    // Proxmox disk cannot shrink), and the plan's bytes are enforced in software (system/storage.ts).
+    if (plan && (plan - real.totalBytes) / plan > 0.1) add('disk.plan', 'disk', t(ML.storage), 'warn', t(ML.storagePlanMismatch(real.totalBytes / 1024 ** 3, plan / 1024 ** 3)))
   }
 
   /** Linux install: nftables, the launcher (systemd) and its sandbox report, kernel isolation, cron/at. */
@@ -737,7 +756,8 @@ export class OpsService {
       if (!this.shouldRunDailyBackup()) return
       this.backups.run({ kind: 'daily', scope: 'full' }).catch((e) => log.error('daily backup failed', { err: e }))
     }, 10 * 60_000))
-    // storage: what uses the space 5 minutes after start, then hourly; the 80% notice is checked every 10 minutes
+    // storage: what uses the space 5 minutes after start, then hourly; the 80% notice and the grace state of a team over
+    // its plan's limit are checked every 10 minutes
     const measure = () => this.storage.measure().catch((e) => log.warn('storage measurement failed', { err: e }))
     const firstMeasure = setTimeout(measure, 5 * 60_000)
     ;(firstMeasure as unknown as { unref?: () => void }).unref?.()

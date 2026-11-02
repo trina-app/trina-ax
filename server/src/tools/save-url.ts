@@ -41,6 +41,8 @@ import type { StatFs } from '../system/storage'
 import { imageSize } from '../uploads/image'
 import { downloadToFile, type DownloadOptions } from './download'
 import { egressOf, egressSettled } from './egress'
+import { currentPlan } from '../system/limits'
+import { assertStorageRoomForAI } from '../system/storage'
 import { placeProduced } from './make-file'
 import { ACCEPTED, refusedName, sniffKind, withExtension, type FileKind } from './sniff'
 import { redirectGuard } from './connection-urls'
@@ -177,6 +179,8 @@ export async function saveUrl(ctx: AppContext, a: Input, t: ToolCtx, o: SaveUrlO
   const work = fs.mkdtempSync(path.join(workRoot, 'save-url-'))
   const tmp = path.join(work, 'body')
   const room = (more: number, streaming: boolean) => {
+    // over the plan's limit on a larger disk: stop here, not at the end of a long download (system/storage.ts)
+    if (currentPlan()) assertStorageRoomForAI(more)
     for (const d of disks([work, ctx.engineConfig.teamRoot], statfs)) {
       if (d.free - more >= d.reserve) continue
       // the size in brackets when it is known ("this file (3.2 GB)"; no space before the bracket in Korean, full-width in Japanese)

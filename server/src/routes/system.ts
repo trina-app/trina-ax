@@ -149,7 +149,7 @@ export const systemRoutes: RouteModule = {
             return { backupId: m.id, size: m.db.size + (m.team?.archiveSize ?? 0), createdAt: m.createdAt }
           } catch (e) {
             // the owner can do something about a full disk; anything else is told as a failed backup, not "server error"
-            if (e instanceof BackupError) throw new JobFailure('unavailable', e.reason === 'disk_space' ? M.backupNoSpace : M.backupFailed(e.message))
+            if (e instanceof BackupError) throw new JobFailure('unavailable', e.reason !== 'other' ? M.backupNoSpace : M.backupFailed(e.message))
             throw e
           } finally { release() }
         },

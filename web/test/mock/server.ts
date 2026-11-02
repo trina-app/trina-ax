@@ -1414,7 +1414,7 @@ export class MockServer {
     updateStatus: () => ({ current: this.serverVersion, channel: 'stable', available: null, lastCheckedAt: now(), previous: null, managed: this.cloud }),
     // like server/src/system/storage.ts: a 50 GB disk, 41 GB used (over 80%); the plan on Team AX Cloud
     storage: () => ({
-      totalBytes: 50 * 1024 ** 3, usedBytes: 41 * 1024 ** 3, freeBytes: 9 * 1024 ** 3, percent: 82, level: 'warn', reserveBytes: 1024 ** 3, writesRefused: false,
+      totalBytes: 50 * 1024 ** 3, usedBytes: 41 * 1024 ** 3, freeBytes: 9 * 1024 ** 3, percent: 82, level: 'warn', reserveBytes: 1024 ** 3, writesRefused: false, graceEndsAt: null,
       breakdown: { team: 30 * 1024 ** 3, history: 4 * 1024 ** 3, trash: 3 * 1024 ** 3, backups: 2 * 1024 ** 3, models: 0.5 * 1024 ** 3, data: 0.3 * 1024 ** 3, app: 0.2 * 1024 ** 3, other: 1024 ** 3 },
       measuredAt: now(), planDiskGiB: this.cloud ? 50 : null,
     }),

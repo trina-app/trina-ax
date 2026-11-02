@@ -13,6 +13,7 @@ import { newId } from '../db'
 import { HttpError } from '../http/errors'
 import { authorize } from '../policy/authorize'
 import { badSegment } from '../policy/names'
+import { assertStorageRoom } from '../system/storage'
 import { fileError } from '../team-files/errors'
 import { hashFile } from '../team-files/place'
 import type { TeamFiles } from '../team-files/service'
@@ -63,6 +64,9 @@ export class UploadSessions {
     try { const s = fs.statfsSync(this.dir()); free = s.bavail * s.bsize } catch (e) { this.ctx.log.warn('statfs failed', { err: e }) }
     // part files are sparse: what unfinished sessions will still write counts as used
     const reserved = (db.query('SELECT COALESCE(SUM(size), 0) AS n FROM upload_sessions WHERE result IS NULL AND expires_at > ?').get(new Date().toISOString()) as { n: number }).n
+    // the team disk near full or over the plan's limit (system/storage.ts): 507 storage_full before anything is written.
+    // The hard cap counts the open sessions too, or several at once could pass it.
+    assertStorageRoom(size, reserved)
     if (free < size + reserved + DISK_MARGIN) fileError('payload_too_large', 'diskFull')
     const id = newId()
     const fd = fs.openSync(this.part(id), fs.constants.O_WRONLY | fs.constants.O_CREAT | fs.constants.O_EXCL, 0o600)

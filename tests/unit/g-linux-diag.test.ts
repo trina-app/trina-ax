@@ -1,7 +1,7 @@
 // Diagnostics on a Linux install (L16): nftables status file, the launcher (systemd) and its sandbox report over the
 // launcher protocol, kernel isolation, cron/at, the disk by its levels; the Linux and Team AX Cloud wording never
 // talks about a Mac, and the Mac wording stays byte for byte what it was.
-import { afterAll, beforeAll, describe, expect, test } from 'bun:test'
+import { afterAll, beforeAll, describe, expect, spyOn, test } from 'bun:test'
 import fs from 'node:fs'
 import net from 'node:net'
 import os from 'node:os'
@@ -12,6 +12,8 @@ import { createContext, type AppContext } from '../../server/src/context'
 import { openDb } from '../../server/src/db'
 import { silentLogger } from '../../server/src/log'
 import { resolveLayout } from '../../server/src/system/layout'
+import { Plan, setPlanForTests } from '../../server/src/system/limits'
+import { configureStorageGuard } from '../../server/src/system/storage'
 import { M } from '../../server/src/system/messages'
 import { engineStatusMessages, hostMessages } from '../../server/src/system/messages-linux'
 import { OpsService } from '../../server/src/system/ops'
@@ -294,6 +296,43 @@ describe('diagnostics of an installed Linux server', () => {
     expect(hd.checks.find((c) => c.id === 'sockets')).toBeUndefined()
     expect(hd.checks.find((c) => c.id === 'update')!.detail).toContain('the hosting provider installs updates')
     for (const c of hd.checks) expect(`${c.detail ?? ''}`).not.toMatch(/sudo |systemctl|journalctl/)
+  })
+  test('a plan limit is a warning, a full real disk a failure: the control plane rolls an update back on a failure', async () => {
+    const GiB = 1024 ** 3
+    const plan = (diskGiB: number) => Plan.parse({ format: 1, plan: 'free', maxConcurrency: 1, memoryMiB: 2048, cpuCores: 1, diskGiB, maxActiveMembers: 3 })
+    let used = 0
+    const statfs = spyOn(fs, 'statfsSync').mockImplementation((() => {
+      const b = 80 * GiB / 4096, free = (80 * GiB - used) / 4096
+      return { type: 0, bsize: 4096, blocks: b, bfree: free, bavail: free, files: 0, ffree: 0 }
+    }) as unknown as typeof fs.statfsSync)
+    const o = ops()
+    const status = async () => {
+      const c = (await o.diagnostics('en')).checks
+      return { team: c.find((x) => x.id === 'disk.team')!.status, plan: c.find((x) => x.id === 'disk.plan')?.status, backups: c.find((x) => x.id === 'backups')!.status }
+    }
+    const lastError = path.join(base, 'data', 'backups', 'last-error.json')
+    try {
+      setPlanForTests(plan(5))
+      used = 11 * GiB // over the hard cap: writes are refused
+      expect(await status()).toMatchObject({ team: 'warn', plan: undefined })
+      used = 4.9 * GiB // at 98% of the plan, no grace state yet
+      expect((await status()).team).toBe('warn')
+      used = 79.8 * GiB // the real disk is near full
+      expect((await status()).team).toBe('fail')
+      setPlanForTests(plan(100)) // a disk grow failed
+      used = 11 * GiB
+      expect(await status()).toMatchObject({ team: 'ok', plan: 'warn' })
+      fs.mkdirSync(path.dirname(lastError), { recursive: true })
+      fs.writeFileSync(lastError, JSON.stringify({ at: new Date().toISOString(), message: 'no room', reason: 'plan_space' }))
+      expect((await status()).backups).toBe('warn')
+      fs.writeFileSync(lastError, JSON.stringify({ at: new Date().toISOString(), message: 'no room', reason: 'disk_space' }))
+      expect((await status()).backups).toBe('fail')
+    } finally {
+      fs.rmSync(lastError, { force: true })
+      statfs.mockRestore()
+      setPlanForTests(undefined)
+      configureStorageGuard(null)
+    }
   })
   test('the public exit address (QA 0.2.12 N5): unknown, turned off, known by family or by the relay; never the address itself', async () => {
     const env = 'MYCEL_EXIT_ADDRESS_CHECK'

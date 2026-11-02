@@ -155,9 +155,10 @@ const Bytes = z.number().nonnegative()
 export const StorageBreakdown = z.object({ team: Bytes, history: Bytes, trash: Bytes, backups: Bytes, models: Bytes, data: Bytes, app: Bytes, other: Bytes })
 export type StorageBreakdown = z.infer<typeof StorageBreakdown>
 export const StorageStatus = z.object({
-  /** statfs of the team folder's disk (the hosted cloud: the plan's disk) */
+  /** statfs of the team folder's disk. When the plan is smaller than the disk: total = the plan's bytes, used = statfs,
+   * free = what is left of the plan's bytes (0 when over) */
   totalBytes: Bytes, usedBytes: Bytes, freeBytes: Bytes,
-  /** used / (used + available), 0–100 */
+  /** used / (used + available), or used / the plan's bytes (100 at most), 0–100 */
   percent: z.number().min(0).max(100),
   /** ok < 80% <= warn < 90% <= high < 95% <= full */
   level: StorageLevel,
@@ -165,6 +166,9 @@ export const StorageStatus = z.object({
   reserveBytes: Bytes,
   /** saves, uploads and the AI's writes are refused now (507 storage_full) */
   writesRefused: z.boolean(),
+  /** over the plan's limit on a larger disk: when the grace period ends (in the past = it ended), else null. After it,
+   * writes are refused until the use is under the limit */
+  graceEndsAt: IsoTime.nullable(),
   /** what uses the space (measured hourly; null until the first measurement) */
   breakdown: StorageBreakdown.nullable(),
   measuredAt: IsoTime.nullable(),

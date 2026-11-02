@@ -18,6 +18,8 @@ import type { AppContext } from '../context'
 import { newId } from '../db'
 import { badSegment } from '../policy/names'
 import { resolveLayout } from '../system/layout'
+import { currentPlan } from '../system/limits'
+import { storageRoom } from '../system/storage'
 
 export const CONNECTED_ROOT = 'connected'
 const FILE_MAX = 100 * 1024 * 1024
@@ -240,7 +242,8 @@ export class ConnectedFolders {
       const srcChanged = !m || m.src_size !== st.size || m.src_mtime_ms !== Math.floor(st.mtimeMs)
       if (cur && !unchangedHere) { r.kept++; if (m) this.db.query('DELETE FROM connected_files WHERE folder_id = ? AND path = ?').run(id, rel); continue }
       if (cur && !srcChanged) continue
-      if (r.copied + r.updated >= RUN_COPIES_MAX || st.size > budget) { r.pending = true; continue }
+      // with a plan, the disk near full or over the plan's limit (system/storage.ts): the file waits for the next sync
+      if (r.copied + r.updated >= RUN_COPIES_MAX || st.size > budget || (currentPlan() && storageRoom(st.size)?.ok === false)) { r.pending = true; continue }
       const tmp = path.join(path.dirname(dst), `.mycel-sync-${process.pid}-${Date.now()}`)
       try {
         await fs.promises.copyFile(path.join(c.source, ...rel.split('/')), tmp)
