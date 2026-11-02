@@ -629,7 +629,7 @@ describe('Admin > System endpoints', () => {
   test('owner and admin see the state and can ask for an update / pause; a member cannot', async () => {
     const owner = await withOwner(h)
     const st = await owner.call('GET', '/api/admin/office-update')
-    expect(st).toMatchObject({ current: '0.2.0', channel: 'beta', paused: false, time: '03:00', agentInstalled: false, nextWindowAt: null, running: null })
+    expect(st).toMatchObject({ current: '0.2.0', channel: 'beta', paused: false, time: '03:00', windowSource: 'default', agentInstalled: false, nextWindowAt: null, running: null })
     // no update agent yet (an install from before automatic updates): "now" says how to get it
     const no = await owner.try('POST', '/api/admin/office-update', { action: 'now', password: OWNER_PW })
     expect(no.status).toBe(409)
