@@ -133,6 +133,10 @@ test('"스킬로 제안" from an answer → the manager reviews, edits and regis
 
   // the suggester hears it and sees it registered
   await expect(page.getByText('제안한 스킬이 등록됐어요')).toBeVisible()
+  await page.getByRole('tab', { name: '쓸 수 있는 스킬' }).click()
+  // already on the page: the link still changes the tab
+  await page.getByRole('status').filter({ hasText: '제안한 스킬이 등록됐어요' }).getByRole('button', { name: '팀 스킬 열기' }).click()
+  await expect(page.getByRole('tab', { name: '내 제안' })).toHaveAttribute('aria-selected', 'true')
   await page.reload()
   await page.getByRole('tab', { name: '내 제안' }).click()
   await expect(page.getByTestId('mine-list').getByTestId('suggestion')).toHaveAttribute('data-status', 'approved')
@@ -182,16 +186,18 @@ test('"쓸 수 있는 스킬": every person sees the skills they can use, member
   await expect(list.getByTestId('skill-row')).toHaveCount(3)
   await expect(list).toContainText('견적서')
   await expect(list).toContainText('고객 견적서 초안을 만들어요')
-  await expect(list).toContainText('skills/weekly/SKILL.md')
+  await expect(list.getByTestId('skill-row').filter({ hasText: 'weekly' })).toHaveAttribute('data-path', 'skills/weekly/SKILL.md')
+  await expect(list).not.toContainText('SKILL.md')
   // a skill in a folder Bob cannot read is not his to use; his own personal skill is marked
   await expect(list).not.toContainText('이사회 메모')
-  await expect(list.getByTestId('skill-row').filter({ hasText: '내 말투' })).toContainText('개인')
+  await expect(list.getByRole('region', { name: '개인' }).getByTestId('skill-row')).toContainText('내 말투')
   // read-only: use it in a chat, or open its file
   await expect(list.getByRole('button')).toHaveCount(6)
-  await list.getByTestId('skill-row').filter({ hasText: '견적서' }).getByRole('button', { name: '견적서 스킬을 채팅에서 쓰기' }).click()
+  await list.getByTestId('skill-row').filter({ hasText: '견적서' }).getByRole('button', { name: /^견적서 .*채팅에서 쓰기$/ }).click()
   await expect(page.getByTestId('composer-input')).toHaveValue('/견적서 ')
   await page.goto('/skills')
-  await page.getByTestId('skill-row').filter({ hasText: 'weekly' }).getByRole('button', { name: 'weekly 스킬 파일 보기' }).click()
+  await page.getByRole('button', { name: 'weekly 스킬 메뉴' }).click()
+  await page.getByRole('menuitem', { name: '파일 보기' }).click()
   await expect(page).toHaveURL(/\/files\?path=skills%2Fweekly&select=skills%2Fweekly%2FSKILL\.md/)
 
   // the owner: the admins-only folder's skill too, next to the managers' tabs
@@ -206,6 +212,54 @@ test('"쓸 수 있는 스킬": every person sees the skills they can use, member
   await expect(owner.getByTestId('skill-list')).not.toContainText('내 말투')
   await ctx.close()
   expect(realErrors(errors).filter((e) => !/status of 404/.test(e))).toEqual([])
+})
+
+test('the skills I can use: most used first, search, "…" opens the file, the row starts a chat', async ({ page }) => {
+  await reset(page)
+  await page.route('**/api/skills', (r) => r.fulfill({ json: { items: [
+    { path: 'skills/proposal.md', name: 'proposal', description: 'Writes a client proposal deck' },
+    { path: 'skills/weekly/SKILL.md', name: 'weekly', description: '' },
+  ] } }))
+  await page.route('**/api/skills/popular', (r) => r.fulfill({ json: { days: 30, items: [
+    { path: 'skills/weekly/SKILL.md', name: 'weekly', description: '', uses: 4, users: 2 },
+  ] } }))
+  await signIn(page, OWNER)
+  await page.goto('/skills')
+  const rows = page.getByTestId('skill-row')
+  await expect(rows).toHaveCount(2)
+  await expect(page.getByTestId('skill-count')).toHaveText('2')
+  await expect(rows.first()).toContainText('weekly')
+  await expect(rows.first()).toContainText('4회')
+  await expect(rows.last()).toContainText('skills/ · Writes a client proposal deck')
+
+  const search = page.getByRole('searchbox', { name: '스킬 검색' })
+  await search.fill('CLIENT')
+  await expect(rows).toHaveCount(1)
+  await expect(rows.first()).toContainText('proposal')
+  await search.fill('nothing like this')
+  await expect(page.getByText('"nothing like this"에 맞는 스킬이 없어요.')).toBeVisible()
+  await search.fill('')
+  await expect(rows).toHaveCount(2)
+
+  const more = page.getByRole('button', { name: 'proposal 스킬 메뉴' })
+  await more.click()
+  await expect(page.getByRole('menuitem', { name: '채팅에서 쓰기' })).toBeFocused()
+  await page.keyboard.press('Escape')
+  await expect(page.getByRole('menu')).toHaveCount(0)
+  await expect(more).toBeFocused()
+  await more.click()
+  await page.getByRole('heading', { name: '팀 스킬', exact: true }).click()
+  await expect(page.getByRole('menu')).toHaveCount(0)
+  await more.click()
+  await page.keyboard.press('Tab')
+  await expect(page.getByRole('menu')).toHaveCount(0)
+  await more.click()
+  await page.getByTestId('skill-file').click()
+  await expect(page).toHaveURL(/\/files\?path=skills&select=skills%2Fproposal\.md/)
+
+  await page.goto('/skills')
+  await page.getByRole('button', { name: /^proposal .*채팅에서 쓰기$/ }).click()
+  await expect(page.getByTestId('composer-input')).toHaveValue('/proposal ')
 })
 
 test('no skill to use yet: the tab says so and how one gets there', async ({ page }) => {

@@ -36,7 +36,7 @@ describe('popular skills on the new-chat home', () => {
     expect((html.match(/<button/g) ?? []).length).toBe(3)
   })
 
-  test('Skills page keeps all rows as links to a new chat', () => {
+  test('without onChoose: all rows are links to a new chat', () => {
     const html = render(result)
     expect(html).toContain('skill-4')
     expect(html).toContain(`href="/?prompt=${encodeURIComponent(skillPrompt('skill-1'))}"`)

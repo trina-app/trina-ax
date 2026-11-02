@@ -370,3 +370,30 @@ for (const scheme of ['light', 'dark'] as const) {
     await audit(page, `switches off (${scheme})`)
   })
 }
+
+// The Team skills page with skills in it: the one-line rows, the count, an open "…" menu.
+for (const scheme of ['light', 'dark'] as const) {
+  test(`team skills have no serious accessibility problems (${scheme})`, async ({ page }) => {
+    await page.emulateMedia({ colorScheme: scheme })
+    await reset(page)
+    await page.route('**/api/skills', (r) => r.fulfill({ json: { items: [
+      { path: 'skills/proposal/SKILL.md', name: 'proposal', description: 'Writes a client proposal deck' },
+      { path: 'skills/weekly.md', name: 'weekly', description: '' },
+      { path: 'users/olga/skills/tone.md', name: 'tone', description: 'My mail tone', personal: true },
+    ] } }))
+    await page.route('**/api/skills/popular', (r) => r.fulfill({ json: { days: 30, items: [
+      { path: 'skills/proposal/SKILL.md', name: 'proposal', description: 'Writes a client proposal deck', uses: 14, users: 3 },
+    ] } }))
+    await signIn(page)
+    await page.goto('/skills')
+    await expect(page.getByTestId('skill-row')).toHaveCount(3)
+    await audit(page, 'team skills')
+    await page.getByTestId('skill-more').first().click()
+    await expect(page.getByRole('menu')).toBeVisible()
+    await audit(page, 'team skills menu')
+    await page.keyboard.press('Escape')
+    await page.getByRole('tab', { name: '내 제안' }).click()
+    await page.waitForTimeout(300)
+    await audit(page, 'my skill suggestions')
+  })
+}

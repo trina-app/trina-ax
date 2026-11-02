@@ -252,3 +252,15 @@ repository already had it (PR #13 above). Conflicts: only the new sections at th
 ## 2026-10-29 core review security fixes
 
 Selected source patches from potenlab/team-ax `efb92c1d`, `8e637244`, `1628aa4d` and `68cf0ac6` were reviewed and ported without importing private core history or excluded paths. These are direct source SHA references, not filtered-history mappings. Fork branding, service addresses, release configuration and the personal-integration default remain unchanged. Documentation was adapted to the fork; the core opt-in change and its fixture changes were excluded. Migration files 209 and 313 already match core and were not reapplied. Core-only release-configuration commits `9c336176` and `97f4424a` were not ported. Each port commit records its full source SHA.
+
+
+## 2026-11-02 Team skills: one quiet list
+
+Source change from potenlab/team-ax `744e683` (branch `feat/skills-compact`, core PR #27, not yet on core main), ported by hand onto this repository's own files. No core history was imported.
+
+Resolutions, because this repository has more on that page than core:
+
+- `AvailableSkills.tsx` keeps this repository's export `AvailableSkillsList`, `skillPrompt` from `PopularSkills` and `isSkillsPath`, which also covers `users/<id>/skills`. Personal skills get a section of their own and rows without a folder.
+- `Skills.tsx` keeps `SkillIssues` and `SkillListNote`. Only the page's `PopularSkills` card goes; `PopularSkills.tsx` stays for the new-chat home with its keys.
+- `es` and `ja` get the new keys (`fromTeam`, `search`, `uses`, `usesHint`, `noMatch`, `moreNamed`). `skills.desc`, `availableHint`, `useNamed` and `viewFileNamed` go in all five languages.
+- `web/test/mock/server.ts` is unchanged: this repository already has `listSkills`.
