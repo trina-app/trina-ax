@@ -329,6 +329,11 @@ export class OfficeCache {
     // a free slot: the job checks again at once; else it waits with the foreground jobs
     if (this.active < OFFICE_EXTRACT_PARALLEL) wake(); else this.waitingHigh.push(wake)
   }
+  /** a person waits for this file: its job, if it has one, moves up as when they join it */
+  hurry(rel: string) {
+    const job = this.inflight.get(rel)
+    if (job) this.raise(job.ticket)
+  }
   private write(rel: string, text: string, st: fs.Stats, source = '') {
     const dst = this.cachePath(rel)
     if (!this.marked) { fs.writeFileSync(path.join(this.dir, VERSION_FILE), FOLDER_VERSION + '\n', { mode: 0o600 }); this.marked = true }

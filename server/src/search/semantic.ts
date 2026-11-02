@@ -196,6 +196,10 @@ export class SemanticIndex {
   private runningBackground = false
   /** searches waiting for the index: a background run stops after the current batch of pieces */
   private wanted = 0
+  /** the office file a background run gets the text of now (a search moves it up), and the new or changed files that
+   * run has not done yet (what a search that stops waiting for it says) */
+  private current: string | null = null
+  private staleLeft = 0
 
   constructor(private o: { dataDir: string; root: string; office: OfficeCache; embedder: () => Promise<Embed | null>; quarantine?: Quarantine }) {
     this.db = new Database(path.join(o.dataDir, 'semantic.db'), { create: true })
@@ -283,18 +287,20 @@ export class SemanticIndex {
    * A background run (`background`) also makes again, newest first, the files whose pieces are of an older
    * CHUNK_FORMAT; their old pieces answer searches until then. A search does not wait for a background run: it asks it
    * to stop after the current batch of pieces (a file cut off keeps its old pieces and is done again later) and then
-   * runs its own, which takes new and changed files only.
+   * runs its own, which takes new and changed files only. A file of that run still in line for a converter moves up, so
+   * the search does not spend its budget on background work's place in the line.
    */
   async refresh(budgetMs = 3000, o: { background?: boolean } = {}): Promise<RefreshResult> {
     if (o.background) return this.running ?? this.start(budgetMs, true)
     this.wanted++
     try {
+      if (this.current) this.o.office.hurry(this.current)
       // the background run stops after its current batch; one still busy after the search's own budget (a slow
-      // extraction) is left to finish: the search answers from the pieces there are
+      // extraction) is left to finish: the search answers from the pieces there are, and says what is not in them
       const until = Date.now() + budgetMs
       while (this.running && this.runningBackground) {
         const left = until - Date.now()
-        if (left <= 0) return { pending: 0, upgrading: this.upgrading() }
+        if (left <= 0) return { pending: this.staleLeft, upgrading: this.upgrading() }
         let timer: ReturnType<typeof setTimeout> | undefined
         await Promise.race([this.running.catch(() => {}), new Promise<void>((r) => { timer = setTimeout(r, left) })])
         clearTimeout(timer)
@@ -328,6 +334,7 @@ export class SemanticIndex {
       return false
     })
     const older = [...now].filter(([p, st]) => { const k = known.get(p); return !!k && k.mtime === Math.floor(st.mtimeMs) && k.size === st.size && k.format < CHUNK_FORMAT && !waits(p, st) })
+    this.staleLeft = stale.length
     const result = (doneStale: number, doneOlder: number): RefreshResult => ({ pending: stale.length - doneStale, upgrading: older.length - doneOlder })
     if (!stale.length && !(background && older.length)) { if (changed) this.cache = null; return result(0, 0) }
     const embed = await this.o.embedder()
@@ -344,7 +351,8 @@ export class SemanticIndex {
       if (Date.now() > until || yieldNow()) break
       const admission = new SearchAdmission(this.o.quarantine)
       try {
-      const input = await this.textOf(p, admission, background).catch(() => ({text:'',hash:'',retry:false}))
+      this.current = background && isOffice(p) ? p : null
+      const input = await this.textOf(p, admission, background).catch(() => ({text:'',hash:'',retry:false})).finally(() => { this.current = null })
       // no text yet, but not "no text": the file is not recorded, so a later run takes it again; the pieces of an
       // older version go, those of this version in an older format stay until then
       if (input.retry) { if (!upgrade && known.has(p)) { this.drop(p); changed = true }; continue }
@@ -364,7 +372,7 @@ export class SemanticIndex {
         this.db.query('INSERT OR REPLACE INTO files (path, mtime, size, source_hash, format) VALUES (?, ?, ?, ?, ?)').run(p, Math.floor(st.mtimeMs), st.size, input.hash, CHUNK_FORMAT)
       })()
       changed = true
-      if (upgrade) doneOlder++; else doneStale++
+      if (upgrade) doneOlder++; else { doneStale++; this.staleLeft-- }
       } finally { admission.close() }
     }
     if (changed) this.cache = null

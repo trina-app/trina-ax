@@ -7,6 +7,9 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { CHUNK_FORMAT, SemanticIndex, type Embed } from '../../server/src/search/semantic'
+import { officeWorkerSlot } from '../../server/src/files/extract'
+import { OfficeCache } from '../../server/src/files/search'
+import { inBackground } from '../../server/src/tools/isolate'
 
 const embedOne = (t: string) => {
   const v = new Float32Array(384)
@@ -42,6 +45,7 @@ function setup(name: string) {
       extracted.push({ rel, background: !!o.background })
       if (stops.delete(rel)) waits.add(rel); else stale.delete(rel)
     },
+    hurry: () => {},
     waitsForRetry: (rel: string) => waits.has(rel),
     admittedText: (rel: string) => (texts.has(rel) ? { bytes: Buffer.from(texts.get(rel)!) } : null),
     cachePath: (rel: string) => path.join(data, 'textcache', rel + '.txt'),
@@ -161,6 +165,86 @@ describe('the re-index goes on after a restart and gives way to searches', () =>
     delay = 0
     expect((await idx.refresh(60_000, { background: true })).upgrading).toBe(0)
     idx.db.close()
+  })
+})
+
+// With the real text cache and its line for the office workers: the run's file waits for a worker behind other work.
+describe('a search while a background run\'s document waits in line for an office worker', () => {
+  const embed: Embed = async (texts) => texts.map(embedOne)
+  class Cache extends OfficeCache {
+    started: string[] = []
+    slow: { rel: string; held: Promise<void> } | null = null
+    protected override extract(rel: string): Promise<string> {
+      return officeWorkerSlot(async () => {
+        this.started.push(rel)
+        if (this.slow?.rel === rel) await this.slow.held
+        return 'text of ' + rel
+      })
+    }
+  }
+  function setup(name: string) {
+    const root = path.join(W, name, 'team'), data = path.join(W, name, 'data')
+    fs.mkdirSync(path.join(root, 'shared'), { recursive: true })
+    fs.mkdirSync(data, { recursive: true })
+    fs.writeFileSync(path.join(root, 'shared', 'new.xlsx'), 'bytes of new')
+    const office = new Cache(path.join(data, 'cache'), { root, caseInsensitive: false } as never, { pandoc: null, pdftotext: null })
+    return { office, index: new SemanticIndex({ dataDir: data, root, office, embedder: async () => embed }) }
+  }
+  const hold = (low: boolean) => {
+    let open!: () => void
+    const held = new Promise<void>((r) => { open = r })
+    const work = () => officeWorkerSlot(() => held)
+    return { open, done: low ? inBackground(() => true, work) : work() }
+  }
+  const files = (index: SemanticIndex) => (index.db.query('SELECT COUNT(*) AS n FROM files').get() as { n: number }).n
+
+  test('behind other background work: its document moves up, the search spends none of its budget and finds it', async () => {
+    const { office, index } = setup('line-background')
+    const other = hold(true)
+    const run = index.refresh(60_000, { background: true })
+    await Bun.sleep(10)
+    expect(office.started).toEqual([])
+    const t0 = Date.now()
+    const r = await index.refresh(3000)
+    expect(Date.now() - t0).toBeLessThan(2000)
+    expect(r.pending).toBe(0)
+    expect(files(index)).toBe(1)
+    other.open()
+    await Promise.all([other.done, run])
+    index.db.close()
+  })
+
+  test('a slow conversion of the run: the search stops at its budget and counts what the run did and did not do', async () => {
+    const { office, index } = setup('line-slow')
+    const root = path.join(W, 'line-slow', 'team', 'shared')
+    fs.writeFileSync(path.join(root, 'older.xlsx'), 'bytes of older')
+    fs.utimesSync(path.join(root, 'older.xlsx'), new Date(1000), new Date(1000))
+    let open!: () => void
+    const held = new Promise<void>((r) => { open = r })
+    office.slow = { rel: 'shared/older.xlsx', held }
+    const run = index.refresh(60_000, { background: true })
+    await Bun.sleep(30)
+    expect(files(index)).toBe(1)
+    const r = await index.refresh(100)
+    expect(r.pending).toBe(1)
+    open()
+    await run
+    index.db.close()
+  })
+
+  test('behind people\'s work: the search stops at its budget and says the document is not indexed yet', async () => {
+    const { index } = setup('line-people')
+    const a = hold(false), b = hold(false)
+    const run = index.refresh(60_000, { background: true })
+    await Bun.sleep(10)
+    const t0 = Date.now()
+    const r = await index.refresh(200)
+    expect(Date.now() - t0).toBeLessThan(2000)
+    expect(r.pending).toBe(1)
+    expect(files(index)).toBe(0)
+    a.open(); b.open()
+    await Promise.all([a.done, b.done, run])
+    index.db.close()
   })
 })
 
