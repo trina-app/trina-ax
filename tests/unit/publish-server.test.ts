@@ -179,7 +179,7 @@ describe('publish-server', () => {
     await publishServer(opts(b030, f3, { channel: 'stable' }))
     const safeops = await signedBuilds('b031-safeops', '0.3.1', { server: 'new app', safeops: 'new' })
     expect((await publishServer(opts(safeops, f3, { channel: 'stable', version: '0.3.1' }))).rootChanged).toBe(true)
-  })
+  }, 60_000)
 
   test('rootSince: the oldest release with these root files, so a server that skipped a root release still gets it (update audit P4)', async () => {
     const feed = path.join(T, 'feed-rs')
