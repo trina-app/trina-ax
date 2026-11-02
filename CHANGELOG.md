@@ -5,6 +5,7 @@ This file summarizes user-visible changes; it is not a list of every commit.
 
 ## Unreleased
 
+- Settings > Apps: adding the app to a phone's home screen now shows a picture of each step with the place to tap, in your team's own address and icon. The steps follow iOS 26, where Safari's share button is in the ⋯ menu next to the address bar.
 - External services, requests to members: a name with only control or invisible characters is now refused, under the name field. Before, such a request was saved and showed with no name in the list and in the member's notice. In all five languages.
 - Office Mac, Admin › Team settings › "Automatic update window": when the field is empty and a time set earlier with `teamax update time` is in use, the field now says so, with the window and its time zone. Before, the field looked empty and its hint said 03:00-05:00, which was not what ran. Nothing is written into the field. A window saved there applies instead, and the old time applies again if the field is emptied. Linux and hosted servers do not change. `GET /api/admin/office-update` has `windowSource` (`team`, `legacy` or `default`). In all five languages.
 - Admin › System, update cards: the release notes are small text now, the same size as the rest of the card. Before, they showed at the size of a chat answer.
