@@ -23,6 +23,7 @@ function fakeServer(o: { failChunk?: Set<number>; dropAfterStore?: Set<number>; 
   const calls: string[] = []
   const watched: string[] = []
   const parts: { name: string; type: string; size: number; declared: FormDataEntryValue | null }[] = []
+  const chunkBodies: Blob[] = []
   const chunkTries = new Map<number, number>()
   const stored = (fd: FormData) => {
     const file = fd.get('file') as File
@@ -65,6 +66,7 @@ function fakeServer(o: { failChunk?: Set<number>; dropAfterStore?: Set<number>; 
       if (!s) return json({ error: { code: 'gone', message: 'gone' } }, 410)
       if (m[2]) {
         const n = Number(m[3])
+        chunkBodies.push(init!.body as Blob)
         if (o.failChunk?.has(n)) {
           o.failChunk.delete(n)
           return json({ error: { code: 'internal', message: 'boom' } }, 500)
@@ -102,7 +104,7 @@ function fakeServer(o: { failChunk?: Set<number>; dropAfterStore?: Set<number>; 
     for (const share of o.sent ?? []) onSent(share)
     return fetchFn(input, init)
   }
-  return { calls, watched, parts, sessions, transcribeFields, client: new ApiClient({ baseUrl: '', fetch: fetchFn, ...(o.sent || o.tries ? { fetchWithProgress } : {}) }) }
+  return { calls, watched, parts, chunkBodies, sessions, transcribeFields, client: new ApiClient({ baseUrl: '', fetch: fetchFn, ...(o.sent || o.tries ? { fetchWithProgress } : {}) }) }
 }
 
 const bigFile = (chunks: number, extra = 10) => new File([new Uint8Array(UPLOAD_CHUNK_SIZE * chunks + extra).fill(7)], 'big.bin', { lastModified: 1 })
@@ -363,18 +365,167 @@ describe('uploads', () => {
       })
     })
 
-    test('a large file takes no place: it is read in slices, not copied', async () => {
-      const s = held()
-      const small = [1, 2, 3].map((n) => uploadFile(pdf(n), target(n), { client: s.client, storage: null }))
-      const large = fakeServer()
+    test('a large file holds a place for each chunk only, so other files get in between its chunks', async () => {
+      const waiting: { n: string; go: () => void }[] = []
+      const order: string[] = []
+      let session: UploadSession | null = null
+      const fetchFn = (async (input: string, init: RequestInit) => {
+        if (input === '/api/upload-sessions') {
+          const b = JSON.parse(String(init.body))
+          session = { id: uuidv7(), target: b.target, size: b.size, sha256: b.sha256, chunkSize: UPLOAD_CHUNK_SIZE, chunkCount: Math.ceil(b.size / UPLOAD_CHUNK_SIZE), received: [], expiresAt: new Date(Date.now() + 1e6).toISOString() }
+          return json(session, 201)
+        }
+        if (input.endsWith('/complete')) return json({ kind: 'path', entry: entry('x/big.bin') })
+        const n = /chunks\/(\d+)$/.exec(input)?.[1] ?? String((init.body as FormData).get('name'))
+        order.push(n)
+        await new Promise<void>((go) => waiting.push({ n, go }))
+        if (/chunks/.test(input)) {
+          session!.received.push(Number(n))
+          return json({ received: session!.received })
+        }
+        return json({ ...entry('x'), size: 100 }, 201)
+      }) as unknown as typeof fetch
+      const client = new ApiClient({ baseUrl: '', fetch: fetchFn })
+      const large = uploadFile(bigFile(1), { kind: 'path', path: 'x/big.bin', onExists: 'rename' }, { client, storage: null, retryDelayMs: 0 })
+      for (let i = 0; i < 40 && !order.length; i++) await tick()
+      expect(order).toEqual(['0'])
+      const small = [1, 2, 3].map((n) => uploadFile(pdf(n), target(n), { client, storage: null }))
       await tick()
-      const r = await uploadFile(bigFile(1), { kind: 'path', path: 'x/big.bin', onExists: 'rename' }, { client: large.client, storage: null, retryDelayMs: 0 })
-      expect(r.kind).toBe('path')
-      for (let n = 0; n < 3; n++) {
-        s.open()
+      expect(order).toEqual(['0', '1.pdf', '2.pdf'])
+      // the first chunk ends: its place goes to the next file in line, and the second chunk goes to the end of the line
+      waiting.shift()!.go()
+      for (let i = 0; i < 40 && order.length < 4; i++) await tick()
+      expect(order).toEqual(['0', '1.pdf', '2.pdf', '3.pdf'])
+      for (let i = 0; i < 4; i++) {
+        waiting.shift()?.go()
         await tick()
       }
-      await Promise.all(small)
+      await Promise.all([large, ...small])
+      expect(order).toEqual(['0', '1.pdf', '2.pdf', '3.pdf', '1'])
+    })
+
+    test('voice input does not stand in line: three uploads that stopped do not hold it up', async () => {
+      const s = held()
+      const stopped = [1, 2, 3].map((n) => uploadFile(pdf(n), target(n), { client: s.client, storage: null }))
+      await tick()
+      const voice = fakeServer()
+      expect((await uploadFile(new File(['abc'], 'voice.webm'), { kind: 'transcribe', name: 'voice.webm' }, { client: voice.client, storage: null })).kind).toBe('transcribe')
+      expect((await uploadFile(bigFile(1), { kind: 'transcribe', name: 'long.webm' }, { client: voice.client, storage: null, retryDelayMs: 0 })).kind).toBe('transcribe')
+      expect(s.waiting).toHaveLength(3)
+      for (let n = 0; n < 3; n++) s.open()
+      await Promise.all(stopped)
+    })
+
+    test('a chunk goes as a copy in memory, each try, and the bytes are the chunk\'s own', async () => {
+      const s = fakeServer({ failChunk: new Set([0]) })
+      let reads = 0
+      const real = Blob.prototype.arrayBuffer
+      Blob.prototype.arrayBuffer = function () { if (this.size === UPLOAD_CHUNK_SIZE) reads++; return real.call(this) }
+      try {
+        await uploadFile(bigFile(1), { kind: 'path', path: 'x/big.bin', onExists: 'rename' }, { client: s.client, storage: null, retryDelayMs: 0 })
+      } finally {
+        Blob.prototype.arrayBuffer = real
+      }
+      expect(s.chunkBodies.map((b) => b.size)).toEqual([UPLOAD_CHUNK_SIZE, UPLOAD_CHUNK_SIZE, 10])
+      // the hash reads the first chunk once, each of its two tries once more; the small tail is another size
+      expect(reads).toBe(3)
+      expect(new Uint8Array(await s.chunkBodies[2]!.arrayBuffer())).toEqual(new Uint8Array(10).fill(7))
+    })
+
+    test('cancelled while a chunk waits for its place: it leaves the line, and nothing more goes up', async () => {
+      const s = held()
+      const stopped = [1, 2, 3].map((n) => uploadFile(pdf(n), target(n), { client: s.client, storage: null }))
+      const large = fakeServer()
+      const stop = new AbortController()
+      const cancelled = uploadFile(bigFile(1), { kind: 'path', path: 'x/big.bin', onExists: 'rename' }, { client: large.client, storage: null, retryDelayMs: 0, signal: stop.signal }).catch((e: unknown) => e)
+      for (let i = 0; i < 40 && !large.calls.length; i++) await tick()
+      await tick()
+      stop.abort()
+      expect(((await cancelled) as DOMException).name).toBe('AbortError')
+      expect(large.calls.filter((c) => c.startsWith('PUT'))).toEqual([])
+      for (let n = 0; n < 3; n++) s.open()
+      await Promise.all(stopped)
+    })
+
+    describe('an upload that has stopped moving', () => {
+      const ms = (n: number) => new Promise((r) => setTimeout(r, n))
+      /** the places are all free again: three go at once, the fourth waits */
+      const placesAreBack = async () => {
+        const s = held()
+        const all = [1, 2, 3, 4].map((n) => uploadFile(pdf(n), target(n), { client: s.client, storage: null }))
+        await tick()
+        expect(s.started).toEqual(['1.pdf', '2.pdf', '3.pdf'])
+        for (let n = 0; n < 4; n++) {
+          s.open()
+          await tick()
+        }
+        await Promise.all(all)
+      }
+
+      test('after 20 s with no byte out it gives its place back: the fourth upload ends while three stay stopped', async () => {
+        const s = held()
+        const stopped = [1, 2, 3].map((n) => uploadFile(pdf(n), target(n), { client: s.client, storage: null, placeIdleMs: 5 }))
+        const fourth = uploadFile(pdf(4), target(4), { client: fakeServer().client, storage: null })
+        expect((await fourth).kind).toBe('path')
+        expect(s.waiting).toHaveLength(3)
+        for (let n = 0; n < 3; n++) s.open()
+        await Promise.all(stopped)
+        await placesAreBack()
+      })
+
+      test('the place goes back once: an upload that ends after that takes no second place along', async () => {
+        const s = held()
+        const stopped = [1, 2, 3].map((n) => uploadFile(pdf(n), target(n), { client: s.client, storage: null, placeIdleMs: 5 }))
+        await ms(30)
+        for (let n = 0; n < 3; n++) s.open()
+        await Promise.all(stopped)
+        await placesAreBack()
+        await placesAreBack()
+      })
+
+      test('bytes that go out keep the place: a slow upload is not taken for a stopped one', async () => {
+        let moving = true
+        const slow = new ApiClient({
+          baseUrl: '',
+          fetchWithProgress: async (_input, _init, onSent) => {
+            for (let i = 1; i < 12; i++) {
+              onSent(i / 20)
+              await ms(5)
+            }
+            moving = false
+            return json({ ...entry('docs/x'), size: 100 }, 201)
+          },
+        })
+        const three = [1, 2, 3].map((n) => uploadFile(pdf(n), target(n), { client: slow, storage: null, placeIdleMs: 30, reportEveryMs: 0, onProgress: () => {} }))
+        const s = held()
+        const fourth = uploadFile(pdf(4), target(4), { client: s.client, storage: null })
+        await Promise.all(three)
+        expect(moving).toBe(false)
+        await tick()
+        expect(s.started).toEqual(['4.pdf'])
+        s.open()
+        await fourth
+      })
+
+      test('at most three go on without a place: six at a time at the very most, as a browser opens to one host', async () => {
+        const s = held()
+        const all = [1, 2, 3, 4, 5, 6, 7, 8].map((n) => uploadFile(pdf(n), target(n), { client: s.client, storage: null, placeIdleMs: 3 }))
+        await ms(60)
+        expect(s.started).toHaveLength(6)
+        s.open()
+        await ms(40)
+        expect(s.started).toHaveLength(7)
+        for (let n = 0; n < 7; n++) {
+          await ms(15)
+          if (s.waiting.length) s.open()
+        }
+        for (let i = 0; i < 40 && s.waiting.length; i++) {
+          s.open()
+          await tick()
+        }
+        await Promise.all(all)
+        await placesAreBack()
+      })
     })
   })
 

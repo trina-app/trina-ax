@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, test } from 'bun:test'
 import { addFileUpload, dropFileUpload, forgetFileUploads, patchFileUpload, useFileUploads } from '../../src/lib/fileUploads'
-import { forgetFolderUploads, useRuns, type Run } from '../../src/lib/folderRuns'
+import { folderGeneration, forgetFolderUploads, useRuns, type Run } from '../../src/lib/folderRuns'
 import { SIGNED_OUT } from '../../src/lib/localData'
 import { forgetTeamAttach, readStash, writeStash } from '../../src/lib/teamAttach'
 import { useSession } from '../../src/store/session'
@@ -49,6 +49,12 @@ describe('sign-out, or the end of a session', () => {
     forgetFolderUploads()
     expect(reasons).toEqual([SIGNED_OUT, SIGNED_OUT])
     expect(useRuns.getState().runs).toEqual([])
+  })
+
+  test('a dropped folder that is still being read can tell the person changed: the generation moves on', () => {
+    const before = folderGeneration()
+    forgetFolderUploads()
+    expect(folderGeneration()).toBe(before + 1)
   })
 
   test('chips: one that is on its way, or waiting for its turn, stops (it would start with the next person\'s session)', () => {

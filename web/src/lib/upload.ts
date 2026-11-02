@@ -11,10 +11,13 @@ export const SINGLE_REQUEST_MAX = 8 * 1024 * 1024
 /** The browser counts sent bytes many times a second, and each report redraws what shows it: a new whole percent, at most
  * this often, is enough for a person. */
 const REPORT_EVERY_MS = 250
-/** Small uploads on their way at a time, on the whole page. Each holds a copy of its file in memory until its request
- * ends, and the file screen and a chat start all that was picked at once: 20 files of 8 MB took 684 MB in WebKit's network
- * process. A folder upload sends three at a time by itself and takes its places in the same line. */
-const SMALL_AT_ONCE = 3
+/** Uploads on their way at a time, on the whole page: a small file, or one chunk of a large one. Each holds a copy in memory
+ * until its request ends, and the file screen and a chat start all that was picked at once: 20 files of 8 MB took 684 MB in
+ * WebKit's network process. A folder upload sends three at a time by itself and takes its places in the same line. */
+const COPIES_AT_ONCE = 3
+/** No byte out for this long: the upload goes on without its place, and the line moves. There is no time limit on a
+ * request, so a stopped one would otherwise hold its place until the person removes it. */
+const PLACE_IDLE_MS = 20_000
 
 /** `loaded` and `total` count the file's own bytes, in every phase. */
 export interface UploadProgress {
@@ -51,6 +54,8 @@ export interface UploadOptions {
   retryDelayMs?: number
   /** at least this long between reports of bytes on their way (tests pass 0) */
   reportEveryMs?: number
+  /** how long an upload with no byte out keeps its place (tests pass less) */
+  placeIdleMs?: number
   singleRequestMax?: number
 }
 
@@ -125,51 +130,93 @@ function sparingly(o: UploadOptions) {
 }
 
 let onTheirWay = 0
+/** Uploads that gave their place back and still run. A slow line that reports late can look stopped, so this has a limit
+ * too: with COPIES_AT_ONCE more, at most six copies are on their way, what a browser opens to one host anyway. */
+let overtime = 0
 const inLine: (() => void)[] = []
 
-/** A place among SMALL_AT_ONCE, first come first served. A cancel leaves the line at once. */
-async function takePlace(signal?: AbortSignal) {
-  signal?.throwIfAborted()
-  if (onTheirWay < SMALL_AT_ONCE) {
-    onTheirWay++
-    return
-  }
-  await new Promise<void>((resolve, reject) => {
-    const turn = () => {
-      signal?.removeEventListener('abort', leave)
-      resolve()
-    }
-    const leave = () => {
-      inLine.splice(inLine.indexOf(turn), 1)
-      reject(signal!.reason)
-    }
-    inLine.push(turn)
-    signal?.addEventListener('abort', leave, { once: true })
-  })
+interface Place {
+  /** bytes went out */
+  moved(): void
+  /** the upload or the chunk ended, whichever way */
+  end(): void
 }
 
-/** The next in line takes the place over as it is. */
-function givePlace() {
-  const next = inLine.shift()
-  if (next) next()
-  else onTheirWay--
+function holdPlace(idleMs: number): Place {
+  let held = true
+  let timer: ReturnType<typeof setTimeout>
+  const giveBack = () => {
+    held = false
+    // the next in line takes the place over as it is
+    const next = inLine.shift()
+    if (next) next()
+    else onTheirWay--
+  }
+  const watch = () => {
+    clearTimeout(timer)
+    timer = setTimeout(() => {
+      if (overtime >= COPIES_AT_ONCE) return watch()
+      overtime++
+      giveBack()
+    }, idleMs)
+  }
+  watch()
+  return {
+    moved: () => { if (held) watch() },
+    end: () => {
+      clearTimeout(timer)
+      if (held) giveBack()
+      else overtime--
+    },
+  }
+}
+
+/** A voice recording is in memory already, there is one at a time, and the person waits for it with the message box shut. */
+const NO_PLACE: Place = { moved: () => {}, end: () => {} }
+
+/** A place among COPIES_AT_ONCE, first come first served. A cancel leaves the line at once. */
+async function takePlace(target: UploadTarget, o: UploadOptions): Promise<Place> {
+  if (target.kind === 'transcribe') return NO_PLACE
+  const { signal } = o
+  signal?.throwIfAborted()
+  if (onTheirWay < COPIES_AT_ONCE) onTheirWay++
+  else {
+    await new Promise<void>((resolve, reject) => {
+      const turn = () => {
+        signal?.removeEventListener('abort', leave)
+        resolve()
+      }
+      const leave = () => {
+        inLine.splice(inLine.indexOf(turn), 1)
+        reject(signal!.reason)
+      }
+      inLine.push(turn)
+      signal?.addEventListener('abort', leave, { once: true })
+    })
+  }
+  return holdPlace(o.placeIdleMs ?? PLACE_IDLE_MS)
 }
 
 async function uploadSmall(file: File, target: UploadTarget, o: UploadOptions): Promise<UploadComplete> {
   const total = file.size
   const finishing = () => o.onProgress?.({ phase: 'finishing', loaded: total, total })
   o.onProgress?.({ phase: 'uploading', loaded: 0, total })
-  await takePlace(o.signal)
+  const place = await takePlace(target, o)
   try {
     // WebKit bug 319985: Safari and iOS from 26.5 can send a File with no bytes (Content-Length: 0), and a page under a
     // service worker is the reported case, as this app with web/pwa/sw.js is. A copy in memory goes out whole. In every
-    // browser: all browsers on an iPhone are WebKit, a wrong guess from the user agent fails the whole upload, and the copy
-    // costs at most SMALL_AT_ONCE files. The chunks of a larger file are slices, which the same report found safe.
+    // browser: all browsers on an iPhone are WebKit, a wrong guess from the user agent fails the whole upload, and only a
+    // few copies exist at a time. A chunk of a larger file is copied too: a slice is still read from the disk by the network
+    // process, which is where iOS refuses it.
     const body = new Blob([await file.arrayBuffer()], { type: file.type })
     o.signal?.throwIfAborted()
     const report = sparingly(o)
     // the last byte out is not the end: the server still stores the file and answers
-    const onUploadProgress = o.onProgress && ((sent: number) => (sent < 1 ? report({ phase: 'uploading', loaded: Math.round(sent * total), total }) : finishing()))
+    const onUploadProgress = o.onProgress && ((sent: number) => {
+      place.moved()
+      if (sent < 1) report({ phase: 'uploading', loaded: Math.round(sent * total), total })
+      else finishing()
+    })
     const request = { signal: o.signal, onUploadProgress }
     // the server refuses a part of another size before it stores it; this is for one that has no such check
     const kept = (size: number | null) => { if (size !== total) throw new ApiError(400, { code: 'validation', message: t('files.incompleteUpload') }) }
@@ -192,7 +239,7 @@ async function uploadSmall(file: File, target: UploadTarget, o: UploadOptions): 
     finishing()
     return out
   } finally {
-    givePlace()
+    place.end()
   }
 }
 
@@ -236,10 +283,17 @@ async function uploadChunked(file: File, target: UploadTarget, o: UploadOptions)
     if (received.has(n)) continue
     o.signal?.throwIfAborted()
     const chunk = file.slice(n * size, Math.min(total, (n + 1) * size))
-    const onUploadProgress = o.onProgress && ((sent: number) => report(sentSoFar(Math.round(sent * chunk.size))))
     const r = await withRetry(async () => {
+      // a place for this try only: not between tries, and between chunks other files get their turn
+      const place = await takePlace(target, o)
       try {
-        return await o.client.call(API.uploadChunk, { params: { id, n: String(n) }, body: chunk, signal: o.signal, onUploadProgress })
+        const body = new Blob([await chunk.arrayBuffer()]) // why a copy: uploadSmall
+        o.signal?.throwIfAborted()
+        const onUploadProgress = o.onProgress && ((sent: number) => {
+          place.moved()
+          report(sentSoFar(Math.round(sent * chunk.size)))
+        })
+        return await o.client.call(API.uploadChunk, { params: { id, n: String(n) }, body, signal: o.signal, onUploadProgress })
       } catch (e) {
         // after a network drop, ask what arrived before sending again
         if (!(e instanceof ApiError)) {
@@ -247,6 +301,8 @@ async function uploadChunked(file: File, target: UploadTarget, o: UploadOptions)
           if (s?.received.includes(n)) return { received: s.received }
         }
         throw e
+      } finally {
+        place.end()
       }
     }, o)
     received = new Set(r.received)

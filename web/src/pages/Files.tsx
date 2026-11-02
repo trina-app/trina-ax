@@ -15,6 +15,7 @@ import type { FileEntry, FileHistoryEvent, FileVersion, HistoryResponse, TrashIt
 import { api, API, errorText, fileUrl, isApiError, startDownload, versionDownloadUrl } from '../lib/api'
 import { canChange, canShare, chatDraggable, clickSelect, dragPayload, dragSet, dropRefusal, failureList, FILES_MOVE_DRAG_TYPE, moveMany, selectable, selectionState, shareMany, toggleAll, trashMany, type DropRefusal, type Outcome } from '../lib/bulkFiles'
 import { formatDateTime, formatSize } from '../lib/format'
+import { folderGeneration } from '../lib/folderRuns'
 import { droppedEntries, planFromEntries, planFromInput, type FolderPlan } from '../lib/folderUpload'
 import { baseName, crumbs, isConflictCopy, isInside, joinPath, nameProblem, parentPath } from '../lib/paths'
 import { iconKind, previewKind, type FileIconKind } from '../lib/preview'
@@ -388,7 +389,8 @@ export default function Files() {
     const files = Array.from(dt.files)
     if (!entries.some((e) => e.isDirectory)) return startUploads(files, into)
     const release = markBusy('upload')
-    planFromEntries(entries).then((plan) => startFolder(plan, into), fail).finally(release)
+    const generation = folderGeneration()
+    planFromEntries(entries).then((plan) => { if (generation === folderGeneration()) startFolder(plan, into) }, fail).finally(release)
   }
   // a folder upload ended (also one started before this page opened): the new files are listed
   const folderUploadsSettled = useFolderUploadsSettled()

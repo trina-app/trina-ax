@@ -254,6 +254,20 @@ test.describe('without the service worker', () => {
     await expect(chip.getByRole('alert')).not.toBeEmpty()
   })
 
+  test('three uploads that stopped moving give their places back: the fourth goes up', async ({ page }) => {
+    test.setTimeout(60_000)
+    await reset(page)
+    await signIn(page)
+    let seen = 0
+    await page.route(/\/api\/uploads$/, (route) => (++seen <= 3 ? undefined : route.continue()))
+    await page.getByTestId('file-input').setInputFiles([1, 2, 3].map((n) => pdf(`stopped-${n}.pdf`, 1000)))
+    await expect.poll(() => seen).toBe(3)
+    await page.getByTestId('file-input').setInputFiles(pdf('fourth.pdf', 1000))
+    const fourth = page.getByTestId('attachment-chip').filter({ hasText: 'fourth.pdf' })
+    await expect(fourth).toHaveAttribute('data-status', 'uploading')
+    await expect(fourth).toHaveAttribute('data-status', 'done', { timeout: 30_000 })
+  })
+
   test('a server that kept another size: the chip is red, not attached', async ({ page }) => {
     await reset(page)
     await signIn(page)
@@ -311,6 +325,40 @@ test.describe('without the service worker', () => {
     const said = page.getByTestId('folder-upload').getByRole('status')
     await expect(said).toHaveText('clips: 3개 중 2개를 올렸어요. 1개 실패')
   })
+})
+
+test('a dropped folder still being read when the person signs out: the next person gets nothing of it', async ({ page }) => {
+  await reset(page)
+  await signIn(page)
+  await page.goto('/files?path=marketing')
+  await expect(page.getByTestId('files-input')).toBeAttached()
+  // a folder whose listing answers only when the test says so: the reading outlives the session
+  const drop = await page.evaluateHandle(() => {
+    const file = { name: 'a.bin', isFile: true, isDirectory: false, file: (ok: (f: File) => void) => ok(new File(['x'], 'a.bin')) }
+    const folder = {
+      name: 'late-folder',
+      isFile: false,
+      isDirectory: true,
+      createReader: () => {
+        let read = 0
+        return { readEntries: (ok: (e: unknown[]) => void) => (read++ ? ok([]) : Object.assign(window, { __finishReading: () => ok([file]) })) }
+      },
+    }
+    return { types: ['Files'], files: [], items: [{ kind: 'file', webkitGetAsEntry: () => folder }] }
+  })
+  await page.locator('tbody').evaluate((el, dataTransfer) => {
+    const e = new Event('drop', { bubbles: true, cancelable: true })
+    Object.defineProperty(e, 'dataTransfer', { value: dataTransfer })
+    el.dispatchEvent(e)
+  }, drop)
+  await expect.poll(() => page.evaluate(() => '__finishReading' in window)).toBe(true)
+  const before = await requests(page, 'POST /api/files/mkdir')
+  await nextPerson(page)
+  await page.evaluate(() => (window as unknown as { __finishReading: () => void }).__finishReading())
+  await page.waitForTimeout(800)
+  await expect(page.getByTestId('folder-upload')).toHaveCount(0)
+  expect(await requests(page, 'POST /api/files/mkdir')).toBe(before)
+  expect(await requests(page, 'POST /api/files/upload')).toBe(0)
 })
 
 test('files take turns: three at a time, a chip in line says "preparing", and it can be removed', async ({ page }) => {
