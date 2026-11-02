@@ -245,9 +245,9 @@ export interface PinnedRequestInit {
   idleMs?: number
   maxBytes: number
   insecureTlsForTests?: boolean
-  /** called with the body so far (de-chunked) after each read that brings a line break, once the head is in: true = the
-   * answer is complete, e.g. an event stream that stays open after the reply (external-service connections,
-   * integrations/connections/mcp.ts) */
+  /** called with the body so far (de-chunked) after each read that brings a blank line (mayEndEvent), once the head is
+   * in: true = the answer is complete, e.g. an event stream that stays open after the reply (external-service
+   * connections, integrations/connections/mcp.ts) */
   until?: (body: Buffer, head: { status: number; headers: Record<string, string> }) => boolean
   /** stops the request (the socket is closed) */
   signal?: AbortSignal
@@ -255,6 +255,12 @@ export interface PinnedRequestInit {
 
 const TOKEN = /^[!#$%&'*+.^_`|~0-9A-Za-z-]+$/
 const BREAKS = /[\r\n\0]/
+
+/** These raw bytes (the last read and the few before it) may finish an event of an event stream: a blank line is two
+ * line ends (LF, CR or CRLF) in a row. Every line of chunked framing ends in CRLF, so a plain "a line break came" is true
+ * for nearly every read of a chunked answer. The framing never hides a blank line: with a chunk's end between the two
+ * line ends the first is followed by the framing's CR, and the second comes right after the LF of a size line. */
+export const mayEndEvent = (raw: Buffer) => raw.includes('\n\n') || raw.includes('\n\r') || raw.includes('\r\r')
 
 /** One HTTP/1.1 request over a socket pinned to the resolved address (no proxy from the environment, no second DNS
  * lookup), `Connection: close`. The answer ends when the socket closes or, sooner, when its Content-Length or last chunk
@@ -306,7 +312,8 @@ export function pinnedRequest(t: Target, o: PinnedRequestInit): Promise<RawRespo
       // headers + body; the cap applies to the raw stream (compressed bodies are capped again after decoding)
       if (size > o.maxBytes + 64 * 1024) { truncated = true; ended = true; chunks.push(d.subarray(0, Math.max(0, d.length - (size - o.maxBytes - 64 * 1024)))); sock.destroy(); return done() }
       chunks.push(d)
-      tail = Buffer.concat([tail, d]).subarray(-4)
+      const recent = Buffer.concat([tail, d])
+      tail = recent.subarray(-4)
       // the answer may be complete before the socket closes (see pinnedRequest)
       // the head is looked for in the first 256 KB only (a bigger "head" is no HTTP answer: parseResponse says so)
       if (!head_ && size <= 256 * 1024) head_ = framingOf(Buffer.concat(chunks))
@@ -315,9 +322,9 @@ export function pinnedRequest(t: Target, o: PinnedRequestInit): Promise<RawRespo
         : f === 'close' ? false
         : f === 'chunked' ? tail.toString('latin1') === '\r\n\r\n' && chunkedComplete(Buffer.concat(chunks), head_!.body)
         : size - head_!.body >= f.length
-      // `until` looks at the whole body so far: only after a read that brings a line break (an event stream's reply ends
-      // with a blank line), so a large answer (an MCP image of several MB) is not re-read with every network piece
-      if (!complete && head_ && o.until && d.includes(0x0a)) {
+      // `until` looks at the whole body so far: only after a read that brings a blank line (an event stream's reply ends
+      // with one), so a large answer (an MCP image of several MB, a big tools/list) is not re-read with every network piece
+      if (!complete && head_ && o.until && mayEndEvent(recent)) {
         const all = Buffer.concat(chunks)
         const h = parseResponse(all.subarray(0, head_.body), false, true)
         const raw = all.subarray(head_.body)
