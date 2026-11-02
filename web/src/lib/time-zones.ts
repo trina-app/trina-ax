@@ -14,6 +14,7 @@ export function timeZoneOptions(current?: string | null): string[] {
     if (f) all = f('timeZone')
   } catch { /* the fallback list */ }
   const set = new Set(all)
-  if (!set.has('UTC')) all = [...all, 'UTC']
-  return current && !set.has(current) ? [current, ...all] : all
+  let list = current && !set.has(current) ? [current, ...all] : all
+  if (!list.includes('UTC')) list = [...list, 'UTC']
+  return list
 }
