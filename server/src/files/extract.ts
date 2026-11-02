@@ -134,9 +134,9 @@ const turn = new BackgroundTurn()
  * At most OFFICE_WORKERS_MAX workers, and at most OFFICE_WORKERS_BACKGROUND_MAX of them for background work
  * (tools/isolate.ts waitsBehindPeople: the text cache's re-extraction), so background work alone never makes a person's
  * read wait for a converter that itself may wait long for the CPU (up to BACKGROUND_WALL_FACTOR times its time limit).
- * People's work goes first among those that wait, until background work's turn (BackgroundTurn); people's jobs count
- * only while no background worker runs, so the next background job waits its own turn. The limit of one run starts when
- * it has its slot, so waiting costs it none.
+ * People's work goes first among those that wait, until background work's turn (BackgroundTurn); the count starts over
+ * when a background worker ends, so the next background job waits its own turn. The limit of one run starts when it has
+ * its slot, so waiting costs it none.
  */
 export async function officeWorkerSlot<T>(f: () => Promise<T>): Promise<T> {
   let low = waitsBehindPeople()
@@ -154,7 +154,7 @@ export async function officeWorkerSlot<T>(f: () => Promise<T>): Promise<T> {
   }
   running++
   if (low) runningLow++
-  else if (!runningLow) turn.pass()
+  else turn.pass()
   try { return await f() } finally {
     running--
     if (low) { runningLow--; turn.restart(waitingLow.length > 0) }

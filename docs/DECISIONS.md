@@ -4958,9 +4958,9 @@ under the answer like the Claude app's sources.
     `BACKGROUND_PASSED_MAX` (8) of people's jobs have started past it, or `BACKGROUND_WAIT_MS` (30 s) after it began to
     wait, whichever comes first. So a job waits for at most that and then for the next worker to come free, at most the
     60 s limit of a person's job: about 90 s in all. Behind another background job it also waits for that job (up to 3
-    times the limit), since at most one background worker runs. People's jobs count only while no background worker
-    runs, and the count starts over when one ends: the next background job waits its own turn, and a turn never gives
-    background work a second worker. A person in line then waits for the other worker, which is what the turn costs.
+    times the limit), since at most one background worker runs. The count starts over when a background job ends: the
+    next one waits its own turn, and a turn never gives background work a second worker. A person in line then waits for
+    the other worker, which is what the turn costs.
     Why 8: in a Linux container on 4 CPUs, three loops of small reads and one loop of 0.55 s background sheets for 20 s
     gave, as reads / read p50 and p95 ms / background jobs: N=2 424 / 147, 192 / 24; N=4 457 / 137, 199 / 26; N=8 519 /
     126, 179 / 24; N=16 551 / 98, 182 / 19; N=32 715 / 77, 139 / 16; without a turn 929 / 67, 88 / 1. 8 is the largest

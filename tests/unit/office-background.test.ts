@@ -364,6 +364,41 @@ describe('the office workers: background work takes at most one, people go first
     } finally { setSystemTime() }
   })
 
+  test('people going first leaves background work in its own order', async () => {
+    const started: string[] = []
+    const p1 = holder(started, 'p1'), p2 = holder(started, 'p2')
+    const b1 = holder(started, 'b1', () => true), b2 = holder(started, 'b2', () => true), p3 = holder(started, 'p3')
+    await settle()
+    p1.finish()
+    await settle()
+    expect(started).toEqual(['p1', 'p2', 'p3'])
+    p2.finish()
+    await settle()
+    expect(started).toEqual(['p1', 'p2', 'p3', 'b1'])
+    b1.finish()
+    await settle()
+    expect(started).toEqual(['p1', 'p2', 'p3', 'b1', 'b2'])
+    p3.finish(); b2.finish()
+    await Promise.all([p1.done, p2.done, p3.done, b1.done, b2.done])
+    // behind a running background job too
+    const seen: string[] = []
+    const b3 = holder(seen, 'b3', () => true), p4 = holder(seen, 'p4')
+    const b4 = holder(seen, 'b4', () => true), b5 = holder(seen, 'b5', () => true), p5 = holder(seen, 'p5')
+    await settle()
+    expect(seen).toEqual(['b3', 'p4'])
+    p4.finish()
+    await settle()
+    expect(seen).toEqual(['b3', 'p4', 'p5'])
+    b3.finish()
+    await settle()
+    expect(seen).toEqual(['b3', 'p4', 'p5', 'b4'])
+    b4.finish()
+    await settle()
+    expect(seen).toEqual(['b3', 'p4', 'p5', 'b4', 'b5'])
+    p5.finish(); b5.finish()
+    await Promise.all([b3.done, b4.done, b5.done, p4.done, p5.done])
+  })
+
   test('background work that asks just as a worker ends does not go ahead of people in line', async () => {
     // the moment between a job's end and the start of the person it woke is a few microtasks long: every one is tried
     for (let hops = 0; hops < 30; hops++) {
