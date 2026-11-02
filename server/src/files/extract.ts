@@ -103,29 +103,57 @@ export function officeWorkerScript(): Promise<string> {
   })().catch((e) => { workerScript = null; throw e }))
 }
 
+/**
+ * Background work waits behind people's work (officeWorkerSlot, OfficeCache.slot), but not for ever: while it waits it
+ * holds a text cache slot, the file's bytes and its search lease, and no time limit runs. The next free place goes to it
+ * once BACKGROUND_PASSED_MAX of people's jobs have started past it, or BACKGROUND_WAIT_MS after it began to wait
+ * (docs/DECISIONS.md "Background work takes one office worker").
+ */
+export const BACKGROUND_PASSED_MAX = 8
+export const BACKGROUND_WAIT_MS = 30_000
+export class BackgroundTurn {
+  private passed = 0
+  private since: number | null = null
+  constructor(private now: () => number = () => Date.now()) {}
+  /** background work waits; its clock runs from the first time */
+  wait() { this.since ??= this.now() }
+  /** a person's job started past it */
+  pass() { this.passed++ }
+  /** start counting again, for the background work that waits now (if any) */
+  restart(waiting: boolean) { this.passed = 0; this.since = waiting ? this.now() : null }
+  /** it has waited long enough: the next free place is its own */
+  due() { return this.since !== null && (this.passed >= BACKGROUND_PASSED_MAX || this.now() - this.since >= BACKGROUND_WAIT_MS) }
+}
+
 let running = 0
 let runningLow = 0
 const waitingHigh: (() => void)[] = []
 const waitingLow: (() => void)[] = []
+const turn = new BackgroundTurn()
 /**
  * At most OFFICE_WORKERS_MAX workers, and at most OFFICE_WORKERS_BACKGROUND_MAX of them for background work
  * (tools/isolate.ts waitsBehindPeople: the text cache's re-extraction), so background work alone never makes a person's
  * read wait for a converter that itself may wait long for the CPU (up to BACKGROUND_WALL_FACTOR times its time limit).
- * People's work goes first among those that wait. The limit of one run starts when it has its slot, so waiting costs it
- * none.
+ * People's work goes first among those that wait, until background work's turn (BackgroundTurn); people's jobs count
+ * only while no background worker runs, so the next background job waits its own turn. The limit of one run starts when
+ * it has its slot, so waiting costs it none.
  */
 export async function officeWorkerSlot<T>(f: () => Promise<T>): Promise<T> {
   let low = waitsBehindPeople()
-  while (running >= OFFICE_WORKERS_MAX || (low && (runningLow >= OFFICE_WORKERS_BACKGROUND_MAX || waitingHigh.length))) {
+  while (running >= OFFICE_WORKERS_MAX || (low && (runningLow >= OFFICE_WORKERS_BACKGROUND_MAX || (waitingHigh.length && !turn.due())))) {
+    if (low) turn.wait()
     await new Promise<void>((r) => (low ? waitingLow : waitingHigh).push(r))
     low = waitsBehindPeople()
   }
   running++
   if (low) runningLow++
+  else if (!waitingLow.length) turn.restart(false)
+  else if (!runningLow) turn.pass()
   try { return await f() } finally {
     running--
-    if (low) runningLow--
-    const next = waitingHigh.shift() ?? (runningLow < OFFICE_WORKERS_BACKGROUND_MAX ? waitingLow.shift() : undefined)
+    if (low) { runningLow--; turn.restart(waitingLow.length > 0) }
+    const lowMay = runningLow < OFFICE_WORKERS_BACKGROUND_MAX
+    const next = (lowMay && turn.due() ? waitingLow.shift() : undefined) ?? waitingHigh.shift() ?? (lowMay ? waitingLow.shift() : undefined)
     next?.()
   }
 }

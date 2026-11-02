@@ -4,15 +4,16 @@
 // grep joined before a converter started runs that converter at normal priority. A converter that a limit stopped (a
 // background one waiting for the CPU on a busy Mac) leaves the document without text for a while, never with an empty
 // text that would stand for "no text" until the file changes: it is tried again later, a few times. Of the two office
-// workers, background work takes at most one, and people go first among those that wait.
-import { afterEach, describe, expect, test } from 'bun:test'
+// workers, background work takes at most one, and people go first among those that wait, until background work's turn:
+// it never waits for ever behind people's work that keeps coming.
+import { afterEach, describe, expect, setSystemTime, test } from 'bun:test'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import * as XLSX from 'xlsx'
 import { BACKGROUND_WALL_FACTOR, backgroundPrefix, backgroundRun, inBackground, runIsolated } from '../../server/src/tools/isolate'
 import { OFFICE_EXTRACT_PARALLEL, OFFICE_RETRY_FIRST_MS, OFFICE_RETRY_MAX, OfficeCache } from '../../server/src/files/search'
-import { ConverterStopped, extractText, OFFICE_WORKERS_BACKGROUND_MAX, OFFICE_WORKERS_MAX, officeWorkerSlot, officeWorkersRecheck } from '../../server/src/files/extract'
+import { BACKGROUND_PASSED_MAX, BACKGROUND_WAIT_MS, BackgroundTurn, ConverterStopped, extractText, OFFICE_WORKERS_BACKGROUND_MAX, OFFICE_WORKERS_MAX, officeWorkerSlot, officeWorkersRecheck } from '../../server/src/files/extract'
 import { ToolError } from '../../server/src/policy/errors'
 
 const dirs: string[] = []
@@ -243,6 +244,169 @@ describe('the office workers: background work takes at most one, people go first
     await Promise.all([a, b, joined])
   })
 
+  test('a person joins one of several waiting background jobs: that one takes the free worker, the others keep their order', async () => {
+    const started: string[] = []
+    let low = true
+    const b1 = holder(started, 'b1', () => true), b2 = holder(started, 'b2', () => true), b3 = holder(started, 'b3', () => low), b4 = holder(started, 'b4', () => true)
+    await settle()
+    expect(started).toEqual(['b1'])
+    low = false
+    officeWorkersRecheck()
+    await settle()
+    expect(started).toEqual(['b1', 'b3'])
+    b1.finish()
+    await settle()
+    expect(started).toEqual(['b1', 'b3', 'b2'])
+    b2.finish()
+    await settle()
+    expect(started).toEqual(['b1', 'b3', 'b2', 'b4'])
+    b3.finish(); b4.finish()
+    await Promise.all([b1.done, b2.done, b3.done, b4.done])
+  })
+
+  test('a background worker that a person joins while it runs still gives its place back: the next background job starts', async () => {
+    const started: string[] = []
+    let low = true
+    const b1 = holder(started, 'b1', () => low)
+    await settle()
+    low = false
+    const b2 = holder(started, 'b2', () => true)
+    await settle()
+    expect(started).toEqual(['b1'])
+    b1.finish()
+    await settle()
+    expect(started).toEqual(['b1', 'b2'])
+    b2.finish()
+    await Promise.all([b1.done, b2.done])
+  })
+
+  /** `loops` of people's work back to back, one job each. How many of their jobs ended after `lows` background jobs asked
+   * for a worker and before each of them started; -1: it had not started when people's work stopped */
+  async function amongPeople(loops: number, lows: number) {
+    let done = 0, stop = false
+    const person = async () => { while (!stop) { await officeWorkerSlot(() => new Promise<void>((r) => setImmediate(r))); done++ } }
+    const people = Array.from({ length: loops }, person)
+    await Bun.sleep(1)
+    const from = done
+    const at: number[] = Array.from({ length: lows }, () => -1)
+    const background = at.map((_, i) => inBackground(() => true, () => officeWorkerSlot(async () => { at[i] = done - from })))
+    const all = Promise.all(background)
+    await Promise.race([all, Bun.sleep(3000)])
+    stop = true
+    await Promise.all(people)
+    await all
+    return at
+  }
+
+  test.each([3, 8])('background work starts while %i loops of people\'s work keep coming, after at most its turn', async (loops) => {
+    const [at] = await amongPeople(loops, 1)
+    expect(at).toBeGreaterThanOrEqual(0)
+    // the jobs already in line when it came, then BACKGROUND_PASSED_MAX, then those running when its turn came
+    expect(at!).toBeLessThanOrEqual(BACKGROUND_PASSED_MAX + loops + OFFICE_WORKERS_MAX)
+  })
+
+  test('the next background job waits its own turn, so people\'s work goes on between them', async () => {
+    const [first, second, third] = (await amongPeople(3, 3)).sort((a, b) => a - b)
+    expect(first).toBeGreaterThanOrEqual(0)
+    expect(second! - first!).toBeGreaterThanOrEqual(BACKGROUND_PASSED_MAX - OFFICE_WORKERS_MAX)
+    expect(third! - second!).toBeGreaterThanOrEqual(BACKGROUND_PASSED_MAX - OFFICE_WORKERS_MAX)
+  })
+
+  test('long jobs of people: after BACKGROUND_WAIT_MS the next free worker is background work\'s, ahead of people in line', async () => {
+    const started: string[] = []
+    const t0 = Date.now()
+    try {
+      const p1 = holder(started, 'p1'), p2 = holder(started, 'p2'), b = holder(started, 'b', () => true), p3 = holder(started, 'p3')
+      await settle()
+      expect(started).toEqual(['p1', 'p2'])
+      setSystemTime(new Date(t0 + BACKGROUND_WAIT_MS - 1000))
+      p1.finish()
+      await settle()
+      // not yet: people first
+      expect(started).toEqual(['p1', 'p2', 'p3'])
+      const p4 = holder(started, 'p4')
+      setSystemTime(new Date(t0 + BACKGROUND_WAIT_MS + 1000))
+      p2.finish()
+      await settle()
+      expect(started).toEqual(['p1', 'p2', 'p3', 'b'])
+      // it takes the one worker background work may have, and only that: the worker after it goes to people again
+      p3.finish()
+      await settle()
+      expect(started).toEqual(['p1', 'p2', 'p3', 'b', 'p4'])
+      b.finish(); p4.finish()
+      await Promise.all([p1.done, p2.done, p3.done, p4.done, b.done])
+    } finally { setSystemTime() }
+  })
+
+  test('a person joins the background job whose turn it was: the next background job waits from its own start', async () => {
+    const started: string[] = []
+    const t0 = Date.now()
+    try {
+      let low = true
+      const p1 = holder(started, 'p1'), p2 = holder(started, 'p2'), b1 = holder(started, 'b1', () => low)
+      await settle()
+      setSystemTime(new Date(t0 + BACKGROUND_WAIT_MS + 1000))
+      low = false
+      officeWorkersRecheck()
+      p1.finish()
+      await settle()
+      expect(started).toEqual(['p1', 'p2', 'b1'])
+      const b2 = holder(started, 'b2', () => true), p3 = holder(started, 'p3')
+      await settle()
+      p2.finish()
+      await settle()
+      expect(started).toEqual(['p1', 'p2', 'b1', 'p3'])
+      p3.finish()
+      await settle()
+      expect(started).toEqual(['p1', 'p2', 'b1', 'p3', 'b2'])
+      b1.finish(); b2.finish()
+      await Promise.all([p1.done, p2.done, p3.done, b1.done, b2.done])
+    } finally { setSystemTime() }
+  })
+
+  test('its turn never gives background work a second worker', async () => {
+    const started: string[] = []
+    const t0 = Date.now()
+    try {
+      const b1 = holder(started, 'b1', () => true), p = holder(started, 'p'), b2 = holder(started, 'b2', () => true), q = holder(started, 'q')
+      await settle()
+      expect(started).toEqual(['b1', 'p'])
+      setSystemTime(new Date(t0 + 10 * BACKGROUND_WAIT_MS))
+      p.finish()
+      await settle()
+      expect(started).toEqual(['b1', 'p', 'q'])
+      b1.finish()
+      await settle()
+      // b1 has ended: a new turn starts for b2, with a free worker it may take
+      expect(started).toEqual(['b1', 'p', 'q', 'b2'])
+      b2.finish(); q.finish()
+      await Promise.all([b1.done, b2.done, p.done, q.done])
+    } finally { setSystemTime() }
+  })
+
+  test('BackgroundTurn: by people\'s jobs or by time; not while nothing waits; start over', () => {
+    let now = 1000
+    const t = new BackgroundTurn(() => now)
+    expect([BACKGROUND_PASSED_MAX, BACKGROUND_WAIT_MS]).toEqual([8, 30_000])
+    expect(t.due()).toBe(false)
+    for (let i = 0; i < BACKGROUND_PASSED_MAX + 1; i++) t.pass()
+    now += BACKGROUND_WAIT_MS
+    expect(t.due()).toBe(false)
+    t.restart(false)
+    t.wait()
+    for (let i = 0; i < BACKGROUND_PASSED_MAX - 1; i++) t.pass()
+    expect(t.due()).toBe(false)
+    t.pass()
+    expect(t.due()).toBe(true)
+    t.restart(true)
+    expect(t.due()).toBe(false)
+    now += BACKGROUND_WAIT_MS - 1
+    t.wait()
+    expect(t.due()).toBe(false)
+    now += 1
+    expect(t.due()).toBe(true)
+  })
+
   test('work at normal priority that nobody asked for (a last try) still waits as background work', async () => {
     const started: string[] = []
     const b1 = holder(started, 'b1', () => true)
@@ -308,6 +472,70 @@ describe('the office workers: background work takes at most one, people go first
     b1.finish(); b2.finish()
     await Promise.all([b1.done, b2.done])
   }, 15_000)
+})
+
+describe('the text cache\'s line: foreground jobs first, but background work gets its turn (OfficeCache.slot)', () => {
+  /** an OfficeCache whose clock a test moves; an extraction takes a moment, or until `gates` lets it go */
+  class Line extends OfficeCache {
+    clock = 1_000_000
+    started: string[] = []
+    gates = new Map<string, () => void>()
+    held = false
+    protected override now() { return this.clock }
+    protected override async extract(rel: string): Promise<string> {
+      this.started.push(rel)
+      if (this.held) await new Promise<void>((r) => this.gates.set(rel, r))
+      else await new Promise<void>((r) => setImmediate(r))
+      return 'text of ' + rel
+    }
+  }
+  function setup(names: string[]) {
+    const root = tmp('team-')
+    fs.mkdirSync(path.join(root, 'shared'))
+    for (const n of names) fs.writeFileSync(path.join(root, 'shared', n), 'bytes of ' + n)
+    return new Line(tmp('cache-'), { root, caseInsensitive: false } as never, { pandoc: null, pdftotext: null })
+  }
+
+  test.each([OFFICE_EXTRACT_PARALLEL + 2, 3 * OFFICE_EXTRACT_PARALLEL])('a background job is done while %i loops of foreground jobs keep coming', async (loops) => {
+    const names = Array.from({ length: loops }, (_, i) => `p${i}.docx`)
+    const c = setup([...names, 'bg.docx'])
+    let done = 0, stop = false
+    const person = async (n: string) => {
+      const rel = 'shared/' + n
+      while (!stop) { await c.update(rel); done++; fs.rmSync(c.cachePath(rel), { force: true }) }
+    }
+    const people = names.map(person)
+    await Bun.sleep(1)
+    let at = -1
+    const from = done
+    const bg = c.update('shared/bg.docx', { background: true }).then(() => { at = done - from })
+    await Promise.race([bg, Bun.sleep(3000)])
+    stop = true
+    await Promise.all(people)
+    await bg
+    expect(at).toBeGreaterThanOrEqual(0)
+    expect(at).toBeLessThanOrEqual(BACKGROUND_PASSED_MAX + 2 * loops)
+  })
+
+  test('long foreground jobs: after BACKGROUND_WAIT_MS the next free slot is the background job\'s', async () => {
+    const busy = Array.from({ length: OFFICE_EXTRACT_PARALLEL }, (_, i) => `busy${i}.docx`)
+    const c = setup([...busy, 'next.docx', 'bg.docx'])
+    c.held = true
+    const running = busy.map((b) => c.update('shared/' + b))
+    await Bun.sleep(5)
+    const bg = c.update('shared/bg.docx', { background: true })
+    const next = c.update('shared/next.docx')
+    await Bun.sleep(5)
+    c.clock += BACKGROUND_WAIT_MS
+    c.gates.get('shared/busy0.docx')!()
+    await Bun.sleep(5)
+    expect(c.started.slice(busy.length)).toEqual(['shared/bg.docx'])
+    c.gates.get('shared/busy1.docx')!()
+    await Bun.sleep(5)
+    expect(c.started.slice(busy.length)).toEqual(['shared/bg.docx', 'shared/next.docx'])
+    for (const open of c.gates.values()) open()
+    await Promise.all([...running, bg, next])
+  })
 })
 
 describe('a converter stopped by a limit: no text is kept, the file is tried again later', () => {

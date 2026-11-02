@@ -4949,6 +4949,27 @@ under the answer like the Claude app's sources.
     an idle server (two of those 12 MB sheets: 1.6 s together before, 3 s now). Waiting costs a job none of its time
     limit: the clock starts with its slot. People's work still lines up first come, first served among itself, so a read
     can wait behind the extraction of an upload or a grep.
+  - **Background work gets its turn** (after 0.2.19, `files/extract.ts BackgroundTurn`, used by `officeWorkerSlot` and
+    `OfficeCache.slot`). People first without a limit starved it: with three loops of reads a background job had no
+    worker after 15 s and 250 reads (0.4 s when the line was first come, first served), and no time limit ran. All that
+    time it held a text cache slot, up to 50 MB of file bytes, its search lease (the quarantine refuses those bytes,
+    `safe_ops_search_busy`) and the queue's one worker, which holds up the index of everybody's content search. The text
+    cache's own line has had the same gap since it was made. Now the next free place goes to background work once
+    `BACKGROUND_PASSED_MAX` (8) of people's jobs have started past it, or `BACKGROUND_WAIT_MS` (30 s) after it began to
+    wait, whichever comes first. So a job waits for at most that and then for the next worker to come free, at most the
+    60 s limit of a person's job: about 90 s in all. Behind another background job it also waits for that job (up to 3
+    times the limit), since at most one background worker runs. People's jobs count only while no background worker
+    runs, and the count starts over when one ends: the next background job waits its own turn, and a turn never gives
+    background work a second worker. A person in line then waits for the other worker, which is what the turn costs.
+    Why 8: in a Linux container on 4 CPUs, three loops of small reads and one loop of 0.55 s background sheets for 20 s
+    gave, as reads / read p50 and p95 ms / background jobs: N=2 424 / 147, 192 / 24; N=4 457 / 137, 199 / 26; N=8 519 /
+    126, 179 / 24; N=16 551 / 98, 182 / 19; N=32 715 / 77, 139 / 16; without a turn 929 / 67, 88 / 1. 8 is the largest
+    value that keeps background work's rate, with 22% more reads than 2; 16 costs background work a fifth of its rate
+    for 6% more reads. It is also two rounds of a grep's four extractions at a time (`OFFICE_EXTRACT_PARALLEL`), so one
+    person's burst goes through whole. Why 30 s: half the limit of a person's job, so the wait stays near 90 s. It matters
+    only for people's jobs over about 7.5 s each (8 jobs on 2 workers), like a big sheet on a busy server (9.5 s measured
+    above); small jobs reach 8 first. A search that wants the index moves the file of a background run up
+    (`OfficeCache.hurry`), so it does not spend its budget on background work's place in line.
   - **A converter stopped by a limit leaves no text, and the file is tried again** (0.2.19, `files/search.ts`
     `OFFICE_RETRY_MAX`, `files/extract.ts ConverterStopped`). Even at 3 times the wall clock a background converter
     can be stopped on a busy Mac (`-c utility` gets about 0.19 of a normal process's CPU under load: a converter that

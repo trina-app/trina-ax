@@ -8,7 +8,7 @@ import { atLeast, type Principal, type RuleSet } from '../policy/access'
 import { visiblePath, type FsCtx } from '../policy/authorize'
 import { ToolError } from '../policy/errors'
 import { walk } from '../policy/resolve'
-import { ConverterStopped, extractText, isOffice, OFFICE_EXT, officeWorkersRecheck, type Tools } from './extract'
+import { BackgroundTurn, ConverterStopped, extractText, isOffice, OFFICE_EXT, officeWorkersRecheck, type Tools } from './extract'
 import { inBackground } from '../tools/isolate'
 import { readRegular, sha256 } from './store'
 import { readMaxBytes, rgThreads } from '../system/limits'
@@ -217,10 +217,11 @@ export class OfficeCache {
   private inflight = new Map<string, { job: Promise<void>; ticket: ExtractTicket }>()
   private marked = false
   /** extraction slots in use, and the jobs that wait for one: a foreground job (the AI grep, an upload, the semantic
-   * index) always gets a free slot before a background job */
+   * index) gets a free slot before a background job, until that job's turn (extract.ts BackgroundTurn) */
   private active = 0
   private waitingHigh: (() => void)[] = []
   private waitingLow: (() => void)[] = []
+  private turn = new BackgroundTurn(() => this.now())
   /** the background queue: per owner (in turn order) the files in order, each with the mtime it had when it was
    * added; `owners` gives the owner of each queued path (each path is queued once). One worker. */
   private queue = new Map<string, Map<string, number>>()
@@ -298,13 +299,21 @@ export class OfficeCache {
     this.retries.set(rel, { version: retryVersion(st), tries, next: this.now() + OFFICE_RETRY_FIRST_MS * OFFICE_RETRY_FACTOR ** (tries - 1) })
   }
   private async slot<T>(f: () => Promise<T>, t: ExtractTicket): Promise<T> {
-    // a low job also waits while a foreground job waits, so a freed slot goes to the foreground first
-    while (this.active >= OFFICE_EXTRACT_PARALLEL || (t.low && this.waitingHigh.length)) {
+    // a low job also waits while a foreground job waits, so a freed slot goes to the foreground first, until its turn
+    while (this.active >= OFFICE_EXTRACT_PARALLEL || (t.low && this.waitingHigh.length && !this.turn.due())) {
+      if (t.low) this.turn.wait()
       await new Promise<void>((r) => { t.wake = r; (t.low ? this.waitingLow : this.waitingHigh).push(r) })
       t.wake = undefined
     }
     this.active++
-    try { return await f() } finally { this.active--; (this.waitingHigh.shift() ?? this.waitingLow.shift())?.() }
+    if (t.low) this.turn.restart(this.waitingLow.length > 0)
+    else if (this.waitingLow.length) this.turn.pass()
+    else this.turn.restart(false)
+    try { return await f() } finally {
+      this.active--
+      const next = (this.turn.due() ? this.waitingLow.shift() : undefined) ?? this.waitingHigh.shift() ?? this.waitingLow.shift()
+      next?.()
+    }
   }
   /** a foreground caller joins a low job: the job gets high priority (it moves to the foreground waiters) */
   private raise(t: ExtractTicket) {
