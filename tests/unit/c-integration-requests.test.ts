@@ -108,26 +108,49 @@ describe('asking', () => {
     } finally { await olga.call('PATCH', '/api/admin/settings', { personalIntegrations: true }) }
   })
   test('a name with nothing to show is refused, under the name, before anything is saved or anyone is told', async () => {
-    const count = () => h.ctx.db.query('SELECT count(*) AS n FROM integration_requests').get()
-    const before = count()
-    const inbox = (await cara.call('GET', '/api/notifications')).items.length
+    const rows = () => ['integration_requests', 'audit_log', 'notification_inbox'].map((t) => h.ctx.db.query(`SELECT count(*) AS n FROM ${t}`).get())
+    const banners = () => h.hub.events.filter((e) => e.kind === 'publish' && (e.data as any).data?.code === 'integration_request').length
+    const before = rows(), told = banners()
     const body = { ...mcpKey(), userId: ids.cara, url: `${fake.base}/mcp-key?blank-name` }
-    // control characters (the C1 ones too: the trim keeps them) and zero-width ones
-    for (const name of ['\u0001\u0002', '\u0007 \u001f', '\u007f', '\u0085\u009f', '\u200B\u200D', '\u0001\u200B ']) {
-      const r = await ask(ada, { ...body, name })
-      expect(r.status, JSON.stringify(name)).toBe(400)
-      expect(Object.keys(r.body.error.fields)).toEqual(['body.name'])
-      expect(r.body.error.message).toBe(say('requestNoName', 'ko')) // the admin's language
+    // as code points: none of these can be seen in a source file
+    const blank = [
+      [1, 2], [7, 0x20, 0x1f], [0x7f], [0x85, 0x9f], // control characters (the C1 ones too: the trim keeps them)
+      [0x200b, 0x200d], [1, 0x200b, 0x20], [0x200b, 0x20, 0x200b], [0xad], // format characters: zero-width, the soft hyphen
+      [0x3164], [0xffa0], [0x115f], [0x1160], // the Hangul fillers: letters to Unicode, empty on the screen
+      [0x2800], // the Braille blank
+      [0xfe0f], [0xfe00], [0xe0100], [0x34f], [0x180b], [0x17b4], [0x200c, 0x3164], // other default-ignorable characters
+    ]
+    for (const c of blank) {
+      const r = await ask(ada, { ...body, name: String.fromCodePoint(...c) })
+      const which = c.map((x) => x.toString(16)).join(' ')
+      expect(r.status, which).toBe(400)
+      expect(Object.keys(r.body.error.fields), which).toEqual(['body.name'])
+      expect(r.body.error.message, which).toBe(say('requestNoName', 'ko')) // the admin's language
     }
     // what the schema's trim empties was already refused, in its own words
-    expect((await ask(ada, { ...body, name: '\u2028' })).status).toBe(400)
-    expect(count()).toEqual(before)
-    expect((await cara.call('GET', '/api/notifications')).items.length).toBe(inbox)
-    // a name with something to show is kept, cleaned to one line as before
-    const ok = await ask(ada, { ...body, name: 'Ta\u0001sks' })
-    expect(ok.status).toBe(201)
-    expect(ok.body.name).toBe('Ta sks')
-    await ada.call('POST', `/api/admin/integration-requests/${ok.body.id}/withdraw`, {})
+    expect((await ask(ada, { ...body, name: String.fromCodePoint(0x2028) })).status).toBe(400)
+    expect(rows()).toEqual(before)
+    expect(banners()).toBe(told)
+  })
+  test('a name with something to show is kept: any language, emoji, spaces around it are trimmed, control characters inside become a space', async () => {
+    const body = { ...mcpKey(), userId: ids.cara, url: `${fake.base}/mcp-key?good-name` }
+    const of = (...c: number[]) => String.fromCodePoint(...c)
+    const names: [string, string][] = [
+      ['Tasks', 'Tasks'], ['견적 관리', '견적 관리'], ['タスク', 'タスク'], ['任务', '任务'], ['Задачи', 'Задачи'], ['مهام', 'مهام'], ['कार्य', 'कार्य'], ['ภารกิจ', 'ภารกิจ'],
+      ['a', 'a'], ['1', '1'], ['.', '.'],
+      [of(0x1f4cb), of(0x1f4cb)], // an emoji
+      [of(0x1f469, 0x200d, 0x1f4bb), of(0x1f469, 0x200d, 0x1f4bb)], // joined with a zero-width joiner
+      [of(0x2764, 0xfe0f), of(0x2764, 0xfe0f)], // with a variation selector
+      [of(0x1f1f0, 0x1f1f7), of(0x1f1f0, 0x1f1f7)], // a flag
+      [`  Tasks  `, 'Tasks'], [`${of(0x3000)}견적${of(0x3000)}`, '견적'], [`Ta${of(1)}sks`, 'Ta sks'],
+      [`${of(0x3164)}견적`, `${of(0x3164)}견적`], // a blank character next to a real one: the name still shows
+    ]
+    for (const [name, kept] of names) {
+      const r = await ask(ada, { ...body, name })
+      expect(r.status, name).toBe(201)
+      expect(r.body.name).toBe(kept)
+      await ada.call('POST', `/api/admin/integration-requests/${r.body.id}/withdraw`, {})
+    }
   })
 })
 

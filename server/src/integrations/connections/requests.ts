@@ -25,6 +25,9 @@ export const MAX_WAITING = 200
 const KEEP_MS = 30 * 86_400_000
 
 const iso = (ms: number) => new Date(ms).toISOString()
+/** A character something shows for. Not one: control and format characters, spaces, default-ignorable ones (the Hangul
+ * fillers count as letters, so a list of what to refuse misses them) and the Braille blank. */
+const SHOWS = /[^\p{Cc}\p{Cf}\p{Z}\p{DI}\u{2800}]/u
 /** where the request opens in the app: Settings › External services */
 export const requestPath = (id: string) => `/settings/integrations?request=${encodeURIComponent(id)}`
 const ENDED: Record<Exclude<IntegrationRequestState, 'waiting'>, TextKey> = { connected: 'requestDone', declined: 'requestDeclined', withdrawn: 'requestWithdrawn', expired: 'requestExpired' }
@@ -85,9 +88,9 @@ export class ConnectionRequests {
     if (!getTeamSettings(this.db).personalIntegrations) fail('conflict', say('requestPersonalOff', L))
     const member = this.db.query("SELECT id FROM users WHERE id = ? AND status = 'active' AND deleted_at IS NULL").get(input.userId) as { id: string } | null
     if (!member) fieldError(L, 'userId', 'requestNoUser')
-    // the member's notice and the admin's list show this name: the schema trims spaces, not control or zero-width characters
+    // the member's notice and the admin's list show this name: the schema trims spaces, nothing else that shows as nothing
     const name = oneLine(input.name)
-    if (/^[\p{Cc}\p{Cf}\p{Z}]*$/u.test(name)) fieldError(L, 'name', 'requestNoName')
+    if (!SHOWS.test(name)) fieldError(L, 'name', 'requestNoName')
     // the same checks as a connection's own fields (service.ts create runs them all again when the member connects)
     const authHeader = input.auth === 'header' ? this.svc.headerName(input.authHeader ?? null, L) : null
     if (input.auth === 'oauth' && input.kind !== 'mcp') fieldError(L, 'auth', 'oauthMcpOnly')
