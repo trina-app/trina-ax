@@ -5,7 +5,7 @@
 // the browser before they are sent (lib/seal.ts) and never shown again. Settings > AI connections (MyCredentials)
 // is a member's own list, when the team allows it.
 import { ArrowDown, ArrowUp, ExternalLink, KeyRound, MoreHorizontal, Plus, RefreshCw, Trash2 } from 'lucide-react'
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { DuplicateCredentialParams, type Credential, type CredentialAssignment, type CredentialKind, type CredentialLogin, type CredentialsResponse, type Group, type User } from '@mycel/shared/api'
 import { api, API, errorText, isApiError } from '../../lib/api'
@@ -17,6 +17,7 @@ import { credentialLogin } from '../../store/live'
 import { toast } from '../../store/ui'
 import { Badge, Button, CopyButton, Field, IconButton, Modal, Switch, confirmDialog, inputCls } from '../../components/ui'
 import { Card, Loadable, useAction, useLoad } from './common'
+import { SetupTokenSteps } from './SetupTokenSteps'
 
 const FAMILY: Record<'claude' | 'codex', CredentialKind[]> = { claude: ['anthropic-oauth', 'anthropic-api-key'], codex: ['chatgpt', 'openai-api-key'] }
 const SUBSCRIPTION = new Set<CredentialKind>(['anthropic-oauth', 'chatgpt'])
@@ -264,7 +265,19 @@ export function AddCredential({ allowedKinds, gateway, groups, users, replace, p
   const subscription = kind !== null && SUBSCRIPTION.has(kind)
   const sharingBlocked = subscription && !personal && !sharedSubscriptions
   const needsPassword = !personal
-  const ready = kind !== null && !sharingBlocked && (replace || label.trim().length > 0) && (kind === 'chatgpt' || formatOk(kind, secret.trim(), gateway)) && (!subscription || replace || ack) && (!needsPassword || password.length > 0)
+  // what a terminal adds when it wraps a long token over two lines; no token or key has white space in it
+  const value = secret.replace(/\s+/g, '')
+  const dialogBody = useRef<HTMLDivElement>(null)
+  /** Choosing removes the radio and Change removes itself: focus goes on to what took their place, not to the page. */
+  const refocus = useRef(false)
+  useEffect(() => {
+    if (!refocus.current) return
+    refocus.current = false
+    dialogBody.current?.querySelector<HTMLElement>('[data-testid="kind-change"], input[name="kind"]:enabled')?.focus()
+  }, [kind])
+  /** An arrow key in a radio group picks the next radio. Picking closes this list, so here arrows only move: Space or a click picks. */
+  const walking = useRef(false)
+  const ready = kind !== null && !sharingBlocked && (replace || label.trim().length > 0) && (kind === 'chatgpt' || formatOk(kind, value, gateway)) && (!subscription || replace || ack) && (!needsPassword || password.length > 0)
 
   // ChatGPT sign-in progress: the WebSocket event, and a poll in case the socket is down
   useEffect(() => {
@@ -287,11 +300,11 @@ export function AddCredential({ allowedKinds, gateway, groups, users, replace, p
       }
       const key = await api.call(API.sealingKey)
       if (replace) {
-        const sealed = await sealSecret(key, secret.trim(), 'credential.replace')
+        const sealed = await sealSecret(key, value, 'credential.replace')
         await api.call(API.replaceCredentialSecret, { params: { id: replace.id }, body: { sealed, password } })
         toast({ level: 'success', text: t('credentials.connected') })
       } else {
-        const sealed = await sealSecret(key, secret.trim(), 'credential.create')
+        const sealed = await sealSecret(key, value, 'credential.create')
         const body = { kind: kind as Exclude<CredentialKind, 'chatgpt'>, label: label.trim(), sealed, ...(subscription ? { acknowledgedPlanNotice: ack } : {}) }
         const c = personal ? await api.call(API.createMyCredential, { body })
           : await api.call(API.createCredential, { body: { ...body, assignments, password, ...(move?.credentialId ? { moveFrom: move.credentialId } : {}) } })
@@ -321,6 +334,30 @@ export function AddCredential({ allowedKinds, gateway, groups, users, replace, p
   const leftOut = !!mover && assignments.length > 0
     && !assignments.some((a) => (a.subjectType === 'user' && a.subjectId === mover.id) || (a.subjectType === 'group' && mover.groupIds.includes(a.subjectId)))
   const finished = login && ['done', 'failed', 'expired', 'cancelled'].includes(login.state)
+  // with a gateway the Claude API key is the gateway's
+  const via = (k: CredentialKind) => (k === 'anthropic-api-key' ? gateway : null)
+  const kindName = (k: CredentialKind) => { const g = via(k); return g ? t('credentials.kind.gateway', { label: g.label }) : t(`credentials.kind.${k}` as MessageKey) }
+  /** The kind's name is the connection's name until the person writes their own. */
+  const nameOf = (k: CredentialKind) => kindName(k).slice(0, 60)
+  const choose = (k: CredentialKind | null) => {
+    setLabel((l) => (l.trim() && (!kind || l !== nameOf(kind)) ? l : k ? nameOf(k) : ''))
+    refocus.current = true
+    setKind(k)
+    setSecret('')
+    setError(null)
+    setMove(null)
+  }
+
+  // a fragment: Field wires aria-describedby only to a single child, so the ok line sits beside it, not in it
+  const secretField = kind && kind !== 'chatgpt' && (
+    <>
+      <Field label={t(kind === 'anthropic-oauth' ? 'credentials.setupToken.paste' : 'credentials.apiKey.paste')}
+        error={value && !formatOk(kind, value, gateway) ? t(kind === 'anthropic-oauth' ? 'credentials.setupToken.invalidFormat' : 'credentials.apiKey.invalidFormat') : null}>
+        <input className={`${inputCls} font-mono`} type="password" placeholder={kind === 'anthropic-oauth' ? 'sk-ant-oat01-…' : undefined} autoComplete="off" spellCheck={false} value={secret} onChange={(e) => { setSecret(e.target.value); if (move) { setMove(null); setError(null) } }} data-testid="credential-secret" />
+      </Field>
+      {value && formatOk(kind, value, gateway) && <p className="text-xs text-ok" data-testid="credential-secret-ok">{t('credentials.secretOk')}</p>}
+    </>
+  )
 
   return (
     <Modal open onClose={cancelLogin} width={560} title={replace ? (replace.kind === 'chatgpt' ? t('credentials.reconnect') : t('credentials.replace')) : t('credentials.add')}
@@ -341,39 +378,34 @@ export function AddCredential({ allowedKinds, gateway, groups, users, replace, p
       {!secure ? <p className="text-sm text-warn" data-testid="credential-https-only">{t('credentials.httpsOnly')}</p>
         : login ? <ChatgptProgress l={login} />
         : (
-          <div className="space-y-4">
+          <div ref={dialogBody} className="space-y-4">
             {personal && <p className="text-sm text-muted">{t('credentials.personalFirst')}</p>}
             {!personal && !sharedSubscriptions && <p className="text-sm text-warn" data-testid="shared-subscriptions-off">{t('credentials.sharedSubscriptionsOff')}</p>}
-            {!replace && (
-              <fieldset className="space-y-2">
+            {!replace && !kind && (
+              <fieldset className="space-y-2" onKeyDown={(e) => { walking.current = e.key.startsWith('Arrow') }} onKeyUp={() => { walking.current = false }}>
                 <legend className="text-sm font-medium">{t('credentials.chooseKind')}</legend>
                 {kinds.map((k) => {
                   const policyOff = !personal && SUBSCRIPTION.has(k) && !sharedSubscriptions
                   const off = !allowedKinds.includes(k) || policyOff
-                  // with a gateway the Claude API key is the gateway's
-                  const via = k === 'anthropic-api-key' ? gateway : null
+                  const g = via(k)
                   return (
                     <label key={k} className={`flex items-start gap-2 rounded-lg border border-line p-2 text-sm ${off ? 'opacity-60' : 'cursor-pointer hover:bg-hover'}`}>
-                      <input type="radio" name="kind" disabled={off} checked={kind === k} onChange={() => { setKind(k); setError(null); setMove(null) }} data-testid={`kind-${k}`} />
+                      <input type="radio" name="kind" disabled={off} checked={false} onChange={() => { if (!walking.current) choose(k) }} data-testid={`kind-${k}`} />
                       <span>
-                        <span className="font-medium">{via ? t('credentials.kind.gateway', { label: via.label }) : t(`credentials.kind.${k}` as MessageKey)}</span>
-                        <span className="block text-xs text-muted">{policyOff ? t('credentials.sharedSubscriptionsOff') : off ? t('credentials.kindOff') : via ? t('credentials.kind.gateway.desc', { label: via.label }) : t(`credentials.kind.${k}.desc` as MessageKey)}</span>
+                        <span className="font-medium">{kindName(k)}</span>
+                        <span className="block text-xs text-muted">{policyOff ? t('credentials.sharedSubscriptionsOff') : off ? t('credentials.kindOff') : g ? t('credentials.kind.gateway.desc', { label: g.label }) : t(`credentials.kind.${k}.desc` as MessageKey)}</span>
                       </span>
                     </label>
                   )
                 })}
               </fieldset>
             )}
-            {kind === 'anthropic-oauth' && (
-              <ol className="list-decimal space-y-2 pl-5 text-sm" data-testid="setup-token-steps">
-                <li>{t('credentials.setupToken.steps.1')}
-                  <CommandLine text="curl -fsSL https://claude.ai/install.sh | bash" />
-                  <span className="text-xs text-muted">{t('credentials.setupToken.steps.1win')}</span> <CommandLine text="irm https://claude.ai/install.ps1 | iex" />
-                </li>
-                <li>{t('credentials.setupToken.steps.2')} <CommandLine text="claude setup-token" /></li>
-                <li>{t('credentials.setupToken.steps.3')}</li>
-                <li>{t('credentials.setupToken.steps.4')}</li>
-              </ol>
+            {/* chosen: one line, so the steps are what the person sees next */}
+            {!replace && kind && (
+              <div className="flex items-center justify-between gap-2 rounded-lg border border-line px-3 py-2 text-sm" data-testid="kind-chosen">
+                <span className="min-w-0 font-medium">{kindName(kind)}</span>
+                <button type="button" className="-my-2 -mr-2 shrink-0 rounded-md p-2 text-xs text-accent-text underline hover:bg-hover disabled:opacity-50" disabled={busy} onClick={() => choose(null)} data-testid="kind-change">{t('credentials.changeKind')}</button>
+              </div>
             )}
             {(kind === 'anthropic-api-key' || kind === 'openai-api-key') && (
               <p className="text-sm text-muted">
@@ -383,15 +415,10 @@ export function AddCredential({ allowedKinds, gateway, groups, users, replace, p
                 </a>}
               </p>
             )}
+            {kind === 'anthropic-oauth' ? <SetupTokenSteps>{secretField}</SetupTokenSteps> : secretField && <div className="space-y-1">{secretField}</div>}
             {kind && !replace && (
               <Field label={t('credentials.label')}>
                 <input className={inputCls} value={label} maxLength={60} onChange={(e) => setLabel(e.target.value)} data-testid="credential-label" />
-              </Field>
-            )}
-            {kind && kind !== 'chatgpt' && (
-              <Field label={t(kind === 'anthropic-oauth' ? 'credentials.setupToken.paste' : 'credentials.apiKey.paste')}
-                error={secret.trim() && !formatOk(kind, secret.trim(), gateway) ? t(kind === 'anthropic-oauth' ? 'credentials.setupToken.invalidFormat' : 'credentials.apiKey.invalidFormat') : null}>
-                <input className={inputCls} type="password" autoComplete="off" spellCheck={false} value={secret} onChange={(e) => { setSecret(e.target.value); if (move) { setMove(null); setError(null) } }} data-testid="credential-secret" />
               </Field>
             )}
             {kind && !replace && !personal && <TargetPicker value={assignments} onChange={setAssignments} groups={groups} users={users} />}
@@ -417,15 +444,6 @@ export function AddCredential({ allowedKinds, gateway, groups, users, replace, p
           </div>
         )}
     </Modal>
-  )
-}
-
-function CommandLine({ text }: { text: string }) {
-  return (
-    <span className="my-1 flex items-center gap-1 rounded-md bg-subtle px-2 py-1 font-mono text-xs">
-      <code className="min-w-0 flex-1 break-all">{text}</code>
-      <CopyButton text={text} />
-    </span>
   )
 }
 

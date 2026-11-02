@@ -179,7 +179,7 @@ export function Setup() {
       <form onSubmit={submit} className="space-y-3">
         {!link.token && (
           <Field label={t('setup.token')} hint={t('setup.tokenHint')}>
-            <input className={inputCls} value={form.setupToken} onChange={set('setupToken')} required autoComplete="off" />
+            <input className={`${inputCls} font-mono`} value={form.setupToken} onChange={set('setupToken')} required autoComplete="off" autoCapitalize="none" spellCheck={false} />
           </Field>
         )}
         <Field label={t('setup.teamName')}>
@@ -204,6 +204,7 @@ export function Setup() {
             ))}
           </select>
         </Field>
+        <h2 className="border-t border-line pt-3 text-sm font-semibold">{t('setup.accountTitle')}</h2>
         <Field label={t('auth.name')}>
           <input className={inputCls} value={form.name} onChange={set('name')} required autoComplete="name" maxLength={100} />
         </Field>

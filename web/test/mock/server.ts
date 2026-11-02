@@ -1728,7 +1728,8 @@ export class MockServer {
   async addCredential(user: User, body: { kind: CredentialKind; label: string; sealed: never; acknowledgedPlanNotice?: boolean; assignments?: { subjectType: 'group' | 'user'; subjectId: string }[] }, personal: boolean): Promise<Credential> {
     if (!personal && (body.kind === 'anthropic-oauth' || body.kind === 'chatgpt') && !this.credSharedSubscriptions) fail('forbidden', 403)
     const secret = await this.sealer.unseal(body.sealed, 'credential.create').catch(() => fail('validation', 400, '보낸 값을 열 수 없어요.'))
-    const re = body.kind === 'anthropic-oauth' ? /^sk-ant-oat\d{2}-/ : body.kind === 'anthropic-api-key' ? /^sk-ant-api\d{2}-/ : /^sk-(?!ant-)/
+    // the whole value, like server/src/credentials/validate.ts: a token sealed with white space in it must fail here too
+    const re = body.kind === 'anthropic-oauth' ? /^sk-ant-oat\d{2}-[A-Za-z0-9_-]{20,1000}$/ : body.kind === 'anthropic-api-key' ? /^sk-ant-api\d{2}-[A-Za-z0-9_-]{20,300}$/ : /^sk-(?!ant-)[A-Za-z0-9_-]{20,300}$/
     if (!re.test(secret)) fail('validation', 400, '이 종류의 토큰·키가 아니에요.', { 'body.sealed': 'not a token of this kind' })
     if (body.kind === 'anthropic-oauth' && body.acknowledgedPlanNotice !== true) fail('validation', 400, '구독 요금제 안내를 확인해 주세요.')
     const c = this.newCredential(user, body.kind, body.label, personal, secret.includes('unverified') ? 'unverified' : 'ok')
