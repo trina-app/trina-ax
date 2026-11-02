@@ -1,6 +1,6 @@
 {
   "name": "@mycel/web",
-  "version": "0.2.20",
+  "version": "0.2.21",
   "private": true,
   "license": "AGPL-3.0-only",
   "type": "module",

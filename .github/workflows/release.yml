@@ -189,7 +189,7 @@ jobs:
   build-office:
     name: Office zip (macOS, universal)
     needs: prepare
-    runs-on: macos-15
+    runs-on: macos-14 # macos-15 got no runner on 2026-11-02 and 03: 9 attempts
     timeout-minutes: 45
     env:
       VERSION: ${{ needs.prepare.outputs.version }}
