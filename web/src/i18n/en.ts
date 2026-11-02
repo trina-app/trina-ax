@@ -1375,7 +1375,7 @@ export const en: Record<MessageKey, string> = {
   'system.updateDone': 'Update finished.',
   'officeUpdate.title': 'Automatic updates',
   'officeUpdate.banner': 'Version {version} is available',
-  'officeUpdate.bannerNightly': 'installs by itself tonight at {time}',
+  'officeUpdate.bannerNightly': 'installs by itself in the team\'s update window, {window} ({zone})',
   'officeUpdate.current': 'Version {version}',
   'officeUpdate.schedule': 'Installs new versions in the team\'s update window, {window} ({zone}), when no answer is running · next check {date}',
   'officeUpdate.windowClosed': 'The team\'s update window {window} never opens, so new versions are installed only with Update now. Set a window in Team settings.',

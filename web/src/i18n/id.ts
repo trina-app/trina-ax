@@ -1375,7 +1375,7 @@ export const id: Record<MessageKey, string> = {
   'system.updateDone': 'Update selesai.',
   'officeUpdate.title': 'Pembaruan otomatis',
   'officeUpdate.banner': 'Versi {version} tersedia',
-  'officeUpdate.bannerNightly': 'terpasang sendiri malam ini pukul {time}',
+  'officeUpdate.bannerNightly': 'terpasang sendiri dalam jam update tim, {window} ({zone})',
   'officeUpdate.current': 'Versi {version}',
   'officeUpdate.schedule': 'Memasang versi baru dalam jam update tim, {window} ({zone}), saat tidak ada jawaban yang berjalan · pemeriksaan berikutnya {date}',
   'officeUpdate.windowClosed': 'Jam update tim {window} tidak pernah terbuka, jadi versi baru hanya dipasang dengan Perbarui sekarang. Atur jamnya di Pengaturan tim.',

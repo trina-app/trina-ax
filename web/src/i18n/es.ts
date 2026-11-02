@@ -1340,7 +1340,7 @@ export const es: Record<MessageKey, string> = {
   'system.updateDone': "Actualización completada.",
   'officeUpdate.title': "Actualizaciones automáticas",
   'officeUpdate.banner': "La versión {version} está disponible",
-  'officeUpdate.bannerNightly': "se instalará automáticamente esta noche a las {time}",
+  'officeUpdate.bannerNightly': "se instalará automáticamente en el horario de actualización del equipo, {window} ({zone})",
   'officeUpdate.current': "Versión {version}",
   'officeUpdate.schedule': "Instala las versiones nuevas en el horario de actualización del equipo, {window} ({zone}), cuando no hay respuestas en curso · próxima comprobación: {date}",
   'officeUpdate.windowClosed': "El horario de actualización del equipo {window} nunca se abre, así que las versiones nuevas solo se instalan con Actualizar ahora. Configure un horario en Configuración del equipo.",

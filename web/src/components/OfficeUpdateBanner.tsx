@@ -1,4 +1,4 @@
-// "새 버전 x.y.z가 있어요 — 지금 업데이트 / 오늘 밤 3시에 자동" for owners and admins in office mode (docs/OFFICE.md
+// "새 버전 x.y.z가 있어요 — 지금 업데이트 / 팀의 업데이트 시간에 자동" for owners and admins in office mode (docs/OFFICE.md
 // "자동 업데이트"). Members never ask for it (the endpoint is admin-only). Dismissed per version on this browser.
 // Kept current: read again every 5 minutes, when the tab comes back into view, when the update card loads a status
 // (lib/officeUpdate.ts shareOfficeStatus), and once the server answers with a new version; hidden meanwhile, since
@@ -41,7 +41,7 @@ export default function OfficeUpdateBanner() {
       <button type="button" className="underline underline-offset-2" onClick={() => navigate('/admin/system')}>
         {t('officeUpdate.now')}
       </button>
-      {b.nightly && <span className="text-muted">{t('officeUpdate.bannerNightly', { time: b.nightly })}</span>}
+      {b.nightly && <span className="text-muted">{t('officeUpdate.bannerNightly', b.nightly)}</span>}
       <button
         type="button"
         aria-label={t('common.close')}

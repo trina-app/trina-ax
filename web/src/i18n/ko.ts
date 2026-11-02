@@ -1374,7 +1374,7 @@ export const ko = {
   'system.updateDone': '업데이트를 마쳤어요.',
   'officeUpdate.title': '자동 업데이트',
   'officeUpdate.banner': '새 버전 {version}이 있어요',
-  'officeUpdate.bannerNightly': '오늘 밤 {time}에 자동으로 설치돼요',
+  'officeUpdate.bannerNightly': '팀의 업데이트 시간 {window}({zone})에 자동으로 설치돼요',
   'officeUpdate.current': '현재 버전 {version}',
   'officeUpdate.schedule': '팀의 업데이트 시간 {window}({zone})에 진행 중인 답변이 없을 때 새 버전을 설치해요 · 다음 확인 {date}',
   'officeUpdate.windowClosed': '팀의 업데이트 시간 {window}이(가) 열리지 않아서 새 버전은 \'지금 업데이트\'로만 설치돼요. 팀 설정에서 업데이트 시간을 정해 주세요.',

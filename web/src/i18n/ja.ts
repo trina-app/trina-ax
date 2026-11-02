@@ -1340,7 +1340,7 @@ export const ja: Record<MessageKey, string> = {
   'system.updateDone': "更新が完了しました。",
   'officeUpdate.title': "自動更新",
   'officeUpdate.banner': "バージョン{version}を利用できます",
-  'officeUpdate.bannerNightly': "今夜{time}に自動でインストールします",
+  'officeUpdate.bannerNightly': "チームの更新時間帯 {window}（{zone}）に自動でインストールします",
   'officeUpdate.current': "バージョン {version}",
   'officeUpdate.schedule': "チームの更新時間帯 {window}（{zone}）に、実行中の回答がないときに新しいバージョンをインストールします · 次回確認 {date}",
   'officeUpdate.windowClosed': "チームの更新時間帯 {window} が開かないため、新しいバージョンは「今すぐ更新」でのみインストールされます。チーム設定で時間帯を設定してください。",

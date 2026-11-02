@@ -10,16 +10,17 @@ const KEY = 'teamax.officeUpdate.dismissed'
 export const cardZone = (s: Pick<OfficeUpdateStatus, 'timeZone'>, teamZone?: string | null): string => s.timeZone || teamZone || browserTimeZone() || 'UTC'
 
 /** The banner for owners and admins: a newer version on the feed, not being installed, not dismissed for that
- * version. `nightly` is the time it installs by itself (null while automatic updates are off), taken from the status as
- * the server gives it. Members never see it. `updateReady`: the server already answers with a new version (the page
+ * version. `nightly` is the team's update window and its zone, when it installs by itself, as the server gives them
+ * and the update card shows them (null when nothing installs by itself: automatic updates off, no update agent, a window
+ * that never opens). Members never see it. `updateReady`: the server already answers with a new version (the page
  * says "A new version is ready. Reload", store/live.ts), so this status is from before the update. */
-export function bannerFor(me: Me | null, s: OfficeUpdateStatus | null | undefined, dismissed: string | null, updateReady = false): { version: string; nightly: string | null } | null {
+export function bannerFor(me: Me | null, s: OfficeUpdateStatus | null | undefined, dismissed: string | null, updateReady = false): { version: string; nightly: { window: string; zone: string } | null } | null {
   const role = me?.user.role
   if (role !== 'owner' && role !== 'admin') return null
   if (updateReady) return null
   if (!s?.available || s.running || s.requested) return null
   if (dismissed === s.available.version) return null
-  return { version: s.available.version, nightly: s.paused || !s.agentInstalled ? null : s.time }
+  return { version: s.available.version, nightly: s.paused || !s.agentInstalled || !s.nextWindowAt ? null : { window: s.window ?? s.time, zone: cardZone(s, me?.server.timeZone) } }
 }
 
 export function dismissedVersion(): string | null {

@@ -4,14 +4,14 @@ import { describe, expect, test } from 'bun:test'
 import type { Me, OfficeUpdateStatus } from '@mycel/shared/api'
 import { createElement } from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
-import { DICTS } from '../../src/i18n'
+import { DICTS, translate } from '../../src/i18n'
 import { notesSummary, ReleaseNotes } from '../../src/components/ReleaseNotes'
 import { formatDateTime } from '../../src/lib/format'
 import { bannerFor, cardZone, finishedRun, onOfficeStatus, shareOfficeStatus } from '../../src/lib/officeUpdate'
 import { browserTimeZone } from '../../src/lib/time-zones'
 import OfficeUpdate from '../../src/pages/admin/OfficeUpdate'
 
-const me = (role: 'owner' | 'admin' | 'member') => ({ user: { role } }) as unknown as Me
+const me = (role: 'owner' | 'admin' | 'member') => ({ user: { role }, server: { timeZone: 'Asia/Seoul' } }) as unknown as Me
 const at = '2026-10-21T09:00:00.000Z'
 const st = (o: Partial<OfficeUpdateStatus> = {}): OfficeUpdateStatus => ({
   current: '0.2.0', channel: 'stable', paused: false, time: '03:00', nextWindowAt: at, lastCheckAt: at, last: { kind: 'available', at, version: '0.2.1', message: null },
@@ -19,10 +19,11 @@ const st = (o: Partial<OfficeUpdateStatus> = {}): OfficeUpdateStatus => ({
 })
 
 describe('new version banner', () => {
-  test('owners and admins see it with the nightly time; members never', () => {
-    expect(bannerFor(me('owner'), st(), null)).toEqual({ version: '0.2.1', nightly: '03:00' })
-    expect(bannerFor(me('admin'), st(), null)).toEqual({ version: '0.2.1', nightly: '03:00' })
-    expect(bannerFor(me('member'), st(), null)).toBeNull()
+  test('owners and admins see it with the team\'s update window and zone; members never', () => {
+    const team = st({ window: '02:00-05:00', timeZone: 'Asia/Jakarta' })
+    expect(bannerFor(me('owner'), team, null)).toEqual({ version: '0.2.1', nightly: { window: '02:00-05:00', zone: 'Asia/Jakarta' } })
+    expect(bannerFor(me('admin'), team, null)).toEqual({ version: '0.2.1', nightly: { window: '02:00-05:00', zone: 'Asia/Jakarta' } })
+    expect(bannerFor(me('member'), team, null)).toBeNull()
     expect(bannerFor(null, st(), null)).toBeNull()
   })
   test('not while installing, not without a newer version, gone once dismissed for that version (back for the next one)', () => {
@@ -33,9 +34,12 @@ describe('new version banner', () => {
     expect(bannerFor(me('owner'), st(), '0.2.1')).toBeNull()
     expect(bannerFor(me('owner'), st({ available: { version: '0.2.2', channel: 'stable', notes: '', publishedAt: at } }), '0.2.1')?.version).toBe('0.2.2')
   })
-  test('gone once the server answers with a new version (this status is from before the update); the time is the status\'s', () => {
+  test('gone once the server answers with a new version (this status is from before the update); the window is the status\'s', () => {
     expect(bannerFor(me('owner'), st(), null, true)).toBeNull()
-    expect(bannerFor(me('owner'), st({ time: '22:51' }), null, false)).toEqual({ version: '0.2.1', nightly: '22:51' })
+    expect(bannerFor(me('owner'), st({ window: '22:51-00:51', timeZone: 'Asia/Jakarta' }), null, false)?.nightly).toEqual({ window: '22:51-00:51', zone: 'Asia/Jakarta' })
+  })
+  test('a server too old to send the window: its start, in the zone the update card falls back to', () => {
+    expect(bannerFor(me('owner'), st({ time: '22:51' }), null)?.nightly).toEqual({ window: '22:51', zone: 'Asia/Seoul' })
   })
   test('what the update card loads reaches the banner at once (a pause, another time)', () => {
     const was = (globalThis as Record<string, unknown>).window
@@ -50,14 +54,20 @@ describe('new version banner', () => {
     } finally { (globalThis as Record<string, unknown>).window = was }
     expect(() => shareOfficeStatus(st())).not.toThrow() // no window: nothing happens
   })
-  test('automatic updates off: no "tonight" part', () => {
-    expect(bannerFor(me('owner'), st({ paused: true }), null)).toEqual({ version: '0.2.1', nightly: null })
+  test('nothing installs by itself: no window part (automatic updates off, no update agent, a window that never opens)', () => {
+    for (const o of [{ paused: true }, { agentInstalled: false }, { nextWindowAt: null, window: '00:00-00:00' }]) {
+      expect(bannerFor(me('owner'), st(o), null)).toEqual({ version: '0.2.1', nightly: null })
+    }
   })
   test('strings in every language', () => {
     for (const d of Object.values(DICTS)) {
       expect(d['officeUpdate.banner']).toContain('{version}')
-      expect(d['officeUpdate.bannerNightly']).toContain('{time}')
+      expect(d['officeUpdate.bannerNightly']).toContain('{window}')
+      expect(d['officeUpdate.bannerNightly']).toContain('{zone}')
     }
+    // what the banner passes fills the sentence: a window need not be tonight
+    const nightly = bannerFor(me('owner'), st({ window: '02:00-05:00', timeZone: 'Asia/Jakarta' }), null)!.nightly!
+    expect(translate('en', 'officeUpdate.bannerNightly', nightly)).toBe('installs by itself in the team\'s update window, 02:00-05:00 (Asia/Jakarta)')
   })
 })
 
