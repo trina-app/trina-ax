@@ -4934,7 +4934,7 @@ under the answer like the Claude app's sources.
     limit in the cgroup is not). The priority is decided when each converter starts: after a person's grep joined the
     job, its next converter runs at normal priority; one already running stays low (an unprivileged process cannot
     raise its priority again).
-  - **Background work takes one office worker, not both** (after 0.2.20, `files/extract.ts officeWorkerSlot`). The
+  - **Background work takes one office worker, not both** (after 0.2.21, `files/extract.ts officeWorkerSlot`). The
     queue, `upgradeOld` and the semantic re-index run one job each, and two of them could hold both office workers while
     the line in front of the workers was first come, first served. A person's read of a spreadsheet, a Hangul file or the
     extra parts of a .docx / .pptx then waited for a converter that itself gives way to everything else, and may take 3
@@ -4949,7 +4949,7 @@ under the answer like the Claude app's sources.
     an idle server (two of those 12 MB sheets: 1.6 s together before, 3 s now). Waiting costs a job none of its time
     limit: the clock starts with its slot. People's work still lines up first come, first served among itself, so a read
     can wait behind the extraction of an upload or a grep.
-  - **Background work gets its turn** (after 0.2.20, `files/extract.ts BackgroundTurn`, used by `officeWorkerSlot` and
+  - **Background work gets its turn** (after 0.2.21, `files/extract.ts BackgroundTurn`, used by `officeWorkerSlot` and
     `OfficeCache.slot`). People first without a limit starved it: with three loops of reads a background job had no
     worker after 15 s and 250 reads (0.4 s when the line was first come, first served), and no time limit ran. All that
     time it held a text cache slot, up to 50 MB of file bytes, its search lease (the quarantine refuses those bytes,
@@ -4967,7 +4967,7 @@ under the answer like the Claude app's sources.
     follow one another and people have one worker about 90% of the time. In a simulation with 180 s conversions, people
     whose work needs both workers got 37-45% fewer jobs done than with no turn and waited at least twice as long (the
     median wait for a 2 s job 4.3-4.7 s against 2.0 s), but far less than first come, first served (180 s, the line in
-    0.2.20). People whose work fits one worker lost nothing.
+    0.2.21). People whose work fits one worker lost nothing.
     Why 8: in a Linux container on 4 CPUs, three loops of small reads and one loop of 0.55 s background sheets for 20 s
     gave, as reads / read p50 and p95 ms / background jobs: N=2 424 / 147, 192 / 24; N=4 457 / 137, 199 / 26; N=8 519 /
     126, 179 / 24; N=16 551 / 98, 182 / 19; N=32 715 / 77, 139 / 16; without a turn 929 / 67, 88 / 1. 8 is the largest
