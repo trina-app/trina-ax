@@ -1,6 +1,8 @@
 import { describe, expect, test } from 'bun:test'
+import { ApiClient, uuidv7 } from '@mycel/shared/api'
 import { isBusy } from '../../src/lib/busy'
 import { DROP_DEPTH_MAX, droppedEntries, FOLDER_UPLOAD_CONCURRENCY, FolderUpload, isStorageRefusal, isSystemName, planFromEntries, planFromInput, type DropEntry, type FolderPlan, type FolderUploadCalls } from '../../src/lib/folderUpload'
+import { uploadFile } from '../../src/lib/upload'
 
 const file = (name: string, size = 3, rel = '') => {
   const f = new File([new Uint8Array(size)], name)
@@ -245,6 +247,37 @@ describe('a folder upload', () => {
     expect(Math.max(...seen)).toBe(6)
     expect(seen.filter((n) => n === 0).length).toBeGreaterThan(1)
     expect(run.view).toMatchObject({ name: null, items: 2 })
+  })
+
+  test('small files through the real upload: the bytes move as they go out, and each byte counts once', async () => {
+    // the upload's own numbers, with a transport that reports three shares of each request, as lib/xhr.ts does
+    const entry = { name: 'x', path: 'x', type: 'file', size: 100, mtime: new Date().toISOString(), mime: null, access: 'write' }
+    const client = new ApiClient({
+      baseUrl: '',
+      fetchWithProgress: async (_input, _init, onSent) => {
+        for (const share of [0.4, 0.9, 1]) {
+          onSent(share)
+          await Promise.resolve()
+        }
+        return new Response(JSON.stringify(entry), { status: 201, headers: { 'content-type': 'application/json' } })
+      },
+    })
+    const calls: FolderUploadCalls = {
+      maxFileSize: 1000,
+      mkdir: async () => {},
+      isFolder: async () => false,
+      upload: (f, path, signal, onProgress) => uploadFile(f, { kind: 'path', path, onExists: 'rename' }, { client, signal, onProgress, storage: null }),
+      discard: async () => {},
+    }
+    const files = ['1', '2', '3', '4'].map((n) => ({ rel: `c/${n}-${uuidv7()}`, file: file(n, 100) }))
+    const seen: number[] = []
+    const run: FolderUpload = new FolderUpload({ files, folders: [], unreadable: [], skipped: 0 }, '', calls, () => seen.push(run.view.bytesDone))
+    await run.start()
+    expect(run.view).toMatchObject({ status: 'done', done: 4, bytesDone: 400, bytesTotal: 400 })
+    expect(Math.max(...seen)).toBe(400)
+    expect(seen).toEqual([...seen].sort((a, b) => a - b))
+    // not only whole files: a part of a file was on the way
+    expect(seen.some((n) => n % 100 !== 0)).toBe(true)
   })
 
   test('a storage refusal is 507 or the disk check of session create, nothing else', () => {

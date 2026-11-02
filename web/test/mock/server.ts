@@ -10,7 +10,7 @@
 // when the person presses Stop ends stopped, Step.stopped);
 // anything else gets a Markdown answer with a table, code, math, a Mermaid diagram and an external image.
 // Test-only controls: POST /__test/file {path, text | base64} (a team file and its folders), POST /__test/download-only {path} (a generated, quarantined file: FileEntry.downloadOnly), POST /__test/reset {setup?: boolean, teamLocale?: 'ko'|'en'|'id' (default ko), usersFollowTeam?:
-// boolean (seeded people have no own language), mustChange?: username (signs in with a temporary password)}, POST /__test/drop-ws, POST /__test/server-version,
+// boolean (seeded people have no own language), mustChange?: username (signs in with a temporary password)}, POST /__test/drop-ws, POST /__test/server-version, POST /__test/upload-delay {ms} (an upload's answer comes that late, until the next reset),
 // POST /__test/revoke {path} (a folder becomes invisible to everyone + access_changed notice), POST /__test/skills
 // {files: [{path, name, description}]} (skill files; skills/임원/ is for admins only),
 // POST /__test/schedule-review (the owner gets a scheduled task nobody confirmed, paused for review; "siteask" with
@@ -172,8 +172,13 @@ export class MockServer {
   /** seeded people (olga, bob) have no language of their own */
   usersFollowTeam = false
 
+  /** POST /__test/upload-delay: the bytes of an upload are in, the answer takes this long (a server that is finishing) */
+  uploadDelayMs = 0
+  private uploadAnswer = () => new Promise<void>((done) => setTimeout(done, this.uploadDelayMs))
+
   reset(o: { setup?: boolean; teamLocale?: Locale; usersFollowTeam?: boolean; mustChange?: string } = {}) {
     this.generation++
+    this.uploadDelayMs = 0
     this.setupNeeded = !!o.setup
     this.usersFollowTeam = !!o.usersFollowTeam
     this.serverVersion = '0.1.0'
@@ -1005,7 +1010,9 @@ export class MockServer {
       let path = folder ? `${folder}/${name}` : name
       if (this.files.has(path)) path = path.replace(/(\.[^.]+)?$/, (ext: string) => ` (2)${ext}`)
       return (async () => {
-        this.putFile(path, new Uint8Array(await c.file!.arrayBuffer()))
+        const data = new Uint8Array(await c.file!.arrayBuffer())
+        await this.uploadAnswer()
+        this.putFile(path, data)
         this.publish({ type: 'files.changed', data: { changes: [{ path, action: 'create', by: { id: c.user.id, name: c.user.name }, turnId: null }] } })
         return { status: 201, body: this.entry(path, this.files.get(path)!, c.user) }
       })()
@@ -1121,6 +1128,7 @@ export class MockServer {
     },
     uploadAttachment: async (c) => {
       const data = new Uint8Array(await c.file!.arrayBuffer())
+      await this.uploadAnswer()
       return { status: 201, body: this.makeAttachment(c.body.chatId, c.body.name ?? c.file!.name, data, c.file!.type, c.user) }
     },
     attachmentThumbnail: (c) => {
@@ -1147,6 +1155,7 @@ export class MockServer {
     },
     completeUploadSession: async (c) => {
       const s = this.uploads.get(c.params.id!) ?? fail('gone', 410)
+      await this.uploadAnswer()
       const all = new Uint8Array(s.size)
       for (const [n, d] of s.chunks) all.set(d, n * s.chunkSize)
       const hash = new Bun.CryptoHasher('sha256').update(all).digest('hex')
@@ -2004,6 +2013,7 @@ export class MockServer {
     if (p === '/__test/reset') this.reset({ setup: !!body.setup, teamLocale: Locale.safeParse(body.teamLocale).data, usersFollowTeam: !!body.usersFollowTeam, mustChange: typeof body.mustChange === 'string' ? body.mustChange : undefined })
     else if (p === '/__test/drop-ws') for (const ws of this.sockets) ws.close(WsClose.serviceRestart, 'restart')
     else if (p === '/__test/server-version') this.serverVersion = String(body.version)
+    else if (p === '/__test/upload-delay') this.uploadDelayMs = Number(body.ms)
     else if (p === '/__test/cloud') this.cloud = body.on !== false
     else if (p === '/__test/skill-list') this.aiList = SkillsOverview.shape.aiList.parse(body)
     else if (p === '/__test/connection') this.connection = { ...this.connection, ...(body as unknown as Partial<ConnectionStatus>) }

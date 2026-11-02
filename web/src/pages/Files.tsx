@@ -20,7 +20,7 @@ import { baseName, crumbs, isConflictCopy, isInside, joinPath, nameProblem, pare
 import { iconKind, previewKind, type FileIconKind } from '../lib/preview'
 import { openTeamFile } from '../lib/sidePanel'
 import { useTeamAttach } from '../lib/useTeamAttach'
-import { cancelUpload, uploadFile, type UploadProgress } from '../lib/upload'
+import { cancelUpload, uploadFile, uploadLabel, uploadPercent, type UploadProgress } from '../lib/upload'
 import { markBusy } from '../lib/busy'
 import { useLocale, useT } from '../i18n'
 import { accessChanged, filesChanged, reloadAsked } from '../store/live'
@@ -1043,7 +1043,8 @@ function UploadList({ items, here, onDismiss }: { items: UploadItem[]; here: str
   return (
     <ul className="mx-4 mb-2 space-y-1 rounded-xl border border-line bg-surface p-2 sm:mx-6" aria-label={t('files.uploads')} data-testid="upload-list">
       {items.map((u) => {
-        const pct = u.progress && u.progress.total ? Math.round((u.progress.loaded / u.progress.total) * 100) : 0
+        // the bar follows the label: empty while hashing, full while the server finishes
+        const pct = u.progress?.phase === 'finishing' ? 100 : (uploadPercent(u.progress) ?? 0)
         return (
           <li key={u.id} className="flex items-center gap-2 text-xs">
             {u.status === 'uploading' ? <Loader2 size={13} className="shrink-0 animate-spin text-accent-text" aria-hidden /> : u.status === 'done' ? <span className="text-ok">✓</span> : <span className="text-danger">!</span>}
@@ -1054,7 +1055,7 @@ function UploadList({ items, here, onDismiss }: { items: UploadItem[]; here: str
             </span>
             {u.status === 'uploading' && (
               <span className="shrink-0 text-faint">
-                {u.progress?.phase === 'hashing' ? t('files.preparing') : u.progress?.phase === 'finishing' ? t('files.finishing') : `${pct}%`}
+                {uploadLabel(u.progress, t)}
                 {u.progress && ` · ${formatSize(u.progress.total, locale)}`}
               </span>
             )}

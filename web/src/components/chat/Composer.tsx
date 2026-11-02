@@ -25,7 +25,7 @@ import { useConfidentialChat } from '../../lib/confidential'
 import { navigateTo } from '../../lib/nav'
 import { openFilePreview, openTeamFile } from '../../lib/sidePanel'
 import { loadChips, patchStash, readStash, registerComposer, saveChips, subscribeStash, TEAM_FILE_DRAG_TYPE, writeStash, type AttachResult } from '../../lib/teamAttach'
-import { cancelUpload, uploadFile } from '../../lib/upload'
+import { cancelUpload, uploadFile, uploadLabel, uploadPercent, type UploadProgress } from '../../lib/upload'
 import { useLocale, useT } from '../../i18n'
 import { waitForJob } from '../../store/jobs'
 import { useMe } from '../../store/session'
@@ -44,7 +44,8 @@ interface Pending {
   path?: string
   size: number | null
   status: 'uploading' | 'done' | 'failed'
-  progress: number
+  /** an upload on its way; null until it reports */
+  progress: UploadProgress | null
   attachment?: Attachment
   error?: string
   abort: AbortController
@@ -194,7 +195,7 @@ export default function Composer({
     const list = all.slice(0, Math.max(0, room()))
     if (list.length < all.length) setError(t('composer.tooMany', { n: MESSAGE_ATTACHMENTS_MAX }))
     if (!list.length) return
-    const items: Pending[] = list.map((file) => ({ id: uuidv7(), source: 'upload', name: file.name, file, size: file.size, status: 'uploading', progress: 0, abort: new AbortController() }))
+    const items: Pending[] = list.map((file) => ({ id: uuidv7(), source: 'upload', name: file.name, file, size: file.size, status: 'uploading', progress: null, abort: new AbortController() }))
     setFiles((p) => [...p, ...items])
     let chatId: string
     try {
@@ -208,9 +209,9 @@ export default function Composer({
       items.map(async (it) => {
         const target = { kind: 'attachment', chatId, name: it.file!.name } as const
         try {
-          const r = await uploadFile(it.file!, target, { client: api, signal: it.abort.signal, onProgress: (p) => update(it.id, { progress: p.total ? p.loaded / p.total : 0 }) })
+          const r = await uploadFile(it.file!, target, { client: api, signal: it.abort.signal, onProgress: (progress) => update(it.id, { progress }) })
           if (r.kind !== 'attachment') throw new Error('unexpected upload result')
-          update(it.id, { status: 'done', progress: 1, attachment: r.attachment })
+          update(it.id, { status: 'done', attachment: r.attachment })
         } catch (e) {
           // removed while uploading: drop the server's half-received session as well
           if (it.abort.signal.aborted) return void cancelUpload(it.file!, target, api)
@@ -229,7 +230,7 @@ export default function Composer({
     const already = picked.length - fresh.length
     if (list.length < fresh.length) setError(t('composer.tooMany', { n: MESSAGE_ATTACHMENTS_MAX }))
     if (!list.length) return { added: already, failed: fresh.length, ...(fresh.length ? { error: t('composer.tooMany', { n: MESSAGE_ATTACHMENTS_MAX }) } : {}) }
-    const items: Pending[] = list.map((p) => ({ id: uuidv7(), source: 'team', path: p.path, name: p.name ?? p.path.slice(p.path.lastIndexOf('/') + 1), size: p.size ?? null, status: 'uploading', progress: 0, abort: new AbortController() }))
+    const items: Pending[] = list.map((p) => ({ id: uuidv7(), source: 'team', path: p.path, name: p.name ?? p.path.slice(p.path.lastIndexOf('/') + 1), size: p.size ?? null, status: 'uploading', progress: null, abort: new AbortController() }))
     setFiles((p) => [...p, ...items])
     let chatId: string
     try {
@@ -244,7 +245,7 @@ export default function Composer({
         try {
           const a = await api.call(API.attachTeamFile, { body: { chatId, path: it.path! }, signal: it.abort.signal })
           if (it.abort.signal.aborted) return null
-          update(it.id, { status: 'done', progress: 1, attachment: a, size: a.size, name: a.name })
+          update(it.id, { status: 'done', attachment: a, size: a.size, name: a.name })
           return null
         } catch (e) {
           if (it.abort.signal.aborted) return null
@@ -452,7 +453,9 @@ export default function Composer({
                 </span>
                 {f.status === 'uploading' ? (
                   <span className="flex items-center gap-1 text-faint" role="status">
-                    <Loader2 size={12} className="animate-spin" aria-hidden /> {f.source === 'upload' && `${Math.round(f.progress * 100)}%`}
+                    <Loader2 size={12} className="animate-spin" aria-hidden />
+                    {/* a live region: the words are read out, a number that changes every moment is not */}
+                    {f.source === 'upload' && <span aria-hidden={uploadPercent(f.progress) !== null}>{uploadLabel(f.progress, t)}</span>}
                   </span>
                 ) : f.status === 'failed' ? (
                   <span className="max-w-[160px] truncate text-danger" title={f.error}>
@@ -739,7 +742,7 @@ export default function Composer({
 function restoreChips(userId: string, draftId: string): Pending[] {
   const mem = readStash<Pending>(userId, draftId)
   if (mem.length) return mem
-  const saved: Pending[] = loadChips(userId, draftId).map((c) => ({ ...c, status: 'done', progress: 1, abort: new AbortController() }))
+  const saved: Pending[] = loadChips(userId, draftId).map((c) => ({ ...c, status: 'done', progress: null, abort: new AbortController() }))
   if (saved.length) writeStash(userId, draftId, saved)
   return saved
 }

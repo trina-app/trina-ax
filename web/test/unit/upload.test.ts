@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test'
-import { ApiClient, FileEntry, UPLOAD_CHUNK_SIZE, uuidv7, type ApiError, type UploadSession } from '@mycel/shared/api'
-import { cancelUpload, fingerprint, REMEMBER_MAX, sha256Hex, uploadFile } from '../../src/lib/upload'
+import { ApiClient, ApiError, FileEntry, UPLOAD_CHUNK_SIZE, uuidv7, type UploadSession } from '@mycel/shared/api'
+import { cancelUpload, fingerprint, REMEMBER_MAX, sha256Hex, uploadFile, uploadLabel, uploadPercent, type UploadProgress } from '../../src/lib/upload'
 
 const entry = (path: string): FileEntry => ({ name: path.split('/').pop()!, path, type: 'file', size: 1, mtime: new Date().toISOString(), mime: null, access: 'write' })
 const json = (v: unknown, status = 200) => new Response(JSON.stringify(v), { status, headers: { 'content-type': 'application/json' } })
@@ -12,9 +12,11 @@ class MemStorage {
   removeItem(k: string) { this.m.delete(k) }
 }
 
-/** A tiny upload-session server: records calls, can fail chunk PUTs on purpose. */
-function fakeServer(o: { failChunk?: Set<number>; dropAfterStore?: Set<number>; refuseCreate?: { code: string; status: number }[] } = {}) {
+/** A tiny upload-session server: records calls, can fail chunk PUTs on purpose. With `sent`, each watched request
+ * reports those shares of its body before it is answered, as lib/xhr.ts does. */
+function fakeServer(o: { failChunk?: Set<number>; dropAfterStore?: Set<number>; refuseCreate?: { code: string; status: number }[]; sent?: number[] } = {}) {
   const calls: string[] = []
+  const watched: string[] = []
   const transcribeFields: Record<string, string>[] = []
   const sessions = new Map<string, UploadSession & { chunks: Map<number, number> }>()
   const fetchFn = (async (input: RequestInfo | URL, init?: RequestInit) => {
@@ -67,7 +69,12 @@ function fakeServer(o: { failChunk?: Set<number>; dropAfterStore?: Set<number>; 
     }
     return json({ error: { code: 'not_found', message: 'nf' } }, 404)
   }) as typeof fetch
-  return { calls, sessions, transcribeFields, client: new ApiClient({ baseUrl: '', fetch: fetchFn }) }
+  const fetchWithProgress = async (input: string, init: RequestInit, onSent: (share: number) => void) => {
+    watched.push(`${init.method} ${input}`)
+    for (const share of o.sent ?? []) onSent(share)
+    return fetchFn(input, init)
+  }
+  return { calls, watched, sessions, transcribeFields, client: new ApiClient({ baseUrl: '', fetch: fetchFn, ...(o.sent ? { fetchWithProgress } : {}) }) }
 }
 
 const bigFile = (chunks: number, extra = 10) => new File([new Uint8Array(UPLOAD_CHUNK_SIZE * chunks + extra).fill(7)], 'big.bin', { lastModified: 1 })
@@ -84,6 +91,84 @@ describe('uploads', () => {
     const r = await uploadFile(new File(['hello'], 'a.txt'), { kind: 'path', path: 'docs/a.txt', onExists: 'rename' }, { client: s.client, storage: null })
     expect(r.kind === 'path' && r.entry.path).toBe('docs/a.txt')
     expect(s.calls).toEqual(['POST /api/files/upload'])
+  })
+
+  test('a small file counts the bytes that went out, on the file\'s own size, and then says it is finishing', async () => {
+    const s = fakeServer({ sent: [0.25, 0.5, 1] })
+    const seen: UploadProgress[] = []
+    const r = await uploadFile(new File([new Uint8Array(1000)], 'a.pdf'), { kind: 'path', path: 'docs/a.pdf', onExists: 'rename' }, { client: s.client, storage: null, onProgress: (p) => seen.push(p) })
+    expect(r.kind).toBe('path')
+    expect(s.watched).toEqual(['POST /api/files/upload'])
+    expect(seen.slice(0, 4)).toEqual([
+      { phase: 'uploading', loaded: 0, total: 1000 },
+      { phase: 'uploading', loaded: 250, total: 1000 },
+      { phase: 'uploading', loaded: 500, total: 1000 },
+      { phase: 'finishing', loaded: 1000, total: 1000 },
+    ])
+    expect(seen.at(-1)).toEqual({ phase: 'finishing', loaded: 1000, total: 1000 })
+  })
+
+  test('an upload nobody watches stays a plain fetch (voice input)', async () => {
+    const s = fakeServer({ sent: [1] })
+    await uploadFile(new File(['abc'], 'voice.webm'), { kind: 'transcribe', name: 'voice.webm' }, { client: s.client, storage: null })
+    expect(s.calls).toEqual(['POST /api/transcribe'])
+    expect(s.watched).toEqual([])
+  })
+
+  test('a client without a progress transport goes through its fetch: no numbers, the same result', async () => {
+    const s = fakeServer()
+    const seen: UploadProgress[] = []
+    const r = await uploadFile(new File(['hello'], 'a.txt'), { kind: 'path', path: 'docs/a.txt', onExists: 'rename' }, { client: s.client, storage: null, onProgress: (p) => seen.push(p) })
+    expect(r.kind).toBe('path')
+    expect(seen.map((p) => p.phase)).toEqual(['uploading', 'finishing'])
+  })
+
+  test('a watched upload keeps the client\'s contract: CSRF header, ApiError from a refusal, parsed answer', async () => {
+    const answers = [json({ error: { code: 'forbidden', message: 'no' } }, 403), json({ not: 'a file entry' }, 201)]
+    const headers: Headers[] = []
+    const client = new ApiClient({ baseUrl: '', fetch: (() => { throw new Error('not this one') }) as unknown as typeof fetch, fetchWithProgress: async (_input, init) => { headers.push(new Headers(init.headers)); return answers.shift()! } })
+    const go = () => uploadFile(new File(['x'], 'a.txt'), { kind: 'path', path: 'a.txt', onExists: 'rename' }, { client, storage: null, onProgress: () => {} })
+    const refused = await go().catch((e: unknown) => e)
+    expect(refused).toBeInstanceOf(ApiError)
+    expect((refused as ApiError).code).toBe('forbidden')
+    expect(headers[0]!.get('x-mycel-csrf')).toBe('1')
+    expect(await go().catch((e: unknown) => (e as Error).name)).toBe('ZodError')
+  })
+
+  test('a large file counts the chunk that is on its way, on top of the chunks the server has', async () => {
+    const s = fakeServer({ sent: [0.5, 1] })
+    const seen: UploadProgress[] = []
+    await uploadFile(bigFile(1, 10), { kind: 'path', path: 'x/big.bin', onExists: 'rename' }, { client: s.client, storage: null, retryDelayMs: 0, onProgress: (p) => seen.push(p) })
+    const sending = seen.filter((p) => p.phase === 'uploading').map((p) => p.loaded)
+    expect(sending).toContain(UPLOAD_CHUNK_SIZE / 2)
+    expect(sending).toContain(UPLOAD_CHUNK_SIZE + 5)
+    expect(sending).toEqual([...sending].sort((a, b) => a - b))
+    expect(Math.max(...sending)).toBe(UPLOAD_CHUNK_SIZE + 10)
+    expect(s.watched.filter((c) => c.startsWith('PUT'))).toHaveLength(2)
+    // the session calls around the chunks send no file bytes
+    expect(s.watched.filter((c) => !c.startsWith('PUT'))).toEqual([])
+  })
+
+  test('what a running upload says: a number only for bytes on their way, never 0 or 100', () => {
+    const at = (phase: UploadProgress['phase'], loaded: number, total = 1000) => ({ phase, loaded, total })
+    expect(uploadPercent(null)).toBeNull()
+    expect(uploadPercent(at('hashing', 1000))).toBeNull()
+    expect(uploadPercent(at('uploading', 0))).toBeNull()
+    expect(uploadPercent(at('uploading', 9))).toBeNull()
+    expect(uploadPercent(at('uploading', 10))).toBe(1)
+    expect(uploadPercent(at('uploading', 500))).toBe(50)
+    expect(uploadPercent(at('uploading', 996))).toBe(99)
+    expect(uploadPercent(at('uploading', 1000))).toBe(99)
+    expect(uploadPercent(at('finishing', 1000))).toBeNull()
+    expect(uploadPercent(at('uploading', 0, 0))).toBeNull()
+
+    const t = (key: string) => key
+    expect(uploadLabel(null, t)).toBe('files.preparing')
+    expect(uploadLabel(at('hashing', 700), t)).toBe('files.preparing')
+    expect(uploadLabel(at('uploading', 0), t)).toBe('files.preparing')
+    expect(uploadLabel(at('uploading', 420), t)).toBe('42%')
+    expect(uploadLabel(at('uploading', 1000), t)).toBe('99%')
+    expect(uploadLabel(at('finishing', 1000), t)).toBe('files.finishing')
   })
 
   test('voice input names its chat (the server refuses to send a confidential chat\'s recording out), small and chunked', async () => {

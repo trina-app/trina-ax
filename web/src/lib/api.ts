@@ -4,6 +4,7 @@
 import { API, ApiClient, ApiError, ERROR_MESSAGES, LOCALE_HEADER, type ErrorCode, type Locale } from '@mycel/shared/api'
 import { currentLocale } from '../i18n'
 import { downloadToApp, mobileApp, reportMobileError, sendFileToApp } from './mobile'
+import { xhrFetch } from './xhr'
 
 const WINDOW_KEY = 'mycel.windowId'
 
@@ -36,16 +37,17 @@ export function renewWindowId(): string {
 let windowIdValue = typeof window === 'undefined' ? randomId() : loadWindowId()
 export const windowId = () => windowIdValue
 
-/** fetch that always carries the current window id (ApiClient reads it once, so wrap) and the language on screen
+/** A request that always carries the current window id (ApiClient reads it once, so wrap) and the language on screen
  * (the server uses it only without a session, so messages before sign-in match the page). */
-const fetchWithWindow = ((input: RequestInfo | URL, init?: RequestInit) => {
+const inWindow = (init?: RequestInit): RequestInit => {
   const headers = new Headers(init?.headers)
   headers.set('x-mycel-window', windowIdValue)
   headers.set(LOCALE_HEADER, currentLocale())
-  return fetch(input, { ...init, headers, credentials: 'same-origin' })
-}) as typeof fetch
+  return { ...init, headers, credentials: 'same-origin' }
+}
+const fetchWithWindow = ((input: RequestInfo | URL, init?: RequestInit) => fetch(input, inWindow(init))) as typeof fetch
 
-export const api = new ApiClient({ baseUrl: '', fetch: fetchWithWindow })
+export const api = new ApiClient({ baseUrl: '', fetch: fetchWithWindow, fetchWithProgress: (input, init, onSent) => xhrFetch(input, inWindow(init), onSent) })
 export { API, ApiError }
 
 /** Network-level failure (offline, relay dropped, DNS): worth retrying, unlike an ApiError. */

@@ -20,6 +20,9 @@ export interface ApiClientOptions {
   /** sent as X-Mycel-Window (browser tools go to the window that sent the turn) */
   windowId?: string
   fetch?: typeof fetch
+  /** `fetch` for a call with `onUploadProgress`, which fetch itself cannot serve: `onSent` gets the share of the request
+   * body that went out, 0..1. Without it such a call goes through `fetch` and reports nothing. */
+  fetchWithProgress?: (input: string, init: RequestInit, onSent: (share: number) => void) => Promise<Response>
 }
 
 type HasKeys<T> = keyof T extends never ? false : true
@@ -27,7 +30,7 @@ export type CallArgs<E> =
   (HasKeys<ParamsOf<E>> extends true ? { params: ParamsOf<E> } : { params?: undefined }) &
   (QueryOf<E> extends undefined ? { query?: undefined } : { query?: QueryOf<E> }) &
   (BodyOf<E> extends undefined ? { body?: undefined } : { body: BodyOf<E> }) &
-  { signal?: AbortSignal; headers?: Record<string, string> }
+  { signal?: AbortSignal; headers?: Record<string, string>; onUploadProgress?: (share: number) => void }
 
 export class ApiClient {
   constructor(private o: ApiClientOptions) {}
@@ -48,7 +51,7 @@ export class ApiClient {
 
   /** Raw fetch with auth + CSRF headers; errors become ApiError. Streams (downloads) come back as Response. */
   async call<E extends Endpoint>(ep: E, args: CallArgs<E> = {} as CallArgs<E>): Promise<ResponseOf<E>> {
-    const a = args as { params?: Record<string, string>; query?: Record<string, unknown>; body?: unknown; signal?: AbortSignal; headers?: Record<string, string> }
+    const a = args as { params?: Record<string, string>; query?: Record<string, unknown>; body?: unknown; signal?: AbortSignal; headers?: Record<string, string>; onUploadProgress?: (share: number) => void }
     const headers: Record<string, string> = { ...(a.headers ?? {}) }
     if (this.o.token) headers.authorization = `Bearer ${this.o.token}`
     if (ep.method !== 'GET') headers[CSRF_HEADER] = '1'
@@ -68,8 +71,11 @@ export class ApiClient {
       headers['content-type'] = 'application/octet-stream'
       body = a.body as BodyInit
     }
+    const init: RequestInit = { method: ep.method, headers, body, signal: a.signal, credentials: 'include' }
     const f = this.o.fetch ?? fetch
-    const res = await f(this.url(ep, a), { method: ep.method, headers, body, signal: a.signal, credentials: 'include' })
+    const res = a.onUploadProgress && this.o.fetchWithProgress
+      ? await this.o.fetchWithProgress(this.url(ep, a), init, a.onUploadProgress)
+      : await f(this.url(ep, a), init)
     if (!res.ok && !(res.status === 206)) {
       let parsed: ApiErrorBody = { code: 'internal', message: `HTTP ${res.status}` }
       try {

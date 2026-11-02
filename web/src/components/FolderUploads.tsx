@@ -8,7 +8,7 @@ import { api, API, errorText } from '../lib/api'
 import { FolderUpload, type FolderFailure, type FolderPlan, type FolderUploadCalls, type FolderUploadView } from '../lib/folderUpload'
 import { formatSize } from '../lib/format'
 import { baseName } from '../lib/paths'
-import { cancelUpload, uploadFile } from '../lib/upload'
+import { cancelUpload, uploadFile, uploadLabel } from '../lib/upload'
 import { useLocale, useT } from '../i18n'
 import { Button, IconButton } from './ui'
 
@@ -131,7 +131,7 @@ function FolderRow({ item, here }: { item: Run; here: string }) {
       )}
       {running && now && (
         <p className="truncate text-faint">
-          {now.name} · {now.phase === 'hashing' ? t('files.preparing') : now.phase === 'finishing' ? t('files.finishing') : `${now.total ? Math.round((now.loaded / now.total) * 100) : 0}%`}
+          {now.name} · {uploadLabel(now, t)}
         </p>
       )}
       {v.skipped > 0 && <p className="text-faint">{t('files.folderUpload.skipped', { n: v.skipped })}</p>}
