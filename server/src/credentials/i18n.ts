@@ -1,4 +1,4 @@
-// Server texts of the AI connections (ko, en, id): the state line under a connection and the notices the owner and
+// Server texts of the AI connections (ko, en, id, ja, es): the state line under a connection and the notices the owner and
 // admins get. D1 explicitly distinguishes personal connections from shared subscriptions.
 import type { Locale } from '@mycel/shared/api'
 
@@ -29,7 +29,12 @@ export const CT = {
   badOpenaiKey: t('OpenAI API 키가 아니에요(sk-…).', 'Not an OpenAI API key (sk-…).', 'Bukan kunci API OpenAI (sk-…).', "OpenAI APIキー（sk-…）ではありません。", "No es una clave de API de OpenAI (sk-…)."),
   refusedClaude: t('Claude가 이 토큰을 받지 않았어요. `claude setup-token`으로 새로 만들어 주세요.', 'Claude did not accept this token. Make a new one with `claude setup-token`.', 'Claude tidak menerima token ini. Buat yang baru dengan `claude setup-token`.', "Claudeがこのトークンを受け付けませんでした。`claude setup-token`で新しく作成してください。", "Claude no aceptó este token. Cree uno nuevo con `claude setup-token`."),
   refusedKey: t('공급자가 이 키를 받지 않았어요. 키를 다시 확인해 주세요.', 'The provider did not accept this key. Check the key again.', 'Penyedia tidak menerima kunci ini. Periksa kuncinya lagi.', "プロバイダーがこのキーを受け付けませんでした。キーを再確認してください。", "El proveedor no aceptó esta clave. Revísela de nuevo."),
-  duplicate: t('이미 연결된 토큰·키예요.', 'This token or key is already connected.', 'Token atau kunci ini sudah terhubung.', "このトークンまたはキーは接続済みです。", "Este token o clave ya está conectado."),
+  // the same token / key twice (service.ts duplicateConflict): where it is for the owner and admins (they hold the secret
+  // they pasted) and for the person whose own connection it is; a member hears only "on this team"
+  duplicate: t('이 팀에 이미 연결된 토큰·키예요.', 'This token or key is already connected on this team.', 'Token atau kunci ini sudah terhubung di tim ini.', "このトークンまたはキーは、このチームで接続済みです。", "Este token o clave ya está conectado en este equipo."),
+  duplicateTeam: t("이 토큰·키는 이미 팀 연결 '{label}'에서 쓰고 있어요.", "This token or key is already used by the team connection '{label}'.", "Token atau kunci ini sudah dipakai oleh koneksi tim '{label}'.", "このトークンまたはキーは、チームの接続'{label}'ですでに使われています。", "Este token o clave ya lo usa la conexión del equipo '{label}'."),
+  duplicatePersonal: t("이 토큰·키는 이미 {name}님의 개인 연결 '{label}'에서 쓰고 있어요.", "This token or key is already used by {name}'s personal connection '{label}'.", "Token atau kunci ini sudah dipakai oleh koneksi pribadi '{label}' milik {name}.", "このトークンまたはキーは、{name}さんの個人接続'{label}'ですでに使われています。", "Este token o clave ya lo usa la conexión personal '{label}' de {name}."),
+  duplicateOwn: t("이 토큰·키는 이미 내 개인 연결 '{label}'에서 쓰고 있어요.", "This token or key is already used by your own personal connection '{label}'.", "Token atau kunci ini sudah dipakai oleh koneksi pribadi Anda '{label}'.", "このトークンまたはキーは、あなたの個人接続'{label}'ですでに使われています。", "Este token o clave ya lo usa su propia conexión personal '{label}'."),
   kindNotAllowed: t('이 서버에서는 이 종류의 연결을 추가할 수 없어요.', 'This kind of connection cannot be added on this server.', 'Jenis koneksi ini tidak bisa ditambahkan di server ini.', "この種類の接続はこのサーバーに追加できません。", "No se puede añadir este tipo de conexión en este servidor."),
   planNotice: t('구독 요금제 안내를 확인해 주세요.', 'Confirm the subscription plan notice.', 'Konfirmasi pemberitahuan paket langganan.', "サブスクリプションプランの案内を確認してください。", "Confirme el aviso del plan de suscripción."),
   sealed: t('보낸 값을 열 수 없어요. 페이지를 새로 고친 뒤 다시 붙여 넣어 주세요.', 'The value could not be opened. Reload the page and paste it again.', 'Nilai tidak dapat dibuka. Muat ulang halaman lalu tempel lagi.', "値を復号できませんでした。ページを再読み込みし、貼り付け直してください。", "No se pudo descifrar el valor. Recargue la página y péguelo de nuevo."),
@@ -51,6 +56,8 @@ export const CT = {
   nBudgetNear: t('{subject}의 {period} AI 사용 한도를 80% 썼어요. 다 쓰면 막혀요.', '80% of {period} AI usage limit of {subject} is used. It blocks when used up.', '80% batas pemakaian AI {period} untuk {subject} sudah terpakai. Akan diblokir saat habis.', "{subject}の{period}のAI使用量上限の80%を使用しました。使い切るとブロックされます。", "Se usó el 80% del límite de IA {period} de {subject}. Se bloqueará al agotarlo."),
   nBudgetReached: t('{subject}의 {period} AI 사용 한도를 다 썼어요.', '{period} AI usage limit of {subject} is used up.', 'Batas pemakaian AI {period} untuk {subject} sudah habis.', "{subject}の{period}のAI使用量上限を使い切りました。", "Se agotó el límite de uso de IA {period} de {subject}."),
   subjectTeam: t('팀 전체', 'the whole team', 'seluruh tim', "チーム全体", "todo el equipo"),
+  // to the member whose personal connection the owner moved to the team ("Move it to the team")
+  nMovedToTeam: t("팀장이 내 AI 연결 '{label}'을(를) 팀으로 옮겼어요. 이제 같은 토큰·키를 팀 연결 '{team}'에서 써요.", "The team owner moved your AI connection '{label}' to the team. The same token or key is now used by the team connection '{team}'.", "Owner tim memindahkan koneksi AI Anda '{label}' ke tim. Token atau kunci yang sama kini dipakai oleh koneksi tim '{team}'.", "チームのオーナーがあなたのAI接続'{label}'をチームに移しました。同じトークンまたはキーは、今後チームの接続'{team}'で使われます。", "El propietario del equipo movió su conexión de IA '{label}' al equipo. El mismo token o clave ahora lo usa la conexión del equipo '{team}'."),
 } satisfies Record<string, T>
 
 export function ct(key: keyof typeof CT, locale: Locale, vars: Record<string, string> = {}): string {

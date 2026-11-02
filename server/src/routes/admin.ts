@@ -22,6 +22,7 @@ import { credentialsOf } from '../credentials/store'
 import { unsealOrFail } from '../credentials/service'
 import { speechKeyStatus, writeSpeechKey } from '../credentials/speech-key'
 import { createUser, deleteUser, guardResetLink, listUsers, resetPassword, transferOwnership, updateUser } from '../admin/users'
+import { peopleWithoutAi } from '../credentials/access'
 import type { Locale } from '@mycel/shared/api'
 import type { RouteModule } from './module'
 import { codexIsBeta } from '../chat/engines'
@@ -56,7 +57,10 @@ export const adminRoutes: RouteModule = {
     const engineCache = engineStatusCache(ctx)
 
     // ---------------- users ----------------
-    kit.handle(API.listUsers, () => ({ items: listUsers(ctx) }))
+    kit.handle(API.listUsers, () => {
+      const noAi = peopleWithoutAi(ctx)
+      return { items: listUsers(ctx), ...(noAi ? { noAi } : {}) }
+    })
     kit.handle(API.createUser, ({ c, body }) => createUser(c, ctx, body))
     kit.handle(API.updateUser, ({ c, params, body }) => updateUser(c, ctx, params.id, body))
     kit.handle(API.deleteUser, ({ c, params, query }) => deleteUser(c, ctx, params.id, query.personalFolder))

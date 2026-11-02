@@ -4,6 +4,7 @@
 // Mac), remove.
 import { KeyRound, Link2, Plus, QrCode as QrIcon, RefreshCw, Trash2, UserPlus, UserRoundKey } from 'lucide-react'
 import { useId, useState } from 'react'
+import { Link } from 'react-router-dom'
 import type { z } from 'zod'
 import type { CreatedInvite as CreatedInviteSchema, Group, Invite, Locale, Role, User } from '@mycel/shared/api'
 import { TEMP_PASSWORD_TTL_DAYS, tempPasswordCharsOk } from '@mycel/shared'
@@ -27,7 +28,8 @@ export default function Members() {
   const locale = useLocale()
   const me = useMeStrict()
   const act = useAction()
-  const users = useLoad(async () => (await api.call(API.listUsers)).items)
+  // the members and who cannot use AI now ("No AI": no AI connection of their own and none of the team's for them)
+  const users = useLoad(() => api.call(API.listUsers))
   const invites = useLoad(async () => (await api.call(API.listInvites)).items)
   const groups = useLoad(async () => (await api.call(API.listGroups)).items)
   const skillManagers = useSkillManagers()
@@ -84,7 +86,7 @@ export default function Members() {
         }
       >
         <Loadable state={users}>
-          {(list) => (
+          {({ items: list, noAi }) => (
             <div className="overflow-x-auto">
               <table className="w-full text-sm" data-testid="members-table">
                 <thead>
@@ -112,6 +114,7 @@ export default function Members() {
                         <Badge tone={u.role === 'member' ? 'neutral' : 'accent'}>{t(`role.${u.role}`)}</Badge>
                         {u.status === 'disabled' && <Badge tone="danger" className="ml-1">{t('members.disabled')}</Badge>}
                         {u.mustChangePassword && <TempPasswordBadge user={u} />}
+                        {noAi?.includes(u.id) && <NoAiBadge />}
                       </td>
                       <td className="hidden py-2 pr-3 text-xs text-muted md:table-cell">{u.groupIds.map(groupName).join(', ') || '—'}</td>
                       <td className="hidden py-2 pr-3 text-xs text-muted md:table-cell">{u.lastSeenAt ? formatDateTime(u.lastSeenAt, locale) : '—'}</td>
@@ -242,6 +245,18 @@ export default function Members() {
       )}
       {secret && <Handover {...secret} onClose={() => setSecret(null)} />}
     </>
+  )
+}
+
+/** "No AI": this person cannot use any AI connection now (none of their own, none of the team's for them). Opens
+ * Admin › AI connections, where the owner adds one or assigns one to them. */
+function NoAiBadge() {
+  const t = useT()
+  return (
+    <Link to="/admin/credentials" title={t('members.noAiHint')} className="ml-1 inline-flex" data-testid="member-no-ai">
+      <Badge tone="warn">{t('members.noAi')}</Badge>
+      <span className="sr-only">{t('members.noAiHint')}</span>
+    </Link>
   )
 }
 

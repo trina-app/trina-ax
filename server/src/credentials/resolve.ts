@@ -80,6 +80,18 @@ export function resolveCredential(db: Database, q: { userId: string; engine: Cre
 export const hasCredentialFor = (db: Database, userId: string, engine: CredEngine, allowedKinds: AllowedKinds, now?: Date) =>
   resolveCredential(db, { userId, engine, allowedKinds, now }).ok
 
+/** Does this person have a connection for the engine that works now, or as soon as a provider's short limit is over
+ * (`limited`, D14: a 429 with a time to retry)? The same candidates and checks as resolveCredential and the proxy
+ * (broker.ts): the person's own connection only while the team allows them, assignments, subscription sharing, the
+ * kinds this server allows, switched off, refused, expired, the monthly block limit. Admin › Members "No AI". */
+export function hasCredentialSoonFor(db: Database, userId: string, engine: CredEngine, allowedKinds: AllowedKinds, now = new Date()): boolean {
+  return candidates(db, userId, engine).some(({ row }) => {
+    const u = unusable(db, row, now, allowedKinds)
+    // `limited` is checked after every lasting reason; the one after it (the monthly block limit) is checked again
+    return !u || (u.why === 'limited' && !unusable(db, { ...row, limited_until: null }, now, allowedKinds))
+  })
+}
+
 /** usable team (not personal) connections of a family: Admin > AI engines and the diagnostics */
 export function teamCredentialSummary(db: Database, family: Family, allowedKinds: AllowedKinds, now = new Date()): { total: number; usable: number; expiring: number; reasons: Unusable[] } {
   const kinds = KINDS_OF[family]

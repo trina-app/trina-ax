@@ -1,6 +1,7 @@
 // AI connections (contract: shared/src/api/credentials.ts), registered by the admin route module (owner A). Admins
 // see the team's connections; only the owner changes them (adding and replacing a secret ask for the password again,
-// the RouteKit checks it); members manage their own connections while the team allows them. Request bodies are never
+// the RouteKit checks it; so does "Move it to the team", which is an add with moveFrom); members manage their own
+// connections while the team allows them. Request bodies are never
 // written to the audit log here (credentials/service.ts writes field names, kinds, labels, hints only).
 import { API, type Locale } from '@mycel/shared/api'
 import { anthropicGateway, gatewayLabel } from '../app-config'
@@ -39,7 +40,7 @@ export function registerCredentialRoutes(kit: RouteKit, ctx: AppContext) {
   kit.handle(API.listCredentials, ({ c }) => ({ items: listCredentials(cc(), loc(c)), memberOwn: memberOwnAllowed(ctx.db), sharedSubscriptions: sharedSubscriptionsAllowed(ctx.db), allowedKinds: [...cc().allowedKinds], pricesAsOf: PRICES_AS_OF, anthropicGateway: gateway() }))
   kit.handle(API.createCredential, async ({ c, body, auth }) => {
     const secret = await unsealOrFail(cc(), body.sealed, 'credential.create', loc(c))
-    const r = await createCredential(cc(), { kind: body.kind, label: body.label, secret, assignments: body.assignments, priority: body.priority, ownerUserId: null, actor: auth.user.id, acknowledgedPlanNotice: body.acknowledgedPlanNotice }, loc(c))
+    const r = await createCredential(cc(), { kind: body.kind, label: body.label, secret, assignments: body.assignments, priority: body.priority, ownerUserId: null, actor: auth.user.id, acknowledgedPlanNotice: body.acknowledgedPlanNotice, moveFrom: body.moveFrom }, loc(c))
     changed()
     return r
   })

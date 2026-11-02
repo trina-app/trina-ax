@@ -74,7 +74,11 @@ export const CreateCredentialBody = z.object({
   kind: CredentialKind.exclude(['chatgpt']), label: Label, sealed: SealedSecret,
   assignments: z.array(CredentialAssignment).max(200).default([]), priority: z.number().int().min(0).max(1000).default(100),
   /** true required for a subscription kind (anthropic-oauth): the owner read the plan notice; the server checks */
-  acknowledgedPlanNotice: z.boolean().optional(), ...Reauth,
+  acknowledgedPlanNotice: z.boolean().optional(),
+  /** "Move it to the team": the id of a member's personal connection that holds this same token / key (the 409's
+   * `params.credentialId` with `movable`). That personal connection is removed and this team connection made in one
+   * step, and its owner is told. The sealed secret proves the owner holds the token; anything else is still a 409. */
+  moveFrom: Uuid7.optional(), ...Reauth,
 })
 export const UpdateCredentialBody = z.object({
   label: Label.optional(), priority: z.number().int().min(0).max(1000).optional(), disabled: z.boolean().optional(),
@@ -95,18 +99,31 @@ export const CredentialLogin = z.object({
   credential: Credential.nullable(), reason: z.string().nullable(),
 })
 export type CredentialLogin = z.infer<typeof CredentialLogin>
+/** The 409 `params` when the token / key is already connected on this team. The owner and admins hold the secret they
+ * pasted, so they hear where the copy is: a team connection (`team`, its label) or someone's personal connection
+ * (`personal`, the person's name and its label). A member hears where only when it is their own connection (`own`);
+ * otherwise only that it is connected on this team (`elsewhere`), never whose. Never any part of the secret. */
+export const DuplicateCredentialParams = z.object({
+  reason: z.literal('duplicate_credential'),
+  where: z.enum(['team', 'personal', 'own', 'elsewhere']),
+  credentialId: Uuid7.optional(), label: z.string().optional(), ownerName: z.string().optional(),
+  /** adding a team connection: the copy is a personal connection the owner can move to the team (send again with
+   * `moveFrom: credentialId`, password re-entered) */
+  movable: z.boolean().optional(),
+})
+export type DuplicateCredentialParams = z.infer<typeof DuplicateCredentialParams>
 export const CredentialSettings = z.object({ memberOwn: z.boolean(), sharedSubscriptions: z.boolean() })
 export const UpdateCredentialSettingsBody = CredentialSettings.partial().extend({
   /** Required when enabling shared subscriptions; not a grant of hosting/resale rights. */
   acknowledgedSharedSubscriptionRisk: z.boolean().optional(),
 })
 export const MyCredentialsResponse = z.object({ allowed: z.boolean(), allowedKinds: z.array(CredentialKind), items: z.array(Credential), anthropicGateway: z.object({ label: z.string() }).nullable().optional() })
-export const CreateMyCredentialBody = CreateCredentialBody.omit({ assignments: true, priority: true, password: true })
+export const CreateMyCredentialBody = CreateCredentialBody.omit({ assignments: true, priority: true, moveFrom: true, password: true })
 export const StartMyLoginBody = StartCredentialLoginBody.omit({ assignments: true, priority: true, password: true })
 
 export const CREDENTIALS = {
   listCredentials: endpoint({ method: 'GET', path: '/api/admin/credentials', auth: 'admin', owner: 'A', response: CredentialsResponse, summary: 'AI connections of the team (and that members have their own), with state and this month\'s use. Never a secret.' }),
-  createCredential: endpoint({ method: 'POST', path: '/api/admin/credentials', auth: 'owner-reauth', owner: 'A', status: 201, body: CreateCredentialBody, response: Credential, summary: 'Add a Claude subscription token or an API key (sealed in the browser); checked without spending tokens.' }),
+  createCredential: endpoint({ method: 'POST', path: '/api/admin/credentials', auth: 'owner-reauth', owner: 'A', status: 201, body: CreateCredentialBody, response: Credential, summary: 'Add a Claude subscription token or an API key (sealed in the browser); checked without spending tokens. Already connected: 409 saying where (DuplicateCredentialParams); with moveFrom, a member\'s personal copy moves to the team.' }),
   updateCredential: endpoint({ method: 'PATCH', path: '/api/admin/credentials/:id', auth: 'owner', owner: 'A', body: UpdateCredentialBody, response: Credential, summary: 'Rename, order, switch off, assign to groups / people, monthly limit.' }),
   replaceCredentialSecret: endpoint({ method: 'POST', path: '/api/admin/credentials/:id/secret', auth: 'owner-reauth', owner: 'A', body: ReplaceSecretBody, response: Credential, summary: 'Put a new token / key on an existing connection (same kind).' }),
   deleteCredential: endpoint({ method: 'DELETE', path: '/api/admin/credentials/:id', auth: 'owner', owner: 'A', response: empty, status: 204, summary: 'Remove a connection (usage history stays).' }),

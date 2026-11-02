@@ -3,13 +3,13 @@
 // connections (adding and replacing ask for the password again); admins see and re-check; a member manages only
 // their own connections, and only while the team allows them. Secrets arrive sealed (seal.ts) and are checked
 // without spending tokens (validate.ts). Audit details hold kinds, labels, hints (last 4) and plans, never a secret.
-import type { Credential, CredentialAssignment, CredentialKind, Locale, SealPurpose, SpendLimit } from '@mycel/shared/api'
+import type { Credential, CredentialAssignment, CredentialKind, DuplicateCredentialParams, Locale, SealPurpose, SpendLimit } from '@mycel/shared/api'
 import { anthropicGateway, gatewayHost } from '../app-config'
 import { audit } from '../admin/audit'
 import { setSetting } from '../admin/settings'
 import { newId } from '../db'
 import { fail } from '../http/errors'
-import { ct } from './i18n'
+import { ct, ctAll } from './i18n'
 import { MEMBER_OWN_KEY, memberOwnAllowed } from './resolve'
 import { SHARED_SUBSCRIPTIONS_KEY, sharedSubscriptionsAllowed } from './policy'
 import { SealError } from './seal'
@@ -54,6 +54,30 @@ export function duplicateOf(cc: CredCtx, kind: CredentialKind, fp: string, excep
   return r ? getRow(cc.db, r.id) : null
 }
 
+/**
+ * 409: the token / key is already connected (one subscription limit must not be counted twice, and a copy would be
+ * left behind when the token rotates). It says where: the owner and admins hold the secret they pasted, so they hear
+ * the team connection's label or whose personal connection it is; a member hears where only when it is their own,
+ * otherwise only that it is connected on this team. `movable`: adding a team connection over a personal copy (the owner
+ * can send it again with moveFrom). Never any part of the secret (not even the last 4).
+ */
+export function duplicateConflict(cc: CredCtx, dup: CredRow, actor: string, locale: Locale, o: { movable?: boolean } = {}): never {
+  const role = (cc.db.query('SELECT role FROM users WHERE id = ?').get(actor) as { role: string } | null)?.role
+  const admin = role === 'owner' || role === 'admin'
+  const label = dup.label
+  if (dup.owner_user_id === actor) {
+    const params: DuplicateCredentialParams = { reason: 'duplicate_credential', where: 'own', credentialId: dup.id, label, ...(o.movable ? { movable: true } : {}) }
+    return fail('conflict', ct('duplicateOwn', locale, { label }), { params })
+  }
+  if (!admin) return fail('conflict', ct('duplicate', locale), { params: { reason: 'duplicate_credential', where: 'elsewhere' } satisfies DuplicateCredentialParams })
+  if (dup.owner_user_id === null) {
+    return fail('conflict', ct('duplicateTeam', locale, { label }), { params: { reason: 'duplicate_credential', where: 'team', credentialId: dup.id, label } satisfies DuplicateCredentialParams })
+  }
+  const name = (cc.db.query('SELECT name FROM users WHERE id = ?').get(dup.owner_user_id) as { name: string } | null)?.name ?? dup.owner_user_id
+  const params: DuplicateCredentialParams = { reason: 'duplicate_credential', where: 'personal', credentialId: dup.id, label, ownerName: name, ...(o.movable ? { movable: true } : {}) }
+  return fail('conflict', ct('duplicatePersonal', locale, { label, name }), { params })
+}
+
 export interface NewRow {
   kind: CredentialKind; label: string; secret: Secrets[CredentialKind]; ownerUserId: string | null; priority: number; assignments: CredentialAssignment[]
   createdBy: string | null; meta?: CredMeta; expiresAt?: string | null; checkedAt?: string | null; status?: CredRow['status']; statusCode?: string | null; id?: string
@@ -78,6 +102,8 @@ export function insertRow(cc: CredCtx, n: NewRow): string {
 export interface CreateInput {
   kind: ApiKind; label: string; secret: string; assignments: CredentialAssignment[]; priority: number
   ownerUserId: string | null; actor: string; acknowledgedPlanNotice?: boolean
+  /** a team connection only: the member's personal connection with this same token / key to move to the team */
+  moveFrom?: string
 }
 
 function checkCreatePolicy(cc: CredCtx, i: CreateInput, locale: Locale) {
@@ -85,30 +111,53 @@ function checkCreatePolicy(cc: CredCtx, i: CreateInput, locale: Locale) {
   if (i.ownerUserId && (!memberOwnAllowed(cc.db) || i.ownerUserId !== i.actor)) fail('forbidden', ct('memberOwnOff', locale))
 }
 
-/** POST /api/admin/credentials, POST /api/me/credentials (the secret already unsealed) */
+/** POST /api/admin/credentials, POST /api/me/credentials (the secret already unsealed). With moveFrom (a team connection
+ * only, "Move it to the team"): the member's personal connection holding this same token / key is removed and the team
+ * connection made in one transaction (never two copies, never none), its owner is told, and Activity log says so. */
 export async function createCredential(cc: CredCtx, i: CreateInput, locale: Locale): Promise<Credential> {
   if (!cc.allowedKinds.has(i.kind)) fail('validation', ct('kindNotAllowed', locale), { fields: { 'body.kind': 'not allowed on this server' } })
+  if (i.moveFrom !== undefined && i.ownerUserId) fail('validation', undefined, { fields: { 'body.moveFrom': 'only a team connection takes a personal one over' } })
   const gateway = gatewayOf(cc)
   const bad = formatProblem(i.kind, i.secret, !!gateway)
   if (bad) fail('validation', ct(bad, locale), { fields: { 'body.sealed': bad === 'badClaudeToken' ? 'not a Claude subscription token' : 'not an API key of this kind' } })
   if (SUBSCRIPTION.has(i.kind) && i.acknowledgedPlanNotice !== true) fail('validation', ct('planNotice', locale), { fields: { 'body.acknowledgedPlanNotice': 'required for a subscription' } })
   checkCreatePolicy(cc, i, locale)
-  if (duplicateOf(cc, i.kind, fingerprintOf(i.secret))) fail('conflict', ct('duplicate', locale))
+  const fp = fingerprintOf(i.secret)
+  // the copy this request may take over: a personal connection, named by moveFrom (anything else stays a 409)
+  const takeOver = (d: CredRow | null) => !!d && !i.ownerUserId && d.owner_user_id !== null && d.id === i.moveFrom
+  const dup = duplicateOf(cc, i.kind, fp)
+  if (dup && !takeOver(dup)) duplicateConflict(cc, dup, i.actor, locale, { movable: !i.ownerUserId && dup.owner_user_id !== null })
   if (!i.ownerUserId) checkAssignments(cc, i.assignments, locale)
   const check = await verifySecret(cc, i.kind, i.secret)
   checkCreatePolicy(cc, i, locale)
   if (check.result === 'refused') fail('validation', ct(i.kind === 'anthropic-oauth' ? 'refusedClaude' : 'refusedKey', locale), { fields: { 'body.sealed': 'refused by the provider' } })
   const now = cc.now()
-  const id = insertRow(cc, {
-    kind: i.kind, label: i.label, secret: secretOfKind(i.kind, i.secret), ownerUserId: i.ownerUserId, priority: i.priority, assignments: i.assignments,
-    createdBy: i.actor, meta: i.kind === 'anthropic-oauth' ? { issuedAt: new Date(now).toISOString() } : i.kind === 'anthropic-api-key' && gateway ? { gateway } : {},
-    expiresAt: i.kind === 'anthropic-oauth' ? new Date(now + CLAUDE_TOKEN_LIFETIME_MS).toISOString() : null,
-    checkedAt: check.result === 'ok' ? new Date(now).toISOString() : null,
-  })
+  const { id, from } = cc.db.transaction(() => {
+    // again, inside the write: the provider check took a while, and a copy may have come or gone meanwhile
+    const d = duplicateOf(cc, i.kind, fp)
+    if (d && !takeOver(d)) duplicateConflict(cc, d, i.actor, locale, { movable: !i.ownerUserId && d.owner_user_id !== null })
+    if (d) cc.db.query('DELETE FROM engine_credentials WHERE id = ?').run(d.id)
+    return { from: d, id: insertRow(cc, {
+      kind: i.kind, label: i.label, secret: secretOfKind(i.kind, i.secret), ownerUserId: i.ownerUserId, priority: i.priority, assignments: i.assignments,
+      createdBy: i.actor, meta: i.kind === 'anthropic-oauth' ? { issuedAt: new Date(now).toISOString() } : i.kind === 'anthropic-api-key' && gateway ? { gateway } : {},
+      expiresAt: i.kind === 'anthropic-oauth' ? new Date(now + CLAUDE_TOKEN_LIFETIME_MS).toISOString() : null,
+      checkedAt: check.result === 'ok' ? new Date(now).toISOString() : null,
+    }) }
+  })()
   const row = getRow(cc.db, id)!
-  audit(cc.db, { actor: i.actor, action: 'credential.create', target: id, detail: {
+  const detail = {
     kind: i.kind, label: i.label, scope: i.ownerUserId ? 'personal' : 'team', assignments: i.ownerUserId ? [] : uniq(i.assignments), priority: i.priority,
-    ...(row.hint ? { hint: row.hint } : {}), verified: check.result === 'ok' } })
+    ...(row.hint ? { hint: row.hint } : {}), verified: check.result === 'ok',
+  }
+  if (!from) {
+    audit(cc.db, { actor: i.actor, action: 'credential.create', target: id, detail })
+    return toCredential(cc, row, locale)
+  }
+  cc.cache.delete(from.id)
+  audit(cc.db, { actor: i.actor, action: 'credential.move_to_team', target: id, detail: { ...detail, from: { id: from.id, label: from.label, owner: from.owner_user_id } } })
+  if (from.owner_user_id !== i.actor) {
+    cc.notify({ level: 'info', code: 'credential_moved_to_team', message: ctAll('nMovedToTeam', { label: from.label, team: i.label }), link: '/settings/credentials' }, [from.owner_user_id!])
+  }
   return toCredential(cc, row, locale)
 }
 
@@ -121,7 +170,8 @@ export async function replaceSecret(cc: CredCtx, id: string, secret: string, act
   const gateway = gatewayOf(cc)
   const bad = formatProblem(kind, secret, !!gateway)
   if (bad) fail('validation', ct(bad, locale), { fields: { 'body.sealed': 'not a token or key of this kind' } })
-  if (duplicateOf(cc, kind, fingerprintOf(secret), id)) fail('conflict', ct('duplicate', locale))
+  const dup = duplicateOf(cc, kind, fingerprintOf(secret), id)
+  if (dup) duplicateConflict(cc, dup, actor, locale)
   const check = await verifySecret(cc, kind, secret)
   if (check.result === 'refused') fail('validation', ct(kind === 'anthropic-oauth' ? 'refusedClaude' : 'refusedKey', locale), { fields: { 'body.sealed': 'refused by the provider' } })
   const now = cc.now()

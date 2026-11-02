@@ -7,8 +7,8 @@
 import { ArrowDown, ArrowUp, ExternalLink, KeyRound, MoreHorizontal, Plus, RefreshCw, Trash2 } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
-import type { Credential, CredentialAssignment, CredentialKind, CredentialLogin, CredentialsResponse, Group, User } from '@mycel/shared/api'
-import { api, API, errorText } from '../../lib/api'
+import { DuplicateCredentialParams, type Credential, type CredentialAssignment, type CredentialKind, type CredentialLogin, type CredentialsResponse, type Group, type User } from '@mycel/shared/api'
+import { api, API, errorText, isApiError } from '../../lib/api'
 import { canSeal, sealSecret } from '../../lib/seal'
 import { formatDateTime, formatNumber, formatUsd } from '../../lib/format'
 import { useLocale, useT, type MessageKey } from '../../i18n'
@@ -258,6 +258,8 @@ export function AddCredential({ allowedKinds, gateway, groups, users, replace, p
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [login, setLogin] = useState<CredentialLogin | null>(null)
+  /** the token is already a personal connection the owner may move to the team (409 params.movable) */
+  const [move, setMove] = useState<DuplicateCredentialParams | null>(null)
   const secure = canSeal()
   const subscription = kind !== null && SUBSCRIPTION.has(kind)
   const sharingBlocked = subscription && !personal && !sharedSubscriptions
@@ -291,13 +293,20 @@ export function AddCredential({ allowedKinds, gateway, groups, users, replace, p
       } else {
         const sealed = await sealSecret(key, secret.trim(), 'credential.create')
         const body = { kind: kind as Exclude<CredentialKind, 'chatgpt'>, label: label.trim(), sealed, ...(subscription ? { acknowledgedPlanNotice: ack } : {}) }
-        const c = personal ? await api.call(API.createMyCredential, { body }) : await api.call(API.createCredential, { body: { ...body, assignments, password } })
-        toast({ level: 'success', text: c.state === 'unverified' ? t('credentials.unverifiedSaved') : t('credentials.connected') })
+        const c = personal ? await api.call(API.createMyCredential, { body })
+          : await api.call(API.createCredential, { body: { ...body, assignments, password, ...(move?.credentialId ? { moveFrom: move.credentialId } : {}) } })
+        toast({ level: 'success', text: move ? (move.where === 'own' ? t('credentials.movedOwn') : t('credentials.moved', { name: move.ownerName ?? '' })) : c.state === 'unverified' ? t('credentials.unverifiedSaved') : t('credentials.connected') })
       }
       setSecret('')
       onDone()
     } catch (e) {
       setError(errorText(e, locale, t('error.network')))
+      // already a personal connection: offer "Move it to the team", with the password typed again for it (another
+      // answer to a move, such as a wrong password, keeps the offer)
+      if (isApiError(e, 'conflict')) {
+        const dup = !personal && !replace ? DuplicateCredentialParams.safeParse(e.body.params) : null
+        if (dup?.success && dup.data.movable && dup.data.credentialId) { setMove(dup.data); setPassword('') } else setMove(null)
+      }
     } finally { setBusy(false) }
   }
   const cancelLogin = async () => {
@@ -321,7 +330,7 @@ export function AddCredential({ allowedKinds, gateway, groups, users, replace, p
         <>
           <Button variant="ghost" onClick={onClose}>{t('common.cancel')}</Button>
           <Button variant="primary" busy={busy} disabled={!ready || !secure} onClick={submit} data-testid="credential-submit">
-            {busy ? t('credentials.checking') : kind === 'chatgpt' ? t('credentials.chatgpt.start') : t('credentials.connect')}
+            {busy ? t('credentials.checking') : kind === 'chatgpt' ? t('credentials.chatgpt.start') : move ? t('credentials.moveToTeam') : t('credentials.connect')}
           </Button>
         </>
       )}>
@@ -341,7 +350,7 @@ export function AddCredential({ allowedKinds, gateway, groups, users, replace, p
                   const via = k === 'anthropic-api-key' ? gateway : null
                   return (
                     <label key={k} className={`flex items-start gap-2 rounded-lg border border-line p-2 text-sm ${off ? 'opacity-60' : 'cursor-pointer hover:bg-hover'}`}>
-                      <input type="radio" name="kind" disabled={off} checked={kind === k} onChange={() => { setKind(k); setError(null) }} data-testid={`kind-${k}`} />
+                      <input type="radio" name="kind" disabled={off} checked={kind === k} onChange={() => { setKind(k); setError(null); setMove(null) }} data-testid={`kind-${k}`} />
                       <span>
                         <span className="font-medium">{via ? t('credentials.kind.gateway', { label: via.label }) : t(`credentials.kind.${k}` as MessageKey)}</span>
                         <span className="block text-xs text-muted">{policyOff ? t('credentials.sharedSubscriptionsOff') : off ? t('credentials.kindOff') : via ? t('credentials.kind.gateway.desc', { label: via.label }) : t(`credentials.kind.${k}.desc` as MessageKey)}</span>
@@ -378,7 +387,7 @@ export function AddCredential({ allowedKinds, gateway, groups, users, replace, p
             {kind && kind !== 'chatgpt' && (
               <Field label={t(kind === 'anthropic-oauth' ? 'credentials.setupToken.paste' : 'credentials.apiKey.paste')}
                 error={secret.trim() && !formatOk(kind, secret.trim(), gateway) ? t(kind === 'anthropic-oauth' ? 'credentials.setupToken.invalidFormat' : 'credentials.apiKey.invalidFormat') : null}>
-                <input className={inputCls} type="password" autoComplete="off" spellCheck={false} value={secret} onChange={(e) => setSecret(e.target.value)} data-testid="credential-secret" />
+                <input className={inputCls} type="password" autoComplete="off" spellCheck={false} value={secret} onChange={(e) => { setSecret(e.target.value); if (move) { setMove(null); setError(null) } }} data-testid="credential-secret" />
               </Field>
             )}
             {kind && !replace && !personal && <TargetPicker value={assignments} onChange={setAssignments} groups={groups} users={users} />}
@@ -388,12 +397,18 @@ export function AddCredential({ allowedKinds, gateway, groups, users, replace, p
                 <label className="mt-2 flex items-center gap-2"><input type="checkbox" checked={ack} onChange={(e) => setAck(e.target.checked)} data-testid="plan-notice-ack" /> {t('credentials.planNoticeAck')}</label>
               </div>
             )}
+            {error && <p className="text-sm text-danger" role="alert" data-testid="dialog-error">{error}</p>}
+            {move && (
+              <div className="rounded-lg bg-subtle p-3 text-sm" data-testid="credential-move">
+                <p className="font-medium">{t('credentials.moveToTeam')}</p>
+                <p className="mt-1 text-muted">{move.where === 'own' ? t('credentials.moveOwnHint', { label: move.label ?? '' }) : t('credentials.moveHint', { name: move.ownerName ?? '', label: move.label ?? '' })}</p>
+              </div>
+            )}
             {kind && needsPassword && (
-              <Field label={t('credentials.reauth')}>
+              <Field label={move ? t('credentials.moveReauth') : t('credentials.reauth')}>
                 <input className={inputCls} type="password" autoComplete="current-password" value={password} onChange={(e) => setPassword(e.target.value)} data-testid="credential-password" />
               </Field>
             )}
-            {error && <p className="text-sm text-danger" role="alert" data-testid="dialog-error">{error}</p>}
           </div>
         )}
     </Modal>

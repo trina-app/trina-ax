@@ -180,13 +180,17 @@ function FirstTime({ onExample }: { onExample: (text: string) => void }) {
 
 const CHECK_KEY = 'mycel.ownerChecklistHidden'
 
-/** Owner's first screen: AI connection · invite members · folder permissions · backups. Hidden once all done. */
+/** names in a short line: the first three, then "+N" */
+const shortNames = (names: string[]) => names.slice(0, 3).join(', ') + (names.length > 3 ? ` +${names.length - 3}` : '')
+
+/** Owner's first screen: AI connection · invite members · folder permissions · backups. Hidden once all done and
+ * everyone can use AI ("No AI": people with no AI connection they can use, the same list as Admin › Members). */
 function OwnerChecklist() {
   const t = useT()
   const [hidden, setHidden] = useState(() => {
     try { return localStorage.getItem(CHECK_KEY) === '1' } catch { return false }
   })
-  const [state, setState] = useState<{ engine: boolean; members: boolean; folders: boolean; skill: boolean; backup: boolean } | null>(null)
+  const [state, setState] = useState<{ engine: boolean; members: boolean; folders: boolean; skill: boolean; backup: boolean; noAi: string[] } | null>(null)
   useEffect(() => {
     if (hidden) return
     let live = true
@@ -200,13 +204,15 @@ function OwnerChecklist() {
         // a team skill: the caller's own personal skills do not count
         skill: sk.status === 'fulfilled' && sk.value.items.some((x) => !x.personal),
         backup: b.status === 'fulfilled' && b.value.items.length > 0,
+        noAi: u.status === 'fulfilled' ? u.value.items.filter((x) => u.value.noAi?.includes(x.id)).map((x) => x.name) : [],
       })
     })
     return () => {
       live = false
     }
   }, [hidden])
-  if (hidden || !state || Object.values(state).every(Boolean)) return null
+  const { noAi, ...steps } = state ?? { noAi: [] }
+  if (hidden || !state || (Object.values(steps).every(Boolean) && !noAi.length)) return null
   const items: { done: boolean; label: MessageKey; to: string }[] = [
     { done: state.folders, label: 'owner.check.folders', to: '/admin/folders' },
     { done: state.engine, label: 'owner.check.engine', to: '/admin/engines' },
@@ -233,6 +239,11 @@ function OwnerChecklist() {
         </button>
       </div>
       {!state.engine && <p className="mb-3 text-sm text-muted">{t('owner.check.filesReady')}</p>}
+      {noAi.length > 0 && (
+        <p className="mb-3 text-sm" data-testid="owner-check-no-ai">
+          <Link to="/admin/credentials" className="text-warn hover:underline">{t('owner.check.noAi', { names: shortNames(noAi) })}</Link>
+        </p>
+      )}
       <ul className="grid gap-1 sm:grid-cols-2">
         {items.map((it) => (
           <li key={it.label}>
