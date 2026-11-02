@@ -1,24 +1,29 @@
 // Settings > External services: the person's own connections to MCP servers and APIs (used only in their own chats),
 // then the team connections an admin lets them use (read-only unless they manage them); above them, services an admin
 // asked them to connect as their own (components/integrations/AnswerDialog.tsx). Not the "App connectors" tab
-// (ConnectorConnections.tsx): that is the other direction, claude.ai using this server's files.
-import { Cable, Plus } from 'lucide-react'
+// (ConnectorConnections.tsx): that is the other direction, claude.ai using this server's files. "Discover" adds a known
+// service by name; "Add connection" takes any MCP server or API by its address.
+import { Cable } from 'lucide-react'
 import { useCallback, useEffect, useState } from 'react'
 import type { Integration, IntegrationList } from '@mycel/shared/api'
 import { api, API } from '../lib/api'
+import type { Connector } from '../lib/connectors'
 import { splitByScope } from '../lib/integrations'
 import { useT } from '../i18n'
 import { reloadAsked } from '../store/live'
-import { Button, EmptyState } from '../components/ui'
+import { EmptyState } from '../components/ui'
+import { afterAdded, ConnectorDiscover, ConnectorsHeader, matchesQuery, type ConnectorTab } from '../components/integrations/ConnectorsView'
+import { MyRequests } from '../components/integrations/AnswerDialog'
 import { IntegrationDialog } from '../components/integrations/IntegrationDialog'
 import { IntegrationRow, useIntegrationActions } from '../components/integrations/IntegrationRow'
-import { MyRequests } from '../components/integrations/AnswerDialog'
 import { Loadable, useLoad } from './admin/common'
 
 export default function Integrations() {
   const t = useT()
   const state = useLoad<IntegrationList>(() => api.call(API.listIntegrations))
-  const [dialog, setDialog] = useState<{ existing?: Integration } | null>(null)
+  const [dialog, setDialog] = useState<{ existing?: Integration; connector?: Connector } | null>(null)
+  const [tab, setTab] = useState<ConnectorTab>('connected')
+  const [query, setQuery] = useState('')
   // the admin's requests load again with the list: a sign-in that finished may have connected one
   const [requests, setRequests] = useState(0)
   const reloadList = state.reload
@@ -30,33 +35,30 @@ export default function Integrations() {
     reload,
   })
   return (
-    <section className="space-y-5" data-testid="integrations">
-      <div className="flex flex-wrap items-start gap-3">
-        <div className="min-w-0 flex-[1_1_16rem]">
-          <h2 className="text-base font-semibold">{t('integrations.title')}</h2>
-          <p className="mt-1 text-sm text-muted">{t('integrations.desc')}</p>
-        </div>
-        {state.data?.personalAllowed && splitByScope(state.data.items).mine.length > 0 && (
-          <Button size="sm" variant="primary" onClick={() => setDialog({})} data-testid="integration-add">
-            <Plus size={14} aria-hidden /> {t('integrations.add')}
-          </Button>
-        )}
+    <section data-testid="integrations">
+      <ConnectorsHeader title={t('integrations.title')} tab={tab} onTab={setTab} query={query} onQuery={setQuery} onAdd={state.data?.personalAllowed ? () => setDialog({}) : undefined} />
+      <div className="[&:not(:empty)]:mb-5">
+        <MyRequests
+          version={requests}
+          onConnected={(i, signIn) => actions.saved(i, signIn, !state.data?.items.some((x) => x.id === i.id))}
+        />
       </div>
-      <MyRequests
-        version={requests}
-        onConnected={(i, signIn) => actions.saved(i, signIn, !state.data?.items.some((x) => x.id === i.id))}
-      />
       <Loadable state={state}>
         {(d) => {
           const { mine, team } = splitByScope(d.items)
+          // a team connection a member may use is the company's account, so their own stays addable
+          if (tab === 'discover' && d.personalAllowed) return <ConnectorDiscover connected={mine} query={query} onAdd={(c) => setDialog({ connector: c })} onCustom={() => setDialog({})} />
+          const shownMine = mine.filter((i) => matchesQuery(i, query))
+          const shownTeam = team.filter((i) => matchesQuery(i, query))
+          if (query.trim() && !shownMine.length && !shownTeam.length) return <EmptyState title={t('integrations.noMatch', { q: query.trim() })} />
           return (
-            <>
+            <div className="space-y-5">
               {!d.personalAllowed && mine.length > 0 && (
                 <p role="note" className="rounded-xl bg-warn-soft px-3 py-2 text-sm text-warn" data-testid="integrations-personal-off">
                   {t('integrations.personalOff')}
                 </p>
               )}
-              <section aria-labelledby="integrations-mine">
+              {(!query.trim() || shownMine.length > 0) && <section aria-labelledby="integrations-mine">
                 <h3 id="integrations-mine" className="mb-2 text-sm font-semibold">
                   {t('integrations.mine')}
                 </h3>
@@ -64,36 +66,31 @@ export default function Integrations() {
                   <div className="rounded-xl border border-dashed border-line" data-testid="integrations-empty">
                     <EmptyState icon={<Cable size={26} />} title={d.personalAllowed ? t('integrations.empty') : t('integrations.personalOffTitle')}>
                       <p>{d.personalAllowed ? t('integrations.emptyHint') : t('integrations.personalOff')}</p>
-                      {d.personalAllowed && (
-                        <Button variant="primary" className="mt-4" onClick={() => setDialog({})} data-testid="integration-add">
-                          <Plus size={15} aria-hidden /> {t('integrations.add')}
-                        </Button>
-                      )}
                     </EmptyState>
                   </div>
                 ) : (
-                  <ul className="divide-y divide-line rounded-xl border border-line" data-testid="integrations-mine">
-                    {mine.map((i) => (
+                  <ul className="-mx-2 divide-y divide-line" data-testid="integrations-mine">
+                    {shownMine.map((i) => (
                       <IntegrationRow key={i.id} i={i} actions={actions} onEdit={() => setDialog({ existing: i })} />
                     ))}
                   </ul>
                 )}
-              </section>
-              {team.length > 0 && (
+              </section>}
+              {shownTeam.length > 0 && (
                 <section aria-labelledby="integrations-team">
                   <h3 id="integrations-team" className="text-sm font-semibold">
                     {t('integrations.team')}
                   </h3>
                   <p className="mt-0.5 mb-2 text-xs text-muted">{t('integrations.teamHint')}</p>
-                  <ul className="divide-y divide-line rounded-xl border border-line" data-testid="integrations-team">
-                    {team.map((i) => (
+                  <ul className="-mx-2 divide-y divide-line" data-testid="integrations-team">
+                    {shownTeam.map((i) => (
                       <IntegrationRow key={i.id} i={i} actions={actions} teamBadge onEdit={() => setDialog({ existing: i })} />
                     ))}
                   </ul>
                 </section>
               )}
               <p className="text-xs text-faint">{t('integrations.privacy')}</p>
-            </>
+            </div>
           )
         }}
       </Loadable>
@@ -101,10 +98,12 @@ export default function Integrations() {
         <IntegrationDialog
           scope={dialog.existing?.scope ?? 'personal'}
           existing={dialog.existing}
+          connector={dialog.connector}
           onClose={() => setDialog(null)}
           onSaved={(i, next) => {
             setDialog(null)
             actions.saved(i, next, !dialog.existing)
+            if (tab === 'discover') afterAdded(setTab, setQuery)
           }}
         />
       )}

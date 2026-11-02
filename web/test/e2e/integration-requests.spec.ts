@@ -72,6 +72,7 @@ test('ask, connect with the member\'s own key, see it connected; the key never r
   await expect(answer).toHaveCount(0)
   const mine = page.getByTestId('integrations-mine').getByTestId('integration-row').filter({ hasText: 'Ledger' })
   await expect(mine).toBeVisible()
+  await mine.getByTestId('integration-toggle').click()
   await expect(mine.getByTestId('integration-meta')).toContainText('키 저장됨')
   await expect(page.getByTestId('integrations-asked-list')).toHaveCount(0)
   await expect(page.locator('body')).not.toContainText(KEY)
