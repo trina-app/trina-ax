@@ -308,11 +308,20 @@ export function urlTransform(url: string): string {
   return ''
 }
 
-export const Markdown = memo(function Markdown({ text, streaming, className }: { text: string; streaming?: boolean; className?: string }) {
+// A size is chosen here, not overridden through className: Tailwind orders the built stylesheet by its own rules, not by
+// the order in the class attribute, and .text-[15px] comes after .text-xs and .text-sm, so a smaller size put next to it
+// loses (leading-7 and prose-h3:text-[15px] the same way).
+const SIZES = {
+  answer: 'text-[15px] leading-7 prose-h1:text-lg prose-h2:text-base prose-h3:text-[15px]',
+  small: 'text-xs leading-5 prose-h1:text-sm prose-h2:text-sm prose-h3:text-xs',
+}
+
+export const Markdown = memo(function Markdown({ text, streaming, className, size = 'answer' }: { text: string; streaming?: boolean; className?: string; size?: keyof typeof SIZES }) {
   return (
     <div
       className={clsx(
-        'answer prose max-w-none text-[15px] leading-7 break-words prose-headings:mt-4 prose-headings:mb-1.5 prose-headings:font-semibold prose-h1:text-lg prose-h2:text-base prose-h3:text-[15px] prose-p:my-2 prose-blockquote:font-normal prose-code:rounded prose-code:bg-subtle prose-code:px-1 prose-code:py-0.5 prose-code:text-[0.85em] prose-code:font-normal prose-code:before:content-none prose-code:after:content-none prose-ol:my-2 prose-ul:my-2 prose-li:my-0.5 prose-hr:my-4 prose-table:my-0 prose-th:bg-subtle prose-th:px-3 prose-th:py-1.5 prose-td:px-3 prose-td:py-1.5 [&>*:first-child]:mt-0 [&>*:last-child]:mb-0',
+        'answer prose max-w-none break-words prose-headings:mt-4 prose-headings:mb-1.5 prose-headings:font-semibold prose-p:my-2 prose-blockquote:font-normal prose-code:rounded prose-code:bg-subtle prose-code:px-1 prose-code:py-0.5 prose-code:text-[0.85em] prose-code:font-normal prose-code:before:content-none prose-code:after:content-none prose-ol:my-2 prose-ul:my-2 prose-li:my-0.5 prose-hr:my-4 prose-table:my-0 prose-th:bg-subtle prose-th:px-3 prose-th:py-1.5 prose-td:px-3 prose-td:py-1.5 [&>*:first-child]:mt-0 [&>*:last-child]:mb-0',
+        SIZES[size],
         className,
       )}
     >

@@ -5,6 +5,7 @@ This file summarizes user-visible changes; it is not a list of every commit.
 
 ## Unreleased
 
+- Admin › System, update cards: the release notes are small text now, the same size as the rest of the card. Before, they showed at the size of a chat answer.
 - Office Mac, the "new version" banner: it now shows the team's update window and time zone, for example "03:00-05:00 (Asia/Seoul)", the same as the update card. Before, it said "tonight at 03:00" with no zone, which was wrong for a window in the daytime and for anyone in another zone. A window that never opens no longer says that the update installs by itself. In all five languages.
 - Office Mac, Admin › System › automatic updates: the last check and the last update now show in the team's time zone, like the next check, and each time names its zone. Before, they were in the browser's zone with no name, so one card could mix two zones. `teamax update status` prints the last check, the last update and the Windows app the same way. In all five languages.
 

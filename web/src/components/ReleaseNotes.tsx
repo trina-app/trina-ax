@@ -40,7 +40,7 @@ export function ReleaseNotes({ notes }: { notes: string }) {
   if (!summary && !more) return null
   return (
     <div className="mt-1 text-xs text-muted" data-testid="release-notes">
-      {(open || summary) && <Markdown text={open ? notes : summary} className="text-xs leading-5 text-muted prose-h1:text-sm prose-h2:text-sm prose-h3:text-xs" />}
+      {(open || summary) && <Markdown text={open ? notes : summary} size="small" className="text-muted" />}
       {more && (
         <button type="button" className="mt-1 text-accent-text underline underline-offset-2" aria-expanded={open} onClick={() => setOpen(!open)}>
           {t(open ? 'update.notesLess' : 'update.notesMore')}

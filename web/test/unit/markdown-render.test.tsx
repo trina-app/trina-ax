@@ -10,6 +10,14 @@ describe('Markdown rendering', () => {
     expect(render('각 일정을 **마일스톤(◆)**으로 표시')).toContain('<strong>마일스톤(◆)</strong>으로')
     expect(render('**중요**합니다')).toContain('<strong>중요</strong>합니다')
   })
+  test('an answer keeps the answer size; "small" is the other size, not both on one element', () => {
+    const classes = (html: string) => /class="(answer prose[^"]*)"/.exec(html)![1]!.split(' ')
+    const answer = classes(render('text'))
+    for (const c of ['text-[15px]', 'leading-7', 'prose-h1:text-lg', 'prose-h2:text-base', 'prose-h3:text-[15px]']) expect(answer).toContain(c)
+    const small = classes(renderToStaticMarkup(<MemoryRouter><Markdown text="text" size="small" /></MemoryRouter>))
+    for (const c of ['text-xs', 'leading-5']) expect(small).toContain(c)
+    for (const c of ['text-[15px]', 'leading-7']) expect(small).not.toContain(c)
+  })
   test('plain English emphasis is unchanged', () => {
     expect(render('a **bold** word and *italic*')).toContain('<strong>bold</strong>')
     expect(render('a **bold** word and *italic*')).toContain('<em>italic</em>')

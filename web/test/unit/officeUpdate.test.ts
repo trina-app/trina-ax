@@ -131,6 +131,12 @@ describe('release notes on the update cards', () => {
     expect(link.summary).not.toMatch(/\[[^\]]*$|\]\([^)]*$/)
     expect((link.summary.match(/\*\*/g) ?? []).length % 2).toBe(0)
   })
+  test('small text: the answer sizes are not on the notes at all (in the build they win over text-xs, whatever the class order)', () => {
+    const html = renderToStaticMarkup(createElement(ReleaseNotes, { notes }))
+    const classes = /class="(answer prose[^"]*)"/.exec(html)![1]!.split(' ')
+    for (const small of ['text-xs', 'leading-5', 'prose-h1:text-sm', 'prose-h2:text-sm', 'prose-h3:text-xs', 'text-muted']) expect(classes).toContain(small)
+    for (const big of ['text-[15px]', 'leading-7', 'prose-h1:text-lg', 'prose-h2:text-base', 'prose-h3:text-[15px]']) expect(classes).not.toContain(big)
+  })
   test('rendered as Markdown, closed to the summary: no raw ## or bullets on the card', () => {
     const html = renderToStaticMarkup(createElement(ReleaseNotes, { notes }))
     expect(html).toContain('the AI reads the web')
