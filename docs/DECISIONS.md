@@ -5129,8 +5129,11 @@ stop; a scheduled run skips files over 1 GB.
   decoded as a check) is saved with a note that completeness could not be verified.
 - **MCP answers.** tools/call may be up to 25 MB (`MCP_CALL_MAX_BYTES`; initialize and tools/list keep 1 MB, the AI's
   text keeps 40,000 characters). `pinnedRequest` now looks for the answer's head only in the first 256 KB and calls
-  `until` (the event-stream check) only after a read that brings a line break: before, every network piece re-read the
-  whole body, quadratic for a multi-megabyte image. Image and audio blocks and `resource.blob` are decoded and kept
+  `until` (the event-stream check) only after a read that may end an event, one that brings a blank line (`mayEndEvent`,
+  tools/web-fetch.ts): before, every network piece re-read the whole body, quadratic for a multi-megabyte image. Looking
+  for any line break was not enough, because every line of chunked framing ends in CRLF: 8 MB in 1.4 KB pieces still cost
+  13 s of CPU, 0.8 s with the blank line. Chunked framing cannot hide a blank line: with a chunk's end between the two
+  line ends the first is followed by the framing's CR, and the second comes right after the LF of a size line. Image and audio blocks and `resource.blob` are decoded and kept
   for the chat (`<data>/connection-media/<chat>/<id>.bin` + `.json`, 0600, 24 hours, at most 200 MiB per chat, 1 GiB
   per person and 4 GiB server-wide, the oldest go first, swept hourly); the AI gets `[image image/png 1024×1024 812 KB: mcp-file:<id> (save it with save_url
   …)]`. A handle is 128 random bits and opens only in its chat for the person of that turn; saving it makes no network
