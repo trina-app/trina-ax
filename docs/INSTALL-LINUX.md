@@ -204,6 +204,16 @@ description: 허용된 회의록의 결정과 할 일을 정리합니다.
   - 되돌려진 앱이 업데이트 시간을 알려 주지 못하는 옛 버전(0.2.18 이하)이면, root 부분 버전(`root/VERSION`)의 앱
     폴더에 있는 `admin.js`가 팀의 업데이트 시간과 시간대를 읽는다(읽기만). 그것도 안 되면 root가 마지막으로 받아 둔 시간,
     그다음은 `/etc/default/<id>`의 `MYCEL_TEAM_TZ`(없으면 서버 시계)로 03:00–05:00이다.
+- **Dev environment helper (`root/mycel-boxd`)**: the kit has this program. The installer and `mycel-ctl update` put it in
+  `/var/lib/mycel/root/`, root-owned, like `mycel-sandbox`. It runs only from there, never from a version folder. The file
+  alone changes nothing: the dev environment stays off without `MYCEL_DEV_ENV=1` and the `mycel-boxd.service` unit
+  (`scripts/dev-env/TRIAL.md`). A hosted server gets the file and no unit, and `install-trial.sh` stops there. On a server
+  with the unit, `mycel-ctl update` restarts the unit only when the program changed, before the team server restarts. The
+  restart stops the boxes that run; each starts again at its next use. A service that an administrator stopped stays
+  stopped. A failed restart does not stop the update, and neither does a boxd that does not answer or says that boxes are
+  not available: the result has a note. The update to the first release with this file runs the older `mycel-ctl`, which
+  does not know the restart: run the new `scripts/dev-env/install-trial.sh` once after that update. It sees that the
+  service runs a program other than the file and restarts it.
 - **더 오래된 릴리스로 내려가지 않음**: `mycel-update.timer`와 `--version` 없는 `sudo mycel-ctl update`는 피드의 버전이 지금 돌고 있는 앱보다 새로울 때만 설치한다(서버의 앱 업데이트와 같은 버전 순서. 0.2.18-pre.1 같은 사전 릴리스가 돌면 0.2.17 피드는 건너뛰고 그렇게 적는다). 일부러 되돌리려면 버전을 준다: `sudo mycel-ctl update --version <버전>`(더 새 root 부분은 그대로 둔다).
 - 끄기·켜기: `sudo mycel-ctl auto-update off|on`(타이머와 `server.json`의 `update.auto`를 함께 바꾸고 답변이 없을 때 서버를
   다시 시작한다. 설치 때는 `--no-auto-update`/`--auto-update`). repair·update는 이 플래그가 없으면 지금 타이머 상태를 그대로

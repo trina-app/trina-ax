@@ -1,13 +1,15 @@
-# Project box image (dev environment EXPERIMENT): Debian 13 slim + node/npm, python3/venv/pip, git, and what headless
-# Chrome needs (Remotion, Puppeteer, Playwright): NSS and fonts. The root file system is read-only, so a box cannot add
-# them with apt. Remotion brings its own Chrome and ffmpeg (box volume). No AI engine and no
-# credential helper inside (hole 6): the engine runs outside the box, in the launcher's sandbox, and only box_shell
-# commands enter the box. Pin the base by digest when this leaves the experiment.
+# Project box image (dev environment EXPERIMENT): Debian 13 slim + node/npm, python3/venv/pip, git, what headless
+# Chrome needs (Remotion, Puppeteer, Playwright): NSS and fonts, and ffmpeg for scripts. The root file system is
+# read-only, so a box cannot add them with apt. Remotion still brings its own Chrome and ffmpeg (box volume): the system
+# ffmpeg is for other commands. Debian's ffmpeg has libass, which subtitles need, and the build fails without it. No AI
+# engine and no credential helper inside (hole 6): the engine runs outside the box, in the launcher's sandbox, and only
+# box_shell commands enter the box. Pin the base by digest when this leaves the experiment.
 FROM docker.io/library/debian:trixie-slim
 RUN apt-get update && apt-get install -y --no-install-recommends nodejs npm python3 python3-venv python3-pip git \
-      ca-certificates curl procps less libnss3 fontconfig fonts-liberation fonts-noto-cjk \
+      ca-certificates curl procps less libnss3 fontconfig fonts-liberation fonts-noto-cjk ffmpeg \
     && rm -rf /var/lib/apt/lists/* \
     && mkdir -p /work /cache \
+    && ffmpeg -hide_banner -filters | grep -qw subtitles \
     && ! command -v claude && ! command -v codex
 ENV HOME=/cache/home npm_config_cache=/cache/npm PIP_CACHE_DIR=/cache/pip XDG_CACHE_HOME=/cache/xdg \
     PATH=/usr/local/bin:/usr/bin:/bin GIT_TERMINAL_PROMPT=0

@@ -203,8 +203,10 @@ export const LINUX_NATIVE = ['mycel-gate', 'mycel-bridge', 'mycel-safeops'] as c
  * (native/cmd/mycel-ctl/safeops.go safeOpsCopies, the same list) install them; publish-server.ts counts a change to
  * one of them as a root change (needsRoot). */
 export const LINUX_ROOT_COPIES = ['native/mycel-safeops', 'bin/pandoc'] as const
-/** native/bin/linux-<arch>/ programs that go to app/<v>/root/ (installed root-owned into <base>/root/) */
-export const LINUX_ROOT_NATIVE = ['mycel-bootstrap', 'mycel-launcher', 'mycel-sandbox', 'mycel-ctl'] as const
+/** native/bin/linux-<arch>/ programs that go to app/<v>/root/ (installed root-owned into <base>/root/). mycel-boxd, the
+ * dev environment's root helper, runs only from there, never from a version folder (the server account owns those), and
+ * only on a server with its service (scripts/dev-env/install-trial.sh): without the service the file changes nothing. */
+export const LINUX_ROOT_NATIVE = ['mycel-bootstrap', 'mycel-launcher', 'mycel-sandbox', 'mycel-ctl', 'mycel-boxd'] as const
 /** repository scripts -> app/<v>/root/<name> (scripts/linux/* are scripts/install-linux.sh's helpers) */
 export const LINUX_ROOT_SCRIPTS: readonly (readonly [string, string])[] = [
   ['scripts/linux/account.sh', 'mycel-account'],

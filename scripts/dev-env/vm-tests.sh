@@ -101,6 +101,21 @@ if [ "${REMOTION:-0}" = 1 ]; then
   D="box survives the render"; ok x 'true' 10
 fi
 
+# A rebuild keeps the name and changes the ID. The commit does the same in a second. A running box keeps its image; at
+# its next start it takes the new one (the labels in mycel-boxd, not the name, decide this).
+echo "== new image under the same name"
+pod() { (cd / && runuser -u mycel-devbox -- env XDG_RUNTIME_DIR="/run/user/$(id -u mycel-devbox)" podman "$@"); }
+img0=$(pod image inspect -f '{{.Id}}' localhost/mycel-devbox:1)
+pod commit -q -c "LABEL mycel.test=$(date +%s)" mycel-box-web localhost/mycel-devbox:1 >/dev/null
+img1=$(pod image inspect -f '{{.Id}}' localhost/mycel-devbox:1)
+D="the commit gave the image a new ID"; no test "$img0" = "$img1"
+ens web projects/web open >/dev/null
+D="a new image does not stop a running box"; ok test "$(pod inspect -f '{{.Image}}' mycel-box-web)" = "$img0"
+ctl '{"op":"stop","box":"web"}' >/dev/null
+ens web projects/web open >/dev/null
+D="a box takes the new image at its next start"; ok test "$(pod inspect -f '{{.Image}}' mycel-box-web)" = "$img1"
+pod tag "$img0" localhost/mycel-devbox:1 # the built image goes back: the commit holds the state of this box
+
 echo "== offline"
 D="network change restarts the box offline"; ok ctl "{\"op\":\"ensure\",\"box\":\"web\",\"folder\":\"projects/web\",\"network\":\"offline\",\"limits\":$LIM,\"denyAddrs\":[]}"
 D="offline: no internet"; no x 'curl -fsS -m 5 -o /dev/null https://example.com' 10

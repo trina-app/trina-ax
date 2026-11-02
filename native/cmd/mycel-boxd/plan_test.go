@@ -46,10 +46,11 @@ func TestCheckRequest(t *testing.T) {
 
 func TestCreateArgs(t *testing.T) {
 	p := pathsOf("/var/lib/mycel-boxd", "/run/mycel-boxd", "p1")
-	a := strings.Join(createArgs("p1", p, "localhost/mycel-devbox:1", "/etc/mycel-boxd/box-seccomp.json", okLimits, "open"), " ")
+	a := strings.Join(createArgs("p1", p, "abc123", "/etc/mycel-boxd/box-seccomp.json", "imghash", okLimits, "open"), " ")
 	for _, want := range []string{"--cap-drop=ALL", "no-new-privileges", "seccomp=/etc/mycel-boxd/box-seccomp.json", "--read-only",
 		"--memory 1536m --memory-swap 1536m", "--pids-limit 512", "--cpus 1", "--network pasta:--no-map-gw,--map-guest-addr,none",
-		"--userns keep-id:uid=0,gid=0", "-v /var/lib/mycel-boxd/boxes/p1/work:/work:rw", "/tmp:rw,nosuid,nodev,size=256m"} {
+		"--userns keep-id:uid=0,gid=0", "-v /var/lib/mycel-boxd/boxes/p1/work:/work:rw", "/tmp:rw,nosuid,nodev,size=256m",
+		"--label mycel.config=" + configHash(okLimits, "open"), "--label mycel.image=imghash", "--workdir /work abc123 sleep infinity"} {
 		if !strings.Contains(a, want) {
 			t.Errorf("missing %q in %s", want, a)
 		}
@@ -64,12 +65,95 @@ func TestCreateArgs(t *testing.T) {
 	if strings.Contains(a, "projects/") {
 		t.Error("folder name in a host path")
 	}
-	off := strings.Join(createArgs("p1", p, "img", "s", okLimits, "offline"), " ")
+	off := strings.Join(createArgs("p1", p, "img", "s", "h", okLimits, "offline"), " ")
 	if !strings.Contains(off, "--network none") {
 		t.Error(off)
 	}
-	if configHash("img", "s", okLimits, "open") == configHash("img", "s", okLimits, "offline") {
+}
+
+func TestConfigHash(t *testing.T) {
+	base := configHash(okLimits, "open")
+	if base != configHash(okLimits, "open") {
+		t.Error("the hash is not stable")
+	}
+	if base == configHash(okLimits, "offline") {
 		t.Error("network not in the config hash")
+	}
+	for _, l := range []limits{{CPUs: 2, MemoryMiB: 1536, Pids: 512}, {CPUs: 1, MemoryMiB: 2048, Pids: 512}, {CPUs: 1, MemoryMiB: 1536, Pids: 256}} {
+		if base == configHash(l, "open") {
+			t.Errorf("%+v not in the config hash", l)
+		}
+	}
+}
+
+func TestImageHash(t *testing.T) {
+	base := imageHash("id1", []byte(`{"a":1}`))
+	if base != imageHash("id1", []byte(`{"a":1}`)) {
+		t.Error("the hash is not stable")
+	}
+	// the same tag after a rebuild has a new ID
+	if base == imageHash("id2", []byte(`{"a":1}`)) {
+		t.Error("image ID not in the image hash")
+	}
+	// the same path after a change has new content
+	if base == imageHash("id1", []byte(`{"a":2}`)) {
+		t.Error("profile content not in the image hash")
+	}
+}
+
+func TestPeerMay(t *testing.T) {
+	prev := *serverUID
+	*serverUID = 990
+	defer func() { *serverUID = prev }()
+	if !peerMay(990, "exec") || !peerMay(990, "status") {
+		t.Error("the server may send every request")
+	}
+	if !peerMay(0, "status") {
+		t.Error("root may ask for status")
+	}
+	for _, op := range []string{"ensure", "stop", "destroy", "exec", "ps", "preview", "netlog"} {
+		if peerMay(0, op) {
+			t.Errorf("root may not send %s", op)
+		}
+	}
+	if peerMay(1000, "status") {
+		t.Error("another account may not ask")
+	}
+}
+
+func TestBoxLabels(t *testing.T) {
+	cfg := configHash(okLimits, "open")
+	img := imageHash("id1", []byte("profile"))
+	newImg := imageHash("id2", []byte("profile"))
+	cur := cfg + " " + img
+
+	// a running box stays when the image or the profile changed: a change must not kill a running render
+	if !keepRunning(cur, okLimits, "open") {
+		t.Error("running box with the same limits and network must stay")
+	}
+	if keepRunning(cur, okLimits, "offline") || keepRunning(cur, limits{CPUs: 2, MemoryMiB: 1536, Pids: 512}, "open") {
+		t.Error("running box with other limits or network must stop")
+	}
+	// a box that does not run takes the new image at its next start
+	if !reuseStopped(cur, img, okLimits, "open") {
+		t.Error("stopped box with no change must be reused")
+	}
+	if reuseStopped(cur, newImg, okLimits, "open") {
+		t.Error("stopped box with a new image must be made again")
+	}
+	if reuseStopped(cur, img, okLimits, "offline") {
+		t.Error("stopped box with other network must be made again")
+	}
+	// a box from an older boxd has no mycel.image label and an old mycel.config: it is made again once, without a crash
+	for _, old := range []string{"", "1a2b3c4d5e6f7a8b", "1a2b3c4d5e6f7a8b <no value>", cfg, cfg + " <no value>"} {
+		if reuseStopped(old, img, okLimits, "open") {
+			t.Errorf("labels %q reused", old)
+		}
+	}
+	for _, old := range []string{"", "1a2b3c4d5e6f7a8b", "1a2b3c4d5e6f7a8b <no value>"} {
+		if keepRunning(old, okLimits, "open") {
+			t.Errorf("labels %q kept", old)
+		}
 	}
 }
 

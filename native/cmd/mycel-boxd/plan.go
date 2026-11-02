@@ -1,7 +1,8 @@
 // mycel-boxd: the box helper of the dev environment EXPERIMENT (docs/DECISIONS.md "Dev environment (experiment)",
 // P0 spike docs/research/dev-env-p0-spike.md on branch spike/dev-env-p0). It runs as root, owns every project box
 // and is the only program that runs podman (rootless, as the box account; never the server or the engine account).
-// The server asks it over boxd.sock (only the server's uid may connect); the AI engine never reaches it.
+// The server asks it over boxd.sock (only the server's uid; root gets status only, mycel-ctl update asks that after a
+// restart); the AI engine never reaches it.
 //
 // Protocol: one JSON request line per connection, one JSON answer line (shared/src/dev-env.ts):
 //
@@ -11,6 +12,10 @@
 //	{"op":"exec","box","cwd","command","timeoutMs","background","logName","actor"} -> {"ev":"exit",...}
 //	{"op":"ps","box"}                                   -> {"ev":"ps","processes"}
 //	{"op":"preview","box","port"}                       -> {"ev":"preview","socket"}
+//
+// A box takes a new image or seccomp profile at its next start. A running box keeps running: a change must not kill a
+// running render. The image and profile are read at each ensure, so a rebuild needs no boxd restart. The exception: if
+// the image or the profile was missing when boxd started, setup says boxes are not available until boxd starts again.
 //
 // This file holds the parts without side effects (checks, podman arguments, network rules), so they are tested on
 // every OS; run_linux.go does the work.
@@ -68,8 +73,13 @@ const (
 	pidsHeadroom = 4
 	// a "4 GB" VM reports less than 4096 MiB (3.8 GB on the test server): the kernel keeps some for itself
 	minHostMiB = 3584
-	pidsWait     = 5 * time.Second
+	pidsWait   = 5 * time.Second
 )
+
+// peerMay: the server may send every request. Root may only ask for status.
+func peerMay(uid int, op string) bool {
+	return uid == *serverUID || uid == 0 && op == "status"
+}
 
 // checkRequest validates what every op needs; the folder is checked again on disk (run_linux.go openFolder).
 func checkRequest(r *request) error {
@@ -174,15 +184,16 @@ func pidsAtLimit(current, max string) bool {
 func containerName(box string) string { return "mycel-box-" + box }
 
 // createArgs: `podman create` for one box (the P0 spike's box.sh create, adjusted: no engine mount at all, no proxy
-// sockets; the engine runs outside the box and the model token never enters it).
-func createArgs(box string, p boxPaths, image, seccomp string, l limits, network string) []string {
+// sockets; the engine runs outside the box and the model token never enters it). image is the resolved image ID, not
+// the name, so the box gets the same image that imgHash names.
+func createArgs(box string, p boxPaths, image, seccomp, imgHash string, l limits, network string) []string {
 	mem := strconv.Itoa(l.MemoryMiB) + "m"
 	net := "pasta:--no-map-gw,--map-guest-addr,none"
 	if network == "offline" {
 		net = "none"
 	}
 	args := []string{"create", "--name", containerName(box), "--hostname", "box",
-		"--label", "mycel.box=" + box, "--label", "mycel.config=" + configHash(image, seccomp, l, network),
+		"--label", "mycel.box=" + box, "--label", "mycel.config=" + configHash(l, network), "--label", "mycel.image=" + imgHash,
 		"--network", net,
 		"--read-only", "--tmpfs", "/tmp:rw,nosuid,nodev,size=" + tmpSize + ",mode=1777",
 		"--cap-drop=ALL", "--security-opt", "no-new-privileges", "--security-opt", "seccomp=" + seccomp,
@@ -200,10 +211,37 @@ func createArgs(box string, p boxPaths, image, seccomp string, l limits, network
 	return args
 }
 
-func configHash(image, seccomp string, l limits, network string) string {
-	b, _ := json.Marshal([]any{image, seccomp, l.CPUs, l.MemoryMiB, l.Pids, network, 1})
+// labelsFormat: the two labels of a box for `podman inspect`, in the order that keepRunning and reuseStopped read.
+const labelsFormat = `{{index .Config.Labels "mycel.config"}} {{index .Config.Labels "mycel.image"}}`
+
+// configHash: the label mycel.config, what a running box must match. A change here stops a running box. Change the
+// last value when createArgs changes: each box is then made again once.
+func configHash(l limits, network string) string {
+	b, _ := json.Marshal([]any{l.CPUs, l.MemoryMiB, l.Pids, network, 2})
 	h := sha256.Sum256(b)
 	return hex.EncodeToString(h[:8])
+}
+
+// imageHash: the label mycel.image, what a box takes at its start: the image ID (a rebuild keeps the name and changes
+// the ID) and the seccomp profile's content (podman copies the profile into the container at create).
+func imageHash(imageID string, seccomp []byte) string {
+	s := sha256.Sum256(seccomp)
+	b, _ := json.Marshal([]any{imageID, hex.EncodeToString(s[:])})
+	h := sha256.Sum256(b)
+	return hex.EncodeToString(h[:8])
+}
+
+// keepRunning: a running box stays when its limits and network match, also when the image or the profile changed.
+func keepRunning(labels string, l limits, network string) bool {
+	f := strings.Fields(labels)
+	return len(f) > 0 && f[0] == configHash(l, network)
+}
+
+// reuseStopped: a box that does not run is started as it is only when both labels match. Any other box is made again;
+// this includes a box from an older boxd, which has no mycel.image label.
+func reuseStopped(labels, imgHash string, l limits, network string) bool {
+	f := strings.Fields(labels)
+	return len(f) == 2 && f[0] == configHash(l, network) && f[1] == imgHash
 }
 
 // execArgs: `podman exec` for one command; the command text goes on stdin (never argv: other host accounts can read

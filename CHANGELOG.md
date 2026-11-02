@@ -3,6 +3,12 @@
 Published artifacts and authoritative release notes are in [GitHub Releases](https://github.com/trina-app/trina-ax/releases).
 This file summarizes user-visible changes; it is not a list of every commit.
 
+## Unreleased
+
+- Linux servers: the install kit now has `mycel-boxd`, the root helper of the dev environment, at `root/mycel-boxd` (root-owned, like `mycel-sandbox`). The dev environment is still off by default: the file does nothing without `MYCEL_DEV_ENV=1` and the `mycel-boxd.service` unit. A hosted server gets the file and no unit. Because this is a new root file, the next release needs the root update once (`needsRoot`, and a new `rootSince` at that release): `mycel-update.timer` or `sudo mycel-ctl update` installs it.
+- Linux servers with the dev environment: `mycel-ctl update` now restarts `mycel-boxd.service` when an update changes `root/mycel-boxd`, before the team server restarts, and at no other time. The restart stops the boxes that run; each starts again at its next use. A service that an administrator stopped stays stopped. If the restart fails, if boxd does not answer after it, or if boxd says that boxes are not available, the update goes on and its result says so. Do one step once: the update to the next release runs the older `mycel-ctl`, which does not know this restart, so run the new `scripts/dev-env/install-trial.sh` after it. The script sees that the service runs a program other than `root/mycel-boxd` and restarts it. Later updates need no step.
+- `sudo mycel-ctl update` without `--json` now prints the update's notes, so they also reach the update timer's journal.
+
 ## 0.2.19 — 2026-11-02
 
 [Published release and notes](https://github.com/trina-app/trina-ax/releases/tag/v0.2.19).

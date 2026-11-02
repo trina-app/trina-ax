@@ -18,6 +18,7 @@ import (
 	"runtime"
 	"strconv"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 
@@ -50,6 +51,15 @@ func setup() error {
 	acct.home = u.HomeDir
 	if acct.uid == 0 || acct.uid == *serverUID {
 		return fail("the box account must not be root or the server account")
+	}
+	// fail closed after a restart: boxes that still run have no preview or destination log here; stop them. This comes
+	// before the checks below: a failed check must not leave a box that runs and that nothing watches.
+	names, err := podmanOut("ps", "-q", "--filter", "label=mycel.box", "--format", "{{.Names}}")
+	if err != nil {
+		log.Printf("setup: cannot list the boxes: %v", err)
+	}
+	for _, n := range strings.Fields(names) {
+		podmanOut("stop", "-t", strconv.Itoa(stopGrace), n)
 	}
 	var uts unix.Utsname
 	unix.Uname(&uts)
@@ -96,13 +106,13 @@ func setup() error {
 	}
 	st, err := os.Stat(*seccompF)
 	if err != nil {
-		return fail("no box seccomp profile at " + *seccompF)
+		return fail("no box seccomp profile at " + *seccompF + " (scripts/dev-env/build-image.sh, then restart mycel-boxd)")
 	}
 	if s := st.Sys().(*syscall.Stat_t); s.Uid != 0 || st.Mode().Perm()&0o022 != 0 {
 		return fail("the seccomp profile must be root's and not writable by others")
 	}
 	if _, err := podmanOut("image", "exists", *image); err != nil {
-		return fail("box image " + *image + " is missing (scripts/dev-env/build-image.sh)")
+		return fail("box image " + *image + " is missing (scripts/dev-env/build-image.sh, then restart mycel-boxd)")
 	}
 	id, _ := podmanOut("image", "inspect", "-f", "{{.Id}}", *image)
 	avail.checks["image"] = strings.TrimSpace(id)
@@ -111,11 +121,6 @@ func setup() error {
 			return fail("cannot make " + d)
 		}
 		os.Chmod(d, 0o711)
-	}
-	// fail closed after a restart: boxes that still run have no preview or destination log here; stop them
-	names, _ := podmanOut("ps", "-q", "--filter", "label=mycel.box", "--format", "{{.Names}}")
-	for _, n := range strings.Fields(names) {
-		podmanOut("stop", "-t", strconv.Itoa(stopGrace), n)
 	}
 	avail.ok = true
 	avail.reason = ""
@@ -292,6 +297,9 @@ func inspect(name, format string) (string, error) {
 	return strings.TrimSpace(s), err
 }
 
+// starts: see ensure.
+var starts sync.Mutex
+
 func runningCount(except string) int {
 	n := 0
 	boxes.Lock()
@@ -304,6 +312,28 @@ func runningCount(except string) int {
 	return n
 }
 
+// boxImage reads what a box takes at its start: the ID of the image now and the hash of that ID and the seccomp
+// profile. Do not use avail.checks["image"]: it has the ID from the boxd start, so it goes stale after a rebuild.
+func boxImage() (id, hash string, err error) {
+	out, err := podmanOut("image", "inspect", "-f", "{{.Id}}", *image)
+	id = strings.TrimSpace(out)
+	if err != nil {
+		return "", "", fmt.Errorf("cannot read box image %s (if it is missing: scripts/dev-env/build-image.sh): %v", *image, err)
+	}
+	if id == "" {
+		return "", "", fmt.Errorf("box image %s has no ID", *image)
+	}
+	seccomp, err := os.ReadFile(*seccompF)
+	if err != nil {
+		return "", "", fmt.Errorf("cannot read the box seccomp profile (scripts/dev-env/build-image.sh): %v", err)
+	}
+	return id, imageHash(id, seccomp), nil
+}
+
+// ensure makes and starts a box. A running box stays when its limits and network match; a new image or seccomp profile
+// reaches it at its next start, when the container is made again. The box volume and the folder are outside the
+// container, so they stay. A box from an older boxd never gets to the running branch: setup stops every box at the
+// boxd start.
 func ensure(r *request) (map[string]any, error) {
 	if !avail.ok {
 		return nil, fmt.Errorf("boxes are not available: %s", avail.reason)
@@ -314,11 +344,24 @@ func ensure(r *request) (map[string]any, error) {
 	name := containerName(r.Box)
 	p := pathsOf(*stateDir, *runDir, r.Box)
 	if state, err := inspect(name, "{{.State.Status}}"); err == nil && state == "running" && b.running {
-		if h, _ := inspect(name, `{{index .Config.Labels "mycel.config"}}`); h == configHash(*image, *seccompF, r.Limits, r.Network) {
+		labels, err := inspect(name, labelsFormat)
+		if err != nil { // no change is known: a failed read must not stop a running render
+			return nil, fmt.Errorf("cannot read the box labels: %v", err)
+		}
+		if keepRunning(labels, r.Limits, r.Network) {
 			b.touch()
 			return infoOf(b, "running"), nil
 		}
-		stopLocked(b, p, false)
+		stopLocked(b, p, false) // first: a box must not keep the old network if a later step fails
+	}
+	// one start at a time: a box counts as running only at the end of its start, so two first uses at the same moment would
+	// both pass the check below. Before the first slow step, and the order is always b.mu, then this lock.
+	starts.Lock()
+	defer starts.Unlock()
+	// before the mounts: a missing image must not leave the folder mounted
+	imageID, imgHash, err := boxImage()
+	if err != nil {
+		return nil, err
 	}
 	if runningCount(r.Box) >= *maxBoxes {
 		return nil, fmt.Errorf("another project box runs on this server; it stops after its idle time, or stop it from its project")
@@ -329,10 +372,9 @@ func ensure(r *request) (map[string]any, error) {
 	if err := idmapped(p, r.Folder); err != nil {
 		return nil, err
 	}
-	want := configHash(*image, *seccompF, r.Limits, r.Network)
-	if h, err := inspect(name, `{{index .Config.Labels "mycel.config"}}`); err != nil || h != want {
+	if labels, err := inspect(name, labelsFormat); err != nil || !reuseStopped(labels, imgHash, r.Limits, r.Network) {
 		podmanOut("rm", "-f", name)
-		if _, err := podmanOut(createArgs(r.Box, p, *image, *seccompF, r.Limits, r.Network)...); err != nil {
+		if _, err := podmanOut(createArgs(r.Box, p, imageID, *seccompF, imgHash, r.Limits, r.Network)...); err != nil {
 			return nil, err
 		}
 	}

@@ -151,6 +151,11 @@ func cmdUpdate(e *env, args []string) (int, error) {
 		} else {
 			fmt.Fprintf(e.stdout, "%s: %s -> %s (root files updated: %v, app updated: %v) %s\n", res.Result, orNone(res.From), orNone(res.To), res.RootUpdated, res.AppUpdated, res.Detail)
 		}
+		if !*asJSON {
+			for _, n := range res.Notes {
+				fmt.Fprintln(e.stdout, "note: "+n)
+			}
+		}
 		if code != 0 && err == nil {
 			err = fmt.Errorf("%s", res.Result)
 		}
@@ -787,7 +792,13 @@ func (u *updater) updateRoot(dir, v string) error {
 	if !u.waitForTurns() {
 		return u.deferUpdate(v, "root files not replaced")
 	}
-	units := false
+	units, boxd := false, false
+	// also when a later step fails: the next run finds root/mycel-boxd already new and would not restart it
+	defer func() {
+		if boxd && systemd {
+			u.restartBoxd()
+		}
+	}()
 	for _, rel := range diff {
 		dest := u.e.root(rel)
 		if err := os.MkdirAll(filepath.Dir(dest), 0o755); err != nil {
@@ -804,6 +815,9 @@ func (u *updater) updateRoot(dir, v string) error {
 		}
 		if strings.HasPrefix(rel, "systemd/") {
 			units = true
+		}
+		if rel == boxdProgram {
+			boxd = true
 		}
 	}
 	if err := writeRootFile(u.e.root("VERSION"), []byte(v+"\n"), 0o644); err != nil {
@@ -824,6 +838,88 @@ func (u *updater) updateRoot(dir, v string) error {
 		u.res.Notes = append(u.res.Notes, "no systemd: restart `mycel-ctl supervise` to run the new root files")
 	}
 	return nil
+}
+
+// The dev environment's root helper: root/<boxdProgram> comes with every kit, and only a server with the dev env has
+// the service (scripts/dev-env/install-trial.sh writes it, with this name for every install id). Without the service the
+// file runs nothing, so a hosted server or a server without the dev env has no step here.
+const (
+	boxdProgram = "mycel-boxd"
+	boxdUnit    = "mycel-boxd.service"
+)
+
+// boxdSock is the default of mycel-boxd --listen (install-trial.sh keeps it). boxdWait is the time for its checks, the
+// same as in install-trial.sh. Variables for the tests.
+var (
+	boxdSock = "/run/mycel-boxd/boxd.sock"
+	boxdWait = 30 * time.Second
+)
+
+// restartBoxd runs the new root/mycel-boxd after this update replaced it, before the team server restarts (updateApp).
+// A helper that starts stops the boxes that run (native/cmd/mycel-boxd setup fails closed), so only a changed program
+// comes here, and only a service that runs this file restarts: one from an earlier trial runs another path and would
+// stop the boxes for nothing. A service that an administrator stopped stays stopped; a failed one restarts. The server
+// works without boxes, so a failure is a note and the update goes on.
+func (u *updater) restartBoxd() {
+	unit, err := os.ReadFile(filepath.Join(systemdUnitDir, boxdUnit))
+	if err != nil {
+		return
+	}
+	if !strings.Contains(string(unit), "\nExecStart="+u.e.root(boxdProgram)+" ") {
+		u.res.Notes = append(u.res.Notes, boxdUnit+" does not run "+u.e.root(boxdProgram)+", so it keeps the old program: run scripts/dev-env/install-trial.sh again")
+		return
+	}
+	if out, _ := exec.Command(u.e.systemctl, "is-active", boxdUnit).Output(); strings.TrimSpace(string(out)) == "inactive" {
+		u.res.Notes = append(u.res.Notes, boxdUnit+" is stopped, so it stays stopped: its next start runs the new "+boxdProgram)
+		return
+	}
+	if out, err := exec.Command(u.e.systemctl, "restart", boxdUnit).CombinedOutput(); err != nil {
+		u.res.Notes = append(u.res.Notes, fmt.Sprintf("restart of %s failed, so boxes may not work: %v %s (journalctl -u %s, then `sudo systemctl restart %s`)",
+			boxdUnit, err, strings.TrimSpace(string(out)), boxdUnit, boxdUnit))
+		return
+	}
+	if why := boxdProblem(); why != "" {
+		u.res.Notes = append(u.res.Notes, fmt.Sprintf("%s restarted, but boxes may not work: %s (journalctl -u %s)", boxdUnit, why, boxdUnit))
+		return
+	}
+	u.res.Notes = append(u.res.Notes, boxdProgram+" changed: "+boxdUnit+" restarted; boxes that ran have stopped and start again at their next use")
+}
+
+// boxdProblem asks the helper after a restart and says why boxes do not work, or "". The exit status of `systemctl
+// restart` cannot say this: the unit is Type=simple, so systemctl is done when the process starts, also for a program that
+// stops at once. The helper answers after its checks; until then the socket file of the old process refuses a connection.
+func boxdProblem() string {
+	for end := time.Now().Add(boxdWait); ; {
+		var st struct {
+			Ev        string `json:"ev"`
+			Available bool   `json:"available"`
+			Reason    string `json:"reason"`
+		}
+		if line, err := boxdAsk(); err == nil && json.Unmarshal(line, &st) == nil {
+			if st.Ev == "status" && !st.Available {
+				return "boxes are not available: " + st.Reason
+			}
+			return "" // a boxd from before the status for root says no, but it answers: it runs
+		}
+		if time.Now().After(end) {
+			return "no answer on " + boxdSock + " after " + boxdWait.String()
+		}
+		time.Sleep(500 * time.Millisecond)
+	}
+}
+
+// boxdAsk sends one status request. boxd takes only this request from root.
+func boxdAsk() ([]byte, error) {
+	c, err := net.DialTimeout("unix", boxdSock, 2*time.Second)
+	if err != nil {
+		return nil, err
+	}
+	defer c.Close()
+	c.SetDeadline(time.Now().Add(5 * time.Second))
+	if _, err := c.Write([]byte(`{"op":"status"}` + "\n")); err != nil {
+		return nil, err
+	}
+	return bufio.NewReader(c).ReadBytes('\n')
 }
 
 // syncUnits renders the units from root/systemd and root/install.json on every update (not only when a template

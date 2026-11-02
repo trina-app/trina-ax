@@ -108,7 +108,7 @@ func serve(c *net.UnixConn) {
 	defer c.Close()
 	o := &out{c: c}
 	cr, err := peer.Of(c)
-	if err != nil || cr.Uid != *serverUID {
+	if err != nil || !peerMay(cr.Uid, "status") {
 		o.send(map[string]any{"ev": "error", "message": "only the server may use boxd"})
 		return
 	}
@@ -120,6 +120,10 @@ func serve(c *net.UnixConn) {
 	var req request
 	if err := json.Unmarshal(line, &req); err != nil {
 		o.send(errEv(fmt.Errorf("bad request")))
+		return
+	}
+	if !peerMay(cr.Uid, req.Op) {
+		o.send(map[string]any{"ev": "error", "message": "only the server may use boxd"})
 		return
 	}
 	if err := checkRequest(&req); err != nil {

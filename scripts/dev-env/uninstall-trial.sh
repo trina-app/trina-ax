@@ -1,7 +1,8 @@
 #!/bin/bash
 # Removes what install-trial.sh added and restores the state before it. Run as root. The project folders stay: only the
 # box volumes go (node_modules, caches). It restarts the team server. It does not change the installed version:
-# scripts/dev-env/TRIAL.md says how to go back to the release.
+# scripts/dev-env/TRIAL.md says how to go back to the release. <base>/root/mycel-boxd stays: the kit owns that file, the
+# next update writes it again, and it does nothing without the service and MYCEL_DEV_ENV=1.
 #   scripts/dev-env/uninstall-trial.sh [--id mycel] [--keep-packages]
 set -euo pipefail
 ID=mycel; KEEP=0
@@ -12,6 +13,8 @@ while [ $# -gt 0 ]; do
     *) echo "unknown option $1" >&2; exit 2 ;;
   esac
 done
+# Rootless podman goes back to the caller's folder, and the box account cannot enter a home folder ("cannot chdir").
+cd /
 die() { echo "uninstall-trial: STOP: $*" >&2; exit 1; }
 say() { echo "uninstall-trial: $*"; }
 BOX_USER=mycel-devbox
@@ -37,6 +40,7 @@ if id "$BOX_USER" >/dev/null 2>&1; then
   runuser -u "$BOX_USER" -- env XDG_RUNTIME_DIR="/run/user/$U" podman rm -af -t 5 >/dev/null 2>&1 || true
 fi
 systemctl disable --now mycel-boxd.service >/dev/null 2>&1 || true
+# /usr/local/sbin: only an older run of install-trial.sh put the program there.
 rm -f "$UNIT" /usr/local/sbin/mycel-boxd
 systemctl daemon-reload
 systemctl reset-failed mycel-boxd.service 2>/dev/null || true
@@ -63,7 +67,10 @@ if [ "$KEEP" = 0 ] && [ -s "$STATE/packages-new" ]; then
   xargs -r apt-get purge -y -qq < "$STATE/packages-new" >/dev/null
 fi
 
-if [ "$(cat "$STATE/update-timer" 2>/dev/null)" = enabled ]; then systemctl enable --now "$TIMER" >/dev/null; fi
+# update-timer-free: install-trial.sh does not hold the timer off, so it stays as the administrator left it.
+if [ ! -e "$STATE/update-timer-free" ] && [ "$(cat "$STATE/update-timer" 2>/dev/null)" = enabled ]; then
+  systemctl enable --now "$TIMER" >/dev/null
+fi
 rm -rf --one-file-system "$STATE"
 
 say "check"

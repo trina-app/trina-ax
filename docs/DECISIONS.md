@@ -5164,8 +5164,9 @@ stop; a scheduled run skips files over 1 GB.
 
 ## Dev environment (experiment) (feat/dev-env, 2026-10-31)
 
-Status: EXPERIMENT on branch `feat/dev-env`, time-boxed (1-2 weeks), never merged to main or released without the
-joint review (continue / switch to a "runner" design / put on hold). Input: Dion's 개발 환경 plan, our review (7 holes),
+Status: EXPERIMENT, off by default, in main since 2026-11-01. The owner approved on 2026-11-02 that the Linux kit ships
+`mycel-boxd`. A second team and any default-on step still need the owner and the joint review (continue / switch to a
+"runner" design / put on hold). Input: Dion's 개발 환경 plan, our review (7 holes),
 the P0 spike (`docs/research/dev-env-p0-spike.md` on `spike/dev-env-p0`). Archived work reused: `feat/code-sandbox-d1`
 (the setting pattern with a versioned warning and consent, the launcher-op style, the test shape).
 
@@ -5183,7 +5184,7 @@ the P0 spike (`docs/research/dev-env-p0-spike.md` on `spike/dev-env-p0`). Archiv
   change window, credential gate) without a new path from the engine sandbox to a podman socket.
 - **mycel-boxd** (new, `native/cmd/mycel-boxd`): a root helper, the only program that runs podman (rootless, as the
   `mycel-devbox` account). Not the launcher, because the launcher runs as the engine account and the box needs root
-  for the idmapped mount and for the rules in the box's network namespace. Socket for the server's uid only. Box =
+  for the idmapped mount and for the rules in the box's network namespace. Socket for the server's uid only (root: status only, since 2026-11-02). Box =
   spike box: read-only root, `--cap-drop=ALL`, no-new-privileges, the box seccomp profile, 1 CPU (lower CPU weight
   than the server), 1.5 GB without swap, 512 processes, /tmp 256 MB, a size-limited loop volume per box (4 GB) for
   HOME, caches, `node_modules` and `.venv`. The folder is opened with `openat2(RESOLVE_NO_SYMLINKS | RESOLVE_BENEATH)`
@@ -5244,10 +5245,10 @@ The box can render Remotion video in the current limits after a small image chan
 | Folder quota | Not built. The 4 GiB volume does not cover `/work`: a command can fill the disk that holds the team folder | Yes | Yes on a server that other teams share. No on a VM for this team only, with a disk alert: the damage stays with that team, but a full disk can still stop its server. |
 | WebSocket preview | Not built; the gateway answers 501 | Yes, for most dev servers | No. Vite falls back to reloads. Remotion Studio through the preview is not tested. |
 
-Two more items stop the trial, and they are not in the table: the corrected flood and process limit steps need a
-re-run in a real box (60 PASS, 3 FAIL on 2026-11-01, see the test VM plan); and the rule that boxd is not installed on
-a team server stays until the owner changes it for the trial, as a trial needs boxd (root) on that team's server and a
-build of this branch. The isolation probe and Remotion passed in a real box.
+Two more items stopped the trial, and they were not in the table. Both are closed. The corrected flood and process
+limit steps ran again in a real box on 2026-11-01 (67 PASS, 0 FAIL at 1 CPU and 2.5 GB; the first run was 60 PASS,
+3 FAIL). The owner allowed boxd on one team server for the trial on 2026-11-01. The isolation probe and Remotion passed
+in a real box.
 
 **Process limit:** a box that stays at its process limit for 5 s stops, and the next command starts it again and tells
 the AI. Nothing can enter a box at its limit, so without this stop the person gets only a runtime error.
@@ -5255,7 +5256,9 @@ the AI. Nothing can enter a box at its limit, so without this stop the person ge
 **Limits (owner, 2026-11-01):** 1 CPU and 2.5 GB without swap replace the 1.5 GB above. Dev mode needs a team VM of at
 least 4 GB; boxd reports a smaller VM as not available, with the reason (below 3584 MiB, as a 4 GB VM reports about
 3.8 GB). A box at its limit leaves about 1.3 GB for the server and the AI answers. The trial on one server is in
-`scripts/dev-env/TRIAL.md`; `mycel-boxd` stays out of the install kit.
+`scripts/dev-env/TRIAL.md`. `mycel-boxd` stayed out of the install kit until 2026-11-02. The Linux kit now ships it at
+`root/mycel-boxd`, root-owned, and the file does nothing without the service and `MYCEL_DEV_ENV=1`, which only
+`install-trial.sh` adds.
 
 **Project on the team root:** a project with `folder_path = ''` has no folder for a box, and boxd keeps refusing the
 team root. When an admin turns dev mode on, or saves it again, the server creates `projects/<name>` as for a new project

@@ -325,6 +325,8 @@ for f in mycel-bootstrap mycel-launcher mycel-sandbox mycel-ctl mycel-account se
   [ -f "$KROOT/$f" ] || die "$KROOT/$f missing (not a Linux kit? bun scripts/build-bundle.ts --os linux)"
 done
 for f in bin/bun bin/pandoc server/src/main.js server/src/admin.js server/src/account.js server/src/office-worker.js native/mycel-gate native/mycel-bridge native/mycel-safeops; do [ -f "$BUNDLE/$f" ] || die "$BUNDLE/$f missing"; done
+# root/mycel-boxd is not in the list above: a repair without --from uses the installed version, and a version from before
+# the kit had mycel-boxd has no such file (every kit from now on has it: build-bundle.ts LINUX_ROOT_NATIVE)
 if [ "$ALLOW_UNSIGNED" = 0 ] && [ ! -f "$BUNDLE/manifest.sig" ]; then die "the kit is not signed (use --allow-unsigned for development builds)"; fi
 
 # ---- 1) system checks (also `check`) ----
@@ -351,7 +353,9 @@ elf_arch() {
   [ "$cls" = 02 ] || { echo elf32; return; }
   case "$mach" in 3e00) echo amd64 ;; b700) echo arm64 ;; *) echo "elf-$mach" ;; esac
 }
-for f in "$BUNDLE/bin/bun" "$BUNDLE/native/mycel-gate" "$BUNDLE/native/mycel-bridge" "$KROOT/mycel-bootstrap" "$KROOT/mycel-launcher" "$KROOT/mycel-sandbox" "$KROOT/mycel-ctl"; do
+KIT_ELFS=("$BUNDLE/bin/bun" "$BUNDLE/native/mycel-gate" "$BUNDLE/native/mycel-bridge" "$KROOT/mycel-bootstrap" "$KROOT/mycel-launcher" "$KROOT/mycel-sandbox" "$KROOT/mycel-ctl")
+[ ! -f "$KROOT/mycel-boxd" ] || KIT_ELFS+=("$KROOT/mycel-boxd")
+for f in "${KIT_ELFS[@]}"; do
   a=$(elf_arch "$f")
   [ "$a" = "$ARCH" ] || die "${f#"$FROM"/} is $a, this server is $ARCH: use the $ARCH kit"
 done
@@ -647,6 +651,10 @@ rootfile() {  # mode name
   install -o root -g root -m "$1" "$KROOT/$2" "$BASE/root/$2" || die "installing root/$2 failed"
 }
 for f in mycel-bootstrap mycel-launcher mycel-sandbox mycel-ctl mycel-account set-claude-token; do rootfile 755 "$f"; done
+# the dev environment's root helper. It runs only from here, never from a version folder (the server account owns those),
+# and only when scripts/dev-env/install-trial.sh added its service: this file alone changes nothing. A kit without it (a
+# repair from an older installed version) leaves the file in place.
+[ ! -f "$KROOT/mycel-boxd" ] || rootfile 755 mycel-boxd
 rootfile 644 safe-fs.sh
 # the unit templates go with the root programs (mycel-ctl render-units and update read them from root/systemd/)
 mk root root 755 "$BASE/root/systemd"

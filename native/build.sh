@@ -1,7 +1,7 @@
 #!/bin/bash
 # Build the native helpers for macOS and Linux: bin/<os>-<arch>/{mycel-bridge,mycel-gate,mycel-launcher,mycel-bootstrap,
 # mycel-safeops} (mycel-safeops: the image normalizer of AI reads, server/src/files/vision.ts, and the safe-ops 1A helper),
-# plus Linux only bin/linux-<arch>/{mycel-enroll,mycel-sandbox,mycel-ctl} (ee/cloud/README.md; linux-runtime spec 3.3.4,
+# plus Linux only bin/linux-<arch>/{mycel-enroll,mycel-sandbox,mycel-ctl,mycel-boxd} (ee/cloud/README.md; linux-runtime spec 3.3.4,
 # 3.6.5) and bin/darwin-<arch>/mycel-ocr (Swift: PDFKit / ImageIO / Apple Vision; only when built on a Mac with swiftc).
 # Linux has no OCR (docs/DECISIONS.md "AI sees images and PDF pages"): the AI sees images and scanned pages instead.
 #   bash native/build.sh                     arm64 (this repo's default; dev on Apple silicon)

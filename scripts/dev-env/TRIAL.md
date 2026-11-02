@@ -1,106 +1,258 @@
 # Dev environment trial on one team server
 
-Status: EXPERIMENT. The owner approved this for one server on 2026-11-01. It is not a release. The corrected flood and
-process limit tests have not run in a real box yet (`docs/research/dev-env-test-vm-plan.md`), so use a project
-with no secrets. Keep the commands in this order. Steps 3 and 4 restart the team server and end running answers, so
-do them when nobody works.
+Status: EXPERIMENT. The owner approved this for one server on 2026-11-01. It is off by default, and a second team needs
+the owner's approval. The flood and process limit tests ran in a real box on 2026-11-01 at 1 CPU and 2.5 GB: 67 PASS,
+0 FAIL. Section 6 says what is still not tested. Use a project with no secrets.
+
+The first run restarts the team server and ends running answers, so do it when nobody works.
 
 The team VM must have at least 4 GB (the kernel shows about 3.8 GB; less than 3.5 GB is refused). A box can use 2.5 GB
 and 1 CPU, which leaves about 1.3 GB for the server and the AI answers. If the server then runs short of memory, the
 answers wait in the queue or stop. Watch `free -m` during the trial.
 
-## 1. Build (not on the team server)
+## 1. What is where
 
-Needs bun, Go and about 3 minutes. Output: `dist/linux/`.
+| Item | Path | Comes from |
+|---|---|---|
+| Root helper | `/var/lib/mycel/root/mycel-boxd` | the release kit, root-owned like `mycel-sandbox` |
+| Service | `/etc/systemd/system/mycel-boxd.service` | `install-trial.sh` |
+| Switch | `/etc/systemd/system/mycel-server.service.d/dev-env.conf` (`MYCEL_DEV_ENV=1`) | `install-trial.sh` |
+| Box image | `localhost/mycel-devbox:1`, in the `mycel-devbox` account | `build-image.sh`, on this server |
+| Seccomp profile | `/etc/mycel-boxd/box-seccomp.json` | `build-image.sh`, on this server |
 
-```bash
-git checkout feat/dev-env && bun install --frozen-lockfile
-ARCHS=amd64 bash native/build.sh
-bun run build:web
-bun scripts/build-bundle.ts --os linux --arch amd64 --version 0.2.17-devenv.1 --no-whisper --out dist/linux
-```
+Kits from this change on have `root/mycel-boxd`, also on a server without the dev environment. The file alone changes
+nothing: the dev environment needs the service and the switch. `mycel-boxd` never runs from a version folder, because the server account
+owns those folders and root must not run a program that account can change.
 
-- `--no-whisper`: voice input and the speech in video reads do not work on this build. To keep them, copy
-  `whisper-cli*` from `/var/lib/mycel/app/versions/<current>/bin/` into a folder and use `--whisper-dir <folder>`
-  in place of `--no-whisper`.
-- The version must be higher than the feed's newest release. The kit has no signature, so the install needs
-  `--allow-unsigned`, and `mycel-ctl update --bundle` refuses it.
-- `mycel-boxd` is not in the kit. It is `native/bin/linux-amd64/mycel-boxd`.
+The kit has no box image. The server builds it.
 
-## 2. Copy to the server and look first
+## 2. Install on a signed release
 
-Put the repo under `/opt` (the server account must read `scripts/dev-env/`), and `mycel-boxd` at `/opt/mycel-boxd`.
+The server must run a release whose kit has `root/mycel-boxd`. To update: `sudo mycel-ctl update`.
 
 ```bash
-sudo cat /var/lib/mycel/root/install.json | tee ~/install-json-before-trial.json
-```
-```bash
-sudo tar xzf TrinaAX-server-0.2.17-devenv.1-linux-amd64.tar.gz -C /opt/ && ls /opt/
-```
-```bash
-cd /opt/TrinaAX-server-0.2.17-devenv.1-linux-amd64 && ./install-linux.sh check --from . --allow-unsigned
+ls -l /var/lib/mycel/root/mycel-boxd
 ```
 
-Keep `install-json-before-trial.json`: going back needs these arguments. Stop if `hosted` is true in it, or if `check`
-reports a problem.
-
-Make a database copy. The server also makes one before it applies migrations (`data/backups/`).
+Put the repo under `/opt` (the server account must read `scripts/dev-env/`). Use the commit of the running release, or a
+newer one. Run the script from any folder:
 
 ```bash
-sudo systemctl stop mycel-server && sudo cp -a /var/lib/mycel/data/app.db /var/lib/mycel/data/app.db.before-trial && sudo systemctl start mycel-server
+sudo /opt/trina-ax/scripts/dev-env/install-trial.sh
 ```
 
-## 3. Install the build
+It needs `jq` (`sudo apt-get install -y jq`). It stops before it changes anything if this is a hosted server, if the VM
+is too small, if the running version has no dev environment, if root does not own `root/mycel-boxd`, or if something of
+the same name is already there and an earlier run did not make it. It reads the team root from `config/server.json`, and
+it stops if that path has a character other than letters, digits and `. _ / -`: the server account can change this file,
+and root runs the unit with this value. It does not change `mycel-update.timer` on a signed release.
 
-```bash
-cd /opt/TrinaAX-server-0.2.17-devenv.1-linux-amd64 && sudo ./install-linux.sh update --from . --allow-unsigned
-```
-
-The other arguments come from `root/install.json`. The old version stays for going back, and the server returns to it
-by itself if the new one does not start. This also replaces the root programs (launcher, sandbox helper, `mycel-ctl`).
-
-## 4. Install the dev environment
-
-```bash
-sudo /opt/trina-ax/scripts/dev-env/install-trial.sh --boxd /opt/mycel-boxd
-```
-
-It stops before it changes anything if the VM is too small, if the running version has no dev environment, or if
-something of the same name is already there. It turns off `mycel-update.timer` (the daily update must not replace the
-trial build) and reads the team root from `config/server.json`. Then, in the app: a project page, Dev environment, accept
-the warning, turn it on. There is no preview domain, so the Preview button stays off.
+Then, in the app: a project page, Dev environment, accept the warning, turn it on. There is no preview domain, so the
+Preview button stays off.
 
 Logs: `journalctl -u mycel-boxd -n 50`.
 
-## 5. Remove it and go back
+A re-run is safe. It rebuilds the image, and a running box does not stop for that. It restarts `mycel-boxd` only if the
+unit changed, or if the service runs a program other than the file `root/mycel-boxd`. It restarts the team server only if
+the drop-in changed.
 
-Remove the dev environment first. This restores the packages, the account and the timer. Project folders stay; box
-volumes (`node_modules`, caches) go.
+## 3. Update a server with the dev environment
+
+Use the usual commands:
+
+```bash
+sudo mycel-ctl update
+```
+
+For daily updates in the team's update window:
+
+```bash
+sudo mycel-ctl auto-update on
+```
+
+`auto-update on` also restarts the server when no answer runs (it waits at most 120 s).
+
+| Part | What an update does |
+|---|---|
+| `root/mycel-boxd` | It replaces the file with the one in the new kit. |
+| `mycel-boxd.service` | It restarts only if the unit exists, the unit runs `root/mycel-boxd`, an administrator did not stop the service, and the program changed. A restart stops running boxes. A stopped box starts at its next use. If the program did not change, boxes are not touched by this step. After the restart the update asks boxd. If boxd does not answer, or says that boxes are not available, the result has a note and the update goes on. |
+| Box image and seccomp profile | No change. They are not in the kit (section 5). |
+| `dev-env.conf` (`MYCEL_DEV_ENV`) | No change. The update renders only the main units, so the dev environment stays on after an update and after a roll back. |
+| `mycel-update.timer` | No change. |
+
+A scheduled update waits for a moment with no running answer. It does not look at boxes, so a background command in a
+box can stop if the program changed. To control the moment, leave auto-update off and use `sudo mycel-ctl update`.
+
+`install-linux.sh update` also replaces `root/mycel-boxd`, but it does not restart the service. After it, restart the
+service yourself when no box runs, or run `install-trial.sh` again:
+
+```bash
+sudo systemctl restart mycel-boxd
+```
+
+A roll back in the app does not change root programs, so `root/mycel-boxd` stays at the newer version.
+
+A roll back to 0.2.18 or older does not hold while the timer is on: that app reads only `needsRoot`, so the timer installs
+the newest release again at its next check. Before such a roll back, run `sudo mycel-ctl auto-update off`. This restarts
+the server (it waits at most 120 s for running answers). Turn it on again when a fixed release is out.
+
+## 4. Move an older install
+
+An older `install-trial.sh` put the program in `/usr/local/sbin/mycel-boxd` and always turned off `mycel-update.timer`.
+That server is stuck on its version. This section moves it. Steps 2 and 3 restart the team server, so do them when
+nobody works. Step 4 restarts `mycel-boxd`, so running boxes stop. The team server does not restart for step 4, unless
+its addresses changed.
+
+1. Get the new scripts into `/opt/trina-ax`. If you added `ffmpeg` to the `Containerfile` on the server, drop that change
+   first: the repo's file has it now.
+
+2. Look at `allowUnsigned`:
+
+   ```bash
+   grep allowUnsigned /var/lib/mycel/root/install.json
+   ```
+
+   If it is `true`, the server counts as unsigned and the script keeps the timer off. An earlier `--allow-unsigned`
+   install leaves it `true`. On a signed release, turn it off. This restarts the server: it waits at most 120 s for
+   running answers, then it restarts and ends them.
+
+   ```bash
+   sudo mycel-ctl allow-unsigned off
+   ```
+
+3. Update, then look for the file. The update works with the timer off. It leaves the old service as it is.
+
+   ```bash
+   sudo mycel-ctl update
+   ```
+   ```bash
+   ls -l /var/lib/mycel/root/mycel-boxd
+   ```
+
+4. Run the script again. If the file is there, it needs no `--boxd`:
+
+   ```bash
+   sudo /opt/trina-ax/scripts/dev-env/install-trial.sh
+   ```
+
+   If the file is not there, the newest release has no `mycel-boxd` in its kit. Keep the program you have:
+
+   ```bash
+   sudo /opt/trina-ax/scripts/dev-env/install-trial.sh --boxd /usr/local/sbin/mycel-boxd
+   ```
+
+   That program is still the old `mycel-boxd`, which compares only the image name. A box from before the rebuild keeps
+   its old image, so it has no `ffmpeg`, until an update brings a kit with `root/mycel-boxd`. A new box takes the new
+   image. The first such update runs the old `mycel-ctl`: it replaces the file, but it does not restart the service,
+   and the timer can do that update with no person there. After that update, run `install-trial.sh` again when no box
+   runs. It sees that the service runs a program other than the file, and it restarts the service. Then a box from before
+   takes the new image at its next start.
+
+   The script writes the unit with the new path, restarts `mycel-boxd`, and removes `/usr/local/sbin/mycel-boxd` after
+   boxd answers from the new path. It rebuilds the image. On a signed release it also restores the timer:
+   `/var/lib/mycel-boxd-trial/update-timer` has the state before the first run. If that state is `enabled`, the timer
+   goes on again. If it is `disabled`, the timer stays off, as you had it. A later re-run does not change the timer
+   again, so a timer that you turn off after this stays off.
+
+5. Check:
+
+   ```bash
+   systemctl cat mycel-boxd | grep ExecStart
+   ```
+   ```bash
+   sudo mycel-ctl auto-update status
+   ```
+
+   `ExecStart` must show `/var/lib/mycel/root/mycel-boxd`. If the status says that updates are still off, for example
+   `install.json autoUpdate false` after a kit update with the timer off, run `sudo mycel-ctl auto-update on`.
+
+## 5. Rebuild the image
+
+An update does not rebuild the image. Rebuild it after a change in the `Containerfile` or `make-seccomp.py` in the repo:
+
+```bash
+sudo /opt/trina-ax/scripts/dev-env/build-image.sh
+```
+
+A running box does not stop, and a running render goes on. With a `mycel-boxd` from a kit that ships it, the box takes
+the new image and seccomp profile at its next start. To start it now, use stop or restart on the project page. The
+box volume (`node_modules`, caches) and the project folder stay. The build needs a few minutes of CPU and the internet,
+so do it when nobody renders.
+
+- If the `Containerfile` did not change, podman uses its layers, so the image stays the same and gets no new Debian
+  packages.
+- If boxd says that the image or the seccomp profile is missing, it found that at its start, and it does not look again.
+  After the build, run `sudo systemctl restart mycel-boxd`.
+- The old image stays on the disk. To remove images that no box uses:
+
+  ```bash
+  cd / && sudo runuser -u mycel-devbox -- env XDG_RUNTIME_DIR=/run/user/$(id -u mycel-devbox) podman image prune -f
+  ```
+
+## 6. Not tested
+
+- An update on a server with the dev environment has not run on a real server. Section 3 says what the code does, not
+  what a test showed. The same is true for the move in section 4.
+- The image with `ffmpeg` has not been built or tested in a real box. The build fails if `ffmpeg` has no `subtitles`
+  filter. A render with subtitles has not run.
+- The step of `vm-tests.sh` that gives the image a new ID under the same name has not run.
+- Writes to `/work` have no size limit: a command can fill the disk that holds the team folder. Use a VM for this team
+  only, with a disk alert.
+
+The other open items are in `docs/DECISIONS.md` "Dev environment: what stops a release, and what stops a trial with one
+team": the preview domain, the egress allowlist, the credential helper and WebSocket preview. Code in a box can send
+project files out.
+
+## 7. Remove it
+
+This restores the packages and the account. Project folders stay; box volumes (`node_modules`, caches) go.
 
 ```bash
 sudo /opt/trina-ax/scripts/dev-env/uninstall-trial.sh
 ```
 
-**Go back: use this way.** In the app: Admin, System, Update, Roll back. The kept previous version runs again. The root
-programs stay at the trial build, and `allowUnsigned` stays in `root/install.json`. The product's own roll-back works
-this way, with newer root programs under an older server.
+`root/mycel-boxd` stays: the kit owns it, and the next update writes it again. It runs nothing without the service. The
+script also removes `/usr/local/sbin/mycel-boxd` if an older install left it.
 
-The older version can read the database: the new migrations are additive and the reader level did not change (4), so a
-database restore is not necessary.
+The timer: if `install-trial.sh` holds it off, the script restores the state from before the first run. Otherwise the
+timer stays as it is.
 
-**Go back fully** (root programs too, and no `allowUnsigned`). Do this only if the root programs cause a problem. The
-installer keeps root programs that are newer than the kit, so this needs an uninstall. `uninstall` without `--purge`
-keeps the team folder, the data and the config, but it removes the engine account: the Claude token must be set again
-(`set-claude-token`), and a Codex login stays only with `--keep-logins`. The server is down until the install ends.
-Download the kit of the old release from its GitHub release, unpack it to `/opt/old-kit`, then use the arguments of
-`install-json-before-trial.json` (for example `--public-host`):
+## 8. Unsigned build
+
+Use this only to test a branch before a release. Needs bun, Go and about 3 minutes, not on the team server. The version
+must be higher than the feed's newest release. `--no-whisper` turns off voice input and the speech in video reads.
 
 ```bash
-cd /opt/old-kit && sudo ./install-linux.sh uninstall --keep-logins
-```
-```bash
-cd /opt/old-kit && sudo ./install-linux.sh install --from . --engine claude --public-host <host>
+git checkout <branch> && bun install --frozen-lockfile
+ARCHS=amd64 bash native/build.sh
+bun run build:web
+bun scripts/build-bundle.ts --os linux --arch amd64 --version <version>-devenv.1 --no-whisper --out dist/linux
 ```
 
-Check after: `cat /var/lib/mycel/root/VERSION`, the app's version, `id mycel-devbox` (no such account),
-`systemctl is-enabled mycel-update.timer`. `trina-tunnel` is not changed by any step.
+Keep a copy of `root/install.json` first. Stop if `hosted` is true in it, or if `check` reports a problem.
+
+```bash
+cd /opt/TrinaAX-server-<version>-devenv.1-linux-amd64 && ./install-linux.sh check --from . --allow-unsigned
+```
+```bash
+cd /opt/TrinaAX-server-<version>-devenv.1-linux-amd64 && sudo ./install-linux.sh update --from . --allow-unsigned
+```
+
+Then run `install-trial.sh` as in section 2. On this route `mycel-update.timer` stays off, because the daily update must
+not replace the build, and `allowUnsigned` stays true.
+
+To go back to a signed release, use this order. A plain `mycel-ctl update` skips the release, because the build has a
+higher version, and `allow-unsigned off` refuses while the unsigned build runs. The root files of the build stay until a
+newer release replaces them.
+
+```bash
+sudo mycel-ctl update --version <release>
+```
+```bash
+sudo mycel-ctl allow-unsigned off
+```
+```bash
+sudo /opt/trina-ax/scripts/dev-env/install-trial.sh
+```
+
+The database copy and the full way back are in the older text: `git show 69b9158f:scripts/dev-env/TRIAL.md`, section 5.
