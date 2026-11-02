@@ -303,7 +303,9 @@ test('settings: an office Mac says which update window runs while the field is e
   await expect(legacyHint(page)).toHaveCount(0)
   await expect(field).toHaveAttribute('placeholder', '02:00-05:00')
   await expect(field).toHaveValue('02:00-05:00')
-  // emptied again: the old time counts again, and the page reads that from the server
+  // the page opened on a saved window, emptied: the old time counts again, which only the server can say
+  await page.reload()
+  await expect(plainHint(page)).toBeVisible()
   status = officeStatus()
   await field.fill('')
   await save()
@@ -312,6 +314,11 @@ test('settings: an office Mac says which update window runs while the field is e
   await expect(field).toHaveValue('')
   // only what was typed was ever saved
   expect(patches).toEqual([{ updateWindow: '02:00-05:00' }, { updateWindow: null }])
+  // the team moves to another zone: the hint names the new one
+  status = officeStatus({ timeZone: 'Asia/Tokyo' })
+  await page.getByTestId('team-time-zone').selectOption('Asia/Tokyo')
+  await save()
+  await expect(page.getByText(translate('ko', 'teamSettings.updateWindowLegacy', { window: '22:30-00:30', zone: 'Asia/Tokyo' }), { exact: true })).toBeVisible()
 })
 
 test('settings: any other server keeps the update window field as it was', async ({ page }) => {
