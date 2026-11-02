@@ -85,6 +85,9 @@ export class ConnectionRequests {
     if (!getTeamSettings(this.db).personalIntegrations) fail('conflict', say('requestPersonalOff', L))
     const member = this.db.query("SELECT id FROM users WHERE id = ? AND status = 'active' AND deleted_at IS NULL").get(input.userId) as { id: string } | null
     if (!member) fieldError(L, 'userId', 'requestNoUser')
+    // the member's notice and the admin's list show this name: the schema trims spaces, not control or zero-width characters
+    const name = oneLine(input.name)
+    if (/^[\p{Cc}\p{Cf}\p{Z}]*$/u.test(name)) fieldError(L, 'name', 'requestNoName')
     // the same checks as a connection's own fields (service.ts create runs them all again when the member connects)
     const authHeader = input.auth === 'header' ? this.svc.headerName(input.authHeader ?? null, L) : null
     if (input.auth === 'oauth' && input.kind !== 'mcp') fieldError(L, 'auth', 'oauthMcpOnly')
@@ -98,7 +101,7 @@ export class ConnectionRequests {
     if (waiting.filter((w) => w.user_id === input.userId).length >= MAX_WAITING_PER_PERSON) fail('conflict', say('requestTooMany', L, { n: MAX_WAITING_PER_PERSON }))
     if (waiting.length >= MAX_WAITING) fail('conflict', say('requestTooManyTeam', L, { n: MAX_WAITING }))
     const r: RequestRow = {
-      id: newId(), user_id: input.userId, created_by: viewer.id, kind: input.kind, name: oneLine(input.name), url, auth: input.auth, auth_header: authHeader,
+      id: newId(), user_id: input.userId, created_by: viewer.id, kind: input.kind, name, url, auth: input.auth, auth_header: authHeader,
       notes: input.kind === 'http' ? cleanNotes(input.notes) : null, state: 'pending', integration_id: null, created_at: at, expires_at: iso(now + REQUEST_TTL_MS), ended_at: null,
     }
     this.db.query(`INSERT INTO integration_requests (${REQUEST_COLUMNS}) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)`)

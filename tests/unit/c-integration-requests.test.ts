@@ -9,6 +9,7 @@ import { addMember, harness, withOwner, type Client, type Harness } from './a-li
 import { API_KEY, FakeServices, MCP_KEY } from '../lib/fake-services'
 import { CallError, integrationsOf } from '../../server/src/integrations/connections/service'
 import { getRow, mayUse } from '../../server/src/integrations/connections/store'
+import { say } from '../../server/src/integrations/connections/text'
 import { createLogger } from '../../server/src/log'
 import { notificationsOf } from '../../server/src/notifications/service'
 
@@ -105,6 +106,28 @@ describe('asking', () => {
       const off = await ask(ada, { ...mcpKey(), userId: ids.cara })
       expect(off.status).toBe(409)
     } finally { await olga.call('PATCH', '/api/admin/settings', { personalIntegrations: true }) }
+  })
+  test('a name with nothing to show is refused, under the name, before anything is saved or anyone is told', async () => {
+    const count = () => h.ctx.db.query('SELECT count(*) AS n FROM integration_requests').get()
+    const before = count()
+    const inbox = (await cara.call('GET', '/api/notifications')).items.length
+    const body = { ...mcpKey(), userId: ids.cara, url: `${fake.base}/mcp-key?blank-name` }
+    // control characters (the C1 ones too: the trim keeps them) and zero-width ones
+    for (const name of ['\u0001\u0002', '\u0007 \u001f', '\u007f', '\u0085\u009f', '\u200B\u200D', '\u0001\u200B ']) {
+      const r = await ask(ada, { ...body, name })
+      expect(r.status, JSON.stringify(name)).toBe(400)
+      expect(Object.keys(r.body.error.fields)).toEqual(['body.name'])
+      expect(r.body.error.message).toBe(say('requestNoName', 'ko')) // the admin's language
+    }
+    // what the schema's trim empties was already refused, in its own words
+    expect((await ask(ada, { ...body, name: '\u2028' })).status).toBe(400)
+    expect(count()).toEqual(before)
+    expect((await cara.call('GET', '/api/notifications')).items.length).toBe(inbox)
+    // a name with something to show is kept, cleaned to one line as before
+    const ok = await ask(ada, { ...body, name: 'Ta\u0001sks' })
+    expect(ok.status).toBe(201)
+    expect(ok.body.name).toBe('Ta sks')
+    await ada.call('POST', `/api/admin/integration-requests/${ok.body.id}/withdraw`, {})
   })
 })
 
