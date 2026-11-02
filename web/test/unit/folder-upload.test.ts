@@ -1,6 +1,7 @@
 import { describe, expect, test } from 'bun:test'
 import { ApiClient, UPLOAD_CHUNK_SIZE, uuidv7 } from '@mycel/shared/api'
 import { isBusy } from '../../src/lib/busy'
+import { SIGNED_OUT } from '../../src/lib/localData'
 import { DROP_DEPTH_MAX, droppedEntries, FOLDER_UPLOAD_CONCURRENCY, FolderUpload, isStorageRefusal, isSystemName, planFromEntries, planFromInput, type DropEntry, type FolderPlan, type FolderUploadCalls } from '../../src/lib/folderUpload'
 import { uploadFile } from '../../src/lib/upload'
 
@@ -278,6 +279,52 @@ describe('a folder upload', () => {
     expect(seen).toEqual([...seen].sort((a, b) => a - b))
     // not only whole files: a part of a file was on the way
     expect(seen.some((n) => n % 100 !== 0)).toBe(true)
+  })
+
+  test('two folders and a chat share the three places: no one waits for ever, and it is no slower than three at a time', async () => {
+    let now = 0
+    let peak = 0
+    const client = new ApiClient({
+      baseUrl: '',
+      fetch: (async (_input: string, init: RequestInit) => {
+        const f = (init.body as FormData).get('file') as File
+        peak = Math.max(peak, ++now)
+        await new Promise((r) => setTimeout(r, 2))
+        now--
+        return new Response(JSON.stringify({ name: 'x', path: 'x', type: 'file', size: f.size, mtime: new Date().toISOString(), mime: null, access: 'write' }), { status: 201, headers: { 'content-type': 'application/json' } })
+      }) as unknown as typeof fetch,
+    })
+    const calls: FolderUploadCalls = {
+      maxFileSize: 1000,
+      mkdir: async () => {},
+      isFolder: async () => false,
+      upload: (f, path, signal, onProgress) => uploadFile(f, { kind: 'path', path, onExists: 'rename' }, { client, signal, onProgress, storage: null }),
+      discard: async () => {},
+    }
+    const folder = (name: string) => new FolderUpload(plan(Array.from({ length: 12 }, (_, i) => `${name}/${i}.mp4`)), '', calls)
+    const chat = Array.from({ length: 8 }, (_, i) => uploadFile(file(`c${i}`, 3), { kind: 'path', path: `chat/c${i}`, onExists: 'rename' }, { client, storage: null }))
+    const a = folder('a')
+    const b = folder('b')
+    await Promise.all([a.start(), b.start(), ...chat])
+    expect(a.view).toMatchObject({ status: 'done', done: 12 })
+    expect(b.view).toMatchObject({ status: 'done', done: 12 })
+    expect(peak).toBe(3)
+  })
+
+  test('stopped by a sign-out: the files in flight stop, nothing more goes up, and nothing is asked of the server', async () => {
+    let open = () => {}
+    const hold = new Promise<void>((r) => { open = r })
+    const { calls, log } = fakeCalls({ hold })
+    const run = new FolderUpload(plan(['c/1', 'c/2', 'c/3', 'c/4', 'c/5']), '', calls)
+    const ended = run.start()
+    await new Promise((r) => setTimeout(r, 0))
+    expect(log.upload).toHaveLength(FOLDER_UPLOAD_CONCURRENCY)
+    run.stop(SIGNED_OUT)
+    open()
+    await ended
+    expect(log.upload).toHaveLength(FOLDER_UPLOAD_CONCURRENCY)
+    expect(log.discard).toEqual([])
+    expect(run.view).toMatchObject({ status: 'done', done: 0, active: [] })
   })
 
   test('a large file whose chunk is sent again: the bytes of the folder do not fall, and end at its size', async () => {

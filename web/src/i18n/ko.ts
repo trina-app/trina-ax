@@ -609,6 +609,7 @@ export const ko = {
   'files.folderUpload.files': '{total}개 중 {done}개',
   'files.folderUpload.bytes': '{total} 중 {done}',
   'files.folderUpload.failed': '{n}개 실패',
+  'files.folderUpload.ended': '{total}개 중 {done}개를 올렸어요.',
   'files.folderUpload.skipped': '시스템 파일 {n}개 건너뜀',
   'files.folderUpload.stopped': '올리기를 멈췄어요. 파일 {n}개를 올리지 못했어요.',
   'files.folderUpload.empty': '이 폴더에는 올릴 파일이 없어요.',

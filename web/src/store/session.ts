@@ -6,6 +6,7 @@ import { applyTheme, storedTheme, storeTheme } from '../lib/theme'
 import { pickLocale, recentLocale, storedLocale, storeLocale, storeRecentLocale, useLocaleStore } from '../i18n'
 import { recoveryLocale } from '../i18n/recovery-locale'
 import { forgetFileUploads } from '../lib/fileUploads'
+import { forgetFolderUploads } from '../lib/folderRuns'
 import { forgetTeamAttach } from '../lib/teamAttach'
 import { applyTeamIcon } from '../lib/team-icon'
 
@@ -102,9 +103,10 @@ export const useSession = create<SessionState>((set, get) => ({
   },
 
   signedOut(reason) {
-    // the next person in this tab gets nothing of this one's composer chips, draft chats, last chat or file uploads
+    // the next person in this tab gets nothing of this one's composer chips, draft chats, last chat or uploads
     forgetTeamAttach()
     forgetFileUploads()
+    forgetFolderUploads()
     pendingPick = null
     pickedBeforeSignIn = false
     storeRecentLocale(null)

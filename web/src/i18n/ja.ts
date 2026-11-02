@@ -590,6 +590,7 @@ export const ja: Record<MessageKey, string> = {
   "files.folderUpload.files": "{done}/{total, plural, one {#個のファイル} other {#個のファイル}}",
   "files.folderUpload.bytes": "{done} / {total}",
   "files.folderUpload.failed": "{n}個失敗",
+  "files.folderUpload.ended": "{total}個中{done}個をアップロードしました。",
   "files.folderUpload.skipped": "{n, plural, one {#個のシステムファイルをスキップ} other {#個のシステムファイルをスキップ}}",
   "files.folderUpload.stopped": "アップロードを停止しました。{n, plural, one {#個のファイルはアップロードされていません。} other {#個のファイルはアップロードされていません。}}",
   "files.folderUpload.empty": "このフォルダにアップロードするファイルはありません。",

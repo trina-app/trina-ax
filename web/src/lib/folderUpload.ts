@@ -277,6 +277,11 @@ export class FolderUpload {
     return this.start()
   }
 
+  /** Stop the run, and leave what the server holds. */
+  stop(reason?: unknown) {
+    this.abort.abort(reason)
+  }
+
   /** Stop the run and let the server drop the unfinished files. */
   async cancel() {
     this.abort.abort()

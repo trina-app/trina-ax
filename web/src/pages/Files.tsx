@@ -22,6 +22,7 @@ import { openTeamFile } from '../lib/sidePanel'
 import { useTeamAttach } from '../lib/useTeamAttach'
 import { cancelUpload, uploadFile } from '../lib/upload'
 import { addFileUpload, dropFileUpload, patchFileUpload } from '../lib/fileUploads'
+import { SIGNED_OUT } from '../lib/localData'
 import { markBusy } from '../lib/busy'
 import { useLocale, useT } from '../i18n'
 import { accessChanged, filesChanged, reloadAsked } from '../store/live'
@@ -157,6 +158,13 @@ export default function Files() {
     setTree(null)
     void load()
   }, [load])
+
+  /** the folder on screen and its listing: an upload that ends may have started in another folder, or on another visit */
+  const onScreen = useRef<{ path: string; load: () => Promise<void> } | null>(null)
+  useEffect(() => {
+    onScreen.current = { path, load }
+    return () => { onScreen.current = null }
+  }, [path, load])
 
   useEffect(() => {
     const offA = filesChanged.on((changes) => {
@@ -351,13 +359,13 @@ export default function Files() {
         () => {
           patchFileUpload(item.id, { status: 'done' })
           setTimeout(() => dropFileUpload(item.id), 4000)
-          if (folder === path) void load()
+          if (onScreen.current?.path === folder) void onScreen.current.load()
         },
         (e) => {
           if (item.abort.signal.aborted) {
             // cancelled: drop the server's half-received session too (it holds disk space and counts against the
             // person's open uploads for a day otherwise)
-            void cancelUpload(file, target, api)
+            if (item.abort.signal.reason !== SIGNED_OUT) void cancelUpload(file, target, api)
             return dropFileUpload(item.id)
           }
           patchFileUpload(item.id, { status: 'failed', error: errorText(e, locale, t('error.network')) })

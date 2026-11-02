@@ -55,9 +55,9 @@ export const DownloadQuery = z.object({
   embedIn: RelPath.optional(),
 })
 
-/** The file's size as the sender read it: a file part of another size is refused before it is stored (a form field, so
- * text on the wire). Senders that name none are served as before. */
-const SentSize = z.coerce.number().int().nonnegative().optional()
+/** The file's size as the sender read it, in decimal digits (a form field): a file part of another size is refused before
+ * it is stored. Senders that name none are served as before. */
+const SentSize = z.string().regex(/^\d+$/).transform(Number).optional()
 
 export const UploadFields = z.object({
   /** target folder */

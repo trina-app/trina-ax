@@ -11,6 +11,10 @@ export const SINGLE_REQUEST_MAX = 8 * 1024 * 1024
 /** The browser counts sent bytes many times a second, and each report redraws what shows it: a new whole percent, at most
  * this often, is enough for a person. */
 const REPORT_EVERY_MS = 250
+/** Small uploads on their way at a time, on the whole page. Each holds a copy of its file in memory until its request
+ * ends, and the file screen and a chat start all that was picked at once: 20 files of 8 MB took 684 MB in WebKit's network
+ * process. A folder upload sends three at a time by itself and takes its places in the same line. */
+const SMALL_AT_ONCE = 3
 
 /** `loaded` and `total` count the file's own bytes, in every phase. */
 export interface UploadProgress {
@@ -120,39 +124,76 @@ function sparingly(o: UploadOptions) {
   }
 }
 
+let onTheirWay = 0
+const inLine: (() => void)[] = []
+
+/** A place among SMALL_AT_ONCE, first come first served. A cancel leaves the line at once. */
+async function takePlace(signal?: AbortSignal) {
+  signal?.throwIfAborted()
+  if (onTheirWay < SMALL_AT_ONCE) {
+    onTheirWay++
+    return
+  }
+  await new Promise<void>((resolve, reject) => {
+    const turn = () => {
+      signal?.removeEventListener('abort', leave)
+      resolve()
+    }
+    const leave = () => {
+      inLine.splice(inLine.indexOf(turn), 1)
+      reject(signal!.reason)
+    }
+    inLine.push(turn)
+    signal?.addEventListener('abort', leave, { once: true })
+  })
+}
+
+/** The next in line takes the place over as it is. */
+function givePlace() {
+  const next = inLine.shift()
+  if (next) next()
+  else onTheirWay--
+}
+
 async function uploadSmall(file: File, target: UploadTarget, o: UploadOptions): Promise<UploadComplete> {
   const total = file.size
   const finishing = () => o.onProgress?.({ phase: 'finishing', loaded: total, total })
   o.onProgress?.({ phase: 'uploading', loaded: 0, total })
-  // WebKit bug 319985: Safari and iOS from 26.5 can send a File read from disk with no bytes (Content-Length: 0), and a
-  // page under a service worker is the reported case, as this app with web/pwa/sw.js is. A copy in memory goes out whole.
-  // This path is at most SINGLE_REQUEST_MAX, and the chunks of a larger file are slices, which the same report found safe.
-  const body = new Blob([await file.arrayBuffer()], { type: file.type })
-  o.signal?.throwIfAborted()
-  const report = sparingly(o)
-  // the last byte out is not the end: the server still stores the file and answers
-  const onUploadProgress = o.onProgress && ((sent: number) => (sent < 1 ? report({ phase: 'uploading', loaded: Math.round(sent * total), total }) : finishing()))
-  const request = { signal: o.signal, onUploadProgress }
-  // the server refuses a part of another size before it stores it; this is for one that has no such check
-  const kept = (size: number | null) => { if (size !== total) throw new ApiError(400, { code: 'validation', message: t('files.incompleteUpload') }) }
-  let out: UploadComplete
-  if (target.kind === 'path') {
-    const slash = target.path.lastIndexOf('/')
-    const folder = slash < 0 ? '' : target.path.slice(0, slash)
-    const name = target.path.slice(slash + 1)
-    const entry = await o.client.call(API.upload, { body: { fields: { folder, name, onExists: target.onExists, size: total }, file: body, filename: name }, ...request })
-    kept(entry.size)
-    out = { kind: 'path', entry }
-  } else if (target.kind === 'attachment') {
-    const attachment = await o.client.call(API.uploadAttachment, { body: { fields: { chatId: target.chatId, name: target.name, size: total }, file: body, filename: target.name }, ...request })
-    kept(attachment.size)
-    out = { kind: 'attachment', attachment }
-  } else {
-    const { jobId } = await o.client.call(API.transcribe, { body: { fields: target.chatId ? { chatId: target.chatId } : {}, file: body, filename: target.name }, ...request })
-    out = { kind: 'transcribe', jobId }
+  await takePlace(o.signal)
+  try {
+    // WebKit bug 319985: Safari and iOS from 26.5 can send a File with no bytes (Content-Length: 0), and a page under a
+    // service worker is the reported case, as this app with web/pwa/sw.js is. A copy in memory goes out whole. In every
+    // browser: all browsers on an iPhone are WebKit, a wrong guess from the user agent fails the whole upload, and the copy
+    // costs at most SMALL_AT_ONCE files. The chunks of a larger file are slices, which the same report found safe.
+    const body = new Blob([await file.arrayBuffer()], { type: file.type })
+    o.signal?.throwIfAborted()
+    const report = sparingly(o)
+    // the last byte out is not the end: the server still stores the file and answers
+    const onUploadProgress = o.onProgress && ((sent: number) => (sent < 1 ? report({ phase: 'uploading', loaded: Math.round(sent * total), total }) : finishing()))
+    const request = { signal: o.signal, onUploadProgress }
+    // the server refuses a part of another size before it stores it; this is for one that has no such check
+    const kept = (size: number | null) => { if (size !== total) throw new ApiError(400, { code: 'validation', message: t('files.incompleteUpload') }) }
+    let out: UploadComplete
+    if (target.kind === 'path') {
+      const slash = target.path.lastIndexOf('/')
+      const folder = slash < 0 ? '' : target.path.slice(0, slash)
+      const name = target.path.slice(slash + 1)
+      const entry = await o.client.call(API.upload, { body: { fields: { folder, name, onExists: target.onExists, size: String(total) }, file: body, filename: name }, ...request })
+      kept(entry.size)
+      out = { kind: 'path', entry }
+    } else if (target.kind === 'attachment') {
+      const attachment = await o.client.call(API.uploadAttachment, { body: { fields: { chatId: target.chatId, name: target.name, size: String(total) }, file: body, filename: target.name }, ...request })
+      kept(attachment.size)
+      out = { kind: 'attachment', attachment }
+    } else {
+      const { jobId } = await o.client.call(API.transcribe, { body: { fields: target.chatId ? { chatId: target.chatId } : {}, file: body, filename: target.name }, ...request })
+      out = { kind: 'transcribe', jobId }
+    }
+    finishing()
+    return out
+  } finally {
+    givePlace()
   }
-  finishing()
-  return out
 }
 
 async function uploadChunked(file: File, target: UploadTarget, o: UploadOptions): Promise<UploadComplete> {

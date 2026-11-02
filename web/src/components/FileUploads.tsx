@@ -38,7 +38,14 @@ export default function FileUploads({ here }: { here: string }) {
                 )}
                 {u.status === 'done' && <span className="sr-only">{t('files.uploadedName', { name: u.name })}</span>}
               </span>
-              <span role="alert" className="min-w-0 truncate text-danger">{u.status === 'failed' && u.error}</span>
+              <span role="alert" className="min-w-0 truncate text-danger">
+                {u.status === 'failed' && (
+                  <>
+                    <span className="sr-only">{u.name}: </span>
+                    {u.error}
+                  </>
+                )}
+              </span>
             </span>
             {u.status === 'uploading' && (
               <div className="h-1 w-20 shrink-0 overflow-hidden rounded bg-subtle" aria-hidden>

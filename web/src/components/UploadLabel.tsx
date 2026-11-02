@@ -1,15 +1,14 @@
 import { useT } from '../i18n'
-import { uploadLabel, uploadPercent, type Running } from '../lib/upload'
+import { uploadLabel, type Running } from '../lib/upload'
 
-/** A running upload's words, for inside a live region. A screen reader would read out every new number, so a number stays
- * hidden from it and `busy`, a fixed text, stands in; the words before and after it are read as they are. */
+/** A running upload's words, for inside a live region. What shows changes all the time, and with several files a screen
+ * reader would read out each phase and number of each, with no name: it gets `busy` instead, one fixed text with the name. */
 export function UploadLabel({ progress, busy }: { progress: Running; busy: string }) {
   const t = useT()
-  const number = uploadPercent(progress) !== null
   return (
     <>
-      <span aria-hidden={number || undefined}>{uploadLabel(progress, t)}</span>
-      {number && <span className="sr-only">{busy}</span>}
+      <span aria-hidden="true">{uploadLabel(progress, t)}</span>
+      <span className="sr-only">{busy}</span>
     </>
   )
 }

@@ -61,11 +61,18 @@ describe('the size the sender read (WebKit bug 319985: a file can go out with no
     expect((await send('/api/files/upload', form({ folder: 'shared', name: 'old.pdf', onExists: 'rename' }, 0))).body).toMatchObject({ size: 0 })
   })
 
-  test('a size that is no size is a bad field', async () => {
-    const r = await send('/api/files/upload', form({ folder: 'shared', name: 'bad.pdf', onExists: 'rename', size: 'many' }, 10))
+  test.each([['many'], [''], [' 10 '], ['1e1'], ['0xA'], ['10.0'], ['-0'], ['-10'], ['+10']])('a size that is not plain digits is a bad field: %j', async (size) => {
+    const r = await send('/api/files/upload', form({ folder: 'shared', name: 'bad.pdf', onExists: 'rename', size }, 10))
     expect(r.status).toBe(400)
-    expect(r.body.error.code).toBe('validation')
+    expect(r.body.error).toMatchObject({ code: 'validation', fields: { 'body.size': expect.any(String) } })
     expect(fs.existsSync(inFolder('bad.pdf'))).toBe(false)
+  })
+
+  test('digits with a leading zero are the same size, and a number too long for a file is simply another size', async () => {
+    expect((await send('/api/files/upload', form({ folder: 'shared', name: 'zeros.pdf', onExists: 'rename', size: '0010' }, 10))).status).toBe(201)
+    const r = await send('/api/files/upload', form({ folder: 'shared', name: 'long.pdf', onExists: 'rename', size: '99999999999999999999' }, 10))
+    expect(r.status).toBe(400)
+    expect(fs.existsSync(inFolder('long.pdf'))).toBe(false)
   })
 })
 

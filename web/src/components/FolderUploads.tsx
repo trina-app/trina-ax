@@ -2,10 +2,10 @@
 // failed files. The runs stay here, not in the page: an upload of many files goes on when the person opens another page,
 // and the row is there when they come back. The work itself is lib/folderUpload.ts.
 import { FolderUp, Loader2, X } from 'lucide-react'
-import { create } from 'zustand'
 import { UPLOAD_SESSION_MAX } from '@mycel/shared/api'
 import { api, API, errorText } from '../lib/api'
-import { FolderUpload, type FolderFailure, type FolderPlan, type FolderUploadCalls, type FolderUploadView } from '../lib/folderUpload'
+import { FolderUpload, type FolderFailure, type FolderPlan, type FolderUploadCalls } from '../lib/folderUpload'
+import { useRuns, type Run } from '../lib/folderRuns'
 import { formatSize } from '../lib/format'
 import { baseName } from '../lib/paths'
 import { cancelUpload, uploadFile, uploadLabel } from '../lib/upload'
@@ -16,15 +16,6 @@ import { Button, IconButton } from './ui'
 const FAILURES_SHOWN = 5
 /** a finished run stays this long, as a finished file does */
 const DONE_SHOWN_MS = 4000
-
-interface Run {
-  run: FolderUpload
-  view: FolderUploadView
-  /** a refusal stopped the run: said once, in a toast too (the person may be on another page) */
-  onRefused: (view: FolderUploadView) => void
-}
-
-const useRuns = create<{ runs: Run[]; settled: number }>(() => ({ runs: [], settled: 0 }))
 
 /** Runs live in this tab, and a run started again sends the finished files a second time. The guard is here and not in a
  * page: a run goes on when the person opens another page. */
@@ -93,6 +84,10 @@ function FolderRow({ item, here }: { item: Run; here: string }) {
   const whole = v.bytesTotal || v.total
   const pct = whole ? Math.round(((v.bytesTotal ? v.bytesDone : v.done) / whole) * 100) : 100
   const now = v.active[0]
+  const title = v.name ?? t('files.drag.count', { n: v.items })
+  const failed = t('files.folderUpload.failed', { n: v.failed })
+  // the row says the end and each failure aloud (a refusal has its own alert below)
+  const said = running ? (v.failed ? `${title}: ${failed}` : '') : `${title}: ${t('files.folderUpload.ended', { done: v.done, total: v.total })}${v.failed ? ` ${failed}` : ''}`
   const reason = (f: FolderFailure) => {
     if (f.local === 'unreadable') return t('files.folderUpload.unreadable')
     if (f.local === 'tooLarge') return t('files.folderUpload.tooLarge', { size: formatSize(UPLOAD_SESSION_MAX, locale) })
@@ -105,11 +100,12 @@ function FolderRow({ item, here }: { item: Run; here: string }) {
   }
   return (
     <li className="space-y-1 text-xs" data-testid="folder-upload">
+      <span role="status" className="sr-only" data-testid="folder-upload-said">{said}</span>
       <div className="flex items-center gap-2">
         {running ? <Loader2 size={13} className="shrink-0 animate-spin text-accent-text" aria-hidden /> : v.status === 'done' ? <span className="text-ok">✓</span> : <FolderUp size={13} className="shrink-0 text-danger" aria-hidden />}
         <span className="min-w-0 flex-1 truncate font-medium">
           {v.base !== here && <span className="font-normal text-faint">{baseName(v.base) || t('files.root')}/</span>}
-          {v.name ?? t('files.drag.count', { n: v.items })}
+          {title}
         </span>
         <span className="shrink-0 text-faint" data-testid="folder-upload-counts">
           {t('files.folderUpload.files', { done: v.done, total: v.total })} · {t('files.folderUpload.bytes', { done: formatSize(v.bytesDone, locale), total: formatSize(v.bytesTotal, locale) })}

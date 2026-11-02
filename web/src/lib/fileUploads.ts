@@ -1,6 +1,7 @@
 // The files going up from the file screen, one row each (components/FileUploads.tsx). They stay here and not in the page:
 // a progress report must redraw the row, not the whole file list, and the row is there when the person comes back.
 import { create } from 'zustand'
+import { SIGNED_OUT } from './localData'
 import type { UploadProgress } from './upload'
 
 export interface FileUpload {
@@ -32,8 +33,9 @@ export function dropFileUpload(id: number) {
   useFileUploads.setState((s) => ({ items: s.items.filter((x) => x.id !== id) }))
 }
 
-/** Sign-out: the next person in this tab sees no name of the last one's files, and none of them goes on uploading. */
+/** Sign-out or the end of a session: the next person in this tab sees no name of the last one's files, and none of them
+ * goes on uploading. */
 export function forgetFileUploads() {
-  for (const u of useFileUploads.getState().items) u.abort.abort()
+  for (const u of useFileUploads.getState().items) u.abort.abort(SIGNED_OUT)
   useFileUploads.setState({ items: [] })
 }

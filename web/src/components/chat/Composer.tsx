@@ -15,7 +15,7 @@ import { useEffect, useId, useImperativeHandle, useRef, useState, type Ref } fro
 import { isUuid7, MESSAGE_ATTACHMENTS_MAX, SMALL_UPLOAD_MAX, uuidv7, type Attachment, type EngineId, type FileEntry, type TranscribeResult } from '@mycel/shared/api'
 import { api, API, errorText } from '../../lib/api'
 import { markBusy } from '../../lib/busy'
-import { readDraft, writeDraft } from '../../lib/localData'
+import { readDraft, SIGNED_OUT, writeDraft } from '../../lib/localData'
 import { mergeDraft } from '../../lib/composerDraft'
 import { fmtDuration, formatSize } from '../../lib/format'
 import { previewKind, serverPreview } from '../../lib/preview'
@@ -218,7 +218,7 @@ export default function Composer({
           update(it.id, { status: 'done', attachment: r.attachment })
         } catch (e) {
           // removed while uploading: drop the server's half-received session as well
-          if (it.abort.signal.aborted) return void cancelUpload(it.file!, target, api)
+          if (it.abort.signal.aborted) return it.abort.signal.reason === SIGNED_OUT ? undefined : void cancelUpload(it.file!, target, api)
           update(it.id, { status: 'failed', error: errorText(e, locale, t('error.network')) })
         }
       }),
@@ -467,13 +467,18 @@ export default function Composer({
                     )}
                     {f.status === 'done' && (
                       <>
-                        <span className="sr-only">{t('composer.attached', { name: f.name })}</span>
+                        <span className="sr-only">{t('composer.attached', { name: f.name })} </span>
                         {f.size !== null && formatSize(f.size, locale)}
                       </>
                     )}
                   </span>
                   <span className="max-w-[160px] truncate text-danger" role="alert" title={f.error}>
-                    {f.status === 'failed' && f.error}
+                    {f.status === 'failed' && (
+                      <>
+                        <span className="sr-only">{f.name}: </span>
+                        {f.error}
+                      </>
+                    )}
                   </span>
                 </span>
                 <button type="button" aria-label={t('composer.removeAttachment', { name: f.name })} onClick={() => removeFile(f)} className="-my-1 -mr-1 rounded-md p-1 text-faint hover:bg-hover hover:text-ink max-sm:p-1.5">

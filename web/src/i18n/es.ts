@@ -590,6 +590,7 @@ export const es: Record<MessageKey, string> = {
   "files.folderUpload.files": "{done} de {total, plural, one {# archivo} other {# archivos}}",
   "files.folderUpload.bytes": "{done} de {total}",
   "files.folderUpload.failed": "Fallidos: {n}",
+  "files.folderUpload.ended": "Se subieron {done} de {total} archivos.",
   "files.folderUpload.skipped": "{n, plural, one {# archivo del sistema omitido} other {# archivos del sistema omitidos}}",
   "files.folderUpload.stopped": "La carga se detuvo. {n, plural, one {# archivo no se subió.} other {# archivos no se subieron.}}",
   "files.folderUpload.empty": "Esta carpeta no tiene archivos para subir.",

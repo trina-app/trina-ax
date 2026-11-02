@@ -253,6 +253,131 @@ describe('uploads', () => {
     })
   })
 
+  describe('small files take turns: each copy stays in memory until its request ends', () => {
+    const tick = async () => { for (let i = 0; i < 5; i++) await new Promise((r) => setTimeout(r, 0)) }
+    const target = (n: number) => ({ kind: 'path', path: `docs/${n}.pdf`, onExists: 'rename' }) as const
+    const pdf = (n: number) => new File([new Uint8Array(100)], `${n}.pdf`)
+
+    /** A server whose answers wait for `open`. `peak` counts requests that are on their way together. */
+    function held() {
+      const waiting: { answer: () => void; name: string }[] = []
+      const started: string[] = []
+      let now = 0
+      let peak = 0
+      const fetchFn = (async (_input: string, init: RequestInit) => {
+        const fd = init.body as FormData
+        const name = String(fd.get('name'))
+        started.push(name)
+        peak = Math.max(peak, ++now)
+        await new Promise<void>((resolve, reject) => {
+          waiting.push({ answer: resolve, name })
+          init.signal?.addEventListener('abort', () => reject(init.signal!.reason), { once: true })
+        }).finally(() => { now-- })
+        return json({ ...entry(`docs/${name}`), size: (fd.get('file') as File).size }, 201)
+      }) as unknown as typeof fetch
+      return { client: new ApiClient({ baseUrl: '', fetch: fetchFn }), started, waiting, peak: () => peak, open: () => waiting.shift()!.answer() }
+    }
+
+    test('three at a time, in the order they came, and all go through', async () => {
+      const s = held()
+      const all = Promise.all([1, 2, 3, 4, 5, 6, 7].map((n) => uploadFile(pdf(n), target(n), { client: s.client, storage: null })))
+      await tick()
+      expect(s.started).toEqual(['1.pdf', '2.pdf', '3.pdf'])
+      s.open()
+      await tick()
+      expect(s.started).toEqual(['1.pdf', '2.pdf', '3.pdf', '4.pdf'])
+      for (let n = 0; n < 6; n++) {
+        s.open()
+        await tick()
+      }
+      expect((await all).map((r) => r.kind)).toEqual(Array(7).fill('path'))
+      expect(s.peak()).toBe(3)
+    })
+
+    test('a file in line is not read yet, and says it is preparing', async () => {
+      const s = held()
+      let reads = 0
+      const counted = (n: number) => Object.assign(pdf(n), { arrayBuffer: async () => { reads++; return new ArrayBuffer(100) } })
+      const seen: (UploadProgress | null)[] = []
+      const all = Promise.all([1, 2, 3, 4, 5].map((n) => uploadFile(counted(n), target(n), { client: s.client, storage: null, onProgress: (p) => n === 5 && seen.push(p) })))
+      await tick()
+      expect(reads).toBe(3)
+      expect(seen.map((p) => uploadLabel(p, (k) => k))).toEqual(['files.preparing'])
+      for (let n = 0; n < 5; n++) {
+        s.open()
+        await tick()
+      }
+      await all
+      expect(reads).toBe(5)
+    })
+
+    test('cancelled in line: it leaves at once, is never read, and the next one does not wait for it', async () => {
+      const s = held()
+      const first = [1, 2, 3].map((n) => uploadFile(pdf(n), target(n), { client: s.client, storage: null }))
+      const stop = new AbortController()
+      let read = false
+      const inLine = Object.assign(pdf(4), { arrayBuffer: async () => { read = true; return new ArrayBuffer(100) } })
+      const cancelled = uploadFile(inLine, target(4), { client: s.client, storage: null, signal: stop.signal }).catch((e: unknown) => e)
+      const after = uploadFile(pdf(5), target(5), { client: s.client, storage: null })
+      await tick()
+      stop.abort()
+      expect(((await cancelled) as DOMException).name).toBe('AbortError')
+      for (let n = 0; n < 3; n++) {
+        s.open()
+        await tick()
+      }
+      await tick()
+      expect(s.started).toEqual(['1.pdf', '2.pdf', '3.pdf', '5.pdf'])
+      s.open()
+      await Promise.all([...first, after])
+      expect(read).toBe(false)
+    })
+
+    test('an upload that ends badly gives its place on: a refusal, a lost connection, a file that cannot be read, a cancel', async () => {
+      const go = async (fail: (f: File, t: ReturnType<typeof target>) => Promise<unknown>) => {
+        // four at once: the fourth starts only when one of the first three ended, whichever way it ended
+        const s = held()
+        const ok = [2, 3].map((n) => uploadFile(pdf(n), target(n), { client: s.client, storage: null }))
+        const bad = fail(pdf(1), target(1)).catch(() => 'failed')
+        const next = uploadFile(pdf(9), target(9), { client: s.client, storage: null })
+        expect(await bad).toBe('failed')
+        await tick()
+        expect(s.started).toContain('9.pdf')
+        for (let n = 0; n < 3; n++) {
+          s.open()
+          await tick()
+        }
+        await Promise.all([...ok, next])
+      }
+      const refusing = new ApiClient({ baseUrl: '', fetch: (async () => json({ error: { code: 'forbidden', message: 'no' } }, 403)) as unknown as typeof fetch })
+      await go((f, t) => uploadFile(f, t, { client: refusing, storage: null }))
+      const lost = new ApiClient({ baseUrl: '', fetch: (async () => { throw new TypeError('Network request failed') }) as unknown as typeof fetch })
+      await go((f, t) => uploadFile(f, t, { client: lost, storage: null }))
+      await go((f, t) => uploadFile(Object.assign(f, { arrayBuffer: async () => { throw new DOMException('gone', 'NotReadableError') } }), t, { client: lost, storage: null }))
+      const stop = new AbortController()
+      const stopping = held()
+      await go((f, t) => {
+        const r = uploadFile(f, t, { client: stopping.client, storage: null, signal: stop.signal })
+        setTimeout(() => stop.abort(), 0)
+        return r
+      })
+    })
+
+    test('a large file takes no place: it is read in slices, not copied', async () => {
+      const s = held()
+      const small = [1, 2, 3].map((n) => uploadFile(pdf(n), target(n), { client: s.client, storage: null }))
+      const large = fakeServer()
+      await tick()
+      const r = await uploadFile(bigFile(1), { kind: 'path', path: 'x/big.bin', onExists: 'rename' }, { client: large.client, storage: null, retryDelayMs: 0 })
+      expect(r.kind).toBe('path')
+      for (let n = 0; n < 3; n++) {
+        s.open()
+        await tick()
+      }
+      await Promise.all(small)
+    })
+  })
+
   describe('the size the server kept', () => {
     const attachment = () => ({ kind: 'attachment', chatId: uuidv7(), name: 'a.pdf' }) as const
     const path = { kind: 'path', path: 'docs/a.pdf', onExists: 'rename' } as const

@@ -4,12 +4,13 @@
 import fs from 'node:fs'
 import path from 'node:path'
 import { expect, test, type Page } from '@playwright/test'
-import { OWNER, reset, signIn } from './helpers'
+import { reset, signIn } from './helpers'
 
 const CHIP = '[data-testid="attachment-chip"] [role="status"]'
 const ROW = '[data-testid="upload-list"] li'
+const BOB = { username: 'bob', password: 'bob password 1' }
 
-/** From now on, every different text the element shows, with its bar's width if it has one. */
+/** From now on, every different text the element shows on screen, with its bar's width if it has one. */
 async function record(page: Page, selector: string) {
   await page.evaluate((sel) => {
     const seen: string[] = []
@@ -18,7 +19,9 @@ async function record(page: Page, selector: string) {
       const el = document.querySelector(sel)
       if (!el) return
       const bar = el.querySelector<HTMLElement>('.bg-accent')?.style.width
-      const now = (el.textContent ?? '').trim() + (bar ? ` bar=${bar}` : '')
+      const copy = el.cloneNode(true) as HTMLElement
+      for (const hidden of copy.querySelectorAll('.sr-only')) hidden.remove()
+      const now = (copy.textContent ?? '').trim() + (bar ? ` bar=${bar}` : '')
       if (now && now !== seen.at(-1)) seen.push(now)
     }
     new MutationObserver(read).observe(document.body, { subtree: true, childList: true, characterData: true, attributes: true, attributeFilter: ['style'] })
@@ -37,6 +40,25 @@ async function slowUploads(page: Page, bytesPerSecond: number) {
 }
 const answerAfter = (page: Page, ms: number) => page.request.post('/__test/upload-delay', { data: { ms } })
 const pdf = (name: string, size: number) => ({ name, mimeType: 'application/pdf', buffer: Buffer.alloc(size, 7) })
+/** how many requests of this kind the server has had */
+const requests = async (page: Page, line: string) => ((await (await page.request.post('/__test/log')).json()) as string[]).filter((l) => l === line).length
+/** Out and in as another person, in this tab: no page load (signIn makes one, and an empty page proves nothing). */
+async function nextPerson(page: Page) {
+  await page.getByTestId('account-menu').click()
+  await page.getByTestId('logout').click()
+  await expect(page.getByTestId('login-username')).toBeVisible()
+  await page.getByTestId('login-username').fill(BOB.username)
+  await page.getByTestId('login-password').fill(BOB.password)
+  await page.getByTestId('login-submit').click()
+  await expect(page.getByTestId('account-menu')).toBeVisible()
+  await page.getByRole('link', { name: '파일', exact: true }).click()
+  await expect(page.getByTestId('files-input')).toBeAttached()
+}
+const folderOf = (dir: string, names: string[], size: number) => {
+  fs.mkdirSync(dir, { recursive: true })
+  for (const n of names) fs.writeFileSync(path.join(dir, `${n}.bin`), Buffer.alloc(size, 3))
+  return dir
+}
 
 test.describe('on a slow connection', () => {
   test.beforeEach(({ browserName }) => test.skip(browserName !== 'chromium', 'the network emulation is a Chromium tool'))
@@ -60,19 +82,21 @@ test.describe('on a slow connection', () => {
     expect(Math.max(...pct)).toBeLessThan(100)
     expect(shown[0]).toBe('준비 중')
     expect(shown.at(-2)).toBe('마무리 중')
-    expect(shown.at(-1)).toContain('slow.pdf 첨부했어요')
+    expect(shown.at(-1)).toContain('KB')
   })
 
-  test('a screen reader: a fixed text while the number runs, and the end in the same live region', async ({ page }) => {
+  test('a screen reader: one fixed text with the name from start to finish, and the end in the same live region', async ({ page }) => {
     await reset(page)
     await signIn(page)
-    await answerAfter(page, 400)
+    await answerAfter(page, 2000)
     await slowUploads(page, 400_000)
     await page.getByTestId('file-input').setInputFiles(pdf('slow.pdf', 1_000_000))
     const chip = page.getByTestId('attachment-chip')
     const status = chip.getByRole('status')
     const region = await status.elementHandle()
     await expect(status.locator('span[aria-hidden="true"]')).toContainText('%')
+    await expect(status.locator('.sr-only')).toHaveText('slow.pdf 첨부하는 중')
+    await expect(status.locator('span[aria-hidden="true"]')).toHaveText('마무리 중')
     await expect(status.locator('.sr-only')).toHaveText('slow.pdf 첨부하는 중')
     await expect(chip).toHaveAttribute('data-status', 'done')
     expect(await region!.evaluate((el) => el.isConnected)).toBe(true)
@@ -154,10 +178,26 @@ test.describe('on a slow connection', () => {
     expect(bars.at(-1)).toBe(100)
   })
 
+  test('another person signs in during a folder upload: nothing of it shows, and nothing more goes up', async ({ page }, info) => {
+    const dir = folderOf(path.join(info.outputDir, 'private-folder'), ['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h', 'i'], 300_000)
+    await reset(page)
+    await signIn(page)
+    await page.goto('/files?path=marketing')
+    await expect(page.getByTestId('folder-upload-button')).toBeEnabled()
+    await slowUploads(page, 300_000)
+    await page.getByTestId('folder-input').setInputFiles(dir)
+    await expect(page.getByTestId('folder-upload')).toContainText('private-folder')
+    await nextPerson(page)
+    await expect(page.getByTestId('folder-upload')).toHaveCount(0)
+    await expect(page.getByText('private-folder')).toHaveCount(0)
+    const sent = await requests(page, 'POST /api/files/upload')
+    expect(sent).toBeLessThan(9)
+    await page.waitForTimeout(2500)
+    expect(await requests(page, 'POST /api/files/upload')).toBe(sent)
+  })
+
   test('a folder of small files: the bar moves within a file, and the sum ends at the size of the folder', async ({ page }, info) => {
-    const dir = path.join(info.outputDir, 'clips')
-    fs.mkdirSync(dir, { recursive: true })
-    for (const n of ['a', 'b', 'c', 'd']) fs.writeFileSync(path.join(dir, `${n}.bin`), Buffer.alloc(300_000, 3))
+    const dir = folderOf(path.join(info.outputDir, 'clips'), ['a', 'b', 'c', 'd'], 300_000)
     await reset(page)
     await signIn(page)
     await page.goto('/files?path=marketing')
@@ -250,18 +290,59 @@ test.describe('without the service worker', () => {
     await page.route(/\/api\/files\/upload$/, (route) => route.fulfill({ status: 507, contentType: 'application/json', body: JSON.stringify({ error: { code: 'storage_full', message: 'x' } }) }))
     await page.getByTestId('files-input').setInputFiles(pdf('private-name.pdf', 1000))
     await expect(page.locator(ROW)).toContainText('private-name.pdf')
-    await page.getByTestId('account-menu').click()
-    await page.getByTestId('logout').click()
-    // no page load here (signIn would make one, and an empty page proves nothing): the same tab, as at a shared computer
-    await expect(page.getByTestId('login-username')).toBeVisible()
-    await page.getByTestId('login-username').fill(OWNER.username)
-    await page.getByTestId('login-password').fill(OWNER.password)
-    await page.getByTestId('login-submit').click()
-    await expect(page.getByTestId('account-menu')).toBeVisible()
-    await page.getByRole('link', { name: '파일', exact: true }).click()
-    await expect(page.getByTestId('files-input')).toBeAttached()
+    await nextPerson(page)
     await expect(page.getByText('private-name.pdf')).toHaveCount(0)
   })
+
+  test('a folder row says a failure aloud, with the folder\'s name, and then how it ended', async ({ page }, info) => {
+    test.skip(info.project.name !== 'chromium', 'Playwright sends a folder to the input in Chromium only')
+    const dir = folderOf(path.join(info.outputDir, 'clips'), ['a', 'b', 'c'], 1000)
+    await reset(page)
+    await signIn(page)
+    await page.goto('/files?path=marketing')
+    await expect(page.getByTestId('folder-upload-button')).toBeEnabled()
+    let first = true
+    await page.route(/\/api\/files\/upload$/, (route) => {
+      if (!first) return route.continue()
+      first = false
+      return route.fulfill({ status: 403, contentType: 'application/json', body: JSON.stringify({ error: { code: 'forbidden', message: '권한이 없어요.' } }) })
+    })
+    await page.getByTestId('folder-input').setInputFiles(dir)
+    const said = page.getByTestId('folder-upload').getByRole('status')
+    await expect(said).toHaveText('clips: 3개 중 2개를 올렸어요. 1개 실패')
+  })
+})
+
+test('files take turns: three at a time, a chip in line says "preparing", and it can be removed', async ({ page }) => {
+  await reset(page)
+  await signIn(page)
+  await answerAfter(page, 1500)
+  const before = await requests(page, 'POST /api/uploads')
+  await page.getByTestId('file-input').setInputFiles([1, 2, 3, 4, 5].map((n) => pdf(`turn-${n}.pdf`, 1000)))
+  const chips = page.getByTestId('attachment-chip')
+  await expect(chips).toHaveCount(5)
+  await expect.poll(() => requests(page, 'POST /api/uploads')).toBe(before + 3)
+  await expect(chips.last()).toContainText('준비 중')
+  await chips.last().getByRole('button').last().click()
+  await expect(chips).toHaveCount(4)
+  await expect(page.locator('[data-testid="attachment-chip"][data-status="done"]')).toHaveCount(4, { timeout: 15_000 })
+  expect(await requests(page, 'POST /api/uploads')).toBe(before + 4)
+})
+
+test('an upload that ends leaves the folder on screen as it is, when the person went elsewhere meanwhile', async ({ page }) => {
+  await reset(page)
+  await signIn(page)
+  await page.goto('/files?path=marketing')
+  await expect(page.getByTestId('files-input')).toBeAttached()
+  await expect(page.getByText('plan.md', { exact: true })).toBeVisible()
+  await answerAfter(page, 1200)
+  await page.getByTestId('files-input').setInputFiles(pdf('elsewhere.pdf', 1000))
+  await expect(page.locator(ROW)).toBeVisible()
+  await page.getByRole('link', { name: '파일', exact: true }).click()
+  await expect(page.getByText('plan.md', { exact: true })).toHaveCount(0)
+  await expect(page.locator(ROW)).toHaveAttribute('data-status', 'done', { timeout: 10_000 })
+  await page.waitForTimeout(600)
+  await expect(page.getByText('plan.md', { exact: true })).toHaveCount(0)
 })
 
 test('from the file to the message: a watched upload goes through, in each engine', async ({ page }) => {
