@@ -27,11 +27,11 @@ https://github.com/user-attachments/assets/61f3469b-358d-4b3a-9233-c6b23b5db835
 </tr>
 <tr>
 <td><img src="docs/images/readme/before-empty-claude.png" alt="在空文件夹里运行的 Claude Code 收到“Write a proposal for Trina Logistics”后，反问了六个关于公司、客户和格式的问题。"></td>
-<td><img src="docs/images/readme/after-trina-deck.png" alt="Trina AX 对同样的请求直接给出一份 7 页的提案幻灯片，封面写着“Lead time from 2.1 to 1.4 days”。"></td>
+<td><img src="docs/images/readme/after-trina-deck.png" alt="Trina AX 对同样的请求直接给出一份 7 页的提案幻灯片，封面写着“Lead time from 2.1 to 1.4 days, within your budget”。"></td>
 </tr>
 </table>
 
-<sub>2026-10-31 用虚构公司 Dawnroute 实际跑出的结果。Claude Code 先提问并没有错：空文件夹里没有任何东西能告诉它你是谁。Trina 做的，就是把这个文件夹交给它。</sub>
+<sub>2026-10-31 和 11-01 用虚构公司 Dawnroute 实际跑出的结果，幻灯片里的照片由 Higgsfield 生成。Claude Code 先提问并没有错：空文件夹里没有任何东西能告诉它你是谁。Trina 做的，就是把这个文件夹交给它。</sub>
 
 ## 工作原理
 

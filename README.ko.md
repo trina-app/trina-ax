@@ -27,11 +27,11 @@ https://github.com/user-attachments/assets/f19762ef-84de-414a-9f5d-69792f319ec7
 </tr>
 <tr>
 <td><img src="docs/images/readme/before-empty-claude.png" alt="빈 폴더의 Claude Code가 'Write a proposal for Trina Logistics'에 회사, 고객, 형식을 묻는 질문 여섯 개로 답해요."></td>
-<td><img src="docs/images/readme/after-trina-deck.png" alt="트리나 AX는 같은 요청에 'Lead time from 2.1 to 1.4 days'라는 표지의 7쪽 제안서로 답해요."></td>
+<td><img src="docs/images/readme/after-trina-deck.png" alt="트리나 AX는 같은 요청에 'Lead time from 2.1 to 1.4 days, within your budget'라는 표지의 7쪽 제안서로 답해요."></td>
 </tr>
 </table>
 
-<sub>2026-10-31에 가상 회사 Dawnroute 자료로 실제로 돌린 결과예요. Claude Code가 되묻는 게 맞아요. 빈 폴더에는 우리가 누군지 알려 줄 게 없으니까요. 트리나는 그 폴더를 채워 줘요.</sub>
+<sub>2026-10-31·11-01에 가상 회사 Dawnroute 자료로 실제로 돌린 결과예요. 덱 사진은 Higgsfield로 만들었어요. Claude Code가 되묻는 게 맞아요. 빈 폴더에는 우리가 누군지 알려 줄 게 없으니까요. 트리나는 그 폴더를 채워 줘요.</sub>
 
 ## 이렇게 돌아가요
 

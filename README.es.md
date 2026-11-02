@@ -27,11 +27,11 @@ https://github.com/user-attachments/assets/61f3469b-358d-4b3a-9233-c6b23b5db835
 </tr>
 <tr>
 <td><img src="docs/images/readme/before-empty-claude.png" alt="Claude Code, en una carpeta vacía, responde a “Write a proposal for Trina Logistics” con seis preguntas sobre la empresa, el cliente y el formato."></td>
-<td><img src="docs/images/readme/after-trina-deck.png" alt="Trina AX responde a la misma petición con una propuesta de 7 diapositivas cuya portada dice “Lead time from 2.1 to 1.4 days”."></td>
+<td><img src="docs/images/readme/after-trina-deck.png" alt="Trina AX responde a la misma petición con una propuesta de 7 diapositivas cuya portada dice “Lead time from 2.1 to 1.4 days, within your budget”."></td>
 </tr>
 </table>
 
-<sub>Resultados reales del 31 de octubre de 2026 con una empresa ficticia, Dawnroute. Claude Code hace bien en preguntar: en una carpeta vacía no hay nada que le diga quién eres. Trina le da la carpeta.</sub>
+<sub>Resultados reales del 31 de octubre y el 1 de noviembre de 2026 con una empresa ficticia, Dawnroute; las fotos de la presentación se hicieron con Higgsfield. Claude Code hace bien en preguntar: en una carpeta vacía no hay nada que le diga quién eres. Trina le da la carpeta.</sub>
 
 ## Cómo funciona
 

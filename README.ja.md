@@ -27,11 +27,11 @@ https://github.com/user-attachments/assets/61f3469b-358d-4b3a-9233-c6b23b5db835
 </tr>
 <tr>
 <td><img src="docs/images/readme/before-empty-claude.png" alt="空のフォルダーで開いた Claude Code は、「Write a proposal for Trina Logistics」に対して、会社・顧客・形式について6つの質問を返します。"></td>
-<td><img src="docs/images/readme/after-trina-deck.png" alt="Trina AX は同じ依頼に対して、表紙に「Lead time from 2.1 to 1.4 days」と書かれた7ページの提案書を返します。"></td>
+<td><img src="docs/images/readme/after-trina-deck.png" alt="Trina AX は同じ依頼に対して、表紙に「Lead time from 2.1 to 1.4 days, within your budget」と書かれた7ページの提案書を返します。"></td>
 </tr>
 </table>
 
-<sub>2026-10-31 に架空の会社 Dawnroute で実際に出力した結果です。Claude Code が聞き返すのは正しい判断です。空のフォルダーには、どんな会社なのかを伝えるものが何もないからです。Trina は、そのフォルダーを Claude Code に渡します。</sub>
+<sub>2026-10-31・11-01 に架空の会社 Dawnroute で実際に出力した結果です。提案書の写真は Higgsfield で作りました。Claude Code が聞き返すのは正しい判断です。空のフォルダーには、どんな会社なのかを伝えるものが何もないからです。Trina は、そのフォルダーを Claude Code に渡します。</sub>
 
 ## しくみ
 
