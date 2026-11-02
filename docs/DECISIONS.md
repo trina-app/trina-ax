@@ -4934,6 +4934,19 @@ under the answer like the Claude app's sources.
     limit in the cgroup is not). The priority is decided when each converter starts: after a person's grep joined the
     job, its next converter runs at normal priority; one already running stays low (an unprivileged process cannot
     raise its priority again).
+  - **Background work takes one office worker, not both** (after 0.2.19, `files/extract.ts officeWorkerSlot`). The
+    queue, `upgradeOld` and the semantic re-index run one job each, and two of them could hold both office workers while
+    the line in front of the workers was first come, first served. A person's read of a spreadsheet, a Hangul file or the
+    extra parts of a .docx / .pptx then waited for a converter that itself gives way to everything else, and may take 3
+    times its limit. Measured in a Linux container with three busy processes on two CPUs, with 26 MB sheets as the
+    background jobs (9.5 s each at normal priority there): a small sheet that reads in 0.12 s alone took 55-65 s behind
+    two of them, and takes 0.11-0.19 s now. On an M-series Mac with 12 MB sheets (1.4 s each): 1.2 s before, 0.05 s now.
+    Now at most one worker does background work, people go first among those that wait, and a job a person joins while
+    it waits moves up (`officeWorkersRecheck`). The total stays two: each worker may use 2 GiB, and the converter
+    cgroup's memory is shared. The price is that kinds of background work that overlap run one after the other, also on
+    an idle server (two of those 12 MB sheets: 1.6 s together before, 3 s now). Waiting costs a job none of its time
+    limit: the clock starts with its slot. People's work still lines up first come, first served among itself, so a read
+    can wait behind the extraction of an upload or a grep.
   - **A converter stopped by a limit leaves no text, and the file is tried again** (0.2.19, `files/search.ts`
     `OFFICE_RETRY_MAX`, `files/extract.ts ConverterStopped`). Even at 3 times the wall clock a background converter
     can be stopped on a busy Mac (`-c utility` gets about 0.19 of a normal process's CPU under load: a converter that

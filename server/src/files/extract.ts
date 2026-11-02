@@ -13,7 +13,7 @@ import os from 'node:os'
 import path from 'node:path'
 import { cp949Text } from '@mycel/shared/text-encoding'
 import { ToolError } from '../policy/errors'
-import { runIsolated } from '../tools/isolate'
+import { backgroundRun, runIsolated } from '../tools/isolate'
 import { inProcessParseMax } from '../system/limits'
 import { OFFICE_TEXT_MAX, TOOL_ERROR_EXIT, WORKER_EXT } from './office-parse'
 import { tooComplex } from './zip-guard'
@@ -78,10 +78,12 @@ export const IN_PROCESS_EXT = WORKER_EXT
 export const TOO_BIG_IN_PROCESS = 'too large to read as text (over 32 MB); download it to look at it'
 
 /** the office worker's limits: wall clock, resident memory (where no converter cgroup applies; the cgroup's memory.max
- * applies on production Linux as well), workers at the same time (the rest wait) */
+ * applies on production Linux as well), workers at the same time (the rest wait), and how many of them background work
+ * may take (officeWorkerSlot) */
 export const OFFICE_WORKER_TIMEOUT_MS = 60_000
 export const OFFICE_WORKER_RSS_MIB = 2048
-const OFFICE_WORKERS_MAX = 2
+export const OFFICE_WORKERS_MAX = 2
+export const OFFICE_WORKERS_BACKGROUND_MAX = 1
 
 /** The worker script: built next to main.js in the bundles; in a repository checkout built once per process from the
  * TypeScript source into a private temp folder. The isolation lets the worker read that folder (bun reads the
@@ -102,23 +104,38 @@ export function officeWorkerScript(): Promise<string> {
 }
 
 let running = 0
-const waiting: (() => void)[] = []
-/** At most OFFICE_WORKERS_MAX workers; a finished one hands its slot straight to the next waiting caller. */
-async function slot<T>(f: () => Promise<T>): Promise<T> {
-  if (running >= OFFICE_WORKERS_MAX) await new Promise<void>((r) => waiting.push(r))
-  else running++
+let runningLow = 0
+const waitingHigh: (() => void)[] = []
+const waitingLow: (() => void)[] = []
+/**
+ * At most OFFICE_WORKERS_MAX workers, and at most OFFICE_WORKERS_BACKGROUND_MAX of them for background work
+ * (tools/isolate.ts backgroundRun: the text cache's re-extraction), so a person's read never waits behind a background
+ * converter, which itself may wait long for the CPU (up to BACKGROUND_WALL_FACTOR times its time limit). People's work
+ * goes first among those that wait. The limit of one run starts when it has its slot, so waiting costs it none.
+ */
+export async function officeWorkerSlot<T>(f: () => Promise<T>): Promise<T> {
+  let low = backgroundRun()
+  while (running >= OFFICE_WORKERS_MAX || (low && (runningLow >= OFFICE_WORKERS_BACKGROUND_MAX || waitingHigh.length))) {
+    await new Promise<void>((r) => (low ? waitingLow : waitingHigh).push(r))
+    low = backgroundRun()
+  }
+  running++
+  if (low) runningLow++
   try { return await f() } finally {
-    const next = waiting.shift()
-    if (next) next()
-    else running--
+    running--
+    if (low) runningLow--
+    const next = waitingHigh.shift() ?? (runningLow < OFFICE_WORKERS_BACKGROUND_MAX ? waitingLow.shift() : undefined)
+    next?.()
   }
 }
+/** A person joined background work (files/search.ts): whatever waits as background work looks at its place again. */
+export function officeWorkersRecheck() { for (const wake of waitingLow.splice(0)) wake() }
 
 /** A spreadsheet or Hangul file's text (or the extra parts of a .docx / .pptx: mode `docx-extra` / `pptx-extra`) from
  * the office worker, isolated like the other converters. */
 export async function officeWorkerText(e: string, bytes: Uint8Array, signal?: AbortSignal): Promise<string> {
   const script = await officeWorkerScript()
-  return slot(async () => {
+  return officeWorkerSlot(async () => {
     signal?.throwIfAborted()
     const r = await runIsolated({
       cmd: process.execPath, args: ['--smol', '--no-env-file', script, e], stdin: bytes, readPaths: [path.dirname(script)],

@@ -3,14 +3,16 @@
 // (Linux nice 10 + ionice best-effort 7, macOS taskpolicy -c utility) and a longer wall clock. A job that a person's
 // grep joined before a converter started runs that converter at normal priority. A converter that a limit stopped (a
 // background one waiting for the CPU on a busy Mac) leaves the document without text for a while, never with an empty
-// text that would stand for "no text" until the file changes: it is tried again later, a few times.
+// text that would stand for "no text" until the file changes: it is tried again later, a few times. Of the office
+// workers, background work takes only one, so a person's read never waits behind it.
 import { afterEach, describe, expect, test } from 'bun:test'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
+import * as XLSX from 'xlsx'
 import { BACKGROUND_WALL_FACTOR, backgroundPrefix, backgroundRun, inBackground, runIsolated } from '../../server/src/tools/isolate'
 import { OFFICE_EXTRACT_PARALLEL, OFFICE_RETRY_FIRST_MS, OFFICE_RETRY_MAX, OfficeCache } from '../../server/src/files/search'
-import { ConverterStopped } from '../../server/src/files/extract'
+import { ConverterStopped, extractText, OFFICE_WORKERS_BACKGROUND_MAX, OFFICE_WORKERS_MAX, officeWorkerSlot, officeWorkersRecheck } from '../../server/src/files/extract'
 import { ToolError } from '../../server/src/policy/errors'
 
 const dirs: string[] = []
@@ -123,6 +125,132 @@ describe('the text cache asks for background priority only for background jobs',
     await Promise.all([bg, fg])
     expect(c.seen.get('shared/running.docx')).toEqual([true, false])
   })
+})
+
+describe('the office workers: a person never waits behind background work (extract.ts officeWorkerSlot)', () => {
+  const settle = () => Bun.sleep(5)
+  /** every holder lets go after its test, also a test that failed: the workers are shared by the whole file */
+  const held: (() => void)[] = []
+  afterEach(() => { for (const finish of held.splice(0)) finish() })
+  /** work that holds a worker until `finish`; `low`: as background work (inBackground) */
+  function holder(started: string[], name: string, low?: () => boolean) {
+    let finish!: () => void
+    const until = new Promise<void>((r) => { finish = r })
+    held.push(finish)
+    const work = () => officeWorkerSlot(async () => { started.push(name); await until })
+    return { finish, done: low ? inBackground(low, work) : work() }
+  }
+  const small = () => {
+    const wb = XLSX.utils.book_new()
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([['total', 1200]]), 'S1')
+    return new Uint8Array(XLSX.write(wb, { type: 'buffer', bookType: 'xlsx' }))
+  }
+
+  test('background work takes one worker, the next waits for it; the other worker stays free for a person', async () => {
+    expect(OFFICE_WORKERS_MAX).toBe(2)
+    expect(OFFICE_WORKERS_BACKGROUND_MAX).toBe(1)
+    const started: string[] = []
+    const b1 = holder(started, 'b1', () => true), b2 = holder(started, 'b2', () => true)
+    await settle()
+    expect(started).toEqual(['b1'])
+    const person = holder(started, 'person')
+    await settle()
+    expect(started).toEqual(['b1', 'person'])
+    b1.finish()
+    await settle()
+    expect(started).toEqual(['b1', 'person', 'b2'])
+    person.finish(); b2.finish()
+    await Promise.all([b1.done, b2.done, person.done])
+  })
+
+  test('among those that wait a person goes first, also when background work came first; background work never takes the last worker', async () => {
+    const started: string[] = []
+    const p1 = holder(started, 'p1'), p2 = holder(started, 'p2')
+    const b1 = holder(started, 'b1', () => true)
+    const p3 = holder(started, 'p3')
+    await settle()
+    expect(started).toEqual(['p1', 'p2'])
+    p1.finish()
+    await settle()
+    expect(started).toEqual(['p1', 'p2', 'p3'])
+    p2.finish()
+    await settle()
+    expect(started).toEqual(['p1', 'p2', 'p3', 'b1'])
+    const b2 = holder(started, 'b2', () => true)
+    p3.finish()
+    await settle()
+    // a worker is free, and it stays free
+    expect(started).toHaveLength(4)
+    b1.finish()
+    await settle()
+    expect(started.at(-1)).toBe('b2')
+    b2.finish()
+    await Promise.all([p1.done, p2.done, p3.done, b1.done, b2.done])
+  })
+
+  test('work that fails gives its worker back', async () => {
+    const failing = () => officeWorkerSlot(async () => { throw new Error('no') })
+    await expect(inBackground(() => true, failing)).rejects.toThrow('no')
+    await expect(failing()).rejects.toThrow('no')
+    const started: string[] = []
+    const b = holder(started, 'b', () => true), p1 = holder(started, 'p1'), p2 = holder(started, 'p2')
+    await settle()
+    expect(started).toEqual(['b', 'p1'])
+    b.finish(); p1.finish()
+    await settle()
+    expect(started).toEqual(['b', 'p1', 'p2'])
+    p2.finish()
+    await Promise.all([b.done, p1.done, p2.done])
+  })
+
+  test('background work that a person joined while it waited takes the free worker at once', async () => {
+    const started: string[] = []
+    let low = true
+    const b1 = holder(started, 'b1', () => true), b2 = holder(started, 'b2', () => low)
+    await settle()
+    expect(started).toEqual(['b1'])
+    low = false
+    officeWorkersRecheck()
+    await settle()
+    expect(started).toEqual(['b1', 'b2'])
+    b1.finish(); b2.finish()
+    await Promise.all([b1.done, b2.done])
+  })
+
+  test('a text cache job that waits for a worker: a person who joins it moves it up', async () => {
+    const started: string[] = []
+    const finish = new Map<string, () => void>()
+    class Cache extends OfficeCache {
+      protected override extract(rel: string): Promise<string> {
+        return officeWorkerSlot(async () => {
+          started.push(rel)
+          await new Promise<void>((r) => { finish.set(rel, r); held.push(r) })
+          return 'text of ' + rel
+        })
+      }
+    }
+    const root = tmp('team-')
+    fs.mkdirSync(path.join(root, 'shared'))
+    for (const n of ['a.xlsx', 'b.xlsx']) fs.writeFileSync(path.join(root, 'shared', n), 'bytes of ' + n)
+    const c = new Cache(tmp('cache-'), { root, caseInsensitive: false } as never, { pandoc: null, pdftotext: null })
+    const a = c.update('shared/a.xlsx', { background: true }), b = c.update('shared/b.xlsx', { background: true })
+    await settle()
+    expect(started).toEqual(['shared/a.xlsx'])
+    const joined = c.update('shared/b.xlsx')
+    await settle()
+    expect(started).toEqual(['shared/a.xlsx', 'shared/b.xlsx'])
+    for (const f of finish.values()) f()
+    await Promise.all([a, b, joined])
+  })
+
+  test.skipIf(!unix)('a real read gets its text while one background job has a worker and another waits for one', async () => {
+    const started: string[] = []
+    const b1 = holder(started, 'b1', () => true), b2 = holder(started, 'b2', () => true)
+    expect(await extractText('small.xlsx', small(), { pandoc: null, pdftotext: null })).toContain('total\t1200')
+    expect(started).toEqual(['b1'])
+    b1.finish(); b2.finish()
+    await Promise.all([b1.done, b2.done])
+  }, 15_000)
 })
 
 describe('a converter stopped by a limit: no text is kept, the file is tried again later', () => {

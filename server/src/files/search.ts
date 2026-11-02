@@ -8,7 +8,7 @@ import { atLeast, type Principal, type RuleSet } from '../policy/access'
 import { visiblePath, type FsCtx } from '../policy/authorize'
 import { ToolError } from '../policy/errors'
 import { walk } from '../policy/resolve'
-import { ConverterStopped, extractText, isOffice, OFFICE_EXT, type Tools } from './extract'
+import { ConverterStopped, extractText, isOffice, OFFICE_EXT, officeWorkersRecheck, type Tools } from './extract'
 import { inBackground } from '../tools/isolate'
 import { readRegular, sha256 } from './store'
 import { readMaxBytes, rgThreads } from '../system/limits'
@@ -310,6 +310,8 @@ export class OfficeCache {
   private raise(t: ExtractTicket) {
     if (!t.low) return
     t.low = false
+    // past this queue its converter may be waiting for an office worker as background work
+    officeWorkersRecheck()
     const wake = t.wake
     if (!wake) return
     const i = this.waitingLow.indexOf(wake)
