@@ -12,7 +12,7 @@ Claude Code and Codex on one company server, with your files, your team's skills
 
 English · [한국어](README.ko.md) · [日本語](README.ja.md) · [Español](README.es.md) · [简体中文](README.zh-CN.md)
 
-https://github.com/user-attachments/assets/566eb7b0-9e21-4898-9c25-e4399e8d3e74
+https://github.com/user-attachments/assets/61f3469b-358d-4b3a-9233-c6b23b5db835
 
 <sub><b>97 seconds, sound on.</b> A team lead sets up Claude once, and on her first day a new hire’s proposal comes out like his.<br>Animated story with the real app at 1:15. Fictional company.</sub>
 

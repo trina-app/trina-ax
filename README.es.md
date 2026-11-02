@@ -12,7 +12,7 @@ Claude Code y Codex en un servidor de tu empresa, con tus archivos, las skills d
 
 [English](README.md) · [한국어](README.ko.md) · [日本語](README.ja.md) · Español · [简体中文](README.zh-CN.md)
 
-https://github.com/user-attachments/assets/566eb7b0-9e21-4898-9c25-e4399e8d3e74
+https://github.com/user-attachments/assets/61f3469b-358d-4b3a-9233-c6b23b5db835
 
 <sub><b>97 segundos, con sonido (en inglés).</b> Un líder de equipo configura Claude una vez y, en su primer día, la propuesta de una nueva integrante sale como la suya.<br>Historia animada con la app real en el 1:15. Empresa ficticia.</sub>
 

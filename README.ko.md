@@ -12,7 +12,7 @@
 
 [English](README.md) · 한국어 · [日本語](README.ja.md) · [Español](README.es.md) · [简体中文](README.zh-CN.md)
 
-https://github.com/user-attachments/assets/c07411b0-6c11-4df5-bb17-2b1ff79308ea
+https://github.com/user-attachments/assets/f19762ef-84de-414a-9f5d-69792f319ec7
 
 <sub><b>97초, 소리를 켜고 보세요.</b> 대표님이 Claude를 한 번 세팅하면, 입사 첫날 신입의 제안서도 대표님이 쓴 것처럼 나와요.<br>애니메이션이고, 1:15에 실제 앱 화면이 나와요. 회사는 가상이에요.</sub>
 

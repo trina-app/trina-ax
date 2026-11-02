@@ -12,7 +12,7 @@
 
 [English](README.md) · [한국어](README.ko.md) · 日本語 · [Español](README.es.md) · [简体中文](README.zh-CN.md)
 
-https://github.com/user-attachments/assets/566eb7b0-9e21-4898-9c25-e4399e8d3e74
+https://github.com/user-attachments/assets/61f3469b-358d-4b3a-9233-c6b23b5db835
 
 <sub><b>97秒・音声あり（英語）。</b>チームリーダーが Claude を一度セットアップすれば、入社初日の新人の提案書もリーダーが作ったように仕上がります。<br>アニメーションで、1:15 に実際のアプリ画面が出ます。会社は架空です。</sub>
 
