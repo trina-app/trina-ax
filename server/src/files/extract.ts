@@ -13,7 +13,7 @@ import os from 'node:os'
 import path from 'node:path'
 import { cp949Text } from '@mycel/shared/text-encoding'
 import { ToolError } from '../policy/errors'
-import { backgroundRun, runIsolated } from '../tools/isolate'
+import { runIsolated, waitsBehindPeople } from '../tools/isolate'
 import { inProcessParseMax } from '../system/limits'
 import { OFFICE_TEXT_MAX, TOOL_ERROR_EXIT, WORKER_EXT } from './office-parse'
 import { tooComplex } from './zip-guard'
@@ -109,15 +109,16 @@ const waitingHigh: (() => void)[] = []
 const waitingLow: (() => void)[] = []
 /**
  * At most OFFICE_WORKERS_MAX workers, and at most OFFICE_WORKERS_BACKGROUND_MAX of them for background work
- * (tools/isolate.ts backgroundRun: the text cache's re-extraction), so a person's read never waits behind a background
- * converter, which itself may wait long for the CPU (up to BACKGROUND_WALL_FACTOR times its time limit). People's work
- * goes first among those that wait. The limit of one run starts when it has its slot, so waiting costs it none.
+ * (tools/isolate.ts waitsBehindPeople: the text cache's re-extraction), so background work alone never makes a person's
+ * read wait for a converter that itself may wait long for the CPU (up to BACKGROUND_WALL_FACTOR times its time limit).
+ * People's work goes first among those that wait. The limit of one run starts when it has its slot, so waiting costs it
+ * none.
  */
 export async function officeWorkerSlot<T>(f: () => Promise<T>): Promise<T> {
-  let low = backgroundRun()
+  let low = waitsBehindPeople()
   while (running >= OFFICE_WORKERS_MAX || (low && (runningLow >= OFFICE_WORKERS_BACKGROUND_MAX || waitingHigh.length))) {
     await new Promise<void>((r) => (low ? waitingLow : waitingHigh).push(r))
-    low = backgroundRun()
+    low = waitsBehindPeople()
   }
   running++
   if (low) runningLow++

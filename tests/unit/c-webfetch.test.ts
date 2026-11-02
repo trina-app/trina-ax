@@ -68,6 +68,18 @@ describe('pinnedRequest: `until` looks at an answer only after a blank line', ()
     } finally { srv.close() }
   })
 
+  test('a blank line cut by a chunk boundary, each side in its own read: the stream that stays open still ends', async () => {
+    for (const [a, b] of [['data: {"id":"r1"}\n', '\n'], ['data: {"id":"r1"}\r\n', '\r\n'], ['data: {"id":"r1"}\r\n\r', '\n']] as const) {
+      const srv = await answering([head('text/event-stream', 'Transfer-Encoding: chunked'), chunk(a), chunk(b)])
+      try {
+        const t0 = Date.now()
+        const r = await request(srv.target, (body) => sseEvents(body.toString('utf8')).length > 0)
+        expect(Date.now() - t0).toBeLessThan(5000)
+        expect(r.body.toString()).toStartWith('data: {"id":"r1"}')
+      } finally { srv.close() }
+    }
+  })
+
   test('the same event stream, not chunked and with CRLF line ends, stays open too', async () => {
     const reply = `data: {"id":"r1"}\r\n\r\n`
     const srv = await answering([head('text/event-stream', 'Cache-Control: no-store'), ...reply])

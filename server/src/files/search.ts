@@ -393,8 +393,9 @@ export class OfficeCache {
         if (!input) { fs.rmSync(this.cachePath(rel), { force: true }); return }
         let text: string
         // a background job's converters run below interactive work (tools/isolate.ts backgroundPrefix) while no
-        // foreground caller has joined it; those of the last try at normal priority
-        try { text = await inBackground(() => ticket.low && !lastTry, () => this.extract(rel, input.bytes, { lastTry })) } catch (e) {
+        // foreground caller has joined it; those of the last try at normal priority, and they still wait behind
+        // people's work for an office worker
+        try { text = await inBackground(() => ticket.low && !lastTry, () => this.extract(rel, input.bytes, { lastTry }), () => ticket.low) } catch (e) {
           // an upgrade that fails (a timeout on a busy server, the converters' memory limit) keeps the older text of
           // these very bytes: grep goes on with it, and the next start tries again
           if (kept && this.provenance(rel)?.source === sha256(input.bytes)) return

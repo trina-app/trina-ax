@@ -165,11 +165,15 @@ function bwrapArgs(o: { cmd: string; workDir: string; readPaths: string[]; moder
 
 /** Converters started inside background work: the text cache's re-extraction (files/search.ts OfficeCache.update with
  * `background`: what a search left to the background queue, upgradeOld, the semantic re-index). `low` is asked when
- * each converter starts, so one that starts after a person's grep joined the job runs at normal priority. */
-const backgroundWork = new AsyncLocalStorage<() => boolean>()
-export function inBackground<T>(low: () => boolean, f: () => Promise<T>): Promise<T> { return backgroundWork.run(low, f) }
+ * each converter starts, so one that starts after a person's grep joined the job runs at normal priority. `behind` is
+ * asked where converters wait for their turn (files/extract.ts officeWorkerSlot): the last try of a stopped file runs
+ * at normal priority, yet nobody asked for it, so it still waits behind people's work. */
+const backgroundWork = new AsyncLocalStorage<{ low: () => boolean; behind: () => boolean }>()
+export function inBackground<T>(low: () => boolean, f: () => Promise<T>, behind = low): Promise<T> { return backgroundWork.run({ low, behind }, f) }
 /** true inside inBackground while its `low()` holds */
-export function backgroundRun(): boolean { return backgroundWork.getStore()?.() ?? false }
+export function backgroundRun(): boolean { return backgroundWork.getStore()?.low() ?? false }
+/** true inside inBackground while its `behind()` holds */
+export function waitsBehindPeople(): boolean { return backgroundWork.getStore()?.behind() ?? false }
 
 /** a background converter may wait for the CPU behind interactive work, so its wall-clock limit is this many times the
  * run's timeoutMs; its CPU-time limit (RLIMIT_CPU in the converter cgroup) stays that of timeoutMs */

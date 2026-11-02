@@ -4942,7 +4942,9 @@ under the answer like the Claude app's sources.
     background jobs (9.5 s each at normal priority there): a small sheet that reads in 0.12 s alone took 55-65 s behind
     two of them, and takes 0.11-0.19 s now. On an M-series Mac with 12 MB sheets (1.4 s each): 1.2 s before, 0.05 s now.
     Now at most one worker does background work, people go first among those that wait, and a job a person joins while
-    it waits moves up (`officeWorkersRecheck`). The total stays two: each worker may use 2 GiB, and the converter
+    it waits moves up (`officeWorkersRecheck`). A last try runs at normal priority but counts as background work here
+    (`tools/isolate.ts waitsBehindPeople`). A read can still wait for a background worker when a person's work holds the
+    other one: there is no taking a worker back. The total stays two: each worker may use 2 GiB, and the converter
     cgroup's memory is shared. The price is that kinds of background work that overlap run one after the other, also on
     an idle server (two of those 12 MB sheets: 1.6 s together before, 3 s now). Waiting costs a job none of its time
     limit: the clock starts with its slot. People's work still lines up first come, first served among itself, so a read
