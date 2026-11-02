@@ -610,7 +610,7 @@ export const id: Record<MessageKey, string> = {
   'files.folderUpload.files': '{done} dari {total} file',
   'files.folderUpload.bytes': '{done} dari {total}',
   'files.folderUpload.failed': '{n} gagal',
-  'files.folderUpload.ended': '{done} dari {total} berkas terunggah.',
+  'files.folderUpload.ended': 'Terunggah: {done} dari {total}.',
   'files.folderUpload.skipped': '{n} file sistem dilewati',
   'files.folderUpload.stopped': 'Unggahan berhenti. {n} file tidak terunggah.',
   'files.folderUpload.empty': 'Folder ini tidak berisi file untuk diunggah.',

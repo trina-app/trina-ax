@@ -610,7 +610,7 @@ export const en: Record<MessageKey, string> = {
   'files.folderUpload.files': '{done} of {total, plural, one {# file} other {# files}}',
   'files.folderUpload.bytes': '{done} of {total}',
   'files.folderUpload.failed': '{n} failed',
-  'files.folderUpload.ended': '{done} of {total} files uploaded.',
+  'files.folderUpload.ended': 'Uploaded: {done} of {total}.',
   'files.folderUpload.skipped': '{n, plural, one {# system file skipped} other {# system files skipped}}',
   'files.folderUpload.stopped': 'The upload stopped. {n, plural, one {# file was not uploaded.} other {# files were not uploaded.}}',
   'files.folderUpload.empty': 'This folder has no files to upload.',
