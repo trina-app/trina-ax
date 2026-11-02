@@ -25,6 +25,9 @@ let nina: { client: Client; id: string }
 let key: SealingKey
 beforeAll(async () => {
   h = await harness('cred-dup', { engine: { authMode: 'managed', modelUpstreams: { anthropic: up, openai: up + '/v1' } } })
+  // "No AI" leaves out an engine whose program is missing on the server: any existing file stands in for Claude Code
+  // here, so the answer does not depend on the test machine (no turn runs in this file)
+  h.ctx.engineConfig.claudeBin = process.execPath
   owner = await withOwner(h)
   admin = await addMember(h, owner, { username: 'adam', role: 'admin' })
   mia = await addMember(h, owner, { username: 'mia' })
