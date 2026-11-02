@@ -301,14 +301,17 @@ export class OfficeCache {
   private async slot<T>(f: () => Promise<T>, t: ExtractTicket): Promise<T> {
     // a low job also waits while a foreground job waits, so a freed slot goes to the foreground first, until its turn
     while (this.active >= OFFICE_EXTRACT_PARALLEL || (t.low && this.waitingHigh.length && !this.turn.due())) {
-      if (t.low) this.turn.wait()
+      if (t.low) {
+        this.turn.wait()
+        // woken for a slot it may not take after all (two ended at once): it goes to the first foreground job in line
+        if (this.active < OFFICE_EXTRACT_PARALLEL) this.waitingHigh.shift()?.()
+      }
       await new Promise<void>((r) => { t.wake = r; (t.low ? this.waitingLow : this.waitingHigh).push(r) })
       t.wake = undefined
     }
     this.active++
     if (t.low) this.turn.restart(this.waitingLow.length > 0)
-    else if (this.waitingLow.length) this.turn.pass()
-    else this.turn.restart(false)
+    else this.turn.pass()
     try { return await f() } finally {
       this.active--
       const next = (this.turn.due() ? this.waitingLow.shift() : undefined) ?? this.waitingHigh.shift() ?? this.waitingLow.shift()
@@ -326,6 +329,7 @@ export class OfficeCache {
     const i = this.waitingLow.indexOf(wake)
     if (i < 0) return
     this.waitingLow.splice(i, 1)
+    if (!this.waitingLow.length) this.turn.restart(false)
     // a free slot: the job checks again at once; else it waits with the foreground jobs
     if (this.active < OFFICE_EXTRACT_PARALLEL) wake(); else this.waitingHigh.push(wake)
   }

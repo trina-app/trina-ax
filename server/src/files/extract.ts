@@ -107,7 +107,7 @@ export function officeWorkerScript(): Promise<string> {
  * Background work waits behind people's work (officeWorkerSlot, OfficeCache.slot), but not for ever: while it waits it
  * holds a text cache slot, the file's bytes and its search lease, and no time limit runs. The next free place goes to it
  * once BACKGROUND_PASSED_MAX of people's jobs have started past it, or BACKGROUND_WAIT_MS after it began to wait
- * (docs/DECISIONS.md "Background work takes one office worker").
+ * (docs/DECISIONS.md "Background work gets its turn").
  */
 export const BACKGROUND_PASSED_MAX = 8
 export const BACKGROUND_WAIT_MS = 30_000
@@ -115,9 +115,9 @@ export class BackgroundTurn {
   private passed = 0
   private since: number | null = null
   constructor(private now: () => number = () => Date.now()) {}
-  /** background work waits; its clock runs from the first time */
-  wait() { this.since ??= this.now() }
-  /** a person's job started past it */
+  /** background work waits; its clock and its count run from the first time */
+  wait() { if (this.since === null) { this.since = this.now(); this.passed = 0 } }
+  /** a person's job started */
   pass() { this.passed++ }
   /** start counting again, for the background work that waits now (if any) */
   restart(waiting: boolean) { this.passed = 0; this.since = waiting ? this.now() : null }
@@ -141,13 +141,19 @@ const turn = new BackgroundTurn()
 export async function officeWorkerSlot<T>(f: () => Promise<T>): Promise<T> {
   let low = waitsBehindPeople()
   while (running >= OFFICE_WORKERS_MAX || (low && (runningLow >= OFFICE_WORKERS_BACKGROUND_MAX || (waitingHigh.length && !turn.due())))) {
-    if (low) turn.wait()
+    if (low) {
+      turn.wait()
+      // woken for a worker it may not take after all (two ended at once): it goes to the first person in line
+      if (running < OFFICE_WORKERS_MAX) waitingHigh.shift()?.()
+    }
+    const waited = low
     await new Promise<void>((r) => (low ? waitingLow : waitingHigh).push(r))
     low = waitsBehindPeople()
+    // a person joined it: no background work is left to have a turn
+    if (waited && !low && !waitingLow.length) turn.restart(false)
   }
   running++
   if (low) runningLow++
-  else if (!waitingLow.length) turn.restart(false)
   else if (!runningLow) turn.pass()
   try { return await f() } finally {
     running--

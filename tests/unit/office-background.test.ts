@@ -364,6 +364,44 @@ describe('the office workers: background work takes at most one, people go first
     } finally { setSystemTime() }
   })
 
+  test('background work that asks just as a worker ends does not go ahead of people in line', async () => {
+    // the moment between a job's end and the start of the person it woke is a few microtasks long: every one is tried
+    for (let hops = 0; hops < 30; hops++) {
+      const started: string[] = []
+      const p1 = holder(started, 'p1'), p2 = holder(started, 'p2'), h1 = holder(started, 'h1'), h2 = holder(started, 'h2')
+      await settle()
+      p1.finish()
+      for (let i = 0; i < hops; i++) await null
+      const b = holder(started, 'b', () => true)
+      await settle()
+      expect(started).toEqual(['p1', 'p2', 'h1'])
+      p2.finish()
+      await settle()
+      expect(started).toEqual(['p1', 'p2', 'h1', 'h2'])
+      h1.finish(); h2.finish(); b.finish()
+      await Promise.all([p1.done, p2.done, h1.done, h2.done, b.done])
+    }
+  })
+
+  test('two workers end at once on background work\'s turn: one job takes a worker, the first person in line the other', async () => {
+    const started: string[] = []
+    const t0 = Date.now()
+    try {
+      const p1 = holder(started, 'p1'), p2 = holder(started, 'p2')
+      const b1 = holder(started, 'b1', () => true), b2 = holder(started, 'b2', () => true), p3 = holder(started, 'p3')
+      await settle()
+      setSystemTime(new Date(t0 + BACKGROUND_WAIT_MS + 1000))
+      p1.finish(); p2.finish()
+      await settle()
+      expect(started).toEqual(['p1', 'p2', 'b1', 'p3'])
+      b1.finish(); p3.finish()
+      await settle()
+      expect(started).toEqual(['p1', 'p2', 'b1', 'p3', 'b2'])
+      b2.finish()
+      await Promise.all([p1.done, p2.done, p3.done, b1.done, b2.done])
+    } finally { setSystemTime() }
+  })
+
   test('its turn never gives background work a second worker', async () => {
     const started: string[] = []
     const t0 = Date.now()
@@ -392,8 +430,9 @@ describe('the office workers: background work takes at most one, people go first
     for (let i = 0; i < BACKGROUND_PASSED_MAX + 1; i++) t.pass()
     now += BACKGROUND_WAIT_MS
     expect(t.due()).toBe(false)
-    t.restart(false)
+    // people's jobs before it began to wait do not count
     t.wait()
+    expect(t.due()).toBe(false)
     for (let i = 0; i < BACKGROUND_PASSED_MAX - 1; i++) t.pass()
     expect(t.due()).toBe(false)
     t.pass()
@@ -535,6 +574,47 @@ describe('the text cache\'s line: foreground jobs first, but background work get
     expect(c.started.slice(busy.length)).toEqual(['shared/bg.docx', 'shared/next.docx'])
     for (const open of c.gates.values()) open()
     await Promise.all([...running, bg, next])
+  })
+
+  test('two slots end at once on background work\'s turn: one job takes a slot, the first foreground job in line the other', async () => {
+    const busy = Array.from({ length: OFFICE_EXTRACT_PARALLEL }, (_, i) => `busy${i}.docx`)
+    const c = setup([...busy, 'next.docx', 'bg1.docx', 'bg2.docx'])
+    c.held = true
+    const running = busy.map((b) => c.update('shared/' + b))
+    await Bun.sleep(5)
+    const low = ['bg1', 'bg2'].map((b) => c.update(`shared/${b}.docx`, { background: true }))
+    const next = c.update('shared/next.docx')
+    await Bun.sleep(5)
+    c.clock += BACKGROUND_WAIT_MS
+    c.gates.get('shared/busy0.docx')!(); c.gates.get('shared/busy1.docx')!()
+    await Bun.sleep(5)
+    expect(c.started.slice(busy.length)).toEqual(['shared/bg1.docx', 'shared/next.docx'])
+    c.held = false
+    for (const open of c.gates.values()) open()
+    await Promise.all([...running, ...low, next])
+  })
+
+  test('a person joins the job whose turn it was: the next background job waits from its own start', async () => {
+    const busy = Array.from({ length: OFFICE_EXTRACT_PARALLEL }, (_, i) => `busy${i}.docx`)
+    const c = setup([...busy, 'next.docx', 'bg1.docx', 'bg2.docx'])
+    c.held = true
+    const running = busy.map((b) => c.update('shared/' + b))
+    await Bun.sleep(5)
+    const first = c.update('shared/bg1.docx', { background: true })
+    await Bun.sleep(5)
+    c.clock += BACKGROUND_WAIT_MS
+    const joined = c.update('shared/bg1.docx')
+    const second = c.update('shared/bg2.docx', { background: true }), next = c.update('shared/next.docx')
+    await Bun.sleep(5)
+    c.gates.get('shared/busy0.docx')!()
+    await Bun.sleep(5)
+    expect(c.started.slice(busy.length)).toEqual(['shared/bg1.docx'])
+    c.gates.get('shared/busy1.docx')!()
+    await Bun.sleep(5)
+    expect(c.started.slice(busy.length)).toEqual(['shared/bg1.docx', 'shared/next.docx'])
+    c.held = false
+    for (const open of c.gates.values()) open()
+    await Promise.all([...running, first, joined, second, next])
   })
 })
 

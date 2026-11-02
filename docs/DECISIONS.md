@@ -4934,7 +4934,7 @@ under the answer like the Claude app's sources.
     limit in the cgroup is not). The priority is decided when each converter starts: after a person's grep joined the
     job, its next converter runs at normal priority; one already running stays low (an unprivileged process cannot
     raise its priority again).
-  - **Background work takes one office worker, not both** (after 0.2.19, `files/extract.ts officeWorkerSlot`). The
+  - **Background work takes one office worker, not both** (after 0.2.20, `files/extract.ts officeWorkerSlot`). The
     queue, `upgradeOld` and the semantic re-index run one job each, and two of them could hold both office workers while
     the line in front of the workers was first come, first served. A person's read of a spreadsheet, a Hangul file or the
     extra parts of a .docx / .pptx then waited for a converter that itself gives way to everything else, and may take 3
@@ -4949,7 +4949,7 @@ under the answer like the Claude app's sources.
     an idle server (two of those 12 MB sheets: 1.6 s together before, 3 s now). Waiting costs a job none of its time
     limit: the clock starts with its slot. People's work still lines up first come, first served among itself, so a read
     can wait behind the extraction of an upload or a grep.
-  - **Background work gets its turn** (after 0.2.19, `files/extract.ts BackgroundTurn`, used by `officeWorkerSlot` and
+  - **Background work gets its turn** (after 0.2.20, `files/extract.ts BackgroundTurn`, used by `officeWorkerSlot` and
     `OfficeCache.slot`). People first without a limit starved it: with three loops of reads a background job had no
     worker after 15 s and 250 reads (0.4 s when the line was first come, first served), and no time limit ran. All that
     time it held a text cache slot, up to 50 MB of file bytes, its search lease (the quarantine refuses those bytes,
