@@ -418,6 +418,34 @@ describe('the office workers: background work takes at most one, people go first
     }
   })
 
+  test.each([['first', 0], ['second', 1]] as const)('a person joins the %s of two background jobs on their turn: the other keeps the turn', async (_, joined) => {
+    const started: string[] = []
+    const t0 = Date.now()
+    try {
+      const low = [true, true]
+      const p1 = holder(started, 'p1'), p2 = holder(started, 'p2')
+      const b0 = holder(started, 'b0', () => low[0]!), b1 = holder(started, 'b1', () => low[1]!), p3 = holder(started, 'p3')
+      await settle()
+      setSystemTime(new Date(t0 + BACKGROUND_WAIT_MS + 1000))
+      low[joined] = false
+      officeWorkersRecheck()
+      await settle()
+      expect(started).toEqual(['p1', 'p2'])
+      p1.finish()
+      await settle()
+      expect(started).toEqual(['p1', 'p2', joined === 0 ? 'b1' : 'b0'])
+      p2.finish()
+      await settle()
+      // people in line again: the one who was there, then the job a person joined
+      expect(started.at(-1)).toBe('p3')
+      p3.finish()
+      await settle()
+      expect(started.at(-1)).toBe(joined === 0 ? 'b0' : 'b1')
+      b0.finish(); b1.finish()
+      await Promise.all([p1.done, p2.done, p3.done, b0.done, b1.done])
+    } finally { setSystemTime() }
+  })
+
   test('two workers end at once on background work\'s turn: one job takes a worker, the first person in line the other', async () => {
     const started: string[] = []
     const t0 = Date.now()

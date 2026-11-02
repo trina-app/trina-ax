@@ -127,6 +127,8 @@ export class BackgroundTurn {
 
 let running = 0
 let runningLow = 0
+/** background jobs that wait, also those just woken that have not looked at their place yet (waitingLow holds neither) */
+let lowWaiting = 0
 const waitingHigh: (() => void)[] = []
 const waitingLow: (() => void)[] = []
 const turn = new BackgroundTurn()
@@ -147,17 +149,19 @@ export async function officeWorkerSlot<T>(f: () => Promise<T>): Promise<T> {
       if (running < OFFICE_WORKERS_MAX) waitingHigh.shift()?.()
     }
     const waited = low
+    if (waited) lowWaiting++
     await new Promise<void>((r) => (low ? waitingLow : waitingHigh).push(r))
+    if (waited) lowWaiting--
     low = waitsBehindPeople()
-    // a person joined it: no background work is left to have a turn
-    if (waited && !low && !waitingLow.length) turn.restart(false)
+    // a person joined it and no other background job waits: the turn was this job's alone
+    if (waited && !low && !lowWaiting) turn.restart(false)
   }
   running++
   if (low) runningLow++
   else turn.pass()
   try { return await f() } finally {
     running--
-    if (low) { runningLow--; turn.restart(waitingLow.length > 0) }
+    if (low) { runningLow--; turn.restart(lowWaiting > 0) }
     const lowMay = runningLow < OFFICE_WORKERS_BACKGROUND_MAX
     const next = (lowMay && turn.due() ? waitingLow.shift() : undefined) ?? waitingHigh.shift() ?? (lowMay ? waitingLow.shift() : undefined)
     next?.()
