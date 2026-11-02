@@ -42,12 +42,33 @@ test('owner adds a Claude subscription, an API key and a ChatGPT plan; orders th
   // API keys come first for each engine
   const kinds = await dialog.locator('input[name="kind"]').evaluateAll((els) => els.map((e) => e.getAttribute('data-testid')))
   expect(kinds).toEqual(['kind-anthropic-api-key', 'kind-anthropic-oauth', 'kind-openai-api-key', 'kind-chatgpt'])
-  await page.getByTestId('kind-anthropic-oauth').check()
+  await page.getByTestId('kind-anthropic-oauth').click()
   await expect(page.getByTestId('setup-token-steps')).toContainText('claude setup-token')
+  // chosen: one line, a change goes back to the list, and the steps come right after it
+  await expect(page.getByTestId('kind-chatgpt')).toHaveCount(0)
+  await page.getByTestId('kind-change').click()
+  await expect(page.getByTestId('kind-chatgpt')).toBeVisible()
+  // by keyboard: focus follows the choice, an arrow walks the list without choosing, Space chooses
+  await expect(page.getByTestId('kind-anthropic-api-key')).toBeFocused()
+  await page.keyboard.press('ArrowDown')
+  await expect(page.getByTestId('kind-anthropic-oauth')).toBeFocused()
+  await expect(page.getByTestId('kind-chosen')).toHaveCount(0)
+  await page.keyboard.press('Space')
+  await expect(page.getByTestId('kind-change')).toBeFocused()
+  // the name starts as the kind's; installing is folded away; the field is the last step itself
+  await expect(page.getByTestId('credential-label')).toHaveValue('Claude 구독 (Pro·Max·Team)')
+  await expect(page.getByTestId('setup-token-steps').getByText('install.sh')).toBeHidden()
+  await page.getByTestId('setup-token-install').locator('summary').click()
+  await expect(page.getByTestId('setup-token-steps').getByText('install.sh')).toBeVisible()
+  await expect(page.getByTestId('setup-token-steps').getByTestId('credential-secret')).toBeVisible()
   await page.getByTestId('credential-label').fill('대표 Max')
   await page.getByTestId('credential-secret').fill('not-a-token')
   await expect(dialog).toContainText('sk-ant-oat01-로 시작하는 토큰 전체')
-  await page.getByTestId('credential-secret').fill(TOKEN)
+  await expect(page.getByTestId('credential-secret')).toHaveAccessibleDescription(/sk-ant-oat01-로 시작하는 토큰 전체/)
+  await expect(page.getByTestId('credential-secret-ok')).toHaveCount(0)
+  // a token the terminal wrapped over two lines is the same token
+  await page.getByTestId('credential-secret').fill(`${TOKEN.slice(0, 30)}   ${TOKEN.slice(30)}`)
+  await expect(page.getByTestId('credential-secret-ok')).toBeVisible()
   await page.getByTestId('credential-password').fill(OWNER.password)
   await expect(page.getByTestId('credential-submit')).toBeDisabled()
   await expect(page.getByTestId('plan-notice')).toContainText('제공사 약관에 따라 목적에 맞는 사용을 허용하는지 확인하세요. 트리나가 그 허가를 줄 수는 없어요.')
@@ -61,7 +82,7 @@ test('owner adds a Claude subscription, an API key and a ChatGPT plan; orders th
 
   // an API key: no plan notice, the last four characters as a hint
   await page.getByTestId('credential-add').click()
-  await page.getByTestId('kind-anthropic-api-key').check()
+  await page.getByTestId('kind-anthropic-api-key').click()
   await expect(page.getByTestId('plan-notice')).toHaveCount(0)
   await page.getByTestId('credential-label').fill('회사 키')
   await page.getByTestId('credential-secret').fill(KEY)
@@ -78,7 +99,7 @@ test('owner adds a Claude subscription, an API key and a ChatGPT plan; orders th
 
   // ChatGPT: the address and the one-time code, then connected
   await page.getByTestId('credential-add').click()
-  await page.getByTestId('kind-chatgpt').check()
+  await page.getByTestId('kind-chatgpt').click()
   await page.getByTestId('credential-label').fill('팀 ChatGPT')
   await page.getByTestId('plan-notice-ack').check()
   await page.getByTestId('credential-password').fill(OWNER.password)
@@ -107,7 +128,7 @@ test('personal connections are available by default, prefer subscriptions, and p
   expect(kinds).toEqual(['kind-anthropic-oauth', 'kind-anthropic-api-key', 'kind-chatgpt', 'kind-openai-api-key'])
   await expect(page.getByTestId('kind-anthropic-oauth')).toBeEnabled()
   await expect(page.getByTestId('kind-chatgpt')).toBeEnabled()
-  await page.getByTestId('kind-anthropic-api-key').check()
+  await page.getByTestId('kind-anthropic-api-key').click()
   await expect(page.getByTestId('credential-password')).toHaveCount(0) // one's own: no password again
   await page.getByTestId('credential-label').fill('내 키')
   await page.getByTestId('credential-secret').fill(KEY.replace('WXYZ', 'MINE'))
