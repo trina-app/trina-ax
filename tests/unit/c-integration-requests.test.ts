@@ -2,13 +2,15 @@
 // requests.ts, docs/INTEGRATIONS.md "Asking a member to connect"): only admins ask; only the member asked sees, answers
 // or declines it (admins and the owner of the team get 404); the key goes through the member's own create path and never
 // reaches an admin (responses, audit, inbox, database, logs); the connection is the member's alone, checked on every
-// call; a sign-in request connects when the sign-in finishes; withdraw and the 7-day expiry end it. Fake services only.
+// call; a sign-in request connects when the sign-in finishes; withdraw and the 7-day expiry end it (and the member's
+// inbox entry with it); an answer that is running wins over a withdraw or an expiry. Fake services only.
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from 'bun:test'
 import { addMember, harness, withOwner, type Client, type Harness } from './a-lib'
 import { API_KEY, FakeServices, MCP_KEY } from '../lib/fake-services'
 import { CallError, integrationsOf } from '../../server/src/integrations/connections/service'
 import { getRow, mayUse } from '../../server/src/integrations/connections/store'
 import { createLogger } from '../../server/src/log'
+import { notificationsOf } from '../../server/src/notifications/service'
 
 setDefaultTimeout(30_000)
 
@@ -54,11 +56,14 @@ describe('asking', () => {
     expect(Date.parse(r.body.createdAt)).toBeGreaterThanOrEqual(before - 1000)
     // the member's inbox (no setting turns it off) and a live banner with the way to it; nobody else hears of it
     const inbox = await bob.call('GET', '/api/notifications')
-    expect(inbox.items).toContainEqual(expect.objectContaining({ eventType: 'integration.request', sourceId: r.body.id, link: 'integrations', chatId: null }))
+    // with the service's name and the host its key would go to (an admin chooses the address)
+    const host = new URL(fake.base).host
+    expect(inbox.items).toContainEqual(expect.objectContaining({ eventType: 'integration.request', sourceId: r.body.id, link: 'integrations', chatId: null, readAt: null, request: { name: 'Tasks', host } }))
     expect((await cara.call('GET', '/api/notifications')).items.some((n: any) => n.sourceId === r.body.id)).toBe(false)
     const banner = h.hub.events.find((e) => e.kind === 'publish' && e.target === ids.bob && (e.data as any).data?.code === 'integration_request') as any
     expect(banner.data.data.link).toBe(`/settings/integrations?request=${r.body.id}`)
     expect(banner.data.data.message).toContain('Tasks')
+    expect(banner.data.data.message).toContain(host)
     expect(h.hub.events.some((e) => e.kind === 'publish' && e.target !== ids.bob && (e.data as any).data?.code === 'integration_request')).toBe(false)
     // the member sees it waiting
     expect((await bob.call('GET', '/api/integration-requests')).items.map((x: any) => x.id)).toEqual([r.body.id])
@@ -181,6 +186,56 @@ describe('answering with a key', () => {
   })
 })
 
+describe('an answer that is running comes first', () => {
+  /** holds the member's answer at its first check (service.ts create -> check) until released */
+  function holdCheck() {
+    const svc = integrationsOf(h.ctx) as any
+    const orig = svc.check.bind(svc)
+    let release!: () => void
+    const gate = new Promise<void>((res) => { release = res })
+    svc.check = async (row: unknown, s?: AbortSignal) => { await gate; return orig(row, s) }
+    return () => { release(); svc.check = orig }
+  }
+  const completes = (id: string) => h.ctx.db.query("SELECT count(*) AS n FROM audit_log WHERE action = 'integration_request.complete' AND target = ?").get(id) as { n: number }
+
+  test('a withdraw while the member connects is refused; the request ends connected, with its Activity log entry', async () => {
+    const r = (await ask(ada, { ...mcpKey(), url: `${fake.base}/mcp-key?race=withdraw` })).body
+    const release = holdCheck()
+    const pending = bob.try('POST', `/api/integration-requests/${r.id}/complete`, { secret: MCP_KEY })
+    try {
+      await Bun.sleep(100)
+      const w = await ada.try('POST', `/api/admin/integration-requests/${r.id}/withdraw`, {})
+      expect(w.status).toBe(409)
+      expect(w.body.error.params).toEqual({ state: 'waiting' })
+      expect((await bob.try('POST', `/api/integration-requests/${r.id}/decline`, {})).status).toBe(409)
+    } finally { release() }
+    const c = await pending
+    expect(c.status).toBe(200)
+    expect(c.body).toMatchObject({ scope: 'personal', status: 'connected' })
+    expect(await stateOf(r.id)).toBe('connected')
+    expect(completes(r.id)).toEqual({ n: 1 })
+    expect(h.ctx.db.query("SELECT count(*) AS n FROM audit_log WHERE action = 'integration_request.withdraw' AND target = ?").get(r.id)).toEqual({ n: 0 })
+    // and now it is answered, a withdraw says so
+    expect((await ada.try('POST', `/api/admin/integration-requests/${r.id}/withdraw`, {})).body.error.params).toEqual({ state: 'connected' })
+  })
+
+  test('a request that expires while the member connects ends connected, never a 200 with the request left expired', async () => {
+    const r = (await ask(ada, { ...mcpKey(), url: `${fake.base}/mcp-key?race=expiry` })).body
+    const release = holdCheck()
+    const pending = bob.try('POST', `/api/integration-requests/${r.id}/complete`, { secret: MCP_KEY })
+    try {
+      await Bun.sleep(100)
+      shift = 7 * 86_400_000 + 60_000
+    } finally { release() }
+    try {
+      const c = await pending
+      expect(c.status).toBe(200)
+      expect(await stateOf(r.id)).toBe('connected')
+      expect(completes(r.id)).toEqual({ n: 1 })
+    } finally { shift = 0 }
+  })
+})
+
 describe('ending a request', () => {
   const api = () => ({ userId: ids.cara, kind: 'http', name: 'Ledger', url: `${fake.base}/hdr/v1`, auth: 'header', authHeader: 'X-API-Key', notes: 'GET /tasks lists tasks' })
 
@@ -203,6 +258,20 @@ describe('ending a request', () => {
     expect((await cara.call('GET', '/api/integration-requests')).items).toEqual([])
     expect(h.ctx.db.query("SELECT count(*) AS n FROM integrations WHERE owner_user_id = ?").get(ids.cara)).toEqual({ n: 0 })
     expect((await ada.try('POST', '/api/admin/integration-requests/00000000-0000-7000-8000-000000000000/withdraw', {})).status).toBe(404)
+    // the member's inbox entry is settled: nothing left to do
+    const entry = (await cara.call('GET', '/api/notifications')).items.find((n: any) => n.sourceId === r.id)
+    expect(entry.readAt).not.toBeNull()
+  })
+
+  test('an expired request\'s inbox entry counts as read too (the notification tick)', async () => {
+    const r = (await ask(ada, { ...api(), url: `${fake.base}/hdr/v1/expiring` })).body
+    const unread = async () => (await cara.call('GET', '/api/notifications')).items.find((n: any) => n.sourceId === r.id).readAt
+    notificationsOf(h.ctx).reconcile()
+    expect(await unread()).toBeNull()
+    h.ctx.db.query('UPDATE integration_requests SET expires_at = ? WHERE id = ?').run(new Date(Date.now() - 1000).toISOString(), r.id)
+    notificationsOf(h.ctx).reconcile()
+    expect(await unread()).not.toBeNull()
+    expect(await stateOf(r.id)).toBe('expired')
   })
 
   test('after 7 days it has expired: no answer, no withdraw; the admin sees it expired', async () => {

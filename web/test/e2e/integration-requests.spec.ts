@@ -56,6 +56,11 @@ test('ask, connect with the member\'s own key, see it connected; the key never r
   await expect(answer).toContainText('Olga님이 이 서비스를 내 계정으로 연결해 달라고 요청했어요.')
   await expect(answer).toContainText('https://api.ledger.example/v1')
   await expect(answer).toContainText('X-API-Key')
+  // the admin chose the address: where the key goes is said plainly, the host in bold, before the key field
+  const warning = page.getByTestId('integration-answer-host-warning')
+  await expect(warning).toContainText('이 키를 받는 곳: api.ledger.example. 이곳이 정말 Ledger의 주소일 때만 키를 넣어 주세요.')
+  await expect(warning.locator('strong').first()).toHaveText('api.ledger.example')
+  await expect(answer).toContainText('관리자도 앱에서 볼 수 없지만, 이 주소의 서비스는 키를 받아요.')
   await expect(page.getByTestId('integration-answer-write-allow')).toHaveCount(0)
   await page.getByTestId('integration-answer-connect').click()
   await expect(answer).toContainText('키를 넣어 주세요.')
@@ -102,6 +107,10 @@ test('withdrawn and declined requests: the member\'s link says what became of it
   await page.goto(`/settings/integrations?request=${gone.id}`)
   await expect(page.getByTestId('integrations-asked-note')).toContainText('관리자가 Board 연결 요청을 철회했어요.')
   const wiki = page.getByTestId('integration-asked').filter({ hasText: 'Wiki' })
+  // a sign-in: the token goes to the address's host, even when the sign-in page is the real service's
+  await wiki.getByTestId('integration-asked-connect').click()
+  await expect(page.getByTestId('integration-answer-host-warning')).toContainText('로그인 토큰을 받는 곳: mcp.wiki.example.')
+  await page.getByRole('dialog').getByRole('button', { name: '취소' }).click()
   await expect(wiki).toContainText('Olga님이 요청')
   await expect(page.getByTestId('integration-asked')).toHaveCount(1)
   await wiki.getByTestId('integration-asked-decline').click()

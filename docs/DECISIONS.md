@@ -5758,6 +5758,16 @@ on every call as before.
   connection is made first and the request is connected when the OAuth callback finishes for that member's connection
   at the same address (`store.ts requestSignedIn`); answering again before that returns the same connection. A second
   answer while one runs is refused, so one request makes one connection.
+- **An answer that is running comes first.** While the member's answer runs (its first check can take 30 s), a
+  withdraw or a decline is refused (409, `requestBusy`), and a request that expires meanwhile still ends connected:
+  never a 200 for the member with the request left withdrawn or expired and no `.complete` entry. If the request
+  cannot take the answer after all, the connection just made is deleted and the answer refused.
+- **The address is the admin's choice, so the member is told where the key goes** (review: an admin could ask for
+  "GitHub" at a host of their own and receive the key at its first check; with OAuth, the server's metadata can name
+  the real service's sign-in page while the token goes to that host). The connect screen shows a warning with the
+  host in bold above the key field or the sign-in button ("Your key is sent to **host**. Enter it only if host is
+  really name's address."); the banner and the inbox entry name the host with the service. The texts say the app
+  stores the key for the member only and admins cannot see it in the app, not that an admin can never get it.
 - **Who sees what.** Only the member asked can read, answer or decline a request; anyone else, admins and the owner of
   the team included, gets 404. Admins list every request with its state, never a key (a request holds none) and never
   the member's connection: after "connected" it is the member's to change or delete. Withdrawing does not touch a
@@ -5766,7 +5776,9 @@ on every call as before.
   `skill_notices` and `dev_env_notices`: `notification_inbox` has a fixed CHECK list; shown whatever the notice
   settings, no OS push) and a live banner in the member's language with the way to it. The link the admin may copy
   (`/settings/integrations?request=<id>`) holds only the request id, not a token: it opens only for that member signed
-  in, so sending it in a chat gives nobody else anything.
+  in, so sending it in a chat gives nobody else anything. The inbox entry carries the service's name and host while
+  the request is there (`InboxNotification.request`), and counts as read once the request no longer waits (answered,
+  declined, withdrawn at once; expired at the notification tick, every 30 s).
 - **Audit.** `integration_request.create` and `.withdraw` (actor: the admin), `.complete` and `.decline` (actor: the
   member), with `{user, kind, name, host, auth}`: the admin's own words.
 - **Screens.** Admin › External services: "Requests to members" under the team connections, a dialog with the member
@@ -5774,8 +5786,10 @@ on every call as before.
   Settings › External services: "Requested by an admin" above one's own connections, with connect (the fields fixed,
   the key or a sign-in next, ask or refuse) and decline. All five languages.
 - Migrations 220 and 331 are additive (reader 1); the schema reader level stays 4. An older build ignores both tables.
-- Tests: `tests/unit/c-integration-requests.test.ts` (only admins ask; field checks; the inbox, banner and audit; only
-  the member answers, admins and the owner get 404; the key in no admin response, the audit, the inbox, the database or
-  the logs; `mayUse` / `forCall` refuse admins; withdraw, decline and expiry; a sign-in request connected by the
-  callback, the tokens nowhere in clear), `tests/security/lib/integrations-cases.ts` (the routes' levels).
+- Tests: `tests/unit/c-integration-requests.test.ts` (only admins ask; field checks; the inbox with the host, banner
+  and audit; only the member answers, admins and the owner get 404; the key in no admin response, the audit, the inbox,
+  the database or the logs; `mayUse` / `forCall` refuse admins; withdraw, decline and expiry, and their inbox entry
+  read; a withdraw and an expiry during a running answer; a sign-in request connected by the callback, the tokens
+  nowhere in clear), `web/test/e2e/integration-requests.spec.ts` (both screens, the host warning),
+  `tests/security/lib/integrations-cases.ts` (the routes' levels).
 - Needed in the core too (potenlab/team-ax): everything here; nothing is Trina-specific.

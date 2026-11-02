@@ -12,7 +12,7 @@ import { newId } from '../../db'
 import { audit } from '../../admin/audit'
 import { getTeamSettings, teamDefaultLocale } from '../../admin/settings'
 import { fail } from '../../http/errors'
-import { notifyIntegrationRequest } from '../../notifications/service'
+import { notifyIntegrationRequest, settleIntegrationRequestNotice } from '../../notifications/service'
 import { cleanNotes, fieldError, integrationsOf, normUrl, obviouslyPrivate, oneLine } from './service'
 import { getRequest, getRow, isAdmin, REQUEST_COLUMNS, requestAuditDetail, view, type RequestRow, type Viewer } from './store'
 import { say, type TextKey } from './text'
@@ -112,9 +112,12 @@ export class ConnectionRequests {
     if (!isAdmin(viewer.role)) fail('forbidden')
     const r = getRequest(this.db, id) ?? fail('not_found')
     this.waiting(r, locale)
+    // the member is connecting it right now: that answer came first (complete ends it as connected)
+    if (this.completing.has(id)) fail('conflict', say('requestBusy', locale), { params: { state: 'waiting' } })
     const at = iso(this.now())
     if (!this.db.query("UPDATE integration_requests SET state = 'withdrawn', ended_at = ? WHERE id = ? AND state = 'pending'").run(at, id).changes) return this.conflictNow(id, locale)
     audit(this.db, { actor: viewer.id, action: 'integration_request.withdraw', target: id, detail: requestAuditDetail(r) })
+    settleIntegrationRequestNotice(this.ctx, r.user_id)
     return this.view(getRequest(this.db, id)!, base)
   }
 
@@ -132,7 +135,8 @@ export class ConnectionRequests {
     const L = this.localeOf(r.user_id)
     const by = this.person(adminId)?.name ?? ''
     try {
-      this.ctx.services.realtime.publish(r.user_id, { type: 'notice', data: { level: 'info', code: 'integration_request', message: say('requestNotice', L, { by, name: r.name }), link: requestPath(r.id) } })
+      // the address's host with the name: the member's key goes there, whatever the name says
+      this.ctx.services.realtime.publish(r.user_id, { type: 'notice', data: { level: 'info', code: 'integration_request', message: say('requestNotice', L, { by, name: r.name, host: new URL(r.url).host }), link: requestPath(r.id) } })
     } catch (err) { this.ctx.log.warn('connection request notice failed', { err }) }
     notifyIntegrationRequest(this.ctx, r.user_id, r.id)
   }
@@ -156,13 +160,17 @@ export class ConnectionRequests {
     if (this.completing.has(id)) fail('conflict', say('requestBusy', locale), { params: { state: 'waiting' } })
     if (!this.db.query("UPDATE integration_requests SET state = 'declined', ended_at = ? WHERE id = ? AND state = 'pending'").run(iso(this.now()), id).changes) return this.conflictNow(id, locale)
     audit(this.db, { actor: viewer.id, action: 'integration_request.decline', target: id, detail: requestAuditDetail(r) })
+    settleIntegrationRequestNotice(this.ctx, r.user_id)
     return this.view(getRequest(this.db, id)!, base)
   }
 
   /** The member connects it as their own connection, through service.ts create (as when they add one themselves). A key:
    * the request is connected once the connection is saved with it (its check says how the key does, as always). A
    * sign-in: the connection is made to sign in at next, and the request is connected when the sign-in finishes
-   * (store.ts requestSignedIn); answering again before that gives the same connection, not another. */
+   * (store.ts requestSignedIn); answering again before that gives the same connection, not another.
+   * The answer counts from when it arrives: while it runs, withdraw and decline are refused (`completing`), and a
+   * request that expires meanwhile still ends as the answer says. Never a 200 with the request left otherwise: if the
+   * request cannot take the answer after all, the connection just made is deleted again and the answer refused. */
   async complete(viewer: Viewer, id: string, answer: IntegrationRequestAnswer, locale: Locale): Promise<Integration> {
     const L = locale
     const r = this.mine(viewer.id, id)
@@ -179,9 +187,16 @@ export class ConnectionRequests {
         ...(answer.secret !== undefined ? { secret: answer.secret } : {}),
       }, 'personal', L)
       const at = iso(this.now())
-      if (r.auth === 'oauth') this.db.query("UPDATE integration_requests SET integration_id = ? WHERE id = ? AND state = 'pending'").run(created.id, id)
-      else if (this.db.query("UPDATE integration_requests SET state = 'completed', integration_id = ?, ended_at = ? WHERE id = ? AND state = 'pending' AND expires_at > ?").run(created.id, at, id, at).changes) {
+      const took = r.auth === 'oauth'
+        ? this.db.query("UPDATE integration_requests SET integration_id = ? WHERE id = ? AND state = 'pending'").run(created.id, id).changes
+        : this.db.query("UPDATE integration_requests SET state = 'completed', integration_id = ?, ended_at = ? WHERE id = ? AND state = 'pending'").run(created.id, at, id).changes
+      if (!took) {
+        await this.svc.remove(viewer, created.id).catch(() => {})
+        return this.conflictNow(id, L)
+      }
+      if (r.auth !== 'oauth') {
         audit(this.db, { actor: viewer.id, action: 'integration_request.complete', target: id, detail: requestAuditDetail(r) })
+        settleIntegrationRequestNotice(this.ctx, viewer.id)
       }
       return created
     } finally { this.completing.delete(id) }

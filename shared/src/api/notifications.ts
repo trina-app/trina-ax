@@ -16,6 +16,9 @@ export const InboxNotification = z.object({
   createdAt: z.string(), readAt: z.string().nullable(), chatId: z.string().nullable(), link: z.enum(['chat', 'connections', 'skills', 'project', 'integrations']).nullable(),
   /** scheduled runs only: succeeded / finished with problems / failed (the inbox text follows it; older servers omit it) */
   outcome: ScheduleRunOutcome.nullable().optional(),
+  /** 'integration.request' only, while the request is there: the service's name and the host of its address (where the
+   * member's key or sign-in would go); older servers omit it */
+  request: z.object({ name: z.string(), host: z.string() }).optional(),
   /** 'schedule.failure' only: scheduled tasks nobody confirmed were paused until their owner checks them again
    * (Settings › Scheduled tasks, "다시 확인"); older servers omit it */
   review: z.boolean().optional(),

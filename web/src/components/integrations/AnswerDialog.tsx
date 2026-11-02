@@ -2,9 +2,10 @@
 // (Admin › External services, RequestDialog.tsx). The member connects one with their own key or signs in at the
 // service; it becomes their personal connection, through the same create path as one they add themselves, so the admin
 // never sees the key. Or they decline it. A link the admin sent (?request=<id>) opens the request here, or says what
-// became of it. Server: server/src/integrations/connections/requests.ts.
+// became of it. The admin chooses the address, so the member is told plainly where their key or sign-in goes (the
+// host, in bold) before they enter it. Server: server/src/integrations/connections/requests.ts.
 import { Inbox, LogIn, Plug } from 'lucide-react'
-import { useEffect, useRef, useState } from 'react'
+import { Fragment, useEffect, useRef, useState } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
 import type { Integration, IntegrationRequest, WritePolicy } from '@mycel/shared/api'
 import { api, API, errorText, isApiError } from '../../lib/api'
@@ -15,7 +16,7 @@ import { useLocale, useT, type MessageKey } from '../../i18n'
 import { notificationsChanged } from '../../store/live'
 import { toast } from '../../store/ui'
 import { Button, Field, Modal, confirmDialog, inputCls } from '../ui'
-import { Choices } from './IntegrationDialog'
+import { Choices, Warning } from './IntegrationDialog'
 import { reserveSignInWindow } from './IntegrationRow'
 
 const ENDED: Record<Exclude<IntegrationRequest['state'], 'waiting'>, MessageKey> = {
@@ -144,6 +145,13 @@ export function MyRequests({ onConnected, version }: { onConnected: (i: Integrat
   )
 }
 
+/** A text with the host in bold wherever it names it: where the key or sign-in goes is what to check. */
+function WithHost({ text, host }: { text: (host: string) => string; host: string }) {
+  const MARK = '\u0000'
+  const parts = text(MARK).split(MARK)
+  return <>{parts.map((p, i) => <Fragment key={i}>{i > 0 && <strong className="font-semibold">{host}</strong>}{p}</Fragment>)}</>
+}
+
 /** What the admin filled in (fixed: that is what was asked for), then the member's key or a sign-in next, and what
  * the AI may change there. Saved as the member's own connection; they can change it afterwards like any other. */
 function AnswerDialog({ r, onClose, onDecline, onConnected }: {
@@ -161,6 +169,7 @@ function AnswerDialog({ r, onClose, onDecline, onConnected }: {
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
   const key = r.auth !== 'oauth'
+  const host = new URL(r.url).host
   const phone = !!mobileApp()
   const signInNext = !key && !phone
   const keyError = server.secret !== undefined ? server.secret ?? t('integrations.error.field') : submitted && key && !secret.trim() ? t('integrations.error.key') : secret.trim().length > 8000 ? t('integrations.error.keyLong') : null
@@ -229,6 +238,11 @@ function AnswerDialog({ r, onClose, onDecline, onConnected }: {
             <p className="mt-0.5 whitespace-pre-wrap break-words text-faint">{r.notes}</p>
           </div>
         )}
+        <div data-testid="integration-answer-host-warning">
+          <Warning>
+            <WithHost host={host} text={(h) => t(key ? 'integrations.asked.sendsKey' : 'integrations.asked.sendsSignIn', { host: h, name: r.name })} />
+          </Warning>
+        </div>
         {key ? (
           <Field label={t('integrations.field.key')} hint={t('integrations.field.keyHint')} error={keyError}>
             <input className={inputCls} type="password" autoComplete="off" spellCheck={false} value={secret} data-autofocus onChange={(e) => { setSecret(e.target.value); setServer((s) => ({ ...s, secret: undefined })); setError(null) }} data-testid="integration-answer-key" />

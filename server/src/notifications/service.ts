@@ -60,6 +60,15 @@ export class Notifications {
   integrationRequest(userId: string, requestId: string, createdAt = new Date().toISOString()) {
     this.record(userId, 'integration.request', requestId, createdAt, true)
   }
+  /** A request that no longer waits (connected, declined, withdrawn, expired): its inbox entry counts as read, so the
+   * member is not left with something to do that is gone. Expiry is caught by reconcile's tick. */
+  settleIntegrationRequests(userId?: string) {
+    const now = new Date().toISOString()
+    const rows = this.ctx.db.query(`UPDATE integration_request_notices SET read_at=? WHERE read_at IS NULL ${userId ? 'AND user_id=?' : ''}
+      AND NOT EXISTS(SELECT 1 FROM integration_requests q WHERE q.id=integration_request_notices.source_id AND q.state='pending' AND q.expires_at>?) RETURNING user_id`)
+      .all(...(userId ? [now, userId, now] : [now, now])) as { user_id: string }[]
+    for (const u of new Set(rows.map((r) => r.user_id))) this.signal(u)
+  }
   afterTurn(turnId: string) {
     try {
       const row = this.ctx.db.query("SELECT id,user_id,status,ended_at,run_outcome FROM turns WHERE id=? AND schedule_id IS NOT NULL AND status IN ('done','error','stopped','interrupted') AND ended_at IS NOT NULL").get(turnId) as Terminal | null
@@ -76,6 +85,7 @@ export class Notifications {
   reconcile(userId?: string) {
     const db = this.ctx.db
     for (const table of NOTICE_TABLES) db.query(`DELETE FROM ${table} WHERE created_at < ?`).run(this.cutoff())
+    this.settleIntegrationRequests(userId)
     db.query('DELETE FROM schedule_outcomes WHERE created_at < ?').run(this.cutoff())
     const rows = db.query(`SELECT t.id,t.user_id,t.status,t.ended_at,t.run_outcome FROM turns t
       WHERE EXISTS(SELECT 1 FROM users u WHERE u.id=t.user_id AND u.status='active' AND u.deleted_at IS NULL)
@@ -137,8 +147,15 @@ export class Notifications {
       return { id: row.id, eventType: row.event_type, sourceId: row.source_id, code: row.event_type, createdAt: row.created_at, readAt: row.read_at, chatId: null, link: 'skills', outcome: null }
     }
     if (isDevEnvEvent(row.event_type)) return this.devEnvOut(row)
-    // Settings › External services opens the request (?request=<sourceId>) and says if it is no longer waiting
-    if (row.event_type === 'integration.request') return { id: row.id, eventType: row.event_type, sourceId: row.source_id, code: row.event_type, createdAt: row.created_at, readAt: row.read_at, chatId: null, link: 'integrations', outcome: null }
+    // Settings › External services opens the request (?request=<sourceId>) and says if it is no longer waiting. The
+    // service's name with the host of its address (where the member's key would go), while the request is there.
+    if (row.event_type === 'integration.request') {
+      const q = this.ctx.db.query('SELECT name, url FROM integration_requests WHERE id=? AND user_id=?').get(row.source_id, row.user_id) as { name: string; url: string } | null
+      let host = ''
+      try { host = q ? new URL(q.url).host : '' } catch {}
+      return { id: row.id, eventType: row.event_type, sourceId: row.source_id, code: row.event_type, createdAt: row.created_at, readAt: row.read_at, chatId: null, link: 'integrations', outcome: null,
+        ...(q && host ? { request: { name: q.name, host } } : {}) }
+    }
     if (row.event_type === 'schedule.failure' && row.source_id.startsWith(REVIEW_SOURCE)) {
       // paused tasks to check again: the schedules list, never a chat
       return { id: row.id, eventType: row.event_type, sourceId: row.source_id, code: row.event_type, createdAt: row.created_at, readAt: row.read_at, chatId: null, link: null, outcome: null, review: true }
@@ -229,6 +246,10 @@ export function notifyDevEnv(ctx: AppContext, userId: string, event: DevEnvNotic
 export function notifyIntegrationRequest(ctx: AppContext, userId: string, requestId: string) {
   try { notificationsOf(ctx).integrationRequest(userId, requestId) }
   catch { ctx.log.warn('connection request notification recording failed') }
+}
+export function settleIntegrationRequestNotice(ctx: AppContext, userId: string) {
+  try { notificationsOf(ctx).settleIntegrationRequests(userId) }
+  catch { ctx.log.warn('connection request notice not marked read') }
 }
 export function notifyConnectionReconnect(ctx: AppContext, userId: string, sourceId: string, createdAt?: string) {
   try { notificationsOf(ctx).connectionReconnect(userId, sourceId, createdAt) }
