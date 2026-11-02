@@ -1150,7 +1150,7 @@ export const es: Record<MessageKey, string> = {
   'teamSettings.beta': "Beta",
   'teamSettings.updateWindow': "Horario de actualización automática",
   'teamSettings.updateWindowHint': "Por ejemplo, 02:00-05:00, en la zona horaria del equipo. Horas 00–23, minutos 00–59. Vacío = 03:00-05:00. Este servidor se actualiza solo dentro de este horario y solo cuando no hay respuestas en curso.",
-  'teamSettings.updateWindowLegacy': "En uso ahora: {window} ({zone}), configurado antes en la Mac del servidor con \"teamax update time\". Un horario guardado aquí lo reemplaza. Escríbalo como 02:00-05:00, con horas 00–23 y minutos 00–59.",
+  'teamSettings.updateWindowLegacy': "En uso ahora: {window} ({zone}), configurado antes en la Mac del servidor con \"teamax update time\". Un horario guardado aquí se aplica en su lugar; si el campo se vacía de nuevo, este vuelve a aplicarse. Escríbalo como 02:00-05:00, con horas 00–23 y minutos 00–59.",
   'teamSettings.updateWindowBad': "Use HH:mm-HH:mm, con horas 00–23 y minutos 00–59.",
   'teamSettings.auditDays': "Conservar registro de actividad (días)",
   'teamSettings.historyDays': "Conservar versiones de archivos (días)",

@@ -1,6 +1,6 @@
 // A release's notes on an update card (Admin › System: the office Mac's automatic updates and a server's update). The
 // feed's notes are Markdown, many screens long and in two languages; the card shows the first paragraph (the release's
-// one-line summary) and "More" opens the whole notes, rendered like an answer.
+// one-line summary) and "More" opens the whole notes, rendered as Markdown in the card's small text.
 import { useState } from 'react'
 import { useT } from '../i18n'
 import { Markdown } from './Markdown'
