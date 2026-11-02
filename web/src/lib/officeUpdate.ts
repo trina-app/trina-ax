@@ -1,13 +1,18 @@
 // Office mode automatic updates in the web app (docs/OFFICE.md "자동 업데이트"): when the owner's or an admin's view
 // shows the "new version" banner, and when the update card's run has finished. Pure (web/test/unit/officeUpdate.test.ts).
 import type { Me, OfficeUpdateStatus } from '@mycel/shared/api'
-import { browserTimeZone } from './time-zones'
+import { browserTimeZone, isKnownTimeZone } from './time-zones'
 
 const KEY = 'teamax.officeUpdate.dismissed'
 
-/** The zone of every time on the update card, named next to the time: the team's, from the status. A server too old to
- * send it (a page left open after a roll back): the team's zone from /api/me, else this browser's, else UTC. */
-export const cardZone = (s: Pick<OfficeUpdateStatus, 'timeZone'>, teamZone?: string | null): string => s.timeZone || teamZone || browserTimeZone() || 'UTC'
+/** The zone of every time on the update card, named next to the time: the team's, from the status. The first of these
+ * this browser knows: a server too old to send one (a page left open after a roll back), or a name the browser does not
+ * have, goes on to the team's zone from /api/me, then this browser's, then UTC. */
+export const cardZone = (s: Pick<OfficeUpdateStatus, 'timeZone'>, teamZone?: string | null): string => [s.timeZone, teamZone, browserTimeZone()].find(isKnownTimeZone) ?? 'UTC'
+
+/** The zone an update window is in. Only text here, so the server's name even when this browser cannot show times in it:
+ * the same 03:00 under another zone's name would be another time. */
+export const windowZone = (s: Pick<OfficeUpdateStatus, 'timeZone'>, teamZone?: string | null): string => s.timeZone || cardZone(s, teamZone)
 
 /** What an office Mac runs while the update window in Team settings is empty, when that is not the plain default: a time
  * `teamax update time` of an older version set (server/src/office/update.ts officeSchedule). Null once the team has saved
@@ -28,7 +33,7 @@ export function bannerFor(me: Me | null, s: OfficeUpdateStatus | null | undefine
   if (updateReady) return null
   if (!s?.available || s.running || s.requested) return null
   if (dismissed === s.available.version) return null
-  return { version: s.available.version, nightly: s.paused || !s.agentInstalled || !s.nextWindowAt ? null : { window: s.window ?? s.time, zone: cardZone(s, me?.server.timeZone) } }
+  return { version: s.available.version, nightly: s.paused || !s.agentInstalled || !s.nextWindowAt ? null : { window: s.window ?? s.time, zone: windowZone(s, me?.server.timeZone) } }
 }
 
 export function dismissedVersion(): string | null {

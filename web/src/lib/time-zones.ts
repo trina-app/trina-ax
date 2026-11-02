@@ -7,6 +7,12 @@ export function browserTimeZone(): string | null {
   try { return Intl.DateTimeFormat().resolvedOptions().timeZone || null } catch { return null }
 }
 
+/** A zone this browser can show times in. The server's list is its own: Intl throws on a name the browser does not know. */
+export function isKnownTimeZone(z: string | null | undefined): z is string {
+  if (!z) return false
+  try { new Intl.DateTimeFormat('en-US', { timeZone: z }); return true } catch { return false }
+}
+
 export function timeZoneOptions(current?: string | null): string[] {
   let all: string[] = FALLBACK
   try {

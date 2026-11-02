@@ -10,7 +10,7 @@ import { api, API } from '../../lib/api'
 import { formatDateTime } from '../../lib/format'
 import { useLocale, useT, type MessageKey } from '../../i18n'
 import { Button, Field, Modal, inputCls } from '../../components/ui'
-import { cardZone, finishedRun, shareOfficeStatus } from '../../lib/officeUpdate'
+import { cardZone, finishedRun, shareOfficeStatus, windowZone } from '../../lib/officeUpdate'
 import { ReleaseNotes } from '../../components/ReleaseNotes'
 import { useMe } from '../../store/session'
 import { toast } from '../../store/ui'
@@ -27,6 +27,7 @@ export default function OfficeUpdate({ status, reload }: { status: OfficeUpdateS
   const u = status
   // every time on this card is in one zone, the team's (update audit O2), and says which
   const zone = cardZone(u, me?.server.timeZone)
+  const inWindow = windowZone(u, me?.server.timeZone)
   const active = !!u.running || u.requested
   // the banner on every page shows what this card shows (a pause, another time, an update that happened)
   useEffect(() => shareOfficeStatus(u), [u])
@@ -59,7 +60,8 @@ export default function OfficeUpdate({ status, reload }: { status: OfficeUpdateS
         ) : u.paused ? (
           <p className="text-muted">{t('officeUpdate.paused')}</p>
         ) : u.nextWindowAt ? (
-          <p className="text-muted">{t('officeUpdate.schedule', { window: u.window ?? u.time, zone, date: formatDateTime(u.nextWindowAt, locale, zone) })}</p>
+          // the sentence names the window's zone: the date says its own only when this browser cannot show it in that one
+          <p className="text-muted">{t('officeUpdate.schedule', { window: u.window ?? u.time, zone: inWindow, date: `${formatDateTime(u.nextWindowAt, locale, zone)}${inWindow === zone ? '' : ` (${zone})`}` })}</p>
         ) : (
           <p className="text-warn">{t('officeUpdate.windowClosed', { window: u.window ?? u.time })}</p>
         )}

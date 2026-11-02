@@ -8,7 +8,7 @@ import { DICTS, translate } from '../../src/i18n'
 import { notesSummary, ReleaseNotes } from '../../src/components/ReleaseNotes'
 import { formatDateTime } from '../../src/lib/format'
 import { bannerFor, cardZone, finishedRun, legacyWindow, onOfficeStatus, shareOfficeStatus } from '../../src/lib/officeUpdate'
-import { browserTimeZone } from '../../src/lib/time-zones'
+import { browserTimeZone, isKnownTimeZone } from '../../src/lib/time-zones'
 import OfficeUpdate from '../../src/pages/admin/OfficeUpdate'
 import { UpdateWindowField } from '../../src/pages/admin/TeamSettings'
 
@@ -106,6 +106,21 @@ describe('the times on the update card', () => {
     const html = text(card({}))
     expect(html).toContain(`Last checked ${formatDateTime(when, 'en', browserTimeZone() ?? 'UTC')} (${browserTimeZone() ?? 'UTC'})`)
     expect(html).not.toContain('()')
+  })
+  test('a zone this browser does not know never breaks the page: times in the next zone it knows, named; the window keeps the server\'s name', () => {
+    const own = browserTimeZone() ?? 'UTC'
+    expect(cardZone({ timeZone: 'Mars/Base' }, 'Asia/Tokyo')).toBe('Asia/Tokyo')
+    expect(cardZone({ timeZone: 'Mars/Base' }, 'Also/Unknown')).toBe(own)
+    expect(cardZone({ timeZone: '' }, '')).toBe(own)
+    expect(isKnownTimeZone('Mars/Base')).toBe(false)
+    expect(isKnownTimeZone('Asia/Jakarta')).toBe(true)
+    expect(isKnownTimeZone(null)).toBe(false)
+    const html = text(card({ timeZone: 'Mars/Base', window: '03:00-05:00' }))
+    expect(html).toContain(`Last checked ${formatDateTime(when, 'en', own)} (${own})`)
+    expect(html).toContain(`Last update 0.2.0 → 0.2.1 · ${formatDateTime(when, 'en', own)} (${own})`)
+    expect(html).toContain('03:00-05:00 (Mars/Base)') // a time of day in that zone: another name would make it another time
+    expect(html).toContain(`${formatDateTime(at, 'en', own)} (${own})`) // the next check says its zone, since the sentence names another
+    expect(bannerFor(me('owner'), st({ window: '03:00-05:00', timeZone: 'Mars/Base' }), null)?.nightly).toEqual({ window: '03:00-05:00', zone: 'Mars/Base' })
   })
   test('the zone is in every language\'s line', () => {
     for (const d of Object.values(DICTS)) {
