@@ -17,6 +17,17 @@ export const INTEGRATION_SPECS: Record<string, Spec> = {
   integrationFlow: { build: c => c.get(`/api/integrations/flows/${NONE}`), scope: 'nobody' },
   listTeamIntegrations: { build: c => c.get('/api/admin/integrations'), scope: 'byLevel' },
   createTeamIntegration: { build: c => c.post('/api/admin/integrations', { kind: 'http', name: 'Team matrix', url: 'https://integration-matrix.invalid/api', auth: 'none', writePolicy: 'ask', access: { everyone: false, groups: [], users: [] } }), scope: 'byLevel' },
+  // an admin's request to a member to connect a service as their own (tests/unit/c-integration-requests.test.ts: only the
+  // member asked sees, answers or declines it; admins and the owner of the team get 404 too)
+  listIntegrationRequests: { build: c => c.get('/api/integration-requests'), scope: 'self' },
+  getIntegrationRequest: { build: c => c.get(`/api/integration-requests/${NONE}`), scope: 'nobody' },
+  completeIntegrationRequest: { build: c => c.post(`/api/integration-requests/${NONE}/complete`, { secret: 'matrix-key-value' }), scope: 'nobody' },
+  declineIntegrationRequest: { build: c => c.post(`/api/integration-requests/${NONE}/decline`, {}), scope: 'nobody' },
+  listTeamIntegrationRequests: { build: c => c.get('/api/admin/integration-requests'), scope: 'byLevel' },
+  // asks the caller themselves (any active member may be asked), at an address of its own each time (one waiting request
+  // per member and address)
+  createIntegrationRequest: { build: async c => { const me = await c.get('/api/me'); return c.post('/api/admin/integration-requests', { userId: me.json?.user?.id ?? 'nobody', kind: 'http', name: 'Matrix', url: `https://integration-matrix.invalid/api/${crypto.randomUUID()}`, auth: 'bearer' }) }, scope: 'byLevel' },
+  withdrawIntegrationRequest: { build: c => c.post(`/api/admin/integration-requests/${NONE}/withdraw`, {}), scope: 'nobody' },
 }
 // GET /api/integrations/oauth/callback: state, session and person binding are tested in tests/unit/c-integrations-oauth.test.ts
 export const INTEGRATION_RAW_COVERED = ['RAW GET INTEGRATION_CALLBACK']

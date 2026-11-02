@@ -1,6 +1,7 @@
 // Admin > External services: the team's connections (company accounts) and who may use each one in their chats —
 // the whole team, groups, people. Admins manage them all but use one in their own chats only when the rule includes
-// them, so each row says so. Members' personal connections are not listed (nobody but the owner can use those).
+// them, so each row says so. Members' personal connections are not listed (nobody but the owner can use those); below,
+// the requests that ask a member to connect a service as their own (components/integrations/RequestDialog.tsx).
 import { Cable, Plus } from 'lucide-react'
 import { useCallback, useEffect, useState } from 'react'
 import type { Group, Integration, User } from '@mycel/shared/api'
@@ -12,6 +13,7 @@ import { reloadAsked } from '../../store/live'
 import { Badge, Button, EmptyState } from '../../components/ui'
 import { IntegrationDialog } from '../../components/integrations/IntegrationDialog'
 import { IntegrationRow, useIntegrationActions } from '../../components/integrations/IntegrationRow'
+import { TeamRequests } from '../../components/integrations/RequestDialog'
 import { Card, Loadable, useLoad } from './common'
 
 export default function AdminIntegrations() {
@@ -63,6 +65,7 @@ export default function AdminIntegrations() {
           }
         </Loadable>
       </Card>
+      <TeamRequests />
       {dialog && (
         <IntegrationDialog
           scope="team"

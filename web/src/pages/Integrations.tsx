@@ -1,5 +1,6 @@
 // Settings > External services: the person's own connections to MCP servers and APIs (used only in their own chats),
-// then the team connections an admin lets them use (read-only unless they manage them). Not the "App connectors" tab
+// then the team connections an admin lets them use (read-only unless they manage them); above them, services an admin
+// asked them to connect as their own (components/integrations/AnswerDialog.tsx). Not the "App connectors" tab
 // (ConnectorConnections.tsx): that is the other direction, claude.ai using this server's files.
 import { Cable, Plus } from 'lucide-react'
 import { useCallback, useEffect, useState } from 'react'
@@ -11,15 +12,18 @@ import { reloadAsked } from '../store/live'
 import { Button, EmptyState } from '../components/ui'
 import { IntegrationDialog } from '../components/integrations/IntegrationDialog'
 import { IntegrationRow, useIntegrationActions } from '../components/integrations/IntegrationRow'
+import { MyRequests } from '../components/integrations/AnswerDialog'
 import { Loadable, useLoad } from './admin/common'
 
 export default function Integrations() {
   const t = useT()
   const state = useLoad<IntegrationList>(() => api.call(API.listIntegrations))
   const [dialog, setDialog] = useState<{ existing?: Integration } | null>(null)
+  // the admin's requests load again with the list: a sign-in that finished may have connected one
+  const [requests, setRequests] = useState(0)
   const reloadList = state.reload
-  const reload = useCallback(() => void reloadList(), [reloadList])
-  useEffect(() => reloadAsked.on(() => void reloadList()), [reloadList])
+  const reload = useCallback(() => { void reloadList(); setRequests((n) => n + 1) }, [reloadList])
+  useEffect(() => reloadAsked.on(reload), [reload])
   const actions = useIntegrationActions({
     add: (i) => state.setData((d) => (d ? { ...d, items: [...d.items, i] } : d)),
     replace: (i) => state.setData((d) => (d ? { ...d, items: d.items.map((x) => (x.id === i.id ? i : x)) } : d)),
@@ -38,6 +42,10 @@ export default function Integrations() {
           </Button>
         )}
       </div>
+      <MyRequests
+        version={requests}
+        onConnected={(i, signIn) => actions.saved(i, signIn, !state.data?.items.some((x) => x.id === i.id))}
+      />
       <Loadable state={state}>
         {(d) => {
           const { mine, team } = splitByScope(d.items)

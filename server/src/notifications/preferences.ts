@@ -19,5 +19,7 @@ export function eventEnabled(p: NotificationPreferences, event: NotificationEven
     case 'skill.suggested': case 'skill.reviewed': return p.skillSuggestions
     // no setting of their own: a job the person started, a box that stopped
     case 'dev_env.job': case 'dev_env.box': return true
+    // an admin waits for the answer (shown always, Notifications.integrationRequest)
+    case 'integration.request': return true
   }
 }

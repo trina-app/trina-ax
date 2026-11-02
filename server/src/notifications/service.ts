@@ -24,12 +24,12 @@ export type SkillNoticeEvent = Extract<NotificationEventType, 'skill.suggested' 
 export type DevEnvNoticeEvent = Extract<NotificationEventType, 'dev_env.job' | 'dev_env.box'>
 const isSkillEvent = (e: NotificationEventType): e is SkillNoticeEvent => e === 'skill.suggested' || e === 'skill.reviewed'
 const isDevEnvEvent = (e: NotificationEventType): e is DevEnvNoticeEvent => e === 'dev_env.job' || e === 'dev_env.box'
-const tableOf = (e: NotificationEventType) => isSkillEvent(e) ? 'skill_notices' : isDevEnvEvent(e) ? 'dev_env_notices' : 'notification_inbox'
-/** One inbox over the tables: skill notices (migration 211, R2-SKILL-12) and dev environment notices (migration 219) have
- * their own tables, because notification_inbox has a fixed event_type CHECK list and tables are never rebuilt. */
-const INBOX = `(SELECT id,user_id,event_type,source_id,created_at,read_at,suppressed FROM notification_inbox
-  UNION ALL SELECT id,user_id,event_type,source_id,created_at,read_at,suppressed FROM skill_notices
-  UNION ALL SELECT id,user_id,event_type,source_id,created_at,read_at,suppressed FROM dev_env_notices)`
+const tableOf = (e: NotificationEventType) => isSkillEvent(e) ? 'skill_notices' : isDevEnvEvent(e) ? 'dev_env_notices' : e === 'integration.request' ? 'integration_request_notices' : 'notification_inbox'
+/** One inbox over the tables: skill notices (migration 211, R2-SKILL-12), dev environment notices (migration 219) and
+ * requests to connect a service (migration 220) have their own tables, because notification_inbox has a fixed
+ * event_type CHECK list and tables are never rebuilt. */
+const NOTICE_TABLES = ['notification_inbox', 'skill_notices', 'dev_env_notices', 'integration_request_notices'] as const
+const INBOX = `(${NOTICE_TABLES.map((t) => `SELECT id,user_id,event_type,source_id,created_at,read_at,suppressed FROM ${t}`).join(' UNION ALL ')})`
 export class Notifications {
   constructor(readonly ctx: AppContext) {}
   private active(userId: string) { return !!this.ctx.db.query("SELECT 1 FROM users WHERE id=? AND status='active' AND deleted_at IS NULL").get(userId) }
@@ -55,6 +55,11 @@ export class Notifications {
   devEnvNotice(userId: string, event: DevEnvNoticeEvent, sourceId: string, createdAt = new Date().toISOString()) {
     this.record(userId, event, sourceId, createdAt)
   }
+  /** An admin asks this person to connect a service as their own connection. The source is the request id only. Shown
+   * always: someone waits for the answer, and the request ends by itself after 7 days. */
+  integrationRequest(userId: string, requestId: string, createdAt = new Date().toISOString()) {
+    this.record(userId, 'integration.request', requestId, createdAt, true)
+  }
   afterTurn(turnId: string) {
     try {
       const row = this.ctx.db.query("SELECT id,user_id,status,ended_at,run_outcome FROM turns WHERE id=? AND schedule_id IS NOT NULL AND status IN ('done','error','stopped','interrupted') AND ended_at IS NOT NULL").get(turnId) as Terminal | null
@@ -70,9 +75,7 @@ export class Notifications {
   /** Terminal DB rows are the source of truth. Missing hooks, queued cancellation and interrupted recovery converge. */
   reconcile(userId?: string) {
     const db = this.ctx.db
-    db.query('DELETE FROM notification_inbox WHERE created_at < ?').run(this.cutoff())
-    db.query('DELETE FROM skill_notices WHERE created_at < ?').run(this.cutoff())
-    db.query('DELETE FROM dev_env_notices WHERE created_at < ?').run(this.cutoff())
+    for (const table of NOTICE_TABLES) db.query(`DELETE FROM ${table} WHERE created_at < ?`).run(this.cutoff())
     db.query('DELETE FROM schedule_outcomes WHERE created_at < ?').run(this.cutoff())
     const rows = db.query(`SELECT t.id,t.user_id,t.status,t.ended_at,t.run_outcome FROM turns t
       WHERE EXISTS(SELECT 1 FROM users u WHERE u.id=t.user_id AND u.status='active' AND u.deleted_at IS NULL)
@@ -134,6 +137,8 @@ export class Notifications {
       return { id: row.id, eventType: row.event_type, sourceId: row.source_id, code: row.event_type, createdAt: row.created_at, readAt: row.read_at, chatId: null, link: 'skills', outcome: null }
     }
     if (isDevEnvEvent(row.event_type)) return this.devEnvOut(row)
+    // Settings › External services opens the request (?request=<sourceId>) and says if it is no longer waiting
+    if (row.event_type === 'integration.request') return { id: row.id, eventType: row.event_type, sourceId: row.source_id, code: row.event_type, createdAt: row.created_at, readAt: row.read_at, chatId: null, link: 'integrations', outcome: null }
     if (row.event_type === 'schedule.failure' && row.source_id.startsWith(REVIEW_SOURCE)) {
       // paused tasks to check again: the schedules list, never a chat
       return { id: row.id, eventType: row.event_type, sourceId: row.source_id, code: row.event_type, createdAt: row.created_at, readAt: row.read_at, chatId: null, link: null, outcome: null, review: true }
@@ -194,7 +199,8 @@ export class Notifications {
     const db = this.ctx.db
     const args = [new Date().toISOString(), id, userId, this.cutoff()]
     const update = (table: string) => db.query(`UPDATE ${table} SET read_at=COALESCE(read_at,?) WHERE id=? AND user_id=? AND suppressed=0 AND created_at>=? RETURNING *`).get(...args) as Row | null
-    const r = update('notification_inbox') ?? update('skill_notices') ?? update('dev_env_notices')
+    let r: Row | null = null
+    for (const table of NOTICE_TABLES) if ((r = update(table))) break
     if (!r) throw new HttpError('not_found')
     this.signal(userId)
     return this.out(r)
@@ -219,6 +225,10 @@ export function notifySkillSuggestion(ctx: AppContext, userId: string, event: Sk
 export function notifyDevEnv(ctx: AppContext, userId: string, event: DevEnvNoticeEvent, sourceId: string) {
   try { notificationsOf(ctx).devEnvNotice(userId, event, sourceId) }
   catch { ctx.log.warn('dev env notification recording failed') }
+}
+export function notifyIntegrationRequest(ctx: AppContext, userId: string, requestId: string) {
+  try { notificationsOf(ctx).integrationRequest(userId, requestId) }
+  catch { ctx.log.warn('connection request notification recording failed') }
 }
 export function notifyConnectionReconnect(ctx: AppContext, userId: string, sourceId: string, createdAt?: string) {
   try { notificationsOf(ctx).connectionReconnect(userId, sourceId, createdAt) }

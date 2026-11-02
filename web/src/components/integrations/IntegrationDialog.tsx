@@ -254,7 +254,7 @@ function KeySection({ f, existing, change, errorOf, blur }: {
 }
 
 /** Radio choices as bordered rows, each with a line of explanation. */
-function Choices<T extends string>({ legend, value, onChange, options, error, compact }: {
+export function Choices<T extends string>({ legend, value, onChange, options, error, compact }: {
   legend: string
   value: T
   onChange: (v: T) => void
@@ -287,7 +287,7 @@ function Choices<T extends string>({ legend, value, onChange, options, error, co
   )
 }
 
-function Warning({ children }: { children: ReactNode }) {
+export function Warning({ children }: { children: ReactNode }) {
   return (
     <p role="note" className="flex items-start gap-2 rounded-lg bg-warn-soft px-3 py-2 text-xs text-warn">
       <TriangleAlert size={14} className="mt-0.5 shrink-0" aria-hidden />

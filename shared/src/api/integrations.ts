@@ -146,6 +146,69 @@ export const IntegrationList = z.object({
 })
 export type IntegrationList = z.infer<typeof IntegrationList>
 
+// ---------------- an admin asks a member to connect a service as their own ----------------
+// The admin fills in the service (as for a team connection, without a key or who may use it); the member adds their own
+// key or signs in, and it becomes the member's personal connection. The admin never sees the key: a request holds none,
+// and the member's connection is theirs alone (docs/INTEGRATIONS.md "Asking a member to connect").
+
+/** how long a request waits for its member */
+export const INTEGRATION_REQUEST_DAYS = 7
+/** waiting: the member has not answered yet; connected: the member saved their key or finished signing in (what they do
+ * with their connection afterwards is theirs alone); declined by the member; withdrawn by an admin; expired unanswered */
+export const IntegrationRequestState = z.enum(['waiting', 'connected', 'declined', 'withdrawn', 'expired'])
+export type IntegrationRequestState = z.infer<typeof IntegrationRequestState>
+
+const Person = z.object({ id: z.string(), name: z.string() })
+export const IntegrationRequest = z.object({
+  id: z.string(),
+  kind: IntegrationKind,
+  name: z.string(),
+  url: z.string(),
+  /** never 'none': the point of a request is the member's own key or sign-in */
+  auth: IntegrationAuth,
+  authHeader: z.string().nullable(),
+  /** how to use this API, for the AI (http connections); the member's connection gets it */
+  notes: z.string().nullable(),
+  /** the member asked to connect it */
+  user: Person,
+  /** the admin who asked (null: that account is gone) */
+  requestedBy: Person.nullable(),
+  state: IntegrationRequestState,
+  createdAt: IsoTime,
+  expiresAt: IsoTime,
+  /** when it was connected, declined or withdrawn */
+  endedAt: IsoTime.nullable(),
+  /** the address that opens it in the app (Settings › External services) for its member; the admin may copy and send it.
+   * It is not a key: anyone else who opens it, admins included, finds nothing. */
+  link: z.string(),
+})
+export type IntegrationRequest = z.infer<typeof IntegrationRequest>
+
+/** What an admin asks a member to connect: the same service fields as a team connection, with no key, no write rule
+ * (the member's own, as for any personal connection) and no access rule (a personal connection is its owner's only). */
+export const IntegrationRequestInput = z.object({
+  userId: z.string().min(1).max(200),
+  kind: IntegrationKind,
+  name: Name,
+  url: ServiceUrl,
+  auth: z.enum(['bearer', 'header', 'oauth']),
+  authHeader: HeaderName.nullable().optional(),
+  notes: Notes.nullable().optional(),
+  // strict: a key (or anything else) sent with a request is refused, not quietly dropped
+}).strict().refine((v) => v.auth !== 'oauth' || v.kind === 'mcp', { message: 'sign-in (oauth) is for MCP servers', path: ['auth'] })
+  .refine((v) => v.auth !== 'header' || !!v.authHeader, { message: 'give the header name', path: ['authHeader'] })
+export type IntegrationRequestInput = z.infer<typeof IntegrationRequestInput>
+
+/** The member's answer: their key (auth bearer / header; write-only), or nothing for a sign-in (the app signs in next),
+ * and what the AI may change there (ask or refuse: "allow" stays the team's choice). */
+export const IntegrationRequestAnswer = z.object({
+  secret: z.string().min(1).max(8000).optional(),
+  writePolicy: WritePolicy.optional(),
+}).strict()
+export type IntegrationRequestAnswer = z.infer<typeof IntegrationRequestAnswer>
+
+const RequestList = z.object({ items: z.array(IntegrationRequest) })
+
 export const INTEGRATIONS = {
   listIntegrations: endpoint({ method: 'GET', path: '/api/integrations', auth: 'user', owner: 'C', response: IntegrationList, summary: 'My personal connections and the team connections I may use. Never a key or token.' }),
   createIntegration: endpoint({ method: 'POST', path: '/api/integrations', auth: 'user', owner: 'C', status: 201, body: IntegrationInput, response: Integration, summary: 'A personal connection (403 when the team turned personal connections off). Checked right away; status says how it went.' }),
@@ -157,4 +220,11 @@ export const INTEGRATIONS = {
   integrationFlow: endpoint({ method: 'GET', path: '/api/integrations/flows/:id', auth: 'user', owner: 'C', response: IntegrationFlow, summary: 'Poll a sign-in started by this same session.' }),
   listTeamIntegrations: endpoint({ method: 'GET', path: '/api/admin/integrations', auth: 'admin', owner: 'C', response: z.object({ items: z.array(Integration) }), summary: 'Every team connection, with who may use it.' }),
   createTeamIntegration: endpoint({ method: 'POST', path: '/api/admin/integrations', auth: 'admin', owner: 'C', status: 201, body: IntegrationInput, response: Integration, summary: 'A team connection; access says who may use it (default: nobody until set).' }),
+  listIntegrationRequests: endpoint({ method: 'GET', path: '/api/integration-requests', auth: 'user', owner: 'C', response: RequestList, summary: 'Requests from admins to connect a service as my own connection, still waiting for me.' }),
+  getIntegrationRequest: endpoint({ method: 'GET', path: '/api/integration-requests/:id', auth: 'user', owner: 'C', response: IntegrationRequest, summary: 'One request to me, in any state (404 for anyone else, admins included).' }),
+  completeIntegrationRequest: endpoint({ method: 'POST', path: '/api/integration-requests/:id/complete', auth: 'user', owner: 'C', body: IntegrationRequestAnswer, response: Integration, summary: 'Connect it as my own connection, with my key, or made for signing in next (MCP OAuth: the request is connected when the sign-in finishes). Only the member it asks.' }),
+  declineIntegrationRequest: endpoint({ method: 'POST', path: '/api/integration-requests/:id/decline', auth: 'user', owner: 'C', body: z.object({}), response: IntegrationRequest, summary: 'Decline a waiting request to me.' }),
+  listTeamIntegrationRequests: endpoint({ method: 'GET', path: '/api/admin/integration-requests', auth: 'admin', owner: 'C', response: RequestList, summary: 'Requests admins sent to members, with their state. Never a key.' }),
+  createIntegrationRequest: endpoint({ method: 'POST', path: '/api/admin/integration-requests', auth: 'admin', owner: 'C', status: 201, body: IntegrationRequestInput, response: IntegrationRequest, summary: 'Ask a member to connect a service as their own connection (a notice and a link for them; waits 7 days).' }),
+  withdrawIntegrationRequest: endpoint({ method: 'POST', path: '/api/admin/integration-requests/:id/withdraw', auth: 'admin', owner: 'C', body: z.object({}), response: IntegrationRequest, summary: 'Withdraw a waiting request.' }),
 } as const

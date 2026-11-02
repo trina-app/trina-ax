@@ -48,6 +48,20 @@ back), `server/src/routes/integrations.ts`, migration
   ones are left out of chats; they stay listed so their owners can delete them. Team connections are not affected.
 - Deleting a member deletes their personal connections (keys included) and removes them from team connections' rules.
 
+## Asking a member to connect
+
+Some services log every call as the person whose key it is, so that key belongs in the member's personal connection.
+An admin cannot add a personal connection for someone else. Instead, Admin › External services › "Requests to members"
+sends one member a request with the service filled in (kind, name, address, key or sign-in, the key's header, usage
+notes for an API). The member gets an inbox entry and a banner, and the admin can copy a link
+(`/settings/integrations?request=<id>`; only that member, signed in, can open it). In Settings › External services the
+member connects it with their own key or signs in, which creates their personal connection through the same path as
+one they add themselves, or declines it. The admin sees the state (waiting, connected, declined, withdrawn, expired
+after 7 days) and can withdraw a waiting request; the admin never sees the key or the member's connection. Code:
+`server/src/integrations/connections/requests.ts`, migrations `220_b_integration_request_notices.sql` and
+`331_c_integration_requests.sql`. Decisions: [DECISIONS.md](DECISIONS.md) "Asking a member to connect a service as
+their own".
+
 ## Secrets
 
 - Keys and OAuth tokens (and the OAuth client details) are stored only AES-256-GCM encrypted with the existing Vault
@@ -211,6 +225,8 @@ connections with their address and the first 1,000 characters of their notes.
 - Admin audit log: `integration.create`, `integration.update` (also access changes, with before/after, a completed
   sign-in: `changed: ["signIn"]`, and a tool turned on or off: `changed: ["tools"]`), `integration.delete`. Team connections are named with their host; a member's own
   connections only by scope, kind and auth (no name or address).
+- Requests to members: `integration_request.create` / `.withdraw` (the admin) and `.complete` / `.decline` (the
+  member), with the member, kind, name, host and auth the admin filled in.
 - Each call is a `tool_events` row with a summary only: the tool, `api_request <connection> <METHOD> <path> -> <status>`,
   "confirmed by the user" or why it was refused. No arguments, bodies, query strings or secrets.
 

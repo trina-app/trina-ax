@@ -7,6 +7,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import type { Integration, IntegrationAccess, Locale, Role } from '@mycel/shared/api'
 import { Vault, detectVersion } from '../../credentials/vault'
+import { audit } from '../../admin/audit'
 import { getTeamSettings } from '../../admin/settings'
 import type { RemoteTool } from './mcp'
 import { reasonText } from './text'
@@ -241,3 +242,32 @@ export class SecretBox {
 
 export const connectionAad = (r: Pick<Row, 'id' | 'scope' | 'owner_user_id'>) => `${r.scope}:${r.owner_user_id ?? 'team'}:${r.id}`
 export const flowAad = (f: Pick<FlowRow, 'id' | 'user_id'>) => `flow:${f.user_id}:${f.id}`
+
+// ---------------- an admin's request to connect a service as one's own (requests.ts, migration 331) ----------------
+export interface RequestRow {
+  id: string; user_id: string; created_by: string | null
+  kind: 'mcp' | 'http'; name: string; url: string; auth: 'bearer' | 'header' | 'oauth'; auth_header: string | null; notes: string | null
+  /** a pending one past expires_at is expired */
+  state: 'pending' | 'completed' | 'declined' | 'withdrawn'
+  /** the member's connection made from it (with a sign-in: made before the sign-in finishes) */
+  integration_id: string | null
+  created_at: string; expires_at: string; ended_at: string | null
+}
+export const REQUEST_COLUMNS = 'id, user_id, created_by, kind, name, url, auth, auth_header, notes, state, integration_id, created_at, expires_at, ended_at'
+export function getRequest(db: Database, id: string): RequestRow | null {
+  return db.query(`SELECT ${REQUEST_COLUMNS} FROM integration_requests WHERE id = ?`).get(id) as RequestRow | null
+}
+/** What the admin audit says about a request: whom it asks and what the admin filled in (their own words; a request
+ * never holds a key). */
+export const requestAuditDetail = (r: RequestRow) => ({ user: r.user_id, kind: r.kind, name: r.name, host: new URL(r.url).host, auth: r.auth })
+
+/** A sign-in finished at a member's own connection (service.ts callback): the request it was made from, if one still
+ * waits for this member with the same address, is connected now. */
+export function requestSignedIn(db: Database, row: Pick<Row, 'id' | 'scope' | 'owner_user_id' | 'url' | 'auth'>, userId: string, at: string): void {
+  if (row.scope !== 'personal' || row.owner_user_id !== userId || row.auth !== 'oauth') return
+  const r = db.query(`SELECT ${REQUEST_COLUMNS} FROM integration_requests WHERE integration_id = ? AND user_id = ? AND url = ? AND state = 'pending' AND expires_at > ?`)
+    .get(row.id, userId, row.url, at) as RequestRow | null
+  if (!r) return
+  if (!db.query("UPDATE integration_requests SET state = 'completed', ended_at = ? WHERE id = ? AND state = 'pending'").run(at, r.id).changes) return
+  audit(db, { actor: userId, action: 'integration_request.complete', target: r.id, detail: requestAuditDetail(r) })
+}

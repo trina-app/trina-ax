@@ -20,7 +20,7 @@ import { MCP_LIST_TIMEOUT_MS, McpClient, McpError } from './mcp'
 import { NetError, serviceRequest, TIMEOUT_MS, type NetOptions, type NetResponse } from './net'
 import { authorizationUrl, discover, GrantError, register, revoke, tokenRequest, type OAuthClient, type OAuthSecret, type OAuthServer, type OAuthTokens } from './oauth'
 import {
-  accessOf, activeUser, connectionAad, disabledTools, flowAad, getRow, isAdmin, MAX_DISABLED_TOOLS, mayUse, savedTools, SecretBox, selectRows, setAccess, StoreError, toolListsOf, usable, view,
+  accessOf, activeUser, connectionAad, disabledTools, flowAad, getRow, isAdmin, MAX_DISABLED_TOOLS, mayUse, requestSignedIn, savedTools, SecretBox, selectRows, setAccess, StoreError, toolListsOf, usable, view,
   type FlowRow, type Row, type Viewer,
 } from './store'
 import { say, type Reason, type TextKey } from './text'
@@ -62,22 +62,22 @@ export function slugOf(name: string, kind: 'mcp' | 'http'): string {
 }
 
 /** Refused before any lookup: an address that names this computer or a private network outright. */
-function obviouslyPrivate(url: string): boolean {
+export function obviouslyPrivate(url: string): boolean {
   const host = new URL(url).hostname.replace(/^\[|\]$/g, '')
   if (net.isIP(host)) return !isPublicAddress(host) || isLocalAddress(host)
   return !!checkHostName(host)
 }
 
-const normUrl = (u: string) => new URL(u).href
+export const normUrl = (u: string) => new URL(u).href
 /** names go into the AI's instructions and tool descriptions: one line, no control characters */
-const oneLine = (s: string) => s.replace(/[\u0000-\u001f\u007f\u2028\u2029]+/g, ' ').trim()
-const cleanNotes = (s: string | null | undefined) => s?.replace(/[\u0000-\u0008\u000b-\u001f\u007f]+/g, ' ').trim() || null
+export const oneLine = (s: string) => s.replace(/[\u0000-\u001f\u007f\u2028\u2029]+/g, ' ').trim()
+export const cleanNotes = (s: string | null | undefined) => s?.replace(/[\u0000-\u0008\u000b-\u001f\u007f]+/g, ' ').trim() || null
 /** what the admin audit says about a change: team connections in full; a member's own ones without name or address */
 const auditDetail = (row: Pick<Row, 'scope' | 'kind' | 'auth' | 'name' | 'url'>, more: Record<string, unknown> = {}) =>
   row.scope === 'team' ? { scope: row.scope, kind: row.kind, name: row.name, host: new URL(row.url).host, auth: row.auth, ...more } : { scope: row.scope, kind: row.kind, auth: row.auth }
 
 /** A refusal of one field: `validation`, the words (in the person's language) under that field too. */
-function fieldError(L: Locale, field: string, key: TextKey, vars: Record<string, string | number> = {}): never {
+export function fieldError(L: Locale, field: string, key: TextKey, vars: Record<string, string | number> = {}): never {
   const m = say(key, L, vars)
   return fail('validation', m, { fields: { [`body.${field}`]: m } })
 }
@@ -268,7 +268,8 @@ export class Integrations {
     return view(this.db, await this.check(row), viewer, locale)
   }
 
-  private headerName(h: string | null, L: Locale): string {
+  /** the header a key is sent in, or a refusal of the field (also for what an admin asks a member to connect, requests.ts) */
+  headerName(h: string | null, L: Locale): string {
     if (!h || !/^[A-Za-z0-9-]{1,64}$/.test(h) || RESERVED_HEADERS.has(h.toLowerCase())) return fieldError(L, 'authHeader', 'badHeader')
     return h
   }
@@ -610,6 +611,9 @@ export class Integrations {
       })()
       this.dropClient(cur.id)
       audit(this.db, { actor: viewer.id, action: 'integration.update', target: cur.id, detail: { ...auditDetail(cur), changed: ['signIn'], secret: 'replaced' } })
+      // made from an admin's request (requests.ts): the request is connected now that the member signed in (its
+      // bookkeeping never undoes a sign-in that worked)
+      try { requestSignedIn(this.db, cur, viewer.id, iso(this.now())) } catch (err) { this.ctx.log.warn('connection request not marked connected', { err }) }
       if (old?.type === 'oauth' && old.tokens.refreshToken !== tokens.refreshToken) void this.revokeTokens(old)
       await this.check(getRow(this.db, cur.id)!)
       return true

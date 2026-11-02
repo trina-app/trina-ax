@@ -42,7 +42,7 @@ import { TEXT as TEAM_ICON_TEXT } from '../../../server/src/admin/team-icon'
 import { checkTeamIcon, TEAM_ICON_MAX_BYTES, type TeamIconFile } from '@mycel/shared'
 import { Sealer } from '../../../server/src/credentials/seal'
 import type { Credential, CredentialKind, CredentialLogin, MessageSourceFile } from '@mycel/shared/api'
-import type { Integration, IntegrationAccess, IntegrationFlow, IntegrationInput, IntegrationPatch, IntegrationTool } from '@mycel/shared/api'
+import type { Integration, IntegrationAccess, IntegrationFlow, IntegrationInput, IntegrationPatch, IntegrationRequest, IntegrationTool } from '@mycel/shared/api'
 import { SkillsOverview } from '@mycel/shared/api'
 import os from 'node:os'
 import path from 'node:path'
@@ -158,6 +158,8 @@ export class MockServer {
   plugins = new MockPlugins()
   integrationSecrets = new Map<string, string>()
   integrationFlows = new Map<string, { flow: IntegrationFlow; integrationId: string; userId: string; polls: number }>()
+  /** an admin's requests to members to connect a service as their own (like server/src/integrations/connections/requests.ts) */
+  integrationRequests: (IntegrationRequest & { integrationId: string | null })[] = []
   /** Team AX Cloud (server/src/system/deployment.ts): /__test/cloud switches it on until the next reset */
   cloud = false
 
@@ -220,6 +222,7 @@ export class MockServer {
     this.plugins.reset()
     this.integrationSecrets.clear()
     this.integrationFlows.clear()
+    this.integrationRequests = []
     this.settings = defaultSettings()
     this.teamIcon = null
     this.speechKey = { set: false, hint: null, updatedAt: null }
@@ -1571,11 +1574,52 @@ export class MockServer {
           x.account = `${c.user.username}@example.test`
           this.checkIntegration(x)
           f.flow.state = 'completed'
+          // made from an admin's request: connected now that the member signed in
+          for (const r of this.integrationRequests) if (r.integrationId === x.id && this.requestState(r) === 'waiting') Object.assign(r, { state: 'connected', endedAt: now() })
         }
       }
       return f.flow
     },
     listTeamIntegrations: (c) => ({ items: this.integrations.filter((x) => x.scope === 'team').map((x) => this.integrationView(x, c.user)) }),
+    // like server/src/integrations/connections/requests.ts: only the member asked sees or answers a request; no key in it
+    listIntegrationRequests: (c) => ({ items: this.integrationRequests.filter((r) => r.user.id === c.user.id && this.requestState(r) === 'waiting').map((r) => this.requestView(r)) }),
+    getIntegrationRequest: (c) => this.requestView(this.myRequest(c.user, c.params.id)),
+    completeIntegrationRequest: (c) => {
+      const r = this.waitingRequest(this.myRequest(c.user, c.params.id))
+      if (r.auth !== 'oauth' && !c.body.secret) fail('validation', 400, '키가 아직 없어요. 키를 넣어 주세요.', { 'body.secret': 'required' })
+      const made = r.integrationId ? this.integrations.find((x) => x.id === r.integrationId && x.ownerId === c.user.id) : undefined
+      if (r.auth === 'oauth' && made) return this.integrationView(made, c.user)
+      if (!this.settings.personalIntegrations) fail('forbidden', 403, '팀에서 개인 연결을 꺼 두었어요.')
+      const i = this.addIntegration(c.user, { kind: r.kind, name: r.name, url: r.url, auth: r.auth, authHeader: r.authHeader, notes: r.notes, writePolicy: c.body.writePolicy ?? 'ask', ...(c.body.secret ? { secret: c.body.secret } : {}) }, 'personal')
+      r.integrationId = i.id
+      if (r.auth !== 'oauth') Object.assign(r, { state: 'connected', endedAt: now() })
+      return i
+    },
+    declineIntegrationRequest: (c) => {
+      const r = this.waitingRequest(this.myRequest(c.user, c.params.id))
+      Object.assign(r, { state: 'declined', endedAt: now() })
+      return this.requestView(r)
+    },
+    listTeamIntegrationRequests: () => ({ items: [...this.integrationRequests].reverse().sort((a, b) => Number(this.requestState(b) === 'waiting') - Number(this.requestState(a) === 'waiting')).map((r) => this.requestView(r)) }),
+    createIntegrationRequest: (c) => {
+      if (!this.settings.personalIntegrations) fail('conflict', 409, '지금은 직원이 개인 연결을 추가할 수 없어요.')
+      const member = this.users.find((u) => u.id === c.body.userId && u.status === 'active') ?? fail('validation', 400, '이 팀에서 쓰고 있는 계정이 아니에요.', { 'body.userId': 'not an active account' })
+      if (privateHost(new URL(c.body.url).hostname)) fail('validation', 400, '사내망이나 이 컴퓨터의 주소는 쓸 수 없어요.', { 'body.url': 'private or local address' })
+      if (this.integrationRequests.some((r) => r.user.id === member.id && r.url === c.body.url && this.requestState(r) === 'waiting')) fail('conflict', 409, '이 사람에게 같은 주소로 보낸 요청이 아직 기다리고 있어요.')
+      const at = Date.now()
+      const r: IntegrationRequest & { integrationId: string | null } = {
+        id: uuidv7(), kind: c.body.kind, name: c.body.name, url: c.body.url, auth: c.body.auth, authHeader: c.body.auth === 'header' ? c.body.authHeader ?? null : null,
+        notes: c.body.kind === 'http' ? c.body.notes ?? null : null, user: { id: member.id, name: member.name }, requestedBy: { id: c.user.id, name: c.user.name },
+        state: 'waiting', createdAt: new Date(at).toISOString(), expiresAt: new Date(at + 7 * 86_400_000).toISOString(), endedAt: null, link: '', integrationId: null,
+      }
+      this.integrationRequests.push(r)
+      return { status: 201, body: this.requestView(r) }
+    },
+    withdrawIntegrationRequest: (c) => {
+      const r = this.waitingRequest(this.integrationRequests.find((x) => x.id === c.params.id) ?? fail('not_found', 404))
+      Object.assign(r, { state: 'withdrawn', endedAt: now() })
+      return this.requestView(r)
+    },
 
     // Admin > Plugins (web/test/mock/plugins.ts)
     listPlugins: (c) => this.plugins.list(c.user.locale ?? 'ko', this.settings.defaultLocale),
@@ -1737,6 +1781,22 @@ export class MockServer {
     return { ...rest, hasSecret: this.integrationSecrets.has(x.id), access: x.scope === 'team' && canManage ? x.access : null, canManage }
   }
   /** may use it in their chats: the owner of a personal one; the access rule of a team one (admins are not implied) */
+  requestState(r: IntegrationRequest): IntegrationRequest['state'] {
+    return r.state === 'waiting' && Date.parse(r.expiresAt) <= Date.now() ? 'expired' : r.state
+  }
+  requestView(r: IntegrationRequest & { integrationId: string | null }): IntegrationRequest {
+    const { integrationId: _, ...out } = r
+    return { ...out, state: this.requestState(r), link: `http://127.0.0.1:${process.env.MOCK_PORT ?? 19143}/settings/integrations?request=${r.id}` }
+  }
+  /** the member it asks; anyone else (admins included) finds nothing */
+  myRequest(u: User, id: string) {
+    return this.integrationRequests.find((r) => r.id === id && r.user.id === u.id) ?? fail('not_found', 404)
+  }
+  waitingRequest<T extends IntegrationRequest>(r: T): T {
+    const state = this.requestState(r)
+    if (state !== 'waiting') throw new Fail('conflict', 409, '이 요청은 더 이상 기다리고 있지 않아요.', undefined, { state })
+    return r
+  }
   integrationAllows(x: MockIntegration, u: User): boolean {
     if (x.scope === 'personal') return x.ownerId === u.id
     const a = x.access ?? NO_ACCESS

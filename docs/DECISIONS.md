@@ -5731,3 +5731,51 @@ did not say so.
 - Tests: `tests/unit/office-claude-mcp.test.ts` (fake homes: the copy's values and modes, links, a link in place of the
   copy folder, pruning and size, the read-only scan, the CLI's output, restore and its refusals, configure, the
   installer's stop / go paths with a fake launchctl), `tests/security/r4b-office-subscription.test.ts` (switching back).
+
+## Asking a member to connect a service as their own (feat/connection-requests, 2026-11-02)
+
+An admin on a hosted team server needed one member's key for an HTTP/MCP service in that member's personal connection:
+the service logs every call as the person whose key it is. Personal connections are their owner's only, so the admin
+had no way to put it there, and signed in as the member through a password-reset link to add it. That is impersonation
+and it changed the member's password. Decided: the admin sends the member a request with the service filled in; the
+member adds their own key or signs in. Like Claude Code, the connection is the person's own; who may use it is checked
+on every call as before.
+
+- **Request.** `integration_requests` (migration 331): the member, the admin, kind, name, address, auth (`bearer`,
+  `header` or `oauth`, never `none`: a personal key or sign-in is the point), the key's header and usage notes for an
+  API. The same field checks as a connection (`service.ts` `headerName`, `normUrl`, `obviouslyPrivate`). The body is
+  strict, so a key sent with a request is refused (400), not dropped. No write rule (the member's choice, ask or refuse,
+  as for any personal connection) and no access rule. One waiting request per member and address, 20 waiting per
+  member, 200 in all. Refused (409) while the team does not allow personal connections. A member's existing
+  connections are never looked at: a refusal "already connected" would tell the admin about them.
+- **States.** waiting, connected, declined (member), withdrawn (admin), expired (7 days, `INTEGRATION_REQUEST_DAYS`;
+  derived from `expires_at`, nothing rewrites the row). Ended and expired requests leave the admin's list 30 days later.
+  Answering or withdrawing a request that is no longer waiting is 409 with `params.state`.
+- **Answering goes through the member's own create path** (`requests.ts complete` → `service.ts create(…, 'personal')`):
+  the same checks, limits, slug, sealing for the member (AAD `personal:<member>:<id>`), first check and
+  `integration.create` audit (no name or address) as a connection the member adds themselves. A key: the request is
+  connected once the connection is saved with it (the check says how the key does, as always). A sign-in: the
+  connection is made first and the request is connected when the OAuth callback finishes for that member's connection
+  at the same address (`store.ts requestSignedIn`); answering again before that returns the same connection. A second
+  answer while one runs is refused, so one request makes one connection.
+- **Who sees what.** Only the member asked can read, answer or decline a request; anyone else, admins and the owner of
+  the team included, gets 404. Admins list every request with its state, never a key (a request holds none) and never
+  the member's connection: after "connected" it is the member's to change or delete. Withdrawing does not touch a
+  connection already made (an admin cannot touch personal connections).
+- **Telling the member.** An inbox entry `integration.request` (table `integration_request_notices`, migration 220, as
+  `skill_notices` and `dev_env_notices`: `notification_inbox` has a fixed CHECK list; shown whatever the notice
+  settings, no OS push) and a live banner in the member's language with the way to it. The link the admin may copy
+  (`/settings/integrations?request=<id>`) holds only the request id, not a token: it opens only for that member signed
+  in, so sending it in a chat gives nobody else anything.
+- **Audit.** `integration_request.create` and `.withdraw` (actor: the admin), `.complete` and `.decline` (actor: the
+  member), with `{user, kind, name, host, auth}`: the admin's own words.
+- **Screens.** Admin › External services: "Requests to members" under the team connections, a dialog with the member
+  and the service fields, then the link to copy; each row has its state, copy link and withdraw while waiting.
+  Settings › External services: "Requested by an admin" above one's own connections, with connect (the fields fixed,
+  the key or a sign-in next, ask or refuse) and decline. All five languages.
+- Migrations 220 and 331 are additive (reader 1); the schema reader level stays 4. An older build ignores both tables.
+- Tests: `tests/unit/c-integration-requests.test.ts` (only admins ask; field checks; the inbox, banner and audit; only
+  the member answers, admins and the owner get 404; the key in no admin response, the audit, the inbox, the database or
+  the logs; `mayUse` / `forCall` refuse admins; withdraw, decline and expiry; a sign-in request connected by the
+  callback, the tokens nowhere in clear), `tests/security/lib/integrations-cases.ts` (the routes' levels).
+- Needed in the core too (potenlab/team-ax): everything here; nothing is Trina-specific.

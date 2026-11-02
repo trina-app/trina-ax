@@ -7,6 +7,7 @@ import type { RouteKit } from '../http/route'
 import type { AppContextC } from '../http/env'
 import { linkBase } from '../auth/accounts'
 import { integrationsOf } from '../integrations/connections/service'
+import { requestsOf } from '../integrations/connections/requests'
 import type { AuthInfo } from '../services'
 import { say } from '../integrations/connections/text'
 
@@ -28,6 +29,15 @@ export function registerIntegrationRoutes(kit: RouteKit, ctx: AppContext) {
   kit.handle(API.integrationFlow, ({ auth, params }) => svc().flow(auth.user.id, auth.session.id, params.id))
   kit.handle(API.listTeamIntegrations, ({ c, auth }) => ({ items: svc().listTeam(viewer(auth), c.get('locale')) }))
   kit.handle(API.createTeamIntegration, ({ c, auth, body }) => svc().create(viewer(auth), body, 'team', c.get('locale')))
+  // an admin asks a member to connect a service as their own connection (integrations/connections/requests.ts)
+  const reqs = () => requestsOf(ctx)
+  kit.handle(API.listIntegrationRequests, ({ c, auth }) => ({ items: reqs().listMine(auth.user.id, linkBase(c, ctx)) }))
+  kit.handle(API.getIntegrationRequest, ({ c, auth, params }) => reqs().getMine(auth.user.id, params.id, linkBase(c, ctx)))
+  kit.handle(API.completeIntegrationRequest, ({ c, auth, params, body }) => reqs().complete(viewer(auth), params.id, body, c.get('locale')))
+  kit.handle(API.declineIntegrationRequest, ({ c, auth, params }) => reqs().decline(viewer(auth), params.id, linkBase(c, ctx), c.get('locale')))
+  kit.handle(API.listTeamIntegrationRequests, ({ c }) => ({ items: reqs().listTeam(linkBase(c, ctx)) }))
+  kit.handle(API.createIntegrationRequest, ({ c, auth, body }) => reqs().create(viewer(auth), body, linkBase(c, ctx), c.get('locale')))
+  kit.handle(API.withdrawIntegrationRequest, ({ c, auth, params }) => reqs().withdraw(viewer(auth), params.id, linkBase(c, ctx), c.get('locale')))
   kit.raw('GET', INTEGRATION_CALLBACK, async (c) => {
     let ok = false
     const cc = c as unknown as AppContextC

@@ -7,12 +7,13 @@ export type NotificationPreferences = z.infer<typeof NotificationPreferences>
 /** Events that can also go to OS push (push_deliveries refers to notification_inbox only). */
 export const PushEventType = z.enum(['schedule.success', 'schedule.failure', 'connection.reconnect'])
 export type PushEventType = z.infer<typeof PushEventType>
-/** Skill suggestion notices are inbox only (table skill_notices), and so are dev environment notices (dev_env_notices). */
-export const NotificationEventType = z.enum([...PushEventType.options, 'skill.suggested', 'skill.reviewed', 'dev_env.job', 'dev_env.box'])
+/** Skill suggestion notices are inbox only (table skill_notices), and so are dev environment notices (dev_env_notices)
+ * and an admin's request to connect a service as one's own connection (integration_request_notices). */
+export const NotificationEventType = z.enum([...PushEventType.options, 'skill.suggested', 'skill.reviewed', 'dev_env.job', 'dev_env.box', 'integration.request'])
 export type NotificationEventType = z.infer<typeof NotificationEventType>
 export const InboxNotification = z.object({
   id: z.string(), eventType: NotificationEventType, sourceId: z.string(), code: NotificationEventType,
-  createdAt: z.string(), readAt: z.string().nullable(), chatId: z.string().nullable(), link: z.enum(['chat', 'connections', 'skills', 'project']).nullable(),
+  createdAt: z.string(), readAt: z.string().nullable(), chatId: z.string().nullable(), link: z.enum(['chat', 'connections', 'skills', 'project', 'integrations']).nullable(),
   /** scheduled runs only: succeeded / finished with problems / failed (the inbox text follows it; older servers omit it) */
   outcome: ScheduleRunOutcome.nullable().optional(),
   /** 'schedule.failure' only: scheduled tasks nobody confirmed were paused until their owner checks them again

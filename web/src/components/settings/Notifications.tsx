@@ -89,6 +89,7 @@ export function Notifications() {
           {item.link === 'project' && item.devEnv && <Link className="text-sm text-accent-text hover:underline" to={`/projects/${encodeURIComponent(item.devEnv.projectId)}`} onClick={() => void read(item)}>{item.devEnv.projectName}</Link>}
           {item.review && <Link className="text-sm text-accent-text hover:underline" to="/settings/schedules" onClick={() => void read(item)} data-testid="notification-review-link">{t('settings.schedules')}</Link>}
           {item.link === 'connections' && <Link className="text-sm text-accent-text hover:underline" to="/settings/drive" onClick={() => void read(item)}>{t('drive.title')}</Link>}
+          {item.link === 'integrations' && <Link className="text-sm text-accent-text hover:underline" to={`/settings/integrations?request=${encodeURIComponent(item.sourceId)}`} onClick={() => void read(item)} data-testid="notification-request-link">{t('integrations.title')}</Link>}
           {item.link === 'skills' && <Link className="text-sm text-accent-text hover:underline" to={skillsLink(item)} onClick={() => void read(item)}>{t('skills.title')}</Link>}
         </div>
         {!item.readAt && <Button size="sm" onClick={() => void read(item)}>{t('notifications.markRead')}</Button>}
