@@ -224,7 +224,7 @@ function PlanCard() {
           {' · '}
           {t('plan.disk', { gb: p.diskGiB })}
         </p>
-        <p className="text-xs text-faint">{t('plan.details', { memory: Math.round((p.memoryMiB / 1024) * 10) / 10, cores: p.cpuCores, days: p.localBackupRetentionDays })}</p>
+        <p className="text-xs text-faint">{t('plan.details', { days: p.localBackupRetentionDays })}</p>
         {p.maxActiveMembers !== null && p.activeMembers >= p.maxActiveMembers && <p className="text-xs text-warn" role="status">{t('plan.membersFull')}</p>}
         {(manage || status || support) && (
           <p className="flex flex-wrap gap-x-4 gap-y-1 text-xs">

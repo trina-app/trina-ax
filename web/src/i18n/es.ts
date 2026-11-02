@@ -1683,7 +1683,7 @@ export const es: Record<MessageKey, string> = {
   'plan.members': "{used} de {max, plural, one {# miembro} other {# miembros}}",
   'plan.membersUnlimited': "{used, plural, one {# miembro} other {# miembros}}",
   'plan.disk': "{gb} GB de almacenamiento",
-  'plan.details': "{memory} GB de memoria · {cores, plural, one {# CPU} other {# CPU}} · las copias de seguridad de este servidor se conservan {days, plural, one {# día} other {# días}}",
+  'plan.details': "Las copias de seguridad de este servidor se conservan {days, plural, one {# día} other {# días}}",
   'plan.membersFull': "Se alcanzó el límite de miembros del plan. Para añadir a alguien, cambie de plan o deshabilite una cuenta que ya no se use.",
   'plan.manage': "Administrar plan",
   'plan.status': "Estado del servicio",

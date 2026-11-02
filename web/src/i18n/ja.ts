@@ -1683,7 +1683,7 @@ export const ja: Record<MessageKey, string> = {
   'plan.members': "{max, plural, one {#人中} other {#人中}}{used}人",
   'plan.membersUnlimited': "{used, plural, one {#人のメンバー} other {#人のメンバー}}",
   'plan.disk': "{gb} GBストレージ",
-  'plan.details': "メモリ{memory} GB · {cores, plural, one {# CPU} other {# CPU}} · このサーバーのバックアップは{days, plural, one {#日間} other {#日間}}保持",
+  'plan.details': "このサーバーのバックアップは{days, plural, one {#日間} other {#日間}}保持",
   'plan.membersFull': "プランのメンバー上限に達しました。追加するにはプランを変更するか、使われていないアカウントを無効にしてください。",
   'plan.manage': "プランを管理",
   'plan.status': "サービス稼働状況",

@@ -1721,7 +1721,7 @@ export const en: Record<MessageKey, string> = {
   'plan.members': '{used} of {max, plural, one {# member} other {# members}}',
   'plan.membersUnlimited': '{used, plural, one {# member} other {# members}}',
   'plan.disk': '{gb} GB storage',
-  'plan.details': '{memory} GB memory · {cores, plural, one {# CPU} other {# CPUs}} · backups on this server are kept {days, plural, one {# day} other {# days}}',
+  'plan.details': 'Backups on this server are kept {days, plural, one {# day} other {# days}}',
   'plan.membersFull': 'The plan\'s members are all taken. To add someone, change the plan or disable an account that is no longer used.',
   'plan.manage': 'Manage plan',
   'plan.status': 'Service status',

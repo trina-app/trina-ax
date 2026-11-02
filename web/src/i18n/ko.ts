@@ -1720,7 +1720,7 @@ export const ko = {
   'plan.members': '인원 {max}명 중 {used}명',
   'plan.membersUnlimited': '인원 {used}명',
   'plan.disk': '저장 공간 {gb} GB',
-  'plan.details': '메모리 {memory} GB · CPU {cores}개 · 이 서버의 백업은 {days}일 보관',
+  'plan.details': '이 서버의 백업은 {days}일 보관',
   'plan.membersFull': '요금제 인원이 다 찼어요. 새 사람을 들이려면 요금제를 올리거나 쓰지 않는 계정을 끄세요.',
   'plan.manage': '요금제 관리',
   'plan.status': '서비스 상태',

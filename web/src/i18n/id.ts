@@ -1721,7 +1721,7 @@ export const id: Record<MessageKey, string> = {
   'plan.members': '{used} dari {max} anggota',
   'plan.membersUnlimited': '{used} anggota',
   'plan.disk': 'penyimpanan {gb} GB',
-  'plan.details': 'memori {memory} GB · {cores} CPU · cadangan di server ini disimpan {days} hari',
+  'plan.details': 'Cadangan di server ini disimpan {days} hari',
   'plan.membersFull': 'Kuota anggota paket sudah penuh. Untuk menambah orang, ubah paket atau nonaktifkan akun yang tidak dipakai lagi.',
   'plan.manage': 'Kelola paket',
   'plan.status': 'Status layanan',
