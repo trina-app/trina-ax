@@ -27,12 +27,14 @@
 // TEAMAX_RELEASE_KEY / CLOUDFLARE_API_TOKEN from its secrets; nothing here asks anything.
 import crypto from 'node:crypto'
 import fs from 'node:fs'
+import os from 'node:os'
 import path from 'node:path'
 import { compareVersions } from '../../server/src/system/update'
 import { DEFAULT_FEED, fileUrl, manifestUrl, OFFICE_PRODUCT, OFFICE_RELEASE_KEYS, signRelease, verifyRelease, VERSION_RE, type Channel, type OfficeRelease, type ReleaseFile } from '../../server/src/office/release'
 import { checkLatestYml } from '../../server/src/office/update'
+import type { Bucket } from './cloudflare'
 import { readReleaseKey } from './keygen'
-import { remoteHash } from './sign'
+import { compareRemote, feedReader, type RetryOptions } from './sign'
 import { PRODUCT } from '../../shared/src/product'
 import { RELEASE_CHANNEL } from '../../shared/src/release-channel'
 
@@ -105,6 +107,88 @@ export function describe(feed: string, version: string, file: string, type: stri
   return { key: `${DIR}/${version}/${name}`, file, type, meta: { file: name, url: fileUrl(feed, version, name), sha256: sha256(file), size: fs.statSync(file).size } }
 }
 
+/** The files of `arts` the feed already holds with these exact bytes (not uploaded again). A file it holds with other
+ * bytes stops the publish, never replaced: by content, because a rebuilt zip of the same version has the same size but
+ * other bytes, and the manifest names the hash. */
+export async function alreadyPublished(arts: Artifact[], read: Pick<ReturnType<typeof feedReader>, 'hash'>, o: RetryOptions = {}): Promise<Set<Artifact>> {
+  const there = new Set<Artifact>()
+  for (const a of arts) {
+    const seen = await compareRemote(a.meta.url, () => read.hash(a.key), a.meta, o)
+    if (seen === 'different') throw new Error(`${a.meta.url} is already published with other content: publish a new version instead`)
+    if (seen === 'same') there.add(a)
+  }
+  return there
+}
+
+export interface OfficeFeedRun {
+  feed: string
+  release: OfficeRelease
+  /** the signed manifest of `release` */
+  signed: string
+  arts: Artifact[]
+  ifNewer: boolean
+  dryRun: boolean
+  keys: readonly string[]
+  /** where the files go, and what a 404 from the feed is checked against; only a dry run may go without */
+  bucket: Bucket | null
+  fetch?: typeof fetch
+  retry?: RetryOptions
+  log?: (line: string) => void
+}
+
+const utf8 = (b: Uint8Array) => Buffer.from(b).toString('utf8')
+
+/** Steps 2-4 at the top: everything that reads or writes the feed. Nothing goes up on a read that failed or a lone 404. */
+export async function publishToFeed(o: OfficeFeedRun): Promise<'published' | 'head-stays' | 'dry-run'> {
+  const { feed, release, signed, arts, keys, bucket } = o
+  const { channel, version } = release
+  const log = o.log ?? ((s: string) => console.log(s))
+  if (!o.dryRun && !bucket) throw new Error('uploading needs the bucket: a 404 from the feed alone must not replace a published file')
+  const read = feedReader(feed, { ...o.retry, fetch: o.fetch, holds: bucket?.holds })
+  const headKey = `${DIR}/${channel}.json`
+
+  // the channel never goes back, and a published file is never replaced by another one
+  const cur = await read.bytes(headKey)
+  // --if-newer on a channel that is ahead: its head stays, but this version's manifest on that channel still goes up
+  // (a server of that channel that runs this version offers its Windows app from it)
+  let headStays = false
+  if (cur) {
+    const prev = verifyRelease(utf8(cur), { keys, channel, feed })
+    if (compareVersions(version, prev.version) < 0) {
+      if (!o.ifNewer) throw new Error(`${channel} is at ${prev.version}; ${version} is older (the offices never go back)`)
+      log(`${channel} is at ${prev.version}, newer than ${version}: its head is left as it is`)
+      headStays = true
+    } else log(`${channel} is at ${prev.version} now`)
+  }
+  const there = await alreadyPublished(arts, read, o.retry)
+  // this version's manifest on this channel (kept for good; a re-run keeps the first one)
+  const vkey = versionManifestKey(version, channel)
+  const have = await read.bytes(vkey)
+  const vaction = versionManifestAction(have ? utf8(have) : null, release, { keys, feed })
+  if (vaction === 'keep') log(`= ${vkey} (already there, same files)`)
+  if (o.dryRun || !bucket) { log('dry run: nothing uploaded'); return 'dry-run' }
+
+  for (const a of arts) {
+    if (there.has(a)) { log(`= ${a.key} (already there)`); continue }
+    log(`↑ ${a.key}`)
+    await bucket.put(a.key, a.file, a.type)
+    const size = await read.size(a.key)
+    if (size !== a.meta.size) throw new Error(`${a.meta.url} does not answer with the uploaded file (${size} bytes, not ${a.meta.size})`)
+  }
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'publish-office-'))
+  const tmp = path.join(tmpDir, `${channel}.json`)
+  fs.writeFileSync(tmp, signed)
+  try {
+    if (vaction === 'upload') { log(`↑ ${vkey}`); await bucket.put(vkey, tmp, 'application/json') }
+    if (headStays) return 'head-stays'
+    await bucket.put(headKey, tmp, 'application/json')
+  } finally { fs.rmSync(tmpDir, { recursive: true, force: true }) }
+  const got = verifyRelease(utf8(await read.back(headKey)), { keys, channel, feed })
+  if (got.version !== version) throw new Error(`the feed answers ${got.version}, not ${version}`)
+  log(`published: ${manifestUrl(feed, channel)} → ${version}`)
+  return 'published'
+}
+
 async function main() {
   const channel = arg('--channel') as Channel | undefined
   if (channel !== 'stable' && channel !== 'beta') throw new Error('--channel stable|beta is required')
@@ -161,57 +245,10 @@ async function main() {
     return
   }
 
-  // the channel never goes back, and a published file is never replaced by another one
-  const cur = await fetch(`${manifestUrl(feed, channel)}?t=${Date.now()}`, { signal: AbortSignal.timeout(20_000) }).catch(() => null)
-  // --if-newer on a channel that is ahead: its head stays, but this version's manifest on that channel still goes up
-  // (a server of that channel that runs this version offers its Windows app from it)
-  let headStays = false
-  if (cur?.ok) {
-    const prev = verifyRelease(await cur.text(), { keys: OFFICE_RELEASE_KEYS, channel, feed })
-    if (compareVersions(version, prev.version) < 0) {
-      if (!process.argv.includes('--if-newer')) throw new Error(`${channel} is at ${prev.version}; ${version} is older (the offices never go back)`)
-      console.log(`${channel} is at ${prev.version}, newer than ${version}: its head is left as it is`)
-      headStays = true
-    } else console.log(`${channel} is at ${prev.version} now`)
-  } else if (cur && cur.status !== 404) throw new Error(`${manifestUrl(feed, channel)}: HTTP ${cur.status}`)
-  for (const a of arts) {
-    // by content: a rebuilt zip of the same version has the same size but other bytes, and the manifest names the hash
-    const have = await remoteHash(`${a.meta.url}?t=${Date.now()}`)
-    if (have) {
-      if (have.sha256 !== a.meta.sha256 || have.size !== a.meta.size) throw new Error(`${a.meta.url} is already published with other content: publish a new version instead`)
-      ;(a as Artifact & { skip?: boolean }).skip = true
-    }
-  }
-  // this version's manifest on this channel (kept for good; a re-run keeps the first one)
-  const vkey = versionManifestKey(version, channel)
-  const have = await fetch(`${fileUrl(feed, version, `${channel}.json`)}?t=${Date.now()}`, { signal: AbortSignal.timeout(20_000) })
-  if (have.status !== 200 && have.status !== 404) throw new Error(`${vkey}: HTTP ${have.status}`)
-  const vaction = versionManifestAction(have.status === 200 ? await have.text() : null, release, { keys: OFFICE_RELEASE_KEYS, feed })
-  if (vaction === 'keep') console.log(`= ${vkey} (already there, same files)`)
-  if (dry) { console.log('dry run: nothing uploaded'); return }
-
-  const { Cloudflare } = await import('./cloudflare')
-  const cf = new Cloudflare()
-  const { account } = await cf.accountAndZone()
-  for (const a of arts) {
-    if ((a as Artifact & { skip?: boolean }).skip) { console.log(`= ${a.key} (already there)`); continue }
-    console.log(`↑ ${a.key}`)
-    await cf.putObject(account, a.key, a.file, a.type)
-    const h = await fetch(a.meta.url, { method: 'HEAD', signal: AbortSignal.timeout(30_000) })
-    if (!h.ok || Number(h.headers.get('content-length')) !== a.meta.size) throw new Error(`${a.meta.url} does not answer with the uploaded file (HTTP ${h.status})`)
-  }
-  const tmp = path.join(REPO, 'dist', `.${channel}.json.tmp-${process.pid}`)
-  fs.mkdirSync(path.dirname(tmp), { recursive: true })
-  fs.writeFileSync(tmp, signed)
-  try {
-    if (vaction === 'upload') { console.log(`↑ ${vkey}`); await cf.putObject(account, vkey, tmp, 'application/json') }
-    if (headStays) return
-    await cf.putObject(account, `${DIR}/${channel}.json`, tmp, 'application/json')
-  } finally { fs.rmSync(tmp, { force: true }) }
-  const back = await fetch(`${manifestUrl(feed, channel)}?t=${Date.now()}`, { signal: AbortSignal.timeout(20_000) })
-  const got = verifyRelease(await back.text(), { keys: OFFICE_RELEASE_KEYS, channel, feed })
-  if (got.version !== version) throw new Error(`the feed answers ${got.version}, not ${version}`)
-  console.log(`published: ${manifestUrl(feed, channel)} → ${version}`)
+  const { openBucket } = await import('./cloudflare')
+  // a dry run uploads nothing, so it may go without a token; it then asks nobody about a 404 (feedReader)
+  const bucket = dry ? await openBucket().catch((e) => { console.log(`no bucket to ask (${(e as Error).message})`); return null }) : await openBucket()
+  await publishToFeed({ feed, release, signed, arts, ifNewer: process.argv.includes('--if-newer'), dryRun: dry, keys: OFFICE_RELEASE_KEYS, bucket })
 }
 
 if (import.meta.main) {

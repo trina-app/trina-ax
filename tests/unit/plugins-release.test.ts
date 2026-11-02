@@ -157,11 +157,27 @@ describe('installing from the official list by download', () => {
       const hit = served[url.replace(/\?.*$/, '')]
       return hit ? new Response(new Uint8Array(hit)) : new Response('Not found\n', { status: 404 })
     }) as unknown as typeof fetch
-    expect(await uploadPlan([{ file: file('same'), bytes: a }, { file: file('new'), bytes: a }], f)).toEqual([
+    const o = { holds: async () => false, wait: async () => {}, log: () => {} }
+    expect(await uploadPlan([{ file: file('same'), bytes: a }, { file: file('new'), bytes: a }], f, o)).toEqual([
       { file: file('same'), key: 'plugins/app.trina.hwp-preview/1.0.0/same.trinaplugin', skip: true },
       { file: file('new'), key: 'plugins/app.trina.hwp-preview/1.0.0/new.trinaplugin', skip: false },
     ])
-    await expect(uploadPlan([{ file: file('new'), bytes: a }, { file: file('other'), bytes: a }], f)).rejects.toThrow(/already published with other bytes/)
+    await expect(uploadPlan([{ file: file('new'), bytes: a }, { file: file('other'), bytes: a }], f, o)).rejects.toThrow(/already published with other bytes/)
+  })
+
+  test('the release script reads the feed like the others: other bytes twice over, a 404 only with the bucket', async () => {
+    const a = build(), b = build('1.0.1')
+    const key = 'plugins/app.trina.hwp-preview/1.0.0/same.trinaplugin'
+    const file = 'dist/same.trinaplugin'
+    const answers = [() => new Response('no', { status: 502 }), () => new Response(new Uint8Array(b)), () => new Response('Not found\n', { status: 404 }), () => new Response(new Uint8Array(a))]
+    const urls: string[] = []
+    const f = (async (url: string) => { urls.push(url); return answers[urls.length - 1]!() }) as unknown as typeof fetch
+    const asked: string[] = []
+    const o = { holds: async (k: string) => { asked.push(k); return true }, wait: async () => {}, log: () => {} }
+    expect(await uploadPlan([{ file, bytes: a }], f, o)).toEqual([{ file, key, skip: true }])
+    expect(asked).toEqual([key])
+    expect(urls.length).toBe(4)
+    for (const u of urls) expect(u).toMatch(/\?t=\d+$/)
   })
 
   test('a server the build cannot run on (glibc older than 2.39) says so and downloads nothing', async () => {

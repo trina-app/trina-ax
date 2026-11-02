@@ -23,7 +23,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import hwpPins from '../../resources/hwp/manifest.json'
 import { RELEASE_CHANNEL } from '../../shared/src/release-channel'
-import { remoteHash } from '../release/sign'
+import { compareRemote, feedReader, remoteBytes, type RetryOptions } from '../release/sign'
 import { stageHwp, type HwpTarget } from '../hwp-bundle'
 import { buildHwpPlugin, clearedTargets, HWP_PLUGIN_VERSION } from './build-hwp'
 import { downloadKey, pinCatalog, type PinResult } from './pin-catalog'
@@ -62,33 +62,35 @@ export function pinHwpRelease(catalogText: string, files: { file: string; bytes:
 
 /** What `--upload` would put on the feed. A file already published there with the same bytes is skipped; one published
  * with other bytes stops everything: servers on an earlier release pin that address's size and SHA-256 (and the feed
- * caches it as immutable), so new bytes need a new version (HWP_PLUGIN_VERSION and the list entry's version). */
-export async function uploadPlan(files: { file: string; bytes: Uint8Array }[], f: typeof fetch = fetch): Promise<{ file: string; key: string; skip: boolean }[]> {
+ * caches it as immutable), so new bytes need a new version (HWP_PLUGIN_VERSION and the list entry's version). `holds` is
+ * the bucket's own answer: a 404 from the feed only counts when it agrees (release/sign.ts feedReader). */
+export async function uploadPlan(files: { file: string; bytes: Uint8Array }[], f: typeof fetch, o: RetryOptions & { holds: (key: string) => Promise<boolean> }): Promise<{ file: string; key: string; skip: boolean }[]> {
+  const read = feedReader(RELEASE_CHANNEL.feed, { ...o, fetch: f })
   const out: { file: string; key: string; skip: boolean }[] = []
   for (const x of files) {
     const key = downloadKey(HWP_PLUGIN_ID, HWP_PLUGIN_VERSION, x.file)
-    const have = await remoteHash(`${RELEASE_CHANNEL.feed}/${key}?t=${Date.now()}`, f)
-    if (have && (have.sha256 !== sha256(x.bytes) || have.size !== x.bytes.length)) {
+    const seen = await compareRemote(key, () => read.hash(key), { sha256: sha256(x.bytes), size: x.bytes.length }, o)
+    if (seen === 'different') {
       throw new Error(`${RELEASE_CHANNEL.feed}/${key} is already published with other bytes: never replace it, publish a new version instead (HWP_PLUGIN_VERSION in scripts/plugins/build-hwp.ts and the entry's version in resources/plugins/catalog.json)`)
     }
-    out.push({ file: x.file, key, skip: !!have })
+    out.push({ file: x.file, key, skip: seen === 'same' })
   }
   return out
 }
 
 async function upload(files: { file: string; bytes: Buffer }[]) {
-  const root = await fetch(`${RELEASE_CHANNEL.feed}/`, { signal: AbortSignal.timeout(20_000) }).then((r) => r.text()).catch((e) => `(${(e as Error).message})`)
+  const root = Buffer.from((await remoteBytes(`${RELEASE_CHANNEL.feed}/`)) ?? new Uint8Array()).toString('utf8')
   if (!root.includes('plugins/')) throw new Error(`${RELEASE_CHANNEL.feed}/ does not serve plugins/ yet (it says ${JSON.stringify(root.trim().slice(0, 60))}): deploy scripts/release/worker.js first with \`bun scripts/release/hosting.ts setup\``)
+  const { openBucket } = await import('../release/cloudflare')
+  const bucket = await openBucket()
   // checked for every file before anything is uploaded
-  const plan = await uploadPlan(files)
-  const { Cloudflare } = await import('../release/cloudflare')
-  const cf = new Cloudflare()
-  const { account } = await cf.accountAndZone()
+  const plan = await uploadPlan(files, fetch, { holds: bucket.holds })
+  const read = feedReader(RELEASE_CHANNEL.feed)
   for (const f of files) {
     const key = downloadKey(HWP_PLUGIN_ID, HWP_PLUGIN_VERSION, f.file)
     if (plan.find((p) => p.key === key)?.skip) { console.log(`already published with these bytes: ${RELEASE_CHANNEL.feed}/${key}`); continue }
-    await cf.putObject(account, key, f.file, 'application/octet-stream')
-    const back = new Uint8Array(await (await fetch(`${RELEASE_CHANNEL.feed}/${key}?t=${Date.now()}`, { signal: AbortSignal.timeout(120_000) })).arrayBuffer())
+    await bucket.put(key, f.file, 'application/octet-stream')
+    const back = await read.back(key)
     if (sha256(back) !== sha256(f.bytes)) throw new Error(`${key}: the feed serves other bytes than were uploaded`)
     console.log(`uploaded and read back ${RELEASE_CHANNEL.feed}/${key}`)
   }

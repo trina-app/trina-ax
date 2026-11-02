@@ -18,6 +18,8 @@ const { account, zone } = await cf.accountAndZone()
 async function status() {
   const buckets = await cf.json<{ buckets: { name: string }[] }>('GET', `/accounts/${account}/r2/buckets`)
   console.log(`bucket ${BUCKET}: ${buckets.buckets.some((b) => b.name === BUCKET) ? 'yes' : 'no'}`)
+  // the read a publish asks before anything goes up (Cloudflare.hasObject): check it with this token before a release
+  await cf.hasObject(account, 'server/stable.json').then((there) => console.log(`bucket objects can be listed: yes (server/stable.json ${there ? 'is there' : 'is not there'})`), (e) => console.log(`bucket objects can be listed: NO, a publish stops on this (${(e as Error).message})`))
   const scripts = await cf.json<{ id: string }[]>('GET', `/accounts/${account}/workers/scripts`)
   console.log(`worker ${WORKER}: ${scripts.some((s) => s.id === WORKER) ? 'yes' : 'no'}`)
   const domains = await cf.json<{ hostname: string; service: string }[]>('GET', `/accounts/${account}/workers/domains`)

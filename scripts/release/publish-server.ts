@@ -15,7 +15,9 @@
 // 1. every bundle is checked like an installed server checks it (manifest signed with a key this build trusts, every
 //    file as listed, mycel-ctl of that arch), and the kit must carry the same signed manifest and this product's feed
 // 2. never back: the channel's head must not be newer (--if-newer: then do nothing); the same version only re-uploads
-//    identical files, and a file already on the feed is never replaced by a different one (publish a new version)
+//    identical files, and a file already on the feed is never replaced by a different one (publish a new version). Reads
+//    are tried again; a 404 only counts when the bucket itself agrees (sign.ts feedReader), and a read that keeps failing
+//    stops the run
 // 3. uploads the version's files, its release.json, then the head
 // 4. reads the head back through the feed exactly as UpdateManager.checkFeed does, and every bundle and kit URL must
 //    answer with the published bytes
@@ -48,7 +50,8 @@ import { extractTar, readTar } from '../../server/src/system/tar'
 import { bundleReaderLevel, compareVersions, ReleaseFeed, UpdateManager, verifyBundleDir } from '../../server/src/system/update'
 import { elfArch, kitName, LINUX_ROOT_COPIES } from '../build-bundle'
 import { RELEASE_VERSION_RE, type Channel } from './release-ci'
-import { checkSigningKey, hashFile, remoteHash, signDetached, verifyDetached } from './sign'
+import type { Bucket } from './cloudflare'
+import { checkSigningKey, compareRemote, feedReader, hashFile, remoteBytes, remoteHash, signDetached, steadyFetch, thereAnyway, verifyDetached, type RemoteFile, type RetryOptions } from './sign'
 
 export type LinuxArch = 'amd64' | 'arm64'
 /** the last release whose updaters (the app's own, mycel-ctl, the root timer) read only needsRoot, not rootSince */
@@ -62,10 +65,11 @@ const same = (a: Uint8Array | null, b: Uint8Array | null) => !!a && !!b && Buffe
 
 /** Where the feed lives: a folder (--out, tests) or the R2 bucket behind the feed's Worker. */
 export interface FeedStore {
-  /** a small object's bytes, or null */
+  /** a small object's bytes, or null only when it is really not there: checks are skipped and files go up on that, so a
+   * read that cannot tell throws */
   get(key: string): Promise<Uint8Array | null>
-  /** sha256 and size of an object, or null */
-  stat(key: string): Promise<{ sha256: string; size: number } | null>
+  /** sha256 and size of an object, or null, like get */
+  stat(key: string): Promise<RemoteFile | null>
   put(key: string, file: string, contentType: string): Promise<void>
   /** fetch for <feed>/<key>, the way an installation reads the feed */
   fetch: typeof fetch
@@ -100,26 +104,16 @@ export function dirStore(root: string, feed: string): FeedStore {
   }
 }
 
-/** The real feed: reads through the feed's Worker (what installations see), writes into the R2 bucket. */
-export async function cloudflareStore(feed: string): Promise<FeedStore> {
+/** The real feed: reads through the feed's Worker (what installations see), writes into the R2 bucket. A 404 from the
+ * feed only counts when the bucket agrees (feedReader). `o` is for tests. */
+export async function cloudflareStore(feed: string, o: { bucket?: Bucket; fetch?: typeof fetch; retry?: RetryOptions } = {}): Promise<FeedStore> {
+  const f = o.fetch ?? fetch
   // a Worker deployed before server/ was served answers 404 for every server/ path: stop before uploading anything
-  const root = await fetch(`${feed}/`, { signal: AbortSignal.timeout(20_000) }).then((r) => r.text()).catch((e) => `(${(e as Error).message})`)
+  const root = utf8((await remoteBytes(`${feed}/`, { ...o.retry, fetch: f })) ?? new Uint8Array())
   if (!root.includes('server/')) throw new Error(`${feed}/ does not serve server/ yet (it says ${JSON.stringify(root.trim().slice(0, 60))}): deploy scripts/release/worker.js first with \`bun scripts/release/hosting.ts setup\``)
-  const { Cloudflare } = await import('./cloudflare')
-  const cf = new Cloudflare()
-  const { account } = await cf.accountAndZone()
-  const url = (key: string) => `${feed}/${key}?t=${Date.now()}`
-  return {
-    async get(key) {
-      const r = await fetch(url(key), { signal: AbortSignal.timeout(30_000) })
-      if (r.status === 404) return null
-      if (!r.ok) throw new Error(`${feed}/${key}: HTTP ${r.status}`)
-      return new Uint8Array(await r.arrayBuffer())
-    },
-    stat: (key) => remoteHash(url(key)),
-    put: (key, file, type) => cf.putObject(account, key, file, type),
-    fetch,
-  }
+  const bucket = o.bucket ?? (await (await import('./cloudflare')).openBucket())
+  const read = feedReader(feed, { ...o.retry, fetch: f, holds: bucket.holds })
+  return { get: read.bytes, stat: read.hash, put: bucket.put, fetch: f }
 }
 
 const gunzip = (src: AsyncIterable<Uint8Array>): AsyncIterable<Uint8Array> => {
@@ -243,10 +237,11 @@ export function rootSinceOf(version: string, needsRoot: boolean, heads: Pick<Rel
 }
 
 /** Read the channel head back through the feed exactly as an installed server does, and every file it names. */
-export async function verifyFeed(o: { feed: string; channel: Channel; version: string; keys: readonly string[]; fetch: typeof fetch; builds: ServerBuild[] }): Promise<void> {
+export async function verifyFeed(o: { feed: string; channel: Channel; version: string; keys: readonly string[]; fetch: typeof fetch; builds: ServerBuild[]; retry?: RetryOptions }): Promise<void> {
   const data = fs.mkdtempSync(path.join(os.tmpdir(), 'publish-server-check-'))
   try {
-    const um = new UpdateManager({ appDir: null, dataDir: data, version: '0.0.0', channel: o.channel, feedUrl: `${o.feed}/${releaseChannelPath(o.channel)}`, log: silentLogger, keys: o.keys, fetch: o.fetch })
+    // the head was just uploaded, and a release that read back wrong has already gone out: one bad answer proves nothing
+    const um = new UpdateManager({ appDir: null, dataDir: data, version: '0.0.0', channel: o.channel, feedUrl: `${o.feed}/${releaseChannelPath(o.channel)}`, log: silentLogger, keys: o.keys, fetch: steadyFetch(o.fetch, o.retry) })
     const f = await um.checkFeed()
     if (!f) {
       let why = 'unknown'
@@ -258,8 +253,8 @@ export async function verifyFeed(o: { feed: string; channel: Channel; version: s
       const e = f.bundles.find((x) => x.os === 'linux' && x.arch === b.arch)
       if (!e || e.sha256 !== b.bundle.sha256 || e.size !== b.bundle.size) throw new Error(`the ${o.channel} head does not name the linux-${b.arch} bundle that was published`)
       for (const [url, want] of [[e.url, b.bundle], [`${o.feed}/server/${o.version}/${b.kit.name}`, b.kit]] as const) {
-        const got = await remoteHash(url, o.fetch)
-        if (!got || got.sha256 !== want.sha256 || got.size !== want.size) throw new Error(`${url} does not answer with the published file`)
+        const got = await compareRemote(url, () => remoteHash(url, { ...o.retry, fetch: o.fetch, notFound: thereAnyway }), want, o.retry)
+        if (got !== 'same') throw new Error(`${url} does not answer with the published file`)
       }
     }
   } finally {
@@ -289,6 +284,8 @@ export interface PublishServerOptions {
   productFeed?: string
   now?: () => Date
   log?: (s: string) => void
+  /** waiting and logging of reads that are tried again (tests) */
+  retry?: RetryOptions
 }
 
 export interface PublishServerResult {
@@ -331,11 +328,16 @@ export async function publishServer(o: PublishServerOptions): Promise<PublishSer
   // this version's release.json: as first published (a second run, or the other channel), or a new one
   const relKey = releaseManifestPath(o.version)
   let rel = await o.store.get(relKey)
+  const relSigOnFeed = await o.store.get(relKey + '.sig')
   let relSig: string
   let changed: boolean | null = null
+  // a stopped run leaves release.json without its .sig, never the other way round. Neither is signed over or replaced by
+  // itself: the feed is not trusted, and the other half would then not match (docs/RELEASE-CI.md 6)
+  if (rel && !relSigOnFeed) throw new Error(`${relKey} is on the feed without ${relKey}.sig (a run stopped between the two): check it, delete it from the bucket and run again`)
+  if (!rel && relSigOnFeed) throw new Error(`${relKey}.sig is on the feed without ${relKey}: delete the .sig from the bucket and run again`)
   if (rel) {
-    const s = await o.store.get(relKey + '.sig')
-    if (!s || !verifyDetached(rel, utf8(s), o.keys)) throw new Error(`${relKey} is on the feed, but its signature is missing or does not verify: look at it by hand`)
+    const s = relSigOnFeed!
+    if (!verifyDetached(rel, utf8(s), o.keys)) throw new Error(`${relKey}.sig does not verify ${relKey} with this product's release keys: someone changed one of them, look at both by hand`)
     const prev = ReleaseFeed.parse(JSON.parse(utf8(rel)))
     const match = prev.version === o.version && prev.bundles.length === bundles.length && bundles.every((b) => prev.bundles.some((p) => p.os === b.os && p.arch === b.arch && p.url === b.url && p.sha256 === b.sha256 && p.size === b.size))
     if (!match) throw new Error(`${relKey} is already published with other files: publish a new version instead`)
@@ -390,15 +392,15 @@ export async function publishServer(o: PublishServerOptions): Promise<PublishSer
     ups.push({ key: relKey + '.sig', file: small('release.json.sig', relSig), type: 'application/json' })
     const todo: Up[] = []
     for (const u of ups) {
-      const have = await o.store.stat(u.key)
-      if (!have) { todo.push(u); continue }
-      if (have.sha256 !== hashFile(u.file) || have.size !== fs.statSync(u.file).size) throw new Error(`${u.key} is already published with other content: publish a new version instead`)
+      const seen = await compareRemote(u.key, () => o.store.stat(u.key), { sha256: hashFile(u.file), size: fs.statSync(u.file).size }, o.retry)
+      if (seen === 'absent') todo.push(u)
+      if (seen === 'different') throw new Error(`${u.key} is already published with other content: publish a new version instead`)
     }
     const headKey = releaseChannelPath(o.channel)
     const headDone = !!head && same(head.bytes, rel) && !!head.sig && utf8(head.sig) === relSig
     if (headDone && !todo.length) {
       log(`${o.channel} is already at ${o.version} with these files`)
-      if (!o.dryRun) await verifyFeed({ feed, channel: o.channel, version: o.version, keys: o.keys, fetch: o.store.fetch, builds })
+      if (!o.dryRun) await verifyFeed({ feed, channel: o.channel, version: o.version, keys: o.keys, fetch: o.store.fetch, builds, retry: o.retry })
       return { status: o.dryRun ? 'dry-run' : 'unchanged', channel: o.channel, version: o.version, previous: head?.feed.version ?? null, needsRoot: release.needsRoot, rootSince: release.rootSince ?? null, rootChanged: changed, uploaded: [] }
     }
     if (!headDone) {
@@ -410,7 +412,7 @@ export async function publishServer(o: PublishServerOptions): Promise<PublishSer
     for (const u of todo) { log(`↑ ${u.key}`); await o.store.put(u.key, u.file, u.type) }
 
     // 4. read back as an installation does
-    await verifyFeed({ feed, channel: o.channel, version: o.version, keys: o.keys, fetch: o.store.fetch, builds })
+    await verifyFeed({ feed, channel: o.channel, version: o.version, keys: o.keys, fetch: o.store.fetch, builds, retry: o.retry })
     log(`published: ${feed}/${headKey} → ${o.version}`)
     return { status: 'published', channel: o.channel, version: o.version, previous: head?.feed.version ?? null, needsRoot: release.needsRoot, rootSince: release.rootSince ?? null, rootChanged: changed, uploaded: todo.map((u) => u.key) }
   } finally {

@@ -38,11 +38,9 @@
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
-import { Readable } from 'node:stream'
-import zlib from 'node:zlib'
-import { packBundle, signManifest, writeManifest } from '../server/src/system/bundle'
+import { packBundle, packTimeMs, signManifest, writeManifest } from '../server/src/system/bundle'
 import { walkTree } from '../server/src/system/manifest'
-import { writeAtomic } from '../server/src/system/streams'
+import { gzipCompress, writeAtomic } from '../server/src/system/streams'
 import { tarStream, type TarEntryInput } from '../server/src/system/tar'
 import { PRODUCT, productEnv } from '../shared/src/product'
 import { RELEASE_CHANNEL } from '../shared/src/release-channel'
@@ -305,13 +303,6 @@ export function elfArch(file: string): LinuxArch | null {
   }
 }
 
-function gzip(src: AsyncIterable<Uint8Array>): AsyncIterable<Uint8Array> {
-  const z = zlib.createGzip({ level: 9 })
-  const input = Readable.from(src)
-  input.on('error', (e) => z.destroy(e))
-  return input.pipe(z) as unknown as AsyncIterable<Uint8Array>
-}
-
 export async function buildLinuxBundle(o: {
   version: string; out: string; signKey?: string | null; notes?: string | null; arch?: string | null
   /** the CI build of whisper.cpp (whisperFiles(arch)); without it, noWhisper must say so */
@@ -433,20 +424,22 @@ export async function buildLinuxBundle(o: {
 }
 
 /** The install kit <out>/<kit>-<version>-linux-<arch>.tar.gz: <out> itself (install-linux.sh, VERSION, product.env,
- * app/<version>/) under one top folder. Also used by scripts/release/release-ci.ts after it signs a CI build. */
+ * app/<version>/) under one top folder. Also used by scripts/release/release-ci.ts after it signs a CI build. Same
+ * folder, same bytes, like packBundle: every entry has the build's time (packTimeMs). */
 export async function packLinuxKit(out: string, version: string, arch: LinuxArch): Promise<{ file: string; size: number; sha256: string }> {
   const dir = path.join(out, 'app', version)
   const top = kitName(version, arch)
-  const entries: TarEntryInput[] = [{ name: top, type: 'dir', mode: 0o755 }]
+  const mtimeMs = await packTimeMs(dir)
+  const entries: TarEntryInput[] = [{ name: top, type: 'dir', mode: 0o755, mtimeMs }]
   for (const f of ['install-linux.sh', 'VERSION', 'product.env']) {
-    if (fs.existsSync(path.join(out, f))) entries.push({ name: `${top}/${f}`, type: 'file', source: path.join(out, f), mode: f.endsWith('.sh') ? 0o755 : 0o644 })
+    if (fs.existsSync(path.join(out, f))) entries.push({ name: `${top}/${f}`, type: 'file', source: path.join(out, f), mode: f.endsWith('.sh') ? 0o755 : 0o644, mtimeMs })
   }
-  entries.push({ name: `${top}/app`, type: 'dir', mode: 0o755 }, { name: `${top}/app/${version}`, type: 'dir', mode: 0o755 })
+  entries.push({ name: `${top}/app`, type: 'dir', mode: 0o755, mtimeMs }, { name: `${top}/app/${version}`, type: 'dir', mode: 0o755, mtimeMs })
   const { files, dirs } = await walkTree(dir)
-  for (const d of dirs) entries.push({ name: `${top}/app/${version}/${d.rel}`, type: 'dir', mode: d.mode, mtimeMs: d.mtimeMs })
-  for (const f of files) entries.push({ name: `${top}/app/${version}/${f.rel}`, type: 'file', source: f.abs, mode: f.mode })
+  for (const d of dirs) entries.push({ name: `${top}/app/${version}/${d.rel}`, type: 'dir', mode: d.mode, mtimeMs })
+  for (const f of files) entries.push({ name: `${top}/app/${version}/${f.rel}`, type: 'file', source: f.abs, mode: f.mode, mtimeMs })
   const file = path.join(out, `${top}.tar.gz`)
-  const kit = await writeAtomic(gzip(tarStream(entries)), file, 0o644)
+  const kit = await writeAtomic(gzipCompress(tarStream(entries)), file, 0o644)
   return { file, size: kit.size, sha256: kit.sha256 }
 }
 

@@ -73,6 +73,14 @@ Worker(`scripts/release/worker.js`)는 이 경로만 읽기 전용으로 내준�
 
 - **되돌아가기 금지**: 채널 머리보다 오래된 버전은 올리지 않는다.
 - **같은 이름, 다른 내용 금지**: 이미 올라간 파일은 내용(sha256)을 비교한다. 다르면 멈춘다. 같은 버전을 다시 올릴 때는 같은 파일만 건너뛴다.
+  - 피드 읽기는 모두 한 길로 간다(`sign.ts` `feedReader`). 네트워크 오류, 5xx, 408, 429, Content-Length와 다른 길이의 응답은 결론이 아니다. 매번 새 `?t=`로 5번까지 읽고, 그래도 안 되면 아무것도 올리지 않고 멈춘다. 업로드도 5번까지 보낸다(`cloudflare.ts` `putObject`). 거부 응답과 로컬 파일 오류는 바로 멈춘다.
+  - **404는 버킷에 묻는다.** 피드의 404 한 번으로는 파일을 올리지도, 되돌아가기 검사를 건너뛰지도 않는다. 버킷의 List Objects(`cloudflare.ts` `hasObject`)도 없다고 할 때만 없다. 버킷에 있으면 다시 읽고, 5번 뒤에도 피드가 404면 멈춘다. 목록을 못 읽으면(권한, 없는 버킷) 역시 멈춘다.
+  - 확인과 업로드 사이는 원자적이지 않다. R2의 조건부 쓰기는 S3 API에만 있다. 같은 키에 동시에 쓰는 일은 워크플로의 `concurrency`가 막는다.
+  - 다른 내용으로 읽혀도 5초 간격으로 세 번까지 읽은 뒤에 판단한다(`compareRemote`). 처음에 있던 파일이 다시 읽을 때 없다고 나와도 "없음"이 아니다.
+  - 아무것도 올리지 않는 `publish.ts --dry-run`은 토큰 없이도 돈다. 그때는 404를 몇 초 간격으로 세 번 보고 없다고 판단한다.
+- **같은 빌드는 같은 바이트**(리눅스에서 서명할 때): `sign-linux`를 다시 돌려도 업데이트 묶음과 kit의 바이트가 같다. 모든 항목의 시각이 `manifest.json`의 `createdAt`이고(`bundle.ts` `packTimeMs`), 순서는 이름순, 소유자는 0이고, Ed25519 서명은 결정적이고, 압축 스트림은 소스가 끝나는 시점과 무관하다(`streams.ts` `through`). 그래서 중간에 끊긴 publish를 다시 돌리면 이어서 올라간다.
+  - 빌드를 다시 하면 `createdAt`부터 달라지므로 다른 파일이고, 위 규칙대로 거부된다.
+  - 보장은 같은 OS, 같은 Bun에서다. kit의 gzip 헤더에는 OS 바이트가 있어 맥에서 다시 서명한 kit은 리눅스 것과 다르고, 위 규칙대로 거부된다.
 - **머리는 마지막**: 버전 파일 → 파일 목록 → `release.json` → 채널 머리 순서로 올린다. 중간에 끊겨도 설치는 옛 머리를 계속 본다. 머리와 `.sig` 사이에서 끊긴 상태는 다음 실행이 알아보고 다시 올린다.
 - **다시 읽어 검증**: 올린 뒤 업데이트 주소로 머리를 읽는다. 설치된 서버의 `UpdateManager.checkFeed`와 같은 코드로 확인하고, 묶음과 kit도 내려받아 sha256을 비교한다. 사무실 피드도 같은 방식이다(`publish.ts`).
 - **리눅스 묶음은 서명 전에 검증**: 모든 파일이 manifest와 맞고, `mycel-ctl`이 그 아키텍처 것이고, kit 안의 manifest가 업데이트 묶음과 같은 서명본이고, kit의 `product.env`가 이 제품의 업데이트 주소를 가리켜야 한다.
@@ -113,7 +121,7 @@ Worker(`scripts/release/worker.js`)는 이 경로만 읽기 전용으로 내준�
 4. **Worker를 다시 배포한다.** 새 `worker.js`만 `server/`를 내준다. 그 전에는 `publish-server.ts`가 업로드 전에 멈춘다("does not serve server/ yet").
    ```sh
    bun scripts/release/hosting.ts setup     # 개발 맥, 기존 토큰(~/.config/treesoop/secrets.env)
-   bun scripts/release/hosting.ts status    # 끝에 "Updates: office/, server/"
+   bun scripts/release/hosting.ts status    # 끝에 "Updates: office/, server/". "bucket objects can be listed: yes"도 본다(이게 안 되면 publish가 멈춘다)
    ```
 5. (권장) **태그 보호**: 쓰기 권한이 있는 사람은 누구나 `v*` 태그로 배포를 시작할 수 있다. GitHub 요금제가 rulesets를 지원하면 `v*` 태그 만들기·옮기기·지우기를 관리자만 하게 한다.
 6. **environment `release`**: release.yml의 prepare와 publish job은 `environment: release`를 쓴다(2026-10-28). 공개 레포는 요금제와 관계없이 environment 보호 규칙을 쓸 수 있다. Settings → Environments → `release`에서 (1) 배포 허용 대상을 `v*` 태그로 제한하고 (2) 필요하면 승인자를 정한 뒤, 두 비밀값을 레포 비밀값에서 이 environment로 옮긴다. environment가 없으면 GitHub이 보호 없이 새로 만든다(레포 비밀값은 그대로 쓰인다).
@@ -134,7 +142,13 @@ Worker(`scripts/release/worker.js`)는 이 경로만 읽기 전용으로 내준�
 | prepare: 태그 ≠ 버전 | 아무것도 안 함 | 태그를 지운다(`git push --delete origin vX && git tag -d vX`). 버전을 고친 커밋에 다시 단다. |
 | prepare: 비밀값 없음, 키 불일치 | 아무것도 안 함 | 비밀값을 고친 뒤 그 run에서 "Re-run all jobs" |
 | test·build | 아무것도 안 올라감 | 고친 커밋에 **새 버전**으로 태그(예: `0.3.1`, `0.3.0-beta.2`). 태그를 옮기지 않는다. |
-| publish 중간 | 버전 파일 일부만 올라갔을 수 있다. 머리는 그대로라 설치는 영향 없음 | 그 run에서 **"Re-run failed jobs"**. 같은 run의 빌드 결과(7일 보관)를 다시 쓰므로 이미 올라간 파일과 같아 이어서 올라간다. |
+| publish 중간 | 버전 파일 일부만 올라갔을 수 있다. 머리는 그대로라 설치는 영향 없음 | 그 run에서 **"Re-run failed jobs"**. 같은 run의 빌드 결과(7일 보관)를 다시 서명해도 바이트가 같으므로 이어서 올라간다. 올라간 파일을 지우지 않는다. |
+| publish: `release.json`이 `.sig` 없이 있다고 멈춤 | 둘 사이에서 끊겼다. 피드의 파일에 서명해 줄 수는 없어 사람이 본다 | 내용을 확인한 뒤 버킷에서 그 `release.json`만 지우고 "Re-run failed jobs" |
+| publish: `.sig`가 `release.json` 없이 있다고 멈춤 | `.sig`만 남았다. 새 `release.json`과 맞지 않는다 | 버킷에서 그 `.sig`만 지우고 "Re-run failed jobs" |
+| publish: `.sig`가 `release.json`을 검증하지 못한다고 멈춤 | 끊겨서 생기는 상태가 아니다. 둘 중 하나가 바뀌었다 | 지우지 않는다. 누가 왜 바꿨는지 먼저 본다. 고친 뒤 새 버전으로 낸다 |
+| publish: `HTTP 5xx`, 네트워크 오류로 멈춤 | 5번 읽어도 실패했다. 그 파일부터는 올라가지 않았다 | 잠시 뒤 "Re-run failed jobs" |
+| publish: `HTTP 404, but the file is there`로 멈춤 | 피드는 404인데 버킷에는 있다. 아무것도 덮어쓰지 않았다 | Worker 배포를 본다(`hosting.ts status`) |
+| publish: `list <key>: HTTP …`로 멈춤 | 버킷 목록을 못 읽어 404를 확인할 수 없다. 아무것도 올리지 않았다 | 토큰 권한을 본다(`hosting.ts status`) |
 | "Re-run all jobs"나 workflow_dispatch로 다시 | 새로 빌드한 파일은 이미 올라간 것과 내용이 달라 거부된다 | 새 버전으로 태그 |
 | github-release | 피드는 이미 끝남 | "Re-run failed jobs" |
 | 잘못된 버전이 나감 | 설치는 뒤로 가지 않는다 | 고친 새 버전을 낸다. 리눅스 서버는 새 버전이 켜지지 않으면 이전 버전으로 스스로 돌아가고 7일간 다시 시도하지 않는다. 사무실 맥도 되돌린다(`docs/OFFICE.md`). |

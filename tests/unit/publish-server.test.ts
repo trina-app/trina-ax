@@ -15,8 +15,9 @@ import { writeManifest } from '../../server/src/system/bundle'
 import { ReleaseFeed, UpdateManager, releaseNeedsRoot, verifyBundleDir, verifySignature } from '../../server/src/system/update'
 import { kitName } from '../../scripts/build-bundle'
 import { signLinuxBuild } from '../../scripts/release/release-ci'
-import { dirStore, publishServer, rootSinceOf, type LinuxArch, type PublishServerOptions } from '../../scripts/release/publish-server'
-import { publicKeyOfPem } from '../../scripts/release/sign'
+import type { Bucket } from '../../scripts/release/cloudflare'
+import { cloudflareStore, dirStore, publishServer, rootSinceOf, type LinuxArch, type PublishServerOptions } from '../../scripts/release/publish-server'
+import { CONFIRM_READS, publicKeyOfPem } from '../../scripts/release/sign'
 
 const ROOT = path.resolve(import.meta.dir, '../..')
 const T = fs.mkdtempSync(path.join(os.tmpdir(), 'publish-server-'))
@@ -75,7 +76,7 @@ const FEED = 'https://127.0.0.1:45999'
 function opts(dir: string, feedDir: string, over: Partial<PublishServerOptions> = {}): PublishServerOptions {
   return {
     channel: 'beta', version: '0.3.0', dir, archs: ARCHS, minFrom: null, needsRoot: 'auto', notes: 'n', feed: FEED, keys: [PUB], pem: PEM,
-    store: dirStore(feedDir, FEED), log: () => {}, ...over,
+    store: dirStore(feedDir, FEED), log: () => {}, retry: { wait: async () => {}, log: () => {} }, ...over,
   }
 }
 
@@ -138,6 +139,7 @@ describe('publish-server', () => {
     await expect(publishServer(opts(rebuilt, feed))).rejects.toThrow(/already published with other files: publish a new version instead/)
     // the same with release.json gone (a run that stopped before it): the files themselves are compared
     fs.rmSync(path.join(feed, 'server', '0.3.0', 'release.json'))
+    fs.rmSync(path.join(feed, 'server', '0.3.0', 'release.json.sig'))
     await expect(publishServer(opts(rebuilt, feed, { channel: 'stable' }))).rejects.toThrow(/already published with other content/)
     expect(fs.readFileSync(path.join(feed, 'server', '0.3.0', '0.3.0-linux-amd64.tar.zst')).equals(before)).toBe(true)
     expect(fs.existsSync(path.join(feed, 'server', 'stable.json'))).toBe(false)
@@ -273,6 +275,242 @@ describe('publish-server', () => {
     const feed = path.join(T, 'feed-h')
     expect((await publishServer(opts(b030, feed, { dryRun: true }))).status).toBe('dry-run')
     expect(fs.existsSync(feed)).toBe(false)
+  })
+})
+
+describe('a publish that fails half way, a wrong read', () => {
+  type Fault = number | 'neterror' | 'short' | 'wrong' | (() => Response)
+
+  /**
+   * The real store (cloudflareStore) over a feed in a folder. Reads go through its fetch, where a key's faults answer them
+   * one by one, and a 404 is checked against the folder as the bucket: so the store's own `get` and `stat` can be misled
+   * the way the feed can mislead them, and nothing is skipped by replacing them.
+   */
+  async function watched(feedDir: string, o: { failUpload?: number; faults?: Record<string, Fault[]>; onPut?: (key: string, faults: Record<string, Fault[]>) => void } = {}) {
+    const dir = dirStore(feedDir, FEED)
+    const faults = o.faults ?? {}
+    const put: string[] = []
+    const reads = new Map<string, number>()
+    const feedFetch = (async (input: string | URL | Request, init?: RequestInit) => {
+      const key = decodeURIComponent(String(input).slice(FEED.length + 1).split('?')[0]!)
+      if (key === '') return new Response('Updates: office/, server/, plugins/\n')
+      if (init?.method !== 'HEAD') reads.set(key, (reads.get(key) ?? 0) + 1)
+      const fault = faults[key]?.shift()
+      if (fault === undefined) return dir.fetch(input, init)
+      if (typeof fault === 'function') return fault()
+      if (fault === 'neterror') throw new TypeError('The socket connection was closed unexpectedly')
+      if (typeof fault === 'number') return new Response('fault', { status: fault })
+      const real = await (await dir.fetch(input, init)).arrayBuffer()
+      const length = { 'content-length': String(real.byteLength) }
+      return new Response(fault === 'short' ? new Uint8Array(10) : new Uint8Array(real.byteLength), { headers: length })
+    }) as typeof fetch
+    const bucket: Bucket = {
+      holds: async (key) => fs.existsSync(path.join(feedDir, key)),
+      async put(key, file, type) {
+        if (put.length === o.failUpload) throw new Error(`upload ${key}: HTTP 502 `)
+        put.push(key)
+        await dir.put(key, file, type)
+        o.onPut?.(key, faults)
+      },
+    }
+    return { store: await cloudflareStore(FEED, { bucket, fetch: feedFetch, retry: { wait: async () => {}, log: () => {} } }), put, reads }
+  }
+  const BUNDLE = 'server/0.3.0/0.3.0-linux-amd64.tar.zst'
+  const REL = 'server/0.3.0/release.json'
+  const headVersion = (feed: string) => ReleaseFeed.parse(JSON.parse(read(path.join(feed, 'server', 'beta.json')))).version
+  const forever = (f: Fault, n = 30) => Array<Fault>(n).fill(f)
+
+  // the 0.2.19 publish: a 502 left five files on the feed, and the job run again signed the build again. The same bytes
+  // now, so it goes on from there, with nothing to delete by hand.
+  test('signing the build again gives the files already on the feed: the publish goes on where it stopped', async () => {
+    const version = '0.3.0'
+    const runs = ['run-1', 'run-2'].map((r) => path.join(T, 'resume', r, 'server'))
+    for (const out of runs) fs.mkdirSync(out, { recursive: true })
+    for (const arch of ARCHS) {
+      const built = path.join(T, 'resume', `built-${arch}`)
+      await unsignedBuild(built, version, arch)
+      for (const out of runs) {
+        // each run unpacks the workflow's artifact again: other times on disk, and signing is at another moment
+        const dir = path.join(path.dirname(out), `linux-${arch}`)
+        fs.cpSync(built, dir, { recursive: true })
+        await Bun.sleep(5)
+        const r = await signLinuxBuild({ dir, arch, pem: PEM, keys: [PUB] })
+        for (const f of [r.archive, r.kit]) fs.renameSync(f, path.join(out, path.basename(f)))
+      }
+    }
+    const feed = path.join(T, 'feed-resume')
+    const first = await watched(feed, { failUpload: 5 })
+    await expect(publishServer(opts(runs[0]!, feed, { store: first.store }))).rejects.toThrow(/HTTP 502/)
+    expect(first.put.length).toBe(5)
+    expect(fs.existsSync(path.join(feed, 'server', 'beta.json'))).toBe(false)
+
+    const second = await watched(feed)
+    const r = await publishServer(opts(runs[1]!, feed, { store: second.store }))
+    expect(r.status).toBe('published')
+    expect(second.put).toEqual(r.uploaded)
+    expect(second.put.some((k) => first.put.includes(k))).toBe(false)
+    expect(second.put.length).toBe(7) // 8 build files and manifests, release.json + .sig, the head + .sig: 12 in all
+    expect(await publishServer(opts(runs[1]!, feed))).toMatchObject({ status: 'unchanged', uploaded: [] })
+  }, 60_000)
+
+  test('a file that reads wrong once is read again: nothing is refused, nothing goes up', async () => {
+    const feed = path.join(T, 'feed-wrong-read')
+    const b = await signedBuilds('wrong-read', '0.3.0')
+    await publishServer(opts(b, feed))
+    const w = await watched(feed, { faults: { [BUNDLE]: ['wrong'] } })
+    expect(await publishServer(opts(b, feed, { store: w.store }))).toMatchObject({ status: 'unchanged', uploaded: [] })
+    expect(w.put).toEqual([])
+  })
+
+  test('really other content stays refused after the re-reads, and the file on the feed stays', async () => {
+    const feed = path.join(T, 'feed-really-other')
+    const b = await signedBuilds('really-other', '0.3.0')
+    await publishServer(opts(b, feed))
+    fs.rmSync(path.join(feed, REL)) // past the check of release.json: the files are compared
+    fs.rmSync(path.join(feed, `${REL}.sig`))
+    fs.appendFileSync(path.join(feed, BUNDLE), 'x')
+    const before = fs.readFileSync(path.join(feed, BUNDLE))
+    const w = await watched(feed)
+    await expect(publishServer(opts(b, feed, { store: w.store }))).rejects.toThrow(/0\.3\.0-linux-amd64\.tar\.zst is already published with other content: publish a new version instead/)
+    expect(w.reads.get(BUNDLE)).toBe(CONFIRM_READS)
+    expect(w.put).toEqual([])
+    expect(fs.readFileSync(path.join(feed, BUNDLE)).equals(before)).toBe(true)
+  })
+
+  test('a file seen with other content that really is gone a moment later is not uploaded over', async () => {
+    const feed = path.join(T, 'feed-gone')
+    const b = await signedBuilds('gone', '0.3.0')
+    await publishServer(opts(b, feed))
+    fs.rmSync(path.join(feed, REL))
+    fs.rmSync(path.join(feed, `${REL}.sig`))
+    const gone = () => { fs.rmSync(path.join(feed, BUNDLE), { force: true }); return new Response('Not found\n', { status: 404 }) }
+    const w = await watched(feed, { faults: { [BUNDLE]: ['wrong', gone, gone] } })
+    await expect(publishServer(opts(b, feed, { store: w.store }))).rejects.toThrow(/already published with other content/)
+    expect(w.put).toEqual([])
+  })
+
+  test('a 404 on the head does not skip "never back": the channel stays', async () => {
+    const feed = path.join(T, 'feed-head-404')
+    const newer = await signedBuilds('head-404-new', '0.3.0')
+    const older = await signedBuilds('head-404-old', '0.2.20')
+    await publishServer(opts(newer, feed))
+    const w = await watched(feed, { faults: { 'server/beta.json': [404] } })
+    expect(await publishServer(opts(older, feed, { version: '0.2.20', ifNewer: true, store: w.store }))).toMatchObject({ status: 'skipped', previous: '0.3.0' })
+    expect(headVersion(feed)).toBe('0.3.0')
+    expect(w.put).toEqual([])
+    const refused = await watched(feed, { faults: { 'server/beta.json': [502, 'neterror'] } })
+    await expect(publishServer(opts(older, feed, { version: '0.2.20', store: refused.store }))).rejects.toThrow(/beta is at 0\.3\.0; 0\.2\.20 is older/)
+  })
+
+  test('a head that stays unreadable stops the run, it is not "no head yet"', async () => {
+    const feed = path.join(T, 'feed-head-dead')
+    const newer = await signedBuilds('head-dead-new', '0.3.0')
+    const older = await signedBuilds('head-dead-old', '0.2.20')
+    await publishServer(opts(newer, feed))
+    for (const f of [502, 'neterror', 404] as const) {
+      const w = await watched(feed, { faults: { 'server/beta.json': forever(f) } })
+      await expect(publishServer(opts(older, feed, { version: '0.2.20', ifNewer: true, store: w.store }))).rejects.toThrow()
+      expect(w.put).toEqual([])
+    }
+    expect(headVersion(feed)).toBe('0.3.0')
+  })
+
+  test('a 404 on a published file sends no other bytes over it (a stopped run, then a rebuild)', async () => {
+    const feed = path.join(T, 'feed-stopped')
+    const first = await signedBuilds('stopped-1', '0.3.0', { server: 'first build' })
+    const stopped = await watched(feed, { failUpload: 2 })
+    await expect(publishServer(opts(first, feed, { store: stopped.store }))).rejects.toThrow(/HTTP 502/)
+    const before = fs.readFileSync(path.join(feed, BUNDLE))
+    const rebuilt = await signedBuilds('stopped-2', '0.3.0', { server: 'second build' })
+    const w = await watched(feed, { faults: { [BUNDLE]: [404] } })
+    await expect(publishServer(opts(rebuilt, feed, { store: w.store }))).rejects.toThrow(/already published with other content/)
+    expect(w.put).toEqual([])
+    expect(fs.readFileSync(path.join(feed, BUNDLE)).equals(before)).toBe(true)
+  })
+
+  test('a re-run reads through one 404 or 502 on release.json and its .sig, and keeps them', async () => {
+    const feed = path.join(T, 'feed-rel-reads')
+    const b = await signedBuilds('rel-reads', '0.3.0')
+    await publishServer(opts(b, feed))
+    const before = fs.readFileSync(path.join(feed, REL))
+    for (const f of [404, 502, 'short'] as const) {
+      for (const key of [REL, `${REL}.sig`]) {
+        const w = await watched(feed, { faults: { [key]: [f] } })
+        expect(await publishServer(opts(b, feed, { store: w.store }))).toMatchObject({ status: 'unchanged', uploaded: [] })
+      }
+    }
+    expect(fs.readFileSync(path.join(feed, REL)).equals(before)).toBe(true)
+  })
+
+  test('a short read of a manifest is not taken for the file', async () => {
+    const feed = path.join(T, 'feed-short-head')
+    const b = await signedBuilds('short-head', '0.3.0')
+    await publishServer(opts(b, feed))
+    const w = await watched(feed, { faults: { 'server/beta.json': ['short'], [REL]: ['short'] } })
+    expect(await publishServer(opts(b, feed, { store: w.store }))).toMatchObject({ status: 'unchanged' })
+  })
+
+  describe('the state between release.json and its .sig (docs/RELEASE-CI.md 6)', () => {
+    async function publishedFeed(name: string) {
+      const feed = path.join(T, name)
+      const b = await signedBuilds(name, '0.3.0')
+      const stopped = await watched(feed, { failUpload: 10 }) // all but the head: 4 files per arch, then release.json + .sig
+      await expect(publishServer(opts(b, feed, { store: stopped.store }))).rejects.toThrow(/HTTP 502/)
+      expect(fs.existsSync(path.join(feed, 'server', 'beta.json'))).toBe(false)
+      return { feed, b }
+    }
+
+    test('release.json without its .sig says so; deleting it, as the message says, lets the run go on', async () => {
+      const { feed, b } = await publishedFeed('rel-no-sig')
+      fs.rmSync(path.join(feed, `${REL}.sig`))
+      await expect(publishServer(opts(b, feed))).rejects.toThrow(/release\.json is on the feed without server\/0\.3\.0\/release\.json\.sig \(a run stopped between the two\): check it, delete it/)
+      fs.rmSync(path.join(feed, REL))
+      expect((await publishServer(opts(b, feed))).status).toBe('published')
+    })
+
+    test('a .sig without release.json says so; deleting it lets the run go on', async () => {
+      const { feed, b } = await publishedFeed('sig-no-rel')
+      fs.rmSync(path.join(feed, REL))
+      await expect(publishServer(opts(b, feed))).rejects.toThrow(/release\.json\.sig is on the feed without server\/0\.3\.0\/release\.json: delete the \.sig/)
+      fs.rmSync(path.join(feed, `${REL}.sig`))
+      expect((await publishServer(opts(b, feed))).status).toBe('published')
+    })
+
+    test('a signature that does not verify is another message, with no way on by deleting: nothing is signed over', async () => {
+      const { feed, b } = await publishedFeed('rel-bad-sig')
+      fs.appendFileSync(path.join(feed, REL), ' ')
+      await expect(publishServer(opts(b, feed))).rejects.toThrow(/release\.json\.sig does not verify server\/0\.3\.0\/release\.json with this product's release keys: someone changed one of them/)
+    })
+
+    test('a read that fails for good is neither of them: it names the read', async () => {
+      const { feed, b } = await publishedFeed('rel-dead-read')
+      const w = await watched(feed, { faults: { [`${REL}.sig`]: forever(502) } })
+      await expect(publishServer(opts(b, feed, { store: w.store }))).rejects.toThrow(/release\.json\.sig\?t=\d+: HTTP 502/)
+    })
+  })
+
+  test('the read back after the upload: a cut answer is read again, one that stays wrong fails the run', async () => {
+    const b = await signedBuilds('read-back', '0.3.0')
+    // on the feed after the upload, so the bad answers meet the read back and not the check before it
+    const after = (fault: Fault[]) => (key: string, faults: Record<string, Fault[]>) => { if (key === BUNDLE) faults[BUNDLE] = fault }
+    const feed = path.join(T, 'feed-read-back')
+    const w = await watched(feed, { onPut: after(['short']) })
+    expect((await publishServer(opts(b, feed, { store: w.store }))).status).toBe('published')
+    const bad = path.join(T, 'feed-read-back-2')
+    const stuck = await watched(bad, { onPut: after(forever('short')) })
+    await expect(publishServer(opts(b, bad, { store: stuck.store }))).rejects.toThrow(/10 of \d+ bytes/)
+  })
+
+  test('the read back: a 404 on a file just uploaded is read again, and so are a 502 and a cut on the head', async () => {
+    const b = await signedBuilds('read-back-2', '0.3.0')
+    const feed = path.join(T, 'feed-read-back-3')
+    const w = await watched(feed, {
+      onPut: (key, faults) => {
+        if (key === BUNDLE) faults[BUNDLE] = [404, 502]
+        if (key === 'server/beta.json.sig') { faults['server/beta.json'] = [502, 'neterror']; faults['server/beta.json.sig'] = [404, 'short'] }
+      },
+    })
+    expect((await publishServer(opts(b, feed, { store: w.store }))).status).toBe('published')
   })
 })
 

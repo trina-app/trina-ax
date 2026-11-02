@@ -86,7 +86,8 @@ export function verifySums(sumsFile: string, keys: readonly string[] = RELEASE_C
 
 /**
  * Sign an unsigned Linux build (the --out folder of build-bundle.ts --os linux: app/<version>/, install-linux.sh,
- * VERSION, product.env) and pack what is published: <version>-linux-<arch>.tar.zst and the install kit.
+ * VERSION, product.env) and pack what is published: <version>-linux-<arch>.tar.zst and the install kit. Signing a build
+ * again gives the same two files, byte for byte (bundle.ts packTimeMs), which is what lets a stopped publish go on.
  */
 export async function signLinuxBuild(o: { dir: string; arch: string; pem: string; keys?: readonly string[] }) {
   const keys = o.keys ?? RELEASE_CHANNEL.keys

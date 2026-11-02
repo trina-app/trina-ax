@@ -7,7 +7,6 @@ import crypto from 'node:crypto'
 import fs from 'node:fs'
 import fsp from 'node:fs/promises'
 import path from 'node:path'
-import { Readable } from 'node:stream'
 import zlib from 'node:zlib'
 import { Decrypter, Encrypter, armor, generateX25519Identity, identityToRecipient } from 'age-encryption'
 import { PRODUCT } from '@mycel/shared'
@@ -24,13 +23,39 @@ async function* fromNode(r: NodeJS.ReadableStream): AsyncGenerator<Uint8Array> {
   for await (const c of r as AsyncIterable<unknown>) yield asUint8(c)
 }
 
-/** src -> transform; when the consumer stops early (error, break) the source generator is closed too, so files it
- * has open (tarStream) are released instead of waiting forever in a suspended generator. */
-function through(src: Bytes, z: NodeJS.ReadWriteStream & { destroy(e?: Error): void }): Bytes {
-  const input = Readable.from(src)
-  input.on('error', (e) => z.destroy(e))
-  ;(z as unknown as NodeJS.EventEmitter).on('close', () => { if (!input.destroyed) input.destroy() })
-  return fromNode(input.pipe(z))
+type Transform = NodeJS.ReadWriteStream & { destroy(e?: Error): void }
+
+/** src into z one chunk at a time; a source that fails destroys z with its error, and z closing ends this. */
+async function feed(src: Bytes, z: Transform): Promise<void> {
+  const it = src[Symbol.asyncIterator]()
+  let closed = false
+  let release = () => {}
+  ;(z as unknown as NodeJS.EventEmitter).once('close', () => { closed = true; release() })
+  try {
+    for (;;) {
+      const next = await it.next()
+      if (closed) return
+      if (next.done) { z.end(); return }
+      await new Promise<void>((taken, failed) => { release = taken; z.write(next.value, (e) => (e ? failed(e) : taken())) })
+      if (closed) return
+    }
+  } catch (e) {
+    z.destroy(e as Error)
+  } finally {
+    await it.return?.(undefined)?.catch(() => {})
+  }
+}
+
+/**
+ * src -> transform: the next chunk, and at last the end, only once the transform has taken the one before. A pipe queues
+ * them, and the end can then overtake the last chunk: zstd closes its frame with that chunk and adds a second, empty one,
+ * the same data in other bytes, depending on timing (a release pack must not: bundle.ts packTimeMs). Starts with the
+ * consumer. When the consumer stops early (error, break) the source generator is closed too, so files it has open
+ * (tarStream) are released instead of waiting forever in a suspended generator.
+ */
+async function* through(src: Bytes, z: Transform): AsyncGenerator<Uint8Array> {
+  void feed(src, z)
+  yield* fromNode(z)
 }
 
 export function zstdCompress(src: Bytes, level = 3): Bytes {
@@ -39,6 +64,10 @@ export function zstdCompress(src: Bytes, level = 3): Bytes {
 
 export function zstdDecompress(src: Bytes): Bytes {
   return through(src, zlib.createZstdDecompress())
+}
+
+export function gzipCompress(src: Bytes, level = 9): Bytes {
+  return through(src, zlib.createGzip({ level }))
 }
 
 function toWebStream(src: Bytes): ReadableStream<Uint8Array> {
