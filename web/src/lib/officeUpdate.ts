@@ -1,8 +1,13 @@
 // Office mode automatic updates in the web app (docs/OFFICE.md "자동 업데이트"): when the owner's or an admin's view
 // shows the "new version" banner, and when the update card's run has finished. Pure (web/test/unit/officeUpdate.test.ts).
 import type { Me, OfficeUpdateStatus } from '@mycel/shared/api'
+import { browserTimeZone } from './time-zones'
 
 const KEY = 'teamax.officeUpdate.dismissed'
+
+/** The zone of every time on the update card, named next to the time: the team's, from the status. A server too old to
+ * send it (a page left open after a roll back): the team's zone from /api/me, else this browser's, else UTC. */
+export const cardZone = (s: Pick<OfficeUpdateStatus, 'timeZone'>, teamZone?: string | null): string => s.timeZone || teamZone || browserTimeZone() || 'UTC'
 
 /** The banner for owners and admins: a newer version on the feed, not being installed, not dismissed for that
  * version. `nightly` is the time it installs by itself (null while automatic updates are off), taken from the status as

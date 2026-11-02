@@ -13,6 +13,7 @@ import {
   checkLatestYml, deliverWindows, download, feedOf, nextRunAt, officeSchedule, readIndex, readUpdateState, runUpdate, scheduledRun, updatePlist, updateView,
   windowEnd, writeUpdateSettings, sha256File, type UpdateDeps,
 } from '../../server/src/office/update'
+import { viewText } from '../../server/src/office/update-cli'
 import { Database } from 'bun:sqlite'
 import { settingsFrom } from '../../server/src/office/settings'
 import { officeUpdateHooks } from '../../server/src/routes/office-update'
@@ -676,6 +677,30 @@ describe('Admin > System endpoints', () => {
   test('the view shows the next window once the agent is installed', () => {
     const v = updateView(home, { now: new Date(2026, 9, 21, 12, 0), agentInstalled: true })
     expect(new Date(v.nextWindowAt!).getHours()).toBe(3)
+  })
+})
+
+describe('teamax update status', () => {
+  test('every time is in the team\'s zone and names it, the checked, updated and Windows app lines like the next run', () => {
+    const at = '2026-11-01T15:00:00.000Z'
+    // two zones on two sides of any machine's clock
+    for (const timeZone of ['Asia/Jakarta', 'America/New_York']) {
+      const shown = `${new Date(at).toLocaleString('ko-KR', { hour12: false, timeZone })} ${timeZone}`
+      const text = viewText({
+        current: '0.2.20', channel: 'stable', paused: false, time: '03:00', window: '03:00-05:00', timeZone, nextWindowAt: at, lastCheckAt: at,
+        last: { kind: 'up-to-date', at, version: '0.2.20', message: null }, available: null, lastUpdate: { from: '0.2.19', to: '0.2.20', at, result: 'updated', error: null },
+        running: null, requested: false, agentInstalled: true, desktop: { version: '0.2.20', at },
+      })
+      const of = (start: string) => text.split('\n').find((l) => l.startsWith(start)) ?? ''
+      for (const line of [of('자동 업데이트'), of('마지막 확인'), of('마지막 업데이트'), of('윈도우 앱')]) expect(line).toContain(shown)
+    }
+  })
+  test('a time that never was stays a dash', () => {
+    const text = viewText({
+      current: '0.2.20', channel: 'stable', paused: true, time: '03:00', window: '03:00-05:00', timeZone: 'Asia/Jakarta', nextWindowAt: null, lastCheckAt: null,
+      last: null, available: null, lastUpdate: null, running: null, requested: false, agentInstalled: true, desktop: null,
+    })
+    expect(text.split('\n').find((l) => l.startsWith('마지막 확인'))?.trimEnd().endsWith('-')).toBe(true)
   })
 })
 

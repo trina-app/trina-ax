@@ -75,7 +75,8 @@ export function removeUpdateAgent(s: OfficeSettings): string {
   return was ? `update agent: removed` : ''
 }
 
-const local = (iso: string | null, timeZone?: string) => (iso ? `${new Date(iso).toLocaleString('ko-KR', { hour12: false, timeZone })}${timeZone ? ` ${timeZone}` : ''}` : '-')
+/** a time in the team's zone, with the zone named: every line of `update status` the same way */
+const local = (iso: string | null, timeZone: string) => (iso ? `${new Date(iso).toLocaleString('ko-KR', { hour12: false, timeZone })} ${timeZone}` : '-')
 
 export function viewText(v: OfficeUpdateView): string {
   const when = v.nextWindowAt ? `다음 / next ${local(v.nextWindowAt, v.timeZone)}` : '열리지 않음 / never opens: Admin > Team settings'
@@ -83,11 +84,11 @@ export function viewText(v: OfficeUpdateView): string {
     `현재 버전 / installed   ${v.current}`,
     `채널 / channel          ${v.channel}`,
     `자동 업데이트 / auto    ${!v.agentInstalled ? '설치 안 됨 / agent not installed (office-install.sh)' : v.paused ? '꺼짐 / paused (teamax update resume)' : `업데이트 시간 / window ${v.window} ${v.timeZone}, 답변이 없을 때 / when no answer runs (${when})`}`,
-    `마지막 확인 / checked   ${local(v.lastCheckAt)}${v.last ? `  → ${v.last.kind}${v.last.version ? ` ${v.last.version}` : ''}${v.last.message ? ` (${v.last.message})` : ''}` : ''}`,
+    `마지막 확인 / checked   ${local(v.lastCheckAt, v.timeZone)}${v.last ? `  → ${v.last.kind}${v.last.version ? ` ${v.last.version}` : ''}${v.last.message ? ` (${v.last.message})` : ''}` : ''}`,
   ]
   if (v.available) lines.push(`새 버전 / available     ${v.available.version} (${v.available.channel})`)
-  if (v.lastUpdate) lines.push(`마지막 업데이트 / last  ${v.lastUpdate.from} → ${v.lastUpdate.to} ${v.lastUpdate.result} ${local(v.lastUpdate.at)}${v.lastUpdate.error ? ` (${v.lastUpdate.error})` : ''}`)
-  if (v.desktop) lines.push(`윈도우 앱 / Windows app ${v.desktop.version} (data/downloads, ${local(v.desktop.at)})`)
+  if (v.lastUpdate) lines.push(`마지막 업데이트 / last  ${v.lastUpdate.from} → ${v.lastUpdate.to} ${v.lastUpdate.result} ${local(v.lastUpdate.at, v.timeZone)}${v.lastUpdate.error ? ` (${v.lastUpdate.error})` : ''}`)
+  if (v.desktop) lines.push(`윈도우 앱 / Windows app ${v.desktop.version} (data/downloads, ${local(v.desktop.at, v.timeZone)})`)
   if (v.running) lines.push(`진행 중 / running       ${v.running.phase}`)
   else if (v.requested) lines.push('요청됨 / requested     곧 시작해요 / starting')
   return lines.join('\n')

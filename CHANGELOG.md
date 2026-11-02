@@ -3,6 +3,10 @@
 Published artifacts and authoritative release notes are in [GitHub Releases](https://github.com/trina-app/trina-ax/releases).
 This file summarizes user-visible changes; it is not a list of every commit.
 
+## Unreleased
+
+- Office Mac, Admin › System › automatic updates: the last check and the last update now show in the team's time zone, like the next check, and each time names its zone. Before, they were in the browser's zone with no name, so one card could mix two zones. `teamax update status` prints the last check, the last update and the Windows app the same way. In all five languages.
+
 ## 0.2.20 — 2026-11-02
 
 [Published release and notes](https://github.com/trina-app/trina-ax/releases/tag/v0.2.20)

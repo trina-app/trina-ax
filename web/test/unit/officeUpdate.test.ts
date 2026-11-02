@@ -6,7 +6,10 @@ import { createElement } from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { DICTS } from '../../src/i18n'
 import { notesSummary, ReleaseNotes } from '../../src/components/ReleaseNotes'
-import { bannerFor, finishedRun, onOfficeStatus, shareOfficeStatus } from '../../src/lib/officeUpdate'
+import { formatDateTime } from '../../src/lib/format'
+import { bannerFor, cardZone, finishedRun, onOfficeStatus, shareOfficeStatus } from '../../src/lib/officeUpdate'
+import { browserTimeZone } from '../../src/lib/time-zones'
+import OfficeUpdate from '../../src/pages/admin/OfficeUpdate'
 
 const me = (role: 'owner' | 'admin' | 'member') => ({ user: { role } }) as unknown as Me
 const at = '2026-10-21T09:00:00.000Z'
@@ -68,6 +71,36 @@ describe('the end of a watched run', () => {
     expect(finishedRun(st({ requested: true }), st({ last: { kind: 'rolled-back', at: '2026-10-21T09:06:00.000Z', version: '0.2.1', message: 'x' } }))).toBe('rolled-back')
     expect(finishedRun(running, st({ last: { kind: 'failed', at: '2026-10-21T09:06:00.000Z', version: null, message: 'x' } }))).toBe('failed')
     expect(finishedRun(running, running)).toBeNull()
+  })
+})
+
+describe('the times on the update card', () => {
+  const when = '2026-11-01T15:00:00.000Z'
+  const card = (o: Partial<OfficeUpdateStatus>) => renderToStaticMarkup(createElement(OfficeUpdate, { status: st({ ...o, lastCheckAt: when, lastUpdate: { from: '0.2.0', to: '0.2.1', at: when, result: 'updated', error: null } }), reload: async () => {} }))
+  const text = (html: string) => html.replace(/&#x27;/g, "'")
+  test('the last check and the last update are in the team\'s zone, with the zone named, like the next check', () => {
+    // two zones on two sides of any machine's clock: a time in the browser's zone cannot pass for both
+    for (const zone of ['Asia/Jakarta', 'America/New_York']) {
+      const html = text(card({ timeZone: zone, window: '03:00-05:00' }))
+      const shown = formatDateTime(when, 'en', zone)
+      expect(html).toContain(`Last checked ${shown} (${zone})`)
+      expect(html).toContain(`Last update 0.2.0 → 0.2.1 · ${shown} (${zone})`)
+      expect(html).toContain(`03:00-05:00 (${zone})`)
+    }
+  })
+  test('a server too old to send its zone: the team\'s zone from /api/me, else this browser\'s, else UTC, and never an empty ()', () => {
+    expect(cardZone({ timeZone: 'Asia/Seoul' }, 'Asia/Tokyo')).toBe('Asia/Seoul')
+    expect(cardZone({}, 'Asia/Tokyo')).toBe('Asia/Tokyo')
+    expect(cardZone({}, null)).toBe(browserTimeZone() ?? 'UTC')
+    const html = text(card({}))
+    expect(html).toContain(`Last checked ${formatDateTime(when, 'en', browserTimeZone() ?? 'UTC')} (${browserTimeZone() ?? 'UTC'})`)
+    expect(html).not.toContain('()')
+  })
+  test('the zone is in every language\'s line', () => {
+    for (const d of Object.values(DICTS)) {
+      expect(d['officeUpdate.lastCheck']).toContain('{zone}')
+      expect(d['officeUpdate.lastUpdate']).toContain('{zone}')
+    }
   })
 })
 

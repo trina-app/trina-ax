@@ -10,19 +10,23 @@ import { api, API } from '../../lib/api'
 import { formatDateTime } from '../../lib/format'
 import { useLocale, useT, type MessageKey } from '../../i18n'
 import { Button, Field, Modal, inputCls } from '../../components/ui'
-import { finishedRun, shareOfficeStatus } from '../../lib/officeUpdate'
+import { cardZone, finishedRun, shareOfficeStatus } from '../../lib/officeUpdate'
 import { ReleaseNotes } from '../../components/ReleaseNotes'
+import { useMe } from '../../store/session'
 import { toast } from '../../store/ui'
 import { Card, useAction } from './common'
 
 export default function OfficeUpdate({ status, reload }: { status: OfficeUpdateStatus; reload: () => Promise<void> }) {
   const t = useT()
   const locale = useLocale()
+  const me = useMe()
   const act = useAction()
   const [ask, setAsk] = useState(false)
   const [busy, setBusy] = useState(false)
   const [pw, setPw] = useState('')
   const u = status
+  // every time on this card is in one zone, the team's (update audit O2), and says which
+  const zone = cardZone(u, me?.server.timeZone)
   const active = !!u.running || u.requested
   // the banner on every page shows what this card shows (a pause, another time, an update that happened)
   useEffect(() => shareOfficeStatus(u), [u])
@@ -55,14 +59,13 @@ export default function OfficeUpdate({ status, reload }: { status: OfficeUpdateS
         ) : u.paused ? (
           <p className="text-muted">{t('officeUpdate.paused')}</p>
         ) : u.nextWindowAt ? (
-          // the team's window and zone (update audit O2): the date in that zone too, not the browser's
-          <p className="text-muted">{t('officeUpdate.schedule', { window: u.window ?? u.time, zone: u.timeZone ?? '', date: formatDateTime(u.nextWindowAt, locale, u.timeZone) })}</p>
+          <p className="text-muted">{t('officeUpdate.schedule', { window: u.window ?? u.time, zone, date: formatDateTime(u.nextWindowAt, locale, zone) })}</p>
         ) : (
           <p className="text-warn">{t('officeUpdate.windowClosed', { window: u.window ?? u.time })}</p>
         )}
         {u.lastCheckAt && (
           <p className="text-xs text-faint">
-            {t('officeUpdate.lastCheck', { date: formatDateTime(u.lastCheckAt, locale) })}
+            {t('officeUpdate.lastCheck', { date: formatDateTime(u.lastCheckAt, locale, zone), zone })}
             {result && ` · ${result}`}
           </p>
         )}
@@ -74,7 +77,7 @@ export default function OfficeUpdate({ status, reload }: { status: OfficeUpdateS
         )}
         {u.lastUpdate && (
           <p className={u.lastUpdate.result === 'updated' ? 'text-xs text-faint' : 'text-xs text-warn'}>
-            {t('officeUpdate.lastUpdate', { from: u.lastUpdate.from, to: u.lastUpdate.to, date: formatDateTime(u.lastUpdate.at, locale) })}
+            {t('officeUpdate.lastUpdate', { from: u.lastUpdate.from, to: u.lastUpdate.to, date: formatDateTime(u.lastUpdate.at, locale, zone), zone })}
             {u.lastUpdate.result !== 'updated' && ` · ${t(`officeUpdate.result.${u.lastUpdate.result}` as MessageKey, { version: u.lastUpdate.to })}`}
           </p>
         )}
