@@ -327,7 +327,8 @@ test.describe('without the service worker', () => {
   })
 })
 
-test('a dropped folder still being read when the person signs out: the next person gets nothing of it', async ({ page }) => {
+test('a dropped folder still being read when the person signs out: the next person gets nothing of it', async ({ page, browserName }) => {
+  test.skip(browserName !== 'chromium', 'WebKit loads the page again at sign-out here, which ends the reading by itself')
   await reset(page)
   await signIn(page)
   await page.goto('/files?path=marketing')
