@@ -133,23 +133,30 @@ export async function createCredential(cc: CredCtx, i: CreateInput, locale: Loca
   checkCreatePolicy(cc, i, locale)
   if (check.result === 'refused') fail('validation', ct(i.kind === 'anthropic-oauth' ? 'refusedClaude' : 'refusedKey', locale), { fields: { 'body.sealed': 'refused by the provider' } })
   const now = cc.now()
-  // one transaction: the copy taken over, the new connection and its Activity log entry, or none of them
+  // one transaction: the copy taken over (its use carried over), the new connection and its Activity log entry, or none
   const { row, from } = cc.db.transaction(() => {
     // again, inside the write: the provider check took a while, and a copy may have come or gone meanwhile
     const d = duplicateOf(cc, i.kind, fp)
     if (d && !takeOver(d)) duplicateConflict(cc, d, i.actor, locale, { movable: !i.ownerUserId && d.owner_user_id !== null })
-    if (d) {
-      cc.db.query('DELETE FROM engine_credentials WHERE id = ?').run(d.id)
-      // never two copies, should an older version have left one more
-      const more = duplicateOf(cc, i.kind, fp)
-      if (more) duplicateConflict(cc, more, i.actor, locale)
-    }
+    // never two copies, should an older version have left one more
+    const more = d ? duplicateOf(cc, i.kind, fp, d.id) : null
+    if (more) duplicateConflict(cc, more, i.actor, locale)
     const id = insertRow(cc, {
       kind: i.kind, label: i.label, secret: secretOfKind(i.kind, i.secret), ownerUserId: i.ownerUserId, priority: i.priority, assignments: i.assignments,
       createdBy: i.actor, meta: i.kind === 'anthropic-oauth' ? { issuedAt: new Date(now).toISOString() } : i.kind === 'anthropic-api-key' && gateway ? { gateway } : {},
       expiresAt: i.kind === 'anthropic-oauth' ? new Date(now + CLAUDE_TOKEN_LIFETIME_MS).toISOString() : null,
       checkedAt: check.result === 'ok' ? new Date(now).toISOString() : null,
     })
+    if (d) {
+      // the same token, so the same subscription: this month's use, when it was last used and a provider's limit it is
+      // waiting out carry over (one count, as the duplicate rule wants). The personal connection's own monthly-limit
+      // notices do not: the team connection has its own limit, and its first 80% / 100% notices should still go out.
+      cc.db.query('UPDATE credential_usage_daily SET credential_id = ? WHERE credential_id = ?').run(id, d.id)
+      const limited = d.limited_until && Date.parse(d.limited_until) > now
+      cc.db.query('UPDATE engine_credentials SET last_used_at = ?, limited_until = ?, status_code = ? WHERE id = ?')
+        .run(d.last_used_at, limited ? d.limited_until : null, limited ? d.status_code : null, id)
+      cc.db.query('DELETE FROM engine_credentials WHERE id = ?').run(d.id)
+    }
     const r = getRow(cc.db, id)!
     const detail = {
       kind: i.kind, label: i.label, scope: i.ownerUserId ? 'personal' : 'team', assignments: i.ownerUserId ? [] : uniq(i.assignments), priority: i.priority,

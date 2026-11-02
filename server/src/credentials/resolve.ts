@@ -12,7 +12,7 @@ import type { CredentialKind } from '@mycel/shared/api'
 import type { AllowedKinds } from '../app-config'
 import { memberOwnAllowed } from './policy'
 export { MEMBER_OWN_KEY, memberOwnAllowed } from './policy'
-import { ROW_COLS, SUBSCRIPTION, unusable, type CredRow, type Unusable } from './store'
+import { isCreditLimit, ROW_COLS, SUBSCRIPTION, unusable, type CredRow, type Unusable } from './store'
 
 export type Family = 'anthropic' | 'openai'
 export type CredEngine = 'claude-code' | 'codex'
@@ -80,15 +80,24 @@ export function resolveCredential(db: Database, q: { userId: string; engine: Cre
 export const hasCredentialFor = (db: Database, userId: string, engine: CredEngine, allowedKinds: AllowedKinds, now?: Date) =>
   resolveCredential(db, { userId, engine, allowedKinds, now }).ok
 
-/** Does this person have a connection for the engine that works now, or as soon as a provider's short limit is over
- * (`limited`, D14: a 429 with a time to retry)? The same candidates and checks as resolveCredential and the proxy
- * (broker.ts): the person's own connection only while the team allows them, assignments, subscription sharing, the
- * kinds this server allows, switched off, refused, expired, the monthly block limit. Admin › Members "No AI". */
+/** How near the end of a provider's limit (`limited`) must be for the person to "only wait" ("No AI" does not show).
+ * An hour: the proxy's own wait for a 429 that names no reset time (proxy/model-proxy.ts, proxy/codex-path.ts), a burst,
+ * or the last part of a 5-hour window. Longer (most of a 5-hour window, a weekly cap, a Codex plan limit until its
+ * reset days later) leaves the person without AI for a working session, which an admin can fix with another
+ * connection, so it shows. */
+export const SOON_MS = 60 * 60_000
+
+/** Does this person have a connection for the engine that works now, or soon (a provider's limit, D14, that ends within
+ * SOON_MS and is not "out of credit", which no wait fixes)? The same candidates and checks as resolveCredential and the
+ * proxy (broker.ts): the person's own connection only while the team allows them, assignments, subscription sharing,
+ * the kinds this server allows, switched off, refused, expired, the monthly block limit. Admin › Members "No AI". */
 export function hasCredentialSoonFor(db: Database, userId: string, engine: CredEngine, allowedKinds: AllowedKinds, now = new Date()): boolean {
   return candidates(db, userId, engine).some(({ row }) => {
     const u = unusable(db, row, now, allowedKinds)
+    if (!u) return true
+    if (u.why !== 'limited' || isCreditLimit(row.status_code) || Date.parse(u.retryAt!) - now.getTime() > SOON_MS) return false
     // `limited` is checked after every lasting reason; the one after it (the monthly block limit) is checked again
-    return !u || (u.why === 'limited' && !unusable(db, { ...row, limited_until: null }, now, allowedKinds))
+    return !unusable(db, { ...row, limited_until: null }, now, allowedKinds)
   })
 }
 

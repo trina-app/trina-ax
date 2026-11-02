@@ -1,7 +1,8 @@
 // "No AI" (Admin › Members, the owner's start checklist; credentials/access.ts): the active people who cannot use any AI
 // connection now, by the rules the turn and the proxy use (credentials/resolve.ts): their own connection only while the
 // team allows them, assignments, subscription sharing, switched off, expired, refused, the monthly block limit, and the
-// engines that answer them. A provider's short limit (`limited`) is not "No AI": that person only waits.
+// engines that answer them. A provider's limit that ends within the hour (resolve.ts SOON_MS) is not "No AI": that
+// person only waits; a longer one, or "out of credit" whatever the time, is.
 // People (tests/lib/fixtures.ts): alice, erin = marketing; bob = finance; carol = admin; dana = owner.
 import { beforeEach, describe, expect, test } from 'bun:test'
 import path from 'node:path'
@@ -10,7 +11,7 @@ import { setEnginesEnabled, setSetting } from '../../server/src/admin/settings'
 import { setMemberChoice } from '../../server/src/admin/engine-choice'
 import { MEMBER_OWN_KEY, SHARED_SUBSCRIPTIONS_KEY } from '../../server/src/credentials/policy'
 import { peopleWithoutAi } from '../../server/src/credentials/access'
-import { hasCredentialSoonFor } from '../../server/src/credentials/resolve'
+import { hasCredentialSoonFor, resolveCredential } from '../../server/src/credentials/resolve'
 import { ALL_CREDENTIAL_KINDS } from '../../server/src/app-config'
 import { makeEnv } from '../lib/env'
 import { addCred, chatgptSecret, testCredCtx } from '../lib/credentials'
@@ -66,9 +67,9 @@ test('assigned to a group or a person: only them (the admin\'s personal subscrip
   expect(noAi()).toEqual(new Set(['dana']))
 })
 
-test('rate limited for a moment: still has AI (they wait); the monthly block limit used up: No AI', () => {
+test('a limit that ends within the hour: still has AI (they wait); the monthly block limit used up: No AI', () => {
   const id = addCred(cc, 'anthropic-oauth', sub('limited'))
-  env.db.query('UPDATE engine_credentials SET limited_until = ? WHERE id = ?').run(iso(3600_000), id)
+  env.db.query("UPDATE engine_credentials SET limited_until = ?, status_code = 'rate_limited' WHERE id = ?").run(iso(30 * 60_000), id)
   expect(noAi()).toEqual(new Set())
   expect(hasCredentialSoonFor(env.db, 'alice', 'claude-code', new Set(ALL_CREDENTIAL_KINDS))).toBe(true)
   // limited and over its monthly block limit: the limit it is waiting for is not the only one
@@ -77,6 +78,26 @@ test('rate limited for a moment: still has AI (they wait); the monthly block lim
   env.db.query('INSERT INTO credential_usage_daily (credential_id, day, requests, input_tokens, output_tokens, cost_usd) VALUES (?, ?, 1, 100, 0, 0)')
     .run(id, `${day.getFullYear()}-${String(day.getMonth() + 1).padStart(2, '0')}-${String(day.getDate()).padStart(2, '0')}`)
   expect(noAi()).toEqual(new Set(EVERYONE))
+})
+
+test('a long limit (a weekly cap, a Codex plan limit until its reset): No AI', () => {
+  const id = addCred(cc, 'anthropic-oauth', sub('weekly'))
+  env.db.query("UPDATE engine_credentials SET limited_until = ?, status_code = 'rate_limited' WHERE id = ?").run(iso(6 * 86400_000), id)
+  expect(noAi()).toEqual(new Set(EVERYONE))
+  const codex = addCred(cc, 'chatgpt', chatgptSecret('acct-plan'))
+  env.db.query("UPDATE engine_credentials SET limited_until = ?, status_code = 'usage_limit_reached' WHERE id = ?").run(iso(3 * 86400_000), codex)
+  setMemberChoice({ db: env.db }, { mode: 'everyone', groupIds: [], userIds: [] })
+  expect(noAi()).toEqual(new Set(EVERYONE))
+})
+
+test('out of credit or over its spend limit: No AI whatever the time (as the turn says: all_unusable)', () => {
+  const id = addCred(cc, 'openai-api-key', 'sk-proj-' + 'c'.repeat(40))
+  setMemberChoice({ db: env.db }, { mode: 'everyone', groupIds: [], userIds: [] })
+  for (const [code, ms] of [['insufficient_quota', 6 * 86400_000], ['insufficient_quota', 30 * 60_000], ['credit_balance_exhausted', 10 * 60_000], ['project_spend_limit_exceeded', 10 * 60_000]] as const) {
+    env.db.query('UPDATE engine_credentials SET limited_until = ?, status_code = ? WHERE id = ?').run(iso(ms), code, id)
+    expect(noAi()).toEqual(new Set(EVERYONE))
+    expect(resolveCredential(env.db, { userId: 'alice', engine: 'codex', allowedKinds: new Set(ALL_CREDENTIAL_KINDS) })).toMatchObject({ ok: false, reason: 'all_unusable' })
+  }
 })
 
 test('switched off, expired or refused: No AI', () => {

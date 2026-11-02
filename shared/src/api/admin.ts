@@ -47,16 +47,17 @@ export const ResetLinkResult = z.object({ token: z.string(), url: z.string(), ex
 /** What happens to the personal folder users/<id>/ of a deleted member (tab 5): moved into the owner's personal
  * folder (only the owner sees it), or deleted together with the account. */
 export const DeleteUserQuery = z.object({ personalFolder: z.enum(['transfer', 'delete']).default('transfer') })
-/** Hand the owner role to another active member (the old owner becomes admin). */
 export const UsersResponse = z.object({
   items: z.array(User),
   /** "No AI": the active people who cannot use any AI connection now: no personal connection of theirs and no team
    * connection they may use, for every engine that answers them (server/src/credentials/access.ts, the same rules as
-   * the turn and the model proxy). A connection at a provider's short limit counts as usable. Only when asked for
-   * (`?noAi=1`), and absent when this server does not answer with AI connections (engine.authMode other than managed). */
+   * the turn and the model proxy). A provider's limit that ends within the hour counts as usable (not out of credit).
+   * Only when asked for (`?noAi=1`), and absent when this server does not answer with AI connections (engine.authMode
+   * other than managed). */
   noAi: z.array(UserId).optional(),
 })
 export type UsersResponse = z.infer<typeof UsersResponse>
+/** Hand the owner role to another active member (the old owner becomes admin). */
 export const TransferOwnershipBody = z.object({ userId: UserId, password: z.string().min(1).max(256) })
 
 // ---------------- invites ----------------

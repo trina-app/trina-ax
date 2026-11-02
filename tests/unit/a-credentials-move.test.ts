@@ -66,6 +66,19 @@ test('two copies left by an older version: a move never leaves two (409, nothing
   expect(notices).toEqual([])
 })
 
+test("the token's use this month, last use and a limit it waits out carry over to the team copy (one count)", async () => {
+  const p = addCred(cc, 'anthropic-oauth', TOKEN, { owner: 'alice' })
+  const day = new Date()
+  const today = `${day.getFullYear()}-${String(day.getMonth() + 1).padStart(2, '0')}-${String(day.getDate()).padStart(2, '0')}`
+  env.db.query('INSERT INTO credential_usage_daily (credential_id, day, requests, input_tokens, output_tokens, cost_usd) VALUES (?, ?, 7, 1000, 200, 0)').run(p, today)
+  const until = new Date(Date.now() + 2 * 3600_000).toISOString()
+  env.db.query("UPDATE engine_credentials SET last_used_at = '2026-01-05T00:00:00.000Z', limited_until = ?, status_code = 'rate_limited' WHERE id = ?").run(until, p)
+  const c = await move(p)
+  expect(c.month).toEqual({ usd: 0, tokens: 1200, requests: 7 })
+  expect(c).toMatchObject({ lastUsedAt: '2026-01-05T00:00:00.000Z', limitedUntil: until, state: 'limited' })
+  expect(env.db.query('SELECT credential_id FROM credential_usage_daily WHERE credential_id IN (?, ?)').all(p, c.id)).toEqual([{ credential_id: c.id }])
+})
+
 test('a failure while writing the team copy leaves the personal copy as it was (never none)', async () => {
   const p = addCred(cc, 'anthropic-oauth', TOKEN, { owner: 'alice' })
   const encrypt = cc.vault.encrypt.bind(cc.vault)

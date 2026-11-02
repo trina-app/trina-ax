@@ -40,6 +40,10 @@ export interface Secrets {
 }
 
 export const SUBSCRIPTION = new Set<CredentialKind>(['anthropic-oauth', 'chatgpt'])
+/** 429 codes (proxy/codex-path.ts, kept as the connection's status_code with its limited_until) that mean the account is
+ * out of credit or over its own spend limit: waiting does not help, someone has to add credit or raise the limit */
+const CREDIT_CODES = new Set(['insufficient_quota', 'credit_balance_exhausted', 'organization_usage_limit_exceeded'])
+export const isCreditLimit = (code: string | null | undefined) => !!code && (CREDIT_CODES.has(code) || /_spend_limit_exceeded$/.test(code))
 export const EXPIRING_MS = 14 * 24 * 3600_000
 export const CLAUDE_TOKEN_LIFETIME_MS = 365 * 24 * 3600_000
 
