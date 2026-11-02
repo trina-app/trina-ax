@@ -128,6 +128,9 @@ describe('backups', () => {
   test('local retention from the plan (SV-3): plan.json localBackupRetentionDays (the hosted cloud: 3) instead of 14', async () => {
     const e = setup('prune-plan')
     const { Plan, setPlanForTests } = await import('../../server/src/system/limits')
+    // this test is about retention: a guard left by another test would compare the plan with this machine's disk
+    const { configureStorageGuard } = await import('../../server/src/system/storage')
+    configureStorageGuard(null)
     setPlanForTests(Plan.parse({ format: 1, plan: 'team', maxConcurrency: 3, memoryMiB: 4096, cpuCores: 2, diskGiB: 50, localBackupRetentionDays: 3 }))
     try {
       const ids: string[] = []
