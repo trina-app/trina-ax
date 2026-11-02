@@ -26,10 +26,10 @@ interface Entry {
   seq: number
   at: number
   ev: ServerEvent
-  /** only this window receives it (browser.call, browser_site requests) */
+  /** only this window receives it (browser.call, pc.call, browser_site requests) */
   window: string | null
   bytes: number
-  /** browser.call acknowledged by its window: not re-sent on resume */
+  /** browser.call or pc.call acknowledged by its window: not re-sent on resume */
   acked?: boolean
 }
 
@@ -103,13 +103,13 @@ export class Hub implements RealtimeHub {
     }
   }
 
-  /** Mark a buffered browser.call as received by its window (not re-sent on resume). */
-  ackBrowserCall(userId: string, callId: string) {
+  /** Mark a buffered browser.call or pc.call as received by its window (not re-sent on resume). */
+  ackWindowCall(userId: string, callId: string) {
     const u = this.users.get(userId)
     if (!u) return
     for (let i = u.buffer.length - 1; i >= 0; i--) {
       const e = u.buffer[i]!
-      if (e.ev.type === 'browser.call' && e.ev.data.call.callId === callId) { e.acked = true; return }
+      if ((e.ev.type === 'browser.call' || e.ev.type === 'pc.call') && e.ev.data.call.callId === callId) { e.acked = true; return }
     }
   }
 
@@ -281,7 +281,7 @@ export class Hub implements RealtimeHub {
     const f = ClientFrame.safeParse(raw)
     if (!f.success) { this.sendFrame(s, { type: 'error', code: 'validation', message: 'unknown or invalid frame' }); return }
     if (f.data.type === 'ping') { this.sendFrame(s, { type: 'pong', t: f.data.t }); return }
-    if (f.data.type === 'browser.ack') this.ackBrowserCall(s.userId, f.data.callId)
+    if (f.data.type === 'browser.ack' || f.data.type === 'pc.ack') this.ackWindowCall(s.userId, f.data.callId)
     for (const h of this.frameHandlers) try { h({ userId: s.userId, windowId: s.windowId }, f.data) } catch (e) { this.ctx.log.error('client frame handler failed', { err: e }) }
   }
 

@@ -7,7 +7,7 @@
 // The two definitions here are the only sub-agents a turn has (`--agents`, with Claude Code's built-in ones switched
 // off): Claude Code's own names, so a call without subagent_type runs ours. Their `tools` name our tools exactly;
 // never a built-in file tool (a definition that lists Glob or Grep gets them back even with Bash denied).
-import { CLAUDE_AGENT_TOOL_NAMES, ENGINE_BUILTIN_ALLOWED, SUBAGENT_TYPES, TEAM_TOOL_PREFIX } from '@mycel/shared'
+import { CLAUDE_AGENT_TOOL_NAMES, ENGINE_BUILTIN_ALLOWED, PC_TOOL_NAMES, SUBAGENT_TYPES, TEAM_TOOL_PREFIX } from '@mycel/shared'
 import { BROWSER_TOOL_NAMES } from '../realtime/browser-tools'
 export { MAX_CONCURRENT_SUBAGENTS } from '../engine/claude'
 
@@ -24,7 +24,7 @@ export const MAX_SUBAGENT_TURNS = 50
  * desktop browser (one screen of the person's, not to be driven by several agents at once) stay with the main AI.
  * Turn.patchToolStep relies on this: every tool that patches its step is here, so its FIFO per tool stays right.
  */
-export const PARENT_ONLY_TOOLS: ReadonlySet<string> = new Set(['ask_user', 'set_title', 'remember', 'forget', ...SCHEDULE_TOOLS, 'generate_video', ...BROWSER_TOOL_NAMES, 'box_shell'])
+export const PARENT_ONLY_TOOLS: ReadonlySet<string> = new Set(['ask_user', 'set_title', 'remember', 'forget', ...SCHEDULE_TOOLS, 'generate_video', ...BROWSER_TOOL_NAMES, 'box_shell', ...PC_TOOL_NAMES])
 /** what the read-only Explore helper may use (of the tools the turn has) */
 export const EXPLORE_TOOLS: ReadonlySet<string> = new Set(['list', 'glob', 'grep', 'read', 'search', 'skill', 'find_skills', 'drive_list', 'drive_read', 'drive_search', 'hwp_render', 'web_fetch'])
 

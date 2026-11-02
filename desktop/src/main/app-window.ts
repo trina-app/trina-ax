@@ -5,8 +5,9 @@
 //   │                                       │     │
 //   └───────────────────────────────────────┴─────┘
 //   shell view (welcome.html) covers everything when no team is open, the team list is shown, or the team
-//   server cannot be reached.
-import { BaseWindow, dialog, Notification, session, WebContentsView, type Session } from 'electron'
+//   server cannot be reached. The PC runner's bar (pc.html) sits under the app view while the AI uses this computer: a
+//   view of its own, so the team page can neither draw over it nor reach its buttons.
+import { BaseWindow, dialog, Notification, session, shell, WebContentsView, type Session } from 'electron'
 import { join } from 'node:path'
 import { PRODUCT, type DesktopConnection, type DesktopPaneState } from '@mycel/shared'
 import { Health, Me } from '@mycel/shared/api'
@@ -20,6 +21,7 @@ import { isTrustedAppSender, UI_ORIGIN } from '../common/trust'
 import { openDialogChoice } from '../common/file-chooser'
 import { directFromConnectInfo, fetchConnectInfo, lanFailureCode, lanFailureToReport, mirrorSessionCookie, pinCertificates, probeDirect, reportLanFailure, type ProbeResult } from './direct'
 import { BrowserPane, type PaneActivity, type PanePrompt } from './pane/pane'
+import { pcBarVisible, PcRunner, type PcState } from './pc/runner'
 import { HostClassifier, sessionResolver } from './pane/classify'
 import { APP_WEB_PREFERENCES, guardAppView, guardUiView, hardenAppSession } from './security'
 import type { TeamsStore } from './teams-store'
@@ -59,6 +61,9 @@ export interface AppWindowOptions {
   onTeamsChanged(): void
 }
 
+/** the PC runner's bar: first height before it reports its own, and at most this share of the window */
+const PC_BAR_MIN = 44
+const PC_BAR_MAX_SHARE = 0.7
 const MIN_PANE = 360
 const MIN_APP = 420
 const RECHECK_MS = 60_000
@@ -71,8 +76,10 @@ export class AppWindow {
   readonly win: BaseWindow
   readonly shell: WebContentsView
   readonly chrome: WebContentsView
+  readonly pcView: WebContentsView
   app?: WebContentsView
   pane?: BrowserPane
+  pc?: PcRunner
   team?: TeamEntry
   mode: Mode = 'welcome'
   private teams: TeamsFile
@@ -95,6 +102,7 @@ export class AppWindow {
   private allowAllUntil = 0
   /** the open dialog for the team page's file input is showing (one at a time) */
   private choosingFiles = false
+  private pcBar = { show: false, height: PC_BAR_MIN }
 
   constructor(private o: AppWindowOptions) {
     this.teams = o.store.load()
@@ -112,10 +120,12 @@ export class AppWindow {
     const uiPrefs = { preload: join(o.distDir, 'preload-ui.cjs'), ...APP_WEB_PREFERENCES, partition: 'mycel-ui' }
     this.shell = new WebContentsView({ webPreferences: uiPrefs })
     this.chrome = new WebContentsView({ webPreferences: uiPrefs })
-    for (const v of [this.shell, this.chrome]) guardUiView(v.webContents)
+    this.pcView = new WebContentsView({ webPreferences: uiPrefs })
+    for (const v of [this.shell, this.chrome, this.pcView]) guardUiView(v.webContents)
     this.chrome.setBackgroundColor('#ECEAE4')
     void this.shell.webContents.loadURL(`${UI_ORIGIN}/welcome.html`)
     void this.chrome.webContents.loadURL(`${UI_ORIGIN}/pane.html`)
+    void this.pcView.webContents.loadURL(`${UI_ORIGIN}/pc.html`)
     this.win.on('resize', () => this.layout())
     this.win.on('focus', () => void this.recheck(false))
     this.win.on('close', () => {
@@ -123,7 +133,7 @@ export class AppWindow {
       o.store.saveWindow({ width, height, paneFraction: this.paneFraction })
       // close the views while the window still exists (WebContentsView contents are not closed with it)
       this.disposeTeam()
-      for (const v of [this.shell, this.chrome]) if (!v.webContents.isDestroyed()) v.webContents.close()
+      for (const v of [this.shell, this.chrome, this.pcView]) if (!v.webContents.isDestroyed()) v.webContents.close()
       debug('window closed, team disposed')
     })
     this.layout()
@@ -324,6 +334,15 @@ export class AppWindow {
       // the pane resolves names through its own session: the same resolver and cache Chromium connects with
       this.o.classifier.withResolver(sessionResolver(browserSes)),
     )
+    this.pc = new PcRunner({
+      dir: this.o.store.pcDir(id),
+      loadWorkspaces: () => this.o.store.loadPcWorkspaces(id),
+      saveWorkspaces: (w) => this.o.store.savePcWorkspaces(id, w),
+      pickFolder: (project) => this.pickPcFolder(project),
+      onState: (s) => this.sendPcState(s),
+      onWaiting: (callId, waiting) => this.send(app, 'bridge:pc-waiting', { callId, waiting }),
+    })
+    this.sendPcState(this.pc.state())
     this.send(this.chrome, 'ui:pane-prompts', [])
     // this team's settings and a fresh activity log in the toolbar
     this.sendSiteSettings(this.pane.siteSettings())
@@ -410,6 +429,9 @@ export class AppWindow {
 
   private disposeTeam() {
     clearInterval(this.recheckTimer)
+    this.pc?.dispose()
+    this.pc = undefined
+    this.pcBar.show = false
     this.pane?.dispose()
     this.pane = undefined
     if (this.app) {
@@ -513,6 +535,9 @@ export class AppWindow {
     const change = browserOwnerChange(this.o.store.loadBrowserOwner(teamId), me)
     if (change.clear) {
       debug('in-app browser: another person or signed out, clearing', teamId)
+      // the workspace folders belong to the person too; a runner of another team is not this team's
+      if (this.team?.id === teamId && this.pc) this.pc.resetForNewPerson()
+      else this.o.store.savePcWorkspaces(teamId, {})
       if (pane && this.pane === pane) {
         await pane.resetForNewPerson()
         this.send(this.chrome, 'ui:pane-prompts', [])
@@ -737,6 +762,7 @@ export class AppWindow {
     }
     if (this.mode !== 'team' || !this.app) {
       hide(this.app)
+      hide(this.pcView)
       this.pane?.setBounds(null)
       show(this.shell, { x: 0, y: 0, width: w, height: h })
       return
@@ -745,8 +771,45 @@ export class AppWindow {
     const paneOpen = Boolean(this.pane?.open)
     let pw = 0
     if (paneOpen) pw = w < MIN_PANE + MIN_APP ? w : clamp(Math.round(w * this.paneFraction), MIN_PANE, w - MIN_APP)
-    show(this.app, { x: 0, y: 0, width: Math.max(0, w - pw), height: h })
+    const bar = this.pcBar.show ? Math.min(this.pcBar.height, Math.round(h * PC_BAR_MAX_SHARE)) : 0
+    show(this.app, { x: 0, y: 0, width: Math.max(0, w - pw), height: h - bar })
+    if (bar) show(this.pcView, { x: 0, y: h - bar, width: Math.max(0, w - pw), height: bar })
+    else hide(this.pcView)
     this.pane?.setBounds(paneOpen ? { x: w - pw, y: 0, width: pw, height: h } : null)
+  }
+
+  // -------------------------------------------------------------- PC runner
+
+  private sendPcState(s: PcState) {
+    this.send(this.pcView, 'ui:pc-state', s)
+    const show = pcBarVisible(s)
+    if (show !== this.pcBar.show) {
+      this.pcBar.show = show
+      this.layout()
+    }
+  }
+
+  /** The bar's content height, reported by its own page. */
+  setPcHeight(h: number) {
+    const next = Math.max(PC_BAR_MIN, Math.ceil(h))
+    if (next === this.pcBar.height) return
+    this.pcBar.height = next
+    this.layout()
+  }
+
+  /** The system's folder dialog, on this window. The person picks; the server has no say in the path. */
+  private async pickPcFolder(project: string): Promise<string | null> {
+    if (this.win.isDestroyed()) return null
+    const L = this.o.locale()
+    const r = await dialog.showOpenDialog(this.win, { title: t(L, 'pc.folder.dialog', { project }), message: t(L, 'pc.folder.dialog', { project }), buttonLabel: t(L, 'pc.folder.pick'), properties: ['openDirectory', 'createDirectory'] })
+    return r.canceled ? null : (r.filePaths[0] ?? null)
+  }
+
+  /** A running dev server, in the person's own browser, on their click. The in-app browser keeps refusing this computer
+   * (common/browser-block.ts): the AI drives that one. */
+  openPcPreview(id: string) {
+    const port = this.pc?.previewPort(id)
+    if (port) void shell.openExternal(`http://127.0.0.1:${port}/`)
   }
 
   private updateTitle() {
@@ -762,6 +825,7 @@ export class AppWindow {
   localeChanged(payload: { locale: UiLocale; strings: Record<UiKey, string> }) {
     this.send(this.shell, 'ui:locale', payload)
     this.send(this.chrome, 'ui:locale', payload)
+    this.send(this.pcView, 'ui:locale', payload)
     this.updateTitle()
   }
 

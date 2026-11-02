@@ -18,7 +18,7 @@ import { existsSync, readFileSync } from 'node:fs'
 import { dirname, extname, join, normalize, sep } from 'node:path'
 import { app, Menu, protocol, session, type IpcMainEvent, type IpcMainInvokeEvent, ipcMain, type MenuItemConstructorOptions } from 'electron'
 import { DESKTOP_BRIDGE_GLOBAL, DESKTOP_BRIDGE_VERSION, PRODUCT } from '@mycel/shared'
-import { BrowserCall } from '@mycel/shared/api'
+import { BrowserCall, PcCall, type PcResult } from '@mycel/shared/api'
 import { errorResult } from '../common/browser-result'
 import { asUiLocale, DEFAULT_UI_LOCALE, STRINGS, t, type UiKey, type UiLocale } from '../common/i18n'
 import { isOwnUiUrl, isTrustedAppSender, UI_SCHEME } from '../common/trust'
@@ -31,6 +31,7 @@ import { HostClassifier } from './pane/classify'
 import { asSiteAccess } from '../common/site-permissions'
 import { TeamsStore } from './teams-store'
 import { DesktopUpdater } from './updater'
+import { IDLE_PC_STATE } from './pc/runner'
 
 // the folder of the bundled main.cjs (Bun inlines __dirname at build time, so look for it at run time):
 // packaged = <app.asar>/dist, `electron .` = desktop/dist, `electron dist/main.cjs` = that file's folder
@@ -150,6 +151,7 @@ function serveUi(req: Request): Response {
 
 const fromShell = (e: IpcMainEvent | IpcMainInvokeEvent) => Boolean(win && e.sender === win.shell.webContents && e.senderFrame && isOwnUiUrl(e.senderFrame.url))
 const fromChrome = (e: IpcMainEvent | IpcMainInvokeEvent) => Boolean(win && e.sender === win.chrome.webContents && e.senderFrame && isOwnUiUrl(e.senderFrame.url))
+const fromPcView = (e: IpcMainEvent | IpcMainInvokeEvent) => Boolean(win && e.sender === win.pcView.webContents && e.senderFrame && isOwnUiUrl(e.senderFrame.url))
 const fromApp = (e: IpcMainEvent | IpcMainInvokeEvent) =>
   Boolean(
     win &&
@@ -162,7 +164,7 @@ const fromApp = (e: IpcMainEvent | IpcMainInvokeEvent) =>
 function registerIpc() {
   ipcMain.on('ui:strings', (e) => {
     const L = locale()
-    e.returnValue = fromShell(e) || fromChrome(e) ? { locale: L, strings: STRINGS[L] } : null
+    e.returnValue = fromShell(e) || fromChrome(e) || fromPcView(e) ? { locale: L, strings: STRINGS[L] } : null
   })
   // welcome / team list
   ipcMain.handle('ui:welcome-state', (e) => (fromShell(e) ? win!.welcomeState() : null))
@@ -195,6 +197,17 @@ function registerIpc() {
   ipcMain.on('ui:pane-site-remove', (e, host: string) => fromChrome(e) && win!.pane?.revokeSite(String(host)))
   ipcMain.on('ui:pane-sites-clear', (e) => fromChrome(e) && win!.pane?.revokeAllSites())
 
+  // the PC runner's bar: the person's answers. Only this view of the app's own, never the team page
+  ipcMain.handle('ui:pc-state', (e) => (fromPcView(e) ? (win!.pc?.state() ?? IDLE_PC_STATE) : null))
+  ipcMain.on('ui:pc-answer', (e, a: { id?: string; decision?: string }) => {
+    if (fromPcView(e) && a?.id) win!.pc?.answer(String(a.id), a.decision)
+  })
+  ipcMain.on('ui:pc-stop', (e) => fromPcView(e) && win!.pc?.stop())
+  ipcMain.on('ui:pc-revoke', (e) => fromPcView(e) && win!.pc?.revokeChats())
+  ipcMain.on('ui:pc-log', (e) => fromPcView(e) && win!.pc?.toggleLog())
+  ipcMain.on('ui:pc-preview', (e, id: string) => fromPcView(e) && win!.openPcPreview(String(id)))
+  ipcMain.on('ui:pc-height', (e, h: number) => fromPcView(e) && Number.isFinite(h) && win!.setPcHeight(h))
+
   // team page bridge (shared/src/desktop-bridge.ts); store: a Mac App Store build, where Settings > Apps offers no installer
   ipcMain.on('bridge:info', (e) => {
     e.returnValue = fromApp(e) ? { global: DESKTOP_BRIDGE_GLOBAL, bridgeVersion: DESKTOP_BRIDGE_VERSION, appVersion: app.getVersion(), platform: process.platform, store: process.mas === true } : null
@@ -212,6 +225,21 @@ function registerIpc() {
     return pane.run(call.data)
   })
   ipcMain.on('bridge:browser-cancel', (e, callId: string) => fromApp(e) && win!.pane?.cancel(String(callId)))
+  // the PC runner: the page passes a call on. The same identity check as the pane: the workspace belongs to the person
+  // signed in now (common/browser-owner.ts)
+  ipcMain.handle('bridge:pc-run', async (e, raw: unknown): Promise<PcResult> => {
+    const call = PcCall.safeParse(raw)
+    const callId = typeof (raw as { callId?: unknown })?.callId === 'string' ? (raw as { callId: string }).callId.slice(0, 100) : 'invalid'
+    const refuse = (text: string): PcResult => ({ callId, ok: false, content: [{ type: 'text', text }], error: text, approval: 'none' })
+    if (!fromApp(e)) return refuse('The PC runner is not available to this page.')
+    if (!call.success) return refuse('Malformed PC call.')
+    const runner = win!.pc
+    if (!runner) return refuse('No team is open in the desktop app.')
+    if (!(await win!.ensureBrowserOwner().catch(() => false))) return refuse('The person could not be verified. Sign in and try again.')
+    if (!fromApp(e) || win!.pc !== runner) return refuse('The team changed while the person was checked. Try again.')
+    return runner.run(call.data)
+  })
+  ipcMain.on('bridge:pc-cancel', (e, callId: string) => fromApp(e) && win!.pc?.cancel(String(callId)))
   ipcMain.on('bridge:pane', (e, what: string) => {
     if (!fromApp(e) || !win?.pane) return
     if (what === 'open') win.pane.show()
@@ -273,6 +301,7 @@ function buildMenu() {
       submenu: [
         { label: tr('menu.reload'), accelerator: 'CmdOrCtrl+R', click: () => win?.app?.webContents.reload() },
         { label: tr('menu.browser'), accelerator: 'CmdOrCtrl+Shift+B', click: () => win?.pane?.toggle() },
+        { label: tr('menu.pcLog'), click: () => win?.pc?.toggleLog() },
         { type: 'separator' },
         { role: 'resetZoom', label: tr('menu.actualSize') },
         { role: 'zoomIn', label: tr('menu.zoomIn') },
@@ -354,7 +383,11 @@ app.on('activate', () => {
 // will-quit (Cmd+Q, Quit, the last window on Windows), so the team is the one it showed last (lastTeam).
 let flushed = false
 let lastTeam: string | undefined
-app.on('before-quit', () => debug('before-quit'))
+app.on('before-quit', () => {
+  debug('before-quit')
+  // commands end with the app, whatever closes it (docs/DECISIONS.md "PC runner")
+  win?.pc?.dispose()
+})
 app.on('will-quit', (e) => {
   debug('will-quit', flushed)
   if (flushed) return

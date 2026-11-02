@@ -4,6 +4,8 @@ import { defineConfig } from '@playwright/test'
 export default defineConfig({
   testDir: '.',
   testMatch: /.*\.spec\.ts/,
+  // the whole chain has its own config: it needs web/dist and the native helpers
+  testIgnore: /pc-chain\.spec\.ts/,
   timeout: 90_000,
   expect: { timeout: 15_000 },
   fullyParallel: false,

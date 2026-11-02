@@ -2,6 +2,8 @@
 //   <userData>/teams.json                       remembered teams (common/teams.ts)
 //   <userData>/teams/<teamId>/permissions.json  the team's in-app browser "allowed sites"
 //   <userData>/teams/<teamId>/browser-owner.json  the person that in-app browser data belongs to (common/browser-owner.ts)
+//   <userData>/teams/<teamId>/pc-workspaces.json  the workspace folder of each project (PC runner)
+//   <userData>/pc/<teamId>/                     the PC runner's sandbox homes: caches, temp files, logs of commands
 //   <userData>/window.json                      window size and browser pane width
 //   <userData>/ui-locale.json                   language of the app's own screens (common/i18n.ts)
 // Writes go to a temp file first, then rename (no half-written file after a crash).
@@ -11,6 +13,7 @@ import { join } from 'node:path'
 import { asUiLocale, type UiLocale } from '../common/i18n'
 import { readTeams, type TeamsFile } from '../common/teams'
 import type { SavedPermissions } from '../common/site-permissions'
+import type { PcWorkspaces } from './pc/runner'
 
 function readText(path: string): string | null {
   try {
@@ -61,6 +64,24 @@ export class TeamsStore {
     writeAtomic(join(this.teamDir(id), 'permissions.json'), JSON.stringify(p, null, 2))
   }
 
+  loadPcWorkspaces(id: string): PcWorkspaces {
+    try {
+      const v = JSON.parse(readText(join(this.teamDir(id), 'pc-workspaces.json')) ?? '{}')
+      return v && typeof v === 'object' ? v : {}
+    } catch {
+      return {}
+    }
+  }
+
+  savePcWorkspaces(id: string, w: PcWorkspaces) {
+    writeAtomic(join(this.teamDir(id), 'pc-workspaces.json'), JSON.stringify(w, null, 2))
+  }
+
+  /** The folder of this team's PC runner homes (rebuilt when needed). */
+  pcDir(id: string): string {
+    return join(this.dir, 'pc', id.replace(/[^a-f0-9]/g, ''))
+  }
+
   /** null: nobody (cleared); undefined: never recorded */
   loadBrowserOwner(id: string): string | null | undefined {
     try {
@@ -78,6 +99,7 @@ export class TeamsStore {
 
   removeTeamFiles(id: string) {
     rmSync(join(this.dir, 'teams', id.replace(/[^a-f0-9]/g, '')), { recursive: true, force: true })
+    rmSync(this.pcDir(id), { recursive: true, force: true })
   }
 
   loadWindow(): { width?: number; height?: number; paneFraction?: number } {

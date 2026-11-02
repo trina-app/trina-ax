@@ -15,6 +15,7 @@ import FolderPicker from '../components/FolderPicker'
 import { Markdown } from '../components/Markdown'
 import { Button, EmptyState, ErrorNote, Field, Modal, PageHeader, Skeleton, confirmDialog, inputCls } from '../components/ui'
 import { DevEnvSection } from './DevEnvSection'
+import { PcRunnerSection } from './PcRunnerSection'
 
 export function ProjectList() {
   const t = useT()
@@ -313,6 +314,7 @@ export function ProjectHome() {
         </section>
         <aside className="space-y-6">
           <DevEnvSection project={p} />
+          <PcRunnerSection project={p} />
           <section aria-labelledby="pj-instr">
             <h2 id="pj-instr" className="mb-2 text-sm font-semibold">
               {t('projects.instructions')}

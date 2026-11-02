@@ -12,6 +12,7 @@
 //   const relay = bridge && createBrowserRelay({ bridge, windowId, send: (f) => ws.send(JSON.stringify(f)) })
 //   ws.onmessage = (m) => { const ev = ServerFrame.parse(JSON.parse(m.data)); relay?.handle(ev); ... }
 import { BrowserCall, BrowserResult } from './api/browser'
+import { PcCall, PcResult } from './api/pc'
 import type { ClientFrame, ServerFrame } from './api/ws'
 
 /** window[DESKTOP_BRIDGE_GLOBAL] inside the desktop app. */
@@ -117,6 +118,19 @@ export interface DesktopBridge {
    * own confirmation dialog and changes the setting only when the person confirms there; it is refused while the
    * team does not allow it. Optional: desktop apps before this addition do not have it (the section stays hidden).
    */
+  /**
+   * The PC runner (docs/DECISIONS.md "PC runner"). The page passes a pc.call on and gets the result: it cannot say yes.
+   * The person answers in the desktop app's own view, and the app keeps the workspace folder. Optional: desktop apps
+   * before this addition do not have it (the page answers that the app must be updated).
+   */
+  pc?: {
+    /** Run one pc.call. Same callId twice returns the first result (never runs twice). */
+    run(call: PcCall): Promise<PcResult>
+    /** pc.cancel: the turn stopped */
+    cancel(callId: string): void
+    /** the call waits for the person, or no longer does */
+    onWaiting(cb: (w: { callId: string; waiting: boolean }) => void): () => void
+  }
   browserSettings?: {
     get(): Promise<DesktopBrowserSettings | null>
     /** the setting changed (here, in the pane's ⚙ panel, by an answer "always allow", or by the team's policy) */
@@ -126,6 +140,8 @@ export interface DesktopBridge {
     clearSites(): Promise<DesktopBrowserSettings | null>
   }
 }
+
+export type DesktopPcBridge = NonNullable<DesktopBridge['pc']>
 
 export function getDesktopBridge(): DesktopBridge | null {
   const b = (globalThis as Record<string, unknown>)[DESKTOP_BRIDGE_GLOBAL] as DesktopBridge | undefined
@@ -247,5 +263,76 @@ export function createBrowserRelay(o: BrowserRelayOptions): BrowserRelay {
     get running() {
       return inFlight.size
     },
+  }
+}
+
+export interface PcRelayOptions {
+  pc: DesktopPcBridge
+  send: (frame: ClientFrame) => void
+  /** how many finished results to keep for re-sending after a reconnect (default 200) */
+  keep?: number
+}
+
+export interface PcRelay {
+  /** Run a call that arrived as pc.call. A call that arrives again is answered with its ack or its kept result. */
+  run(call: PcCall): void
+  cancel(callId: string): void
+  readonly running: number
+  dispose(): void
+}
+
+/**
+ * The PC runner's side of the window: pc.call -> the desktop app -> pc.ack, pc.waiting, pc.result. The same rule as
+ * createBrowserRelay: a call replayed after a reconnect never runs twice. The app dedupes by callId as well.
+ */
+export function createPcRelay(o: PcRelayOptions): PcRelay {
+  const keep = o.keep ?? 200
+  const done = new Map<string, PcResult>()
+  const inFlight = new Set<string>()
+  const send = (frame: ClientFrame) => {
+    try {
+      o.send(frame)
+    } catch {
+      // a closed WebSocket: the result stays remembered and goes out again when the call is replayed
+    }
+  }
+  const off = o.pc.onWaiting((w) => {
+    if (inFlight.has(w.callId)) send({ type: 'pc.waiting', callId: w.callId, waiting: w.waiting })
+  })
+  const fail = (callId: string, error: string): PcResult => ({ callId, ok: false, content: [{ type: 'text', text: error }], error, approval: 'none' })
+  const run = (raw: PcCall) => {
+    const parsed = PcCall.safeParse(raw)
+    if (!parsed.success) return
+    const call = parsed.data
+    const prev = done.get(call.callId)
+    if (prev) return send({ type: 'pc.result', result: prev })
+    if (inFlight.has(call.callId)) return send({ type: 'pc.ack', callId: call.callId })
+    inFlight.add(call.callId)
+    send({ type: 'pc.ack', callId: call.callId })
+    const finish = (r: PcResult) => {
+      inFlight.delete(call.callId)
+      const checked = PcResult.safeParse(r)
+      const result = checked.success && r.callId === call.callId ? checked.data : fail(call.callId, 'The desktop app returned a malformed result.')
+      done.set(call.callId, result)
+      while (done.size > keep) done.delete(done.keys().next().value as string)
+      send({ type: 'pc.result', result })
+    }
+    let pending: Promise<PcResult>
+    try {
+      pending = o.pc.run(call)
+    } catch (e) {
+      pending = Promise.reject(e)
+    }
+    pending.then(finish, (e: unknown) => finish(fail(call.callId, `Desktop app error: ${e instanceof Error ? e.message : String(e)}`)))
+  }
+  return {
+    run,
+    cancel(callId) {
+      if (inFlight.has(callId)) o.pc.cancel(callId)
+    },
+    get running() {
+      return inFlight.size
+    },
+    dispose: off,
   }
 }

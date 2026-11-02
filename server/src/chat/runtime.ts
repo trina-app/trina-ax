@@ -13,6 +13,7 @@ import { newId } from '../db'
 import { Schedules } from './schedules'
 import { Hub, type HubOptions } from '../realtime/hub'
 import { BrowserRelay, type BrowserRelayOptions } from '../realtime/browser-relay'
+import { PcRelay } from '../pc/relay'
 import { ChatStore, type ChatRow, type MessageRow } from './store'
 import { LocalEngines, safeModel, type EngineProvider } from './engines'
 import { TURN_TIMEOUT_MS, TurnExec, composeMessage, type TurnSpec } from './turn'
@@ -118,6 +119,7 @@ export class ChatRuntime {
   readonly schedules: Schedules
   readonly hub: Hub
   readonly relay: BrowserRelay
+  readonly pcRelay: PcRelay
   readonly engines: EngineProvider
   readonly turnTimeoutMs: number
   readonly wallTimeoutMs: number
@@ -155,6 +157,7 @@ export class ChatRuntime {
     }
     this.hub = new Hub(ctx, o.hub)
     this.relay = new BrowserRelay(this.hub, ctx.log.child({ c: 'browser' }), o.relay)
+    this.pcRelay = new PcRelay(this.hub, ctx.log.child({ c: 'pc' }), o.relay)
     this.engines = o.engines ?? new LocalEngines(ctx)
     this.turnTimeoutMs = o.turnTimeoutMs ?? TURN_TIMEOUT_MS
     this.wallTimeoutMs = o.wallTimeoutMs ?? 45 * 60_000
@@ -717,6 +720,7 @@ export class ChatRuntime {
       for (const e of execs) e.stop('shutdown')
       await Promise.race([Promise.all(execs.map((e) => e.done)), Bun.sleep(6000)])
       this.relay.close()
+      this.pcRelay.close()
       this.hub.close()
     })()
     return this.shutdownP
