@@ -4,6 +4,7 @@ import { fillPlurals } from '@mycel/shared/plural'
 import { SERVICE_HOSTS } from '@mycel/shared/service-hosts'
 import type { UiKey, UiLocale } from '../common/i18n'
 import type { PaneActivity } from '../common/pane-activity'
+import type { PcState } from '../main/pc/runner'
 
 export interface WelcomeState {
   mode: 'welcome' | 'team' | 'offline'
@@ -23,6 +24,7 @@ export interface PanePrompt {
   hint?: boolean
 }
 export type { PaneActivity } from '../common/pane-activity'
+export type { PcPrompt, PcState } from '../main/pc/runner'
 export interface SiteSettings {
   always: string[]
   privateAlways: string[]
@@ -45,6 +47,16 @@ export interface MycelUi {
     remove(id: string): Promise<void>
     back(): void
     retry(): void
+  }
+  pc: {
+    state(): Promise<PcState | null>
+    onState(cb: (s: PcState) => void): () => void
+    answer(id: string, decision: string): void
+    stop(): void
+    revokeChats(): void
+    toggleLog(): void
+    openPreview(id: string): void
+    height(h: number): void
   }
   pane: {
     state(): Promise<DesktopPaneState | null>
@@ -89,9 +101,9 @@ export function onLocaleChange(render: () => void) {
   })
 }
 
-export function tr(key: UiKey, params: Record<string, string> = {}): string {
+export function tr(key: UiKey | `pc.tool.${string}` | `pc.outcome.${string}`, params: Record<string, string> = {}): string {
   // a count first ("{n, plural, one {# more question} other {# more questions}}", shared/src/plural.ts), then the rest
-  const s = fillPlurals(strings?.[key] ?? key, params, locale)
+  const s = fillPlurals(strings?.[key as UiKey] ?? key, params, locale)
   return s.replace(/\{(\w+)\}/g, (m, k: string) => (k === 'app' ? (strings?.['app.name'] ?? PRODUCT.displayName) : k === 'domain' ? SERVICE_HOSTS.teamDomain : (params[k] ?? m)))
 }
 

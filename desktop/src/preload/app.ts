@@ -1,5 +1,6 @@
 // Preload of the team page (sandboxed, contextIsolation). Exposes window.mycelDesktop (shared/src/desktop-bridge.ts)
-// and nothing else: browser relay functions, pane open/close/state, connection state, notifications, team list, and
+// and nothing else: browser relay functions, the PC runner's call relay (no way to answer for the person), pane
+// open/close/state, connection state, notifications, team list, and
 // Settings > Browser (read the site setting, back to asking, remove / clear always-allowed sites; "all" only asks the
 // main process, which shows its own confirmation dialog).
 // The main process re-checks every call: top frame only, team origin only (main/main.ts, common/trust.ts).
@@ -25,6 +26,11 @@ const bridge: DesktopBridge = {
   browser: {
     run: (call) => ipcRenderer.invoke('bridge:browser-run', call),
     cancel: (callId) => ipcRenderer.send('bridge:browser-cancel', String(callId)),
+  },
+  pc: {
+    run: (call) => ipcRenderer.invoke('bridge:pc-run', call),
+    cancel: (callId) => ipcRenderer.send('bridge:pc-cancel', String(callId)),
+    onWaiting: on('bridge:pc-waiting'),
   },
   pane: {
     open: () => ipcRenderer.send('bridge:pane', 'open'),

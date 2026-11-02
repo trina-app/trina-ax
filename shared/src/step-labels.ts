@@ -36,6 +36,11 @@ export const FILE_STEP_VERB: Record<string, T> = {
   drive_read: t('Google Drive 파일 읽기', 'Read Google Drive file', 'Baca berkas Google Drive', "Google ドライブのファイルを読む", "Leer archivo de Google Drive"),
   generate_video: t('동영상 만들기', 'Generate video', 'Buat video', "動画を生成", "Generar video"),
   box_shell: t('개발 환경 명령', 'Dev environment command', 'Perintah lingkungan pengembangan', "開発環境のコマンド", "Comando del entorno de desarrollo"),
+  pc_read: t('내 PC 파일 읽기', 'Read file on this PC', 'Baca berkas di PC ini', "このPCのファイルを読む", "Leer archivo en este PC"),
+  pc_write: t('내 PC 파일 저장', 'Save file on this PC', 'Simpan berkas di PC ini', "このPCにファイルを保存", "Guardar archivo en este PC"),
+  pc_edit: t('내 PC 파일 고치기', 'Edit file on this PC', 'Ubah berkas di PC ini', "このPCのファイルを編集", "Editar archivo en este PC"),
+  pc_search: t('내 PC에서 찾기', 'Search on this PC', 'Cari di PC ini', "このPCで検索", "Buscar en este PC"),
+  pc_shell: t('내 PC 명령', 'Command on this PC', 'Perintah di PC ini', "このPCのコマンド", "Comando en este PC"),
   ask_user: t('질문', 'Question', 'Pertanyaan', "質問", "Pregunta"),
   skill: t('스킬 사용', 'Use skill', 'Pakai skill', "スキルを使用", "Usar habilidad"),
   find_skills: t('스킬 찾기', 'Find skills', 'Cari skill', "スキルを探す", "Buscar habilidades"),
@@ -162,6 +167,9 @@ export function stepLabel(tool: string, input: unknown, locale: Locale, browserT
     case 'skill': return `${verb} · ${clip(a.name, 80)}`
     case 'find_skills': case 'find_tools': return `${verb} "${clip(a.query, 60)}"`
     case 'box_shell': return `${verb} · ${clip(String(a.command ?? '').split('\n')[0], 80)}${a.job ? ' (job)' : a.background ? ' (background)' : ''}`
+    case 'pc_read': case 'pc_write': case 'pc_edit': return `${verb} · ${clip(a.file_path, 80)}`
+    case 'pc_search': return `${verb} "${clip(a.pattern ?? a.glob, 60)}"`
+    case 'pc_shell': return `${verb} · ${clip(String(a.command ?? '').split('\n')[0], 80)}${a.background ? ' (background)' : ''}`
     case 'ask_user': return stepText('asked', locale, { q: clip(a.question, 120) })
     case 'remember': return stepText('remembered', locale, { text: clip(a.text, 120) })
     case 'forget': return stepText('forgot', locale)

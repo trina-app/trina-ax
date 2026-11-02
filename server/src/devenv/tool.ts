@@ -15,6 +15,7 @@
 // (jobs.ts): it has an exit status and a log, the person gets a notice when it ends, and each later call gives the AI the
 // results it did not get yet. The AI does not go on by itself when a job ends.
 import { z } from 'zod'
+import { usesCredentials } from '@mycel/shared'
 import type { AppContext } from '../context'
 import type { McpContent } from '../turns'
 import { audit } from '../admin/audit'
@@ -60,9 +61,8 @@ export const BOX_SHELL_DESCRIPTION = 'Run a shell command in the dev environment
   + 'The disk size of the box limits only node_modules, .venv and caches. Files in /work are on the server disk: a command there has no size limit of its own, and the box stops when the server disk is nearly full. '
   + 'One command at a time per project; default time limit 120 s; only the first 32 KiB of stdout and of stderr come back.'
 
-/** commands that would use a person's login (hole 2: the person confirms after seeing who changed what) */
-export const CREDENTIAL_COMMAND = /(^|[\s;&|(])(git\s+(push|fetch|pull|clone|submodule|ls-remote)|npm\s+(publish|login|adduser|token)|yarn\s+(publish|npm\s+publish)|pnpm\s+publish|gh\s|ssh\s|scp\s|rsync\s.*:|docker\s+(login|push)|twine\s+upload|cargo\s+publish|aws\s|gcloud\s|az\s)/
-export const usesCredentials = (cmd: string) => CREDENTIAL_COMMAND.test(cmd)
+/** commands that would use a person's login (hole 2: the person confirms after seeing who changed what); the PC runner uses the same list */
+export { CREDENTIAL_COMMAND, usesCredentials } from '@mycel/shared'
 
 /** a cwd inside the project folder (no "..", no absolute path) */
 export function boxCwd(cwd: string | undefined): string | null {

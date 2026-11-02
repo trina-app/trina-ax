@@ -26,7 +26,7 @@ function setup(ms: number, at?: string) {
   const rt = {
     db, wallTimeoutMs: ms, turnTimeoutMs: 60_000, log: silentLogger,
     ctx: { config: { mode: 'dev', engine: {} } },
-    hub: { publish: (_: string, event: any) => events.push(event) }, relay: { cancelTurn() {} },
+    hub: { publish: (_: string, event: any) => events.push(event) }, relay: { cancelTurn() {} }, pcRelay: { cancelTurn() {} },
     store: { touchChat() {}, messageRow: () => null, userRef: () => null },
     publishChat() {}, turnFinished: (e: TurnExec) => released.push(e.id),
     turnQuarantined: (e: TurnExec) => quarantined.push(e.id),

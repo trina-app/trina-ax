@@ -1,7 +1,7 @@
 // Stand-in for the team web page (component D) in the desktop e2e tests: opens /api/ws with a windowId, feeds
 // every server frame to the shared createBrowserRelay (shared/src/desktop-bridge.ts) exactly like the real web app
 // should, and reports what it sees on window.testState.
-import { createBrowserRelay, getDesktopBridge } from '@mycel/shared'
+import { createBrowserRelay, createPcRelay, getDesktopBridge, type PcRelay } from '@mycel/shared'
 import { ServerFrame } from '@mycel/shared/api'
 
 const windowId = `w${crypto.randomUUID().replace(/-/g, '').slice(0, 20)}`
@@ -19,9 +19,15 @@ if (bridge) {
   bridge.connection.onChange((c) => (state.connection = c))
 }
 
+// one relay for the page's life: it keeps what ran across reconnects, like the web app's (lib/pcRelay.ts)
+let pcRelay: PcRelay | null = null
+let socket: WebSocket | null = null
+if (bridge?.pc) pcRelay = createPcRelay({ pc: bridge.pc, send: (f) => socket?.send(JSON.stringify(f)) })
+
 function connect() {
   const ws = new WebSocket(`${location.origin.replace(/^http/, 'ws')}/api/ws?windowId=${windowId}${bridge ? '&bridge=desktop' : ''}`, ['mycel.v1'])
   const relay = bridge ? createBrowserRelay({ bridge, windowId, send: (f) => ws.send(JSON.stringify(f)) }) : null
+  socket = ws
   ws.onopen = () => (state.ws = 'open')
   ws.onclose = () => {
     state.ws = 'closed'
@@ -31,7 +37,9 @@ function connect() {
     const frame = ServerFrame.safeParse(JSON.parse(String(m.data)))
     if (!frame.success) return
     state.frames = (state.frames as number) + 1
-    relay?.handle(frame.data)
+    if (frame.data.type === 'pc.call') pcRelay?.run(frame.data.data.call)
+    else if (frame.data.type === 'pc.cancel') pcRelay?.cancel(frame.data.data.callId)
+    else relay?.handle(frame.data)
   }
 }
 connect()

@@ -1,4 +1,4 @@
-// Preload of the desktop app's own screens (welcome / team list and the browser pane toolbar), served from the
+// Preload of the desktop app's own screens (welcome / team list, the browser pane toolbar, the PC runner's bar), served from the
 // mycel-ui:// scheme. The main process answers each channel only for the view it belongs to (main/main.ts registerIpc).
 import { contextBridge, ipcRenderer, type IpcRendererEvent } from 'electron'
 
@@ -22,6 +22,16 @@ contextBridge.exposeInMainWorld('mycelUi', {
     remove: (id: string) => ipcRenderer.invoke('ui:remove-team', String(id)),
     back: () => ipcRenderer.send('ui:back'),
     retry: () => ipcRenderer.send('ui:retry'),
+  },
+  pc: {
+    state: () => ipcRenderer.invoke('ui:pc-state'),
+    onState: on('ui:pc-state'),
+    answer: (id: string, decision: string) => ipcRenderer.send('ui:pc-answer', { id: String(id), decision: String(decision) }),
+    stop: () => ipcRenderer.send('ui:pc-stop'),
+    revokeChats: () => ipcRenderer.send('ui:pc-revoke'),
+    toggleLog: () => ipcRenderer.send('ui:pc-log'),
+    openPreview: (id: string) => ipcRenderer.send('ui:pc-preview', String(id)),
+    height: (h: number) => ipcRenderer.send('ui:pc-height', Number(h)),
   },
   pane: {
     state: () => ipcRenderer.invoke('ui:pane-state'),

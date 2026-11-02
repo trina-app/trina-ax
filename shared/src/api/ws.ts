@@ -16,6 +16,7 @@ import { z } from 'zod'
 import { Uuid7 } from '../ids'
 import { ApiErrorBody, ErrorCode, RelPath } from './common'
 import { BrowserCall, BrowserResult } from './browser'
+import { PcCall, PcResult } from './pc'
 import { ArtifactSummary, ArtifactType, Chat, Job, JobKind, Memory, Message, MessageStatus, Step, UserRef } from './entities'
 import { CredentialLogin } from './credentials'
 import { SkillProblem } from './skills'
@@ -165,6 +166,10 @@ export const ServerEvent = z.discriminatedUnion('type', [
   ev('browser.call', z.object({ windowId: z.string(), call: BrowserCall })),
   /** the turn stopped; abandon this call */
   ev('browser.cancel', z.object({ windowId: z.string(), callId: z.string() })),
+  /** run a PC tool in the desktop app of the window that sent the turn (docs/DECISIONS.md "PC runner") */
+  ev('pc.call', z.object({ windowId: z.string(), call: PcCall })),
+  /** the turn stopped: end this call's command */
+  ev('pc.cancel', z.object({ windowId: z.string(), callId: z.string() })),
   ev('memory.changed', z.object({ change: z.enum(['created', 'updated', 'deleted', 'cleared']), memory: Memory.nullable() })),
   /** budget warnings, scheduled update, engine trouble (shown as a banner/toast) */
   ev('notice', z.object({ level: z.enum(['info', 'warn', 'error']), code: z.string(), message: z.string(), error: ApiErrorBody.optional(),
@@ -192,6 +197,10 @@ export const ClientFrame = z.discriminatedUnion('type', [
   /** the window received browser.call and started it (stops the server from re-sending after a reconnect) */
   z.object({ type: z.literal('browser.ack'), callId: z.string().min(1).max(100) }),
   z.object({ type: z.literal('browser.result'), result: BrowserResult }),
+  z.object({ type: z.literal('pc.ack'), callId: z.string().min(1).max(100) }),
+  z.object({ type: z.literal('pc.result'), result: PcResult }),
+  /** the call waits for the person in the desktop app, or no longer does: the turn's time limit pauses meanwhile */
+  z.object({ type: z.literal('pc.waiting'), callId: z.string().min(1).max(100), waiting: z.boolean() }),
 ])
 export type ClientFrame = z.infer<typeof ClientFrame>
 

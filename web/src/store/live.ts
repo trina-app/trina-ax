@@ -2,6 +2,7 @@
 import type { CredentialLogin, FileChange, Memory, ServerEvent } from '@mycel/shared/api'
 import { renewWindowId, windowId } from '../lib/api'
 import { BrowserRelay } from '../lib/browserRelay'
+import { PcRelay } from '../lib/pcRelay'
 import { browserSettingsBridge } from '../lib/desktop'
 import { openTeamFile } from '../lib/sidePanel'
 import { navigateTo } from '../lib/nav'
@@ -33,6 +34,7 @@ export const reloadAsked = new Emitter<'reset' | 'resync'>()
 
 let client: RealtimeClient | null = null
 let relay: BrowserRelay | null = null
+let pcRelay: PcRelay | null = null
 let firstServerVersion: string | null = null
 
 export function dispatch(ev: ServerEvent) {
@@ -128,6 +130,12 @@ export function dispatch(ev: ServerEvent) {
     case 'browser.cancel':
       relay?.cancel(ev.data.callId)
       return
+    case 'pc.call':
+      pcRelay?.handleCall(ev.data.call)
+      return
+    case 'pc.cancel':
+      pcRelay?.cancel(ev.data.callId)
+      return
     case 'session.ended':
       // after the person's own sign-out in this window the event (or the 4401 close) can still arrive: keep that screen
       if (useSession.getState().status.kind === 'signed-in') useSession.getState().signedOut('ended')
@@ -162,6 +170,7 @@ export function startLive() {
     },
   })
   relay = new BrowserRelay((f) => client?.send(f))
+  pcRelay = new PcRelay((f) => client?.send(f))
   client.start()
   window.addEventListener('online', nudge)
   document.addEventListener('visibilitychange', onVisible)

@@ -573,3 +573,95 @@ body.pane.driving .empty {
   color: var(--accent-ink);
   font-weight: 600;
 }
+
+/* the PC runner's bar under the team page: a view of its own (ui/pc.ts) */
+body.pc {
+  overflow: hidden auto;
+  background: var(--chrome);
+  border-top: 1px solid var(--line);
+}
+body.pc #root {
+  padding: 6px 12px;
+}
+body.pc .prompt {
+  margin: 2px 0 6px;
+}
+body.pc .prompt .where {
+  font-size: 12px;
+  word-break: break-all;
+}
+body.pc .prompt .warn {
+  margin-top: 6px;
+  color: var(--warn);
+  font-weight: 600;
+}
+body.pc .command {
+  margin: 8px 0 0;
+  padding: 6px 8px;
+  max-height: 180px;
+  overflow: auto;
+  background: var(--bg);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  color: var(--text);
+  font: 12px/1.45 ui-monospace, "SF Mono", Menlo, monospace;
+  white-space: pre-wrap;
+  word-break: break-all;
+}
+body.pc .command.detail {
+  max-height: 120px;
+  color: var(--muted);
+}
+body.pc .actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 10px;
+}
+body.pc .bar,
+body.pc .bg {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 30px;
+  font-size: 13px;
+}
+body.pc .bar .line {
+  flex: none;
+  font-weight: 600;
+}
+body.pc .bg .line,
+body.pc .bar .last {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--muted);
+  font-size: 12px;
+}
+body.pc .bar .spacer {
+  flex: 1;
+}
+body.pc .bar .last + .spacer {
+  flex: none;
+}
+body.pc .bar .dot {
+  flex: none;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--accent);
+  animation: pulse 1.2s ease-in-out infinite;
+}
+body.pc button {
+  flex: none;
+  padding: 3px 10px;
+}
+body.pc .log .what {
+  flex: 1;
+  min-width: 0;
+}
+body.pc .log .outcome {
+  flex: none;
+  color: var(--muted);
+}

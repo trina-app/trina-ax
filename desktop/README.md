@@ -13,6 +13,8 @@ desktop/
                            site access "ask" (default) / "all" (every public website, office addresses still ask)
     pane-activity.ts       what goes to the activity log and the one line over the page
     browser-result.ts      pane result -> BrowserResult on the wire (<= 20 items, size caps)
+    pc-run.ts              PC runner rules: workspace folders, paths, what a call needs, a command's environment
+    pc-sandbox.ts          PC runner: the macOS jail's profile for one command
     teams.ts               teams.json, partitions per team, fingerprints
     trust.ts               who may use the bridge (top frame of the app view, team origin only)
     file-chooser.ts        the store build's own open dialog for the team page's file input (multiple, folder, accept)
@@ -26,9 +28,11 @@ desktop/
     pane/net-guard.ts      office-network guard on the pane session (prompts, blocks, DNS rebinding stop)
     pane/classify.ts       host classification with DNS (cached)
     pane/page-script.js    refs / read_page / find / form helpers injected into pages
+    pc/runner.ts           PC runner: questions, workspaces, the tools, stop, what ends with the app
+    pc/jail.ts             PC runner: one program in the jail, in its own process group
   src/preload/app.ts       window.mycelDesktop for the team page (shared/src/desktop-bridge.ts)
   src/preload/ui.ts        window.mycelUi for the desktop's own screens
-  src/ui/                  welcome / team list, pane toolbar (plain TS + CSS, CSP 'self')
+  src/ui/                  welcome / team list, pane toolbar, the PC runner's bar (plain TS + CSS, CSP 'self')
   e2e/                     Playwright-Electron tests, fake team servers, fixture site
 ```
 
@@ -62,6 +66,20 @@ so the team server can refuse it as a second line.
 Packaged builds set Electron fuses (no `ELECTRON_RUN_AS_NODE` / `NODE_OPTIONS` / `--inspect`, cookies encrypted on
 disk, code only from `app.asar`); the packaged-app test therefore starts the app as a plain process.
 
+## The PC runner
+
+The AI stays on the team server; the `pc_*` tools run here, in a workspace folder the person chose for the project (design and
+what is still open: `docs/DECISIONS.md` "PC runner"). macOS only for now, and not the App Store build.
+
+1. The team page hands `pc.call` to `window.mycelDesktop.pc.run(call)` (`shared/src/desktop-bridge.ts createPcRelay`). It can pass
+   a call on and nothing more.
+2. The main process checks who is signed in. The runner asks in its own view (`src/ui/pc.ts`, under the team page): the workspace
+   folder the first time, then the call. Once, for this chat, or no. A login command and a secret file ask every time.
+3. The tool runs in the macOS jail, the file tools too (`pc-sandbox.ts`): only the workspace and a sandbox home in the app's own
+   folder. The result goes back as `pc.result`, without the folder's real path.
+
+Closing the app, switching the team, the stop button or another person signing in ends every command and what it started.
+
 ## Commands
 
 ```sh
@@ -69,6 +87,7 @@ bun run build          # dist/ (fetches the Electron binary on first use; bun sk
 bun run app            # build and start; opens the welcome screen (MYCEL_DESKTOP_TEAM=<address> adds and opens a team)
 bun run typecheck
 bun run test:e2e       # build + Playwright-Electron suite against e2e/fake-team-server.ts (ports 19151–19157)
+bunx playwright test -c e2e/pc-chain.config.ts  # the PC runner through the real server and web app (needs web/dist and native/bin)
 bun run dist:mac       # unsigned universal .dmg in release/ (signing / notarization needs the owner's Apple certificate)
 bun run dist:win       # unsigned Windows NSIS installer (x64); builds on macOS without wine (no exe resource editing)
 ```

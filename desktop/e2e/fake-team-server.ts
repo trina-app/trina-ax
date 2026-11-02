@@ -9,7 +9,8 @@
 //   attacker  http://attacker.test:19158 (= 127.0.0.1, "public"): logs every full request URL (GET /__log), for the
 //         exfiltration tests (exfil.spec.ts)
 //
-// Test control (any team port): POST /test/call, GET /test/result, GET /test/acks, POST /test/cancel, POST /test/policy
+// Test control (any team port): POST /test/call, GET /test/result, GET /test/acks, POST /test/cancel, POST /test/pc-call,
+// POST /test/pc-cancel, GET /test/pc-waiting, POST /test/policy
 // {allowAll} (Me.team.browserAllowAll: the team's "members can turn on 'Allow all websites'", settings.spec.ts).
 // Ports are in component E's range (19150–19159).
 import { X509Certificate } from 'node:crypto'
@@ -17,7 +18,7 @@ import { mkdirSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import type { ServerWebSocket } from 'bun'
 import { uuidv7 } from '@mycel/shared'
-import { BrowserResult, ClientFrame, type BrowserCall, type Me } from '@mycel/shared/api'
+import { BrowserResult, ClientFrame, PcResult, type BrowserCall, type Me, type PcCall } from '@mycel/shared/api'
 
 const HERE = import.meta.dir
 const WORK = join(HERE, '.work')
@@ -49,9 +50,11 @@ interface Team {
   port: number
   direct?: { port: number; announce: string }
   sockets: Map<string, ServerWebSocket<{ team: Team; windowId: string }>>
-  results: Map<string, BrowserResult[]>
+  results: Map<string, (BrowserResult | PcResult)[]>
   acks: Map<string, number>
-  waiters: Map<string, ((r: BrowserResult) => void)[]>
+  waiters: Map<string, ((r: BrowserResult | PcResult) => void)[]>
+  /** pc.waiting frames per call, in order (pc-runner.spec.ts) */
+  pcWaiting: Map<string, boolean[]>
   seq: number
   lastWindow?: string
   /** windows whose page found the desktop bridge (fake-web.ts adds bridge=desktop to /api/ws) */
@@ -69,7 +72,7 @@ interface Team {
   meUnavailable?: boolean
   anonymousMeGate?: { wait: Promise<void>; release: () => void; hits: number }
 }
-const team = (name: string, port: number, direct?: Team['direct']): Team => ({ name, port, direct, sockets: new Map(), results: new Map(), acks: new Map(), waiters: new Map(), seq: 0, skewMs: 0, bridged: new Set(), lanFailures: [], downloadHits: [], meHits: 0 })
+const team = (name: string, port: number, direct?: Team['direct']): Team => ({ name, port, direct, sockets: new Map(), results: new Map(), acks: new Map(), waiters: new Map(), pcWaiting: new Map(), seq: 0, skewMs: 0, bridged: new Set(), lanFailures: [], downloadHits: [], meHits: 0 })
 const TEAMS = [team('Acme', 19151), team('Beta', 19152), team('Lan', 19156, { port: 19154, announce: good.fingerprint }), team('Bad', 19157, { port: 19155, announce: good.fingerprint })]
 
 let lanControl: (t: Team, up: boolean) => Promise<void> = async () => {}
@@ -215,6 +218,22 @@ async function teamFetch(t: Team, req: Request, server: { upgrade: (r: Request, 
     if (!sendCall(t, call, windowId)) return json({ error: 'window not connected' }, 409)
     return json({ callId: call.callId, turnId: call.turnId })
   }
+  if (p === '/test/pc-call' && req.method === 'POST') {
+    const b = (await req.json()) as { windowId?: string; tool: string; args?: Record<string, unknown>; callId?: string; chatId?: string; project?: PcCall['project'] }
+    const windowId = b.windowId ?? t.lastWindow
+    const ws = windowId ? t.sockets.get(windowId) : undefined
+    if (!windowId || !ws) return json({ error: 'no window connected' }, 409)
+    const call: PcCall = { callId: b.callId ?? crypto.randomUUID(), turnId: uuidv7(), chatId: b.chatId ?? uuidv7(), project: b.project ?? { id: 'project-1', name: 'Falcon' }, tool: b.tool as PcCall['tool'], args: b.args ?? {} }
+    ws.send(JSON.stringify({ type: 'pc.call', seq: ++t.seq, at: Date.now(), data: { windowId, call } }))
+    return json({ callId: call.callId, chatId: call.chatId })
+  }
+  if (p === '/test/pc-cancel' && req.method === 'POST') {
+    const b = (await req.json()) as { callId: string; windowId?: string }
+    const windowId = b.windowId ?? t.lastWindow!
+    t.sockets.get(windowId)?.send(JSON.stringify({ type: 'pc.cancel', seq: ++t.seq, at: Date.now(), data: { windowId, callId: b.callId } }))
+    return json({ ok: true })
+  }
+  if (p === '/test/pc-waiting') return json({ waiting: t.pcWaiting.get(url.searchParams.get('callId') ?? '') ?? [] })
   if (p === '/test/cancel' && req.method === 'POST') {
     const b = (await req.json()) as { callId: string; windowId?: string }
     const windowId = b.windowId ?? t.lastWindow!
@@ -225,7 +244,7 @@ async function teamFetch(t: Team, req: Request, server: { upgrade: (r: Request, 
     const callId = url.searchParams.get('callId') ?? ''
     const have = t.results.get(callId)
     if (have?.length) return json({ result: have[0], count: have.length, acks: t.acks.get(callId) ?? 0 })
-    const r = await new Promise<BrowserResult | null>((resolve) => {
+    const r = await new Promise<BrowserResult | PcResult | null>((resolve) => {
       const timer = setTimeout(() => resolve(null), Number(url.searchParams.get('waitMs') ?? 60_000))
       const list = t.waiters.get(callId) ?? []
       list.push((x) => (clearTimeout(timer), resolve(x)))
@@ -252,9 +271,10 @@ const websocket = {
     const t = ws.data.team
     const f = ClientFrame.safeParse(JSON.parse(String(msg)))
     if (!f.success) return
-    if (f.data.type === 'browser.ack') t.acks.set(f.data.callId, (t.acks.get(f.data.callId) ?? 0) + 1)
-    if (f.data.type === 'browser.result') {
-      const r = BrowserResult.parse(f.data.result)
+    if (f.data.type === 'browser.ack' || f.data.type === 'pc.ack') t.acks.set(f.data.callId, (t.acks.get(f.data.callId) ?? 0) + 1)
+    if (f.data.type === 'pc.waiting') t.pcWaiting.set(f.data.callId, [...(t.pcWaiting.get(f.data.callId) ?? []), f.data.waiting])
+    if (f.data.type === 'browser.result' || f.data.type === 'pc.result') {
+      const r = f.data.type === 'pc.result' ? PcResult.parse(f.data.result) : BrowserResult.parse(f.data.result)
       const list = t.results.get(r.callId) ?? []
       list.push(r)
       t.results.set(r.callId, list)

@@ -27,6 +27,7 @@ import { templateToolRefusal } from './schedule-templates'
 import { cleanAiTitle, graphemes, setAiTitle, titleToolOffered } from './title'
 import { recordSent } from '../tools/connection-urls'
 import { boxShellTool } from '../devenv/tool'
+import { pcTools } from '../pc/tool'
 
 interface Tool {
   name: string
@@ -89,6 +90,12 @@ export function buildToolSet(exec: TurnExec): ChatToolSet {
         ? person.choose(question, options, { details: [{ label: 'Changes', text: details.join('\n') }] })
         : (await person.confirm(question, options[0]!.label, options[1]!.label, { details: [{ label: 'Changes', text: details.join('\n') }] })) ? options[0]!.value : null),
     }))
+  }
+  if (exec.pcProject) {
+    for (const t of pcTools({
+      ctx: exec.rt.ctx, relay: exec.rt.pcRelay, project: exec.pcProject, userId: exec.spec.userId, turnId: exec.spec.turnId, chatId: exec.spec.chatId,
+      windowId: exec.spec.windowId!, signal: exec.abort.signal, redact: (s) => exec.redact(s), onWaiting: (w) => exec.personInApp(w),
+    })) add(t)
   }
   if (exec.browser) for (const t of PANE_TOOLS) add(browserTool(exec, t.name as BrowserToolName, t.description, t.inputSchema as unknown as Record<string, unknown>))
   // per-person tools (external-service connections), built from saved data at the start of the turn

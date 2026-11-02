@@ -44,6 +44,8 @@ import { blankTeamAttachment, stopReasonOf, type MessageRow } from './store'
 import { BROWSER_TOOL_NAMES } from '../realtime/browser-tools'
 import { buildToolSet, type ChatToolSet } from './tools'
 import { devEnvFlag, mayUseBox } from '../devenv/setting'
+import { mayUsePc, pcRunnerFlag } from '../pc/setting'
+import { PC_TOOL_SET } from '../pc/tool'
 import { addSources, clearScope, sourceKey, sourceLabel, sourceOf, widening, type ReadSource } from './read-scope'
 import { authorize } from '../policy/authorize'
 import { readRegular, sha256 } from '../files/store'
@@ -121,6 +123,8 @@ export class TurnExec {
   browser = false
   /** the project whose dev environment box this turn may use (devenv/tool.ts box_shell), else null */
   devEnv: { id: string; folderPath: string; name: string } | null = null
+  /** the project whose PC runner tools this turn offers (pc/tool.ts), else null */
+  pcProject: { id: string; folderPath: string; name: string } | null = null
   principal: Principal | null = null
   private templateScope = false
   /** office-network hosts the person allowed "once" in this turn */
@@ -291,6 +295,12 @@ export class TurnExec {
       const p = rt.store.projectRow(chat.project_id)
       if (p && mayUseBox(rt.db, rt.files, { id: p.id, folderPath: p.folder_path }, spec.userId)) this.devEnv = { id: p.id, folderPath: p.folder_path, name: p.name }
     }
+    // PC runner (pc/setting.ts): only a turn sent from a connected desktop app window (this.browser), so the call can go
+    // to that person's own app; never a scheduled run or an approved template run, the same rule as the box
+    if (pcRunnerFlag() && this.browser && chat.project_id && !this.templateScope) {
+      const p = rt.store.projectRow(chat.project_id)
+      if (p && mayUsePc(rt.db, rt.files, { id: p.id, folderPath: p.folder_path }, spec.userId)) this.pcProject = { id: p.id, folderPath: p.folder_path, name: p.name }
+    }
     const toolSet = buildToolSet(this)
     this.toolSet = toolSet
     const extraTools = toolSet.list().map((t) => t.name)
@@ -330,14 +340,14 @@ export class TurnExec {
     const skillList = buildSkillList(skills, { order: chatSkillOrder(rt.db, spec.chatId, spec.userId, () => descriptionOrder(skills, skillScores)), tag: neutralizeTags })
     const promptInput = (fresh: boolean): PromptInput => ({
       user: this.principal!, groupNames: rt.groupNames(this.principal!), locale: spec.locale, timeZone: rt.timeZone,
-      memories: rt.memoriesForPrompt(spec.userId), project, browser: this.browser, tools: extraTools,
+      memories: rt.memoriesForPrompt(spec.userId), project, browser: this.browser, pcRunner: toolSet.has('pc_shell'), tools: extraTools,
       history: fresh ? rt.history(userMsg.parent_id) : null, connected: toolSet.prompt.join('\n\n') || null, subagents, skillList,
     })
     // what a general-purpose sub-agent may use, and the instructions every sub-agent gets (memories and history never)
     const turnTools = [...Object.keys(FILE_TOOLS), ...extraTools]
     const childTools = turnTools.filter((t) => !PARENT_ONLY_TOOLS.has(t))
     const subagentLaunch = () => subagents
-      ? { agents: buildAgentDefinitions({ tools: turnTools, webSearch }), prompt: buildSubagentPrompt(rt.files, { ...promptInput(false), memories: [], browser: false }, childTools) }
+      ? { agents: buildAgentDefinitions({ tools: turnTools, webSearch }), prompt: buildSubagentPrompt(rt.files, { ...promptInput(false), memories: [], browser: false, pcRunner: false }, childTools) }
       : undefined
     // the answer before this message: a resumed session ends there, so it remembers what that answer's session did
     const before = userMsg.parent_id ? rt.store.messageRow(userMsg.parent_id) : null
@@ -1015,8 +1025,9 @@ export class TurnExec {
   /** web results, browser pages, files outside the person's own folder = content someone else wrote */
   noteTaint(tool: string, input: unknown) {
     // what the in-app browser showed (pages the person is signed in to) counts as seen by this person only (tab 7)
-    if (BROWSER_TOOL_NAMES.has(tool)) addSources(this.rt.db, this.spec.chatId, [{ type: 'user', id: this.spec.userId }])
-    if (tool === 'WebSearch' || tool === 'web_search' || tool === 'web_fetch' || BROWSER_TOOL_NAMES.has(tool)) return this.taint()
+    // so does what came from the person's own computer (the PC runner), and it can hold anything: outside content
+    if (BROWSER_TOOL_NAMES.has(tool) || PC_TOOL_SET.has(tool)) addSources(this.rt.db, this.spec.chatId, [{ type: 'user', id: this.spec.userId }])
+    if (tool === 'WebSearch' || tool === 'web_search' || tool === 'web_fetch' || BROWSER_TOOL_NAMES.has(tool) || PC_TOOL_SET.has(tool)) return this.taint()
     if (['read', 'grep', 'glob', 'list'].includes(tool)) {
       const a = (input ?? {}) as Record<string, unknown>
       const p = String(a.file_path ?? a.path ?? '')
@@ -1215,6 +1226,9 @@ export class TurnExec {
     return 'ok'
   }
 
+  /** The desktop app waits for the person about a PC tool (pc.waiting): the time limit pauses like it does for a card. */
+  personInApp(waiting: boolean) { this.humanWaits = Math.max(0, this.humanWaits + (waiting ? 1 : -1)) }
+
   openRequests(): { request: TurnRequest; window: string | null }[] { return [...this.requests.values()].map((r) => ({ request: r.request, window: r.window })) }
 
   private closeRequest(requestId: string, value: unknown, reason: 'answered' | 'timeout' | 'turn_ended') {
@@ -1305,6 +1319,7 @@ export class TurnExec {
     if (this.stopGrace) clearTimeout(this.stopGrace)
     for (const [id] of this.requests) this.closeRequest(id, null, 'turn_ended')
     this.rt.relay.cancelTurn(this.id)
+    this.rt.pcRelay.cancelTurn(this.id)
     this.proxyUnsubscribe?.()
     try { revokeProxyTokens(this.rt.db, this.id) } catch {}
     // what was still running when the turn was stopped, or is still running now (an event read after the stop)

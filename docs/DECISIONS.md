@@ -5167,6 +5167,10 @@ stop; a scheduled run skips files over 1 GB.
 
 ## Dev environment (experiment) (feat/dev-env, 2026-10-31)
 
+**Superseded by "PC runner" (2026-11-02).** The joint review named below ended with the runner design: code runs on the
+person's computer, and the boxes close. Nothing here is removed yet: a render still runs in a box, so the box code goes after
+step 3 of the PC runner has moved it. New work goes to the PC runner.
+
 Status: EXPERIMENT, off by default, in main since 2026-11-01. The owner approved on 2026-11-02 that the Linux kit ships
 `mycel-boxd`. A second team and any default-on step still need the owner and the joint review (continue / switch to a
 "runner" design / put on hold). Input: Dion's 개발 환경 plan, our review (7 holes),
@@ -5793,3 +5797,152 @@ on every call as before.
   nowhere in clear), `web/test/e2e/integration-requests.spec.ts` (both screens, the host warning),
   `tests/security/lib/integrations-cases.ts` (the routes' levels).
 - Needed in the core too (potenlab/team-ax): everything here; nothing is Trina-specific.
+
+## PC runner (feat/pc-runner, 2026-11-02)
+
+The owner's decision of 2026-11-02: the AI stays on the team server; files change and commands run in the desktop app of the
+person who asked. The code's home is a git host, and the PC holds a clone. A box per project was too much for a server (a root
+helper, podman, the disk and CPU rules above), and a box has no login, so `git push` could never work there. This replaces it.
+
+Step 1 of 3 is built: developers, macOS only, a git host that already exists (GitHub). Step 2 is a git server in the team server
+with a checked-out latest copy. Step 3 is Windows, people who are not developers, and moving the video render off the box.
+The boxes close after step 3.
+
+```
+team server                                         the person's computer (desktop app)
+ engine (no Bash, --restricted)                      the app's own view: the person says yes or no
+   | mcp__team__pc_* call                                | yes
+   v                                                     v
+ pc/tool.ts -- WebSocket of the window that sent --> runner -> macOS jail -> the workspace folder
+             <-- the turn: pc.call, pc.result ---
+```
+
+The engine and the model token never leave the server. Only the call and its result travel.
+
+### The rules, and what each is there for
+
+The computer has SSH keys, browser cookies, `.env` files and git logins, and the AI reads web pages and files that can hold
+instructions. So everything here assumes the AI may be talked into something, and that the team page may be too.
+
+- **Off twice.** The server needs `MYCEL_PC_RUNNER=1`; without it `/api/projects/:id/pc-runner*` answers 404 and no turn gets the
+  tools. An owner or admin then turns it on per project (team folders only), after accepting warning version 1. A newer
+  warning turns every project off until accepted again. Same shape as the box; a setting of its own, because the box goes away.
+- **Folder permissions stay the only permission model.** Scope `writers` or `selected`, and write access to the project folder
+  in both, checked at the start of the turn and again on every call (`pc/setting.ts mayUsePc`).
+- **Only the turn's own window.** The tools are offered only to a turn from a connected desktop window, so an admin's turn or
+  someone else's cannot run on this computer. A scheduled run, an approved template run, a sub-agent and a confidential chat
+  never get them. What a call returns counts as outside content (taint) and as seen by this person only (read scope).
+- **The answer belongs to the app's own view.** The team page can pass a call on; it has no channel to answer. The question
+  appears in `pc.html`, a view of its own under the team page, so the page can neither draw over it nor reach its buttons. The
+  main process takes an answer only from that view (`fromPcView`). The same reason as the browser pane: a page served through
+  the relay is not the person. Buttons work 600 ms after a question appears, so a click meant for the chat does not land on one.
+- **What is on the card is what runs.** Control and bidirectional characters show as `\u{...}`, and a run of blank lines or
+  spaces shows as a count, so nothing can sit out of view (`visibleText`). A write shows its text, an edit both sides.
+- **Ask every time, or for this chat.** "This chat" lives in memory only, for one project and one chat, and goes with the app, the
+  stop button and a sign-out. Reads ask too, because what is read reaches the server; "this chat" is the relief for that. Keeping
+  one rule is on purpose: a read of the wrong file is how a secret leaves.
+- **The workspace folder is the person's choice.** One per project, in the system's dialog; the server cannot name a path. The
+  home, anything above it, `Documents` as a whole, `Library`, dot folders of the home and system folders are refused. It is
+  forgotten when another person signs in, like the in-app browser's data.
+- **Paths stay on the computer.** The AI sees `.` and `~`. The folder and the person's name are taken out of everything that goes
+  back (`scrubPaths`). This is a courtesy, not a boundary: a command could encode a path.
+
+### The jail (`desktop/src/common/pc-sandbox.ts`)
+
+`sandbox-exec` with a profile built for each command. Everything below was run against the real `sandbox-exec` on macOS 26
+(`tests/unit/e-pc-sandbox.test.ts`, which tries the escapes and looks at the effect).
+
+- **Deny by default, then what dev tools need.** The first idea was `(allow default)` with a list of closed places. It does not
+  hold: LaunchServices (`open`), AppleEvents (`osascript`) and launchd jobs each run a program outside the jail, and a list of
+  secret places is never complete. So: no mach service but a short list that starts nothing, IP sockets and DNS but no unix
+  socket (a Docker socket is root on the machine; an ssh agent signs anything), and of the home only the folders of tools.
+- **Writes go to the workspace and a sandbox home.** `HOME` and `TMPDIR` point into the app's own folder, so `npm install` keeps its
+  cache there and nothing lands in the person's home.
+- **Secret files of the workspace are closed for writing too.** `.env`, key files and the like, by name. Reading alone is not
+  enough: `mv .env x` and `ln .env x` give the same bytes another name, and both were tried. Templates (`.env.example`) and what
+  package managers install (`certifi/cacert.pem`) stay open. `(allow file-read* ...)` does not undo `(deny file-read-data ...)`:
+  an allow must name the same operations.
+- **The file tools run in the jail too.** `cat`, `sh`, `grep` and `find` under the same profile. The main process never opens a
+  file of the workspace, so a symlink that a background process swapped in reaches nothing, there is no check-then-use gap, and a
+  catastrophic regular expression hangs a process that gets killed, not the app.
+- **`bash -c`, not the `bash -lc` of the plan.** A login shell reads the person's profile, and exports there are where tokens live:
+  they would land in every command's environment. The PATH comes from the person's shell once, outside the jail, and nothing else
+  of it. A command's environment is written out whole (`commandEnv`); nothing comes from the app's own.
+
+### Logins and git
+
+A command that uses a login needs what the jail closes, and a command that gets a login can do anything with it. So the grant is
+narrow, and the pattern that gives it is not the boundary.
+
+- **The grant is for one plain command.** `CREDENTIAL_COMMAND` is shared with the box and stays a wide list: it answers "could this
+  use a login". As a grant that is wrong: `python3 evil.py git push` matches it, and `./evil.sh && git push` too. `loginCommand`
+  therefore takes such a command only alone at the start of the line, with no shell operators. Anything else runs without the
+  grant and fails closed. The AI gets a hint that says so. A command whose arguments name a program or settings gets no grant either
+  (`ssh -o ProxyCommand=./x`, `git clone -c core.sshCommand=./x`, `git submodule foreach ./x`, `scp -S`, `rsync -e`). That list cannot
+  be complete, so the person reading the card remains the gate: it only keeps the plain forms from passing as a push.
+- **The person is asked every time**, and "this chat" is not offered. The grant opens `~/.ssh`, git and CLI logins, the keychain's
+  services and the ssh agent to read; nothing there can be written, and `Documents` or a browser stay closed.
+- **A plain command cannot prepare the next login, or the person's own terminal.** `.git` is closed to it except the data plain git
+  writes: index, objects, refs, logs, upper-case state files and the folders of an operation under way. The first version closed
+  a list of dangerous files (`config`, `hooks`), and an independent review got around it end to end: `.git/commondir` points git at a
+  config in any folder, so a plain command under "this chat" planted `core.sshCommand` for the next approved `git push` (the login
+  grant ran it) and `core.fsmonitor` for the person's next `git status` in their own terminal (no jail at all). The list is
+  inverted now, and every allowed name is written out, so a control file git adds later stays closed. The first inverted version
+  allowed `[A-Z][A-Z_]*` for git's state files, and the attack still worked: **SBPL regular expressions ignore case**, so that class
+  also matched `config` and `commondir`. The name `.git` itself is closed too: `mv .git g; echo evil >> g/config; mv g .git`. `git
+  init`, `git config` and `git remote` count as login commands (`GIT_CONTROL_COMMAND`). A test runs the whole of plain git in the
+  jail, and the attacks against it.
+- **With the grant, git runs nothing of the workspace:** `core.hooksPath=/dev/null`, `core.fsmonitor=false`,
+  `safe.bareRepository=explicit` (a plain command can lay out a bare repository with its own config in any folder), `GIT_ALLOW_PROTOCOL`
+  without `ext`, and `npm_config_ignore_scripts`. A test pushes for real and sees no hook run.
+
+### Decisions the plan left open
+
+- **Relay:** one base, two relays. `realtime/call-relay.ts` holds what is subtle and the same (callId dedupe, resend on reconnect, a
+  window that stays away), and `BrowserRelay` and `PcRelay` name their frames. The browser's behaviour did not change; its tests run
+  unchanged. The PC gets its own frames (`pc.call`, `pc.ack`, `pc.result`, `pc.cancel`, `pc.waiting`) and a limit per call, because a
+  command takes up to 1800 s against 4 minutes for a browser tool. No long-poll: the web app has never used that path. A PC relay
+  also resends calls the window already acked: the team page's `windowId` survives a reload, the page loses its promise, and the app
+  answers the same callId with the same result. Without this a reload would leave the turn waiting out the command's time limit.
+- **`pc.waiting`:** the server cannot see the person deciding in the app, so the app says so and the turn's time limit pauses, as it
+  does for a card. The folder card and the system dialog are one wait.
+- **`background`: yes**, for dev servers. It runs in the jail, its log is in the sandbox home, and it ends with the app. **Preview:** a
+  button in the app's bar opens `http://127.0.0.1:<port>/` in the person's own browser on their click. The in-app browser keeps
+  refusing this computer, with no exception: the AI drives that browser, and an exception would hand it every local service.
+- **`job`: not in step 1.** Its one user is the video render, which moves in step 3. A foreground command has 1800 s meanwhile.
+- **Paths:** relative for the AI, as above.
+- **Box code** stays until step 3 is done.
+- **Stop:** the stop button ends every command and background process, says no to every question, and takes "this chat" back.
+
+### What is still open
+
+Accepted for step 1, which is for developers on their own computers. Each is worth a look before step 3.
+
+- **The network is open.** A command can reach the internet and this computer's ports. So an approved command can send out the
+  workspace, and under "this chat" nobody reads the command first. The warning an admin accepts says so. SBPL cannot filter by host
+  name; an allowlist would need a local proxy.
+- **The workspace itself is not secret to a command.** Only files with secret names are closed. `config/prod.yml` with a password in
+  it is plain text to the jail.
+- **Another process's argv and environment** can be read one pid at a time: the kernel checks only the uid, as `scripts/macos/engine.sb`
+  notes. The jail refuses `ps` (setuid), not the system call.
+- **A process that leaves its group** (`setsid`) stays in the jail but outlives the app, and a crash of the app leaves children
+  running. Closing the app normally ends everything else; `pc-runner.spec.ts` checks that.
+- **File names** can be watched through FSEvents, which dev servers need for reloads.
+- **A person can approve something bad.** A login card shows the whole command, and that is all it can do.
+- **What the AI writes runs when the person runs it.** `package.json` scripts, a Makefile, `.husky/`, or an `exec` line in
+  `rebase-merge/git-rebase-todo` or `sequencer/todo` (if the person continues a rebase they did not start; the second review
+  reproduced this, and jailed `git rebase` needs those folders) are files of the workspace or data of plain git. They run outside
+  the jail when the person starts them in their own terminal. That is what reviewing a change before running it is for.
+- **A login command runs what its tool runs.** `cargo publish` builds the crate, `aws` and `gcloud` have plugins, and `gh auth token`
+  prints a token that then reaches the model. Those go through a card that names the whole command, and nothing more stops them.
+- **Not run:** the packaged, signed app (hardened runtime, the Documents permission prompt) and a real push to a real host from
+  the app. A real `git ls-remote` over SSH and `gh auth status` worked under the login profile, and a test pushes to a local bare
+  repository. The Mac App Store build refuses, because its sandbox cannot start `sandbox-exec`. Windows refuses for now.
+
+**Not built in step 1:** the git server, the checked-out copy and the automatic git login (step 2), the project screen's last push
+(step 2; it shows on/off and the activity), Git Bash and installing tools on demand (step 3).
+
+Tests: `tests/unit/e-pc-run.test.ts` (rules), `e-pc-sandbox.test.ts` (the real jail), `e-pc-relay.test.ts`, `b-pc-runner.test.ts` (the
+server, with a socket as the app), `web/test/unit/pc-relay.test.ts`, `desktop/e2e/pc-runner.spec.ts` (the real app and a real shell
+against the fake team server), `desktop/e2e/pc-chain.spec.ts` (a message in the real web app inside the real app, through the real
+server with the fake engine, to the answer in the chat).
