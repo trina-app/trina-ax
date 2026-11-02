@@ -12,9 +12,9 @@
 
 [English](README.md) · [한국어](README.ko.md) · 日本語 · [Español](README.es.md) · [简体中文](README.zh-CN.md)
 
-<img src="docs/images/readme/hero-day-one.gif" width="100%" alt="新しく入ったメンバーが「Write a proposal for Trina Logistics.」と1行入力すると、AI が社長の提案書スキルとチームの営業資料を読み、7ページの提案書を保存してチャットの横に開きます。">
+https://github.com/user-attachments/assets/566eb7b0-9e21-4898-9c25-e4399e8d3e74
 
-<sub><b>入社初日、1行だけ：</b>「Write a proposal for Trina Logistics.」と頼むと、AI がチームの営業資料を読み、社長の <code>proposal</code> スキルに沿って7ページの提案書を保存しました。<br>実際のアプリ（画面は英語）に、架空の会社のデータを入れています。生成には81秒かかりました。動画は早送りです。</sub>
+<sub><b>97秒・音声あり（英語）。</b>チームリーダーが Claude を一度セットアップすれば、入社初日の新人の提案書もリーダーが作ったように仕上がります。<br>アニメーションで、1:15 に実際のアプリ画面が出ます。会社は架空です。</sub>
 
 </div>
 

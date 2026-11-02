@@ -12,9 +12,9 @@ Claude Code y Codex en un servidor de tu empresa, con tus archivos, las skills d
 
 [English](README.md) · [한국어](README.ko.md) · [日本語](README.ja.md) · Español · [简体中文](README.zh-CN.md)
 
-<img src="docs/images/readme/hero-day-one.gif" width="100%" alt="Una persona recién incorporada al equipo escribe una sola línea: “Write a proposal for Trina Logistics”. La IA lee la skill de propuestas del CEO y los archivos de ventas del equipo, y después guarda una presentación de 7 diapositivas que se abre junto al chat.">
+https://github.com/user-attachments/assets/566eb7b0-9e21-4898-9c25-e4399e8d3e74
 
-<sub><b>Primer día, una sola línea:</b> “Write a proposal for Trina Logistics”. La IA leyó los archivos de ventas del equipo, siguió la skill <code>proposal</code> del CEO y guardó una presentación de 7 diapositivas.<br>App real (pantalla en inglés), empresa ficticia. La generación tardó 81 segundos; el clip está acelerado.</sub>
+<sub><b>97 segundos, con sonido (en inglés).</b> Un líder de equipo configura Claude una vez y, en su primer día, la propuesta de una nueva integrante sale como la suya.<br>Historia animada con la app real en el 1:15. Empresa ficticia.</sub>
 
 </div>
 

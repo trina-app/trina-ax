@@ -12,9 +12,9 @@
 
 [English](README.md) · 한국어 · [日本語](README.ja.md) · [Español](README.es.md) · [简体中文](README.zh-CN.md)
 
-<img src="docs/images/readme/hero-day-one.gif" width="100%" alt="입사 첫날 팀원이 'Write a proposal for Trina Logistics.' 한 줄을 입력하자, AI가 대표의 제안서 스킬과 팀 영업 자료를 읽고 7쪽짜리 제안서를 저장해 채팅 옆에 열어요.">
+https://github.com/user-attachments/assets/c07411b0-6c11-4df5-bb17-2b1ff79308ea
 
-<sub><b>입사 첫날, 한 줄:</b> “Write a proposal for Trina Logistics.” AI가 팀 영업 자료를 읽고 대표의 <code>proposal</code> 스킬대로 7쪽 제안서를 저장했어요.<br>실제 앱(영어 화면)에 가상 회사 자료를 넣었어요. 만드는 데 81초 걸렸고, 영상은 빨리 감았어요.</sub>
+<sub><b>97초, 소리를 켜고 보세요.</b> 대표님이 Claude를 한 번 세팅하면, 입사 첫날 신입의 제안서도 대표님이 쓴 것처럼 나와요.<br>애니메이션이고, 1:15에 실제 앱 화면이 나와요. 회사는 가상이에요.</sub>
 
 </div>
 

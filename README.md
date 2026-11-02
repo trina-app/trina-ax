@@ -12,9 +12,9 @@ Claude Code and Codex on one company server, with your files, your team's skills
 
 English · [한국어](README.ko.md) · [日本語](README.ja.md) · [Español](README.es.md) · [简体中文](README.zh-CN.md)
 
-<img src="docs/images/readme/hero-day-one.gif" width="100%" alt="A new team member types one line, 'Write a proposal for Trina Logistics.' The AI reads the CEO's proposal skill and the team's sales files, then saves a 7-page deck that opens next to the chat.">
+https://github.com/user-attachments/assets/566eb7b0-9e21-4898-9c25-e4399e8d3e74
 
-<sub><b>Day one, one line:</b> “Write a proposal for Trina Logistics.” The AI read the team's sales files, followed the CEO's <code>proposal</code> skill and saved a 7-page deck.<br>Real app, fictional company. Generation took 81 seconds; the clip is sped up.</sub>
+<sub><b>97 seconds, sound on.</b> A team lead sets up Claude once, and on her first day a new hire’s proposal comes out like his.<br>Animated story with the real app at 1:15. Fictional company.</sub>
 
 </div>
 
