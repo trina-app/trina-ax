@@ -9,7 +9,7 @@ import { accessChanged, reloadAsked, skillsChanged } from '../store/live'
 export const skillPrompt = (name: string) => '/' + name + ' '
 
 /**
- * Team skills with the most uses in the last 30 days (uses · people). The Skills page shows the full list.
+ * Team skills with the most uses in the last 30 days (uses · people).
  * The new-chat home (B-W7-7) shows the top `limit` rows, and a row fills the composer through `onChoose`.
  */
 export function PopularSkills({ limit, onChoose, className = 'mb-5' }: { limit?: number; onChoose?: (prompt: string) => void; className?: string }) {

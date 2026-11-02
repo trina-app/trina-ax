@@ -1,8 +1,9 @@
 // 팀 스킬 (docs/DECISIONS.md "팀 스킬 관리"): the skills I can use (everyone, read-only: components/AvailableSkills.tsx),
 // suggestions to review for the folders I manage ([등록] writes the skill under skills/, [거절] turns it down), my own
 // suggestions with their status, and for the owner and admins every recent change under skills/ with a link to its
-// version history (where the previous version can be restored).
-import { Bot, History, Lightbulb } from 'lucide-react'
+// version history (where the previous version can be restored). Quiet on purpose: rows keep to a line or two, the
+// details open on demand.
+import { Bot, History, Lightbulb, Search } from 'lucide-react'
 import { useCallback, useEffect, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import type { SkillChange, SkillSuggestion, SkillsOverview } from '@mycel/shared/api'
@@ -15,10 +16,9 @@ import { isAdmin, useMeStrict } from '../store/session'
 import { toast } from '../store/ui'
 import { AvailableSkills } from '../components/AvailableSkills'
 import { Markdown } from '../components/Markdown'
-import { PopularSkills } from '../components/PopularSkills'
 import { SkillIssues } from '../components/SkillIssues'
 import { SkillListNote } from '../components/SkillListNote'
-import { Badge, Button, EmptyState, ErrorNote, Field, Modal, PageHeader, Skeleton, Tabs, inputCls, promptDialog } from '../components/ui'
+import { Badge, Button, EmptyState, ErrorNote, Field, Modal, Skeleton, Tabs, inputCls, promptDialog } from '../components/ui'
 
 type Tab = 'skills' | 'review' | 'mine' | 'changes'
 
@@ -38,6 +38,7 @@ export default function Skills() {
   const [error, setError] = useState<string | null>(null)
   const manages = !!overview?.managedFolders.length
   const [tab, setTab] = useState<Tab>(params.get('mine') ? 'mine' : params.get('review') ? 'review' : 'skills')
+  const [query, setQuery] = useState('')
   const [review, setReview] = useState<SkillSuggestion[] | null>(null)
   const [mine, setMine] = useState<SkillSuggestion[] | null>(null)
   const [changes, setChanges] = useState<SkillChange[] | null>(null)
@@ -65,6 +66,11 @@ export default function Skills() {
     if (overview && !params.get('mine') && overview.pendingReview > 0) setTab('review')
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [overview === null])
+  // a banner's link while already on this page
+  useEffect(() => {
+    if (params.get('mine')) setTab('mine')
+    else if (params.get('review')) setTab('review')
+  }, [params])
   // a banner's link: /skills?review=<id> opens that suggestion
   useEffect(() => {
     const id = params.get('review')
@@ -74,12 +80,12 @@ export default function Skills() {
     else api.call(API.getSkillSuggestion, { params: { id } }).then((x) => x.canReview && setOpen(x), () => {})
     setParams({}, { replace: true })
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [review])
+  }, [review, params])
 
   const tabs: { id: Tab; label: string }[] = [
-    ...(manages ? [{ id: 'review' as const, label: `${t('skills.tabReview')}${overview!.pendingReview ? ` (${overview!.pendingReview})` : ''}` }] : []),
     // what everyone can use, members included (before: a member's page listed no skill at all)
     { id: 'skills', label: t('skills.tabSkills') },
+    ...(manages ? [{ id: 'review' as const, label: `${t('skills.tabReview')}${overview!.pendingReview ? ` (${overview!.pendingReview})` : ''}` }] : []),
     { id: 'mine', label: t('skills.tabMine') },
     ...(isAdmin(me) ? [{ id: 'changes' as const, label: t('skills.tabChanges') }] : []),
   ]
@@ -87,23 +93,32 @@ export default function Skills() {
 
   return (
     <div className="flex h-full flex-col overflow-y-auto">
-      <PageHeader title={t('skills.title')} desc={t('skills.desc')} />
       <div className="w-full max-w-4xl p-4 sm:p-6">
+        <div className="mb-5 flex flex-wrap items-center gap-x-4 gap-y-3">
+          <h1 className="text-xl font-semibold tracking-tight">{t('skills.title')}</h1>
+          {overview && <Tabs segmented value={current} onChange={setTab} items={tabs} label={t('skills.title')} />}
+          {overview && current === 'skills' && (
+            <div className="relative w-full sm:ml-auto sm:w-56">
+              <Search size={15} className="pointer-events-none absolute top-1/2 left-3 -translate-y-1/2 text-faint" aria-hidden />
+              <input type="search" value={query} onChange={(e) => setQuery(e.target.value)} placeholder={t('skills.search')} aria-label={t('skills.search')} className={`${inputCls} pl-9`} data-testid="skill-search" />
+            </div>
+          )}
+        </div>
         <SkillIssues key={`issues-${me.user.id}`} className="mb-5" />
         <SkillListNote list={overview?.aiList} className="mb-5" />
-        <PopularSkills key={me.user.id} />
         {error && <ErrorNote onRetry={() => void load()}>{error}</ErrorNote>}
         {!overview && !error && <Skeleton lines={5} />}
         {overview && (
           <>
-            {manages && <p className="mb-3 text-xs text-muted">{t('skills.managedHint', { folders: overview.managedFolders.map((f) => f + '/').join(', ') })}</p>}
-            <Tabs value={current} onChange={setTab} items={tabs} label={t('skills.title')} />
-            <div className="mt-4">
-              {current === 'skills' && <AvailableSkills key={`skills-${me.user.id}`} />}
-              {current === 'review' && <SuggestionList items={review} empty={t('skills.noReview')} onOpen={setOpen} testId="review-list" />}
-              {current === 'mine' && <SuggestionList items={mine} empty={t('skills.noMine')} testId="mine-list" />}
-              {current === 'changes' && <ChangeList items={changes} />}
-            </div>
+            {current === 'skills' && <AvailableSkills key={`skills-${me.user.id}`} query={query} />}
+            {current === 'review' && (
+              <>
+                <p className="mb-3 text-xs text-muted">{t('skills.managedHint', { folders: overview.managedFolders.map((f) => f + '/').join(', ') })}</p>
+                <SuggestionList items={review} empty={t('skills.noReview')} onOpen={setOpen} testId="review-list" />
+              </>
+            )}
+            {current === 'mine' && <SuggestionList items={mine} empty={t('skills.noMine')} testId="mine-list" />}
+            {current === 'changes' && <ChangeList items={changes} />}
           </>
         )}
       </div>
@@ -132,21 +147,22 @@ function SuggestionList({ items, empty, onOpen, testId }: { items: SkillSuggesti
   const locale = useLocale()
   if (!items) return <Skeleton lines={3} />
   if (!items.length) return <EmptyState icon={<Lightbulb size={22} />} title={empty} />
+  const meta = (s: SkillSuggestion) => [
+    t('skills.into', { folder: s.targetFolder + '/' }),
+    t('skills.by', { name: s.suggester.name, time: formatDateTime(s.createdAt, locale) }),
+    ...(s.reviewer ? [t('skills.reviewedBy', { name: s.reviewer.name })] : []),
+  ].join(' · ')
   return (
-    <ul className="divide-y divide-line rounded-2xl border border-line bg-surface" data-testid={testId}>
+    <ul className="divide-y divide-line" data-testid={testId}>
       {items.map((s) => (
-        <li key={s.id} className="flex flex-wrap items-start gap-3 px-4 py-3 text-sm" data-testid="suggestion" data-status={s.status}>
+        <li key={s.id} className="flex flex-wrap items-start gap-3 py-3 text-sm" data-testid="suggestion" data-status={s.status}>
           <span className="min-w-0 flex-1">
             <span className="flex flex-wrap items-center gap-2">
               <span className="font-medium">{s.name}</span>
               <StatusBadge s={s} />
             </span>
-            {s.description && <span className="block text-xs text-muted">{s.description}</span>}
-            <span className="block text-xs text-faint">
-              {t('skills.into', { folder: s.targetFolder + '/' })} · {t('skills.by', { name: s.suggester.name, time: formatDateTime(s.createdAt, locale) })} ·{' '}
-              {s.source.kind === 'file' && s.source.path ? t('skills.source.file', { path: s.source.path }) : t('skills.source.message')}
-            </span>
-            {s.reviewer && <span className="block text-xs text-faint">{t('skills.reviewedBy', { name: s.reviewer.name })}</span>}
+            {s.description && <span className="mt-0.5 block truncate text-xs text-muted" title={s.description}>{s.description}</span>}
+            <span className="block truncate text-xs text-faint" title={meta(s)}>{meta(s)}</span>
             {s.reviewNote && <span className="block text-xs text-muted" data-testid="review-note">{t('skills.reviewNote', { note: s.reviewNote })}</span>}
             {s.resultPath && (
               <button type="button" className="block text-xs text-accent-text hover:underline" onClick={() => navigateTo(`/files?path=${encodeURIComponent(s.resultPath!.slice(0, s.resultPath!.lastIndexOf('/')))}&select=${encodeURIComponent(s.resultPath!)}`)}>
@@ -171,9 +187,9 @@ function ChangeList({ items }: { items: SkillChange[] | null }) {
   if (!items) return <Skeleton lines={3} />
   if (!items.length) return <EmptyState icon={<History size={22} />} title={t('skills.noChanges')} />
   return (
-    <ul className="divide-y divide-line rounded-2xl border border-line bg-surface" data-testid="change-list">
+    <ul className="divide-y divide-line" data-testid="change-list">
       {items.map((c) => (
-        <li key={c.id} className="flex flex-wrap items-center gap-2 px-4 py-2.5 text-sm" data-testid="skill-change">
+        <li key={c.id} className="flex flex-wrap items-center gap-2 py-2.5 text-sm" data-testid="skill-change">
           <Badge tone={c.change === 'delete' ? 'danger' : 'neutral'}>{t(`skills.change.${c.change}`)}</Badge>
           <span className="min-w-0 flex-1">
             <span className="block truncate font-mono text-xs" title={c.path}>

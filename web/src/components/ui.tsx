@@ -399,9 +399,10 @@ export function CopyButton({ text, html, label, className, showLabel }: { text: 
 }
 
 // ---------------- simple tabs ----------------
-export function Tabs<T extends string>({ value, onChange, items, label }: { value: T; onChange: (v: T) => void; items: { id: T; label: string }[]; label: string }) {
+/** `segmented`: the tabs sit in one quiet pill group, for a page's main switch next to its title. */
+export function Tabs<T extends string>({ value, onChange, items, label, segmented }: { value: T; onChange: (v: T) => void; items: { id: T; label: string }[]; label: string; segmented?: boolean }) {
   return (
-    <div role="tablist" aria-label={label} className="flex gap-1 overflow-x-auto">
+    <div role="tablist" aria-label={label} className={clsx('flex overflow-x-auto', segmented ? 'max-w-full gap-0.5 rounded-lg bg-subtle p-0.5' : 'gap-1')}>
       {items.map((it) => (
         <button
           key={it.id}
@@ -409,7 +410,11 @@ export function Tabs<T extends string>({ value, onChange, items, label }: { valu
           type="button"
           aria-selected={value === it.id}
           onClick={() => onChange(it.id)}
-          className={clsx('rounded-md px-2.5 py-1 text-xs font-medium whitespace-nowrap', value === it.id ? 'bg-ink text-canvas' : 'text-muted hover:bg-hover')}
+          className={clsx(
+            'rounded-md font-medium whitespace-nowrap',
+            segmented ? 'px-3 py-1 text-[13px]' : 'px-2.5 py-1 text-xs',
+            segmented ? (value === it.id ? 'bg-surface text-ink shadow-sm ring-1 ring-line' : 'text-muted hover:text-ink') : value === it.id ? 'bg-ink text-canvas' : 'text-muted hover:bg-hover',
+          )}
         >
           {it.label}
         </button>
