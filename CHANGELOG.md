@@ -3,7 +3,11 @@
 Published artifacts and authoritative release notes are in [GitHub Releases](https://github.com/trina-app/trina-ax/releases).
 This file summarizes user-visible changes; it is not a list of every commit.
 
-## Unreleased
+## 0.2.20 — 2026-11-02
+
+[Published release and notes](https://github.com/trina-app/trina-ax/releases/tag/v0.2.20)
+
+**Upgrade note:** take a backup first (Admin > System > Backups > Back up now). The update needs one root update on every Linux server, because the kit has a new root file. One additive database migration; going back to 0.2.19 needs no database restore. On a server with the dev environment, run `sudo /opt/trina-ax/scripts/dev-env/build-image.sh` after the update.
 
 - Admin > System > Plan: the plan card no longer shows memory and CPU. It shows answers at the same time, people, storage and backup days.
 - AI connections: a token or key that is already connected now says where it is. Before, adding it answered only "This token or key is already connected", and an owner had to sign in as the member to find and delete a personal copy. The owner and admins now see the name of the team connection, or "<name>'s personal connection '<label>'": they hold the token they pasted. A member who adds a token that someone else on the team uses sees only "already connected on this team", never whose; their own connection is named. No part of the token or key is in the answer, not even the last 4 characters. A duplicate is still refused: one subscription's limit would be counted twice, and a copy would stay behind after the token changes.
