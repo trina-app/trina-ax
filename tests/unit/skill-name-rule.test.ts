@@ -16,15 +16,15 @@ setDefaultTimeout(60_000)
 
 const md = (name: string) => `---\nname: ${name}\ndescription: Makes a quote.\n---\nSteps\n`
 
-/** The JDR cases, the same name in a personal folder, in a finance-only folder and outside the skill roots. */
+/** The acme cases, the same name in a personal folder, in a finance-only folder and outside the skill roots. */
 function layout(team: string, db: import('bun:sqlite').Database) {
   const put = (rel: string, text: string) => { fs.mkdirSync(path.dirname(path.join(team, rel)), { recursive: true }); fs.writeFileSync(path.join(team, rel), text) }
-  put('skills/jdr-견적/SKILL.md', md('jdr-견적'))
-  put('skills/jdr-quote/SKILL.md', md('jdr-견적'))
-  put('skills/jdr-ok/SKILL.md', md('jdr-ok'))
-  put('skills/finance/jdr-견적/SKILL.md', md('jdr-견적'))
-  put('users/alice/skills/jdr-견적/SKILL.md', md('jdr-견적'))
-  put('projects/jdr-video/skills/jdr-견적/SKILL.md', md('jdr-견적'))
+  put('skills/acme-견적/SKILL.md', md('acme-견적'))
+  put('skills/acme-quote/SKILL.md', md('acme-견적'))
+  put('skills/acme-ok/SKILL.md', md('acme-ok'))
+  put('skills/finance/acme-견적/SKILL.md', md('acme-견적'))
+  put('users/alice/skills/acme-견적/SKILL.md', md('acme-견적'))
+  put('projects/acme-video/skills/acme-견적/SKILL.md', md('acme-견적'))
   put('shared/SKILL.md', md('shared'))
   const folder = 'f_skills_finance_' + newId()
   db.query('INSERT INTO folders (id, path) VALUES (?, ?)').run(folder, 'skills/finance')
@@ -33,11 +33,11 @@ function layout(team: string, db: import('bun:sqlite').Database) {
 }
 
 const TEAM = [
-  { path: 'skills/jdr-quote/SKILL.md', problem: 'name' },
-  { path: 'skills/jdr-견적/SKILL.md', problem: 'name' },
+  { path: 'skills/acme-quote/SKILL.md', problem: 'name' },
+  { path: 'skills/acme-견적/SKILL.md', problem: 'name' },
 ]
-const FINANCE = { path: 'skills/finance/jdr-견적/SKILL.md', problem: 'name' }
-const ALICE = { path: 'users/alice/skills/jdr-견적/SKILL.md', problem: 'name' }
+const FINANCE = { path: 'skills/finance/acme-견적/SKILL.md', problem: 'name' }
+const ALICE = { path: 'users/alice/skills/acme-견적/SKILL.md', problem: 'name' }
 
 describe('who sees the warning', () => {
   let h: Harness
@@ -62,7 +62,7 @@ describe('who sees the warning', () => {
     const all = JSON.stringify(await items('carol'))
     expect(all).not.toContain('projects/')
     expect(all).not.toContain('shared/')
-    expect(listSkills(h.ctx.files, h.ctx.files.principal('carol')).map(s => s.path)).toEqual(['skills/jdr-ok/SKILL.md'])
+    expect(listSkills(h.ctx.files, h.ctx.files.principal('carol')).map(s => s.path)).toEqual(['skills/acme-ok/SKILL.md'])
   })
 })
 
@@ -74,12 +74,12 @@ describe('at the save', () => {
   test('the check gives the same answer as the warning, and nothing outside the skill roots', () => {
     const root = env.fx.team
     expect(skillIssues(env.files, env.files.principal('carol'))).toEqual(expect.arrayContaining(TEAM))
-    expect(skillFileProblem(root, 'skills/jdr-견적/SKILL.md', md('jdr-견적'))).toBe('name')
-    expect(skillFileProblem(root, 'skills/jdr-quote/SKILL.md', md('other-name'))).toBe('name_folder')
-    expect(skillFileProblem(root, 'skills/jdr-ok/SKILL.md', md('jdr-ok'))).toBeNull()
+    expect(skillFileProblem(root, 'skills/acme-견적/SKILL.md', md('acme-견적'))).toBe('name')
+    expect(skillFileProblem(root, 'skills/acme-quote/SKILL.md', md('other-name'))).toBe('name_folder')
+    expect(skillFileProblem(root, 'skills/acme-ok/SKILL.md', md('acme-ok'))).toBeNull()
     expect(skillFileProblem(root, 'skills/rule.md', 'A rule without a header')).toBeNull()
-    expect(skillFileProblem(root, 'projects/jdr-video/skills/jdr-견적/SKILL.md', md('jdr-견적'))).toBeNull()
-    expect(skillFileProblem(root, 'projects/jdr-video/notes.md', '---\nbroken\n---\nBody')).toBeNull()
+    expect(skillFileProblem(root, 'projects/acme-video/skills/acme-견적/SKILL.md', md('acme-견적'))).toBeNull()
+    expect(skillFileProblem(root, 'projects/acme-video/notes.md', '---\nbroken\n---\nBody')).toBeNull()
   })
 
   test('the card of an AI write shows the problem before the save', async () => {
@@ -90,10 +90,10 @@ describe('at the save', () => {
       livePrincipal: () => env.files.principal('carol'),
       waitForPerson: async (card: TurnRequest) => { cards.push(card); return 'save' },
     })
-    await exec.confirmSkillWrite('write', { file_path: 'skills/jdr-new/SKILL.md', content: md('jdr-견적') })
-    expect(cards.at(-1)).toMatchObject({ preview: { path: 'skills/jdr-new/SKILL.md', skillName: null, problem: 'name' } })
-    await exec.confirmSkillWrite('write', { file_path: 'skills/jdr-new2/SKILL.md', content: md('jdr-new2') })
-    expect(cards.at(-1)).toMatchObject({ preview: { skillName: 'jdr-new2' } })
+    await exec.confirmSkillWrite('write', { file_path: 'skills/acme-new/SKILL.md', content: md('acme-견적') })
+    expect(cards.at(-1)).toMatchObject({ preview: { path: 'skills/acme-new/SKILL.md', skillName: null, problem: 'name' } })
+    await exec.confirmSkillWrite('write', { file_path: 'skills/acme-new2/SKILL.md', content: md('acme-new2') })
+    expect(cards.at(-1)).toMatchObject({ preview: { skillName: 'acme-new2' } })
     expect((cards.at(-1) as { preview: object }).preview).not.toHaveProperty('problem')
   })
 
@@ -104,7 +104,7 @@ describe('at the save', () => {
       return env.ctx(user, id)
     }
     const c = turn('name-rule-team', 'carol')
-    const rel = 'skills/jdr-saved/SKILL.md', content = md('jdr-견적')
+    const rel = 'skills/acme-saved/SKILL.md', content = md('acme-견적')
     c.files.skillApprovals.set(rel, sha256(content))
     const saved = await env.files.call('write', { file_path: rel, content }, c)
     expect(saved.isError).toBeFalsy()
@@ -122,9 +122,9 @@ describe('at the save', () => {
     const c = env.ctx('carol', 'no-note')
     env.db.query("INSERT INTO chats (id,user_id) VALUES ('chat-no-note','carol')").run()
     env.db.query("INSERT INTO turns (id,chat_id,user_id,engine) VALUES ('no-note','chat-no-note','carol','claude-code')").run()
-    const r = await env.files.call('write', { file_path: 'projects/jdr-video/tools/x/SKILL.md', content: md('한글') }, c)
+    const r = await env.files.call('write', { file_path: 'projects/acme-video/tools/x/SKILL.md', content: md('한글') }, c)
     expect(r.isError).toBeFalsy()
     expect(r.text).not.toContain('does not load')
-    expect(skillWriteNote(env.fx.team, 'skills/jdr-ok/SKILL.md', Buffer.from(md('jdr-ok')))).toBe('')
+    expect(skillWriteNote(env.fx.team, 'skills/acme-ok/SKILL.md', Buffer.from(md('acme-ok')))).toBe('')
   })
 })

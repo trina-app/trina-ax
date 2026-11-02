@@ -5273,7 +5273,7 @@ works in the new folder: the form says so. If the folder cannot be made, turning
 
 ### Dev environment: disk floor, jobs, CPU as activity (feat/dev-env-video, 2026-11-02)
 
-The JDR team runs the dev environment on a server with 8 GB, 2 vCPU and no plan file, so the plan guard does not apply. A
+One team runs the dev environment on a server with 8 GB, 2 vCPU and no plan file, so the plan guard does not apply. A
 skill renders promo MP4s with ffmpeg through `box_shell`. Their notes: a runaway render can fill the server disk, and
 `box_shell` waits up to 1800 s with the chat waiting too. A test wrote 135 MB/s to the team disk.
 

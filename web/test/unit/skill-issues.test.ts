@@ -26,24 +26,24 @@ test('R2-SKILL-03: the Files screen shows the issues in and below the open skill
 
 test('R2-SKILL-03: a name that is not ASCII shows in its own folder, in skills/ and in a personal folder', () => {
   const name: SkillIssue[] = [
-    { path: 'skills/jdr-견적/SKILL.md', problem: 'name' },
-    { path: 'skills/jdr-quote/SKILL.md', problem: 'name' },
-    { path: 'users/alice/skills/jdr-견적/SKILL.md', problem: 'name' },
+    { path: 'skills/acme-견적/SKILL.md', problem: 'name' },
+    { path: 'skills/acme-quote/SKILL.md', problem: 'name' },
+    { path: 'users/alice/skills/acme-견적/SKILL.md', problem: 'name' },
   ]
-  expect(issuesIn(name, 'skills').map(i => i.path)).toEqual(['skills/jdr-견적/SKILL.md', 'skills/jdr-quote/SKILL.md'])
-  expect(issuesIn(name, 'skills/jdr-견적').map(i => i.path)).toEqual(['skills/jdr-견적/SKILL.md'])
-  expect(isSkillsPath('skills/jdr-견적')).toBe(true)
-  expect(isSkillsPath('users/alice/skills/jdr-견적')).toBe(true)
-  expect(issuesIn(name, 'users/alice/skills').map(i => i.path)).toEqual(['users/alice/skills/jdr-견적/SKILL.md'])
+  expect(issuesIn(name, 'skills').map(i => i.path)).toEqual(['skills/acme-견적/SKILL.md', 'skills/acme-quote/SKILL.md'])
+  expect(issuesIn(name, 'skills/acme-견적').map(i => i.path)).toEqual(['skills/acme-견적/SKILL.md'])
+  expect(isSkillsPath('skills/acme-견적')).toBe(true)
+  expect(isSkillsPath('users/alice/skills/acme-견적')).toBe(true)
+  expect(issuesIn(name, 'users/alice/skills').map(i => i.path)).toEqual(['users/alice/skills/acme-견적/SKILL.md'])
   // a project folder is not a skill folder: the Files screen shows no skill warning there
-  expect(isSkillsPath('projects/jdr-video/skills/jdr-견적')).toBe(false)
+  expect(isSkillsPath('projects/acme-video/skills/acme-견적')).toBe(false)
 })
 
 test('the name text of a SKILL.md gives the folder name; a legacy file has its own rule', () => {
   const t = (key: string, params?: Record<string, string | number>) => `${key}|${params?.folder}`
-  expect(issueText(t, { path: 'skills/jdr-quote/SKILL.md', problem: 'name' })).toBe('skills.issues.name|jdr-quote')
+  expect(issueText(t, { path: 'skills/acme-quote/SKILL.md', problem: 'name' })).toBe('skills.issues.name|acme-quote')
   expect(issueText(t, { path: 'skills/report/notes.md', problem: 'name' }).split('|')[0]).toBe('skills.issues.name_legacy')
-  expect(issueText(t, { path: 'skills/jdr-quote/SKILL.md', problem: 'name_folder' })).toBe('skills.issues.name_folder|jdr-quote')
+  expect(issueText(t, { path: 'skills/acme-quote/SKILL.md', problem: 'name_folder' })).toBe('skills.issues.name_folder|acme-quote')
 })
 
 test('every language names the rule of a SKILL.md name', () => {
