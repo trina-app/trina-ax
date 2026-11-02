@@ -27,11 +27,11 @@ https://github.com/user-attachments/assets/61f3469b-358d-4b3a-9233-c6b23b5db835
 </tr>
 <tr>
 <td><img src="docs/images/readme/before-empty-claude.png" alt="Claude Code in an empty folder answers 'Write a proposal for Trina Logistics' with six questions about the company, the client and the format."></td>
-<td><img src="docs/images/readme/after-trina-deck.png" alt="Trina AX answers the same request with a 7-page proposal deck whose cover reads 'Lead time from 2.1 to 1.4 days'."></td>
+<td><img src="docs/images/readme/after-trina-deck.png" alt="Trina AX answers the same request with a 7-page proposal deck with photos; the cover reads 'Lead time from 2.1 to 1.4 days, within your budget'."></td>
 </tr>
 </table>
 
-<sub>Real outputs from 2026-10-31 with a fictional company, Dawnroute. Claude Code is right to ask: nothing in an empty folder tells it who you are. Trina gives it the folder.</sub>
+<sub>Real outputs from 2026-10-31 and 11-01 with a fictional company, Dawnroute; the deck photos were made with Higgsfield. Claude Code is right to ask: nothing in an empty folder tells it who you are. Trina gives it the folder.</sub>
 
 ## How it works
 
