@@ -83,8 +83,13 @@ sudo mycel-ctl auto-update on
 A scheduled update waits for a moment with no running answer. It does not look at boxes, so a background command in a
 box can stop if the program changed. To control the moment, leave auto-update off and use `sudo mycel-ctl update`.
 
-`install-linux.sh update` also replaces `root/mycel-boxd`, but it does not restart the service. After it, restart the
-service yourself when no box runs, or run `install-trial.sh` again:
+`install-linux.sh update` also replaces `root/mycel-boxd`, and it restarts the service with the same rule as the table
+above. If the restart fails, or if boxd does not answer after it, the installer gives a warning and goes on.
+
+An older `install-linux.sh` replaced the file but did not restart the service. The old process then ran from a deleted
+file. `sudo mycel-ctl update --bundle` finds such a process: if the content of the running program is not the content of
+`root/mycel-boxd`, it adds a note and restarts the service, also when the root files match. To do this with no update,
+restart the service yourself when no box runs:
 
 ```bash
 sudo systemctl restart mycel-boxd

@@ -567,7 +567,7 @@ func diskSpace() (free, total uint64, err error) {
 }
 
 // watchBox runs for one start of one box and ends when the box stops. Only a statfs and a stat per poll, and no
-// podman: at 135 MB/s a slow poll goes far past the floor. A box in which a command ended the main process also ends
+// podman: at 740 MiB/s a slow poll goes far past the floor. A box in which a command ended the main process also ends
 // here, so status says stopped.
 func watchBox(b *box, watch chan struct{}, cg string) {
 	t := time.NewTicker(diskPoll)
@@ -606,7 +606,7 @@ func watchBox(b *box, watch chan struct{}, cg string) {
 const reasonExited = "the main process of the box ended"
 
 // diskStop: at the floor every second counts, and `podman stop` gives the box stopGrace seconds to write on (about
-// 700 MB at 135 MB/s). So the kernel ends every process of the box first, and the usual stop then does the cleanup.
+// 3.7 GiB at 740 MiB/s). So the kernel ends every process of the box first, and the usual stop then does the cleanup.
 func diskStop(b *box, watch chan struct{}, cg, reason string) {
 	if !markStop(b, watch, stopDisk, reason) { // before the kill: an exec that it ends finds the reason
 		return

@@ -645,6 +645,61 @@ if [[ "$ROOT_V" =~ ^[0-9A-Za-z][0-9A-Za-z.+_-]{0,49}$ ]] && [ "$(kitbun "$ADMIN_
   ROOT_KEEP=1
   warn "the root programs (bootstrap, launcher, sandbox helper, mycel-ctl) stay at $ROOT_V, newer than this kit ($VERSION); to go back, uninstall (the data is kept) and install $VERSION"
 fi
+# BEGIN boxd restart
+# native/cmd/mycel-ctl/update_test.go runs the text between BEGIN and END.
+BOXD_SOCK=/run/mycel-boxd/boxd.sock
+boxd_sum() { if [ -f "$BASE/root/mycel-boxd" ]; then sha256sum "$BASE/root/mycel-boxd" | cut -d' ' -f1; fi; }
+# Says why boxes do not work, or nothing. The unit is Type=simple, so `systemctl restart` is done when the process starts,
+# and the socket file of the old process stays until boxd ends its checks: ask boxd. boxd takes this request from root.
+boxd_problem() {
+  python3 -I - "$BOXD_SOCK" <<'BOXD_ASK'
+import json, socket, sys, time
+end = time.time() + 30
+while True:
+    try:
+        s = socket.socket(socket.AF_UNIX)
+        s.settimeout(5)
+        s.connect(sys.argv[1])
+        s.sendall(b'{"op":"status"}\n')
+        st = json.loads(s.makefile().readline())
+        if st.get("ev") == "status" and not st.get("available"):
+            print("boxes are not available:", st.get("reason"))
+        break
+    except (OSError, ValueError):
+        if time.time() > end:
+            print("no answer on", sys.argv[1])
+            break
+        time.sleep(0.5)
+BOXD_ASK
+}
+# The same rule as restartBoxd in native/cmd/mycel-ctl/update.go: a start of boxd stops the boxes that run, so only a
+# changed program comes here, and only a service that runs this file restarts. A service that an administrator stopped
+# stays stopped; a failed one restarts. Without this step the old process runs on from a deleted file. The team server
+# is stopped here (stop_units) and starts after this step. The server works without boxes, so a failure is a warning.
+boxd_restart() {  # the boxd_sum from before the install
+  local unit="$UNIT_DIR/mycel-boxd.service" out why
+  [ "$SYSTEMD" = 1 ] && have_systemd && [ -f "$unit" ] || return 0
+  [ "$1" != "$(boxd_sum)" ] || return 0
+  case $'\n'"$(cat "$unit")" in
+    *$'\n'"ExecStart=$BASE/root/mycel-boxd "*) ;;
+    *) warn "mycel-boxd.service does not run $BASE/root/mycel-boxd, so it keeps the old program: run scripts/dev-env/install-trial.sh again"; return 0 ;;
+  esac
+  if [ "$(systemctl is-active mycel-boxd.service 2>/dev/null || true)" = inactive ]; then
+    say "mycel-boxd.service is stopped, so it stays stopped: its next start runs the new mycel-boxd"
+    return 0
+  fi
+  if ! out=$(systemctl restart mycel-boxd.service 2>&1); then
+    warn "restart of mycel-boxd.service failed, so boxes may not work: $out (journalctl -u mycel-boxd, then \`sudo systemctl restart mycel-boxd\`)"
+    return 0
+  fi
+  why=$(boxd_problem 2>&1 || true)
+  if [ -n "$why" ]; then
+    warn "mycel-boxd.service restarted, but boxes may not work: $why (journalctl -u mycel-boxd)"
+    return 0
+  fi
+  say "mycel-boxd changed: mycel-boxd.service restarted; boxes that ran have stopped and start again at their next use"
+}
+# END boxd restart
 rootfile() {  # mode name
   if [ "$ROOT_KEEP" = 1 ] && [ -f "$BASE/root/$2" ] && [ ! -L "$BASE/root/$2" ]; then return 0; fi
   nolink "$BASE/root/$2"
@@ -654,7 +709,9 @@ for f in mycel-bootstrap mycel-launcher mycel-sandbox mycel-ctl mycel-account se
 # the dev environment's root helper. It runs only from here, never from a version folder (the server account owns those),
 # and only when scripts/dev-env/install-trial.sh added its service: this file alone changes nothing. A kit without it (a
 # repair from an older installed version) leaves the file in place.
+BOXD_BEFORE=$(boxd_sum)
 [ ! -f "$KROOT/mycel-boxd" ] || rootfile 755 mycel-boxd
+boxd_restart "$BOXD_BEFORE"
 rootfile 644 safe-fs.sh
 # the unit templates go with the root programs (mycel-ctl render-units and update read them from root/systemd/)
 mk root root 755 "$BASE/root/systemd"

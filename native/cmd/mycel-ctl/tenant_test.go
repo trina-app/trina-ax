@@ -108,7 +108,15 @@ func TestTenantNoticesSet(t *testing.T) {
 	}
 }
 
+// These commands refuse to run as root (they run as the server account), so the tests cannot run as root.
+func skipAsRoot(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("needs an account that is not root")
+	}
+}
+
 func TestTenantSetServerConfig(t *testing.T) {
+	skipAsRoot(t)
 	tb := newTestBase(t, "0.3.0")
 	f := &fakeTenant{}
 	f.install(t)
@@ -142,6 +150,7 @@ func TestTenantSetServerConfig(t *testing.T) {
 }
 
 func TestTenantRelayRegistrationSet(t *testing.T) {
+	skipAsRoot(t)
 	tb := newTestBase(t, "0.3.0")
 	f := &fakeTenant{}
 	f.install(t)
