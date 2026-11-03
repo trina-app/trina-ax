@@ -5,15 +5,17 @@
 // a .hwpx zip is checked first (zip-guard.ts), a .hwp body stream inflates to at most STREAM_MAX and all of them
 // together to at most INFLATE_TOTAL_MAX. Distribution (배포용) and password-protected .hwp keep
 // their body encrypted: only the preview text (PrvText, the first page or so) comes out, with a note.
+//
+// 본 제품은 한컴의 HWP 문서 파일(.hwp) 공개 문서를 참고하여 개발하였습니다. (Hancom's attribution for the HWP 5.0 document)
 import zlib from 'node:zlib'
 import * as XLSX from 'xlsx'
 import { ToolError } from '../policy/errors'
 import { checkZip, isZip, tooComplex } from './zip-guard'
 
-const TEXT_MAX = 8 * 1024 * 1024
-const STREAM_MAX = 64 * 1024 * 1024
-const INFLATE_TOTAL_MAX = 200 * 1024 * 1024
-const SECTIONS_MAX = 500
+export const TEXT_MAX = 8 * 1024 * 1024
+export const STREAM_MAX = 64 * 1024 * 1024
+export const INFLATE_TOTAL_MAX = 200 * 1024 * 1024
+export const SECTIONS_MAX = 500
 
 interface Entry { path: string; content: Uint8Array }
 
@@ -116,7 +118,7 @@ const TAG_PARA_HEADER = 66
 const TAG_PARA_TEXT = 67
 // control characters inside PARA_TEXT (HWP 5.0 spec 4.3.10.1.1): "char" controls take one WCHAR, inline and extended
 // controls take eight (the code, six WCHARs of data, the code again)
-const ONE_WCHAR = new Set([0, 10, 13, 24, 25, 26, 27, 28, 29, 30, 31])
+export const ONE_WCHAR = new Set([0, 10, 13, 24, 25, 26, 27, 28, 29, 30, 31])
 
 function paraText(rec: Uint8Array): string {
   const v = new DataView(rec.buffer, rec.byteOffset, rec.byteLength)

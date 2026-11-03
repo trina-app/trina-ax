@@ -116,6 +116,7 @@ const KOREAN_ALLOWED: Record<string, { why: string; also?: RegExp }> = {
   'shared/src/secrets.ts': { why: 'Korean words that announce a password or token in pasted text (not screen text)', also: /비밀번호\|비번\|패스워드/ },
   'server/src/admin/budgets.ts': { why: 'budget texts (ko next to en/id/ja/es)' },
   'server/src/files/hwp.ts': { why: 'the HWP term 배포용 in a note to the AI about a distribution document (not screen text)', also: /\(배포용\)/ },
+  'server/src/files/hwp-edit.ts': { why: 'the HWP terms 배포용, 개인 정보 보안, 변경 추적 and 문서 연결 in notes to the AI about a document it will not change (not screen text)', also: /\((배포용|개인 정보 보안|변경 추적|문서 연결)\)/ },
   'server/src/files/hwpx-template.ts': { why: 'the style and font names Hangul documents use (바탕글, 개요 1, 함초롬바탕) in the built-in .hwpx template (document content, not screen text)', also: /^\s*(const FACES = |style\(\d+, '(PARA|CHAR)', '|\.\.\.OUTLINE\.map\(\(_, i\) => style\()/ },
   'server/src/files/hwpx-write.ts': { why: 'the name of Hangul\'s outline styles (개요 N) looked for in a template (document content, not screen text)', also: /s\.name === `개요 \$\{l \+ 1\}`/ },
   'server/src/admin/engines.ts': { why: 'engine status texts (ko next to en/id/ja/es)' },

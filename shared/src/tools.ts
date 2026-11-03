@@ -78,14 +78,14 @@ export const MakeFileInput = z.strictObject({
   .refine((v) => v.format === 'pptx' || (v.expected_slides === undefined && v.expected_notes === undefined && v.expected_layouts === undefined), { message: 'expected_slides and expected_notes are only for format "pptx"' })
 export const MakeFileOutput = z.object({ path: z.string(), size: z.number(), sha256: z.string(), slides: z.number().optional(), notes: z.number().optional() })
 
-/** edit_hwpx: the text of an existing Hangul document (.hwpx) changed, the rest of the file kept as it was
- * (server/src/tools/edit-hwpx.ts, server/src/files/hwpx-edit.ts). */
+/** edit_hwp: the text of an existing Hangul document (.hwp or .hwpx) changed, the rest of the file kept as it was
+ * (server/src/tools/edit-hwp.ts, server/src/files/hwpx-edit.ts, server/src/files/hwp-edit.ts). */
 const n1 = z.number().int().min(1).max(100_000)
-const hwpxText = (max: number) => z.string().max(max)
-export const EditHwpxChange = z.union([
+const hwpText = (max: number) => z.string().max(max)
+export const EditHwpChange = z.union([
   z.strictObject({
     find: z.string().min(1).max(2000).describe('Exact text inside one paragraph, e.g. a placeholder "{{name}}" or a date to change'),
-    replace: hwpxText(20_000).describe('The new text; it takes the formatting of the text it replaces. "\\n" is a line break.'),
+    replace: hwpText(20_000).describe('The new text; it takes the formatting of the text it replaces. "\\n" is a line break.'),
     occurrence: n1.optional().describe('Which match, 1-based in reading order, when the text appears more than once'),
     all: z.boolean().optional().describe('Replace every match'),
   }),
@@ -98,7 +98,7 @@ export const EditHwpxChange = z.union([
       row: n1.optional(),
       col: n1.optional(),
     }),
-    value: hwpxText(20_000).describe('Text for the empty cell'),
+    value: hwpText(20_000).describe('Text for the empty cell'),
   }),
   z.strictObject({
     add_rows: z.strictObject({
@@ -106,16 +106,16 @@ export const EditHwpxChange = z.union([
       table_with: z.string().min(1).max(500).optional().describe('Or the whole text of one of its cells, e.g. a column title "Item"'),
       after_row: n1.optional().describe('The new rows go after this row (default: the last row)'),
       copy_row: n1.optional().describe('The row whose cells the new rows copy: borders, sizes, alignment, fonts (default: after_row)'),
-      rows: z.array(z.array(hwpxText(5000)).max(64)).min(1).max(500).describe('One list per new row, one value per cell of the copied row, left to right'),
+      rows: z.array(z.array(hwpText(5000)).max(64)).min(1).max(500).describe('One list per new row, one value per cell of the copied row, left to right'),
     }),
   }),
 ])
-export const EditHwpxInput = z.strictObject({
-  file_path: relPath.describe('The .hwpx to change; read it in this turn first'),
-  changes: z.array(EditHwpxChange).min(1).max(100).describe('Applied together, each to the document as you read it'),
-  output: optRelPath.describe('Save the result as this new file instead of a new version of file_path'),
+export const EditHwpInput = z.strictObject({
+  file_path: relPath.describe('The .hwp or .hwpx to change; read it in this turn first'),
+  changes: z.array(EditHwpChange).min(1).max(100).describe('Applied together, each to the document as you read it'),
+  output: optRelPath.describe('Save the result as this new file (same format as file_path) instead of a new version of file_path'),
 })
-export const EditHwpxOutput = z.object({ path: z.string(), size: z.number(), sha256: z.string(), conflictCopyOf: z.string().optional() })
+export const EditHwpOutput = z.object({ path: z.string(), size: z.number(), sha256: z.string(), conflictCopyOf: z.string().optional() })
 
 export const ShareFileInput = z.strictObject({ path: relPath, mode: z.enum(['preview', 'download']) })
 export const ShareFileOutput = z.object({ url: z.string() })
@@ -224,7 +224,7 @@ export type FileToolName = keyof typeof FILE_TOOLS
 export const OTHER_TOOLS = {
   hwp_render: { input: HwpRenderInput, output: HwpPage },
   make_file: { input: MakeFileInput, output: MakeFileOutput },
-  edit_hwpx: { input: EditHwpxInput, output: EditHwpxOutput },
+  edit_hwp: { input: EditHwpInput, output: EditHwpOutput },
   share_file: { input: ShareFileInput, output: ShareFileOutput },
   move_files: { input: MoveFilesInput, output: MoveFilesOutput },
   copy_files: { input: CopyFilesInput, output: CopyFilesOutput },

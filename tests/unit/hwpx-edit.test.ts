@@ -1,4 +1,4 @@
-// edit_hwpx's editor (server/src/files/hwpx-edit.ts): each change kind, the refusals, byte-for-byte preservation of
+// edit_hwp's editor (server/src/files/hwpx-edit.ts): each change kind, the refusals, byte-for-byte preservation of
 // what is not changed, untrusted documents, the read-back, and the office worker. Documents are made up here
 // (tests/lib/hwpx.ts); Hangul-saved samples are read only when MYCEL_HWPX_SAMPLES names a folder of them.
 import { describe, expect, setDefaultTimeout, test } from 'bun:test'
@@ -7,8 +7,8 @@ import path from 'node:path'
 import { officeWorkerWrite } from '../../server/src/files/extract'
 import { hwpxText } from '../../server/src/files/hwp'
 import {
-  applyLineEdits, decodeHwpxEditResult, encodeHwpxEditRequest, HWPX_EDIT_MODE, HWPX_VERIFY_MODE, hwpxEditMismatch, hwpxOutputPath, hwpxPartsMismatch,
-  hwpxReadLines, type HwpxChange,
+  applyLineEdits, decodeHwpEditResult, encodeHwpEditRequest, HWPX_EDIT_MODE, HWPX_VERIFY_MODE, hwpEditMismatch, hwpOutputPath, hwpxPartsMismatch,
+  hwpxReadLines, type HwpChange,
 } from '../../server/src/files/hwpx-check'
 import { editHwpx } from '../../server/src/files/hwpx-edit'
 import { XML_DECL } from '../../server/src/files/hwpx-template'
@@ -20,7 +20,7 @@ setDefaultTimeout(60_000)
 
 const section = (b: Uint8Array, n = 0) => hwpxParts(b).get(`Contents/section${n}.xml`)!
 const lines = (b: Uint8Array) => hwpxReadLines(hwpxText(b))
-const refusal = (doc: Uint8Array, changes: HwpxChange[]): string => {
+const refusal = (doc: Uint8Array, changes: HwpChange[]): string => {
   try { editHwpx(doc, changes) } catch (e) { expect(e).toBeInstanceOf(ToolError); return (e as Error).message }
   throw new Error('not refused')
 }
@@ -231,7 +231,7 @@ describe('an untrusted document', () => {
   const ok = () => hwpxDoc([para('본문 {{x}}')])
   const withPart = (name: string, data: Uint8Array | string) => hwpxDoc([para('본문 {{x}}')], { extra: { [name]: data } })
   const doc = (body: string, o: Parameters<typeof hwpxDoc>[1] = {}) => hwpxDoc([para('본문 {{x}}') + body], o)
-  const change: HwpxChange[] = [{ find: '{{x}}', replace: 'y' }]
+  const change: HwpChange[] = [{ find: '{{x}}', replace: 'y' }]
   const cases: [string, () => Uint8Array, string][] = [
     ['scripts', () => withPart('Scripts/headerScripts', 'function OnDocument_Open() {}'), 'it contains scripts (Scripts/)'],
     ['an OLE object in BinData', () => withPart('BinData/BIN0001.ole', 'x'), 'embedded OLE object'],
@@ -287,38 +287,38 @@ describe('an untrusted document', () => {
 describe('the read-back', () => {
   test('the server finds a file that does not read as the old one with the reported edits', () => {
     const before = employmentForm()
-    const changes: HwpxChange[] = [{ find: '{{대표자}}', replace: '김예시' }]
+    const changes: HwpChange[] = [{ find: '{{대표자}}', replace: '김예시' }]
     const r = editHwpx(before, changes)
     const old = lines(before), got = lines(r.file)
-    expect(hwpxEditMismatch(changes, old, got, r.report)).toBeNull()
+    expect(hwpEditMismatch(changes, old, got, r.report)).toBeNull()
     // another paragraph changed as well
-    expect(hwpxEditMismatch(changes, old, got.map((l) => l.replace('위 사람은', '위 사람이')), r.report)).toContain('expected "| 위 사람은')
+    expect(hwpEditMismatch(changes, old, got.map((l) => l.replace('위 사람은', '위 사람이')), r.report)).toContain('expected "| 위 사람은')
     // the report hides a change it made
-    expect(hwpxEditMismatch(changes, old, got, { ...r.report, lineEdits: [] })).toContain('expected')
+    expect(hwpEditMismatch(changes, old, got, { ...r.report, lineEdits: [] })).toContain('expected')
     // the worker wrote other text and reported it as it is: the file reads as reported, but not as asked
     const wrong = { ...r.report, lineEdits: r.report.lineEdits.map((e) => ({ ...e, insert: e.insert.map((l) => l.replace('김예시', '이예시')) })) }
-    expect(hwpxEditMismatch(changes, old, got.map((l) => l.replace('김예시', '이예시')), wrong)).toBe('change 1: the paragraph does not read as its old text with the replacement')
+    expect(hwpEditMismatch(changes, old, got.map((l) => l.replace('김예시', '이예시')), wrong)).toBe('change 1: the paragraph does not read as its old text with the replacement')
     // the report places the change in another paragraph than the one that holds the text
     const moved = { ...r.report, lineEdits: [{ at: 0, remove: 1, insert: ['| 김예시'], changes: [0] }] }
-    expect(hwpxEditMismatch(changes, old, ['| 김예시', ...old.slice(1)], moved)).toBe('change 1: the paragraph does not read as its old text with the replacement')
+    expect(hwpEditMismatch(changes, old, ['| 김예시', ...old.slice(1)], moved)).toBe('change 1: the paragraph does not read as its old text with the replacement')
     // the report removes and puts back every line, with another text changed on the way
     const all = { ...r.report, lineEdits: [{ at: 0, remove: old.length, insert: got.map((l) => l.replace('위 사람은', '위 사람이')), changes: [0] }] }
-    expect(hwpxEditMismatch(changes, old, got.map((l) => l.replace('위 사람은', '위 사람이')), all)).toBe('change 1: the paragraph does not read as its old text with the replacement')
+    expect(hwpEditMismatch(changes, old, got.map((l) => l.replace('위 사람은', '위 사람이')), all)).toBe('change 1: the paragraph does not read as its old text with the replacement')
     // an edit that names no change, and a change no edit shows
-    expect(hwpxEditMismatch(changes, old, got, { ...r.report, lineEdits: r.report.lineEdits.map((e) => ({ ...e, changes: [] })) })).toContain('does not name the changes')
-    const two: HwpxChange[] = [...changes, { find: '위 사람은', replace: '위 사람은' }]
-    expect(hwpxEditMismatch(two, old, got, r.report)).toBe('change 2: it does not show in the document')
+    expect(hwpEditMismatch(changes, old, got, { ...r.report, lineEdits: r.report.lineEdits.map((e) => ({ ...e, changes: [] })) })).toContain('does not name the changes')
+    const two: HwpChange[] = [...changes, { find: '위 사람은', replace: '위 사람은' }]
+    expect(hwpEditMismatch(two, old, got, r.report)).toBe('change 2: it does not show in the document')
   })
 
   test('a filled cell or added rows put in exactly their text and remove nothing', () => {
     const before = purchaseForm()
-    const changes: HwpxChange[] = [{ add_rows: { table: 1, after_row: 3, rows: [['볼펜', '검정', '1', '500', '500']] } }]
+    const changes: HwpChange[] = [{ add_rows: { table: 1, after_row: 3, rows: [['볼펜', '검정', '1', '500', '500']] } }]
     const r = editHwpx(before, changes)
     const old = lines(before), got = lines(r.file)
-    expect(hwpxEditMismatch(changes, old, got, r.report)).toBeNull()
+    expect(hwpEditMismatch(changes, old, got, r.report)).toBeNull()
     const extra = { ...r.report, lineEdits: r.report.lineEdits.map((e) => ({ ...e, insert: [...e.insert, '| 덤'] })) }
     const gotExtra = applyLineEdits(old, extra.lineEdits)!
-    expect(hwpxEditMismatch(changes, old, gotExtra, extra)).toBe('change 1: its new text does not read back')
+    expect(hwpEditMismatch(changes, old, gotExtra, extra)).toBe('change 1: its new text does not read back')
   })
 
   test('the zip directories: the same parts, each the same bytes but the changed sections', () => {
@@ -331,10 +331,13 @@ describe('the read-back', () => {
   })
 
   test('the output path: one rule for the tool and the confirmation card', () => {
-    expect(hwpxOutputPath('users/a/양식')).toBe('users/a/양식.hwpx')
-    expect(hwpxOutputPath('users/a/양식.HWPX')).toBe('users/a/양식.HWPX')
-    expect(hwpxOutputPath('skills/a.hwpx/')).toBe('skills/a.hwpx')
-    expect(hwpxOutputPath('users/a/folder/')).toBe('users/a/folder.hwpx')
+    expect(hwpOutputPath('users/a/양식', 'a.hwpx')).toBe('users/a/양식.hwpx')
+    expect(hwpOutputPath('users/a/양식.HWPX', 'a.hwpx')).toBe('users/a/양식.HWPX')
+    expect(hwpOutputPath('skills/a.hwpx/', 'a.hwpx')).toBe('skills/a.hwpx')
+    expect(hwpOutputPath('users/a/folder/', 'a.hwpx')).toBe('users/a/folder.hwpx')
+    // a .hwp's result is a .hwp; an output in the other format is kept as given, and the tool refuses it
+    expect(hwpOutputPath('users/a/양식', 'forms/a.HWP')).toBe('users/a/양식.hwp')
+    expect(hwpOutputPath('users/a/양식.hwpx', 'forms/a.hwp')).toBe('users/a/양식.hwpx')
   })
 })
 
@@ -405,12 +408,12 @@ describe('found in review', () => {
 
 describe('through the office worker', () => {
   test('the worker changes the document and frames the report; a refusal comes back as the editor\'s message', async () => {
-    const changes: HwpxChange[] = [{ cell: { next_to: '성명' }, value: '홍길동' }]
+    const changes: HwpChange[] = [{ cell: { next_to: '성명' }, value: '홍길동' }]
     const form = employmentForm()
-    const out = decodeHwpxEditResult(await officeWorkerWrite(HWPX_EDIT_MODE, encodeHwpxEditRequest(changes, form)))
+    const out = decodeHwpEditResult(await officeWorkerWrite(HWPX_EDIT_MODE, encodeHwpEditRequest(changes, form)))
     expect(Buffer.from(out.file).equals(Buffer.from(editHwpx(form, changes).file))).toBe(true)
     expect(out.report.notes[0]!.after).toBe('홍길동')
-    await expect(officeWorkerWrite(HWPX_EDIT_MODE, encodeHwpxEditRequest([{ find: '없음', replace: 'x' }], employmentForm()))).rejects.toThrow('"없음" is not in the document')
+    await expect(officeWorkerWrite(HWPX_EDIT_MODE, encodeHwpEditRequest([{ find: '없음', replace: 'x' }], employmentForm()))).rejects.toThrow('"없음" is not in the document')
     await expect(officeWorkerWrite(HWPX_EDIT_MODE, new Uint8Array([0, 0, 0, 9, 1]))).rejects.toThrow('damaged request')
   })
 

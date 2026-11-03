@@ -1,8 +1,10 @@
-// edit_hwpx (stage 2 of Hangul documents): the text of an EXISTING .hwpx changed in place, everything else kept as it
-// was. Runs ONLY in the office worker (files/office-worker.ts, isolated like the readers), never in the server
-// process: the document is an untrusted zip. The server frames the request and reads the result back (tools/edit-hwpx.ts).
+// edit_hwp for a .hwpx (stage 2 of Hangul documents): the text of an EXISTING .hwpx changed in place, everything else
+// kept as it was (a .hwp: files/hwp-edit.ts). Runs ONLY in the office worker (files/office-worker.ts, isolated like the
+// readers), never in the server process: the document is an untrusted zip. The server frames the request and reads
+// the result back (tools/edit-hwp.ts).
 //
-// Changes (hwpx-check.ts HwpxChange), all found in the document as it was read, never in each other's results:
+// Changes (hwpx-check.ts HwpChange), all found in the document as it was read, never in each other's results (how
+// each is found: files/hwp-changes.ts, the same for both formats):
 // - { find, replace }: exact text inside one paragraph (a placeholder such as {{이름}} too); more than one match needs
 //   `occurrence` or `all`. The new text goes into the text it replaces and takes its formatting.
 // - { cell, value }: an empty table cell, found next to a label cell or by table / row / column, gets the text.
@@ -28,9 +30,10 @@ import * as XLSX from 'xlsx'
 import { ToolError } from '../policy/errors'
 import { hwpxOutline, hwpxText } from './hwp'
 import {
-  cleanText, decodeHwpxEditRequest, encodeHwpxEditResult, firstDifference, HWPX_EDIT_MAX, HWPX_TEXT_MAX, hwpxParagraphLines,
-  hwpxReadLines, applyLineEdits, type HwpxChange, type HwpxEditNote, type HwpxEditReport, type LineEdit,
+  decodeHwpEditRequest, encodeHwpEditResult, firstDifference, HWP_EDIT_MAX, HWPX_TEXT_MAX,
+  hwpxReadLines, applyLineEdits, type HwpChange, type HwpEditReport,
 } from './hwpx-check'
+import { asChanges, ChangeEditor, clip, docLines, HWP_CHANGE_LIMITS, placeholdersIn, refuseChange, type RowPlan } from './hwp-changes'
 import { NS_ATTRS } from './hwpx-template'
 import { assertKnown, assertPlainPackage, escText, isCompoundFile, parseXml, type Refuse } from './hwpx-write'
 import { checkZip, isZip } from './zip-guard'
@@ -38,7 +41,7 @@ import { readZip, writeZip, type ZipEntry, type ZipRead } from './zip-write'
 
 const MIB = 1024 * 1024
 export const HWPX_EDIT_LIMITS = {
-  bytes: HWPX_EDIT_MAX,
+  bytes: HWP_EDIT_MAX,
   expanded: 200 * MIB,
   entries: 2000,
   /** one XML part, uncompressed */
@@ -46,25 +49,17 @@ export const HWPX_EDIT_LIMITS = {
   sections: 500,
   /** elements of one section */
   nodes: 1_000_000,
-  changes: 100,
-  /** matches one change may replace (all: true) */
-  matches: 10_000,
-  newRows: 500,
-  rowCells: 64,
-  valueChars: 20_000,
+  ...HWP_CHANGE_LIMITS,
 }
 
 const DOC_BAD = 'this .hwpx cannot be changed'
 const docRefuse: Refuse = (part, why) => { throw new ToolError(`${DOC_BAD} (${part}: ${why}); nothing was saved`) }
 function refuseDoc(why: string): never { throw new ToolError(`${DOC_BAD}: ${why}; nothing was saved`) }
-function refuseChange(i: number, why: string): never { throw new ToolError(`change ${i + 1}: ${why}. Nothing was saved.`) }
-const clip = (s: string, n = 80) => JSON.stringify(s.length > n ? s.slice(0, n) + '…' : s)
-const strip = (s: string) => s.replace(/\s+/g, '')
 
 // ---------------------------------------------------------------- the package
 /** part names of programs and scripts, and the first bytes of programs (PE, ELF, Mach-O, Java, a script's #!) */
-const PROGRAM_NAME = /\.(exe|dll|com|scr|pif|cpl|msi|msp|bat|cmd|vbs|vbe|js|jse|mjs|wsf|wsh|ps1|psm1|sh|bash|zsh|py|pl|rb|jar|class|hta|lnk|reg|dylib|so)$/i
-function isProgram(b: Uint8Array): boolean {
+export const PROGRAM_NAME = /\.(exe|dll|com|scr|pif|cpl|msi|msp|bat|cmd|vbs|vbe|js|jse|mjs|wsf|wsh|ps1|psm1|sh|bash|zsh|py|pl|rb|jar|class|hta|lnk|reg|dylib|so)$/i
+export function isProgram(b: Uint8Array): boolean {
   if (b.length < 4) return false
   const h = Buffer.from(b.subarray(0, 4)).toString('hex')
   return h.startsWith('4d5a') || h === '7f454c46' || ['feedface', 'feedfacf', 'cefaedfe', 'cffaedfe', 'cafebabe'].includes(h) || h.startsWith('2321')
@@ -76,10 +71,10 @@ function isProgram(b: Uint8Array): boolean {
 const OUTSIDE = /^\s*(?:file\s*:|\\\\|\/\/|[a-z]\s*:\s*[\\/]|(?:javascript|vbscript|data|jar|smb|nfs|afp|shell|hcp|search-ms|ms-[a-z0-9-]+)\s*:|(?!(?:https?|ftp|mailto)\s*:)[a-z][a-z0-9+.-]*\s*:\s*\/\/)/i
 const OUTSIDE_ANYWHERE = /(?:file|javascript|vbscript)\s*:|\\\\[^\\\s]/i
 const plainValue = (v: string) => v.replace(/\p{Cf}/gu, '').replace(/\\:/g, ':')
-const outside = (v: string) => { const s = plainValue(v); return OUTSIDE.test(s) || OUTSIDE_ANYWHERE.test(s) }
+export const outside = (v: string) => { const s = plainValue(v); return OUTSIDE.test(s) || OUTSIDE_ANYWHERE.test(s) }
 /** A hyperlink's target (the parameters of a HYPERLINK field) may only be a web or mail address, or a name inside the
  * document (no path, drive, scheme or environment variable): a relative path such as ..\\x.exe opens a program too. */
-const badLinkTarget = (v: string) => { const s = plainValue(v).trim(); return !/^(?:https?|ftp):\/\/|^mailto:/i.test(s) && /[\\/:%]/.test(s) }
+export const badLinkTarget = (v: string) => { const s = plainValue(v).trim(); return !/^(?:https?|ftp):\/\/|^mailto:/i.test(s) && /[\\/:%]/.test(s) }
 /** markup in an attribute value: a web page embedded in an object (a web video's tag) */
 const MARKUP = /<\s*[a-z!/?]/i
 const local = (name: string) => name.slice(name.indexOf(':') + 1)
@@ -378,27 +373,12 @@ class Doc {
     }
   }
 
-  /** the lines of every paragraph as hwpxReadLines reads hwp.ts's text, and where each paragraph's lines start */
-  lines(text: (p: Para) => string = (p) => p.text): { lines: string[]; start: number[]; count: number[] } {
-    const lines: string[] = [], start: number[] = [], count: number[] = []
-    for (const p of this.paras) {
-      const l = hwpxParagraphLines(text(p), p.heading)
-      start.push(lines.length); count.push(l.length)
-      lines.push(...l)
-    }
-    return { lines, start, count }
-  }
-
-  where(p: Para): string {
-    if (p.cell) return `table ${p.cell.table.i + 1}, row ${p.cell.row + 1}, column ${p.cell.col + 1}`
-    return 'a paragraph'
-  }
+  /** the lines of every paragraph as hwpxReadLines reads hwp.ts's text */
+  lines() { return docLines(this.paras) }
 }
 
 // ---------------------------------------------------------------- the changes
 interface Edit { sec: number; start: number; end: number; text: string; change: number; seq: number }
-/** a replaced range of a paragraph's text, in characters of what it reads as */
-interface TextEdit { from: number; to: number; text: string; change: number }
 
 const SEG_NAMES: Record<string, string> = {
   tab: 'a tab', br: 'a line break', locked: 'text inside a field or object', ctrl: 'a field, bookmark or other control', fieldBegin: 'a field',
@@ -413,71 +393,24 @@ const ROW_NAMES = new Set(['hp:tc', 'hp:subList', 'hp:p', 'hp:run', 'hp:t', 'hp:
 
 /** new text as it goes into hp:t: XML characters escaped, a line break as Hangul's element */
 const textXml = (s: string) => s.split('\n').map(escText).join('<hp:lineBreak/>')
-const cleanValue = (s: string) => cleanText(s.replace(/\r\n?/g, '\n'))
 
-class Editor {
+/** how a .hwpx's sections change: byte ranges of a section replaced (files/hwp-changes.ts finds the changes) */
+class Editor extends ChangeEditor<Para, Cell, Table> {
   readonly edits: Edit[] = []
-  readonly textEdits = new Map<Para, TextEdit[]>()
   /** paragraphs whose layout cache goes */
   readonly dropCache = new Set<Para>()
-  /** new paragraphs (a table's new rows) before the paragraph of this index (or at the end) */
-  readonly inserts = new Map<number, { change: number; paras: { text: string; heading: number }[] }[]>()
-  readonly notes: HwpxEditNote[] = []
-  private rowsAdded = new Set<Table>()
-  /** paragraphs of cells a change filled */
-  private filled = new Set<Para>()
   private freshIds = new Map<number, () => string>()
 
-  constructor(private doc: Doc) {}
+  constructor(private doc: Doc) { super(doc.paras, doc.tables) }
 
   private edit(p: { sec: number }, start: number, end: number, text: string, change: number) {
     this.edits.push({ sec: p.sec, start, end, text, change, seq: this.edits.length })
   }
-  note(change: number, where: string, before: string, after: string, also: number[] = []) {
-    if (this.notes.length < 50) this.notes.push({ change, where, before: before.slice(0, 200), after: after.slice(0, 200), ...(also.length ? { also } : {}) })
-  }
-
-  apply(c: HwpxChange, i: number) {
-    if ('find' in c) this.replace(c, i)
-    else if ('cell' in c) this.fillCell(c, i)
-    else this.addRows(c.add_rows, i)
-  }
 
   // ---- find / replace
-  private replace(c: Extract<HwpxChange, { find: string }>, i: number) {
-    const find = c.find
-    if (!find) refuseChange(i, 'find is empty')
-    if (find === c.replace) refuseChange(i, 'find and replace are the same')
-    const hits: { p: Para; at: number }[] = []
-    for (const p of this.doc.paras) {
-      for (let k = p.text.indexOf(find); k >= 0; k = p.text.indexOf(find, k + find.length)) hits.push({ p, at: k })
-    }
-    if (!hits.length) {
-      const near = this.doc.paras.find((p) => strip(find) && strip(p.text).includes(strip(find)))
-      const hint = near ? ` It is there with other spacing or line breaks, in ${this.doc.where(near)}: ${clip(near.text, 120)}; give the text exactly as it is, within one paragraph.`
-        : find.includes('\n') ? ' Each paragraph is searched on its own: give text from one paragraph.' : ''
-      refuseChange(i, `${clip(find)} is not in the document.${hint}`.replace(/\.$/, ''))
-    }
-    let chosen = hits
-    if (c.all) {
-      if (c.occurrence !== undefined) refuseChange(i, 'give occurrence or all, not both')
-      if (hits.length > HWPX_EDIT_LIMITS.matches) refuseChange(i, `${clip(find)} appears more than ${HWPX_EDIT_LIMITS.matches.toLocaleString('en')} times; give a longer text`)
-    }
-    else if (c.occurrence !== undefined) {
-      if (c.occurrence > hits.length) refuseChange(i, `${clip(find)} appears ${hits.length} time${hits.length > 1 ? 's' : ''}, so there is no occurrence ${c.occurrence}`)
-      chosen = [hits[c.occurrence - 1]!]
-    } else if (hits.length > 1) {
-      const list = hits.slice(0, 5).map((h, n) => `${n + 1}: ${clip(h.p.text.slice(Math.max(0, h.at - 20), h.at + find.length + 20), 70)}`).join('; ')
-      refuseChange(i, `${clip(find)} appears ${hits.length} times (${list}${hits.length > 5 ? '; …' : ''}). Give occurrence (1-${hits.length}) for one of them, or all: true for every one`)
-    }
-    const replacement = cleanValue(c.replace)
-    for (const h of chosen) this.replaceAt(h.p, h.at, h.at + find.length, replacement, i)
-  }
-
-  private replaceAt(p: Para, from: number, to: number, text: string, i: number) {
+  protected replaceAt(p: Para, from: number, to: number, text: string, i: number) {
     const xml = this.doc.sections[p.sec]!.xml
     if (p.el.name !== 'hp:p') refuseChange(i, `${clip(p.text.slice(from, to))} is not in an ordinary paragraph (${p.el.name})`)
-    if (this.filled.has(p)) refuseChange(i, `it changes the same text as change ${this.textEdits.get(p)![0]!.change + 1}`)
     const tracked = p.segs.find((s) => s.kind === 'other' && TRACKED.has(s.el!.local))
     if (tracked) refuseChange(i, `the paragraph ${clip(p.text, 60)} has tracked changes; accept or reject them in Hangul first`)
     const covered = p.segs.filter((s) => (s.len > 0 ? s.at < to && s.at + s.len > from : s.at > from && s.at < to))
@@ -497,45 +430,15 @@ class Editor {
       const b = s.node!.start + rawIndex(raw, Math.min(s.len, to - s.at))
       this.edit(p, a, b, n === 0 ? textXml(text) : '', i)
     })
-    const list = this.textEdits.get(p) ?? []
-    list.push({ from, to, text, change: i })
-    this.textEdits.set(p, list)
     this.dropCache.add(p)
   }
 
   // ---- an empty cell
-  private fillCell(c: Extract<HwpxChange, { cell: unknown }>, i: number) {
-    const a = c.cell
-    let cell: Cell
-    if (a.next_to !== undefined) {
-      if (a.table !== undefined || a.row !== undefined || a.col !== undefined) refuseChange(i, 'give next_to or table, row and col, not both')
-      const label = strip(a.next_to)
-      if (!label) refuseChange(i, 'next_to is empty')
-      const all = this.doc.tables.flatMap((t) => t.cells).filter((x) => strip(x.paras.map((p) => p.text).join('')) === label)
-      if (!all.length) refuseChange(i, `no table cell reads ${clip(a.next_to)}${this.cellsContaining(label)}`)
-      if (all.length > 1 && a.occurrence === undefined) refuseChange(i, `${all.length} cells read ${clip(a.next_to)} (${all.slice(0, 5).map((x) => `table ${x.table.i + 1} row ${x.row + 1} column ${x.col + 1}`).join('; ')}); give occurrence (1-${all.length}) or table, row and col`)
-      const o = a.occurrence ?? 1
-      const lab = all[o - 1] ?? refuseChange(i, `${all.length} cell${all.length > 1 ? 's read' : ' reads'} ${clip(a.next_to)}, so there is no occurrence ${o}`)
-      const below = a.direction === 'below'
-      const row = below ? lab.row + lab.rowSpan : lab.row, col = below ? lab.col : lab.col + lab.colSpan
-      cell = lab.table.cells.find((x) => x.row === row && x.col === col)
-        ?? refuseChange(i, `there is no cell ${below ? 'below' : 'right of'} ${clip(a.next_to)} (table ${lab.table.i + 1}, row ${lab.row + 1}, column ${lab.col + 1})`)
-    } else {
-      if (a.table === undefined || a.row === undefined || a.col === undefined) refuseChange(i, 'a cell is given by next_to, or by table, row and col (all three)')
-      const t = this.doc.tables[a.table - 1] ?? refuseChange(i, `there is no table ${a.table} (the document has ${this.doc.tables.length})`)
-      cell = t.cells.find((x) => x.row === a.row! - 1 && x.col === a.col! - 1) ?? (() => {
-        const over = t.cells.find((x) => x.row <= a.row! - 1 && a.row! - 1 < x.row + x.rowSpan && x.col <= a.col! - 1 && a.col! - 1 < x.col + x.colSpan)
-        return refuseChange(i, over ? `row ${a.row} column ${a.col} of table ${a.table} is part of a merged cell that starts at row ${over.row + 1} column ${over.col + 1}`
-          : `table ${a.table} has no cell at row ${a.row} column ${a.col}`)
-      })()
-    }
-    const where = `table ${cell.table.i + 1}, row ${cell.row + 1}, column ${cell.col + 1}`
-    // every paragraph inside the cell counts, those of a table or an object in it too
-    const inside = this.doc.paras.filter((q) => q.sec === cell.table.sec && q.el.start > cell.el.start && q.el.end <= cell.el.end)
-    const text = inside.map((q) => q.text).join('\n')
-    if (text.trim()) refuseChange(i, `the cell at ${where} is not empty (it reads ${clip(text, 60)}); change its text with find and replace`)
-    if (inside.some((q) => !cell.paras.includes(q))) refuseChange(i, `the cell at ${where} holds a table or an object, so it is not an empty cell to fill`)
-    const p = cell.paras[0] ?? refuseChange(i, `the cell at ${where} has no paragraph to write in`)
+  protected inside(cell: Cell): Para[] {
+    return this.doc.paras.filter((q) => q.sec === cell.table.sec && q.el.start > cell.el.start && q.el.end <= cell.el.end)
+  }
+
+  protected fillAt(cell: Cell, p: Para, value: string, where: string, i: number) {
     if (p.el.name !== 'hp:p') refuseChange(i, `the cell at ${where} has no ordinary paragraph`)
     // what an empty cell may hold besides white space: a field (누름틀) or a bookmark, a space mark
     const FIELD_PARTS = new Set(['hp:fieldBegin', 'hp:fieldEnd', 'hp:bookmark'])
@@ -543,10 +446,8 @@ class Editor {
       (s.el!.name === 'hp:ctrl' && kidEls(s.el!).every((k) => FIELD_PARTS.has(k.name))) || s.el!.name === 'hp:nbSpace' || s.el!.name === 'hp:fwSpace'))
     const odd = cell.paras.flatMap((q) => q.segs).find((s) => !allowed(s))
     if (odd) refuseChange(i, `the cell at ${where} holds ${odd.kind === 'other' ? SEG_NAMES[odd.el!.local] ?? `an element (${odd.el!.name})` : SEG_NAMES[odd.kind]}, so it is not an empty cell to fill`)
-    const other = this.textEdits.get(p)?.[0]
-    if (other) refuseChange(i, `it changes the same text as change ${other.change + 1}`)
+    this.notChanged(p, i)
     const xml = this.doc.sections[p.sec]!.xml
-    const value = cleanValue(c.value)
     const runs = kidEls(p.el, 'hp:run')
     let ts = runs.flatMap((r) => kidEls(r, 'hp:t'))
     // a field: the value goes inside it (after its start, before its end), where Hangul shows a filled field's text
@@ -573,81 +474,49 @@ class Editor {
       else this.edit(p, r.closeStart, r.closeStart, `<hp:t>${textXml(value)}</hp:t>`, i)
     }
     for (const s of p.segs) if (s.kind === 'text' && s.len) this.edit(p, s.node!.start, s.node!.end, '', i)
-    this.filled.add(p)
-    const list = this.textEdits.get(p) ?? []
-    list.push({ from: 0, to: p.text.length, text: value, change: i })
-    this.textEdits.set(p, list)
     this.dropCache.add(p)
   }
 
-  private cellsContaining(label: string): string {
-    const near = this.doc.tables.flatMap((t) => t.cells).find((x) => strip(x.paras.map((p) => p.text).join('')).includes(label))
-    return near ? ` (one reads ${clip(near.paras.map((p) => p.text).join(' '), 60)}; next_to must be the cell's whole text)` : ''
-  }
-
   // ---- rows
-  private addRows(a: Extract<HwpxChange, { add_rows: unknown }>['add_rows'], i: number) {
-    let t: Table
-    if ((a.table === undefined) === (a.table_with === undefined)) refuseChange(i, 'give the table by table (its number) or table_with (the text of one of its cells), one of them')
-    if (a.table !== undefined) t = this.doc.tables[a.table - 1] ?? refuseChange(i, `there is no table ${a.table} (the document has ${this.doc.tables.length})`)
-    else {
-      const label = strip(a.table_with!)
-      const found = [...new Set(this.doc.tables.flatMap((x) => x.cells).filter((x) => strip(x.paras.map((p) => p.text).join('')) === label).map((x) => x.table))]
-      if (!found.length) refuseChange(i, `no table has a cell that reads ${clip(a.table_with!)}${this.cellsContaining(label)}`)
-      if (found.length > 1) refuseChange(i, `tables ${found.map((x) => x.i + 1).join(', ')} all have a cell that reads ${clip(a.table_with!)}; give table (its number)`)
-      t = found[0]!
-    }
-    const T = `table ${t.i + 1}`
-    if (this.rowsAdded.has(t)) refuseChange(i, `rows are added to ${T} twice; put all of its new rows in one change`)
-    this.rowsAdded.add(t)
-    const sec = this.doc.sections[t.sec]!
-    const xml = sec.xml
+  protected tableRows(t: Table) {
+    const xml = this.doc.sections[t.sec]!.xml
     const tbl = attrsOf(xml, t.el)
-    const R = t.rows.length
-    if (Number(tbl.get('rowCnt')) !== R) refuseChange(i, `${T} says it has ${tbl.get('rowCnt')} rows but has ${R}`)
-    const colCnt = Number(tbl.get('colCnt'))
-    const A = a.after_row ?? R
-    const C = a.copy_row ?? A
-    if (!(A >= 1 && A <= R)) refuseChange(i, `${T} has rows 1-${R}, so after_row ${A} is not one of them`)
-    if (!(C >= 1 && C <= R)) refuseChange(i, `${T} has rows 1-${R}, so copy_row ${C} is not one of them`)
-    if (!a.rows.length) refuseChange(i, 'rows is empty')
-    if (a.rows.length > HWPX_EDIT_LIMITS.newRows) refuseChange(i, `more than ${HWPX_EDIT_LIMITS.newRows} new rows`)
     const byRow = new Map<El, Cell[]>()
     for (const c of t.cells) { const list = byRow.get(c.el.parent!); if (list) list.push(c); else byRow.set(c.el.parent!, [c]) }
-    const rowOf = (el: El) => byRow.get(el) ?? []
-    t.rows.forEach((tr, r) => { for (const c of rowOf(tr)) if (c.row !== r) refuseChange(i, `the cells of ${T} are not in row order (row ${r + 1} has a cell of row ${c.row + 1})`) })
-    const tr = t.rows[C - 1]!
-    const cells = rowOf(tr)
-    if (cells.some((c) => c.rowSpan !== 1)) refuseChange(i, `row ${C} of ${T} has a cell merged with the row below, so it cannot be copied; copy another row (copy_row)`)
-    if (cells.reduce((n, c) => n + c.colSpan, 0) !== colCnt) refuseChange(i, `row ${C} of ${T} does not have all of its ${colCnt} columns (a cell above reaches into it), so it cannot be copied; copy another row (copy_row)`)
-    const across = t.cells.find((c) => c.row <= A - 1 && c.row + c.rowSpan - 1 >= A)
-    if (across) refuseChange(i, `a merged cell of ${T} (row ${across.row + 1}, column ${across.col + 1}) reaches across the place after row ${A}, so rows cannot go there`)
-    for (const [n, row] of a.rows.entries()) if (row.length > cells.length) refuseChange(i, `new row ${n + 1} has ${row.length} values, but row ${C} of ${T} has ${cells.length} cells`)
+    return { rows: t.rows.map((tr) => byRow.get(tr) ?? []), declared: tbl.get('rowCnt') ?? '', cols: Number(tbl.get('colCnt')) }
+  }
+
+  protected checkCopyRow(plan: RowPlan<Cell, Table>, i: number) {
     // what a copied row may hold: text in paragraphs, nothing that points elsewhere (the allowlist of hwpx-write.ts)
+    const { t, C, T } = plan
+    const xml = this.doc.sections[t.sec]!.xml
+    const tr = t.rows[C - 1]!
     const rowXml = xml.slice(tr.start, tr.end)
     const refuseRow: Refuse = (_part, why) => refuseChange(i, `row ${C} of ${T} cannot be copied (${why}); copy a row with only text in its cells (copy_row)`)
     const tree = parseXml(`<hs:sec ${NS_ATTRS}>${rowXml}</hs:sec>`, `row ${C}`, { only: ['hp:tr'], refuse: refuseRow }).get('hp:tr')!
     assertKnown(tree, `row ${C}`, ROW_NAMES, new Set(['hp:t']), refuseRow)
+  }
+
+  protected rowsAt(plan: RowPlan<Cell, Table>, i: number): number {
+    const { t, A, C, cells, T } = plan
+    const xml = this.doc.sections[t.sec]!.xml
+    const R = t.rows.length
+    const tr = t.rows[C - 1]!
     // the new rows: each cell's first paragraph with its shapes and a fresh id, its first run with the new text
     const fresh = this.ids(t.sec)
     const copies: string[] = []
-    const newParas: { text: string; heading: number }[] = []
-    for (const [n, values] of a.rows.entries()) {
+    for (const [n, values] of plan.rows.entries()) {
       let out = ''
       let pos = tr.start
       for (const [ci, cell] of cells.entries()) {
         out += xml.slice(pos, cell.el.start)
-        const value = cleanValue(values[ci] ?? '')
-        if (value.length > HWPX_EDIT_LIMITS.valueChars) refuseChange(i, `a value is longer than ${HWPX_EDIT_LIMITS.valueChars.toLocaleString('en')} characters`)
-        out += this.cellCopy(xml, cell, A + n, value, fresh, i, C, T)
-        const p = cell.paras[0]!
-        newParas.push({ text: value, heading: this.doc.outline.get(attrsOf(xml, p.el).get('paraPrIDRef') ?? '') ?? 0 })
+        out += this.cellCopy(xml, cell, A + n, values[ci]!, fresh, i, C, T)
         pos = cell.el.end
       }
       copies.push(out + xml.slice(pos, tr.end))
     }
     const after = t.rows[A - 1]!
-    const k = a.rows.length
+    const k = plan.rows.length
     this.edit(t, after.end, after.end, copies.join(''), i)
     // the rows below move down; the table's row count, height and cell zones follow
     for (const c of t.cells) {
@@ -675,9 +544,7 @@ class Editor {
     for (let p = t.para; p; p = p.cell ? p.cell.table.para : null) this.dropCache.add(p)
     // where the new paragraphs go in reading order: before the first paragraph that opens after the row they follow
     const next = this.doc.paras.find((p) => p.sec > t.sec || (p.sec === t.sec && p.el.start >= after.end))
-    const key = next ? next.i : this.doc.paras.length
-    this.inserts.set(key, [...(this.inserts.get(key) ?? []), { change: i, paras: newParas }])
-    this.note(i, `${T}, after row ${A}`, '', `${k} row${k > 1 ? 's' : ''} like row ${C}: ${a.rows.map((r) => r.join(' | ')).join(' / ')}`)
+    return next ? next.i : this.doc.paras.length
   }
 
   /** a copy of `cell` for row `row` (0-based) with `value` */
@@ -719,22 +586,6 @@ class Editor {
     }
     return f
   }
-
-  /** each paragraph's text after the changes (a cell's new text replaces all of it) */
-  newText(p: Para): string {
-    const list = this.textEdits.get(p)
-    if (!list) return p.text
-    const sorted = [...list].sort((a, b) => a.from - b.from || a.change - b.change)
-    let out = '', pos = 0
-    let last: TextEdit | null = null
-    for (const e of sorted) {
-      if (last && e.from < pos) refuseChange(e.change, `it changes the same text as change ${last.change + 1}`)
-      out += p.text.slice(pos, e.from) + e.text
-      pos = e.to
-      last = e
-    }
-    return out + p.text.slice(pos)
-  }
 }
 
 // ---------------------------------------------------------------- the whole edit
@@ -751,7 +602,7 @@ function cfbParts(bytes: Uint8Array): Map<string, Uint8Array> {
 
 /** Changes the text of a .hwpx; the new file and what the read-back needs. ToolError for a change or a document it
  * refuses, and then nothing is written. */
-export function editHwpx(bytes: Uint8Array, changes: HwpxChange[]): { file: Uint8Array; report: HwpxEditReport } {
+export function editHwpx(bytes: Uint8Array, changes: HwpChange[]): { file: Uint8Array; report: HwpEditReport } {
   if (!changes.length) throw new ToolError('no changes given; nothing was saved')
   if (changes.length > HWPX_EDIT_LIMITS.changes) throw new ToolError(`more than ${HWPX_EDIT_LIMITS.changes} changes in one call; nothing was saved`)
   const pkg = openPackage(bytes)
@@ -763,26 +614,9 @@ export function editHwpx(bytes: Uint8Array, changes: HwpxChange[]): { file: Uint
   if (differs) refuseDoc(`its text could not be mapped exactly (${differs})`)
   const ed = new Editor(doc)
   changes.forEach((c, i) => ed.apply(c, i))
-
-  // the expected text: each changed paragraph's new text, the new rows' paragraphs where they go
-  const changed = new Map<Para, string>()
-  for (const p of ed.textEdits.keys()) {
-    const t = ed.newText(p)
-    changed.set(p, t)
-    const ch = [...new Set(ed.textEdits.get(p)!.map((e) => e.change))].sort((a, b) => a - b)
-    ed.note(ch[0]!, doc.where(p), p.text, t, ch.slice(1))
-  }
-  // each line edit names the changes it comes from, for the server's read-back
-  const lineEdits: LineEdit[] = []
-  for (let i = 0; i <= doc.paras.length; i++) {
-    const at = i < doc.paras.length ? before.start[i]! : before.lines.length
-    for (const g of ed.inserts.get(i) ?? []) lineEdits.push({ at, remove: 0, insert: g.paras.flatMap((x) => hwpxParagraphLines(x.text, x.heading)), changes: [g.change] })
-    const p = doc.paras[i]
-    if (p && changed.has(p)) {
-      const changes = [...new Set(ed.textEdits.get(p)!.map((e) => e.change))].sort((a, b) => a - b)
-      lineEdits.push({ at, remove: before.count[i]!, insert: hwpxParagraphLines(changed.get(p)!, p.heading), changes })
-    }
-  }
+  // the expected text: each changed paragraph's new text, the new rows' paragraphs where they go; each line edit names
+  // the changes it comes from, for the server's read-back
+  const lineEdits = ed.lineEdits()
 
   // the bytes: per section, the edits in order (none may overlap another), the dropped layout caches
   for (const p of ed.dropCache) if (p.lineseg) ed.edits.push({ sec: p.sec, start: p.lineseg.start, end: p.lineseg.end, text: '', change: -1, seq: ed.edits.length })
@@ -821,31 +655,7 @@ export function editHwpx(bytes: Uint8Array, changes: HwpxChange[]): { file: Uint
   const after = hwpxReadLines(hwpxText(file))
   const diff = want ? firstDifference(want, after) : 'the changes do not fit the document'
   if (diff) throw new ToolError(`the changed document did not read back as expected (${diff}); nothing was saved`)
-
-  const placeholders = [...new Set(after.join('\n').match(/\{\{[^{}\n]{1,40}\}\}/g) ?? [])].slice(0, 20)
-  return { file, report: { lineEdits, notes: ed.notes.sort((a, b) => a.change - b.change), placeholders } }
-}
-
-/** The changes as the worker gets them: the server checked them with the tool's schema; checked again here. */
-function asChanges(v: unknown): HwpxChange[] {
-  const bad = (): never => { throw new ToolError('the .hwpx editor got a damaged request') }
-  if (!Array.isArray(v)) return bad()
-  const str = (x: unknown) => typeof x === 'string'
-  const int = (x: unknown) => x === undefined || (Number.isInteger(x) && (x as number) >= 1)
-  for (const c of v) {
-    if (!c || typeof c !== 'object') bad()
-    if ('find' in c) { if (!str(c.find) || !str(c.replace) || !int(c.occurrence) || (c.all !== undefined && typeof c.all !== 'boolean')) bad() }
-    else if ('cell' in c) {
-      const a = c.cell
-      if (!a || typeof a !== 'object' || !str(c.value) || !(a.next_to === undefined || str(a.next_to)) || !int(a.table) || !int(a.row) || !int(a.col) || !int(a.occurrence)) bad()
-      if (a.direction !== undefined && a.direction !== 'right' && a.direction !== 'below') bad()
-    } else if ('add_rows' in c) {
-      const a = c.add_rows
-      if (!a || typeof a !== 'object' || !int(a.table) || !(a.table_with === undefined || str(a.table_with)) || !int(a.after_row) || !int(a.copy_row)) bad()
-      if (!Array.isArray(a.rows) || a.rows.some((r: unknown) => !Array.isArray(r) || r.length > HWPX_EDIT_LIMITS.rowCells || r.some((x) => !str(x)))) bad()
-    } else bad()
-  }
-  return v as HwpxChange[]
+  return { file, report: { lineEdits, notes: ed.notes, placeholders: placeholdersIn(after) } }
 }
 
 /** The office worker's `hwpx-verify` mode: a file the editor made goes through every check of a document to change
@@ -860,8 +670,8 @@ export function hwpxVerifyRequest(input: Uint8Array): Uint8Array {
 
 /** The office worker's `hwpx-edit` mode: the framed request of hwpx-check.ts in, the framed report and file out. */
 export function hwpxEditRequest(input: Uint8Array): Uint8Array {
-  let req: ReturnType<typeof decodeHwpxEditRequest>
-  try { req = decodeHwpxEditRequest(input) } catch { throw new ToolError('the .hwpx editor got a damaged request') }
-  const { file, report } = editHwpx(req.doc, asChanges(req.changes))
-  return encodeHwpxEditResult(report, file)
+  let req: ReturnType<typeof decodeHwpEditRequest>
+  try { req = decodeHwpEditRequest(input) } catch { throw new ToolError('the .hwpx editor got a damaged request') }
+  const { file, report } = editHwpx(req.doc, asChanges(req.changes, '.hwpx'))
+  return encodeHwpEditResult(report, file)
 }

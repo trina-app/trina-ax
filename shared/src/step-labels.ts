@@ -20,7 +20,7 @@ export const FILE_STEP_VERB: Record<string, T> = {
   edit: t('파일 수정', 'Edit', 'Ubah berkas', "編集", "Editar"),
   edit_files: t('여러 파일 수정', 'Edit files', 'Ubah beberapa berkas', "複数のファイルを編集", "Editar archivos"),
   make_file: t('파일 만들기', 'Make file', 'Buat berkas', "ファイルを作成", "Crear archivo"),
-  edit_hwpx: t('한글 문서 고치기', 'Edit Hangul document', 'Ubah dokumen Hangul', "ハングル文書を編集", "Editar documento Hangul"),
+  edit_hwp: t('한글 문서 고치기', 'Edit Hangul document', 'Ubah dokumen Hangul', "ハングル文書を編集", "Editar documento Hangul"),
   share_file: t('파일 공유 링크', 'Share link', 'Tautan berkas', "リンクを共有", "Compartir enlace"),
   move_files: t('파일 옮기기', 'Move files', 'Pindahkan berkas', "ファイルを移動", "Mover archivos"),
   copy_files: t('파일 복사', 'Copy files', 'Salin berkas', "ファイルをコピー", "Copiar archivos"),
@@ -152,7 +152,7 @@ export function stepLabel(tool: string, input: unknown, locale: Locale, browserT
       return files.length ? `${verb} · ${clip(files[0], 80)}${files.length > 1 ? ` +${files.length - 1}` : ''}` : verb!
     }
     case 'make_file': return `${verb} · ${clip(a.output, 90)}`
-    case 'edit_hwpx': return `${verb} · ${clip(a.output ?? a.file_path, 90)}`
+    case 'edit_hwp': return `${verb} · ${clip(a.output ?? a.file_path, 90)}`
     case 'share_file': return `${verb} · ${clip(a.path, 90)}`
     case 'move_files': case 'copy_files': return `${verb} · ${clip(a.to_folder, 90)}`
     case 'rename_file': return `${verb} · ${clip(a.path, 90)}`

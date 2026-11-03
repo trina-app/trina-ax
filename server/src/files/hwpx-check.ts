@@ -3,8 +3,11 @@
 // - the read-back check: the lines a document should read back as (from pandoc's tree, walked here on its own, not
 //   with the writer's code) against what hwp.ts reads from the written file. A file that does not read back as the
 //   document is not saved.
-// Nothing here parses a document: the tree is pandoc's JSON, already parsed by make_file. For edit_hwpx (stage 2) the
-// same holds: the server compares lines hwp.ts read in the worker, and two zip central directories (names, CRCs, sizes).
+// Nothing here parses a document: the tree is pandoc's JSON, already parsed by make_file. For edit_hwp (stages 2 and 3)
+// the server compares lines hwp.ts read in the worker, and the containers: two zip central directories (names, CRCs,
+// sizes) for a .hwpx; for a .hwp the two compound files' directories and stream bytes (files/cfb.ts, sector chains
+// only: nothing is expanded and no record is read).
+import { CfbError, cfbMismatch, readCfb } from './cfb'
 import { zipDirectory, type ZipDirEntry } from './zip-write'
 
 /** worker mode that writes a .hwpx (office-worker.ts) */
@@ -124,27 +127,31 @@ export function firstDifference(want: string[], got: string[]): string | null {
   return null
 }
 
-// ---------------------------------------------------------------- edit_hwpx (stage 2: an existing .hwpx changed)
+// ---------------------------------------------------------------- edit_hwp (stage 2: an existing .hwpx changed; stage 3: a .hwp)
 /** worker mode that changes an existing .hwpx (files/hwpx-edit.ts) */
 export const HWPX_EDIT_MODE = 'hwpx-edit'
-/** A document edit_hwpx changes: larger ones are refused (the worker's answer, the new file, must stay below its
+/** worker mode that changes an existing .hwp (files/hwp-edit.ts) */
+export const HWP_EDIT_MODE = 'hwp-edit'
+/** A document edit_hwp changes: larger ones are refused (the worker's answer, the new file, must stay below its
  * output cap of 64 MB). */
-export const HWPX_EDIT_MAX = 40 * 1024 * 1024
+export const HWP_EDIT_MAX = 40 * 1024 * 1024
 
-/** One change of edit_hwpx, as the tool's input gives it (shared/src/tools.ts EditHwpxInput). */
-export type HwpxChange =
+/** One change of edit_hwp, as the tool's input gives it (shared/src/tools.ts EditHwpInput). */
+export type HwpChange =
   | { find: string; replace: string; occurrence?: number; all?: boolean }
   | { cell: { next_to?: string; direction?: 'right' | 'below'; occurrence?: number; table?: number; row?: number; col?: number }; value: string }
   | { add_rows: { table?: number; table_with?: string; after_row?: number; copy_row?: number; rows: string[][] } }
 
-/** worker mode that runs a document's checks again on a file the editor made (files/hwpx-edit.ts) */
+/** worker modes that run a document's checks again on a file the editor made (files/hwpx-edit.ts, files/hwp-edit.ts) */
 export const HWPX_VERIFY_MODE = 'hwpx-verify'
+export const HWP_VERIFY_MODE = 'hwp-verify'
 
-/** Where edit_hwpx saves a new file: `output` without a trailing "/", with .hwpx added unless it ends so (as make_file
- * names its output). The tool and the chat's confirmation card both use this. */
-export function hwpxOutputPath(output: string): string {
+/** Where edit_hwp saves a new file: `output` without a trailing "/", with the source's extension (.hwp or .hwpx) added
+ * unless it ends in .hwp or .hwpx (as make_file names its output). The result keeps the source's format: the tool
+ * refuses an output in the other one. The tool and the chat's confirmation card both use this. */
+export function hwpOutputPath(output: string, source: string): string {
   const o = output.replace(/\/+$/, '')
-  return /\.hwpx$/i.test(o) ? o : `${o}.hwpx`
+  return /\.hwpx?$/i.test(o) ? o : `${o}.${/\.hwp$/i.test(source) ? 'hwp' : 'hwpx'}`
 }
 
 /** What the read-back needs from the worker: where the lines of the old document change. `at` and `remove` count lines
@@ -152,22 +159,22 @@ export function hwpxOutputPath(output: string): string {
  * `changes` the changes (0-based) the edit comes from. */
 export interface LineEdit { at: number; remove: number; insert: string[]; changes: number[] }
 /** The worker's report on a change it made: which change, where (for the AI), the text before and after. */
-export interface HwpxEditNote { change: number; where: string; before: string; after: string; /** other changes in the same paragraph */ also?: number[] }
-export interface HwpxEditReport { lineEdits: LineEdit[]; notes: HwpxEditNote[]; placeholders: string[] }
+export interface HwpEditNote { change: number; where: string; before: string; after: string; /** other changes in the same paragraph */ also?: number[] }
+export interface HwpEditReport { lineEdits: LineEdit[]; notes: HwpEditNote[]; placeholders: string[] }
 
 /** stdin of the worker's edit mode: 4 bytes (big-endian) for the length of the changes' JSON, the JSON, the document */
-export const encodeHwpxEditRequest = (changes: HwpxChange[], doc: Uint8Array) => encodeHwpxRequest(JSON.stringify(changes), doc)
-export function decodeHwpxEditRequest(b: Uint8Array): { changes: unknown; doc: Uint8Array } {
+export const encodeHwpEditRequest = (changes: HwpChange[], doc: Uint8Array) => encodeHwpxRequest(JSON.stringify(changes), doc)
+export function decodeHwpEditRequest(b: Uint8Array): { changes: unknown; doc: Uint8Array } {
   const r = decodeHwpxRequest(b)
   if (!r.template) throw new Error('bad request')
   return { changes: JSON.parse(r.astJson), doc: r.template }
 }
 /** stdout of the worker's edit mode: the report's JSON framed the same way, then the new file */
-export const encodeHwpxEditResult = (report: HwpxEditReport, file: Uint8Array) => encodeHwpxRequest(JSON.stringify(report), file)
-export function decodeHwpxEditResult(b: Uint8Array): { report: HwpxEditReport; file: Uint8Array } {
+export const encodeHwpEditResult = (report: HwpEditReport, file: Uint8Array) => encodeHwpxRequest(JSON.stringify(report), file)
+export function decodeHwpEditResult(b: Uint8Array): { report: HwpEditReport; file: Uint8Array } {
   const r = decodeHwpxRequest(b)
   if (!r.template) throw new Error('bad result')
-  const report = JSON.parse(r.astJson) as HwpxEditReport
+  const report = JSON.parse(r.astJson) as HwpEditReport
   if (!Array.isArray(report?.lineEdits) || !Array.isArray(report.notes) || !Array.isArray(report.placeholders)) throw new Error('bad result')
   return { report, file: r.template }
 }
@@ -220,13 +227,13 @@ function replacedFrom(from: string, to: string, pairs: [string, string][]): bool
 }
 
 /**
- * The read-back of edit_hwpx, run by the server on what hwp.ts reads in the worker (as read and grep read them):
+ * The read-back of edit_hwp, run by the server on what hwp.ts reads in the worker (as read and grep read them):
  * the new file's lines must be the old file's with the worker's line edits applied, so every paragraph the changes do
  * not touch reads exactly as before; and every line edit must be what the changes it names make: for replacements,
  * the lines removed with some of those texts replaced (white space aside); for a filled cell or added rows, nothing
  * removed and exactly their text put in. Every change must show in an edit. Returns why not, or null.
  */
-export function hwpxEditMismatch(changes: HwpxChange[], old: string[], got: string[], report: HwpxEditReport): string | null {
+export function hwpEditMismatch(changes: HwpChange[], old: string[], got: string[], report: HwpEditReport): string | null {
   const want = applyLineEdits(old, report.lineEdits)
   if (!want) return 'the changes do not fit the document as it reads'
   const diff = firstDifference(want, got)
@@ -270,4 +277,18 @@ export function hwpxPartsMismatch(oldFile: Uint8Array, newFile: Uint8Array): str
     if (x.crc !== y.crc || x.usize !== y.usize || x.csize !== y.csize || x.method !== y.method) return `${x.name} is not the same as before`
   }
   return null
+}
+
+/** A .hwp's stream paths edit_hwp may change: the body sections. */
+export const isHwpSection = (path: string) => /^BodyText\/Section\d+$/.test(path)
+
+/**
+ * The new .hwp's container against the old one's, read in the server with files/cfb.ts (sector chains and the
+ * directory; nothing expanded, no record read): the same header, the same directory entries byte for byte but a
+ * stream's place and size, and every stream the same bytes but the body sections. Returns why not, or null.
+ */
+export function hwpPartsMismatch(oldFile: Uint8Array, newFile: Uint8Array): string | null {
+  try { return cfbMismatch(readCfb(oldFile), readCfb(newFile), isHwpSection) } catch (e) {
+    return `a compound file could not be read (${String(e instanceof CfbError ? e.message : 'damaged').slice(0, 80)})`
+  }
 }

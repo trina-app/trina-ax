@@ -1,4 +1,4 @@
-// Test helpers for make_file's and edit_hwpx's .hwpx: template and document files built here (no third-party documents
+// Test helpers for make_file's and edit_hwp's .hwpx: template and document files built here (no third-party documents
 // in the repo; every name, company and address in them is made up) and a reader of a written file's parts.
 import * as XLSX from 'xlsx'
 import { charPrXml, defaultHeaderXml, defaultSecPrXml, NS_ATTRS, paraPrXml, XML_DECL } from '../../server/src/files/hwpx-template'
@@ -28,7 +28,7 @@ export function hwpxTemplate(o: { head?: string; secPr?: string; extra?: Record<
   return writeZip(files)
 }
 
-// ---------------------------------------------------------------- documents to change (edit_hwpx)
+// ---------------------------------------------------------------- documents to change (edit_hwp)
 /** The shapes the form documents use, added to the built-in header after its own items. */
 export const FORM = {
   /** character shapes: 0 body (built-in), 11 body bold, 12 body italic, 13 title (20 pt bold), 14 small (9 pt) */

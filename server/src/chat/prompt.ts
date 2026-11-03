@@ -368,7 +368,7 @@ export function buildSubagentPrompt(files: FileService, i: PromptInput, tools: s
     has.has('write') ? 'Before changing an existing file, read it yourself (what the assistant or another sub-agent read does not count). To create a new file, call write directly. Save only what your task asks for, where it says.' : 'You cannot change or save files.',
     has.has('search') ? 'To find documents by meaning, use search, then read the files it points to; grep is for exact words.' : '',
     has.has('make_file') ? 'To produce Word / PowerPoint / Excel / PDF / Hangul (.hwpx) files, write Markdown or CSV and convert it with make_file (write and edit cannot save .hwp or .hwpx files).' : '',
-    has.has('edit_hwpx') ? 'To fill in or change an existing Hangul document (.hwpx: a form, a template with blanks), read it, then use edit_hwpx; it keeps everything you do not change exactly as it was.' : '',
+    has.has('edit_hwp') ? 'To fill in or change an existing Hangul document (.hwp or .hwpx: a form, a template with blanks), read it, then use edit_hwp; it keeps everything you do not change exactly as it was and saves the same format.' : '',
     has.has('move_files') ? 'To move, copy or rename files of any type, use move_files, copy_files and rename_file; write only saves text.' : '',
     has.has('artifact') ? 'For things the user will look at or reuse (a web page, a diagram, a document draft, code), use the artifact tool.' : '',
     has.has('save_url') ? SAVE_URL_RULE : '',
@@ -415,7 +415,7 @@ export function buildTurnPrompt(files: FileService, i: PromptInput): string {
     tools.has('search') ? 'To find documents by meaning (the user describes something but you don\'t know the words or file names), use search, then read the files it points to; grep is for exact words.' : '',
     sourceLinkRule(tools.has('search')),
     tools.has('make_file') ? 'To produce Word / PowerPoint / Excel / PDF / Hangul (.hwpx) files, write Markdown or CSV and convert it with make_file (write and edit cannot save .hwp or .hwpx files).' : '',
-    tools.has('edit_hwpx') ? 'To fill in or change an existing Hangul document (.hwpx: a form, a template with blanks), read it, then use edit_hwpx; it keeps everything you do not change exactly as it was.' : '',
+    tools.has('edit_hwp') ? 'To fill in or change an existing Hangul document (.hwp or .hwpx: a form, a template with blanks), read it, then use edit_hwp; it keeps everything you do not change exactly as it was and saves the same format.' : '',
     // write only saves text: without these the AI told people it could not move a PDF or an image they attached (2026-10-28)
     tools.has('move_files') ? 'To move, copy or rename files of any type (PDF, images, Office files, chat attachments), use move_files, copy_files and rename_file; write only saves text. Files the user attached in a chat are in their .attachments folder: move them to keep them for the team.' : '',
     tools.has('artifact') ? 'For things the user will look at or reuse (a web page, a diagram, a document draft, code), use the artifact tool instead of pasting long code in the answer.' : '',

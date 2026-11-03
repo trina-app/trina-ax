@@ -1,10 +1,10 @@
 // The non-file engine tools of component C, registered into the MCP tool registry of this server instance:
-// make_file, edit_hwpx (tools/edit-hwpx.ts), share_file, artifact, web_fetch (design tab 3 "도구 목록"), save_url (tools/save-url.ts), and move_files / copy_files / rename_file
+// make_file, edit_hwp (tools/edit-hwp.ts), share_file, artifact, web_fetch (design tab 3 "도구 목록"), save_url (tools/save-url.ts), and move_files / copy_files / rename_file
 // (tools/file-moves.ts). Inputs are the shared contracts
 // (shared/src/tools.ts); the engine sees mcp__team__<name>.
 import { registerHwpRender } from './hwp-render'
-import { ArtifactInput, EditHwpxInput, MakeFileInput, SaveUrlInput, ShareFileInput, WebFetchInput } from '@mycel/shared'
-import { editHwpx, editHwpxText } from './edit-hwpx'
+import { ArtifactInput, EditHwpInput, MakeFileInput, SaveUrlInput, ShareFileInput, WebFetchInput } from '@mycel/shared'
+import { editHwpFile, editHwpFileText } from './edit-hwp'
 import { fileShareUrl } from '@mycel/shared/api'
 import type { AppContext } from '../context'
 import type { ToolCtx } from '../files/service'
@@ -24,7 +24,7 @@ import { redirectGuard, webEcho } from './connection-urls'
 import { precheckTarget, webFetch, wrapExternal, type FetchOptions } from './web-fetch'
 import { SAVE_URL_DESCRIPTION, saveUrl, type SaveUrlOptions } from './save-url'
 
-export const C_TOOL_NAMES = ['hwp_render', 'make_file', 'edit_hwpx', 'share_file', 'artifact', 'web_fetch', 'save_url'] as const
+export const C_TOOL_NAMES = ['hwp_render', 'make_file', 'edit_hwp', 'share_file', 'artifact', 'web_fetch', 'save_url'] as const
 
 const human = (n: number) => (n < 1024 ? `${n} B` : n < 1048576 ? `${(n / 1024).toFixed(1)} KB` : `${(n / 1048576).toFixed(1)} MB`)
 
@@ -70,7 +70,7 @@ export function registerCTools(ctx: AppContext, o: { fetch?: FetchOptions; saveU
       'hwpx (Hangul): # to ###### headings become Hangul outline levels 1-6; also paragraphs, **bold**, *italic*, bullet and numbered lists (up to 6 levels), ' +
       'simple tables (no merged cells, plain text in cells) and page breaks (a line with only \\newpage). Nothing else: images, links, footnotes, code, ' +
       'block quotes, horizontal rules, HTML, math and YAML metadata are refused and nothing is saved, so write those as plain text (a link as "text (address)"). ' +
-      'With a team template whose outline numbers its headings, leave the numbers out of the headings. A .hwp cannot be written. To change an existing .hwpx (fill in a form), use edit_hwpx. ' +
+      'With a team template whose outline numbers its headings, leave the numbers out of the headings. A .hwp cannot be written. To change an existing .hwp or .hwpx (fill in a form), use edit_hwp. ' +
       'pptx: ' + PPTX_FORMAT_HINT + ' When the user names a slide count, give `expected_slides` (and `expected_notes` for speaker notes); ' +
       'the result states the real slide and notes counts: report those, never other numbers. ' +
       'When safe operations are enabled, PPTX uses only the bundled reference: uploaded templates are deferred. ' +
@@ -91,26 +91,26 @@ export function registerCTools(ctx: AppContext, o: { fetch?: FetchOptions; saveU
   })
 
   reg.register({
-    name: 'edit_hwpx',
-    description: 'Change the text of an existing Hangul document (.hwpx) and save it, keeping everything else in the file exactly as it was: ' +
+    name: 'edit_hwp',
+    description: 'Change the text of an existing Hangul document (.hwp or .hwpx) and save it in the same format, keeping everything else in the file exactly as it was: ' +
       'fill placeholders such as {{name}}, replace exact text, fill empty table cells, add table rows. Read the file in this turn first. ' +
       'Each change is found in the document as you read it: { find, replace } replaces text inside one paragraph (the new text takes the ' +
       'formatting of the text it replaces; when it appears more than once, give occurrence or all: true); { cell: { next_to: "<the label ' +
       'cell\'s whole text>" } (or with direction "below"; or { table, row, col }, 1-based), value } fills an empty cell; { add_rows: ' +
       '{ table_with: "<the whole text of one of its cells>" or table, after_row?, copy_row?, rows: [[...], ...] } } adds rows shaped like ' +
-      'copy_row (default: the last row), one value per cell. Tables are numbered in reading order. Plain text only: no new formatting, ' +
+      'copy_row (default: after_row, which defaults to the last row), one value per cell; borders are copied too, so copy a middle row when the last one closes the table with a heavier line. Tables are numbered in reading order. Plain text only: no new formatting, ' +
       'images or styles. If a change cannot be applied exactly (not found, found more than once, across differently formatted text, a ' +
       'tab, a field or a merged cell), nothing is saved and the error says why. Without `output` the result is a new version of the ' +
-      'same file (the previous one stays in its history); with `output` a new file. A .hwp must be saved as .hwpx in Hangul first. ' +
+      'same file (the previous one stays in its history); with `output` a new file of the same format. ' +
       'To write a new document, use make_file. write and edit cannot change .hwp or .hwpx files.',
-    input: EditHwpxInput,
-    describe: (a) => `edit_hwpx ${a.file_path}${a.output ? ` -> ${a.output}` : ''} (${a.changes.length} changes)`,
+    input: EditHwpInput,
+    describe: (a) => `edit_hwp ${a.file_path}${a.output ? ` -> ${a.output}` : ''} (${a.changes.length} changes)`,
     async run(a, t) {
-      const r = await editHwpx(ctx, c.files, t, a)
+      const r = await editHwpFile(ctx, c.files, t, a)
       const link = `[${r.path.split('/').pop()}](${fileShareUrl(r.path, 'preview')})`
       return {
-        text: editHwpxText(r, link),
-        summary: `edit_hwpx ${r.source} -> ${r.path} ${r.size}B ${a.changes.length} changes${r.inPlace ? ' (new version)' : ''}${r.conflictCopyOf ? ' (conflict copy)' : ''}`,
+        text: editHwpFileText(r, link),
+        summary: `edit_hwp ${r.source} -> ${r.path} ${r.size}B ${a.changes.length} changes${r.inPlace ? ' (new version)' : ''}${r.conflictCopyOf ? ' (conflict copy)' : ''}`,
         structured: { path: r.path, size: r.size, sha256: r.sha256, ...(r.conflictCopyOf ? { conflictCopyOf: r.conflictCopyOf } : {}) },
       }
     },

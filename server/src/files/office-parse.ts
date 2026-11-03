@@ -1,6 +1,6 @@
 // Text of spreadsheets (SheetJS: xlsx / xls / ods) and Hangul documents (hwp.ts: hwp / hwpx), make_file's new
-// Hangul documents (hwpx-write.ts: pandoc's tree and an untrusted template in, a .hwpx out) and edit_hwpx's changed
-// ones (hwpx-edit.ts: an untrusted .hwpx and the changes in, the changed .hwpx out). These are pure
+// Hangul documents (hwpx-write.ts: pandoc's tree and an untrusted template in, a .hwpx out) and edit_hwp's changed
+// ones (hwpx-edit.ts and hwp-edit.ts: an untrusted .hwpx or .hwp and the changes in, the changed file out). These are pure
 // TypeScript and expand untrusted input in memory, so they run only in the office worker
 // (files/office-worker.ts, a bounded child process started by extract.ts), never in the server process.
 // Defence in depth inside the worker: zip containers are checked before a parser expands them (zip-guard.ts), a
@@ -12,14 +12,15 @@ import { checkZip, isZip, tooComplex } from './zip-guard'
 import { docxExtraText, pptxExtraText } from './ooxml'
 import { hwpxWriteRequest } from './hwpx-write'
 import { hwpxEditRequest, hwpxVerifyRequest } from './hwpx-edit'
-import { HWPX_EDIT_MODE, HWPX_VERIFY_MODE, HWPX_WRITE_MODE } from './hwpx-check'
+import { hwpEditRequest, hwpVerifyRequest } from './hwp-edit'
+import { HWP_EDIT_MODE, HWP_VERIFY_MODE, HWPX_EDIT_MODE, HWPX_VERIFY_MODE, HWPX_WRITE_MODE } from './hwpx-check'
 
 export const WORKER_EXT = new Set(['xlsx', 'xls', 'ods', 'hwp', 'hwpx'])
 /** worker modes that give only the parts of a .docx / .pptx that pandoc drops (ooxml.ts); pandoc still gives the body */
 export const EXTRA_MODES = new Set(['docx-extra', 'pptx-extra'])
-/** worker modes that make a file: stdin is the request, stdout the file's bytes (make_file's .hwpx, hwpx-write.ts; edit_hwpx's
- * changed .hwpx with its report and the checks run again on it, hwpx-edit.ts) */
-export const WRITE_MODES = new Set([HWPX_WRITE_MODE, HWPX_EDIT_MODE, HWPX_VERIFY_MODE])
+/** worker modes that make a file: stdin is the request, stdout the file's bytes (make_file's .hwpx, hwpx-write.ts; edit_hwp's
+ * changed .hwpx or .hwp with its report and the checks run again on it, hwpx-edit.ts and hwp-edit.ts) */
+export const WRITE_MODES = new Set([HWPX_WRITE_MODE, HWPX_EDIT_MODE, HWPX_VERIFY_MODE, HWP_EDIT_MODE, HWP_VERIFY_MODE])
 /** the worker's exit code when stderr holds a ToolError message (office-worker.ts) */
 export const TOOL_ERROR_EXIT = 3
 /** UTF-8 bytes of text out of one file (the worker's stdout cap in extract.ts is a little larger; hwp.ts keeps its
@@ -173,5 +174,7 @@ export function officeWrite(mode: string, input: Uint8Array): Uint8Array {
   if (mode === HWPX_WRITE_MODE) return hwpxWriteRequest(input)
   if (mode === HWPX_EDIT_MODE) return hwpxEditRequest(input)
   if (mode === HWPX_VERIFY_MODE) return hwpxVerifyRequest(input)
+  if (mode === HWP_EDIT_MODE) return hwpEditRequest(input)
+  if (mode === HWP_VERIFY_MODE) return hwpVerifyRequest(input)
   throw new ToolError(`not a mode of the office worker: ${mode}`)
 }

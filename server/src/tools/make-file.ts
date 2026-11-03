@@ -466,7 +466,7 @@ export class MakeFile {
 }
 
 /**
- * A new file carries the bytes of `sources` (make_file's source, images and template; edit_hwpx's document saved as a
+ * A new file carries the bytes of `sources` (make_file's source, images and template; edit_hwp's document saved as a
  * new file): they join the chat's read scope, and when more people can read the target than those files (or what the
  * chat read), the chat turn asks the person first. No chat turn (nobody to ask): refused. Runs before anything is
  * placed.
@@ -487,7 +487,7 @@ export async function confirmSources(ctx: AppContext, files: TeamFiles, c: ToolC
 
 /**
  * Put a produced file into the team folder (policy checked again) and record it: the AI's new files (make_file, and
- * generated media such as generate_video) and edit_hwpx's changed documents. An existing file the AI read in this turn
+ * generated media such as generate_video) and edit_hwp's changed documents. An existing file the AI read in this turn
  * gets a new version (the old bytes in its history); one it has not read, or that changed since, is kept (conflict copy).
  */
 /** placeProduced options. `turnBytes: false`: the file does not count against the turn's write budget

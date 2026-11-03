@@ -22,7 +22,7 @@ import type { TurnFiles } from '../files/service'
 import { extractUrls, gateUrl, type ConfirmExtra, type TurnPerson } from '../tools/url-gate'
 import { ToolError } from '../policy/errors'
 import { visionText } from '../files/vision-text'
-import { hwpxOutputPath } from '../files/hwpx-check'
+import { hwpOutputPath } from '../files/hwpx-check'
 import { recordSkillRead, recordSkillUse } from '../admin/skill-usage'
 import { templateToolRefusal } from './schedule-templates'
 import { cleanAiTitle, graphemes, setAiTitle, titleToolOffered } from './title'
@@ -122,7 +122,7 @@ export function buildToolSet(exec: TurnExec): ChatToolSet {
       // what the AI sends leaves marks, so an address that a connection repeats back is not taken as the service's own
       // (tools/connection-urls.ts; before the call: its own answer is checked against them)
       recordSent(exec.rt.db, exec.spec.chatId, args)
-      if (name === 'make_file' || name === 'edit_hwpx') {
+      if (name === 'make_file' || name === 'edit_hwp') {
         // under skills/: the person confirms first (the file layer refuses the save otherwise)
         const no = await exec.confirmSkillWrite(name, args, files)
         if (no) return { content: [{ type: 'text', text: no.refusal }], isError: true, summary: no.summary }
@@ -135,13 +135,13 @@ export function buildToolSet(exec: TurnExec): ChatToolSet {
         const refusal = typeof a.output === 'string' ? await exec.confirmWidening(a.output, typeof a.source === 'string' ? [a.source] : []) : null
         if (refusal) return { content: [{ type: 'text', text: refusal }], isError: true, summary: 'make_file -> not allowed by the user (wider audience)' }
       }
-      if (name === 'edit_hwpx' && args && typeof args === 'object') {
+      if (name === 'edit_hwp' && args && typeof args === 'object') {
         // like write and edit: what the chat read may go where more people see it (asked before the worker runs); a new
         // file also carries the document it is made from
         const a = args as { output?: unknown; file_path?: unknown }
-        const target = typeof a.output === 'string' ? hwpxOutputPath(a.output) : a.file_path
+        const target = typeof a.output === 'string' ? hwpOutputPath(a.output, typeof a.file_path === 'string' ? a.file_path : '') : a.file_path
         const refusal = typeof target === 'string' ? await exec.confirmWidening(target, typeof a.output === 'string' && typeof a.file_path === 'string' ? [a.file_path] : []) : null
-        if (refusal) return { content: [{ type: 'text', text: refusal }], isError: true, summary: 'edit_hwpx -> not allowed by the user (wider audience)' }
+        if (refusal) return { content: [{ type: 'text', text: refusal }], isError: true, summary: 'edit_hwp -> not allowed by the user (wider audience)' }
       }
       const out = await t.call(args, files)
       exec.afterTool()

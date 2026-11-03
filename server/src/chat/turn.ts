@@ -48,7 +48,7 @@ import { devEnvFlag, mayUseBox } from '../devenv/setting'
 import { addSources, clearScope, sourceKey, sourceLabel, sourceOf, widening, type ReadSource } from './read-scope'
 import { authorize } from '../policy/authorize'
 import { readRegular, sha256 } from '../files/store'
-import { hwpxOutputPath } from '../files/hwpx-check'
+import { hwpOutputPath } from '../files/hwpx-check'
 import { audit as auditLog } from '../admin/audit'
 import { ANY_CONTENT, editedText, inSkills } from '../skills/guard'
 import { lineDiff } from '../skills/diff'
@@ -1131,12 +1131,12 @@ export class TurnExec {
    * under skills/, or the tool itself will refuse the call: the tool reports that).
    */
   async confirmSkillWrite(tool: string, args: unknown, files: TurnFiles = this.files): Promise<{ refusal: string; summary: string } | null> {
-    if (tool !== 'write' && tool !== 'edit' && tool !== 'make_file' && tool !== 'edit_hwpx') return null
+    if (tool !== 'write' && tool !== 'edit' && tool !== 'make_file' && tool !== 'edit_hwp') return null
     const a = (args && typeof args === 'object' ? args : {}) as Record<string, unknown>
-    // a file a tool produces (make_file, edit_hwpx): the card shows the file, not a text diff
-    const produced = tool === 'make_file' || tool === 'edit_hwpx'
-    const out = tool === 'edit_hwpx' && typeof a.output === 'string' ? hwpxOutputPath(a.output) : undefined
-    const target = tool === 'make_file' ? a.output : tool === 'edit_hwpx' ? out ?? a.file_path : a.file_path
+    // a file a tool produces (make_file, edit_hwp): the card shows the file, not a text diff
+    const produced = tool === 'make_file' || tool === 'edit_hwp'
+    const out = tool === 'edit_hwp' && typeof a.output === 'string' ? hwpOutputPath(a.output, typeof a.file_path === 'string' ? a.file_path : '') : undefined
+    const target = tool === 'make_file' ? a.output : tool === 'edit_hwp' ? out ?? a.file_path : a.file_path
     if (typeof target !== 'string') return null
     const fs_ = this.rt.files
     const me = this.livePrincipal()
@@ -1168,7 +1168,7 @@ export class TurnExec {
     const kind = after !== null ? skillFileKind(fs_.fx.root, r.rel, after) : 'other'
     const skill = after !== null && kind === 'skill' ? parseSkillHeader(after, r.rel) : null
     const d = after === null ? null : before === null ? null : lineDiff(r.exists ? before : '', after)
-    const diff = d ? d.text : after === null ? st('producedFile', L, { format: String(a.format ?? (tool === 'edit_hwpx' ? 'hwpx' : '')).toUpperCase() }) : st('whatFile', L)
+    const diff = d ? d.text : after === null ? st('producedFile', L, { format: String(a.format ?? (tool === 'edit_hwp' ? (/\.hwp$/i.test(target) ? 'hwp' : 'hwpx') : '')).toUpperCase() }) : st('whatFile', L)
     const what = skill ? st(r.exists ? 'whatSkill' : 'whatNewSkill', L, { name: skill.name }) : kind === 'rule' ? st(r.exists ? 'whatRule' : 'whatNewRule', L) : st('whatFile', L)
     const problem = after !== null ? skillFileProblem(fs_.fx.root, r.rel, after) : null
     const preview: SkillWritePreview = { kind: 'skill_write', path: r.rel, isNew: !r.exists, skillName: skill?.name ?? null, ...(problem ? { problem } : {}), diff, added: d?.added ?? 0, removed: d?.removed ?? 0, truncated: d?.truncated ?? false }
