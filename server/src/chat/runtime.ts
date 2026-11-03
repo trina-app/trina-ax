@@ -8,7 +8,7 @@ import { ANSWER_STEP_LIMIT_MAX, ANSWER_STEP_LIMIT_MIN, DEFAULT_ANSWER_STEP_LIMIT
 import type { AppContext } from '../context'
 import type { Running } from '../server'
 import { atLeast, type Principal } from '../policy/access'
-import { canRead } from './projects'
+import { canSeeProject } from './projects'
 import { newId } from '../db'
 import { Schedules } from './schedules'
 import { Hub, type HubOptions } from '../realtime/hub'
@@ -513,11 +513,12 @@ export class ChatRuntime {
     return this.db.query('SELECT id, text FROM memories WHERE user_id = ? ORDER BY created_at DESC, id DESC LIMIT 100').all(userId) as { id: string; text: string }[]
   }
   /** The chat's project as the turn sees it: only while the person can still read the project folder (tab 2
-   * "권한 회수": a project stays attached to the chat, but its name, folder and instructions stop reaching the AI). */
+   * "권한 회수": a project stays attached to the chat, but its name, folder and instructions stop reaching the AI), and
+   * while a team project's folder is in the trash, only for admins and the owner (chat/projects.ts canSeeProject). */
   projectForChat(projectId: string | null, user: Principal) {
     if (!projectId) return null
     const p = this.store.projectRow(projectId)
-    if (!p || !canRead(this.files, user, p.folder_path)) return null
+    if (!p || !canSeeProject(this.files, this.db, user, p.folder_path)) return null
     return { name: p.name, folderPath: p.folder_path, instructions: p.instructions, createdBy: p.created_by, instructionsAuthor: p.instructions_author, instructionsAuthored: p.instructions_authored }
   }
   /**

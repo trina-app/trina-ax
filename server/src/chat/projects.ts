@@ -21,25 +21,49 @@ export const canWrite = (files: FileService, user: Principal, p: string) => atLe
 /** The folder a path is in ('' for a top-level folder: the team root). */
 export const parentFolder = (p: string) => (p.includes('/') ? p.slice(0, p.lastIndexOf('/')) : '')
 
+const isAdminRole = (p: Principal) => p.role === 'owner' || p.role === 'admin'
+
+/**
+ * Is this team project's folder, or a folder above it, in the trash? Its rules went to the trash with it, so its path
+ * now falls back to the rules above (a finance-only folder in shared/ would look like the rest of shared/).
+ * Personal projects (users/) are their person's in the trash too.
+ */
+export function projectFolderInTrash(db: Database, folderPath: string): boolean {
+  if (folderPath === '' || folderPath === 'users' || folderPath.startsWith('users/')) return false
+  return !!db.query("SELECT 1 FROM trash_items WHERE kind = 'folder' AND restored_at IS NULL AND (original_path = ?1 OR substr(?1, 1, length(original_path) + 1) = original_path || '/') LIMIT 1").get(folderPath)
+}
+
+/**
+ * Who sees a project (its name, instructions, chats in it, and its instructions in their AI): whoever can read its
+ * folder. While a team project's folder is in the trash, only admins and the owner, who alone can restore it
+ * (docs/DECISIONS.md "휴지통에 간 그룹·프로젝트·규칙 폴더").
+ */
+export function canSeeProject(files: FileService, db: Database, user: Principal, folderPath: string): boolean {
+  return canRead(files, user, folderPath) && (isAdminRole(user) || !projectFolderInTrash(db, folderPath))
+}
+
 /**
  * One project per folder (docs/DECISIONS.md "Projects: a folder with instructions"): the project, other than
  * `except`, that already uses `folder`, compared the way the volume compares names. Rows from before the rule may
  * share a folder; they are left as they are, and only a new or repointed project is refused.
  */
-export function projectOnFolder(db: Database, caseInsensitive: boolean, folder: string, except?: string): { id: string; name: string } | null {
+export function projectOnFolder(db: Database, caseInsensitive: boolean, folder: string, except?: string): { id: string; name: string; folderPath: string } | null {
   const k = volumeKey(folder, caseInsensitive)
   for (const r of db.query('SELECT id, name, folder_path FROM projects ORDER BY created_at, id').all() as { id: string; name: string; folder_path: string }[])
-    if (r.id !== except && volumeKey(r.folder_path, caseInsensitive) === k) return { id: r.id, name: r.name }
+    if (r.id !== except && volumeKey(r.folder_path, caseInsensitive) === k) return { id: r.id, name: r.name, folderPath: r.folder_path }
   return null
 }
 
 /**
- * 409 naming the project that already uses `folder`. Call inside the transaction that writes the projects row. The
- * caller can read the folder (they could write it, or they are an admin), so they can see that project too.
+ * 409 when another project uses `folder`. Call inside the transaction that writes the projects row. It names that
+ * project only when `mayName` says the caller can see it (canSeeProject): the caller can read the folder, but a project
+ * whose folder is in the trash is the admins' alone.
  */
-export function assertFolderFree(db: Database, caseInsensitive: boolean, folder: string, locale: Locale, except?: string): void {
-  const other = projectOnFolder(db, caseInsensitive, folder, except)
-  if (other) fail('conflict', tr('projectFolderHasProject', locale, { name: other.name }), { fields: { 'body.folderPath': 'project_folder_taken' }, params: { reason: 'project_folder_taken', projectId: other.id } })
+export function assertFolderFree(db: Database, caseInsensitive: boolean, folder: string, locale: Locale, o: { except?: string; mayName: (folderPath: string) => boolean }): void {
+  const other = projectOnFolder(db, caseInsensitive, folder, o.except)
+  if (!other) return
+  if (o.mayName(other.folderPath)) fail('conflict', tr('projectFolderHasProject', locale, { name: other.name }), { fields: { 'body.folderPath': 'project_folder_taken' }, params: { reason: 'project_folder_taken', projectId: other.id } })
+  fail('conflict', tr('projectFolderHasOtherProject', locale), { fields: { 'body.folderPath': 'project_folder_taken' }, params: { reason: 'project_folder_taken' } })
 }
 
 /** Every folder a project uses: a new project folder's automatic name steps around them, as around folders rows. */

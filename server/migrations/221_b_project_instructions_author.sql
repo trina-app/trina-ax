@@ -14,9 +14,13 @@
 -- project the author is created_by when every project.update that changed the instructions, or whose detail cannot
 -- be read, was made by created_by. Every other row stays NULL: everyone's turns, the creator's included, count the
 -- instructions as outside content.
+-- audit_log has an index on `at` only: without one on (target, action) the backfill reads the whole log once per
+-- project (1000 projects and 1M audit rows: 29.5 s under the write lock at start). A temporary index made for the
+-- backfill and dropped after it: 0.4 s.
 -- Additive only (reader 1): an older build does not know the columns and keeps comparing created_by.
 ALTER TABLE projects ADD COLUMN instructions_author TEXT;
 ALTER TABLE projects ADD COLUMN instructions_authored TEXT;
+CREATE INDEX audit_log_target_action_221 ON audit_log(target, action);
 UPDATE projects SET instructions_author = created_by, instructions_authored = instructions
 WHERE created_by IS NOT NULL
   AND EXISTS (SELECT 1 FROM audit_log a WHERE a.action = 'project.create' AND a.target = projects.id AND a.actor_id = projects.created_by)
@@ -26,3 +30,4 @@ WHERE created_by IS NOT NULL
       AND (a.actor_id IS NULL OR a.actor_id <> projects.created_by)
       AND (a.detail IS NULL OR NOT json_valid(a.detail) OR json_extract(a.detail, '$.changed.instructions') IS NOT 0)
   );
+DROP INDEX audit_log_target_action_221;

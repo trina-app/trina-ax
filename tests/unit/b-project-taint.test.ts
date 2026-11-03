@@ -7,6 +7,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { API } from '@mycel/shared/api'
 import { MIGRATIONS_DIR, migrate, openDb, readMigrations } from '../../server/src/db'
+import { sweep } from '../../server/src/auth/sweeper'
 import { ask, startHarness, type Harness, type TestSocket } from '../lib/b-harness'
 import { WORK } from '../lib/env'
 
@@ -65,6 +66,20 @@ describe('who wrote the instructions', () => {
     const p = await create('alice', 'shared/taint-d', 'theirs')
     await edit('carol', p.id, '')
     for (const who of ['alice', 'carol']) expect(taints(p.id, who)).toBe(false)
+  })
+})
+
+describe('the author\'s account is deleted', () => {
+  test('the sweep clears the author with created_by: nobody wrote the instructions alone any more', async () => {
+    const p = await create('erin', 'shared/taint-e', 'Erin\'s rules')
+    await edit('erin', p.id, 'Erin\'s rules, v2')
+    expect(taints(p.id, 'erin')).toBe(false)
+    // erin's account was deleted long ago and still has a chat: the sweep purges her
+    h.ctx.db.query("UPDATE users SET deleted_at = '2020-01-01T00:00:00.000Z' WHERE id = 'erin'").run()
+    h.ctx.db.query("INSERT INTO chats (id, user_id, title) VALUES ('01900000-0000-7000-8000-0000000000e1', 'erin', 'old')").run()
+    expect(sweep(h.ctx).purgedUsers).toBe(1)
+    expect(h.ctx.db.query('SELECT created_by AS c, instructions_author AS a, instructions_authored AS t FROM projects WHERE id = ?').get(p.id)).toEqual({ c: null, a: null, t: null })
+    for (const who of ['alice', 'carol']) expect(taints(p.id, who)).toBe(true)
   })
 })
 

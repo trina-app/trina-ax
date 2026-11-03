@@ -507,8 +507,12 @@ export class TeamFiles {
     if (!pr.st!.isDirectory()) throw new ToolError('not a folder', 'not_folder')
     if (pr.rel === fr.rel || isUnder(fr.rel, pr.rel)) fileError('validation', 'intoItself', { toParent })
     // the name comes from the caller's own folder: step around only siblings they can see (a hidden one is refused
-    // by authorize() like a missing name, so the " (2)" never tells them it exists)
-    const name = freeName(pr.abs, fr.segs[fr.segs.length - 1]!, true, (n) => siblingVisible(this.fx, rules, user, pr.segs, n))
+    // by authorize() like a missing name, so the " (2)" never tells them it exists). Also around a path a project
+    // still names although its folder is gone (trashed): a copy there would become that project's folder, with its
+    // instructions, and admin-only to move (one project per folder, docs/DECISIONS.md "Projects: a folder with
+    // instructions"). That tells the caller only that some project names the path, never which.
+    const projectKeys = new Set((this.ctx.db.query('SELECT folder_path FROM projects').all() as { folder_path: string }[]).map((r) => volumeKey(r.folder_path, this.fx.caseInsensitive)))
+    const name = freeName(pr.abs, fr.segs[fr.segs.length - 1]!, true, (n) => siblingVisible(this.fx, rules, user, pr.segs, n), (n) => projectKeys.has(volumeKey([...pr.segs, n].join('/'), this.fx.caseInsensitive)))
     const tr = authorize(this.fx, rules, user, [...pr.segs, name].join('/'), 'write', { mustExist: false })
     const added = this.viewersAdded(rules, user.id, fr.segs, tr.segs)
     if (o.dryRun) return { viewersAdded: added }
@@ -556,6 +560,21 @@ export class TeamFiles {
     for (const f of files) this.extractText([...tr.segs, ...f.segs].join('/'))
     this.publish([{ path: tr.rel, action: 'mkdir', by: this.by(userId), turnId: null }])
     return { path: tr.rel, files: files.length, bytes }
+  }
+
+  /**
+   * Take back a folder that copyFolderTree() made in this request when the request's next step failed (sharing a
+   * project refuses a folder another project names, routes/chats.ts): removed for good, not through the trash, so
+   * nothing of it stays behind for an old project to take over. The copy holds only folders and files this request
+   * made.
+   */
+  discardCopy(userId: string, rel: string) {
+    const segs = segsOf(rel)
+    verifyChain(this.root, segs)
+    fs.rmSync(path.join(this.root, ...segs), { recursive: true, force: true })
+    this.dropTextCache(rel, true)
+    fileEvent(this.ctx.db, { turnId: null, userId, path: rel, action: 'delete', detail: { folder: true, discarded: true, tool: 'file-screen' } })
+    this.publish([{ path: rel, action: 'delete', by: this.by(userId), turnId: null }])
   }
 
   private moveTextCache(from: string, to: string, isDir: boolean) {

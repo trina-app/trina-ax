@@ -3,7 +3,8 @@
 //   an admin's repoint, a personal project shared by copy and a folder move refuse a folder another project names
 //   (409 naming it). Rows from before the rule that share a folder are left as they are.
 // - The lock a project puts on its folder (admin-only to move, rename or trash) may only come from someone who could
-//   get around it: on a folder that is not managed yet, the creator must also write the folder it is in.
+//   get around it: on a folder that is not managed yet, the creator must also write the folder it is in. That check is
+//   a guard: under today's rules (a folder without rules inherits its parent's access) it refuses nothing.
 // - Moving a chat into a project still needs read access to the project's folder.
 // Fixture: alice, erin = marketing (groups/marketing write); bob = finance; carol = admin; dana = owner;
 // shared/ everyone write; projects/falcon: alice write, finance read (projects/ itself: no rule for members).
@@ -11,6 +12,7 @@ import { afterAll, beforeAll, describe, expect, test } from 'bun:test'
 import fs from 'node:fs'
 import path from 'node:path'
 import { RuleSet, type Access, type Principal } from '../../server/src/policy/access'
+import { componentC } from '../../server/src/team-files/component'
 import { exists, jsonBody, makeCApp, type CApp } from '../lib/c-app'
 
 let A: CApp
@@ -43,11 +45,20 @@ describe('one project per folder', () => {
     expect((A.ctx.db.query('SELECT COUNT(*) AS n FROM folders').get() as { n: number }).n).toBe(rows)
   })
 
-  test('the same folder typed in another case is the same folder', async () => {
+  test('an older row that names the folder in another case is the same folder (case-insensitive volume)', async () => {
+    // On a case-sensitive volume (Linux) `Shared/Case-Old` is another folder, so this case does not apply there and
+    // the test is skipped; the macOS volume this repository's tests run on is case-insensitive.
     if (!A.ctx.files.fx.caseInsensitive) return
-    const r = await create('erin', { name: 'Upper', folderPath: 'SHARED/ONE' })
+    expect((await mkdir('alice', 'shared/case-old')).status).toBe(201)
+    staleProject('01900000-0000-7000-8000-00000000a009', 'Case old', 'Shared/CASE-OLD')
+    const r = await create('erin', { name: 'Lower', folderPath: 'shared/case-old' })
     expect(r.status).toBe(409)
-    expect(r.body.error.message).toContain('Launch plan')
+    // rules match exact names, so erin cannot see a project stored as Shared/CASE-OLD: the 409 does not name it
+    expect(r.body.error.message).not.toContain('Case old')
+    const admin = await create('carol', { name: 'Lower', folderPath: 'shared/case-old' })
+    expect(admin.status).toBe(409)
+    expect(admin.body.error.message).toContain('Case old')
+    expect(countOn('shared/case-old')).toBe(0)
   })
 
   test('a personal project: the same folder twice is 409; an automatic name steps around a project whose folder is gone', async () => {
@@ -91,15 +102,38 @@ describe('one project per folder', () => {
     expect(folderOf(b.id)).toBe('shared/two-b')
   })
 
-  test('sharing a personal project by copy: a copy whose path a project names is 409, and the project stays personal', async () => {
+  test('sharing a personal project by copy: the copy steps around a path a project still names; the old project stays without a folder', async () => {
     const p = await ok(create('alice', { name: 'Share me', scope: 'personal', slug: 'share-me' }))
     fs.writeFileSync(path.join(A.team, p.folderPath, 'a.md'), 'a\n')
     staleProject('01900000-0000-7000-8000-00000000a004', 'Old share', 'shared/share-me')
     const r = await A.json(`/api/projects/${p.id}/share`, { as: 'alice', ...jsonBody({ toParent: 'shared' }) })
-    expect(r.status).toBe(409)
-    expect(r.body.error.message).toContain('Old share')
-    expect(folderOf(p.id)).toBe(p.folderPath)
+    expect(r.status).toBe(200)
+    expect(r.body.folderPath).toBe('shared/share-me (2)')
+    expect(exists(A.team, 'shared/share-me (2)/a.md')).toBe(true)
+    // the old project did not come alive: no folder at its path, and it is still the only one naming it
+    expect(exists(A.team, 'shared/share-me')).toBe(false)
+    expect(folderOf('01900000-0000-7000-8000-00000000a004')).toBe('shared/share-me')
     expect(countOn('shared/share-me')).toBe(1)
+  })
+
+  test('sharing by copy: a project made on the copy\'s path in the moment since is 409, and the copy goes again', async () => {
+    const p = await ok(create('alice', { name: 'Share race', scope: 'personal', slug: 'share-race' }))
+    fs.writeFileSync(path.join(A.team, p.folderPath, 'b.md'), 'b\n')
+    const files = componentC(A.ctx).files as unknown as { copyFolderTree: (...a: unknown[]) => { path?: string } }
+    const real = files.copyFolderTree
+    files.copyFolderTree = (...a: unknown[]) => {
+      const out = real.apply(componentC(A.ctx).files, a)
+      if (out.path) staleProject('01900000-0000-7000-8000-00000000a010', 'Raced', out.path)
+      return out
+    }
+    try {
+      const r = await A.json(`/api/projects/${p.id}/share`, { as: 'alice', ...jsonBody({ toParent: 'shared' }) })
+      expect(r.status).toBe(409)
+      expect(r.body.error.message).toContain('Raced')
+    } finally { files.copyFolderTree = real }
+    expect(exists(A.team, 'shared/share-race')).toBe(false)
+    expect(folderOf(p.id)).toBe(p.folderPath)
+    expect(exists(A.team, p.folderPath + '/b.md')).toBe(true)
   })
 
   test('a folder move cannot put a project on a folder another project names; projects that already shared a folder move together', async () => {
@@ -138,9 +172,10 @@ describe('a project locks its folder only for someone who could get around the l
     await ok(create('erin', { name: 'Mine', folderPath: 'users/erin' }))
   })
 
-  test('a folder that is not managed yet, with a parent the person cannot write: 403, nothing made; an admin may', async () => {
-    // Today's rules never give a folder without rules other access than its parent (it inherits); this permission
-    // function does, so the guard itself is what is tested: erin writes groups/marketing/erin-x but only reads its parent.
+  test('guard (refuses nothing under today\'s rules): a folder not managed yet whose parent the person cannot write is 403, nothing made; an admin may', async () => {
+    // A guard test. Today a folder without rules has its parent's access (it inherits), so write on a folder that is not
+    // managed is write on its parent and the check never refuses anything. It stays in case inheritance changes. This
+    // permission function gives erin write on groups/marketing/erin-x but only read on its parent, to test the guard.
     class Narrow extends RuleSet {
       override access(p: Principal, segs: readonly string[]): Access {
         return p.id === 'erin' && segs.join('/') === 'groups/marketing' ? 'read' : super.access(p, segs)
