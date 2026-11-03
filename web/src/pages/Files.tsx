@@ -7,11 +7,13 @@
 // that row is selected), with the selection's "move" rules and toast; computer files dropped on a folder row are
 // uploaded into it. The "move" action stays the keyboard way to do the same.
 // A whole folder goes up from the picker or a drop, with its subfolders (lib/folderUpload.ts, components/FolderUploads.tsx).
+// A project is a folder with instructions: a folder's menu opens its project, or makes the folder one where the person
+// can write it (lib/projectFolders.ts, components/ProjectForm.tsx).
 import clsx from 'clsx'
-import { ArchiveRestore, BookmarkPlus, ChevronRight, Copy, Download, Eye, File as FileIcon, FileImage, FileSpreadsheet, FileText, Folder, FolderInput, FolderPlus, FolderUp, History, Home, Lock, MessageSquarePlus, MoreHorizontal, Paperclip, Pencil, Presentation, Search, Sparkles, RefreshCw, Trash2, Upload, X, FileCode, FileArchive, FileAudio, FileVideo } from 'lucide-react'
+import { ArchiveRestore, BookmarkPlus, ChevronRight, Copy, Download, Eye, File as FileIcon, FileImage, FileSpreadsheet, FileText, Folder, FolderInput, FolderKanban, FolderPlus, FolderUp, History, Home, Lock, MessageSquarePlus, MoreHorizontal, Paperclip, Pencil, Presentation, Search, Sparkles, RefreshCw, Trash2, Upload, X, FileCode, FileArchive, FileAudio, FileVideo } from 'lucide-react'
 import { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
-import type { FileEntry, FileHistoryEvent, FileVersion, HistoryResponse, TrashItem, TreeResponse } from '@mycel/shared/api'
+import type { FileEntry, FileHistoryEvent, FileVersion, HistoryResponse, Project, TrashItem, TreeResponse } from '@mycel/shared/api'
 import { api, API, errorText, fileUrl, isApiError, startDownload, versionDownloadUrl } from '../lib/api'
 import { canChange, canShare, chatDraggable, clickSelect, dragPayload, dragSet, dropRefusal, failureList, FILES_MOVE_DRAG_TYPE, moveMany, selectable, selectionState, shareMany, toggleAll, trashMany, type DropRefusal, type Outcome } from '../lib/bulkFiles'
 import { formatDateTime, formatSize } from '../lib/format'
@@ -19,6 +21,7 @@ import { folderGeneration } from '../lib/folderRuns'
 import { droppedEntries, planFromEntries, planFromInput, type FolderPlan } from '../lib/folderUpload'
 import { baseName, crumbs, isConflictCopy, isInside, joinPath, nameProblem, parentPath } from '../lib/paths'
 import { iconKind, previewKind, type FileIconKind } from '../lib/preview'
+import { folderProjectAction, projectsByFolder, type FolderProjectAction } from '../lib/projectFolders'
 import { openTeamFile } from '../lib/sidePanel'
 import { useTeamAttach } from '../lib/useTeamAttach'
 import { cancelUpload, uploadFile } from '../lib/upload'
@@ -32,6 +35,7 @@ import { contentQueryReady, FileContentResults } from '../components/FileContent
 import FileUploads from '../components/FileUploads'
 import FolderPicker from '../components/FolderPicker'
 import FolderUploads, { startFolderUpload, useFolderUploadsSettled } from '../components/FolderUploads'
+import { ProjectForm } from '../components/ProjectForm'
 import SuggestSkillDialog from '../components/SuggestSkillDialog'
 import { SkillIssues } from '../components/SkillIssues'
 import { isSkillsPath } from '../lib/skillIssues'
@@ -100,6 +104,15 @@ export default function Files() {
   }, [historyParam])
   const [moving, setMoving] = useState<FileEntry | null>(null)
   const [sharing, setSharing] = useState<FileEntry | null>(null)
+  // the projects the person can see, by folder: a folder's menu opens its project or makes it one
+  const [projects, setProjects] = useState<Project[]>([])
+  const [makingProject, setMakingProject] = useState<FileEntry | null>(null)
+  const loadProjects = useCallback(() => api.call(API.listProjects).then((r) => setProjects(r.items), () => {}), [])
+  useEffect(() => {
+    void loadProjects()
+    return accessChanged.on(() => void loadProjects())
+  }, [loadProjects])
+  const byFolder = useMemo(() => projectsByFolder(projects), [projects])
   const fileInput = useRef<HTMLInputElement>(null)
   const folderInput = useRef<HTMLInputElement>(null)
   // several items at once: the checked rows (paths), the row clicked last (Shift+click selects from it), the folder
@@ -171,6 +184,8 @@ export default function Files() {
   useEffect(() => {
     const offA = filesChanged.on((changes) => {
       if (changes.some((c) => parentPath(c.path) === path || (c.from && parentPath(c.from) === path) || isInside(path, c.path))) void load()
+      // a moved folder takes its project with it (the server rewrites the project's folder)
+      if (changes.some((c) => c.from)) void loadProjects()
     })
     const offB = reloadAsked.on(() => void load())
     const offC = accessChanged.on(() => void load())
@@ -179,7 +194,7 @@ export default function Files() {
       offB()
       offC()
     }
-  }, [path, load])
+  }, [path, load, loadProjects])
 
   const more = async () => {
     if (!tree?.nextCursor) return
@@ -797,6 +812,8 @@ export default function Files() {
                           onShare={() => setSharing(e)}
                           onDelete={() => void remove(e)}
                           onHistory={() => setHistory(e.path)}
+                          project={folderProjectAction(e, byFolder)}
+                          onProject={(a) => (a.kind === 'open' ? navigate(`/projects/${a.project.id}`) : setMakingProject(e))}
                           onSuggest={e.type === 'file' && e.path.startsWith(`users/${me.user.id}/`) && /\.(md|txt)$/i.test(e.name) ? () => setSuggesting(e.path) : null}
                         />
                       ))}
@@ -835,6 +852,17 @@ export default function Files() {
             if (params.get('history')) setParams(select ? { path, select } : path ? { path } : {}, { replace: true })
           }}
           onRestored={() => void load()}
+        />
+      )}
+      {makingProject && (
+        <ProjectForm
+          initialFolder={makingProject.path}
+          initialName={makingProject.name}
+          onClose={() => setMakingProject(null)}
+          onSaved={(p) => {
+            void loadProjects()
+            navigate(`/projects/${p.id}`)
+          }}
         />
       )}
       {suggesting && <SuggestSkillDialog source={{ kind: 'file', path: suggesting }} initialName={baseName(suggesting).replace(/\.(md|txt)$/i, '')} onClose={() => setSuggesting(null)} />}
@@ -901,14 +929,15 @@ function CheckBox({ checked, disabled, label, title, onCheck, inputRef, testId }
   )
 }
 
-function FileRow({ e, selected, checked, onCheck, draggable, onDragStart, onDragEnd, dragged, dropTarget, drop, onOpen, onChat, onAddToChat, chatTitle, onRename, onMove, onShare, onDelete, onHistory, onSuggest }: { e: FileEntry; selected: boolean; checked: boolean; onCheck: (shift: boolean) => void; draggable: boolean; onDragStart: (ev: React.DragEvent) => void; onDragEnd: () => void; dragged: boolean; dropTarget: DropHandlers | null; drop: DropOver | null; onOpen: () => void; onChat: () => void; onAddToChat: (() => void) | null; chatTitle: string; onRename: () => void; onMove: () => void; onShare: () => void; onDelete: () => void; onHistory: () => void; onSuggest: (() => void) | null }) {
+function FileRow({ e, selected, checked, onCheck, draggable, onDragStart, onDragEnd, dragged, dropTarget, drop, onOpen, onChat, onAddToChat, chatTitle, onRename, onMove, onShare, onDelete, onHistory, project, onProject, onSuggest }: { e: FileEntry; selected: boolean; checked: boolean; onCheck: (shift: boolean) => void; draggable: boolean; onDragStart: (ev: React.DragEvent) => void; onDragEnd: () => void; dragged: boolean; dropTarget: DropHandlers | null; drop: DropOver | null; onOpen: () => void; onChat: () => void; onAddToChat: (() => void) | null; chatTitle: string; onRename: () => void; onMove: () => void; onShare: () => void; onDelete: () => void; onHistory: () => void; project: FolderProjectAction; onProject: (a: NonNullable<FolderProjectAction>) => void; onSuggest: (() => void) | null }) {
   const t = useT()
   const locale = useLocale()
   const [menu, setMenu] = useState(false)
   const ref = useRef<HTMLTableRowElement>(null)
   const menuTrigger = useRef<HTMLButtonElement>(null)
   const folder = e.type === 'folder'
-  const Icon = ICONS[iconKind(e.name, folder)]
+  // a folder that is a project the person can see shows the project icon (and says so to screen readers)
+  const Icon = project?.kind === 'open' ? FolderKanban : ICONS[iconKind(e.name, folder)]
   const dim = e.access === 'none'
   const writable = e.access === 'write'
   const menuId = useId()
@@ -955,6 +984,7 @@ function FileRow({ e, selected, checked, onCheck, draggable, onDragStart, onDrag
           onDragEnd={onDragEnd}
         >
           <Icon size={17} className={clsx('shrink-0', folder ? 'text-accent-text' : 'text-muted', dim && 'opacity-60')} aria-hidden />
+          {project?.kind === 'open' && <span className="sr-only">({t('files.isProject', { name: project.project.name })})</span>}
           <span className="min-w-0 truncate" title={e.name}>
             {e.name}
           </span>
@@ -1007,6 +1037,11 @@ function FileRow({ e, selected, checked, onCheck, draggable, onDragStart, onDrag
               </button>
             )}
             {aiOff && <p id={`${menuId}-ai-off`} className="px-2 pb-1.5 text-xs text-muted" data-testid="file-ai-off-reason">{t('files.askAiDownloadOnly')}</p>}
+            {project && (
+              <button role="menuitem" type="button" className={item} onClick={() => onProject(project)} data-testid={project.kind === 'open' ? 'open-project' : 'make-project'}>
+                <FolderKanban size={14} aria-hidden /> <span className="min-w-0 truncate">{t(project.kind === 'open' ? 'files.openProject' : 'files.makeProject')}</span>
+              </button>
+            )}
             {!folder && (
               <button role="menuitem" type="button" className={item} onClick={onHistory}>
                 <History size={14} aria-hidden /> {t('files.history')}

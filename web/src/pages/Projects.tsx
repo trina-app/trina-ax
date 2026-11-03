@@ -1,24 +1,26 @@
-// Projects: a folder of the team folder + instructions. Chats opened inside a project use both as their default
-// context. List (projects whose folder the person can read), create (folder they can write), project home: a box that
+// Projects: a folder of the team folder + instructions, one project per folder. Chats opened inside a project use both
+// as their default context. List (projects whose folder the person can read), create (folder they can write; the
+// dialog is components/ProjectForm.tsx, also opened from a folder on the Files page), project home: a box that
 // starts a chat in the project and the person's chats in it, with the dev environment, the instructions and the
 // folder's files as short lines beside them (like Claude's project page).
 import { FileText, FolderKanban, Folder, Pencil, Plus, ScrollText, Share2, Trash2 } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
-import type { Chat, FileEntry, Group, Project, ProjectParticipant, User } from '@mycel/shared/api'
+import type { Chat, FileEntry, Project } from '@mycel/shared/api'
 import { api, API, errorText, isApiError } from '../lib/api'
 import { formatRelative } from '../lib/format'
 import { firstParagraph } from '../lib/markdown'
 import { openTeamFile } from '../lib/sidePanel'
 import { useLocale, useT } from '../i18n'
 import { toast } from '../store/ui'
-import { isAdmin, useMe } from '../store/session'
+import { useMe } from '../store/session'
 import FolderPicker from '../components/FolderPicker'
 import { Markdown } from '../components/Markdown'
 import { DisclosureRow } from '../components/DisclosureRow'
 import { TitleMenu } from '../components/TitleMenu'
 import { NewChatComposer } from '../components/chat/NewChatComposer'
-import { Button, EmptyState, ErrorNote, Field, Modal, PageHeader, Skeleton, confirmDialog, inputCls } from '../components/ui'
+import { ProjectForm } from '../components/ProjectForm'
+import { Button, EmptyState, ErrorNote, PageHeader, Skeleton, confirmDialog } from '../components/ui'
 import { DevEnvRow } from './DevEnvSection'
 
 export function ProjectList() {
@@ -71,131 +73,6 @@ export function ProjectList() {
       </div>
       {creating && <ProjectForm onClose={() => setCreating(false)} onSaved={(p) => navigate(`/projects/${p.id}`)} />}
     </div>
-  )
-}
-
-function ProjectForm({ project, onClose, onSaved }: { project?: Project; onClose: () => void; onSaved: (p: Project) => void }) {
-  const t = useT()
-  const locale = useLocale()
-  const me = useMe()
-  // an existing project's folder is changed by admins only (the server refuses it for anyone else)
-  const folderLocked = !!project && !isAdmin(me)
-  // new project (design tab 5): on an existing folder, a personal one (users/<me>/projects/), or, for admins, a new
-  // team folder projects/<slug> with the groups / people who work in it
-  const [mode, setMode] = useState<'existing' | 'personal' | 'team'>('existing')
-  const [groups, setGroups] = useState<Group[]>([])
-  const [people, setPeople] = useState<User[]>([])
-  const [participants, setParticipants] = useState<ProjectParticipant[]>([])
-  useEffect(() => {
-    if (project || mode !== 'team' || !isAdmin(me)) return
-    api.call(API.listGroups).then((r) => setGroups(r.items), () => setGroups([]))
-    api.call(API.listUsers).then((r) => setPeople(r.items.filter((u) => u.status === 'active')), () => setPeople([]))
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [mode])
-  const toggle = (x: ProjectParticipant) =>
-    setParticipants((cur) => (cur.some((y) => y.subjectType === x.subjectType && y.subjectId === x.subjectId) ? cur.filter((y) => !(y.subjectType === x.subjectType && y.subjectId === x.subjectId)) : [...cur, x]))
-  const picked = (x: ProjectParticipant) => participants.some((y) => y.subjectType === x.subjectType && y.subjectId === x.subjectId)
-  const [name, setName] = useState(project?.name ?? '')
-  const [folder, setFolder] = useState(project?.folderPath ?? '')
-  const [instructions, setInstructions] = useState(project?.instructions ?? '')
-  const [picking, setPicking] = useState(false)
-  const [busy, setBusy] = useState(false)
-  const [error, setError] = useState<string | null>(null)
-  const save = async () => {
-    setBusy(true)
-    setError(null)
-    try {
-      const p = project
-        ? await api.call(API.updateProject, { params: { id: project.id }, body: { name: name.trim(), instructions, ...(folder !== project.folderPath ? { folderPath: folder } : {}) } })
-        : await api.call(API.createProject, {
-            body:
-              mode === 'personal' ? { name: name.trim(), scope: 'personal', instructions, participants: [] }
-              : mode === 'team' ? { name: name.trim(), scope: 'team', instructions, participants }
-              : { name: name.trim(), scope: 'team', folderPath: folder, instructions, participants: [] },
-          })
-      onSaved(p)
-      onClose()
-    } catch (e) {
-      setError(errorText(e, locale, t('error.network')))
-    } finally {
-      setBusy(false)
-    }
-  }
-  return (
-    <Modal
-      open
-      onClose={onClose}
-      title={project ? t('projects.edit') : t('projects.new')}
-      width={560}
-      footer={
-        <>
-          <Button variant="ghost" onClick={onClose}>
-            {t('common.cancel')}
-          </Button>
-          <Button variant="primary" busy={busy} disabled={!name.trim()} onClick={save} data-testid="project-save">
-            {t('common.save')}
-          </Button>
-        </>
-      }
-    >
-      <div className="space-y-4">
-        <Field label={t('projects.name')}>
-          <input className={inputCls} value={name} onChange={(e) => setName(e.target.value)} maxLength={100} data-autofocus data-testid="project-name" />
-        </Field>
-        {!project && (
-          <Field label={t('projects.kind')}>
-            <div className="flex flex-wrap gap-3 text-sm" role="radiogroup">
-              {(['existing', 'personal', ...(isAdmin(me) ? ['team' as const] : [])] as const).map((m) => (
-                <label key={m} className="flex items-center gap-1.5">
-                  <input type="radio" name="project-kind" checked={mode === m} onChange={() => setMode(m)} data-testid={`project-kind-${m}`} /> {t(`projects.kind.${m}`)}
-                </label>
-              ))}
-            </div>
-          </Field>
-        )}
-        {!project && mode === 'team' && (
-          <Field label={t('projects.participants')} hint={t('projects.participantsHint')}>
-            <div className="max-h-48 space-y-1 overflow-y-auto rounded-lg border border-line p-2 text-sm" data-testid="project-participants">
-              {groups.map((g) => (
-                <label key={`g:${g.id}`} className="flex items-center gap-2">
-                  <input type="checkbox" checked={picked({ subjectType: 'group', subjectId: g.id })} onChange={() => toggle({ subjectType: 'group', subjectId: g.id })} /> {g.name}
-                </label>
-              ))}
-              {people.map((u) => (
-                <label key={`u:${u.id}`} className="flex items-center gap-2">
-                  <input type="checkbox" checked={picked({ subjectType: 'user', subjectId: u.id })} onChange={() => toggle({ subjectType: 'user', subjectId: u.id })} /> {u.name}
-                </label>
-              ))}
-            </div>
-          </Field>
-        )}
-        {(project || mode === 'existing') && <Field label={t('projects.folder')} hint={t('projects.folderHint')}>
-          <div className="flex gap-2">
-            <input className={inputCls} value={folder || t('files.root')} readOnly />
-            {!folderLocked && <Button onClick={() => setPicking(true)}>{t('common.choose')}</Button>}
-          </div>
-        </Field>}
-        <Field label={t('projects.instructions')} hint={t('projects.instructionsHint')}>
-          <textarea className={`${inputCls} h-40 resize-y py-2`} value={instructions} onChange={(e) => setInstructions(e.target.value)} maxLength={50_000} />
-        </Field>
-        {error && (
-          <p role="alert" className="text-sm text-danger">
-            {error}
-          </p>
-        )}
-      </div>
-      <FolderPicker
-        open={picking}
-        title={t('projects.folder')}
-        confirmLabel={t('common.choose')}
-        initial={folder}
-        onPick={(p) => {
-          setFolder(p)
-          setPicking(false)
-        }}
-        onClose={() => setPicking(false)}
-      />
-    </Modal>
   )
 }
 
