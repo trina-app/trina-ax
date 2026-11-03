@@ -325,6 +325,21 @@ export const SPECS: Record<string, Spec> = {
     } },
   previewRules: { build: (c) => c.post('/api/admin/folder-rules/preview', { changes: [{ path: 'shared', rules: [{ subjectType: 'everyone', subjectId: null, access: 'read' }] }] }), scope: 'byLevel',
     check: (r, w, who) => { if ((who === 'owner' || who === 'admin') && r.text.includes(C.bobFile)) throw new Error('preview leaks private content') } },
+  // folder access explained (server/src/admin/access-explain.ts): admins and the owner only. A person's list holds
+  // their own users/<id> row from the member list and nothing else of users/ (no file, folder or personal project
+  // name of alice's: the canaries plus her private project's name) and nothing of .system/
+  explainFolderAccess: { build: (c, w) => c.get(`/api/admin/access/folder?path=${enc(w.groups.finFolder)}`), scope: 'byLevel',
+    check: (r, w, who) => { if (r.status === 200 && r.json?.people?.find((p: any) => p.user.id === 'bob')?.access !== 'write') throw new Error(`${who}: the finance folder does not show bob writing`) } },
+  explainPersonAccess: { build: (c) => c.get('/api/admin/access/people/alice'), scope: 'byLevel',
+    check: (r, w, who) => {
+      if (r.status !== 200) return
+      const paths: string[] = r.json.folders.map((f: any) => f.path)
+      if (paths.some((p) => (p.startsWith('users/') && p !== 'users/alice') || p.startsWith('.system'))) throw new Error(`${who}: alice's folder list shows ${paths.filter((p) => p.startsWith('users/') || p.startsWith('.system')).join(', ')}`)
+      if (r.text.includes('Private plan')) throw new Error(`${who}: alice's folder list names her personal project`)
+      if (!paths.includes('projects/falcon')) throw new Error(`${who}: alice's folder list misses projects/falcon`)
+    } },
+  explainNewPersonAccess: { build: (c, w) => c.post('/api/admin/access/new-person', { role: 'member', groupIds: [w.groups.finance] }), scope: 'byLevel',
+    check: (r, w, who) => { if (r.status === 200 && r.json.folders.some((f: any) => f.path.startsWith('users'))) throw new Error(`${who}: the new-person list shows users/`) } },
   engines: { build: (c) => c.get('/api/admin/engines'), scope: 'byLevel' },
   // the request a member would make to let themselves pick the engine (and to send conversations to OpenAI)
   updateEngines: { build: (c) => c.patch('/api/admin/engines', { concurrency: 3, memberChoice: { mode: 'off', groupIds: [], userIds: [] }, limitFallback: false }), scope: 'byLevel' },

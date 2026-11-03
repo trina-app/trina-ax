@@ -1,0 +1,139 @@
+// Admin > Folder permissions, "why": GET /api/admin/access/folder, GET /api/admin/access/people/:id and
+// POST /api/admin/access/new-person (server/src/admin/access-explain.ts). Every answer must be the permission
+// function's own answer (RuleSet.access), and nothing under users/ other than the person's own folder row, nothing in
+// .system/ and no temp name may show.
+import { afterAll, beforeAll, describe, expect, test } from 'bun:test'
+import fs from 'node:fs'
+import path from 'node:path'
+import { FolderAccessResponse, PersonAccessResponse } from '@mycel/shared/api'
+import { addMember, harness, withOwner, type Client, type Harness } from './a-lib'
+
+let h: Harness
+let owner: Client
+let admin: Client
+let alice: { client: Client; id: string }
+let sales: string
+let ops: string
+const rule = (subjectType: string, subjectId: string | null, access: string) => ({ subjectType, subjectId, access })
+const segs = (p: string) => (p === '' ? [] : p.split('/'))
+/** the permission function's own answer for a person now */
+const accessOf = (id: string, p: string) => h.ctx.files.rules().access(h.ctx.files.principal(id), segs(p))
+
+beforeAll(async () => {
+  h = await harness('access-explain')
+  owner = await withOwner(h)
+  admin = (await addMember(h, owner, { username: 'adam', role: 'admin' })).client
+  sales = (await admin.call('POST', '/api/admin/groups', { name: 'Sales' })).id
+  ops = (await admin.call('POST', '/api/admin/groups', { name: 'Ops' })).id
+  alice = await addMember(h, owner, { username: 'alice', groupIds: [sales] })
+  await addMember(h, owner, { username: 'bob' })
+  await addMember(h, owner, { username: 'carl', groupIds: [sales] })
+  await addMember(h, owner, { username: 'dora', groupIds: [sales] }) // like alice, without person rules
+  await admin.call('POST', '/api/admin/folders', { path: 'projects/apollo', rules: [rule('user', 'alice', 'write'), rule('group', sales, 'read'), rule('user', 'carl', 'read'), rule('everyone', null, 'none')] })
+  await admin.call('POST', '/api/admin/folders', { path: 'projects/apollo/drafts', rules: [rule('user', 'bob', 'write')] })
+  await admin.call('POST', '/api/admin/folders', { path: 'skills/finance', rules: [rule('everyone', null, 'none'), rule('group', ops, 'read')] })
+  // a team project, and alice's personal project and file (their names must never reach an admin)
+  await alice.client.call('POST', '/api/projects', { name: 'Apollo', folderPath: 'projects/apollo', instructions: '' })
+  await alice.client.call('POST', '/api/projects', { name: 'Alice-private-plan-7c1', folderPath: 'users/alice', instructions: '' })
+  fs.writeFileSync(path.join(h.ctx.files.fx.root, 'users', 'alice', 'Alice-secret-name-3e9.md'), 'x')
+  fs.mkdirSync(path.join(h.ctx.files.fx.root, 'users', 'alice', 'Alice-private-folder-5d2'), { recursive: true })
+  // a connected folder (adding one needs the owner's password and a real source: the row is enough here)
+  h.ctx.db.query('INSERT INTO connected_folders (id, name, source) VALUES (?, ?, ?)').run('00000000-0000-7000-8000-00000000c0de', 'nas', '/Volumes/nas')
+  fs.mkdirSync(path.join(h.ctx.files.fx.root, 'connected', 'nas'), { recursive: true })
+  // a rule folder that went to the trash: its rules are parked under .system/trash
+  await admin.call('POST', '/api/admin/folders', { path: 'shared/old-team-4b8', rules: [rule('user', 'alice', 'write')] })
+  await owner.call('DELETE', `/api/files?path=${encodeURIComponent('shared/old-team-4b8')}`)
+  // carl is switched off
+  await owner.call('PATCH', '/api/admin/users/carl', { status: 'disabled' })
+})
+afterAll(() => h.close())
+
+describe('one folder: every active person, the folder and rule it comes from', () => {
+  test('projects/apollo', async () => {
+    const r = FolderAccessResponse.parse(await admin.call('GET', '/api/admin/access/folder?path=projects%2Fapollo'))
+    expect(r).toMatchObject({ path: 'projects/apollo', exists: true, ruleFolder: 'projects/apollo', truncated: false })
+    const by = Object.fromEntries(r.people.map((p) => [p.user.id, p]))
+    expect(Object.keys(by).sort()).toEqual(['adam', 'alice', 'bob', 'dora', 'olga']) // carl is switched off
+    expect(by.olga!).toMatchObject({ access: 'write', reason: { kind: 'owner-admin' } })
+    expect(by.alice!).toMatchObject({ access: 'write', reason: { kind: 'rule', folder: 'projects/apollo', tier: 'user', rules: [rule('user', 'alice', 'write')] } })
+    expect(by.dora!).toMatchObject({ access: 'read', reason: { kind: 'rule', folder: 'projects/apollo', tier: 'group', rules: [rule('group', sales, 'read')] } })
+    expect(by.bob!).toMatchObject({ access: 'none', reason: { kind: 'rule', folder: 'projects/apollo', tier: 'everyone' } })
+    for (const p of r.people) expect(p.access, p.user.id).toBe(accessOf(p.user.id, 'projects/apollo'))
+    expect(r.summary.access).toEqual({ none: 1, read: 1, write: 3 })
+    expect(r.summary.sources).toEqual([{ reason: 'rule', folder: 'projects/apollo', count: 3 }, { reason: 'owner-admin', folder: null, count: 2 }])
+    expect(r.inactive).toEqual([{ user: { id: 'carl', name: 'CARL' }, folder: 'projects/apollo', access: 'read' }])
+  })
+
+  test('a folder without rules answers from the nearest folder with rules; a missing one too', async () => {
+    const r = FolderAccessResponse.parse(await admin.call('GET', '/api/admin/access/folder?path=projects%2Fapollo%2Fdrafts%2Fnot-yet'))
+    expect(r).toMatchObject({ path: 'projects/apollo/drafts/not-yet', exists: false, ruleFolder: 'projects/apollo/drafts' })
+    const by = Object.fromEntries(r.people.map((p) => [p.user.id, p]))
+    expect(by.bob!).toMatchObject({ access: 'write', reason: { kind: 'rule', folder: 'projects/apollo/drafts', tier: 'user' } })
+    expect(by.alice!).toMatchObject({ access: 'write', reason: { kind: 'rule', folder: 'projects/apollo', tier: 'user' } })
+    for (const p of r.people) expect(p.access).toBe(accessOf(p.user.id, 'projects/apollo/drafts/not-yet'))
+    // the team root and a folder no rule reaches
+    const top = FolderAccessResponse.parse(await admin.call('GET', '/api/admin/access/folder'))
+    expect(top).toMatchObject({ path: '', ruleFolder: null })
+    expect(top.people.find((p) => p.user.id === 'bob')).toMatchObject({ access: 'none', reason: { kind: 'no-rule' } })
+    if (h.ctx.files.fx.caseInsensitive) expect((await admin.call('GET', '/api/admin/access/folder?path=PROJECTS%2FApollo')).path).toBe('projects/apollo')
+  })
+
+  test('never users/, .system/, temp names or paths outside the team folder; members are refused', async () => {
+    for (const bad of ['users', 'users/alice', 'users/alice/Alice-secret-name-3e9.md', 'USERS/alice', 'Users', '.system', '.system/trash', 'shared/.mycel-tmp-1', '../etc', '/etc'])
+      expect((await admin.try('GET', `/api/admin/access/folder?path=${encodeURIComponent(bad)}`)).status, bad).toBe(400)
+    const refused = await admin.try('GET', `/api/admin/access/folder?path=${encodeURIComponent('users/alice/Alice-secret-name-3e9.md')}`)
+    expect(JSON.stringify(refused.body)).not.toContain('Alice-secret-name')
+    expect((await alice.client.try('GET', '/api/admin/access/folder?path=shared')).status).toBe(403)
+    expect((await alice.client.try('GET', '/api/admin/access/people/alice')).status).toBe(403)
+    expect((await alice.client.try('POST', '/api/admin/access/new-person', { role: 'member', groupIds: [] })).status).toBe(403)
+    expect((await h.client().try('GET', '/api/admin/access/folder?path=shared')).status).toBe(401)
+  })
+})
+
+describe('one person: every team folder and why', () => {
+  test('alice: own folder from the member list, team folders by kind, nothing else of users/ or .system/', async () => {
+    const res = await admin.call('GET', '/api/admin/access/people/alice')
+    const r = PersonAccessResponse.parse(res)
+    expect(r).toMatchObject({ user: { id: 'alice', name: 'ALICE' }, role: 'member', status: 'active', groups: [{ id: sales, name: 'Sales' }], truncated: false })
+    expect(r.folders[0]).toEqual({ path: 'users/alice', kinds: ['personal'], exists: null, access: 'write', reason: { kind: 'own-personal' } })
+    const text = JSON.stringify(res)
+    // the trashed folder's rules are there, parked under .system/trash/<month>/<id>: they must not show
+    expect(h.ctx.files.rules().ruleFolders().some((f) => f.startsWith('.system/trash/'))).toBe(true)
+    expect(h.ctx.files.rules().ruleFolders()).not.toContain('shared/old-team-4b8')
+    for (const hidden of ['Alice-private-plan-7c1', 'Alice-secret-name-3e9', 'Alice-private-folder-5d2', 'old-team-4b8', '.system', '.mycel-tmp']) expect(text, hidden).not.toContain(hidden)
+    expect(r.folders.filter((f) => f.path.startsWith('users')).map((f) => f.path)).toEqual(['users/alice'])
+    const by = Object.fromEntries(r.folders.map((f) => [f.path, f]))
+    expect(by['projects/apollo']).toMatchObject({ kinds: ['rules', 'project'], projects: [{ name: 'Apollo' }], exists: true, access: 'write', reason: { kind: 'rule', tier: 'user' } })
+    expect(by['groups/Sales']).toMatchObject({ kinds: ['rules', 'group'], group: { id: sales, name: 'Sales' }, access: 'write', reason: { kind: 'rule', folder: 'groups/Sales', tier: 'group' } })
+    expect(by['groups/Ops']).toMatchObject({ access: 'none', reason: { kind: 'no-rule' } })
+    expect(by['connected/nas']).toMatchObject({ kinds: ['connected'], connected: { name: 'nas' }, exists: true })
+    expect(by['skills']!.kinds.sort()).toEqual(['rules', 'top'])
+    expect(by['skills/finance']).toMatchObject({ access: 'none', reason: { kind: 'rule', folder: 'skills/finance', tier: 'everyone' } })
+    expect(by['shared']).toMatchObject({ access: 'write', reason: { kind: 'rule', folder: 'shared', tier: 'everyone' } })
+    expect(by['groups']!.kinds).toEqual(['top'])
+    // every row is the permission function's answer
+    for (const f of r.folders) expect(f.access, f.path).toBe(accessOf('alice', f.path))
+  })
+
+  test('someone switched off is shown as they would be when switched back on; unknown people are 404', async () => {
+    const r = PersonAccessResponse.parse(await admin.call('GET', '/api/admin/access/people/carl'))
+    expect(r.status).toBe('disabled')
+    expect(r.folders.find((f) => f.path === 'projects/apollo')).toMatchObject({ access: 'read', reason: { kind: 'rule', tier: 'user', rules: [rule('user', 'carl', 'read')] } })
+    expect((await admin.try('GET', '/api/admin/access/people/nobody-here')).status).toBe(404)
+    const own = PersonAccessResponse.parse(await admin.call('GET', '/api/admin/access/people/olga'))
+    expect(own.folders.every((f) => f.access === 'write')).toBe(true)
+    expect(own.folders.filter((f) => f.path !== 'users/olga').every((f) => f.reason.kind === 'owner-admin')).toBe(true)
+  })
+
+  test('a new person with a role and groups gets what a real person with them gets', async () => {
+    const preview = PersonAccessResponse.parse(await admin.call('POST', '/api/admin/access/new-person', { role: 'member', groupIds: [sales] }))
+    expect(preview).toMatchObject({ user: null, role: 'member', status: null, groups: [{ id: sales, name: 'Sales' }] })
+    expect(preview.folders.some((f) => f.path.startsWith('users'))).toBe(false)
+    const dora = PersonAccessResponse.parse(await admin.call('GET', '/api/admin/access/people/dora'))
+    expect(preview.folders.map(({ path: p, access, reason }) => ({ p, access, reason }))).toEqual(dora.folders.filter((f) => f.path !== 'users/dora').map(({ path: p, access, reason }) => ({ p, access, reason })))
+    const asAdmin = PersonAccessResponse.parse(await admin.call('POST', '/api/admin/access/new-person', { role: 'admin', groupIds: [] }))
+    expect(asAdmin.folders.every((f) => f.access === 'write' && f.reason.kind === 'owner-admin')).toBe(true)
+    expect((await admin.try('POST', '/api/admin/access/new-person', { role: 'member', groupIds: ['no-such-group'] })).status).toBe(400)
+    expect((await admin.try('POST', '/api/admin/access/new-person', { role: 'owner', groupIds: [] })).status).toBe(400)
+  })
+})

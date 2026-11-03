@@ -18,6 +18,7 @@ import {
 } from '../admin/folders'
 import { isParkedRow, isTeamDefaultFolder } from '../admin/folder-keep'
 import { createGroup, deleteGroup, listGroups, updateGroup } from '../admin/groups'
+import { explainFolder, explainNewPerson, explainPerson } from '../admin/access-explain'
 import { BROWSER_POLICY_CHANGED, enginesEnabled, getTeamSettings, LOCALE_CHANGED, setEnginesEnabled, SPEECH_CHANGED, updateTeamSettings } from '../admin/settings'
 import { credentialsOf } from '../credentials/store'
 import { unsealOrFail } from '../credentials/service'
@@ -192,6 +193,10 @@ export const adminRoutes: RouteModule = {
     })
 
     kit.handle(API.previewRules, ({ c, body }) => previewRules(ctx, body.changes, c.get('locale')))
+    // who sees a folder and why, what one person sees and why (admin/access-explain.ts; read only)
+    kit.handle(API.explainFolderAccess, ({ c, query }) => explainFolder(ctx, query.path, c.get('locale')))
+    kit.handle(API.explainPersonAccess, ({ params }) => explainPerson(ctx, params.id))
+    kit.handle(API.explainNewPersonAccess, ({ c, body }) => explainNewPerson(ctx, body, c.get('locale')))
 
     // ---------------- team skills: who manages them, what changed (skills/managers.ts, skills/changes.ts) ----------------
     kit.handle(API.listSkillManagers, () => listSkillManagers(ctx))

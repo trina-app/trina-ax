@@ -45,7 +45,8 @@ import { checkTeamIcon, TEAM_ICON_MAX_BYTES, type TeamIconFile } from '@mycel/sh
 import { Sealer } from '../../../server/src/credentials/seal'
 import type { Credential, CredentialKind, CredentialLogin, MessageSourceFile } from '@mycel/shared/api'
 import type { Integration, IntegrationAccess, IntegrationFlow, IntegrationInput, IntegrationPatch, IntegrationRequest, IntegrationTool } from '@mycel/shared/api'
-import { SkillsOverview } from '@mycel/shared/api'
+import { SkillsOverview, type FolderAccessResponse, type PersonAccessResponse } from '@mycel/shared/api'
+import { RuleSet } from '../../../server/src/policy/access'
 import os from 'node:os'
 import path from 'node:path'
 import { MockPlugins } from './plugins'
@@ -334,6 +335,57 @@ export class MockServer {
   downloadOnly = new Set<string>()
   /** POST /__test/skill-list: what GET /api/skills/overview says of the AI's skill list (server/src/chat/skill-list.ts) */
   aiList: SkillsOverview['aiList'] = undefined
+
+  // ---------------- folder access explained (like server/src/admin/access-explain.ts) ----------------
+  // The server's own RuleSet over the folder rules of Admin › 폴더 권한 here (the file screens above keep their
+  // simplified policy): same shapes, same reasons, nothing under users/ but the person's own folder, no .system/.
+  explainRules() { return new RuleSet(this.folders.flatMap((f) => f.rules.map((r) => ({ path: f.path, subject_type: r.subjectType, subject_id: r.subjectId, access: r.access })))) }
+  explainFolder(p: string): FolderAccessResponse {
+    const segs = p ? p.split('/') : []
+    if (segs.some((s) => s === '..') || (segs.length && ['users', '.system'].includes(segs[0]!.toLowerCase()))) fail('validation', 400, '개인 폴더(users/) 안에는 권한 규칙을 둘 수 없어요.', { 'query.path': 'not a team folder' })
+    const rules = this.explainRules()
+    const folders = new Set(rules.ruleFolders())
+    let ruleFolder: string | null = null
+    for (let len = segs.length; len >= 0 && ruleFolder === null; len--) if (folders.has(segs.slice(0, len).join('/'))) ruleFolder = segs.slice(0, len).join('/')
+    const people = this.users.filter((u) => u.status === 'active').sort((a, b) => a.name.localeCompare(b.name)).map((u) => {
+      const e = rules.explain({ id: u.id, name: u.name, role: u.role, groups: u.groupIds }, segs)
+      return { user: { id: u.id, name: u.name }, role: u.role, access: e.access, reason: e.reason }
+    })
+    const access = { none: 0, read: 0, write: 0 }
+    const sources = new Map<string, FolderAccessResponse['summary']['sources'][number]>()
+    for (const x of people) {
+      access[x.access]++
+      const folder = x.reason.kind === 'rule' ? x.reason.folder : null
+      const s = sources.get(`${x.reason.kind}:${folder}`) ?? { reason: x.reason.kind, folder, count: 0 }
+      s.count++
+      sources.set(`${x.reason.kind}:${folder}`, s)
+    }
+    const inactive = segs.map((_, i) => segs.slice(0, segs.length - i).join('/')).concat('').flatMap((f) => rules.rulesAt(f)
+      .filter((r) => r.subjectType === 'user' && !this.users.some((u) => u.id === r.subjectId && u.status === 'active'))
+      .map((r) => ({ user: { id: r.subjectId!, name: this.users.find((u) => u.id === r.subjectId)?.name ?? r.subjectId! }, folder: f, access: r.access })))
+    return { path: p, exists: this.files.get(p)?.type === 'folder' || p === '', ruleFolder, people, truncated: false, summary: { access, sources: [...sources.values()].sort((a, b) => b.count - a.count) }, inactive }
+  }
+  explainPerson(who: { user: User | null; role: User['role']; groupIds: string[] }): PersonAccessResponse {
+    const rules = this.explainRules()
+    const p = { id: who.user?.id ?? '\u0000new-person', name: who.user?.name ?? '', role: who.role, groups: who.groupIds }
+    const kinds = new Map<string, PersonAccessResponse['folders'][number]['kinds']>()
+    const add = (path: string, k: PersonAccessResponse['folders'][number]['kinds'][number]) => {
+      if (path.split('/')[0] === 'users' || path.startsWith('.system')) return
+      kinds.set(path, [...(kinds.get(path) ?? []), k])
+    }
+    for (const f of rules.ruleFolders()) add(f, 'rules')
+    for (const [path, n] of this.files) if (n.type === 'folder' && !path.includes('/')) add(path, 'top')
+    for (const pr of this.projects) add(pr.folderPath, 'project')
+    const row = (path: string, k: PersonAccessResponse['folders'][number]['kinds'], exists: boolean | null) => {
+      const e = rules.explain(p, path ? path.split('/') : [])
+      const projects = this.projects.filter((x) => x.folderPath === path).map((x) => ({ id: x.id, name: x.name }))
+      return { path, kinds: k, ...(projects.length ? { projects } : {}), exists, access: e.access, reason: e.reason }
+    }
+    const folders = [...(who.user ? [row(`users/${who.user.id}`, ['personal'], null)] : []),
+      ...[...kinds].sort(([a], [b]) => (a < b ? -1 : 1)).map(([path, k]) => row(path, k, this.files.get(path)?.type === 'folder'))]
+    return { user: who.user ? { id: who.user.id, name: who.user.name } : null, role: who.role, status: who.user?.status ?? null,
+      groups: who.groupIds.map((id) => ({ id, name: this.groups.find((g) => g.id === id)?.name ?? id })), folders, truncated: false }
+  }
 
   // ---------------- team skills (like server/src/skills/*) ----------------
   skillChange(c: SkillChange) {
@@ -1367,6 +1419,15 @@ export class MockServer {
       if (keep === 'group') fail('conflict', 409, serverMsg('groupFolderKeepsRow', c.user.locale))
       this.folders = this.folders.filter((x) => x.id !== f.id)
       return undefined
+    },
+    explainFolderAccess: (c) => this.explainFolder(c.query.path ?? ''),
+    explainPersonAccess: (c) => {
+      const u = this.users.find((x) => x.id === c.params.id) ?? fail('not_found', 404)
+      return this.explainPerson({ user: u, role: u.role, groupIds: u.groupIds })
+    },
+    explainNewPersonAccess: (c) => {
+      if ((c.body.groupIds as string[]).some((g) => !this.groups.some((x) => x.id === g))) fail('validation', 400, '없는 그룹이 들어 있어요.', { 'body.groupIds': 'unknown group' })
+      return this.explainPerson({ user: null, role: c.body.role, groupIds: [...new Set(c.body.groupIds as string[])] })
     },
     previewRules: (c) => ({
       folders: c.body.changes.map((ch: Json) => ({ path: ch.path, users: this.users.map((u) => ({ user: { id: u.id, name: u.name }, role: u.role, before: u.role === 'owner' ? 'write' : 'none', after: u.role === 'owner' ? 'write' : (ch.rules as Json[]).some((r) => r.subjectType === 'everyone') ? 'read' : 'none' })) })),
