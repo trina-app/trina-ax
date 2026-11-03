@@ -825,6 +825,9 @@ func TestDataDiskDecisions(t *testing.T) {
 			if c.wantMkfs == "" && len(mk) != 0 || c.wantMkfs != "" && (len(mk) != 1 || mk[0].args[len(mk[0].args)-1] != c.wantMkfs || mk[0].args[2] != "axdata") {
 				t.Fatalf("mkfs %+v", mk)
 			}
+			if len(mk) == 1 && !strings.Contains(strings.Join(mk[0].args, " "), "-E nodiscard,") {
+				t.Fatalf("mkfs without nodiscard (a full discard is slow on a throttled disk): %+v", mk[0].args)
+			}
 			mn := h.run.named("mount")
 			if c.wantMnt == "" && len(mn) != 0 || c.wantMnt != "" && (len(mn) != 1 || mn[0].args[len(mn[0].args)-2] != c.wantMnt || mn[0].args[len(mn[0].args)-1] != h.e.P.Base) {
 				t.Fatalf("mount %+v", mn)

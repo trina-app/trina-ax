@@ -4,7 +4,7 @@
 import { describe, expect, test } from 'bun:test'
 import type { AccessTreeNode, PersonFolderAccess } from '@mycel/shared/api'
 import { DICTS, translate, type MessageKey, type Params } from '../../src/i18n'
-import { ancestorsOf, cleanPrefix, countRows, folderName, groupRows, isRestricted, kindText, levelOf, nearestRuleFolder, nodeName, parentOf, reasonText, riskOf, riskTexts, rulesApply, sectionOf, shortPath, sourceSaysSomething, sourceText, summaryLines, whoSeesText, type Names } from '../../src/lib/access-view'
+import { ancestorsOf, cleanPrefix, isSkillsPath, countRows, folderName, groupRows, isRestricted, kindText, levelOf, nearestRuleFolder, nodeName, parentOf, reasonText, riskOf, riskTexts, rulesApply, sectionOf, shortPath, sourceSaysSomething, sourceText, summaryLines, whoSeesText, type Names } from '../../src/lib/access-view'
 import { personViewLink } from '../../src/pages/admin/AccessResults'
 
 const ko = (key: MessageKey, p?: Params) => translate('ko', key, p)
@@ -297,6 +297,11 @@ describe('the folder tree (by folder)', () => {
     expect(kindText(ko, node('skills/x', []))).toBe('팀 스킬')
     // the server's skills check: any case or Unicode form of the first name
     expect(kindText(ko, node('Skills/x', []))).toBe('팀 스킬')
+    expect(isSkillsPath('Skills/x')).toBe(true)
+    expect(isSkillsPath('SKILLS')).toBe(true)
+    expect(isSkillsPath('skills2/x')).toBe(false)
+    expect(isSkillsPath('x/skills')).toBe(false)
+    expect(riskOf({ path: 'Skills/x', access: 'write', kinds: ['rules'] }, 'member')).toBe('skills')
     expect(kindText(ko, node('docs', []))).toBeNull()
     expect(isRestricted(node('a', [], { restricted: true }))).toBe(true)
     expect(isRestricted(node('users', [], { restricted: true, kinds: ['personal'] }))).toBe(false)
