@@ -41,8 +41,7 @@ test('projects: create one on a folder, open a chat in it', async ({ page }) => 
   await page.getByTestId('project-save').click()
   await expect(page.getByRole('heading', { name: 'Launch' })).toBeVisible()
   await expect(page.getByText('Answer in short bullet points.')).toBeVisible()
-  await page.getByTestId('project-chat').click()
-  await expect(page.getByText('이 프로젝트의 폴더와 지침으로 대화해요')).toBeVisible()
+  // the project's page has the box that starts a chat in it
   await page.getByTestId('composer-input').fill('project question')
   await page.getByTestId('send').click()
   await expect(page.getByTestId('assistant-message')).toHaveAttribute('data-status', 'done')

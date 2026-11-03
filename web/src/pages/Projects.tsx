@@ -1,20 +1,25 @@
 // Projects: a folder of the team folder + instructions. Chats opened inside a project use both as their default
-// context. List (projects whose folder the person can read), create (folder they can write), project home with
-// instructions, the folder's files and the person's chats in it.
-import { FolderKanban, Folder, MessageSquarePlus, Pencil, Plus, Share2, Trash2 } from 'lucide-react'
-import { useEffect, useState } from 'react'
+// context. List (projects whose folder the person can read), create (folder they can write), project home: a box that
+// starts a chat in the project and the person's chats in it, with the dev environment, the instructions and the
+// folder's files as short lines beside them (like Claude's project page).
+import { ChevronDown, FileText, FolderKanban, Folder, Pencil, Plus, ScrollText, Share2, Trash2 } from 'lucide-react'
+import { useEffect, useRef, useState, type KeyboardEvent, type ReactNode } from 'react'
+import clsx from 'clsx'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import type { Chat, FileEntry, Group, Project, ProjectParticipant, User } from '@mycel/shared/api'
 import { api, API, errorText, isApiError } from '../lib/api'
 import { formatRelative } from '../lib/format'
+import { firstParagraph } from '../lib/markdown'
 import { openTeamFile } from '../lib/sidePanel'
 import { useLocale, useT } from '../i18n'
 import { toast } from '../store/ui'
 import { isAdmin, useMe } from '../store/session'
 import FolderPicker from '../components/FolderPicker'
 import { Markdown } from '../components/Markdown'
+import { DisclosureRow } from '../components/DisclosureRow'
+import { NewChatComposer } from '../components/chat/NewChatComposer'
 import { Button, EmptyState, ErrorNote, Field, Modal, PageHeader, Skeleton, confirmDialog, inputCls } from '../components/ui'
-import { DevEnvSection } from './DevEnvSection'
+import { DevEnvRow } from './DevEnvSection'
 
 export function ProjectList() {
   const t = useT()
@@ -203,7 +208,8 @@ export function ProjectHome() {
   const [missing, setMissing] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [chats, setChats] = useState<Chat[] | null>(null)
-  const [files, setFiles] = useState<FileEntry[] | null>(null)
+  // failed: the folder could not be read (a network error); the line then says no count rather than a wrong one
+  const [files, setFiles] = useState<{ entries: FileEntry[]; more: boolean; failed?: boolean } | null>(null)
   const [editing, setEditing] = useState(false)
   const [sharing, setSharing] = useState(false)
   const me = useMe()
@@ -234,7 +240,7 @@ export function ProjectHome() {
         if (!live) return
         setP(x)
         api.call(API.listChats, { query: { projectId: x.id, limit: 50 } }).then((r) => live && setChats(r.items), () => live && setChats([]))
-        api.call(API.tree, { query: { path: x.folderPath, limit: 100 } }).then((r) => live && setFiles(r.entries), () => live && setFiles([]))
+        api.call(API.tree, { query: { path: x.folderPath, limit: 100 } }).then((r) => live && setFiles({ entries: r.entries, more: !!r.nextCursor }), () => live && setFiles({ entries: [], more: false, failed: true }))
       },
       (e) => {
         if (!live) return
@@ -261,91 +267,177 @@ export function ProjectHome() {
   if (missing) return <EmptyState title={t('projects.missing')}><Link to="/projects" className="text-accent-text underline">{t('projects.title')}</Link></EmptyState>
   if (error) return <div className="p-6"><ErrorNote>{error}</ErrorNote></div>
   if (!p) return <Skeleton lines={6} className="p-6" />
+  const summary = firstParagraph(p.instructions)
+  const folderLink = `/files?path=${encodeURIComponent(p.folderPath)}`
+  const sideAction = 'rounded-md px-1.5 py-1 text-muted hover:bg-hover hover:text-ink'
   return (
     <div className="flex h-full flex-col overflow-y-auto">
-      <PageHeader
-        title={
-          <span className="flex items-center gap-2">
-            <FolderKanban size={20} className="text-accent-text" aria-hidden /> {p.name}
+      {/* like Claude's project page: where you are, with the few things you rarely do behind the name */}
+      <div className="flex h-12 shrink-0 items-center border-b border-line px-4 sm:px-6">
+        <nav aria-label={t('files.breadcrumb')} className="flex min-w-0 items-center gap-1.5 text-sm">
+          <Link to="/projects" className="shrink-0 text-muted hover:text-ink">
+            {t('projects.title')}
+          </Link>
+          <span className="text-faint" aria-hidden>
+            /
           </span>
-        }
-        desc={p.folderPath || t('files.root')}
-        actions={
-          <>
-            {p.canEdit && (
-              <>
-                {personal && (
-                  <Button variant="ghost" onClick={() => setSharing(true)} data-testid="project-share">
-                    <Share2 size={14} aria-hidden /> {t('projects.share')}
-                  </Button>
+          {p.canEdit ? (
+            <ProjectMenu
+              name={p.name}
+              items={[
+                { label: t('common.edit'), icon: <Pencil size={14} aria-hidden />, onSelect: () => setEditing(true), testId: 'project-edit' },
+                ...(personal ? [{ label: t('projects.share'), icon: <Share2 size={14} aria-hidden />, onSelect: () => setSharing(true), testId: 'project-share' }] : []),
+                { label: t('common.delete'), icon: <Trash2 size={14} aria-hidden />, onSelect: () => void del(), danger: true, testId: 'project-delete' },
+              ]}
+            />
+          ) : (
+            <span aria-current="page" className="truncate">
+              {p.name}
+            </span>
+          )}
+        </nav>
+      </div>
+      <div className="mx-auto w-full max-w-[1080px] px-4 pt-8 pb-12 sm:px-6 sm:pt-10">
+        <h1 className="text-[26px] font-semibold tracking-tight break-words sm:text-[30px]">{p.name}</h1>
+        {summary && (
+          <p className="mt-1.5 line-clamp-2 max-w-3xl text-sm text-muted" data-testid="project-summary">
+            {summary}
+          </p>
+        )}
+        {/* phone: the box, then the side lines, then the chats; wide: the chats under the box, the lines beside them */}
+        <div className="mt-6 grid gap-x-10 gap-y-8 lg:grid-cols-[minmax(0,1fr)_320px] lg:grid-rows-[auto_1fr]">
+          <div className="min-w-0 lg:col-start-1">
+            <NewChatComposer projectId={p.id} placeholder={t('projects.newChat')} />
+          </div>
+          <aside aria-label={t('projects.about')} className="min-w-0 lg:col-start-2 lg:row-span-2 lg:row-start-1">
+            <div className="divide-y divide-line">
+              <DevEnvRow project={p} />
+              <DisclosureRow
+                testId="project-instructions"
+                icon={<ScrollText size={16} />}
+                label={t('projects.instructions')}
+                action={p.canEdit ? <button type="button" className={sideAction} onClick={() => setEditing(true)}>{t('common.edit')}</button> : undefined}
+              >
+                {p.instructions ? <Markdown text={p.instructions} className="text-sm! leading-6! prose-headings:text-sm!" /> : <p className="text-faint">{t('projects.noInstructions')}</p>}
+              </DisclosureRow>
+              <DisclosureRow
+                testId="project-files"
+                icon={<Folder size={16} />}
+                label={t('files.title')}
+                meta={files && !files.failed && (files.more ? t('projects.itemsMore', { n: files.entries.length }) : t('projects.items', { n: files.entries.length }))}
+                action={<Link to={folderLink} className={sideAction}>{t('projects.open')}</Link>}
+              >
+                {!files && <Skeleton lines={3} />}
+                {files && !files.failed && !files.entries.length && <p className="text-faint">{t('files.emptyReadOnly')}</p>}
+                <ul className="-ml-2 space-y-0.5">
+                  {files?.entries.slice(0, 30).map((f) => (
+                    <li key={f.path}>
+                      <button
+                        type="button"
+                        className="flex w-full items-center gap-2 rounded px-2 py-1 text-left hover:bg-hover"
+                        onClick={() => (f.type === 'folder' ? navigate(`/files?path=${encodeURIComponent(f.path)}`) : openTeamFile(f.path))}
+                      >
+                        {f.type === 'folder' ? <Folder size={14} className="shrink-0 text-accent-text" aria-hidden /> : <FileText size={14} className="shrink-0 text-faint" aria-hidden />}
+                        <span className="truncate">{f.name}</span>
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+                {files && (files.more || files.entries.length > 30) && (
+                  <Link to={folderLink} className="mt-1 inline-block text-xs text-accent-text hover:underline">
+                    {t('projects.openFolder')}
+                  </Link>
                 )}
-                <Button variant="ghost" onClick={() => setEditing(true)}>
-                  <Pencil size={14} aria-hidden /> {t('common.edit')}
-                </Button>
-                <Button variant="ghost-danger" onClick={del}>
-                  <Trash2 size={14} aria-hidden /> {t('common.delete')}
-                </Button>
-              </>
-            )}
-            <Button variant="primary" onClick={() => navigate(`/?project=${p.id}`)} data-testid="project-chat">
-              <MessageSquarePlus size={15} aria-hidden /> {t('projects.newChat')}
-            </Button>
-          </>
-        }
-      />
-      <div className="grid gap-6 p-4 sm:p-6 lg:grid-cols-[1fr_320px]">
-        <section aria-labelledby="pj-chats">
-          <h2 id="pj-chats" className="mb-2 text-sm font-semibold">
-            {t('projects.myChats')}
-          </h2>
-          {!chats && <Skeleton lines={3} />}
-          {chats && !chats.length && <p className="text-sm text-faint">{t('projects.noChats')}</p>}
-          <ul className="divide-y divide-line rounded-xl border border-line bg-surface">
-            {chats?.map((c) => (
-              <li key={c.id}>
-                <Link to={`/c/${c.id}`} className="flex items-center gap-3 px-4 py-2.5 text-sm hover:bg-hover">
-                  <span className="min-w-0 flex-1 truncate">{c.title || t('chat.untitled')}</span>
-                  <span className="text-xs text-faint">{formatRelative(c.updatedAt, locale)}</span>
-                </Link>
-              </li>
-            ))}
-          </ul>
-        </section>
-        <aside className="space-y-6">
-          <DevEnvSection project={p} />
-          <section aria-labelledby="pj-instr">
-            <h2 id="pj-instr" className="mb-2 text-sm font-semibold">
-              {t('projects.instructions')}
+              </DisclosureRow>
+            </div>
+            <p className="mt-3 truncate text-xs text-faint" title={p.folderPath || t('files.root')}>
+              {p.folderPath || t('files.root')}
+            </p>
+          </aside>
+          <section aria-labelledby="pj-chats" className="min-w-0 lg:col-start-1" data-testid="project-chats">
+            <h2 id="pj-chats" className="mb-1 text-sm text-muted">
+              {t('projects.myChats')}
             </h2>
-            <div className="rounded-xl border border-line bg-surface p-3 text-sm">{p.instructions ? <Markdown text={p.instructions} className="text-sm" /> : <span className="text-faint">{t('projects.noInstructions')}</span>}</div>
-          </section>
-          <section aria-labelledby="pj-files">
-            <h2 id="pj-files" className="mb-2 flex items-center justify-between text-sm font-semibold">
-              {t('projects.files')}
-              <Link to={`/files?path=${encodeURIComponent(p.folderPath)}`} className="text-xs font-normal text-accent-text hover:underline">
-                {t('projects.openFolder')}
-              </Link>
-            </h2>
-            {!files && <Skeleton lines={3} />}
-            <ul className="space-y-0.5">
-              {files?.slice(0, 30).map((f) => (
-                <li key={f.path}>
-                  <button
-                    type="button"
-                    className="flex w-full items-center gap-2 rounded px-2 py-1 text-left text-sm hover:bg-hover"
-                    onClick={() => (f.type === 'folder' ? navigate(`/files?path=${encodeURIComponent(f.path)}`) : openTeamFile(f.path))}
-                  >
-                    <Folder size={14} className={f.type === 'folder' ? 'text-accent-text' : 'invisible'} aria-hidden />
-                    <span className="truncate">{f.name}</span>
-                  </button>
+            {!chats && <Skeleton lines={3} />}
+            {chats && !chats.length && <p className="py-2 text-sm text-faint">{t('projects.noChats')}</p>}
+            <ul className="divide-y divide-line">
+              {chats?.map((c) => (
+                <li key={c.id}>
+                  <Link to={`/c/${c.id}`} className="-mx-2 flex items-center gap-4 rounded-md px-2 py-3 text-sm hover:bg-hover">
+                    <span className="min-w-0 flex-1 truncate">{c.title || t('chat.untitled')}</span>
+                    <span className="shrink-0 text-xs text-faint">{formatRelative(c.updatedAt, locale)}</span>
+                  </Link>
                 </li>
               ))}
             </ul>
           </section>
-        </aside>
+        </div>
       </div>
       {editing && <ProjectForm project={p} onClose={() => setEditing(false)} onSaved={setP} />}
       <FolderPicker open={sharing} title={t('projects.share')} confirmLabel={t('files.shareHere')} initial="shared" onPick={(x) => void shareTo(x)} onClose={() => setSharing(false)} />
+    </div>
+  )
+}
+
+/** The project's name in the top line, opening its few actions (Edit, Share, Delete): a menu, like Claude's. */
+function ProjectMenu({ name, items }: { name: string; items: { label: string; icon: ReactNode; onSelect: () => void; danger?: boolean; testId: string }[] }) {
+  const box = useRef<HTMLDivElement>(null)
+  const [open, setOpen] = useState(false)
+  const menuItems = () => [...(box.current?.querySelectorAll<HTMLElement>('[role="menuitem"]') ?? [])]
+  useEffect(() => {
+    if (!open) return
+    menuItems()[0]?.focus()
+    // not on losing focus: Safari moves focus off a button when it is pressed, and the click would find the menu gone
+    const outside = (e: MouseEvent) => { if (!box.current?.contains(e.target as Node)) setOpen(false) }
+    document.addEventListener('mousedown', outside)
+    return () => document.removeEventListener('mousedown', outside)
+  }, [open])
+  const onKeyDown = (e: KeyboardEvent) => {
+    if (!open) return
+    if (e.key === 'Escape' || e.key === 'Tab') {
+      if (e.key === 'Escape') e.stopPropagation() // only the menu: not an open file or browser panel too (Layout)
+      setOpen(false)
+      box.current?.querySelector('button')?.focus()
+    } else if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+      e.preventDefault()
+      const all = menuItems()
+      const at = all.indexOf(document.activeElement as HTMLElement)
+      all[(at + (e.key === 'ArrowDown' ? 1 : all.length - 1)) % all.length]?.focus()
+    }
+  }
+  return (
+    <div ref={box} className="relative min-w-0" onKeyDown={onKeyDown}>
+      <button
+        type="button"
+        aria-haspopup="menu"
+        aria-expanded={open}
+        aria-current="page"
+        onClick={() => setOpen((v) => !v)}
+        className="flex max-w-full min-w-0 items-center gap-1 rounded-md px-1.5 py-1 hover:bg-hover"
+        data-testid="project-menu"
+      >
+        <span className="truncate">{name}</span>
+        <ChevronDown size={14} className="shrink-0 text-faint" aria-hidden />
+      </button>
+      {open && (
+        <div role="menu" aria-label={name} className="absolute top-full left-0 z-30 mt-1 w-56 rounded-lg border border-line bg-surface p-1 shadow-lg">
+          {items.map((it) => (
+            <button
+              key={it.testId}
+              role="menuitem"
+              type="button"
+              className={clsx('flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-sm -outline-offset-2 hover:bg-hover focus:bg-hover', it.danger && 'text-danger')}
+              onClick={() => {
+                setOpen(false)
+                it.onSelect()
+              }}
+              data-testid={it.testId}
+            >
+              {it.icon} {it.label}
+            </button>
+          ))}
+        </div>
+      )}
     </div>
   )
 }
