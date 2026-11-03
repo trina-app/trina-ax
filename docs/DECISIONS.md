@@ -5850,3 +5850,20 @@ The screen was a long card per connection, and the only way in was typing an MCP
 - **Real logos** (asked for on 2026-11-02, instead of the first version's letter tiles): files of our own under `web/public/icons/connectors`, because the content security policy loads no image from elsewhere, on a white tile in both themes because most are drawn for a light background. Each is its owner's trademark, used only to name the service. A test reads every SVG as XML and allows only listed elements and attributes, no character reference (`&#`) and no `url()` outside the file (2026-11-03 review: a pattern match let `<set attributeName="href" to="jav&#x61;script:…">` and `url(//host/…)` through), and the server sends `/icons/**/*.svg` with `default-src 'none'; style-src 'unsafe-inline'; sandbox` and `nosniff`, like the team logo, so a file opened on its own runs and loads nothing. Where each file came from is not recorded; `docs/THIRD-PARTY-NOTICES.md` has the table per file.
 - **What needs attention stays on the line**: a failing connection shows why without opening it, signing in stays there while the connection needs it, and so does "Run without asking", because it is a warning about what the AI may do. In Admin, so do "Nobody can use it yet" and "Not in your chats" (an admin uses a team connection only when its rule includes them); the note under the list says so too.
 - **This repository also keeps** the switch per tool, "100 of 185 tools" and "a check failed, the AI keeps the saved list" in the details. That last one stays on the line as well, in the warning colour, because it needs attention.
+
+## Admin deletes: success is not read from the answer (fix/folders-safety 1a, 2026-11-03)
+
+- A delete answers 204, which `ApiClient.call` returns as `undefined`; `useAction` also returned `undefined` on a
+  failure, so `!== undefined` was never true and Folder permissions, Groups and Usage limits kept a deleted row until
+  the page was opened again. `useAction` now refuses, in its type (`T extends {} | null`), an action that answers
+  nothing, and such actions use `useActionOk`, which returns `true` / `false`. The compiler found the six places
+  (the three above, member delete, invite revoke, connected folder remove); members, invites and connected folders
+  already reloaded another way and keep doing so. Removing a skills manager in several folders toasts "turned off"
+  only when every call worked.
+- After a delete, `useFocusAfterRemove` moves the focus, once the list shows its new data, to the row now at that
+  place (`data-row-focus`), else to the screen's add button, and only when the focus fell to the page.
+- The "remove all rules" dialog names what the folder then follows: the nearest folder above with rules, else "only
+  the owner and admins" (access.ts: no rule applies), and inside `users/` that nothing changes (rules there never
+  applied). The edit hint no longer says the owner writes everywhere (`users/<id>` of others and `.system` are none
+  for every role).
+- Tests: `web/test/unit/admin-folders.test.ts`, `web/test/e2e/admin-delete.spec.ts`. Needed in the core too.

@@ -18,7 +18,7 @@ import { isOwner, useMeStrict } from '../../store/session'
 import QrCode from '../../components/QrCode'
 import { Badge, Button, CopyButton, Field, IconButton, Modal, confirmDialog, inputCls } from '../../components/ui'
 import { SkillManagerCell, useSkillManagers } from './SkillManagers'
-import { Card, Loadable, SecretBox, useAction, useLoad } from './common'
+import { Card, Loadable, SecretBox, useAction, useActionOk, useLoad } from './common'
 
 type MemberRole = Exclude<Role, 'owner'>
 type CreatedInvite = z.infer<typeof CreatedInviteSchema>
@@ -28,6 +28,7 @@ export default function Members() {
   const locale = useLocale()
   const me = useMeStrict()
   const act = useAction()
+  const actOk = useActionOk()
   // the members and who cannot use AI now ("No AI": no AI connection of their own and none of the team's for them)
   const users = useLoad(() => api.call(API.listUsers, { query: { noAi: '1' } }))
   const invites = useLoad(async () => (await api.call(API.listInvites)).items)
@@ -58,16 +59,10 @@ export default function Members() {
   }
   const remove = async (u: User) => {
     if (!(await confirmDialog({ title: t('members.removeTitle', { name: u.name }), body: t('members.removeBody', { days: chatTrashDays(me) }), confirm: t('common.delete'), danger: true }))) return
-    await act(async () => {
-      await api.call(API.deleteUser, { params: { id: u.id } })
-      await users.reload()
-    })
+    if (await actOk(() => api.call(API.deleteUser, { params: { id: u.id } }))) await users.reload()
   }
   const revoke = async (i: Invite) => {
-    await act(async () => {
-      await api.call(API.revokeInvite, { params: { id: i.id } })
-      await invites.reload()
-    })
+    if (await actOk(() => api.call(API.revokeInvite, { params: { id: i.id } }))) await invites.reload()
   }
 
   return (

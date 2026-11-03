@@ -1,5 +1,5 @@
 // Small helpers shared by the admin screens.
-import { useCallback, useEffect, useState, type ReactNode } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react'
 import { errorText } from '../../lib/api'
 import { useLocale, useT } from '../../i18n'
 import { toast } from '../../store/ui'
@@ -31,11 +31,15 @@ export function Loadable<T>({ state, children, lines = 4 }: { state: { data: T |
   return <>{children(state.data)}</>
 }
 
-/** Run an admin action and toast its error. */
+/**
+ * Run an admin action and toast its error. The answer, or undefined when it failed. Only for actions that answer with
+ * something: an empty answer (a 204, such as a delete) is undefined too, so it cannot be told from a failure. Those
+ * use useActionOk; the type refuses them here.
+ */
 export function useAction() {
   const t = useT()
   const locale = useLocale()
-  return async <T,>(fn: () => Promise<T>, ok?: string): Promise<T | undefined> => {
+  return async <T extends {} | null>(fn: () => Promise<T>, ok?: string): Promise<T | undefined> => {
     try {
       const r = await fn()
       if (ok) toast({ level: 'success', text: ok })
@@ -45,6 +49,45 @@ export function useAction() {
       return undefined
     }
   }
+}
+
+/** Run an admin action and toast its error: true when it worked, false when it failed. For any answer, empty or not. */
+export function useActionOk() {
+  const t = useT()
+  const locale = useLocale()
+  return async (fn: () => Promise<unknown>, ok?: string): Promise<boolean> => {
+    try {
+      await fn()
+      if (ok) toast({ level: 'success', text: ok })
+      return true
+    } catch (e) {
+      toast({ level: 'error', text: errorText(e, locale, t('error.network')) })
+      return false
+    }
+  }
+}
+
+/**
+ * Keyboard focus after a row was deleted: the row's own button is gone, so focus would fall back to the page. Call
+ * `removed(index)` once the delete worked, before the list loads again. When the list shows its new data, focus moves to
+ * the row now at that place (the next one, or the last), else to `fallback`. A row marks the control that takes focus
+ * with `data-row-focus`; `box` holds the list. Focus that is still on the page (someone moved on) stays where it is.
+ */
+export function useFocusAfterRemove(data: unknown, fallback: () => HTMLElement | null) {
+  const box = useRef<HTMLDivElement>(null)
+  const pending = useRef<number | null>(null)
+  const fallbackRef = useRef(fallback)
+  fallbackRef.current = fallback
+  useLayoutEffect(() => {
+    const i = pending.current
+    if (i === null) return
+    pending.current = null
+    const a = document.activeElement
+    if (a && a !== document.body && a.isConnected) return
+    const rows = [...(box.current?.querySelectorAll<HTMLElement>('[data-row-focus]') ?? [])]
+    ;(rows[Math.min(i, rows.length - 1)] ?? fallbackRef.current())?.focus()
+  }, [data])
+  return { box, removed: (index: number) => { pending.current = index } }
 }
 
 export function Card({ title, actions, children, desc }: { title: ReactNode; actions?: ReactNode; children: ReactNode; desc?: ReactNode }) {

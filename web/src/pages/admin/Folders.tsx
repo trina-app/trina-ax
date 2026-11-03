@@ -9,7 +9,7 @@ import { api, API } from '../../lib/api'
 import { useT } from '../../i18n'
 import FolderPicker from '../../components/FolderPicker'
 import { Badge, Button, IconButton, Modal, confirmDialog, inputCls } from '../../components/ui'
-import { Card, Loadable, useAction, useLoad } from './common'
+import { Card, Loadable, useAction, useActionOk, useFocusAfterRemove, useLoad } from './common'
 
 /** skills/ and its folders: write there = "팀 스킬 관리" (the Members / Groups toggle is the same rule) */
 const isSkillsFolder = (p: string) => p === 'skills' || p.startsWith('skills/')
@@ -39,14 +39,31 @@ export function rulesFromRows(rows: RuleRow[]): FolderRuleInput[] | null {
   return out
 }
 
+/**
+ * What a folder follows once its rules are gone: the nearest folder above it that has rules. None: from then on only the
+ * owner and admins see it (access.ts: no rule applies). Rules inside a personal folder never applied.
+ */
+export function afterRemoval(path: string, list: readonly Folder[]): { kind: 'above'; path: string } | { kind: 'none' } | { kind: 'personal' } {
+  const segs = path === '' ? [] : path.split('/')
+  if (segs[0] === 'users') return { kind: 'personal' }
+  for (let len = segs.length - 1; len >= 0; len--) {
+    const p = segs.slice(0, len).join('/')
+    if (list.some((f) => f.path === p && f.rules.length > 0)) return { kind: 'above', path: p }
+  }
+  return { kind: 'none' }
+}
+
+const sortFolders = (list: readonly Folder[]) => [...list].sort((a, b) => a.path.localeCompare(b.path))
+
 export default function Folders() {
   const t = useT()
-  const act = useAction()
+  const actOk = useActionOk()
   const folders = useLoad(async () => (await api.call(API.listFolders)).items)
   const users = useLoad(async () => (await api.call(API.listUsers)).items)
   const groups = useLoad(async () => (await api.call(API.listGroups)).items)
   const [editing, setEditing] = useState<{ folder: Folder | null; path: string } | null>(null)
   const [picking, setPicking] = useState(false)
+  const focus = useFocusAfterRemove(folders.data, () => document.querySelector<HTMLElement>('[data-testid="folder-rule-new"]'))
 
   const subject = (type: string, id: string | null) => {
     if (type === 'everyone') return t('rules.everyone')
@@ -55,8 +72,13 @@ export default function Folders() {
     return users.data?.find((u) => u.id === id)?.name ?? id ?? '?'
   }
   const remove = async (f: Folder) => {
-    if (!(await confirmDialog({ title: t('rules.removeTitle', { path: f.path || t('files.root') }), body: t('rules.removeBody'), confirm: t('common.delete'), danger: true }))) return
-    if ((await act(() => api.call(API.deleteFolder, { params: { id: f.id } }))) !== undefined) void folders.reload()
+    const list = folders.data ?? []
+    const next = afterRemoval(f.path, list)
+    const body = next.kind === 'above' ? t('rules.removeBody', { path: next.path || t('files.root') }) : next.kind === 'personal' ? t('rules.removeBodyPersonal') : t('rules.removeBodyNone')
+    if (!(await confirmDialog({ title: t('rules.removeTitle', { path: f.path || t('files.root') }), body, confirm: t('common.delete'), danger: true }))) return
+    if (!(await actOk(() => api.call(API.deleteFolder, { params: { id: f.id } })))) return
+    focus.removed(sortFolders(list).findIndex((x) => x.id === f.id))
+    await folders.reload()
   }
 
   return (
@@ -70,40 +92,42 @@ export default function Folders() {
           </Button>
         }
       >
-        <Loadable state={folders}>
-          {(list) =>
-            !list.length ? (
-              <p className="text-sm text-faint">{t('rules.none')}</p>
-            ) : (
-              <ul className="divide-y divide-line" data-testid="folder-list">
-                {[...list].sort((a, b) => a.path.localeCompare(b.path)).map((f) => (
-                  <li key={f.id} className="flex flex-wrap items-start gap-3 py-3 text-sm">
-                    <FolderLock size={16} className="mt-0.5 shrink-0 text-accent-text" aria-hidden />
-                    <span className="min-w-0 flex-1">
-                      <span className="block font-medium">{f.path || t('files.root')}</span>
-                      {!f.exists && <Badge tone="warn">{t('rules.missingOnDisk')}</Badge>}
-                      <span className="mt-1 flex flex-wrap gap-1">
-                        {f.rules.map((r) => (
-                          <Badge key={r.id} tone={r.access === 'write' ? 'accent' : r.access === 'read' ? 'neutral' : 'danger'}>
-                            {subject(r.subjectType, r.subjectId)}: {t(`access.${r.access}`)}
-                            {isSkillsFolder(f.path) && r.access === 'write' && (r.subjectType === 'user' || r.subjectType === 'group') && <span data-testid="skill-manager-badge"> · {t('skillMgr.ruleBadge')}</span>}
-                          </Badge>
-                        ))}
+        <div ref={focus.box}>
+          <Loadable state={folders}>
+            {(list) =>
+              !list.length ? (
+                <p className="text-sm text-faint">{t('rules.none')}</p>
+              ) : (
+                <ul className="divide-y divide-line" data-testid="folder-list">
+                  {sortFolders(list).map((f) => (
+                    <li key={f.id} className="flex flex-wrap items-start gap-3 py-3 text-sm">
+                      <FolderLock size={16} className="mt-0.5 shrink-0 text-accent-text" aria-hidden />
+                      <span className="min-w-0 flex-1">
+                        <span className="block font-medium">{f.path || t('files.root')}</span>
+                        {!f.exists && <Badge tone="warn">{t('rules.missingOnDisk')}</Badge>}
+                        <span className="mt-1 flex flex-wrap gap-1">
+                          {f.rules.map((r) => (
+                            <Badge key={r.id} tone={r.access === 'write' ? 'accent' : r.access === 'read' ? 'neutral' : 'danger'}>
+                              {subject(r.subjectType, r.subjectId)}: {t(`access.${r.access}`)}
+                              {isSkillsFolder(f.path) && r.access === 'write' && (r.subjectType === 'user' || r.subjectType === 'group') && <span data-testid="skill-manager-badge"> · {t('skillMgr.ruleBadge')}</span>}
+                            </Badge>
+                          ))}
+                        </span>
+                        {isSkillsFolder(f.path) && <span className="mt-1 block text-xs text-muted">{t('skillMgr.folderHint')}</span>}
                       </span>
-                      {isSkillsFolder(f.path) && <span className="mt-1 block text-xs text-muted">{t('skillMgr.folderHint')}</span>}
-                    </span>
-                    <Button size="sm" variant="ghost" onClick={() => setEditing({ folder: f, path: f.path })}>
-                      {t('common.edit')}
-                    </Button>
-                    <IconButton label={t('common.delete')} onClick={() => remove(f)}>
-                      <Trash2 size={15} />
-                    </IconButton>
-                  </li>
-                ))}
-              </ul>
-            )
-          }
-        </Loadable>
+                      <Button size="sm" variant="ghost" onClick={() => setEditing({ folder: f, path: f.path })}>
+                        {t('common.edit')}
+                      </Button>
+                      <IconButton label={t('common.delete')} onClick={() => remove(f)} data-row-focus>
+                        <Trash2 size={15} />
+                      </IconButton>
+                    </li>
+                  ))}
+                </ul>
+              )
+            }
+          </Loadable>
+        </div>
       </Card>
       <FolderPicker
         open={picking}
