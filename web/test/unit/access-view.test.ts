@@ -4,18 +4,22 @@
 import { describe, expect, test } from 'bun:test'
 import type { PersonFolderAccess } from '@mycel/shared/api'
 import { DICTS, translate, type MessageKey, type Params } from '../../src/i18n'
-import { cleanPrefix, countRows, groupRows, levelOf, reasonText, riskOf, sectionOf, shortPath, summaryLines } from '../../src/lib/access-view'
+import { cleanPrefix, countRows, folderName, groupRows, levelOf, nearestRuleFolder, reasonText, riskOf, rulesApply, sectionOf, shortPath, summaryLines, type Names } from '../../src/lib/access-view'
 import { personViewLink } from '../../src/pages/admin/AccessResults'
 
 const ko = (key: MessageKey, p?: Params) => translate('ko', key, p)
 const en = (key: MessageKey, p?: Params) => translate('en', key, p)
-const names = { group: (id: string) => ({ g1: 'Sales', g2: '재무팀' })[id], person: (id: string) => ({ bob: 'Bob' })[id] }
+const names: Names = { group: (id) => ({ g1: 'Sales', g2: '재무팀' } as Record<string, string>)[id], person: (id) => ({ bob: 'Bob' } as Record<string, string>)[id] }
+/** the folders with rules on the team (Admin › Folder permissions' list) */
+const known = (...paths: string[]): Names => ({ ...names, ruleFolders: new Set(paths) })
 
 const row = (path: string, o: Partial<PersonFolderAccess> = {}): PersonFolderAccess => ({
   path, kinds: ['top'], exists: true, access: 'read', reason: { kind: 'no-rule' }, listable: true, via: [], viaMore: false, ...o,
 })
 const rule = (folder: string, tier: 'user' | 'group' | 'role' | 'everyone', rules: { subjectType: 'user' | 'group' | 'role' | 'everyone'; subjectId: string | null; access: 'none' | 'read' | 'write' }[]) =>
   ({ kind: 'rule' as const, folder, tier, rules })
+/** the reason lines of a row, as one string */
+const why = (t: typeof ko, f: PersonFolderAccess, role: 'owner' | 'admin' | 'member' = 'member', n: Names = names) => reasonText(t, f, role, n).join(' | ')
 
 describe('level', () => {
   test('write and read as they are; no access but shown on the way is "listed"; else none', () => {
@@ -23,58 +27,90 @@ describe('level', () => {
     expect(levelOf(row('a', { access: 'read' }))).toBe('read')
     expect(levelOf(row('a', { access: 'none', listable: true }))).toBe('listed')
     expect(levelOf(row('a', { access: 'none', listable: false }))).toBe('none')
+    expect(ko('accessView.level.listed')).toBe('이름만 보임')
   })
 })
 
 describe('reasons, in words', () => {
   test('a rule on this folder names who it is for and what it gives', () => {
     const f = row('groups/Sales', { access: 'write', kinds: ['group', 'rules'], reason: rule('groups/Sales', 'group', [{ subjectType: 'group', subjectId: 'g1', access: 'write' }]) })
-    expect(reasonText(ko, f, 'member', names)).toBe('이 폴더의 규칙 · Sales 그룹: 읽기·쓰기')
-    expect(reasonText(en, f, 'member', names)).toBe('Rule on this folder · Group Sales: Read & write')
+    expect(why(ko, f)).toBe('이 폴더의 규칙 · Sales 그룹: 읽기·쓰기')
+    expect(why(en, f)).toBe('Rule on this folder · Group Sales: Read & write')
   })
 
-  test('inherited: the folder it comes from, who and what', () => {
+  test('inherited: the folder it comes from, who and what; the root by its one name', () => {
     const f = row('shared/notes', { access: 'write', reason: rule('shared', 'everyone', [{ subjectType: 'everyone', subjectId: null, access: 'write' }]) })
-    expect(reasonText(ko, f, 'member', names)).toBe('shared에서 물려받음 · 모두: 읽기·쓰기')
-    // from the team root
+    expect(why(ko, f)).toBe('shared에서 물려받음 · 모두: 읽기·쓰기')
     const r = row('docs', { reason: rule('', 'role', [{ subjectType: 'role', subjectId: 'member', access: 'read' }]) })
-    expect(reasonText(ko, r, 'member', names)).toBe('팀 폴더 맨 위에서 물려받음 · 팀원 전체: 읽기')
+    expect(why(ko, r)).toBe('팀 폴더 맨 위에서 물려받음 · 팀원 전체: 읽기')
+    expect(folderName(ko, '')).toBe(ko('accessView.rootFolder'))
   })
 
   test('a person rule names the person; the widest of several group rules (listed first) is the one named', () => {
     const p = row('finance', { access: 'read', reason: rule('finance', 'user', [{ subjectType: 'user', subjectId: 'bob', access: 'read' }]) })
-    expect(reasonText(ko, p, 'member', names)).toBe('이 폴더의 규칙 · Bob 님: 읽기')
+    expect(why(ko, p)).toBe('이 폴더의 규칙 · Bob 님: 읽기')
     const g = row('finance', { access: 'write', reason: rule('finance', 'group', [{ subjectType: 'group', subjectId: 'g2', access: 'write' }, { subjectType: 'group', subjectId: 'g1', access: 'read' }]) })
-    expect(reasonText(ko, g, 'member', names)).toBe('이 폴더의 규칙 · 재무팀 그룹: 읽기·쓰기')
+    expect(why(ko, g)).toBe('이 폴더의 규칙 · 재무팀 그룹: 읽기·쓰기')
   })
 
   test('a rule that gives nothing says so', () => {
     const f = row('secret', { access: 'none', listable: false, reason: rule('secret', 'everyone', [{ subjectType: 'everyone', subjectId: null, access: 'none' }]) })
-    expect(reasonText(ko, f, 'member', names)).toBe('이 폴더의 규칙 · 모두: 권한 없음')
+    expect(why(ko, f)).toBe('이 폴더의 규칙 · 모두: 권한 없음')
   })
 
-  test('owner and admins: everything but other people\'s personal folders', () => {
+  test('owner and admins: everything but other people\'s personal folders; rules are not offered there', () => {
     const f = row('docs', { access: 'write', reason: { kind: 'owner-admin' } })
-    expect(reasonText(ko, f, 'admin', names)).toBe('관리자라서 다른 사람의 개인 폴더 말고는 모두 볼 수 있어요')
-    expect(reasonText(ko, f, 'owner', names)).toBe('팀장이라서 다른 사람의 개인 폴더 말고는 모두 볼 수 있어요')
+    expect(why(ko, f, 'admin')).toBe('관리자라서 다른 사람의 개인 폴더 말고는 모두 볼 수 있어요')
+    expect(why(ko, f, 'owner')).toBe('팀장이라서 다른 사람의 개인 폴더 말고는 모두 볼 수 있어요')
+    expect(rulesApply(f)).toBe(false)
+    expect(rulesApply(row('docs', { reason: rule('docs', 'everyone', [{ subjectType: 'everyone', subjectId: null, access: 'read' }]) }))).toBe(true)
+    expect(rulesApply(row('users/bob', { kinds: ['personal'], reason: { kind: 'own-personal' } }))).toBe(false)
   })
 
-  test('no rule: only the owner and admins', () => {
-    expect(reasonText(ko, row('docs', { access: 'none', listable: false }), 'member', names)).toBe('규칙이 없어 팀장과 관리자만 봐요')
+  test('no rule for this person is not "no rule": a rule for others on the folder or above is told apart', () => {
+    const none = { access: 'none' as const, listable: false }
+    // finance carries "재무팀: read"; Bob is not in it
+    expect(why(ko, row('finance', none), 'member', known('finance'))).toBe('이 폴더부터 위쪽 규칙은 이 사람에게 해당하지 않아요')
+    expect(why(ko, row('finance/2026', none), 'member', known('finance'))).toBe('finance부터 위쪽 규칙은 이 사람에게 해당하지 않아요')
+    expect(why(ko, row('docs', none), 'member', known('', 'finance'))).toBe('팀 폴더 맨 위의 규칙은 이 사람에게 해당하지 않아요')
+    // no folder on the way up carries any rule: only the owner and admins
+    expect(why(ko, row('docs', none), 'member', known('finance'))).toBe('규칙이 없어 팀장과 관리자만 열 수 있어요')
+    // the folder list is not known (yet): only what is sure
+    expect(why(ko, row('docs', none))).toBe('이 사람에게 해당하는 규칙이 없어요')
+    expect(nearestRuleFolder('a/b/c', new Set(['a', '']))).toBe('a')
+    expect(nearestRuleFolder('a/b', new Set())).toBeNull()
   })
 
-  test('shown on the way: the folders below that make it so, two named and the rest counted', () => {
+  test('shown on the way: the folders below that make it so, two named and the rest counted, then what decided', () => {
     const base = { access: 'none' as const, listable: true }
-    expect(reasonText(ko, row('projects', { ...base, via: ['projects/apollo'] }), 'member', names)).toBe('아래 projects/apollo 때문에 폴더 이름만 보여요')
-    expect(reasonText(ko, row('projects', { ...base, via: ['projects/a', 'projects/b', 'projects/c', 'projects/d'] }), 'member', names)).toBe('아래 projects/a, projects/b 외 2곳 때문에 폴더 이름만 보여요')
-    expect(reasonText(ko, row('projects', { ...base, via: Array.from({ length: 20 }, (_, i) => `projects/p${i}`), viaMore: true }), 'member', names)).toBe('아래 projects/p0, projects/p1 외 여러 곳 때문에 폴더 이름만 보여요')
+    expect(reasonText(ko, row('projects', { ...base, via: ['projects/apollo'] }), 'member', known())).toEqual(['아래 projects/apollo 때문에 폴더 이름만 보여요', '규칙이 없어 팀장과 관리자만 열 수 있어요'])
+    expect(reasonText(ko, row('projects', { ...base, via: ['projects/a', 'projects/b', 'projects/c', 'projects/d'] }), 'member', names)[0]).toBe('아래 projects/a, projects/b 외 2곳 때문에 폴더 이름만 보여요')
+    expect(reasonText(ko, row('projects', { ...base, via: Array.from({ length: 20 }, (_, i) => `projects/p${i}`), viaMore: true }), 'member', names)[0]).toBe('아래 projects/p0, projects/p1 외 여러 곳 때문에 폴더 이름만 보여요')
+    // an explicit "no access" stays in sight under the way
+    const denied = row('projects', { ...base, via: ['projects/apollo'], reason: rule('projects', 'everyone', [{ subjectType: 'everyone', subjectId: null, access: 'none' }]) })
+    expect(reasonText(ko, denied, 'member', names)).toEqual(['아래 projects/apollo 때문에 폴더 이름만 보여요', '이 폴더의 규칙 · 모두: 권한 없음'])
     // a readable folder below that may not be named (a forgotten rule row): still why it shows
-    expect(reasonText(ko, row('x', { ...base, via: [] }), 'member', names)).toBe('아래에 볼 수 있는 폴더가 있어 폴더 이름만 보여요')
-    expect(reasonText(en, row('projects', { ...base, via: ['projects/apollo'] }), 'member', names)).toBe('Only the name shows, on the way to projects/apollo below')
+    expect(reasonText(ko, row('x', { ...base, via: [] }), 'member', names)[0]).toBe('아래에 볼 수 있는 폴더가 있어 폴더 이름만 보여요')
+    expect(reasonText(en, row('projects', { ...base, via: ['projects/apollo'] }), 'member', names)[0]).toBe('Only the name shows, on the way to projects/apollo below')
   })
 
-  test('the person\'s own folder', () => {
-    expect(reasonText(ko, row('users/bob', { kinds: ['personal'], exists: null, access: 'write', reason: { kind: 'own-personal' } }), 'member', names)).toBe('본인만 · 팀장과 관리자도 못 봐요')
+  test('the own folder in the way is named in words, never as users/<id>; the root of someone new is on the way to theirs', () => {
+    const base = { access: 'none' as const, listable: true }
+    expect(reasonText(ko, row('', { ...base, kinds: ['rules'], via: ['users/bob'] }), 'member', names)[0]).toBe('본인 개인 폴더로 가는 길이라 폴더 이름만 보여요')
+    expect(reasonText(ko, row('', { ...base, kinds: ['rules'], via: ['shared', 'users/bob'] }), 'member', names)[0]).toBe('아래 shared, 본인 개인 폴더 때문에 폴더 이름만 보여요')
+    // someone new: the server names no own folder (there is none yet), the root still shows the way to it
+    expect(reasonText(ko, row('', { ...base, kinds: ['rules'], via: [] }), 'member', names)[0]).toBe('본인 개인 폴더로 가는 길이라 폴더 이름만 보여요')
+    for (const locale of Object.keys(DICTS) as (keyof typeof DICTS)[]) {
+      const t = (key: MessageKey, p?: Params) => translate(locale, key, p)
+      expect(reasonText(t, row('', { ...base, via: ['marketing', 'users/bob'] }), 'member', names).join(' ')).not.toContain('users/')
+    }
+  })
+
+  test('the own folder, said for the role: the owner and admins are not "the owner and admins" of their own folder', () => {
+    const own = row('users/olga', { kinds: ['personal'], exists: null, access: 'write', reason: { kind: 'own-personal' } })
+    expect(why(ko, own, 'member')).toBe('본인만 · 팀장과 관리자도 못 봐요')
+    expect(why(ko, own, 'owner')).toBe('본인만 · 관리자도 못 봐요')
+    expect(why(ko, own, 'admin')).toBe('본인만 · 팀장과 다른 관리자도 못 봐요')
   })
 
   test('no step name of the permission function in any language', () => {
@@ -85,14 +121,19 @@ describe('reasons, in words', () => {
       row('d', { access: 'none', listable: false, reason: rule('d', 'everyone', [{ subjectType: 'everyone', subjectId: null, access: 'none' }]) }),
       row('e', { access: 'write', reason: { kind: 'owner-admin' } }),
       row('f', { access: 'none', listable: false, reason: { kind: 'no-rule' } }),
+      row('g', { access: 'none', listable: true, via: ['g/h'], reason: { kind: 'no-rule' } }),
       row('users/bob', { kinds: ['personal'], access: 'write', reason: { kind: 'own-personal' } }),
     ]
     for (const locale of Object.keys(DICTS) as (keyof typeof DICTS)[]) {
       const t = (key: MessageKey, p?: Params) => translate(locale, key, p)
-      for (const f of rows) {
-        const text = reasonText(t, f, 'member', names)
-        expect(text).not.toMatch(/\b(user|group|role|everyone|owner-admin|no-rule|tier|own-personal)\b/)
-        expect(text).not.toMatch(/\{\w+\}/)
+      for (const n of [names, known('f', 'g'), known('')]) {
+        for (const f of rows) {
+          for (const role of ['owner', 'admin', 'member'] as const) {
+            const text = reasonText(t, f, role, n).join(' ')
+            expect(text).not.toMatch(/\b(user|group|role|everyone|owner-admin|no-rule|tier|own-personal)\b/)
+            expect(text).not.toMatch(/\{\w+\}/)
+          }
+        }
       }
     }
   })
@@ -126,12 +167,13 @@ describe('groups and paths', () => {
     expect(riskOf(row('skillset', { access: 'write' }), 'member')).toBeNull()
   })
 
-  test('a typed folder becomes the server\'s path; not a path: null', () => {
+  test('a typed folder (or one in the address) becomes the server\'s path; not a path: null', () => {
     expect(cleanPrefix(' /projects/apollo/ ')).toBe('projects/apollo')
     expect(cleanPrefix('projects//apollo')).toBe('projects/apollo')
     expect(cleanPrefix('  ')).toBe('')
     expect(cleanPrefix('../x')).toBeNull()
     expect(cleanPrefix('a\\b')).toBeNull()
+    expect(cleanPrefix('a'.repeat(1025))).toBeNull()
   })
 
   test('the address keeps the choice', () => {
@@ -166,15 +208,15 @@ describe('summary', () => {
     expect(summaryLines(ko, { kind: 'new' }, rows, page)[0]).toBe('새로 들어올 사람과 그 AI는 팀 폴더 4개를 볼 수 있고, 그중 2개에 쓸 수 있어요.')
   })
 
-  test('narrowed to one folder: said so', () => {
-    expect(summaryLines(ko, { kind: 'new' }, rows.slice(3, 5), { total: 2, nextCursor: null }, 'projects').at(-1)).toBe('projects 아래만 셌어요.')
+  test('narrowed to one folder: the sentence says where', () => {
+    expect(summaryLines(ko, { kind: 'new' }, rows.slice(3, 5), { total: 2, nextCursor: null }, 'projects')[0]).toBe('projects 안에서는 새로 들어올 사람과 그 AI는 팀 폴더 1개를 볼 수 있고, 그중 1개에 쓸 수 있어요.')
+    expect(summaryLines(en, { kind: 'person', name: 'Bob', off: false }, rows.slice(3, 5), { total: 2, nextCursor: null }, 'projects')[0]).toBe('Within projects: Bob and their AI can see 1 team folder and write to 1 of them.')
   })
 
-  test('nothing seen; more pages to come', () => {
+  test('nothing seen; more pages to come; sees some and writes none', () => {
     const none = [row('secret', { access: 'none', listable: false })]
     expect(summaryLines(ko, { kind: 'person', name: 'Bob', off: false }, none, { total: 1, nextCursor: null })).toEqual(['Bob 님과 그 AI가 볼 수 있는 팀 폴더는 없어요.'])
     expect(summaryLines(en, { kind: 'new' }, rows, { total: 900, nextCursor: 'skills' }).at(-1)).toBe('Counted from the 7 of 900 folders loaded so far.')
-    // sees some, writes none
     expect(summaryLines(en, { kind: 'person', name: 'Bob', off: false }, [row('docs', { access: 'read' })], { total: 1, nextCursor: null })[0]).toBe('Bob and their AI can see 1 team folder but cannot write to any.')
     expect(summaryLines(ko, { kind: 'new' }, [row('docs', { access: 'read' }), row('a', { access: 'read' })], { total: 2, nextCursor: null })[0]).toBe('새로 들어올 사람과 그 AI는 팀 폴더 2개를 볼 수 있고, 쓸 수 있는 곳은 없어요.')
   })

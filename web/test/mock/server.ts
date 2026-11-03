@@ -47,7 +47,7 @@ import type { Credential, CredentialKind, CredentialLogin, MessageSourceFile } f
 import type { Integration, IntegrationAccess, IntegrationFlow, IntegrationInput, IntegrationPatch, IntegrationRequest, IntegrationTool } from '@mycel/shared/api'
 import { SkillsOverview, type FolderAccessResponse, type PersonAccessResponse } from '@mycel/shared/api'
 import { RuleSet, type Access } from '../../../server/src/policy/access'
-import { byPerson, folderInput, MAX_VIA, navigation, pageByPath, pageByPerson, ruleFolderOf, segsOf, shownPath, shownSegs, summarize } from '../../../server/src/admin/access-rows'
+import { byPerson, folderInput, MAX_VIA, navigation, pageByPath, pageByPerson, ruleFolderOf, segsOf, shownPath, shownSegs, summarize, withoutOwnFolder } from '../../../server/src/admin/access-rows'
 import os from 'node:os'
 import path from 'node:path'
 import { MockPlugins } from './plugins'
@@ -392,7 +392,9 @@ export class MockServer {
     const folders = pg.items.map((c) => {
       const personal = c.kinds.includes('personal')
       const e = rules.explain(p, segsOf(c.path))
-      return { ...c, exists: personal ? null : this.isFolder(c.path), access: e.access, reason: e.reason, ...navigation(() => (listing ??= rules.listing(p)).at(segsOf(c.path), MAX_VIA, shownPath), e.access) }
+      // someone new has no users/<id> yet: it is not named, as on the server
+      const look = () => { const l = (listing ??= rules.listing(p)); return who.user ? l.at(segsOf(c.path), MAX_VIA, shownPath) : withoutOwnFolder(l.at(segsOf(c.path), MAX_VIA + 1, shownPath), `users/${p.id}`, MAX_VIA) }
+      return { ...c, exists: personal ? null : this.isFolder(c.path), access: e.access, reason: e.reason, ...navigation(look, e.access) }
     })
     return { user: who.user ? { id: who.user.id, name: who.user.name } : null, role: who.role, status: who.user?.status ?? null,
       groups: who.groupIds.map((id) => ({ id, name: this.groups.find((g) => g.id === id)?.name ?? id })).sort((a, b) => a.name.localeCompare(b.name)), folders, total: pg.total, nextCursor: pg.nextCursor }

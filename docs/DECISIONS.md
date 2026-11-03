@@ -6050,6 +6050,35 @@ unchanged. The folder view stays as it was (stage 4 changes it).
 - **Members**: "볼 수 있는 폴더" on each person opens the view; the invite and add-member dialogs fold out "이 사람이 보게
   될 폴더" with the new-person answer for the role and groups chosen (the role and group choices moved to
   `people-choices.tsx` so both use the same ones).
+- **Review, second pass.**
+  - `no-rule` is "no rule on the way up is FOR THIS PERSON", not "no rule": with the folder list
+    (`Folder.rules`), the screen says the nearest folder at or above whose rules are not for them ("finance부터 위쪽 규칙은 이
+    사람에게 해당하지 않아요", the root by its name), and "no rule, so only the owner and admins can open it" only when no
+    folder on the way up has any rule. Without the list (it failed, or the invite dialog before it came) only what is
+    sure: "no rule applies to this person".
+  - **Someone new and a root rule (server).** `listing()` names the person's own `users/<id>` in `via`; for someone new
+    that was `users/\u0000new-person`, no RelPath: 500 with the response check, a ZodError in the app. The new-person
+    answer now asks for `MAX_VIA + 1` and leaves that folder out (`access-rows.ts withoutOwnFolder`, also in the mock);
+    `listable` stays canList()'s answer and `access()` is untouched (`tests/unit/access-explain-api.test.ts` compares
+    every row with a member with the same groups and with `RuleSet.access`, and fails without the fix). The screen says
+    the root of someone new is on the way to their personal folder, and a real person's own folder in `via` as "본인
+    개인 폴더", never `users/<id>`. An answer that does not match the contract is "the server's answer could not be read",
+    not its English JSON.
+  - A folder shown on the way has two reason lines: why its name shows, then what decided the folder (an explicit "No
+    access" is not hidden). "길 안내로만 보임" is "이름만 보임".
+  - Owner and admins: their own folder is said for their role; rows decided by "owner-admin" have no rule button (rules
+    change nothing there) and one line on top says so.
+  - The address: `prefix` is cleaned like a typed folder; one that is no path (`../etc`, over 1024 characters) shows a note
+    with the narrowing field and "All folders". "By folder" drops person, someone new and prefix. An unknown person is
+    "cannot be found" with the list, not "Try again". A failed group or folder list is said with a retry (no endless
+    skeleton, no "?", no silently missing rule buttons).
+  - A save after more pages were opened asks for as many rows again. The summary is said once the answers settle (600 ms;
+    quick group clicks say it once). The rule button is one labelled icon per row. The invite dialog's full view opens in
+    a new tab, so the invite being written stays.
+  - A folder that is not on disk and has no row (a project whose folder is gone): the editor says so, Save waits, and it
+    would send `create: false`, which the server refuses without making anything (unit test).
+  - The shared `Tabs` follow the tabs pattern (one Tab stop, Left / Right round, Home, End choose): Folder permissions,
+    Files, Team skills, External services.
 - Found, not changed: Admin › Members dims a disabled person's row to 60 %, which takes its 12px text below 4.5:1
   (axe, light and dark); the person view's a11y test enables that person again before auditing the invite dialog.
 - Tests: `web/test/unit/access-view.test.ts` (every reason in words, no step name in five languages, groups, short

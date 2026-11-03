@@ -5,14 +5,14 @@
 // address (`?view=people&person=<id>`, `?view=people&new=1&role=admin&groups=<id>,<id>`, `&prefix=<folder>`).
 import clsx from 'clsx'
 import { Search, UserPlus } from 'lucide-react'
-import { useId, useRef, useState, type KeyboardEvent } from 'react'
+import { useId, useMemo, useRef, useState, type KeyboardEvent } from 'react'
 import { useSearchParams } from 'react-router-dom'
-import type { Group, PersonFolderAccess, User } from '@mycel/shared/api'
+import type { Group, PersonAccessResponse, PersonFolderAccess, User } from '@mycel/shared/api'
 import { api, API } from '../../lib/api'
-import type { Names, Who } from '../../lib/access-view'
+import { cleanPrefix, type Names, type Who } from '../../lib/access-view'
 import { useLocale, useT } from '../../i18n'
 import { Badge, EmptyState, ErrorNote, Field, Skeleton, inputCls } from '../../components/ui'
-import { AccessResults } from './AccessResults'
+import { AccessResults, PrefixForm } from './AccessResults'
 import { RulesEditor } from './Folders'
 import { GroupChecks, RoleSelect, type MemberRole } from './people-choices'
 import { Card, useLoad } from './common'
@@ -30,7 +30,7 @@ export default function AccessPeople() {
   const users = useLoad(async () => (await api.call(API.listUsers)).items)
   const groups = useLoad(async () => (await api.call(API.listGroups)).items)
   const folders = useLoad(async () => (await api.call(API.listFolders)).items)
-  const [editing, setEditing] = useState<string | null>(null)
+  const [editing, setEditing] = useState<{ path: string; missing: boolean } | null>(null)
   const [reload, setReload] = useState(0)
   const picker = useRef<HTMLDivElement>(null)
   const results = useRef<HTMLDivElement>(null)
@@ -40,7 +40,10 @@ export default function AccessPeople() {
   const role: MemberRole = params.get('role') === 'admin' ? 'admin' : 'member'
   // groups that are gone are left out (the server refuses unknown groups)
   const groupIds = (params.get('groups') ?? '').split(',').filter((g) => g && (!groups.data || groups.data.some((x) => x.id === g)))
-  const prefix = params.get('prefix') ?? ''
+  // the folder narrowed to, as the server takes it ("/projects/" is projects); null: the address has no usable path
+  const rawPrefix = params.get('prefix') ?? ''
+  const cleaned = cleanPrefix(rawPrefix)
+  const prefix = cleaned ?? ''
   const selected = isNew ? NEW : person
   // the role and groups just chosen, shown until the address has them (the router updates it in a transition, and a
   // controlled checkbox would spring back meanwhile); the address wins as soon as it changes, Back included
@@ -82,7 +85,8 @@ export default function AccessPeople() {
   }
 
   const groupName = (id: string) => groups.data?.find((g) => g.id === id)?.name
-  const names: Names = { group: groupName, person: (id) => users.data?.find((u) => u.id === id)?.name }
+  const ruleFolders = useMemo(() => (folders.data ? new Set(folders.data.filter((f) => f.rules.length).map((f) => f.path)) : undefined), [folders.data])
+  const names: Names = { group: groupName, person: (id) => users.data?.find((u) => u.id === id)?.name, ruleFolders }
   const subject = (type: string, id: string | null) => {
     if (type === 'everyone') return t('rules.everyone')
     if (type === 'role') return t('rules.roleOf', { role: t(id === 'admin' ? 'role.admin' : 'role.member') })
@@ -91,7 +95,7 @@ export default function AccessPeople() {
   }
   const user = person ? users.data?.find((u) => u.id === person) : undefined
   // the editor needs the folder's row (to change its rules rather than make a new one): offered once the rows are in
-  const onEdit = folders.data ? (f: PersonFolderAccess) => setEditing(f.path) : undefined
+  const onEdit = folders.data ? (f: PersonFolderAccess) => setEditing({ path: f.path, missing: f.exists === false }) : undefined
   /** the folder whose rules were just saved: its row may move (to the folded folders, or out of them) when the answer
    * comes again, and the focus with it, not to the page */
   const refocus = useRef<string | null>(null)
@@ -105,14 +109,55 @@ export default function AccessPeople() {
     const button = [...(row?.querySelectorAll<HTMLElement>('[data-testid="access-edit"]') ?? [])].find((b) => b.offsetParent !== null)
     ;(button ?? results.current?.querySelector<HTMLElement>('[data-testid="access-hidden-toggle"]'))?.focus()
   }
+  // the lists beside the answer: without groups the names are missing, without folders no rules can be opened; said,
+  // with a way to try again
+  const side = [groups.error && `${t('accessView.groupsFailed')} ${groups.error}`, folders.error && `${t('accessView.foldersFailed')} ${folders.error}`].filter(Boolean)
+  const sideNote = side.length > 0 && (
+    <div className="mb-4" data-testid="access-side-error">
+      <ErrorNote
+        onRetry={() => {
+          if (groups.error) void groups.reload()
+          if (folders.error) void folders.reload()
+        }}
+      >
+        {side.join(' ')}
+      </ErrorNote>
+    </div>
+  )
+  const answer = (key: string, who: Who, fetchPage: (cursor?: string) => Promise<PersonAccessResponse>) =>
+    cleaned === null ? (
+      // a path in the address that is none ("../etc", too long): said, and the way out stays
+      <div data-testid="access-results">
+        <ErrorNote>{t('accessView.prefixUrlBad')}</ErrorNote>
+        <PrefixForm value={rawPrefix.slice(0, 200)} bad onApply={(p) => go({ prefix: p })} />
+      </div>
+    ) : (
+      <AccessResults
+        key={key}
+        who={who}
+        fetchPage={fetchPage}
+        names={names}
+        prefix={prefix}
+        onPrefix={(p) => go({ prefix: p })}
+        onEdit={onEdit}
+        heading="h4"
+        reloadKey={reload}
+        onShown={onShown}
+        notFound={t('accessView.unknownPerson')}
+      />
+    )
 
   let body
   if (users.error) body = <ErrorNote onRetry={() => void users.reload()}>{users.error}</ErrorNote>
+  else if (isNew && groups.error) body = sideNote
   else if (!users.data || (isNew && !groups.data)) body = <Skeleton lines={6} />
   else if (!selected) body = <EmptyState title={t('accessView.pick')} />
+  // nobody by that id (deleted, or a wrong address): no retry, choose someone
+  else if (!isNew && !user) body = <EmptyState title={t('accessView.unknownPerson')}>{t('accessView.pick')}</EmptyState>
   else if (isNew) {
     body = (
       <>
+        {sideNote}
         <div className="mb-4" data-testid="access-new-setup">
           <h3 className="text-base font-semibold text-ink">{t('accessView.newPerson')}</h3>
           <p className="mt-0.5 text-xs text-muted">{t('accessView.newNote')}</p>
@@ -128,51 +173,33 @@ export default function AccessPeople() {
             </fieldset>
           </div>
         </div>
-        <AccessResults
-          key={`new|${role}|${groupIds.join(',')}|${prefix}`}
-          who={{ kind: 'new' }}
-          fetchPage={(cursor) => api.call(API.explainNewPersonAccess, { body: { role, groupIds, ...(prefix ? { prefix } : {}), ...(cursor !== undefined ? { cursor } : {}) } })}
-          names={names}
-          prefix={prefix}
-          onPrefix={(p) => go({ prefix: p })}
-          onEdit={onEdit}
-          heading="h4"
-          reloadKey={reload}
-          onShown={onShown}
-        />
+        {answer(`new|${role}|${groupIds.join(',')}|${prefix}`, { kind: 'new' }, (cursor) =>
+          api.call(API.explainNewPersonAccess, { body: { role, groupIds, ...(prefix ? { prefix } : {}), ...(cursor !== undefined ? { cursor } : {}) } }),
+        )}
       </>
     )
   } else {
-    const who: Who = { kind: 'person', name: user?.name ?? person!, off: user?.status === 'disabled' }
+    const u = user!
     body = (
       <>
-        {user && (
-          <div className="mb-4" data-testid="access-person">
-            <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
-              <h3 className="min-w-0 text-base font-semibold break-words text-ink">{user.name}</h3>
-              <Badge>{t(`role.${user.role}`)}</Badge>
-              {user.status === 'disabled' && <Badge>{t('members.disabled')}</Badge>}
-            </div>
-            <p className="mt-0.5 text-xs text-muted">{user.groupIds.map((g) => groupName(g) ?? '?').join(', ') || t('members.noGroups')}</p>
-            {user.status === 'disabled' && (
-              <p role="note" className="mt-2 rounded-lg bg-subtle px-3 py-2 text-xs text-muted" data-testid="access-off-note">
-                {t('accessView.offNote')}
-              </p>
-            )}
+        {sideNote}
+        <div className="mb-4" data-testid="access-person">
+          <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+            <h3 className="min-w-0 text-base font-semibold break-words text-ink">{u.name}</h3>
+            <Badge>{t(`role.${u.role}`)}</Badge>
+            {u.status === 'disabled' && <Badge>{t('members.disabled')}</Badge>}
           </div>
+          {/* without the group list the names are not known: the note above says so, nothing is guessed here */}
+          {groups.data && <p className="mt-0.5 text-xs text-muted">{u.groupIds.map((g) => groupName(g)).filter(Boolean).join(', ') || t('members.noGroups')}</p>}
+          {u.status === 'disabled' && (
+            <p role="note" className="mt-2 rounded-lg bg-subtle px-3 py-2 text-xs text-muted" data-testid="access-off-note">
+              {t('accessView.offNote')}
+            </p>
+          )}
+        </div>
+        {answer(`person|${u.id}|${prefix}`, { kind: 'person', name: u.name, off: u.status === 'disabled' }, (cursor) =>
+          api.call(API.explainPersonAccess, { params: { id: u.id }, query: { ...(prefix ? { prefix } : {}), ...(cursor !== undefined ? { cursor } : {}) } }),
         )}
-        <AccessResults
-          key={`person|${person}|${prefix}`}
-          who={who}
-          fetchPage={(cursor) => api.call(API.explainPersonAccess, { params: { id: person! }, query: { ...(prefix ? { prefix } : {}), ...(cursor !== undefined ? { cursor } : {}) } })}
-          names={names}
-          prefix={prefix}
-          onPrefix={(p) => go({ prefix: p })}
-          onEdit={onEdit}
-          heading="h4"
-          reloadKey={reload}
-          onShown={onShown}
-        />
       </>
     )
   }
@@ -194,14 +221,16 @@ export default function AccessPeople() {
       </Card>
       {editing !== null && (
         <RulesEditor
-          folder={folders.data?.find((f) => f.path === editing) ?? null}
-          path={editing}
+          folder={folders.data?.find((f) => f.path === editing.path) ?? null}
+          path={editing.path}
           users={users.data ?? []}
           groups={groups.data ?? []}
           subject={subject}
+          rootName={t('accessView.rootFolder')}
+          missing={editing.missing}
           onClose={() => setEditing(null)}
           onSaved={() => {
-            refocus.current = editing
+            refocus.current = editing.path
             setEditing(null)
             void folders.reload()
             setReload((n) => n + 1)

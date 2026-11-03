@@ -37,8 +37,28 @@ export function shortPath(p: string, root: string): string {
   return s.length > 3 ? `${s[0]}/…/${s.slice(-2).join('/')}` : p
 }
 
-/** Names the reasons need: a group by id, a person by id (person rules name the person themselves). */
-export interface Names { group: (id: string) => string | undefined; person: (id: string) => string | undefined }
+/** Names the reasons need: a group by id, a person by id (person rules name the person themselves), and the folders
+ * that carry rules (Admin › Folder permissions' list; undefined while it is not known): "no rule for this person" is
+ * told apart from "no rule at all" with it. */
+export interface Names { group: (id: string) => string | undefined; person: (id: string) => string | undefined; ruleFolders?: ReadonlySet<string> }
+
+/** The nearest folder at or above `path` that carries rules ('' = the team root), or null when none does. */
+export function nearestRuleFolder(path: string, ruleFolders: ReadonlySet<string>): string | null {
+  const segs = path === '' ? [] : path.split('/')
+  for (let n = segs.length; n >= 0; n--) {
+    const p = segs.slice(0, n).join('/')
+    if (ruleFolders.has(p)) return p
+  }
+  return null
+}
+
+/** A folder in the words of this screen: the team root by its one name, a personal folder (the only one an answer
+ * names is the person's own) as "their personal folder". */
+export function folderName(t: T, p: string): string {
+  if (p === '') return t('accessView.rootFolder')
+  if (p === 'users' || p.startsWith('users/')) return t('accessView.ownFolderName')
+  return p
+}
 
 /** Who a rule is for, in the admin's words ("Sales 그룹", "팀원 전체", "모두", "Bob 님"). */
 function whoOf(t: T, r: { subjectType: string; subjectId: string | null }, names: Names): string {
@@ -57,25 +77,24 @@ function whoOf(t: T, r: { subjectType: string; subjectId: string | null }, names
 /** At most this many folders are named in "shown only because of …"; the rest are counted. */
 const VIA_NAMED = 2
 
-/**
- * Why the person gets what they get at this folder, in one line. `role`: the person's role (the answer's). The order
- * follows the screen, not the function: a folder shown only on the way to a folder below says that first (it is why the
- * name shows at all); then the step that decided.
- */
-export function reasonText(t: T, f: PersonFolderAccess, role: Role, names: Names): string {
-  const root = t('accessView.rootFolder')
-  const show = (p: string) => (p === '' ? root : p)
-  if (f.access === 'none' && f.listable) {
-    if (!f.via.length) return t('accessView.why.listedUnnamed')
-    const paths = f.via.slice(0, VIA_NAMED).map(show).join(', ')
-    if (f.viaMore) return t('accessView.why.listedMany', { paths })
-    const rest = f.via.length - VIA_NAMED
-    return rest > 0 ? t('accessView.why.listedMore', { paths, n: rest }) : t('accessView.why.listed', { paths })
-  }
+/** A folder without access shown in the tree: on the way to which folders below. Only the person's own folder below
+ * (the team root, always), or none that may be named, is said as the way to their personal folder. */
+function listedText(t: T, f: PersonFolderAccess): string {
+  const named = f.via.filter((v) => !(v === 'users' || v.startsWith('users/')))
+  if (!named.length) return t(f.via.length || f.path === '' ? 'accessView.why.listedOwn' : 'accessView.why.listedUnnamed')
+  const all = f.via.map((v) => folderName(t, v))
+  const paths = all.slice(0, VIA_NAMED).join(', ')
+  if (f.viaMore) return t('accessView.why.listedMany', { paths })
+  const rest = all.length - VIA_NAMED
+  return rest > 0 ? t('accessView.why.listedMore', { paths, n: rest }) : t('accessView.why.listed', { paths })
+}
+
+/** The step of the permission function that decided, in words. */
+function decidedText(t: T, f: PersonFolderAccess, role: Role, names: Names): string {
   const r = f.reason
   switch (r.kind) {
     case 'own-personal':
-      return t('accessView.why.ownPersonal')
+      return t(role === 'owner' ? 'accessView.why.ownPersonalOwner' : role === 'admin' ? 'accessView.why.ownPersonalAdmin' : 'accessView.why.ownPersonal')
     case 'other-personal':
       return t('accessView.why.otherPersonal')
     case 'users-root':
@@ -85,17 +104,37 @@ export function reasonText(t: T, f: PersonFolderAccess, role: Role, names: Names
       return t('accessView.why.system')
     case 'owner-admin':
       return t(role === 'owner' ? 'accessView.why.owner' : 'accessView.why.admin')
-    case 'no-rule':
-      return t('accessView.why.noRule')
+    case 'no-rule': {
+      // no folder on the way up has a rule FOR THIS PERSON; rules for others may be there
+      if (!names.ruleFolders) return t('accessView.why.noRule')
+      const near = nearestRuleFolder(f.path, names.ruleFolders)
+      if (near === null) return t('accessView.why.noRuleAtAll')
+      if (near === '') return t('accessView.why.noRuleRoot')
+      return near === f.path ? t('accessView.why.noRuleHere') : t('accessView.why.noRuleFrom', { folder: near })
+    }
     case 'rule': {
       // the widest of the step's rules decides (the server lists it first)
       const decider = r.rules[0]
       const who = decider ? whoOf(t, decider, names) : '?'
       const access = t(`access.${decider?.access ?? f.access}`)
-      return r.folder === f.path ? t('accessView.why.ruleHere', { who, access }) : t('accessView.why.ruleFrom', { folder: show(r.folder), who, access })
+      return r.folder === f.path ? t('accessView.why.ruleHere', { who, access }) : t('accessView.why.ruleFrom', { folder: folderName(t, r.folder), who, access })
     }
   }
 }
+
+/**
+ * Why the person gets what they get at this folder: one line, or two for a folder shown only on the way to folders
+ * below (first why its name shows, then the step that decided, so an explicit "no access" is not hidden by it).
+ * `role`: the person's role (the answer's).
+ */
+export function reasonText(t: T, f: PersonFolderAccess, role: Role, names: Names): string[] {
+  if (f.access === 'none' && f.listable) return [listedText(t, f), decidedText(t, f, role, names)]
+  return [decidedText(t, f, role, names)]
+}
+
+/** Rules do not change what the owner and admins get (everything but other people's personal folders): their rows
+ * offer no rule editor. */
+export const rulesApply = (f: Pick<PersonFolderAccess, 'reason' | 'kinds'>) => f.reason.kind !== 'owner-admin' && !f.kinds.includes('personal')
 
 /**
  * A risk the screen computes and marks (the only warning colour on it): a member who can write in skills/ changes the
@@ -145,9 +184,9 @@ export function cleanPrefix(typed: string): string | null {
 /** Who the answer is about: a member (switched off or not) or someone about to be invited. */
 export type Who = { kind: 'person'; name: string; off: boolean } | { kind: 'new' }
 
-/** The one sentence on top ("Bob 님과 그 AI는 팀 폴더 6개를 볼 수 있고, 그중 3개에 쓸 수 있어요."), then what it
- * leaves out: folders whose name only shows, that it counted one folder's part of the tree (`prefix`), and, when more
- * pages follow, that it counted the rows loaded so far. */
+/** The one sentence on top ("Bob 님과 그 AI는 팀 폴더 6개를 볼 수 있고, 그중 3개에 쓸 수 있어요."), which names its
+ * part of the tree when narrowed to a folder ("projects 안에서는 …"); then what it leaves out: folders whose name only
+ * shows and, when more pages follow, that it counted the rows loaded so far. */
 export function summaryLines(t: T, who: Who, rows: readonly PersonFolderAccess[], page: Pick<PersonAccessResponse, 'total' | 'nextCursor'>, prefix = ''): string[] {
   const c = countRows(rows)
   const p = { n: c.see, w: c.write, name: who.kind === 'person' ? who.name : '' }
@@ -158,9 +197,9 @@ export function summaryLines(t: T, who: Who, rows: readonly PersonFolderAccess[]
     on: ['accessView.summaryNone', 'accessView.summaryReadOnly', 'accessView.summary'],
   }
   const key = forms[who.kind === 'new' ? 'new' : who.off ? 'off' : 'on'][c.see === 0 ? 0 : c.write === 0 ? 1 : 2]
-  const out = [t(key, p)]
+  const sentence = t(key, p)
+  const out = [prefix ? t('accessView.summaryIn', { path: prefix, sentence }) : sentence]
   if (c.listed) out.push(t('accessView.summaryListed', { n: c.listed }))
-  if (prefix) out.push(t('accessView.summaryPrefix', { path: prefix }))
   if (page.nextCursor !== null) out.push(t('accessView.summaryPartial', { loaded: rows.length, total: page.total }))
   return out
 }

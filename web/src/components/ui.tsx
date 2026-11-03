@@ -405,7 +405,8 @@ export function CopyButton({ text, html, label, className, showLabel }: { text: 
 }
 
 // ---------------- simple tabs ----------------
-/** `segmented`: the tabs sit in one quiet pill group, for a page's main switch next to its title. */
+/** `segmented`: the tabs sit in one quiet pill group, for a page's main switch next to its title. The keyboard follows
+ * the WAI-ARIA tabs pattern: Tab reaches the chosen tab only; the arrow keys, Home and End choose another. */
 export function Tabs<T extends string>({ value, onChange, items, label, segmented }: { value: T; onChange: (v: T) => void; items: { id: T; label: string }[]; label: string; segmented?: boolean }) {
   const list = useRef<HTMLDivElement>(null)
   // on a phone the tabs may not all fit: the chosen one scrolls into the row (a link can choose the last one). Only
@@ -418,14 +419,30 @@ export function Tabs<T extends string>({ value, onChange, items, label, segmente
     const b = tab.getBoundingClientRect()
     if (b.left < r.left || b.right > r.right) tab.scrollIntoView({ block: 'nearest', inline: 'nearest' })
   }, [value, items.length])
+  // the tabs pattern: one Tab stop (the chosen tab); Left / Right (round), Home and End move to a tab and choose it
+  const current = items.some((it) => it.id === value) ? value : items[0]?.id
+  // the tab chosen last, also before the page shows it (a choice can render later: keys pressed quickly go on from it)
+  const chosen = useRef(current)
+  chosen.current = current
+  const onKeyDown = (e: React.KeyboardEvent) => {
+    const i = items.findIndex((it) => it.id === chosen.current)
+    const n = items.length
+    const to = e.key === 'ArrowRight' ? (i + 1) % n : e.key === 'ArrowLeft' ? (i - 1 + n) % n : e.key === 'Home' ? 0 : e.key === 'End' ? n - 1 : -1
+    if (to < 0 || !n) return
+    e.preventDefault()
+    chosen.current = items[to]!.id
+    onChange(items[to]!.id)
+    list.current?.querySelectorAll<HTMLElement>('[role="tab"]')[to]?.focus()
+  }
   return (
-    <div ref={list} role="tablist" aria-label={label} className={clsx('flex overflow-x-auto', segmented ? 'max-w-full gap-0.5 rounded-lg bg-subtle p-0.5' : 'gap-1')}>
+    <div ref={list} role="tablist" aria-label={label} onKeyDown={onKeyDown} className={clsx('flex overflow-x-auto', segmented ? 'max-w-full gap-0.5 rounded-lg bg-subtle p-0.5' : 'gap-1')}>
       {items.map((it) => (
         <button
           key={it.id}
           role="tab"
           type="button"
           aria-selected={value === it.id}
+          tabIndex={it.id === current ? 0 : -1}
           onClick={() => onChange(it.id)}
           className={clsx(
             'rounded-md font-medium whitespace-nowrap focus-visible:-outline-offset-2',

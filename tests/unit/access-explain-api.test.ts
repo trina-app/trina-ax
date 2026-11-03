@@ -228,6 +228,52 @@ describe('one person: every team folder and why', () => {
   })
 })
 
+describe('someone new with rules on the team root (the person view, stage 3)', () => {
+  test('their own folder is never named (it has no id yet); every row and access is what a member with the same groups gets', async () => {
+    // a rule on the root makes the root a row; it is listable for everyone through their own users/<id>
+    const top = await admin.call('POST', '/api/admin/folders', { path: '', rules: [rule('group', ops, 'read')] })
+    try {
+      const raw = await admin.call('POST', '/api/admin/access/new-person', { role: 'member', groupIds: [], limit: 2000 })
+      // before: via named users/\u0000new-person, which is no RelPath (500 with the response check, a ZodError in the app)
+      const preview = PersonAccessResponse.parse(raw)
+      expect(JSON.stringify(raw)).not.toContain('users')
+      expect(JSON.stringify(raw)).not.toContain('\\u0000')
+      expect(preview.folders.find((f) => f.path === '')).toMatchObject({ access: 'none', listable: true, reason: { kind: 'no-rule' } })
+      // erik: a member with no group and no person rule, the same answer without his own folder
+      const erik = await personAnswer('erik')
+      const strip = (f: PersonAccessResponse['folders'][number]) => ({ p: f.path, access: f.access, reason: f.reason, listable: f.listable, via: f.via.filter((v) => v !== 'users/erik'), more: f.viaMore })
+      expect(preview.folders.map(strip)).toEqual(erik.folders.filter((f) => f.path !== 'users/erik').map(strip))
+      expect(erik.folders.find((f) => f.path === '')?.via).toContain('users/erik')
+      // access() is unchanged: every row is the permission function's answer for such a member
+      for (const f of preview.folders) expect(f.access, f.path).toBe(accessOf('erik', f.path))
+      // more readable folders than MAX_VIA below the root: still at most 20 named, viaMore says there are others
+      const made: string[] = []
+      for (let i = 0; i < 21; i++) made.push((await admin.call('POST', '/api/admin/folders', { path: `wide/f${String(i).padStart(2, '0')}`, rules: [rule('everyone', null, 'read')] })).id)
+      try {
+        const wide = PersonAccessResponse.parse(await admin.call('POST', '/api/admin/access/new-person', { role: 'member', groupIds: [], limit: 2000 }))
+        const root = wide.folders.find((f) => f.path === '')!
+        expect(root.via).toHaveLength(20)
+        expect(root.viaMore).toBe(true)
+        expect(root.via.some((v) => v.startsWith('users'))).toBe(false)
+      } finally {
+        for (const id of made) await admin.call('DELETE', `/api/admin/folders/${id}`)
+      }
+    } finally {
+      await admin.call('DELETE', `/api/admin/folders/${top.id}`)
+    }
+  })
+
+  test('saving rules for a folder that is not on disk, without create: refused, and nothing is made', async () => {
+    // the person view opens the rule editor on a project whose folder is gone; it saves with create: false
+    const missing = 'projects/gone-9f2'
+    const r = await admin.try('POST', '/api/admin/folders', { path: missing, create: false, rules: [rule('everyone', null, 'read')] })
+    expect(r.status).toBe(404)
+    expect(Object.values(AUTH_MESSAGES.folderMissing)).toContain(r.body.error.message)
+    expect(fs.existsSync(path.join(h.ctx.files.fx.root, missing))).toBe(false)
+    expect(h.ctx.db.query('SELECT 1 FROM folders WHERE path = ?').get(missing)).toBeNull()
+  })
+})
+
 describe('changes between pages, forgotten rule rows', () => {
   test('the folder answer pages by person: someone added before the cursor or switched off after it changes nothing else', async () => {
     const first = await folderAnswer('projects/apollo', '&limit=2')

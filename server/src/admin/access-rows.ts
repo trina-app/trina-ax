@@ -83,6 +83,16 @@ export function navigation(look: () => Navigation, access: Access): { listable: 
   return { listable: n.listable, via: n.via, viaMore: n.more }
 }
 
+/** Someone about to be invited (the new-person answer) has no personal folder yet, so it is never named: listing()
+ * always names the person's own users/<id>, here a made-up id that is no path (it failed the answer's RelPath check).
+ * `n` is listing().at(…, max + 1, …): that folder is left out and `via` cut to `max`. `listable` stays canList()'s
+ * answer (once invited, the person has the folder, and the team root is on the way to it). Display only: access() and
+ * the rows are unchanged. */
+export function withoutOwnFolder(n: Navigation, own: string, max: number): Navigation {
+  const via = n.via.filter((v) => v !== own)
+  return { listable: n.listable, via: via.slice(0, max), more: n.more || via.length > max }
+}
+
 /** Rows of a person answer by path: those at or below `prefix`, after `cursor` (the last path of the page before), at
  * most `limit`. `nextCursor`: the last path of this page when more follow. */
 export function pageByPath<T extends { path: string }>(rows: readonly T[], o: { prefix?: string; cursor?: string; limit?: number }) {

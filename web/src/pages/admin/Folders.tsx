@@ -81,12 +81,12 @@ export default function Folders() {
   const t = useT()
   const [params, setParams] = useSearchParams()
   const view = params.get('view') === 'people' ? 'people' : 'folders'
+  // a fresh start each way: the person, someone new's choices and the folder narrowed to stay with the person view.
+  // Compared with the address itself: the router shows a change in a transition, so `view` can still be the one before
+  // (two keys pressed quickly on the tabs)
   const choose = (v: 'folders' | 'people') => {
-    if (v === view) return
-    const next = new URLSearchParams(params)
-    if (v === 'people') next.set('view', 'people')
-    else next.delete('view')
-    setParams(next)
+    const now = new URLSearchParams(window.location.search).get('view') === 'people' ? 'people' : 'folders'
+    if (v !== now) setParams(v === 'people' ? { view: 'people' } : {})
   }
   return (
     <>
@@ -243,8 +243,10 @@ function FolderRules() {
 }
 
 /** The rules of one folder (`folder` null: a folder without a row yet), with "who sees what" before saving. Also
- * opened from Folder permissions › By person ("View or change rules"). */
-export function RulesEditor({ folder, path, users, groups, subject, onClose, onSaved }: { folder: Folder | null; path: string; users: User[]; groups: Group[]; subject: (type: string, id: string | null) => string; onClose: () => void; onSaved: () => void }) {
+ * opened from Folder permissions › By person ("View or change rules"), which names the team root its own way
+ * (`rootName`) and says when a folder is not on disk (`missing`): then nothing is made (create: false, and Save waits;
+ * the server refuses a missing folder without create, tests/unit/access-explain-api.test.ts). */
+export function RulesEditor({ folder, path, users, groups, subject, onClose, onSaved, rootName, missing }: { folder: Folder | null; path: string; users: User[]; groups: Group[]; subject: (type: string, id: string | null) => string; onClose: () => void; onSaved: () => void; rootName?: string; missing?: boolean }) {
   const t = useT()
   const locale = useLocale()
   const act = useAction()
@@ -257,6 +259,9 @@ export function RulesEditor({ folder, path, users, groups, subject, onClose, onS
   /** shared/ and skills/ keep at least one rule (the server refuses none): said here, and Save waits for a rule */
   const keepsOne = folder?.keep === 'team' && rows.length === 0
   const keepsOneId = useId()
+  /** no row and no folder on disk: not made from here */
+  const noFolder = !folder && !!missing
+  const noFolderId = useId()
   const changed = () => {
     setPreview(null)
     setRefused(null)
@@ -277,7 +282,7 @@ export function RulesEditor({ folder, path, users, groups, subject, onClose, onS
     setBusy('save')
     setRefused(null)
     try {
-      await (folder ? api.call(API.putFolderRules, { params: { id: folder.id }, body: { rules } }) : api.call(API.createFolder, { body: { path, create: true, rules } }))
+      await (folder ? api.call(API.putFolderRules, { params: { id: folder.id }, body: { rules } }) : api.call(API.createFolder, { body: { path, create: !noFolder, rules } }))
     } catch (e) {
       setRefused(errorText(e, locale, t('error.network')))
       return
@@ -291,7 +296,7 @@ export function RulesEditor({ folder, path, users, groups, subject, onClose, onS
     <Modal
       open
       onClose={onClose}
-      title={t('rules.editTitle', { path: path || t('files.root') })}
+      title={t('rules.editTitle', { path: path || (rootName ?? t('files.root')) })}
       width={720}
       footer={
         <>
@@ -301,13 +306,18 @@ export function RulesEditor({ folder, path, users, groups, subject, onClose, onS
           <Button onClick={runPreview} busy={busy === 'preview'} disabled={!rules} data-testid="rules-preview">
             <Eye size={14} aria-hidden /> {t('rules.preview')}
           </Button>
-          <Button variant="primary" onClick={save} busy={busy === 'save'} disabled={!rules || keepsOne} aria-describedby={keepsOne ? keepsOneId : undefined} data-testid="rules-save">
+          <Button variant="primary" onClick={save} busy={busy === 'save'} disabled={!rules || keepsOne || noFolder} aria-describedby={keepsOne ? keepsOneId : noFolder ? noFolderId : undefined} data-testid="rules-save">
             {t('common.save')}
           </Button>
         </>
       }
     >
       <p className="mb-3 text-xs text-muted">{t('rules.editHint')}</p>
+      {noFolder && (
+        <p id={noFolderId} role="note" className="mb-3 rounded-lg bg-subtle px-3 py-2 text-xs text-muted" data-testid="rules-missing">
+          {t('rules.missingNoCreate')}
+        </p>
+      )}
       {isSkillsFolder(path) && (
         <p role="note" className="mb-3 rounded-lg bg-warn-soft px-3 py-2 text-xs text-warn" data-testid="skill-folder-warning">
           {t('skillMgr.folderHint')} {t('skillMgr.readHint')}

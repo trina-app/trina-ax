@@ -16,7 +16,7 @@ import { msg } from '../auth/messages'
 import { RuleSet, type Explained, type Listing, type Principal } from '../policy/access'
 import { walk } from '../policy/resolve'
 import { captureState } from './folders'
-import { byPerson, folderInput, MAX_VIA, navigation, pageByPath, pageByPerson, ruleFolderOf, segsOf, shownPath, shownSegs, summarize } from './access-rows'
+import { byPerson, folderInput, MAX_VIA, navigation, pageByPath, pageByPerson, ruleFolderOf, segsOf, shownPath, shownSegs, summarize, withoutOwnFolder } from './access-rows'
 
 /** A real folder at `segs`, every step lstat'ed (a link anywhere on the way counts as not there, never followed).
  * `memo`: prefixes already looked at in this answer. */
@@ -139,7 +139,11 @@ function personAccess(ctx: AppContext, p: Principal, who: { user: { id: string; 
     return {
       path: c.path, kinds: [...c.kinds], ...(c.group ? { group: c.group } : {}), ...(c.projects ? { projects: c.projects } : {}), ...(c.connected ? { connected: c.connected } : {}),
       exists: personal ? null : isDir(ctx.files.fx.root, c.segs, dirs), access: e.access, reason: e.reason,
-      ...navigation(() => (listing ??= rules.listing(p)).at(c.segs, MAX_VIA, shownPath), e.access),
+      ...navigation(() => {
+        const l = (listing ??= rules.listing(p))
+        // someone new has no users/<id> yet: it is not named (access-rows.ts withoutOwnFolder)
+        return who.user ? l.at(c.segs, MAX_VIA, shownPath) : withoutOwnFolder(l.at(c.segs, MAX_VIA + 1, shownPath), `users/${p.id}`, MAX_VIA)
+      }, e.access),
     }
   })
   const names = new Map((ctx.db.query('SELECT id, name FROM groups').all() as { id: string; name: string }[]).map((g) => [g.id, g.name]))
