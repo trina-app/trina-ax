@@ -154,12 +154,27 @@ export function toFolder(ctx: AppContext, f: FolderRow): Folder {
     exists,
     createdAt: f.created_at,
     rules: rows.map((r) => ({ id: r.id, folderId: r.folder_id, subjectType: r.subject_type, subjectId: r.subject_id, access: r.access, updatedBy: userRef(ctx.db, r.updated_by), updatedAt: r.updated_at })),
+    groupId: groupOfFolder(ctx.db, f.id),
   }
+}
+
+/**
+ * A row parked with a trashed folder (.system/trash/<month>/<id>/…, see dropFolderRow and the trash in team-files):
+ * not a folder anyone can open. The admin API does not list it, edit it or remove it (404); it comes back with the
+ * folder when the trash item is restored, and goes with it when that is purged.
+ */
+export const isParkedRow = (p: string) => p === PRODUCT.systemDir || p.startsWith(PRODUCT.systemDir + '/')
+
+/** shared/ and skills/: the team's default folders (createDefaultFolders), whose rules may change but never all go */
+export const isTeamDefaultFolder = (p: string) => p === 'shared' || p === 'skills'
+
+export function groupOfFolder(db: Database, folderId: string): string | null {
+  return (db.query('SELECT id FROM groups WHERE folder_id = ? ORDER BY id LIMIT 1').get(folderId) as { id: string } | null)?.id ?? null
 }
 
 /** Folders that carry rules (and folders rows without rules, e.g. after all rules were removed by a group delete). */
 export function listFolders(ctx: AppContext): Folder[] {
-  return (ctx.db.query('SELECT id, path, created_at FROM folders ORDER BY path').all() as FolderRow[]).map((f) => toFolder(ctx, f))
+  return (ctx.db.query('SELECT id, path, created_at FROM folders ORDER BY path').all() as FolderRow[]).filter((f) => !isParkedRow(f.path)).map((f) => toFolder(ctx, f))
 }
 
 // ---------------- effective access: snapshots, diffs, preview ----------------

@@ -91,7 +91,8 @@ test('admin screens: members, groups, folder rules with "who sees what", engines
   // folder rules: preview before saving
   await page.getByRole('link', { name: '폴더 권한' }).click()
   await expect(page.getByTestId('folder-list')).toContainText('finance')
-  await page.getByTestId('folder-list').getByRole('button', { name: '수정' }).click()
+  // the new group's own folder is listed too (groups/영업팀): edit the finance folder
+  await page.getByTestId('folder-list').locator('[data-path="finance"]').getByRole('button', { name: '수정' }).click()
   await page.getByTestId('rule-add').click()
   await page.getByRole('dialog').getByLabel('대상').last().selectOption('everyone')
   await page.getByTestId('rules-preview').click()

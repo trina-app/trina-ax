@@ -103,6 +103,9 @@ export const Folder = z.object({
   exists: z.boolean(),
   rules: z.array(FolderRule),
   createdAt: IsoTime,
+  /** the group whose folder this is (groups.folder_id): the row cannot be removed, only its rules changed. null: none;
+   * absent: an older server */
+  groupId: z.string().nullable().optional(),
 })
 export type Folder = z.infer<typeof Folder>
 

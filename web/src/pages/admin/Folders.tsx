@@ -2,13 +2,14 @@
 // none / read / write. Before saving, "who sees what" shows every active person's access before → after, and who
 // loses access (their chats that touched those folders get a fresh engine session).
 import clsx from 'clsx'
-import { ArrowRight, Eye, FolderLock, Plus, Trash2 } from 'lucide-react'
+import { ArrowRight, Eye, FolderLock, Lock, Plus, Trash2 } from 'lucide-react'
 import { useState } from 'react'
 import type { Access, Folder, FolderRuleInput, Group, PreviewResponse, User } from '@mycel/shared/api'
-import { api, API } from '../../lib/api'
-import { useT } from '../../i18n'
+import { api, API, errorText } from '../../lib/api'
+import { useLocale, useT } from '../../i18n'
 import FolderPicker from '../../components/FolderPicker'
-import { Badge, Button, IconButton, Modal, confirmDialog, inputCls } from '../../components/ui'
+import { Badge, Button, ErrorNote, IconButton, Modal, confirmDialog, inputCls } from '../../components/ui'
+import { toast } from '../../store/ui'
 import { Card, Loadable, useAction, useActionOk, useFocusAfterRemove, useLoad } from './common'
 
 /** skills/ and its folders: write there = "팀 스킬 관리" (the Members / Groups toggle is the same rule) */
@@ -55,6 +56,16 @@ export function afterRemoval(path: string, list: readonly Folder[]): { kind: 'ab
 
 const sortFolders = (list: readonly Folder[]) => [...list].sort((a, b) => a.path.localeCompare(b.path))
 
+/**
+ * Why a row cannot be removed (the server refuses it too, routes/admin.ts): shared/ and skills/ are the team's default
+ * folders, whose rules may change but never all go; a group's folder stays linked to its group. null: it can go.
+ */
+export function keepReason(f: Pick<Folder, 'path' | 'groupId'>): 'team' | 'group' | null {
+  if (f.path === 'shared' || f.path === 'skills') return 'team'
+  if (f.groupId) return 'group'
+  return null
+}
+
 export default function Folders() {
   const t = useT()
   const actOk = useActionOk()
@@ -99,30 +110,43 @@ export default function Folders() {
                 <p className="text-sm text-faint">{t('rules.none')}</p>
               ) : (
                 <ul className="divide-y divide-line" data-testid="folder-list">
-                  {sortFolders(list).map((f) => (
-                    <li key={f.id} className="flex flex-wrap items-start gap-3 py-3 text-sm">
-                      <FolderLock size={16} className="mt-0.5 shrink-0 text-accent-text" aria-hidden />
-                      <span className="min-w-0 flex-1">
-                        <span className="block font-medium">{f.path || t('files.root')}</span>
-                        {!f.exists && <Badge tone="warn">{t('rules.missingOnDisk')}</Badge>}
-                        <span className="mt-1 flex flex-wrap gap-1">
-                          {f.rules.map((r) => (
-                            <Badge key={r.id} tone={r.access === 'write' ? 'accent' : r.access === 'read' ? 'neutral' : 'danger'}>
-                              {subject(r.subjectType, r.subjectId)}: {t(`access.${r.access}`)}
-                              {isSkillsFolder(f.path) && r.access === 'write' && (r.subjectType === 'user' || r.subjectType === 'group') && <span data-testid="skill-manager-badge"> · {t('skillMgr.ruleBadge')}</span>}
-                            </Badge>
-                          ))}
+                  {sortFolders(list).map((f) => {
+                    const keep = keepReason(f)
+                    const why = keep === 'team' ? t('rules.keepTeam') : keep === 'group' ? t('rules.keepGroup', { name: groups.data?.find((g) => g.id === f.groupId)?.name ?? '?' }) : null
+                    return (
+                      <li key={f.id} className="flex flex-wrap items-start gap-3 py-3 text-sm" data-testid="folder-row" data-path={f.path}>
+                        <FolderLock size={16} className="mt-0.5 shrink-0 text-accent-text" aria-hidden />
+                        <span className="min-w-0 flex-1">
+                          <span className="block font-medium">{f.path || t('files.root')}</span>
+                          {!f.exists && <Badge tone="warn">{t('rules.missingOnDisk')}</Badge>}
+                          <span className="mt-1 flex flex-wrap gap-1">
+                            {f.rules.map((r) => (
+                              <Badge key={r.id} tone={r.access === 'write' ? 'accent' : r.access === 'read' ? 'neutral' : 'danger'}>
+                                {subject(r.subjectType, r.subjectId)}: {t(`access.${r.access}`)}
+                                {isSkillsFolder(f.path) && r.access === 'write' && (r.subjectType === 'user' || r.subjectType === 'group') && <span data-testid="skill-manager-badge"> · {t('skillMgr.ruleBadge')}</span>}
+                              </Badge>
+                            ))}
+                          </span>
+                          {isSkillsFolder(f.path) && <span className="mt-1 block text-xs text-muted">{t('skillMgr.folderHint')}</span>}
+                          {why && <span className="mt-1 block text-xs text-muted" data-testid="folder-keep-reason">{why}</span>}
                         </span>
-                        {isSkillsFolder(f.path) && <span className="mt-1 block text-xs text-muted">{t('skillMgr.folderHint')}</span>}
-                      </span>
-                      <Button size="sm" variant="ghost" onClick={() => setEditing({ folder: f, path: f.path })}>
-                        {t('common.edit')}
-                      </Button>
-                      <IconButton label={t('common.delete')} onClick={() => remove(f)} data-row-focus>
-                        <Trash2 size={15} />
-                      </IconButton>
-                    </li>
-                  ))}
+                        {/* a row that cannot go marks its Edit for the focus after a delete instead */}
+                        <Button size="sm" variant="ghost" onClick={() => setEditing({ folder: f, path: f.path })} data-row-focus={why ? true : undefined}>
+                          {t('common.edit')}
+                        </Button>
+                        {why ? (
+                          // in the delete button's place, so the Edit buttons stay in one column; the reason is the text above
+                          <span className="inline-flex p-1.5 text-faint max-sm:p-2" title={why} aria-hidden>
+                            <Lock size={15} />
+                          </span>
+                        ) : (
+                          <IconButton label={t('common.delete')} onClick={() => remove(f)} data-row-focus>
+                            <Trash2 size={15} />
+                          </IconButton>
+                        )}
+                      </li>
+                    )
+                  })}
                 </ul>
               )
             }
@@ -161,13 +185,20 @@ export default function Folders() {
 
 function RulesEditor({ folder, path, users, groups, subject, onClose, onSaved }: { folder: Folder | null; path: string; users: User[]; groups: Group[]; subject: (type: string, id: string | null) => string; onClose: () => void; onSaved: () => void }) {
   const t = useT()
+  const locale = useLocale()
   const act = useAction()
   const [rows, setRows] = useState<RuleRow[]>(folder?.rules.map((r) => ({ subjectType: r.subjectType, subjectId: r.subjectId, access: r.access })) ?? [])
   const [preview, setPreview] = useState<PreviewResponse | null>(null)
   const [busy, setBusy] = useState<'preview' | 'save' | null>(null)
+  /** the server's answer to Save when it refused (e.g. no rule left on shared/ or skills/), shown in the dialog */
+  const [refused, setRefused] = useState<string | null>(null)
   const rules = rulesFromRows(rows)
-  const set = (i: number, patch: Partial<RuleRow>) => {
+  const changed = () => {
     setPreview(null)
+    setRefused(null)
+  }
+  const set = (i: number, patch: Partial<RuleRow>) => {
+    changed()
     setRows((r) => r.map((x, j) => (j === i ? { ...x, ...patch } : x)))
   }
   const runPreview = async () => {
@@ -180,9 +211,17 @@ function RulesEditor({ folder, path, users, groups, subject, onClose, onSaved }:
   const save = async () => {
     if (!rules) return
     setBusy('save')
-    const r = await act(() => (folder ? api.call(API.putFolderRules, { params: { id: folder.id }, body: { rules } }) : api.call(API.createFolder, { body: { path, create: true, rules } })), t('common.saved'))
-    setBusy(null)
-    if (r) onSaved()
+    setRefused(null)
+    try {
+      await (folder ? api.call(API.putFolderRules, { params: { id: folder.id }, body: { rules } }) : api.call(API.createFolder, { body: { path, create: true, rules } }))
+    } catch (e) {
+      setRefused(errorText(e, locale, t('error.network')))
+      return
+    } finally {
+      setBusy(null)
+    }
+    toast({ level: 'success', text: t('common.saved') })
+    onSaved()
   }
   return (
     <Modal
@@ -269,7 +308,7 @@ function RulesEditor({ folder, path, users, groups, subject, onClose, onSaved }:
                 <IconButton
                   label={t('rules.removeRule')}
                   onClick={() => {
-                    setPreview(null)
+                    changed()
                     setRows((x) => x.filter((_, j) => j !== i))
                   }}
                 >
@@ -280,10 +319,15 @@ function RulesEditor({ folder, path, users, groups, subject, onClose, onSaved }:
           ))}
         </tbody>
       </table>
-      <Button size="sm" variant="ghost" className="mt-2" onClick={() => setRows((r) => [...r, { subjectType: 'group', subjectId: groups[0]?.id ?? null, access: 'read' }])} data-testid="rule-add">
+      <Button size="sm" variant="ghost" className="mt-2" onClick={() => { changed(); setRows((r) => [...r, { subjectType: 'group', subjectId: groups[0]?.id ?? null, access: 'read' }]) }} data-testid="rule-add">
         <Plus size={14} aria-hidden /> {t('rules.addRule')}
       </Button>
       {!rules && rows.length > 0 && <p className="mt-2 text-xs text-warn">{t('rules.incomplete')}</p>}
+      {refused && (
+        <div className="mt-3" data-testid="rules-refused">
+          <ErrorNote>{refused}</ErrorNote>
+        </div>
+      )}
       {preview && <PreviewTable preview={preview} subject={subject} />}
     </Modal>
   )

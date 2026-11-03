@@ -1079,6 +1079,8 @@ export const en: Record<MessageKey, string> = {
   'rules.removeBody': 'The folder and its files stay. It then follows the rules of {path}.',
   'rules.removeBodyNone': 'The folder and its files stay. No folder above it has rules, so from then on only the owner and admins can see it.',
   'rules.removeBodyPersonal': 'The folder and its files stay. Rules do not apply inside a personal folder, so who can see it does not change.',
+  'rules.keepTeam': 'A default team folder: its rules cannot all be removed. To let only the owner and admins see it, give it the rule "Everyone: No access".',
+  'rules.keepGroup': "The folder of group {name}: it cannot be removed here. Change its rules with \"Edit\"; deleting the group removes the group's rules too.",
 
   'engines.defaults': 'Team defaults',
   'engines.defaultsDesc': 'The engine and model new chats use, and how many answers can run at the same time across the team.',

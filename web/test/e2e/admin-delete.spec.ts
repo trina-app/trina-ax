@@ -96,3 +96,62 @@ test('groups and usage limits: delete refreshes the list and focus moves on', as
   await expect(page.getByTestId('budget-new')).toBeFocused()
   expect(realErrors(errors)).toEqual([])
 })
+
+test('folder permissions: shared, skills and a group\'s folder say why they stay; the server\'s refusal shows in the dialog', async ({ page }) => {
+  await reset(page)
+  const errors = watchConsole(page)
+  await signIn(page)
+  await post(page, '/api/admin/folders', { path: 'shared', create: true, rules: [everyone('write')] })
+  await post(page, '/api/admin/folders', { path: 'skills', create: true, rules: [everyone('read'), { subjectType: 'role', subjectId: 'admin', access: 'write' }] })
+  const group = await post(page, '/api/admin/groups', { name: '영업팀', memberIds: [] })
+  await page.goto('/admin/folders')
+  const row = (p: string) => page.getByTestId('folder-list').locator(`[data-path="${p}"]`)
+  const del = (p: string) => row(p).getByRole('button', { name: t['common.delete'], exact: true })
+  await expect(page.getByTestId('folder-list').locator('li')).toHaveCount(4) // finance, groups/영업팀, shared, skills
+  for (const p of ['shared', 'skills']) {
+    await expect(del(p)).toHaveCount(0)
+    await expect(row(p).getByTestId('folder-keep-reason')).toHaveText(t['rules.keepTeam'])
+  }
+  await expect(del('groups/영업팀')).toHaveCount(0)
+  await expect(row('groups/영업팀').getByTestId('folder-keep-reason')).toHaveText(translate('ko', 'rules.keepGroup', { name: '영업팀' }))
+  await expect(row('finance').getByTestId('folder-keep-reason')).toHaveCount(0)
+  if (process.env.FOLDER_SHOTS) {
+    for (const size of [{ width: 1360, height: 860 }, { width: 390, height: 844 }]) {
+      await page.setViewportSize(size)
+      await page.screenshot({ path: `${process.env.FOLDER_SHOTS}/folders-${size.width}.png`, fullPage: true })
+    }
+    await page.setViewportSize({ width: 1360, height: 860 })
+  }
+
+  // the row after a deleted one cannot go: focus lands on its Edit
+  await del('finance').click()
+  await page.getByTestId('dialog-confirm').click()
+  await expect(row('finance')).toHaveCount(0)
+  await expect(row('groups/영업팀').getByRole('button', { name: t['common.edit'], exact: true })).toBeFocused()
+
+  // no rule left on shared: the server says no, in the dialog, and nothing changes
+  await row('shared').getByRole('button', { name: t['common.edit'], exact: true }).click()
+  const dialog = page.getByRole('dialog')
+  await dialog.getByRole('button', { name: t['rules.removeRule'], exact: true }).click()
+  await page.getByTestId('rules-save').click()
+  const refused = page.getByTestId('rules-refused')
+  await expect(refused).toContainText(`"${t['rules.everyone']}: ${t['access.none']}"`)
+  await expect(refused.getByRole('alert')).toBeVisible()
+  await expect(dialog).toBeVisible()
+  // what the message says to do instead works: Everyone, No access
+  await page.getByTestId('rule-add').click()
+  await expect(refused).toHaveCount(0)
+  await dialog.getByLabel(t['rules.who'], { exact: true }).selectOption('everyone')
+  await dialog.getByLabel(t['rules.access'], { exact: true }).selectOption('none')
+  await page.getByTestId('rules-save').click()
+  await expect(dialog).toHaveCount(0)
+  await expect(row('shared')).toContainText(`${t['rules.everyone']}: ${t['access.none']}`)
+
+  // once the group is deleted, its folder is an ordinary row
+  const gone = await page.request.delete(`/api/admin/groups/${group.id}`, { headers: { [CSRF_HEADER]: '1' } })
+  expect(gone.status()).toBe(204)
+  await page.reload()
+  await expect(del('groups/영업팀')).toHaveCount(1)
+  await expect(row('groups/영업팀').getByTestId('folder-keep-reason')).toHaveCount(0)
+  expect(realErrors(errors).filter((e) => !/status of 400/.test(e))).toEqual([])
+})

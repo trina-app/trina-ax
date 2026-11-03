@@ -13,8 +13,8 @@ import { audit, listAudit } from '../admin/audit'
 import { createBudget, deleteBudget, listBudgets, updateBudget, usage } from '../admin/budgets'
 import { EngineStatusCache, engineStatusCache } from '../admin/engines'
 import {
-  afterAccessChange, captureState, dropFolderRow, ensureFolderRow, getFolder, getFolderByPath, listFolders, previewRules, replaceRules,
-  resolveFolderPath, rulesOf, toFolder, validateRules,
+  afterAccessChange, captureState, dropFolderRow, ensureFolderRow, getFolder, getFolderByPath, groupOfFolder, isParkedRow, isTeamDefaultFolder,
+  listFolders, previewRules, replaceRules, resolveFolderPath, rulesOf, toFolder, validateRules, type FolderRow,
 } from '../admin/folders'
 import { createGroup, deleteGroup, listGroups, updateGroup } from '../admin/groups'
 import { BROWSER_POLICY_CHANGED, enginesEnabled, getTeamSettings, LOCALE_CHANGED, setEnginesEnabled, SPEECH_CHANGED, updateTeamSettings } from '../admin/settings'
@@ -86,12 +86,26 @@ export const adminRoutes: RouteModule = {
     kit.handle(API.deleteGroup, ({ c, params }) => deleteGroup(c, ctx, params.id))
 
     // ---------------- folders and rules ----------------
+    // What the admin API refuses here, and only here: replaceRules / dropFolderRow also serve deleting a group, deleting
+    // a person, turning a skills manager off and dropping a project's marker row, which must keep working whatever
+    // rules are left. shared/ and skills/ keep at least one rule (with none, only the owner and admins see them: say
+    // "Everyone: No access" for that); a group's folder row stays while the group does (removing it cuts the group's
+    // link and the folder's protection for good); a row parked with a trashed folder is not there (404).
+    const editableRow = (id: string): FolderRow => {
+      const f = getFolder(ctx.db, id)
+      if (!f || isParkedRow(f.path)) return fail('not_found')
+      return f
+    }
+    const keepsRules = (p: string, rules: readonly unknown[], locale: Locale) => {
+      if (isTeamDefaultFolder(p) && !rules.length) fail('validation', msg('teamFolderKeepsRules', locale), { fields: { 'body.rules': 'shared/ and skills/ keep at least one rule' } })
+    }
     kit.handle(API.listFolders, () => ({ items: listFolders(ctx) }))
 
     kit.handle(API.createFolder, ({ c, body, auth }) => {
       const locale = c.get('locale')
       validateRules(ctx.db, body.rules, locale)
       const { path: p, created } = resolveFolderPath(ctx, body.path, { create: body.create, locale })
+      keepsRules(p, body.rules, locale)
       const existing = getFolderByPath(ctx.db, p)
       if (existing && rulesOf(ctx.db, existing.id).length) fail('conflict', msg('folderExists', locale))
       const before = captureState(ctx.db)
@@ -143,31 +157,32 @@ export const adminRoutes: RouteModule = {
     })
 
     kit.handle(API.putFolderRules, ({ c, params, body, auth }) => {
-      const f = getFolder(ctx.db, params.id)
-      if (!f) fail('not_found')
+      const f = editableRow(params.id)
       // a folder moved into users/ keeps its row; rules there are ignored, so refuse to edit them as if they worked
-      if (f!.path === 'users' || f!.path.startsWith('users/')) fail('validation', msg('rulesInUsers', c.get('locale')), { fields: { 'params.id': 'users/ cannot carry rules' } })
+      if (f.path === 'users' || f.path.startsWith('users/')) fail('validation', msg('rulesInUsers', c.get('locale')), { fields: { 'params.id': 'users/ cannot carry rules' } })
+      keepsRules(f.path, body.rules, c.get('locale'))
       validateRules(ctx.db, body.rules, c.get('locale'))
       const before = captureState(ctx.db)
-      const old = rulesOf(ctx.db, f!.id)
+      const old = rulesOf(ctx.db, f.id)
       ctx.db.transaction(() => {
-        replaceRules(ctx.db, f!.id, body.rules, auth.user.id)
-        audit(ctx.db, { actor: auth.user.id, action: 'folder.rules', target: f!.path, detail: { before: old, after: body.rules } })
+        replaceRules(ctx.db, f.id, body.rules, auth.user.id)
+        audit(ctx.db, { actor: auth.user.id, action: 'folder.rules', target: f.path, detail: { before: old, after: body.rules } })
       })()
-      afterAccessChange(ctx, before, { actor: auth.user.id, target: f!.path })
-      return toFolder(ctx, f!)
+      afterAccessChange(ctx, before, { actor: auth.user.id, target: f.path })
+      return toFolder(ctx, f)
     })
 
-    kit.handle(API.deleteFolder, ({ params, auth }) => {
-      const f = getFolder(ctx.db, params.id)
-      if (!f) fail('not_found')
+    kit.handle(API.deleteFolder, ({ c, params, auth }) => {
+      const f = editableRow(params.id)
+      if (isTeamDefaultFolder(f.path)) fail('conflict', msg('teamFolderKeepsRules', c.get('locale')))
+      if (groupOfFolder(ctx.db, f.id)) fail('conflict', msg('groupFolderKeepsRow', c.get('locale')))
       const before = captureState(ctx.db)
-      const old = rulesOf(ctx.db, f!.id)
+      const old = rulesOf(ctx.db, f.id)
       ctx.db.transaction(() => {
-        dropFolderRow(ctx.db, f!.id)
-        audit(ctx.db, { actor: auth.user.id, action: 'folder.delete', target: f!.path, detail: { before: old } })
+        dropFolderRow(ctx.db, f.id)
+        audit(ctx.db, { actor: auth.user.id, action: 'folder.delete', target: f.path, detail: { before: old } })
       })()
-      afterAccessChange(ctx, before, { actor: auth.user.id, target: f!.path })
+      afterAccessChange(ctx, before, { actor: auth.user.id, target: f.path })
     })
 
     kit.handle(API.previewRules, ({ c, body }) => previewRules(ctx, body.changes, c.get('locale')))

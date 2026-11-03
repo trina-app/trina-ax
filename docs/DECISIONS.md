@@ -5867,3 +5867,31 @@ The screen was a long card per connection, and the only way in was typing an MCP
   applied). The edit hint no longer says the owner writes everywhere (`users/<id>` of others and `.system` are none
   for every role).
 - Tests: `web/test/unit/admin-folders.test.ts`, `web/test/e2e/admin-delete.spec.ts`. Needed in the core too.
+
+## Folder rows the admin API keeps (fix/folders-safety 1b, 2026-11-03)
+
+- **shared/ and skills/ keep at least one rule.** `DELETE /api/admin/folders/:id` on their row is 409 and `PUT …/rules`
+  or `POST /api/admin/folders` with `rules: []` is 400 (`teamFolderKeepsRules`). Both had the same result: no rule,
+  so only the owner and admins see the team's default folders. An admin who wants that says "Everyone: No access",
+  which the message names. `skills/<sub>` rows are ordinary (they fall back to skills/).
+- **A group's folder row (`groups.folder_id`) is not removed while the group exists** (409, `groupFolderKeepsRow`).
+  `dropFolderRow` set the group's `folder_id` to NULL for good, and `managedRows` then no longer counted the folder, so
+  any member who could write there could move, rename or trash it. Its rules can still change; deleting the group
+  removes the group's rules and the row is an ordinary one after that. `Folder.groupId` (optional, null when none)
+  tells the screen.
+- **Rows parked with a trashed folder (`.system/…`) are not listed, and `PUT` / `DELETE` on them is 404.** Editing
+  one changed the rules the folder comes back with; removing one lost them and left its trash items without a home.
+  Restoring the folder brings the row back to the list.
+- **Only at the admin routes.** `replaceRules` and `dropFolderRow` also serve deleting a group (rules by subject),
+  deleting a person (their rules everywhere, possibly the last one of shared/), turning a skills manager off (possibly
+  every rule of skills/, a subfolder row dropped) and dropping a project's marker row; none of those is refused. Not
+  refused at the routes either: the team root (no row by default), a row whose folder is gone from disk, other rows.
+  The permission function (`policy/access.ts`) and the database are unchanged.
+- **Screen.** A kept row shows the reason under its rules and a lock where the delete button was; its Edit takes the
+  focus after a delete above it. A refused save shows the server's message in the dialog (`role="alert"`), not only a
+  toast.
+- Tests: `tests/unit/a-folders-keep.test.ts` (the refusals and their messages, "Everyone: No access" works, a group's
+  row freed by deleting the group, root and missing-on-disk rows, the parked row through trash and restore, and the
+  skills-manager and person-delete flows unchanged), `tests/security/lib/cases.ts` (owner and admin are refused on
+  shared/, skills/ and a group's folder), `web/test/unit/admin-folders.test.ts`, `web/test/e2e/admin-delete.spec.ts`;
+  the mock server refuses the same. Needed in the core too.

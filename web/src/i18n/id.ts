@@ -1079,6 +1079,8 @@ export const id: Record<MessageKey, string> = {
   'rules.removeBody': 'Folder dan filenya tetap ada. Folder ini lalu mengikuti aturan {path}.',
   'rules.removeBodyNone': 'Folder dan filenya tetap ada. Tidak ada folder di atasnya yang punya aturan, jadi setelah itu hanya owner dan admin yang bisa melihatnya.',
   'rules.removeBodyPersonal': 'Folder dan filenya tetap ada. Aturan tidak berlaku di dalam folder pribadi, jadi siapa yang bisa melihatnya tidak berubah.',
+  'rules.keepTeam': 'Folder bawaan tim: semua aturannya tidak bisa dihapus. Agar hanya owner dan admin yang bisa melihatnya, beri aturan "Semua orang: Tanpa akses".',
+  'rules.keepGroup': 'Folder grup {name}: tidak bisa dihapus di sini. Ubah aturannya lewat "Ubah"; menghapus grup juga menghapus aturan grup itu.',
 
   'engines.defaults': 'Bawaan tim',
   'engines.defaultsDesc': 'Mesin dan model untuk chat baru, dan berapa jawaban yang boleh berjalan bersamaan di seluruh tim.',

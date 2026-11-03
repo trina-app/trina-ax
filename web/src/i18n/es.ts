@@ -1050,6 +1050,8 @@ export const es: Record<MessageKey, string> = {
   'rules.removeBody': "La carpeta y sus archivos se conservan; pasará a seguir las reglas de {path}.",
   'rules.removeBodyNone': "La carpeta y sus archivos se conservan. Ninguna carpeta superior tiene reglas, así que desde entonces solo el propietario y los administradores podrán verla.",
   'rules.removeBodyPersonal': "La carpeta y sus archivos se conservan. Las reglas no se aplican dentro de una carpeta personal, así que no cambia quién puede verla.",
+  'rules.keepTeam': 'Carpeta predeterminada del equipo: no se pueden quitar todas sus reglas. Para que solo el propietario y los administradores la vean, póngale la regla "Todos: Sin acceso".',
+  'rules.keepGroup': 'Carpeta del grupo {name}: no se puede quitar aquí. Cambie sus reglas con "Editar"; al eliminar el grupo también se eliminan sus reglas.',
   'engines.defaults': "Valores predeterminados del equipo",
   'engines.defaultsDesc': "El motor y modelo de los chats nuevos, y cuántas respuestas pueden ejecutarse a la vez en todo el equipo.",
   'engines.defaultEngine': "Motor predeterminado",

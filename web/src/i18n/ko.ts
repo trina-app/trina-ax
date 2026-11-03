@@ -1078,6 +1078,8 @@ export const ko = {
   'rules.removeBody': '폴더와 파일은 그대로 남고, {path}의 규칙을 따르게 돼요.',
   'rules.removeBodyNone': '폴더와 파일은 그대로 남아요. 규칙이 있는 위 폴더가 없어서, 그 뒤로는 팀장과 관리자만 볼 수 있어요.',
   'rules.removeBodyPersonal': '폴더와 파일은 그대로 남아요. 개인 폴더 안에서는 규칙이 적용되지 않아서, 볼 수 있는 사람은 바뀌지 않아요.',
+  'rules.keepTeam': '팀 기본 폴더라 규칙을 모두 지울 수 없어요. 팀장과 관리자만 보게 하려면 "모두: 권한 없음" 규칙을 두세요.',
+  'rules.keepGroup': '그룹 {name}의 폴더라 여기서 지울 수 없어요. 규칙은 "수정"에서 바꾸고, 그룹을 지우면 그 그룹의 규칙도 함께 지워져요.',
 
   'engines.defaults': '팀 기본값',
   'engines.defaultsDesc': '새 채팅이 쓰는 엔진과 모델, 팀 전체에서 동시에 돌릴 수 있는 답변 수예요.',

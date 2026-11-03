@@ -277,9 +277,28 @@ export const SPECS: Record<string, Spec> = {
   deleteGroup: { build: (c, w) => c.del(`/api/admin/groups/${w.groups.finance}`), scope: 'byLevel' },
   listFolders: { build: (c) => c.get('/api/admin/folders'), scope: 'byLevel' },
   createFolder: { build: (c) => c.post('/api/admin/folders', { path: 'shared/sub' + Math.random().toString(36).slice(2, 6), create: true, rules: [] }), scope: 'byLevel' },
+  // shared/ and skills/ keep at least one rule, also for the owner and admins (fix/folders-safety 1b): with none, only
+  // admins see them, so the admin API refuses "no rules" (400) and the delete below (409)
   putFolderRules: { build: (c, w) => c.put(`/api/admin/folders/${w.folders['groups/finance']}/rules`, { rules: [{ subjectType: 'user', subjectId: 'alice', access: 'write' }] }), scope: 'byLevel',
-    check: (r, w, who) => { if ((who === 'owner' || who === 'admin') && r.status >= 300) throw new Error('admin could not set folder rules') } },
-  deleteFolder: { build: (c, w) => c.del(`/api/admin/folders/${w.folders['projects/falcon/public']}`), scope: 'byLevel' },
+    check: async (r, w, who) => {
+      if ((who === 'owner' || who === 'admin') && r.status >= 300) throw new Error('admin could not set folder rules')
+      if (who !== 'owner' && who !== 'admin') return
+      for (const p of ['shared', 'skills']) {
+        const empty = await w.as[who].put(`/api/admin/folders/${w.folders[p]}/rules`, { rules: [] })
+        if (empty.status !== 400) throw new Error(`${who} removed every rule of ${p}/: ${empty.status}`)
+      }
+    } },
+  // the team's default folders and a group's folder row stay (409), for the owner and admins too
+  deleteFolder: { build: (c, w) => c.del(`/api/admin/folders/${w.folders['projects/falcon/public']}`), scope: 'byLevel',
+    check: async (r, w, who) => {
+      if (who !== 'owner' && who !== 'admin') return
+      for (const p of ['shared', 'skills', w.groups.finFolder]) {
+        const d = await w.as[who].del(`/api/admin/folders/${w.folders[p]}`)
+        if (d.status !== 409) throw new Error(`${who} removed the folder row of ${p}: ${d.status}`)
+      }
+      const left = new Set(((await w.as[who].get('/api/admin/folders')).json?.items ?? []).map((f: { path: string }) => f.path))
+      for (const p of ['shared', 'skills', w.groups.finFolder]) if (!left.has(p)) throw new Error(`the folder row of ${p} is gone`)
+    } },
   previewRules: { build: (c) => c.post('/api/admin/folder-rules/preview', { changes: [{ path: 'shared', rules: [{ subjectType: 'everyone', subjectId: null, access: 'read' }] }] }), scope: 'byLevel',
     check: (r, w, who) => { if ((who === 'owner' || who === 'admin') && r.text.includes(C.bobFile)) throw new Error('preview leaks private content') } },
   engines: { build: (c) => c.get('/api/admin/engines'), scope: 'byLevel' },
