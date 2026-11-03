@@ -17,6 +17,9 @@ import QueuedMessages from '../../src/components/chat/QueuedMessages'
 import { useSendQueue } from '../../src/store/sendQueue'
 import { CHAT, msg } from './fixtures'
 import { installDom, mount, removeDom, type Mounted } from './dom-host'
+/** put together here, so the repository holds no private-key header (tests/unit/plugins-package.test.ts) */
+const SSH_KEY = ['OPENSSH', 'PRIVATE', 'KEY'].join(' ')
+
 
 const noop = () => {}
 // provider prefixes joined at run time, so secret scanners do not take this file for a leak
@@ -40,7 +43,7 @@ describe('which messages wait for "Send anyway"', () => {
       k('AK', 'IA', 'IOSFODNN7EXAMPLE'),
       k('AI', 'za', 'SyA1b2C3d4E5f6G7h8I9j0K1l2M3n4O5p6'),
       k('h', 'f_', 'AbCdEfGhIjKlMnOpQrStUvWxYz0123456789'),
-      '-----BEGIN OPENSSH PRIVATE KEY-----\nb3BlbnNzaC1rZXktdjEAAAAA\n-----END OPENSSH PRIVATE KEY-----',
+      `-----BEGIN ${SSH_KEY}-----\nb3BlbnNzaC1rZXktdjEAAAAA\n-----END ${SSH_KEY}-----`,
       k('eyJ', 'hbGciOiJIUzI1NiJ9.eyJzdWIiOiIxIn0.abc123def456'),
       'my api key: 9f8e7d6c5b4a',
       'pwd=Tr0ub4dor',

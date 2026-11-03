@@ -175,12 +175,13 @@ const LIKELY: Pattern[] = [
 const LABEL_RE = /(?<![A-Za-z0-9_$.-])((?:api|access|private|secret|auth)\s+key|kata\s?sandi|비밀번호|비번|패스워드|암호|토큰|인증키|[A-Za-z][A-Za-z0-9_.-]*)["'`]?\s*[:=]\s*["'`]?([^\s"'`]+)/giu
 const LABEL_LAST = new Set(['password', 'passwd', 'passphrase', 'pwd', 'secret', 'token', 'apikey', 'accesskey', 'privatekey', 'secretkey', 'authkey'])
 const LABEL_PAIR = new Set(['apikey', 'accesskey', 'privatekey', 'secretkey', 'authkey', 'katasandi'])
-const KOREAN_LABELS = new Set(['비밀번호', '비번', '패스워드', '암호', '토큰', '인증키'])
+// one alternation, the form tests/unit/i18n-languages.test.ts allows here (these are words to find, not screen text)
+const KOREAN_LABEL = /^(?:비밀번호|비번|패스워드|암호|토큰|인증키)$/u
 const labelParts = (label: string) => label.replace(/([a-z0-9])([A-Z])/g, '$1 $2').toLowerCase().split(/[\s_.-]+/).filter(Boolean)
 
 /** Whether a label names a secret: its last part ("DB_PASSWORD", "accessToken", "x-api-key"), or a Korean word. */
 export function secretLabel(label: string): boolean {
-  if (KOREAN_LABELS.has(label)) return true
+  if (KOREAN_LABEL.test(label)) return true
   const parts = labelParts(label)
   const last = parts[parts.length - 1] ?? ''
   return LABEL_LAST.has(last) || LABEL_PAIR.has(parts.slice(-2).join(''))
