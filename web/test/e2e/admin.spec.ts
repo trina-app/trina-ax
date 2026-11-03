@@ -9,6 +9,9 @@ test('admin screens: members, groups, folder rules with "who sees what", engines
   const errors = watchConsole(page)
   await signIn(page)
   await page.getByRole('link', { name: '관리자' }).click()
+  // Admin opens on Home; members are first in the menu after it
+  await expect(page.getByTestId('admin-home')).toBeVisible()
+  await page.getByRole('navigation', { name: '관리자' }).getByRole('link', { name: DICTS.ko['admin.members'], exact: true }).click()
   await expect(page.getByTestId('members-table')).toContainText('Bob')
 
   // add a member: the temporary password field comes pre-filled with an easy one (word + digits), ↻ makes another,

@@ -1,5 +1,6 @@
 // Small helpers shared by the admin screens.
-import { useCallback, useEffect, useState, type ReactNode } from 'react'
+import clsx from 'clsx'
+import { useCallback, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react'
 import { errorText } from '../../lib/api'
 import { useLocale, useT } from '../../i18n'
 import { toast } from '../../store/ui'
@@ -53,12 +54,43 @@ export function Card({ title, actions, children, desc }: { title: ReactNode; act
       <header className="flex flex-wrap items-center gap-2 border-b border-line px-4 py-3">
         <div className="min-w-0 flex-1">
           <h2 className="text-sm font-semibold">{title}</h2>
-          {desc && <p className="mt-0.5 text-xs text-muted">{desc}</p>}
+          {desc && <OneLine className="mt-0.5 text-xs text-muted">{desc}</OneLine>}
         </div>
         {actions}
       </header>
       <div className="p-4">{children}</div>
     </section>
+  )
+}
+
+/** An explanation kept to one line; "More" opens the rest when it does not fit (and "Less" closes it again). The whole
+ * text stays in the page, so a screen reader reads all of it either way. */
+export function OneLine({ children, className, testId }: { children: ReactNode; className?: string; testId?: string }) {
+  const t = useT()
+  const ref = useRef<HTMLParagraphElement>(null)
+  const [open, setOpen] = useState(false)
+  const [cut, setCut] = useState(false)
+  useLayoutEffect(() => {
+    const el = ref.current
+    if (!el || open) return
+    const measure = () => setCut(el.scrollWidth > el.clientWidth + 1)
+    measure()
+    const ro = new ResizeObserver(measure)
+    ro.observe(el)
+    return () => ro.disconnect()
+  }, [children, open])
+  return (
+    <div className={clsx('flex items-baseline gap-1.5', className)} data-testid={testId}>
+      {/* inline-size containment: a line that does not wrap must not widen what holds it (a grid cell, a fieldset) */}
+      <p ref={ref} className={clsx('min-w-0 flex-1 [contain:inline-size]', !open && 'truncate')}>
+        {children}
+      </p>
+      {(cut || open) && (
+        <button type="button" aria-expanded={open} className="shrink-0 font-medium text-muted underline-offset-2 hover:text-ink hover:underline" onClick={() => setOpen(!open)}>
+          {t(open ? 'common.less' : 'common.more')}
+        </button>
+      )}
+    </div>
   )
 }
 
