@@ -119,7 +119,7 @@ export default function Audit() {
  * 만듦"). Tool calls keep the tool's name (read, write, web_fetch: the summary next to it says what it did); the id
  * stays in the tooltip for anyone matching it with the server log. Unknown ids are shown as they are.
  */
-function actionLabel(t: ReturnType<typeof useT>, e: AuditEntry): string {
+export function actionLabel(t: ReturnType<typeof useT>, e: AuditEntry): string {
   const key = e.source === 'file' ? `audit.file.${e.action}` : e.source === 'tool' ? (e.action === '(connect)' ? 'audit.tool.connect' : '') : `audit.act.${e.action}`
   return key && key in DICTS.ko ? t(key as MessageKey) : e.action
 }

@@ -3,7 +3,7 @@
 // owner and admins only) and the optional Claude-limit fallback to Codex (off; warns that data then also goes to
 // OpenAI; unavailable while Codex is off); usage limits. The accounts the engines use (Claude subscription tokens,
 // API keys, ChatGPT sign-ins) are on Admin > AI connections (Credentials.tsx); company keys moved there.
-import { AlertTriangle, CheckCircle2, CircleAlert, Plus, RefreshCw, Trash2 } from 'lucide-react'
+import { AlertTriangle, Plus, RefreshCw, Trash2 } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 import type { Budget, EngineId, EnginesResponse, EngineStatus, Group, MemberEngineChoice, User } from '@mycel/shared/api'
@@ -12,7 +12,7 @@ import { formatDateTime, formatNumber, formatUsd } from '../../lib/format'
 import { useLocale, useT } from '../../i18n'
 import { isOwner, useMeStrict } from '../../store/session'
 import { Badge, Button, Field, IconButton, Modal, Switch, inputCls, noKeyRepeat } from '../../components/ui'
-import { Card, Loadable, useAction, useActionOk, useFocusAfterRemove, useLoad, useOneAtATime } from './common'
+import { Card, Loadable, OneLine, useAction, useActionOk, useFocusAfterRemove, useLoad, useOneAtATime } from './common'
 import { useEngines } from '../../store/engines'
 
 export default function Engines() {
@@ -107,27 +107,26 @@ function EngineCard({ e, checking, onCheck, onToggle }: { e: EngineStatus; check
   const t = useT()
   const locale = useLocale()
   const ok = e.status === 'ok'
+  const mode = e.authMode === 'api-key' && !e.provider ? t('engines.api.key') : t(`engines.mode.${e.authMode}`, { provider: e.provider ?? '' })
+  // one quiet line under the name: version · how it signs in · when it was checked; the state is the chip beside the name
+  const meta = [e.version && `v${e.version}`, mode, e.checkedAt && t('engines.checkedAt', { date: formatDateTime(e.checkedAt, locale) })].filter(Boolean).join(' · ')
+  // what to know about this engine, in one line that opens with "More"
+  const hint = [e.authMode === 'local-login' && t('engines.localHelp'), e.beta && t('engines.betaHint'), e.id === 'api' && t('engines.experimentalHint')].filter(Boolean).join(' ')
   return (
-    <section className="rounded-2xl border border-line bg-surface p-4" data-testid="engine-card" aria-labelledby={`eng-${e.id}`}>
-      <div className="flex items-start gap-2">
-        {ok ? <CheckCircle2 size={18} className="mt-0.5 text-ok" aria-hidden /> : <CircleAlert size={18} className="mt-0.5 text-warn" aria-hidden />}
-        <div className="min-w-0 flex-1">
-          <h2 id={`eng-${e.id}`} className="font-semibold">
-            {e.label}
-            {e.beta && <span className="ml-2 align-middle"><Badge tone="warn">{t('engines.beta')}</Badge></span>}
-            {e.id === 'api' && <span className="ml-2 align-middle" data-testid="engine-experimental"><Badge tone="warn">{t('engines.experimental')}</Badge></span>}
-          </h2>
-          <p className="text-xs text-muted">
-            <Badge tone={ok ? 'ok' : 'warn'}>{t(`engines.status.${e.status}`)}</Badge> {e.version && <span className="ml-1">v{e.version}</span>} · {e.authMode === 'api-key' && !e.provider ? t('engines.api.key') : t(`engines.mode.${e.authMode}`, { provider: e.provider ?? '' })}
-          </p>
-        </div>
-        <IconButton label={t('engines.check')} onClick={onCheck} disabled={checking}>
+    <section className="flex min-w-0 flex-col rounded-2xl border border-line bg-surface p-4" data-testid="engine-card" aria-labelledby={`eng-${e.id}`}>
+      <div className="flex items-center gap-2">
+        <h2 id={`eng-${e.id}`} className="min-w-0 truncate font-semibold">
+          {e.label}
+        </h2>
+        <Badge tone={ok ? 'ok' : 'warn'}>{t(`engines.status.${e.status}`)}</Badge>
+        {e.beta && <Badge tone="warn">{t('engines.beta')}</Badge>}
+        {e.id === 'api' && <span data-testid="engine-experimental"><Badge tone="warn">{t('engines.experimental')}</Badge></span>}
+        <IconButton label={t('engines.check')} onClick={onCheck} disabled={checking} className="ml-auto">
           <RefreshCw size={15} className={checking ? 'animate-spin' : ''} />
         </IconButton>
       </div>
-      {e.authMode === 'local-login' && <p className="mt-2 text-xs text-muted">{t('engines.localHelp')}</p>}
-      {e.beta && <p className="mt-2 text-xs text-muted" data-testid="engine-beta">{t('engines.betaHint')}</p>}
-      {e.id === 'api' && <p className="mt-2 text-xs text-muted">{t('engines.experimentalHint')}</p>}
+      <p className="truncate text-xs text-faint" title={meta}>{meta}</p>
+      {hint && <OneLine className="mt-2 text-xs text-muted" testId={e.beta ? 'engine-beta' : undefined}>{hint}</OneLine>}
       {e.detail && (
         <p className="mt-3 rounded-lg bg-subtle px-3 py-2 text-sm" data-testid="engine-detail">
           {e.detail}
@@ -136,10 +135,9 @@ function EngineCard({ e, checking, onCheck, onToggle }: { e: EngineStatus; check
           )}
         </p>
       )}
-      {e.models.length > 0 && <p className="mt-2 text-xs text-faint">{t('engines.models', { list: e.models.map((m) => m.label).join(', ') })}</p>}
-      <div className="mt-3 flex items-center justify-between gap-2">
+      {e.models.length > 0 && <OneLine className="mt-2 text-xs text-faint">{t('engines.models', { list: e.models.map((m) => m.label).join(', ') })}</OneLine>}
+      <div className="mt-auto pt-3">
         <Switch checked={e.enabled} onChange={onToggle} label={t('engines.enabled')} />
-        {e.checkedAt && <span className="text-xs text-faint">{t('engines.checkedAt', { date: formatDateTime(e.checkedAt, locale) })}</span>}
       </div>
     </section>
   )
@@ -335,7 +333,7 @@ function MemberChoice({ data, onSaved }: { data: EnginesData; onSaved: (r: Engin
   return (
     <Card title={t('engines.choice')} desc={t('engines.choiceDesc')}>
       <div className="space-y-4" data-testid="engine-choice">
-        <fieldset>
+        <fieldset className="min-w-0">
           <legend className="mb-2 text-sm font-medium">{t('engines.choice.allow')}</legend>
           <div className="flex flex-wrap gap-2" role="radiogroup" aria-label={t('engines.choice.allow')}>
             {(['off', 'everyone', 'selected'] as const).map((mode) => (
@@ -375,12 +373,13 @@ function MemberChoice({ data, onSaved }: { data: EnginesData; onSaved: (r: Engin
               </div>
             </div>
           )}
-          <p className="mt-2 text-xs text-faint">{t('engines.choice.hint')}</p>
+          <OneLine className="mt-2 text-xs text-faint">{t('engines.choice.hint')}</OneLine>
         </fieldset>
         <div className="border-t border-line pt-4">
           <Switch checked={fallback && data.limitFallbackAvailable} disabled={!data.limitFallbackAvailable} onChange={setFallback} label={t('engines.fallback')} />
-          <p className="mt-1 text-xs text-muted">{t(data.limitFallbackAvailable ? 'engines.fallbackDesc' : 'engines.fallbackUnavailable')}</p>
-          {data.limitFallbackAvailable && <p className="mt-1 text-xs text-muted">{t('engines.fallbackHint2')}</p>}
+          <OneLine className="mt-1 text-xs text-muted">
+            {data.limitFallbackAvailable ? `${t('engines.fallbackDesc')} ${t('engines.fallbackHint2')}` : t('engines.fallbackUnavailable')}
+          </OneLine>
           {fallback && data.limitFallbackAvailable && (
             <p role="alert" className="mt-2 flex items-start gap-2 rounded-lg bg-warn-soft px-3 py-2 text-sm text-warn" data-testid="fallback-warning">
               <AlertTriangle size={15} className="mt-0.5 shrink-0" aria-hidden /> {t('engines.fallbackWarning')}

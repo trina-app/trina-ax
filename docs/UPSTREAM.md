@@ -289,3 +289,16 @@ Source change from potenlab/team-ax `a77d7e4` (branch `feat/project-page`, core 
 - `Home.tsx`: the same change; `PopularSkills` stays. `Composer.tsx`: only the `placeholder` prop; the answering and running hints are unchanged.
 - Only here: `DevEnvSection.tsx` now exports `DevEnvRow`, one line with the box state that opens in place (box, jobs, processes, port and preview, activity; Edit for admins inside). `web/test/mock/server.ts` gets `POST /__test/dev-env` and the dev environment endpoints, so the page is tested and shown with it. `web/test/unit/design-contrast.test.ts` now checks the project's Delete as a red menu item, because it is no longer a `ghost-danger` button.
 - `es` and `ja` get the new keys (`projects.about`, `open`, `items`, `itemsMore`); `projects.files` goes from all five languages.
+
+## 2026-11-03 Admin: Home first, a grouped menu that stays put
+
+Source change from potenlab/team-ax `9de1281` (branch `feat/admin-home`, core PR #30, not yet on core main),
+ported by hand. No core history was imported.
+
+- Taken as they are: `Home.tsx`, `AdminLayout.tsx`, the `Card` / `OneLine` part of `common.tsx`, `actionLabel` exported
+  from `Audit.tsx`, and `web/test/e2e/admin-home.spec.ts`.
+- This repository's own, added on top: Plugins in the "Shared with the team" group and as a Home card; "No AI" people
+  (`listUsers?noAi=1`) first under "Needs attention" and counted on the AI connections card; the API engine's
+  "Experimental" chip, its hint and the local sign-in hint folded into the engine card's one line.
+- `es` and `ja` get every new key; `admin.desc` is removed in all five languages (`admin.privacy` replaces its last
+  sentence).
