@@ -8,6 +8,7 @@ import { useT } from '../../i18n'
 import type { QueuedMessage } from '../../lib/sendQueue'
 import { useSendQueue } from '../../store/sendQueue'
 import { Button, IconButton, inputCls, useAnnounce } from '../ui'
+import { SecretWarning, useSecretHold } from './SecretWarning'
 
 export default function QueuedMessages({ chatId, onFocusComposer }: { chatId: string; onFocusComposer: () => void }) {
   const t = useT()
@@ -86,6 +87,18 @@ function QueuedItem({ item, editing, onEdit, onCancelEdit, onSave, onRemove }: {
   const row = useRef<HTMLLIElement>(null)
   const backToEdit = () => requestAnimationFrame(() => row.current?.querySelector<HTMLElement>('[data-testid="outbox-edit"]')?.focus())
   const canSave = draft.trim().length > 0 || item.attachments.length > 0
+  /** the edited text looks like a key: saving it waits for "Send anyway" (SecretWarning); it goes when the answer ends */
+  const secret = useSecretHold(draft)
+  const save = () => {
+    onSave(draft)
+    backToEdit()
+  }
+  const cancel = () => {
+    secret.release()
+    setDraft(item.content)
+    onCancelEdit()
+    backToEdit()
+  }
   return (
     <li ref={row} className="flex w-full max-w-[85%] flex-col items-end gap-1.5 sm:max-w-[80%]" data-testid="outbox-item" data-item-id={item.id}>
       {item.attachments.length > 0 && (
@@ -103,9 +116,8 @@ function QueuedItem({ item, editing, onEdit, onCancelEdit, onSave, onRemove }: {
           className="w-full rounded-2xl border border-field-border bg-surface p-2 has-[textarea:focus]:border-accent has-[textarea:focus]:ring-1 has-[textarea:focus]:ring-accent"
           onSubmit={(e) => {
             e.preventDefault()
-            if (!canSave) return
-            onSave(draft)
-            backToEdit()
+            if (!canSave || !secret.pass()) return
+            save()
           }}
         >
           {/* the form draws the field's edge and focus; `!`: inputCls's own focus ring is emitted after ring-0 and would win */}
@@ -119,9 +131,7 @@ function QueuedItem({ item, editing, onEdit, onCancelEdit, onSave, onRemove }: {
               if (e.key === 'Escape') {
                 e.preventDefault()
                 e.stopPropagation()
-                setDraft(item.content)
-                onCancelEdit()
-                backToEdit()
+                cancel()
               } else if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing && e.keyCode !== 229 && !window.matchMedia?.('(pointer: coarse)').matches) {
                 e.preventDefault()
                 e.currentTarget.form?.requestSubmit()
@@ -129,16 +139,20 @@ function QueuedItem({ item, editing, onEdit, onCancelEdit, onSave, onRemove }: {
             }}
             data-testid="outbox-edit-input"
           />
-          <div className="flex justify-end gap-2">
-            <Button
-              size="sm"
-              variant="ghost"
-              onClick={() => {
-                setDraft(item.content)
-                onCancelEdit()
-                backToEdit()
+          {secret.held && (
+            <SecretWarning
+              onSendAnyway={() => {
+                secret.release()
+                save()
               }}
-            >
+              onEdit={() => {
+                secret.release()
+                row.current?.querySelector<HTMLElement>('[data-testid="outbox-edit-input"]')?.focus()
+              }}
+            />
+          )}
+          <div className="flex justify-end gap-2">
+            <Button size="sm" variant="ghost" onClick={cancel}>
               {t('common.cancel')}
             </Button>
             <Button size="sm" variant="primary" type="submit" disabled={!canSave} data-testid="outbox-save">

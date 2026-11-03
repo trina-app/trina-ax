@@ -4,7 +4,7 @@
 // version history (where the previous version can be restored). Quiet on purpose: rows keep to a line or two, the
 // details open on demand.
 import { Bot, History, Lightbulb, Search } from 'lucide-react'
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useId, useRef, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import type { SkillChange, SkillSuggestion, SkillsOverview } from '@mycel/shared/api'
 import { api, API, errorText } from '../lib/api'
@@ -18,7 +18,7 @@ import { AvailableSkills } from '../components/AvailableSkills'
 import { Markdown } from '../components/Markdown'
 import { SkillIssues } from '../components/SkillIssues'
 import { SkillListNote } from '../components/SkillListNote'
-import { Badge, Button, EmptyState, ErrorNote, Field, Modal, Skeleton, Tabs, inputCls, promptDialog } from '../components/ui'
+import { Badge, Button, EmptyState, ErrorNote, Field, Modal, Skeleton, TabPanel, Tabs, inputCls, promptDialog } from '../components/ui'
 
 type Tab = 'skills' | 'review' | 'mine' | 'changes'
 
@@ -98,13 +98,14 @@ export default function Skills() {
     ...(isAdmin(me) ? [{ id: 'changes' as const, label: t('skills.tabChanges') }] : []),
   ]
   const current = tabs.some((x) => x.id === tab) ? tab : 'skills'
+  const panels = useId()
 
   return (
     <div className="flex h-full flex-col overflow-y-auto">
       <div className="w-full max-w-4xl p-4 sm:p-6">
         <div className="mb-5 flex flex-wrap items-center gap-x-4 gap-y-3">
           <h1 className="text-xl font-semibold tracking-tight">{t('skills.title')}</h1>
-          {overview && <Tabs segmented value={current} onChange={setTab} items={tabs} label={t('skills.title')} />}
+          {overview && <Tabs segmented value={current} onChange={setTab} items={tabs} label={t('skills.title')} panels={panels} />}
           {overview && current === 'skills' && (
             <div className="relative w-full sm:ml-auto sm:w-56">
               <Search size={15} className="pointer-events-none absolute top-1/2 left-3 -translate-y-1/2 text-faint" aria-hidden />
@@ -117,7 +118,7 @@ export default function Skills() {
         {error && <ErrorNote onRetry={() => void load()}>{error}</ErrorNote>}
         {!overview && !error && <Skeleton lines={5} />}
         {overview && (
-          <>
+          <TabPanel base={panels} value={current}>
             {current === 'skills' && <AvailableSkills key={`skills-${me.user.id}`} query={query} />}
             {current === 'review' && (
               <>
@@ -127,7 +128,7 @@ export default function Skills() {
             )}
             {current === 'mine' && <SuggestionList items={mine} empty={t('skills.noMine')} testId="mine-list" />}
             {current === 'changes' && <ChangeList items={changes} />}
-          </>
+          </TabPanel>
         )}
       </div>
       {open && overview && (
@@ -233,6 +234,7 @@ function ReviewDialog({ s, folders, onClose, onDone }: { s: SkillSuggestion; fol
   const [fileName, setFileName] = useState('')
   const [content, setContent] = useState(s.content)
   const [preview, setPreview] = useState(true)
+  const contentTabs = useId()
   const [busy, setBusy] = useState<'approve' | 'reject' | null>(null)
   const [error, setError] = useState<string | null>(null)
   const ready = !!name.trim() && !name.includes('/') && !!content.trim()
@@ -307,14 +309,16 @@ function ReviewDialog({ s, folders, onClose, onDone }: { s: SkillSuggestion; fol
           <input className={inputCls} value={description} onChange={(e) => setDescription(e.target.value)} maxLength={300} data-testid="review-description" />
         </Field>
         <div>
-          <Tabs value={preview ? 'preview' : 'edit'} onChange={(v) => setPreview(v === 'preview')} items={[{ id: 'preview', label: t('skills.preview') }, { id: 'edit', label: t('skills.edit') }]} label={t('suggest.content')} />
-          {preview ? (
-            <div className="mt-2 max-h-80 overflow-y-auto rounded-lg border border-line px-3 py-2 text-sm" data-testid="review-preview">
-              <Markdown text={content} />
-            </div>
-          ) : (
-            <textarea className={`${inputCls} mt-2 h-auto min-h-60 resize-y py-2 font-mono text-[13px]`} value={content} onChange={(e) => setContent(e.target.value)} maxLength={16000} data-testid="review-content" />
-          )}
+          <Tabs value={preview ? 'preview' : 'edit'} onChange={(v) => setPreview(v === 'preview')} items={[{ id: 'preview', label: t('skills.preview') }, { id: 'edit', label: t('skills.edit') }]} label={t('suggest.content')} panels={contentTabs} />
+          <TabPanel base={contentTabs} value={preview ? 'preview' : 'edit'}>
+            {preview ? (
+              <div className="mt-2 max-h-80 overflow-y-auto rounded-lg border border-line px-3 py-2 text-sm" data-testid="review-preview">
+                <Markdown text={content} />
+              </div>
+            ) : (
+              <textarea className={`${inputCls} mt-2 h-auto min-h-60 resize-y py-2 font-mono text-[13px]`} value={content} onChange={(e) => setContent(e.target.value)} maxLength={16000} aria-label={t('suggest.content')} data-testid="review-content" />
+            )}
+          </TabPanel>
         </div>
         {error && (
           <p role="alert" className="text-sm text-danger">

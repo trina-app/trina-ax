@@ -9,7 +9,7 @@
 // "sub-agent" (a sub-task step with its sub-agent's steps under it, Step.parentId), "stop-cut" (a step still running
 // when the person presses Stop ends stopped, Step.stopped);
 // anything else gets a Markdown answer with a table, code, math, a Mermaid diagram and an external image.
-// Test-only controls: POST /__test/file {path, text | base64} (a team file and its folders), POST /__test/download-only {path} (a generated, quarantined file: FileEntry.downloadOnly), POST /__test/reset {setup?: boolean, teamLocale?: 'ko'|'en'|'id' (default ko), usersFollowTeam?:
+// Test-only controls: POST /__test/file {path, text | base64} (a team file and its folders), POST /__test/rmdir {path} (a folder gone from disk; its rule rows stay), POST /__test/download-only {path} (a generated, quarantined file: FileEntry.downloadOnly), POST /__test/reset {setup?: boolean, teamLocale?: 'ko'|'en'|'id' (default ko), usersFollowTeam?:
 // boolean (seeded people have no own language), mustChange?: username (signs in with a temporary password)}, POST /__test/drop-ws, POST /__test/server-version, POST /__test/upload-delay {ms} (an upload's answer comes that late, until the next reset),
 // POST /__test/revoke {path} (a folder becomes invisible to everyone + access_changed notice), POST /__test/skills
 // {files: [{path, name, description}]} (skill files; skills/임원/ is for admins only),
@@ -39,11 +39,16 @@ import * as XLSX from 'xlsx'
 import { CCITT_SCAN, JPX_SCAN, makeCidPdf, makeImagePdf, makePagedPdf, makePdf } from '../../../tests/lib/pdf'
 import { serveWeb } from '../../../server/src/routes/web-static'
 import { TEXT as TEAM_ICON_TEXT } from '../../../server/src/admin/team-icon'
+import { msg as serverMsg } from '../../../server/src/auth/messages'
+import { folderKeep, isParkedRow, isTeamDefaultFolder } from '../../../server/src/admin/folder-keep'
 import { checkTeamIcon, TEAM_ICON_MAX_BYTES, type TeamIconFile } from '@mycel/shared'
 import { Sealer } from '../../../server/src/credentials/seal'
 import type { Credential, CredentialKind, CredentialLogin, MessageSourceFile } from '@mycel/shared/api'
 import type { Integration, IntegrationAccess, IntegrationFlow, IntegrationInput, IntegrationPatch, IntegrationRequest, IntegrationTool } from '@mycel/shared/api'
-import { SkillsOverview } from '@mycel/shared/api'
+import { SkillsOverview, type AccessFolderKind, type AccessTreeResponse, type FolderAccessResponse, type PersonAccessResponse } from '@mycel/shared/api'
+import { RuleSet, type Access } from '../../../server/src/policy/access'
+import { byPerson, folderInput, MAX_VIA, navigation, pageByPath, pageByPerson, ruleFolderOf, segsOf, shownPath, shownSegs, summarize, withoutOwnFolder } from '../../../server/src/admin/access-rows'
+import { ruledAnswer, treeAnswer, type TreeMark, type TreeSource } from '../../../server/src/admin/access-tree'
 import os from 'node:os'
 import path from 'node:path'
 import { MockPlugins } from './plugins'
@@ -332,6 +337,103 @@ export class MockServer {
   downloadOnly = new Set<string>()
   /** POST /__test/skill-list: what GET /api/skills/overview says of the AI's skill list (server/src/chat/skill-list.ts) */
   aiList: SkillsOverview['aiList'] = undefined
+
+  // ---------------- folder access explained (like server/src/admin/access-explain.ts) ----------------
+  // The server's own RuleSet over the folder rules of Admin › 폴더 권한 here (the file screens above keep their
+  // simplified policy), and the server's own rows, order, pages and counts (server/src/admin/access-rows.ts): nothing
+  // under users/ but the person's own folder, no .system/ or temp names. Group folders are groups/<group name> when
+  // that folder is here; connected folders are the folders under connected/ (POST /__test/file makes either).
+  explainRules() { return new RuleSet(this.folders.flatMap((f) => f.rules.map((r) => ({ path: f.path, subject_type: r.subjectType, subject_id: r.subjectId, access: r.access })))) }
+  explainPrincipal(u: User) { return { id: u.id, name: u.name, role: u.role, groups: u.groupIds } }
+  isFolder(p: string) { return p === '' || this.files.get(p)?.type === 'folder' || this.folders.some((f) => f.path === p) }
+  explainFolder(q: { path?: string; cursor?: string; limit?: string }): FolderAccessResponse {
+    const input = folderInput(q.path)
+    if ('refuse' in input) fail('validation', 400, input.refuse === 'personal' ? '개인 폴더(users/)는 본인만 봐요. 사람 기준으로 확인해 주세요.' : '팀 폴더 경로가 아니에요.', { 'query.path': input.detail })
+    const segs = (input as { segs: string[] }).segs
+    const p = segs.join('/')
+    const rules = this.explainRules()
+    const ruleFolder = ruleFolderOf(new Set(rules.ruleFolders()), segs)
+    const at = ruleFolder === null ? segs : segsOf(ruleFolder)
+    const all = this.users.filter((u) => u.status === 'active').sort(byPerson).map((u) => ({ u, ...rules.explain(this.explainPrincipal(u), at) }))
+    const pg = pageByPerson(all, (r) => r.u, { cursor: q.cursor, limit: q.limit ? Number(q.limit) : undefined }) ?? fail('validation', 400, '입력값을 확인해 주세요.', { 'query.cursor': 'not a cursor of this answer' })
+    const nav = rules.navigator(segs, MAX_VIA, shownPath)
+    const people = pg.items.map(({ u, access, reason }) => ({ user: { id: u.id, name: u.name }, role: u.role, access, reason, ...navigation(() => nav(this.explainPrincipal(u)), access) }))
+    const off = new Map<string, { folder: string; access: Access }[]>()
+    for (let len = segs.length; len >= 0; len--) {
+      const f = segs.slice(0, len).join('/')
+      for (const r of rules.rulesAt(f)) if (r.subjectType === 'user' && r.subjectId && !this.users.some((u) => u.id === r.subjectId && u.status === 'active')) off.set(r.subjectId, [...(off.get(r.subjectId) ?? []), { folder: f, access: r.access }])
+    }
+    const inactive = [...off].map(([id, rs]) => {
+      const u = this.users.find((x) => x.id === id)
+      const e = rules.explain({ id, name: u?.name ?? id, role: u?.role ?? 'member', groups: u?.groupIds ?? [] }, at)
+      return { user: { id, name: u?.name ?? id }, role: u?.role ?? 'member', access: e.access, reason: e.reason, rules: rs }
+    }).sort((a, b) => byPerson(a.user, b.user))
+    return { path: p, exists: p === '' || this.files.get(p)?.type === 'folder', ruleFolder, people, total: pg.total, nextCursor: pg.nextCursor, summary: summarize(all), inactive }
+  }
+  explainPerson(who: { user: User | null; role: User['role']; groupIds: string[] }, q: { prefix?: string; cursor?: string; limit?: number }): PersonAccessResponse {
+    type Row = PersonAccessResponse['folders'][number]
+    const rules = this.explainRules()
+    const p = { id: who.user?.id ?? '\u0000new-person', name: who.user?.name ?? '', role: who.role, groups: who.groupIds }
+    const cands = new Map<string, Pick<Row, 'path' | 'kinds' | 'group' | 'projects' | 'connected'>>()
+    const add = (path: string, k: Row['kinds'][number]) => {
+      if (!shownSegs(path)) return null
+      const c = cands.get(path) ?? { path, kinds: [] }
+      if (!c.kinds.includes(k)) c.kinds.push(k)
+      cands.set(path, c)
+      return c
+    }
+    for (const f of rules.ruleFolders()) add(f, 'rules')
+    for (const [path, n] of this.files) if (n.type === 'folder' && !path.includes('/')) add(path, 'top')
+    for (const g of this.groups) { const c = this.isFolder(`groups/${g.name}`) ? add(`groups/${g.name}`, 'group') : null; if (c) c.group = { id: g.id, name: g.name } }
+    for (const pr of this.projects) { const c = add(pr.folderPath, 'project'); if (c) c.projects = [...(c.projects ?? []), { id: pr.id, name: pr.name }] }
+    for (const [path, n] of this.files) if (n.type === 'folder' && /^connected\/[^/]+$/.test(path)) { const c = add(path, 'connected'); if (c) c.connected = { id: `connected-${path.slice(10)}`, name: path.slice(10) } }
+    if (who.user) cands.set(`users/${who.user.id}`, { path: `users/${who.user.id}`, kinds: ['personal'] })
+    const pg = pageByPath([...cands.values()], q)
+    let listing: ReturnType<RuleSet['listing']> | undefined
+    const folders = pg.items.map((c) => {
+      const personal = c.kinds.includes('personal')
+      const e = rules.explain(p, segsOf(c.path))
+      // someone new has no users/<id> yet: it is not named, as on the server
+      const look = () => { const l = (listing ??= rules.listing(p)); return who.user ? l.at(segsOf(c.path), MAX_VIA, shownPath) : withoutOwnFolder(l.at(segsOf(c.path), MAX_VIA + 1, shownPath), `users/${p.id}`, MAX_VIA) }
+      return { ...c, exists: personal ? null : this.isFolder(c.path), access: e.access, reason: e.reason, ...navigation(look, e.access) }
+    })
+    return { user: who.user ? { id: who.user.id, name: who.user.name } : null, role: who.role, status: who.user?.status ?? null,
+      groups: who.groupIds.map((id) => ({ id, name: this.groups.find((g) => g.id === id)?.name ?? id })).sort((a, b) => a.name.localeCompare(b.name)), folders, total: pg.total, nextCursor: pg.nextCursor }
+  }
+
+  /** the tree of Admin › 폴더 권한 › 폴더별 (like explainTree in server/src/admin/access-explain.ts): the folders here,
+   * the same rows and order (server/src/admin/access-tree.ts) */
+  explainTree(q: { path?: string; cursor?: string; limit?: string; open?: string; rules?: string }): AccessTreeResponse {
+    const input = folderInput(q.path)
+    if ('refuse' in input) fail('validation', 400, input.refuse === 'personal' ? '개인 폴더(users/)는 본인만 봐요. 사람 기준으로 확인해 주세요.' : '팀 폴더 경로가 아니에요.', { 'query.path': input.detail })
+    const segs = (input as { segs: string[] }).segs
+    const p = segs.join('/')
+    const sub = (s: readonly string[]) => {
+      const base = s.join('/')
+      const out: string[] = []
+      for (const [path, n] of this.files) {
+        if (n.type !== 'folder' || path === '' || path === base) continue
+        const at = path.lastIndexOf('/')
+        if ((at < 0 ? '' : path.slice(0, at)) === base && (s.length === 0 || shownSegs(path))) out.push(path.slice(at + 1))
+      }
+      return out
+    }
+    const marks = new Map<string, TreeMark>()
+    const mark = (path: string, kind: AccessFolderKind) => { const m = marks.get(path) ?? { kinds: new Set() }; m.kinds.add(kind); marks.set(path, m); return m }
+    for (const g of this.groups) if (this.isFolder(`groups/${g.name}`)) mark(`groups/${g.name}`, 'group').group = { id: g.id, name: g.name }
+    for (const pr of this.projects) { const m = mark(pr.folderPath, 'project'); m.projects = [...(m.projects ?? []), { id: pr.id, name: pr.name }] }
+    for (const [path, n] of this.files) if (n.type === 'folder' && /^connected\/[^/]+$/.test(path)) mark(path, 'connected').connected = { id: `connected-${path.slice(10)}`, name: path.slice(10) }
+    const active = this.users.filter((u) => u.status === 'active')
+    const src: TreeSource = {
+      rules: this.explainRules(), people: active.map((u) => this.explainPrincipal(u)),
+      groupName: (id) => this.groups.find((g) => g.id === id)?.name ?? null,
+      personName: (id) => this.users.find((u) => u.id === id)?.name ?? null,
+      children: sub, hasFolders: (s) => sub(s).length > 0, isFolder: (s) => s.length === 0 || this.files.get(s.join('/'))?.type === 'folder', marks, personal: active.length,
+    }
+    const exists = p === '' || this.files.get(p)?.type === 'folder'
+    const page = { cursor: q.cursor, limit: q.limit ? Number(q.limit) : undefined }
+    return q.rules === '1' || q.rules === 'true' ? ruledAnswer(src, segs, exists, page) : treeAnswer(src, segs, exists, { ...page, open: q.open === '1' || q.open === 'true' })
+  }
 
   // ---------------- team skills (like server/src/skills/*) ----------------
   skillChange(c: SkillChange) {
@@ -1248,14 +1350,27 @@ export class MockServer {
     createGroup: (c) => {
       const g: Group = { id: uuidv7(), name: c.body.name, description: c.body.description ?? null, memberIds: c.body.memberIds ?? [] }
       this.groups.push(g)
+      // like the server: groups/<name>/ with "this group writes", tied to the group (Folder.groupId)
+      const f: Folder = { id: uuidv7(), path: `groups/${g.name}`, exists: true, createdAt: now(), rules: [], groupId: g.id }
+      f.rules = [{ id: uuidv7(), folderId: f.id, subjectType: 'group', subjectId: g.id, access: 'write', updatedBy: { id: c.user.id, name: c.user.name }, updatedAt: now() }]
+      this.folders.push(f)
+      this.files.set('groups', { type: 'folder', mtime: now() })
+      this.files.set(f.path, { type: 'folder', mtime: now() })
       return { status: 201, body: g }
     },
     updateGroup: (c) => Object.assign(this.groups.find((g) => g.id === c.params.id) ?? fail('not_found', 404), Object.fromEntries(Object.entries(c.body).filter(([, v]) => v !== undefined))),
     deleteGroup: (c) => {
       this.groups = this.groups.filter((g) => g.id !== c.params.id)
+      // its rules go; its folder row stays, no longer a group's (the server's deleteGroup)
+      for (const f of this.folders) {
+        f.rules = f.rules.filter((r) => !(r.subjectType === 'group' && r.subjectId === c.params.id))
+        if (f.groupId === c.params.id) f.groupId = null
+      }
       return undefined
     },
-    listFolders: () => ({ items: this.folders }),
+    // like the server (admin/folder-keep.ts, the mock's names are case-sensitive): rows parked with a trashed folder are
+    // not listed, and each row says why the API keeps it
+    listFolders: () => ({ items: this.folders.filter((f) => !isParkedRow(f.path)).map((f) => ({ ...f, exists: f.path === '' || this.files.get(f.path)?.type === 'folder', keep: folderKeep(f.path, f.groupId ?? null, false), hidden: shownSegs(f.path) === null })) }),
     // ---- team skills ----
     listSkillManagers: () => this.skillManagersResponse(),
     setSkillManager: (c) => {
@@ -1332,19 +1447,38 @@ export class MockServer {
       return this.suggestionFor(s!, c.user)
     },
     createFolder: (c) => {
-      const f: Folder = { id: uuidv7(), path: c.body.path, exists: true, createdAt: now(), rules: [] }
+      if (isTeamDefaultFolder(c.body.path, false) && !c.body.rules?.length) fail('validation', 400, serverMsg('teamFolderKeepsRules', c.user.locale), { 'body.rules': 'shared/ and skills/ keep at least one rule' })
+      // like the server (create defaults to true): the folder and those above it are made
+      if (c.body.create !== false) for (let i = 1, parts = String(c.body.path).split('/'); c.body.path && i <= parts.length; i++) { const d = parts.slice(0, i).join('/'); if (!this.files.has(d)) this.files.set(d, { type: 'folder', mtime: now() }) }
+      const f: Folder = { id: uuidv7(), path: c.body.path, exists: c.body.path === '' || this.files.get(c.body.path)?.type === 'folder', createdAt: now(), rules: [] }
       f.rules = (c.body.rules ?? []).map((r: Json) => ({ id: uuidv7(), folderId: f.id, subjectType: r.subjectType, subjectId: r.subjectId ?? null, access: r.access, updatedBy: { id: c.user.id, name: c.user.name }, updatedAt: now() }))
       this.folders.push(f)
       return { status: 201, body: f }
     },
     putFolderRules: (c) => {
-      const f = this.folders.find((x) => x.id === c.params.id) ?? fail('not_found', 404)
+      const f = this.folders.find((x) => x.id === c.params.id && !isParkedRow(x.path)) ?? fail('not_found', 404)
+      if (isTeamDefaultFolder(f.path, false) && !c.body.rules.length) fail('validation', 400, serverMsg('teamFolderKeepsRules', c.user.locale), { 'body.rules': 'shared/ and skills/ keep at least one rule' })
       f.rules = c.body.rules.map((r: Json) => ({ id: uuidv7(), folderId: f.id, subjectType: r.subjectType, subjectId: r.subjectId ?? null, access: r.access, updatedBy: { id: c.user.id, name: c.user.name }, updatedAt: now() }))
-      return f
+      return { ...f, keep: folderKeep(f.path, f.groupId ?? null, false) }
     },
     deleteFolder: (c) => {
-      this.folders = this.folders.filter((f) => f.id !== c.params.id)
+      const f = this.folders.find((x) => x.id === c.params.id && !isParkedRow(x.path)) ?? fail('not_found', 404)
+      // the server refuses these at the admin API (routes/admin.ts): shared/ and skills/, and a group's folder
+      const keep = folderKeep(f.path, f.groupId ?? null, false)
+      if (keep === 'team') fail('conflict', 409, serverMsg('teamFolderKeepsRules', c.user.locale))
+      if (keep === 'group') fail('conflict', 409, serverMsg('groupFolderKeepsRow', c.user.locale))
+      this.folders = this.folders.filter((x) => x.id !== f.id)
       return undefined
+    },
+    explainFolderAccess: (c) => this.explainFolder(c.query),
+    explainPersonAccess: (c) => {
+      const u = this.users.find((x) => x.id === c.params.id) ?? fail('not_found', 404)
+      return this.explainPerson({ user: u, role: u.role, groupIds: u.groupIds }, { prefix: c.query.prefix, cursor: c.query.cursor, limit: c.query.limit ? Number(c.query.limit) : undefined })
+    },
+    explainAccessTree: (c) => this.explainTree(c.query),
+    explainNewPersonAccess: (c) => {
+      if ((c.body.groupIds as string[]).some((g) => !this.groups.some((x) => x.id === g))) fail('validation', 400, '없는 그룹이 들어 있어요.', { 'body.groupIds': 'unknown group' })
+      return this.explainPerson({ user: null, role: c.body.role, groupIds: [...new Set(c.body.groupIds as string[])] }, c.body)
     },
     previewRules: (c) => ({
       folders: c.body.changes.map((ch: Json) => ({ path: ch.path, users: this.users.map((u) => ({ user: { id: u.id, name: u.name }, role: u.role, before: u.role === 'owner' ? 'write' : 'none', after: u.role === 'owner' ? 'write' : (ch.rules as Json[]).some((r) => r.subjectType === 'everyone') ? 'read' : 'none' })) })),
@@ -2057,6 +2191,11 @@ export class MockServer {
       const parts = path.split('/')
       for (let i = 1; i < parts.length; i++) { const d = parts.slice(0, i).join('/'); if (!this.files.has(d)) this.files.set(d, { type: 'folder', mtime: now() }) }
       this.putFile(path, typeof body.base64 === 'string' ? new Uint8Array(Buffer.from(body.base64, 'base64')) : String(body.text ?? ''))
+    }
+    else if (p === '/__test/rmdir') {
+      // a folder gone from disk (moved away outside the app): its folder rows and rules stay
+      const path = String(body.path)
+      for (const k of [...this.files.keys()]) if (k === path || k.startsWith(path + '/')) this.files.delete(k)
     }
     else if (p === '/__test/download-only') {
       this.putFile(String(body.path), 'PK generated deck')

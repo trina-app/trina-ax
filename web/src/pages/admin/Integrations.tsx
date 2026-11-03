@@ -4,7 +4,7 @@
 // the requests that ask a member to connect a service as their own (components/integrations/RequestDialog.tsx).
 // "Discover" adds a known service by name; "Add connection" takes any MCP server or API by its address.
 import { Cable } from 'lucide-react'
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useId, useState } from 'react'
 import type { Group, Integration, User } from '@mycel/shared/api'
 import { api, API } from '../../lib/api'
 import type { Connector } from '../../lib/connectors'
@@ -12,7 +12,7 @@ import { covers, isEmptyAccess, NOBODY } from '../../lib/integrations'
 import { useT } from '../../i18n'
 import { useMeStrict } from '../../store/session'
 import { reloadAsked } from '../../store/live'
-import { Badge, EmptyState } from '../../components/ui'
+import { Badge, EmptyState, TabPanel } from '../../components/ui'
 import { afterAdded, ConnectorDiscover, ConnectorsHeader, matchesQuery, type ConnectorTab } from '../../components/integrations/ConnectorsView'
 import { IntegrationDialog } from '../../components/integrations/IntegrationDialog'
 import { TeamRequests } from '../../components/integrations/RequestDialog'
@@ -37,9 +37,11 @@ export default function AdminIntegrations() {
     reload,
   })
   const person = { id: me.user.id, groupIds: me.groups.map((g) => g.id) }
+  const panels = useId()
   return (
     <>
-      <ConnectorsHeader title={t('admin.integrations')} tab={tab} onTab={setTab} query={query} onQuery={setQuery} onAdd={() => setDialog({})} />
+      <ConnectorsHeader title={t('admin.integrations')} tab={tab} onTab={setTab} query={query} onQuery={setQuery} onAdd={() => setDialog({})} panels={panels} />
+      <TabPanel base={panels} value={tab}>
       <Loadable state={state}>
         {(list) => {
           if (tab === 'discover') return <ConnectorDiscover connected={list} query={query} onAdd={(c) => setDialog({ connector: c })} onCustom={() => setDialog({})} />
@@ -83,6 +85,7 @@ export default function AdminIntegrations() {
           <div className="mt-8"><TeamRequests /></div>
         </>
       )}
+      </TabPanel>
       {dialog && (
         <IntegrationDialog
           scope="team"

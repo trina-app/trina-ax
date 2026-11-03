@@ -87,6 +87,9 @@ export class FakeServices {
   listStatus: number | null = null
   /** tools/call answers with this HTTP status */
   callStatus: number | null = null
+  /** requests to this path wait until `until` settles (a service slow to answer: a test holds a check open while it
+   * does something else, then lets it go on). Keep it under net()'s timeoutMs. */
+  hold: { path: string; until: Promise<void> } | null = null
 
   constructor() {
     const { cert: c, key } = cert()
@@ -225,6 +228,7 @@ export class FakeServices {
     const body = req.method === 'GET' || req.method === 'HEAD' ? '' : await req.text()
     const headers = Object.fromEntries(req.headers)
     this.seen.push({ method: req.method, path: u.pathname + u.search, headers, body })
+    if (this.hold && this.hold.path === u.pathname) await this.hold.until
     const auth = req.headers.get('authorization') ?? ''
     const again = () => new Request(req.url, { method: req.method, headers: req.headers, body: body || undefined })
     const p = u.pathname

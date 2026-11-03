@@ -44,7 +44,7 @@ describe('coverage', () => {
 // every case. Allowed mutating writes are checked on a separate world below.
 let W: World
 let inst: Instance
-beforeAll(async () => { inst = await startInstance('matrix'); W = await buildWorld(inst, { sharedSubscriptions: true }) })
+beforeAll(async () => { inst = await startInstance('matrix'); W = await buildWorld(inst, { sharedSubscriptions: true, connectCard: true }) })
 afterAll(async () => { for (const s of Object.values(W?.sockets ?? {})) s.close(); await inst?.close() })
 
 // Every case runs once, in two phases on the pristine world:

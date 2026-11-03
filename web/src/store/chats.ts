@@ -1,8 +1,9 @@
 // Chats, the visible branch of each open chat, and everything the WebSocket says about them: streaming text, steps,
-// queue position, ask_user cards, artifacts being written. REST gives the state, events keep it current, and after
-// a reconnect that the server could not resume (reset/resync) everything is reloaded from REST.
+// queue position, ask_user / browser site / connect_service cards, artifacts being written. REST gives the state,
+// events keep it current, and after a reconnect that the server could not resume (reset/resync) everything is
+// reloaded from REST.
 import { create } from 'zustand'
-import { uuidv7, type Attachment, type Chat, type ChatQueueSnapshot, type EngineId, type Message, type ServerEvent, type ServerEventData, type TurnRequest, type TurnStarted } from '@mycel/shared/api'
+import { uuidv7, type Attachment, type Chat, type ChatQueueSnapshot, type EngineId, type Message, type ServerEvent, type ServerEventData, type TurnConnectBody, type TurnConnectResult, type TurnRequest, type TurnStarted } from '@mycel/shared/api'
 import { api, API, ApiError, isNetworkError } from '../lib/api'
 import { applyCreated, applyDelta, applyDone, applyStep, emptyThread, markLocal, mergeFresh, mergeTurnStarted, optimisticUserMessage, prependPage, type Delta, type Thread } from './thread'
 
@@ -23,6 +24,9 @@ export interface LiveArtifact {
 }
 
 export interface OpenRequest { turnId: string; chatId: string; messageId: string; request: TurnRequest }
+/** What a connect_service card's button sends (POST /api/turns/:id/connect) besides the card's id. A key only ever
+ * goes sealed (lib/connectCard.ts): the store never holds one. */
+export type ConnectAction = TurnConnectBody extends infer B ? (B extends unknown ? Omit<B, 'requestId'> : never) : never
 
 type Pending = { deltas: Delta[]; steps: ServerEventData<'message.step'>[]; done: Message | null }
 
@@ -33,7 +37,7 @@ interface ChatsState {
   threads: Record<string, Thread>
   /** messageId -> estimated dispatch rank (1 = first queued, 0 = running), not turns ahead */
   queue: Record<string, number>
-  /** open ask_user / browser_site cards by requestId */
+  /** open ask_user / browser_site / connect_service cards by requestId */
   requests: Record<string, OpenRequest>
   /** chatId -> key -> artifact being written or just saved */
   liveArtifacts: Record<string, Record<string, LiveArtifact>>
@@ -55,6 +59,9 @@ interface ChatsState {
   edit: (chatId: string, userMessageId: string, content: string, attachments: Attachment[]) => Promise<void>
   selectBranch: (chatId: string, messageId: string) => Promise<void>
   answer: (requestId: string, body: { kind: 'ask_user'; answer: string | string[] | null } | { kind: 'browser_site'; decision: 'once' | 'always' | 'deny' }) => Promise<void>
+  /** a connect_service card's button: the server's outcome (null: the card is no longer open here). A connected or
+   * skipped card closes right away (the server also closes it with turn.request.closed). */
+  connect: (requestId: string, body: ConnectAction) => Promise<TurnConnectResult | null>
   handleEvent: (ev: ServerEvent) => void
   reloadAll: () => Promise<void>
   reset: () => void
@@ -417,6 +424,22 @@ export const useChats = create<ChatsState>((set, get) => {
         delete next[requestId]
         return { requests: next }
       })
+    },
+
+    async connect(requestId, body) {
+      const session = generation
+      const r = get().requests[requestId]
+      if (!r || r.request.kind !== 'connect_service') return null
+      const res = await api.call(API.connectTurn, { params: { id: r.turnId }, body: { ...body, requestId } })
+      if (session === generation && (res.state === 'connected' || res.state === 'skipped')) {
+        rememberClosed(requestId)
+        set((s) => {
+          const next = { ...s.requests }
+          delete next[requestId]
+          return { requests: next }
+        })
+      }
+      return res
     },
 
     async reloadAll() {

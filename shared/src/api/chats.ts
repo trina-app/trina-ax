@@ -3,7 +3,9 @@ import { z } from 'zod'
 import { Uuid7 } from '../ids'
 import { EngineId, IsoTime, PageQuery, QueryBool, RelPath, page } from './common'
 import { endpoint, empty } from './endpoint'
+import { SealedSecret } from './credentials'
 import { Chat, Message, MessageSources, Project } from './entities'
+import { IntegrationStatus } from './integrations'
 import { TurnRequest } from './ws'
 
 // ---------------- chats ----------------
@@ -122,6 +124,31 @@ export const TurnAnswerBody = z.discriminatedUnion('kind', [
   }),
 ])
 export type TurnAnswerBody = z.infer<typeof TurnAnswerBody>
+
+/** POST /api/turns/:id/connect: finishing a connect_service card (ConnectServiceRequest). A key never goes through
+ * /answer: answers reach the AI and its session file. The AI learns only the outcome (connected, skipped, the tools). */
+const ConnectRequestId = z.string().min(1).max(100)
+export const TurnConnectBody = z.discriminatedUnion('action', [
+  /** add the connection. A key (bearer / header) comes sealed for 'integration.secret'; a sign-in service is added and
+   * then signed in to (state 'sign_in'). A team connection: who may use it, the admin alone or everyone. Again after a
+   * failed check: the same connection gets the new key, no second one is made. */
+  z.object({ action: z.literal('connect'), requestId: ConnectRequestId, sealed: SealedSecret.optional(), access: z.enum(['me', 'everyone']).optional() }),
+  /** after signing in at the service, or after Google Drive: the server checks it is connected and tells the AI */
+  z.object({ action: z.literal('done'), requestId: ConnectRequestId }),
+  /** not now: the AI continues without it */
+  z.object({ action: z.literal('skip'), requestId: ConnectRequestId }),
+])
+export type TurnConnectBody = z.infer<typeof TurnConnectBody>
+export const TurnConnectResult = z.object({
+  /** connected: done, the card closes. sign_in: added, now sign in (POST /api/integrations/:integrationId/authorize).
+   * retry: added but its check failed (lastError says why, in words a person can act on); the card stays for another
+   * key. skipped: closed without a connection */
+  state: z.enum(['connected', 'sign_in', 'retry', 'skipped']),
+  integrationId: z.string().optional(),
+  status: IntegrationStatus.optional(),
+  lastError: z.string().nullable().optional(),
+})
+export type TurnConnectResult = z.infer<typeof TurnConnectResult>
 /** Cards still waiting for an answer in this chat (after a reload / resync the client shows them again).
  * browser_site requests are listed only for the window that sent the turn (X-Mycel-Window). */
 export const OpenTurnRequest = z.object({ turnId: Uuid7, chatId: Uuid7, messageId: Uuid7, request: TurnRequest })
@@ -176,6 +203,7 @@ export const CHATS = {
   editMessage: endpoint({ method: 'POST', path: '/api/chats/:id/messages/:messageId/edit', auth: 'user', owner: 'B', status: 202, body: EditMessageBody, response: TurnStarted, summary: 'Edited copy of user message :messageId as a new branch, then answer it.' }),
   selectBranch: endpoint({ method: 'POST', path: '/api/chats/:id/branch', auth: 'user', owner: 'B', body: SelectBranchBody, response: MessagesPage, summary: 'Switch the visible branch ("< 2/3 >"); returns the newest page of the new path.' }),
   listTurnRequests: endpoint({ method: 'GET', path: '/api/chats/:id/requests', auth: 'user', owner: 'B', response: z.object({ items: z.array(OpenTurnRequest) }), summary: 'Open ask_user / browser site cards of the running turn of this chat.' }),
+  connectTurn: endpoint({ method: 'POST', path: '/api/turns/:id/connect', auth: 'user', owner: 'B', body: TurnConnectBody, response: TurnConnectResult, summary: 'Finish a connect_service card: add the connection with a sealed key, after a sign-in, or skip' }),
   answerTurn: endpoint({ method: 'POST', path: '/api/turns/:id/answer', auth: 'user', owner: 'B', body: TurnAnswerBody, response: empty, status: 204, summary: 'Answer an ask_user card or a browser site confirmation of an own running turn.' }),
 
   listProjects: endpoint({ method: 'GET', path: '/api/projects', auth: 'user', owner: 'B', response: z.object({ items: z.array(Project) }), summary: 'Projects whose folder the caller can read.' }),

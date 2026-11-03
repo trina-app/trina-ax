@@ -4,14 +4,14 @@
 // (ConnectorConnections.tsx): that is the other direction, claude.ai using this server's files. "Discover" adds a known
 // service by name; "Add connection" takes any MCP server or API by its address.
 import { Cable } from 'lucide-react'
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useId, useState } from 'react'
 import type { Integration, IntegrationList } from '@mycel/shared/api'
 import { api, API } from '../lib/api'
 import type { Connector } from '../lib/connectors'
 import { splitByScope } from '../lib/integrations'
 import { useT } from '../i18n'
 import { reloadAsked } from '../store/live'
-import { EmptyState } from '../components/ui'
+import { EmptyState, TabPanel } from '../components/ui'
 import { afterAdded, ConnectorDiscover, ConnectorsHeader, matchesQuery, type ConnectorTab } from '../components/integrations/ConnectorsView'
 import { MyRequests } from '../components/integrations/AnswerDialog'
 import { IntegrationDialog } from '../components/integrations/IntegrationDialog'
@@ -34,9 +34,12 @@ export default function Integrations() {
     replace: (i) => state.setData((d) => (d ? { ...d, items: d.items.map((x) => (x.id === i.id ? i : x)) } : d)),
     reload,
   })
+  const panels = useId()
   return (
     <section data-testid="integrations">
-      <ConnectorsHeader title={t('integrations.title')} tab={tab} onTab={setTab} query={query} onQuery={setQuery} onAdd={state.data?.personalAllowed ? () => setDialog({}) : undefined} />
+      <ConnectorsHeader title={t('integrations.title')} tab={tab} onTab={setTab} query={query} onQuery={setQuery} onAdd={state.data?.personalAllowed ? () => setDialog({}) : undefined} panels={panels} />
+      {/* with tabs (adding allowed), what the chosen one shows */}
+      <TabPanel base={state.data?.personalAllowed ? panels : null} value={tab}>
       <div className="[&:not(:empty)]:mb-5">
         <MyRequests
           version={requests}
@@ -94,6 +97,7 @@ export default function Integrations() {
           )
         }}
       </Loadable>
+      </TabPanel>
       {dialog && (
         <IntegrationDialog
           scope={dialog.existing?.scope ?? 'personal'}

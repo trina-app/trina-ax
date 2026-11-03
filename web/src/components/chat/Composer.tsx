@@ -9,6 +9,8 @@
 // which are attached as references (POST /api/attachments/team-file) and shown as chips with a folder icon. Team
 // files also arrive from the file screen / preview ("Ask AI about this", "Add to current chat", drag from the preview).
 // "/" at the start lists the team skills (SkillMenu).
+// Text that looks like a key or password waits for "Send anyway" (SecretWarning): a message goes to the AI provider
+// and stays in the chat; a service's key belongs in the connect card the AI shows.
 import clsx from 'clsx'
 import { ArrowUp, Camera, Check, Clock, FileAudio, FileText, FolderOpen, Loader2, MessageCircleQuestion, Mic, MicOff, Monitor, Paperclip, Smartphone, Square, X, ChevronDown } from 'lucide-react'
 import { useEffect, useId, useImperativeHandle, useRef, useState, type Ref } from 'react'
@@ -34,6 +36,7 @@ import { ENGINE_LABEL, EngineOptions } from './EngineMenu'
 import { IconButton } from '../ui'
 import { useSkillMenu } from './SkillMenu'
 import TeamFilePicker from './TeamFilePicker'
+import { SecretWarning, useSecretHold } from './SecretWarning'
 
 interface Pending {
   id: string
@@ -81,7 +84,8 @@ export default function Composer({
   onSend: (text: string, attachments: Attachment[]) => Promise<void>
   /** the AI waits for the answer to its question in this chat: sending answers it with the text */
   answering?: { question: string; onAnswer: (text: string) => Promise<void> }
-  /** a card in this chat waits for a choice only its own buttons make (a server safety check, a browser site) */
+  /** a card in this chat waits for a choice only its own buttons make (a server safety check, a browser site,
+   * connecting a service) */
   choiceWaiting?: boolean
   onStop: () => Promise<void>
   engine: EngineChoice
@@ -132,6 +136,8 @@ export default function Composer({
   }, [userId, draftId])
   const [error, setError] = useState<string | null>(null)
   const [sending, setSending] = useState(false)
+  /** the text looks like a key: sending waits for "Send anyway" or "Edit" (a changed text asks again) */
+  const secret = useSecretHold(text)
   const [stopping, setStopping] = useState(false)
   const [transcribing, setTranscribing] = useState(false)
   const [drag, setDrag] = useState(false)
@@ -307,8 +313,11 @@ export default function Composer({
     ? !sending && !transcribing && recorder.state === 'idle' && text.trim().length > 0
     : !sending && !uploading && !transcribing && recorder.state === 'idle' && (text.trim().length > 0 || ready.length > 0)
 
-  const submit = async () => {
+  // onClick hands submit the click event: "Send anyway" goes through send(true)
+  const submit = () => send(false)
+  const send = async (anyway: boolean) => {
     if (!canSend) return
+    if (!secret.pass(anyway)) return
     setSending(true)
     setError(null)
     if (answering) {
@@ -393,6 +402,15 @@ export default function Composer({
 
   return (
     <div>
+      {secret.held && (
+        <SecretWarning
+          onSendAnyway={() => void send(true)}
+          onEdit={() => {
+            secret.release()
+            taRef.current?.focus()
+          }}
+        />
+      )}
       {/* The one field that is focused most of the time: a quiet edge, as in Claude, not the 2px accent edge of other
           fields. At rest --c-field-border (3:1); focused a darker 1px edge (--c-faint, >= 5.5:1) and the caret. */}
       <div
