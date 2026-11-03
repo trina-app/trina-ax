@@ -10,7 +10,7 @@ import type { RouteModule } from './module'
 import { fail } from '../http/errors'
 import { audit } from '../admin/audit'
 import { ensureFolderRow } from '../admin/folders'
-import { assertFolderFree, canSeeProject, ensureProjectFolderEx, projectFolderName, projectPaths } from '../chat/projects'
+import { assertFolderFree, canRead, canSeeProject, ensureProjectFolderEx, projectFolderName, projectPaths } from '../chat/projects'
 import type { Locale } from '@mycel/shared/api'
 import type { Principal } from '../policy/access'
 import { boxd } from '../devenv/boxd'
@@ -61,7 +61,7 @@ function giveProjectFolder(ctx: AppContext, p: Principal, project: { id: string;
     const f = ensureProjectFolderEx(ctx.files, p, `projects/${projectFolderName(path.join(root, 'projects'), 'projects', taken, project.name, project.id)}`, locale)
     top = f.createdTop
     ctx.db.transaction(() => {
-      assertFolderFree(ctx.db, ctx.files.fx.caseInsensitive, f.path, locale, { except: project.id, mayName: (x) => canSeeProject(ctx.files, ctx.db, p, x) })
+      assertFolderFree(ctx.db, ctx.files.fx.caseInsensitive, f.path, locale, { except: project.id, mayName: (x) => canRead(ctx.files, p, x) })
       ensureFolderRow(ctx.db, f.path)
       ctx.db.query('UPDATE projects SET folder_path = ? WHERE id = ?').run(f.path, project.id)
       audit(ctx.db, { actor: p.id, action: 'dev_env.folder', target: project.id, detail: { before: '', after: f.path } })
@@ -89,9 +89,9 @@ export const devEnvRoutes: RouteModule = {
       if (!devEnvFlag()) fail('not_found')
       let p: Principal
       try { p = ctx.files.principal(userId) } catch { return fail('forbidden') }
-      const r = ctx.db.query('SELECT id, name, folder_path FROM projects WHERE id = ?').get(id) as { id: string; name: string; folder_path: string } | null
+      const r = ctx.db.query('SELECT id, name, folder_path, trashed_with FROM projects WHERE id = ?').get(id) as { id: string; name: string; folder_path: string; trashed_with: string | null } | null
       // the project page's dev environment: seen like the project (a team project whose folder is in the trash: admins)
-      if (!r || !canSeeProject(ctx.files, ctx.db, p, r.folder_path)) fail('not_found')
+      if (!r || !canSeeProject(ctx.files, p, r)) fail('not_found')
       return { p, r: r!, ref: { id: r!.id, folderPath: r!.folder_path } }
     }
     const response = async (id: string, folderPath: string, p: Principal): Promise<DevEnvProjectResponse> => {

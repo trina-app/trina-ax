@@ -6499,17 +6499,22 @@ Nothing is removed or re-keyed.
   sharing a personal project by copy, and the dev environment's folder for a project on the team root
   (`assertFolderFree()` in `chat/projects.ts`, inside the transaction that writes the row). The 409 names the project
   only when the caller can see it (`canSeeProject()`, below); otherwise it says only that another project uses the
-  folder, without `projectId`. Paths are compared the way the volume compares names (`volumeKey()`: NFC, lower case on a case-insensitive volume). The
-  automatic folder names of a new team project folder, a personal project and the dev environment's folder step around
+  folder, without `projectId`. Only projects whose folder is in place count: one whose folder is in the trash holds no
+  path (below). Paths are compared the way the volume compares names (`volumeKey()`: NFC, lower case on a
+  case-insensitive volume). The automatic folder names of a new team project folder, a personal project and the dev environment's folder step around
   the paths projects name, as around folders rows, so they never get a 409. A repoint into a folder it had to make removes that folder again.
 - **Moves.** `TeamFiles.move()` rewrites `projects.folder_path`; in the same transaction it now refuses (409,
   `projectThere`, `params.reason: 'project_folder_taken'`) a move that would put a project inside the moved folder on a
-  path that a project outside it still names: a project whose folder is in the trash or was removed keeps its path.
+  path that a project in place outside it still names (one whose folder is gone from disk keeps its path). A project
+  whose folder went to the trash from inside the moved folder moves along with its trash item, so it still comes back
+  with its folder; one whose folder was trashed elsewhere keeps its path. Such projects do not make the moved folder
+  admin-only (`managedRows()` counts projects in place).
 - **Sharing by copy.** The copy's name (`copyFolderTree()`, also for sharing a folder) steps around the folder's visible
   entries and also around every path a project names (`freeName(…, alsoTaken)`). Before (review), it avoided only
-  folders on disk, so a copy could land on the path of a project whose folder was in the trash: the copy became that
-  old project's live folder, with its instructions, seen by everyone who could read it, and admin-only to trash (the
-  member got 403). Stepping around tells the caller only that some project names that path, never which. If a project
+  folders on disk, so a copy could land on the path of a project whose folder was gone: the copy became that old
+  project's live folder, with its instructions, seen by everyone who could read it, and admin-only to trash (the member
+  got 403). (A project whose folder is in the trash no longer takes over a folder by its path at all, below; one whose
+  folder vanished from disk another way still could.) Stepping around tells the caller only that some project names that path, never which. If a project
   is made on the copy's path in the moment between the copy and the share's transaction, the share is 409 and the copy
   is removed again (`TeamFiles.discardCopy()`: for good, not through the trash, with a delete event); the project
   stays personal.
@@ -6519,12 +6524,43 @@ Nothing is removed or re-keyed.
   path, and a trashed folder's rules go to the trash with it, so the path fell back to the rules above: after an admin
   trashed the finance-only `shared/secret`, every member listed and opened its project, got its instructions in their
   AI, and the 409 named it. "휴지통에 간 그룹·프로젝트·규칙 폴더" (보안 r2) says such a project is 404 for participants and
-  only admins and the owner see and restore it; the code now does that. `canSeeProject()`: read access to the folder,
-  and while the folder or a folder above it is in the trash (an unrestored `trash_items` row of kind folder at or above
-  its path) admins and the owner only. It decides the list, `GET/PATCH/DELETE /api/projects/:id`, share, a chat moved
-  into or made in the project, the project's instructions in a turn (`projectForChat`, so schedules too), the dev
-  environment's project lookup and whether a 409 names it. Personal projects (users/) are their person's in the trash
-  too. Regression test: `tests/security/project-trashed-folder.test.ts`.
+  only admins and the owner see and restore it; the code now does that, **by the project's own state**
+  (`projects.trashed_with`, migration 332), not by looking its path up in the trash. A first version (review round 1)
+  looked for an unrestored trash row at or above the path, and review round 2 found three ways that went wrong: a purge
+  deletes the trash row, so the finance project showed to every member again; a restore under a " (restored)" name left
+  the project on its old path, now someone else's folder, whose readers then got its instructions; an old, unrelated
+  trash row at a path hid a new project made there from its own maker (and the list scanned the trash once per
+  project: 100k trash rows and 1000 projects took 6.8 s, blocking the server).
+  - `TeamFiles.remove()` of a folder sets `trashed_with` (the trash item's id), in the same transaction, on every team
+    project at or under it that has none yet (a project keeps the folder trashed first). Personal projects (users/) are
+    their person's in the trash too and are left alone.
+  - A restore (`projectsBack()`) moves the projects of that trash item to where the folder came back (its old path or a
+    " (restored)" name, the same rewrite as a move) and clears the mark; projects whose folders were trashed from inside
+    it earlier move along with their items. **One project per folder through a restore:** a restored project whose new
+    path a project in place already names (its folder gone from disk) stays detached: at its old path, still marked,
+    admins and the owner only, for an admin to point at a folder. Refusing the restore instead would keep the files in
+    the trash because of a project row.
+  - A purge (by hand or by the retention sweep) keeps the mark: the project stays the admins' and the owner's, to delete
+    or to point at a folder. An admin's `PATCH folderPath` clears the mark, also to the same path (to take the folder
+    now there).
+  - While marked, the project holds no path: another project may be made on a folder made at its old path (it follows
+    its own folder when that comes back), the share copy's names and moves ignore it, and it does not make a folder at
+    its old path admin-only.
+  - `canSeeProject()`: read access to the folder, and while marked, admins and the owner only. It decides the list,
+    `GET/PATCH/DELETE /api/projects/:id`, share, a chat moved into or made in the project, the project's instructions in a
+    turn (`projectForChat`, so schedules too), the dev environment's project lookup, the job notice and the preview
+    gateway (`stillAllowed`), the inbox's dev environment and chat notices, and whether a 409 names it. Nobody uses the
+    box of a marked project (`mayUseBox`, which also decides who hears that a box stopped: the admins only then): its
+    path may be another folder's by now. The admin access views (`access-explain.ts`) leave marked projects out.
+  - **Existing rows** (migration 332, in C's range because it reads `trash_items.kind` from 301): the earliest unrestored
+    folder item at or above a team project's folder, deleted after the project was made (an older folder of that name,
+    trashed before the project, was another folder). It looks up each project's own folder and the folders above it in
+    a temporary index on `trash_items(original_path)`: 1000 projects, 100k trash rows, 0.1 s. A folder trashed and
+    purged before this build left no row and is not found; such a project shows by its path's rules, as before.
+  - Regression tests: `tests/security/project-trashed-folder.test.ts`, `tests/security/project-trash-state.test.ts` (the
+    purge, the restore under a new name, the detached restore, a move with a trashed project folder inside, an old
+    trash row and a new project, a project folder moved onto a trashed path, the box, its stop notice and its preview,
+    the admin access view, the backfill).
 - **Migration 221 on a large server.** `audit_log` is indexed on `at` only, so the backfill read the whole log once per
   project: 1000 projects and 1M audit rows took 29.5 s on the test Mac (107 s in the review) under the write lock at
   start. The migration makes a temporary index on `audit_log(target, action)` before the backfill and drops it after:
@@ -6589,7 +6625,7 @@ Nothing is removed or re-keyed.
   write every team folder (`policy/access.ts`), as the other languages said. All five now name the owner and admins.
   `projects.folderHint` says a folder can be one project. `docs/for-teams.md` and `docs/for-teams.ko.md` have a
   paragraph on projects.
-- Tests: `tests/security/project-is-folder.test.ts` (each way, an older row stored in another case (skipped on a
+- Tests (also those under "A project whose folder is in the trash"): `tests/security/project-is-folder.test.ts` (each way, an older row stored in another case (skipped on a
   case-sensitive volume, where it is another folder), the repoint, the copy stepping around a project's path and the
   copy removed after a 409, moves, rows from before the rule, the lock's guard, a chat moved into a project it cannot
   read), `tests/security/project-trashed-folder.test.ts`, `tests/unit/b-project-taint.test.ts` (a real turn of the

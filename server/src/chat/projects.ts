@@ -23,23 +23,20 @@ export const parentFolder = (p: string) => (p.includes('/') ? p.slice(0, p.lastI
 
 const isAdminRole = (p: Principal) => p.role === 'owner' || p.role === 'admin'
 
-/**
- * Is this team project's folder, or a folder above it, in the trash? Its rules went to the trash with it, so its path
- * now falls back to the rules above (a finance-only folder in shared/ would look like the rest of shared/).
- * Personal projects (users/) are their person's in the trash too.
- */
-export function projectFolderInTrash(db: Database, folderPath: string): boolean {
-  if (folderPath === '' || folderPath === 'users' || folderPath.startsWith('users/')) return false
-  return !!db.query("SELECT 1 FROM trash_items WHERE kind = 'folder' AND restored_at IS NULL AND (original_path = ?1 OR substr(?1, 1, length(original_path) + 1) = original_path || '/') LIMIT 1").get(folderPath)
-}
+/** What canSeeProject reads of a projects row. */
+export interface ProjectSight { folder_path: string; trashed_with: string | null }
 
 /**
- * Who sees a project (its name, instructions, chats in it, and its instructions in their AI): whoever can read its
- * folder. While a team project's folder is in the trash, only admins and the owner, who alone can restore it
- * (docs/DECISIONS.md "휴지통에 간 그룹·프로젝트·규칙 폴더").
+ * Who sees a project (its name, instructions, chats in it, its instructions in their AI, its dev environment): whoever
+ * can read its folder, while the folder is in place. While the folder (or a folder above it) is in the trash, or was
+ * purged from there (`projects.trashed_with`, set by TeamFiles.remove()), only admins and the owner, who alone can
+ * restore it (docs/DECISIONS.md "휴지통에 간 그룹·프로젝트·규칙 폴더"): the folder's rules went to the trash with it, so
+ * its path falls back to the rules above, and may be another folder's by now. Decided by the project's own state,
+ * never by looking up paths in the trash.
  */
-export function canSeeProject(files: FileService, db: Database, user: Principal, folderPath: string): boolean {
-  return canRead(files, user, folderPath) && (isAdminRole(user) || !projectFolderInTrash(db, folderPath))
+export function canSeeProject(files: FileService, user: Principal, p: ProjectSight): boolean {
+  if (p.trashed_with !== null && !isAdminRole(user)) return false
+  return canRead(files, user, p.folder_path)
 }
 
 /**
@@ -49,15 +46,15 @@ export function canSeeProject(files: FileService, db: Database, user: Principal,
  */
 export function projectOnFolder(db: Database, caseInsensitive: boolean, folder: string, except?: string): { id: string; name: string; folderPath: string } | null {
   const k = volumeKey(folder, caseInsensitive)
-  for (const r of db.query('SELECT id, name, folder_path FROM projects ORDER BY created_at, id').all() as { id: string; name: string; folder_path: string }[])
+  // a project whose folder is in the trash does not hold the path: it follows its folder when that comes back
+  for (const r of db.query('SELECT id, name, folder_path FROM projects WHERE trashed_with IS NULL ORDER BY created_at, id').all() as { id: string; name: string; folder_path: string }[])
     if (r.id !== except && volumeKey(r.folder_path, caseInsensitive) === k) return { id: r.id, name: r.name, folderPath: r.folder_path }
   return null
 }
 
 /**
  * 409 when another project uses `folder`. Call inside the transaction that writes the projects row. It names that
- * project only when `mayName` says the caller can see it (canSeeProject): the caller can read the folder, but a project
- * whose folder is in the trash is the admins' alone.
+ * project only when `mayName` says the caller can see it (that project's folder is in place, so: can they read it).
  */
 export function assertFolderFree(db: Database, caseInsensitive: boolean, folder: string, locale: Locale, o: { except?: string; mayName: (folderPath: string) => boolean }): void {
   const other = projectOnFolder(db, caseInsensitive, folder, o.except)

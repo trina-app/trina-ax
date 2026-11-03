@@ -518,7 +518,7 @@ export class ChatRuntime {
   projectForChat(projectId: string | null, user: Principal) {
     if (!projectId) return null
     const p = this.store.projectRow(projectId)
-    if (!p || !canSeeProject(this.files, this.db, user, p.folder_path)) return null
+    if (!p || !canSeeProject(this.files, user, p)) return null
     return { name: p.name, folderPath: p.folder_path, instructions: p.instructions, createdBy: p.created_by, instructionsAuthor: p.instructions_author, instructionsAuthored: p.instructions_authored }
   }
   /**

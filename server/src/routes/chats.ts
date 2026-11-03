@@ -11,13 +11,13 @@ import type { AuthInfo } from '../services'
 import { fail } from '../http/errors'
 import { newId } from '../db'
 import { getChatRuntime, installChatRuntime, type ChatRuntime } from '../chat/runtime'
-import { CHAT_COLS, decodeCursor, encodeCursor, type ChatRow, type MessageRow } from '../chat/store'
+import { CHAT_COLS, PROJECT_COLS, decodeCursor, encodeCursor, type ChatRow, type MessageRow } from '../chat/store'
 import { frequentQuestions } from '../chat/frequent-questions'
 import { hideTitle } from '../chat/title'
 import fs from 'node:fs'
 import path from 'node:path'
 import type { FolderRuleInput } from '@mycel/shared/api'
-import { assertFolderFree, canSeeProject, canWrite, ensureProjectFolderEx, lookupFolder, parentFolder, projectFolderName, projectPaths } from '../chat/projects'
+import { assertFolderFree, canRead, canSeeProject, canWrite, ensureProjectFolderEx, lookupFolder, parentFolder, projectFolderName, projectPaths } from '../chat/projects'
 import { badSegment } from '../policy/names'
 import { componentC } from '../team-files/component'
 import { mapErrors } from '../team-files/errors'
@@ -168,7 +168,7 @@ export const chatsRoutes: RouteModule = {
       const { engine, model } = newChatEngine(ctx, auth.user, body, c.get('locale'))
       if (body.projectId) {
         const p = rt.store.projectRow(body.projectId)
-        if (!p || !canSeeProject(ctx.files, ctx.db, principal(ctx, auth), p.folder_path)) fail('not_found')
+        if (!p || !canSeeProject(ctx.files, principal(ctx, auth), p)) fail('not_found')
       }
       const id = newId()
       const now = new Date().toISOString()
@@ -189,7 +189,7 @@ export const chatsRoutes: RouteModule = {
       checkChatEngineChange(ctx, auth.user, chat, body, c.get('locale'))
       if (body.projectId) {
         const p = rt.store.projectRow(body.projectId)
-        if (!p || !canSeeProject(ctx.files, ctx.db, principal(ctx, auth), p.folder_path)) fail('not_found')
+        if (!p || !canSeeProject(ctx.files, principal(ctx, auth), p)) fail('not_found')
       }
       const sets: string[] = []
       const args: (string | null)[] = []
@@ -344,8 +344,8 @@ export const chatsRoutes: RouteModule = {
     // ---------------- projects ----------------
     kit.handle(API.listProjects, ({ auth }) => {
       const p = principal(ctx, auth)
-      const rows = ctx.db.query('SELECT id, name, folder_path, instructions, created_by, created_at FROM projects ORDER BY name COLLATE NOCASE, id').all() as Parameters<typeof rt.store.toProject>[0][]
-      return { items: rows.filter((r) => canSeeProject(ctx.files, ctx.db, p, r.folder_path)).map((r) => rt.store.toProject(r, mayEdit(ctx, p, r))) }
+      const rows = ctx.db.query(`SELECT ${PROJECT_COLS} FROM projects ORDER BY name COLLATE NOCASE, id`).all() as Parameters<typeof rt.store.toProject>[0][]
+      return { items: rows.filter((r) => canSeeProject(ctx.files, p, r)).map((r) => rt.store.toProject(r, mayEdit(ctx, p, r))) }
     })
 
     kit.handle(API.createProject, ({ c, body, auth }) => {
@@ -357,7 +357,7 @@ export const chatsRoutes: RouteModule = {
       // one project per folder, checked in the transaction that writes the row (docs/DECISIONS.md "Projects: a folder
       // with instructions"). The creator wrote this first version of the instructions: the turns of anyone else count
       // them as outside content (chat/runtime.ts projectTaints).
-      const seen = (f: string) => canSeeProject(ctx.files, db, p, f)
+      const seen = (f: string) => canRead(ctx.files, p, f)
       const insert = (folder: string) => {
         assertFolderFree(db, ctx.files.fx.caseInsensitive, folder, locale, { mayName: seen })
         db.query('INSERT INTO projects (id, name, folder_path, instructions, created_by, created_at, instructions_author, instructions_authored) VALUES (?,?,?,?,?,?,?,?)')
@@ -457,7 +457,7 @@ export const chatsRoutes: RouteModule = {
     kit.handle(API.getProject, ({ params, auth }) => {
       const p = principal(ctx, auth)
       const r = rt.store.projectRow(params.id)
-      if (!r || !canSeeProject(ctx.files, ctx.db, p, r.folder_path)) fail('not_found')
+      if (!r || !canSeeProject(ctx.files, p, r)) fail('not_found')
       return rt.store.toProject(r!, mayEdit(ctx, p, r!))
     })
 
@@ -465,12 +465,15 @@ export const chatsRoutes: RouteModule = {
       const locale = c.get('locale')
       const p = principal(ctx, auth)
       const r = rt.store.projectRow(params.id)
-      if (!r || !canSeeProject(ctx.files, ctx.db, p, r.folder_path)) fail('not_found')
+      if (!r || !canSeeProject(ctx.files, p, r)) fail('not_found')
       if (!canWrite(ctx.files, p, r!.folder_path)) fail('forbidden', tr('projectFolderNoWrite', locale))
       if (!mayEdit(ctx, p, r!)) fail('forbidden', tr('projectCreatorOnly', locale))
       let folder = r!.folder_path
       let made: string | null = null
-      if (body.folderPath !== undefined && body.folderPath !== r!.folder_path) {
+      // a project whose folder is in the trash (or was purged from it) gets a folder again only this way: an admin
+      // points it at a folder, which may be the one now at its old path
+      const repoint = body.folderPath !== undefined && (body.folderPath !== r!.folder_path || r!.trashed_with !== null)
+      if (repoint && body.folderPath !== undefined) {
         // repointing a team project changes who gets its instructions: admins only, and never into a personal folder
         // (it would vanish for everyone else, the creator included). Sharing a personal project is a copy (share).
         if (!isAdmin(p)) fail('forbidden', tr('projectFolderAdminOnly', locale))
@@ -487,8 +490,9 @@ export const chatsRoutes: RouteModule = {
       const author = next.instructions === r!.instructions ? { by: r!.instructions_author, text: r!.instructions_authored } : sole ? { by: auth.user.id, text: next.instructions } : { by: null, text: null }
       const save = ctx.db.transaction(() => {
         // one project per folder (the folder was checked for write above; an admin can read every team folder)
-        if (folder !== r!.folder_path) assertFolderFree(ctx.db, ctx.files.fx.caseInsensitive, folder, locale, { except: r!.id, mayName: (f) => canSeeProject(ctx.files, ctx.db, p, f) })
-        ctx.db.query('UPDATE projects SET name = ?, folder_path = ?, instructions = ?, instructions_author = ?, instructions_authored = ? WHERE id = ?').run(next.name, folder, next.instructions, author.by, author.text, r!.id)
+        if (repoint) assertFolderFree(ctx.db, ctx.files.fx.caseInsensitive, folder, locale, { except: r!.id, mayName: (f) => canRead(ctx.files, p, f) })
+        ctx.db.query('UPDATE projects SET name = ?, folder_path = ?, instructions = ?, instructions_author = ?, instructions_authored = ?, trashed_with = ? WHERE id = ?')
+          .run(next.name, folder, next.instructions, author.by, author.text, repoint ? null : r!.trashed_with, r!.id)
         // the old folder stops being a project folder: its rule-less marker row goes (else it stays admin-only for good)
         if (folder !== r!.folder_path) dropProjectMarker(ctx.db, r!.folder_path)
         // a personal project's content stays out of the audit log (admins read it; they cannot read users/<id>/)
@@ -516,7 +520,7 @@ export const chatsRoutes: RouteModule = {
       const locale = c.get('locale')
       const p = principal(ctx, auth)
       const r = rt.store.projectRow(params.id)
-      if (!r || !canSeeProject(ctx.files, ctx.db, p, r.folder_path)) fail('not_found')
+      if (!r || !canSeeProject(ctx.files, p, r)) fail('not_found')
       if (!mayEdit(ctx, p, r!)) fail('forbidden', tr('projectCreatorOnly', locale))
       const segs = r!.folder_path.split('/')
       // only a personal project is shared this way; a team project's audience is its folder rules (admin screen)
@@ -526,7 +530,7 @@ export const chatsRoutes: RouteModule = {
       const save = ctx.db.transaction(() => {
         // one project per folder: the copy's name already steps around the folders projects name (copyFolderTree);
         // a project made on that path in the moment since is refused here, and the copy goes again
-        assertFolderFree(ctx.db, ctx.files.fx.caseInsensitive, out.path, locale, { except: r!.id, mayName: (f) => canSeeProject(ctx.files, ctx.db, p, f) })
+        assertFolderFree(ctx.db, ctx.files.fx.caseInsensitive, out.path, locale, { except: r!.id, mayName: (f) => canRead(ctx.files, p, f) })
         // the copy is a project folder in a team folder: a rule-less folders row, like a project on an existing folder
         if (!isPersonalPath(out.path)) ensureFolderRow(ctx.db, out.path)
         ctx.db.query('UPDATE projects SET folder_path = ? WHERE id = ?').run(out.path, r!.id)
@@ -541,7 +545,7 @@ export const chatsRoutes: RouteModule = {
     kit.handle(API.deleteProject, ({ c, params, auth }) => {
       const p = principal(ctx, auth)
       const r = rt.store.projectRow(params.id)
-      if (!r || !canSeeProject(ctx.files, ctx.db, p, r.folder_path)) fail('not_found')
+      if (!r || !canSeeProject(ctx.files, p, r)) fail('not_found')
       if (!canWrite(ctx.files, p, r!.folder_path)) fail('forbidden', tr('projectFolderNoWrite', c.get('locale')))
       // other people's chats lose the project context: the creator and admins only, like editing it
       if (!mayEdit(ctx, p, r!)) fail('forbidden', tr('projectCreatorOnly', c.get('locale')))

@@ -260,7 +260,8 @@ export class TeamFiles {
     // a project's folder (with or without a marker row: a project repointed by an admin has none); personal projects
     // live under users/<me>/, where nothing is managed
     if (livePrefix === 'users' || livePrefix.startsWith('users/')) return false
-    return !!db.query(`SELECT 1 FROM projects WHERE substr(folder_path, 1, 6) <> 'users/' AND (${livePrefix === '' ? "folder_path <> ''" : "folder_path = ?1 OR substr(folder_path, 1, length(?1) + 1) = ?1 || '/'"}) LIMIT 1`)
+    // a project whose folder is in the trash does not use the folder now at its old path
+    return !!db.query(`SELECT 1 FROM projects WHERE trashed_with IS NULL AND substr(folder_path, 1, 6) <> 'users/' AND (${livePrefix === '' ? "folder_path <> ''" : "folder_path = ?1 OR substr(folder_path, 1, length(?1) + 1) = ?1 || '/'"}) LIMIT 1`)
       .get(...(livePrefix === '' ? [] : [livePrefix]))
   }
   private assertMayChangeManaged(user: Principal, rules: RuleSet, base: string): boolean {
@@ -352,14 +353,14 @@ export class TeamFiles {
         const top = (db.query('SELECT MAX(version) AS v FROM file_versions WHERE path = ?').get(np) as { v: number | null }).v
         if (top) db.query('UPDATE file_versions SET version = version + ? WHERE path = ?').run(top, m.path)
       }
-      // one project per folder: a project inside the moved folder must not land on a folder another project still
-      // names (a project whose folder is in the trash or gone keeps its path). Two projects that already shared a
-      // folder before the rule move together and stay as they are.
+      // one project per folder: a project inside the moved folder must not land on a folder another project in place
+      // still names (one whose folder is gone from disk keeps its path). Two projects that already shared a folder
+      // before the rule move together and stay as they are. Projects whose folder is in the trash hold no path.
       if (isDir) {
         const key = (p: string) => volumeKey(p, this.fx.caseInsensitive)
-        const inside = db.query(`SELECT folder_path FROM projects WHERE ${under('folder_path')}`).all(fr.rel, fr.rel, fr.rel) as { folder_path: string }[]
+        const inside = db.query(`SELECT folder_path FROM projects WHERE trashed_with IS NULL AND ${under('folder_path')}`).all(fr.rel, fr.rel, fr.rel) as { folder_path: string }[]
         if (inside.length) {
-          const others = new Set((db.query(`SELECT folder_path FROM projects WHERE NOT ${under('folder_path')}`).all(fr.rel, fr.rel, fr.rel) as { folder_path: string }[]).map((r) => key(r.folder_path)))
+          const others = new Set((db.query(`SELECT folder_path FROM projects WHERE trashed_with IS NULL AND NOT ${under('folder_path')}`).all(fr.rel, fr.rel, fr.rel) as { folder_path: string }[]).map((r) => key(r.folder_path)))
           for (const r of inside) {
             const next = toRel + r.folder_path.slice(fr.rel.length)
             if (key(next) !== key(r.folder_path) && others.has(key(next))) fileError('conflict', 'projectThere', { to: toRel }, { reason: 'project_folder_taken' })
@@ -368,7 +369,12 @@ export class TeamFiles {
       }
       const re = (table: string, col: string) => db.query(`UPDATE ${table} SET ${col} = ? || substr(${col}, length(?) + 1) WHERE ${under(col)}`).run(toRel, fr.rel, fr.rel, fr.rel, fr.rel)
       re('folders', 'path')
-      re('projects', 'folder_path')
+      // projects follow the folder: those in place, and those whose folder went to the trash from inside it while the
+      // trash items follow it (below), so that they come back with it. A project whose folder was trashed from the
+      // moved folder's own path (another folder) keeps its path.
+      const trashFollows = isDir && personalSide(fr.segs) === personalSide(target)
+      db.query(`UPDATE projects SET folder_path = ? || substr(folder_path, length(?) + 1) WHERE ${under('folder_path')} AND (trashed_with IS NULL${trashFollows ? " OR trashed_with IN (SELECT id FROM trash_items WHERE restored_at IS NULL AND substr(original_path, 1, length(?) + 1) = ? || '/')" : ''})`)
+        .run(toRel, fr.rel, fr.rel, fr.rel, fr.rel, ...(trashFollows ? [fr.rel, fr.rel] : []))
       re('file_versions', 'path')
       re('file_versions', 'conflict_path')
       re('attachments', 'path')
@@ -622,6 +628,10 @@ export class TeamFiles {
         // the folder's rules go with it (parked under its trash path): a new folder made at the same path does not
         // inherit them, and the deleted one gets them back wherever it is restored
         if (isDir) rebaseFolders(db, r.rel, storage)
+        // the team projects of this folder and below go with it: admins and the owner only until it comes back
+        // (chat/projects.ts canSeeProject), and they follow it when it is restored. A project already marked keeps the
+        // folder trashed first. Personal projects are their person's in the trash too.
+        if (isDir && r.segs[0] !== 'users') db.query("UPDATE projects SET trashed_with = ? WHERE trashed_with IS NULL AND substr(folder_path, 1, 6) <> 'users/' AND (folder_path = ? OR substr(folder_path, 1, length(?) + 1) = ? || '/')").run(id, r.rel, r.rel, r.rel)
         fileEvent(db, { turnId, userId, path: r.rel, action: 'delete', size, detail: { folder: isDir, trashId: id } })
       } catch (e) { fs.renameSync(path.join(this.root, ...storage.split('/')), r.abs); throw e }
     })()
@@ -958,6 +968,7 @@ export class TeamFiles {
                 AND NOT EXISTS (SELECT 1 FROM trash_items p WHERE p.kind = 'folder' AND p.id > trash_items.id AND p.id < ?3
                   AND substr(trash_items.original_path, 1, length(p.original_path) + 1) = p.original_path || '/')))`)
           .run(r.rel, t.original_path, t.id)
+        this.projectsBack(t, r.rel)
         fs.renameSync(src, r.abs)
       })()
     } else {
@@ -970,6 +981,34 @@ export class TeamFiles {
     this.publish([{ path: r.rel, action: 'restore', by: this.by(userId), turnId: null }])
     return { entry: this.entry(user, rules, r.segs) }
   }
+  /**
+   * A folder came back from the trash at `to` (its old path, or a " (restored)" name): the projects that went to the
+   * trash with it (`projects.trashed_with`) follow it there and are seen again by its readers, like a move. So do the
+   * paths of projects whose folders were trashed from inside it earlier: their items come back into its trash (above),
+   * and they follow when those come back. One project per folder: a restored project whose new path a project in place
+   * already names stays detached, at its old path and admin-only, for an admin to point at a folder. A purge keeps the
+   * mark (purgeRow): the project stays the admins' and the owner's, to delete or point elsewhere.
+   */
+  private projectsBack(t: TrashRow, to: string) {
+    const db = this.ctx.db
+    const from = t.original_path
+    const under = (col: string, n: number) => `(${col} = ?${n} OR substr(${col}, 1, length(?${n}) + 1) = ?${n} || '/')`
+    if (to !== from) {
+      db.query(`UPDATE projects SET folder_path = ?1 || substr(folder_path, length(?2) + 1)
+        WHERE ${under('folder_path', 2)} AND trashed_with IN (SELECT id FROM trash_items WHERE restored_at IS NULL AND id <> ?3 AND ${under('original_path', 1)})`)
+        .run(to, from, t.id)
+    }
+    const key = (p: string) => volumeKey(p, this.fx.caseInsensitive)
+    const inPlace = new Set((db.query('SELECT folder_path FROM projects WHERE trashed_with IS NULL').all() as { folder_path: string }[]).map((r) => key(r.folder_path)))
+    for (const pr of db.query('SELECT id, folder_path FROM projects WHERE trashed_with = ? ORDER BY created_at, id').all(t.id) as { id: string; folder_path: string }[]) {
+      if (pr.folder_path !== from && !pr.folder_path.startsWith(from + '/')) continue
+      const next = to + pr.folder_path.slice(from.length)
+      if (inPlace.has(key(next))) continue
+      db.query('UPDATE projects SET folder_path = ?, trashed_with = NULL WHERE id = ?').run(next, pr.id)
+      inPlace.add(key(next))
+    }
+  }
+
   /** Admin or owner (route auth), and like every trash action only for items the caller could restore: an admin has
    * no access to other people's users/<id>/, so their trashed files stay out of reach too. */
   purgeTrash(id: string, byUserId: string) {

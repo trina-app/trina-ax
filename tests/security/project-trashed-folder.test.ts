@@ -2,7 +2,9 @@
 // 그룹·프로젝트·규칙 폴더", "Projects: a folder with instructions"). Projects are seen by their folder's path, and a
 // trashed folder's rules go to the trash with it: the path then fell back to the rules above it, so after an admin
 // trashed the finance-only shared/secret every member saw its project's name and instructions in the list, could open
-// it, got its instructions in their AI, and the one-project-per-folder 409 named it.
+// it, got its instructions in their AI, and the one-project-per-folder 409 named it. Now the project carries the trash
+// item that took its folder (projects.trashed_with): only admins and the owner see it until the folder comes back, and
+// it holds no path meanwhile, so whoever makes a new folder there may make their own project on it.
 // Fixture: alice = marketing; bob = finance; carol = admin; shared/ everyone write.
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from 'bun:test'
 import fs from 'node:fs'
@@ -27,7 +29,7 @@ const status = (p: Promise<unknown>) => p.then(() => 200, (e) => (e instanceof A
 const listed = async (who: string) => (await h.api(who).call(API.listProjects)).items.map((p) => p.name)
 
 describe('a project whose restricted folder is in the trash', () => {
-  test('members neither list, open nor use it, and the 409 does not name it; admins still do', async () => {
+  test('members neither list, open nor use it; it holds no path; admins still see it; it follows its folder back', async () => {
     // shared/secret: finance writes, everyone else nothing
     fs.mkdirSync(path.join(h.team, 'shared/secret'), { recursive: true })
     h.ctx.db.query("INSERT INTO folders (id, path) VALUES ('f_shared_secret', 'shared/secret')").run()
@@ -51,24 +53,26 @@ describe('a project whose restricted folder is in the trash', () => {
     expect(turn.done.status).toBe('done')
     expect(turn.done.content).not.toContain(CANARY)
     expect(turn.done.content).not.toContain('Secret plan')
-    // one project per folder still holds, without naming it; the folder made for the try goes again
-    const taken = await h.api('alice').call(API.createProject, { body: { name: 'Mine', folderPath: 'shared/secret', instructions: '', scope: 'team', participants: [] } }).then(() => null, (e: ApiError) => e)
-    expect(taken?.status).toBe(409)
-    expect(taken?.message).not.toContain('Secret plan')
-    expect(JSON.stringify(taken?.body ?? {})).not.toContain(p.id)
-    expect(fs.existsSync(path.join(h.team, 'shared/secret'))).toBe(false)
-
-    // the admin, who alone restores the folder, still sees and opens it, and the 409 names it for them
+    // the admin, who alone restores the folder, still sees and opens it, and its instructions reach the admin's AI
     expect(await listed('carol')).toContain('Secret plan')
     expect((await h.api('carol').call(API.getProject, { params: { id: p.id } })).name).toBe('Secret plan')
-    const forAdmin = await h.api('carol').call(API.createProject, { body: { name: 'Again', folderPath: 'shared/secret', instructions: '', scope: 'team', participants: [] } }).then(() => null, (e: ApiError) => e)
-    expect(forAdmin?.status).toBe(409)
-    expect(forAdmin?.message).toContain('Secret plan')
     expect(h.rt().projectForChat(p.id, h.ctx.files.principal('carol'))?.instructions).toContain(CANARY)
 
-    // back from the trash, the folder's rules decide again: bob sees it, alice still does not
-    await h.api('carol').call(API.restoreTrash, { params: { id: trashId } })
+    // it holds no path meanwhile: alice's own new project on a new shared/secret is hers, and names nothing of it
+    const mine = await h.api('alice').call(API.createProject, { body: { name: 'Mine', folderPath: 'shared/secret', instructions: '', scope: 'team', participants: [] } })
+    expect(mine.folderPath).toBe('shared/secret')
+    expect(await listed('alice')).toEqual(expect.arrayContaining(['Mine']))
+    expect(await listed('alice')).not.toContain('Secret plan')
+
+    // back from the trash (under a new name, since alice's folder took the old one), the project follows its folder and
+    // the folder's rules decide again: bob sees it there, alice still does not; alice's project stays on her folder
+    const back = await h.api('carol').call(API.restoreTrash, { params: { id: trashId } })
+    const row = h.rt().store.projectRow(p.id)!
+    expect(row.folder_path).toBe(back.entry.path)
+    expect(row.folder_path).not.toBe('shared/secret')
+    expect(row.trashed_with).toBeNull()
     expect(await listed('bob')).toContain('Secret plan')
     expect(await listed('alice')).not.toContain('Secret plan')
+    expect(h.rt().store.projectRow(mine.id)!.folder_path).toBe('shared/secret')
   })
 })
