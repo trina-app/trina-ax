@@ -6,18 +6,19 @@
 //     500 rule folders, and the root and top folders (where "shown in the tree" tries the most folders); every page of
 //     one person's team folders, for each of the 300 people, and one part of the tree; a new person; the folder tree
 //     (stage 4): the root with the way down opened, every page of the widest levels, and the level above each rule
-//     folder. Each includes the response check the server runs in dev (validateResponses) and JSON.
+//     folder; the edit panel's preview (stage 5) at the root, the top folders and each rule folder. Each includes the
+//     response check the server runs in dev (validateResponses) and JSON.
 // Run: bun tests/perf/access-explain.ts   (exit 1 when access() got more than 25% slower, or any answer took over 750 ms,
 // whatever the size: PEOPLE=2000 RULE_FOLDERS=2500 is the size it is meant for; the slowest there, the root folder with
 // all 1999 people on one page, took 200-249 ms on a Mac and 273-458 ms in Linux Docker on a busy machine; the tree's
 // opened top 98 ms median and 170 ms at most, one level 10 ms median, on a busy shared Mac)
 import fs from 'node:fs'
 import path from 'node:path'
-import { AccessTreeResponse, FolderAccessResponse, PersonAccessResponse } from '@mycel/shared/api'
+import { AccessTreeResponse, FolderAccessResponse, FolderEditPreview, PersonAccessResponse } from '@mycel/shared/api'
 import type { AppContext } from '../../server/src/context'
 import { openDb } from '../../server/src/db'
 import { RuleSet, type Access, type Principal } from '../../server/src/policy/access'
-import { explainFolder, explainNewPerson, explainPerson, explainTree } from '../../server/src/admin/access-explain'
+import { explainEdit, explainFolder, explainNewPerson, explainPerson, explainTree } from '../../server/src/admin/access-explain'
 import { OldRuleSet } from '../lib/access-before-explain'
 import { WORK } from '../lib/env'
 
@@ -172,6 +173,12 @@ answers.push(
     }
     return cursors
   })(), (c) => { const { out, bytes } = checked(AccessTreeResponse, explainTree(ctx, { path: '', rules: true, limit: 500, ...(c ? { cursor: c } : {}) }, 'en')); return { rows: out.levels[0]!.children.length, bytes } }),
+)
+// the edit panel's preview (stage 5): what saving would change, asked while the admin edits
+const edit = (f: string, access: Access) => { const { out, bytes } = checked(FolderEditPreview, explainEdit(ctx, { path: f, rules: [{ subjectType: 'everyone', subjectId: null, access }] }, 'en')); return { rows: out.changes.reduce((n, c) => n + c.count, 0) + out.below.length, bytes } }
+answers.push(
+  measure('edit preview: everyone reads, at the root and the top folders', ['', 'groups', 'projects', 'skills', 'shared'], (f) => edit(f, 'read')),
+  measure('edit preview: only the people named, each rule folder (the first 300)', ruleFolderPaths.slice(0, 300), (f) => edit(f, 'none')),
 )
 const sample = personPages((cursor) => explainPerson(ctx, 'u10', { cursor, limit: 2000 }))
 const nav = explainPerson(ctx, 'u10', { prefix: 'groups', limit: 2000 }).folders.find((f) => f.path === 'groups')

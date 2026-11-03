@@ -75,13 +75,20 @@ export const GroupBody = z.object({ name: z.string().trim().min(1).max(100), des
 export const UpdateGroupBody = z.object({ name: z.string().trim().min(1).max(100).optional(), description: z.string().max(500).nullable().optional(), memberIds: z.array(UserId).optional() })
 
 // ---------------- folders and rules ----------------
+/** The folder's rules hash the editor started from (`Folder.rulesHash`, `FolderEditPreview.hash`): when the folder's
+ * rules are not those any more (another admin, or the Members screen's skill manager switch, changed them), the save is
+ * refused with 409 and `params.reason` `rules_changed`, and nothing changes. Optional: without it the save replaces
+ * whatever is there, as before. */
+const ExpectedHash = z.string().min(1).max(64)
 export const CreateFolderBody = z.object({
   path: RelPath,
   /** create the folder on disk if missing */
   create: z.boolean().default(true),
   rules: z.array(FolderRuleInput).default([]),
+  /** the hash of the rules the editor started from (no row yet: the hash of no rules) */
+  expectedHash: ExpectedHash.optional(),
 })
-export const PutRulesBody = z.object({ rules: z.array(FolderRuleInput).max(200) })
+export const PutRulesBody = z.object({ rules: z.array(FolderRuleInput).max(200), expectedHash: ExpectedHash.optional() })
 /**
  * "Who sees what" before saving: send the proposed rule sets (each replaces the rules of that folder); the server
  * computes every active person's effective access before/after for those folders and their rule-free subfolders.
@@ -280,6 +287,69 @@ export const AccessTreeResponse = z.object({
 })
 export type AccessTreeResponse = z.infer<typeof AccessTreeResponse>
 
+/**
+ * POST /api/admin/access/edit-preview: what saving `rules` as the folder's rules would change, asked while the admin
+ * edits (Admin › Folder permissions, the edit panel). Nothing is saved. `path`: a folder with a rule row is taken as
+ * stored; any other team folder as typed (actual names on disk, a missing tail as typed). Not for users/.
+ */
+export const FolderEditBody = z.object({ path: RelPath, rules: z.array(FolderRuleInput).max(200) })
+/** People whose access at the folder changes the same way (`before` → `after`). `less`: write → read or anything →
+ * none; `more` the other way. `people` by name, at most 50 of `count`. `chatsReset`: their chats that start a fresh AI
+ * session because they lose read (H7). */
+export const FolderEditChange = z.object({
+  direction: z.enum(['less', 'more']),
+  before: Access,
+  after: Access,
+  people: z.array(UserRef),
+  count: z.number().int().positive(),
+  chatsReset: z.number().int().nonnegative(),
+})
+export type FolderEditChange = z.infer<typeof FolderEditChange>
+/** A folder with rules of its own below the edited one where access changes too: for the people that no rule there (or
+ * between) is for, it follows the edited folder. How many lose and gain there, and the first five by name. Folders below
+ * without rules of their own change exactly as the edited folder does and are not listed. */
+export const FolderEditBelow = z.object({
+  path: RelPath,
+  less: z.number().int().nonnegative(),
+  more: z.number().int().nonnegative(),
+  people: z.array(UserRef),
+})
+export type FolderEditBelow = z.infer<typeof FolderEditBelow>
+/** What the server warns about in an edit. `team-files`: members lose read on shared (their AI loses the team's files);
+ * `team-instructions`: the same on skills (the team's instructions and skills); `skills-everyone-writes`: everyone gets
+ * write in skills/ (every member becomes a skill manager); `root-everyone`: a rule on the team root opens it to every
+ * member (and with it group and project folders that do not shut them out). `count`: the members it touches. */
+export const FolderEditWarning = z.object({ kind: z.enum(['team-files', 'team-instructions', 'skills-everyone-writes', 'root-everyone']), count: z.number().int().nonnegative() })
+export type FolderEditWarning = z.infer<typeof FolderEditWarning>
+export const FolderEditPreview = z.object({
+  /** actual names on disk */
+  path: RelPath,
+  exists: z.boolean(),
+  /** the folder's rules now, and their hash (`Folder.rulesHash`; no row: the hash of no rules) */
+  current: z.array(DecidingRule),
+  hash: z.string(),
+  /** at or inside a connected folder (a one-way copy of a folder elsewhere) */
+  connected: z.boolean(),
+  /** active people, and those of them that rules decide for (not the owner or admins) */
+  people: z.number().int().nonnegative(),
+  members: z.number().int().nonnegative(),
+  /** who sees the folder now, and with these rules (as the tree groups them) */
+  now: z.array(AccessTreeWho),
+  next: z.array(AccessTreeWho),
+  /** "follow the folder above": who would see it with no rules of its own (null at the team root, which has none above) */
+  above: z.array(AccessTreeWho).nullable(),
+  /** less first, then more */
+  changes: z.array(FolderEditChange),
+  /** the rule folders below that change too, in the tree's order (at most 20; `belowMore` others) */
+  below: z.array(FolderEditBelow),
+  belowMore: z.number().int().nonnegative(),
+  /** people whose access goes down / up (anywhere: here or below) */
+  less: z.number().int().nonnegative(),
+  more: z.number().int().nonnegative(),
+  warnings: z.array(FolderEditWarning),
+})
+export type FolderEditPreview = z.infer<typeof FolderEditPreview>
+
 // ---------------- engines ----------------
 /** The team's API engine (server/src/engine/api-agent.ts): any OpenAI-compatible Chat Completions API. */
 export const ApiEngineConfig = z.object({ baseUrl: z.string().nullable(), model: z.string().nullable(), label: z.string().nullable(), hasKey: z.boolean() })
@@ -440,6 +510,7 @@ export const ADMIN = {
   explainPersonAccess: endpoint({ method: 'GET', path: '/api/admin/access/people/:id', auth: 'admin', owner: 'A', query: PersonAccessQuery, response: PersonAccessResponse, summary: 'One person: their access to every team folder (rule, top-level, group, project, connected) and why.' }),
   explainNewPersonAccess: endpoint({ method: 'POST', path: '/api/admin/access/new-person', auth: 'admin', owner: 'A', body: NewPersonAccessBody, response: PersonAccessResponse, summary: 'The same for someone about to be invited with this role and these groups (nothing is saved).' }),
   explainAccessTree: endpoint({ method: 'GET', path: '/api/admin/access/tree', auth: 'admin', owner: 'A', query: AccessTreeQuery, response: AccessTreeResponse, summary: 'One level of the team folder for the admin tree: each child folder with who sees it, from where, and its risks. users/ is one row, never listed.' }),
+  previewFolderEdit: endpoint({ method: 'POST', path: '/api/admin/access/edit-preview', auth: 'admin', owner: 'A', body: FolderEditBody, response: FolderEditPreview, summary: 'What saving these rules on one folder would change: who loses and gains access there and below, what "follow the folder above" gives now, warnings, and the hash of the rules now. Nothing is saved.' }),
 
   engines: endpoint({ method: 'GET', path: '/api/admin/engines', auth: 'admin', owner: 'A', response: EnginesResponse, summary: 'Engine install/login/lockdown status, models, defaults, concurrency.' }),
   getApiEngine: endpoint({ method: 'GET', path: '/api/admin/engines/api-config', auth: 'owner', owner: 'A', response: ApiEngineConfig, summary: 'The team API engine settings (the key is never returned, only whether one is set).' }),

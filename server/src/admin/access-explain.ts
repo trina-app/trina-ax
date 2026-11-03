@@ -9,15 +9,17 @@
 // parked rules included) and server temp names never appear.
 import fs from 'node:fs'
 import path from 'node:path'
-import type { AccessFolderKind, AccessTreeResponse, FolderAccessResponse, Locale, PersonAccessResponse, PersonFolderAccess, Role, UserStatus } from '@mycel/shared/api'
+import type { AccessFolderKind, AccessTreeResponse, FolderAccessResponse, FolderEditPreview, FolderRuleInput, Locale, PersonAccessResponse, PersonFolderAccess, Role, UserStatus } from '@mycel/shared/api'
 import type { AppContext } from '../context'
 import { fail } from '../http/errors'
 import { msg } from '../auth/messages'
 import { RuleSet, type Explained, type Listing, type Principal } from '../policy/access'
 import { walk } from '../policy/resolve'
-import { captureState } from './folders'
+import { captureState, chatsWithEngineSession, getFolderByPath, validateRules } from './folders'
 import { byPerson, folderInput, MAX_VIA, navigation, pageByPath, pageByPerson, ruleFolderOf, segsOf, shownPath, shownSegs, summarize, withoutOwnFolder } from './access-rows'
 import { ruledAnswer, treeAnswer, type TreeMark, type TreeSource } from './access-tree'
+import { editPreview } from './access-edit'
+import { isParkedRow, isTeamDefaultFolder } from './folder-keep'
 import { MAX_PATH_CHARS } from '../policy/names'
 
 /** A real folder at `segs`, every step lstat'ed (a link anywhere on the way counts as not there, never followed).
@@ -236,6 +238,47 @@ export function explainTree(ctx: AppContext, q: { path?: string; cursor?: string
     personal: state.principals.length,
   }
   return q.rules ? ruledAnswer(src, segs, exists, q) : treeAnswer(src, segs, exists, q)
+}
+
+// ---------------- the edit panel: what saving would change (access-edit.ts) ----------------
+
+/** The team's shared/ or skills/ as the admin API keeps them (folder-keep.ts: compared the way the volume compares). */
+export function teamFolderOf(p: string, caseInsensitive: boolean): 'shared' | 'skills' | null {
+  if (!isTeamDefaultFolder(p, caseInsensitive)) return null
+  return p.normalize('NFC').toLowerCase() === 'shared' ? 'shared' : 'skills'
+}
+
+/**
+ * POST /api/admin/access/edit-preview: what saving `rules` on one folder would change. A folder with a rule row is taken
+ * as stored (also one gone from disk, or with a name the tree never shows: the admin edits that row); any other path as
+ * the tree takes it (personal folders, .system/, temp names refused before anything is read), with its names on disk.
+ * Nothing is saved; the rules are checked as a save checks them.
+ */
+export function explainEdit(ctx: AppContext, body: { path: string; rules: FolderRuleInput[] }, locale: Locale): FolderEditPreview {
+  const db = ctx.db
+  let p: string
+  const row = getFolderByPath(db, body.path)
+  if (row && !isParkedRow(row.path)) p = row.path
+  else {
+    const input = folderInput(body.path)
+    if ('refuse' in input) return fail('validation', msg(input.refuse === 'personal' ? 'rulesInUsers' : 'accessNotTeamFolder', locale), { fields: { 'body.path': input.detail } })
+    const w = walk(ctx.files.fx.root, input.segs, ctx.files.fx.caseInsensitive)
+    // its names on disk (on a case-insensitive volume `Shared` typed as `shared` is that row's folder)
+    p = [...w.actual, ...w.missing].join('/')
+  }
+  // rules inside users/ never apply (access.ts), and the admin API refuses them
+  if (p === 'users' || p.startsWith('users/')) return fail('validation', msg('rulesInUsers', locale), { fields: { 'body.path': 'users/ cannot carry rules' } })
+  validateRules(db, body.rules, locale)
+  const state = captureState(db)
+  const groupNames = new Map((db.query('SELECT id, name FROM groups').all() as { id: string; name: string }[]).map((g) => [g.id, g.name]))
+  const userNames = new Map((db.query('SELECT id, name FROM users WHERE deleted_at IS NULL').all() as { id: string; name: string }[]).map((u) => [u.id, u.name]))
+  const segs = segsOf(p)
+  const connected = segs.length >= 2 && segs[0] === 'connected' && !!db.query('SELECT 1 FROM connected_folders WHERE name = ?').get(segs[1]!)
+  const out = editPreview(
+    { rules: state.rules, people: state.principals, groupName: (id) => groupNames.get(id) ?? null, personName: (id) => userNames.get(id) ?? null },
+    p, body.rules, { team: teamFolderOf(p, ctx.files.fx.caseInsensitive), chats: (id) => chatsWithEngineSession(db, id) },
+  )
+  return { path: p, exists: isDir(ctx.files.fx.root, segs, new Map()), connected, ...out }
 }
 
 /** Someone about to be invited: no id yet, so no person rule can name them and there is no personal folder row. */

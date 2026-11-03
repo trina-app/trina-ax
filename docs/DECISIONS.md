@@ -6227,3 +6227,120 @@ folder as a tree, read only like stage 3; the permission function and the databa
   - Not done: choosing a folder deep in a very wide level (20,000 folders) still loads and draws every row before it,
     500 a page. A level loaded with a gap (from the page that holds the name) would need the tree to keep and fill holes
     in a level; not worth it for this case now.
+
+## Folder permissions, stage 5: the edit panel (feat/access-edit-panel, 2026-11-03)
+
+Changing a folder's rules was a modal table (who / target / access, with role rows), a preview on request, and
+"remove all rules" as the way to "follow the folder above", which also cut a group's link or a project's mark. The
+folder view now changes rules in a panel that asks the first question first and always shows what saving would do.
+The permission function and its meaning are unchanged, no migration.
+
+- **Where.** "규칙 바꾸기" on the chosen folder turns its part of the screen (beside the tree, a little wider while it
+  is open) into the panel; the folder's part stays mounted underneath, hidden, so it shows again at once with what it
+  had loaded. Below 640px the panel is the whole screen, as a modal dialog (`role="dialog"`, the focus kept inside, a
+  back arrow and Esc). The heading takes the focus when it opens; on close the focus goes back to its opener (the
+  rules button, the Edit of a row outside the tree). Rows outside the tree (gone from disk, hidden names) open the same
+  panel; rows inside `users/` offer only removal (rules there never apply, and the server refuses them). "Add folder"
+  opens the way to the folder in the tree, chooses it, then opens the panel. `RulesEditor` stays only in By person (it
+  now sends `expectedHash` on PUT too); it goes in a later stage.
+- **Basic access first** (`web/src/lib/access-edit.ts`): follow the folder above / only the people named / everyone
+  reads / everyone reads and writes = no everyone rule / `everyone: none` / `everyone: read` / `everyone: write`. It is
+  read as the role "member" row's access when there is one (it decides for every member before an everyone row does),
+  else the everyone row's. "Follow" says what it gives now, from the server (`above`: who sees the folder with no rules
+  of its own, grouped as the tree groups people: "지금은 shared 규칙: 모두 · 읽기·쓰기", "지금은 팀장과 관리자만"). The
+  team root has nothing above: three choices, and "only the people named" there is no rule unless the root had
+  `everyone: none` (the same access; the stored form is kept). A connected folder (at or inside `connected/<name>`,
+  `connected` in the answer) does not offer "everyone reads and writes": it is a one-way copy, and what is written
+  there never reaches the source; one that has it now shows it rather than dropping it unseen.
+- **People and groups**: one search (a WAI-ARIA combobox: arrows, Enter adds, Esc closes the list and only the list)
+  over groups and people, those already named left out; each row read / read and write / no access as one strip of
+  native radios (one Tab stop, arrows), and a remove button that hands the focus to the next row. "No access" stays, so
+  "everyone reads, Bob not" is kept. One line says that a person's rule comes before their groups' and that someone in
+  several groups gets the widest. Switched-off people show "사용 중지됨"; the owner and admins named in a rule say they
+  write anyway. No role choice: role rows are not made any more.
+- **Old role rows** are saved another way, said in one line: "member X" becomes "everyone X" (replacing an everyone
+  row), "admin X" goes. Nobody's access changes: rules never change what the owner and admins get, every other person
+  has the role "member", and inside one folder the member row decides before the everyone row. Checked against
+  `RuleSet.access` on random worlds, in the server's preview (`tests/unit/access-edit-api.test.ts`: the converted rules
+  give no change) and in the web's own conversion (`web/test/unit/access-edit.test.ts`: every person at the folder,
+  above and below). The result then says "누가 무엇을 볼 수 있는지는 바뀌지 않아요" and Save "저장 (권한 변화 없음)".
+- **The result, always there** (`POST /api/admin/access/edit-preview` `{path, rules}`, admins and the owner;
+  `server/src/admin/access-edit.ts`, which reads nothing: the server gives it the rules and the people, the web mock
+  its own). Nothing is saved; the rules are checked as a save checks them; a folder with a rule row is taken as stored
+  (also one gone from disk or with a hidden name), any other path as the tree takes it (personal folders, `.system/`,
+  temp names refused before anything is read). The answer: the folder's rules now and their hash; who sees it now and
+  with these rules; "follow"; the changes at the folder, grouped by before → after (the biggest losses first, then
+  gains; write → read is a loss; the first 50 names, all counted; the chats that start a fresh AI session for people
+  who lose read); the rule folders below that change too (the first 20 in the tree's order, how many lose and gain,
+  five names); the warnings.
+  Why only those: the edit replaces one folder's rules, P. A folder below P with no rule folder between answers like P
+  for every person (decide() walks up to the first folder with a rule for them); a rule folder Q below P answers like P
+  for the people that no rule from Q up to P names, and is unchanged for the others. So a person whose access at P
+  does not change has no change anywhere, and below P the change is P's. The random-world test checks this against
+  `RuleSet.access` for every person at P and at every shown rule folder below it.
+  Cost: people that no rule on the way up, at P or below can tell apart are one class; for each class whose access at
+  P changes, one pass over the rule folders below P in the tree's order, with the nearest one above each (a folder
+  falls through when the one above does and no rule of its own is for them). A first version explained every person
+  at every rule folder below: 5.1 s at the root with 2000 people and 2500 rule folders, and 329 KB with a group per
+  person. Now (`tests/perf/access-explain.ts`, a busy shared Mac): 300 people and 500 rule folders, the root and top
+  folders 4 ms median and 16 ms at most, each rule folder 1.3 ms median; 2000 people and 2500 rule folders, the root
+  and top folders 72 ms median and 157 ms at most, each rule folder 8 ms median and 31 ms at most; at most 7 KB.
+- **Warnings the server works out** (the warning colour, like the tree's risks): members lose read on shared (their AI
+  loses the team's files) or on skills (the team's instructions); everyone gets write in skills/ (every member becomes
+  a skill manager: the everyone step of the new rules writes and did not before; a group writing there is how skill
+  managers work and is not warned about); a rule on the root newly lets every member in (group and project folders that
+  do not shut others out open with it).
+- **As the admin edits**: the panel asks 250 ms after the last change (at once when it opens), aborts the request
+  before, and keeps an answer only for the rules it was asked for, so an older answer never replaces a newer one. Save
+  waits for the answer for what is on the screen (it says why when it is off: nothing changed, still working it out,
+  could not work it out) and says the impact: "저장 (2명 권한 줄어듦)", "저장 (1명 권한 늘어남)", "저장 (2명 줄어듦 · 3명
+  늘어남)", "저장 (권한 변화 없음)". Closing, Esc, choosing another folder in the tree, "Add folder" and the Edit of a row
+  outside the tree ask before dropping changes; closing the tab or reloading asks through the browser. Not asked:
+  leaving through the admin menu or the app's links (the app uses `BrowserRouter`, which has no navigation blocker).
+- **Another admin's change**: `Folder.rulesHash` is a hash of a folder's rules (sha256 of the sorted subject and
+  access lines, 32 base64url characters; the same rules in any order, the same hash; none: the hash of none), also in
+  the preview (`hash`, `current`). `PUT /api/admin/folders/:id/rules` and `POST /api/admin/folders` take an optional
+  `expectedHash`; when the folder's rules are not those any more the server answers 409 with `params.reason`
+  `rules_changed` and changes nothing (PUT checks inside its transaction; POST before anything is made on disk).
+  Callers that send none replace the rules as before; the panel always sends it (the hash of the rules it started
+  from; for a folder without a row, the preview's hash of none). The Members screen's skill manager switch changes the
+  rules of skills/, so it counts as a change. On 409, or when an answer brings another hash, the panel takes the new
+  rules as its base, says "다른 관리자가 방금 바꿨어요", works the result out again against them and keeps the admin's
+  draft (with "바뀐 규칙으로 다시 시작" to take theirs); when nothing had been changed in the panel it loads theirs and
+  says so. The rule rows and the tree come again.
+- **Delete vs follow.** Saving "follow the folder above" with nobody named is `PUT` with `rules: []`: the row stays, so
+  a group's link and a project's mark stay. The stage 1 guards still apply (shared/ and skills/ keep a rule: the panel
+  says so under the choice, with how to keep them to admins, and Save stays off with that reason; a group's folder may
+  be emptied, its row stays). "Remove all rules" is cleanup only: rows outside the tree, and on a folder in the tree an
+  empty row that no project uses ("빈 규칙 항목 지우기", with why such a row matters: only admins move, rename or delete
+  that folder).
+- **The mock** answers the preview with the same module over its rules and active people, refuses a stale
+  `expectedHash` as the server does, lists `rulesHash`, and counts a group's members from the people whose groups name
+  it (as `group_members` does).
+- **Review (independent, same day).** Server computation, role conversion and the server's 409 checks held up. Fixed:
+  By person's `RulesEditor` sent the hash of a list loaded once, so after another admin's change every save was 409
+  until a reload (it now keeps the hash it opened with, and a 409 loads the list again, so opening it again starts
+  from their rules); a save still on its way could close a panel opened after it (the tree now closes only the panel
+  of that folder, and a panel with a save on its way goes without asking); after a 409 the old answer still counted as
+  ready (the answer now also carries the ask it came from); a folder picked with "Add folder" stayed pending when
+  another folder was chosen meanwhile, and picking the folder the address already named did nothing; the add list lay
+  in the flow, so its closing on blur moved the panel up under a click (Cancel was missed: it lies over the panel now);
+  opening the panel again right after a save started from the list before it and said another admin had changed the
+  rules (the saved row is put in the list at once); named rows came in id order (now groups, then people, by name);
+  the title says "규칙 정하기" for a folder without rules, as its button does; the address moving on (Back, a link)
+  closes the panel. Kept as asked: "사용 중지됨" and "다른 관리자가 방금 바꿨어요".
+- Not done: the panel does not say per person which folders below change for them (the rule folders below are listed
+  with counts and names instead, so an edit at the root stays small); in-app navigation away from the panel does not
+  ask; By person still opens the older `RulesEditor`.
+- Tests: `tests/unit/access-edit-api.test.ts` (random worlds against `RuleSet.access`: the changes, the folders below,
+  nobody else changing, "follow", the hash; the role conversion; through the API: write → read as a loss, gains and a
+  folder below, "follow" with and without a root rule, the warnings, connected folders, a folder not there, chats
+  reset, refusals, 409 with nothing changed and a save with the new hash, the guards with the right hash, the skill
+  manager switch, POST with the hash of none and nothing made on disk for a refused one),
+  `web/test/unit/access-edit.test.ts`, `tests/security/lib/cases.ts` (the new route by role, no name of alice's folder,
+  nothing saved; a stale `expectedHash` refused for the owner and admins), `web/test/e2e/access-edit.spec.ts` (basic
+  access and "follow", people and groups with no access, role rows, the 409 path, the guards, connected and root,
+  unsaved changes, the debounce and a slow older answer, 375px, the keyboard), `access-tree.spec.ts`, `admin.spec.ts`,
+  `admin-delete.spec.ts` (cleanup of empty rows, follow-above as PUT `[]`, the guards in the panel) and `a11y.spec.ts`
+  (the panel in light, dark and on a phone). Screenshots: `web/test/e2e/shots-edit-panel.spec.ts`
+  (`EDIT_SHOTS=<folder>`). Needed in the core too: everything here.

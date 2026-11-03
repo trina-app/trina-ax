@@ -1,10 +1,12 @@
 // Admin › Folder permissions › By folder: the team folder as a tree, read from the top. Each row is one folder with who
 // can open it and where that comes from (GET /api/admin/access/tree, put into words by lib/access-view.ts); folders
 // without rules of their own are dimmed as inherited. Choosing a folder shows its rules and every person's access and
-// the reason (GET /api/admin/access/folder, the stage 2 answer, with the stage 3 reasons), with the rule editor
-// (RulesEditor) and "remove all rules" (shared/, skills/ and a group's folder keep theirs). "Rule folders only" shows
-// just the folders with rules and the way to them. Rows of folders that are not in the tree (gone from disk, inside
-// users/, a name the tree never shows) are folded under it to clean up. Nothing here decides access.
+// the reason (GET /api/admin/access/folder, the stage 2 answer, with the stage 3 reasons). "규칙 바꾸기" turns that part
+// into the edit panel (AccessEdit.tsx, stage 5: the basic access first, the people and groups named, and what saving
+// would change, from the server); on a phone the panel is the whole screen. "Rule folders only" shows just the folders
+// with rules and the way to them. Rows of folders that are not in the tree (gone from disk, inside users/, a name the
+// tree never shows) are folded under it to edit or clean up; an empty rule row that no project uses can go too. Nothing
+// here decides access.
 //
 // The keyboard follows the WAI-ARIA tree pattern: one Tab stop (the row last focused, else the chosen one), Up and Down
 // move, Right opens a folder or goes into it, Left closes it or goes to the folder above, Home and End, typing jumps to
@@ -22,7 +24,8 @@ import { useLocale, useT } from '../../i18n'
 import { Badge, Button, ErrorNote, Skeleton, Switch } from '../../components/ui'
 import FolderPicker from '../../components/FolderPicker'
 import { accessErrorText, LevelLabel } from './AccessResults'
-import { RemoveRulesButton, RulesEditor, isSkillsFolder, useRemoveRules } from './Folders'
+import { RemoveRulesButton, isSkillsFolder, useRemoveRules } from './Folders'
+import AccessEdit from './AccessEdit'
 import { Card, useFocusAfterRemove, useLoad } from './common'
 
 /** One level as loaded so far: its children's paths in the server's order. */
@@ -353,8 +356,19 @@ export default function AccessTree() {
   /** below the width where the tree and the folder sit side by side: the folder replaces the tree until Back */
   const [showDetail, setShowDetail] = useState(false)
   const [ruledOnly, setRuledOnly] = useState(false)
-  const [editing, setEditing] = useState<{ folder: Folder | null; path: string } | null>(null)
+  /** the folder whose rules are being changed (the edit panel replaces its part of the screen) */
+  const [editing, setEditing] = useState<{ path: string } | null>(null)
   const [picking, setPicking] = useState(false)
+  /** the panel's: resolves true when it may close (nothing changed, or the admin dropped the changes) */
+  const editGuard = useRef<() => Promise<boolean>>(async () => true)
+  /** the folder picked with "Add folder": its rules open once the tree has found and chosen it */
+  const pendingEdit = useRef<string | null>(null)
+  /** where the focus goes back when the panel closes (its opener, else the folder's rules button) */
+  const editReturn = useRef<HTMLElement | null>(null)
+  const focusAfterEdit = useRef(false)
+  /** the folder of the panel open now (a save that ends after another panel opened leaves that one alone) */
+  const editingPath = useRef<string | null>(null)
+  editingPath.current = editing?.path ?? null
   /** asks the chosen folder's people again after a change */
   const [detailKey, setDetailKey] = useState(0)
   const treeBox = useRef<HTMLDivElement>(null)
@@ -386,11 +400,32 @@ export default function AccessTree() {
     setParams(q, { replace: true })
   }
   const choose = (path: string) => {
+    // a folder picked with "Add folder" whose rules were to open once found: another one chosen meanwhile drops it
+    if (pendingEdit.current !== path) pendingEdit.current = null
     lookupGen.current++
     setLookup(null)
     setSelected(path)
     setShowDetail(true)
     address(path)
+  }
+  /** Open the edit panel for a folder (its row, if any, comes from the list of rule rows). */
+  const startEdit = (path: string) => {
+    editReturn.current = document.activeElement instanceof HTMLElement ? document.activeElement : null
+    setEditing({ path })
+  }
+  /** Leave the edit panel, asking first when something was changed there: false when the admin stays. */
+  const leaveEdit = async () => {
+    if (!editing) return true
+    if (!(await editGuard.current())) return false
+    setEditing(null)
+    focusAfterEdit.current = false
+    return true
+  }
+  /** a folder chosen in the tree while the panel is open: the panel goes first (the same folder: it stays) */
+  const chooseFromTree = async (path: string) => {
+    if (editing?.path === path) return
+    if (!(await leaveEdit())) return
+    choose(path)
   }
   /** back to the tree with nothing chosen */
   const clear = () => {
@@ -481,7 +516,8 @@ export default function AccessTree() {
   // tree never shows (Folder.hidden)
   const outside = (ruleRows ?? []).filter((f) => f.path !== '' && (!f.exists || f.hidden || isPersonalPath(f.path))).sort((a, b) => a.path.localeCompare(b.path))
   const node = selected !== null ? tree.data?.nodes.get(selected) : undefined
-  const treeHidden = showDetail && selected !== null
+  // narrow: the chosen folder, or the edit panel, takes the place of the tree
+  const treeHidden = (showDetail && selected !== null) || editing !== null
 
   /** back from the folder to its row (narrow); from a folder that is not there, to the tree with nothing chosen. The
    * row takes the focus once the tree shows again (below). */
@@ -516,17 +552,17 @@ export default function AccessTree() {
         node={node}
         members={tree.data?.members ?? 0}
         row={rowOf(node.path)}
-        rowsReady={!!folders.data}
+        rowsReady={!!folders.data && !!users.data && !!groups.data}
         names={names}
         subject={subject}
         reloadKey={detailKey}
         headingRef={detailHeading}
         removal={removal}
         back={backButton}
-        onEdit={() => setEditing({ folder: rowOf(node.path) ?? null, path: node.path })}
+        onEdit={() => startEdit(node.path)}
         onRemoved={async () => {
           await changed(node.path)
-          // the delete button went with the rules: the focus goes to the rules button, not to the page
+          // the delete button went with the empty row: the focus goes to the rules button, not to the page
           requestAnimationFrame(() => {
             const a = document.activeElement
             if (!a || a === document.body || !a.isConnected) document.querySelector<HTMLElement>('[data-testid="folder-detail-edit"]')?.focus()
@@ -579,6 +615,71 @@ export default function AccessTree() {
       </section>
     )
   }
+
+  // the panel for the folder being changed takes the place of the folder's part (which stays, hidden, with what it
+  // has loaded: it shows again at once, and a refresh that fails after a save keeps what was there)
+  let panel: ReactNode = null
+  if (editing) {
+    const path = editing.path
+    panel = (
+      <AccessEdit
+        key={path}
+        path={path}
+        folder={rowOf(path) ?? null}
+        users={users.data ?? []}
+        groups={groups.data ?? []}
+        guard={editGuard}
+        onClose={() => {
+          if (editingPath.current !== path) return
+          setEditing(null)
+          focusAfterEdit.current = true
+        }}
+        onSaved={async (saved) => {
+          // the row as saved at once (opening the panel again before the list comes starts from it), then the tree row,
+          // the folder's rules and every person's access there come again
+          folders.setData((d) => (d ? (d.some((f) => f.id === saved.id) ? d.map((f) => (f.id === saved.id ? saved : f)) : [...d, saved]) : d))
+          if (editingPath.current === path) {
+            setEditing(null)
+            focusAfterEdit.current = true
+          }
+          await changed(path)
+        }}
+        onStale={() => {
+          void folders.reload()
+          void tree.refresh(path)
+          setDetailKey((n) => n + 1)
+        }}
+      />
+    )
+  }
+  // the panel closed: the focus goes back where it came from (its opener, else the folder's rules button)
+  useLayoutEffect(() => {
+    if (!focusAfterEdit.current || editing) return
+    focusAfterEdit.current = false
+    const back = editReturn.current
+    editReturn.current = null
+    if (back?.isConnected && back.offsetParent !== null) back.focus()
+    else document.querySelector<HTMLElement>('[data-testid="folder-detail-edit"]')?.focus()
+  })
+  // the address moved on while the panel was open (Back, a link): the panel goes with the folder it was for (the
+  // browser gives no way to ask first; the panel's own ways out and the tree do ask)
+  const lastWanted = useRef(wanted)
+  useEffect(() => {
+    if (lastWanted.current === wanted) return
+    lastWanted.current = wanted
+    if (editing) setEditing(null)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [wanted])
+  // "Add folder": once the folder is found and chosen in the tree, its rules open (a folder that is not there says so)
+  useEffect(() => {
+    const p = pendingEdit.current
+    if (p === null) return
+    if (lookup && lookup.state !== 'busy') pendingEdit.current = null
+    if (selected !== p || lookup || !node) return
+    pendingEdit.current = null
+    startEdit(p)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selected, lookup, node])
 
   // a folder chosen while the tree is hidden (narrow): the folder's heading takes the focus, not the page
   useLayoutEffect(() => {
@@ -641,13 +742,31 @@ export default function AccessTree() {
                 if (parent === RULED) void tree.ruledPage(false)
                 else void tree.openLevel(parent)
               }}
-              onChoose={choose}
+              onChoose={(path) => void chooseFromTree(path)}
             />
             {ruledOnly && tree.data.ruled?.paths.length === 0 && <p className="px-1.5 py-3 text-sm text-faint">{t('accessTree.ruledEmpty')}</p>}
-            <OutsideRules rows={outside} folders={folders.data} subject={subject} groups={groups.data ?? []} onEdit={(f) => setEditing({ folder: f, path: f.path })} removal={removal} onRemoved={() => folders.reload()} />
+            <OutsideRules
+              rows={outside}
+              folders={folders.data}
+              subject={subject}
+              groups={groups.data ?? []}
+              editable={!!users.data && !!groups.data}
+              onEdit={(f) => void leaveEdit().then((ok) => ok && startEdit(f.path))}
+              removal={removal}
+              onRemoved={() => folders.reload()}
+            />
           </div>
-          <div className={clsx('min-w-0 @2xl:sticky @2xl:top-4 @2xl:max-h-[calc(100dvh-2rem)] @2xl:w-80 @2xl:shrink-0 @2xl:overflow-y-auto @2xl:border-l @2xl:border-line @2xl:pl-5 @3xl:w-96 scroll-thin', !treeHidden && '@max-2xl:hidden')} data-testid="folder-detail-box">
-            {detail}
+          <div
+            className={clsx(
+              'min-w-0 @2xl:sticky @2xl:top-4 @2xl:max-h-[calc(100dvh-2rem)] @2xl:shrink-0 @2xl:overflow-y-auto @2xl:border-l @2xl:border-line @2xl:pl-5 scroll-thin',
+              // the edit panel takes a little more room beside the tree
+              editing ? '@2xl:w-[22rem] @3xl:w-[26rem] @5xl:w-[30rem]' : '@2xl:w-80 @3xl:w-96',
+              !treeHidden && '@max-2xl:hidden',
+            )}
+            data-testid="folder-detail-box"
+          >
+            <div hidden={editing !== null}>{detail}</div>
+            {panel}
           </div>
         </div>
       </div>
@@ -661,7 +780,7 @@ export default function AccessTree() {
         title={t('accessTree.title')}
         desc={t('accessTree.desc')}
         actions={
-          <Button size="sm" variant="primary" onClick={() => setPicking(true)} data-testid="folder-rule-new">
+          <Button size="sm" variant="primary" onClick={() => void leaveEdit().then((ok) => ok && setPicking(true))} data-testid="folder-rule-new">
             <Plus size={14} aria-hidden /> {t('rules.addFolder')}
           </Button>
         }
@@ -689,32 +808,22 @@ export default function AccessTree() {
         onClose={() => setPicking(false)}
         onPick={(path) => {
           setPicking(false)
-          setEditing({ folder: rowOf(path) ?? null, path })
+          // the folder is opened to and chosen in the tree (also past the first page of its level), then its rules open
+          // there; inside users/ its one row says why rules do not apply
+          if (isPersonalPath(path)) {
+            address(path)
+            return
+          }
+          if (selected === path && node && !lookup) {
+            startEdit(path)
+            return
+          }
+          pendingEdit.current = path
+          // the address names it already (it was not found, or its lookup failed): looked up again
+          if (new URLSearchParams(window.location.search).get('folder') === path) void reveal(path)
+          else address(path)
         }}
       />
-      {editing && (
-        <RulesEditor
-          folder={editing.folder}
-          path={editing.path}
-          users={users.data ?? []}
-          groups={groups.data ?? []}
-          subject={subject}
-          rootName={rootName}
-          onClose={() => setEditing(null)}
-          onSaved={() => {
-            const path = editing.path
-            const onDisk = editing.folder?.exists !== false && !editing.folder?.hidden
-            setEditing(null)
-            // the folder saved is opened to and chosen, also past the first page of its level (a folder that is not in
-            // the tree stays in the list under it)
-            void changed(path).then(() => {
-              // already chosen and shown: nothing to look up
-              if (selected === path && tree.data?.nodes.has(path)) return
-              if (!isPersonalPath(path) && onDisk) void reveal(path)
-            })
-          }}
-        />
-      )}
     </>
   )
 }
@@ -1113,6 +1222,10 @@ function FolderDetail({ node: n, members, row, rowsReady, names, subject, reload
   const rules = row?.rules ?? []
   const keep = row?.keep === 'team' ? t('rules.keepTeam') : row?.keep === 'group' ? t('rules.keepGroup', { name: names.group(row.groupId ?? '') ?? '?' }) : null
   const checking = row && removal.checking === row.id
+  // "remove all rules" is for cleaning up only: a rule row left without rules that no project uses (a project's marker,
+  // after its project went; a group's row after the group did). Rules are changed in the panel, and "follow the folder
+  // above" is no rules saved there: removing a row would also cut a group's link or a project's mark.
+  const emptyMarker = !!row && !keep && row.rules.length === 0 && !n.kinds.includes('project')
   return (
     <section aria-labelledby={id} data-testid="folder-detail" data-path={n.path}>
       {back}
@@ -1132,16 +1245,16 @@ function FolderDetail({ node: n, members, row, rowsReady, names, subject, reload
         </div>
       ) : (
         <>
-          {/* the rules: change them here, or remove them all (rows the server keeps say why instead) */}
+          {/* the rules: change them in the edit panel (rows the server keeps say why under the rules) */}
           <div className="mt-3 flex flex-wrap items-center gap-2">
             <Button size="sm" onClick={onEdit} disabled={!rowsReady} data-testid="folder-detail-edit" data-row-focus>
               <SlidersHorizontal size={14} aria-hidden /> {rules.length ? t('accessTree.editRules') : t('accessTree.addRules')}
             </Button>
-            {/* a row without rules left (its group was deleted) can go too, as on the list before; this removes the
-                rules, never the folder, and says so */}
-            {row && !keep && (
-              <Button size="sm" variant="ghost-danger" onClick={() => void removal.remove(row, onRemoved)} aria-busy={checking || undefined} data-row-focus data-testid="folder-detail-delete">
-                {checking ? <Loader2 size={14} className="animate-spin" aria-hidden /> : <Trash2 size={14} aria-hidden />} {t('accessTree.removeRules')}
+            {/* an empty row no project uses: removed with the server's preview (it changes nobody's access); the folder
+                stays */}
+            {emptyMarker && (
+              <Button size="sm" variant="ghost-danger" onClick={() => void removal.remove(row, onRemoved)} aria-busy={checking || undefined} aria-describedby={`${id}-marker`} data-row-focus data-testid="folder-detail-delete">
+                {checking ? <Loader2 size={14} className="animate-spin" aria-hidden /> : <Trash2 size={14} aria-hidden />} {t('accessTree.removeMarker')}
               </Button>
             )}
             {keep && (
@@ -1150,6 +1263,11 @@ function FolderDetail({ node: n, members, row, rowsReady, names, subject, reload
               </span>
             )}
           </div>
+          {emptyMarker && (
+            <p id={`${id}-marker`} className="mt-1.5 text-xs text-muted" data-testid="folder-marker-hint">
+              {t('accessTree.markerHint')}
+            </p>
+          )}
           <div className="mt-4">
             <h4 className="text-xs font-semibold text-muted">{t('accessTree.ownRules')}</h4>
             {rules.length ? (
@@ -1274,11 +1392,13 @@ function People({ answer, path, names }: { answer: ReturnType<typeof useFolderAn
 const outsideWhy = (f: Folder): 'personal' | 'hidden' | 'missing' => (isPersonalPath(f.path) ? 'personal' : f.hidden ? 'hidden' : 'missing')
 
 /** Rule rows whose folder is not in the tree. Folded; each can be edited or removed, as on the list before the tree. */
-function OutsideRules({ rows, folders, subject, groups, onEdit, removal, onRemoved }: {
+function OutsideRules({ rows, folders, subject, groups, editable, onEdit, removal, onRemoved }: {
   rows: Folder[]
   folders: Folder[] | null
   subject: (type: string, id: string | null) => string
   groups: Group[]
+  /** the people and groups the edit panel names have come */
+  editable: boolean
   onEdit: (f: Folder) => void
   removal: ReturnType<typeof useRemoveRules>
   onRemoved: () => Promise<void>
@@ -1321,9 +1441,12 @@ function OutsideRules({ rows, folders, subject, groups, onEdit, removal, onRemov
                     </span>
                   )}
                 </span>
-                <Button size="sm" variant="ghost" onClick={() => onEdit(f)} data-row-focus={keep ? true : undefined}>
-                  {t('common.edit')}
-                </Button>
+                {/* inside users/ rules never apply (and the server refuses to change them): only removing them is offered */}
+                {why !== 'personal' && (
+                  <Button size="sm" variant="ghost" onClick={() => onEdit(f)} disabled={!editable} data-row-focus={keep ? true : undefined} data-testid="folder-outside-edit">
+                    {t('common.edit')}
+                  </Button>
+                )}
                 {keep ? (
                   <span className="inline-flex p-1.5 text-faint max-sm:p-2" title={keep} aria-hidden>
                     <Lock size={15} />

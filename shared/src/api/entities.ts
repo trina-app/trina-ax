@@ -111,6 +111,9 @@ export const Folder = z.object({
   /** the folder answers never show this path (inside users/, .system/ in any case, a temp name, a name the team folder
    * refuses): Admin › Folder permissions lists such a row apart, to edit or remove. Absent: an older server */
   hidden: z.boolean().optional(),
+  /** a hash of the folder's rules as they are now (the same rules in any order give the same hash): a save sends it
+   * back as `expectedHash`, and the server answers 409 when another admin changed them first. Absent: an older server */
+  rulesHash: z.string().optional(),
 })
 export type Folder = z.infer<typeof Folder>
 

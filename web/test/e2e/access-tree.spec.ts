@@ -18,6 +18,15 @@ const tree = (page: Page) => page.getByTestId('folder-tree')
 const item = (page: Page, path: string) => tree(page).locator(`[role="treeitem"][data-path="${path}"]`)
 const detail = (page: Page) => page.getByTestId('folder-detail')
 const person = (page: Page, id: string) => detail(page).locator(`[data-testid="folder-person"][data-person="${id}"]`)
+/** the chosen folder's rules in the edit panel (stage 5): everyone reads, saved */
+async function everyoneReads(page: Page) {
+  const panel = page.getByTestId('edit-panel')
+  await page.getByTestId('folder-detail-edit').click()
+  await panel.getByTestId('edit-basic-read').click()
+  await expect(panel.getByTestId('edit-result')).toHaveAttribute('data-ready', 'true')
+  await panel.getByTestId('edit-save').click()
+  await expect(panel).toHaveCount(0)
+}
 
 /** Olga (owner, 재무팀), Bob, Carol (영업팀), Dan; shared: everyone writes; skills: everyone reads, admins write;
  * skills/영업: everyone writes; projects/apollo: Dan writes, 영업팀 reads, nobody else; connected/nas: 영업팀 reads. */
@@ -117,13 +126,8 @@ test('a chosen folder: its rules, each person and why; rules change from there; 
   await expect(person(page, 'olga')).toContainText(t['accessView.why.owner'])
   await expect(page.getByTestId('folder-detail-counts')).toHaveText(translate('ko', 'accessTree.counts', { see: 3, write: 2, none: 1 }))
 
-  // change the rules from here: everyone reads; the row and the people follow, and the lock goes
-  await page.getByTestId('folder-detail-edit').click()
-  const dialog = page.getByRole('dialog')
-  await page.getByTestId('rule-add').click()
-  await dialog.getByLabel(t['rules.who'], { exact: true }).last().selectOption('everyone')
-  await page.getByTestId('rules-save').click()
-  await expect(dialog).toHaveCount(0)
+  // change the rules from here (the edit panel): everyone reads; the row and the people follow, and the lock goes
+  await everyoneReads(page)
   await expect(person(page, 'bob')).toHaveAttribute('data-level', 'read')
   await expect(item(page, 'projects/apollo').getByTestId('tree-who')).toContainText(`${translate('ko', 'accessTree.who.others', { n: 1 })} · ${t['access.read']}`)
   await expect(item(page, 'projects/apollo')).not.toContainText(t['accessTree.restricted'])
@@ -281,7 +285,7 @@ test('rules of folders gone from disk: folded under the tree, removed with the s
   expect(realErrors(errors)).toEqual([])
 })
 
-test('add a folder: the picker, the rule editor, then the folder is opened to and chosen; the address opens one', async ({ page }) => {
+test('add a folder: the picker, the folder opened to and chosen, then its rules in the edit panel; the address opens one', async ({ page }) => {
   await reset(page)
   await signIn(page)
   await page.goto('/admin/folders')
@@ -292,12 +296,15 @@ test('add a folder: the picker, the rule editor, then the folder is opened to an
   await picker.getByRole('button', { name: /^finance/ }).click()
   await picker.getByRole('button', { name: /^2026/ }).click()
   await page.getByTestId('folder-pick').click()
-  await expect(page.getByRole('dialog')).toContainText(translate('ko', 'rules.editTitle', { path: 'finance/2026' }))
-  await page.getByTestId('rule-add').click()
-  await page.getByRole('dialog').getByLabel(t['rules.who'], { exact: true }).selectOption('everyone')
-  await page.getByTestId('rules-save').click()
+  // the folder is found in the tree and chosen, and its rules open in the panel there
   await expect(item(page, 'finance')).toHaveAttribute('aria-expanded', 'true')
   await expect(item(page, 'finance/2026')).toHaveAttribute('aria-selected', 'true')
+  const panel = page.getByTestId('edit-panel')
+  await expect(panel).toHaveAttribute('data-path', 'finance/2026')
+  await panel.getByTestId('edit-basic-read').click()
+  await expect(panel.getByTestId('edit-result')).toHaveAttribute('data-ready', 'true')
+  await panel.getByTestId('edit-save').click()
+  await expect(panel).toHaveCount(0)
   await expect(detail(page)).toHaveAttribute('data-path', 'finance/2026')
   await expect(detail(page).getByTestId('folder-rules')).toContainText(`${t['rules.everyone']}: ${t['access.read']}`)
   await expect(item(page, 'finance/2026').getByTestId('tree-who')).toHaveText(`${t['rules.everyone']} · ${t['access.read']}`)
@@ -522,16 +529,17 @@ test('a refresh that fails says so with a way to try again; the people already s
   await team(page)
   await page.goto('/admin/folders?folder=projects%2Fapollo')
   await expect(page.getByTestId('folder-people')).toBeVisible()
-  // the rules change, and the answers that would show it fail
-  await page.route('**/api/admin/access/**', (r) => r.fulfill({ status: 503, json: { error: { code: 'unavailable', message: 'x' } } }))
+  // the rules change (the edit panel works its result out first), and the answers that would show it fail
+  const panel = page.getByTestId('edit-panel')
   await page.getByTestId('folder-detail-edit').click()
-  await page.getByTestId('rule-add').click()
-  await page.getByRole('dialog').getByLabel(t['rules.who'], { exact: true }).last().selectOption('everyone')
-  await page.getByTestId('rules-save').click()
+  await panel.getByTestId('edit-basic-read').click()
+  await expect(panel.getByTestId('edit-result')).toHaveAttribute('data-ready', 'true')
+  await page.route(/\/api\/admin\/access\/(tree|folder)/, (r) => r.fulfill({ status: 503, json: { error: { code: 'unavailable', message: 'x' } } }))
+  await panel.getByTestId('edit-save').click()
   await expect(page.getByTestId('tree-stale')).toContainText(t['accessTree.refreshFailed'])
   await expect(page.getByTestId('folder-people-stale')).toContainText(t['accessTree.refreshFailed'])
   await expect(person(page, 'dan')).toBeVisible()
-  await page.unroute('**/api/admin/access/**')
+  await page.unroute(/\/api\/admin\/access\/(tree|folder)/)
   await page.getByTestId('tree-stale').getByRole('button', { name: t['common.retry'], exact: true }).click()
   await expect(page.getByTestId('tree-stale')).toHaveCount(0)
   await expect(item(page, 'projects/apollo').getByTestId('tree-who')).toContainText(`${translate('ko', 'accessTree.who.others', { n: 1 })} · ${t['access.read']}`)
@@ -594,10 +602,7 @@ test('a slow "Load more" of the people that comes after a rule change is dropped
   await expect(person(page, 'bob')).toHaveAttribute('data-level', 'none')
   await page.getByTestId('folder-people-more').click()
   // meanwhile: everyone reads apollo now
-  await page.getByTestId('folder-detail-edit').click()
-  await page.getByTestId('rule-add').click()
-  await page.getByRole('dialog').getByLabel(t['rules.who'], { exact: true }).last().selectOption('everyone')
-  await page.getByTestId('rules-save').click()
+  await everyoneReads(page)
   await expect(person(page, 'bob')).toHaveAttribute('data-level', 'read')
   // the slow page of before the change lands and is dropped: the new answer stays as it is
   await page.waitForTimeout(3000)

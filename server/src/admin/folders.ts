@@ -19,6 +19,7 @@ import { userRef } from '../auth/users'
 import { audit } from './audit'
 import { folderKeep, isParkedRow, type FolderKeep } from './folder-keep'
 import { shownSegs } from './access-rows'
+import { rulesHash } from './access-edit'
 import { resetEngineSessions as resetChatSessions } from '../chat/runtime'
 
 export interface FolderRow { id: string; path: string; created_at: string }
@@ -167,7 +168,15 @@ export function toFolder(ctx: AppContext, f: FolderRow): Folder {
     keep: folderKeep(f.path, groupId, ctx.files.fx.caseInsensitive),
     // the folder answers never show it (access-rows.ts): the tree lists such a row apart
     hidden: shownSegs(f.path) === null,
+    // a save sends it back (expectedHash): another admin's change in between is refused, not undone unseen
+    rulesHash: rulesHash(rows.map((r) => ({ subjectType: r.subject_type, subjectId: r.subject_id, access: r.access }))),
   }
+}
+
+/** The hash of a folder's rules now, by path (no row or no rules: the hash of none), as `Folder.rulesHash` says it. */
+export function rulesHashAt(db: Database, p: string): string {
+  const f = getFolderByPath(db, p)
+  return rulesHash(f ? rulesOf(db, f.id) : [])
 }
 
 /** Why the admin API keeps this row (folder-keep.ts): 'team' for shared/ and skills/ (in any case on a case-insensitive

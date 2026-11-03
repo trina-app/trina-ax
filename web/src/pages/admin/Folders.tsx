@@ -1,14 +1,14 @@
 // Folder permissions (tab 2): folders that carry rules, each rule = who (everyone / role / group / person) gets
-// none / read / write. Before saving, "who sees what" shows every active person's access before → after, and who
-// loses access (their chats that touched those folders get a fresh engine session). "By folder" (AccessTree.tsx) is the
-// team folder as a tree: who sees each folder and from where, each person's access and why. "By person"
-// (AccessPeople.tsx) shows, read only, what one person and their AI see and why. Both open the rule editor below.
+// none / read / write. "By folder" (AccessTree.tsx) is the team folder as a tree: who sees each folder and from where,
+// each person's access and why; its rules change in the edit panel there (AccessEdit.tsx). "By person"
+// (AccessPeople.tsx) shows, read only, what one person and their AI see and why, and opens the older rule editor below
+// (RulesEditor: a table of rules with "who sees what" before saving; to be replaced by the panel in a later stage).
 import clsx from 'clsx'
 import { ArrowRight, Eye, Loader2, Plus, Trash2 } from 'lucide-react'
 import { lazy, Suspense, useId, useState, type ReactNode } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import type { Access, Folder, FolderRuleInput, Group, PreviewResponse, User } from '@mycel/shared/api'
-import { api, API, errorText } from '../../lib/api'
+import { api, API, errorText, isApiError } from '../../lib/api'
 import { useLocale, useT } from '../../i18n'
 import { isSkillsPath } from '../../lib/access-view'
 import { Button, ErrorNote, IconButton, Modal, Spinner, TabPanel, Tabs, confirmDialog, inputCls } from '../../components/ui'
@@ -158,11 +158,13 @@ export default function Folders() {
  * opened from Folder permissions › By person ("View or change rules"), which names the team root its own way
  * (`rootName`) and says when a folder is not on disk (`missing`): then nothing is made (create: false, and Save waits;
  * the server refuses a missing folder without create, tests/unit/access-explain-api.test.ts). */
-export function RulesEditor({ folder, path, users, groups, subject, onClose, onSaved, rootName, missing }: { folder: Folder | null; path: string; users: User[]; groups: Group[]; subject: (type: string, id: string | null) => string; onClose: () => void; onSaved: () => void; rootName?: string; missing?: boolean }) {
+export function RulesEditor({ folder, path, users, groups, subject, onClose, onSaved, onStale, rootName, missing }: { folder: Folder | null; path: string; users: User[]; groups: Group[]; subject: (type: string, id: string | null) => string; onClose: () => void; onSaved: () => void; onStale?: () => void; rootName?: string; missing?: boolean }) {
   const t = useT()
   const locale = useLocale()
   const act = useAction()
   const [rows, setRows] = useState<RuleRow[]>(folder?.rules.map((r) => ({ subjectType: r.subjectType, subjectId: r.subjectId, access: r.access })) ?? [])
+  /** the hash of the rules the editor started from (the list may come again while it is open) */
+  const [startHash] = useState(folder?.rulesHash)
   const [preview, setPreview] = useState<PreviewResponse | null>(null)
   const [busy, setBusy] = useState<'preview' | 'save' | null>(null)
   /** the server's answer to Save when it refused (e.g. no rule left on shared/ or skills/), shown in the dialog */
@@ -194,8 +196,13 @@ export function RulesEditor({ folder, path, users, groups, subject, onClose, onS
     setBusy('save')
     setRefused(null)
     try {
-      await (folder ? api.call(API.putFolderRules, { params: { id: folder.id }, body: { rules } }) : api.call(API.createFolder, { body: { path, create: !noFolder, rules } }))
+      // the rules it started from: another admin's change in between is refused (409, said here), not undone unseen; a
+      // folder without a row is refused when rules were made there meanwhile (folderExists)
+      await (folder ? api.call(API.putFolderRules, { params: { id: folder.id }, body: { rules, ...(startHash ? { expectedHash: startHash } : {}) } }) : api.call(API.createFolder, { body: { path, create: !noFolder, rules } }))
     } catch (e) {
+      // another admin changed them: the server's words say so; the list comes again, so opening the editor again starts
+      // from their rules
+      if (isApiError(e, 'conflict') && e.body.params?.reason === 'rules_changed') onStale?.()
       setRefused(errorText(e, locale, t('error.network')))
       return
     } finally {

@@ -298,6 +298,16 @@ export const SPECS: Record<string, Spec> = {
         const empty = await w.as[who].put(`/api/admin/folders/${w.folders[p]}/rules`, { rules: [] })
         if (empty.status !== 400) throw new Error(`${who} removed every rule of ${p}/: ${empty.status}`)
       }
+      // a save that names rules the folder no longer has (another admin changed them: stage 5) is refused and changes
+      // nothing; the folder's hash as listed saves
+      const listed = async () => ((await w.as[who].get('/api/admin/folders')).json?.items ?? []) as { id: string; rules: unknown[]; rulesHash?: string }[]
+      const fin = (await listed()).find((f) => f.id === w.folders['groups/finance'])
+      if (!fin?.rulesHash) throw new Error(`${who}: the folder list carries no rules hash`)
+      const stale = await w.as[who].put(`/api/admin/folders/${fin.id}/rules`, { rules: [], expectedHash: 'not-the-rules-hash' })
+      if (stale.status !== 409 || stale.json?.error?.params?.reason !== 'rules_changed') throw new Error(`${who} saved over rules that changed: ${stale.status}`)
+      if (JSON.stringify((await listed()).find((f) => f.id === fin.id)?.rules) !== JSON.stringify(fin.rules)) throw new Error(`${who}: a refused save changed the rules`)
+      const same = await w.as[who].put(`/api/admin/folders/${fin.id}/rules`, { rules: [{ subjectType: 'user', subjectId: 'alice', access: 'write' }], expectedHash: fin.rulesHash })
+      if (same.status !== 200) throw new Error(`${who} could not save with the folder's own hash: ${same.status}`)
     } },
   // the team's default folders and a group's folder row stay (409), for the owner and admins too. The group is made here:
   // the world's groups may already be gone (deleteGroup runs before this case), and nothing here may depend on order
@@ -334,6 +344,22 @@ export const SPECS: Record<string, Spec> = {
     } },
   previewRules: { build: (c) => c.post('/api/admin/folder-rules/preview', { changes: [{ path: 'shared', rules: [{ subjectType: 'everyone', subjectId: null, access: 'read' }] }] }), scope: 'byLevel',
     check: (r, w, who) => { if ((who === 'owner' || who === 'admin') && r.text.includes(C.bobFile)) throw new Error('preview leaks private content') } },
+  // the edit panel's preview (admin/access-edit.ts): admins and the owner only, nothing saved, no file content or name
+  // of anyone's personal folder; a path inside alice's folder is refused without her file's name
+  previewFolderEdit: { build: (c, w) => c.post('/api/admin/access/edit-preview', { path: w.groups.finFolder, rules: [{ subjectType: 'everyone', subjectId: null, access: 'read' }] }), scope: 'byLevel',
+    check: async (r, w, who) => {
+      if (r.status === 200) {
+        if (r.text.includes(C.bobFile) || r.text.includes(C.aliceFileName) || r.text.includes('Private plan')) throw new Error(`${who}: the edit preview shows file content or a personal name`)
+        if (typeof r.json?.hash !== 'string' || !Array.isArray(r.json?.changes)) throw new Error(`${who}: the edit preview has no hash or changes`)
+        // nothing was saved: the finance folder's rules are as they were
+        const still = ((await w.as[who].get('/api/admin/folders')).json?.items ?? []).find((f: any) => f.path === w.groups.finFolder)
+        if (still?.rules?.some((x: any) => x.subjectType === 'everyone')) throw new Error(`${who}: the edit preview saved its rules`)
+      }
+      const probe = await w.as[who].post('/api/admin/access/edit-preview', { path: `users/alice/${C.aliceFileName}.md`, rules: [] })
+      if (probe.status < 400 || probe.status >= 500) throw new Error(`${who}: a path in users/alice was answered (${probe.status})`)
+      const l = [...leaks(who, probe.text), ...(probe.text.includes(C.aliceFileName) ? [C.aliceFileName] : [])]
+      if (l.length) throw new Error(`${who}: the refusal shows ${l.join(', ')}`)
+    } },
   // folder access explained (server/src/admin/access-explain.ts): admins and the owner only. A person's list holds
   // their own users/<id> row from the member list and nothing else of users/ (no file, folder or personal project
   // name of alice's: the canaries plus her private project's name) and nothing of .system/

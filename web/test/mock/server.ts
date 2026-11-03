@@ -46,10 +46,11 @@ import { checkTeamIcon, TEAM_ICON_MAX_BYTES, type TeamIconFile } from '@mycel/sh
 import { Sealer } from '../../../server/src/credentials/seal'
 import type { Credential, CredentialKind, CredentialLogin, MessageSourceFile } from '@mycel/shared/api'
 import type { Integration, IntegrationAccess, IntegrationFlow, IntegrationInput, IntegrationPatch, IntegrationRequest, IntegrationTool } from '@mycel/shared/api'
-import { SkillsOverview, type AccessFolderKind, type AccessTreeResponse, type FolderAccessResponse, type PersonAccessResponse } from '@mycel/shared/api'
+import { SkillsOverview, type AccessFolderKind, type AccessTreeResponse, type FolderAccessResponse, type FolderEditPreview, type PersonAccessResponse } from '@mycel/shared/api'
 import { RuleSet, type Access } from '../../../server/src/policy/access'
 import { byPerson, folderInput, MAX_VIA, navigation, pageByPath, pageByPerson, ruleFolderOf, segsOf, shownPath, shownSegs, summarize, withoutOwnFolder } from '../../../server/src/admin/access-rows'
 import { ruledAnswer, treeAnswer, type TreeMark, type TreeSource } from '../../../server/src/admin/access-tree'
+import { editPreview, rulesHash } from '../../../server/src/admin/access-edit'
 import os from 'node:os'
 import path from 'node:path'
 import { MockPlugins } from './plugins'
@@ -439,6 +440,30 @@ export class MockServer {
     const exists = p === '' || this.files.get(p)?.type === 'folder'
     const page = { cursor: q.cursor, limit: q.limit ? Number(q.limit) : undefined }
     return q.rules === '1' || q.rules === 'true' ? ruledAnswer(src, segs, exists, page) : treeAnswer(src, segs, exists, { ...page, open: q.open === '1' || q.open === 'true' })
+  }
+
+  /** the edit panel's preview (like explainEdit in server/src/admin/access-explain.ts): the server's own computation
+   * (server/src/admin/access-edit.ts) over the rules and people here. A folder with a rule row as stored, any other as
+   * the tree takes it; nothing in users/. Connected folders are those under connected/ here. */
+  explainEdit(body: { path: string; rules: { subjectType: string; subjectId: string | null; access: Access }[] }, locale: Locale): FolderEditPreview {
+    let p = body.path
+    if (!this.folders.some((f) => f.path === p && !isParkedRow(f.path))) {
+      const input = folderInput(p)
+      if ('refuse' in input) fail('validation', 400, input.refuse === 'personal' ? serverMsg('rulesInUsers', locale) : '팀 폴더 경로가 아니에요.', { 'body.path': input.detail })
+      p = (input as { segs: string[] }).segs.join('/')
+    }
+    if (p === 'users' || p.startsWith('users/')) fail('validation', 400, serverMsg('rulesInUsers', locale), { 'body.path': 'users/ cannot carry rules' })
+    for (const [i, r] of body.rules.entries()) {
+      if (r.subjectType === 'group' && !this.groups.some((g) => g.id === r.subjectId)) fail('validation', 400, serverMsg('unknownGroups', locale), { [`body.rules.${i}.subjectId`]: 'unknown group' })
+      if (r.subjectType === 'user' && !this.users.some((u) => u.id === r.subjectId)) fail('validation', 400, serverMsg('unknownUsers', locale), { [`body.rules.${i}.subjectId`]: 'unknown person' })
+    }
+    const active = this.users.filter((u) => u.status === 'active')
+    const segs = segsOf(p)
+    const out = editPreview(
+      { rules: this.explainRules(), people: active.map((u) => this.explainPrincipal(u)), groupName: (id) => this.groups.find((g) => g.id === id)?.name ?? null, personName: (id) => this.users.find((u) => u.id === id)?.name ?? null },
+      p, body.rules, { team: isTeamDefaultFolder(p, false) ? (p === 'shared' ? 'shared' : 'skills') : null },
+    )
+    return { path: p, exists: p === '' || this.files.get(p)?.type === 'folder', connected: segs.length >= 2 && segs[0] === 'connected' && this.files.get(`connected/${segs[1]}`)?.type === 'folder', ...out }
   }
 
   // ---------------- team skills (like server/src/skills/*) ----------------
@@ -1387,7 +1412,8 @@ export class MockServer {
       this.invites = this.invites.filter((i) => i.id !== c.params.id)
       return undefined
     },
-    listGroups: () => ({ items: this.groups }),
+    // members as the server counts them (group_members): those the group lists and those whose groups name it
+    listGroups: () => ({ items: this.groups.map((g) => ({ ...g, memberIds: [...new Set([...g.memberIds, ...this.users.filter((u) => u.groupIds.includes(g.id)).map((u) => u.id)])] })) }),
     createGroup: (c) => {
       const g: Group = { id: uuidv7(), name: c.body.name, description: c.body.description ?? null, memberIds: c.body.memberIds ?? [] }
       this.groups.push(g)
@@ -1411,7 +1437,7 @@ export class MockServer {
     },
     // like the server (admin/folder-keep.ts, the mock's names are case-sensitive): rows parked with a trashed folder are
     // not listed, and each row says why the API keeps it
-    listFolders: () => ({ items: this.folders.filter((f) => !isParkedRow(f.path)).map((f) => ({ ...f, exists: f.path === '' || this.files.get(f.path)?.type === 'folder', keep: folderKeep(f.path, f.groupId ?? null, false), hidden: shownSegs(f.path) === null })) }),
+    listFolders: () => ({ items: this.folders.filter((f) => !isParkedRow(f.path)).map((f) => ({ ...f, exists: f.path === '' || this.files.get(f.path)?.type === 'folder', keep: folderKeep(f.path, f.groupId ?? null, false), hidden: shownSegs(f.path) === null, rulesHash: rulesHash(f.rules) })) }),
     // ---- team skills ----
     listSkillManagers: () => this.skillManagersResponse(),
     setSkillManager: (c) => {
@@ -1489,18 +1515,22 @@ export class MockServer {
     },
     createFolder: (c) => {
       if (isTeamDefaultFolder(c.body.path, false) && !c.body.rules?.length) fail('validation', 400, serverMsg('teamFolderKeepsRules', c.user.locale), { 'body.rules': 'shared/ and skills/ keep at least one rule' })
+      // like the server: rules made there meanwhile (the hash the editor started from is not the rules' now)
+      if (c.body.expectedHash !== undefined && c.body.expectedHash !== rulesHash(this.folders.find((f) => f.path === c.body.path)?.rules ?? [])) throw new Fail('conflict', 409, serverMsg('rulesChanged', c.user.locale), undefined, { reason: 'rules_changed' })
       // like the server (create defaults to true): the folder and those above it are made
       if (c.body.create !== false) for (let i = 1, parts = String(c.body.path).split('/'); c.body.path && i <= parts.length; i++) { const d = parts.slice(0, i).join('/'); if (!this.files.has(d)) this.files.set(d, { type: 'folder', mtime: now() }) }
       const f: Folder = { id: uuidv7(), path: c.body.path, exists: c.body.path === '' || this.files.get(c.body.path)?.type === 'folder', createdAt: now(), rules: [] }
       f.rules = (c.body.rules ?? []).map((r: Json) => ({ id: uuidv7(), folderId: f.id, subjectType: r.subjectType, subjectId: r.subjectId ?? null, access: r.access, updatedBy: { id: c.user.id, name: c.user.name }, updatedAt: now() }))
       this.folders.push(f)
-      return { status: 201, body: f }
+      return { status: 201, body: { ...f, rulesHash: rulesHash(f.rules) } }
     },
     putFolderRules: (c) => {
       const f = this.folders.find((x) => x.id === c.params.id && !isParkedRow(x.path)) ?? fail('not_found', 404)
       if (isTeamDefaultFolder(f.path, false) && !c.body.rules.length) fail('validation', 400, serverMsg('teamFolderKeepsRules', c.user.locale), { 'body.rules': 'shared/ and skills/ keep at least one rule' })
+      // like the server: another admin changed the rules since the editor read them
+      if (c.body.expectedHash !== undefined && c.body.expectedHash !== rulesHash(f.rules)) throw new Fail('conflict', 409, serverMsg('rulesChanged', c.user.locale), undefined, { reason: 'rules_changed' })
       f.rules = c.body.rules.map((r: Json) => ({ id: uuidv7(), folderId: f.id, subjectType: r.subjectType, subjectId: r.subjectId ?? null, access: r.access, updatedBy: { id: c.user.id, name: c.user.name }, updatedAt: now() }))
-      return { ...f, keep: folderKeep(f.path, f.groupId ?? null, false) }
+      return { ...f, exists: f.path === '' || this.files.get(f.path)?.type === 'folder', keep: folderKeep(f.path, f.groupId ?? null, false), hidden: shownSegs(f.path) === null, rulesHash: rulesHash(f.rules) }
     },
     deleteFolder: (c) => {
       const f = this.folders.find((x) => x.id === c.params.id && !isParkedRow(x.path)) ?? fail('not_found', 404)
@@ -1517,6 +1547,7 @@ export class MockServer {
       return this.explainPerson({ user: u, role: u.role, groupIds: u.groupIds }, { prefix: c.query.prefix, cursor: c.query.cursor, limit: c.query.limit ? Number(c.query.limit) : undefined })
     },
     explainAccessTree: (c) => this.explainTree(c.query),
+    previewFolderEdit: (c) => this.explainEdit(c.body, c.user.locale),
     explainNewPersonAccess: (c) => {
       if ((c.body.groupIds as string[]).some((g) => !this.groups.some((x) => x.id === g))) fail('validation', 400, '없는 그룹이 들어 있어요.', { 'body.groupIds': 'unknown group' })
       return this.explainPerson({ user: null, role: c.body.role, groupIds: [...new Set(c.body.groupIds as string[])] }, c.body)

@@ -100,7 +100,7 @@ const RANK = { none: 0, read: 1, write: 2 } as const
  * there name, and not named by a person rule there. Every one of them gets the same RuleSet.explain at `at` (the rules
  * of other groups never apply on that way), so it runs once per such class, on one of them.
  */
-function classesAt(src: TreeSource, at: readonly string[]): { p: Principal; n: number }[] {
+function classesAt(src: WhoSource, at: readonly string[]): { p: Principal; n: number }[] {
   const gi = new Map<string, number>()
   const named = new Set<string>()
   for (let len = at.length; len >= 0; len--) {
@@ -133,8 +133,11 @@ function classesAt(src: TreeSource, at: readonly string[]): { p: Principal; n: n
   return [...classes.values()]
 }
 
+/** What "who sees it" needs of a source (the edit preview, access-edit.ts, asks it of rules that are not saved). */
+export type WhoSource = Pick<TreeSource, 'rules' | 'people' | 'groupName' | 'personName'>
+
 /** Everyone active at the deciding folder `at`, grouped (most access first, then most people). */
-function whoAt(src: TreeSource, at: readonly string[]): AccessTreeWho[] {
+export function whoAt(src: WhoSource, at: readonly string[]): AccessTreeWho[] {
   const groups = new Map<string, AccessTreeWho>()
   for (const { p, n } of classesAt(src, at)) {
     const e = src.rules.explain(p, at)
@@ -159,12 +162,16 @@ function whoAt(src: TreeSource, at: readonly string[]): AccessTreeWho[] {
 }
 
 /** Every member (not the owner or an admin) writes there; false when there are no members. */
-const allWrite = (who: readonly AccessTreeWho[]) => {
+export const allWrite = (who: readonly AccessTreeWho[]) => {
   const members = who.filter((w) => w.reason !== 'owner-admin')
   return members.length > 0 && members.every((w) => w.access === 'write')
 }
 /** Some member cannot open it. */
 const someShut = (who: readonly AccessTreeWho[]) => who.some((w) => w.reason !== 'owner-admin' && w.access === 'none')
+
+/** A rule on the root lets members in as everyone or as members (what decide() gives them there, so a "member: none"
+ * beside "everyone: read" opens nothing). `who`: who sees the root. */
+export const rootOpensTo = (who: readonly AccessTreeWho[]) => who.some((w) => w.reason === 'rule' && w.folder === '' && w.access !== 'none' && (w.subject?.type === 'everyone' || (w.subject?.type === 'role' && w.subject.id === 'member')))
 
 /** One answer's computations: "who" once per deciding folder (a folder without rules answers like the nearest folder
  * with rules above it), the marked folders once. */
@@ -180,9 +187,7 @@ export function treeContext(src: TreeSource) {
     if (!w) memo.set(key, (w = whoAt(src, at === null ? segs : segsOf(at))))
     return w
   }
-  // a rule on the root that lets members in as everyone or as members (what decide() gives them there, so a "member:
-  // none" beside "everyone: read" opens nothing)
-  const rootOpens = () => who([]).some((w) => w.reason === 'rule' && w.folder === '' && w.access !== 'none' && (w.subject?.type === 'everyone' || (w.subject?.type === 'role' && w.subject.id === 'member')))
+  const rootOpens = () => rootOpensTo(who([]))
 
   /** `exists`: false for a folder asked for that is not there (nothing is looked at inside it: a link is not followed) */
   const node = (segs: readonly string[], exists = true): AccessTreeNode => {

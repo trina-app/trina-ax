@@ -14,11 +14,12 @@ import { createBudget, deleteBudget, listBudgets, updateBudget, usage } from '..
 import { EngineStatusCache, engineStatusCache } from '../admin/engines'
 import {
   actualFolderPath, afterAccessChange, captureState, dropFolderRow, ensureFolderRow, getFolder, getFolderByPath, keepOfRow, listFolders,
-  previewRules, replaceRules, resolveFolderPath, rulesOf, toFolder, validateRules, type FolderRow,
+  previewRules, replaceRules, resolveFolderPath, rulesHashAt, rulesOf, toFolder, validateRules, type FolderRow,
 } from '../admin/folders'
+import { rulesHash } from '../admin/access-edit'
 import { isParkedRow, isTeamDefaultFolder } from '../admin/folder-keep'
 import { createGroup, deleteGroup, listGroups, updateGroup } from '../admin/groups'
-import { explainFolder, explainNewPerson, explainPerson, explainTree } from '../admin/access-explain'
+import { explainEdit, explainFolder, explainNewPerson, explainPerson, explainTree } from '../admin/access-explain'
 import { BROWSER_POLICY_CHANGED, enginesEnabled, getTeamSettings, LOCALE_CHANGED, setEnginesEnabled, SPEECH_CHANGED, updateTeamSettings } from '../admin/settings'
 import { credentialsOf } from '../credentials/store'
 import { unsealOrFail } from '../credentials/service'
@@ -103,6 +104,12 @@ export const adminRoutes: RouteModule = {
     const keepsRules = (p: string, rules: readonly unknown[], locale: Locale) => {
       if (!rules.length && isTeamDefaultFolder(p, ctx.files.fx.caseInsensitive)) fail('validation', msg('teamFolderKeepsRules', locale), { fields: { 'body.rules': 'shared/ and skills/ keep at least one rule' } })
     }
+    // A save that names the rules it started from (`expectedHash`, Folder.rulesHash) is refused when the folder's rules
+    // are not those any more: another admin, or the Members screen's skill manager switch, changed them in between, and
+    // saving would undo that unseen. Checked inside the save's transaction. Without the field: replaced as before.
+    const sameRules = (now: string, expected: string | undefined, locale: Locale) => {
+      if (expected !== undefined && expected !== now) fail('conflict', msg('rulesChanged', locale), { params: { reason: 'rules_changed' } })
+    }
     kit.handle(API.listFolders, () => ({ items: listFolders(ctx) }))
 
     kit.handle(API.createFolder, ({ c, body, auth }) => {
@@ -111,8 +118,11 @@ export const adminRoutes: RouteModule = {
       // judged before anything is made on disk (create: true)
       const typed = actualFolderPath(ctx, body.path)
       if (typed !== null) keepsRules(typed, body.rules, locale)
+      // another admin's rules made meanwhile: said as such, before anything is made on disk
+      if (body.expectedHash !== undefined && typed !== null) sameRules(rulesHashAt(ctx.db, typed), body.expectedHash, locale)
       const { path: p, created } = resolveFolderPath(ctx, body.path, { create: body.create, locale })
       const existing = getFolderByPath(ctx.db, p)
+      if (body.expectedHash !== undefined) sameRules(rulesHashAt(ctx.db, p), body.expectedHash, locale)
       if (existing && rulesOf(ctx.db, existing.id).length) fail('conflict', msg('folderExists', locale))
       const before = captureState(ctx.db)
       const f = ctx.db.transaction(() => {
@@ -171,6 +181,7 @@ export const adminRoutes: RouteModule = {
       const before = captureState(ctx.db)
       const old = rulesOf(ctx.db, f.id)
       ctx.db.transaction(() => {
+        sameRules(rulesHash(rulesOf(ctx.db, f.id)), body.expectedHash, c.get('locale'))
         replaceRules(ctx.db, f.id, body.rules, auth.user.id)
         audit(ctx.db, { actor: auth.user.id, action: 'folder.rules', target: f.path, detail: { before: old, after: body.rules } })
       })()
@@ -198,6 +209,8 @@ export const adminRoutes: RouteModule = {
     kit.handle(API.explainPersonAccess, ({ params, query }) => explainPerson(ctx, params.id, query))
     kit.handle(API.explainNewPersonAccess, ({ c, body }) => explainNewPerson(ctx, body, c.get('locale')))
     kit.handle(API.explainAccessTree, ({ c, query }) => explainTree(ctx, query, c.get('locale')))
+    // the edit panel: what saving these rules would change (admin/access-edit.ts; nothing is saved)
+    kit.handle(API.previewFolderEdit, ({ c, body }) => explainEdit(ctx, body, c.get('locale')))
 
     // ---------------- team skills: who manages them, what changed (skills/managers.ts, skills/changes.ts) ----------------
     kit.handle(API.listSkillManagers, () => listSkillManagers(ctx))

@@ -229,6 +229,7 @@ export default function AccessPeople() {
           rootName={t('accessView.rootFolder')}
           missing={editing.missing}
           onClose={() => setEditing(null)}
+          onStale={() => void folders.reload()}
           onSaved={() => {
             refocus.current = editing.path
             setEditing(null)
