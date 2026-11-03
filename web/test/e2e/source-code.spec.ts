@@ -29,6 +29,8 @@ test('login-hidden metadata is refetched after sign-in without a page reload and
   await expect(page.getByTestId('source-code-download')).toHaveAttribute('rel', 'noopener noreferrer')
   await expect(page.getByTestId('source-code-link')).toHaveAttribute('href', /^mailto:source@example\.test\?subject=/)
   await expect(page.getByTestId('about-version')).toContainText('0.3.1')
+  // Hancom's attribution for the HWP 5.0 document, asked for on screen too (NOTICE)
+  await expect(page.getByTestId('about-hwp')).toContainText('(.hwp)')
   await logout(page)
   await expect(page.getByTestId('source-code-download')).toHaveCount(0)
   await expect(page.getByTestId('source-code-link')).not.toHaveAttribute('href', /source@example/)

@@ -1625,6 +1625,7 @@ export const ko = {
   'settings.about': '정보',
   'about.version': '버전 {version}',
   'about.license': '{product}의 라이선스는 GNU AGPL-3.0이에요. 이 서버에서 돌고 있는 판의 소스 코드를 요청할 수 있어요.',
+  'about.hwp': '본 제품은 한컴의 HWP 문서 파일(.hwp) 공개 문서를 참고하여 개발하였습니다.',
   'about.source': '소스 코드 (AGPL-3.0)',
   'about.sourceRequest': '소스 코드 요청 (AGPL-3.0)',
   'about.sourceDownload': '버전 {version} 소스 다운로드',

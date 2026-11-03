@@ -1626,6 +1626,7 @@ export const en: Record<MessageKey, string> = {
   'settings.about': 'About',
   'about.version': 'Version {version}',
   'about.license': '{product} is licensed under the GNU AGPL-3.0. You can request the source code of the version running on this server.',
+  'about.hwp': "This product was developed with reference to Hancom's public HWP document file (.hwp) specification.",
   'about.source': 'Source code (AGPL-3.0)',
   'about.sourceRequest': 'Request the source code (AGPL-3.0)',
   'about.sourceDownload': 'Download source for version {version}',

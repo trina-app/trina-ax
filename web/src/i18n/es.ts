@@ -1591,6 +1591,7 @@ export const es: Record<MessageKey, string> = {
   'settings.about': "Acerca de",
   'about.version': "Versión {version}",
   'about.license': "{product} se distribuye bajo la licencia GNU AGPL-3.0. Puede solicitar el código fuente de la versión que se ejecuta en este servidor.",
+  'about.hwp': "Este producto se desarrolló tomando como referencia la especificación pública de archivos de documento HWP (.hwp) de Hancom.",
   'about.source': "Código fuente (AGPL-3.0)",
   'about.sourceRequest': "Solicitar código fuente (AGPL-3.0)",
   'about.sourceDownload': "Descargar código fuente de la versión {version}",
