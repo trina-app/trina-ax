@@ -15,8 +15,9 @@
 // reference lists (fonts, border fills, character and paragraph shapes, tabs, numbering, bullets, styles, memo
 // shapes), the numbering start, compatibility and options (the path of a linked document emptied; tracked changes and
 // their authors, metadata and anything else left out); from the first section its page setup (paper, margins, grid,
-// note and page border settings; no master pages) and columns. Nothing in them may point at BinData, an address or a
-// path. Its text, pictures, headers and footers are not used.
+// note and page border settings; no master pages) and columns. Below that, every element must be one Hangul writes
+// there and text only a numbering label (anything else is refused), and nothing may point at BinData, an address or a
+// path. Of the section only those two become trees. Its text, pictures, headers and footers are not used.
 //
 // The writer adds what the document needs to the header (bold and italic variants of character shapes, list and
 // table-cell paragraph shapes, numbering, bullets, table borders) after the template's own items, with the next ids.
@@ -281,7 +282,7 @@ function tagEnd(xml: string, start: number): number {
 
 function attrsOf(tag: string): Map<string, string> {
   const out = new Map<string, string>()
-  for (const m of tag.matchAll(/\s([\w:.-]+)\s*=\s*(?:"([^"]*)"|'([^']*)')/g)) out.set(m[1]!, unescape(m[2] ?? m[3] ?? ''))
+  for (const m of tag.matchAll(/\s([^\s=/>"']+)\s*=\s*(?:"([^"]*)"|'([^']*)')/g)) out.set(m[1]!, unescape(m[2] ?? m[3] ?? ''))
   return out
 }
 
@@ -318,52 +319,64 @@ const withAttr = (open: string, name: string, value: string) => {
 
 /** An element of a template part as saxes read it: its qualified name, attributes in order, children. */
 interface XNode { name: string; attrs: [string, string][]; kids: (XNode | string)[] }
+/** elements of a template part that become a tree (Hangul's largest header in a corpus of 1,124 files has 15,050) */
+const TREE_NODES_MAX = 200_000
+/** elements of a part that is only checked, not kept (a template's text) */
 const XML_NODES_MAX = 2_000_000
 
 /**
- * Reads one XML part of a template into a tree: well-formed, at most HWPX_LIMITS.xmlDepth deep, no DTD, comments,
- * CDATA or processing instructions, Hangul's own prefixes for Hangul's namespaces and never another namespace for one
- * of those prefixes (the writer adds elements with them). `noSelfNesting`: an element inside one of the same name is
- * refused (the header's items never nest).
+ * Reads one XML part of a template: well-formed, at most HWPX_LIMITS.xmlDepth deep, no DTD, comments, CDATA or
+ * processing instructions, Hangul's own prefixes for Hangul's namespaces and never another namespace for one of those
+ * prefixes (the writer adds elements with them). Returns the whole part as a tree, or with `only` just the first
+ * element of each of those names with what is inside it (the rest is checked and dropped, so a template's long text
+ * costs no memory). `noSelfNesting`: an element inside one of the same name is refused (the header's items never nest).
  */
-function parseXml(xml: string, part: string, noSelfNesting = false): XNode {
+function parseXml(xml: string, part: string, o: { noSelfNesting?: boolean; only?: string[] } = {}): Map<string, XNode> {
   const bad = (why: string): never => { throw new ToolError(`${TEMPLATE_BAD} (${part}: ${why}). Use a .hwpx saved by Hangul, or no template.`) }
   const parser = new SaxesParser({ xmlns: true })
   const canonical = new Map<string, string>(OWPML_NS.map(([p, u]) => [u, p]))
   const bound = new Map<string, string>(OWPML_NS.map(([p, u]) => [p, u]))
+  /** the open elements' names, and the tree under construction (only inside a kept element) */
+  const names: string[] = []
   const stack: XNode[] = []
-  let root: XNode | null = null
-  let nodes = 0
+  const out = new Map<string, XNode>()
+  let roots = 0, nodes = 0, kept = 0
   parser.on('error', (e) => bad(`not well-formed XML: ${String(e.message).slice(0, 120)}`))
   parser.on('doctype', () => bad('a DTD'))
   parser.on('comment', () => bad('comments'))
   parser.on('cdata', () => bad('CDATA sections'))
   parser.on('processinginstruction', () => bad('processing instructions'))
   parser.on('opentag', (tag) => {
-    if (stack.length >= HWPX_LIMITS.xmlDepth) bad(`nested more than ${HWPX_LIMITS.xmlDepth} levels`)
+    if (names.length >= HWPX_LIMITS.xmlDepth) bad(`nested more than ${HWPX_LIMITS.xmlDepth} levels`)
     if (++nodes > XML_NODES_MAX) bad('too many elements')
+    if (!names.length && ++roots > 1) bad('two root elements')
     const want = canonical.get(tag.uri)
     if (want !== undefined && tag.prefix !== want) bad(`the prefix "${tag.prefix}" for ${want}`)
     for (const [p, u] of Object.entries(tag.ns ?? {})) if (bound.has(p) && bound.get(p) !== u) bad(`the prefix "${p}" bound to another namespace`)
-    if (noSelfNesting && stack.some((s) => s.name === tag.name)) bad(`${tag.name} inside ${tag.name}`)
+    if (o.noSelfNesting && names.includes(tag.name)) bad(`${tag.name} inside ${tag.name}`)
+    names.push(tag.name)
+    const keep = stack.length > 0 || (o.only ? o.only.includes(tag.name) && !out.has(tag.name) : names.length === 1)
+    if (!keep) return
+    if (++kept > TREE_NODES_MAX) bad('too many elements')
     const node: XNode = { name: tag.name, attrs: Object.values(tag.attributes).map((a) => [a.name, a.value] as [string, string]), kids: [] }
     if (stack.length) stack[stack.length - 1]!.kids.push(node)
-    else if (root) bad('two root elements')
-    else root = node
+    else out.set(tag.name, node)
     stack.push(node)
   })
   parser.on('text', (t) => { if (stack.length) stack[stack.length - 1]!.kids.push(t) })
-  parser.on('closetag', () => { stack.pop() })
+  parser.on('closetag', () => { names.pop(); if (stack.length) stack.pop() })
   parser.write(xml).close()
-  return root ?? bad('empty')
+  if (!roots) bad('empty')
+  return out
 }
 
-/** A tree written back as XML in one canonical form: double-quoted values with `& < > " '` escaped, text with
- * `& < >` escaped, `<a/>` for an element without children, `</a>` exactly. The header edits work on this form only. */
+/** A tree written back as XML in one canonical form: double-quoted values with `& < > " ' =` and tab and line ends
+ * escaped (so a value can never look like another attribute to the edits), text with `& < >` and CR escaped, `<a/>`
+ * for an element without children, `</a>` exactly. The header edits work on this form only. */
 function serialize(n: XNode): string {
-  const attrs = n.attrs.map(([k, v]) => ` ${k}="${escAttr(v).replace(/'/g, '&apos;')}"`).join('')
+  const attrs = n.attrs.map(([k, v]) => ` ${k}="${escAttr(v).replace(/'/g, '&apos;').replace(/=/g, '&#61;').replace(/\t/g, '&#9;').replace(/\n/g, '&#10;').replace(/\r/g, '&#13;')}"`).join('')
   if (!n.kids.length) return `<${n.name}${attrs}/>`
-  return `<${n.name}${attrs}>${n.kids.map((k) => (typeof k === 'string' ? escText(k) : serialize(k))).join('')}</${n.name}>`
+  return `<${n.name}${attrs}>${n.kids.map((k) => (typeof k === 'string' ? escText(k).replace(/\r/g, '&#13;') : serialize(k))).join('')}</${n.name}>`
 }
 
 const attr = (n: XNode, k: string) => n.attrs.find(([a]) => a === k)?.[1]
@@ -380,21 +393,57 @@ const find = (n: XNode, name: string): XNode | undefined => {
 /** keeps only the child elements named in `allowed` (text between them stays) */
 const keepKids = (n: XNode, allowed: Set<string>) => { n.kids = n.kids.filter((k) => typeof k === 'string' || allowed.has(k.name)) }
 
-/** Throws when a part that goes into the new file refers to something outside it: a BinData item (pictures, embedded
- * fonts; BinData is not carried over) or an address or path. Namespace names are not addresses. */
-function assertSelfContained(n: XNode, part: string) {
+/** an address or a path: \\server, //host, scheme://, file:, C:\ or C:/ */
+const ADDRESS = /^\s*(\\\\|\/\/|[a-z][a-z0-9+.-]*:\/\/|file:|[a-z]:[\\/])/i
+
+/**
+ * Throws unless everything below the kept top of a part is what Hangul writes there: element names from `allowed`
+ * only (the names Hangul uses in these parts; anything else, a field or a picture for example, is refused, not
+ * dropped), text only in `textIn` elements (a numbering label), and no reference outside the file: a BinData item
+ * (pictures, embedded fonts; BinData is not carried over) or an address or path, in an attribute or in text.
+ * Namespace names are not addresses. Under hh:layoutCompatibility, Hangul's empty flag elements are allowed.
+ */
+function assertKnown(n: XNode, part: string, allowed: Set<string>, textIn: Set<string> = new Set()) {
   const bad = (why: string): never => { throw new ToolError(`${TEMPLATE_BAD}: ${part} ${why}. Use a .hwpx saved by Hangul, or no template.`) }
   const stack = [n]
   while (stack.length) {
     const e = stack.pop()!
+    const flags = e.name === 'hh:layoutCompatibility'
     for (const [k, v] of e.attrs) {
       if (/^xmlns(:|$)/.test(k) || /required-namespace$/.test(k)) continue
       if (/binaryItemIDRef$/i.test(k) && v.trim()) bad('uses pictures or embedded fonts (BinData), which are not carried over')
-      if (/^\s*(\\\\|\/\/|[a-z][a-z0-9+.-]*:\/\/|file:)/i.test(v)) bad(`refers to an address or path (${k})`)
+      if (ADDRESS.test(v)) bad(`refers to an address or path (${k})`)
     }
-    for (const k of e.kids) if (typeof k !== 'string') stack.push(k)
+    for (const k of e.kids) {
+      if (typeof k === 'string') {
+        if (!k.trim()) continue
+        if (!textIn.has(e.name)) bad(`has text in ${e.name}`)
+        if (ADDRESS.test(k)) bad(`refers to an address or path (${e.name})`)
+        continue
+      }
+      if (flags && /^hh:\w+$/.test(k.name) && !k.attrs.length && !k.kids.length) continue
+      if (!allowed.has(k.name)) bad(`holds ${k.name.slice(0, 60)}, which make_file does not carry over`)
+      stack.push(k)
+    }
   }
 }
+
+/** The element names Hangul writes in the kept parts (from Hangul-saved files and the OWPML schema). */
+const HEAD_NAMES = new Set([
+  'hh:beginNum', 'hh:refList', 'hh:compatibleDocument', 'hh:layoutCompatibility', 'hh:docOption', 'hh:linkinfo', 'hh:trackchageConfig',
+  'hh:fontfaces', 'hh:fontface', 'hh:font', 'hh:substFont', 'hh:typeInfo',
+  'hh:borderFills', 'hh:borderFill', 'hh:slash', 'hh:backSlash', 'hh:leftBorder', 'hh:rightBorder', 'hh:topBorder', 'hh:bottomBorder', 'hh:diagonal',
+  'hc:fillBrush', 'hc:winBrush', 'hc:gradation', 'hc:color', 'hc:imgBrush', 'hc:img',
+  'hh:charProperties', 'hh:charPr', 'hh:fontRef', 'hh:ratio', 'hh:spacing', 'hh:relSz', 'hh:offset', 'hh:italic', 'hh:bold', 'hh:underline',
+  'hh:strikeout', 'hh:outline', 'hh:shadow', 'hh:emboss', 'hh:engrave', 'hh:supscript', 'hh:subscript',
+  'hh:tabProperties', 'hh:tabPr', 'hh:tabItem', 'hh:numberings', 'hh:numbering', 'hh:bullets', 'hh:bullet', 'hh:paraHead',
+  'hh:paraProperties', 'hh:paraPr', 'hh:align', 'hh:heading', 'hh:breakSetting', 'hh:autoSpacing', 'hh:margin', 'hc:intent', 'hc:left', 'hc:right',
+  'hc:prev', 'hc:next', 'hh:lineSpacing', 'hh:border', 'hp:switch', 'hp:case', 'hp:default',
+  'hh:styles', 'hh:style', 'hh:memoProperties', 'hh:memoPr',
+])
+const SECPR_NAMES = new Set(['hp:grid', 'hp:startNum', 'hp:visibility', 'hp:lineNumberShape', 'hp:pagePr', 'hp:margin', 'hp:footNotePr', 'hp:endNotePr',
+  'hp:autoNumFormat', 'hp:noteLine', 'hp:noteSpacing', 'hp:numbering', 'hp:placement', 'hp:pageBorderFill', 'hp:offset'])
+const COLPR_NAMES = new Set(['hp:colLine', 'hp:colSz'])
 
 /** What of a template's header goes into the new file: the reference lists of shapes and styles, numbering start,
  * compatibility and options, without the path of a linked document or the names in tracked changes. */
@@ -452,9 +501,9 @@ export function readTemplate(bytes: Uint8Array): Template {
   const sectionXml = text('Contents/section0.xml') ?? bad('it has no Contents/section0.xml')
   // Both parts are read into trees and only what is used is written again, in one canonical form (serialize), so the
   // header edits below never meet XML they could read differently from the parser.
-  const head = parseXml(headerXml, 'Contents/header.xml', true)
-  const section = parseXml(sectionXml, 'Contents/section0.xml')
-  if (head.name !== 'hh:head') bad('Contents/header.xml is not a Hangul header')
+  const head = parseXml(headerXml, 'Contents/header.xml', { noSelfNesting: true }).get('hh:head') ?? bad('Contents/header.xml is not a Hangul header')
+  // of the section, only the page setup and the columns become trees (its text is checked, then dropped)
+  const section = parseXml(sectionXml, 'Contents/section0.xml', { only: ['hp:secPr', 'hp:colPr'] })
   keepKids(head, HEAD_KEEP)
   const refList = head.kids.find((k): k is XNode => typeof k !== 'string' && k.name === 'hh:refList')
   if (refList) keepKids(refList, REFLIST_KEEP)
@@ -463,22 +512,22 @@ export function readTemplate(bytes: Uint8Array): Template {
     keepKids(docOption, new Set(['hh:linkinfo']))
     for (const l of docOption.kids) if (typeof l !== 'string') setAttr(l, 'path', '')
   }
-  assertSelfContained(head, 'Contents/header.xml')
+  assertKnown(head, 'Contents/header.xml', HEAD_NAMES, new Set(['hh:paraHead']))
 
   // the page setup of the first section, from the settings it may hold (no master pages: their files stay behind)
-  const secPr = find(section, 'hp:secPr') ?? bad('it has no page setup (hp:secPr)')
+  const secPr = section.get('hp:secPr') ?? bad('it has no page setup (hp:secPr)')
   keepKids(secPr, SECPR_KEEP)
   setAttr(secPr, 'masterPageCnt', '0')
-  const col = find(section, 'hp:colPr')
-  if (col) keepKids(col, new Set(['hp:colLine', 'hp:colSz']))
+  assertKnown(secPr, 'the page setup', SECPR_NAMES)
+  const col = section.get('hp:colPr')
+  if (col) assertKnown(col, 'the column setup', COLPR_NAMES)
+  // moved under the new section's root, which declares Hangul's namespaces only
   for (const [n, part] of [[secPr, 'the page setup'], [col, 'the column setup']] as const) {
-    if (!n) continue
-    assertSelfContained(n, part)
-    // moved under the new section's root, which declares Hangul's namespaces only
-    const stack = [n]
+    const stack = n ? [n] : []
     while (stack.length) {
       const e = stack.pop()!
-      if (!OWPML_PREFIX.test(e.name) || e.attrs.some(([k]) => k.includes(':') && !OWPML_PREFIX.test(k))) bad(`${part} uses names outside Hangul's namespaces`)
+      e.attrs = e.attrs.filter(([k]) => !/^xmlns(:|$)/.test(k))
+      if (e.attrs.some(([k]) => k.includes(':') && !OWPML_PREFIX.test(k))) bad(`${part} uses names outside Hangul's namespaces`)
       for (const k of e.kids) if (typeof k !== 'string') stack.push(k)
     }
   }

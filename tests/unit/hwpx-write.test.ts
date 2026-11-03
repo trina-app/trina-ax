@@ -324,6 +324,7 @@ describe.skipIf(!PANDOC)('a template is read by the XML parser and written again
     const head = defaultHeaderXml().replace('</hh:borderFill>', '</hh:borderFill >')
       .replace('<hh:charPr id="0" ', `<hh:charPr x=' id="0" itemCnt="5"' id="0" `)
       .replace('<hh:charProperties itemCnt="11">', `<hh:charProperties y=' itemCnt="5"' itemCnt="11">`)
+      .replace('<hh:charPr id="1" ', '<hh:charPr 한=" id=" id="1" ')
     const out = writeHwpx(doc, template({ head }))
     const h = header(out)
     soundIds(h)
@@ -347,6 +348,15 @@ describe.skipIf(!PANDOC)('a template is read by the XML parser and written again
     const h = header(writeHwpx(doc, template({ head })))
     for (const gone of ['203.0.113.9', '홍길동', 'trackChangeAuthor', 'metaTag', 'secret']) expect(h).not.toContain(gone)
     expect(h).toContain('<hh:linkinfo path="" ')
+  })
+  test('a template\'s long text is checked and dropped, not kept in memory; values keep their tabs and line ends; compatibility flags stay', () => {
+    const text = '</hp:t></hp:run></hp:p>' + '<hp:p id="0" paraPrIDRef="0" styleIDRef="0" pageBreak="0" columnBreak="0" merged="0"><hp:run charPrIDRef="0"><hp:t>긴 본문</hp:t></hp:run></hp:p>'.repeat(50_000) + '<hp:p id="0" paraPrIDRef="0" styleIDRef="0" pageBreak="0" columnBreak="0" merged="0"><hp:run charPrIDRef="0"><hp:t>'
+    const head = defaultHeaderXml().replace('name="본문" engName="Body"', 'name="본문&#9;둘&#10;셋" engName="Body"').replace('<hh:layoutCompatibility/>', '<hh:layoutCompatibility><hh:applyFontWeightToBold/></hh:layoutCompatibility>')
+    const out = writeHwpx(doc, template({ head, text }))
+    expect(section(out)).not.toContain('긴 본문')
+    expect(header(out)).toContain('name="본문&#9;둘&#10;셋"')
+    expect(header(out)).toContain('<hh:layoutCompatibility><hh:applyFontWeightToBold/></hh:layoutCompatibility>')
+    expect(roundTrip(doc, out)).toBeNull()
   })
   test('what Hangul itself writes passes: an empty BinData reference on a substitute font, an equation\'s script in the text', () => {
     const head = defaultHeaderXml().replace('<hh:typeInfo ', '<hh:substFont face="함초롬돋움" type="TTF" isEmbedded="0" binaryItemIDRef=""/><hh:typeInfo ')
@@ -376,6 +386,12 @@ describe.skipIf(!PANDOC)('untrusted templates are refused', () => {
     ['a page setup that points at a picture', () => template({ secPr: defaultSecPrXml().replace('<hp:grid ', '<hp:pageBorderFill type="BOTH" borderFillIDRef="1" textBorder="PAPER" headerInside="0" footerInside="0" fillArea="PAPER"><hp:offset left="0" right="0" top="0" bottom="0" binaryItemIDRef="image9"/></hp:pageBorderFill><hp:grid ') }), /page setup uses pictures/],
     ['a page setup with a network path', () => template({ secPr: defaultSecPrXml().replace('<hp:grid lineGrid="0"', '<hp:grid lineGrid="0" src="\\\\203.0.113.9\\share\\x.hwp"') }), /address or path/],
     ['a page setup with names of another namespace', () => template({ secPr: defaultSecPrXml().replace('<hp:grid ', '<hp:grid xmlns:x="urn:x" x:y="1" ') }), /outside Hangul's namespaces/],
+    ['a field deep inside the page setup', () => template({ secPr: defaultSecPrXml().replace('</hp:pagePr>', '<hp:fieldBegin id="1" type="HYPERLINK"><hp:parameters cnt="1"><hp:stringParam name="Path">\\\\203.0.113.9\\share\\x.hwp</hp:stringParam></hp:parameters></hp:fieldBegin></hp:pagePr>') }), /holds hp:fieldBegin/],
+    ['text in the page setup', () => template({ secPr: defaultSecPrXml().replace('</hp:pagePr>', '</hp:pagePr>\\\\203.0.113.9\\share') }), /has text in hp:secPr/],
+    ['an unknown element in a shape list', () => template({ head: defaultHeaderXml().replace('</hh:charProperties>', '<hh:x/></hh:charProperties>') }), /holds hh:x/],
+    ['a drive path in an attribute', () => template({ head: defaultHeaderXml().replace('<hh:font id="0" face="함초롬돋움"', '<hh:font id="0" face="C:\\Users\\x\\a.hwp"') }), /address or path/],
+    ['an address in a numbering label', () => template({ head: defaultHeaderXml().replace('<hh:numbering id="1" start="0"><hh:paraHead start="1" level="1" align="LEFT" useInstWidth="1" autoIndent="1" widthAdjust="0" textOffsetType="PERCENT" textOffset="50" numFormat="DIGIT" charPrIDRef="4294967295" checkable="0"/>', '<hh:numbering id="1" start="0"><hh:paraHead start="1" level="1" align="LEFT" useInstWidth="1" autoIndent="1" widthAdjust="0" textOffsetType="PERCENT" textOffset="50" numFormat="DIGIT" charPrIDRef="4294967295" checkable="0">https://example.com/x</hh:paraHead>') }), /address or path/],
+    ['a header with too many elements to keep', () => template({ head: defaultHeaderXml().replace('<hh:layoutCompatibility/>', `<hh:layoutCompatibility>${'<hh:applyFontWeightToBold/>'.repeat(200_001)}</hh:layoutCompatibility>`) }), /too many elements/],
     ['pictures in the styles', () => template({ head: defaultHeaderXml().replace('<hc:winBrush faceColor="none"', '<hc:imgBrush mode="TILE"><hc:img binaryItemIDRef="image1" bright="0" contrast="0" effect="REAL_PIC" alpha="0"/></hc:imgBrush><hc:winBrush faceColor="none"') }), /pictures/],
     ['ids out of order', () => template({ head: defaultHeaderXml().replace('<hh:charPr id="1" ', '<hh:charPr id="7" ') }), /ids are not/],
     ['a style to a shape that is not there', () => template({ head: defaultHeaderXml().replace('paraPrIDRef="12" charPrIDRef="0" nextStyleIDRef="14"', 'paraPrIDRef="99" charPrIDRef="0" nextStyleIDRef="14"') }), /refers to a shape/],
