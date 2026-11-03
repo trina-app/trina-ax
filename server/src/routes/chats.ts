@@ -168,6 +168,8 @@ export const chatsRoutes: RouteModule = {
       if (body.projectId) {
         const p = rt.store.projectRow(body.projectId)
         if (!p || !canSeeProject(ctx.files, principal(ctx, auth), p)) fail('not_found')
+        // only admins see a project whose folder is in the trash, and no turn gets it: a chat there would get nothing
+        if (p!.trashed_with !== null) fail('conflict', tr('projectInTrash', c.get('locale')), { fields: { 'body.projectId': 'project_in_trash' }, params: { reason: 'project_in_trash' } })
       }
       const id = newId()
       const now = new Date().toISOString()
@@ -189,6 +191,8 @@ export const chatsRoutes: RouteModule = {
       if (body.projectId) {
         const p = rt.store.projectRow(body.projectId)
         if (!p || !canSeeProject(ctx.files, principal(ctx, auth), p)) fail('not_found')
+        // only admins see a project whose folder is in the trash, and no turn gets it: a chat there would get nothing
+        if (p!.trashed_with !== null) fail('conflict', tr('projectInTrash', c.get('locale')), { fields: { 'body.projectId': 'project_in_trash' }, params: { reason: 'project_in_trash' } })
       }
       const sets: string[] = []
       const args: (string | null)[] = []
@@ -477,6 +481,11 @@ export const chatsRoutes: RouteModule = {
         // (it would vanish for everyone else, the creator included). Sharing a personal project is a copy (share).
         if (!isAdmin(p)) fail('forbidden', tr('projectFolderAdminOnly', locale))
         if (isPersonalPath(body.folderPath)) fail('validation', tr('projectFolderPersonal', locale), { fields: { 'body.folderPath': 'invalid_path: a team project cannot move under users/' } })
+        // a project whose folder is in the trash is pointed only at a folder that is there: a folder made for it, at its
+        // old path or elsewhere, has no rules of its own and would open its instructions to whoever reads the folder above
+        // (review round 4: the edit dialog sent the old path on every save, and a finance project opened to shared/)
+        if (r!.trashed_with !== null && !lookupFolder(ctx.files, p, body.folderPath, locale).exists)
+          fail('conflict', tr('projectFolderMissing', locale), { fields: { 'body.folderPath': 'project_folder_missing' }, params: { reason: 'project_folder_missing' } })
         const f = ensureProjectFolderEx(ctx.files, p, body.folderPath, locale)
         folder = f.path
         made = f.createdTop

@@ -7,6 +7,7 @@ import { errorText } from './lib/api'
 import { useLocale, useT } from './i18n'
 import { useChats } from './store/chats'
 import { useSendQueue } from './store/sendQueue'
+import { useProjects } from './store/projects'
 import { startLive, stopLive } from './store/live'
 import { useSession } from './store/session'
 import Layout from './components/Layout'
@@ -54,6 +55,7 @@ function Gate() {
       if (status.kind !== 'loading') {
         useChats.getState().reset()
         useSendQueue.getState().reset()
+        useProjects.getState().reset()
       }
     }
   }, [signedIn, status.kind])

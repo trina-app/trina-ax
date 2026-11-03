@@ -242,6 +242,63 @@ describe('an admin points a project whose folder is in the trash', () => {
   })
 })
 
+describe('an admin edits a project whose folder is in the trash (review round 4)', () => {
+  test('a save of the name and instructions keeps it marked: no folder is made, members neither hear of it nor see it', async () => {
+    financeOnly('shared/fin', 'fin')
+    const p = await project('bob', 'shared/fin', 'Finance plan', 'SECRET-1')
+    await trash('carol', 'shared/fin')
+    const told = await noticesDuring('project_instructions_changed', () => h.api('carol').call(API.updateProject, { params: { id: p.id }, body: { name: 'Finance plan', instructions: 'SECRET-2' } }))
+    expect(told).toEqual(['dana'])
+    expect(fs.existsSync(path.join(h.team, 'shared/fin'))).toBe(false)
+    expect(row(p.id).trashed_with).not.toBeNull()
+    expect(await listed('alice')).not.toContain('Finance plan')
+    expect(await get('alice', p.id)).toBe(404)
+  })
+
+  test('pointing it at a folder that is not there is refused, also its old path; nothing is made', async () => {
+    financeOnly('shared/fin2', 'fin2')
+    const p = await project('bob', 'shared/fin2', 'Finance plan 2', 'SECRET-3')
+    await trash('carol', 'shared/fin2')
+    for (const to of ['shared/fin2', 'shared/fin2-new']) {
+      const r = await h.api('carol').call(API.updateProject, { params: { id: p.id }, body: { instructions: 'SECRET-4', folderPath: to } }).then(() => null, (e: ApiError) => e)
+      expect(r?.status).toBe(409)
+      expect(r?.body.params).toEqual({ reason: 'project_folder_missing' })
+      expect(fs.existsSync(path.join(h.team, to))).toBe(false)
+    }
+    expect(row(p.id)).toMatchObject({ trashed_with: expect.any(String), instructions: 'SECRET-3' })
+    expect(await listed('alice')).not.toContain('Finance plan 2')
+  })
+
+  test('another project on a folder made at its old path does not stop the admin from saving it', async () => {
+    fs.mkdirSync(path.join(h.team, 'shared/held2'), { recursive: true })
+    const p = await project('alice', 'shared/held2', 'Held 2')
+    await trash('carol', 'shared/held2')
+    await h.api('alice').call(API.mkdir, { body: { path: 'shared/held2' } })
+    await project('alice', 'shared/held2', 'Held 2 new')
+    expect(await status(h.api('carol').call(API.updateProject, { params: { id: p.id }, body: { name: 'Held 2 renamed', instructions: 'x' } }))).toBe(200)
+    expect(row(p.id).trashed_with).not.toBeNull()
+  })
+
+  test('no chat is made in it or moved into it: 409 project_in_trash for admins, 404 for everyone else', async () => {
+    fs.mkdirSync(path.join(h.team, 'shared/mk'), { recursive: true })
+    const p = await project('alice', 'shared/mk', 'Marked')
+    const own = (await h.api('carol').call(API.createChat, { body: {} })).id
+    await trash('carol', 'shared/mk')
+    for (const call of [
+      () => h.api('carol').call(API.createChat, { body: { projectId: p.id } }),
+      () => h.api('carol').call(API.updateChat, { params: { id: own }, body: { projectId: p.id } }),
+    ]) {
+      const e = await call().then(() => null, (x: ApiError) => x)
+      expect(e?.status).toBe(409)
+      expect(e?.body.params).toEqual({ reason: 'project_in_trash' })
+    }
+    expect(await status(h.api('alice').call(API.createChat, { body: { projectId: p.id } }))).toBe(404)
+    // out of it is always fine
+    h.ctx.db.query('UPDATE chats SET project_id = ? WHERE id = ?').run(p.id, own)
+    expect((await h.api('carol').call(API.updateChat, { params: { id: own }, body: { projectId: null } })).projectId).toBeNull()
+  })
+})
+
 describe('the dev environment of a project whose folder is in the trash', () => {
   const boxes: { box: string; state: 'stopped'; startedAt: null; lastActiveAt: null; memoryMiB: null; stopCode: string; stopReason: string; stoppedAt: string }[] = []
   const fake: BoxdClient = {

@@ -3,7 +3,7 @@
 // A message sent while an answer runs waits under the conversation and goes when the answer is done
 // (store/sendQueue.ts, components/chat/QueuedMessages.tsx); while the AI waits for the answer to its question, the
 // message box answers that question instead (lib/askAnswer.ts).
-import { FolderInput, Globe, Loader2, Pencil, RotateCcw, Trash2 } from 'lucide-react'
+import { Globe, Loader2, RotateCcw, Trash2 } from 'lucide-react'
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import type { Attachment, Chat, EngineId } from '@mycel/shared/api'
@@ -26,7 +26,7 @@ import { AssistantMessage, UserMessage } from '../components/chat/Messages'
 import QueuedMessages from '../components/chat/QueuedMessages'
 import { ChatProjectCrumb, MoveToProjectDialog } from '../components/chat/ChatProject'
 import type { EnginePick } from '../components/chat/EngineMenu'
-import { TitleMenu } from '../components/TitleMenu'
+import { ChatTitleMenu } from '../components/chat/ChatTitleMenu'
 import { Button, ErrorNote, IconButton, Skeleton, confirmDialog, useAnnounce } from '../components/ui'
 
 export default function ChatPage() {
@@ -254,15 +254,12 @@ function ChatView({ chatId }: { chatId: string }) {
         <div className="flex min-w-0 flex-1 items-center justify-center gap-1 text-sm md:justify-start">
           <ChatProjectCrumb projectId={projectId} />
           {chat && !chat.deletedAt ? (
-            <TitleMenu
-              name={title}
-              heading="chat-title"
-              testId="chat-menu"
-              items={[
-                { label: t('chat.rename'), icon: <Pencil size={14} aria-hidden />, onSelect: () => void actions.rename(chat).then((c) => c && setChat(c)), testId: 'chat-rename' },
-                { label: t(projectId ? 'chat.project.change' : 'chat.project.add'), icon: <FolderInput size={14} aria-hidden />, onSelect: () => setMovingProject(true), testId: 'chat-project-move' },
-                { label: t('common.delete'), icon: <Trash2 size={14} aria-hidden />, onSelect: () => void actions.remove(chat), danger: true, testId: 'chat-delete' },
-              ]}
+            <ChatTitleMenu
+              chat={chat}
+              title={title}
+              onRename={() => void actions.rename(chat).then((c) => c && setChat(c))}
+              onMove={() => setMovingProject(true)}
+              onDelete={() => void actions.remove(chat)}
             />
           ) : (
             <h1 className="min-w-0 truncate px-1.5 font-medium text-ink" data-testid="chat-title">

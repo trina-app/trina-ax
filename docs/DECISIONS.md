@@ -6553,8 +6553,17 @@ Nothing is removed or re-keyed.
     another folder's by now, and the turn recorded the instructions' source by that path. Admins and the owner still see,
     edit and delete it. The API says so: `Project.inTrash` (true only for them, since nobody else sees such a project);
     the project page shows them one line (restore the folder from Files › Trash, or choose another folder in Edit), and
-    the edit dialog then sends the folder even when it is the same path, so saving points the project at the folder now
-    there.
+    the edit dialog shows it too. **The dialog sends a folder only when the admin chose one in it** (choosing the old path
+    in the picker counts, to take the folder now there); a save of the name or the instructions keeps the project
+    marked. Review round 4: the dialog sent the old path on every save, the server made a folder there with no rules of
+    its own, so a trashed finance project opened to everyone reading `shared/` (the notice, the list, its instructions),
+    and with another project on that path every save failed with 409. **The server points a marked project only at a
+    folder that is there** (409 `conflict`, `params.reason: 'project_folder_missing'`, also for its old path); nothing is
+    made for it.
+  - **No chat goes into a marked project:** making a chat in it or moving one into it is 409 `conflict`,
+    `params.reason: 'project_in_trash'` for admins (everyone else gets 404, as they do not see it); out of it is always
+    fine. The move dialog lists such a project (admins see it) as "in the trash", not to be chosen, and the chat header
+    says "in the trash" after its name. Before, an admin could do it and the AI silently got nothing.
   - The "instructions changed" notice goes to who sees the project (`canSeeProject`), not to who reads its old path
     (review round 3: an admin's edit of a trashed finance project's instructions told every member its name).
   - While marked, the project holds no path: another project may be made on a folder made at its old path (it follows
@@ -6644,8 +6653,11 @@ Nothing is removed or re-keyed.
   "Projects"; like main, it is hidden below the `sm` width, where the header keeps the title. The name comes from a small
   store of projects as this window last saw them (`store/projects.ts`): the project dialog, the Projects page and the
   move dialog put what the server answered, so a rename shows at once; the header asks the server again when the
-  window gets the focus back (a rename on another device), and drops a project that answers 404. The title menu has
-  "Move to project…" ("Change project…" in a project) between Rename and Delete, so it works on a phone too. It opens
+  window gets the focus back (a rename on another device), and drops a project that answers 404; only the latest answer
+  counts (a slow 200 after a newer 404 does not bring the name back). Signing out empties that store with the chats.
+  The title menu (`ChatTitleMenu`) has "Move to project…" ("Change project…" whenever the chat has a project, also
+  one whose name is hidden) between Rename and Delete, so it works on a phone too; main's
+  `web/test/e2e/chat-look.spec.ts` follows the new order. It opens
   "Project of this chat": no project, or a project the person can see, saved with the existing
   `PATCH /api/chats/:id {projectId}`, which still checks that the person can see the project (404 otherwise; out of a
   project needs no check). When the chat's own project is not among them, it is listed as "A project you can no

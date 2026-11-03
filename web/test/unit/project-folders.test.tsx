@@ -117,9 +117,18 @@ describe('the chat and its project', () => {
   })
 
   test('the new texts exist in every language', () => {
-    const keys = ['files.makeProject', 'files.openProject', 'files.isProject', 'projects.nameHint', 'projects.folderNone', 'projects.folderPick', 'projects.inTrash', 'chat.project.hidden', 'chat.project.open', 'chat.project.add', 'chat.project.change', 'chat.project.title', 'chat.project.none', 'chat.project.hint', 'chat.project.empty', 'chat.project.moved', 'chat.project.removed'] as const
+    const keys = ['files.makeProject', 'files.openProject', 'files.isProject', 'projects.nameHint', 'projects.folderNone', 'projects.folderPick', 'projects.inTrash', 'projects.inTrashEdit', 'chat.project.inTrash', 'chat.project.hidden', 'chat.project.open', 'chat.project.add', 'chat.project.change', 'chat.project.title', 'chat.project.none', 'chat.project.hint', 'chat.project.empty', 'chat.project.moved', 'chat.project.removed'] as const
     for (const locale of ['en', 'ko', 'ja', 'es', 'id'] as const)
       for (const key of keys) expect(translate(locale, key)).not.toBe(key)
+  })
+
+  test('a project whose folder is in the trash (only admins list it) cannot be chosen, and says why', () => {
+    const list = [project('p1', 'Acme launch', 'shared/acme-launch'), { ...project('p2', 'Acme old', 'shared/acme-old'), inTrash: true }]
+    const html = inRouter(<ProjectChoices projects={list} selected={null} onSelect={() => {}} />)
+    const radios = [...html.matchAll(/<input type="radio"[^>]*>/g)].map((m) => m[0])
+    expect(radios.map((r) => r.includes('disabled=""'))).toEqual([false, false, true])
+    expect(html).toContain(translate('en', 'chat.project.inTrash'))
+    expect(html).not.toContain('shared/acme-old')
   })
 
   test('who can see a new team project folder: the owner and admins too, in every language', () => {

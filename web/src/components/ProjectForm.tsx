@@ -44,6 +44,8 @@ export function ProjectForm({ project, initialFolder, initialName, onClose, onSa
   const picked = (x: ProjectParticipant) => participants.some((y) => y.subjectType === x.subjectType && y.subjectId === x.subjectId)
   const [name, setName] = useState(project?.name ?? initialName ?? '')
   const [folder, setFolder] = useState(project?.folderPath ?? initialFolder ?? '')
+  /** the admin chose a folder in this dialog (also the same path again): only then does a save point the project at one */
+  const [folderPicked, setFolderPicked] = useState(false)
   const [instructions, setInstructions] = useState(project?.instructions ?? '')
   const [picking, setPicking] = useState(false)
   const [busy, setBusy] = useState(false)
@@ -60,9 +62,11 @@ export function ProjectForm({ project, initialFolder, initialName, onClose, onSa
     setTakenBy(null)
     try {
       const p = project
-        // a project whose folder is in the trash takes the chosen folder also when it is the same path (the folder now
-        // there): the server ends the trash state only on a folderPath
-        ? await api.call(API.updateProject, { params: { id: project.id }, body: { name: finalName, instructions, ...(folder !== project.folderPath || project.inTrash ? { folderPath: folder } : {}) } })
+        // the folder goes only when it changed, or for a project whose folder is in the trash when the admin chose one here
+        // (also its old path: the folder now there). A save that only renames or edits the instructions keeps such a
+        // project as it is (review round 4: sending the old path on every save made a folder there that opened the
+        // instructions to everyone reading the folder above)
+        ? await api.call(API.updateProject, { params: { id: project.id }, body: { name: finalName, instructions, ...(folder !== project.folderPath || (project.inTrash && folderPicked) ? { folderPath: folder } : {}) } })
         : await api.call(API.createProject, {
             body:
               mode === 'personal' ? { name: finalName, scope: 'personal', instructions, participants: [] }
@@ -98,6 +102,11 @@ export function ProjectForm({ project, initialFolder, initialName, onClose, onSa
       }
     >
       <div className="space-y-4">
+        {project?.inTrash && (
+          <p role="status" className="flex items-start gap-2 rounded-lg border border-warn/40 bg-warn-soft px-3 py-2 text-sm text-warn" data-testid="project-form-in-trash">
+            {t('projects.inTrashEdit')}
+          </p>
+        )}
         <Field label={t('projects.name')} hint={onFolder && folderName(folder) ? t('projects.nameHint') : undefined}>
           <input className={inputCls} value={name} onChange={(e) => setName(e.target.value)} maxLength={100} placeholder={onFolder ? folderName(folder) : undefined} data-autofocus data-testid="project-name" />
         </Field>
@@ -131,7 +140,7 @@ export function ProjectForm({ project, initialFolder, initialName, onClose, onSa
         {(project || mode === 'existing') && <Field label={t('projects.folder')} hint={t(noFolder ? 'projects.folderPick' : 'projects.folderHint')}>
           <div className="flex gap-2">
             <input className={inputCls} value={project ? folder || t('files.root') : folder} placeholder={noFolder ? t('projects.folderNone') : undefined} readOnly data-testid="project-folder" />
-            {!folderLocked && <Button onClick={() => setPicking(true)}>{t('common.choose')}</Button>}
+            {!folderLocked && <Button onClick={() => setPicking(true)} data-testid="project-folder-choose">{t('common.choose')}</Button>}
           </div>
         </Field>}
         <Field label={t('projects.instructions')} hint={t('projects.instructionsHint')}>
@@ -158,6 +167,7 @@ export function ProjectForm({ project, initialFolder, initialName, onClose, onSa
         initial={folder}
         onPick={(p) => {
           setFolder(p)
+          setFolderPicked(true)
           setPicking(false)
         }}
         onClose={() => setPicking(false)}

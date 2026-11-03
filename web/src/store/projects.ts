@@ -10,6 +10,8 @@ interface ProjectsState {
   put: (...items: Project[]) => void
   /** gone, or no longer the person's to see */
   drop: (id: string) => void
+  /** signed out (App.tsx): nothing of one person's projects stays for the next */
+  reset: () => void
 }
 
 export const useProjects = create<ProjectsState>((set) => ({
@@ -21,4 +23,5 @@ export const useProjects = create<ProjectsState>((set) => ({
     delete byId[id]
     return { byId }
   }),
+  reset: () => set({ byId: {} }),
 }))

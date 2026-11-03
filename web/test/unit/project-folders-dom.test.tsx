@@ -9,8 +9,10 @@ import { MemoryRouter } from 'react-router-dom'
 import type { Chat, Project } from '@mycel/shared/api'
 import { translate, useLocaleStore } from '../../src/i18n'
 import { ChatProjectCrumb, MoveToProjectDialog } from '../../src/components/chat/ChatProject'
+import { ChatTitleMenu } from '../../src/components/chat/ChatTitleMenu'
 import { ProjectForm } from '../../src/components/ProjectForm'
 import { useProjects } from '../../src/store/projects'
+import { useSession } from '../../src/store/session'
 import { installDom, mount, removeDom } from './dom-host'
 
 const P1 = '01900000-0000-7000-8000-000000000001', GONE = '01900000-0000-7000-8000-000000000002', C1 = '01900000-0000-7000-8000-000000000003'
@@ -21,7 +23,7 @@ const chat = (projectId: string | null): Chat =>
 const json = (status: number, body: unknown) => new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json' } })
 
 /** answers by "METHOD path" (the query left out); anything else is a loud 500 */
-let routes: Record<string, (init?: RequestInit) => Response> = {}
+let routes: Record<string, (init?: RequestInit) => Response | Promise<Response>> = {}
 const calls: string[] = []
 const realFetch = globalThis.fetch
 const localeBefore = useLocaleStore.getState().locale
@@ -92,21 +94,97 @@ describe('the project dialog and the names elsewhere', () => {
 })
 
 describe('a project whose folder is in the trash (an admin\'s view)', () => {
-  test('saving the same folder points the project at the folder now there (the dialog sends it)', async () => {
+  test('the dialog says so; a save that only edits sends no folder; choosing a folder, also the old path, sends it', async () => {
     const sent: unknown[] = []
-    routes = { [`PATCH /api/projects/${P1}`]: (init) => { sent.push(JSON.parse(String(init?.body))); return json(200, { ...project(P1, 'Acme launch', 'shared/acme-launch'), inTrash: false }) } }
-    const m = await mount(<MemoryRouter><ProjectForm project={{ ...project(P1, 'Acme launch', 'shared/acme-launch'), inTrash: true }} onClose={() => {}} onSaved={() => {}} /></MemoryRouter>)
+    routes = {
+      [`PATCH /api/projects/${P1}`]: (init) => { sent.push(JSON.parse(String(init?.body))); return json(200, { ...project(P1, 'Acme launch', 'shared/acme-launch'), inTrash: false }) },
+      'GET /api/files/tree': () => json(200, { path: 'shared/acme-launch', access: 'write', entries: [], nextCursor: null }),
+    }
+    const marked = { ...project(P1, 'Acme launch', 'shared/acme-launch'), inTrash: true }
+    // an admin: only admins see such a project, and only they may choose its folder
+    const before = useSession.getState().status
+    useSession.setState({ status: { kind: 'signed-in', me: { user: { id: 'u-admin', role: 'admin' } } } } as never)
+    const m = await mount(<MemoryRouter><ProjectForm project={marked} onClose={() => {}} onSaved={() => {}} /></MemoryRouter>)
+    expect(m.get('project-form-in-trash').textContent).toBe(translate('en', 'projects.inTrashEdit'))
+    await m.type('project-name', 'Acme launch 2027')
     await m.click('project-save')
     await m.until(() => sent.length, 'the save', 2000)
-    expect(sent[0]).toMatchObject({ folderPath: 'shared/acme-launch' })
+    expect(sent[0]).not.toHaveProperty('folderPath')
     await m.unmount()
-    // a project in place sends no folder when it did not change
+    // the admin chooses the old path in the picker: that is pointing the project at the folder now there
     sent.length = 0
-    const n = await mount(<MemoryRouter><ProjectForm project={project(P1, 'Acme launch', 'shared/acme-launch')} onClose={() => {}} onSaved={() => {}} /></MemoryRouter>)
+    const n = await mount(<MemoryRouter><ProjectForm project={marked} onClose={() => {}} onSaved={() => {}} /></MemoryRouter>)
+    await n.click('project-folder-choose')
+    const pick = await n.until(() => { const b = n.find('folder-pick'); return b && !b.hasAttribute('disabled') ? b : null }, 'the picker', 2000)
+    await n.click(pick)
     await n.click('project-save')
     await n.until(() => sent.length, 'the save', 2000)
-    expect(sent[0]).not.toHaveProperty('folderPath')
+    expect(sent[0]).toMatchObject({ folderPath: 'shared/acme-launch' })
     await n.unmount()
+    useSession.setState({ status: before })
+    // a project in place sends no folder when it did not change
+    sent.length = 0
+    const o = await mount(<MemoryRouter><ProjectForm project={project(P1, 'Acme launch', 'shared/acme-launch')} onClose={() => {}} onSaved={() => {}} /></MemoryRouter>)
+    expect(o.find('project-form-in-trash')).toBeNull()
+    await o.click('project-save')
+    await o.until(() => sent.length, 'the save', 2000)
+    expect(sent[0]).not.toHaveProperty('folderPath')
+    await o.unmount()
+  })
+
+  test('the header says it after the name, for the admins who see it', async () => {
+    routes = { [`GET /api/projects/${P1}`]: () => json(200, { ...project(P1, 'Acme launch', 'shared/acme-launch'), inTrash: true }) }
+    const m = await mount(<MemoryRouter><ChatProjectCrumb projectId={P1} /></MemoryRouter>)
+    const marker = await m.until(() => m.find('chat-project-in-trash'), 'the trash marker', 2000)
+    expect(marker.textContent).toBe(translate('en', 'chat.project.inTrash'))
+    await m.unmount()
+  })
+})
+
+describe('the chat title menu', () => {
+  const items = (m: { container: { querySelectorAll(s: string): ArrayLike<{ getAttribute(n: string): string | null; textContent: string | null }> } }) =>
+    Array.from(m.container.querySelectorAll('[role="menuitem"]')).map((e) => [e.getAttribute('data-testid'), e.textContent?.trim()])
+  test('Rename, Move to project…, Delete; "Change project…" for a chat in a project, also one the person cannot see', async () => {
+    let moved = 0
+    const m = await mount(<ChatTitleMenu chat={{ projectId: null }} title="Acme board summary" onRename={() => {}} onMove={() => moved++} onDelete={() => {}} />)
+    await m.click('chat-menu')
+    expect(items(m)).toEqual([['chat-rename', translate('en', 'chat.rename')], ['chat-project-move', translate('en', 'chat.project.add')], ['chat-delete', translate('en', 'common.delete')]])
+    await m.click('chat-project-move')
+    expect(moved).toBe(1)
+    await m.unmount()
+    const n = await mount(<ChatTitleMenu chat={{ projectId: GONE }} title="Acme board summary" onRename={() => {}} onMove={() => {}} onDelete={() => {}} />)
+    await n.click('chat-menu')
+    expect(items(n)[1]).toEqual(['chat-project-move', translate('en', 'chat.project.change')])
+    await n.unmount()
+  })
+})
+
+describe('signing out', () => {
+  test('the projects one person saw are forgotten (App.tsx resets the store with the chats)', () => {
+    useProjects.getState().put(project(P1, 'Acme launch', 'shared/acme-launch'))
+    useProjects.getState().reset()
+    expect(useProjects.getState().byId).toEqual({})
+  })
+})
+
+describe('only the latest answer counts', () => {
+  test('a slow 200 that arrives after a newer 404 does not bring the project\'s name back', async () => {
+    useProjects.getState().drop(P1)
+    let calls = 0
+    routes = {
+      [`GET /api/projects/${P1}`]: () => {
+        calls++
+        if (calls === 1) return new Promise<Response>((r) => setTimeout(() => r(json(200, project(P1, 'Acme launch', 'shared/acme-launch'))), 300))
+        return json(404, { error: { code: 'not_found', message: 'not found' } })
+      },
+    }
+    const m = await mount(<MemoryRouter><ChatProjectCrumb projectId={P1} /></MemoryRouter>)
+    window.dispatchEvent(new Event('focus'))
+    await m.settle(500)
+    expect(calls).toBe(2)
+    expect(m.find('chat-project')).toBeNull()
+    expect(useProjects.getState().byId[P1]).toBeUndefined()
+    await m.unmount()
   })
 })
 
