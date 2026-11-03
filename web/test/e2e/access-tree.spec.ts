@@ -51,7 +51,10 @@ test('the tree: who sees each folder and from where, the way down to marked fold
 
   // the root has no rule: only the owner and admins, and it says so; a lock where only part of the team sees
   await expect(item(page, '').getByTestId('tree-who')).toHaveText(t['accessTree.who.adminsOnly'])
-  await expect(item(page, '').getByTestId('tree-source')).toHaveText(`· ${t['accessTree.source.noRule']}`)
+  // no rule anywhere: "only the owner and admins" says it all, with no source line (it would repeat on most rows)
+  await expect(item(page, '').getByTestId('tree-source')).toHaveCount(0)
+  await expect(item(page, 'docs').getByTestId('tree-who')).toHaveText(t['accessTree.who.adminsOnly'])
+  await expect(item(page, 'docs').getByTestId('tree-source')).toHaveCount(0)
   await expect(item(page, '')).toContainText(t['accessTree.restricted'])
   // shared: everyone writes, from its own rule; a risk, said once (not on the folders below it)
   await expect(item(page, 'shared').getByTestId('tree-who')).toHaveText(`${t['rules.everyone']} · ${t['access.write']}`)
@@ -145,6 +148,8 @@ test('the keyboard: one Tab stop, arrows move, open and close, typing jumps, Ent
   await expect(tree(page).locator('[role="treeitem"][tabindex="0"]')).toHaveCount(1)
   await page.getByTestId('folder-rule-new').focus()
   await page.keyboard.press('Tab')
+  await expect(page.getByTestId('tree-ruled-only')).toBeFocused()
+  await page.keyboard.press('Tab')
   await expect(item(page, '')).toBeFocused()
   await page.keyboard.press('ArrowDown')
   await expect(item(page, 'connected')).toBeFocused()
@@ -232,9 +237,18 @@ test('a level that fails to open: a row to try again; the first answer failing: 
   const retry = tree(page).getByTestId('tree-failed')
   await expect(retry).toContainText('TREE-FAILED')
   await expect(retry).toHaveAttribute('role', 'treeitem')
+  // with the keyboard: the focus waits on the folder while it is asked again, after a second failure too
+  await retry.focus()
+  await page.keyboard.press('Enter')
+  await expect(item(page, 'finance')).toBeFocused()
+  await expect(retry).toBeVisible()
+  await expect(item(page, 'finance')).toBeFocused()
   fail = false
-  await retry.click()
+  await page.keyboard.press('ArrowDown')
+  await expect(retry).toBeFocused()
+  await page.keyboard.press('Enter')
   await expect(item(page, 'finance/2026')).toBeVisible()
+  await expect(item(page, 'finance')).toBeFocused()
 })
 
 test('rules of folders gone from disk: folded under the tree, removed with the server\'s preview, focus moves on', async ({ page }) => {
@@ -254,7 +268,7 @@ test('rules of folders gone from disk: folded under the tree, removed with the s
   const row = (p: string) => list.locator(`[data-path="${p}"]`)
   await expect(row('old/a')).toContainText(t['rules.missingOnDisk'])
   await expect(row('old/a')).toContainText(`${t['rules.everyone']}: ${t['access.read']}`)
-  const del = (p: string) => row(p).getByRole('button', { name: translate('ko', 'common.deleteNamed', { name: p }), exact: true })
+  const del = (p: string) => row(p).getByRole('button', { name: translate('ko', 'accessTree.removeRulesOf', { path: p }), exact: true })
   await del('old/a').click()
   await expect(page.getByRole('dialog').getByTestId('rules-remove-preview')).toContainText(t['rules.removeKeeps'])
   await page.getByTestId('dialog-confirm').click()
@@ -345,3 +359,249 @@ for (const locale of ['es', 'ja', 'en', 'id'] as const) {
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true)
   })
 }
+
+// ---------------- a folder in the address, back to the tree ----------------
+
+/** two rows a page (the server's own paging), so shared is past the first page of the top level */
+async function twoAPage(page: Page) {
+  await page.route('**/api/admin/access/tree**', (r) => {
+    const u = new URL(r.request().url())
+    u.searchParams.set('limit', '2')
+    return r.continue({ url: u.toString() })
+  })
+}
+
+for (const size of [{ width: 1360, height: 900 }, { width: 375, height: 812 }]) {
+  const narrow = size.width < 640
+  test(`?folder= at ${size.width}px: a missing folder is said with a way back; past the first page and deep folders are found`, async ({ page }) => {
+    await page.setViewportSize(size)
+    await reset(page)
+    const errors = watchConsole(page)
+    await signIn(page)
+    await team(page)
+    await page.request.post('/__test/file', { data: { path: 'docs/deep1/deep2/deep3/deep4/x.md', text: 'x' } })
+
+    // not there: said, the tree comes back (narrow: Back; wide: it never went), the address drops it
+    await page.goto(`/admin/folders?folder=${encodeURIComponent('nope/x')}`)
+    const missing = page.getByTestId('folder-detail-missing')
+    await expect(missing).toContainText(t['accessTree.notFound'])
+    await expect(missing).toContainText('nope/x')
+    if (narrow) {
+      await expect(tree(page)).toBeHidden()
+      await expect(missing.getByRole('heading', { name: t['accessTree.notFound'] })).toBeFocused()
+      await page.getByTestId('folder-detail-back').click()
+    } else {
+      await expect(tree(page)).toBeVisible()
+      await expect(tree(page).locator('[aria-selected="true"]')).toHaveCount(0)
+      await page.getByTestId('folder-detail-missing-close').click()
+    }
+    await expect(tree(page)).toBeVisible()
+    await expect(missing).toHaveCount(0)
+    await expect(page).not.toHaveURL(/folder=/)
+    await expect(item(page, '')).toBeFocused()
+
+    // a folder not opened at first, four levels down: each level is asked for on the way
+    await page.goto(`/admin/folders?folder=${encodeURIComponent('docs/deep1/deep2/deep3/deep4')}`)
+    await expect(detail(page)).toHaveAttribute('data-path', 'docs/deep1/deep2/deep3/deep4')
+    await expect(item(page, 'docs/deep1/deep2/deep3/deep4')).toHaveAttribute('aria-selected', 'true')
+    if (narrow) {
+      await page.getByTestId('folder-detail-back').click()
+      await expect(item(page, 'docs/deep1/deep2/deep3/deep4')).toBeFocused()
+    }
+
+    // past the first page of its level (two a page): the pages come until it is there
+    await twoAPage(page)
+    await page.goto('/admin/folders?folder=shared')
+    await expect(detail(page)).toHaveAttribute('data-path', 'shared')
+    await expect(item(page, 'shared')).toHaveAttribute('aria-selected', 'true')
+    if (narrow) {
+      await expect(tree(page)).toBeHidden()
+      await page.getByTestId('folder-detail-back').click()
+    }
+    // the Tab stop is the chosen row
+    await expect(item(page, 'shared')).toHaveAttribute('tabindex', '0')
+    await page.getByTestId('folder-rule-new').focus()
+    await page.keyboard.press('Tab') // the "rule folders only" switch comes first
+    await page.keyboard.press('Tab')
+    await expect(item(page, 'shared')).toBeFocused()
+    expect(realErrors(errors)).toEqual([])
+  })
+}
+
+test('the By folder tab and the menu link go back to the tree from a chosen folder (375px)', async ({ page }) => {
+  await page.setViewportSize({ width: 375, height: 812 })
+  await reset(page)
+  await signIn(page)
+  await team(page)
+  await page.goto('/admin/folders?folder=shared')
+  await expect(detail(page)).toHaveAttribute('data-path', 'shared')
+  await expect(tree(page)).toBeHidden()
+  await page.getByRole('tab', { name: t['accessView.byFolder'], exact: true }).click()
+  await expect(tree(page)).toBeVisible()
+  await expect(page).not.toHaveURL(/folder=/)
+  // a missing one, then the menu link
+  await page.goto(`/admin/folders?folder=${encodeURIComponent('gone/away')}`)
+  await expect(page.getByTestId('folder-detail-missing')).toBeVisible()
+  await page.getByRole('link', { name: t['admin.folders'], exact: true }).click()
+  await expect(tree(page)).toBeVisible()
+  await expect(page.getByTestId('folder-detail-missing')).toHaveCount(0)
+})
+
+test('rule folders only: the folders with rules and the way to them, open; pages; back to the whole tree', async ({ page }) => {
+  await reset(page)
+  const errors = watchConsole(page)
+  await signIn(page)
+  await team(page)
+  await page.request.post('/__test/file', { data: { path: 'docs/deep1/deep2/x.md', text: 'x' } })
+  await call(page, 'post', '/api/admin/folders', { path: 'docs/deep1/deep2', create: true, rules: [everyone('read')] })
+  await page.goto('/admin/folders')
+  await expect(item(page, 'projects/apollo')).toBeVisible()
+  await expect(item(page, 'marketing')).toBeVisible()
+  await page.getByTestId('tree-ruled-only').check({ force: true })
+  await expect(tree(page)).toHaveAttribute('data-mode', 'ruled')
+  for (const p of ['docs/deep1/deep2', 'projects/apollo', 'skills/영업', 'shared', 'finance', 'groups/영업팀', 'connected/nas']) await expect(item(page, p)).toBeVisible()
+  // the folders on the way show, open; folders with no rule below them do not
+  await expect(item(page, 'docs/deep1')).toHaveAttribute('aria-expanded', 'true')
+  await expect(item(page, 'docs/deep1')).toHaveAttribute('data-rules', '0')
+  for (const p of ['marketing', 'secret', 'users']) await expect(item(page, p)).toHaveCount(0)
+  // the keyboard: Left goes up, Right goes in
+  await item(page, 'docs/deep1/deep2').focus()
+  await page.keyboard.press('ArrowLeft')
+  await expect(item(page, 'docs/deep1')).toBeFocused()
+  await page.keyboard.press('ArrowRight')
+  await expect(item(page, 'docs/deep1/deep2')).toBeFocused()
+  await page.keyboard.press('Enter')
+  await expect(detail(page)).toHaveAttribute('data-path', 'docs/deep1/deep2')
+  // back to the whole tree: the chosen folder is opened to
+  await page.getByTestId('tree-ruled-only').uncheck({ force: true })
+  await expect(tree(page)).toHaveAttribute('data-mode', 'all')
+  await expect(item(page, 'docs/deep1/deep2')).toHaveAttribute('aria-selected', 'true')
+  expect(realErrors(errors)).toEqual([])
+
+  // pages of two: "N more" after the loaded rule folders
+  await twoAPage(page)
+  await page.goto('/admin/folders')
+  await expect(item(page, '')).toBeVisible()
+  await page.getByTestId('tree-ruled-only').check({ force: true })
+  const more = tree(page).getByTestId('tree-more')
+  await expect(more).toBeVisible()
+  const before = await tree(page).locator('[data-testid="tree-row"]').count()
+  await more.click()
+  await expect.poll(() => tree(page).locator('[data-testid="tree-row"]').count()).toBeGreaterThan(before)
+})
+
+for (const width of [1360, 375]) {
+  test(`a long project name never squeezes the folder's own name out (${width}px)`, async ({ page }) => {
+    await page.setViewportSize({ width, height: 900 })
+    await reset(page)
+    await signIn(page)
+    await team(page)
+    // as long as a project name may be (100 characters); the second project on apollo makes the kind "프로젝트 2개", so
+    // shared carries the long one alone
+    await call(page, 'post', '/api/projects', { name: '아주 긴 프로젝트 이름 '.repeat(8).trim().slice(0, 100), folderPath: 'shared' })
+    await call(page, 'post', '/api/projects', { name: 'L'.repeat(100), folderPath: 'skills' })
+    await page.goto('/admin/folders')
+    for (const p of ['shared', 'skills']) {
+      const name = item(page, p).getByTestId('tree-name')
+      await expect(name).toBeVisible()
+      expect((await name.boundingBox())!.width).toBeGreaterThan(24)
+    }
+    const fits = await page.evaluate(() => {
+      const scroller = document.querySelector('main')!.querySelector<HTMLElement>('.overflow-y-auto') ?? document.querySelector('main')!
+      const card = document.querySelector('[data-testid="folder-tree"]')!.getBoundingClientRect()
+      const rows = [...document.querySelectorAll<HTMLElement>('[data-testid="tree-row"]')]
+      return document.documentElement.scrollWidth <= window.innerWidth && scroller.scrollWidth <= scroller.clientWidth && rows.every((r) => r.getBoundingClientRect().right <= card.right + 1)
+    })
+    expect(fits).toBe(true)
+  })
+}
+
+test('a refresh that fails says so with a way to try again; the people already shown stay', async ({ page }) => {
+  await reset(page)
+  await signIn(page)
+  await team(page)
+  await page.goto('/admin/folders?folder=projects%2Fapollo')
+  await expect(page.getByTestId('folder-people')).toBeVisible()
+  // the rules change, and the answers that would show it fail
+  await page.route('**/api/admin/access/**', (r) => r.fulfill({ status: 503, json: { error: { code: 'unavailable', message: 'x' } } }))
+  await page.getByTestId('folder-detail-edit').click()
+  await page.getByTestId('rule-add').click()
+  await page.getByRole('dialog').getByLabel(t['rules.who'], { exact: true }).last().selectOption('everyone')
+  await page.getByTestId('rules-save').click()
+  await expect(page.getByTestId('tree-stale')).toContainText(t['accessTree.refreshFailed'])
+  await expect(page.getByTestId('folder-people-stale')).toContainText(t['accessTree.refreshFailed'])
+  await expect(person(page, 'dan')).toBeVisible()
+  await page.unroute('**/api/admin/access/**')
+  await page.getByTestId('tree-stale').getByRole('button', { name: t['common.retry'], exact: true }).click()
+  await expect(page.getByTestId('tree-stale')).toHaveCount(0)
+  await expect(item(page, 'projects/apollo').getByTestId('tree-who')).toContainText(`${translate('ko', 'accessTree.who.others', { n: 1 })} · ${t['access.read']}`)
+  await page.getByTestId('folder-people-stale').getByRole('button', { name: t['common.retry'], exact: true }).click()
+  await expect(page.getByTestId('folder-people-stale')).toHaveCount(0)
+  await expect(person(page, 'bob')).toHaveAttribute('data-level', 'read')
+})
+
+test('rule rows the tree never shows (a name it hides) are listed under it, to remove', async ({ page }) => {
+  await reset(page)
+  const errors = watchConsole(page)
+  await signIn(page)
+  // Users/x is a personal-folder look-alike the answers never name (any case): its row is apart, with why
+  await call(page, 'post', '/api/admin/folders', { path: 'Users/x', create: true, rules: [everyone('read')] })
+  await call(page, 'post', '/api/admin/folders', { path: 'old/a', create: true, rules: [everyone('read')] })
+  await page.request.post('/__test/rmdir', { data: { path: 'old' } })
+  await page.goto('/admin/folders')
+  const toggle = page.getByTestId('folder-outside-toggle')
+  await expect(toggle).toHaveText(translate('ko', 'accessTree.outsideMixed', { n: 2 }))
+  await toggle.click()
+  const row = (p: string) => page.getByTestId('folder-list').locator(`[data-path="${p}"]`)
+  await expect(row('Users/x')).toContainText(t['accessTree.hiddenName'])
+  await expect(row('old/a')).toContainText(t['rules.missingOnDisk'])
+  await expect(page.getByTestId('folder-outside')).toContainText(t['accessTree.outsideHintMixed'])
+  await row('Users/x').getByRole('button', { name: translate('ko', 'accessTree.removeRulesOf', { path: 'Users/x' }), exact: true }).click()
+  await page.getByTestId('dialog-confirm').click()
+  await expect(row('Users/x')).toHaveCount(0)
+  expect(realErrors(errors)).toEqual([])
+})
+
+test('375px: long group and person names in a folder\'s rules wrap inside the panel', async ({ page }) => {
+  await page.setViewportSize({ width: 375, height: 812 })
+  await reset(page)
+  await signIn(page)
+  const long = await call(page, 'post', '/api/admin/groups', { name: '아주긴그룹이름'.repeat(12), memberIds: [] })
+  await call(page, 'post', '/api/admin/folders', { path: 'marketing', create: true, rules: [{ subjectType: 'group', subjectId: long.id, access: 'write' }, everyone('read')] })
+  await page.goto('/admin/folders?folder=marketing')
+  await expect(page.getByTestId('folder-rules')).toBeVisible()
+  const fits = await page.evaluate(() => {
+    const box = document.querySelector('[data-testid="folder-detail"]')!.getBoundingClientRect()
+    const badges = [...document.querySelectorAll('[data-testid="folder-rules"] > *')]
+    return document.documentElement.scrollWidth <= window.innerWidth && badges.every((b) => b.getBoundingClientRect().right <= box.right + 1)
+  })
+  expect(fits).toBe(true)
+})
+
+test('a slow "Load more" of the people that comes after a rule change is dropped, not laid over the new answer', async ({ page }) => {
+  await reset(page)
+  await signIn(page)
+  await team(page)
+  // one person a page; the second page takes long
+  await page.route('**/api/admin/access/folder**', async (r) => {
+    const u = new URL(r.request().url())
+    u.searchParams.set('limit', '1')
+    if (u.searchParams.has('cursor')) await new Promise((done) => setTimeout(done, 2500))
+    await r.continue({ url: u.toString() }).catch(() => {})
+  })
+  await page.goto('/admin/folders?folder=projects%2Fapollo')
+  await expect(page.getByTestId('folder-person')).toHaveCount(1)
+  await expect(person(page, 'bob')).toHaveAttribute('data-level', 'none')
+  await page.getByTestId('folder-people-more').click()
+  // meanwhile: everyone reads apollo now
+  await page.getByTestId('folder-detail-edit').click()
+  await page.getByTestId('rule-add').click()
+  await page.getByRole('dialog').getByLabel(t['rules.who'], { exact: true }).last().selectOption('everyone')
+  await page.getByTestId('rules-save').click()
+  await expect(person(page, 'bob')).toHaveAttribute('data-level', 'read')
+  // the slow page of before the change lands and is dropped: the new answer stays as it is
+  await page.waitForTimeout(3000)
+  await expect(person(page, 'bob')).toHaveAttribute('data-level', 'read')
+  await expect(page.getByTestId('folder-person')).toHaveCount(1)
+  await expect(page.getByTestId('folder-people-more')).toBeVisible()
+})

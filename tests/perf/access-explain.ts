@@ -160,6 +160,18 @@ answers.push(
   measure('tree: the root with the way down opened (open=1)', Array.from({ length: 5 }, () => ''), () => { const { out, bytes } = checked(AccessTreeResponse, explainTree(ctx, { path: '', open: true }, 'en')); return { rows: out.levels.reduce((s, l) => s + l.children.length, 0), bytes } }),
   measure('tree: the widest levels, every page (groups, projects, skills, shared)', ['groups', 'projects', 'skills', 'shared'], treePages),
   measure(`tree: the level holding each rule folder (${parents.length} levels, first page)`, parents, (p) => { const { out, bytes } = checked(AccessTreeResponse, explainTree(ctx, { path: p }, 'en')); return { rows: out.levels[0]!.children.length, bytes } }),
+  measure('tree: rule folders only, the first page (200)', Array.from({ length: 5 }, () => ''), () => { const { out, bytes } = checked(AccessTreeResponse, explainTree(ctx, { path: '', rules: true }, 'en')); return { rows: out.levels[0]!.children.length + (out.above?.length ?? 0), bytes } }),
+  // each page of 500 is its own answer (the cursors found first, then each page timed)
+  measure('tree: rule folders only, each page of 500', (() => {
+    const cursors: string[] = ['']
+    for (let c: string | null = ''; ;) {
+      const out = explainTree(ctx, { path: '', rules: true, limit: 500, ...(c ? { cursor: c } : {}) }, 'en')
+      c = out.levels[0]!.nextCursor
+      if (!c) break
+      cursors.push(c)
+    }
+    return cursors
+  })(), (c) => { const { out, bytes } = checked(AccessTreeResponse, explainTree(ctx, { path: '', rules: true, limit: 500, ...(c ? { cursor: c } : {}) }, 'en')); return { rows: out.levels[0]!.children.length, bytes } }),
 )
 const sample = personPages((cursor) => explainPerson(ctx, 'u10', { cursor, limit: 2000 }))
 const nav = explainPerson(ctx, 'u10', { prefix: 'groups', limit: 2000 }).folders.find((f) => f.path === 'groups')

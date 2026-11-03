@@ -17,7 +17,8 @@ import { RuleSet, type Explained, type Listing, type Principal } from '../policy
 import { walk } from '../policy/resolve'
 import { captureState } from './folders'
 import { byPerson, folderInput, MAX_VIA, navigation, pageByPath, pageByPerson, ruleFolderOf, segsOf, shownPath, shownSegs, summarize, withoutOwnFolder } from './access-rows'
-import { treeAnswer, type TreeMark } from './access-tree'
+import { ruledAnswer, treeAnswer, type TreeMark, type TreeSource } from './access-tree'
+import { MAX_PATH_CHARS } from '../policy/names'
 
 /** A real folder at `segs`, every step lstat'ed (a link anywhere on the way counts as not there, never followed).
  * `memo`: prefixes already looked at in this answer. */
@@ -164,18 +165,27 @@ export function explainPerson(ctx: AppContext, id: string, q: PageQ): PersonAcce
 
 // ---------------- the tree (one level at a time) ----------------
 
-/** The folders inside a team folder, as the tree may show them: real folders only (a link counts as not there, never
- * followed), by their names on disk. `first`: stop at the first one (is there any?). */
-function subfolders(root: string, segs: readonly string[], first = false): string[] {
+/** "Is there a folder inside?" looks at no more entries than this (a folder with 10,000 files and no folder must not
+ * hold the server for each row of a page): past it the answer is yes, and opening it says what is there. */
+const HAS_FOLDERS_SCAN = 2000
+
+/** The folders inside a team folder, as the tree may show them: real folders only, by their names on disk; only when
+ * every step down to it is a real folder (`realDir`: a link anywhere counts as not there, never followed). `first`: stop
+ * at the first one, and after HAS_FOLDERS_SCAN entries (is there any?). */
+function subfolders(root: string, segs: readonly string[], realDir: (segs: readonly string[]) => boolean, first = false): string[] {
   const out: string[] = []
+  if (!realDir(segs)) return out
+  const base = segs.join('/')
   let dir: fs.Dir | undefined
   try {
     dir = fs.opendirSync(path.join(root, ...segs))
+    let seen = 0
     for (let d = dir.readSync(); d; d = dir.readSync()) {
+      if (first && ++seen > HAS_FOLDERS_SCAN) { out.push(''); break }
       if (!d.isDirectory()) continue
-      const p = [...segs, d.name].join('/')
+      const p = base ? `${base}/${d.name}` : d.name
       // the same names the answers may show (users/ and .system/ at the root are the caller's to handle)
-      if (segs.length > 0 && !shownSegs(p)) continue
+      if (segs.length > 0 && (p.length > MAX_PATH_CHARS || !shownSegs(p))) continue
       out.push(d.name)
       if (first) break
     }
@@ -185,7 +195,7 @@ function subfolders(root: string, segs: readonly string[], first = false): strin
   return out
 }
 
-export function explainTree(ctx: AppContext, q: { path?: string; cursor?: string; limit?: number; open?: boolean }, locale: Locale): AccessTreeResponse {
+export function explainTree(ctx: AppContext, q: { path?: string; cursor?: string; limit?: number; open?: boolean; rules?: boolean }, locale: Locale): AccessTreeResponse {
   const input = folderInput(q.path)
   if ('refuse' in input) return fail('validation', msg(input.refuse === 'personal' ? 'accessPersonalFolder' : 'accessNotTeamFolder', locale), { fields: { 'query.path': input.detail } })
   // personal folders and .system/ were refused above, before anything is read
@@ -213,15 +223,19 @@ export function explainTree(ctx: AppContext, q: { path?: string; cursor?: string
   }
   for (const cf of ctx.db.query('SELECT id, name FROM connected_folders ORDER BY name').all() as { id: string; name: string }[]) mark(`connected/${cf.name}`, 'connected').connected = { id: cf.id, name: cf.name }
 
-  return treeAnswer({
+  const dirs = new Map<string, boolean>()
+  const realDir = (s: readonly string[]) => isDir(root, s, dirs)
+  const src: TreeSource = {
     rules: state.rules, people: state.principals,
     groupName: (id) => groupNames.get(id) ?? null,
     personName: (id) => userNames.get(id) ?? null,
-    children: (s) => subfolders(root, s),
-    hasFolders: (s) => subfolders(root, s, true).length > 0,
+    children: (s) => subfolders(root, s, realDir),
+    hasFolders: (s) => subfolders(root, s, realDir, true).length > 0,
+    isFolder: realDir,
     marks,
     personal: state.principals.length,
-  }, segs, exists, q)
+  }
+  return q.rules ? ruledAnswer(src, segs, exists, q) : treeAnswer(src, segs, exists, q)
 }
 
 /** Someone about to be invited: no id yet, so no person rule can name them and there is no personal folder row. */

@@ -369,6 +369,12 @@ export const SPECS: Record<string, Spec> = {
         const fin = await w.as[who].get(`/api/admin/access/tree?path=${enc(w.groups.finFolder.split('/').slice(0, -1).join('/'))}`)
         const node = fin.json?.levels?.[0]?.children?.find((n: any) => n.path === w.groups.finFolder)
         if (!node?.who.some((x: any) => x.access === 'write' && x.reason === 'rule')) throw new Error(`${who}: the finance folder does not show its group writing`)
+        // "rule folders only": nothing of users/ or .system/ either, and the finance group's folder is there
+        const ruled = await w.as[who].get('/api/admin/access/tree?path=&rules=1&limit=500')
+        const listed: string[] = [...(ruled.json?.levels?.[0]?.children ?? []), ...(ruled.json?.above ?? [])].map((n: any) => n.path)
+        if (listed.some((p) => p.startsWith('users') || p.startsWith('.system'))) throw new Error(`${who}: rule folders only shows ${listed.join(', ')}`)
+        if (!listed.includes(w.groups.finFolder)) throw new Error(`${who}: rule folders only misses the finance group's folder`)
+        if (ruled.text.includes(C.aliceFileName) || ruled.text.includes('Private plan')) throw new Error(`${who}: rule folders only names something of alice's folder`)
       }
       const probe = await w.as[who].get(`/api/admin/access/tree?path=${enc('users/alice')}`)
       if (probe.status < 400 || probe.status >= 500) throw new Error(`${who}: users/alice was listed (${probe.status})`)

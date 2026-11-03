@@ -259,6 +259,9 @@ export const AccessTreeQuery = z.object({
   cursor: z.string().min(1).max(1024).optional(),
   limit: z.coerce.number().int().min(1).max(500).optional(),
   open: QueryBool.optional(),
+  /** "rule folders only": the folders with rules at or below `path` that are on disk, in the tree's order (a folder,
+   * then what is inside it, then its next sibling), one page (the cursor is the last path), with `above` */
+  rules: QueryBool.optional(),
 })
 export const AccessTreeResponse = z.object({
   /** actual names on disk; a part that is not there stays as typed */
@@ -269,8 +272,11 @@ export const AccessTreeResponse = z.object({
   members: z.number().int().nonnegative(),
   /** the folder asked for itself */
   self: AccessTreeNode,
-  /** its children first; with open, the levels opened on the way down after it */
+  /** its children first; with open, the levels opened on the way down after it. With rules: one list of the rule
+   * folders (deeper paths, not children), `levels[0].path` being the folder asked for */
   levels: z.array(AccessTreeLevel),
+  /** with rules: the folders on the way to the page's rule folders that are not in the page (the folder asked for aside) */
+  above: z.array(AccessTreeNode).optional(),
 })
 export type AccessTreeResponse = z.infer<typeof AccessTreeResponse>
 

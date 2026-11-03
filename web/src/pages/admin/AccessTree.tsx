@@ -2,21 +2,24 @@
 // can open it and where that comes from (GET /api/admin/access/tree, put into words by lib/access-view.ts); folders
 // without rules of their own are dimmed as inherited. Choosing a folder shows its rules and every person's access and
 // the reason (GET /api/admin/access/folder, the stage 2 answer, with the stage 3 reasons), with the rule editor
-// (RulesEditor) and "remove all rules" (shared/, skills/ and a group's folder keep theirs). Rows of folders that are
-// not in the tree (gone from disk, inside users/) are folded under it to clean up. Nothing here decides access.
+// (RulesEditor) and "remove all rules" (shared/, skills/ and a group's folder keep theirs). "Rule folders only" shows
+// just the folders with rules and the way to them. Rows of folders that are not in the tree (gone from disk, inside
+// users/, a name the tree never shows) are folded under it to clean up. Nothing here decides access.
 //
-// The keyboard follows the WAI-ARIA tree pattern: one Tab stop (the row last focused), Up and Down move, Right opens a
-// folder or goes into it, Left closes it or goes to the folder above, Home and End, typing jumps to a name, Enter or
-// Space chooses (choosing asks the server, so moving alone does not). "N more" and "Try again" are rows of the tree too.
+// The keyboard follows the WAI-ARIA tree pattern: one Tab stop (the row last focused, else the chosen one), Up and Down
+// move, Right opens a folder or goes into it, Left closes it or goes to the folder above, Home and End, typing jumps to
+// a name, Enter or Space chooses (choosing asks the server, so moving alone does not). "N more" and "Try again" are
+// rows of the tree too. The chosen folder is in the address (`?folder=`); a folder there is looked up, page by page,
+// and said when it is not there.
 import clsx from 'clsx'
-import { ArrowLeft, Briefcase, Cable, ChevronRight, Folder as FolderIcon, FolderTree, Loader2, Lock, Plus, RotateCw, SlidersHorizontal, Sparkles, TriangleAlert, UserRound, UsersRound, type LucideIcon } from 'lucide-react'
+import { ArrowLeft, Briefcase, Cable, ChevronRight, Folder as FolderIcon, FolderSearch, FolderTree, Loader2, Lock, Plus, RotateCw, SlidersHorizontal, Sparkles, Trash2, TriangleAlert, UserRound, UsersRound, type LucideIcon } from 'lucide-react'
 import { useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent, type ReactNode } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 import type { AccessTreeNode, AccessTreeResponse, Folder, FolderAccessResponse, Group } from '@mycel/shared/api'
-import { api, API } from '../../lib/api'
-import { ancestorsOf, isPersonalPath, isRestricted, kindText, levelOf, nodeName, parentOf, reasonText, riskTexts, sourceText, whoSeesText, type Names } from '../../lib/access-view'
+import { api, API, isApiError } from '../../lib/api'
+import { ancestorsOf, isPersonalPath, isRestricted, kindText, levelOf, nodeName, parentOf, reasonText, riskTexts, sourceSaysSomething, sourceText, whoSeesText, type Names } from '../../lib/access-view'
 import { useLocale, useT } from '../../i18n'
-import { Badge, Button, ErrorNote, Skeleton } from '../../components/ui'
+import { Badge, Button, ErrorNote, Skeleton, Switch } from '../../components/ui'
 import FolderPicker from '../../components/FolderPicker'
 import { accessErrorText, LevelLabel } from './AccessResults'
 import { RemoveRulesButton, RulesEditor, isSkillsFolder, useRemoveRules } from './Folders'
@@ -24,11 +27,15 @@ import { Card, useFocusAfterRemove, useLoad } from './common'
 
 /** One level as loaded so far: its children's paths in the server's order. */
 interface Level { children: string[]; total: number; nextCursor: string | null }
-interface TreeData { nodes: Map<string, AccessTreeNode>; levels: Map<string, Level>; people: number; members: number }
+/** "Rule folders only": the rule folders loaded so far, in the tree's order. */
+interface Ruled { paths: string[]; total: number; nextCursor: string | null }
+interface TreeData { nodes: Map<string, AccessTreeNode>; levels: Map<string, Level>; people: number; members: number; ruled: Ruled | null }
 
 /** rows asked for when a level opens; after a change, as many as were shown come again */
 const PAGE = 200
 const MAX_PAGE = 500
+/** the busy / failed key of the "rule folders only" list (no folder path can be it) */
+const RULED = '\u0000ruled'
 const within = (p: string, top: string) => top === '' || p === top || p.startsWith(top + '/')
 
 /** The tree's data: levels by the folder they are in, nodes by path. Every answer also brings the folder asked for
@@ -41,30 +48,49 @@ function useTreeData() {
   /** levels being asked for (opening, more, again) and those that failed, with the words */
   const [busy, setBusy] = useState<ReadonlySet<string>>(new Set())
   const [failed, setFailed] = useState<ReadonlyMap<string, string>>(new Map())
+  /** the last change whose folders did not come again (said with a way to try again) */
+  const [stale, setStale] = useState<string | null>(null)
+  // the data the next step of a lookup reads (a page-through loop runs between renders): every change goes through
+  // apply(), which renews it at once
   const dataRef = useRef(data)
-  dataRef.current = data
+  const apply = (fn: (d: TreeData | null) => TreeData | null) => {
+    const next = fn(dataRef.current)
+    dataRef.current = next
+    setData(next)
+  }
+  /** the same, at once (a page-through loop asks again before the next render) */
+  const busyNow = useRef(new Set<string>())
 
-  const ask = (path: string, q: { cursor?: string; limit?: number; open?: boolean } = {}) =>
-    api.call(API.explainAccessTree, { query: { path, ...(q.cursor !== undefined ? { cursor: q.cursor } : {}), ...(q.limit ? { limit: q.limit } : {}), ...(q.open ? { open: '1' as const } : {}) } })
+  const ask = (path: string, q: { cursor?: string; limit?: number; open?: boolean; rules?: boolean } = {}) =>
+    api.call(API.explainAccessTree, {
+      query: { path, ...(q.cursor !== undefined ? { cursor: q.cursor } : {}), ...(q.limit ? { limit: q.limit } : {}), ...(q.open ? { open: '1' as const } : {}), ...(q.rules ? { rules: '1' as const } : {}) },
+    })
+  /** nodes of an answer (the folder asked for, its children, the folders above a rule-folder page) */
+  const putNodes = (nodes: Map<string, AccessTreeNode>, r: AccessTreeResponse) => {
+    nodes.set(r.self.path, r.self)
+    for (const l of r.levels) for (const c of l.children) nodes.set(c.path, c)
+    for (const a of r.above ?? []) nodes.set(a.path, a)
+  }
   const merge = (answers: AccessTreeResponse[], append?: string) =>
-    setData((d) => {
+    apply((d) => {
       const nodes = new Map(d?.nodes)
       const levels = new Map(d?.levels)
       let counts = d ? { people: d.people, members: d.members } : { people: 0, members: 0 }
       for (const r of answers) {
-        nodes.set(r.self.path, r.self)
+        putNodes(nodes, r)
         counts = { people: r.people, members: r.members }
         for (const l of r.levels) {
-          for (const c of l.children) nodes.set(c.path, c)
           const before = levels.get(l.path)
           const paths = l.children.map((c) => c.path)
           const children = append === l.path && before ? [...before.children, ...paths.filter((p) => !before.children.includes(p))] : paths
           levels.set(l.path, { children, total: l.total, nextCursor: l.nextCursor })
         }
       }
-      return { nodes, levels, ...counts }
+      return { nodes, levels, ...counts, ruled: d?.ruled ?? null }
     })
   const mark = (path: string, on: boolean, err?: string) => {
+    if (on) busyNow.current.add(path)
+    else busyNow.current.delete(path)
     setBusy((b) => {
       const n = new Set(b)
       if (on) n.add(path)
@@ -85,7 +111,7 @@ function useTreeData() {
     setError(null)
     try {
       const r = await ask('', { open: true })
-      setData(null)
+      apply(() => null)
       merge([r])
       return r.levels.map((l) => l.path)
     } catch (e) {
@@ -109,45 +135,103 @@ function useTreeData() {
     }
   }
 
-  /** the next page of a level: the paths it brought */
-  const more = async (path: string): Promise<string[]> => {
+  /** the next page of a level: the paths it brought (null: it could not be asked for) */
+  const nextPage = async (path: string, limit: number): Promise<string[] | null> => {
     const l = dataRef.current?.levels.get(path)
-    if (!l?.nextCursor || busy.has(path)) return []
+    if (!l?.nextCursor || busyNow.current.has(path)) return []
     mark(path, true)
     try {
-      const r = await ask(path, { cursor: l.nextCursor, limit: PAGE })
+      const r = await ask(path, { cursor: l.nextCursor, limit })
       merge([r], path)
       mark(path, false)
       return r.levels[0]!.children.map((c) => c.path)
     } catch (e) {
       mark(path, false, failText(e))
+      return null
+    }
+  }
+  const more = async (path: string): Promise<string[]> => (await nextPage(path, PAGE)) ?? []
+
+  /** Open `parent` and page through it until `child` is there (a folder past the first page, one just made):
+   * found, absent (every page came and it is not there) or failed (a page could not be asked for). */
+  const loadUntil = async (parent: string, child: string): Promise<'found' | 'absent' | 'failed'> => {
+    if (!(await openLevel(parent))) return 'failed'
+    for (;;) {
+      const l = dataRef.current?.levels.get(parent)
+      if (!l) return 'failed'
+      if (l.children.includes(child)) return 'found'
+      if (!l.nextCursor) return 'absent'
+      const got = await nextPage(parent, MAX_PAGE)
+      if (got === null) return 'failed'
+      if (!got.length) return 'absent'
+    }
+  }
+
+  /** The folder at `path` as the server finds it (its names on disk, whether it is there); its own row is kept.
+   * `refused`: no team folder path (the server said so); `error`: it could not be asked. */
+  const resolve = async (path: string): Promise<{ r: AccessTreeResponse } | { refused: true } | { error: string }> => {
+    try {
+      const r = await ask(path, { limit: 1 })
+      apply((d) => {
+        if (!d) return d
+        const nodes = new Map(d.nodes)
+        if (r.exists) nodes.set(r.self.path, r.self)
+        return { ...d, nodes }
+      })
+      return { r }
+    } catch (e) {
+      return isApiError(e, 'validation') || isApiError(e, 'not_found') ? { refused: true } : { error: failText(e) }
+    }
+  }
+
+  /** "Rule folders only": the first page, or the next */
+  const ruledPage = async (next: boolean): Promise<string[]> => {
+    const before = dataRef.current?.ruled
+    if (next && !before?.nextCursor) return []
+    if (busyNow.current.has(RULED)) return []
+    mark(RULED, true)
+    try {
+      const r = await ask('', { rules: true, limit: PAGE, ...(next ? { cursor: before!.nextCursor! } : {}) })
+      const paths = r.levels[0]!.children.map((c) => c.path)
+      apply((d) => {
+        if (!d) return d
+        const nodes = new Map(d.nodes)
+        putNodes(nodes, r)
+        const kept = next && d.ruled ? d.ruled.paths : []
+        return { ...d, nodes, ruled: { paths: [...kept, ...paths.filter((p) => !kept.includes(p))], total: r.levels[0]!.total, nextCursor: r.levels[0]!.nextCursor } }
+      })
+      mark(RULED, false)
+      return paths
+    } catch (e) {
+      mark(RULED, false, failText(e))
       return []
     }
   }
 
   /** After rules changed at `changed`: its own row (in the level above, or the root) and every level shown at or below
-   * it come again, as many rows as were shown (access below a folder follows its rules). */
+   * it come again, as many rows as were shown (access below a folder follows its rules); the rule folders list too. */
   const refresh = async (changed: string) => {
     const d = dataRef.current
     if (!d) return
     const above = parentOf(changed)
     const targets = [...d.levels.keys()].filter((p) => p === above || within(p, changed))
-    const again = async (path: string): Promise<AccessTreeResponse[]> => {
-      const want = d.levels.get(path)?.children.length ?? 0
+    const pages = async (want: number, get: (cursor?: string, limit?: number) => Promise<AccessTreeResponse>) => {
       const out: AccessTreeResponse[] = []
       let cursor: string | undefined
       let got = 0
       do {
-        const r = await ask(path, { cursor, limit: Math.min(MAX_PAGE, Math.max(PAGE, want - got)) })
+        const r = await get(cursor, Math.min(MAX_PAGE, Math.max(PAGE, want - got)))
         out.push(r)
         got += r.levels[0]!.children.length
         cursor = r.levels[0]!.nextCursor ?? undefined
       } while (cursor && got < want)
       return out
     }
-    const results = await Promise.allSettled(targets.map(again))
+    const results = await Promise.allSettled(targets.map((path) => pages(d.levels.get(path)?.children.length ?? 0, (cursor, limit) => ask(path, { cursor, limit }))))
+    const ruled = d.ruled ? await pages(d.ruled.paths.length, (cursor, limit) => ask('', { rules: true, cursor, limit })).then((x) => x, () => null) : undefined
+    setStale(results.some((r) => r.status === 'rejected') || ruled === null ? changed : null)
     // each level that came again: its pages in order replace what it showed (a level that failed stays as it was)
-    setData((x) => {
+    apply((x) => {
       if (!x) return x
       const nodes = new Map(x.nodes)
       const levels = new Map(x.levels)
@@ -156,28 +240,35 @@ function useTreeData() {
         if (r.status !== 'fulfilled' || !r.value.length) continue
         const children: string[] = []
         for (const pg of r.value) {
-          nodes.set(pg.self.path, pg.self)
+          putNodes(nodes, pg)
           counts = { people: pg.people, members: pg.members }
-          for (const c of pg.levels[0]!.children) {
-            nodes.set(c.path, c)
-            if (!children.includes(c.path)) children.push(c.path)
-          }
+          for (const c of pg.levels[0]!.children) if (!children.includes(c.path)) children.push(c.path)
         }
         const last = r.value[r.value.length - 1]!.levels[0]!
         levels.set(last.path, { children, total: last.total, nextCursor: last.nextCursor })
       }
-      return { nodes, levels, ...counts }
+      let ruledNext = x.ruled
+      if (ruled) {
+        const paths: string[] = []
+        for (const pg of ruled) {
+          putNodes(nodes, pg)
+          for (const c of pg.levels[0]!.children) if (!paths.includes(c.path)) paths.push(c.path)
+        }
+        const last = ruled[ruled.length - 1]!.levels[0]!
+        ruledNext = { paths, total: last.total, nextCursor: last.nextCursor }
+      }
+      return { nodes, levels, ...counts, ruled: ruledNext }
     })
   }
 
-  return { data, error, busy, failed, loadRoot, openLevel, more, refresh, mark }
+  return { data, error, busy, failed, stale, loadRoot, openLevel, more, loadUntil, resolve, ruledPage, refresh, mark }
 }
 
 /** The rows on the screen, in order: a folder, "N more" after a level's last loaded child, "try again" for a level
  * that failed to open. */
 type Row =
-  | { kind: 'node'; key: string; path: string; level: number; pos: number; size: number }
-  | { kind: 'more'; key: string; parent: string; level: number; left: number; pos: number; size: number }
+  | { kind: 'node'; key: string; path: string; level: number; pos?: number; size?: number; shows?: boolean }
+  | { kind: 'more'; key: string; parent: string; level: number; left: number }
   | { kind: 'failed'; key: string; parent: string; level: number }
 
 function flatten(data: TreeData, open: ReadonlySet<string>, failed: ReadonlyMap<string, string>): Row[] {
@@ -190,16 +281,44 @@ function flatten(data: TreeData, open: ReadonlySet<string>, failed: ReadonlyMap<
       if (failed.has(path)) out.push({ kind: 'failed', key: `f:${path}`, parent: path, level: level + 1 })
       return
     }
-    const n = l.children.length + (l.nextCursor ? 1 : 0)
-    l.children.forEach((c, i) => data.nodes.has(c) && visit(c, level + 1, i + 1, n))
-    if (l.nextCursor) out.push({ kind: 'more', key: `m:${path}`, parent: path, level: level + 1, left: Math.max(0, l.total - l.children.length), pos: n, size: n })
+    // the set's size is how many folders the level has (the server's total), not how many are loaded
+    l.children.forEach((c, i) => data.nodes.has(c) && visit(c, level + 1, i + 1, l.total))
+    if (l.nextCursor) out.push({ kind: 'more', key: `m:${path}`, parent: path, level: level + 1, left: Math.max(0, l.total - l.children.length) })
   }
   if (data.nodes.has('')) visit('', 1, 1, 1)
   return out
 }
 
+/** "Rule folders only": the root, then each rule folder after the folders on the way to it that have not shown yet,
+ * everything open; "N more" for the next page. */
+function flattenRuled(data: TreeData, failed: ReadonlyMap<string, string>): Row[] {
+  const out: Row[] = []
+  if (!data.nodes.has('')) return out
+  out.push({ kind: 'node', key: 'n:', path: '', level: 1, pos: 1, size: 1 })
+  const ruled = data.ruled
+  if (!ruled) {
+    if (failed.has(RULED)) out.push({ kind: 'failed', key: `f:${RULED}`, parent: RULED, level: 2 })
+    return out
+  }
+  const shown = new Set([''])
+  for (const p of ruled.paths) {
+    for (const a of [...ancestorsOf(p).slice(1), p]) {
+      if (shown.has(a) || !data.nodes.has(a)) continue
+      shown.add(a)
+      out.push({ kind: 'node', key: `n:${a}`, path: a, level: a.split('/').length + 1 })
+    }
+  }
+  if (ruled.nextCursor) out.push({ kind: 'more', key: `m:${RULED}`, parent: RULED, level: 2, left: Math.max(0, ruled.total - ruled.paths.length) })
+  // a row with rows inside it below shows them (all open here)
+  for (let i = 0; i < out.length; i++) {
+    const r = out[i]!
+    if (r.kind === 'node') r.shows = !!out[i + 1] && out[i + 1]!.level > r.level && out[i + 1]!.kind === 'node'
+  }
+  return out
+}
+
 const KIND_ICON = (n: AccessTreeNode): LucideIcon =>
-  n.path === '' ? FolderTree : n.kinds.includes('personal') ? UserRound : n.kinds.includes('group') ? UsersRound : n.kinds.includes('project') ? Briefcase : n.kinds.includes('connected') ? Cable : n.path === 'skills' || n.path.startsWith('skills/') ? Sparkles : FolderIcon
+  n.path === '' ? FolderTree : n.kinds.includes('personal') ? UserRound : n.kinds.includes('group') ? UsersRound : n.kinds.includes('project') ? Briefcase : n.kinds.includes('connected') ? Cable : isSkillsFolder(n.path) ? Sparkles : FolderIcon
 
 export default function AccessTree() {
   const t = useT()
@@ -209,39 +328,104 @@ export default function AccessTree() {
   const users = useLoad(async () => (await api.call(API.listUsers)).items)
   const groups = useLoad(async () => (await api.call(API.listGroups)).items)
   const [open, setOpen] = useState<ReadonlySet<string>>(new Set())
+  const [ready, setReady] = useState(false)
   const [selected, setSelected] = useState<string | null>(null)
+  /** the folder in the address being looked up, or not found */
+  const [lookup, setLookup] = useState<{ path: string; state: 'busy' | 'missing' | 'failed'; error?: string } | null>(null)
   /** below the width where the tree and the folder sit side by side: the folder replaces the tree until Back */
   const [showDetail, setShowDetail] = useState(false)
+  const [ruledOnly, setRuledOnly] = useState(false)
   const [editing, setEditing] = useState<{ folder: Folder | null; path: string } | null>(null)
   const [picking, setPicking] = useState(false)
   /** asks the chosen folder's people again after a change */
   const [detailKey, setDetailKey] = useState(0)
   const treeBox = useRef<HTMLDivElement>(null)
   const detailHeading = useRef<HTMLHeadingElement>(null)
+  /** a lookup that a later choice or lookup replaced stops there */
+  const lookupGen = useRef(0)
   const rootName = t('accessView.rootFolder')
   const removal = useRemoveRules(rootName)
+  const wanted = params.get('folder')
 
-  // the first answer opens the way down to rule, group, project and connected folders; a folder in the address
-  // (?folder=) is opened to and chosen
+  // the first answer opens the way down to rule, group, project and connected folders
   useEffect(() => {
-    void (async () => {
-      const opened = await tree.loadRoot()
+    void tree.loadRoot().then((opened) => {
       if (!opened) return
       setOpen(new Set(['', ...opened]))
-      const wanted = params.get('folder')
-      if (wanted !== null && !isPersonalPath(wanted)) void reveal(wanted)
-      else if (wanted !== null) setSelected('users')
-    })()
+      setReady(true)
+    })
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
-  /** open every folder above `path` (asking for the levels not loaded) and choose it; its row comes into view */
-  const reveal = async (path: string) => {
-    for (const a of ancestorsOf(path)) if (!(await tree.openLevel(a))) return
+  /** the address names the chosen folder (replaced, not pushed: moving through the tree is no history of pages) */
+  const address = (path: string | null) => {
+    const q = new URLSearchParams(window.location.search)
+    if (path === null) q.delete('folder')
+    else q.set('folder', path)
+    setParams(q, { replace: true })
+  }
+  const choose = (path: string) => {
+    lookupGen.current++
+    setLookup(null)
+    setSelected(path)
+    setShowDetail(true)
+    address(path)
+  }
+  /** back to the tree with nothing chosen */
+  const clear = () => {
+    lookupGen.current++
+    setLookup(null)
+    setSelected(null)
+    setShowDetail(false)
+  }
+
+  /** Look the folder up and open the way to it, page by page, then choose it; said when it is not there. */
+  const reveal = async (want: string) => {
+    const gen = ++lookupGen.current
+    setSelected(want)
+    setShowDetail(true)
+    // users/: its one row (nothing in it is shown)
+    if (isPersonalPath(want)) {
+      setLookup(null)
+      setSelected('users')
+      return
+    }
+    setLookup({ path: want, state: 'busy' })
+    const res = await tree.resolve(want)
+    if (gen !== lookupGen.current) return
+    // the server could not be asked: said, with a way to try again (not "not found")
+    if ('error' in res) {
+      setLookup({ path: want, state: 'failed', error: res.error })
+      return
+    }
+    const path = 'r' in res && res.r.exists ? res.r.path : null
+    let step: 'found' | 'absent' | 'failed' = path === null ? 'absent' : 'found'
+    if (path !== null) {
+      const chain = [...ancestorsOf(path), path]
+      for (let i = 0; step === 'found' && i < chain.length - 1; i++) step = await tree.loadUntil(chain[i]!, chain[i + 1]!)
+      if (gen !== lookupGen.current) return
+    }
+    if (step !== 'found' || path === null) {
+      setLookup({ path: want, state: step === 'failed' ? 'failed' : 'missing' })
+      return
+    }
     setOpen((o) => new Set([...o, ...ancestorsOf(path)]))
     choose(path)
     scrollTo.current = path
   }
+
+  // the address decides what is chosen: a folder there is looked up; none (the tab, the menu link, Back) is the tree
+  useEffect(() => {
+    if (!ready) return
+    if (wanted === null) {
+      if (selected !== null || lookup) clear()
+      return
+    }
+    if (wanted === selected && !lookup) return
+    void reveal(wanted)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [wanted, ready])
+
   const scrollTo = useRef<string | null>(null)
   useLayoutEffect(() => {
     const path = scrollTo.current
@@ -251,14 +435,6 @@ export default function AccessTree() {
     scrollTo.current = null
     row.scrollIntoView({ block: 'nearest' })
   })
-  const choose = (path: string) => {
-    setSelected(path)
-    setShowDetail(true)
-    // replace, not push: moving through the tree is not a history of pages
-    const q = new URLSearchParams(window.location.search)
-    q.set('folder', path)
-    setParams(q, { replace: true })
-  }
 
   const ruleRows = folders.data
   const rowOf = (p: string) => ruleRows?.find((f) => f.path === p)
@@ -278,20 +454,137 @@ export default function AccessTree() {
     setDetailKey((n) => n + 1)
   }
 
-  // rows of folders that are not in the tree: gone from disk, or inside users/ (rules there never apply)
-  const outside = (ruleRows ?? []).filter((f) => f.path !== '' && (!f.exists || isPersonalPath(f.path))).sort((a, b) => a.path.localeCompare(b.path))
+  // rows of folders that are not in the tree: gone from disk, inside users/ (rules there never apply), or a name the
+  // tree never shows (Folder.hidden)
+  const outside = (ruleRows ?? []).filter((f) => f.path !== '' && (!f.exists || f.hidden || isPersonalPath(f.path))).sort((a, b) => a.path.localeCompare(b.path))
   const node = selected !== null ? tree.data?.nodes.get(selected) : undefined
+  const treeHidden = showDetail && selected !== null
+
+  /** back from the folder to its row (narrow); from a folder that is not there, to the tree with nothing chosen. The
+   * row takes the focus once the tree shows again (below). */
+  const toRow = useRef(false)
+  const back = () => {
+    toRow.current = true
+    if (!node || lookup) {
+      address(null)
+      clear()
+    } else setShowDetail(false)
+  }
+  useLayoutEffect(() => {
+    if (!toRow.current || treeHidden) return
+    const row = treeBox.current?.querySelector<HTMLElement>('[role="treeitem"][tabindex="0"]')
+    if (!row) return
+    toRow.current = false
+    row.focus()
+    row.scrollIntoView({ block: 'nearest' })
+  })
+  const backButton = (
+    <button type="button" onClick={back} className="-mx-2 mb-2 inline-flex items-center gap-1.5 rounded-lg px-2 py-1.5 text-[13px] font-medium text-muted transition hover:bg-hover hover:text-ink max-sm:min-h-10 @2xl:hidden" data-testid="folder-detail-back">
+      <ArrowLeft size={15} aria-hidden /> {t('accessTree.back')}
+    </button>
+  )
+
+  let detail: ReactNode
+  if (selected === null) detail = <p className="py-6 text-sm text-faint @max-2xl:hidden">{t('accessTree.pick')}</p>
+  else if (node && !lookup) {
+    detail = (
+      <FolderDetail
+        key={node.path}
+        node={node}
+        members={tree.data?.members ?? 0}
+        row={rowOf(node.path)}
+        rowsReady={!!folders.data}
+        names={names}
+        subject={subject}
+        reloadKey={detailKey}
+        headingRef={detailHeading}
+        removal={removal}
+        back={backButton}
+        onEdit={() => setEditing({ folder: rowOf(node.path) ?? null, path: node.path })}
+        onRemoved={async () => {
+          await changed(node.path)
+          // the delete button went with the rules: the focus goes to the rules button, not to the page
+          requestAnimationFrame(() => {
+            const a = document.activeElement
+            if (!a || a === document.body || !a.isConnected) document.querySelector<HTMLElement>('[data-testid="folder-detail-edit"]')?.focus()
+          })
+        }}
+      />
+    )
+  } else if (lookup?.state === 'busy') {
+    detail = (
+      <div aria-busy data-testid="folder-detail-looking">
+        {backButton}
+        <Skeleton lines={5} />
+      </div>
+    )
+  } else if (lookup?.state === 'failed') {
+    const again = lookup.path
+    detail = (
+      <div data-testid="folder-detail-failed">
+        {backButton}
+        <ErrorNote onRetry={() => void reveal(again)}>{lookup.error ?? t('accessTree.failed')}</ErrorNote>
+      </div>
+    )
+  } else {
+    // the address names a folder that is not there (moved, deleted, a typo): said, with the way back
+    detail = (
+      <section aria-labelledby="folder-detail-missing-title" data-testid="folder-detail-missing">
+        {backButton}
+        <div className="flex items-start gap-2.5 py-2">
+          <FolderSearch size={18} className="mt-0.5 shrink-0 text-faint" aria-hidden />
+          <div className="min-w-0">
+            <h3 id="folder-detail-missing-title" ref={detailHeading} tabIndex={-1} className="text-sm font-semibold text-ink outline-none">
+              {t('accessTree.notFound')}
+            </h3>
+            <p className="mt-1 text-xs [overflow-wrap:anywhere] text-muted">{t('accessTree.notFoundHint', { path: lookup?.path ?? selected })}</p>
+            <Button size="sm" variant="ghost" className="-ml-2.5 mt-2 @max-2xl:hidden" onClick={back} data-testid="folder-detail-missing-close">
+              {t('accessTree.back')}
+            </Button>
+          </div>
+        </div>
+      </section>
+    )
+  }
+
+  // a folder chosen while the tree is hidden (narrow): the folder's heading takes the focus, not the page
+  useLayoutEffect(() => {
+    if (!treeHidden) return
+    if (treeBox.current && treeBox.current.offsetParent === null) detailHeading.current?.focus()
+  }, [treeHidden, selected, lookup?.state])
 
   let body: ReactNode
-  if (tree.error) body = <ErrorNote onRetry={() => void tree.loadRoot().then((o) => o && setOpen(new Set(['', ...o])))}>{tree.error}</ErrorNote>
+  if (tree.error) body = <ErrorNote onRetry={() => void tree.loadRoot().then((o) => { if (o) { setOpen(new Set(['', ...o])); setReady(true) } })}>{tree.error}</ErrorNote>
   else if (!tree.data) body = <Skeleton lines={8} />
   else {
     body = (
       <div className="@container">
         <div className="flex flex-col gap-4 @2xl:flex-row @2xl:items-start @2xl:gap-0">
-          <div ref={treeBox} className={clsx('min-w-0 flex-1 @2xl:pr-4', showDetail && selected !== null && '@max-2xl:hidden')}>
+          <div ref={treeBox} className={clsx('min-w-0 flex-1 @2xl:pr-4', treeHidden && '@max-2xl:hidden')}>
+            <div className="mb-2 flex flex-wrap items-center gap-x-4 gap-y-2">
+              <Switch
+                checked={ruledOnly}
+                onChange={(on) => {
+                  setRuledOnly(on)
+                  if (on && !tree.data?.ruled) void tree.ruledPage(false)
+                  // back to the whole tree: the chosen folder is opened to again
+                  if (!on && selected !== null && selected !== '' && node) void reveal(selected)
+                }}
+                label={t('accessTree.ruledOnly')}
+                testId="tree-ruled-only"
+              />
+            </div>
+            {tree.stale !== null && (
+              <p role="status" className="mb-2 flex flex-wrap items-center gap-x-2 text-xs text-danger" data-testid="tree-stale">
+                {t('accessTree.refreshFailed')}
+                <button type="button" className="font-medium underline underline-offset-2" onClick={() => void tree.refresh(tree.stale!)}>
+                  {t('common.retry')}
+                </button>
+              </p>
+            )}
             <Tree
               data={tree.data}
+              ruled={ruledOnly}
               open={open}
               busy={tree.busy}
               failed={tree.failed}
@@ -304,56 +597,23 @@ export default function AccessTree() {
                 setOpen((o) => new Set([...o, path]))
                 await tree.openLevel(path)
               }}
-              onMore={tree.more}
-              onRetry={(path) => {
-                tree.mark(path, false)
-                void tree.openLevel(path)
+              onMore={(parent) => (parent === RULED ? tree.ruledPage(true) : tree.more(parent))}
+              onRetry={(parent) => {
+                if (parent === RULED) void tree.ruledPage(false)
+                else void tree.openLevel(parent)
               }}
               onChoose={choose}
             />
+            {ruledOnly && tree.data.ruled?.paths.length === 0 && <p className="px-1.5 py-3 text-sm text-faint">{t('accessTree.ruledEmpty')}</p>}
             <OutsideRules rows={outside} folders={folders.data} subject={subject} groups={groups.data ?? []} onEdit={(f) => setEditing({ folder: f, path: f.path })} removal={removal} onRemoved={() => folders.reload()} />
           </div>
-          <div className={clsx('min-w-0 @2xl:sticky @2xl:top-4 @2xl:max-h-[calc(100dvh-2rem)] @2xl:w-80 @2xl:shrink-0 @2xl:overflow-y-auto @2xl:border-l @2xl:border-line @2xl:pl-5 @3xl:w-96 scroll-thin', !(showDetail && selected !== null) && '@max-2xl:hidden')} data-testid="folder-detail-box">
-            {node ? (
-              <FolderDetail
-                key={node.path}
-                node={node}
-                members={tree.data.members}
-                row={rowOf(node.path)}
-                rowsReady={!!folders.data}
-                names={names}
-                subject={subject}
-                reloadKey={detailKey}
-                headingRef={detailHeading}
-                removal={removal}
-                onEdit={() => setEditing({ folder: rowOf(node.path) ?? null, path: node.path })}
-                onRemoved={async () => {
-                  await changed(node.path)
-                  // the delete button went with the rules: the focus goes to the rules button, not to the page
-                  requestAnimationFrame(() => {
-                    const a = document.activeElement
-                    if (!a || a === document.body || !a.isConnected) document.querySelector<HTMLElement>('[data-testid="folder-detail-edit"]')?.focus()
-                  })
-                }}
-                onBack={() => {
-                  setShowDetail(false)
-                  requestAnimationFrame(() => treeBox.current?.querySelector<HTMLElement>('[role="treeitem"][tabindex="0"]')?.focus())
-                }}
-              />
-            ) : (
-              <p className="py-6 text-sm text-faint @max-2xl:hidden">{t('accessTree.pick')}</p>
-            )}
+          <div className={clsx('min-w-0 @2xl:sticky @2xl:top-4 @2xl:max-h-[calc(100dvh-2rem)] @2xl:w-80 @2xl:shrink-0 @2xl:overflow-y-auto @2xl:border-l @2xl:border-line @2xl:pl-5 @3xl:w-96 scroll-thin', !treeHidden && '@max-2xl:hidden')} data-testid="folder-detail-box">
+            {detail}
           </div>
         </div>
       </div>
     )
   }
-
-  // a folder chosen while the tree is hidden (narrow): the folder's heading takes the focus, not the page
-  useLayoutEffect(() => {
-    if (!showDetail || selected === null) return
-    if (treeBox.current && treeBox.current.offsetParent === null) detailHeading.current?.focus()
-  }, [showDetail, selected])
 
   return (
     <>
@@ -403,10 +663,14 @@ export default function AccessTree() {
           onClose={() => setEditing(null)}
           onSaved={() => {
             const path = editing.path
+            const onDisk = editing.folder?.exists !== false && !editing.folder?.hidden
             setEditing(null)
-            // the folder saved is opened to and chosen (a folder that is not on disk stays in the list under the tree)
+            // the folder saved is opened to and chosen, also past the first page of its level (a folder that is not in
+            // the tree stays in the list under it)
             void changed(path).then(() => {
-              if (!isPersonalPath(path) && rowOf(path)?.exists !== false) void reveal(path)
+              // already chosen and shown: nothing to look up
+              if (selected === path && tree.data?.nodes.has(path)) return
+              if (!isPersonalPath(path) && onDisk) void reveal(path)
             })
           }}
         />
@@ -420,24 +684,37 @@ export default function AccessTree() {
 /** How long typed letters add up to one name to jump to. */
 const TYPE_AHEAD_MS = 700
 
-function Tree({ data, open, busy, failed, selected, onToggle, onMore, onRetry, onChoose }: {
+function Tree({ data, ruled, open, busy, failed, selected, onToggle, onMore, onRetry, onChoose }: {
   data: TreeData
+  /** "rule folders only": everything open, nothing to open or close */
+  ruled: boolean
   open: ReadonlySet<string>
   busy: ReadonlySet<string>
   failed: ReadonlyMap<string, string>
   selected: string | null
   onToggle: (path: string, open: boolean) => Promise<void> | void
-  onMore: (path: string) => Promise<string[]>
-  onRetry: (path: string) => void
+  onMore: (parent: string) => Promise<string[]>
+  onRetry: (parent: string) => void
   onChoose: (path: string) => void
 }) {
   const t = useT()
-  const rows = useMemo(() => flatten(data, open, failed), [data, open, failed])
+  const rows = useMemo(() => (ruled ? flattenRuled(data, failed) : flatten(data, open, failed)), [data, open, failed, ruled])
   const [active, setActive] = useState<string>(selected !== null ? `n:${selected}` : 'n:')
   const els = useRef(new Map<string, HTMLElement>())
   /** the row to focus once it is on the screen (after opening, loading more, closing) */
   const focusNext = useRef<string | null>(null)
   const typed = useRef({ text: '', at: 0 })
+  /** the chosen folder's row becomes the Tab stop once it is on the screen (chosen by the address, after "Add folder") */
+  const follow = useRef<string | null>(null)
+  useEffect(() => {
+    if (selected !== null) follow.current = `n:${selected}`
+  }, [selected])
+  useLayoutEffect(() => {
+    const k = follow.current
+    if (k === null || !rows.some((r) => r.key === k)) return
+    follow.current = null
+    setActive(k)
+  })
 
   // the Tab stop: the row last focused; if it went away (its folder closed), the nearest row above it that is there
   let tabStop = rows.find((r) => r.key === active)?.key
@@ -467,11 +744,20 @@ function Tree({ data, open, busy, failed, selected, onToggle, onMore, onRetry, o
       el.scrollIntoView({ block: 'nearest' })
     }
   }
+  /** the nearest row above `path` that is on the screen */
+  const upTo = (path: string | null) => {
+    if (path === null) return undefined
+    return [path, ...ancestorsOf(path).reverse()].map((p) => `n:${p}`).find((k) => rows.some((r) => r.key === k))
+  }
 
   const activate = async (r: Row) => {
     if (r.kind === 'node') onChoose(r.path)
-    else if (r.kind === 'failed') onRetry(r.parent)
-    else {
+    else if (r.kind === 'failed') {
+      // the row goes while the level is asked for again: the focus waits on the folder it belongs to
+      if (r.parent !== RULED) go(`n:${r.parent}`)
+      else go('n:')
+      onRetry(r.parent)
+    } else {
       const got = await onMore(r.parent)
       // the first folder that came takes the focus (the "more" row moved below it, or went)
       if (got[0]) go(`n:${got[0]}`)
@@ -483,9 +769,10 @@ function Tree({ data, open, busy, failed, selected, onToggle, onMore, onRetry, o
     const r = rows[i]
     if (!r) return
     const n = r.kind === 'node' ? data.nodes.get(r.path) : undefined
+    const next = rows[i + 1]
     switch (e.key) {
       case 'ArrowDown':
-        go(rows[i + 1]?.key)
+        go(next?.key)
         break
       case 'ArrowUp':
         go(rows[i - 1]?.key)
@@ -497,16 +784,17 @@ function Tree({ data, open, busy, failed, selected, onToggle, onMore, onRetry, o
         go(rows[rows.length - 1]?.key)
         break
       case 'ArrowRight':
-        if (r.kind !== 'node' || !n?.folders) break
-        if (!open.has(r.path)) void onToggle(r.path, true)
-        else if (rows[i + 1] && rows[i + 1]!.level > r.level) go(rows[i + 1]!.key)
+        if (r.kind !== 'node') break
+        if (ruled) {
+          if (next && next.level > r.level) go(next.key)
+        } else if (n?.folders) {
+          if (!open.has(r.path)) void onToggle(r.path, true)
+          else if (next && next.level > r.level) go(next.key)
+        }
         break
       case 'ArrowLeft':
-        if (r.kind === 'node' && n?.folders && open.has(r.path)) void onToggle(r.path, false)
-        else {
-          const up = r.kind === 'node' ? parentOf(r.path) : r.parent
-          if (up !== null) go(`n:${up}`)
-        }
+        if (!ruled && r.kind === 'node' && n?.folders && open.has(r.path)) void onToggle(r.path, false)
+        else go(upTo(r.kind === 'node' ? parentOf(r.path) : r.parent === RULED ? '' : r.parent))
         break
       case 'Enter':
       case ' ':
@@ -528,7 +816,7 @@ function Tree({ data, open, busy, failed, selected, onToggle, onMore, onRetry, o
   }
 
   return (
-    <div role="tree" aria-label={t('accessTree.label')} className="@container/tree -mx-1.5" onKeyDown={onKey} data-testid="folder-tree">
+    <div role="tree" aria-label={t('accessTree.label')} className="@container/tree -mx-1.5" onKeyDown={onKey} data-testid="folder-tree" data-mode={ruled ? 'ruled' : 'all'}>
       {rows.map((r) => {
         const ref = (el: HTMLElement | null) => {
           if (el) els.current.set(r.key, el)
@@ -553,12 +841,12 @@ function Tree({ data, open, busy, failed, selected, onToggle, onMore, onRetry, o
               pos={r.pos}
               size={r.size}
               members={data.members}
-              open={open.has(r.path)}
+              toggle={ruled ? (r.shows ? 'shown' : null) : n.folders ? (open.has(r.path) ? 'open' : 'closed') : null}
               busy={busy.has(r.path) && !data.levels.has(r.path)}
               selected={selected === r.path}
               onToggle={() => {
                 setActive(r.key)
-                void onToggle(r.path, !open.has(r.path))
+                if (!ruled) void onToggle(r.path, !open.has(r.path))
               }}
               onChoose={() => {
                 setActive(r.key)
@@ -567,14 +855,12 @@ function Tree({ data, open, busy, failed, selected, onToggle, onMore, onRetry, o
             />
           )
         }
-        const extra = r.kind === 'more' ? { 'aria-posinset': r.pos, 'aria-setsize': r.size } : {}
         const err = failed.get(r.parent)
         const loading = busy.has(r.parent)
         return (
           <div
             key={r.key}
             {...common}
-            {...extra}
             aria-busy={loading || undefined}
             onClick={() => {
               setActive(r.key)
@@ -587,9 +873,11 @@ function Tree({ data, open, busy, failed, selected, onToggle, onMore, onRetry, o
             <span className="inline-flex size-6 shrink-0 items-center justify-center" aria-hidden>
               {loading ? <Loader2 size={14} className="animate-spin" /> : r.kind === 'more' ? <Plus size={14} /> : <RotateCw size={14} />}
             </span>
-            {r.kind === 'more' ? <span>{t('accessTree.more', { n: r.left })}</span> : <span className="text-danger">{t('accessTree.failed')}</span>}
-            {/* what went wrong (the server's words), for a level that did not open or a page that did not come */}
-            {err && <span className="min-w-0 text-xs font-normal text-danger">{err}</span>}
+            <span className="min-w-0">
+              {r.kind === 'more' ? t('accessTree.more', { n: r.left }) : <span className="text-danger">{t('accessTree.failed')}</span>}
+              {/* what went wrong (the server's words), for a level that did not open or a page that did not come */}
+              {err && <span className="block text-xs font-normal [overflow-wrap:anywhere] text-danger">{err}</span>}
+            </span>
           </div>
         )
       })}
@@ -602,13 +890,14 @@ function Indent() {
   return <span className="w-[calc(min(var(--d),4)*0.75rem)] shrink-0 @xl/tree:w-[calc(min(var(--d),8)*1rem)]" aria-hidden />
 }
 
-function TreeRow({ n, level, pos, size, members, open, busy, selected, onToggle, onChoose, ...item }: {
+function TreeRow({ n, level, pos, size, members, toggle, busy, selected, onToggle, onChoose, ...item }: {
   n: AccessTreeNode
   level: number
-  pos: number
-  size: number
+  pos?: number
+  size?: number
   members: number
-  open: boolean
+  /** open / closed: it opens; shown: open with nothing to close ("rule folders only"); null: nothing inside */
+  toggle: 'open' | 'closed' | 'shown' | null
   busy: boolean
   selected: boolean
   onToggle: () => void
@@ -629,12 +918,13 @@ function TreeRow({ n, level, pos, size, members, open, busy, selected, onToggle,
   const name = nodeName(t, n)
   const risks = riskTexts(t, n)
   const restricted = isRestricted(n)
+  const opens = toggle === 'open' || toggle === 'closed'
   return (
     <div
       {...item}
       aria-posinset={pos}
       aria-setsize={size}
-      aria-expanded={n.folders ? open : undefined}
+      aria-expanded={toggle === null ? undefined : toggle !== 'closed'}
       aria-selected={selected}
       aria-busy={busy || undefined}
       onClick={onChoose}
@@ -650,23 +940,24 @@ function TreeRow({ n, level, pos, size, members, open, busy, selected, onToggle,
       <span
         onClick={(e) => {
           e.stopPropagation()
-          if (n.folders) onToggle()
+          if (opens) onToggle()
         }}
-        className={clsx('-my-1 inline-flex size-7 shrink-0 items-center justify-center rounded-md text-faint max-sm:size-9', n.folders && 'hover:bg-hover hover:text-ink')}
+        className={clsx('-my-1 inline-flex size-7 shrink-0 items-center justify-center rounded-md text-faint max-sm:size-9', opens && 'hover:bg-hover hover:text-ink')}
         aria-hidden
         data-testid="tree-toggle"
       >
-        {busy ? <Loader2 size={14} className="animate-spin" /> : n.folders && <ChevronRight size={15} className={clsx('transition', open && 'rotate-90')} />}
+        {busy ? <Loader2 size={14} className="animate-spin" /> : toggle && <ChevronRight size={15} className={clsx('transition', toggle !== 'closed' && 'rotate-90')} />}
       </span>
       <Icon size={16} className={clsx('mt-0.5 shrink-0', own || n.path === '' ? 'text-muted' : 'text-faint')} aria-hidden />
       <div className="min-w-0 flex-1">
         <div className="flex min-w-0 items-baseline gap-x-2">
-          <span className={clsx('min-w-0 truncate text-sm', own || n.path === '' ? 'font-medium text-ink' : 'text-muted')}>
+          {/* the name gives way last: the kind is cut first (shrinks a hundred times faster), then the name */}
+          <span className={clsx('min-w-0 truncate text-sm', own || n.path === '' ? 'font-medium text-ink' : 'text-muted')} data-testid="tree-name">
             {/* deeper than the room for depth: said in front of the name; the whole path is the row's title */}
             {depth > 4 && <span className={clsx('text-faint', depth <= 8 && '@xl/tree:hidden')} aria-hidden>…/</span>}
             {name}
           </span>
-          {kind && <span className="shrink-0 text-xs text-faint">{personal ? t('accessTree.personal.count', { n: n.people ?? 0 }) : kind}</span>}
+          {kind && <span className="min-w-0 shrink-[100] truncate text-xs text-faint" data-testid="tree-kind">{personal ? t('accessTree.personal.count', { n: n.people ?? 0 }) : kind}</span>}
           {restricted && (
             <span className="inline-flex shrink-0 self-center text-muted" title={t('accessTree.restricted')}>
               <Lock size={12} aria-hidden />
@@ -682,10 +973,16 @@ function TreeRow({ n, level, pos, size, members, open, busy, selected, onToggle,
           <p className="mt-0.5 text-[13px] leading-5">
             <span className={own || n.path === '' ? 'text-ink' : 'text-muted'} data-testid="tree-who">
               {whoSeesText(t, n, members)}
-            </span>{' '}
-            <span className="text-xs text-faint" data-testid="tree-source">
-              · {sourceText(t, n, members)}
             </span>
+            {/* a folder nobody but the owner and admins opens, by no rule at all: "팀장과 관리자만" says it all */}
+            {sourceSaysSomething(n) && (
+              <>
+                {' '}
+                <span className="text-xs text-faint" data-testid="tree-source">
+                  · {sourceText(t, n, members)}
+                </span>
+              </>
+            )}
           </p>
         )}
         {risks.map((r) => (
@@ -701,7 +998,8 @@ function TreeRow({ n, level, pos, size, members, open, busy, selected, onToggle,
 
 // ---------------- the chosen folder ----------------
 
-/** One folder's people, page by page (GET /api/admin/access/folder); asked again when `reloadKey` changes. */
+/** One folder's people, page by page (GET /api/admin/access/folder); asked again when `reloadKey` changes. A page that
+ * comes after the folder was asked again (a slow "Load more" across a rule change) is dropped. */
 function useFolderAnswer(path: string | null, reloadKey: number) {
   const t = useT()
   const locale = useLocale()
@@ -711,44 +1009,47 @@ function useFolderAnswer(path: string | null, reloadKey: number) {
   const [attempt, setAttempt] = useState(0)
   const shown = useRef(0)
   shown.current = data?.people.length ?? 0
+  /** which asking the data on the screen comes from */
+  const gen = useRef(0)
   useEffect(() => {
     if (path === null) return
-    let live = true
+    const g = ++gen.current
     const want = shown.current
     setError(null)
+    setMore({ busy: false, error: null })
     void (async () => {
       try {
         let r = await api.call(API.explainFolderAccess, { query: { path } })
         // after a change: as many people as were shown come again
-        while (live && r.nextCursor !== null && r.people.length < want) {
+        while (g === gen.current && r.nextCursor !== null && r.people.length < want) {
           const next = await api.call(API.explainFolderAccess, { query: { path, cursor: r.nextCursor } })
           r = { ...next, people: [...r.people, ...next.people] }
         }
-        if (live) setData(r)
+        if (g === gen.current) setData(r)
       } catch (e) {
-        if (live) setError(accessErrorText(e, locale, t))
+        if (g === gen.current) setError(accessErrorText(e, locale, t))
       }
     })()
-    return () => {
-      live = false
-    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [path, reloadKey, attempt])
   const loadMore = async () => {
     if (!data?.nextCursor || more.busy || path === null) return
+    const g = gen.current
+    const cursor = data.nextCursor
     setMore({ busy: true, error: null })
     try {
-      const r = await api.call(API.explainFolderAccess, { query: { path, cursor: data.nextCursor } })
-      setData({ ...r, people: [...data.people, ...r.people] })
+      const r = await api.call(API.explainFolderAccess, { query: { path, cursor } })
+      if (g !== gen.current) return
+      setData((d) => (d && d.nextCursor === cursor ? { ...r, people: [...d.people, ...r.people] } : d))
       setMore({ busy: false, error: null })
     } catch (e) {
-      setMore({ busy: false, error: accessErrorText(e, locale, t) })
+      if (g === gen.current) setMore({ busy: false, error: accessErrorText(e, locale, t) })
     }
   }
   return { data, error, more, loadMore, retry: () => setAttempt((n) => n + 1) }
 }
 
-function FolderDetail({ node: n, members, row, rowsReady, names, subject, reloadKey, headingRef, removal, onEdit, onRemoved, onBack }: {
+function FolderDetail({ node: n, members, row, rowsReady, names, subject, reloadKey, headingRef, removal, back, onEdit, onRemoved }: {
   node: AccessTreeNode
   members: number
   /** the folder's rule row, if it has one (Admin › Folder permissions' list) */
@@ -759,9 +1060,9 @@ function FolderDetail({ node: n, members, row, rowsReady, names, subject, reload
   reloadKey: number
   headingRef: React.Ref<HTMLHeadingElement>
   removal: ReturnType<typeof useRemoveRules>
+  back: ReactNode
   onEdit: () => void
   onRemoved: () => void | Promise<void>
-  onBack: () => void
 }) {
   const t = useT()
   const id = useId()
@@ -771,15 +1072,14 @@ function FolderDetail({ node: n, members, row, rowsReady, names, subject, reload
   const kind = kindText(t, n)
   const rules = row?.rules ?? []
   const keep = row?.keep === 'team' ? t('rules.keepTeam') : row?.keep === 'group' ? t('rules.keepGroup', { name: names.group(row.groupId ?? '') ?? '?' }) : null
+  const checking = row && removal.checking === row.id
   return (
     <section aria-labelledby={id} data-testid="folder-detail" data-path={n.path}>
-      <button type="button" onClick={onBack} className="-mx-2 mb-2 inline-flex items-center gap-1.5 rounded-lg px-2 py-1.5 text-[13px] font-medium text-muted transition hover:bg-hover hover:text-ink max-sm:min-h-10 @2xl:hidden" data-testid="folder-detail-back">
-        <ArrowLeft size={15} aria-hidden /> {t('accessTree.back')}
-      </button>
-      <h3 id={id} ref={headingRef} tabIndex={-1} className="text-base font-semibold break-words text-ink outline-none">
+      {back}
+      <h3 id={id} ref={headingRef} tabIndex={-1} className="text-base font-semibold [overflow-wrap:anywhere] text-ink outline-none">
         {name}
       </h3>
-      {kind && <p className="mt-0.5 text-xs text-muted">{personal ? `${kind} · ${t('accessTree.personal.count', { n: n.people ?? 0 })}` : kind}</p>}
+      {kind && <p className="mt-0.5 text-xs [overflow-wrap:anywhere] text-muted">{personal ? `${kind} · ${t('accessTree.personal.count', { n: n.people ?? 0 })}` : kind}</p>}
 
       {personal ? (
         <div className="mt-3 space-y-2 text-sm text-muted" data-testid="folder-detail-personal">
@@ -797,9 +1097,12 @@ function FolderDetail({ node: n, members, row, rowsReady, names, subject, reload
             <Button size="sm" onClick={onEdit} disabled={!rowsReady} data-testid="folder-detail-edit" data-row-focus>
               <SlidersHorizontal size={14} aria-hidden /> {rules.length ? t('accessTree.editRules') : t('accessTree.addRules')}
             </Button>
-            {/* a row without rules left (its group was deleted) can go too, as on the list before */}
+            {/* a row without rules left (its group was deleted) can go too, as on the list before; this removes the
+                rules, never the folder, and says so */}
             {row && !keep && (
-              <RemoveRulesButton f={row} label={t('common.deleteNamed', { name: n.path || t('accessView.rootFolder') })} checking={removal.checking} onClick={() => void removal.remove(row, onRemoved)} testId="folder-detail-delete" />
+              <Button size="sm" variant="ghost-danger" onClick={() => void removal.remove(row, onRemoved)} aria-busy={checking || undefined} data-row-focus data-testid="folder-detail-delete">
+                {checking ? <Loader2 size={14} className="animate-spin" aria-hidden /> : <Trash2 size={14} aria-hidden />} {t('accessTree.removeRules')}
+              </Button>
             )}
             {keep && (
               <span className="inline-flex p-1.5 text-faint max-sm:p-2" title={keep} aria-hidden>
@@ -830,7 +1133,7 @@ function FolderDetail({ node: n, members, row, rowsReady, names, subject, reload
           <div className="mt-4">
             <h4 className="text-xs font-semibold text-muted">{t('accessTree.people')}</h4>
             <p className="mt-1 text-[13px] text-ink">{whoSeesText(t, n, members)}</p>
-            <p className="text-xs text-faint">{sourceText(t, n, members)}</p>
+            {sourceSaysSomething(n) && <p className="text-xs text-faint">{sourceText(t, n, members)}</p>}
             <People answer={answer} path={n.path} names={names} />
           </div>
         </>
@@ -839,15 +1142,18 @@ function FolderDetail({ node: n, members, row, rowsReady, names, subject, reload
   )
 }
 
-/** A folder's own rules, as the list showed them: who, the access, and on skills/ the team skill managers. */
+/** A folder's own rules, as the list showed them: who, the access, and on skills/ the team skill managers. Long names
+ * wrap inside the panel. */
 function RuleBadges({ rules, path, subject }: { rules: Folder['rules']; path: string; subject: (type: string, id: string | null) => string }) {
   const t = useT()
   return (
     <span className="mt-1.5 flex flex-wrap gap-1" data-testid="folder-rules">
       {rules.map((r) => (
-        <Badge key={r.id}>
-          {subject(r.subjectType, r.subjectId)}: {t(`access.${r.access}`)}
-          {isSkillsFolder(path) && r.access === 'write' && (r.subjectType === 'user' || r.subjectType === 'group') && <span data-testid="skill-manager-badge"> · {t('skillMgr.ruleBadge')}</span>}
+        <Badge key={r.id} className="max-w-full whitespace-normal [overflow-wrap:anywhere]">
+          <span>
+            {subject(r.subjectType, r.subjectId)}: {t(`access.${r.access}`)}
+            {isSkillsFolder(path) && r.access === 'write' && (r.subjectType === 'user' || r.subjectType === 'group') && <span data-testid="skill-manager-badge"> · {t('skillMgr.ruleBadge')}</span>}
+          </span>
         </Badge>
       ))}
     </span>
@@ -864,6 +1170,15 @@ function People({ answer, path, names }: { answer: ReturnType<typeof useFolderAn
   const asRow = (p: Pick<FolderAccessResponse['people'][number], 'access' | 'reason' | 'listable' | 'via' | 'viaMore'>) => ({ path, kinds: [], exists: data.exists, ...p })
   return (
     <>
+      {/* asked again after a change and it failed: what shows is from before, and says so */}
+      {error && (
+        <p role="status" className="mt-2 flex flex-wrap items-center gap-x-2 text-xs text-danger" data-testid="folder-people-stale">
+          {t('accessTree.refreshFailed')}
+          <button type="button" className="font-medium underline underline-offset-2" onClick={answer.retry}>
+            {t('common.retry')}
+          </button>
+        </p>
+      )}
       <p className="mt-2 text-xs text-muted tabular-nums" data-testid="folder-detail-counts">
         {t('accessTree.counts', { see: s.read + s.write, write: s.write, none: s.none })}
       </p>
@@ -877,7 +1192,7 @@ function People({ answer, path, names }: { answer: ReturnType<typeof useFolderAn
                 <span className="shrink-0 text-xs text-faint">{t(`role.${p.role}`)}</span>
               </div>
               <LevelLabel level={level} className="mt-0.5 flex text-xs" />
-              <div className="mt-0.5 space-y-0.5 text-xs text-muted">
+              <div className="mt-0.5 space-y-0.5 text-xs [overflow-wrap:anywhere] text-muted">
                 {reasonText(t, asRow(p), p.role, names).map((line) => (
                   <p key={line}>{line}</p>
                 ))}
@@ -914,8 +1229,11 @@ function People({ answer, path, names }: { answer: ReturnType<typeof useFolderAn
 
 // ---------------- rules of folders not in the tree ----------------
 
-/** Rule rows whose folder is not in the tree: gone from disk (moved or deleted outside the app), or inside users/ (rules
- * there never apply). Folded; each can be edited or removed, as on the list before the tree. */
+/** Why a rule row is not in the tree: inside users/ (rules there never apply), a name the tree never shows, or gone
+ * from disk (moved or deleted outside the app). */
+const outsideWhy = (f: Folder): 'personal' | 'hidden' | 'missing' => (isPersonalPath(f.path) ? 'personal' : f.hidden ? 'hidden' : 'missing')
+
+/** Rule rows whose folder is not in the tree. Folded; each can be edited or removed, as on the list before the tree. */
 function OutsideRules({ rows, folders, subject, groups, onEdit, removal, onRemoved }: {
   rows: Folder[]
   folders: Folder[] | null
@@ -930,7 +1248,8 @@ function OutsideRules({ rows, folders, subject, groups, onEdit, removal, onRemov
   const id = useId()
   const focus = useFocusAfterRemove(folders, () => document.querySelector<HTMLElement>('[data-testid="folder-rule-new"]'))
   if (!rows.length) return null
-  const allMissing = rows.every((f) => !isPersonalPath(f.path))
+  const whys = new Set(rows.map(outsideWhy))
+  const only = whys.size === 1 ? [...whys][0]! : null
   return (
     <div className="mt-5 border-t border-line pt-2">
       <button
@@ -942,18 +1261,19 @@ function OutsideRules({ rows, folders, subject, groups, onEdit, removal, onRemov
         data-testid="folder-outside-toggle"
       >
         <ChevronRight size={15} className={clsx('shrink-0 transition', open && 'rotate-90')} aria-hidden />
-        {t(allMissing ? 'accessTree.outside' : 'accessTree.outsideMixed', { n: rows.length })}
+        {t(only === 'missing' ? 'accessTree.outside' : 'accessTree.outsideMixed', { n: rows.length })}
       </button>
       <div id={id} hidden={!open} ref={focus.box} data-testid="folder-outside">
-        <p className="mt-1 text-xs text-muted">{t('accessTree.outsideHint')}</p>
+        <p className="mt-1 text-xs text-muted">{t(only === 'missing' ? 'accessTree.outsideHint' : only === 'personal' ? 'accessTree.outsideHintPersonal' : 'accessTree.outsideHintMixed')}</p>
         <ul className="divide-y divide-line" data-testid="folder-list">
           {rows.map((f, i) => {
             const keep = f.keep === 'team' ? t('rules.keepTeam') : f.keep === 'group' ? t('rules.keepGroup', { name: groups.find((g) => g.id === f.groupId)?.name ?? '?' }) : null
+            const why = outsideWhy(f)
             return (
               <li key={f.id} className="flex flex-wrap items-start gap-3 py-3 text-sm" data-testid="folder-row" data-path={f.path}>
                 <span className="min-w-0 flex-1">
-                  <span className="block font-medium break-all text-ink">{f.path}</span>
-                  <span className="mt-0.5 block text-xs text-faint">{isPersonalPath(f.path) ? t('accessTree.inPersonal') : t('rules.missingOnDisk')}</span>
+                  <span className="block font-medium [overflow-wrap:anywhere] text-ink">{f.path}</span>
+                  <span className="mt-0.5 block text-xs text-faint">{t(why === 'personal' ? 'accessTree.inPersonal' : why === 'hidden' ? 'accessTree.hiddenName' : 'rules.missingOnDisk')}</span>
                   <RuleBadges rules={f.rules} path={f.path} subject={subject} />
                   {keep && (
                     <span className="mt-1 block text-xs text-muted" data-testid="folder-keep-reason">
@@ -971,7 +1291,7 @@ function OutsideRules({ rows, folders, subject, groups, onEdit, removal, onRemov
                 ) : (
                   <RemoveRulesButton
                     f={f}
-                    label={t('common.deleteNamed', { name: f.path })}
+                    label={t('accessTree.removeRulesOf', { path: f.path })}
                     checking={removal.checking}
                     onClick={() =>
                       void removal.remove(f, async () => {

@@ -5,7 +5,8 @@
 import { expect, test } from 'bun:test'
 import type { AccessTreeWho } from '@mycel/shared/api'
 import { RuleSet, type Access, type Principal } from '../../server/src/policy/access'
-import { treeContext, type TreeSource } from '../../server/src/admin/access-tree'
+import { isSkills, treeContext, type TreeSource } from '../../server/src/admin/access-tree'
+import { inSkills } from '../../server/src/skills/guard'
 
 let seed = 11
 const rand = () => { seed = (seed * 1103515245 + 12345) & 0x7fffffff; return seed / 0x7fffffff }
@@ -56,7 +57,7 @@ test('who per class equals every person explained on their own, and the counts e
     const name = (t: string, id: string) => (t === 'group' ? `G ${id}` : t === 'user' ? `U ${id}` : null)
     const src: TreeSource = {
       rules, people, groupName: (id) => name('group', id), personName: (id) => name('user', id),
-      children: () => [], hasFolders: () => false, marks: new Map(), personal: people.length,
+      children: () => [], hasFolders: () => false, isFolder: () => true, marks: new Map(), personal: people.length,
     }
     const tc = treeContext(src)
     for (const f of [...folders, 'a/b/c/deep', 'e/none']) {
@@ -75,4 +76,12 @@ test('who per class equals every person explained on their own, and the counts e
     }
   }
   expect(nodes).toBe(300 * 12)
+})
+
+test('skills/ as the skills guard compares it: any case or Unicode form of the first name', () => {
+  for (const p of ['skills', 'skills/x', 'Skills', 'SKILLS/a/b', 'skills2', 'x/skills', 'skill', 'Skills/x', 'ｓkills']) expect(isSkills(p), p).toBe(inSkills(p))
+  const people: Principal[] = [{ id: 'o', name: 'O', role: 'owner', groups: [] }, { id: 'm', name: 'M', role: 'member', groups: [] }]
+  const rules = new RuleSet([{ path: 'Skills/open', subject_type: 'everyone', subject_id: null, access: 'write' }])
+  const tc = treeContext({ rules, people, groupName: () => null, personName: () => null, children: () => [], hasFolders: () => false, isFolder: () => true, marks: new Map(), personal: 2 })
+  expect(tc.node(['Skills', 'open']).risks).toEqual(['skills-everyone-writes'])
 })

@@ -8,6 +8,7 @@ import path from 'node:path'
 import { AccessTreeResponse, type AccessTreeNode } from '@mycel/shared/api'
 import { MAX_DEPTH } from '../../server/src/policy/names'
 import { OPEN_LEVELS, OPEN_ROWS } from '../../server/src/admin/access-tree'
+import { newId } from '../../server/src/db'
 import { addMember, harness, withOwner, type Client, type Harness } from './a-lib'
 
 let h: Harness
@@ -232,6 +233,93 @@ describe('risks and restricted folders', () => {
     } finally {
       await admin.call('DELETE', `/api/admin/folders/${sx.id}`)
       await admin.call('DELETE', `/api/admin/folders/${rootRule.id}`)
+    }
+  })
+})
+
+describe('stage 4 review', () => {
+  test('a link is never followed: a folder asked for through a link is not there and says nothing of what is behind it', async () => {
+    const root = h.ctx.files.fx.root
+    const outside = path.join(root, '..', 'outside-tree-7f3')
+    fs.mkdirSync(path.join(outside, 'sub', 'deeper'), { recursive: true })
+    fs.symlinkSync(outside, path.join(root, 'shared', 'link-out'))
+    try {
+      const answers = await Promise.all([
+        'shared/link-to-alice', 'shared/link-to-alice/Alice-private-folder-5d2', 'shared/link-to-alice/not-there-9a1',
+        'shared/link-out', 'shared/link-out/sub', 'shared/link-out/nope',
+      ].map((p) => tree(p)))
+      for (const r of answers) {
+        expect(r.exists, r.path).toBe(false)
+        expect(r.self.folders, r.path).toBe(false)
+        expect(r.levels[0]!.children, r.path).toEqual([])
+      }
+      // the same answer whether something is behind the link or not
+      const strip = (r: AccessTreeResponse) => ({ ...r, path: '', self: { ...r.self, name: '', path: '' }, levels: r.levels.map((l) => ({ ...l, path: '' })) })
+      expect(strip(answers[1]!)).toEqual(strip(answers[2]!))
+      expect(strip(answers[4]!)).toEqual(strip(answers[5]!))
+      for (const r of await Promise.all(['shared/link-to-alice', 'shared/link-out'].map((p) => tree(p, '&rules=1')))) expect(r.self.folders).toBe(false)
+    } finally {
+      fs.rmSync(path.join(root, 'shared', 'link-out'), { force: true })
+      fs.rmSync(outside, { recursive: true, force: true })
+    }
+  })
+
+  test('the root rule for everyone is said only when it gives members access', async () => {
+    const shut = await admin.call('POST', '/api/admin/folders', { path: '', rules: [rule('everyone', null, 'read'), rule('role', 'member', 'none')] })
+    try {
+      const r = await tree('')
+      expect(r.self.risks).toEqual([])
+      expect(child(r, 'docs')).toMatchObject({ restricted: true })
+      addsUp(r.self)
+    } finally {
+      await admin.call('DELETE', `/api/admin/folders/${shut.id}`)
+    }
+  })
+
+  test('rule folders only: on disk, in the tree\'s order, the folders on the way, pages', async () => {
+    const root = h.ctx.files.fx.root
+    const gone = await admin.call('POST', '/api/admin/folders', { path: 'docs/gone-4c1', rules: [rule('everyone', null, 'read')] })
+    fs.rmSync(path.join(root, 'docs', 'gone-4c1'), { recursive: true, force: true })
+    const sib = await admin.call('POST', '/api/admin/folders', { path: 'projects/apollo-b', rules: [rule('everyone', null, 'read')] })
+    try {
+      const r = await tree('', '&rules=1&limit=500')
+      const paths = r.levels[0]!.children.map((c) => c.path)
+      expect(paths).toContain('projects/apollo/drafts')
+      expect(paths).not.toContain('docs/gone-4c1')
+      expect(paths.some((p) => p.startsWith('users/') || p.startsWith('.system'))).toBe(false)
+      // a folder, what is inside it, then its next sibling
+      expect(paths.indexOf('projects/apollo')).toBeLessThan(paths.indexOf('projects/apollo/drafts'))
+      expect(paths.indexOf('projects/apollo/drafts')).toBeLessThan(paths.indexOf('projects/apollo-b'))
+      expect((r.above ?? []).map((n) => n.path)).toEqual(expect.arrayContaining(['groups', 'projects']))
+      for (const n of [...r.levels[0]!.children, ...(r.above ?? [])]) addsUp(n)
+      expect(r.levels[0]!.total).toBe(paths.length)
+      // pages: every rule folder once
+      const seen: string[] = []
+      let cursor: string | null = null
+      do {
+        const pg: AccessTreeResponse = await tree('', `&rules=1&limit=2${cursor ? `&cursor=${encodeURIComponent(cursor)}` : ''}`)
+        seen.push(...pg.levels[0]!.children.map((c) => c.path))
+        cursor = pg.levels[0]!.nextCursor
+      } while (cursor)
+      expect(seen).toEqual(paths)
+      // narrowed to a folder
+      expect((await tree('projects', '&rules=1')).levels[0]!.children.map((c) => c.path)).toEqual(['projects/apollo', 'projects/apollo/drafts', 'projects/apollo-b'])
+    } finally {
+      await admin.call('DELETE', `/api/admin/folders/${gone.id}`)
+      await admin.call('DELETE', `/api/admin/folders/${sib.id}`)
+      fs.rmSync(path.join(root, 'projects', 'apollo-b'), { recursive: true, force: true })
+    }
+  })
+
+  test('a rule row the answers never show is marked hidden, so the screen lists it apart', async () => {
+    const id = newId()
+    h.ctx.db.query('INSERT INTO folders (id, path, created_at) VALUES (?, ?, ?)').run(id, '.SYSTEM/x', new Date().toISOString())
+    try {
+      const list = (await admin.call('GET', '/api/admin/folders')).items as { path: string; hidden?: boolean }[]
+      expect(list.find((f) => f.path === '.SYSTEM/x')?.hidden).toBe(true)
+      expect(list.find((f) => f.path === 'projects/apollo')?.hidden).toBe(false)
+    } finally {
+      h.ctx.db.query('DELETE FROM folders WHERE id = ?').run(id)
     }
   })
 })

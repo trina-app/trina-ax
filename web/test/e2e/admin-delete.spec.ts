@@ -45,7 +45,8 @@ test('folder permissions: delete refreshes the tree, focus moves on, the dialog 
   for (const p of ['docs', 'finance/2026', 'marketing']) await post(page, '/api/admin/folders', { path: p, create: true, rules: [everyone('read')] })
   await page.goto('/admin/folders')
   const row = (p: string) => treeRow(page, p)
-  const del = (p: string) => detail(page).getByRole('button', { name: deleteNamed(p), exact: true })
+  // the chosen folder's "remove all rules" (it names the rules, never the folder)
+  const del = (p: string) => page.locator(`[data-testid="folder-detail"][data-path="${p}"]`).getByRole('button', { name: t['accessTree.removeRules'], exact: true })
   const rulesButton = page.getByTestId('folder-detail-edit')
   // finance is open: a folder with rules is below it
   await expect(row('finance/2026')).toBeVisible()
@@ -214,7 +215,8 @@ test('folder permissions: shared, skills and a group\'s folder say why they stay
   await post(page, '/api/admin/folders', { path: 'skills', create: true, rules: [everyone('read'), { subjectType: 'role', subjectId: 'admin', access: 'write' }] })
   const group = await post(page, '/api/admin/groups', { name: '영업팀', memberIds: [] })
   await page.goto('/admin/folders')
-  const del = (p: string) => detail(page).getByRole('button', { name: deleteNamed(p), exact: true })
+  // the chosen folder's "remove all rules" (it names the rules, never the folder)
+  const del = (p: string) => page.locator(`[data-testid="folder-detail"][data-path="${p}"]`).getByRole('button', { name: t['accessTree.removeRules'], exact: true })
   const why = () => detail(page).getByTestId('folder-keep-reason')
   for (const p of ['shared', 'skills']) {
     await choose(page, p)

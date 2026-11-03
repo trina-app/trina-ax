@@ -236,9 +236,14 @@ export function whoSeesText(t: T, n: Pick<AccessTreeNode, 'who'>, members: numbe
   const see = seers(n)
   if (!see.length) return t('accessTree.who.adminsOnly')
   const parts = see.slice(0, WHO_NAMED).map((w) => `${whoLabel(t, w, members)} · ${t(`access.${w.access}`)}`)
-  const rest = see.length - WHO_NAMED
+  // the rest counted in people
+  const rest = see.slice(WHO_NAMED).reduce((n, w) => n + w.count, 0)
   return rest > 0 ? t('accessTree.who.more', { list: parts.join(', '), n: rest }) : parts.join(', ')
 }
+
+/** Whether the source line adds anything: not on a folder without rules of its own that no rule opens to any member
+ * ("팀장과 관리자만" says it all there, and it would repeat on most rows). */
+export const sourceSaysSomething = (n: Pick<AccessTreeNode, 'who' | 'rules'>) => n.rules > 0 || n.who.some((w) => w.reason === 'rule')
 
 /** Where a decision comes from: this folder's rules, or "shared에서 물려받음" (the root by its name). */
 const fromText = (t: T, folder: string, here: string) => (folder === here ? t('accessTree.source.here') : t('accessTree.source.from', { folder: folderName(t, folder) }))
@@ -277,7 +282,9 @@ export function kindText(t: T, n: Pick<AccessTreeNode, 'kinds' | 'path' | 'proje
     return p.length > 1 ? t('accessTree.kind.projects', { n: p.length }) : t('accessTree.kind.project')
   }
   if (n.kinds.includes('connected')) return t('accessTree.kind.connected')
-  if (isSkillsPath(n.path)) return t(n.path === 'skills' ? 'accessTree.kind.skillsRoot' : 'accessTree.kind.skills')
+  // skills/ as the server's skills check compares it: the first name without letter case or Unicode form
+  const first = (n.path.split('/')[0] ?? '').normalize('NFC').toLowerCase()
+  if (first === 'skills') return t(n.path.includes('/') ? 'accessTree.kind.skills' : 'accessTree.kind.skillsRoot')
   return null
 }
 

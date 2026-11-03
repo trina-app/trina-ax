@@ -32,8 +32,11 @@ export interface TreeSource {
   personName(id: string): string | null
   /** the names of the folders inside a shown folder that exists (any order; nothing else is listed) */
   children(segs: readonly string[]): string[]
-  /** a shown folder inside it exists (looked at for each child of a page) */
+  /** a shown folder inside it exists (looked at for each child of a page, and for the folder asked for when it is
+   * there); never through a link */
   hasFolders(segs: readonly string[]): boolean
+  /** a real folder is at `segs` (every step a folder, no link): the rule folders the "rule folders only" list shows */
+  isFolder(segs: readonly string[]): boolean
   /** group, project and connected folders (rule folders come from `rules`) */
   marks: ReadonlyMap<string, TreeMark>
   /** personal folders (active people), said on the users/ row */
@@ -44,7 +47,19 @@ const USERS = 'users'
 /** kinds in the contract's order, so an answer reads the same every time */
 const KIND_ORDER: readonly AccessFolderKind[] = ['top', 'rules', 'group', 'project', 'connected', 'personal']
 const sortKinds = (k: Iterable<AccessFolderKind>) => [...k].sort((a, b) => KIND_ORDER.indexOf(a) - KIND_ORDER.indexOf(b))
-const isSkills = (p: string) => p === 'skills' || p.startsWith('skills/')
+/** skills/ and below as the skills guard compares it (server/src/skills/guard.ts inSkills): the first name without
+ * letter case or Unicode form, so a team folder that serves `Skills/` is said to be the team's AI instructions too */
+export const isSkills = (p: string) => (p.split('/')[0] ?? '').normalize('NFC').toLowerCase() === 'skills'
+/** the tree's own order: segment by segment, so a folder comes before what is inside it and then its next sibling
+ * (`a`, `a/b`, `a-c`), as a level lists its children by name */
+export function treeCmp(a: string, b: string): number {
+  const x = segsOf(a), y = segsOf(b)
+  for (let i = 0; i < Math.min(x.length, y.length); i++) {
+    const c = cmp(x[i]!, y[i]!)
+    if (c) return c
+  }
+  return x.length - y.length
+}
 
 /** The tree's marked folders: rule folders and the source's marks, outside users/, .system/ and temp names. */
 function markedPaths(src: TreeSource): Map<string, TreeMark> {
@@ -165,9 +180,12 @@ export function treeContext(src: TreeSource) {
     if (!w) memo.set(key, (w = whoAt(src, at === null ? segs : segsOf(at))))
     return w
   }
-  const rootOpens = () => src.rules.rulesAt('').some((r) => r.access !== 'none' && (r.subjectType === 'everyone' || (r.subjectType === 'role' && r.subjectId === 'member')))
+  // a rule on the root that lets members in as everyone or as members (what decide() gives them there, so a "member:
+  // none" beside "everyone: read" opens nothing)
+  const rootOpens = () => who([]).some((w) => w.reason === 'rule' && w.folder === '' && w.access !== 'none' && (w.subject?.type === 'everyone' || (w.subject?.type === 'role' && w.subject.id === 'member')))
 
-  const node = (segs: readonly string[]): AccessTreeNode => {
+  /** `exists`: false for a folder asked for that is not there (nothing is looked at inside it: a link is not followed) */
+  const node = (segs: readonly string[], exists = true): AccessTreeNode => {
     const path = segs.join('/')
     if (segs.length === 1 && segs[0] === USERS) {
       return { name: USERS, path: USERS, kinds: ['personal'], rules: 0, folders: false, marked: 0, who: [], risks: [], restricted: false, people: src.personal }
@@ -179,7 +197,7 @@ export function treeContext(src: TreeSource) {
     // skills folder itself always says it
     if (allWrite(w)) {
       const parentAll = segs.length > 0 && allWrite(who(segs.slice(0, -1)))
-      if (isSkills(path)) { if (path === 'skills' || !parentAll) risks.push('skills-everyone-writes') }
+      if (isSkills(path)) { if (segs.length === 1 || !parentAll) risks.push('skills-everyone-writes') }
       else if (!parentAll) risks.push('everyone-writes')
     }
     if (segs.length === 0 && rootOpens()) risks.push('root-everyone')
@@ -187,7 +205,7 @@ export function treeContext(src: TreeSource) {
       name: segs.length ? segs[segs.length - 1]! : '', path,
       kinds: m ? sortKinds(m.kinds) : [], ...(m?.group ? { group: m.group } : {}), ...(m?.projects ? { projects: m.projects } : {}), ...(m?.connected ? { connected: m.connected } : {}),
       rules: src.rules.rulesAt(path).length,
-      folders: segs.length < MAX_DEPTH && src.hasFolders(segs),
+      folders: exists && segs.length < MAX_DEPTH && src.hasFolders(segs),
       marked: below.get(path) ?? 0,
       who: w, risks, restricted: someShut(w),
     }
@@ -245,6 +263,38 @@ export function treeAnswer(src: TreeSource, segs: readonly string[], exists: boo
   return {
     path: segs.join('/'), exists,
     people: src.people.length, members: src.people.filter((p) => p.role === 'member').length,
-    self: tc.node(segs), levels,
+    self: tc.node(segs, exists), levels,
+  }
+}
+
+/**
+ * "Rule folders only" (rules=1): the folders with rules at or below `segs` that are there on disk (not hidden, not
+ * deeper than 64), in the tree's order, a page at a time (the cursor is the last path), and `above`: the folders on
+ * the way to them that are not in the page themselves (the root aside), so the screen draws them as a tree.
+ */
+export function ruledAnswer(src: TreeSource, segs: readonly string[], exists: boolean, q: { cursor?: string; limit?: number }): AccessTreeResponse {
+  const tc = treeContext(src)
+  const limit = Math.min(q.limit ?? TREE_ROWS, MAX_TREE_ROWS)
+  const base = segs.join('/')
+  const all = (exists ? src.rules.ruleFolders() : [])
+    .filter((f) => f !== '' && (base === '' || f === base || f.startsWith(base + '/')) && f.length <= MAX_PATH_CHARS && shownSegs(f) !== null && segsOf(f).length <= MAX_DEPTH && src.isFolder(segsOf(f)))
+    .sort(treeCmp)
+  const from = q.cursor === undefined ? all : all.filter((p) => treeCmp(p, q.cursor!) > 0)
+  const items = from.slice(0, limit)
+  const inPage = new Set(items)
+  const above = new Map<string, AccessTreeNode>()
+  for (const p of items) {
+    const ps = segsOf(p)
+    for (let k = 1; k < ps.length; k++) {
+      const a = ps.slice(0, k).join('/')
+      if (!inPage.has(a) && !above.has(a)) above.set(a, tc.node(ps.slice(0, k)))
+    }
+  }
+  return {
+    path: base, exists,
+    people: src.people.length, members: src.people.filter((p) => p.role === 'member').length,
+    self: tc.node(segs, exists),
+    levels: [{ path: base, children: items.map((p) => tc.node(segsOf(p))), total: all.length, nextCursor: from.length > items.length ? items[items.length - 1]! : null }],
+    above: [...above.values()],
   }
 }

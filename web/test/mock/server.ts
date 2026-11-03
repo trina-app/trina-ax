@@ -48,7 +48,7 @@ import type { Integration, IntegrationAccess, IntegrationFlow, IntegrationInput,
 import { SkillsOverview, type AccessFolderKind, type AccessTreeResponse, type FolderAccessResponse, type PersonAccessResponse } from '@mycel/shared/api'
 import { RuleSet, type Access } from '../../../server/src/policy/access'
 import { byPerson, folderInput, MAX_VIA, navigation, pageByPath, pageByPerson, ruleFolderOf, segsOf, shownPath, shownSegs, summarize, withoutOwnFolder } from '../../../server/src/admin/access-rows'
-import { treeAnswer, type TreeMark } from '../../../server/src/admin/access-tree'
+import { ruledAnswer, treeAnswer, type TreeMark, type TreeSource } from '../../../server/src/admin/access-tree'
 import os from 'node:os'
 import path from 'node:path'
 import { MockPlugins } from './plugins'
@@ -403,7 +403,7 @@ export class MockServer {
 
   /** the tree of Admin › 폴더 권한 › 폴더별 (like explainTree in server/src/admin/access-explain.ts): the folders here,
    * the same rows and order (server/src/admin/access-tree.ts) */
-  explainTree(q: { path?: string; cursor?: string; limit?: string; open?: string }): AccessTreeResponse {
+  explainTree(q: { path?: string; cursor?: string; limit?: string; open?: string; rules?: string }): AccessTreeResponse {
     const input = folderInput(q.path)
     if ('refuse' in input) fail('validation', 400, input.refuse === 'personal' ? '개인 폴더(users/)는 본인만 봐요. 사람 기준으로 확인해 주세요.' : '팀 폴더 경로가 아니에요.', { 'query.path': input.detail })
     const segs = (input as { segs: string[] }).segs
@@ -424,12 +424,15 @@ export class MockServer {
     for (const pr of this.projects) { const m = mark(pr.folderPath, 'project'); m.projects = [...(m.projects ?? []), { id: pr.id, name: pr.name }] }
     for (const [path, n] of this.files) if (n.type === 'folder' && /^connected\/[^/]+$/.test(path)) mark(path, 'connected').connected = { id: `connected-${path.slice(10)}`, name: path.slice(10) }
     const active = this.users.filter((u) => u.status === 'active')
-    return treeAnswer({
+    const src: TreeSource = {
       rules: this.explainRules(), people: active.map((u) => this.explainPrincipal(u)),
       groupName: (id) => this.groups.find((g) => g.id === id)?.name ?? null,
       personName: (id) => this.users.find((u) => u.id === id)?.name ?? null,
-      children: sub, hasFolders: (s) => sub(s).length > 0, marks, personal: active.length,
-    }, segs, p === '' || this.files.get(p)?.type === 'folder', { cursor: q.cursor, limit: q.limit ? Number(q.limit) : undefined, open: q.open === '1' || q.open === 'true' })
+      children: sub, hasFolders: (s) => sub(s).length > 0, isFolder: (s) => s.length === 0 || this.files.get(s.join('/'))?.type === 'folder', marks, personal: active.length,
+    }
+    const exists = p === '' || this.files.get(p)?.type === 'folder'
+    const page = { cursor: q.cursor, limit: q.limit ? Number(q.limit) : undefined }
+    return q.rules === '1' || q.rules === 'true' ? ruledAnswer(src, segs, exists, page) : treeAnswer(src, segs, exists, { ...page, open: q.open === '1' || q.open === 'true' })
   }
 
   // ---------------- team skills (like server/src/skills/*) ----------------
@@ -1367,7 +1370,7 @@ export class MockServer {
     },
     // like the server (admin/folder-keep.ts, the mock's names are case-sensitive): rows parked with a trashed folder are
     // not listed, and each row says why the API keeps it
-    listFolders: () => ({ items: this.folders.filter((f) => !isParkedRow(f.path)).map((f) => ({ ...f, exists: f.path === '' || this.files.get(f.path)?.type === 'folder', keep: folderKeep(f.path, f.groupId ?? null, false) })) }),
+    listFolders: () => ({ items: this.folders.filter((f) => !isParkedRow(f.path)).map((f) => ({ ...f, exists: f.path === '' || this.files.get(f.path)?.type === 'folder', keep: folderKeep(f.path, f.groupId ?? null, false), hidden: shownSegs(f.path) === null })) }),
     // ---- team skills ----
     listSkillManagers: () => this.skillManagersResponse(),
     setSkillManager: (c) => {

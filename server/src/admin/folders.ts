@@ -18,6 +18,7 @@ import { msg } from '../auth/messages'
 import { userRef } from '../auth/users'
 import { audit } from './audit'
 import { folderKeep, isParkedRow, type FolderKeep } from './folder-keep'
+import { shownSegs } from './access-rows'
 import { resetEngineSessions as resetChatSessions } from '../chat/runtime'
 
 export interface FolderRow { id: string; path: string; created_at: string }
@@ -158,6 +159,8 @@ export function toFolder(ctx: AppContext, f: FolderRow): Folder {
     rules: rows.map((r) => ({ id: r.id, folderId: r.folder_id, subjectType: r.subject_type, subjectId: r.subject_id, access: r.access, updatedBy: userRef(ctx.db, r.updated_by), updatedAt: r.updated_at })),
     groupId,
     keep: folderKeep(f.path, groupId, ctx.files.fx.caseInsensitive),
+    // the folder answers never show it (access-rows.ts): the tree lists such a row apart
+    hidden: shownSegs(f.path) === null,
   }
 }
 

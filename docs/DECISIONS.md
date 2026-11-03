@@ -6173,3 +6173,42 @@ folder as a tree, read only like stage 3; the permission function and the databa
   a failed level, rules off disk, adding a folder, the address, 375px with deep and long names, four other languages),
   `admin.spec.ts`, `admin-delete.spec.ts` and `team-skills.spec.ts` moved onto the tree, `a11y.spec.ts` (light, dark,
   phone). Needed in the core too: everything here.
+- **Review fixes (same day, two independent reviews).**
+  - A folder in the address is looked up, not assumed loaded: the server names it (its names on disk, whether it is
+    there; a refused path counts as not there), then each level on the way is opened and paged through until the next
+    folder is in it, so a folder past the first page, or one "Add folder" just made, is found and chosen. One that is
+    not there says "이 폴더를 찾을 수 없어요" with its path and a way back; a lookup the server could not answer says so with
+    "Try again", never "not found". The address decides what is chosen: no `folder` (the By folder tab chosen again,
+    the menu link, Back) is the tree with nothing chosen. On a phone the tree is never hidden without a way back. The
+    Tab stop follows the chosen row, and Back gives it the focus once the tree shows again (the earlier
+    requestAnimationFrame ran before React showed the tree).
+  - "Rule folders only" (`rules=1`, a switch on the card, off at first): the folders with rules at or below a folder
+    that are on disk (no link, not hidden, at most 64 deep), in the tree's order (segment by segment: `a`, `a/b`,
+    `a-c`), 200 a page with "N more", and `above`, the folders on the way that are not in the page, so the screen draws
+    them as a tree, all open. Leaving it opens the whole tree down to the chosen folder.
+  - The folder asked for is never looked into when it is not there: `self.folders` is false, and the listing checks
+    every step for a link (`isDir`) before it reads a folder. Before, `?path=shared/link-to-alice/<name>` answered
+    `exists: false, folders: true` when a folder was behind the link: whether a folder exists in someone's personal
+    folder, or anywhere on disk. "Is there a folder inside?" stops after 2,000 entries (then yes) and leaves out names
+    longer than a path may be.
+  - `root-everyone` comes from what members get at the root (the everyone or member rule that decided for them), not
+    from a rule being there: "everyone: read" with "member: none" opens nothing and is not said.
+  - The skills risk compares the first name as the skills guard does (`inSkills`: any case or Unicode form), so a team
+    folder that serves `Skills/` gets the skills warning; the screen's kind label follows.
+  - Rule rows the answers never show (inside `users/`, `.SYSTEM/` on a case-sensitive volume, temp names, refused
+    names) carry `Folder.hidden` and are listed with the folders gone from disk, each with why, to edit or remove.
+  - On the screen: the kind label gives way before the folder's name (a project name of 100 characters left the name
+    0px wide); the button says "규칙 모두 지우기" (it never deletes the folder); a folder without rules that no rule
+    opens to any member says only "팀장과 관리자만" (the source line repeated on most rows); `aria-setsize` is the level's
+    total; "Try again" keeps the focus on its folder, also after a second failure; a slow "Load more" of the people
+    that comes after a change is dropped (a generation check), and a refresh that failed says so with "Try again";
+    long names in rule badges wrap; "외 N명" counts people; the card is "폴더마다 볼 수 있는 사람".
+  - Cost of "rule folders only" (as above): 300 people and 500 rule folders, the first page of 200 19 ms; 2000 people
+    and 2500 rule folders, the first page of 200 69 ms, each page of 500 137 ms median, 146 ms at most.
+  - Not changed: a page of a level reads that one folder's entries again for each page asked for (bounded by the
+    folder; nothing is cached between requests).
+  - Tests added: links into a personal folder and outside the team folder, the root rule that opens nothing, `Skills/`,
+    the rule folder list and its pages, `Folder.hidden` (`tests/unit/access-tree-api.test.ts`,
+    `access-tree-equivalence.test.ts`); in `web/test/e2e/access-tree.spec.ts` the address at 1360 and 375 (missing,
+    four levels down, past the first page), the tab and the menu link, rule folders only, long project names, a failed
+    refresh, hidden rule rows, wrapping badges and the dropped slow page (it fails with the old code).

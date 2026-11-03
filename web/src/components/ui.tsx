@@ -20,7 +20,8 @@ export function Button({ variant = 'secondary', size = 'md', busy, className, ch
       type="button"
       {...props}
       disabled={disabled || busy}
-      aria-busy={busy || undefined}
+      // busy disables; a caller that must keep the focus (an action that asks the server first) says busy itself
+      aria-busy={busy || props['aria-busy'] || undefined}
       className={clsx(
         'inline-flex items-center justify-center gap-1.5 rounded-lg font-medium whitespace-nowrap transition disabled:cursor-not-allowed disabled:opacity-50',
         size === 'sm' ? 'h-8 px-2.5 text-[13px] max-sm:min-h-9' : 'h-9 px-3.5 text-sm max-sm:min-h-10',

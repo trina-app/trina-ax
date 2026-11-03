@@ -124,8 +124,10 @@ export default function Folders() {
   // Compared with the address itself: the router shows a change in a transition, so `view` can still be the one before
   // (two keys pressed quickly on the tabs)
   const choose = (v: 'folders' | 'people') => {
-    const now = new URLSearchParams(window.location.search).get('view') === 'people' ? 'people' : 'folders'
-    if (v !== now) setParams(v === 'people' ? { view: 'people' } : {})
+    const q = new URLSearchParams(window.location.search)
+    const now = q.get('view') === 'people' ? 'people' : 'folders'
+    // "By folder" again while a folder is chosen: back to the tree (the folder leaves the address)
+    if (v !== now || (v === 'folders' && q.has('folder'))) setParams(v === 'people' ? { view: 'people' } : {})
   }
   return (
     <>

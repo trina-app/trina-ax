@@ -4,7 +4,7 @@
 import { describe, expect, test } from 'bun:test'
 import type { AccessTreeNode, PersonFolderAccess } from '@mycel/shared/api'
 import { DICTS, translate, type MessageKey, type Params } from '../../src/i18n'
-import { ancestorsOf, cleanPrefix, countRows, folderName, groupRows, isRestricted, kindText, levelOf, nearestRuleFolder, nodeName, parentOf, reasonText, riskOf, riskTexts, rulesApply, sectionOf, shortPath, sourceText, summaryLines, whoSeesText, type Names } from '../../src/lib/access-view'
+import { ancestorsOf, cleanPrefix, countRows, folderName, groupRows, isRestricted, kindText, levelOf, nearestRuleFolder, nodeName, parentOf, reasonText, riskOf, riskTexts, rulesApply, sectionOf, shortPath, sourceSaysSomething, sourceText, summaryLines, whoSeesText, type Names } from '../../src/lib/access-view'
 import { personViewLink } from '../../src/pages/admin/AccessResults'
 
 const ko = (key: MessageKey, p?: Params) => translate('ko', key, p)
@@ -259,7 +259,8 @@ describe('the folder tree (by folder)', () => {
     expect(whoSeesText(ko, node('a', [w({ folder: '', subject: { type: 'role', id: 'member', name: null }, access: 'read', count: 12 })]), 12)).toBe('팀원 전체 · 읽기')
     // more than three groups: the rest counted
     const many = node('a', ['g1', 'g2', 'g3', 'g4', 'g5'].map((g, i) => w({ folder: 'a', subject: { type: 'group', id: g, name: `G${i}` }, access: 'read', count: 1 })))
-    expect(whoSeesText(ko, many, 12)).toBe('G0 1명 · 읽기, G1 1명 · 읽기, G2 1명 · 읽기 외 2')
+    expect(whoSeesText(ko, many, 12)).toBe('G0 1명 · 읽기, G1 1명 · 읽기, G2 1명 · 읽기 외 2명')
+    expect(whoSeesText(en, many, 12)).toBe('G0: 1 person · Read, G1: 1 person · Read, G2: 1 person · Read and 2 others')
   })
 
   test('where it comes from: this folder, a folder above (the root by name), by whom when it differs, no rule', () => {
@@ -274,6 +275,16 @@ describe('the folder tree (by folder)', () => {
     expect(sourceText(en, node('docs', []), 0)).toBe('No members for rules to apply to yet')
   })
 
+  test('the source line only where it says something: not on a rule-less folder no rule opens to anyone', () => {
+    expect(sourceSaysSomething(node('docs', [w({ reason: 'no-rule', folder: null, access: 'none', count: 12 })]))).toBe(false)
+    expect(sourceSaysSomething(node('', [w({ reason: 'no-rule', folder: null, access: 'none', count: 12 })]))).toBe(false)
+    // inherited from a folder above, or shut by a rule above: it says where
+    expect(sourceSaysSomething(node('shared/x', [w({ folder: 'shared', subject: all, access: 'write', count: 12 })]))).toBe(true)
+    expect(sourceSaysSomething(node('secret/x', [w({ folder: 'secret', subject: all, access: 'none', count: 12 })]))).toBe(true)
+    // a folder with rules of its own always says it
+    expect(sourceSaysSomething(node('a', [w({ reason: 'no-rule', folder: null, access: 'none', count: 12 })], { rules: 1 }))).toBe(true)
+  })
+
   test('risks, kinds and the lock, in words', () => {
     expect(riskTexts(ko, { risks: ['everyone-writes'] })).toEqual(['팀 전체가 고칠 수 있어요'])
     expect(riskTexts(ko, { risks: ['skills-everyone-writes'] })).toEqual(['모든 사람의 AI가 따르는 지침을 팀 전체가 고칠 수 있어요'])
@@ -284,6 +295,8 @@ describe('the folder tree (by folder)', () => {
     expect(kindText(ko, node('connected/nas', [], { kinds: ['connected'] }))).toBe('연결 폴더')
     expect(kindText(ko, node('skills', []))).toBe('팀 스킬과 팀 규칙')
     expect(kindText(ko, node('skills/x', []))).toBe('팀 스킬')
+    // the server's skills check: any case or Unicode form of the first name
+    expect(kindText(ko, node('Skills/x', []))).toBe('팀 스킬')
     expect(kindText(ko, node('docs', []))).toBeNull()
     expect(isRestricted(node('a', [], { restricted: true }))).toBe(true)
     expect(isRestricted(node('users', [], { restricted: true, kinds: ['personal'] }))).toBe(false)
