@@ -243,6 +243,51 @@ export function whoSeesText(t: T, n: Pick<AccessTreeNode, 'who'>, members: numbe
   return rest > 0 ? t('accessTree.who.more', { list: parts.join(', '), n: rest }) : parts.join(', ')
 }
 
+const subjectKey = (w: AccessTreeWho) => (w.subject ? `${w.subject.type}:${w.subject.id ?? ''}` : '')
+
+/** The people a rule lets write, merged by whom the rule names (a group deciding at two folders is one entry). */
+function writers(who: readonly AccessTreeWho[]): AccessTreeWho[] {
+  const by = new Map<string, AccessTreeWho>()
+  for (const w of who) {
+    if (w.reason !== 'rule' || w.access !== 'write') continue
+    const k = subjectKey(w)
+    const had = by.get(k)
+    by.set(k, had ? { ...had, count: had.count + w.count } : w)
+  }
+  return [...by.values()]
+}
+
+/** skills/ and its folders: "고칠 수 있는 사람: 팀장·관리자, 영업팀 3명, Bob 님", from the folder's people as the server
+ * grouped them (the owner and admins always can; write there is "팀 스킬 관리"). */
+export function skillEditorsText(t: T, who: readonly AccessTreeWho[], members: number): string {
+  const ws = writers(who)
+  if (!ws.length) return t('skillMgr.editorsAdmins')
+  const parts = ws.slice(0, WHO_NAMED).map((w) => whoLabel(t, w, members))
+  const rest = ws.slice(WHO_NAMED).reduce((n, w) => n + w.count, 0)
+  return t('skillMgr.editors', { list: rest > 0 ? t('accessTree.who.more', { list: parts.join(', '), n: rest }) : parts.join(', ') })
+}
+
+/**
+ * A folder inside skills/ that shuts out some of those who manage skills/ (a rule here or on the way up decides for them
+ * first): who they are, by the rule that lets them write in skills/, "영업팀", "영업팀 중 1명", "Bob 님". Null when
+ * everyone who writes in skills/ writes here too. Counted per rule, from the two folders' groups of people.
+ */
+export function skillsLockedText(t: T, here: readonly AccessTreeWho[], top: readonly AccessTreeWho[], members: number): string | null {
+  const now = new Map(writers(here).map((w) => [subjectKey(w), w.count]))
+  const lost = writers(top)
+    .map((w) => ({ w, n: w.count - (now.get(subjectKey(w)) ?? 0) }))
+    .filter((x) => x.n > 0)
+  if (!lost.length) return null
+  const label = ({ w, n }: { w: AccessTreeWho; n: number }) => {
+    if (w.subject?.type === 'user') return t('accessView.who.person', { name: w.subject.name ?? '?' })
+    const all = whoLabel(t, w, members, true)
+    return n >= w.count ? whoLabel(t, w, members) : t('skillMgr.lockedPart', { name: all, n })
+  }
+  const parts = lost.slice(0, WHO_NAMED).map(label)
+  const rest = lost.slice(WHO_NAMED).reduce((s, x) => s + x.n, 0)
+  return t('skillMgr.locked', { list: rest > 0 ? t('accessTree.who.more', { list: parts.join(', '), n: rest }) : parts.join(', ') })
+}
+
 /** Whether the source line adds anything: not on a folder without rules of its own that no rule opens to any member
  * ("팀장과 관리자만" says it all there, and it would repeat on most rows). */
 export const sourceSaysSomething = (n: Pick<AccessTreeNode, 'who' | 'rules'>) => n.rules > 0 || n.who.some((w) => w.reason === 'rule')

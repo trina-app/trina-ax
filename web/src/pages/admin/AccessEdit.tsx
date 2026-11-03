@@ -11,10 +11,10 @@
 import clsx from 'clsx'
 import { ArrowLeft, ArrowRight, Check, Info, Search, TriangleAlert, UserRound, UsersRound, X } from 'lucide-react'
 import { useEffect, useId, useMemo, useRef, useState, type KeyboardEvent, type MutableRefObject, type ReactNode, type RefObject } from 'react'
-import type { Access, Folder, FolderEditChange, FolderEditPreview, FolderEditWarning, Group, User } from '@mycel/shared/api'
+import type { Access, AccessTreeWho, Folder, FolderEditChange, FolderEditPreview, FolderEditWarning, Group, User } from '@mycel/shared/api'
 import { api, API, errorText, isApiError } from '../../lib/api'
 import { addNamed, basicChoices, draftKey, draftOf, removeNamed, rootNoneRow, rulesKey, rulesOf, sameRules, saveImpact, setNamed, type Basic, type Draft, type RuleLike } from '../../lib/access-edit'
-import { folderName, sourceText, whoSeesText } from '../../lib/access-view'
+import { folderName, isSkillsPath, skillEditorsText, skillsLockedText, sourceText, whoSeesText } from '../../lib/access-view'
 import { useLocale, useT, type MessageKey } from '../../i18n'
 import { Badge, Button, ErrorNote, IconButton, Skeleton, confirmDialog, useFocusTrap } from '../../components/ui'
 import { toast } from '../../store/ui'
@@ -24,6 +24,8 @@ export const PREVIEW_DEBOUNCE_MS = 250
 /** At most this many names of a change are said in a row; the rest are counted (the server sends up to 50). */
 const NAMES_SHOWN = 6
 const ACCESSES: readonly Access[] = ['read', 'write', 'none']
+/** The keys that move between tabs (and choose one) */
+const TAB_KEYS = new Set(['ArrowLeft', 'ArrowRight', 'Home', 'End'])
 
 /** Below 640px the panel is the whole screen (a dialog with its own way back). */
 function useNarrow(query = '(max-width: 639.98px)') {
@@ -91,9 +93,13 @@ export interface AccessEditProps {
   onStale: () => void
   /** set by the panel: resolves true when the panel may go (nothing changed, or the admin agreed to drop it) */
   guard?: MutableRefObject<() => Promise<boolean>>
+  /** opened from By person: closing goes back there, and the way out says so */
+  returnLabel?: string
+  /** a folder inside skills/: who writes in skills/ itself now (as the tree groups them), to say who of them cannot here */
+  skillsTop?: readonly AccessTreeWho[]
 }
 
-export default function AccessEdit({ path, folder, users, groups, onClose, onSaved, onStale, guard }: AccessEditProps) {
+export default function AccessEdit({ path, folder, users, groups, onClose, onSaved, onStale, guard, returnLabel, skillsTop }: AccessEditProps) {
   const t = useT()
   const locale = useLocale()
   const narrow = useNarrow()
@@ -130,6 +136,12 @@ export default function AccessEdit({ path, folder, users, groups, onClose, onSav
   const keepsOne = folder?.keep === 'team' && rules.length === 0
   const connected = !!data?.connected
   const choices = basicChoices({ root, connected, current: initial.basic })
+  // a connected folder is known from the first answer: "everyone reads and writes" picked before it came goes back to
+  // what was saved (its choice is not offered there), unless it was saved that way
+  useEffect(() => {
+    if (connected && initial.basic !== 'write') setDraft((d) => (d.basic === 'write' ? { ...d, basic: initial.basic } : d))
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [connected])
 
   // the answer brings the rules as they are now: another admin's change shows here before Save does
   useEffect(() => {
@@ -156,6 +168,41 @@ export default function AccessEdit({ path, folder, users, groups, onClose, onSav
   // while a save is on its way the panel goes without asking: the save lands and the tree follows it
   const askToLeave = async () => !edited || saving || (await confirmDialog({ title: t('accessEdit.discardTitle'), body: t('accessEdit.discardBody'), confirm: t('accessEdit.discard'), danger: true }))
   if (guard) guard.current = askToLeave
+  const leave = useRef(askToLeave)
+  leave.current = askToLeave
+  // in-app moves outside the panel ask first too while something was changed (the app's router has no navigation
+  // blocker): a link (the admin menu, any other) or a tab (By folder / By person), clicked or moved through with the
+  // arrows. The panel's own buttons ask already. When the admin drops the draft, the same click or key goes through.
+  useEffect(() => {
+    if (!edited) return
+    let pass = false
+    const onEvent = (e: Event) => {
+      if (pass || e.defaultPrevented) return
+      const mouse = e instanceof MouseEvent
+      const key = mouse ? '' : (e as globalThis.KeyboardEvent).key
+      if (mouse ? e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey : !TAB_KEYS.has(key)) return
+      const el = (e.target as Element | null)?.closest?.(mouse ? 'a[href], [role="tab"]' : '[role="tab"]')
+      if (!(el instanceof HTMLElement) || box.current?.contains(el)) return
+      e.preventDefault()
+      e.stopPropagation()
+      void leave.current().then((ok) => {
+        if (!ok) return
+        pass = true
+        try {
+          if (mouse) el.click()
+          else el.dispatchEvent(new globalThis.KeyboardEvent('keydown', { key, bubbles: true }))
+        } finally {
+          pass = false
+        }
+      })
+    }
+    document.addEventListener('click', onEvent, true)
+    document.addEventListener('keydown', onEvent, true)
+    return () => {
+      document.removeEventListener('click', onEvent, true)
+      document.removeEventListener('keydown', onEvent, true)
+    }
+  }, [edited])
   const requestClose = async () => {
     if (await askToLeave()) onClose()
   }
@@ -240,9 +287,14 @@ export default function AccessEdit({ path, folder, users, groups, onClose, onSav
       data-testid="edit-panel"
       data-path={path}
     >
+      {returnLabel && !narrow && (
+        <button type="button" onClick={() => void requestClose()} className="-mx-2 mb-2 inline-flex items-center gap-1.5 self-start rounded-lg px-2 py-1.5 text-[13px] font-medium text-muted transition hover:bg-hover hover:text-ink" data-testid="edit-return">
+          <ArrowLeft size={15} aria-hidden /> {returnLabel}
+        </button>
+      )}
       <header className={clsx('flex items-start gap-2', narrow ? 'border-b border-line py-2 pr-4 pl-2 pt-[max(0.5rem,env(safe-area-inset-top))]' : 'pb-1')}>
         {narrow && (
-          <IconButton label={t('accessEdit.back')} onClick={() => void requestClose()} className="shrink-0" data-testid="edit-back">
+          <IconButton label={returnLabel ?? t('accessEdit.back')} onClick={() => void requestClose()} className="shrink-0" data-testid="edit-back">
             <ArrowLeft size={20} />
           </IconButton>
         )}
@@ -313,7 +365,7 @@ export default function AccessEdit({ path, folder, users, groups, onClose, onSav
           onChange={setDraft}
         />
 
-        <Result path={path} preview={preview} data={data} ready={ready} onRetry={() => setAttempt((n) => n + 1)} />
+        <Result path={path} preview={preview} data={data} ready={ready} skillsTop={skillsTop} onRetry={() => setAttempt((n) => n + 1)} />
 
         {refused && (
           <div data-testid="edit-refused">
@@ -650,9 +702,12 @@ function AddNamed({ users, groups, taken, list, inputRef, onAdd }: {
 
 // ---------------- the result ----------------
 
-function Result({ path, preview, data, ready, onRetry }: { path: string; preview: ReturnType<typeof useEditPreview>; data: FolderEditPreview | null; ready: boolean; onRetry: () => void }) {
+function Result({ path, preview, data, ready, skillsTop, onRetry }: { path: string; preview: ReturnType<typeof useEditPreview>; data: FolderEditPreview | null; ready: boolean; skillsTop?: readonly AccessTreeWho[]; onRetry: () => void }) {
   const t = useT()
   const titleId = useId()
+  // skills/ and its folders: who could change the team's skills with these rules, and who of skills/' managers not here
+  const skills = isSkillsPath(path)
+  const locked = data && skills && skillsTop && path.includes('/') ? skillsLockedText(t, data.next, skillsTop, data.members) : null
   const less = data?.changes.filter((c) => c.direction === 'less') ?? []
   const more = data?.changes.filter((c) => c.direction === 'more') ?? []
   let body: ReactNode
@@ -663,6 +718,16 @@ function Result({ path, preview, data, ready, onRetry }: { path: string; preview
         <p className="mt-1 text-[13px] text-ink" data-testid="edit-next">
           {t('accessEdit.next', { who: whoSeesText(t, { who: data.next }, data.members) })}
         </p>
+        {skills && (
+          <p className="mt-1 text-xs text-muted" data-testid="edit-skill-editors">
+            {skillEditorsText(t, data.next, data.members)}
+          </p>
+        )}
+        {locked && (
+          <p className="mt-1 text-xs text-muted" data-testid="edit-skill-locked">
+            {locked}
+          </p>
+        )}
         {data.warnings.map((w) => (
           <p key={w.kind} role="note" className="mt-2 flex items-start gap-1.5 rounded-lg bg-warn-soft px-3 py-2 text-xs text-warn" data-testid="edit-warning" data-kind={w.kind}>
             <TriangleAlert size={13} className="mt-px shrink-0" aria-hidden />

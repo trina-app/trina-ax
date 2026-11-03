@@ -4,7 +4,8 @@
 import { describe, expect, test } from 'bun:test'
 import type { AccessTreeNode, PersonFolderAccess } from '@mycel/shared/api'
 import { DICTS, translate, type MessageKey, type Params } from '../../src/i18n'
-import { ancestorsOf, cleanPrefix, isSkillsPath, countRows, folderName, groupRows, isRestricted, kindText, levelOf, nearestRuleFolder, nodeName, parentOf, reasonText, riskOf, riskTexts, rulesApply, sectionOf, shortPath, sourceSaysSomething, sourceText, summaryLines, whoSeesText, type Names } from '../../src/lib/access-view'
+import { ancestorsOf, cleanPrefix, isSkillsPath, countRows, folderName, groupRows, isRestricted, kindText, levelOf, nearestRuleFolder, nodeName, parentOf, reasonText, riskOf, riskTexts, rulesApply, sectionOf, shortPath, skillEditorsText, skillsLockedText, sourceSaysSomething, sourceText, summaryLines, whoSeesText, type Names } from '../../src/lib/access-view'
+import { skillsVia } from '../../src/pages/admin/SkillManagers'
 import { personViewLink } from '../../src/pages/admin/AccessResults'
 
 const ko = (key: MessageKey, p?: Params) => translate('ko', key, p)
@@ -327,5 +328,49 @@ describe('the folder tree (by folder)', () => {
         expect([row, ...riskTexts(t, n), ...riskTexts(t, n, true)].join(' ')).not.toMatch(/\{\w+\}/)
       }
     }
+  })
+})
+
+describe('stage 6–7: who can edit team skills, in words', () => {
+  type Who = AccessTreeNode['who'][number]
+  const w = (o: Partial<Who> & Pick<Who, 'access' | 'count'>): Who => ({ reason: 'rule', folder: 'skills', subject: null, ...o })
+  const staff = w({ reason: 'owner-admin', folder: null, access: 'write', count: 2 })
+  const sales = { type: 'group' as const, id: 'g1', name: '영업팀' }
+  const bob = { type: 'user' as const, id: 'bob', name: 'Bob' }
+  const all = { type: 'everyone' as const, id: null, name: null }
+  const top = [staff, w({ subject: sales, access: 'write', count: 3 }), w({ subject: bob, access: 'write', count: 1 }), w({ subject: all, access: 'read', count: 8 })]
+
+  test('the people with write, merged by the rule that names them; only the owner and admins when nobody else', () => {
+    expect(skillEditorsText(ko, top, 12)).toBe('고칠 수 있는 사람: 팀장·관리자, 영업팀 3명, Bob 님')
+    expect(skillEditorsText(en, top, 12)).toBe('Who can edit: the owner and admins, 영업팀: 3 people, Bob')
+    // a group deciding at two folders is one entry
+    expect(skillEditorsText(ko, [staff, w({ subject: sales, access: 'write', count: 2 }), w({ folder: 'skills/재무', subject: sales, access: 'write', count: 1 })], 12)).toBe('고칠 수 있는 사람: 팀장·관리자, 영업팀 3명')
+    expect(skillEditorsText(ko, [staff, w({ subject: all, access: 'write', count: 12 })], 12)).toBe('고칠 수 있는 사람: 팀장·관리자, 모두')
+    expect(skillEditorsText(ko, [staff, w({ subject: all, access: 'read', count: 12 })], 12)).toBe(ko('skillMgr.editorsAdmins'))
+  })
+
+  test('a folder inside skills/ that shuts some of skills/\' managers out: who, by their rule; nothing when none', () => {
+    // skills/재무: "everyone: none, 영업팀 read": 영업팀 and Bob cannot edit there
+    const shut = [staff, w({ folder: 'skills/재무', subject: sales, access: 'read', count: 3 }), w({ folder: 'skills/재무', subject: all, access: 'none', count: 9 })]
+    expect(skillsLockedText(ko, shut, top, 12)).toBe('skills에서는 고칠 수 있지만 여기서는 못 고치는 사람: 영업팀 3명, Bob 님')
+    // a person rule there takes one of the group's people out: "영업팀 중 1명"
+    const one = [staff, w({ subject: sales, access: 'write', count: 2 }), w({ subject: bob, access: 'write', count: 1 }), w({ folder: 'skills/재무', subject: { type: 'user', id: 'dan', name: 'Dan' }, access: 'read', count: 1 })]
+    expect(skillsLockedText(ko, one, top, 12)).toBe('skills에서는 고칠 수 있지만 여기서는 못 고치는 사람: 영업팀 중 1명')
+    expect(skillsLockedText(en, one, top, 12)).toBe('Can edit in skills but not here: 1 of 영업팀')
+    // inherited as it is: nothing to say
+    expect(skillsLockedText(ko, top, top, 12)).toBeNull()
+  })
+
+  test('Members: on through a rule that is not the person\'s own, and why', () => {
+    const p = (access: 'none' | 'read' | 'write', reason: PersonFolderAccess['reason']) => ({ user: { id: 'bob', name: 'Bob' }, role: 'member' as const, access, reason, listable: true, via: [], viaMore: false })
+    const gname = (id: string) => ({ g1: '영업팀' } as Record<string, string>)[id]
+    expect(skillsVia(p('write', rule('skills', 'everyone', [{ subjectType: 'everyone', subjectId: null, access: 'write' }])), gname)).toEqual({ kind: 'everyone' })
+    expect(skillsVia(p('write', rule('skills', 'role', [{ subjectType: 'role', subjectId: 'member', access: 'write' }])), gname)).toEqual({ kind: 'everyone' })
+    expect(skillsVia(p('write', rule('skills', 'group', [{ subjectType: 'group', subjectId: 'g1', access: 'write' }, { subjectType: 'group', subjectId: 'g2', access: 'read' }])), gname)).toEqual({ kind: 'group', names: ['영업팀'] })
+    expect(skillsVia(p('write', rule('', 'user', [{ subjectType: 'user', subjectId: 'bob', access: 'write' }])), gname)).toEqual({ kind: 'root' })
+    // their own rule on skills/ (the switch shows it), no write, or no answer: nothing to add
+    expect(skillsVia(p('write', rule('skills', 'user', [{ subjectType: 'user', subjectId: 'bob', access: 'write' }])), gname)).toBeNull()
+    expect(skillsVia(p('read', rule('skills', 'everyone', [{ subjectType: 'everyone', subjectId: null, access: 'read' }])), gname)).toBeNull()
+    expect(skillsVia(undefined, gname)).toBeNull()
   })
 })

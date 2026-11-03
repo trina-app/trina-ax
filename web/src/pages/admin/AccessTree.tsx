@@ -12,14 +12,15 @@
 // move, Right opens a folder or goes into it, Left closes it or goes to the folder above, Home and End, typing jumps to
 // a name, Enter or Space chooses (choosing asks the server, so moving alone does not). "N more" and "Try again" are
 // rows of the tree too. The chosen folder is in the address (`?folder=`); a folder there is looked up, page by page,
-// and said when it is not there.
+// and said when it is not there. By person opens a folder's panel here (`?edit=<path>&back=<its address>`): the folder
+// is chosen and its panel opened, and closing or saving that panel goes back to the person.
 import clsx from 'clsx'
 import { ArrowLeft, Briefcase, Cable, ChevronRight, Folder as FolderIcon, FolderSearch, FolderTree, Loader2, Lock, Plus, RotateCw, SlidersHorizontal, Sparkles, Trash2, TriangleAlert, UserRound, UsersRound, type LucideIcon } from 'lucide-react'
 import { useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent, type ReactNode } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 import type { AccessTreeNode, AccessTreeResponse, Folder, FolderAccessResponse, Group } from '@mycel/shared/api'
 import { api, API, isApiError } from '../../lib/api'
-import { ancestorsOf, isPersonalPath, isRestricted, kindText, levelOf, nodeName, parentOf, reasonText, riskTexts, sourceSaysSomething, sourceText, whoSeesText, type Names } from '../../lib/access-view'
+import { ancestorsOf, isPersonalPath, isRestricted, kindText, levelOf, nodeName, parentOf, reasonText, riskTexts, skillEditorsText, skillsLockedText, sourceSaysSomething, sourceText, whoSeesText, type Names } from '../../lib/access-view'
 import { useLocale, useT } from '../../i18n'
 import { Badge, Button, ErrorNote, Skeleton, Switch } from '../../components/ui'
 import FolderPicker from '../../components/FolderPicker'
@@ -356,13 +357,16 @@ export default function AccessTree() {
   /** below the width where the tree and the folder sit side by side: the folder replaces the tree until Back */
   const [showDetail, setShowDetail] = useState(false)
   const [ruledOnly, setRuledOnly] = useState(false)
-  /** the folder whose rules are being changed (the edit panel replaces its part of the screen) */
-  const [editing, setEditing] = useState<{ path: string } | null>(null)
+  /** the folder whose rules are being changed (the edit panel replaces its part of the screen); `back`: opened from By
+   * person, whose address closing it goes back to */
+  const [editing, setEditing] = useState<{ path: string; back?: string } | null>(null)
   const [picking, setPicking] = useState(false)
   /** the panel's: resolves true when it may close (nothing changed, or the admin dropped the changes) */
   const editGuard = useRef<() => Promise<boolean>>(async () => true)
-  /** the folder picked with "Add folder": its rules open once the tree has found and chosen it */
+  /** the folder picked with "Add folder" (or named by By person): its rules open once the tree has found and chosen it */
   const pendingEdit = useRef<string | null>(null)
+  /** By person's address, for the panel pendingEdit opens */
+  const pendingBack = useRef<string | undefined>(undefined)
   /** where the focus goes back when the panel closes (its opener, else the folder's rules button) */
   const editReturn = useRef<HTMLElement | null>(null)
   const focusAfterEdit = useRef(false)
@@ -409,10 +413,12 @@ export default function AccessTree() {
     address(path)
   }
   /** Open the edit panel for a folder (its row, if any, comes from the list of rule rows). */
-  const startEdit = (path: string) => {
+  const startEdit = (path: string, back?: string) => {
     editReturn.current = document.activeElement instanceof HTMLElement ? document.activeElement : null
-    setEditing({ path })
+    setEditing({ path, back })
   }
+  /** back to By person after its panel (pushed: Back returns to the folder here); the focus goes to that folder's row */
+  const toPerson = (back: string, path: string) => setParams(new URLSearchParams(back), { state: { refocus: path } })
   /** Leave the edit panel, asking first when something was changed there: false when the admin stays. */
   const leaveEdit = async () => {
     if (!editing) return true
@@ -496,6 +502,8 @@ export default function AccessTree() {
 
   const ruleRows = folders.data
   const rowOf = (p: string) => ruleRows?.find((f) => f.path === p)
+  /** a folder inside skills/: the tree's skills/ (who manages team skills there), else nothing */
+  const skillsTopOf = (p: string) => (isSkillsFolder(p) && p.includes('/') ? tree.data?.nodes.get(p.slice(0, p.indexOf('/'))) : undefined)
   const groupName = (id: string) => groups.data?.find((g) => g.id === id)?.name
   const subject = (type: string, id: string | null) => {
     if (type === 'everyone') return t('rules.everyone')
@@ -551,6 +559,7 @@ export default function AccessTree() {
         key={node.path}
         node={node}
         members={tree.data?.members ?? 0}
+        skillsTop={skillsTopOf(node.path)}
         row={rowOf(node.path)}
         rowsReady={!!folders.data && !!users.data && !!groups.data}
         names={names}
@@ -620,7 +629,7 @@ export default function AccessTree() {
   // has loaded: it shows again at once, and a refresh that fails after a save keeps what was there)
   let panel: ReactNode = null
   if (editing) {
-    const path = editing.path
+    const { path, back } = editing
     panel = (
       <AccessEdit
         key={path}
@@ -629,8 +638,11 @@ export default function AccessTree() {
         users={users.data ?? []}
         groups={groups.data ?? []}
         guard={editGuard}
+        returnLabel={back !== undefined ? t('accessEdit.backToPeople') : undefined}
+        skillsTop={skillsTopOf(path)?.who}
         onClose={() => {
           if (editingPath.current !== path) return
+          if (back !== undefined) return toPerson(back, path)
           setEditing(null)
           focusAfterEdit.current = true
         }}
@@ -638,6 +650,7 @@ export default function AccessTree() {
           // the row as saved at once (opening the panel again before the list comes starts from it), then the tree row,
           // the folder's rules and every person's access there come again
           folders.setData((d) => (d ? (d.some((f) => f.id === saved.id) ? d.map((f) => (f.id === saved.id ? saved : f)) : [...d, saved]) : d))
+          if (editingPath.current === path && back !== undefined) return toPerson(back, path)
           if (editingPath.current === path) {
             setEditing(null)
             focusAfterEdit.current = true
@@ -677,9 +690,33 @@ export default function AccessTree() {
     if (lookup && lookup.state !== 'busy') pendingEdit.current = null
     if (selected !== p || lookup || !node) return
     pendingEdit.current = null
-    startEdit(p)
+    startEdit(p, pendingBack.current)
+    pendingBack.current = undefined
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selected, lookup, node])
+  // By person asks for a folder's panel (`?edit=<path>&back=<its address>`): once the tree and the lists are in, the
+  // folder is chosen (looked up as any address is) and its panel opens; a rule row outside the tree opens at once. The
+  // two leave the address (a reload does not open the panel again).
+  const editWanted = params.get('edit')
+  const lists = !!folders.data && !!users.data && !!groups.data
+  useEffect(() => {
+    if (!ready || editWanted === null || !lists) return
+    const back = new URLSearchParams(params.get('back') ?? '').get('view') === 'people' ? params.get('back')! : undefined
+    const q = new URLSearchParams(window.location.search)
+    q.delete('edit')
+    q.delete('back')
+    const row = rowOf(editWanted)
+    if (row && (!row.exists || row.hidden)) {
+      setParams(q, { replace: true })
+      startEdit(editWanted, back)
+      return
+    }
+    pendingEdit.current = editWanted
+    pendingBack.current = back
+    q.set('folder', editWanted)
+    setParams(q, { replace: true })
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [ready, editWanted, lists])
 
   // a folder chosen while the tree is hidden (narrow): the folder's heading takes the focus, not the page
   useLayoutEffect(() => {
@@ -819,6 +856,7 @@ export default function AccessTree() {
             return
           }
           pendingEdit.current = path
+          pendingBack.current = undefined
           // the address names it already (it was not found, or its lookup failed): looked up again
           if (new URLSearchParams(window.location.search).get('folder') === path) void reveal(path)
           else address(path)
@@ -1198,9 +1236,11 @@ function useFolderAnswer(path: string | null, reloadKey: number) {
   return { data, error, more, loadMore, retry: () => setAttempt((n) => n + 1) }
 }
 
-function FolderDetail({ node: n, members, row, rowsReady, names, subject, reloadKey, headingRef, removal, back, onEdit, onRemoved }: {
+function FolderDetail({ node: n, members, skillsTop, row, rowsReady, names, subject, reloadKey, headingRef, removal, back, onEdit, onRemoved }: {
   node: AccessTreeNode
   members: number
+  /** a folder inside skills/: skills/ itself (who manages team skills there) */
+  skillsTop: AccessTreeNode | undefined
   /** the folder's rule row, if it has one (Admin › Folder permissions' list) */
   row: Folder | undefined
   rowsReady: boolean
@@ -1226,6 +1266,7 @@ function FolderDetail({ node: n, members, row, rowsReady, names, subject, reload
   // after its project went; a group's row after the group did). Rules are changed in the panel, and "follow the folder
   // above" is no rules saved there: removing a row would also cut a group's link or a project's mark.
   const emptyMarker = !!row && !keep && row.rules.length === 0 && !n.kinds.includes('project')
+  const skillsLocked = skillsTop ? skillsLockedText(t, n.who, skillsTop.who, members) : null
   return (
     <section aria-labelledby={id} data-testid="folder-detail" data-path={n.path}>
       {back}
@@ -1275,7 +1316,19 @@ function FolderDetail({ node: n, members, row, rowsReady, names, subject, reload
             ) : (
               <p className="mt-1 text-xs text-muted">{t('accessTree.noOwnRules')}</p>
             )}
-            {isSkillsFolder(n.path) && <p className="mt-1.5 text-xs text-muted">{t('skillMgr.folderHint')}</p>}
+            {isSkillsFolder(n.path) && (
+              <>
+                <p className="mt-1.5 text-xs text-ink" data-testid="folder-skill-editors">
+                  {skillEditorsText(t, n.who, members)}
+                </p>
+                {skillsTop && skillsLocked && (
+                  <p className="mt-0.5 text-xs text-muted" data-testid="folder-skill-locked">
+                    {skillsLocked}
+                  </p>
+                )}
+                <p className="mt-0.5 text-xs text-muted">{t('skillMgr.folderHint')}</p>
+              </>
+            )}
             {keep && (
               <p className="mt-1.5 text-xs text-muted" data-testid="folder-keep-reason">
                 {keep}

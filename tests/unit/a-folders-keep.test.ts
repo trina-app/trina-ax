@@ -220,10 +220,11 @@ describe('folder rows that stay', () => {
   })
 
   test('inside the server the rows still change: a skills manager turned off, a person deleted', async () => {
-    // skills/managers.ts: turning off the last rule of skills/ is not the admin route's refusal
+    // skills/managers.ts: turning off the last rule of skills/ is not refused, but skills/ keeps a rule: "admins: write"
+    // takes its place (it changes nobody's access)
     await admin.call('PUT', `/api/admin/folders/${rowId('skills')}/rules`, { rules: [{ subjectType: 'group', subjectId: sales, access: 'write' }] })
     await admin.call('PUT', '/api/admin/skill-managers', { subjectType: 'group', subjectId: sales, path: 'skills', enabled: false })
-    expect(rulesAt('skills')).toEqual([])
+    expect(rulesAt('skills')).toEqual([{ subjectType: 'role', subjectId: 'admin', access: 'write' }])
     await admin.call('PUT', `/api/admin/folders/${rowId('skills')}/rules`, { rules: SKILLS_DEFAULT })
     // a subfolder made only for a manager goes again when it is turned off (dropFolderRow)
     await admin.call('PUT', '/api/admin/skill-managers', { subjectType: 'user', subjectId: bob.id, path: 'skills/hr', enabled: true })

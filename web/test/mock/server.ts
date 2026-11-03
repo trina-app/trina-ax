@@ -1459,6 +1459,8 @@ export class MockServer {
       if (f) {
         f.rules = f.rules.filter((r) => !(r.subjectType === subjectType && r.subjectId === subjectId))
         if (enabled) f.rules.push({ id: uuidv7(), folderId: f.id, subjectType, subjectId, access: 'write', updatedBy: { id: c.user.id, name: c.user.name }, updatedAt: now() })
+        // like the server: skills/ keeps a rule ("admins: write", which changes nobody's access)
+        if (!f.rules.length && p === 'skills') f.rules.push({ id: uuidv7(), folderId: f.id, subjectType: 'role', subjectId: 'admin', access: 'write', updatedBy: { id: c.user.id, name: c.user.name }, updatedAt: now() })
       }
       return this.skillManagersResponse()
     },

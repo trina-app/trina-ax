@@ -2,7 +2,10 @@
 // subfolder scope, and the same rule on Admin > 폴더 권한), the server's card before the AI saves under skills/ (with
 // the diff; the AI cannot answer it), the banner that links to the version history, and "스킬로 제안" → [등록].
 import { expect, test, type Page } from '@playwright/test'
+import { CSRF_HEADER } from '@mycel/shared/api'
 import { OWNER, realErrors, reset, signIn, watchConsole } from './helpers'
+
+const SHOTS = process.env.STAGE67_SHOTS
 
 const BOB = { username: 'bob', password: 'bob password 1' }
 async function ask(page: Page, text: string) {
@@ -50,6 +53,84 @@ test('"팀 스킬 관리" per person and group: warning, subfolder scope, same r
   await page.getByTestId('skill-manager-on').click()
   await expect(fin.getByRole('switch')).toBeChecked()
   await expect(fin.getByTestId('skill-manager-scope')).toHaveText('skills/')
+  expect(realErrors(errors)).toEqual([])
+})
+
+test('who can edit, in words (the tree and the panel); the Members switch on through a group or everyone, and why', async ({ page }) => {
+  await reset(page)
+  const errors = watchConsole(page)
+  await signIn(page, OWNER)
+  const H = { [CSRF_HEADER]: '1' }
+  const send = async (method: 'post' | 'put', url: string, data: unknown) => {
+    const r = await page.request[method](url, { headers: H, data })
+    expect(r.ok(), `${method} ${url}: ${r.status()}`).toBeTruthy()
+    return r.json()
+  }
+  // 영업팀 (Bob) writes in skills/; skills/재무 lets everyone read only, so 영업팀 cannot edit there
+  const sales = await send('post', '/api/admin/groups', { name: '영업팀', memberIds: [] })
+  const r = await page.request.patch('/api/admin/users/bob', { headers: H, data: { groupIds: [sales.id] } })
+  expect(r.ok()).toBeTruthy()
+  const everyone = (access: string) => ({ subjectType: 'everyone', subjectId: null, access })
+  const skills = await send('post', '/api/admin/folders', { path: 'skills', create: true, rules: [everyone('read'), { subjectType: 'group', subjectId: sales.id, access: 'write' }] })
+  await send('post', '/api/admin/folders', { path: 'skills/재무', create: true, rules: [everyone('read')] })
+  const shot = (name: string) => (SHOTS ? page.screenshot({ path: `${SHOTS}/${name}.png` }) : Promise.resolve())
+
+  // the tree: skills/ and its folder say who can edit, and who of skills/' managers cannot there
+  await page.goto('/admin/folders?folder=skills')
+  await expect(page.getByTestId('folder-skill-editors')).toHaveText('고칠 수 있는 사람: 팀장·관리자, 영업팀 1명')
+  await expect(page.getByTestId('folder-skill-locked')).toHaveCount(0)
+  await page.goto('/admin/folders?folder=skills/재무')
+  await expect(page.getByTestId('folder-skill-editors')).toHaveText('고칠 수 있는 사람: 팀장과 관리자만')
+  await expect(page.getByTestId('folder-skill-locked')).toHaveText('skills에서는 고칠 수 있지만 여기서는 못 고치는 사람: 영업팀 1명')
+  await shot('skills-line-tree-1360')
+  // the panel: the same, for the rules as edited
+  await page.getByTestId('folder-detail-edit').click()
+  const panel = page.getByTestId('edit-panel')
+  await expect(panel.getByTestId('edit-skill-editors')).toHaveText('고칠 수 있는 사람: 팀장과 관리자만')
+  await expect(panel.getByTestId('edit-skill-locked')).toHaveText('skills에서는 고칠 수 있지만 여기서는 못 고치는 사람: 영업팀 1명')
+  await panel.getByTestId('edit-basic-follow').click()
+  await expect(panel.getByTestId('edit-skill-editors')).toHaveText('고칠 수 있는 사람: 팀장·관리자, 영업팀 1명')
+  await expect(panel.getByTestId('edit-skill-locked')).toHaveCount(0)
+  await shot('skills-line-panel-1360')
+  await page.setViewportSize({ width: 375, height: 800 })
+  await expect(panel.getByTestId('edit-skill-editors')).toBeVisible()
+  await shot('skills-line-panel-375')
+  await page.setViewportSize({ width: 1360, height: 860 })
+  await panel.getByTestId('edit-close').click()
+  await page.getByRole('dialog', { name: '바꾼 규칙을 버릴까요?' }).getByRole('button', { name: '버리기', exact: true }).click()
+  await expect(panel).toHaveCount(0)
+
+  // Members: Bob has no rule of his own on skills/, but his group's makes him a manager: on, why, not switched here
+  await page.goto('/admin/members')
+  const bob = page.getByTestId('skill-manager-user-bob')
+  const toggle = bob.getByRole('switch', { name: 'Bob: 팀 스킬 관리' })
+  await expect(toggle).toBeChecked()
+  await expect(toggle).toBeDisabled()
+  await expect(bob.getByTestId('skill-manager-via')).toHaveText('영업팀 그룹이라서 켜져 있어요')
+  await expect(toggle).toHaveAccessibleDescription('영업팀 그룹이라서 켜져 있어요')
+  await expect(bob.getByTestId('skill-manager-via-link')).toHaveAttribute('href', '/admin/folders?folder=skills')
+  await shot('members-switch-group-1360')
+  // everyone writes: said so
+  await send('put', `/api/admin/folders/${skills.id}/rules`, { rules: [everyone('write')] })
+  await page.reload()
+  await expect(bob.getByTestId('skill-manager-via')).toHaveText('모두에게 열려 있어서 켜져 있어요')
+  await page.setViewportSize({ width: 375, height: 800 })
+  await bob.scrollIntoViewIfNeeded()
+  await shot('members-switch-everyone-375')
+  await page.setViewportSize({ width: 1360, height: 860 })
+  // a rule of his own as well (on skills/재무): the switch turns only that off, says so, and stays on through everyone's
+  await send('put', '/api/admin/skill-managers', { subjectType: 'user', subjectId: 'bob', path: 'skills/재무', enabled: true })
+  await page.reload()
+  await expect(toggle).toBeEnabled()
+  await expect(toggle).toBeChecked()
+  await expect(bob.getByTestId('skill-manager-scope')).toHaveText('skills/재무/')
+  await expect(bob.getByTestId('skill-manager-via-link')).toHaveCount(0)
+  await toggle.click({ force: true })
+  await expect(page.getByRole('dialog')).toContainText('그룹이나 모두에게 준 규칙으로 계속 고칠 수 있어요')
+  await page.getByRole('button', { name: '계속' }).click()
+  await expect(toggle).toBeDisabled()
+  await expect(toggle).toBeChecked()
+  await expect(bob.getByTestId('skill-manager-via')).toHaveText('모두에게 열려 있어서 켜져 있어요')
   expect(realErrors(errors)).toEqual([])
 })
 

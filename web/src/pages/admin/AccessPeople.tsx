@@ -1,19 +1,19 @@
 // Admin › Folder permissions › By person (read only): "what can this person see, and why?" and "what will someone new
 // see?". One searchable list of people (someone new on top, the active people, then the disabled ones); the chosen
 // person's team folders with the access and the reason, from the server's answers (AccessResults.tsx). Nothing here
-// changes access: a row's "View or change rules" opens the same rule editor as the folder view. The choice is in the
-// address (`?view=people&person=<id>`, `?view=people&new=1&role=admin&groups=<id>,<id>`, `&prefix=<folder>`).
+// changes access: a row's "View or change rules" opens that folder's edit panel in By folder (`?edit=<path>&back=<this
+// address>`), and closing or saving it comes back here, the focus on that row's button. The choice is in the address
+// (`?view=people&person=<id>`, `?view=people&new=1&role=admin&groups=<id>,<id>`, `&prefix=<folder>`).
 import clsx from 'clsx'
 import { Search, UserPlus } from 'lucide-react'
 import { useId, useMemo, useRef, useState, type KeyboardEvent } from 'react'
-import { useSearchParams } from 'react-router-dom'
+import { useLocation, useSearchParams } from 'react-router-dom'
 import type { Group, PersonAccessResponse, PersonFolderAccess, User } from '@mycel/shared/api'
 import { api, API } from '../../lib/api'
 import { cleanPrefix, type Names, type Who } from '../../lib/access-view'
 import { useLocale, useT } from '../../i18n'
 import { Badge, EmptyState, ErrorNote, Field, Skeleton, inputCls } from '../../components/ui'
 import { AccessResults, PrefixForm } from './AccessResults'
-import { RulesEditor } from './Folders'
 import { GroupChecks, RoleSelect, type MemberRole } from './people-choices'
 import { Card, useLoad } from './common'
 
@@ -30,8 +30,7 @@ export default function AccessPeople() {
   const users = useLoad(async () => (await api.call(API.listUsers)).items)
   const groups = useLoad(async () => (await api.call(API.listGroups)).items)
   const folders = useLoad(async () => (await api.call(API.listFolders)).items)
-  const [editing, setEditing] = useState<{ path: string; missing: boolean } | null>(null)
-  const [reload, setReload] = useState(0)
+  const location = useLocation()
   const picker = useRef<HTMLDivElement>(null)
   const results = useRef<HTMLDivElement>(null)
 
@@ -87,18 +86,12 @@ export default function AccessPeople() {
   const groupName = (id: string) => groups.data?.find((g) => g.id === id)?.name
   const ruleFolders = useMemo(() => (folders.data ? new Set(folders.data.filter((f) => f.rules.length).map((f) => f.path)) : undefined), [folders.data])
   const names: Names = { group: groupName, person: (id) => users.data?.find((u) => u.id === id)?.name, ruleFolders }
-  const subject = (type: string, id: string | null) => {
-    if (type === 'everyone') return t('rules.everyone')
-    if (type === 'role') return t('rules.roleOf', { role: t(id === 'admin' ? 'role.admin' : 'role.member') })
-    if (type === 'group') return t('rules.groupOf', { name: (id && groupName(id)) ?? '?' })
-    return (id && names.person(id)) ?? id ?? '?'
-  }
   const user = person ? users.data?.find((u) => u.id === person) : undefined
-  // the editor needs the folder's row (to change its rules rather than make a new one): offered once the rows are in
-  const onEdit = folders.data ? (f: PersonFolderAccess) => setEditing({ path: f.path, missing: f.exists === false }) : undefined
-  /** the folder whose rules were just saved: its row may move (to the folded folders, or out of them) when the answer
-   * comes again, and the focus with it, not to the page */
-  const refocus = useRef<string | null>(null)
+  // the folder's edit panel, in By folder (it knows the folder's row and the tree); this address to come back to
+  const onEdit = (f: PersonFolderAccess) => setParams(new URLSearchParams({ edit: f.path, back: params.toString() }))
+  /** the folder whose rules were just changed in By folder (the panel comes back here with it): its row may have moved
+   * (to the folded folders, or out of them), and the focus goes to it, not to the page */
+  const refocus = useRef<string | null>(typeof (location.state as { refocus?: unknown } | null)?.refocus === 'string' ? (location.state as { refocus: string }).refocus : null)
   const onShown = () => {
     const path = refocus.current
     if (path === null) return
@@ -141,7 +134,6 @@ export default function AccessPeople() {
         onPrefix={(p) => go({ prefix: p })}
         onEdit={onEdit}
         heading="h4"
-        reloadKey={reload}
         onShown={onShown}
         notFound={t('accessView.unknownPerson')}
       />
@@ -205,40 +197,19 @@ export default function AccessPeople() {
   }
 
   return (
-    <>
-      <Card title={t('accessView.title')} desc={t('accessView.desc')}>
-        {/* side by side when the card is wide enough, else the list above the answer */}
-        <div className="@container">
-          <div className="flex flex-col gap-4 @2xl:flex-row @2xl:gap-0">
-            <div ref={picker} className="border-b border-line pb-4 @2xl:w-64 @2xl:shrink-0 @2xl:border-r @2xl:border-b-0 @2xl:pr-4 @2xl:pb-0">
-              <PersonPicker users={users.data} groups={groups.data ?? []} value={selected} onPick={pick} />
-            </div>
-            <div ref={results} className="min-w-0 flex-1 scroll-mt-4 @2xl:pl-5" data-testid="access-answer">
-              {body}
-            </div>
+    <Card title={t('accessView.title')} desc={t('accessView.desc')}>
+      {/* side by side when the card is wide enough, else the list above the answer */}
+      <div className="@container">
+        <div className="flex flex-col gap-4 @2xl:flex-row @2xl:gap-0">
+          <div ref={picker} className="border-b border-line pb-4 @2xl:w-64 @2xl:shrink-0 @2xl:border-r @2xl:border-b-0 @2xl:pr-4 @2xl:pb-0">
+            <PersonPicker users={users.data} groups={groups.data ?? []} value={selected} onPick={pick} />
+          </div>
+          <div ref={results} className="min-w-0 flex-1 scroll-mt-4 @2xl:pl-5" data-testid="access-answer">
+            {body}
           </div>
         </div>
-      </Card>
-      {editing !== null && (
-        <RulesEditor
-          folder={folders.data?.find((f) => f.path === editing.path) ?? null}
-          path={editing.path}
-          users={users.data ?? []}
-          groups={groups.data ?? []}
-          subject={subject}
-          rootName={t('accessView.rootFolder')}
-          missing={editing.missing}
-          onClose={() => setEditing(null)}
-          onStale={() => void folders.reload()}
-          onSaved={() => {
-            refocus.current = editing.path
-            setEditing(null)
-            void folders.reload()
-            setReload((n) => n + 1)
-          }}
-        />
-      )}
-    </>
+      </div>
+    </Card>
   )
 }
 

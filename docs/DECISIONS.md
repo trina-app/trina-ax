@@ -6344,3 +6344,60 @@ The permission function and its meaning are unchanged, no migration.
   `admin-delete.spec.ts` (cleanup of empty rows, follow-above as PUT `[]`, the guards in the panel) and `a11y.spec.ts`
   (the panel in light, dark and on a phone). Screenshots: `web/test/e2e/shots-edit-panel.spec.ts`
   (`EDIT_SHOTS=<folder>`). Needed in the core too: everything here.
+
+## Folder permissions, stage 6–7: one editor, who edits skills, the Members switch (feat/access-skills-cleanup, 2026-11-03)
+
+The last step of the redesign. Permission semantics (`server/src/policy/access.ts`) unchanged, no migration, no new
+route.
+
+- **By person opens the panel.** A row's "View or change rules" goes to By folder with `?edit=<path>&back=<the person
+  view's address>` (pushed). By folder, once the tree and the lists are in, takes both out of the address, chooses the
+  folder (looked up as any `?folder=`) and opens its panel; a rule row outside the tree (gone from disk, a hidden name)
+  opens at once. Closing or saving that panel pushes the person view back with `state.refocus`, so the focus goes to
+  that row's button (or to the folded folders' toggle when the row moved there); the panel's way out reads "사람별로
+  돌아가기". Browser Back works too. A folder that is not on disk and has no rule row: the tree says it is not there
+  (the panel could not save it; the old dialog said the same in its own words). The panel is the stage 5 one, so a
+  409 is handled the stage 5 way (the old dialog's "hash loaded once" problem goes with it). Cost: the person view
+  comes back from its first page after a save (the old dialog kept the pages loaded); pages are 500 rows.
+- **`RulesEditor` and its preview table are gone**, with `rulesFromRows` and the strings only they used
+  (`rules.editTitle`, `.preview`, `.editHint`, `.missingNoCreate`, `.who`, `.access`, `.role`, `.removeRule`, `.addRule`,
+  `.incomplete`, `.whoSeesWhat`, `skillMgr.readHint`). Nothing else used it: Members and Groups have their own switch,
+  team skills shows no rules.
+- **Unsaved changes on in-app moves.** The app uses `BrowserRouter`, which has no navigation blocker. While the panel
+  has changes, a capture listener on the document stops a click on any link or tab outside the panel (the admin menu,
+  By folder / By person, the app's other links) and the arrow, Home and End keys on a tab, asks the panel's question,
+  and replays the click or key when the admin drops the changes. Modified clicks (new tab) pass. Not covered: Back
+  and Forward (the browser gives no way to ask; the panel goes with its folder, as in stage 5).
+- **Who can edit skills, in words** (`skillEditorsText`, `skillsLockedText` in `web/src/lib/access-view.ts`). For
+  `skills/` and its folders the folder's details and the panel say "고칠 수 있는 사람: 팀장·관리자, 영업팀 3명, Bob 님",
+  from the people the server already groups (the tree's `who`, the preview's `next`): the rules that give write, merged
+  by whom they name. Inside `skills/`, compared with `skills/` itself: a rule that lets people write in `skills/` but
+  for fewer of them here says "skills에서는 고칠 수 있지만 여기서는 못 고치는 사람: 영업팀 3명" ("영업팀 중 1명" when a rule
+  here takes some out). Counted per rule, not per person: someone shut out by their group's rule who writes here by a
+  person rule is still counted under the group (they are named on the first line too). Per person would need the
+  people of both folders; not worth it here. The stage 5 warning when everyone gets write stays.
+- **The Members switch tells the truth.** It looked only at the person's own rows (`listSkillManagers`). Members now
+  also asks `GET /api/admin/access/folder?path=skills` (the stage 2 explain, `RuleSet.explain`; all pages) again when
+  the people or the switches change. A person who writes in `skills/` by a group's rule, everyone's (or the old
+  members row), or their own rule on the team root, and has no rule of their own in `skills/`: the switch is on and
+  disabled, with why under it ("영업팀 그룹이라서 켜져 있어요", "모두에게 열려 있어서 켜져 있어요", described by it for
+  screen readers) and "폴더 권한에서 바꾸기" (`/admin/folders?folder=skills`). With a rule of their own as well it switches
+  only that, and turning it off says that another rule still lets them edit, when the answer shows it (the deciding
+  step at `skills/` is their group's or everyone's, e.g. their own rule is on a subfolder). When their own rule on
+  `skills/` decides, the answer cannot show what decides without it: after turning it off the switch shows on, and why.
+  Only `skills/` itself is asked: a group's rule on a subfolder is shown on Groups, not on its members.
+- **Review fixes from stage 5 folded in.** The skill manager switch could leave `skills/` with no rules (the panel
+  saved it as "follow" with Bob writing, then Bob's switch went off), against the stage 1 rule that shared/ and
+  skills/ keep one. `setSkillManager` now leaves `role admin: write` in place of the last rule there: rules never
+  change what the owner and admins get, and no member is named by it, so every member falls through to the folder
+  above exactly as with no rules (checked with `RuleSet.access` in `tests/unit/skill-managers.test.ts`). The panel
+  reads that row as an old role row ("goes" when saved), so saving there still needs a rule, as before. Refusing the
+  switch instead would leave the admin no way to turn the last manager off from Members. Not changed: deleting a
+  person still removes their rules everywhere, the last one of shared/ or skills/ too (`admin/users.ts`, stage 1).
+  A connected folder is known from the first answer: "모두 읽기·쓰기" clicked before it came now goes back to what was
+  saved (unless it was saved so).
+- Tests: `web/test/unit/access-view.test.ts` (the two lines, `skillsVia`), `tests/unit/skill-managers.test.ts` and
+  `a-folders-keep.test.ts` (the kept rule), `web/test/e2e/access-people.spec.ts` (the panel from a row, return and
+  focus, save, the guard on the tabs, the arrow keys and the admin menu, the 409 path, a folder not on disk, the
+  keyboard), `team-skills.spec.ts` (the lines in the tree and the panel, the Members switch through a group, everyone,
+  and a rule of one's own; `STAGE67_SHOTS=<folder>` for screenshots at 1360 and 375).

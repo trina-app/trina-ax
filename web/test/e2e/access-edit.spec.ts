@@ -274,6 +274,24 @@ test('guards: shared cannot follow above with nobody named (said, Save waits); a
   await expect(panel(page).getByTestId('edit-basic-write')).toHaveCount(0)
   await expect(panel(page).getByTestId('edit-basic-read')).toBeVisible()
   await page.getByTestId('edit-close').click()
+  // "everyone writes" clicked before the first answer said the folder is connected: it goes back to what was saved
+  let release!: () => void
+  const held = new Promise<void>((r) => (release = r))
+  await page.route('**/api/admin/access/edit-preview', async (r) => {
+    await held
+    await r.continue().catch(() => {})
+  })
+  await page.goto(`/admin/folders?folder=${encodeURIComponent('connected/nas')}`)
+  await page.getByTestId('folder-detail-edit').click()
+  await panel(page).getByTestId('edit-basic-write').click()
+  await expect(panel(page).getByTestId('edit-basic-write').getByRole('radio')).toBeChecked()
+  release()
+  await expect(panel(page).getByTestId('edit-basic-write')).toHaveCount(0)
+  await expect(panel(page).getByTestId('edit-basic-follow').getByRole('radio')).toBeChecked()
+  await settled(page)
+  await expect(save(page)).toBeDisabled()
+  await page.unroute('**/api/admin/access/edit-preview')
+  await page.getByTestId('edit-close').click()
 
   // the team root: nothing above it, so no "follow"; opening it to everyone is warned about
   await page.goto('/admin/folders')
