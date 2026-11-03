@@ -486,7 +486,7 @@ r1 OS 층 수정의 재공격(엔진의 도구 잠금 1·2겹이 뚫렸다고 �
 ## 보안 r2 — sharing-works (sec/r2-sharing-works, 2026-10-21)
 
 - **휴지통 항목은 지운 자리의 폴더(`trash_items.folder_id`)를 따라간다.** 원래 경로만 보면, 관리자가 그룹·프로젝트 폴더를 휴지통에 넣은 뒤 그 이름을 다른 그룹(또는 새 규칙 폴더)이 가져가면 그 그룹이 옛 그룹이 먼저 지운 파일을 자기 휴지통에서 보고 자기 폴더로 되돌려 내용까지 읽었다. 이제 `TeamFiles.trashHome()`이 항목의 folder_id 행을 확인한다: 그 폴더가 휴지통에 있거나(행이 `.system/` 아래로 옮겨져 있음) 영구 삭제되었거나 원래 경로를 더 이상 품지 않으면 **아무에게도(관리자 포함) 보이지 않고 되돌릴 수 없다.** 폴더를 되돌리면(" (복원됨)" 이름이어도) 그 안에서 먼저 지운 항목의 `original_path`가 되돌린 자리로 따라와 다시 그 폴더 사람들의 휴지통에 보이고, 폴더를 영구 삭제하면 그 항목들도 같이 지운다. 폴더 휴지통 항목의 권한은 옮겨 둔 자기 규칙으로 보되, 그 사이 같은 경로에 생긴 다른 폴더의 규칙은 넣지 않는다. 관리자가 폴더의 규칙을 지우면(`DELETE /api/admin/folders/:id`, `dropFolderRow()`) 그 행에 묶인 휴지통 항목·버전은 바로 위 folders 행으로 옮겨 묶여 계속 지금 규칙대로 보인다. 회귀 시험: `tests/security/r2-trash-home.test.ts`.
-- **규칙 없는 folders 행은 프로젝트가 그 폴더를 쓰는 동안만 '관리되는 폴더'다.** 전에는 행이 있기만 하면 그 폴더와 그 위 폴더들의 이동·이름 바꾸기·휴지통이 영영 admin 전용이 되어, 프로젝트를 지운 뒤에도 만든 사람 자신조차 자기 폴더를 정리할 수 없었고, 팀원이 동료의 폴더에 프로젝트를 만들었다 지우는 것만으로 그 폴더를 잠글 수 있었다. 이제 `managedInside()`는 규칙 폴더, 그룹 폴더(`groups.folder_id`), shared/·skills/, 그리고 users/ 밖에서 프로젝트가 쓰는 폴더(행이 있든 없든: 관리자가 폴더를 바꾼 프로젝트에는 행이 없다)만 센다. 프로젝트를 지우거나 다른 폴더로 옮기거나(PATCH folderPath, 공유 복사) 그 폴더를 쓰는 마지막 프로젝트가 떠나면 규칙 없는 표시 행을 같은 트랜잭션에서 지운다(`dropProjectMarker()`: 규칙·그룹·다른 프로젝트가 있거나 shared/·skills/면 남김). 그룹을 지워 규칙이 다 빠진 옛 그룹 폴더도 이제 관리되는 폴더가 아니다(쓰기 권한이 있는 사람만 옮길 수 있는 것은 그대로). **owner 결정으로 남긴 것**: ② 기존 폴더에 프로젝트를 만들 때 그 폴더의 부모 쓰기 권한까지 요구할지(그러면 옮길 수 없는 폴더를 잠그지 못한다)는 정하지 않았다. 지금은 설계대로 그 폴더 쓰기 권한만 본다. 회귀 시험: `tests/security/r2-project-folder-unlock.test.ts`.
+- **규칙 없는 folders 행은 프로젝트가 그 폴더를 쓰는 동안만 '관리되는 폴더'다.** 전에는 행이 있기만 하면 그 폴더와 그 위 폴더들의 이동·이름 바꾸기·휴지통이 영영 admin 전용이 되어, 프로젝트를 지운 뒤에도 만든 사람 자신조차 자기 폴더를 정리할 수 없었고, 팀원이 동료의 폴더에 프로젝트를 만들었다 지우는 것만으로 그 폴더를 잠글 수 있었다. 이제 `managedInside()`는 규칙 폴더, 그룹 폴더(`groups.folder_id`), shared/·skills/, 그리고 users/ 밖에서 프로젝트가 쓰는 폴더(행이 있든 없든: 관리자가 폴더를 바꾼 프로젝트에는 행이 없다)만 센다. 프로젝트를 지우거나 다른 폴더로 옮기거나(PATCH folderPath, 공유 복사) 그 폴더를 쓰는 마지막 프로젝트가 떠나면 규칙 없는 표시 행을 같은 트랜잭션에서 지운다(`dropProjectMarker()`: 규칙·그룹·다른 프로젝트가 있거나 shared/·skills/면 남김). 그룹을 지워 규칙이 다 빠진 옛 그룹 폴더도 이제 관리되는 폴더가 아니다(쓰기 권한이 있는 사람만 옮길 수 있는 것은 그대로). **owner 결정(2026-11-03)**: ② 기존 폴더에 프로젝트를 만들 때 그 폴더가 아직 관리되는 폴더가 아니면 그 폴더가 든 폴더(부모)에도 쓰기 권한이 있어야 한다. 자기가 피해 갈 수 있는 잠금만 걸 수 있다는 뜻이다. 이미 관리되는 폴더(그룹·규칙 폴더, shared/, skills/, 그런 폴더를 품은 폴더)는 전처럼 그 폴더 쓰기 권한만 본다. 아래 "Projects: a folder with instructions". 회귀 시험: `tests/security/r2-project-folder-unlock.test.ts`.
 - **휴지통에 간 그룹·프로젝트·규칙 폴더는 admin·owner에게만 보이고 그들만 되돌린다.** 그런 폴더를 휴지통에 넣는 것이 admin·owner만이므로(위 '관리되는 폴더') 되돌리기도 같게 했다(설계 4번 탭 move/delete, 보안 r2의 두 안 중 A). 전에는 옮겨 둔 규칙 덕에 팀원 휴지통 목록에 보였지만, 되돌리기는 groups/·projects/ 쓰기 권한을 요구해 404였다(되지 않을 일을 보여 줌). 판단은 `managedRows()`로 그 폴더와 함께 옮겨 둔 folders 행이 관리되는 행인지(규칙·그룹·shared/·skills/·프로젝트) 본다. 팀원이 지운 일반 폴더는 전처럼 원래 경로 쓰기 권한으로 보이고 되돌린다. 팀 프로젝트 폴더가 휴지통에 있는 동안 참여자에게 그 프로젝트는 404다(관리자에게 되돌려 달라고 해야 한다). 회귀 시험: `tests/security/r2-trash-home.test.ts`의 #5.
 - **충돌 사본은 어느 길로 생기든 같은 기록·알림을 남긴다**(`recordConflictCopy()`, `files/store.ts`): 원본에 `file_versions` kind `conflict_copy`(사본 경로), `file_events` `conflict`(`changedBy`), 그리고 저장한 사람과 마지막으로 바꾼 사람에게 `files.conflict`(보내기 직전 둘 다 원본·사본을 읽을 수 있는지 확인, 위 '충돌 알림'). 파일 화면 저장, AI write·edit, make_file, `POST /api/files/copy`(onExists replace + 바뀐 baseSha256)가 모두 이 함수를 부른다. 보안 r2: 전에는 복사와 make_file의 충돌 사본은 아무에게도 알리지 않았고 make_file의 사본은 원본 기록에 없었으며, AI write는 마지막 변경이 업로드·버전 되돌리기면 엉뚱한 사람을 '바꾼 사람'으로 말하고 알렸다(이제 update·create·upload·restore 중 마지막). 복사의 충돌 사본 이름도 팀 기본 언어. 회귀 시험: `tests/security/r2-conflict-copy-paths.test.ts`.
 
@@ -6484,3 +6484,86 @@ Asked for: the AI fills in and changes an existing .hwp (HWP 5.x binary) the sam
 - Evidence used: Hancom's public HWP 5.0 document; Hangul-saved files only for checking, never committed: hwplib's `sample_hwp` (Apache-2.0; hwplib's code was neither read nor copied) and seven statutory forms of 주민등록법 시행규칙 from law.go.kr (not protected, 저작권법 제7조), each downloaded into its own folder and only read. All 54 sample and fixture containers (hwplib's, the seven forms, the repository's three) read and wrote back identically through both readers, across the 4096-byte line and a 10 MB file; a word replaced in every sample that is not refused, each result rendered by rhwp. NOTICE has Hancom's current attribution sentence ("본 제품은 한컴의 HWP 문서 파일(.hwp) 공개 문서를 참고하여 개발하였습니다", its page asks for it in the user interface, manuals, help and source code; the guide, the .hwp source files and Settings → About carry it; Korean shows Hancom's sentence as written, the other four languages a translation, as every screen text has).
 - Tests: `tests/lib/hwp.ts` builds .hwp documents record by record (paragraphs with shapes and controls, tables with zones and captions, Hangul's streams); `tests/unit/hwp-edit.test.ts` (each change kind and the records it rewrites and nothing else, controls and shapes next to an edit, a line break, headings, empty cells with and without PARA_TEXT, fields in cells, rows with TABLE, zones, addresses and height, every other stream and the directory byte for byte, a second section, compressed and uncompressed documents, the extended record size both ways, the mini-stream line both ways, unknown records and streams, Hangul's default scripts, every untrusted case, damaged containers, the model checked against hwp.ts, the server's read-back, the worker modes, the review's cases (names in other case, rows in nested tables in both orders, characters outside the BMP, rows after a row with no cells, an OLE storage, forbidden name characters, the paragraph limit); Hangul-saved samples and rhwp rendering when `MYCEL_HWP_SAMPLES` names a folder); `tests/unit/hwpx-edit.test.ts` (nested-table rows in both orders for .hwpx); `tests/unit/c-edit-hwp.test.ts` (a .hwp through the tool: a new version with history, a new .hwp, an output in the other format refused, refused documents saving nothing, write and edit still refusing).
 - Needed in the core too (potenlab/team-ax): everything here; nothing is Trina-specific.
+
+## Projects: a folder with instructions (feat/project-is-folder, 2026-11-03)
+
+Two reviews found that a project overlapped with folders (people mixed up the Project object and the `projects/<p>/`
+folder), that several projects could sit on one folder, and that a member could make a teammate's folder admin-only to
+move just by making a project on it. The owner wants people to see "a project is a folder with instructions". The
+`projects` table and its ids stay: the dev environment, schedules and the desktop PC runner are keyed by project id.
+Nothing is removed or re-keyed.
+
+- **One project per folder.** Every way a project gets a folder refuses a folder another project names, with 409
+  `conflict` that names that project (`params: { reason: 'project_folder_taken', projectId }`): the three ways to make
+  one (an existing folder, `scope: 'personal'`, a new `projects/<slug>`), the admin repoint (`PATCH folderPath`) and
+  sharing a personal project by copy (`assertFolderFree()` in `chat/projects.ts`, inside the transaction that writes
+  the row). The caller can read the folder (they write it, or they are an admin), so they can see that project. Paths
+  are compared the way the volume compares names (`volumeKey()`: NFC, lower case on a case-insensitive volume). The
+  automatic folder names of a new team project folder and a personal project step around the paths projects name, as
+  around folders rows, so they never get a 409. A repoint into a folder it had to make removes that folder again.
+- **Moves.** `TeamFiles.move()` rewrites `projects.folder_path`; in the same transaction it now refuses (409,
+  `projectThere`, `params.reason: 'project_folder_taken'`) a move that would put a project inside the moved folder on a
+  path that a project outside it still names: a project whose folder is in the trash or was removed keeps its path.
+- **Sharing by copy.** The copy gets a free name among the folder's visible entries, so only such a project row can
+  name its path. Then the share is 409 after the copy was made: the copy stays an ordinary folder and the project stays
+  personal. Rare, and nothing is lost.
+- **Rows from before the rule** are left as they are (no data migration): two projects on one folder keep working,
+  move together with the folder, and can be renamed and edited. Only a new or repointed project is refused.
+- **Not changed:** the dev environment's folder for a project on the team root (`giveProjectFolder`, out of scope). It
+  makes a fresh `projects/<name>` that steps around disk names and folders rows but not project rows, so a project row
+  naming that exact missing path is not caught there.
+- **The lock** (owner decision, see "보안 r2 — sharing-works" above). A project on a folder that is not managed yet makes
+  that folder and the folders above it admin-only to move, rename or trash (`managedInside()`). The creator may add that
+  only when they also write the folder it is in, so they could already move it themselves: else 403 `forbidden`,
+  `params.reason: 'parent_not_writable'`, before anything is made. Managed folders (rule, group, shared/, skills/
+  folders, or a folder holding one, `TeamFiles.managedFolder()`) keep the rule before: write on the folder. A member
+  with write on `projects/falcon` (a rule folder) still makes a project there although `projects/` is closed to them.
+  Nothing is locked in a personal folder or on the team root, so neither is checked (the person's own `users/<me>` sits
+  in `users/`, which nobody writes).
+  - **What this does not change.** Under today's permission function a folder without rules takes its parent's access
+    for every member (the deepest rule that names the person decides, `policy/access.ts`), and a folder that is not
+    managed has no rules. So write on such a folder already means write on its parent, and the check refuses nothing
+    that today's rules allow. It states the rule, so a later change to inheritance cannot reopen it. The case from the
+    review stays allowed: alice can still make a project on erin's `shared/erin-notes` or `groups/marketing/erin-drafts`,
+    because alice could already move, rename or trash that folder herself. The lock takes nothing from erin that alice
+    could not already do. Erin asks alice or an admin to delete the project, after which the folder is free again (r2).
+    The test of the refusal therefore uses a permission function where a folder's access differs from its parent's.
+- **Who wrote the instructions** (remember protection). `projectTaints()` compared only `created_by`, so after an admin
+  rewrote the creator's instructions the creator's turns were not tainted. Now a person's turn counts the instructions
+  as outside content unless that same person wrote every saved version: migration 221 adds
+  `projects.instructions_author` (that one person, else NULL) and `projects.instructions_authored` (the instructions as
+  that person last saved them). Making a project sets both to the creator. A save that changes the instructions keeps
+  the author only when it is the author's own save and the text was still theirs; otherwise both become NULL for good
+  (the creator writing them again does not make the history theirs alone). Renames and repoints do not count. A build
+  without the columns (after a rollback) may still change the instructions; the text then differs from
+  `instructions_authored`, and the author no longer counts. Empty instructions taint nobody, as before.
+  - **Existing rows.** The audit log is the only history. It is complete for a project made by a build that audited
+    every instruction change (`project.update` came in e482a367, before `project.create` in 4ed7bf8d) whose
+    `project.create` entry is still kept: the retention purge removes the oldest rows first, so every later entry is
+    kept too. For such a project the author is `created_by` when every `project.update` whose `changed.instructions` is
+    true, or whose detail cannot be read, was made by `created_by`. Every other row stays NULL: everyone's turns, the
+    creator's included, count its instructions as outside content (the AI asks before remembering). That errs towards
+    asking. Nothing marks an old project as one person's again; deleting it and making it again on the same folder
+    starts a new history (its chats then leave the project).
+- **Files.** A folder's menu has "Open project" when the folder is a project the person can see, else "Make it a
+  project" when they can write it. That opens the project dialog (now `components/ProjectForm.tsx`, shared with the
+  Projects page) on "Existing folder" with the folder chosen and its name filled in. A project folder shows the project
+  icon, and says so to screen readers. In the dialog, an empty name on a chosen folder is the folder's own name (the
+  placeholder and a hint say so; at most 100 characters); with nothing chosen (the team root), or for a personal or new
+  team folder, a name is still needed.
+- **Chat.** The header names the chat's project, linked to its page, on phones too (it showed a generic "Projects" link,
+  hidden on phones). A project whose folder the person can no longer read is not shown. A button in the header opens
+  "Project of this chat": no project, or a project the person can see, saved with the existing
+  `PATCH /api/chats/:id {projectId}`, which still checks read access to the project's folder (404 otherwise; out of a
+  project needs no check). From the next answer the AI gets the new project's folder and instructions.
+- **Wording.** `docs/PERMISSIONS.md` said `projects/<p>/` was for "people in that project"; there is no such
+  membership: the folder's rules decide, and the project is seen by whoever can read its folder. The Korean
+  `projects.participantsHint` said admins were left out of a new team project folder; the owner and admins see and
+  write every team folder (`policy/access.ts`), as the other languages said. All five now name the owner and admins.
+  `projects.folderHint` says a folder can be one project. `docs/for-teams.md` and `docs/for-teams.ko.md` have a
+  paragraph on projects.
+- Tests: `tests/security/project-is-folder.test.ts` (each way, the repoint, the copy, moves, rows from before the rule,
+  the lock, a chat moved into a project it cannot read), `tests/unit/b-project-taint.test.ts` (a real turn of the
+  creator after an admin's edit, the creator's own edits, a change by a build without the columns, empty instructions,
+  the migration's backfill), `web/test/unit/project-folders.test.tsx`; `tests/security/r2-project-folder-unlock.test.ts`
+  now makes its two-projects-on-one-folder case as a row from before the rule. Needed in the core too.

@@ -11,7 +11,7 @@ Trina AX에서 각자 볼 수 있는 범위와, 그 범위를 AI가 넘지 못�
 |---|---|
 | `shared/` | 폴더 규칙대로 (보통 팀 전체) |
 | `groups/<그룹>/` | 그 그룹 사람 (관리자가 규칙으로 다른 그룹에 읽기·쓰기를 줄 수 있음) |
-| `projects/<프로젝트>/` | 그 프로젝트에 속한 사람 |
+| `projects/<프로젝트>/` | 폴더 규칙대로. 관리자가 새 팀 프로젝트 폴더를 만들면 고른 그룹·사람과 만든 사람에게 읽기·쓰기 규칙이 생긴다(owner·관리자는 늘 봄). 프로젝트에는 따로 구성원 명단이 없다: 프로젝트(이름·지침)는 그 폴더를 읽을 수 있는 사람에게 보이고, 폴더 하나에 프로젝트 하나다 |
 | `skills/` (팀 스킬·팀 규칙) | 모두 읽기. 바꾸는 사람은 **스킬 관리자**: owner·관리자, 그리고 관리자가 멤버·그룹 화면의 "팀 스킬 관리"로 켜 준 사람·그룹(`skills/` 전체 또는 `skills/재무/` 같은 하위 폴더만) |
 | `skills/<sub>/` (restricted team skills) | The folder rules, the same as for files. Only people who can **read** the folder see and use its skills. See "Skills" below. |
 | `users/<id>/skills/` (personal skills) | **The owner only**, the same as all of `users/<id>/`. Owner and admins cannot see them. |
