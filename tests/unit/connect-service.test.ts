@@ -649,6 +649,22 @@ describe('another key on the same card follows the rules of now', () => {
     expect(leaksIn([t.turnId])).toEqual([])
   })
 
+  test('Not now right after the connection was changed in Settings (no retry between): the changed one stays, and the AI is told it changed', async () => {
+    const url = `${svc.base}/mcp-key?card=edited-then-not-now`
+    const t = await start('alice', { name: 'Edited then skipped', kind: 'mcp', url, auth: 'bearer' })
+    const card = await cardOf(t.turnId)
+    const first = await post('alice', t.turnId, { action: 'connect', requestId: card.requestId, sealed: await seal(WRONG) })
+    expect(first.body.state).toBe('retry')
+    const id = first.body.integrationId as string
+    const moved = `${svc.base}/mcp-key?card=edited-then-not-now-moved`
+    await h.api('alice').call(API.updateIntegration, { params: { id }, body: { url: moved } })
+    expect((await post('alice', t.turnId, { action: 'skip', requestId: card.requestId })).body).toEqual({ state: 'skipped' })
+    expect(h.ctx.db.query('SELECT url FROM integrations WHERE id = ?').get(id)).toEqual({ url: moved })
+    const r = resultOf(await doneOf(t.messageId))
+    expect(r.skipped).toBe(true)
+    expect(r.reason).toContain('changed or removed in Settings')
+  })
+
   test('the connection changed in Settings meanwhile: refused with a word to start again, nothing sent to it, and Not now leaves it', async () => {
     const url = `${svc.base}/mcp-key?card=edited`
     const t = await start('alice', { name: 'Edited tasks', kind: 'mcp', url, auth: 'bearer' })

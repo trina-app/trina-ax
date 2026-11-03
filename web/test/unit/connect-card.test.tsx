@@ -357,6 +357,8 @@ describe('the card, clicked', () => {
     const m = await mount(<ConnectCard request={r} />)
     await m.click('connect-sign-in')
     // a blank window opened during the click, sent to the sign-in page once the server answered
+    // opened during the click (a browser would block it after an await): nothing was blocked
+    expect(dom.blocked).toEqual([])
     expect(dom.opened.length).toBe(1)
     await m.until(() => dom.opened[0]!.replaced.length > 0, 'the sign-in page')
     expect(dom.opened[0]).toMatchObject({ url: 'about:blank', replaced: ['https://auth.linear.example/authorize?state=s1'], closed: false })
@@ -380,6 +382,7 @@ describe('the card, clicked', () => {
     routes['POST /api/integrations/google-drive/flows/d1/complete'] = () => json({ configured: true, status: 'connected', account, scopes: [], expiresAt: null })
     const m = await mount(<ConnectCard request={r} />)
     await m.click('connect-drive')
+    expect(dom.blocked).toEqual([])
     expect(dom.opened.at(-1)!.url).toBe('about:blank')
     await m.until(() => m.find('drive-confirm'), 'the account to confirm', 8000)
     expect(m.get('drive-account').textContent).toContain('sam@example.com')

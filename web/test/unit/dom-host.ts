@@ -166,8 +166,12 @@ export class FakeElement extends FakeNode {
   /** what a click does in a browser besides its listeners: a submit button submits its form */
   click() {
     if (this.disabled) return
-    const ok = this.dispatchEvent(new FakeEvent('click', { bubbles: true, cancelable: true }))
-    if (ok && this.localName === 'button' && this.type === 'submit') this.form?.requestSubmit()
+    // the click's user activation lasts while its handlers run, not after an await (a browser blocks a popup then)
+    activation++
+    try {
+      const ok = this.dispatchEvent(new FakeEvent('click', { bubbles: true, cancelable: true }))
+      if (ok && this.localName === 'button' && this.type === 'submit') this.form?.requestSubmit()
+    } finally { activation-- }
   }
   requestSubmit() { this.dispatchEvent(new FakeEvent('submit', { bubbles: true, cancelable: true })) }
 }
@@ -238,7 +242,10 @@ export class FakeDocument extends FakeNode {
   hasFocus() { return true }
 }
 
-export interface FakeWindowHandle { opened: { url: string; closed: boolean; replaced: string[] }[] }
+/** > 0 while a click is being handled (FakeElement.click) */
+let activation = 0
+
+export interface FakeWindowHandle { opened: { url: string; closed: boolean; replaced: string[] }[]; blocked: string[] }
 
 let saved: Map<string, PropertyDescriptor | undefined> | null = null
 
@@ -258,7 +265,7 @@ export function installDom(): FakeWindowHandle & { document: FakeDocument } {
     Object.defineProperty(globalThis, k, { configurable: true, writable: true, value: v })
   }
   const doc = new FakeDocument()
-  const handle: FakeWindowHandle = { opened: [] }
+  const handle: FakeWindowHandle = { opened: [], blocked: [] }
   // listeners on the window live on a node of their own; events reach it after the document
   const win = doc.windowNode
   set('addEventListener', win.addEventListener.bind(win))
@@ -286,6 +293,8 @@ export function installDom(): FakeWindowHandle & { document: FakeDocument } {
   set('scrollTo', () => {})
   set('getSelection', () => ({ rangeCount: 0, anchorNode: null, anchorOffset: 0, focusNode: null, focusOffset: 0, removeAllRanges() {}, addRange() {} }))
   set('open', (url: string) => {
+    // outside a click (after an await, say) a browser blocks the popup and window.open returns null
+    if (!activation) { handle.blocked.push(url); return null }
     const rec = { url, closed: false, replaced: [] as string[] }
     handle.opened.push(rec)
     return { get closed() { return rec.closed }, close() { rec.closed = true }, opener: null, location: { replace(u: string) { rec.replaced.push(u) } } }

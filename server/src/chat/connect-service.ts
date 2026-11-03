@@ -163,7 +163,9 @@ export async function connectService(exec: TurnExec, args: unknown): Promise<Too
   const o = ConnectOutcome.safeParse(answer)
   if (o.success && o.data.outcome === 'connected' && 'drive' in o.data) return connectedResult(exec, { name: 'Google Drive', status: 'connected', tools: [...DRIVE_TOOL_NAMES] })
   // the connection the card made, as it is now (the card's own id, not one the outcome names)
-  const made = kept.integrationId ? getRow(db, kept.integrationId) : null
+  let made = kept.integrationId ? getRow(db, kept.integrationId) : null
+  // changed in Settings while the card was open: not the connection the card showed, so not "connected" through it
+  if (made && card.target === 'service' && !asShown(made, card)) { made = null; kept.changed = true }
   if (made?.status === 'connected') { const tools = toolNames(exec, made); return connectedResult(exec, { name: made.name, status: made.status, ...(tools ? { tools } : {}) }) }
   exec.patchToolStep(CONNECT_TOOL, () => ({ detail: tr('connectNotConnected', L) }))
   const reason = made ? `"${made.name}" was added but is not working yet (${stateOf(made)}); ${made.scope === 'team' ? 'an admin can fix it in Admin' : 'the person can fix it in Settings'} > External services`
@@ -184,7 +186,9 @@ export async function finishCard(ctx: AppContext, exec: TurnExec | undefined, au
   // time ran out leaves its connection in Settings for the person to finish.
   if (body.action === 'skip') {
     const made = !kept.running && kept.integrationId ? getRow(ctx.db, kept.integrationId) : null
-    if (made && made.status !== 'connected' && !(made.auth === 'oauth' && made.secret_enc)) {
+    // one the person changed in Settings meanwhile is theirs now: never removed here, and the AI is told it changed
+    if (made && !asShown(made, card)) { kept.integrationId = null; kept.changed = true }
+    else if (made && made.status !== 'connected' && !(made.auth === 'oauth' && made.secret_enc)) {
       try { await integrationsOf(ctx).remove(viewer, made.id); kept.integrationId = null } catch { /* left in Settings; the AI is told so */ }
     }
     exec.answer(body.requestId, CONNECT_TOOL, { outcome: 'skipped' } satisfies ConnectOutcome)
@@ -207,13 +211,18 @@ type Card = Extract<TurnRequest, { kind: 'connect_service' }>
  * more: refused, nothing is sent to it, "Not now" leaves it alone and the person starts again. Returns the card's
  * connection, or null before it made one.
  */
+/** the row still is what the card showed (address, kind, sign-in, key header): not moved or changed in Settings */
+const asShown = (row: Row, card: Card) => {
+  const s = card.service
+  return !!s && row.url === s.url && row.kind === s.kind && row.auth === s.auth && row.auth_header === s.authHeader
+}
+
 function current(ctx: AppContext, card: Card, kept: ConnectCard, L: Locale): Row | null {
   if (card.scope === 'personal' && !getTeamSettings(ctx.db).personalIntegrations) return fail('forbidden', say('personalOff', L))
   if (kept.changed) return fail('conflict', tr('connectChanged', L))
   if (!kept.integrationId) return null
   const row = getRow(ctx.db, kept.integrationId)
-  const s = card.service
-  if (!row || !s || row.url !== s.url || row.kind !== s.kind || row.auth !== s.auth || row.auth_header !== s.authHeader) {
+  if (!row || !asShown(row, card)) {
     kept.integrationId = null
     kept.changed = true
     return fail('conflict', tr('connectChanged', L))
