@@ -28,7 +28,7 @@ App admins do not have a browser for everyone's private chats. Server/storage op
 
 ## Which files and clients work?
 
-Text/Markdown and supported Office/PDF extraction and generation depend on installed converters. HWP/HWPX text extraction is available. Visual previews are the optional HWP Preview plugin (Admin > Plugins, installed from the official list); its runtime is not in default release bundles. Debian 12 does not support visual previews (glibc 2.36; the pinned renderer needs 2.39). Original downloads and text extraction remain available. See [runtime limits](../resources/hwp/README.md). Complex layout fidelity is not guaranteed.
+Text/Markdown and supported Office/PDF extraction and generation depend on installed converters. HWP/HWPX text extraction is available, and the AI can make new .hwpx documents (headings as outline levels, paragraphs, bold, italic, lists, simple tables, page breaks; a team template from skills/). It cannot make a .hwp or edit an existing Hangul document. Visual previews are the optional HWP Preview plugin (Admin > Plugins, installed from the official list); its runtime is not in default release bundles. Debian 12 does not support visual previews (glibc 2.36; the pinned renderer needs 2.39). Original downloads and text extraction remain available. See [runtime limits](../resources/hwp/README.md). Complex layout fidelity is not guaranteed.
 
 Desktop and phone browsers work; a Windows installer is published. Mac office ZIP is a server bundle, not a released desktop DMG. Native mobile source is not an app-store release. This source supports EN/KO/ID/JA/ES throughout the app; check published builds’ release notes for availability.
 

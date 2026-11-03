@@ -36,6 +36,15 @@ No trademark rights or licenses to third-party engine binaries are granted.
 Claude Code and Codex are separate products; this candidate does not imply
 endorsement by Anthropic or OpenAI.
 
+Reading Hangul documents (server/src/files/hwp.ts) and writing new .hwpx files
+(server/src/files/hwpx-*.ts) is this repository's own code (AGPL-3.0-only),
+written from Hancom's public HWP 5.0 and OWPML (KS X 6101) documents and from
+the layout of files saved by Hangul; no third-party code, template or document
+is included. python-hwpx (Apache-2.0) and pypandoc-hwpx (MIT) were read as
+prior art for the file layout only.
+본 제품은 한글과컴퓨터의 HWP 문서 파일(.hwp) 공개 문서를 참고하여 개발하였습니다.
+"한글", "HWP" and "HWPX" are trademarks of Hancom Inc.; no endorsement is implied.
+
 HWP previews use rhwp 0.8.7 (MIT) and unchanged Noto Sans KR Regular (OFL-1.1).
 Exact pins, upstream notices and source-offer details: resources/hwp/.
 Release distributions preserve these in licenses/hwp/.

@@ -157,7 +157,7 @@ owner 계정을 만든 다음 **권한 → AI 연결 → 팀원 초대 → 첫 �
 <details>
 <summary><b>한글(HWP) 파일도 되나요?</b></summary>
 
-<br>글자는 돼요. AI가 HWP/HWPX의 글자를 읽어요. 화면 미리보기는 선택 플러그인이 필요하고 Debian 12에서는 돌지 않아요. [자세히](docs/FAQ.ko.md)
+<br>글자는 돼요. AI가 HWP/HWPX의 글자를 읽고, 새 .hwpx 문서(제목·문단·목록·간단한 표)도 만들어요. 화면 미리보기는 선택 플러그인이 필요하고 Debian 12에서는 돌지 않아요. [자세히](docs/FAQ.ko.md)
 
 </details>
 

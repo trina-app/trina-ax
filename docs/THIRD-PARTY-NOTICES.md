@@ -17,6 +17,8 @@ Saram/chat-proto 12개 명시 파일과 ee/cloud는 [PUBLICATION](PUBLICATION.md
 
 리눅스 서버 묶음의 `fonts/`에는 Noto Sans CJK 2.004 Regular·Bold(OFL-1.1, https://github.com/notofonts/noto-cjk 태그 Sans2.004의 `Sans/OTC/*.ttc`, 바꾸지 않음)가 들어간다(2026-11-01, AI가 만드는 PDF의 한글·일본어·중국어). 같은 파일이 Debian 13의 `fonts-noto-cjk`에도 있다(SHA-256 같음). 고지와 OFL 원문은 `resources/notices/noto-sans-cjk/`에 두고, 고지 수집기(`BUNDLED_FONTS`)가 글꼴이 든 묶음의 `licenses/noto-sans-cjk/`에 넣는다. 고지가 없으면 빌드가 멈춘다. HWP 미리보기 플러그인의 Noto Sans KR(한글만 든 부분 글꼴)은 그와 별개로 플러그인 꾸러미에만 들어간다.
 
+AI가 만드는 한글 문서(.hwpx, make_file, 2026-11-03)는 이 저장소의 코드(`server/src/files/hwpx-write.ts`, `hwpx-template.ts`, `hwpx-check.ts`, `zip-write.ts`)가 쓴다. 제3자 코드·서식 파일·문서를 넣지 않았고 새 의존성도 없다(XML 검사는 기존 `saxes`, zip 읽기는 기존 SheetJS). 한컴의 공개 OWPML(KS X 6101)·HWP 문서와 한글이 저장한 파일의 구조를 참고했고, python-hwpx(Apache-2.0)와 pypandoc-hwpx(MIT)는 파일 구조의 선례로 읽기만 했다. 한컴 공개 문서 참고 문구와 상표 안내는 [NOTICE](../NOTICE)에 있다. 기본 서식이 이름으로 가리키는 글꼴(함초롬바탕·함초롬돋움)은 파일에 넣지 않는다: 문서를 여는 한글이 가진 글꼴을 쓴다.
+
 앱 웹 번들의 React/KaTeX/pdf.js/Office/viewer/vendor/폰트, 서버의 web-push와 semantic runtime, desktop의 Electron/Chromium 등은 최종 artifact에서 실제 포함 버전·전이 구성요소를 확정해야 한다. lockfile/단일 SPDX metadata만으로 모든 저작권 문구·복합 라이선스를 대체하지 않는다. JSZip의 선택형 허락, pako의 복합 허락, libvips의 별도 LGPL 및 linked library 고지도 구분한다.
 
 최종 release에는 파일/패키지·버전·출처 revision·SHA·허락 원문·저작권·수정 내역·선택한 제공 방식이 연결된 목록과 고지 묶음을 넣는다. 필요한 대응 소스·설치/재링크 자료를 보존하고 실제 zip/tar/app/image/web output에 포함되는지 검사한다.
