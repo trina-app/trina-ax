@@ -1,16 +1,20 @@
 // Folder permissions (tab 2): folders that carry rules, each rule = who (everyone / role / group / person) gets
 // none / read / write. Before saving, "who sees what" shows every active person's access before → after, and who
-// loses access (their chats that touched those folders get a fresh engine session).
+// loses access (their chats that touched those folders get a fresh engine session). "By person" (AccessPeople.tsx)
+// shows, read only, what one person and their AI see and why.
 import clsx from 'clsx'
 import { ArrowRight, Eye, FolderLock, Loader2, Lock, Plus, Trash2 } from 'lucide-react'
-import { useId, useState, type ReactNode } from 'react'
+import { lazy, Suspense, useId, useState, type ReactNode } from 'react'
+import { useSearchParams } from 'react-router-dom'
 import type { Access, Folder, FolderRuleInput, Group, PreviewResponse, User } from '@mycel/shared/api'
 import { api, API, errorText } from '../../lib/api'
 import { useLocale, useT } from '../../i18n'
 import FolderPicker from '../../components/FolderPicker'
-import { Badge, Button, ErrorNote, IconButton, Modal, confirmDialog, inputCls } from '../../components/ui'
+import { Badge, Button, ErrorNote, IconButton, Modal, Spinner, Tabs, confirmDialog, inputCls } from '../../components/ui'
 import { toast } from '../../store/ui'
 import { Card, Loadable, useAction, useActionOk, useFocusAfterRemove, useLoad, useOneAtATime } from './common'
+
+const AccessPeople = lazy(() => import('./AccessPeople'))
 
 /** skills/ and its folders: write there = "팀 스킬 관리" (the Members / Groups toggle is the same rule) */
 const isSkillsFolder = (p: string) => p === 'skills' || p.startsWith('skills/')
@@ -71,7 +75,46 @@ export function previewChanges(preview: PreviewResponse): { path: string; users:
   return preview.folders.map((f) => ({ path: f.path, users: f.users.filter((u) => u.before !== u.after) })).filter((f) => f.users.length > 0)
 }
 
+/** Folder permissions: by folder (the rules, below) or by person (what one person and their AI see, and why: read only,
+ * AccessPeople.tsx). The choice and the person are in the address (`?view=people&person=<id>`), so links and Back work. */
 export default function Folders() {
+  const t = useT()
+  const [params, setParams] = useSearchParams()
+  const view = params.get('view') === 'people' ? 'people' : 'folders'
+  const choose = (v: 'folders' | 'people') => {
+    if (v === view) return
+    const next = new URLSearchParams(params)
+    if (v === 'people') next.set('view', 'people')
+    else next.delete('view')
+    setParams(next)
+  }
+  return (
+    <>
+      {/* a flex row, so the switch is as wide as its two tabs */}
+      <div className="mb-4 flex">
+        <Tabs
+          segmented
+          value={view}
+          onChange={choose}
+          items={[
+            { id: 'folders', label: t('accessView.byFolder') },
+            { id: 'people', label: t('accessView.byPerson') },
+          ]}
+          label={t('accessView.tabs')}
+        />
+      </div>
+      {view === 'people' ? (
+        <Suspense fallback={<Spinner />}>
+          <AccessPeople />
+        </Suspense>
+      ) : (
+        <FolderRules />
+      )}
+    </>
+  )
+}
+
+function FolderRules() {
   const t = useT()
   const actOk = useActionOk()
   const folders = useLoad(async () => (await api.call(API.listFolders)).items)
@@ -199,7 +242,9 @@ export default function Folders() {
   )
 }
 
-function RulesEditor({ folder, path, users, groups, subject, onClose, onSaved }: { folder: Folder | null; path: string; users: User[]; groups: Group[]; subject: (type: string, id: string | null) => string; onClose: () => void; onSaved: () => void }) {
+/** The rules of one folder (`folder` null: a folder without a row yet), with "who sees what" before saving. Also
+ * opened from Folder permissions › By person ("View or change rules"). */
+export function RulesEditor({ folder, path, users, groups, subject, onClose, onSaved }: { folder: Folder | null; path: string; users: User[]; groups: Group[]; subject: (type: string, id: string | null) => string; onClose: () => void; onSaved: () => void }) {
   const t = useT()
   const locale = useLocale()
   const act = useAction()

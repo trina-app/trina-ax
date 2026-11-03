@@ -6018,3 +6018,42 @@ Asked for on 2026-11-03: a person says "connect Higgsfield" in a chat, the AI fi
 - **2026-11-03 review.** The card shows an HTTP API's notes (they reach the AI in later chats, so a prompt-injected AI could otherwise plant instructions the person approves blindly) and the connection is saved with exactly those; the host is the card's main line, with a caution when the name is not in it; the tool waits for a connect still running when the card closes; a retry on a team card applies a changed "Who may use it"; "Not now" keeps a connection holding a finished sign-in; the message box warns only on near-certain keys (`hasLikelySecret`), not on a commit hash or a document link.
 - **Second 2026-11-03 review.** Text the person approves on the card holds nothing they cannot see: a name, notes or line with format, default-ignorable, private-use or C1 characters (zero-width ones, bidi overrides and isolates, the tag block, variation selectors) is refused without a card and again where the card is saved, rather than cleaned, because the AI wrote it and a silent clean-up would hide that it tried (emoji joiners and selectors stay, so Korean, Japanese and emoji names work). Every later connect or done reads the rules again (personal connections allowed, the admin role, the connection still at the card's address, kind and sign-in); one changed in Settings meanwhile ends what the card can do, before the key is opened. The address is checked for keys with the stricter `addressHasSecret`, so a generated MCP instance id is no longer refused as a key. The key warning covers every box whose text reaches the AI and finds more providers' keys, but a labelled value only when it looks like a secret, so code such as `apiKey = process.env.API_KEY` goes out. The card's behaviour is tested by rendering it with react-dom into a small DOM of our own (`web/test/unit/dom-host.ts`) rather than adding a DOM library to the dependencies.
 - Tests: `tests/unit/connect-service.test.ts`, `web/test/unit/connect-card.test.tsx`, `web/test/unit/secret-warning.test.tsx`. Needed in the core too (potenlab/team-ax): everything here; nothing is Trina-specific.
+
+## Folder permissions, stage 3: the person view (feat/access-person-view, 2026-11-03)
+
+The admin's questions "what can this person, and their AI, see, and why?" and "what will someone new see?" get a
+screen: Admin › Folder permissions › By person. Read only; the server, the permission function and the database are
+unchanged. The folder view stays as it was (stage 4 changes it).
+
+- **Only the server's answers.** Every row is `GET /api/admin/access/people/:id` or `POST /api/admin/access/new-person`
+  (stage 2); the screen computes no access. `web/src/lib/access-view.ts` only puts them into words: the level (write,
+  read, "name only, on the way" = `listable` without access, cannot see), the reason, the group of rows, the summary.
+  No step name of the function (user / group / role / everyone, owner-admin, no-rule) reaches the screen; a rule says
+  for whom ("Sales 그룹", "팀원 전체", "모두", "Bob 님") and where ("이 폴더의 규칙" or "shared에서 물려받음"), the widest
+  of the deciding step's rules (the server lists it first).
+- **Groups of rows** by the server's kinds, then by the top folder that holds such folders (groups/, projects/,
+  connected/ sit with their folders): team, group, project, connected, skills (the team's AI instructions), the own
+  personal folder. Folders without access and not shown in the tree are folded ("못 보는 폴더 N개").
+- **No colour for access.** The level is ink or grey text with an icon. The accent marks only the chosen person; the
+  warning colour only a risk the screen computes: a member who writes in skills/ (a team skill manager).
+- **Counts are honest.** The summary counts team folders (not the own personal folder) of the rows loaded; with more
+  pages it says it counted the loaded part, narrowed to a folder it says so. Pages: "Load more" (`nextCursor`).
+- **The address keeps the choice** (`?view=people&person=<id>`, `?view=people&new=1&role=admin&groups=<id>,…`,
+  `&prefix=`): links from Members work and Back steps through people; role, groups and the folder replace the entry.
+  `new=1` rather than a reserved person id, because `new` is a valid user id.
+- **The list of people** is one listbox (someone new, the active people, the disabled ones apart): arrows move, Enter
+  chooses (choosing asks the server, so moving alone does not), one Tab stop. At most 100 people show at once, with
+  how many more; the chosen one always shows.
+- **Edit from a row** opens the same rule editor as the folder view (`RulesEditor`, now exported) for that folder; after
+  a save the answer comes again, and the focus follows the row if it moved (to or from the folded folders). No edit on
+  the own personal folder (rules there never apply).
+- **Members**: "볼 수 있는 폴더" on each person opens the view; the invite and add-member dialogs fold out "이 사람이 보게
+  될 폴더" with the new-person answer for the role and groups chosen (the role and group choices moved to
+  `people-choices.tsx` so both use the same ones).
+- Found, not changed: Admin › Members dims a disabled person's row to 60 %, which takes its 12px text below 4.5:1
+  (axe, light and dark); the person view's a11y test enables that person again before auditing the invite dialog.
+- Tests: `web/test/unit/access-view.test.ts` (every reason in words, no step name in five languages, groups, short
+  paths, the risk, the summary forms, the typed folder, the address), `web/test/e2e/access-people.spec.ts` (choosing,
+  someone new, a folder shown on the way, a disabled person, Members links and the invite preview, pages, narrowing,
+  errors, a big team, 375px in Korean and Spanish, the keyboard), `web/test/e2e/a11y.spec.ts` (light, dark, phone).
+  Needed in the core too: everything here.
