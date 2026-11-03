@@ -1,11 +1,15 @@
 // The project create / edit dialog (Projects page, and "Make it a project" on a folder of the Files page). A project is
 // a folder of the team folder with instructions: on an existing folder the name may stay empty, and the folder's own
-// name is used.
+// name is used. A new project on "Existing folder" needs a folder chosen (never the whole team folder: an older server
+// may already have a project there, and the 409 would only confuse). A 409 that names the project already on the
+// folder offers to open it.
 import { useEffect, useState } from 'react'
+import { Link } from 'react-router-dom'
 import type { Group, Project, ProjectParticipant, User } from '@mycel/shared/api'
-import { api, API, errorText } from '../lib/api'
+import { api, API, ApiError, errorText } from '../lib/api'
 import { folderName, projectName } from '../lib/projectFolders'
 import { useLocale, useT } from '../i18n'
+import { useProjects } from '../store/projects'
 import { isAdmin, useMe } from '../store/session'
 import FolderPicker from './FolderPicker'
 import { Button, Field, Modal, inputCls } from './ui'
@@ -44,12 +48,16 @@ export function ProjectForm({ project, initialFolder, initialName, onClose, onSa
   const [picking, setPicking] = useState(false)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  // a new project on a chosen folder: an empty name is the folder's own name
+  /** the project already on the chosen folder, when the 409 names it */
+  const [takenBy, setTakenBy] = useState<string | null>(null)
+  // a new project on a chosen folder: an empty name is the folder's own name; no folder chosen yet: nothing to save
   const onFolder = !project && mode === 'existing'
+  const noFolder = onFolder && folder === ''
   const finalName = onFolder ? projectName(name, folder) : name.trim()
   const save = async () => {
     setBusy(true)
     setError(null)
+    setTakenBy(null)
     try {
       const p = project
         ? await api.call(API.updateProject, { params: { id: project.id }, body: { name: finalName, instructions, ...(folder !== project.folderPath ? { folderPath: folder } : {}) } })
@@ -59,10 +67,13 @@ export function ProjectForm({ project, initialFolder, initialName, onClose, onSa
               : mode === 'team' ? { name: finalName, scope: 'team', instructions, participants }
               : { name: finalName, scope: 'team', folderPath: folder, instructions, participants: [] },
           })
+      useProjects.getState().put(p)
       onSaved(p)
       onClose()
     } catch (e) {
       setError(errorText(e, locale, t('error.network')))
+      const id = e instanceof ApiError && e.code === 'conflict' ? e.body.params?.projectId : undefined
+      setTakenBy(typeof id === 'string' ? id : null)
     } finally {
       setBusy(false)
     }
@@ -78,7 +89,7 @@ export function ProjectForm({ project, initialFolder, initialName, onClose, onSa
           <Button variant="ghost" onClick={onClose}>
             {t('common.cancel')}
           </Button>
-          <Button variant="primary" busy={busy} disabled={!finalName} onClick={save} data-testid="project-save">
+          <Button variant="primary" busy={busy} disabled={!finalName || noFolder} onClick={save} data-testid="project-save">
             {t('common.save')}
           </Button>
         </>
@@ -115,9 +126,9 @@ export function ProjectForm({ project, initialFolder, initialName, onClose, onSa
             </div>
           </Field>
         )}
-        {(project || mode === 'existing') && <Field label={t('projects.folder')} hint={t('projects.folderHint')}>
+        {(project || mode === 'existing') && <Field label={t('projects.folder')} hint={t(noFolder ? 'projects.folderPick' : 'projects.folderHint')}>
           <div className="flex gap-2">
-            <input className={inputCls} value={folder || t('files.root')} readOnly data-testid="project-folder" />
+            <input className={inputCls} value={project ? folder || t('files.root') : folder} placeholder={noFolder ? t('projects.folderNone') : undefined} readOnly data-testid="project-folder" />
             {!folderLocked && <Button onClick={() => setPicking(true)}>{t('common.choose')}</Button>}
           </div>
         </Field>}
@@ -127,6 +138,14 @@ export function ProjectForm({ project, initialFolder, initialName, onClose, onSa
         {error && (
           <p role="alert" className="text-sm text-danger">
             {error}
+            {takenBy && (
+              <>
+                {' '}
+                <Link to={`/projects/${takenBy}`} onClick={onClose} className="font-medium underline" data-testid="project-taken-open">
+                  {t('files.openProject')}
+                </Link>
+              </>
+            )}
           </p>
         )}
       </div>

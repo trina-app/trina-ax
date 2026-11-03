@@ -3,8 +3,8 @@
 //   a project", which opens the project dialog with that folder chosen and its name filled in (lib/projectFolders.ts,
 //   components/ProjectForm.tsx);
 // - the project dialog: an empty name on a chosen folder is the folder's own name;
-// - the chat header names the chat's project, linked to its page, on phones too; a dialog moves the chat into a project
-//   or out of it (components/chat/ChatProject.tsx).
+// - a dialog moves a chat into a project or out of it (components/chat/ChatProject.tsx; the chat header's name of the
+//   project is in project-folders-dom.test.tsx).
 import { describe, expect, test } from 'bun:test'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { MemoryRouter } from 'react-router-dom'
@@ -12,7 +12,7 @@ import type { FileEntry, Project } from '@mycel/shared/api'
 import { translate } from '../../src/i18n'
 import { folderName, folderProjectAction, projectName, projectsByFolder } from '../../src/lib/projectFolders'
 import { ProjectForm } from '../../src/components/ProjectForm'
-import { ChatProjectLink, ProjectChoices } from '../../src/components/chat/ChatProject'
+import { ProjectChoices } from '../../src/components/chat/ChatProject'
 
 const project = (id: string, name: string, folderPath: string): Project =>
   ({ id, name, folderPath, instructions: '', createdBy: null, createdAt: '2026-11-03T00:00:00.000Z', canEdit: true })
@@ -42,13 +42,16 @@ describe('a folder and its project', () => {
     expect(folderProjectAction(entry('shared/acme-launch/plan.md', 'write', 'file'), byFolder)).toBeNull()
   })
 
-  test('the project\'s name: what was typed, else the folder\'s own name, at most 100 characters', () => {
+  test('the project\'s name: what was typed, else the folder\'s own name, at most 100 units as the server counts them', () => {
     expect(folderName('shared/acme-launch')).toBe('acme-launch')
     expect(folderName('')).toBe('')
     expect(projectName('  Launch  ', 'shared/acme-launch')).toBe('Launch')
     expect(projectName('   ', 'shared/acme-launch')).toBe('acme-launch')
     expect(projectName('', '')).toBe('')
-    expect(Array.from(projectName('', `shared/${'가'.repeat(120)}`)).length).toBe(100)
+    expect(projectName('', `shared/${'가'.repeat(120)}`).length).toBe(100)
+    // the server's max(100) counts UTF-16 units: an emoji is two, and is never cut in half
+    expect(projectName('😀'.repeat(60), '')).toBe('😀'.repeat(50))
+    expect(projectName('a' + '😀'.repeat(60), '')).toBe('a' + '😀'.repeat(49))
   })
 })
 
@@ -68,10 +71,20 @@ describe('the project dialog opened from a folder', () => {
     expect(saveButton(html)).not.toContain('disabled=""')
   })
 
-  test('with no folder to name it after (the team root) a name is still needed', () => {
-    const html = inRouter(<ProjectForm onClose={() => {}} onSaved={() => {}} />)
-    expect(saveButton(html)).toContain('disabled=""')
-    expect(html).not.toContain(translate('en', 'projects.nameHint'))
+  test('no folder chosen yet: Save stays off, even with a name, and the dialog asks for a folder (never the team root)', () => {
+    for (const html of [inRouter(<ProjectForm onClose={() => {}} onSaved={() => {}} />), inRouter(<ProjectForm initialName="Acme launch" onClose={() => {}} onSaved={() => {}} />)]) {
+      expect(saveButton(html)).toContain('disabled=""')
+      expect(input(html, 'project-folder')).toContain(`placeholder="${translate('en', 'projects.folderNone')}"`)
+      expect(input(html, 'project-folder')).toContain('value=""')
+      expect(html).toContain(translate('en', 'projects.folderPick'))
+      expect(html).not.toContain(translate('en', 'projects.nameHint'))
+    }
+  })
+
+  test('editing a project on the team root (made before) still saves; its folder reads "Team folder"', () => {
+    const html = inRouter(<ProjectForm project={project('p0', 'Acme all', '')} onClose={() => {}} onSaved={() => {}} />)
+    expect(saveButton(html)).not.toContain('disabled=""')
+    expect(input(html, 'project-folder')).toContain(`value="${translate('en', 'files.root')}"`)
   })
 
   test('editing a project keeps its own name rule', () => {
@@ -82,17 +95,6 @@ describe('the project dialog opened from a folder', () => {
 })
 
 describe('the chat and its project', () => {
-  test('the header names the project and links to it, on phones too', () => {
-    const html = inRouter(<ChatProjectLink project={{ id: 'p1', name: 'Acme launch' }} />)
-    const link = /<a[^>]*data-testid="chat-project"[^>]*>/.exec(html)?.[0] ?? ''
-    expect(link).toContain('href="/projects/p1"')
-    expect(link).toContain(`title="${translate('en', 'chat.project.open', { name: 'Acme launch' })}"`)
-    // never hidden on a narrow screen (the old link was "hidden … sm:inline-flex")
-    expect(link).not.toMatch(/class="[^"]*\bhidden\b/)
-    expect(html).toContain('Acme launch')
-    expect(html).not.toContain(`>${translate('en', 'sidebar.projects')}<`)
-  })
-
   test('the move dialog lists no project and every project the person sees, with the current one chosen', () => {
     const list = [project('p1', 'Acme launch', 'shared/acme-launch'), project('p2', 'Acme notes', '')]
     const radios = (html: string) => [...html.matchAll(/<input type="radio"[^>]*>/g)].map((m) => m[0])
@@ -106,7 +108,7 @@ describe('the chat and its project', () => {
   })
 
   test('the new texts exist in every language', () => {
-    const keys = ['files.makeProject', 'files.openProject', 'files.isProject', 'projects.nameHint', 'chat.project.open', 'chat.project.add', 'chat.project.change', 'chat.project.title', 'chat.project.none', 'chat.project.hint', 'chat.project.empty', 'chat.project.moved', 'chat.project.removed'] as const
+    const keys = ['files.makeProject', 'files.openProject', 'files.isProject', 'projects.nameHint', 'projects.folderNone', 'projects.folderPick', 'chat.project.hidden', 'chat.project.open', 'chat.project.add', 'chat.project.change', 'chat.project.title', 'chat.project.none', 'chat.project.hint', 'chat.project.empty', 'chat.project.moved', 'chat.project.removed'] as const
     for (const locale of ['en', 'ko', 'ja', 'es', 'id'] as const)
       for (const key of keys) expect(translate(locale, key)).not.toBe(key)
   })

@@ -13,6 +13,7 @@ import { firstParagraph } from '../lib/markdown'
 import { openTeamFile } from '../lib/sidePanel'
 import { useLocale, useT } from '../i18n'
 import { toast } from '../store/ui'
+import { useProjects } from '../store/projects'
 import { useMe } from '../store/session'
 import FolderPicker from '../components/FolderPicker'
 import { Markdown } from '../components/Markdown'
@@ -32,7 +33,9 @@ export function ProjectList() {
   const navigate = useNavigate()
   const load = async () => {
     try {
-      setItems((await api.call(API.listProjects)).items)
+      const items = (await api.call(API.listProjects)).items
+      useProjects.getState().put(...items)
+      setItems(items)
       setError(null)
     } catch (e) {
       setError(errorText(e, locale, t('error.network')))
@@ -102,6 +105,7 @@ export function ProjectHome() {
       const r = await api.call(API.shareProject, { params: { id: p.id }, body: { toParent } })
       if ('id' in r) {
         setP(r)
+        useProjects.getState().put(r)
         toast({ level: 'success', text: t('files.shared', { path: r.folderPath }) })
       }
     } catch (e) {
@@ -116,6 +120,7 @@ export function ProjectHome() {
       (x) => {
         if (!live) return
         setP(x)
+        useProjects.getState().put(x)
         api.call(API.listChats, { query: { projectId: x.id, limit: 50 } }).then((r) => live && setChats(r.items), () => live && setChats([]))
         api.call(API.tree, { query: { path: x.folderPath, limit: 100 } }).then((r) => live && setFiles({ entries: r.entries, more: !!r.nextCursor }), () => live && setFiles({ entries: [], more: false, failed: true }))
       },
@@ -135,6 +140,7 @@ export function ProjectHome() {
     if (!p || !(await confirmDialog({ title: t('projects.deleteTitle', { name: p.name }), body: t('projects.deleteBody'), confirm: t('common.delete'), danger: true }))) return
     try {
       await api.call(API.deleteProject, { params: { id: p.id } })
+      useProjects.getState().drop(p.id)
       navigate('/projects')
     } catch (e) {
       toast({ level: 'error', text: errorText(e, locale, t('error.network')) })

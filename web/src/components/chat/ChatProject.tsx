@@ -1,37 +1,81 @@
-// A chat's project in the chat header: the project's own name, linked to its page (on phones too), and a dialog that
-// moves the chat into a project or out of it (PATCH /api/chats/:id {projectId}; the server checks that the person can
-// read the project's folder).
+// A chat's project in the chat header: the project's own name, linked to its page, before the chat's title (like
+// Claude; from the "sm" width up, as the header has room), and the dialog that the title menu's "Move to project…" opens:
+// it moves the chat into a project or out of it (PATCH /api/chats/:id {projectId}; the server checks that the person
+// can see the project). The name comes from store/projects.ts, so a rename saved anywhere in this window shows at once;
+// it is asked again when the window comes back to the front (a rename on another device). A project the person cannot
+// see (404: no read access any more, or its folder in the trash) shows nothing.
 import { FolderKanban } from 'lucide-react'
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import type { Chat, Project } from '@mycel/shared/api'
-import { api, API, errorText } from '../../lib/api'
+import { api, API, errorText, isApiError } from '../../lib/api'
 import { useLocale, useT } from '../../i18n'
+import { useProjects } from '../../store/projects'
 import { toast } from '../../store/ui'
 import { Button, Modal, Skeleton } from '../ui'
 
-/** The project's name, linked to its page. It gives way to the chat title on a narrow screen, never disappears. */
-export function ChatProjectLink({ project }: { project: Pick<Project, 'id' | 'name'> }) {
+/** The chat's project as this window knows it (store/projects.ts), asked from the server for this chat and again when
+ * the window gets the focus back; undefined while unknown or not to be seen. */
+export function useChatProject(projectId: string | null): Project | undefined {
+  const project = useProjects((s) => (projectId ? s.byId[projectId] : undefined))
+  const refresh = useCallback(() => {
+    if (!projectId) return
+    api.call(API.getProject, { params: { id: projectId } }).then(
+      (p) => useProjects.getState().put(p),
+      (e) => { if (isApiError(e, 'not_found')) useProjects.getState().drop(projectId) },
+    )
+  }, [projectId])
+  useEffect(() => {
+    refresh()
+    if (typeof window === 'undefined' || !window.addEventListener) return
+    const again = () => { if (document.visibilityState !== 'hidden') refresh() }
+    window.addEventListener('focus', again)
+    return () => window.removeEventListener('focus', again)
+  }, [refresh])
+  return project
+}
+
+/** "Project /" before the chat's title in the header: the project's name, linked to its page; nothing for a chat
+ * outside a project or in one the person cannot see. Hidden below "sm": a phone's header keeps the title. */
+export function ChatProjectCrumb({ projectId }: { projectId: string | null }) {
   const t = useT()
+  const project = useChatProject(projectId)
+  if (!project) return null
   return (
-    <Link
-      to={`/projects/${project.id}`}
-      title={t('chat.project.open', { name: project.name })}
-      className="inline-flex max-w-[45%] min-w-0 shrink items-center gap-1 rounded-md px-2 py-1 text-xs text-muted hover:bg-hover hover:text-ink"
-      data-testid="chat-project"
-    >
-      <FolderKanban size={13} className="shrink-0" aria-hidden />
-      <span className="truncate">{project.name}</span>
-    </Link>
+    <>
+      <Link
+        to={`/projects/${project.id}`}
+        title={t('chat.project.open', { name: project.name })}
+        className="hidden max-w-[40%] shrink-0 truncate rounded-md px-1.5 py-1 text-muted hover:text-ink sm:block"
+        data-testid="chat-project"
+      >
+        {project.name}
+      </Link>
+      <span className="hidden text-faint sm:inline" aria-hidden>
+        /
+      </span>
+    </>
   )
 }
 
-/** The choices of the move dialog: no project, then each project the person can see (name and folder). */
-export function ProjectChoices({ projects, selected, onSelect }: { projects: readonly Project[]; selected: string | null; onSelect: (id: string | null) => void }) {
+/**
+ * The choices of the move dialog: no project, then each project the person can see (name and folder). The chat's own
+ * project when it is not among them (its folder can no longer be read, or it is in the trash) is a choice of its own,
+ * said as such: picking another one moves the chat out of it for good.
+ */
+export function ProjectChoices({ projects, selected, current, onSelect }: { projects: readonly Project[]; selected: string | null; current?: string | null; onSelect: (id: string | null) => void }) {
   const t = useT()
   const row = 'flex items-center gap-2.5 rounded-lg px-2 py-2 text-sm hover:bg-hover'
+  const hidden = current && !projects.some((p) => p.id === current) ? current : null
   return (
     <div role="radiogroup" aria-label={t('chat.project.title')} className="space-y-0.5" data-testid="chat-project-choices">
+      {hidden && (
+        <label className={row} data-testid="chat-project-hidden">
+          <input type="radio" name="chat-project" checked={selected === hidden} onChange={() => onSelect(hidden)} />
+          <FolderKanban size={14} className="shrink-0 text-faint" aria-hidden />
+          <span className="min-w-0 flex-1 text-muted">{t('chat.project.hidden')}</span>
+        </label>
+      )}
       <label className={row}>
         <input type="radio" name="chat-project" checked={selected === null} onChange={() => onSelect(null)} />
         <span className="text-muted">{t('chat.project.none')}</span>
@@ -59,7 +103,7 @@ export function MoveToProjectDialog({ chat, onClose, onMoved }: { chat: Chat; on
   const [error, setError] = useState<string | null>(null)
   useEffect(() => {
     let live = true
-    api.call(API.listProjects).then((r) => live && setProjects(r.items), (e) => { if (live) { setProjects([]); setError(errorText(e, locale, t('error.network'))) } })
+    api.call(API.listProjects).then((r) => { useProjects.getState().put(...r.items); if (live) setProjects(r.items) }, (e) => { if (live) { setProjects([]); setError(errorText(e, locale, t('error.network'))) } })
     return () => { live = false }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
@@ -96,8 +140,8 @@ export function MoveToProjectDialog({ chat, onClose, onMoved }: { chat: Chat; on
     >
       <p className="mb-3 text-sm text-muted">{t('chat.project.hint')}</p>
       {!projects && <Skeleton lines={3} />}
-      {projects && <ProjectChoices projects={projects} selected={selected} onSelect={setSelected} />}
-      {projects && !projects.length && !error && <p className="mt-2 text-sm text-faint">{t('chat.project.empty')}</p>}
+      {projects && <ProjectChoices projects={projects} selected={selected} current={chat.projectId} onSelect={setSelected} />}
+      {projects && !projects.length && !chat.projectId && !error && <p className="mt-2 text-sm text-faint">{t('chat.project.empty')}</p>}
       {error && (
         <p role="alert" className="mt-2 text-sm text-danger">
           {error}

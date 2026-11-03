@@ -6,7 +6,7 @@
 import { FolderInput, Globe, Loader2, Pencil, RotateCcw, Trash2 } from 'lucide-react'
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
-import type { Attachment, Chat, EngineId, Project } from '@mycel/shared/api'
+import type { Attachment, Chat, EngineId } from '@mycel/shared/api'
 import { api, API, errorText, isApiError } from '../lib/api'
 import { answerTooLong, choiceWaiting, composerAnswer, composerQuestion, picksOf } from '../lib/askAnswer'
 import { desktop, isDesktop, usePaneState } from '../lib/desktop'
@@ -24,7 +24,7 @@ import Composer, { type ComposerHandle, type EngineChoice } from '../components/
 import { useChatActions } from '../components/chat/chatActions'
 import { AssistantMessage, UserMessage } from '../components/chat/Messages'
 import QueuedMessages from '../components/chat/QueuedMessages'
-import { MoveToProjectDialog } from '../components/chat/ChatProject'
+import { ChatProjectCrumb, MoveToProjectDialog } from '../components/chat/ChatProject'
 import type { EnginePick } from '../components/chat/EngineMenu'
 import { TitleMenu } from '../components/TitleMenu'
 import { Button, ErrorNote, IconButton, Skeleton, confirmDialog, useAnnounce } from '../components/ui'
@@ -62,19 +62,10 @@ function ChatView({ chatId }: { chatId: string }) {
     if (chatFromList) setChat(chatFromList)
   }, [chatFromList])
 
-  // a chat in a project shows the project's name before its own, like Claude: its own name, and nothing for a project
-  // the person can no longer see (the chat can still be moved out of it from the title menu)
+  // the title menu's "Move to project…" (components/chat/ChatProject.tsx); the project's name before the title comes
+  // from the projects store there
   const projectId = chat?.projectId ?? null
-  const [project, setProject] = useState<Project | null>(null)
   const [movingProject, setMovingProject] = useState(false)
-  useEffect(() => {
-    if (!projectId) return setProject(null)
-    let live = true
-    api.call(API.getProject, { params: { id: projectId } }).then((p) => live && setProject(p), () => live && setProject(null))
-    return () => {
-      live = false
-    }
-  }, [projectId])
 
   useEffect(() => {
     if (choose) void loadEngines()
@@ -261,16 +252,7 @@ function ChatView({ chatId }: { chatId: string }) {
       {/* like the top of a Claude chat: the project it is in, then its name, which opens rename and delete */}
       <div className="flex h-12 shrink-0 items-center gap-2 border-b border-line px-4">
         <div className="flex min-w-0 flex-1 items-center justify-center gap-1 text-sm md:justify-start">
-          {project && project.id === projectId && (
-            <>
-              <Link to={`/projects/${project.id}`} title={t('chat.project.open', { name: project.name })} className="hidden max-w-[40%] shrink-0 truncate rounded-md px-1.5 py-1 text-muted hover:text-ink sm:block" data-testid="chat-project">
-                {project.name}
-              </Link>
-              <span className="hidden text-faint sm:inline" aria-hidden>
-                /
-              </span>
-            </>
-          )}
+          <ChatProjectCrumb projectId={projectId} />
           {chat && !chat.deletedAt ? (
             <TitleMenu
               name={title}
