@@ -8,7 +8,7 @@
 // (PARENT_ONLY_TOOLS); a scheduled run has nobody to finish a card and gets "skipped".
 import { z } from 'zod'
 import { ConnectServiceInput, hasSecret, uuidv7 } from '@mycel/shared'
-import { IntegrationInput, type Integration, type IntegrationAccess, type Locale, type TurnConnectBody, type TurnConnectResult, type TurnRequest } from '@mycel/shared/api'
+import { IntegrationInput, type Integration, type IntegrationAccess, type IntegrationPatch, type Locale, type TurnConnectBody, type TurnConnectResult, type TurnRequest } from '@mycel/shared/api'
 import type { AppContext } from '../context'
 import type { AuthInfo } from '../services'
 import type { McpContent } from '../turns'
@@ -16,7 +16,7 @@ import { fail } from '../http/errors'
 import { getTeamSettings } from '../admin/settings'
 import { unsealOrFail } from '../credentials/service'
 import { credentialsOf } from '../credentials/store'
-import { integrationsOf, MAX_PERSONAL, MAX_TEAM, normUrl, obviouslyPrivate, oneLine } from '../integrations/connections/service'
+import { cleanNotes, integrationsOf, MAX_PERSONAL, MAX_TEAM, normUrl, obviouslyPrivate, oneLine } from '../integrations/connections/service'
 import { activeUser, disabledTools, getRow, isAdmin, mayUse, savedTools, selectRows, view, type Row, type Viewer } from '../integrations/connections/store'
 import { googleDriveOf } from '../integrations/google-drive/oauth'
 import { DRIVE_TOOL_NAMES } from '../tools/drive'
@@ -24,8 +24,11 @@ import { tr } from './i18n'
 import type { TurnExec } from './turn'
 
 export const CONNECT_TOOL = 'connect_service'
-/** tool names the result lists at most (the AI gets them all as tools from the next message) */
+/** tool names the result lists at most (the AI gets them all as tools from the next message), and each one's length */
 const TOOLS_LISTED = 30
+const TOOL_NAME_MAX = 64
+/** the longest key the card takes (as IntegrationInput.secret) */
+const KEY_MAX = 8000
 
 /** How a connect_service card ended, from the card's route only (TurnExec.answer refuses anything else). */
 export const ConnectOutcome = z.union([
@@ -37,12 +40,11 @@ export type ConnectOutcome = z.infer<typeof ConnectOutcome>
 
 /** Kept on the turn beside an open card (TurnExec.connectCards). */
 export interface ConnectCard {
-  /** usage notes for an HTTP API, saved with the connection (not shown on the card) */
-  notes: string | null
   /** the connection this card made (another key after a failed check goes to it, never to a second one) */
   integrationId: string | null
-  /** a connect or done of this card is running (a second one meanwhile is refused) */
-  busy: boolean
+  /** a connect or done of this card that is running: a second one meanwhile is refused, and the tool waits for it after
+   * the card closed (its time ran out, Not now, the answer was stopped) before it says what the card made */
+  running: Promise<unknown> | null
 }
 
 type ToolOut = { content: McpContent[]; isError?: boolean; summary: string }
@@ -59,10 +61,13 @@ function connectedResult(exec: TurnExec, out: { name: string; status: string; to
   exec.patchToolStep(CONNECT_TOOL, () => ({ detail: tr('connectConnected', exec.spec.locale) }))
   return { content: json({ connected: true, ...out }), summary: `${CONNECT_TOOL} -> connected` }
 }
+/** a tool name as the service wrote it, for the AI to read: no control, format or line-separator characters (no hidden
+ * text, no direction overrides), at most TOOL_NAME_MAX characters */
+const toolName = (name: string) => [...name.replace(/[\p{Cc}\p{Cf}\p{Zl}\p{Zp}]/gu, '')].slice(0, TOOL_NAME_MAX).join('').trim()
 const toolNames = (exec: TurnExec, row: Row) => {
   if (row.kind !== 'mcp') return undefined
   const off = disabledTools(row)
-  return savedTools(exec.rt.db, row).filter((t) => !off.has(t.name)).slice(0, TOOLS_LISTED).map((t) => t.name)
+  return savedTools(exec.rt.db, row).filter((t) => !off.has(t.name)).map((t) => toolName(t.name)).filter(Boolean).slice(0, TOOLS_LISTED)
 }
 
 /** The tool: early answers without a card, else the card and the wait for the person. */
@@ -86,7 +91,6 @@ export async function connectService(exec: TurnExec, args: unknown): Promise<Too
   const why = a.data.why?.trim() ? oneLine(a.data.why) : undefined
   const expiresAt = () => new Date(Date.now() + rt.askUserTimeoutMs()).toISOString()
   let card: Extract<TurnRequest, { kind: 'connect_service' }>
-  let notes: string | null = null
 
   if (target === 'google_drive') {
     let d: ReturnType<ReturnType<typeof googleDriveOf>['status']>
@@ -125,10 +129,12 @@ export async function connectService(exec: TurnExec, args: unknown): Promise<Too
         : `It needs attention: ${dup.scope === 'team' ? 'an admin can fix it in Admin' : 'the person can fix its key or sign-in in Settings'} > External services.`
       return early(`${dup.scope === 'team' ? 'A team connection' : 'A connection of this person'} to this address already exists: "${dup.name}", ${stateOf(dup)}. ${fix} No card was shown.`, 'already exists', dup.status !== 'connected')
     }
-    notes = input.data.notes ?? null
+    // an HTTP API's usage notes go into api_request's description in later chats: the card shows them, and the
+    // connection is saved with exactly what it showed (cleaned as the store cleans them, so nothing changes on the way)
+    const notes = input.data.kind === 'http' ? cleanNotes(input.data.notes) : null
     card = {
       kind: 'connect_service', requestId: uuidv7(), target: 'service', name: oneLine(input.data.name), scope,
-      service: { kind: input.data.kind, url: address, host: new URL(address).host, auth: input.data.auth, authHeader }, ...(why ? { why } : {}), expiresAt: expiresAt(),
+      service: { kind: input.data.kind, url: address, host: new URL(address).host, auth: input.data.auth, authHeader }, ...(why ? { why } : {}), ...(notes ? { notes } : {}), expiresAt: expiresAt(),
     }
   }
 
@@ -137,10 +143,13 @@ export async function connectService(exec: TurnExec, args: unknown): Promise<Too
     exec.patchToolStep(CONNECT_TOOL, () => ({ detail: tr('connectNotConnected', L) }))
     return { content: json({ skipped: true, reason: 'a scheduled run: nobody is there to finish a card. Say in the result that the person can ask you to connect it in a chat.' }), summary: `${CONNECT_TOOL} -> skipped (scheduled run)` }
   }
-  const kept: ConnectCard = { notes, integrationId: null, busy: false }
+  const kept: ConnectCard = { integrationId: null, running: null }
   exec.connectCards.set(card.requestId, kept)
   let answer: unknown
   try { answer = await exec.waitForPerson(card, { timeoutMs: rt.askUserTimeoutMs() }) } finally { exec.connectCards.delete(card.requestId) }
+  // a connect still running when the card closed: what it makes is the answer (connected, or added but not working),
+  // never "skipped" for a connection that then appears
+  if (kept.running) await kept.running.catch(() => {})
   const o = ConnectOutcome.safeParse(answer)
   if (o.success && o.data.outcome === 'connected' && 'drive' in o.data) return connectedResult(exec, { name: 'Google Drive', status: 'connected', tools: [...DRIVE_TOOL_NAMES] })
   // the connection the card made, as it is now (the card's own id, not one the outcome names)
@@ -160,21 +169,22 @@ export async function finishCard(ctx: AppContext, exec: TurnExec | undefined, au
   const viewer = activeUser(ctx.db, auth.user.id) ?? fail('forbidden')
   // "not now" closes the card at any time. After a key that did not work, the connection this card made never worked,
   // so it goes again (the same removal as in Settings, audited). A connected one stays, so does one that a connect still
-  // running is making, and a card whose time ran out leaves its connection in Settings for the person to finish.
+  // running is making, one holding a finished sign-in that was not checked yet (the person signed in), and a card whose
+  // time ran out leaves its connection in Settings for the person to finish.
   if (body.action === 'skip') {
-    const made = !kept.busy && kept.integrationId ? getRow(ctx.db, kept.integrationId) : null
-    if (made && made.status !== 'connected') {
+    const made = !kept.running && kept.integrationId ? getRow(ctx.db, kept.integrationId) : null
+    if (made && made.status !== 'connected' && !(made.auth === 'oauth' && made.secret_enc)) {
       try { await integrationsOf(ctx).remove(viewer, made.id); kept.integrationId = null } catch { /* left in Settings; the AI is told so */ }
     }
     exec.answer(body.requestId, CONNECT_TOOL, { outcome: 'skipped' } satisfies ConnectOutcome)
     return { state: 'skipped' }
   }
-  if (kept.busy) return fail('conflict', tr('connectBusy', L))
+  if (kept.running) return fail('conflict', tr('connectBusy', L))
   if (card.scope === 'team' && !isAdmin(viewer.role)) return fail('forbidden', tr('connectTeamAdmin', L))
-  kept.busy = true
-  try {
-    return body.action === 'done' ? await done(ctx, exec, viewer, body.requestId, card, kept, L) : await connect(ctx, exec, viewer, body, card, kept, L)
-  } finally { kept.busy = false }
+  // set before the first await, so a second button meanwhile sees it; the tool waits for it after the card closed
+  const run = body.action === 'done' ? done(ctx, exec, viewer, body.requestId, card, kept, L) : connect(ctx, exec, viewer, body, card, kept, L)
+  kept.running = run
+  try { return await run } finally { kept.running = null }
 }
 
 type Card = Extract<TurnRequest, { kind: 'connect_service' }>
@@ -199,16 +209,24 @@ async function connect(ctx: AppContext, exec: TurnExec, viewer: Viewer, body: Ex
   // opened only here and handed straight to the store, which seals it for this connection (nothing keeps or logs it)
   const secret = keyed ? (await unsealOrFail(credentialsOf(ctx), body.sealed!, 'integration.secret', L)).trim() : undefined
   if (keyed && !secret) return fail('validation', tr('connectNeedsKey', L), { fields: { 'body.sealed': 'empty' } })
+  if (secret && secret.length > KEY_MAX) return fail('validation', tr('connectKeyTooLong', L, { n: String(KEY_MAX) }), { fields: { 'body.sealed': `longer than ${KEY_MAX} characters` } })
   const svc = integrationsOf(ctx)
   const mine = kept.integrationId ? getRow(ctx.db, kept.integrationId) : null
+  const access = card.scope === 'team' ? accessFor(body.access ?? 'me', viewer.id) : undefined
   let v: Integration
   if (mine) {
-    // again after a failed check: the same connection gets the new key (no second one)
-    v = secret !== undefined ? await svc.update(viewer, mine.id, { secret }, L) : s.auth === 'oauth' ? view(ctx.db, mine, viewer, L) : await svc.refresh(viewer, mine.id, L)
+    // again after a failed check: the same connection gets the new key (no second one), and a team card's "who may use
+    // it" as it is now goes the way Settings changes it (update: an admin, checked and audited)
+    const patch: IntegrationPatch = { ...(secret !== undefined ? { secret } : {}), ...(access && body.access ? { access } : {}) }
+    if (secret !== undefined) v = await svc.update(viewer, mine.id, patch, L)
+    else {
+      if (patch.access) await svc.update(viewer, mine.id, patch, L)
+      v = s.auth === 'oauth' ? view(ctx.db, getRow(ctx.db, mine.id) ?? mine, viewer, L) : await svc.refresh(viewer, mine.id, L)
+    }
   } else {
     v = await svc.create(viewer, {
-      kind: s.kind, name: card.name, url: s.url, auth: s.auth, authHeader: s.authHeader, notes: kept.notes, writePolicy: 'ask',
-      ...(secret !== undefined ? { secret } : {}), ...(card.scope === 'team' ? { access: accessFor(body.access ?? 'me', viewer.id) } : {}),
+      kind: s.kind, name: card.name, url: s.url, auth: s.auth, authHeader: s.authHeader, notes: card.notes ?? null, writePolicy: 'ask',
+      ...(secret !== undefined ? { secret } : {}), ...(access ? { access } : {}),
     }, card.scope, L)
     kept.integrationId = v.id
   }

@@ -81,17 +81,23 @@ never have to open Settings. Code: `server/src/chat/connect-service.ts` (the too
   leaves out anything that looks like one.
 - **Nothing is connected until the person presses the card's button.** The tool only opens a card, so an instruction
   planted in a page can make the AI open a card but never finish one. The AI learns only the outcome:
-  `{"connected": true, "name", "status", "tools"}` (up to 30 tool names) or `{"skipped": true}` (Not now, the card's
-  time ran out, the answer was stopped).
+  `{"connected": true, "name", "status", "tools"}` (up to 30 tool names, each cut to 64 characters, without control or
+  format characters) or `{"skipped": true}` (Not now, the card's time ran out, the answer was stopped). A connect still
+  running when the card closes is waited for, so the AI hears what it made (connected, or added but not working yet).
 - **The same path and checks as Settings** (`service.ts create`): personal connections switched off, the limits, https
   only, no private, local or office addresses, the header rules, the short name. A team connection only for an admin,
   with the role read again when the card is finished (the endpoint is for any signed-in person). "Just me" names the
   admin in the connection's rule (admins are not users of team connections otherwise); "Everyone" is everyone.
-- **The card says where the key goes**: the address's host, next to the key box. The key is stored for that one
-  connection and sent only to its address, as for any connection.
+- **The card says where it connects**: the host is the line under the title, then the whole address, for every case
+  (also no key and sign-in), with a caution when no word of the name (3+ letters or digits) is in the host. The key is
+  stored for that one connection and sent only to its address, as for any connection; a key over 8,000 characters is
+  refused. An HTTP API's `notes` (given to the AI in later chats) are on the card in full, read-only, and saved exactly
+  as shown.
 - **A wrong key keeps the card open.** The answer says why the check failed, and the next key goes to the same
-  connection (its key is replaced): one card makes one connection at most. "Not now" after a failed key removes that
-  connection again, the way Settings removes one (audited); a card whose time runs out leaves it in Settings.
+  connection (its key is replaced, and on a team card a changed "Who may use it" too, through the same update as
+  Settings): one card makes one connection at most. A second button while one runs is refused (409). "Not now" after a
+  failed key removes that connection again, the way Settings removes one (audited), but never one a connect is still
+  making or one holding a finished sign-in; a card whose time runs out leaves it in Settings.
 - **Answers without a card**, as text the AI can act on: a missing or bad field, an address that is not https or is
   private, personal connections off, a team connection asked for by a member, a connection to the same address that
   the person (or the team) already has (its name and state), the team limit, Google Drive not set up on this server
@@ -107,11 +113,15 @@ never have to open Settings. Code: `server/src/chat/connect-service.ts` (the too
   person's next message.
 - If the person pastes a key into the chat anyway, the AI tells them not to, that it should be revoked and replaced
   at the service, and offers the card (the instructions' rule, `prompt.ts` `CONNECT_RULE`). The web app also warns
-  before sending a message that looks like it holds a key.
+  before sending a message that almost surely holds a key (`hasLikelySecret`: known key prefixes, private keys, JWTs,
+  labelled values such as `password: …`; not random-looking text such as a commit hash or a document link).
 - Tests: `tests/unit/connect-service.test.ts` (every answer without a card; the card's fields; a wrong key and then
   the right one on one connection; a seal for another purpose; another person's turn; `/answer` refused; Not now, the
-  time running out, a scheduled run; a team connection with the role checked again; sign-in then done; the key and
-  the sealed value in no text, row, log or file of the data folder).
+  time running out, a scheduled run; a team connection with the role checked again and its access changed on a retry;
+  sign-in then done; Google Drive done; the notes on the card and as saved; a held check: two connects at once, the
+  time running out and Not now while it runs; Not now after a finished sign-in; the tool names; a long key; the key
+  and the sealed value in no text, row, log or file of the data folder). Who reaches a card: the permission matrix's
+  `connectTurn` case on a real card.
 
 ## Secrets
 

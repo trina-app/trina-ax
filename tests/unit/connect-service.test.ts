@@ -3,7 +3,10 @@
 // POST /api/turns/:id/connect and never reaches the AI. Real turns with the fake engine (tests/lib/b-fake-engine.ts):
 // early answers without a card, the card's fields, a sealed key making a personal connection (a wrong one first: the
 // same row gets the next key), a seal for another purpose, team connections for admins only, another person's turn,
-// /answer refused for these cards, skip, timeout, sign-in then done, and a scheduled run. Every text the server let
+// /answer refused for these cards, skip, timeout, sign-in then done, and a scheduled run. Also: an HTTP API's notes on
+// the card and saved as shown, a team card's "who may use it" changed on a retry, Google Drive finished with done,
+// a slow check (two connects at once, the card's time running out or "not now" while a connect runs), "not now"
+// after a finished sign-in, the tool names the AI is told, a key that is too long. Every text the server let
 // out or saved for these turns (answer, steps, audit lines, events, responses, rows, audit log, logs) is searched for
 // the key and the sealed value; a failure says where, never the key.
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from 'bun:test'
@@ -12,7 +15,7 @@ import path from 'node:path'
 import { API, type SealedSecret, type SealPurpose } from '@mycel/shared/api'
 import { startHarness, type Harness } from '../lib/b-harness'
 import { waitFor } from '../lib/wait'
-import { FakeServices, MCP_KEY } from '../lib/fake-services'
+import { API_KEY, FakeServices, MCP_KEY } from '../lib/fake-services'
 import { DRIVE_CONFIG, FakeGoogleDrive } from '../lib/fake-google-drive'
 import { sealSecret } from '../../web/src/lib/seal'
 import { createLogger } from '../../server/src/log'
@@ -20,6 +23,7 @@ import { credentialsOf } from '../../server/src/credentials/store'
 import { integrationsOf } from '../../server/src/integrations/connections/service'
 import { googleDriveOf } from '../../server/src/integrations/google-drive/oauth'
 import { CONNECT_RULE } from '../../server/src/chat/prompt'
+import { DRIVE_TOOL_NAMES } from '../../server/src/tools/drive'
 
 setDefaultTimeout(60_000)
 
@@ -78,6 +82,32 @@ async function post(user: string, turnId: string, body: unknown, path = 'connect
 const open = (user: string, chatId: string) => h.api(user).call(API.listTurnRequests, { params: { id: chatId } }).then((r) => r.items.map((i) => i.request.requestId))
 const rowsAt = (url: string) => h.ctx.db.query('SELECT id, scope, owner_user_id, status FROM integrations WHERE url = ?').all(url) as { id: string; scope: string; owner_user_id: string | null; status: string }[]
 const stepOf = (m: { steps: any[] }) => m.steps.find((s) => s.tool === 'connect_service')
+/** the tool's result as the fake engine said it in the answer */
+const resultOf = (m: { content: string }) => JSON.parse(m.content.slice(m.content.indexOf('{'), m.content.lastIndexOf('}') + 1))
+/** a web session of this person, for a sign-in (the flows are bound to one) */
+function session(user: string, id: string) {
+  const now = new Date().toISOString(), later = new Date(Date.now() + 3600_000).toISOString()
+  h.ctx.db.query('INSERT INTO sessions(id,user_id,token_hash,client,created_at,last_seen_at,expires_at) VALUES(?,?,?,?,?,?,?)').run(id, user, `${id}-hash`, 'web', now, now, later)
+}
+/** The service at `path` answers only once `go` is called: a check of a connection there runs until then (the
+ * fake's requests time out after 5 s). */
+function holdService(path: string) {
+  let release!: () => void
+  svc.hold = { path, until: new Promise<void>((r) => { release = r }) }
+  return { go: () => { svc.hold = null; release() } }
+}
+async function held<T>(path: string, fn: (go: () => void) => Promise<T>): Promise<T> {
+  const h = holdService(path)
+  try { return await fn(h.go) } finally { h.go() }
+}
+/** cards opened meanwhile close after `ms` (Admin can make it 30 s; the harness's own time is 6 s) */
+async function withCardTime<T>(ms: number, fn: () => Promise<T>): Promise<T> {
+  const o = (h.rt() as unknown as { o: { askUserTimeoutMs?: number } }).o
+  const before = o.askUserTimeoutMs
+  o.askUserTimeoutMs = ms
+  try { return await fn() } finally { o.askUserTimeoutMs = before }
+}
+const closedWhy = (requestId: string) => published.find((p) => p.ev.type === 'turn.request.closed' && p.ev.data.requestId === requestId)?.ev.data.reason as string | undefined
 
 /** Everything the server let out or saved, as one text, and whether it holds a key or a sealed value. */
 function leaksIn(turnIds: string[]): string[] {
@@ -108,7 +138,7 @@ function leaksIn(turnIds: string[]): string[] {
   expect(logs.length).toBeGreaterThan(0)
   const out: string[] = []
   for (const [where, text] of parts) {
-    if ([MCP_KEY, WRONG].some((k) => text.includes(k))) out.push(`${where}: a key`)
+    if ([MCP_KEY, API_KEY, WRONG].some((k) => text.includes(k))) out.push(`${where}: a key`)
     if (sealedSent.some((s) => text.includes(s.ct) || text.includes(s.epk))) out.push(`${where}: a sealed value`)
   }
   return out
@@ -320,5 +350,207 @@ describe('the card', () => {
     expect(m.content).toContain('"skipped":true')
     expect(m.content).toContain('scheduled run')
     expect(h.ctx.db.query("SELECT summary FROM tool_events WHERE turn_id = ? AND tool = 'connect_service'").get(started.turnId)).toEqual({ summary: 'connect_service -> skipped (scheduled run)' })
+  })
+})
+
+describe('what the card shows and saves', () => {
+  test('an HTTP API: the card shows the usage notes, and the connection is saved with exactly what it showed', async () => {
+    const url = `${svc.base}/api/v1?card=notes`
+    const notes = 'GET /tasks lists the tasks.\n\tPOST /tasks adds one.\u0007 Ask before you delete one.'
+    const t = await start('alice', { name: 'Tasks API', kind: 'http', url, auth: 'bearer', notes })
+    const card = await cardOf(t.turnId)
+    // in full, cleaned the way the store cleans them (a control character becomes a space; lines and tabs stay)
+    expect(card.notes).toBe('GET /tasks lists the tasks.\n\tPOST /tasks adds one.  Ask before you delete one.')
+    const r = await post('alice', t.turnId, { action: 'connect', requestId: card.requestId, sealed: await seal(API_KEY) })
+    expect(r.status).toBe(200)
+    const saved = h.ctx.db.query('SELECT notes FROM integrations WHERE id = ?').get(r.body.integrationId) as { notes: string }
+    expect(saved.notes).toBe(card.notes)
+    await doneOf(t.messageId)
+    // an MCP server has no notes: none on its card
+    const m = await start('alice', { name: 'Notes on MCP', kind: 'mcp', url: `${svc.base}/mcp-open?card=notes`, auth: 'none', notes: 'never shown' })
+    const mcpCard = await cardOf(m.turnId)
+    expect('notes' in mcpCard).toBe(false)
+    await post('alice', m.turnId, { action: 'skip', requestId: mcpCard.requestId })
+    expect(leaksIn([t.turnId])).toEqual([])
+  })
+
+  test('the tool names the AI is told: at most 30, each at most 64 characters, no control or format characters', async () => {
+    const before = svc.tools, pageSize = svc.pageSize
+    const tool = (name: string) => ({ name, description: 'x', inputSchema: { type: 'object' }, annotations: { readOnlyHint: true } })
+    svc.tools = [tool('\u200b\u2060'), tool('a'.repeat(100)), tool('b\u202eexe.txt'), tool('c\u200bzero\u2028line\u007f'), ...Array.from({ length: 40 }, (_, i) => tool(`tool_${i}`))]
+    svc.pageSize = 100
+    try {
+      const t = await start('alice', { name: 'Many tools', kind: 'mcp', url: `${svc.base}/mcp-open?card=names`, auth: 'none' })
+      const card = await cardOf(t.turnId)
+      expect((await post('alice', t.turnId, { action: 'connect', requestId: card.requestId })).body.state).toBe('connected')
+      const { tools } = resultOf(await doneOf(t.messageId)) as { tools: string[] }
+      expect(tools.length).toBe(30)
+      // the name of format characters only is left out; the others come cleaned and cut
+      expect(tools.slice(0, 4)).toEqual(['a'.repeat(64), 'bexe.txt', 'czeroline', 'tool_0'])
+      expect(tools.every((n) => n.length <= 64 && !/[\p{Cc}\p{Cf}\p{Zl}\p{Zp}]/u.test(n))).toBe(true)
+    } finally { svc.tools = before; svc.pageSize = pageSize }
+  })
+
+  test('a key over 8000 characters is refused after it is opened, and nothing is made', async () => {
+    const url = `${svc.base}/mcp-key?card=long`
+    const t = await start('alice', { name: 'Long key', kind: 'mcp', url, auth: 'bearer' })
+    const card = await cardOf(t.turnId)
+    const r = await post('alice', t.turnId, { action: 'connect', requestId: card.requestId, sealed: await seal('k'.repeat(8001)) })
+    expect(r.status).toBe(400)
+    expect(r.body.error.message).toBe('The key is too long (at most 8000 characters). Paste only the key the service gave you.')
+    expect(rowsAt(url)).toEqual([])
+    expect(await open('alice', t.chatId)).toEqual([card.requestId])
+    await post('alice', t.turnId, { action: 'skip', requestId: card.requestId })
+    await doneOf(t.messageId)
+  })
+})
+
+describe('the card, finished in other ways', () => {
+  test('team: "Just me" with a wrong key, then "Everyone" with the right one: everyone may use it', async () => {
+    const url = `${svc.base}/mcp-key?team=retry`
+    const t = await start('carol', { name: 'Team tasks', kind: 'mcp', url, auth: 'bearer', scope: 'team' })
+    const card = await cardOf(t.turnId)
+    const first = await post('carol', t.turnId, { action: 'connect', requestId: card.requestId, sealed: await seal(WRONG), access: 'me' })
+    expect(first.body.state).toBe('retry')
+    const id = first.body.integrationId as string
+    const access = () => h.ctx.db.query('SELECT subject_type, subject_id FROM integration_access WHERE integration_id = ? ORDER BY subject_type, subject_id').all(id)
+    expect(access()).toEqual([{ subject_type: 'user', subject_id: 'carol' }])
+    const second = await post('carol', t.turnId, { action: 'connect', requestId: card.requestId, sealed: await seal(MCP_KEY), access: 'everyone' })
+    expect(second.body).toMatchObject({ state: 'connected', integrationId: id, status: 'connected' })
+    expect(access()).toEqual([{ subject_type: 'everyone', subject_id: '' }])
+    expect(rowsAt(url).length).toBe(1)
+    // changed the way Settings changes it: one audited update with who could use it before and after
+    const updates = (h.ctx.db.query("SELECT detail FROM audit_log WHERE target = ? AND action = 'integration.update'").all(id) as { detail: string }[]).map((r) => JSON.parse(r.detail))
+    expect(updates.some((d) => d.changed.includes('access') && d.access.after.everyone === true && d.access.before.users.includes('carol'))).toBe(true)
+    // a member now has it
+    expect((await h.api('alice').call(API.listIntegrations)).items.map((i) => i.id)).toContain(id)
+    expect(resultOf(await doneOf(t.messageId))).toMatchObject({ connected: true, name: 'Team tasks' })
+    expect(leaksIn([t.turnId])).toEqual([])
+  })
+
+  test('Google Drive: done before it is connected keeps the card; done after it says connected', async () => {
+    const drive = new FakeGoogleDrive()
+    const d = googleDriveOf(h.ctx, { config: DRIVE_CONFIG, fetch: drive.fetch })
+    session('alice', 'cs-drive-card')
+    try {
+      const t = await start('alice', { name: 'My Drive', target: 'google_drive', why: 'to read your files' })
+      const card = await cardOf(t.turnId)
+      expect(card).toMatchObject({ target: 'google_drive', name: 'Google Drive', scope: 'personal', why: 'to read your files' })
+      expect(card.service).toBeUndefined()
+      // a Drive card has its own sign-in; "connect" is not for it
+      expect((await post('alice', t.turnId, { action: 'connect', requestId: card.requestId })).status).toBe(400)
+      expect((await post('alice', t.turnId, { action: 'done', requestId: card.requestId })).body).toEqual({ state: 'retry', lastError: 'Not connected yet. Finish signing in first.' })
+      expect(await open('alice', t.chatId)).toEqual([card.requestId])
+      const f = d.authorize('alice', 'cs-drive-card')
+      await d.callback(drive.authorize(f.authorizationUrl), { userId: 'alice', sessionId: 'cs-drive-card' })
+      d.complete('alice', 'cs-drive-card', f.flowId)
+      expect((await post('alice', t.turnId, { action: 'done', requestId: card.requestId })).body).toEqual({ state: 'connected' })
+      const m = await doneOf(t.messageId)
+      expect(resultOf(m)).toEqual({ connected: true, name: 'Google Drive', status: 'connected', tools: [...DRIVE_TOOL_NAMES] })
+      expect(stepOf(m).detail).toBe('Connected')
+    } finally {
+      await d.disconnect('alice').catch(() => {})
+      googleDriveOf(h.ctx, { config: null })
+    }
+  })
+
+  test('two connects at once: the second is refused while the first checks', async () => {
+    const url = `${svc.base}/mcp-key?card=busy`
+    const t = await start('alice', { name: 'Busy tasks', kind: 'mcp', url, auth: 'bearer' })
+    const card = await cardOf(t.turnId)
+    await held('/mcp-key', async (go) => {
+      const first = post('alice', t.turnId, { action: 'connect', requestId: card.requestId, sealed: await seal(MCP_KEY) })
+      // the first one made its connection and is checking it now (the service holds its answer)
+      await waitFor(() => rowsAt(url).length === 1, { what: 'the first connect is running' })
+      const second = await post('alice', t.turnId, { action: 'connect', requestId: card.requestId, sealed: await seal(WRONG) })
+      expect(second.status).toBe(409)
+      expect(second.body.error.message).toBe('This card is connecting right now. Wait a moment.')
+      expect((await post('alice', t.turnId, { action: 'done', requestId: card.requestId })).status).toBe(409)
+      go()
+      expect((await first).body).toMatchObject({ state: 'connected', status: 'connected' })
+    })
+    expect(rowsAt(url).length).toBe(1)
+    expect(resultOf(await doneOf(t.messageId))).toMatchObject({ connected: true, name: 'Busy tasks' })
+  })
+
+  test('the card\'s time runs out while a connect runs: the AI is told what it made, not "skipped"', async () => {
+    const url = `${svc.base}/mcp-key?card=slow`
+    await withCardTime(1500, async () => {
+      const t = await start('alice', { name: 'Slow tasks', kind: 'mcp', url, auth: 'bearer' })
+      const card = await cardOf(t.turnId)
+      await held('/mcp-key', async (go) => {
+        const res = post('alice', t.turnId, { action: 'connect', requestId: card.requestId, sealed: await seal(MCP_KEY) })
+        // the card closes by its timer while the check is held
+        expect(await waitFor(() => closedWhy(card.requestId), { what: 'the card closed' })).toBe('timeout')
+        expect(rowsAt(url).length).toBe(1)
+        go()
+        expect((await res).body).toMatchObject({ state: 'connected', status: 'connected' })
+        const m = await doneOf(t.messageId)
+        expect(resultOf(m)).toMatchObject({ connected: true, name: 'Slow tasks', status: 'connected' })
+        expect(stepOf(m).detail).toBe('Connected')
+      })
+    })
+    // and a key that does not work: "added but not working yet", never a bare "skipped"
+    const url2 = `${svc.base}/mcp-key?card=slow-wrong`
+    await withCardTime(1500, async () => {
+      const t = await start('alice', { name: 'Slow wrong', kind: 'mcp', url: url2, auth: 'bearer' })
+      const card = await cardOf(t.turnId)
+      await held('/mcp-key', async (go) => {
+        const res = post('alice', t.turnId, { action: 'connect', requestId: card.requestId, sealed: await seal(WRONG) })
+        expect(await waitFor(() => closedWhy(card.requestId), { what: 'the card closed' })).toBe('timeout')
+        go()
+        expect((await res).body.state).toBe('retry')
+        const r = resultOf(await doneOf(t.messageId))
+        expect(r.skipped).toBe(true)
+        expect(r.reason).toContain('"Slow wrong" was added but is not working yet')
+      })
+    })
+    // left in Settings, as for any card whose time ran out
+    expect(rowsAt(url2).length).toBe(1)
+  })
+
+  test('"not now" while a connect runs: that connection stays, and the AI is told what it made', async () => {
+    const url = `${svc.base}/mcp-key?card=skip-running`
+    const t = await start('alice', { name: 'Skip tasks', kind: 'mcp', url, auth: 'bearer' })
+    const card = await cardOf(t.turnId)
+    await held('/mcp-key', async (go) => {
+      const first = post('alice', t.turnId, { action: 'connect', requestId: card.requestId, sealed: await seal(WRONG) })
+      await waitFor(() => rowsAt(url).length === 1, { what: 'the connect is running' })
+      expect((await post('alice', t.turnId, { action: 'skip', requestId: card.requestId })).body).toEqual({ state: 'skipped' })
+      expect(closedWhy(card.requestId)).toBe('answered')
+      go()
+      expect((await first).body.state).toBe('retry')
+    })
+    // not removed under the running connect; the AI hears it was added
+    expect(rowsAt(url).length).toBe(1)
+    expect(h.ctx.db.query("SELECT 1 FROM audit_log WHERE target = ? AND action = 'integration.delete'").get(rowsAt(url)[0]!.id)).toBeNull()
+    const r = resultOf(await doneOf(t.messageId))
+    expect(r.skipped).toBe(true)
+    expect(r.reason).toContain('"Skip tasks" was added but is not working yet')
+  })
+
+  test('"not now" right after the sign-in finished, before its check: the connection and its sign-in stay', async () => {
+    const url = `${svc.base}/mcp-oauth?card=signed-in`
+    const t = await start('alice', { name: 'Board two', kind: 'mcp', url, auth: 'oauth' })
+    const card = await cardOf(t.turnId)
+    const r = await post('alice', t.turnId, { action: 'connect', requestId: card.requestId })
+    expect(r.body.state).toBe('sign_in')
+    const id = r.body.integrationId as string
+    session('alice', 'cs-oauth-card')
+    const ints = integrationsOf(h.ctx)
+    const f = await ints.authorize({ id: 'alice', role: 'member' }, 'cs-oauth-card', id, 'https://team.example.test', 'en')
+    const stored = () => h.ctx.db.query('SELECT status, secret_enc IS NOT NULL AS signed FROM integrations WHERE id = ?').get(id) as { status: string; signed: number } | null
+    await held('/mcp-oauth', async (go) => {
+      const signedIn = ints.callback(svc.authorize(f.authorizationUrl), { userId: 'alice', sessionId: 'cs-oauth-card' })
+      // the sign-in is stored and its check waits for the service
+      await waitFor(() => stored()?.signed === 1, { what: 'the sign-in is stored' })
+      expect(stored()!.status).toBe('needs_auth')
+      expect((await post('alice', t.turnId, { action: 'skip', requestId: card.requestId })).body).toEqual({ state: 'skipped' })
+      go()
+      expect(await signedIn).toBe(true)
+    })
+    expect(stored()).toEqual({ status: 'connected', signed: 1 })
+    expect(h.ctx.db.query("SELECT 1 FROM audit_log WHERE target = ? AND action = 'integration.delete'").get(id)).toBeNull()
+    expect(resultOf(await doneOf(t.messageId)).skipped).toBe(true)
   })
 })

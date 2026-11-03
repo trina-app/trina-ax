@@ -20,6 +20,17 @@ export function connectCase(r: ConnectServiceRequest): ConnectCase {
   return auth === 'bearer' || auth === 'header' ? 'key' : auth === 'oauth' ? 'sign_in' : 'none'
 }
 
+/** The words of a service's name that can name its site: letters and digits, 3+ characters, in lower case. */
+const nameWords = (name: string) => (name.toLowerCase().match(/[\p{L}\p{N}]+/gu) ?? []).filter((w) => [...w].length >= 3)
+
+/** Whether the address is not on the service's own site: no word of its name is in the host ("GitHub" at
+ * github-mcp.evil.example is on it, at mcp.example.org it is not). The AI chose both, so the card asks the person to
+ * check the address; a nudge, not a proof (a name with no such word always gets it). */
+export function hostOffName(name: string, host: string): boolean {
+  const h = host.toLowerCase()
+  return !nameWords(name).some((w) => h.includes(w))
+}
+
 /** a personal connection sends no access; a team one says who may use it */
 const accessOf = (r: ConnectServiceRequest, access: ConnectAccess) => (r.scope === 'team' ? { access } : {})
 

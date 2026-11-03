@@ -152,9 +152,9 @@ export class TurnExec {
   private activeMs = 0
   private humanWaits = 0
   private requests = new Map<string, OpenRequest>()
-  /** what the server keeps beside an open connect_service card (chat/connect-service.ts), by its request id: the AI's
-   * usage notes (not on the card) and the connection the card made, so another key after a failed check goes to that
-   * same connection (docs/INTEGRATIONS.md "Connecting from a chat") */
+  /** what the server keeps beside an open connect_service card (chat/connect-service.ts), by its request id: the
+   * connection the card made, so another key after a failed check goes to that same connection, and the connect still
+   * running, which the tool waits for (docs/INTEGRATIONS.md "Connecting from a chat") */
   readonly connectCards = new Map<string, ConnectCard>()
   private lastFileEvent = 0
   private registered = false

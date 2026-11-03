@@ -134,10 +134,13 @@ export const ConnectServiceRequest = z.object({
   name: z.string(),
   /** personal: only this person uses it; team: an admin adds it for the team and picks who may use it */
   scope: IntegrationScope,
-  /** target 'service': the connection the AI filled in. host = the address's host, shown next to the key box */
+  /** target 'service': the connection the AI filled in. host = the address's host, the card's main line */
   service: z.object({ kind: IntegrationKind, url: z.string(), host: z.string(), auth: IntegrationAuth, authHeader: z.string().nullable() }).optional(),
   /** the AI's one line on what it is for */
   why: z.string().optional(),
+  /** an HTTP API's usage notes as the AI wrote them: saved with the connection exactly as here and given to the AI in
+   * later chats (api_request's description), so the card shows them before the person connects */
+  notes: z.string().optional(),
   /** when the card closes by itself (the AI then continues without it) */
   expiresAt: z.string().optional(),
 })

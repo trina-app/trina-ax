@@ -1,13 +1,15 @@
-// A key typed into the message box (docs/INTEGRATIONS.md "Connecting from a chat"): before sending text that looks
-// like a key or password (shared/src/secrets.ts hasSecret), the box says that a message goes to the AI provider and
-// stays in the chat, and points to the connect card. "Send anyway" sends it as it is; "Edit" goes back to the text.
+// A key typed into the message box (docs/INTEGRATIONS.md "Connecting from a chat"): before sending text that is almost
+// surely a key or password (shared/src/secrets.ts hasLikelySecret: a known key prefix, a private key, a JWT, a labelled
+// value such as "password: …"), the box says that a message goes to the AI provider and stays in the chat, and points
+// to the connect card. "Send anyway" sends it as it is; "Edit" goes back to the text. Not the broader hasSecret of
+// titles: a commit hash, a Google Docs link or a generated folder name must not hold a message back.
 import { ShieldAlert } from 'lucide-react'
-import { hasSecret } from '@mycel/shared'
+import { hasLikelySecret } from '@mycel/shared'
 import { useT } from '../../i18n'
 import { Button } from '../ui'
 
-/** Whether sending this text waits for "Send anyway": it looks like a key or a password. */
-export const holdForSecret = (text: string): boolean => hasSecret(text)
+/** Whether sending this text waits for "Send anyway": it is almost surely a key or a password. */
+export const holdForSecret = (text: string): boolean => hasLikelySecret(text)
 
 export function SecretWarning({ onSendAnyway, onEdit }: { onSendAnyway: () => void; onEdit: () => void }) {
   const t = useT()

@@ -1,5 +1,8 @@
 // connect_service: the AI filled in a connection to a service (or Google Drive) and the person finishes it here
 // (docs/INTEGRATIONS.md "Connecting from a chat"). Nothing is connected until the person presses this card's button.
+// The AI chose the address, so where it connects is the card's main line (the host, then the full address), with a
+// caution when no word of the name is in the host; an HTTP API's usage notes, which are saved with the connection and
+// given to the AI in later chats, are shown in full (read-only, scrolling) before the person connects.
 // By case (lib/connectCard.ts): paste a key into the password box (sealed in this browser, lib/seal.ts, and sent only
 // to POST /api/turns/:id/connect; the box says where it goes and that the AI never sees it), sign in at the service
 // (a window reserved during the click, like Settings > External services: useSignIn), connect with nothing to give,
@@ -7,11 +10,11 @@
 // "Not now" skips. A failed check keeps the card and the box for another key. The card closes when the server sends
 // turn.request.closed, and right away here after a connected or skipped answer. Never answered from the message box.
 import clsx from 'clsx'
-import { Lock, LogIn, Plug } from 'lucide-react'
+import { Globe, Lock, LogIn, Plug, TriangleAlert } from 'lucide-react'
 import { useId, useState } from 'react'
 import type { TurnConnectResult } from '@mycel/shared/api'
 import { errorText, isApiError } from '../../lib/api'
-import { connectCase, connectWithKey, connectWithoutKey, finishConnect, skipConnect, type ConnectAccess, type ConnectServiceRequest } from '../../lib/connectCard'
+import { connectCase, connectWithKey, connectWithoutKey, finishConnect, hostOffName, skipConnect, type ConnectAccess, type ConnectServiceRequest } from '../../lib/connectCard'
 import { mobileApp } from '../../lib/mobile'
 import { canSeal } from '../../lib/seal'
 import { useLocale, useT } from '../../i18n'
@@ -173,11 +176,40 @@ export default function ConnectCard({ request: r }: { request: ConnectServiceReq
         {team && <Badge tone="accent">{t('connect.team')}</Badge>}
       </div>
       <div className="space-y-3 px-4 pt-3 pb-3 text-sm">
-        {r.why && <p className="whitespace-pre-wrap text-muted [overflow-wrap:anywhere]">{r.why}</p>}
         {service && (
-          <p className="truncate font-mono text-xs text-faint" title={service.url} data-testid="connect-url">
-            {service.url}
-          </p>
+          <div data-testid="connect-address">
+            <p className="flex items-start gap-1.5 font-semibold text-ink" data-testid="connect-host">
+              <Globe size={14} className="mt-0.5 shrink-0 text-muted" aria-hidden />
+              <span className="min-w-0 [overflow-wrap:anywhere]">{host}</span>
+            </p>
+            {/* the whole address: a long one scrolls, never cut */}
+            <p className="scroll-thin mt-0.5 max-h-16 overflow-y-auto font-mono text-xs text-faint [overflow-wrap:anywhere]" data-testid="connect-url">
+              {service.url}
+            </p>
+            {hostOffName(r.name, host) && (
+              <p className="mt-1.5 flex items-start gap-1.5 text-xs text-warn" data-testid="connect-host-caution">
+                <TriangleAlert size={12} className="mt-0.5 shrink-0" aria-hidden />
+                <span className="min-w-0 [overflow-wrap:anywhere]">{t('connect.hostCaution', { name: r.name })}</span>
+              </p>
+            )}
+          </div>
+        )}
+        {r.why && <p className="whitespace-pre-wrap text-muted [overflow-wrap:anywhere]">{r.why}</p>}
+        {r.notes && (
+          <div data-testid="connect-notes">
+            <p id={`${id}-notes`} className="mb-1 text-xs font-medium text-ink">
+              {t('connect.notes')}
+            </p>
+            <pre
+              className="scroll-thin max-h-40 overflow-auto rounded-lg border border-line bg-subtle px-3 py-2 font-mono text-xs whitespace-pre-wrap text-muted [overflow-wrap:anywhere]"
+              role="group"
+              aria-labelledby={`${id}-notes`}
+              tabIndex={0}
+              data-testid="connect-notes-text"
+            >
+              {r.notes}
+            </pre>
+          </div>
         )}
 
         {kase === 'key' && (
@@ -212,7 +244,7 @@ export default function ConnectCard({ request: r }: { request: ConnectServiceReq
         {kase === 'sign_in' && (
           <p className="flex items-start gap-1.5 text-muted" data-testid="connect-where">
             <Lock size={14} className="mt-0.5 shrink-0" aria-hidden />
-            <span className="min-w-0 [overflow-wrap:anywhere]">{t('connect.signInWhere', { host })}</span>
+            <span className="min-w-0 [overflow-wrap:anywhere]">{t('connect.signInWhere', { name: r.name })}</span>
           </p>
         )}
         {kase === 'sign_in' && phone && <p className="text-xs text-faint">{t('integrations.signIn.phone')}</p>}

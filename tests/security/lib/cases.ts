@@ -127,9 +127,15 @@ export const SPECS: Record<string, Spec> = {
   listTurnRequests: { build: (c, w) => c.get(`/api/chats/${w.ids.chatB}/requests`), scope: 'own-alice-chat' },
   answerTurn: { build: (c, w) => c.post(`/api/turns/${w.ids.turnB}/answer`, { kind: 'ask_user', requestId: w.ids.requestB, answer: 'from intruder' }), scope: 'own-alice-chat',
     check: (r, w, who) => { if (who !== 'memberIn' && r.status < 300) throw new Error(`${who} answered alice's card`) } },
-  // a connect_service card of alice's turn: only alice may finish it (a skip is enough to show who reaches it)
-  connectTurn: { build: (c, w) => c.post(`/api/turns/${w.ids.turnB}/connect`, { action: 'skip', requestId: w.ids.requestB }), scope: 'own-alice-chat',
-    check: (r, w, who) => { if (who !== 'memberIn' && r.status < 300) throw new Error(`${who} finished alice's connect card`) } },
+  // an open connect_service card of alice's turn (buildWorld's connectCard option, which the matrix sets): only alice
+  // may finish it. A skip is enough to show who reaches it: anyone else who got through would close it (2xx). Alice's
+  // own skip runs in phase 2 and closes it (or meets a card whose time ran out: 409).
+  connectTurn: { build: (c, w) => c.post(`/api/turns/${w.ids.turnConnect}/connect`, { action: 'skip', requestId: w.ids.requestConnect }), scope: 'own-alice-chat',
+    check: (r, w, who) => {
+      if (!w.ids.turnConnect) throw new Error('the world has no connect_service card (buildWorld connectCard)')
+      if (who !== 'memberIn' && r.status < 300) throw new Error(`${who} finished alice's connect card`)
+      if (who === 'memberIn' && r.status !== 409 && !(r.status === 200 && r.json?.state === 'skipped')) throw new Error(`alice could not finish her own connect card: ${r.status}`)
+    } },
   listProjects: { build: (c) => c.get('/api/projects'), scope: 'self',
     check: (r, w, who) => { if (who !== 'memberIn' && r.text.includes(C.aliceProjInstr)) throw new Error(`${who} sees alice's private-folder project`) } },
   createProject: { build: (c) => c.post('/api/projects', { name: 'p', folderPath: 'shared', instructions: '' }), scope: 'shared' },

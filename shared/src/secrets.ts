@@ -93,10 +93,8 @@ export function looksRandom(run: string): boolean {
   return mixedCase(alnum) && avg < 2.2
 }
 
-/** Every secret-looking part of the text, sorted, overlaps merged. */
-export function findSecrets(text: string): SecretSpan[] {
-  const spans: SecretSpan[] = []
-  for (const p of PATTERNS) {
+function patternSpans(text: string, patterns: readonly Pattern[], spans: SecretSpan[]) {
+  for (const p of patterns) {
     p.re.lastIndex = 0
     for (let m = p.re.exec(text); m; m = p.re.exec(text)) {
       if (m[0].length === 0) { p.re.lastIndex++; continue }
@@ -109,6 +107,23 @@ export function findSecrets(text: string): SecretSpan[] {
       } else spans.push({ start: m.index, end: m.index + m[0].length, kind: p.kind })
     }
   }
+}
+
+function merged(spans: SecretSpan[]): SecretSpan[] {
+  spans.sort((a, b) => a.start - b.start || b.end - a.end)
+  const out: SecretSpan[] = []
+  for (const s of spans) {
+    const last = out[out.length - 1]
+    if (last && s.start <= last.end) last.end = Math.max(last.end, s.end)
+    else out.push({ ...s })
+  }
+  return out
+}
+
+/** Every secret-looking part of the text, sorted, overlaps merged. */
+export function findSecrets(text: string): SecretSpan[] {
+  const spans: SecretSpan[] = []
+  patternSpans(text, PATTERNS, spans)
   NAMED.lastIndex = 0
   for (let m = NAMED.exec(text); m; m = NAMED.exec(text)) {
     if (namedKey(m[0])) spans.push({ start: m.index, end: m.index + m[0].length, kind: 'named-key' })
@@ -123,18 +138,37 @@ export function findSecrets(text: string): SecretSpan[] {
   for (let m = RUN.exec(text); m; m = RUN.exec(text)) {
     if (looksRandom(m[0])) spans.push({ start: m.index, end: m.index + m[0].length, kind: 'random' })
   }
-  spans.sort((a, b) => a.start - b.start || b.end - a.end)
-  const out: SecretSpan[] = []
-  for (const s of spans) {
-    const last = out[out.length - 1]
-    if (last && s.start <= last.end) last.end = Math.max(last.end, s.end)
-    else out.push({ ...s })
-  }
-  return out
+  return merged(spans)
 }
 
 export function hasSecret(text: string): boolean {
   return findSecrets(text).length > 0
+}
+
+// Only what is almost surely a secret, for a warning that holds back what a person sends (the message box): a
+// known key or token prefix, a private key block, a JWT, "Bearer <token>", a password inside an address, and a value
+// after a word that names one ("password: …", "API key = …", "비밀번호: …"). Not random-looking runs, named test keys
+// or a provider prefix alone: a commit hash, a Google Docs link or a folder with a generated name is ordinary text
+// there. findSecrets (titles) stays as it is: it errs towards finding, since a find only hides text.
+const LIKELY_KINDS = new Set(['private-key', 'anthropic', 'openai', 'stripe', 'github', 'gitlab', 'slack', 'aws', 'google', 'ai-pm', 'npm', 'huggingface', 'jwt', 'bearer', 'url-credentials'])
+const LIKELY: Pattern[] = [
+  ...PATTERNS.filter((p) => LIKELY_KINDS.has(p.kind)),
+  {
+    kind: 'labelled',
+    re: /(?:password|passwd|passphrase|pwd|secret|api[ _-]?key|access[ _-]?key|private[ _-]?key|token|비밀번호|비번|패스워드|암호|토큰|인증키|kata ?sandi)["']?\s*[:=]\s*["']?([\x21-\x7e]{4,})/gi,
+    group: 1,
+  },
+]
+
+/** The parts of the text that are almost surely a secret (see LIKELY above), sorted, overlaps merged. */
+export function findLikelySecrets(text: string): SecretSpan[] {
+  const spans: SecretSpan[] = []
+  patternSpans(text, LIKELY, spans)
+  return merged(spans)
+}
+
+export function hasLikelySecret(text: string): boolean {
+  return findLikelySecrets(text).length > 0
 }
 
 /** The text with each secret-looking part replaced (default: removed). */

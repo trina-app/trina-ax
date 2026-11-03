@@ -2,7 +2,7 @@
 // and long random-looking tokens are found and masked; normal Korean / English sentences, file paths, e-mail addresses,
 // dates, UUIDs, names and short ids are not. (A pasted admin token became a chat title on screen, 2026-10-28.)
 import { describe, expect, test } from 'bun:test'
-import { findSecrets, hasSecret, looksRandom, maskSecrets, namedKey } from '@mycel/shared'
+import { findLikelySecrets, findSecrets, hasLikelySecret, hasSecret, looksRandom, maskSecrets, namedKey } from '@mycel/shared'
 
 // made-up values in the shapes of real ones (none of them is a working key). Provider prefixes are joined at run time
 // so that secret scanners (GitHub push protection) do not take this file for a leak.
@@ -158,5 +158,36 @@ describe('named test keys and prefixed keys', () => {
     expect(namedKey(k('QA-FAKE-', 'VALUE-0000'))).toBe(false) // no key word
     expect(namedKey(k('FAKE-', 'KEY'))).toBe(false) // two parts only
     expect(namedKey(k('fake-', 'key-value'))).toBe(false) // lower case without a digit part: a slug
+  })
+})
+
+// The message box's warning (web SecretWarning) uses only what is almost surely a secret: known prefixes, a private key
+// block, a JWT, Bearer, a password in an address, a labelled value. A random-looking run alone is not enough there.
+describe('likely secrets (the message box)', () => {
+  const RANDOM_ONLY = new Set(['hex token', 'base62 token', 'base64 secret', 'AWS secret key'])
+  test('every known kind of key is found; a random-looking run alone is not', () => {
+    for (const [name, value] of Object.entries(SECRETS)) expect({ name, likely: hasLikelySecret(`키 ${value} 연결해줘`) }).toEqual({ name, likely: !RANDOM_ONLY.has(name) })
+  })
+
+  test('labelled values, private keys, Bearer, a password in an address', () => {
+    for (const text of ['password: hunter22', 'DB_PASSWORD=s3cr3t!', '비밀번호: abcd1234', 'api_key = "abc12345"', 'API key: abcd1234', 'apikey=abcd1234', 'pwd=Tr0ub4dor', 'secret=abc12345', 'token: abc123def',
+      'Authorization: Bearer abc123def456ghi789', '-----BEGIN RSA PRIVATE KEY-----\nMIIEow==', 'https://admin:pa55word@db.example.com/x'])
+      expect({ text, likely: hasLikelySecret(text) }).toEqual({ text, likely: true })
+    // only the value, as for titles
+    expect(findLikelySecrets('my API key: abcd1234 thanks').map((s) => s.kind)).toEqual(['labelled'])
+  })
+
+  test('not: a commit hash, a Google Docs link, a generated folder name, a named test key, ordinary text', () => {
+    const ordinary = [
+      'Merged in 5c6de5a19f3b4e7d8a9b0c1d2e3f4a5b6c7d8e9f, see the log',
+      'https://docs.google.com/document/d/1Xy7Kq2vR9bT4mZ8nL3pW6sA0dF5gH1jE/edit',
+      '/Users/sam/Downloads/a8F3k29dK3xQ7mZ1pL0v/report.pdf',
+    ]
+    for (const text of ordinary) {
+      expect({ text, likely: hasLikelySecret(text) }).toEqual({ text, likely: false })
+      expect(hasSecret(text)).toBe(true) // titles still hide them: findSecrets is unchanged
+    }
+    for (const text of [...NORMAL, k('QA-FAKE-', 'KEY-0000-NOT-REAL'), 'Use the OPENAI_API_KEY environment variable from the docs'])
+      expect({ text, likely: hasLikelySecret(text) }).toEqual({ text, likely: false })
   })
 })

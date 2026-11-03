@@ -47,6 +47,7 @@ export const TEXT = {
   connectNeedsKey: t('먼저 카드에 키를 붙여 넣어 주세요.', 'Paste the key into the card first.', 'Tempel kuncinya di kartu terlebih dahulu.', "先にカードにキーを貼り付けてください。", "Pegue primero la clave en la tarjeta."),
   connectTeamAdmin: t('팀 연결은 관리자만 추가할 수 있어요.', 'Only an admin can add a team connection.', 'Hanya admin yang bisa menambahkan koneksi tim.', "チームの接続を追加できるのは管理者のみです。", "Solo un administrador puede añadir una conexión del equipo."),
   connectNotYet: t('아직 연결되지 않았어요. 로그인을 먼저 마쳐 주세요.', 'Not connected yet. Finish signing in first.', 'Belum terhubung. Selesaikan masuk terlebih dahulu.', "まだ接続されていません。先にサインインを完了してください。", "Aún no está conectado. Termine primero de iniciar sesión."),
+  connectKeyTooLong: t('키가 너무 길어요(최대 {n}자). 서비스에서 받은 키만 붙여 넣어 주세요.', 'The key is too long (at most {n} characters). Paste only the key the service gave you.', 'Kuncinya terlalu panjang (paling banyak {n} karakter). Tempel hanya kunci dari layanan.', "キーが長すぎます（最大{n}文字）。サービスから受け取ったキーだけを貼り付けてください。", "La clave es demasiado larga (como máximo {n} caracteres). Pegue solo la clave que le dio el servicio."),
 
   // answer errors (message.error)
   errAuth: CHAT_ERROR_MESSAGES.auth,
