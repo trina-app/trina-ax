@@ -73,6 +73,13 @@ describe('connect_service steps', () => {
     expect(stepLabel('connect_service', INPUT.connect_service, 'en', NONE)).toBe('Connect service · Higgsfield')
     expect(stepLabel('connect_service', { target: 'google_drive', name: 'my drive' }, 'ko', NONE)).toBe('서비스 연결 · Google Drive')
     expect(stepLabel('connect_service', { name: 'Linear sk-live-4f9a8b7c6d5e4f3a2b1c' }, 'en', NONE).includes('sk-live')).toBe(false)
+    // no name, an empty one, one that is not text or only characters that show nothing: the verb alone
+    for (const input of [{}, { name: '' }, { name: '   ' }, { name: 42 }, { name: { x: 1 } }, { name: '\u200b\u202e\u{E0041}' }])
+      expect(stepLabel('connect_service', input, 'en', NONE)).toBe('Connect service')
+    expect(localizeStep({ kind: 'tool', tool: 'connect_service', label: 'Connect service' }, 'ko').label).toBe('서비스 연결')
+    // hidden characters leave the label; emoji stay whole
+    expect(stepLabel('connect_service', { name: 'Tas\u200bks\u202e' }, 'en', NONE)).toBe('Connect service · Tasks')
+    expect(stepLabel('connect_service', { name: '👩‍💻 Dev' }, 'en', NONE)).toBe('Connect service · 👩‍💻 Dev')
     const ko = stepLabel('connect_service', INPUT.connect_service, 'ko', NONE)
     expect(localizeStep({ kind: 'tool', tool: 'connect_service', label: ko, detail: '연결됨' }, 'en')).toEqual({ label: 'Connect service · Higgsfield', detail: 'Connected' })
     expect(localizeStep({ kind: 'tool', tool: 'connect_service', label: ko, detail: 'Not connected' }, 'ja').detail).toBe('未接続')

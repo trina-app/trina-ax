@@ -1,8 +1,9 @@
 // connect_service: the AI filled in a connection to a service (or Google Drive) and the person finishes it here
 // (docs/INTEGRATIONS.md "Connecting from a chat"). Nothing is connected until the person presses this card's button.
-// The AI chose the address, so where it connects is the card's main line (the host, then the full address), with a
-// caution when no word of the name is in the host; an HTTP API's usage notes, which are saved with the connection and
-// given to the AI in later chats, are shown in full (read-only, scrolling) before the person connects.
+// The AI chose the address, so where it connects is the card's main line (the host, then the full address and what kind
+// of connection it is, with the header a key goes in), with a caution when no word of the name is in the host; the
+// title shows the whole name. An HTTP API's usage notes, which are saved with the connection and given to the AI in
+// later chats, are shown in full (read-only, scrolling) before the person connects.
 // By case (lib/connectCard.ts): paste a key into the password box (sealed in this browser, lib/seal.ts, and sent only
 // to POST /api/turns/:id/connect; the box says where it goes and that the AI never sees it), sign in at the service
 // (a window reserved during the click, like Settings > External services: useSignIn), connect with nothing to give,
@@ -168,9 +169,10 @@ export default function ConnectCard({ request: r }: { request: ConnectServiceReq
         if (kase === 'key') void connectKey()
       }}
     >
-      <div className="flex items-center gap-2 bg-subtle px-4 py-2.5 text-sm font-semibold">
-        <Plug size={16} className="shrink-0 text-accent-text" aria-hidden />
-        <span id={`${id}-title`} className="min-w-0 flex-1 truncate">
+      <div className="flex items-start gap-2 bg-subtle px-4 py-2.5 text-sm font-semibold">
+        <Plug size={16} className="mt-0.5 shrink-0 text-accent-text" aria-hidden />
+        {/* the whole name, on more lines when it is long: it is what the person checks against the address */}
+        <span id={`${id}-title`} className="min-w-0 flex-1 [overflow-wrap:anywhere]" data-testid="connect-title">
           {t('connect.title', { name: r.name })}
         </span>
         {team && <Badge tone="accent">{t('connect.team')}</Badge>}
@@ -185,6 +187,11 @@ export default function ConnectCard({ request: r }: { request: ConnectServiceReq
             {/* the whole address: a long one scrolls, never cut */}
             <p className="scroll-thin mt-0.5 max-h-16 overflow-y-auto font-mono text-xs text-faint [overflow-wrap:anywhere]" data-testid="connect-url">
               {service.url}
+            </p>
+            {/* what kind of connection, and where a key goes when it is not "Authorization: Bearer" */}
+            <p className="mt-0.5 text-xs text-muted [overflow-wrap:anywhere]" data-testid="connect-kind">
+              {t(service.kind === 'mcp' ? 'connect.kindMcp' : 'connect.kindHttp')}
+              {service.auth === 'header' && service.authHeader && ` · ${t('connect.headerKey', { header: service.authHeader })}`}
             </p>
             {hostOffName(r.name, host) && (
               <p className="mt-1.5 flex items-start gap-1.5 text-xs text-warn" data-testid="connect-host-caution">
@@ -244,7 +251,7 @@ export default function ConnectCard({ request: r }: { request: ConnectServiceReq
         {kase === 'sign_in' && (
           <p className="flex items-start gap-1.5 text-muted" data-testid="connect-where">
             <Lock size={14} className="mt-0.5 shrink-0" aria-hidden />
-            <span className="min-w-0 [overflow-wrap:anywhere]">{t('connect.signInWhere', { name: r.name })}</span>
+            <span className="min-w-0 [overflow-wrap:anywhere]">{t('connect.signInWhere')}</span>
           </p>
         )}
         {kase === 'sign_in' && phone && <p className="text-xs text-faint">{t('integrations.signIn.phone')}</p>}

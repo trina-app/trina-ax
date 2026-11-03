@@ -170,8 +170,12 @@ export function stepLabel(tool: string, input: unknown, locale: Locale, browserT
     case 'ask_user': return stepText('asked', locale, { q: clip(a.question, 120) })
     case 'remember': return stepText('remembered', locale, { text: clip(a.text, 120) })
     case 'forget': return stepText('forgot', locale)
-    // the service's name as the AI wrote it, with anything that looks like a key left out (the label is shown and saved)
-    case 'connect_service': return `${verb} · ${a.target === 'google_drive' ? 'Google Drive' : clip(maskSecrets(String(a.name ?? '')), 60)}`
+    // the service's name as the AI wrote it, with anything that looks like a key and characters that show nothing left
+    // out (emoji joiners and selectors stay; the label is shown and saved); without a name, the verb alone
+    case 'connect_service': {
+      const name = a.target === 'google_drive' ? 'Google Drive' : typeof a.name === 'string' ? clip(maskSecrets(a.name.replace(/(?![\t\n\r\u200d\ufe0e\ufe0f])[\p{Cc}\p{Cf}\p{DI}\p{Co}]/gu, '')), 60) : ''
+      return name ? `${verb} · ${name}` : verb!
+    }
     default: return verb ?? tool
   }
 }

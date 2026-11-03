@@ -1,9 +1,12 @@
 // connect_service cards (components/chat/ConnectCard.tsx, lib/connectCard.ts): the key leaves the card only sealed for
 // 'integration.secret' and only to POST /api/turns/:id/connect (never /answer, never in plain, never in the store);
 // "Not now" sends skip; a failed check keeps the card; the card shows where the key goes. Where it connects is the main
-// line (the host, then the whole address) with a caution when the name is not in the host; an HTTP API's notes, saved
-// with the connection for the AI, are shown in full and read-only.
-import { afterEach, beforeEach, describe, expect, test } from 'bun:test'
+// line (the host, then the whole address, then what kind of connection it is) with a caution when the name is not in
+// the host; an HTTP API's notes, saved with the connection for the AI, are shown in full and read-only. The card
+// rendered and clicked (dom-host.ts): a wrong key then the right one, signing in (the window reserved in the click,
+// the connection added, the sign-in polled, then done), Google Drive finished with done, and done again after a
+// failed one.
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, test } from 'bun:test'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { SEAL_ALG, SealedSecret, TurnConnectBody, TurnRequest, uuidv7, type Locale, type SealingKey } from '@mycel/shared/api'
 import { translate, useLocaleStore } from '../../src/i18n'
@@ -11,6 +14,7 @@ import ConnectCard from '../../src/components/chat/ConnectCard'
 import { connectCase, connectWithKey, connectWithoutKey, finishConnect, hostOffName, skipConnect, type ConnectServiceRequest } from '../../src/lib/connectCard'
 import { useChats } from '../../src/store/chats'
 import { CHAT } from './fixtures'
+import { installDom, mount, removeDom } from './dom-host'
 
 const KEY = 'hf_live_9a8B7c6D5e4F3g2H1i0J'
 const TURN = uuidv7()
@@ -18,8 +22,11 @@ const KID = '0123456789abcdef'
 const realFetch = globalThis.fetch
 const json = (v: unknown, status = 200) => new Response(JSON.stringify(v), { status, headers: { 'content-type': 'application/json' } })
 
-let calls: { method: string; path: string; url: string; body: any; raw: string }[] = []
+type Call = { method: string; path: string; url: string; body: any; raw: string }
+let calls: Call[] = []
 let connectAnswer: unknown = { state: 'connected', integrationId: 'i1', status: 'connected', lastError: null }
+/** answers by "METHOD /path" before the default ones (a test's own server) */
+let routes: Record<string, (c: Call) => Response> = {}
 let server: CryptoKeyPair
 
 const card = (o: Partial<ConnectServiceRequest> = {}): ConnectServiceRequest => ({
@@ -47,6 +54,7 @@ async function unseal(s: SealedSecret): Promise<{ secret: string; nonce: string;
 
 beforeEach(async () => {
   calls = []
+  routes = {}
   connectAnswer = { state: 'connected', integrationId: 'i1', status: 'connected', lastError: null }
   useChats.getState().reset()
   server = (await globalThis.crypto.subtle.generateKey({ name: 'ECDH', namedCurve: 'P-256' }, true, ['deriveBits'])) as CryptoKeyPair
@@ -55,7 +63,10 @@ beforeEach(async () => {
   globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
     const url = new URL(String(input), 'http://team.localhost')
     const raw = typeof init?.body === 'string' ? init.body : ''
-    calls.push({ method: init?.method ?? 'GET', path: url.pathname, url: url.href, body: raw ? JSON.parse(raw) : undefined, raw })
+    const call = { method: init?.method ?? 'GET', path: url.pathname, url: url.href, body: raw ? JSON.parse(raw) : undefined, raw }
+    calls.push(call)
+    const route = routes[`${call.method} ${call.path}`]
+    if (route) return route(call)
     if (url.pathname === '/api/credentials/sealing-key') return json(sealingKey)
     if (url.pathname === `/api/turns/${TURN}/connect`) return json(connectAnswer)
     return json({ error: { code: 'not_found', message: 'not here' } }, 404)
@@ -256,16 +267,151 @@ describe('what the card shows', () => {
     expect(html(card())).not.toContain('data-testid="connect-notes"')
   })
 
-  test('sign-in: the service\'s sign-in page opens, the AI never sees the password', () => {
+  test('sign-in: a sign-in page opens in a new window, to check; the AI never sees the password', () => {
     for (const locale of ['en', 'ko', 'id', 'ja', 'es'] as const) {
       setLocale(locale)
       const out = html(card({ name: 'Linear', service: { kind: 'mcp', url: 'https://mcp.linear.example/mcp', host: 'mcp.linear.example', auth: 'oauth', authHeader: null } }))
       const where = part(out, 'p', 'connect-where')![0]
-      expect(where).toContain(esc(translate(locale, 'connect.signInWhere', { name: 'Linear' })))
-      // the host is the card's main line; this sentence does not name one (the sign-in server is often another)
+      expect(where).toContain(esc(translate(locale, 'connect.signInWhere')))
+      // the sign-in server comes from the address's own metadata: the sentence names neither the host nor the service
       expect(where).not.toContain('mcp.linear.example')
+      expect(where).not.toContain('Linear')
     }
     setLocale('en')
-    expect(translate('en', 'connect.signInWhere', { name: 'Linear' })).toBe("Signing in opens Linear's sign-in page. The AI never sees your password.")
+    expect(translate('en', 'connect.signInWhere')).toBe('Signing in opens a sign-in page in a new window. Check that it is the service you expect. The AI never sees your password.')
+  })
+
+  test('the whole name in the title, wrapping instead of being cut', () => {
+    setLocale('en')
+    const name = 'Higgsfield Video Generation Platform For Teams'
+    const title = part(html(card({ name })), 'span', 'connect-title')!
+    expect(title[1]).toBe(esc(translate('en', 'connect.title', { name })))
+    expect(title[0]).not.toContain('truncate')
+    expect(title[0]).toContain('[overflow-wrap:anywhere]')
+  })
+
+  test('what kind of connection it is, and the header a key goes in', () => {
+    for (const locale of ['en', 'ko', 'id', 'ja', 'es'] as const) {
+      setLocale(locale)
+      expect(part(html(card()), 'p', 'connect-kind')![1]).toBe(esc(translate(locale, 'connect.kindMcp')))
+      const http = html(card({ service: { kind: 'http', url: 'https://api.higgsfield.example/v1', host: 'api.higgsfield.example', auth: 'header', authHeader: 'X-API-Key' } }))
+      expect(part(http, 'p', 'connect-kind')![1]).toBe(esc(`${translate(locale, 'connect.kindHttp')} · ${translate(locale, 'connect.headerKey', { header: 'X-API-Key' })}`))
+    }
+    setLocale('en')
+    expect(translate('en', 'connect.headerKey', { header: 'X-API-Key' })).toBe('Key goes in the X-API-Key header')
+    // bearer and sign-in: the kind alone; Google Drive has no address
+    expect(part(html(card({ service: { ...card().service!, auth: 'oauth' } })), 'p', 'connect-kind')![1]).toBe('MCP server')
+    expect(html(card({ target: 'google_drive', name: 'Google Drive', service: undefined }))).not.toContain('data-testid="connect-kind"')
+  })
+})
+
+describe('the card, clicked', () => {
+  let dom: ReturnType<typeof installDom>
+  const localeBefore = useLocaleStore.getState().locale
+  beforeAll(() => {
+    dom = installDom()
+    useLocaleStore.setState({ locale: 'en' })
+  })
+  afterAll(() => {
+    removeDom()
+    useLocaleStore.setState({ locale: localeBefore })
+  })
+  const expiresAt = new Date(Date.now() + 600_000).toISOString()
+  const CONNECT = `POST /api/turns/${TURN}/connect`
+  const said = () => calls.map((c) => `${c.method} ${c.path}`)
+  /** the connect answers in order, and what each connect sent */
+  const connects = (...answers: unknown[]) => {
+    routes[CONNECT] = () => { const a = answers.shift(); return a ? json(a) : json({ error: { code: 'conflict', message: 'not expected' } }, 409) }
+  }
+  const linear = () => card({ name: 'Linear', service: { kind: 'mcp', url: 'https://mcp.linear.example/mcp', host: 'mcp.linear.example', auth: 'oauth', authHeader: null } })
+
+  test('a key: a wrong one keeps the card with the reason and an empty box, the right one connects and closes it', async () => {
+    const r = card()
+    open(r)
+    connects({ state: 'retry', integrationId: 'i1', status: 'error', lastError: 'The service refused the key (HTTP 401).' }, { state: 'connected', integrationId: 'i1', status: 'connected' })
+    const m = await mount(<ConnectCard request={r} />)
+    expect(m.get('connect-submit').disabled).toBe(true)
+    await m.type('connect-key', 'wrong-key-0000')
+    await m.click('connect-submit')
+    await m.until(() => m.find('connect-last-error'), 'the reason')
+    expect(m.get('connect-last-error').textContent).toContain('The service refused the key (HTTP 401).')
+    expect((m.get('connect-key') as unknown as { value: string }).value).toBe('')
+    expect(Object.keys(useChats.getState().requests)).toEqual(['c1'])
+    await m.type('connect-key', KEY)
+    await m.click('connect-submit')
+    await m.until(() => !useChats.getState().requests.c1, 'the card closed')
+    expect(said().filter((c) => c === CONNECT)).toHaveLength(2)
+    // each key went sealed, never in plain
+    expect(calls.filter((c) => c.path.endsWith('/connect')).every((c) => c.body.sealed && !c.raw.includes(KEY) && !c.raw.includes('wrong-key-0000'))).toBe(true)
+    expect((await unseal(calls.filter((c) => c.path.endsWith('/connect'))[1]!.body.sealed)).secret).toBe(KEY)
+    await m.unmount()
+  })
+
+  test('sign-in: the window is reserved in the click, the connection added, signed in, polled until done, then done', async () => {
+    const r = linear()
+    open(r)
+    connects({ state: 'sign_in', integrationId: 'i9', status: 'needs_auth' }, { state: 'connected', integrationId: 'i9', status: 'connected' })
+    routes['POST /api/integrations/i9/authorize'] = () => json({ flowId: 'f1', authorizationUrl: 'https://auth.linear.example/authorize?state=s1', expiresAt })
+    let polls = 0
+    routes['GET /api/integrations/flows/f1'] = () => json({ flowId: 'f1', state: ++polls < 2 ? 'pending' : 'completed', expiresAt, reason: null })
+    const m = await mount(<ConnectCard request={r} />)
+    await m.click('connect-sign-in')
+    // a blank window opened during the click, sent to the sign-in page once the server answered
+    expect(dom.opened.length).toBe(1)
+    await m.until(() => dom.opened[0]!.replaced.length > 0, 'the sign-in page')
+    expect(dom.opened[0]).toMatchObject({ url: 'about:blank', replaced: ['https://auth.linear.example/authorize?state=s1'], closed: false })
+    expect(m.get('connect-signin').textContent).toContain(translate('en', 'integrations.signIn.waiting'))
+    // the flow is polled until it completed, then the card says done and closes
+    await m.until(() => !useChats.getState().requests.c1, 'the card closed', 10_000)
+    expect(said()).toEqual([CONNECT, 'POST /api/integrations/i9/authorize', 'GET /api/integrations/flows/f1', 'GET /api/integrations/flows/f1', CONNECT])
+    expect(calls[0]!.body).toEqual({ action: 'connect', requestId: 'c1' })
+    expect(calls[4]!.body).toEqual({ action: 'done', requestId: 'c1' })
+    expect(dom.opened[0]!.closed).toBe(true)
+    await m.unmount()
+  })
+
+  test('Google Drive: signed in at Google, the account confirmed, then done', async () => {
+    const r = card({ target: 'google_drive', name: 'Google Drive', service: undefined })
+    open(r)
+    connects({ state: 'connected' })
+    const account = { name: 'Sam Lee', email: 'sam@example.com' }
+    routes['POST /api/integrations/google-drive/authorize'] = () => json({ flowId: 'd1', authorizationUrl: 'https://accounts.google.com/o/oauth2/v2/auth?client_id=x', expiresAt })
+    routes['GET /api/integrations/google-drive/flows/d1'] = () => json({ flowId: 'd1', state: 'ready', account, expiresAt, reason: null })
+    routes['POST /api/integrations/google-drive/flows/d1/complete'] = () => json({ configured: true, status: 'connected', account, scopes: [], expiresAt: null })
+    const m = await mount(<ConnectCard request={r} />)
+    await m.click('connect-drive')
+    expect(dom.opened.at(-1)!.url).toBe('about:blank')
+    await m.until(() => m.find('drive-confirm'), 'the account to confirm', 8000)
+    expect(m.get('drive-account').textContent).toContain('sam@example.com')
+    // nothing told the AI before the person confirmed
+    expect(said()).not.toContain(CONNECT)
+    await m.click('drive-confirm')
+    await m.until(() => !useChats.getState().requests.c1, 'the card closed')
+    expect(said()).toEqual(['POST /api/integrations/google-drive/authorize', 'GET /api/integrations/google-drive/flows/d1', 'POST /api/integrations/google-drive/flows/d1/complete', CONNECT])
+    expect(calls.at(-1)!.body).toEqual({ action: 'done', requestId: 'c1' })
+    await m.unmount()
+  })
+
+  test('done that failed: the card offers it again, and the second one finishes', async () => {
+    const r = linear()
+    open(r)
+    const answers: (() => Response)[] = [
+      () => json({ state: 'sign_in', integrationId: 'i9', status: 'needs_auth' }),
+      () => json({ error: { code: 'internal', message: 'The server could not finish this.' } }, 500),
+      () => json({ state: 'connected', integrationId: 'i9', status: 'connected' }),
+    ]
+    routes[CONNECT] = () => answers.shift()!()
+    routes['POST /api/integrations/i9/authorize'] = () => json({ flowId: 'f2', authorizationUrl: 'https://auth.linear.example/authorize?state=s2', expiresAt })
+    routes['GET /api/integrations/flows/f2'] = () => json({ flowId: 'f2', state: 'completed', expiresAt, reason: null })
+    const m = await mount(<ConnectCard request={r} />)
+    await m.click('connect-sign-in')
+    await m.until(() => m.find('connect-finish'), 'Retry after the failed done', 8000)
+    expect(m.get('connect-error').textContent).toContain('The server could not finish this.')
+    expect(Object.keys(useChats.getState().requests)).toEqual(['c1'])
+    await m.click('connect-finish')
+    await m.until(() => !useChats.getState().requests.c1, 'the card closed')
+    expect(said().filter((c) => c === CONNECT)).toHaveLength(3)
+    expect(calls.filter((c) => c.path.endsWith('/connect')).map((c) => c.body.action)).toEqual(['connect', 'done', 'done'])
+    await m.unmount()
   })
 })

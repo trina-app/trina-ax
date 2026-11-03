@@ -2,7 +2,7 @@
 // and long random-looking tokens are found and masked; normal Korean / English sentences, file paths, e-mail addresses,
 // dates, UUIDs, names and short ids are not. (A pasted admin token became a chat title on screen, 2026-10-28.)
 import { describe, expect, test } from 'bun:test'
-import { findLikelySecrets, findSecrets, hasLikelySecret, hasSecret, looksRandom, maskSecrets, namedKey } from '@mycel/shared'
+import { addressHasSecret, findLikelySecrets, findSecrets, hasLikelySecret, hasSecret, looksRandom, maskSecrets, namedKey, secretLabel, secretValue } from '@mycel/shared'
 
 // made-up values in the shapes of real ones (none of them is a working key). Provider prefixes are joined at run time
 // so that secret scanners (GitHub push protection) do not take this file for a leak.
@@ -189,5 +189,59 @@ describe('likely secrets (the message box)', () => {
     }
     for (const text of [...NORMAL, k('QA-FAKE-', 'KEY-0000-NOT-REAL'), 'Use the OPENAI_API_KEY environment variable from the docs'])
       expect({ text, likely: hasLikelySecret(text) }).toEqual({ text, likely: false })
+  })
+})
+
+describe('likely secrets: more providers, and code that only names a key', () => {
+  const hex = (n: number) => Array.from({ length: n }, (_, i) => '0123456789abcdef'[(i * 7 + 3) % 16]).join('')
+  const b62 = 'a1B2c3D4e5F6g7H8i9J0'
+  test('Notion, Linear, Groq, Basic sign-in, env names, sk- keys in lower case or hex', () => {
+    const found = {
+      'notion ntn_': k('nt', 'n_', b62, b62, '123456'),
+      'notion secret_': k('sec', 'ret_', b62, b62, 'abc'),
+      'linear': k('lin_', 'api_', b62, b62),
+      'groq': k('gs', 'k_', b62, b62, b62),
+      'basic auth': 'Authorization: Basic dXNlcjpwYXNzd29yZA==',
+      'basic auth, curl': "curl -H 'authorization: basic YWRtaW46czNjcjN0'",
+      'env name': 'SECRET_KEY=django-insecure-a8f3k2',
+      'env name, AWS': 'AWS_SECRET_ACCESS_KEY=wJalrXUtnFEMI/K7MDENG',
+      'header name': 'x-api-key: a8f3k29dk3',
+      'openrouter': k('sk-', 'or-v1-', hex(64)),
+      'deepseek': k('sk-', hex(32)),
+    }
+    for (const [name, text] of Object.entries(found)) expect({ name, likely: hasLikelySecret(`키 ${text} 연결해줘`) }).toEqual({ name, likely: true })
+  })
+
+  test('a labelled value only when the label is a whole word naming a secret and the value looks like one', () => {
+    // the four that held back ordinary code
+    for (const text of ['const apiKey = process.env.API_KEY', 'token = response.json()', 'Password: required', 'token: 4096 max',
+      // and more of the same kind
+      'max_tokens: 4096', 'token_url: https://auth.example.com/token', 'apiKey: string;', 'secret: "change-me"', 'password=${DB_PASSWORD}',
+      'token: <YOUR_TOKEN>', 'const token = config.auth.token', 'tokenizer: bert-base-uncased', 'key = os.environ["API_KEY"]', 'api_key = os.environ["API_KEY"]',
+      'apiKey: import.meta.env.VITE_KEY', 'token: env.GITHUB_TOKEN', '암호화: AES256'])
+      expect({ text, likely: hasLikelySecret(text) }).toEqual({ text, likely: false })
+    for (const text of ['password: hunter22', `API_KEY=${k('sk-', hex(32))}`, '비밀번호: abc123!', '새비밀번호: abc123!', '{"password": "hunter22"}', 'kata sandi: rahasia123', 'secret key = Tr0ub4dor&3'])
+      expect({ text, likely: hasLikelySecret(text) }).toEqual({ text, likely: true })
+    expect(['DB_PASSWORD', 'apiKey', 'accessToken', 'x-api-key', 'client_secret', 'spring.datasource.password', '비밀번호', 'API key'].every(secretLabel)).toBe(true)
+    expect(['token_url', 'max_tokens', 'tokenizer', 'tokenType', 'key', 'password_hint', 'mytoken'].some(secretLabel)).toBe(false)
+    expect(['hunter22', 'abc123!', 'correct-horse-9', 'Tr0ub4dor'].every(secretValue)).toBe(true)
+    expect(['required', '4096', 'my-token', 'abc12', 'process.env.X', 'a.b.c', 'f(x)', '$TOKEN', '<token>', 'https://x.example/a1'].some(secretValue)).toBe(false)
+  })
+
+  test('titles keep the broader check', () => {
+    // findSecrets and maskSecrets are as they were: an assignment of a plain word still hides there
+    expect(hasSecret('password: required')).toBe(true)
+    expect(maskSecrets('token: 4096 max')).toBe('token:  max')
+  })
+
+  test('an address: a key prefix or a key-named query value, not a generated id or a plain value', () => {
+    for (const url of ['https://mcp.example.com/sse/0192f0a0-0000-7000-8000-00000000c001', 'https://mcp.example.com/mcp?instance=a8F3k29dK3xQ7mZ1pL0vR5tY', 'https://mcp.example.com/mcp/a8F3k29dK3xQ7mZ1pL0vR5tY',
+      'https://mcp.example.com/mcp?key=public', 'https://api.example.com/v1?token=abc'])
+      expect({ url, refused: addressHasSecret(url) }).toEqual({ url, refused: false })
+    for (const url of ['https://x.example.com/mcp?api_key=abc123def456', 'https://x.example.com/mcp?token=a8F3k29dK3x', 'https://x.example.com/mcp?key=abc123def456',
+      'https://x.example.com/mcp#access_token=abc123def456', k('https://x.example.com/', 'gh', 'p_', 'A1b2C3d4E5f6G7h8I9j0K1l2M3n4O5p6Q7r8')])
+      expect({ url, refused: addressHasSecret(url) }).toEqual({ url, refused: true })
+    // the title check would refuse the generated id
+    expect(hasSecret('https://mcp.example.com/mcp?instance=a8F3k29dK3xQ7mZ1pL0vR5tY')).toBe(true)
   })
 })

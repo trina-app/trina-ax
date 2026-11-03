@@ -6,7 +6,7 @@
 // task's card shown again in Settings, "다시 확인") passes its own `onAnswer`.
 import clsx from 'clsx'
 import { Globe, MessageCircleQuestion, ShieldAlert } from 'lucide-react'
-import { useEffect, useId, useState } from 'react'
+import { useEffect, useId, useRef, useState } from 'react'
 import { errorText } from '../../lib/api'
 import { forgetPicks, rememberPicks } from '../../lib/askAnswer'
 import { issueText } from '../../lib/skillIssues'
@@ -14,6 +14,7 @@ import { useLocale, useT } from '../../i18n'
 import { useChats, type OpenRequest } from '../../store/chats'
 import type { ConfirmDetail, SkillWritePreview } from '@mycel/shared/api'
 import { Button, inputCls } from '../ui'
+import { SecretWarning, useSecretHold } from './SecretWarning'
 
 type AnswerBody = Parameters<ReturnType<typeof useChats.getState>['answer']>[1]
 
@@ -27,6 +28,9 @@ export default function AskCard({ req, onAnswer }: { req: Pick<OpenRequest, 'req
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const name = useId()
+  /** the own answer looks like a key: it waits for "Send anyway" (SecretWarning) */
+  const secret = useSecretHold(text)
+  const textRef = useRef<HTMLTextAreaElement>(null)
   const r = req.request
   useEffect(() => rememberPicks(r.requestId, picked), [r.requestId, picked])
   useEffect(() => () => forgetPicks(r.requestId), [r.requestId])
@@ -87,7 +91,7 @@ export default function AskCard({ req, onAnswer }: { req: Pick<OpenRequest, 'req
       data-origin={fromServer ? 'server' : 'ai'}
       onSubmit={(e) => {
         e.preventDefault()
-        if (ready) void run({ kind: 'ask_user', answer: value })
+        if (ready && secret.pass()) void run({ kind: 'ask_user', answer: value })
       }}
     >
       {fromServer ? (
@@ -117,6 +121,7 @@ export default function AskCard({ req, onAnswer }: { req: Pick<OpenRequest, 'req
           )}
           {allowText && (
             <textarea
+              ref={textRef}
               aria-label={t('ask.ownAnswer')}
               aria-describedby={`${name}-secrets`}
               className={clsx(inputCls, 'h-auto min-h-16 resize-y py-2')}
@@ -126,6 +131,7 @@ export default function AskCard({ req, onAnswer }: { req: Pick<OpenRequest, 'req
                 setText(e.target.value)
                 if (!r.multiple && e.target.value) setPicked([])
               }}
+              data-testid="ask-text"
             />
           )}
           {/* tab 5 "확인 카드": the free-text answer goes to the AI; this line is always there under it */}
@@ -134,6 +140,20 @@ export default function AskCard({ req, onAnswer }: { req: Pick<OpenRequest, 'req
               {t('ask.noSecrets')}
             </p>
           )}
+          {secret.held && (
+            <div className="pt-1">
+              <SecretWarning
+                onSendAnyway={() => {
+                  secret.release()
+                  void run({ kind: 'ask_user', answer: value })
+                }}
+                onEdit={() => {
+                  secret.release()
+                  textRef.current?.focus()
+                }}
+              />
+            </div>
+          )}
         </fieldset>
       </div>
       <div className="flex items-center justify-end gap-2 border-t border-line px-4 py-2.5">
@@ -141,7 +161,7 @@ export default function AskCard({ req, onAnswer }: { req: Pick<OpenRequest, 'req
         <Button size="sm" variant="ghost" disabled={busy} onClick={() => run({ kind: 'ask_user', answer: null })}>
           {t('ask.skip')}
         </Button>
-        <Button size="sm" variant="primary" type="submit" disabled={!ready} busy={busy}>
+        <Button size="sm" variant="primary" type="submit" disabled={!ready} busy={busy} data-testid="ask-send">
           {t('ask.send')}
         </Button>
       </div>

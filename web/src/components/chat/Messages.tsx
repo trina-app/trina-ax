@@ -4,7 +4,7 @@
 // conversation reached the AI only in part, the files the AI looked at ("참고한 파일"), copy, regenerate, branch switch.
 import clsx from 'clsx'
 import { AlertTriangle, BookmarkPlus, ChevronDown, ChevronLeft, ChevronRight, CirclePause, FileAudio, FileText, FileX, FolderOpen, History, Loader2, Pencil, Play, RotateCcw, Shapes, Sparkles, Square } from 'lucide-react'
-import { useMemo, useState } from 'react'
+import { useMemo, useRef, useState } from 'react'
 import { useShallow } from 'zustand/react/shallow'
 import { chatErrorReason, ERROR_MESSAGES, isDefaultErrorMessage, type Attachment, type EngineId } from '@mycel/shared/api'
 import { thumbnailUrl } from '../../lib/api'
@@ -21,6 +21,7 @@ import { Markdown } from '../Markdown'
 import { Button, CopyButton, IconButton, inputCls } from '../ui'
 import AskCard from './AskCard'
 import ConnectCard from './ConnectCard'
+import { SecretWarning, useSecretHold } from './SecretWarning'
 import SuggestSkillDialog from '../SuggestSkillDialog'
 import FileSummary from './FileSummary'
 import SourcesList from './SourcesList'
@@ -113,6 +114,13 @@ export function UserMessage({ m, chatId, busy, onEdit, onSelectBranch }: { m: Vi
   const t = useT()
   const [editing, setEditing] = useState(false)
   const [draft, setDraft] = useState(m.content)
+  /** the edited text looks like a key: it waits for "Send anyway" (SecretWarning) */
+  const secret = useSecretHold(draft)
+  const editRef = useRef<HTMLTextAreaElement>(null)
+  const sendEdit = () => {
+    setEditing(false)
+    onEdit(m, draft)
+  }
   const resend = useChats((s) => s.resend)
   const discard = useChats((s) => s.discardLocal)
   const long = m.content.length > 1200 || m.content.split('\n').length > 18
@@ -127,16 +135,34 @@ export function UserMessage({ m, chatId, busy, onEdit, onSelectBranch }: { m: Vi
           className="w-full max-w-[85%] rounded-2xl border border-field-border bg-surface p-2 has-[textarea:focus]:border-accent has-[textarea:focus]:ring-1 has-[textarea:focus]:ring-accent"
           onSubmit={(e) => {
             e.preventDefault()
-            if (!draft.trim()) return
-            setEditing(false)
-            onEdit(m, draft)
+            if (!draft.trim() || !secret.pass()) return
+            sendEdit()
           }}
         >
           {/* the form draws the field's edge and focus; `!`: inputCls's own focus ring is emitted after ring-0 and would win */}
-          <textarea aria-label={t('chat.editMessage')} className={clsx(inputCls, 'h-auto min-h-24 resize-y border-0 py-2 focus:ring-0!')} value={draft} onChange={(e) => setDraft(e.target.value)} autoFocus />
+          <textarea ref={editRef} aria-label={t('chat.editMessage')} className={clsx(inputCls, 'h-auto min-h-24 resize-y border-0 py-2 focus:ring-0!')} value={draft} onChange={(e) => setDraft(e.target.value)} autoFocus data-testid="edit-input" />
           <p className="px-1 pb-1 text-xs text-faint">{t('chat.editNote')}</p>
+          {secret.held && (
+            <SecretWarning
+              onSendAnyway={() => {
+                secret.release()
+                sendEdit()
+              }}
+              onEdit={() => {
+                secret.release()
+                editRef.current?.focus()
+              }}
+            />
+          )}
           <div className="flex justify-end gap-2">
-            <Button size="sm" variant="ghost" onClick={() => setEditing(false)}>
+            <Button
+              size="sm"
+              variant="ghost"
+              onClick={() => {
+                secret.release()
+                setEditing(false)
+              }}
+            >
               {t('common.cancel')}
             </Button>
             <Button size="sm" variant="primary" type="submit" disabled={!draft.trim()} data-testid="edit-send">
@@ -183,6 +209,7 @@ export function UserMessage({ m, chatId, busy, onEdit, onSelectBranch }: { m: Vi
               setDraft(m.content)
               setEditing(true)
             }}
+            data-testid="edit-message"
           >
             <Pencil size={13} />
           </IconButton>

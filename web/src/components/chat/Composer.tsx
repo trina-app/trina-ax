@@ -36,7 +36,7 @@ import { ENGINE_LABEL, EngineOptions } from './EngineMenu'
 import { IconButton } from '../ui'
 import { useSkillMenu } from './SkillMenu'
 import TeamFilePicker from './TeamFilePicker'
-import { holdForSecret, SecretWarning } from './SecretWarning'
+import { SecretWarning, useSecretHold } from './SecretWarning'
 
 interface Pending {
   id: string
@@ -137,8 +137,7 @@ export default function Composer({
   const [error, setError] = useState<string | null>(null)
   const [sending, setSending] = useState(false)
   /** the text looks like a key: sending waits for "Send anyway" or "Edit" (a changed text asks again) */
-  const [secretHeld, setSecretHeld] = useState(false)
-  useEffect(() => setSecretHeld(false), [text])
+  const secret = useSecretHold(text)
   const [stopping, setStopping] = useState(false)
   const [transcribing, setTranscribing] = useState(false)
   const [drag, setDrag] = useState(false)
@@ -318,11 +317,7 @@ export default function Composer({
   const submit = () => send(false)
   const send = async (anyway: boolean) => {
     if (!canSend) return
-    if (!anyway && holdForSecret(text)) {
-      setSecretHeld(true)
-      return
-    }
-    setSecretHeld(false)
+    if (!secret.pass(anyway)) return
     setSending(true)
     setError(null)
     if (answering) {
@@ -407,11 +402,11 @@ export default function Composer({
 
   return (
     <div>
-      {secretHeld && (
+      {secret.held && (
         <SecretWarning
           onSendAnyway={() => void send(true)}
           onEdit={() => {
-            setSecretHeld(false)
+            secret.release()
             taRef.current?.focus()
           }}
         />

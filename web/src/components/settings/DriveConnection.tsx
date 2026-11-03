@@ -95,7 +95,7 @@ export function DriveFlowPanel({ d, flow }: { d: DriveFlowState; flow: DriveFlow
     <p role="status">{t(flow.state === 'ready' ? 'drive.confirmAccount' : 'drive.waiting')}</p>
     {flow.state === 'ready' && <>
       <p data-testid="drive-account">{flow.account?.name} {flow.account?.email}</p>
-      <Button variant="primary" busy={d.busy} onClick={d.complete}>{t('drive.confirm')}</Button>
+      <Button variant="primary" busy={d.busy} onClick={d.complete} data-testid="drive-confirm">{t('drive.confirm')}</Button>
     </>}
     {flow.state !== 'ready' && d.authorizationUrl && <a href={d.authorizationUrl} target="_blank" rel="noopener noreferrer" className="block text-sm text-accent-text hover:underline" onClick={mobileApp() ? (e) => { e.preventDefault(); void openExternal(d.authorizationUrl!, { purpose: 'google-oauth' }).catch(() => d.setError(true)) } : undefined}>{t('drive.openGoogle')}</a>}
     <Button disabled={d.busy} onClick={d.cancel}>{t('common.cancel')}</Button>

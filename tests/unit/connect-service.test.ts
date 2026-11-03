@@ -6,7 +6,10 @@
 // /answer refused for these cards, skip, timeout, sign-in then done, and a scheduled run. Also: an HTTP API's notes on
 // the card and saved as shown, a team card's "who may use it" changed on a retry, Google Drive finished with done,
 // a slow check (two connects at once, the card's time running out or "not now" while a connect runs), "not now"
-// after a finished sign-in, the tool names the AI is told, a key that is too long. Every text the server let
+// after a finished sign-in, the tool names the AI is told, a key that is too long. Invisible or direction-changing
+// characters in the name, notes or line (no card, and refused again where the card is saved) while Korean, Japanese
+// and emoji names work; another key after personal connections were turned off or after the connection was changed
+// in Settings (refused, the key never sent); done before anything was connected. Every text the server let
 // out or saved for these turns (answer, steps, audit lines, events, responses, rows, audit log, logs) is searched for
 // the key and the sealed value; a failure says where, never the key.
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from 'bun:test'
@@ -175,13 +178,15 @@ describe('connect_service without a card', () => {
       { name: 'Open again', kind: 'mcp', url: `${svc.base}/mcp-open/`, auth: 'none' },
       { name: 'Tasks', kind: 'mcp', url: `${svc.base}/mcp-key`, auth: 'header', authHeader: 'Cookie' },
       { name: 'Google Drive', target: 'google_drive' },
+      // a key-named query value that looks like a key
+      { name: 'Tasks', kind: 'mcp', url: `${svc.base}/mcp-key?api_key=abc123def456`, auth: 'none' },
     )
     const m = await doneOf(t.messageId)
     expect(cards(t.turnId)).toEqual([])
-    for (const words of ['a service needs url', 'an https address', 'private or office network', 'looks like it contains a key', 'Only an admin can add a team connection', 'already exists: "Open", connected', 'authHeader cannot carry a key', 'Google Drive is not set up'])
+    for (const words of ['a service needs url', 'an https address', 'private or office network', 'the notes looks like it contains a key', 'Only an admin can add a team connection', 'already exists: "Open", connected', 'authHeader cannot carry a key', 'Google Drive is not set up', 'the url looks like it contains a key'])
       expect(m.content, words).toContain(words)
     // the step never shows the key-looking notes, and says nothing was connected
-    expect(m.steps.filter((s) => s.tool === 'connect_service').length).toBe(8)
+    expect(m.steps.filter((s) => s.tool === 'connect_service').length).toBe(9)
     expect(m.content.includes('sk-live-4f9a8b7c6d5e4f3a2b1c') || JSON.stringify(m.steps).includes('sk-live')).toBe(false)
     const events = h.ctx.db.query("SELECT summary FROM tool_events WHERE turn_id = ? AND tool = 'connect_service'").all(t.turnId) as { summary: string }[]
     expect(events.every((e) => e.summary.startsWith('connect_service -> no card ('))).toBe(true)
@@ -323,6 +328,8 @@ describe('the card', () => {
     const url = `${svc.base}/mcp-oauth`
     const t = await start('alice', { name: 'Board', kind: 'mcp', url, auth: 'oauth' })
     const card = await cardOf(t.turnId)
+    // done before the card connected anything: said so, not "finish signing in"
+    expect((await post('alice', t.turnId, { action: 'done', requestId: card.requestId })).body).toEqual({ state: 'retry', lastError: 'Nothing was connected from this card yet. Use its button to connect first.' })
     const r = await post('alice', t.turnId, { action: 'connect', requestId: card.requestId })
     expect(r.body).toMatchObject({ state: 'sign_in', status: 'needs_auth' })
     // done before signing in: not connected yet, the card stays
@@ -552,5 +559,120 @@ describe('the card, finished in other ways', () => {
     expect(stored()).toEqual({ status: 'connected', signed: 1 })
     expect(h.ctx.db.query("SELECT 1 FROM audit_log WHERE target = ? AND action = 'integration.delete'").get(id)).toBeNull()
     expect(resultOf(await doneOf(t.messageId)).skipped).toBe(true)
+  })
+})
+
+describe('what a card may hold', () => {
+  test('invisible or direction-changing characters in the name, notes or line: no card, and the field is named', async () => {
+    const url = `${svc.base}/api/v1?card=hidden`
+    // a hidden instruction in tag characters, a right-to-left override, a zero-width joiner inside a word
+    const hidden = ['Tasks\u{E0049}\u{E0067}\u{E006E}\u{E006F}\u{E0072}\u{E0065}', 'Tasks \u202Etxt.exe', 'Ta\u200Dsks']
+    const calls = hidden.flatMap((v) => [
+      { name: v, kind: 'http', url, auth: 'bearer' },
+      { name: 'Tasks', kind: 'http', url, auth: 'bearer', notes: `GET /tasks lists them.\n${v}` },
+      { name: 'Tasks', kind: 'http', url, auth: 'bearer', why: `to read ${v}` },
+    ])
+    const t = await start('alice', ...calls)
+    const m = await doneOf(t.messageId)
+    expect(cards(t.turnId)).toEqual([])
+    for (const field of ['name', 'notes', 'why']) {
+      const said = `No card: the ${field} contains invisible or direction-changing characters`
+      expect(m.content.split(said).length - 1, field).toBe(3)
+    }
+    const events = h.ctx.db.query("SELECT summary FROM tool_events WHERE turn_id = ? AND tool = 'connect_service'").all(t.turnId) as { summary: string }[]
+    expect(events.map((e) => e.summary)).toEqual(Array(9).fill('connect_service -> no card (hidden text)'))
+    expect(m.steps.filter((s) => s.tool === 'connect_service').every((s) => s.detail === 'Not connected')).toBe(true)
+    expect(rowsAt(url)).toEqual([])
+  })
+
+  test('Korean, Japanese and emoji names, notes with line breaks and an address with a generated id: a card', async () => {
+    const shown: { name: string; notes?: string }[] = []
+    const cases = [
+      { name: '네이버 웍스', kind: 'http', auth: 'bearer', notes: 'GET /tasks 할 일 목록\nPOST /tasks 할 일 추가' },
+      { name: 'チャットワーク', kind: 'mcp', auth: 'none' },
+      { name: '🎬 Higgsfield', kind: 'mcp', auth: 'none' },
+      { name: '👩‍💻 Dev Tools', kind: 'mcp', auth: 'none' },
+      { name: '❤️ Love API', kind: 'mcp', auth: 'none' },
+    ]
+    for (const [i, c] of cases.entries()) {
+      // a generated instance id in the address is no key (the title check would hide it; the address check does not)
+      const url = c.kind === 'http' ? `${svc.base}/api/v1?card=names${i}` : `${svc.base}/mcp-open?instance=a8F3k29dK3xQ7mZ1pL0vR5tY${i}`
+      const t = await start('alice', { ...c, url })
+      const card = await cardOf(t.turnId)
+      shown.push({ name: card.name, ...(card.notes ? { notes: card.notes } : {}) })
+      expect((await post('alice', t.turnId, { action: 'skip', requestId: card.requestId })).body).toEqual({ state: 'skipped' })
+      await doneOf(t.messageId)
+    }
+    expect(shown).toEqual(cases.map((c) => ({ name: c.name, ...(c.notes ? { notes: c.notes } : {}) })))
+  })
+
+  test('where the card is saved, its name and notes are checked again: an invisible character there is refused', async () => {
+    const url = `${svc.base}/mcp-open?card=hidden-save`
+    const t = await start('alice', { name: 'Plain', kind: 'mcp', url, auth: 'none' })
+    const card = await cardOf(t.turnId)
+    // the card the server keeps, which the connect saves, changed after the tool's check
+    const kept = h.rt().execFor(t.turnId)!.openRequest(card.requestId) as { name: string }
+    kept.name = 'Pla\u200Bin'
+    const r = await post('alice', t.turnId, { action: 'connect', requestId: card.requestId })
+    expect(r.status).toBe(400)
+    expect(r.body.error.message).toBe("The card's name or notes hold characters that cannot be seen. Ask the AI to connect it again.")
+    expect(rowsAt(url)).toEqual([])
+    await post('alice', t.turnId, { action: 'skip', requestId: card.requestId })
+    await doneOf(t.messageId)
+  })
+})
+
+describe('another key on the same card follows the rules of now', () => {
+  const keySent = (from: number) => svc.seen.slice(from).some((s) => s.headers.authorization === `Bearer ${MCP_KEY}`)
+
+  test('personal connections turned off meanwhile: the next key and done are refused, and the key goes nowhere', async () => {
+    const url = `${svc.base}/mcp-key?card=off-retry`
+    const t = await start('alice', { name: 'Off tasks', kind: 'mcp', url, auth: 'bearer' })
+    const card = await cardOf(t.turnId)
+    expect((await post('alice', t.turnId, { action: 'connect', requestId: card.requestId, sealed: await seal(WRONG) })).body.state).toBe('retry')
+    const was = h.ctx.db.query('SELECT status, secret_enc, version FROM integrations WHERE url = ?').get(url)
+    h.ctx.db.query("UPDATE settings SET value='false' WHERE key='personalIntegrations'").run()
+    try {
+      const before = svc.seen.length
+      const again = await post('alice', t.turnId, { action: 'connect', requestId: card.requestId, sealed: await seal(MCP_KEY) })
+      expect(again.status).toBe(403)
+      expect(again.body.error.message).toBe('Your team turned off adding personal connections.')
+      expect((await post('alice', t.turnId, { action: 'done', requestId: card.requestId })).status).toBe(403)
+      expect(keySent(before)).toBe(false)
+      // the connection is as the wrong key left it
+      expect(h.ctx.db.query('SELECT status, secret_enc, version FROM integrations WHERE url = ?').get(url)).toEqual(was)
+    } finally {
+      h.ctx.db.query("UPDATE settings SET value='true' WHERE key='personalIntegrations'").run()
+    }
+    await post('alice', t.turnId, { action: 'skip', requestId: card.requestId })
+    await doneOf(t.messageId)
+    expect(leaksIn([t.turnId])).toEqual([])
+  })
+
+  test('the connection changed in Settings meanwhile: refused with a word to start again, nothing sent to it, and Not now leaves it', async () => {
+    const url = `${svc.base}/mcp-key?card=edited`
+    const t = await start('alice', { name: 'Edited tasks', kind: 'mcp', url, auth: 'bearer' })
+    const card = await cardOf(t.turnId)
+    const first = await post('alice', t.turnId, { action: 'connect', requestId: card.requestId, sealed: await seal(WRONG) })
+    expect(first.body.state).toBe('retry')
+    const id = first.body.integrationId as string
+    // the person moves it to another address in Settings
+    const moved = `${svc.base}/mcp-key?card=edited-moved`
+    await h.api('alice').call(API.updateIntegration, { params: { id }, body: { url: moved } })
+    const before = svc.seen.length
+    const again = await post('alice', t.turnId, { action: 'connect', requestId: card.requestId, sealed: await seal(MCP_KEY) })
+    expect(again.status).toBe(409)
+    expect(again.body.error.message).toBe('This connection was changed or removed in Settings after the card was shown. Nothing was sent. Ask the AI to connect it again.')
+    // still so for another key and for done; the key reached no address
+    expect((await post('alice', t.turnId, { action: 'connect', requestId: card.requestId, sealed: await seal(MCP_KEY) })).status).toBe(409)
+    expect((await post('alice', t.turnId, { action: 'done', requestId: card.requestId })).status).toBe(409)
+    expect(keySent(before)).toBe(false)
+    // Not now closes the card and leaves the connection the person changed
+    expect((await post('alice', t.turnId, { action: 'skip', requestId: card.requestId })).body).toEqual({ state: 'skipped' })
+    expect(h.ctx.db.query('SELECT url FROM integrations WHERE id = ?').get(id)).toEqual({ url: moved })
+    const r = resultOf(await doneOf(t.messageId))
+    expect(r.skipped).toBe(true)
+    expect(r.reason).toContain('changed or removed in Settings')
+    expect(leaksIn([t.turnId])).toEqual([])
   })
 })

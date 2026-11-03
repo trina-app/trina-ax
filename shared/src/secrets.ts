@@ -145,26 +145,93 @@ export function hasSecret(text: string): boolean {
   return findSecrets(text).length > 0
 }
 
-// Only what is almost surely a secret, for a warning that holds back what a person sends (the message box): a
-// known key or token prefix, a private key block, a JWT, "Bearer <token>", a password inside an address, and a value
-// after a word that names one ("password: …", "API key = …", "비밀번호: …"). Not random-looking runs, named test keys
-// or a provider prefix alone: a commit hash, a Google Docs link or a folder with a generated name is ordinary text
-// there. findSecrets (titles) stays as it is: it errs towards finding, since a find only hides text.
+// Only what is almost surely a secret, for a warning that holds back what a person sends (the message box and the
+// other boxes whose text reaches the AI): a known key or token prefix, a private key block, a JWT, "Bearer <token>",
+// "Authorization: Basic <base64>", a password inside an address, and a value after a word that names one
+// ("password: …", "API_KEY=…", "비밀번호: …"). Not random-looking runs, named test keys or a provider prefix alone: a
+// commit hash, a Google Docs link or a folder with a generated name is ordinary text there. A labelled value counts
+// only when it looks like a secret (secretValue), so code and settings ("apiKey = process.env.API_KEY",
+// "token: 4096 max", "Password: required") go out as they are. findSecrets (titles) stays as it is: it errs towards
+// finding, since a find only hides text.
 const LIKELY_KINDS = new Set(['private-key', 'anthropic', 'openai', 'stripe', 'github', 'gitlab', 'slack', 'aws', 'google', 'ai-pm', 'npm', 'huggingface', 'jwt', 'bearer', 'url-credentials'])
+/** letters and digits change often, as in a generated value ("9f8e7d6c…"; not "learning2026tutorial") */
+const choppy = (s: string, pieces: number) => (s.match(/[A-Za-z]+|[0-9]+/g) ?? []).length >= pieces
 const LIKELY: Pattern[] = [
   ...PATTERNS.filter((p) => LIKELY_KINDS.has(p.kind)),
-  {
-    kind: 'labelled',
-    re: /(?:password|passwd|passphrase|pwd|secret|api[ _-]?key|access[ _-]?key|private[ _-]?key|token|비밀번호|비번|패스워드|암호|토큰|인증키|kata ?sandi)["']?\s*[:=]\s*["']?([\x21-\x7e]{4,})/gi,
-    group: 1,
-  },
+  // sk- keys in lower case or hex (OpenRouter sk-or-v1-…, DeepSeek sk-<32 hex>), which the OpenAI pattern leaves out
+  { kind: 'sk-key', re: /(?<![A-Za-z0-9])sk-(?:[a-z0-9]{1,10}-){0,3}[A-Za-z0-9]{24,}(?![A-Za-z0-9_-])/g, ok: (m) => choppy(m.slice(m.lastIndexOf('-') + 1), 6) },
+  // Notion (ntn_…, and the older secret_ + 43), Linear (lin_api_…, lin_oauth_…), Groq (gsk_…)
+  { kind: 'notion', re: /(?<![A-Za-z0-9])(?:ntn_[A-Za-z0-9]{30,}|secret_[A-Za-z0-9]{40,})(?![A-Za-z0-9_-])/g, ok: (m) => hasDigit(m) && hasLetter(m.slice(4)) },
+  { kind: 'linear', re: /(?<![A-Za-z0-9])lin_(?:api|oauth)_[A-Za-z0-9]{30,}/g, ok: (m) => hasDigit(m) },
+  { kind: 'groq', re: /(?<![A-Za-z0-9])gsk_[A-Za-z0-9]{30,}/g, ok: (m) => hasDigit(m) },
+  // a user name and password in base64, after the header that sends them
+  { kind: 'basic-auth', re: /\bAuthorization["']?\s*[:=]\s*["']?Basic\s+([A-Za-z0-9+/]{8,}={0,2})/gi, group: 1, ok: (m) => { const v = m.slice(m.search(/Basic\s/i) + 6).trim(); return hasDigit(v) || mixedCase(v) || v.endsWith('=') } },
 ]
+
+// A labelled value: a label that is a whole word naming a secret, ":" or "=", then the value. The label may be an
+// identifier ("DB_PASSWORD", "apiKey", "x-api-key", "spring.datasource.password"); it names a secret when its last
+// part does ("…password", "…token", "…secret", "…api key"), so "token_url", "max_tokens" and "tokenizer" do not. A
+// Korean label may end a longer word ("새비밀번호").
+const LABEL_RE = /(?<![A-Za-z0-9_$.-])((?:api|access|private|secret|auth)\s+key|kata\s?sandi|비밀번호|비번|패스워드|암호|토큰|인증키|[A-Za-z][A-Za-z0-9_.-]*)["'`]?\s*[:=]\s*["'`]?([^\s"'`]+)/giu
+const LABEL_LAST = new Set(['password', 'passwd', 'passphrase', 'pwd', 'secret', 'token', 'apikey', 'accesskey', 'privatekey', 'secretkey', 'authkey'])
+const LABEL_PAIR = new Set(['apikey', 'accesskey', 'privatekey', 'secretkey', 'authkey', 'katasandi'])
+const KOREAN_LABELS = new Set(['비밀번호', '비번', '패스워드', '암호', '토큰', '인증키'])
+const labelParts = (label: string) => label.replace(/([a-z0-9])([A-Z])/g, '$1 $2').toLowerCase().split(/[\s_.-]+/).filter(Boolean)
+
+/** Whether a label names a secret: its last part ("DB_PASSWORD", "accessToken", "x-api-key"), or a Korean word. */
+export function secretLabel(label: string): boolean {
+  if (KOREAN_LABELS.has(label)) return true
+  const parts = labelParts(label)
+  const last = parts[parts.length - 1] ?? ''
+  return LABEL_LAST.has(last) || LABEL_PAIR.has(parts.slice(-2).join(''))
+}
+
+/**
+ * Whether the value after a label looks like a secret: 6+ characters without spaces, letters mixed with digits or
+ * symbols (not a plain word, an identifier or digits only), and not an expression: no "(", not a variable or a
+ * placeholder ($X, %X%, {x}, <x>), not process.env / os.environ / env. / import.meta.env, not a dotted path
+ * ("config.auth.token"), not an address.
+ */
+export function secretValue(raw: string): boolean {
+  // the sentence goes on after it ("password: hunter22.")
+  const v = raw.replace(/[.,;:)\]}>]+$/, '')
+  if (v.length < 6 || /\s/.test(v) || v.includes('(')) return false
+  if (/^[$%{<[]/.test(v)) return false
+  if (/^(?:process\.env|os\.environ|os\.getenv|env\.|import\.meta\.env|ENV\[)/i.test(v)) return false
+  if (/^[A-Za-z_$][\w$]*(?:\.[A-Za-z_$][\w$]*)+$/.test(v)) return false
+  if (/^[a-z][a-z0-9+.-]*:\/\//i.test(v)) return false
+  return hasLetter(v) && (hasDigit(v) || /[^A-Za-z0-9_.-]/.test(v))
+}
+
+function labelledSpans(text: string, spans: SecretSpan[]) {
+  LABEL_RE.lastIndex = 0
+  for (let m = LABEL_RE.exec(text); m; m = LABEL_RE.exec(text)) {
+    const value = m[2]!
+    if (!secretLabel(m[1]!) || !secretValue(value)) continue
+    const start = m.index + m[0].length - value.length
+    spans.push({ start, end: start + value.length, kind: 'labelled' })
+  }
+}
 
 /** The parts of the text that are almost surely a secret (see LIKELY above), sorted, overlaps merged. */
 export function findLikelySecrets(text: string): SecretSpan[] {
   const spans: SecretSpan[] = []
   patternSpans(text, LIKELY, spans)
+  labelledSpans(text, spans)
   return merged(spans)
+}
+
+/**
+ * Whether a service's address holds a key: a known key prefix anywhere in it, a password in it, or a query value
+ * named like a key ("?api_key=…", "?token=…", "?key=…") that looks like one (secretValue). Not a generated instance
+ * id in the path or a plain query ("?instance=a8F3k29dK3x", "?key=public"): MCP servers are often reached that way.
+ */
+export function addressHasSecret(url: string): boolean {
+  if (hasLikelySecret(url)) return true
+  let u: URL
+  try { u = new URL(url) } catch { return false }
+  const params = [...u.searchParams, ...new URLSearchParams(u.hash.replace(/^#/, ''))]
+  return params.some(([name, value]) => (secretLabel(name) || name.toLowerCase() === 'key') && secretValue(value))
 }
 
 export function hasLikelySecret(text: string): boolean {

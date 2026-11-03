@@ -7,7 +7,7 @@
 // checks, limits, sealing and audit. Not offered in confidential chats (not a local tool) or to sub-agents
 // (PARENT_ONLY_TOOLS); a scheduled run has nobody to finish a card and gets "skipped".
 import { z } from 'zod'
-import { ConnectServiceInput, hasSecret, uuidv7 } from '@mycel/shared'
+import { addressHasSecret, ConnectServiceInput, hasSecret, uuidv7 } from '@mycel/shared'
 import { IntegrationInput, type Integration, type IntegrationAccess, type IntegrationPatch, type Locale, type TurnConnectBody, type TurnConnectResult, type TurnRequest } from '@mycel/shared/api'
 import type { AppContext } from '../context'
 import type { AuthInfo } from '../services'
@@ -16,8 +16,9 @@ import { fail } from '../http/errors'
 import { getTeamSettings } from '../admin/settings'
 import { unsealOrFail } from '../credentials/service'
 import { credentialsOf } from '../credentials/store'
-import { cleanNotes, integrationsOf, MAX_PERSONAL, MAX_TEAM, normUrl, obviouslyPrivate, oneLine } from '../integrations/connections/service'
+import { cleanNotes, hiddenText, integrationsOf, MAX_PERSONAL, MAX_TEAM, normUrl, obviouslyPrivate, oneLine } from '../integrations/connections/service'
 import { activeUser, disabledTools, getRow, isAdmin, mayUse, savedTools, selectRows, view, type Row, type Viewer } from '../integrations/connections/store'
+import { say } from '../integrations/connections/text'
 import { googleDriveOf } from '../integrations/google-drive/oauth'
 import { DRIVE_TOOL_NAMES } from '../tools/drive'
 import { tr } from './i18n'
@@ -45,6 +46,8 @@ export interface ConnectCard {
   /** a connect or done of this card that is running: a second one meanwhile is refused, and the tool waits for it after
    * the card closed (its time ran out, Not now, the answer was stopped) before it says what the card made */
   running: Promise<unknown> | null
+  /** the connection this card made was changed or removed in Settings meanwhile: nothing more goes through this card */
+  changed: boolean
 }
 
 type ToolOut = { content: McpContent[]; isError?: boolean; summary: string }
@@ -84,9 +87,16 @@ export async function connectService(exec: TurnExec, args: unknown): Promise<Too
   const viewer = activeUser(db, spec.userId)
   if (!viewer) return early('Access denied: this account is disabled.', 'account disabled')
   const target = a.data.target ?? 'service'
-  // the fields are shown on the card and saved with the connection: a key in one of them would end up there
+  // the person approves what the card shows, and the name and notes reach the AI in later chats: no character they
+  // cannot see or that turns the text around (hiddenText)
+  for (const [field, v] of [['name', a.data.name], ['notes', a.data.notes], ['why', a.data.why]] as const) {
+    if (v && hiddenText(v)) return early(`No card: the ${field} contains invisible or direction-changing characters (zero-width, bidi, tag or private-use characters, or variation selectors). The ${field} must be plain, visible text: call connect_service again without them.`, 'hidden text')
+  }
+  // the fields are shown on the card and saved with the connection: a key in one of them would end up there. The
+  // address gets the stricter check (a known key prefix, a key-named query value): MCP addresses often carry a
+  // generated instance id, which is no key.
   for (const [field, v] of [['name', a.data.name], ['url', a.data.url], ['authHeader', a.data.authHeader], ['notes', a.data.notes], ['why', a.data.why]] as const) {
-    if (v && (hasSecret(v) || exec.redact(v) !== v)) return early(`No card: the ${field} looks like it contains a key, token or password. Never put one in connect_service: the person pastes the key into the card, which keeps it from you. Call connect_service again without it.`, 'secret in input')
+    if (v && ((field === 'url' ? addressHasSecret(v) : hasSecret(v)) || exec.redact(v) !== v)) return early(`No card: the ${field} looks like it contains a key, token or password. Never put one in connect_service: the person pastes the key into the card, which keeps it from you. Call connect_service again without it.`, 'secret in input')
   }
   const why = a.data.why?.trim() ? oneLine(a.data.why) : undefined
   const expiresAt = () => new Date(Date.now() + rt.askUserTimeoutMs()).toISOString()
@@ -143,7 +153,7 @@ export async function connectService(exec: TurnExec, args: unknown): Promise<Too
     exec.patchToolStep(CONNECT_TOOL, () => ({ detail: tr('connectNotConnected', L) }))
     return { content: json({ skipped: true, reason: 'a scheduled run: nobody is there to finish a card. Say in the result that the person can ask you to connect it in a chat.' }), summary: `${CONNECT_TOOL} -> skipped (scheduled run)` }
   }
-  const kept: ConnectCard = { integrationId: null, running: null }
+  const kept: ConnectCard = { integrationId: null, running: null, changed: false }
   exec.connectCards.set(card.requestId, kept)
   let answer: unknown
   try { answer = await exec.waitForPerson(card, { timeoutMs: rt.askUserTimeoutMs() }) } finally { exec.connectCards.delete(card.requestId) }
@@ -156,7 +166,8 @@ export async function connectService(exec: TurnExec, args: unknown): Promise<Too
   const made = kept.integrationId ? getRow(db, kept.integrationId) : null
   if (made?.status === 'connected') { const tools = toolNames(exec, made); return connectedResult(exec, { name: made.name, status: made.status, ...(tools ? { tools } : {}) }) }
   exec.patchToolStep(CONNECT_TOOL, () => ({ detail: tr('connectNotConnected', L) }))
-  const reason = made ? `"${made.name}" was added but is not working yet (${stateOf(made)}); ${made.scope === 'team' ? 'an admin can fix it in Admin' : 'the person can fix it in Settings'} > External services` : undefined
+  const reason = made ? `"${made.name}" was added but is not working yet (${stateOf(made)}); ${made.scope === 'team' ? 'an admin can fix it in Admin' : 'the person can fix it in Settings'} > External services`
+    : kept.changed ? 'the connection this card made was changed or removed in Settings while the card was open, so the card connected nothing; ask the person whether to connect it again' : undefined
   return { content: json({ skipped: true, ...(reason ? { reason } : {}) }), summary: `${CONNECT_TOOL} -> skipped` }
 }
 
@@ -188,6 +199,27 @@ export async function finishCard(ctx: AppContext, exec: TurnExec | undefined, au
 }
 
 type Card = Extract<TurnRequest, { kind: 'connect_service' }>
+
+/**
+ * Before each connect or done of a service card, the rules as they are now: personal connections still allowed (an
+ * admin can turn them off while a card waits), and the connection this card made still the one it showed (address,
+ * kind, how it signs in and the key's header). One changed or removed in Settings meanwhile is not this card's any
+ * more: refused, nothing is sent to it, "Not now" leaves it alone and the person starts again. Returns the card's
+ * connection, or null before it made one.
+ */
+function current(ctx: AppContext, card: Card, kept: ConnectCard, L: Locale): Row | null {
+  if (card.scope === 'personal' && !getTeamSettings(ctx.db).personalIntegrations) return fail('forbidden', say('personalOff', L))
+  if (kept.changed) return fail('conflict', tr('connectChanged', L))
+  if (!kept.integrationId) return null
+  const row = getRow(ctx.db, kept.integrationId)
+  const s = card.service
+  if (!row || !s || row.url !== s.url || row.kind !== s.kind || row.auth !== s.auth || row.auth_header !== s.authHeader) {
+    kept.integrationId = null
+    kept.changed = true
+    return fail('conflict', tr('connectChanged', L))
+  }
+  return row
+}
 /** the card closes and the waiting tool learns it is connected (a card that closed meanwhile changes nothing) */
 const closeConnected = (exec: TurnExec, requestId: string, outcome: ConnectOutcome) => { exec.answer(requestId, CONNECT_TOOL, outcome) }
 const stateOfView = (v: Integration, requestId: string, exec: TurnExec, oauth: boolean): TurnConnectResult => {
@@ -206,12 +238,17 @@ async function connect(ctx: AppContext, exec: TurnExec, viewer: Viewer, body: Ex
   if (keyed && !body.sealed) return fail('validation', tr('connectNeedsKey', L), { fields: { 'body.sealed': 'the key, sealed for integration.secret' } })
   if (!keyed && body.sealed) return fail('validation', undefined, { fields: { 'body.sealed': 'this service takes no key' } })
   if (card.scope === 'personal' && body.access) return fail('validation', undefined, { fields: { 'body.access': 'only for a team connection' } })
+  // what is saved is what the card showed (the tool refused hidden characters; checked again where it is saved)
+  if ([card.name, card.notes, card.why].some((v) => v && hiddenText(v))) return fail('validation', tr('connectHidden', L))
+  // the rules as they are now, before the key is even opened (another key after a failed check too)
+  current(ctx, card, kept, L)
   // opened only here and handed straight to the store, which seals it for this connection (nothing keeps or logs it)
   const secret = keyed ? (await unsealOrFail(credentialsOf(ctx), body.sealed!, 'integration.secret', L)).trim() : undefined
   if (keyed && !secret) return fail('validation', tr('connectNeedsKey', L), { fields: { 'body.sealed': 'empty' } })
   if (secret && secret.length > KEY_MAX) return fail('validation', tr('connectKeyTooLong', L, { n: String(KEY_MAX) }), { fields: { 'body.sealed': `longer than ${KEY_MAX} characters` } })
   const svc = integrationsOf(ctx)
-  const mine = kept.integrationId ? getRow(ctx.db, kept.integrationId) : null
+  // and again as it is now, after opening the key: nothing waits between this and the store's write
+  const mine = current(ctx, card, kept, L)
   const access = card.scope === 'team' ? accessFor(body.access ?? 'me', viewer.id) : undefined
   let v: Integration
   if (mine) {
@@ -241,8 +278,8 @@ async function done(ctx: AppContext, exec: TurnExec, viewer: Viewer, requestId: 
     closeConnected(exec, requestId, { outcome: 'connected', drive: true })
     return { state: 'connected' }
   }
-  const row = kept.integrationId ? getRow(ctx.db, kept.integrationId) : null
-  if (!row) { kept.integrationId = null; return { state: 'retry', lastError: tr('connectNotYet', L) } }
+  const row = current(ctx, card, kept, L)
+  if (!row) return { state: 'retry', lastError: tr('connectNotStarted', L) }
   // the sign-in's callback checks the connection after it says "completed": a stored sign-in not yet checked is checked
   // now (refresh also checks again that this person manages it)
   const v = row.status === 'connected' || !row.secret_enc ? view(ctx.db, row, viewer, L) : await integrationsOf(ctx).refresh(viewer, row.id, L)

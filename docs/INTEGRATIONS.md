@@ -78,7 +78,17 @@ never have to open Settings. Code: `server/src/chat/connect-service.ts` (the too
   to `POST /api/turns/:id/connect`, which opens it and hands it straight to the connection's store. It never goes
   through `POST /api/turns/:id/answer`, whose answers reach the AI; that endpoint refuses these cards. A field the AI
   fills in that looks like a key (or holds one this person has stored) is refused without a card, and the step's label
-  leaves out anything that looks like one.
+  leaves out anything that looks like one. The address gets a stricter check (`addressHasSecret`): a known key prefix,
+  a password in it, or a key-named query value (`?api_key=`, `?token=`, `?key=`) that looks like a key; a generated
+  instance id in an MCP address is no key.
+- **Nothing hidden on the card.** The name, the notes and the AI's line (`why`) are refused without a card, naming the
+  field, when they hold a character a person cannot see or that turns the text around (`hiddenText`,
+  `integrations/connections/service.ts`): format characters (zero-width ones, bidi marks, overrides and isolates, the
+  tag block), other default-ignorable ones (variation selectors, Hangul fillers), private-use characters, lone
+  surrogates, noncharacters and C1 controls. The name and notes reach the AI in later chats, so an instruction could
+  otherwise hide behind a harmless-looking card. Korean, Japanese, emoji (a zero-width joiner between two emoji, an
+  emoji's presentation selector) and line breaks in the notes stay. The same check runs again where the card's values
+  are saved. The step's label leaves such characters out and is "Connect service" alone without a name.
 - **Nothing is connected until the person presses the card's button.** The tool only opens a card, so an instruction
   planted in a page can make the AI open a card but never finish one. The AI learns only the outcome:
   `{"connected": true, "name", "status", "tools"}` (up to 30 tool names, each cut to 64 characters, without control or
@@ -88,8 +98,10 @@ never have to open Settings. Code: `server/src/chat/connect-service.ts` (the too
   only, no private, local or office addresses, the header rules, the short name. A team connection only for an admin,
   with the role read again when the card is finished (the endpoint is for any signed-in person). "Just me" names the
   admin in the connection's rule (admins are not users of team connections otherwise); "Everyone" is everyone.
-- **The card says where it connects**: the host is the line under the title, then the whole address, for every case
-  (also no key and sign-in), with a caution when no word of the name (3+ letters or digits) is in the host. The key is
+- **The card says where it connects**: the whole name in the title (on more lines when it is long), the host as the
+  line under it, then the whole address and what kind of connection it is (MCP server or HTTP API, and for a key in a
+  header the header's name), for every case (also no key and sign-in), with a caution when no word of the name (3+
+  letters or digits) is in the host. The key is
   stored for that one connection and sent only to its address, as for any connection; a key over 8,000 characters is
   refused. An HTTP API's `notes` (given to the AI in later chats) are on the card in full, read-only, and saved exactly
   as shown.
@@ -98,13 +110,21 @@ never have to open Settings. Code: `server/src/chat/connect-service.ts` (the too
   Settings): one card makes one connection at most. A second button while one runs is refused (409). "Not now" after a
   failed key removes that connection again, the way Settings removes one (audited), but never one a connect is still
   making or one holding a finished sign-in; a card whose time runs out leaves it in Settings.
+- **Each later button follows the rules of now.** Every connect and done checks again that personal connections are
+  allowed (personal cards) and that the person is an admin (team cards), and that the connection the card made still
+  has the card's address, kind, sign-in and key header. One changed or removed in Settings meanwhile is no longer the
+  card's: refused (409, "ask the AI to connect it again") before the key is opened, so it is never sent; "Not now"
+  closes the card without removing it, and the AI is told the card connected nothing because of that change.
 - **Answers without a card**, as text the AI can act on: a missing or bad field, an address that is not https or is
   private, personal connections off, a team connection asked for by a member, a connection to the same address that
   the person (or the team) already has (its name and state), the team limit, Google Drive not set up on this server
   (an admin or the operator has to set it up), Google Drive already connected.
 - **Sign-in services** are added first; the card then runs the usual sign-in (`POST /api/integrations/:id/authorize`)
-  and, once it finished, tells the server ("done"), which checks the connection before telling the AI. Google Drive
-  uses its own sign-in ([GOOGLE-DRIVE.md](GOOGLE-DRIVE.md)) inside the card, then "done" the same way.
+  and, once it finished, tells the server ("done"), which checks the connection before telling the AI. The card says
+  that signing in opens a sign-in page in a new window, to check that it is the service the person expects, and that
+  the AI never sees the password; it does not name whose page it is, since the sign-in server comes from the address's
+  own metadata. Done before the card connected anything says so. Google Drive uses its own sign-in
+  ([GOOGLE-DRIVE.md](GOOGLE-DRIVE.md)) inside the card, then "done" the same way.
 - **Where it is not offered.** Scheduled runs have nobody to finish a card: the tool answers "skipped" at once.
   Sub-agents never get the tool (`PARENT_ONLY_TOOLS`). Confidential chats (Safe operations) do not offer it: it is not a
   local tool, and connected services are not offered there either.
@@ -113,15 +133,26 @@ never have to open Settings. Code: `server/src/chat/connect-service.ts` (the too
   person's next message.
 - If the person pastes a key into the chat anyway, the AI tells them not to, that it should be revoked and replaced
   at the service, and offers the card (the instructions' rule, `prompt.ts` `CONNECT_RULE`). The web app also warns
-  before sending a message that almost surely holds a key (`hasLikelySecret`: known key prefixes, private keys, JWTs,
-  labelled values such as `password: …`; not random-looking text such as a commit hash or a document link).
+  before sending text that almost surely holds a key, with "Send anyway" and "Edit" (`SecretWarning`), in every box
+  whose text reaches the AI: the message box, an ask_user card's own answer, editing a sent message and editing a
+  waiting one. It warns on `hasLikelySecret`: known key prefixes (also Notion, Linear, Groq and `sk-` keys in lower
+  case or hex), private keys, JWTs, `Bearer` and `Authorization: Basic` values, and labelled values such as
+  `password: hunter22` or `SECRET_KEY=…` when the label is a whole word naming a secret and the value looks like one
+  (6+ characters, letters with digits or symbols, not an expression such as `process.env.API_KEY`,
+  `response.json()` or `config.auth.token`). Not random-looking text such as a commit hash or a document link, and
+  not code or settings such as `token: 4096` or `Password: required`.
 - Tests: `tests/unit/connect-service.test.ts` (every answer without a card; the card's fields; a wrong key and then
   the right one on one connection; a seal for another purpose; another person's turn; `/answer` refused; Not now, the
   time running out, a scheduled run; a team connection with the role checked again and its access changed on a retry;
   sign-in then done; Google Drive done; the notes on the card and as saved; a held check: two connects at once, the
-  time running out and Not now while it runs; Not now after a finished sign-in; the tool names; a long key; the key
-  and the sealed value in no text, row, log or file of the data folder). Who reaches a card: the permission matrix's
-  `connectTurn` case on a real card.
+  time running out and Not now while it runs; Not now after a finished sign-in; the tool names; a long key; hidden
+  characters in each field, refused again where they are saved, and Korean, Japanese and emoji names; another key
+  after personal connections were turned off or the connection was changed in Settings; done before connecting; the
+  key and the sealed value in no text, row, log or file of the data folder). Who reaches a card: the permission
+  matrix's `connectTurn` case on a real card. The card clicked in a small test DOM (`web/test/unit/connect-card.test.tsx`,
+  `dom-host.ts`): a wrong key then the right one, sign-in (window reserved in the click, connect, authorize, poll,
+  done), Google Drive to done, done again after a failed one; and each box's key warning
+  (`web/test/unit/secret-warning.test.tsx`).
 
 ## Secrets
 
