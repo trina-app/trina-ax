@@ -323,3 +323,25 @@ describe('stage 4 review', () => {
     }
   })
 })
+
+describe('a rule folder under a folder that became a link', () => {
+  test('is not there (every step is looked at), so it is listed with the folders not in the tree', async () => {
+    const root = h.ctx.files.fx.root
+    const made = await admin.call('POST', '/api/admin/folders', { path: 'shared/real-6d2/sub', rules: [rule('everyone', null, 'read')] })
+    const outside = path.join(root, '..', 'outside-real-6d2')
+    fs.mkdirSync(path.join(outside, 'sub'), { recursive: true })
+    fs.rmSync(path.join(root, 'shared', 'real-6d2'), { recursive: true, force: true })
+    fs.symlinkSync(outside, path.join(root, 'shared', 'real-6d2'))
+    try {
+      const list = (await admin.call('GET', '/api/admin/folders')).items as { path: string; exists: boolean; hidden?: boolean }[]
+      expect(list.find((f) => f.path === 'shared/real-6d2/sub')).toMatchObject({ exists: false, hidden: false })
+      // in neither the tree nor the rule folders
+      expect(child(await tree('shared'), 'real-6d2')).toBeUndefined()
+      expect((await tree('', '&rules=1&limit=500')).levels[0]!.children.map((c) => c.path)).not.toContain('shared/real-6d2/sub')
+    } finally {
+      await admin.call('DELETE', `/api/admin/folders/${made.id}`)
+      fs.rmSync(path.join(root, 'shared', 'real-6d2'), { force: true })
+      fs.rmSync(outside, { recursive: true, force: true })
+    }
+  })
+})

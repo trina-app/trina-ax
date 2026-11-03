@@ -605,3 +605,79 @@ test('a slow "Load more" of the people that comes after a rule change is dropped
   await expect(page.getByTestId('folder-person')).toHaveCount(1)
   await expect(page.getByTestId('folder-people-more')).toBeVisible()
 })
+
+// ---------------- lookups that overlap ----------------
+
+/** a new address the way Back and Forward bring one (the router hears popstate) */
+const goTo = (page: Page, folder: string) =>
+  page.evaluate((f) => {
+    history.pushState(null, '', `/admin/folders?folder=${encodeURIComponent(f)}`)
+    dispatchEvent(new PopStateEvent('popstate'))
+  }, folder)
+
+test('a lookup while a page of the same level is on its way waits for it; a replaced lookup stops', async ({ page }) => {
+  test.setTimeout(90_000)
+  await reset(page)
+  const errors = watchConsole(page)
+  await signIn(page)
+  await team(page)
+  // two rows a page; every page after the first takes 2 seconds
+  await page.route('**/api/admin/access/tree**', async (r) => {
+    const u = new URL(r.request().url())
+    u.searchParams.set('limit', '2')
+    if (u.searchParams.has('cursor')) await new Promise((done) => setTimeout(done, 2000))
+    await r.continue({ url: u.toString() }).catch(() => {})
+  })
+  // A: "N more" of the top level is on its way when the address names shared (three pages further)
+  await page.goto('/admin/folders')
+  await expect(item(page, '')).toBeVisible()
+  await tree(page).getByTestId('tree-more').first().click()
+  await goTo(page, 'shared')
+  await expect(detail(page)).toHaveAttribute('data-path', 'shared', { timeout: 20_000 })
+  await expect(page.getByTestId('folder-detail-missing')).toHaveCount(0)
+  await expect(item(page, 'shared')).toHaveAttribute('aria-selected', 'true')
+
+  // B: one folder, then another 300 ms later: the second is found, the first stops and is not said missing
+  await page.goto('/admin/folders?folder=secret')
+  await page.waitForTimeout(300)
+  await goTo(page, 'shared')
+  await expect(detail(page)).toHaveAttribute('data-path', 'shared', { timeout: 20_000 })
+  await page.waitForTimeout(2500)
+  await expect(page.getByTestId('folder-detail-missing')).toHaveCount(0)
+  await expect(detail(page)).toHaveAttribute('data-path', 'shared')
+  await expect(item(page, 'secret')).toHaveAttribute('aria-selected', 'false')
+  expect(realErrors(errors)).toEqual([])
+})
+
+test('"Try again" on a lookup that failed keeps the focus: on its "Try again" when it fails again', async ({ page }) => {
+  await reset(page)
+  await signIn(page)
+  await team(page)
+  let fails = 2
+  await page.route('**/api/admin/access/tree**', (r) => {
+    const u = new URL(r.request().url())
+    if (u.searchParams.get('path') === 'shared' && fails > 0) {
+      fails--
+      return r.fulfill({ status: 503, json: { error: { code: 'unavailable', message: 'LOOKUP-FAILED' } } })
+    }
+    return r.continue()
+  })
+  await page.goto('/admin/folders?folder=shared')
+  const failed = page.getByTestId('folder-detail-failed')
+  await expect(failed).toContainText('LOOKUP-FAILED')
+  await failed.getByRole('button', { name: t['common.retry'], exact: true }).click()
+  await expect(failed.getByRole('button', { name: t['common.retry'], exact: true })).toBeFocused()
+  await page.keyboard.press('Enter')
+  await expect(detail(page)).toHaveAttribute('data-path', 'shared')
+  expect(await page.evaluate(() => document.activeElement !== document.body && document.activeElement !== null)).toBe(true)
+})
+
+test('a team folder that serves Skills/ is the team skills on the screen too: the label, the hint, the managers', async ({ page }) => {
+  await reset(page)
+  await signIn(page)
+  await call(page, 'post', '/api/admin/folders', { path: 'Skills/영업', create: true, rules: [{ subjectType: 'user', subjectId: 'bob', access: 'write' }, everyone('read')] })
+  await page.goto(`/admin/folders?folder=${encodeURIComponent('Skills/영업')}`)
+  await expect(item(page, 'Skills/영업')).toContainText(t['accessTree.kind.skills'])
+  await expect(detail(page)).toContainText(t['skillMgr.folderHint'])
+  await expect(detail(page).getByTestId('skill-manager-badge')).toBeVisible()
+})
