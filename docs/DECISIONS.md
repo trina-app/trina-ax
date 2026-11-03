@@ -6638,15 +6638,19 @@ Nothing is removed or re-keyed.
   a project on the whole team folder, or a confusing 409 where an older server already had one there. Editing a project
   made on the team root before still saves. A 409 that names the project already on the folder shows "Open project"
   next to the message.
-- **Chat.** The header names the chat's project, linked to its page, on phones too (it showed a generic "Projects" link,
-  hidden on phones). A project the person can no longer see is not shown. The name comes from a small store of
-  projects as this window last saw them (`store/projects.ts`): the project dialog, the Projects page and the move dialog
-  put what the server answered, so a rename shows at once; the header asks the server again when the window gets the
-  focus back (a rename on another device). A button in the header opens "Project of this chat": no project, or a
-  project the person can see, saved with the existing `PATCH /api/chats/:id {projectId}`, which still checks that the
-  person can see the project (404 otherwise; out of a project needs no check). When the chat's own project is not among
-  them, it is listed as "A project you can no longer see" and stays chosen until another choice is saved. From the next
-  answer the AI gets the new project's folder and instructions.
+- **Chat.** Main's header (a chat's project, " / ", then the title as a menu with Rename and Delete; 13661b84) is kept.
+  The project part (`ChatProjectCrumb`) shows the project's own name, linked to its page, and nothing at all for a
+  project the person cannot see (404: no read access any more, or its folder in the trash), never the generic
+  "Projects"; like main, it is hidden below the `sm` width, where the header keeps the title. The name comes from a small
+  store of projects as this window last saw them (`store/projects.ts`): the project dialog, the Projects page and the
+  move dialog put what the server answered, so a rename shows at once; the header asks the server again when the
+  window gets the focus back (a rename on another device), and drops a project that answers 404. The title menu has
+  "Move to project…" ("Change project…" in a project) between Rename and Delete, so it works on a phone too. It opens
+  "Project of this chat": no project, or a project the person can see, saved with the existing
+  `PATCH /api/chats/:id {projectId}`, which still checks that the person can see the project (404 otherwise; out of a
+  project needs no check). When the chat's own project is not among them, it is listed as "A project you can no
+  longer see" and stays chosen until another choice is saved. From the next answer the AI gets the new project's
+  folder and instructions.
 - **Wording.** `docs/PERMISSIONS.md` said `projects/<p>/` was for "people in that project"; there is no such
   membership: the folder's rules decide, and the project is seen by whoever can read its folder. The Korean
   `projects.participantsHint` said admins were left out of a new team project folder; the owner and admins see and
@@ -6659,6 +6663,6 @@ Nothing is removed or re-keyed.
   read), `tests/security/project-trashed-folder.test.ts`, `tests/unit/b-project-taint.test.ts` (a real turn of the
   creator after an admin's edit, the creator's own edits, a change by a build without the columns, empty instructions,
   the sweep of the author's account, the migration's backfill), `web/test/unit/project-folders.test.tsx` and
-  `project-folders-dom.test.tsx` (the header after a rename and on focus, the hidden project in the move dialog, the
-  409's link); `tests/security/r2-project-folder-unlock.test.ts` now makes its two-projects-on-one-folder case as a row
+  `project-folders-dom.test.tsx` (the header's project after a rename, on focus and after a 404, the hidden project in
+  the move dialog, the 409's link); `tests/security/r2-project-folder-unlock.test.ts` now makes its two-projects-on-one-folder case as a row
   from before the rule. Needed in the core too.
