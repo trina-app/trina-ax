@@ -58,14 +58,18 @@ export function registerCTools(ctx: AppContext, o: { fetch?: FetchOptions; saveU
 
   reg.register({
     name: 'make_file',
-    description: 'Create a Word (.docx), PowerPoint (.pptx), Excel (.xlsx) or PDF file in the team folder from Markdown or CSV. ' +
+    description: 'Create a Word (.docx), PowerPoint (.pptx), Excel (.xlsx), PDF or Hangul (.hwpx) file in the team folder from Markdown or CSV. ' +
       'Give exactly one of `source` (a .md/.csv file in the team folder) or `content` (Markdown; for xlsx also CSV). For xlsx every Markdown ' +
       'pipe table becomes a sheet. xlsx formulas: a data cell that starts with "=" is written as a formula, e.g. "=SUM(B2:E2)"; start it ' +
       'with "\'=" for literal text. Row 1 is the header, data starts at row 2, columns are A, B, ... in table order; a sheet is named ' +
       'after the heading above its table (max 31 characters, \\ / ? * [ ] : removed), e.g. "=Q3!B2" or "=\'Q3 sales\'!B2". Formulas may ' +
       'use only cells of this workbook (no other files, DDE, HYPERLINK, WEBSERVICE, INDIRECT). The file stores no results: Excel or ' +
       'LibreOffice calculate them when the file opens, so do not state computed values as read from the file. ' +
-      'Images must be team-folder files referenced by relative path. If `output` exists and you did not read it in this turn, a conflict copy is saved next to it instead. `template`: a .docx/.pptx under skills/ for styles. ' +
+      'Images must be team-folder files referenced by relative path. If `output` exists and you did not read it in this turn, a conflict copy is saved next to it instead. `template`: a .docx/.pptx/.hwpx under skills/ for styles. ' +
+      'hwpx (Hangul): # to ###### headings become Hangul outline levels 1-6; also paragraphs, **bold**, *italic*, bullet and numbered lists (up to 6 levels), ' +
+      'simple tables (no merged cells, plain text in cells) and page breaks (a line with only \\newpage). Nothing else: images, links, footnotes, code, ' +
+      'block quotes, horizontal rules, HTML, math and YAML metadata are refused and nothing is saved, so write those as plain text (a link as "text (address)"). ' +
+      'With a team template whose outline numbers its headings, leave the numbers out of the headings. A .hwp cannot be written. ' +
       'pptx: ' + PPTX_FORMAT_HINT + ' When the user names a slide count, give `expected_slides` (and `expected_notes` for speaker notes); ' +
       'the result states the real slide and notes counts: report those, never other numbers. ' +
       'When safe operations are enabled, PPTX uses only the bundled reference: uploaded templates are deferred. ' +
@@ -78,7 +82,8 @@ export function registerCTools(ctx: AppContext, o: { fetch?: FetchOptions; saveU
         ? `'${r.conflictCopyOf}' already exists and was not read in this turn, so the new file was saved as '${r.path}' (${human(r.size)}). Tell the user about both.`
         : `Saved ${r.path} (${human(r.size)}). Link for the user: [${r.path.split('/').pop()}](${fileShareUrl(r.path, 'preview')})`
       const text = r.deck ? `${saved}\nThe file has ${deckSummary(r.deck)}.`
-        : r.formulas ? `${saved}\nThe file has ${r.formulas} formula cells; the spreadsheet app calculates them when the file opens.` : saved
+        : r.formulas ? `${saved}\nThe file has ${r.formulas} formula cells; the spreadsheet app calculates them when the file opens.`
+        : a.format === 'hwpx' ? `${saved}\nThe file was read back: its paragraphs and headings are the document's. Layout in Hangul is not checked.` : saved
       const deck = r.deck ? ` ${r.deck.slides.length} slides ${r.deck.notes} notes` : ''
       return { text, summary: `make_file ${a.format} -> ${r.path} ${r.size}B${deck}${r.conflictCopyOf ? ' (conflict copy)' : ''}`, structured: { path: r.path, size: r.size, sha256: r.sha256, ...(r.deck ? { slides: r.deck.slides.length, notes: r.deck.notes } : {}) } }
     },

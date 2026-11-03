@@ -37,7 +37,7 @@ describe('registry', () => {
     const names = r.result.tools.map((t: any) => t.name)
     expect(names).toEqual(['list', 'glob', 'grep', 'read', 'write', 'edit', 'make_file', 'share_file', 'artifact', 'web_fetch', 'save_url', 'move_files', 'copy_files', 'rename_file', 'schedule_create', 'schedule_list', 'schedule_delete'])
     const mf = r.result.tools.find((t: any) => t.name === 'make_file')
-    expect(mf.inputSchema.properties.format.enum).toEqual(['docx', 'pptx', 'xlsx', 'pdf'])
+    expect(mf.inputSchema.properties.format.enum).toEqual(['docx', 'pptx', 'xlsx', 'pdf', 'hwpx'])
     expect(() => toolRegistry(A.ctx.files).register({ name: 'make_file', description: '', input: mf as any, run: () => ({ text: '', summary: '' }) })).toThrow('registered twice')
   })
   test('invalid input and errors come back as tool errors and are audited', async () => {

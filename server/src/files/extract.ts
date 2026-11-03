@@ -1,6 +1,7 @@
 // Text for read/grep. Office formats: pandoc (docx/pptx/odt; the office worker adds the docx headers, footers and
 // comments and the pptx speaker notes and chart data that pandoc drops, ooxml.ts), SheetJS (xlsx/xls/ods) and hwp.ts (hwp/hwpx) in the office
-// worker (office-worker.ts, a bun child process), pdftotext (pdf).
+// worker (office-worker.ts, a bun child process), pdftotext (pdf). The same worker makes make_file's .hwpx
+// (officeWorkerWrite, files/hwpx-write.ts).
 // Plain text: UTF-8, else legacy Korean (CP949 / EUC-KR, the Korean Excel CSV default) when it decodes cleanly.
 // Scanned PDFs: mycel-ocr (native/ocr, Apple Vision) on macOS only, for the search index (grep text cache, semantic search)
 // and the read fallback when a team turned image viewing off. Linux has no OCR. An AI read of an image or a scanned page
@@ -193,6 +194,31 @@ export async function officeWorkerText(e: string, bytes: Uint8Array, signal?: Ab
     if (r.code >= 128) { const why = tooComplex('the reader ran out of memory or time'); throw r.code === 128 + 9 ? new ConverterStopped(why.message) : why }
     if (r.code !== 0) throw new ToolError(`could not convert the file to text (office reader: ${r.stderr.trim().split('\n')[0]?.slice(0, 200) || 'exit ' + r.code})`)
     return r.stdout.toString('utf8')
+  })
+}
+
+/** what a file the office worker makes may weigh (make_file's .hwpx) */
+export const OFFICE_WRITE_MAX = 64 * 1024 * 1024
+
+/** The bytes of a file the office worker makes (mode `hwpx-write`: make_file's Hangul document, files/hwpx-write.ts),
+ * isolated and limited like its reads. A refusal of the request is a ToolError with the worker's own message. */
+export async function officeWorkerWrite(mode: string, request: Uint8Array, signal?: AbortSignal): Promise<Buffer> {
+  const script = await officeWorkerScript()
+  return officeWorkerSlot(async () => {
+    signal?.throwIfAborted()
+    const r = await runIsolated({
+      cmd: process.execPath, args: ['--smol', '--no-env-file', script, mode], stdin: request, readPaths: [path.dirname(script)],
+      timeoutMs: OFFICE_WORKER_TIMEOUT_MS, maxStdout: OFFICE_WRITE_MAX, maxRssMiB: OFFICE_WORKER_RSS_MIB, signal,
+      env: { BUN_RUNTIME_TRANSPILER_CACHE_PATH: '0', NO_COLOR: '1' },
+    })
+    if (r.killed === 'aborted') signal?.throwIfAborted()
+    const failed = (why: string) => new ToolError(`the document could not be made (${why}); nothing was saved`)
+    if (r.killed === 'timeout') throw failed(`it took longer than ${OFFICE_WORKER_TIMEOUT_MS / 1000} s`)
+    if (r.killed === 'memory') throw failed(`it needed more than ${OFFICE_WORKER_RSS_MIB} MB of memory`)
+    if (r.killed === 'output') throw failed(`the file would be larger than ${OFFICE_WRITE_MAX / 1024 / 1024} MB`)
+    if (r.code === TOOL_ERROR_EXIT) throw new ToolError(r.stderr.trim().slice(0, 1500))
+    if (r.code !== 0) throw failed(r.code === null || r.code >= 128 ? 'the writer ran out of memory or time' : `office writer: ${r.stderr.trim().split('\n')[0]?.slice(0, 200) || 'exit ' + r.code}`)
+    return r.stdout
   })
 }
 

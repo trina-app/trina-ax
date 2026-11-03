@@ -1,5 +1,6 @@
-// Text of spreadsheets (SheetJS: xlsx / xls / ods) and Hangul documents (hwp.ts: hwp / hwpx). These parsers are
-// pure TypeScript and expand untrusted input in memory, so they run only in the office worker
+// Text of spreadsheets (SheetJS: xlsx / xls / ods) and Hangul documents (hwp.ts: hwp / hwpx), and make_file's new
+// Hangul documents (hwpx-write.ts: pandoc's tree and an untrusted template in, a .hwpx out). These are pure
+// TypeScript and expand untrusted input in memory, so they run only in the office worker
 // (files/office-worker.ts, a bounded child process started by extract.ts), never in the server process.
 // Defence in depth inside the worker: zip containers are checked before a parser expands them (zip-guard.ts), a
 // sheet's declared range is cut to its real cells, and the text is capped.
@@ -8,10 +9,14 @@ import { ToolError } from '../policy/errors'
 import { hwpText, hwpxText } from './hwp'
 import { checkZip, isZip, tooComplex } from './zip-guard'
 import { docxExtraText, pptxExtraText } from './ooxml'
+import { hwpxWriteRequest } from './hwpx-write'
+import { HWPX_WRITE_MODE } from './hwpx-check'
 
 export const WORKER_EXT = new Set(['xlsx', 'xls', 'ods', 'hwp', 'hwpx'])
 /** worker modes that give only the parts of a .docx / .pptx that pandoc drops (ooxml.ts); pandoc still gives the body */
 export const EXTRA_MODES = new Set(['docx-extra', 'pptx-extra'])
+/** worker modes that make a file: stdin is the request, stdout the file's bytes (make_file's .hwpx, hwpx-write.ts) */
+export const WRITE_MODES = new Set([HWPX_WRITE_MODE])
 /** the worker's exit code when stderr holds a ToolError message (office-worker.ts) */
 export const TOOL_ERROR_EXIT = 3
 /** UTF-8 bytes of text out of one file (the worker's stdout cap in extract.ts is a little larger; hwp.ts keeps its
@@ -158,4 +163,10 @@ export function officeText(ext: string, bytes: Uint8Array): string {
     case 'hwpx': return hwpxText(bytes)
     default: throw new ToolError(`not a format of the office worker: ${ext}`)
   }
+}
+
+/** The bytes of the file a WRITE_MODES mode makes from its request; ToolError for a request it refuses. */
+export function officeWrite(mode: string, input: Uint8Array): Uint8Array {
+  if (mode === HWPX_WRITE_MODE) return hwpxWriteRequest(input)
+  throw new ToolError(`not a mode of the office worker: ${mode}`)
 }

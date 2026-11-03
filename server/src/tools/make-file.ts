@@ -20,6 +20,10 @@
 // Without a chat turn there is nobody to ask: such a save is refused.
 // - pptx: the slide level is set from the headings and the slides pandoc made are checked against expected_slides /
 //   expected_notes before anything is saved (tools/pptx-check.ts)
+// - hwpx (Hangul): pandoc's tree of the Markdown (or a CSV's table), written by our OWPML writer in the office worker
+//   (files/hwpx-write.ts, never in this process) with the built-in or a team template from skills/; anything the
+//   writer does not support is refused there, naming it. The file is then read back with hwp.ts, as read and grep
+//   read it: when its paragraphs and headings are not the document's, nothing is saved (files/hwpx-check.ts).
 import fs from 'node:fs'
 import path from 'node:path'
 import ExcelJS from 'exceljs'
@@ -28,7 +32,8 @@ import type { MakeFileInput } from '@mycel/shared'
 import type { Locale } from '@mycel/shared/api'
 import type { AppContext } from '../context'
 import { teamDefaultLocale, teamTimeZone } from '../admin/settings'
-import { ext } from '../files/extract'
+import { ext, officeWorkerText, officeWorkerWrite } from '../files/extract'
+import { encodeHwpxRequest, firstDifference, HWPX_TEMPLATE_MAX, HWPX_WRITE_MODE, hwpxExpectedLines, hwpxReadLines } from '../files/hwpx-check'
 import type { ToolCtx } from '../files/service'
 import { conflictCopyName, fileEvent, readRegular, recordConflictCopy, sha256 } from '../files/store'
 import { sourceOf, widening } from '../chat/read-scope'
@@ -206,6 +211,7 @@ export class MakeFile {
       let shape: DeckShape | null = null
       let formulas: number | undefined
       if (a.format === 'xlsx') formulas = await this.xlsx(text, kind, produced)
+      else if (a.format === 'hwpx') await this.hwpx(c, a, text, kind, work, produced, sources)
       else {
         if (!this.conv.pandoc) throw new ToolError(missingConverter('pandoc'))
         let input: string
@@ -370,6 +376,39 @@ export class MakeFile {
     const local = freshName(work, 'template', format)
     fs.copyFileSync(r.abs, path.join(work, local), fs.constants.COPYFILE_EXCL)
     return { local, rel: r.rel }
+  }
+
+  /**
+   * .hwpx: pandoc's tree (pandoc --sandbox reads only the input file), then the office worker writes the file
+   * (files/hwpx-write.ts: what it cannot hold is refused there, naming it all). The bytes are read back by hwp.ts in the
+   * worker, as read and grep read them; the file is put in the work folder only when they read as the document.
+   */
+  private async hwpx(c: ToolCtx, a: Input, text: string, kind: 'markdown' | 'csv' | 'tsv', work: string, produced: string, sources: string[]) {
+    if (!this.conv.pandoc) throw new ToolError(missingConverter('pandoc'))
+    const tpl = a.template ? this.hwpxTemplate(c, a.template) : null
+    if (tpl) sources.push(tpl.rel)
+    const input = kind === 'markdown' ? 'in.md' : 'in.csv'
+    fs.writeFileSync(path.join(work, input), kind === 'tsv' ? tsvToCsv(text) : text)
+    const j = await runIsolated({ cmd: this.conv.pandoc, args: ['--sandbox', '-f', kind === 'markdown' ? 'markdown' : 'csv', '-t', 'json', '-o', 'ast.json', input], workDir: work, timeoutMs: 120_000 })
+    if (j.code !== 0) throw new ToolError(convertError('pandoc', j.stderr, j.killed, work))
+    const got = readOutput(work, 'ast.json', MAX_AST)
+    if (!got.ok) throw new ToolError(got.why === 'too_large' ? 'the document is too large to convert' : 'the converter produced no file')
+    const astJson = got.bytes.toString('utf8')
+    let ast: unknown
+    try { ast = JSON.parse(astJson) } catch { throw new ToolError('the converter produced an unexpected document tree') }
+    const bytes = await officeWorkerWrite(HWPX_WRITE_MODE, encodeHwpxRequest(astJson, tpl?.bytes), c.signal)
+    const diff = firstDifference(hwpxExpectedLines(ast), hwpxReadLines(await officeWorkerText('hwpx', bytes, c.signal)))
+    if (diff) throw new ToolError(`the .hwpx did not read back as the document (${diff}); nothing was saved`)
+    try { fs.writeFileSync(produced, bytes, { flag: 'wx', mode: 0o600 }) } catch { throw new ToolError('the converter produced no file') }
+  }
+
+  /** A team's .hwpx template under skills/: its bytes go to the office worker, which checks them (files/hwpx-write.ts). */
+  private hwpxTemplate(c: ToolCtx, tpl: string): { bytes: Uint8Array; rel: string } {
+    const r = authorize(this.files.fx, this.files.rules(), c.user, tpl, 'read')
+    if (r.segs[0] !== 'skills') throw new ToolError('templates must be files under skills/')
+    if (ext(r.rel) !== 'hwpx') throw new ToolError('the template must be a .hwpx file (a .hwp can be saved as .hwpx in Hangul)')
+    if (checkRegular(r.abs).size > HWPX_TEMPLATE_MAX) throw new ToolError(`template is too large (max ${HWPX_TEMPLATE_MAX / 1024 / 1024} MB)`)
+    return { bytes: readRegular(r.abs, HWPX_TEMPLATE_MAX).bytes, rel: r.rel }
   }
 
   /** `text`: the document's source, whose writing decides the language and font order (pdfLanguage) */

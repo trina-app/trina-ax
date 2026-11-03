@@ -68,9 +68,9 @@ export const HwpRenderInput = z.strictObject({ source: relPath, page: z.number()
 export const MakeFileInput = z.strictObject({
   source: optRelPath.describe('.md/.csv file to convert (source or content)'),
   content: z.string().optional(),
-  format: z.enum(['docx', 'pptx', 'xlsx', 'pdf']),
+  format: z.enum(['docx', 'pptx', 'xlsx', 'pdf', 'hwpx']),
   output: relPath.describe('Where to save (write access needed; a conflict copy is made if it exists)'),
-  template: optRelPath.describe('Template file under skills/'),
+  template: optRelPath.describe('Template file under skills/ (.docx, .pptx or .hwpx, the same format as the output)'),
   expected_slides: z.number().int().min(1).max(500).optional().describe('pptx only: the number of slides the user asked for, title slide included. Give it whenever the user names a number; a different result is an error and nothing is saved.'),
   expected_notes: z.number().int().min(0).max(500).optional().describe('pptx only: how many slides must have speaker notes (e.g. the slide count when the user wants notes on every slide)'),
   expected_layouts: z.array(z.enum(['Title Slide','Title and Content','Section Header','Two Content','Comparison','Content with Caption','Blank'])).min(1).max(30).optional().describe('Safe PowerPoint only: required bundled layout for each slide in order. A mismatch saves nothing. One ## heading per ordinary slide; columns select Two Content, text then image selects Content with Caption.'),
