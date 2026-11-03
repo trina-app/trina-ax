@@ -28,10 +28,13 @@ test('"팀 스킬 관리" per person and group: warning, subfolder scope, same r
   await page.getByTestId('skill-manager-on').click()
   await expect(toggle).toBeChecked()
   await expect(bob.getByTestId('skill-manager-scope')).toHaveText('skills/재무/')
-  // Admin > 폴더 권한 shows the same rule, labelled
+  // Admin > 폴더 권한 shows the same rule, labelled: the tree is open down to skills/재무, which says who writes there
   await page.goto('/admin/folders')
-  const row = page.getByTestId('folder-list').locator('li', { hasText: 'skills/재무' })
-  await expect(row).toContainText('Bob: 읽기·쓰기')
+  const folder = page.getByTestId('folder-tree').locator('[role="treeitem"][data-path="skills/재무"]')
+  await expect(folder.getByTestId('tree-who')).toContainText('Bob 님 · 읽기·쓰기')
+  await folder.click()
+  const row = page.getByTestId('folder-detail')
+  await expect(row.getByTestId('folder-rules')).toContainText('Bob: 읽기·쓰기')
   await expect(row.getByTestId('skill-manager-badge')).toBeVisible()
   await expect(row).toContainText('팀 전체 AI가 따라요')
   // off again (confirm)

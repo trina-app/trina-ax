@@ -10,7 +10,7 @@ import { useLocale, useT, type MessageKey } from '../../i18n'
 import { useJobs, waitForJob } from '../../store/jobs'
 import { toast } from '../../store/ui'
 import { Badge, Button, Field, Modal, confirmDialog, inputCls } from '../../components/ui'
-import { Card, Loadable, ReauthDialog, useAction, useLoad } from './common'
+import { Card, Loadable, ReauthDialog, useAction, useActionOk, useLoad } from './common'
 import OfficeUpdate from './OfficeUpdate'
 import { ReleaseNotes } from '../../components/ReleaseNotes'
 import { isOwner, useMeStrict } from '../../store/session'
@@ -405,6 +405,7 @@ function ConnectedFolders() {
   const t = useT()
   const locale = useLocale()
   const act = useAction()
+  const actOk = useActionOk()
   const state = useLoad(async () => (await api.call(API.listConnected)).items)
   const [name, setName] = useState('')
   const [source, setSource] = useState('')
@@ -445,8 +446,8 @@ function ConnectedFolders() {
                     <button type="button" aria-label={t('connected.remove')} title={t('connected.remove')} className="rounded p-1 text-faint hover:bg-hover hover:text-danger"
                       onClick={async () => {
                         if (!(await confirmDialog({ title: t('connected.removeTitle'), body: t('connected.removeBody', { name: c.name }), confirm: t('connected.remove'), danger: true }))) return
-                        await act(() => api.call(API.removeConnected, { params: { id: c.id } }))
-                        void state.reload()
+                        await actOk(() => api.call(API.removeConnected, { params: { id: c.id } }))
+                        void state.reload() // also after a failure: a folder someone else removed goes from the list
                       }}>
                       <Trash2 size={15} />
                     </button>

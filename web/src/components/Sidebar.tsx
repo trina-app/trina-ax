@@ -150,7 +150,7 @@ function ChatItem({ chat, onNavigate }: { chat: Chat; onNavigate: () => void }) 
   const t = useT()
   const [menu, setMenu] = useState(false)
   const actions = useChatActions()
-  // the AI of this chat asked something (ask_user / site card) and waits: tab 5 "주의가 필요한 채팅"
+  // the AI of this chat asked something (ask_user / site / connect_service card) and waits: tab 5 "주의가 필요한 채팅"
   const needsAnswer = useChats((s) => Object.values(s.requests).some((r) => r.chatId === chat.id))
   const ref = useRef<HTMLLIElement>(null)
   useEffect(() => {

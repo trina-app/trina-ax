@@ -28,6 +28,7 @@ import { tr } from '../chat/i18n'
 import { chatEnginesFor, checkChatEngineChange, newChatEngine, turnEngine, type TurnEngine } from '../admin/engine-choice'
 import { budgetBlock } from '../admin/budgets'
 import { viewSources } from '../files/sources'
+import { finishCard } from '../chat/connect-service'
 
 const WINDOW_RE = /^[A-Za-z0-9_-]{8,64}$/
 export const windowOf = (c: Context<AppEnv>) => { const w = c.req.header(WINDOW_HEADER); return w && WINDOW_RE.test(w) ? w : null }
@@ -304,7 +305,7 @@ export const chatsRoutes: RouteModule = {
       return messagesPage(rt, { ...chat, active_leaf_id: leaf }, undefined, 50)
     })
 
-    // ---------------- cards (ask_user, browser site) ----------------
+    // ---------------- cards (ask_user, browser site, connect_service) ----------------
     kit.handle(API.listTurnRequests, ({ c, params, auth }) => {
       const chat = ownChat(rt, auth, params.id)
       const turnId = rt.activeTurn(chat.id)
@@ -317,15 +318,26 @@ export const chatsRoutes: RouteModule = {
       }
     })
 
-    kit.handle(API.answerTurn, ({ c, params, body, auth }) => {
-      const t = ctx.db.query('SELECT user_id FROM turns WHERE id = ?').get(params.id) as { user_id: string } | null
+    /** the caller's own turn (another person's and a missing one are both not_found) */
+    const ownTurn = (id: string, auth: AuthInfo) => {
+      const t = ctx.db.query('SELECT user_id FROM turns WHERE id = ?').get(id) as { user_id: string } | null
       if (!t || t.user_id !== auth.user.id) fail('not_found')
-      const exec = rt.execFor(params.id)
+      return rt.execFor(id)
+    }
+
+    kit.handle(API.answerTurn, ({ c, params, body, auth }) => {
+      const exec = ownTurn(params.id, auth)
+      // a connect_service card is finished only through /connect: what comes here reaches the AI
+      if (exec?.openRequest(body.requestId)?.kind === 'connect_service') fail('conflict', tr('requestClosed', c.get('locale')))
       const value = body.kind === 'ask_user' ? body.answer : body.decision
       const done = exec ? exec.answer(body.requestId, body.kind, value) : 'closed'
       if (done === 'closed') fail('conflict', tr('requestClosed', c.get('locale')))
       if (done === 'not_an_option') fail('validation', tr('answerNotOption', c.get('locale')))
     })
+
+    // a connect_service card (chat/connect-service.ts): the key arrives sealed for 'integration.secret' and goes into the
+    // connection's store only; the AI learns the outcome
+    kit.handle(API.connectTurn, ({ c, params, body, auth }) => finishCard(ctx, ownTurn(params.id, auth), auth, body, c.get('locale')))
 
     // ---------------- projects ----------------
     kit.handle(API.listProjects, ({ auth }) => {

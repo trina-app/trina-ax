@@ -11,21 +11,22 @@ function googleAuthorization(value: string): string {
   return u.href
 }
 
-export function DriveConnection() {
-  const t = useT()
-  const [connection, setConnection] = useState<Connection | null>(null)
+/**
+ * Connecting the person's own Google account to Drive (Settings > Google Drive, and a chat's connect_service card):
+ * authorize in a window reserved during the click (the phone app: the browser), poll the flow, then the person
+ * confirms the account they signed in with. `onConnected`: the connection once it is complete (here or in another
+ * window). `generation` is shared with the caller's own requests: starting over makes older answers stale.
+ */
+export function useDriveFlow(onConnected: (c: Connection) => void) {
   const [flow, setFlow] = useState<DriveFlow | null>(null)
   const [authorizationUrl, setAuthorizationUrl] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState(false)
-  const [revokeWarning, setRevokeWarning] = useState(false)
   const generation = useRef(0)
   const popup = useRef<Window | null>(null)
-  useEffect(() => {
-    const g = ++generation.current
-    api.call(API.myDriveConnection).then(r => { if (g === generation.current) setConnection(r) }, () => { if (g === generation.current) setError(true) })
-    return () => { generation.current++; popup.current?.close() }
-  }, [])
+  const connected = useRef(onConnected)
+  connected.current = onConnected
+  useEffect(() => () => { generation.current++; popup.current?.close() }, [])
   useEffect(() => {
     if (!flow || !['pending', 'exchanging'].includes(flow.state)) return
     let active = true, timer: ReturnType<typeof setTimeout> | undefined
@@ -38,7 +39,7 @@ export function DriveConnection() {
         if (next.state === 'ready') popup.current?.close()
         if (next.state === 'completed') {
           const r = await api.call(API.myDriveConnection)
-          if (active && g === generation.current) { setConnection(r); setFlow(null); setAuthorizationUrl(null) }
+          if (active && g === generation.current) { setFlow(null); setAuthorizationUrl(null); connected.current(r) }
         }
         if (['failed', 'expired'].includes(next.state)) setError(true)
       } catch { if (active && g === generation.current) setError(true) }
@@ -49,7 +50,7 @@ export function DriveConnection() {
   }, [flow?.flowId, flow?.state])
   const start = async () => {
     const g = ++generation.current
-    setBusy(true); setError(false); setFlow(null); setAuthorizationUrl(null); setRevokeWarning(false)
+    setBusy(true); setError(false); setFlow(null); setAuthorizationUrl(null)
     // Reserve the web popup during the click. If blocked, show the same checked URL as a normal link.
     if (!mobileApp()) { popup.current = window.open('about:blank', '_blank'); if (popup.current) popup.current.opener = null }
     try {
@@ -78,10 +79,41 @@ export function DriveConnection() {
     try {
       const r = await api.call(API.completeDriveFlow, { params: { id: flow.flowId }, body: {} })
       if (g !== generation.current) return
-      setConnection(r); setFlow(null); setAuthorizationUrl(null); popup.current?.close()
+      setFlow(null); setAuthorizationUrl(null); popup.current?.close(); connected.current(r)
     } catch { if (g === generation.current) setError(true) }
     finally { if (g === generation.current) setBusy(false) }
   }
+  const inProgress = !!flow && ['pending', 'exchanging', 'ready'].includes(flow.state)
+  return { flow, authorizationUrl, busy, setBusy, error, setError, generation, start, cancel, complete, inProgress }
+}
+export type DriveFlowState = ReturnType<typeof useDriveFlow>
+
+/** A Drive connection under way: waiting for Google, then "connect this account?" with the account to confirm. */
+export function DriveFlowPanel({ d, flow }: { d: DriveFlowState; flow: DriveFlow }) {
+  const t = useT()
+  return <div className="space-y-3 rounded-xl border border-line p-4">
+    <p role="status">{t(flow.state === 'ready' ? 'drive.confirmAccount' : 'drive.waiting')}</p>
+    {flow.state === 'ready' && <>
+      <p data-testid="drive-account">{flow.account?.name} {flow.account?.email}</p>
+      <Button variant="primary" busy={d.busy} onClick={d.complete} data-testid="drive-confirm">{t('drive.confirm')}</Button>
+    </>}
+    {flow.state !== 'ready' && d.authorizationUrl && <a href={d.authorizationUrl} target="_blank" rel="noopener noreferrer" className="block text-sm text-accent-text hover:underline" onClick={mobileApp() ? (e) => { e.preventDefault(); void openExternal(d.authorizationUrl!, { purpose: 'google-oauth' }).catch(() => d.setError(true)) } : undefined}>{t('drive.openGoogle')}</a>}
+    <Button disabled={d.busy} onClick={d.cancel}>{t('common.cancel')}</Button>
+  </div>
+}
+
+export function DriveConnection() {
+  const t = useT()
+  const [connection, setConnection] = useState<Connection | null>(null)
+  const [revokeWarning, setRevokeWarning] = useState(false)
+  const d = useDriveFlow(setConnection)
+  const { busy, error, setBusy, setError, generation, flow } = d
+  useEffect(() => {
+    const g = ++generation.current
+    api.call(API.myDriveConnection).then(r => { if (g === generation.current) setConnection(r) }, () => { if (g === generation.current) setError(true) })
+    return () => { generation.current++ }
+  }, [])
+  const start = () => { setRevokeWarning(false); void d.start() }
   const disconnect = async () => {
     const intent = generation.current
     if (!await confirmDialog({ title: t('drive.disconnect'), body: t('drive.disconnectHint'), confirm: t('drive.disconnect'), danger: true })) return
@@ -96,7 +128,6 @@ export function DriveConnection() {
     } catch { if (g === generation.current) setError(true) }
     finally { if (g === generation.current) setBusy(false) }
   }
-  const inProgress = flow && ['pending', 'exchanging', 'ready'].includes(flow.state)
   return <section className="space-y-4" data-testid="drive-connection">
     <div><h2 className="text-base font-semibold">{t('drive.title')}</h2><p className="mt-1 text-sm text-muted">{t('drive.description')}</p></div>
     <p className="rounded-xl bg-subtle p-3 text-xs text-muted">{t('drive.privacy')}</p>
@@ -108,15 +139,7 @@ export function DriveConnection() {
     {connection?.configured && <>
       <p data-testid="drive-status">{t(`drive.status.${connection.status}`)}</p>
       {connection.account && <p className="text-sm">{connection.account.name} {connection.account.email}</p>}
-      {inProgress ? <div className="space-y-3 rounded-xl border border-line p-4">
-        <p role="status">{t(flow.state === 'ready' ? 'drive.confirmAccount' : 'drive.waiting')}</p>
-        {flow.state === 'ready' && <>
-          <p data-testid="drive-account">{flow.account?.name} {flow.account?.email}</p>
-          <Button variant="primary" busy={busy} onClick={complete}>{t('drive.confirm')}</Button>
-        </>}
-        {flow.state !== 'ready' && authorizationUrl && <a href={authorizationUrl} target="_blank" rel="noopener noreferrer" className="block text-sm text-accent-text hover:underline" onClick={mobileApp() ? (e) => { e.preventDefault(); void openExternal(authorizationUrl, { purpose: 'google-oauth' }).catch(() => setError(true)) } : undefined}>{t('drive.openGoogle')}</a>}
-        <Button disabled={busy} onClick={cancel}>{t('common.cancel')}</Button>
-      </div> : <div className="flex gap-2">
+      {d.inProgress && flow ? <DriveFlowPanel d={d} flow={flow} /> : <div className="flex gap-2">
         <Button variant="primary" busy={busy} onClick={start}>{t(connection.status === 'connected' || connection.status === 'needs_reconnect' ? 'drive.reconnect' : 'drive.connect')}</Button>
         {connection.status !== 'disconnected' && <Button disabled={busy} onClick={disconnect}>{t('drive.disconnect')}</Button>}
       </div>}

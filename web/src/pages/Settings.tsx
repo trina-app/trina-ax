@@ -26,7 +26,7 @@ import { MyCredentials } from './admin/Credentials'
 import { BrowserSettings } from './BrowserSettings'
 import { settingsTabs } from './settingsTabs'
 import { browserSettingsBridge, storeApp } from '../lib/desktop'
-import { Badge, Button, EmptyState, ErrorNote, Field, IconButton, PageHeader, Skeleton, confirmDialog, inputCls } from '../components/ui'
+import { Badge, Button, EmptyState, ErrorNote, Field, IconButton, PageHeader, Skeleton, confirmDialog, inputCls, noKeyRepeat } from '../components/ui'
 import { SourceCodeLinks, useServerSource } from '../components/SourceCodeLink'
 import { DriveConnection } from '../components/settings/DriveConnection'
 import { ScheduleTemplates } from '../components/settings/ScheduleTemplates'
@@ -277,6 +277,7 @@ function Security() {
                   <Button
                     size="sm"
                     variant="ghost"
+                    onKeyDown={noKeyRepeat}
                     onClick={async () => {
                       try {
                         await api.call(API.revokeMySession, { params: { id: s.id } })
@@ -544,7 +545,7 @@ function Memories() {
                 <IconButton label={t('memory.editLabel')} onClick={() => setEditing(m.id)} data-testid="memory-edit">
                   <Pencil size={15} />
                 </IconButton>
-                <IconButton label={t('memory.forget')} danger onClick={() => void remove(m)} data-testid="memory-forget">
+                <IconButton label={t('memory.forget')} danger onClick={() => void remove(m)} onKeyDown={noKeyRepeat} data-testid="memory-forget">
                   <Trash2 size={15} />
                 </IconButton>
               </li>

@@ -17,6 +17,8 @@ import { parseInput, walk } from '../policy/resolve'
 import { msg } from '../auth/messages'
 import { userRef } from '../auth/users'
 import { audit } from './audit'
+import { folderKeep, isParkedRow, type FolderKeep } from './folder-keep'
+import { shownSegs } from './access-rows'
 import { resetEngineSessions as resetChatSessions } from '../chat/runtime'
 
 export interface FolderRow { id: string; path: string; created_at: string }
@@ -148,18 +150,46 @@ export function toFolder(ctx: AppContext, f: FolderRow): Folder {
   const rows = ctx.db.query('SELECT id, folder_id, subject_type, subject_id, access, updated_by, updated_at FROM folder_rules WHERE folder_id = ? ORDER BY subject_type, subject_id').all(f.id) as RuleRow[]
   let exists = false
   try { exists = fs.lstatSync(path.join(ctx.files.fx.root, ...(f.path ? f.path.split('/') : []))).isDirectory() } catch {}
+  const groupId = groupOfFolder(ctx.db, f.id)
   return {
     id: f.id,
     path: f.path,
     exists,
     createdAt: f.created_at,
     rules: rows.map((r) => ({ id: r.id, folderId: r.folder_id, subjectType: r.subject_type, subjectId: r.subject_id, access: r.access, updatedBy: userRef(ctx.db, r.updated_by), updatedAt: r.updated_at })),
+    groupId,
+    keep: folderKeep(f.path, groupId, ctx.files.fx.caseInsensitive),
+    // the folder answers never show it (access-rows.ts): the tree lists such a row apart
+    hidden: shownSegs(f.path) === null,
   }
+}
+
+/** Why the admin API keeps this row (folder-keep.ts): 'team' for shared/ and skills/ (in any case on a case-insensitive
+ * volume, exactly elsewhere), 'group' for a group's folder, null when it may go. */
+export function keepOfRow(ctx: AppContext, f: FolderRow): FolderKeep | null {
+  return folderKeep(f.path, groupOfFolder(ctx.db, f.id), ctx.files.fx.caseInsensitive)
+}
+
+/**
+ * The actual-name path an admin-typed path stands for, as resolveFolderPath would store it, without creating anything
+ * (a missing tail stays as typed). null: not a valid path (resolveFolderPath then says why).
+ */
+export function actualFolderPath(ctx: AppContext, rel: string): string | null {
+  try {
+    const w = walk(ctx.files.fx.root, parseInput(rel), ctx.files.fx.caseInsensitive)
+    return [...w.actual, ...w.missing].join('/')
+  } catch {
+    return null
+  }
+}
+
+export function groupOfFolder(db: Database, folderId: string): string | null {
+  return (db.query('SELECT id FROM groups WHERE folder_id = ? ORDER BY id LIMIT 1').get(folderId) as { id: string } | null)?.id ?? null
 }
 
 /** Folders that carry rules (and folders rows without rules, e.g. after all rules were removed by a group delete). */
 export function listFolders(ctx: AppContext): Folder[] {
-  return (ctx.db.query('SELECT id, path, created_at FROM folders ORDER BY path').all() as FolderRow[]).map((f) => toFolder(ctx, f))
+  return (ctx.db.query('SELECT id, path, created_at FROM folders ORDER BY path').all() as FolderRow[]).filter((f) => !isParkedRow(f.path)).map((f) => toFolder(ctx, f))
 }
 
 // ---------------- effective access: snapshots, diffs, preview ----------------

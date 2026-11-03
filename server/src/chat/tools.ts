@@ -1,10 +1,10 @@
 import { confidentialChat, localTool } from "../safe-ops/confidential"
-// The tools of one turn besides the six file tools: B's remember / forget / ask_user / set_title and the browser pane tools
+// The tools of one turn besides the six file tools: B's remember / forget / ask_user / connect_service / set_title and the browser pane tools
 // (desktop window only), plus whatever other components registered in ctx.services.turnTools (C: make_file,
 // share_file, artifact, web_fetch). Served over the same MCP connection as the file tools (mcp__team__<name>).
 import path from 'node:path'
 import { z } from 'zod'
-import { AskUserInput, EDIT_FILES_DESCRIPTION, EDIT_FILES_TOOL, EditFilesInput, FILE_TOOLS, FindSkillsInput, ForgetInput, RememberInput, SetTitleInput, SkillInput, uuidv7 } from '@mycel/shared'
+import { AskUserInput, ConnectServiceInput, EDIT_FILES_DESCRIPTION, EDIT_FILES_TOOL, EditFilesInput, FILE_TOOLS, FindSkillsInput, ForgetInput, RememberInput, SetTitleInput, SkillInput, uuidv7 } from '@mycel/shared'
 import type { BrowserToolName, Locale, TurnRequest } from '@mycel/shared/api'
 import type { McpContent, TurnToolSet } from '../turns'
 import type { TurnTool, TurnToolContext } from '../services'
@@ -27,6 +27,7 @@ import { templateToolRefusal } from './schedule-templates'
 import { cleanAiTitle, graphemes, setAiTitle, titleToolOffered } from './title'
 import { recordSent } from '../tools/connection-urls'
 import { boxShellTool } from '../devenv/tool'
+import { connectService } from './connect-service'
 
 interface Tool {
   name: string
@@ -44,6 +45,7 @@ export const B_TOOL_DESCRIPTIONS = {
   remember: 'Remember one lasting fact or preference about the user for future chats (one short sentence, under 300 characters). Only when the user wants it kept. Returns the memory id.',
   forget: 'Forget one memory by its id (the ids are shown in the memories block of your instructions).',
   ask_user: 'Ask the user a question and wait for the answer. Offer options when you can; allowText also shows a text box on the card. The user can always answer in their own words from the message box instead. Returns {"answer": ...} with an option value or the user\'s own text (a list of them when multiple), or {"skipped": true} when the user does not answer in time.',
+  connect_service: 'Connect a service for the user (an MCP server or an HTTP API: Notion, Linear, GitHub, Higgsfield, any other), or their Google Drive (target google_drive). Fill in the service\'s official address from its documentation (prefer its MCP endpoint, and oauth when it offers sign-in); the user then pastes their key into the card or signs in there. The key never reaches you: never ask for it in the chat. Returns {"connected": true, "name", "status", "tools"} once it works, or {"skipped": true} when the user does not finish the card; without a card, a text says why (a field to fix, a connection that already exists, or what is not allowed). Its tools are offered from the user\'s next message, not in this answer.',
   set_title: 'Name this new chat: a short title in the user\'s language that says what the person wants (2-60 characters). Call it once, early in your answer. Never put keys, tokens, passwords, personal data or quotes of the message in it.',
   skill: 'Load one of the user\'s skills (a saved team or personal workflow) by its name as listed under Team skills in your instructions, and get its full steps. Call it when a request matches a skill, before you follow it; then follow the steps and say which skill you used. A folder skill\'s other files are read with read, relative to the folder the result names.',
   find_skills: 'Search the skills the user can use by words (their names, descriptions and folders), best first, at most 10; with no word in common it lists the skills the user uses most. Use it when no skill in your instructions\' list clearly fits but the request looks like a saved workflow (the list may be cut). Then load the one that fits with skill.',
@@ -275,7 +277,7 @@ function skillTools(exec: TurnExec): Tool[] {
   ]
 }
 
-// ---------------- remember / forget / ask_user / set_title ----------------
+// ---------------- remember / forget / ask_user / connect_service / set_title ----------------
 function bTools(exec: TurnExec): Tool[] {
   const { rt, spec } = exec
   const L = spec.locale
@@ -340,6 +342,12 @@ function bTools(exec: TurnExec): Tool[] {
         exec.patchToolStep('ask_user', () => ({ detail: (Array.isArray(answer) ? answer.join(', ') : String(answer)).slice(0, 4000) }))
         return { ...text(JSON.stringify({ answer })), summary: 'ask_user -> answered' }
       },
+    },
+    {
+      // the AI fills in the connection, the person finishes it on the card: the key goes from the card to the server and
+      // never through this call (chat/connect-service.ts, docs/INTEGRATIONS.md "Connecting from a chat")
+      name: 'connect_service', description: B_TOOL_DESCRIPTIONS.connect_service, inputSchema: schema(ConnectServiceInput),
+      call: (args) => connectService(exec, args),
     },
   ]
   // the answering AI names a new chat (title.ts): no extra model call. The title shows in the sidebar and the header

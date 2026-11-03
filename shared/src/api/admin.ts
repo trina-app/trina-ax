@@ -5,7 +5,7 @@ import { z } from 'zod'
 import { UserId, Uuid7 } from '../ids'
 import { Access, EngineId, IsoTime, Locale, Ok, PageQuery, QueryBool, RelPath, Role, UserStatus, page } from './common'
 import { binary, endpoint, empty } from './endpoint'
-import { AuditEntry, Budget, EngineAccount, Folder, FolderRuleInput, Group, Invite, TeamSettings, User, UserRef } from './entities'
+import { AuditEntry, Budget, EngineAccount, Folder, FolderRuleInput, Group, Invite, SubjectType, TeamSettings, User, UserRef } from './entities'
 import { Password, PersonName, Username } from './auth'
 import { TEAM_ICON_MAX_BYTES, TEAM_ICON_TYPES, TEAM_ICON_VERSION_RE } from '../team-icon'
 import { SealedSecret } from './credentials'
@@ -98,6 +98,187 @@ export const PreviewResponse = z.object({
   losing: z.array(z.object({ user: UserRef, paths: z.array(RelPath), chatsReset: z.number().int().nonnegative() })),
 })
 export type PreviewResponse = z.infer<typeof PreviewResponse>
+
+/**
+ * Why a person has the access they have at a path: the step of the permission function that decided
+ * (server/src/policy/access.ts RuleSet.explain), in its order. system: `.system/` · temp: a server temp name ·
+ * own-personal: `users/<me>/` (write) · other-personal: someone else's `users/<id>/` (nobody, owner and admins
+ * included) · users-root: `users/` itself (read) · owner-admin: write everywhere else · rule: the deepest folder on
+ * the way up with a rule for the person (`folder`, '' = team root), the step that decided there (`tier`: person >
+ * group > role > everyone) and that step's rules for the person (`rules`, the widest first: the widest access wins) ·
+ * no-rule: no folder on the way up has a rule for the person (only the owner and admins).
+ */
+export const DecidingRule = z.object({ subjectType: SubjectType, subjectId: z.string().nullable(), access: Access })
+export const AccessReasonKind = z.enum(['system', 'temp', 'own-personal', 'other-personal', 'users-root', 'owner-admin', 'rule', 'no-rule'])
+export type AccessReasonKind = z.infer<typeof AccessReasonKind>
+export const AccessReason = z.discriminatedUnion('kind', [
+  z.object({ kind: AccessReasonKind.exclude(['rule']) }),
+  z.object({ kind: z.literal('rule'), folder: RelPath, tier: SubjectType, rules: z.array(DecidingRule) }),
+])
+export type AccessReason = z.infer<typeof AccessReason>
+/** Shown in the tree although the access is none? `listable`: the permission function's canList() (a folder without
+ * access is listed for navigation when something below it is readable); `via`: those readable folders below (only when
+ * the access is none; the topmost ones, by path, at most 20, `viaMore` when there are others). */
+const Navigation = { listable: z.boolean(), via: z.array(RelPath), viaMore: z.boolean() }
+/** Pages: `limit` rows (default 500, at most 2000) after `cursor` (the `nextCursor` of the page before; null = the
+ * last page). `total`: all the rows there are. A cursor names the last row of the page before (a path; a person by name
+ * and id), so rows added or gone between two pages neither come twice nor go missing. */
+const PageLimit = z.coerce.number().int().min(1).max(2000)
+/**
+ * GET /api/admin/access/folder?path=: one team folder (outside users/), every active person's access and why, by name.
+ * A folder that does not exist yet answers as it would once made (`exists` false). The summary always counts everyone.
+ */
+export const FolderAccessQuery = z.object({ path: RelPath.optional(), cursor: z.string().regex(/^[A-Za-z0-9_-]{1,1400}$/).optional(), limit: PageLimit.optional() })
+export const FolderAccessResponse = z.object({
+  /** actual names on disk; a part that does not exist yet stays as typed */
+  path: RelPath,
+  /** a folder is there now (a file or a missing path: false) */
+  exists: z.boolean(),
+  /** the nearest folder at or above `path` that carries rules (null: none on the way up) */
+  ruleFolder: RelPath.nullable(),
+  people: z.array(z.object({ user: UserRef, role: Role, access: Access, reason: AccessReason, ...Navigation })),
+  total: z.number().int(),
+  nextCursor: z.string().nullable(),
+  summary: z.object({
+    access: z.object({ none: z.number().int(), read: z.number().int(), write: z.number().int() }),
+    /** where the answers come from: one row per folder whose rules decided (reason 'rule') and one per other reason;
+     * most first */
+    sources: z.array(z.object({ reason: AccessReasonKind, folder: RelPath.nullable(), count: z.number().int() })),
+  }),
+  /** people switched off whom a person rule on `path` or a folder above it names: not in `people` or the summary.
+   * `access` and `reason` are what they would get here if switched back on (computed as for an active person, so a
+   * rule deeper down can win over theirs); `rules` are those person rules. */
+  inactive: z.array(z.object({ user: UserRef, role: Role, access: Access, reason: AccessReason, rules: z.array(z.object({ folder: RelPath, access: Access })) })),
+})
+export type FolderAccessResponse = z.infer<typeof FolderAccessResponse>
+/** What a team folder is (several at once: groups/<name> is a group folder that carries rules). */
+export const AccessFolderKind = z.enum(['top', 'rules', 'group', 'project', 'connected', 'personal'])
+export type AccessFolderKind = z.infer<typeof AccessFolderKind>
+export const PersonFolderAccess = z.object({
+  path: RelPath,
+  kinds: z.array(AccessFolderKind),
+  /** the group whose folder this is (groups.folder_id) */
+  group: z.object({ id: z.string(), name: z.string() }).optional(),
+  /** team projects using this folder (projects.folder_path; personal projects in users/ never appear) */
+  projects: z.array(z.object({ id: z.string(), name: z.string() })).optional(),
+  /** a connected folder (connected/<name>) */
+  connected: z.object({ id: z.string(), name: z.string() }).optional(),
+  /** a folder is there now (null: not looked at, the personal folder) */
+  exists: z.boolean().nullable(),
+  access: Access,
+  reason: AccessReason,
+  ...Navigation,
+})
+export type PersonFolderAccess = z.infer<typeof PersonFolderAccess>
+/**
+ * GET /api/admin/access/people/:id (one person, switched off or not) and POST /api/admin/access/new-person (someone
+ * about to be invited with this role and these groups): the team folders (top-level folders, folders with rules,
+ * group, project and connected folders; the person's own `users/<id>` from the member list, nothing else under users/
+ * and never .system/) with the person's access and why, by path. `prefix`: only that folder and what is below it (to
+ * open one part of the tree); pages as above, the cursor being the last path of the page before.
+ */
+export const PersonAccessQuery = z.object({ prefix: RelPath.optional(), cursor: RelPath.optional(), limit: PageLimit.optional() })
+export const PersonAccessResponse = z.object({
+  /** null for the new-person preview */
+  user: UserRef.nullable(),
+  role: Role,
+  status: UserStatus.nullable(),
+  groups: z.array(z.object({ id: z.string(), name: z.string() })),
+  folders: z.array(PersonFolderAccess),
+  total: z.number().int(),
+  nextCursor: RelPath.nullable(),
+})
+export type PersonAccessResponse = z.infer<typeof PersonAccessResponse>
+export const NewPersonAccessBody = z.object({
+  role: Role.exclude(['owner']), groupIds: z.array(z.string().min(1).max(64)).max(200).default([]),
+  prefix: RelPath.optional(), cursor: RelPath.optional(), limit: z.number().int().min(1).max(2000).optional(),
+})
+
+/**
+ * Who sees a folder of the tree, grouped: every active person once, by how they get their access there. `rule`: the
+ * deciding folder (`folder`, '' = team root) and the rule that decided (the widest of that step for them: `subject`,
+ * with the group's or person's name); `owner-admin`: the owner and admins (rules change nothing for them); `no-rule`:
+ * no rule on the way up is for them (they cannot open it). The same RuleSet.explain as the folder answer.
+ */
+export const AccessTreeWho = z.object({
+  reason: z.enum(['rule', 'owner-admin', 'no-rule']),
+  folder: RelPath.nullable(),
+  subject: z.object({ type: SubjectType, id: z.string().nullable(), name: z.string().nullable() }).nullable(),
+  access: Access,
+  count: z.number().int().nonnegative(),
+})
+export type AccessTreeWho = z.infer<typeof AccessTreeWho>
+/** A risk the server computes for a folder of the tree. `everyone-writes`: every member writes here (the topmost such
+ * folder on the way down: below it the same is inherited); `skills-everyone-writes`: the same in skills/ (the
+ * instructions every AI of the team follows); `root-everyone`: the team root gives every member access, so group and
+ * project folders that do not shut them out are open to them too. */
+export const AccessTreeRisk = z.enum(['everyone-writes', 'skills-everyone-writes', 'root-everyone'])
+export type AccessTreeRisk = z.infer<typeof AccessTreeRisk>
+export const AccessTreeNode = z.object({
+  /** the folder's own name ('' = team root) and its path (actual names on disk) */
+  name: z.string(),
+  path: RelPath,
+  /** rules: it carries rules; group, project, connected: as in the person answer; personal: users/ (never opened) */
+  kinds: z.array(AccessFolderKind),
+  group: z.object({ id: z.string(), name: z.string() }).optional(),
+  projects: z.array(z.object({ id: z.string(), name: z.string() })).optional(),
+  connected: z.object({ id: z.string(), name: z.string() }).optional(),
+  /** how many rules this folder carries itself (0: everyone's access comes from folders above) */
+  rules: z.number().int().nonnegative(),
+  /** it has folders inside that the tree shows */
+  folders: z.boolean(),
+  /** folders with rules, group, project and connected folders below it (the tree opens the way to them) */
+  marked: z.number().int().nonnegative(),
+  /** every active person, grouped (empty for users/) */
+  who: z.array(AccessTreeWho),
+  risks: z.array(AccessTreeRisk),
+  /** some members cannot open it (only part of the team sees it) */
+  restricted: z.boolean(),
+  /** users/: how many personal folders (active people); nothing in it is read or listed */
+  people: z.number().int().nonnegative().optional(),
+})
+export type AccessTreeNode = z.infer<typeof AccessTreeNode>
+export const AccessTreeLevel = z.object({
+  /** the folder whose children these are */
+  path: RelPath,
+  children: z.array(AccessTreeNode),
+  total: z.number().int().nonnegative(),
+  /** the last name of this page when more follow (byte order), null on the last page */
+  nextCursor: z.string().nullable(),
+})
+export type AccessTreeLevel = z.infer<typeof AccessTreeLevel>
+/**
+ * GET /api/admin/access/tree?path=&cursor=&limit=&open=: one level of the team folder for the admin's tree, each child
+ * with who sees it, where that comes from, its risks. Pages by name (`limit` children, default 200, at most 500).
+ * `open=1`: also the levels on the way down to folders with rules, group, project and connected folders (the first
+ * page of each, breadth first, while the answer stays small; `levels` after the first). users/ is one row (how many
+ * personal folders) and is never listed; .system/, temp names and names the team folder refuses never appear.
+ */
+export const AccessTreeQuery = z.object({
+  path: RelPath.optional(),
+  cursor: z.string().min(1).max(1024).optional(),
+  limit: z.coerce.number().int().min(1).max(500).optional(),
+  open: QueryBool.optional(),
+  /** "rule folders only": the folders with rules at or below `path` that are on disk, in the tree's order (a folder,
+   * then what is inside it, then its next sibling), one page (the cursor is the last path), with `above` */
+  rules: QueryBool.optional(),
+})
+export const AccessTreeResponse = z.object({
+  /** actual names on disk; a part that is not there stays as typed */
+  path: RelPath,
+  exists: z.boolean(),
+  /** active people, and those of them that rules decide for (not the owner or admins) */
+  people: z.number().int().nonnegative(),
+  members: z.number().int().nonnegative(),
+  /** the folder asked for itself */
+  self: AccessTreeNode,
+  /** its children first; with open, the levels opened on the way down after it. With rules: one list of the rule
+   * folders (deeper paths, not children), `levels[0].path` being the folder asked for */
+  levels: z.array(AccessTreeLevel),
+  /** with rules: the folders on the way to the page's rule folders that are not in the page (the folder asked for aside) */
+  above: z.array(AccessTreeNode).optional(),
+})
+export type AccessTreeResponse = z.infer<typeof AccessTreeResponse>
 
 // ---------------- engines ----------------
 /** The team's API engine (server/src/engine/api-agent.ts): any OpenAI-compatible Chat Completions API. */
@@ -255,6 +436,10 @@ export const ADMIN = {
   putFolderRules: endpoint({ method: 'PUT', path: '/api/admin/folders/:id/rules', auth: 'admin', owner: 'A', body: PutRulesBody, response: Folder, summary: 'Replace the rules of a folder; audited; affected chats get fresh engine sessions.' }),
   deleteFolder: endpoint({ method: 'DELETE', path: '/api/admin/folders/:id', auth: 'admin', owner: 'A', response: empty, status: 204, summary: 'Remove all rules of a folder (the folder on disk stays).' }),
   previewRules: endpoint({ method: 'POST', path: '/api/admin/folder-rules/preview', auth: 'admin', owner: 'A', body: PreviewBody, response: PreviewResponse, summary: '"Who sees what" for proposed rules, before saving.' }),
+  explainFolderAccess: endpoint({ method: 'GET', path: '/api/admin/access/folder', auth: 'admin', owner: 'A', query: FolderAccessQuery, response: FolderAccessResponse, summary: 'One team folder: every active person\'s access, the folder and rule it comes from, and counts. Not for users/.' }),
+  explainPersonAccess: endpoint({ method: 'GET', path: '/api/admin/access/people/:id', auth: 'admin', owner: 'A', query: PersonAccessQuery, response: PersonAccessResponse, summary: 'One person: their access to every team folder (rule, top-level, group, project, connected) and why.' }),
+  explainNewPersonAccess: endpoint({ method: 'POST', path: '/api/admin/access/new-person', auth: 'admin', owner: 'A', body: NewPersonAccessBody, response: PersonAccessResponse, summary: 'The same for someone about to be invited with this role and these groups (nothing is saved).' }),
+  explainAccessTree: endpoint({ method: 'GET', path: '/api/admin/access/tree', auth: 'admin', owner: 'A', query: AccessTreeQuery, response: AccessTreeResponse, summary: 'One level of the team folder for the admin tree: each child folder with who sees it, from where, and its risks. users/ is one row, never listed.' }),
 
   engines: endpoint({ method: 'GET', path: '/api/admin/engines', auth: 'admin', owner: 'A', response: EnginesResponse, summary: 'Engine install/login/lockdown status, models, defaults, concurrency.' }),
   getApiEngine: endpoint({ method: 'GET', path: '/api/admin/engines/api-config', auth: 'owner', owner: 'A', response: ApiEngineConfig, summary: 'The team API engine settings (the key is never returned, only whether one is set).' }),

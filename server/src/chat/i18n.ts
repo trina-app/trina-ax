@@ -41,6 +41,16 @@ export const TEXT = {
   engineChoiceNotAllowed: t('AI 엔진과 모델은 관리자가 정해요. 엔진을 고르지 말고 보내면 팀 기본 엔진으로 답해요.', 'Your admin chooses the AI engine and model. Send without picking one and the team default answers.', 'Mesin dan model AI ditentukan admin. Kirim tanpa memilih dan mesin bawaan tim yang menjawab.', "AIエンジンとモデルは管理者が選びます。選択せずに送信すると、チームの既定で回答します。", "Su administrador elige el motor y modelo de IA. Envíe sin elegir ninguno para recibir una respuesta con el predeterminado del equipo."),
   engineOff: t('관리자가 이 AI 엔진을 꺼 두었어요. 다른 엔진을 골라 주세요.', 'Your admin switched this AI engine off. Pick another one.', 'Admin mematikan mesin AI ini. Pilih yang lain.', "管理者がこのAIエンジンを無効にしました。別のものを選んでください。", "Su administrador desactivó este motor de IA. Elija otro."),
   browserUnavailable: t('데스크톱 앱 창이 연결되어 있지 않아요.', 'The desktop app window is not connected.', 'Jendela aplikasi desktop tidak terhubung.', "デスクトップアプリのウィンドウが接続されていません。", "La ventana de la aplicación de escritorio no está conectada."),
+  // a connect_service card (chat/connect-service.ts, POST /api/turns/:id/connect)
+  connectClosed: t('이미 끝났거나 시간이 지난 연결 카드예요.', 'This connection card was already finished or has expired.', 'Kartu koneksi ini sudah selesai atau kedaluwarsa.', "この接続カードは完了済みか、期限切れです。", "Esta tarjeta de conexión ya se completó o venció."),
+  connectBusy: t('이 카드로 지금 연결하는 중이에요. 잠시 기다려 주세요.', 'This card is connecting right now. Wait a moment.', 'Kartu ini sedang menghubungkan. Tunggu sebentar.', "このカードで接続中です。しばらくお待ちください。", "Esta tarjeta se está conectando. Espere un momento."),
+  connectNeedsKey: t('먼저 카드에 키를 붙여 넣어 주세요.', 'Paste the key into the card first.', 'Tempel kuncinya di kartu terlebih dahulu.', "先にカードにキーを貼り付けてください。", "Pegue primero la clave en la tarjeta."),
+  connectTeamAdmin: t('팀 연결은 관리자만 추가할 수 있어요.', 'Only an admin can add a team connection.', 'Hanya admin yang bisa menambahkan koneksi tim.', "チームの接続を追加できるのは管理者のみです。", "Solo un administrador puede añadir una conexión del equipo."),
+  connectNotYet: t('아직 연결되지 않았어요. 로그인을 먼저 마쳐 주세요.', 'Not connected yet. Finish signing in first.', 'Belum terhubung. Selesaikan masuk terlebih dahulu.', "まだ接続されていません。先にサインインを完了してください。", "Aún no está conectado. Termine primero de iniciar sesión."),
+  connectKeyTooLong: t('키가 너무 길어요(최대 {n}자). 서비스에서 받은 키만 붙여 넣어 주세요.', 'The key is too long (at most {n} characters). Paste only the key the service gave you.', 'Kuncinya terlalu panjang (paling banyak {n} karakter). Tempel hanya kunci dari layanan.', "キーが長すぎます（最大{n}文字）。サービスから受け取ったキーだけを貼り付けてください。", "La clave es demasiado larga (como máximo {n} caracteres). Pegue solo la clave que le dio el servicio."),
+  connectNotStarted: t('이 카드로 아직 연결하지 않았어요. 카드의 버튼으로 먼저 연결해 주세요.', 'Nothing was connected from this card yet. Use its button to connect first.', 'Belum ada yang dihubungkan dari kartu ini. Gunakan tombolnya untuk menghubungkan dulu.', "このカードからはまだ何も接続していません。先にカードのボタンで接続してください。", "Todavía no se conectó nada desde esta tarjeta. Use primero su botón para conectar."),
+  connectChanged: t('카드가 나온 뒤 설정에서 이 연결이 바뀌었거나 삭제됐어요. 아무것도 보내지 않았어요. AI에게 다시 연결해 달라고 해 주세요.', 'This connection was changed or removed in Settings after the card was shown. Nothing was sent. Ask the AI to connect it again.', 'Koneksi ini diubah atau dihapus di Pengaturan setelah kartu ditampilkan. Tidak ada yang dikirim. Minta AI menghubungkannya lagi.', "カードの表示後に、設定でこの接続が変更または削除されました。何も送信していません。AIにもう一度接続を頼んでください。", "Esta conexión se cambió o se eliminó en Configuración después de mostrarse la tarjeta. No se envió nada. Pida a la IA que la conecte de nuevo."),
+  connectHidden: t('카드의 이름이나 메모에 보이지 않는 문자가 있어요. AI에게 다시 연결해 달라고 해 주세요.', 'The card\'s name or notes hold characters that cannot be seen. Ask the AI to connect it again.', 'Nama atau catatan kartu berisi karakter yang tidak terlihat. Minta AI menghubungkannya lagi.', "カードの名前またはメモに見えない文字が含まれています。AIにもう一度接続を頼んでください。", "El nombre o las notas de la tarjeta contienen caracteres que no se ven. Pida a la IA que lo conecte de nuevo."),
 
   // answer errors (message.error)
   errAuth: CHAT_ERROR_MESSAGES.auth,
@@ -84,6 +94,8 @@ export const TEXT = {
   forgot: STEP_TEXT.forgot,
   asked: STEP_TEXT.asked,
   notAnswered: STEP_TEXT.notAnswered,
+  connectConnected: STEP_TEXT.connectConnected,
+  connectNotConnected: STEP_TEXT.connectNotConnected,
   browserSite: t('사내망 주소 {host}를 열어도 될까요?', 'May the AI open the office-network address {host}?', 'Bolehkan AI membuka alamat jaringan kantor {host}?', "AIが社内ネットワークのアドレス{host}を開いてもよろしいですか？", "¿Puede la IA abrir la dirección de red interna {host}?"),
   widenConfirm: t('AI가 볼 수 있는 사람이 더 적은 내용({sources})을 읽은 뒤 {target}에 저장하려고 해요. 이곳은 {n}명이 볼 수 있어요. 저장할까요?',
     'The AI read content fewer people can see ({sources}) and now wants to save to {target}, which {n, plural, one {# person} other {# people}} can see. Save it?',

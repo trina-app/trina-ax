@@ -1,12 +1,13 @@
 // Members and invites. Invites are links (no mail in v1): pick role and groups, copy the link or show its QR code,
 // hand it over any way you like; revoke unused ones. Members: role, groups, disable (ends their sessions),
 // temporary password reset or a one-time reset link to hand over (both audited; the owner resets only on the server
-// Mac), remove.
+// Mac), remove. Each person links to the folders they see (Folder permissions › By person); the invite and add dialogs
+// preview the folders someone new with that role and those groups will see.
 import { KeyRound, Link2, Plus, QrCode as QrIcon, RefreshCw, Trash2, UserPlus, UserRoundKey } from 'lucide-react'
-import { useId, useState } from 'react'
+import { useId, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 import type { z } from 'zod'
-import type { CreatedInvite as CreatedInviteSchema, Group, Invite, Locale, Role, User } from '@mycel/shared/api'
+import type { CreatedInvite as CreatedInviteSchema, Group, Invite, Locale, User } from '@mycel/shared/api'
 import { TEMP_PASSWORD_TTL_DAYS, tempPasswordCharsOk } from '@mycel/shared'
 import { api, API, errorText, isApiError } from '../../lib/api'
 import { formatDateTime } from '../../lib/format'
@@ -16,11 +17,12 @@ import { PASSWORD_MIN } from '../Auth'
 import { LOCALES, useLocale, useT, type MessageKey } from '../../i18n'
 import { isOwner, useMeStrict } from '../../store/session'
 import QrCode from '../../components/QrCode'
-import { Badge, Button, CopyButton, Field, IconButton, Modal, confirmDialog, inputCls } from '../../components/ui'
+import { Badge, Button, CopyButton, Field, IconButton, Modal, confirmDialog, inputCls, noKeyRepeat } from '../../components/ui'
 import { SkillManagerCell, useSkillManagers } from './SkillManagers'
-import { Card, Loadable, SecretBox, useAction, useLoad } from './common'
+import { Card, Loadable, SecretBox, useAction, useActionOk, useFocusAfterRemove, useLoad, useOneAtATime } from './common'
+import { GroupChecks, RoleSelect, type MemberRole } from './people-choices'
+import { NewPersonPreview, personViewLink } from './AccessResults'
 
-type MemberRole = Exclude<Role, 'owner'>
 type CreatedInvite = z.infer<typeof CreatedInviteSchema>
 
 export default function Members() {
@@ -28,6 +30,7 @@ export default function Members() {
   const locale = useLocale()
   const me = useMeStrict()
   const act = useAction()
+  const actOk = useActionOk()
   // the members and who cannot use AI now ("No AI": no AI connection of their own and none of the team's for them)
   const users = useLoad(() => api.call(API.listUsers, { query: { noAi: '1' } }))
   const invites = useLoad(async () => (await api.call(API.listInvites)).items)
@@ -58,17 +61,19 @@ export default function Members() {
   }
   const remove = async (u: User) => {
     if (!(await confirmDialog({ title: t('members.removeTitle', { name: u.name }), body: t('members.removeBody', { days: chatTrashDays(me) }), confirm: t('common.delete'), danger: true }))) return
-    await act(async () => {
-      await api.call(API.deleteUser, { params: { id: u.id } })
-      await users.reload()
-    })
+    if (await actOk(() => api.call(API.deleteUser, { params: { id: u.id } }))) await users.reload()
   }
-  const revoke = async (i: Invite) => {
-    await act(async () => {
-      await api.call(API.revokeInvite, { params: { id: i.id } })
+  // an invite is revoked at once, with no confirm dialog: one at a time, a held key does not repeat it, and the focus goes
+  // to the list's title (the next row's button is another revoke)
+  const invitesTitle = useRef<HTMLHeadingElement>(null)
+  const inviteFocus = useFocusAfterRemove(invites.data, () => invitesTitle.current)
+  const revoking = useOneAtATime<string>()
+  const revoke = (i: Invite) =>
+    revoking.run(i.id, async () => {
+      if (!(await actOk(() => api.call(API.revokeInvite, { params: { id: i.id } })))) return
+      inviteFocus.removed(0)
       await invites.reload()
     })
-  }
 
   return (
     <>
@@ -109,6 +114,10 @@ export default function Members() {
                         <span className="block text-xs text-faint">
                           {u.username} · users/{u.id}
                         </span>
+                        {/* Folder permissions › By person, opened on this person (read only) */}
+                        <Link to={personViewLink({ person: u.id })} className="mt-0.5 inline-block text-xs text-accent-text underline-offset-2 hover:underline" aria-label={t('accessView.membersLinkFor', { name: u.name })} data-testid="member-access-link">
+                          {t('accessView.membersLink')}
+                        </Link>
                       </td>
                       <td className="py-2 pr-3">
                         <Badge tone={u.role === 'member' ? 'neutral' : 'accent'}>{t(`role.${u.role}`)}</Badge>
@@ -142,7 +151,7 @@ export default function Members() {
                               {u.status === 'active' ? t('members.disable') : t('members.enable')}
                             </Button>
                             {isOwner(me) && (
-                              <IconButton label={t('common.delete')} onClick={() => remove(u)}>
+                              <IconButton label={t('common.deleteNamed', { name: u.name })} onClick={() => remove(u)}>
                                 <Trash2 size={15} />
                               </IconButton>
                             )}
@@ -160,7 +169,7 @@ export default function Members() {
 
       <ScheduleReviews />
 
-      <Card title={t('members.invites')} desc={t('members.invitesDesc')}>
+      <Card title={t('members.invites')} desc={t('members.invitesDesc')} headingRef={invitesTitle}>
         <Loadable state={invites}>
           {(list) =>
             !list.length ? (
@@ -176,7 +185,7 @@ export default function Members() {
                         {i.groupIds.map(groupName).join(', ') || t('members.noGroups')} · {i.usedAt ? t('members.usedBy', { name: i.usedBy?.name ?? '?' }) : expired ? t('members.expired') : t('members.expires', { date: formatDateTime(i.expiresAt, locale) })}
                       </span>
                       {!i.usedAt && !expired && (
-                        <Button size="sm" variant="ghost" onClick={() => revoke(i)}>
+                        <Button size="sm" variant="ghost" onClick={() => void revoke(i)} onKeyDown={noKeyRepeat} aria-disabled={revoking.busy !== null || undefined} className="aria-disabled:cursor-not-allowed aria-disabled:opacity-50">
                           {t('members.revoke')}
                         </Button>
                       )}
@@ -284,31 +293,6 @@ function ScheduleReviews() {
   )
 }
 
-function GroupChecks({ groups, value, onChange }: { groups: Group[]; value: string[]; onChange: (v: string[]) => void }) {
-  const t = useT()
-  if (!groups.length) return <p className="text-xs text-faint">{t('groups.none')}</p>
-  return (
-    <div className="flex flex-wrap gap-2">
-      {groups.map((g) => (
-        <label key={g.id} className="inline-flex items-center gap-1.5 rounded-lg border border-line px-2.5 py-1.5 text-sm">
-          <input type="checkbox" checked={value.includes(g.id)} onChange={(e) => onChange(e.target.checked ? [...value, g.id] : value.filter((x) => x !== g.id))} />
-          {g.name}
-        </label>
-      ))}
-    </div>
-  )
-}
-
-function RoleSelect({ value, onChange, disabled }: { value: MemberRole; onChange: (r: MemberRole) => void; disabled?: boolean }) {
-  const t = useT()
-  return (
-    <select className={inputCls} value={value} disabled={disabled} onChange={(e) => onChange(e.target.value as MemberRole)}>
-      <option value="member">{t('role.member')}</option>
-      <option value="admin">{t('role.admin')}</option>
-    </select>
-  )
-}
-
 function InviteDialog({ groups, onClose, onCreated }: { groups: Group[]; onClose: () => void; onCreated: (c: CreatedInvite) => void }) {
   const t = useT()
   const act = useAction()
@@ -361,6 +345,7 @@ function InviteDialog({ groups, onClose, onCreated }: { groups: Group[]; onClose
           </select>
         </Field>
         <p className="text-xs text-muted">{t('members.inviteNote')}</p>
+        <NewPersonPreview role={role} groupIds={groupIds} groups={groups} />
       </div>
     </Modal>
   )
@@ -629,6 +614,7 @@ function AddMember({ groups, onClose, onCreated }: { groups: Group[]; onClose: (
           <p className="mb-1.5 text-[13px] font-medium">{t('admin.groups')}</p>
           <GroupChecks groups={groups} value={f.groupIds} onChange={(groupIds) => set({ groupIds })} />
         </div>
+        <NewPersonPreview role={f.role} groupIds={f.groupIds} groups={groups} />
         <DialogError error={error} />
       </div>
     </Modal>

@@ -21,7 +21,7 @@ const conf = { bin: '/x/claude', authMode: 'managed' as const, agentHome: '/none
 const val = (a: string[], f: string) => a[a.indexOf(f) + 1]!
 /** Claude Code's built-in tools that run commands or touch files outside our gate: never a child's, never the main AI's */
 const BUILTIN_FILE_AND_SHELL = ['Read', 'Glob', 'Grep', 'Bash', 'PowerShell', 'Edit', 'Write', 'WebFetch', 'NotebookEdit', 'LSP', 'Skill', 'ToolSearch']
-const turnTools = [...Object.keys(FILE_TOOLS), 'search', 'make_file', 'share_file', 'artifact', 'web_fetch', 'move_files', 'remember', 'forget', 'ask_user', 'set_title', 'schedule_create', 'schedule_list', 'schedule_delete', 'generate_video', 'navigate', 'computer', 'my_aipm_list']
+const turnTools = [...Object.keys(FILE_TOOLS), 'search', 'make_file', 'share_file', 'artifact', 'web_fetch', 'move_files', 'remember', 'forget', 'ask_user', 'connect_service', 'set_title', 'schedule_create', 'schedule_list', 'schedule_delete', 'generate_video', 'navigate', 'computer', 'my_aipm_list']
 
 describe('locked launch with the Agent tool', () => {
   const sub = { agents: buildAgentDefinitions({ tools: turnTools, webSearch: true }), prompt: 'CHILD RULES {CHAT_DIR}' }
@@ -100,7 +100,7 @@ describe('sub-agent definitions', () => {
     expect(d.Explore.tools).not.toContain('mcp__team__write')
   })
   test('the main AI\'s own tools: asking, memories, title, schedules, video, the browser', () => {
-    for (const t of ['ask_user', 'set_title', 'remember', 'forget', 'generate_video', ...SCHEDULE_TOOL_NAMES, ...BROWSER_TOOL_NAMES]) expect(PARENT_ONLY_TOOLS.has(t)).toBe(true)
+    for (const t of ['ask_user', 'connect_service', 'set_title', 'remember', 'forget', 'generate_video', ...SCHEDULE_TOOL_NAMES, ...BROWSER_TOOL_NAMES]) expect(PARENT_ONLY_TOOLS.has(t)).toBe(true)
     expect([...SCHEDULE_TOOLS]).toEqual([...SCHEDULE_TOOL_NAMES])
     for (const t of ['read', 'write', 'edit', 'make_file', 'web_fetch', 'artifact', 'share_file']) expect(PARENT_ONLY_TOOLS.has(t)).toBe(false)
   })

@@ -73,6 +73,8 @@ export interface World {
   folders: Record<string, string>
   ids: {
     chatA: string; chatB: string; userMsg: string; assistantMsg: string; turnB: string; requestB: string
+    /** an open connect_service card of alice (buildWorld's connectCard option; '' without it) */
+    turnConnect: string; requestConnect: string
     artifact: string; memory: string; attachment: string; projAlice: string; projFalcon: string; projMkt: string; projShared: string
     uploadAlice: string; jobAlice: string; jobSystem: string; aliceVersion: string; finVersion: string
     trashAlice: string; trashFin: string; aliceSession: string; invite: string; inviteToken: string; resetToken: string
@@ -110,7 +112,7 @@ async function save(c: Client, p: string, content: string) {
   return c.ok('PUT', '/api/files/content', { path: p, content, baseSha256: base })
 }
 
-export async function buildWorld(inst: Instance, options: { sharedSubscriptions?: boolean } = {}): Promise<World> {
+export async function buildWorld(inst: Instance, options: { sharedSubscriptions?: boolean; connectCard?: boolean } = {}): Promise<World> {
   const as = Object.fromEntries(WHO.map((w) => [w, inst.client(w)])) as Record<Who, Client>
   const owner = as.owner
   // first owner (setup token), then everyone else through the admin API
@@ -204,6 +206,17 @@ export async function buildWorld(inst: Instance, options: { sharedSubscriptions?
   const chatB = (await alice.ok('POST', '/api/chats', { title: 'second' })).id
   const sentB = await alice.ok('POST', `/api/chats/${chatB}/messages`, { clientMessageId: cm(), attachmentIds: [], content: fake({ tool: 'ask_user', args: { question: `${C.aliceQuestion}?` } }) })
   const card = await sockets.alice.next('turn.request', (f) => f.data.turnId === sentB.turnId, 30_000)
+  // chat C (opt-in: the permission matrix): an open connect_service card, so POST /api/turns/:id/connect meets a real
+  // card and only alice may finish it. Its turn waits like chat B's (one more running answer); nothing is contacted
+  // until a card is finished.
+  let turnConnect = '', requestConnect = ''
+  if (options.connectCard === true) {
+    const chatC = (await alice.ok('POST', '/api/chats', { title: 'connect' })).id
+    const sentC = await alice.ok('POST', `/api/chats/${chatC}/messages`, { clientMessageId: cm(), attachmentIds: [], content: fake({ tool: 'connect_service', args: { name: 'Board', kind: 'mcp', url: 'https://mcp.board.example/mcp', auth: 'none' } }) })
+    const c = await sockets.alice.next('turn.request', (f) => f.data.turnId === sentC.turnId && f.data.request.kind === 'connect_service', 30_000)
+    turnConnect = sentC.turnId
+    requestConnect = c.data.request.requestId
+  }
   const bobChat = (await bob.ok('POST', '/api/chats', { title: 'bob chat' })).id
 
   // ---------------- uploads, jobs, sessions, invites ----------------
@@ -229,7 +242,7 @@ export async function buildWorld(inst: Instance, options: { sharedSubscriptions?
     inst, as, desktop, folders, sockets,
     groups: { marketing: mk.id, finance: fin.id, mktFolder, finFolder },
     ids: {
-      chatA, chatB, userMsg: sent.userMessage.id, assistantMsg: sent.assistantMessage.id, turnB: sentB.turnId, requestB: card.data.request.requestId,
+      chatA, chatB, userMsg: sent.userMessage.id, assistantMsg: sent.assistantMessage.id, turnB: sentB.turnId, requestB: card.data.request.requestId, turnConnect, requestConnect,
       artifact, memory, attachment: att.id, projAlice, projFalcon, projMkt, projShared, uploadAlice, jobAlice, jobSystem,
       aliceVersion, finVersion, trashAlice, trashFin, aliceSession, invite: inv.invite.id, inviteToken: inv.token,
       resetToken: reset.token, budget, bobChat, suggestion, teamCredential, aliceOwnCredential,
