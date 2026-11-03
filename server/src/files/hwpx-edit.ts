@@ -497,7 +497,7 @@ class Editor extends ChangeEditor<Para, Cell, Table> {
     assertKnown(tree, `row ${C}`, ROW_NAMES, new Set(['hp:t']), refuseRow)
   }
 
-  protected rowsAt(plan: RowPlan<Cell, Table>, i: number): number {
+  protected rowsAt(plan: RowPlan<Cell, Table>, i: number): { before: number; depth: number } {
     const { t, A, C, cells, T } = plan
     const xml = this.doc.sections[t.sec]!.xml
     const R = t.rows.length
@@ -544,7 +544,9 @@ class Editor extends ChangeEditor<Para, Cell, Table> {
     for (let p = t.para; p; p = p.cell ? p.cell.table.para : null) this.dropCache.add(p)
     // where the new paragraphs go in reading order: before the first paragraph that opens after the row they follow
     const next = this.doc.paras.find((p) => p.sec > t.sec || (p.sec === t.sec && p.el.start >= after.end))
-    return next ? next.i : this.doc.paras.length
+    let depth = 0
+    for (let e = t.el.parent; e; e = e.parent) depth++
+    return { before: next ? next.i : this.doc.paras.length, depth }
   }
 
   /** a copy of `cell` for row `row` (0-based) with `value` */

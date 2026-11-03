@@ -10,7 +10,7 @@ import zlib from 'node:zlib'
 import { cfbMismatch, readCfb, writeCfb } from '../../server/src/files/cfb'
 import { officeWorkerWrite } from '../../server/src/files/extract'
 import { hwpText } from '../../server/src/files/hwp'
-import { editHwp, hwpEditModel } from '../../server/src/files/hwp-edit'
+import { editHwp, hwpEditModel, HWP_EDIT_LIMITS } from '../../server/src/files/hwp-edit'
 import { NativeHwpEngine, localHwpAssets } from '../../server/src/files/hwp-engine'
 import {
   decodeHwpEditResult, encodeHwpEditRequest, HWP_EDIT_MODE, HWP_VERIFY_MODE, hwpEditMismatch, hwpPartsMismatch, hwpxReadLines, type HwpChange,
@@ -400,6 +400,64 @@ describe('the read-back', () => {
     const old = lines(before), got = lines(r.file)
     expect(hwpEditMismatch(changes, old, got, r.report)).toBeNull()
     expect(hwpEditMismatch(changes, old, got.map((l) => l.replace('위 사람은', '위 사람이')), r.report)).toContain('expected "| 위 사람은')
+  })
+})
+
+describe('found in review', () => {
+  const change: HwpChange[] = [{ find: '{{발급일}}', replace: 'y' }]
+
+  test('a part named like Hangul\'s but in other case is refused: Hangul opens it, the checks would not', () => {
+    const linked = (o: Parameters<typeof hwpEmploymentForm>[0]) => hwpEmploymentForm({ docInfo: [rec(TAG.BIN_DATA, 1, Buffer.from('0000', 'hex'))], ...o })
+    expect(refusal(linked({ rename: { DocInfo: 'DOCINFO' } }), change)).toContain('a part is named "DOCINFO", which Hangul reads as its "DocInfo"')
+    const script = zlib.deflateRawSync(defaultScript('function OnDocument_Open() { Shell("calc") }'))
+    expect(refusal(hwpEmploymentForm({ extra: { 'Scripts/DefaultJScript': script }, rename: { 'Scripts/DefaultJScript': 'Scripts/DEFAULTJSCRIPT' } }), change)).toContain('"DEFAULTJSCRIPT", which Hangul reads as its "DefaultJScript"')
+    expect(refusal(hwpEmploymentForm({ extra: { 'DocOptions/_LinkDoc': linkDoc('C:\\앞 문서.hwp') }, rename: { 'DocOptions/_LinkDoc': 'DocOptions/_LINKDOC' } }), change)).toContain('"_LINKDOC", which Hangul reads as its "_LinkDoc"')
+    const hidden = Buffer.concat([para([[0, sectionDef()]]), para('본문', { extra: [rec(TAG.SHAPE_OLE, 1, Buffer.alloc(20))] })])
+    expect(refusal(hwpEmploymentForm({ extra: { 'BodyText/SECTION1': zlib.deflateRawSync(hidden) } }), change)).toContain('"SECTION1", which Hangul reads as its "SectionN"')
+  })
+
+  test('rows added to a table and to a table inside its last cell, in either order: each table gets its own rows', () => {
+    const inner = table([[{ text: '내부1', width: 3000 }]], { level: 2 })
+    const d = doc1(table([[{ text: '머리', width: 4000 }, { text: '값', width: 4000 }], [{ text: '표안표', width: 4000 }, { paras: inner, width: 4000 }]]), para('본문', { last: true }))
+    const outer: HwpChange = { add_rows: { table: 1, copy_row: 1, rows: [['새', '줄']] } }
+    const nested: HwpChange = { add_rows: { table: 2, rows: [['내부2']] } }
+    for (const changes of [[outer, nested], [nested, outer]]) {
+      const r = editHwp(d, changes)
+      const m = hwpEditModel(r.file)
+      expect(m.tables.map((t) => [t.bad, t.rowSizes, t.cells.map((c) => c.text)])).toEqual([[null, [2, 2, 2], ['머리', '값', '표안표', '', '새', '줄']], [null, [1, 1], ['내부1', '내부2']]])
+      expect(lines(r.file)).toEqual(['| 머리', '| 값', '| 표안표', '| 내부1', '| 내부2', '| 새', '| 줄', '| 본문'])
+    }
+  })
+
+  test('characters outside the BMP (an emoji, a CJK Extension B hanja) are two UTF-16 code units, as hwp.ts reads them', () => {
+    const r = editHwp(hwpEmploymentForm(), [{ find: '{{발급일}}', replace: '홍길동 😀' }, { cell: { next_to: '성명' }, value: '𠀀씨' }])
+    expect(paraWith(r.file, '홍길동').text).toBe('발급일: 홍길동 😀<13>')
+    expect(paraWith(r.file, '홍길동').header.chars).toBe(5 + 6 + 1)
+    expect(paraWith(r.file, '씨').text).toBe('𠀀씨<13>')
+    expect(lines(r.file)).toContain('| 𠀀씨')
+  })
+
+  test('rows after a row with no cells of its own (every cell above reaches into it)', () => {
+    const d = doc1(table([[{ text: '가', width: 4000, rowSpan: 2 }, { text: '나', width: 4000, rowSpan: 2 }], [], [{ text: '다', width: 4000 }, { text: '라', width: 4000 }]]))
+    expect(hwpEditModel(d).tables[0]!.rowSizes).toEqual([2, 0, 2])
+    const r = editHwp(d, [{ add_rows: { table: 1, after_row: 2, copy_row: 3, rows: [['마', '바']] } }])
+    expect(lines(r.file)).toEqual(['| 가', '| 나', '| 마', '| 바', '| 다', '| 라'])
+    expect(hwpEditModel(r.file).tables[0]).toMatchObject({ bad: null, rowSizes: [2, 0, 2, 2] })
+  })
+
+  test('an OLE object kept as a storage in BinData is refused; so is a name with a character a compound file forbids', () => {
+    expect(refusal(hwpEmploymentForm({ extra: { 'BinData/BIN0001.OLE/CONTENTS': 'x' } }), change)).toContain('embedded OLE object (BinData/BIN0001.OLE)')
+    const d = Buffer.from(hwpEmploymentForm())
+    const at = d.indexOf(Buffer.from('PrvText', 'utf16le'))
+    Buffer.from('!', 'utf16le').copy(d, at + 6)
+    expect(refusal(d, change)).toContain('a directory entry has a name with / \\ : or !')
+  })
+
+  test('a document with more paragraphs than the limit is refused before it is changed', () => {
+    const was = HWP_EDIT_LIMITS.paragraphs
+    HWP_EDIT_LIMITS.paragraphs = 5
+    try { expect(refusal(hwpEmploymentForm(), change)).toContain('it has more than 5 paragraphs, too many to change here') } finally { HWP_EDIT_LIMITS.paragraphs = was }
+    expect(() => editHwp(hwpEmploymentForm(), change)).not.toThrow()
   })
 })
 

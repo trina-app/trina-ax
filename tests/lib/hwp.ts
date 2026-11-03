@@ -191,6 +191,8 @@ export interface DocOpts {
   hangulStreams?: boolean
   /** a version other than 5.1.0.1 */
   version?: [number, number, number, number]
+  /** streams written under another name (path -> path) */
+  rename?: Record<string, string>
 }
 /** paragraph shapes of the default DocInfo: 0 body, 1 centred, 2 cell, 3 outline level 1 (개요 1), 4 outline level 2 */
 export const SHAPE = { body: 0, center: 1, cell: 2, h1: 3, h2: 4 }
@@ -239,6 +241,7 @@ export function hwpDoc(sections: Buffer[], o: DocOpts = {}): Uint8Array {
     files['DocOptions/_LinkDoc'] = linkDoc()
   }
   for (const [k, v] of Object.entries(o.extra ?? {})) files[k] = typeof v === 'string' ? Buffer.from(v, 'utf8') : v
+  for (const [from, to] of Object.entries(o.rename ?? {})) { files[to] = files[from]!; delete files[from] }
   const c = CFB.utils.cfb_new()
   for (const [p, v] of Object.entries(files)) CFB.utils.cfb_add(c, p, Buffer.from(v))
   return new Uint8Array(CFB.write(c, { type: 'buffer' }) as Buffer)

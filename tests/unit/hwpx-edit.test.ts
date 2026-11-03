@@ -364,6 +364,16 @@ describe('found in review', () => {
     expect(s).toContain(`<hp:run charPrIDRef="0"><hp:t/></hp:run><hp:run charPrIDRef="0">${begin}<hp:t>총무팀</hp:t></hp:run><hp:run charPrIDRef="0">${end}</hp:run>`)
   })
 
+  test('rows added to a table and to a table inside its last cell, in either order, read inner rows first (stage 3 review)', () => {
+    const inner = table([[{ text: '내부1', width: 3000 }]], { id: 1500000009 })
+    const d = doc1(table([[{ text: '머리', width: 4000 }, { text: '값', width: 4000 }], [{ text: '표안표', width: 4000 }, { raw: inner, width: 4000 }]]) + para('본문'))
+    const outer: HwpChange = { add_rows: { table: 1, copy_row: 1, rows: [['새', '줄']] } }
+    const nested: HwpChange = { add_rows: { table: 2, rows: [['내부2']] } }
+    for (const changes of [[outer, nested], [nested, outer]]) {
+      expect(lines(editHwpx(d, changes).file)).toEqual(['| 머리', '| 값', '| 표안표', '| 내부1', '| 내부2', '| 새', '| 줄', '| 본문'])
+    }
+  })
+
   test('a cell that holds a table or a picture is not an empty cell', () => {
     // the cell's paragraph holds a table of one empty cell: every paragraph in it is empty, yet it is not an empty cell
     const d = doc1(table([[{ text: '비고', width: 5000 }, { raw: table([[{ text: '', width: 3000 }]], { id: 1500000009 }), width: 8000 }]]))

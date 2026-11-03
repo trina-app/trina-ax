@@ -54,6 +54,8 @@ export const HWP_EDIT_LIMITS = {
   sections: SECTIONS_MAX,
   /** records of all sections together */
   records: 4_000_000,
+  /** paragraphs of the whole document: an edit holds two documents' models and three readings in the worker's 2 GiB */
+  paragraphs: 300_000,
   ...HWP_CHANGE_LIMITS,
 }
 
@@ -70,6 +72,8 @@ const PARA_KIDS = new Set([TAG.PARA_TEXT, TAG.PARA_CHAR_SHAPE, TAG.PARA_LINE_SEG
 /** 8-WCHAR controls that have a CTRL_HEADER (extended); the other 8-WCHAR ones are inline (tab, field end, ...) */
 const EXTENDED = new Set([1, 2, 3, 11, 12, 14, 15, 16, 17, 18, 21, 22, 23])
 const LINE_BREAK = 10, PARA_END = 13
+/** the list of a record kind a paragraph does not have (shared: replaced, never pushed to) */
+const NONE: number[] = []
 
 /** FileHeader flags (attribute 1) that refuse a document */
 const FLAGS_REFUSED: [number, string][] = [
@@ -96,6 +100,28 @@ const STREAMS_REFUSED: [RegExp, string][] = [
   [/\.ole$/i, 'it contains an embedded OLE object'],
 ]
 
+/** Hangul's storage and stream names by place. A compound file's names are matched without regard to case, so Hangul
+ * opens "DOCINFO" as its DocInfo while hwp.ts and the checks here look for "DocInfo": a name that differs from one
+ * of these only in case is refused. */
+const HANGUL_NAMES = ['FileHeader', 'DocInfo', 'BodyText', 'ViewText', 'BinData', 'PrvText', 'PrvImage', 'Scripts', 'DocOptions', 'XMLTemplate', 'DocHistory', '\u0005HwpSummaryInformation']
+const HANGUL_NAMES_UNDER: Record<string, (string | RegExp)[]> = {
+  BodyText: [/^Section\d+$/], ViewText: [/^Section\d+$/], Scripts: ['DefaultJScript', 'JScriptVersion'],
+  DocOptions: ['_LinkDoc', 'DrmLicense', 'DrmRootSect', 'CertDrmHeader', 'CertDrmInfo', 'DigitalSignature', 'PublicKeyInfo'],
+}
+function checkNames(cfb: Cfb) {
+  const odd = (name: string, hangul: string) => refuseDoc(`a part is named ${JSON.stringify(name)}, which Hangul reads as its ${JSON.stringify(hangul)}`)
+  for (const e of cfb.entries) {
+    if (e.type !== 1 && e.type !== 2) continue
+    const [top, under] = e.path.split('/') as [string, string | undefined]
+    const known = HANGUL_NAMES.find((n) => n.toLowerCase() === top.toLowerCase())
+    if (known && known !== top) odd(top, known)
+    if (!known || under === undefined) continue
+    for (const n of HANGUL_NAMES_UNDER[known] ?? []) {
+      if (typeof n === 'string' ? n.toLowerCase() === under.toLowerCase() && n !== under : new RegExp(n.source, 'i').test(under) && !n.test(under)) odd(under, typeof n === 'string' ? n : 'SectionN')
+    }
+  }
+}
+
 const u16 = (b: Uint8Array, o: number) => b[o]! | (b[o + 1]! << 8)
 const u32 = (b: Uint8Array, o: number) => (b[o]! | (b[o + 1]! << 8) | (b[o + 2]! << 16) | (b[o + 3]! << 24)) >>> 0
 const put16 = (b: Uint8Array, o: number, v: number) => { b[o] = v & 0xff; b[o + 1] = (v >>> 8) & 0xff }
@@ -113,7 +139,7 @@ export function hwpRecord(tag: number, level: number, data: Uint8Array): Uint8Ar
   return out
 }
 /** WCHARs of new text: a line break as the control character 10 */
-const wchars = (s: string) => Uint16Array.from(s, (ch) => (ch === '\n' ? LINE_BREAK : ch.charCodeAt(0)))
+const wchars = (s: string) => { const w = new Uint16Array(s.length); for (let k = 0; k < s.length; k++) w[k] = s.charCodeAt(k); return w }
 const wbytes = (w: Uint16Array) => { const b = new Uint8Array(w.length * 2); w.forEach((c, k) => put16(b, k * 2, c)); return b }
 
 // ---------------------------------------------------------------- inflating, with hwp.ts's caps
@@ -142,6 +168,8 @@ function inflatedHead(data: Uint8Array): Uint8Array | null {
 class Recs {
   readonly n: number
   readonly tag: Uint16Array; readonly level: Uint16Array; readonly start: Uint32Array; readonly data: Uint32Array; readonly size: Uint32Array
+  /** the index after the records under each record (those of a higher level that follow it) */
+  readonly after: Uint32Array
   readonly bytes: Uint8Array
   constructor(bytes: Uint8Array, what: string, budget: { left: number }) {
     this.bytes = bytes = plain(bytes)
@@ -166,11 +194,19 @@ class Recs {
       this.tag[r] = h & 0x3ff; this.level[r] = (h >>> 10) & 0x3ff; this.start[r] = i; this.data[r] = d; this.size[r] = size
       i = d + size
     }
+    // one pass with a stack: a record's subtree ends at the next record of its level or lower
+    this.after = new Uint32Array(n)
+    const open: number[] = []
+    for (let r = 0; r < n; r++) {
+      while (open.length && this.level[open[open.length - 1]!]! >= this.level[r]!) this.after[open.pop()!] = r
+      open.push(r)
+    }
+    for (const r of open) this.after[r] = n
   }
   end(r: number) { return this.data[r]! + this.size[r]! }
   body(r: number) { return this.bytes.subarray(this.data[r]!, this.end(r)) }
   /** the index after the records under r (those of a higher level that follow it) */
-  subtreeEnd(r: number) { let j = r + 1; while (j < this.n && this.level[j]! > this.level[r]!) j++; return j }
+  subtreeEnd(r: number) { return this.after[r]! }
   /** the byte offset of record r, or the stream's end */
   offset(r: number) { return r < this.n ? this.start[r]! : this.bytes.length }
 }
@@ -183,9 +219,10 @@ interface Para extends CPara {
   /** its PARA_HEADER, and the index after its records */
   rec: number; end: number; level: number
   cell?: Cell
+  /** its records of each kind (one shared empty list for a kind it does not have) */
   texts: number[]; shapes: number[]; lines: number[]; ranges: number[]; ctrls: number[]; others: number[]
-  /** its WCHARs (PARA_TEXT, or the paragraph end alone when it has none) and what is not plain text in them */
-  w: Uint16Array; units: Unit[]
+  /** what is not plain text in its WCHARs (wOf reads those when a change needs them) */
+  units: Unit[]
 }
 interface Cell extends CCell { table: Table; paras: Para[]; lh: number; end: number }
 interface Table extends CTable {
@@ -212,46 +249,55 @@ const unitName = (u: Unit) => u.kind === 'tab' ? 'a tab' : u.kind === 'br' ? 'a 
 /** The hwp.ts reading of a paragraph's PARA_TEXT records (hwp.ts paraText): characters from 32 up as they are, 9 a tab,
  * 10 a line break, other controls nothing; 1-WCHAR and 8-WCHAR controls as ONE_WCHAR says. */
 function readText(p: Para, recs: Recs) {
-  let text = ''
   const units: Unit[] = []
-  const parts: Uint16Array[] = []
   let base = 0
+  // the text's code units, made into a string once
+  let codes = new Uint16Array(64)
+  let len = 0
+  const push = (c: number) => { if (len === codes.length) { const x = new Uint16Array(len * 2); x.set(codes); codes = x } codes[len++] = c }
   for (const r of p.texts) {
     const b = recs.body(r)
     const n = b.length >> 1
-    const w = new Uint16Array(n)
-    for (let k = 0; k < n; k++) w[k] = u16(b, k * 2)
     for (let k = 0; k < n;) {
-      const c = w[k]!
-      if (c >= 32) { text += String.fromCharCode(c); k++; continue }
+      const c = u16(b, k * 2)
+      if (c >= 32) { push(c); k++; continue }
       const one = ONE_WCHAR.has(c)
-      const id = !one && k + 2 < n ? String.fromCharCode(w[k + 2]! >> 8, w[k + 2]! & 0xff, w[k + 1]! >> 8, w[k + 1]! & 0xff) : ''
-      const s = c === 9 ? '\t' : c === LINE_BREAK ? '\n' : ''
-      units.push({ kind: c === 9 ? 'tab' : c === LINE_BREAK ? 'br' : c === PARA_END ? 'end' : one ? 'char-ctrl' : 'ctrl', at: text.length, len: s.length, w: base + k, code: c, id })
-      text += s
+      const id = !one && k + 2 < n ? ctrlId(b, k * 2 + 2) : ''
+      const t = c === 9 || c === LINE_BREAK
+      units.push({ kind: c === 9 ? 'tab' : c === LINE_BREAK ? 'br' : c === PARA_END ? 'end' : one ? 'char-ctrl' : 'ctrl', at: len, len: t ? 1 : 0, w: base + k, code: c, id })
+      if (t) push(c)
       k += one ? 1 : 8
     }
-    parts.push(w)
     base += n
   }
+  let text = ''
+  for (let o = 0; o < len; o += 4096) text += String.fromCharCode.apply(null, codes.subarray(o, Math.min(len, o + 4096)) as unknown as number[])
   p.text = text
   p.units = units
-  if (!parts.length) { p.w = Uint16Array.of(PARA_END); p.units.push({ kind: 'end', at: 0, len: 0, w: 0, code: PARA_END, id: '' }) }
-  else if (parts.length === 1) p.w = parts[0]!
-  else { p.w = new Uint16Array(base); let o = 0; for (const w of parts) { p.w.set(w, o); o += w.length } }
+  if (!p.texts.length) units.push({ kind: 'end', at: 0, len: 0, w: 0, code: PARA_END, id: '' })
+}
+
+/** a paragraph's WCHARs: its PARA_TEXT records, or the paragraph end alone when it has none */
+function wOf(p: Para, recs: Recs): Uint16Array {
+  if (!p.texts.length) return Uint16Array.of(PARA_END)
+  const n = p.texts.reduce((m, r) => m + (recs.size[r]! >> 1), 0)
+  const w = new Uint16Array(n)
+  let o = 0
+  for (const r of p.texts) { const b = recs.body(r); for (let k = 0; k + 1 < b.length; k += 2) w[o++] = u16(b, k) }
+  return w
 }
 
 /** the WCHAR of each character of a paragraph's text (characters, tabs and line breaks each come from one control) */
-function charWchars(p: Para): Int32Array {
+function charWchars(p: Para, w: Uint16Array): Int32Array {
   const out = new Int32Array(p.text.length + 1)
   let k = 0
-  for (let i = 0; i < p.w.length && k < p.text.length;) {
-    const c = p.w[i]!
+  for (let i = 0; i < w.length && k < p.text.length;) {
+    const c = w[i]!
     if (c >= 32) { out[k++] = i; i++; continue }
     if (c === 9 || c === LINE_BREAK) out[k++] = i
     i += ONE_WCHAR.has(c) ? 1 : 8
   }
-  out[p.text.length] = p.w.length
+  out[p.text.length] = w.length
   return out
 }
 
@@ -261,6 +307,8 @@ class Doc {
   readonly tables: Table[] = []
   readonly byRec: Map<number, Para>[] = []
   readonly compressed: boolean
+  /** the lines hwp.ts reads (set by openDoc, which checks they are this model's) */
+  read: string[] = []
   constructor(readonly bytes: Uint8Array, readonly cfb: Cfb) {
     const budget = new Budget()
     const header = cfb.streams.get('FileHeader')?.data
@@ -268,6 +316,7 @@ class Doc {
     if (header[35] !== 5) refuseDoc(`it is an HWP ${header[35]} document (only HWP 5 is changed)`)
     const flags = u32(header, 36)
     for (const [bit, why] of FLAGS_REFUSED) if (flags & bit) refuseDoc(why)
+    checkNames(cfb)
     this.compressed = (flags & 1) !== 0
     const stream = (p: string) => cfb.streams.get(p)?.data
     for (const p of cfb.streams.keys()) {
@@ -279,7 +328,12 @@ class Doc {
         if (PROGRAM_NAME.test(p) || heads.some((h) => isProgram(h) || isProgram(h.subarray(4)))) refuseDoc(`${p} is a program or a script`)
       }
     }
-    for (const e of cfb.entries) if (e.type === 1 && /^(XMLTemplate|ViewText)$/i.test(e.path)) refuseDoc(e.path === 'ViewText' ? 'it is a distribution-only document (배포용)' : 'it holds an XML form template (XMLTemplate)')
+    for (const e of cfb.entries) {
+      if (e.type !== 1) continue
+      if (/^(XMLTemplate|ViewText)$/i.test(e.path)) refuseDoc(/^ViewText$/i.test(e.path) ? 'it is a distribution-only document (배포용)' : 'it holds an XML form template (XMLTemplate)')
+      // Hangul keeps pictures as streams in BinData; a storage there (or anywhere named .ole) is an OLE object
+      if (/^BinData\/./i.test(e.path) || /\.ole$/i.test(e.path)) refuseDoc(`it contains an embedded OLE object (${e.path})`)
+    }
     // DocOptions/_LinkDoc: a WCHAR path (to the end of 260) and two flags; Hangul leaves the path empty unless the
     // document is linked to another one (the bytes after the first NUL are left over from Hangul's memory)
     const link = stream('DocOptions/_LinkDoc')
@@ -338,11 +392,12 @@ class Doc {
         if (t === TAG.CTRL_HEADER) this.checkControl(recs, r)
         if (t !== TAG.PARA_HEADER) continue
         const L = recs.level[r]!
-        const p: Para = { i: this.paras.length, sec: si, rec: r, end: recs.subtreeEnd(r), level: L, text: '', heading: 0, texts: [], shapes: [], lines: [], ranges: [], ctrls: [], others: [], w: new Uint16Array(0), units: [] }
-        for (let j = r + 1; j < p.end; j++) {
-          if (recs.level[j] !== L + 1) continue
+        const p: Para = { i: this.paras.length, sec: si, rec: r, end: recs.subtreeEnd(r), level: L, text: '', heading: 0, texts: NONE, shapes: NONE, lines: NONE, ranges: NONE, ctrls: NONE, others: NONE, units: [] }
+        for (let j = r + 1; j < p.end; j = recs.subtreeEnd(j)) {
           const k = recs.tag[j]!
-          ;(k === TAG.PARA_TEXT ? p.texts : k === TAG.PARA_CHAR_SHAPE ? p.shapes : k === TAG.PARA_LINE_SEG ? p.lines : k === TAG.PARA_RANGE_TAG ? p.ranges : k === TAG.CTRL_HEADER ? p.ctrls : p.others).push(j)
+          const kind = k === TAG.PARA_TEXT ? 'texts' : k === TAG.PARA_CHAR_SHAPE ? 'shapes' : k === TAG.PARA_LINE_SEG ? 'lines' : k === TAG.PARA_RANGE_TAG ? 'ranges' : k === TAG.CTRL_HEADER ? 'ctrls' : 'others'
+          if (p[kind] === NONE) p[kind] = [j]
+          else p[kind].push(j)
         }
         // the heading level, as hwp.ts takes it (the paragraph shape at byte 8)
         p.heading = recs.size[r]! >= 10 ? outline.get(u16(recs.bytes, recs.data[r]! + 8)) ?? 0 : 0
@@ -350,6 +405,7 @@ class Doc {
         chars += p.text.length
         if (chars > HWPX_TEXT_MAX) refuseDoc(`its text is longer than ${HWPX_TEXT_MAX.toLocaleString('en')} characters`)
         this.paras.push(p)
+        if (this.paras.length > HWP_EDIT_LIMITS.paragraphs) refuseDoc(`it has more than ${HWP_EDIT_LIMITS.paragraphs.toLocaleString('en')} paragraphs, too many to change here`)
         byRec.set(r, p)
       }
     }
@@ -455,11 +511,12 @@ function paraIssue(p: Para, recs: Recs): string | null {
   if (p.texts.length > 1) return 'its text is split over records'
   if (p.shapes.length !== 1 || p.lines.length > 1 || p.ranges.length > 1) return 'its records are not one of each'
   if (p.texts.length && recs.size[p.texts[0]!]! % 2) return 'its text record is damaged'
-  if ((u32(h, 0) & 0x7fffffff) !== p.w.length) return 'its character count does not match its text'
-  if (p.w[p.w.length - 1] !== PARA_END) return 'its text does not end the paragraph'
+  const w = wOf(p, recs)
+  if ((u32(h, 0) & 0x7fffffff) !== w.length) return 'its character count does not match its text'
+  if (w[w.length - 1] !== PARA_END) return 'its text does not end the paragraph'
   for (const u of p.units) {
-    if (u.kind === 'end' && u.w !== p.w.length - 1) return 'it ends the paragraph twice'
-    if (u.kind === 'tab' || u.kind === 'ctrl') if (u.w + 8 > p.w.length || p.w[u.w + 7] !== u.code) return 'a control in its text is damaged'
+    if (u.kind === 'end' && u.w !== w.length - 1) return 'it ends the paragraph twice'
+    if (u.kind === 'tab' || u.kind === 'ctrl') if (u.w + 8 > w.length || w[u.w + 7] !== u.code) return 'a control in its text is damaged'
   }
   if (p.ctrls.length !== p.units.filter((u) => u.kind === 'ctrl' && EXTENDED.has(u.code)).length) return 'its controls do not match its text'
   const cs = recs.body(p.shapes[0]!)
@@ -467,7 +524,7 @@ function paraIssue(p: Para, recs: Recs): string | null {
   let last = -1
   for (let o = 0; o < cs.length; o += 8) {
     const pos = u32(cs, o)
-    if ((o === 0 && pos !== 0) || pos <= last || pos >= p.w.length) return 'its character shape positions are damaged'
+    if ((o === 0 && pos !== 0) || pos <= last || pos >= w.length) return 'its character shape positions are damaged'
     last = pos
   }
   const ls = p.lines.length ? recs.size[p.lines[0]!]! : 0
@@ -480,7 +537,7 @@ function paraIssue(p: Para, recs: Recs): string | null {
 /** a paragraph's WCHARs [wfrom, wto) replaced by `text` */
 interface WEdit { wfrom: number; wto: number; text: string; change: number }
 /** bytes [start, end) of a section's records replaced */
-interface Splice { sec: number; start: number; end: number; bytes: Uint8Array; change: number; seq: number }
+interface Splice { sec: number; start: number; end: number; bytes: Uint8Array; change: number; seq: number; depth: number }
 
 class Editor extends ChangeEditor<Para, Cell, Table> {
   /** paragraphs written again: their text edits, and whether their layout cache goes (always, when they change) */
@@ -494,8 +551,10 @@ class Editor extends ChangeEditor<Para, Cell, Table> {
     if (!x) { x = { edits: [], lines: true }; this.pending.set(p, x) }
     return x
   }
-  private splice(sec: number, start: number, end: number, bytes: Uint8Array, change: number) {
-    this.splices.push({ sec, start, end, bytes, change, seq: this.splices.length })
+  /** `depth`: the level of inserted records, so that insertions at one place go deepest first (rows of a table inside
+   * the last cell of a table that gets rows too end where that cell ends) */
+  private splice(sec: number, start: number, end: number, bytes: Uint8Array, change: number, depth = 0) {
+    this.splices.push({ sec, start, end, bytes, change, seq: this.splices.length, depth })
   }
   private recs(p: { sec: number }) { return this.doc.sections[p.sec]!.recs }
 
@@ -512,7 +571,7 @@ class Editor extends ChangeEditor<Para, Cell, Table> {
     this.checkPara(p, i)
     const odd = p.units.find((u) => (u.len > 0 ? u.at < to && u.at + u.len > from : u.at > from && u.at < to))
     if (odd) refuseChange(i, `${clip(p.text.slice(from, to))} runs across ${unitName(odd)}, which a change cannot keep; change the text on each side of it separately`)
-    const cw = charWchars(p)
+    const cw = charWchars(p, wOf(p, this.recs(p)))
     const wfrom = cw[from]!, wto = cw[to - 1]! + 1
     if (wto - wfrom !== to - from) refuseChange(i, `${clip(p.text.slice(from, to))} is not plain text in its paragraph`)
     const shapes = this.shapesIn(p, wfrom, wto)
@@ -547,7 +606,8 @@ class Editor extends ChangeEditor<Para, Cell, Table> {
     if (begins.length > 1) refuseChange(i, `the cell at ${where} holds more than one field; write in it with find and replace`)
     // the white space goes; the value goes inside the field (after its start), where Hangul shows a filled field's
     // text, or where the white space began, or before the paragraph's end
-    const cw = charWchars(p)
+    const w = wOf(p, this.recs(p))
+    const cw = charWchars(p, w)
     const runs: [number, number][] = []
     for (let k = 0; k < p.text.length; k++) {
       const w = cw[k]!
@@ -555,7 +615,7 @@ class Editor extends ChangeEditor<Para, Cell, Table> {
       if (last && last[1] === w) last[1] = w + 1
       else runs.push([w, w + 1])
     }
-    const at = begins[0] ? begins[0].w + 8 : runs[0]?.[0] ?? p.w.length - 1
+    const at = begins[0] ? begins[0].w + 8 : runs[0]?.[0] ?? w.length - 1
     const edits = runs.map(([s, e]) => ({ wfrom: s, wto: e, text: s === at ? value : '', change: i }))
     if (!edits.some((e) => e.wfrom === at)) edits.push({ wfrom: at, wto: at, text: value, change: i })
     this.touch(p).edits.push(...edits)
@@ -586,17 +646,17 @@ class Editor extends ChangeEditor<Para, Cell, Table> {
     }
   }
 
-  protected rowsAt(plan: RowPlan<Cell, Table>, i: number): number {
+  protected rowsAt(plan: RowPlan<Cell, Table>, i: number): { before: number; depth: number } {
     const { t, A, cells, T } = plan
     const recs = this.recs(t)
     const k = plan.rows.length
     // the new rows go after the last cell of row A
     const rows = this.tableRows(t).rows
-    const last = rows[A - 1]![rows[A - 1]!.length - 1]!
+    const last = rows.slice(0, A).flat().pop() ?? refuseChange(i, `${T} has no cell up to row ${A}`)
     const at = recs.offset(last.end)
     const out: Uint8Array[] = []
     for (const [n, values] of plan.rows.entries()) for (const [ci, cell] of cells.entries()) out.push(...this.cellCopy(cell, A + n, values[ci]!))
-    this.splice(t.sec, at, at, Buffer.concat(out), i)
+    this.splice(t.sec, at, at, Buffer.concat(out), i, recs.level[last.lh]!)
     // the TABLE record: row count, cells per row, the cell zones' rows (5.0.1.0 and later)
     const tb = recs.body(t.rec)
     const R = t.rowSizes.length
@@ -638,7 +698,7 @@ class Editor extends ChangeEditor<Para, Cell, Table> {
     }
     // the new paragraphs go before the first paragraph after the place in reading order
     const next = this.doc.paras.find((p) => p.sec > t.sec || (p.sec === t.sec && p.rec >= last.end))
-    return next ? next.i : this.doc.paras.length
+    return { before: next ? next.i : this.doc.paras.length, depth: recs.level[last.lh]! }
   }
 
   /** the records of a copy of `cell` for row `row` (0-based) with `value`: its LIST_HEADER with one paragraph, a copy of
@@ -676,8 +736,9 @@ class Editor extends ChangeEditor<Para, Cell, Table> {
         // the text, and the character shape positions moved with it (a run emptied by the change goes)
         const parts: Uint16Array[] = []
         let pos = 0
-        for (const e of edits) { parts.push(p.w.subarray(pos, e.wfrom), wchars(e.text)); pos = e.wto }
-        parts.push(p.w.subarray(pos))
+        const old = wOf(p, recs)
+        for (const e of edits) { parts.push(old.subarray(pos, e.wfrom), wchars(e.text)); pos = e.wto }
+        parts.push(old.subarray(pos))
         const w = new Uint16Array(parts.reduce((n, a) => n + a.length, 0))
         let o = 0
         for (const a of parts) { w.set(a, o); o += a.length }
@@ -748,7 +809,8 @@ function openCfb(bytes: Uint8Array): Cfb {
 /** The document opened with every check, its text model agreeing with hwp.ts's reading. */
 function openDoc(bytes: Uint8Array): Doc {
   const doc = new Doc(bytes, openCfb(bytes))
-  const differs = firstDifference(hwpxReadLines(hwpText(bytes)), doc.lines().lines)
+  doc.read = hwpxReadLines(hwpText(bytes))
+  const differs = firstDifference(doc.read, doc.lines().lines)
   if (differs) refuseDoc(`its text could not be mapped exactly (${differs})`)
   return doc
 }
@@ -758,8 +820,28 @@ function openDoc(bytes: Uint8Array): Doc {
 export function editHwp(bytes: Uint8Array, changes: HwpChange[]): { file: Uint8Array; report: HwpEditReport } {
   if (!changes.length) throw new ToolError('no changes given; nothing was saved')
   if (changes.length > HWP_EDIT_LIMITS.changes) throw new ToolError(`more than ${HWP_EDIT_LIMITS.changes} changes in one call; nothing was saved`)
+  // the old document's model lives only inside writeChanges, so it can go before the new file is read back whole
+  const made = writeChanges(bytes, changes)
+  // the new file passes every check again and its text is the old text with the changes, nothing else; and no
+  // paragraph's records disagree that agreed before
+  const now = openDoc(made.file)
+  if (made.issues !== issuesOf(now)) readBack('a paragraph\'s records or a table\'s cells no longer agree')
+  const want = applyLineEdits(made.before, made.lineEdits)
+  const after = now.read
+  const diff = want ? firstDifference(want, after) : 'the changes do not fit the document'
+  if (diff) readBack(diff)
+  return { file: made.file, report: { lineEdits: made.lineEdits, notes: made.notes, placeholders: placeholdersIn(after) } }
+}
+
+const readBack = (why: string): never => { throw new ToolError(`the changed document did not read back as expected (${why}); nothing was saved`) }
+/** the paragraphs whose records disagree, and each table's state, as text (compared before and after a change: no
+ * change may make a paragraph's records disagree or a table's cells not be what its TABLE record says) */
+const issuesOf = (d: Doc) => [...d.paras.map((p) => paraIssue(p, d.sections[p.sec]!.recs)).filter((x) => x !== null).sort(), '--', ...d.tables.map((t) => t.bad ?? 'whole')].join('\n')
+
+/** The changes applied and the new file written; its container checked against the old one. */
+function writeChanges(bytes: Uint8Array, changes: HwpChange[]) {
   const doc = openDoc(bytes)
-  const before = doc.lines()
+  const before = doc.lines().lines
   const ed = new Editor(doc)
   changes.forEach((c, i) => ed.apply(c, i))
   const lineEdits = ed.lineEdits()
@@ -769,7 +851,7 @@ export function editHwp(bytes: Uint8Array, changes: HwpChange[]): { file: Uint8A
   const replace = new Map<string, Uint8Array>()
   const raws = new Map<string, Uint8Array>()
   for (const [si, sec] of doc.sections.entries()) {
-    const list = ed.splices.filter((e) => e.sec === si).sort((a, b) => a.start - b.start || a.end - b.end || a.seq - b.seq)
+    const list = ed.splices.filter((e) => e.sec === si).sort((a, b) => a.start - b.start || a.end - b.end || b.depth - a.depth || a.seq - b.seq)
     if (!list.length) continue
     for (let k = 1; k < list.length; k++) {
       const a = list[k - 1]!, b = list[k]!
@@ -788,27 +870,18 @@ export function editHwp(bytes: Uint8Array, changes: HwpChange[]): { file: Uint8A
   try { file = writeCfb(doc.cfb, replace) } catch (e) { throw new ToolError(`the changed document could not be written (${String((e as Error).message).slice(0, 120)}); nothing was saved`) }
   if (file.length > HWP_EDIT_LIMITS.bytes) throw new ToolError(`the changed document would be larger than ${HWP_EDIT_LIMITS.bytes / 1024 / 1024} MB; nothing was saved`)
 
-  // read back: the container has the old directory and every stream but the changed sections byte for byte (as both
-  // readers see it); each changed section expands to what was written; the document passes every check again and its
-  // text is the old text with the changes, nothing else; and no paragraph's records disagree that agreed before
-  const back = (why: string): never => { throw new ToolError(`the changed document did not read back as expected (${why}); nothing was saved`) }
+  // read back: the container has the old directory and every stream but the changed sections byte for byte (both
+  // readers agree on it when the new file is opened); each changed section expands to what was written
   let again: Cfb
-  try { again = readCfb(file) } catch (e) { return back(String((e as Error).message)) }
-  const parts = cfbMismatch(doc.cfb, again, (p) => replace.has(p))
-  if (parts) back(parts)
+  try { again = readCfb(file) } catch (e) { return readBack(String((e as Error).message)) }
+  const mismatch = cfbMismatch(doc.cfb, again, (p) => replace.has(p))
+  if (mismatch) readBack(mismatch)
   for (const [name, raw] of raws) {
     const got = again.streams.get(name)!.data
     const expanded = doc.compressed ? zlib.inflateRawSync(got, { maxOutputLength: HWP_EDIT_LIMITS.stream }) : got
-    if (!Buffer.from(expanded).equals(Buffer.from(raw))) back(name)
+    if (!Buffer.from(expanded).equals(Buffer.from(raw))) readBack(name)
   }
-  const now = openDoc(file)
-  const issues = (d: Doc) => d.paras.map((p) => paraIssue(p, d.sections[p.sec]!.recs)).filter((x) => x !== null).sort()
-  if (issues(doc).join('\n') !== issues(now).join('\n')) back('a paragraph\'s records no longer agree')
-  const want = applyLineEdits(before.lines, lineEdits)
-  const after = hwpxReadLines(hwpText(file))
-  const diff = want ? firstDifference(want, after) : 'the changes do not fit the document'
-  if (diff) back(diff)
-  return { file, report: { lineEdits, notes: ed.notes, placeholders: placeholdersIn(after) } }
+  return { file, lineEdits, notes: ed.notes, before, issues: issuesOf(doc) }
 }
 
 /** What the editor sees in a .hwp (tests and checks): each paragraph's text, heading, character shapes (position, id),

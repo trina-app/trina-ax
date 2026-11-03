@@ -118,6 +118,8 @@ export function readCfb(b: Uint8Array, limits = CFB_LIMITS): Cfb {
     const nl = dv.getUint16(o + 64, true)
     if (type && (nl < 2 || nl > 64 || nl % 2)) bad('a directory entry has a damaged name')
     const name = type ? Buffer.from(dir.subarray(o, o + nl - 2)).toString('utf16le') : ''
+    // MS-CFB forbids these in a name; a "/" would also make two entries one path here
+    if (type && /[/\\:!]/.test(name)) bad('a directory entry has a name with / \\ : or !')
     entries.push({ i, type, name, path: '', raw: dir.slice(o, o + ENTRY), data: new Uint8Array(0) })
   }
   const root = entries[0]!
@@ -179,6 +181,7 @@ export function readCfb(b: Uint8Array, limits = CFB_LIMITS): Cfb {
       if (at !== n) bad(`${e.path} is cut short`)
       e.data = out
     }
+    if (streams.has(e.path)) bad(`two entries are ${JSON.stringify(e.path)}`)
     streams.set(e.path, e)
   }
   return { header: b.slice(0, SECTOR), entries, streams }

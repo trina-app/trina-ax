@@ -50,8 +50,9 @@ export function docLines(paras: { text: string; heading: number }[], text: (i: n
  */
 export abstract class ChangeEditor<P extends CPara, C extends CCell, T extends CTable> {
   readonly textEdits = new Map<P, TextEdit[]>()
-  /** new paragraphs (a table's new rows) before the paragraph of this index (or at the end) */
-  readonly inserts = new Map<number, { change: number; paras: { text: string; heading: number }[] }[]>()
+  /** new paragraphs (a table's new rows) before the paragraph of this index (or at the end); `depth`: how deep the
+   * table is, so that rows of a table inside another's last cell read before that table's own new rows */
+  readonly inserts = new Map<number, { change: number; depth: number; paras: { text: string; heading: number }[] }[]>()
   readonly notes: HwpEditNote[] = []
   private rowsAdded = new Set<T>()
   /** paragraphs of cells a change filled */
@@ -82,8 +83,9 @@ export abstract class ChangeEditor<P extends CPara, C extends CCell, T extends C
   protected abstract tableRows(t: T): { rows: C[][]; declared: string; cols: number }
   /** refuses a row whose cells cannot be copied (the format's allowlist) */
   protected abstract checkCopyRow(plan: RowPlan<C, T>, i: number): void
-  /** writes the rows; returns the index of the paragraph the new ones go before in reading order (or paras.length) */
-  protected abstract rowsAt(plan: RowPlan<C, T>, i: number): number
+  /** writes the rows; returns the index of the paragraph the new ones go before in reading order (or paras.length) and
+   * how deep the table is nested (rows put in at one place read deepest first) */
+  protected abstract rowsAt(plan: RowPlan<C, T>, i: number): { before: number; depth: number }
 
   apply(c: HwpChange, i: number) {
     if ('find' in c) this.replace(c, i)
@@ -219,9 +221,9 @@ export abstract class ChangeEditor<P extends CPara, C extends CCell, T extends C
     const plan: RowPlan<C, T> = { t, T, A, C, cells, rows: a.rows.map((r) => cells.map((_, ci) => cleanValue(r[ci] ?? ''))) }
     this.checkCopyRow(plan, i)
     for (const r of plan.rows) for (const v of r) if (v.length > HWP_CHANGE_LIMITS.valueChars) refuseChange(i, `a value is longer than ${HWP_CHANGE_LIMITS.valueChars.toLocaleString('en')} characters`)
-    const key = this.rowsAt(plan, i)
+    const { before: key, depth } = this.rowsAt(plan, i)
     const newParas = plan.rows.flatMap((r) => r.map((text, ci) => ({ text, heading: cells[ci]!.paras[0]?.heading ?? 0 })))
-    this.inserts.set(key, [...(this.inserts.get(key) ?? []), { change: i, paras: newParas }])
+    this.inserts.set(key, [...(this.inserts.get(key) ?? []), { change: i, depth, paras: newParas }].sort((a, b) => b.depth - a.depth || a.change - b.change))
     const k = a.rows.length
     this.note(i, `${T}, after row ${A}`, '', `${k} row${k > 1 ? 's' : ''} like row ${C}: ${a.rows.map((r) => r.join(' | ')).join(' / ')}`)
   }
