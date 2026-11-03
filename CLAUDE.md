@@ -10,3 +10,6 @@ Instructions for coding agents that work in this repository.
 - Do not commit secrets, customer data, real customer addresses or personal paths.
 - Licence: AGPL-3.0-only, except `shared/src/cloud-protocol/` (MIT). Keep LICENSE, NOTICE and dependency notices.
 - Checks: `bun run typecheck` and `bun run test:unit`.
+- Versions follow Semantic Versioning 2.0.0 (https://semver.org/). Pick a release number and bump versions only as
+  [docs/RELEASE-CI.md](docs/RELEASE-CI.md) "Version numbers" says, and state every PR's version impact (patch, minor,
+  major or none, with one reason).

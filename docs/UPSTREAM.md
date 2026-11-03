@@ -310,3 +310,10 @@ Source change from potenlab/team-ax branch `feat/chat-like-claude` (on top of `f
 - Taken as they are: `web/src/components/TitleMenu.tsx` (the project page's name menu, moved out of `Projects.tsx` so the chat uses it too), `web/src/components/chat/chatActions.ts` (rename and delete for the sidebar and the chat's name) and `web/test/e2e/chat-look.spec.ts`.
 - `Chat.tsx`, `Messages.tsx`, `Composer.tsx`, `Sidebar.tsx`: the same change on this repository's files. In the message box this repository's own keys (answer the AI's question, send later while an answer runs) sit inside the box with Send and Stop, and the voice-off hint for admins sits under it with the mic. Delete keeps this repository's trash days in its question (`chatTrashDays`), and the file card has no download branch, as before here.
 - Only here: `chat.reply` in Japanese and Spanish too, `web/test/unit/design-contrast.test.ts` now reads the red Delete item from `TitleMenu.tsx`, and `web/test/e2e/ask-answer.spec.ts` expects "Reply" in the box once the question is answered.
+
+## 2026-11-04 Version numbers (Semantic Versioning)
+
+The same docs change as potenlab/team-ax branch `docs/semver` (not yet on core main), written here by hand. No core history was imported.
+
+- `docs/RELEASE-CI.md`: the "버전 번호 / Version numbers" section is the same as in core, apart from its examples, which use this repository's version (0.2.21).
+- Only here: the "Version impact" section in `.github/PULL_REQUEST_TEMPLATE.md` (core has no PR template; core's text says "PR 본문"), and the lines in `CLAUDE.md` and `AGENTS.md` (this repository's own files).
