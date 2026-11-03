@@ -116,25 +116,38 @@ export const AccessReason = z.discriminatedUnion('kind', [
   z.object({ kind: z.literal('rule'), folder: RelPath, tier: SubjectType, rules: z.array(DecidingRule) }),
 ])
 export type AccessReason = z.infer<typeof AccessReason>
-/** GET /api/admin/access/folder?path=: one team folder (outside users/), every active person's access and why. */
-export const FolderAccessQuery = z.object({ path: RelPath.optional() })
+/** Shown in the tree although the access is none? `listable`: the permission function's canList() (a folder without
+ * access is listed for navigation when something below it is readable); `via`: those readable folders below (only when
+ * the access is none; the topmost ones, by path, at most 20, `viaMore` when there are others). */
+const Navigation = { listable: z.boolean(), via: z.array(RelPath), viaMore: z.boolean() }
+/** Pages: `limit` rows (default 500, at most 2000) after `cursor` (the `nextCursor` of the page before; null = the
+ * last page). `total`: all the rows there are. */
+const PageLimit = z.coerce.number().int().min(1).max(2000)
+/**
+ * GET /api/admin/access/folder?path=: one team folder (outside users/), every active person's access and why, by name.
+ * A folder that does not exist yet answers as it would once made (`exists` false). The summary always counts everyone.
+ */
+export const FolderAccessQuery = z.object({ path: RelPath.optional(), cursor: z.string().regex(/^\d{1,9}$/).optional(), limit: PageLimit.optional() })
 export const FolderAccessResponse = z.object({
   /** actual names on disk; a part that does not exist yet stays as typed */
   path: RelPath,
+  /** a folder is there now (a file or a missing path: false) */
   exists: z.boolean(),
   /** the nearest folder at or above `path` that carries rules (null: none on the way up) */
   ruleFolder: RelPath.nullable(),
-  /** active people, by name (at most 2000 rows, then `truncated`; the summary counts everyone) */
-  people: z.array(z.object({ user: UserRef, role: Role, access: Access, reason: AccessReason })),
-  truncated: z.boolean(),
+  people: z.array(z.object({ user: UserRef, role: Role, access: Access, reason: AccessReason, ...Navigation })),
+  total: z.number().int(),
+  nextCursor: z.string().nullable(),
   summary: z.object({
     access: z.object({ none: z.number().int(), read: z.number().int(), write: z.number().int() }),
-    /** where the answers come from: one row per folder whose rules decided (reason 'rule') and one per other reason */
+    /** where the answers come from: one row per folder whose rules decided (reason 'rule') and one per other reason;
+     * most first */
     sources: z.array(z.object({ reason: AccessReasonKind, folder: RelPath.nullable(), count: z.number().int() })),
   }),
-  /** person rules on `path` or a folder above it naming someone who is switched off: left out of `people`, listed so
-   * the screen can show them (they apply again if the person is switched back on) */
-  inactive: z.array(z.object({ user: UserRef, folder: RelPath, access: Access })),
+  /** people switched off whom a person rule on `path` or a folder above it names: not in `people` or the summary.
+   * `access` and `reason` are what they would get here if switched back on (computed as for an active person, so a
+   * rule deeper down can win over theirs); `rules` are those person rules. */
+  inactive: z.array(z.object({ user: UserRef, role: Role, access: Access, reason: AccessReason, rules: z.array(z.object({ folder: RelPath, access: Access })) })),
 })
 export type FolderAccessResponse = z.infer<typeof FolderAccessResponse>
 /** What a team folder is (several at once: groups/<name> is a group folder that carries rules). */
@@ -149,19 +162,21 @@ export const PersonFolderAccess = z.object({
   projects: z.array(z.object({ id: z.string(), name: z.string() })).optional(),
   /** a connected folder (connected/<name>) */
   connected: z.object({ id: z.string(), name: z.string() }).optional(),
-  /** on disk now (null: not looked at, the personal folder) */
+  /** a folder is there now (null: not looked at, the personal folder) */
   exists: z.boolean().nullable(),
   access: Access,
   reason: AccessReason,
+  ...Navigation,
 })
 export type PersonFolderAccess = z.infer<typeof PersonFolderAccess>
 /**
  * GET /api/admin/access/people/:id (one person, switched off or not) and POST /api/admin/access/new-person (someone
  * about to be invited with this role and these groups): the team folders (top-level folders, folders with rules,
- * group, project and connected folders; the person's own `users/<id>/` from the member list, nothing else under
- * users/ and never .system/) with the person's access and why: the own folder first, then by path (at most 2000
- * rows, then `truncated`).
+ * group, project and connected folders; the person's own `users/<id>` from the member list, nothing else under users/
+ * and never .system/) with the person's access and why, by path. `prefix`: only that folder and what is below it (to
+ * open one part of the tree); pages as above, the cursor being the last path of the page before.
  */
+export const PersonAccessQuery = z.object({ prefix: RelPath.optional(), cursor: RelPath.optional(), limit: PageLimit.optional() })
 export const PersonAccessResponse = z.object({
   /** null for the new-person preview */
   user: UserRef.nullable(),
@@ -169,10 +184,14 @@ export const PersonAccessResponse = z.object({
   status: UserStatus.nullable(),
   groups: z.array(z.object({ id: z.string(), name: z.string() })),
   folders: z.array(PersonFolderAccess),
-  truncated: z.boolean(),
+  total: z.number().int(),
+  nextCursor: RelPath.nullable(),
 })
 export type PersonAccessResponse = z.infer<typeof PersonAccessResponse>
-export const NewPersonAccessBody = z.object({ role: Role.exclude(['owner']), groupIds: z.array(z.string().min(1).max(64)).max(200).default([]) })
+export const NewPersonAccessBody = z.object({
+  role: Role.exclude(['owner']), groupIds: z.array(z.string().min(1).max(64)).max(200).default([]),
+  prefix: RelPath.optional(), cursor: RelPath.optional(), limit: z.number().int().min(1).max(2000).optional(),
+})
 
 // ---------------- engines ----------------
 /** The team's API engine (server/src/engine/api-agent.ts): any OpenAI-compatible Chat Completions API. */
@@ -331,7 +350,7 @@ export const ADMIN = {
   deleteFolder: endpoint({ method: 'DELETE', path: '/api/admin/folders/:id', auth: 'admin', owner: 'A', response: empty, status: 204, summary: 'Remove all rules of a folder (the folder on disk stays).' }),
   previewRules: endpoint({ method: 'POST', path: '/api/admin/folder-rules/preview', auth: 'admin', owner: 'A', body: PreviewBody, response: PreviewResponse, summary: '"Who sees what" for proposed rules, before saving.' }),
   explainFolderAccess: endpoint({ method: 'GET', path: '/api/admin/access/folder', auth: 'admin', owner: 'A', query: FolderAccessQuery, response: FolderAccessResponse, summary: 'One team folder: every active person\'s access, the folder and rule it comes from, and counts. Not for users/.' }),
-  explainPersonAccess: endpoint({ method: 'GET', path: '/api/admin/access/people/:id', auth: 'admin', owner: 'A', response: PersonAccessResponse, summary: 'One person: their access to every team folder (rule, top-level, group, project, connected) and why.' }),
+  explainPersonAccess: endpoint({ method: 'GET', path: '/api/admin/access/people/:id', auth: 'admin', owner: 'A', query: PersonAccessQuery, response: PersonAccessResponse, summary: 'One person: their access to every team folder (rule, top-level, group, project, connected) and why.' }),
   explainNewPersonAccess: endpoint({ method: 'POST', path: '/api/admin/access/new-person', auth: 'admin', owner: 'A', body: NewPersonAccessBody, response: PersonAccessResponse, summary: 'The same for someone about to be invited with this role and these groups (nothing is saved).' }),
 
   engines: endpoint({ method: 'GET', path: '/api/admin/engines', auth: 'admin', owner: 'A', response: EnginesResponse, summary: 'Engine install/login/lockdown status, models, defaults, concurrency.' }),

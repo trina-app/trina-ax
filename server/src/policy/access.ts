@@ -104,18 +104,10 @@ export class RuleSet {
       if (len < segs.length) end -= segs[len]!.length + (len > 0 ? 1 : 0)
       const rules = this.byPath.get(end === full.length ? full : full.slice(0, end))
       if (!rules) continue
-      // personal > group (widest) > role > everyone, in one pass over the folder's rules
-      let tier: number = NO_TIER, best = 0
-      for (let i = 0; i < rules.length; i++) {
-        const r = rules[i]!
-        if (!applies(r, p)) continue
-        const t = TIER[r.subject_type]
-        if (t < tier) { tier = t; best = 0 }
-        if (t === tier && RANK[r.access] > best) best = RANK[r.access]
-      }
-      if (tier === NO_TIER) continue
-      if (why) { why.kind = 'rule'; why.folderLen = len; why.tier = tier; why.rules = rules }
-      return BY_RANK[best]!
+      const d = decideIn(rules, p)
+      if (d < 0) continue
+      if (why) { why.kind = 'rule'; why.folderLen = len; why.tier = d >> 2; why.rules = rules }
+      return BY_RANK[d & 3]!
     }
     if (why) why.kind = 'no-rule'
     return 'none'
@@ -136,6 +128,142 @@ export class RuleSet {
     return false
   }
   canList(p: Principal, segs: readonly string[]) { return atLeast(this.access(p, segs), 'read') || this.hasVisibleDescendant(p, segs) }
+
+  /**
+   * canList() of one person for many paths at once (admin answers): the folders hasVisibleDescendant() looks at (rule
+   * folders outside users/, and the person's own users/<id>) are tried once, strictly below `within`; each path at or
+   * below `within` then looks up the readable ones below it instead of trying them all again. `listable(segs)` equals
+   * canList(p, segs) (tests/unit/access-explain-equivalence.test.ts). `via(segs, max)`: the readable folders strictly
+   * below segs that no other readable one below segs contains (why a folder without access shows in the tree), by
+   * path, at most `max`, and whether there are more.
+   */
+  listing(p: Principal, within: readonly string[] = []): Listing {
+    const readable = new Set<string>()
+    const below = new Map<string, string[][]>()
+    const cands = this.candidatesBelow(within)
+    const own = ['users', p.id]
+    for (const c of own.length > within.length && within.every((s, i) => s === own[i]) ? [...cands, own] : cands) {
+      if (!atLeast(this.access(p, c), 'read')) continue
+      readable.add(c.join('/'))
+      for (let k = within.length; k < c.length; k++) {
+        const key = c.slice(0, k).join('/')
+        const list = below.get(key)
+        if (list) list.push(c)
+        else below.set(key, [c])
+      }
+    }
+    const listable = (segs: readonly string[]): boolean => {
+      if (atLeast(this.access(p, segs), 'read')) return true
+      if (segs.length && segs[0] === PRODUCT.systemDir) return false
+      if (segs[0] === 'users') return segs.length === 1 || segs[1] === p.id
+      if (p.role === 'owner' || p.role === 'admin') return true
+      return below.has(segs.join('/'))
+    }
+    const via = (segs: readonly string[], max: number) => {
+      const top = (below.get(segs.join('/')) ?? []).filter((c) => {
+        for (let k = segs.length + 1; k < c.length; k++) if (readable.has(c.slice(0, k).join('/'))) return false
+        return true
+      }).map((c) => c.join('/')).sort((a, b) => (a < b ? -1 : a > b ? 1 : 0))
+      return { folders: top.slice(0, max), more: top.length > max }
+    }
+    return { listable, via, at: (segs, max) => { const ok = listable(segs); const v = ok ? via(segs, max) : { folders: [], more: false }; return { listable: ok, via: v.folders, more: v.more } } }
+  }
+
+  /**
+   * listing().at(within, max) for one folder and many people (the admin folder answer), without trying every folder
+   * below it for every person: the rule folders below are taken in path order with their rule chains, a folder below
+   * a readable one is not tried (it cannot be the topmost readable, and the folder is listable already), the scan
+   * stops after max + 1, and people no rule can tell apart (same role and groups, named by no person rule) share one
+   * scan. The decision on each folder is decideIn(), as in access(). Same answer as listing() and canList()
+   * (tests/unit/access-explain-equivalence.test.ts).
+   */
+  navigator(within: readonly string[], max: number): (p: Principal) => Navigation {
+    const items = this.candidatesBelow(within).map((segs) => ({ segs, path: segs.join('/') })).sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0))
+    const index = new Map(items.map((it, i) => [it.path, i]))
+    // the nearest candidate above each one, still below `within` (-1: none)
+    const parent = items.map((it) => {
+      for (let k = it.segs.length - 1; k > within.length; k--) { const j = index.get(it.segs.slice(0, k).join('/')); if (j !== undefined) return j }
+      return -1
+    })
+    // the rule lists from the folder up to the root (null: .system/ or a temp name, readable by nobody)
+    const chains = items.map((it) => {
+      if (it.segs[0] === PRODUCT.systemDir || it.segs.some((s) => s.startsWith(PRODUCT.tmpPrefix))) return null
+      const out: Rule[][] = []
+      for (let len = it.segs.length; len >= 0; len--) { const r = this.byPath.get(it.segs.slice(0, len).join('/')); if (r) out.push(r) }
+      return out
+    })
+    const named = new Set<string>()
+    for (const list of this.byPath.values()) for (const r of list) if (r.subject_type === 'user' && r.subject_id !== null) named.add(r.subject_id)
+    const shared = new Map<string, string[]>()
+    const scan = (p: Principal): string[] => {
+      const key = `${p.role}\u0000${[...new Set(p.groups)].sort().join('\u0001')}${named.has(p.id) ? `\u0000${p.id}` : ''}`
+      let top = shared.get(key)
+      if (top) return top
+      top = []
+      const readable = new Uint8Array(items.length)
+      for (let i = 0; i < items.length && top.length <= max; i++) {
+        let a = parent[i]!, covered = false
+        while (a >= 0) { if (readable[a]) { covered = true; break } a = parent[a]! }
+        if (covered) continue
+        const chain = chains[i]
+        if (!chain) continue
+        let rank = 0
+        for (const rules of chain) { const d = decideIn(rules, p); if (d >= 0) { rank = d & 3; break } }
+        if (rank >= RANK.read) { readable[i] = 1; top.push(items[i]!.path) }
+      }
+      shared.set(key, top)
+      return top
+    }
+    return (p) => {
+      if (atLeast(this.access(p, within), 'read')) return { listable: true, via: [], more: false }
+      if (within.length && within[0] === PRODUCT.systemDir) return { listable: false, via: [], more: false }
+      if (within[0] === 'users') return within.length === 1 ? { listable: true, via: [`users/${p.id}`], more: false } : { listable: within[1] === p.id, via: [], more: false }
+      if (p.role === 'owner' || p.role === 'admin') return { listable: true, via: [], more: false }
+      const top = [...scan(p)]
+      // the person's own users/<id> is below the team root, readable and topmost (nothing above it is a candidate)
+      if (within.length === 0) {
+        const own = `users/${p.id}`
+        let i = 0
+        while (i < top.length && top[i]! < own) i++
+        top.splice(i, 0, own)
+      }
+      return { listable: top.length > 0, via: top.slice(0, max), more: top.length > max }
+    }
+  }
+  /** rule folders outside users/ strictly below `within`, as segments (kept per `within` for the next person) */
+  private candidatesBelow(within: readonly string[]): string[][] {
+    const key = within.join('/')
+    let c = this.candidates.get(key)
+    if (!c) {
+      c = [...this.byPath.keys()].map((f) => (f === '' ? [] : f.split('/')))
+        .filter((s) => s[0] !== 'users' && s.length > within.length && within.every((w, i) => w === s[i]))
+      this.candidates.set(key, c)
+    }
+    return c
+  }
+  private candidates = new Map<string, string[][]>()
+}
+
+export interface Navigation { listable: boolean; via: string[]; more: boolean }
+export interface Listing {
+  listable(segs: readonly string[]): boolean
+  via(segs: readonly string[], max: number): { folders: string[]; more: boolean }
+  /** listable(segs), and via(segs, max) when it is */
+  at(segs: readonly string[], max: number): Navigation
+}
+
+/** One folder's rules for a person: -1 when none applies, else (step << 2) | rank of the widest access in the first
+ * step that has one (personal > group (widest) > role > everyone), in one pass. decide() and navigator() both use it. */
+function decideIn(rules: readonly Rule[], p: Principal): number {
+  let tier: number = NO_TIER, best = 0
+  for (let i = 0; i < rules.length; i++) {
+    const r = rules[i]!
+    if (!applies(r, p)) continue
+    const t = TIER[r.subject_type]
+    if (t < tier) { tier = t; best = 0 }
+    if (t === tier && RANK[r.access] > best) best = RANK[r.access]
+  }
+  return tier === NO_TIER ? -1 : (tier << 2) | best
 }
 
 function applies(r: Rule, p: Principal): boolean {

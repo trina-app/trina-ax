@@ -6,7 +6,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { ChatQueueSnapshot, CSRF_HEADER } from '@mycel/shared/api'
 import type { Client, Resp } from './instance'
-import { authOf, enc, levelExp, type Case, type Exp } from './matrix'
+import { authOf, enc, leaks, levelExp, type Case, type Exp } from './matrix'
 import { C, USER_OF, WHO, type Who, type World } from './world'
 import { P4_SPECS } from './p4-cases'
 import { INTEGRATION_SPECS } from './integrations-cases'
@@ -30,7 +30,7 @@ type Scope =
   | 'byLevel'         // nothing beyond the auth level (admin/owner endpoints, self-ish lists)
   | 'nobody'          // a resource of nobody (an unknown sign-in id): 4xx for everyone, after the auth level
 
-export interface Spec { build: Build; scope: Scope; check?: (r: Resp, w: World, who: Who) => void; todo?: Partial<Record<Who, string>>;
+export interface Spec { build: Build; scope: Scope; check?: (r: Resp, w: World, who: Who) => void | Promise<void>; todo?: Partial<Record<Who, string>>;
   /** the request carries intentionally-wrong credentials, or re-logs-in and swaps the client's cookie: a 2xx is not
    *  expected for the legit caller, so it is covered by the deny matrix + world build, not the positive-allow pass. */
   skipPositive?: boolean }
@@ -329,7 +329,14 @@ export const SPECS: Record<string, Spec> = {
   // their own users/<id> row from the member list and nothing else of users/ (no file, folder or personal project
   // name of alice's: the canaries plus her private project's name) and nothing of .system/
   explainFolderAccess: { build: (c, w) => c.get(`/api/admin/access/folder?path=${enc(w.groups.finFolder)}`), scope: 'byLevel',
-    check: (r, w, who) => { if (r.status === 200 && r.json?.people?.find((p: any) => p.user.id === 'bob')?.access !== 'write') throw new Error(`${who}: the finance folder does not show bob writing`) } },
+    check: async (r, w, who) => {
+      if (r.status === 200 && r.json?.people?.find((p: any) => p.user.id === 'bob')?.access !== 'write') throw new Error(`${who}: the finance folder does not show bob writing`)
+      // the refusal of a path inside alice's folder (a file name an admin may not know) carries nothing of it either
+      const probe = await w.as[who].get(`/api/admin/access/folder?path=${enc(`users/alice/${C.aliceFileName}.md`)}`)
+      if (probe.status < 400 || probe.status >= 500) throw new Error(`${who}: a path in users/alice was answered (${probe.status})`)
+      const l = [...leaks(who, probe.text), ...(probe.text.includes(C.aliceFileName) ? [C.aliceFileName] : [])]
+      if (l.length) throw new Error(`${who}: the refusal shows ${l.join(', ')}`)
+    } },
   explainPersonAccess: { build: (c) => c.get('/api/admin/access/people/alice'), scope: 'byLevel',
     check: (r, w, who) => {
       if (r.status !== 200) return

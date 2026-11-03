@@ -3,9 +3,11 @@
 //     the same function as explain(); this measures it against the function before (tests/lib/access-before-explain.ts)
 //     on a large team: 300 people, 500 folders with rules, file paths 2-7 deep. explain() is measured too.
 //  2. The admin answers at that size (server/src/admin/access-explain.ts): one folder for 300 people, for each of the
-//     500 rule folders; one person's team folders, for each of the 300 people; a new person. Each includes the response
-//     check the server runs in dev (validateResponses) and JSON.
-// Run: bun tests/perf/access-explain.ts   (exit 1 when access() got more than 25% slower or an answer took over 250 ms)
+//     500 rule folders, and the root and top folders (where "shown in the tree" tries the most folders); every page of
+//     one person's team folders, for each of the 300 people, and one part of the tree; a new person. Each includes the
+//     response check the server runs in dev (validateResponses) and JSON.
+// Run: bun tests/perf/access-explain.ts   (exit 1 when access() got more than 25% slower or an answer took over 250 ms
+// per 300 people)
 import fs from 'node:fs'
 import path from 'node:path'
 import { FolderAccessResponse, PersonAccessResponse } from '@mycel/shared/api'
@@ -98,33 +100,54 @@ const hot = { calls: calls * 7, oldNs: Math.round(med(runs.old)), accessNs: Math
 console.log('hot path (ns per call, median of 7 runs of', calls, 'calls):', JSON.stringify(hot))
 
 // ---------------- 2. the admin answers ----------------
-function measure<T>(label: string, items: readonly string[], fn: (x: string) => T, schema: { parse(v: unknown): unknown }) {
+// each call is timed with the response check the server runs in dev (validateResponses) and JSON; "all pages" walks
+// nextCursor to the end (limit 2000) and checks that every row came once
+function measure(label: string, items: readonly string[], fn: (x: string) => { rows: number; bytes: number }) {
   const ms: number[] = []
-  let bytes = 0
+  let bytes = 0, rows = 0
   for (const x of items) {
     const t = performance.now()
-    const out = fn(x)
-    schema.parse(out)
-    bytes = Math.max(bytes, JSON.stringify(out).length)
+    const r = fn(x)
     ms.push(performance.now() - t)
+    bytes = Math.max(bytes, r.bytes)
+    rows = Math.max(rows, r.rows)
   }
   const s = [...ms].sort((a, b) => a - b)
-  const row = { label, calls: items.length, medianMs: +s[Math.floor(s.length / 2)]!.toFixed(2), p95Ms: +s[Math.floor(s.length * 0.95)]!.toFixed(2), maxMs: +s[s.length - 1]!.toFixed(2), maxKB: Math.round(bytes / 1024) }
+  const row = { label, calls: items.length, medianMs: +s[Math.floor(s.length / 2)]!.toFixed(2), p95Ms: +s[Math.floor(s.length * 0.95)]!.toFixed(2), maxMs: +s[s.length - 1]!.toFixed(2), maxRows: rows, maxKB: Math.round(bytes / 1024) }
   console.log(JSON.stringify(row))
   return row
 }
+function checked<T>(schema: { parse(v: unknown): unknown }, out: T): { out: T; bytes: number } { schema.parse(out); return { out, bytes: JSON.stringify(out).length } }
+function personPages(get: (cursor?: string) => ReturnType<typeof explainPerson>) {
+  let cursor: string | undefined, rows = 0, bytes = 0, total = -1
+  const seen = new Set<string>()
+  for (;;) {
+    const { out, bytes: b } = checked(PersonAccessResponse, get(cursor))
+    bytes += b; rows += out.folders.length; total = out.total
+    for (const f of out.folders) { if (seen.has(f.path)) throw new Error(`row twice: ${f.path}`); seen.add(f.path) }
+    if (!out.nextCursor) break
+    cursor = out.nextCursor
+  }
+  if (rows !== total) throw new Error(`pages gave ${rows} rows of ${total}`)
+  return { rows, bytes }
+}
+const ruleFolderPaths = folders.filter((f) => !f.startsWith('users'))
 const answers = [
-  measure(`folder: each rule folder x ${PEOPLE - 1} active people`, folders.filter((f) => !f.startsWith('users')), (f) => explainFolder(ctx, f, 'en'), FolderAccessResponse),
-  measure(`person: each of ${PEOPLE} people x every team folder`, users.map((u) => u.id), (id) => explainPerson(ctx, id), PersonAccessResponse),
-  measure('new person: member in 3 groups', ['x', 'y', 'z'], () => explainNewPerson(ctx, { role: 'member', groupIds: groups.slice(0, 3) }, 'en'), PersonAccessResponse),
+  measure(`folder: each rule folder, ${PEOPLE - 1} active people (first page, 500)`, ruleFolderPaths, (f) => { const { out, bytes } = checked(FolderAccessResponse, explainFolder(ctx, { path: f }, 'en')); return { rows: out.people.length, bytes } }),
+  measure(`folder: team root and top folders, all ${PEOPLE - 1} people (limit 2000)`, ['', 'groups', 'projects', 'skills', 'shared'], (f) => { const { out, bytes } = checked(FolderAccessResponse, explainFolder(ctx, { path: f, limit: 2000 }, 'en')); if (out.people.length !== out.total) throw new Error('cut'); return { rows: out.people.length, bytes } }),
+  measure(`person: each of ${PEOPLE} people, every team folder (all pages, limit 2000)`, users.map((u) => u.id), (id) => personPages((cursor) => explainPerson(ctx, id, { cursor, limit: 2000 }))),
+  measure('person: one part of the tree (prefix skills)', users.slice(0, 50).map((u) => u.id), (id) => personPages((cursor) => explainPerson(ctx, id, { prefix: 'skills', cursor, limit: 2000 }))),
+  measure('new person: member in 3 groups (all pages)', ['x', 'y', 'z'], () => personPages((cursor) => explainNewPerson(ctx, { role: 'member', groupIds: groups.slice(0, 3), cursor, limit: 2000 }, 'en'))),
 ]
-const sample = explainPerson(ctx, 'u10')
-console.log(`person u10: ${sample.folders.length} folders, ${sample.folders.filter((f) => f.access !== 'none').length} visible; folder projects/p1 inactive:`, JSON.stringify(explainFolder(ctx, 'projects/p1', 'en').inactive))
+const sample = personPages((cursor) => explainPerson(ctx, 'u10', { cursor, limit: 2000 }))
+const nav = explainPerson(ctx, 'u10', { prefix: 'groups', limit: 2000 }).folders.find((f) => f.path === 'groups')
+console.log(`person u10: ${sample.rows} folders over all pages; groups: access ${nav?.access}, listable ${nav?.listable}, via ${nav?.via.length}${nav?.viaMore ? '+' : ''}; folder projects/p1 inactive:`,
+  JSON.stringify(explainFolder(ctx, { path: 'projects/p1' }, 'en').inactive.map((x) => ({ user: x.user.id, access: x.access, reason: x.reason.kind }))))
 db.close()
 fs.rmSync(base, { recursive: true, force: true })
 
 const slower = hot.accessNs > hot.oldNs * 1.25
-const slow = answers.some((a) => a.maxMs > 250)
+const slow = answers.some((a) => a.maxMs > 250 * Math.max(1, PEOPLE / 300))
 if (slower) console.log(`FAIL: access() ${hot.accessNs} ns vs ${hot.oldNs} ns before`)
-if (slow) console.log('FAIL: an admin answer took over 250 ms')
+if (slow) console.log('FAIL: an admin answer took over 250 ms (per 300 people)')
 process.exit(slower || slow ? 1 : 0)

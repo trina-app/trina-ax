@@ -46,7 +46,8 @@ import { Sealer } from '../../../server/src/credentials/seal'
 import type { Credential, CredentialKind, CredentialLogin, MessageSourceFile } from '@mycel/shared/api'
 import type { Integration, IntegrationAccess, IntegrationFlow, IntegrationInput, IntegrationPatch, IntegrationRequest, IntegrationTool } from '@mycel/shared/api'
 import { SkillsOverview, type FolderAccessResponse, type PersonAccessResponse } from '@mycel/shared/api'
-import { RuleSet } from '../../../server/src/policy/access'
+import { RuleSet, type Access } from '../../../server/src/policy/access'
+import { byPerson, folderInput, MAX_VIA, navigation, pageByOffset, pageByPath, ruleFolderOf, segsOf, shownSegs, summarize } from '../../../server/src/admin/access-rows'
 import os from 'node:os'
 import path from 'node:path'
 import { MockPlugins } from './plugins'
@@ -338,53 +339,63 @@ export class MockServer {
 
   // ---------------- folder access explained (like server/src/admin/access-explain.ts) ----------------
   // The server's own RuleSet over the folder rules of Admin › 폴더 권한 here (the file screens above keep their
-  // simplified policy): same shapes, same reasons, nothing under users/ but the person's own folder, no .system/.
+  // simplified policy), and the server's own rows, order, pages and counts (server/src/admin/access-rows.ts): nothing
+  // under users/ but the person's own folder, no .system/ or temp names. Group folders are groups/<group name> when
+  // that folder is here; connected folders are the folders under connected/ (POST /__test/file makes either).
   explainRules() { return new RuleSet(this.folders.flatMap((f) => f.rules.map((r) => ({ path: f.path, subject_type: r.subjectType, subject_id: r.subjectId, access: r.access })))) }
-  explainFolder(p: string): FolderAccessResponse {
-    const segs = p ? p.split('/') : []
-    if (segs.some((s) => s === '..') || (segs.length && ['users', '.system'].includes(segs[0]!.toLowerCase()))) fail('validation', 400, '개인 폴더(users/) 안에는 권한 규칙을 둘 수 없어요.', { 'query.path': 'not a team folder' })
+  explainPrincipal(u: User) { return { id: u.id, name: u.name, role: u.role, groups: u.groupIds } }
+  isFolder(p: string) { return p === '' || this.files.get(p)?.type === 'folder' || this.folders.some((f) => f.path === p) }
+  explainFolder(q: { path?: string; cursor?: string; limit?: string }): FolderAccessResponse {
+    const input = folderInput(q.path)
+    if ('refuse' in input) fail('validation', 400, input.refuse === 'personal' ? '개인 폴더(users/)는 본인만 봐요. 사람 기준으로 확인해 주세요.' : '팀 폴더 경로가 아니에요.', { 'query.path': input.detail })
+    const segs = (input as { segs: string[] }).segs
+    const p = segs.join('/')
     const rules = this.explainRules()
-    const folders = new Set(rules.ruleFolders())
-    let ruleFolder: string | null = null
-    for (let len = segs.length; len >= 0 && ruleFolder === null; len--) if (folders.has(segs.slice(0, len).join('/'))) ruleFolder = segs.slice(0, len).join('/')
-    const people = this.users.filter((u) => u.status === 'active').sort((a, b) => a.name.localeCompare(b.name)).map((u) => {
-      const e = rules.explain({ id: u.id, name: u.name, role: u.role, groups: u.groupIds }, segs)
-      return { user: { id: u.id, name: u.name }, role: u.role, access: e.access, reason: e.reason }
-    })
-    const access = { none: 0, read: 0, write: 0 }
-    const sources = new Map<string, FolderAccessResponse['summary']['sources'][number]>()
-    for (const x of people) {
-      access[x.access]++
-      const folder = x.reason.kind === 'rule' ? x.reason.folder : null
-      const s = sources.get(`${x.reason.kind}:${folder}`) ?? { reason: x.reason.kind, folder, count: 0 }
-      s.count++
-      sources.set(`${x.reason.kind}:${folder}`, s)
+    const ruleFolder = ruleFolderOf(new Set(rules.ruleFolders()), segs)
+    const at = ruleFolder === null ? segs : segsOf(ruleFolder)
+    const all = this.users.filter((u) => u.status === 'active').sort(byPerson).map((u) => ({ u, ...rules.explain(this.explainPrincipal(u), at) }))
+    const pg = pageByOffset(all, { cursor: q.cursor, limit: q.limit ? Number(q.limit) : undefined })
+    const nav = rules.navigator(segs, MAX_VIA)
+    const people = pg.items.map(({ u, access, reason }) => ({ user: { id: u.id, name: u.name }, role: u.role, access, reason, ...navigation(() => nav(this.explainPrincipal(u)), access) }))
+    const off = new Map<string, { folder: string; access: Access }[]>()
+    for (let len = segs.length; len >= 0; len--) {
+      const f = segs.slice(0, len).join('/')
+      for (const r of rules.rulesAt(f)) if (r.subjectType === 'user' && r.subjectId && !this.users.some((u) => u.id === r.subjectId && u.status === 'active')) off.set(r.subjectId, [...(off.get(r.subjectId) ?? []), { folder: f, access: r.access }])
     }
-    const inactive = segs.map((_, i) => segs.slice(0, segs.length - i).join('/')).concat('').flatMap((f) => rules.rulesAt(f)
-      .filter((r) => r.subjectType === 'user' && !this.users.some((u) => u.id === r.subjectId && u.status === 'active'))
-      .map((r) => ({ user: { id: r.subjectId!, name: this.users.find((u) => u.id === r.subjectId)?.name ?? r.subjectId! }, folder: f, access: r.access })))
-    return { path: p, exists: this.files.get(p)?.type === 'folder' || p === '', ruleFolder, people, truncated: false, summary: { access, sources: [...sources.values()].sort((a, b) => b.count - a.count) }, inactive }
+    const inactive = [...off].map(([id, rs]) => {
+      const u = this.users.find((x) => x.id === id)
+      const e = rules.explain({ id, name: u?.name ?? id, role: u?.role ?? 'member', groups: u?.groupIds ?? [] }, at)
+      return { user: { id, name: u?.name ?? id }, role: u?.role ?? 'member', access: e.access, reason: e.reason, rules: rs }
+    }).sort((a, b) => byPerson(a.user, b.user))
+    return { path: p, exists: p === '' || this.files.get(p)?.type === 'folder', ruleFolder, people, total: pg.total, nextCursor: pg.nextCursor, summary: summarize(all), inactive }
   }
-  explainPerson(who: { user: User | null; role: User['role']; groupIds: string[] }): PersonAccessResponse {
+  explainPerson(who: { user: User | null; role: User['role']; groupIds: string[] }, q: { prefix?: string; cursor?: string; limit?: number }): PersonAccessResponse {
+    type Row = PersonAccessResponse['folders'][number]
     const rules = this.explainRules()
     const p = { id: who.user?.id ?? '\u0000new-person', name: who.user?.name ?? '', role: who.role, groups: who.groupIds }
-    const kinds = new Map<string, PersonAccessResponse['folders'][number]['kinds']>()
-    const add = (path: string, k: PersonAccessResponse['folders'][number]['kinds'][number]) => {
-      if (path.split('/')[0] === 'users' || path.startsWith('.system')) return
-      kinds.set(path, [...(kinds.get(path) ?? []), k])
+    const cands = new Map<string, Pick<Row, 'path' | 'kinds' | 'group' | 'projects' | 'connected'>>()
+    const add = (path: string, k: Row['kinds'][number]) => {
+      if (!shownSegs(path)) return null
+      const c = cands.get(path) ?? { path, kinds: [] }
+      if (!c.kinds.includes(k)) c.kinds.push(k)
+      cands.set(path, c)
+      return c
     }
     for (const f of rules.ruleFolders()) add(f, 'rules')
     for (const [path, n] of this.files) if (n.type === 'folder' && !path.includes('/')) add(path, 'top')
-    for (const pr of this.projects) add(pr.folderPath, 'project')
-    const row = (path: string, k: PersonAccessResponse['folders'][number]['kinds'], exists: boolean | null) => {
-      const e = rules.explain(p, path ? path.split('/') : [])
-      const projects = this.projects.filter((x) => x.folderPath === path).map((x) => ({ id: x.id, name: x.name }))
-      return { path, kinds: k, ...(projects.length ? { projects } : {}), exists, access: e.access, reason: e.reason }
-    }
-    const folders = [...(who.user ? [row(`users/${who.user.id}`, ['personal'], null)] : []),
-      ...[...kinds].sort(([a], [b]) => (a < b ? -1 : 1)).map(([path, k]) => row(path, k, this.files.get(path)?.type === 'folder'))]
+    for (const g of this.groups) { const c = this.isFolder(`groups/${g.name}`) ? add(`groups/${g.name}`, 'group') : null; if (c) c.group = { id: g.id, name: g.name } }
+    for (const pr of this.projects) { const c = add(pr.folderPath, 'project'); if (c) c.projects = [...(c.projects ?? []), { id: pr.id, name: pr.name }] }
+    for (const [path, n] of this.files) if (n.type === 'folder' && /^connected\/[^/]+$/.test(path)) { const c = add(path, 'connected'); if (c) c.connected = { id: `connected-${path.slice(10)}`, name: path.slice(10) } }
+    if (who.user) cands.set(`users/${who.user.id}`, { path: `users/${who.user.id}`, kinds: ['personal'] })
+    const pg = pageByPath([...cands.values()], q)
+    let listing: ReturnType<RuleSet['listing']> | undefined
+    const folders = pg.items.map((c) => {
+      const personal = c.kinds.includes('personal')
+      const e = rules.explain(p, segsOf(c.path))
+      return { ...c, exists: personal ? null : this.isFolder(c.path), access: e.access, reason: e.reason, ...navigation(() => (listing ??= rules.listing(p)).at(segsOf(c.path), MAX_VIA), e.access) }
+    })
     return { user: who.user ? { id: who.user.id, name: who.user.name } : null, role: who.role, status: who.user?.status ?? null,
-      groups: who.groupIds.map((id) => ({ id, name: this.groups.find((g) => g.id === id)?.name ?? id })), folders, truncated: false }
+      groups: who.groupIds.map((id) => ({ id, name: this.groups.find((g) => g.id === id)?.name ?? id })).sort((a, b) => a.name.localeCompare(b.name)), folders, total: pg.total, nextCursor: pg.nextCursor }
   }
 
   // ---------------- team skills (like server/src/skills/*) ----------------
@@ -1420,14 +1431,14 @@ export class MockServer {
       this.folders = this.folders.filter((x) => x.id !== f.id)
       return undefined
     },
-    explainFolderAccess: (c) => this.explainFolder(c.query.path ?? ''),
+    explainFolderAccess: (c) => this.explainFolder(c.query),
     explainPersonAccess: (c) => {
       const u = this.users.find((x) => x.id === c.params.id) ?? fail('not_found', 404)
-      return this.explainPerson({ user: u, role: u.role, groupIds: u.groupIds })
+      return this.explainPerson({ user: u, role: u.role, groupIds: u.groupIds }, { prefix: c.query.prefix, cursor: c.query.cursor, limit: c.query.limit ? Number(c.query.limit) : undefined })
     },
     explainNewPersonAccess: (c) => {
       if ((c.body.groupIds as string[]).some((g) => !this.groups.some((x) => x.id === g))) fail('validation', 400, '없는 그룹이 들어 있어요.', { 'body.groupIds': 'unknown group' })
-      return this.explainPerson({ user: null, role: c.body.role, groupIds: [...new Set(c.body.groupIds as string[])] })
+      return this.explainPerson({ user: null, role: c.body.role, groupIds: [...new Set(c.body.groupIds as string[])] }, c.body)
     },
     previewRules: (c) => ({
       folders: c.body.changes.map((ch: Json) => ({ path: ch.path, users: this.users.map((u) => ({ user: { id: u.id, name: u.name }, role: u.role, before: u.role === 'owner' ? 'write' : 'none', after: u.role === 'owner' ? 'write' : (ch.rules as Json[]).some((r) => r.subjectType === 'everyone') ? 'read' : 'none' })) })),

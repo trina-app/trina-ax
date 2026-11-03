@@ -16,11 +16,14 @@ function rng(seed: number) {
   let s = seed >>> 0
   return () => { s = (s + 0x6d2b79f5) >>> 0; let t = s; t = Math.imul(t ^ (t >>> 15), t | 1); t ^= t + Math.imul(t ^ (t >>> 7), t | 61); return ((t ^ (t >>> 14)) >>> 0) / 4294967296 }
 }
-// names that hit every branch: users/, .system, temp names, a person id used as a folder name, case and NFC/NFD
-// variants (compared exactly, never folded), names that contain each other as text
-const NAMES = ['shared', 'skills', 'groups', 'projects', 'users', 'connected', PRODUCT.systemDir, `${PRODUCT.tmpPrefix}x`, 'a', 'b', 'ab', 'a b', 'A', 'mia', 'leo',
+// names that hit every branch: users/, .system, temp names (and the temp prefix inside a name, which is not one), a
+// person id used as a folder name, case and NFC/NFD variants (compared exactly, never folded), names that contain each
+// other as text
+const NAMES = ['shared', 'skills', 'groups', 'projects', 'users', 'connected', PRODUCT.systemDir, `${PRODUCT.tmpPrefix}x`, `a${PRODUCT.tmpPrefix}x`, 'a', 'b', 'ab', 'a b', 'A', 'mia', 'leo',
   '재무', '재무'.normalize('NFD'), 'finance', 'Finance', 'trash', 'x.md', 'admin', 'member', 'everyone']
 const USERS = ['mia', 'leo', 'ola', 'olga', 'adam', 'users', 'a']
+// display names: never compared by the function, so some are other people's ids, roles or group names
+const PERSON_NAMES = ['x', 'Mia Kim', 'leo', 'admin', 'sales', 'users', '']
 const GROUPS = ['sales', 'ops', 'finance', 'g-4', 'a']
 const ROLES = ['owner', 'admin', 'member'] as const
 const ACCESS: Access[] = ['none', 'read', 'write']
@@ -43,7 +46,7 @@ function world(seed: number): World {
     }
   }
   const people: Principal[] = Array.from({ length: 4 + Math.floor(r() * 10) }, () => ({
-    id: pick(USERS), name: 'x', role: r() < 0.7 ? 'member' : pick(ROLES), groups: GROUPS.filter(() => r() < 0.35),
+    id: pick(USERS), name: pick(PERSON_NAMES), role: r() < 0.7 ? 'member' : pick(ROLES), groups: GROUPS.filter(() => r() < 0.35),
   }))
   const paths: string[][] = []
   for (let i = 0; i < 40; i++) {
@@ -57,13 +60,15 @@ function world(seed: number): World {
 
 describe('access() and explain() answer exactly as the permission function did before', () => {
   const SEEDS = 3000
-  test(`${SEEDS} random worlds: old access() = new access() = explain().access, and the reason is the old decision`, () => {
-    let checked = 0
+  test(`${SEEDS} random worlds: old access() = new access() = explain().access, the reason is the old decision, listing() = navigator() = canList()`, () => {
+    let checked = 0, listed = 0
     const kinds = new Map<string, number>()
     for (let seed = 1; seed <= SEEDS; seed++) {
       const w = world(seed)
       const old = new OldRuleSet(w.rows)
       const now = new RuleSet(w.rows)
+      const listings = new Map<Principal, ReturnType<RuleSet['listing']>>()
+      const navs = new Map<string, ReturnType<RuleSet['navigator']>>()
       for (const p of w.people) {
         for (const segs of w.paths) {
           const want = old.access(p, segs)
@@ -85,13 +90,32 @@ describe('access() and explain() answer exactly as the permission function did b
           } else if (e.reason.kind === 'no-rule') {
             expect(want).toBe('none')
           }
+          // "shown in the tree": listing() (once per person, the admin answers) is canList(), from the root and from
+          // any folder on the way; via is not empty exactly when something below is readable for a member
+          const list = (listings.get(p) ?? listings.set(p, now.listing(p)).get(p))!
+          const can = now.canList(p, segs)
+          const k = Math.floor((seed * 7 + checked) % (segs.length + 1))
+          if (list.listable(segs) !== can || now.listing(p, segs.slice(0, k)).listable(segs) !== can)
+            throw new Error(`seed ${seed}: ${JSON.stringify(p)} ${JSON.stringify(segs)}: canList ${can}, listing ${list.listable(segs)}, within ${k} ${now.listing(p, segs.slice(0, k)).listable(segs)}`)
+          if (p.role === 'member' && segs[0] !== 'users' && segs[0] !== PRODUCT.systemDir) {
+            const v = list.via(segs, 3)
+            expect(v.folders.length > 0).toBe(now.hasVisibleDescendant(p, segs))
+            for (const f of v.folders) expect(now.canList(p, f.split('/')) && f.startsWith(segs.length ? segs.join('/') + '/' : '')).toBe(true)
+          }
+          // the folder answer's navigator (one folder, many people, shared scans) answers as listing() does
+          const navKey = segs.join('\u0001')
+          const nav = (navs.get(navKey) ?? navs.set(navKey, now.navigator(segs, 3)).get(navKey))!(p)
+          const at = list.at(segs, 3)
+          if (nav.listable !== can || (want === 'none' && JSON.stringify(nav) !== JSON.stringify(at)))
+            throw new Error(`seed ${seed}: ${JSON.stringify(p)} ${JSON.stringify(segs)}: canList ${can}, navigator ${JSON.stringify(nav)}, listing ${JSON.stringify(at)}`)
+          listed += can ? 1 : 0
           checked++
         }
       }
     }
     // every branch was reached
     for (const k of ['system', 'temp', 'own-personal', 'other-personal', 'users-root', 'owner-admin', 'rule', 'no-rule']) expect(kinds.get(k) ?? 0, k).toBeGreaterThan(0)
-    console.log(`access-explain equivalence: ${checked} answers compared over ${SEEDS} worlds; reasons ${JSON.stringify(Object.fromEntries(kinds))}`)
+    console.log(`access-explain equivalence: ${checked} answers compared over ${SEEDS} worlds (listing = navigator = canList too, ${listed} listable); reasons ${JSON.stringify(Object.fromEntries(kinds))}`)
     expect(checked).toBeGreaterThan(1_000_000)
   }, 120_000)
 

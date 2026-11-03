@@ -194,8 +194,8 @@ export const adminRoutes: RouteModule = {
 
     kit.handle(API.previewRules, ({ c, body }) => previewRules(ctx, body.changes, c.get('locale')))
     // who sees a folder and why, what one person sees and why (admin/access-explain.ts; read only)
-    kit.handle(API.explainFolderAccess, ({ c, query }) => explainFolder(ctx, query.path, c.get('locale')))
-    kit.handle(API.explainPersonAccess, ({ params }) => explainPerson(ctx, params.id))
+    kit.handle(API.explainFolderAccess, ({ c, query }) => explainFolder(ctx, query, c.get('locale')))
+    kit.handle(API.explainPersonAccess, ({ params, query }) => explainPerson(ctx, params.id, query))
     kit.handle(API.explainNewPersonAccess, ({ c, body }) => explainNewPerson(ctx, body, c.get('locale')))
 
     // ---------------- team skills: who manages them, what changed (skills/managers.ts, skills/changes.ts) ----------------

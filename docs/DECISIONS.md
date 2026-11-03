@@ -5932,39 +5932,67 @@ rule for that person decides). This stage adds the reasons and three read-only a
   that decided, in the function's order: `system`, `temp`, `own-personal`, `other-personal`, `users-root`,
   `owner-admin`, `rule` (`folder` = the deepest folder on the way up with a rule for the person, '' = team root;
   `tier` = person, group, role or everyone; `rules` = that step's rules for the person, widest first) or `no-rule`
-  (only the owner and admins). Not one answer changed: the function before this change is kept in
-  `tests/lib/access-before-explain.ts`, and `tests/unit/access-explain-equivalence.test.ts` compares old `access()`,
-  new `access()` and `explain().access` on 1.15 million random person × path × rule-set answers (3000 seeded worlds:
-  users/, .system, temp names, case and NFC/NFD variants, duplicate subjects, a root rule) and on every path of the test
-  team; the reason's folder must decide as the old `pick()` did with no deeper folder deciding. Five deliberate
-  mutations of the new function (tier order, the per-tier reset, the prefix cut, the users/ branch, the widest-wins
-  comparison) each fail it.
+  (only the owner and admins). The choice inside one folder (`decideIn`) is one function for every caller.
+- **Shown in the tree is not access.** A folder without access is still listed for navigation when something below it
+  is readable (`canList`: alice with write on `projects/apollo` only sees `projects/`). Every row of both answers
+  carries `listable` (= `canList`) and, when the access is none, `via`: the topmost readable folders below it (by
+  path, at most 20, `viaMore` when there are others). The person answer finds the person's readable folders once
+  (`RuleSet.listing(p)`) and looks each row up in it; the folder answer uses `RuleSet.navigator(path)`: the rule
+  folders below in path order with their rule chains, a folder below a readable one is not tried, the scan stops after
+  21, and people no rule can tell apart (same role and groups, named by no person rule) share one scan.
+- **Not one answer changed.** The function before this change is kept in `tests/lib/access-before-explain.ts`, and
+  `tests/unit/access-explain-equivalence.test.ts` compares old `access()`, new `access()` and `explain().access` on 1.15
+  million random person × path × rule-set answers (3000 seeded worlds: users/, .system, temp names and the temp
+  prefix inside a name, case and NFC/NFD variants, duplicate subjects, a root rule, display names that are other
+  people's ids) and on every path of the test team; the reason's folder must decide as the old `pick()` did with no
+  deeper folder deciding. In the same loop `listing()`, `listing()` from any folder on the way and `navigator()` must
+  equal `canList()` (and each other's `via`). Deliberate mutations of the function, the listing and the navigator
+  (tier order, the per-step reset, the prefix cut, the users/ branch, widest wins, the temp test, the shared-scan key,
+  skipping covered folders, the own folder's place, temp folders in the chains) each fail it; the three that pass
+  change nothing (the team root is always listable through the own folder, rule folders in users/ are never topmost,
+  `within` is never its own candidate).
 - **Faster, not slower.** The folder key of each level is cut from one joined path instead of `slice().join()` per
   level, and the person/group/role/everyone choice is one pass instead of a filter per step. `tests/perf/access-explain.ts`
-  (300 people, 500 rule folders, paths 2-7 deep, median of 7 runs of 198,000 calls): before 400 ns per call, now
-  267 ns; `explain()` 373 ns. The script fails when `access()` gets 25% slower than the old one.
+  (300 people, 500 rule folders, paths 2-7 deep, median of 7 runs of 198,000 calls): before 384-440 ns per call, now
+  250-267 ns; `explain()` 350-395 ns (runs on a busy shared Mac). The script fails when `access()` gets 25% slower than
+  the old one.
 - **API** (admin and owner; members 403, signed out 401; `shared/src/api/admin.ts`):
-  `GET /api/admin/access/folder?path=` (one folder: every active person's access and reason, counts per access and per
-  source folder, and person rules on the way up that name someone switched off, listed apart),
-  `GET /api/admin/access/people/:id` (one person, switched off or not, with `status`: every team folder and why) and
-  `POST /api/admin/access/new-person` `{role, groupIds}` (the same for someone about to be invited: no id, so no person
-  rule names them and there is no personal folder row; unknown groups 400). A person's team folders are the folders
-  with rules, the top-level folders on disk, group folders (`groups.folder_id`), team project folders
-  (`projects.folder_path`) and connected folders (`connected/<name>`), each with its kinds and the group, projects or
-  connection it belongs to.
+  `GET /api/admin/access/folder?path=&cursor=&limit=` (one folder: every active person's access, reason and
+  navigation, by name; counts per access and per source folder over everyone),
+  `GET /api/admin/access/people/:id?prefix=&cursor=&limit=` (one person, switched off or not, with `status`: every team
+  folder and why, by path) and `POST /api/admin/access/new-person` `{role, groupIds, prefix?, cursor?, limit?}` (the
+  same for someone about to be invited: no id, so no person rule names them and there is no personal folder row;
+  unknown groups 400). A person's team folders are the folders with rules, the top-level folders on disk, group folders
+  (`groups.folder_id`), team project folders (`projects.folder_path`) and connected folders (`connected/<name>`), each
+  with its kinds and the group, projects or connection it belongs to; `exists` is true for a folder only (a file or a
+  missing path: false).
+- **Nothing is cut without saying so.** Both answers come in pages: `limit` rows (default 500, at most 2000), `total`,
+  and `nextCursor` (the last path for the person answer, a row count for the folder answer) until the last page. The
+  person answer also takes `prefix` (that folder and what is below it), so the screen can open one part of the tree.
+  Before, a person list stopped at 2000 rows with only `truncated: true` (2000 people and 2500 rule folders: about
+  500 `skills/…` rows missing).
+- **Switched off.** `inactive` lists the people switched off whom a person rule on the path or above names, with what
+  they would get there if switched back on, computed as for an active person (`access`, `reason`) and the rules that
+  name them. Before, it showed the rule ("write on A"), but a deeper rule can win: with `carl: write` on `A` and
+  `everyone: none` on `A/B`, carl gets none in `A/B`.
 - **Hidden.** Nothing under `users/` is read from disk: a person's own `users/<id>` is one row made from the member
   list (`exists: null`), personal projects (folder in `users/`) are left out with their names, and the folder answer
-  refuses `users/…` before walking it (any case or width), so an admin cannot learn the spelling or existence of a
-  file in someone's folder from it. `.system/` (trash-parked rule folders included) and temp names never appear; the
-  folder answer refuses them (400).
-- **Cost.** A folder without rules answers like the nearest folder with rules above it (nothing between them carries a
-  rule), so the person answer computes once per such folder. Measured with response checking and JSON: 300 people and
-  500 rule folders, one folder for everyone 1.4 ms median (max 11 ms over 500 folders), one person 4.5 ms median (634
-  folders, 127 KB); 2000 people and 2500 rule folders, 7.5 ms and 16 ms. Rows are capped at 2000 (`truncated`); the
-  counts always cover everyone.
-- Tests: the equivalence test above, `tests/unit/access-explain-api.test.ts` (reasons and counts, inherited and missing
-  folders, the person's kinds, every row equal to `RuleSet.access`, nothing of users/ or .system/ in the text, a trashed
-  rule folder, someone switched off, the new person equal to a member with the same groups, refusals),
-  `tests/security/lib/cases.ts` (the three routes in the permission matrix, alice's list without other users/ rows or
-  her personal project), `web/test/mock/server.ts` (the same answers from the real `RuleSet` over the mock's rules).
+  refuses `users/…` before walking it (any case or width; "a personal folder is its owner's alone"), so an admin cannot
+  learn the spelling or existence of a file in someone's folder from it. `.system/` (trash-parked rule folders
+  included), temp names and names the team folder does not accept never appear; the folder answer refuses them (400,
+  "not a team folder path", five languages).
+- **Cost** (with the response check the server runs in dev and JSON; all pages walked to the end). 300 people and 500
+  rule folders: one folder for everyone 1.5-1.7 ms median (max 13 ms over 500 folders), the root and top folders
+  4-13 ms, one person's whole list 5.6-6.3 ms median (634 rows, 153 KB), a new person 6-8 ms. 2000 people and 2500
+  rule folders: one folder 6.6-7.9 ms median (first page of 500 people), the root and top folders with all 1999 people
+  62 ms median and 249 ms at most (1.8 s before the navigator), one person's whole list 34-39 ms median and 182-267 ms
+  at most (2509 rows over two pages, 597 KB), one part of the tree (`prefix=skills`) 13-14 ms.
+- Tests: the equivalence test above, `tests/unit/access-explain-api.test.ts` (reasons and counts, navigation and
+  `via` against `canList`, inherited, missing and file paths, the person's kinds, every row equal to `RuleSet.access`,
+  pages and `prefix` giving every row once, nothing of users/ or .system/ in the text, a trashed rule folder, someone
+  switched off as if switched back on, the new person equal to a member with the same groups, refusals and their
+  words), `tests/security/lib/cases.ts` (the three routes in the permission matrix, alice's list without other users/
+  rows or her personal project, a refused path inside alice's folder answering without her file's name),
+  `web/test/mock/server.ts` (the real `RuleSet` over the mock's rules with the server's rows, order, pages and counts
+  from `server/src/admin/access-rows.ts`).
 - No migration. Needed in the core too (potenlab/team-ax): everything here; nothing is Trina-specific.
