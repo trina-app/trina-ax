@@ -14,12 +14,20 @@ const everyone = (access: 'none' | 'read' | 'write') => ({ subjectType: 'everyon
 const SKILLS_DEFAULT = [everyone('read'), { subjectType: 'role', subjectId: 'admin', access: 'write' }]
 
 describe('which rows are kept (folder-keep.ts, also the mock server\'s)', () => {
-  test('shared/ and skills/ in any case or Unicode form; subfolders and look-alikes are ordinary', () => {
-    for (const p of ['shared', 'skills', 'Shared', 'SKILLS', 'sKiLLs']) expect(isTeamDefaultFolder(p), p).toBe(true)
-    for (const p of ['', 'shared/board', 'skills/finance', 'shared-old', 'ｓｈａｒｅｄ', 'shared\u200b', 'groups/shared']) expect(isTeamDefaultFolder(p), p).toBe(false)
-    expect(folderKeep('Shared', 'g1')).toBe('team')
-    expect(folderKeep('groups/sales', 'g1')).toBe('group')
-    expect(folderKeep('groups/sales', null)).toBeNull()
+  test('shared/ and skills/ as the volume compares names; subfolders and look-alikes are ordinary', () => {
+    for (const ci of [true, false]) {
+      for (const p of ['shared', 'skills']) expect(isTeamDefaultFolder(p, ci), p).toBe(true)
+      for (const p of ['', 'shared/board', 'skills/finance', 'shared-old', 'ｓｈａｒｅｄ', 'shared\u200b', 'groups/shared']) expect(isTeamDefaultFolder(p, ci), p).toBe(false)
+    }
+    // a case-insensitive volume: the same folder in another case; a case-sensitive one: another folder
+    for (const p of ['Shared', 'SKILLS', 'sKiLLs']) {
+      expect(isTeamDefaultFolder(p, true), p).toBe(true)
+      expect(isTeamDefaultFolder(p, false), p).toBe(false)
+    }
+    expect(folderKeep('Shared', 'g1', true)).toBe('team')
+    expect(folderKeep('Shared', 'g1', false)).toBe('group')
+    expect(folderKeep('groups/sales', 'g1', false)).toBe('group')
+    expect(folderKeep('groups/sales', null, true)).toBeNull()
     expect(isParkedRow('.system/trash/2026-11/x')).toBe(true)
     expect(isParkedRow('.systemx')).toBe(false)
   })
@@ -116,8 +124,15 @@ describe('folder rows that stay', () => {
 
   test('a rename that changes only the case does not take the protection away', async () => {
     const id = rowId('shared')!
-    // a typed name in another case (the same folder on a case-insensitive volume): refused before anything is made
-    for (const p of ['SHARED', 'Shared']) expect((await admin.try('POST', '/api/admin/folders', { path: p, create: true, rules: [] })).status, p).toBe(400)
+    const ci = h.ctx.files.fx.caseInsensitive
+    // a typed name in another case: on a case-insensitive volume the same folder, refused before anything is made; on a
+    // case-sensitive one a new folder, which the app refuses as a near-duplicate of shared/
+    for (const p of ['SHARED', 'Shared']) {
+      const r = await admin.try('POST', '/api/admin/folders', { path: p, create: true, rules: [] })
+      if (ci) expect(r.status, p).toBe(400)
+      else expect(r.status, p).toBeGreaterThanOrEqual(400)
+      if (!ci) expect(fs.existsSync(path.join(h.ctx.files.fx.root, p)), p).toBe(false)
+    }
     // a case-insensitive volume (macOS) takes the rename and keeps the row; elsewhere the app refuses it (a near-duplicate
     // of the folder itself), so there is nothing to get around
     const mv = await admin.try('POST', '/api/files/move', { from: 'shared', to: 'Shared' })
@@ -134,6 +149,29 @@ describe('folder rows that stay', () => {
     expect(rulesOf(h.ctx.db, id).length).toBeGreaterThan(0)
     expect((await admin.try('POST', '/api/files/move', { from: 'Shared', to: 'shared' })).status).toBe(200)
     expect(rowId('shared')).toBe(id)
+  })
+
+  test('a case-sensitive volume: a folder named Shared beside shared/ is an ordinary one', async () => {
+    if (h.ctx.files.fx.caseInsensitive) {
+      // a case-insensitive volume has one folder for both names (the case-only rename above)
+      expect((await listed()).find((f) => f.path === 'shared')?.keep).toBe('team')
+      return
+    }
+    // a team folder set on an existing share, or a folder made on disk: the app does not make it, but it can be there
+    const other = path.join(h.ctx.files.fx.root, 'Shared')
+    fs.mkdirSync(other)
+    try {
+      const row = await admin.call('POST', '/api/admin/folders', { path: 'Shared', rules: [everyone('read')] })
+      expect(row).toMatchObject({ path: 'Shared', keep: null })
+      expect((await admin.try('PUT', `/api/admin/folders/${row.id}/rules`, { rules: [] })).status).toBe(200)
+      expect((await admin.try('DELETE', `/api/admin/folders/${row.id}`)).status).toBe(204)
+      // shared/ itself is still kept
+      expect((await listed()).find((f) => f.path === 'shared')?.keep).toBe('team')
+      expect((await admin.try('DELETE', `/api/admin/folders/${rowId('shared')}`)).status).toBe(409)
+      expect((await admin.try('PUT', `/api/admin/folders/${rowId('shared')}/rules`, { rules: [] })).status).toBe(400)
+    } finally {
+      fs.rmSync(other, { recursive: true, force: true })
+    }
   })
 
   test('"add folder" with no rule on shared/ is refused before the folder is made on disk', async () => {

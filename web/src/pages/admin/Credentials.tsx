@@ -195,7 +195,7 @@ function CredentialRow({ c, target, owner, checking, personal, ownDelete, onChec
         {!personal && (c.state === 'needs_reconnect' && c.kind === 'chatgpt' && owner
           ? <Button size="sm" onClick={onReplace}>{t('credentials.reconnect')}</Button>
           : <IconButton label={t('credentials.check')} onClick={onCheck} disabled={checking}><RefreshCw size={14} className={checking ? 'animate-spin' : ''} /></IconButton>)}
-        {ownDelete && <IconButton label={t('common.delete')} onClick={onRemove} data-testid="my-credential-delete"><Trash2 size={14} /></IconButton>}
+        {ownDelete && <IconButton label={t('common.deleteNamed', { name: c.label })} onClick={onRemove} data-testid="my-credential-delete"><Trash2 size={14} /></IconButton>}
         {owner && (
           <div className="relative">
             <IconButton label={t('credentials.menu')} onClick={() => setMenu((v) => !v)} aria-expanded={menu} data-testid="credential-menu"><MoreHorizontal size={15} /></IconButton>

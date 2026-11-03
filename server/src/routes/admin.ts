@@ -100,7 +100,7 @@ export const adminRoutes: RouteModule = {
       return f
     }
     const keepsRules = (p: string, rules: readonly unknown[], locale: Locale) => {
-      if (!rules.length && isTeamDefaultFolder(p)) fail('validation', msg('teamFolderKeepsRules', locale), { fields: { 'body.rules': 'shared/ and skills/ keep at least one rule' } })
+      if (!rules.length && isTeamDefaultFolder(p, ctx.files.fx.caseInsensitive)) fail('validation', msg('teamFolderKeepsRules', locale), { fields: { 'body.rules': 'shared/ and skills/ keep at least one rule' } })
     }
     kit.handle(API.listFolders, () => ({ items: listFolders(ctx) }))
 

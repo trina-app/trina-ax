@@ -68,6 +68,20 @@ test('folder permissions: delete refreshes the list, focus moves on, the dialog 
   await expect(row('finance/2026')).toHaveCount(0)
   await expect(del('marketing')).toBeFocused() // a confirm dialog comes before each delete here
 
+  // a slow answer: the button says it is busy, and after 5 seconds the dialog opens with the general text
+  await page.unroute('**/api/admin/folder-rules/preview')
+  await page.route('**/api/admin/folder-rules/preview', async (r) => {
+    await new Promise((done) => setTimeout(done, 8000))
+    await r.fulfill({ json: { folders: [], losing: [] } }).catch(() => {}) // the page gave up on it
+  })
+  const asking = Date.now()
+  await del('docs').click()
+  await expect(del('docs')).toHaveAttribute('aria-busy', 'true')
+  await expect(dialog).toContainText(t['rules.removeBody'], { timeout: 7000 })
+  expect(Date.now() - asking).toBeGreaterThanOrEqual(4500)
+  await dialog.getByRole('button', { name: t['common.cancel'], exact: true }).click()
+  await expect(del('docs')).not.toHaveAttribute('aria-busy', 'true')
+
   // no preview (the server could not answer): the general text, which does not promise more than the server does
   await page.unroute('**/api/admin/folder-rules/preview')
   await page.route('**/api/admin/folder-rules/preview', (r) => r.fulfill({ status: 503, json: { error: { code: 'unavailable', message: 'x' } } }))
@@ -204,6 +218,7 @@ test('folder permissions: shared, skills and a group\'s folder say why they stay
   await dialog.getByRole('button', { name: t['rules.removeRule'], exact: true }).click()
   await expect(page.getByTestId('rules-keep-one')).toHaveText(t['rules.keepTeam'])
   await expect(page.getByTestId('rules-save')).toBeDisabled()
+  await expect(page.getByTestId('rules-save')).toHaveAccessibleDescription(t['rules.keepTeam'])
   // what it says to do instead works: Everyone, No access
   await page.getByTestId('rule-add').click()
   await expect(page.getByTestId('rules-keep-one')).toHaveCount(0)

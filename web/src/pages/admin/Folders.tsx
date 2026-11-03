@@ -2,8 +2,8 @@
 // none / read / write. Before saving, "who sees what" shows every active person's access before → after, and who
 // loses access (their chats that touched those folders get a fresh engine session).
 import clsx from 'clsx'
-import { ArrowRight, Eye, FolderLock, Lock, Plus, Trash2 } from 'lucide-react'
-import { useState, type ReactNode } from 'react'
+import { ArrowRight, Eye, FolderLock, Loader2, Lock, Plus, Trash2 } from 'lucide-react'
+import { useId, useState, type ReactNode } from 'react'
 import type { Access, Folder, FolderRuleInput, Group, PreviewResponse, User } from '@mycel/shared/api'
 import { api, API, errorText } from '../../lib/api'
 import { useLocale, useT } from '../../i18n'
@@ -51,6 +51,22 @@ const isPersonal = (p: string) => p === 'users' || p.startsWith('users/')
  * per person, walking up from the folder to the first rules that name them, so only the server can say who gains or
  * loses what (a rule above may not name them, and a rule higher up or none at all, owner and admins aside, then decides).
  */
+/** How long the remove dialog waits for the server's preview before it opens with the general text. */
+const PREVIEW_WAIT_MS = 5000
+
+/** The server's "who sees what" for no rules at `path`; null when it fails or takes longer than PREVIEW_WAIT_MS. */
+async function removalPreview(path: string): Promise<PreviewResponse | null> {
+  const ctl = new AbortController()
+  const timer = setTimeout(() => ctl.abort(), PREVIEW_WAIT_MS)
+  try {
+    return await api.call(API.previewRules, { body: { changes: [{ path, rules: [] }] }, signal: ctl.signal })
+  } catch {
+    return null
+  } finally {
+    clearTimeout(timer)
+  }
+}
+
 export function previewChanges(preview: PreviewResponse): { path: string; users: PreviewResponse['folders'][number]['users'] }[] {
   return preview.folders.map((f) => ({ path: f.path, users: f.users.filter((u) => u.before !== u.after) })).filter((f) => f.users.length > 0)
 }
@@ -65,6 +81,8 @@ export default function Folders() {
   const [picking, setPicking] = useState(false)
   const focus = useFocusAfterRemove(folders.data, () => document.querySelector<HTMLElement>('[data-testid="folder-rule-new"]'))
   const once = useOneAtATime<string>()
+  /** the row whose delete is asking the server what it would change (the button shows it is busy) */
+  const [checking, setChecking] = useState<string | null>(null)
 
   const subject = (type: string, id: string | null) => {
     if (type === 'everyone') return t('rules.everyone')
@@ -79,7 +97,9 @@ export default function Folders() {
       // the general text
       let body: ReactNode = t('rules.removeBodyPersonal')
       if (!isPersonal(f.path)) {
-        const preview = await api.call(API.previewRules, { body: { changes: [{ path: f.path, rules: [] }] } }).catch(() => null)
+        setChecking(f.id)
+        const preview = await removalPreview(f.path)
+        setChecking(null)
         body = preview ? <RemovePreview preview={preview} /> : t('rules.removeBody')
       }
       if (!(await confirmDialog({ title: t('rules.removeTitle', { path: f.path || t('files.root') }), body, confirm: t('common.delete'), danger: true }))) return
@@ -136,8 +156,8 @@ export default function Folders() {
                             <Lock size={15} />
                           </span>
                         ) : (
-                          <IconButton label={t('common.deleteNamed', { name: f.path || t('files.root') })} onClick={() => void remove(f)} data-row-focus>
-                            <Trash2 size={15} />
+                          <IconButton label={t('common.deleteNamed', { name: f.path || t('files.root') })} onClick={() => void remove(f)} aria-busy={checking === f.id || undefined} data-row-focus>
+                            {checking === f.id ? <Loader2 size={15} className="animate-spin" aria-hidden /> : <Trash2 size={15} />}
                           </IconButton>
                         )}
                       </li>
@@ -191,6 +211,7 @@ function RulesEditor({ folder, path, users, groups, subject, onClose, onSaved }:
   const rules = rulesFromRows(rows)
   /** shared/ and skills/ keep at least one rule (the server refuses none): said here, and Save waits for a rule */
   const keepsOne = folder?.keep === 'team' && rows.length === 0
+  const keepsOneId = useId()
   const changed = () => {
     setPreview(null)
     setRefused(null)
@@ -235,7 +256,7 @@ function RulesEditor({ folder, path, users, groups, subject, onClose, onSaved }:
           <Button onClick={runPreview} busy={busy === 'preview'} disabled={!rules} data-testid="rules-preview">
             <Eye size={14} aria-hidden /> {t('rules.preview')}
           </Button>
-          <Button variant="primary" onClick={save} busy={busy === 'save'} disabled={!rules || keepsOne} data-testid="rules-save">
+          <Button variant="primary" onClick={save} busy={busy === 'save'} disabled={!rules || keepsOne} aria-describedby={keepsOne ? keepsOneId : undefined} data-testid="rules-save">
             {t('common.save')}
           </Button>
         </>
@@ -322,7 +343,7 @@ function RulesEditor({ folder, path, users, groups, subject, onClose, onSaved }:
       </Button>
       {!rules && rows.length > 0 && <p className="mt-2 text-xs text-warn">{t('rules.incomplete')}</p>}
       {keepsOne && (
-        <p role="note" className="mt-2 text-xs text-warn" data-testid="rules-keep-one">
+        <p id={keepsOneId} role="note" className="mt-2 text-xs text-warn" data-testid="rules-keep-one">
           {t('rules.keepTeam')}
         </p>
       )}

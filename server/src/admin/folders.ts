@@ -157,14 +157,14 @@ export function toFolder(ctx: AppContext, f: FolderRow): Folder {
     createdAt: f.created_at,
     rules: rows.map((r) => ({ id: r.id, folderId: r.folder_id, subjectType: r.subject_type, subjectId: r.subject_id, access: r.access, updatedBy: userRef(ctx.db, r.updated_by), updatedAt: r.updated_at })),
     groupId,
-    keep: folderKeep(f.path, groupId),
+    keep: folderKeep(f.path, groupId, ctx.files.fx.caseInsensitive),
   }
 }
 
-/** Why the admin API keeps this row (folder-keep.ts): 'team' for shared/ and skills/ (in any case: a rename that changes
- * only the case keeps them), 'group' for a group's folder, null when it may go. */
+/** Why the admin API keeps this row (folder-keep.ts): 'team' for shared/ and skills/ (in any case on a case-insensitive
+ * volume, exactly elsewhere), 'group' for a group's folder, null when it may go. */
 export function keepOfRow(ctx: AppContext, f: FolderRow): FolderKeep | null {
-  return folderKeep(f.path, groupOfFolder(ctx.db, f.id))
+  return folderKeep(f.path, groupOfFolder(ctx.db, f.id), ctx.files.fx.caseInsensitive)
 }
 
 /**

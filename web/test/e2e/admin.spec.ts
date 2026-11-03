@@ -534,7 +534,7 @@ for (const locale of ['ko', 'en', 'id'] as const) {
     await page.getByTestId('dialog-confirm').click()
     await expect(member).toContainText(t['members.disabled'])
     for (const cancel of [true, false]) {
-      await member.getByRole('button', { name: t['common.delete'], exact: true }).click()
+      await member.getByRole('button', { name: translate(locale, 'common.deleteNamed', { name: 'Bob' }), exact: true }).click()
       const dialog = page.getByRole('dialog')
       await expect(dialog).toContainText(translate(locale, 'members.removeBody', { days: 3 }))
       await expect(dialog).not.toContainText('{days')
@@ -584,7 +584,7 @@ for (const locale of ['ko', 'en', 'id'] as const) {
     await member.getByRole('button', { name: t['members.disable'], exact: true }).click()
     await page.getByTestId('dialog-confirm').click()
     await expect(member).toContainText(t['members.disabled'])
-    await member.getByRole('button', { name: t['common.delete'], exact: true }).click()
+    await member.getByRole('button', { name: translate(locale, 'common.deleteNamed', { name: 'Bob' }), exact: true }).click()
     await expect(page.getByRole('dialog')).toContainText(translate(locale, 'members.removeBody', { days: 5 }))
     await page.getByRole('dialog').getByRole('button', { name: t['common.cancel'], exact: true }).click()
     const item = page.getByRole('listitem').filter({ hasText: 'Retention chat' })
@@ -652,7 +652,7 @@ test('members: cancelled and rejected deletions retain the row; a successful ret
     if (request.method() === 'DELETE' && path === '/api/admin/users/bob') deletes++
     if (request.method() === 'GET' && path === '/api/admin/users') listReads++
   })
-  await member.getByRole('button', { name: 'Delete', exact: true }).click()
+  await member.getByRole('button', { name: 'Delete Bob', exact: true }).click()
   await page.getByRole('dialog').getByRole('button', { name: 'Cancel', exact: true }).click()
   await expect(page.getByRole('dialog')).toHaveCount(0)
   await expect(member).toBeVisible()
@@ -661,7 +661,7 @@ test('members: cancelled and rejected deletions retain the row; a successful ret
 
   await page.route('**/api/admin/users/bob', route => route.fulfill({ status: 403,
     json: { error: { code: 'forbidden', message: 'Deletion refused' } } }))
-  await member.getByRole('button', { name: 'Delete', exact: true }).click()
+  await member.getByRole('button', { name: 'Delete Bob', exact: true }).click()
   await page.getByTestId('dialog-confirm').click()
   await expect(page.getByRole('alert').filter({ hasText: 'Deletion refused' })).toBeVisible()
   await expect(member).toBeVisible()
@@ -669,7 +669,7 @@ test('members: cancelled and rejected deletions retain the row; a successful ret
   expect(listReads).toBe(0)
 
   await page.unroute('**/api/admin/users/bob')
-  await member.getByRole('button', { name: 'Delete', exact: true }).click()
+  await member.getByRole('button', { name: 'Delete Bob', exact: true }).click()
   const deleted = page.waitForResponse(r => r.request().method() === 'DELETE' && new URL(r.url()).pathname === '/api/admin/users/bob')
   await page.getByTestId('dialog-confirm').click()
   expect((await deleted).status()).toBe(204)

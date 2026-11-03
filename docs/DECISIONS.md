@@ -5868,12 +5868,14 @@ The screen was a long card per connection, and the only way in was typing an MCP
   there the next row's Edit takes it, else the list's title (`Card headingRef`, tabIndex -1); the buttons ignore
   repeated keydowns (`noKeyRepeat`, also on the Settings deletes without a dialog: a memory, a device) and one such
   delete runs at a time (`useOneAtATime`, `aria-disabled` rather than `disabled`, which would drop the focus to the
-  page on a failure). Delete buttons name their row ("Delete finance/2026").
+  page on a failure). Delete buttons name their row ("Delete finance/2026"; also a member and one's own AI
+  connection).
 - The "remove all rules" dialog asks the server (`previewRules` with no rules for that path, the same "who sees what"
   as saving) and lists only the people whose access changes, and who loses read with their chats. A first version
   named the nearest folder above with rules, which is wrong: access walks up per person to the first rules that name
   them (finance: Finance writes, root: everyone reads; without rules on finance/2026 people outside Finance read it),
-  and a rule folder below keeps the folder listed as a way there. When the preview fails, a general text says how
+  and a rule folder below keeps the folder listed as a way there. While it asks, the delete button is busy; after 5
+  seconds without an answer the dialog opens anyway. When the preview fails or is late, a general text says how
   access is decided; inside `users/` it says nothing changes (rules there never applied, and the server has no preview
   for them). The edit hint no longer says the owner writes everywhere (`users/<id>` of others and `.system` are none
   for every role).
@@ -5887,10 +5889,12 @@ The screen was a long card per connection, and the only way in was typing an MCP
   made on disk). Both had the same result: no rule there, so everyone but the owner and admins follows the team root's
   rules, and the root has none by default: the team's default folders hidden from the team. An admin who wants them
   kept to admins says "Everyone: No access", which the message names. `skills/<sub>` rows are ordinary (they fall back
-  to skills/). The names are compared in NFC lower case (`admin/folder-keep.ts`): on a case-insensitive Mac volume a
-  move that changes only the case is taken and keeps the folders row (`Shared`); on Linux the app refuses that move
-  (a near-duplicate of the folder itself), and it never makes a second folder that differs only in case, so the wider
-  compare catches no other folder. The rule editor says so and keeps Save off when the last rule of such a row is
+  to skills/). The names are compared the way the volume compares them (`admin/folder-keep.ts`): on a
+  case-insensitive Mac volume in NFC lower case, because a move that changes only the case is taken there and keeps
+  the folders row (`Shared` is the same folder); on a case-sensitive volume (Linux) exactly, in NFC. There `Shared`
+  can be another folder: the app refuses a move or a new folder that differs from a sibling only in case, but a team
+  folder set on an existing share (`MYCEL_TEAM_ROOT`) or a folder made on disk can have both, and a wider compare
+  locked such a `Shared` (review). The rule editor says so and keeps Save off when the last rule of such a row is
   removed.
 - **A group's folder row (`groups.folder_id`) is not removed while the group exists** (409, `groupFolderKeepsRow`).
   `dropFolderRow` set the group's `folder_id` to NULL for good, and `managedRows` then no longer counted the folder, so

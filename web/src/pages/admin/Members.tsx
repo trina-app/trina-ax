@@ -145,7 +145,7 @@ export default function Members() {
                               {u.status === 'active' ? t('members.disable') : t('members.enable')}
                             </Button>
                             {isOwner(me) && (
-                              <IconButton label={t('common.delete')} onClick={() => remove(u)}>
+                              <IconButton label={t('common.deleteNamed', { name: u.name })} onClick={() => remove(u)}>
                                 <Trash2 size={15} />
                               </IconButton>
                             )}

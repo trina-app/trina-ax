@@ -2,6 +2,8 @@
 // a resource the acting person must NOT reach unless the design says so — alice's private chat/file/project, the
 // finance folder, a trashed file — so a correct server answers 401/403/404 (never the data) to the wrong person.
 // The expected allow/deny per persona is computed from the endpoint's auth level and the resource's scope.
+import fs from 'node:fs'
+import path from 'node:path'
 import { ChatQueueSnapshot, CSRF_HEADER } from '@mycel/shared/api'
 import type { Client, Resp } from './instance'
 import { authOf, enc, levelExp, type Case, type Exp } from './matrix'
@@ -298,18 +300,28 @@ export const SPECS: Record<string, Spec> = {
       if (made.status !== 201) throw new Error(`${who} could not make a group to test with: ${made.status}`)
       const listed = async () => ((await c.get('/api/admin/folders')).json?.items ?? []) as { id: string; path: string; groupId?: string | null }[]
       const own = (await listed()).find((f) => f.groupId === made.json.id)
-      if (!own) throw new Error('the new group has no folder row')
-      const rows = (await listed()).filter((f) => f.path === 'shared' || f.path === 'skills')
-      if (rows.length !== 2) throw new Error(`shared/ and skills/ rows: ${rows.map((f) => f.path).join(', ')}`)
-      for (const f of [...rows, own]) {
-        const d = await c.del(`/api/admin/folders/${f.id}`)
-        if (d.status !== 409) throw new Error(`${who} removed the folder row of ${f.path}: ${d.status}`)
+      let cleanup: { group: number; row: number | null } | null = null
+      try {
+        if (!own) throw new Error('the new group has no folder row')
+        const rows = (await listed()).filter((f) => f.path === 'shared' || f.path === 'skills')
+        if (rows.length !== 2) throw new Error(`shared/ and skills/ rows: ${rows.map((f) => f.path).join(', ')}`)
+        for (const f of [...rows, own]) {
+          const d = await c.del(`/api/admin/folders/${f.id}`)
+          if (d.status !== 409) throw new Error(`${who} removed the folder row of ${f.path}: ${d.status}`)
+        }
+        const left = new Set((await listed()).map((f) => f.id))
+        for (const f of [...rows, own]) if (!left.has(f.id)) throw new Error(`the folder row of ${f.path} is gone`)
+      } finally {
+        // leave the world as it was, also when a check above failed: the group, then its row (an ordinary one once the
+        // group is gone), then its folder on disk
+        const group = (await c.del(`/api/admin/groups/${made.json.id}`)).status
+        const row = own ? (await c.del(`/api/admin/folders/${own.id}`)).status : null
+        if (own?.path.startsWith('groups/keep-')) fs.rmSync(path.join(w.inst.team, ...own.path.split('/')), { recursive: true, force: true })
+        cleanup = { group, row }
       }
-      const left = new Set((await listed()).map((f) => f.id))
-      for (const f of [...rows, own]) if (!left.has(f.id)) throw new Error(`the folder row of ${f.path} is gone`)
-      // once its group is gone, the row is an ordinary one (leave the world as it was)
-      if ((await c.del(`/api/admin/groups/${made.json.id}`)).status !== 204) throw new Error('the test group could not be deleted')
-      if ((await c.del(`/api/admin/folders/${own.id}`)).status !== 204) throw new Error('the row of a deleted group could not be removed')
+      // reached only when the checks passed (an earlier failure is the one reported)
+      if (cleanup.group !== 204) throw new Error('the test group could not be deleted')
+      if (cleanup.row !== null && cleanup.row !== 204) throw new Error('the row of a deleted group could not be removed')
     } },
   previewRules: { build: (c) => c.post('/api/admin/folder-rules/preview', { changes: [{ path: 'shared', rules: [{ subjectType: 'everyone', subjectId: null, access: 'read' }] }] }), scope: 'byLevel',
     check: (r, w, who) => { if ((who === 'owner' || who === 'admin') && r.text.includes(C.bobFile)) throw new Error('preview leaks private content') } },
