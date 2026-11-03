@@ -157,7 +157,7 @@ Self-hosting is not offline: the context a request needs goes to the AI provider
 <details>
 <summary><b>Does it work with Korean HWP files?</b></summary>
 
-<br>Yes for text: the AI can read text from HWP/HWPX files, it can make new .hwpx documents (headings, paragraphs, lists, simple tables), and it can fill in an existing .hwpx form (placeholders, empty cells, table rows), keeping the rest of the file as it was. Visual previews need the optional plugin, which does not run on Debian 12. More in the [FAQ](docs/FAQ.md).
+<br>Yes for text: the AI can read text from HWP/HWPX files, it can make new .hwpx documents (headings, paragraphs, lists, simple tables), and it can fill in an existing .hwp or .hwpx form (placeholders, empty cells, table rows) and save it in the same format, keeping the rest of the file as it was. Visual previews need the optional plugin, which does not run on Debian 12. More in the [FAQ](docs/FAQ.md).
 
 </details>
 

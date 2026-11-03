@@ -42,7 +42,7 @@
 - 미리보기와 AI의 `hwp_render` 도구는 플러그인이 회사 전체에 켜져 있고 이 서버에서 돌 수 있을 때 동작합니다. 예전의 출시 잠금(`MYCEL_HWP_PREVIEW=1`)은 배포 승인과 함께 없앴습니다(값이 있어도 무시). 그래도 격리(Linux는 bwrap과 변환기 cgroup, Mac은 sandbox-exec), 입력 검사, 한도, 실행 직전 해시 확인은 그대로라 그중 하나라도 안 되면 렌더러는 돌지 않습니다.
 - `hwp_render`는 위 조건에 더해 "AI가 페이지 이미지를 본다"(선택 권한)를 허용했을 때만 AI에게 보입니다. 허용하지 않으면 사람용 미리보기만 됩니다.
 - Debian 12(glibc 2.36)는 지원하지 않습니다(고정 렌더러는 glibc 2.39 필요). 공식 목록에 "이 서버에서는 쓸 수 없어요"와 이유가 보이고, 아무것도 내려받지 않습니다. Ubuntu 24.04, Debian 13, macOS(Apple 실리콘·Intel)가 대상입니다.
-- 플러그인과 상관없이 늘 되는 것: HWP/HWPX **글자 읽기와 검색**, **원본 다운로드**, make_file로 **새 .hwpx 만들기**와 edit_hwpx로 **.hwpx 채우기**(코어의 작성기·편집기, rhwp를 쓰지 않음), `.hwp`/`.hwpx`에 평문을 쓰는 것을 막는 보호.
+- 플러그인과 상관없이 늘 되는 것: HWP/HWPX **글자 읽기와 검색**, **원본 다운로드**, make_file로 **새 .hwpx 만들기**와 edit_hwp로 **.hwp·.hwpx 채우기**(코어의 작성기·편집기, rhwp를 쓰지 않음), `.hwp`/`.hwpx`에 평문을 쓰는 것을 막는 보호.
 - 꾸러미에는 제3자 파일만 들어 있습니다: rhwp 실행 파일(MIT, 안에 Rust 크레이트·Skia·HarfBuzz·libjpeg-turbo·libpng·zlib·Wuffs와 Linux판에는 Expat이 정적으로 들어 있음. svg2pdf 함수 하나의 일부는 MPL-2.0), Noto Sans KR Regular(OFL-1.1), 고지와 소스 안내. 구성 요소와 라이선스는 `notices/THIRD_PARTY_NOTICES.md`에 있고, 설치 화면에도 보입니다. 입력 검사(preflight), 한도, 격리, 고정 해시는 코어에 남아 있어 꾸러미가 바꿀 수 없습니다.
 
 ### 기존 내부 검토 서버 옮기기
