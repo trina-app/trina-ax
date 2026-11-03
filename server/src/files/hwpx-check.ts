@@ -3,7 +3,9 @@
 // - the read-back check: the lines a document should read back as (from pandoc's tree, walked here on its own, not
 //   with the writer's code) against what hwp.ts reads from the written file. A file that does not read back as the
 //   document is not saved.
-// Nothing here parses a document: the tree is pandoc's JSON, already parsed by make_file.
+// Nothing here parses a document: the tree is pandoc's JSON, already parsed by make_file. For edit_hwpx (stage 2) the
+// same holds: the server compares lines hwp.ts read in the worker, and two zip central directories (names, CRCs, sizes).
+import { zipDirectory, type ZipDirEntry } from './zip-write'
 
 /** worker mode that writes a .hwpx (office-worker.ts) */
 export const HWPX_WRITE_MODE = 'hwpx-write'
@@ -118,6 +120,154 @@ export function firstDifference(want: string[], got: string[]): string | null {
   const n = Math.max(want.length, got.length)
   for (let i = 0; i < n; i++) {
     if (want[i] !== got[i]) return `paragraph ${i + 1}: expected ${clip(want[i])}, read ${clip(got[i])}`
+  }
+  return null
+}
+
+// ---------------------------------------------------------------- edit_hwpx (stage 2: an existing .hwpx changed)
+/** worker mode that changes an existing .hwpx (files/hwpx-edit.ts) */
+export const HWPX_EDIT_MODE = 'hwpx-edit'
+/** A document edit_hwpx changes: larger ones are refused (the worker's answer, the new file, must stay below its
+ * output cap of 64 MB). */
+export const HWPX_EDIT_MAX = 40 * 1024 * 1024
+
+/** One change of edit_hwpx, as the tool's input gives it (shared/src/tools.ts EditHwpxInput). */
+export type HwpxChange =
+  | { find: string; replace: string; occurrence?: number; all?: boolean }
+  | { cell: { next_to?: string; direction?: 'right' | 'below'; occurrence?: number; table?: number; row?: number; col?: number }; value: string }
+  | { add_rows: { table?: number; table_with?: string; after_row?: number; copy_row?: number; rows: string[][] } }
+
+/** worker mode that runs a document's checks again on a file the editor made (files/hwpx-edit.ts) */
+export const HWPX_VERIFY_MODE = 'hwpx-verify'
+
+/** Where edit_hwpx saves a new file: `output` without a trailing "/", with .hwpx added unless it ends so (as make_file
+ * names its output). The tool and the chat's confirmation card both use this. */
+export function hwpxOutputPath(output: string): string {
+  const o = output.replace(/\/+$/, '')
+  return /\.hwpx$/i.test(o) ? o : `${o}.hwpx`
+}
+
+/** What the read-back needs from the worker: where the lines of the old document change. `at` and `remove` count lines
+ * of the old document as hwpxReadLines gives them; edits come in order, `insert` the new lines at that place, and
+ * `changes` the changes (0-based) the edit comes from. */
+export interface LineEdit { at: number; remove: number; insert: string[]; changes: number[] }
+/** The worker's report on a change it made: which change, where (for the AI), the text before and after. */
+export interface HwpxEditNote { change: number; where: string; before: string; after: string; /** other changes in the same paragraph */ also?: number[] }
+export interface HwpxEditReport { lineEdits: LineEdit[]; notes: HwpxEditNote[]; placeholders: string[] }
+
+/** stdin of the worker's edit mode: 4 bytes (big-endian) for the length of the changes' JSON, the JSON, the document */
+export const encodeHwpxEditRequest = (changes: HwpxChange[], doc: Uint8Array) => encodeHwpxRequest(JSON.stringify(changes), doc)
+export function decodeHwpxEditRequest(b: Uint8Array): { changes: unknown; doc: Uint8Array } {
+  const r = decodeHwpxRequest(b)
+  if (!r.template) throw new Error('bad request')
+  return { changes: JSON.parse(r.astJson), doc: r.template }
+}
+/** stdout of the worker's edit mode: the report's JSON framed the same way, then the new file */
+export const encodeHwpxEditResult = (report: HwpxEditReport, file: Uint8Array) => encodeHwpxRequest(JSON.stringify(report), file)
+export function decodeHwpxEditResult(b: Uint8Array): { report: HwpxEditReport; file: Uint8Array } {
+  const r = decodeHwpxRequest(b)
+  if (!r.template) throw new Error('bad result')
+  const report = JSON.parse(r.astJson) as HwpxEditReport
+  if (!Array.isArray(report?.lineEdits) || !Array.isArray(report.notes) || !Array.isArray(report.placeholders)) throw new Error('bad result')
+  return { report, file: r.template }
+}
+
+/** The lines a paragraph reads back as (hwpxReadLines of hwp.ts's text): a heading paragraph (`heading` 1-6) is one
+ * line, any other one line per hard line break; empty lines are left out. */
+export function hwpxParagraphLines(text: string, heading: number): string[] {
+  if (heading && norm(text)) return [line(heading, norm(text))]
+  return text.split('\n').map(norm).filter((t) => t).map((t) => line(0, t))
+}
+
+/** `old` with the edits applied, or null when they do not fit it (out of order, or past its end). */
+export function applyLineEdits(old: string[], edits: LineEdit[]): string[] | null {
+  const out: string[] = []
+  let pos = 0
+  for (const e of edits) {
+    if (!Number.isInteger(e.at) || !Number.isInteger(e.remove) || e.remove < 0 || e.at < pos || e.at + e.remove > old.length || !Array.isArray(e.insert)) return null
+    out.push(...old.slice(pos, e.at), ...e.insert)
+    pos = e.at + e.remove
+  }
+  out.push(...old.slice(pos))
+  return out
+}
+
+/** A line's text without its `# ` / `| ` mark and without any white space (lines are compared without it). */
+const bare = (s: string) => s.replace(/^(#{1,6}|\|) /, '').replace(/\s+/g, '')
+/** a change's text as the editor writes it (cleanText), compared the same way */
+const bareText = (s: string) => cleanText(s).replace(/\s+/g, '')
+/** the longest text, in characters, whose replacements are checked one by one (a longer paragraph is refused) */
+const CHECK_CHARS = 200_000
+
+/** Whether `to` is `from` with some non-overlapping occurrences of each pair's text replaced by its new text (null:
+ * too large to check). A search over (place in from, place in to), each visited once. */
+function replacedFrom(from: string, to: string, pairs: [string, string][]): boolean | null {
+  if (from.length > CHECK_CHARS || to.length > CHECK_CHARS) return null
+  const seen = new Set<number>()
+  const stack: [number, number][] = [[0, 0]]
+  while (stack.length) {
+    const [r, i] = stack.pop()!
+    if (r === from.length && i === to.length) return true
+    const key = r * (to.length + 1) + i
+    if (seen.has(key)) continue
+    seen.add(key)
+    if (seen.size > 4 * CHECK_CHARS) return null
+    if (r < from.length && i < to.length && from[r] === to[i]) stack.push([r + 1, i + 1])
+    // a text of white space only (nothing once white space is aside) may have been replaced anywhere
+    for (const [f, p] of pairs) if (from.startsWith(f, r) && to.startsWith(p, i) && (f || p)) stack.push([r + f.length, i + p.length])
+  }
+  return false
+}
+
+/**
+ * The read-back of edit_hwpx, run by the server on what hwp.ts reads in the worker (as read and grep read them):
+ * the new file's lines must be the old file's with the worker's line edits applied, so every paragraph the changes do
+ * not touch reads exactly as before; and every line edit must be what the changes it names make: for replacements,
+ * the lines removed with some of those texts replaced (white space aside); for a filled cell or added rows, nothing
+ * removed and exactly their text put in. Every change must show in an edit. Returns why not, or null.
+ */
+export function hwpxEditMismatch(changes: HwpxChange[], old: string[], got: string[], report: HwpxEditReport): string | null {
+  const want = applyLineEdits(old, report.lineEdits)
+  if (!want) return 'the changes do not fit the document as it reads'
+  const diff = firstDifference(want, got)
+  if (diff) return diff
+  const shown = new Set<number>()
+  for (const [k, e] of report.lineEdits.entries()) {
+    if (!Array.isArray(e.changes) || !e.changes.length || e.changes.some((c) => !Number.isInteger(c) || !changes[c])) return `edit ${k + 1} does not name the changes it comes from`
+    for (const c of e.changes) shown.add(c)
+    const removed = old.slice(e.at, e.at + e.remove).map(bare).join('')
+    const added = e.insert.map(bare).join('')
+    const made = e.changes.map((c) => changes[c]!)
+    const n = `change ${e.changes[0]! + 1}`
+    const one = made[0]!
+    if (!('find' in one) || made.some((c) => !('find' in c))) {
+      if (made.length !== 1) return `${n}: other changes are in the same place`
+      if (removed) return `${n}: text was removed where ${'cell' in one ? 'an empty cell was filled' : 'rows were added'}`
+      const text = 'cell' in one ? bareText(one.value) : 'add_rows' in one ? one.add_rows.rows.flat().map(bareText).join('') : ''
+      if (added !== text) return `${n}: its new text does not read back`
+      continue
+    }
+    const ok = replacedFrom(removed, added, made.map((c) => 'find' in c ? [bareText(c.find), bareText(c.replace)] as [string, string] : ['', '']))
+    if (ok === null) return `${n}: the paragraph is too long to check`
+    if (!ok) return `${n}: the paragraph does not read as its old text with the replacement`
+  }
+  for (const i of changes.keys()) if (!shown.has(i)) return `change ${i + 1}: it does not show in the document`
+  return null
+}
+
+/**
+ * The new file's parts against the old file's, from the two central directories only (the server expands and parses
+ * neither): the same parts in the same order, each with the same CRC, sizes and method, but the sections the changes
+ * are in. A part added, dropped or changed elsewhere is refused. Returns why not, or null.
+ */
+export function hwpxPartsMismatch(oldFile: Uint8Array, newFile: Uint8Array): string | null {
+  let a: ZipDirEntry[], b: ZipDirEntry[]
+  try { a = zipDirectory(oldFile); b = zipDirectory(newFile) } catch (e) { return `a zip directory could not be read (${String((e as Error).message).slice(0, 80)})` }
+  if (a.length !== b.length || a.some((x, i) => x.name !== b[i]!.name)) return 'the new file does not have the same parts as the old one'
+  for (const [i, x] of a.entries()) {
+    const y = b[i]!
+    if (/^Contents\/section\d+\.xml$/i.test(x.name)) { if (y.method !== 0 && y.method !== 8) return `${x.name} has another compression`; continue }
+    if (x.crc !== y.crc || x.usize !== y.usize || x.csize !== y.csize || x.method !== y.method) return `${x.name} is not the same as before`
   }
   return null
 }

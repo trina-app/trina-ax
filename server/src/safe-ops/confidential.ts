@@ -9,6 +9,7 @@ const LOCAL_TOOLS = new Set([
   'write',
   'edit',
   'make_file',
+  'edit_hwpx',
   'share_file',
   'remember',
   'forget',

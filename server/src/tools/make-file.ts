@@ -353,18 +353,8 @@ export class MakeFile {
    * into account), and when more people can read the output than those files (or what the chat read), the chat turn
    * asks the person first. No chat turn (nobody to ask): refused. Runs before anything is placed.
    */
-  private async checkWidening(c: ToolCtx, target: string, targetSegs: string[], sources: string[], binding?: string) {
-    for (const p of sources) c.files.readPaths.add(p)
-    if (c.confirmWidening) {
-      const refusal = await c.confirmWidening(target, sources, binding)
-      if (refusal) throw new Denied(refusal)
-      return
-    }
-    const db = this.ctx.db
-    const rules = this.files.rules()
-    const chatId = c.turnId ? (db.query('SELECT chat_id FROM turns WHERE id = ?').get(c.turnId) as { chat_id: string } | null)?.chat_id ?? null : null
-    const w = widening(db, chatId, targetSegs, sources.map((p) => sourceOf(db, rules, p)))
-    if (w) throw new Denied(`more people can read '${target}' than the files it is made from; nothing was saved. Save it in a folder that only the people who can read those files can see, or ask the user where to put it.`)
+  private checkWidening(c: ToolCtx, target: string, targetSegs: string[], sources: string[], binding?: string) {
+    return confirmSources(this.ctx, this.files, c, target, targetSegs, sources, binding)
   }
 
   private template(c: ToolCtx, tpl: string, format: string, work: string): { local: string; rel: string } {
@@ -476,8 +466,29 @@ export class MakeFile {
 }
 
 /**
+ * A new file carries the bytes of `sources` (make_file's source, images and template; edit_hwpx's document saved as a
+ * new file): they join the chat's read scope, and when more people can read the target than those files (or what the
+ * chat read), the chat turn asks the person first. No chat turn (nobody to ask): refused. Runs before anything is
+ * placed.
+ */
+export async function confirmSources(ctx: AppContext, files: TeamFiles, c: ToolCtx, target: string, targetSegs: string[], sources: string[], binding?: string) {
+  for (const p of sources) c.files.readPaths.add(p)
+  if (c.confirmWidening) {
+    const refusal = await c.confirmWidening(target, sources, binding)
+    if (refusal) throw new Denied(refusal)
+    return
+  }
+  const db = ctx.db
+  const rules = files.rules()
+  const chatId = c.turnId ? (db.query('SELECT chat_id FROM turns WHERE id = ?').get(c.turnId) as { chat_id: string } | null)?.chat_id ?? null : null
+  const w = widening(db, chatId, targetSegs, sources.map((p) => sourceOf(db, rules, p)))
+  if (w) throw new Denied(`more people can read '${target}' than the files it is made from; nothing was saved. Save it in a folder that only the people who can read those files can see, or ask the user where to put it.`)
+}
+
+/**
  * Put a produced file into the team folder (policy checked again) and record it: the AI's new files (make_file, and
- * generated media such as generate_video). An existing file the AI has not read in this turn is kept (conflict copy).
+ * generated media such as generate_video) and edit_hwpx's changed documents. An existing file the AI read in this turn
+ * gets a new version (the old bytes in its history); one it has not read, or that changed since, is kept (conflict copy).
  */
 /** placeProduced options. `turnBytes: false`: the file does not count against the turn's write budget
  * (maxWriteBytesPerTurn, a guard against an AI writing in a loop): save_url's downloads, which the person sized on a

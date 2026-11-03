@@ -262,7 +262,7 @@ function align(a: unknown): Align | undefined {
 
 // ---------------------------------------------------------------- XML helpers
 const TEMPLATE_BAD = 'the template cannot be used'
-const escText = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+export const escText = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
 const escAttr = (s: string) => escText(s).replace(/"/g, '&quot;')
 const ENTITIES: Record<string, string> = { amp: '&', lt: '<', gt: '>', quot: '"', apos: "'" }
 const unescape = (s: string) => s.replace(/&(#x[0-9a-f]+|#\d+|\w+);/gi, (m, e: string) =>
@@ -318,7 +318,10 @@ const withAttr = (open: string, name: string, value: string) => {
 }
 
 /** An element of a template part as saxes read it: its qualified name, attributes in order, children. */
-interface XNode { name: string; attrs: [string, string][]; kids: (XNode | string)[] }
+export interface XNode { name: string; attrs: [string, string][]; kids: (XNode | string)[] }
+/** how a check refuses: a template's message by default; files/hwpx-edit.ts passes the one for a document */
+export type Refuse = (part: string, why: string) => never
+const templateRefuse: Refuse = (part, why) => { throw new ToolError(`${TEMPLATE_BAD} (${part}: ${why}). Use a .hwpx saved by Hangul, or no template.`) }
 /** elements of a template part that become a tree (Hangul's largest header in a corpus of 1,124 files has 15,050) */
 const TREE_NODES_MAX = 200_000
 /** elements of a part that is only checked, not kept (a template's text) */
@@ -330,9 +333,16 @@ const XML_NODES_MAX = 2_000_000
  * prefixes (the writer adds elements with them). Returns the whole part as a tree, or with `only` just the first
  * element of each of those names with what is inside it (the rest is checked and dropped, so a template's long text
  * costs no memory). `noSelfNesting`: an element inside one of the same name is refused (the header's items never nest).
+ * `maxNodes`: how many elements the part may have. `visit`: called at every element's start (with its attributes) and
+ * end, and with every attribute and every text by the name of
+ * the element they are in (files/hwpx-edit.ts looks for references outside the document).
  */
-function parseXml(xml: string, part: string, o: { noSelfNesting?: boolean; only?: string[] } = {}): Map<string, XNode> {
-  const bad = (why: string): never => { throw new ToolError(`${TEMPLATE_BAD} (${part}: ${why}). Use a .hwpx saved by Hangul, or no template.`) }
+export function parseXml(xml: string, part: string, o: {
+  noSelfNesting?: boolean; only?: string[]; refuse?: Refuse; maxNodes?: number
+  visit?: { open?: (el: string, attrs: Map<string, string>) => void; close?: (el: string) => void; attr?: (el: string, name: string, value: string) => void; text?: (el: string, text: string) => void }
+} = {}): Map<string, XNode> {
+  const bad = (why: string): never => (o.refuse ?? templateRefuse)(part, why)
+  const maxNodes = o.maxNodes ?? XML_NODES_MAX
   const parser = new SaxesParser({ xmlns: true })
   const canonical = new Map<string, string>(OWPML_NS.map(([p, u]) => [u, p]))
   const bound = new Map<string, string>(OWPML_NS.map(([p, u]) => [p, u]))
@@ -348,12 +358,14 @@ function parseXml(xml: string, part: string, o: { noSelfNesting?: boolean; only?
   parser.on('processinginstruction', () => bad('processing instructions'))
   parser.on('opentag', (tag) => {
     if (names.length >= HWPX_LIMITS.xmlDepth) bad(`nested more than ${HWPX_LIMITS.xmlDepth} levels`)
-    if (++nodes > XML_NODES_MAX) bad('too many elements')
+    if (++nodes > maxNodes) bad('too many elements')
     if (!names.length && ++roots > 1) bad('two root elements')
     const want = canonical.get(tag.uri)
     if (want !== undefined && tag.prefix !== want) bad(`the prefix "${tag.prefix}" for ${want}`)
     for (const [p, u] of Object.entries(tag.ns ?? {})) if (bound.has(p) && bound.get(p) !== u) bad(`the prefix "${p}" bound to another namespace`)
     if (o.noSelfNesting && names.includes(tag.name)) bad(`${tag.name} inside ${tag.name}`)
+    if (o.visit?.attr) for (const a of Object.values(tag.attributes)) o.visit.attr(tag.name, a.name, a.value)
+    if (o.visit?.open) o.visit.open(tag.name, new Map(Object.values(tag.attributes).map((a) => [a.name, a.value])))
     names.push(tag.name)
     const keep = stack.length > 0 || (o.only ? o.only.includes(tag.name) && !out.has(tag.name) : names.length === 1)
     if (!keep) return
@@ -363,8 +375,11 @@ function parseXml(xml: string, part: string, o: { noSelfNesting?: boolean; only?
     else out.set(tag.name, node)
     stack.push(node)
   })
-  parser.on('text', (t) => { if (stack.length) stack[stack.length - 1]!.kids.push(t) })
-  parser.on('closetag', () => { names.pop(); if (stack.length) stack.pop() })
+  parser.on('text', (t) => {
+    if (o.visit?.text && names.length) o.visit.text(names[names.length - 1]!, t)
+    if (stack.length) stack[stack.length - 1]!.kids.push(t)
+  })
+  parser.on('closetag', () => { const n = names.pop(); if (n !== undefined) o.visit?.close?.(n); if (stack.length) stack.pop() })
   parser.write(xml).close()
   if (!roots) bad('empty')
   return out
@@ -402,9 +417,13 @@ const ADDRESS = /^\s*(\\\\|\/\/|[a-z][a-z0-9+.-]*:\/\/|file:|[a-z]:[\\/])/i
  * dropped), text only in `textIn` elements (a numbering label), and no reference outside the file: a BinData item
  * (pictures, embedded fonts; BinData is not carried over) or an address or path, in an attribute or in text.
  * Namespace names are not addresses. Under hh:layoutCompatibility, Hangul's empty flag elements are allowed.
+ * `refuse`: the caller's refusal (a document being changed, files/hwpx-edit.ts) instead of a template's.
  */
-function assertKnown(n: XNode, part: string, allowed: Set<string>, textIn: Set<string> = new Set()) {
-  const bad = (why: string): never => { throw new ToolError(`${TEMPLATE_BAD}: ${part} ${why}. Use a .hwpx saved by Hangul, or no template.`) }
+export function assertKnown(n: XNode, part: string, allowed: Set<string>, textIn: Set<string> = new Set(), refuse?: Refuse) {
+  const bad = (why: string): never => {
+    if (refuse) return refuse(part, why.replace(/, which make_file does not carry over$/, ''))
+    throw new ToolError(`${TEMPLATE_BAD}: ${part} ${why}. Use a .hwpx saved by Hangul, or no template.`)
+  }
   const stack = [n]
   while (stack.length) {
     const e = stack.pop()!
@@ -464,6 +483,27 @@ interface Template {
   textWidth: number
 }
 
+/** compound-file (OLE) bytes: an embedded object, or a .hwp inside the package */
+export const isCompoundFile = (b: Uint8Array) => b.length >= 8 && Buffer.from(b.subarray(0, 8)).toString('hex') === 'd0cf11e0a1b11ae1'
+
+/**
+ * The checks every .hwpx from outside gets, a template here or a document changed in place (files/hwpx-edit.ts): a
+ * Hangul package (the application/hwp+zip mimetype), no scripts (Scripts/), no OLE objects (BinData/*.ole, compound
+ * files in BinData, hp:ole anywhere in the XML; an equation's hp:script is its formula, not a program), no encryption
+ * or distribution-only manifest. `text` reads a part as UTF-8, null when it is missing.
+ */
+export function assertPlainPackage(parts: Map<string, Uint8Array>, text: (n: string) => string | null, bad: (why: string) => never) {
+  const names = [...parts.keys()]
+  if (names.some((n) => /(^|\/)scripts(\/|$)/i.test(n))) bad('it contains scripts (Scripts/)')
+  for (const [n, b] of parts) if (/^BinData\//i.test(n) && (/\.ole$/i.test(n) || isCompoundFile(b))) bad('it contains an embedded OLE object')
+  const mimetype = text('mimetype')
+  if (mimetype === null || mimetype.trim() !== 'application/hwp+zip') bad('it is not a Hangul document (no application/hwp+zip mimetype)')
+  if (/encryption|<(?:\w+:)?encrypt/i.test(text('META-INF/manifest.xml') ?? '')) bad('it is encrypted or a distribution-only document')
+  for (const n of names) {
+    if (/\.(xml|hpf|rdf)$/i.test(n) && /<(?:\w+:)?ole\b/i.test(text(n)!)) bad(`${n} contains an embedded OLE object`)
+  }
+}
+
 /** The parts of a template make_file uses, after the checks above. */
 export function readTemplate(bytes: Uint8Array): Template {
   const bad = (why: string): never => { throw new ToolError(`${TEMPLATE_BAD}: ${why}. Use a .hwpx saved by Hangul, or no template.`) }
@@ -479,24 +519,13 @@ export function readTemplate(bytes: Uint8Array): Template {
     const content = c.FileIndex[i]?.content
     parts.set(p.replace(/^Root Entry\//, ''), content instanceof Uint8Array ? content : Uint8Array.from(content ?? []))
   })
-  const names = [...parts.keys()]
-  if (names.some((n) => /(^|\/)scripts(\/|$)/i.test(n))) bad('it contains scripts (Scripts/)')
-  for (const [n, b] of parts) {
-    if (/^BinData\//i.test(n) && (/\.ole$/i.test(n) || (b.length >= 8 && Buffer.from(b.subarray(0, 8)).toString('hex') === 'd0cf11e0a1b11ae1'))) bad('it contains an embedded OLE object')
-  }
   const text = (n: string) => {
     const b = parts.get(n)
     if (!b) return null
     if (b.length > HWPX_LIMITS.headerBytes) bad(`${n} is larger than ${HWPX_LIMITS.headerBytes / MIB} MB`)
     try { return new TextDecoder('utf-8', { fatal: true }).decode(b) } catch { return bad(`${n} is not UTF-8`) }
   }
-  const mimetype = text('mimetype')
-  if (mimetype === null || mimetype.trim() !== 'application/hwp+zip') bad('it is not a Hangul document (no application/hwp+zip mimetype)')
-  if (/encryption|<(?:\w+:)?encrypt/i.test(text('META-INF/manifest.xml') ?? '')) bad('it is encrypted or a distribution-only document')
-  // embedded objects anywhere in the document's text (an equation's hp:script is its formula, not a program)
-  for (const n of names) {
-    if (/\.(xml|hpf|rdf)$/i.test(n) && /<(?:\w+:)?ole\b/i.test(text(n)!)) bad(`${n} contains an embedded OLE object`)
-  }
+  assertPlainPackage(parts, text, bad)
   const headerXml = text('Contents/header.xml') ?? bad('it has no Contents/header.xml')
   const sectionXml = text('Contents/section0.xml') ?? bad('it has no Contents/section0.xml')
   // Both parts are read into trees and only what is used is written again, in one canonical form (serialize), so the
