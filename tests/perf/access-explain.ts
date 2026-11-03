@@ -8,7 +8,7 @@
 //     response check the server runs in dev (validateResponses) and JSON.
 // Run: bun tests/perf/access-explain.ts   (exit 1 when access() got more than 25% slower, or any answer took over 750 ms,
 // whatever the size: PEOPLE=2000 RULE_FOLDERS=2500 is the size it is meant for; the slowest there, the root folder with
-// all 1999 people on one page, took 249 ms on a Mac and 458 ms in Linux Docker)
+// all 1999 people on one page, took 200-249 ms on a Mac and 273-458 ms in Linux Docker on a busy machine)
 import fs from 'node:fs'
 import path from 'node:path'
 import { FolderAccessResponse, PersonAccessResponse } from '@mycel/shared/api'
