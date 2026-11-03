@@ -289,3 +289,11 @@ Source change from potenlab/team-ax `a77d7e4` (branch `feat/project-page`, core 
 - `Home.tsx`: the same change; `PopularSkills` stays. `Composer.tsx`: only the `placeholder` prop; the answering and running hints are unchanged.
 - Only here: `DevEnvSection.tsx` now exports `DevEnvRow`, one line with the box state that opens in place (box, jobs, processes, port and preview, activity; Edit for admins inside). `web/test/mock/server.ts` gets `POST /__test/dev-env` and the dev environment endpoints, so the page is tested and shown with it. `web/test/unit/design-contrast.test.ts` now checks the project's Delete as a red menu item, because it is no longer a `ghost-danger` button.
 - `es` and `ja` get the new keys (`projects.about`, `open`, `items`, `itemsMore`); `projects.files` goes from all five languages.
+
+## 2026-11-03 Chat screen like Claude's
+
+Source change from potenlab/team-ax branch `feat/chat-like-claude` (on top of `feat/project-page`, not yet on core main), ported by hand. No core history was imported.
+
+- Taken as they are: `web/src/components/TitleMenu.tsx` (the project page's name menu, moved out of `Projects.tsx` so the chat uses it too), `web/src/components/chat/chatActions.ts` (rename and delete for the sidebar and the chat's name) and `web/test/e2e/chat-look.spec.ts`.
+- `Chat.tsx`, `Messages.tsx`, `Composer.tsx`, `Sidebar.tsx`: the same change on this repository's files. Delete keeps this repository's trash days in its question (`chatTrashDays`), and the file card has no download branch, as before here.
+- Only here: `chat.reply` in Japanese and Spanish too, `web/test/unit/design-contrast.test.ts` now reads the red Delete item from `TitleMenu.tsx`, and `web/test/e2e/ask-answer.spec.ts` expects "Reply" in the box once the question is answered.

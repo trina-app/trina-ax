@@ -248,6 +248,7 @@ export const ja: Record<MessageKey, string> = {
   'chat.engineSwitched': "{engine}に切り替えました — 以前の会話は記録として引き継がれました",
   'chat.inTrash': "このチャットは削除されており、{date}に完全に削除されます。続けるには復元してください。",
   'chat.footer': "AIは誤ることがあります。重要な情報は確認してください。チャットは自分だけが閲覧できます。",
+  'chat.reply': '返信',
   "outbox.label": "送信待ちのメッセージ",
   "outbox.placeholder": "次のメッセージを入力 — 回答が終わると送信されます",
   "outbox.placeholderChoice": "先に上で選んでください — 今入力したメッセージは回答が終わると送信されます",

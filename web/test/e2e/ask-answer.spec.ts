@@ -49,7 +49,8 @@ test('the message box answers the open question with the typed text; files attac
   await expect(page.getByTestId('composer-no-secrets')).toHaveCount(0)
   // the attached file was not part of the answer: it is still in the box for the next message
   await expect(page.getByTestId('attachment-chip')).toContainText('notes.txt')
-  await expect(input).toHaveAttribute('placeholder', '무엇이든 물어보세요')
+  // back to the usual hint of a chat that has started
+  await expect(input).toHaveAttribute('placeholder', '답장하기')
   expect(realErrors(errors)).toEqual([])
 })
 

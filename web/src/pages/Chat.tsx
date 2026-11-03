@@ -3,7 +3,7 @@
 // A message sent while an answer runs waits under the conversation and goes when the answer is done
 // (store/sendQueue.ts, components/chat/QueuedMessages.tsx); while the AI waits for the answer to its question, the
 // message box answers that question instead (lib/askAnswer.ts).
-import { FolderKanban, Globe, Loader2, RotateCcw, Trash2 } from 'lucide-react'
+import { Globe, Loader2, Pencil, RotateCcw, Trash2 } from 'lucide-react'
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import type { Attachment, Chat, EngineId } from '@mycel/shared/api'
@@ -21,9 +21,11 @@ import { emptyThread, runningMessage, type ViewMessage } from '../store/thread'
 import { QueueFull, useSendQueue } from '../store/sendQueue'
 import { toast } from '../store/ui'
 import Composer, { type ComposerHandle, type EngineChoice } from '../components/chat/Composer'
+import { useChatActions } from '../components/chat/chatActions'
 import { AssistantMessage, UserMessage } from '../components/chat/Messages'
 import QueuedMessages from '../components/chat/QueuedMessages'
 import type { EnginePick } from '../components/chat/EngineMenu'
+import { TitleMenu } from '../components/TitleMenu'
 import { Button, ErrorNote, IconButton, Skeleton, confirmDialog, useAnnounce } from '../components/ui'
 
 export default function ChatPage() {
@@ -53,6 +55,19 @@ function ChatView({ chatId }: { chatId: string }) {
   const loadEngines = useEngines((s) => s.load)
   // the engine / model are the admin's choice: the picker and "retry with another model" only for people allowed
   const choose = canChooseEngine(me)
+  const actions = useChatActions()
+  const title = chat?.title || t('chat.untitled')
+  // a chat in a project shows the project's name before its own, like Claude
+  const [projectName, setProjectName] = useState<string | null>(null)
+  const projectId = chat?.projectId
+  useEffect(() => {
+    if (!projectId) return
+    let live = true
+    api.call(API.getProject, { params: { id: projectId } }).then((p) => live && setProjectName(p.name), () => {})
+    return () => {
+      live = false
+    }
+  }, [projectId])
 
   useEffect(() => {
     if (chatFromList) setChat(chatFromList)
@@ -240,15 +255,35 @@ function ChatView({ chatId }: { chatId: string }) {
 
   return (
     <div className="flex h-full flex-col">
+      {/* like the top of a Claude chat: the project it is in, then its name, which opens rename and delete */}
       <div className="flex h-12 shrink-0 items-center gap-2 border-b border-line px-4">
-        <h1 className="min-w-0 flex-1 truncate text-center text-sm font-medium text-ink md:text-left" data-testid="chat-title">
-          {chat?.title || t('chat.untitled')}
-        </h1>
-        {chat?.projectId && (
-          <Link to={`/projects/${chat.projectId}`} className="hidden items-center gap-1 rounded-md px-2 py-1 text-xs text-muted hover:bg-hover sm:inline-flex">
-            <FolderKanban size={13} aria-hidden /> {t('sidebar.projects')}
-          </Link>
-        )}
+        <div className="flex min-w-0 flex-1 items-center justify-center gap-1 text-sm md:justify-start">
+          {chat?.projectId && (
+            <>
+              <Link to={`/projects/${chat.projectId}`} className="hidden max-w-[40%] shrink-0 truncate rounded-md px-1.5 py-1 text-muted hover:text-ink sm:block" data-testid="chat-project">
+                {projectName ?? t('sidebar.projects')}
+              </Link>
+              <span className="hidden text-faint sm:inline" aria-hidden>
+                /
+              </span>
+            </>
+          )}
+          {chat && !chat.deletedAt ? (
+            <TitleMenu
+              name={title}
+              heading="chat-title"
+              testId="chat-menu"
+              items={[
+                { label: t('chat.rename'), icon: <Pencil size={14} aria-hidden />, onSelect: () => void actions.rename(chat).then((c) => c && setChat(c)), testId: 'chat-rename' },
+                { label: t('common.delete'), icon: <Trash2 size={14} aria-hidden />, onSelect: () => void actions.remove(chat), danger: true, testId: 'chat-delete' },
+              ]}
+            />
+          ) : (
+            <h1 className="min-w-0 truncate px-1.5 font-medium text-ink" data-testid="chat-title">
+              {title}
+            </h1>
+          )}
+        </div>
         {isDesktop() && <BrowserToggle />}
       </div>
       <div ref={scroller} onScroll={onScroll} className="scroll-thin min-h-0 flex-1 overflow-y-auto" data-testid="messages">
@@ -282,6 +317,7 @@ function ChatView({ chatId }: { chatId: string }) {
             onEngine={choose ? onEngine : undefined}
             engines={engines}
             models={models}
+            placeholder={t('chat.reply')}
             autoFocus
           />
         )}

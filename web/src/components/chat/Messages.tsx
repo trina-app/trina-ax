@@ -2,8 +2,11 @@
 // "sending" / "not sent [send again]". Answers: steps, queue position, Markdown, artifact cards, ask_user cards,
 // file summary, end state (error / stopped / paused at the per-answer limit with "continue"), the note that a long
 // conversation reached the AI only in part, the files the AI looked at ("참고한 파일"), copy, regenerate, branch switch.
+// Like Claude: an answer is plain text in the column, with no picture beside it; its actions stay under the newest
+// answer and show on older ones when the pointer or focus is on them (always on touch screens, which have no hover).
+// A file sent with a message is a small card above the bubble: its name, its type and its size.
 import clsx from 'clsx'
-import { AlertTriangle, BookmarkPlus, ChevronDown, ChevronLeft, ChevronRight, CirclePause, FileAudio, FileText, FileX, FolderOpen, History, Loader2, Pencil, Play, RotateCcw, Shapes, Sparkles, Square } from 'lucide-react'
+import { AlertTriangle, BookmarkPlus, ChevronDown, ChevronLeft, ChevronRight, CirclePause, History, Loader2, Pencil, Play, RotateCcw, Shapes, Square } from 'lucide-react'
 import { useMemo, useState } from 'react'
 import { useShallow } from 'zustand/react/shallow'
 import { chatErrorReason, ERROR_MESSAGES, isDefaultErrorMessage, type Attachment, type EngineId } from '@mycel/shared/api'
@@ -27,6 +30,16 @@ import Steps from './Steps'
 import { ENGINE_LABEL, EngineOptions, type EnginePick } from './EngineMenu'
 
 export { ENGINE_LABEL }
+
+/** a message's actions on a screen with a mouse: shown while the pointer or focus is on the message */
+const ON_HOVER = 'transition [@media(hover:hover)]:opacity-0 group-focus-within:opacity-100 group-hover:opacity-100'
+
+/** "notes.txt" -> "TXT": the file's type on its card (none for a name without one) */
+const typeOf = (name: string) => {
+  const dot = name.lastIndexOf('.')
+  const ext = dot > 0 ? name.slice(dot + 1) : ''
+  return ext && ext.length <= 5 ? ext.toUpperCase() : ''
+}
 
 export function BranchNav({ m, onSelect, disabled }: { m: ViewMessage; onSelect: (id: string) => void; disabled?: boolean }) {
   const t = useT()
@@ -56,7 +69,7 @@ export function AttachmentView({ a, align = 'end' }: { a: Attachment; align?: 's
   if (team && a.unavailable)
     return (
       <span className={clsx('inline-flex max-w-[80%] items-center gap-2 rounded-xl border border-dashed border-line px-3 py-2 text-sm text-faint', align === 'end' && 'self-end')} data-testid="attachment-unavailable">
-        <FileX size={16} className="shrink-0" aria-hidden /> {t('attach.unavailable')}
+        {t('attach.unavailable')}
       </span>
     )
   if (a.kind === 'image' && !thumbFailed)
@@ -72,23 +85,20 @@ export function AttachmentView({ a, align = 'end' }: { a: Attachment; align?: 's
         />
       </button>
     )
-  const icon = team ? (
-    <FolderOpen size={16} className="shrink-0 text-accent-text" aria-label={t('composer.teamFile', { path: a.path })} />
-  ) : a.kind === 'audio' ? (
-    <FileAudio size={16} className="shrink-0 text-accent-text" aria-hidden />
-  ) : (
-    <FileText size={16} className="shrink-0 text-muted" aria-hidden />
-  )
+  const ext = typeOf(a.name)
   const body = (
     <>
-      {icon}
-      <span className="truncate font-medium">{a.name}</span>
-      <span className="shrink-0 text-xs text-faint">{formatSize(a.size, locale)}</span>
-      {team && a.changed && <span className="shrink-0 text-xs text-warn">{t('attach.changed')}</span>}
-      {team && a.moved && !a.changed && <span className="shrink-0 text-xs text-faint">{t('attach.moved')}</span>}
+      <span className="line-clamp-2 font-medium [overflow-wrap:anywhere]">{a.name}</span>
+      {team && <span className="sr-only">{t('composer.teamFile', { path: a.path })}</span>}
+      <span className="mt-auto flex flex-wrap items-center gap-x-1.5 gap-y-0.5 pt-2 text-[11px] text-faint">
+        {ext && <span className="rounded border border-line px-1 leading-4 font-medium text-muted">{ext}</span>}
+        {formatSize(a.size, locale)}
+        {team && a.changed && <span className="text-warn">{t('attach.changed')}</span>}
+        {team && a.moved && !a.changed && <span>{t('attach.moved')}</span>}
+      </span>
     </>
   )
-  const cls = clsx('inline-flex max-w-[80%] items-center gap-2 rounded-xl border px-3 py-2 text-sm', team ? 'border-accent/30 bg-accent-soft' : 'border-line bg-surface')
+  const cls = clsx('flex min-h-24 w-36 max-w-full flex-col rounded-xl border p-3 text-sm sm:w-44', team ? 'border-accent/30 bg-accent-soft' : 'border-line bg-surface')
   // a team file can be dragged from the message into the message box again
   const drag = team
     ? {
@@ -118,9 +128,13 @@ export function UserMessage({ m, chatId, busy, onEdit, onSelectBranch }: { m: Vi
   const [open, setOpen] = useState(!long)
   return (
     <div className="group flex min-w-0 flex-col items-end gap-2" data-testid="user-message" data-message-id={m.id}>
-      {m.attachments.map((a) => (
-        <AttachmentView key={a.id} a={a} />
-      ))}
+      {m.attachments.length > 0 && (
+        <div className="flex max-w-[85%] flex-wrap items-end justify-end gap-2">
+          {m.attachments.map((a) => (
+            <AttachmentView key={a.id} a={a} />
+          ))}
+        </div>
+      )}
       {editing ? (
         <form
           className="w-full max-w-[85%] rounded-2xl border border-field-border bg-surface p-2 has-[textarea:focus]:border-accent has-[textarea:focus]:ring-1 has-[textarea:focus]:ring-accent"
@@ -173,7 +187,7 @@ export function UserMessage({ m, chatId, busy, onEdit, onSelectBranch }: { m: Vi
         </span>
       )}
       {!m.local && !editing && (
-        <div className="flex items-center gap-1 opacity-100 transition sm:opacity-0 sm:group-focus-within:opacity-100 sm:group-hover:opacity-100">
+        <div className={clsx('flex items-center gap-1', ON_HOVER)}>
           <BranchNav m={m} onSelect={onSelectBranch} disabled={busy} />
           <CopyButton text={m.content} />
           <IconButton
@@ -279,11 +293,8 @@ export function AssistantMessage({
   const [suggesting, setSuggesting] = useState(false)
 
   return (
-    <div className="group flex gap-3" data-testid="assistant-message" data-message-id={m.id} data-status={m.status} aria-busy={streaming}>
-      <div className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-accent-soft text-accent-text" aria-hidden>
-        <Sparkles size={15} />
-      </div>
-      <div className="min-w-0 flex-1 text-[15px]">
+    <div className="group" data-testid="assistant-message" data-message-id={m.id} data-status={m.status} aria-busy={streaming}>
+      <div className="min-w-0 text-[15px]">
         {switchedFrom && m.engine && (
           <div className="mb-3 flex items-center gap-2 text-xs text-faint">
             <span className="h-px flex-1 bg-line" />
@@ -357,7 +368,7 @@ export function AssistantMessage({
           </p>
         )}
         {!streaming && (
-          <div className="mt-1.5 flex flex-wrap items-center gap-1 opacity-100 transition sm:opacity-0 sm:group-focus-within:opacity-100 sm:group-hover:opacity-100" data-testid="answer-actions">
+          <div className={clsx('mt-1.5 -ml-1.5 flex flex-wrap items-center gap-1', !isLast && ON_HOVER)} data-testid="answer-actions">
             {m.content && <CopyButton text={m.content} html={() => answerHtml(m.content)} label={t('chat.copyAnswer')} />}
             <IconButton label={t('chat.regenerate')} disabled={busy} onClick={() => onRegenerate(m)} data-testid="regenerate">
               <RotateCcw size={13} />

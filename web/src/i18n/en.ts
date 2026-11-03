@@ -259,6 +259,7 @@ export const en: Record<MessageKey, string> = {
   'chat.engineSwitched': 'Switched to {engine} — the earlier conversation was passed on as a transcript',
   'chat.inTrash': 'This chat is deleted and will be removed for good on {date}. Restore it to keep chatting.',
   'chat.footer': 'AI can make mistakes. Check important information. Only you can see your chats.',
+  'chat.reply': 'Reply',
   "outbox.label": "Messages waiting to send",
   "outbox.placeholder": "Type your next message — it goes when the answer is done",
   "outbox.placeholderChoice": "Choose above first — a message typed now goes when the answer is done",

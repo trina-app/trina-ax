@@ -10,7 +10,7 @@
 // files also arrive from the file screen / preview ("Ask AI about this", "Add to current chat", drag from the preview).
 // "/" at the start lists the team skills (SkillMenu).
 import clsx from 'clsx'
-import { ArrowUp, Camera, Check, Clock, FileAudio, FileText, FolderOpen, Loader2, MessageCircleQuestion, Mic, MicOff, Monitor, Paperclip, Smartphone, Square, X, ChevronDown } from 'lucide-react'
+import { ArrowUp, Camera, Check, Clock, FileAudio, FileText, FolderOpen, Loader2, MessageCircleQuestion, Mic, MicOff, Monitor, Plus, Smartphone, Square, X, ChevronDown } from 'lucide-react'
 import { useEffect, useId, useImperativeHandle, useRef, useState, type Ref } from 'react'
 import { isUuid7, MESSAGE_ATTACHMENTS_MAX, SMALL_UPLOAD_MAX, uuidv7, type Attachment, type EngineId, type FileEntry, type TranscribeResult } from '@mycel/shared/api'
 import { api, API, errorText } from '../../lib/api'
@@ -581,7 +581,7 @@ export default function Composer({
                     }}
                     data-testid="attach-button"
                   >
-                    <Paperclip size={18} />
+                    <Plus size={19} />
                   </IconButton>
                   {attachMenu && (
                     <div

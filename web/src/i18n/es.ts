@@ -248,6 +248,7 @@ export const es: Record<MessageKey, string> = {
   'chat.engineSwitched': "Se cambió a {engine} — la conversación anterior se transfirió como transcripción",
   'chat.inTrash': "Este chat está eliminado y se borrará definitivamente el {date}. Restáurelo para seguir conversando.",
   'chat.footer': "La IA puede cometer errores. Verifique la información importante. Solo usted puede ver sus chats.",
+  'chat.reply': 'Responder',
   "outbox.label": "Mensajes en espera de envío",
   "outbox.placeholder": "Escriba su siguiente mensaje: se envía cuando termine la respuesta",
   "outbox.placeholderChoice": "Elija primero arriba: un mensaje escrito ahora se envía cuando termine la respuesta",
