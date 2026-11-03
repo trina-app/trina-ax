@@ -90,9 +90,12 @@ test('admin screens: members, groups, folder rules with "who sees what", engines
 
   // folder rules: preview before saving
   await page.getByRole('link', { name: '폴더 권한' }).click()
-  await expect(page.getByTestId('folder-list')).toContainText('finance')
-  // the new group's own folder is listed too (groups/영업팀): edit the finance folder
-  await page.getByTestId('folder-list').locator('[data-path="finance"]').getByRole('button', { name: '수정' }).click()
+  const folderTree = page.getByTestId('folder-tree')
+  await expect(folderTree.locator('[data-path="finance"]')).toBeVisible()
+  // the new group's own folder is in the tree too (groups/영업팀): choose the finance folder and change its rules
+  await expect(folderTree.locator('[data-path="groups/영업팀"]')).toBeVisible()
+  await folderTree.locator('[data-path="finance"]').click()
+  await page.getByTestId('folder-detail-edit').click()
   await page.getByTestId('rule-add').click()
   await page.getByRole('dialog').getByLabel('대상').last().selectOption('everyone')
   await page.getByTestId('rules-preview').click()
@@ -100,7 +103,8 @@ test('admin screens: members, groups, folder rules with "who sees what", engines
   await expect(preview).toContainText('Bob')
   await expect(preview).toContainText('권한을 잃는 사람')
   await page.getByTestId('rules-save').click()
-  await expect(page.getByTestId('folder-list')).toContainText('모두: 읽기')
+  await expect(page.getByTestId('folder-detail').getByTestId('folder-rules')).toContainText('모두: 읽기')
+  await expect(folderTree.locator('[data-path="finance"]').getByTestId('tree-who')).toContainText('모두 · 읽기')
 
   // engines: what is missing, in plain words
   await page.getByRole('link', { name: 'AI 엔진' }).click()

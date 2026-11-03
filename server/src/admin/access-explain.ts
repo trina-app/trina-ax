@@ -9,7 +9,7 @@
 // parked rules included) and server temp names never appear.
 import fs from 'node:fs'
 import path from 'node:path'
-import type { AccessFolderKind, FolderAccessResponse, Locale, PersonAccessResponse, PersonFolderAccess, Role, UserStatus } from '@mycel/shared/api'
+import type { AccessFolderKind, AccessTreeResponse, FolderAccessResponse, Locale, PersonAccessResponse, PersonFolderAccess, Role, UserStatus } from '@mycel/shared/api'
 import type { AppContext } from '../context'
 import { fail } from '../http/errors'
 import { msg } from '../auth/messages'
@@ -17,6 +17,7 @@ import { RuleSet, type Explained, type Listing, type Principal } from '../policy
 import { walk } from '../policy/resolve'
 import { captureState } from './folders'
 import { byPerson, folderInput, MAX_VIA, navigation, pageByPath, pageByPerson, ruleFolderOf, segsOf, shownPath, shownSegs, summarize, withoutOwnFolder } from './access-rows'
+import { treeAnswer, type TreeMark } from './access-tree'
 
 /** A real folder at `segs`, every step lstat'ed (a link anywhere on the way counts as not there, never followed).
  * `memo`: prefixes already looked at in this answer. */
@@ -159,6 +160,68 @@ export function explainPerson(ctx: AppContext, id: string, q: PageQ): PersonAcce
   if (!u) return fail('not_found')
   // a person who is switched off is shown as they would be when switched back on (status says so)
   return personAccess(ctx, { id: u.id, name: u.name, role: u.role, groups: groupsOf(ctx, id) }, { user: { id: u.id, name: u.name }, status: u.status }, q)
+}
+
+// ---------------- the tree (one level at a time) ----------------
+
+/** The folders inside a team folder, as the tree may show them: real folders only (a link counts as not there, never
+ * followed), by their names on disk. `first`: stop at the first one (is there any?). */
+function subfolders(root: string, segs: readonly string[], first = false): string[] {
+  const out: string[] = []
+  let dir: fs.Dir | undefined
+  try {
+    dir = fs.opendirSync(path.join(root, ...segs))
+    for (let d = dir.readSync(); d; d = dir.readSync()) {
+      if (!d.isDirectory()) continue
+      const p = [...segs, d.name].join('/')
+      // the same names the answers may show (users/ and .system/ at the root are the caller's to handle)
+      if (segs.length > 0 && !shownSegs(p)) continue
+      out.push(d.name)
+      if (first) break
+    }
+  } catch { /* not there, or not a folder */ } finally {
+    try { dir?.closeSync() } catch { /* closed */ }
+  }
+  return out
+}
+
+export function explainTree(ctx: AppContext, q: { path?: string; cursor?: string; limit?: number; open?: boolean }, locale: Locale): AccessTreeResponse {
+  const input = folderInput(q.path)
+  if ('refuse' in input) return fail('validation', msg(input.refuse === 'personal' ? 'accessPersonalFolder' : 'accessNotTeamFolder', locale), { fields: { 'query.path': input.detail } })
+  // personal folders and .system/ were refused above, before anything is read
+  const root = ctx.files.fx.root
+  const w = walk(root, input.segs, ctx.files.fx.caseInsensitive)
+  const segs = [...w.actual, ...w.missing]
+  if (!shownSegs(segs.join('/'))) fail('validation', msg('accessNotTeamFolder', locale), { fields: { 'query.path': 'not a team folder' } })
+  const exists = w.missing.length === 0 && !w.problem && w.st.isDirectory()
+
+  const state = captureState(ctx.db) // active people and the rules
+  const groupNames = new Map((ctx.db.query('SELECT id, name FROM groups').all() as { id: string; name: string }[]).map((g) => [g.id, g.name]))
+  const userNames = new Map((ctx.db.query('SELECT id, name FROM users WHERE deleted_at IS NULL').all() as { id: string; name: string }[]).map((u) => [u.id, u.name]))
+  const marks = new Map<string, TreeMark>()
+  const mark = (p: string, kind: AccessFolderKind) => {
+    let m = marks.get(p)
+    if (!m) marks.set(p, (m = { kinds: new Set() }))
+    m.kinds.add(kind)
+    return m
+  }
+  for (const g of ctx.db.query('SELECT g.id, g.name, f.path FROM groups g JOIN folders f ON f.id = g.folder_id ORDER BY g.name').all() as { id: string; name: string; path: string }[]) mark(g.path, 'group').group = { id: g.id, name: g.name }
+  // personal projects (users/<id>/…) are left out by the tree (their names are their owner's)
+  for (const pr of ctx.db.query('SELECT id, name, folder_path FROM projects ORDER BY name, id').all() as { id: string; name: string; folder_path: string }[]) {
+    const m = mark(pr.folder_path, 'project')
+    ;(m.projects ??= []).push({ id: pr.id, name: pr.name })
+  }
+  for (const cf of ctx.db.query('SELECT id, name FROM connected_folders ORDER BY name').all() as { id: string; name: string }[]) mark(`connected/${cf.name}`, 'connected').connected = { id: cf.id, name: cf.name }
+
+  return treeAnswer({
+    rules: state.rules, people: state.principals,
+    groupName: (id) => groupNames.get(id) ?? null,
+    personName: (id) => userNames.get(id) ?? null,
+    children: (s) => subfolders(root, s),
+    hasFolders: (s) => subfolders(root, s, true).length > 0,
+    marks,
+    personal: state.principals.length,
+  }, segs, exists, q)
 }
 
 /** Someone about to be invited: no id yet, so no person rule can name them and there is no personal folder row. */

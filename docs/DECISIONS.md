@@ -6086,3 +6086,90 @@ unchanged. The folder view stays as it was (stage 4 changes it).
   someone new, a folder shown on the way, a disabled person, Members links and the invite preview, pages, narrowing,
   errors, a big team, 375px in Korean and Spanish, the keyboard), `web/test/e2e/a11y.spec.ts` (light, dark, phone).
   Needed in the core too: everything here.
+
+## Folder permissions, stage 4: the folder view is a tree (feat/access-folder-tree, 2026-11-03)
+
+"By folder" listed only the folders with rules, flat, with their rules as badges: the folders above them did not show,
+nor the real access of a folder without rules, nor that the same folder comes from different rules for different
+people. The admin's question is "who sees this folder, and from which folder do they get it?". The view is now the team
+folder as a tree, read only like stage 3; the permission function and the database are unchanged, no migration.
+
+- **One level per answer.** `GET /api/admin/access/tree?path=&cursor=&limit=&open=` (admins and the owner;
+  `shared/src/api/admin.ts`): the folder asked for (`self`) and its children by name (byte order), `limit` a page
+  (default 200, at most 500) with `total` and a cursor that is the last name of the page before. Each child: kinds
+  (rules, group, project, connected, personal), how many rules it carries itself, whether it has folders to open, how
+  many marked folders (with rules, group, project, connected) are below it, who sees it, its risks and whether it is
+  restricted. Per person details stay with the stage 2 folder answer. `open=1` adds the levels on the way down to marked
+  folders, breadth first, the first page of each, while the answer has at most 600 children and 40 levels; the rest
+  opens on request. Only real folders on disk are children (`opendir`, a link counts as not there); a name the team
+  folder refuses, a temp name or `.system/` never shows (`shownSegs`, the same as the other answers); nothing below
+  depth 64 is offered; `users/` and paths that are not team folders are refused before anything is read, like the
+  folder answer. At the root, `users/` is one row from the member list (how many personal folders) and is never listed.
+- **Who sees it, from the same computation.** Every active person once, grouped by how they get their access: the
+  deciding folder and the rule that decided (the widest of the step, as stage 3 names it, with the group's or person's
+  name), the owner and admins, or no rule for them. It is `RuleSet.explain` at the nearest rule folder (below it
+  nothing carries rules), once per such folder in an answer, and once per class of people that no rule on the way up
+  can tell apart (the same role, the same groups among those the rules there name, not named by a person rule there;
+  a bit mask up to 30 such groups, a sorted list above). `tests/unit/access-tree-equivalence.test.ts` compares it with
+  explaining every person on their own and with `RuleSet.access`, on 300 random worlds with groups beyond 30 and people
+  in one group each; deliberate mutations of the class key (no person rule, no groups, no role, the mask beyond 30
+  groups) each fail it. The code lives in `server/src/admin/access-tree.ts`, which reads nothing: the server gives it
+  the disk and the database, the web mock its own folders, and both answer with it.
+- **Risks the server computes, and only those get the warning colour.** `everyone-writes`: every member writes here,
+  said on the topmost such folder (below it the same is inherited and would repeat on every row); in `skills/` the same
+  is `skills-everyone-writes` (the instructions every AI of the team follows), always said on `skills` itself;
+  `root-everyone`: a rule on the team root gives everyone (or every member) access, which opens group and project
+  folders that do not shut others out. `restricted` (the lock): some member cannot open it. Levels of access stay
+  ink and grey, as in stage 3.
+- **The screen** (`web/src/pages/admin/AccessTree.tsx`). A WAI-ARIA tree, flat with `aria-level`, `aria-setsize` and
+  `aria-posinset`: one Tab stop (the row last focused), Up and Down, Right opens or goes in, Left closes or goes up,
+  Home and End, typing jumps to a name, Enter or Space chooses (choosing asks the server, so moving alone does not).
+  "N more" and "Try again" (a level that failed to open, with the server's words) are rows of the tree, so the
+  keyboard reaches them; after "more" the first new folder takes the focus. A row: the name (dimmed when it has no
+  rules of its own, "inherited"), what it is (group folder, project with its name, connected folder, team skills), a
+  lock when restricted, who sees it in the admin's words ("영업팀 3명 · 읽기·쓰기, 그 밖의 9명 · 읽기", "모두 · 읽기",
+  "팀장과 관리자만"; at most three groups, the rest counted) and where from ("이 폴더의 규칙", "shared에서 물려받음", or
+  by whom when people differ: "영업팀: 이 폴더의 규칙 · 나머지: shared에서 물려받음"). The words are
+  `lib/access-view.ts`; no step name of the permission function reaches the screen. Depth is indentation, 12px a level
+  up to four on a narrow tree and 16px up to eight on a wide one; deeper rows put "…/" before the name, long names are
+  cut with the whole path in the row's title. It opens on the top folders and the way down to marked folders
+  (`open=1`); `?folder=<path>` opens the way to a folder and chooses it.
+- **The chosen folder** sits beside the tree when the card is at least 42rem wide (sticky, scrolling on its own), and
+  replaces it below that, with "Back to the folders" returning the focus to its row; the heading takes the focus when
+  the tree hides. It shows the folder's own rules (the old list's badges, team skill managers marked), why the server
+  keeps the row (shared, skills, a group's folder), the risks in full, and every person with the level and the stage 3
+  reasons at this folder (`reasonText` on the folder answer), in pages, and the people switched off whom a person rule
+  names. `users/` says what personal folders are and links to By person; it asks the server nothing.
+- **What the old list did, where it went.** "Add folder" and the folder picker stay in the card's header; after the
+  rule editor saves, the folder is opened to and chosen. "Edit" is the chosen folder's rules button (the same
+  `RulesEditor`). "Remove all rules" is beside it, with the stage 1 protection (no button but the reason on kept rows)
+  and the server's preview in the confirm dialog (`useRemoveRules`, shared); the folder stays in the tree, inherited,
+  and the focus goes to the rules button, not the page. Actions are in the folder's part, not on the rows, so the tree
+  keeps one Tab stop. Rows whose folder is not in the tree (gone from disk, or inside `users/`, where rules never apply)
+  are folded under it ("디스크에 없는 폴더의 규칙 N개"), each with Edit and the same delete; the focus goes to the next
+  row's delete, then to "Add folder", as on the list before. Rows parked with a trashed folder do not come (the server
+  already leaves them out).
+- **Stage 3 review, the rest.** The shared `Tabs` give each tab an id and `aria-controls`, and a `TabPanel`
+  (role=tabpanel, named by its tab) holds what the chosen one shows, in all four places (Folder permissions, Files, Team
+  skills and its review dialog, External services in Admin and Settings). By person narrowed to `users` says the
+  person's own folder is there (the counts leave it out). The root of someone new is "on the way to the personal folder
+  they will have once they join".
+- **The mock** makes a folder when a rule is set with `create` (default true), like the server, and lists a rule row's
+  `exists` from its folders; `POST /__test/rmdir` takes a folder off its disk and leaves the rules.
+- **Cost** (with the response check and JSON; `tests/perf/access-explain.ts`, a busy shared Mac). 300 people and 500
+  rule folders: the opened top 28 ms median, 40 ms at most; the widest levels, every page, 9 ms; one level 1.9 ms
+  median. 2000 people and 2500 rule folders: the opened top 98 ms median, 170 ms at most (347 ms before the classes of
+  people); the widest levels, every page, 142 ms (503 ms before); one level 10 ms median, 52 ms at most. The script
+  fails when any answer takes over 750 ms.
+- Found, not changed: `FolderPicker` (used by "Add folder") still asks for 200 entries and does not page; the tree
+  pages. `tests/security/permission-matrix.test.ts` has no case for the dev environment routes (`devEnv*`); that
+  coverage check fails on main as well.
+- Tests: `tests/unit/access-tree-api.test.ts` (the root and `users/` as one row, kinds and counts, who adds up to
+  `RuleSet.access` for every person, folders only, refusals, pages, `open=1` and its limits, depth 64 and long names,
+  risks and the lock), `tests/unit/access-tree-equivalence.test.ts`, `tests/security/lib/cases.ts` (admins and the owner
+  only; nothing of `users/` or `.system/` listed, alice's folder refused without her file's name, the finance group's
+  folder showing its group), `web/test/unit/access-view.test.ts` (the tree's words in five languages, the stage 3
+  nits), `web/test/e2e/access-tree.spec.ts` (rows, risks, choosing and changing rules, `users/`, the keyboard, pages,
+  a failed level, rules off disk, adding a folder, the address, 375px with deep and long names, four other languages),
+  `admin.spec.ts`, `admin-delete.spec.ts` and `team-skills.spec.ts` moved onto the tree, `a11y.spec.ts` (light, dark,
+  phone). Needed in the core too: everything here.

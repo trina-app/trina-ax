@@ -447,6 +447,46 @@ for (const scheme of ['light', 'dark'] as const) {
   })
 }
 
+// Admin › Folder permissions › By folder (the tree): every kind of row (inherited, own rules, a risk, users/), a chosen
+// folder with its people, a page of "more", the rules of a folder gone from disk opened below the tree.
+async function treeTeam(page: Page) {
+  await accessTeam(page)
+  const ok = async (r: Promise<{ ok: () => boolean }>) => expect((await r).ok()).toBeTruthy()
+  await ok(page.request.post('/api/admin/folders', { headers: { [CSRF_HEADER]: '1' }, data: { path: 'old/gone', create: true, rules: [{ subjectType: 'everyone', subjectId: null, access: 'read' }] } }))
+  await ok(page.request.post('/__test/rmdir', { data: { path: 'old' } }))
+}
+for (const scheme of ['light', 'dark'] as const) {
+  test(`folder permissions by folder have no serious accessibility problems (${scheme})`, async ({ page }) => {
+    await page.emulateMedia({ colorScheme: scheme })
+    await reset(page)
+    await signIn(page)
+    await treeTeam(page)
+    await page.goto('/admin/folders')
+    await expect(page.getByTestId('folder-tree').locator('[data-path="projects/apollo"]')).toBeVisible()
+    await audit(page, 'folders by folder')
+    await page.getByTestId('folder-tree').locator('[data-path="projects/apollo"]').click()
+    await expect(page.getByTestId('folder-people')).toBeVisible()
+    await page.getByTestId('folder-outside-toggle').click()
+    await audit(page, 'folders by folder (a folder chosen, the rules outside the tree open)')
+    await page.getByTestId('folder-tree').locator('[data-path="users"]').click()
+    await expect(page.getByTestId('folder-detail-personal')).toBeVisible()
+    await audit(page, 'folders by folder (users/)')
+  })
+}
+
+test('folder permissions by folder have no serious accessibility problems at phone width', async ({ page }) => {
+  await page.setViewportSize({ width: 375, height: 812 })
+  await reset(page)
+  await signIn(page)
+  await treeTeam(page)
+  await page.goto('/admin/folders')
+  await expect(page.getByTestId('folder-tree').locator('[data-path="projects/apollo"]')).toBeVisible()
+  await audit(page, 'folders by folder (phone)')
+  await page.getByTestId('folder-tree').locator('[data-path="projects/apollo"]').click()
+  await expect(page.getByTestId('folder-people')).toBeVisible()
+  await audit(page, 'folders by folder, a folder chosen (phone)')
+})
+
 test('folder permissions by person have no serious accessibility problems at phone width', async ({ page }) => {
   await page.setViewportSize({ width: 375, height: 812 })
   await reset(page)

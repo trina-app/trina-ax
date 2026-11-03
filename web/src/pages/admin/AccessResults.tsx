@@ -43,7 +43,7 @@ const levelKey = (l: Level): MessageKey => (l === 'write' ? 'access.write' : l =
 
 /** The access as words and an icon, in ink and greys only: write and read in ink (write heavier), a name shown on the
  * way in muted, none in faint. */
-function LevelLabel({ level, className }: { level: Level; className?: string }) {
+export function LevelLabel({ level, className }: { level: Level; className?: string }) {
   const t = useT()
   const Icon = LEVEL_ICON[level]
   return (
@@ -55,7 +55,7 @@ function LevelLabel({ level, className }: { level: Level; className?: string }) 
 }
 
 /** `editCol`: the answer has rows whose rules can be opened, so a row without one keeps the button's place. */
-function Row({ f, role, names, onEdit, editCol }: { f: PersonFolderAccess; role: Role; names: Names; onEdit?: (f: PersonFolderAccess) => void; editCol: boolean }) {
+function Row({ f, role, names, onEdit, editCol, newPerson }: { f: PersonFolderAccess; role: Role; names: Names; onEdit?: (f: PersonFolderAccess) => void; editCol: boolean; newPerson?: boolean }) {
   const t = useT()
   const level = levelOf(f)
   // the row's own path as it is (users/<id> included); only the team root is named in words
@@ -80,7 +80,7 @@ function Row({ f, role, names, onEdit, editCol }: { f: PersonFolderAccess; role:
         {/* narrow: the access on its own line under the path; wide: its own column */}
         <LevelLabel level={level} className="mt-0.5 flex text-xs @lg/results:hidden" />
         <div className="mt-0.5 space-y-0.5 text-xs text-muted" data-testid="access-reason">
-          {reasonText(t, f, role, names).map((line) => (
+          {reasonText(t, f, role, names, { newPerson }).map((line) => (
             <p key={line} data-testid="access-reason-line">
               {line}
             </p>
@@ -114,7 +114,7 @@ function Row({ f, role, names, onEdit, editCol }: { f: PersonFolderAccess; role:
   )
 }
 
-type RowProps = { role: Role; names: Names; onEdit?: (f: PersonFolderAccess) => void; editCol: boolean; heading: 'h3' | 'h4' }
+type RowProps = { role: Role; names: Names; onEdit?: (f: PersonFolderAccess) => void; editCol: boolean; heading: 'h3' | 'h4'; newPerson?: boolean }
 
 function SectionList({ section, rows, heading: H, ...row }: { section: Section; rows: PersonFolderAccess[] } & RowProps) {
   const t = useT()
@@ -330,7 +330,7 @@ export function AccessResults({ who, fetchPage, names, prefix = '', onPrefix, on
   const shown = rows.filter((f) => levelOf(f) !== 'none')
   const hidden = rows.filter((f) => levelOf(f) === 'none')
   const lines = summaryLines(t, who, rows, data, prefix)
-  const row: RowProps = { role: data.role, names, onEdit, heading, editCol: !!onEdit && rows.some(rulesApply) }
+  const row: RowProps = { role: data.role, names, onEdit, heading, editCol: !!onEdit && rows.some(rulesApply), newPerson: who.kind === 'new' }
   return (
     <div className="@container/results" data-testid="access-results">
       <div data-testid="access-summary">

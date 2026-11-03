@@ -354,6 +354,27 @@ export const SPECS: Record<string, Spec> = {
       if (r.text.includes('Private plan')) throw new Error(`${who}: alice's folder list names her personal project`)
       if (!paths.includes('projects/falcon')) throw new Error(`${who}: alice's folder list misses projects/falcon`)
     } },
+  // the folder tree (admin/access-tree.ts): admins and the owner only. users/ is one row (how many personal folders)
+  // and nothing in it is listed, never .system/; a path inside alice's folder is refused without her file's name; the
+  // finance group's folder shows bob writing there
+  explainAccessTree: { build: (c) => c.get('/api/admin/access/tree?path=&open=1'), scope: 'byLevel',
+    check: async (r, w, who) => {
+      if (r.status === 200) {
+        const nodes: any[] = r.json.levels.flatMap((l: any) => l.children)
+        const bad = nodes.map((n) => n.path).filter((p: string) => p.startsWith('users/') || p.startsWith('.system'))
+        if (bad.length) throw new Error(`${who}: the tree shows ${bad.join(', ')}`)
+        const users = nodes.find((n) => n.path === 'users')
+        if (!users || users.folders || users.who.length || !users.kinds.includes('personal')) throw new Error(`${who}: users/ is not one closed row`)
+        if (r.text.includes(C.aliceFileName) || r.text.includes('Private plan')) throw new Error(`${who}: the tree names something of alice's folder`)
+        const fin = await w.as[who].get(`/api/admin/access/tree?path=${enc(w.groups.finFolder.split('/').slice(0, -1).join('/'))}`)
+        const node = fin.json?.levels?.[0]?.children?.find((n: any) => n.path === w.groups.finFolder)
+        if (!node?.who.some((x: any) => x.access === 'write' && x.reason === 'rule')) throw new Error(`${who}: the finance folder does not show its group writing`)
+      }
+      const probe = await w.as[who].get(`/api/admin/access/tree?path=${enc('users/alice')}`)
+      if (probe.status < 400 || probe.status >= 500) throw new Error(`${who}: users/alice was listed (${probe.status})`)
+      const l = [...leaks(who, probe.text), ...(probe.text.includes(C.aliceFileName) ? [C.aliceFileName] : [])]
+      if (l.length) throw new Error(`${who}: the refusal shows ${l.join(', ')}`)
+    } },
   explainNewPersonAccess: { build: (c, w) => c.post('/api/admin/access/new-person', { role: 'member', groupIds: [w.groups.finance] }), scope: 'byLevel',
     check: (r, w, who) => { if (r.status === 200 && r.json.folders.some((f: any) => f.path.startsWith('users'))) throw new Error(`${who}: the new-person list shows users/`) } },
   engines: { build: (c) => c.get('/api/admin/engines'), scope: 'byLevel' },

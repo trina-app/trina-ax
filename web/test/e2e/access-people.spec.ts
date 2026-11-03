@@ -125,7 +125,7 @@ test('by person: every team folder with its access and why, folded hidden folder
   await expect(page).toHaveURL(/view=people$/)
   await expect(page.getByTestId('access-answer')).toContainText(t['accessView.pick'])
   await page.goBack()
-  await expect(page.getByTestId('folder-list')).toBeVisible()
+  await expect(page.getByTestId('folder-tree')).toBeVisible()
   await page.goForward()
   await page.goForward()
   await expect(summary).toContainText('Bob 님과 그 AI는')
@@ -456,7 +456,7 @@ test('the keyboard alone: search, choose, read the answer, open and close a fold
   await page.keyboard.press('ArrowLeft')
   await expect(byFolder).toBeFocused()
   await expect(byFolder).toHaveAttribute('aria-selected', 'true')
-  await expect(page.getByTestId('folder-list')).toBeVisible()
+  await expect(page.getByTestId('folder-tree')).toBeVisible()
   await page.keyboard.press('ArrowLeft') // round
   await expect(byPerson).toBeFocused()
   await expect(page).toHaveURL(/view=people$/)

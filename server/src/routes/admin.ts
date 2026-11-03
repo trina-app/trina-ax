@@ -18,7 +18,7 @@ import {
 } from '../admin/folders'
 import { isParkedRow, isTeamDefaultFolder } from '../admin/folder-keep'
 import { createGroup, deleteGroup, listGroups, updateGroup } from '../admin/groups'
-import { explainFolder, explainNewPerson, explainPerson } from '../admin/access-explain'
+import { explainFolder, explainNewPerson, explainPerson, explainTree } from '../admin/access-explain'
 import { BROWSER_POLICY_CHANGED, enginesEnabled, getTeamSettings, LOCALE_CHANGED, setEnginesEnabled, SPEECH_CHANGED, updateTeamSettings } from '../admin/settings'
 import { credentialsOf } from '../credentials/store'
 import { unsealOrFail } from '../credentials/service'
@@ -197,6 +197,7 @@ export const adminRoutes: RouteModule = {
     kit.handle(API.explainFolderAccess, ({ c, query }) => explainFolder(ctx, query, c.get('locale')))
     kit.handle(API.explainPersonAccess, ({ params, query }) => explainPerson(ctx, params.id, query))
     kit.handle(API.explainNewPersonAccess, ({ c, body }) => explainNewPerson(ctx, body, c.get('locale')))
+    kit.handle(API.explainAccessTree, ({ c, query }) => explainTree(ctx, query, c.get('locale')))
 
     // ---------------- team skills: who manages them, what changed (skills/managers.ts, skills/changes.ts) ----------------
     kit.handle(API.listSkillManagers, () => listSkillManagers(ctx))

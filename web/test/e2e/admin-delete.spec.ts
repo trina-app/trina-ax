@@ -1,7 +1,8 @@
 // Admin screens: a delete that the server answers with 204 (no body) refreshes the list at once, a failed one keeps the
 // row, and the keyboard focus goes on instead of falling back to the page: to the next row's delete only where a
 // confirm dialog comes first, else to the next row's Edit or the list's title, so a held Enter deletes one row. Folder
-// permissions: the delete dialog shows the server's "who sees what" for no rules, and rows the server keeps say why.
+// permissions (the tree since stage 4): the delete dialog shows the server's "who sees what" for no rules, the focus
+// goes to the folder's rules button, and rows the server keeps say why.
 import { expect, test, type Page } from '@playwright/test'
 import { CSRF_HEADER } from '@mycel/shared/api'
 import { DICTS, translate } from '../../src/i18n'
@@ -25,19 +26,34 @@ async function holdEnter(page: Page, presses = 25) {
   await page.waitForTimeout(800)
 }
 
-test('folder permissions: delete refreshes the list, focus moves on, the dialog shows who gains or loses what', async ({ page }) => {
+// Folder permissions › By folder (the tree): a folder's rules are removed from the chosen folder. The folder stays in the
+// tree (inherited now), the delete button goes with the rules, and the focus goes to the folder's rules button instead
+// of the page. Rows of folders that are not in the tree have their own list (access-tree.spec.ts: focus to the next
+// row's delete, then "Add folder").
+const tree = (page: Page) => page.getByTestId('folder-tree')
+const treeRow = (page: Page, p: string) => tree(page).locator(`[role="treeitem"][data-path="${p}"]`)
+const detail = (page: Page) => page.getByTestId('folder-detail')
+async function choose(page: Page, p: string) {
+  await treeRow(page, p).click()
+  await expect(detail(page)).toHaveAttribute('data-path', p)
+}
+
+test('folder permissions: delete refreshes the tree, focus moves on, the dialog shows who gains or loses what', async ({ page }) => {
   await reset(page)
   const errors = watchConsole(page)
   await signIn(page)
   for (const p of ['docs', 'finance/2026', 'marketing']) await post(page, '/api/admin/folders', { path: p, create: true, rules: [everyone('read')] })
   await page.goto('/admin/folders')
-  const list = page.getByTestId('folder-list')
-  const row = (p: string) => list.locator(`[data-path="${p}"]`)
-  const del = (p: string) => row(p).getByRole('button', { name: deleteNamed(p), exact: true })
-  await expect(list.locator('li')).toHaveCount(4) // docs, finance, finance/2026, marketing
+  const row = (p: string) => treeRow(page, p)
+  const del = (p: string) => detail(page).getByRole('button', { name: deleteNamed(p), exact: true })
+  const rulesButton = page.getByTestId('folder-detail-edit')
+  // finance is open: a folder with rules is below it
+  await expect(row('finance/2026')).toBeVisible()
+  for (const p of ['docs', 'finance', 'finance/2026', 'marketing']) await expect(row(p)).not.toHaveAttribute('data-rules', '0')
 
   // the edit dialog: the owner and admins write everywhere, but never see other people's personal folders
-  await row('docs').getByRole('button', { name: t['common.edit'], exact: true }).click()
+  await choose(page, 'docs')
+  await rulesButton.click()
   await expect(page.getByRole('dialog')).toContainText(t['rules.editHint'])
   await page.getByRole('dialog').getByRole('button', { name: t['common.cancel'], exact: true }).click()
 
@@ -53,6 +69,7 @@ test('folder permissions: delete refreshes the list, focus moves on, the dialog 
       { user: { id: 'bob', name: 'Bob' }, role: 'member', before: 'none', after: 'read' },
     ] }], losing: [] } })
   })
+  await choose(page, 'finance/2026')
   await del('finance/2026').click()
   const dialog = page.getByRole('dialog')
   await expect(dialog.getByTestId('rules-remove-preview')).toContainText(t['rules.removeKeeps'])
@@ -65,8 +82,13 @@ test('folder permissions: delete refreshes the list, focus moves on, the dialog 
   const gone = page.waitForResponse((r) => r.request().method() === 'DELETE' && r.url().includes('/api/admin/folders/'))
   await page.getByTestId('dialog-confirm').click()
   expect((await gone).status()).toBe(204)
-  await expect(row('finance/2026')).toHaveCount(0)
-  await expect(del('marketing')).toBeFocused() // a confirm dialog comes before each delete here
+  // the folder stays in the tree, inherited now; its rules and the delete button are gone, and the rules button has the
+  // focus (not the page)
+  await expect(row('finance/2026')).toHaveAttribute('data-rules', '0')
+  await expect(detail(page)).toContainText(t['accessTree.noOwnRules'])
+  await expect(del('finance/2026')).toHaveCount(0)
+  await expect(rulesButton).toBeFocused()
+  await expect(rulesButton).toHaveText(t['accessTree.addRules'])
 
   // a slow answer: the button says it is busy, and after 5 seconds the dialog opens with the general text
   await page.unroute('**/api/admin/folder-rules/preview')
@@ -74,6 +96,7 @@ test('folder permissions: delete refreshes the list, focus moves on, the dialog 
     await new Promise((done) => setTimeout(done, 8000))
     await r.fulfill({ json: { folders: [], losing: [] } }).catch(() => {}) // the page gave up on it
   })
+  await choose(page, 'docs')
   const asking = Date.now()
   await del('docs').click()
   await expect(del('docs')).toHaveAttribute('aria-busy', 'true')
@@ -81,6 +104,7 @@ test('folder permissions: delete refreshes the list, focus moves on, the dialog 
   expect(Date.now() - asking).toBeGreaterThanOrEqual(4500)
   await dialog.getByRole('button', { name: t['common.cancel'], exact: true }).click()
   await expect(del('docs')).not.toHaveAttribute('aria-busy', 'true')
+  await expect(del('docs')).toBeFocused()
 
   // no preview (the server could not answer): the general text, which does not promise more than the server does
   await page.unroute('**/api/admin/folder-rules/preview')
@@ -89,34 +113,36 @@ test('folder permissions: delete refreshes the list, focus moves on, the dialog 
   await expect(dialog).toContainText(t['rules.removeBody'])
   await expect(dialog.getByTestId('rules-remove-preview')).toHaveCount(0)
   await page.getByTestId('dialog-confirm').click()
-  await expect(row('docs')).toHaveCount(0)
-  await expect(del('finance')).toBeFocused()
+  await expect(row('docs')).toHaveAttribute('data-rules', '0')
+  await expect(rulesButton).toBeFocused()
   await page.unroute('**/api/admin/folder-rules/preview')
 
   // nothing changes for anyone: it says so
   await page.route('**/api/admin/folder-rules/preview', (r) => r.fulfill({ json: { folders: [{ path: 'marketing', users: [{ user: { id: 'olga', name: 'Olga' }, role: 'owner', before: 'write', after: 'write' }] }], losing: [] } }))
+  await choose(page, 'marketing')
   await del('marketing').click()
   await expect(dialog).toContainText(t['rules.removeNoChange'])
   await dialog.getByRole('button', { name: t['common.cancel'], exact: true }).click()
   await expect(del('marketing')).toBeFocused()
 
-  // a refused delete keeps the row and says why
+  // a refused delete keeps the rules and says why
   await page.route('**/api/admin/folders/*', (r) => r.request().method() === 'DELETE' ? r.fulfill({ status: 409, json: { error: { code: 'conflict', message: 'REFUSED-BY-SERVER' } } }) : r.fallback())
   await del('marketing').click()
   await page.getByTestId('dialog-confirm').click()
   await expect(page.getByText('REFUSED-BY-SERVER')).toBeVisible()
-  await expect(row('marketing')).toHaveCount(1)
+  await expect(row('marketing')).not.toHaveAttribute('data-rules', '0')
+  await expect(del('marketing')).toBeVisible()
   await page.unroute('**/api/admin/folders/*')
   await page.unroute('**/api/admin/folder-rules/preview')
 
-  // the last rows: focus ends on "Add folder"
+  // the last ones: each folder stays, inherited, and the focus stays on its rules button
   for (const p of ['marketing', 'finance']) {
+    await choose(page, p)
     await del(p).click()
     await page.getByTestId('dialog-confirm').click()
-    await expect(row(p)).toHaveCount(0)
+    await expect(row(p)).toHaveAttribute('data-rules', '0')
+    await expect(rulesButton).toBeFocused()
   }
-  await expect(page.getByText(t['rules.none'], { exact: true })).toBeVisible()
-  await expect(page.getByTestId('folder-rule-new')).toBeFocused()
   expect(loads).toBe(0)
   expect(realErrors(errors).filter((e) => !/status of (409|503)/.test(e))).toEqual([])
 })
@@ -188,16 +214,18 @@ test('folder permissions: shared, skills and a group\'s folder say why they stay
   await post(page, '/api/admin/folders', { path: 'skills', create: true, rules: [everyone('read'), { subjectType: 'role', subjectId: 'admin', access: 'write' }] })
   const group = await post(page, '/api/admin/groups', { name: '영업팀', memberIds: [] })
   await page.goto('/admin/folders')
-  const row = (p: string) => page.getByTestId('folder-list').locator(`[data-path="${p}"]`)
-  const del = (p: string) => row(p).getByRole('button', { name: deleteNamed(p), exact: true })
-  await expect(page.getByTestId('folder-list').locator('li')).toHaveCount(4) // finance, groups/영업팀, shared, skills
+  const del = (p: string) => detail(page).getByRole('button', { name: deleteNamed(p), exact: true })
+  const why = () => detail(page).getByTestId('folder-keep-reason')
   for (const p of ['shared', 'skills']) {
+    await choose(page, p)
     await expect(del(p)).toHaveCount(0)
-    await expect(row(p).getByTestId('folder-keep-reason')).toHaveText(t['rules.keepTeam'])
+    await expect(why()).toHaveText(t['rules.keepTeam'])
   }
+  await choose(page, 'groups/영업팀')
   await expect(del('groups/영업팀')).toHaveCount(0)
-  await expect(row('groups/영업팀').getByTestId('folder-keep-reason')).toHaveText(translate('ko', 'rules.keepGroup', { name: '영업팀' }))
-  await expect(row('finance').getByTestId('folder-keep-reason')).toHaveCount(0)
+  await expect(why()).toHaveText(translate('ko', 'rules.keepGroup', { name: '영업팀' }))
+  await choose(page, 'finance')
+  await expect(why()).toHaveCount(0)
   if (process.env.FOLDER_SHOTS) {
     for (const size of [{ width: 1360, height: 860 }, { width: 390, height: 844 }]) {
       await page.setViewportSize(size)
@@ -206,14 +234,15 @@ test('folder permissions: shared, skills and a group\'s folder say why they stay
     await page.setViewportSize({ width: 1360, height: 860 })
   }
 
-  // the row after a deleted one cannot go: focus lands on its Edit
+  // the rules of finance go: the focus lands on its rules button
   await del('finance').click()
   await page.getByTestId('dialog-confirm').click()
-  await expect(row('finance')).toHaveCount(0)
-  await expect(row('groups/영업팀').getByRole('button', { name: t['common.edit'], exact: true })).toBeFocused()
+  await expect(treeRow(page, 'finance')).toHaveAttribute('data-rules', '0')
+  await expect(page.getByTestId('folder-detail-edit')).toBeFocused()
 
   // no rule left on shared: said in the editor before saving, and Save waits for a rule
-  await row('shared').getByRole('button', { name: t['common.edit'], exact: true }).click()
+  await choose(page, 'shared')
+  await page.getByTestId('folder-detail-edit').click()
   const dialog = page.getByRole('dialog')
   await dialog.getByRole('button', { name: t['rules.removeRule'], exact: true }).click()
   await expect(page.getByTestId('rules-keep-one')).toHaveText(t['rules.keepTeam'])
@@ -226,22 +255,25 @@ test('folder permissions: shared, skills and a group\'s folder say why they stay
   await dialog.getByLabel(t['rules.access'], { exact: true }).selectOption('none')
   await page.getByTestId('rules-save').click()
   await expect(dialog).toHaveCount(0)
-  await expect(row('shared')).toContainText(`${t['rules.everyone']}: ${t['access.none']}`)
+  await expect(detail(page).getByTestId('folder-rules')).toContainText(`${t['rules.everyone']}: ${t['access.none']}`)
+  await expect(treeRow(page, 'shared').getByTestId('tree-who')).toHaveText(t['accessTree.who.adminsOnly'])
 
   // a save the server refuses shows its reason in the dialog, which stays open
   await page.route('**/api/admin/folders/*/rules', (r) => r.fulfill({ status: 400, json: { error: { code: 'validation', message: 'REFUSED-BY-SERVER', fields: { 'body.rules': 'x' } } } }))
-  await row('groups/영업팀').getByRole('button', { name: t['common.edit'], exact: true }).click()
+  await choose(page, 'groups/영업팀')
+  await page.getByTestId('folder-detail-edit').click()
   await page.getByTestId('rules-save').click()
   await expect(page.getByTestId('rules-refused').getByRole('alert')).toHaveText('REFUSED-BY-SERVER')
   await expect(dialog).toBeVisible()
   await dialog.getByRole('button', { name: t['common.cancel'], exact: true }).click()
   await page.unroute('**/api/admin/folders/*/rules')
 
-  // once the group is deleted, its folder is an ordinary row
+  // once the group is deleted, its folder is an ordinary one
   const gone = await page.request.delete(`/api/admin/groups/${group.id}`, { headers: { [CSRF_HEADER]: '1' } })
   expect(gone.status()).toBe(204)
   await page.reload()
+  await choose(page, 'groups/영업팀')
   await expect(del('groups/영업팀')).toHaveCount(1)
-  await expect(row('groups/영업팀').getByTestId('folder-keep-reason')).toHaveCount(0)
+  await expect(why()).toHaveCount(0)
   expect(realErrors(errors).filter((e) => !/status of 400/.test(e))).toEqual([])
 })

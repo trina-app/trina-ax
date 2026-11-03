@@ -1,23 +1,24 @@
 // Folder permissions (tab 2): folders that carry rules, each rule = who (everyone / role / group / person) gets
 // none / read / write. Before saving, "who sees what" shows every active person's access before → after, and who
-// loses access (their chats that touched those folders get a fresh engine session). "By person" (AccessPeople.tsx)
-// shows, read only, what one person and their AI see and why.
+// loses access (their chats that touched those folders get a fresh engine session). "By folder" (AccessTree.tsx) is the
+// team folder as a tree: who sees each folder and from where, each person's access and why. "By person"
+// (AccessPeople.tsx) shows, read only, what one person and their AI see and why. Both open the rule editor below.
 import clsx from 'clsx'
-import { ArrowRight, Eye, FolderLock, Loader2, Lock, Plus, Trash2 } from 'lucide-react'
+import { ArrowRight, Eye, Loader2, Plus, Trash2 } from 'lucide-react'
 import { lazy, Suspense, useId, useState, type ReactNode } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import type { Access, Folder, FolderRuleInput, Group, PreviewResponse, User } from '@mycel/shared/api'
 import { api, API, errorText } from '../../lib/api'
 import { useLocale, useT } from '../../i18n'
-import FolderPicker from '../../components/FolderPicker'
-import { Badge, Button, ErrorNote, IconButton, Modal, Spinner, Tabs, confirmDialog, inputCls } from '../../components/ui'
+import { Button, ErrorNote, IconButton, Modal, Spinner, TabPanel, Tabs, confirmDialog, inputCls } from '../../components/ui'
 import { toast } from '../../store/ui'
-import { Card, Loadable, useAction, useActionOk, useFocusAfterRemove, useLoad, useOneAtATime } from './common'
+import { useAction, useActionOk, useOneAtATime } from './common'
 
 const AccessPeople = lazy(() => import('./AccessPeople'))
+const AccessTree = lazy(() => import('./AccessTree'))
 
 /** skills/ and its folders: write there = "팀 스킬 관리" (the Members / Groups toggle is the same rule) */
-const isSkillsFolder = (p: string) => p === 'skills' || p.startsWith('skills/')
+export const isSkillsFolder = (p: string) => p === 'skills' || p.startsWith('skills/')
 
 type RuleRow = { subjectType: FolderRuleInput['subjectType']; subjectId: string | null; access: Access }
 
@@ -44,17 +45,10 @@ export function rulesFromRows(rows: RuleRow[]): FolderRuleInput[] | null {
   return out
 }
 
-const sortFolders = (list: readonly Folder[]) => [...list].sort((a, b) => a.path.localeCompare(b.path))
-
 /** Rules inside a personal folder never applied (access.ts), so removing them changes nothing and the server has no
  * preview for them. */
 const isPersonal = (p: string) => p === 'users' || p.startsWith('users/')
 
-/**
- * The people whose access a preview changes, per folder (the folder itself and rule folders below it). Access is decided
- * per person, walking up from the folder to the first rules that name them, so only the server can say who gains or
- * loses what (a rule above may not name them, and a rule higher up or none at all, owner and admins aside, then decides).
- */
 /** How long the remove dialog waits for the server's preview before it opens with the general text. */
 const PREVIEW_WAIT_MS = 5000
 
@@ -71,15 +65,60 @@ async function removalPreview(path: string): Promise<PreviewResponse | null> {
   }
 }
 
+/**
+ * The people whose access a preview changes, per folder (the folder itself and rule folders below it). Access is decided
+ * per person, walking up from the folder to the first rules that name them, so only the server can say who gains or
+ * loses what (a rule above may not name them, and a rule higher up or none at all, owner and admins aside, then decides).
+ */
 export function previewChanges(preview: PreviewResponse): { path: string; users: PreviewResponse['folders'][number]['users'] }[] {
   return preview.folders.map((f) => ({ path: f.path, users: f.users.filter((u) => u.before !== u.after) })).filter((f) => f.users.length > 0)
 }
 
-/** Folder permissions: by folder (the rules, below) or by person (what one person and their AI see, and why: read only,
- * AccessPeople.tsx). The choice and the person are in the address (`?view=people&person=<id>`), so links and Back work. */
+/**
+ * "Remove all rules of a folder", the way every list here does it: ask the server what that changes (the delete button
+ * is busy meanwhile: `checking`), confirm with that answer, delete, then `onRemoved`. One at a time. Rows the server
+ * keeps (Folder.keep) offer no delete; the server refuses them anyway.
+ */
+export function useRemoveRules(rootName: string) {
+  const t = useT()
+  const actOk = useActionOk()
+  const once = useOneAtATime<string>()
+  /** the row whose delete is asking the server what it would change (the button shows it is busy) */
+  const [checking, setChecking] = useState<string | null>(null)
+  const remove = (f: Folder, onRemoved: () => void | Promise<void>) =>
+    once.run(f.id, async () => {
+      // what removing the rules really does, from the server (the same "who sees what" as saving rules); without it,
+      // the general text
+      let body: ReactNode = t('rules.removeBodyPersonal')
+      if (!isPersonal(f.path)) {
+        setChecking(f.id)
+        const preview = await removalPreview(f.path)
+        setChecking(null)
+        body = preview ? <RemovePreview preview={preview} /> : t('rules.removeBody')
+      }
+      if (!(await confirmDialog({ title: t('rules.removeTitle', { path: f.path || rootName }), body, confirm: t('common.delete'), danger: true }))) return
+      if (!(await actOk(() => api.call(API.deleteFolder, { params: { id: f.id } })))) return
+      await onRemoved()
+    })
+  return { remove, checking }
+}
+
+/** The delete button of a folder's rules: names the folder, busy while the server works out what deleting changes. */
+export function RemoveRulesButton({ f, label, checking, onClick, testId }: { f: Folder; label: string; checking: string | null; onClick: () => void; testId?: string }) {
+  return (
+    <IconButton label={label} onClick={onClick} aria-busy={checking === f.id || undefined} data-row-focus data-testid={testId}>
+      {checking === f.id ? <Loader2 size={15} className="animate-spin" aria-hidden /> : <Trash2 size={15} />}
+    </IconButton>
+  )
+}
+
+/** Folder permissions: by folder (the tree, AccessTree.tsx) or by person (what one person and their AI see, and why:
+ * read only, AccessPeople.tsx). The choice is in the address (`?view=people&person=<id>`, `?folder=<path>`), so links
+ * and Back work. */
 export default function Folders() {
   const t = useT()
   const [params, setParams] = useSearchParams()
+  const panels = useId()
   const view = params.get('view') === 'people' ? 'people' : 'folders'
   // a fresh start each way: the person, someone new's choices and the folder narrowed to stay with the person view.
   // Compared with the address itself: the router shows a change in a transition, so `view` can still be the one before
@@ -96,6 +135,7 @@ export default function Folders() {
           segmented
           value={view}
           onChange={choose}
+          panels={panels}
           items={[
             { id: 'folders', label: t('accessView.byFolder') },
             { id: 'people', label: t('accessView.byPerson') },
@@ -103,141 +143,9 @@ export default function Folders() {
           label={t('accessView.tabs')}
         />
       </div>
-      {view === 'people' ? (
-        <Suspense fallback={<Spinner />}>
-          <AccessPeople />
-        </Suspense>
-      ) : (
-        <FolderRules />
-      )}
-    </>
-  )
-}
-
-function FolderRules() {
-  const t = useT()
-  const actOk = useActionOk()
-  const folders = useLoad(async () => (await api.call(API.listFolders)).items)
-  const users = useLoad(async () => (await api.call(API.listUsers)).items)
-  const groups = useLoad(async () => (await api.call(API.listGroups)).items)
-  const [editing, setEditing] = useState<{ folder: Folder | null; path: string } | null>(null)
-  const [picking, setPicking] = useState(false)
-  const focus = useFocusAfterRemove(folders.data, () => document.querySelector<HTMLElement>('[data-testid="folder-rule-new"]'))
-  const once = useOneAtATime<string>()
-  /** the row whose delete is asking the server what it would change (the button shows it is busy) */
-  const [checking, setChecking] = useState<string | null>(null)
-
-  const subject = (type: string, id: string | null) => {
-    if (type === 'everyone') return t('rules.everyone')
-    if (type === 'role') return t('rules.roleOf', { role: t(id === 'admin' ? 'role.admin' : 'role.member') })
-    if (type === 'group') return t('rules.groupOf', { name: groups.data?.find((g) => g.id === id)?.name ?? '?' })
-    return users.data?.find((u) => u.id === id)?.name ?? id ?? '?'
-  }
-  const remove = (f: Folder) =>
-    once.run(f.id, async () => {
-      const list = folders.data ?? []
-      // what removing the rules really does, from the server (the same "who sees what" as saving rules); without it,
-      // the general text
-      let body: ReactNode = t('rules.removeBodyPersonal')
-      if (!isPersonal(f.path)) {
-        setChecking(f.id)
-        const preview = await removalPreview(f.path)
-        setChecking(null)
-        body = preview ? <RemovePreview preview={preview} /> : t('rules.removeBody')
-      }
-      if (!(await confirmDialog({ title: t('rules.removeTitle', { path: f.path || t('files.root') }), body, confirm: t('common.delete'), danger: true }))) return
-      if (!(await actOk(() => api.call(API.deleteFolder, { params: { id: f.id } })))) return
-      focus.removed(sortFolders(list).findIndex((x) => x.id === f.id))
-      await folders.reload()
-    })
-
-  return (
-    <>
-      <Card
-        title={t('admin.folders')}
-        desc={t('rules.desc')}
-        actions={
-          <Button size="sm" variant="primary" onClick={() => setPicking(true)} data-testid="folder-rule-new">
-            <Plus size={14} aria-hidden /> {t('rules.addFolder')}
-          </Button>
-        }
-      >
-        <div ref={focus.box}>
-          <Loadable state={folders}>
-            {(list) =>
-              !list.length ? (
-                <p className="text-sm text-faint">{t('rules.none')}</p>
-              ) : (
-                <ul className="divide-y divide-line" data-testid="folder-list">
-                  {sortFolders(list).map((f) => {
-                    // why the server keeps this row (Folder.keep); an older server does not say, and refuses in words
-                    const why = f.keep === 'team' ? t('rules.keepTeam') : f.keep === 'group' ? t('rules.keepGroup', { name: groups.data?.find((g) => g.id === f.groupId)?.name ?? '?' }) : null
-                    return (
-                      <li key={f.id} className="flex flex-wrap items-start gap-3 py-3 text-sm" data-testid="folder-row" data-path={f.path}>
-                        <FolderLock size={16} className="mt-0.5 shrink-0 text-accent-text" aria-hidden />
-                        <span className="min-w-0 flex-1">
-                          <span className="block font-medium">{f.path || t('files.root')}</span>
-                          {!f.exists && <Badge tone="warn">{t('rules.missingOnDisk')}</Badge>}
-                          <span className="mt-1 flex flex-wrap gap-1">
-                            {f.rules.map((r) => (
-                              <Badge key={r.id} tone={r.access === 'write' ? 'accent' : r.access === 'read' ? 'neutral' : 'danger'}>
-                                {subject(r.subjectType, r.subjectId)}: {t(`access.${r.access}`)}
-                                {isSkillsFolder(f.path) && r.access === 'write' && (r.subjectType === 'user' || r.subjectType === 'group') && <span data-testid="skill-manager-badge"> · {t('skillMgr.ruleBadge')}</span>}
-                              </Badge>
-                            ))}
-                          </span>
-                          {isSkillsFolder(f.path) && <span className="mt-1 block text-xs text-muted">{t('skillMgr.folderHint')}</span>}
-                          {why && <span className="mt-1 block text-xs text-muted" data-testid="folder-keep-reason">{why}</span>}
-                        </span>
-                        {/* a row that cannot go marks its Edit for the focus after a delete instead */}
-                        <Button size="sm" variant="ghost" onClick={() => setEditing({ folder: f, path: f.path })} data-row-focus={why ? true : undefined}>
-                          {t('common.edit')}
-                        </Button>
-                        {why ? (
-                          // in the delete button's place, so the Edit buttons stay in one column; the reason is the text above
-                          <span className="inline-flex p-1.5 text-faint max-sm:p-2" title={why} aria-hidden>
-                            <Lock size={15} />
-                          </span>
-                        ) : (
-                          <IconButton label={t('common.deleteNamed', { name: f.path || t('files.root') })} onClick={() => void remove(f)} aria-busy={checking === f.id || undefined} data-row-focus>
-                            {checking === f.id ? <Loader2 size={15} className="animate-spin" aria-hidden /> : <Trash2 size={15} />}
-                          </IconButton>
-                        )}
-                      </li>
-                    )
-                  })}
-                </ul>
-              )
-            }
-          </Loadable>
-        </div>
-      </Card>
-      <FolderPicker
-        open={picking}
-        title={t('rules.addFolder')}
-        confirmLabel={t('common.choose')}
-        needWrite={false}
-        onClose={() => setPicking(false)}
-        onPick={(path) => {
-          setPicking(false)
-          const existing = folders.data?.find((f) => f.path === path) ?? null
-          setEditing({ folder: existing, path })
-        }}
-      />
-      {editing && (
-        <RulesEditor
-          folder={editing.folder}
-          path={editing.path}
-          users={users.data ?? []}
-          groups={groups.data ?? []}
-          subject={subject}
-          onClose={() => setEditing(null)}
-          onSaved={() => {
-            setEditing(null)
-            void folders.reload()
-          }}
-        />
-      )}
+      <TabPanel base={panels} value={view}>
+        <Suspense fallback={<Spinner />}>{view === 'people' ? <AccessPeople /> : <AccessTree />}</Suspense>
+      </TabPanel>
     </>
   )
 }
@@ -413,7 +321,7 @@ export function RulesEditor({ folder, path, users, groups, subject, onClose, onS
 }
 
 /** The remove dialog's body: the files stay, and who gains or loses what (only the people whose access changes). */
-function RemovePreview({ preview }: { preview: PreviewResponse }) {
+export function RemovePreview({ preview }: { preview: PreviewResponse }) {
   const t = useT()
   const changes = previewChanges(preview)
   return (

@@ -36,7 +36,7 @@ import SuggestSkillDialog from '../components/SuggestSkillDialog'
 import { SkillIssues } from '../components/SkillIssues'
 import { isSkillsPath } from '../lib/skillIssues'
 import { useMeStrict } from '../store/session'
-import { Badge, Button, EmptyState, ErrorNote, IconButton, Modal, Skeleton, Tabs, confirmDialog, promptDialog } from '../components/ui'
+import { Badge, Button, EmptyState, ErrorNote, IconButton, Modal, Skeleton, TabPanel, Tabs, confirmDialog, promptDialog } from '../components/ui'
 
 const ICONS: Record<FileIconKind, typeof FileIcon> = { folder: Folder, image: FileImage, pdf: FileText, doc: FileText, sheet: FileSpreadsheet, slides: Presentation, audio: FileAudio, video: FileVideo, code: FileCode, archive: FileArchive, text: FileText, other: FileIcon }
 
@@ -85,6 +85,7 @@ export default function Files() {
       { replace: true },
     )
   const [view, setView] = useState<'files' | 'trash'>('files')
+  const viewTabs = useId()
   const [tree, setTree] = useState<TreeResponse | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [loadingMore, setLoadingMore] = useState(false)
@@ -613,7 +614,7 @@ export default function Files() {
     >
       <div className="flex flex-wrap items-center gap-2 border-b border-line px-4 py-3 sm:px-6">
         <h1 className="mr-2 text-lg font-semibold">{t('files.title')}</h1>
-        <Tabs value={view} onChange={setView} label={t('files.title')} items={[{ id: 'files', label: t('files.all') }, { id: 'trash', label: t('files.trash') }]} />
+        <Tabs value={view} onChange={setView} label={t('files.title')} panels={viewTabs} items={[{ id: 'files', label: t('files.all') }, { id: 'trash', label: t('files.trash') }]} />
         {view === 'files' && (
           <div className="ml-auto flex items-center gap-1">
             <label className="flex h-8 items-center gap-1.5 rounded-lg border border-field-border bg-surface px-2 focus-within:border-accent focus-within:ring-1 focus-within:ring-accent">
@@ -683,6 +684,8 @@ export default function Files() {
         )}
       </div>
 
+      {/* the chosen tab's content: a flex column like the page, so the list below still fills and scrolls */}
+      <TabPanel base={viewTabs} value={view} className="flex min-h-0 flex-1 flex-col">
       {view === 'trash' ? (
         <TrashView />
       ) : (
@@ -812,6 +815,7 @@ export default function Files() {
           </div>
         </>
       )}
+      </TabPanel>
       <FolderPicker open={!!sharing} title={t('files.shareTitle', { name: sharing?.name ?? '' })} confirmLabel={t('files.shareHere')} initial="shared" onPick={shareTo} onClose={() => setSharing(null)} />
       <FolderPicker open={!!moving} title={t('files.moveTitle', { name: moving?.name ?? '' })} confirmLabel={t('files.moveHere')} initial={path} onPick={moveTo} onClose={() => setMoving(null)} />
       <FolderPicker

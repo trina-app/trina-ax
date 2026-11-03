@@ -405,9 +405,25 @@ export function CopyButton({ text, html, label, className, showLabel }: { text: 
 }
 
 // ---------------- simple tabs ----------------
+/** The ids that tie a tab to its panel: `base` is the Tabs' `panels` (one useId per Tabs), `id` the tab's. */
+export const tabIds = (base: string, id: string) => ({ tab: `${base}-tab-${id}`, panel: `${base}-panel-${id}` })
+
+/** What the chosen tab shows: role=tabpanel, named by its tab, the one each tab's aria-controls points at. `base`: the
+ * same as the Tabs' `panels`; null when no tabs are shown (a plain box then). */
+export function TabPanel({ base, value, className, children, ...rest }: { base: string | null; value: string; className?: string; children?: ReactNode } & Omit<React.HTMLAttributes<HTMLDivElement>, 'id' | 'role'>) {
+  if (base === null) return <div className={className} {...rest}>{children}</div>
+  const ids = tabIds(base, value)
+  return (
+    <div role="tabpanel" id={ids.panel} aria-labelledby={ids.tab} className={className} {...rest}>
+      {children}
+    </div>
+  )
+}
+
 /** `segmented`: the tabs sit in one quiet pill group, for a page's main switch next to its title. The keyboard follows
- * the WAI-ARIA tabs pattern: Tab reaches the chosen tab only; the arrow keys, Home and End choose another. */
-export function Tabs<T extends string>({ value, onChange, items, label, segmented }: { value: T; onChange: (v: T) => void; items: { id: T; label: string }[]; label: string; segmented?: boolean }) {
+ * the WAI-ARIA tabs pattern: Tab reaches the chosen tab only; the arrow keys, Home and End choose another. `panels`:
+ * the ids of the panels (`useId()`), shared with the TabPanel that shows the chosen tab's content. */
+export function Tabs<T extends string>({ value, onChange, items, label, segmented, panels }: { value: T; onChange: (v: T) => void; items: { id: T; label: string }[]; label: string; segmented?: boolean; panels: string }) {
   const list = useRef<HTMLDivElement>(null)
   // on a phone the tabs may not all fit: the chosen one scrolls into the row (a link can choose the last one). Only
   // then, so a row that fits never moves the page.
@@ -441,6 +457,8 @@ export function Tabs<T extends string>({ value, onChange, items, label, segmente
           key={it.id}
           role="tab"
           type="button"
+          id={tabIds(panels, it.id).tab}
+          aria-controls={tabIds(panels, it.id).panel}
           aria-selected={value === it.id}
           tabIndex={it.id === current ? 0 : -1}
           onClick={() => onChange(it.id)}

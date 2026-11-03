@@ -9,7 +9,7 @@
 // "sub-agent" (a sub-task step with its sub-agent's steps under it, Step.parentId), "stop-cut" (a step still running
 // when the person presses Stop ends stopped, Step.stopped);
 // anything else gets a Markdown answer with a table, code, math, a Mermaid diagram and an external image.
-// Test-only controls: POST /__test/file {path, text | base64} (a team file and its folders), POST /__test/download-only {path} (a generated, quarantined file: FileEntry.downloadOnly), POST /__test/reset {setup?: boolean, teamLocale?: 'ko'|'en'|'id' (default ko), usersFollowTeam?:
+// Test-only controls: POST /__test/file {path, text | base64} (a team file and its folders), POST /__test/rmdir {path} (a folder gone from disk; its rule rows stay), POST /__test/download-only {path} (a generated, quarantined file: FileEntry.downloadOnly), POST /__test/reset {setup?: boolean, teamLocale?: 'ko'|'en'|'id' (default ko), usersFollowTeam?:
 // boolean (seeded people have no own language), mustChange?: username (signs in with a temporary password)}, POST /__test/drop-ws, POST /__test/server-version, POST /__test/upload-delay {ms} (an upload's answer comes that late, until the next reset),
 // POST /__test/revoke {path} (a folder becomes invisible to everyone + access_changed notice), POST /__test/skills
 // {files: [{path, name, description}]} (skill files; skills/임원/ is for admins only),
@@ -45,9 +45,10 @@ import { checkTeamIcon, TEAM_ICON_MAX_BYTES, type TeamIconFile } from '@mycel/sh
 import { Sealer } from '../../../server/src/credentials/seal'
 import type { Credential, CredentialKind, CredentialLogin, MessageSourceFile } from '@mycel/shared/api'
 import type { Integration, IntegrationAccess, IntegrationFlow, IntegrationInput, IntegrationPatch, IntegrationRequest, IntegrationTool } from '@mycel/shared/api'
-import { SkillsOverview, type FolderAccessResponse, type PersonAccessResponse } from '@mycel/shared/api'
+import { SkillsOverview, type AccessFolderKind, type AccessTreeResponse, type FolderAccessResponse, type PersonAccessResponse } from '@mycel/shared/api'
 import { RuleSet, type Access } from '../../../server/src/policy/access'
 import { byPerson, folderInput, MAX_VIA, navigation, pageByPath, pageByPerson, ruleFolderOf, segsOf, shownPath, shownSegs, summarize, withoutOwnFolder } from '../../../server/src/admin/access-rows'
+import { treeAnswer, type TreeMark } from '../../../server/src/admin/access-tree'
 import os from 'node:os'
 import path from 'node:path'
 import { MockPlugins } from './plugins'
@@ -398,6 +399,37 @@ export class MockServer {
     })
     return { user: who.user ? { id: who.user.id, name: who.user.name } : null, role: who.role, status: who.user?.status ?? null,
       groups: who.groupIds.map((id) => ({ id, name: this.groups.find((g) => g.id === id)?.name ?? id })).sort((a, b) => a.name.localeCompare(b.name)), folders, total: pg.total, nextCursor: pg.nextCursor }
+  }
+
+  /** the tree of Admin › 폴더 권한 › 폴더별 (like explainTree in server/src/admin/access-explain.ts): the folders here,
+   * the same rows and order (server/src/admin/access-tree.ts) */
+  explainTree(q: { path?: string; cursor?: string; limit?: string; open?: string }): AccessTreeResponse {
+    const input = folderInput(q.path)
+    if ('refuse' in input) fail('validation', 400, input.refuse === 'personal' ? '개인 폴더(users/)는 본인만 봐요. 사람 기준으로 확인해 주세요.' : '팀 폴더 경로가 아니에요.', { 'query.path': input.detail })
+    const segs = (input as { segs: string[] }).segs
+    const p = segs.join('/')
+    const sub = (s: readonly string[]) => {
+      const base = s.join('/')
+      const out: string[] = []
+      for (const [path, n] of this.files) {
+        if (n.type !== 'folder' || path === '' || path === base) continue
+        const at = path.lastIndexOf('/')
+        if ((at < 0 ? '' : path.slice(0, at)) === base && (s.length === 0 || shownSegs(path))) out.push(path.slice(at + 1))
+      }
+      return out
+    }
+    const marks = new Map<string, TreeMark>()
+    const mark = (path: string, kind: AccessFolderKind) => { const m = marks.get(path) ?? { kinds: new Set() }; m.kinds.add(kind); marks.set(path, m); return m }
+    for (const g of this.groups) if (this.isFolder(`groups/${g.name}`)) mark(`groups/${g.name}`, 'group').group = { id: g.id, name: g.name }
+    for (const pr of this.projects) { const m = mark(pr.folderPath, 'project'); m.projects = [...(m.projects ?? []), { id: pr.id, name: pr.name }] }
+    for (const [path, n] of this.files) if (n.type === 'folder' && /^connected\/[^/]+$/.test(path)) mark(path, 'connected').connected = { id: `connected-${path.slice(10)}`, name: path.slice(10) }
+    const active = this.users.filter((u) => u.status === 'active')
+    return treeAnswer({
+      rules: this.explainRules(), people: active.map((u) => this.explainPrincipal(u)),
+      groupName: (id) => this.groups.find((g) => g.id === id)?.name ?? null,
+      personName: (id) => this.users.find((u) => u.id === id)?.name ?? null,
+      children: sub, hasFolders: (s) => sub(s).length > 0, marks, personal: active.length,
+    }, segs, p === '' || this.files.get(p)?.type === 'folder', { cursor: q.cursor, limit: q.limit ? Number(q.limit) : undefined, open: q.open === '1' || q.open === 'true' })
   }
 
   // ---------------- team skills (like server/src/skills/*) ----------------
@@ -1335,7 +1367,7 @@ export class MockServer {
     },
     // like the server (admin/folder-keep.ts, the mock's names are case-sensitive): rows parked with a trashed folder are
     // not listed, and each row says why the API keeps it
-    listFolders: () => ({ items: this.folders.filter((f) => !isParkedRow(f.path)).map((f) => ({ ...f, keep: folderKeep(f.path, f.groupId ?? null, false) })) }),
+    listFolders: () => ({ items: this.folders.filter((f) => !isParkedRow(f.path)).map((f) => ({ ...f, exists: f.path === '' || this.files.get(f.path)?.type === 'folder', keep: folderKeep(f.path, f.groupId ?? null, false) })) }),
     // ---- team skills ----
     listSkillManagers: () => this.skillManagersResponse(),
     setSkillManager: (c) => {
@@ -1413,7 +1445,9 @@ export class MockServer {
     },
     createFolder: (c) => {
       if (isTeamDefaultFolder(c.body.path, false) && !c.body.rules?.length) fail('validation', 400, serverMsg('teamFolderKeepsRules', c.user.locale), { 'body.rules': 'shared/ and skills/ keep at least one rule' })
-      const f: Folder = { id: uuidv7(), path: c.body.path, exists: true, createdAt: now(), rules: [] }
+      // like the server (create defaults to true): the folder and those above it are made
+      if (c.body.create !== false) for (let i = 1, parts = String(c.body.path).split('/'); c.body.path && i <= parts.length; i++) { const d = parts.slice(0, i).join('/'); if (!this.files.has(d)) this.files.set(d, { type: 'folder', mtime: now() }) }
+      const f: Folder = { id: uuidv7(), path: c.body.path, exists: c.body.path === '' || this.files.get(c.body.path)?.type === 'folder', createdAt: now(), rules: [] }
       f.rules = (c.body.rules ?? []).map((r: Json) => ({ id: uuidv7(), folderId: f.id, subjectType: r.subjectType, subjectId: r.subjectId ?? null, access: r.access, updatedBy: { id: c.user.id, name: c.user.name }, updatedAt: now() }))
       this.folders.push(f)
       return { status: 201, body: f }
@@ -1438,6 +1472,7 @@ export class MockServer {
       const u = this.users.find((x) => x.id === c.params.id) ?? fail('not_found', 404)
       return this.explainPerson({ user: u, role: u.role, groupIds: u.groupIds }, { prefix: c.query.prefix, cursor: c.query.cursor, limit: c.query.limit ? Number(c.query.limit) : undefined })
     },
+    explainAccessTree: (c) => this.explainTree(c.query),
     explainNewPersonAccess: (c) => {
       if ((c.body.groupIds as string[]).some((g) => !this.groups.some((x) => x.id === g))) fail('validation', 400, '없는 그룹이 들어 있어요.', { 'body.groupIds': 'unknown group' })
       return this.explainPerson({ user: null, role: c.body.role, groupIds: [...new Set(c.body.groupIds as string[])] }, c.body)
@@ -2153,6 +2188,11 @@ export class MockServer {
       const parts = path.split('/')
       for (let i = 1; i < parts.length; i++) { const d = parts.slice(0, i).join('/'); if (!this.files.has(d)) this.files.set(d, { type: 'folder', mtime: now() }) }
       this.putFile(path, typeof body.base64 === 'string' ? new Uint8Array(Buffer.from(body.base64, 'base64')) : String(body.text ?? ''))
+    }
+    else if (p === '/__test/rmdir') {
+      // a folder gone from disk (moved away outside the app): its folder rows and rules stay
+      const path = String(body.path)
+      for (const k of [...this.files.keys()]) if (k === path || k.startsWith(path + '/')) this.files.delete(k)
     }
     else if (p === '/__test/download-only') {
       this.putFile(String(body.path), 'PK generated deck')

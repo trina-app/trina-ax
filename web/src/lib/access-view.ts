@@ -2,7 +2,7 @@
 // (GET /api/admin/access/people/:id, POST /api/admin/access/new-person; server/src/admin/access-explain.ts). Nothing
 // here decides access: every level and reason is the server's RuleSet.explain / listing, put into the admin's words.
 // No step names of the permission function (user / group / role / everyone, owner-admin, no-rule) reach the screen.
-import type { PersonAccessResponse, PersonFolderAccess, Role } from '@mycel/shared/api'
+import type { AccessTreeNode, AccessTreeWho, PersonAccessResponse, PersonFolderAccess, Role } from '@mycel/shared/api'
 import type { MessageKey, Params } from '../i18n'
 
 type T = (key: MessageKey, params?: Params) => string
@@ -16,6 +16,7 @@ export const levelOf = (f: Pick<PersonFolderAccess, 'access' | 'listable'>): Lev
 export const SECTIONS = ['team', 'group', 'project', 'connected', 'skills', 'personal'] as const
 export type Section = (typeof SECTIONS)[number]
 export const isSkillsPath = (p: string) => p === 'skills' || p.startsWith('skills/')
+export const isPersonalPath = (p: string) => p === 'users' || p.startsWith('users/')
 
 /** The row's group: the server's kinds first, then the top folder that holds such folders (groups/, projects/,
  * connected/ themselves), so a parent sits with its folders. skills/ is the team's AI instructions: its own group. */
@@ -78,10 +79,11 @@ function whoOf(t: T, r: { subjectType: string; subjectId: string | null }, names
 const VIA_NAMED = 2
 
 /** A folder without access shown in the tree: on the way to which folders below. Only the person's own folder below
- * (the team root, always), or none that may be named, is said as the way to their personal folder. */
-function listedText(t: T, f: PersonFolderAccess): string {
-  const named = f.via.filter((v) => !(v === 'users' || v.startsWith('users/')))
-  if (!named.length) return t(f.via.length || f.path === '' ? 'accessView.why.listedOwn' : 'accessView.why.listedUnnamed')
+ * (the team root, always), or none that may be named, is said as the way to their personal folder; for someone new,
+ * the one they will have once they join. */
+function listedText(t: T, f: PersonFolderAccess, newPerson: boolean): string {
+  const named = f.via.filter((v) => !isPersonalPath(v))
+  if (!named.length) return t(f.via.length || f.path === '' ? (newPerson ? 'accessView.why.listedOwnNew' : 'accessView.why.listedOwn') : 'accessView.why.listedUnnamed')
   const all = f.via.map((v) => folderName(t, v))
   const paths = all.slice(0, VIA_NAMED).join(', ')
   if (f.viaMore) return t('accessView.why.listedMany', { paths })
@@ -127,8 +129,8 @@ function decidedText(t: T, f: PersonFolderAccess, role: Role, names: Names): str
  * below (first why its name shows, then the step that decided, so an explicit "no access" is not hidden by it).
  * `role`: the person's role (the answer's).
  */
-export function reasonText(t: T, f: PersonFolderAccess, role: Role, names: Names): string[] {
-  if (f.access === 'none' && f.listable) return [listedText(t, f), decidedText(t, f, role, names)]
+export function reasonText(t: T, f: PersonFolderAccess, role: Role, names: Names, o: { newPerson?: boolean } = {}): string[] {
+  if (f.access === 'none' && f.listable) return [listedText(t, f, !!o.newPerson), decidedText(t, f, role, names)]
   return [decidedText(t, f, role, names)]
 }
 
@@ -198,8 +200,99 @@ export function summaryLines(t: T, who: Who, rows: readonly PersonFolderAccess[]
   }
   const key = forms[who.kind === 'new' ? 'new' : who.off ? 'off' : 'on'][c.see === 0 ? 0 : c.write === 0 ? 1 : 2]
   const sentence = t(key, p)
-  const out = [prefix ? t('accessView.summaryIn', { path: prefix, sentence }) : sentence]
+  // narrowed to users/: the only row is the person's own folder, which the counts leave out (it is no team folder)
+  const ownOnly = who.kind === 'person' && isPersonalPath(prefix) && rows.some((f) => f.kinds.includes('personal'))
+  const out = [ownOnly ? t('accessView.summaryInOwn', { path: prefix, name: p.name }) : prefix ? t('accessView.summaryIn', { path: prefix, sentence }) : sentence]
   if (c.listed) out.push(t('accessView.summaryListed', { n: c.listed }))
   if (page.nextCursor !== null) out.push(t('accessView.summaryPartial', { loaded: rows.length, total: page.total }))
   return out
+}
+
+// ---------------- the folder tree (Admin › Folder permissions › By folder) ----------------
+// One row per folder, from GET /api/admin/access/tree: who sees it (every active person, grouped by the rule that
+// decided for them), where that comes from, and the risks the server computed. Words only; nothing here decides.
+
+/** At most this many groups of people are named on a row; the rest are counted. */
+const WHO_NAMED = 3
+
+/** Who a group of people is, in a row's words: "영업팀 3명", "모두", "그 밖의 9명", "Bob 님". `members`: the people rules
+ * decide for (not the owner or admins). `short`: without the count, for the source line ("영업팀", "나머지"). */
+function whoLabel(t: T, w: AccessTreeWho, members: number, short = false): string {
+  const s = w.subject
+  if (!s || s.type === 'everyone' || (s.type === 'role' && s.id === 'member')) {
+    if (w.count >= members) return t(s?.type === 'role' ? 'accessTree.who.allMembers' : 'rules.everyone')
+    return short ? t('accessTree.who.othersShort') : t('accessTree.who.others', { n: w.count })
+  }
+  if (s.type === 'group') return short ? (s.name ?? '?') : t('accessTree.who.group', { name: s.name ?? '?', n: w.count })
+  if (s.type === 'user') return t('accessView.who.person', { name: s.name ?? '?' })
+  return t('rules.roleOf', { role: t(s.id === 'admin' ? 'role.admin' : s.id === 'owner' ? 'role.owner' : 'role.member') })
+}
+
+/** The groups of people a rule lets open the folder (the owner and admins always can). */
+const seers = (n: Pick<AccessTreeNode, 'who'>) => n.who.filter((w) => w.reason === 'rule' && w.access !== 'none')
+
+/** "영업팀 3명 · 읽기·쓰기, 모두 · 읽기", or "팀장과 관리자만" when no rule lets a member in. */
+export function whoSeesText(t: T, n: Pick<AccessTreeNode, 'who'>, members: number): string {
+  const see = seers(n)
+  if (!see.length) return t('accessTree.who.adminsOnly')
+  const parts = see.slice(0, WHO_NAMED).map((w) => `${whoLabel(t, w, members)} · ${t(`access.${w.access}`)}`)
+  const rest = see.length - WHO_NAMED
+  return rest > 0 ? t('accessTree.who.more', { list: parts.join(', '), n: rest }) : parts.join(', ')
+}
+
+/** Where a decision comes from: this folder's rules, or "shared에서 물려받음" (the root by its name). */
+const fromText = (t: T, folder: string, here: string) => (folder === here ? t('accessTree.source.here') : t('accessTree.source.from', { folder: folderName(t, folder) }))
+
+/**
+ * Where the access on a row comes from. One folder for everyone: "이 폴더의 규칙" or "shared에서 물려받음". Several
+ * (it differs by person): by whom, "영업팀: 이 폴더의 규칙 · 나머지: shared에서 물려받음". The folders of the people who can
+ * open it; when nobody can, of those shut out ("모두: 권한 없음" here). No rule for any member: said so.
+ */
+export function sourceText(t: T, n: Pick<AccessTreeNode, 'who' | 'path'>, members: number): string {
+  const rules = n.who.filter((w) => w.reason === 'rule')
+  const open = rules.filter((w) => w.access !== 'none')
+  const use = open.length ? open : rules
+  if (!use.length) return t(members ? 'accessTree.source.noRule' : 'accessTree.source.noMembers')
+  const byFolder = new Map<string, AccessTreeWho[]>()
+  for (const w of use) byFolder.set(w.folder ?? '', [...(byFolder.get(w.folder ?? '') ?? []), w])
+  if (byFolder.size === 1) return fromText(t, [...byFolder.keys()][0]!, n.path)
+  const parts = [...byFolder].slice(0, 2).map(([folder, ws]) => `${ws.slice(0, 2).map((w) => whoLabel(t, w, members, true)).join(', ')}${ws.length > 2 ? ' …' : ''}: ${fromText(t, folder, n.path)}`)
+  return byFolder.size > 2 ? t('accessTree.source.more', { list: parts.join(' · '), n: byFolder.size - 2 }) : parts.join(' · ')
+}
+
+/** The risks the server computed, in words (the only warning colour on the tree); `long` for the folder's details. */
+export function riskTexts(t: T, n: Pick<AccessTreeNode, 'risks'>, long = false): string[] {
+  const key = (r: AccessTreeNode['risks'][number]): MessageKey =>
+    r === 'everyone-writes' ? (long ? 'accessTree.risk.everyoneLong' : 'accessTree.risk.everyone') : r === 'skills-everyone-writes' ? (long ? 'accessTree.risk.skillsLong' : 'accessTree.risk.skills') : long ? 'accessTree.risk.rootLong' : 'accessTree.risk.root'
+  return n.risks.map((r) => t(key(r)))
+}
+
+/** What a folder is, when it is more than a folder: a group's, a project's, connected, the team skills, users/. */
+export function kindText(t: T, n: Pick<AccessTreeNode, 'kinds' | 'path' | 'projects'>): string | null {
+  if (n.kinds.includes('personal')) return t('accessTree.kind.personal')
+  if (n.kinds.includes('group')) return t('accessTree.kind.group')
+  if (n.kinds.includes('project')) {
+    const p = n.projects ?? []
+    if (p.length === 1) return t('accessView.projectOf', { name: p[0]!.name })
+    return p.length > 1 ? t('accessTree.kind.projects', { n: p.length }) : t('accessTree.kind.project')
+  }
+  if (n.kinds.includes('connected')) return t('accessTree.kind.connected')
+  if (isSkillsPath(n.path)) return t(n.path === 'skills' ? 'accessTree.kind.skillsRoot' : 'accessTree.kind.skills')
+  return null
+}
+
+/** Only part of the team can open it (the lock on a row). users/ is said in words instead. */
+export const isRestricted = (n: Pick<AccessTreeNode, 'restricted' | 'kinds'>) => n.restricted && !n.kinds.includes('personal')
+
+/** The row's name: the team root in words, else the folder's own name. */
+export const nodeName = (t: T, n: Pick<AccessTreeNode, 'path' | 'name'>) => (n.path === '' ? t('accessView.rootFolder') : n.name)
+
+/** The folder above a tree path ('' for a top folder; null for the root itself). */
+export const parentOf = (p: string): string | null => (p === '' ? null : p.includes('/') ? p.slice(0, p.lastIndexOf('/')) : '')
+
+/** Every folder above `p`, from the root down ('' first), not `p` itself. */
+export function ancestorsOf(p: string): string[] {
+  if (p === '') return []
+  const segs = p.split('/')
+  return segs.map((_, i) => segs.slice(0, i).join('/'))
 }

@@ -4,18 +4,20 @@
 //     on a large team: 300 people, 500 folders with rules, file paths 2-7 deep. explain() is measured too.
 //  2. The admin answers at that size (server/src/admin/access-explain.ts): one folder for 300 people, for each of the
 //     500 rule folders, and the root and top folders (where "shown in the tree" tries the most folders); every page of
-//     one person's team folders, for each of the 300 people, and one part of the tree; a new person. Each includes the
-//     response check the server runs in dev (validateResponses) and JSON.
+//     one person's team folders, for each of the 300 people, and one part of the tree; a new person; the folder tree
+//     (stage 4): the root with the way down opened, every page of the widest levels, and the level above each rule
+//     folder. Each includes the response check the server runs in dev (validateResponses) and JSON.
 // Run: bun tests/perf/access-explain.ts   (exit 1 when access() got more than 25% slower, or any answer took over 750 ms,
 // whatever the size: PEOPLE=2000 RULE_FOLDERS=2500 is the size it is meant for; the slowest there, the root folder with
-// all 1999 people on one page, took 200-249 ms on a Mac and 273-458 ms in Linux Docker on a busy machine)
+// all 1999 people on one page, took 200-249 ms on a Mac and 273-458 ms in Linux Docker on a busy machine; the tree's
+// opened top 98 ms median and 170 ms at most, one level 10 ms median, on a busy shared Mac)
 import fs from 'node:fs'
 import path from 'node:path'
-import { FolderAccessResponse, PersonAccessResponse } from '@mycel/shared/api'
+import { AccessTreeResponse, FolderAccessResponse, PersonAccessResponse } from '@mycel/shared/api'
 import type { AppContext } from '../../server/src/context'
 import { openDb } from '../../server/src/db'
 import { RuleSet, type Access, type Principal } from '../../server/src/policy/access'
-import { explainFolder, explainNewPerson, explainPerson } from '../../server/src/admin/access-explain'
+import { explainFolder, explainNewPerson, explainPerson, explainTree } from '../../server/src/admin/access-explain'
 import { OldRuleSet } from '../lib/access-before-explain'
 import { WORK } from '../lib/env'
 
@@ -140,6 +142,25 @@ const answers = [
   measure('person: one part of the tree (prefix skills)', users.slice(0, 50).map((u) => u.id), (id) => personPages((cursor) => explainPerson(ctx, id, { prefix: 'skills', cursor, limit: 2000 }))),
   measure('new person: member in 3 groups (all pages)', ['x', 'y', 'z'], () => personPages((cursor) => explainNewPerson(ctx, { role: 'member', groupIds: groups.slice(0, 3), cursor, limit: 2000 }, 'en'))),
 ]
+// the tree: every page of a level (limit 500), each child with who sees it
+function treePages(p: string) {
+  let cursor: string | undefined, rows = 0, bytes = 0, total = -1
+  for (;;) {
+    const { out, bytes: b } = checked(AccessTreeResponse, explainTree(ctx, { path: p, cursor, limit: 500 }, 'en'))
+    const l = out.levels[0]!
+    bytes += b; rows += l.children.length; total = l.total
+    if (!l.nextCursor) break
+    cursor = l.nextCursor
+  }
+  if (rows !== total) throw new Error(`tree pages gave ${rows} rows of ${total}`)
+  return { rows, bytes }
+}
+const parents = [...new Set(ruleFolderPaths.map((f) => f.split('/').slice(0, -1).join('/')))]
+answers.push(
+  measure('tree: the root with the way down opened (open=1)', Array.from({ length: 5 }, () => ''), () => { const { out, bytes } = checked(AccessTreeResponse, explainTree(ctx, { path: '', open: true }, 'en')); return { rows: out.levels.reduce((s, l) => s + l.children.length, 0), bytes } }),
+  measure('tree: the widest levels, every page (groups, projects, skills, shared)', ['groups', 'projects', 'skills', 'shared'], treePages),
+  measure(`tree: the level holding each rule folder (${parents.length} levels, first page)`, parents, (p) => { const { out, bytes } = checked(AccessTreeResponse, explainTree(ctx, { path: p }, 'en')); return { rows: out.levels[0]!.children.length, bytes } }),
+)
 const sample = personPages((cursor) => explainPerson(ctx, 'u10', { cursor, limit: 2000 }))
 const nav = explainPerson(ctx, 'u10', { prefix: 'groups', limit: 2000 }).folders.find((f) => f.path === 'groups')
 console.log(`person u10: ${sample.rows} folders over all pages; groups: access ${nav?.access}, listable ${nav?.listable}, via ${nav?.via.length}${nav?.viaMore ? '+' : ''}; folder projects/p1 inactive:`,
