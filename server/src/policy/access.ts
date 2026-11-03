@@ -95,8 +95,9 @@ export class RuleSet {
     // folder for a person who does not exist yet, no renaming or trashing the whole tree)
     if (segs.length === 1 && segs[0] === 'users') { if (why) why.kind = 'users-root'; return 'read' }
     if (p.role === 'owner' || p.role === 'admin') { if (why) why.kind = 'owner-admin'; return 'write' } // everything else
-    // the deepest folder with a rule that applies to the person decides; the folder keys are prefixes of one joined
-    // path (a name never holds '/'), cut at the end of each shorter prefix instead of joined again per level
+    // the deepest folder with a rule that applies to the person decides; the key of each level is the joined path cut
+    // after its first `len` names (by their lengths), not joined again per level: the same string as
+    // segs.slice(0, len).join('/')
     const full = segs.join('/')
     let end = full.length
     for (let len = segs.length; len >= 0; len--) {
