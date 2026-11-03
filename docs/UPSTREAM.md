@@ -302,3 +302,11 @@ ported by hand. No core history was imported.
   "Experimental" chip, its hint and the local sign-in hint folded into the engine card's one line.
 - `es` and `ja` get every new key; `admin.desc` is removed in all five languages (`admin.privacy` replaces its last
   sentence).
+
+## 2026-11-03 Chat screen like Claude's
+
+Source change from potenlab/team-ax branch `feat/chat-like-claude` (on top of `feat/project-page`, not yet on core main), ported by hand. No core history was imported.
+
+- Taken as they are: `web/src/components/TitleMenu.tsx` (the project page's name menu, moved out of `Projects.tsx` so the chat uses it too), `web/src/components/chat/chatActions.ts` (rename and delete for the sidebar and the chat's name) and `web/test/e2e/chat-look.spec.ts`.
+- `Chat.tsx`, `Messages.tsx`, `Composer.tsx`, `Sidebar.tsx`: the same change on this repository's files. In the message box this repository's own keys (answer the AI's question, send later while an answer runs) sit inside the box with Send and Stop, and the voice-off hint for admins sits under it with the mic. Delete keeps this repository's trash days in its question (`chatTrashDays`), and the file card has no download branch, as before here.
+- Only here: `chat.reply` in Japanese and Spanish too, `web/test/unit/design-contrast.test.ts` now reads the red Delete item from `TitleMenu.tsx`, and `web/test/e2e/ask-answer.spec.ts` expects "Reply" in the box once the question is answered.

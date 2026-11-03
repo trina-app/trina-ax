@@ -66,8 +66,9 @@ describe('components use the pairs', () => {
       const lines = src(file).split('\n')
       expect(lines.some((l) => l.includes('variant="ghost-danger"')), file).toBe(true)
     }
-    // a project's Delete is an item of the menu on its name: red through its own class, with no grey class over it
-    const projectItem = src('pages/Projects.tsx').split('\n').find((l) => l.includes("it.danger && 'text-danger'"))
+    // Delete of a project or a chat is an item of the menu on its name (TitleMenu): red through its own class, with no
+    // grey class over it
+    const projectItem = src('components/TitleMenu.tsx').split('\n').find((l) => l.includes("it.danger && 'text-danger'"))
     expect(projectItem).toBeDefined()
     expect(projectItem).not.toContain('text-muted')
     // a plain "no" is neutral, like Claude Code's "No": Deny on the site card, Reject of a skill suggestion

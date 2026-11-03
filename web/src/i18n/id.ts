@@ -260,6 +260,7 @@ export const id: Record<MessageKey, string> = {
   'chat.engineSwitched': 'Beralih ke {engine} — percakapan sebelumnya diteruskan sebagai riwayat',
   'chat.inTrash': 'Chat ini sudah dihapus dan akan hilang permanen pada {date}. Pulihkan dulu untuk melanjutkan.',
   'chat.footer': 'AI bisa salah. Cek lagi informasi penting. Chat kamu hanya bisa dilihat oleh kamu.',
+  'chat.reply': 'Balas',
   "outbox.label": "Pesan yang menunggu dikirim",
   "outbox.placeholder": "Ketik pesan berikutnya — dikirim setelah jawaban selesai",
   "outbox.placeholderChoice": "Pilih di atas dulu — pesan yang diketik sekarang dikirim setelah jawaban selesai",

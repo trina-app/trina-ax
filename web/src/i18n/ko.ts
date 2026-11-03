@@ -259,6 +259,7 @@ export const ko = {
   'chat.engineSwitched': '{engine}로 바뀌었어요 — 이전 대화는 기록으로 넘겨졌어요',
   'chat.inTrash': '삭제한 채팅이에요. {date}에 완전히 지워져요. 이어서 대화하려면 먼저 되돌려 주세요.',
   'chat.footer': 'AI는 실수할 수 있어요. 중요한 내용은 확인해 주세요. 내 채팅은 나만 볼 수 있어요.',
+  'chat.reply': '답장하기',
   "outbox.label": "보낼 메시지",
   "outbox.placeholder": "다음 메시지를 입력하세요. 답이 끝나면 보내요",
   "outbox.placeholderChoice": "먼저 위에서 골라 주세요. 지금 입력한 메시지는 답이 끝나면 보내요",

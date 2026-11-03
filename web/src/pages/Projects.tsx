@@ -2,9 +2,8 @@
 // context. List (projects whose folder the person can read), create (folder they can write), project home: a box that
 // starts a chat in the project and the person's chats in it, with the dev environment, the instructions and the
 // folder's files as short lines beside them (like Claude's project page).
-import { ChevronDown, FileText, FolderKanban, Folder, Pencil, Plus, ScrollText, Share2, Trash2 } from 'lucide-react'
-import { useEffect, useRef, useState, type KeyboardEvent, type ReactNode } from 'react'
-import clsx from 'clsx'
+import { FileText, FolderKanban, Folder, Pencil, Plus, ScrollText, Share2, Trash2 } from 'lucide-react'
+import { useEffect, useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import type { Chat, FileEntry, Group, Project, ProjectParticipant, User } from '@mycel/shared/api'
 import { api, API, errorText, isApiError } from '../lib/api'
@@ -17,6 +16,7 @@ import { isAdmin, useMe } from '../store/session'
 import FolderPicker from '../components/FolderPicker'
 import { Markdown } from '../components/Markdown'
 import { DisclosureRow } from '../components/DisclosureRow'
+import { TitleMenu } from '../components/TitleMenu'
 import { NewChatComposer } from '../components/chat/NewChatComposer'
 import { Button, EmptyState, ErrorNote, Field, Modal, PageHeader, Skeleton, confirmDialog, inputCls } from '../components/ui'
 import { DevEnvRow } from './DevEnvSection'
@@ -282,8 +282,9 @@ export function ProjectHome() {
             /
           </span>
           {p.canEdit ? (
-            <ProjectMenu
+            <TitleMenu
               name={p.name}
+              testId="project-menu"
               items={[
                 { label: t('common.edit'), icon: <Pencil size={14} aria-hidden />, onSelect: () => setEditing(true), testId: 'project-edit' },
                 ...(personal ? [{ label: t('projects.share'), icon: <Share2 size={14} aria-hidden />, onSelect: () => setSharing(true), testId: 'project-share' }] : []),
@@ -375,69 +376,6 @@ export function ProjectHome() {
       </div>
       {editing && <ProjectForm project={p} onClose={() => setEditing(false)} onSaved={setP} />}
       <FolderPicker open={sharing} title={t('projects.share')} confirmLabel={t('files.shareHere')} initial="shared" onPick={(x) => void shareTo(x)} onClose={() => setSharing(false)} />
-    </div>
-  )
-}
-
-/** The project's name in the top line, opening its few actions (Edit, Share, Delete): a menu, like Claude's. */
-function ProjectMenu({ name, items }: { name: string; items: { label: string; icon: ReactNode; onSelect: () => void; danger?: boolean; testId: string }[] }) {
-  const box = useRef<HTMLDivElement>(null)
-  const [open, setOpen] = useState(false)
-  const menuItems = () => [...(box.current?.querySelectorAll<HTMLElement>('[role="menuitem"]') ?? [])]
-  useEffect(() => {
-    if (!open) return
-    menuItems()[0]?.focus()
-    // not on losing focus: Safari moves focus off a button when it is pressed, and the click would find the menu gone
-    const outside = (e: MouseEvent) => { if (!box.current?.contains(e.target as Node)) setOpen(false) }
-    document.addEventListener('mousedown', outside)
-    return () => document.removeEventListener('mousedown', outside)
-  }, [open])
-  const onKeyDown = (e: KeyboardEvent) => {
-    if (!open) return
-    if (e.key === 'Escape' || e.key === 'Tab') {
-      if (e.key === 'Escape') e.stopPropagation() // only the menu: not an open file or browser panel too (Layout)
-      setOpen(false)
-      box.current?.querySelector('button')?.focus()
-    } else if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
-      e.preventDefault()
-      const all = menuItems()
-      const at = all.indexOf(document.activeElement as HTMLElement)
-      all[(at + (e.key === 'ArrowDown' ? 1 : all.length - 1)) % all.length]?.focus()
-    }
-  }
-  return (
-    <div ref={box} className="relative min-w-0" onKeyDown={onKeyDown}>
-      <button
-        type="button"
-        aria-haspopup="menu"
-        aria-expanded={open}
-        aria-current="page"
-        onClick={() => setOpen((v) => !v)}
-        className="flex max-w-full min-w-0 items-center gap-1 rounded-md px-1.5 py-1 hover:bg-hover"
-        data-testid="project-menu"
-      >
-        <span className="truncate">{name}</span>
-        <ChevronDown size={14} className="shrink-0 text-faint" aria-hidden />
-      </button>
-      {open && (
-        <div role="menu" aria-label={name} className="absolute top-full left-0 z-30 mt-1 w-56 rounded-lg border border-line bg-surface p-1 shadow-lg">
-          {items.map((it) => (
-            <button
-              key={it.testId}
-              role="menuitem"
-              type="button"
-              className={clsx('flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-sm -outline-offset-2 hover:bg-hover focus:bg-hover', it.danger && 'text-danger')}
-              onClick={() => {
-                setOpen(false)
-                it.onSelect()
-              }}
-              data-testid={it.testId}
-            >
-              {it.icon} {it.label}
-            </button>
-          ))}
-        </div>
-      )}
     </div>
   )
 }

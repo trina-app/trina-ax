@@ -3,20 +3,19 @@
 import clsx from 'clsx'
 import { BookMarked, FolderOpen, FolderKanban, Loader2, LogOut, MessageSquarePlus, MoreHorizontal, Search, Settings, Shield, Trash2, Pencil, ChevronDown } from 'lucide-react'
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { Link, NavLink, useNavigate, useParams } from 'react-router-dom'
+import { Link, NavLink, useNavigate } from 'react-router-dom'
 import { PRODUCT } from '@mycel/shared'
 import type { Chat } from '@mycel/shared/api'
-import { api, API, errorText } from '../lib/api'
-import { chatTrashDays } from '../lib/chat-trash'
+import { api, API } from '../lib/api'
 import { dateBucket, type DateBucket } from '../lib/format'
 import { clearLocalData } from '../lib/localData'
 import { platform } from '../lib/pwa'
-import { useLocale, useT, type MessageKey } from '../i18n'
+import { useT, type MessageKey } from '../i18n'
 import { useChats } from '../store/chats'
 import { skillsChanged } from '../store/live'
 import { isAdmin, useMeStrict, useSession } from '../store/session'
-import { toast, useUi } from '../store/ui'
-import { confirmDialog, promptDialog } from './ui'
+import { useUi } from '../store/ui'
+import { useChatActions } from './chat/chatActions'
 
 /** shortcut hints in the keys of this computer (the handlers take ⌘ and Ctrl alike, Layout.tsx) */
 const onMac = () => platform() === 'mac' || platform() === 'ios'
@@ -149,15 +148,10 @@ export default function Sidebar() {
 
 function ChatItem({ chat, onNavigate }: { chat: Chat; onNavigate: () => void }) {
   const t = useT()
-  const me = useMeStrict()
-  const locale = useLocale()
-  const { chatId } = useParams()
   const [menu, setMenu] = useState(false)
-  const upsert = useChats((s) => s.upsertChat)
-  const remove = useChats((s) => s.removeChat)
+  const actions = useChatActions()
   // the AI of this chat asked something (ask_user / site / connect_service card) and waits: tab 5 "주의가 필요한 채팅"
   const needsAnswer = useChats((s) => Object.values(s.requests).some((r) => r.chatId === chat.id))
-  const navigate = useNavigate()
   const ref = useRef<HTMLLIElement>(null)
   useEffect(() => {
     if (!menu) return
@@ -166,27 +160,13 @@ function ChatItem({ chat, onNavigate }: { chat: Chat; onNavigate: () => void }) 
     return () => document.removeEventListener('mousedown', h)
   }, [menu])
 
-  const rename = async () => {
+  const rename = () => {
     setMenu(false)
-    const title = await promptDialog({ title: t('chat.rename'), label: t('chat.title'), initial: chat.title, confirm: t('common.save') })
-    if (!title) return
-    try {
-      upsert(await api.call(API.updateChat, { params: { id: chat.id }, body: { title } }))
-    } catch (e) {
-      toast({ level: 'error', text: errorText(e, locale, t('error.network')) })
-    }
+    void actions.rename(chat)
   }
-  const del = async () => {
+  const del = () => {
     setMenu(false)
-    if (!(await confirmDialog({ title: t('chat.deleteTitle'), body: t('chat.deleteBody', { days: chatTrashDays(me) }), confirm: t('common.delete'), danger: true }))) return
-    try {
-      await api.call(API.deleteChat, { params: { id: chat.id } })
-      remove(chat.id)
-      if (chatId === chat.id) navigate('/')
-      toast({ level: 'info', text: t('chat.deleted'), action: { label: t('common.undo'), run: () => void api.call(API.restoreChat, { params: { id: chat.id } }).then(upsert) } })
-    } catch (e) {
-      toast({ level: 'error', text: errorText(e, locale, t('error.network')) })
-    }
+    void actions.remove(chat)
   }
 
   return (
