@@ -159,7 +159,7 @@ Linux 自托管需要 Debian 12/13 或 Ubuntu 24.04、启用 cgroup v2 的 syste
 <details>
 <summary><b>支持韩国的 HWP 文件吗？</b></summary>
 
-<br>文字部分支持：AI 可以读取 HWP/HWPX 文件里的文字，也能新建 .hwpx 文档（标题、段落、列表和简单表格）。可视化预览需要可选插件，而这个插件不能在 Debian 12 上运行。更多内容见 [FAQ](docs/FAQ.md)。
+<br>文字部分支持：AI 可以读取 HWP/HWPX 文件里的文字，也能新建 .hwpx 文档（标题、段落、列表和简单表格），还能填写已有的 .hwpx 表单（占位符、空白单元格、表格行），文件其余部分保持原样。可视化预览需要可选插件，而这个插件不能在 Debian 12 上运行。更多内容见 [FAQ](docs/FAQ.md)。
 
 </details>
 

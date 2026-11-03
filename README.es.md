@@ -157,7 +157,7 @@ Autoalojar no significa funcionar sin conexión: el contexto que necesita cada p
 <details>
 <summary><b>¿Funciona con archivos HWP coreanos?</b></summary>
 
-<br>Con el texto, sí: la IA puede leer el texto de archivos HWP/HWPX y crear documentos .hwpx nuevos (títulos, párrafos, listas y tablas sencillas). Las vistas previas visuales requieren el plugin opcional, que no funciona en Debian 12. Más información en las [preguntas frecuentes](docs/FAQ.md).
+<br>Con el texto, sí: la IA puede leer el texto de archivos HWP/HWPX crear documentos .hwpx nuevos (títulos, párrafos, listas y tablas sencillas) y rellenar un formulario .hwpx existente (marcadores, celdas vacías, filas de tabla) sin tocar el resto del archivo. Las vistas previas visuales requieren el plugin opcional, que no funciona en Debian 12. Más información en las [preguntas frecuentes](docs/FAQ.md).
 
 </details>
 
