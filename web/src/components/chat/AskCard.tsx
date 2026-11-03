@@ -70,6 +70,9 @@ export default function AskCard({ req, onAnswer }: { req: Pick<OpenRequest, 'req
       </div>
     )
 
+  // a connect_service card is ConnectCard (Messages.tsx): its key never goes through /answer
+  if (r.kind === 'connect_service') return null
+
   const options = r.options ?? []
   const allowText = r.allowText ?? options.length === 0
   const value: string | string[] | null = r.multiple ? [...picked, ...(text.trim() ? [text.trim()] : [])] : (picked[0] ?? (text.trim() || null))

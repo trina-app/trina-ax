@@ -43,6 +43,7 @@ import type { ChatRuntime } from './runtime'
 import { blankTeamAttachment, stopReasonOf, type MessageRow } from './store'
 import { BROWSER_TOOL_NAMES } from '../realtime/browser-tools'
 import { buildToolSet, type ChatToolSet } from './tools'
+import { ConnectOutcome, type ConnectCard } from './connect-service'
 import { devEnvFlag, mayUseBox } from '../devenv/setting'
 import { addSources, clearScope, sourceKey, sourceLabel, sourceOf, widening, type ReadSource } from './read-scope'
 import { authorize } from '../policy/authorize'
@@ -151,6 +152,10 @@ export class TurnExec {
   private activeMs = 0
   private humanWaits = 0
   private requests = new Map<string, OpenRequest>()
+  /** what the server keeps beside an open connect_service card (chat/connect-service.ts), by its request id: the AI's
+   * usage notes (not on the card) and the connection the card made, so another key after a failed check goes to that
+   * same connection (docs/INTEGRATIONS.md "Connecting from a chat") */
+  readonly connectCards = new Map<string, ConnectCard>()
   private lastFileEvent = 0
   private registered = false
   private thinkingStep: Step | null = null
@@ -1211,11 +1216,15 @@ export class TurnExec {
       const one = Array.isArray(value) && value.length === 1 ? value[0] : value
       if (typeof one !== 'string' || !options.has(one)) return 'not_an_option'
     }
+    // a connect_service card ends only with an outcome POST /api/turns/:id/connect made (/answer cannot name the kind)
+    if (r.request.kind === 'connect_service' && value !== null && !ConnectOutcome.safeParse(value).success) return 'not_an_option'
     this.closeRequest(requestId, value, 'answered')
     return 'ok'
   }
 
   openRequests(): { request: TurnRequest; window: string | null }[] { return [...this.requests.values()].map((r) => ({ request: r.request, window: r.window })) }
+  /** one open card of this turn, or null (answered, expired, the turn ended) */
+  openRequest(requestId: string): TurnRequest | null { return this.requests.get(requestId)?.request ?? null }
 
   private closeRequest(requestId: string, value: unknown, reason: 'answered' | 'timeout' | 'turn_ended') {
     const r = this.requests.get(requestId)

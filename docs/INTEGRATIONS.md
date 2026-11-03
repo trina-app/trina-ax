@@ -62,6 +62,57 @@ after 7 days) and can withdraw a waiting request; the admin never sees the key o
 `331_c_integration_requests.sql`. Decisions: [DECISIONS.md](DECISIONS.md) "Asking a member to connect a service as
 their own".
 
+## Connecting from a chat
+
+A person says in a chat "connect Higgsfield" (or Notion, Linear, GitHub, any MCP server or HTTP API, or their Google
+Drive). The AI looks up the service's official address itself, fills in the connection with the `connect_service`
+tool, and the chat shows a card. The person does one thing on the card: paste the key, sign in, or press Connect. They
+never have to open Settings. Code: `server/src/chat/connect-service.ts` (the tool and the card's endpoint),
+`POST /api/turns/:id/connect` (`server/src/routes/chats.ts`), the card in the web app. Contract: `ConnectServiceInput`
+(`shared/src/tools.ts`), `ConnectServiceRequest` (`shared/src/api/ws.ts`), `TurnConnectBody` / `TurnConnectResult`
+(`shared/src/api/chats.ts`).
+
+- **The key never reaches the AI.** It is not in the tool's input or result, the steps, the audit lines
+  (`tool_events`), the engine's session file, the logs, the realtime events, the admin audit or any error text. The
+  card seals it in the browser for the purpose `'integration.secret'` (the same sealing as AI connections) and sends it
+  to `POST /api/turns/:id/connect`, which opens it and hands it straight to the connection's store. It never goes
+  through `POST /api/turns/:id/answer`, whose answers reach the AI; that endpoint refuses these cards. A field the AI
+  fills in that looks like a key (or holds one this person has stored) is refused without a card, and the step's label
+  leaves out anything that looks like one.
+- **Nothing is connected until the person presses the card's button.** The tool only opens a card, so an instruction
+  planted in a page can make the AI open a card but never finish one. The AI learns only the outcome:
+  `{"connected": true, "name", "status", "tools"}` (up to 30 tool names) or `{"skipped": true}` (Not now, the card's
+  time ran out, the answer was stopped).
+- **The same path and checks as Settings** (`service.ts create`): personal connections switched off, the limits, https
+  only, no private, local or office addresses, the header rules, the short name. A team connection only for an admin,
+  with the role read again when the card is finished (the endpoint is for any signed-in person). "Just me" names the
+  admin in the connection's rule (admins are not users of team connections otherwise); "Everyone" is everyone.
+- **The card says where the key goes**: the address's host, next to the key box. The key is stored for that one
+  connection and sent only to its address, as for any connection.
+- **A wrong key keeps the card open.** The answer says why the check failed, and the next key goes to the same
+  connection (its key is replaced): one card makes one connection at most. "Not now" after a failed key removes that
+  connection again, the way Settings removes one (audited); a card whose time runs out leaves it in Settings.
+- **Answers without a card**, as text the AI can act on: a missing or bad field, an address that is not https or is
+  private, personal connections off, a team connection asked for by a member, a connection to the same address that
+  the person (or the team) already has (its name and state), the team limit, Google Drive not set up on this server
+  (an admin or the operator has to set it up), Google Drive already connected.
+- **Sign-in services** are added first; the card then runs the usual sign-in (`POST /api/integrations/:id/authorize`)
+  and, once it finished, tells the server ("done"), which checks the connection before telling the AI. Google Drive
+  uses its own sign-in ([GOOGLE-DRIVE.md](GOOGLE-DRIVE.md)) inside the card, then "done" the same way.
+- **Where it is not offered.** Scheduled runs have nobody to finish a card: the tool answers "skipped" at once.
+  Sub-agents never get the tool (`PARENT_ONLY_TOOLS`). Confidential chats (Safe operations) do not offer it: it is not a
+  local tool, and connected services are not offered there either.
+- **A new connection's tools come with the next message.** A turn's tools are fixed when it starts (the engines'
+  tool lists and the model proxy's names for the turn), so the AI says it is connected and can use it from the
+  person's next message.
+- If the person pastes a key into the chat anyway, the AI tells them not to, that it should be revoked and replaced
+  at the service, and offers the card (the instructions' rule, `prompt.ts` `CONNECT_RULE`). The web app also warns
+  before sending a message that looks like it holds a key.
+- Tests: `tests/unit/connect-service.test.ts` (every answer without a card; the card's fields; a wrong key and then
+  the right one on one connection; a seal for another purpose; another person's turn; `/answer` refused; Not now, the
+  time running out, a scheduled run; a team connection with the role checked again; sign-in then done; the key and
+  the sealed value in no text, row, log or file of the data folder).
+
 ## Secrets
 
 - Keys and OAuth tokens (and the OAuth client details) are stored only AES-256-GCM encrypted with the existing Vault

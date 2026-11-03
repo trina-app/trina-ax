@@ -20,6 +20,7 @@ import { TYPE_LABEL } from '../artifactLabels'
 import { Markdown } from '../Markdown'
 import { Button, CopyButton, IconButton, inputCls } from '../ui'
 import AskCard from './AskCard'
+import ConnectCard from './ConnectCard'
 import SuggestSkillDialog from '../SuggestSkillDialog'
 import FileSummary from './FileSummary'
 import SourcesList from './SourcesList'
@@ -307,9 +308,7 @@ export function AssistantMessage({
         )}
         {m.content && <Markdown text={m.content} streaming={streaming} />}
         <ArtifactCards chatId={chatId} messageId={m.id} />
-        {requests.map((r) => (
-          <AskCard key={r.request.requestId} req={r} />
-        ))}
+        {requests.map((r) => (r.request.kind === 'connect_service' ? <ConnectCard key={r.request.requestId} request={r.request} /> : <AskCard key={r.request.requestId} req={r} />))}
         {m.files && <FileSummary files={m.files} onAskOwnFolder={onAskOwnFolder} disabled={busy} />}
         {!streaming && m.sourceCount ? <SourcesList chatId={chatId} messageId={m.id} count={m.sourceCount} /> : null}
         {m.status === 'error' && (

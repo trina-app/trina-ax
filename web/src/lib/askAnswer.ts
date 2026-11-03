@@ -4,8 +4,9 @@
 // tested in test/unit/ask-answer.test.ts) plus what the open cards of this window have ticked so far.
 //
 // Never answered from the message box: the server's own safety checks (origin 'server': open an unseen address,
-// save where more people see it, ...) and browser site confirmations. A typed "yes" must not pass for a decision
-// that only their buttons make; messages typed meanwhile wait like during any answer.
+// save where more people see it, ...), browser site confirmations and connect_service cards (a key goes only from
+// the card, sealed, to /connect; nothing typed here finishes a connection). A typed "yes" must not pass for a
+// decision that only their buttons make; messages typed meanwhile wait like during any answer.
 import { ASK_ANSWER_ITEM_MAX, ASK_ANSWER_MAX, type TurnRequest } from '@mycel/shared/api'
 import type { OpenRequest } from '../store/chats'
 
@@ -25,7 +26,8 @@ export function composerQuestion(requests: Readonly<Record<string, OpenRequest>>
   return first
 }
 
-/** An open card in this chat that only its own buttons answer (a server safety check, a browser site). */
+/** An open card in this chat that only its own buttons answer (a server safety check, a browser site, connecting a
+ * service). */
 export function choiceWaiting(requests: Readonly<Record<string, OpenRequest>>, chatId: string): boolean {
   return Object.values(requests).some((r) => r.chatId === chatId && !isQuestion(r))
 }

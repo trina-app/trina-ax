@@ -5,6 +5,7 @@
 // and only the words are translated.
 import type { Locale } from './api/common'
 import { mediaKind, type MediaKind } from './media'
+import { maskSecrets } from './secrets'
 
 type T = Record<Locale, string>
 const t = (ko: string, en: string, id: string, ja: string, es: string): T => ({ ko, en, id, ja, es })
@@ -42,6 +43,7 @@ export const FILE_STEP_VERB: Record<string, T> = {
   find_tools: t('도구 찾기', 'Find tools', 'Cari alat', "ツールを探す", "Buscar herramientas"),
   remember: t('기억하기', 'Remember', 'Ingat', "記憶", "Recordar"),
   forget: t('기억 지우기', 'Forget', 'Lupakan', "忘れる", "Olvidar"),
+  connect_service: t('서비스 연결', 'Connect service', 'Hubungkan layanan', "サービスを接続", "Conectar servicio"),
 }
 
 /** Verb of an in-app browser step: "<verb> · <url>". */
@@ -85,6 +87,9 @@ export const STEP_TEXT = {
   notRemembered: t('기억하지 않음: {text}', 'Not remembered: {text}', 'Tidak diingat: {text}', "記憶しませんでした：{text}", "No se recordó: {text}"),
   forgot: t('기억 지움', 'Forgot a memory', 'Ingatan dihapus', "メモリを削除しました", "Se olvidó una memoria"),
   notAnswered: t('답하지 않음', 'Not answered', 'Tidak dijawab', "未回答", "Sin respuesta"),
+  /** detail of a connect_service step: the person finished the card (or it was connected already), or did not */
+  connectConnected: t('연결됨', 'Connected', 'Terhubung', "接続済み", "Conectado"),
+  connectNotConnected: t('연결 안 됨', 'Not connected', 'Tidak terhubung', "未接続", "No conectado"),
   webSearch: t('웹 검색: {q}', 'Web search: {q}', 'Cari di web: {q}', "Web検索：{q}", "Búsqueda web: {q}"),
   /** a search still running whose query is not known yet (Codex names it only at the end) */
   webSearchRunning: t('웹 검색 중…', 'Searching the web…', 'Mencari di web…', "Web検索中…", "Buscando en la web…"),
@@ -165,6 +170,8 @@ export function stepLabel(tool: string, input: unknown, locale: Locale, browserT
     case 'ask_user': return stepText('asked', locale, { q: clip(a.question, 120) })
     case 'remember': return stepText('remembered', locale, { text: clip(a.text, 120) })
     case 'forget': return stepText('forgot', locale)
+    // the service's name as the AI wrote it, with anything that looks like a key left out (the label is shown and saved)
+    case 'connect_service': return `${verb} · ${a.target === 'google_drive' ? 'Google Drive' : clip(maskSecrets(String(a.name ?? '')), 60)}`
     default: return verb ?? tool
   }
 }
@@ -233,6 +240,7 @@ export function localizeStep(step: { kind: string; tool?: string; label: string;
   else if (BROWSER_STEP_VERB[tool] || step.kind === 'browser' || browserTools?.has(tool)) label = reverb(BROWSER_STEP_VERB[tool] ?? BROWSER_STEP_FALLBACK, step.label, locale)
   else if (tool === 'read') label = reverb(READ_MEDIA_VERB.video, step.label, locale) ?? reverb(READ_MEDIA_VERB.audio, step.label, locale) ?? reverb(FILE_STEP_VERB.read!, step.label, locale)
   else if (FILE_STEP_VERB[tool]) label = reverb(FILE_STEP_VERB[tool]!, step.label, locale)
-  const detail = step.detail !== undefined ? (retemplate(['notAnswered', 'webSearchRefused'], step.detail, locale) ?? step.detail) : undefined
+  const details: StepTextKey[] = tool === 'connect_service' ? ['connectConnected', 'connectNotConnected'] : ['notAnswered', 'webSearchRefused']
+  const detail = step.detail !== undefined ? (retemplate(details, step.detail, locale) ?? step.detail) : undefined
   return { label: label ?? step.label, ...(detail !== undefined ? { detail } : {}) }
 }

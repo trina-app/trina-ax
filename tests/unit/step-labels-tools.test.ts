@@ -12,7 +12,7 @@ import { DRIVE_TOOL_NAMES } from '../../server/src/tools/drive'
 const LOCALES: Locale[] = ['ko', 'en', 'id', 'ja', 'es']
 const NONE = new Set<string>()
 // set_title has no step (the new title shows in the sidebar); connected services label their own tools
-const TOOLS = [...Object.keys(FILE_TOOLS), ...C_TOOL_NAMES, ...FILE_MOVE_TOOL_NAMES, ...SCHEDULE_TOOL_NAMES, ...DRIVE_TOOL_NAMES, 'search', 'generate_video', 'ask_user', 'remember', 'forget', 'skill', 'find_skills', 'find_tools']
+const TOOLS = [...Object.keys(FILE_TOOLS), ...C_TOOL_NAMES, ...FILE_MOVE_TOOL_NAMES, ...SCHEDULE_TOOL_NAMES, ...DRIVE_TOOL_NAMES, 'search', 'generate_video', 'ask_user', 'remember', 'forget', 'skill', 'find_skills', 'find_tools', 'connect_service']
 const INPUT: Record<string, Record<string, unknown>> = {
   hwp_render: { source: 'qa-hwp/report.hwpx', page: 2, format: 'png' },
   schedule_create: { title: 'Weekly digest', prompt: 'x', repeat: 'weekly', time: '09:00', weekday: 1 },
@@ -25,6 +25,7 @@ const INPUT: Record<string, Record<string, unknown>> = {
   skill: { name: '견적서 작성' },
   find_skills: { query: '견적' },
   find_tools: { query: 'upscale video' },
+  connect_service: { name: 'Higgsfield', kind: 'mcp', url: 'https://mcp.higgsfield.ai/mcp', auth: 'oauth' },
 }
 
 describe('step labels of the built-in tools', () => {
@@ -64,6 +65,19 @@ describe('step labels of the built-in tools', () => {
       const ko = stepLabel(tool, INPUT[tool] ?? {}, 'ko', NONE)
       for (const L of LOCALES) expect(localizeStep({ kind: 'tool', tool, label: ko }, L).label).toBe(stepLabel(tool, INPUT[tool] ?? {}, L, NONE))
     }
+  })
+})
+
+describe('connect_service steps', () => {
+  test('the service by name (Google Drive for the Drive card, nothing that looks like a key), and the outcome in every language', () => {
+    expect(stepLabel('connect_service', INPUT.connect_service, 'en', NONE)).toBe('Connect service · Higgsfield')
+    expect(stepLabel('connect_service', { target: 'google_drive', name: 'my drive' }, 'ko', NONE)).toBe('서비스 연결 · Google Drive')
+    expect(stepLabel('connect_service', { name: 'Linear sk-live-4f9a8b7c6d5e4f3a2b1c' }, 'en', NONE).includes('sk-live')).toBe(false)
+    const ko = stepLabel('connect_service', INPUT.connect_service, 'ko', NONE)
+    expect(localizeStep({ kind: 'tool', tool: 'connect_service', label: ko, detail: '연결됨' }, 'en')).toEqual({ label: 'Connect service · Higgsfield', detail: 'Connected' })
+    expect(localizeStep({ kind: 'tool', tool: 'connect_service', label: ko, detail: 'Not connected' }, 'ja').detail).toBe('未接続')
+    // other tools' details keep their words ("Connected" is only this step's outcome)
+    expect(localizeStep({ kind: 'tool', tool: 'read', label: 'Read · a.md', detail: 'Connected' }, 'ko').detail).toBe('Connected')
   })
 })
 

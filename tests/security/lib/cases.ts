@@ -127,6 +127,9 @@ export const SPECS: Record<string, Spec> = {
   listTurnRequests: { build: (c, w) => c.get(`/api/chats/${w.ids.chatB}/requests`), scope: 'own-alice-chat' },
   answerTurn: { build: (c, w) => c.post(`/api/turns/${w.ids.turnB}/answer`, { kind: 'ask_user', requestId: w.ids.requestB, answer: 'from intruder' }), scope: 'own-alice-chat',
     check: (r, w, who) => { if (who !== 'memberIn' && r.status < 300) throw new Error(`${who} answered alice's card`) } },
+  // a connect_service card of alice's turn: only alice may finish it (a skip is enough to show who reaches it)
+  connectTurn: { build: (c, w) => c.post(`/api/turns/${w.ids.turnB}/connect`, { action: 'skip', requestId: w.ids.requestB }), scope: 'own-alice-chat',
+    check: (r, w, who) => { if (who !== 'memberIn' && r.status < 300) throw new Error(`${who} finished alice's connect card`) } },
   listProjects: { build: (c) => c.get('/api/projects'), scope: 'self',
     check: (r, w, who) => { if (who !== 'memberIn' && r.text.includes(C.aliceProjInstr)) throw new Error(`${who} sees alice's private-folder project`) } },
   createProject: { build: (c) => c.post('/api/projects', { name: 'p', folderPath: 'shared', instructions: '' }), scope: 'shared' },
