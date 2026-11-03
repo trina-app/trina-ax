@@ -16,7 +16,7 @@ import { isOwner, useMeStrict } from '../../store/session'
 import { credentialLogin } from '../../store/live'
 import { toast } from '../../store/ui'
 import { Badge, Button, CopyButton, Field, IconButton, Modal, Switch, confirmDialog, inputCls } from '../../components/ui'
-import { Card, Loadable, useAction, useLoad } from './common'
+import { Card, Loadable, useAction, useActionOk, useLoad } from './common'
 
 const FAMILY: Record<'claude' | 'codex', CredentialKind[]> = { claude: ['anthropic-oauth', 'anthropic-api-key'], codex: ['chatgpt', 'openai-api-key'] }
 const SUBSCRIPTION = new Set<CredentialKind>(['anthropic-oauth', 'chatgpt'])
@@ -42,6 +42,7 @@ export default function Credentials() {
   const me = useMeStrict()
   const owner = isOwner(me)
   const act = useAction()
+  const actOk = useActionOk()
   const state = useLoad(() => api.call(API.listCredentials))
   const groups = useLoad(async () => (owner ? (await api.call(API.listGroups)).items : []), [owner])
   const users = useLoad(async () => (owner ? (await api.call(API.listUsers)).items : []), [owner])
@@ -65,7 +66,7 @@ export default function Credentials() {
   const remove = async (c: Credential) => {
     const body = c.kind === 'chatgpt' ? t('credentials.deleteChatgptNote') : undefined
     if (!(await confirmDialog({ title: t('credentials.deleteConfirm', { label: c.label }), body, confirm: t('common.delete'), danger: true }))) return
-    if (await act(async () => { await api.call(API.deleteCredential, { params: { id: c.id } }); return true })) void state.reload()
+    if (await actOk(() => api.call(API.deleteCredential, { params: { id: c.id } }))) void state.reload()
   }
   /** move a team connection up / down within its engine: priorities 10, 20, 30 … in the new order */
   const move = async (d: CredentialsResponse, c: Credential, dir: -1 | 1) => {
@@ -501,7 +502,7 @@ function EditCredential({ c, groups, users, onClose, onSaved }: { c: Credential;
 /** Settings > AI connections: one's own connections (shown only while the team allows them). */
 export function MyCredentials() {
   const t = useT()
-  const act = useAction()
+  const actOk = useActionOk()
   const state = useLoad(() => api.call(API.myCredentials))
   const [adding, setAdding] = useState(false)
   return (
@@ -516,7 +517,7 @@ export function MyCredentials() {
                   onCheck={() => {}} onEdit={() => {}} onReplace={() => {}} onToggle={() => {}}
                   onRemove={async () => {
                     if (!(await confirmDialog({ title: t('credentials.deleteConfirm', { label: c.label }), confirm: t('common.delete'), danger: true }))) return
-                    if (await act(async () => { await api.call(API.deleteMyCredential, { params: { id: c.id } }); return true })) void state.reload()
+                    if (await actOk(() => api.call(API.deleteMyCredential, { params: { id: c.id } }))) void state.reload()
                   }} />
               ))}
             </ul>

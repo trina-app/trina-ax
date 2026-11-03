@@ -17,6 +17,7 @@ import { parseInput, walk } from '../policy/resolve'
 import { msg } from '../auth/messages'
 import { userRef } from '../auth/users'
 import { audit } from './audit'
+import { folderKeep, isParkedRow, type FolderKeep } from './folder-keep'
 import { resetEngineSessions as resetChatSessions } from '../chat/runtime'
 
 export interface FolderRow { id: string; path: string; created_at: string }
@@ -148,25 +149,36 @@ export function toFolder(ctx: AppContext, f: FolderRow): Folder {
   const rows = ctx.db.query('SELECT id, folder_id, subject_type, subject_id, access, updated_by, updated_at FROM folder_rules WHERE folder_id = ? ORDER BY subject_type, subject_id').all(f.id) as RuleRow[]
   let exists = false
   try { exists = fs.lstatSync(path.join(ctx.files.fx.root, ...(f.path ? f.path.split('/') : []))).isDirectory() } catch {}
+  const groupId = groupOfFolder(ctx.db, f.id)
   return {
     id: f.id,
     path: f.path,
     exists,
     createdAt: f.created_at,
     rules: rows.map((r) => ({ id: r.id, folderId: r.folder_id, subjectType: r.subject_type, subjectId: r.subject_id, access: r.access, updatedBy: userRef(ctx.db, r.updated_by), updatedAt: r.updated_at })),
-    groupId: groupOfFolder(ctx.db, f.id),
+    groupId,
+    keep: folderKeep(f.path, groupId),
   }
 }
 
-/**
- * A row parked with a trashed folder (.system/trash/<month>/<id>/…, see dropFolderRow and the trash in team-files):
- * not a folder anyone can open. The admin API does not list it, edit it or remove it (404); it comes back with the
- * folder when the trash item is restored, and goes with it when that is purged.
- */
-export const isParkedRow = (p: string) => p === PRODUCT.systemDir || p.startsWith(PRODUCT.systemDir + '/')
+/** Why the admin API keeps this row (folder-keep.ts): 'team' for shared/ and skills/ (in any case: a rename that changes
+ * only the case keeps them), 'group' for a group's folder, null when it may go. */
+export function keepOfRow(ctx: AppContext, f: FolderRow): FolderKeep | null {
+  return folderKeep(f.path, groupOfFolder(ctx.db, f.id))
+}
 
-/** shared/ and skills/: the team's default folders (createDefaultFolders), whose rules may change but never all go */
-export const isTeamDefaultFolder = (p: string) => p === 'shared' || p === 'skills'
+/**
+ * The actual-name path an admin-typed path stands for, as resolveFolderPath would store it, without creating anything
+ * (a missing tail stays as typed). null: not a valid path (resolveFolderPath then says why).
+ */
+export function actualFolderPath(ctx: AppContext, rel: string): string | null {
+  try {
+    const w = walk(ctx.files.fx.root, parseInput(rel), ctx.files.fx.caseInsensitive)
+    return [...w.actual, ...w.missing].join('/')
+  } catch {
+    return null
+  }
+}
 
 export function groupOfFolder(db: Database, folderId: string): string | null {
   return (db.query('SELECT id FROM groups WHERE folder_id = ? ORDER BY id LIMIT 1').get(folderId) as { id: string } | null)?.id ?? null

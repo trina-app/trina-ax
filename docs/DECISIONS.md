@@ -5859,26 +5859,45 @@ The screen was a long card per connection, and the only way in was typing an MCP
   nothing, and such actions use `useActionOk`, which returns `true` / `false`. The compiler found the six places
   (the three above, member delete, invite revoke, connected folder remove); members, invites and connected folders
   already reloaded another way and keep doing so. Removing a skills manager in several folders toasts "turned off"
-  only when every call worked.
+  only when every call worked. The credential deletes that returned a dummy `true` use `useActionOk` too (`any` still
+  passes the type; nothing here returns it).
 - After a delete, `useFocusAfterRemove` moves the focus, once the list shows its new data, to the row now at that
-  place (`data-row-focus`), else to the screen's add button, and only when the focus fell to the page.
-- The "remove all rules" dialog names what the folder then follows: the nearest folder above with rules, else "only
-  the owner and admins" (access.ts: no rule applies), and inside `users/` that nothing changes (rules there never
-  applied). The edit hint no longer says the owner writes everywhere (`users/<id>` of others and `.system` are none
+  place (`data-row-focus`), else to a fallback, and only when the focus fell to the page. The next row's delete takes
+  it only where a confirm dialog comes before each delete (folders, groups). Where the delete happens at once (usage
+  limits; invites on Members), a held Enter went on to delete row after row (review: 4 limits to 0 in a second), so
+  there the next row's Edit takes it, else the list's title (`Card headingRef`, tabIndex -1); the buttons ignore
+  repeated keydowns (`noKeyRepeat`, also on the Settings deletes without a dialog: a memory, a device) and one such
+  delete runs at a time (`useOneAtATime`, `aria-disabled` rather than `disabled`, which would drop the focus to the
+  page on a failure). Delete buttons name their row ("Delete finance/2026").
+- The "remove all rules" dialog asks the server (`previewRules` with no rules for that path, the same "who sees what"
+  as saving) and lists only the people whose access changes, and who loses read with their chats. A first version
+  named the nearest folder above with rules, which is wrong: access walks up per person to the first rules that name
+  them (finance: Finance writes, root: everyone reads; without rules on finance/2026 people outside Finance read it),
+  and a rule folder below keeps the folder listed as a way there. When the preview fails, a general text says how
+  access is decided; inside `users/` it says nothing changes (rules there never applied, and the server has no preview
+  for them). The edit hint no longer says the owner writes everywhere (`users/<id>` of others and `.system` are none
   for every role).
-- Tests: `web/test/unit/admin-folders.test.ts`, `web/test/e2e/admin-delete.spec.ts`. Needed in the core too.
+- Tests: `web/test/unit/admin-folders.test.ts`, `web/test/e2e/admin-delete.spec.ts` (held Enter on usage limits and
+  invites, the preview, its fallback). Needed in the core too.
 
 ## Folder rows the admin API keeps (fix/folders-safety 1b, 2026-11-03)
 
 - **shared/ and skills/ keep at least one rule.** `DELETE /api/admin/folders/:id` on their row is 409 and `PUT …/rules`
-  or `POST /api/admin/folders` with `rules: []` is 400 (`teamFolderKeepsRules`). Both had the same result: no rule,
-  so only the owner and admins see the team's default folders. An admin who wants that says "Everyone: No access",
-  which the message names. `skills/<sub>` rows are ordinary (they fall back to skills/).
+  or `POST /api/admin/folders` with `rules: []` is 400 (`teamFolderKeepsRules`; the POST is judged before a folder is
+  made on disk). Both had the same result: no rule there, so everyone but the owner and admins follows the team root's
+  rules, and the root has none by default: the team's default folders hidden from the team. An admin who wants them
+  kept to admins says "Everyone: No access", which the message names. `skills/<sub>` rows are ordinary (they fall back
+  to skills/). The names are compared in NFC lower case (`admin/folder-keep.ts`): on a case-insensitive Mac volume a
+  move that changes only the case is taken and keeps the folders row (`Shared`); on Linux the app refuses that move
+  (a near-duplicate of the folder itself), and it never makes a second folder that differs only in case, so the wider
+  compare catches no other folder. The rule editor says so and keeps Save off when the last rule of such a row is
+  removed.
 - **A group's folder row (`groups.folder_id`) is not removed while the group exists** (409, `groupFolderKeepsRow`).
   `dropFolderRow` set the group's `folder_id` to NULL for good, and `managedRows` then no longer counted the folder, so
   any member who could write there could move, rename or trash it. Its rules can still change; deleting the group
-  removes the group's rules and the row is an ordinary one after that. `Folder.groupId` (optional, null when none)
-  tells the screen.
+  removes the group's rules and the row is an ordinary one after that.
+- **`Folder.keep`** (`team`, `group` or null; optional) and `Folder.groupId` come from the server, so the screen and
+  the mock server do not repeat the name rule (the mock imports `folder-keep.ts`).
 - **Rows parked with a trashed folder (`.system/…`) are not listed, and `PUT` / `DELETE` on them is 404.** Editing
   one changed the rules the folder comes back with; removing one lost them and left its trash items without a home.
   Restoring the folder brings the row back to the list.
@@ -5892,6 +5911,8 @@ The screen was a long card per connection, and the only way in was typing an MCP
   toast.
 - Tests: `tests/unit/a-folders-keep.test.ts` (the refusals and their messages, "Everyone: No access" works, a group's
   row freed by deleting the group, root and missing-on-disk rows, the parked row through trash and restore, and the
-  skills-manager and person-delete flows unchanged), `tests/security/lib/cases.ts` (owner and admin are refused on
-  shared/, skills/ and a group's folder), `web/test/unit/admin-folders.test.ts`, `web/test/e2e/admin-delete.spec.ts`;
-  the mock server refuses the same. Needed in the core too.
+  skills-manager and person-delete flows unchanged, `keep` in the list, a case-only rename, nothing made on disk for a
+  refused POST), `tests/security/lib/cases.ts` (owner and admin are refused on shared/, skills/ and the folder of a
+  group the check makes itself: the matrix runs `deleteGroup` first, and its order must not matter),
+  `web/test/unit/admin-folders.test.ts`, `web/test/e2e/admin-delete.spec.ts`; the mock server refuses the same.
+  Needed in the core too.

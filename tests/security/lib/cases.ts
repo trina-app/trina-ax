@@ -277,8 +277,8 @@ export const SPECS: Record<string, Spec> = {
   deleteGroup: { build: (c, w) => c.del(`/api/admin/groups/${w.groups.finance}`), scope: 'byLevel' },
   listFolders: { build: (c) => c.get('/api/admin/folders'), scope: 'byLevel' },
   createFolder: { build: (c) => c.post('/api/admin/folders', { path: 'shared/sub' + Math.random().toString(36).slice(2, 6), create: true, rules: [] }), scope: 'byLevel' },
-  // shared/ and skills/ keep at least one rule, also for the owner and admins (fix/folders-safety 1b): with none, only
-  // admins see them, so the admin API refuses "no rules" (400) and the delete below (409)
+  // shared/ and skills/ keep at least one rule, also for the owner and admins (fix/folders-safety 1b): the admin API
+  // refuses "no rules" (400) and the delete below (409)
   putFolderRules: { build: (c, w) => c.put(`/api/admin/folders/${w.folders['groups/finance']}/rules`, { rules: [{ subjectType: 'user', subjectId: 'alice', access: 'write' }] }), scope: 'byLevel',
     check: async (r, w, who) => {
       if ((who === 'owner' || who === 'admin') && r.status >= 300) throw new Error('admin could not set folder rules')
@@ -288,16 +288,28 @@ export const SPECS: Record<string, Spec> = {
         if (empty.status !== 400) throw new Error(`${who} removed every rule of ${p}/: ${empty.status}`)
       }
     } },
-  // the team's default folders and a group's folder row stay (409), for the owner and admins too
+  // the team's default folders and a group's folder row stay (409), for the owner and admins too. The group is made here:
+  // the world's groups may already be gone (deleteGroup runs before this case), and nothing here may depend on order
   deleteFolder: { build: (c, w) => c.del(`/api/admin/folders/${w.folders['projects/falcon/public']}`), scope: 'byLevel',
     check: async (r, w, who) => {
       if (who !== 'owner' && who !== 'admin') return
-      for (const p of ['shared', 'skills', w.groups.finFolder]) {
-        const d = await w.as[who].del(`/api/admin/folders/${w.folders[p]}`)
-        if (d.status !== 409) throw new Error(`${who} removed the folder row of ${p}: ${d.status}`)
+      const c = w.as[who]
+      const made = await c.post('/api/admin/groups', { name: `keep-${who}-${Math.random().toString(36).slice(2, 8)}`, memberIds: [] })
+      if (made.status !== 201) throw new Error(`${who} could not make a group to test with: ${made.status}`)
+      const listed = async () => ((await c.get('/api/admin/folders')).json?.items ?? []) as { id: string; path: string; groupId?: string | null }[]
+      const own = (await listed()).find((f) => f.groupId === made.json.id)
+      if (!own) throw new Error('the new group has no folder row')
+      const rows = (await listed()).filter((f) => f.path === 'shared' || f.path === 'skills')
+      if (rows.length !== 2) throw new Error(`shared/ and skills/ rows: ${rows.map((f) => f.path).join(', ')}`)
+      for (const f of [...rows, own]) {
+        const d = await c.del(`/api/admin/folders/${f.id}`)
+        if (d.status !== 409) throw new Error(`${who} removed the folder row of ${f.path}: ${d.status}`)
       }
-      const left = new Set(((await w.as[who].get('/api/admin/folders')).json?.items ?? []).map((f: { path: string }) => f.path))
-      for (const p of ['shared', 'skills', w.groups.finFolder]) if (!left.has(p)) throw new Error(`the folder row of ${p} is gone`)
+      const left = new Set((await listed()).map((f) => f.id))
+      for (const f of [...rows, own]) if (!left.has(f.id)) throw new Error(`the folder row of ${f.path} is gone`)
+      // once its group is gone, the row is an ordinary one (leave the world as it was)
+      if ((await c.del(`/api/admin/groups/${made.json.id}`)).status !== 204) throw new Error('the test group could not be deleted')
+      if ((await c.del(`/api/admin/folders/${own.id}`)).status !== 204) throw new Error('the row of a deleted group could not be removed')
     } },
   previewRules: { build: (c) => c.post('/api/admin/folder-rules/preview', { changes: [{ path: 'shared', rules: [{ subjectType: 'everyone', subjectId: null, access: 'read' }] }] }), scope: 'byLevel',
     check: (r, w, who) => { if ((who === 'owner' || who === 'admin') && r.text.includes(C.bobFile)) throw new Error('preview leaks private content') } },

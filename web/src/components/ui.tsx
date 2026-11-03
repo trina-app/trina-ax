@@ -39,6 +39,12 @@ export function Button({ variant = 'secondary', size = 'md', busy, className, ch
   )
 }
 
+/** onKeyDown of a button that acts at once (a delete with no confirm dialog): a held Enter repeats keydown, and each
+ * repeat would press the button again, or the next one the focus lands on. */
+export const noKeyRepeat = (e: React.KeyboardEvent) => {
+  if (e.repeat) e.preventDefault()
+}
+
 /** danger: a destructive icon action (Delete) that turns red on hover. */
 export function IconButton({ label, danger, className, children, ...props }: ButtonHTMLAttributes<HTMLButtonElement> & { label: string; danger?: boolean }) {
   return (

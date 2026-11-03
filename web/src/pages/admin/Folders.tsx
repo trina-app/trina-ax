@@ -3,14 +3,14 @@
 // loses access (their chats that touched those folders get a fresh engine session).
 import clsx from 'clsx'
 import { ArrowRight, Eye, FolderLock, Lock, Plus, Trash2 } from 'lucide-react'
-import { useState } from 'react'
+import { useState, type ReactNode } from 'react'
 import type { Access, Folder, FolderRuleInput, Group, PreviewResponse, User } from '@mycel/shared/api'
 import { api, API, errorText } from '../../lib/api'
 import { useLocale, useT } from '../../i18n'
 import FolderPicker from '../../components/FolderPicker'
 import { Badge, Button, ErrorNote, IconButton, Modal, confirmDialog, inputCls } from '../../components/ui'
 import { toast } from '../../store/ui'
-import { Card, Loadable, useAction, useActionOk, useFocusAfterRemove, useLoad } from './common'
+import { Card, Loadable, useAction, useActionOk, useFocusAfterRemove, useLoad, useOneAtATime } from './common'
 
 /** skills/ and its folders: write there = "팀 스킬 관리" (the Members / Groups toggle is the same rule) */
 const isSkillsFolder = (p: string) => p === 'skills' || p.startsWith('skills/')
@@ -40,30 +40,19 @@ export function rulesFromRows(rows: RuleRow[]): FolderRuleInput[] | null {
   return out
 }
 
-/**
- * What a folder follows once its rules are gone: the nearest folder above it that has rules. None: from then on only the
- * owner and admins see it (access.ts: no rule applies). Rules inside a personal folder never applied.
- */
-export function afterRemoval(path: string, list: readonly Folder[]): { kind: 'above'; path: string } | { kind: 'none' } | { kind: 'personal' } {
-  const segs = path === '' ? [] : path.split('/')
-  if (segs[0] === 'users') return { kind: 'personal' }
-  for (let len = segs.length - 1; len >= 0; len--) {
-    const p = segs.slice(0, len).join('/')
-    if (list.some((f) => f.path === p && f.rules.length > 0)) return { kind: 'above', path: p }
-  }
-  return { kind: 'none' }
-}
-
 const sortFolders = (list: readonly Folder[]) => [...list].sort((a, b) => a.path.localeCompare(b.path))
 
+/** Rules inside a personal folder never applied (access.ts), so removing them changes nothing and the server has no
+ * preview for them. */
+const isPersonal = (p: string) => p === 'users' || p.startsWith('users/')
+
 /**
- * Why a row cannot be removed (the server refuses it too, routes/admin.ts): shared/ and skills/ are the team's default
- * folders, whose rules may change but never all go; a group's folder stays linked to its group. null: it can go.
+ * The people whose access a preview changes, per folder (the folder itself and rule folders below it). Access is decided
+ * per person, walking up from the folder to the first rules that name them, so only the server can say who gains or
+ * loses what (a rule above may not name them, and a rule higher up or none at all, owner and admins aside, then decides).
  */
-export function keepReason(f: Pick<Folder, 'path' | 'groupId'>): 'team' | 'group' | null {
-  if (f.path === 'shared' || f.path === 'skills') return 'team'
-  if (f.groupId) return 'group'
-  return null
+export function previewChanges(preview: PreviewResponse): { path: string; users: PreviewResponse['folders'][number]['users'] }[] {
+  return preview.folders.map((f) => ({ path: f.path, users: f.users.filter((u) => u.before !== u.after) })).filter((f) => f.users.length > 0)
 }
 
 export default function Folders() {
@@ -75,6 +64,7 @@ export default function Folders() {
   const [editing, setEditing] = useState<{ folder: Folder | null; path: string } | null>(null)
   const [picking, setPicking] = useState(false)
   const focus = useFocusAfterRemove(folders.data, () => document.querySelector<HTMLElement>('[data-testid="folder-rule-new"]'))
+  const once = useOneAtATime<string>()
 
   const subject = (type: string, id: string | null) => {
     if (type === 'everyone') return t('rules.everyone')
@@ -82,15 +72,21 @@ export default function Folders() {
     if (type === 'group') return t('rules.groupOf', { name: groups.data?.find((g) => g.id === id)?.name ?? '?' })
     return users.data?.find((u) => u.id === id)?.name ?? id ?? '?'
   }
-  const remove = async (f: Folder) => {
-    const list = folders.data ?? []
-    const next = afterRemoval(f.path, list)
-    const body = next.kind === 'above' ? t('rules.removeBody', { path: next.path || t('files.root') }) : next.kind === 'personal' ? t('rules.removeBodyPersonal') : t('rules.removeBodyNone')
-    if (!(await confirmDialog({ title: t('rules.removeTitle', { path: f.path || t('files.root') }), body, confirm: t('common.delete'), danger: true }))) return
-    if (!(await actOk(() => api.call(API.deleteFolder, { params: { id: f.id } })))) return
-    focus.removed(sortFolders(list).findIndex((x) => x.id === f.id))
-    await folders.reload()
-  }
+  const remove = (f: Folder) =>
+    once.run(f.id, async () => {
+      const list = folders.data ?? []
+      // what removing the rules really does, from the server (the same "who sees what" as saving rules); without it,
+      // the general text
+      let body: ReactNode = t('rules.removeBodyPersonal')
+      if (!isPersonal(f.path)) {
+        const preview = await api.call(API.previewRules, { body: { changes: [{ path: f.path, rules: [] }] } }).catch(() => null)
+        body = preview ? <RemovePreview preview={preview} /> : t('rules.removeBody')
+      }
+      if (!(await confirmDialog({ title: t('rules.removeTitle', { path: f.path || t('files.root') }), body, confirm: t('common.delete'), danger: true }))) return
+      if (!(await actOk(() => api.call(API.deleteFolder, { params: { id: f.id } })))) return
+      focus.removed(sortFolders(list).findIndex((x) => x.id === f.id))
+      await folders.reload()
+    })
 
   return (
     <>
@@ -111,8 +107,8 @@ export default function Folders() {
               ) : (
                 <ul className="divide-y divide-line" data-testid="folder-list">
                   {sortFolders(list).map((f) => {
-                    const keep = keepReason(f)
-                    const why = keep === 'team' ? t('rules.keepTeam') : keep === 'group' ? t('rules.keepGroup', { name: groups.data?.find((g) => g.id === f.groupId)?.name ?? '?' }) : null
+                    // why the server keeps this row (Folder.keep); an older server does not say, and refuses in words
+                    const why = f.keep === 'team' ? t('rules.keepTeam') : f.keep === 'group' ? t('rules.keepGroup', { name: groups.data?.find((g) => g.id === f.groupId)?.name ?? '?' }) : null
                     return (
                       <li key={f.id} className="flex flex-wrap items-start gap-3 py-3 text-sm" data-testid="folder-row" data-path={f.path}>
                         <FolderLock size={16} className="mt-0.5 shrink-0 text-accent-text" aria-hidden />
@@ -140,7 +136,7 @@ export default function Folders() {
                             <Lock size={15} />
                           </span>
                         ) : (
-                          <IconButton label={t('common.delete')} onClick={() => remove(f)} data-row-focus>
+                          <IconButton label={t('common.deleteNamed', { name: f.path || t('files.root') })} onClick={() => void remove(f)} data-row-focus>
                             <Trash2 size={15} />
                           </IconButton>
                         )}
@@ -193,6 +189,8 @@ function RulesEditor({ folder, path, users, groups, subject, onClose, onSaved }:
   /** the server's answer to Save when it refused (e.g. no rule left on shared/ or skills/), shown in the dialog */
   const [refused, setRefused] = useState<string | null>(null)
   const rules = rulesFromRows(rows)
+  /** shared/ and skills/ keep at least one rule (the server refuses none): said here, and Save waits for a rule */
+  const keepsOne = folder?.keep === 'team' && rows.length === 0
   const changed = () => {
     setPreview(null)
     setRefused(null)
@@ -237,7 +235,7 @@ function RulesEditor({ folder, path, users, groups, subject, onClose, onSaved }:
           <Button onClick={runPreview} busy={busy === 'preview'} disabled={!rules} data-testid="rules-preview">
             <Eye size={14} aria-hidden /> {t('rules.preview')}
           </Button>
-          <Button variant="primary" onClick={save} busy={busy === 'save'} disabled={!rules} data-testid="rules-save">
+          <Button variant="primary" onClick={save} busy={busy === 'save'} disabled={!rules || keepsOne} data-testid="rules-save">
             {t('common.save')}
           </Button>
         </>
@@ -323,6 +321,11 @@ function RulesEditor({ folder, path, users, groups, subject, onClose, onSaved }:
         <Plus size={14} aria-hidden /> {t('rules.addRule')}
       </Button>
       {!rules && rows.length > 0 && <p className="mt-2 text-xs text-warn">{t('rules.incomplete')}</p>}
+      {keepsOne && (
+        <p role="note" className="mt-2 text-xs text-warn" data-testid="rules-keep-one">
+          {t('rules.keepTeam')}
+        </p>
+      )}
       {refused && (
         <div className="mt-3" data-testid="rules-refused">
           <ErrorNote>{refused}</ErrorNote>
@@ -330,6 +333,48 @@ function RulesEditor({ folder, path, users, groups, subject, onClose, onSaved }:
       )}
       {preview && <PreviewTable preview={preview} subject={subject} />}
     </Modal>
+  )
+}
+
+/** The remove dialog's body: the files stay, and who gains or loses what (only the people whose access changes). */
+function RemovePreview({ preview }: { preview: PreviewResponse }) {
+  const t = useT()
+  const changes = previewChanges(preview)
+  return (
+    <div className="space-y-3" data-testid="rules-remove-preview">
+      <p>{t('rules.removeKeeps')}</p>
+      {!changes.length && !preview.losing.length ? (
+        <p>{t('rules.removeNoChange')}</p>
+      ) : (
+        <>
+          {changes.map((f) => (
+            <div key={f.path}>
+              <p className="mb-1 text-xs font-medium text-muted">{t('rules.removeAt', { path: f.path || t('files.root') })}</p>
+              <ul className="divide-y divide-line rounded-lg border border-line text-sm text-ink">
+                {f.users.map((u) => (
+                  <li key={u.user.id} className="flex items-center gap-2 px-3 py-1.5">
+                    <span className="min-w-0 flex-1 truncate">{u.user.name}</span>
+                    <span className="text-xs text-muted">{t(`access.${u.before}`)}</span>
+                    <ArrowRight size={12} className="text-faint" aria-label={t('rules.becomes')} />
+                    <span className="text-xs font-medium text-warn">{t(`access.${u.after}`)}</span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          ))}
+          {preview.losing.length > 0 && (
+            <div className="rounded-lg bg-danger-soft p-3 text-xs text-danger" role="note">
+              <p className="mb-1 font-semibold">{t('rules.losing')}</p>
+              <ul className="space-y-0.5">
+                {preview.losing.map((l) => (
+                  <li key={l.user.id}>{t('rules.losingLine', { name: l.user.name, paths: l.paths.map((x) => x || t('files.root')).join(', '), n: l.chatsReset })}</li>
+                ))}
+              </ul>
+            </div>
+          )}
+        </>
+      )}
+    </div>
   )
 }
 

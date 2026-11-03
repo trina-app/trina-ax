@@ -7,10 +7,23 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { msg } from '../../server/src/auth/messages'
 import { rulesOf } from '../../server/src/admin/folders'
+import { folderKeep, isParkedRow, isTeamDefaultFolder } from '../../server/src/admin/folder-keep'
 import { addMember, harness, withOwner, type Client, type Harness } from './a-lib'
 
 const everyone = (access: 'none' | 'read' | 'write') => ({ subjectType: 'everyone', subjectId: null, access })
 const SKILLS_DEFAULT = [everyone('read'), { subjectType: 'role', subjectId: 'admin', access: 'write' }]
+
+describe('which rows are kept (folder-keep.ts, also the mock server\'s)', () => {
+  test('shared/ and skills/ in any case or Unicode form; subfolders and look-alikes are ordinary', () => {
+    for (const p of ['shared', 'skills', 'Shared', 'SKILLS', 'sKiLLs']) expect(isTeamDefaultFolder(p), p).toBe(true)
+    for (const p of ['', 'shared/board', 'skills/finance', 'shared-old', 'ｓｈａｒｅｄ', 'shared\u200b', 'groups/shared']) expect(isTeamDefaultFolder(p), p).toBe(false)
+    expect(folderKeep('Shared', 'g1')).toBe('team')
+    expect(folderKeep('groups/sales', 'g1')).toBe('group')
+    expect(folderKeep('groups/sales', null)).toBeNull()
+    expect(isParkedRow('.system/trash/2026-11/x')).toBe(true)
+    expect(isParkedRow('.systemx')).toBe(false)
+  })
+})
 
 describe('folder rows that stay', () => {
   let h: Harness
@@ -31,8 +44,16 @@ describe('folder rows that stay', () => {
   const rowId = (p: string) => (h.ctx.db.query('SELECT id FROM folders WHERE path = ?').get(p) as { id: string } | null)?.id ?? null
   const rulesAt = (p: string) => rulesOf(h.ctx.db, rowId(p)!)
   const access = (userId: string, p: string) => h.ctx.files.rules().access(h.ctx.files.principal(userId), p.split('/'))
-  const listed = async () => (await admin.call('GET', '/api/admin/folders')).items as { id: string; path: string; groupId?: string | null; rules: unknown[]; exists: boolean }[]
+  const listed = async () => (await admin.call('GET', '/api/admin/folders')).items as { id: string; path: string; groupId?: string | null; keep?: string | null; rules: unknown[]; exists: boolean }[]
   const audits = (action: string) => (h.ctx.db.query('SELECT COUNT(*) AS n FROM audit_log WHERE action = ?').get(action) as { n: number }).n
+
+  test('the list says which rows stay and why', async () => {
+    const by = Object.fromEntries((await listed()).map((f) => [f.path, f.keep]))
+    expect(by).toMatchObject({ shared: 'team', skills: 'team', 'groups/Sales': 'group' })
+    const p = await admin.call('POST', '/api/admin/folders', { path: 'projects/plain', rules: [everyone('read')] })
+    expect(p.keep).toBeNull()
+    expect((await admin.try('DELETE', `/api/admin/folders/${p.id}`)).status).toBe(204)
+  })
 
   test('shared/ and skills/: removing the row or all its rules is refused, and the message says how to keep them to admins', async () => {
     const deletes = audits('folder.delete')
@@ -91,6 +112,41 @@ describe('folder rows that stay', () => {
     expect(access(bob.id, 'groups/Ops/plan.md')).toBe('none')
     expect((await admin.try('DELETE', `/api/admin/folders/${f.id}`)).status).toBe(204)
     expect(rowId('groups/Ops')).toBeNull()
+  })
+
+  test('a rename that changes only the case does not take the protection away', async () => {
+    const id = rowId('shared')!
+    // a typed name in another case (the same folder on a case-insensitive volume): refused before anything is made
+    for (const p of ['SHARED', 'Shared']) expect((await admin.try('POST', '/api/admin/folders', { path: p, create: true, rules: [] })).status, p).toBe(400)
+    // a case-insensitive volume (macOS) takes the rename and keeps the row; elsewhere the app refuses it (a near-duplicate
+    // of the folder itself), so there is nothing to get around
+    const mv = await admin.try('POST', '/api/files/move', { from: 'shared', to: 'Shared' })
+    if (!h.ctx.files.fx.caseInsensitive) {
+      expect(mv.status).toBe(409)
+      expect(rowId('shared')).toBe(id)
+      return
+    }
+    expect(mv.status).toBe(200)
+    expect(h.ctx.db.query('SELECT path FROM folders WHERE id = ?').get(id)).toEqual({ path: 'Shared' })
+    expect((await listed()).find((f) => f.id === id)?.keep).toBe('team')
+    expect((await admin.try('PUT', `/api/admin/folders/${id}/rules`, { rules: [] })).status).toBe(400)
+    expect((await admin.try('DELETE', `/api/admin/folders/${id}`)).status).toBe(409)
+    expect(rulesOf(h.ctx.db, id).length).toBeGreaterThan(0)
+    expect((await admin.try('POST', '/api/files/move', { from: 'Shared', to: 'shared' })).status).toBe(200)
+    expect(rowId('shared')).toBe(id)
+  })
+
+  test('"add folder" with no rule on shared/ is refused before the folder is made on disk', async () => {
+    const dir = path.join(h.ctx.files.fx.root, 'skills')
+    const keep = path.join(h.ctx.files.fx.root, '..', `skills-aside-${process.pid}`)
+    fs.renameSync(dir, keep)
+    try {
+      const r = await admin.try('POST', '/api/admin/folders', { path: 'skills', create: true, rules: [] })
+      expect(r.status).toBe(400)
+      expect(fs.existsSync(dir)).toBe(false)
+    } finally {
+      fs.renameSync(keep, dir)
+    }
   })
 
   test('not refused: the team root, a row whose folder is gone from disk', async () => {

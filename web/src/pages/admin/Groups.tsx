@@ -56,7 +56,7 @@ export default function Groups() {
                       <Button size="sm" variant="ghost" onClick={() => setEditing(g)}>
                         {t('common.edit')}
                       </Button>
-                      <IconButton label={t('common.delete')} onClick={() => remove(g)} data-row-focus>
+                      <IconButton label={t('common.deleteNamed', { name: g.name })} onClick={() => remove(g)} data-row-focus>
                         <Trash2 size={15} />
                       </IconButton>
                     </li>

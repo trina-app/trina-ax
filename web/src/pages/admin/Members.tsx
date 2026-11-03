@@ -3,7 +3,7 @@
 // temporary password reset or a one-time reset link to hand over (both audited; the owner resets only on the server
 // Mac), remove.
 import { KeyRound, Link2, Plus, QrCode as QrIcon, RefreshCw, Trash2, UserPlus, UserRoundKey } from 'lucide-react'
-import { useId, useState } from 'react'
+import { useId, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 import type { z } from 'zod'
 import type { CreatedInvite as CreatedInviteSchema, Group, Invite, Locale, Role, User } from '@mycel/shared/api'
@@ -16,9 +16,9 @@ import { PASSWORD_MIN } from '../Auth'
 import { LOCALES, useLocale, useT, type MessageKey } from '../../i18n'
 import { isOwner, useMeStrict } from '../../store/session'
 import QrCode from '../../components/QrCode'
-import { Badge, Button, CopyButton, Field, IconButton, Modal, confirmDialog, inputCls } from '../../components/ui'
+import { Badge, Button, CopyButton, Field, IconButton, Modal, confirmDialog, inputCls, noKeyRepeat } from '../../components/ui'
 import { SkillManagerCell, useSkillManagers } from './SkillManagers'
-import { Card, Loadable, SecretBox, useAction, useActionOk, useLoad } from './common'
+import { Card, Loadable, SecretBox, useAction, useActionOk, useFocusAfterRemove, useLoad, useOneAtATime } from './common'
 
 type MemberRole = Exclude<Role, 'owner'>
 type CreatedInvite = z.infer<typeof CreatedInviteSchema>
@@ -61,9 +61,17 @@ export default function Members() {
     if (!(await confirmDialog({ title: t('members.removeTitle', { name: u.name }), body: t('members.removeBody', { days: chatTrashDays(me) }), confirm: t('common.delete'), danger: true }))) return
     if (await actOk(() => api.call(API.deleteUser, { params: { id: u.id } }))) await users.reload()
   }
-  const revoke = async (i: Invite) => {
-    if (await actOk(() => api.call(API.revokeInvite, { params: { id: i.id } }))) await invites.reload()
-  }
+  // an invite is revoked at once, with no confirm dialog: one at a time, a held key does not repeat it, and the focus goes
+  // to the list's title (the next row's button is another revoke)
+  const invitesTitle = useRef<HTMLHeadingElement>(null)
+  const inviteFocus = useFocusAfterRemove(invites.data, () => invitesTitle.current)
+  const revoking = useOneAtATime<string>()
+  const revoke = (i: Invite) =>
+    revoking.run(i.id, async () => {
+      if (!(await actOk(() => api.call(API.revokeInvite, { params: { id: i.id } })))) return
+      inviteFocus.removed(0)
+      await invites.reload()
+    })
 
   return (
     <>
@@ -155,7 +163,7 @@ export default function Members() {
 
       <ScheduleReviews />
 
-      <Card title={t('members.invites')} desc={t('members.invitesDesc')}>
+      <Card title={t('members.invites')} desc={t('members.invitesDesc')} headingRef={invitesTitle}>
         <Loadable state={invites}>
           {(list) =>
             !list.length ? (
@@ -171,7 +179,7 @@ export default function Members() {
                         {i.groupIds.map(groupName).join(', ') || t('members.noGroups')} · {i.usedAt ? t('members.usedBy', { name: i.usedBy?.name ?? '?' }) : expired ? t('members.expired') : t('members.expires', { date: formatDateTime(i.expiresAt, locale) })}
                       </span>
                       {!i.usedAt && !expired && (
-                        <Button size="sm" variant="ghost" onClick={() => revoke(i)}>
+                        <Button size="sm" variant="ghost" onClick={() => void revoke(i)} onKeyDown={noKeyRepeat} aria-disabled={revoking.busy !== null || undefined} className="aria-disabled:cursor-not-allowed aria-disabled:opacity-50">
                           {t('members.revoke')}
                         </Button>
                       )}

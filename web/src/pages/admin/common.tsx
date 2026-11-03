@@ -1,5 +1,5 @@
 // Small helpers shared by the admin screens.
-import { useCallback, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useRef, useState, type ReactNode, type Ref } from 'react'
 import { errorText } from '../../lib/api'
 import { useLocale, useT } from '../../i18n'
 import { toast } from '../../store/ui'
@@ -72,6 +72,7 @@ export function useActionOk() {
  * `removed(index)` once the delete worked, before the list loads again. When the list shows its new data, focus moves to
  * the row now at that place (the next one, or the last), else to `fallback`. A row marks the control that takes focus
  * with `data-row-focus`; `box` holds the list. Focus that is still on the page (someone moved on) stays where it is.
+ * A delete without a confirm dialog never marks the next row's delete: a held Enter would go on deleting row after row.
  */
 export function useFocusAfterRemove(data: unknown, fallback: () => HTMLElement | null) {
   const box = useRef<HTMLDivElement>(null)
@@ -90,12 +91,35 @@ export function useFocusAfterRemove(data: unknown, fallback: () => HTMLElement |
   return { box, removed: (index: number) => { pending.current = index } }
 }
 
-export function Card({ title, actions, children, desc }: { title: ReactNode; actions?: ReactNode; children: ReactNode; desc?: ReactNode }) {
+/**
+ * A row action that runs at once, with no confirm dialog (delete a usage limit, revoke an invite): one at a time on the
+ * screen. `busy` is the key of the one running, for aria-disabled on its button. Not `disabled`: a disabled button loses
+ * the keyboard focus to the page, and it would stay there when the action fails.
+ */
+export function useOneAtATime<K>() {
+  const running = useRef<K | null>(null)
+  const [busy, setBusy] = useState<K | null>(null)
+  const run = async (key: K, fn: () => Promise<void>) => {
+    if (running.current !== null) return
+    running.current = key
+    setBusy(key)
+    try {
+      await fn()
+    } finally {
+      running.current = null
+      setBusy(null)
+    }
+  }
+  return { busy, run }
+}
+
+/** headingRef: the title takes the focus (tabIndex -1) when a list has no row left to focus, see useFocusAfterRemove */
+export function Card({ title, actions, children, desc, headingRef }: { title: ReactNode; actions?: ReactNode; children: ReactNode; desc?: ReactNode; headingRef?: Ref<HTMLHeadingElement> }) {
   return (
     <section className="mb-6 rounded-2xl border border-line bg-surface">
       <header className="flex flex-wrap items-center gap-2 border-b border-line px-4 py-3">
         <div className="min-w-0 flex-1">
-          <h2 className="text-sm font-semibold">{title}</h2>
+          <h2 ref={headingRef} tabIndex={headingRef ? -1 : undefined} className="text-sm font-semibold">{title}</h2>
           {desc && <p className="mt-0.5 text-xs text-muted">{desc}</p>}
         </div>
         {actions}

@@ -40,6 +40,7 @@ import { CCITT_SCAN, JPX_SCAN, makeCidPdf, makeImagePdf, makePagedPdf, makePdf }
 import { serveWeb } from '../../../server/src/routes/web-static'
 import { TEXT as TEAM_ICON_TEXT } from '../../../server/src/admin/team-icon'
 import { msg as serverMsg } from '../../../server/src/auth/messages'
+import { folderKeep, isParkedRow, isTeamDefaultFolder } from '../../../server/src/admin/folder-keep'
 import { checkTeamIcon, TEAM_ICON_MAX_BYTES, type TeamIconFile } from '@mycel/shared'
 import { Sealer } from '../../../server/src/credentials/seal'
 import type { Credential, CredentialKind, CredentialLogin, MessageSourceFile } from '@mycel/shared/api'
@@ -59,8 +60,6 @@ class Fail extends Error {
     super(msg ?? ERROR_MESSAGES[code].ko)
   }
 }
-/** the team's default folders: their rules may change but never all go (server/src/routes/admin.ts) */
-const TEAM_DEFAULT_FOLDERS = ['shared', 'skills']
 const fail = (code: ErrorCode, status: number, msg?: string, fields?: Record<string, string>): never => {
   throw new Fail(code, status, msg, fields)
 }
@@ -1269,8 +1268,9 @@ export class MockServer {
       }
       return undefined
     },
-    // rows parked with a trashed folder (.system/trash/…) are not listed (server/src/admin/folders.ts listFolders)
-    listFolders: () => ({ items: this.folders.filter((f) => f.path !== '.system' && !f.path.startsWith('.system/')) }),
+    // like the server (admin/folder-keep.ts, the mock's names are case-sensitive): rows parked with a trashed folder are
+    // not listed, and each row says why the API keeps it
+    listFolders: () => ({ items: this.folders.filter((f) => !isParkedRow(f.path)).map((f) => ({ ...f, keep: folderKeep(f.path, f.groupId ?? null) })) }),
     // ---- team skills ----
     listSkillManagers: () => this.skillManagersResponse(),
     setSkillManager: (c) => {
@@ -1347,23 +1347,24 @@ export class MockServer {
       return this.suggestionFor(s!, c.user)
     },
     createFolder: (c) => {
-      if (TEAM_DEFAULT_FOLDERS.includes(c.body.path) && !c.body.rules?.length) fail('validation', 400, serverMsg('teamFolderKeepsRules', c.user.locale), { 'body.rules': 'shared/ and skills/ keep at least one rule' })
+      if (isTeamDefaultFolder(c.body.path) && !c.body.rules?.length) fail('validation', 400, serverMsg('teamFolderKeepsRules', c.user.locale), { 'body.rules': 'shared/ and skills/ keep at least one rule' })
       const f: Folder = { id: uuidv7(), path: c.body.path, exists: true, createdAt: now(), rules: [] }
       f.rules = (c.body.rules ?? []).map((r: Json) => ({ id: uuidv7(), folderId: f.id, subjectType: r.subjectType, subjectId: r.subjectId ?? null, access: r.access, updatedBy: { id: c.user.id, name: c.user.name }, updatedAt: now() }))
       this.folders.push(f)
       return { status: 201, body: f }
     },
     putFolderRules: (c) => {
-      const f = this.folders.find((x) => x.id === c.params.id && !x.path.startsWith('.system')) ?? fail('not_found', 404)
-      if (TEAM_DEFAULT_FOLDERS.includes(f.path) && !c.body.rules.length) fail('validation', 400, serverMsg('teamFolderKeepsRules', c.user.locale), { 'body.rules': 'shared/ and skills/ keep at least one rule' })
+      const f = this.folders.find((x) => x.id === c.params.id && !isParkedRow(x.path)) ?? fail('not_found', 404)
+      if (isTeamDefaultFolder(f.path) && !c.body.rules.length) fail('validation', 400, serverMsg('teamFolderKeepsRules', c.user.locale), { 'body.rules': 'shared/ and skills/ keep at least one rule' })
       f.rules = c.body.rules.map((r: Json) => ({ id: uuidv7(), folderId: f.id, subjectType: r.subjectType, subjectId: r.subjectId ?? null, access: r.access, updatedBy: { id: c.user.id, name: c.user.name }, updatedAt: now() }))
-      return f
+      return { ...f, keep: folderKeep(f.path, f.groupId ?? null) }
     },
     deleteFolder: (c) => {
-      const f = this.folders.find((x) => x.id === c.params.id && !x.path.startsWith('.system')) ?? fail('not_found', 404)
+      const f = this.folders.find((x) => x.id === c.params.id && !isParkedRow(x.path)) ?? fail('not_found', 404)
       // the server refuses these at the admin API (routes/admin.ts): shared/ and skills/, and a group's folder
-      if (TEAM_DEFAULT_FOLDERS.includes(f.path)) fail('conflict', 409, serverMsg('teamFolderKeepsRules', c.user.locale))
-      if (f.groupId) fail('conflict', 409, serverMsg('groupFolderKeepsRow', c.user.locale))
+      const keep = folderKeep(f.path, f.groupId ?? null)
+      if (keep === 'team') fail('conflict', 409, serverMsg('teamFolderKeepsRules', c.user.locale))
+      if (keep === 'group') fail('conflict', 409, serverMsg('groupFolderKeepsRow', c.user.locale))
       this.folders = this.folders.filter((x) => x.id !== f.id)
       return undefined
     },
