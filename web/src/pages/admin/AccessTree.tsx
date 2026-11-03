@@ -122,48 +122,66 @@ function useTreeData() {
   }, [locale])
 
   /** the first page of a folder's level (nothing when it is there already) */
-  const openLevel = async (path: string): Promise<boolean> => {
-    if (dataRef.current?.levels.has(path)) return true
-    mark(path, true)
-    try {
-      merge([await ask(path, { limit: PAGE })])
-      mark(path, false)
-      return true
-    } catch (e) {
-      mark(path, false, failText(e))
-      return false
-    }
+  /** One request per level at a time: a second caller (a lookup while "N more" is on its way, or the other way round)
+   * waits for the one in flight and shares its answer, instead of finding the level busy. */
+  const inflight = useRef(new Map<string, Promise<unknown>>())
+  const shared = <T,>(key: string, run: () => Promise<T>): Promise<T> => {
+    const known = inflight.current.get(key)
+    if (known) return known as Promise<T>
+    const p = run().finally(() => inflight.current.delete(key))
+    inflight.current.set(key, p)
+    return p
   }
 
-  /** the next page of a level: the paths it brought (null: it could not be asked for) */
-  const nextPage = async (path: string, limit: number): Promise<string[] | null> => {
-    const l = dataRef.current?.levels.get(path)
-    if (!l?.nextCursor || busyNow.current.has(path)) return []
-    mark(path, true)
-    try {
-      const r = await ask(path, { cursor: l.nextCursor, limit })
-      merge([r], path)
-      mark(path, false)
-      return r.levels[0]!.children.map((c) => c.path)
-    } catch (e) {
-      mark(path, false, failText(e))
-      return null
-    }
-  }
+  const openLevel = (path: string): Promise<boolean> =>
+    dataRef.current?.levels.has(path)
+      ? Promise.resolve(true)
+      : shared(`open\u0000${path}`, async () => {
+          if (dataRef.current?.levels.has(path)) return true
+          mark(path, true)
+          try {
+            merge([await ask(path, { limit: PAGE })])
+            mark(path, false)
+            return true
+          } catch (e) {
+            mark(path, false, failText(e))
+            return false
+          }
+        })
+
+  /** the next page of a level: the paths it brought ([] when there is none; null: it could not be asked for) */
+  const nextPage = (path: string, limit: number): Promise<string[] | null> =>
+    shared(`page\u0000${path}`, async () => {
+      const l = dataRef.current?.levels.get(path)
+      if (!l?.nextCursor) return []
+      mark(path, true)
+      try {
+        const r = await ask(path, { cursor: l.nextCursor, limit })
+        merge([r], path)
+        mark(path, false)
+        return r.levels[0]!.children.map((c) => c.path)
+      } catch (e) {
+        mark(path, false, failText(e))
+        return null
+      }
+    })
   const more = async (path: string): Promise<string[]> => (await nextPage(path, PAGE)) ?? []
 
   /** Open `parent` and page through it until `child` is there (a folder past the first page, one just made):
-   * found, absent (every page came and it is not there) or failed (a page could not be asked for). */
-  const loadUntil = async (parent: string, child: string): Promise<'found' | 'absent' | 'failed'> => {
+   * found, absent (every page came and it is not there), failed (a page could not be asked for) or stopped (`alive`
+   * said a later lookup replaced this one: it asks for nothing more). */
+  const loadUntil = async (parent: string, child: string, alive: () => boolean): Promise<'found' | 'absent' | 'failed' | 'stopped'> => {
     if (!(await openLevel(parent))) return 'failed'
     for (;;) {
+      if (!alive()) return 'stopped'
       const l = dataRef.current?.levels.get(parent)
       if (!l) return 'failed'
       if (l.children.includes(child)) return 'found'
       if (!l.nextCursor) return 'absent'
-      const got = await nextPage(parent, MAX_PAGE)
-      if (got === null) return 'failed'
-      if (!got.length) return 'absent'
+      const cursor = l.nextCursor
+      if ((await nextPage(parent, MAX_PAGE)) === null) return 'failed'
+      // a page that moved nothing on (it should not happen): stop rather than ask again and again
+      if (dataRef.current?.levels.get(parent)?.nextCursor === cursor) return 'failed'
     }
   }
 
@@ -341,6 +359,9 @@ export default function AccessTree() {
   const [detailKey, setDetailKey] = useState(0)
   const treeBox = useRef<HTMLDivElement>(null)
   const detailHeading = useRef<HTMLHeadingElement>(null)
+  const cardHeading = useRef<HTMLHeadingElement>(null)
+  /** "Try again" on a lookup that failed: where the focus goes once it is answered */
+  const retrying = useRef(false)
   /** a lookup that a later choice or lookup replaced stops there */
   const lookupGen = useRef(0)
   const rootName = t('accessView.rootFolder')
@@ -399,11 +420,13 @@ export default function AccessTree() {
       return
     }
     const path = 'r' in res && res.r.exists ? res.r.path : null
-    let step: 'found' | 'absent' | 'failed' = path === null ? 'absent' : 'found'
+    let step: 'found' | 'absent' | 'failed' | 'stopped' = path === null ? 'absent' : 'found'
     if (path !== null) {
       const chain = [...ancestorsOf(path), path]
-      for (let i = 0; step === 'found' && i < chain.length - 1; i++) step = await tree.loadUntil(chain[i]!, chain[i + 1]!)
-      if (gen !== lookupGen.current) return
+      // a later choice or lookup stops this one: it asks for no more pages (and holds no level)
+      const alive = () => gen === lookupGen.current
+      for (let i = 0; step === 'found' && i < chain.length - 1; i++) step = await tree.loadUntil(chain[i]!, chain[i + 1]!, alive)
+      if (!alive()) return
     }
     if (step !== 'found' || path === null) {
       setLookup({ path: want, state: step === 'failed' ? 'failed' : 'missing' })
@@ -523,7 +546,17 @@ export default function AccessTree() {
     detail = (
       <div data-testid="folder-detail-failed">
         {backButton}
-        <ErrorNote onRetry={() => void reveal(again)}>{lookup.error ?? t('accessTree.failed')}</ErrorNote>
+        <ErrorNote
+          onRetry={() => {
+            // the card goes while it is asked again: the focus waits on the card's title, then goes to "Try again"
+            // if it fails again (below)
+            retrying.current = true
+            cardHeading.current?.focus()
+            void reveal(again)
+          }}
+        >
+          {lookup.error ?? t('accessTree.failed')}
+        </ErrorNote>
       </div>
     )
   } else {
@@ -552,6 +585,12 @@ export default function AccessTree() {
     if (!treeHidden) return
     if (treeBox.current && treeBox.current.offsetParent === null) detailHeading.current?.focus()
   }, [treeHidden, selected, lookup?.state])
+  // after "Try again" on a lookup: failed again, its "Try again" takes the focus back; found, the focus stays put
+  useLayoutEffect(() => {
+    if (!retrying.current || lookup?.state === 'busy') return
+    retrying.current = false
+    if (lookup?.state === 'failed') document.querySelector<HTMLElement>('[data-testid="folder-detail-failed"] [role="alert"] button')?.focus()
+  }, [lookup?.state])
 
   let body: ReactNode
   if (tree.error) body = <ErrorNote onRetry={() => void tree.loadRoot().then((o) => { if (o) { setOpen(new Set(['', ...o])); setReady(true) } })}>{tree.error}</ErrorNote>
@@ -618,6 +657,7 @@ export default function AccessTree() {
   return (
     <>
       <Card
+        headingRef={cardHeading}
         title={t('accessTree.title')}
         desc={t('accessTree.desc')}
         actions={

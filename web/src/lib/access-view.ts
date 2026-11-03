@@ -15,7 +15,9 @@ export const levelOf = (f: Pick<PersonFolderAccess, 'access' | 'listable'>): Lev
 /** The groups of rows on the screen, in this order. */
 export const SECTIONS = ['team', 'group', 'project', 'connected', 'skills', 'personal'] as const
 export type Section = (typeof SECTIONS)[number]
-export const isSkillsPath = (p: string) => p === 'skills' || p.startsWith('skills/')
+/** skills/ and below, as the server's skills check compares it (server/src/skills/guard.ts inSkills): the first name
+ * without letter case or Unicode form, so a team folder that serves `Skills/` is the team's AI instructions too */
+export const isSkillsPath = (p: string) => (p.split('/')[0] ?? '').normalize('NFC').toLowerCase() === 'skills'
 export const isPersonalPath = (p: string) => p === 'users' || p.startsWith('users/')
 
 /** The row's group: the server's kinds first, then the top folder that holds such folders (groups/, projects/,
@@ -282,9 +284,7 @@ export function kindText(t: T, n: Pick<AccessTreeNode, 'kinds' | 'path' | 'proje
     return p.length > 1 ? t('accessTree.kind.projects', { n: p.length }) : t('accessTree.kind.project')
   }
   if (n.kinds.includes('connected')) return t('accessTree.kind.connected')
-  // skills/ as the server's skills check compares it: the first name without letter case or Unicode form
-  const first = (n.path.split('/')[0] ?? '').normalize('NFC').toLowerCase()
-  if (first === 'skills') return t(n.path.includes('/') ? 'accessTree.kind.skills' : 'accessTree.kind.skillsRoot')
+  if (isSkillsPath(n.path)) return t(n.path.includes('/') ? 'accessTree.kind.skills' : 'accessTree.kind.skillsRoot')
   return null
 }
 

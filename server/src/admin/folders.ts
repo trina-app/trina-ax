@@ -148,8 +148,14 @@ export function rulesOf(db: Database, folderId: string): FolderRuleInput[] {
 
 export function toFolder(ctx: AppContext, f: FolderRow): Folder {
   const rows = ctx.db.query('SELECT id, folder_id, subject_type, subject_id, access, updated_by, updated_at FROM folder_rules WHERE folder_id = ? ORDER BY subject_type, subject_id').all(f.id) as RuleRow[]
-  let exists = false
-  try { exists = fs.lstatSync(path.join(ctx.files.fx.root, ...(f.path ? f.path.split('/') : []))).isDirectory() } catch {}
+  // a real folder at every step, as the tree lists them (a link anywhere on the way is not there): a row under a
+  // folder that became a link is listed with the folders not in the tree, not taken for one in it
+  let exists = true
+  let cur = ctx.files.fx.root
+  for (const seg of f.path ? f.path.split('/') : []) {
+    cur = path.join(cur, seg)
+    try { if (!fs.lstatSync(cur).isDirectory()) { exists = false; break } } catch { exists = false; break }
+  }
   const groupId = groupOfFolder(ctx.db, f.id)
   return {
     id: f.id,

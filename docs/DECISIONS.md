@@ -6212,3 +6212,18 @@ folder as a tree, read only like stage 3; the permission function and the databa
     `access-tree-equivalence.test.ts`); in `web/test/e2e/access-tree.spec.ts` the address at 1360 and 375 (missing,
     four levels down, past the first page), the tab and the menu link, rule folders only, long project names, a failed
     refresh, hidden rule rows, wrapping badges and the dropped slow page (it fails with the old code).
+- **Follow-up (fix/access-tree-lookup, 2026-11-03).**
+  - A lookup in the address that found its level busy took the busy answer for "no more pages" and said "이 폴더를
+    찾을 수 없어요" while the folder sat one page further on. Now one request per level runs at a time and a second
+    caller waits for it and shares its answer ("N more" and a lookup, two lookups), and a lookup that a later choice or
+    address replaced asks for no more pages. `web/test/e2e/access-tree.spec.ts` replays both ("N more" on its way, then
+    the address; one folder, then another 300 ms later), with pages slowed; both failed before.
+  - "Try again" on a lookup that failed puts the focus on the card's title while it asks, and back on "Try again" when
+    it fails again (the card it was in goes meanwhile).
+  - `Folder.exists` looks at every step of the path, as the tree does: a rule on `shared/real/sub` where `shared/real`
+    became a link is not there, and is listed with the rules of folders not in the tree (it was in none of the three).
+  - The screen's skills check is the server's (`inSkills`: any case or Unicode form of the first name) everywhere: the
+    label, the icon, the hint, the team skill managers and By person's risk.
+  - Not done: choosing a folder deep in a very wide level (20,000 folders) still loads and draws every row before it,
+    500 a page. A level loaded with a gap (from the page that holds the name) would need the tree to keep and fill holes
+    in a level; not worth it for this case now.
