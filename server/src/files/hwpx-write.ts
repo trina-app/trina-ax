@@ -28,7 +28,9 @@ import { checkZip, isZip } from './zip-guard'
 import { writeZip, type ZipEntry } from './zip-write'
 import { COL_PR, NO_CHAR_SHAPE, NS_ATTRS, OWPML_NS, XML_DECL, defaultTemplate, paraHeadXml, paraPrXml, type ParaShape } from './hwpx-template'
 import { cleanText, decodeHwpxRequest, HWPX_TEMPLATE_MAX, HWPX_TEXT_MAX } from './hwpx-check'
-import { PRODUCT } from '@mycel/shared'
+// the product module alone: the shared index brings zod into the office worker's bundle, and a second Bun.build of zod
+// in the same process (tests) then fails with EISDIR on Linux
+import { PRODUCT } from '@mycel/shared/product'
 
 const MIB = 1024 * 1024
 export const HWPX_LIMITS = {
