@@ -318,10 +318,11 @@ function ChatView({ chatId }: { chatId: string }) {
             engines={engines}
             models={models}
             placeholder={t('chat.reply')}
+            footer={t('chat.footer')}
             autoFocus
           />
         )}
-        <p className="pt-2 text-center text-[11px] text-faint">{t('chat.footer')}</p>
+        {chat?.deletedAt && <p className="pt-2 text-center text-[11px] text-faint">{t('chat.footer')}</p>}
       </div>
     </div>
   )

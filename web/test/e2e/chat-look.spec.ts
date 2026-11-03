@@ -1,6 +1,7 @@
 // The chat screen, like Claude's: answers are plain text with nothing beside them, the newest answer keeps its actions
 // in view (older ones show them on hover or focus, and always on touch screens), the chat's name opens rename and
-// delete, a file sent with a message is a small card, and the box says "Reply" in a chat that has started.
+// delete, a file sent with a message is a small card, and the box says "Reply" in a chat that has started. The box
+// holds only the text and a quiet send key; attach, voice and the engine sit in one row under it, with the note.
 import AxeBuilder from '@axe-core/playwright'
 import { expect, test, type Page } from '@playwright/test'
 import { CSRF_HEADER } from '@mycel/shared/api'
@@ -26,6 +27,25 @@ async function chatWithTwoAnswers(page: Page, projectId?: string) {
     await expect(page.locator('[data-testid="assistant-message"][data-status="done"]')).toHaveCount(i + 1)
   }
   return id
+}
+
+const NOTE = 'AI는 실수할 수 있어요. 중요한 내용은 확인해 주세요. 내 채팅은 나만 볼 수 있어요.'
+
+/** The box holds the text and the send key; attach, voice and the engine are in the row under it. */
+async function expectBoxLikeClaude(page: Page) {
+  const box = page.getByTestId('composer')
+  const row = page.getByTestId('composer-controls')
+  await expect(box.getByTestId('composer-input')).toBeVisible()
+  await expect(box.getByTestId('send')).toBeVisible()
+  await expect(box.getByTestId('attach-button')).toHaveCount(0)
+  await expect(row.getByTestId('attach-button')).toBeVisible()
+  await expect(row.getByRole('button', { name: '음성으로 입력' })).toBeVisible()
+  await expect(row.getByTestId('engine-picker')).toBeVisible()
+  // one line until there is more to say
+  expect((await box.getByTestId('composer-input').boundingBox())!.height).toBeLessThanOrEqual(50)
+  const rowTop = (await row.boundingBox())!.y
+  const boxBottom = (await box.boundingBox())!.y + (await box.boundingBox())!.height
+  expect(rowTop).toBeGreaterThanOrEqual(boxBottom - 1)
 }
 
 async function audit(page: Page, where: string) {
@@ -99,6 +119,35 @@ test("the chat's name opens rename and delete, after the project it is in", asyn
   await expect(page.getByText('채팅을 삭제했어요.')).toBeVisible()
 })
 
+test('the message box is one line with a quiet send key, and the controls sit under it, on every page with the box', async ({ page }) => {
+  await reset(page)
+  await signIn(page)
+  // the new-chat page and a project's page use the same box
+  await expectBoxLikeClaude(page)
+  const projectId = await newProject(page)
+  await page.goto(`/projects/${projectId}`)
+  await expectBoxLikeClaude(page)
+  await chatWithTwoAnswers(page)
+  await expectBoxLikeClaude(page)
+  // the send key: dim and off while the box is empty, on with text in it
+  const send = page.getByTestId('send')
+  await expect(send).toBeDisabled()
+  await expect(send).toHaveClass(/text-faint/)
+  await page.getByTestId('composer-input').fill('one more thing')
+  await expect(send).toBeEnabled()
+  await expect(send).toHaveClass(/text-ink/)
+  // the note is in the row, between the controls
+  await expect(page.getByTestId('composer-controls').getByText(NOTE)).toBeVisible()
+  await expect(page.getByText(NOTE)).toHaveCount(2)
+  // while an answer runs, Stop takes the send key's place in the box
+  await page.getByTestId('composer-input').fill('slow answer please, slow slow slow slow slow slow slow slow slow slow')
+  await send.click()
+  await expect(page.getByTestId('composer').getByTestId('stop')).toBeVisible()
+  await expect(page.getByTestId('composer').getByTestId('send')).toHaveCount(0)
+  await page.getByTestId('stop').click()
+  await expect(page.getByTestId('composer').getByTestId('send')).toBeVisible()
+})
+
 test('a file sent with a message is a small card with its name, type and size', async ({ page }) => {
   await reset(page)
   await signIn(page)
@@ -123,6 +172,9 @@ test('on a touch screen every answer shows its actions, and the chat fits a phon
   expect(await page.evaluate(() => matchMedia('(hover: hover)').matches)).toBe(false)
   await expect(page.getByTestId('assistant-message').first().getByTestId('answer-actions')).toHaveCSS('opacity', '1')
   await expect(page.getByTestId('chat-menu')).toBeVisible()
+  // on a phone the note goes under the row of controls
+  await expect(page.getByTestId('composer-controls').getByText(NOTE)).toBeHidden()
+  await expect(page.getByText(NOTE).last()).toBeVisible()
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
   await audit(page, 'chat on a phone')
   await ctx.close()
