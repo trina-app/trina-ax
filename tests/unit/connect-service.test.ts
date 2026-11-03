@@ -649,6 +649,53 @@ describe('another key on the same card follows the rules of now', () => {
     expect(leaksIn([t.turnId])).toEqual([])
   })
 
+  test('Not now after only the key was replaced in Settings (its check failed too): that connection and its key stay', async () => {
+    const url = `${svc.base}/mcp-key?card=key-in-settings`
+    const t = await start('alice', { name: 'Key in Settings', kind: 'mcp', url, auth: 'bearer' })
+    const card = await cardOf(t.turnId)
+    const first = await post('alice', t.turnId, { action: 'connect', requestId: card.requestId, sealed: await seal(WRONG) })
+    expect(first.body.state).toBe('retry')
+    const id = first.body.integrationId as string
+    // the person pastes another key in Settings (same address); the service still refuses it
+    await h.api('alice').call(API.updateIntegration, { params: { id }, body: { secret: `${WRONG}-settings` } })
+    expect((await post('alice', t.turnId, { action: 'skip', requestId: card.requestId })).body).toEqual({ state: 'skipped' })
+    expect(rowsAt(url).map((r) => r.id)).toEqual([id])
+    const r = resultOf(await doneOf(t.messageId))
+    expect(r.skipped).toBe(true)
+    expect(r.reason).toContain('changed or removed in Settings')
+  })
+
+  test('the card\'s time runs out after its connection was moved in Settings with a working key: the AI is told it changed, not connected', async () => {
+    await withCardTime(4000, async () => {
+      const url = `${svc.base}/mcp-key?card=moved-then-timeout`
+      const t = await start('alice', { name: 'Moved then timed out', kind: 'mcp', url, auth: 'bearer' })
+      const card = await cardOf(t.turnId)
+      const first = await post('alice', t.turnId, { action: 'connect', requestId: card.requestId, sealed: await seal(WRONG) })
+      expect(first.body.state).toBe('retry')
+      const id = first.body.integrationId as string
+      const moved = `${svc.base}/mcp-key?card=moved-then-timeout-2`
+      await h.api('alice').call(API.updateIntegration, { params: { id }, body: { url: moved, secret: MCP_KEY } })
+      expect(h.ctx.db.query('SELECT status FROM integrations WHERE id = ?').get(id)).toEqual({ status: 'connected' })
+      const r = resultOf(await doneOf(t.messageId))
+      expect(r.connected).toBeUndefined()
+      expect(r.skipped).toBe(true)
+      expect(r.reason).toContain('changed or removed in Settings')
+    })
+  })
+
+  test('the card\'s time runs out after its connection was deleted in Settings: the AI is told so', async () => {
+    await withCardTime(4000, async () => {
+      const url = `${svc.base}/mcp-key?card=deleted-then-timeout`
+      const t = await start('alice', { name: 'Deleted then timed out', kind: 'mcp', url, auth: 'bearer' })
+      const card = await cardOf(t.turnId)
+      const first = await post('alice', t.turnId, { action: 'connect', requestId: card.requestId, sealed: await seal(WRONG) })
+      await h.api('alice').call(API.deleteIntegration, { params: { id: first.body.integrationId as string } })
+      const r = resultOf(await doneOf(t.messageId))
+      expect(r.skipped).toBe(true)
+      expect(r.reason).toContain('changed or removed in Settings')
+    })
+  })
+
   test('Not now right after the connection was changed in Settings (no retry between): the changed one stays, and the AI is told it changed', async () => {
     const url = `${svc.base}/mcp-key?card=edited-then-not-now`
     const t = await start('alice', { name: 'Edited then skipped', kind: 'mcp', url, auth: 'bearer' })
