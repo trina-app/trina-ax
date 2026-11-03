@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test'
-import { classifyImage, classifyLink, isDisplayableImagePath, prepareMarkdown } from '../../src/lib/markdown'
+import { classifyImage, classifyLink, firstParagraph, isDisplayableImagePath, plainText, prepareMarkdown } from '../../src/lib/markdown'
 
 const O = 'https://acme.treesoop.com'
 
@@ -74,5 +74,24 @@ describe('images in answers', () => {
   test('displayable team images: png/jpeg/gif/webp, svg via <img> only', () => {
     expect(['a.png', 'b.JPG', 'c.webp', 'd.gif', 'e.svg'].every(isDisplayableImagePath)).toBe(true)
     expect(isDisplayableImagePath('x.html')).toBe(false)
+  })
+})
+
+describe('plainText and firstParagraph (a project\'s instructions under its name)', () => {
+  test('marks go, words stay, one line', () => {
+    expect(plainText('# Video marketing\n\nMake **short** clips with `remotion`.\n\n- One idea per clip\n- 15 seconds\n')).toBe('Video marketing Make short clips with remotion. One idea per clip 15 seconds')
+    expect(plainText('> Read [the brief](https://example.com/brief) first\n1. Draft\n2) Review')).toBe('Read the brief first Draft Review')
+  })
+  test('code blocks, images and rules are left out; snake_case names keep their underscores', () => {
+    expect(plainText('Use out_dir.\n\n```sh\nnpx remotion render\n```\n---\n![logo](logo.png) Done')).toBe('Use out_dir. Done')
+    expect(plainText('')).toBe('')
+  })
+  test('the summary is the first paragraph, past a title, a list or code', () => {
+    expect(firstParagraph('# Launch\n\nAnswer in **short** bullet points.\n\n- One idea per line')).toBe('Answer in short bullet points.')
+    expect(firstParagraph('## Rules\nKeep clips short.\nCaptions on.\n\nMore later.')).toBe('Keep clips short. Captions on.')
+    expect(firstParagraph('```\ncode\n\nmore code\n```\n\nAfter the code.')).toBe('After the code.')
+    // nothing but a list: all of it
+    expect(firstParagraph('- one\n- two')).toBe('one two')
+    expect(firstParagraph('')).toBe('')
   })
 })

@@ -1,16 +1,19 @@
-// Dev environment section of a project (EXPERIMENT, docs/DECISIONS.md "Dev environment (experiment)"). Hidden when the
-// server answers 404 (the feature flag is off). Admins turn it on after the warning; people who can write the folder
+// Dev environment line of a project's page (EXPERIMENT, docs/DECISIONS.md "Dev environment (experiment)"). Hidden when
+// the server answers 404 (the feature flag is off). Closed, it says whether it is on and how the box is; opened, the
+// box, its jobs, the preview and the activity. Admins turn it on after the warning; people who can write the folder
 // see the box; people who can read it open previews and see the activity.
 import { Play, RotateCcw, Square, TerminalSquare } from 'lucide-react'
 import { useEffect, useState } from 'react'
+import clsx from 'clsx'
 import type { DevEnvActivity, DevEnvProjectResponse, Group, Project } from '@mycel/shared/api'
 import { api, API, errorText, isApiError } from '../lib/api'
 import { formatRelative } from '../lib/format'
 import { useLocale, useT } from '../i18n'
 import { toast } from '../store/ui'
 import { Badge, Button, Field, Modal, inputCls } from '../components/ui'
+import { DisclosureRow } from '../components/DisclosureRow'
 
-export function DevEnvSection({ project }: { project: Project }) {
+export function DevEnvRow({ project }: { project: Project }) {
   const t = useT()
   const locale = useLocale()
   const [d, setD] = useState<DevEnvProjectResponse | null>(null)
@@ -63,87 +66,94 @@ export function DevEnvSection({ project }: { project: Project }) {
     } catch (e) { fail(e) }
   }
   const stateLabel = d.box ? t(`devEnv.state.${d.box.state}`) : t('devEnv.state.none')
+  const stopped = !!d.box && d.box.state !== 'running' && (d.box.stopCode === 'disk' || d.box.stopCode === 'busy_max')
+  // closed, the line says the one thing to know: off, or how the box is
+  const status = !on ? t('devEnv.off') : d.box && d.box.state !== 'none' ? stateLabel : t('devEnv.on')
 
   return (
-    <section aria-labelledby="pj-devenv">
-      <h2 id="pj-devenv" className="mb-2 flex items-center justify-between gap-2 text-sm font-semibold">
-        <span className="flex items-center gap-1.5">
-          <TerminalSquare size={15} className="text-accent-text" aria-hidden /> {t('devEnv.title')} <Badge tone="warn">{t('devEnv.experiment')}</Badge>
-        </span>
-        {d.mayManage && (
-          <button type="button" className="text-xs font-normal text-accent-text hover:underline" onClick={() => setEditing(true)}>
-            {t('common.edit')}
-          </button>
-        )}
-      </h2>
-      <div className="space-y-3 rounded-xl border border-line bg-surface p-3 text-sm">
-        {!d.availability.available && <p className="text-faint">{t('devEnv.unavailable')}</p>}
-        <p className="flex items-center gap-2">
-          <Badge tone={on ? 'ok' : 'neutral'}>{on ? t('devEnv.on') : t('devEnv.off')}</Badge>
-          {on && <span className="text-faint">{d.mayUse ? t('devEnv.youCanUse') : t('devEnv.readOnly')}</span>}
-        </p>
-        {on && d.box && (
-          <>
-            <p className="flex flex-wrap items-center gap-2">
-              <span>{t('devEnv.box', { state: stateLabel })}</span>
-              {d.box.memoryMiB !== null && <span className="text-xs text-faint">{t('devEnv.memory', { n: Math.round(d.box.memoryMiB) })}</span>}
-              {(d.mayUse || d.mayManage) && d.box.state === 'running' && (
-                <span className="ml-auto flex gap-1">
-                  <Button size="sm" variant="ghost" busy={busy} onClick={() => void box('restart')}><RotateCcw size={13} aria-hidden /> {t('devEnv.restart')}</Button>
-                  <Button size="sm" variant="ghost" busy={busy} onClick={() => void box('stop')}><Square size={13} aria-hidden /> {t('devEnv.stop')}</Button>
-                </span>
+    <>
+      <DisclosureRow
+        testId="dev-env"
+        icon={<TerminalSquare size={16} />}
+        label={t('devEnv.title')}
+        badge={<Badge tone="warn">{t('devEnv.experiment')}</Badge>}
+        meta={<span className={clsx('block first-letter:uppercase', (stopped || !d.availability.available) && 'text-warn', on && d.box?.state === 'running' && 'text-ok')}>{status}</span>}
+      >
+        <div className="space-y-3">
+          {!d.availability.available && <p className="text-faint">{t('devEnv.unavailable')}</p>}
+          {(on || d.mayManage) && (
+            <p className="flex items-start gap-2">
+              <span className="min-w-0 flex-1 text-xs text-faint">{on && (d.mayUse ? t('devEnv.youCanUse') : t('devEnv.readOnly'))}</span>
+              {d.mayManage && (
+                <button type="button" className="inline-flex min-h-6 shrink-0 items-center rounded-md px-2 text-xs text-muted hover:bg-hover hover:text-ink" onClick={() => setEditing(true)} data-testid="dev-env-edit">
+                  {t('common.edit')}
+                </button>
               )}
             </p>
-            {d.box.state !== 'running' && (d.box.stopCode === 'disk' || d.box.stopCode === 'busy_max') && (
-              <p className="rounded-lg border border-warn/40 bg-warn/10 p-2 text-xs" data-testid="dev-env-stop-reason">{t(`devEnv.stopped.${d.box.stopCode}`)}</p>
-            )}
-            {d.jobs.length > 0 && (
-              <div data-testid="dev-env-jobs">
-                <p className="mb-1 text-xs font-medium">{t('devEnv.jobs')}</p>
-                <ul className="space-y-0.5 text-xs">
-                  {d.jobs.map((j) => (
-                    <li key={j.id} className="flex gap-2">
-                      <span className="shrink-0 font-mono">{j.name}</span>
-                      <span className="shrink-0 text-faint">{formatRelative(j.startedAt, locale)}</span>
-                      <span className="min-w-0 truncate font-mono text-faint" title={j.lastLine}>{j.lastLine}</span>
-                    </li>
-                  ))}
-                </ul>
+          )}
+          {on && d.box && (
+            <>
+              <p className="flex flex-wrap items-center gap-2">
+                <span>{t('devEnv.box', { state: stateLabel })}</span>
+                {d.box.memoryMiB !== null && <span className="text-xs text-faint">{t('devEnv.memory', { n: Math.round(d.box.memoryMiB) })}</span>}
+                {(d.mayUse || d.mayManage) && d.box.state === 'running' && (
+                  <span className="ml-auto flex gap-1">
+                    <Button size="sm" variant="ghost" busy={busy} onClick={() => void box('restart')}><RotateCcw size={13} aria-hidden /> {t('devEnv.restart')}</Button>
+                    <Button size="sm" variant="ghost" busy={busy} onClick={() => void box('stop')}><Square size={13} aria-hidden /> {t('devEnv.stop')}</Button>
+                  </span>
+                )}
+              </p>
+              {stopped && (
+                <p className="rounded-lg border border-warn/40 bg-warn/10 p-2 text-xs" data-testid="dev-env-stop-reason">{t(`devEnv.stopped.${d.box.stopCode as 'disk' | 'busy_max'}`)}</p>
+              )}
+              {d.jobs.length > 0 && (
+                <div data-testid="dev-env-jobs">
+                  <p className="mb-1 text-xs font-medium">{t('devEnv.jobs')}</p>
+                  <ul className="space-y-0.5 text-xs">
+                    {d.jobs.map((j) => (
+                      <li key={j.id} className="flex gap-2">
+                        <span className="shrink-0 font-mono">{j.name}</span>
+                        <span className="shrink-0 text-faint">{formatRelative(j.startedAt, locale)}</span>
+                        <span className="min-w-0 truncate font-mono text-faint" title={j.lastLine}>{j.lastLine}</span>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+              {d.box.processes.length > 0 && (
+                <div>
+                  <p className="mb-1 text-xs font-medium">{t('devEnv.processes')}</p>
+                  <ul className="space-y-0.5 font-mono text-xs text-faint">
+                    {d.box.processes.slice(0, 8).map((p) => <li key={p.pid} className="truncate" title={p.command}>{p.command}</li>)}
+                  </ul>
+                </div>
+              )}
+              <div className="flex items-end gap-2">
+                <Field label={t('devEnv.port')}>
+                  <input className={inputCls + ' w-24'} inputMode="numeric" value={port} onChange={(e) => setPort(e.target.value.replace(/\D/g, '').slice(0, 5))} />
+                </Field>
+                <Button size="sm" onClick={() => void preview()} disabled={Number(port) < 1024} data-testid="dev-env-preview"><Play size={13} aria-hidden /> {t('devEnv.openPreview')}</Button>
               </div>
-            )}
-            {d.box.processes.length > 0 && (
-              <div>
-                <p className="mb-1 text-xs font-medium">{t('devEnv.processes')}</p>
-                <ul className="space-y-0.5 font-mono text-xs text-faint">
-                  {d.box.processes.slice(0, 8).map((p) => <li key={p.pid} className="truncate" title={p.command}>{p.command}</li>)}
-                </ul>
-              </div>
-            )}
-            <div className="flex items-end gap-2">
-              <Field label={t('devEnv.port')}>
-                <input className={inputCls + ' w-24'} inputMode="numeric" value={port} onChange={(e) => setPort(e.target.value.replace(/\D/g, '').slice(0, 5))} />
-              </Field>
-              <Button size="sm" onClick={() => void preview()} disabled={Number(port) < 1024}><Play size={13} aria-hidden /> {t('devEnv.openPreview')}</Button>
+            </>
+          )}
+          {activity.length > 0 && (
+            <div data-testid="dev-env-activity">
+              <p className="mb-1 text-xs font-medium">{t('devEnv.activity')}</p>
+              <ul className="space-y-0.5 text-xs">
+                {activity.map((a, i) => (
+                  <li key={i} className="flex gap-2">
+                    <span className="shrink-0 text-faint">{formatRelative(a.at, locale)}</span>
+                    <span className="shrink-0">{a.by?.name ?? '—'}</span>
+                    <span className={'min-w-0 truncate' + (a.kind === 'command' ? ' font-mono' : '')} title={a.text}>{a.text}</span>
+                  </li>
+                ))}
+              </ul>
             </div>
-          </>
-        )}
-        {activity.length > 0 && (
-          <div>
-            <p className="mb-1 text-xs font-medium">{t('devEnv.activity')}</p>
-            <ul className="space-y-0.5 text-xs">
-              {activity.map((a, i) => (
-                <li key={i} className="flex gap-2">
-                  <span className="shrink-0 text-faint">{formatRelative(a.at, locale)}</span>
-                  <span className="shrink-0">{a.by?.name ?? '—'}</span>
-                  <span className={'min-w-0 truncate' + (a.kind === 'command' ? ' font-mono' : '')} title={a.text}>{a.text}</span>
-                </li>
-              ))}
-            </ul>
-          </div>
-        )}
-      </div>
+          )}
+        </div>
+      </DisclosureRow>
       {editing && <DevEnvForm project={project} d={d} groups={groups} onClose={() => setEditing(false)} onSaved={(x) => { setD(x); setEditing(false); void load() }} />}
-    </section>
+    </>
   )
 }
 

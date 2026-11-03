@@ -74,6 +74,7 @@ export default function Composer({
   models,
   initialText,
   autoFocus,
+  placeholder,
 }: {
   ref?: Ref<ComposerHandle>
   /** chat id, or "new" / "project:<id>" for a chat not created yet */
@@ -97,6 +98,8 @@ export default function Composer({
   models?: Partial<Record<EngineId, { id: string; label: string }[]>>
   initialText?: string
   autoFocus?: boolean
+  /** the empty box's hint, when it is not the usual one (a project's page) */
+  placeholder?: string
 }) {
   const t = useT()
   const locale = useLocale()
@@ -566,7 +569,7 @@ export default function Composer({
                   void submit()
                 }
               }}
-              placeholder={transcribing ? t('voice.transcribing') : answering ? t('composer.answerPlaceholder') : running ? t(choiceWaiting ? 'outbox.placeholderChoice' : 'outbox.placeholder') : t('composer.placeholder')}
+              placeholder={transcribing ? t('voice.transcribing') : answering ? t('composer.answerPlaceholder') : running ? t(choiceWaiting ? 'outbox.placeholderChoice' : 'outbox.placeholder') : (placeholder ?? t('composer.placeholder'))}
               disabled={transcribing}
               className={clsx('block max-h-[240px] w-full resize-none bg-transparent px-5 pb-2 text-[15px] outline-none placeholder:text-faint', answering ? 'pt-1.5' : 'pt-4')}
               data-testid="composer-input"
