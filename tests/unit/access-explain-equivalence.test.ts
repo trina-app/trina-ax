@@ -10,6 +10,7 @@ import { PRODUCT } from '@mycel/shared'
 import { makeEnv } from '../lib/env'
 import { RuleSet, type Access, type Principal } from '../../server/src/policy/access'
 import { OldRuleSet, type OldRule } from '../lib/access-before-explain'
+import { shownPath } from '../../server/src/admin/access-rows'
 
 // ---------------- random worlds (seeded: a failure prints its seed and repeats) ----------------
 function rng(seed: number) {
@@ -18,9 +19,10 @@ function rng(seed: number) {
 }
 // names that hit every branch: users/, .system, temp names (and the temp prefix inside a name, which is not one), a
 // person id used as a folder name, case and NFC/NFD variants (compared exactly, never folded), names that contain each
-// other as text
+// other as text; and forgotten rule rows the answers must not name (Users, .SYSTEM, a temp name in capitals: the
+// permission function compares them exactly, as before)
 const NAMES = ['shared', 'skills', 'groups', 'projects', 'users', 'connected', PRODUCT.systemDir, `${PRODUCT.tmpPrefix}x`, `a${PRODUCT.tmpPrefix}x`, 'a', 'b', 'ab', 'a b', 'A', 'mia', 'leo',
-  '재무', '재무'.normalize('NFD'), 'finance', 'Finance', 'trash', 'x.md', 'admin', 'member', 'everyone']
+  '재무', '재무'.normalize('NFD'), 'finance', 'Finance', 'trash', 'x.md', 'admin', 'member', 'everyone', 'Users', PRODUCT.systemDir.toUpperCase(), `${PRODUCT.tmpPrefix.toUpperCase()}y`]
 const USERS = ['mia', 'leo', 'ola', 'olga', 'adam', 'users', 'a']
 // display names: never compared by the function, so some are other people's ids, roles or group names
 const PERSON_NAMES = ['x', 'Mia Kim', 'leo', 'admin', 'sales', 'users', '']
@@ -102,12 +104,16 @@ describe('access() and explain() answer exactly as the permission function did b
             expect(v.folders.length > 0).toBe(now.hasVisibleDescendant(p, segs))
             for (const f of v.folders) expect(now.canList(p, f.split('/')) && f.startsWith(segs.length ? segs.join('/') + '/' : '')).toBe(true)
           }
-          // the folder answer's navigator (one folder, many people, shared scans) answers as listing() does
-          const navKey = segs.join('\u0001')
-          const nav = (navs.get(navKey) ?? navs.set(navKey, now.navigator(segs, 3)).get(navKey))!(p)
-          const at = list.at(segs, 3)
-          if (nav.listable !== can || (want === 'none' && JSON.stringify(nav) !== JSON.stringify(at)))
-            throw new Error(`seed ${seed}: ${JSON.stringify(p)} ${JSON.stringify(segs)}: canList ${can}, navigator ${JSON.stringify(nav)}, listing ${JSON.stringify(at)}`)
+          // the folder answer's navigator (one folder, many people, shared scans) answers as listing() does, at a cap
+          // of 1 and 3, with and without the display filter of the answers
+          for (const [max, shown] of [[3, undefined], [1, shownPath], [3, shownPath]] as const) {
+            const navKey = `${max}${shown ? 's' : ''}\u0002${segs.join('\u0001')}`
+            const nav = (navs.get(navKey) ?? navs.set(navKey, now.navigator(segs, max, shown)).get(navKey))!(p)
+            const at = list.at(segs, max, shown)
+            if (nav.listable !== can || (want === 'none' && JSON.stringify(nav) !== JSON.stringify(at)))
+              throw new Error(`seed ${seed}: ${JSON.stringify(p)} ${JSON.stringify(segs)} max ${max}${shown ? ' shown' : ''}: canList ${can}, navigator ${JSON.stringify(nav)}, listing ${JSON.stringify(at)}`)
+            if (shown) for (const f of nav.via) expect(f === `users/${p.id}` || shownPath(f)).toBe(true)
+          }
           listed += can ? 1 : 0
           checked++
         }
@@ -118,6 +124,51 @@ describe('access() and explain() answer exactly as the permission function did b
     console.log(`access-explain equivalence: ${checked} answers compared over ${SEEDS} worlds (listing = navigator = canList too, ${listed} listable); reasons ${JSON.stringify(Object.fromEntries(kinds))}`)
     expect(checked).toBeGreaterThan(1_000_000)
   }, 120_000)
+
+  test('navigation in fixed worlds: more readable folders than the cap, a hole in the middle, forgotten rule rows', () => {
+    const row = (path: string, access: Access) => ({ path, subject_type: 'everyone' as const, subject_id: null, access })
+    const worlds = [
+      // five readable top folders: at a cap of 3, `more` needs the scan to find a fourth
+      [row('x1', 'read'), row('x2', 'read'), row('x3', 'write'), row('x4', 'read'), row('x5', 'read'), row('y', 'none'), row('y/1', 'read'), row('y/2', 'read'), row('y/3', 'read'), row('y/4', 'read')],
+      // a readable, a/b not, a/b/c readable again: a/b/c is below a readable folder (a), not topmost from the root,
+      // topmost from a/b; and three levels of it
+      [row('a', 'read'), row('a/b', 'none'), row('a/b/c', 'read'), row('a/b/c/d', 'none'), row('a/b/c/d/e', 'read'), row('z', 'none'), row('z/q', 'none'), row('z/q/r', 'read')],
+      // forgotten rows: listable through them, as canList() says, but never named
+      [row('', 'none'), row('Users/alice/x', 'read'), row('ｕｓｅｒｓ/alice/x', 'read'), row(`${PRODUCT.systemDir.toUpperCase()}/x`, 'read'), row(`k/${PRODUCT.tmpPrefix.toUpperCase()}y`, 'read'), row('k', 'none'), row('k/ok', 'read')],
+    ]
+    const people: Principal[] = [{ id: 'mia', name: 'Mia', role: 'member', groups: [] }, { id: 'leo', name: 'Leo', role: 'member', groups: ['g'] }]
+    const paths = [[], ['x1'], ['y'], ['a'], ['a', 'b'], ['a', 'b', 'c'], ['a', 'b', 'c', 'd'], ['z'], ['z', 'q'], ['k'], ['Users'], ['Users', 'alice'], [PRODUCT.systemDir.toUpperCase()]]
+    let n = 0
+    for (const rows of worlds) {
+      const old = new OldRuleSet(rows)
+      const now = new RuleSet(rows)
+      for (const p of people) {
+        const list = now.listing(p)
+        for (const segs of paths) {
+          expect(now.access(p, segs)).toBe(old.access(p, segs))
+          for (const max of [1, 2, 3, 20]) for (const shown of [undefined, shownPath]) {
+            const nav = now.navigator(segs, max, shown)(p)
+            expect(nav.listable, `${segs.join('/')}`).toBe(now.canList(p, segs))
+            if (now.access(p, segs) === 'none') expect(nav, `${segs.join('/')} max ${max}`).toEqual(list.at(segs, max, shown))
+            n++
+          }
+        }
+      }
+    }
+    // what the answers show in those worlds
+    const [five, hole, ghosts] = worlds.map((w) => new RuleSet(w!))
+    const mia = people[0]!
+    expect(five!.navigator([], 3, shownPath)(mia)).toEqual({ listable: true, via: ['users/mia', 'x1', 'x2'], more: true })
+    expect(five!.navigator(['y'], 3, shownPath)(mia)).toEqual({ listable: true, via: ['y/1', 'y/2', 'y/3'], more: true })
+    expect(five!.navigator(['y'], 4, shownPath)(mia)).toEqual({ listable: true, via: ['y/1', 'y/2', 'y/3', 'y/4'], more: false })
+    expect(hole!.navigator(['a', 'b'], 3, shownPath)(mia)).toEqual({ listable: true, via: ['a/b/c'], more: false })
+    expect(hole!.navigator(['z'], 3, shownPath)(mia)).toEqual({ listable: true, via: ['z/q/r'], more: false })
+    expect(hole!.navigator([], 20, shownPath)(mia)).toEqual({ listable: true, via: ['a', 'users/mia', 'z/q/r'], more: false })
+    expect(ghosts!.navigator([], 20, shownPath)(mia)).toEqual({ listable: true, via: ['k/ok', 'users/mia'], more: false })
+    expect(ghosts!.navigator([], 20)(mia).via).toContain('Users/alice/x')
+    expect(ghosts!.navigator(['k'], 20, shownPath)(mia)).toEqual({ listable: true, via: ['k/ok'], more: false })
+    expect(n).toBeGreaterThan(500)
+  })
 
   test('the test team (tests/lib/fixtures.ts): every path on disk and every rule folder, for every person', () => {
     const env = makeEnv('unit-access-explain')

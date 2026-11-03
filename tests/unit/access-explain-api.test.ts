@@ -227,3 +227,59 @@ describe('one person: every team folder and why', () => {
     expect((await admin.try('POST', '/api/admin/access/new-person', { role: 'owner', groupIds: [] })).status).toBe(400)
   })
 })
+
+describe('changes between pages, forgotten rule rows', () => {
+  test('the folder answer pages by person: someone added before the cursor or switched off after it changes nothing else', async () => {
+    const first = await folderAnswer('projects/apollo', '&limit=2')
+    expect(first.people.map((p) => p.user.id)).toEqual(['adam', 'alice'])
+    // between the pages: abby (sorts first) joins, bob (next on the old page 2) is switched off
+    await addMember(h, owner, { username: 'abby' })
+    await owner.call('PATCH', '/api/admin/users/bob', { status: 'disabled' })
+    try {
+      const rest: string[] = []
+      let cursor: string | null = first.nextCursor
+      while (cursor) {
+        const r: FolderAccessResponse = await folderAnswer('projects/apollo', `&limit=2&cursor=${cursor}`)
+        rest.push(...r.people.map((p) => p.user.id))
+        cursor = r.nextCursor
+      }
+      // alice does not come again, nobody after her goes missing
+      expect(rest).toEqual(['dora', 'erik', 'olga'])
+      // a cursor survives its own person being switched off
+      const afterBob = await folderAnswer('projects/apollo', `&limit=1&cursor=${Buffer.from(JSON.stringify(['BOB', 'bob'])).toString('base64url')}`)
+      expect(afterBob.people.map((p) => p.user.id)).toEqual(['dora'])
+    } finally {
+      await owner.call('PATCH', '/api/admin/users/bob', { status: 'active' })
+      await owner.call('DELETE', '/api/admin/users/abby')
+    }
+    expect((await admin.try('GET', `/api/admin/access/folder?path=shared&cursor=${Buffer.from('[1]').toString('base64url')}`)).status).toBe(400)
+  })
+
+  test('rule rows nobody can open (Users/…, .SYSTEM/…, a temp name in capitals) are never named, and access stays as it was', async () => {
+    const root = h.ctx.files.fx.root
+    fs.mkdirSync(path.join(root, '.MYCEL-TMP-z'), { recursive: true })
+    const ghosts = ['Users/alice/x', '.SYSTEM/x', 'shared/.MYCEL-TMP-y']
+    const ins = (p: string) => {
+      const id = crypto.randomUUID()
+      h.ctx.db.query('INSERT INTO folders (id, path) VALUES (?, ?)').run(id, p)
+      h.ctx.db.query("INSERT INTO folder_rules (id, folder_id, subject_type, subject_id, access) VALUES (?, ?, 'everyone', NULL, 'read')").run(crypto.randomUUID(), id)
+      return id
+    }
+    const ids = ghosts.map(ins)
+    try {
+      const erik = await personAnswer('erik')
+      const text = JSON.stringify(erik)
+      for (const g of [...ghosts, '.MYCEL-TMP-z']) expect(text, g).not.toContain(g)
+      for (const f of erik.folders) expect(f.listable, f.path).toBe(canList('erik', f.path))
+      const top = await folderAnswer('')
+      expect(JSON.stringify(top)).not.toContain('MYCEL-TMP')
+      expect(JSON.stringify(top)).not.toContain('Users/')
+      for (const p of top.people) expect(p.listable, p.user.id).toBe(canList(p.user.id, ''))
+      // the permission function still answers these paths exactly as before (display only)
+      expect(accessOf('erik', 'shared/.MYCEL-TMP-y')).toBe('read')
+    } finally {
+      for (const id of ids) h.ctx.db.query('DELETE FROM folders WHERE id = ?').run(id)
+      fs.rmSync(path.join(root, '.MYCEL-TMP-z'), { recursive: true, force: true })
+    }
+  })
+})

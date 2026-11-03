@@ -5945,8 +5945,10 @@ rule for that person decides). This stage adds the reasons and three read-only a
   million random person × path × rule-set answers (3000 seeded worlds: users/, .system, temp names and the temp
   prefix inside a name, case and NFC/NFD variants, duplicate subjects, a root rule, display names that are other
   people's ids) and on every path of the test team; the reason's folder must decide as the old `pick()` did with no
-  deeper folder deciding. In the same loop `listing()`, `listing()` from any folder on the way and `navigator()` must
-  equal `canList()` (and each other's `via`). Deliberate mutations of the function, the listing and the navigator
+  deeper folder deciding. In the same loop `listing()`, `listing()` from any folder on the way and `navigator()` (at a
+  cap of 1 and 3, with and without the display filter) must equal `canList()` and each other's `via`; fixed worlds add
+  more readable folders than the cap, a folder nobody reads between two readable ones (three levels) and forgotten
+  rule rows. Deliberate mutations of the function, the listing and the navigator
   (tier order, the per-step reset, the prefix cut, the users/ branch, widest wins, the temp test, the shared-scan key,
   skipping covered folders, the own folder's place, temp folders in the chains) each fail it; the three that pass
   change nothing (the team root is always listable through the own folder, rule folders in users/ are never topmost,
@@ -5967,8 +5969,10 @@ rule for that person decides). This stage adds the reasons and three read-only a
   with its kinds and the group, projects or connection it belongs to; `exists` is true for a folder only (a file or a
   missing path: false).
 - **Nothing is cut without saying so.** Both answers come in pages: `limit` rows (default 500, at most 2000), `total`,
-  and `nextCursor` (the last path for the person answer, a row count for the folder answer) until the last page. The
-  person answer also takes `prefix` (that folder and what is below it), so the screen can open one part of the tree.
+  and `nextCursor` until the last page. A cursor names the last row of the page before, never a count: the last path
+  for the person answer, the last person (name and id, base64url, the same name-then-id order) for the folder answer,
+  so someone added, removed or switched off between two pages neither comes twice nor goes missing. The person answer
+  also takes `prefix` (that folder and what is below it), so the screen can open one part of the tree.
   Before, a person list stopped at 2000 rows with only `truncated: true` (2000 people and 2500 rule folders: about
   500 `skills/…` rows missing).
 - **Switched off.** `inactive` lists the people switched off whom a person rule on the path or above names, with what
@@ -5979,14 +5983,17 @@ rule for that person decides). This stage adds the reasons and three read-only a
   list (`exists: null`), personal projects (folder in `users/`) are left out with their names, and the folder answer
   refuses `users/…` before walking it (any case or width; "a personal folder is its owner's alone"), so an admin cannot
   learn the spelling or existence of a file in someone's folder from it. `.system/` (trash-parked rule folders
-  included), temp names and names the team folder does not accept never appear; the folder answer refuses them (400,
-  "not a team folder path", five languages).
+  included), temp names (in any case: `.MYCEL-TMP-…` too) and names the team folder does not accept never appear, as
+  rows or in `via`; the folder answer refuses them (400, "not a team folder path", five languages). A forgotten rule
+  row such as `Users/x/…` or `.SYSTEM/x` still makes a folder listable, as `canList()` says, but is never named. This is
+  display only: what the permission function answers for those paths is unchanged.
 - **Cost** (with the response check the server runs in dev and JSON; all pages walked to the end). 300 people and 500
   rule folders: one folder for everyone 1.5-1.7 ms median (max 13 ms over 500 folders), the root and top folders
   4-13 ms, one person's whole list 5.6-6.3 ms median (634 rows, 153 KB), a new person 6-8 ms. 2000 people and 2500
   rule folders: one folder 6.6-7.9 ms median (first page of 500 people), the root and top folders with all 1999 people
   62 ms median and 249 ms at most (1.8 s before the navigator), one person's whole list 34-39 ms median and 182-267 ms
-  at most (2509 rows over two pages, 597 KB), one part of the tree (`prefix=skills`) 13-14 ms.
+  at most (2509 rows over two pages, 597 KB), one part of the tree (`prefix=skills`) 11-14 ms. The script fails when
+  any answer takes over 750 ms, whatever the size.
 - Tests: the equivalence test above, `tests/unit/access-explain-api.test.ts` (reasons and counts, navigation and
   `via` against `canList`, inherited, missing and file paths, the person's kinds, every row equal to `RuleSet.access`,
   pages and `prefix` giving every row once, nothing of users/ or .system/ in the text, a trashed rule folder, someone

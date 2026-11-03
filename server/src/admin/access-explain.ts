@@ -16,7 +16,7 @@ import { msg } from '../auth/messages'
 import { RuleSet, type Explained, type Listing, type Principal } from '../policy/access'
 import { walk } from '../policy/resolve'
 import { captureState } from './folders'
-import { byPerson, folderInput, MAX_VIA, navigation, pageByOffset, pageByPath, ruleFolderOf, segsOf, shownSegs, summarize } from './access-rows'
+import { byPerson, folderInput, MAX_VIA, navigation, pageByPath, pageByPerson, ruleFolderOf, segsOf, shownPath, shownSegs, summarize } from './access-rows'
 
 /** A real folder at `segs`, every step lstat'ed (a link anywhere on the way counts as not there, never followed).
  * `memo`: prefixes already looked at in this answer. */
@@ -53,9 +53,10 @@ export function explainFolder(ctx: AppContext, q: { path?: string; cursor?: stri
   // below the nearest rule folder nothing carries rules: every answer here is the answer there
   const at = ruleFolder === null ? segs : segsOf(ruleFolder)
   const all = [...state.principals].sort(byPerson).map((u) => ({ u, ...state.rules.explain(u, at) }))
-  const pg = pageByOffset(all, q)
+  const pg = pageByPerson(all, (r) => r.u, q)
+  if (!pg) return fail('validation', undefined, { fields: { 'query.cursor': 'not a cursor of this answer' } })
   // "shown in the tree for navigation", for the rows of this page that have no access here
-  const nav = state.rules.navigator(segs, MAX_VIA)
+  const nav = state.rules.navigator(segs, MAX_VIA, shownPath)
   const people = pg.items.map(({ u, access, reason }) => ({ user: { id: u.id, name: u.name }, role: u.role, access, reason, ...navigation(() => nav(u), access) }))
 
   // person rules on the way up that name someone switched off: what they would get here if switched back on
@@ -138,7 +139,7 @@ function personAccess(ctx: AppContext, p: Principal, who: { user: { id: string; 
     return {
       path: c.path, kinds: [...c.kinds], ...(c.group ? { group: c.group } : {}), ...(c.projects ? { projects: c.projects } : {}), ...(c.connected ? { connected: c.connected } : {}),
       exists: personal ? null : isDir(ctx.files.fx.root, c.segs, dirs), access: e.access, reason: e.reason,
-      ...navigation(() => (listing ??= rules.listing(p)).at(c.segs, MAX_VIA), e.access),
+      ...navigation(() => (listing ??= rules.listing(p)).at(c.segs, MAX_VIA, shownPath), e.access),
     }
   })
   const names = new Map((ctx.db.query('SELECT id, name FROM groups').all() as { id: string; name: string }[]).map((g) => [g.id, g.name]))

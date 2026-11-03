@@ -133,9 +133,10 @@ export class RuleSet {
    * canList() of one person for many paths at once (admin answers): the folders hasVisibleDescendant() looks at (rule
    * folders outside users/, and the person's own users/<id>) are tried once, strictly below `within`; each path at or
    * below `within` then looks up the readable ones below it instead of trying them all again. `listable(segs)` equals
-   * canList(p, segs) (tests/unit/access-explain-equivalence.test.ts). `via(segs, max)`: the readable folders strictly
-   * below segs that no other readable one below segs contains (why a folder without access shows in the tree), by
-   * path, at most `max`, and whether there are more.
+   * canList(p, segs) (tests/unit/access-explain-equivalence.test.ts). `via(segs, max, shown)`: the readable folders
+   * strictly below segs that no other readable one below segs contains (why a folder without access shows in the
+   * tree), by path, at most `max`, and whether there are more. `shown` only decides which of them may be named (the
+   * person's own users/<id> always may): listable() does not look at it.
    */
   listing(p: Principal, within: readonly string[] = []): Listing {
     const readable = new Set<string>()
@@ -159,14 +160,15 @@ export class RuleSet {
       if (p.role === 'owner' || p.role === 'admin') return true
       return below.has(segs.join('/'))
     }
-    const via = (segs: readonly string[], max: number) => {
+    const ownPath = own.join('/')
+    const via = (segs: readonly string[], max: number, shown: (path: string) => boolean = () => true) => {
       const top = (below.get(segs.join('/')) ?? []).filter((c) => {
         for (let k = segs.length + 1; k < c.length; k++) if (readable.has(c.slice(0, k).join('/'))) return false
         return true
-      }).map((c) => c.join('/')).sort((a, b) => (a < b ? -1 : a > b ? 1 : 0))
+      }).map((c) => c.join('/')).filter((f) => f === ownPath || shown(f)).sort((a, b) => (a < b ? -1 : a > b ? 1 : 0))
       return { folders: top.slice(0, max), more: top.length > max }
     }
-    return { listable, via, at: (segs, max) => { const ok = listable(segs); const v = ok ? via(segs, max) : { folders: [], more: false }; return { listable: ok, via: v.folders, more: v.more } } }
+    return { listable, via, at: (segs, max, shown) => { const ok = listable(segs); const v = ok ? via(segs, max, shown) : { folders: [], more: false }; return { listable: ok, via: v.folders, more: v.more } } }
   }
 
   /**
@@ -175,9 +177,10 @@ export class RuleSet {
    * a readable one is not tried (it cannot be the topmost readable, and the folder is listable already), the scan
    * stops after max + 1, and people no rule can tell apart (same role and groups, named by no person rule) share one
    * scan. The decision on each folder is decideIn(), as in access(). Same answer as listing() and canList()
-   * (tests/unit/access-explain-equivalence.test.ts).
+   * (tests/unit/access-explain-equivalence.test.ts). `shown`: as for listing().via (a readable folder it refuses still
+   * makes the folder listable and still covers what is below it, but is not named).
    */
-  navigator(within: readonly string[], max: number): (p: Principal) => Navigation {
+  navigator(within: readonly string[], max: number, shown: (path: string) => boolean = () => true): (p: Principal) => Navigation {
     const items = this.candidatesBelow(within).map((segs) => ({ segs, path: segs.join('/') })).sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0))
     const index = new Map(items.map((it, i) => [it.path, i]))
     // the nearest candidate above each one, still below `within` (-1: none)
@@ -194,12 +197,14 @@ export class RuleSet {
     })
     const named = new Set<string>()
     for (const list of this.byPath.values()) for (const r of list) if (r.subject_type === 'user' && r.subject_id !== null) named.add(r.subject_id)
-    const shared = new Map<string, string[]>()
-    const scan = (p: Principal): string[] => {
+    const shown_ = items.map((it) => shown(it.path))
+    const shared = new Map<string, { any: boolean; top: string[] }>()
+    const scan = (p: Principal) => {
       const key = `${p.role}\u0000${[...new Set(p.groups)].sort().join('\u0001')}${named.has(p.id) ? `\u0000${p.id}` : ''}`
-      let top = shared.get(key)
-      if (top) return top
-      top = []
+      const known = shared.get(key)
+      if (known) return known
+      const top: string[] = []
+      let any = false
       const readable = new Uint8Array(items.length)
       for (let i = 0; i < items.length && top.length <= max; i++) {
         let a = parent[i]!, covered = false
@@ -209,17 +214,19 @@ export class RuleSet {
         if (!chain) continue
         let rank = 0
         for (const rules of chain) { const d = decideIn(rules, p); if (d >= 0) { rank = d & 3; break } }
-        if (rank >= RANK.read) { readable[i] = 1; top.push(items[i]!.path) }
+        if (rank >= RANK.read) { readable[i] = 1; any = true; if (shown_[i]) top.push(items[i]!.path) }
       }
-      shared.set(key, top)
-      return top
+      const r = { any, top }
+      shared.set(key, r)
+      return r
     }
     return (p) => {
       if (atLeast(this.access(p, within), 'read')) return { listable: true, via: [], more: false }
       if (within.length && within[0] === PRODUCT.systemDir) return { listable: false, via: [], more: false }
       if (within[0] === 'users') return within.length === 1 ? { listable: true, via: [`users/${p.id}`], more: false } : { listable: within[1] === p.id, via: [], more: false }
       if (p.role === 'owner' || p.role === 'admin') return { listable: true, via: [], more: false }
-      const top = [...scan(p)]
+      const found = scan(p)
+      const top = [...found.top]
       // the person's own users/<id> is below the team root, readable and topmost (nothing above it is a candidate)
       if (within.length === 0) {
         const own = `users/${p.id}`
@@ -227,7 +234,7 @@ export class RuleSet {
         while (i < top.length && top[i]! < own) i++
         top.splice(i, 0, own)
       }
-      return { listable: top.length > 0, via: top.slice(0, max), more: top.length > max }
+      return { listable: found.any || within.length === 0, via: top.slice(0, max), more: top.length > max }
     }
   }
   /** rule folders outside users/ strictly below `within`, as segments (kept per `within` for the next person) */
@@ -247,9 +254,9 @@ export class RuleSet {
 export interface Navigation { listable: boolean; via: string[]; more: boolean }
 export interface Listing {
   listable(segs: readonly string[]): boolean
-  via(segs: readonly string[], max: number): { folders: string[]; more: boolean }
-  /** listable(segs), and via(segs, max) when it is */
-  at(segs: readonly string[], max: number): Navigation
+  via(segs: readonly string[], max: number, shown?: (path: string) => boolean): { folders: string[]; more: boolean }
+  /** listable(segs), and via(segs, max, shown) when it is */
+  at(segs: readonly string[], max: number, shown?: (path: string) => boolean): Navigation
 }
 
 /** One folder's rules for a person: -1 when none applies, else (step << 2) | rank of the widest access in the first

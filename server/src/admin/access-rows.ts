@@ -18,14 +18,20 @@ export const segsOf = (p: string) => (p === '' ? [] : p.split('/'))
 /** byte order, the same everywhere (SQLite's ORDER BY, the mock, the cursor) */
 export const cmp = (a: string, b: string) => (a < b ? -1 : a > b ? 1 : 0)
 
+const TEMP = foldKey(PRODUCT.tmpPrefix)
 /** Segments of a team path that may be shown, or null: anything under users/ or .system/ (any case or width), a
- * server temp name anywhere, a name the team folder does not accept. */
+ * server temp name anywhere (any case: `.MYCEL-TMP-…` too), a name the team folder does not accept. Display only: what
+ * the permission function answers for such a path does not change. */
 export function shownSegs(p: string): string[] | null {
   const segs = segsOf(p)
   if (segs.length && (foldKey(segs[0]!) === USERS || foldKey(segs[0]!) === SYSTEM)) return null
-  if (segs.some((s, i) => badSegment(s) !== null || hiddenEntry(s, i))) return null
+  if (segs.some((s, i) => badSegment(s) !== null || hiddenEntry(s, i) || foldKey(s).startsWith(TEMP))) return null
   return segs
 }
+/** For RuleSet.listing().at / navigator(): a readable folder named in `via` must be one the answers may show (a
+ * forgotten rule row such as `Users/x` or `.SYSTEM/x` still makes a folder listable, as canList() says, but is not
+ * named). The person's own users/<id> is added by those functions themselves. */
+export const shownPath = (p: string) => shownSegs(p) !== null
 
 /** The folder answer's path as typed, or why it is refused, before anything is read: personal folders are their
  * owner's alone (the person answer has the one row), .system/, temp names and paths outside the team folder are no
@@ -88,10 +94,22 @@ export function pageByPath<T extends { path: string }>(rows: readonly T[], o: { 
   return { items, total: all.length, nextCursor: from.length > items.length ? items[items.length - 1]!.path : null }
 }
 
-/** Rows of a folder answer by person: `cursor` is how many came before (a number, as the page before gave it). */
-export function pageByOffset<T>(rows: readonly T[], o: { cursor?: string; limit?: number }) {
-  const start = o.cursor === undefined ? 0 : Number(o.cursor)
+/** The cursor of a folder answer: the last person of the page before (name and id, the byPerson order), as base64url. */
+export const personCursor = (u: { name: string; id: string }) => Buffer.from(JSON.stringify([u.name, u.id])).toString('base64url')
+export function readPersonCursor(c: string): { name: string; id: string } | null {
+  try {
+    const v = JSON.parse(Buffer.from(c, 'base64url').toString('utf8')) as unknown
+    return Array.isArray(v) && v.length === 2 && typeof v[0] === 'string' && typeof v[1] === 'string' ? { name: v[0], id: v[1] } : null
+  } catch { return null }
+}
+
+/** Rows of a folder answer by person (`rows` in byPerson order): those after the person the cursor names, so people
+ * added, removed or switched off between two pages neither come twice nor go missing. null: the cursor is not one. */
+export function pageByPerson<T>(rows: readonly T[], who: (r: T) => { name: string; id: string }, o: { cursor?: string; limit?: number }) {
+  const after = o.cursor === undefined ? undefined : readPersonCursor(o.cursor)
+  if (after === null) return null
+  const from = after ? rows.filter((r) => byPerson(who(r), after) > 0) : rows
   const limit = Math.min(o.limit ?? DEFAULT_ROWS, MAX_ROWS)
-  const items = rows.slice(start, start + limit)
-  return { items, total: rows.length, nextCursor: start + items.length < rows.length ? String(start + items.length) : null }
+  const items = from.slice(0, limit)
+  return { items, total: rows.length, nextCursor: from.length > items.length ? personCursor(who(items[items.length - 1]!)) : null }
 }

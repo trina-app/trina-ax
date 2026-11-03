@@ -6,8 +6,9 @@
 //     500 rule folders, and the root and top folders (where "shown in the tree" tries the most folders); every page of
 //     one person's team folders, for each of the 300 people, and one part of the tree; a new person. Each includes the
 //     response check the server runs in dev (validateResponses) and JSON.
-// Run: bun tests/perf/access-explain.ts   (exit 1 when access() got more than 25% slower or an answer took over 250 ms
-// per 300 people)
+// Run: bun tests/perf/access-explain.ts   (exit 1 when access() got more than 25% slower, or any answer took over 750 ms,
+// whatever the size: PEOPLE=2000 RULE_FOLDERS=2500 is the size it is meant for; the slowest there, the root folder with
+// all 1999 people on one page, took 249 ms on a Mac and 458 ms in Linux Docker)
 import fs from 'node:fs'
 import path from 'node:path'
 import { FolderAccessResponse, PersonAccessResponse } from '@mycel/shared/api'
@@ -147,7 +148,8 @@ db.close()
 fs.rmSync(base, { recursive: true, force: true })
 
 const slower = hot.accessNs > hot.oldNs * 1.25
-const slow = answers.some((a) => a.maxMs > 250 * Math.max(1, PEOPLE / 300))
+const LIMIT_MS = 750
+const slow = answers.filter((a) => a.maxMs > LIMIT_MS)
 if (slower) console.log(`FAIL: access() ${hot.accessNs} ns vs ${hot.oldNs} ns before`)
-if (slow) console.log('FAIL: an admin answer took over 250 ms (per 300 people)')
-process.exit(slower || slow ? 1 : 0)
+for (const a of slow) console.log(`FAIL: ${a.label} took ${a.maxMs} ms (at most ${LIMIT_MS})`)
+process.exit(slower || slow.length ? 1 : 0)

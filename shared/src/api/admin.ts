@@ -121,13 +121,14 @@ export type AccessReason = z.infer<typeof AccessReason>
  * the access is none; the topmost ones, by path, at most 20, `viaMore` when there are others). */
 const Navigation = { listable: z.boolean(), via: z.array(RelPath), viaMore: z.boolean() }
 /** Pages: `limit` rows (default 500, at most 2000) after `cursor` (the `nextCursor` of the page before; null = the
- * last page). `total`: all the rows there are. */
+ * last page). `total`: all the rows there are. A cursor names the last row of the page before (a path; a person by name
+ * and id), so rows added or gone between two pages neither come twice nor go missing. */
 const PageLimit = z.coerce.number().int().min(1).max(2000)
 /**
  * GET /api/admin/access/folder?path=: one team folder (outside users/), every active person's access and why, by name.
  * A folder that does not exist yet answers as it would once made (`exists` false). The summary always counts everyone.
  */
-export const FolderAccessQuery = z.object({ path: RelPath.optional(), cursor: z.string().regex(/^\d{1,9}$/).optional(), limit: PageLimit.optional() })
+export const FolderAccessQuery = z.object({ path: RelPath.optional(), cursor: z.string().regex(/^[A-Za-z0-9_-]{1,1400}$/).optional(), limit: PageLimit.optional() })
 export const FolderAccessResponse = z.object({
   /** actual names on disk; a part that does not exist yet stays as typed */
   path: RelPath,
