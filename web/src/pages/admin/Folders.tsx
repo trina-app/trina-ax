@@ -10,6 +10,7 @@ import { useSearchParams } from 'react-router-dom'
 import type { Access, Folder, FolderRuleInput, Group, PreviewResponse, User } from '@mycel/shared/api'
 import { api, API, errorText } from '../../lib/api'
 import { useLocale, useT } from '../../i18n'
+import { isSkillsPath } from '../../lib/access-view'
 import { Button, ErrorNote, IconButton, Modal, Spinner, TabPanel, Tabs, confirmDialog, inputCls } from '../../components/ui'
 import { toast } from '../../store/ui'
 import { useAction, useActionOk, useOneAtATime } from './common'
@@ -17,8 +18,9 @@ import { useAction, useActionOk, useOneAtATime } from './common'
 const AccessPeople = lazy(() => import('./AccessPeople'))
 const AccessTree = lazy(() => import('./AccessTree'))
 
-/** skills/ and its folders: write there = "팀 스킬 관리" (the Members / Groups toggle is the same rule) */
-export const isSkillsFolder = (p: string) => p === 'skills' || p.startsWith('skills/')
+/** skills/ and its folders: write there = "팀 스킬 관리" (the Members / Groups toggle is the same rule). Compared as the
+ * server compares it (any case or Unicode form of the first name), like the tree's label. */
+export const isSkillsFolder = isSkillsPath
 
 type RuleRow = { subjectType: FolderRuleInput['subjectType']; subjectId: string | null; access: Access }
 

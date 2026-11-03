@@ -113,3 +113,30 @@ export function classifyImage(src: string | undefined, origin: string): ImageKin
 const IMAGE_EXT = /\.(png|jpe?g|gif|webp)$/i
 /** Team-server images shown directly: png/jpeg/gif/webp; SVG only through <img> (scripts never run there). */
 export const isDisplayableImagePath = (path: string) => IMAGE_EXT.test(path) || /\.svg$/i.test(path)
+
+/** Markdown as one line of plain text, for a short summary (a project's instructions under its name): no code blocks,
+ * images, heading / list / quote marks or emphasis; a link keeps its words. Underscores stay (snake_case names). */
+export function plainText(md: string): string {
+  return md
+    .replace(/```[\s\S]*?(?:```|$)/g, ' ')
+    .replace(/!\[[^\]]*\]\([^)]*\)/g, ' ')
+    .replace(/\[([^\]]*)\]\([^)]*\)/g, '$1')
+    .replace(/^[ \t]*(?:[-*_][ \t]*){3,}$/gm, ' ')
+    .replace(/^[ \t]{0,3}(?:#{1,6}|>|[-*+]|\d+[.)])[ \t]+/gm, '')
+    .replace(/\*+|__|~~|`/g, '')
+    .replace(/\s+/g, ' ')
+    .trim()
+}
+
+/** The first paragraph of markdown as plain text, for a summary (a project's instructions under its name): headings,
+ * lists, tables, images and code are passed over; with no paragraph at all, all of it. */
+export function firstParagraph(md: string): string {
+  const blocks = md.replace(/```[\s\S]*?(?:```|$)/g, '\n\n').split(/\n[ \t]*\n/)
+  for (const block of blocks) {
+    const body = block.split('\n').filter((l) => !/^[ \t]{0,3}#{1,6}[ \t]/.test(l)).join('\n').trim()
+    if (!body || /^(?:[-*+][ \t]|\d+[.)][ \t]|\||!\[|(?:[-*_][ \t]*){3,}$)/.test(body)) continue
+    const text = plainText(body)
+    if (text) return text
+  }
+  return plainText(md)
+}

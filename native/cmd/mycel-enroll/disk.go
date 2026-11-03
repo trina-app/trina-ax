@@ -67,7 +67,9 @@ func (e *Enroller) dataDisk(reattach, standalone bool) error {
 	case exitCode(err) != 2:
 		return fail("data_disk_failed", "blkid -p %s: %v", dev, err)
 	}
-	if _, err := e.Run.Run(ctx, "mkfs.ext4", []string{"-q", "-L", dataLabel, "-m", "0", "-E", "lazy_itable_init=1,lazy_journal_init=1", dev}, nil); err != nil {
+	// nodiscard: the disk is new and blank, so a full discard does no good. On a plan with a disk write limit, the
+	// discard of a 160 GB disk takes about 17 minutes and enrollment fails on the hostd timeout (G-T2-13).
+	if _, err := e.Run.Run(ctx, "mkfs.ext4", []string{"-q", "-L", dataLabel, "-m", "0", "-E", "nodiscard,lazy_itable_init=1,lazy_journal_init=1", dev}, nil); err != nil {
 		return fail("data_disk_failed", "mkfs.ext4 %s: %v", dev, err)
 	}
 	return e.mount(dev)

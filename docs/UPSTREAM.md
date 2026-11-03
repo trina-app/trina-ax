@@ -280,6 +280,16 @@ Source change from potenlab/team-ax `b09811f` and `7e0d692` (branch `feat/connec
   "popular"; `Tabs` scrolls the chosen tab into view; `/skills?mine=` leaves the address once applied. The logo sources
   are recorded per file in `docs/THIRD-PARTY-NOTICES.md`.
 
+## 2026-11-03 Project page like Claude's
+
+Source change from potenlab/team-ax `a77d7e4` (branch `feat/project-page`, core PR #29, not yet on core main), ported by hand. No core history was imported.
+
+- Taken as they are: `web/src/components/chat/NewChatComposer.tsx`, `web/src/components/DisclosureRow.tsx`, `plainText` and `firstParagraph` in `web/src/lib/markdown.ts` with their unit tests, and `web/test/e2e/project-page.spec.ts`, to which the dev environment cases are added here.
+- `Projects.tsx`: core's file with this repository's differences kept. Every file opens with `openTeamFile`, without core's download branch, and the Dev environment line comes first in the side column.
+- `Home.tsx`: the same change; `PopularSkills` stays. `Composer.tsx`: only the `placeholder` prop; the answering and running hints are unchanged.
+- Only here: `DevEnvSection.tsx` now exports `DevEnvRow`, one line with the box state that opens in place (box, jobs, processes, port and preview, activity; Edit for admins inside). `web/test/mock/server.ts` gets `POST /__test/dev-env` and the dev environment endpoints, so the page is tested and shown with it. `web/test/unit/design-contrast.test.ts` now checks the project's Delete as a red menu item, because it is no longer a `ghost-danger` button.
+- `es` and `ja` get the new keys (`projects.about`, `open`, `items`, `itemsMore`); `projects.files` goes from all five languages.
+
 ## 2026-11-03 Admin: Home first, a grouped menu that stays put
 
 Source change from potenlab/team-ax `9de1281` (branch `feat/admin-home`, core PR #30, not yet on core main),

@@ -2,45 +2,29 @@
 // their folder names, no engine call); the owner sees a setup checklist until it is done (tab 5 "상태별 화면").
 import { CheckCircle2, Circle, Folder, Lock, Pencil, X } from 'lucide-react'
 import { useEffect, useMemo, useState } from 'react'
-import { Link, useNavigate, useNavigationType, useSearchParams } from 'react-router-dom'
-import type { Attachment, FileEntry, Project } from '@mycel/shared/api'
+import { Link, useNavigationType, useSearchParams } from 'react-router-dom'
+import type { FileEntry, Project } from '@mycel/shared/api'
 import { api, API } from '../lib/api'
-import { draftChat, draftChatIfAny, forgetDraftChat, rememberChat } from '../lib/teamAttach'
 import { visibleFolders } from '../lib/visibleFolders'
 import { useT, type MessageKey } from '../i18n'
 import { useChats } from '../store/chats'
-import { useEngines } from '../store/engines'
-import { canChooseEngine, isOwner, useMeStrict } from '../store/session'
-import Composer, { type EngineChoice } from '../components/chat/Composer'
+import { isOwner, useMeStrict } from '../store/session'
+import { NewChatComposer } from '../components/chat/NewChatComposer'
 import { FrequentQuestions } from '../components/FrequentQuestions'
 import { PopularSkills } from '../components/PopularSkills'
 
 export default function Home() {
   const t = useT()
   const me = useMeStrict()
-  const navigate = useNavigate()
   const navigationType = useNavigationType()
   const [params] = useSearchParams()
   const projectId = params.get('project')
   const prompt = params.get('prompt') ?? undefined
   const chats = useChats((s) => s.chats)
   const chatsLoaded = useChats((s) => s.chatsLoaded)
-  const send = useChats((s) => s.send)
-  const upsertChat = useChats((s) => s.upsertChat)
-  const models = useEngines((s) => s.models)
-  const engines = useEngines((s) => s.engines)
-  const loadEngines = useEngines((s) => s.load)
-  // the engine / model are the admin's choice: only people allowed to pick see a picker and send a choice (starting
-  // from their own default, Settings); everyone else sends none and gets the team default
-  const choose = canChooseEngine(me)
-  const [picked, setEngine] = useState<EngineChoice>({ engine: me.user.prefs.engine, model: me.user.prefs.model ?? null })
-  const engine: EngineChoice = choose ? picked : { engine: undefined, model: undefined }
   const [project, setProject] = useState<Project | null>(null)
   const [preset, setPreset] = useState<{ text: string; n: number } | null>(prompt ? { text: prompt, n: 0 } : null)
 
-  useEffect(() => {
-    if (choose) void loadEngines()
-  }, [choose, loadEngines])
   useEffect(() => {
     if (!projectId) return setProject(null)
     let live = true
@@ -49,28 +33,6 @@ export default function Home() {
       live = false
     }
   }, [projectId])
-
-  const draftId = projectId ? `project:${projectId}` : 'new'
-  // the chat a draft's attachments go into: kept with the draft (lib/teamAttach), so chips kept while the person was
-  // on another page are still sent into the chat they were attached to
-  const ensureChat = () =>
-    draftChat(me.user.id, draftId, () =>
-      api.call(API.createChat, { body: { projectId: projectId ?? null, engine: engine.engine, model: engine.model ?? undefined } }).then((c) => {
-        upsertChat(c)
-        return c.id
-      }),
-    )
-
-  const onSend = async (text: string, attachments: Attachment[]) => {
-    const pending = draftChatIfAny(me.user.id, draftId)
-    const chatId = pending ? await pending : null
-    const r = await send({ chatId, content: text, attachments, author: { id: me.user.id, name: me.user.name }, projectId, engine: engine.engine, model: engine.model })
-    forgetDraftChat(me.user.id, draftId)
-    // the current chat from now on, before the (lazily loaded) chat page mounts and says so itself: "Add to …" on the
-    // file screen was missing when the person went there that quickly (e2e team-files, flaky)
-    rememberChat(me.user.id, r.chatId)
-    navigate(`/c/${r.chatId}`)
-  }
 
   const firstTime = chatsLoaded && chats.length === 0
 
@@ -88,18 +50,10 @@ export default function Home() {
             </p>
           )}
           <h1 className="mb-6 text-center text-[26px] font-semibold tracking-tight sm:text-[28px]">{t('home.greeting', { name: me.user.name })}</h1>
-          <Composer
-            key={`${draftId}-${preset?.n ?? 0}`}
-            draftId={draftId}
-            ensureChat={ensureChat}
-            running={false}
-            onSend={onSend}
-            onStop={async () => {}}
-            engine={engine}
-            onEngine={choose ? setEngine : undefined}
-            engines={engines}
-            models={models}
+          <NewChatComposer
+            projectId={projectId}
             initialText={preset?.text}
+            resetKey={preset?.n ?? 0}
             // Only in-app PUSH navigation or a chosen preset requests focus; a document load keeps the skip link first.
             autoFocus={navigationType === 'PUSH' || (preset?.n ?? 0) > 0}
           />

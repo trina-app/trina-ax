@@ -26,6 +26,7 @@
 // External services: an address on a "down." host fails its check, the key "wrong-key" is refused, the fake MCP server
 // offers two tools at the first check and a third from the next one (one on a "many." host offers 150, of which the
 // first 100 are kept), and a sign-in completes on the second poll.
+// POST /__test/dev-env {box?: 'running'} turns the dev environment (experiment) on for every project until the next reset.
 import { z } from 'zod'
 // Keep the server renderer outside the browser TypeScript program; this module runs only in Bun.
 const hwpEngine = import('../../../server/src/files/' + 'hwp-engine.ts').then(m => new m.NativeHwpEngine())
@@ -167,6 +168,10 @@ export class MockServer {
   integrationRequests: (IntegrationRequest & { integrationId: string | null })[] = []
   /** Team AX Cloud (server/src/system/deployment.ts): /__test/cloud switches it on until the next reset */
   cloud = false
+  /** POST /__test/dev-env {box?: 'running'}: the dev environment (experiment) of every project is on until the next
+   * reset, with a stopped box (or a running one) and a few lines of activity; otherwise its endpoints answer 404, like
+   * a server without MYCEL_DEV_ENV */
+  devEnv: { box: 'stopped' | 'running' } | null = null
 
   constructor(o: { setup?: boolean } = {}) {
     this.reset(o)
@@ -189,6 +194,7 @@ export class MockServer {
     this.serverVersion = '0.1.0'
     this.aiList = undefined
     this.cloud = false
+    this.devEnv = null
     this.epoch = uuidv7()
     this.seq = 0
     this.buffer = []
@@ -520,6 +526,21 @@ export class MockServer {
     const token = uuidv7()
     this.sessions.set(token, u.id)
     return `${DEV_SESSION_COOKIE}=${token}; Path=/; HttpOnly; SameSite=Lax`
+  }
+
+  devEnvOf(user: User, projectId: string) {
+    if (!this.devEnv || !this.projects.some((p) => p.id === projectId)) fail('not_found', 404)
+    const running = this.devEnv!.box === 'running'
+    return {
+      availability: { available: true },
+      setting: { enabled: true, scope: { mode: 'writers' as const, groupIds: [], userIds: [] }, network: 'open' as const, limits: { cpus: 1, memoryMiB: 2560, pids: 512, diskGiB: 4, idleStopMin: 30 }, consent: { by: null, at: now(), warningVersion: 1 } },
+      warningVersion: 1,
+      mayUse: true,
+      mayManage: user.role !== 'member',
+      needsFolder: false,
+      box: { state: this.devEnv!.box, startedAt: running ? now() : null, lastActiveAt: now(), memoryMiB: running ? 412 : null, processes: running ? [{ pid: 41, seconds: 120, command: 'npx remotion studio --port 5173' }] : [], stopCode: null },
+      jobs: [],
+    }
   }
 
   userOf(req: Request): User | null {
@@ -1023,6 +1044,26 @@ export class MockServer {
     deleteProject: (c) => {
       this.projects = this.projects.filter((p) => p.id !== c.params.id)
       return undefined
+    },
+    // the dev environment (experiment) of a project, on after POST /__test/dev-env
+    devEnv: (c) => this.devEnvOf(c.user, c.params.id!),
+    devEnvActivity: (c) => {
+      this.devEnvOf(c.user, c.params.id!)
+      const by = { id: c.user.id, name: c.user.name }
+      return { items: [
+        { at: now(), by, kind: 'command' as const, text: 'npx remotion render src/index.ts Teaser out/teaser.mp4', detail: null },
+        { at: now(), by, kind: 'files' as const, text: 'created out/teaser.mp4', detail: null },
+        { at: now(), by: null, kind: 'box' as const, text: 'box stopped (idle)', detail: null },
+      ] }
+    },
+    devEnvBox: (c) => {
+      this.devEnvOf(c.user, c.params.id!)
+      this.devEnv!.box = c.body.action === 'stop' ? 'stopped' : 'running'
+      return this.devEnvOf(c.user, c.params.id!)
+    },
+    devEnvPreview: (c) => {
+      this.devEnvOf(c.user, c.params.id!)
+      return { url: `https://preview.example.invalid/${c.body.port}/`, expiresAt: new Date(Date.now() + 600_000).toISOString() }
     },
     listMemories: () => ({ items: this.memories, nextCursor: null }),
     // like server/src/routes/memories.ts: folded to one line, 1–300 characters (the AI's limits), newest first
@@ -2149,6 +2190,7 @@ export class MockServer {
     else if (p === '/__test/server-version') this.serverVersion = String(body.version)
     else if (p === '/__test/upload-delay') this.uploadDelayMs = Number(body.ms)
     else if (p === '/__test/cloud') this.cloud = body.on !== false
+    else if (p === '/__test/dev-env') this.devEnv = { box: body.box === 'running' ? 'running' : 'stopped' }
     else if (p === '/__test/skill-list') this.aiList = SkillsOverview.shape.aiList.parse(body)
     else if (p === '/__test/connection') this.connection = { ...this.connection, ...(body as unknown as Partial<ConnectionStatus>) }
     else if (p === '/__test/speech-host') this.speechHost = { ...this.speechHost, ...(body as unknown as Partial<typeof this.speechHost>) }
