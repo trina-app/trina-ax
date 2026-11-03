@@ -10,7 +10,7 @@ import { nameProblem } from '../../lib/paths'
 import { useT } from '../../i18n'
 import { Badge, Button, Field, Modal, confirmDialog, inputCls } from '../../components/ui'
 import { toast } from '../../store/ui'
-import { useAction, useLoad } from './common'
+import { useAction, useActionOk, useLoad } from './common'
 
 export type Subject = { type: 'user' | 'group'; id: string; name: string; always?: boolean }
 
@@ -24,7 +24,7 @@ const shown = (p: string) => p + '/'
 /** The toggle cell of a member or group row: on/off, and the folders it covers. */
 export function SkillManagerCell({ subject, data, onChanged }: { subject: Subject; data: SkillManagersResponse | null; onChanged: () => void }) {
   const t = useT()
-  const act = useAction()
+  const actOk = useActionOk()
   const [open, setOpen] = useState(false)
   const [busy, setBusy] = useState(false)
   if (subject.always)
@@ -38,11 +38,13 @@ export function SkillManagerCell({ subject, data, onChanged }: { subject: Subjec
   const turnOff = async (which: SkillManagerGrant[]) => {
     if (!(await confirmDialog({ title: t('skillMgr.offTitle', { name: subject.name }), body: t('skillMgr.offBody', { paths: which.map((g) => shown(g.path)).join(', ') }), confirm: t('common.continue'), danger: true }))) return
     setBusy(true)
+    let all = true
     for (const g of which) {
-      if ((await act(() => api.call(API.setSkillManager, { body: { subjectType: subject.type, subjectId: subject.id, path: g.path, enabled: false } }))) === undefined) break
+      if (!(await actOk(() => api.call(API.setSkillManager, { body: { subjectType: subject.type, subjectId: subject.id, path: g.path, enabled: false } })))) { all = false; break }
     }
     setBusy(false)
-    toast({ level: 'success', text: t('skillMgr.turnedOff') })
+    // a failure was toasted already: no "turned off" over it
+    if (all) toast({ level: 'success', text: t('skillMgr.turnedOff') })
     onChanged()
   }
   return (
@@ -83,6 +85,7 @@ export function SkillManagerCell({ subject, data, onChanged }: { subject: Subjec
 function SkillManagerDialog({ subject, data, onClose, onChanged }: { subject: Subject; data: SkillManagersResponse | null; onClose: () => void; onChanged: () => void }) {
   const t = useT()
   const act = useAction()
+  const actOk = useActionOk()
   const grants = grantsOf(data, subject)
   const folders = (data?.folders ?? ['skills']).filter((f) => !grants.some((g) => g.path === f))
   const NEW = '\u0000new'
@@ -103,7 +106,7 @@ function SkillManagerDialog({ subject, data, onClose, onChanged }: { subject: Su
   }
   const remove = async (g: SkillManagerGrant) => {
     if (!(await confirmDialog({ title: t('skillMgr.offTitle', { name: subject.name }), body: t('skillMgr.offBody', { paths: shown(g.path) }), confirm: t('common.continue'), danger: true }))) return
-    if ((await act(() => api.call(API.setSkillManager, { body: { subjectType: subject.type, subjectId: subject.id, path: g.path, enabled: false } }))) !== undefined) onChanged()
+    if (await actOk(() => api.call(API.setSkillManager, { body: { subjectType: subject.type, subjectId: subject.id, path: g.path, enabled: false } }))) onChanged()
   }
   return (
     <Modal

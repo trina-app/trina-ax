@@ -9,9 +9,11 @@ import { Button, EmptyState, IconButton, Tabs, inputCls } from '../ui'
 
 export type ConnectorTab = 'connected' | 'discover'
 
-/** `onAdd`: this person may add connections (without it, no adding and no Discover). */
-export function ConnectorsHeader({ title, tab, onTab, query, onQuery, onAdd }: {
+/** `onAdd`: this person may add connections (without it, no adding and no Discover, and no tabs). `panels`: the ids
+ * that tie the tabs to the TabPanel below them (`useId()`). */
+export function ConnectorsHeader({ title, tab, onTab, query, onQuery, onAdd, panels }: {
   title: string
+  panels: string
   tab: ConnectorTab
   onTab: (t: ConnectorTab) => void
   query: string
@@ -29,6 +31,7 @@ export function ConnectorsHeader({ title, tab, onTab, query, onQuery, onAdd }: {
             value={tab}
             onChange={onTab}
             label={title}
+            panels={panels}
             items={[{ id: 'connected', label: t('integrations.tabConnected') }, { id: 'discover', label: t('integrations.tabDiscover') }]}
           />
         </div>

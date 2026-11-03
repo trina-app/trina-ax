@@ -5850,3 +5850,365 @@ The screen was a long card per connection, and the only way in was typing an MCP
 - **Real logos** (asked for on 2026-11-02, instead of the first version's letter tiles): files of our own under `web/public/icons/connectors`, because the content security policy loads no image from elsewhere, on a white tile in both themes because most are drawn for a light background. Each is its owner's trademark, used only to name the service. A test reads every SVG as XML and allows only listed elements and attributes, no character reference (`&#`) and no `url()` outside the file (2026-11-03 review: a pattern match let `<set attributeName="href" to="jav&#x61;script:…">` and `url(//host/…)` through), and the server sends `/icons/**/*.svg` with `default-src 'none'; style-src 'unsafe-inline'; sandbox` and `nosniff`, like the team logo, so a file opened on its own runs and loads nothing. Where each file came from is not recorded; `docs/THIRD-PARTY-NOTICES.md` has the table per file.
 - **What needs attention stays on the line**: a failing connection shows why without opening it, signing in stays there while the connection needs it, and so does "Run without asking", because it is a warning about what the AI may do. In Admin, so do "Nobody can use it yet" and "Not in your chats" (an admin uses a team connection only when its rule includes them); the note under the list says so too.
 - **This repository also keeps** the switch per tool, "100 of 185 tools" and "a check failed, the AI keeps the saved list" in the details. That last one stays on the line as well, in the warning colour, because it needs attention.
+
+## Admin deletes: success is not read from the answer (fix/folders-safety 1a, 2026-11-03)
+
+- A delete answers 204, which `ApiClient.call` returns as `undefined`; `useAction` also returned `undefined` on a
+  failure, so `!== undefined` was never true and Folder permissions, Groups and Usage limits kept a deleted row until
+  the page was opened again. `useAction` now refuses, in its type (`T extends {} | null`), an action that answers
+  nothing, and such actions use `useActionOk`, which returns `true` / `false`. The compiler found the six places
+  (the three above, member delete, invite revoke, connected folder remove); members, invites and connected folders
+  already reloaded another way and keep doing so. Removing a skills manager in several folders toasts "turned off"
+  only when every call worked. The credential deletes that returned a dummy `true` use `useActionOk` too (`any` still
+  passes the type; nothing here returns it).
+- After a delete, `useFocusAfterRemove` moves the focus, once the list shows its new data, to the row now at that
+  place (`data-row-focus`), else to a fallback, and only when the focus fell to the page. The next row's delete takes
+  it only where a confirm dialog comes before each delete (folders, groups). Where the delete happens at once (usage
+  limits; invites on Members), a held Enter went on to delete row after row (review: 4 limits to 0 in a second), so
+  there the next row's Edit takes it, else the list's title (`Card headingRef`, tabIndex -1); the buttons ignore
+  repeated keydowns (`noKeyRepeat`, also on the Settings deletes without a dialog: a memory, a device) and one such
+  delete runs at a time (`useOneAtATime`, `aria-disabled` rather than `disabled`, which would drop the focus to the
+  page on a failure). Delete buttons name their row ("Delete finance/2026"; also a member and one's own AI
+  connection).
+- The "remove all rules" dialog asks the server (`previewRules` with no rules for that path, the same "who sees what"
+  as saving) and lists only the people whose access changes, and who loses read with their chats. A first version
+  named the nearest folder above with rules, which is wrong: access walks up per person to the first rules that name
+  them (finance: Finance writes, root: everyone reads; without rules on finance/2026 people outside Finance read it),
+  and a rule folder below keeps the folder listed as a way there. While it asks, the delete button is busy; after 5
+  seconds without an answer the dialog opens anyway. When the preview fails or is late, a general text says how
+  access is decided; inside `users/` it says nothing changes (rules there never applied, and the server has no preview
+  for them). The edit hint no longer says the owner writes everywhere (`users/<id>` of others and `.system` are none
+  for every role).
+- Tests: `web/test/unit/admin-folders.test.ts`, `web/test/e2e/admin-delete.spec.ts` (held Enter on usage limits and
+  invites, the preview, its fallback). Needed in the core too.
+
+## Folder rows the admin API keeps (fix/folders-safety 1b, 2026-11-03)
+
+- **shared/ and skills/ keep at least one rule.** `DELETE /api/admin/folders/:id` on their row is 409 and `PUT …/rules`
+  or `POST /api/admin/folders` with `rules: []` is 400 (`teamFolderKeepsRules`; the POST is judged before a folder is
+  made on disk). Both had the same result: no rule there, so everyone but the owner and admins follows the team root's
+  rules, and the root has none by default: the team's default folders hidden from the team. An admin who wants them
+  kept to admins says "Everyone: No access", which the message names. `skills/<sub>` rows are ordinary (they fall back
+  to skills/). The names are compared the way the volume compares them (`admin/folder-keep.ts`): on a
+  case-insensitive Mac volume in NFC lower case, because a move that changes only the case is taken there and keeps
+  the folders row (`Shared` is the same folder); on a case-sensitive volume (Linux) exactly, in NFC. There `Shared`
+  can be another folder: the app refuses a move or a new folder that differs from a sibling only in case, but a team
+  folder set on an existing share (`MYCEL_TEAM_ROOT`) or a folder made on disk can have both, and a wider compare
+  locked such a `Shared` (review). The rule editor says so and keeps Save off when the last rule of such a row is
+  removed.
+- **A group's folder row (`groups.folder_id`) is not removed while the group exists** (409, `groupFolderKeepsRow`).
+  `dropFolderRow` set the group's `folder_id` to NULL for good, and `managedRows` then no longer counted the folder, so
+  any member who could write there could move, rename or trash it. Its rules can still change; deleting the group
+  removes the group's rules and the row is an ordinary one after that.
+- **`Folder.keep`** (`team`, `group` or null; optional) and `Folder.groupId` come from the server, so the screen and
+  the mock server do not repeat the name rule (the mock imports `folder-keep.ts`).
+- **Rows parked with a trashed folder (`.system/…`) are not listed, and `PUT` / `DELETE` on them is 404.** Editing
+  one changed the rules the folder comes back with; removing one lost them and left its trash items without a home.
+  Restoring the folder brings the row back to the list.
+- **Only at the admin routes.** `replaceRules` and `dropFolderRow` also serve deleting a group (rules by subject),
+  deleting a person (their rules everywhere, possibly the last one of shared/), turning a skills manager off (possibly
+  every rule of skills/, a subfolder row dropped) and dropping a project's marker row; none of those is refused. Not
+  refused at the routes either: the team root (no row by default), a row whose folder is gone from disk, other rows.
+  The permission function (`policy/access.ts`) and the database are unchanged.
+- **Screen.** A kept row shows the reason under its rules and a lock where the delete button was; its Edit takes the
+  focus after a delete above it. A refused save shows the server's message in the dialog (`role="alert"`), not only a
+  toast.
+- Tests: `tests/unit/a-folders-keep.test.ts` (the refusals and their messages, "Everyone: No access" works, a group's
+  row freed by deleting the group, root and missing-on-disk rows, the parked row through trash and restore, and the
+  skills-manager and person-delete flows unchanged, `keep` in the list, a case-only rename, nothing made on disk for a
+  refused POST), `tests/security/lib/cases.ts` (owner and admin are refused on shared/, skills/ and the folder of a
+  group the check makes itself: the matrix runs `deleteGroup` first, and its order must not matter),
+  `web/test/unit/admin-folders.test.ts`, `web/test/e2e/admin-delete.spec.ts`; the mock server refuses the same.
+  Needed in the core too.
+
+## Folder permissions, stage 2: why a person has access, and who sees a folder (feat/access-explain, 2026-11-03)
+
+An admin could not answer "why can this person see this folder?" or "who sees this folder, and from which folder do
+they get it?". The same folder is inherited from different folders by different people (the deepest folder with a
+rule for that person decides). This stage adds the reasons and three read-only admin answers; the screen comes next.
+
+- **One computation.** `RuleSet.explain(p, segs)` returns `{access, reason}`. `access()` and `explain()` both call the
+  same private `decide()`; `access()` passes no sink, so it allocates nothing for the reason. The reason is the step
+  that decided, in the function's order: `system`, `temp`, `own-personal`, `other-personal`, `users-root`,
+  `owner-admin`, `rule` (`folder` = the deepest folder on the way up with a rule for the person, '' = team root;
+  `tier` = person, group, role or everyone; `rules` = that step's rules for the person, widest first) or `no-rule`
+  (only the owner and admins). The choice inside one folder (`decideIn`) is one function for every caller.
+- **Shown in the tree is not access.** A folder without access is still listed for navigation when something below it
+  is readable (`canList`: alice with write on `projects/apollo` only sees `projects/`). Every row of both answers
+  carries `listable` (= `canList`) and, when the access is none, `via`: the topmost readable folders below it (by
+  path, at most 20, `viaMore` when there are others). The person answer finds the person's readable folders once
+  (`RuleSet.listing(p)`) and looks each row up in it; the folder answer uses `RuleSet.navigator(path)`: the rule
+  folders below in path order with their rule chains, a folder below a readable one is not tried, the scan stops after
+  21, and people no rule can tell apart (same role and groups, named by no person rule) share one scan.
+- **Not one answer changed.** The function before this change is kept in `tests/lib/access-before-explain.ts`, and
+  `tests/unit/access-explain-equivalence.test.ts` compares old `access()`, new `access()` and `explain().access` on 1.15
+  million random person × path × rule-set answers (3000 seeded worlds: users/, .system, temp names and the temp
+  prefix inside a name, case and NFC/NFD variants, duplicate subjects, a root rule, display names that are other
+  people's ids) and on every path of the test team; the reason's folder must decide as the old `pick()` did with no
+  deeper folder deciding. In the same loop `listing()`, `listing()` from any folder on the way and `navigator()` (at a
+  cap of 1 and 3, with and without the display filter) must equal `canList()` and each other's `via`; fixed worlds add
+  more readable folders than the cap, a folder nobody reads between two readable ones (three levels) and forgotten
+  rule rows. Deliberate mutations of the function, the listing and the navigator
+  (tier order, the per-step reset, the prefix cut, the users/ branch, widest wins, the temp test, the shared-scan key,
+  skipping covered folders, the own folder's place, temp folders in the chains) each fail it; the three that pass
+  change nothing (the team root is always listable through the own folder, rule folders in users/ are never topmost,
+  `within` is never its own candidate).
+- **Faster, not slower.** The folder key of each level is cut from one joined path instead of `slice().join()` per
+  level, and the person/group/role/everyone choice is one pass instead of a filter per step. `tests/perf/access-explain.ts`
+  (300 people, 500 rule folders, paths 2-7 deep, median of 7 runs of 198,000 calls): before 384-440 ns per call, now
+  250-267 ns; `explain()` 350-395 ns (runs on a busy shared Mac). The script fails when `access()` gets 25% slower than
+  the old one.
+- **API** (admin and owner; members 403, signed out 401; `shared/src/api/admin.ts`):
+  `GET /api/admin/access/folder?path=&cursor=&limit=` (one folder: every active person's access, reason and
+  navigation, by name; counts per access and per source folder over everyone),
+  `GET /api/admin/access/people/:id?prefix=&cursor=&limit=` (one person, switched off or not, with `status`: every team
+  folder and why, by path) and `POST /api/admin/access/new-person` `{role, groupIds, prefix?, cursor?, limit?}` (the
+  same for someone about to be invited: no id, so no person rule names them and there is no personal folder row;
+  unknown groups 400). A person's team folders are the folders with rules, the top-level folders on disk, group folders
+  (`groups.folder_id`), team project folders (`projects.folder_path`) and connected folders (`connected/<name>`), each
+  with its kinds and the group, projects or connection it belongs to; `exists` is true for a folder only (a file or a
+  missing path: false).
+- **Nothing is cut without saying so.** Both answers come in pages: `limit` rows (default 500, at most 2000), `total`,
+  and `nextCursor` until the last page. A cursor names the last row of the page before, never a count: the last path
+  for the person answer, the last person (name and id, base64url, the same name-then-id order) for the folder answer,
+  so someone added, removed or switched off between two pages neither comes twice nor goes missing. The person answer
+  also takes `prefix` (that folder and what is below it), so the screen can open one part of the tree.
+  Before, a person list stopped at 2000 rows with only `truncated: true` (2000 people and 2500 rule folders: about
+  500 `skills/…` rows missing).
+- **Switched off.** `inactive` lists the people switched off whom a person rule on the path or above names, with what
+  they would get there if switched back on, computed as for an active person (`access`, `reason`) and the rules that
+  name them. Before, it showed the rule ("write on A"), but a deeper rule can win: with `carl: write` on `A` and
+  `everyone: none` on `A/B`, carl gets none in `A/B`.
+- **Hidden.** Nothing under `users/` is read from disk: a person's own `users/<id>` is one row made from the member
+  list (`exists: null`), personal projects (folder in `users/`) are left out with their names, and the folder answer
+  refuses `users/…` before walking it (any case or width; "a personal folder is its owner's alone"), so an admin cannot
+  learn the spelling or existence of a file in someone's folder from it. `.system/` (trash-parked rule folders
+  included), temp names (in any case: `.MYCEL-TMP-…` too) and names the team folder does not accept never appear, as
+  rows or in `via`; the folder answer refuses them (400, "not a team folder path", five languages). A forgotten rule
+  row such as `Users/x/…` or `.SYSTEM/x` still makes a folder listable, as `canList()` says, but is never named. This is
+  display only: what the permission function answers for those paths is unchanged.
+- **Cost** (with the response check the server runs in dev and JSON; all pages walked to the end). 300 people and 500
+  rule folders: one folder for everyone 1.5-1.7 ms median (max 13 ms over 500 folders), the root and top folders
+  4-13 ms, one person's whole list 5.6-6.3 ms median (634 rows, 153 KB), a new person 6-8 ms. 2000 people and 2500
+  rule folders: one folder 6.6-7.9 ms median (first page of 500 people), the root and top folders with all 1999 people
+  62 ms median and 249 ms at most (1.8 s before the navigator), one person's whole list 34-39 ms median and 182-267 ms
+  at most (2509 rows over two pages, 597 KB), one part of the tree (`prefix=skills`) 11-14 ms. The script fails when
+  any answer takes over 750 ms, whatever the size.
+- Tests: the equivalence test above, `tests/unit/access-explain-api.test.ts` (reasons and counts, navigation and
+  `via` against `canList`, inherited, missing and file paths, the person's kinds, every row equal to `RuleSet.access`,
+  pages and `prefix` giving every row once, nothing of users/ or .system/ in the text, a trashed rule folder, someone
+  switched off as if switched back on, the new person equal to a member with the same groups, refusals and their
+  words), `tests/security/lib/cases.ts` (the three routes in the permission matrix, alice's list without other users/
+  rows or her personal project, a refused path inside alice's folder answering without her file's name),
+  `web/test/mock/server.ts` (the real `RuleSet` over the mock's rules with the server's rows, order, pages and counts
+  from `server/src/admin/access-rows.ts`).
+- No migration. Needed in the core too (potenlab/team-ax): everything here; nothing is Trina-specific.
+
+## Connecting a service from a chat (feat/chat-connect-setup, 2026-11-03)
+
+Asked for on 2026-11-03: a person says "connect Higgsfield" in a chat, the AI finds the service's address and fills in the connection, and the person only pastes a key or signs in on a card. Any MCP server or HTTP API, and Google Drive; the person never has to open Settings. The tool is `connect_service`; the card is `ConnectServiceRequest`; the key goes to `POST /api/turns/:id/connect` (`docs/INTEGRATIONS.md` "Connecting from a chat").
+
+- **The key has its own way to the server, never through `/answer`.** Answers to cards reach the AI and its session file, so a key typed there would be the AI's. The card seals the key in the browser for a purpose of its own, `'integration.secret'` (a value sealed for an AI connection or the speech key is refused here, and the other way round), and the endpoint hands it straight to the connection's store. `/answer` refuses these cards, and the turn closes one only with an outcome the endpoint made (`connected` with the connection's id, or `skipped`). The AI learns the outcome, the connection's name and state and its tool names.
+- **The tool only opens a card.** Nothing is connected until the person presses the card's button, so a page that tells the AI to connect something can make it show a card, not finish one. Fields that look like a key, or hold one the person has stored, are refused before a card, so a key pasted into the chat does not end up in a connection's address or name.
+- **One create path.** The endpoint makes the connection through `service.ts create`, as Settings and an admin's request to a member do: the same checks, limits, sealing for that connection, first check and audit. A team connection needs an admin, read again from the database when the card is finished (the endpoint is for any signed-in person, and a role can change while a card waits); "Just me" names the admin in the rule, since admins are not users of team connections otherwise.
+- **A wrong key keeps the card and the connection.** The turn remembers which connection a card made, and the next key replaces that one's key: one card makes one connection at most, never a pile of failed ones. "Not now" after a failed key removes that connection again, the way Settings removes one (audited): it never worked, and "not now" means do not add it. A card whose time runs out leaves it in Settings for the person to finish, and the AI is told it was added but does not work yet.
+- **Answers without a card** for what the person could not finish anyway (a bad field, an address that is not https or is private, personal connections off, a team connection asked for by a member, the limit, Google Drive not set up here) and for a connection to the same address they already have (its name and state), so the AI says so instead of showing a card that would fail.
+- **The new connection's tools come with the next message**, not in the answer that connected it: a turn's tools are fixed when it starts (the engines' tool lists, the model proxy's names). The design asked for the AI to try a tool right after connecting; the rule says to offer that for the next message instead.
+- **Not offered** in scheduled runs (nobody to finish a card: "skipped" at once), to sub-agents (`PARENT_ONLY_TOOLS`) or in confidential chats (not a local tool, like the connections themselves).
+- **2026-11-03 review.** The card shows an HTTP API's notes (they reach the AI in later chats, so a prompt-injected AI could otherwise plant instructions the person approves blindly) and the connection is saved with exactly those; the host is the card's main line, with a caution when the name is not in it; the tool waits for a connect still running when the card closes; a retry on a team card applies a changed "Who may use it"; "Not now" keeps a connection holding a finished sign-in; the message box warns only on near-certain keys (`hasLikelySecret`), not on a commit hash or a document link.
+- **Second 2026-11-03 review.** Text the person approves on the card holds nothing they cannot see: a name, notes or line with format, default-ignorable, private-use or C1 characters (zero-width ones, bidi overrides and isolates, the tag block, variation selectors) is refused without a card and again where the card is saved, rather than cleaned, because the AI wrote it and a silent clean-up would hide that it tried (emoji joiners and selectors stay, so Korean, Japanese and emoji names work). Every later connect or done reads the rules again (personal connections allowed, the admin role, the connection still at the card's address, kind and sign-in); one changed in Settings meanwhile ends what the card can do, before the key is opened. The address is checked for keys with the stricter `addressHasSecret`, so a generated MCP instance id is no longer refused as a key. The key warning covers every box whose text reaches the AI and finds more providers' keys, but a labelled value only when it looks like a secret, so code such as `apiKey = process.env.API_KEY` goes out. The card's behaviour is tested by rendering it with react-dom into a small DOM of our own (`web/test/unit/dom-host.ts`) rather than adding a DOM library to the dependencies.
+- Tests: `tests/unit/connect-service.test.ts`, `web/test/unit/connect-card.test.tsx`, `web/test/unit/secret-warning.test.tsx`. Needed in the core too (potenlab/team-ax): everything here; nothing is Trina-specific.
+
+## Folder permissions, stage 3: the person view (feat/access-person-view, 2026-11-03)
+
+The admin's questions "what can this person, and their AI, see, and why?" and "what will someone new see?" get a
+screen: Admin › Folder permissions › By person. Read only; the server, the permission function and the database are
+unchanged. The folder view stays as it was (stage 4 changes it).
+
+- **Only the server's answers.** Every row is `GET /api/admin/access/people/:id` or `POST /api/admin/access/new-person`
+  (stage 2); the screen computes no access. `web/src/lib/access-view.ts` only puts them into words: the level (write,
+  read, "name only, on the way" = `listable` without access, cannot see), the reason, the group of rows, the summary.
+  No step name of the function (user / group / role / everyone, owner-admin, no-rule) reaches the screen; a rule says
+  for whom ("Sales 그룹", "팀원 전체", "모두", "Bob 님") and where ("이 폴더의 규칙" or "shared에서 물려받음"), the widest
+  of the deciding step's rules (the server lists it first).
+- **Groups of rows** by the server's kinds, then by the top folder that holds such folders (groups/, projects/,
+  connected/ sit with their folders): team, group, project, connected, skills (the team's AI instructions), the own
+  personal folder. Folders without access and not shown in the tree are folded ("못 보는 폴더 N개").
+- **No colour for access.** The level is ink or grey text with an icon. The accent marks only the chosen person; the
+  warning colour only a risk the screen computes: a member who writes in skills/ (a team skill manager).
+- **Counts are honest.** The summary counts team folders (not the own personal folder) of the rows loaded; with more
+  pages it says it counted the loaded part, narrowed to a folder it says so. Pages: "Load more" (`nextCursor`).
+- **The address keeps the choice** (`?view=people&person=<id>`, `?view=people&new=1&role=admin&groups=<id>,…`,
+  `&prefix=`): links from Members work and Back steps through people; role, groups and the folder replace the entry.
+  `new=1` rather than a reserved person id, because `new` is a valid user id.
+- **The list of people** is one listbox (someone new, the active people, the disabled ones apart): arrows move, Enter
+  chooses (choosing asks the server, so moving alone does not), one Tab stop. At most 100 people show at once, with
+  how many more; the chosen one always shows.
+- **Edit from a row** opens the same rule editor as the folder view (`RulesEditor`, now exported) for that folder; after
+  a save the answer comes again, and the focus follows the row if it moved (to or from the folded folders). No edit on
+  the own personal folder (rules there never apply).
+- **Members**: "볼 수 있는 폴더" on each person opens the view; the invite and add-member dialogs fold out "이 사람이 보게
+  될 폴더" with the new-person answer for the role and groups chosen (the role and group choices moved to
+  `people-choices.tsx` so both use the same ones).
+- **Review, second pass.**
+  - `no-rule` is "no rule on the way up is FOR THIS PERSON", not "no rule": with the folder list
+    (`Folder.rules`), the screen says the nearest folder at or above whose rules are not for them ("finance부터 위쪽 규칙은 이
+    사람에게 해당하지 않아요", the root by its name), and "no rule, so only the owner and admins can open it" only when no
+    folder on the way up has any rule. Without the list (it failed, or the invite dialog before it came) only what is
+    sure: "no rule applies to this person".
+  - **Someone new and a root rule (server).** `listing()` names the person's own `users/<id>` in `via`; for someone new
+    that was `users/\u0000new-person`, no RelPath: 500 with the response check, a ZodError in the app. The new-person
+    answer now asks for `MAX_VIA + 1` and leaves that folder out (`access-rows.ts withoutOwnFolder`, also in the mock);
+    `listable` stays canList()'s answer and `access()` is untouched (`tests/unit/access-explain-api.test.ts` compares
+    every row with a member with the same groups and with `RuleSet.access`, and fails without the fix). The screen says
+    the root of someone new is on the way to their personal folder, and a real person's own folder in `via` as "본인
+    개인 폴더", never `users/<id>`. An answer that does not match the contract is "the server's answer could not be read",
+    not its English JSON.
+  - A folder shown on the way has two reason lines: why its name shows, then what decided the folder (an explicit "No
+    access" is not hidden). "길 안내로만 보임" is "이름만 보임".
+  - Owner and admins: their own folder is said for their role; rows decided by "owner-admin" have no rule button (rules
+    change nothing there) and one line on top says so.
+  - The address: `prefix` is cleaned like a typed folder; one that is no path (`../etc`, over 1024 characters) shows a note
+    with the narrowing field and "All folders". "By folder" drops person, someone new and prefix. An unknown person is
+    "cannot be found" with the list, not "Try again". A failed group or folder list is said with a retry (no endless
+    skeleton, no "?", no silently missing rule buttons).
+  - A save after more pages were opened asks for as many rows again. The summary is said once the answers settle (600 ms;
+    quick group clicks say it once). The rule button is one labelled icon per row. The invite dialog's full view opens in
+    a new tab, so the invite being written stays.
+  - A folder that is not on disk and has no row (a project whose folder is gone): the editor says so, Save waits, and it
+    would send `create: false`, which the server refuses without making anything (unit test).
+  - The shared `Tabs` follow the tabs pattern (one Tab stop, Left / Right round, Home, End choose): Folder permissions,
+    Files, Team skills, External services.
+- Found, not changed: Admin › Members dims a disabled person's row to 60 %, which takes its 12px text below 4.5:1
+  (axe, light and dark); the person view's a11y test enables that person again before auditing the invite dialog.
+- Tests: `web/test/unit/access-view.test.ts` (every reason in words, no step name in five languages, groups, short
+  paths, the risk, the summary forms, the typed folder, the address), `web/test/e2e/access-people.spec.ts` (choosing,
+  someone new, a folder shown on the way, a disabled person, Members links and the invite preview, pages, narrowing,
+  errors, a big team, 375px in Korean and Spanish, the keyboard), `web/test/e2e/a11y.spec.ts` (light, dark, phone).
+  Needed in the core too: everything here.
+
+## Folder permissions, stage 4: the folder view is a tree (feat/access-folder-tree, 2026-11-03)
+
+"By folder" listed only the folders with rules, flat, with their rules as badges: the folders above them did not show,
+nor the real access of a folder without rules, nor that the same folder comes from different rules for different
+people. The admin's question is "who sees this folder, and from which folder do they get it?". The view is now the team
+folder as a tree, read only like stage 3; the permission function and the database are unchanged, no migration.
+
+- **One level per answer.** `GET /api/admin/access/tree?path=&cursor=&limit=&open=` (admins and the owner;
+  `shared/src/api/admin.ts`): the folder asked for (`self`) and its children by name (byte order), `limit` a page
+  (default 200, at most 500) with `total` and a cursor that is the last name of the page before. Each child: kinds
+  (rules, group, project, connected, personal), how many rules it carries itself, whether it has folders to open, how
+  many marked folders (with rules, group, project, connected) are below it, who sees it, its risks and whether it is
+  restricted. Per person details stay with the stage 2 folder answer. `open=1` adds the levels on the way down to marked
+  folders, breadth first, the first page of each, while the answer has at most 600 children and 40 levels; the rest
+  opens on request. Only real folders on disk are children (`opendir`, a link counts as not there); a name the team
+  folder refuses, a temp name or `.system/` never shows (`shownSegs`, the same as the other answers); nothing below
+  depth 64 is offered; `users/` and paths that are not team folders are refused before anything is read, like the
+  folder answer. At the root, `users/` is one row from the member list (how many personal folders) and is never listed.
+- **Who sees it, from the same computation.** Every active person once, grouped by how they get their access: the
+  deciding folder and the rule that decided (the widest of the step, as stage 3 names it, with the group's or person's
+  name), the owner and admins, or no rule for them. It is `RuleSet.explain` at the nearest rule folder (below it
+  nothing carries rules), once per such folder in an answer, and once per class of people that no rule on the way up
+  can tell apart (the same role, the same groups among those the rules there name, not named by a person rule there;
+  a bit mask up to 30 such groups, a sorted list above). `tests/unit/access-tree-equivalence.test.ts` compares it with
+  explaining every person on their own and with `RuleSet.access`, on 300 random worlds with groups beyond 30 and people
+  in one group each; deliberate mutations of the class key (no person rule, no groups, no role, the mask beyond 30
+  groups) each fail it. The code lives in `server/src/admin/access-tree.ts`, which reads nothing: the server gives it
+  the disk and the database, the web mock its own folders, and both answer with it.
+- **Risks the server computes, and only those get the warning colour.** `everyone-writes`: every member writes here,
+  said on the topmost such folder (below it the same is inherited and would repeat on every row); in `skills/` the same
+  is `skills-everyone-writes` (the instructions every AI of the team follows), always said on `skills` itself;
+  `root-everyone`: a rule on the team root gives everyone (or every member) access, which opens group and project
+  folders that do not shut others out. `restricted` (the lock): some member cannot open it. Levels of access stay
+  ink and grey, as in stage 3.
+- **The screen** (`web/src/pages/admin/AccessTree.tsx`). A WAI-ARIA tree, flat with `aria-level`, `aria-setsize` and
+  `aria-posinset`: one Tab stop (the row last focused), Up and Down, Right opens or goes in, Left closes or goes up,
+  Home and End, typing jumps to a name, Enter or Space chooses (choosing asks the server, so moving alone does not).
+  "N more" and "Try again" (a level that failed to open, with the server's words) are rows of the tree, so the
+  keyboard reaches them; after "more" the first new folder takes the focus. A row: the name (dimmed when it has no
+  rules of its own, "inherited"), what it is (group folder, project with its name, connected folder, team skills), a
+  lock when restricted, who sees it in the admin's words ("영업팀 3명 · 읽기·쓰기, 그 밖의 9명 · 읽기", "모두 · 읽기",
+  "팀장과 관리자만"; at most three groups, the rest counted) and where from ("이 폴더의 규칙", "shared에서 물려받음", or
+  by whom when people differ: "영업팀: 이 폴더의 규칙 · 나머지: shared에서 물려받음"). The words are
+  `lib/access-view.ts`; no step name of the permission function reaches the screen. Depth is indentation, 12px a level
+  up to four on a narrow tree and 16px up to eight on a wide one; deeper rows put "…/" before the name, long names are
+  cut with the whole path in the row's title. It opens on the top folders and the way down to marked folders
+  (`open=1`); `?folder=<path>` opens the way to a folder and chooses it.
+- **The chosen folder** sits beside the tree when the card is at least 42rem wide (sticky, scrolling on its own), and
+  replaces it below that, with "Back to the folders" returning the focus to its row; the heading takes the focus when
+  the tree hides. It shows the folder's own rules (the old list's badges, team skill managers marked), why the server
+  keeps the row (shared, skills, a group's folder), the risks in full, and every person with the level and the stage 3
+  reasons at this folder (`reasonText` on the folder answer), in pages, and the people switched off whom a person rule
+  names. `users/` says what personal folders are and links to By person; it asks the server nothing.
+- **What the old list did, where it went.** "Add folder" and the folder picker stay in the card's header; after the
+  rule editor saves, the folder is opened to and chosen. "Edit" is the chosen folder's rules button (the same
+  `RulesEditor`). "Remove all rules" is beside it, with the stage 1 protection (no button but the reason on kept rows)
+  and the server's preview in the confirm dialog (`useRemoveRules`, shared); the folder stays in the tree, inherited,
+  and the focus goes to the rules button, not the page. Actions are in the folder's part, not on the rows, so the tree
+  keeps one Tab stop. Rows whose folder is not in the tree (gone from disk, or inside `users/`, where rules never apply)
+  are folded under it ("디스크에 없는 폴더의 규칙 N개"), each with Edit and the same delete; the focus goes to the next
+  row's delete, then to "Add folder", as on the list before. Rows parked with a trashed folder do not come (the server
+  already leaves them out).
+- **Stage 3 review, the rest.** The shared `Tabs` give each tab an id and `aria-controls`, and a `TabPanel`
+  (role=tabpanel, named by its tab) holds what the chosen one shows, in all four places (Folder permissions, Files, Team
+  skills and its review dialog, External services in Admin and Settings). By person narrowed to `users` says the
+  person's own folder is there (the counts leave it out). The root of someone new is "on the way to the personal folder
+  they will have once they join".
+- **The mock** makes a folder when a rule is set with `create` (default true), like the server, and lists a rule row's
+  `exists` from its folders; `POST /__test/rmdir` takes a folder off its disk and leaves the rules.
+- **Cost** (with the response check and JSON; `tests/perf/access-explain.ts`, a busy shared Mac). 300 people and 500
+  rule folders: the opened top 28 ms median, 40 ms at most; the widest levels, every page, 9 ms; one level 1.9 ms
+  median. 2000 people and 2500 rule folders: the opened top 98 ms median, 170 ms at most (347 ms before the classes of
+  people); the widest levels, every page, 142 ms (503 ms before); one level 10 ms median, 52 ms at most. The script
+  fails when any answer takes over 750 ms.
+- Found, not changed: `FolderPicker` (used by "Add folder") still asks for 200 entries and does not page; the tree
+  pages. `tests/security/permission-matrix.test.ts` has no case for the dev environment routes (`devEnv*`); that
+  coverage check fails on main as well.
+- Tests: `tests/unit/access-tree-api.test.ts` (the root and `users/` as one row, kinds and counts, who adds up to
+  `RuleSet.access` for every person, folders only, refusals, pages, `open=1` and its limits, depth 64 and long names,
+  risks and the lock), `tests/unit/access-tree-equivalence.test.ts`, `tests/security/lib/cases.ts` (admins and the owner
+  only; nothing of `users/` or `.system/` listed, alice's folder refused without her file's name, the finance group's
+  folder showing its group), `web/test/unit/access-view.test.ts` (the tree's words in five languages, the stage 3
+  nits), `web/test/e2e/access-tree.spec.ts` (rows, risks, choosing and changing rules, `users/`, the keyboard, pages,
+  a failed level, rules off disk, adding a folder, the address, 375px with deep and long names, four other languages),
+  `admin.spec.ts`, `admin-delete.spec.ts` and `team-skills.spec.ts` moved onto the tree, `a11y.spec.ts` (light, dark,
+  phone). Needed in the core too: everything here.
+- **Review fixes (same day, two independent reviews).**
+  - A folder in the address is looked up, not assumed loaded: the server names it (its names on disk, whether it is
+    there; a refused path counts as not there), then each level on the way is opened and paged through until the next
+    folder is in it, so a folder past the first page, or one "Add folder" just made, is found and chosen. One that is
+    not there says "이 폴더를 찾을 수 없어요" with its path and a way back; a lookup the server could not answer says so with
+    "Try again", never "not found". The address decides what is chosen: no `folder` (the By folder tab chosen again,
+    the menu link, Back) is the tree with nothing chosen. On a phone the tree is never hidden without a way back. The
+    Tab stop follows the chosen row, and Back gives it the focus once the tree shows again (the earlier
+    requestAnimationFrame ran before React showed the tree).
+  - "Rule folders only" (`rules=1`, a switch on the card, off at first): the folders with rules at or below a folder
+    that are on disk (no link, not hidden, at most 64 deep), in the tree's order (segment by segment: `a`, `a/b`,
+    `a-c`), 200 a page with "N more", and `above`, the folders on the way that are not in the page, so the screen draws
+    them as a tree, all open. Leaving it opens the whole tree down to the chosen folder.
+  - The folder asked for is never looked into when it is not there: `self.folders` is false, and the listing checks
+    every step for a link (`isDir`) before it reads a folder. Before, `?path=shared/link-to-alice/<name>` answered
+    `exists: false, folders: true` when a folder was behind the link: whether a folder exists in someone's personal
+    folder, or anywhere on disk. "Is there a folder inside?" stops after 2,000 entries (then yes) and leaves out names
+    longer than a path may be.
+  - `root-everyone` comes from what members get at the root (the everyone or member rule that decided for them), not
+    from a rule being there: "everyone: read" with "member: none" opens nothing and is not said.
+  - The skills risk compares the first name as the skills guard does (`inSkills`: any case or Unicode form), so a team
+    folder that serves `Skills/` gets the skills warning; the screen's kind label follows.
+  - Rule rows the answers never show (inside `users/`, `.SYSTEM/` on a case-sensitive volume, temp names, refused
+    names) carry `Folder.hidden` and are listed with the folders gone from disk, each with why, to edit or remove.
+  - On the screen: the kind label gives way before the folder's name (a project name of 100 characters left the name
+    0px wide); the button says "규칙 모두 지우기" (it never deletes the folder); a folder without rules that no rule
+    opens to any member says only "팀장과 관리자만" (the source line repeated on most rows); `aria-setsize` is the level's
+    total; "Try again" keeps the focus on its folder, also after a second failure; a slow "Load more" of the people
+    that comes after a change is dropped (a generation check), and a refresh that failed says so with "Try again";
+    long names in rule badges wrap; "외 N명" counts people; the card is "폴더마다 볼 수 있는 사람".
+  - Cost of "rule folders only" (as above): 300 people and 500 rule folders, the first page of 200 19 ms; 2000 people
+    and 2500 rule folders, the first page of 200 69 ms, each page of 500 137 ms median, 146 ms at most.
+  - Not changed: a page of a level reads that one folder's entries again for each page asked for (bounded by the
+    folder; nothing is cached between requests).
+  - Tests added: links into a personal folder and outside the team folder, the root rule that opens nothing, `Skills/`,
+    the rule folder list and its pages, `Folder.hidden` (`tests/unit/access-tree-api.test.ts`,
+    `access-tree-equivalence.test.ts`); in `web/test/e2e/access-tree.spec.ts` the address at 1360 and 375 (missing,
+    four levels down, past the first page), the tab and the menu link, rule folders only, long project names, a failed
+    refresh, hidden rule rows, wrapping badges and the dropped slow page (it fails with the old code).

@@ -20,7 +20,8 @@ export function Button({ variant = 'secondary', size = 'md', busy, className, ch
       type="button"
       {...props}
       disabled={disabled || busy}
-      aria-busy={busy || undefined}
+      // busy disables; a caller that must keep the focus (an action that asks the server first) says busy itself
+      aria-busy={busy || props['aria-busy'] || undefined}
       className={clsx(
         'inline-flex items-center justify-center gap-1.5 rounded-lg font-medium whitespace-nowrap transition disabled:cursor-not-allowed disabled:opacity-50',
         size === 'sm' ? 'h-8 px-2.5 text-[13px] max-sm:min-h-9' : 'h-9 px-3.5 text-sm max-sm:min-h-10',
@@ -37,6 +38,12 @@ export function Button({ variant = 'secondary', size = 'md', busy, className, ch
       {children}
     </button>
   )
+}
+
+/** onKeyDown of a button that acts at once (a delete with no confirm dialog): a held Enter repeats keydown, and each
+ * repeat would press the button again, or the next one the focus lands on. */
+export const noKeyRepeat = (e: React.KeyboardEvent) => {
+  if (e.repeat) e.preventDefault()
 }
 
 /** danger: a destructive icon action (Delete) that turns red on hover. */
@@ -399,8 +406,25 @@ export function CopyButton({ text, html, label, className, showLabel }: { text: 
 }
 
 // ---------------- simple tabs ----------------
-/** `segmented`: the tabs sit in one quiet pill group, for a page's main switch next to its title. */
-export function Tabs<T extends string>({ value, onChange, items, label, segmented }: { value: T; onChange: (v: T) => void; items: { id: T; label: string }[]; label: string; segmented?: boolean }) {
+/** The ids that tie a tab to its panel: `base` is the Tabs' `panels` (one useId per Tabs), `id` the tab's. */
+export const tabIds = (base: string, id: string) => ({ tab: `${base}-tab-${id}`, panel: `${base}-panel-${id}` })
+
+/** What the chosen tab shows: role=tabpanel, named by its tab, the one each tab's aria-controls points at. `base`: the
+ * same as the Tabs' `panels`; null when no tabs are shown (a plain box then). */
+export function TabPanel({ base, value, className, children, ...rest }: { base: string | null; value: string; className?: string; children?: ReactNode } & Omit<React.HTMLAttributes<HTMLDivElement>, 'id' | 'role'>) {
+  if (base === null) return <div className={className} {...rest}>{children}</div>
+  const ids = tabIds(base, value)
+  return (
+    <div role="tabpanel" id={ids.panel} aria-labelledby={ids.tab} className={className} {...rest}>
+      {children}
+    </div>
+  )
+}
+
+/** `segmented`: the tabs sit in one quiet pill group, for a page's main switch next to its title. The keyboard follows
+ * the WAI-ARIA tabs pattern: Tab reaches the chosen tab only; the arrow keys, Home and End choose another. `panels`:
+ * the ids of the panels (`useId()`), shared with the TabPanel that shows the chosen tab's content. */
+export function Tabs<T extends string>({ value, onChange, items, label, segmented, panels }: { value: T; onChange: (v: T) => void; items: { id: T; label: string }[]; label: string; segmented?: boolean; panels: string }) {
   const list = useRef<HTMLDivElement>(null)
   // on a phone the tabs may not all fit: the chosen one scrolls into the row (a link can choose the last one). Only
   // then, so a row that fits never moves the page.
@@ -412,14 +436,32 @@ export function Tabs<T extends string>({ value, onChange, items, label, segmente
     const b = tab.getBoundingClientRect()
     if (b.left < r.left || b.right > r.right) tab.scrollIntoView({ block: 'nearest', inline: 'nearest' })
   }, [value, items.length])
+  // the tabs pattern: one Tab stop (the chosen tab); Left / Right (round), Home and End move to a tab and choose it
+  const current = items.some((it) => it.id === value) ? value : items[0]?.id
+  // the tab chosen last, also before the page shows it (a choice can render later: keys pressed quickly go on from it)
+  const chosen = useRef(current)
+  chosen.current = current
+  const onKeyDown = (e: React.KeyboardEvent) => {
+    const i = items.findIndex((it) => it.id === chosen.current)
+    const n = items.length
+    const to = e.key === 'ArrowRight' ? (i + 1) % n : e.key === 'ArrowLeft' ? (i - 1 + n) % n : e.key === 'Home' ? 0 : e.key === 'End' ? n - 1 : -1
+    if (to < 0 || !n) return
+    e.preventDefault()
+    chosen.current = items[to]!.id
+    onChange(items[to]!.id)
+    list.current?.querySelectorAll<HTMLElement>('[role="tab"]')[to]?.focus()
+  }
   return (
-    <div ref={list} role="tablist" aria-label={label} className={clsx('flex overflow-x-auto', segmented ? 'max-w-full gap-0.5 rounded-lg bg-subtle p-0.5' : 'gap-1')}>
+    <div ref={list} role="tablist" aria-label={label} onKeyDown={onKeyDown} className={clsx('flex overflow-x-auto', segmented ? 'max-w-full gap-0.5 rounded-lg bg-subtle p-0.5' : 'gap-1')}>
       {items.map((it) => (
         <button
           key={it.id}
           role="tab"
           type="button"
+          id={tabIds(panels, it.id).tab}
+          aria-controls={tabIds(panels, it.id).panel}
           aria-selected={value === it.id}
+          tabIndex={it.id === current ? 0 : -1}
           onClick={() => onChange(it.id)}
           className={clsx(
             'rounded-md font-medium whitespace-nowrap focus-visible:-outline-offset-2',

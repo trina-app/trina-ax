@@ -103,6 +103,14 @@ export const Folder = z.object({
   exists: z.boolean(),
   rules: z.array(FolderRule),
   createdAt: IsoTime,
+  /** the group whose folder this is (groups.folder_id). null: none; absent: an older server */
+  groupId: z.string().nullable().optional(),
+  /** why the admin API keeps this row (its rules can still change): 'team' for shared/ and skills/, which keep at least
+   * one rule; 'group' for a group's folder while the group exists. null: it may be removed; absent: an older server */
+  keep: z.enum(['team', 'group']).nullable().optional(),
+  /** the folder answers never show this path (inside users/, .system/ in any case, a temp name, a name the team folder
+   * refuses): Admin › Folder permissions lists such a row apart, to edit or remove. Absent: an older server */
+  hidden: z.boolean().optional(),
 })
 export type Folder = z.infer<typeof Folder>
 

@@ -35,6 +35,16 @@ describe('which open card the message box answers', () => {
     expect(choiceWaiting(byId(q), CHAT)).toBe(false)
   })
 
+  test('never a connect_service card: a key or "connected" typed here finishes nothing', () => {
+    const connect = open({ kind: 'connect_service', requestId: 'c1', target: 'service', name: 'Higgsfield', scope: 'personal', service: { kind: 'mcp', url: 'https://mcp.higgsfield.example/mcp', host: 'mcp.higgsfield.example', auth: 'bearer', authHeader: null } })
+    expect(answered([connect])).toBeNull()
+    // the box says a card waits for its own buttons
+    expect(choiceWaiting(byId(connect), CHAT)).toBe(true)
+    expect(choiceWaiting(byId(connect), OTHER)).toBe(false)
+    const q = open(question('0192f0a1-0000-7000-8000-000000000004'))
+    expect(answered([connect, q])).toBe(id(q))
+  })
+
   test('several questions open at once: the one shown first, then the next', () => {
     const first = open(question('0192f0a1-0000-7000-8000-00000000000a', { expiresAt: '2026-10-30T10:10:00.000Z' }))
     const second = open(question('0192f0a1-0000-7000-8000-00000000000b', { expiresAt: '2026-10-30T10:10:05.000Z' }))

@@ -4,15 +4,15 @@
 // OpenAI; unavailable while Codex is off); usage limits. The accounts the engines use (Claude subscription tokens,
 // API keys, ChatGPT sign-ins) are on Admin > AI connections (Credentials.tsx); company keys moved there.
 import { AlertTriangle, CheckCircle2, CircleAlert, Plus, RefreshCw, Trash2 } from 'lucide-react'
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 import type { Budget, EngineId, EnginesResponse, EngineStatus, Group, MemberEngineChoice, User } from '@mycel/shared/api'
 import { api, API } from '../../lib/api'
 import { formatDateTime, formatNumber, formatUsd } from '../../lib/format'
 import { useLocale, useT } from '../../i18n'
 import { isOwner, useMeStrict } from '../../store/session'
-import { Badge, Button, Field, IconButton, Modal, Switch, inputCls } from '../../components/ui'
-import { Card, Loadable, useAction, useLoad } from './common'
+import { Badge, Button, Field, IconButton, Modal, Switch, inputCls, noKeyRepeat } from '../../components/ui'
+import { Card, Loadable, useAction, useActionOk, useFocusAfterRemove, useLoad, useOneAtATime } from './common'
 import { useEngines } from '../../store/engines'
 
 export default function Engines() {
@@ -148,55 +148,71 @@ function EngineCard({ e, checking, onCheck, onToggle }: { e: EngineStatus; check
 function Budgets() {
   const t = useT()
   const locale = useLocale()
-  const act = useAction()
+  const actOk = useActionOk()
   const budgets = useLoad(async () => (await api.call(API.listBudgets)).items)
   const users = useLoad(async () => (await api.call(API.listUsers)).items)
   const groups = useLoad(async () => (await api.call(API.listGroups)).items)
   const [editing, setEditing] = useState<Budget | 'new' | null>(null)
+  const heading = useRef<HTMLHeadingElement>(null)
+  // a limit goes at once, with no confirm dialog: the focus goes on to the next row's Edit (else the title), never to its
+  // delete, one delete runs at a time, and a held key does not repeat it
+  const focus = useFocusAfterRemove(budgets.data, () => heading.current)
+  const once = useOneAtATime<string>()
+  const remove = (b: Budget) =>
+    once.run(b.id, async () => {
+      if (!(await actOk(() => api.call(API.deleteBudget, { params: { id: b.id } })))) return
+      focus.removed(budgets.data?.findIndex((x) => x.id === b.id) ?? 0)
+      await budgets.reload()
+    })
   const who = (b: Budget) => (b.subjectType === 'team' ? t('budgets.team') : b.subjectType === 'group' ? groups.data?.find((g) => g.id === b.subjectId)?.name ?? '?' : users.data?.find((u) => u.id === b.subjectId)?.name ?? '?')
+  const period = (b: Budget) => t(b.period === 'day' ? 'budgets.perDay' : 'budgets.perMonth')
   return (
     <Card
+      headingRef={heading}
       title={t('budgets.title')}
       desc={t('budgets.desc')}
       actions={
-        <Button size="sm" onClick={() => setEditing('new')}>
+        <Button size="sm" onClick={() => setEditing('new')} data-testid="budget-new">
           <Plus size={14} aria-hidden /> {t('budgets.new')}
         </Button>
       }
     >
-      <Loadable state={budgets}>
-        {(list) =>
-          !list.length ? (
-            <p className="text-sm text-faint">{t('budgets.none')}</p>
-          ) : (
-            <ul className="divide-y divide-line text-sm">
-              {list.map((b) => (
-                <li key={b.id} className="flex flex-wrap items-center gap-2 py-2">
-                  <span className="min-w-0 flex-1">
-                    <span className="font-medium">{who(b)}</span> · {t(b.period === 'day' ? 'budgets.perDay' : 'budgets.perMonth')}
-                    <span className="block text-xs text-faint">
-                      {b.limitTokens !== null && t('budgets.tokensUsed', { used: formatNumber(b.usedTokens, locale), limit: formatNumber(b.limitTokens, locale) })}
-                      {b.limitUsd > 0 && ` · ${formatUsd(b.usedUsd, locale)} / ${formatUsd(b.limitUsd, locale)}`}
+      <div ref={focus.box}>
+        <Loadable state={budgets}>
+          {(list) =>
+            !list.length ? (
+              <p className="text-sm text-faint">{t('budgets.none')}</p>
+            ) : (
+              <ul className="divide-y divide-line text-sm">
+                {list.map((b) => (
+                  <li key={b.id} className="flex flex-wrap items-center gap-2 py-2">
+                    <span className="min-w-0 flex-1">
+                      <span className="font-medium">{who(b)}</span> · {period(b)}
+                      <span className="block text-xs text-faint">
+                        {b.limitTokens !== null && t('budgets.tokensUsed', { used: formatNumber(b.usedTokens, locale), limit: formatNumber(b.limitTokens, locale) })}
+                        {b.limitUsd > 0 && ` · ${formatUsd(b.usedUsd, locale)} / ${formatUsd(b.limitUsd, locale)}`}
+                      </span>
                     </span>
-                  </span>
-                  <Badge tone={b.action === 'block' ? 'danger' : 'warn'}>{t(b.action === 'block' ? 'budgets.block' : 'budgets.warn')}</Badge>
-                  <Button size="sm" variant="ghost" onClick={() => setEditing(b)}>
-                    {t('common.edit')}
-                  </Button>
-                  <IconButton
-                    label={t('common.delete')}
-                    onClick={async () => {
-                      if ((await act(() => api.call(API.deleteBudget, { params: { id: b.id } }))) !== undefined) void budgets.reload()
-                    }}
-                  >
-                    <Trash2 size={15} />
-                  </IconButton>
-                </li>
-              ))}
-            </ul>
-          )
-        }
-      </Loadable>
+                    <Badge tone={b.action === 'block' ? 'danger' : 'warn'}>{t(b.action === 'block' ? 'budgets.block' : 'budgets.warn')}</Badge>
+                    <Button size="sm" variant="ghost" onClick={() => setEditing(b)} onKeyDown={noKeyRepeat} data-row-focus>
+                      {t('common.edit')}
+                    </Button>
+                    <IconButton
+                      label={t('common.deleteNamed', { name: `${who(b)} · ${period(b)}` })}
+                      onClick={() => void remove(b)}
+                      onKeyDown={noKeyRepeat}
+                      aria-disabled={once.busy !== null || undefined}
+                      className="aria-disabled:cursor-not-allowed aria-disabled:opacity-40"
+                    >
+                      <Trash2 size={15} />
+                    </IconButton>
+                  </li>
+                ))}
+              </ul>
+            )
+          }
+        </Loadable>
+      </div>
       {editing && (
         <BudgetForm
           budget={editing === 'new' ? null : editing}

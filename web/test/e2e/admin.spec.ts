@@ -90,8 +90,12 @@ test('admin screens: members, groups, folder rules with "who sees what", engines
 
   // folder rules: preview before saving
   await page.getByRole('link', { name: '폴더 권한' }).click()
-  await expect(page.getByTestId('folder-list')).toContainText('finance')
-  await page.getByTestId('folder-list').getByRole('button', { name: '수정' }).click()
+  const folderTree = page.getByTestId('folder-tree')
+  await expect(folderTree.locator('[data-path="finance"]')).toBeVisible()
+  // the new group's own folder is in the tree too (groups/영업팀): choose the finance folder and change its rules
+  await expect(folderTree.locator('[data-path="groups/영업팀"]')).toBeVisible()
+  await folderTree.locator('[data-path="finance"]').click()
+  await page.getByTestId('folder-detail-edit').click()
   await page.getByTestId('rule-add').click()
   await page.getByRole('dialog').getByLabel('대상').last().selectOption('everyone')
   await page.getByTestId('rules-preview').click()
@@ -99,7 +103,8 @@ test('admin screens: members, groups, folder rules with "who sees what", engines
   await expect(preview).toContainText('Bob')
   await expect(preview).toContainText('권한을 잃는 사람')
   await page.getByTestId('rules-save').click()
-  await expect(page.getByTestId('folder-list')).toContainText('모두: 읽기')
+  await expect(page.getByTestId('folder-detail').getByTestId('folder-rules')).toContainText('모두: 읽기')
+  await expect(folderTree.locator('[data-path="finance"]').getByTestId('tree-who')).toContainText('모두 · 읽기')
 
   // engines: what is missing, in plain words
   await page.getByRole('link', { name: 'AI 엔진' }).click()
@@ -533,7 +538,7 @@ for (const locale of ['ko', 'en', 'id'] as const) {
     await page.getByTestId('dialog-confirm').click()
     await expect(member).toContainText(t['members.disabled'])
     for (const cancel of [true, false]) {
-      await member.getByRole('button', { name: t['common.delete'], exact: true }).click()
+      await member.getByRole('button', { name: translate(locale, 'common.deleteNamed', { name: 'Bob' }), exact: true }).click()
       const dialog = page.getByRole('dialog')
       await expect(dialog).toContainText(translate(locale, 'members.removeBody', { days: 3 }))
       await expect(dialog).not.toContainText('{days')
@@ -583,7 +588,7 @@ for (const locale of ['ko', 'en', 'id'] as const) {
     await member.getByRole('button', { name: t['members.disable'], exact: true }).click()
     await page.getByTestId('dialog-confirm').click()
     await expect(member).toContainText(t['members.disabled'])
-    await member.getByRole('button', { name: t['common.delete'], exact: true }).click()
+    await member.getByRole('button', { name: translate(locale, 'common.deleteNamed', { name: 'Bob' }), exact: true }).click()
     await expect(page.getByRole('dialog')).toContainText(translate(locale, 'members.removeBody', { days: 5 }))
     await page.getByRole('dialog').getByRole('button', { name: t['common.cancel'], exact: true }).click()
     const item = page.getByRole('listitem').filter({ hasText: 'Retention chat' })
@@ -651,7 +656,7 @@ test('members: cancelled and rejected deletions retain the row; a successful ret
     if (request.method() === 'DELETE' && path === '/api/admin/users/bob') deletes++
     if (request.method() === 'GET' && path === '/api/admin/users') listReads++
   })
-  await member.getByRole('button', { name: 'Delete', exact: true }).click()
+  await member.getByRole('button', { name: 'Delete Bob', exact: true }).click()
   await page.getByRole('dialog').getByRole('button', { name: 'Cancel', exact: true }).click()
   await expect(page.getByRole('dialog')).toHaveCount(0)
   await expect(member).toBeVisible()
@@ -660,7 +665,7 @@ test('members: cancelled and rejected deletions retain the row; a successful ret
 
   await page.route('**/api/admin/users/bob', route => route.fulfill({ status: 403,
     json: { error: { code: 'forbidden', message: 'Deletion refused' } } }))
-  await member.getByRole('button', { name: 'Delete', exact: true }).click()
+  await member.getByRole('button', { name: 'Delete Bob', exact: true }).click()
   await page.getByTestId('dialog-confirm').click()
   await expect(page.getByRole('alert').filter({ hasText: 'Deletion refused' })).toBeVisible()
   await expect(member).toBeVisible()
@@ -668,7 +673,7 @@ test('members: cancelled and rejected deletions retain the row; a successful ret
   expect(listReads).toBe(0)
 
   await page.unroute('**/api/admin/users/bob')
-  await member.getByRole('button', { name: 'Delete', exact: true }).click()
+  await member.getByRole('button', { name: 'Delete Bob', exact: true }).click()
   const deleted = page.waitForResponse(r => r.request().method() === 'DELETE' && new URL(r.url()).pathname === '/api/admin/users/bob')
   await page.getByTestId('dialog-confirm').click()
   expect((await deleted).status()).toBe(204)

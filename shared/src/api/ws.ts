@@ -18,6 +18,7 @@ import { ApiErrorBody, ErrorCode, RelPath } from './common'
 import { BrowserCall, BrowserResult } from './browser'
 import { ArtifactSummary, ArtifactType, Chat, Job, JobKind, Memory, Message, MessageStatus, Step, UserRef } from './entities'
 import { CredentialLogin } from './credentials'
+import { IntegrationAuth, IntegrationKind, IntegrationScope } from './integrations'
 import { SkillProblem } from './skills'
 
 export const WS_PATH = '/api/ws'
@@ -121,7 +122,29 @@ export const AskUserRequest = z.object({
 })
 /** browser wants to open an office-network (private) address: ask once / always / deny */
 export const BrowserSiteRequest = z.object({ kind: z.literal('browser_site'), requestId: z.string(), url: z.string(), host: z.string(), reason: z.string().optional() })
-export const TurnRequest = z.discriminatedUnion('kind', [AskUserRequest, BrowserSiteRequest])
+/** The AI filled in a connection for the person to finish (connect_service, docs/INTEGRATIONS.md "Connecting from a chat").
+ * The card shows where a key or sign-in goes (`service.host`). The person pastes the key into the card or signs in; the
+ * key goes from the card to POST /api/turns/:id/connect sealed in the browser ('integration.secret'), never through
+ * /answer, whose answers reach the AI. Nothing is connected until the person presses the card's button. */
+export const ConnectServiceRequest = z.object({
+  kind: z.literal('connect_service'),
+  requestId: z.string(),
+  target: z.enum(['service', 'google_drive']),
+  /** the service as people call it ("Higgsfield"); "Google Drive" for google_drive */
+  name: z.string(),
+  /** personal: only this person uses it; team: an admin adds it for the team and picks who may use it */
+  scope: IntegrationScope,
+  /** target 'service': the connection the AI filled in. host = the address's host, the card's main line */
+  service: z.object({ kind: IntegrationKind, url: z.string(), host: z.string(), auth: IntegrationAuth, authHeader: z.string().nullable() }).optional(),
+  /** the AI's one line on what it is for */
+  why: z.string().optional(),
+  /** an HTTP API's usage notes as the AI wrote them: saved with the connection exactly as here and given to the AI in
+   * later chats (api_request's description), so the card shows them before the person connects */
+  notes: z.string().optional(),
+  /** when the card closes by itself (the AI then continues without it) */
+  expiresAt: z.string().optional(),
+})
+export const TurnRequest = z.discriminatedUnion('kind', [AskUserRequest, BrowserSiteRequest, ConnectServiceRequest])
 export type TurnRequest = z.infer<typeof TurnRequest>
 
 export const FileChange = z.object({

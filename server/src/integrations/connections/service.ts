@@ -72,6 +72,38 @@ export const normUrl = (u: string) => new URL(u).href
 /** names go into the AI's instructions and tool descriptions: one line, no control characters */
 export const oneLine = (s: string) => s.replace(/[\u0000-\u001f\u007f\u2028\u2029]+/g, ' ').trim()
 export const cleanNotes = (s: string | null | undefined) => s?.replace(/[\u0000-\u0008\u000b-\u001f\u007f]+/g, ' ').trim() || null
+
+// Characters that show nothing or turn the text around them: format characters (zero-width ones, bidi marks,
+// overrides and isolates, the tag block), other default-ignorable ones (variation selectors, Hangul fillers),
+// private-use characters, lone surrogates, noncharacters and C1 controls. ASCII controls are not here: oneLine and
+// cleanNotes make them spaces.
+const HIDDEN = /[\p{Cf}\p{DI}\p{Co}\p{Cs}\p{Noncharacter_Code_Point}\u0080-\u009f]/u
+const EMOJI = /\p{Emoji}/u
+const PICTOGRAPH = /\p{Extended_Pictographic}/u
+/** an emoji ends just before `i` (its emoji selector and skin tone may follow it) */
+const pictographBefore = (cps: string[], i: number) => {
+  let j = i - 1
+  if (cps[j] === '\ufe0f') j--
+  if (j >= 0 && /\p{Emoji_Modifier}/u.test(cps[j]!)) j--
+  return j >= 0 && PICTOGRAPH.test(cps[j]!)
+}
+/**
+ * Whether the text holds a character a person cannot see or that changes the direction of the text (HIDDEN): text the
+ * AI writes for a person to approve (a connection's name and notes, connect_service's line on the card) could hide
+ * words from them that the AI reads later. Emoji keep working: a zero-width joiner between two emoji ("👩\u200d💻") and an
+ * emoji's presentation selector ("❤\ufe0f") are allowed; Korean, Japanese and line breaks have none of these characters.
+ */
+export function hiddenText(s: string): boolean {
+  const cps = [...s]
+  for (let i = 0; i < cps.length; i++) {
+    const c = cps[i]!
+    if (!HIDDEN.test(c)) continue
+    if ((c === '\ufe0f' || c === '\ufe0e') && i > 0 && EMOJI.test(cps[i - 1]!)) continue
+    if (c === '\u200d' && pictographBefore(cps, i) && PICTOGRAPH.test(cps[i + 1] ?? '')) continue
+    return true
+  }
+  return false
+}
 /** what the admin audit says about a change: team connections in full; a member's own ones without name or address */
 const auditDetail = (row: Pick<Row, 'scope' | 'kind' | 'auth' | 'name' | 'url'>, more: Record<string, unknown> = {}) =>
   row.scope === 'team' ? { scope: row.scope, kind: row.kind, name: row.name, host: new URL(row.url).host, auth: row.auth, ...more } : { scope: row.scope, kind: row.kind, auth: row.auth }

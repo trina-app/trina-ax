@@ -138,6 +138,25 @@ export const AskUserInput = z.strictObject({
 })
 export const AskUserOutput = z.union([z.object({ answer: z.union([z.string(), z.array(z.string())]) }), z.object({ skipped: z.literal(true) })])
 
+/** connect_service (docs/INTEGRATIONS.md "Connecting from a chat"): the AI fills in a connection to a service, or
+ * Google Drive, and shows the person a card to finish it. The person pastes the key into the card or signs in at the
+ * service; the key never reaches the AI. Nothing is connected until the person presses the card's button. */
+export const ConnectServiceInput = z.strictObject({
+  target: z.enum(['service', 'google_drive']).optional().describe('service (default): an MCP server or HTTP API. google_drive: the person\'s own Google Drive (only name is used)'),
+  name: z.string().trim().min(1).max(60).describe('The service\'s own name as it brands itself, in its own spelling even when the user writes in another language, e.g. "Higgsfield", "Notion" (the card checks it against the address)'),
+  kind: z.enum(['mcp', 'http']).optional().describe('mcp: an MCP server (use it when the service has one); http: a plain HTTP API with a key. Required for a service'),
+  url: z.string().max(2000).optional().describe('The service\'s own https address from its documentation: the MCP endpoint (mcp) or the API base (http). Required for a service'),
+  auth: z.enum(['none', 'bearer', 'header', 'oauth']).optional().describe('How it signs in: oauth = the person signs in at the service (MCP only); bearer = an API key sent as "Authorization: Bearer"; header = an API key in the header authHeader names; none. Required for a service'),
+  authHeader: z.string().max(64).optional().describe('The header that carries the key when auth is header, e.g. X-API-Key'),
+  scope: z.enum(['personal', 'team']).optional().describe('personal (default): only this person uses it. team: for the team, only when the person is an admin'),
+  notes: z.string().max(4000).optional().describe('http only: how to use the API (endpoints, parameters), saved with the connection for later chats'),
+  why: z.string().max(200).optional().describe('One short line shown on the card: what the person asked for'),
+})
+export const ConnectServiceOutput = z.union([
+  z.object({ connected: z.literal(true), name: z.string(), status: z.string(), tools: z.array(z.string()).optional() }),
+  z.object({ skipped: z.literal(true), reason: z.string().optional() }),
+])
+
 // Web search is Claude Code's built-in WebSearch (runs on Anthropic's side). We keep only our own fetch.
 export const WebFetchInput = z.strictObject({ url: z.string().url().max(4000), maxChars: z.number().int().min(100).max(200000).optional() })
 export const WebFetchOutput = z.object({ url: z.string(), title: z.string().optional(), text: z.string(), truncated: z.boolean() })
@@ -175,6 +194,7 @@ export const OTHER_TOOLS = {
   remember: { input: RememberInput, output: RememberOutput },
   forget: { input: ForgetInput, output: ForgetOutput },
   ask_user: { input: AskUserInput, output: AskUserOutput },
+  connect_service: { input: ConnectServiceInput, output: ConnectServiceOutput },
   set_title: { input: SetTitleInput, output: SetTitleOutput },
   skill: { input: SkillInput, output: TextOutput },
   find_skills: { input: FindSkillsInput, output: TextOutput },
