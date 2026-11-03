@@ -712,6 +712,7 @@ export const en: Record<MessageKey, string> = {
   'projects.folderHint': "Only folders you can write to. A folder can be one project only.",
   'projects.folderNone': "No folder chosen yet",
   'projects.folderPick': "Choose the folder this project is about. A project is one folder, not the whole team folder.",
+  'projects.inTrash': "This project's folder is in the trash, so its chats get nothing of it. Restore the folder from Files › Trash, or choose another folder in Edit.",
   'projects.instructions': 'Instructions',
   'projects.instructionsHint': 'What the AI always follows in this project\'s chats.',
   'projects.noInstructions': 'No instructions.',

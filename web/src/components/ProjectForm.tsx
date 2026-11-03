@@ -60,7 +60,9 @@ export function ProjectForm({ project, initialFolder, initialName, onClose, onSa
     setTakenBy(null)
     try {
       const p = project
-        ? await api.call(API.updateProject, { params: { id: project.id }, body: { name: finalName, instructions, ...(folder !== project.folderPath ? { folderPath: folder } : {}) } })
+        // a project whose folder is in the trash takes the chosen folder also when it is the same path (the folder now
+        // there): the server ends the trash state only on a folderPath
+        ? await api.call(API.updateProject, { params: { id: project.id }, body: { name: finalName, instructions, ...(folder !== project.folderPath || project.inTrash ? { folderPath: folder } : {}) } })
         : await api.call(API.createProject, {
             body:
               mode === 'personal' ? { name: finalName, scope: 'personal', instructions, participants: [] }

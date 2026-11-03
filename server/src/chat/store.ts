@@ -197,7 +197,7 @@ export class ChatStore {
   // ---------------- projects ----------------
   projectRow(id: string): ProjectRow | null { return this.db.query(`SELECT ${PROJECT_COLS} FROM projects WHERE id = ?`).get(id) as ProjectRow | null }
   toProject(r: ProjectRow, canEdit: boolean): Project {
-    return { id: r.id, name: r.name, folderPath: r.folder_path, instructions: r.instructions, createdBy: this.userRef(r.created_by), createdAt: iso(r.created_at), canEdit }
+    return { id: r.id, name: r.name, folderPath: r.folder_path, instructions: r.instructions, createdBy: this.userRef(r.created_by), createdAt: iso(r.created_at), canEdit, inTrash: r.trashed_with !== null }
   }
 
   // ---------------- memories ----------------

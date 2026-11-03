@@ -691,6 +691,7 @@ export const es: Record<MessageKey, string> = {
   'projects.folderHint': "Solo carpetas en las que puede escribir. Cada carpeta puede ser un solo proyecto.",
   'projects.folderNone': "Aún no eligió una carpeta",
   'projects.folderPick': "Elija la carpeta de este proyecto. Un proyecto es una carpeta, no toda la carpeta del equipo.",
+  'projects.inTrash': "La carpeta de este proyecto está en la papelera, así que sus chats no lo usan. Restaure la carpeta desde Archivos › Papelera o elija otra carpeta en Editar.",
   'projects.instructions': "Instrucciones",
   'projects.instructionsHint': "Lo que la IA siempre sigue en los chats de este proyecto.",
   'projects.noInstructions': "Sin instrucciones.",

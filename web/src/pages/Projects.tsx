@@ -21,6 +21,7 @@ import { DisclosureRow } from '../components/DisclosureRow'
 import { TitleMenu } from '../components/TitleMenu'
 import { NewChatComposer } from '../components/chat/NewChatComposer'
 import { ProjectForm } from '../components/ProjectForm'
+import { ProjectTrashNote } from '../components/ProjectTrashNote'
 import { Button, EmptyState, ErrorNote, PageHeader, Skeleton, confirmDialog } from '../components/ui'
 import { DevEnvRow } from './DevEnvSection'
 
@@ -183,6 +184,7 @@ export function ProjectHome() {
       </div>
       <div className="mx-auto w-full max-w-[1080px] px-4 pt-8 pb-12 sm:px-6 sm:pt-10">
         <h1 className="text-[26px] font-semibold tracking-tight break-words sm:text-[30px]">{p.name}</h1>
+        <ProjectTrashNote project={p} />
         {summary && (
           <p className="mt-1.5 line-clamp-2 max-w-3xl text-sm text-muted" data-testid="project-summary">
             {summary}

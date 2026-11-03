@@ -6542,7 +6542,21 @@ Nothing is removed or re-keyed.
     the trash because of a project row.
   - A purge (by hand or by the retention sweep) keeps the mark: the project stays the admins' and the owner's, to delete
     or to point at a folder. An admin's `PATCH folderPath` clears the mark, also to the same path (to take the folder
-    now there).
+    now there). Deleting or pointing elsewhere a marked project does not drop a rule-less row at its old path
+    (`dropProjectMarker`): its own marker went to the trash with the folder, and the row there now belongs to another
+    folder (for example an admin's "follow the folder above" row).
+  - In the trash, a folder whose projects went there with it is a project folder still: only admins and the owner see
+    and restore it (`trashVisible()` → `managedRows(…, trashId)` counts the projects marked with that item). Review
+    round 3: once marked projects stopped counting as "in place", a member saw and restored a project folder an admin
+    had trashed (the member could not trash it).
+  - **No turn gets a marked project, admins included** (`projectForChat` is null, as the box is off): its path may be
+    another folder's by now, and the turn recorded the instructions' source by that path. Admins and the owner still see,
+    edit and delete it. The API says so: `Project.inTrash` (true only for them, since nobody else sees such a project);
+    the project page shows them one line (restore the folder from Files › Trash, or choose another folder in Edit), and
+    the edit dialog then sends the folder even when it is the same path, so saving points the project at the folder now
+    there.
+  - The "instructions changed" notice goes to who sees the project (`canSeeProject`), not to who reads its old path
+    (review round 3: an admin's edit of a trashed finance project's instructions told every member its name).
   - While marked, the project holds no path: another project may be made on a folder made at its old path (it follows
     its own folder when that comes back), the share copy's names and moves ignore it, and it does not make a folder at
     its old path admin-only.
@@ -6552,15 +6566,29 @@ Nothing is removed or re-keyed.
     gateway (`stillAllowed`), the inbox's dev environment and chat notices, and whether a 409 names it. Nobody uses the
     box of a marked project (`mayUseBox`, which also decides who hears that a box stopped: the admins only then): its
     path may be another folder's by now. The admin access views (`access-explain.ts`) leave marked projects out.
-  - **Existing rows** (migration 332, in C's range because it reads `trash_items.kind` from 301): the earliest unrestored
-    folder item at or above a team project's folder, deleted after the project was made (an older folder of that name,
-    trashed before the project, was another folder). It looks up each project's own folder and the folders above it in
-    a temporary index on `trash_items(original_path)`: 1000 projects, 100k trash rows, 0.1 s. A folder trashed and
-    purged before this build left no row and is not found; such a project shows by its path's rules, as before.
+  - **Existing rows** (migration 332, in C's range because it reads `trash_items.kind` from 301; `projects` itself is
+    the foundation's, 001): the earliest unrestored folder item at or above a team project's folder, deleted after the
+    project was made (an older folder of that name, trashed before the project, was another folder). When the trashed
+    folder took folders rows with it (parked under its storage path), one must be the project's own, parked at the
+    project's place: a project moved later onto a path where an unrelated folder had been trashed has its row in place.
+    When it took none (a project an admin pointed at a folder has no row), the item counts, failing closed: the project
+    is the admins' until the folder is restored or the project pointed at a folder. Left as they were: an unrelated
+    trashed folder with a row at exactly the project's place (taken for the project's row), and a project without a row
+    of its own inside a trashed folder whose rows were parked elsewhere (it shows by its path's rules, as before). It
+    looks up each project's own folder and the folders above it in a temporary index on `trash_items(original_path)`:
+    1000 projects, 100k trash rows, 0.1 s. A folder trashed and purged before this build left no row and is not found;
+    such a project shows by its path's rules, as before.
+  - **Rollback.** A build without the column (after a rollback) trashes folders without marking their projects. Rolled
+    forward again, the backfill does not run a second time (migrations run once, and no start-up re-run was added), so
+    such a project is not marked: it shows by its path's rules, as before this build, until an admin acts on it.
   - Regression tests: `tests/security/project-trashed-folder.test.ts`, `tests/security/project-trash-state.test.ts` (the
     purge, the restore under a new name, the detached restore, a move with a trashed project folder inside, an old
-    trash row and a new project, a project folder moved onto a trashed path, the box, its stop notice and its preview,
-    the admin access view, the backfill).
+    trash row and a new project, a project folder moved onto a trashed path, a folder above the project, the child and
+    then its parent (also with the parent back under a new name), a folder moved onto a marked project's path, a
+    repoint to the same path, deletes and repoints leaving the old path's row, the instructions notice, the trash list
+    and restore for members, the box, its stop notice, a job's notice, the inbox entries and the preview, the admin
+    access views, the backfill); each single line of the trash handling was reverted once and some test failed.
+    `web/test/unit/project-folders*.test.tsx` cover the page line and the dialog's same-path save.
 - **Migration 221 on a large server.** `audit_log` is indexed on `at` only, so the backfill read the whole log once per
   project: 1000 projects and 1M audit rows took 29.5 s on the test Mac (107 s in the review) under the write lock at
   start. The migration makes a temporary index on `audit_log(target, action)` before the backfill and drops it after:

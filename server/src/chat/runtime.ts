@@ -514,11 +514,12 @@ export class ChatRuntime {
   }
   /** The chat's project as the turn sees it: only while the person can still read the project folder (tab 2
    * "권한 회수": a project stays attached to the chat, but its name, folder and instructions stop reaching the AI), and
-   * while a team project's folder is in the trash, only for admins and the owner (chat/projects.ts canSeeProject). */
+   * never while its folder is in the trash, for anyone, admins included: its path may be another folder's by now
+   * (as for the dev environment's box). Admins still see, edit and delete the project itself (canSeeProject). */
   projectForChat(projectId: string | null, user: Principal) {
     if (!projectId) return null
     const p = this.store.projectRow(projectId)
-    if (!p || !canSeeProject(this.files, user, p)) return null
+    if (!p || p.trashed_with !== null || !canSeeProject(this.files, user, p)) return null
     return { name: p.name, folderPath: p.folder_path, instructions: p.instructions, createdBy: p.created_by, instructionsAuthor: p.instructions_author, instructionsAuthored: p.instructions_authored }
   }
   /**

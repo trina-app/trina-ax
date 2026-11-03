@@ -712,6 +712,7 @@ export const id: Record<MessageKey, string> = {
   'projects.folderHint': "Hanya folder yang bisa kamu tulis. Satu folder hanya bisa menjadi satu proyek.",
   'projects.folderNone': "Belum ada folder yang dipilih",
   'projects.folderPick': "Pilih folder untuk proyek ini. Proyek adalah satu folder, bukan seluruh folder tim.",
+  'projects.inTrash': "Folder proyek ini ada di Sampah, jadi chat-nya tidak memakai proyek ini. Pulihkan folder dari File › Sampah, atau pilih folder lain di Ubah.",
   'projects.instructions': 'Instruksi',
   'projects.instructionsHint': 'Yang selalu diikuti AI di chat proyek ini.',
   'projects.noInstructions': 'Belum ada instruksi.',

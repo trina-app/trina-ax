@@ -691,6 +691,7 @@ export const ja: Record<MessageKey, string> = {
   'projects.folderHint': "書き込み可能なフォルダーのみです。1つのフォルダーにつきプロジェクトは1つです。",
   'projects.folderNone': "フォルダーがまだ選ばれていません",
   'projects.folderPick': "このプロジェクトのフォルダーを選んでください。プロジェクトはチームフォルダー全体ではなく、1つのフォルダーです。",
+  'projects.inTrash': "このプロジェクトのフォルダーはゴミ箱にあるため、チャットはこのプロジェクトを使いません。ファイル › ゴミ箱からフォルダーを元に戻すか、編集で別のフォルダーを選んでください。",
   'projects.instructions': "指示",
   'projects.instructionsHint': "このプロジェクトのチャットでAIが常に従う指示です。",
   'projects.noInstructions': "指示はありません。",

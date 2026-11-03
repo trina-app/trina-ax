@@ -62,15 +62,14 @@ const mayEdit = (ctx: AppContext, p: Principal, r: ProjectRowT) => canWrite(ctx.
 /** a folder made for a request goes again when a later step of it fails: nothing half-made stays behind */
 const removeMade = (top: string | null) => { if (top) try { fs.rmSync(top, { recursive: true, force: true }) } catch {} }
 
-/** Tell everyone else who can read the project folder that its instructions changed (tab 3 지침 6). */
+/** Tell everyone else who sees the project that its instructions changed (tab 3 지침 6): who can read its folder, and
+ * while the folder is in the trash only admins and the owner (canSeeProject; its old path may be read by others now). */
 function notifyInstructionsChanged(ctx: AppContext, r: ProjectRowT, by: AuthInfo['user']) {
-  const rules = ctx.files.rules()
-  const segs = r.folder_path === '' ? [] : r.folder_path.split('/')
   const people = ctx.db.query("SELECT id, locale FROM users WHERE status = 'active' AND deleted_at IS NULL AND id != ?").all(by.id) as { id: string; locale: Locale | null }[]
   for (const u of people) {
     let who: Principal
     try { who = ctx.files.principal(u.id) } catch { continue }
-    if (!atLeast(rules.access(who, segs), 'read')) continue
+    if (!canSeeProject(ctx.files, who, r)) continue
     try {
       ctx.services.realtime.publish(u.id, { type: 'notice', data: { level: 'info', code: 'project_instructions_changed', message: tr('projectInstructionsChanged', u.locale ?? 'ko', { name: r.name, by: by.name }) } })
     } catch (e) { ctx.log.warn('project notice failed', { err: e }) }
@@ -493,8 +492,10 @@ export const chatsRoutes: RouteModule = {
         if (repoint) assertFolderFree(ctx.db, ctx.files.fx.caseInsensitive, folder, locale, { except: r!.id, mayName: (f) => canRead(ctx.files, p, f) })
         ctx.db.query('UPDATE projects SET name = ?, folder_path = ?, instructions = ?, instructions_author = ?, instructions_authored = ?, trashed_with = ? WHERE id = ?')
           .run(next.name, folder, next.instructions, author.by, author.text, repoint ? null : r!.trashed_with, r!.id)
-        // the old folder stops being a project folder: its rule-less marker row goes (else it stays admin-only for good)
-        if (folder !== r!.folder_path) dropProjectMarker(ctx.db, r!.folder_path)
+        // the old folder stops being a project folder: its rule-less marker row goes (else it stays admin-only for good).
+        // Not for a project whose folder is in the trash: its marker went there with the folder, and the old path may be
+        // another folder's now, whose own rule-less row (an admin's "follow the folder above") must stay.
+        if (folder !== r!.folder_path && r!.trashed_with === null) dropProjectMarker(ctx.db, r!.folder_path)
         // a personal project's content stays out of the audit log (admins read it; they cannot read users/<id>/)
         const personal = isPersonalPath(r!.folder_path) && isPersonalPath(folder)
         const changed = { name: next.name !== r!.name, instructions: next.instructions !== r!.instructions, folder: folder !== r!.folder_path }
@@ -553,8 +554,9 @@ export const chatsRoutes: RouteModule = {
         ctx.db.query('UPDATE chats SET project_id = NULL WHERE project_id = ?').run(r!.id)
         ctx.db.query('DELETE FROM projects WHERE id = ?').run(r!.id)
         // a rule-less folders row that only marked this project's folder goes with it (security review r2: it kept the
-        // folder, and every folder above it, admin-only to move, rename or trash for good)
-        dropProjectMarker(ctx.db, r!.folder_path)
+        // folder, and every folder above it, admin-only to move, rename or trash for good). Not when its folder is in the
+        // trash: the marker is there with it, and the old path may be another folder's now.
+        if (r!.trashed_with === null) dropProjectMarker(ctx.db, r!.folder_path)
         audit(ctx.db, { actor: auth.user.id, action: 'project.delete', target: r!.id, detail: isPersonalPath(r!.folder_path) ? null : { name: r!.name, folderPath: r!.folder_path } })
       })()
     })

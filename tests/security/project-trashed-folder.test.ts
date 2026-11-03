@@ -53,10 +53,11 @@ describe('a project whose restricted folder is in the trash', () => {
     expect(turn.done.status).toBe('done')
     expect(turn.done.content).not.toContain(CANARY)
     expect(turn.done.content).not.toContain('Secret plan')
-    // the admin, who alone restores the folder, still sees and opens it, and its instructions reach the admin's AI
+    // the admin, who alone restores the folder, still sees and opens it (marked as in the trash), but no turn gets it,
+    // the admin's included: its path may be another folder's by now
     expect(await listed('carol')).toContain('Secret plan')
-    expect((await h.api('carol').call(API.getProject, { params: { id: p.id } })).name).toBe('Secret plan')
-    expect(h.rt().projectForChat(p.id, h.ctx.files.principal('carol'))?.instructions).toContain(CANARY)
+    expect(await h.api('carol').call(API.getProject, { params: { id: p.id } })).toMatchObject({ name: 'Secret plan', inTrash: true })
+    expect(h.rt().projectForChat(p.id, h.ctx.files.principal('carol'))).toBeNull()
 
     // it holds no path meanwhile: alice's own new project on a new shared/secret is hers, and names nothing of it
     const mine = await h.api('alice').call(API.createProject, { body: { name: 'Mine', folderPath: 'shared/secret', instructions: '', scope: 'team', participants: [] } })
@@ -71,6 +72,8 @@ describe('a project whose restricted folder is in the trash', () => {
     expect(row.folder_path).toBe(back.entry.path)
     expect(row.folder_path).not.toBe('shared/secret')
     expect(row.trashed_with).toBeNull()
+    expect(await h.api('carol').call(API.getProject, { params: { id: p.id } })).toMatchObject({ inTrash: false })
+    expect(h.rt().projectForChat(p.id, h.ctx.files.principal('bob'))?.instructions).toContain(CANARY)
     expect(await listed('bob')).toContain('Secret plan')
     expect(await listed('alice')).not.toContain('Secret plan')
     expect(h.rt().store.projectRow(mine.id)!.folder_path).toBe('shared/secret')

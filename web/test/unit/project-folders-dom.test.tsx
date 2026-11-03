@@ -21,7 +21,7 @@ const chat = (projectId: string | null): Chat =>
 const json = (status: number, body: unknown) => new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json' } })
 
 /** answers by "METHOD path" (the query left out); anything else is a loud 500 */
-let routes: Record<string, () => Response> = {}
+let routes: Record<string, (init?: RequestInit) => Response> = {}
 const calls: string[] = []
 const realFetch = globalThis.fetch
 const localeBefore = useLocaleStore.getState().locale
@@ -31,7 +31,7 @@ beforeAll(() => {
   globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
     const key = `${init?.method ?? 'GET'} ${String(input).split('?')[0]}`
     calls.push(key)
-    return routes[key]?.() ?? json(500, { error: { code: 'internal', message: `no route ${key}` } })
+    return routes[key]?.(init) ?? json(500, { error: { code: 'internal', message: `no route ${key}` } })
   }) as unknown as typeof fetch
 })
 afterAll(() => {
@@ -88,6 +88,25 @@ describe('the project dialog and the names elsewhere', () => {
     await m.click('project-save')
     await m.until(() => useProjects.getState().byId[P1]?.name === 'Acme launch 2027', 'the store to have the new name', 2000)
     await m.unmount()
+  })
+})
+
+describe('a project whose folder is in the trash (an admin\'s view)', () => {
+  test('saving the same folder points the project at the folder now there (the dialog sends it)', async () => {
+    const sent: unknown[] = []
+    routes = { [`PATCH /api/projects/${P1}`]: (init) => { sent.push(JSON.parse(String(init?.body))); return json(200, { ...project(P1, 'Acme launch', 'shared/acme-launch'), inTrash: false }) } }
+    const m = await mount(<MemoryRouter><ProjectForm project={{ ...project(P1, 'Acme launch', 'shared/acme-launch'), inTrash: true }} onClose={() => {}} onSaved={() => {}} /></MemoryRouter>)
+    await m.click('project-save')
+    await m.until(() => sent.length, 'the save', 2000)
+    expect(sent[0]).toMatchObject({ folderPath: 'shared/acme-launch' })
+    await m.unmount()
+    // a project in place sends no folder when it did not change
+    sent.length = 0
+    const n = await mount(<MemoryRouter><ProjectForm project={project(P1, 'Acme launch', 'shared/acme-launch')} onClose={() => {}} onSaved={() => {}} /></MemoryRouter>)
+    await n.click('project-save')
+    await n.until(() => sent.length, 'the save', 2000)
+    expect(sent[0]).not.toHaveProperty('folderPath')
+    await n.unmount()
   })
 })
 

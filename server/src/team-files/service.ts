@@ -248,7 +248,7 @@ export class TeamFiles {
   managedFolder(rel: string): boolean { return this.managedInside(this.rules(), rel) }
   /** Is one of the folders rows at or below `rowPrefix` managed? `livePrefix`: the path `rowPrefix` stands for
    * (differs for rows parked with a trashed folder, whose projects still name the path it had). */
-  private managedRows(rowPrefix: string, livePrefix: string): boolean {
+  private managedRows(rowPrefix: string, livePrefix: string, trashId?: string): boolean {
     const db = this.ctx.db
     const rows = db.query("SELECT id, path FROM folders WHERE path = ? OR substr(path, 1, length(?) + 1) = ? || '/'").all(rowPrefix, rowPrefix, rowPrefix) as { id: string; path: string }[]
     for (const f of rows) {
@@ -260,7 +260,10 @@ export class TeamFiles {
     // a project's folder (with or without a marker row: a project repointed by an admin has none); personal projects
     // live under users/<me>/, where nothing is managed
     if (livePrefix === 'users' || livePrefix.startsWith('users/')) return false
-    // a project whose folder is in the trash does not use the folder now at its old path
+    // a trashed folder (trashId): the projects that went to the trash with it are its own, so it is a project folder
+    // there too, admin-only to see and restore (trashVisible); review round 3: members restored such a folder
+    if (trashId && db.query('SELECT 1 FROM projects WHERE trashed_with = ? LIMIT 1').get(trashId)) return true
+    // otherwise a project whose folder is in the trash does not use the folder now at its old path
     return !!db.query(`SELECT 1 FROM projects WHERE trashed_with IS NULL AND substr(folder_path, 1, 6) <> 'users/' AND (${livePrefix === '' ? "folder_path <> ''" : "folder_path = ?1 OR substr(folder_path, 1, length(?1) + 1) = ?1 || '/'"}) LIMIT 1`)
       .get(...(livePrefix === '' ? [] : [livePrefix]))
   }
@@ -513,10 +516,11 @@ export class TeamFiles {
     if (!pr.st!.isDirectory()) throw new ToolError('not a folder', 'not_folder')
     if (pr.rel === fr.rel || isUnder(fr.rel, pr.rel)) fileError('validation', 'intoItself', { toParent })
     // the name comes from the caller's own folder: step around only siblings they can see (a hidden one is refused
-    // by authorize() like a missing name, so the " (2)" never tells them it exists). Also around a path a project
-    // still names although its folder is gone (trashed): a copy there would become that project's folder, with its
-    // instructions, and admin-only to move (one project per folder, docs/DECISIONS.md "Projects: a folder with
-    // instructions"). That tells the caller only that some project names the path, never which.
+    // by authorize() like a missing name, so the " (2)" never tells them it exists). Also around every path a project
+    // names: a project whose folder vanished from disk another way than the trash still takes a folder made at its
+    // path, which would then carry its instructions and be admin-only to move (one project per folder,
+    // docs/DECISIONS.md "Projects: a folder with instructions"). A project whose folder is in the trash holds no path,
+    // but stepping around it too costs nothing. The caller learns only that some project names the path, never which.
     const projectKeys = new Set((this.ctx.db.query('SELECT folder_path FROM projects').all() as { folder_path: string }[]).map((r) => volumeKey(r.folder_path, this.fx.caseInsensitive)))
     const name = freeName(pr.abs, fr.segs[fr.segs.length - 1]!, true, (n) => siblingVisible(this.fx, rules, user, pr.segs, n), (n) => projectKeys.has(volumeKey([...pr.segs, n].join('/'), this.fx.caseInsensitive)))
     const tr = authorize(this.fx, rules, user, [...pr.segs, name].join('/'), 'write', { mustExist: false })
@@ -874,7 +878,7 @@ export class TeamFiles {
     // a trashed group / project / rule folder went there by an admin or the owner (assertMayChangeManaged) and comes
     // back only the same way: listing it to members, whose restore then failed (they cannot write groups/ or
     // projects/), offered what could not be done (design tab 4 move/delete; security review r2)
-    if (t.kind === 'folder' && user.role !== 'owner' && user.role !== 'admin' && this.managedRows(t.storage_path, home)) return false
+    if (t.kind === 'folder' && user.role !== 'owner' && user.role !== 'admin' && this.managedRows(t.storage_path, home, t.id)) return false
     // a trashed folder's own (parked) rules count as if it were still in place; rules of a folder that took its name
     // since belong to that other folder and do not
     const r = t.kind === 'folder' ? new RuleSet(this.ctx.db.query(`SELECT CASE WHEN f.path = ?1 OR substr(f.path, 1, length(?1) + 1) = ?1 || '/'

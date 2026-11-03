@@ -13,6 +13,7 @@ import { translate } from '../../src/i18n'
 import { folderName, folderProjectAction, projectName, projectsByFolder } from '../../src/lib/projectFolders'
 import { ProjectForm } from '../../src/components/ProjectForm'
 import { ProjectChoices } from '../../src/components/chat/ChatProject'
+import { ProjectTrashNote } from '../../src/components/ProjectTrashNote'
 
 const project = (id: string, name: string, folderPath: string): Project =>
   ({ id, name, folderPath, instructions: '', createdBy: null, createdAt: '2026-11-03T00:00:00.000Z', canEdit: true })
@@ -107,8 +108,16 @@ describe('the chat and its project', () => {
     expect(radios(none).map((r) => r.includes('checked=""'))).toEqual([true, false, false])
   })
 
+  test('an admin\'s project page says when its folder is in the trash; nothing otherwise', () => {
+    const html = inRouter(<ProjectTrashNote project={{ inTrash: true }} />)
+    expect(html).toContain('data-testid="project-in-trash"')
+    expect(html).toContain(translate('en', 'projects.inTrash'))
+    expect(inRouter(<ProjectTrashNote project={{ inTrash: false }} />)).toBe('')
+    expect(inRouter(<ProjectTrashNote project={{}} />)).toBe('')
+  })
+
   test('the new texts exist in every language', () => {
-    const keys = ['files.makeProject', 'files.openProject', 'files.isProject', 'projects.nameHint', 'projects.folderNone', 'projects.folderPick', 'chat.project.hidden', 'chat.project.open', 'chat.project.add', 'chat.project.change', 'chat.project.title', 'chat.project.none', 'chat.project.hint', 'chat.project.empty', 'chat.project.moved', 'chat.project.removed'] as const
+    const keys = ['files.makeProject', 'files.openProject', 'files.isProject', 'projects.nameHint', 'projects.folderNone', 'projects.folderPick', 'projects.inTrash', 'chat.project.hidden', 'chat.project.open', 'chat.project.add', 'chat.project.change', 'chat.project.title', 'chat.project.none', 'chat.project.hint', 'chat.project.empty', 'chat.project.moved', 'chat.project.removed'] as const
     for (const locale of ['en', 'ko', 'ja', 'es', 'id'] as const)
       for (const key of keys) expect(translate(locale, key)).not.toBe(key)
   })

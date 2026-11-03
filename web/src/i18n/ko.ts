@@ -711,6 +711,7 @@ export const ko = {
   'projects.folderHint': "쓰기 권한이 있는 폴더만 고를 수 있어요. 폴더 하나는 프로젝트 하나만 될 수 있어요.",
   'projects.folderNone': "아직 고른 폴더가 없어요",
   'projects.folderPick': "이 프로젝트의 폴더를 골라 주세요. 프로젝트는 팀 폴더 전체가 아니라 폴더 하나예요.",
+  'projects.inTrash': "이 프로젝트의 폴더가 휴지통에 있어서 채팅이 이 프로젝트를 쓰지 않아요. 파일 › 휴지통에서 폴더를 되돌리거나, 수정에서 다른 폴더를 골라 주세요.",
   'projects.instructions': '지침',
   'projects.instructionsHint': '이 프로젝트의 채팅에서 AI가 항상 따를 내용이에요.',
   'projects.noInstructions': '지침이 없어요.',

@@ -11,9 +11,10 @@ import path from 'node:path'
 import { API, ApiError } from '@mycel/shared/api'
 import { MIGRATIONS_DIR, migrate, openDb, readMigrations } from '../../server/src/db'
 import { setBoxdClient, type BoxdClient } from '../../server/src/devenv/boxd'
-import { pollStops } from '../../server/src/devenv/jobs'
+import { pollJobs, pollStops } from '../../server/src/devenv/jobs'
 import { issuePreview, previewFetch } from '../../server/src/devenv/preview'
 import { mayUseBox, newConsent, OFF_SETTING, saveDevEnvSetting } from '../../server/src/devenv/setting'
+import { notificationsOf, notifyDevEnv } from '../../server/src/notifications/service'
 import { startHarness, type Harness } from '../lib/b-harness'
 import { WORK } from '../lib/env'
 
@@ -35,6 +36,15 @@ function financeOnly(dir: string, id: string) {
   h.ctx.db.query("INSERT INTO folder_rules (id, folder_id, subject_type, subject_id, access) VALUES (?, ?, 'group', 'finance', 'write'), (?, ?, 'everyone', NULL, 'none')").run(`r_${id}_f`, `f_${id}`, `r_${id}_e`, `f_${id}`)
 }
 const trash = (who: string, p: string) => h.api(who).call(API.remove, { query: { path: p } })
+const restore = (who: string, id: string) => h.api(who).call(API.restoreTrash, { params: { id } })
+/** realtime notices with this code, by person, while `fn` runs */
+async function noticesDuring(code: string, fn: () => Promise<unknown>): Promise<string[]> {
+  const told: string[] = []
+  const real = h.ctx.services.realtime.publish.bind(h.ctx.services.realtime)
+  h.ctx.services.realtime.publish = ((user: string, frame: never) => { if ((frame as { data?: { code?: string } }).data?.code === code) told.push(user); return real(user, frame) }) as typeof h.ctx.services.realtime.publish
+  try { await fn() } finally { h.ctx.services.realtime.publish = real }
+  return told.sort()
+}
 
 describe('a purge does not bring the project back', () => {
   test('purged from the trash, the finance project stays the admins\': not listed, 404, nothing in a member\'s AI', async () => {
@@ -66,6 +76,10 @@ describe('a restore takes the project along', () => {
     // an admin's view of alice's access does not call her new shared/s2 the project's folder (it lists marked folders)
     const view = await h.api('carol').call(API.explainPersonAccess, { params: { id: 'alice' }, query: { prefix: 'shared' } })
     expect(JSON.stringify(view)).not.toContain('Restored plan')
+    // nor does the admin folder tree
+    const tree = await h.api('carol').call(API.explainAccessTree, { query: { path: 'shared' } })
+    expect(JSON.stringify(tree)).toContain('s2')
+    expect(JSON.stringify(tree)).not.toContain('Restored plan')
     const back = await h.api('carol').call(API.restoreTrash, { params: { id: trashId } })
     expect(back.entry.path).not.toBe('shared/s2')
     expect(row(p.id)).toMatchObject({ folder_path: back.entry.path, trashed_with: null })
@@ -122,6 +136,112 @@ describe('an old trash row does not hide a new project', () => {
   })
 })
 
+describe('who hears of it and who may restore it', () => {
+  test('an admin\'s edit of its instructions is told only to who sees the project: not the members reading the path above', async () => {
+    financeOnly('shared/c4', 'c4')
+    const p = await project('bob', 'shared/c4', 'S4 Finance plan', 'v1')
+    await trash('carol', 'shared/c4')
+    const told = await noticesDuring('project_instructions_changed', () => h.api('carol').call(API.updateProject, { params: { id: p.id }, body: { instructions: 'v2' } }))
+    expect(told).toEqual(['dana'])
+  })
+
+  test('a project folder an admin trashed is the admins\' in the trash too: members neither see nor restore it', async () => {
+    fs.mkdirSync(path.join(h.team, 'shared/plainp'), { recursive: true })
+    const p = await project('alice', 'shared/plainp', 'Plain p')
+    expect(await status(trash('alice', 'shared/plainp'))).toBe(403) // a project folder: admin-only
+    const { trashId } = await trash('carol', 'shared/plainp')
+    const items = (await h.api('alice').call(API.trash, { query: {} })).items.map((i) => i.id)
+    expect(items).not.toContain(trashId)
+    expect(await status(restore('alice', trashId))).toBe(404)
+    expect((await h.api('carol').call(API.trash, { query: {} })).items.map((i) => i.id)).toContain(trashId)
+    await restore('carol', trashId)
+    expect(row(p.id).trashed_with).toBeNull()
+  })
+})
+
+describe('trashed folders inside and above a project', () => {
+  test('a folder above the project: trashing it hides the project, restoring it shows it again', async () => {
+    fs.mkdirSync(path.join(h.team, 'shared/up/deep/er'), { recursive: true })
+    const p = await project('alice', 'shared/up/deep/er', 'Deep plan')
+    const { trashId } = await trash('carol', 'shared/up')
+    expect(row(p.id).trashed_with).toBe(trashId)
+    expect(await get('alice', p.id)).toBe(404)
+    await restore('carol', trashId)
+    expect(row(p.id)).toMatchObject({ folder_path: 'shared/up/deep/er', trashed_with: null })
+    expect(await get('alice', p.id)).toBe(200)
+  })
+
+  test('the child, then its parent: restoring the parent leaves the project hidden while its own folder is still in the trash', async () => {
+    fs.mkdirSync(path.join(h.team, 'shared/cp/child'), { recursive: true })
+    const p = await project('alice', 'shared/cp/child', 'Child plan')
+    const child = (await trash('carol', 'shared/cp/child')).trashId
+    const parent = (await trash('carol', 'shared/cp')).trashId
+    expect(row(p.id).trashed_with).toBe(child) // the folder trashed first
+    await restore('carol', parent)
+    expect(row(p.id).trashed_with).toBe(child)
+    expect(await get('alice', p.id)).toBe(404)
+    await restore('carol', child)
+    expect(row(p.id)).toMatchObject({ folder_path: 'shared/cp/child', trashed_with: null })
+    expect(await get('alice', p.id)).toBe(200)
+  })
+
+  test('the child, then its parent, and the parent back under a new name: the project still comes back with its child folder', async () => {
+    fs.mkdirSync(path.join(h.team, 'shared/pn/child'), { recursive: true })
+    const p = await project('alice', 'shared/pn/child', 'Renamed parent plan')
+    const child = (await trash('carol', 'shared/pn/child')).trashId
+    const parent = (await trash('carol', 'shared/pn')).trashId
+    await h.api('alice').call(API.mkdir, { body: { path: 'shared/pn' } })
+    const back = await restore('carol', parent)
+    expect(back.entry.path).not.toBe('shared/pn')
+    expect(row(p.id)).toMatchObject({ folder_path: `${back.entry.path}/child`, trashed_with: child })
+    const again = await restore('carol', child)
+    expect(again.entry.path).toBe(`${back.entry.path}/child`)
+    expect(row(p.id)).toMatchObject({ folder_path: `${back.entry.path}/child`, trashed_with: null })
+    expect(await get('alice', p.id)).toBe(200)
+  })
+
+  test('a folder moved onto the old path of a project whose folder is in the trash: the project holds no path', async () => {
+    fs.mkdirSync(path.join(h.team, 'shared/held'), { recursive: true })
+    await project('alice', 'shared/held', 'Held plan')
+    await trash('carol', 'shared/held')
+    fs.mkdirSync(path.join(h.team, 'shared/mover'), { recursive: true })
+    const m = await project('alice', 'shared/mover', 'Mover plan')
+    expect(await status(h.api('carol').call(API.move, { body: { from: 'shared/mover', to: 'shared/held' } }))).toBe(200)
+    expect(row(m.id).folder_path).toBe('shared/held')
+  })
+})
+
+describe('an admin points a project whose folder is in the trash', () => {
+  test('at the folder now at the same path: the project is in place again, seen by that folder\'s readers', async () => {
+    fs.mkdirSync(path.join(h.team, 'shared/same'), { recursive: true })
+    const p = await project('alice', 'shared/same', 'Same plan')
+    await trash('carol', 'shared/same')
+    fs.mkdirSync(path.join(h.team, 'shared/same'), { recursive: true })
+    expect(await h.api('carol').call(API.getProject, { params: { id: p.id } })).toMatchObject({ inTrash: true })
+    await h.api('carol').call(API.updateProject, { params: { id: p.id }, body: { folderPath: 'shared/same' } })
+    expect(row(p.id)).toMatchObject({ folder_path: 'shared/same', trashed_with: null })
+    expect(await get('alice', p.id)).toBe(200)
+  })
+
+  test('deleting it, or pointing it elsewhere, leaves the rule-less row of the folder now at its old path alone', async () => {
+    for (const how of ['delete', 'repoint'] as const) {
+      const dir = `shared/dm-${how}`
+      fs.mkdirSync(path.join(h.team, dir), { recursive: true })
+      const p = await project('alice', dir, `Marker ${how}`)
+      await trash('carol', dir)
+      fs.mkdirSync(path.join(h.team, dir), { recursive: true })
+      // the folder now there has a rule-less row of its own (an admin's "follow the folder above")
+      h.ctx.db.query('INSERT INTO folders (id, path) VALUES (?, ?)').run(`f_live_${how}`, dir)
+      if (how === 'delete') await h.api('carol').call(API.deleteProject, { params: { id: p.id } })
+      else {
+        fs.mkdirSync(path.join(h.team, `${dir}-elsewhere`), { recursive: true })
+        await h.api('carol').call(API.updateProject, { params: { id: p.id }, body: { folderPath: `${dir}-elsewhere` } })
+      }
+      expect(h.ctx.db.query('SELECT path FROM folders WHERE id = ?').get(`f_live_${how}`)).toEqual({ path: dir })
+    }
+  })
+})
+
 describe('the dev environment of a project whose folder is in the trash', () => {
   const boxes: { box: string; state: 'stopped'; startedAt: null; lastActiveAt: null; memoryMiB: null; stopCode: string; stopReason: string; stoppedAt: string }[] = []
   const fake: BoxdClient = {
@@ -161,6 +281,35 @@ describe('the dev environment of a project whose folder is in the trash', () => 
       await pollStops(h.ctx)
     } finally { h.ctx.services.realtime.publish = real }
     expect(told.sort()).toEqual(['carol', 'dana'])
+
+    // a job of bob's that ends now: no notice for him (its log stays out)
+    h.ctx.db.query("INSERT INTO dev_env_jobs (id, project_id, name, user_id, started_at) VALUES ('job-s4', ?, 'build', 'bob', '2020-01-01T00:00:00.000Z')").run(p.id)
+    expect(await noticesDuring('dev_env_job', () => pollJobs(h.ctx, p.id))).toEqual([])
+    expect(h.ctx.db.query("SELECT ended_at IS NOT NULL AS ended FROM dev_env_jobs WHERE id = 'job-s4'").get()).toEqual({ ended: 1 })
+    // bob's inbox entry for a stop of this box does not name the project, also once a folder is made at its old path
+    fs.mkdirSync(path.join(h.team, 'shared/s4'), { recursive: true })
+    h.ctx.db.query("INSERT INTO dev_env_stops (id, project_id, code, reason, stopped_at) VALUES ('stop-s4', ?, 'disk', '', '2026-11-02T10:00:00Z')").run(p.id)
+    notifyDevEnv(h.ctx, 'bob', 'dev_env.box', 'stop-s4')
+    const entry = notificationsOf(h.ctx).list('bob', {}).items.find((i) => i.sourceId === 'stop-s4')!
+    expect(entry).toBeDefined()
+    expect(entry.devEnv).toBeUndefined()
+    expect(entry.link).toBeNull()
+  })
+
+  test('the inbox entry of a scheduled run in a chat of that project does not link the chat', async () => {
+    financeOnly('shared/s5', 's5')
+    const p = await project('bob', 'shared/s5', 'Inbox plan')
+    const chat = (await h.api('alice').call(API.createChat, { body: {} })).id
+    h.ctx.db.query('UPDATE chats SET project_id = ? WHERE id = ?').run(p.id, chat)
+    const turn = '01900000-0000-7000-8000-0000000000f5'
+    h.ctx.db.query("INSERT INTO turns (id, chat_id, user_id, engine, status, queued_at, started_at, ended_at) VALUES (?, ?, 'alice', 'claude-code', 'done', ?, ?, ?)").run(turn, chat, new Date().toISOString(), new Date().toISOString(), new Date().toISOString())
+    h.ctx.db.query("INSERT INTO notification_inbox (id, user_id, event_type, source_id, created_at) VALUES ('inbox-s5', 'alice', 'schedule.success', ?, ?)").run(turn, new Date().toISOString())
+    await trash('carol', 'shared/s5')
+    // a new folder at the old path: shared/s5 falls back to shared/ (alice reads it), but the project is not hers to see
+    await h.api('alice').call(API.mkdir, { body: { path: 'shared/s5' } })
+    const entry = notificationsOf(h.ctx).list('alice', {}).items.find((i) => i.id === 'inbox-s5')!
+    expect(entry).toBeDefined()
+    expect(entry.chatId).toBeNull()
   })
 })
 
@@ -182,10 +331,18 @@ describe('the backfill of projects whose folder is in the trash (migration 332)'
       proj('prefix', 'shared/ab'); // 'shared/a' is not above 'shared/ab'
       proj('personal', 'users/alice/p'); item('t-p', 'users/alice/p', 'folder', '2026-10-12T00:00:00.000Z')
       proj('root', '')
+      // the trashed folder took rows with it: one must be the project's own, parked at its place
+      proj('with-row', 'shared/w/p'); item('t-w', 'shared/w', 'folder', '2026-10-12T00:00:00.000Z')
+      db.query("INSERT INTO folders (id, path) VALUES ('f-w', '.system/trash/2026-10/t-w'), ('f-w-p', '.system/trash/2026-10/t-w/p')").run()
+      // moved later onto a path where an unrelated folder (with a row elsewhere inside) had been trashed: its row is in place
+      proj('moved-later', 'shared/m'); item('t-m', 'shared/m', 'folder', '2026-10-12T00:00:00.000Z')
+      db.query("INSERT INTO folders (id, path) VALUES ('f-m-sub', '.system/trash/2026-10/t-m/sub'), ('f-m-live', 'shared/m')").run()
       migrate(db, { backupDir: path.join(dir, 'backups') })
+      // in-trash: its folders took no rows; failing closed, it counts
       expect(db.query('SELECT id, trashed_with AS t FROM projects ORDER BY id').all()).toEqual([
-        { id: 'a-file', t: null }, { id: 'in-trash', t: 't-b' }, { id: 'older-row', t: null }, { id: 'personal', t: null },
-        { id: 'prefix', t: null }, { id: 'restored', t: null }, { id: 'root', t: null },
+        { id: 'a-file', t: null }, { id: 'in-trash', t: 't-b' }, { id: 'moved-later', t: null }, { id: 'older-row', t: null },
+        { id: 'personal', t: null }, { id: 'prefix', t: null }, { id: 'restored', t: null }, { id: 'root', t: null },
+        { id: 'with-row', t: 't-w' },
       ])
       expect(db.query("SELECT name FROM sqlite_master WHERE name LIKE '%332%'").all()).toEqual([])
     } finally { db.close() }
