@@ -15,7 +15,7 @@ import { HttpError } from '../http/errors'
 import { atLeast, RuleSet, type Principal } from '../policy/access'
 import { authorize, siblingVisible, type Authorized } from '../policy/authorize'
 import { Denied, ToolError } from '../policy/errors'
-import { badSegment, hiddenEntry } from '../policy/names'
+import { badSegment, hiddenEntry, volumeKey } from '../policy/names'
 import { currentPlan } from '../system/limits'
 import { assertStorageRoom, assertStorageRoomForAI } from '../system/storage'
 import { parseInput, verifyChain } from '../policy/resolve'
@@ -243,6 +243,9 @@ export class TeamFiles {
     if (rules.ruleFolders().some((f) => f === base || isUnder(base, f))) return true
     return this.managedRows(base, base)
   }
+  /** managedInside() for a path (actual names) under the current rules: a new project on a folder that is not managed
+   * yet makes it admin-only to move, and only someone who can write the folder it is in may add that (routes/chats.ts). */
+  managedFolder(rel: string): boolean { return this.managedInside(this.rules(), rel) }
   /** Is one of the folders rows at or below `rowPrefix` managed? `livePrefix`: the path `rowPrefix` stands for
    * (differs for rows parked with a trashed folder, whose projects still name the path it had). */
   private managedRows(rowPrefix: string, livePrefix: string): boolean {
@@ -348,6 +351,20 @@ export class TeamFiles {
         const np = toRel + m.path.slice(fr.rel.length)
         const top = (db.query('SELECT MAX(version) AS v FROM file_versions WHERE path = ?').get(np) as { v: number | null }).v
         if (top) db.query('UPDATE file_versions SET version = version + ? WHERE path = ?').run(top, m.path)
+      }
+      // one project per folder: a project inside the moved folder must not land on a folder another project still
+      // names (a project whose folder is in the trash or gone keeps its path). Two projects that already shared a
+      // folder before the rule move together and stay as they are.
+      if (isDir) {
+        const key = (p: string) => volumeKey(p, this.fx.caseInsensitive)
+        const inside = db.query(`SELECT folder_path FROM projects WHERE ${under('folder_path')}`).all(fr.rel, fr.rel, fr.rel) as { folder_path: string }[]
+        if (inside.length) {
+          const others = new Set((db.query(`SELECT folder_path FROM projects WHERE NOT ${under('folder_path')}`).all(fr.rel, fr.rel, fr.rel) as { folder_path: string }[]).map((r) => key(r.folder_path)))
+          for (const r of inside) {
+            const next = toRel + r.folder_path.slice(fr.rel.length)
+            if (key(next) !== key(r.folder_path) && others.has(key(next))) fileError('conflict', 'projectThere', { to: toRel }, { reason: 'project_folder_taken' })
+          }
+        }
       }
       const re = (table: string, col: string) => db.query(`UPDATE ${table} SET ${col} = ? || substr(${col}, length(?) + 1) WHERE ${under(col)}`).run(toRel, fr.rel, fr.rel, fr.rel, fr.rel)
       re('folders', 'path')

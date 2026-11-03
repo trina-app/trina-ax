@@ -22,11 +22,16 @@ export interface MessageRow {
   /** migration 213: 1 when the AI got only the recent part of the conversation for this answer */
   history_trimmed: number
 }
-export interface ProjectRow { id: string; name: string; folder_path: string; instructions: string; created_by: string | null; created_at: string }
+export interface ProjectRow {
+  id: string; name: string; folder_path: string; instructions: string; created_by: string | null; created_at: string
+  /** migration 221: the one person who wrote every saved version of the instructions (null: several, or not known),
+   * and the instructions as that person last saved them (a build without these columns may have changed them since) */
+  instructions_author: string | null; instructions_authored: string | null
+}
 
 export const CHAT_COLS = 'id, user_id, project_id, title, engine, model, engine_session_id, engine_session_leaf_id, session_tainted, active_leaf_id, created_at, updated_at, deleted_at, title_source'
 export const MESSAGE_COLS = 'id, chat_id, parent_id, role, author_id, content, attachments, steps, status, error, turn_id, engine, model, files, client_message_id, created_at, updated_at, stop_reason, history_trimmed'
-export const PROJECT_COLS = 'id, name, folder_path, instructions, created_by, created_at'
+export const PROJECT_COLS = 'id, name, folder_path, instructions, created_by, created_at, instructions_author, instructions_authored'
 
 /** SQLite timestamps ("2026-10-21T03:04:05.678Z" from strftime, or ISO from JS) -> ISO with offset. */
 export function iso(t: string | null | undefined): string {

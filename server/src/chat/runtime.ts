@@ -518,11 +518,17 @@ export class ChatRuntime {
     if (!projectId) return null
     const p = this.store.projectRow(projectId)
     if (!p || !canRead(this.files, user, p.folder_path)) return null
-    return { name: p.name, folderPath: p.folder_path, instructions: p.instructions, createdBy: p.created_by }
+    return { name: p.name, folderPath: p.folder_path, instructions: p.instructions, createdBy: p.created_by, instructionsAuthor: p.instructions_author, instructionsAuthored: p.instructions_authored }
   }
-  /** project instructions someone else wrote count as outside content (remember protection) */
-  projectTaints(project: { instructions: string; createdBy: string | null } | null, userId: string): boolean {
-    return !!project && project.createdBy !== userId && project.instructions.trim() !== ''
+  /**
+   * Project instructions count as outside content (remember protection) unless this person wrote every saved version
+   * of them: they are the recorded author and the instructions are still what they last saved (a build without the
+   * author columns may have changed them since). Not created_by: an admin may have rewritten the creator's
+   * instructions (docs/DECISIONS.md "Projects: a folder with instructions").
+   */
+  projectTaints(project: { instructions: string; instructionsAuthor: string | null; instructionsAuthored: string | null } | null, userId: string): boolean {
+    if (!project || project.instructions.trim() === '') return false
+    return !(project.instructionsAuthor === userId && project.instructionsAuthored === project.instructions)
   }
   /** Messages of a branch up to `leafId` (inclusive), for a fresh engine session. */
   history(leafId: string | null): { role: 'user' | 'assistant'; content: string }[] {
