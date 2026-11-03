@@ -694,6 +694,8 @@ export const ja: Record<MessageKey, string> = {
   'projects.folderPick': "このプロジェクトのフォルダーを選んでください。プロジェクトはチームフォルダー全体ではなく、1つのフォルダーです。",
   'projects.inTrash': "このプロジェクトのフォルダーはゴミ箱にあるため、チャットはこのプロジェクトを使いません。ファイル › ゴミ箱からフォルダーを元に戻すか、編集で別のフォルダーを選んでください。",
   'projects.inTrashEdit': "このプロジェクトのフォルダーはゴミ箱にあります。ファイル › ゴミ箱から元に戻すか、ここでフォルダーを選んでください。選ばずに保存すると、プロジェクトはそのままです。",
+  'projects.inTrashOpens': "保存すると、{folder} を閲覧できる全員がこのプロジェクトとその指示を見られるようになります。",
+  'projects.inTrashOpensCount': "{folder} を閲覧できるのは{n, plural, one {#人} other {#人}}です。保存すると、その全員がこのプロジェクトとその指示を見られるようになります。",
   'projects.instructions': "指示",
   'projects.instructionsHint': "このプロジェクトのチャットでAIが常に従う指示です。",
   'projects.noInstructions': "指示はありません。",

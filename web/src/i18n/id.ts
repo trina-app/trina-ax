@@ -715,6 +715,8 @@ export const id: Record<MessageKey, string> = {
   'projects.folderPick': "Pilih folder untuk proyek ini. Proyek adalah satu folder, bukan seluruh folder tim.",
   'projects.inTrash': "Folder proyek ini ada di Sampah, jadi chat-nya tidak memakai proyek ini. Pulihkan folder dari File › Sampah, atau pilih folder lain di Ubah.",
   'projects.inTrashEdit': "Folder proyek ini ada di Sampah. Pulihkan dari File › Sampah, atau pilih folder di sini. Menyimpan tanpa memilih folder membiarkan proyek apa adanya.",
+  'projects.inTrashOpens': "Setelah disimpan, semua orang yang bisa membaca {folder} akan melihat proyek ini dan instruksinya.",
+  'projects.inTrashOpensCount': "{n} orang bisa membaca {folder}: setelah disimpan, mereka semua akan melihat proyek ini dan instruksinya.",
   'projects.instructions': 'Instruksi',
   'projects.instructionsHint': 'Yang selalu diikuti AI di chat proyek ini.',
   'projects.noInstructions': 'Belum ada instruksi.',

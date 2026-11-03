@@ -715,6 +715,8 @@ export const en: Record<MessageKey, string> = {
   'projects.folderPick': "Choose the folder this project is about. A project is one folder, not the whole team folder.",
   'projects.inTrash': "This project's folder is in the trash, so its chats get nothing of it. Restore the folder from Files › Trash, or choose another folder in Edit.",
   'projects.inTrashEdit': "This project's folder is in the trash. Restore it from Files › Trash, or choose a folder here. Saving without choosing one keeps the project as it is.",
+  'projects.inTrashOpens': "Everyone who can read {folder} will see this project and its instructions once you save.",
+  'projects.inTrashOpensCount': "{n, plural, one {# person} other {# people}} can read {folder}: once you save, they will all see this project and its instructions.",
   'projects.instructions': 'Instructions',
   'projects.instructionsHint': 'What the AI always follows in this project\'s chats.',
   'projects.noInstructions': 'No instructions.',

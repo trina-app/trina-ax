@@ -6559,7 +6559,12 @@ Nothing is removed or re-keyed.
     its own, so a trashed finance project opened to everyone reading `shared/` (the notice, the list, its instructions),
     and with another project on that path every save failed with 409. **The server points a marked project only at a
     folder that is there** (409 `conflict`, `params.reason: 'project_folder_missing'`, also for its old path); nothing is
-    made for it.
+    made for it. Once the admin has chosen a folder, the dialog no longer says that saving keeps the project as it is: a
+    warning says that everyone who can read that folder will see the project and its instructions, with how many people
+    that is (`GET /api/admin/access/folder`, the summary's read and write counts; the admins are the only ones who see
+    such a project). The server does not refuse it: it is the admin's choice. The picker opens at the nearest folder
+    above the old path that is there, not on the missing old path. The project page shows the trash line in place of the
+    new-chat box, which would only end in the 409 below.
   - **No chat goes into a marked project:** making a chat in it or moving one into it is 409 `conflict`,
     `params.reason: 'project_in_trash'` for admins (everyone else gets 404, as they do not see it); out of it is always
     fine. The move dialog lists such a project (admins see it) as "in the trash", not to be chosen, and the chat header
@@ -6654,7 +6659,8 @@ Nothing is removed or re-keyed.
   store of projects as this window last saw them (`store/projects.ts`): the project dialog, the Projects page and the
   move dialog put what the server answered, so a rename shows at once; the header asks the server again when the
   window gets the focus back (a rename on another device), and drops a project that answers 404; only the latest answer
-  counts (a slow 200 after a newer 404 does not bring the name back). Signing out empties that store with the chats.
+  counts (a slow 200 after a newer 404 does not bring the name back, nor does a slow 404 after a newer 200 drop it).
+  Signing out empties that store with the chats (`useSessionLifecycle()` in `App.tsx`, the Gate's session effects).
   The title menu (`ChatTitleMenu`) has "Move to project…" ("Change project…" whenever the chat has a project, also
   one whose name is hidden) between Rename and Delete, so it works on a phone too; main's
   `web/test/e2e/chat-look.spec.ts` follows the new order. It opens

@@ -13,6 +13,7 @@ import { ChatTitleMenu } from '../../src/components/chat/ChatTitleMenu'
 import { ProjectForm } from '../../src/components/ProjectForm'
 import { useProjects } from '../../src/store/projects'
 import { useSession } from '../../src/store/session'
+import { useSessionLifecycle } from '../../src/App'
 import { installDom, mount, removeDom } from './dom-host'
 
 const P1 = '01900000-0000-7000-8000-000000000001', GONE = '01900000-0000-7000-8000-000000000002', C1 = '01900000-0000-7000-8000-000000000003'
@@ -99,6 +100,7 @@ describe('a project whose folder is in the trash (an admin\'s view)', () => {
     routes = {
       [`PATCH /api/projects/${P1}`]: (init) => { sent.push(JSON.parse(String(init?.body))); return json(200, { ...project(P1, 'Acme launch', 'shared/acme-launch'), inTrash: false }) },
       'GET /api/files/tree': () => json(200, { path: 'shared/acme-launch', access: 'write', entries: [], nextCursor: null }),
+      'GET /api/admin/access/folder': () => json(200, { path: 'shared/acme-launch', exists: true, ruleFolder: 'shared', people: [], total: 9, nextCursor: null, summary: { access: { none: 2, read: 3, write: 4 }, sources: [] }, inactive: [] }),
     }
     const marked = { ...project(P1, 'Acme launch', 'shared/acme-launch'), inTrash: true }
     // an admin: only admins see such a project, and only they may choose its folder
@@ -117,6 +119,10 @@ describe('a project whose folder is in the trash (an admin\'s view)', () => {
     await n.click('project-folder-choose')
     const pick = await n.until(() => { const b = n.find('folder-pick'); return b && !b.hasAttribute('disabled') ? b : null }, 'the picker', 2000)
     await n.click(pick)
+    // picked: no "saving keeps it as it is" any more, but who will see it, with how many people read the folder
+    expect(n.find('project-form-in-trash')).toBeNull()
+    const opens = await n.until(() => { const w = n.find('project-form-opens'); return w?.textContent?.includes('7') ? w : null }, 'the count', 2000)
+    expect(opens.textContent).toBe(translate('en', 'projects.inTrashOpensCount', { folder: 'shared/acme-launch', n: 7 }))
     await n.click('project-save')
     await n.until(() => sent.length, 'the save', 2000)
     expect(sent[0]).toMatchObject({ folderPath: 'shared/acme-launch' })
@@ -160,10 +166,17 @@ describe('the chat title menu', () => {
 })
 
 describe('signing out', () => {
-  test('the projects one person saw are forgotten (App.tsx resets the store with the chats)', () => {
+  test('the projects one person saw are forgotten, by the session effects the app runs (Gate)', async () => {
+    function Session() { useSessionLifecycle(); return null }
+    const before = useSession.getState().status
+    useSession.setState({ status: { kind: 'loading' } })
     useProjects.getState().put(project(P1, 'Acme launch', 'shared/acme-launch'))
-    useProjects.getState().reset()
-    expect(useProjects.getState().byId).toEqual({})
+    const m = await mount(<Session />)
+    expect(useProjects.getState().byId[P1]).toBeDefined() // still loading: nothing is dropped yet
+    useSession.setState({ status: { kind: 'signed-out', reason: 'ended' } })
+    await m.until(() => Object.keys(useProjects.getState().byId).length === 0, 'the store to be emptied', 2000)
+    await m.unmount()
+    useSession.setState({ status: before })
   })
 })
 
@@ -184,6 +197,25 @@ describe('only the latest answer counts', () => {
     expect(calls).toBe(2)
     expect(m.find('chat-project')).toBeNull()
     expect(useProjects.getState().byId[P1]).toBeUndefined()
+    await m.unmount()
+  })
+
+  test('a slow 404 that arrives after a newer 200 does not drop the project\'s name', async () => {
+    useProjects.getState().drop(P1)
+    let calls = 0
+    routes = {
+      [`GET /api/projects/${P1}`]: () => {
+        calls++
+        if (calls === 1) return new Promise<Response>((r) => setTimeout(() => r(json(404, { error: { code: 'not_found', message: 'not found' } })), 300))
+        return json(200, project(P1, 'Acme launch', 'shared/acme-launch'))
+      },
+    }
+    const m = await mount(<MemoryRouter><ChatProjectCrumb projectId={P1} /></MemoryRouter>)
+    window.dispatchEvent(new Event('focus'))
+    await m.settle(500)
+    expect(calls).toBe(2)
+    expect(m.find('chat-project')?.textContent).toContain('Acme launch')
+    expect(useProjects.getState().byId[P1]).toBeDefined()
     await m.unmount()
   })
 })
@@ -208,5 +240,35 @@ describe('the project dialog after a 409', () => {
     await m.until(() => m.html().includes('Another project already uses this folder'), 'the message', 2000)
     expect(m.find('project-taken-open')).toBeNull()
     await m.unmount()
+  })
+})
+
+describe('the picker of a project whose folder is in the trash', () => {
+  test('opens at the nearest folder above the missing old path', async () => {
+    const asked: string[] = []
+    // the tree answers by path: the old path and its parent are gone, shared/ is there
+    const realFetch2 = globalThis.fetch
+    globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+      const u = String(input)
+      if (u.startsWith('/api/files/tree')) {
+        const p = new URL(u, 'http://x').searchParams.get('path') ?? ''
+        asked.push(p)
+        return p === 'shared' ? json(200, { path: 'shared', access: 'write', entries: [], nextCursor: null }) : json(404, { error: { code: 'not_found', message: 'not found' } })
+      }
+      return realFetch2(input, init)
+    }) as unknown as typeof fetch
+    const before = useSession.getState().status
+    useSession.setState({ status: { kind: 'signed-in', me: { user: { id: 'u-admin', role: 'admin' } } } } as never)
+    try {
+      const m = await mount(<MemoryRouter><ProjectForm project={{ ...project(P1, 'Acme launch', 'shared/acme/launch'), inTrash: true }} onClose={() => {}} onSaved={() => {}} /></MemoryRouter>)
+      await m.click('project-folder-choose')
+      await m.until(() => { const b = m.find('folder-pick'); return b && !b.hasAttribute('disabled') ? b : null }, 'the picker', 2000)
+      expect(asked.slice(0, 3)).toEqual(['shared/acme/launch', 'shared/acme', 'shared'])
+      expect(asked.at(-1)).toBe('shared')
+      await m.unmount()
+    } finally {
+      globalThis.fetch = realFetch2
+      useSession.setState({ status: before })
+    }
   })
 })

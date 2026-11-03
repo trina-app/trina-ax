@@ -36,17 +36,10 @@ function Splash() {
   )
 }
 
-function Gate() {
-  const t = useT()
-  const locale = useLocale()
+/** The session's side effects (Gate): live updates while signed in; when signed out, nothing one person's window kept
+ * stays for the next (chats, the messages waiting to be sent, the projects seen). Returns whether signed in. */
+export function useSessionLifecycle(): boolean {
   const status = useSession((s) => s.status)
-  const load = useSession((s) => s.load)
-  const location = useLocation()
-
-  useEffect(() => {
-    void load()
-  }, [load])
-
   const signedIn = status.kind === 'signed-in' && !status.me.user.mustChangePassword
   useEffect(() => {
     if (signedIn) startLive()
@@ -59,6 +52,21 @@ function Gate() {
       }
     }
   }, [signedIn, status.kind])
+  return signedIn
+}
+
+function Gate() {
+  const t = useT()
+  const locale = useLocale()
+  const status = useSession((s) => s.status)
+  const load = useSession((s) => s.load)
+  const location = useLocation()
+
+  useEffect(() => {
+    void load()
+  }, [load])
+
+  useSessionLifecycle()
 
   useEffect(() => {
     document.title = PRODUCT.displayName

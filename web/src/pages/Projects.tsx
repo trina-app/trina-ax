@@ -184,7 +184,6 @@ export function ProjectHome() {
       </div>
       <div className="mx-auto w-full max-w-[1080px] px-4 pt-8 pb-12 sm:px-6 sm:pt-10">
         <h1 className="text-[26px] font-semibold tracking-tight break-words sm:text-[30px]">{p.name}</h1>
-        <ProjectTrashNote project={p} />
         {summary && (
           <p className="mt-1.5 line-clamp-2 max-w-3xl text-sm text-muted" data-testid="project-summary">
             {summary}
@@ -193,7 +192,8 @@ export function ProjectHome() {
         {/* phone: the box, then the side lines, then the chats; wide: the chats under the box, the lines beside them */}
         <div className="mt-6 grid gap-x-10 gap-y-8 lg:grid-cols-[minmax(0,1fr)_320px] lg:grid-rows-[auto_1fr]">
           <div className="min-w-0 lg:col-start-1">
-            <NewChatComposer projectId={p.id} placeholder={t('projects.newChat')} />
+            {/* a project whose folder is in the trash (only admins see it) takes no chat: the line says why instead */}
+            {p.inTrash ? <ProjectTrashNote project={p} /> : <NewChatComposer projectId={p.id} placeholder={t('projects.newChat')} />}
           </div>
           <aside aria-label={t('projects.about')} className="min-w-0 lg:col-start-2 lg:row-span-2 lg:row-start-1">
             <div className="divide-y divide-line">

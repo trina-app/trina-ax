@@ -714,6 +714,8 @@ export const ko = {
   'projects.folderPick': "이 프로젝트의 폴더를 골라 주세요. 프로젝트는 팀 폴더 전체가 아니라 폴더 하나예요.",
   'projects.inTrash': "이 프로젝트의 폴더가 휴지통에 있어서 채팅이 이 프로젝트를 쓰지 않아요. 파일 › 휴지통에서 폴더를 되돌리거나, 수정에서 다른 폴더를 골라 주세요.",
   'projects.inTrashEdit': "이 프로젝트의 폴더가 휴지통에 있어요. 파일 › 휴지통에서 되돌리거나, 여기서 폴더를 골라 주세요. 폴더를 고르지 않고 저장하면 프로젝트는 그대로예요.",
+  'projects.inTrashOpens': "저장하면 {folder}를 읽을 수 있는 모든 사람이 이 프로젝트와 지침을 보게 돼요.",
+  'projects.inTrashOpensCount': "{folder}는 {n}명이 읽을 수 있어요. 저장하면 이 사람들이 모두 이 프로젝트와 지침을 보게 돼요.",
   'projects.instructions': '지침',
   'projects.instructionsHint': '이 프로젝트의 채팅에서 AI가 항상 따를 내용이에요.',
   'projects.noInstructions': '지침이 없어요.',

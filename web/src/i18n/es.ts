@@ -694,6 +694,8 @@ export const es: Record<MessageKey, string> = {
   'projects.folderPick': "Elija la carpeta de este proyecto. Un proyecto es una carpeta, no toda la carpeta del equipo.",
   'projects.inTrash': "La carpeta de este proyecto está en la papelera, así que sus chats no lo usan. Restaure la carpeta desde Archivos › Papelera o elija otra carpeta en Editar.",
   'projects.inTrashEdit': "La carpeta de este proyecto está en la papelera. Restáurela desde Archivos › Papelera o elija una carpeta aquí. Si guarda sin elegir una, el proyecto queda como está.",
+  'projects.inTrashOpens': "Al guardar, todas las personas que pueden leer {folder} verán este proyecto y sus instrucciones.",
+  'projects.inTrashOpensCount': "{n, plural, one {# persona puede} other {# personas pueden}} leer {folder}: al guardar, todas verán este proyecto y sus instrucciones.",
   'projects.instructions': "Instrucciones",
   'projects.instructionsHint': "Lo que la IA siempre sigue en los chats de este proyecto.",
   'projects.noInstructions': "Sin instrucciones.",

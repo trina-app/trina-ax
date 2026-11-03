@@ -4,6 +4,7 @@
 // may already have a project there, and the 409 would only confuse). A 409 that names the project already on the
 // folder offers to open it.
 import { useEffect, useState } from 'react'
+import { parentPath } from '../lib/paths'
 import { Link } from 'react-router-dom'
 import type { Group, Project, ProjectParticipant, User } from '@mycel/shared/api'
 import { api, API, ApiError, errorText } from '../lib/api'
@@ -48,6 +49,33 @@ export function ProjectForm({ project, initialFolder, initialName, onClose, onSa
   const [folderPicked, setFolderPicked] = useState(false)
   const [instructions, setInstructions] = useState(project?.instructions ?? '')
   const [picking, setPicking] = useState(false)
+  /** where the picker opens: the chosen folder, or for a project whose folder is in the trash the nearest folder above
+   * its old path that is there (the old path itself is missing, and the picker would open on nothing) */
+  const [pickFrom, setPickFrom] = useState('')
+  const openPicker = async () => {
+    let at = folder
+    if (project?.inTrash && !folderPicked) {
+      for (;;) {
+        try { await api.call(API.tree, { query: { path: at, limit: 1 } }); break } catch { if (at === '') break; at = parentPath(at) }
+      }
+    }
+    setPickFrom(at)
+    setPicking(true)
+  }
+  /** a project whose folder is in the trash, pointed by this dialog at a folder: how many people read that folder now
+   * (they all see the project and its instructions after the save); null while unknown */
+  const [readers, setReaders] = useState<number | null>(null)
+  useEffect(() => {
+    if (!project?.inTrash || !folderPicked) return
+    let live = true
+    setReaders(null)
+    api.call(API.explainFolderAccess, { query: { path: folder, limit: 1 } }).then(
+      (r) => live && setReaders(r.summary.access.read + r.summary.access.write),
+      () => {},
+    )
+    return () => { live = false }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [folder, folderPicked])
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   /** the project already on the chosen folder, when the 409 names it */
@@ -102,9 +130,15 @@ export function ProjectForm({ project, initialFolder, initialName, onClose, onSa
       }
     >
       <div className="space-y-4">
-        {project?.inTrash && (
+        {project?.inTrash && !folderPicked && (
           <p role="status" className="flex items-start gap-2 rounded-lg border border-warn/40 bg-warn-soft px-3 py-2 text-sm text-warn" data-testid="project-form-in-trash">
             {t('projects.inTrashEdit')}
+          </p>
+        )}
+        {/* the admin chose a folder for it: saving opens the project, its name and instructions, to whoever reads it */}
+        {project?.inTrash && folderPicked && (
+          <p role="alert" className="flex items-start gap-2 rounded-lg border border-danger/40 bg-danger-soft px-3 py-2 text-sm text-danger" data-testid="project-form-opens">
+            {readers === null ? t('projects.inTrashOpens', { folder: folder || t('files.root') }) : t('projects.inTrashOpensCount', { folder: folder || t('files.root'), n: readers })}
           </p>
         )}
         <Field label={t('projects.name')} hint={onFolder && folderName(folder) ? t('projects.nameHint') : undefined}>
@@ -140,7 +174,7 @@ export function ProjectForm({ project, initialFolder, initialName, onClose, onSa
         {(project || mode === 'existing') && <Field label={t('projects.folder')} hint={t(noFolder ? 'projects.folderPick' : 'projects.folderHint')}>
           <div className="flex gap-2">
             <input className={inputCls} value={project ? folder || t('files.root') : folder} placeholder={noFolder ? t('projects.folderNone') : undefined} readOnly data-testid="project-folder" />
-            {!folderLocked && <Button onClick={() => setPicking(true)} data-testid="project-folder-choose">{t('common.choose')}</Button>}
+            {!folderLocked && <Button onClick={() => void openPicker()} data-testid="project-folder-choose">{t('common.choose')}</Button>}
           </div>
         </Field>}
         <Field label={t('projects.instructions')} hint={t('projects.instructionsHint')}>
@@ -164,7 +198,7 @@ export function ProjectForm({ project, initialFolder, initialName, onClose, onSa
         open={picking}
         title={t('projects.folder')}
         confirmLabel={t('common.choose')}
-        initial={folder}
+        initial={pickFrom}
         onPick={(p) => {
           setFolder(p)
           setFolderPicked(true)
