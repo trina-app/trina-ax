@@ -11,13 +11,14 @@
 import clsx from 'clsx'
 import { ArrowLeft, ArrowRight, Check, Info, Search, TriangleAlert, UserRound, UsersRound, X } from 'lucide-react'
 import { useEffect, useId, useMemo, useRef, useState, type KeyboardEvent, type MutableRefObject, type ReactNode, type RefObject } from 'react'
-import type { Access, AccessTreeWho, Folder, FolderEditChange, FolderEditPreview, FolderEditWarning, Group, User } from '@mycel/shared/api'
+import type { Access, Folder, FolderEditChange, FolderEditPreview, FolderEditWarning, Group, User } from '@mycel/shared/api'
 import { api, API, errorText, isApiError } from '../../lib/api'
 import { addNamed, basicChoices, draftKey, draftOf, removeNamed, rootNoneRow, rulesKey, rulesOf, sameRules, saveImpact, setNamed, type Basic, type Draft, type RuleLike } from '../../lib/access-edit'
-import { folderName, isSkillsPath, skillEditorsText, skillsLockedText, sourceText, whoSeesText } from '../../lib/access-view'
+import { folderName, isSkillsPath, skillEditorsText, skillManagersOf, skillsLockedText, sourceText, whoSeesText } from '../../lib/access-view'
 import { useLocale, useT, type MessageKey } from '../../i18n'
 import { Badge, Button, ErrorNote, IconButton, Skeleton, confirmDialog, useFocusTrap } from '../../components/ui'
 import { toast } from '../../store/ui'
+import { useFolderPeople } from './SkillManagers'
 
 /** How long the panel waits after a change before it asks the server (a choice clicked quickly asks once). */
 export const PREVIEW_DEBOUNCE_MS = 250
@@ -95,11 +96,9 @@ export interface AccessEditProps {
   guard?: MutableRefObject<() => Promise<boolean>>
   /** opened from By person: closing goes back there, and the way out says so */
   returnLabel?: string
-  /** a folder inside skills/: who writes in skills/ itself now (as the tree groups them), to say who of them cannot here */
-  skillsTop?: readonly AccessTreeWho[]
 }
 
-export default function AccessEdit({ path, folder, users, groups, onClose, onSaved, onStale, guard, returnLabel, skillsTop }: AccessEditProps) {
+export default function AccessEdit({ path, folder, users, groups, onClose, onSaved, onStale, guard, returnLabel }: AccessEditProps) {
   const t = useT()
   const locale = useLocale()
   const narrow = useNarrow()
@@ -176,6 +175,8 @@ export default function AccessEdit({ path, folder, users, groups, onClose, onSav
   useEffect(() => {
     if (!edited) return
     let pass = false
+    /** the question is open: more clicks or keys (a held arrow) wait for it instead of asking again */
+    let asking = false
     const onEvent = (e: Event) => {
       if (pass || e.defaultPrevented) return
       const mouse = e instanceof MouseEvent
@@ -183,9 +184,14 @@ export default function AccessEdit({ path, folder, users, groups, onClose, onSav
       if (mouse ? e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey : !TAB_KEYS.has(key)) return
       const el = (e.target as Element | null)?.closest?.(mouse ? 'a[href], [role="tab"]' : '[role="tab"]')
       if (!(el instanceof HTMLElement) || box.current?.contains(el)) return
+      // a link that opens a new tab or saves a file leaves the panel where it is
+      if (el instanceof HTMLAnchorElement && (el.target === '_blank' || el.hasAttribute('download'))) return
       e.preventDefault()
       e.stopPropagation()
+      if (asking || (!mouse && (e as globalThis.KeyboardEvent).repeat)) return
+      asking = true
       void leave.current().then((ok) => {
+        asking = false
         if (!ok) return
         pass = true
         try {
@@ -365,7 +371,7 @@ export default function AccessEdit({ path, folder, users, groups, onClose, onSav
           onChange={setDraft}
         />
 
-        <Result path={path} preview={preview} data={data} ready={ready} skillsTop={skillsTop} onRetry={() => setAttempt((n) => n + 1)} />
+        <Result path={path} preview={preview} data={data} ready={ready} rulesHash={base.hash} onRetry={() => setAttempt((n) => n + 1)} />
 
         {refused && (
           <div data-testid="edit-refused">
@@ -702,12 +708,21 @@ function AddNamed({ users, groups, taken, list, inputRef, onAdd }: {
 
 // ---------------- the result ----------------
 
-function Result({ path, preview, data, ready, skillsTop, onRetry }: { path: string; preview: ReturnType<typeof useEditPreview>; data: FolderEditPreview | null; ready: boolean; skillsTop?: readonly AccessTreeWho[]; onRetry: () => void }) {
+function Result({ path, preview, data, ready, rulesHash, onRetry }: { path: string; preview: ReturnType<typeof useEditPreview>; data: FolderEditPreview | null; ready: boolean; rulesHash: string | null; onRetry: () => void }) {
   const t = useT()
   const titleId = useId()
   // skills/ and its folders: who could change the team's skills with these rules, and who of skills/' managers not here
   const skills = isSkillsPath(path)
-  const locked = data && skills && skillsTop && path.includes('/') ? skillsLockedText(t, data.next, skillsTop, data.members) : null
+  const inSkills = skills && path.includes('/')
+  const top = useFolderPeople(inSkills ? path.slice(0, path.indexOf('/')) : null)
+  // each person's access here now (asked again when the rules the panel started from change), and with these rules:
+  // the people the answer names as changing, the others as now. A change that names only part of its people leaves
+  // the line out rather than guess
+  const here = useFolderPeople(inSkills ? path : null, rulesHash ?? '')
+  const after = new Map<string, Access>()
+  for (const c of data?.changes ?? []) for (const p of c.people) after.set(p.id, c.after)
+  const exact = !!data && data.changes.every((c) => c.people.length === c.count)
+  const locked = inSkills && exact && top.data && here.data ? skillsLockedText(t, skillManagersOf(top.data.values()), (id) => after.get(id) ?? here.data!.get(id)?.access) : null
   const less = data?.changes.filter((c) => c.direction === 'less') ?? []
   const more = data?.changes.filter((c) => c.direction === 'more') ?? []
   let body: ReactNode

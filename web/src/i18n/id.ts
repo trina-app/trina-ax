@@ -1807,7 +1807,6 @@ export const id: Record<MessageKey, string> = {
   'skillMgr.editors': "Yang bisa mengubah: owner dan admin, {list}",
   'skillMgr.editorsAdmins': "Yang bisa mengubah: hanya owner dan admin",
   'skillMgr.locked': "Bisa mengubah di skills tetapi tidak di sini: {list}",
-  'skillMgr.lockedPart': "{n} dari {name}",
   'skillMgr.viaEveryone': "Aktif karena skills terbuka untuk semua orang",
   'skillMgr.viaGroup': "Aktif lewat grup {names}",
   'skillMgr.viaRoot': "Aktif karena bisa menulis di seluruh folder tim",

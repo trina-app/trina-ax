@@ -1770,7 +1770,6 @@ export const ja: Record<MessageKey, string> = {
   'skillMgr.editors': "編集できる人: オーナー・管理者、{list}",
   'skillMgr.editorsAdmins': "編集できる人: オーナーと管理者だけ",
   'skillMgr.locked': "skills では編集できてもここでは編集できない人: {list}",
-  'skillMgr.lockedPart': "{name}のうち {n}人",
   'skillMgr.viaEveryone': "skills が全員に開いているためオン",
   'skillMgr.viaGroup': "{names} グループのためオン",
   'skillMgr.viaRoot': "チームフォルダー全体に書き込めるためオン",

@@ -1770,7 +1770,6 @@ export const es: Record<MessageKey, string> = {
   'skillMgr.editors': "Quién puede editar: el propietario y los administradores, {list}",
   'skillMgr.editorsAdmins': "Quién puede editar: solo el propietario y los administradores",
   'skillMgr.locked': "Pueden editar en skills pero no aquí: {list}",
-  'skillMgr.lockedPart': "{n} de {name}",
   'skillMgr.viaEveryone': "Activado porque skills está abierto a todos",
   'skillMgr.viaGroup': "Activado por el grupo {names}",
   'skillMgr.viaRoot': "Activado porque puede escribir en toda la carpeta del equipo",

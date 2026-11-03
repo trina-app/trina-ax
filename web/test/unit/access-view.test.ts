@@ -4,7 +4,7 @@
 import { describe, expect, test } from 'bun:test'
 import type { AccessTreeNode, PersonFolderAccess } from '@mycel/shared/api'
 import { DICTS, translate, type MessageKey, type Params } from '../../src/i18n'
-import { ancestorsOf, cleanPrefix, isSkillsPath, countRows, folderName, groupRows, isRestricted, kindText, levelOf, nearestRuleFolder, nodeName, parentOf, reasonText, riskOf, riskTexts, rulesApply, sectionOf, shortPath, skillEditorsText, skillsLockedText, sourceSaysSomething, sourceText, summaryLines, whoSeesText, type Names } from '../../src/lib/access-view'
+import { ancestorsOf, cleanPrefix, isSkillsPath, countRows, folderName, groupRows, isRestricted, kindText, levelOf, nearestRuleFolder, nodeName, parentOf, reasonText, riskOf, riskTexts, rulesApply, sectionOf, shortPath, skillEditorsText, skillManagersOf, skillsLockedText, sourceSaysSomething, sourceText, summaryLines, whoSeesText, type Names } from '../../src/lib/access-view'
 import { skillsVia } from '../../src/pages/admin/SkillManagers'
 import { personViewLink } from '../../src/pages/admin/AccessResults'
 
@@ -349,16 +349,24 @@ describe('stage 6–7: who can edit team skills, in words', () => {
     expect(skillEditorsText(ko, [staff, w({ subject: all, access: 'read', count: 12 })], 12)).toBe(ko('skillMgr.editorsAdmins'))
   })
 
-  test('a folder inside skills/ that shuts some of skills/\' managers out: who, by their rule; nothing when none', () => {
-    // skills/재무: "everyone: none, 영업팀 read": 영업팀 and Bob cannot edit there
-    const shut = [staff, w({ folder: 'skills/재무', subject: sales, access: 'read', count: 3 }), w({ folder: 'skills/재무', subject: all, access: 'none', count: 9 })]
-    expect(skillsLockedText(ko, shut, top, 12)).toBe('skills에서는 고칠 수 있지만 여기서는 못 고치는 사람: 영업팀 3명, Bob 님')
-    // a person rule there takes one of the group's people out: "영업팀 중 1명"
-    const one = [staff, w({ subject: sales, access: 'write', count: 2 }), w({ subject: bob, access: 'write', count: 1 }), w({ folder: 'skills/재무', subject: { type: 'user', id: 'dan', name: 'Dan' }, access: 'read', count: 1 })]
-    expect(skillsLockedText(ko, one, top, 12)).toBe('skills에서는 고칠 수 있지만 여기서는 못 고치는 사람: 영업팀 중 1명')
-    expect(skillsLockedText(en, one, top, 12)).toBe('Can edit in skills but not here: 1 of 영업팀')
-    // inherited as it is: nothing to say
-    expect(skillsLockedText(ko, top, top, 12)).toBeNull()
+  test('a folder inside skills/ that shuts some of skills/\' managers out: who, person by person; nothing when none', () => {
+    type At = Parameters<typeof skillManagersOf>[0] extends Iterable<infer P> ? P : never
+    const at = (id: string, access: 'none' | 'read' | 'write', reason: At['reason']): At => ({ user: { id, name: id[0]!.toUpperCase() + id.slice(1) }, access, reason })
+    const salesWrite = rule('skills', 'group', [{ subjectType: 'group', subjectId: 'g1', access: 'write' }])
+    // skills/: 영업팀 (Bob, Carol) writes, everyone else reads; the owner and admins are no managers by a rule
+    const topPeople = [at('bob', 'write', salesWrite), at('carol', 'write', salesWrite), at('dan', 'read', rule('skills', 'everyone', [{ subjectType: 'everyone', subjectId: null, access: 'read' }])), at('olga', 'write', { kind: 'owner-admin' })]
+    const managers = skillManagersOf(topPeople)
+    expect(managers.map((m) => m.id)).toEqual(['bob', 'carol'])
+    // skills/x: "everyone: read, Bob: write". Carol is shut out, Bob is not (the per-rule count said all of 영업팀)
+    const x = new Map<string, 'none' | 'read' | 'write'>([['bob', 'write'], ['carol', 'read'], ['dan', 'read'], ['olga', 'write']])
+    expect(skillsLockedText(ko, managers, (id) => x.get(id))).toBe('skills에서는 고칠 수 있지만 여기서는 못 고치는 사람: Carol 님')
+    expect(skillsLockedText(en, managers, (id) => x.get(id))).toBe('Can edit in skills but not here: Carol')
+    // inherited as it is, or not known for someone: nothing claimed
+    expect(skillsLockedText(ko, managers, () => 'write')).toBeNull()
+    expect(skillsLockedText(ko, managers, () => undefined)).toBeNull()
+    // many: three named, the rest counted
+    const many = ['ann', 'ben', 'cid', 'dee', 'eve'].map((id) => ({ id, name: id }))
+    expect(skillsLockedText(ko, many, () => 'none')).toBe('skills에서는 고칠 수 있지만 여기서는 못 고치는 사람: ann 님, ben 님, cid 님 외 2명')
   })
 
   test('Members: on through a rule that is not the person\'s own, and why', () => {

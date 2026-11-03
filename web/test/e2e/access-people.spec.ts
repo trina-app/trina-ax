@@ -149,6 +149,14 @@ test('by person: every team folder with its access and why, folded hidden folder
   await page.getByRole('dialog', { name: t['accessEdit.discardTitle'] }).getByRole('button', { name: t['common.cancel'], exact: true }).click()
   await expect(panel).toBeVisible()
   await expect(panel.getByTestId('edit-basic-read').getByRole('radio')).toBeChecked()
+  // clicks or keys that come while it asks do not ask again (two clicks before the question can show)
+  await page.getByRole('tab', { name: t['accessView.byPerson'], exact: true }).evaluate((el) => {
+    ;(el as HTMLElement).click()
+    ;(el as HTMLElement).click()
+  })
+  await expect(page.getByRole('dialog', { name: t['accessEdit.discardTitle'] })).toHaveCount(1)
+  await page.getByRole('dialog', { name: t['accessEdit.discardTitle'] }).getByRole('button', { name: t['common.cancel'], exact: true }).click()
+  await expect(page.getByRole('dialog', { name: t['accessEdit.discardTitle'] })).toHaveCount(0)
   await page.getByRole('tab', { name: t['accessView.byFolder'], exact: true }).press('ArrowRight')
   await expect(page.getByRole('dialog', { name: t['accessEdit.discardTitle'] })).toBeVisible()
   await page.getByRole('dialog', { name: t['accessEdit.discardTitle'] }).getByRole('button', { name: t['common.cancel'], exact: true }).click()
@@ -364,6 +372,13 @@ test('a folder that is not on disk: By folder says so and makes nothing', async 
   // Back returns to the person
   await page.goBack()
   await expect(page).toHaveURL(/view=people&person=bob$/)
+  // and so does the card's own way back, at any width (the focus on the folded folders' toggle, where the row is)
+  await page.setViewportSize({ width: 375, height: 800 })
+  await page.getByTestId('access-hidden-toggle').click()
+  await ghost.getByRole('button', { name: translate('ko', 'accessView.editNamed', { path: 'projects/ghost' }), exact: true }).click()
+  await page.getByTestId('folder-detail-missing').getByRole('button', { name: t['accessEdit.backToPeople'] }).click()
+  await expect(page).toHaveURL(/view=people&person=bob$/)
+  await expect(page.getByTestId('access-hidden-toggle')).toBeFocused()
 })
 
 test('pages of rows, narrowing to a folder, and a failed answer to try again', async ({ page }) => {

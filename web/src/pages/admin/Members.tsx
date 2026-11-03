@@ -18,7 +18,7 @@ import { LOCALES, useLocale, useT, type MessageKey } from '../../i18n'
 import { isOwner, useMeStrict } from '../../store/session'
 import QrCode from '../../components/QrCode'
 import { Badge, Button, CopyButton, Field, IconButton, Modal, confirmDialog, inputCls, noKeyRepeat } from '../../components/ui'
-import { SkillManagerCell, skillsVia, useSkillManagers, useSkillsAccess } from './SkillManagers'
+import { SkillManagerCell, skillsVia, useFolderPeople, useSkillManagers } from './SkillManagers'
 import { Card, Loadable, SecretBox, useAction, useActionOk, useFocusAfterRemove, useLoad, useOneAtATime } from './common'
 import { GroupChecks, RoleSelect, type MemberRole } from './people-choices'
 import { NewPersonPreview, personViewLink } from './AccessResults'
@@ -37,7 +37,7 @@ export default function Members() {
   const groups = useLoad(async () => (await api.call(API.listGroups)).items)
   const skillManagers = useSkillManagers()
   // who writes in skills/ through a group's rule or everyone's: their switch is on, and says why
-  const skillsAccess = useSkillsAccess(users.data, skillManagers.data)
+  const skillsAccess = useFolderPeople('skills', users.data, skillManagers.data)
   const [inviteOpen, setInviteOpen] = useState(false)
   const [created, setCreated] = useState<CreatedInvite | null>(null)
   const [addOpen, setAddOpen] = useState(false)

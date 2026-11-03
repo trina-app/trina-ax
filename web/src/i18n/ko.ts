@@ -1806,7 +1806,6 @@ export const ko = {
   'skillMgr.editors': "고칠 수 있는 사람: 팀장·관리자, {list}",
   'skillMgr.editorsAdmins': "고칠 수 있는 사람: 팀장과 관리자만",
   'skillMgr.locked': "skills에서는 고칠 수 있지만 여기서는 못 고치는 사람: {list}",
-  'skillMgr.lockedPart': "{name} 중 {n}명",
   'skillMgr.viaEveryone': "모두에게 열려 있어서 켜져 있어요",
   'skillMgr.viaGroup': "{names} 그룹이라서 켜져 있어요",
   'skillMgr.viaRoot': "팀 폴더 전체에 쓸 수 있어서 켜져 있어요",

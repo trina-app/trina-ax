@@ -3,7 +3,8 @@
 // Admin > 폴더 권한 shows; there is no other permission. Turning it on warns that what they change is followed by every
 // teammate's AI. The owner and admins always manage team skills. On Members a person whom a group's rule or "everyone"
 // already lets write in skills/ shows on, with why (the server's own answer for skills/, GET /api/admin/access/folder):
-// not switched here, as it is not their rule; one with a rule of their own as well switches only that.
+// not switched here, as it is not their rule; one with a rule of their own as well switches only that, and is told
+// first when another rule would still let them write (the server's edit preview without their row).
 import clsx from 'clsx'
 import { useId, useState } from 'react'
 import { Link } from 'react-router-dom'
@@ -22,20 +23,47 @@ export function useSkillManagers() {
   return useLoad(async () => api.call(API.listSkillManagers))
 }
 
-/** Every active person's access to skills/ and the step that decided it (the permission function's answer, page by page);
- * null until the lists it follows (`after`) are in, and asked again when one of them comes again. */
-export function useSkillsAccess(...after: unknown[]) {
+/** Every active person's access at a team folder and the step that decided it, by person id (GET
+ * /api/admin/access/folder, the permission function's own answer, all pages). Null while `path` is null or a value it
+ * follows (`after`) is not in yet; asked again when one of them changes. */
+export function useFolderPeople(path: string | null, ...after: unknown[]) {
   return useLoad(async () => {
-    if (after.some((x) => x == null)) return null
+    if (path === null || after.some((x) => x == null)) return null
     const people = new Map<string, FolderAccessResponse['people'][number]>()
     let cursor: string | undefined
     do {
-      const r = await api.call(API.explainFolderAccess, { query: { path: 'skills', limit: 2000, ...(cursor ? { cursor } : {}) } })
+      const r = await api.call(API.explainFolderAccess, { query: { path, limit: 2000, ...(cursor ? { cursor } : {}) } })
       for (const p of r.people) people.set(p.user.id, p)
       cursor = r.nextCursor ?? undefined
     } while (cursor)
     return people
-  }, after)
+  }, [path, ...after])
+}
+
+/**
+ * Would the person still write in skills/ without their own rules there? The server's preview (POST
+ * /api/admin/access/edit-preview, nothing saved) of each of their topmost own folders with their row taken out: exact,
+ * whatever would decide then (a group, everyone, the old members row, a rule on the team root). False when not known.
+ */
+async function stillWrites(userId: string, grants: readonly SkillManagerGrant[]): Promise<boolean> {
+  try {
+    const top = grants.filter((g) => !grants.some((h) => h !== g && g.path.startsWith(h.path + '/')))
+    const rows = (await api.call(API.listFolders)).items
+    for (const g of top) {
+      const row = rows.find((f) => f.path === g.path)
+      if (!row) continue
+      const rules = row.rules.filter((r) => !(r.subjectType === 'user' && r.subjectId === userId)).map((r) => ({ subjectType: r.subjectType, subjectId: r.subjectId, access: r.access }))
+      const p = await api.call(API.previewFolderEdit, { body: { path: g.path, rules: rules as never } })
+      // their own write decided there; named in a change: they lose it. A change from write that names only part of its
+      // people may hold them: not known
+      const loses = p.changes.some((c) => c.people.some((x) => x.id === userId))
+      const unknown = p.changes.some((c) => c.before === 'write' && c.people.length < c.count)
+      if (!loses && !unknown) return true
+    }
+  } catch {
+    // not known: no claim
+  }
+  return false
 }
 
 /** Why a person writes in skills/ when it is not their own rule there: everyone (or the old "members" row), their
@@ -72,8 +100,12 @@ export function SkillManagerCell({ subject, data, via, onChanged }: { subject: S
   const locked = !own && !!via
   const viaText = !via ? null : via.kind === 'everyone' ? t('skillMgr.viaEveryone') : via.kind === 'group' ? t('skillMgr.viaGroup', { names: via.names.join(', ') }) : t('skillMgr.viaRoot')
   const turnOff = async (which: SkillManagerGrant[]) => {
+    // a person whom another rule still lets write says so first (the switch shows on through it afterwards)
+    setBusy(true)
+    const still = subject.type === 'user' && (await stillWrites(subject.id, which))
+    setBusy(false)
     const body = t('skillMgr.offBody', { paths: which.map((g) => shown(g.path)).join(', ') })
-    if (!(await confirmDialog({ title: t('skillMgr.offTitle', { name: subject.name }), body: via ? `${body} ${t('skillMgr.offStillOn')}` : body, confirm: t('common.continue'), danger: true }))) return
+    if (!(await confirmDialog({ title: t('skillMgr.offTitle', { name: subject.name }), body: still ? `${body} ${t('skillMgr.offStillOn')}` : body, confirm: t('common.continue'), danger: true }))) return
     setBusy(true)
     let all = true
     for (const g of which) {

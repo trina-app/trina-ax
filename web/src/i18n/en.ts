@@ -1807,7 +1807,6 @@ export const en: Record<MessageKey, string> = {
   'skillMgr.editors': "Who can edit: the owner and admins, {list}",
   'skillMgr.editorsAdmins': "Who can edit: the owner and admins only",
   'skillMgr.locked': "Can edit in skills but not here: {list}",
-  'skillMgr.lockedPart': "{n} of {name}",
   'skillMgr.viaEveryone': "On because skills is open to everyone",
   'skillMgr.viaGroup': "On through the group {names}",
   'skillMgr.viaRoot': "On because they can write in the whole team folder",

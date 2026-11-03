@@ -2,7 +2,7 @@
 // (GET /api/admin/access/people/:id, POST /api/admin/access/new-person; server/src/admin/access-explain.ts). Nothing
 // here decides access: every level and reason is the server's RuleSet.explain / listing, put into the admin's words.
 // No step names of the permission function (user / group / role / everyone, owner-admin, no-rule) reach the screen.
-import type { AccessTreeNode, AccessTreeWho, PersonAccessResponse, PersonFolderAccess, Role } from '@mycel/shared/api'
+import type { Access, AccessTreeNode, AccessTreeWho, FolderAccessResponse, PersonAccessResponse, PersonFolderAccess, Role } from '@mycel/shared/api'
 import type { MessageKey, Params } from '../i18n'
 
 type T = (key: MessageKey, params?: Params) => string
@@ -267,25 +267,26 @@ export function skillEditorsText(t: T, who: readonly AccessTreeWho[], members: n
   return t('skillMgr.editors', { list: rest > 0 ? t('accessTree.who.more', { list: parts.join(', '), n: rest }) : parts.join(', ') })
 }
 
+/** One person's access at a folder and what decided it, as GET /api/admin/access/folder answers. */
+type PersonAt = Pick<FolderAccessResponse['people'][number], 'user' | 'access' | 'reason'>
+
+/** skills/' managers: the people a rule lets write in skills/ itself (the owner and admins write anyway). */
+export const skillManagersOf = (top: Iterable<PersonAt>) => [...top].filter((p) => p.access === 'write' && p.reason.kind === 'rule').map((p) => p.user)
+
 /**
- * A folder inside skills/ that shuts out some of those who manage skills/ (a rule here or on the way up decides for them
- * first): who they are, by the rule that lets them write in skills/, "영업팀", "영업팀 중 1명", "Bob 님". Null when
- * everyone who writes in skills/ writes here too. Counted per rule, from the two folders' groups of people.
+ * A folder inside skills/ that shuts some of skills/' managers out (a rule here or on the way up decides for them
+ * first): "skills에서는 고칠 수 있지만 여기서는 못 고치는 사람: Carol 님 외 2명", person by person (`accessHere`: their
+ * access here, undefined when not known, and then they are left out). Null when every one of them writes here too.
  */
-export function skillsLockedText(t: T, here: readonly AccessTreeWho[], top: readonly AccessTreeWho[], members: number): string | null {
-  const now = new Map(writers(here).map((w) => [subjectKey(w), w.count]))
-  const lost = writers(top)
-    .map((w) => ({ w, n: w.count - (now.get(subjectKey(w)) ?? 0) }))
-    .filter((x) => x.n > 0)
-  if (!lost.length) return null
-  const label = ({ w, n }: { w: AccessTreeWho; n: number }) => {
-    if (w.subject?.type === 'user') return t('accessView.who.person', { name: w.subject.name ?? '?' })
-    const all = whoLabel(t, w, members, true)
-    return n >= w.count ? whoLabel(t, w, members) : t('skillMgr.lockedPart', { name: all, n })
-  }
-  const parts = lost.slice(0, WHO_NAMED).map(label)
-  const rest = lost.slice(WHO_NAMED).reduce((s, x) => s + x.n, 0)
-  return t('skillMgr.locked', { list: rest > 0 ? t('accessTree.who.more', { list: parts.join(', '), n: rest }) : parts.join(', ') })
+export function skillsLockedText(t: T, managers: readonly { id: string; name: string }[], accessHere: (id: string) => Access | undefined): string | null {
+  const locked = managers.filter((m) => {
+    const a = accessHere(m.id)
+    return a !== undefined && a !== 'write'
+  })
+  if (!locked.length) return null
+  const names = locked.slice(0, WHO_NAMED).map((m) => t('accessView.who.person', { name: m.name }))
+  const rest = locked.length - names.length
+  return t('skillMgr.locked', { list: rest > 0 ? t('accessTree.who.more', { list: names.join(', '), n: rest }) : names.join(', ') })
 }
 
 /** Whether the source line adds anything: not on a folder without rules of its own that no rule opens to any member

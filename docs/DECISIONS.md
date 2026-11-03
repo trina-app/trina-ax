@@ -6366,26 +6366,35 @@ route.
 - **Unsaved changes on in-app moves.** The app uses `BrowserRouter`, which has no navigation blocker. While the panel
   has changes, a capture listener on the document stops a click on any link or tab outside the panel (the admin menu,
   By folder / By person, the app's other links) and the arrow, Home and End keys on a tab, asks the panel's question,
-  and replays the click or key when the admin drops the changes. Modified clicks (new tab) pass. Not covered: Back
-  and Forward (the browser gives no way to ask; the panel goes with its folder, as in stage 5).
+  and replays the click or key when the admin drops the changes. Modified clicks, links that open a new tab
+  (`target=_blank`) or save a file (`download`) pass. While the question is open, more clicks and keys (a held arrow
+  key repeats) wait for it instead of asking again. Not covered: Back and Forward (the browser gives no way to ask;
+  the panel goes with its folder, as in stage 5).
 - **Who can edit skills, in words** (`skillEditorsText`, `skillsLockedText` in `web/src/lib/access-view.ts`). For
   `skills/` and its folders the folder's details and the panel say "고칠 수 있는 사람: 팀장·관리자, 영업팀 3명, Bob 님",
   from the people the server already groups (the tree's `who`, the preview's `next`): the rules that give write, merged
-  by whom they name. Inside `skills/`, compared with `skills/` itself: a rule that lets people write in `skills/` but
-  for fewer of them here says "skills에서는 고칠 수 있지만 여기서는 못 고치는 사람: 영업팀 3명" ("영업팀 중 1명" when a rule
-  here takes some out). Counted per rule, not per person: someone shut out by their group's rule who writes here by a
-  person rule is still counted under the group (they are named on the first line too). Per person would need the
-  people of both folders; not worth it here. The stage 5 warning when everyone gets write stays.
+  by whom they name. Inside `skills/`: "skills에서는 고칠 수 있지만 여기서는 못 고치는 사람: Carol 님 외 2명", person by
+  person. skills/' managers are the people a rule lets write in `skills/` itself, from `GET /api/admin/access/folder`
+  for `skills/` (all pages); their access here from the same answer for the folder. In the panel, with the rules as
+  edited: the people the preview names as changing take their `after`, the others keep their access now; when a
+  change names only part of its people (more than 50), the line is left out rather than guessed. (A first version
+  compared the tree's groups per rule; `who` counts each person once, under the rule that decides for them, so with
+  "Sales (Bob, Carol) write on skills/" and "everyone: read, Bob: write" on skills/x it said all of Sales, Bob too,
+  could not edit there.) Two more requests for a folder inside `skills/`. The stage 5 warning when everyone gets
+  write stays.
 - **The Members switch tells the truth.** It looked only at the person's own rows (`listSkillManagers`). Members now
   also asks `GET /api/admin/access/folder?path=skills` (the stage 2 explain, `RuleSet.explain`; all pages) again when
   the people or the switches change. A person who writes in `skills/` by a group's rule, everyone's (or the old
   members row), or their own rule on the team root, and has no rule of their own in `skills/`: the switch is on and
   disabled, with why under it ("영업팀 그룹이라서 켜져 있어요", "모두에게 열려 있어서 켜져 있어요", described by it for
   screen readers) and "폴더 권한에서 바꾸기" (`/admin/folders?folder=skills`). With a rule of their own as well it switches
-  only that, and turning it off says that another rule still lets them edit, when the answer shows it (the deciding
-  step at `skills/` is their group's or everyone's, e.g. their own rule is on a subfolder). When their own rule on
-  `skills/` decides, the answer cannot show what decides without it: after turning it off the switch shows on, and why.
-  Only `skills/` itself is asked: a group's rule on a subfolder is shown on Groups, not on its members.
+  only that. Before the confirm, the server's edit preview (`POST /api/admin/access/edit-preview`, nothing saved) is
+  asked for each of their topmost own folders with their row taken out: when they keep write in one of them, the
+  confirm says that another rule still lets them edit. Exact whatever decides then (a group, everyone, the old members
+  row, a rule on the team root), also when their own rule on `skills/` decides now (the explain answer names only the
+  deciding step, so it could not tell). Not known (a failed request, a change from write that names only part of its
+  people): nothing claimed. Only `skills/` itself is asked for the switch's state: a group's rule on a subfolder is
+  shown on Groups, not on its members.
 - **Review fixes from stage 5 folded in.** The skill manager switch could leave `skills/` with no rules (the panel
   saved it as "follow" with Bob writing, then Bob's switch went off), against the stage 1 rule that shared/ and
   skills/ keep one. `setSkillManager` now leaves `role admin: write` in place of the last rule there: rules never
@@ -6396,8 +6405,14 @@ route.
   person still removes their rules everywhere, the last one of shared/ or skills/ too (`admin/users.ts`, stage 1).
   A connected folder is known from the first answer: "모두 읽기·쓰기" clicked before it came now goes back to what was
   saved (unless it was saved so).
-- Tests: `web/test/unit/access-view.test.ts` (the two lines, `skillsVia`), `tests/unit/skill-managers.test.ts` and
-  `a-folders-keep.test.ts` (the kept rule), `web/test/e2e/access-people.spec.ts` (the panel from a row, return and
-  focus, save, the guard on the tabs, the arrow keys and the admin menu, the 409 path, a folder not on disk, the
-  keyboard), `team-skills.spec.ts` (the lines in the tree and the panel, the Members switch through a group, everyone,
-  and a rule of one's own; `STAGE67_SHOTS=<folder>` for screenshots at 1360 and 375).
+- **Review (independent, same day).** Fixed: the per-rule "locked" line and the Members warning that missed a
+  person's own rule on `skills/` (both above); a folder By person asked for that the tree cannot find (or ask for)
+  left the admin there: its card now has "사람별로 돌아가기", at any width; key repeat on a tab stacked the question;
+  links to a new tab or a download were held.
+- Tests: `web/test/unit/access-view.test.ts` (the two lines, Bob and Carol person by person, `skillsVia`),
+  `tests/unit/skill-managers.test.ts` and `a-folders-keep.test.ts` (the kept rule), `web/test/e2e/access-people.spec.ts`
+  (the panel from a row, return and focus, save, the guard on the tabs, a double click, the arrow keys and the admin
+  menu, the 409 path, a folder not on disk and its way back, the keyboard), `access-edit.spec.ts` (the connected
+  folder before the first answer), `team-skills.spec.ts` (the lines in the tree and the panel, the Members switch
+  through a group and everyone, an own rule on `skills/` with a group's (the warning) and on a subfolder (none);
+  `STAGE67_SHOTS=<folder>` for screenshots at 1360 and 375).
