@@ -54,20 +54,35 @@ export default function AdminIntegrations() {
           if (!shown.length) return <EmptyState title={t('integrations.noMatch', { q: query.trim() })} />
           return (
             <ul className="-mx-2 divide-y divide-line" data-testid="team-integrations">
-              {shown.map((i) => (
-                <IntegrationRow
-                  key={i.id}
-                  i={i}
-                  actions={actions}
-                  onEdit={() => setDialog({ existing: i })}
-                  extra={<AccessLine i={i} groups={groups.data ?? []} users={users.data ?? []} mine={covers(i.access, person)} />}
-                />
-              ))}
+              {shown.map((i) => {
+                // what needs the admin's attention stays on the line: nobody may use it, or the admin cannot
+                const nobody = isEmptyAccess(i.access ?? NOBODY)
+                const notMine = !nobody && !covers(i.access, person)
+                return (
+                  <IntegrationRow
+                    key={i.id}
+                    i={i}
+                    actions={actions}
+                    onEdit={() => setDialog({ existing: i })}
+                    alert={(nobody || notMine) && (
+                      <span className="inline-flex" data-testid="integration-access-warning">
+                        <Badge tone="warn">{t(nobody ? 'integrations.users.nobody' : 'integrations.users.notMe')}</Badge>
+                      </span>
+                    )}
+                    extra={<AccessLine i={i} groups={groups.data ?? []} users={users.data ?? []} />}
+                  />
+                )
+              })}
             </ul>
           )
         }}
       </Loadable>
-      {tab === 'connected' && <div className="mt-8"><TeamRequests /></div>}
+      {tab === 'connected' && (
+        <>
+          <p className="mt-3 text-xs text-faint" data-testid="team-integrations-note">{t('integrations.admin.desc')}</p>
+          <div className="mt-8"><TeamRequests /></div>
+        </>
+      )}
       {dialog && (
         <IntegrationDialog
           scope="team"
@@ -85,10 +100,11 @@ export default function AdminIntegrations() {
   )
 }
 
-/** "Used by: Finance, Bob", and whether the admin looking at it can use it in their own chats */
-function AccessLine({ i, groups, users, mine }: { i: Integration; groups: Group[]; users: User[]; mine: boolean }) {
+/** "Used by: Finance, Bob" and who added it, in the details. Whether nobody or not the admin may use it is on the line. */
+function AccessLine({ i, groups, users }: { i: Integration; groups: Group[]; users: User[] }) {
   const t = useT()
   const a = i.access ?? NOBODY
+  if (isEmptyAccess(a) && !i.createdBy) return null
   const names = [
     ...a.groups.map((id) => groups.find((g) => g.id === id)?.name ?? '?'),
     ...a.users.map((id) => users.find((u) => u.id === id)?.name ?? '?'),
@@ -96,12 +112,7 @@ function AccessLine({ i, groups, users, mine }: { i: Integration; groups: Group[
   const who = a.everyone ? t('integrations.access.everyone') : names.join(', ')
   return (
     <p className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs" data-testid="integration-access-line">
-      {isEmptyAccess(a) ? (
-        <Badge tone="warn">{t('integrations.users.nobody')}</Badge>
-      ) : (
-        <span className="text-muted">{t('integrations.users', { who })}</span>
-      )}
-      {!mine && !isEmptyAccess(a) && <Badge tone="warn">{t('integrations.users.notMe')}</Badge>}
+      {!isEmptyAccess(a) && <span className="text-muted">{t('integrations.users', { who })}</span>}
       {i.createdBy && <span className="text-faint">{t('integrations.createdBy', { name: i.createdBy.name })}</span>}
     </p>
   )

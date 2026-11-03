@@ -108,6 +108,33 @@ describe('tools made per person', () => {
     }
   })
 
+  test('one service twice, the team\'s connection and one\'s own at the same address: both are kept, told apart by my_ / team_', async () => {
+    // External services › Discover lets a member add their own account next to a team connection of the same service
+    const own = await post('alice', '/api/integrations', { kind: 'mcp', name: 'Team board', url: team.url, auth: 'none' })
+    expect(own.status).toBe(201)
+    try {
+      expect(own.body).toMatchObject({ scope: 'personal', url: team.url, status: 'connected' })
+      const listed = (await A.json('/api/integrations', { as: 'alice' })).body.items as { scope: string; url: string }[]
+      expect(listed.filter((i) => i.url === team.url).map((i) => i.scope).sort()).toEqual(['personal', 'team'])
+      // the same name gives the same slug: only the prefix tells them apart, and both are offered
+      const a = turn('alice')
+      expect([...a.tools.keys()].filter((n) => n.endsWith('teamboard__search_tasks')).sort()).toEqual(['my_teamboard__search_tasks', 'team_teamboard__search_tasks'])
+      expect(a.tools.get('my_teamboard__search_tasks')!.description).toStartWith('[Team board, personal connection]')
+      expect(a.tools.get('team_teamboard__search_tasks')!.description).toStartWith('[Team board, team connection]')
+      // each name runs its own connection: the chat remembers whose answer it holds
+      expect((await a.call('my_teamboard__search_tasks', { q: 'x' })).isError).toBe(false)
+      expect(readScope(A.ctx.db, a.chat)).toEqual([{ type: 'user', id: 'alice' }])
+      const b = turn('alice')
+      expect((await b.call('team_teamboard__search_tasks', { q: 'x' })).isError).toBe(false)
+      expect(readScope(A.ctx.db, b.chat)).toEqual([{ type: 'integration', id: team.id }])
+      // the others of the group get the team's only
+      expect([...turn('erin').tools.keys()].filter((n) => n.includes('teamboard__search_tasks'))).toEqual(['team_teamboard__search_tasks'])
+    } finally {
+      await A.json(`/api/integrations/${own.body.id}`, { method: 'DELETE', as: 'alice' })
+    }
+    expect(turn('alice').tools.has('my_teamboard__search_tasks')).toBe(false)
+  })
+
   test('limits: every tool the service lists is kept (up to the hard ceiling, c-integration-deferred-tools.test.ts)', async () => {
     const saved = fake.tools
     fake.tools = Array.from({ length: 130 }, (_, i) => ({ name: `t${i}`, description: '', inputSchema: { type: 'object' } }))

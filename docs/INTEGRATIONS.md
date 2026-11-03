@@ -258,10 +258,14 @@ still refuse a client it does not know. Left out because they need an app of the
 Box, Zoom, Docusign, PagerDuty, Granola, Clerk. Google Drive has its own integration.
 
 Logos are files in `web/public/icons/connectors`, because the content security policy loads no image from elsewhere,
-and a connection whose address matches a listed service shows its logo too. They come from svgl.app and Simple Icons as
-listed by mcpservers.org. `web/test/unit/connectors.test.ts` checks that an SVG can run nothing and load nothing, because
-these files are served from the team's own address. Each logo is its owner's trademark and is used only to name that
-service.
+and a connection whose address matches a listed service shows its logo too. Where each file came from is not recorded:
+the records name sources only for the set as a whole (svgl.app, Simple Icons and the services' own sites, for the
+services listed on mcpservers.org). `docs/THIRD-PARTY-NOTICES.md` has a table per file with what is known, and the source
+and its terms of each file are still to be confirmed. Because these files are served from the team's own address,
+`web/test/unit/connectors.test.ts` reads every SVG as XML and allows only listed elements and attributes, no character
+references and no `url()` outside the file, and the server sends `/icons/**/*.svg` with a policy that runs and loads
+nothing (`SVG_ICON_CSP` in `server/src/routes/web-static.ts`). Each logo is its owner's trademark and is used only to name
+that service.
 
 ## Not in phase 1
 

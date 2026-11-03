@@ -262,6 +262,38 @@ test('the skills I can use: most used first, search, "…" opens the file, the r
   await expect(page.getByTestId('composer-input')).toHaveValue('/proposal ')
 })
 
+test('a link to my suggestions works again while the page is open; on a phone the chosen tab is in view', async ({ page }) => {
+  await reset(page, { teamLocale: 'en', usersFollowTeam: true })
+  await page.setViewportSize({ width: 375, height: 812 })
+  await signIn(page)
+  await page.goto('/skills?mine=1')
+  const row = page.getByRole('tablist', { name: 'Team skills' })
+  const selected = row.locator('[role="tab"][aria-selected="true"]')
+  await expect(selected).toHaveText('My suggestions')
+  // applied, the link leaves the address, so the same link works again later
+  await expect.poll(() => new URL(page.url()).searchParams.has('mine')).toBe(false)
+  const inView = () => selected.evaluate((tab) => {
+    const r = tab.parentElement!.getBoundingClientRect()
+    const b = tab.getBoundingClientRect()
+    return b.left >= r.left - 1 && b.right <= r.right + 1
+  })
+  await expect.poll(inView).toBe(true)
+  // the admin's four tabs do not fit this width in English: a tab chosen out of view scrolls into the row (a DOM
+  // click, because Playwright's own click would scroll it first)
+  expect(await row.evaluate((r) => r.scrollWidth > r.clientWidth)).toBe(true)
+  await row.evaluate((r) => { r.scrollLeft = r.scrollWidth })
+  await row.evaluate((r) => (r.querySelector('[role="tab"]') as HTMLElement).click())
+  await expect(selected).toHaveText('Available skills')
+  await expect.poll(inView).toBe(true)
+  // a banner's link to my suggestions again, while the page is open
+  await page.evaluate(() => {
+    history.pushState({}, '', '/skills?mine=1')
+    dispatchEvent(new PopStateEvent('popstate'))
+  })
+  await expect(selected).toHaveText('My suggestions')
+  await expect.poll(inView).toBe(true)
+})
+
 test('no skill to use yet: the tab says so and how one gets there', async ({ page }) => {
   await reset(page)
   await signIn(page, BOB)

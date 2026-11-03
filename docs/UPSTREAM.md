@@ -253,7 +253,6 @@ repository already had it (PR #13 above). Conflicts: only the new sections at th
 
 Selected source patches from potenlab/team-ax `efb92c1d`, `8e637244`, `1628aa4d` and `68cf0ac6` were reviewed and ported without importing private core history or excluded paths. These are direct source SHA references, not filtered-history mappings. Fork branding, service addresses, release configuration and the personal-integration default remain unchanged. Documentation was adapted to the fork; the core opt-in change and its fixture changes were excluded. Migration files 209 and 313 already match core and were not reapplied. Core-only release-configuration commits `9c336176` and `97f4424a` were not ported. Each port commit records its full source SHA.
 
-
 ## 2026-11-02 Team skills: one quiet list
 
 Source change from potenlab/team-ax `744e683` (branch `feat/skills-compact`, core PR #27, not yet on core main), ported by hand onto this repository's own files. No core history was imported.
@@ -265,7 +264,6 @@ Resolutions, because this repository has more on that page than core:
 - `es` and `ja` get the new keys (`fromTeam`, `search`, `uses`, `usesHint`, `noMatch`, `moreNamed`). `skills.desc`, `availableHint`, `useNamed` and `viewFileNamed` go in all five languages.
 - `web/test/mock/server.ts` is unchanged: this repository already has `listSkills`.
 
-
 ## 2026-11-02 External services: Connected and Discover
 
 Source change from potenlab/team-ax `b09811f` and `7e0d692` (branch `feat/connectors-discover`, core PR #28, on top of PR #27, not yet on core main), ported by hand. No core history was imported.
@@ -275,3 +273,9 @@ Source change from potenlab/team-ax `b09811f` and `7e0d692` (branch `feat/connec
 - `IntegrationRow.tsx` rebuilt on this repository's own version: the tool switches, the tool counts and the `danger` delete button stay, and the "last check failed" note also shows on the line.
 - `es` and `ja` get every new key; `integrations.desc` and `integrations.admin.desc` go in all five languages.
 - The list of 39 services and their logos (`web/public/icons/connectors`) came in with the same change.
+- Changed here after review (2026-11-03), not in core yet: the logo test reads SVGs as XML with allowed elements and
+  attributes; `/icons/**/*.svg` is served with `SVG_ICON_CSP` and `nosniff` (`server/src/routes/web-static.ts`); Admin
+  keeps "Nobody can use it yet" / "Not in your chats" on the line and `integrations.admin.desc` comes back as the note
+  under the list; a Discover dialog in Admin says it adds a team connection; the Discover title no longer says
+  "popular"; `Tabs` scrolls the chosen tab into view; `/skills?mine=` leaves the address once applied. The logo sources
+  are recorded per file in `docs/THIRD-PARTY-NOTICES.md`.

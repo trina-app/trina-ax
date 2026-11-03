@@ -4,7 +4,7 @@
 // version history (where the previous version can be restored). Quiet on purpose: rows keep to a line or two, the
 // details open on demand.
 import { Bot, History, Lightbulb, Search } from 'lucide-react'
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import type { SkillChange, SkillSuggestion, SkillsOverview } from '@mycel/shared/api'
 import { api, API, errorText } from '../lib/api'
@@ -61,15 +61,23 @@ export default function Skills() {
     void load()
     return skillsChanged.on(() => void load())
   }, [load])
+  // a link to "my suggestions" chose the tab (its ?mine= is gone from the address by then)
+  const linkedMine = useRef(!!params.get('mine'))
   // first visit: managers land on what waits for them
   useEffect(() => {
-    if (overview && !params.get('mine') && overview.pendingReview > 0) setTab('review')
+    if (overview && !linkedMine.current && overview.pendingReview > 0) setTab('review')
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [overview === null])
-  // a banner's link while already on this page
+  // a banner's link while already on this page; ?mine= goes once applied, like ?review=, so the same link works again
   useEffect(() => {
-    if (params.get('mine')) setTab('mine')
-    else if (params.get('review')) setTab('review')
+    if (params.get('mine')) {
+      linkedMine.current = true
+      setTab('mine')
+      const next = new URLSearchParams(params)
+      next.delete('mine')
+      setParams(next, { replace: true })
+    } else if (params.get('review')) setTab('review')
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [params])
   // a banner's link: /skills?review=<id> opens that suggestion
   useEffect(() => {

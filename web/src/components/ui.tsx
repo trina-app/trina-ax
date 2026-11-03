@@ -401,8 +401,19 @@ export function CopyButton({ text, html, label, className, showLabel }: { text: 
 // ---------------- simple tabs ----------------
 /** `segmented`: the tabs sit in one quiet pill group, for a page's main switch next to its title. */
 export function Tabs<T extends string>({ value, onChange, items, label, segmented }: { value: T; onChange: (v: T) => void; items: { id: T; label: string }[]; label: string; segmented?: boolean }) {
+  const list = useRef<HTMLDivElement>(null)
+  // on a phone the tabs may not all fit: the chosen one scrolls into the row (a link can choose the last one). Only
+  // then, so a row that fits never moves the page.
+  useEffect(() => {
+    const row = list.current
+    const tab = row?.querySelector<HTMLElement>('[role="tab"][aria-selected="true"]')
+    if (!row || !tab || row.scrollWidth <= row.clientWidth) return
+    const r = row.getBoundingClientRect()
+    const b = tab.getBoundingClientRect()
+    if (b.left < r.left || b.right > r.right) tab.scrollIntoView({ block: 'nearest', inline: 'nearest' })
+  }, [value, items.length])
   return (
-    <div role="tablist" aria-label={label} className={clsx('flex overflow-x-auto', segmented ? 'max-w-full gap-0.5 rounded-lg bg-subtle p-0.5' : 'gap-1')}>
+    <div ref={list} role="tablist" aria-label={label} className={clsx('flex overflow-x-auto', segmented ? 'max-w-full gap-0.5 rounded-lg bg-subtle p-0.5' : 'gap-1')}>
       {items.map((it) => (
         <button
           key={it.id}

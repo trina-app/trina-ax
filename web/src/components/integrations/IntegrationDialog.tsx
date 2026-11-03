@@ -101,7 +101,7 @@ export function IntegrationDialog({ scope, existing, connector, onClose, onSaved
       open
       onClose={onClose}
       width={600}
-      title={existing ? t('integrations.editTitle') : connector ? t('integrations.discover.add', { name: connector.name }) : team ? t('integrations.addTeamTitle') : t('integrations.addTitle')}
+      title={existing ? t('integrations.editTitle') : connector ? t(team ? 'integrations.discover.addTeam' : 'integrations.discover.add', { name: connector.name }) : team ? t('integrations.addTeamTitle') : t('integrations.addTitle')}
       footer={
         <>
           <Button variant="ghost" onClick={onClose}>

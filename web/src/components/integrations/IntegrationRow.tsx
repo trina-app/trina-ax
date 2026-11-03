@@ -1,5 +1,6 @@
 // One external-service connection in a list (Settings > External services, Admin > External services): one line with
-// the name, kind or what is wrong (it failed, or, connected, its last check failed), and its state. A click opens the
+// the name, kind or what is wrong (it failed, or, connected, its last check failed), its state, and in Admin whether
+// nobody or not the admin looking at it may use it. A click opens the
 // rest: the address, which tool list the AI keeps using, the stored key or signed-in account (never the key itself),
 // last use, the MCP server's tools (with a switch each for whoever manages it, like Claude's connector tools: a tool
 // turned off is not offered to the AI, server/src/integrations/connections/tools.ts; tools the service adds later are
@@ -193,12 +194,14 @@ export function useIntegrationActions({ add, replace, reload }: { add: (i: Integ
 
 export type IntegrationActions = ReturnType<typeof useIntegrationActions>
 
-export function IntegrationRow({ i, actions, onEdit, teamBadge, extra }: {
+export function IntegrationRow({ i, actions, onEdit, teamBadge, alert, extra }: {
   i: Integration
   actions: IntegrationActions
   onEdit: () => void
   /** mark team connections (Settings lists them under one's own) */
   teamBadge?: boolean
+  /** a warning that stays on the line, not in the details (Admin: nobody may use it, or not the admin looking at it) */
+  alert?: ReactNode
   /** more lines under the details (Admin: who may use it) */
   extra?: ReactNode
 }) {
@@ -248,6 +251,7 @@ export function IntegrationRow({ i, actions, onEdit, teamBadge, extra }: {
               <span className="max-w-full truncate text-sm font-medium" title={i.name}>{i.name}</span>
               {teamBadge && i.scope === 'team' && <Badge tone="accent">{t('integrations.teamBadge')}</Badge>}
               {i.writePolicy === 'allow' && <Badge tone="warn">{t('integrations.write.allow')}</Badge>}
+              {alert}
             </span>
             <span className={clsx('mt-0.5 block truncate text-xs', failing ? 'text-danger' : note ? 'text-warn' : 'text-muted')} title={i.lastError ?? undefined}>
               {i.lastError ?? kindLabel}
