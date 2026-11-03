@@ -97,13 +97,14 @@ export function hwpxOutline(xml: string): Map<string, number> {
 }
 
 /** Markdown heading marks for the heading paragraphs (line index -> level); a body line that starts like one gets a
- * space in front (also through tidy's trim), so only headings start a line with `#` (files/locations.ts). */
+ * space in front (also through tidy's trim), so only headings start a line with `#` (files/locations.ts). That holds
+ * for each line of a paragraph: text after a hard line break can start with `#` too. */
 function withHeadings(lines: string[], heads: Map<number, number>): string {
   return lines.map((l, i) => {
     const level = heads.get(i)
     const text = l.replace(/\s+/g, ' ').trim()
     if (level !== undefined && text) return `${'#'.repeat(level)} ${text}`
-    return /^\s*#{1,6}(?:\s|$)/.test(l) ? QUOTED + l.trimStart() : l
+    return l.split('\n').map((part) => (/^\s*#{1,6}(?:\s|$)/.test(part) ? QUOTED + part.trimStart() : part)).join('\n')
   }).join('\n')
 }
 /** a body line's mark until tidy() has run (its trim would take a leading space of the first line) */

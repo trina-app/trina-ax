@@ -8,11 +8,15 @@
 // all of it; nothing is written, so a file never holds half the document.
 //
 // Styles and the page come from a template: the built-in one (files/hwpx-template.ts) or a team's .hwpx under
-// skills/, like pandoc's reference document. Only its header.xml (fonts, character and paragraph shapes, numbering,
-// styles) and the page setup of its first section are used; its text, pictures, headers and footers are not. A
-// template is untrusted input: size and zip limits, well-formed XML without DTDs, comments or other markup the
-// header edits below cannot see past, and no scripts (Scripts/), OLE objects or encrypted parts. Hangul's own files
-// are written that way, so a template saved by Hangul passes.
+// skills/, like pandoc's reference document. A template is untrusted input: size and zip limits, no scripts
+// (Scripts/), OLE objects or encryption, and its header.xml and first section are read by an XML parser (well-formed,
+// no DTD, comments, CDATA or processing instructions, Hangul's prefixes for Hangul's namespaces). Only allowlisted
+// parts are kept and written again in one canonical form before anything edits them as text: from the header the
+// reference lists (fonts, border fills, character and paragraph shapes, tabs, numbering, bullets, styles, memo
+// shapes), the numbering start, compatibility and options (the path of a linked document emptied; tracked changes and
+// their authors, metadata and anything else left out); from the first section its page setup (paper, margins, grid,
+// note and page border settings; no master pages) and columns. Nothing in them may point at BinData, an address or a
+// path. Its text, pictures, headers and footers are not used.
 //
 // The writer adds what the document needs to the header (bold and italic variants of character shapes, list and
 // table-cell paragraph shapes, numbering, bullets, table borders) after the template's own items, with the next ids.
@@ -133,8 +137,10 @@ class Converter {
       const [attrs, list] = arr(b.c) as [unknown[], unknown[]]
       const [start, style, delim] = arr(attrs) as [unknown, Node, Node]
       if (this.numberings.length >= HWPX_LIMITS.numberedLists) { this.problem(`more than ${HWPX_LIMITS.numberedLists} numbered lists`); return }
+      // Hangul draws a list that starts at 0 from 1, and keeps start numbers to 16 bits: refused, not changed
       const n = Number(start)
-      this.numberings.push({ start: Number.isInteger(n) && n >= 0 && n <= 65535 ? n : 1, format: FORMATS[String(style?.t)] ?? 'DIGIT', label: DELIMS[String(delim?.t)] ?? '^1.' })
+      if (!(Number.isInteger(n) && n >= 1 && n <= 65535)) { this.problem('numbered lists that start at 0 or above 65535'); return }
+      this.numberings.push({ start: n, format: FORMATS[String(style?.t)] ?? 'DIGIT', label: DELIMS[String(delim?.t)] ?? '^1.' })
       pos = { kind: 'number', depth, numbering: this.numberings.length }
       items = arr(list)
     } else {
@@ -154,6 +160,8 @@ class Converter {
           this.list(x, depth + 1)
         } else this.problem(x.t === 'Table' ? 'tables inside list items' : x.t === 'Header' ? 'headings inside list items' : `${NAMES[String(x.t)] ?? String(x.t)} inside list items`)
       }
+      // an empty item keeps its place (and its number: "1. a / 2. / 3. c" stays 1, 2, 3)
+      if (first) this.emit({ k: 'p', heading: 0, list: pos, runs: [], pageBreak: false })
     }
   }
 
@@ -171,6 +179,8 @@ class Converter {
       for (const r of arr(arr(body)[3])) rows.push({ head: false, row: r })
     }
     for (const r of arr(arr(tfoot)[1])) rows.push({ head: false, row: r })
+    // a table without rows holds no text, and Hangul has no table of no rows
+    if (!rows.length) return null
     if (rows.length * cols > HWPX_LIMITS.tableCells) { this.problem(`tables with more than ${HWPX_LIMITS.tableCells.toLocaleString('en')} cells`); return null }
     const colAlign = specs.map((s) => align(arr(s)[0]))
     const given = specs.map((s) => { const w = arr(s)[1] as Node; return w?.t === 'ColWidth' && Number(w.c) > 0 ? Number(w.c) : 0 })
@@ -250,6 +260,7 @@ function align(a: unknown): Align | undefined {
 }
 
 // ---------------------------------------------------------------- XML helpers
+const TEMPLATE_BAD = 'the template cannot be used'
 const escText = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
 const escAttr = (s: string) => escText(s).replace(/"/g, '&quot;')
 const ENTITIES: Record<string, string> = { amp: '&', lt: '<', gt: '>', quot: '"', apos: "'" }
@@ -276,8 +287,9 @@ function attrsOf(tag: string): Map<string, string> {
 
 interface El { start: number; end: number; open: string; self: boolean; attrs: Map<string, string>; xml: string }
 
-/** Every element `qname` in `xml`, in order. Only for XML checked by checkXml (no comments, CDATA or DTD), and for
- * elements that do not nest in themselves. */
+/** Every element `qname` in `xml`, in order. Only for XML this module wrote itself (the template's parts are written
+ * again by serialize() first: every closing tag exactly `</qname>`, no quote or `<` inside a value, no comments), and
+ * for elements that do not nest in themselves (the header's are refused when they do). */
 function elements(xml: string, qname: string, from = 0, to = xml.length): El[] {
   const out: El[] = []
   const needle = '<' + qname
@@ -304,47 +316,104 @@ const withAttr = (open: string, name: string, value: string) => {
   return re.test(open) ? open.replace(re, `$1"${escAttr(value)}"`) : open.replace(/\s*(\/?>)$/, ` ${name}="${escAttr(value)}"$1`)
 }
 
+/** An element of a template part as saxes read it: its qualified name, attributes in order, children. */
+interface XNode { name: string; attrs: [string, string][]; kids: (XNode | string)[] }
+const XML_NODES_MAX = 2_000_000
+
 /**
- * Checks one XML part of a template: well-formed, at most HWPX_LIMITS.xmlDepth deep, no DTD, comments, CDATA or
- * processing instructions (the header edits below read the text as tags), and Hangul's own prefixes for Hangul's
- * namespaces. Returns the namespaces the root element declares.
+ * Reads one XML part of a template into a tree: well-formed, at most HWPX_LIMITS.xmlDepth deep, no DTD, comments,
+ * CDATA or processing instructions, Hangul's own prefixes for Hangul's namespaces and never another namespace for one
+ * of those prefixes (the writer adds elements with them). `noSelfNesting`: an element inside one of the same name is
+ * refused (the header's items never nest).
  */
-function checkXml(xml: string, part: string): Map<string, string> {
-  const bad = (why: string): never => { throw new ToolError(`the template cannot be used (${part}: ${why})`) }
+function parseXml(xml: string, part: string, noSelfNesting = false): XNode {
+  const bad = (why: string): never => { throw new ToolError(`${TEMPLATE_BAD} (${part}: ${why}). Use a .hwpx saved by Hangul, or no template.`) }
   const parser = new SaxesParser({ xmlns: true })
-  let depth = 0
-  let root: Map<string, string> | null = null
   const canonical = new Map<string, string>(OWPML_NS.map(([p, u]) => [u, p]))
+  const bound = new Map<string, string>(OWPML_NS.map(([p, u]) => [p, u]))
+  const stack: XNode[] = []
+  let root: XNode | null = null
+  let nodes = 0
   parser.on('error', (e) => bad(`not well-formed XML: ${String(e.message).slice(0, 120)}`))
   parser.on('doctype', () => bad('a DTD'))
   parser.on('comment', () => bad('comments'))
   parser.on('cdata', () => bad('CDATA sections'))
   parser.on('processinginstruction', () => bad('processing instructions'))
-  const bound = new Map(OWPML_NS.map(([p, u]) => [p as string, u as string]))
   parser.on('opentag', (tag) => {
-    if (++depth > HWPX_LIMITS.xmlDepth) bad(`nested more than ${HWPX_LIMITS.xmlDepth} levels`)
+    if (stack.length >= HWPX_LIMITS.xmlDepth) bad(`nested more than ${HWPX_LIMITS.xmlDepth} levels`)
+    if (++nodes > XML_NODES_MAX) bad('too many elements')
     const want = canonical.get(tag.uri)
     if (want !== undefined && tag.prefix !== want) bad(`the prefix "${tag.prefix}" for ${want}`)
-    // Hangul's prefixes always mean Hangul's namespaces (the writer adds elements with them)
     for (const [p, u] of Object.entries(tag.ns ?? {})) if (bound.has(p) && bound.get(p) !== u) bad(`the prefix "${p}" bound to another namespace`)
-    if (!root) root = new Map(Object.entries(tag.ns ?? {}))
+    if (noSelfNesting && stack.some((s) => s.name === tag.name)) bad(`${tag.name} inside ${tag.name}`)
+    const node: XNode = { name: tag.name, attrs: Object.values(tag.attributes).map((a) => [a.name, a.value] as [string, string]), kids: [] }
+    if (stack.length) stack[stack.length - 1]!.kids.push(node)
+    else if (root) bad('two root elements')
+    else root = node
+    stack.push(node)
   })
-  parser.on('closetag', () => { depth-- })
+  parser.on('text', (t) => { if (stack.length) stack[stack.length - 1]!.kids.push(t) })
+  parser.on('closetag', () => { stack.pop() })
   parser.write(xml).close()
   return root ?? bad('empty')
 }
 
+/** A tree written back as XML in one canonical form: double-quoted values with `& < > " '` escaped, text with
+ * `& < >` escaped, `<a/>` for an element without children, `</a>` exactly. The header edits work on this form only. */
+function serialize(n: XNode): string {
+  const attrs = n.attrs.map(([k, v]) => ` ${k}="${escAttr(v).replace(/'/g, '&apos;')}"`).join('')
+  if (!n.kids.length) return `<${n.name}${attrs}/>`
+  return `<${n.name}${attrs}>${n.kids.map((k) => (typeof k === 'string' ? escText(k) : serialize(k))).join('')}</${n.name}>`
+}
+
+const attr = (n: XNode, k: string) => n.attrs.find(([a]) => a === k)?.[1]
+const setAttr = (n: XNode, k: string, v: string) => { const a = n.attrs.find(([x]) => x === k); if (a) a[1] = v; else n.attrs.push([k, v]) }
+const find = (n: XNode, name: string): XNode | undefined => {
+  for (const k of n.kids) {
+    if (typeof k === 'string') continue
+    if (k.name === name) return k
+    const deep = find(k, name)
+    if (deep) return deep
+  }
+  return undefined
+}
+/** keeps only the child elements named in `allowed` (text between them stays) */
+const keepKids = (n: XNode, allowed: Set<string>) => { n.kids = n.kids.filter((k) => typeof k === 'string' || allowed.has(k.name)) }
+
+/** Throws when a part that goes into the new file refers to something outside it: a BinData item (pictures, embedded
+ * fonts; BinData is not carried over) or an address or path. Namespace names are not addresses. */
+function assertSelfContained(n: XNode, part: string) {
+  const bad = (why: string): never => { throw new ToolError(`${TEMPLATE_BAD}: ${part} ${why}. Use a .hwpx saved by Hangul, or no template.`) }
+  const stack = [n]
+  while (stack.length) {
+    const e = stack.pop()!
+    for (const [k, v] of e.attrs) {
+      if (/^xmlns(:|$)/.test(k) || /required-namespace$/.test(k)) continue
+      if (/binaryItemIDRef$/i.test(k) && v.trim()) bad('uses pictures or embedded fonts (BinData), which are not carried over')
+      if (/^\s*(\\\\|\/\/|[a-z][a-z0-9+.-]*:\/\/|file:)/i.test(v)) bad(`refers to an address or path (${k})`)
+    }
+    for (const k of e.kids) if (typeof k !== 'string') stack.push(k)
+  }
+}
+
+/** What of a template's header goes into the new file: the reference lists of shapes and styles, numbering start,
+ * compatibility and options, without the path of a linked document or the names in tracked changes. */
+const HEAD_KEEP = new Set(['hh:beginNum', 'hh:refList', 'hh:compatibleDocument', 'hh:docOption', 'hh:trackchageConfig'])
+const REFLIST_KEEP = new Set(['hh:fontfaces', 'hh:borderFills', 'hh:charProperties', 'hh:tabProperties', 'hh:numberings', 'hh:bullets', 'hh:paraProperties', 'hh:styles', 'hh:memoProperties'])
+/** what of the first section's page setup does: paper, margins, grid, numbering start, note and border settings */
+const OWPML_PREFIX = new RegExp(`^(${OWPML_NS.map(([p]) => p).join('|')}):`)
+const SECPR_KEEP = new Set(['hp:grid', 'hp:startNum', 'hp:visibility', 'hp:lineNumberShape', 'hp:pagePr', 'hp:footNotePr', 'hp:endNotePr', 'hp:pageBorderFill'])
+
 // ---------------------------------------------------------------- the template
 interface Style { id: number; type: string; name: string; engName: string; paraPr: number; charPr: number }
 interface Template {
+  /** header.xml as it goes into the new file (canonical, the kept parts only), before the writer's items are added */
   header: string
   secPr: string
   colPr: string
   /** width of the text area in HWPUNIT */
   textWidth: number
 }
-
-const TEMPLATE_BAD = 'the template cannot be used'
 
 /** The parts of a template make_file uses, after the checks above. */
 export function readTemplate(bytes: Uint8Array): Template {
@@ -375,32 +444,50 @@ export function readTemplate(bytes: Uint8Array): Template {
   const mimetype = text('mimetype')
   if (mimetype === null || mimetype.trim() !== 'application/hwp+zip') bad('it is not a Hangul document (no application/hwp+zip mimetype)')
   if (/encryption|<(?:\w+:)?encrypt/i.test(text('META-INF/manifest.xml') ?? '')) bad('it is encrypted or a distribution-only document')
+  // embedded objects anywhere in the document's text (an equation's hp:script is its formula, not a program)
   for (const n of names) {
-    if (!/\.(xml|hpf|rdf)$/i.test(n)) continue
-    const x = text(n)!
-    if (/<(?:\w+:)?(?:ole|script)\b/i.test(x)) bad(`${n} contains an embedded object or script`)
+    if (/\.(xml|hpf|rdf)$/i.test(n) && /<(?:\w+:)?ole\b/i.test(text(n)!)) bad(`${n} contains an embedded OLE object`)
   }
-  const header = text('Contents/header.xml') ?? bad('it has no Contents/header.xml')
-  const section = text('Contents/section0.xml') ?? bad('it has no Contents/section0.xml')
-  const ns = checkXml(header, 'Contents/header.xml')
-  checkXml(section, 'Contents/section0.xml')
-  if (!/^\s*(<\?xml[^>]*\?>\s*)?<hh:head[\s>]/.test(header)) bad('Contents/header.xml is not a Hangul header')
-  for (const p of ['hh', 'hc', 'hp'] as const) {
-    if (ns.has(p) && ns.get(p) !== NS[p]) bad(`the prefix "${p}" is not Hangul's`)
+  const headerXml = text('Contents/header.xml') ?? bad('it has no Contents/header.xml')
+  const sectionXml = text('Contents/section0.xml') ?? bad('it has no Contents/section0.xml')
+  // Both parts are read into trees and only what is used is written again, in one canonical form (serialize), so the
+  // header edits below never meet XML they could read differently from the parser.
+  const head = parseXml(headerXml, 'Contents/header.xml', true)
+  const section = parseXml(sectionXml, 'Contents/section0.xml')
+  if (head.name !== 'hh:head') bad('Contents/header.xml is not a Hangul header')
+  keepKids(head, HEAD_KEEP)
+  const refList = head.kids.find((k): k is XNode => typeof k !== 'string' && k.name === 'hh:refList')
+  if (refList) keepKids(refList, REFLIST_KEEP)
+  const docOption = head.kids.find((k): k is XNode => typeof k !== 'string' && k.name === 'hh:docOption')
+  if (docOption) {
+    keepKids(docOption, new Set(['hh:linkinfo']))
+    for (const l of docOption.kids) if (typeof l !== 'string') setAttr(l, 'path', '')
   }
-  if (/\bbinaryItemIDRef\s*=/.test(header)) bad('its styles use pictures (BinData), which are not carried over')
+  assertSelfContained(head, 'Contents/header.xml')
 
-  // the page setup of the first section, without master pages (their files are not carried over)
-  const secPr = elements(section, 'hp:secPr')[0] ?? bad('it has no page setup (hp:secPr)')
-  const inner = secPr.self ? '' : secPr.xml.slice(secPr.open.length).replace(/<hp:masterPage\b[^>]*\/>/g, '').replace(/<hp:masterPage\b[\s\S]*?<\/hp:masterPage>/g, '')
-  const sec = withAttr(secPr.self ? secPr.open.replace(/\s*\/>$/, '>') : secPr.open, 'masterPageCnt', '0') + (secPr.self ? '</hp:secPr>' : inner)
-  const col = elements(section, 'hp:colPr')[0]
-  const pagePr = elements(sec, 'hp:pagePr')[0]
-  const margin = pagePr ? elements(pagePr.xml, 'hp:margin')[0] : undefined
-  const num = (m: Map<string, string> | undefined, k: string, d: number) => { const v = Number(m?.get(k)); return Number.isFinite(v) ? v : d }
-  const pageWidth = pagePr?.attrs.get('landscape') === 'NARROWLY' ? num(pagePr?.attrs, 'height', 84186) : num(pagePr?.attrs, 'width', 59528)
-  const textWidth = Math.max(2000, Math.min(300_000, pageWidth - num(margin?.attrs, 'left', 8504) - num(margin?.attrs, 'right', 8504) - num(margin?.attrs, 'gutter', 0)))
-  return { header, secPr: sec, colPr: col ? `<hp:ctrl>${col.xml}</hp:ctrl>` : COL_PR, textWidth }
+  // the page setup of the first section, from the settings it may hold (no master pages: their files stay behind)
+  const secPr = find(section, 'hp:secPr') ?? bad('it has no page setup (hp:secPr)')
+  keepKids(secPr, SECPR_KEEP)
+  setAttr(secPr, 'masterPageCnt', '0')
+  const col = find(section, 'hp:colPr')
+  if (col) keepKids(col, new Set(['hp:colLine', 'hp:colSz']))
+  for (const [n, part] of [[secPr, 'the page setup'], [col, 'the column setup']] as const) {
+    if (!n) continue
+    assertSelfContained(n, part)
+    // moved under the new section's root, which declares Hangul's namespaces only
+    const stack = [n]
+    while (stack.length) {
+      const e = stack.pop()!
+      if (!OWPML_PREFIX.test(e.name) || e.attrs.some(([k]) => k.includes(':') && !OWPML_PREFIX.test(k))) bad(`${part} uses names outside Hangul's namespaces`)
+      for (const k of e.kids) if (typeof k !== 'string') stack.push(k)
+    }
+  }
+  const pagePr = find(secPr, 'hp:pagePr')
+  const margin = pagePr ? find(pagePr, 'hp:margin') : undefined
+  const num = (n: XNode | undefined, k: string, d: number) => { const v = Number(n ? attr(n, k) : undefined); return Number.isFinite(v) ? v : d }
+  const pageWidth = pagePr && attr(pagePr, 'landscape') === 'NARROWLY' ? num(pagePr, 'height', 84186) : num(pagePr, 'width', 59528)
+  const textWidth = Math.max(2000, Math.min(300_000, pageWidth - num(margin, 'left', 8504) - num(margin, 'right', 8504) - num(margin, 'gutter', 0)))
+  return { header: XML_DECL + serialize(head), secPr: serialize(secPr), colPr: col ? `<hp:ctrl>${serialize(col)}</hp:ctrl>` : COL_PR, textWidth }
 }
 
 // ---------------------------------------------------------------- the header: the template's items and ours
@@ -419,6 +506,7 @@ class Header {
   private charCache = new Map<string, number>()
   private paraCache = new Map<string, number>()
   private bulletCache = new Map<string, number>()
+  private baseCache = new Map<number, Required<Pick<ParaShape, 'align' | 'lineSpacing' | 'tabPr' | 'borderFill'>>>()
   readonly styles: Style[]
   readonly body: Style
   readonly outline: (Style | undefined)[] = []
@@ -446,13 +534,20 @@ class Header {
     for (const s of this.styles) if (!(s.paraPr >= 0 && s.paraPr < paraCount && s.charPr >= 0 && s.charPr < charCount)) this.bad(`style "${s.name.slice(0, 40)}" refers to a shape that is not there`)
     this.body = this.styles.find((s) => s.id === 0 && s.type === 'PARA') ?? this.styles.find((s) => s.type === 'PARA') ?? this.bad('no paragraph style')
     // the style of each outline level: 개요 N (or Outline N) whose paragraph shape is that level, else any such style
+    // (each shape looked at once: the first hh:heading in it, as hwp.ts reads it)
+    const levels = new Map<number, number>()
     const level = (s: Style) => {
-      const p = this.items.get('paraProperties')![s.paraPr]!
-      const h = elements(p.xml, 'hh:heading')[0]
-      return h && h.attrs.get('type') === 'OUTLINE' ? Number(h.attrs.get('level')) : -1
+      let l = levels.get(s.paraPr)
+      if (l === undefined) {
+        const h = elements(this.items.get('paraProperties')![s.paraPr]!.xml, 'hh:heading')[0]
+        l = h && h.attrs.get('type') === 'OUTLINE' ? Number(h.attrs.get('level')) : -1
+        levels.set(s.paraPr, l)
+      }
+      return l
     }
+    const paraStyles = this.styles.filter((s) => s.type === 'PARA').map((s) => ({ s, l: level(s) }))
     for (let l = 0; l < 6; l++) {
-      const all = this.styles.filter((s) => s.type === 'PARA' && level(s) === l)
+      const all = paraStyles.filter((x) => x.l === l).map((x) => x.s)
       this.outline[l] = all.find((s) => s.name === `개요 ${l + 1}` || s.engName === `Outline ${l + 1}`) ?? all[0]
     }
   }
@@ -501,14 +596,24 @@ class Header {
 
   /** a paragraph shape of ours, from the body shape's alignment, line spacing, tabs and border */
   para(s: ParaShape & { from?: number }): number {
-    const base = this.paraPr(s.from ?? this.body.paraPr)
-    const ls = elements(base.xml, 'hh:lineSpacing')[0]
-    const type = ls?.attrs.get('type'), value = Number(ls?.attrs.get('value'))
+    const from = s.from ?? this.body.paraPr
+    let base = this.baseCache.get(from)
+    if (!base) {
+      // read once per shape: a template's shape can be large and there can be thousands of list items and cells
+      const el = this.paraPr(from)
+      const ls = elements(el.xml, 'hh:lineSpacing')[0]
+      const type = ls?.attrs.get('type'), value = Number(ls?.attrs.get('value'))
+      const align = elements(el.xml, 'hh:align')[0]?.attrs.get('horizontal')
+      base = {
+        align: align === 'LEFT' || align === 'RIGHT' || align === 'CENTER' ? align : 'JUSTIFY',
+        lineSpacing: type === 'PERCENT' && value > 0 && value <= 500 ? { type, value } : { type: 'PERCENT', value: 160 },
+        tabPr: Number(el.attrs.get('tabPrIDRef')) || 0,
+        borderFill: Number(elements(el.xml, 'hh:border')[0]?.attrs.get('borderFillIDRef')) || 1,
+      }
+      this.baseCache.set(from, base)
+    }
     const shape: ParaShape = {
-      align: s.align ?? (base.xml.match(/<hh:align\s[^>]*horizontal="(JUSTIFY|LEFT|RIGHT|CENTER)"/)?.[1] as ParaShape['align']) ?? 'JUSTIFY',
-      lineSpacing: s.lineSpacing ?? (type === 'PERCENT' && value > 0 && value <= 500 ? { type, value } : { type: 'PERCENT', value: 160 }),
-      tabPr: Number(base.attrs.get('tabPrIDRef')) || 0,
-      borderFill: Number(elements(base.xml, 'hh:border')[0]?.attrs.get('borderFillIDRef')) || 1,
+      align: s.align ?? base.align, lineSpacing: s.lineSpacing ?? base.lineSpacing, tabPr: base.tabPr, borderFill: base.borderFill,
       heading: s.heading, left: s.left, indent: s.indent, prev: s.prev, next: s.next, keepWithNext: s.keepWithNext,
     }
     const key = JSON.stringify(shape)

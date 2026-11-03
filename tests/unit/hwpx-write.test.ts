@@ -25,7 +25,7 @@ const ast = (md: string) => JSON.parse(execFileSync(PANDOC!, ['--sandbox', '-f',
 const section = (b: Uint8Array) => parts(b).get('Contents/section0.xml')!
 const header = (b: Uint8Array) => parts(b).get('Contents/header.xml')!
 /** the first element `tag` with `id` in a header */
-const byId = (xml: string, tag: string, id: string | number) => new RegExp(`<hh:${tag} id="${id}"[\\s\\S]*?</hh:${tag}>`).exec(xml)?.[0] ?? ''
+const byId = (xml: string, tag: string, id: string | number) => new RegExp(`<hh:${tag}\\b[^>]*?\\sid="${id}"[\\s\\S]*?</hh:${tag}>`).exec(xml)?.[0] ?? ''
 const paras = (xml: string) => [...xml.matchAll(/<hp:p id="0" paraPrIDRef="(\d+)" styleIDRef="(\d+)" pageBreak="(\d)"[^>]*>([\s\S]*?)<\/hp:p>/g)].map((m) => ({ paraPr: m[1]!, style: m[2]!, pageBreak: m[3] === '1', body: m[4]! }))
 const paraWith = (b: Uint8Array, text: string) => paras(section(b)).find((p) => p.body.includes(`>${text}<`))!
 const roundTrip = (tree: unknown, bytes: Uint8Array) => firstDifference(hwpxExpectedLines(tree), hwpxReadLines(hwpxText(bytes)))
@@ -192,6 +192,22 @@ describe.skipIf(!PANDOC)('supported elements', () => {
     expect(roundTrip(tree, other)).toContain('expected "| 넷째", read "| 다섯째"')
   })
 
+  test('text that starts with # after a hard line break reads back as text, not as a heading', () => {
+    const t = ast('foo  \n## x\n')
+    const out = writeHwpx(t)
+    expect(hwpxText(out)).toBe('foo\n ## x')
+    expect(roundTrip(t, out)).toBeNull()
+  })
+
+  test('an empty list item keeps its place; a table without rows is left out', () => {
+    const out = writeHwpx(ast('1. 하나\n2.\n3. 셋\n\n| |\n|-|\n\n끝\n'))
+    const ps = paras(section(out))
+    expect(ps.length).toBe(4)
+    expect(ps[0]!.paraPr).toBe(ps[1]!.paraPr)
+    expect(ps[1]!.body).toContain('<hp:t/>')
+    expect(section(out)).not.toContain('<hp:tbl ')
+  })
+
   test('CSV through pandoc is one table', () => {
     const t = JSON.parse(execFileSync(PANDOC!, ['--sandbox', '-f', 'csv', '-t', 'json'], { input: '이름,수량\n김,3\n' }).toString())
     const out = writeHwpx(t)
@@ -208,7 +224,7 @@ describe.skipIf(!PANDOC)('refused: nothing is written, every kind is named at on
     ['용어\n: 정의', 'definition lists'], ['::: note\n안\n:::', 'divs (::: or <div>)'], ['| 줄\n| 블록', 'line blocks'], ['H~2~O', 'subscript'],
     ['x^2^', 'superscript'], ['[밑줄]{.underline}', 'underline'], ['\\begin{x}\\end{x}', 'raw tex markup'],
     ['- 1\n  - 2\n    - 3\n      - 4\n        - 5\n          - 6\n            - 7', 'lists nested more than 6 levels'],
-    ['| a |\n|---|\n| b |\n\n: 캡션', 'table captions'],
+    ['| a |\n|---|\n| b |\n\n: 캡션', 'table captions'], ['0. 영부터', 'numbered lists that start at 0'],
     ['+-----+-----+\n| a   | b   |\n+=====+=====+\n| - x | y   |\n|     |     |\n+-----+-----+', 'lists inside table cells'],
     ['- 항목\n\n  | a |\n  |---|\n  | b |', 'tables inside list items'],
   ]
@@ -293,6 +309,52 @@ describe.skipIf(!PANDOC)('templates', () => {
   })
 })
 
+describe.skipIf(!PANDOC)('a template is read by the XML parser and written again: what reaches the file', () => {
+  const doc = ast('# 제목\n\n본문 **굵게** *기울임*\n\n- 하나\n\n| a | b |\n|---|---|\n| 1 | 2 |\n')
+  /** every item kind's ids are its first id, then one by one, and each container's itemCnt is its count */
+  function soundIds(h: string) {
+    for (const [box, item, first] of [['borderFills', 'borderFill', 1], ['charProperties', 'charPr', 0], ['paraProperties', 'paraPr', 0], ['numberings', 'numbering', 1], ['bullets', 'bullet', 1], ['styles', 'style', 0]] as const) {
+      const ids = [...h.matchAll(new RegExp(`<hh:${item}\\b[^>]*?\\sid="(\\d+)"`, 'g'))].map((m) => Number(m[1]))
+      expect(ids, item).toEqual(ids.map((_, i) => first + i))
+      const cnt = new RegExp(`<hh:${box} itemCnt="(\\d+)"`).exec(h)
+      if (cnt) expect(Number(cnt[1]), box).toBe(ids.length)
+    }
+  }
+  test('a closing tag with a space, or an attribute value that looks like another attribute, changes nothing', () => {
+    const head = defaultHeaderXml().replace('</hh:borderFill>', '</hh:borderFill >')
+      .replace('<hh:charPr id="0" ', `<hh:charPr x=' id="0" itemCnt="5"' id="0" `)
+      .replace('<hh:charProperties itemCnt="11">', `<hh:charProperties y=' itemCnt="5"' itemCnt="11">`)
+    const out = writeHwpx(doc, template({ head }))
+    const h = header(out)
+    soundIds(h)
+    for (const m of section(out).matchAll(/charPrIDRef="(\d+)"/g)) expect(byId(h, 'charPr', m[1]!)).not.toBe('')
+    expect(byId(h, 'charPr', /charPrIDRef="(\d+)"><hp:t>굵게/.exec(section(out))![1]!)).toContain('<hh:bold/>')
+    expect(roundTrip(doc, out)).toBeNull()
+  })
+  test('only the first page setup, and only its settings: no fields, pictures, master pages or presentation', () => {
+    const field = '<hp:ctrl><hp:fieldBegin id="1" type="HYPERLINK" name="" editable="0" dirty="0" zorder="-1" fieldid="0"><hp:parameters cnt="1" name=""><hp:stringParam name="Path">\\\\203.0.113.9\\share\\x.hwp</hp:stringParam></hp:parameters></hp:fieldBegin></hp:ctrl>'
+    const secPr = defaultSecPrXml().replace('</hp:secPr>', '<hp:presentation effect="none" soundIDRef="" invertText="0" autoshow="0" showtime="0" applyto="WHOLE_DOC"><hp:fillBrush><hc:imgBrush mode="TILE"><hc:img binaryItemIDRef="image9" bright="0" contrast="0" effect="REAL_PIC" alpha="0"/></hc:imgBrush></hp:fillBrush></hp:presentation><hp:masterPage idRef="m0"/></hp:secPr >')
+    const out = section(writeHwpx(doc, template({ secPr: secPr + field + defaultSecPrXml() })))
+    expect(out.match(/<hp:secPr /g)?.length).toBe(1)
+    for (const gone of ['fieldBegin', '203.0.113.9', 'binaryItemIDRef', 'presentation', 'masterPage idRef']) expect(out).not.toContain(gone)
+    expect(out).toContain('masterPageCnt="0"')
+  })
+  test('the header keeps its lists and options only: no linked document path, tracked-change authors or metadata', () => {
+    const head = defaultHeaderXml()
+      .replace('<hh:linkinfo path=""', '<hh:linkinfo path="\\\\203.0.113.9\\share\\base.hwp"')
+      .replace('</hh:refList>', '<hh:trackChangeAuthors itemCnt="1"><hh:trackChangeAuthor name="홍길동" mark="1" color="#FF0000" id="1"/></hh:trackChangeAuthors></hh:refList>')
+      .replace('</hh:head>', '<hh:metaTag>{"name":"secret"}</hh:metaTag></hh:head>')
+    const h = header(writeHwpx(doc, template({ head })))
+    for (const gone of ['203.0.113.9', '홍길동', 'trackChangeAuthor', 'metaTag', 'secret']) expect(h).not.toContain(gone)
+    expect(h).toContain('<hh:linkinfo path="" ')
+  })
+  test('what Hangul itself writes passes: an empty BinData reference on a substitute font, an equation\'s script in the text', () => {
+    const head = defaultHeaderXml().replace('<hh:typeInfo ', '<hh:substFont face="함초롬돋움" type="TTF" isEmbedded="0" binaryItemIDRef=""/><hh:typeInfo ')
+    const text = '</hp:t><hp:equation id="1" type="0" textColor="#000000" baseUnit="1000" letterSpacing="0" lineThickness="100"><hp:script>theta</hp:script></hp:equation><hp:t>'
+    expect(roundTrip(doc, writeHwpx(doc, template({ head, text })))).toBeNull()
+  })
+})
+
 describe.skipIf(!PANDOC)('untrusted templates are refused', () => {
   const doc = ast('# 제목\n\n본문')
   const ole = Buffer.concat([Buffer.from('d0cf11e0a1b11ae1', 'hex'), Buffer.alloc(504)])
@@ -300,7 +362,7 @@ describe.skipIf(!PANDOC)('untrusted templates are refused', () => {
     ['scripts', () => template({ extra: { 'Scripts/headerScripts.js': 'function OnDocument_New() {}' } }), /scripts/],
     ['an OLE object by name', () => template({ extra: { 'BinData/BIN0001.ole': ole } }), /OLE object/],
     ['an OLE object by content', () => template({ extra: { 'BinData/image1.png': ole } }), /OLE object/],
-    ['an OLE control in the section', () => template({ text: '</hp:t><hp:ole id="1"/><hp:t>' }), /embedded object/],
+    ['an OLE control in the section', () => template({ text: '</hp:t><hp:ole id="1"/><hp:t>' }), /section0\.xml contains an embedded OLE object/],
     ['encryption', () => template({ extra: { 'META-INF/manifest.xml': XML_DECL + '<odf:manifest xmlns:odf="urn:oasis:names:tc:opendocument:xmlns:manifest:1.0"><odf:file-entry odf:full-path="Contents/section0.xml"><odf:encryption-data/></odf:file-entry></odf:manifest>' } }), /encrypted/],
     ['a DTD', () => template({ head: defaultHeaderXml().replace(XML_DECL, XML_DECL + '<!DOCTYPE hh:head [<!ENTITY x "y">]>') }), /DTD/],
     ['comments', () => template({ head: defaultHeaderXml().replace('<hh:refList>', '<hh:refList><!-- </hh:charProperties> -->') }), /comments/],
@@ -308,7 +370,12 @@ describe.skipIf(!PANDOC)('untrusted templates are refused', () => {
     ['another prefix for Hangul\'s namespace', () => template({ head: defaultHeaderXml().replace(/hh:/g, 'h:').replace('xmlns:hh=', 'xmlns:h=') }), /prefix "h"/],
     ['a Hangul prefix bound elsewhere', () => template({ head: defaultHeaderXml().replace('<hh:refList>', '<hh:refList xmlns:hp="urn:other">') }), /bound to another namespace/],
     ['not well-formed', () => template({ head: defaultHeaderXml().replace('</hh:styles>', '') }), /not well-formed/],
-    ['too deep', () => template({ head: defaultHeaderXml().replace('<hh:docOption>', '<hh:docOption>' + '<hh:x>'.repeat(70) + '</hh:x>'.repeat(70)) }), /nested more than/],
+    ['too deep', () => template({ head: defaultHeaderXml().replace('<hh:docOption>', '<hh:docOption>' + Array.from({ length: 70 }, (_, i) => `<hh:x${i}>`).join('') + Array.from({ length: 70 }, (_, i) => `</hh:x${69 - i}>`).join('')) }), /nested more than/],
+    ['an item inside an item of the same name', () => template({ head: defaultHeaderXml().replace('<hh:tabPr id="0" autoTabLeft="0" autoTabRight="0"/>', '<hh:tabPr id="0" autoTabLeft="0" autoTabRight="0"><hh:tabPr id="9"/></hh:tabPr>') }), /hh:tabPr inside hh:tabPr/],
+    ['an embedded font', () => template({ head: defaultHeaderXml().replace('<hh:typeInfo ', '<hh:substFont face="x" type="TTF" isEmbedded="1" binaryItemIDRef="font1"/><hh:typeInfo ') }), /embedded fonts/],
+    ['a page setup that points at a picture', () => template({ secPr: defaultSecPrXml().replace('<hp:grid ', '<hp:pageBorderFill type="BOTH" borderFillIDRef="1" textBorder="PAPER" headerInside="0" footerInside="0" fillArea="PAPER"><hp:offset left="0" right="0" top="0" bottom="0" binaryItemIDRef="image9"/></hp:pageBorderFill><hp:grid ') }), /page setup uses pictures/],
+    ['a page setup with a network path', () => template({ secPr: defaultSecPrXml().replace('<hp:grid lineGrid="0"', '<hp:grid lineGrid="0" src="\\\\203.0.113.9\\share\\x.hwp"') }), /address or path/],
+    ['a page setup with names of another namespace', () => template({ secPr: defaultSecPrXml().replace('<hp:grid ', '<hp:grid xmlns:x="urn:x" x:y="1" ') }), /outside Hangul's namespaces/],
     ['pictures in the styles', () => template({ head: defaultHeaderXml().replace('<hc:winBrush faceColor="none"', '<hc:imgBrush mode="TILE"><hc:img binaryItemIDRef="image1" bright="0" contrast="0" effect="REAL_PIC" alpha="0"/></hc:imgBrush><hc:winBrush faceColor="none"') }), /pictures/],
     ['ids out of order', () => template({ head: defaultHeaderXml().replace('<hh:charPr id="1" ', '<hh:charPr id="7" ') }), /ids are not/],
     ['a style to a shape that is not there', () => template({ head: defaultHeaderXml().replace('paraPrIDRef="12" charPrIDRef="0" nextStyleIDRef="14"', 'paraPrIDRef="99" charPrIDRef="0" nextStyleIDRef="14"') }), /refers to a shape/],
