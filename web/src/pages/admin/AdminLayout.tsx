@@ -51,7 +51,7 @@ export default function AdminLayout() {
         {/* narrow screens: the tab strip runs to the screen edges, so a tab cut off at the right reads as "scroll for more" */}
         <nav aria-label={t('admin.title')} className="scroll-thin -mx-4 flex shrink-0 gap-1 overflow-x-auto px-4 sm:-mx-6 sm:px-6 lg:mx-0 lg:w-48 lg:flex-col lg:px-0">
           {visible.map((s) => (
-            <NavLink key={s.id} to={`/admin/${s.id}`} className={({ isActive }) => clsx('flex items-center gap-2 rounded-lg px-3 py-2 text-sm whitespace-nowrap hover:bg-hover', isActive && 'bg-hover font-medium')}>
+            <NavLink key={s.id} to={`/admin/${s.id}`} className={({ isActive }) => clsx('flex items-center gap-2 rounded-lg px-3 py-2 text-sm whitespace-nowrap hover:bg-hover focus-visible:-outline-offset-2', isActive && 'bg-hover font-medium')}>
               <s.icon size={15} aria-hidden /> {t(s.label)}
             </NavLink>
           ))}

@@ -409,7 +409,7 @@ export function Tabs<T extends string>({ value, onChange, items, label }: { valu
           type="button"
           aria-selected={value === it.id}
           onClick={() => onChange(it.id)}
-          className={clsx('rounded-md px-2.5 py-1 text-xs font-medium whitespace-nowrap', value === it.id ? 'bg-ink text-canvas' : 'text-muted hover:bg-hover')}
+          className={clsx('rounded-md px-2.5 py-1 text-xs font-medium whitespace-nowrap focus-visible:-outline-offset-2', value === it.id ? 'bg-ink text-canvas' : 'text-muted hover:bg-hover')}
         >
           {it.label}
         </button>

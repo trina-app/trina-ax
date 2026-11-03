@@ -729,3 +729,26 @@ test('settings: tool rounds per answer', async ({ page }) => {
   await expect(page.getByTestId('team-answer-step-limit').getByRole('spinbutton')).toHaveValue('120')
   expect(realErrors(errors)).toEqual([])
 })
+
+// these menus scroll sideways on a phone, so their container clips anything drawn outside a link: the ring stays inside
+test('the focus ring of the admin and settings menus is not cut off by the scrolling menu', async ({ page }) => {
+  await reset(page)
+  await signIn(page)
+  const inside = async (name: string) => {
+    const link = page.getByRole('link', { name, exact: true })
+    await link.focus()
+    await page.keyboard.press('Shift+Tab')
+    await page.keyboard.press('Tab')
+    await expect(link).toBeFocused()
+    await expect(link).toHaveCSS('outline-style', 'solid')
+    await expect(link).toHaveCSS('outline-offset', '-2px')
+  }
+  for (const size of [{ width: 1360, height: 860 }, { width: 390, height: 780 }]) {
+    await page.setViewportSize(size)
+    await page.goto('/admin/folders')
+    await inside('폴더 권한')
+    await page.screenshot({ path: process.env.RING_SHOTS ? `${process.env.RING_SHOTS}/admin-${size.width}.png` : undefined })
+    await page.goto('/settings/profile')
+    await inside('프로필')
+  }
+})
