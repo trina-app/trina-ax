@@ -73,7 +73,7 @@ const PARA_KIDS = new Set([TAG.PARA_TEXT, TAG.PARA_CHAR_SHAPE, TAG.PARA_LINE_SEG
 const EXTENDED = new Set([1, 2, 3, 11, 12, 14, 15, 16, 17, 18, 21, 22, 23])
 const LINE_BREAK = 10, PARA_END = 13
 /** the list of a record kind a paragraph does not have (shared: replaced, never pushed to) */
-const NONE: number[] = []
+const NONE = Object.freeze([]) as unknown as number[]
 
 /** FileHeader flags (attribute 1) that refuse a document */
 const FLAGS_REFUSED: [number, string][] = [
@@ -110,14 +110,17 @@ const HANGUL_NAMES_UNDER: Record<string, (string | RegExp)[]> = {
 }
 function checkNames(cfb: Cfb) {
   const odd = (name: string, hangul: string) => refuseDoc(`a part is named ${JSON.stringify(name)}, which Hangul reads as its ${JSON.stringify(hangul)}`)
+  // MS-CFB compares names after upper-casing them (ı and ſ become I and S); lower-casing is compared too, to be safe
+  const alike = (a: string, b: string) => a.toUpperCase() === b.toUpperCase() || a.toLowerCase() === b.toLowerCase()
+  const section = (name: string) => /^SECTION\d+$/.test(name.toUpperCase()) || /^section\d+$/.test(name.toLowerCase())
   for (const e of cfb.entries) {
     if (e.type !== 1 && e.type !== 2) continue
     const [top, under] = e.path.split('/') as [string, string | undefined]
-    const known = HANGUL_NAMES.find((n) => n.toLowerCase() === top.toLowerCase())
+    const known = HANGUL_NAMES.find((n) => alike(n, top))
     if (known && known !== top) odd(top, known)
     if (!known || under === undefined) continue
     for (const n of HANGUL_NAMES_UNDER[known] ?? []) {
-      if (typeof n === 'string' ? n.toLowerCase() === under.toLowerCase() && n !== under : new RegExp(n.source, 'i').test(under) && !n.test(under)) odd(under, typeof n === 'string' ? n : 'SectionN')
+      if (typeof n === 'string' ? alike(n, under) && n !== under : section(under) && !n.test(under)) odd(under, typeof n === 'string' ? n : 'SectionN')
     }
   }
 }

@@ -414,6 +414,10 @@ describe('found in review', () => {
     expect(refusal(hwpEmploymentForm({ extra: { 'DocOptions/_LinkDoc': linkDoc('C:\\앞 문서.hwp') }, rename: { 'DocOptions/_LinkDoc': 'DocOptions/_LINKDOC' } }), change)).toContain('"_LINKDOC", which Hangul reads as its "_LinkDoc"')
     const hidden = Buffer.concat([para([[0, sectionDef()]]), para('본문', { extra: [rec(TAG.SHAPE_OLE, 1, Buffer.alloc(20))] })])
     expect(refusal(hwpEmploymentForm({ extra: { 'BodyText/SECTION1': zlib.deflateRawSync(hidden) } }), change)).toContain('"SECTION1", which Hangul reads as its "SectionN"')
+    // a compound file compares names upper-cased: dotless ı is I and long ſ is S there (second review)
+    expect(refusal(linked({ rename: { DocInfo: 'Docınfo' } }), change)).toContain('a part is named "Docınfo", which Hangul reads as its "DocInfo"')
+    expect(refusal(hwpEmploymentForm({ extra: { 'Scripts/DefaultJScript': script }, rename: { 'Scripts/DefaultJScript': 'ſcripts/DefaultJScript', 'Scripts/JScriptVersion': 'ſcripts/JScriptVersion' } }), change)).toContain('"ſcripts", which Hangul reads as its "Scripts"')
+    expect(refusal(hwpEmploymentForm({ extra: { 'BodyText/ſection1': zlib.deflateRawSync(hidden) } }), change)).toContain('"ſection1", which Hangul reads as its "SectionN"')
   })
 
   test('rows added to a table and to a table inside its last cell, in either order: each table gets its own rows', () => {
