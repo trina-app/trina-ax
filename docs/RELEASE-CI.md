@@ -11,10 +11,35 @@
 - 스크립트: `scripts/release/release-ci.ts`(태그, 키 확인, 리눅스 서명, SHA256SUMS), `publish.ts`(사무실 피드), `publish-server.ts`(리눅스 서버 피드), `worker.js`(업데이트 주소)
 - 제품마다 다른 값(업데이트 주소, 서명 키, Cloudflare 이름)은 배포 채널 `shared/src/release-channel.ts`에서 읽는다(`docs/EDITION-RELEASE.md`). 워크플로와 스크립트에는 제품 이름이나 주소가 없다.
 
+## 버전 번호 / Version numbers
+
+버전은 [Semantic Versioning 2.0.0](https://semver.org/)을 따른다: `MAJOR.MINOR.PATCH`. 사람이든 AI 에이전트든 버전을 올리거나 태그를 달기 전에 아래 표로 자리를 고른다.
+
+**공개 API**(SemVer 규칙 1). 아래가 바뀌면 설치된 팀이 영향을 받는다.
+- HTTP API(`/api/…`, `shared/src/api`). 데스크톱 앱·휴대폰 앱·MCP 커넥터가 서버에 기대는 것도 포함한다. 옛 앱은 새 서버와 계속 동작해야 한다.
+- 명령: 리눅스 `mycel-ctl`, 사무실 맥 `teamax`
+- 플러그인, 스킬(`SKILL.md`), 연결(MCP) 형식
+- 사람이 정한 설정: 팀 설정, `server.json`, `MYCEL_*` 환경 변수
+- 디스크와 데이터베이스의 데이터(`server/migrations`), 팀 폴더 구조
+- 업데이트 피드 형식(`release.json`, manifest)
+
+| 무엇이 바뀌었나 | 올리는 자리 | 예 |
+|---|---|---|
+| 하위 호환 버그 수정만. 잘못 동작하던 것이 의도대로 동작한다. 새 기능도, 눈에 보이는 모양·동작 변화도 없다 | PATCH | 0.2.21 → 0.2.22 |
+| 하위 호환 새 기능, 또는 눈에 보이는 UI/UX 변화. 무엇을 deprecated로 표시할 때도 | MINOR(PATCH는 0) | 0.2.22 → 0.3.0 |
+| 설치된 팀이 무언가 하지 않으면 되던 것이 안 된다. 설정·API 삭제, 옛 앱이 못 읽는 형식, 손으로 해야 하는 업데이트 | MAJOR(MINOR·PATCH는 0) | 1.4.2 → 2.0.0 |
+
+- **배포 번호**는 지난 태그 뒤 병합된 변경 중 가장 높은 자리로 정한다. PATCH 여럿과 MINOR 하나면 MINOR다.
+- **PR마다 버전 영향을 적는다**: `patch`, `minor`, `major` 중 하나와 이유 한 줄(PR 양식). 문서·시험만 바꾸면 `none`.
+- **0.x 동안**: SemVer 규칙 4에 따라 0.y.z는 초기 개발이라, 깨지는 변경도 MINOR로 낼 수 있다. 그때는 릴리스 노트의 관리자 확인 사항에 무엇이 깨지고 무엇을 해야 하는지 분명히 쓴다. 1.0.0부터는 반드시 MAJOR다. 1.0.0으로 갈 시점은 대표가 정한다. SemVer FAQ: "If your software is being used in production, it should probably already be 1.0.0."
+- **베타**: `X.Y.Z-beta.N`, `X.Y.Z-rc.N`(beta 채널). 같은 `X.Y.Z`에서 pre-release는 정식보다 낮다: `1.0.0-beta.2 < 1.0.0-beta.11 < 1.0.0-rc.1 < 1.0.0`. 숫자 부분은 숫자로 비교한다. 숫자 앞에 0을 붙이지 않는다(`0.3.0`이지 `0.03.0`이 아니다).
+- **낸 버전은 바꾸지 않는다**(SemVer 규칙 3). 고치면 새 번호다. 태그를 옮기거나 다시 달지 않는다(6장). 깨지는 변경이 MINOR로 나갔다면 호환을 되돌린 새 MINOR를 내고, 노트에 문제 버전과 그 사실을 쓴다(SemVer FAQ).
+- 형식(`v` + `server/package.json`의 version, `1.2.3` 또는 `1.2.3-beta.1`)은 `release-ci.ts`의 `RELEASE_VERSION_RE`가 확인한다. 어느 자리를 올릴지는 확인하지 않는다. 그건 사람과 에이전트가 이 표로 정한다.
+
 ## 1. 배포하는 법
 
 ```sh
-# 1) 버전을 올린다: server/package.json과 desktop/package.json의 version (예: 0.3.0-beta.1)
+# 1) 버전을 올린다: server/package.json과 desktop/package.json의 version. 자리는 위 "버전 번호"로 고른다 (예: 0.3.0-beta.1)
 git commit -am "0.3.0-beta.1"
 git push origin main
 

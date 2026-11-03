@@ -6,6 +6,10 @@
 
 <!-- Commands run and results, or why a check does not apply. For docs, check links and any example commands. -->
 
+## Version impact
+
+<!-- patch, minor, major or none (docs/tests only), and one line why. Rules: docs/RELEASE-CI.md "Version numbers" (https://semver.org/). -->
+
 ## Review checklist
 
 - [ ] The change is focused and relevant documentation is updated.
