@@ -317,3 +317,11 @@ The same docs change as potenlab/team-ax branch `docs/semver` (not yet on core m
 
 - `docs/RELEASE-CI.md`: the "버전 번호 / Version numbers" section is the same as in core, apart from its examples, which use this repository's version (0.2.21).
 - Only here: the "Version impact" section in `.github/PULL_REQUEST_TEMPLATE.md` (core has no PR template; core's text says "PR 본문"), and the lines in `CLAUDE.md` and `AGENTS.md` (this repository's own files).
+
+## 2026-11-04 MCP name and title rows that stay at the top
+
+Source change from potenlab/team-ax branch `feat/mcp-sticky-headers` (on top of `feat/connectors-discover`, not yet on core main), ported by hand. No core history was imported.
+
+- Taken as they are: `StickyHeader`, `useStickyHeader` and `stickyCls` in `web/src/components/ui.tsx` (and `PageHeader` staying at the top), the title row of `ConnectorsView.tsx` and `Skills.tsx`, the Settings layout (title and menu in place, only the page beside them scrolls) and `web/test/e2e/sticky-headers.spec.ts`.
+- "External services" becomes "MCP" in the same keys as in core (`integrations.title`, `admin.integrations`, search, Discover, empty states, the audit actions, the request notice, the personal-connections hint, the Admin Home count), and in the server's messages to the AI that name the screen.
+- Only here: the same keys in Spanish and Japanese, and the project page's top line staying at the top (`Projects.tsx`, core has it on its project-page branch).

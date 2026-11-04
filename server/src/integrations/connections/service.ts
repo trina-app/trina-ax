@@ -510,7 +510,7 @@ export class Integrations {
     const row = getRow(this.db, id)
     if (!row) throw new CallError('this connection no longer exists', 'gone')
     if (!mayUse(this.db, row, userId)) throw new CallError('the user may not use this connection (any more); the person who manages it can change that', 'no access')
-    if (row.auth !== 'none' && !row.secret_enc) throw new CallError(`${row.name} needs ${row.auth === 'oauth' ? 'a new sign-in' : 'its key'}; the user can fix it in Settings > External services`, 'needs sign-in or key')
+    if (row.auth !== 'none' && !row.secret_enc) throw new CallError(`${row.name} needs ${row.auth === 'oauth' ? 'a new sign-in' : 'its key'}; the user can fix it in Settings > MCP`, 'needs sign-in or key')
     return row
   }
 
@@ -685,10 +685,10 @@ function kindOf(e: unknown): string {
 /** A failed call in words for the AI: our own words and status codes, plus a JSON-RPC error's message (the tool's answer). */
 function callMessage(e: unknown, row: Row): string {
   if (e instanceof CallError) return e.message
-  if (e instanceof NeedsAuth) return `${row.name} needs ${e.reason === 'sign_in' ? 'a new sign-in' : 'its key'}; the user can fix it in Settings > External services`
+  if (e instanceof NeedsAuth) return `${row.name} needs ${e.reason === 'sign_in' ? 'a new sign-in' : 'its key'}; the user can fix it in Settings > MCP`
   if (e instanceof McpError) {
     if (e.code === 'rpc') return `${row.name} answered with an error: ${e.detail}`
-    if (e.code === 'unauthorized' || e.code === 'forbidden') return `${row.name} refused the stored key or sign-in (HTTP ${e.status}); the user can fix it in Settings > External services`
+    if (e.code === 'unauthorized' || e.code === 'forbidden') return `${row.name} refused the stored key or sign-in (HTTP ${e.status}); the user can fix it in Settings > MCP`
     if (e.code === 'not_mcp') return `${row.name} did not answer like an MCP server`
     return `${row.name} answered HTTP ${e.status}`
   }
@@ -700,7 +700,7 @@ function callMessage(e: unknown, row: Row): string {
     }
     return `${row.name} ${words[e.reason] ?? 'could not be reached'}`
   }
-  if (e instanceof GrantError) return `${row.name} needs a new sign-in; the user can fix it in Settings > External services`
+  if (e instanceof GrantError) return `${row.name} needs a new sign-in; the user can fix it in Settings > MCP`
   return `${row.name} could not be reached`
 }
 

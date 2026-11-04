@@ -1,4 +1,5 @@
-// Admin > External services: the team's connections (company accounts) and who may use each one in their chats —
+// Admin > MCP (called "External services" before; the address is still /admin/integrations):
+// the team's connections (company accounts) and who may use each one in their chats —
 // the whole team, groups, people. Admins manage them all but use one in their own chats only when the rule includes
 // them, so each row says so. Members' personal connections are not listed (nobody but the owner can use those); below,
 // the requests that ask a member to connect a service as their own (components/integrations/RequestDialog.tsx).
