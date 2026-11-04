@@ -51,7 +51,7 @@ var resultCodes = map[string]int{"ok": 0, "rolled_back": 10, "verify_failed": 20
 // root files differ from those of the channel heads it was published over; in one with rootSince, it is kept for the
 // updaters of 0.2.18 and older, which read only needsRoot (publish-server.ts: true while rootSince is newer than
 // 0.2.18, so such a server never takes a release without the root files it needs).
-// urgent and rollout: the staged roll-out the update timer keeps (rollout.go).
+// urgent and rollout: the staged roll-out the update timer keeps (rollout.go; rollout is read leniently, never a reason to refuse the feed).
 type ReleaseFeed struct {
 	Version     string       `json:"version"`
 	MinFrom     string       `json:"minFrom"`
@@ -60,7 +60,7 @@ type ReleaseFeed struct {
 	RootSince   string       `json:"rootSince"`
 	Notes       string       `json:"notes"`
 	PublishedAt string       `json:"publishedAt"`
-	Rollout     *rolloutSpec `json:"rollout"`
+	Rollout     *rolloutSpec `json:"-"` // read leniently from "rollout" (rollout.go UnmarshalJSON, readRollout)
 	Bundles     []struct {
 		OS     string `json:"os"`
 		Arch   string `json:"arch"`
@@ -299,6 +299,11 @@ func (u *updater) gate(onlyRoot bool) (bool, error) {
 	// held), never on a hosted server (its control plane picks), and never for an administrator's `mycel-ctl update`.
 	if !u.in.Hosted && u.res.From != "" && compareVersions(feed.Version, u.res.From) > 0 {
 		if w := rolloutTurn(feed, installIDOf(u.in, s), serverChannel(u.e.base), u.e.now()); w.wait {
+			// a deferral left by an earlier release (no quiet moment for it) must not carry its three days over to this
+			// one: at this release's turn the last resort would cut answers off at the first check
+			if d := readDeferred(u.e); d != nil && d.Version != feed.Version {
+				clearDeferred(u.e)
+			}
 			u.res.Result, u.res.Skipped, u.res.Detail = "ok", true, w.detail(feed.Version, s.loc)
 			return false, nil
 		}

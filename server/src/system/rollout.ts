@@ -16,23 +16,47 @@
 // Not ramped: an urgent release (the feed's `urgent`) and the beta channel (a stable release is the beta channel's head
 // too, with the same bytes): `percent` alone counts there. An install without an install id is in the last bucket (99),
 // so it takes the release at the 100% step, never earlier and never later.
+//
+// `since` (optional): when the ramp started, if earlier than this release. A release published while the previous
+// stable release still ramps takes over its salt, ramp and start (inheritRollout, the publish scripts), so a burst of
+// releases a few hours apart completes within 48 hours of the first one instead of starting again at 10% each time.
+//
+// Read leniently, so a later change of the format never makes a reader refuse the whole feed (which would stop "update
+// now" too): a `rollout` that cannot be read (not an object, null, percent missing or out of 0-100, salt not a string
+// of at most 100 characters) counts as no roll-out; a `ramp` or `since` that cannot be read is left out (percent alone, or
+// publishedAt). The Go side reads the same way (rollout.go readRollout; testdata/rollout.json "reads").
 import crypto from 'node:crypto'
 import { z } from 'zod'
 
 export const RampStep = z.object({
-  /** hours after the feed's publishedAt */
+  /** hours after the ramp's start (since, else the feed's publishedAt) */
   afterHours: z.number().min(0).max(8760),
   percent: z.number().min(0).max(100),
 })
 export type RampStep = z.infer<typeof RampStep>
 
+/** an RFC 3339 time as publishedMs reads it */
+const IsoTime = z.string().refine((s) => publishedMs(s) !== null)
+
 export const Rollout = z.object({
   percent: z.number().min(0).max(100),
   salt: z.string().max(100),
-  /** the percent over time (feeds from this change on); servers that do not know it read `percent` */
-  ramp: z.array(RampStep).max(20).optional(),
+  /** the percent over time (feeds from this change on); servers that do not know it read `percent`. Unreadable: left out */
+  ramp: z.array(RampStep).max(20).optional().catch(undefined),
+  /** when the ramp started (an earlier release's start, inheritRollout); unreadable: left out, publishedAt counts */
+  since: IsoTime.optional().catch(undefined),
 })
 export type Rollout = z.infer<typeof Rollout>
+
+/** `rollout` as a feed or a manifest reads it: one that cannot be read is no roll-out (the feed itself still reads) */
+export const FeedRollout = Rollout.optional().catch(undefined)
+
+/** what an unknown value reads as (FeedRollout), without the keys that were left out */
+export function readRollout(v: unknown): Rollout | undefined {
+  const r = FeedRollout.parse(v)
+  if (!r) return undefined
+  return { percent: r.percent, salt: r.salt, ...(r.ramp ? { ramp: r.ramp } : {}), ...(r.since ? { since: r.since } : {}) }
+}
 
 /** a stable release: about 10% the first day, 50% the second, everyone from the third */
 export const DEFAULT_RAMP: readonly RampStep[] = Object.freeze([{ afterHours: 0, percent: 10 }, { afterHours: 24, percent: 50 }, { afterHours: 48, percent: 100 }])
@@ -79,17 +103,30 @@ export interface RolloutOptions {
 /** urgent releases and the beta channel take `percent` alone */
 export const skipsRamp = (f: Pick<RolloutFeed, 'urgent'>, channel?: string) => !!f.urgent || channel === 'beta'
 
+/** When the ramp started (ms): the feed's `since` when it is a time not after publishedAt and not after now, else
+ * publishedAt; null when publishedAt cannot be read. */
+export function rampStart(f: RolloutFeed, now: Date): number | null {
+  const at = publishedMs(f.publishedAt)
+  if (at === null) return null
+  const since = publishedMs(f.rollout?.since)
+  return since !== null && since <= at && since <= now.getTime() ? since : at
+}
+
+/** the percent at `nowMs` of a ramp that started at `start` (null: publishedAt cannot be read, the last step) */
+function percentAt(ramp: readonly RampStep[], start: number | null, nowMs: number): number {
+  // a time that cannot be read: the ramp's last step (the release is not held back for good)
+  if (start === null) return pick(ramp, () => true)!.percent
+  // a clock behind the start counts as the first moment
+  const elapsed = Math.max(0, nowMs - start)
+  return pick(ramp, (s) => s.afterHours * HOUR_MS <= elapsed)?.percent ?? 0
+}
+
 /** The percent of installs that take the release by themselves now. */
 export function rolloutPercent(f: RolloutFeed, o: RolloutOptions): number {
   const r = f.rollout
   if (!r) return 100
   if (!r.ramp?.length || skipsRamp(f, o.channel)) return r.percent
-  const at = publishedMs(f.publishedAt)
-  // a time that cannot be read: the ramp's last step (the release is not held back for good)
-  if (at === null) return pick(r.ramp, () => true)!.percent
-  // a clock behind publishedAt counts as the first moment
-  const elapsed = Math.max(0, o.now.getTime() - at)
-  return pick(r.ramp, (s) => s.afterHours * HOUR_MS <= elapsed)?.percent ?? 0
+  return percentAt(r.ramp, rampStart(f, o.now), o.now.getTime())
 }
 
 /** Is this install in the release's roll-out now? (no `rollout`: everyone, as always) */
@@ -106,12 +143,32 @@ export type RolloutTurn = { wait: false } | { wait: true; at: Date | null }
 export function rolloutTurn(f: RolloutFeed, installId: string | null | undefined, o: RolloutOptions): RolloutTurn {
   if (inRollout(f, installId, o)) return { wait: false }
   const r = f.rollout!
-  const at = publishedMs(f.publishedAt)
-  if (!r.ramp?.length || skipsRamp(f, o.channel) || at === null) return { wait: true, at: null }
-  // whole milliseconds, rounded up, so the step has passed at that moment (afterHours may be a fraction)
-  const times = [...new Set(r.ramp.map((s) => Math.ceil(at + s.afterHours * HOUR_MS)))].filter((t) => t > o.now.getTime()).sort((x, y) => x - y)
-  for (const t of times) if (inRollout(f, installId, { ...o, now: new Date(t) })) return { wait: true, at: new Date(t) }
+  const start = rampStart(f, o.now)
+  if (!r.ramp?.length || skipsRamp(f, o.channel) || start === null) return { wait: true, at: null }
+  const b = rolloutBucket(r.salt, installId)
+  // whole milliseconds, rounded up, so the step has passed at that moment (afterHours may be a fraction); the start as
+  // it reads now
+  const times = [...new Set(r.ramp.map((s) => Math.ceil(start + s.afterHours * HOUR_MS)))].filter((t) => t > o.now.getTime()).sort((x, y) => x - y)
+  for (const t of times) if (b < percentAt(r.ramp, start, t)) return { wait: true, at: new Date(t) }
   return { wait: true, at: null }
+}
+
+/**
+ * The roll-out of a stable release published while the channel's previous release still ramps (`prev`, the head it
+ * replaces): it takes over that release's salt, ramp and start (`since`), so the installs already in stay in and a
+ * burst of releases completes within the first one's ramp (48 hours) instead of starting again at 10% for each. Once
+ * the previous ramp has ended (or it had none, or was urgent), the new release starts its own. One rule, on the publish
+ * side; servers only read `since`.
+ */
+export function inheritRollout(next: Rollout | undefined, prev: RolloutFeed | null | undefined, publishedAt: string): Rollout | undefined {
+  if (!next?.ramp?.length || !prev?.rollout?.ramp?.length || prev.urgent) return next
+  const now = publishedMs(publishedAt)
+  if (now === null) return next
+  const start = rampStart(prev, new Date(now))
+  if (start === null) return next
+  const end = start + Math.max(...prev.rollout.ramp.map((s) => s.afterHours)) * HOUR_MS
+  if (now >= end) return next
+  return { percent: next.percent, salt: prev.rollout.salt, ramp: prev.rollout.ramp.map((s) => ({ ...s })), since: new Date(start).toISOString() }
 }
 
 /** The `rollout` a publish script writes: a stable release ramps (DEFAULT_RAMP, a new random salt), unless it was

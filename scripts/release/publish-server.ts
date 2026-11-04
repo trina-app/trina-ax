@@ -52,7 +52,7 @@ import { silentLogger } from '../../server/src/log'
 import { readFileChunks, zstdDecompress } from '../../server/src/system/streams'
 import { extractTar, readTar } from '../../server/src/system/tar'
 import { bundleReaderLevel, compareVersions, ReleaseFeed, UpdateManager, verifyBundleDir } from '../../server/src/system/update'
-import { newRollout, rampText } from '../../server/src/system/rollout'
+import { inheritRollout, newRollout, rampText, readRollout } from '../../server/src/system/rollout'
 import { elfArch, kitName, LINUX_ROOT_COPIES } from '../build-bundle'
 import { RELEASE_VERSION_RE, type Channel } from './release-ci'
 import type { Bucket } from './cloudflare'
@@ -353,7 +353,8 @@ export async function publishServer(o: PublishServerOptions): Promise<PublishSer
     relSig = utf8(s)
     log(`${relKey} is already there (published ${prev.publishedAt}): kept as it is`)
     // its roll-out (or none) was decided when it was first published; the beta channel's servers skip a ramp anyway
-    if (o.rollout === 'all' && prev.rollout?.ramp?.length && o.channel === 'stable') log(`warning: ${relKey} keeps its staged roll-out (${rampText(prev.rollout.ramp)}): --rollout all only applies to a release published for the first time`)
+    if (o.channel === 'stable' && (o.rollout ?? 'staged') === 'all' && prev.rollout?.ramp?.length) log(`warning: ${relKey} keeps its staged roll-out (${rampText(prev.rollout.ramp)}): --rollout all only applies to a release published for the first time`)
+    if (o.channel === 'stable' && (o.rollout ?? 'staged') === 'staged' && !prev.rollout?.ramp?.length) log(`warning: ${relKey} was first published without the staged roll-out and keeps that: every server takes ${o.version} at once`)
   } else {
     let needsRoot = o.needsRoot
     // the releases the installations of either channel run now
@@ -375,17 +376,23 @@ export async function publishServer(o: PublishServerOptions): Promise<PublishSer
         log(`warning: --needs-root no: a server on ${NEEDS_ROOT_ONLY_UNTIL} or older with root files older than ${rootSince} takes this release without them and then refuses later ones`)
       }
     }
-    // the staged roll-out: measured from publishedAt, so the ramp moves on by itself (servers that do not know `ramp`
-    // read percent 100 and take it as before)
-    const rollout = newRollout(o.channel, o.rollout ?? 'staged')
-    log(rollout ? `rollout: staged, ${rampText(rollout.ramp!)} (from publishedAt)` : `rollout: none, every server at once${o.channel === 'stable' ? ' (Rollout: all)' : ' (beta)'}`)
+    // the staged roll-out: measured from its start, so the ramp moves on by itself (servers that do not know `ramp` read
+    // percent 100 and take it as before). While the channel's previous release still ramps, this one takes over its
+    // salt and start (inheritRollout): a burst of releases completes within 48 hours of the first one
+    const publishedAt = (o.now?.() ?? new Date()).toISOString()
+    const rollout = inheritRollout(newRollout(o.channel, o.rollout ?? 'staged'), head?.feed, publishedAt)
+    log(!rollout ? `rollout: none, every server at once${o.channel === 'stable' ? ' (Rollout: all)' : ' (beta)'}`
+      : rollout.since ? `rollout: staged, ${rampText(rollout.ramp!)} from ${rollout.since} (${head?.feed.version}'s ramp, still running: the same salt)`
+      : `rollout: staged, ${rampText(rollout.ramp!)} (from publishedAt)`)
     const r = {
-      version: o.version, minFrom: o.minFrom, urgent: false, needsRoot, rootSince, notes: o.notes, publishedAt: (o.now?.() ?? new Date()).toISOString(), bundles,
+      version: o.version, minFrom: o.minFrom, urgent: false, needsRoot, rootSince, notes: o.notes, publishedAt, bundles,
       minReaderRequired: Math.max(...builds.map((b) => b.readerLevel)),
       ...(rollout ? { rollout } : {}),
     }
-    ReleaseFeed.parse(r)
-    ProtocolReleaseFeed.parse(r)
+    // both readers must read the roll-out exactly as written (they leave out what they cannot read rather than refuse)
+    for (const parsed of [ReleaseFeed.parse(r), ProtocolReleaseFeed.parse(r)]) {
+      if (JSON.stringify(readRollout(parsed.rollout) ?? null) !== JSON.stringify(rollout ?? null)) throw new Error(`the roll-out ${JSON.stringify(rollout)} does not read back as written`)
+    }
     rel = new Uint8Array(Buffer.from(JSON.stringify(r, null, 1) + '\n'))
     relSig = signDetached(rel, o.pem)
   }

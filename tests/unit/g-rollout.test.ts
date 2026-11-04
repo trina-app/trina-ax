@@ -9,18 +9,19 @@ import path from 'node:path'
 import { z } from 'zod'
 import { ReleaseFeed as ProtocolReleaseFeed } from '../../shared/src/cloud-protocol/release'
 import { OfficeRelease } from '../../server/src/office/release'
-import { DEFAULT_RAMP, LAST_BUCKET, inRollout, newRollout, publishedMs, rampText, rolloutBucket, rolloutPercent, rolloutTurn, type Rollout } from '../../server/src/system/rollout'
+import { DEFAULT_RAMP, LAST_BUCKET, inheritRollout, inRollout, newRollout, publishedMs, rampText, readRollout, rolloutBucket, rolloutPercent, rolloutTurn, type Rollout } from '../../server/src/system/rollout'
 import type { BackupManager } from '../../server/src/system/backup'
 import { ReleaseFeed, type UpdateManager } from '../../server/src/system/update'
 import { autoUpdateDecision, runUpdate } from '../../server/src/system/update-job'
 
 const VECTORS = path.resolve(import.meta.dir, '..', '..', 'native', 'cmd', 'mycel-ctl', 'testdata', 'rollout.json')
 interface Case {
-  why: string; rollout?: Rollout; publishedAt: string; urgent?: boolean; channel: 'stable' | 'beta'; installId: string; now: string
+  why: string; rollout?: unknown; publishedAt: string; urgent?: boolean; channel: 'stable' | 'beta'; installId: string; now: string
   percent: number; in: boolean; wait: boolean; turn?: string | null
 }
 const T = JSON.parse(fs.readFileSync(VECTORS, 'utf8')) as {
   defaultRamp: unknown; lastBucket: number; buckets: { salt: string; installId: string; bucket: number }[]; cases: Case[]
+  reads: { why: string; rollout?: unknown; reads: Rollout | null }[]
 }
 
 const SALT = '3f9a1c7e5b2d4086a1e0c9b8f7d6e5a4'
@@ -44,10 +45,22 @@ describe('the shared vectors (the root update timer reads the same file)', () =>
     expect(rolloutBucket(SALT, null)).toBe(99)
     expect(rolloutBucket(SALT, undefined)).toBe(99)
   })
+  test('what a feed\'s rollout reads as: none when it cannot be read, a ramp or since left out; the feed always reads', () => {
+    expect(T.reads.length).toBeGreaterThanOrEqual(30)
+    const base = { version: '1.0.0', publishedAt: PUBLISHED, bundles: [] }
+    for (const c of T.reads) {
+      const feed = 'rollout' in c ? { ...base, rollout: c.rollout } : base
+      expect({ why: c.why, got: readRollout(c.rollout) ?? null }).toEqual({ why: c.why, got: c.reads })
+      // the server feed, the protocol's copy and the office manifest all read it, never refuse it
+      expect({ why: c.why, got: readRollout(ReleaseFeed.parse(feed).rollout) ?? null }).toEqual({ why: c.why, got: c.reads })
+      expect(ProtocolReleaseFeed.safeParse(feed).success, c.why).toBe(true)
+      expect(OfficeRelease.shape.rollout.parse(c.rollout) === undefined, c.why).toBe(c.reads === null)
+    }
+  })
   test('percent, in the roll-out, and the turn', () => {
-    expect(T.cases.length).toBeGreaterThanOrEqual(25)
+    expect(T.cases.length).toBeGreaterThanOrEqual(40)
     for (const c of T.cases) {
-      const f = { rollout: c.rollout, publishedAt: c.publishedAt, urgent: c.urgent ?? false }
+      const f = { rollout: readRollout(c.rollout), publishedAt: c.publishedAt, urgent: c.urgent ?? false }
       const o = { now: new Date(c.now), channel: c.channel }
       const t = rolloutTurn(f, c.installId, o)
       const got = { why: c.why, percent: rolloutPercent(f, o), in: inRollout(f, c.installId, o), wait: t.wait, turn: t.wait ? t.at?.toISOString() ?? null : undefined }
@@ -117,6 +130,95 @@ describe('what the publish scripts write', () => {
     expect(ReleaseFeed.parse(feed).rollout).toEqual(a)
     expect(ProtocolReleaseFeed.parse({ ...feed, publishedAt: PUBLISHED }).rollout).toEqual(a)
     expect(OfficeRelease.shape.rollout.parse(a)).toEqual(a)
+  })
+})
+
+describe('a burst of releases (inheritRollout, rollout.since)', () => {
+  const at = (h: number) => hours(h).toISOString()
+  /** what the publish scripts write for a stable release published at hour h after the previous head `prev` */
+  const publish = (h: number, prev: ReleaseFeed | null, version: string): ReleaseFeed =>
+    ({ ...ramped({ version, publishedAt: at(h) }), rollout: inheritRollout(newRollout('stable', 'staged'), prev, at(h)) })
+
+  test('a release while the previous one still ramps takes over its salt and start; after 48 h a new ramp starts', () => {
+    const a = publish(0, null, '1.1.0')
+    expect(a.rollout?.since).toBeUndefined()
+    const b = publish(12, a, '1.1.1')
+    expect(b.rollout).toEqual({ percent: 100, salt: a.rollout!.salt, ramp: [...DEFAULT_RAMP], since: at(0) })
+    // a third one inherits the first one's start, not the second one's publishedAt
+    const c = publish(40, b, '1.1.2')
+    expect(c.rollout).toMatchObject({ salt: a.rollout!.salt, since: at(0) })
+    // the first ramp has ended (48 h): its own salt, no since
+    const d = publish(48, c, '1.1.3')
+    expect(d.rollout?.since).toBeUndefined()
+    expect(d.rollout?.salt).not.toBe(a.rollout!.salt)
+    // Rollout: all, an urgent or unramped previous head, a beta release: nothing inherited
+    expect(inheritRollout(undefined, a, at(1))).toBeUndefined()
+    expect(inheritRollout(newRollout('stable', 'staged', 'n'), { ...a, urgent: true }, at(1))?.salt).toBe('n')
+    expect(inheritRollout(newRollout('stable', 'staged', 'n'), { ...a, rollout: { percent: 100, salt: 'x' } }, at(1))?.salt).toBe('n')
+    expect(inheritRollout(newRollout('stable', 'staged', 'n'), null, at(1))?.salt).toBe('n')
+    // what both readers read back is exactly what was written
+    expect(readRollout(ReleaseFeed.parse(c).rollout)).toEqual(c.rollout)
+    expect(readRollout(ProtocolReleaseFeed.parse(c).rollout)).toEqual(c.rollout)
+  })
+  test('a burst completes within 48 h of its first release; without inheritance it starves most installs', () => {
+    const ids = Array.from({ length: 1000 }, (_, i) => `install-${i}`)
+    const share = (f: ReleaseFeed, h: number) => ids.filter((id) => inRollout(f, id, { now: hours(h), channel: 'stable' })).length / ids.length
+    let head: ReleaseFeed | null = null
+    for (const h of [0, 12, 24, 36]) head = publish(h, head, `1.2.${h}`)
+    expect(share(head!, 36)).toBeGreaterThan(0.45) // 36 h after the first: the first's 50% step
+    expect(share(head!, 48)).toBe(1)
+    // the old way: each release ramps from its own publishedAt, so at 48 h the 36 h release is at its first step
+    const alone = ramped({ version: '1.2.36', publishedAt: at(36) })
+    expect(share(alone, 48)).toBeLessThan(0.15)
+  })
+  test('releases every 20 hours for two weeks: every install is at most three days behind; each ramping alone, some never update', () => {
+    const ids = Array.from({ length: 400 }, (_, i) => `install-${i}`)
+    const release = (inherit: boolean) => {
+      const out: ReleaseFeed[] = []
+      for (let h = 0, prev: ReleaseFeed | null = null; h < 14 * 24; h += 20) {
+        prev = inherit ? publish(h, prev, `2.0.${h}`) : ramped({ version: `2.0.${h}`, publishedAt: at(h), rollout: newRollout('stable', 'staged') })
+        out.push(prev)
+      }
+      return out
+    }
+    /** hourly checks of every install (the app's own updater); how far behind the oldest-running install gets (hours since
+     * the release it runs was published, once the first ramp has ended) and how many never took any release */
+    const simulate = (releases: ReleaseFeed[]) => {
+      const installed = new Map<string, number>() // the publish hour of the release it runs
+      let worst = 0
+      for (let h = 0; h < 14 * 24; h++) {
+        const head = releases.filter((r) => Date.parse(r.publishedAt) <= hours(h).getTime()).at(-1)!
+        const headAt = (Date.parse(head.publishedAt) - hours(0).getTime()) / 3_600_000
+        for (const id of ids) {
+          if (inRollout(head, id, { now: hours(h), channel: 'stable' })) installed.set(id, headAt)
+          if (h >= 48) worst = Math.max(worst, h - (installed.get(id) ?? -48))
+        }
+      }
+      return { worst, never: ids.filter((id) => !installed.has(id)).length }
+    }
+    const inherited = simulate(release(true))
+    expect(inherited.never).toBe(0)
+    expect(inherited.worst).toBeLessThanOrEqual(72)
+    // the old way: a head every 20 h is never 24 h old, so each release reaches only its own 10%; the reviewer measured a
+    // median lag of about five days and 9% not updated after two weeks
+    const alone = simulate(release(false))
+    expect(alone.never).toBeGreaterThan(ids.length * 0.05)
+    expect(alone.worst).toBeGreaterThan(7 * 24)
+  })
+})
+
+describe('a ramp or rollout that cannot be read never stops an update', () => {
+  test('the feed reads, the ramp is left out, percent 100 lets the automatic update go; a rollout that does not read is none', () => {
+    const text = JSON.stringify({ ...ramped(), rollout: { percent: 100, salt: SALT, ramp: [{ afterHours: 0, percent: 10 }, { afterHours: 24, percent: 'half' }] } })
+    const f = ReleaseFeed.parse(JSON.parse(text))
+    expect(readRollout(f.rollout)).toEqual({ percent: 100, salt: SALT })
+    const base = { current: '1.0.0', tz: 'UTC', window: '00:00-23:59', running: 0, history: [], channel: 'stable' as const }
+    expect(autoUpdateDecision({ ...base, feed: f, installId: 'install-0', now: hours(0) })).toEqual({ go: true, version: '1.1.0' })
+    for (const rollout of [null, 'x', { percent: 101, salt: SALT }, { percent: 50 }]) {
+      const g = ReleaseFeed.parse(JSON.parse(JSON.stringify({ ...ramped(), rollout })))
+      expect(g.rollout).toBeUndefined()
+      expect(autoUpdateDecision({ ...base, feed: g, installId: 'install-0', now: hours(0) })).toEqual({ go: true, version: '1.1.0' })
+    }
   })
 })
 

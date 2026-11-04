@@ -22,21 +22,26 @@ func TestRolloutMatchesServer(t *testing.T) {
 			Bucket          int
 		} `json:"buckets"`
 		Cases []struct {
-			Why         string       `json:"why"`
-			Rollout     *rolloutSpec `json:"rollout"`
-			PublishedAt string       `json:"publishedAt"`
-			Urgent      bool         `json:"urgent"`
-			Channel     string       `json:"channel"`
-			InstallID   string       `json:"installId"`
-			Now         string       `json:"now"`
-			Percent     float64      `json:"percent"`
-			In          bool         `json:"in"`
-			Wait        bool         `json:"wait"`
-			Turn        *string      `json:"turn"`
+			Why         string          `json:"why"`
+			Rollout     json.RawMessage `json:"rollout"`
+			PublishedAt string          `json:"publishedAt"`
+			Urgent      bool            `json:"urgent"`
+			Channel     string          `json:"channel"`
+			InstallID   string          `json:"installId"`
+			Now         string          `json:"now"`
+			Percent     float64         `json:"percent"`
+			In          bool            `json:"in"`
+			Wait        bool            `json:"wait"`
+			Turn        *string         `json:"turn"`
 		} `json:"cases"`
+		Reads []struct {
+			Why     string          `json:"why"`
+			Rollout json.RawMessage `json:"rollout"`
+			Reads   json.RawMessage `json:"reads"`
+		} `json:"reads"`
 	}
 	must(t, json.Unmarshal(b, &tab))
-	if len(tab.Buckets) < 10 || len(tab.Cases) < 25 || tab.LastBucket != lastBucket || len(tab.DefaultRamp) != 3 {
+	if len(tab.Buckets) < 10 || len(tab.Cases) < 40 || len(tab.Reads) < 30 || tab.LastBucket != lastBucket || len(tab.DefaultRamp) != 3 {
 		t.Fatalf("rollout table not read: %d buckets, %d cases, last bucket %d", len(tab.Buckets), len(tab.Cases), tab.LastBucket)
 	}
 	for _, c := range tab.Buckets {
@@ -45,7 +50,7 @@ func TestRolloutMatchesServer(t *testing.T) {
 		}
 	}
 	for _, c := range tab.Cases {
-		f := &ReleaseFeed{Version: "1.1.0", PublishedAt: c.PublishedAt, Urgent: c.Urgent, Rollout: c.Rollout}
+		f := &ReleaseFeed{Version: "1.1.0", PublishedAt: c.PublishedAt, Urgent: c.Urgent, Rollout: readRollout(c.Rollout)}
 		now, err := time.Parse(time.RFC3339Nano, c.Now)
 		must(t, err)
 		if got := rolloutPercent(f, c.Channel, now); got != c.Percent {
@@ -72,6 +77,46 @@ func TestRolloutMatchesServer(t *testing.T) {
 			must(t, err)
 			if !w.at.Equal(want) {
 				t.Errorf("%s: turn %s, want %s", c.Why, w.at.Format(time.RFC3339Nano), *c.Turn)
+			}
+		}
+	}
+	// what a feed's rollout reads as: the feed itself always reads
+	for _, c := range tab.Reads {
+		body := `{"version":"1.0.0","publishedAt":"2026-11-04T01:00:00Z","bundles":[]`
+		if len(c.Rollout) > 0 {
+			body += `,"rollout":` + string(c.Rollout)
+		}
+		var f ReleaseFeed
+		if err := json.Unmarshal([]byte(body+"}"), &f); err != nil || f.Version != "1.0.0" {
+			t.Errorf("%s: the feed does not read: %v", c.Why, err)
+			continue
+		}
+		var want *struct {
+			Percent float64     `json:"percent"`
+			Salt    string      `json:"salt"`
+			Ramp    *[]rampStep `json:"ramp"`
+			Since   *string     `json:"since"`
+		}
+		must(t, json.Unmarshal(c.Reads, &want))
+		got := f.Rollout
+		switch {
+		case want == nil && got != nil:
+			t.Errorf("%s: reads %+v, want none", c.Why, *got)
+		case want != nil && got == nil:
+			t.Errorf("%s: reads none, want %+v", c.Why, *want)
+		case want != nil:
+			ok := got.Percent == want.Percent && got.Salt == want.Salt && (want.Ramp == nil) == (got.Ramp == nil) && (want.Since == nil) == (got.Since == "")
+			if ok && want.Ramp != nil {
+				ok = len(*want.Ramp) == len(got.Ramp)
+				for i := 0; ok && i < len(got.Ramp); i++ {
+					ok = got.Ramp[i] == (*want.Ramp)[i]
+				}
+			}
+			if ok && want.Since != nil {
+				ok = *want.Since == got.Since
+			}
+			if !ok {
+				t.Errorf("%s: reads %+v", c.Why, *got)
 			}
 		}
 	}
@@ -248,6 +293,47 @@ func TestScheduledUpdateKeepsTheReleaseItDecidedOn(t *testing.T) {
 	r.turns = nil
 	if code, res := tb.scheduled(t, f); code != 0 || !res.Skipped || !strings.Contains(res.Detail, "release 0.2.20 is in a staged roll-out: this server's turn comes at 2026-11-04 03:10 KST") {
 		t.Fatalf("next check: %d %+v", code, res)
+	}
+}
+
+// A ramp (or a whole rollout) this timer cannot read never stops an update: the feed reads, the ramp is left out and
+// percent 100 lets every server take it, by the timer and by hand.
+func TestUnreadableRolloutStillInstalls(t *testing.T) {
+	for _, rollout := range []any{
+		map[string]any{"percent": 100, "salt": testSalt, "ramp": []any{map[string]any{"afterHours": 0, "percent": 10}, map[string]any{"afterHours": 24, "percent": "half"}}},
+		map[string]any{"percent": 150, "salt": testSalt},
+		nil,
+		"staged",
+	} {
+		f := newFeedServer(t)
+		f.publishWith("/server/stable.json", "0.2.19", true, map[string]any{"rollout": rollout})
+		tb, r := scheduledAt(t, f, "2026-11-01T18:10:00Z", "install-0")
+		if code, res := tb.scheduled(t, f); code != 0 || res.Skipped || !res.RootUpdated || r.switched != "0.2.19" {
+			t.Fatalf("rollout %v: %d %+v", rollout, code, res)
+		}
+	}
+}
+
+// A deferral left by an earlier release (no quiet moment for it) does not carry its three days over to a release that
+// waits for this server's turn: at that turn the last resort would cut answers off at the first check.
+func TestScheduledRolloutWaitClearsAnOldDeferral(t *testing.T) {
+	f := newFeedServer(t)
+	f.publishWith("/server/stable.json", "0.2.20", true, rampFeed(map[string]any{"publishedAt": "2026-11-01T18:00:00Z"}))
+	tb, _ := scheduledAt(t, f, "2026-11-01T18:10:00Z", "install-0")
+	old := `{"version":"0.2.19","since":"2026-10-28T18:00:00Z","turns":2}` + "\n"
+	must(t, os.WriteFile(filepath.Join(tb.base, "root/update-deferred.json"), []byte(old), 0o644))
+	if code, res := tb.scheduled(t, f); code != 0 || !res.Skipped || !strings.Contains(res.Detail, "staged roll-out") {
+		t.Fatalf("%d %+v", code, res)
+	}
+	if _, err := os.Stat(filepath.Join(tb.base, "root/update-deferred.json")); err == nil {
+		t.Fatal("the deferral of 0.2.19 is still there while 0.2.20 waits for its turn")
+	}
+	// one of the same release stays (it waits for a quiet moment, not for the roll-out)
+	same := `{"version":"0.2.20","since":"2026-10-28T18:00:00Z","turns":2}` + "\n"
+	must(t, os.WriteFile(filepath.Join(tb.base, "root/update-deferred.json"), []byte(same), 0o644))
+	tb.scheduled(t, f)
+	if tb.file("root/update-deferred.json") != strings.TrimSpace(same) {
+		t.Fatalf("the deferral of the release itself changed: %q", tb.file("root/update-deferred.json"))
 	}
 }
 

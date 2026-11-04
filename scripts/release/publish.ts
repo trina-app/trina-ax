@@ -36,7 +36,7 @@ import path from 'node:path'
 import { compareVersions } from '../../server/src/system/update'
 import { DEFAULT_FEED, fileUrl, manifestUrl, OFFICE_PRODUCT, OFFICE_RELEASE_KEYS, signRelease, verifyRelease, VERSION_RE, type Channel, type OfficeRelease, type ReleaseFile } from '../../server/src/office/release'
 import { checkLatestYml } from '../../server/src/office/update'
-import { newRollout, rampText } from '../../server/src/system/rollout'
+import { inheritRollout, newRollout, rampText } from '../../server/src/system/rollout'
 import type { Bucket } from './cloudflare'
 import { readReleaseKey } from './keygen'
 import { compareRemote, feedReader, type RetryOptions } from './sign'
@@ -176,8 +176,10 @@ export async function publishToFeed(o: OfficeFeedRun): Promise<'published' | 'he
   // --if-newer on a channel that is ahead: its head stays, but this version's manifest on that channel still goes up
   // (a server of that channel that runs this version offers its Windows app from it)
   let headStays = false
+  let prevHead: OfficeRelease | null = null
   if (cur) {
     const prev = verifyRelease(utf8(cur), { keys, channel, feed })
+    prevHead = prev
     if (compareVersions(version, prev.version) < 0) {
       if (!o.ifNewer) throw new Error(`${channel} is at ${prev.version}; ${version} is older (the offices never go back)`)
       log(`${channel} is at ${prev.version}, newer than ${version}: its head is left as it is`)
@@ -194,6 +196,13 @@ export async function publishToFeed(o: OfficeFeedRun): Promise<'published' | 'he
   const first = have ? verifyRelease(utf8(have), { keys, channel, feed }) : null
   let manifest = signed
   if (first && vaction === 'upload' && o.resign) manifest = o.resign(keepRolloutOf(release, first))
+  // a first publish while the channel's previous release still ramps: its salt and start (inheritRollout), so a burst
+  // of releases completes within 48 hours of the first one
+  const inherited = !first && prevHead && prevHead.version !== version ? inheritRollout(release.rollout, prevHead, release.publishedAt) : release.rollout
+  if (inherited !== release.rollout && inherited && o.resign) {
+    manifest = o.resign({ ...release, rollout: inherited })
+    log(`rollout: ${prevHead!.version}'s ramp still runs: the same salt, from ${inherited.since}`)
+  }
   if (first && !first.rollout !== !release.rollout) log(`warning: ${vkey} was first published ${first.rollout ? 'with' : 'without'} the staged roll-out; this run keeps that (--rollout applies to a release published for the first time)`)
   if (o.dryRun || !bucket) { log('dry run: nothing uploaded'); return 'dry-run' }
 

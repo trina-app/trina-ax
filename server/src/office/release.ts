@@ -16,7 +16,7 @@ import { z } from 'zod'
 import { compareVersions, keyId } from '../system/update'
 import { PRODUCT, RELEASE_CHANNEL } from '@mycel/shared'
 import { RELEASE_KEYS } from '../system/release-keys'
-import { Rollout } from '../system/rollout'
+import { FeedRollout } from '../system/rollout'
 
 /** the only address the office updater contacts unless config/office.env sets TEAMAX_UPDATE_FEED (tests) */
 export const DEFAULT_FEED: string = RELEASE_CHANNEL.feed
@@ -60,7 +60,7 @@ export const OfficeRelease = z.object({
   windows: z.object({ version: Version, installer: ReleaseFile, latestYml: ReleaseFile }).nullable().default(null),
   /** staged roll-out (system/rollout.ts, the same rule as a Linux server's): the nightly run takes the release when it
    * is this Mac's turn. Absent: every office at once. Offices that do not know it drop it (zod strips unknown keys). */
-  rollout: Rollout.optional(),
+  rollout: FeedRollout,
 })
 export type OfficeRelease = z.infer<typeof OfficeRelease>
 

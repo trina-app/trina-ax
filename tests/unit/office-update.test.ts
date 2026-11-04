@@ -10,7 +10,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { decide, DEFAULT_FEED, fileUrl, manifestUrl, OFFICE_PRODUCT, publicKeyOf, signRelease, verifyRelease, type OfficeRelease } from '../../server/src/office/release'
 import {
-  checkLatestYml, deliverWindows, download, feedOf, nextRunAt, officeSchedule, readIndex, readUpdateState, runUpdate, scheduledRun, updatePlist, updateView,
+  checkLatestYml, deliverWindows, download, feedOf, nextRunAt, officeSchedule, patchUpdateState, readIndex, readUpdateState, runUpdate, scheduledRun, updatePlist, updateView,
   windowEnd, writeUpdateSettings, sha256File, type UpdateDeps,
 } from '../../server/src/office/update'
 import { viewText } from '../../server/src/office/update-cli'
@@ -446,6 +446,23 @@ describe('a whole update run (fake bundle, fake health)', () => {
     // "update now": at once
     const now = await runUpdate(home, { reason: 'now', deps: f.deps, ...short })
     expect(now).toMatchObject({ kind: 'updated', version: '0.3.0' })
+  })
+
+  withZip('waiting for the turn clears a deferral left by an earlier release (its three days would cut answers off at the turn)', async () => {
+    const home = makeHome('run-rollout-deferred', '0.2.0')
+    writeUpdateSettings(home, { channel: 'stable' })
+    withInstallId(home, 'install-0')
+    const files = new Map<string, Uint8Array | string>()
+    const f = fakeDeps(home, files)
+    publishStable(files, '0.3.0', makeZip('0.3.0'), new Date(f.deps.now!().getTime() - 3600_000))
+    patchUpdateState(home, (s) => { s.deferred = { version: '0.2.9', since: new Date(f.deps.now!().getTime() - 5 * 86_400_000).toISOString() } })
+    expect((await runUpdate(home, { reason: 'schedule', deps: f.deps, ...short })).kind).toBe('skipped')
+    expect(readUpdateState(home).deferred).toBeNull()
+    // one of the same release stays
+    const same = { version: '0.3.0', since: new Date(f.deps.now!().getTime() - 5 * 86_400_000).toISOString() }
+    patchUpdateState(home, (s) => { s.deferred = same })
+    await runUpdate(home, { reason: 'schedule', deps: f.deps, ...short })
+    expect(readUpdateState(home).deferred).toEqual(same)
   })
 
   withZip('the staged roll-out: an office without an install id is the last wave (48 h), never left out; the beta channel does not wait', async () => {

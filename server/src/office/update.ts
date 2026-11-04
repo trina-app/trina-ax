@@ -773,6 +773,9 @@ export async function runUpdate(home: string, o: RunOptions): Promise<RunResult>
     const failedBefore = readUpdateState(home).failed[r.version]
     if (failedBefore && o.reason === 'schedule') return finish({ kind: 'skipped', version: r.version, message: `${r.version} failed on ${failedBefore.at} and was rolled back; not tried again at night (teamax update now tries again)` })
     if (turn?.wait && o.reason === 'schedule') {
+      // a deferral left by an earlier release must not carry its three days over to this one (the last resort would cut
+      // answers off at this release's turn), like the root update timer
+      patchUpdateState(home, (s) => { if (s.deferred && s.deferred.version !== r.version) s.deferred = null })
       const when = turn.at ? `this Mac's turn comes at ${turn.at.toISOString()}` : 'this release does not reach this Mac by itself'
       return finish({ kind: 'skipped', version: r.version, message: `${r.version} is in a staged roll-out: ${when} (teamax update now installs it now)` })
     }

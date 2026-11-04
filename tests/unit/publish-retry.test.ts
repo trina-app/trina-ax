@@ -453,6 +453,30 @@ describe('publish.ts: the channel head and the kept manifest', () => {
     expect(keepRolloutOf(r2, first.release).rollout).toBeUndefined()
   })
 
+  test('a burst on the office feed: a release while the head still ramps takes over its salt and start (since)', async () => {
+    const prev = officeBuild('0.2.20', 'stable')
+    const r0: OfficeRelease = { ...prev.release, publishedAt: '2026-11-04T01:00:00.000Z', rollout: { percent: 100, salt: 'aa', ramp: [...DEFAULT_RAMP] } }
+    const s0 = signRelease(r0, OFFICE_PEM)
+    const feed = memoryFeed({ 'office/stable.json': s0, 'office/0.2.20/stable.json': s0, [prev.arts[0]!.key]: prev.body })
+    const next = officeBuild('0.2.21', 'stable')
+    const r1: OfficeRelease = { ...next.release, publishedAt: '2026-11-04T13:00:00.000Z', rollout: { percent: 100, salt: 'bb', ramp: [...DEFAULT_RAMP] } }
+    const lines: string[] = []
+    expect(await publishToFeed({ feed: feed.origin, release: r1, signed: signRelease(r1, OFFICE_PEM), arts: next.arts, ifNewer: false, dryRun: false, keys: OFFICE_KEYS,
+      bucket: feed.the, fetch: feed.fetch, retry: quiet(), log: (l) => lines.push(l), resign: (r) => signRelease(r, OFFICE_PEM) })).toBe('published')
+    const head = verifyRelease(feed.bucket.get('office/stable.json')!.toString('utf8'), { keys: OFFICE_KEYS, channel: 'stable', feed: ORIGIN })
+    expect(head).toMatchObject({ version: '0.2.21', publishedAt: '2026-11-04T13:00:00.000Z', rollout: { salt: 'aa', since: '2026-11-04T01:00:00.000Z' } })
+    expect(feed.bucket.get('office/0.2.21/stable.json')!.equals(feed.bucket.get('office/stable.json')!)).toBe(true)
+    expect(lines.some((l) => l.includes("0.2.20's ramp still runs"))).toBe(true)
+    // 2 days later the previous ramp has ended: the release keeps its own
+    const later = officeBuild('0.2.22', 'stable')
+    const r2: OfficeRelease = { ...later.release, publishedAt: '2026-11-06T13:00:00.000Z', rollout: { percent: 100, salt: 'cc', ramp: [...DEFAULT_RAMP] } }
+    await publishToFeed({ feed: feed.origin, release: r2, signed: signRelease(r2, OFFICE_PEM), arts: later.arts, ifNewer: false, dryRun: false, keys: OFFICE_KEYS,
+      bucket: feed.the, fetch: feed.fetch, retry: quiet(), log: () => {}, resign: (r) => signRelease(r, OFFICE_PEM) })
+    const own = verifyRelease(feed.bucket.get('office/stable.json')!.toString('utf8'), { keys: OFFICE_KEYS, channel: 'stable', feed: ORIGIN }).rollout
+    expect(own?.salt).toBe('cc')
+    expect(own?.since).toBeUndefined()
+  })
+
   test('the manifest of a stable release has the staged roll-out; Rollout: all and beta releases have none', () => {
     const meta = { file: 'x.zip', url: `${ORIGIN}/office/1.0.0/x.zip`, sha256: 'a'.repeat(64), size: 1 }
     const at = new Date('2026-11-04T01:00:00.000Z')
