@@ -71,6 +71,57 @@ describe('admin.js cloud-status', () => {
   })
 })
 
+describe('admin.js cloud-status: the team\'s first days (onboarding)', () => {
+  test('opt-in: without --onboarding the status keeps its earlier fields exactly', () => {
+    const t = install('onboarding-off')
+    const db = t.db()
+    db.query("INSERT INTO users (id, username, name, role) VALUES ('olga', 'olga', 'Olga Kim', 'owner')").run()
+    db.close()
+    const s = JSON.parse(t.run('cloud-status').out)
+    expect(Object.keys(s).sort()).toEqual(['activeMembers', 'ai', 'checks', 'credentialsKey', 'lastLocalBackup', 'lastUploadedLocalId', 'overall', 'queue', 'relay', 'setupNeeded'])
+    expect(JSON.parse(t.run('cloud-status', '--onboarding').out).onboarding).toMatchObject({ day: 0, goalReached: false })
+    // no account yet: left out even when asked
+    expect(JSON.parse(install('onboarding-empty').run('cloud-status', '--onboarding').out)).not.toHaveProperty('onboarding')
+  })
+  test('counts and yes/no only: day, pack, profile, invites, people, the best skill, the goal; never a name or path', () => {
+    const t = install('onboarding')
+    const day = 86_400_000, start = new Date(Date.now() - 2.5 * day).toISOString()
+    const db = t.db()
+    db.query("INSERT INTO users (id, username, name, role, created_at) VALUES ('olga', 'olga', 'Olga Kim', 'owner', ?), ('mina', 'mina', 'Mina Lee', 'member', ?), ('jun', 'jun', 'Jun Park', 'member', ?)").run(start, start, start)
+    db.close()
+    // just the owner's account: everything no or zero, day 2
+    const t0 = install('onboarding-owner')
+    const d0 = t0.db()
+    d0.query("INSERT INTO users (id, username, name, role, created_at) VALUES ('olga', 'olga', 'Olga Kim', 'owner', ?)").run(start)
+    d0.close()
+    const s0 = JSON.parse(t0.run('cloud-status', '--onboarding').out)
+    expect(s0.onboarding).toEqual({ day: 2, packInstalled: false, profileSaved: false, inviteMade: false, membersJoined: 0, peopleAnswered: 0, membersWithFirstRun: 0, bestSkillRunners: 0, goalReached: false })
+    expect(TenantStatus.safeParse({ ...rootPart, ...s0 }).success).toBe(true)
+
+    const path1 = 'skills/marketing/ad-copy/SKILL.md'
+    fs.mkdirSync(path.join(t.base, 'team', path.dirname(path1)), { recursive: true })
+    fs.writeFileSync(path.join(t.base, 'team', path1), '---\nname: ad-copy\ndescription: 광고 문구 — x\n---\nWrite.\n')
+    // an empty profile is not a saved one
+    fs.writeFileSync(path.join(t.base, 'team', 'skills/company-profile.json'), JSON.stringify({ version: 1, website: '', oneLine: '', products: '', audience: '', tone: [], avoid: '', sources: [] }))
+    const w = t.db()
+    const turn = (id: string, user: string, status = 'done') => w.query("INSERT INTO turns (id, chat_id, user_id, engine, status, started_at) VALUES (?, 'c', ?, 'claude-code', ?, ?)").run(id, user, status, new Date(Date.parse(start) + 3600_000).toISOString())
+    turn('t1', 'olga'); turn('t2', 'mina'); turn('t3', 'jun', 'error'); turn('t4', 'jun')
+    w.query("INSERT INTO turn_skill_runs (turn_id, skill_path, skill_name, source) VALUES ('t1', ?, 'ad-copy', 'command'), ('t2', ?, 'ad-copy', 'tool'), ('t3', ?, 'ad-copy', 'command')").run(path1, path1, path1)
+    w.close()
+    const s = JSON.parse(t.run('cloud-status', '--onboarding').out)
+    expect(s.onboarding).toEqual({ day: 2, packInstalled: true, profileSaved: false, inviteMade: true, membersJoined: 2, peopleAnswered: 3, membersWithFirstRun: 2, bestSkillRunners: 2, goalReached: false })
+    expect(TenantStatus.safeParse({ ...rootPart, ...s }).success).toBe(true)
+    for (const word of ['Olga', 'Mina', 'olga', 'ad-copy', 'marketing', '광고']) expect(JSON.stringify(s)).not.toContain(word)
+
+    // a saved profile, and jun's successful run: three people, the goal
+    fs.writeFileSync(path.join(t.base, 'team', 'skills/company-profile.json'), JSON.stringify({ version: 1, website: 'https://acme.example', oneLine: 'Acme makes things', products: '', audience: '', tone: [], avoid: '', sources: [] }))
+    const w2 = t.db()
+    w2.query("INSERT INTO turn_skill_runs (turn_id, skill_path, skill_name, source) VALUES ('t4', ?, 'ad-copy', 'command')").run(path1)
+    w2.close()
+    expect(JSON.parse(t.run('cloud-status', '--onboarding').out).onboarding).toMatchObject({ profileSaved: true, membersWithFirstRun: 3, bestSkillRunners: 3, goalReached: true })
+  })
+})
+
 describe('admin.js reset-link', () => {
   test('the owner by default, a member by username, at publicOrigins[0]; refused without a public address or account', () => {
     const t = install('reset', { publicOrigins: ['https://acme.treesoop.com'] })

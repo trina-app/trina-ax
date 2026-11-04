@@ -39,7 +39,7 @@
 //   archive --passphrase-random --upload         the whole team, age with a random passphrase, to presigned URLs (stdin)
 //   restore-artifacts --dir <chain> --to <dir>   rebuild db/ + team/ from a downloaded, decrypted off-site chain
 //   restore-verify --dir <chain> --expect JSON   the same into a throwaway folder, compared with the backup's totals
-//   cloud-status                                 the app's part of TenantStatus (system/cloud-tenant.ts)
+//   cloud-status [--onboarding]                  the app's part of TenantStatus (system/cloud-tenant.ts)
 //   reset-link [--username U]                    one-time reset link at publicOrigins[0] (the owner by default), JSON
 //   credentials-escrow-out --recipient age1…     the AI connections' key age-armored to the CP's escrow recipient
 //   hosted-speech-key < { key | null }           the hosting service's speech-to-text key (stdin only), JSON { ok, set }
@@ -301,7 +301,8 @@ export async function main(argv: string[]): Promise<number> {
     // the hosted service's tenant commands that need the app (system/cloud-tenant.ts, run by mycel-ctl)
     case 'cloud-status': {
       const { db, mgr } = backups()
-      try { out(cloudStatus({ db, config: cfg, dataDir: cfg.dataDir, statusDir: layout.statusDir, secretsDir: layout.secretsDir, backups: mgr.metas() })) } finally { db.close() }
+      // --onboarding: add the team's first days (mycel-ctl status --json --onboarding; counted only when asked)
+      try { out(cloudStatus({ db, config: cfg, dataDir: cfg.dataDir, statusDir: layout.statusDir, secretsDir: layout.secretsDir, backups: mgr.metas(), onboarding: args.includes('--onboarding') })) } finally { db.close() }
       return 0
     }
     case 'reset-link': {

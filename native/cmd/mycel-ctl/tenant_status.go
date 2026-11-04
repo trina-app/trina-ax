@@ -36,6 +36,52 @@ type TenantStatus struct {
 	CredentialsKey      TenantKey         `json:"credentialsKey"`
 	Resources           TenantResources   `json:"resources"`
 	Update              TenantUpdateState `json:"update"`
+	// Onboarding is optional in the contract and opt-in (status --json --onboarding): left out without the flag, and
+	// when admin.js does not give a whole valid block (an older app, no account yet).
+	Onboarding *TenantOnboarding `json:"onboarding,omitempty"`
+}
+
+// TenantOnboarding: the team's first days, counts and yes/no only (TenantOnboarding in tenant-commands.ts).
+type TenantOnboarding struct {
+	Day                 int  `json:"day"`
+	PackInstalled       bool `json:"packInstalled"`
+	ProfileSaved        bool `json:"profileSaved"`
+	InviteMade          bool `json:"inviteMade"`
+	MembersJoined       int  `json:"membersJoined"`
+	PeopleAnswered      int  `json:"peopleAnswered"`
+	MembersWithFirstRun int  `json:"membersWithFirstRun"`
+	BestSkillRunners    int  `json:"bestSkillRunners"`
+	GoalReached         bool `json:"goalReached"`
+}
+
+// onboardingKeys: every key of the block; a block without one of them (or with null for one) is not taken.
+var onboardingKeys = []string{"day", "packInstalled", "profileSaved", "inviteMade", "membersJoined", "peopleAnswered", "membersWithFirstRun", "bestSkillRunners", "goalReached"}
+
+// parseOnboarding: the block admin.js gave, or nil when it is absent, null, partial, of the wrong types or out of the
+// contract's range (a bad block drops only itself, never the status). Unknown keys are left behind (the struct).
+func parseOnboarding(raw json.RawMessage) *TenantOnboarding {
+	if len(raw) == 0 || string(raw) == "null" {
+		return nil
+	}
+	var keys map[string]json.RawMessage
+	if json.Unmarshal(raw, &keys) != nil {
+		return nil
+	}
+	for _, k := range onboardingKeys {
+		if v, ok := keys[k]; !ok || string(v) == "null" {
+			return nil
+		}
+	}
+	var o TenantOnboarding
+	if json.Unmarshal(raw, &o) != nil {
+		return nil
+	}
+	in := func(n, max int) bool { return n >= 0 && n <= max }
+	if !in(o.Day, 100_000) || !in(o.MembersJoined, 1_000_000) || !in(o.PeopleAnswered, 1_000_000) ||
+		!in(o.MembersWithFirstRun, 1_000_000) || !in(o.BestSkillRunners, 1_000_000) {
+		return nil
+	}
+	return &o
 }
 
 type TenantApp struct {
@@ -95,6 +141,8 @@ type appStatusPart struct {
 	Checks              []TenantCheck `json:"checks"`
 	AI                  *TenantAI     `json:"ai"`
 	CredentialsKey      *TenantKey    `json:"credentialsKey"`
+	// decoded on its own: a bad block is dropped, never the rest of the app's part
+	Onboarding json.RawMessage `json:"onboarding"`
 }
 
 var (
@@ -111,13 +159,18 @@ func limit(s string, n int) string {
 }
 
 // tenantStatus collects the status; the app's part comes from admin.js (as the server account), the rest from here.
-func (t *tenant) tenantStatus() TenantStatus {
+// onboarding: the reader asked for TenantStatus.onboarding (admin.js counts it only then).
+func (t *tenant) tenantStatus(onboarding bool) TenantStatus {
 	s := TenantStatus{
 		At: t.e.now().UTC().Format(time.RFC3339), KitVersion: limit(t.in.Version, 40), RootVersion: limit(rootVersion(t.e), 40),
 		Overall: "unknown", Checks: []TenantCheck{}, AI: TenantAI{Claude: "none", Codex: "none"},
 	}
 	s.App = appHealth(t.in.Port, 3*time.Second)
-	if raw, err := t.admin(nil, 8*time.Second, "cloud-status"); err == nil {
+	adminArgs := []string{"cloud-status"}
+	if onboarding {
+		adminArgs = append(adminArgs, "--onboarding")
+	}
+	if raw, err := t.admin(nil, 8*time.Second, adminArgs...); err == nil {
 		var a appStatusPart
 		if json.Unmarshal(raw, &a) == nil {
 			s.SetupNeeded, s.ActiveMembers, s.Queue, s.LastLocalBackup = a.SetupNeeded, a.ActiveMembers, a.Queue, a.LastLocalBackup
@@ -147,6 +200,10 @@ func (t *tenant) tenantStatus() TenantStatus {
 			}
 			if a.CredentialsKey != nil {
 				s.CredentialsKey = *a.CredentialsKey
+			}
+			// only when asked; only the known fields (the struct), every one of them, whole numbers in range
+			if onboarding {
+				s.Onboarding = parseOnboarding(a.Onboarding)
 			}
 		}
 	}

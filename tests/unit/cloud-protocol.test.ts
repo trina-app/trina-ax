@@ -10,7 +10,7 @@ import {
 import {
   EnrollFile, EnrollRequest, EnrollResponse, NoticesFile, OPS_SCOPES, OpsClaimRequestSchema, OpsCreateTeamRequestSchema,
   OpsHoldRequestSchema, OpsKeyRequestSchema, OpsMaintenanceRequestSchema, OpsNoticeRequestSchema, OpsRenameRequestSchema,
-  OpsSuspendRequestSchema, PlanFile, PlanResources, CredentialKind, CLOUD_DEFAULT_CREDENTIAL_KINDS, ReleaseFeed, RelayRegistrationFile, TENANT_COMMANDS, TeamSlug, TenantStatus, EnrollStatus,
+  OpsSuspendRequestSchema, PlanFile, PlanResources, CredentialKind, CLOUD_DEFAULT_CREDENTIAL_KINDS, ReleaseFeed, RelayRegistrationFile, TENANT_COMMANDS, TeamSlug, TenantOnboarding, TenantStatus, EnrollStatus,
   canonicalJson, enrollResponseProblem, keyRotationString, onlySnapshotRollback, opsScopeFor, parseClaimRequest,
   parseCreateTeamRequest, parseHoldRequest, parseKeyRequest, parseMaintenanceRequest, parseNoticeRequest,
   parseOpsAuthorizationHeader, parseRenameRequest, parseSuspendRequest, registerSigningString, tenantCommandArgv,
@@ -101,6 +101,35 @@ describe('cloud-protocol: tenant commands', () => {
     expect(TenantStatus.safeParse({ ...ok, ip: '1.2.3.4' }).success).toBe(false)
     expect(TenantStatus.safeParse({ ...ok, app: { ...ok.app, owner: 'kim' } }).success).toBe(false)
     expect(TenantStatus.safeParse({ ...ok, relay: { state: 'offline', detail: 'the relay at 1.2.3.4 refused' } }).success).toBe(false)
+  })
+  test('TenantStatus.onboarding is optional: the old shape and the new one pass; counts and yes/no only', () => {
+    const ok = {
+      at: '2026-10-22T00:00:00Z', kitVersion: '0.3.0', rootVersion: '0.3.0',
+      app: { version: '0.3.0', health: 'ok', schemaApplied: 223, readerLevel: 1, uptimeSec: 100 },
+      setupNeeded: false, activeMembers: 3, queue: null, relay: null, lastLocalBackup: null, lastUploadedLocalId: null,
+      overall: 'ok', checks: [], ai: { claude: 'none', codex: 'none' }, credentialsKey: { present: true, version: 1 },
+      resources: { memCurrent: 1, memMax: 2, oomKills: 0, cpuPressureSome10: 0, ioPressureSome10: 0, diskUsed: 1, diskTotal: 2 },
+      update: { running: false, step: null },
+    }
+    const onboarding = { day: 3, packInstalled: true, profileSaved: true, inviteMade: true, membersJoined: 2, peopleAnswered: 3, membersWithFirstRun: 2, bestSkillRunners: 2, goalReached: false }
+    expect(TenantStatus.safeParse(ok).success).toBe(true)
+    expect(TenantStatus.safeParse({ ...ok, onboarding }).success).toBe(true)
+    expect(TenantOnboarding.safeParse(onboarding).success).toBe(true)
+    // strict inside too: a skill name, a person or a missing field fails; counts are whole and not negative
+    expect(TenantStatus.safeParse({ ...ok, onboarding: { ...onboarding, bestSkill: 'ad-copy' } }).success).toBe(false)
+    expect(TenantStatus.safeParse({ ...ok, onboarding: { ...onboarding, owner: 'kim' } }).success).toBe(false)
+    const { goalReached: _, ...missing } = onboarding
+    expect(TenantStatus.safeParse({ ...ok, onboarding: missing }).success).toBe(false)
+    expect(TenantStatus.safeParse({ ...ok, onboarding: { ...onboarding, day: -1 } }).success).toBe(false)
+    expect(TenantStatus.safeParse({ ...ok, onboarding: { ...onboarding, membersJoined: 1.5 } }).success).toBe(false)
+    expect(TenantStatus.safeParse({ ...ok, onboarding: null }).success).toBe(false)
+  })
+  test('status --onboarding: an opt-in flag; without it the argv is the earlier one', () => {
+    expect(tenantCommandArgv('status', {})).toEqual(['status', '--json'])
+    expect(tenantCommandArgv('status', { onboarding: true })).toEqual(['status', '--json', '--onboarding'])
+    expect(tenantCommandProblem('status', { onboarding: true }, null)).toBeNull()
+    expect(tenantCommandProblem('status', { onboarding: 'yes' }, null)).not.toBeNull()
+    expect(tenantCommandProblem('status', { onboarding: false }, null)).not.toBeNull()
   })
 })
 

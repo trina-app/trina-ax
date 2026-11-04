@@ -7123,3 +7123,92 @@ one or two".
   pack gets the offer; the bar waits for the answer, opens the invite with the skill path and finishes the steps, asks
   softly on close, never for members; the Home entry; ProfileStep without AI), `web/test/e2e/auth.spec.ts` (setup now
   lands on the welcome steps).
+
+## G — The 7-day team goal: its count, the card, the owners' notice, the operator's counts (feat/onboarding-g, 2026-11-04)
+
+Onboarding wave 2, stream G. Placement: Team AX core (skills, chat turns, notifications, the hosting status contract);
+the activation mails and the list of teams to contact belong to the hosting console (trina-cloud), not here. The
+owner's metric, the only thing a trial chases: **within 7 days of the team's start, 3 or more different people (the
+owner included) each ran the SAME team skill at least once** (`GOAL_DAYS`, `GOAL_PEOPLE`, `shared/src/api/onboarding-goal.ts`;
+counting in `server/src/onboarding/goal.ts`).
+
+- **A run is "/name" (a skill form too) or the skill tool, never a plain read.** `turn_skill_usage.source` could not
+  say it: the skill tool was recorded there as `read` together with a plain read of the SKILL.md, the first row of a
+  turn wins (ON CONFLICT DO NOTHING), and its CHECK list cannot change without rebuilding the table (forbidden). So
+  runs get a table of their own, `turn_skill_runs` (migration 223, source `command` | `tool`), written by the same
+  `recordSkillUse` (new source `tool`, still stored as `read` in `turn_skill_usage`, so Admin › Usage and every
+  older reader are unchanged). Earlier "/name" runs come over in the migration; earlier skill-tool runs cannot be told
+  from reads and are not guessed (a team in its first week at the update may count one run short per such use).
+- **What counts:** a successful answer only (`turns.status = 'done'`; an answer paused at a per-answer limit also ends
+  `done`), started inside `[start, start + 7 days)`, not a scheduled run (`schedule_id`: nobody was there). Team skills
+  only (personal skills are never recorded). A personal skill with the same name takes the team skill's place for
+  its owner ("/name" runs the personal one), so that person's run does not count for the team skill: accepted (C's
+  install already refuses a second TEAM skill of a name). Keyed by path: renaming or moving a skill gives it a new
+  path, and runs before and after count as two skills (progress drops back). People deleted later still count (turns
+  stay; a deleted account is a tombstone) but are never named; their count shows as "+N".
+- **The team's start** is its first account (`MIN(users.created_at)`, the owner made at setup, deleted accounts
+  included), not the audit log (pruned after its retention).
+- **The card** (`GET /api/onboarding/goal`, owners and admins; `web/src/components/onboarding/GoalCard.tsx`): "7일 안에
+  3명이 같은 스킬 써 보기 · 2/3 · 5일 남음", three segments, the top skill by its plain name (the description's lead
+  before " — ", the pack's convention: "광고 문구") and the names of the people who ran it, [팀원 초대] (E's
+  `InviteStep` in a dialog, with that skill) and [초대 문구 복사] (E's ready-made message, only while an active team
+  link exists; otherwise the dialog makes one). Ties go to the skill that got to that many people first. Reached:
+  "달성했어요 · 3명이 '광고 문구' 스킬을 함께 썼어요", hidden once dismissed (per browser, `localStorage`, as the
+  checklist's own hide).
+  - Shown while the window is open; a reached goal also for 7 days after the window, but only when the team was served
+    the card during its window (settings row `onboarding.goalShownAt`, set on the first view). A team older than
+    7 days at the update never sees it, reached or not (existing customers get nothing new on Home).
+  - On a hosted team the owner checklist gives way to the card while the card shows; on a self-installed or office
+    server both show (the checklist has the backup and folder steps those owners need). Admins see the card too, never
+    the checklist (as before). Nothing renders until the goal has loaded; a failed load shows the checklist.
+  - Phones: the card has no frame of its own, only a line under it (fewer boxes); a card from 640px.
+- **New visibility (recorded on purpose):** until now admins saw usage by person or by skill (Admin › Usage,
+  `admin/budgets.ts`), never both. The goal card shows owners and admins WHO ran ONE skill (names, first run first)
+  during the first 7 days. Only who did, never who has not (no "still to run" list), only the top skill, and only in
+  the window (and the short "reached" time after it).
+- **Owners' notice** "○○님이 '광고 문구'를 처음 써 봤어요 (2/3)": event `onboarding.first_run` in its own table
+  `onboarding_goal_notices` (migration 223; the inbox tables have fixed CHECK lists and are never rebuilt, as for A's
+  and E's notices), source = the turn of the first successful run, with the member, the skill path and the count then.
+  Written when an answer ends `done` (`noteGoalRun`, `chat/turn.ts`): only inside the window, only for the person's
+  first successful run of that skill (an earlier finished one means no notice; `UNIQUE(user_id, member_id,
+  skill_path)` besides), to every active owner except the person who ran it (an owner's own run is not news to them;
+  admins are not told). Shown always, no OS push. The count is "n/3", then "4명" past the target; the Korean object
+  particle follows the name's last sound (을/를, "을(를)" when it cannot be told: `web/src/lib/teamGoal.ts`). A deleted
+  member's notice reads "팀원 한 명이 …".
+- **Operator counts:** `TenantStatus.onboarding` (optional, strict, counts and yes/no only: never a name, mail, skill
+  name or path): `day` (whole days since the first account), `packInstalled` (`skills/marketing/` holds a SKILL.md),
+  `profileSaved` (`skills/company-profile.json` with a field filled in, read as D's reader does), `inviteMade` (an
+  invite or a team link was made, or someone joined), `membersJoined` (accounts after the first, deleted included),
+  `peopleAnswered` (people with a successful answer in the window), `membersWithFirstRun` (people who ran a team
+  skill in the window, the owner included), `bestSkillRunners`, `goalReached`.
+  - **Opt-in by the reader** (review must-fix): `mycel-ctl status --json` keeps its exact earlier fields; the block
+    comes only with `status --json --onboarding` (contract: `status` args `{ onboarding?: true }`), which mycel-ctl
+    passes on as admin.js `cloud-status --onboarding`; a team that is not asked is not counted. Sending it unasked
+    would break every updated hosted team: ax-hostd parses the status with the vendored strict schema, reports an
+    unknown field as `app: null`, the control plane keeps the old status with a fresh time, and its update gate then
+    sees the old version and restores the pre-update snapshot.
+  - mycel-ctl takes the block only whole: absent or `null` = no block; every key present and not null (no zero-filled
+    partial block), right types, whole numbers in range; unknown keys are left behind; a bad block drops only itself.
+  - **Order in trina-cloud:** (1) the control plane syncs the contract and accepts the field (its
+    `parseBody(StatusReport)` uses the same strict schema, so a host report carrying it would be rejected whole
+    before); (2) ax-hostd syncs and adds `--onboarding`, retrying without it when an older mycel-ctl refuses the flag
+    (exit 2, unknown flag); (3) tenants need nothing more than this release. The rest (day 1 / 3 / 5 activation mails,
+    a "stuck" list of day ≥ 3 teams with `!inviteMade` or `peopleAnswered === 0` / `membersWithFirstRun === 0`) is
+    the console's.
+- **Cost** (review): the counts go person by person through `turns(user_id, started_at)` and the runs' primary key
+  (`CROSS JOIN` keeps SQLite to that order), so the work is the window's turns, never every turn or run of an older
+  team (about 6 ms instead of 117 ms on a 400,000-turn, 133,000-run test database). The card's request checks the
+  window and the "shown" marker first: a team past its window that never saw the card (or past the grace) is not
+  counted at all. The owner checklist renders at once and gives way when the goal arrives.
+- Tests: `tests/unit/b-onboarding-goal.test.ts` (failed, stopped, interrupted and running answers; plain reads; the
+  skill tool and "/name"; personal skills; two skills with two people each; three people with one skill, the owner
+  included; deleted people; the 7-day edge and scheduled runs; plain names; the migration's backfill; the card for
+  owners, admins and members; a new team, an older team after an update, reached and seen, the grace; the notice once
+  per member per skill, its count, failed answers, an earlier run, outside the window, a deleted member; real turns
+  with the fake engine: a read, "/name", a failed "/name", the skill tool and the owner's notices),
+  `tests/unit/g-cloud-tenant.test.ts` (the block from the real admin.js only with `--onboarding`, no names or paths),
+  `tests/unit/cloud-protocol.test.ts` (old and new shapes, strict inside, the `status` flag and its vectors), mycel-ctl
+  `TestTenantStatusOnboarding` (the earlier fields exactly without the flag; null, partial, wrong-typed blocks dropped),
+  `web/test/unit/goal-card.test.tsx` (the line, names, buttons, reached, dismissed once, hosted vs self, no goal or a
+  failed load, the notice text and particle). Checked in a browser against the mock (`/__test/team-goal`) at 390px and
+  1280px.

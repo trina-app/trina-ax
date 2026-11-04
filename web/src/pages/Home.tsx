@@ -9,11 +9,12 @@ import { api, API } from '../lib/api'
 import { visibleFolders } from '../lib/visibleFolders'
 import { useT, type MessageKey } from '../i18n'
 import { useChats } from '../store/chats'
-import { isOwner, useMeStrict } from '../store/session'
+import { isAdmin, isOwner, useMeStrict } from '../store/session'
 import { NewChatComposer } from '../components/chat/NewChatComposer'
 import { FrequentQuestions } from '../components/FrequentQuestions'
 import { PopularSkills } from '../components/PopularSkills'
 import { WelcomeResume } from '../components/onboarding/WelcomeResume'
+import { GoalOrChecklist } from '../components/onboarding/GoalCard'
 
 export default function Home() {
   const t = useT()
@@ -44,7 +45,7 @@ export default function Home() {
         <div className="w-full max-w-[720px]">
           {/* the welcome steps' "continue" entry (owner only, renders nothing otherwise) */}
           <WelcomeResume />
-          {isOwner(me) && <OwnerChecklist />}
+          {isAdmin(me) && <GoalOrChecklist checklist={isOwner(me) ? <OwnerChecklist /> : null} />}
           {project && (
             <p className="mb-2 text-center text-sm text-muted">
               <Link to={`/projects/${project.id}`} className="font-medium text-accent-text hover:underline">

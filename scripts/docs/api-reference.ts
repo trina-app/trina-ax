@@ -34,6 +34,7 @@ const GROUP_TITLES: Record<keyof typeof API_GROUPS, string> = {
   ONBOARDING: 'Onboarding (company profile)',
   TEAM_LINKS: 'Team invite link',
   WELCOME: 'Onboarding: welcome steps',
+  ONBOARDING_GOAL: 'Onboarding: the 7-day team goal',
 }
 
 const WHO: Record<Endpoint['auth'], string> = {

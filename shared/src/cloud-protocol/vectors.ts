@@ -54,6 +54,8 @@ export function buildVectors() {
     ],
     tenantCommandArgv: [
       { command: 'status', args: {}, argv: tenantCommandArgv('status', {}) },
+      // the onboarding block is opt-in by the reader
+      { command: 'status', args: { onboarding: true }, argv: tenantCommandArgv('status', { onboarding: true }) },
       { command: 'idle-wait', args: { max: 600 }, argv: tenantCommandArgv('idle-wait', { max: 600 }) },
       { command: 'reset-link', args: { owner: true }, argv: tenantCommandArgv('reset-link', { owner: true }) },
       { command: 'relay-key-proof', args: { teamId }, argv: tenantCommandArgv('relay-key-proof', { teamId }) },
@@ -63,6 +65,7 @@ export function buildVectors() {
     tenantCommands: {
       allowed: [
         { command: 'status', args: {}, stdin: null },
+        { command: 'status', args: { onboarding: true }, stdin: null },
         { command: 'apply-plan', args: {}, stdin: PLAN },
         { command: 'idle-wait', args: { max: 600 }, stdin: null },
         { command: 'update', args: { version: '0.3.1' }, stdin: null },
@@ -83,6 +86,7 @@ export function buildVectors() {
       refused: [
         { command: 'sh', args: {}, stdin: null, why: 'not a command' },
         { command: 'status', args: { path: '/etc/shadow' }, stdin: null, why: 'unknown argument' },
+        { command: 'status', args: { onboarding: 'yes' }, stdin: null, why: 'onboarding is a flag' },
         { command: 'update', args: { version: '0.3.1; rm -rf /' }, stdin: null, why: 'version format' },
         { command: 'apply-plan', args: {}, stdin: { ...PLAN, maxConcurrency: 99 }, why: 'stdin schema' },
         { command: 'status', args: {}, stdin: { x: 1 }, why: 'no stdin for status' },

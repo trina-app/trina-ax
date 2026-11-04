@@ -74,6 +74,17 @@
    ]
   },
   {
+   "command": "status",
+   "args": {
+    "onboarding": true
+   },
+   "argv": [
+    "status",
+    "--json",
+    "--onboarding"
+   ]
+  },
+  {
    "command": "idle-wait",
    "args": {
     "max": 600
@@ -129,6 +140,13 @@
    {
     "command": "status",
     "args": {},
+    "stdin": null
+   },
+   {
+    "command": "status",
+    "args": {
+     "onboarding": true
+    },
     "stdin": null
    },
    {
@@ -267,6 +285,14 @@
     },
     "stdin": null,
     "why": "unknown argument"
+   },
+   {
+    "command": "status",
+    "args": {
+     "onboarding": "yes"
+    },
+    "stdin": null,
+    "why": "onboarding is a flag"
    },
    {
     "command": "update",
