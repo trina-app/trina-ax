@@ -55,7 +55,9 @@ function DevEnvTeamForm() {
   return (
     <Card title={<span className="inline-flex items-center gap-2"><TerminalSquare size={16} aria-hidden /> {t('devEnv.title')} <Badge tone="warn">{t('devEnv.experiment')}</Badge></span>}
       desc={t(srt ? 'devEnvTeam.desc' : 'devEnvTeam.descBox')}>
-      <div className="space-y-4 text-sm" data-testid="dev-env-team" data-on={srt && r.setting.enabled ? 'true' : 'false'}>
+      {/* disabled while a save runs: the form takes the saved setting from the answer, which would erase an edit made
+          before the answer came */}
+      <fieldset disabled={busy} className="m-0 min-w-0 space-y-4 border-0 p-0 text-sm" data-testid="dev-env-team" data-on={srt && r.setting.enabled ? 'true' : 'false'}>
         {r.availability && !r.availability.available && <p className="rounded-lg border border-warn/40 bg-warn/10 p-3 text-xs" data-testid="dev-env-team-unavailable">{t('devEnv.unavailable')}</p>}
         {srt && (
           <>
@@ -103,7 +105,7 @@ function DevEnvTeamForm() {
         <Button variant="primary" busy={busy} disabled={!dirty || (warn && !accept)} onClick={() => void save()} data-testid="dev-env-team-save">
           {t('common.save')}
         </Button>
-      </div>
+      </fieldset>
     </Card>
   )
 }
