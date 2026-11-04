@@ -53,6 +53,15 @@ person and their AI may open in the file tools.
 - Fixed, whatever the rules say: `users/` is hidden as a whole (it would list everyone's personal folder names), and
   the person's own `users/<id>` is writable again. Other people's personal folders stay hidden, for owners and admins
   too. `.system/` is hidden.
+- **Write only in the starting folder (owner decision Q0 (b), 2026-11-04).** In a run, only the starting folder (0.3:
+  the project folder) and the person's own `users/<id>` are writable. Every other folder that the rules let the person
+  write is read-only in the run. A run in the chat's work folder writes no team folder except `users/<id>`.
+  `folderView(rules, person, { start })` caps the access before the comparison above, and adds the starting folder as
+  a candidate (its write access often comes from a parent folder). The team root is never a starting folder (fail
+  closed). `settingsProblems` refuses a settings file with a writable team folder outside the starting folder and the
+  own folder. What a run can see does not change.
+- The tracker's hash is per person and starting folder (two runs of one person in different folders have different
+  views).
 - Only folders that exist go into the settings (srt skips the others).
 - The runner builds the entries again for every command and every job start. The tracker builds them again every 10 s
   for each person with a running job or dev server. When the hash of the entries changes (a rule, a group, a new rule
@@ -101,30 +110,33 @@ of a chat with no project has `projectId` and `projectName` `''`).
 
 ### 0.6 Known gaps of the scope change
 
-These are open (Q0 in section 11):
+Q0 is answered (owner, 2026-11-04): option (b), built in `srt/access.ts` (0.2). What stays open:
 
-- **Writes outside the root are not recorded.** A command can write every folder the person may write. Only the
-  project folder has a change window. Writes elsewhere get no `file_events`, no older versions (no undo after
-  `rm -rf`) and no conflict copies. The file service's own versions do not see them.
-- **The read-scope check is bypassed.** The file tools ask before they save content into a folder that more people can
-  see (`chat/read-scope.ts`). A command can `cp groups/finance/x shared/` with no question.
+- **Writes in the person's own folder are not recorded.** A run writes only the starting folder and `users/<me>`.
+  The project folder has a change window. Writes in `users/<me>` (and in the chat's work folder, which is not a team
+  folder) get no `file_events`, no older versions and no conflict copies. Only the person can see that folder.
+- **The read-scope check is narrowed, not closed.** The file tools ask before they save content into a folder that
+  more people can see (`chat/read-scope.ts`). A command can still copy a file it may read into the project folder
+  (`cp groups/finance/x projects/one/`) with no question. It can no longer copy it into `shared/` or a group folder.
 - A folder made during a long run by someone else, in a folder the run can read, is visible until the next tracker
   poll (at most 10 s) stops the run.
 - Server temp files (`.mycel-tmp-*`) in a folder the person can write are visible to the run. srt has no way to hide a
   name pattern at any depth.
 - One person's runs share their home and logs: a job can read the output of the same person's other jobs.
-- **A shared writable folder is a code channel between people** (review, 2026-11-04). This is wider than srt's fixed
-  denies (G-SRT-11): `package.json` scripts, `.npmrc`, a Makefile or `.envrc` work the same way as `.git/hooks`.
-  Person A's AI plants code, and person B's AI runs it later with B's access. A `denyWrite` per writable root does not
-  close this. Only Q0 (b) does, for folders other than the starting folder.
+- **A shared writable folder was a code channel between people** (review, 2026-11-04, G-SRT-11): `package.json`
+  scripts, `.npmrc`, a Makefile or `.envrc` work the same way as `.git/hooks`. Person A's AI plants code, and person
+  B's AI runs it later with B's access. Q0 (b) closes this for every folder except the starting folder: there a run
+  cannot write (attack A28, A28b). The project folder itself stays shared among the people who may write it. That is
+  the purpose of a project, the change window records each change there (who, which command), and srt's fixed denies
+  (`.git/hooks`, `.git/config`, `.bashrc`, ...) hold in the starting folder.
 - **Data can leave through the allowed sites** (review, 2026-11-04). GitHub, npm and PyPI accept uploads. A prompt
   injection can give the AI a token of the attacker and have it `git push` or `npm publish` every file the person may
   read. The allowlist stops unknown hosts only. The warning text must say this.
 - srt's own temp files (proxy sockets, empty mount source) are in the person's `home/tmp` (S7), which the same
-  person's runs in other chats can write. Give the srt process a server-only `TMPDIR`; keep `CLAUDE_CODE_TMPDIR` for
-  the command.
-
-Until Q0 is answered, do not call this safe for production teams with private group folders.
+  person's runs in other chats can write. A server-only `TMPDIR` for the srt process (`<base>/devenv/run/srt-tmp`,
+  `CLAUDE_CODE_TMPDIR` kept for the command) was tried in the Docker suite (2026-11-04) and reverted: srt then showed
+  that folder in the sandbox, writable, and the proxy to allowed sites failed (`curl: (56) Proxy CONNECT aborted`).
+  It needs a look at how srt binds its sockets, on the spike VM. Only the same person's runs can reach these files.
 
 ## 1. Goals and limits
 
@@ -342,7 +354,9 @@ Known limit: an allowed domain can carry data out (for example a gist on github.
 
 | Path | Read | Write |
 |---|---|---|
-| Team folders the person may write (from the rules, 0.2) | yes | yes (minus srt's fixed write denies) |
+| The starting folder (the project folder), if the person may write it | yes | yes (minus srt's fixed write denies) |
+| `users/<person>` (the person's own folder) | yes | yes |
+| Other team folders the person may write (Q0 (b)) | yes | no |
 | Team folders the person may read only | yes | no |
 | Team folders the person may not open, `users/<other>`, `.system/` | no | no |
 | The chat's work folder `<base>/devenv/work/<chatId>` (a chat with no project) | yes | yes |
@@ -598,6 +612,8 @@ no canary comes back and the action fails.
 | A2 | read a folder the person may not open (another group, another project, a hidden folder inside her group), another person's `users/<id>`, `.system/`; list `<base>/team`, `team/users` | not found |
 | A2b | another chat's work folder, another person's logs and home | not found |
 | A2c | write into a folder the person reads only (a read-only folder inside her project, `skills/`) | read-only |
+| A28 | write a git hook, `.git/config`, `package.json`, a Makefile, `.envrc` or a file in a shared folder that the person may write (a code channel to another person, G-SRT-11) | read-only (Q0 (b)) |
+| A28b | a chat with no project: write the project folder, a shared repo's hooks, a shared file | read-only (Q0 (b)) |
 | A3 | `env`; `cat /proc/self/environ` | no MYCEL_*, no canary from `/etc/default/<ID>` |
 | A4 | read `/etc/default/<ID>`, the server's `/tmp`, `/run/<ID>` | not found |
 | A5 | a canary file made in `<base>/secrets` after the run started | not found |
@@ -654,11 +670,10 @@ Spike checks:
 
 Questions for the owner and Dion:
 
-- **Q0 (scope change, first):** writes outside the project folder are not recorded and bypass the read-scope check
-  (0.6). Options: (a) keep it, and say so in the warning (this build); (b) make every folder except the root and the
-  person's own folder read-only in a run; (c) a change window over every folder the person may write (cost: a snapshot
-  of those folders per command). (b) is one line in `access.ts` and is the safe default for teams with private group
-  folders.
+- **Q0 (scope change, first): answered, option (b)** (owner, 2026-11-04). Every folder except the starting folder and
+  the person's own folder is read-only in a run (0.2, 0.6). This also closes G-SRT-11 outside the starting folder.
+  The options were: (a) keep it, and say so in the warning; (b) read-only except the root and the own folder; (c) a
+  change window over every folder the person may write (cost: a snapshot of those folders per command).
 - Q1: the plan numbers in 4.1.
 - Q2: can v1 ship without preview (curl in one command only), with preview in v1.1?
 - Q3: a foreground command over the server limit: refuse at once (this design) or wait up to 60 s?
@@ -760,12 +775,9 @@ Fixed on the branch after the first two VM runs:
 
 Open:
 
-- **srt's fixed write denies apply only in the cwd of a run** (security, linked to Q0). After the scope change a run
-  may write every team folder the person may write. In those other folders a run can write `.git/hooks/pre-commit`,
-  `.git/config`, `.mcp.json` and `.bashrc` (Docker, srt 0.0.81: all succeeded). A hook there runs on a person's
-  computer when they use git in a synced copy. Options: `denyWrite` entries for these names in each writable root
-  (absent names need mount points, as in `placeholders.ts`), or every folder except the starting folder and the
-  person's own folder read-only (the simplest option of Q0).
+- **srt's fixed write denies apply only in the cwd of a run** (security, G-SRT-11). Closed by Q0 (b) for team folders:
+  outside the starting folder a run writes no team folder (A28, A28b). It stays open for `users/<me>`: a run can write
+  `.git/hooks` there, and only the same person's runs and computers use that folder.
 - Remotion's download lock (`node_modules/.remotion/chrome-headless-shell/download.lock`, with hostname and pid) stays
   after a failed download. In runs 1 and 2 every later download and render then hung until its time limit. Removing the
   lock fixes it. Probable cause: each srt run has a new pid namespace, so the old pid looks alive. The tool text could

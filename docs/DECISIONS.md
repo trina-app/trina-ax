@@ -5452,10 +5452,17 @@ later PR removes it.
   turns srt on for the team (`devEnv.team`: on, who, network, limits, consent); the per-project setting stays for the
   box. A run gets the folder access of the person who owns the chat, built from the folder rules for every command
   and job start (`server/src/devenv/srt/access.ts`), plus a home per person and, for a chat with no project, the chat's
-  work folder `<base>/devenv/work/<chatId>`. The tracker stops a job when the person's access changes. Writes outside
-  the project folder are not recorded and bypass the read-scope check: an open owner question (design 0.6, Q0).
+  work folder `<base>/devenv/work/<chatId>`. The tracker stops a job when the person's access changes.
+- **Write only in the starting folder (owner, 2026-11-04, Q0 (b)).** In a run, only the starting folder (the project
+  folder) and the person's own `users/<id>` are writable. Every other folder that the person may write is read-only in
+  the run, and a run in a chat's work folder writes no team folder except `users/<id>`. Why: a write outside the
+  project folder has no change record and no older versions, it skips the read-scope check, and a shared writable
+  folder is a code channel between people (a git hook, `package.json` scripts or a Makefile that another person's AI
+  runs later with that person's access, G-SRT-11). The project folder stays shared by its writers, with its change
+  window. A copy from a folder the person may read into the project folder still skips the read-scope check.
+  `settingsProblems` refuses a run whose settings make another team folder writable.
 - **Files.** The srt settings hide the whole base folder and `/etc/default/<ID>`, and give back the person's team
-  folders (read, or read and write, from the rules), the person's home (read and write) and logs (read). srt itself denies writes to `.git/hooks`, `.git/config` and
+  folders (read from the rules; write only in the starting folder and the own folder), the person's home (read and write) and logs (read). srt itself denies writes to `.git/hooks`, `.git/config` and
   similar files. The environment has only listed keys, never the server's. A `cwd` through a link out of the project is
   refused before the run.
 - **Network.** `open` now means an allowlist: the defaults in `shared/src/dev-env-domains.ts` plus the team's extra
