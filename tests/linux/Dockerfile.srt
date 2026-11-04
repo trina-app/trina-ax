@@ -8,16 +8,16 @@ ARG TARGETARCH
 RUN apt-get update && apt-get install -y --no-install-recommends bubblewrap socat ripgrep curl xz-utils ca-certificates \
     python3 git procps util-linux \
  && rm -rf /var/lib/apt/lists/*
-# node 22 (srt needs 22.12 or later), pinned as in scripts/dev-env/srt/install-srt.sh
+# node 22 (srt needs 22.12 or later; NODE_USE_ENV_PROXY needs 22.21), pinned as in scripts/dev-env/srt/install-srt.sh
 RUN case "$TARGETARCH" in \
-      amd64) A=x64; S=00bbd05e306ea68b6e13e17360d0e2f680b493ef95f2fea1c4296ff7437530bc ;; \
-      arm64) A=arm64; S=06907b9c088ce62305bc1530e5c1ae1510245114645768f7750c349c5b6fe667 ;; \
+      amd64) A=x64; S=1805bcd35e6815559bd2eb97db438d3fdb0eb3a5e6a977b7c1badca76337e9ce ;; \
+      arm64) A=arm64; S=6287aa46b6c375d816e63ae66d024fbbfd70404825aabdfdf898a970871d2f4b ;; \
       *) echo "no node pin for $TARGETARCH" >&2; exit 1 ;; \
     esac \
- && curl -fsSL -o /tmp/node.tar.xz https://nodejs.org/dist/v22.20.0/node-v22.20.0-linux-$A.tar.xz \
+ && curl -fsSL -o /tmp/node.tar.xz https://nodejs.org/dist/v22.23.4/node-v22.23.4-linux-$A.tar.xz \
  && echo "$S  /tmp/node.tar.xz" | sha256sum -c - \
- && mkdir -p /opt/trina && tar -xJf /tmp/node.tar.xz -C /opt/trina && mv /opt/trina/node-v22.20.0-linux-$A /opt/trina/node-v22.20.0 \
- && ln -s /opt/trina/node-v22.20.0 /opt/trina/node && rm /tmp/node.tar.xz
+ && mkdir -p /opt/trina && tar -xJf /tmp/node.tar.xz -C /opt/trina && mv /opt/trina/node-v22.23.4-linux-$A /opt/trina/node-v22.23.4 \
+ && ln -s /opt/trina/node-v22.23.4 /opt/trina/node && rm /tmp/node.tar.xz
 COPY scripts/dev-env/srt/package.json scripts/dev-env/srt/package-lock.json /opt/trina/srt/0.0.81/
 RUN cd /opt/trina/srt/0.0.81 && PATH=/opt/trina/node/bin:$PATH npm ci --ignore-scripts --omit=dev --no-audit --no-fund >/dev/null \
  && ln -s node_modules/@anthropic-ai/sandbox-runtime/dist/cli.js cli.js && rm -rf /root/.npm \

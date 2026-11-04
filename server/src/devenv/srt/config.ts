@@ -159,6 +159,9 @@ export function runEnv(i: EnvInput): Record<string, string> {
     TMPDIR: path.join(home, 'tmp'),
     // srt sets TMPDIR in the sandbox to this value (else /tmp/claude, which the settings hide)
     CLAUDE_CODE_TMPDIR: path.join(home, 'tmp'),
+    // node 22.21+ sends http, https and fetch through HTTPS_PROXY only with this: without it a node program (the
+    // Remotion browser download, for example) has no network in srt (spike VM, 2026-11-04)
+    NODE_USE_ENV_PROXY: '1',
     LANG: 'C.UTF-8',
     TERM: 'dumb',
     CI: '1',

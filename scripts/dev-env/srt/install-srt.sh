@@ -3,7 +3,7 @@
 # It adds:
 #   - the packages that the AI's commands use (python3, ffmpeg, chromium, build tools ...) and that srt needs
 #     (bubblewrap, socat, ripgrep), and polkitd;
-#   - node 22 in /opt/trina/node (Debian 13 has node 20; srt needs 22.12 or later), from a pinned tarball;
+#   - node 22 in /opt/trina/node (Debian 13 has node 20; srt needs 22.12 or later, and NODE_USE_ENV_PROXY needs 22.21), from a pinned tarball;
 #   - srt in /opt/trina/srt/<version> from the pinned package-lock.json (npm ci --ignore-scripts), root-owned;
 #   - /opt/trina/devenv/run-wrap, the polkit rule for the job scopes, the <ID>-devenv.slice with the plan caps;
 #   - a drop-in of the server unit: MYCEL_DEV_ENV=1, MYCEL_DEV_ENV_RUNNER=srt, ReadWritePaths=<base>/devenv.
@@ -25,10 +25,10 @@ die() { echo "install-srt: STOP: $*" >&2; exit 1; }
 say() { echo "install-srt: $*"; }
 
 SRT_VERSION=0.0.81
-NODE_VERSION=22.20.0
-# sha256 of https://nodejs.org/dist/v22.20.0/node-v22.20.0-linux-<arch>.tar.xz (SHASUMS256.txt of that release)
-NODE_SHA_x64=00bbd05e306ea68b6e13e17360d0e2f680b493ef95f2fea1c4296ff7437530bc
-NODE_SHA_arm64=06907b9c088ce62305bc1530e5c1ae1510245114645768f7750c349c5b6fe667
+NODE_VERSION=22.23.4
+# sha256 of https://nodejs.org/dist/v22.23.4/node-v22.23.4-linux-<arch>.tar.xz (SHASUMS256.txt of that release)
+NODE_SHA_x64=1805bcd35e6815559bd2eb97db438d3fdb0eb3a5e6a977b7c1badca76337e9ce
+NODE_SHA_arm64=6287aa46b6c375d816e63ae66d024fbbfd70404825aabdfdf898a970871d2f4b
 BASE=/var/lib/$ID
 SERVER_UNIT=$ID-server.service
 OPT=/opt/trina
@@ -112,7 +112,7 @@ if [ ! -x "$NODE_DIR/bin/node" ]; then
   chown -R root:root "$NODE_DIR"; chmod -R go-w "$NODE_DIR"
 fi
 ln -sfn "$NODE_DIR" "$OPT/node"
-"$OPT/node/bin/node" -e 'const [a,b]=process.versions.node.split(".").map(Number); process.exit(a>22||a===22&&b>=12?0:1)' || die "node is older than 22.12"
+"$OPT/node/bin/node" -e 'const [a,b]=process.versions.node.split(".").map(Number); process.exit(a>22||a===22&&b>=21?0:1)' || die "node is older than 22.21"
 
 # ---- srt (pinned lockfile, no install scripts) ----
 if [ ! -f "$SRT_DIR/cli.js" ] || ! cmp -s "$HERE/package-lock.json" "$SRT_DIR/package-lock.json"; then

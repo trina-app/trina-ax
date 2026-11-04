@@ -32,6 +32,7 @@ import { mayUseDevEnv, teamSetting } from '../setting'
 import { folderView, viewAccess, viewHash, type FolderView } from './access'
 import { RUN_ID_RE, chatWork, devenvPaths, personHome, personLogs, resolveRunCwd, runEnv, settingsProblems, srtSettings, unitName, UNIT_RE } from './config'
 import { effectiveLimits, loadPlan, NO_PLAN_MAX_RUNNING, type DevEnvPlan, type PlanState } from './plan'
+import { holdPlaceholders } from './placeholders'
 import { directSystem, systemdSystem, type SrtSystem } from './system'
 
 export const MAX_WAITING_PER_PERSON = 3
@@ -238,12 +239,17 @@ async function spawnRun(ctx: AppContext, c: SrtConfig, s: RunSpec): Promise<{ pi
   const settingsFile = path.join(p.run, `${s.runId}.json`)
   fs.writeFileSync(settingsFile, JSON.stringify(settings), { mode: 0o600, flag: 'wx' })
   const exitFile = path.join(p.personLogs, `${s.runId}.exit`)
-  const sp = await c.system.spawn({
+  // srt's write denies in the cwd stay in force while other runs share it (placeholders.ts)
+  const release = holdPlaceholders(cwd)
+  let sp: Awaited<ReturnType<SrtSystem['spawn']>>
+  try {
+    sp = await c.system.spawn({
     runId: s.runId, id: c.id, cwd, env: runEnv({ base: c.base, userId: s.space.userId, teamRoot: ctx.files.fx.root, work }),
     limits: { cpus: s.limits.cpus, memoryMiB: s.limits.memoryMiB, pids: s.limits.pids, runtimeMaxSec: s.runtimeMaxSec }, exitFile, settingsFile, command: s.command,
     stdoutFile: s.stdoutFile, stderrFile: s.stderrFile,
-  })
-  return { ...sp, hash }
+    })
+  } catch (e) { release(); throw e }
+  return { ...sp, exited: sp.exited.finally(release), hash }
 }
 
 function readHead(file: string, max: number): { text: string; cut: boolean } {

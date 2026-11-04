@@ -16,6 +16,7 @@ import { folderView, viewAccess, type FolderView } from '../../server/src/devenv
 import { DENIED_RANGES, RUN_ID_RE, SRT_PATHS, SRT_VERSION, UNIT_RE, chatWork, personHome, personLogs, runEnv, scopeArgv, serverFilesOutsideBase, settingsProblems, srtSettings, unitName } from '../../server/src/devenv/srt/config'
 import { effectiveLimits, parsePlan, sliceValues, type DevEnvPlan } from '../../server/src/devenv/srt/plan'
 import { _active, newRunId, readExit, setSrtSystem, teamHosts, WAIT_MAX_MS } from '../../server/src/devenv/srt/runner'
+import { _held, holdPlaceholders, SRT_DENY_DIRS, SRT_DENY_FILES } from '../../server/src/devenv/srt/placeholders'
 import { cgroupDir, slicePath, type SpawnSpec, type SrtSystem, type UnitInfo } from '../../server/src/devenv/srt/system'
 import { pollSrt, runResultsForAI } from '../../server/src/devenv/jobs'
 import { mayUseDevEnv, newConsent, requiredWarningVersion, saveTeamSetting, teamInForce, teamSetting } from '../../server/src/devenv/setting'
@@ -158,7 +159,7 @@ describe('the srt settings file', () => {
   })
   test('the environment: only the listed keys; HOME and the logs per person; the work folder only for a chat with no project', () => {
     const e = runEnv({ base: BASE, userId: 'alice', teamRoot: TEAM, work: null })
-    expect(Object.keys(e).sort()).toEqual(['CI', 'CLAUDE_CODE_TMPDIR', 'HOME', 'LANG', 'PATH', 'PIP_CACHE_DIR', 'PLAYWRIGHT_BROWSERS_PATH', 'SHELL', 'TERM', 'TMPDIR', 'TRINA_LOGS', 'TRINA_TEAM', 'npm_config_cache'])
+    expect(Object.keys(e).sort()).toEqual(['CI', 'CLAUDE_CODE_TMPDIR', 'HOME', 'LANG', 'NODE_USE_ENV_PROXY', 'PATH', 'PIP_CACHE_DIR', 'PLAYWRIGHT_BROWSERS_PATH', 'SHELL', 'TERM', 'TMPDIR', 'TRINA_LOGS', 'TRINA_TEAM', 'npm_config_cache'])
     expect(e.HOME).toBe(personHome(BASE, 'alice'))
     expect(e.TMPDIR).toBe(`${BASE}/devenv/home/alice/tmp`)
     expect(e.TRINA_LOGS).toBe(personLogs(BASE, 'alice'))
@@ -235,6 +236,27 @@ describe('the plan file (the same rules as mycel-boxd)', () => {
     expect(effectiveLimits(DEV_ENV_DEFAULT_LIMITS, 'open', { ...plan, network: '' }).network).toBe('offline')
     expect(effectiveLimits(DEV_ENV_DEFAULT_LIMITS, 'open', null)).toMatchObject({ cpus: 1, memoryMiB: 2560, network: 'open', maxRunning: 2 })
     expect(sliceValues(plan)).toEqual({ MemoryMax: '1536M', CPUQuota: '150%', TasksMax: 2048 })
+  })
+})
+
+describe('srt\'s write denies in a shared cwd (placeholders.ts)', () => {
+  test('the absent names exist while a run in the cwd lives; the empty ones go when the last run ends', () => {
+    const d = fs.mkdtempSync(path.join(os.tmpdir(), 'srt-ph-'))
+    fs.writeFileSync(path.join(d, '.bashrc'), 'mine\n')
+    fs.mkdirSync(path.join(d, '.vscode'))
+    const a = holdPlaceholders(d)
+    for (const f of SRT_DENY_FILES) expect(fs.existsSync(path.join(d, f))).toBe(true)
+    for (const f of SRT_DENY_DIRS) expect(fs.statSync(path.join(d, f)).isDirectory()).toBe(true)
+    const b = holdPlaceholders(d)
+    a(); a()
+    // run b still lives: srt in b keeps its denies only while the mount points stay
+    expect(fs.existsSync(path.join(d, '.mcp.json'))).toBe(true)
+    fs.writeFileSync(path.join(d, '.gitconfig'), 'a person wrote this\n')
+    b()
+    expect(fs.readdirSync(d).sort()).toEqual(['.bashrc', '.gitconfig', '.vscode'])
+    expect(fs.readFileSync(path.join(d, '.bashrc'), 'utf8')).toBe('mine\n')
+    expect(_held().size).toBe(0)
+    fs.rmSync(d, { recursive: true, force: true })
   })
 })
 
@@ -569,6 +591,17 @@ describe('jobs and the queue (per team)', () => {
     expect(told).toContain('Job one ended with exit code 0.')
     expect(told).toContain('done')
     expect(runResultsForAI(h.ctx, 'alice', chatFalcon)).toEqual([])
+  })
+  test('srt\'s mount points stay while a job runs in the folder, and go when it ends (not left by a killed run)', async () => {
+    const dir = fs.realpathSync(path.join(h.team, FALCON))
+    await alice().call({ command: 'sleep', job: true, log_name: 'ph' })
+    expect(fs.existsSync(path.join(dir, '.mcp.json'))).toBe(true)
+    expect(out(await alice().call({ command: 'echo during' }))).toContain('during')
+    expect(fs.existsSync(path.join(dir, '.mcp.json'))).toBe(true)
+    const r = runs.get(runIdOfRow(rows()[0]!))!
+    r.state = 'gone'; r.resolve({ code: null, signal: 'SIGKILL' })
+    await Bun.sleep(10)
+    for (const f of ['.mcp.json', '.bashrc', '.vscode', '.claude']) expect(fs.existsSync(path.join(dir, f))).toBe(false)
   })
   test('at most 3 waiting jobs per person', async () => {
     await alice().call({ command: 'sleep', job: true, log_name: 'run' })
