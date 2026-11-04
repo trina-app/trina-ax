@@ -5,6 +5,12 @@ This file summarizes user-visible changes; it is not a list of every commit.
 
 ## Unreleased
 
+## 0.4.0-beta.7 — 2026-11-05
+
+[Published release and notes](https://github.com/trina-app/trina-ax/releases/tag/v0.4.0-beta.7) · beta channel only; stable stays on 0.3.0
+
+**Upgrade note:** no database migration. It installs as a root update from every earlier version: the update timer applies it in the team's update window, or run `sudo mycel-ctl update`. No root file changed since 0.4.0-beta.6, but the feed's root check also compares with stable 0.3.0, so it marks a root update. Version impact: patch (a bug fix).
+
 - Filling Hangul forms: when added table rows would no longer fit on the page of a table that cannot continue on the next one (most one-page statutory forms), the AI no longer hands over a form whose last lines Hangul cuts off; nothing is saved, and it says how many rows fit and that the rest can go on a separate sheet (별지).
 
 ## 0.4.0-beta.6 — 2026-11-05
