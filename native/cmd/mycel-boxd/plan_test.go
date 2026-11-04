@@ -1,6 +1,9 @@
 package main
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
 	"strconv"
 	"strings"
 	"testing"
@@ -69,6 +72,11 @@ func TestCreateArgs(t *testing.T) {
 			t.Errorf("%q in %s", no, a)
 		}
 	}
+	// G-T4-3: no CPU weight on the box. libuv 1.50 gives os.availableParallelism() = floor(cpus * cpu.weight/100),
+	// so --cpu-shares 512 (weight 20) gave Node 1 CPU with --cpus 3.
+	if strings.Contains(a, "--cpu-shares") || strings.Contains(a, "--cpu-weight") {
+		t.Errorf("CPU weight in %s", a)
+	}
 	// host paths name the box id, never the folder
 	if strings.Contains(a, "projects/") {
 		t.Error("folder name in a host path")
@@ -91,6 +99,12 @@ func TestConfigHash(t *testing.T) {
 		if base == configHash(l, "open") {
 			t.Errorf("%+v not in the config hash", l)
 		}
+	}
+	// version 3 (no CPU weight): a box made with --cpu-shares 512 (version 2) is made again once
+	b, _ := json.Marshal([]any{okLimits.CPUs, okLimits.MemoryMiB, okLimits.Pids, "open", 2})
+	h := sha256.Sum256(b)
+	if base == hex.EncodeToString(h[:8]) {
+		t.Error("config hash still version 2")
 	}
 }
 
@@ -294,6 +308,36 @@ func TestDiskFloor(t *testing.T) {
 	}
 	if why := diskStopReason(g, 20*g); !strings.Contains(why, "1.0 GiB free") || !strings.Contains(why, "2.0 GiB") || !strings.Contains(why, "Free space") {
 		t.Error(why)
+	}
+}
+
+func TestWorstDisk(t *testing.T) {
+	const g = uint64(1) << 30
+	if _, ok := worstDisk(nil); ok {
+		t.Error("no disk")
+	}
+	if _, ok := worstDisk([]disk{{0, 0}}); ok {
+		t.Error("a disk of no known size does not count")
+	}
+	// a large data disk with much free space, a small OS disk near its floor: the OS disk counts
+	data, osd := disk{150 * g, 157 * g}, disk{3 * g, 12 * g}
+	if w, _ := worstDisk([]disk{data, osd}); w != osd {
+		t.Errorf("%v", w)
+	}
+	if w, _ := worstDisk([]disk{osd, data}); w != osd {
+		t.Errorf("order: %v", w)
+	}
+	// the margin to the floor counts, not the free bytes: 9 GiB of 200 is under its 10 GiB floor, 3 of 12 is over 2
+	big := disk{9 * g, 200 * g}
+	if w, _ := worstDisk([]disk{osd, big}); w != big || !diskLow(w.free, w.total) {
+		t.Errorf("margin: %v", w)
+	}
+	// free under the floor of the other disk: no underflow
+	if w, _ := worstDisk([]disk{{0, 12 * g}, data}); w.free != 0 {
+		t.Errorf("full disk: %v", w)
+	}
+	if w, ok := worstDisk([]disk{{0, 0}, data}); !ok || w != data {
+		t.Errorf("unknown size skipped: %v", w)
 	}
 }
 

@@ -19,6 +19,13 @@ answers wait in the queue or stop. Watch `free -m` during the trial.
 | Switch | `/etc/systemd/system/mycel-server.service.d/dev-env.conf` (`MYCEL_DEV_ENV=1`) | `install-trial.sh` |
 | Box image | `localhost/mycel-devbox:1`, in the `mycel-devbox` account | `build-image.sh`, on this server |
 | Seccomp profile | `/etc/mycel-boxd/box-seccomp.json` | `build-image.sh`, on this server |
+| Box volumes | `/var/lib/mycel/boxd` (`mycel-boxd --state-dir`) | `install-trial.sh` |
+| podman storage of `mycel-devbox` (images, containers) | `/var/lib/mycel/boxd-storage`, set in `~mycel-devbox/.config/containers/storage.conf` | `install-trial.sh` |
+
+Box state is on the disk of `/var/lib/mycel`: on a VM with a team data disk, that disk, not the small OS disk. So it counts
+in the storage of the plan, and the disk watchdog of boxd sees it. The watchdog reads the disk of the team folder, of the
+box volumes and of the podman storage, and the disk nearest its floor counts. The service unit has
+`RequiresMountsFor=/var/lib/mycel`, so boxd does not start before the data disk is there.
 
 Kits from this change on have `root/mycel-boxd`, also on a server without the dev environment. The file alone changes
 nothing: the dev environment needs the service and the switch. `mycel-boxd` never runs from a version folder, because the server account
@@ -55,6 +62,13 @@ Logs: `journalctl -u mycel-boxd -n 50`.
 A re-run is safe. It rebuilds the image, and a running box does not stop for that. It restarts `mycel-boxd` only if the
 unit changed, or if the service runs a program other than the file `root/mycel-boxd`. It restarts the team server only if
 the drop-in changed.
+
+An install from an older script has the box state on the OS disk: box volumes in `/var/lib/mycel-boxd`, podman storage in
+`/home/mycel-devbox/.local/share/containers/storage`. A re-run moves it. It stops `mycel-boxd` and every box (each starts
+again at its next use), copies the box volumes to `/var/lib/mycel/boxd`, builds the image in the new storage, and removes
+the old folders only after boxd answers on the new paths. It stops before any change if `/var/lib/mycel` has less free
+space than the old volumes and storage plus 3 GiB. If the move stops half way, the old folders stay: run the script again.
+If `mycel-devbox` has a new uid (a new OS disk), the storage and the box volumes start empty.
 
 ## 3. Update a server with the dev environment
 
@@ -198,6 +212,12 @@ so do it when nobody renders.
   cd / && sudo runuser -u mycel-devbox -- env XDG_RUNTIME_DIR=/run/user/$(id -u mycel-devbox) podman image prune -f
   ```
 
+  The account's `storage.conf` sends this to `/var/lib/mycel/boxd-storage`. To see the path:
+
+  ```bash
+  cd / && sudo runuser -u mycel-devbox -- env XDG_RUNTIME_DIR=/run/user/$(id -u mycel-devbox) podman info --format '{{.Store.GraphRoot}}'
+  ```
+
 ## 6. Not tested
 
 - An update on a server with the dev environment has not run on a real server. Section 3 says what the code does, not
@@ -221,7 +241,9 @@ project files out.
 
 ## 7. Remove it
 
-This restores the packages and the account. Project folders stay; box volumes (`node_modules`, caches) go.
+This restores the packages and the account. Project folders stay; box volumes (`node_modules`, caches) go, from
+`/var/lib/mycel/boxd` and from `/var/lib/mycel-boxd` of an older install, and so does the podman storage in
+`/var/lib/mycel/boxd-storage`.
 
 ```bash
 sudo /opt/trina-ax/scripts/dev-env/uninstall-trial.sh
