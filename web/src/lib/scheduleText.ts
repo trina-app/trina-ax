@@ -40,7 +40,12 @@ export const stateLabel = (s: Schedule, t: T) => {
   return state === 'on' ? '' : t(STATE_KEY[state])
 }
 
-/** The card's dim line, like Claude's: "Paused · Weekdays (Mon–Fri) at 09:00". */
+/** The last run's result in words ("Last run failed"); empty before the first run. A list card shows it beside its
+ *  dot, because the dot's colour alone says nothing on a phone (no hover) and every failure is the same red. */
+export const outcomeLabel = (s: Schedule, t: T) => (s.lastOutcome ? t(`scheduleTemplates.outcome.${s.lastOutcome}` as MessageKey) : '')
+
+/** The card's dim line, like Claude's: "Paused · Weekdays (Mon–Fri) at 09:00". The last result has its own line under
+ *  it (outcomeLabel), so a long repeat never cuts it off. */
 export const cardLine = (s: Schedule, t: T, locale: Locale) => [stateLabel(s, t), repeatText(s, t, locale)].filter(Boolean).join(' · ')
 
 /** What it does: a task's instruction, a template's folders (its prompt is the server's own, never shown). */
