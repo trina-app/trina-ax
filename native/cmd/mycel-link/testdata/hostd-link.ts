@@ -15,6 +15,7 @@ const TENANT = '01JTESTTENANT0000000000000'
 const ec2: { linkPubkey: string | null; linkTokenHash: string | null } = { linkPubkey: null, linkTokenHash: null }
 const journal = {
   tenant: (id: string) => (id === TENANT ? { tenantId: TENANT, ip: '127.0.0.1' } : null),
+  tenantByIp: (ip: string) => (ip === '127.0.0.1' ? { tenantId: TENANT, ip } : null),
   ec2Tenant: (id: string) => (id === TENANT ? { ...ec2 } : null),
   putEc2Tenant: (id: string, p: Partial<typeof ec2>) => { if (id === TENANT) Object.assign(ec2, p) },
 }
