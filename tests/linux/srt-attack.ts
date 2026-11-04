@@ -182,6 +182,15 @@ const attacks: { id: string; what: string; cmd: string; check: Check; o?: Parame
 ]
 
 fs.symlinkSync(`${BASE}/secrets`, `${DIR1}/escape`)
+// preflight: a plain command must run through srt. If srt or bwrap cannot start (for example the AppArmor userns
+// restriction of an Ubuntu 24.04 host), every attack that expects a failure would pass without a test.
+const pre = await run('true')
+if (pre.code !== 0) {
+  console.log(`FAIL preflight: \`true\` did not run through srt (exit code ${pre.code}): ${pre.out.slice(0, 300).replace(/\n/g, ' ')}`)
+  server.stop(true); us.close()
+  process.exit(1)
+}
+console.log('pass preflight: a plain command runs through srt')
 let failed = 0
 for (const a of attacks) {
   const r = await run(a.cmd, a.o)
