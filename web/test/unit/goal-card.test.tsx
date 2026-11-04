@@ -126,12 +126,13 @@ describe('instead of the owner checklist, or beside it', () => {
   const realFetch = globalThis.fetch
   const status = useSession.getState().status
   let answer: () => Response = () => new Response('{}', { status: 500 })
+  let asked = 0
   const json = (body: unknown) => new Response(JSON.stringify(body), { status: 200, headers: { 'content-type': 'application/json' } })
   beforeAll(() => {
     installDom()
     globalThis.fetch = (async (input: RequestInfo | URL) => {
       const u = String(input)
-      if (u.includes('/api/onboarding/goal')) return answer()
+      if (u.includes('/api/onboarding/goal')) { asked++; return answer() }
       if (u.includes('/api/admin/team-link')) return json({ link: null, seats: { used: 1, limit: null } })
       return new Response('{}', { status: 404 })
     }) as unknown as typeof fetch
@@ -144,10 +145,11 @@ describe('instead of the owner checklist, or beside it', () => {
   const shown = async (deployment: 'self' | 'hosted', body: (() => Response)) => {
     useSession.setState({ status: { kind: 'signed-in', me: me(deployment) } } as never)
     answer = body
+    const before = asked
     const m = await mount(<GoalOrChecklist checklist={<p data-testid="checklist">checklist</p>} />)
     try {
-      await m.until(() => m.find('checklist') || m.find('team-goal'), 'the goal or the checklist')
-      await m.settle(20)
+      await m.until(() => asked > before, 'the goal asked for')
+      await m.settle(50)
       return { goal: m.find('team-goal')?.getAttribute('data-state') ?? null, checklist: !!m.find('checklist') }
     } finally { await m.unmount() }
   }
@@ -155,6 +157,20 @@ describe('instead of the owner checklist, or beside it', () => {
   test('a hosted team in its window: the card only; on its own server both', async () => {
     expect(await shown('hosted', () => json({ goal: goal() }))).toEqual({ goal: 'open', checklist: false })
     expect(await shown('self', () => json({ goal: goal() }))).toEqual({ goal: 'open', checklist: true })
+  })
+  test('the checklist does not wait for the goal', async () => {
+    useSession.setState({ status: { kind: 'signed-in', me: me('hosted') } } as never)
+    let release: (r: Response) => void = () => {}
+    answer = () => new Promise<Response>((res) => { release = res }) as unknown as Response
+    const m = await mount(<GoalOrChecklist checklist={<p data-testid="checklist">checklist</p>} />)
+    try {
+      expect(m.find('checklist')).not.toBeNull()
+      expect(m.find('team-goal')).toBeNull()
+      // then the goal of a new hosted team: the card takes the checklist's place
+      release(json({ goal: goal() }))
+      await m.until(() => m.find('team-goal'), 'the card')
+      expect(m.find('checklist')).toBeNull()
+    } finally { await m.unmount() }
   })
   test('no goal (an older team) or a failed load: the checklist as before', async () => {
     expect(await shown('hosted', () => json({ goal: null }))).toEqual({ goal: null, checklist: true })

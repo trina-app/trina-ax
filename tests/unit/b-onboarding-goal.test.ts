@@ -212,6 +212,9 @@ describe('the card and the owners\' notice', () => {
   test('an older team after an update never sees it, reached or not; a team that saw it gets "reached" for 7 more days', async () => {
     startedDaysAgo(30)
     expect(await goal()).toBeNull()
+    // not even counted (every owner or admin Home visit asks): with the runs table out of the way the answer is the same
+    h.ctx.db.exec('ALTER TABLE turn_skill_runs RENAME TO turn_skill_runs_away')
+    try { expect(await goal()).toBeNull() } finally { h.ctx.db.exec('ALTER TABLE turn_skill_runs_away RENAME TO turn_skill_runs') }
     // reached in its first week, long before this version: still nothing
     for (const u of [ids.owner, ids.member, ids.erin]) turn(u, { skill: AD, at: new Date(Date.now() - 29 * DAY).toISOString() })
     expect(await goal()).toBeNull()

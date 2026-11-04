@@ -53,14 +53,22 @@ const COUNTED = `t.status = 'done' AND t.schedule_id IS NULL AND t.started_at >=
  * `name`: the skill's name as last recorded in the window.
  */
 export function skillRunners(db: Database, from: string, to: string): SkillRunners[] {
-  const rows = db.query(`SELECT r.skill_path AS path, t.user_id AS userId, MIN(t.started_at) AS at FROM turn_skill_runs r JOIN turns t ON t.id = r.turn_id
-    WHERE ${COUNTED} GROUP BY r.skill_path, t.user_id ORDER BY at, t.user_id`).all(from, to) as { path: string; userId: string; at: string }[]
-  const names = new Map((db.query(`SELECT r.skill_path AS path, r.skill_name AS name FROM turn_skill_runs r JOIN turns t ON t.id = r.turn_id
-    WHERE ${COUNTED} ORDER BY t.started_at`).all(from, to) as { path: string; name: string }[]).map((r) => [r.path, r.name]))
+  // person by person through turns(user_id, started_at), then the run rows of those turns (their primary key): the
+  // work is the window's turns, never every run or turn of an older team (CROSS JOIN keeps SQLite to that order)
+  const rows = db.query(`SELECT r.skill_path AS path, t.user_id AS userId, MIN(t.started_at) AS at, MAX(t.started_at || char(9) || r.skill_name) AS last
+    FROM users u CROSS JOIN turns t ON t.user_id = u.id CROSS JOIN turn_skill_runs r ON r.turn_id = t.id
+    WHERE ${COUNTED} GROUP BY r.skill_path, t.user_id ORDER BY at, t.user_id`).all(from, to) as { path: string; userId: string; at: string; last: string }[]
+  // the name last recorded for a path in the window (a rename of the skill's `name` keeps its path)
+  const names = new Map<string, { at: string; name: string }>()
+  for (const r of rows) {
+    const tab = r.last.indexOf('\t'), at = r.last.slice(0, tab), name = r.last.slice(tab + 1) || r.path
+    const had = names.get(r.path)
+    if (!had || at > had.at) names.set(r.path, { at, name })
+  }
   const by = new Map<string, SkillRunners>()
   for (const r of rows) {
     let s = by.get(r.path)
-    if (!s) by.set(r.path, (s = { path: r.path, name: names.get(r.path) ?? r.path, people: [] }))
+    if (!s) by.set(r.path, (s = { path: r.path, name: names.get(r.path)?.name ?? r.path, people: [] }))
     s.people.push({ userId: r.userId, at: r.at })
   }
   return [...by.values()].sort((a, b) => b.people.length - a.people.length
@@ -109,12 +117,16 @@ function namesOf(db: Database, ids: string[]): string[] {
  *   - else null (the window ended without the goal; a team older than the goal).
  */
 export function teamGoal(ctx: AppContext, viewerId: string, now = new Date()): TeamGoal | null {
-  const p = goalProgress(ctx.db)
-  if (!p) return null
-  const t = now.getTime(), end = Date.parse(p.endsAt)
+  // the window and the marker first (cheap): a team past its window that never saw the card, or past the grace, is not
+  // counted at all (every owner or admin Home visit asks)
+  const w = goalWindow(ctx.db)
+  if (!w) return null
+  const t = now.getTime(), end = Date.parse(w.endsAt)
   const open = t < end
-  if (open) { if (!getSetting(ctx.db, GOAL_SHOWN_KEY)) setSetting(ctx.db, GOAL_SHOWN_KEY, now.toISOString()) }
-  else if (!p.reachedAt || t >= end + REACHED_GRACE_MS || !getSetting(ctx.db, GOAL_SHOWN_KEY)) return null
+  if (!open && (t >= end + REACHED_GRACE_MS || !getSetting(ctx.db, GOAL_SHOWN_KEY))) return null
+  const p = goalProgress(ctx.db)
+  if (!p || (!open && !p.reachedAt)) return null
+  if (open && !getSetting(ctx.db, GOAL_SHOWN_KEY)) setSetting(ctx.db, GOAL_SHOWN_KEY, now.toISOString())
   const best = p.best
   return {
     state: p.reachedAt ? 'reached' : 'open',
@@ -146,8 +158,8 @@ export function noteGoalRun(ctx: AppContext, turnId: string, now = new Date()): 
     if (!owners.length) return
     for (const run of runs) {
       // another successful run of this skill by this person, already finished: this one is not the first
-      const earlier = db.query(`SELECT 1 FROM turn_skill_runs r JOIN turns t ON t.id = r.turn_id
-        WHERE r.skill_path = ? AND t.user_id = ? AND t.id <> ? AND ${COUNTED} LIMIT 1`).get(run.path, turn.userId, turn.id, w.startedAt, w.endsAt)
+      const earlier = db.query(`SELECT 1 FROM turns t CROSS JOIN turn_skill_runs r ON r.turn_id = t.id AND r.skill_path = ?
+        WHERE t.user_id = ? AND t.id <> ? AND ${COUNTED} LIMIT 1`).get(run.path, turn.userId, turn.id, w.startedAt, w.endsAt)
       if (earlier) continue
       const { n } = db.query(`SELECT COUNT(DISTINCT t.user_id) AS n FROM turn_skill_runs r JOIN turns t ON t.id = r.turn_id
         WHERE r.skill_path = ? AND ${COUNTED}`).get(run.path, w.startedAt, w.endsAt) as { n: number }

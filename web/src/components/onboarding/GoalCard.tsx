@@ -20,8 +20,8 @@ const readDone = (startedAt: string) => { try { return localStorage.getItem(done
 
 /**
  * The top of Home for owners and admins: the goal card while it shows, and `checklist` (the owner's setup checklist,
- * null for an admin) unless the team is hosted and the card shows. Nothing until the goal has loaded (no flicker
- * between the two); a failed load shows the checklist.
+ * null for an admin) unless the team is hosted and the card shows. The checklist does not wait for the goal: it shows
+ * at once and gives way when the goal says so (a new hosted team, which has little to load); a failed load keeps it.
  */
 export function GoalOrChecklist({ checklist }: { checklist: ReactNode }) {
   const me = useMeStrict()
@@ -32,7 +32,6 @@ export function GoalOrChecklist({ checklist }: { checklist: ReactNode }) {
     api.call(API.getTeamGoal).then((r) => live && setGoal(r.goal), () => live && setGoal(null))
     return () => { live = false }
   }, [me.user.id])
-  if (goal === undefined) return null
   const shown = goal && !(goal.state === 'reached' && (dismissed || readDone(goal.startedAt))) ? goal : null
   const dismiss = (g: TeamGoal) => {
     try { localStorage.setItem(doneKey(g.startedAt), '1') } catch { /* this tab only */ }
