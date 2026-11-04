@@ -8,13 +8,14 @@ import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import type { OfficeUpdateStatus } from '@mycel/shared/api'
 import { api, API } from '../lib/api'
-import { bannerFor, dismissedVersion, dismissVersion, onOfficeStatus } from '../lib/officeUpdate'
-import { useT } from '../i18n'
+import { bannerFor, dismissedVersion, dismissVersion, onOfficeStatus, turnDate } from '../lib/officeUpdate'
+import { useLocale, useT } from '../i18n'
 import { isAdmin, useMe } from '../store/session'
 import { useUi } from '../store/ui'
 
 export default function OfficeUpdateBanner() {
   const t = useT()
+  const locale = useLocale()
   const me = useMe()
   const navigate = useNavigate()
   const admin = isAdmin(me)
@@ -41,7 +42,9 @@ export default function OfficeUpdateBanner() {
       <button type="button" className="underline underline-offset-2" onClick={() => navigate('/admin/system')}>
         {t('officeUpdate.now')}
       </button>
-      {b.nightly && <span className="text-muted">{t('officeUpdate.bannerNightly', b.nightly)}</span>}
+      {b.turn?.kind === 'never' ? <span className="text-muted">{t('officeUpdate.bannerNever')}</span>
+        : b.turn ? <span className="text-muted">{t('officeUpdate.bannerTurn', { date: turnDate(b.turn.date, locale), window: b.turn.window, zone: b.turn.zone })}</span>
+        : b.nightly && <span className="text-muted">{t('officeUpdate.bannerNightly', b.nightly)}</span>}
       <button
         type="button"
         aria-label={t('common.close')}

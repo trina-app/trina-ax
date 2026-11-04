@@ -39,6 +39,25 @@ describe('new version banner', () => {
     expect(bannerFor(me('owner'), st(), null, true)).toBeNull()
     expect(bannerFor(me('owner'), st({ window: '22:51-00:51', timeZone: 'Asia/Jakarta' }), null, false)?.nightly).toEqual({ window: '22:51-00:51', zone: 'Asia/Jakarta' })
   })
+  test('a stable release waiting for this Mac\'s turn (available.turnAt): the turn when it is later than the next run, never when null', () => {
+    // next run tonight 03:00 Seoul (18:00Z on the 21st); the turn two days later at 10:00 Seoul: that night's window is the 24th
+    const team = { window: '03:00-05:00', timeZone: 'Asia/Seoul', nextWindowAt: '2026-10-21T18:00:00.000Z' }
+    const avail = (turnAt: string | null | undefined) => ({ version: '0.2.1', channel: 'stable' as const, notes: '', publishedAt: at, ...(turnAt !== undefined ? { turnAt } : {}) })
+    const now = new Date('2026-10-21T09:00:00.000Z')
+    const later = bannerFor(me('owner'), st({ ...team, available: avail('2026-10-23T01:00:00.000Z') }), null, false, now)
+    expect(later?.turn).toEqual({ kind: 'turn', date: new Date('2026-10-24T00:00:00.000Z'), window: '03:00-05:00', zone: 'Asia/Seoul' })
+    expect(later?.nightly).toEqual({ window: '03:00-05:00', zone: 'Asia/Seoul' })
+    // the turn comes before tonight's run: the usual words, no turn
+    expect(bannerFor(me('owner'), st({ ...team, available: avail('2026-10-21T12:00:00.000Z') }), null, false, now)?.turn).toBeUndefined()
+    expect(bannerFor(me('owner'), st({ ...team, available: avail(undefined) }), null, false, now)?.turn).toBeUndefined()
+    expect(bannerFor(me('owner'), st({ ...team, available: avail(null) }), null, false, now)?.turn).toEqual({ kind: 'never' })
+    // paused: nothing installs by itself, so no turn either
+    expect(bannerFor(me('owner'), st({ ...team, paused: true, available: avail('2026-10-23T01:00:00.000Z') }), null, false, now)?.turn).toBeUndefined()
+    // the words, in Korean 해요체 and English
+    const ko = translate('ko', 'officeUpdate.bannerTurn', { date: '10월 24일', window: '03:00-05:00', zone: 'Asia/Seoul' })
+    expect(ko).toBe('이 맥 차례인 10월 24일 03:00-05:00(Asia/Seoul)에 자동으로 설치돼요')
+    expect(translate('en', 'officeUpdate.bannerNever')).toBe(DICTS.en['officeUpdate.bannerNever'])
+  })
   test('a server too old to send the window: its start, in the zone the update card falls back to', () => {
     expect(bannerFor(me('owner'), st({ time: '22:51' }), null)?.nightly).toEqual({ window: '22:51', zone: 'Asia/Seoul' })
   })

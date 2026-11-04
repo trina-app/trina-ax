@@ -44,10 +44,19 @@ function turnLine(t: (k: MessageKey, v?: Record<string, string | number>) => str
 
 /** What the Home item says about a new version: when it installs by itself, that the timer does it, or that nothing will. */
 function updateLine(t: (k: MessageKey, v?: Record<string, string | number>) => string, locale: Locale, u: UpdateStatus, version: string) {
-  if (u.needsRoot) return t(u.hold === 'root_failed' ? 'adminHome.update.rootFailed' : !u.auto ? 'adminHome.update.rootManual' : 'adminHome.update.root', { version })
+  if (u.needsRoot) {
+    if (u.hold === 'root_failed') return t('adminHome.update.rootFailed', { version })
+    // the update timer keeps the staged roll-out too (turnAt): on this server's turn, or never by itself (null: the
+    // command then)
+    if (!u.auto || u.turnAt === null) return t('adminHome.update.rootManual', { version })
+    const when = turnLine(t, locale, u)
+    return when ? t('adminHome.update.rootAt', { version, when }) : t('adminHome.update.root', { version })
+  }
   if (!u.auto || u.nextWindow === null) return t('adminHome.update.off', { version })
   if (u.hold === 'rollout') {
-    // this server's turn in the staged roll-out (server/src/system/rollout.ts), when the server says when
+    // this server's turn in the staged roll-out (server/src/system/rollout.ts), when the server says when; null: this
+    // release's roll-out never reaches this server by itself (Install now still does)
+    if (u.turnAt === null) return t('adminHome.update.rolloutNever', { version })
     const when = turnLine(t, locale, u)
     return when ? t('adminHome.update.rolloutAt', { version, when }) : t('adminHome.update.rollout', { version })
   }

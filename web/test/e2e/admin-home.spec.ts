@@ -226,11 +226,28 @@ test('automatic updates on: the item says when it installs, with no button; a re
     await expect(page.getByTestId('attention-update')).toContainText(t['adminHome.update.rolloutAt'].replace('{version}', '0.3.0').replace('{when}', when))
     await expect(page.getByTestId('attention-update').getByRole('button', { name: t['adminHome.update.install'] })).toBeVisible()
   }
-  // a turn this release never reaches (null) keeps the plain line
+  // a release this server's roll-out never reaches by itself (turnAt null): says so, and Install now does it
   await page.unroute('**/api/admin/update')
   await answerUpdate(page, () => ({ json: { ...auto, hold: 'rollout', turnAt: null } }))
   await page.goto('/admin')
-  await expect(page.getByTestId('attention-update')).toContainText(t['adminHome.update.rollout'].replace('{version}', '0.3.0'))
+  await expect(page.getByTestId('attention-update')).toContainText(t['adminHome.update.rolloutNever'].replace('{version}', '0.3.0'))
+  await expect(page.getByTestId('attention-update').getByRole('button', { name: t['adminHome.update.install'] })).toBeVisible()
+  // a release that needs root waits for this server's turn too: the update timer installs it then; never by itself: the command
+  {
+    const turnAt = new Date(Date.now() + 3 * 86_400_000).toISOString()
+    await page.unroute('**/api/admin/update')
+    await answerUpdate(page, () => ({ json: { ...auto, needsRoot: true, turnAt } }))
+    await page.goto('/admin')
+    const w = turnWhen(turnAt, '03:00-05:00', 'Asia/Seoul')!
+    const date = new Intl.DateTimeFormat('en-US', { month: 'short', day: 'numeric', timeZone: 'UTC' }).format(w.date)
+    const when = t[`adminHome.when.${w.day}.dawn` as MessageKey].replace('{window}', '03:00–05:00').replace('{date}', date)
+    await expect(page.getByTestId('attention-update')).toContainText(t['adminHome.update.rootAt'].replace('{version}', '0.3.0').replace('{when}', when))
+    await expect(page.getByTestId('attention-update').getByRole('button')).toHaveCount(0)
+    await page.unroute('**/api/admin/update')
+    await answerUpdate(page, () => ({ json: { ...auto, needsRoot: true, turnAt: null } }))
+    await page.goto('/admin')
+    await expect(page.getByTestId('attention-update')).toContainText(t['adminHome.update.rootManual'].replace('{version}', '0.3.0'))
+  }
   await page.unroute('**/api/admin/update')
   await answerUpdate(page, () => ({ json: { ...auto, hold: 'failed' } }))
   await page.goto('/admin')
