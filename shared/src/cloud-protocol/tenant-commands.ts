@@ -79,6 +79,21 @@ export const OpenRouterApiKey = z.string().regex(/^sk-or-[A-Za-z0-9_-]{16,200}$/
 export const HostedSpeechKeyInput = z.strictObject({ key: OpenRouterApiKey.nullable() })
 export type HostedSpeechKeyInput = z.infer<typeof HostedSpeechKeyInput>
 
+/** A direct Anthropic API key ("sk-ant-api03-…"; the team server's own rule for one). It is only ever in
+ * hosted-chat-key-set's stdin. */
+export const AnthropicApiKey = z.string().regex(/^sk-ant-api\d{2}-[A-Za-z0-9_-]{20,300}$/)
+/** hosted-chat-key-set's stdin: the trial AI credit the hosting service gives this team, so its chats are answered
+ * before it connects an AI of its own. `key` is a direct Anthropic API key (never a gateway's), `capUsd` the dollars
+ * the team may spend with it in all (counted by the app across key rotations; raise it to give more), `endsAt` when it
+ * stops, `enabled` false to pause it without taking the key away. `{ key: null }` takes it away. The app keeps the
+ * key encrypted with its credentials vault and never shows, logs or audits it; any AI connection the team or a
+ * person adds always comes first. */
+export const HostedChatKeyInput = z.union([
+  z.strictObject({ key: AnthropicApiKey, capUsd: z.number().min(0).max(1000), endsAt: IsoTime, enabled: z.boolean() }),
+  z.strictObject({ key: z.null() }),
+])
+export type HostedChatKeyInput = z.infer<typeof HostedChatKeyInput>
+
 export const BackupKindArg = z.enum(['daily', 'manual', 'pre-update', 'final'])
 
 /** backup-prepare's answer (admin.js cloud-backup prepare) */
@@ -153,6 +168,9 @@ export const TENANT_COMMANDS = {
   },
   /** the hosting service's speech-to-text key (HostedSpeechKeyInput); `set`: whether the server holds one now */
   'hosted-speech-key-set': { args: NoArgs, stdin: HostedSpeechKeyInput, output: z.object({ ok: z.literal(true), set: z.boolean() }), timeoutSec: 30 },
+  /** the hosting service's trial AI credit (HostedChatKeyInput); `set`: whether the server holds a key now, `usedUsd`:
+   * what the team has spent of the credit so far (the app's count) */
+  'hosted-chat-key-set': { args: NoArgs, stdin: HostedChatKeyInput, output: z.object({ ok: z.literal(true), set: z.boolean(), usedUsd: z.number().nonnegative() }), timeoutSec: 30 },
   'setup-token-rotate': { args: NoArgs, stdin: null, output: z.object({ setupToken: z.string().regex(/^[A-Za-z0-9_-]{24,128}$/) }), timeoutSec: 120 },
   /** keyAge decrypts to the key file's line: "<base64 32 bytes>" for version 1, "credentials.key.<N> <base64>" for a
    * later version (after credentials-rekey). The control plane keeps it as is and hands it back in

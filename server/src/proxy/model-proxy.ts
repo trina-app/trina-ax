@@ -18,6 +18,7 @@ import { budgetBlock } from '../admin/budgets'
 import { codexConnectHandler, type ConnectOpts } from './connect'
 import { gatewayModelIds } from '../app-config'
 import type { CredentialBroker } from '../credentials/broker'
+import { HOSTED_CHAT_ID, HOSTED_CHAT_MODEL, trialEstimate, type TrialHold } from '../credentials/hosted-chat'
 import type { Family } from '../credentials/resolve'
 import { handleCodex } from './codex-path'
 
@@ -48,6 +49,10 @@ export type ProxyTurnEvent =
   | { type: 'budget' }
   | { type: 'rate_limit'; retryAt: string | null; credentialId?: string }
   | { type: 'credential'; credentialId: string; reason: 'invalid' | 'needs_reconnect' | 'over_limit' | 'gone' }
+  /** the hosting service's trial AI credit (credentials/hosted-chat.ts) cannot pay for this request: its cap is used
+   * (`used`; the attempt's own budget, which is what was left of the cap, counts too) or it ended, was switched off or
+   * taken away (`ended`). The answer stops; the person is offered to connect an AI of the team's own. */
+  | { type: 'trial'; reason: 'used' | 'ended' }
   /** a request named a tool outside the turn's lockdown (checkToolNames): the answer stops */
   | { type: 'lockdown'; reason: string }
   /** a Codex web search the proxy answered with something Codex ends its item on (codex-path.ts: the upstream's answer,
@@ -165,6 +170,20 @@ const FORWARD_HEADERS = ['anthropic-version', 'anthropic-beta', 'content-type', 
 const BETA_RE = /^[a-z0-9][a-z0-9-]{0,80}-\d{4}-\d{2}-\d{2}$/
 /** response headers never passed back (hop-by-hop, encodings Bun already undid, cookies) */
 const DROP_RESPONSE = new Set(['content-encoding', 'content-length', 'transfer-encoding', 'connection', 'keep-alive', 'set-cookie', 'proxy-authenticate', 'upgrade'])
+/** response headers a trial request (the hosting service's key) does not pass back: they name the hosting service's
+ * Anthropic organization or workspace, which is none of the engine's business (rate-limit headers stay: the engine
+ * paces itself by them) */
+const TRIAL_DROP_RESPONSE = /^anthropic-(organization|workspace)/i
+/** Anthropic's answer to a request over the key's own spend limit (its workspace or organization limit, or no credit):
+ * on the trial key that is the hosting service's backstop, i.e. the trial credit is used */
+export function isSpendLimitError(status: number, text: string): boolean {
+  if (status === 402) return true
+  if (![400, 403, 429].includes(status)) return false
+  try {
+    const e = (JSON.parse(text) as { error?: { type?: unknown; message?: unknown } }).error
+    return e?.type === 'billing_error' || (typeof e?.message === 'string' && /credit balance|spend(ing)? limit|usage limit/i.test(e.message))
+  } catch { return false }
+}
 /** a 429 with retry-after above this is the subscription's 5-hour / weekly limit, not a short burst limit */
 export const SHORT_RETRY_S = 60
 
@@ -220,12 +239,13 @@ export function apiError(status: number, type: string, message: string, extra: R
   return new Response(JSON.stringify({ type: 'error', error: { type, message } }), { status, headers: { 'content-type': 'application/json', ...extra } })
 }
 
+export const TURN_BUDGET_REACHED = 'turn budget reached'
 /** Why this request may not spend: the token's own cap (turn budget) or a used-up "block" budget of the person
  * (team / their groups / them; the same rule the chat routes check before a turn starts). */
 export function overBudget(db: Database, userId: string, turnId: string, tokenBudget: number | null): string | null {
   if (tokenBudget !== null) {
     const c = (db.query('SELECT cost_usd FROM turns WHERE id = ?').get(turnId) as { cost_usd: number | null } | null)?.cost_usd ?? 0
-    if (c >= tokenBudget) return 'turn budget reached'
+    if (c >= tokenBudget) return TURN_BUDGET_REACHED
   }
   return budgetBlock(db, userId, 'en') ? 'budget reached' : null
 }
@@ -292,8 +312,10 @@ export async function startModelProxy(o: ProxyOpts): Promise<ModelProxy> {
       const body = await req.arrayBuffer()
       let parsed: unknown = null
       try { if (body.byteLength) parsed = JSON.parse(new TextDecoder().decode(body)) } catch {}
+      // a trial attempt (the hosting service's credit) runs on its one model only, like a gateway on its own
+      const trial = row.credential_id === HOSTED_CHAT_ID
       const refused = (confidentialTurn(db,row.turn_id) && externalSearch(parsed) ? 'search is disabled for this confidential conversation' : null)
-        ?? checkProxyRequest(req.method, url, parsed, gateway ? new Set(gatewayModelIds(gateway)) : undefined)
+        ?? checkProxyRequest(req.method, url, parsed, trial ? new Set([HOSTED_CHAT_MODEL]) : gateway ? new Set(gatewayModelIds(gateway)) : undefined)
       if (refused) {
         refusedAudit(row, refused)
         return apiError(403, 'permission_error', `refused by the team server: ${refused}`)
@@ -306,16 +328,23 @@ export async function startModelProxy(o: ProxyOpts): Promise<ModelProxy> {
         o.onTurnEvent?.(row.turn_id, { type: 'lockdown', reason: outside })
         return apiError(403, 'permission_error', `refused by the team server: ${outside}`)
       }
-      // 403, not 429: the SDK retries a 429 by itself (design tab 1 "예산 초과")
-      if (overBudget(db, row.user_id, row.turn_id, row.budget_usd)) {
-        o.onTurnEvent?.(row.turn_id, { type: 'budget' })
+      // 403, not 429: the SDK retries a 429 by itself (design tab 1 "예산 초과"). A trial attempt's own budget is what
+      // was left of the trial credit when it started: reaching it means the credit is used.
+      const over = overBudget(db, row.user_id, row.turn_id, row.budget_usd)
+      if (over) {
+        o.onTurnEvent?.(row.turn_id, trial && over === TURN_BUDGET_REACHED ? { type: 'trial', reason: 'used' } : { type: 'budget' })
         return apiError(403, 'permission_error', 'budget_exceeded')
       }
-      const cred = await broker.forRequest({ credentialId: row.credential_id, family: row.family, turnId: row.turn_id, userId: row.user_id }, 'anthropic')
+      // a trial answer holds what it may cost at most until it is counted (credentials/hosted-chat.ts); count_tokens is free
+      const est = trial && url.pathname === '/v1/messages' ? trialEstimate(parsed, body.byteLength) : undefined
+      const cred = await broker.forRequest({ credentialId: row.credential_id, family: row.family, turnId: row.turn_id, userId: row.user_id }, 'anthropic', est)
       if (!cred.ok) {
         if (cred.event) o.onTurnEvent?.(row.turn_id, cred.event)
         return apiError(cred.status, cred.type, cred.message, cred.retryAfter ? { 'retry-after': String(cred.retryAfter) } : {})
       }
+      // settled once: counted with the answer's usage (record), or given back when there is none (release)
+      let hold: TrialHold | null = cred.hold ?? null
+      const release = () => { const h = hold; hold = null; if (h) broker.release?.(h) }
 
       const headers = new Headers()
       for (const k of FORWARD_HEADERS) { const v = req.headers.get(k); if (v) headers.set(k, v) }
@@ -345,14 +374,26 @@ export async function startModelProxy(o: ProxyOpts): Promise<ModelProxy> {
         // another host, or the real credential to a path the rules above do not allow
         up = await fetch(cred.upstream.replace(/\/$/, '') + url.pathname + url.search, { method: 'POST', headers, body: outBody, signal: abort.signal, redirect: 'manual' })
       } catch {
+        release()
         return unreachable(req)
       }
       if (up.status >= 300 && up.status < 400) {
         await up.body?.cancel().catch(() => {})
+        release()
         return apiError(502, 'api_error', 'the model service answered with a redirect; it is not followed')
       }
+      if (trial && up.status >= 400 && up.status < 500 && up.status !== 401) {
+        // the key's own spend limit at Anthropic (the hosting service's backstop) tripped: the trial credit is used
+        const text = await up.text().catch(() => '')
+        if (isSpendLimitError(up.status, text)) {
+          release()
+          o.onTurnEvent?.(row.turn_id, { type: 'trial', reason: 'used' })
+          return apiError(403, 'permission_error', 'trial_credit_used')
+        }
+        up = new Response(text, { status: up.status, headers: up.headers })
+      }
       const outHeaders = new Headers()
-      for (const [k, v] of up.headers) if (!DROP_RESPONSE.has(k.toLowerCase())) outHeaders.set(k, v)
+      for (const [k, v] of up.headers) if (!DROP_RESPONSE.has(k.toLowerCase()) && !(trial && TRIAL_DROP_RESPONSE.test(k))) outHeaders.set(k, v)
 
       if (up.status === 401) {
         // this connection only: marked refused (the owner is told), the turn moves to another connection or ends
@@ -367,20 +408,32 @@ export async function startModelProxy(o: ProxyOpts): Promise<ModelProxy> {
           const until = new Date(Date.now() + s * 1000)
           broker.onLongLimit(cred.credentialId, until)
           o.onTurnEvent?.(row.turn_id, { type: 'rate_limit', retryAt: until.toISOString(), credentialId: cred.credentialId })
+          release()
           return apiError(403, 'permission_error', 'subscription_limited', { 'retry-after': String(s) })
         }
         // a short burst limit: status and retry-after as they came, the SDK retries
       }
       if (up.status >= 200 && up.status < 300) broker.succeeded(cred.credentialId)
       const counts = url.pathname === '/v1/messages' && up.status < 400
-      const record = (m: string, u: Record<string, unknown>) => { if (Object.keys(u).length) broker.record(cred.credentialId, row.turn_id, m, u) }
+      const record = (m: string, u: Record<string, unknown>) => {
+        const h = hold; hold = null
+        if (Object.keys(u).length) broker.record(cred.credentialId, row.turn_id, m, u, h)
+        else if (h) broker.release?.(h)
+      }
+      /** a trial answer that did not finish (stopped, broken off): what it generated is not known, so its whole output
+       * reservation counts, and the whole estimate when not even its input was reported */
+      const unfinished = (u: Record<string, unknown>): Record<string, unknown> => !est ? u
+        : u.input_tokens === undefined ? { cache_creation: { ephemeral_1h_input_tokens: est.inputTokens }, output_tokens: est.maxTokens }
+        : { ...u, output_tokens: Math.max(Number(u.output_tokens) || 0, est.maxTokens) }
       if (counts && (up.headers.get('content-type') ?? '').includes('text/event-stream') && up.body) {
         // pass the stream through as it arrives while reading usage from message_start / message_delta. Input and
         // cache numbers come from message_start, output from the last message_delta (a running total, not added up).
         const usage: Record<string, unknown> = {}
         let buf = ''
         let recorded = false
-        const done = () => { if (!recorded) { recorded = true; record(model, usage) } }
+        // the final usage came (message_delta); a trial stream that ends without it is counted as unfinished
+        let finished = false
+        const done = () => { if (!recorded) { recorded = true; record(model, trial && !finished ? unfinished(usage) : usage) } }
         const dec = new TextDecoder()
         const reader = up.body.getReader()
         const scan = (chunk: Uint8Array) => {
@@ -392,7 +445,7 @@ export async function startModelProxy(o: ProxyOpts): Promise<ModelProxy> {
             try {
               const ev = JSON.parse(l.slice(5))
               if (ev.type === 'message_start') { Object.assign(usage, ev.message?.usage ?? {}); model = answerModel(ev.message?.model) }
-              if (ev.type === 'message_delta' && ev.usage) Object.assign(usage, ev.usage)
+              if (ev.type === 'message_delta' && ev.usage) { Object.assign(usage, ev.usage); finished = true }
             } catch {}
           }
           if (buf.length > 1 << 20) buf = '' // no line that long in a real stream
@@ -413,8 +466,14 @@ export async function startModelProxy(o: ProxyOpts): Promise<ModelProxy> {
         }, { highWaterMark: 0 })
         return new Response(stream, { status: up.status, headers: outHeaders })
       }
-      const text = await up.text()
+      let text: string
+      try { text = await up.text() } catch {
+        // the answer broke off (or the turn was stopped) while it was read: a trial answer counts as unfinished
+        if (counts && est) record(model, unfinished({})); else release()
+        return unreachable(req)
+      }
       if (counts) try { const j = JSON.parse(text); if (j.usage) record(answerModel(j.model), j.usage) } catch {}
+      release() // nothing to count (an error, count_tokens, an answer without usage)
       // a gateway without token counting (OpenRouter answers 404): passed on as it came, not logged as a failure (a
       // side request; the answer itself is on /v1/messages, and the connection stays as it is)
       if (gateway && up.status === 404 && url.pathname === '/v1/messages/count_tokens') return expectedAnswer(new Response(text, { status: up.status, headers: outHeaders }))

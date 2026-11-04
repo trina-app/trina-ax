@@ -285,6 +285,66 @@ func TestTenantHostedSpeechKeySet(t *testing.T) {
 	}
 }
 
+func TestTenantHostedChatKeySet(t *testing.T) {
+	tb := newTestBase(t, "0.3.0")
+	f := &fakeTenant{adminOut: map[string]string{"hosted-chat-key": `{"ok":true,"set":true,"usedUsd":1.25}`}}
+	f.install(t)
+	key := "sk-ant-api03-" + strings.Repeat("0a", 30)
+	grant := `{"key":"` + key + `","capUsd":10,"endsAt":"2026-11-18T15:00:00Z","enabled":true}`
+	code, out, errs := tb.tctl(grant, "hosted-chat-key-set", "--json")
+	if code != 0 || len(f.adminCalls) != 1 || strings.Join(f.adminCalls[0], " ") != "hosted-chat-key" {
+		t.Fatalf("%d %q %s %v", code, out, errs, f.adminCalls)
+	}
+	// the key goes on admin.js's stdin only: never in its argv, the answer or stderr
+	if jsonOf(t, f.adminStdin[0])["key"] != key || strings.Contains(out, key) || strings.Contains(errs, key) {
+		t.Fatalf("key handling: stdin %q out %q err %q", f.adminStdin[0], out, errs)
+	}
+	if m := jsonOf(t, f.adminStdin[0]); m["endsAt"] != "2026-11-18T15:00:00Z" || m["enabled"] != true || len(m) != 4 {
+		t.Fatalf("stdin passed on: %q", f.adminStdin[0])
+	}
+	if m := jsonOf(t, out); m["ok"] != true || m["set"] != true || m["usedUsd"] != 1.25 || f.restarts != 0 {
+		t.Fatalf("answer %q, %d restarts", out, f.restarts)
+	}
+	// paused, then taken away
+	if code, _, _ := tb.tctl(`{"key":"`+key+`","capUsd":12.5,"endsAt":"2026-11-19T00:00:00+09:00","enabled":false}`, "hosted-chat-key-set", "--json"); code != 0 {
+		t.Fatalf("paused: %d", code)
+	}
+	f.adminOut["hosted-chat-key"] = `{"ok":true,"set":false,"usedUsd":1.25}`
+	if code, out, _ := tb.tctl(`{"key":null}`, "hosted-chat-key-set", "--json"); code != 0 || jsonOf(t, out)["set"] != false || f.adminStdin[2] != `{"key":null}` {
+		t.Fatalf("null: %d %q %v", code, out, f.adminStdin)
+	}
+	// refused before admin.js runs
+	f.adminCalls = nil
+	for _, bad := range []string{``, `{}`, `{"key":null,"capUsd":1}`, `[1]`, `{"key":1}`,
+		`{"key":"sk-or-v1-` + strings.Repeat("0a", 30) + `","capUsd":10,"endsAt":"2026-11-18T15:00:00Z","enabled":true}`,
+		`{"key":"sk-ant-oat01-` + strings.Repeat("0a", 30) + `","capUsd":10,"endsAt":"2026-11-18T15:00:00Z","enabled":true}`,
+		`{"key":"` + key + `","capUsd":10,"endsAt":"2026-11-18T15:00:00Z"}`,
+		`{"key":"` + key + `","capUsd":-1,"endsAt":"2026-11-18T15:00:00Z","enabled":true}`,
+		`{"key":"` + key + `","capUsd":"10","endsAt":"2026-11-18T15:00:00Z","enabled":true}`,
+		`{"key":"` + key + `","capUsd":10,"endsAt":"next week","enabled":true}`,
+		`{"key":"` + key + `","capUsd":10,"endsAt":"2026-11-18T15:00:00Z","enabled":"yes"}`,
+		`{"key":"` + key + `","capUsd":null,"endsAt":"2026-11-18T15:00:00Z","enabled":true}`,
+		`{"key":"` + key + `","capUsd":10,"endsAt":null,"enabled":true}`,
+		`{"key":"` + key + `","capUsd":10,"endsAt":"2026-11-18T15:00:00Z","enabled":null}`,
+		`{"key":"` + key + `; rm -rf /","capUsd":10,"endsAt":"2026-11-18T15:00:00Z","enabled":true}`,
+		`{"key":"` + key + `","capUsd":10,"endsAt":"2026-11-18T15:00:00Z","enabled":true,"x":1}`,
+	} {
+		if code, out, errs := tb.tctl(bad, "hosted-chat-key-set", "--json"); code == 0 || out != "" || strings.Contains(errs, key) {
+			t.Fatalf("accepted %q: %d %q %s", bad, code, out, errs)
+		}
+	}
+	if len(f.adminCalls) != 0 {
+		t.Fatalf("admin.js ran for refused stdin: %v", f.adminCalls)
+	}
+	// an admin.js answer without set or usedUsd is not passed on
+	for _, ans := range []string{`{"ok":true,"set":true}`, `{"ok":true,"usedUsd":0}`, `{"ok":true,"set":true,"usedUsd":-1}`} {
+		f.adminOut["hosted-chat-key"] = ans
+		if code, out, _ := tb.tctl(`{"key":null}`, "hosted-chat-key-set", "--json"); code == 0 || out != "" {
+			t.Fatalf("answer %s got through: %d %q", ans, code, out)
+		}
+	}
+}
+
 func TestTenantIdleWaitPrepareStop(t *testing.T) {
 	tb := newTestBase(t, "0.3.0")
 	systemdRunDir = t.TempDir()

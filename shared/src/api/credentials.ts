@@ -125,6 +125,23 @@ export const StartMyLoginBody = StartCredentialLoginBody.omit({ assignments: tru
 export const AiAccessResponse = z.object({ usable: z.boolean(), action: z.enum(['connect_team', 'connect_own', 'ask_owner']), requested: z.boolean() })
 export type AiAccessResponse = z.infer<typeof AiAccessResponse>
 export const AiAccessRequestResponse = z.object({ requested: z.literal(true), already: z.boolean() })
+/** The hosting service's trial AI credit (docs/DECISIONS.md "B — Hosted trial AI credit"): a key of the hosting
+ * service's that answers the team's chats only when no AI connection of the team or the person can. `state`: active
+ * (answers now), used (the dollar cap is reached), ended (past `endsAt`, paused by the hosting service, or refused by
+ * the provider). Dollars as the team server counts them (list prices). Never the key, not even part of it. */
+/** the credential id of turns answered on the trial credit (turns.credential_id; Admin › Usage by connection): no
+ * connection row has it */
+export const TRIAL_CREDENTIAL_ID = 'hosted-trial'
+export const TrialCredit = z.object({
+  active: z.boolean(), state: z.enum(['active', 'used', 'ended']),
+  usedUsd: z.number().nonnegative(), capUsd: z.number().nonnegative(), endsAt: IsoTime,
+  /** the one model trial answers run on */
+  model: z.string(),
+})
+export type TrialCredit = z.infer<typeof TrialCredit>
+/** null: this server holds no trial credit (not hosted, never had one, taken away, or Claude requests go to a gateway) */
+export const TrialCreditResponse = z.object({ credit: TrialCredit.nullable() })
+export type TrialCreditResponse = z.infer<typeof TrialCreditResponse>
 
 export const CREDENTIALS = {
   getAiAccess: endpoint({ method: 'GET', path: '/api/me/ai-access', auth: 'user', owner: 'A', response: AiAccessResponse, summary: 'Can I use AI now, which button fits me (connect for the team / connect my own / ask the owner), and did I already ask.' }),
@@ -146,4 +163,5 @@ export const CREDENTIALS = {
   startMyCredentialLogin: endpoint({ method: 'POST', path: '/api/me/credential-logins', auth: 'user', owner: 'A', status: 202, body: StartMyLoginBody, response: CredentialLogin, summary: 'Start my own ChatGPT sign-in.' }),
   getMyCredentialLogin: endpoint({ method: 'GET', path: '/api/me/credential-logins/:id', auth: 'user', owner: 'A', response: CredentialLogin, summary: 'State of my sign-in.' }),
   cancelMyCredentialLogin: endpoint({ method: 'DELETE', path: '/api/me/credential-logins/:id', auth: 'user', owner: 'A', response: empty, status: 204, summary: 'Stop my sign-in.' }),
+  trialCredit: endpoint({ method: 'GET', path: '/api/admin/trial-credit', auth: 'admin', owner: 'A', response: TrialCreditResponse, summary: 'The hosting service\'s trial AI credit: active, dollars used of the cap, when it ends. Used only when no AI connection can answer.' }),
 } as const

@@ -6736,6 +6736,113 @@ Decided by the owner on 2026-11-04: "한국인들만 플러그인으로 넣을�
 - "관리자에게 알리기": `POST /api/me/ai-access/request` writes one inbox row per active owner in a new table `onboarding_notices` (migration 222; event `onboarding.ai_request`, source = the member's id). The notification service has a fixed event list and tables are never rebuilt, so a small table of its own follows `integration_request_notices`. The unique row is the dedupe: a second click does nothing, and the same row answers "알렸어요" (`requested`). Retention is the inbox's 30 days; after that the member can ask again. Only a signed-in person who cannot use AI and is not the owner can ask (403 otherwise). The owner sees the member's display name and a link, never text from the member. The notice counts as read once the member can use AI (checked in `reconcile`) or is gone. Admins do not get it: they cannot connect anything.
 - Owner checklist (Home): the AI item is first and points to Admin > AI connections. Another stream replaces this checklist during trials; the change is two lines.
 
+## B — Hosted trial AI credit (feat/onboarding-b, 2026-11-04)
+
+Owner decision (onboarding plan, trial credits approved): during a hosted trial a team gets AI answers without
+connecting anything. The team server's side; issuing, delivering and rotating the key belong to the hosting console.
+
+- **A direct Anthropic key, not the gateway.** The hosting service gives each trial team its own Anthropic API key. It
+  does not go through OpenRouter as `engine.anthropicGateway`: turning the gateway on switches off Claude subscription
+  connections and makes every Anthropic key a gateway key ("Anthropic-compatible gateway" above), which would break
+  the team's own connections. While a gateway is set the trial key is never offered or shown (a direct key never goes
+  to a gateway).
+- **Delivery and storage, like the hosting speech key.** Tenant command `hosted-chat-key-set` (stdin
+  `{ key, capUsd, endsAt, enabled }` or `{ key: null }`; mycel-ctl → `admin.js hosted-chat-key`, hosted servers only;
+  answer `{ ok, set, usedUsd }`). The key is kept encrypted with the credentials vault in one settings row
+  (`ai.hostedChatKey`, AAD `mycel-cred-v1|ai.hostedChat|anthropic-api-key`) with its cap, end and switch; never in a
+  response, log line or audit row, not even its last characters (audit `ai.hosted_trial_key`: set / removed with the
+  cap, end and switch). credentials-rekey encrypts it again; a server that is not hosted drops it at start; the team's
+  export leaves it out; a restore keeps the current key and spend (`SERVER_OWN_SETTINGS`). It is not a row of
+  `engine_credentials`: it never shows as a connection and nobody on the team can edit, assign or remove it.
+- **Last in the order.** `resolveCredential` offers it after every candidate of every tier (tier `hosted`), for Claude
+  only, while it is active: any connection the team or the person adds always comes first. It also answers when the
+  team's connections exist but none can answer now (switched off, refused, at a limit): the turn goes on, on the
+  credit. One exception keeps the team's own AI first: when a Claude connection is only at its limit and "Claude 한도에
+  닿으면 Codex로 넘기기" would send the turn to a Codex connection of the person's (`codexFallback`, at the start of a turn
+  and when a limit stops an attempt), the credit is not offered and Codex answers as before. `hasCredentialFor` / `hasCredentialSoonFor` count it, so the composer offers Claude Code and Admin › Members
+  shows no "No AI" during the trial. `teamCredentialSummary` (Admin › AI engines, TenantStatus `ai.claude`) stays about
+  the team's own connections: the console can tell whether a trial team connected its own AI.
+- **The same launch path as an Anthropic key connection.** A trial attempt's proxy token is bound to the id
+  `hosted-trial` (no row; never a UUID), kind `anthropic-api-key`; the broker checks it before every request and puts
+  the key on as `x-api-key` towards `modelUpstreams.anthropic`. No second launch path: `buildClaudeLaunch` gets
+  `onlyModel`, which sets `--model` and the aliases and small fast model like a gateway's default, and the proxy's
+  allow-list for a trial token is exactly that model (another is refused before anything is sent). The answer and the
+  turn name that model (`messages.model`, `turns.model`), whatever was chosen; a later attempt of the same turn on a
+  real connection goes back to the choice. The "other model" retry after a refusal is skipped on the credit (it has
+  one model). Admin › Usage by connection labels its turns "Trial credit (hosting)" (`TRIAL_CREDENTIAL_ID`).
+- **Model: `claude-haiku-5-5` (`HOSTED_CHAT_MODEL`), chosen for cost.** List prices (prices.ts, 2026-10-22): Haiku 5.5
+  $0.10 in / $0.50 out per million tokens (cache read $0.01, 5-minute cache write $0.125), against Sonnet 5.5 at
+  $2 / $10 and Opus 5.5 at $4 / $20. A typical answer (several requests of 10–30 thousand mostly cached input tokens and
+  a few thousand output) is about a cent on Haiku 5.5 and 10–20 cents on Sonnet 5.5, so a credit of a few dollars lasts
+  a 3+ person team through the trial instead of a few dozen answers. The trial ignores the team default, the chat's
+  and the person's model choice. If first results are not good enough, the constant is the one thing to change
+  (`claude-sonnet-5-5`; caps then need about 20 times more). Above 100,000 input tokens in one request Haiku 5.5 is
+  billed at $0.50 / $2.50 (prices.ts already counts that).
+- **Metering in dollars, by the team server.** The broker refuses a request before it is sent once the credit is used,
+  past `endsAt`, switched off or refused (`forRequest`). What an answer cost is the Anthropic key price of the model
+  it names (`costOf`, as for a key connection), added to the turn (`turns.cost_usd`: Admin › Usage and the team's
+  budgets see it) and to the trial count (settings `ai.hostedChatUsage` `{usd}`, one SQL statement; not
+  `credential_usage_daily`, whose rows need a connection row). The count runs across key rotations: `capUsd` is for
+  the whole trial, the hosting service raises it to give more and reads `usedUsd` in each set's answer. A 401 from
+  Anthropic marks the key refused (no request goes out with it, audited `credential.rejected` on `hosted-trial`) until
+  the hosting service sends a key again, but only when the refused key is still the stored one: a late 401 for a key
+  rotated away since leaves the new key alone.
+- **Requests in flight are held, not only checked.** When the proxy sends a trial request it holds the most that
+  request can cost (`trialEstimate`: the body's bytes / 3 as input tokens at the 1-hour cache-write price, the dearest
+  input column, with Haiku 5.5's long-context price above 100,000; `max_tokens` as output, thinking included). A request
+  is admitted only while spent + held is under the cap (one synchronous step in the broker), the hold is replaced by
+  what the answer cost when it is counted, and given back when no answer came (an error, an unreachable service, a
+  refusal). So every turn and sub-agent together pass the cap by at most the last request admitted, and only when its
+  answer costs more than the rest of the credit; that request's reservation is the bound (a Claude Code request is
+  about 2 cents on Haiku 5.5; one at the full 1M context with 128k output about $1.30). Near the end of a credit a
+  request can be refused while others are out although their answers will cost less than they hold: the price of the
+  bound. Holds live in the server process (a restart drops them with their requests). Web searches ($10 per 1,000) are
+  not in the estimate. Each trial attempt's proxy token also carries `budget_usd` = what the turn spent so far + what
+  is left of the credit (`proxy_tokens.budget_usd`, unused until now); reaching it ends the answer like a used credit.
+- **An answer that does not finish still costs.** A trial stream that ends without its final usage (`message_delta`:
+  the engine hung up on Stop, or the stream broke off) is counted with its input from `message_start` and its whole
+  `max_tokens` as output (what it generated, thinking included, is not known), or the whole estimate when not even
+  `message_start` came; the same for a non-streamed answer that broke off while it was read. Stopping an answer early
+  cannot dodge the cost; it may count a little more than Anthropic bills.
+- **What the engine sees of the hosting service.** A trial answer's `anthropic-organization-*` / `anthropic-workspace-*`
+  response headers are dropped (they name the hosting service's Anthropic account); the rate-limit headers stay, the
+  engine paces itself by them. The launch (environment, arguments, files) never holds the key: the engine has only its
+  per-turn proxy token, as with any connection.
+- **Anthropic's own spend limit is the backstop.** On the trial key, an answer that says the key's workspace or
+  organization limit is reached or the credit is gone (402 `billing_error`, or 400 / 403 / 429 naming the credit balance,
+  a spend limit or a usage limit) reads as a used credit: the answer stops with `trial_credit_used`, not a provider
+  error. **Recommendation to the hosting console:** keep each trial team's key in its own Anthropic workspace and set
+  that workspace's monthly spend limit to the team's `capUsd` + $2 (about two of the largest single requests above),
+  raised together with the cap. The team server's own count then always stops first, and the workspace limit only trips
+  when the count is wrong (a price change prices.ts has not caught, web searches). With several trial keys in one
+  workspace, set its limit to the sum of their caps + $2 per key; one team can then spend another's margin, so one
+  workspace per team is better.
+  The key's own spend limit at Anthropic is the backstop the hosting service sets.
+- **Errors.** Chat reasons `trial_credit_used` (the cap is used) and `trial_ended` (past its end, switched off, or the
+  key refused), both `engine_unavailable` with `params.reason`; given when the turn starts (resolution) or during it
+  (proxy event `trial`). Their text tells an admin to connect the team's own AI in Admin › AI connections; the
+  onboarding screens can add a button on these reasons. A credit taken away (`{ key: null }`) is the plain "no AI
+  connection".
+- **Visibility.** `GET /api/admin/trial-credit` (owner and admins): `{ credit: { active, state, usedUsd, capUsd,
+  endsAt, model } | null }`; null without a key, outside managed mode, or with a gateway. Admin › AI connections shows
+  it read-only (`components/TrialCreditBar.tsx`): "체험 크레딧: $x / $y 사용 · M월 D일까지 · 내 AI를 연결하면 그걸 먼저 써요",
+  with words for used up and ended; the date is the last day in the team's time zone (`Me.server.timeZone`; an end at
+  the team's midnight shows the day before). The start goal card of the onboarding (later) can read the same API. Not in TenantStatus: ax-hostd's copy of that schema is strict and drops the app's whole
+  status for an unknown field.
+- **Known limits.** ax-hostd keeps tenant-command jobs (with the key) until the console re-seals them, like the speech
+  key. The count uses list prices: a mismatch between prices.ts and Anthropic's bill shows up as the same mismatch here
+  (the workspace limit above catches a large one).
+- Tests: `tests/unit/a-hosted-trial-credit.test.ts` (the command's gate and admin.js, the resolution order against team,
+  subscription and own connections, Codex and the Codex fallback, gateway, used / ended / switched off, the proxy: key and
+  model, cost counted, refused at the cap before sending, the attempt's budget, a 401 and a late 401 after a rotation,
+  eight turns at once near the cap, holds given back, a stopped and a broken-off stream, Anthropic's spend-limit
+  answers, the organization header, rekey, drop, export, restore),
+  `tests/unit/b-hosted-trial-turn.test.ts` (real launcher and fake engine: an answer on the credit, its model and budget,
+  a team connection taking over, a limited subscription going to Codex instead of the credit, errors before and during a
+  turn, the launch never holding the key, the credit switched off mid-turn, a refused trial key handing the turn to a
+  team connection on the chosen model, the admin API), `web/test/unit/trial-credit-bar.test.tsx`,
+  the contract vectors and `cloud-protocol.test.ts`, mycel-ctl `TestTenantHostedChatKeySet`.
+
 ## C. Onboarding: marketing skill pack and skill forms (feat/onboarding-c, 2026-11-04)
 
 Placement: Trina AX (this repository), the skills and files core; nothing about plans or hosting. Part of wave 1 of
