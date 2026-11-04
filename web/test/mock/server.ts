@@ -184,6 +184,8 @@ export class MockServer {
    * and never go back out (only `hasSecret`). */
   integrations: MockIntegration[] = []
   plugins = new MockPlugins()
+  /** after-update to-dos an admin dismissed (server/src/system/after-update.ts) */
+  afterDismissed: string[] = []
   integrationSecrets = new Map<string, string>()
   integrationFlows = new Map<string, { flow: IntegrationFlow; integrationId: string; userId: string; polls: number }>()
   /** an admin's requests to members to connect a service as their own (like server/src/integrations/connections/requests.ts) */
@@ -259,6 +261,7 @@ export class MockServer {
     this.credLogins.clear()
     this.integrations = []
     this.plugins.reset()
+    this.afterDismissed = []
     this.integrationSecrets.clear()
     this.integrationFlows.clear()
     this.integrationRequests = []
@@ -1683,6 +1686,11 @@ export class MockServer {
     },
     diagnostics: () => ({ version: this.serverVersion, host: { os: 'darwin', arch: 'arm64', hostname: 'mac-mini' }, disk: { teamFolderFreeBytes: 500e9, dataFreeBytes: 500e9 }, queue: { running: 0, queued: 0, concurrency: 2 }, checks: [{ id: 'relay', group: 'relay', label: 'Relay connection', status: 'warn', detail: 'Relay not configured (dev)' }, { id: 'disk', group: 'disk', label: 'Disk space', status: 'ok', detail: null }], generatedAt: now() }),
     updateStatus: () => ({ current: this.serverVersion, channel: 'stable', available: null, lastCheckedAt: now(), previous: null, managed: this.cloud }),
+    // like server/src/system/after-update.ts: the HWP plugin to-do while the plugin is not on and not dismissed
+    afterUpdateActions: () => ({
+      items: this.afterDismissed.includes('hwp-plugin') || this.plugins.installed.some((p) => p.id === 'app.trina.hwp-preview' && p.enabled) ? [] : [{ id: 'hwp-plugin', since: '0.4.0-beta.2', to: '/admin/plugins?focus=app.trina.hwp-preview' }],
+    }),
+    dismissAfterUpdate: (c) => { if (c.params.id !== 'hwp-plugin') fail('not_found', 404); if (!this.afterDismissed.includes(c.params.id)) this.afterDismissed.push(c.params.id); return undefined },
     // like server/src/system/storage.ts: a 50 GB disk, 41 GB used (over 80%); the plan on Team AX Cloud
     storage: () => ({
       totalBytes: 50 * 1024 ** 3, usedBytes: 41 * 1024 ** 3, freeBytes: 9 * 1024 ** 3, percent: 82, level: 'warn', reserveBytes: 1024 ** 3, writesRefused: false, graceEndsAt: null,

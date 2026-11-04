@@ -3,57 +3,21 @@
 import { SERVICE_HOSTS } from '@mycel/shared/service-hosts'
 import { CheckCircle2, CircleAlert, CircleHelp, CircleX, Download, FolderSync, HardDrive, RefreshCw, RotateCcw, Trash2, Upload } from 'lucide-react'
 import { useEffect, useState } from 'react'
-import type { ConnectionMode, Job } from '@mycel/shared/api'
+import type { ConnectionMode } from '@mycel/shared/api'
 import { api, API } from '../../lib/api'
 import { formatDateTime, formatSize } from '../../lib/format'
 import { useLocale, useT, type MessageKey } from '../../i18n'
-import { useJobs, waitForJob } from '../../store/jobs'
 import { toast } from '../../store/ui'
 import { Badge, Button, Field, Modal, confirmDialog, inputCls } from '../../components/ui'
 import { Card, Loadable, ReauthDialog, useAction, useActionOk, useLoad } from './common'
 import OfficeUpdate from './OfficeUpdate'
+import { JobLine, useJobRunner, useUpdateInstall } from './jobs'
 import { ReleaseNotes } from '../../components/ReleaseNotes'
 import { isOwner, useMeStrict } from '../../store/session'
 import { safeHref } from '../../lib/safeLinks'
 
 const STATUS_ICON = { ok: CheckCircle2, warn: CircleAlert, fail: CircleX, unknown: CircleHelp } as const
 const STATUS_CLS = { ok: 'text-ok', warn: 'text-warn', fail: 'text-danger', unknown: 'text-faint' } as const
-
-/** Progress line of a running job. */
-function JobLine({ jobId }: { jobId: string }) {
-  const t = useT()
-  const job = useJobs((s) => s.jobs[jobId])
-  const pct = job?.progress !== null && job?.progress !== undefined ? Math.round(job.progress * 100) : null
-  return (
-    <div className="mt-2 rounded-lg bg-subtle px-3 py-2 text-xs" role="status">
-      <span className="font-medium">{job?.message ?? t('system.working')}</span>
-      {pct !== null && ` · ${pct}%`}
-      {pct !== null && (
-        <div className="mt-1 h-1 rounded bg-line" aria-hidden>
-          <div className="h-full rounded bg-accent" style={{ width: `${pct}%` }} />
-        </div>
-      )}
-    </div>
-  )
-}
-
-function useJobRunner() {
-  const t = useT()
-  const [jobId, setJobId] = useState<string | null>(null)
-  const run = async (start: () => Promise<{ jobId: string } | undefined>, done: (j: Job) => void) => {
-    const r = await start()
-    if (!r) return
-    setJobId(r.jobId)
-    try {
-      const j = await waitForJob(r.jobId)
-      if (j.status === 'done') done(j)
-      else toast({ level: 'error', text: j.error?.message ?? t('system.jobFailed') })
-    } finally {
-      setJobId(null)
-    }
-  }
-  return { jobId, run }
-}
 
 export default function System() {
   // office mode: the installation's automatic updates (docs/OFFICE.md "자동 업데이트") instead of the production
@@ -493,10 +457,9 @@ function ConnectedFolders() {
 function Update() {
   const t = useT()
   const locale = useLocale()
-  const act = useAction()
   const state = useLoad(() => api.call(API.updateStatus))
-  const runner = useJobRunner()
-  const [ask, setAsk] = useState<'update' | 'rollback' | null>(null)
+  const install = useUpdateInstall({ version: state.data?.available?.version, previous: state.data?.previous, onDone: () => void state.reload() })
+  const setAsk = install.ask
   return (
     <Card title={t('system.update')}>
       <Loadable state={state} lines={2}>
@@ -517,7 +480,7 @@ function Update() {
                 {u.needsRoot ? (
                   <p className="mt-2 text-xs text-warn" data-testid="update-needs-root">{t('system.updateNeedsRoot')}</p>
                 ) : (
-                  <Button variant="primary" size="sm" className="mt-2" disabled={!!runner.jobId} onClick={() => setAsk('update')}>
+                  <Button variant="primary" size="sm" className="mt-2" disabled={!!install.jobId} onClick={() => setAsk('update')}>
                     <Upload size={14} aria-hidden /> {t('system.installUpdate')}
                   </Button>
                 )}
@@ -529,33 +492,15 @@ function Update() {
             )}
             {u.auto && !u.managed && <p className="text-xs text-faint">{t('system.updateAuto')}</p>}
             {u.previous && !u.managed && (
-              <Button size="sm" variant="ghost" disabled={!!runner.jobId} onClick={() => setAsk('rollback')}>
+              <Button size="sm" variant="ghost" disabled={!!install.jobId} onClick={() => setAsk('rollback')}>
                 <RotateCcw size={14} aria-hidden /> {t('system.rollback', { version: u.previous })}
               </Button>
             )}
-            {runner.jobId && <JobLine jobId={runner.jobId} />}
+            {install.jobId && <JobLine jobId={install.jobId} />}
           </div>
         )}
       </Loadable>
-      {ask && (
-        <ReauthDialog
-          title={ask === 'update' ? t('system.installUpdate') : t('system.rollback', { version: state.data?.previous ?? '' })}
-          body={t('system.updateNote')}
-          confirm={t('common.continue')}
-          onClose={() => setAsk(null)}
-          onConfirm={async (password) => {
-            const kind = ask
-            setAsk(null)
-            await runner.run(
-              () => act(() => api.call(API.startUpdate, { body: kind === 'rollback' ? { password, rollback: true } : { password, version: state.data?.available?.version } })),
-              () => {
-                toast({ level: 'success', text: t('system.updateDone') })
-                void state.reload()
-              },
-            )
-          }}
-        />
-      )}
+      {install.dialog}
     </Card>
   )
 }

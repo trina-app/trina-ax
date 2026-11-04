@@ -3,7 +3,8 @@
 // platform) and the admin approves exactly the digest and permissions shown. Optional permissions start ticked (as in
 // Claude Code) and the prompt says so. Stage 1 turns plugins on for the whole company only.
 import { AlertTriangle, Check, FileUp, Minus, Puzzle, RotateCcw, Trash2 } from 'lucide-react'
-import { useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
+import { useSearchParams } from 'react-router-dom'
 import type { CatalogPlugin, InstalledPlugin, PluginList, PluginPlan } from '@mycel/shared/api'
 import type { PluginPermission, PluginPlatform } from '@mycel/shared/plugins'
 import { HWP_PLUGIN_ID } from '@mycel/shared/hwp'
@@ -225,6 +226,17 @@ export default function Plugins() {
   const [plan, setPlan] = useState<PluginPlan | null>(null)
   const file = useRef<HTMLInputElement>(null)
   const reload = () => void state.reload()
+  // ?focus=<plugin id> (an Admin Home to-do): bring that plugin's card into view once the list is there
+  const focus = useSearchParams()[0].get('focus')
+  const listed = state.data !== null
+  useEffect(() => {
+    if (!focus || !listed) return
+    const el = [...document.querySelectorAll<HTMLElement>('[data-plugin]')].find((e) => e.dataset.plugin === focus)
+    if (!el) return
+    el.tabIndex = -1
+    el.scrollIntoView({ block: 'center' })
+    el.focus({ preventScroll: true })
+  }, [focus, listed])
   const inspect = async (fn: () => Promise<PluginPlan>) => {
     try { setPlan(await fn()) } catch (e) { toast({ level: 'error', text: refusal(t, e, locale) }) }
   }

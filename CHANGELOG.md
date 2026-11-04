@@ -5,7 +5,8 @@ This file summarizes user-visible changes; it is not a list of every commit.
 
 ## Unreleased
 
-- Admin: a new version of a self-hosted server now shows on Admin > Home for the owner ("Version 0.3.0 is out"), not only inside Admin > System. The server also looks at the release feed again when the last check is more than an hour old (it was a day) and waits a few seconds for the answer, so Admin > System no longer says "up to date" for a day after a release. In all five languages.
+- Admin: a new version of a self-hosted server now shows on Admin > Home for the owner ("Version 0.3.0 · installs automatically tomorrow at 03:00–05:00"), not only inside Admin > System. The server also looks at the release feed again when the last check is more than an hour old (it was a day) and waits a few seconds for the answer, so Admin > System no longer says "up to date" for a day after a release. In all five languages.
+- Updates need nothing from the team. Admin > Home says when an automatic update installs (the next opening of the update window, in the team time zone), says the update timer does it when a release needs root, and with automatic updates off has an "Install now" button that asks what Admin > System asks. What an update leaves for an admin to do now shows on Admin > Home with a button and "Not needed" (kept for the team); the first is turning on the HWP plugin, which Hangul writing and filling need since 0.4.0-beta.2. Linux self-hosted servers only. In all five languages.
 
 ## 0.4.0-beta.2 — 2026-11-04
 

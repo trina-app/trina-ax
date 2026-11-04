@@ -5,20 +5,42 @@
 // others still show. Diagnostics are the owner's (Admin > System), so only the owner's Home asks for them.
 import { Activity, AlertTriangle, Cable, CheckCircle2, ChevronRight, Cpu, Gauge, KeyRound, Lock, Puzzle, ScrollText, Users, type LucideIcon } from 'lucide-react'
 import type { ReactNode } from 'react'
-import { Link } from 'react-router-dom'
-import type { CredentialState } from '@mycel/shared/api'
+import { Link, useNavigate } from 'react-router-dom'
+import type { CredentialState, UpdateStatus } from '@mycel/shared/api'
 import { api, API } from '../../lib/api'
 import { formatRelative, formatUsd, localDay, localDayRange } from '../../lib/format'
-import { useLocale, useT } from '../../i18n'
+import { useLocale, useT, type MessageKey } from '../../i18n'
 import { isOwner, useMeStrict } from '../../store/session'
-import { Badge } from '../../components/ui'
+import { Badge, Button } from '../../components/ui'
 import { actionLabel } from './Audit'
-import { useLoad } from './common'
+import { useAction, useLoad } from './common'
+import { JobLine, useUpdateInstall } from './jobs'
 
 /** AI connection states an admin should act on (a member's own connection is theirs to fix, so team ones only) */
 const CREDENTIAL_PROBLEMS: CredentialState[] = ['expiring', 'expired', 'invalid', 'needs_reconnect', 'over_limit']
 
 const names = (list: string[]) => list.slice(0, 3).join(', ') + (list.length > 3 ? ` +${list.length - 3}` : '')
+
+/** After-update to-dos this client has text for (server/src/system/after-update.ts sends ids; unknown ones are not shown) */
+const AFTER_UPDATE_IDS = ['hwp-plugin']
+
+/** Where in the day a window starts, for the words: dawn (before 06:00), night (18:00 on), else the day. */
+const partOfDay = (window: string) => {
+  const h = +window.slice(0, 2)
+  return h < 6 ? 'dawn' : h >= 18 ? 'night' : 'day'
+}
+
+/** What the Home item says about a new version: when it installs by itself, that the timer does it, or that nothing will. */
+function updateLine(t: (k: MessageKey, v?: Record<string, string | number>) => string, u: UpdateStatus, version: string) {
+  if (u.needsRoot) return t('adminHome.update.root', { version })
+  if (!u.auto) return t('adminHome.update.off', { version })
+  const n = u.nextWindow
+  const window = u.window ? u.window.replace('-', '–') : ''
+  const when = !u.window || !n ? t('adminHome.when.window')
+    : n.day === 'now' ? t('adminHome.when.now')
+    : t(`adminHome.when.${n.day}.${partOfDay(u.window)}` as MessageKey, { window })
+  return t('adminHome.update.auto', { version, when })
+}
 
 type State<T> = { data: T | null; error: string | null }
 const settled = (...s: State<unknown>[]) => s.every((x) => x.data !== null || x.error !== null)
@@ -43,6 +65,11 @@ export default function Home() {
   const update = useLoad(async () => (owner ? { u: await api.call(API.updateStatus) } : { u: null }), [owner])
   const office = useLoad(async () => (owner ? { v: await api.call(API.officeUpdateStatus) } : { v: null }), [owner])
 
+  // What a release left for an admin to do (server/src/system/after-update.ts); not needed for Home to show.
+  const after = useLoad(async () => (await api.call(API.afterUpdateActions)).items)
+  const navigate = useNavigate()
+  const act = useAction()
+
   const item = (name: string, state: string) => t('adminHome.item', { name, state })
   const active = users.data?.items.filter((u) => u.status === 'active') ?? []
   const noAi = users.data ? users.data.items.filter((u) => users.data?.noAi?.includes(u.id)).map((u) => u.name) : []
@@ -54,16 +81,32 @@ export default function Home() {
   const failedChecks = diagnostics.data?.filter((c) => c.status === 'fail') ?? []
   const checksToLook = diagnostics.data?.filter((c) => c.status === 'fail' || c.status === 'warn') ?? []
 
-  const newVersion = update.data?.u && !update.data.u.managed && office.data && !office.data.v ? update.data.u.available?.version : undefined
+  const upd = update.data?.u
+  const newVersion = upd && !upd.managed && office.data && !office.data.v ? upd.available?.version : undefined
+  // "Install now" is the same install as Admin > System's (jobs.tsx); not when the release needs root (the timer does it)
+  const install = useUpdateInstall({ version: newVersion, onDone: () => void update.reload() })
+  const canInstall = !!newVersion && !upd?.needsRoot && !upd?.auto
 
-  const attention: { key: string; text: string; to: string }[] = [
+  const attention: { key: string; text: string; to: string; actions?: ReactNode; job?: string | null }[] = [
     ...badEngines.map((e) => ({ key: `engine-${e.id}`, text: item(e.label, t(`engines.status.${e.status}`)), to: '/admin/engines' })),
     ...(noAi.length ? [{ key: 'no-ai', text: t('adminHome.noAi', { count: noAi.length, names: names(noAi) }), to: '/admin/credentials' }] : []),
     ...badCredentials.map((c) => ({ key: `credential-${c.id}`, text: item(c.label, t(`credentials.state.${c.state}`)), to: '/admin/credentials' })),
     ...badServices.map((s) => ({ key: `service-${s.id}`, text: item(s.name, t(`integrations.status.${s.status}`)), to: '/admin/integrations' })),
     ...(storageBad && storage.data ? [{ key: 'storage', text: t('adminHome.storage', { percent: Math.round(storage.data.percent) }), to: '/admin/system' }] : []),
     ...failedChecks.map((c) => ({ key: `check-${c.id}`, text: c.label, to: '/admin/system' })),
-    ...(newVersion ? [{ key: 'update', text: t('adminHome.newVersion', { version: newVersion }), to: '/admin/system' }] : []),
+    ...(newVersion && upd ? [{
+      key: 'update', text: updateLine(t, upd, newVersion), to: '/admin/system', job: install.jobId,
+      actions: canInstall ? <Button size="sm" variant="primary" disabled={!!install.jobId} onClick={() => install.ask('update')} data-testid="home-update-install">{t('adminHome.update.install')}</Button> : undefined,
+    }] : []),
+    ...(after.data ?? []).filter((a) => AFTER_UPDATE_IDS.includes(a.id)).map((a) => ({
+      key: `after-${a.id}`, text: t(`adminHome.after.${a.id}` as MessageKey), to: a.to,
+      actions: (
+        <>
+          <Button size="sm" variant="primary" onClick={() => navigate(a.to)} data-testid={`home-after-${a.id}-go`}>{t(`adminHome.after.${a.id}.go` as MessageKey)}</Button>
+          <Button size="sm" variant="ghost" onClick={() => void act(async () => { await api.call(API.dismissAfterUpdate, { params: { id: a.id }, body: {} }); return null }).then(() => after.reload())} data-testid={`home-after-${a.id}-dismiss`}>{t('adminHome.after.dismiss')}</Button>
+        </>
+      ),
+    })),
   ]
   const ready = settled(users, engines, credentials, services, storage, diagnostics)
   const defaultEngine = engines.data?.engines.find((e) => e.id === engines.data?.defaultEngine)?.label
@@ -81,11 +124,20 @@ export default function Home() {
               <ul className="divide-y divide-line overflow-hidden rounded-xl border border-line bg-surface" data-testid="admin-attention">
                 {attention.map((a) => (
                   <li key={a.key}>
-                    <Link to={a.to} className="flex items-center gap-3 px-4 py-2.5 text-sm hover:bg-hover focus-visible:-outline-offset-2">
-                      <AlertTriangle size={15} className="shrink-0 text-warn" aria-hidden />
-                      <span className="min-w-0 flex-1 truncate">{a.text}</span>
-                      <ChevronRight size={15} className="shrink-0 text-faint" aria-hidden />
-                    </Link>
+                    {a.actions ? (
+                      <div className="flex flex-wrap items-center gap-x-3 gap-y-2 px-4 py-2.5 text-sm" data-testid={`attention-${a.key}`}>
+                        <AlertTriangle size={15} className="shrink-0 text-warn" aria-hidden />
+                        <Link to={a.to} className="min-w-0 flex-1 basis-60 rounded hover:underline">{a.text}</Link>
+                        <span className="flex shrink-0 items-center gap-2">{a.actions}</span>
+                        {a.job && <div className="basis-full"><JobLine jobId={a.job} /></div>}
+                      </div>
+                    ) : (
+                      <Link to={a.to} className="flex items-center gap-3 px-4 py-2.5 text-sm hover:bg-hover focus-visible:-outline-offset-2" data-testid={`attention-${a.key}`}>
+                        <AlertTriangle size={15} className="shrink-0 text-warn" aria-hidden />
+                        <span className="min-w-0 flex-1 truncate">{a.text}</span>
+                        <ChevronRight size={15} className="shrink-0 text-faint" aria-hidden />
+                      </Link>
+                    )}
                   </li>
                 ))}
               </ul>
@@ -141,6 +193,7 @@ export default function Home() {
       <p className="flex items-center gap-2 text-xs text-faint">
         <Lock size={13} aria-hidden /> {t('admin.privacy')}
       </p>
+      {install.dialog}
     </div>
   )
 }

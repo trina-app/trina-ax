@@ -19,9 +19,13 @@ async function start(page: Page) {
   await signIn(page)
 }
 
+/** the after-update to-do for the HWP plugin is on until the plugin is on or it is dismissed; tests about other items dismiss it */
+const dismissHwp = async (page: Page) => expect((await page.request.post('/api/admin/after-update/hwp-plugin/dismiss', { headers: { [CSRF_HEADER]: '1' }, data: {} })).status()).toBe(204)
+
 test('admin opens on Home: problems first, then one card per area, each opening its page', async ({ page }) => {
   const errors = watchConsole(page)
   await start(page)
+  await dismissHwp(page)
   // a team service still waiting for its sign-in
   const made = await page.request.post('/api/admin/integrations', { headers: { [CSRF_HEADER]: '1' }, data: { kind: 'mcp', name: 'Notion', url: 'https://mcp.notion.com/mcp', auth: 'oauth', access: { everyone: true, groups: [], users: [] } } })
   expect(made.status()).toBe(201)
@@ -64,6 +68,7 @@ test('admin opens on Home: problems first, then one card per area, each opening 
 
 test('nothing to fix: Home says so in one line; an unknown admin page goes to Home', async ({ page }) => {
   await start(page)
+  await dismissHwp(page)
   await page.route('**/api/admin/engines', async (r) => {
     const res = await r.fetch()
     const body = await res.json()
@@ -140,38 +145,107 @@ test('a long explanation stays on one line until "More" opens it', async ({ page
   expect(await desc.evaluate((el) => el.getBoundingClientRect().height)).toBeGreaterThan(oneLine * 1.5)
 })
 
+const NEW_STATUS = { current: '0.2.0', channel: 'stable', available: { version: '0.3.0', notes: '', publishedAt: new Date().toISOString(), needsBackupRestoreToRollBack: false }, lastCheckedAt: new Date().toISOString(), previous: null, feed: true, needsRoot: false, auto: false, managed: false }
+const answerUpdate = (page: Page, make: () => { status?: number; json: unknown }) => page.route('**/api/admin/update', (r) => (r.request().method() === 'GET' ? r.fulfill(make()) : r.fallback()))
+
 test('a new version is an attention item for the owner; a failed update status is no item and Home still shows', async ({ page }) => {
   await start(page)
-  const status = { current: '0.2.0', channel: 'stable', available: { version: '0.3.0', notes: '', publishedAt: new Date().toISOString(), needsBackupRestoreToRollBack: false }, lastCheckedAt: new Date().toISOString(), previous: null, feed: true, needsRoot: false, auto: false, managed: false }
-  const answer = (make: () => { status?: number; json: unknown }) => page.route('**/api/admin/update', (r) => (r.request().method() === 'GET' ? r.fulfill(make()) : r.fallback()))
-  await answer(() => ({ json: status }))
+  await answerUpdate(page, () => ({ json: NEW_STATUS }))
   await page.goto('/admin')
-  const row = page.getByTestId('admin-attention').getByRole('link', { name: t['adminHome.newVersion'].replace('{version}', '0.3.0') })
-  await expect(row).toHaveAttribute('href', '/admin/system')
+  const row = page.getByTestId('attention-update')
+  await expect(row.getByRole('link', { name: t['adminHome.update.off'].replace('{version}', '0.3.0') })).toHaveAttribute('href', '/admin/system')
 
   // managed (hosted) installs are updated by the provider: no item
   await page.unroute('**/api/admin/update')
-  await answer(() => ({ json: { ...status, managed: true } }))
+  await answerUpdate(page, () => ({ json: { ...NEW_STATUS, managed: true } }))
   await page.goto('/admin')
   await expect(page.getByTestId('admin-home-members')).toBeVisible()
-  await expect(page.getByTestId('admin-attention').getByRole('link', { name: /0\.3\.0/ })).toHaveCount(0)
+  await expect(page.getByTestId('attention-update')).toHaveCount(0)
 
   // office mode (the office status is not null) has its own banner: no item here
   await page.unroute('**/api/admin/update')
-  await answer(() => ({ json: status }))
+  await answerUpdate(page, () => ({ json: NEW_STATUS }))
   const officeStatus = { version: '0.2.0', channel: 'stable', paused: false, time: '03:00', nextWindowAt: null, lastCheckAt: null, last: null, available: null, lastUpdate: null, running: null, requested: false, agentInstalled: true, desktop: null }
   await page.route('**/api/admin/office-update', (r) => (r.request().method() === 'GET' ? r.fulfill({ json: officeStatus }) : r.fallback()))
   await page.goto('/admin')
   await expect(page.getByTestId('admin-home-members')).toBeVisible()
-  await expect(page.getByTestId('admin-attention').getByRole('link', { name: /0\.3\.0/ })).toHaveCount(0)
+  await expect(page.getByTestId('attention-update')).toHaveCount(0)
   await page.unroute('**/api/admin/office-update')
 
   // a failing status: no item, nothing else breaks
   await page.unroute('**/api/admin/update')
-  await answer(() => ({ status: 500, json: { error: { code: 'internal', message: 'boom' } } }))
+  await answerUpdate(page, () => ({ status: 500, json: { error: { code: 'internal', message: 'boom' } } }))
   await page.goto('/admin')
   await expect(page.getByTestId('admin-home-engines')).toContainText('Default: Claude Code')
-  await expect(page.getByTestId('admin-attention').getByRole('link', { name: /0\.3\.0/ })).toHaveCount(0)
+  await expect(page.getByTestId('attention-update')).toHaveCount(0)
+})
+
+test('automatic updates on: the item says when it installs, with no button; a release that needs root says the timer does it', async ({ page }) => {
+  await start(page)
+  const at = new Date(Date.now() + 3600_000).toISOString()
+  const auto = { ...NEW_STATUS, auto: true, window: '03:00-05:00', timeZone: 'Asia/Seoul', nextWindow: { at, day: 'tomorrow' } }
+  await answerUpdate(page, () => ({ json: auto }))
+  await page.goto('/admin')
+  const row = page.getByTestId('attention-update')
+  await expect(row).toContainText(t['adminHome.update.auto'].replace('{version}', '0.3.0').replace('{when}', t['adminHome.when.tomorrow.dawn'].replace('{window}', '03:00–05:00')))
+  await expect(row.getByRole('button')).toHaveCount(0)
+
+  // inside the window now; an evening window; a window that never opens
+  await page.unroute('**/api/admin/update')
+  await answerUpdate(page, () => ({ json: { ...auto, nextWindow: { at, day: 'now' } } }))
+  await page.goto('/admin')
+  await expect(page.getByTestId('attention-update')).toContainText(t['adminHome.when.now'])
+  await page.unroute('**/api/admin/update')
+  await answerUpdate(page, () => ({ json: { ...auto, window: '22:00-01:00', nextWindow: { at, day: 'today' } } }))
+  await page.goto('/admin')
+  await expect(page.getByTestId('attention-update')).toContainText(t['adminHome.when.today.night'].replace('{window}', '22:00–01:00'))
+  await page.unroute('**/api/admin/update')
+  await answerUpdate(page, () => ({ json: { ...auto, nextWindow: null } }))
+  await page.goto('/admin')
+  await expect(page.getByTestId('attention-update')).toContainText(t['adminHome.when.window'])
+
+  // needs root: the update timer installs it; no button
+  await page.unroute('**/api/admin/update')
+  await answerUpdate(page, () => ({ json: { ...auto, needsRoot: true } }))
+  await page.goto('/admin')
+  await expect(page.getByTestId('attention-update')).toContainText(t['adminHome.update.root'].replace('{version}', '0.3.0'))
+  await expect(page.getByTestId('attention-update').getByRole('button')).toHaveCount(0)
+})
+
+test('automatic updates off: the item has an install button that asks what Admin > System asks', async ({ page }) => {
+  await start(page)
+  await answerUpdate(page, () => ({ json: NEW_STATUS }))
+  await page.goto('/admin')
+  const row = page.getByTestId('attention-update')
+  await expect(row).toContainText(t['adminHome.update.off'].replace('{version}', '0.3.0'))
+  await row.getByRole('button', { name: t['adminHome.update.install'] }).click()
+  const dialog = page.getByRole('dialog')
+  await expect(dialog.getByRole('heading', { name: t['system.installUpdate'] })).toBeVisible()
+  await expect(dialog).toContainText(t['system.updateNote'])
+  await dialog.getByRole('button', { name: t['common.cancel'] }).click()
+
+  // Admin > System opens the very same dialog
+  await page.goto('/admin/system')
+  await page.getByRole('button', { name: t['system.installUpdate'] }).click()
+  await expect(page.getByRole('dialog').getByRole('heading', { name: t['system.installUpdate'] })).toBeVisible()
+  await expect(page.getByRole('dialog')).toContainText(t['system.updateNote'])
+})
+
+test('the HWP plugin to-do shows with a button to the plugin, and "not needed" keeps it away after a reload', async ({ page }) => {
+  await start(page)
+  await page.goto('/admin')
+  const row = page.getByTestId('attention-after-hwp-plugin')
+  await expect(row).toContainText(t['adminHome.after.hwp-plugin'])
+  await row.getByRole('button', { name: t['adminHome.after.hwp-plugin.go'] }).click()
+  await expect(page).toHaveURL(/\/admin\/plugins\?focus=app\.trina\.hwp-preview$/)
+  await expect(page.locator('[data-plugin="app.trina.hwp-preview"]').first()).toBeFocused()
+
+  await page.goto('/admin')
+  await page.getByTestId('attention-after-hwp-plugin').getByRole('button', { name: t['adminHome.after.dismiss'] }).click()
+  await expect(page.getByTestId('attention-after-hwp-plugin')).toHaveCount(0)
+  await page.reload()
+  await expect(page.getByTestId('admin-home-members')).toBeVisible()
+  await expect(page.getByTestId('attention-after-hwp-plugin')).toHaveCount(0)
 })
 
 test('an admin who is not the owner does not ask for the update status', async ({ page }) => {
