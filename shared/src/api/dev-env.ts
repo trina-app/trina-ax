@@ -11,6 +11,9 @@ import { UserId } from '../ids'
 
 /** A new version (other words, other risks) asks again: the stored consent then names an older one. */
 export const DEV_ENV_WARNING_VERSION = 1
+/** The warning of the srt runner (MYCEL_DEV_ENV_RUNNER=srt): "open" network means the allowlist now, and commands run on
+ * the team server. A server on srt asks for this version (the response's warningVersion). */
+export const DEV_ENV_SRT_WARNING_VERSION = 2
 
 /** Who may use the box of a project. Both modes need write access to the project folder.
  * writers = every person with write access to the folder; selected = only the named people and group members. */
@@ -41,6 +44,21 @@ export const DevEnvLimits = z.object({
 })
 export type DevEnvLimits = z.infer<typeof DevEnvLimits>
 export const DEV_ENV_DEFAULT_LIMITS: DevEnvLimits = DevEnvLimits.parse({})
+
+/** What is stored per team (settings key devEnv.team, admins): the sites that the AI may reach in addition to the
+ * default list (shared/src/dev-env-domains.ts). Used by the srt runner only. */
+export const DevEnvTeamSetting = z.object({
+  extraDomains: z.array(z.string().min(3).max(253)).max(50).default([]),
+})
+export type DevEnvTeamSetting = z.infer<typeof DevEnvTeamSetting>
+export const DevEnvTeamResponse = z.object({
+  setting: DevEnvTeamSetting,
+  defaultDomains: z.array(z.string()),
+  /** the plan caps of this server (root/dev-env.json), or null when there is no file (self-hosted) */
+  plan: z.object({ plan: z.string(), maxRunning: z.number(), cpus: z.number(), memoryMiB: z.number(), pids: z.number(), network: z.string() }).nullable(),
+  runner: z.enum(['box', 'srt']),
+})
+export type DevEnvTeamResponse = z.infer<typeof DevEnvTeamResponse>
 
 /** What is stored per project (settings key devEnv.project.<id>). */
 export const DevEnvProjectSetting = z.object({
@@ -82,6 +100,22 @@ export const DevEnvJob = z.object({
 })
 export type DevEnvJob = z.infer<typeof DevEnvJob>
 
+/** One run of the srt runner: a job, a dev server or a command, running or waiting in the queue. */
+export const DevEnvRun = z.object({
+  id: z.string(), kind: z.enum(['command', 'job', 'server']), name: z.string(), by: UserRef.nullable(),
+  /** when it was asked for */
+  startedAt: IsoTime,
+  /** when it left the queue (null while it waits) */
+  runAt: IsoTime.nullable(),
+  /** 1 = next to start; null while it runs */
+  position: z.number().int().nullable(),
+  memoryMiB: z.number().nullable(),
+  lastLine: z.string(),
+})
+export type DevEnvRun = z.infer<typeof DevEnvRun>
+export const DevEnvRuns = z.object({ running: z.array(DevEnvRun), waiting: z.array(DevEnvRun) })
+export type DevEnvRuns = z.infer<typeof DevEnvRuns>
+
 export const DevEnvProjectResponse = z.object({
   availability: DevEnvAvailability,
   setting: DevEnvProjectSetting,
@@ -95,6 +129,8 @@ export const DevEnvProjectResponse = z.object({
   box: DevEnvBox.nullable(),
   /** jobs that run now, for people who see the box; older servers omit it */
   jobs: z.array(DevEnvJob).default([]),
+  /** srt runner: what runs and what waits; empty with the box runner and on older servers */
+  runs: DevEnvRuns.default({ running: [], waiting: [] }),
 })
 export type DevEnvProjectResponse = z.infer<typeof DevEnvProjectResponse>
 
@@ -128,5 +164,8 @@ export const DEV_ENV = {
   updateDevEnv: endpoint({ method: 'PUT', path: '/api/projects/:id/dev-env', auth: 'admin', owner: 'B', body: UpdateDevEnvBody, response: DevEnvProjectResponse, summary: 'Turn the dev environment of a project on or off, who may use it, network and limits; turning on needs the current warning accepted (audited).' }),
   devEnvBox: endpoint({ method: 'POST', path: '/api/projects/:id/dev-env/box', auth: 'user', owner: 'B', body: DevEnvBoxAction, response: DevEnvProjectResponse, summary: 'Stop or restart the project box (people who may use it, and admins; audited).' }),
   devEnvPreview: endpoint({ method: 'POST', path: '/api/projects/:id/dev-env/preview', auth: 'user', owner: 'B', body: DevEnvPreviewBody, response: DevEnvPreviewLink, summary: 'A short-lived link to a dev server port of the box, on the separate preview origin (read access to the folder; audited).' }),
+  devEnvRunStop: endpoint({ method: 'POST', path: '/api/projects/:id/dev-env/runs/:runId/stop', auth: 'user', owner: 'B', response: DevEnvProjectResponse, summary: 'srt runner: stop a running job, dev server or command, or cancel a waiting job (the person who started it, people who may use the dev environment, admins; audited).' }),
+  devEnvTeam: endpoint({ method: 'GET', path: '/api/admin/dev-env', auth: 'admin', owner: 'B', response: DevEnvTeamResponse, summary: 'Dev environment of the team: the extra sites the AI may reach, the default sites and the plan caps.' }),
+  updateDevEnvTeam: endpoint({ method: 'PUT', path: '/api/admin/dev-env', auth: 'admin', owner: 'B', body: DevEnvTeamSetting, response: DevEnvTeamResponse, summary: 'Change the extra sites the AI may reach in the dev environment (audited).' }),
   devEnvActivity: endpoint({ method: 'GET', path: '/api/projects/:id/dev-env/activity', auth: 'user', owner: 'B', response: z.object({ items: z.array(DevEnvActivity) }), summary: 'Box audit of a project: AI commands, changed files, box and preview events (read access to the folder).' }),
 } as const

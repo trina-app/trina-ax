@@ -2,7 +2,7 @@
 // use the box. Off unless the server runs with MYCEL_DEV_ENV=1 AND an owner or admin turned it on for the project
 // after accepting the current warning. Folder permissions stay the only permission model: in every scope a person
 // needs write access to the project folder (the box writes the folder), checked again on every command.
-import { DEV_ENV_DEFAULT_LIMITS, DEV_ENV_WARNING_VERSION, DevEnvProjectSetting, type DevEnvConsent, type DevEnvScope } from '@mycel/shared/api'
+import { DEV_ENV_DEFAULT_LIMITS, DEV_ENV_SRT_WARNING_VERSION, DEV_ENV_WARNING_VERSION, DevEnvProjectSetting, type DevEnvConsent, type DevEnvScope } from '@mycel/shared/api'
 import type { Database } from 'bun:sqlite'
 import type { FileService } from '../files/service'
 import { canSeeProject, canWrite } from '../chat/projects'
@@ -10,6 +10,15 @@ import { getSetting, setSetting } from '../admin/settings'
 
 /** the experiment's feature flag (environment of the server process); off by default */
 export const devEnvFlag = (env: Record<string, string | undefined> = process.env) => env.MYCEL_DEV_ENV === '1'
+
+/** Which runner runs the commands: the podman box (mycel-boxd, the default until it is removed) or srt on the team
+ * server (MYCEL_DEV_ENV_RUNNER=srt, docs/research/srt-dev-env.md). */
+export const devEnvRunner = (env: Record<string, string | undefined> = process.env): 'box' | 'srt' => (env.MYCEL_DEV_ENV_RUNNER === 'srt' ? 'srt' : 'box')
+
+/** The warning version that a project must have accepted. srt has its own warning (the network is an allowlist, the
+ * commands run on the team server), so a move to srt asks the owner again; the box keeps version 1. */
+export const requiredWarningVersion = (env: Record<string, string | undefined> = process.env) =>
+  devEnvRunner(env) === 'srt' ? DEV_ENV_SRT_WARNING_VERSION : DEV_ENV_WARNING_VERSION
 
 export const settingKey = (projectId: string) => `devEnv.project.${projectId}`
 export const OFF_SETTING: DevEnvProjectSetting = { enabled: false, scope: { mode: 'writers', groupIds: [], userIds: [] }, network: 'open', limits: DEV_ENV_DEFAULT_LIMITS, consent: null }
@@ -25,7 +34,7 @@ export function saveDevEnvSetting(db: Database, projectId: string, s: DevEnvProj
 
 /** on, and with a consent to the current warning (a newer warning turns every project off until accepted again) */
 export function devEnvInForce(s: DevEnvProjectSetting, flag = devEnvFlag()): boolean {
-  return flag && s.enabled && s.consent?.warningVersion === DEV_ENV_WARNING_VERSION
+  return flag && s.enabled && s.consent?.warningVersion === requiredWarningVersion()
 }
 
 function inScope(db: Database, scope: DevEnvScope, userId: string): boolean {
@@ -53,5 +62,5 @@ export function mayUseBox(db: Database, files: FileService, project: ProjectRef,
 }
 
 export function newConsent(by: { id: string; name: string }): DevEnvConsent {
-  return { by, at: new Date().toISOString(), warningVersion: DEV_ENV_WARNING_VERSION }
+  return { by, at: new Date().toISOString(), warningVersion: requiredWarningVersion() }
 }

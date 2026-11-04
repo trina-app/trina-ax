@@ -21,7 +21,8 @@ import { admins } from '../credentials/store'
 import { carryLength, redactorFor, type Redactor } from '../integrations/connections/redact'
 import { notifyDevEnv } from '../notifications/service'
 import { boxd } from './boxd'
-import { mayUseBox } from './setting'
+import { devEnvRunner, mayUseBox } from './setting'
+import { END_NOTE, pollRuns, reconcile, setEnder, startWaiting, type EndReason } from './srt/runner'
 
 export const JOB_POLL_MS = 10_000
 /** an open row older than this ends: a job cannot outlive this with no answer from boxd (the row must not poll for ever) */
@@ -38,8 +39,8 @@ const TOLD_STOPS: ReadonlySet<string> = new Set(['disk', 'busy_max'])
 
 const STALE_NOTE = 'boxd did not report this job'
 
-interface JobRow { id: string; project_id: string; name: string; user_id: string; chat_id: string | null; turn_id: string | null; started_at: string; last_line: string; log_tail: string }
-const COLS = 'id, project_id, name, user_id, chat_id, turn_id, started_at, last_line, log_tail'
+interface JobRow { id: string; project_id: string; name: string; user_id: string; chat_id: string | null; turn_id: string | null; started_at: string; last_line: string; log_tail: string; kind?: 'job' | 'server' }
+const COLS = 'id, project_id, name, user_id, chat_id, turn_id, started_at, last_line, log_tail, kind'
 
 export const newJobName = () => 'job-' + crypto.randomBytes(3).toString('hex')
 
@@ -104,18 +105,21 @@ const hideRunning = (r: Redactor, s: string) => {
   return h.slice(0, h.length - carryLength(h, r.values))
 }
 
-function endJob(ctx: AppContext, row: JobRow, end: { code: number | null; note: string; tail: string; lastLine: string }) {
+function endJob(ctx: AppContext, row: JobRow, end: { code: number | null; note: string; tail: string; lastLine: string; reason?: EndReason }) {
   const at = new Date().toISOString()
   const r = redactorFor(ctx, row.user_id)
   // boxd cuts the tail at whole lines; the last line is cut here, after hide
   const tail = r.hide(end.tail), lastLine = r.hide(end.lastLine).slice(0, LINE_MAX)
   // one notice: a poll of the tool and a poll of the timer can meet here
-  const done = ctx.db.query('UPDATE dev_env_jobs SET ended_at = ?, exit_code = ?, end_note = ?, log_tail = ?, last_line = ? WHERE id = ? AND ended_at IS NULL')
-    .run(at, end.code, end.note, tail, lastLine, row.id)
+  const done = ctx.db.query("UPDATE dev_env_jobs SET ended_at = ?, state = 'ended', exit_code = ?, end_note = ?, end_reason = ?, log_tail = ?, last_line = ? WHERE id = ? AND ended_at IS NULL")
+    .run(at, end.code, end.note, end.reason ?? '', tail, lastLine, row.id)
   if (!done.changes) return
   audit(ctx.db, { actor: row.user_id, action: 'dev_env.job', target: row.project_id, detail: {
     job: row.id, name: row.name, turnId: row.turn_id, code: end.code, note: end.note, seconds: Math.round((Date.parse(at) - Date.parse(row.started_at)) / 1000),
+    ...(end.reason ? { reason: end.reason, kind: row.kind ?? 'job' } : {}),
   } })
+  // a dev server ends with no notice (srt runner: idle stop, a person stopped it); the AI is not told either
+  if (row.kind === 'server') return
   const p = ctx.db.query('SELECT folder_path, trashed_with FROM projects WHERE id = ?').get(row.project_id) as { folder_path: string; trashed_with: string | null } | null
   if (!p || !seenBy(ctx, row.user_id, p)) return // no access now (or the folder is in the trash): the log stays out of the notice
   const code = end.code === null ? NO_CODE[localeOf(ctx.db, row.user_id)] : String(end.code)
@@ -129,6 +133,12 @@ function endJob(ctx: AppContext, row: JobRow, end: { code: number | null; note: 
   notifyDevEnv(ctx, row.user_id, 'dev_env.job', row.id)
 }
 
+// one place ends rows: the srt runner's own ends (a stop, the queue) go through endJob too
+setEnder((c, rowId, end) => {
+  const row = c.db.query(`SELECT ${COLS} FROM dev_env_jobs WHERE id = ?`).get(rowId) as JobRow | null
+  if (row) endJob(c, row, { code: end.code, note: END_NOTE[end.reason], tail: end.tail, lastLine: end.lastLine, reason: end.reason })
+})
+
 const openRows = (db: Database, projectId?: string) => (projectId
   ? db.query(`SELECT ${COLS} FROM dev_env_jobs WHERE ended_at IS NULL AND project_id = ?`).all(projectId)
   : db.query(`SELECT ${COLS} FROM dev_env_jobs WHERE ended_at IS NULL`).all()) as JobRow[]
@@ -136,9 +146,9 @@ const openRows = (db: Database, projectId?: string) => (projectId
 /** a box whose boxd said "unknown op": no poll before this time */
 const waitUntil = new Map<string, number>()
 
-function apply(ctx: AppContext, row: JobRow, j: BoxdJob | undefined) {
+function apply(ctx: AppContext, row: JobRow, j: (BoxdJob & { reason?: EndReason }) | undefined) {
   if (!j) return endJob(ctx, row, { code: null, note: STALE_NOTE, tail: row.log_tail, lastLine: row.last_line })
-  if (j.state === 'ended') return endJob(ctx, row, { code: j.code, note: j.code === null ? (j.why ?? '') : '', tail: j.tail, lastLine: j.lastLine })
+  if (j.state === 'ended') return endJob(ctx, row, { code: j.code, note: j.code === null || (j.reason && j.reason !== 'exit') ? (j.why ?? '') : '', tail: j.tail, lastLine: j.lastLine, ...(j.reason ? { reason: j.reason } : {}) })
   if (j.tail !== row.log_tail) {
     const r = redactorFor(ctx, row.user_id)
     ctx.db.query('UPDATE dev_env_jobs SET last_line = ?, log_tail = ? WHERE id = ? AND ended_at IS NULL').run(hideRunning(r, j.lastLine).slice(0, LINE_MAX), hideRunning(r, j.tail), row.id)
@@ -148,6 +158,7 @@ function apply(ctx: AppContext, row: JobRow, j: BoxdJob | undefined) {
 /** Ask boxd about the open jobs of one project, or of every project. A failed poll changes nothing: the next one reads
  * again. An answer that does not name an open job ends that job (boxd restarted, so its box stopped too). */
 export async function pollJobs(ctx: AppContext, projectId?: string): Promise<void> {
+  if (devEnvRunner() === 'srt') return pollSrt(ctx, projectId)
   const rows = openRows(ctx.db, projectId)
   if (!rows.length) return
   const client = boxd()
@@ -169,6 +180,43 @@ export async function pollJobs(ctx: AppContext, projectId?: string): Promise<voi
     // the rows from before the question: a job that box_shell added since then is not in this answer
     for (const r of rows) if (r.project_id === box) apply(ctx, r, byName.get(r.name))
   }
+}
+
+/** The srt runner: the runner reads each running row's scope, exit file and log; ended rows end here (one place for the
+ * notices). Then waiting jobs start in the free slots. */
+async function pollSrt(ctx: AppContext, projectId?: string): Promise<void> {
+  const { rows, diskStopped } = await pollRuns(ctx, projectId)
+  if (rows.size) {
+    const byId = new Map((ctx.db.query(`SELECT ${COLS} FROM dev_env_jobs WHERE ended_at IS NULL`).all() as JobRow[]).map((r) => [r.id, r]))
+    for (const [id, j] of rows) { const r = byId.get(id); if (r) apply(ctx, r, j) }
+  }
+  for (const p of diskStopped) tellRunsStopped(ctx, p, 'disk')
+  await startWaiting(ctx)
+}
+
+/** The srt runner stopped every run of a project for a reason people must hear of (the disk floor). */
+function tellRunsStopped(ctx: AppContext, projectId: string, code: 'disk') {
+  const project = ctx.db.query('SELECT id, name, folder_path FROM projects WHERE id = ?').get(projectId) as { id: string; name: string; folder_path: string } | null
+  if (!project) return
+  const id = newId()
+  const at = new Date().toISOString()
+  ctx.db.query('INSERT INTO dev_env_stops (id, project_id, code, reason, stopped_at) VALUES (?, ?, ?, ?, ?) ON CONFLICT(project_id, stopped_at) DO NOTHING').run(id, project.id, code, END_NOTE[code], at)
+  audit(ctx.db, { actor: null, action: 'dev_env.box_stopped', target: project.id, detail: { code, reason: END_NOTE[code], runner: 'srt' } })
+  for (const u of boxPeople(ctx, project)) {
+    try {
+      ctx.services.realtime.publish(u, { type: 'notice', data: { level: 'warn', code: 'dev_env_box_stopped', message: RUNS_STOPPED[code][localeOf(ctx.db, u)](project.name), link: `/projects/${encodeURIComponent(project.id)}` } })
+    } catch (err) { ctx.log.warn('dev env stop notice failed', { err }) }
+    notifyDevEnv(ctx, u, 'dev_env.box', id)
+  }
+}
+const RUNS_STOPPED: Record<'disk', Record<Locale, (project: string) => string>> = {
+  disk: {
+    ko: (p) => `서버 디스크가 거의 차서 ${p}의 개발 환경 명령과 작업을 멈췄어요. 휴지통을 비우거나 파일을 지워 주세요.`,
+    en: (p) => `The dev environment commands and jobs of ${p} stopped because the server disk is nearly full. Empty the trash or delete files.`,
+    id: (p) => `Perintah dan pekerjaan lingkungan pengembangan ${p} berhenti karena disk server hampir penuh. Kosongkan tempat sampah atau hapus berkas.`,
+    ja: (p) => `サーバーのディスクがほぼ満杯のため、${p} の開発環境のコマンドとジョブを停止しました。ゴミ箱を空にするかファイルを削除してください。`,
+    es: (p) => `Los comandos y trabajos del entorno de desarrollo de ${p} se detuvieron porque el disco del servidor está casi lleno. Vacíe la papelera o elimine archivos.`,
+  },
 }
 
 /** The results that the AI did not get yet, in text for box_shell. Each result goes once. The log is text from the box and
@@ -198,6 +246,7 @@ function boxPeople(ctx: AppContext, project: { id: string; folder_path: string }
  * start, so a stop is not lost when the box starts again before this poll. A stop past JOB_KEEP_MS is skipped: boxd still
  * reports it, but purgeOldJobs deleted its row, so it would read as a new stop. */
 export async function pollStops(ctx: AppContext): Promise<void> {
+  if (devEnvRunner() === 'srt') return // the srt runner tells its stops in pollSrt
   const st = await boxd()?.status().catch(() => null)
   if (!st?.ok) return
   for (const b of st.value.boxes) {
@@ -229,6 +278,7 @@ export function purgeOldJobs(db: Database, now = Date.now()) {
 /** The poll timer of the server (routes/dev-env.ts). Open rows from before a restart are polled like new ones. */
 export function startJobTracker(ctx: AppContext): { stop(): void } {
   let busy = false, ticks = 0
+  if (devEnvRunner() === 'srt') void reconcile(ctx).catch((err) => ctx.log.warn('dev env srt reconcile failed', { err }))
   const tick = async () => {
     if (busy) return
     busy = true

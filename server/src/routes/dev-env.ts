@@ -3,7 +3,7 @@
 // so the feature does not exist for clients of a normal install.
 import fs from 'node:fs'
 import path from 'node:path'
-import { API, DEV_ENV_WARNING_VERSION, type DevEnvAvailability, type DevEnvBox, type DevEnvProjectResponse, type DevEnvActivity } from '@mycel/shared/api'
+import { API, type DevEnvAvailability, type DevEnvBox, type DevEnvProjectResponse, type DevEnvActivity } from '@mycel/shared/api'
 import type { BoxdBoxInfo } from '@mycel/shared'
 import type { AppContext } from '../context'
 import type { RouteModule } from './module'
@@ -14,7 +14,10 @@ import { assertFolderFree, canRead, canSeeProject, ensureProjectFolderEx, projec
 import type { Locale } from '@mycel/shared/api'
 import type { Principal } from '../policy/access'
 import { boxd } from '../devenv/boxd'
-import { devEnvFlag, devEnvInForce, devEnvSetting, mayUseBox, newConsent, saveDevEnvSetting } from '../devenv/setting'
+import { devEnvFlag, devEnvInForce, devEnvRunner, devEnvSetting, mayUseBox, newConsent, requiredWarningVersion, saveDevEnvSetting } from '../devenv/setting'
+import { DEV_ENV_DEFAULT_DOMAINS, DEV_ENV_MAX_EXTRA_DOMAINS, cleanExtraDomains, extraDomainProblem } from '@mycel/shared'
+import { setSetting } from '../admin/settings'
+import { planState, runsOf, srtProblem, stopProject, stopRun, TEAM_SETTING_KEY, teamSetting } from '../devenv/srt/runner'
 import { issuePreview, startPreviewGateway } from '../devenv/preview'
 import { runningJobs, startJobTracker } from '../devenv/jobs'
 
@@ -22,6 +25,10 @@ const isAdmin = (p: Principal) => p.role === 'owner' || p.role === 'admin'
 
 async function availability(): Promise<DevEnvAvailability> {
   if (!devEnvFlag()) return { available: false, reason: 'flag' }
+  if (devEnvRunner() === 'srt') {
+    const why = await srtProblem().catch((e) => String(e))
+    return why ? { available: false, reason: 'platform', detail: why.slice(0, 500) } : { available: true }
+  }
   const c = boxd()
   if (!c) return { available: false, reason: 'boxd', detail: 'MYCEL_BOXD_SOCK is not set' }
   const st = await c.status()
@@ -35,6 +42,7 @@ const stopOfThisStart = (b: BoxdBoxInfo) =>
   b.state !== 'running' && b.stopCode && b.stoppedAt && (!b.startedAt || Date.parse(b.stoppedAt) >= Date.parse(b.startedAt)) ? b.stopCode : null
 
 async function boxState(projectId: string, withPs: boolean): Promise<DevEnvBox | null> {
+  if (devEnvRunner() === 'srt') return null // no box: runs has what runs
   const c = boxd()
   if (!c) return null
   const st = await c.status()
@@ -97,9 +105,10 @@ export const devEnvRoutes: RouteModule = {
     const response = async (id: string, folderPath: string, p: Principal): Promise<DevEnvProjectResponse> => {
       const mayUse = mayUseBox(ctx.db, ctx.files, { id, folderPath }, p.id)
       return {
-        availability: await availability(), setting: devEnvSetting(ctx.db, id), warningVersion: DEV_ENV_WARNING_VERSION,
+        availability: await availability(), setting: devEnvSetting(ctx.db, id), warningVersion: requiredWarningVersion(),
         mayUse, mayManage: isAdmin(p), needsFolder: folderPath === '', box: await boxState(id, mayUse || isAdmin(p)),
         jobs: mayUse || isAdmin(p) ? runningJobs(ctx.db, id) : [],
+        runs: devEnvRunner() === 'srt' && (mayUse || isAdmin(p)) ? await runsOf(ctx, id) : { running: [], waiting: [] },
       }
     }
 
@@ -121,15 +130,16 @@ export const devEnvRoutes: RouteModule = {
       if (body.enabled) {
         const a = await availability()
         if (!a.available) fail('conflict', 'This server cannot run dev environments.', { params: { reason: 'dev_env_unavailable', why: a.reason ?? 'boxd' } })
-        if (consent?.warningVersion !== DEV_ENV_WARNING_VERSION) {
-          if (body.acceptWarning !== DEV_ENV_WARNING_VERSION) fail('conflict', 'Accept the dev environment warning first.', { params: { reason: 'dev_env_warning', warningVersion: DEV_ENV_WARNING_VERSION } })
+        const need = requiredWarningVersion()
+        if (consent?.warningVersion !== need) {
+          if (body.acceptWarning !== need) fail('conflict', 'Accept the dev environment warning first.', { params: { reason: 'dev_env_warning', warningVersion: need } })
         }
         // read again: an earlier save of this project may have ended while this one waited above
         folderPath = (ctx.db.query('SELECT folder_path FROM projects WHERE id = ?').get(ref.id) as { folder_path: string } | null)?.folder_path ?? fail('not_found')
         if (folderPath === '') folderPath = giveProjectFolder(ctx, p, r, c.get('locale'))
-        if (consent?.warningVersion !== DEV_ENV_WARNING_VERSION) {
+        if (consent?.warningVersion !== requiredWarningVersion()) {
           consent = newConsent({ id: auth.user.id, name: auth.user.name })
-          audit(ctx.db, { actor: auth.user.id, action: 'dev_env.consent', target: ref.id, detail: { warningVersion: DEV_ENV_WARNING_VERSION } })
+          audit(ctx.db, { actor: auth.user.id, action: 'dev_env.consent', target: ref.id, detail: { warningVersion: requiredWarningVersion() } })
         }
       }
       const after = { enabled: body.enabled, scope: body.scope, network: body.network ?? before.network, limits: { ...before.limits, ...(body.limits ?? {}) }, consent }
@@ -137,13 +147,20 @@ export const devEnvRoutes: RouteModule = {
       audit(ctx.db, { actor: auth.user.id, action: 'dev_env.setting', target: ref.id, detail: { before: { enabled: before.enabled, scope: before.scope, network: before.network, limits: before.limits }, after: { enabled: after.enabled, scope: after.scope, network: after.network, limits: after.limits } } })
       // off, or a change the box must start again for (network, limits): stop it; the next command starts it again
       const changed = before.network !== after.network || JSON.stringify(before.limits) !== JSON.stringify(after.limits)
-      if (!devEnvInForce(after) || changed) await boxd()?.stop(ref.id).catch(() => null)
+      if (devEnvRunner() === 'srt') { if (!devEnvInForce(after) || changed) await stopProject(ctx, ref.id, 'setting') }
+      else if (!devEnvInForce(after) || changed) await boxd()?.stop(ref.id).catch(() => null)
       return response(ref.id, folderPath, p)
     })
 
     kit.handle(API.devEnvBox, async ({ params, body, auth }) => {
       const { p, ref } = project(params.id, auth.user.id)
       if (!mayUseBox(ctx.db, ctx.files, ref, p.id) && !isAdmin(p)) fail('forbidden')
+      if (devEnvRunner() === 'srt') {
+        // no box to start again: both stop every run of the project
+        await stopProject(ctx, ref.id, 'stopped')
+        audit(ctx.db, { actor: p.id, action: 'dev_env.stop', target: ref.id, detail: { runner: 'srt' } })
+        return response(ref.id, ref.folderPath, p)
+      }
       const c = boxd()
       if (!c) fail('conflict', 'The dev environment helper is not set up on this server.')
       const r = await c!.stop(ref.id)
@@ -160,9 +177,48 @@ export const devEnvRoutes: RouteModule = {
     kit.handle(API.devEnvPreview, async ({ c, params, body, auth }) => {
       const { p, ref } = project(params.id, auth.user.id)
       if (!devEnvInForce(devEnvSetting(ctx.db, ref.id))) fail('conflict', 'The dev environment of this project is off.')
+      if (devEnvRunner() === 'srt') fail('conflict', 'Preview is not available yet on this server. Ask the AI to test the dev server with curl in one command.', { params: { reason: 'dev_env_preview_not_configured' } })
       const r = issuePreview(ctx, { projectId: ref.id, folderPath: ref.folderPath, port: body.port, userId: p.id, appHost: c.req.header('host') ?? null })
       if ('error' in r) fail('conflict', r.error === 'same_site' ? 'The preview origin must be on another domain than the app.' : 'The preview origin is not set up on this server.', { params: { reason: `dev_env_preview_${r.error}` } })
       return r as { url: string; expiresAt: string }
+    })
+
+    kit.handle(API.devEnvRunStop, async ({ params, auth }) => {
+      const { p, ref } = project(params.id, auth.user.id)
+      if (devEnvRunner() !== 'srt') fail('not_found')
+      const row = ctx.db.query('SELECT user_id FROM dev_env_jobs WHERE id = ? AND project_id = ? AND ended_at IS NULL').get(params.runId, ref.id) as { user_id: string } | null
+      const own = row?.user_id === p.id
+      if (!own && !mayUseBox(ctx.db, ctx.files, ref, p.id) && !isAdmin(p)) fail('forbidden')
+      if (!await stopRun(ctx, ref.id, params.runId, 'stopped')) fail('not_found')
+      audit(ctx.db, { actor: p.id, action: 'dev_env.stop', target: ref.id, detail: { run: params.runId, runner: 'srt' } })
+      return response(ref.id, ref.folderPath, p)
+    })
+
+    const teamView = () => {
+      const plan = planState()
+      return {
+        setting: teamSetting(ctx.db), defaultDomains: [...DEV_ENV_DEFAULT_DOMAINS],
+        plan: plan.ok && plan.plan ? { plan: plan.plan.plan, maxRunning: plan.plan.maxRunning, cpus: plan.plan.cpus, memoryMiB: plan.plan.memoryMiB, pids: plan.plan.pids, network: plan.plan.network || 'offline' } : null,
+        runner: devEnvRunner(),
+      }
+    }
+    kit.handle(API.devEnvTeam, () => {
+      if (!devEnvFlag()) fail('not_found')
+      return teamView()
+    })
+    kit.handle(API.updateDevEnvTeam, ({ body, auth }) => {
+      if (!devEnvFlag()) fail('not_found')
+      const list = cleanExtraDomains(body.extraDomains)
+      if (list.length > DEV_ENV_MAX_EXTRA_DOMAINS) fail('validation', `At most ${DEV_ENV_MAX_EXTRA_DOMAINS} sites.`)
+      const teamHosts = (process.env.MYCEL_DEV_ENV_DENY_HOSTS ?? '').split(',').map((x) => x.trim()).filter(Boolean)
+      for (const d of list) {
+        const why = extraDomainProblem(d, teamHosts)
+        if (why) fail('validation', `${d}: ${why}.`, { fields: { 'body.extraDomains': `${d}: ${why}` } })
+      }
+      const before = teamSetting(ctx.db)
+      setSetting(ctx.db, TEAM_SETTING_KEY, { extraDomains: list })
+      audit(ctx.db, { actor: auth.user.id, action: 'dev_env.team', target: null, detail: { before: before.extraDomains, after: list } })
+      return teamView()
     })
 
     kit.handle(API.devEnvActivity, ({ params, auth }) => {
