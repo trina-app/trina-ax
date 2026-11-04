@@ -337,7 +337,10 @@ func createArgs(box string, p boxPaths, image, seccomp, imgHash string, l limits
 		"--read-only", "--tmpfs", "/tmp:rw,nosuid,nodev,size=" + tmpSize + ",mode=1777",
 		"--cap-drop=ALL", "--security-opt", "no-new-privileges", "--security-opt", "seccomp=" + seccomp,
 		"--pids-limit", strconv.Itoa(l.Pids), "--memory", mem, "--memory-swap", mem,
-		"--cpus", strconv.FormatFloat(l.CPUs, 'f', -1, 64), "--cpu-shares", "512", // lower weight than the team server
+		// No --cpu-shares: libuv 1.50 (Node 20 in the box) multiplies the CPU count by cpu.weight/100, so weight 20
+		// gave os.availableParallelism() 1 at any --cpus. The weight also never ranked the box below the team server:
+		// the box's scope is in user.slice, the server in mycel.slice.
+		"--cpus", strconv.FormatFloat(l.CPUs, 'f', -1, 64),
 		"--userns", "keep-id:uid=0,gid=0", "--user", "0:0", "--init",
 		"-v", p.Work + ":/work:rw",
 		"-v", p.Vol + "/cache:/cache:rw",
@@ -356,7 +359,7 @@ const labelsFormat = `{{index .Config.Labels "mycel.config"}} {{index .Config.La
 // configHash: the label mycel.config, what a running box must match. A change here stops a running box. Change the
 // last value when createArgs changes: each box is then made again once.
 func configHash(l limits, network string) string {
-	b, _ := json.Marshal([]any{l.CPUs, l.MemoryMiB, l.Pids, network, 2})
+	b, _ := json.Marshal([]any{l.CPUs, l.MemoryMiB, l.Pids, network, 3})
 	h := sha256.Sum256(b)
 	return hex.EncodeToString(h[:8])
 }

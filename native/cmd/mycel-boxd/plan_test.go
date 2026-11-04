@@ -1,6 +1,9 @@
 package main
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
 	"strconv"
 	"strings"
 	"testing"
@@ -69,6 +72,11 @@ func TestCreateArgs(t *testing.T) {
 			t.Errorf("%q in %s", no, a)
 		}
 	}
+	// G-T4-3: no CPU weight on the box. libuv 1.50 gives os.availableParallelism() = floor(cpus * cpu.weight/100),
+	// so --cpu-shares 512 (weight 20) gave Node 1 CPU with --cpus 3.
+	if strings.Contains(a, "--cpu-shares") || strings.Contains(a, "--cpu-weight") {
+		t.Errorf("CPU weight in %s", a)
+	}
 	// host paths name the box id, never the folder
 	if strings.Contains(a, "projects/") {
 		t.Error("folder name in a host path")
@@ -91,6 +99,12 @@ func TestConfigHash(t *testing.T) {
 		if base == configHash(l, "open") {
 			t.Errorf("%+v not in the config hash", l)
 		}
+	}
+	// version 3 (no CPU weight): a box made with --cpu-shares 512 (version 2) is made again once
+	b, _ := json.Marshal([]any{okLimits.CPUs, okLimits.MemoryMiB, okLimits.Pids, "open", 2})
+	h := sha256.Sum256(b)
+	if base == hex.EncodeToString(h[:8]) {
+		t.Error("config hash still version 2")
 	}
 }
 
