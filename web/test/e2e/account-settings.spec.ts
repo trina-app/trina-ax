@@ -4,6 +4,7 @@
 // the dialog and coming back, the search, a phone's full-screen list, and no serious accessibility problems.
 import AxeBuilder from '@axe-core/playwright'
 import { expect, test, type Page } from '@playwright/test'
+import { CSRF_HEADER } from '@mycel/shared/api'
 import { DICTS } from '../../src/i18n'
 import { reset, signIn } from './helpers'
 
@@ -20,13 +21,13 @@ async function audit(page: Page, where: string) {
   expect(serious.map((v) => `${where}: ${v.id} — ${v.nodes.map((n) => n.target.join(' ')).slice(0, 3).join(', ')}`)).toEqual([])
 }
 
-test('the sidebar is as wide as Claude\'s, with 14 px rows of 32 px', async ({ page }) => {
+test('the sidebar is as wide as Claude\'s, with 14 px rows of 36 px', async ({ page }) => {
   await start(page)
   const side = page.getByRole('navigation', { name: t['sidebar.label'] })
   // the column is 280 px, its right border included
   expect(Math.round((await side.locator('..').boundingBox())!.width)).toBe(280)
   const projects = side.getByRole('link', { name: t['sidebar.projects'] })
-  expect(Math.round((await projects.boundingBox())!.height)).toBe(32)
+  expect(Math.round((await projects.boundingBox())!.height)).toBe(36)
   expect(await projects.evaluate((el) => getComputedStyle(el).fontSize)).toBe('14px')
   expect(await side.getByRole('heading', { name: t['sidebar.recents'] }).evaluate((el) => getComputedStyle(el).fontSize)).toBe('12px')
 })
@@ -175,4 +176,100 @@ test('on a wide window a page\'s column is centred beside the sidebar; on a phon
     await page.setViewportSize({ width: 390, height: 760 })
     expect(Math.round((await column.boundingBox())!.width)).toBeGreaterThanOrEqual(390 - 2 * 24)
   }
+})
+
+async function someChats(page: Page) {
+  const post = (path: string, data: object) => page.request.post(path, { headers: { [CSRF_HEADER]: '1' }, data })
+  const project = ((await (await post('/api/projects', { name: 'Launch', scope: 'team', folderPath: 'launch', instructions: '' })).json()) as { id: string }).id
+  expect((await post('/api/chats', { projectId: project, title: 'Plan the launch' })).ok()).toBeTruthy()
+  expect((await post('/api/chats', { title: 'Weekly notes' })).ok()).toBeTruthy()
+  await page.goto('/')
+}
+
+test('Recents folds away and filters by what the list knows; both are remembered', async ({ page }) => {
+  await start(page)
+  await someChats(page)
+  const side = page.getByRole('navigation', { name: t['sidebar.label'] })
+  const list = side.getByTestId('recents-list')
+  await expect(list).toContainText('Plan the launch')
+  await expect(list).toContainText('Weekly notes')
+  // fold and unfold, remembered after a reload
+  await side.getByTestId('recents-toggle').click()
+  await expect(side.getByTestId('recents-toggle')).toHaveAttribute('aria-expanded', 'false')
+  await expect(list).toBeHidden()
+  await page.reload()
+  await expect(side.getByTestId('recents-list')).toBeHidden()
+  await side.getByTestId('recents-toggle').click()
+  await expect(list).toBeVisible()
+  // each filter
+  const pick = async (id: string) => {
+    await side.getByTestId('recents-filter').click()
+    await side.getByTestId(`recents-filter-${id}`).click()
+  }
+  await pick('project')
+  await expect(list).toContainText('Plan the launch')
+  await expect(list).not.toContainText('Weekly notes')
+  await expect(side.getByTestId('recents-filter-label')).toContainText(t['sidebar.filter.project'])
+  await pick('noProject')
+  await expect(list).toContainText('Weekly notes')
+  await expect(list).not.toContainText('Plan the launch')
+  await pick('active')
+  await expect(side.getByTestId('recents-no-match')).toHaveText(t['sidebar.filter.none'])
+  await pick('confidential')
+  await expect(side.getByTestId('recents-no-match')).toBeVisible()
+  // remembered, then cleared
+  await page.reload()
+  await expect(side.getByTestId('recents-filter-label')).toContainText(t['sidebar.filter.confidential'])
+  await side.getByTestId('recents-filter-clear').click()
+  await expect(side.getByTestId('recents-filter-label')).toHaveCount(0)
+  await expect(list).toContainText('Weekly notes')
+  // the menu with the keyboard: opens on the chosen one, Esc gives focus back
+  await side.getByTestId('recents-filter').focus()
+  await page.keyboard.press('Enter')
+  await expect(side.getByTestId('recents-filter-all')).toBeFocused()
+  await page.keyboard.press('Escape')
+  await expect(side.getByTestId('recents-filter')).toBeFocused()
+  await audit(page, 'recents filter')
+})
+
+test('a recent chat shows its ⋯ menu on hover or focus, and a quick view after resting on it', async ({ page }) => {
+  await start(page)
+  await someChats(page)
+  const side = page.getByRole('navigation', { name: t['sidebar.label'] })
+  const row = side.getByRole('listitem').filter({ hasText: 'Weekly notes' })
+  const more = row.getByRole('button', { name: t['chat.menu'] })
+  await expect(more).toHaveCSS('opacity', '0')
+  await row.hover()
+  await expect(more).toHaveCSS('opacity', '1')
+  // the quick view: not at once, then beside the sidebar, decorative, gone on leave and on Esc
+  await expect(page.getByTestId('chat-peek')).toHaveCount(0)
+  await expect(page.getByTestId('chat-peek')).toBeVisible({ timeout: 2000 })
+  const peek = page.getByTestId('chat-peek')
+  await expect(peek).toHaveAttribute('aria-hidden', 'true')
+  await expect(peek).toContainText('Weekly notes')
+  expect((await peek.boundingBox())!.x).toBeGreaterThanOrEqual((await side.boundingBox())!.x + (await side.boundingBox())!.width)
+  await page.mouse.move(900, 500)
+  await expect(peek).toHaveCount(0)
+  await row.hover()
+  await expect(page.getByTestId('chat-peek')).toBeVisible()
+  await page.keyboard.press('Escape')
+  await expect(page.getByTestId('chat-peek')).toHaveCount(0)
+  // the ⋯ menu has the chat's actions
+  await row.hover()
+  await more.click()
+  await expect(row.getByRole('menuitem')).toHaveText([t['chat.rename'], t['common.delete']])
+})
+
+test('no quick view on a touch screen; the filter is in the phone drawer', async ({ browser }) => {
+  const context = await browser.newContext({ viewport: { width: 390, height: 760 }, hasTouch: true, isMobile: true, locale: 'ko-KR' })
+  const page = await context.newPage()
+  await start(page)
+  await someChats(page)
+  await page.getByRole('button', { name: DICTS.en['sidebar.open'] }).or(page.getByRole('button', { name: DICTS.ko['sidebar.open'] })).first().click()
+  const side = page.getByRole('navigation', { name: t['sidebar.label'] }).last()
+  await expect(side.getByTestId('recents-filter')).toBeVisible()
+  await side.getByRole('listitem').filter({ hasText: 'Weekly notes' }).hover()
+  await page.waitForTimeout(800)
+  await expect(page.getByTestId('chat-peek')).toHaveCount(0)
+  await context.close()
 })
