@@ -49,7 +49,7 @@ test('admin opens on Home: problems first, then one card per area, each opening 
   await expect(page.getByTestId('admin-home-members')).toContainText(/\d+ members/)
   await expect(page.getByTestId('admin-home-engines')).toContainText('Default: Claude Code')
   await expect(page.getByTestId('admin-home-engines')).toContainText('1 to fix')
-  await expect(page.getByTestId('admin-home-integrations')).toContainText('1 service')
+  await expect(page.getByTestId('admin-home-integrations')).toContainText('1 connection')
   await expect(page.getByTestId('admin-home-plugins')).toContainText(/\d+ plugins? installed/)
   await expect(page.getByTestId('admin-home-usage')).toContainText(t['adminHome.last30'])
   await expect(page.getByTestId('admin-home-audit')).not.toContainText(t['adminHome.unavailable'])
