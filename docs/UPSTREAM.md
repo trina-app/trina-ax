@@ -334,6 +334,14 @@ Source change from potenlab/team-ax branch `feat/sidebar-account-settings` (on t
 - Here the dialog gives the keyboard back through this repository's `useFocusTrap(…, returnTo)` and `menuOpener`; core, whose trap has no `returnTo`, does it in the dialog itself.
 - Only here: the new strings in Spanish and Japanese.
 
+## 2026-11-04 AI engines: Providers and Team provider settings
+
+Source change from potenlab/team-ax branch `feat/ai-engines-split` (on top of `feat/sidebar-account-settings`, not yet on core main), ported by hand. No core history was imported.
+
+- Taken as they are: the two tabs (`?tab=team`, `?engine=<id>`), `EngineRow`, `SettingsSection`, `SettingRow`, `SaveBar` and `Defaults` in `web/src/pages/admin/Engines.tsx`, the `id` / `external` / `hideLabel` / `testId` of `Switch` in `web/src/components/ui.tsx`, and `web/test/e2e/admin-engines.spec.ts`.
+- Here the rows keep this repository's one-line explanations with "More" (`OneLine`), the hints of local sign-in and the experimental API engine, the tab panels (`TabPanel`), and the usage limits' delete that moves the focus on; the test server lists the API engine (off) like a real server.
+- Only here: the new strings in Spanish and Japanese.
+
 ## 2026-11-04 Activity log: filters at the top, a simpler list
 
 Source change from potenlab/team-ax branch `feat/activity-log` (on top of `feat/sidebar-account-settings`, not yet on core main), ported by hand. No core history was imported.

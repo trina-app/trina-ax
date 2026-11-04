@@ -110,8 +110,9 @@ test('the admin menu stays where it is while the page scrolls, on a wide screen 
   await start(page)
   for (const size of [{ width: 1360, height: 640 }, { width: 390, height: 700 }]) {
     await page.setViewportSize(size)
-    await page.goto('/admin/engines')
-    await expect(page.getByTestId('engine-card').first()).toBeVisible()
+    // Team provider settings: the longer of the two AI engines tabs
+    await page.goto('/admin/engines?tab=team')
+    await expect(page.getByTestId('engine-choice')).toBeVisible()
     const menu = page.getByTestId('admin-menu')
     const before = (await menu.boundingBox())!
     const content = page.getByTestId('admin-content')
@@ -127,7 +128,7 @@ test('the admin menu stays where it is while the page scrolls, on a wide screen 
 test('a long explanation stays on one line until "More" opens it', async ({ page }) => {
   await start(page)
   await page.setViewportSize({ width: 1100, height: 800 })
-  await page.goto('/admin/engines')
+  await page.goto('/admin/engines?tab=team')
   const card = page.locator('section').filter({ has: page.getByRole('heading', { name: t['engines.choice'], exact: true }) })
   const desc = card.getByText(t['engines.choiceDesc'], { exact: true })
   await expect(desc).toBeVisible()

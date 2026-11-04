@@ -172,6 +172,8 @@ export class MockServer {
   memberChoice: MemberEngineChoice = { mode: 'off', groupIds: [], userIds: [] }
   limitFallback = false
   codexEnabled = true
+  // the API engine: listed like on a real server, off here so chats and Admin Home do not count it
+  apiEngineEnabled = false
   /** Admin > AI connections: the team's connections (secrets are opened with the real server sealing code and dropped) */
   credentials: Credential[] = []
   credMemberOwn = true
@@ -250,6 +252,7 @@ export class MockServer {
     this.memberChoice = { mode: 'off', groupIds: [], userIds: [] }
     this.limitFallback = false
     this.codexEnabled = true
+    this.apiEngineEnabled = false
     this.credentials = []
     this.credMemberOwn = true
     this.credSharedSubscriptions = false
@@ -1598,6 +1601,7 @@ export class MockServer {
       if (c.body.defaultEngine) this.settings.defaultEngine = c.body.defaultEngine
       if (c.body.concurrency) this.settings.concurrency = c.body.concurrency
       if (c.body.enabled?.codex !== undefined) this.codexEnabled = c.body.enabled.codex
+      if (c.body.enabled?.api !== undefined) this.apiEngineEnabled = c.body.enabled.api
       if (c.body.limitFallback === true && !this.codexEnabled) fail('conflict', 409, 'Codex가 꺼져 있어 한도 대체를 켤 수 없어요.')
       if (c.body.limitFallback !== undefined) this.limitFallback = c.body.limitFallback
       if (!this.codexEnabled) this.limitFallback = false
@@ -2162,6 +2166,7 @@ export class MockServer {
       engines: [
         { id: 'claude-code' as const, label: 'Claude Code', enabled: true, authMode: 'local-login' as const, installed: true, version: '2.1.305', status: 'ok' as const, detail: null, models: [{ id: 'claude-sonnet', label: 'Sonnet' }, { id: 'claude-opus', label: 'Opus' }], checkedAt: now() },
         { id: 'codex' as const, label: 'Codex', enabled: this.codexEnabled, authMode: 'local-login' as const, installed: true, version: '0.163.0', status: 'not_logged_in' as const, detail: 'Run `codex login --device-auth` on the server Mac.', models: [], checkedAt: now() },
+        { id: 'api' as const, label: 'API', enabled: this.apiEngineEnabled, authMode: 'api-key' as const, installed: false, version: null, status: 'not_installed' as const, detail: 'Not set up yet. Enter the API address, model and key below.', models: [], checkedAt: now() },
       ],
       defaultEngine: this.settings.defaultEngine,
       defaultModel: this.settings.defaultModel,
