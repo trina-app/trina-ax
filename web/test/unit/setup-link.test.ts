@@ -10,18 +10,28 @@ const loc = (href: string) => { const u = new URL(href, 'https://acme.treesoop.c
 describe('setup link', () => {
   test('fragment: token, team and language read; the clean address has none of them', () => {
     const l = readSetupLink(loc('/setup#token=AbC_123-xyzAbC_123-xyz12&team=%EC%B9%98%EA%B3%BC%20%EC%9D%98%EC%9B%90&lang=ko'))
-    expect(l).toEqual({ token: 'AbC_123-xyzAbC_123-xyz12', team: '치과 의원', lang: 'ko', cleanUrl: '/setup' })
+    expect(l).toEqual({ token: 'AbC_123-xyzAbC_123-xyz12', team: '치과 의원', lang: 'ko', site: null, cleanUrl: '/setup' })
   })
   test('the installer\'s ?token= still works, and is removed too; other query parts stay', () => {
-    expect(readSetupLink(loc('/setup?token=t0k3n&x=1'))).toEqual({ token: 't0k3n', team: null, lang: null, cleanUrl: '/setup?x=1' })
+    expect(readSetupLink(loc('/setup?token=t0k3n&x=1'))).toEqual({ token: 't0k3n', team: null, lang: null, site: null, cleanUrl: '/setup?x=1' })
   })
   test('the fragment wins over the query; unknown languages are ignored', () => {
     const l = readSetupLink(loc('/setup?token=old#token=new&lang=fr'))
     expect([l.token, l.lang, l.cleanUrl]).toEqual(['new', null, '/setup'])
   })
   test('nothing to read: nothing to clean', () => {
-    expect(readSetupLink(loc('/setup'))).toEqual({ token: null, team: null, lang: null, cleanUrl: null })
+    expect(readSetupLink(loc('/setup'))).toEqual({ token: null, team: null, lang: null, site: null, cleanUrl: null })
     expect(readSetupLink(loc('/setup#other=1')).cleanUrl).toBeNull()
+  })
+  test('the company website: read like the token, normalized, and removed from the address too', () => {
+    const l = readSetupLink(loc('/setup#token=t0k3n&site=acme.co.kr&x=1'))
+    expect([l.token, l.site, l.cleanUrl]).toEqual(['t0k3n', 'https://acme.co.kr/', '/setup#x=1'])
+    expect(readSetupLink(loc('/setup?site=https%3A%2F%2Fwww.acme.example%2Fabout%23top')).site).toBe('https://www.acme.example/about')
+    // not a website: ignored, but still taken out of the address bar
+    for (const bad of ['javascript:alert(1)', 'localhost', 'https://user:pw@acme.example/', 'ftp://acme.example/']) {
+      const b = readSetupLink(loc(`/setup#site=${encodeURIComponent(bad)}`))
+      expect([b.site, b.cleanUrl], bad).toEqual([null, '/setup'])
+    }
   })
   test('empty or overlong values', () => {
     const l = readSetupLink(loc(`/setup#token=&team=${'a'.repeat(300)}`))

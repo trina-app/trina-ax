@@ -92,6 +92,18 @@ export function normalizeWebsite(raw: string): string | null {
   return u.href.length > PROFILE_LIMITS.website ? null : u.href
 }
 
+/** The skill-input prefill keys (stream C reads them): `company.<field>` and `company.website`, each as text (tone chips
+ * joined with ", "). Empty fields are left out; no profile, no keys. */
+export function profilePrefill(p: CompanyProfileInput | null | undefined): Record<string, string> {
+  if (!p) return {}
+  const out: Record<string, string> = {}
+  for (const f of ['website', ...PROFILE_FIELDS] as const) {
+    const v = f === 'tone' ? p.tone.join(', ') : p[f]
+    if (v.trim()) out[`company.${f}`] = v.trim()
+  }
+  return out
+}
+
 export const ONBOARDING = {
   getCompanyProfile: endpoint({ method: 'GET', path: '/api/onboarding/profile', auth: 'user', owner: 'B', response: CompanyProfileResponse,
     summary: 'The team\'s company profile (skills/company-profile.json) when the caller can read it, else null.' }),

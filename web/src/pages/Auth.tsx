@@ -13,7 +13,7 @@ import { browserLocale, LOCALES, storedLocale, storeLocale, useLocale, useLocale
 import { useMe, useSession } from '../store/session'
 import { clientKind } from '../lib/desktop'
 import { clearLocalData } from '../lib/localData'
-import { readSetupLink } from '../lib/setupLink'
+import { readSetupLink, rememberSetupSite } from '../lib/setupLink'
 import { SourceCodeLink } from '../components/SourceCodeLink'
 import { Button, Field, IconButton, inputCls } from '../components/ui'
 import { browserTimeZone } from '../lib/time-zones'
@@ -147,7 +147,7 @@ export function Setup() {
   const setLocale = useLocaleStore((s) => s.setLocale)
   const signedIn = useSession((s) => s.signedIn)
   const navigate = useNavigate()
-  // the link from the account console (#token=…&team=…&lang=…) or the installer (?token=…), read once
+  // the link from the account console (#token=…&team=…&lang=…&site=…) or the installer (?token=…), read once
   const [link] = useState(() => readSetupLink(window.location))
   const [form, setForm] = useState({ setupToken: link.token ?? '', teamName: link.team ?? '', name: '', username: '', password: '', password2: '' })
   const { busy, error, run, setError } = useSubmit()
@@ -169,6 +169,8 @@ export function Setup() {
       // the team's time zone starts as this browser's (Admin > Settings changes it)
       const timeZone = browserTimeZone()
       const r = await api.call(API.setup, { body: { setupToken: form.setupToken.trim(), teamName: form.teamName.trim(), locale, ...(timeZone ? { timeZone } : {}), owner: { username: form.username.trim(), name: form.name.trim(), password: form.password } } })
+      // the company website from the link: the company profile step starts from it (components/onboarding)
+      rememberSetupSite(link.site)
       signedIn(r.me)
       navigate('/', { replace: true })
     })
