@@ -43,8 +43,11 @@ test('srt: who, network, limits and sites; only the changed fields are sent; a l
   const card = page.getByTestId('dev-env-team')
   await card.getByTestId('dev-env-team-sites').fill('api.example.com\n*.example.org\napi.example.com')
   let body = putBody(page)
+  // wait for the answer too: the form takes the saved setting from it, which would undo an edit made before it came
+  const saved = page.waitForResponse((r) => r.url().endsWith('/api/admin/dev-env') && r.request().method() === 'PUT')
   await card.getByTestId('dev-env-team-save').click()
   expect(await body).toEqual({ extraDomains: ['api.example.com', '*.example.org'] })
+  await saved
   await expect(card.getByTestId('dev-env-team-save')).toBeDisabled()
   // memory above the plan (3072 MB) is cut to it; network offline
   await card.getByTestId('dev-env-team-memoryMiB').fill('8000')
