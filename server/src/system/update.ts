@@ -188,6 +188,8 @@ export interface UpdateManagerOptions {
   allowUnsigned?: boolean
   env?: Record<string, string | undefined>
   fetch?: typeof fetch
+  /** how long one feed request may take (default 10 s); a host that drops packets must not hang the check */
+  feedTimeoutMs?: number
   /** the root-owned folder of the install (root/VERSION: the root files' version, releaseNeedsRoot); null in dev */
   rootDir?: string | null
 }
@@ -342,19 +344,22 @@ export class UpdateManager {
       if (!this.o.feedUrl) throw new UpdateError('no release feed configured')
       if (!this.keys.length) throw new UpdateError('no release signing key in this build; remote updates are disabled')
       const f = this.o.fetch ?? fetch
+      const signal = AbortSignal.timeout(this.o.feedTimeoutMs ?? 10_000)
       const [body, sig] = await Promise.all([
-        f(this.o.feedUrl, { redirect: 'error' }).then(async (r) => { if (!r.ok) throw new UpdateError(`feed: HTTP ${r.status}`); return new Uint8Array(await r.arrayBuffer()) }),
-        f(this.o.feedUrl + '.sig', { redirect: 'error' }).then(async (r) => { if (!r.ok) throw new UpdateError(`feed signature: HTTP ${r.status}`); return r.text() }),
+        f(this.o.feedUrl, { redirect: 'error', signal }).then(async (r) => { if (!r.ok) throw new UpdateError(`feed: HTTP ${r.status}`); return new Uint8Array(await r.arrayBuffer()) }),
+        f(this.o.feedUrl + '.sig', { redirect: 'error', signal }).then(async (r) => { if (!r.ok) throw new UpdateError(`feed signature: HTTP ${r.status}`); return r.text() }),
       ])
       if (!verifySignature(body, sig, this.keys)) throw new UpdateError('release feed signature does not verify')
       rec.feed = ReleaseFeed.parse(JSON.parse(Buffer.from(body).toString('utf8')))
     } catch (e) {
       rec.error = (e as Error).message
+      // a failed look is not news that the release is gone: the record keeps the last verified feed (the return value stays null)
+      rec.feed = this.lastCheck()?.feed ?? null
     }
     fs.mkdirSync(this.o.dataDir, { recursive: true, mode: 0o700 })
     fs.writeFileSync(this.checkFile(), JSON.stringify(rec), { mode: 0o600 })
     if (rec.error) this.o.log.warn('update check failed', { error: rec.error })
-    return rec.feed
+    return rec.error ? null : rec.feed
   }
 
   /** Download the bundle of a verified feed entry for this machine and stage it. */

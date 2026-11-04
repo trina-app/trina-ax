@@ -51,6 +51,35 @@ describe('release key and unsigned bundles', () => {
   })
 })
 
+describe('feed check failures', () => {
+  const mgr = (name: string, o: Partial<ConstructorParameters<typeof UpdateManager>[0]>) => {
+    const dataDir = path.join(W, name)
+    fs.mkdirSync(dataDir, { recursive: true })
+    fs.writeFileSync(path.join(dataDir, 'update-check.json'), JSON.stringify({ at: '2026-01-01T00:00:00.000Z', error: null, feed: feed({ version: '9.0.0' }) }))
+    return new UpdateManager({ appDir: path.join(W, name, 'app'), dataDir, version: '1.0.0', channel: 'stable', feedUrl: 'https://feed.invalid/feed.json', keys: RELEASE_PUBLIC_KEYS, log: silentLogger, env: {}, ...o })
+  }
+  test('a failed check keeps the last verified feed (the new version stays), records the new time and error, and returns null', async () => {
+    const m = mgr('fail-keeps', { fetch: (async () => { throw new Error('network down') }) as unknown as typeof fetch })
+    expect(m.status().available?.version).toBe('9.0.0')
+    expect(await m.checkFeed()).toBeNull()
+    const st = m.status()
+    expect(st.available?.version).toBe('9.0.0')
+    expect(st.lastCheckedAt).not.toBe('2026-01-01T00:00:00.000Z')
+    expect(JSON.parse(fs.readFileSync(path.join(W, 'fail-keeps', 'update-check.json'), 'utf8')).error).toContain('network down')
+  })
+  test('a fetch that never answers is aborted by the timeout: the check fails fast and records it', async () => {
+    let signals = 0
+    const hang = ((_u: string, init?: RequestInit) => new Promise((_r, reject) => { signals += init?.signal ? 1 : 0; init?.signal?.addEventListener('abort', () => reject(new Error('aborted'))) })) as unknown as typeof fetch
+    const m = mgr('hang', { fetch: hang, feedTimeoutMs: 50 })
+    const t0 = Date.now()
+    expect(await m.checkFeed()).toBeNull()
+    expect(Date.now() - t0).toBeLessThan(2000)
+    expect(signals).toBe(2)
+    expect(m.status().lastCheckedAt).not.toBe('2026-01-01T00:00:00.000Z')
+    expect(m.status().available?.version).toBe('9.0.0')
+  })
+})
+
 describe('roll-out, window, decision', () => {
   test('roll-out buckets are stable per install and follow the percent', () => {
     expect(inRollout(feed(), 'a')).toBe(true)

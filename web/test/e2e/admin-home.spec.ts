@@ -142,7 +142,7 @@ test('a long explanation stays on one line until "More" opens it', async ({ page
 
 test('a new version is an attention item for the owner; a failed update status is no item and Home still shows', async ({ page }) => {
   await start(page)
-  const status = { current: '0.2.0', channel: 'stable', available: { version: '0.3.0', notes: '', needsBackupRestoreToRollBack: false }, lastCheckedAt: new Date().toISOString(), previous: null, feed: true, needsRoot: false, auto: false, managed: false }
+  const status = { current: '0.2.0', channel: 'stable', available: { version: '0.3.0', notes: '', publishedAt: new Date().toISOString(), needsBackupRestoreToRollBack: false }, lastCheckedAt: new Date().toISOString(), previous: null, feed: true, needsRoot: false, auto: false, managed: false }
   const answer = (make: () => { status?: number; json: unknown }) => page.route('**/api/admin/update', (r) => (r.request().method() === 'GET' ? r.fulfill(make()) : r.fallback()))
   await answer(() => ({ json: status }))
   await page.goto('/admin')
@@ -156,10 +156,33 @@ test('a new version is an attention item for the owner; a failed update status i
   await expect(page.getByTestId('admin-home-members')).toBeVisible()
   await expect(page.getByTestId('admin-attention').getByRole('link', { name: /0\.3\.0/ })).toHaveCount(0)
 
+  // office mode (the office status is not null) has its own banner: no item here
+  await page.unroute('**/api/admin/update')
+  await answer(() => ({ json: status }))
+  const officeStatus = { version: '0.2.0', channel: 'stable', paused: false, time: '03:00', nextWindowAt: null, lastCheckAt: null, last: null, available: null, lastUpdate: null, running: null, requested: false, agentInstalled: true, desktop: null }
+  await page.route('**/api/admin/office-update', (r) => (r.request().method() === 'GET' ? r.fulfill({ json: officeStatus }) : r.fallback()))
+  await page.goto('/admin')
+  await expect(page.getByTestId('admin-home-members')).toBeVisible()
+  await expect(page.getByTestId('admin-attention').getByRole('link', { name: /0\.3\.0/ })).toHaveCount(0)
+  await page.unroute('**/api/admin/office-update')
+
   // a failing status: no item, nothing else breaks
   await page.unroute('**/api/admin/update')
   await answer(() => ({ status: 500, json: { error: { code: 'internal', message: 'boom' } } }))
   await page.goto('/admin')
   await expect(page.getByTestId('admin-home-engines')).toContainText('Default: Claude Code')
   await expect(page.getByTestId('admin-attention').getByRole('link', { name: /0\.3\.0/ })).toHaveCount(0)
+})
+
+test('an admin who is not the owner does not ask for the update status', async ({ page }) => {
+  await start(page)
+  expect((await page.request.patch('/api/admin/users/bob', { headers: { [CSRF_HEADER]: '1' }, data: { role: 'admin' } })).ok()).toBe(true)
+  await page.context().clearCookies()
+  await signIn(page, { username: 'bob', password: 'bob password 1' })
+  const asked: string[] = []
+  page.on('request', (r) => { if (new URL(r.url()).pathname === '/api/admin/update') asked.push(r.method()) })
+  await page.goto('/admin')
+  await expect(page.getByTestId('admin-home-members')).toBeVisible()
+  await expect(page.getByTestId('admin-home-system')).toBeVisible()
+  expect(asked).toEqual([])
 })

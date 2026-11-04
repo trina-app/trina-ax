@@ -1110,7 +1110,7 @@ export const ko = {
   "adminHome.item": "{name}: {state}",
   "adminHome.noAi": "{count}명이 AI를 쓸 수 없어요: {names}",
   "adminHome.storage": "저장 공간 {percent}% 사용",
-  "adminHome.newVersion": "새 버전 {version}이(가) 나왔어요",
+  "adminHome.newVersion": "새 버전({version})이 나왔어요",
   "adminHome.members": "멤버 {count}명",
   "adminHome.invites": "열린 초대 {count}개",
   "adminHome.default": "기본: {engine}",
