@@ -14,6 +14,7 @@ import { useMe, useSession } from '../store/session'
 import { clientKind } from '../lib/desktop'
 import { clearLocalData } from '../lib/localData'
 import { readSetupLink, rememberSetupSite } from '../lib/setupLink'
+import { setAfterSetup } from '../lib/welcome'
 import { joinNext, readJoinToken, setAfterJoin } from '../lib/team-link'
 import { SourceCodeLink } from '../components/SourceCodeLink'
 import { Button, Field, IconButton, inputCls } from '../components/ui'
@@ -172,8 +173,10 @@ export function Setup() {
       const r = await api.call(API.setup, { body: { setupToken: form.setupToken.trim(), teamName: form.teamName.trim(), locale, ...(timeZone ? { timeZone } : {}), owner: { username: form.username.trim(), name: form.name.trim(), password: form.password } } })
       // the company website from the link: the company profile step starts from it (components/onboarding)
       rememberSetupSite(link.site)
+      // then the welcome steps (pages/Welcome.tsx): set before the session switch re-renders /setup (App.tsx AfterSetup)
+      setAfterSetup('/welcome')
       signedIn(r.me)
-      navigate('/', { replace: true })
+      navigate('/welcome', { replace: true })
     })
   }
   return (

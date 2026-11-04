@@ -7049,3 +7049,77 @@ Onboarding wave 1, stream E. Placement: Team AX core (accounts and invites are c
 - **Second review** (the coordinator's): the server messages moved into the auth message table (`auth/messages.ts`, `teamLink*` keys; the Korean-text check allows Korean only in language tables); the printed guide (`docs/guide/guide.html`) no longer asks for "비밀번호 확인" and explains the team link for members and admins; the admin view carries `limitedUntil` while the per-link limit refuses every join, and the card says "최근에 틀린 시도가 많아 … 링크를 바꾸면 바로 풀려요"; disabling an admin (confirm dialog) or making one a member (a note after saving) suggests replacing the team link, since only the links they made end with them.
 - **Not done**: the mobile app's address box (`mobile/src/address.ts`) still accepts only `/invite/<token>` links, not `/join#t=`; a list of who joined through which link beyond the audit log; single-use invites keep their token in the path (`/invite/<token>`, unchanged, already masked in logs).
 - Tests: `tests/unit/a-team-links.test.ts` (make, show again, replace, revoke; sealed and hashed at rest; members only with a role in the request; groups; taken username, weak password, unknown token; max uses with three joins at once for two uses; expiry; the per-link limit across addresses, and joins that work not counting; a maker disabled, enabled again or demoted; the use-time check; a restored copy; the owners' and the maker's inbox; seats: default, cap, full; the skill deep link and the folder rules; no path or query parameter and nothing logged with the token), `web/test/unit/team-link.test.tsx` (the fragment, the next page, the message in five languages, the panel's states, the join form without a second password, `/join` sending the token only in POST bodies, every "no longer works" message, InviteStep and its soft dialog), `web/test/e2e/team-link.spec.ts` (the whole flow in a real browser against the mock: make, copy the message, join, land on the skill, no request URL with the token, revoke).
+
+## W — Welcome steps: 팀 유형 → 회사 소개 → 첫 결과, then the invite (feat/onboarding-w, 2026-11-04)
+
+Onboarding wave 2, stream W. Placement: Team AX core (skills, files and the first chat; nothing about plans, billing
+or hosting). The owner's goal: a leader who just made a team gets a first useful result in about ten minutes without
+uploading a file or connecting an AI (a hosted trial answers on stream B's credit), then invites the team. Followed:
+Slack's three steps with a progress bar and the invite last, D's "이렇게 이해했어요", E's soft "most teams start with
+one or two".
+
+- **Route `/welcome`, owner only** (`web/src/pages/Welcome.tsx`, inside the app shell like any page). Anyone else is sent
+  Home before anything is asked of the server. After /setup "팀 만들고 시작하기" the owner lands there: the session
+  switch re-renders /setup as a signed-in page before the router's own navigation lands, so the setup page sets the
+  target first (`lib/welcome.ts setAfterSetup`) and the signed-in /setup route follows it (`App.tsx AfterSetup`, the
+  pattern of E's AfterJoin); any other signed-in visit to /setup still goes Home.
+- **Progress in one settings row, no migration** (`onboarding.welcome`, `server/src/onboarding/welcome.ts`, contract
+  `shared/src/api/onboarding-welcome.ts`): team type, each step `done` / `skipped` / open, the pack these steps installed
+  (and its first-result skill path), the first-result chat, when the invite was first shown, the setup link's website,
+  hidden, finished. `GET /api/onboarding/welcome` for owners and admins, `PATCH` and `POST …/pack` for the owner (the
+  one who walks the steps); the body is strict, so a typo is refused instead of recording nothing. The row is written
+  only from the steps page, so teams from before this change never get a Home entry; the first visit creates it, with
+  the website from `setupSite()` so the profile step starts from it on another device too. Done stays done (going back
+  and putting a step off does not undo it). The first-result chat must be one of the caller's own (404 otherwise).
+  Finished = team, profile and result done and the invite done or put off; a first result brings back an invite put
+  off before it (the bar on that chat asks again). The row is team data like other settings: restoring a backup brings the backup's copy.
+  The row is read field by field (review fix): a field that does not read (a later release changed it, a hand edit)
+  shows as its default, a write changes only its own fields and keeps the rest of the stored object (unknown fields
+  too), a recorded pack in any shape counts as installed, and a row that is not a JSON object makes writes answer 409
+  instead of starting over. Fields added later must be optional or defaulted.
+- **Where the steps open.** The first step without an answer; with none left, the first counted step that was put off
+  ("나중에 하기" is now later). After a step: the next open one after it, else Home, so a step put off never comes
+  straight back. A Back button goes to the previous step whatever its state.
+- **The pack once.** Choosing 마케팅 installs the marketing pack (stream C) through `POST /api/onboarding/welcome/pack`,
+  which runs `installSkillPack` only when the row has no pack yet and records it in the same synchronous step: a second
+  choice, a resume, a second window or two requests at once install nothing (installing again would restore skills
+  someone deleted on purpose; C's note). The page also does not call it when the copy it has says installed. The
+  answer says `installed`, `already` or `blocked` (review fixes): when the team already has skills under
+  `skills/marketing/` (installed from the Skills page) the pack is recorded without installing, so a skill deleted
+  there stays deleted; when the folder rules (or something in the way) kept the ad copy out, nothing is recorded and
+  the steps say "스킬 묶음을 넣지 못했어요" instead of opening a form for a skill that is not there. The
+  Skills page's own button (C) is unchanged and still installs on a click. 영업 / 경영지원 / 기타 have no pack: the cards
+  and a note say a pack for them is being prepared, and the steps go on; their step 3 offers the marketing pack's ad
+  copy with a button that installs it (once, on that click), never by itself.
+- **Step 2** is D's `ProfileStep` (the saved profile opens in the review; else the website from the row or this tab).
+- **Step 3 "우리 회사 광고 문구 3개 만들어 보기"** is C's `SkillForm` for the pack's ad copy (prefilled from the profile by
+  C's own code). When another team skill already had the name `ad-copy` (install `blocked` with `sameNameAs`), the
+  step uses that skill, since "/ad-copy" runs it. Running it records the result and its chat, then opens the chat. With
+  no usable AI (`GET /api/me/ai-access`, asked again on this step) it shows A's banner and button instead of the form.
+- **The invite.** On the first-result chat, once its answer is done, the owner sees one slim bar above the composer
+  (`components/onboarding/WelcomeInviteBar.tsx`, one line in Chat.tsx): "결과가 마음에 드세요? 팀원도 같이 써 보게 해요
+  [초대하기]". It opens E's `InviteStep` in a dialog with that skill (`skillPath`: people who join land on its form) and
+  the heading "방금 쓴 '광고 문구' 스킬, 팀원도 써 보게 할까요?" (new optional `title` prop). Closing the bar asks E's soft
+  question first. When step 3 was put off, the invite is the last step of the page itself, with the pack's skill when
+  there is one and E's own heading.
+- **Home** gets one line (`components/onboarding/WelcomeResume.tsx`, owner only): "시작 설정 이어하기 (2/3)" until
+  finished or hidden (its X); with the three counted steps done it says "남은 일: 팀원 초대하기" rather than "(3/3)".
+  Stream G owns the rest of Home.
+- **Phones**: no card around the steps (the page is the column), choice cards in one column below 640px, the Home
+  entry is one row with its short description hidden on phones.
+- **Integration review fix in D's step**: before starting a draft (website or pasted text) `ProfileStep` asks
+  `/api/me/ai-access` again; with no usable AI it shows A's banner and button instead and keeps the three questions
+  (they need no AI), and a draft that failed refreshes that check. This also applies in Admin › Team settings.
+- Small additive props: `InviteStep.title`, `SkillForm.skipLabel` ("나중에 하기").
+- **Not done**: the team type changes nothing else yet (no group or folder per type); several owners share one row;
+  hiding the Home entry cannot be undone from the screen (the steps still open at /welcome); no funnel counts (stream
+  G). The mock server answers the three endpoints for the e2e setup tests.
+- Tests: `tests/unit/b-onboarding-welcome.test.ts` (start, every step kept and read back from another session and by an
+  admin, members and admins refused writes, strict body, done stays done, the result chat must be the owner's, the
+  invite coming back, finished, hidden, the pack once across a second call and two at once with a deleted skill not
+  restored, the `sameNameAs` path), `web/test/unit/welcome.test.tsx` (the step rules; /welcome sends members and admins
+  Home; /setup lands on /welcome and keeps the site; marketing installs once and a resume on "another device" opens step
+  2 and never installs again; the ad copy form opens its chat and records it; no AI shows A's button; a team without a
+  pack gets the offer; the bar waits for the answer, opens the invite with the skill path and finishes the steps, asks
+  softly on close, never for members; the Home entry; ProfileStep without AI), `web/test/e2e/auth.spec.ts` (setup now
+  lands on the welcome steps).

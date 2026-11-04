@@ -5,6 +5,8 @@
 //   (PUT /api/onboarding/profile). The AI never saves anything: the person does.
 // When the site can't be read (or there is none): paste a text (the same draft, from the text) or answer three
 // questions (무엇을 파나요 / 누구에게 / 어떤 말투로), which go straight to the same review.
+// A draft is an AI answer: with no AI the person can use (GET /api/me/ai-access, stream A), the step says so with A's
+// connect button instead of starting one, and the three questions (no AI needed) stay open.
 import { useEffect, useId, useRef, useState, type ReactNode } from 'react'
 import { Link } from 'react-router-dom'
 import { ExternalLink, X } from 'lucide-react'
@@ -12,7 +14,9 @@ import { normalizeWebsite, PROFILE_FIELDS, PROFILE_LIMITS, PROFILE_TEXT_MAX, typ
 import { api, API, errorText } from '../../lib/api'
 import { setupSite } from '../../lib/setupLink'
 import { useLocale, useT, type MessageKey } from '../../i18n'
+import { useAiAccess } from '../../store/aiAccess'
 import { toast } from '../../store/ui'
+import AiAccessBanner from '../chat/AiAccessBanner'
 import { Button, ErrorNote, Field, IconButton, inputCls, Spinner } from '../ui'
 
 export interface ProfileStepProps {
@@ -74,6 +78,10 @@ export default function ProfileStep({ onDone, onSkip, skipLabel, initial, initia
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const heading = useRef<HTMLHeadingElement>(null)
+  // no usable AI: no draft can be made (the questions need none)
+  const ai = useAiAccess()
+  const noAi = ai.loaded && !ai.usable
+  useEffect(() => { void ai.load() }, [ai.load])
   // a new phase (not the first one): its heading takes the focus, so keyboard and screen-reader users hear where they are
   const firstPhase = useRef(true)
   useEffect(() => {
@@ -85,6 +93,9 @@ export default function ProfileStep({ onDone, onSkip, skipLabel, initial, initia
     setBusy(true)
     setError(null)
     try {
+      // asked again right before: a draft without AI would only fail after a while
+      await useAiAccess.getState().load(true)
+      if (!useAiAccess.getState().usable) { setPhase({ kind: 'fallback', unreadable: false, error: null }); return }
       const r = await api.call(API.startProfileDraft, { body })
       if (r.website) setDraft((d) => ({ ...d, website: r.website }))
       setPhase({ kind: 'reading', chatId: r.chatId, source: 'website' in body ? 'website' : 'text' })
@@ -112,6 +123,8 @@ export default function ProfileStep({ onDone, onSkip, skipLabel, initial, initia
           return
         }
         setPhase({ kind: 'fallback', unreadable: true, error: s.status === 'failed' ? s.error : null })
+        // the answer may have failed for want of AI (the trial credit ran out): the fallback then offers the button
+        if (s.status === 'failed') void useAiAccess.getState().load(true)
       } catch {
         if (!stopped) timer = setTimeout(tick, POLL_MS * 2)
       }
@@ -157,6 +170,18 @@ export default function ProfileStep({ onDone, onSkip, skipLabel, initial, initia
     </div>
   )
   const note = error && <ErrorNote>{error}</ErrorNote>
+  const toQuestions = () => setPhase({ kind: 'questions' })
+  const noAiNote = noAi && (
+    <div data-testid="profile-step-no-ai">
+      <AiAccessBanner />
+      <p className="text-sm text-muted">
+        {t('onboarding.profile.noAi')}{' '}
+        <button type="button" className="font-medium text-accent-text hover:underline" onClick={toQuestions} data-testid="profile-step-no-ai-questions">
+          {t('onboarding.profile.answer')}
+        </button>
+      </p>
+    </div>
+  )
 
   if (phase.kind === 'site')
     return (
@@ -166,8 +191,9 @@ export default function ProfileStep({ onDone, onSkip, skipLabel, initial, initia
           <input className={inputCls} value={site} onChange={(e) => setSite(e.target.value)} placeholder="acme.co.kr" inputMode="url" autoComplete="url" autoCapitalize="none" spellCheck={false} maxLength={PROFILE_LIMITS.website} />
         </Field>
         {note}
+        {noAiNote}
         <div className="flex flex-wrap items-center gap-2">
-          <Button type="submit" variant="primary" busy={busy} disabled={!site.trim()}>
+          <Button type="submit" variant="primary" busy={busy} disabled={!site.trim() || noAi}>
             {t('onboarding.profile.read')}
           </Button>
           <Button type="button" variant="ghost" onClick={() => setPhase({ kind: 'fallback', unreadable: false, error: null })} disabled={busy}>
@@ -201,16 +227,18 @@ export default function ProfileStep({ onDone, onSkip, skipLabel, initial, initia
   if (phase.kind === 'fallback')
     return (
       <div className="space-y-4" data-testid="profile-step-fallback">
-        {head(t('onboarding.profile.fallbackTitle'), t('onboarding.profile.fallbackDesc'))}
+        {head(t('onboarding.profile.fallbackTitle'), t(noAi ? 'onboarding.profile.noAi' : 'onboarding.profile.fallbackDesc'))}
         {phase.unreadable && (
           <p role="status" className="rounded-lg bg-warn-soft px-3 py-2 text-sm text-warn">
             {t('onboarding.profile.unreadable')}
             {phase.error ? ` ${phase.error}` : ''}
           </p>
         )}
-        <div className="grid gap-2 sm:grid-cols-2">
-          <Button onClick={() => setPhase({ kind: 'paste' })}>{t('onboarding.profile.paste')}</Button>
-          <Button onClick={() => setPhase({ kind: 'questions' })}>{t('onboarding.profile.answer')}</Button>
+        {noAi && <div data-testid="profile-step-no-ai"><AiAccessBanner /></div>}
+        <div className={noAi ? 'grid gap-2' : 'grid gap-2 sm:grid-cols-2'}>
+          {/* pasted text is read by the AI too: without one only the questions are left */}
+          {!noAi && <Button onClick={() => setPhase({ kind: 'paste' })}>{t('onboarding.profile.paste')}</Button>}
+          <Button variant={noAi ? 'primary' : 'secondary'} onClick={toQuestions}>{t('onboarding.profile.answer')}</Button>
         </div>
         <div className="flex flex-wrap items-center gap-2">
           <Button variant="ghost" onClick={() => setPhase({ kind: 'site' })}>
@@ -229,8 +257,9 @@ export default function ProfileStep({ onDone, onSkip, skipLabel, initial, initia
           <textarea className={`${inputCls} h-auto min-h-40 resize-y py-2`} value={text} onChange={(e) => setText(e.target.value)} maxLength={PROFILE_TEXT_MAX} />
         </Field>
         {note}
+        {noAiNote}
         <div className="flex flex-wrap items-center gap-2">
-          <Button type="submit" variant="primary" busy={busy} disabled={!text.trim()}>
+          <Button type="submit" variant="primary" busy={busy} disabled={!text.trim() || noAi}>
             {t('onboarding.profile.makeDraft')}
           </Button>
           <Button type="button" variant="ghost" onClick={() => setPhase({ kind: 'fallback', unreadable: false, error: null })} disabled={busy}>
@@ -244,7 +273,7 @@ export default function ProfileStep({ onDone, onSkip, skipLabel, initial, initia
   if (phase.kind === 'questions') {
     const any = !!(answers.what.trim() || answers.who.trim() || answers.tone.trim())
     const next = () => {
-      setDraft((d) => ({ ...d, products: answers.what.trim().slice(0, PROFILE_LIMITS.products), audience: answers.who.trim().slice(0, PROFILE_LIMITS.audience), tone: toneChips(answers.tone), sources: [] }))
+      setDraft((d) => ({ ...d, website: d.website || normalizeWebsite(site) || '', products: answers.what.trim().slice(0, PROFILE_LIMITS.products), audience: answers.who.trim().slice(0, PROFILE_LIMITS.audience), tone: toneChips(answers.tone), sources: [] }))
       setPhase({ kind: 'review' })
     }
     return (

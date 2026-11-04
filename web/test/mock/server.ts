@@ -33,7 +33,7 @@ const hwpEngine = import('../../../server/src/files/' + 'hwp-engine.ts').then(m 
 import {
   ApiErrorResponse, CSRF_HEADER, type SkillChange, type SkillManagerGrant, type SkillSuggestion, DEV_SESSION_COOKIE, CHAT_ERROR_MESSAGES, type ChatErrorReason, ERROR_MESSAGES, LOCALE_HEADER, Locale, ServerEvent, UPLOAD_CHUNK_SIZE, WS_PATH, WsClose, isSchema, listEndpoints, uuidv7,
   type ApiName, type Artifact, type Attachment, type Chat, type Endpoint, type ErrorCode, type FileEntry, type FileVersion, type Folder, type Group, type Invite, type Job, type Me, type Message,
-  MemberEngineChoice, type Project, type ConnectionStatus, type ServerEventInput, type Step, type TrashItem, type TurnRequest, type UploadSession, type User, type Memory, type Budget, type TeamSettings, type AuditEntry, type Schedule,
+  MemberEngineChoice, WELCOME_RESULT_SKILL, type WelcomeProgress, type Project, type ConnectionStatus, type ServerEventInput, type Step, type TrashItem, type TurnRequest, type UploadSession, type User, type Memory, type Budget, type TeamSettings, type AuditEntry, type Schedule,
 } from '@mycel/shared/api'
 import fs from 'node:fs'
 import * as XLSX from 'xlsx'
@@ -133,6 +133,8 @@ export class MockServer {
   /** the team invite link (shared/src/api/team-links.ts): one open at a time; replaced and revoked tokens say "revoked" */
   teamLink: { id: string; token: string; groupIds: string[]; skillPath: string | null; maxUses: number; uses: number; createdBy: { id: string; name: string }; createdAt: string; expiresAt: string } | null = null
   revokedTeamLinks = new Set<string>()
+  /** the welcome steps' progress (server/src/onboarding/welcome.ts) */
+  welcome: WelcomeProgress | null = null
   folders: Folder[] = []
   chats: Chat[] = []
   messages: Message[] = []
@@ -235,6 +237,7 @@ export class MockServer {
     this.invites = []
     this.teamLink = null
     this.revokedTeamLinks.clear()
+    this.welcome = null
     this.chats = []
     this.sources.clear()
     this.messages = []
@@ -1509,6 +1512,38 @@ export class MockServer {
     requestAiAccess: () => fail('forbidden', 403, '이미 AI를 쓸 수 있어요.'),
     trialCredit: () => ({ credit: null }),
     getCompanyProfile: () => ({ profile: null }),
+    // the welcome steps (server/src/onboarding/welcome.ts, the same rules in short): one record, the pack once
+    getWelcome: () => ({ progress: this.welcome }),
+    updateWelcome: (c) => {
+      const at = now()
+      const p: WelcomeProgress = this.welcome ?? { startedAt: at, updatedAt: at, teamType: null, steps: { team: null, profile: null, result: null, invite: null }, pack: null, resultChatId: null, inviteShownAt: null, site: null, dismissedAt: null, finishedAt: null }
+      const b = c.body as import('@mycel/shared/api').WelcomeUpdate
+      if (b.resultChatId !== undefined) {
+        if (!this.chats.some((x) => x.id === b.resultChatId)) fail('not_found', 404)
+        p.resultChatId = b.resultChatId
+      }
+      if (b.teamType) p.teamType = b.teamType
+      if (b.step) {
+        if (b.step.state === 'done' || p.steps[b.step.id] !== 'done') p.steps[b.step.id] = b.step.state
+        if (b.step.id === 'result' && b.step.state === 'done' && p.steps.invite === 'skipped') p.steps.invite = null
+      }
+      if (b.inviteShown && !p.inviteShownAt) p.inviteShownAt = at
+      if (b.site) p.site = b.site
+      if (b.dismissed !== undefined) p.dismissedAt = b.dismissed ? (p.dismissedAt ?? at) : null
+      if (!p.finishedAt && p.steps.team === 'done' && p.steps.profile === 'done' && p.steps.result === 'done' && p.steps.invite) p.finishedAt = at
+      p.updatedAt = at
+      this.welcome = p
+      return { progress: p }
+    },
+    installWelcomePack: (c) => {
+      const at = now()
+      const p = (this.handlers.updateWelcome!({ ...c, body: {} }) as { progress: WelcomeProgress }).progress
+      if (p.pack) return { progress: p, install: null, outcome: 'already' }
+      for (const d of ['skills/marketing', 'skills/marketing/ad-copy']) this.files.set(d, this.files.get(d) ?? { type: 'folder', mtime: at })
+      this.putFile(WELCOME_RESULT_SKILL, '---\nname: ad-copy\ndescription: 광고 문구 — 광고 문구 3안\n---\n# 광고 문구\n')
+      p.pack = { id: 'marketing', at, skillPath: WELCOME_RESULT_SKILL }
+      return { progress: p, install: { pack: 'marketing', locale: this.settings.defaultLocale, skills: [{ name: 'ad-copy', path: WELCOME_RESULT_SKILL, status: 'created' }], folders: [] }, outcome: 'installed' }
+    },
     // members as the server counts them (group_members): those the group lists and those whose groups name it
     listGroups:() => ({ items: this.groups.map((g) => ({ ...g, memberIds: [...new Set([...g.memberIds, ...this.users.filter((u) => u.groupIds.includes(g.id)).map((u) => u.id)])] })) }),
     createGroup: (c) => {

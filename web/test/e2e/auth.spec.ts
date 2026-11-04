@@ -24,7 +24,12 @@ test.describe('first-run setup in an English browser', () => {
     await page.getByLabel('비밀번호', { exact: true }).fill('a long password 1')
     await page.getByLabel('비밀번호 확인').fill('a long password 1')
     await page.getByRole('button', { name: '팀 만들고 시작하기' }).click()
+    // the new team's owner goes to the welcome steps first (pages/Welcome.tsx); Home then offers to continue them
+    await expect(page).toHaveURL(/\/welcome$/)
+    await expect(page.getByRole('heading', { name: '어떤 팀이에요?' })).toBeVisible()
+    await page.goto('/')
     await expect(page.getByRole('heading', { name: /Kim Owner님/ })).toBeVisible()
+    await expect(page.getByTestId('welcome-resume')).toContainText('시작 설정 이어하기 (0/3)')
     await expect(page.getByTestId('owner-checklist')).toBeVisible()
     // the starting folder rules come with every team: "set folder permissions" is still to do
     await expect(page.getByTestId('owner-checklist').getByRole('link', { name: '할 일 폴더 권한 정하기' })).toBeVisible()
@@ -44,6 +49,8 @@ test.describe('first-run setup in an English browser', () => {
     await page.getByLabel('Password', { exact: true }).fill('a long password 1')
     await page.getByLabel('Confirm password').fill('a long password 1')
     await page.getByRole('button', { name: 'Create team and start' }).click()
+    await expect(page.getByRole('heading', { name: 'What kind of team are you?' })).toBeVisible()
+    await page.goto('/')
     await expect(page.getByRole('heading', { name: 'How can I help you, Kim Owner?' })).toBeVisible()
     // the sidebar under the Settings dialog speaks English too
   await expect(page.getByTestId('new-chat')).toContainText('New chat')
@@ -62,7 +69,7 @@ test.describe('first-run setup in a browser in Jakarta', () => {
     await page.getByLabel('Password', { exact: true }).fill('a long password 1')
     await page.getByLabel('Confirm password').fill('a long password 1')
     await page.getByRole('button', { name: 'Create team and start' }).click()
-    await expect(page.getByRole('heading', { name: 'How can I help you, Kim Owner?' })).toBeVisible()
+    await expect(page.getByRole('heading', { name: 'What kind of team are you?' })).toBeVisible()
     await page.goto('/admin/settings')
     await expect(page.getByTestId('team-time-zone')).toHaveValue('Asia/Jakarta')
   })

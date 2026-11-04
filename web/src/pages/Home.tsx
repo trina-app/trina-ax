@@ -13,6 +13,7 @@ import { isOwner, useMeStrict } from '../store/session'
 import { NewChatComposer } from '../components/chat/NewChatComposer'
 import { FrequentQuestions } from '../components/FrequentQuestions'
 import { PopularSkills } from '../components/PopularSkills'
+import { WelcomeResume } from '../components/onboarding/WelcomeResume'
 
 export default function Home() {
   const t = useT()
@@ -41,6 +42,8 @@ export default function Home() {
     <div className="flex h-full flex-col overflow-y-auto">
       <div className="flex flex-1 flex-col items-center justify-center px-4 py-10">
         <div className="w-full max-w-[720px]">
+          {/* the welcome steps' "continue" entry (owner only, renders nothing otherwise) */}
+          <WelcomeResume />
           {isOwner(me) && <OwnerChecklist />}
           {project && (
             <p className="mb-2 text-center text-sm text-muted">

@@ -28,11 +28,13 @@ type Props = {
   /** the chat started (default: it opens) */
   onDone?: (chatId: string) => void
   onSkip?: () => void
+  /** the skip button's words (default "건너뛰기"; the welcome steps say "나중에 하기") */
+  skipLabel?: string
   /** hand the message back instead of starting a chat (the message box's "/" menu) */
   onCompose?: (message: string) => void
 }
 
-export function SkillForm({ path, skill: given, onDone, onSkip, onCompose }: Props) {
+export function SkillForm({ path, skill: given, onDone, onSkip, skipLabel, onCompose }: Props) {
   const t = useT()
   const locale = useLocale()
   const me = useMeStrict()
@@ -143,7 +145,7 @@ export function SkillForm({ path, skill: given, onDone, onSkip, onCompose }: Pro
       <p className="text-xs text-faint">{onCompose ? t('skillForm.noSecrets') : `${t('skillForm.noSecrets')} ${t('skillForm.newChat')}`}</p>
       {error && <ErrorNote>{error}</ErrorNote>}
       <div className="flex items-center justify-end gap-2 pt-1">
-        {onSkip && <Button variant="ghost" className="mr-auto" onClick={onSkip} data-testid="skill-form-skip">{t('skillForm.skip')}</Button>}
+        {onSkip && <Button variant="ghost" className="mr-auto" onClick={onSkip} data-testid="skill-form-skip">{skipLabel ?? t('skillForm.skip')}</Button>}
         <Button type="submit" variant="primary" busy={busy} disabled={!ready} data-testid="skill-form-run">
           <Play size={14} aria-hidden /> {onCompose ? t('skillForm.fill') : t('skillForm.run')}
         </Button>
