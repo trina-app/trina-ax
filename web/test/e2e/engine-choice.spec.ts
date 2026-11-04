@@ -67,7 +67,7 @@ test('the admin lets a member pick; the member sees the picker without reloading
   await signIn(bob, BOB)
   await expect(bob.getByTestId('engine-picker')).toHaveCount(0)
 
-  await page.goto('/admin/engines')
+  await page.goto('/admin/engines?tab=team')
   const card = page.getByTestId('engine-choice')
   await expect(card).toContainText('팀원이 엔진 고르기 허용')
   await expect(page.getByTestId('engine-choice-off')).toHaveAttribute('aria-checked', 'true')
@@ -89,7 +89,11 @@ test('the admin lets a member pick; the member sees the picker without reloading
   // Codex off: the fallback is off and cannot be turned on
   await page.reload()
   await expect(card.getByLabel('Claude 한도에 닿으면 Codex로 넘기기')).toBeChecked()
-  await page.getByTestId('engine-card').filter({ hasText: 'Codex' }).getByText('사용', { exact: true }).click()
+  // the switch is on the Providers tab; back on Team settings the fallback follows it
+  await page.getByRole('tab', { name: '제공자', exact: true }).click()
+  await page.locator('[data-engine="codex"] label').filter({ has: page.getByTestId('engine-switch-codex') }).click()
+  await expect(page.getByTestId('engine-switch-codex')).not.toBeChecked()
+  await page.getByRole('tab', { name: '팀 설정', exact: true }).click()
   await expect(card.getByLabel('Claude 한도에 닿으면 Codex로 넘기기')).toBeDisabled()
   await expect(card.getByLabel('Claude 한도에 닿으면 Codex로 넘기기')).not.toBeChecked()
   await expect(card).toContainText('Codex가 꺼져 있어 켤 수 없어요')
