@@ -4,7 +4,7 @@
 // connections while the team allows them. Request bodies are never
 // written to the audit log here (credentials/service.ts writes field names, kinds, labels, hints only).
 import { API, type Locale } from '@mycel/shared/api'
-import { anthropicGateway, gatewayLabel } from '../app-config'
+import { anthropicGateway, gatewayLabel, isManaged } from '../app-config'
 import type { AppContext } from '../context'
 import { fail } from '../http/errors'
 import type { RouteKit } from '../http/route'
@@ -17,6 +17,7 @@ import {
 } from '../credentials/service'
 import { credentialsOf } from '../credentials/store'
 import { ct } from '../credentials/i18n'
+import { trialCredit } from '../credentials/hosted-chat'
 import { engineStatusCache } from '../admin/engines'
 import { getChatRuntime } from '../chat/runtime'
 
@@ -67,6 +68,9 @@ export function registerCredentialRoutes(kit: RouteKit, ctx: AppContext) {
     return result
   })
   kit.handle(API.sealingKey, () => cc().sealer.publicKey())
+  // the hosting service's trial AI credit (credentials/hosted-chat.ts): Admin › AI connections and the start goal card.
+  // Only turns that answer with AI connections (managed mode) ever use it.
+  kit.handle(API.trialCredit, () => ({ credit: isManaged(ctx.config) ? trialCredit(ctx.db, new Date(), cc().allowedKinds) : null }))
 
   // ChatGPT sign-ins (the team's: owner + password; one's own: while the team allows personal connections)
   kit.handle(API.startCredentialLogin, ({ c, body, auth }) => logins().start({ userId: auth.user.id, locale: loc(c), personal: false, label: body.label, assignments: body.assignments, priority: body.priority, reconnectId: body.reconnectId }))

@@ -18,6 +18,7 @@ import { budgetBlock } from '../admin/budgets'
 import { codexConnectHandler, type ConnectOpts } from './connect'
 import { gatewayModelIds } from '../app-config'
 import type { CredentialBroker } from '../credentials/broker'
+import { HOSTED_CHAT_ID, HOSTED_CHAT_MODEL } from '../credentials/hosted-chat'
 import type { Family } from '../credentials/resolve'
 import { handleCodex } from './codex-path'
 
@@ -48,6 +49,10 @@ export type ProxyTurnEvent =
   | { type: 'budget' }
   | { type: 'rate_limit'; retryAt: string | null; credentialId?: string }
   | { type: 'credential'; credentialId: string; reason: 'invalid' | 'needs_reconnect' | 'over_limit' | 'gone' }
+  /** the hosting service's trial AI credit (credentials/hosted-chat.ts) cannot pay for this request: its cap is used
+   * (`used`; the attempt's own budget, which is what was left of the cap, counts too) or it ended, was switched off or
+   * taken away (`ended`). The answer stops; the person is offered to connect an AI of the team's own. */
+  | { type: 'trial'; reason: 'used' | 'ended' }
   /** a request named a tool outside the turn's lockdown (checkToolNames): the answer stops */
   | { type: 'lockdown'; reason: string }
   /** a Codex web search the proxy answered with something Codex ends its item on (codex-path.ts: the upstream's answer,
@@ -220,12 +225,13 @@ export function apiError(status: number, type: string, message: string, extra: R
   return new Response(JSON.stringify({ type: 'error', error: { type, message } }), { status, headers: { 'content-type': 'application/json', ...extra } })
 }
 
+export const TURN_BUDGET_REACHED = 'turn budget reached'
 /** Why this request may not spend: the token's own cap (turn budget) or a used-up "block" budget of the person
  * (team / their groups / them; the same rule the chat routes check before a turn starts). */
 export function overBudget(db: Database, userId: string, turnId: string, tokenBudget: number | null): string | null {
   if (tokenBudget !== null) {
     const c = (db.query('SELECT cost_usd FROM turns WHERE id = ?').get(turnId) as { cost_usd: number | null } | null)?.cost_usd ?? 0
-    if (c >= tokenBudget) return 'turn budget reached'
+    if (c >= tokenBudget) return TURN_BUDGET_REACHED
   }
   return budgetBlock(db, userId, 'en') ? 'budget reached' : null
 }
@@ -292,8 +298,10 @@ export async function startModelProxy(o: ProxyOpts): Promise<ModelProxy> {
       const body = await req.arrayBuffer()
       let parsed: unknown = null
       try { if (body.byteLength) parsed = JSON.parse(new TextDecoder().decode(body)) } catch {}
+      // a trial attempt (the hosting service's credit) runs on its one model only, like a gateway on its own
+      const trial = row.credential_id === HOSTED_CHAT_ID
       const refused = (confidentialTurn(db,row.turn_id) && externalSearch(parsed) ? 'search is disabled for this confidential conversation' : null)
-        ?? checkProxyRequest(req.method, url, parsed, gateway ? new Set(gatewayModelIds(gateway)) : undefined)
+        ?? checkProxyRequest(req.method, url, parsed, trial ? new Set([HOSTED_CHAT_MODEL]) : gateway ? new Set(gatewayModelIds(gateway)) : undefined)
       if (refused) {
         refusedAudit(row, refused)
         return apiError(403, 'permission_error', `refused by the team server: ${refused}`)
@@ -306,9 +314,11 @@ export async function startModelProxy(o: ProxyOpts): Promise<ModelProxy> {
         o.onTurnEvent?.(row.turn_id, { type: 'lockdown', reason: outside })
         return apiError(403, 'permission_error', `refused by the team server: ${outside}`)
       }
-      // 403, not 429: the SDK retries a 429 by itself (design tab 1 "예산 초과")
-      if (overBudget(db, row.user_id, row.turn_id, row.budget_usd)) {
-        o.onTurnEvent?.(row.turn_id, { type: 'budget' })
+      // 403, not 429: the SDK retries a 429 by itself (design tab 1 "예산 초과"). A trial attempt's own budget is what
+      // was left of the trial credit when it started: reaching it means the credit is used.
+      const over = overBudget(db, row.user_id, row.turn_id, row.budget_usd)
+      if (over) {
+        o.onTurnEvent?.(row.turn_id, trial && over === TURN_BUDGET_REACHED ? { type: 'trial', reason: 'used' } : { type: 'budget' })
         return apiError(403, 'permission_error', 'budget_exceeded')
       }
       const cred = await broker.forRequest({ credentialId: row.credential_id, family: row.family, turnId: row.turn_id, userId: row.user_id }, 'anthropic')

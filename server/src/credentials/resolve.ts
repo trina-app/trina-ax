@@ -7,12 +7,15 @@
 // A connection that cannot be used now (switched off, refused, expired, at its limit, kind off on this server) is
 // skipped; an assigned connection that cannot be used falls through to the team-wide ones (D5). Another member's
 // personal connection is never a candidate, whatever the settings say.
+// After all of them, last: the hosting service's trial AI credit (credentials/hosted-chat.ts), for Claude only, while it
+// is active; any connection the team or the person adds comes first.
 import type { Database } from 'bun:sqlite'
 import type { CredentialKind } from '@mycel/shared/api'
 import type { AllowedKinds } from '../app-config'
 import { memberOwnAllowed } from './policy'
 export { MEMBER_OWN_KEY, memberOwnAllowed } from './policy'
 import { isCreditLimit, ROW_COLS, SUBSCRIPTION, unusable, type CredRow, type Unusable } from './store'
+import { HOSTED_CHAT_ID, hostedChatState, type HostedChatState } from './hosted-chat'
 
 export type Family = 'anthropic' | 'openai'
 export type CredEngine = 'claude-code' | 'codex'
@@ -20,12 +23,18 @@ export const FAMILY_OF: Record<CredEngine, Family> = { 'claude-code': 'anthropic
 export const KINDS_OF: Record<Family, CredentialKind[]> = { anthropic: ['anthropic-oauth', 'anthropic-api-key'], openai: ['chatgpt', 'openai-api-key'] }
 export const familyOfKind = (k: CredentialKind): Family => (k === 'anthropic-oauth' || k === 'anthropic-api-key' ? 'anthropic' : 'openai')
 
-export type Tier = 'own' | 'user' | 'group' | 'team'
-const TIER_RANK: Record<Tier, number> = { own: 0, user: 1, group: 2, team: 3 }
+/** hosted: the hosting service's trial AI credit, after every connection */
+export type Tier = 'own' | 'user' | 'group' | 'team' | 'hosted'
+const TIER_RANK: Record<Tier, number> = { own: 0, user: 1, group: 2, team: 3, hosted: 4 }
 
 export type Resolution =
   | { ok: true; credentialId: string; kind: CredentialKind; tier: Tier }
-  | { ok: false; reason: 'none' | 'all_unusable'; retryAt: string | null; skipped: { id: string; why: Unusable }[] }
+  | {
+    ok: false; reason: 'none' | 'all_unusable'; retryAt: string | null; skipped: { id: string; why: Unusable }[]
+    /** no connection, and the hosting service's trial credit is used up or over: what the person is told instead of
+     * "no AI connection" (chat errors trial_credit_used / trial_ended) */
+    trial?: Exclude<HostedChatState, 'active'>
+  }
 
 /** the candidates of a person and engine in order, with their tier */
 export function candidates(db: Database, userId: string, engine: CredEngine, exclude?: ReadonlySet<string>): { row: CredRow; tier: Tier }[] {
@@ -73,6 +82,12 @@ export function resolveCredential(db: Database, q: { userId: string; engine: Cre
   // connections the owner switched off (or this server does not allow) count as none: "no AI connection" is what the
   // person can act on (ask an admin), not "the connection was refused"
   const real = skipped.some((s) => s.why !== 'disabled' && s.why !== 'kind_off' && s.why !== 'sharing_off')
+  // the trial credit, last; once it is used or over it is what a person without a connection hears about
+  if (FAMILY_OF[q.engine] === 'anthropic' && !q.exclude?.has(HOSTED_CHAT_ID)) {
+    const trial = hostedChatState(db, now, q.allowedKinds)
+    if (trial === 'active') return { ok: true, credentialId: HOSTED_CHAT_ID, kind: 'anthropic-api-key', tier: 'hosted' }
+    if (trial && !real) return { ok: false, reason: 'none', retryAt, skipped, trial }
+  }
   return { ok: false, reason: real ? 'all_unusable' : 'none', retryAt, skipped }
 }
 
@@ -90,8 +105,10 @@ export const SOON_MS = 60 * 60_000
 /** Does this person have a connection for the engine that works now, or soon (a provider's limit, D14, that ends within
  * SOON_MS and is not "out of credit", which no wait fixes)? The same candidates and checks as resolveCredential and the
  * proxy (broker.ts): the person's own connection only while the team allows them, assignments, subscription sharing,
- * the kinds this server allows, switched off, refused, expired, the monthly block limit. Admin › Members "No AI". */
+ * the kinds this server allows, switched off, refused, expired, the monthly block limit; for Claude, an active trial
+ * credit of the hosting service too. Admin › Members "No AI". */
 export function hasCredentialSoonFor(db: Database, userId: string, engine: CredEngine, allowedKinds: AllowedKinds, now = new Date()): boolean {
+  if (FAMILY_OF[engine] === 'anthropic' && hostedChatState(db, now, allowedKinds) === 'active') return true
   return candidates(db, userId, engine).some(({ row }) => {
     const u = unusable(db, row, now, allowedKinds)
     if (!u) return true

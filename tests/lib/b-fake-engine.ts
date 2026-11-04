@@ -264,6 +264,14 @@ function proxyToken(): string {
   delete process.env[fdVar] // like Claude Code: read once, then forget where it came from
   return modelToken
 }
+/** the model a request names: claude-sonnet-4-5 as before, unless the turn is held to models through the aliases'
+ * environment (a gateway, the hosting service's trial credit), where Claude Code names --model, an alias resolved */
+function requestModel(): string {
+  const env = process.env
+  if (!env.ANTHROPIC_DEFAULT_SONNET_MODEL) return 'claude-sonnet-4-5'
+  const alias: Record<string, string | undefined> = { opus: env.ANTHROPIC_DEFAULT_OPUS_MODEL, sonnet: env.ANTHROPIC_DEFAULT_SONNET_MODEL, haiku: env.ANTHROPIC_DEFAULT_HAIKU_MODEL }
+  return alias[model] ?? (model || env.ANTHROPIC_DEFAULT_SONNET_MODEL)
+}
 async function callModel(prompt: string, speak = true) {
   const base = process.env.ANTHROPIC_BASE_URL
   if (!base) return finish({ error: 'no ANTHROPIC_BASE_URL' })
@@ -272,7 +280,7 @@ async function callModel(prompt: string, speak = true) {
     r = await fetch(base.replace(/\/$/, '') + '/v1/messages?beta=true', {
       method: 'POST',
       headers: { authorization: 'Bearer ' + proxyToken(), 'anthropic-version': '2023-06-01', 'content-type': 'application/json', 'anthropic-beta': 'fine-grained-tool-streaming-2025-05-14', 'user-agent': 'claude-cli/0.0.0-fake (external, cli)', 'x-app': 'cli', 'x-stainless-os': 'MacOS' },
-      body: JSON.stringify({ model: 'claude-sonnet-4-5', max_tokens: 200, stream: true, messages: [{ role: 'user', content: prompt }] }),
+      body: JSON.stringify({ model: requestModel(), max_tokens: 200, stream: true, messages: [{ role: 'user', content: prompt }] }),
     })
   } catch (e) { return finish({ error: `API Error: Connection error (${(e as Error).message})` }) }
   if (!r.ok) return finish({ error: `API Error: ${r.status} ${(await r.text()).slice(0, 300)}` })

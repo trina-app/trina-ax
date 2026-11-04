@@ -111,6 +111,9 @@ export function buildClaudeLaunch(i: {
   tokenKind?: 'oauth' | 'api-key'
   /** local-login through the CONNECT tunnel (office mode): the proxy port and this attempt's proxy token */
   tunnel?: { port: number; token: string }
+  /** managed: every model Claude Code picks by itself names this one, as with a gateway's default (the hosting
+   * service's trial credit, credentials/hosted-chat.ts: the proxy forwards no other model for it) */
+  onlyModel?: string
   /** our MCP tools besides the six file tools offered to this turn (remember, ask_user, browser tools, make_file ...) */
   extraTools?: string[]
   /** False for approved local-folder templates; normal chat keeps the existing built-in search. */
@@ -121,8 +124,9 @@ export function buildClaudeLaunch(i: {
 }, conf: ClaudeConf): LaunchRequest {
   const web = i.webSearch !== false
   const sub = !!i.subagents
-  // a gateway has no "Claude Code default": the turn names the gateway's default model
-  const gw = conf.authMode !== 'local-login' ? conf.gatewayModels : undefined
+  // a gateway has no "Claude Code default": the turn names the gateway's default model; a turn held to one model
+  // (onlyModel) is set up the same way with that model everywhere
+  const gw = conf.authMode !== 'local-login' ? (i.onlyModel ? { default: i.onlyModel } : conf.gatewayModels) : undefined
   const model = i.model ?? gw?.default
   const args = [
     '-p', '--output-format', 'stream-json', '--verbose', '--include-partial-messages', '--include-hook-events',
