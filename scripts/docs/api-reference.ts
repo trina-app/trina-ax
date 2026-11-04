@@ -31,6 +31,7 @@ const GROUP_TITLES: Record<keyof typeof API_GROUPS, string> = {
   PLUGINS: 'Plugins',
   DEV_ENV: 'Dev environment',
   ONBOARDING_PACKS: 'Onboarding: skill packs',
+  ONBOARDING: 'Onboarding (company profile)',
 }
 
 const WHO: Record<Endpoint['auth'], string> = {

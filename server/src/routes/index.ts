@@ -17,6 +17,7 @@ import { wsRoutes } from './ws'
 import { remoteMcpRoutes } from './remote-mcp'
 import { devEnvRoutes } from './dev-env'
 import { onboardingPacksRoutes } from './onboarding-packs'
+import { onboardingRoutes } from './onboarding'
 
 export type { RouteModule } from './module'
 
@@ -36,5 +37,6 @@ export const ROUTE_MODULES: readonly RouteModule[] = [
   remoteMcpRoutes, // Optional external apps, separate OAuth audience and core file permissions.
   devEnvRoutes, // dev environment EXPERIMENT (feat/dev-env; 404 unless MYCEL_DEV_ENV=1)
   onboardingPacksRoutes, // recommended skill packs (onboarding stream C)
+  onboardingRoutes, // onboarding: the company profile and its drafts (docs/DECISIONS.md "D — Company profile")
   webRoutes, // D (catch-all, keep last)
 ]

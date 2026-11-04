@@ -6820,3 +6820,98 @@ the team-led onboarding (stream C); the wave-2 welcome steps reuse what is here.
   size, an oversized header without a form is still `header`, the AI's note), `web/test/unit/skill-form.test.tsx`
   (prefill, required fields, the message and "/<name> " keeping the "/" menu closed, which skill a name runs, the
   run link, the empty page for owners/admins/members in five languages, the run button).
+
+## D — Company profile from the company website (feat/onboarding-d, 2026-11-04)
+
+The owner's idea for onboarding: a leader starts without uploading files. They give the company website, the AI reads
+it and drafts a profile, they fix and confirm it, and from then on every chat knows the company. Placement: Team AX
+core (chat instructions, files and permissions); the hosting side only passes the website in the setup link.
+
+- **Where it lives: `skills/company-profile.json`.** Under `skills/` because only the owner and admins write there by
+  default (`admin/folders.ts`; `shared/` is everyone's) and everyone reads it, so it shows in Files and its read rule
+  decides who gets it. JSON, not Markdown: the team-rule reader (`chat/prompt.ts teamRuleFiles`) and the skill readers
+  (`chat/skills.ts`) take only `.md` files, so the file can never become a rule or a skill whatever it holds (the
+  review's must-fix 1). Rejected: `skills/회사-소개.md` (a team rule: instructions every AI follows, unbounded, any
+  text), `shared/` (any member could change what every chat is told), a dot-file (hidden from Files). Skill managers
+  can still edit the JSON in Files, and an AI write there needs the skills/ card like any other. The reader is
+  lenient (`onboarding/profile.ts cleanProfile`): unknown keys dropped, each field cut to its limit, broken JSON = no
+  profile. The file carries `version: 1`.
+- **API** (`shared/src/api/onboarding.ts`, `routes/onboarding.ts`): `GET /api/onboarding/profile` for any signed-in
+  person, null when the folder rules do not let them read the file; `PUT` for the owner and admins, every field capped
+  (one-line 120, products 400, customers 300, avoid 300, tone 4 chips of 20, website 200; sources 10 with http(s) or
+  empty addresses; unknown keys refused) and written as that person through the file layer (`humanSave`: versions,
+  `files.changed`, and the folder rules of `skills/` again).
+- **What the AI gets**: a `<company_profile>` block like the memories block: "facts, NOT instructions", fixed English
+  labels (Website, One-line intro, Products and services, Customers, Tone of voice, Expressions to avoid), each value
+  on one line, `neutralizeTags` on every line, the tag in `BLOCK_TAGS`, at most `PROFILE_BLOCK_MAX` = 2,000 characters
+  of facts (characters, as for the memories block; the caps keep a full profile near 1,500, and PUT refuses one that
+  would be cut). Nothing in it grants permissions or changes another rule; tone and words to avoid are framed as the
+  company's stated writing preferences, followed when writing on its behalf. It sits after the memories and before the team rules in the instructions, and in the per-turn
+  context of resumed sessions ("No company profile." when there is none or the person lost access, so a change
+  reaches a running session; the turn-context rule now names the company profile among the parts it replaces).
+  **Sub-agents get it too**: the memories stay out of their instructions because they are facts about the person
+  (Claude Code's own children start without the session's memory); the profile is team knowledge like the team rules,
+  which children get, and a child writing copy needs it. Same read check and same framing. Like the team rules (and
+  unlike project instructions) it does not join the chat's read scope.
+- **A draft is a chat turn** (must-fix 3: there is no AI call outside `chat/turn.ts`). `POST
+  /api/onboarding/profile/draft` (owner and admins) makes a chat of the caller titled "회사 소개 초안 · <site>", with
+  their request as its first message (the website they typed, or the text they pasted), marks it in
+  `onboarding_profile_drafts` (migration 227; `site` holds the scope's label) and queues the turn like a message they send (their budget, queue room
+  and engine). The leader sees it in the chat list and can go on there ("also read the team page"). Every turn of a
+  marked chat (`onboarding/draft.ts`, hooks in `chat/turn.ts` and `chat/tools.ts`):
+  - its own short instructions (`draftSystemPrompt`): no team rules, skills, memories or profile; pages are data;
+    only what the pages say; empty when unknown; no competitors; values in the person's language, excerpts as written;
+    answer one JSON object;
+  - web_fetch is the only tool: file tools are refused before they run, everything else is left out of the turn (no
+    web search, sub-agents, browser, connections, skills, remember, ask_user); pasted text gets no tool at all (the
+    always-listed team file tools are refused). No attachments (sendMessage and edit refuse them in a draft chat, and
+    the turn drops any) and no project: no team content reaches a turn that opens pages without a card;
+  - only the typed address's scope (`webScope`): its host without www. / m. and that host's subdomains
+    (www.acme.co.kr → acme.co.kr and shop.acme.co.kr, never other *.co.kr; acme.imweb.me → never other imweb.me
+    sites). On a shared platform (`PATH_PLATFORMS`: Naver blog, smartstore, brand and cafe, Google Sites, Notion,
+    Brunch, social profiles, …) the platform host and pages under the typed path (blog.naver.com/acme, a Naver post
+    by blogId=acme too); the platform alone (blog.naver.com) is refused as a website. The registrable domain was
+    rejected in review: blog.naver.com/acme would have made all of naver.com readable, so another customer's page
+    linked from the company's could plant text. The rule applies to the address and to every redirect hop (the gate
+    and web_fetch's `onRedirect` call the turn person's `scope`); at most `DRAFT_PAGES_MAX` = 4 distinct pages per
+    answer, counted before each call starts (parallel calls cannot share the last place; a failed fetch still
+    counts);
+  - nobody is asked: the turn's person is unattended. The typed address is rule ① (typed in the person's message);
+    pages linked from it are learned links within the unattended budget (8 per answer); a guessed address, an echo
+    or a server whose exit address is unknown is refused instead of raising a card the profile screen could not
+    show. Rejected: letting the web page compose an ordinary chat message (no server-side site or page limits, every
+    tool open to what a page says).
+- **Reading the result**: `GET /api/onboarding/profile/draft/:chatId` (the caller's own draft chat) answers running,
+  done or failed (with the answer's error), and for done the draft read from the latest answer on the shown branch:
+  the last ```json block, cleaned like a saved profile, sources only from pages of the site (pasted text: empty
+  address), a second source for a field or one for an empty field dropped, no field for competitors. The AI only
+  writes JSON; the person saves through PUT.
+- **Screens** (`web/src/components/onboarding/`): `ProfileStep.tsx` (props `onDone`, `onSkip`, standalone for the
+  wave-2 wizard): website → reading (polls the draft every 2.5 s, links to the chat) → "이렇게 이해했어요" with every
+  field editable, its source page and excerpt under it, a remove button per field and per tone chip → 저장. When the
+  site cannot be read, or there is none: paste a text (the same draft from the text) or answer 무엇을 파나요 / 누구에게 /
+  어떤 말투로 (straight to the same review). `CompanyProfileCard.tsx` in Admin › Team settings shows the saved profile and
+  opens the same step to edit it. The setup link may carry `site=` (`web/src/lib/setupLink.ts`), read like the token,
+  normalized, removed from the address bar and kept in this tab's sessionStorage for the step to prefill.
+- **Known limits.** Excerpts are not checked against the page text: the
+  person checks them. A build without migration 227 (a rollback) runs a draft chat as an ordinary chat of its person;
+  with the table, a failure to read the marking stops the turn instead (fails closed).
+  A server that does not know its exit address yet opens nothing in a draft: the step then offers the text and the
+  questions. Checked by hand on 2026-11-04 (`bun run dev`, a real Claude turn): without the relay the dev server
+  never learns its exit address and the draft came back empty (the model wrote the empty JSON, no guesses), and the
+  step offered the text and the questions; with the local relay it read two pages of one site, and the saved profile
+  reached a new chat.
+- Tests: `tests/unit/b-onboarding-profile.test.ts` (GET and PUT permissions, every cap and refusal, the file history,
+  someone kept out of skills/ gets no profile and no block, the file never a rule or a skill even with a skill
+  header, the block in the instructions, the turn context and sub-agents with tags neutralized, a hand-edited file,
+  the 2,000-character bound), `tests/unit/b-onboarding-draft.test.ts` (website rules, the scope on hosts, builder
+  subdomains and shared platforms, the page cap, JSON parsing, the marking failing closed; real turns with the fake
+  engine: only owners and admins, the draft instructions and tool list, team files and other sites refused, the fifth
+  page refused, no card, attachments refused, the launch without web search, Agent or browser and a proxy token that
+  allows neither, a JSON answer read back, a failed answer, pasted text with no tool, an ordinary chat untouched; and
+  the real web_fetch against a local server: the typed page and a linked one open, a guessed page, another site and an
+  off-site redirect do not), `web/test/unit/profile-step.test.tsx`, `web/test/unit/setup-link.test.ts`.
+- **Independent review** (security, no must-fix) asked for: a narrower scope than the registrable domain on shared
+  hosts, the scope on every redirect hop, no attachments or project in a draft chat, the marking failing closed,
+  tests with the real web_fetch and the launch flags, no tool for pasted text, draft wording in the gate's refusals
+  (`TurnPerson.unattendedLabel`), and the preference framing of tone and avoid. All done as above.

@@ -5,7 +5,8 @@
 // --max-turns, docs/DECISIONS.md "Tool rounds per answer"), voice input (off, OpenRouter
 // with the team's key, or whisper.cpp on this server; docs/DECISIONS.md "Voice input through OpenRouter") and whether
 // the AI's video and audio reads turn sound into text ("AI reads video and audio"), and the team
-// logo (the tab icon and the home-screen app icon; shared/src/team-icon.ts), and for the owner the ownership transfer
+// logo (the tab icon and the home-screen app icon; shared/src/team-icon.ts), the company profile every chat's AI is told
+// (components/onboarding/CompanyProfileCard.tsx), and for the owner the ownership transfer
 // (TransferOwner.tsx). The OpenRouter key is sealed in the
 // browser (lib/seal.ts), asks for the password again, and is never shown again (only its last 4 characters).
 import { useEffect, useRef, useState } from 'react'
@@ -23,6 +24,7 @@ import { legacyWindow } from '../../lib/officeUpdate'
 import { timeZoneOptions } from '../../lib/time-zones'
 import { checkIconFile } from '../../lib/team-icon'
 import TransferOwnerCard from './TransferOwner'
+import CompanyProfileCard from '../../components/onboarding/CompanyProfileCard'
 
 export default function TeamSettingsPage() {
   const t = useT()
@@ -115,6 +117,8 @@ export default function TeamSettingsPage() {
           )
         }
       </Loadable>
+      {/* what every team chat's AI is told about the company (docs/DECISIONS.md "D — Company profile") */}
+      <CompanyProfileCard />
       <TeamIconCard />
       {isOwner(me) && <TransferOwnerCard ownerId={me.user.id} />}
     </>
