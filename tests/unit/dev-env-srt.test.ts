@@ -12,7 +12,8 @@ import { startHarness, type Harness } from '../lib/b-harness'
 import { DENIED_RANGES, RUN_ID_RE, SRT_PATHS, SRT_VERSION, UNIT_RE, runEnv, scopeArgv, serverFilesOutsideBase, settingsProblems, srtSettings, unitName } from '../../server/src/devenv/srt/config'
 import { effectiveLimits, parsePlan, sliceValues, type DevEnvPlan } from '../../server/src/devenv/srt/plan'
 import { _active, newRunId, readExit, setSrtSystem, WAIT_MAX_MS } from '../../server/src/devenv/srt/runner'
-import type { SpawnSpec, SrtSystem, UnitInfo } from '../../server/src/devenv/srt/system'
+import { cgroupDir, slicePath, type SpawnSpec, type SrtSystem, type UnitInfo } from '../../server/src/devenv/srt/system'
+import { teamHosts } from '../../server/src/devenv/srt/runner'
 import { jobResultsForAI, pollJobs } from '../../server/src/devenv/jobs'
 import { devEnvInForce, devEnvSetting, newConsent, OFF_SETTING, requiredWarningVersion, saveDevEnvSetting } from '../../server/src/devenv/setting'
 import { boxShellTool } from '../../server/src/devenv/tool'
@@ -138,6 +139,20 @@ describe('the plan file (the same rules as mycel-boxd)', () => {
     expect(effectiveLimits(DEV_ENV_DEFAULT_LIMITS, 'open', { ...plan, network: '' }).network).toBe('offline')
     expect(effectiveLimits(DEV_ENV_DEFAULT_LIMITS, 'open', null)).toMatchObject({ cpus: 1, memoryMiB: 2560, network: 'open', maxRunning: 2 })
     expect(sliceValues(plan)).toEqual({ MemoryMax: '1536M', CPUQuota: '150%', TasksMax: 2048 })
+  })
+})
+
+describe('the host names of this server', () => {
+  test('from the public origins and the relay, with no env setting; loopback is not a team host', () => {
+    const config = { publicOrigins: ['https://Acme.trina.app', 'http://127.0.0.1:3000'], relay: { url: 'wss://relay.trina.app/connect', teamName: 'acme' } }
+    expect(teamHosts({ config } as never, {})).toEqual(['acme.trina.app', 'relay.trina.app'])
+    expect(teamHosts({ config: { publicOrigins: [], relay: { url: null, teamName: null } } } as never, { MYCEL_DEV_ENV_DENY_HOSTS: 'a.example, b.example' })).toEqual(['a.example', 'b.example'])
+    expect(extraDomainProblem('*.trina.app', teamHosts({ config } as never, {}))).toContain('this Trina server')
+  })
+  test('the cgroup path follows systemd\'s slice nesting, also for an id with a dash', () => {
+    expect(slicePath('mycel-devenv.slice')).toBe('mycel.slice/mycel-devenv.slice')
+    expect(slicePath('trina-ax-devenv.slice')).toBe('trina.slice/trina-ax.slice/trina-ax-devenv.slice')
+    expect(cgroupDir('mycel', 'abc')).toBe('/sys/fs/cgroup/mycel.slice/mycel-devenv.slice/trina-dev-abc.scope')
   })
 })
 

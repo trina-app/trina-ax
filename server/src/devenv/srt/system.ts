@@ -63,9 +63,15 @@ async function run(argv: string[], timeoutMs = 15_000): Promise<{ code: number; 
   return { code, out, err }
 }
 
-/** the cgroup folder of a unit in the devenv slice of this install */
-function cgroupDir(id: string, runId: string): string {
-  return `/sys/fs/cgroup/${id}.slice/${id}-devenv.slice/${unitOf(runId)}`
+/** The cgroup path of a slice: systemd nests slices by the dashes of the name ("a-b-c.slice" is
+ * a.slice/a-b.slice/a-b-c.slice), so an install id with a dash nests deeper. */
+export function slicePath(name: string): string {
+  const parts = name.replace(/\.slice$/, '').split('-')
+  return parts.map((_, i) => parts.slice(0, i + 1).join('-') + '.slice').join('/')
+}
+/** the cgroup folder of a run's scope in the devenv slice of this install */
+export function cgroupDir(id: string, runId: string): string {
+  return `/sys/fs/cgroup/${slicePath(`${id}-devenv.slice`)}/${unitOf(runId)}`
 }
 
 function readNumber(file: string, key?: string): number | null {

@@ -12,7 +12,7 @@ EXIT_FILE=${1:?exit file}
 shift
 [ "${1:-}" = "--" ] || { echo "run-wrap: missing --" >&2; exit 2; }
 shift
-ulimit -f 8388608   # in 512-byte blocks: 4 GiB
+ulimit -f 4194304   # bash counts 1024-byte blocks: 4 GiB
 ulimit -n 4096
 ulimit -c 0
 echo 800 > /proc/self/oom_score_adj 2>/dev/null || true

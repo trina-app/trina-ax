@@ -17,7 +17,7 @@ import { boxd } from '../devenv/boxd'
 import { devEnvFlag, devEnvInForce, devEnvRunner, devEnvSetting, mayUseBox, newConsent, requiredWarningVersion, saveDevEnvSetting } from '../devenv/setting'
 import { DEV_ENV_DEFAULT_DOMAINS, DEV_ENV_MAX_EXTRA_DOMAINS, cleanExtraDomains, extraDomainProblem } from '@mycel/shared'
 import { setSetting } from '../admin/settings'
-import { planState, runsOf, srtProblem, stopProject, stopRun, TEAM_SETTING_KEY, teamSetting } from '../devenv/srt/runner'
+import { planState, runsOf, srtProblem, stopProject, stopRun, TEAM_SETTING_KEY, teamHosts, teamSetting } from '../devenv/srt/runner'
 import { issuePreview, startPreviewGateway } from '../devenv/preview'
 import { runningJobs, startJobTracker } from '../devenv/jobs'
 
@@ -210,9 +210,9 @@ export const devEnvRoutes: RouteModule = {
       if (!devEnvFlag()) fail('not_found')
       const list = cleanExtraDomains(body.extraDomains)
       if (list.length > DEV_ENV_MAX_EXTRA_DOMAINS) fail('validation', `At most ${DEV_ENV_MAX_EXTRA_DOMAINS} sites.`)
-      const teamHosts = (process.env.MYCEL_DEV_ENV_DENY_HOSTS ?? '').split(',').map((x) => x.trim()).filter(Boolean)
+      const hosts = teamHosts(ctx)
       for (const d of list) {
-        const why = extraDomainProblem(d, teamHosts)
+        const why = extraDomainProblem(d, hosts)
         if (why) fail('validation', `${d}: ${why}.`, { fields: { 'body.extraDomains': `${d}: ${why}` } })
       }
       const before = teamSetting(ctx.db)

@@ -1,6 +1,7 @@
 # Dev environment on srt (design)
 
-Status: design draft, 2026-11-04. Branch `feat/srt-dev-env`. Nothing here is built yet.
+Status: built behind `MYCEL_DEV_ENV_RUNNER=srt` on branch `feat/srt-dev-env` (2026-11-04). The box stays the default.
+Section 12 lists what the build changed from this design and what is not done.
 
 Decision (owner and Dion, 2026-11-04): the dev environment drops the podman box (`mycel-boxd`). The AI's commands run
 directly on the team server inside Anthropic's sandbox runtime **srt** (npm `@anthropic-ai/sandbox-runtime`,
@@ -521,3 +522,43 @@ Questions for the owner and Dion:
 - Q3: a foreground command over the server limit: refuse at once (this design) or wait up to 60 s?
 - Q4: the default domain list.
 - Q5: a separate Linux account for jobs (stronger, but needs a root helper to switch uid) as a later step, or never?
+
+## 12. Build notes (2026-11-04)
+
+Code: `server/src/devenv/srt/` (`config.ts` settings, environment and argv; `plan.ts`; `system.ts`; `runner.ts`), the
+forks in `tool.ts`, `jobs.ts`, `setting.ts` and `routes/dev-env.ts`, migration `222_b_dev_env_run_state.sql`, install in
+`scripts/dev-env/srt/`, tests in `tests/unit/dev-env-srt.test.ts` and `tests/linux/srt-attack.ts`.
+
+What the build changed from this design:
+
+- No `DevEnvRunner` interface and no boxd adapter (7). The srt code forks at the top of the box code: the removal PR then
+  deletes the box branches, with no adapter to delete too.
+- The install uses a drop-in (`ReadWritePaths=<base>/devenv`, the flags) and does not change `server.service.in` or
+  `scripts/linux/deps.txt` (9). `install-srt.sh` installs the packages.
+- The polkit rule also allows the verb `reset-failed`: a scope that the kernel killed for memory stays `failed` with
+  `Result=oom-kill`, and the runner reads that result and then forgets the unit. There is no `--collect`.
+- srt sets `TMPDIR` in the sandbox to `/tmp/claude`, which the settings hide. The run's environment sets
+  `CLAUDE_CODE_TMPDIR` to the project home's `tmp`, so srt uses that folder.
+- The settings deny the team folder too when it is outside the base folder. A check (`settingsProblems`) refuses a
+  settings file that breaks the rules before each spawn.
+- A `cwd` through a link out of the project folder is refused before the run (A10).
+- The team's host names come from the public origins, the relay URL and `MYCEL_DEV_ENV_DENY_HOSTS`. They are denied in
+  each run and refused as admin domains.
+- The command of a waiting job is kept in `<base>/devenv/run/<row>.cmd` (0600). The row keeps the text with secrets
+  hidden.
+- The log of a job is cut to nothing at 64 MiB (not "cut the start").
+- `MYCEL_DEV_ENV_SRT_DIRECT=1` runs srt with no scope (no limits): for Docker and development only.
+
+Verified: the Docker attack suite (22 attacks, real srt 0.0.81, Debian 13, arm64) passes: A1-A16, A18-A20, offline,
+and the positive checks (the project folder, an allowed site). The listing of `<base>/team` shows only the path to the
+project folder (srt makes the parents of an allowed path).
+
+Not done:
+
+- Preview (S2, `port-forward`); the UI (running and waiting lists, the admin sites, the new stop texts) and i18n. The
+  consent modal still shows the box warning text but sends version 2: do not turn srt on for a team before the UI PR.
+- The tool rename; Ubuntu 24.04 (S6); the public IPv6 of the VM (IMDS gives only IPv4 here).
+- Not verified on systemd: S1 (polkit gets `unit` and `verb`; a pid moves from the server's delegated cgroup), the scope
+  limits, `Result=oom-kill`, RuntimeMaxSec, S5 (Starter memory), and attacks A17, A21-A26.
+- The devenv slice is a child of `<ID>.slice`: when 1A limits are on, the runs share that ceiling with the server.
+

@@ -78,6 +78,16 @@ export function teamSetting(db: Database): DevEnvTeamSetting {
 
 const listEnv = (v: string | undefined) => (v ?? '').split(',').map((x) => x.trim()).filter(Boolean)
 
+/** The host names of this Trina server: its public origins, the relay, and MYCEL_DEV_ENV_DENY_HOSTS. A run may not
+ * reach them through the proxy, and an admin may not allow them. */
+export function teamHosts(ctx: Pick<AppContext, 'config'>, env: Record<string, string | undefined> = process.env): string[] {
+  const out = new Set<string>(listEnv(env.MYCEL_DEV_ENV_DENY_HOSTS).map((h) => h.toLowerCase()))
+  for (const u of [...(ctx.config.publicOrigins ?? []), ctx.config.relay?.url ?? '']) {
+    try { const h = new URL(u).hostname.toLowerCase(); if (h && !/^(localhost|127\.0\.0\.1|\[::1\])$/.test(h)) out.add(h) } catch {}
+  }
+  return [...out]
+}
+
 /** This VM's public IPv4 from EC2's metadata service (IMDSv2), cached for a minute. Only with MYCEL_DEV_ENV_IMDS=1
  * (the install sets it on EC2). An instance with no Elastic IP gets a new address after a stop. */
 let imds: { at: number; ips: string[] } | null = null
@@ -153,7 +163,7 @@ async function spawnRun(ctx: AppContext, c: SrtConfig, s: RunSpec): Promise<{ pi
   const input = {
     base: c.base, id: c.id, projectId: s.projectId, projectDir: s.projectDir, teamRoot: ctx.files.fx.root, network: s.network,
     extraDomains: teamSetting(ctx.db).extraDomains,
-    denyHosts: listEnv(process.env.MYCEL_DEV_ENV_DENY_HOSTS),
+    denyHosts: teamHosts(ctx),
     denyAddrs: [...listEnv(process.env.MYCEL_DEV_ENV_DENY_ADDRS), ...await publicIps()],
   }
   const settings = srtSettings(input)

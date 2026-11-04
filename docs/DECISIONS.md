@@ -5438,6 +5438,37 @@ box limits follow the plan.
   podman and a fixed `mycel-devbox` uid in the template, box state on the data disk (G-T4-6), a reinstall after a
   reimage, and idle checks that count box jobs. Until then an operator installs it as a trial.
 
+### Dev environment on srt, behind a flag (feat/srt-dev-env, 2026-11-04)
+
+Input: the owner and Dion chose srt (`@anthropic-ai/sandbox-runtime`) in place of the podman box. Design:
+`docs/research/srt-dev-env.md`. This change builds it behind `MYCEL_DEV_ENV_RUNNER=srt`. The box stays the default, and a
+later PR removes it.
+
+- **Executor.** The server account runs one srt process (CLI mode, node 22 in `/opt/trina/node`) for each command, job
+  or dev server, in a `systemd-run --scope` unit `trina-dev-<16 chars>.scope` in `<ID>-devenv.slice`, with MemoryMax,
+  CPUQuota, TasksMax, OOMPolicy=kill and RuntimeMaxSec. `run-wrap` sets rlimits and `oom_score_adj` 800 and writes the
+  exit code. A polkit rule lets the server account start, stop and reset-failed only these scope names.
+- **Files.** The srt settings hide the whole base folder and `/etc/default/<ID>`, and give back the project folder (read
+  and write), its home (read and write) and its logs (read). srt itself denies writes to `.git/hooks`, `.git/config` and
+  similar files. The environment has only listed keys, never the server's. A `cwd` through a link out of the project is
+  refused before the run.
+- **Network.** `open` now means an allowlist: the defaults in `shared/src/dev-env-domains.ts` plus the team's extra
+  domains (`devEnv.team`, admins). The team's host names (public origins, relay, `MYCEL_DEV_ENV_DENY_HOSTS`) are denied,
+  and an admin cannot allow them. Private, link-local and metadata ranges and the VM's public IPv4 (IMDS) are denied
+  after resolution. srt's warning has version 2, so an owner accepts again before the first srt run.
+- **Queue.** Jobs over `maxRunning` wait (FIFO for the server, 3 per project, 10 for the server, 24 hours). A waiting job
+  checks access again before it starts. Commands over `maxRunning + 1` are refused at once. Dev servers: one per project,
+  `maxRunning` on the server. Migration 222 adds `state`, `kind`, `run_at`, `cwd`, `unit` and `end_reason` to
+  `dev_env_jobs`.
+- **Plan caps.** The server reads `root/dev-env.json` with a TS port of `parseEntitlement` (fail closed) and cuts each
+  run's limits to it. The install writes the slice from the same file, so the server cannot raise the total.
+- **Left from the design, on purpose.** A drop-in sets the flag and `ReadWritePaths=<base>/devenv`;
+  `server.service.in` and `scripts/linux/deps.txt` do not change (the packages come from `install-srt.sh`). No preview
+  on srt yet (the Q2 fallback). The tool keeps its name `box_shell`. `/run` is denied too. `CLAUDE_CODE_TMPDIR` points
+  srt's sandbox temp folder into the project home (else `/tmp/claude`, which the settings hide).
+- **Tests.** `tests/unit/dev-env-srt.test.ts` (fakes) and `tests/linux/srt-attack.ts` (real srt in Docker, CI). Not yet
+  verified on systemd: polkit, the scope limits, OOM, and the Starter memory budget (design section 11).
+
 ## Folder upload on the file screen (feat/dev-env-video, 2026-11-02)
 
 A team copied 118 clips (1.9 GB) with tar over SSH. A customer needs a way with no SSH.

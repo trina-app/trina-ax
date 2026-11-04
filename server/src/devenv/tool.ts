@@ -45,7 +45,7 @@ export const BoxShellInput = z.object({
   command: z.string().min(1).max(64 * 1024).describe('the shell command (bash -lc), for example "npm install" or "git status"'),
   cwd: z.string().max(1024).optional().describe('folder relative to the project folder (default: the project folder)'),
   timeout_sec: z.number().int().min(1).max(1800).optional().describe('time limit in seconds (default 120, at most 1800)'),
-  background: z.boolean().optional().describe('start a long-running process (a dev server, a watcher) and return at once; its output goes to /cache/logs/<log_name>.log in the box'),
+  background: z.boolean().optional().describe('start a long-running process (a dev server, a watcher) and return at once; its output goes to the log <log_name>.log (the tool text says where)'),
   job: z.boolean().optional().describe('run a long command (a render, a large build) in the background as a job: it returns at once, it has an exit status and a log, and the person gets a notice when it ends'),
   log_name: z.string().regex(/^[A-Za-z0-9_-]{1,40}$/).optional().describe('name of the log file for a background command or a job'),
 })
