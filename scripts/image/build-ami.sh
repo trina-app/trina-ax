@@ -152,6 +152,8 @@ fi
 # ---- 0. checks before any AWS call
 [[ "$DATE" =~ ^[0-9]{8}$ ]] || die "--date is yyyymmdd"
 [[ "$ROOT_GB" =~ ^[0-9]+$ && $ROOT_GB -ge 8 ]] || die "--root-gb is a whole number of GiB, at least 8"
+# a signed manifest is installable; a kitless image must never be
+[[ $ALLOW_MISSING_KIT == 0 || -z "$SIGN_KEY" ]] || die "--sign-key and --allow-missing-kit exclude each other (a kitless AMI is never for production)"
 [[ -n "$SUBNET" ]] || die "--subnet-id is required (a subnet with internet access whose NACL lets SSH in; see --help)"
 [[ "$SUBNET" =~ ^subnet-[0-9a-f]+$ ]] || die "--subnet-id looks wrong: $SUBNET"
 [[ -z "$SOURCE_AMI" || "$SOURCE_AMI" =~ ^ami-[0-9a-f]+$ ]] || die "--source-ami looks wrong: $SOURCE_AMI"
@@ -351,8 +353,6 @@ say "work volume $VOLUME (${ROOT_GB} GiB gp3 from $SRC_SNAP)"
 
 q - ec2 wait volume-available --volume-ids "$VOLUME" >/dev/null
 q - ec2 wait instance-running --instance-ids "$INSTANCE" >/dev/null
-q - ec2 attach-volume --volume-id "$VOLUME" --instance-id "$INSTANCE" --device /dev/sdf >/dev/null
-q - ec2 wait volume-in-use --volume-ids "$VOLUME" >/dev/null
 IP="$(q 203.0.113.20 ec2 describe-instances --instance-ids "$INSTANCE" --query 'Reservations[0].Instances[0].PublicIpAddress' --output text)"
 [[ "$IP" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]] || die "builder $INSTANCE has no public IP ('$IP'): the subnet needs a route to an internet gateway"
 say "builder at $IP"
@@ -367,6 +367,10 @@ if [[ $DRY != 1 ]]; then
   for _ in $(seq 1 60); do if rssh true 2>/dev/null; then ok=1; break; fi; sleep 5; done
   [[ $ok == 1 ]] || die "no SSH to $IP after 5 minutes (NACL of $SUBNET, or --ssh-cidr $SSH_CIDR is not your address)"
 fi
+# attach only now: the builder has booted from its own root. The work volume has the same partition and file system
+# UUIDs (both come from the same snapshot), so attached during boot it could be taken as the root.
+q - ec2 attach-volume --volume-id "$VOLUME" --instance-id "$INSTANCE" --device /dev/sdf >/dev/null
+q - ec2 wait volume-in-use --volume-ids "$VOLUME" >/dev/null
 COPYFILE_DISABLE=1 tar -czf "$WORK/stage.tgz" -C "$WORK/stage" .
 if [[ $DRY == 1 ]]; then echo "+ scp stage.tgz admin@$IP:/tmp/ax-stage.tgz" >&3
 else scp -q "${SSH_OPTS[@]}" "$WORK/stage.tgz" "admin@$IP:/tmp/ax-stage.tgz"; fi

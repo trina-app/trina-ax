@@ -206,7 +206,8 @@ Steps (each id goes into `dist/image/ami-build-<templateVersion>.state` before t
 1. A temporary security group (tcp 22 from your address only) and a t3a.medium builder from the Debian AMI (checked
    against Debian's owner id 136693071363). The SSH host key and login key are made on your machine and sent in
    user-data, so the first SSH login checks a known host key. IMDSv2 only.
-2. A 20 GiB gp3 encrypted work volume from the Debian AMI's root snapshot, attached to the builder.
+2. A 20 GiB gp3 encrypted work volume from the Debian AMI's root snapshot, attached to the builder only after its
+   first SSH login (the volume has the same UUIDs as the builder's root, so it must not be there at boot).
 3. `ami-chroot.sh` on the builder: finds the volume by its EBS serial (`/dev/disk/by-id/nvme-Amazon_Elastic_Block_Store_vol…`;
    the attach name and the file system UUID do not help on NVMe), grows partition 1 and its file system, mounts it,
    binds `/dev /dev/pts /proc /sys /run`, puts the builder's `resolv.conf` in for the build, runs `customize.sh` in a
@@ -234,7 +235,7 @@ starts with `trina-test-` on everything, so a check by that tag finds all of it.
 Failure: the script removes what the state file names (builder, work volume, security group, and the snapshot while no
 AMI is registered), and only when the resource carries the expected `ax:managed` tag. It never deletes by filter: the
 account also holds production. After a hard stop (kill, lost laptop) run `build-ami.sh --cleanup <state file>`.
-`--dry-run` prints every aws command and calls none. An AMI for the same template version stops the build before any
+`--dry-run` prints every aws command and calls none. `--sign-key` with `--allow-missing-kit` is refused. An AMI for the same template version stops the build before any
 create call.
 
 Cost of one build: a t3a.medium for about 30 minutes and a 20 GiB volume for the same time (cents), then the AMI

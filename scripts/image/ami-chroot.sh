@@ -78,7 +78,7 @@ mkdir -p "$MNT"
 mountpoint -q "$MNT" && die "$MNT is already a mount point (an earlier run?): unmount it first"
 mount "$PART1" "$MNT"; MOUNTS+=("$MNT")
 # the EFI partition (15 on the Debian AMI), so a package that touches the boot loader writes to the right place
-EFI="$(lsblk -nrpo NAME,PARTLABEL,FSTYPE "$DISK" | awk '$3 == "vfat" {print $1; exit}')"
+EFI="$(lsblk -nrpo NAME,FSTYPE "$DISK" | awk '$2 == "vfat" {print $1; exit}')"
 if [[ -n "$EFI" && -d "$MNT/boot/efi" ]]; then mount "$EFI" "$MNT/boot/efi"; MOUNTS+=("$MNT/boot/efi"); fi
 for d in dev dev/pts proc sys run; do
   mkdir -p "$MNT/$d"; mount --bind "/$d" "$MNT/$d"; MOUNTS+=("$MNT/$d")

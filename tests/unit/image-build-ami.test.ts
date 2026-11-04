@@ -114,8 +114,8 @@ describe('build-ami.sh', () => {
     expect(r.code).toBe(0)
     const c = r.calls
     // order: the build resources, the chroot, then snapshot, image, and the removal of the build resources
-    const order = ['create-security-group', 'authorize-security-group-ingress', 'run-instances', 'create-volume', 'attach-volume',
-      'ami-chroot.sh', 'detach-volume', 'create-snapshot', 'register-image', 'wait image-available', 'terminate-instances',
+    const order = ['create-security-group', 'authorize-security-group-ingress', 'run-instances', 'create-volume', 'wait instance-running',
+      'ssh -i', 'attach-volume', 'ami-chroot.sh', 'detach-volume', 'create-snapshot', 'register-image', 'wait image-available', 'terminate-instances',
       'delete-volume', 'delete-security-group'].map((x) => at(c, x))
     expect(order.every((i) => i >= 0)).toBe(true)
     expect([...order].sort((a, b) => a - b)).toEqual(order)
@@ -222,6 +222,12 @@ describe('build-ami.sh', () => {
     expect(r.calls).toEqual([])
     r = run(s, ['--link-bin', ''])
     expect(r.out).toContain('--link-bin is required')
+    expect(r.calls).toEqual([])
+    // a signed manifest is installable: never for a kitless image
+    fs.writeFileSync(path.join(s.dir, 'k.pem'), 'x')
+    r = run(s, ['--allow-missing-kit', '--sign-key', path.join(s.dir, 'k.pem')])
+    expect(r.code).not.toBe(0)
+    expect(r.out).toContain('--sign-key and --allow-missing-kit exclude each other')
     expect(r.calls).toEqual([])
   })
 })

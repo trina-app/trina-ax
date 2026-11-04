@@ -186,7 +186,8 @@ fi
 # only the platform time sources: the Proxmox host and Amazon Time Sync (link-local)
 check "chrony uses only 10.200.0.1 and 169.254.169.123" bash -c '[[ "$(grep -E "^[[:space:]]*(server|pool|peer|sourcedir|confdir)[[:space:]]" /etc/chrony/chrony.conf | tr "\n" "|")" == "server 10.200.0.1 iburst|server 169.254.169.123 iburst|" ]]'
 if vm && ec2; then
-  check "chrony syncs with Amazon Time Sync" bash -c 'chronyc -n sources 2>/dev/null | grep -q "^\^\*[[:space:]]*169\.254\.169\.123"'
+  # selected (^*) or combined (^+); right after boot chrony needs a few polls, so try for about 30 s
+  check "chrony syncs with Amazon Time Sync" bash -c 'for _ in $(seq 1 15); do chronyc -n sources 2>/dev/null | grep -q "^\^[*+][[:space:]]*169\.254\.169\.123" && exit 0; sleep 2; done; exit 1'
 fi
 check "time zone Etc/UTC" bash -c '[[ "$(readlink /etc/localtime)" == /usr/share/zoneinfo/Etc/UTC ]]'
 
