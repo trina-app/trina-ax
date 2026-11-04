@@ -909,6 +909,8 @@ export const en: Record<MessageKey, string> = {
   'aiAccess.banner.connectOwn': "You have no AI to use. Connect your own and you can start right away.",
   'aiAccess.banner.askOwner': "You have no AI to use. Tell your admin.",
   'aiAccess.banner.asked': "Your admin knows. You can start once an AI is connected.",
+  'aiAccess.banner.trialUsed': "The trial AI credit is used up.",
+  'aiAccess.banner.trialEnded': "The trial AI credit cannot be used any more (the trial ended or was switched off).",
   'notifications.event.onboarding.ai_request': "A team member is waiting for an AI connection.",
   'notifications.event.onboarding.ai_requestNamed': "{name} is waiting for an AI connection.",
   'notifications.event.skill.suggested': 'A teammate suggested a skill. Review it in Team skills.',

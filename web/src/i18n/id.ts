@@ -909,6 +909,8 @@ export const id: Record<MessageKey, string> = {
   'aiAccess.banner.connectOwn': "Anda belum punya AI untuk dipakai. Hubungkan AI Anda sendiri agar bisa langsung mulai.",
   'aiAccess.banner.askOwner': "Anda belum punya AI untuk dipakai. Beri tahu admin.",
   'aiAccess.banner.asked': "Admin sudah tahu. Anda bisa mulai setelah AI terhubung.",
+  'aiAccess.banner.trialUsed': "Kredit AI uji coba sudah habis.",
+  'aiAccess.banner.trialEnded': "Kredit AI uji coba tidak bisa dipakai lagi (masa uji coba berakhir atau dimatikan).",
   'notifications.event.onboarding.ai_request': "Seorang anggota tim menunggu koneksi AI.",
   'notifications.event.onboarding.ai_requestNamed': "{name} menunggu koneksi AI.",
   'notifications.event.skill.suggested': 'Anggota tim mengusulkan skill. Tinjau di Skill tim.',

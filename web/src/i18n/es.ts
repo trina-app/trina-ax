@@ -885,6 +885,8 @@ export const es: Record<MessageKey, string> = {
   'aiAccess.banner.connectOwn': "No tiene una IA que usar. Conecte la suya y podrá empezar de inmediato.",
   'aiAccess.banner.askOwner': "No tiene una IA que usar. Avise al administrador.",
   'aiAccess.banner.asked': "Ya se avisó al administrador. Podrá empezar cuando haya una IA conectada.",
+  'aiAccess.banner.trialUsed': "Se agotó el crédito de IA de prueba.",
+  'aiAccess.banner.trialEnded': "El crédito de IA de prueba ya no se puede usar (la prueba terminó o se desactivó).",
   'notifications.event.onboarding.ai_request': "Un miembro del equipo espera una conexión de IA.",
   'notifications.event.onboarding.ai_requestNamed': "{name} espera una conexión de IA.",
   'notifications.event.skill.suggested': "Un miembro del equipo sugirió una habilidad. Revísela en Habilidades del equipo.",

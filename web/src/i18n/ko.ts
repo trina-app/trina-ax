@@ -908,6 +908,8 @@ export const ko = {
   'aiAccess.banner.connectOwn': "쓸 수 있는 AI가 없어요. 내 AI를 연결하면 바로 쓸 수 있어요.",
   'aiAccess.banner.askOwner': "쓸 수 있는 AI가 없어요. 관리자에게 알려 주세요.",
   'aiAccess.banner.asked': "관리자에게 알렸어요. 연결되면 바로 쓸 수 있어요.",
+  'aiAccess.banner.trialUsed': "체험 AI 크레딧을 다 썼어요.",
+  'aiAccess.banner.trialEnded': "체험 AI 크레딧을 더 쓸 수 없어요(체험 기간이 끝났거나 꺼졌어요).",
   'notifications.event.onboarding.ai_request': "팀원이 AI 연결을 기다리고 있어요.",
   'notifications.event.onboarding.ai_requestNamed': "{name} 님이 AI 연결을 기다리고 있어요.",
   'notifications.event.skill.suggested': '팀원이 스킬을 제안했어요. 팀 스킬에서 검토해 주세요.',

@@ -885,6 +885,8 @@ export const ja: Record<MessageKey, string> = {
   'aiAccess.banner.connectOwn': "使えるAIがありません。自分のAIを接続するとすぐに使えます。",
   'aiAccess.banner.askOwner': "使えるAIがありません。管理者に知らせてください。",
   'aiAccess.banner.asked': "管理者に知らせました。接続されるとすぐに使えます。",
+  'aiAccess.banner.trialUsed': "トライアルのAIクレジットを使い切りました。",
+  'aiAccess.banner.trialEnded': "トライアルのAIクレジットはもう使えません（トライアル期間が終了したか、オフになりました）。",
   'notifications.event.onboarding.ai_request': "チームメンバーがAI接続を待っています。",
   'notifications.event.onboarding.ai_requestNamed': "{name}さんがAI接続を待っています。",
   'notifications.event.skill.suggested': "チームメンバーがスキルを提案しました。「チームスキル」で確認してください。",

@@ -9,6 +9,7 @@ import type { AppContext } from '../context'
 import { canChooseEngine, choosableEngines, engineOn, teamDefault, type Person } from '../admin/engine-choice'
 import type { EngineConfs } from '../chat/engines'
 import { hasCredentialSoonFor } from './resolve'
+import { hostedChatState } from './hosted-chat'
 
 type Ctx = Pick<AppContext, 'db' | 'config'>
 export interface AccessOptions {
@@ -48,9 +49,14 @@ export interface AiAccess {
   /** false: nothing answers this person now (always true when engines sign in on their own, authMode other than managed) */
   usable: boolean
   action: AiAction
+  /** not usable, Claude answers this person, and the hosting service's trial AI credit (credentials/hosted-chat.ts),
+   * which answered while it was active, is used up or over: what the person is told first */
+  trial?: 'used' | 'ended'
 }
 export function aiAccessFor(ctx: Ctx, p: Person, memberOwn: boolean, o: AccessOptions = {}): AiAccess {
   const usable = !isManaged(ctx.config) || canUseAi(ctx, p, o)
   const action: AiAction = p.role === 'owner' ? 'connect_team' : memberOwn ? 'connect_own' : 'ask_owner'
-  return { usable, action }
+  if (usable || !enginesAnswering(ctx, p, o.problems).includes('claude-code')) return { usable, action }
+  const trial = hostedChatState(ctx.db, o.now ?? new Date(), allowedCredentialKinds(ctx.config))
+  return trial === 'used' || trial === 'ended' ? { usable, action, trial } : { usable, action }
 }

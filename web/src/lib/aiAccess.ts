@@ -21,5 +21,10 @@ export function bannerText(action: AiAction, requested: boolean): MessageKey {
   return action === 'connect_team' ? 'aiAccess.banner.connectTeam' : action === 'connect_own' ? 'aiAccess.banner.connectOwn' : requested ? 'aiAccess.banner.asked' : 'aiAccess.banner.askOwner'
 }
 
-/** the chat errors that get the button */
-export const isNoAiReason = (r: ChatErrorReason | null) => r === 'no_credential' || r === 'credential_unusable'
+/** the first line above the composer when the hosting service's trial AI credit is used up or over */
+export const trialLine = (trial: 'used' | 'ended'): MessageKey => trial === 'used' ? 'aiAccess.banner.trialUsed' : 'aiAccess.banner.trialEnded'
+
+/** the chat errors that get the button: no AI connection, none usable, and the trial AI credit used up or over (stream
+ * B: the same way out, the error text already says the credit is gone) */
+export const isNoAiReason = (r: ChatErrorReason | null) =>
+  r === 'no_credential' || r === 'credential_unusable' || r === 'trial_credit_used' || r === 'trial_ended'

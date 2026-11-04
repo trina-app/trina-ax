@@ -9,6 +9,8 @@ interface State {
   usable: boolean
   action: AiAction
   requested: boolean
+  /** the trial AI credit is used up or over (GET /api/me/ai-access `trial`) */
+  trial: 'used' | 'ended' | null
   sending: boolean
   failed: boolean
   load: (force?: boolean) => Promise<void>
@@ -21,21 +23,21 @@ interface State {
 let generation = 0
 
 export const useAiAccess = create<State>((set, get) => ({
-  loaded: false, usable: true, action: 'ask_owner', requested: false, sending: false, failed: false,
+  loaded: false, usable: true, action: 'ask_owner', requested: false, trial: null, sending: false, failed: false,
   async load(force) {
     if (get().loaded && !force) return
     const g = generation
     try {
       const r = await api.call(API.getAiAccess)
       if (g !== generation) return
-      set({ loaded: true, usable: r.usable, action: r.action, requested: r.requested })
+      set({ loaded: true, usable: r.usable, action: r.action, requested: r.requested, trial: r.trial ?? null })
     } catch {
       if (g !== generation) return
       // a failed check is not "no AI": nothing shows
       set({ loaded: true, usable: true })
     }
   },
-  reset() { generation++; set({ loaded: false, usable: true, action: 'ask_owner', requested: false, sending: false, failed: false }) },
+  reset() { generation++; set({ loaded: false, usable: true, action: 'ask_owner', requested: false, trial: null, sending: false, failed: false }) },
   async ask() {
     if (get().sending || get().requested) return
     set({ sending: true, failed: false })

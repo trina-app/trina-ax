@@ -121,8 +121,10 @@ export const MyCredentialsResponse = z.object({ allowed: z.boolean(), allowedKin
 export const CreateMyCredentialBody = CreateCredentialBody.omit({ assignments: true, priority: true, moveFrom: true, password: true })
 export const StartMyLoginBody = StartCredentialLoginBody.omit({ assignments: true, priority: true, password: true })
 
-/** Stream A (onboarding): can I use AI now, and what can I do if not. `requested`: I already asked the owner. */
-export const AiAccessResponse = z.object({ usable: z.boolean(), action: z.enum(['connect_team', 'connect_own', 'ask_owner']), requested: z.boolean() })
+/** Stream A (onboarding): can I use AI now, and what can I do if not. `requested`: I already asked the owner. `trial`:
+ * nothing answers me because the hosting service's trial AI credit (stream B) is used up or over; the line above the
+ * composer says that first. */
+export const AiAccessResponse = z.object({ usable: z.boolean(), action: z.enum(['connect_team', 'connect_own', 'ask_owner']), requested: z.boolean(), trial: z.enum(['used', 'ended']).optional() })
 export type AiAccessResponse = z.infer<typeof AiAccessResponse>
 export const AiAccessRequestResponse = z.object({ requested: z.literal(true), already: z.boolean() })
 /** The hosting service's trial AI credit (docs/DECISIONS.md "B — Hosted trial AI credit"): a key of the hosting
