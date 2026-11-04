@@ -63,9 +63,10 @@ export async function runUpdate(d: RunUpdateDeps, target: string, o: { staged: b
 type History = z.infer<typeof UpdateHistoryEntry>[]
 
 /** What the root update timer keeps (admin.js update-window, native/cmd/mycel-ctl/schedule.go): the team's window (the
- * default when empty; an invalid stored one is "00:00-00:00", which never opens) and its zone. */
-export function updateWindowAnswer(s: { updateWindow: string | null }, timeZone: string): { window: string; timeZone: string; custom: boolean } {
-  return { window: s.updateWindow ?? DEFAULT_UPDATE_WINDOW, timeZone, custom: s.updateWindow !== null }
+ * default when empty; an invalid stored one is "00:00-00:00", which never opens) and its zone, and the install id its
+ * staged roll-out uses (system/rollout.ts; left out when the install has none yet: the timer then takes the last wave). */
+export function updateWindowAnswer(s: { updateWindow: string | null }, timeZone: string, installId?: string | null): { window: string; timeZone: string; custom: boolean; installId?: string } {
+  return { window: s.updateWindow ?? DEFAULT_UPDATE_WINDOW, timeZone, custom: s.updateWindow !== null, ...(installId ? { installId } : {}) }
 }
 
 /** "HH:mm-HH:mm" in the team's zone; a window may pass midnight ("23:00-01:00"). */
@@ -102,6 +103,9 @@ export type AutoDecision = { go: true; version: string } | { go: false; why: 'no
 export function autoUpdateDecision(o: {
   feed: ReleaseFeed | null; current: string; installId: string; now: Date; tz: string; window: string | null; running: number
   history: History; lastAttempt?: { version: string; at: string } | null
+  /** the install's update channel (server.json update.channel): the beta channel skips the roll-out's ramp. Required:
+   * a caller that left it out would hold beta servers to the stable ramp */
+  channel: 'stable' | 'beta'
   /** root/VERSION of this install (releaseNeedsRoot); null = unknown */
   rootVersion?: string | null
   /** the version root's update failed here (root/update-failed.json, native/cmd/mycel-ctl schedule.go), held or not:
@@ -114,7 +118,8 @@ export function autoUpdateDecision(o: {
   if (!f) return { go: false, why: 'no_feed' }
   if (compareVersions(f.version, o.current) <= 0) return { go: false, why: 'up_to_date' }
   if (releaseNeedsRoot(f, o.rootVersion ?? null)) return { go: false, why: 'needs_root' }
-  if (!inRollout(f, o.installId)) return { go: false, why: 'rollout' }
+  // the staged roll-out (system/rollout.ts): this install's turn may come a day or two after the release
+  if (!inRollout(f, o.installId, { now: o.now, channel: o.channel })) return { go: false, why: 'rollout' }
   if (o.rootHold && o.rootHold === f.version) return { go: false, why: 'held' }
   const recent = (at: string) => o.now.getTime() - Date.parse(at) < AUTO_HOLD_MS
   // the bootstrap records a roll-back as from <failed> to <previous> (native/cmd/mycel-bootstrap), a refused version as

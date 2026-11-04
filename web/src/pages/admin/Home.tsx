@@ -6,9 +6,10 @@
 import { Activity, AlertTriangle, Cable, CheckCircle2, ChevronRight, Cpu, Gauge, KeyRound, Lock, Puzzle, ScrollText, Users, type LucideIcon } from 'lucide-react'
 import type { ReactNode } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
-import type { CredentialState, UpdateStatus } from '@mycel/shared/api'
+import type { CredentialState, Locale, UpdateStatus } from '@mycel/shared/api'
 import { api, API } from '../../lib/api'
-import { formatRelative, formatUsd, localDay, localDayRange } from '../../lib/format'
+import { formatRelative, formatUsd, intlTag, localDay, localDayRange } from '../../lib/format'
+import { turnWhen } from '../../lib/updateTurn'
 import { useLocale, useT, type MessageKey } from '../../i18n'
 import { isOwner, useMeStrict } from '../../store/session'
 import { Badge, Button } from '../../components/ui'
@@ -30,11 +31,35 @@ const partOfDay = (window: string) => {
   return h < 6 ? 'dawn' : h >= 18 ? 'night' : 'day'
 }
 
+/** When a release waiting for this server's turn in its staged roll-out installs (turnAt), in the day words of an
+ * ordinary automatic update, with the date when it is further away than tomorrow; null when it cannot be said. */
+function turnLine(t: (k: MessageKey, v?: Record<string, string | number>) => string, locale: Locale, u: UpdateStatus): string | null {
+  if (!u.turnAt || !u.window || !u.timeZone) return null
+  const w = turnWhen(u.turnAt, u.window, u.timeZone)
+  if (!w) return null
+  const window = u.window.replace('-', '–')
+  const date = new Intl.DateTimeFormat(intlTag(locale), { month: 'short', day: 'numeric', timeZone: 'UTC' }).format(w.date)
+  return t(`adminHome.when.${w.day}.${partOfDay(u.window)}` as MessageKey, { window, date })
+}
+
 /** What the Home item says about a new version: when it installs by itself, that the timer does it, or that nothing will. */
-function updateLine(t: (k: MessageKey, v?: Record<string, string | number>) => string, u: UpdateStatus, version: string) {
-  if (u.needsRoot) return t(u.hold === 'root_failed' ? 'adminHome.update.rootFailed' : !u.auto ? 'adminHome.update.rootManual' : 'adminHome.update.root', { version })
+function updateLine(t: (k: MessageKey, v?: Record<string, string | number>) => string, locale: Locale, u: UpdateStatus, version: string) {
+  if (u.needsRoot) {
+    if (u.hold === 'root_failed') return t('adminHome.update.rootFailed', { version })
+    // the update timer keeps the staged roll-out too (turnAt): on this server's turn, or never by itself (null: the
+    // command then)
+    if (!u.auto || u.turnAt === null) return t('adminHome.update.rootManual', { version })
+    const when = turnLine(t, locale, u)
+    return when ? t('adminHome.update.rootAt', { version, when }) : t('adminHome.update.root', { version })
+  }
   if (!u.auto || u.nextWindow === null) return t('adminHome.update.off', { version })
-  if (u.hold === 'rollout') return t('adminHome.update.rollout', { version })
+  if (u.hold === 'rollout') {
+    // this server's turn in the staged roll-out (server/src/system/rollout.ts), when the server says when; null: this
+    // release's roll-out never reaches this server by itself (Install now still does)
+    if (u.turnAt === null) return t('adminHome.update.rolloutNever', { version })
+    const when = turnLine(t, locale, u)
+    return when ? t('adminHome.update.rolloutAt', { version, when }) : t('adminHome.update.rollout', { version })
+  }
   if (u.hold === 'failed' || u.hold === 'root_failed') return t('adminHome.update.failed', { version })
   const n = u.nextWindow
   const window = u.window ? u.window.replace('-', '–') : ''
@@ -98,7 +123,7 @@ export default function Home() {
     ...(storageBad && storage.data ? [{ key: 'storage', text: t('adminHome.storage', { percent: Math.round(storage.data.percent) }), to: '/admin/system' }] : []),
     ...failedChecks.map((c) => ({ key: `check-${c.id}`, text: c.label, to: '/admin/system' })),
     ...(newVersion && upd ? [{
-      key: 'update', text: updateLine(t, upd, newVersion), to: '/admin/system', job: install.jobId,
+      key: 'update', text: updateLine(t, locale, upd, newVersion), to: '/admin/system', job: install.jobId,
       actions: canInstall ? <Button size="sm" variant="primary" disabled={!!install.jobId} onClick={() => install.ask('update')} data-testid="home-update-install">{t('adminHome.update.install')}</Button> : undefined,
     }] : []),
     ...(after.data ?? []).filter((a) => AFTER_UPDATE_IDS.includes(a.id)).map((a) => ({

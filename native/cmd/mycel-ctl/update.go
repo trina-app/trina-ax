@@ -51,13 +51,16 @@ var resultCodes = map[string]int{"ok": 0, "rolled_back": 10, "verify_failed": 20
 // root files differ from those of the channel heads it was published over; in one with rootSince, it is kept for the
 // updaters of 0.2.18 and older, which read only needsRoot (publish-server.ts: true while rootSince is newer than
 // 0.2.18, so such a server never takes a release without the root files it needs).
+// urgent and rollout: the staged roll-out the update timer keeps (rollout.go; rollout is read leniently, never a reason to refuse the feed).
 type ReleaseFeed struct {
-	Version     string `json:"version"`
-	MinFrom     string `json:"minFrom"`
-	NeedsRoot   bool   `json:"needsRoot"`
-	RootSince   string `json:"rootSince"`
-	Notes       string `json:"notes"`
-	PublishedAt string `json:"publishedAt"`
+	Version     string       `json:"version"`
+	MinFrom     string       `json:"minFrom"`
+	Urgent      bool         `json:"urgent"`
+	NeedsRoot   bool         `json:"needsRoot"`
+	RootSince   string       `json:"rootSince"`
+	Notes       string       `json:"notes"`
+	PublishedAt string       `json:"publishedAt"`
+	Rollout     *rolloutSpec `json:"-"` // read leniently from "rollout" (rollout.go UnmarshalJSON, readRollout)
 	Bundles     []struct {
 		OS     string `json:"os"`
 		Arch   string `json:"arch"`
@@ -85,6 +88,9 @@ type updater struct {
 	busyWith  string
 	deferred  bool
 	turnedOff bool
+	// gateVersion: the release the scheduled gate decided on (its window, hold and staged roll-out); run() installs only
+	// that one, so a release published while the gate waited for a quiet moment waits for the next check's own gate
+	gateVersion string
 	// attempted: the run began to bring the release in (a download, or a --bundle unpacked); a failure from then on
 	// holds the release from the update timer (root/update-failed.json, schedule.go). rootIn: its root files are in
 	// place (updateRoot finished), so what failed was the app: the long hold
@@ -113,7 +119,7 @@ func cmdUpdate(e *env, args []string) (int, error) {
 	version := fs.String("version", "", "update to this version (from the feed; an older one too: a roll-back); default: the channel's newest, only when it is newer than the app that runs")
 	bundleFile := fs.String("bundle", "", "update from this release archive (<v>-linux-<arch>.tar.zst) instead of the feed")
 	onlyRoot := fs.Bool("only-if-needs-root", false, "do nothing unless the release changes root files (the update timer)")
-	scheduled := fs.Bool("scheduled", false, "the update timer: only inside the team's update window (team time zone) and only when no answer runs; waits for a quiet moment instead of interrupting answers")
+	scheduled := fs.Bool("scheduled", false, "the update timer: only inside the team's update window (team time zone), when it is this server's turn in a release's staged roll-out, and only when no answer runs; waits for a quiet moment instead of interrupting answers")
 	asJSON := fs.Bool("json", false, "JSON output")
 	maxWait := fs.Int("max-wait", 600, "seconds to wait for running turns before replacing root files")
 	healthWait := fs.Int("health-timeout", 180, "seconds to wait for the new version's /api/health")
@@ -250,7 +256,7 @@ func (u *updater) gate(onlyRoot bool) (bool, error) {
 		def, _ := parseWindow(defaultUpdateWindow)
 		loc, zone := fallbackZone(u.in.ID)
 		if since := windowPassed(u.e); u.e.now().Sub(since) >= scheduleLastResort && def.contains(u.e.now().In(loc)) {
-			s = updateSchedule{w: def, loc: loc, zone: zone, note: "no check got inside the team's window (" + s.String() + ") since " + since.UTC().Format(time.RFC3339) + ", so the default"}
+			s = updateSchedule{w: def, loc: loc, zone: zone, installID: s.installID, note: "no check got inside the team's window (" + s.String() + ") since " + since.UTC().Format(time.RFC3339) + ", so the default"}
 			now = u.e.now().In(loc)
 		} else {
 			u.res.Result, u.res.Skipped, u.res.Detail = "ok", true, "outside the update window "+s.String()
@@ -288,6 +294,21 @@ func (u *updater) gate(onlyRoot bool) (bool, error) {
 			return false, nil
 		}
 	}
+	// the staged roll-out of a stable release (rollout.go, the app's rule): this server's turn may come a day or two
+	// later. Only for a release newer than the app that runs (root files catching up with the running version are not
+	// held), never on a hosted server (its control plane picks), and never for an administrator's `mycel-ctl update`.
+	if !u.in.Hosted && u.res.From != "" && compareVersions(feed.Version, u.res.From) > 0 {
+		if w := rolloutTurn(feed, installIDOf(u.in, s), serverChannel(u.e.base), u.e.now()); w.wait {
+			// a deferral left by an earlier release (no quiet moment for it) must not carry its three days over to this
+			// one: at this release's turn the last resort would cut answers off at the first check
+			if d := readDeferred(u.e); d != nil && d.Version != feed.Version {
+				clearDeferred(u.e)
+			}
+			u.res.Result, u.res.Skipped, u.res.Detail = "ok", true, w.detail(feed.Version, s.loc)
+			return false, nil
+		}
+	}
+	u.gateVersion = feed.Version
 	u.quietBy = s.w.end(now)
 	if lim := now.Add(scheduleRunWait); lim.Before(u.quietBy) {
 		u.quietBy = lim
@@ -397,6 +418,10 @@ func (u *updater) run(version, bundleFile string, onlyRoot bool) error {
 			return err
 		}
 		u.res.To, needsRoot = feed.Version, rootJob(feed, rootVersion(u.e), u.res.From) || heldHere(u.e, feed.Version)
+		if u.scheduled && u.gateVersion != "" && feed.Version != u.gateVersion {
+			u.res.Result, u.res.Skipped, u.res.Detail = "ok", true, "the feed moved from "+u.gateVersion+" to "+feed.Version+" while this run waited for a quiet moment; the next check decides on "+feed.Version
+			return nil
+		}
 		if version == "" {
 			if why := notNewer(feed.Version, u.res.From, rootVersion(u.e)); why != "" {
 				u.res.Result, u.res.Skipped, u.res.Detail = "ok", true, why

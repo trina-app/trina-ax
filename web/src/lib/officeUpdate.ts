@@ -1,7 +1,9 @@
 // Office mode automatic updates in the web app (docs/OFFICE.md "자동 업데이트"): when the owner's or an admin's view
 // shows the "new version" banner, and when the update card's run has finished. Pure (web/test/unit/officeUpdate.test.ts).
-import type { Me, OfficeUpdateStatus } from '@mycel/shared/api'
+import type { Locale, Me, OfficeUpdateStatus } from '@mycel/shared/api'
+import { intlTag } from './format'
 import { browserTimeZone, isKnownTimeZone } from './time-zones'
+import { turnWhen } from './updateTurn'
 
 const KEY = 'teamax.officeUpdate.dismissed'
 
@@ -27,13 +29,35 @@ export function legacyWindow(s: OfficeUpdateStatus | null | undefined, saved: st
  * and the update card shows them (null when nothing installs by itself: automatic updates off, no update agent, a window
  * that never opens). Members never see it. `updateReady`: the server already answers with a new version (the page
  * says "A new version is ready. Reload", store/live.ts), so this status is from before the update. */
-export function bannerFor(me: Me | null, s: OfficeUpdateStatus | null | undefined, dismissed: string | null, updateReady = false): { version: string; nightly: { window: string; zone: string } | null } | null {
+export function bannerFor(me: Me | null, s: OfficeUpdateStatus | null | undefined, dismissed: string | null, updateReady = false, now = new Date()): { version: string; nightly: { window: string; zone: string } | null; turn?: OfficeTurn } | null {
   const role = me?.user.role
   if (role !== 'owner' && role !== 'admin') return null
   if (updateReady) return null
   if (!s?.available || s.running || s.requested) return null
   if (dismissed === s.available.version) return null
-  return { version: s.available.version, nightly: s.paused || !s.agentInstalled || !s.nextWindowAt ? null : { window: s.window ?? s.time, zone: windowZone(s, me?.server.timeZone) } }
+  const nightly = s.paused || !s.agentInstalled || !s.nextWindowAt ? null : { window: s.window ?? s.time, zone: windowZone(s, me?.server.timeZone) }
+  // `turn` (only when it says more than `nightly`): this Mac's turn in a staged roll-out, later than the next run, or never
+  const turn = nightly ? officeTurn(s, me?.server.timeZone, now) : null
+  return { version: s.available.version, nightly, ...(turn ? { turn } : {}) }
+}
+
+export type OfficeTurn = { kind: 'turn'; date: Date; window: string; zone: string } | { kind: 'never' }
+
+/** the day of a turn's window ("Nov 6", "11월 6일"): turnWhen gives it as that date's UTC midnight */
+export const turnDate = (d: Date, locale: Locale) => new Intl.DateTimeFormat(intlTag(locale), { month: 'short', day: 'numeric', timeZone: 'UTC' }).format(d)
+
+/** A stable release waiting for this Mac's turn in its staged roll-out (available.turnAt, server/src/system/rollout.ts):
+ * the window that turn falls in, when it is later than the next run of the update window (else the usual words hold),
+ * or never (the release does not install by itself here; "update now" does). null: nothing to say. */
+export function officeTurn(s: OfficeUpdateStatus, teamZone?: string | null, now = new Date()): OfficeTurn | null {
+  const turnAt = s.available?.turnAt
+  if (turnAt === undefined) return null
+  if (turnAt === null) return { kind: 'never' }
+  if (s.nextWindowAt && Date.parse(turnAt) <= Date.parse(s.nextWindowAt)) return null
+  const window = s.window ?? s.time
+  const zone = windowZone(s, teamZone)
+  const w = turnWhen(turnAt, window, s.timeZone ?? zone, now)
+  return w ? { kind: 'turn', date: w.date, window, zone } : null
 }
 
 export function dismissedVersion(): string | null {

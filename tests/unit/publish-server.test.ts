@@ -13,6 +13,7 @@ import { RELEASE_CHANNEL } from '../../shared/src/release-channel'
 import { silentLogger } from '../../server/src/log'
 import { writeManifest } from '../../server/src/system/bundle'
 import { ReleaseFeed, UpdateManager, releaseNeedsRoot, verifyBundleDir, verifySignature } from '../../server/src/system/update'
+import { DEFAULT_RAMP } from '../../server/src/system/rollout'
 import { kitName } from '../../scripts/build-bundle'
 import { signLinuxBuild } from '../../scripts/release/release-ci'
 import type { Bucket } from '../../scripts/release/cloudflare'
@@ -153,6 +154,65 @@ describe('publish-server', () => {
     expect(r.status).toBe('published')
     expect(r.uploaded).toEqual(['server/beta.json', 'server/beta.json.sig'])
     expect(fs.readFileSync(path.join(feed, 'server', 'beta.json')).equals(rel)).toBe(true)
+  })
+
+  test('the staged roll-out: a stable release ramps (new salt each release), Rollout: all and beta releases do not; the beta head keeps the bytes', async () => {
+    const feed = path.join(T, 'feed-rollout')
+    const lines: string[] = []
+    await publishServer(opts(b030, feed, { channel: 'stable', log: (s) => lines.push(s), now: () => new Date('2026-11-04T01:00:00.000Z') }))
+    const rel = fs.readFileSync(path.join(feed, 'server', '0.3.0', 'release.json'))
+    const r = ReleaseFeed.parse(JSON.parse(rel.toString()))
+    expect(r.publishedAt).toBe('2026-11-04T01:00:00.000Z')
+    expect(r.rollout).toEqual({ percent: 100, salt: expect.stringMatching(/^[0-9a-f]{32}$/), ramp: [...DEFAULT_RAMP] })
+    expect(ProtocolReleaseFeed.parse(JSON.parse(rel.toString())).rollout?.ramp).toEqual([...DEFAULT_RAMP])
+    expect(lines).toContain('rollout: staged, 10% → 50% after 24 h → 100% after 48 h (from publishedAt)')
+    // the stable release offered to beta: the same bytes (a beta server skips the ramp itself)
+    const b = await publishServer(opts(b030, feed, { channel: 'beta', ifNewer: true, rollout: 'all', log: (s) => lines.push(s) }))
+    expect(b.status).toBe('published')
+    expect(fs.readFileSync(path.join(feed, 'server', 'beta.json')).equals(rel)).toBe(true)
+    // a run again with --rollout all keeps the release.json first published (and says so)
+    const again: string[] = []
+    expect((await publishServer(opts(b030, feed, { channel: 'stable', rollout: 'all', log: (s) => again.push(s) }))).status).toBe('unchanged')
+    expect(again.some((l) => l.startsWith('warning: server/0.3.0/release.json keeps its staged roll-out'))).toBe(true)
+    expect(fs.readFileSync(path.join(feed, 'server', 'stable.json')).equals(rel)).toBe(true)
+    // the next release after 0.3.0's ramp has ended (48 h) gets another salt (a burst inherits it: the test below)
+    const b031 = await signedBuilds('b031-rollout', '0.3.1')
+    await publishServer(opts(b031, feed, { version: '0.3.1', channel: 'stable', now: () => new Date('2026-11-06T02:00:00.000Z') }))
+    const next = ReleaseFeed.parse(JSON.parse(read(path.join(feed, 'server', '0.3.1', 'release.json'))))
+    expect(next.rollout?.salt).toMatch(/^[0-9a-f]{32}$/)
+    expect(next.rollout?.salt).not.toBe(r.rollout?.salt)
+    // Rollout: all (the tag message), and a beta release: no roll-out at all, every server at once as before
+    const all = path.join(T, 'feed-rollout-all')
+    await publishServer(opts(b030, all, { channel: 'stable', rollout: 'all' }))
+    expect(JSON.parse(read(path.join(all, 'server', '0.3.0', 'release.json'))).rollout).toBeUndefined()
+    const beta = path.join(T, 'feed-rollout-beta')
+    await publishServer(opts(b030, beta, { channel: 'beta' }))
+    expect(JSON.parse(read(path.join(beta, 'server', '0.3.0', 'release.json'))).rollout).toBeUndefined()
+  })
+
+  test('a burst: a release while the head still ramps takes over its salt and start (since); after 48 h a new ramp', async () => {
+    const feed = path.join(T, 'feed-burst')
+    const t0 = Date.parse('2026-11-04T01:00:00.000Z')
+    const rel = (v: string) => ReleaseFeed.parse(JSON.parse(read(path.join(feed, 'server', v, 'release.json'))))
+    await publishServer(opts(b030, feed, { channel: 'stable', now: () => new Date(t0) }))
+    const b031 = await signedBuilds('b031-burst', '0.3.1')
+    const lines: string[] = []
+    await publishServer(opts(b031, feed, { version: '0.3.1', channel: 'stable', now: () => new Date(t0 + 12 * 3_600_000), log: (s) => lines.push(s) }))
+    expect(rel('0.3.1').rollout).toEqual({ percent: 100, salt: rel('0.3.0').rollout!.salt, ramp: [...DEFAULT_RAMP], since: '2026-11-04T01:00:00.000Z' })
+    expect(lines.some((l) => l.startsWith('rollout: staged, 10% → 50% after 24 h → 100% after 48 h from 2026-11-04T01:00:00.000Z (0.3.0\'s ramp'))).toBe(true)
+    // 50 h after 0.3.0: its ramp has ended, so 0.3.2 starts its own
+    const b032 = await signedBuilds('b032-burst', '0.3.2')
+    await publishServer(opts(b032, feed, { version: '0.3.2', channel: 'stable', now: () => new Date(t0 + 50 * 3_600_000) }))
+    expect(rel('0.3.2').rollout?.since).toBeUndefined()
+    expect(rel('0.3.2').rollout?.salt).not.toBe(rel('0.3.0').rollout!.salt)
+  })
+
+  test('a re-run of a release first published without the ramp says so when the ramp is asked for', async () => {
+    const feed = path.join(T, 'feed-all-then-staged')
+    await publishServer(opts(b030, feed, { channel: 'stable', rollout: 'all' }))
+    const lines: string[] = []
+    expect((await publishServer(opts(b030, feed, { channel: 'stable', log: (s) => lines.push(s) }))).status).toBe('unchanged')
+    expect(lines.some((l) => l.startsWith('warning: server/0.3.0/release.json was first published without the staged roll-out'))).toBe(true)
   })
 
   // rootChanged is what needsRoot was before the rule for 0.2.18 and older (below): a rootSince newer than 0.2.18 keeps

@@ -48,7 +48,8 @@
 //
 // For the root update timer (`mycel-ctl update --scheduled`, native/cmd/mycel-ctl/schedule.go):
 //   update-window                                the team's update window and time zone, one JSON line
-//                                                { window, timeZone, custom } (system/update-job.ts updateWindowAnswer)
+//                                                { window, timeZone, custom, installId? } (system/update-job.ts
+//                                                updateWindowAnswer; installId for the staged roll-out, system/rollout.ts)
 //
 // Run by scripts/install-macos.sh as root with the admin.js of the bundle it installs (no config, explicit paths only):
 //   lan-cert --cert F --key F [--fingerprint F]  make or keep the office TLS certificate (system/lan-cert.ts); JSON
@@ -72,7 +73,7 @@ import { ageDecrypt, ageEncrypt, isAgeFile, readFileChunks, writeAtomic, zstdCom
 import { extractTar, tarStream, type TarEntryInput } from './tar'
 import { compareVersions, UpdateManager } from './update'
 import { updateWindowAnswer } from './update-job'
-import { getTeamSettings, teamTimeZone } from '../admin/settings'
+import { existingInstallId, getTeamSettings, teamTimeZone } from '../admin/settings'
 import { pruneVersions } from './prune'
 import { feedRootOf, folderFetch, refreshWindowsApp } from './windows-app'
 import { DEFAULT_FEED } from '../office/release'
@@ -345,7 +346,7 @@ export async function main(argv: string[]): Promise<number> {
     case 'update-window': {
       // read only, no migration: root asks every 15 minutes, also right after a switch while the old server still runs
       const db = new Database(dbFile, { readonly: true, strict: true })
-      try { console.log(JSON.stringify(updateWindowAnswer(getTeamSettings(db), teamTimeZone(db)))) } finally { db.close() }
+      try { console.log(JSON.stringify(updateWindowAnswer(getTeamSettings(db), teamTimeZone(db), existingInstallId(db)))) } finally { db.close() }
       return 0
     }
     // the engine account's Codex login (server/src/system/codex-login.ts)

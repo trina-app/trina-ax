@@ -86,7 +86,12 @@ export function viewText(v: OfficeUpdateView): string {
     `자동 업데이트 / auto    ${!v.agentInstalled ? '설치 안 됨 / agent not installed (office-install.sh)' : v.paused ? '꺼짐 / paused (teamax update resume)' : `업데이트 시간 / window ${v.window} ${v.timeZone}, 답변이 없을 때 / when no answer runs (${when})`}`,
     `마지막 확인 / checked   ${local(v.lastCheckAt, v.timeZone)}${v.last ? `  → ${v.last.kind}${v.last.version ? ` ${v.last.version}` : ''}${v.last.message ? ` (${v.last.message})` : ''}` : ''}`,
   ]
-  if (v.available) lines.push(`새 버전 / available     ${v.available.version} (${v.available.channel})`)
+  if (v.available) {
+    // a stable release's staged roll-out (system/rollout.ts): when the nightly run takes it here
+    const t = v.available.turnAt
+    const turn = t === undefined ? '' : t ? `, 이 맥 차례 / this Mac's turn ${local(t, v.timeZone)}` : ', 자동으로 오지 않음 / not by itself (teamax update now)'
+    lines.push(`새 버전 / available     ${v.available.version} (${v.available.channel}${turn})`)
+  }
   if (v.lastUpdate) lines.push(`마지막 업데이트 / last  ${v.lastUpdate.from} → ${v.lastUpdate.to} ${v.lastUpdate.result} ${local(v.lastUpdate.at, v.timeZone)}${v.lastUpdate.error ? ` (${v.lastUpdate.error})` : ''}`)
   if (v.desktop) lines.push(`윈도우 앱 / Windows app ${v.desktop.version} (data/downloads, ${local(v.desktop.at, v.timeZone)})`)
   if (v.running) lines.push(`진행 중 / running       ${v.running.phase}`)

@@ -23,6 +23,12 @@ on:
         description: "An existing release tag to run again (e.g. v0.3.0). Choose the same tag under 'Use workflow from'."
         required: true
         type: string
+      rollout:
+        description: "Stable releases: tag = as the tag message says (a 'Rollout: all' line, else staged over three days); staged; all = every server at once. Only a release not on the feed yet takes it."
+        required: false
+        default: tag
+        type: choice
+        options: [tag, staged, all]
 
 # one release at a time (the feed's "never back" check reads what the previous one published)
 concurrency:
@@ -58,6 +64,7 @@ jobs:
       prerelease: ${{ steps.release.outputs.prerelease }}
       sha: ${{ steps.release.outputs.sha }}
       feed: ${{ steps.key.outputs.feed }}
+      rollout: ${{ steps.notes.outputs.rollout }}
     steps:
       - name: Which tag
         id: which
@@ -86,10 +93,14 @@ jobs:
         run: |
           bun scripts/release/release-ci.ts tag "$TAG" | tee -a "$GITHUB_OUTPUT"
           echo "sha=$(git rev-parse HEAD)" | tee -a "$GITHUB_OUTPUT"
-      - name: Release notes (the annotated tag's message; empty for a lightweight tag)
+      # the staged roll-out (docs/RELEASE-CI.md "단계적 배포"): a "Rollout: all" line in the tag message (taken out of the
+      # notes) or the manual run's input publishes a stable release to every server at once; otherwise it is staged
+      - name: Release notes (the annotated tag's message; empty for a lightweight tag) and the roll-out
+        id: notes
         env:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ steps.which.outputs.tag }}
+          INPUT_ROLLOUT: ${{ inputs.rollout }}
         run: |
           mkdir -p notes
           ref=$(gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/$TAG")
@@ -98,6 +109,7 @@ jobs:
           else
             : > notes/notes.md
           fi
+          bun scripts/release/release-ci.ts rollout notes/notes.md "$INPUT_ROLLOUT" | tee -a "$GITHUB_OUTPUT"
           wc -c notes/notes.md
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
@@ -263,6 +275,7 @@ jobs:
       VERSION: ${{ needs.prepare.outputs.version }}
       CHANNEL: ${{ needs.prepare.outputs.channel }}
       SHA: ${{ needs.prepare.outputs.sha }}
+      ROLLOUT: ${{ needs.prepare.outputs.rollout }}
     steps:
       - name: The tag still names the tested commit
         env:
@@ -313,19 +326,20 @@ jobs:
         run: |
           zip=$(ls in/release-office/*-mac.zip)
           exe=$(ls in/release-windows/*-Setup-*-win-x64.exe)
-          bun scripts/release/publish.ts --channel "$CHANNEL" --version "$VERSION" --office "$zip" --windows "$exe" --notes-file in/release-notes/notes.md
-          # a stable release is also the beta channel's newest, unless beta is already ahead
+          bun scripts/release/publish.ts --channel "$CHANNEL" --version "$VERSION" --office "$zip" --windows "$exe" --notes-file in/release-notes/notes.md --rollout "$ROLLOUT"
+          # a stable release is also the beta channel's newest, unless beta is already ahead (the beta channel has no ramp)
           if [ "$CHANNEL" = stable ]; then
-            bun scripts/release/publish.ts --channel beta --if-newer --version "$VERSION" --office "$zip" --windows "$exe" --notes-file in/release-notes/notes.md
+            bun scripts/release/publish.ts --channel beta --if-newer --version "$VERSION" --office "$zip" --windows "$exe" --notes-file in/release-notes/notes.md --rollout "$ROLLOUT"
           fi
       - name: Server feed (Linux)
         if: needs.prepare.outputs.feed == 'true'
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
         run: |
-          bun scripts/release/publish-server.ts --channel "$CHANNEL" --version "$VERSION" --dir build/server --notes-file in/release-notes/notes.md
+          bun scripts/release/publish-server.ts --channel "$CHANNEL" --version "$VERSION" --dir build/server --notes-file in/release-notes/notes.md --rollout "$ROLLOUT"
+          # the same release.json (its roll-out too: servers on the beta channel skip the ramp themselves)
           if [ "$CHANNEL" = stable ]; then
-            bun scripts/release/publish-server.ts --channel beta --if-newer --version "$VERSION" --dir build/server --notes-file in/release-notes/notes.md
+            bun scripts/release/publish-server.ts --channel beta --if-newer --version "$VERSION" --dir build/server --notes-file in/release-notes/notes.md --rollout "$ROLLOUT"
           fi
       - name: SHA256SUMS and its signature
         run: |

@@ -5,7 +5,9 @@ import { afterAll, beforeAll, describe, expect, test } from 'bun:test'
 import fs from 'node:fs'
 import path from 'node:path'
 import { TeamSettings } from '@mycel/shared/api'
-import { getSetting, setSetting } from '../../server/src/admin/settings'
+import { Database } from 'bun:sqlite'
+import { existingInstallId, getSetting, installId, setSetting } from '../../server/src/admin/settings'
+import { DEFAULT_RAMP } from '../../server/src/system/rollout'
 import { OFFICE_RELEASE_KEYS } from '../../server/src/office/release'
 import { silentLogger } from '../../server/src/log'
 import { writeManifest } from '../../server/src/system/bundle'
@@ -109,6 +111,20 @@ describe('roll-out, window, decision', () => {
   test('admin.js update-window: the team\'s window or the default, and the zone', () => {
     expect(updateWindowAnswer({ updateWindow: null }, 'Asia/Seoul')).toEqual({ window: '03:00-05:00', timeZone: 'Asia/Seoul', custom: false })
     expect(updateWindowAnswer({ updateWindow: '01:00-02:00' }, 'UTC')).toEqual({ window: '01:00-02:00', timeZone: 'UTC', custom: true })
+    // the install id for the root update timer's staged roll-out (system/rollout.ts); none yet: not said (the last wave)
+    expect(updateWindowAnswer({ updateWindow: null }, 'UTC', 'install-0')).toEqual({ window: '03:00-05:00', timeZone: 'UTC', custom: false, installId: 'install-0' })
+    expect(updateWindowAnswer({ updateWindow: null }, 'UTC', null)).toEqual({ window: '03:00-05:00', timeZone: 'UTC', custom: false })
+  })
+  test('the install id admin.js reads (read only): MYCEL_INSTALL_ID, else the settings table, else none; it never makes one', () => {
+    const db = new Database(':memory:')
+    db.run('CREATE TABLE settings (key TEXT PRIMARY KEY, value TEXT NOT NULL)')
+    expect(existingInstallId(db, {})).toBeNull()
+    expect(db.query('SELECT COUNT(*) AS n FROM settings').get()).toEqual({ n: 0 })
+    expect(existingInstallId(db, { MYCEL_INSTALL_ID: 'tenant-7' })).toBe('tenant-7')
+    expect(existingInstallId(db, { MYCEL_INSTALL_ID: 'bad id/' })).toBeNull()
+    const made = installId(db, {})
+    expect(existingInstallId(db, {})).toBe(made)
+    expect(installId(db, {})).toBe(made)
   })
   test('window starts are inclusive, ends exclusive, including midnight and the null default', () => {
     const at = (time: string) => new Date(`2026-10-21T${time}:00Z`)
@@ -126,7 +142,7 @@ describe('roll-out, window, decision', () => {
   })
   test('take it only when newer, app-only, in the roll-out, not held, in the window, nothing running', () => {
     const now = new Date('2026-10-21T18:30:00Z')
-    const base = { feed: feed(), current: '1.0.0', installId: 'i', now, tz: 'Asia/Seoul', window: null, running: 0, history: [] }
+    const base = { feed: feed(), current: '1.0.0', installId: 'i', now, tz: 'Asia/Seoul', window: null, running: 0, history: [], channel: 'stable' as const }
     expect(autoUpdateDecision(base)).toEqual({ go: true, version: '1.1.0' })
     expect(autoUpdateDecision({ ...base, feed: null })).toMatchObject({ why: 'no_feed' })
     expect(autoUpdateDecision({ ...base, current: '1.1.0' })).toMatchObject({ why: 'up_to_date' })
@@ -155,7 +171,7 @@ describe('roll-out, window, decision', () => {
       [true, '1.0.5', '1.0.5', false], [true, '1.0.5', '1.0.4', true], [true, '1.0.5', null, true],
     ] as const) expect({ needsRoot, rootSince, root, got: releaseNeedsRoot({ needsRoot, rootSince }, root) }).toEqual({ needsRoot, rootSince, root, got: want })
     const now = new Date('2026-10-21T18:30:00Z')
-    const base = { feed: feed({ rootSince: '1.0.5' }), current: '1.0.4', installId: 'i', now, tz: 'Asia/Seoul', window: null, running: 0, history: [] }
+    const base = { feed: feed({ rootSince: '1.0.5' }), current: '1.0.4', installId: 'i', now, tz: 'Asia/Seoul', window: null, running: 0, history: [], channel: 'stable' as const }
     expect(autoUpdateDecision({ ...base, rootVersion: '1.0.4' })).toMatchObject({ go: false, why: 'needs_root' })
     expect(autoUpdateDecision({ ...base, rootVersion: null })).toMatchObject({ go: false, why: 'needs_root' })
     expect(autoUpdateDecision({ ...base, rootVersion: '1.0.5' })).toEqual({ go: true, version: '1.1.0' })
@@ -271,6 +287,48 @@ describe('through the app', () => {
       release()
       delete (u as unknown as Record<string, unknown>).checkFeed
       delete (u as unknown as Record<string, unknown>).feedUsable
+    }
+  })
+  test('a release in its staged roll-out: the update status says when this server\'s turn comes (turnAt)', async () => {
+    const published = new Date(Date.now() - 3600_000)
+    const salt = '3f9a1c7e5b2d4086a1e0c9b8f7d6e5a4'
+    const check = (o: Partial<ReleaseFeed>) => fs.writeFileSync(path.join(h.ctx.config.dataDir, 'update-check.json'),
+      JSON.stringify({ at: new Date().toISOString(), error: null, feed: feed({ version: '99.0.0', publishedAt: published.toISOString(), rollout: { percent: 100, salt, ramp: [...DEFAULT_RAMP] }, ...o }) }))
+    setSetting(h.ctx.db, 'system.installId', 'install-0') // bucket 62 with this salt: the third wave
+    const was = process.env.MYCEL_INSTALL_ID
+    delete process.env.MYCEL_INSTALL_ID
+    try {
+      check({})
+      // hold 'rollout' (Admin Home: installs when it is this server's turn) and when that turn comes
+      expect(await owner.call('GET', '/api/admin/update')).toMatchObject({ hold: 'rollout', turnAt: new Date(published.getTime() + 48 * 3600_000).toISOString() })
+      // the first wave, an urgent release, the beta channel, no roll-out: no wait, no field, no hold
+      const free = async () => { const s = await owner.call('GET', '/api/admin/update'); expect(s.turnAt).toBeUndefined(); expect(s.hold).toBeNull() }
+      setSetting(h.ctx.db, 'system.installId', 'install-4')
+      await free()
+      setSetting(h.ctx.db, 'system.installId', 'install-0')
+      check({ urgent: true })
+      await free()
+      check({ rollout: undefined })
+      await free()
+      check({})
+      h.ctx.config.update = { ...h.ctx.config.update, channel: 'beta' }
+      await free()
+      h.ctx.config.update = { ...h.ctx.config.update, channel: 'stable' }
+      // a roll-out that leaves this server out (percent alone): null, still held by the roll-out
+      check({ rollout: { percent: 30, salt } })
+      expect(await owner.call('GET', '/api/admin/update')).toMatchObject({ hold: 'rollout', turnAt: null })
+      // "Update now" does not wait for the turn: the release is offered and the update starts (it then stops at the
+      // download here, which has no feed); the route never asks the roll-out
+      check({})
+      const ops = getOps(h.ctx)!
+      const r = await owner.try('POST', '/api/admin/update', { password: OWNER_PW })
+      expect(r.status).toBe(202)
+      expect(r.body.jobId).toBeTruthy()
+      for (let i = 0; i < 200 && ops.busyWith; i++) await new Promise((x) => setTimeout(x, 50))
+      expect(ops.busyWith).toBeNull()
+    } finally {
+      if (was !== undefined) process.env.MYCEL_INSTALL_ID = was
+      fs.rmSync(path.join(h.ctx.config.dataDir, 'update-check.json'), { force: true })
     }
   })
   test('automatic updates: off unless update.auto on a self-host; never on Team AX Cloud', async () => {

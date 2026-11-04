@@ -154,11 +154,18 @@ export function teamTimeZone(db: Database): string {
  * use and kept in the settings table. Spreads the nightly backup, update roll-outs and the first search indexing of
  * the teams on one host (system/ops.ts, system/update-job.ts, tools/search.ts). */
 export function installId(db: Database, env: Record<string, string | undefined> = process.env): string {
-  const e = env.MYCEL_INSTALL_ID
-  if (e && /^[A-Za-z0-9._-]{1,128}$/.test(e)) return e
-  const v = getSetting<unknown>(db, 'system.installId')
-  if (typeof v === 'string' && v) return v
+  const have = existingInstallId(db, env)
+  if (have) return have
   const id = crypto.randomUUID()
   db.query("INSERT INTO settings (key, value) VALUES ('system.installId', ?) ON CONFLICT(key) DO NOTHING").run(JSON.stringify(id))
   return getSetting<string>(db, 'system.installId') ?? id
+}
+
+/** installId without making one (a read-only database: admin.js update-window for the root update timer's staged
+ * roll-out, system/rollout.ts); null when the install has none yet. */
+export function existingInstallId(db: Database, env: Record<string, string | undefined> = process.env): string | null {
+  const e = env.MYCEL_INSTALL_ID
+  if (e && /^[A-Za-z0-9._-]{1,128}$/.test(e)) return e
+  const v = getSetting<unknown>(db, 'system.installId')
+  return typeof v === 'string' && v ? v : null
 }
