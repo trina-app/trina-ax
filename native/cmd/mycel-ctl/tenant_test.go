@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"sort"
@@ -409,6 +410,32 @@ func TestTenantStatus(t *testing.T) {
 	f.adminErr = nil
 	if code, out, _ := tb.tctl("", "status", "--detail", "--json"); code != 0 || jsonOf(t, out)["units"] == nil {
 		t.Fatalf("--detail: %d %s", code, out)
+	}
+}
+
+// The optional onboarding block: passed through with its known fields only; a block out of range or of the wrong
+// type is dropped alone, and the rest of the app's part stays.
+func TestTenantStatusOnboarding(t *testing.T) {
+	tb := newTestBase(t, "0.3.0")
+	app := `{"setupNeeded":false,"activeMembers":3,"queue":null,"relay":null,"lastLocalBackup":null,"lastUploadedLocalId":null,"overall":"ok","checks":[],"ai":{"claude":"ok","codex":"none"},"credentialsKey":{"present":true,"version":1},"onboarding":%s}`
+	good := `{"day":2,"packInstalled":true,"profileSaved":false,"inviteMade":true,"membersJoined":2,"peopleAnswered":3,"membersWithFirstRun":2,"bestSkillRunners":2,"goalReached":false,"skillName":"ad-copy"}`
+	f := &fakeTenant{adminOut: map[string]string{"cloud-status": fmt.Sprintf(app, good)}}
+	f.install(t)
+	code, out, errs := tb.tctl("", "status", "--json")
+	if code != 0 {
+		t.Fatalf("%d %s", code, errs)
+	}
+	o, ok := jsonOf(t, out)["onboarding"].(map[string]any)
+	if !ok || len(o) != 9 || o["day"] != float64(2) || o["bestSkillRunners"] != float64(2) || o["packInstalled"] != true || strings.Contains(out, "ad-copy") {
+		t.Fatalf("onboarding %s", out)
+	}
+	for _, bad := range []string{`{"day":-1,"packInstalled":true,"profileSaved":false,"inviteMade":true,"membersJoined":2,"peopleAnswered":3,"membersWithFirstRun":2,"bestSkillRunners":2,"goalReached":false}`, `{"day":1.5}`, `"x"`} {
+		f.adminOut["cloud-status"] = fmt.Sprintf(app, bad)
+		code, out, _ = tb.tctl("", "status", "--json")
+		s := jsonOf(t, out)
+		if _, has := s["onboarding"]; code != 0 || has || s["activeMembers"] != float64(3) || s["overall"] != "ok" {
+			t.Fatalf("%s: %d %s", bad, code, out)
+		}
 	}
 }
 

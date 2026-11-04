@@ -26,6 +26,34 @@ const PartUrls = z.array(HttpsUrl).min(1).max(10_000)
 export const UploadedPart = z.object({ n: z.number().int().min(1).max(10_000), etag: z.string().min(1).max(200) })
 export type UploadedPart = z.infer<typeof UploadedPart>
 
+const Count = z.number().int().min(0).max(1_000_000)
+/**
+ * A team's first days, for the hosting operator's activation mails (day 1 / 3 / 5) and its list of teams to contact
+ * (day 3 with no invite or no successful answer). Counts and yes/no only: never a name, mail, skill name or path.
+ * "The window" is the first 7 days from the team's first account; counts inside it stop changing after it.
+ */
+export const TenantOnboarding = z.strictObject({
+  /** whole days since the team's first account was made (0 on that day) */
+  day: z.number().int().min(0).max(100_000),
+  /** the recommended marketing skills are in the team folder (skills/marketing/ holds a skill) */
+  packInstalled: z.boolean(),
+  /** a company profile is saved (skills/company-profile.json with a field filled in) */
+  profileSaved: z.boolean(),
+  /** someone made an invite or a team invite link, or someone joined */
+  inviteMade: z.boolean(),
+  /** accounts made after the first one, deleted ones included */
+  membersJoined: Count,
+  /** people (the owner included) with a successful answer in the window */
+  peopleAnswered: Count,
+  /** people (the owner included) who ran a team skill in a successful answer in the window */
+  membersWithFirstRun: Count,
+  /** the most people who ran one and the same team skill in the window */
+  bestSkillRunners: Count,
+  /** 3 or more people ran the same team skill in the window (the trial's goal) */
+  goalReached: z.boolean(),
+})
+export type TenantOnboarding = z.infer<typeof TenantOnboarding>
+
 /** What `status` reports (60 s, ax-hostd → control plane). No conversation, file name, person, mail, IP or token. */
 export const TenantStatus = z.strictObject({
   at: IsoTime,
@@ -59,6 +87,9 @@ export const TenantStatus = z.strictObject({
     diskUsed: z.number().nonnegative(), diskTotal: z.number().nonnegative(),
   }),
   update: z.strictObject({ running: z.boolean(), step: z.string().regex(/^[a-z0-9_-]{1,40}$/).nullable() }),
+  /** optional (added for the onboarding goal): left out by older servers and while the team has no account. The
+   * control plane must know this field before any tenant sends it (the schema is strict) */
+  onboarding: TenantOnboarding.optional(),
 })
 export type TenantStatus = z.infer<typeof TenantStatus>
 

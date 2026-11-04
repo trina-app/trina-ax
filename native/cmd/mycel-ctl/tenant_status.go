@@ -36,6 +36,28 @@ type TenantStatus struct {
 	CredentialsKey      TenantKey         `json:"credentialsKey"`
 	Resources           TenantResources   `json:"resources"`
 	Update              TenantUpdateState `json:"update"`
+	// Onboarding is optional in the contract (left out when admin.js does not give it: an older app, no account yet).
+	Onboarding *TenantOnboarding `json:"onboarding,omitempty"`
+}
+
+// TenantOnboarding: the team's first days, counts and yes/no only (TenantOnboarding in tenant-commands.ts).
+type TenantOnboarding struct {
+	Day                 int  `json:"day"`
+	PackInstalled       bool `json:"packInstalled"`
+	ProfileSaved        bool `json:"profileSaved"`
+	InviteMade          bool `json:"inviteMade"`
+	MembersJoined       int  `json:"membersJoined"`
+	PeopleAnswered      int  `json:"peopleAnswered"`
+	MembersWithFirstRun int  `json:"membersWithFirstRun"`
+	BestSkillRunners    int  `json:"bestSkillRunners"`
+	GoalReached         bool `json:"goalReached"`
+}
+
+// valid: every count within the contract's range (a value out of range drops the block, never the status).
+func (o *TenantOnboarding) valid() bool {
+	in := func(n, max int) bool { return n >= 0 && n <= max }
+	return in(o.Day, 100_000) && in(o.MembersJoined, 1_000_000) && in(o.PeopleAnswered, 1_000_000) &&
+		in(o.MembersWithFirstRun, 1_000_000) && in(o.BestSkillRunners, 1_000_000)
 }
 
 type TenantApp struct {
@@ -95,6 +117,8 @@ type appStatusPart struct {
 	Checks              []TenantCheck `json:"checks"`
 	AI                  *TenantAI     `json:"ai"`
 	CredentialsKey      *TenantKey    `json:"credentialsKey"`
+	// decoded on its own: a bad block is dropped, never the rest of the app's part
+	Onboarding json.RawMessage `json:"onboarding"`
 }
 
 var (
@@ -147,6 +171,11 @@ func (t *tenant) tenantStatus() TenantStatus {
 			}
 			if a.CredentialsKey != nil {
 				s.CredentialsKey = *a.CredentialsKey
+			}
+			// only the known fields (the struct), only whole numbers in range
+			var o TenantOnboarding
+			if len(a.Onboarding) > 0 && json.Unmarshal(a.Onboarding, &o) == nil && o.valid() {
+				s.Onboarding = &o
 			}
 		}
 	}
