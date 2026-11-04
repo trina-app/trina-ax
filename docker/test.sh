@@ -78,7 +78,7 @@ X bash -c 'cd / && runuser -u axagent -- bwrap --unshare-all --unshare-user --di
   --ro-bind /usr /usr --symlink usr/lib /lib --symlink usr/bin /bin --ro-bind /etc/ld.so.cache /etc/ld.so.cache \
   --proc /proc --dev /dev --tmpfs /tmp --ro-bind /var/lib/mycel/root/mycel-sandbox /tmp/s --remount-ro / --chdir /tmp -- \
   /tmp/s exec --landlock required --exec-allow /usr/bin --exec-allow /usr/lib -- /usr/bin/bash -c "
-    test \"\$(id -u)\" = 991 && test ! -e /var/lib/mycel && ! (exec 3<>/dev/tcp/1.1.1.1/443) 2>/dev/null && ! touch /usr/x 2>/dev/null"' \
+    test \"\$(id -u)\" = 981 && test ! -e /var/lib/mycel && ! (exec 3<>/dev/tcp/1.1.1.1/443) 2>/dev/null && ! touch /usr/x 2>/dev/null"' \
   || fail "bubblewrap + Landlock sandbox as axagent"
 pass "sandbox: bubblewrap (user, pid, net namespaces) + Landlock + seccomp as axagent ($P)"
 # the launcher's own view (the answer the server's diagnostics show): bwrap, Landlock required, firewall loaded

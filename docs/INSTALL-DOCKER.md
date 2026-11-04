@@ -83,11 +83,11 @@ What runs as which account inside the container:
 |---|---|---|
 | `trina-ax-entrypoint`, `install-linux.sh` (at start only), `mycel-ctl supervise` (PID 1) | root | Docker |
 | Engine firewall (`nft` table `inet mycel`, applied again every 2 minutes) | root | supervise |
-| `mycel-launcher` | `axagent` (uid 991) | supervise |
-| AI engines (Claude Code, Codex) in bubblewrap + Landlock + seccomp, no network except the model proxy | `axagent` (uid 991) | launcher |
-| `mycel-bootstrap` → team server, model proxy (127.0.0.1:47821), converters in bubblewrap | `axserver` (uid 990) | supervise |
+| `mycel-launcher` | `axagent` (uid 981) | supervise |
+| AI engines (Claude Code, Codex) in bubblewrap + Landlock + seccomp, no network except the model proxy | `axagent` (uid 981) | launcher |
+| `mycel-bootstrap` → team server, model proxy (127.0.0.1:47821), converters in bubblewrap | `axserver` (uid 980) | supervise |
 
-The uids are fixed in the image (990 and 991, the same as the hosted image). The files in the volume belong to these numbers, so do not change them.
+The uids are fixed in the image (980 and 981, the same as the hosted image). The files in the volume belong to these numbers, so do not change them.
 
 Capabilities: `cap_drop: ALL`, then only these. Each one was removed in a test; the result is in the right column.
 

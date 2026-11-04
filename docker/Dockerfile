@@ -49,11 +49,11 @@ RUN apt-get update -qq \
  && rm -rf /var/lib/apt/lists/*
 # Fixed ids: the files in the volume belong to these numbers, so every image version must use the same ones (the same
 # numbers as the hosted tenant image). System range, no login shell, locked password: install-linux.sh checks all three.
-RUN groupadd --system --gid 990 axserver \
- && useradd --system --uid 990 --gid 990 --home-dir /var/lib/mycel/data --shell /usr/sbin/nologin --no-create-home \
+RUN groupadd --system --gid 980 axserver \
+ && useradd --system --uid 980 --gid 980 --home-dir /var/lib/mycel/data --shell /usr/sbin/nologin --no-create-home \
       --comment "Trina AX server (mycel)" axserver \
- && groupadd --system --gid 991 axagent \
- && useradd --system --uid 991 --gid 991 --home-dir /var/lib/mycel/agent/home --shell /usr/sbin/nologin --no-create-home \
+ && groupadd --system --gid 981 axagent \
+ && useradd --system --uid 981 --gid 981 --home-dir /var/lib/mycel/agent/home --shell /usr/sbin/nologin --no-create-home \
       --comment "Trina AX AI engine (mycel)" axagent \
  && passwd -l axserver >/dev/null && passwd -l axagent >/dev/null
 COPY --from=kit /kit /opt/trina-ax/kit
