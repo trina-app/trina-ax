@@ -27,8 +27,9 @@ export function WelcomeResume() {
       <Link to="/welcome" className="flex min-w-0 flex-1 items-center gap-3 rounded-xl px-3.5 py-3 hover:bg-hover max-sm:min-h-12" data-testid="welcome-resume-link">
         <Sparkles size={16} className="shrink-0 text-accent-text" aria-hidden />
         <span className="min-w-0 flex-1 text-sm">
-          <span className="font-medium text-ink">{t('welcome.resume.title', { n })}</span>{' '}
-          <span className="text-muted max-sm:hidden">{t('welcome.resume.desc')}</span>
+          {/* the three counted steps done: only the invite is left, say that rather than "(3/3)" */}
+          <span className="font-medium text-ink">{n === WELCOME_COUNTED.length ? t('welcome.resume.inviteLeft') : t('welcome.resume.title', { n })}</span>{' '}
+          {n < WELCOME_COUNTED.length && <span className="text-muted max-sm:hidden">{t('welcome.resume.desc')}</span>}
         </span>
         <span className="flex shrink-0 gap-1" aria-hidden>
           {WELCOME_COUNTED.map((s) => (

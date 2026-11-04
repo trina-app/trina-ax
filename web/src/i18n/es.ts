@@ -2723,5 +2723,6 @@ export const es: Record<MessageKey, string> = {
   "welcome.bar.later": "Más tarde",
   "welcome.resume.title": "Continuar los primeros pasos ({n}/3)",
   "welcome.resume.desc": "Unos diez minutos hasta un primer resultado.",
+  "welcome.resume.inviteLeft": "Solo falta invitar a su equipo",
   "welcome.resume.hide": "Ocultar los primeros pasos",
 }

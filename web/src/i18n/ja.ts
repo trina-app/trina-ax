@@ -2723,5 +2723,6 @@ export const ja: Record<MessageKey, string> = {
   "welcome.bar.later": "あとで",
   "welcome.resume.title": "はじめの設定を続ける ({n}/3)",
   "welcome.resume.desc": "最初の成果まで約10分です。",
+  "welcome.resume.inviteLeft": "残りはひとつ: チームを招待する",
   "welcome.resume.hide": "はじめの設定を隠す",
 }

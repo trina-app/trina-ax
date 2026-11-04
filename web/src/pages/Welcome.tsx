@@ -121,14 +121,14 @@ function WelcomeSteps() {
     <Page>
       <h1 className="text-xs font-medium tracking-wide text-accent-text">{t('welcome.eyebrow')}</h1>
       <Progress progress={progress} step={step} />
-      <div className="mt-6 min-h-8">
-        {back && (
+      {back && (
+        <div className="mt-5 -ml-2.5">
           <Button size="sm" variant="ghost" onClick={() => { setError(null); setStep(back) }} disabled={busy} data-testid="welcome-back">
             <ArrowLeft size={14} aria-hidden /> {t('welcome.back')}
           </Button>
-        )}
-      </div>
-      <div ref={region} tabIndex={-1} className="mt-2 outline-none" data-step={step}>
+        </div>
+      )}
+      <div ref={region} tabIndex={-1} className={back ? 'mt-2 outline-none' : 'mt-8 outline-none'} data-step={step}>
         {step === 'team' && <TeamStep progress={progress} busy={busy} onChoose={(type) => void chooseTeam(type)} onSkip={() => void mark('team', 'skipped')} />}
         {step === 'profile' && <ProfileWizardStep progress={progress} onDone={() => void mark('profile', 'done')} onSkip={() => void mark('profile', 'skipped')} />}
         {step === 'result' && <ResultStep progress={progress} busy={busy} onRan={(id) => void ran(id)} onInstall={() => void installForResult()} onSkip={() => void mark('result', 'skipped')} />}

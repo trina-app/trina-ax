@@ -217,7 +217,7 @@ describe('/welcome', () => {
       await m.until(() => stepOf(m) === 'profile', 'resumed on step 2')
       // the website came from the server's copy, not this tab
       await m.until(() => m.find('profile-step-site'), 'the profile step')
-      expect(m.get('profile-step-site').querySelector('input[inputmode="url"]')!.value).toBe('https://acme.example/')
+      expect((m.get('profile-step-site').querySelector('input[inputmode="url"]') as unknown as { value: string }).value).toBe('https://acme.example/')
       expect(m.find('welcome-progress')!.querySelector('[aria-current="step"]')!.textContent).toContain('2/3 회사 소개')
       // back to step 1 and the same choice again: no second install
       await m.click('welcome-back')
@@ -352,6 +352,14 @@ describe('after the first result', () => {
       await m.click('welcome-resume-hide')
       await m.until(() => !m.find('welcome-resume'), 'hidden')
       expect(progress!.dismissedAt).not.toBeNull()
+    } finally { await m.unmount() }
+    // the three counted steps done: only the invite is left, and the entry says so
+    useWelcome.getState().reset()
+    progress = ran()
+    m = await mount(<MemoryRouter><WelcomeResume /></MemoryRouter>)
+    try {
+      await m.until(() => m.find('welcome-resume'), 'the entry')
+      expect(m.get('welcome-resume-link').textContent).toContain(translate('ko', 'welcome.resume.inviteLeft'))
     } finally { await m.unmount() }
     // never started (a team from before the steps), or finished: nothing
     for (const p of [null, { ...ran(), steps: { team: 'done', profile: 'done', result: 'done', invite: 'done' }, finishedAt: 'x' } as WelcomeProgress]) {

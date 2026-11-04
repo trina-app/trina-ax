@@ -2763,5 +2763,6 @@ export const id: Record<MessageKey, string> = {
   "welcome.bar.later": "Nanti",
   "welcome.resume.title": "Lanjutkan persiapan awal ({n}/3)",
   "welcome.resume.desc": "Sekitar sepuluh menit sampai hasil pertama.",
+  "welcome.resume.inviteLeft": "Tinggal satu: undang tim Anda",
   "welcome.resume.hide": "Sembunyikan persiapan awal",
 }

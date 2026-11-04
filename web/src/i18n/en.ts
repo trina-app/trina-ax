@@ -2763,5 +2763,6 @@ export const en: Record<MessageKey, string> = {
   "welcome.bar.later": "Later",
   "welcome.resume.title": "Continue getting started ({n}/3)",
   "welcome.resume.desc": "About ten minutes to a first result.",
+  "welcome.resume.inviteLeft": "One thing left: invite your team",
   "welcome.resume.hide": "Hide getting started",
 }
