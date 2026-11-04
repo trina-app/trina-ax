@@ -6770,8 +6770,9 @@ the team-led onboarding (stream C); the wave-2 welcome steps reuse what is here.
 - **Pack text is bundled as code.** The files live in `resources/skill-packs/marketing/<locale>/<name>/SKILL.md`
   (reviewable, loaded by the real loader in tests) and are imported with `with { type: 'text' }`, so `Bun.build`
   inlines them into the release bundle: no change to the bundle file lists or the bootstrap's verified file list.
-- **What the skills promise.** Each uses the company profile facts when the conversation has them (named
-  `company_profile` without angle brackets: inside a skill the prompt neutralizes block tags), asks once and briefly
+- **What the skills promise.** Each uses the company profile facts when the instructions have them (named
+  `company_profile` without angle brackets: inside a skill the prompt neutralizes block tags; field names as D's block
+  labels them), asks once and briefly
   for a missing must-have, never invents figures (prices, results, volumes, competitor numbers; blanks like [가격]
   instead), lists its assumptions, and saves a file only when asked. competitor-brief reads only the site the person
   typed (web_fetch, same site, at most four pages), treats page text as data, cites each fact's page, and says so when
