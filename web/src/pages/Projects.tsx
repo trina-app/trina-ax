@@ -5,7 +5,7 @@
 // folder's files as short lines beside them (like Claude's project page).
 import { FileText, FolderKanban, Folder, Pencil, Plus, ScrollText, Share2, Trash2 } from 'lucide-react'
 import { useEffect, useState } from 'react'
-import { Link, useNavigate, useParams } from 'react-router-dom'
+import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import type { Chat, FileEntry, Project } from '@mycel/shared/api'
 import { api, API, errorText, isApiError } from '../lib/api'
 import { formatRelative } from '../lib/format'
@@ -30,7 +30,13 @@ export function ProjectList() {
   const locale = useLocale()
   const [items, setItems] = useState<Project[] | null>(null)
   const [error, setError] = useState<string | null>(null)
-  const [creating, setCreating] = useState(false)
+  // ?new=1 (from Search's "New project") opens the form at once; closing it drops the parameter
+  const [params, setParams] = useSearchParams()
+  const [creating, setCreatingState] = useState(params.get('new') === '1')
+  const setCreating = (v: boolean) => {
+    setCreatingState(v)
+    if (!v && params.has('new')) setParams((p) => { p.delete('new'); return p }, { replace: true })
+  }
   const navigate = useNavigate()
   const load = async () => {
     try {
