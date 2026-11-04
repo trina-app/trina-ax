@@ -187,7 +187,8 @@ function DevEnvForm({ project, d, groups, onClose, onSaved }: { project: Project
   const save = async () => {
     setBusy(true)
     try {
-      const body = { enabled, scope: { mode, groupIds: mode === 'selected' ? groupIds : [], userIds: [] }, network, ...(needsWarning && accept ? { acceptWarning: d.warningVersion } : {}) }
+      // the people chosen by name in Team settings stay (this form edits groups only)
+      const body = { enabled, scope: { mode, groupIds: mode === 'selected' ? groupIds : [], userIds: mode === 'selected' ? d.setting.scope.userIds : [] }, network, ...(needsWarning && accept ? { acceptWarning: d.warningVersion } : {}) }
       // srt: one setting for the whole team (any chat, with or without a project); the page then reads it again
       if (srt) { await api.call(API.updateDevEnvTeam, { body }); onSaved(await api.call(API.devEnv, { params: { id: project.id } })) }
       else onSaved(await api.call(API.updateDevEnv, { params: { id: project.id }, body }))
