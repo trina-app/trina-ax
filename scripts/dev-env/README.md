@@ -50,5 +50,6 @@ The Linux kit ships it as `root/mycel-boxd`. The installer and `mycel-ctl update
 it there. It never runs from a version folder: the server account owns those folders. The file alone changes nothing:
 the dev environment needs the `mycel-boxd.service` unit and `MYCEL_DEV_ENV=1`, and only `install-trial.sh` adds them.
 
-Do not turn it on on a shared server. A team server needs the owner's approval (`TRIAL.md`). For tests, use the test VM
+On a hosted team VM, `install-trial.sh` runs only if `root/dev-env.json` (the plan's caps, root-owned) is there, and
+boxd then refuses a box over those caps (`TRIAL.md` "Hosted team VM"). Do not turn it on on a shared server. A team server needs the owner's approval (`TRIAL.md`). For tests, use the test VM
 (`docs/research/dev-env-test-vm-plan.md`).

@@ -3,7 +3,8 @@
 # (scripts/dev-env/TRIAL.md). Adds podman, the box image, the mycel-devbox account, mycel-boxd as a service, and a
 # drop-in that turns on MYCEL_DEV_ENV. The first run restarts the team server, so it ends the running answers. A re-run
 # moves an older install to the paths below. It restarts the team server only if its drop-in changed, and boxd only if its
-# unit changed or the program in memory is not the file on the disk. It stops on a hosted server.
+# unit changed or the program in memory is not the file on the disk. On a hosted team VM it runs only if the team's plan
+# includes the dev environment: root/dev-env.json, which boxd also reads (--limits-file) to cap each box.
 # uninstall-trial.sh removes all of it.
 #   scripts/dev-env/install-trial.sh [--boxd /path/to/mycel-boxd] [--id mycel]
 # The service runs <base>/root/mycel-boxd, which the kit ships. --boxd copies a program to that path, for a build
@@ -51,10 +52,28 @@ OS=$(. /etc/os-release; echo "$ID $VERSION_ID"); [ "$OS" = "debian 13" ] || die 
 systemctl cat "$SERVER_UNIT" >/dev/null 2>&1 || die "no $SERVER_UNIT here: this is not a Trina server"
 [ -f "$BASE/config/server.json" ] || die "no $BASE/config/server.json"
 [ -f "$BASE/root/install.json" ] || die "no $BASE/root/install.json"
-# A hosted server is a shared host: its kit has root/mycel-boxd too, but this service must not go there.
-! grep -Eq '"hosted"[[:space:]]*:[[:space:]]*true' "$BASE/root/install.json" || die "this is a hosted server: the dev environment is for a team VM only"
 command -v jq >/dev/null || die "jq is missing, and the script cannot read $BASE/config/server.json without it: apt-get install jq, then run this again"
 [ -d "$BASE/root" ] && root_only "$BASE/root" || die "$BASE/root must belong to root, and only root may write to it"
+# A hosted server is a Trina Cloud team VM: one team on its own VM. The plan says if it has a box and its caps, in a
+# root-owned file. boxd refuses a box over these caps, so the server account cannot raise them.
+HOSTED=0; ENT=$BASE/root/dev-env.json; BOXD_FLAGS=; BOX_SAY="1 CPU, 2.5 GB"
+if grep -Eq '"hosted"[[:space:]]*:[[:space:]]*true' "$BASE/root/install.json"; then
+  HOSTED=1
+  [ -e "$ENT" ] || die "this team's plan does not include the dev environment (no $ENT)"
+  [ -f "$ENT" ] && root_only "$ENT" || die "$ENT must be a file that belongs to root, and only root may write to it"
+  [ -f "$BASE/root/plan.json" ] && root_only "$BASE/root/plan.json" || die "no root-owned $BASE/root/plan.json"
+  int() { jq -er "$1 | select(type == \"number\" and . == floor and . > 0)" "$2" 2>/dev/null; }
+  ENT_RUN=$(int .maxRunning "$ENT") && ENT_MEM=$(int .memoryMiB "$ENT") && ENT_DISK=$(int .diskGiB "$ENT") \
+    || die "$ENT has no whole maxRunning, memoryMiB or diskGiB"
+  ENT_CPUS=$(jq -er '.cpus | select(type == "number" and . > 0)' "$ENT" 2>/dev/null) || die "$ENT has no cpus"
+  ENT_NET=$(jq -r '.network // "offline"' "$ENT")
+  PLAN_MEM=$(int .memoryMiB "$BASE/root/plan.json") || die "$BASE/root/plan.json has no memoryMiB"
+  # the box comes on top of the plan's memory (the launcher and the server units keep their limits)
+  HMEM=$(awk '/^MemTotal:/{print int($2/1024)}' /proc/meminfo)
+  [ "$HMEM" -ge $((PLAN_MEM + ENT_MEM)) ] || die "this VM has $HMEM MiB; the plan ($PLAN_MEM MiB) and its box ($ENT_MEM MiB) need $((PLAN_MEM + ENT_MEM)) MiB"
+  BOXD_FLAGS=" --max-running $ENT_RUN --limits-file $ENT"
+  BOX_SAY="$ENT_CPUS CPU, $ENT_MEM MiB, $ENT_DISK GiB disk, network $ENT_NET (from $ENT)"
+fi
 if [ -n "$BOXD" ]; then
   [ -f "$BOXD" ] && [ -x "$BOXD" ] || die "--boxd must name the built mycel-boxd program"
 else
@@ -155,7 +174,7 @@ Before=$SERVER_UNIT
 
 [Service]
 Type=simple
-ExecStart=$ROOT_BOXD --server-uid $SRV_UID --server-gid $SRV_GID --team-root $TEAM
+ExecStart=$ROOT_BOXD --server-uid $SRV_UID --server-gid $SRV_GID --team-root $TEAM$BOXD_FLAGS
 Restart=on-failure
 RestartSec=5
 
@@ -215,4 +234,4 @@ if [ -z "$UNSIGNED" ] && [ ! -e "$TIMER_FREE" ]; then
   touch "$TIMER_FREE"
 fi
 say "$TIMER: $(systemctl is-enabled "$TIMER" 2>/dev/null || true)"
-say "ok: box limit 1 CPU, 2.5 GB. Turn on dev mode in a project page. No preview domain: the Preview button stays off."
+say "ok: box limit $BOX_SAY. Turn on dev mode in a project page. No preview domain: the Preview button stays off."

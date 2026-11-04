@@ -41,9 +41,10 @@ newer one. Run the script from any folder:
 sudo /opt/trina-ax/scripts/dev-env/install-trial.sh
 ```
 
-It needs `jq` (`sudo apt-get install -y jq`). It stops before it changes anything if this is a hosted server, if the VM
-is too small, if the running version has no dev environment, if root does not own `root/mycel-boxd`, or if something of
-the same name is already there and an earlier run did not make it. It reads the team root from `config/server.json`, and
+It needs `jq` (`sudo apt-get install -y jq`). It stops before it changes anything if this is a hosted server whose plan
+does not include the dev environment (below), if the VM is too small, if the running version has no dev environment, if
+root does not own `root/mycel-boxd`, or if something of the same name is already there and an earlier run did not make
+it. It reads the team root from `config/server.json`, and
 it stops if that path has a character other than letters, digits and `. _ / -`: the server account can change this file,
 and root runs the unit with this value. It does not change `mycel-update.timer` on a signed release.
 
@@ -55,6 +56,31 @@ Logs: `journalctl -u mycel-boxd -n 50`.
 A re-run is safe. It rebuilds the image, and a running box does not stop for that. It restarts `mycel-boxd` only if the
 unit changed, or if the service runs a program other than the file `root/mycel-boxd`. It restarts the team server only if
 the drop-in changed.
+
+### Hosted team VM
+
+A hosted server (`"hosted": true` in `root/install.json`) is a Trina Cloud team VM: one team on its own VM. The box can
+run there only if the team's plan includes it. The plan says so in `/var/lib/mycel/root/dev-env.json`, root-owned
+(`0644`, in the root-only `root/` folder):
+
+```json
+{"format":1,"plan":"team","maxRunning":1,"cpus":1,"memoryMiB":2560,"pids":512,"diskGiB":4}
+```
+
+- No file: the script stops ("this team's plan does not include the dev environment").
+- The script gives boxd `--limits-file` with this file and `--max-running` with `maxRunning`. boxd refuses a box with
+  limits over these values ("limits over the plan"). The server account cannot change the file, so it cannot raise them.
+- Network: a box gets `open` only if the file has `"network":"open"`. Without it, only `offline` works, and a project
+  with network `open` gets an error at its first command: set its network to `offline`. An open box goes out from the
+  host's public address with no allowlist, so the owner decides this per plan.
+- Memory: the box comes on top of the plan. The VM must have at least `plan.json` `memoryMiB` plus the box's `memoryMiB`
+  (`MemTotal`), or the script stops and boxd says boxes are not available. Example: a 4096 MiB plan with a 2560 MiB box
+  needs 6656 MiB, so a 7 GB VM. A VM of the plan's size only is refused.
+- boxd reads the file when it starts. After a change to the file, run the script again or restart `mycel-boxd`. If the
+  file is gone, boxd says boxes are not available.
+- Not done yet: the control plane cannot write the file or install the box, the kit has no `scripts/dev-env/`, the
+  template has no podman, and a reimage loses the box (all its state is on the OS disk). For now an operator puts the
+  file there and runs the script.
 
 ## 3. Update a server with the dev environment
 
@@ -245,7 +271,8 @@ bun run build:web
 bun scripts/build-bundle.ts --os linux --arch amd64 --version <version>-devenv.1 --no-whisper --out dist/linux
 ```
 
-Keep a copy of `root/install.json` first. Stop if `hosted` is true in it, or if `check` reports a problem.
+Keep a copy of `root/install.json` first. Stop if `check` reports a problem. On a hosted team VM, the plan must include
+the dev environment (`root/dev-env.json`, "Hosted team VM" above).
 
 ```bash
 cd /opt/TrinaAX-server-<version>-devenv.1-linux-amd64 && ./install-linux.sh check --from . --allow-unsigned

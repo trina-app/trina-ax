@@ -5,6 +5,8 @@ This file summarizes user-visible changes; it is not a list of every commit.
 
 ## Unreleased
 
+- Hosted team VMs with the dev environment: `scripts/dev-env/install-trial.sh` no longer stops on every hosted server. A Trina Cloud team has its own VM, so the box can run there when the team's plan includes it: a root-owned `root/dev-env.json` with the plan's box caps (`maxRunning`, `cpus`, `memoryMiB`, `pids`, `diskGiB`, and `network` `open` or `offline`). Without that file the script still stops. The VM must have the plan's memory plus the box's. `mycel-boxd` has a new `--limits-file`: it refuses a box over the file's caps, and only `offline` unless the file allows `open`. With the flag and no file, boxes are not available. A self-hosted server does not change.
+
 ## 0.3.0 — 2026-11-04
 
 [Published release and notes](https://github.com/trina-app/trina-ax/releases/tag/v0.3.0)

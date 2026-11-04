@@ -152,6 +152,9 @@ func checkRequest(r *request) error {
 		if l.CPUs < 0.25 || l.CPUs > 4 || l.MemoryMiB < 256 || l.MemoryMiB > 8192 || l.Pids < 64 || l.Pids > 4096 || l.DiskGiB < 1 || l.DiskGiB > 32 || l.IdleStopMin < 5 || l.IdleStopMin > 240 {
 			return fmt.Errorf("limits out of range")
 		}
+		if err := ent.allows(l, r.Network); err != nil {
+			return err
+		}
 		if len(r.DenyAddrs) > 32 {
 			return fmt.Errorf("too many deny addresses")
 		}
@@ -185,6 +188,87 @@ func checkRequest(r *request) error {
 		}
 	}
 	return nil
+}
+
+// entitlement: <base>/root/dev-env.json, what a hosted team's plan allows (--limits-file). Root owns the file, so the
+// server account cannot raise these caps. A separate file and not a plan.json key: plan.json refuses unknown keys, so a
+// new key there would stop apply-plan on an older kit. nil = no file given (self-hosted): only the fixed ranges apply.
+type entitlement struct {
+	Format     int     `json:"format"`
+	Plan       string  `json:"plan"`
+	MaxRunning int     `json:"maxRunning"`
+	CPUs       float64 `json:"cpus"`
+	MemoryMiB  int     `json:"memoryMiB"`
+	Pids       int     `json:"pids"`
+	DiskGiB    int     `json:"diskGiB"`
+	// "open" or "offline". Empty = offline: box traffic leaves from the host's address, so open needs the plan to say so.
+	Network string `json:"network"`
+}
+
+var ent *entitlement
+
+const entMaxBytes = 4 << 10
+
+// parseEntitlement checks the file's contents. An unknown key is an error: boxd fails closed on a file it cannot read.
+func parseEntitlement(b []byte) (*entitlement, error) {
+	if len(b) > entMaxBytes {
+		return nil, fmt.Errorf("dev-env.json: too large")
+	}
+	var e entitlement
+	dec := json.NewDecoder(strings.NewReader(string(b)))
+	dec.DisallowUnknownFields()
+	if err := dec.Decode(&e); err != nil {
+		return nil, fmt.Errorf("dev-env.json: %v", err)
+	}
+	if e.Format != 1 {
+		return nil, fmt.Errorf("dev-env.json: format must be 1")
+	}
+	if e.Plan == "" || len(e.Plan) > 32 {
+		return nil, fmt.Errorf("dev-env.json: plan name must be 1-32 characters")
+	}
+	if e.MaxRunning < 1 || e.MaxRunning > 4 || e.CPUs < 0.25 || e.CPUs > 4 || e.MemoryMiB < 256 || e.MemoryMiB > 8192 ||
+		e.Pids < 64 || e.Pids > 4096 || e.DiskGiB < 1 || e.DiskGiB > 32 {
+		return nil, fmt.Errorf("dev-env.json: a value is out of range")
+	}
+	if e.Network != "" && e.Network != "open" && e.Network != "offline" {
+		return nil, fmt.Errorf("dev-env.json: network must be open or offline")
+	}
+	return &e, nil
+}
+
+// allows: nil if the plan allows these limits and this network. A nil entitlement allows all (the fixed ranges apply).
+func (e *entitlement) allows(l limits, network string) error {
+	if e == nil {
+		return nil
+	}
+	over := func(name string, v, max any) error {
+		return fmt.Errorf("limits over the plan: %s %v is over this team's plan (%v)", name, v, max)
+	}
+	switch {
+	case l.CPUs > e.CPUs:
+		return over("cpus", l.CPUs, e.CPUs)
+	case l.MemoryMiB > e.MemoryMiB:
+		return over("memoryMiB", l.MemoryMiB, e.MemoryMiB)
+	case l.Pids > e.Pids:
+		return over("pids", l.Pids, e.Pids)
+	case l.DiskGiB > e.DiskGiB:
+		return over("diskGiB", l.DiskGiB, e.DiskGiB)
+	}
+	if network == "open" && e.Network != "open" {
+		return fmt.Errorf("network open is not in this team's plan: set the project's network to offline")
+	}
+	return nil
+}
+
+// planMemoryProblem: why this VM cannot hold the plan's units and a box at the plan's cap, or "". The box does not come
+// out of the plan's memory: a VM with the box has the plan's memory plus the box's. MemTotal is a little under the VM's
+// size (minHostMiB), so the OS share is not counted here.
+func planMemoryProblem(memTotalKiB int64, planMiB, boxMiB int) string {
+	mib := memTotalKiB / 1024
+	if need := int64(planMiB + boxMiB); mib < need {
+		return fmt.Sprintf("this VM has %d MiB of memory; the plan (%d MiB) and its box (%d MiB) need %d MiB", mib, planMiB, boxMiB, need)
+	}
+	return ""
 }
 
 // cleanRel: a relative path without "..", ".", empty or absolute parts ("" = the folder itself).
