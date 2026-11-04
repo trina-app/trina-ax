@@ -9,7 +9,7 @@ import { useChats } from '../store/chats'
 import { useMe } from '../store/session'
 import { chatTrashDays } from '../lib/chat-trash'
 import { toast } from '../store/ui'
-import { Button, EmptyState, ErrorNote, PageHeader, Skeleton } from '../components/ui'
+import { Button, EmptyState, ErrorNote, PageHeader, Skeleton, pageColumn } from '../components/ui'
 
 export default function Trash() {
   const t = useT()
@@ -34,7 +34,7 @@ export default function Trash() {
   return (
     <div className="flex h-full flex-col overflow-y-auto">
       <PageHeader title={t('trash.title')} desc={t('trash.desc', { days })} />
-      <div className="p-4 sm:p-6">
+      <div className={`${pageColumn} p-4 sm:p-6`}>
         {error && <ErrorNote onRetry={load}>{error}</ErrorNote>}
         {!items && !error && <Skeleton lines={4} />}
         {items && !items.length && <EmptyState icon={<Trash2 size={28} />} title={t('trash.empty')} />}
