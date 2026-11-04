@@ -128,6 +128,10 @@ export const Project = z.object({
   createdAt: IsoTime,
   /** the caller may edit/delete the project (write access to folderPath) */
   canEdit: z.boolean(),
+  /** its folder is in the trash (or was purged from there): only admins and the owner see such a project, and its chats
+   * get none of it; restoring the folder, or pointing the project at a folder (PATCH folderPath, also the same path),
+   * ends that. Absent from older servers: false. */
+  inTrash: z.boolean().optional(),
 })
 export type Project = z.infer<typeof Project>
 
