@@ -186,13 +186,13 @@ async function someChats(page: Page) {
   await page.goto('/')
 }
 
-test('Recents folds away and filters by what the list knows; both are remembered', async ({ page }) => {
+test('Recents folds away; filter, group and sort like Claude\'s, remembered and reset', async ({ page }) => {
   await start(page)
   await someChats(page)
   const side = page.getByRole('navigation', { name: t['sidebar.label'] })
   const list = side.getByTestId('recents-list')
+  const titles = () => list.getByRole('listitem').allTextContents()
   await expect(list).toContainText('Plan the launch')
-  await expect(list).toContainText('Weekly notes')
   // fold and unfold, remembered after a reload
   await side.getByTestId('recents-toggle').click()
   await expect(side.getByTestId('recents-toggle')).toHaveAttribute('aria-expanded', 'false')
@@ -201,35 +201,89 @@ test('Recents folds away and filters by what the list knows; both are remembered
   await expect(side.getByTestId('recents-list')).toBeHidden()
   await side.getByTestId('recents-toggle').click()
   await expect(list).toBeVisible()
-  // each filter
-  const pick = async (id: string) => {
-    await side.getByTestId('recents-filter').click()
-    await side.getByTestId(`recents-filter-${id}`).click()
+  // the menu: four rows with their current values, two groups
+  await side.getByTestId('recents-filter').click()
+  const menu = page.getByTestId('recents-filter-menu')
+  await expect(menu.getByRole('menuitem')).toHaveText([
+    `${t['sidebar.view.status']}${t['sidebar.status.all']}`,
+    `${t['sidebar.view.activity']}${t['sidebar.activity.all']}`,
+    `${t['sidebar.view.group']}${t['sidebar.group.date']}`,
+    `${t['sidebar.view.sort']}${t['sidebar.sort.updated']}`,
+  ])
+  await expect(menu.getByRole('separator')).toHaveCount(1)
+  await expect(side.getByTestId('recents-filter-dot')).toHaveCount(0)
+  await page.keyboard.press('Escape')
+  const choose = async (key: string, id: string) => {
+    if (!(await page.getByTestId('recents-filter-menu').isVisible())) await side.getByTestId('recents-filter').click()
+    await page.getByTestId(`recents-view-${key}`).click()
+    await expect(page.getByTestId(`recents-${key}-${id}`)).toBeVisible()
+    await page.getByTestId(`recents-${key}-${id}`).click()
   }
-  await pick('project')
-  await expect(list).toContainText('Plan the launch')
-  await expect(list).not.toContainText('Weekly notes')
-  await expect(side.getByTestId('recents-filter-label')).toContainText(t['sidebar.filter.project'])
-  await pick('noProject')
-  await expect(list).toContainText('Weekly notes')
-  await expect(list).not.toContainText('Plan the launch')
-  await pick('active')
+  // Status
+  await choose('status', 'project')
+  await expect.poll(titles).toEqual(['Plan the launch'])
+  await choose('status', 'noProject')
+  await expect.poll(titles).toEqual(['Weekly notes'])
+  await choose('status', 'waiting')
   await expect(side.getByTestId('recents-no-match')).toHaveText(t['sidebar.filter.none'])
-  await pick('confidential')
+  await choose('status', 'confidential')
   await expect(side.getByTestId('recents-no-match')).toBeVisible()
-  // remembered, then cleared
+  await choose('status', 'all')
+  // Last activity: both were made just now
+  for (const id of ['today', 'week', 'month', 'all']) {
+    await choose('activity', id)
+    await expect(list).toContainText('Weekly notes')
+  }
+  // Group by
+  await choose('group', 'project')
+  // newest first: the chat without a project was made last
+  await expect(list.getByRole('heading', { level: 3 })).toHaveText([t['sidebar.noProject'], 'Launch'])
+  await choose('group', 'none')
+  await expect(list.getByRole('heading', { level: 3 })).toHaveCount(0)
+  // Sort by
+  await choose('sort', 'title')
+  await expect.poll(titles).toEqual(['Plan the launch', 'Weekly notes'])
+  await choose('sort', 'created')
+  await expect.poll(titles).toEqual(['Weekly notes', 'Plan the launch'])
+  // what is not at its default: a dot and a dim label; remembered; reset
+  await page.keyboard.press('Escape')
+  await expect(side.getByTestId('recents-filter-dot')).toBeVisible()
+  await expect(side.getByTestId('recents-filter-label')).toContainText(t['sidebar.group.none'])
+  await expect(side.getByTestId('recents-filter-label')).toContainText(t['sidebar.sort.created'])
   await page.reload()
-  await expect(side.getByTestId('recents-filter-label')).toContainText(t['sidebar.filter.confidential'])
+  await expect(side.getByTestId('recents-filter-label')).toContainText(t['sidebar.sort.created'])
   await side.getByTestId('recents-filter-clear').click()
   await expect(side.getByTestId('recents-filter-label')).toHaveCount(0)
-  await expect(list).toContainText('Weekly notes')
-  // the menu with the keyboard: opens on the chosen one, Esc gives focus back
+  await expect(side.getByTestId('recents-filter-dot')).toHaveCount(0)
+  await expect(list.getByRole('heading', { level: 3 })).toHaveText([t['sidebar.today']])
+})
+
+test('the Recents menu with the keyboard: Enter, arrows, → into a choice, ← and Esc back', async ({ page }) => {
+  await start(page)
+  await someChats(page)
+  const side = page.getByRole('navigation', { name: t['sidebar.label'] })
   await side.getByTestId('recents-filter').focus()
   await page.keyboard.press('Enter')
-  await expect(side.getByTestId('recents-filter-all')).toBeFocused()
+  await expect(page.getByTestId('recents-view-status')).toBeFocused()
+  await page.keyboard.press('ArrowDown')
+  await expect(page.getByTestId('recents-view-activity')).toBeFocused()
+  await page.keyboard.press('ArrowRight')
+  await expect(page.getByTestId('recents-activity-all')).toBeFocused()
+  await expect(page.getByTestId('recents-activity-all')).toHaveAttribute('aria-checked', 'true')
+  await audit(page, 'recents menu and submenu')
+  await page.keyboard.press('ArrowLeft')
+  await expect(page.getByTestId('recents-submenu')).toHaveCount(0)
+  await expect(page.getByTestId('recents-view-activity')).toBeFocused()
+  await page.keyboard.press('Enter')
+  await page.keyboard.press('ArrowDown')
+  await expect(page.getByTestId('recents-activity-today')).toBeFocused()
+  await page.keyboard.press('Enter')
+  await expect(page.getByTestId('recents-view-activity')).toBeFocused()
+  await expect(page.getByTestId('recents-view-activity')).toContainText(t['sidebar.today'])
   await page.keyboard.press('Escape')
+  await expect(page.getByTestId('recents-filter-menu')).toHaveCount(0)
   await expect(side.getByTestId('recents-filter')).toBeFocused()
-  await audit(page, 'recents filter')
+  await expect(side.getByTestId('recents-filter-label')).toContainText(t['sidebar.today'])
 })
 
 test('a recent chat shows its ⋯ menu on hover or focus, and a quick view after resting on it', async ({ page }) => {

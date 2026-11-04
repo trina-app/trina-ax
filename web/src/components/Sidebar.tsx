@@ -28,20 +28,39 @@ const BUCKET_LABEL: Record<DateBucket, MessageKey> = { today: 'sidebar.today', y
 /** never sent in and never named: created for the attachments of a draft (the composer, "Ask AI about this") */
 const isUnused = (c: Chat) => !c.title && c.createdAt === c.updatedAt && c.runState === 'idle'
 
-/** The Recents filter: only what the chat list itself knows. "Active": an answer is running or queued, or the AI is
- * waiting for the person. */
-type RecentsFilter = 'all' | 'project' | 'noProject' | 'active' | 'confidential'
-const FILTERS: { id: RecentsFilter; label: MessageKey }[] = [
-  { id: 'all', label: 'sidebar.filter.all' },
-  { id: 'project', label: 'sidebar.filter.project' },
-  { id: 'noProject', label: 'sidebar.filter.noProject' },
-  { id: 'active', label: 'sidebar.filter.active' },
-  { id: 'confidential', label: 'sidebar.filter.confidential' },
-]
-const passes = (f: RecentsFilter, c: Chat, waiting: boolean) =>
-  f === 'project' ? !!c.projectId : f === 'noProject' ? !c.projectId : f === 'active' ? c.runState !== 'idle' || waiting : f === 'confidential' ? !!c.confidential : true
+/** How Recents is filtered, grouped and sorted, like Claude's: only what the chat list itself knows. Status "Active" is
+ * every chat in the list (deleted ones are under the account menu's Deleted chats); "Waiting": an answer is running or
+ * queued, or the AI waits for the person. */
+const VIEW = {
+  status: { label: 'sidebar.view.status', options: { all: 'sidebar.status.all', waiting: 'sidebar.filter.active', project: 'sidebar.filter.project', noProject: 'sidebar.filter.noProject', confidential: 'sidebar.filter.confidential' } },
+  activity: { label: 'sidebar.view.activity', options: { all: 'sidebar.activity.all', today: 'sidebar.today', week: 'sidebar.week', month: 'sidebar.month' } },
+  group: { label: 'sidebar.view.group', options: { none: 'sidebar.group.none', date: 'sidebar.group.date', project: 'sidebar.group.project' } },
+  sort: { label: 'sidebar.view.sort', options: { updated: 'sidebar.sort.updated', created: 'sidebar.sort.created', title: 'sidebar.sort.title' } },
+} as const satisfies Record<string, { label: MessageKey; options: Record<string, MessageKey> }>
+type ViewKey = keyof typeof VIEW
+type RecentsView = { [K in ViewKey]: keyof (typeof VIEW)[K]['options'] }
+const DEFAULT_VIEW: RecentsView = { status: 'all', activity: 'all', group: 'date', sort: 'updated' }
+const VIEW_KEY = 'mycel.sidebar.recentsView'
+const DAY = 86_400_000
+const passes = (v: RecentsView, c: Chat, waiting: boolean, now: number) => {
+  const s = v.status
+  const ok = s === 'waiting' ? c.runState !== 'idle' || waiting : s === 'project' ? !!c.projectId : s === 'noProject' ? !c.projectId : s === 'confidential' ? !!c.confidential : true
+  const age = now - new Date(c.updatedAt).getTime()
+  const fresh = v.activity === 'today' ? dateBucket(c.updatedAt) === 'today' : v.activity === 'week' ? age <= 7 * DAY : v.activity === 'month' ? age <= 30 * DAY : true
+  return ok && fresh
+}
+const rememberedView = (): RecentsView => {
+  try {
+    const v = JSON.parse(localStorage.getItem(VIEW_KEY) ?? '{}') as Partial<RecentsView>
+    const out = { ...DEFAULT_VIEW }
+    for (const k of Object.keys(VIEW) as ViewKey[]) if (v[k] && v[k] in VIEW[k].options) (out as Record<string, string>)[k] = v[k] as string
+    return out
+  } catch {
+    return DEFAULT_VIEW
+  }
+}
 
-/** This browser remembers whether Recents is open and its filter (a private window may refuse: then it just forgets). */
+/** This browser remembers whether Recents is open and how it is shown (a private window may refuse: it just forgets). */
 const remembered = <T extends string>(key: string, ok: readonly T[], fallback: T): T => {
   try {
     const v = localStorage.getItem(key) as T | null
@@ -58,7 +77,6 @@ const remember = (key: string, v: string) => {
   }
 }
 const OPEN_KEY = 'mycel.sidebar.recents'
-const FILTER_KEY = 'mycel.sidebar.recentsFilter'
 
 export default function Sidebar() {
   const t = useT()
@@ -77,24 +95,35 @@ export default function Sidebar() {
   }, [loaded, loadChats])
 
   const [recentsOpen, setRecentsOpen] = useState(() => remembered(OPEN_KEY, ['open', 'closed'] as const, 'open') === 'open')
-  const [filter, setFilterState] = useState<RecentsFilter>(() => remembered(FILTER_KEY, FILTERS.map((f) => f.id), 'all'))
-  const setFilter = (f: RecentsFilter) => {
-    setFilterState(f)
-    remember(FILTER_KEY, f)
+  const [view, setViewState] = useState<RecentsView>(rememberedView)
+  const setView = (v: RecentsView) => {
+    setViewState(v)
+    remember(VIEW_KEY, JSON.stringify(v))
   }
+  const changed = (Object.keys(VIEW) as ViewKey[]).filter((k) => view[k] !== DEFAULT_VIEW[k])
   const waiting = useChats((s) => s.requests)
+  // project names, only when Recents is grouped by project (one read, kept while the sidebar is there)
+  const [projects, setProjects] = useState<Map<string, string> | null>(null)
+  useEffect(() => {
+    if (view.group !== 'project' || projects) return
+    api.call(API.listProjects).then((r) => setProjects(new Map(r.items.map((p) => [p.id, p.name]))), () => setProjects(new Map()))
+  }, [view.group, projects])
   const groups = useMemo(() => {
     const asked = new Set(Object.values(waiting).map((r) => r.chatId))
-    const g = new Map<DateBucket, Chat[]>()
-    for (const c of chats) {
-      // a chat made only to hold attachments (a file attached, nothing sent yet) is not a conversation yet
-      if (isUnused(c)) continue
-      if (!passes(filter, c, asked.has(c.id))) continue
-      const b = dateBucket(c.updatedAt)
-      g.set(b, [...(g.get(b) ?? []), c])
+    const now = Date.now()
+    // a chat made only to hold attachments (a file attached, nothing sent yet) is not a conversation yet
+    const shown = chats.filter((c) => !isUnused(c) && passes(view, c, asked.has(c.id), now))
+    const when = (c: Chat) => (view.sort === 'created' ? c.createdAt : c.updatedAt)
+    shown.sort((a, b) => (view.sort === 'title' ? (a.title || '').localeCompare(b.title || '') : when(b).localeCompare(when(a))))
+    const g = new Map<string, { label: string | null; items: Chat[] }>()
+    for (const c of shown) {
+      const key = view.group === 'date' ? dateBucket(when(c)) : view.group === 'project' ? (c.projectId ?? '') : ''
+      const label = view.group === 'date' ? t(BUCKET_LABEL[key as DateBucket]) : view.group === 'project' ? (c.projectId ? (projects?.get(c.projectId) ?? '…') : t('sidebar.noProject')) : null
+      if (!g.has(key)) g.set(key, { label, items: [] })
+      g.get(key)!.items.push(c)
     }
     return [...g.entries()]
-  }, [chats, filter, waiting])
+  }, [chats, view, waiting, projects, t])
   const listId = useId()
   const peek = useChatPeek()
 
@@ -163,16 +192,16 @@ export default function Sidebar() {
               <ChevronDown size={12} className={clsx('transition-transform', !recentsOpen && '-rotate-90')} aria-hidden />
             </button>
           </h2>
-          {filter !== 'all' && (
+          {changed.length > 0 && (
             <span className="flex min-w-0 items-center gap-0.5 text-xs text-faint" data-testid="recents-filter-label">
               <span aria-hidden>·</span>
-              <span className="truncate">{t(FILTERS.find((f) => f.id === filter)!.label)}</span>
-              <button type="button" onClick={() => setFilter('all')} aria-label={t('sidebar.filter.clear')} title={t('sidebar.filter.clear')} className="rounded p-0.5 hover:bg-hover hover:text-ink" data-testid="recents-filter-clear">
+              <span className="truncate">{changed.map((k) => t((VIEW[k].options as Record<string, MessageKey>)[view[k]])).join(', ')}</span>
+              <button type="button" onClick={() => setView(DEFAULT_VIEW)} aria-label={t('sidebar.filter.clear')} title={t('sidebar.filter.clear')} className="shrink-0 rounded p-0.5 hover:bg-hover hover:text-ink" data-testid="recents-filter-clear">
                 <X size={11} aria-hidden />
               </button>
             </span>
           )}
-          <FilterMenu value={filter} onChange={setFilter} shown={filter !== 'all'} />
+          <RecentsMenu view={view} onChange={setView} changed={changed.length > 0} />
         </div>
         <div id={listId} hidden={!recentsOpen} data-testid="recents-list">
           {!loaded && <Loader2 size={16} className="mx-auto mt-4 animate-spin text-faint" aria-label={t('common.loading')} />}
@@ -182,11 +211,11 @@ export default function Sidebar() {
               {t('sidebar.filter.none')}
             </p>
           )}
-          {groups.map(([bucket, list]) => (
-            <div key={bucket} className="mb-2">
-              <h3 className="px-3 pt-2 pb-1 text-[11px] font-medium text-faint">{t(BUCKET_LABEL[bucket])}</h3>
+          {groups.map(([key, { label, items }]) => (
+            <div key={key || 'all'} className="mb-2">
+              {label && <h3 className="px-3 pt-2 pb-1 text-[11px] font-medium text-faint">{label}</h3>}
               <ul>
-                {list.map((c) => (
+                {items.map((c) => (
                   <ChatItem key={c.id} chat={c} onNavigate={close} peek={peek} />
                 ))}
               </ul>
@@ -423,40 +452,80 @@ function AccountMenu() {
   )
 }
 
-/** The filter beside "Recents": quiet until the row is pointed at or reached with the keyboard (always there when a
- * filter is on, and on touch screens). */
-function FilterMenu({ value, onChange, shown }: { value: RecentsFilter; onChange: (f: RecentsFilter) => void; shown: boolean }) {
+/** Filter and sort beside "Recents", like Claude's: a square button (a dot when something is not at its default) that
+ * opens a menu of four rows (Status, Last activity | Group by, Sort by), each with its current value and a submenu of
+ * choices. Keyboard: Enter opens it, arrows move, → or Enter opens a submenu, ← or Esc goes back, Esc closes. The
+ * menus sit in <body> (the Recents list scrolls and would clip them); on a narrow screen a submenu takes the menu's
+ * place with a way back. */
+function RecentsMenu({ view, onChange, changed }: { view: RecentsView; onChange: (v: RecentsView) => void; changed: boolean }) {
   const t = useT()
   const [open, setOpen] = useState(false)
-  const ref = useRef<HTMLDivElement>(null)
+  const [sub, setSub] = useState<ViewKey | null>(null)
+  const [pos, setPos] = useState({ top: 0, left: 0 })
   const button = useRef<HTMLButtonElement>(null)
   const menu = useRef<HTMLDivElement>(null)
+  const subMenu = useRef<HTMLDivElement>(null)
+  const W = 224
+  const sideBySide = typeof window !== 'undefined' && pos.left + 2 * W + 8 < window.innerWidth
+  const close = (focus: boolean) => {
+    setOpen(false)
+    setSub(null)
+    if (focus) button.current?.focus()
+  }
+  const items = (box: HTMLElement | null) => [...(box?.querySelectorAll<HTMLElement>('[role^="menuitem"]') ?? [])]
   useEffect(() => {
     if (!open) return
-    menu.current?.querySelector<HTMLElement>('[aria-checked="true"]')?.focus()
-    const h = (e: MouseEvent) => !ref.current?.contains(e.target as Node) && setOpen(false)
+    if (!sub) items(menu.current)[0]?.focus()
+    const h = (e: MouseEvent) => {
+      const n = e.target as Node
+      if (!menu.current?.contains(n) && !subMenu.current?.contains(n) && !button.current?.contains(n)) close(false)
+    }
     document.addEventListener('mousedown', h)
     return () => document.removeEventListener('mousedown', h)
-  }, [open])
+  }, [open, sub])
+  useEffect(() => {
+    if (sub) (subMenu.current?.querySelector<HTMLElement>('[aria-checked="true"]') ?? items(subMenu.current)[0])?.focus()
+  }, [sub])
+  const openMenu = () => {
+    const r = button.current!.getBoundingClientRect()
+    setPos({ top: r.bottom + 4, left: Math.max(8, Math.min(r.right - W, window.innerWidth - W - 8)) })
+    setOpen(true)
+  }
+  const back = () => {
+    const k = sub
+    setSub(null)
+    requestAnimationFrame(() => menu.current?.querySelector<HTMLElement>(`[data-view="${k}"]`)?.focus())
+  }
   const onKey = (e: KeyboardEvent) => {
-    if (!open) return
-    if (e.key === 'Escape') {
+    const inSub = !!sub && subMenu.current?.contains(document.activeElement)
+    const list = items(inSub ? subMenu.current : menu.current)
+    const i = list.indexOf(document.activeElement as HTMLElement)
+    const go = (n: number) => {
+      e.preventDefault()
+      list[(n + list.length) % list.length]?.focus()
+    }
+    if (e.key === 'ArrowDown') go(i + 1)
+    else if (e.key === 'ArrowUp') go(i - 1)
+    else if (e.key === 'Home') go(0)
+    else if (e.key === 'End') go(-1)
+    else if (e.key === 'Escape' || (e.key === 'ArrowLeft' && inSub)) {
       e.preventDefault()
       e.stopPropagation()
-      setOpen(false)
-      button.current?.focus()
-      return
-    }
-    if (e.key === 'Tab') return setOpen(false)
-    const items = [...(menu.current?.querySelectorAll<HTMLElement>('[role="menuitemradio"]') ?? [])]
-    const i = items.indexOf(document.activeElement as HTMLElement)
-    if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
-      e.preventDefault()
-      items[(i + (e.key === 'ArrowDown' ? 1 : -1) + items.length) % items.length]?.focus()
-    }
+      if (inSub) back()
+      else close(true)
+    } else if (e.key === 'ArrowRight' && !inSub) {
+      const k = (document.activeElement as HTMLElement)?.dataset.view as ViewKey | undefined
+      if (k) {
+        e.preventDefault()
+        setSub(k)
+      }
+    } else if (e.key === 'Tab') close(false)
   }
+  const row = 'flex h-8 w-full items-center gap-2 rounded-lg px-2.5 text-left text-sm hover:bg-hover focus-visible:-outline-offset-2'
+  const panel = 'fixed z-50 w-56 rounded-xl border border-line bg-surface p-1 shadow-lg'
+  const subTop = sub ? (menu.current?.querySelector<HTMLElement>(`[data-view="${sub}"]`)?.getBoundingClientRect().top ?? pos.top) - 4 : 0
   return (
-    <div ref={ref} className="relative ml-auto" onKeyDown={onKey}>
+    <div className="ml-auto" onKeyDown={onKey}>
       <button
         ref={button}
         type="button"
@@ -464,34 +533,69 @@ function FilterMenu({ value, onChange, shown }: { value: RecentsFilter; onChange
         aria-expanded={open}
         aria-label={t('sidebar.filter')}
         title={t('sidebar.filter')}
-        onClick={() => setOpen((v) => !v)}
-        className={clsx('rounded p-1 text-faint hover:bg-hover hover:text-ink focus-visible:opacity-100 max-sm:opacity-100', open || shown ? 'opacity-100' : 'opacity-0 group-hover/recents:opacity-100')}
+        onClick={() => (open ? close(false) : openMenu())}
+        className={clsx('relative flex size-7 items-center justify-center rounded-md text-faint hover:bg-hover hover:text-ink focus-visible:opacity-100 max-sm:opacity-100', open ? 'bg-hover text-ink opacity-100' : changed ? 'opacity-100' : 'opacity-0 group-hover/recents:opacity-100')}
         data-testid="recents-filter"
       >
-        <ListFilter size={14} aria-hidden />
+        <ListFilter size={15} aria-hidden />
+        {changed && <span className="absolute top-1 right-1 size-1.5 rounded-full bg-accent" data-testid="recents-filter-dot" />}
       </button>
-      {open && (
-        <div ref={menu} role="menu" aria-label={t('sidebar.filter')} className="absolute top-full right-0 z-30 mt-1 w-56 rounded-xl border border-line bg-surface p-1 shadow-lg" data-testid="recents-filter-menu">
-          {FILTERS.map((f) => (
-            <button
-              key={f.id}
-              type="button"
-              role="menuitemradio"
-              aria-checked={value === f.id}
-              onClick={() => {
-                onChange(f.id)
-                setOpen(false)
-                button.current?.focus()
-              }}
-              className="flex h-8 w-full items-center gap-2 rounded-lg px-2.5 text-left text-sm hover:bg-hover focus-visible:-outline-offset-2"
-              data-testid={`recents-filter-${f.id}`}
-            >
-              {t(f.label)}
-              {value === f.id && <Check size={14} className="ml-auto text-accent-text" aria-hidden />}
-            </button>
-          ))}
-        </div>
-      )}
+      {open &&
+        createPortal(
+          // its keys reach onKey through React (a portal's events bubble to the button's box)
+          <div>
+            {(sideBySide || !sub) && (
+              <div ref={menu} role="menu" aria-label={t('sidebar.filter')} className={panel} style={{ top: pos.top, left: pos.left }} data-testid="recents-filter-menu">
+                {(Object.keys(VIEW) as ViewKey[]).map((k, i) => (
+                  <div key={k}>
+                    {i === 2 && <div role="separator" className="mx-1 my-1 border-t border-line" />}
+                    <button
+                      type="button"
+                      role="menuitem"
+                      aria-haspopup="menu"
+                      aria-expanded={sub === k}
+                      data-view={k}
+                      onClick={() => setSub(sub === k ? null : k)}
+                      className={clsx(row, sub === k && 'bg-hover')}
+                      data-testid={`recents-view-${k}`}
+                    >
+                      <span className="text-ink">{t(VIEW[k].label)}</span>
+                      <span className="ml-auto truncate text-xs text-faint">{t((VIEW[k].options as Record<string, MessageKey>)[view[k]])}</span>
+                      <ChevronRight size={14} className="shrink-0 text-faint" aria-hidden />
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+            {sub && (
+              <div ref={subMenu} role="menu" aria-label={t(VIEW[sub].label)} className={panel} style={sideBySide ? { top: subTop, left: pos.left + W + 4 } : { top: pos.top, left: pos.left }} data-testid="recents-submenu">
+                {!sideBySide && (
+                  <button type="button" role="menuitem" onClick={back} className={clsx(row, 'text-faint')}>
+                    <ChevronRight size={14} className="rotate-180" aria-hidden /> {t(VIEW[sub].label)}
+                  </button>
+                )}
+                {Object.entries(VIEW[sub].options as Record<string, MessageKey>).map(([id, label]) => (
+                  <button
+                    key={id}
+                    type="button"
+                    role="menuitemradio"
+                    aria-checked={view[sub] === id}
+                    onClick={() => {
+                      onChange({ ...view, [sub]: id })
+                      back()
+                    }}
+                    className={row}
+                    data-testid={`recents-${sub}-${id}`}
+                  >
+                    {t(label)}
+                    {view[sub] === id && <Check size={14} className="ml-auto text-accent-text" aria-hidden />}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>,
+          document.body,
+        )}
     </div>
   )
 }
