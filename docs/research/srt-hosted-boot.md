@@ -64,7 +64,13 @@ turns it on and accepts the warning (beta.5).
   domains plus the team's domains).
 - Memory: on Starter the slice can use 1536 MiB of 4096 MiB. Section 13 of `srt-dev-env.md` measured this size with a
   Remotion render; Team and Business are proportional, not measured.
-- Every server start runs the unit (about 1 to 2 s: the srt version check and a scope probe).
+- Every server start runs the unit (an estimate of 1 to 2 s, not measured: the srt version check and a scope probe).
+- A plan move across 4096 MiB (Free up to Starter or more, or down to Free) adds or removes the drop-in, so the server
+  restarts once (`--no-block`) and the running answers end.
+- Order in the control plane (trina-cloud `src/teams/lifecycle.ts`): a move up is `resize(idle)`, then `apply-plan`.
+  With `applyMemory: 'idle'` the new memory can come only at the next idle reboot. Until then a team that moved up
+  from Free can have Starter limits (1536 MiB) on a 2 GiB VM. The admin must still turn the feature on, and the kernel
+  kills a job over the slice limit, not the server. Not fixed here.
 
 ## Roll back
 
