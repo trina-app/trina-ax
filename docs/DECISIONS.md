@@ -6797,8 +6797,9 @@ the team-led onboarding (stream C); the wave-2 welcome steps reuse what is here.
   `/<name>` and one `label: value` line per filled field (multiline values under their label) and sends it as the
   first message of a new chat (`useChats.send`, the same path as the new-chat box), so the turn's existing
   `invokedSkill` handling, skill-use counting and the chat transcript need nothing new. Prefill reads
-  `GET /api/onboarding/profile` (stream D) through a local lenient schema and treats 404 or any failure as no
-  profile; a field the person already typed in is never overwritten when the profile arrives late. Opened from the
+  `GET /api/onboarding/profile` (stream D, `API.getCompanyProfile`) through D's shared `profilePrefill` and treats
+  404 or any failure as no profile; a one-line field gets a multi-line profile field's lines joined with ", " (a text
+  box drops line breaks); a field the person already typed in is never overwritten when the profile arrives late. Opened from the
   Team skills page (row, run button, menu; skills without a form keep the old "/name" link), `/skills?run=<path>`
   (closing it removes the parameter; a path the person cannot use says so, and says when their personal skill of the
   same name is in the way), and the "/" menu. The form checks its name against the person's own list

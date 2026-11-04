@@ -2,7 +2,7 @@
 // the empty Team skills page (components/AvailableSkills.tsx).
 import { afterEach, describe, expect, test } from 'bun:test'
 import { renderToStaticMarkup } from 'react-dom/server'
-import type { Locale, SkillInfo, SkillInput } from '@mycel/shared/api'
+import { CompanyProfileResponse, profilePrefill, SKILL_INPUT_PREFILL, type Locale, type SkillInfo, type SkillInput } from '@mycel/shared/api'
 import { translate, useLocaleStore } from '../../src/i18n'
 import { useSession } from '../../src/store/session'
 import { AvailableSkillsList } from '../../src/components/AvailableSkills'
@@ -14,17 +14,32 @@ const inputs: SkillInput[] = [
   { name: 'tone', label: '말투', prefill: 'company.tone' },
   { name: 'notes', label: '참고 메모', multiline: true },
 ]
-const profile = { oneLine: 'Acme makes planners', products: '종이 플래너', tone: ['친근하게', ' ', '짧게'], website: 'https://www.acme.example' }
+// a saved profile as GET /api/onboarding/profile returns it (the shared contract of the profile work), read through the
+// same shared helper the form uses
+const saved = CompanyProfileResponse.parse({ profile: {
+  website: 'https://www.acme.example/', oneLine: 'Acme makes planners', products: '종이 플래너\n데스크 매트', audience: '', tone: ['친근하게', '짧게'],
+  avoid: '', sources: [{ field: 'products', url: 'https://www.acme.example/shop', excerpt: '종이 플래너' }], updatedAt: '2026-11-04T00:00:00.000Z',
+} })
+const prefill = profilePrefill(saved.profile)
 
 describe('skill form values', () => {
+  test('every prefill key a form may ask for is one the company profile gives', () => {
+    const full = profilePrefill({ ...saved.profile!, audience: 'Small offices', avoid: 'Superlatives' })
+    expect(Object.keys(full).sort()).toEqual([...SKILL_INPUT_PREFILL].sort())
+  })
+
   test('the profile fills the fields that ask for it, never over what the person typed', () => {
-    expect(prefillValue(profile, 'company.products')).toBe('종이 플래너')
-    expect(prefillValue(profile, 'company.tone')).toBe('친근하게, 짧게')
-    expect(prefillValue(profile, 'company.avoid')).toBe('')
-    expect(prefillValue(null, 'company.products')).toBe('')
-    expect(withPrefill(inputs, profile, {}, new Set())).toEqual({ product: '종이 플래너', tone: '친근하게, 짧게', notes: '' })
+    // a one-line field gets the lines of a longer profile field joined (a text box would glue them together)
+    expect(prefillValue(prefill, { prefill: 'company.products' })).toBe('종이 플래너, 데스크 매트')
+    expect(prefillValue(prefill, { prefill: 'company.products', multiline: true })).toBe('종이 플래너\n데스크 매트')
+    expect(prefillValue(prefill, { prefill: 'company.tone' })).toBe('친근하게, 짧게')
+    expect(prefillValue(prefill, { prefill: 'company.website' })).toBe('https://www.acme.example/')
+    expect(prefillValue(prefill, { prefill: 'company.avoid' })).toBe('')
+    expect(prefillValue({}, { prefill: 'company.products' })).toBe('')
+    expect(profilePrefill(null)).toEqual({})
+    expect(withPrefill(inputs, prefill, {}, new Set())).toEqual({ product: '종이 플래너, 데스크 매트', tone: '친근하게, 짧게', notes: '' })
     // typed (even typed empty) stays as typed
-    expect(withPrefill(inputs, profile, { product: '다이어리', tone: '' }, new Set(['product', 'tone']))).toMatchObject({ product: '다이어리', tone: '' })
+    expect(withPrefill(inputs, prefill, { product: '다이어리', tone: '' }, new Set(['product', 'tone']))).toMatchObject({ product: '다이어리', tone: '' })
   })
 
   test('required fields left empty', () => {

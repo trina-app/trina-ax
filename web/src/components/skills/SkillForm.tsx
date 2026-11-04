@@ -13,7 +13,7 @@ import { useEffect, useId, useRef, useState, type FormEvent } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { SKILL_INPUT_TEXT_MAX, SKILL_INPUT_VALUE_MAX, type SkillInfo } from '@mycel/shared/api'
 import { api, API, errorText } from '../../lib/api'
-import { composeSkillMessage, loadProfile, missingRequired, skillRunBy, withPrefill } from '../../lib/skillForm'
+import { composeSkillMessage, loadPrefill, missingRequired, skillRunBy, withPrefill } from '../../lib/skillForm'
 import { rememberChat } from '../../lib/teamAttach'
 import { useLocale, useT } from '../../i18n'
 import { useChats } from '../../store/chats'
@@ -69,7 +69,7 @@ export function SkillForm({ path, skill: given, onDone, onSkip, onCompose }: Pro
   useEffect(() => {
     if (!inputs.some((i) => i.prefill)) return
     let live = true
-    void loadProfile().then((profile) => { if (live && profile) setValues((v) => withPrefill(inputs, profile, v, typed.current)) })
+    void loadPrefill().then((prefill) => { if (live && Object.keys(prefill).length) setValues((v) => withPrefill(inputs, prefill, v, typed.current)) })
     return () => { live = false }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [skill?.path, !!skill?.inputs])

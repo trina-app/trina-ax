@@ -9,6 +9,8 @@ import { addMember, harness, withOwner, type Harness } from './a-lib'
 import { checkSkill, listSkills, skillIssues } from '../../server/src/chat/skills'
 import { setSetting } from '../../server/src/admin/settings'
 import { SKILL_PACKS } from '../../server/src/onboarding/skill-packs'
+import { PROFILE_PATH } from '../../server/src/onboarding/profile'
+import { CompanyProfileResponse, profilePrefill } from '@mycel/shared/api'
 
 let h: Harness
 afterEach(async () => { await h?.close() })
@@ -142,4 +144,29 @@ test('every pack text, in every language, loads as a skill with a valid form', (
       expect(text.includes('<company_profile'), `${locale}/${name}`).toBe(false)
     }
   }
+})
+
+test('with a saved company profile: the install leaves it alone, it is no skill, and it fills every form field that asks', async () => {
+  const { owner, ada, mia, root } = await setup()
+  const saved = await owner.try('PUT', '/api/onboarding/profile', {
+    website: 'https://www.acme.example/', oneLine: 'Acme makes quiet desk fans.', products: 'Desk fans\nFan filters', audience: 'Small offices',
+    tone: ['friendly', 'plain'], avoid: 'Superlatives', sources: [],
+  })
+  expect(saved.status).toBe(200)
+  const file = path.join(root, PROFILE_PATH)
+  const before = fs.readFileSync(file, 'utf8')
+
+  expect((await install(ada.client)).status).toBe(200)
+  expect(fs.readFileSync(file, 'utf8')).toBe(before)
+  const member = h.ctx.files.principal(mia.id)
+  expect(listSkills(h.ctx.files, member).some((s) => s.path === PROFILE_PATH)).toBe(false)
+  expect(skillIssues(h.ctx.files, member)).toEqual([])
+
+  // what a member's form gets (GET /api/onboarding/profile through the shared contract and prefill helper)
+  const prefill = profilePrefill(CompanyProfileResponse.parse(await mia.client.call('GET', '/api/onboarding/profile')).profile)
+  const asked = listSkills(h.ctx.files, member).filter((s) => s.path.startsWith('skills/marketing/')).flatMap((s) => s.inputs ?? []).flatMap((i) => (i.prefill ? [i.prefill] : []))
+  expect(new Set(asked)).toEqual(new Set(['company.products', 'company.audience', 'company.tone', 'company.avoid', 'company.website']))
+  for (const key of asked) expect(prefill[key], key).toBeTruthy()
+  expect(prefill['company.products']).toBe('Desk fans\nFan filters')
+  expect(prefill['company.tone']).toBe('friendly, plain')
 })

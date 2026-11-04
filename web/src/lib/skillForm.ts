@@ -2,40 +2,30 @@
 // the skill. The message is the ordinary skill command ("/<name>" first, server/src/chat/skills.ts invokedSkill),
 // followed by one "label: value" line per filled field, so the chat shows what was asked and the AI gets it as the
 // skill's input.
-import { z } from 'zod'
-import { endpoint, type SkillInfo, type SkillInput, type SkillInputPrefill } from '@mycel/shared/api'
+import { API, profilePrefill, type SkillInfo, type SkillInput } from '@mycel/shared/api'
 import { api } from './api'
 
-/** The company profile fields a form uses (GET /api/onboarding/profile; the full type belongs to the profile work).
- * Unknown fields are ignored and every field is optional, so a newer profile still fills what it can. */
-const ProfileFields = z.looseObject({
-  website: z.string().optional(),
-  oneLine: z.string().optional(),
-  products: z.string().optional(),
-  audience: z.string().optional(),
-  tone: z.array(z.string()).optional(),
-  avoid: z.string().optional(),
-})
-export type ProfileFields = z.infer<typeof ProfileFields>
+/** What a form can fill in: the company profile as skill-input prefill values (`company.<field>` → text, shared
+ * `profilePrefill`: tone chips joined with ", ", empty fields left out). */
+export type Prefill = Readonly<Record<string, string>>
 
-const getProfile = endpoint({ method: 'GET', path: '/api/onboarding/profile', auth: 'user', owner: 'B', response: z.object({ profile: ProfileFields.nullable() }), summary: 'The company profile, for prefilling skill forms.' })
-
-/** The company profile, or null: none saved yet, or a server without profiles (404) or any other failure. */
-export async function loadProfile(): Promise<ProfileFields | null> {
-  try { return (await api.call(getProfile)).profile } catch { return null }
+/** The team's company profile (GET /api/onboarding/profile) as prefill values; empty when none is saved, the person
+ * cannot read it, or the server has no profiles (404) or any other failure. */
+export async function loadPrefill(): Promise<Prefill> {
+  try { return profilePrefill((await api.call(API.getCompanyProfile)).profile) } catch { return {} }
 }
 
-/** The profile's text for one prefill key ('' when the profile has none). */
-export function prefillValue(profile: ProfileFields | null, key: SkillInputPrefill | undefined): string {
-  if (!profile || !key) return ''
-  const v = profile[key.slice('company.'.length) as keyof ProfileFields]
-  return (Array.isArray(v) ? v.filter((x) => typeof x === 'string' && x.trim()).join(', ') : typeof v === 'string' ? v : '').trim()
+/** The text for one field ('' when the profile has none). A one-line field gets the lines of a longer profile field
+ * joined with ", " (a text box drops line breaks, which would glue the lines together). */
+export function prefillValue(prefill: Prefill, input: Pick<SkillInput, 'prefill' | 'multiline'>): string {
+  const v = (input.prefill && prefill[input.prefill]) || ''
+  return input.multiline ? v : v.split('\n').map((l) => l.trim()).filter(Boolean).join(', ')
 }
 
 /** Start values: from the profile where a field asks for it, without touching what the person already typed. */
-export function withPrefill(inputs: readonly SkillInput[], profile: ProfileFields | null, values: Record<string, string>, typed: ReadonlySet<string>): Record<string, string> {
+export function withPrefill(inputs: readonly SkillInput[], prefill: Prefill, values: Record<string, string>, typed: ReadonlySet<string>): Record<string, string> {
   const next = { ...values }
-  for (const i of inputs) if (!typed.has(i.name) && !next[i.name]?.trim()) next[i.name] = prefillValue(profile, i.prefill)
+  for (const i of inputs) if (!typed.has(i.name) && !next[i.name]?.trim()) next[i.name] = prefillValue(prefill, i)
   return next
 }
 
