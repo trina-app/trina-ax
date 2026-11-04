@@ -20,6 +20,12 @@
 #   maxRunning = 1 + log2(u)     (Starter 1,    Team 2,    Business 3),    at most 4
 #   network    = open
 # A plan under 4096 MiB (Free, the old trial) gets NO dev environment: no dev-env.json, no server drop-in.
+# The plan memory and cores are capped by this machine (memory rounded up to whole GiB, the cgroup memory.max or
+# MemTotal as in native/internal/plan MachineMemoryMiB; cores from nproc). After a move up the control plane writes the
+# new plan.json at once, but the VM gets the new size only at its next reboot: until then the old machine size counts.
+# So a move up from Free turns the dev environment on at the next boot (no restart during the day), and a move up from
+# Starter keeps the Starter numbers until that boot. MYCEL_DEVENV_MACHINE_MIB / MYCEL_DEVENV_MACHINE_CORES set the
+# machine size for tests (--map uses no machine cap unless they are set).
 set -uo pipefail
 export LC_ALL=C.UTF-8 PATH="${PATH:+$PATH:}/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
 
@@ -33,29 +39,54 @@ MIN_PLAN_MIB=4096
 
 say() { echo "mycel-devenv-boot: $*"; }
 
-# map PLANFILE: the dev-env.json text on stdout; exit 1 (with a reason on stderr) when the plan has no dev environment
+# machine_mib: this machine's memory in MiB, rounded up to whole GiB (a 4 GiB EC2 VM has a MemTotal of about 3.8 GiB)
+machine_mib() {
+  local m=${MYCEL_DEVENV_MACHINE_MIB:-} v
+  if [ -z "$m" ]; then
+    v=$(cat /sys/fs/cgroup/memory.max 2>/dev/null || true)
+    if [[ "$v" =~ ^[0-9]+$ ]] && [ "$v" -gt 0 ]; then m=$(( v >> 20 ))
+    else m=$(awk '/^MemTotal:/ { printf "%d", $2 / 1024 }' /proc/meminfo 2>/dev/null); fi
+  fi
+  [[ "$m" =~ ^[0-9]+$ ]] && [ "$m" -gt 0 ] || { echo 0; return; }
+  echo $(( (m + 1023) / 1024 * 1024 ))
+}
+machine_cores() {
+  local c=${MYCEL_DEVENV_MACHINE_CORES:-$(nproc 2>/dev/null || true)}
+  [[ "$c" =~ ^[0-9]+$ ]] && echo "$c" || echo 0
+}
+
+# map PLANFILE [MACHINE_MIB MACHINE_CORES]: the dev-env.json text on stdout; exit 1 (with a reason on stderr) when the
+# plan has no dev environment. A machine value of 0 is no cap.
 map() {
-  jq -ce --argjson min "$MIN_PLAN_MIB" '
+  jq -ce --argjson min "$MIN_PLAN_MIB" --argjson mach "${2:-0}" --argjson ncpu "${3:-0}" '
     def int: (. | floor);
-    if (.format != 1) or ((.plan|type) != "string") or ((.memoryMiB|type) != "number") or ((.cpuCores|type) != "number")
-    then error("plan.json: not a format 1 plan with memoryMiB and cpuCores")
-    elif .memoryMiB < $min then error("plan \(.plan) has \(.memoryMiB) MiB, under \($min): no dev environment")
+    if (.format != 1) or ((.plan|type) != "string") or ((.memoryMiB|type) != "number")
+    then error("plan.json: not a format 1 plan with memoryMiB")
     else
-      (.memoryMiB / 4096) as $u
-      | {format: 1,
-         plan: .plan,
-         maxRunning: ([4, (if $u >= 8 then 4 elif $u >= 4 then 3 elif $u >= 2 then 2 else 1 end)] | min),
-         cpus: ([4, ([0.25, ((.cpuCores * 0.75 * 100 | floor) / 100)] | max)] | min),
-         memoryMiB: ([8192, (1536 * $u | int)] | min),
-         pids: ([4096, (512 * $u | int)] | min),
-         diskGiB: ([32, ([1, (8 * $u | int)] | max)] | min),
-         network: "open"}
+      (if $mach > 0 then ([.memoryMiB, $mach] | min) else .memoryMiB end) as $mem
+      | if .memoryMiB < $min then error("plan \(.plan) has \(.memoryMiB) MiB, under \($min): no dev environment")
+        elif $mem < $min then error("plan \(.plan) has \(.memoryMiB) MiB, but this machine has \($mach) MiB, under \($min): no dev environment until the VM has the plan size")
+        elif (.cpuCores|type) != "number" then error("plan.json: not a format 1 plan with cpuCores")
+        else
+          ($mem / 4096) as $u
+          | (if $ncpu > 0 then ([.cpuCores, $ncpu] | min) else .cpuCores end) as $cores
+          | {format: 1,
+             plan: .plan,
+             maxRunning: ([4, (if $u >= 8 then 4 elif $u >= 4 then 3 elif $u >= 2 then 2 else 1 end)] | min),
+             cpus: ([4, ([0.25, (($cores * 0.75 * 100) | floor) / 100] | max)] | min),
+             memoryMiB: ([8192, (1536 * $u | int)] | min),
+             pids: ([4096, (512 * $u | int)] | min),
+             diskGiB: ([32, ([1, (8 * $u | int)] | max)] | min),
+             network: "open"}
+        end
     end' "$1"
 }
 
 if [ "${1:-}" = --map ]; then
   [ -n "${2:-}" ] || { echo "usage: mycel-devenv-boot --map plan.json" >&2; exit 2; }
-  map "$2"; exit $?
+  if [ -n "${MYCEL_DEVENV_MACHINE_MIB:-}${MYCEL_DEVENV_MACHINE_CORES:-}" ]; then map "$2" "$(machine_mib)" "$(machine_cores)"
+  else map "$2"; fi
+  exit $?
 fi
 
 # off: a plan without a dev environment (a move down to Free). Remove the file and the server switch. node, srt and the
@@ -80,7 +111,9 @@ main() {
   [ -f "$PLAN" ] || { say "no $PLAN yet: nothing done (mycel-devenv-plan.path runs this again when it comes)"; return 0; }
 
   local text
-  if ! text=$(map "$PLAN" 2>&1); then
+  local mach cores
+  mach=$(machine_mib); cores=$(machine_cores)
+  if ! text=$(map "$PLAN" "$mach" "$cores" 2>&1); then
     say "$(printf '%s' "${text:-cannot read $PLAN}" | head -c 300)"
     case "$text" in *"no dev environment"*) off ;; esac
     return 0

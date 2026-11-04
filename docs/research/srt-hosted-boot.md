@@ -39,6 +39,16 @@ Reference: Starter (4096 MiB, 2 vCPU). u = plan `memoryMiB` / 4096.
 A plan under 4096 MiB (Free, the old trial) gets no dev environment: no `dev-env.json`, no server drop-in. A move down
 to such a plan removes both. The node, srt and package files stay (they are part of the image).
 
+The machine caps the plan. The script uses min(plan `memoryMiB`, machine memory) for u, and min(plan `cpuCores`,
+`nproc`) for cpus. Machine memory is the cgroup `memory.max` or `MemTotal` (as `MachineMemoryMiB` in
+`native/internal/plan`), rounded up to whole GiB: a 4 GiB EC2 VM has a `MemTotal` of about 3.8 GiB, and a t3a.small
+(2 GiB) has 1942 MiB. Reason: on a move up, the control plane writes the new `plan.json` at once, but the VM gets the
+new size only at its next idle reboot. Thus:
+
+- A move up from Free (2 GiB VM) keeps the dev environment off until that reboot. At the reboot the unit turns it on
+  before the server starts, so there is no restart during the day.
+- A move up from Starter to Team keeps the Starter numbers until the reboot.
+
 ## It stays off until an admin turns it on
 
 The drop-in sets `MYCEL_DEV_ENV=1`. That only makes the "Dev environment" section show in Admin › Team settings for
@@ -65,12 +75,14 @@ turns it on and accepts the warning (beta.5).
 - Memory: on Starter the slice can use 1536 MiB of 4096 MiB. Section 13 of `srt-dev-env.md` measured this size with a
   Remotion render; Team and Business are proportional, not measured.
 - Every server start runs the unit (an estimate of 1 to 2 s, not measured: the srt version check and a scope probe).
-- A plan move across 4096 MiB (Free up to Starter or more, or down to Free) adds or removes the drop-in, so the server
-  restarts once (`--no-block`) and the running answers end.
+- A move down to Free removes the drop-in, so the server restarts once (`--no-block`) and the running answers end. A
+  move up from Free does not restart the server (see the machine cap above).
 - Order in the control plane (trina-cloud `src/teams/lifecycle.ts`): a move up is `resize(idle)`, then `apply-plan`.
-  With `applyMemory: 'idle'` the new memory can come only at the next idle reboot. Until then a team that moved up
-  from Free can have Starter limits (1536 MiB) on a 2 GiB VM. The admin must still turn the feature on, and the kernel
-  kills a job over the slice limit, not the server. Not fixed here.
+  With `applyMemory: 'idle'` the new memory can come only at the next idle reboot. Fixed by the machine cap: until the
+  reboot the old machine size counts, so a team that moved up from Free never gets Starter limits on a 2 GiB VM.
+- On Starter the ceilings add up to more than the RAM (launcher 3328 + server 1792 + slice 1536 MiB on 4096 MiB).
+  `run-wrap` sets `oom_score_adj` 800 for every run, so in a machine-wide shortage the kernel kills a run before the
+  server.
 
 ## Roll back
 
@@ -83,5 +95,5 @@ systemctl daemon-reload && systemctl restart mycel-server
 ```
 
 For all new servers: build the AMI from the commit before this change, or give `customize.sh` no `--srt` folder.
-`uninstall-srt.sh` also works, but it removes node and srt from `/opt/trina`. Mask the units first, or the next server
-start puts the drop-in back.
+`uninstall-srt.sh` also works, but it removes node and srt from `/opt/trina`. After it the next server start logs a
+stop (`--boot` downloads nothing) and adds no drop-in; mask the units to keep the journal clean.

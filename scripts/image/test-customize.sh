@@ -154,6 +154,7 @@ X
     printf "#!/bin/bash\necho \"systemd-run \$*\" >> /tmp/stub.log\ncase \" \$* \" in *\" --scope \"*) exit 0 ;; esac; exit 1\n" > $S/systemd-run
     printf "#!/bin/bash\necho \"apt-get \$*\" >> /tmp/stub.log\nexit 1\n" > $S/apt-get
     chmod 755 $S/*
+    cp $S/systemctl $S/systemctl.good
     export PATH=$S:$PATH
 
     # the mapping, for the plans of the control plane (trina-cloud src/teams/plans.ts)
@@ -166,6 +167,8 @@ X
     if m "{\"format\":1,\"plan\":\"free\",\"maxConcurrency\":1,\"memoryMiB\":2048,\"cpuCores\":2,\"diskGiB\":5}" >/dev/null 2>&1; then fail "Free got a dev environment"; fi
     echo "mapping: Starter $want_basic; Team [2,1.5,3072,1024,16]; Business [3,3,6144,2048,32]; Free none"
 
+    # a t3a.medium (4 GiB VM, MemTotal about 3.8 GiB): the Docker VM size of the test machine does not count
+    export MYCEL_DEVENV_MACHINE_MIB=3890 MYCEL_DEVENV_MACHINE_CORES=2
     # a hosted server after enrollment: the data disk holds root/install.json and root/plan.json
     B=/var/lib/mycel; DROPIN=/etc/systemd/system/mycel-server.service.d/dev-env.conf
     install -d -o root -g root -m 755 $B $B/root
@@ -209,17 +212,44 @@ X
     out=$(mycel-devenv-boot 2>&1) || fail "failing install-srt: exit code"
     echo "$out" | grep -q "install-srt.sh --boot failed" || fail "failing install-srt not logged"
     echo "damaged plan.json and a failing install-srt.sh: logged, exit 0"
+    cp $S/systemctl.good $S/systemctl
+
+    # a move up before the VM has the new size (the control plane writes plan.json at once, the VM grows at its next
+    # reboot): the machine size counts. Team on a 4 GiB VM keeps the Starter numbers, nothing restarts.
+    mycel-devenv-boot >/dev/null 2>&1; touch /tmp/server-active; : > $LOG
+    echo "{\"format\":1,\"plan\":\"team\",\"maxConcurrency\":3,\"memoryMiB\":8192,\"cpuCores\":2,\"diskGiB\":160}" > $B/root/plan.json
+    mycel-devenv-boot >/dev/null 2>&1 || fail "Team on 4 GiB: exit code"
+    [ "$(jq -c "[.plan,.maxRunning,.memoryMiB]" $B/root/dev-env.json)" = "[\"team\",1,1536]" ] || fail "Team on 4 GiB: $(cat $B/root/dev-env.json)"
+    ! grep -q "^systemctl restart" $LOG || fail "Team on 4 GiB restarted the server"
+    MYCEL_DEVENV_MACHINE_MIB=7900 mycel-devenv-boot >/dev/null 2>&1 || fail "Team on 8 GiB: exit code"
+    [ "$(jq -c "[.maxRunning,.memoryMiB]" $B/root/dev-env.json)" = "[2,3072]" ] || fail "Team on 8 GiB: $(cat $B/root/dev-env.json)"
+    rm -f /tmp/server-active
+    echo "move up: Team on a 4 GiB VM keeps the Starter numbers (no restart); on an 8 GiB VM it gets the Team numbers"
+
 
     # a move down to Free: dev-env.json and the server switch go, the image files stay
     echo "{\"format\":1,\"plan\":\"free\",\"maxConcurrency\":1,\"memoryMiB\":2048,\"cpuCores\":2,\"diskGiB\":5}" > $B/root/plan.json
     mycel-devenv-boot >/dev/null 2>&1 || fail "Free: exit code"
     [ ! -e $B/root/dev-env.json ] && [ ! -e $DROPIN ] || fail "Free kept dev-env.json or the drop-in"
     [ -x /opt/trina/node/bin/node ] || fail "Free removed node"
+    # Starter on the 2 GiB VM of Free (a move up from Free before the reboot): stays off, nothing restarts
+    touch /tmp/server-active; : > $LOG
+    echo "$BASIC" > $B/root/plan.json
+    MYCEL_DEVENV_MACHINE_MIB=1942 mycel-devenv-boot >/dev/null 2>&1 || fail "Starter on 2 GiB: exit code"
+    [ ! -e $B/root/dev-env.json ] && [ ! -e $DROPIN ] || fail "Starter on 2 GiB turned the dev environment on"
+    ! grep -q "^systemctl restart" $LOG || fail "Starter on 2 GiB restarted the server"
+    # a move down to Free while the server runs: off, and one restart with --no-block
+    mycel-devenv-boot >/dev/null 2>&1; [ -e $DROPIN ] || fail "Starter on 4 GiB: no drop-in"; : > $LOG
+    echo "{\"format\":1,\"plan\":\"free\",\"maxConcurrency\":1,\"memoryMiB\":2048,\"cpuCores\":2,\"diskGiB\":5}" > $B/root/plan.json
+    mycel-devenv-boot >/dev/null 2>&1 || fail "Free (running): exit code"
+    [ ! -e $DROPIN ] || fail "Free (running) kept the drop-in"
+    grep -qx "systemctl restart --no-block mycel-server.service" $LOG || fail "Free (running): no --no-block restart"
+    rm -f /tmp/server-active
     # not hosted: nothing
     echo "$BASIC" > $B/root/plan.json; echo "{\"hosted\":false}" > $B/root/install.json
     mycel-devenv-boot >/dev/null 2>&1 || fail "self-hosted: exit code"
     [ ! -e $B/root/dev-env.json ] || fail "self-hosted got dev-env.json"
     if bash /usr/lib/mycel/dev-env/srt/install-srt.sh --image-mode --boot >/dev/null 2>&1; then fail "--image-mode --boot accepted"; fi
-    echo "Free: switched off; self-hosted: nothing done; --image-mode --boot refused"'
+    echo "Free: switched off (a running server restarts once, --no-block); Starter on the 2 GiB VM of Free: off, no restart; self-hosted: nothing done; --image-mode --boot refused"'
 fi
 echo "test-customize: OK"
