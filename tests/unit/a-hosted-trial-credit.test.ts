@@ -11,12 +11,13 @@ import path from 'node:path'
 import type { EngineEvent } from '@mycel/shared'
 import { tenantCommandProblem, TENANT_COMMANDS } from '@mycel/shared/cloud-protocol'
 import { ALL_CREDENTIAL_KINDS, type AppConfig } from '../../server/src/app-config'
-import { setSetting } from '../../server/src/admin/settings'
+import { setEnginesEnabled, setSetting } from '../../server/src/admin/settings'
+import { canUseAi, connectionRoute } from '../../server/src/credentials/access'
 import { createBroker } from '../../server/src/credentials/broker'
 import {
   chargeHostedChat, createTrialMeter, dropHostedChatKey, HOSTED_CHAT_ID, HOSTED_CHAT_KEY_SETTING, HOSTED_CHAT_MAX_TOKENS, HOSTED_CHAT_MODEL,
   HOSTED_CHAT_USAGE_SETTING, hostedChatConf, hostedChatHeldUsd, hostedChatLeftUsd, hostedChatState, hostedChatUsedUsd, isOpenRouterLimitError,
-  readHostedChatKey, trialCredit, trialEstimate, trialEstimateUsd, writeHostedChatKey,
+  readHostedChatKey, TRIAL_BYTES_PER_TOKEN, trialCredit, trialEstimate, trialEstimateUsd, writeHostedChatKey,
 } from '../../server/src/credentials/hosted-chat'
 import { claudeCost } from '../../server/src/credentials/prices'
 import { rekeyCredentials } from '../../server/src/credentials/rekey'
@@ -33,6 +34,7 @@ const KEY = 'sk-or-v1-TRIAL-CANARY-' + 'k'.repeat(40)
 const KEY2 = 'sk-or-v1-TRIAL-ROTATED-' + 'r'.repeat(40)
 const ANT_KEY = 'sk-ant-api03-TRIAL-ANT-' + 'a'.repeat(30)
 const TEAM_KEY = 'sk-ant-api03-TEAM-' + 't'.repeat(30)
+const OPENAI_KEY = 'sk-proj-TEAM-' + 'o'.repeat(40)
 const ALL = new Set(ALL_CREDENTIAL_KINDS)
 const DAY = 86400_000
 const future = () => new Date(Date.now() + 14 * DAY).toISOString()
@@ -108,6 +110,7 @@ beforeEach(() => {
   env.db.query('DELETE FROM engine_credentials').run()
   env.db.query('DELETE FROM settings WHERE key IN (?, ?)').run(HOSTED_CHAT_KEY_SETTING, HOSTED_CHAT_USAGE_SETTING)
   setSetting(env.db, MEMBER_OWN_KEY, false)
+  setEnginesEnabled(env.db, { 'claude-code': true, codex: true })
   anthropicSeen.length = 0; events.length = 0; sent.length = 0; replies = []
 })
 
@@ -210,6 +213,60 @@ describe('a Claude Code launch can never get the trial key', () => {
       expect(f.ok).toBe(false)
       expect(JSON.stringify(f)).not.toContain('CANARY')
     }
+  })
+})
+
+describe('the team\'s own AI comes first, on either engine (connectionRoute, the turn and /api/me/ai-access)', () => {
+  const ctx = { db: env.db, config: t.cc.config as unknown as AppConfig }
+  const route = (engine: 'claude-code' | 'codex', who = 'alice') => connectionRoute(ctx, { id: who }, engine, { allowed: ALL })
+  const limit = (id: string) => env.db.query('UPDATE engine_credentials SET limited_until = ? WHERE id = ?').run(new Date(Date.now() + 4 * 3600_000).toISOString(), id)
+  test('without a trial credit nothing changes: always the chat\'s own engine', () => {
+    addCred(t.cc, 'openai-api-key', OPENAI_KEY, { label: 'codex' })
+    expect(route('claude-code')).toBe('own')
+    expect(route('codex')).toBe('own')
+  })
+  test('only ChatGPT / Codex connected: Claude Code chats go to Codex, not to the credit, also once it is used up', () => {
+    grant()
+    expect(route('claude-code')).toBe('trial')
+    addCred(t.cc, 'openai-api-key', OPENAI_KEY, { label: 'codex' })
+    expect(route('claude-code')).toBe('codex')
+    expect(route('codex')).toBe('own')
+    chargeHostedChat(env.db, 1)
+    expect(route('claude-code')).toBe('codex')
+    // the same the other way: a Codex chat with only a Claude connection goes to Claude Code
+    env.db.query('DELETE FROM engine_credentials').run()
+    addCred(t.cc, 'anthropic-api-key', TEAM_KEY, { label: 'team' })
+    expect(route('codex')).toBe('claude-code')
+  })
+  test('a connection only at its limit while the other engine has one: the usual wait or Codex fallback, never the credit', () => {
+    grant()
+    const claude = addCred(t.cc, 'anthropic-api-key', TEAM_KEY, { label: 'team' })
+    limit(claude)
+    expect(route('claude-code')).toBe('trial') // nothing else of the team's works now
+    addCred(t.cc, 'openai-api-key', OPENAI_KEY, { label: 'codex' })
+    expect(route('claude-code')).toBe('own')
+  })
+  test('the other engine switched off: it cannot take over, the credit answers; used up or ended: the usual errors', () => {
+    grant()
+    addCred(t.cc, 'openai-api-key', OPENAI_KEY, { label: 'codex' })
+    setEnginesEnabled(env.db, { codex: false })
+    expect(route('claude-code')).toBe('trial')
+    chargeHostedChat(env.db, 1)
+    expect(route('claude-code')).toBe('own')
+    grant({ enabled: false })
+    expect(route('claude-code')).toBe('own')
+  })
+  test('/api/me/ai-access says the same: usable exactly when something will answer', () => {
+    // a member who cannot pick engines: the team default (Claude Code) answers their chats
+    const member = { id: 'alice', role: 'member' }
+    grant()
+    expect(canUseAi(ctx, member)).toBe(true) // the credit
+    chargeHostedChat(env.db, 1)
+    expect(canUseAi(ctx, member)).toBe(false) // used up, nothing of the team's
+    addCred(t.cc, 'openai-api-key', OPENAI_KEY, { label: 'codex' })
+    expect(canUseAi(ctx, member)).toBe(true) // Codex takes the Claude Code chats
+    writeHostedChatKey(t.cc, null)
+    expect(canUseAi(ctx, member)).toBe(false) // no credit on this server: Claude Code chats need a Claude connection, as before
   })
 })
 
@@ -334,11 +391,22 @@ describe('the meter of a trial answer (API engine)', () => {
     expect(hostedChatUsedUsd(env.db)).toBeLessThanOrEqual(1 + reservation)
     expect(hostedChatHeldUsd(env.db)).toBe(0)
   })
+  test('the reservation counts two bytes a token, so Korean text reaches the long-context price in the estimate in time', () => {
+    expect(TRIAL_BYTES_PER_TOKEN).toBe(2)
+    // 80,000 Hangul syllables: 240,000 bytes, about 80,000-160,000 tokens; at 3 bytes a token it would look like 80,000
+    const body = JSON.stringify({ messages: [{ role: 'user', content: '가'.repeat(80_000) }] })
+    const est = trialEstimate(Buffer.byteLength(body), 1_000)
+    expect(est.inputTokens).toBeGreaterThan(100_000)
+    // Claude Haiku 5.5 above 100,000 input tokens: $1 (1-hour cache write) / $2.50 per million
+    expect(trialEstimateUsd(est)).toBeCloseTo(est.inputTokens * 1 / 1e6 + 1_000 * 2.5 / 1e6, 9)
+    // below it the usual price ($0.20 / $0.50)
+    expect(trialEstimateUsd(trialEstimate(180_000, 1_000))).toBeCloseTo(90_000 * 0.2 / 1e6 + 1_000 * 0.5 / 1e6, 9)
+  })
   test('the meter alone: a completion that never got an answer gives its hold back', () => {
     grant()
     const m: ApiMeter = createTrialMeter(t.cc, () => {})
     expect(m.start({ bodyBytes: 3_000, maxTokens: 1_000 })).toEqual({ key: KEY })
-    expect(hostedChatHeldUsd(env.db)).toBeCloseTo(trialEstimateUsd({ inputTokens: 1_000, maxTokens: 1_000 }), 12)
+    expect(hostedChatHeldUsd(env.db)).toBeCloseTo(trialEstimateUsd({ inputTokens: 1_500, maxTokens: 1_000 }), 12)
     m.end('none')
     expect(hostedChatHeldUsd(env.db)).toBe(0)
     expect(hostedChatUsedUsd(env.db)).toBe(0)

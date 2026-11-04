@@ -1709,6 +1709,8 @@ export const en: Record<MessageKey, string> = {
   // B — hosted trial AI credit (server/src/credentials/hosted-chat.ts, components/TrialCreditBar.tsx)
   'chat.error.trial_credit_used': CHAT_ERROR_MESSAGES.trial_credit_used.en,
   'chat.error.trial_ended': CHAT_ERROR_MESSAGES.trial_ended.en,
+  // Z — the API engine stopped at its output limit (server/src/engine/api-agent.ts)
+  'chat.error.output_limit': CHAT_ERROR_MESSAGES.output_limit.en,
   'audit.act.ai.hosted_trial_key': "Changed the hosted trial AI key",
   'trialCredit.active': "Trial credit: {used} of {cap} used · until {date} · An AI you connect is used first",
   'trialCredit.used': "The trial credit is used up ({used} of {cap}) · Connect your own AI to go on",

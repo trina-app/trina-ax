@@ -7316,15 +7316,26 @@ that case. Ordinary API use of the app's own agent falls under the Commercial Te
   (`credential_gone`, nothing sent). B's one exception stays: a Claude connection only at its limit while "Claude 한도에
   닿으면 Codex로 넘기기" would send the turn to the person's Codex connection goes there as before.
 - **Engine choice, without touching Admin › AI engines.** Chats keep their engine (`chats.engine`); only the turn moves:
-  `turns.engine` and the answer's `messages.engine` are `api`, the model is the trial model, `turns.credential_id` is
-  `hosted-trial` (Admin › Usage by connection "Trial credit (hosting)"). `turns.engine = api` also keeps images out
-  (`files/vision.ts`: the API engine passes text only). Once the team or the person adds a connection that works for the
-  chat's engine, the next turn runs there as chosen; nothing else changes (no engine-api.json is written, the team
-  default stays). A turn decided on its connection that loses it mid-answer is not handed to the credit (B did that
-  inside Claude Code); the next message is. The composer (`chatEnginesFor`) lists Claude Code and Codex while the credit
-  answers; `canUseAi` counts it for every engine but `api` (A's `/api/me/ai-access` `usable`, Admin › Members "No AI",
-  the profile step); `aiAccessFor`'s `trial: used | ended` now applies to Codex users too. `hasCredentialFor` /
-  `hasCredentialSoonFor` are about connections only again (the turn's Codex-fallback check needs exactly that).
+  `turns.engine` is `api`, the model is the trial model, `turns.credential_id` is `hosted-trial` (Admin › Usage by
+  connection "Trial credit (hosting)"). `turns.engine = api` also keeps images out (`files/vision.ts`: the API engine
+  passes text only). The answer keeps the chat's engine in `messages.engine` (review of the branch): the person never
+  chose the API engine, so the chat shows no "switched to API" divider and back; the answer's model names the trial
+  model. Nothing else changes (no engine-api.json is written, the team default stays). A turn decided on its connection
+  that loses it mid-answer is not handed to the credit (B did that inside Claude Code); the next message is.
+- **The team's own AI first, on either engine (review of the branch).** One rule, `credentials/access.ts
+  connectionRoute`, decides a managed Claude Code or Codex turn on a server that holds a trial credit (any state), and
+  `canUseAi` (A's `/api/me/ai-access` `usable`, Admin › Members "No AI", the profile step) uses the same rule, so the
+  banner and the answer agree: its own engine when a connection of the person works there; the other of the two when
+  only that one has a working connection and is on here (a team that connected only ChatGPT gets its Claude Code chats
+  answered by Codex, also after the credit is used up; a step "No AI connection for Claude Code; answering with Codex,
+  which is connected", `engineNoConnection`; the answer's engine is the one that answered; a model named for the other
+  engine is dropped for its default); its own engine when its connection is only at a limit and the other engine has
+  one (the usual wait, or the admin's "Claude 한도에 닿으면 Codex로 넘기기": B's exception is now part of the rule, and
+  the credit no longer answers while a team connection waits out a limit when the team has another engine); the credit
+  when nothing of the person's works on either engine and it is active; else the usual errors (`trial_credit_used` /
+  `trial_ended` when there is no connection at all). A server without a trial credit is unchanged. The composer
+  (`chatEnginesFor`) lists Claude Code and Codex while the credit is active. `hasCredentialFor` /
+  `hasCredentialSoonFor` are about connections only again.
 - **The key: a per-team OpenRouter key, the same command.** `hosted-chat-key-set` keeps its name and stdin
   (`{ key, capUsd, endsAt, enabled } | { key: null }`); `key` is now an OpenRouter key (`OpenRouterApiKey`, as for
   hosted speech) and a direct Anthropic key or subscription token is refused by the protocol schema, mycel-ctl and
@@ -7340,14 +7351,18 @@ that case. Ordinary API use of the app's own agent falls under the Commercial Te
   API engine (public https only) applies to it.
 - **Spend: the team server still counts, per completion.** `createTrialMeter` (credentials/hosted-chat.ts) is the API
   engine's new optional `meter`: before each completion the credit must be active, the key is read again (a rotated key
-  is used at once), and the completion's reservation (body bytes / 3 as input at the 1-hour cache-write price, its
-  `max_tokens` as output) is held while spent + held is under the cap, else it is not sent and the answer stops with
+  is used at once), and the completion's reservation (body bytes / 2 as input tokens at the 1-hour cache-write price,
+  `TRIAL_BYTES_PER_TOKEN`: Korean text is about 3 bytes a token and must not slip under the long-context price unseen;
+  its `max_tokens` as output) is held while spent + held is under the cap, else it is not sent and the answer stops with
   `trial_credit_used` (`trial_ended` past its end, switched off, taken away). Trial completions send `max_tokens` 16,000
   (`HOSTED_CHAT_MAX_TOKENS`), which bounds one completion (about $0.01 normally, $0.04 at the long-context price). The
   cost counted is OpenRouter's own `usage.cost` (what the key's limit counts too), else the list price; an answer that
   started but whose usage never came (Stop, a broken stream, an error inside the stream) counts its whole reservation;
   a refusal or an unreachable service gives the hold back. All the turns together pass the cap by at most the last
-  completion admitted. `proxy_tokens.budget_usd` is not used for the trial any more: the per-completion hold already
+  completion admitted, as long as its input has at most one token per two bytes. A completion that stops at its output
+  limit (`finish_reason: length`, for any API engine run) ends the answer with `output_limit` ("The answer was cut off
+  …"): the text so far stays, a tool call cut off with it is neither run nor sent again (it could only fail and be tried
+  again, each try another hold). `proxy_tokens.budget_usd` is not used for the trial any more: the per-completion hold already
   bounds every answer, and the API engine has no proxy token.
 - **OpenRouter's key limit is the backstop.** 402 (insufficient credits on the key or account) and 403 with
   `error.metadata.limit_source` `openrouter_key_limit` (or "Key limit" / "$X of $Y used" in the message), as an HTTP
@@ -7377,9 +7392,14 @@ that case. Ordinary API use of the app's own agent falls under the Commercial Te
   a B row ignored, the resolver and the model proxy never giving the key to a Claude Code launch, the meter: key per
   completion, max_tokens, OpenRouter's cost, list price, refused at the cap before sending, ended, 401 and a late 401,
   OpenRouter's limit over HTTP and in the stream, moderation and 5xx passing on, a broken-off answer, eight answers at
-  once near the cap; the view, rekey, drop, export, restore), `tests/unit/b-hosted-trial-turn.test.ts` (real runtime
-  and launcher: a Claude Code and a Codex chat answered on the API engine with no launch, a team connection taking over,
-  the Codex fallback first, used and ended before anything runs, used up mid-answer, OpenRouter's limit and a refused
+  once near the cap, Korean text at the long-context price; `connectionRoute` both ways, at a limit, the other engine
+  off, used and ended, and `canUseAi` agreeing; the view, rekey, drop, export, restore), `api-engine` (finish_reason
+  length: the error, the cut tool call not run; max_tokens only when set; the team's own API engine with a trial credit
+  present: no max_tokens, nothing held or counted), `tests/unit/b-hosted-trial-turn.test.ts` (real runtime
+  and launcher: a Claude Code and a Codex chat answered on the API engine with no launch and no engine divider, a team
+  connection taking over, only Codex connected answering Claude Code chats (also once used up), a limited connection
+  with a Codex connection (fallback or the wait, never the credit), the composer's engines, used and ended before
+  anything runs, used up mid-answer, OpenRouter's limit and a refused
   key, a scheduled run, a profile draft with web_fetch on the typed site only, a marketing pack skill run as the form
   sends it, the admin API), `b-onboarding-ai-access` (an OpenRouter key), `web/test/unit/trial-credit-bar.test.tsx`,
   the contract vectors and `cloud-protocol.test.ts`, mycel-ctl `TestTenantHostedChatKeySet`.

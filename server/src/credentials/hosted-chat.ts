@@ -12,14 +12,15 @@
 // Code launch, so trial answers come from the app's own agent loop (engine/api-agent.ts, the API engine) on one fixed
 // model through OpenRouter's OpenAI-compatible API. It is not a row of engine_credentials and no resolver offers it
 // (credentials/resolve.ts knows nothing of it): chat/turn.ts runs a Claude Code or Codex turn on it only when no AI
-// connection of the person can answer that engine, so any connection the team or the person adds always comes first.
+// connection of the person works on either engine (credentials/access.ts connectionRoute), so any connection the team
+// or the person adds always comes first.
 //
 // Metering: the team server counts what the key spent itself, in dollars (OpenRouter's own `usage.cost` of each answer,
 // else the list price in credentials/prices.ts), in one settings row (no text, no key). Before each completion is sent
 // (createTrialMeter) the credit must be active, and the most that completion can cost (its body as input, max_tokens as
 // output) is held until its answer is counted (then it costs what it cost) or did not come (given back): a completion is
 // admitted only while what was spent and what is held stay under the cap, so all the turns together pass the cap by at
-// most the last completion admitted. An answer that started and broke off counts its whole reservation. OpenRouter's
+// most the last completion admitted (as long as its input has at most one token per TRIAL_BYTES_PER_TOKEN bytes). An answer that started and broke off counts its whole reservation. OpenRouter's
 // own limit on the key is the backstop: its refusal reads as a used credit.
 import type { Database } from 'bun:sqlite'
 import { TRIAL_CREDENTIAL_ID, type TrialCredit } from '@mycel/shared/api'
@@ -87,11 +88,15 @@ export function hostedChatConf(config: Pick<AppConfig, 'engine'>): ApiEngineConf
 
 // ---------------- requests in flight ----------------
 
-/** What a trial completion may cost at most: its body's bytes as input tokens (a token is at least about 3 bytes of the
- * JSON) and its max_tokens as output (thinking included). */
+/** Bytes of a request body counted as one input token in the reservation. English JSON is about 4 bytes a token and a
+ * Hangul syllable 3 bytes (UTF-8) for about one token, so 2 leaves room for text that tokenizes worse; it also decides
+ * the long-context price (above 100,000 input tokens), which Korean text could otherwise reach unseen. */
+export const TRIAL_BYTES_PER_TOKEN = 2
+/** What a trial completion may cost at most: its body's bytes as input tokens (TRIAL_BYTES_PER_TOKEN) and its max_tokens
+ * as output (thinking included). */
 export interface TrialEstimate { inputTokens: number; maxTokens: number }
 export function trialEstimate(bodyBytes: number, maxTokens: number): TrialEstimate {
-  return { inputTokens: Math.ceil(Math.max(0, bodyBytes) / 3), maxTokens: Number.isFinite(maxTokens) && maxTokens > 0 ? Math.min(Math.ceil(maxTokens), 1_000_000) : 64_000 }
+  return { inputTokens: Math.ceil(Math.max(0, bodyBytes) / TRIAL_BYTES_PER_TOKEN), maxTokens: Number.isFinite(maxTokens) && maxTokens > 0 ? Math.min(Math.ceil(maxTokens), 1_000_000) : 64_000 }
 }
 /** that estimate in dollars: all input at the 1-hour cache-write price (the dearest input column), the trial model's
  * long-context price above 100,000 input tokens */
@@ -100,8 +105,8 @@ export const trialEstimateUsd = (e: TrialEstimate): number =>
 
 /** dollars held by trial completions in flight, per database (one server process; a restart drops them with the
  * requests) */
-const held = new WeakMap<Database, { usd: number }>()
-const heldOf = (db: Database) => { let h = held.get(db); if (!h) held.set(db, h = { usd: 0 }); return h }
+const held = new WeakMap<Database, { usd: number; n: number }>()
+const heldOf = (db: Database) => { let h = held.get(db); if (!h) held.set(db, h = { usd: 0, n: 0 }); return h }
 export const hostedChatHeldUsd = (db: Database): number => held.get(db)?.usd ?? 0
 /** one completion's hold, settled once (record or release) */
 export interface TrialHold { usd: number; estimate: TrialEstimate; done: boolean }
@@ -115,6 +120,7 @@ export function holdHostedChat(db: Database, est: TrialEstimate): TrialHold | nu
   if (!s || hostedChatUsedUsd(db) + h.usd >= s.capUsd) return null
   const usd = trialEstimateUsd(est)
   h.usd += usd
+  h.n++
   return { usd, estimate: est, done: false }
 }
 /** the answer was counted: the hold goes, what it cost is charged */
@@ -127,7 +133,9 @@ export function releaseHostedChat(db: Database, hold: TrialHold | null | undefin
   if (!hold || hold.done) return
   hold.done = true
   const h = heldOf(db)
-  h.usd = Math.max(0, h.usd - hold.usd)
+  h.n = Math.max(0, h.n - 1)
+  // the last one back: exactly nothing held (sums of fractions of a cent leave a rounding rest)
+  h.usd = h.n ? Math.max(0, h.usd - hold.usd) : 0
 }
 
 /** Dollars left of the cap (0 when used up or there is no key). */

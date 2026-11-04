@@ -122,8 +122,9 @@ describe('a turn on the trial credit runs on the API engine, never in Claude Cod
     expect(tools).toContain('read')
     expect(tools.some((t) => /^(agent|task)$/i.test(t))).toBe(false)
     expect(orSeen[0]!.body.messages.at(-1)).toMatchObject({ role: 'user', content: expect.stringContaining('hello there') })
-    // the answer and the turn are the API engine's on the trial model; Usage by connection names the trial credit
-    expect(done.engine).toBe('api')
+    // the turn is the API engine's on the trial model; Usage by connection names the trial credit. The answer keeps the
+    // chat's engine (the person never chose the API engine: no switch divider to it and back), its model says what answered
+    expect(done.engine).toBe('claude-code')
     expect(done.model).toBe(HOSTED_CHAT_MODEL)
     expect(turnRow(started.turnId)).toEqual({ engine: 'api', model: HOSTED_CHAT_MODEL, credential_id: HOSTED_CHAT_ID, cost_usd: COST })
     expect(hostedChatUsedUsd(h.ctx.db)).toBeCloseTo(COST, 12)
@@ -135,7 +136,7 @@ describe('a turn on the trial credit runs on the API engine, never in Claude Cod
     grant()
     const { done } = await ask(h, alice, 'alice', (await newChat('codex')).id, 'hi', { ms: 30_000 })
     expect(done.content).toContain('trial answered')
-    expect(done.engine).toBe('api')
+    expect(done.engine).toBe('codex')
     expect(launches).toEqual([])
     expect(seen).toEqual([])
   })
@@ -152,7 +153,7 @@ describe('a turn on the trial credit runs on the API engine, never in Claude Cod
     expect(launches.length).toBeGreaterThan(0)
     for (const l of launches) expect(l).not.toContain('TRIAL-TURN')
   })
-  test('a Claude connection at its limit with the admin\'s Codex fallback: the team\'s Codex answers; without it, the credit', async () => {
+  test('a Claude connection at its limit and a Codex connection: the admin\'s Codex fallback, or the usual wait; never the credit', async () => {
     grant()
     const cc = credentialsOf(h.ctx)
     addCred(cc, 'anthropic-api-key', LIMITED_KEY, { label: 'limited' })
@@ -170,13 +171,50 @@ describe('a turn on the trial credit runs on the API engine, never in Claude Cod
       expect(orSeen).toEqual([])
       expect(hostedChatUsedUsd(h.ctx.db)).toBe(0)
     } finally { setSetting(h.ctx.db, LIMIT_FALLBACK_KEY, false) }
-    // without the fallback the credit answers while the connection waits, on the API engine
+    // without the fallback the connection's limit stands (the team has its own AI, so the credit does not answer)
     seen.length = 0; launches.length = 0
     const r = await ask(h, alice, 'alice', (await newChat()).id, 'hi', { ms: 30_000 })
-    expect(r.done.content).toContain('trial answered')
-    expect(r.done.engine).toBe('api')
-    expect(seen).toEqual([])
-    expect(launches).toEqual([])
+    expect(r.done.status).toBe('error')
+    expect(r.done.error).toMatchObject({ code: 'rate_limited', params: { reason: 'rate_limit' } })
+    expect(orSeen).toEqual([])
+    expect(hostedChatUsedUsd(h.ctx.db)).toBe(0)
+  })
+  test('only ChatGPT / Codex connected: a Claude Code chat is answered by Codex (a step says so), not by the credit, also once it is used up', async () => {
+    grant()
+    addCred(credentialsOf(h.ctx), 'openai-api-key', OKEY, { label: 'codex' })
+    const chat = await newChat('claude-code', 'opus')
+    for (const used of [false, true]) {
+      if (used) chargeHostedChat(h.ctx.db, 1)
+      seen.length = 0
+      const { started, done } = await ask(h, alice, 'alice', chat.id, fake({ modelAny: 'hi' }), { ms: 30_000 })
+      expect(done.status).toBe('done')
+      expect(done.content).toContain('codex answered')
+      expect(done.engine).toBe('codex')
+      expect(done.steps.map((x: { label: string }) => x.label)).toContain('No AI connection for Claude Code; answering with Codex, which is connected')
+      expect(seen.map((x) => x.key)).toEqual(['openai'])
+      // a Claude model name means nothing to Codex: its default
+      expect(turnRow(started.turnId)).toMatchObject({ engine: 'codex', model: null })
+    }
+    expect(orSeen).toEqual([])
+    expect(hostedChatUsedUsd(h.ctx.db)).toBe(1)
+    // the chat keeps its engine: a Claude connection added later answers it again
+    expect((await h.api('alice').call(API.getChat, { params: { id: chat.id } })).engine).toBe('claude-code')
+  })
+})
+
+describe('the composer while the credit answers (GET /api/engines)', () => {
+  test('Claude Code and Codex are offered while the credit is active, neither without it or once it is over', async () => {
+    const engine = h.ctx.config.engine
+    const was = engine.authMode
+    engine.authMode = 'managed'
+    try {
+      const ids = async () => (await h.api('dana').call(API.chatEngines)).engines.map((e) => e.id).sort()
+      expect(await ids()).toEqual([])
+      grant()
+      expect(await ids()).toEqual(['claude-code', 'codex'])
+      grant({ enabled: false })
+      expect(await ids()).toEqual([])
+    } finally { engine.authMode = was }
   })
 })
 
@@ -226,7 +264,7 @@ describe('the onboarding paths on the trial credit', () => {
     const r = await h.api('alice').call(API.runScheduleNow, { params: { id: s.id }, body: {} })
     await waitFor(() => (h.ctx.db.query("SELECT status FROM messages WHERE chat_id = ? AND role = 'assistant'").get(r.chatId) as { status: string } | null)?.status !== 'streaming', { timeoutMs: 30_000 })
     const answer = h.ctx.db.query("SELECT content, status, engine FROM messages WHERE chat_id = ? AND role = 'assistant'").get(r.chatId) as { content: string; status: string; engine: string }
-    expect(answer).toMatchObject({ status: 'done', engine: 'api' })
+    expect(answer).toMatchObject({ status: 'done', engine: 'claude-code' })
     expect(answer.content).toContain('trial answered')
     expect(orSeen[0]!.body.messages.at(-1)!.content).toContain('<scheduled_run title="Morning digest">')
     expect(launches).toEqual([])
@@ -258,7 +296,7 @@ describe('the onboarding paths on the trial credit', () => {
     // what SkillForm sends (web/src/lib/skillForm.ts composeSkillMessage): "/<name>" and one line per field
     const { done } = await ask(h, alice, 'alice', (await newChat()).id, '/ad-copy\nProduct: Acme desk fan', { ms: 30_000 })
     expect(done.status).toBe('done')
-    expect(done.engine).toBe('api')
+    expect(done.model).toBe(HOSTED_CHAT_MODEL)
     const sent = orSeen[0]!.body.messages.at(-1)!.content!
     expect(sent).toContain('Product: Acme desk fan')
     // the skill's own instructions (a line from its body) reach the model
