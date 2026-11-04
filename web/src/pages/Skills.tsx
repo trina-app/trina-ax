@@ -18,7 +18,7 @@ import { AvailableSkills } from '../components/AvailableSkills'
 import { Markdown } from '../components/Markdown'
 import { SkillIssues } from '../components/SkillIssues'
 import { SkillListNote } from '../components/SkillListNote'
-import { Badge, Button, EmptyState, ErrorNote, Field, Modal, Skeleton, TabPanel, Tabs, inputCls, promptDialog } from '../components/ui'
+import { Badge, Button, EmptyState, ErrorNote, Field, Modal, Skeleton, StickyHeader, TabPanel, Tabs, inputCls, promptDialog } from '../components/ui'
 
 type Tab = 'skills' | 'review' | 'mine' | 'changes'
 
@@ -103,7 +103,7 @@ export default function Skills() {
   return (
     <div className="flex h-full flex-col overflow-y-auto">
       <div className="w-full max-w-4xl p-4 sm:p-6">
-        <div className="mb-5 flex flex-wrap items-center gap-x-4 gap-y-3">
+        <StickyHeader className="-mt-3 mb-2 flex flex-wrap items-center gap-x-4 gap-y-3 py-3" testId="skills-header">
           <h1 className="text-xl font-semibold tracking-tight">{t('skills.title')}</h1>
           {overview && <Tabs segmented value={current} onChange={setTab} items={tabs} label={t('skills.title')} panels={panels} />}
           {overview && current === 'skills' && (
@@ -112,7 +112,7 @@ export default function Skills() {
               <input type="search" value={query} onChange={(e) => setQuery(e.target.value)} placeholder={t('skills.search')} aria-label={t('skills.search')} className={`${inputCls} pl-9`} data-testid="skill-search" />
             </div>
           )}
-        </div>
+        </StickyHeader>
         <SkillIssues key={`issues-${me.user.id}`} className="mb-5" />
         <SkillListNote list={overview?.aiList} className="mb-5" />
         {error && <ErrorNote onRetry={() => void load()}>{error}</ErrorNote>}

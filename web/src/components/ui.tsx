@@ -492,9 +492,62 @@ export function Switch({ checked, onChange, label, disabled, hideLabel, testId }
 }
 
 // ---------------- page header ----------------
-export function PageHeader({ title, desc, actions }: { title: ReactNode; desc?: ReactNode; actions?: ReactNode }) {
+/** The box that scrolls `el` (the page's own scrolling area), or null when the page itself does not scroll there. */
+function scrollBox(el: HTMLElement | null): HTMLElement | null {
+  for (let p = el?.parentElement ?? null; p; p = p.parentElement) {
+    const o = getComputedStyle(p).overflowY
+    if (o === 'auto' || o === 'scroll') return p
+  }
+  return null
+}
+
+/** A page's title row that stays at the top while the page scrolls (put `stickyCls` on it). `scrolled`: the page has
+ * scrolled, so the row shows its hairline. The scrolling area keeps the row's height free at its top for the keyboard
+ * (scroll-padding), so a control that gets focus never hides under the row. */
+export function useStickyHeader<T extends HTMLElement>() {
+  const ref = useRef<T>(null)
+  const [scrolled, setScrolled] = useState(false)
+  useEffect(() => {
+    const el = ref.current
+    const box = scrollBox(el)
+    if (!el || !box) return
+    const onScroll = () => setScrolled(box.scrollTop > 0)
+    const pad = () => {
+      box.style.scrollPaddingTop = `${el.offsetHeight + 8}px`
+    }
+    onScroll()
+    pad()
+    box.addEventListener('scroll', onScroll, { passive: true })
+    const resize = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(pad)
+    resize?.observe(el)
+    return () => {
+      box.removeEventListener('scroll', onScroll)
+      resize?.disconnect()
+      box.style.scrollPaddingTop = ''
+    }
+  }, [])
+  return { ref, scrolled }
+}
+/** On the page's own colour, so nothing shows through while it scrolls under the row. */
+export const stickyCls = 'sticky top-0 z-20 bg-canvas'
+
+/** A title row (title, tabs, search, the main button) that stays at the top while the page scrolls, with a hairline under
+ * it once the page has scrolled (like Claude's Customize page). `bar`: a full-width bar that has its own line already
+ * (the project page's top line), so no second one. */
+export function StickyHeader({ className, children, testId, bar }: { className?: string; children: ReactNode; testId?: string; bar?: boolean }) {
+  const { ref, scrolled } = useStickyHeader<HTMLDivElement>()
   return (
-    <div className="flex flex-wrap items-end justify-between gap-3 border-b border-line px-4 py-4 sm:px-6 sm:py-5">
+    <div ref={ref} data-sticky-header data-scrolled={scrolled || undefined} data-testid={testId} className={clsx(stickyCls, !bar && 'transition-shadow', !bar && scrolled && 'shadow-[0_1px_0_var(--color-line)]', className)}>
+      {children}
+    </div>
+  )
+}
+
+/** A page's full-width title bar: it keeps its line and stays at the top while the page scrolls. */
+export function PageHeader({ title, desc, actions }: { title: ReactNode; desc?: ReactNode; actions?: ReactNode }) {
+  const { ref } = useStickyHeader<HTMLDivElement>()
+  return (
+    <div ref={ref} data-sticky-header className={clsx(stickyCls, 'flex shrink-0 flex-wrap items-end justify-between gap-3 border-b border-line px-4 py-4 sm:px-6 sm:py-5')}>
       <div className="min-w-0">
         <h1 className="text-xl font-semibold tracking-tight">{title}</h1>
         {desc && <p className="mt-1 text-sm text-muted">{desc}</p>}

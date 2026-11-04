@@ -1,11 +1,11 @@
-// What Admin > External services and Settings > External services share: the title row (Connected / Discover, search,
-// add by address) and the Discover list of services to add by name (lib/connectors.ts).
+// What Admin > MCP and Settings > MCP share: the title row (Connected / Discover, search, add by address), which stays
+// at the top while the page scrolls, and the Discover list of services to add by name (lib/connectors.ts).
 import { Check, Plus, Search } from 'lucide-react'
 import { useId } from 'react'
 import type { Integration } from '@mycel/shared/api'
 import { connectorLogo, CONNECTORS, isConnected, type Connector } from '../../lib/connectors'
 import { useT } from '../../i18n'
-import { Button, EmptyState, IconButton, Tabs, inputCls } from '../ui'
+import { Button, EmptyState, IconButton, StickyHeader, Tabs, inputCls } from '../ui'
 
 export type ConnectorTab = 'connected' | 'discover'
 
@@ -22,7 +22,7 @@ export function ConnectorsHeader({ title, tab, onTab, query, onQuery, onAdd, pan
 }) {
   const t = useT()
   return (
-    <div className="mb-5 flex flex-wrap items-center gap-x-4 gap-y-3">
+    <StickyHeader className="-mt-3 mb-2 flex flex-wrap items-center gap-x-4 gap-y-3 py-3" testId="connectors-header">
       <h2 className="text-lg font-semibold tracking-tight">{title}</h2>
       {onAdd && (
         <div className="contents" data-connector-tabs>
@@ -47,7 +47,7 @@ export function ConnectorsHeader({ title, tab, onTab, query, onQuery, onAdd, pan
           </Button>
         )}
       </div>
-    </div>
+    </StickyHeader>
   )
 }
 
