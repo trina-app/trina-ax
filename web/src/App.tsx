@@ -7,6 +7,7 @@ import { errorText } from './lib/api'
 import { useLocale, useT } from './i18n'
 import { useChats } from './store/chats'
 import { useSendQueue } from './store/sendQueue'
+import { useProjects } from './store/projects'
 import { startLive, stopLive } from './store/live'
 import { useSession } from './store/session'
 import Layout from './components/Layout'
@@ -35,6 +36,25 @@ function Splash() {
   )
 }
 
+/** The session's side effects (Gate): live updates while signed in; when signed out, nothing one person's window kept
+ * stays for the next (chats, the messages waiting to be sent, the projects seen). Returns whether signed in. */
+export function useSessionLifecycle(): boolean {
+  const status = useSession((s) => s.status)
+  const signedIn = status.kind === 'signed-in' && !status.me.user.mustChangePassword
+  useEffect(() => {
+    if (signedIn) startLive()
+    else {
+      stopLive()
+      if (status.kind !== 'loading') {
+        useChats.getState().reset()
+        useSendQueue.getState().reset()
+        useProjects.getState().reset()
+      }
+    }
+  }, [signedIn, status.kind])
+  return signedIn
+}
+
 function Gate() {
   const t = useT()
   const locale = useLocale()
@@ -46,17 +66,7 @@ function Gate() {
     void load()
   }, [load])
 
-  const signedIn = status.kind === 'signed-in' && !status.me.user.mustChangePassword
-  useEffect(() => {
-    if (signedIn) startLive()
-    else {
-      stopLive()
-      if (status.kind !== 'loading') {
-        useChats.getState().reset()
-        useSendQueue.getState().reset()
-      }
-    }
-  }, [signedIn, status.kind])
+  useSessionLifecycle()
 
   useEffect(() => {
     document.title = PRODUCT.displayName

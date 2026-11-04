@@ -27,6 +27,9 @@ export function sweep(ctx: AppContext): SweepResult {
     db.transaction(() => {
       db.query('DELETE FROM memories WHERE user_id = ?').run(u.id)
       db.query('UPDATE projects SET created_by = NULL WHERE created_by = ?').run(u.id)
+      // the person who wrote every version of a project's instructions is gone too: nobody wrote them alone now, so
+      // they stay outside content for everyone's turns (chat/runtime.ts projectTaints treats NULL that way)
+      db.query('UPDATE projects SET instructions_author = NULL, instructions_authored = NULL WHERE instructions_author = ?').run(u.id)
       db.query('DELETE FROM chats WHERE user_id = ?').run(u.id)
     })()
     // what the chat left outside the DB: the engine session stash and the engine's working folder of the chat

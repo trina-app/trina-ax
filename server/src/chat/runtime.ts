@@ -8,7 +8,7 @@ import { ANSWER_STEP_LIMIT_MAX, ANSWER_STEP_LIMIT_MIN, DEFAULT_ANSWER_STEP_LIMIT
 import type { AppContext } from '../context'
 import type { Running } from '../server'
 import { atLeast, type Principal } from '../policy/access'
-import { canRead } from './projects'
+import { canSeeProject } from './projects'
 import { newId } from '../db'
 import { Schedules } from './schedules'
 import { Hub, type HubOptions } from '../realtime/hub'
@@ -513,16 +513,24 @@ export class ChatRuntime {
     return this.db.query('SELECT id, text FROM memories WHERE user_id = ? ORDER BY created_at DESC, id DESC LIMIT 100').all(userId) as { id: string; text: string }[]
   }
   /** The chat's project as the turn sees it: only while the person can still read the project folder (tab 2
-   * "권한 회수": a project stays attached to the chat, but its name, folder and instructions stop reaching the AI). */
+   * "권한 회수": a project stays attached to the chat, but its name, folder and instructions stop reaching the AI), and
+   * never while its folder is in the trash, for anyone, admins included: its path may be another folder's by now
+   * (as for the dev environment's box). Admins still see, edit and delete the project itself (canSeeProject). */
   projectForChat(projectId: string | null, user: Principal) {
     if (!projectId) return null
     const p = this.store.projectRow(projectId)
-    if (!p || !canRead(this.files, user, p.folder_path)) return null
-    return { name: p.name, folderPath: p.folder_path, instructions: p.instructions, createdBy: p.created_by }
+    if (!p || p.trashed_with !== null || !canSeeProject(this.files, user, p)) return null
+    return { name: p.name, folderPath: p.folder_path, instructions: p.instructions, createdBy: p.created_by, instructionsAuthor: p.instructions_author, instructionsAuthored: p.instructions_authored }
   }
-  /** project instructions someone else wrote count as outside content (remember protection) */
-  projectTaints(project: { instructions: string; createdBy: string | null } | null, userId: string): boolean {
-    return !!project && project.createdBy !== userId && project.instructions.trim() !== ''
+  /**
+   * Project instructions count as outside content (remember protection) unless this person wrote every saved version
+   * of them: they are the recorded author and the instructions are still what they last saved (a build without the
+   * author columns may have changed them since). Not created_by: an admin may have rewritten the creator's
+   * instructions (docs/DECISIONS.md "Projects: a folder with instructions").
+   */
+  projectTaints(project: { instructions: string; instructionsAuthor: string | null; instructionsAuthored: string | null } | null, userId: string): boolean {
+    if (!project || project.instructions.trim() === '') return false
+    return !(project.instructionsAuthor === userId && project.instructionsAuthored === project.instructions)
   }
   /** Messages of a branch up to `leafId` (inclusive), for a fresh engine session. */
   history(leafId: string | null): { role: 'user' | 'assistant'; content: string }[] {

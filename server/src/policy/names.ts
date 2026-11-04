@@ -44,6 +44,10 @@ export function badSegment(name: string): string | null {
 /** Key used to detect siblings that differ only by case / Unicode normalization / width. */
 export const foldKey = (name: string) => name.normalize('NFKC').toLowerCase().normalize('NFKC')
 
+/** A path as the team folder's volume compares it: NFC, and lower case on a case-insensitive volume (macOS). Two
+ * paths with the same key are one folder on disk (admin/folder-keep.ts compares shared/ and skills/ the same way). */
+export const volumeKey = (p: string, caseInsensitive: boolean) => { const n = p.normalize('NFC'); return caseInsensitive ? n.toLowerCase() : n }
+
 /** Names the tools never show and never accept (server temp files, the reserved system folder at root). */
 export function hiddenEntry(name: string, depth: number): boolean {
   return name.startsWith(PRODUCT.tmpPrefix) || (depth === 0 && name === PRODUCT.systemDir)
