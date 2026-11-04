@@ -464,9 +464,9 @@ test('nested dialogs: Esc closes only the top one (new-folder prompt over the mo
   await expect(close).toBeFocused()
   await page.keyboard.press('Shift+Tab')
   await expect(cancel).toBeFocused()
-  // An attempted focus behind the top dialog must stay in the prompt.
-  await picker.getByRole('button', { name: '새 폴더' }).focus()
-  await expect(page.getByLabel('폴더 이름')).toBeFocused()
+  // The dialog behind the top one is out of reach: inert and hidden from assistive technology.
+  await expect(page.locator('[role="dialog"][inert][aria-hidden="true"]')).toHaveCount(1)
+  await expect(cancel).toBeFocused()
   await page.keyboard.press('Escape')
   await expect(page.getByLabel('폴더 이름')).toHaveCount(0)
   await expect(picker).toBeVisible()
