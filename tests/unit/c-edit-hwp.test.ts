@@ -273,8 +273,8 @@ describe('a .hwp', () => {
       await call('read', { file_path: rel })
       const r = await call('edit_hwp', { file_path: rel, changes: [{ cell: { table: 1, row: 2, col: 2 }, value: '홍예시' }, { add_rows: { table: 1, after_row: 3, rows: [['자녀', '홍둘째', ''], ['자녀', '홍셋째', '']] } }] })
       expect(r.isError, rel).toBe(true)
-      expect(r.text).toContain('change 2: table 1 fills its page and cannot continue on the next page (it is placed as a character, 글자처럼 취급), so Hangul would cut off its end: ' +
-        '2 rows were asked for and about 1 fit. Add at most 1 row, and write the rest on a separate sheet (별지), as such forms usually ask. Nothing was saved.')
+      expect(r.text).toContain('change 2: table 1 fills its page and cannot continue on the next page (it is placed as a character), so Hangul would cut off its end: ' +
+        '2 rows were asked for and about 1 fit. Add at most 1 row, and write the rest on a separate sheet, as such forms usually ask. Nothing was saved.')
       expect(bytes(rel).equals(before)).toBe(true)
       expect(versions(rel)).toEqual([])
       // the one row that fits is saved

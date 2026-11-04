@@ -29,8 +29,8 @@ export interface CTable { i: number; cells: CCell[]; para: CPara | null }
 
 /** why a table cannot continue on the next page (Hangul's names for the settings in brackets) */
 export const FIXED_ON_PAGE = {
-  asChar: 'it is placed as a character, 글자처럼 취급',
-  noSplit: 'it is set not to split at a page boundary, 쪽 경계에서 나누지 않음',
+  asChar: 'it is placed as a character',
+  noSplit: 'it is set not to split at a page boundary',
 }
 /** A page's body height in HWPUNIT: the paper's height (its width when the page is turned) less the top and bottom
  * margins and the header and footer margins, which Hangul keeps between those margins and the body; null when that
@@ -301,7 +301,7 @@ export abstract class ChangeEditor<P extends CPara, C extends CCell, T extends C
     const s = (n: number) => (n === 1 ? '' : 's')
     refuseChange(i, `${which} and cannot continue on the next page (${why}), so Hangul would cut off its end: ` +
       `${k} row${s(k)} ${k === 1 ? 'was' : 'were'} asked for and about ${fit} fit. ` +
-      (fit ? `Add at most ${fit} row${s(fit)}` : 'Fill only the rows the table already has') + ', and write the rest on a separate sheet (별지), as such forms usually ask')
+      (fit ? `Add at most ${fit} row${s(fit)}` : 'Fill only the rows the table already has') + ', and write the rest on a separate sheet, as such forms usually ask')
   }
 
   /** each paragraph's text after the changes (a cell's new text replaces all of it) */

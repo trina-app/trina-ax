@@ -188,14 +188,14 @@ describe('rows added to a table', () => {
 describe('rows added to a table that fills its page (Hangul cuts off what does not fit)', () => {
   const rows = (n: number) => Array.from({ length: n }, (_, k) => ['자녀', `홍예시${k + 1}`, '가상시 예시구 샘플로 12'])
   const add = (n: number, table = 1): HwpChange => ({ add_rows: { table, after_row: 3, rows: rows(n) } })
-  const AS_CHAR = 'cannot continue on the next page (it is placed as a character, 글자처럼 취급), so Hangul would cut off its end'
+  const AS_CHAR = 'cannot continue on the next page (it is placed as a character), so Hangul would cut off its end'
   const height = (b: Uint8Array) => /<hp:sz width="\d+" widthRelTo="ABSOLUTE" height="(\d+)"/.exec(section(b))![1]
 
   test('placed as a character (treatAsChar): rows past the page body are refused with how many fit, nothing written; rows that fit are added', () => {
     const form = onePageForm()
     expect(height(form)).toBe('60000')
     expect(refusal(form, [add(3)])).toBe(`change 1: table 1 fills its page and ${AS_CHAR}: 3 rows were asked for and about 1 fit. ` +
-      'Add at most 1 row, and write the rest on a separate sheet (별지), as such forms usually ask. Nothing was saved.')
+      'Add at most 1 row, and write the rest on a separate sheet, as such forms usually ask. Nothing was saved.')
     expect(refusal(form, [add(2)])).toContain('2 rows were asked for and about 1 fit')
     const r = editHwpx(form, [add(1)])
     expect(height(r.file)).toBe('63000')
@@ -205,8 +205,8 @@ describe('rows added to a table that fills its page (Hangul cuts off what does n
   test('a floating table that splits (pageBreak CELL or TABLE) grows past a page; pageBreak NONE is refused', () => {
     for (const pageBreak of ['CELL', 'TABLE'] as const) expect(height(editHwpx(onePageForm({ treatAsChar: false, pageBreak }), [add(10)]).file)).toBe('90000')
     expect(refusal(onePageForm({ treatAsChar: false, pageBreak: 'NONE' }), [add(2)])).toBe('change 1: table 1 fills its page and cannot continue on the next page ' +
-      '(it is set not to split at a page boundary, 쪽 경계에서 나누지 않음), so Hangul would cut off its end: 2 rows were asked for and about 1 fit. ' +
-      'Add at most 1 row, and write the rest on a separate sheet (별지), as such forms usually ask. Nothing was saved.')
+      '(it is set not to split at a page boundary), so Hangul would cut off its end: 2 rows were asked for and about 1 fit. ' +
+      'Add at most 1 row, and write the rest on a separate sheet, as such forms usually ask. Nothing was saved.')
     expect(refusal(onePageForm({ pageBreak: 'TABLE' }), [add(2)])).toContain(AS_CHAR)
   })
 
@@ -235,8 +235,8 @@ describe('rows added to a table that fills its page (Hangul cuts off what does n
     const add2 = (n: number): HwpChange => ({ add_rows: { table: 2, rows: Array.from({ length: n }, (_, k) => [`새${k + 1}`]) } })
     expect(() => editHwpx(nested(), [add2(2)])).not.toThrow()
     expect(refusal(nested(), [add2(4)])).toBe('change 1: table 2 is inside table 1, which fills its page and cannot continue on the next page ' +
-      '(it is placed as a character, 글자처럼 취급), so Hangul would cut off its end: 4 rows were asked for and about 2 fit. ' +
-      'Add at most 2 rows, and write the rest on a separate sheet (별지), as such forms usually ask. Nothing was saved.')
+      '(it is placed as a character), so Hangul would cut off its end: 4 rows were asked for and about 2 fit. ' +
+      'Add at most 2 rows, and write the rest on a separate sheet, as such forms usually ask. Nothing was saved.')
     expect(() => editHwpx(nested({ treatAsChar: false }), [add2(10)])).not.toThrow()
     // changes of one call add up: each fits alone (63,000 and 63,000), together they do not
     const outer: HwpChange = { add_rows: { table: 1, after_row: 2, rows: [['', '']] } }
