@@ -13,9 +13,14 @@ const preferenceKeys = ['scheduleSuccess', 'scheduleFailure', 'connectionReconne
 /** A suggestion to review opens in the review tab, an own result in "my suggestions" (the Skills screen checks access). */
 export const skillsLink = (item: Pick<InboxNotification, 'code' | 'sourceId'>) => `/skills?${item.code === 'skill.suggested' ? 'review' : 'mine'}=${encodeURIComponent(item.sourceId)}`
 
+export type DevEnvEndReason = 'timeout' | 'oom' | 'stopped' | 'idle' | 'disk' | 'setting' | 'expired' | 'lost'
+export const END_REASONS: ReadonlySet<string> = new Set<DevEnvEndReason>(['timeout', 'oom', 'stopped', 'idle', 'disk', 'setting', 'expired', 'lost'])
+
 /** The text of a dev environment notice: with the job or the project while the person can still read that project. */
 const devEnvText = (item: InboxNotification, t: ReturnType<typeof useT>) => {
   const d = item.devEnv
+  // srt runner: a job with no exit code says why it ended (a reason the page does not know is the old text)
+  if (d?.job && d.job.exitCode === null && d.job.reason && END_REASONS.has(d.job.reason)) return t('notifications.event.dev_env.jobReason', { name: d.job.name, why: t(`devEnv.end.${d.job.reason as DevEnvEndReason}`) })
   if (d?.job) return d.job.exitCode === null ? t('notifications.event.dev_env.jobNoCode', { name: d.job.name }) : t('notifications.event.dev_env.jobEnded', { name: d.job.name, code: d.job.exitCode })
   if (d?.stopCode === 'disk') return t('notifications.event.dev_env.boxDisk', { project: d.projectName })
   if (d?.stopCode === 'busy_max') return t('notifications.event.dev_env.boxBusy', { project: d.projectName })
@@ -81,7 +86,7 @@ export function Notifications() {
         <div className="min-w-0 flex-1"><p className={`text-sm ${item.readAt ? 'text-muted' : 'font-medium'}`}>{item.code === 'dev_env.job' || item.code === 'dev_env.box' ? devEnvText(item, t) : item.code === 'integration.request' && item.request ? t('notifications.event.integration.requestNamed', { name: item.request.name, host: item.request.host }) : t(item.code === 'schedule.failure' && item.review ? 'notifications.event.schedule.review' : item.code === 'schedule.failure' && item.outcome === 'problems' ? 'notifications.event.schedule.problems' : `notifications.event.${item.code}`)}</p><p className="mt-1 text-xs text-faint">{formatDateTime(item.createdAt, locale)}</p>
           {item.devEnv?.job?.exitCode === null && item.devEnv.job.note && <p className="mt-1 text-xs text-muted" data-testid="notification-job-note">{item.devEnv.job.note}</p>}
           {item.devEnv?.job?.tail && <pre className="mt-1 max-h-40 overflow-auto whitespace-pre-wrap break-words font-mono text-xs text-faint" data-testid="notification-job-tail">{item.devEnv.job.tail}</pre>}
-          {item.link === 'chat' && item.chatId && <Link className="text-sm text-accent-text hover:underline" to={`/c/${encodeURIComponent(item.chatId)}`} onClick={() => void read(item)}>{t(item.code === 'dev_env.job' ? 'notifications.openChat' : 'schedules.lastRun')}</Link>}
+          {item.link === 'chat' && item.chatId && <Link className="text-sm text-accent-text hover:underline" to={`/c/${encodeURIComponent(item.chatId)}`} onClick={() => void read(item)}>{t(item.code === 'dev_env.job' ? 'notifications.openChat' : 'scheduled.openResult')}</Link>}
           {item.link === 'project' && item.devEnv && <Link className="text-sm text-accent-text hover:underline" to={`/projects/${encodeURIComponent(item.devEnv.projectId)}`} onClick={() => void read(item)}>{item.devEnv.projectName}</Link>}
           {item.review && <Link className="text-sm text-accent-text hover:underline" to="/scheduled" onClick={() => void read(item)} data-testid="notification-review-link">{t('settings.schedules')}</Link>}
           {item.link === 'connections' && <Link className="text-sm text-accent-text hover:underline" to="/settings/drive" onClick={() => void read(item)}>{t('drive.title')}</Link>}

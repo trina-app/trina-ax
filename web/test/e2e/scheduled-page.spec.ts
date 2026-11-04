@@ -60,7 +60,10 @@ test('old Settings links land on Scheduled tasks, and Settings no longer lists t
   await signIn(page)
   await page.goto('/settings/schedules')
   await expect(page).toHaveURL(/\/scheduled$/)
-  await expect(page.getByTestId('scheduled-empty')).toHaveText('예약 작업이 없어요')
+  await expect(page.getByTestId('scheduled-empty')).toContainText('예약 작업이 없어요')
+  // the empty state shows the two ways to start
+  await expect(page.getByTestId('scheduled-empty-chat')).toBeVisible()
+  await expect(page.getByTestId('scheduled-empty-template')).toBeVisible()
   await page.goto('/settings')
   await expect(page.getByRole('dialog')).toBeVisible()
   await expect(page.getByRole('dialog').getByText('예약 작업', { exact: true })).toHaveCount(0)

@@ -510,7 +510,8 @@ function NamedList({ draft, users, groups, allUsers, allGroups, list, onChange }
               <li key={`${n.subjectType}:${n.subjectId}`} className="flex flex-wrap items-center gap-x-2 gap-y-1.5 py-2" data-testid="edit-named" data-subject={`${n.subjectType}:${n.subjectId}`}>
                 <Icon size={15} className="shrink-0 text-faint" aria-hidden />
                 <span className="flex min-w-0 flex-1 flex-wrap items-baseline gap-x-1.5">
-                  <span className="min-w-0 truncate text-sm font-medium text-ink">{label}</span>
+                  {/* a phone: the whole name shows (it wraps); the access switch goes to its own line below */}
+                  <span className="min-w-0 text-sm font-medium break-words text-ink sm:truncate">{label}</span>
                   <span className="text-xs text-faint">{n.subjectType === 'group' ? t('accessEdit.kind.group', { n: g?.memberIds.length ?? 0 }) : u ? t(`role.${u.role}`) : ''}</span>
                   {u?.status === 'disabled' && (
                     <span data-testid="edit-named-off">
@@ -519,22 +520,24 @@ function NamedList({ draft, users, groups, allUsers, allGroups, list, onChange }
                   )}
                   {always && <span className="basis-full text-xs text-faint">{t('accessEdit.always')}</span>}
                 </span>
-                <AccessChoice
-                  name={label}
-                  value={n.access}
-                  onChange={(a) => onChange((d) => setNamed(d, i, a))}
-                />
-                <IconButton
-                  label={t('accessEdit.remove', { name: label })}
-                  onClick={() => {
-                    focusRow.current = i
-                    onChange((d) => removeNamed(d, i))
-                  }}
-                  className="shrink-0 focus-visible:-outline-offset-2"
-                  data-testid="edit-named-remove"
-                >
-                  <X size={15} />
-                </IconButton>
+                <div className="flex shrink-0 items-center gap-x-2 max-sm:basis-full max-sm:pl-[23px]">
+                  <AccessChoice
+                    name={label}
+                    value={n.access}
+                    onChange={(a) => onChange((d) => setNamed(d, i, a))}
+                  />
+                  <IconButton
+                    label={t('accessEdit.remove', { name: label })}
+                    onClick={() => {
+                      focusRow.current = i
+                      onChange((d) => removeNamed(d, i))
+                    }}
+                    className="shrink-0 focus-visible:-outline-offset-2 max-sm:ml-auto"
+                    data-testid="edit-named-remove"
+                  >
+                    <X size={15} />
+                  </IconButton>
+                </div>
               </li>
             )
           })}

@@ -96,7 +96,7 @@ test('a server safety check is never answered from the box: the message waits an
   const card = page.getByTestId('ask-card')
   await expect(card).toHaveAttribute('data-origin', 'server')
   const input = page.getByTestId('composer-input')
-  await expect(input).toHaveAttribute('placeholder', '먼저 위에서 골라 주세요. 지금 입력한 메시지는 답이 끝나면 보내요')
+  await expect(input).toHaveAttribute('placeholder', '먼저 위에서 골라 주세요. 쓴 글은 답 뒤에 보내요')
   await expect(page.getByTestId('composer-answering')).toHaveCount(0)
   let answers = 0
   page.on('request', (r) => {

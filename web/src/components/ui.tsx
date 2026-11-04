@@ -31,6 +31,9 @@ export function Button({ variant = 'secondary', size = 'md', busy, className, ch
         'inline-flex items-center justify-center gap-1.5 rounded-lg font-medium whitespace-nowrap transition disabled:cursor-not-allowed disabled:opacity-50',
         size === 'sm' ? 'h-8 px-2.5 text-[13px] max-sm:min-h-9' : 'h-9 px-3.5 text-sm max-sm:min-h-10',
         variant === 'primary' && 'bg-accent text-accent-ink hover:bg-accent-hover',
+        // dark mode: the half-transparent accent turned a muddy brown with dim text; a disabled main button is neutral
+        // (a busy one, with its spinner, keeps the accent: it is working, not off)
+        variant === 'primary' && !busy && 'dark:disabled:bg-hover dark:disabled:text-faint dark:disabled:opacity-100 dark:disabled:hover:bg-hover',
         // the edge of a bordered button is what marks it as one on a card: --c-field-border (>= 3:1), not the hairline
         variant === 'secondary' && 'border border-field-border bg-surface text-ink hover:bg-hover',
         variant === 'ghost' && 'text-muted hover:bg-hover hover:text-ink',

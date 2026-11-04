@@ -7,7 +7,8 @@ import { renderToStaticMarkup } from 'react-dom/server'
 import { MemoryRouter } from 'react-router-dom'
 import type { Schedule } from '@mycel/shared/api'
 import { translate, type MessageKey, type Params } from '../../src/i18n'
-import { cardLine, outcomeTone, scheduleState } from '../../src/lib/scheduleText'
+import { cardLine, outcomeReason, outcomeTone, scheduleState } from '../../src/lib/scheduleText'
+import { snippetAround } from '../../src/components/SearchDialog'
 import { ScheduleView } from '../../src/pages/Scheduled'
 
 const base: Schedule = { id: 'once-1', title: 'Team rule', prompt: 'Write today', repeat: 'once', time: '04:18', date: '2026-10-29', weekday: null, day: null,
@@ -28,12 +29,56 @@ describe('scheduled task page', () => {
     const described = /aria-describedby="([^"]+)"/.exec(sw)?.[1]
     expect(described).toBeTruthy()
     expect(html).toContain(`id="${described}"`)
-    expect(html).toContain(t('schedules.completedHint'))
+    // Run now is offered, so the hint points to it, not to "create a new schedule"
+    expect(html).toContain(t('scheduled.completedRunHint'))
+    expect(html).not.toContain(t('schedules.completedHint'))
     expect(html).toContain(t('schedules.completed'))
     // the result: finished with problems, not "completed"
     expect(html).toContain(t('scheduleTemplates.outcome.problems'))
     expect(html).toContain('data-outcome="problems"')
     expect(html).toContain('href="/c/chat-1"')
+  })
+
+  test('without Run now, a completed task keeps the "create a new schedule" hint', () => {
+    const s = { ...base, enabled: false, nextRunAt: null, resumeBlockedReason: 'completed' as const }
+    const html = decode(renderToStaticMarkup(<MemoryRouter><ScheduleView s={s} tz="Asia/Seoul" onToggle={() => {}} /></MemoryRouter>))
+    expect(html).toContain(t('schedules.completedHint'))
+  })
+
+  test('a failed last run: in the status line under the title, with the reason and a link to the result', () => {
+    const html = decode(render({ ...base, repeat: 'daily', date: null, lastRunAt: '2026-10-28T19:18:15Z', lastChatId: 'chat-9', lastOutcome: 'error' }))
+    expect(html).toContain('data-testid="schedule-status-outcome"')
+    expect(html).toContain(t('scheduleTemplates.outcome.error'))
+    expect(html).toContain(t('scheduled.reason.error'))
+    expect(html).toContain(t('scheduled.lastRunTitle'))
+    expect(html).toContain(t('scheduled.openResult'))
+    expect(html).toContain('href="/c/chat-9"')
+    // the row no longer repeats the task name
+    expect(html).not.toContain(t('scheduled.run', { title: base.title }))
+    // a success stays quiet: no outcome in the status line, no reason
+    const ok = decode(render({ ...base, lastRunAt: '2026-10-28T19:18:15Z', lastOutcome: 'done' }))
+    expect(ok).not.toContain('data-testid="schedule-status-outcome"')
+    expect(ok).not.toContain('data-testid="schedule-outcome-reason"')
+  })
+
+  test('every failed outcome has a reason in every language', () => {
+    for (const o of ['problems', 'error', 'stopped', 'interrupted', 'budget_exceeded', 'user_unavailable'] as const)
+      for (const locale of ['en', 'ko', 'id', 'ja', 'es'] as const) {
+        const r = outcomeReason({ ...base, lastOutcome: o }, (key, params) => translate(locale, key, params))
+        expect(r).not.toBe(`scheduled.reason.${o}`)
+        expect(r.length).toBeGreaterThan(0)
+      }
+    expect(outcomeReason({ ...base, lastOutcome: 'done' }, t)).toBe('')
+  })
+
+  test('search: the part of an instruction that matched, on one line', () => {
+    expect(snippetAround('On Monday,\n  sum the weekly notes', 'weekly')).toBe('On Monday, sum the weekly notes')
+    const long = `${'a'.repeat(60)} weekly ${'b'.repeat(80)}`
+    const cut = snippetAround(long, 'weekly')
+    expect(cut.startsWith('…')).toBe(true)
+    expect(cut.endsWith('…')).toBe(true)
+    expect(cut).toContain('weekly')
+    expect(snippetAround('nothing here', 'weekly')).toBe('')
   })
 
   test('a paused recurring or future task, or one that is on, keeps a working switch', () => {
@@ -69,7 +114,7 @@ describe('scheduled task page', () => {
 
   test('the texts exist in every language', () => {
     for (const locale of ['en', 'ko', 'id', 'ja', 'es'] as const)
-      for (const key of ['schedules.completedHint', 'schedules.expiredHint', 'scheduleTemplates.outcome.problems', 'notifications.event.schedule.problems', 'sidebar.scheduled', 'scheduled.history', 'scheduled.switch'] as const)
+      for (const key of ['schedules.completedHint', 'schedules.expiredHint', 'scheduleTemplates.outcome.problems', 'notifications.event.schedule.problems', 'sidebar.scheduled', 'scheduled.history', 'scheduled.switch', 'scheduled.openResult', 'scheduled.emptyBody', 'scheduled.expiredRunHint', 'search.inInstruction', 'search.fileNamesFailed'] as const)
         expect(translate(locale, key)).not.toBe(key)
   })
 

@@ -10,7 +10,7 @@
 // A project is a folder with instructions: a folder's menu opens its project, or makes the folder one where the person
 // can write it (lib/projectFolders.ts, components/ProjectForm.tsx).
 import clsx from 'clsx'
-import { ArchiveRestore, BookmarkPlus, ChevronRight, Copy, Download, Eye, File as FileIcon, FileImage, FileSpreadsheet, FileText, Folder, FolderInput, FolderKanban, FolderPlus, FolderUp, History, Home, Lock, MessageSquarePlus, MoreHorizontal, Paperclip, Pencil, Presentation, Search, Sparkles, RefreshCw, Trash2, Upload, X, FileCode, FileArchive, FileAudio, FileVideo } from 'lucide-react'
+import { ArchiveRestore, BookmarkPlus, ChevronRight, Copy, Download, Eye, File as FileIcon, FileImage, FileSpreadsheet, FileText, Folder, FolderInput, FolderKanban, FolderPlus, FolderUp, History, Home, Lock, MessageSquarePlus, MoreHorizontal, Paperclip, Pencil, Presentation, Search, Signpost, Sparkles, RefreshCw, Trash2, Upload, X, FileCode, FileArchive, FileAudio, FileVideo } from 'lucide-react'
 import { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import type { FileEntry, FileHistoryEvent, FileVersion, HistoryResponse, Project, TrashItem, TreeResponse } from '@mycel/shared/api'
@@ -22,7 +22,7 @@ import { droppedEntries, planFromEntries, planFromInput, type FolderPlan } from 
 import { baseName, crumbs, isConflictCopy, isInside, joinPath, nameProblem, parentPath } from '../lib/paths'
 import { iconKind, previewKind, type FileIconKind } from '../lib/preview'
 import { folderProjectAction, projectsByFolder, type FolderProjectAction } from '../lib/projectFolders'
-import { openTeamFile } from '../lib/sidePanel'
+import { openTeamFile, useSidePanel } from '../lib/sidePanel'
 import { useTeamAttach } from '../lib/useTeamAttach'
 import { cancelUpload, uploadFile } from '../lib/upload'
 import { addFileUpload, dropFileUpload, patchFileUpload } from '../lib/fileUploads'
@@ -74,6 +74,9 @@ export default function Files() {
   const [params, setParams] = useSearchParams()
   const path = params.get('path') ?? ''
   const select = params.get('select')
+  // the team file open in the side panel: its row is marked
+  const panel = useSidePanel()
+  const openPath = panel?.kind === 'file' && panel.file.source === 'team' ? panel.file.path : null
   /** file content search (R2-ETC-02): the query is in the URL, so the ⌘K dialog can open the file screen with it */
   const q = params.get('q') ?? ''
   const searching = contentQueryReady(q)
@@ -653,6 +656,7 @@ export default function Files() {
                 maxLength={200}
                 className="w-full min-w-0 bg-transparent text-sm outline-none placeholder:text-faint @2xl:w-48"
                 data-testid="content-search-input"
+                data-own-clear
               />
               {q && (
                 <button type="button" className="text-faint hover:text-ink" onClick={() => setQuery('')} aria-label={t('files.search.clear')} title={t('files.search.clear')}>
@@ -798,7 +802,9 @@ export default function Files() {
                         <FileRow
                           key={e.path}
                           e={e}
-                          selected={select === e.name}
+                          // ?select= holds the full path (links from Search, team skills and the server); a bare name also works
+                          selected={select === e.path || select === e.name}
+                          open={openPath === e.path}
                           checked={checked.has(e.path)}
                           onCheck={(shift) => check(e.path, shift)}
                           draggable={canChange(e) || chatDraggable(e) || (checked.has(e.path) && selectionMovable)}
@@ -879,6 +885,8 @@ export default function Files() {
 function BulkBar({ count, readOnly, canMove, canShare, running, onMove, onShare, onDelete, onClear }: { count: number; readOnly: number; canMove: boolean; canShare: boolean; running: 'move' | 'share' | 'delete' | null; onMove: () => void; onShare: () => void; onDelete: () => void; onClear: () => void }) {
   const t = useT()
   return (
+    // a narrow page (a phone, or a desktop with the file panel open): line 1 has the count, the read-only badge and ×,
+    // line 2 has the buttons. Only CSS `order` moves × to the end of line 1, so the tab order stays count, buttons, ×.
     <div role="region" aria-label={t('files.bulk.label')} className="flex flex-wrap items-center gap-x-2 gap-y-1.5 px-4 py-1 sm:px-6" data-testid="bulk-bar">
       <span className="text-sm font-medium" aria-live="polite" data-testid="bulk-count">
         {t('files.bulk.count', { n: count })}
@@ -889,7 +897,7 @@ function BulkBar({ count, readOnly, canMove, canShare, running, onMove, onShare,
           <Lock size={11} aria-hidden /> {t('files.bulk.readOnlyIn', { n: readOnly })}
         </Badge>
       )}
-      <div className="ml-auto flex flex-wrap items-center justify-end gap-1.5">
+      <div className="ml-auto flex flex-wrap items-center justify-end gap-1.5 @max-2xl:order-last @max-2xl:ml-0 @max-2xl:basis-full @max-2xl:justify-start">
         <Button size="sm" onClick={onMove} disabled={!canMove || !!running} busy={running === 'move'} data-testid="bulk-move">
           <FolderInput size={14} aria-hidden /> {t('files.move')}
         </Button>
@@ -899,10 +907,10 @@ function BulkBar({ count, readOnly, canMove, canShare, running, onMove, onShare,
         <Button size="sm" variant="danger" onClick={onDelete} disabled={!canMove || !!running} busy={running === 'delete'} data-testid="bulk-delete">
           <Trash2 size={14} aria-hidden /> {t('files.moveToTrash')}
         </Button>
-        <IconButton label={t('files.bulk.clear')} onClick={onClear} disabled={!!running} data-testid="bulk-clear">
-          <X size={16} />
-        </IconButton>
       </div>
+      <IconButton label={t('files.bulk.clear')} onClick={onClear} disabled={!!running} className="@max-2xl:ml-auto" data-testid="bulk-clear">
+        <X size={16} />
+      </IconButton>
     </div>
   )
 }
@@ -934,7 +942,7 @@ function CheckBox({ checked, disabled, label, title, onCheck, inputRef, testId }
   )
 }
 
-function FileRow({ e, selected, checked, onCheck, draggable, onDragStart, onDragEnd, dragged, dropTarget, drop, onOpen, onChat, onAddToChat, chatTitle, onRename, onMove, onShare, onDelete, onHistory, project, onProject, onSuggest }: { e: FileEntry; selected: boolean; checked: boolean; onCheck: (shift: boolean) => void; draggable: boolean; onDragStart: (ev: React.DragEvent) => void; onDragEnd: () => void; dragged: boolean; dropTarget: DropHandlers | null; drop: DropOver | null; onOpen: () => void; onChat: () => void; onAddToChat: (() => void) | null; chatTitle: string; onRename: () => void; onMove: () => void; onShare: () => void; onDelete: () => void; onHistory: () => void; project: FolderProjectAction; onProject: (a: NonNullable<FolderProjectAction>) => void; onSuggest: (() => void) | null }) {
+function FileRow({ e, selected, open, checked, onCheck, draggable, onDragStart, onDragEnd, dragged, dropTarget, drop, onOpen, onChat, onAddToChat, chatTitle, onRename, onMove, onShare, onDelete, onHistory, project, onProject, onSuggest }: { e: FileEntry; selected: boolean; open: boolean; checked: boolean; onCheck: (shift: boolean) => void; draggable: boolean; onDragStart: (ev: React.DragEvent) => void; onDragEnd: () => void; dragged: boolean; dropTarget: DropHandlers | null; drop: DropOver | null; onOpen: () => void; onChat: () => void; onAddToChat: (() => void) | null; chatTitle: string; onRename: () => void; onMove: () => void; onShare: () => void; onDelete: () => void; onHistory: () => void; project: FolderProjectAction; onProject: (a: NonNullable<FolderProjectAction>) => void; onSuggest: (() => void) | null }) {
   const t = useT()
   const locale = useLocale()
   const [menu, setMenu] = useState(false)
@@ -966,7 +974,10 @@ function FileRow({ e, selected, checked, onCheck, draggable, onDragStart, onDrag
   return (
     <tr
       ref={ref}
-      className={clsx('group border-b border-line last:border-0', dropOk ? 'bg-accent-soft outline-2 -outline-offset-2 outline-accent' : (selected || checked) && 'bg-accent-soft/60', dim && 'text-muted', dragged && 'opacity-50')}
+      // the file open in the side panel: a full accent background and a bar on the left edge (stronger than a
+      // selected or checked row, which has the light background only)
+      className={clsx('group border-b border-line last:border-0', dropOk ? 'bg-accent-soft outline-2 -outline-offset-2 outline-accent' : open ? 'bg-accent-soft shadow-[inset_3px_0_0_var(--c-accent)]' : (selected || checked) && 'bg-accent-soft/60', dim && 'text-muted', dragged && 'opacity-50')}
+      data-open={open || undefined}
       {...dropTarget}
       data-drop={dropOk ? 'ok' : dropNo ? 'no' : undefined}
       data-testid="file-row"
@@ -982,6 +993,7 @@ function FileRow({ e, selected, checked, onCheck, draggable, onDragStart, onDrag
           onClick={onOpen}
           className="flex w-full min-w-0 items-center gap-2.5 rounded py-1 text-left hover:underline"
           title={dim ? t('files.navigationOnly') : undefined}
+          aria-current={open ? 'true' : undefined}
           // dragged onto a folder row or a breadcrumb: moved there (with the selection when this row is selected); a
           // file the AI may read can also be dragged into a chat's message box (attached as a team file)
           draggable={draggable}
@@ -993,7 +1005,16 @@ function FileRow({ e, selected, checked, onCheck, draggable, onDragStart, onDrag
           <span className="min-w-0 truncate" title={e.name}>
             {e.name}
           </span>
-          {dim && <span className="sr-only">({t('files.navigationOnly')})</span>}
+          {/* a folder the person can only pass through: a visible badge (a hover title alone does not reach phones);
+              screen readers get the full sentence in place of the short badge text */}
+          {dim && (
+            <span className="shrink-0" data-testid="pass-through">
+              <Badge>
+                <Signpost size={11} aria-hidden /> <span aria-hidden>{t('files.passThroughShort')}</span>
+                <span className="sr-only">{t('files.navigationOnly')}</span>
+              </Badge>
+            </span>
+          )}
           {!folder && isConflictCopy(e.name) && <Badge tone="warn">{t('files.conflictCopy')}</Badge>}
           {aiOff && <span className="shrink-0" data-testid="file-download-only"><Badge>{t('files.downloadOnly')}</Badge></span>}
           {e.access === 'read' && <Lock size={12} className="shrink-0 text-faint" aria-label={t('files.readOnly')} />}

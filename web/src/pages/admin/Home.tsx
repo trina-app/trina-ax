@@ -14,7 +14,7 @@ import { useLocale, useT, type MessageKey } from '../../i18n'
 import { isOwner, useMeStrict } from '../../store/session'
 import { Badge, Button } from '../../components/ui'
 import { actionLabel } from './Audit'
-import { useAction, useLoad } from './common'
+import { AdminPageHeader, useAction, useLoad } from './common'
 import { JobLine, useUpdateInstall } from './jobs'
 
 /** AI connection states an admin should act on (a member's own connection is theirs to fix, so team ones only) */
@@ -144,6 +144,7 @@ export default function Home() {
 
   return (
     <div className="space-y-8" data-testid="admin-home">
+      <AdminPageHeader title={t('admin.home')} className="!mb-0" still />
       {ready && (
         <section aria-labelledby="admin-home-attention">
           {attention.length ? (

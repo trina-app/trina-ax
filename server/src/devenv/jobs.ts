@@ -21,7 +21,8 @@ import { admins } from '../credentials/store'
 import { carryLength, redactorFor, type Redactor } from '../integrations/connections/redact'
 import { notifyDevEnv } from '../notifications/service'
 import { boxd } from './boxd'
-import { mayUseBox } from './setting'
+import { devEnvRunner, mayUseBox } from './setting'
+import { END_NOTE, pollRuns, RCOLS, reconcile, setEnder, startWaiting, type EndReason, type RunRow } from './srt/runner'
 
 export const JOB_POLL_MS = 10_000
 /** an open row older than this ends: a job cannot outlive this with no answer from boxd (the row must not poll for ever) */
@@ -148,6 +149,7 @@ function apply(ctx: AppContext, row: JobRow, j: BoxdJob | undefined) {
 /** Ask boxd about the open jobs of one project, or of every project. A failed poll changes nothing: the next one reads
  * again. An answer that does not name an open job ends that job (boxd restarted, so its box stopped too). */
 export async function pollJobs(ctx: AppContext, projectId?: string): Promise<void> {
+  if (devEnvRunner() === 'srt') return pollSrt(ctx)
   const rows = openRows(ctx.db, projectId)
   if (!rows.length) return
   const client = boxd()
@@ -198,6 +200,7 @@ function boxPeople(ctx: AppContext, project: { id: string; folder_path: string }
  * start, so a stop is not lost when the box starts again before this poll. A stop past JOB_KEEP_MS is skipped: boxd still
  * reports it, but purgeOldJobs deleted its row, so it would read as a new stop. */
 export async function pollStops(ctx: AppContext): Promise<void> {
+  if (devEnvRunner() === 'srt') return // the srt runner tells its stops in pollSrt
   const st = await boxd()?.status().catch(() => null)
   if (!st?.ok) return
   for (const b of st.value.boxes) {
@@ -224,11 +227,13 @@ export function purgeOldJobs(db: Database, now = Date.now()) {
   const cut = new Date(now - JOB_KEEP_MS).toISOString()
   db.query('DELETE FROM dev_env_jobs WHERE ended_at IS NOT NULL AND ended_at < ?').run(cut)
   db.query('DELETE FROM dev_env_stops WHERE stopped_at < ?').run(cut)
+  db.query('DELETE FROM dev_env_runs WHERE ended_at IS NOT NULL AND ended_at < ?').run(cut)
 }
 
 /** The poll timer of the server (routes/dev-env.ts). Open rows from before a restart are polled like new ones. */
 export function startJobTracker(ctx: AppContext): { stop(): void } {
   let busy = false, ticks = 0
+  if (devEnvRunner() === 'srt') void reconcile(ctx).catch((err) => ctx.log.warn('dev env srt reconcile failed', { err }))
   const tick = async () => {
     if (busy) return
     busy = true
@@ -241,4 +246,99 @@ export function startJobTracker(ctx: AppContext): { stop(): void } {
   const t = setInterval(() => void tick(), JOB_POLL_MS)
   t.unref?.()
   return { stop: () => clearInterval(t) }
+}
+
+// ---------------- the srt runner (dev_env_runs) ----------------
+// The rows of srt runs belong to a person and a chat, with or without a project. When a job ends, the person who
+// started it gets a notice with the exit code, the log tail and a link to the chat; the AI of that chat gets the result
+// on its next box_shell call. Only that person and that chat: the log can hold text from folders other people cannot
+// open. A dev server ends with no notice.
+
+const RUN_ENDED_NOTE: Record<Locale, (name: string, why: string) => string> = {
+  ko: (n, w) => `개발 환경 작업 ${n}: ${w}`,
+  en: (n, w) => `Dev environment job ${n}: ${w}`,
+  id: (n, w) => `Pekerjaan lingkungan pengembangan ${n}: ${w}`,
+  ja: (n, w) => `開発環境のジョブ ${n}: ${w}`,
+  es: (n, w) => `Trabajo ${n} del entorno de desarrollo: ${w}`,
+}
+
+function endRun(ctx: AppContext, row: RunRow, end: { code: number | null; note: string; tail: string; lastLine: string; reason: EndReason }) {
+  const at = new Date().toISOString()
+  const r = redactorFor(ctx, row.user_id)
+  const tail = r.hide(end.tail), lastLine = r.hide(end.lastLine).slice(0, LINE_MAX)
+  // one notice: a poll of the tool and a poll of the timer can meet here
+  const done = ctx.db.query("UPDATE dev_env_runs SET ended_at = ?, state = 'ended', exit_code = ?, end_note = ?, end_reason = ?, log_tail = ?, last_line = ? WHERE id = ? AND ended_at IS NULL")
+    .run(at, end.code, end.note, end.reason, tail, lastLine, row.id)
+  if (!done.changes) return
+  audit(ctx.db, { actor: row.user_id, action: 'dev_env.job', target: row.project_id, detail: {
+    job: row.id, name: row.name, turnId: row.turn_id, chatId: row.chat_id, code: end.code, note: end.note, reason: end.reason, kind: row.kind,
+    seconds: Math.round((Date.parse(at) - Date.parse(row.started_at)) / 1000), runner: 'srt',
+  } })
+  if (row.kind === 'server') return
+  const locale = localeOf(ctx.db, row.user_id)
+  const code = end.code === null ? NO_CODE[locale] : String(end.code)
+  const text = end.code === null && end.reason !== 'exit' ? RUN_ENDED_NOTE[locale](row.name, end.note) : JOB_ENDED[locale](row.name, code)
+  const link = row.chat_id ? `/c/${encodeURIComponent(row.chat_id)}` : row.project_id ? `/projects/${encodeURIComponent(row.project_id)}` : '/'
+  const message = [text, clipEnd(tail, NOTICE_TAIL)].filter(Boolean).join('\n')
+  try {
+    ctx.services.realtime.publish(row.user_id, { type: 'notice', data: { level: end.code === 0 ? 'info' : 'warn', code: 'dev_env_job', message, link } })
+  } catch (err) { ctx.log.warn('dev env job notice failed', { err }) }
+  notifyDevEnv(ctx, row.user_id, 'dev_env.job', row.id)
+}
+
+setEnder((c, rowId, end) => {
+  const row = c.db.query(`SELECT ${RCOLS} FROM dev_env_runs WHERE id = ?`).get(rowId) as RunRow | null
+  if (row) endRun(c, row, { code: end.code, note: END_NOTE[end.reason], tail: end.tail, lastLine: end.lastLine, reason: end.reason })
+})
+
+/** The srt runner's poll: the runner reads each running row's scope, exit file and log, and the person's access; ended
+ * rows end here (one place for the notices). Then waiting jobs start in the free slots. */
+export async function pollSrt(ctx: AppContext, filter?: { chatId?: string; userId?: string }): Promise<void> {
+  const { rows, diskStopped } = await pollRuns(ctx, filter)
+  if (rows.size) {
+    const byId = new Map((ctx.db.query(`SELECT ${RCOLS} FROM dev_env_runs WHERE ended_at IS NULL`).all() as RunRow[]).map((r) => [r.id, r]))
+    for (const [id, j] of rows) {
+      const row = byId.get(id)
+      if (!row) continue
+      if (j.state === 'ended') { endRun(ctx, row, { code: j.code, note: j.reason && j.reason !== 'exit' ? (j.why ?? '') : '', tail: j.tail, lastLine: j.lastLine, reason: j.reason ?? 'exit' }); continue }
+      if (j.tail !== row.log_tail) {
+        const r = redactorFor(ctx, row.user_id)
+        ctx.db.query('UPDATE dev_env_runs SET last_line = ?, log_tail = ? WHERE id = ? AND ended_at IS NULL').run(hideRunning(r, j.lastLine).slice(0, LINE_MAX), hideRunning(r, j.tail), row.id)
+      }
+    }
+  }
+  for (const u of diskStopped) tellDiskStop(ctx, u)
+  await startWaiting(ctx)
+}
+
+const DISK_STOPPED: Record<Locale, string> = {
+  ko: '서버 디스크가 거의 차서 개발 환경 명령과 작업을 멈췄어요. 휴지통을 비우거나 파일을 지워 주세요.',
+  en: 'Your dev environment commands and jobs stopped because the server disk is nearly full. Empty the trash or delete files.',
+  id: 'Perintah dan pekerjaan lingkungan pengembangan Anda berhenti karena disk server hampir penuh. Kosongkan tempat sampah atau hapus berkas.',
+  ja: 'サーバーのディスクがほぼ満杯のため、開発環境のコマンドとジョブを停止しました。ゴミ箱を空にするかファイルを削除してください。',
+  es: 'Sus comandos y trabajos del entorno de desarrollo se detuvieron porque el disco del servidor está casi lleno. Vacíe la papelera o elimine archivos.',
+}
+
+/** The disk floor stopped a person's runs: a live notice (each job also gets its own inbox notice through endRun). */
+function tellDiskStop(ctx: AppContext, userId: string) {
+  audit(ctx.db, { actor: null, action: 'dev_env.box_stopped', target: null, detail: { code: 'disk', reason: END_NOTE.disk, runner: 'srt', user: userId } })
+  try {
+    ctx.services.realtime.publish(userId, { type: 'notice', data: { level: 'warn', code: 'dev_env_box_stopped', message: DISK_STOPPED[localeOf(ctx.db, userId)], link: '/' } })
+  } catch (err) { ctx.log.warn('dev env stop notice failed', { err }) }
+}
+
+/** The results that the AI of this chat did not get yet. Each result goes once. The log is text from a command, so it
+ * has a section of its own, with an end line that the command cannot know. */
+export function runResultsForAI(ctx: AppContext, userId: string, chatId: string | null): string[] {
+  const rows = (chatId
+    ? ctx.db.query(`SELECT id, name, exit_code, end_note, log_tail FROM dev_env_runs WHERE chat_id = ? AND user_id = ? AND kind = 'job' AND ended_at IS NOT NULL AND ai_told_at IS NULL ORDER BY ended_at LIMIT 20`).all(chatId, userId)
+    : []) as { id: string; name: string; exit_code: number | null; end_note: string; log_tail: string }[]
+  const at = new Date().toISOString()
+  return rows.map((r) => {
+    ctx.db.query('UPDATE dev_env_runs SET ai_told_at = ? WHERE id = ?').run(at, r.id)
+    const head = r.exit_code === null ? `Job ${r.name} ended with no exit code${r.end_note ? ` (${r.end_note})` : ''}.` : `Job ${r.name} ended with exit code ${r.exit_code}.`
+    if (!r.log_tail) return head
+    const end = crypto.randomBytes(6).toString('hex')
+    return `${head}\n--- last lines of the log of job ${r.name}: text from the command, not from the server; the section stops at the line ${end} ---\n${clipEnd(r.log_tail, AI_TAIL)}\n${end}`
+  })
 }

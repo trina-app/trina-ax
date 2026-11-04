@@ -3,6 +3,13 @@
 Published artifacts and authoritative release notes are in [GitHub Releases](https://github.com/trina-app/trina-ax/releases).
 This file summarizes user-visible changes; it is not a list of every commit.
 
+## 0.4.0-beta.5 — 2026-11-04
+
+**Upgrade note:** database migration 222 (state of dev environment runs). The server applies it at start; nothing to do. From 0.4.0-beta.4 this is an app update. From 0.4.0-beta.2 or older it is a root update, as in 0.4.0-beta.3. The srt dev environment is off until an administrator installs it (`scripts/dev-env/srt/install-srt.sh`) and turns it on, so a server that does not use it sees no change.
+
+- Dev environment on srt (beta, off by default): the AI's `box_shell` commands can run on the team server inside srt in place of the podman box. A run can read the folders the person can read, can write only the project folder and the person's own folder, and reaches only GitHub, npm, PyPI and the sites the team adds. Admin › Team settings has a new "Dev environment" section for on/off, who may use it, network, limits and the warning consent. The project modal now keeps the people chosen by name. In all five languages. Design: docs/research/srt-dev-env.md.
+- UX audit fixes, batch 2: medium fixes in Admin (engines, usage, activity, members, plugins), Files (list, selection bar, PDF preview), Chat (waiting state, retry, images, phone header), Scheduled and search, Settings and sign-in. Search fields keep the browser clear button where the app has none.
+
 ## 0.4.0-beta.4 — 2026-11-04
 
 Same app as 0.4.0-beta.3, which could not be published because GitHub had no macOS runner for the desktop build.
