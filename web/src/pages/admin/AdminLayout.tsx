@@ -12,7 +12,7 @@ import { lazy, Suspense, useEffect, useRef } from 'react'
 import { Navigate, NavLink, useParams } from 'react-router-dom'
 import { useT, type MessageKey } from '../../i18n'
 import { isAdmin, isOwner, useMeStrict } from '../../store/session'
-import { Spinner } from '../../components/ui'
+import { Spinner, useEdgeFade } from '../../components/ui'
 
 const Home = lazy(() => import('./Home'))
 const Members = lazy(() => import('./Members'))
@@ -71,6 +71,7 @@ export default function AdminLayout() {
   const me = useMeStrict()
   const { section = '' } = useParams()
   const nav = useRef<HTMLElement>(null)
+  useEdgeFade(nav)
   // the strip of a narrow screen scrolls sideways: bring the open page's link into it
   useEffect(() => {
     nav.current?.querySelector('[aria-current="page"]')?.scrollIntoView({ block: 'nearest', inline: 'nearest' })
@@ -84,7 +85,7 @@ export default function AdminLayout() {
         <h1 className="px-4 pt-4 pb-2 text-lg font-semibold tracking-tight sm:px-6 lg:px-5 lg:pt-6 lg:pb-4 lg:text-xl">{t('admin.title')}</h1>
         {/* narrow screens: the strip runs to the screen edges, so a link cut off at the right reads as "scroll for more";
             relative: the group names hidden there (sr-only) stay inside the strip instead of widening the page */}
-        <nav ref={nav} aria-label={t('admin.title')} className="scroll-thin relative flex items-center gap-1 overflow-x-auto px-4 pb-3 sm:px-6 lg:min-h-0 lg:flex-1 lg:flex-col lg:items-stretch lg:gap-5 lg:overflow-x-hidden lg:overflow-y-auto lg:px-3 lg:pb-6" data-testid="admin-menu">
+        <nav ref={nav} aria-label={t('admin.title')} className="scroll-thin edge-fade relative flex items-center gap-1 overflow-x-auto px-4 pb-3 sm:px-6 lg:min-h-0 lg:flex-1 lg:flex-col lg:items-stretch lg:gap-5 lg:overflow-x-hidden lg:overflow-y-auto lg:px-3 lg:pb-6" data-testid="admin-menu">
           {menu.map((g) => {
             const links = g.items.map((s) => (
               <NavLink

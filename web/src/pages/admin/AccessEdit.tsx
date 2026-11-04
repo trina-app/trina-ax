@@ -16,7 +16,7 @@ import { api, API, errorText, isApiError } from '../../lib/api'
 import { addNamed, basicChoices, draftKey, draftOf, removeNamed, rootNoneRow, rulesKey, rulesOf, sameRules, saveImpact, setNamed, type Basic, type Draft, type RuleLike } from '../../lib/access-edit'
 import { folderName, isSkillsPath, skillEditorsText, skillManagersOf, skillsLockedText, sourceText, whoSeesText } from '../../lib/access-view'
 import { useLocale, useT, type MessageKey } from '../../i18n'
-import { Badge, Button, ErrorNote, IconButton, Skeleton, confirmDialog, useFocusTrap } from '../../components/ui'
+import { Badge, Button, ErrorNote, IconButton, Skeleton, confirmDialog, useFocusTrap, useMediaQuery } from '../../components/ui'
 import { toast } from '../../store/ui'
 import { useFolderPeople } from './SkillManagers'
 
@@ -29,20 +29,7 @@ const ACCESSES: readonly Access[] = ['read', 'write', 'none']
 const TAB_KEYS = new Set(['ArrowLeft', 'ArrowRight', 'Home', 'End'])
 
 /** Below 640px the panel is the whole screen (a dialog with its own way back). */
-function useNarrow(query = '(max-width: 639.98px)') {
-  const get = () => typeof window !== 'undefined' && !!window.matchMedia?.(query).matches
-  const [narrow, setNarrow] = useState(get)
-  useEffect(() => {
-    const mq = window.matchMedia?.(query)
-    if (!mq) return
-    const on = () => setNarrow(mq.matches)
-    on()
-    mq.addEventListener('change', on)
-    return () => mq.removeEventListener('change', on)
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [query])
-  return narrow
-}
+const useNarrow = (query = '(max-width: 639.98px)') => useMediaQuery(query)
 
 /** The server's answer for the draft on the screen: asked after PREVIEW_DEBOUNCE_MS (at once the first time), the
  * request before aborted, so an older answer never replaces a newer one. `attempt` asks again (a retry, a 409): until

@@ -631,8 +631,9 @@ export default function Files() {
         <h1 className="mr-2 text-lg font-semibold">{t('files.title')}</h1>
         <Tabs value={view} onChange={setView} label={t('files.title')} panels={viewTabs} items={[{ id: 'files', label: t('files.all') }, { id: 'trash', label: t('files.trash') }]} />
         {view === 'files' && (
-          <div className="ml-auto flex items-center gap-1">
-            <label className="flex h-8 items-center gap-1.5 rounded-lg border border-field-border bg-surface px-2 focus-within:border-accent focus-within:ring-1 focus-within:ring-accent">
+          // a phone: the toolbar has its own line, and the search box takes the width the buttons leave
+          <div className="ml-auto flex items-center gap-1 max-sm:w-full">
+            <label className="flex h-8 min-w-0 items-center gap-1.5 rounded-lg max-sm:flex-1 border border-field-border bg-surface px-2 focus-within:border-accent focus-within:ring-1 focus-within:ring-accent">
               <Search size={14} className="shrink-0 text-faint" aria-hidden />
               <span className="sr-only">{t('files.search.label')}</span>
               <input
@@ -647,7 +648,7 @@ export default function Files() {
                 }}
                 placeholder={t('files.search.placeholder')}
                 maxLength={200}
-                className="w-28 min-w-0 bg-transparent text-sm outline-none placeholder:text-faint sm:w-48"
+                className="w-full min-w-0 bg-transparent text-sm outline-none placeholder:text-faint sm:w-48"
                 data-testid="content-search-input"
               />
               {q && (

@@ -8,6 +8,7 @@ import { create } from 'zustand'
 import { useT } from '../i18n'
 import { useUi } from '../store/ui'
 import { writeRich } from '../lib/clipboard'
+import { edgeFade } from '../lib/edgeFade'
 
 /** A dialog goes into <body> through a portal; rendered to a string (no document, as in a unit test), it stays in place. */
 const inBody = (node: ReactNode, body: Element | null) => (body ? createPortal(node, body) : node)
@@ -426,6 +427,46 @@ export function CopyButton({ text, html, label, className, showLabel }: { text: 
   )
 }
 
+// ---------------- layout helpers ----------------
+/** Whether a media query matches now, and again when it changes (a phone turned, a window resized). */
+export function useMediaQuery(query: string) {
+  const get = () => typeof window !== 'undefined' && !!window.matchMedia?.(query).matches
+  const [matches, setMatches] = useState(get)
+  useEffect(() => {
+    const mq = window.matchMedia?.(query)
+    if (!mq) return
+    const on = () => setMatches(mq.matches)
+    on()
+    mq.addEventListener('change', on)
+    return () => mq.removeEventListener('change', on)
+  }, [query])
+  return matches
+}
+
+/** A row that scrolls sideways (class `edge-fade`): marks the edges that have more behind them (data-fade-start,
+ * data-fade-end), and index.css fades those edges. Its scroll-padding keeps a margin when a tab scrolls into view. */
+export function useEdgeFade<T extends HTMLElement>(ref: React.RefObject<T | null>) {
+  useEffect(() => {
+    const el = ref.current
+    if (!el) return
+    const update = () => {
+      const f = edgeFade(el.scrollLeft, el.scrollWidth, el.clientWidth)
+      for (const [name, on] of [['data-fade-start', f.start], ['data-fade-end', f.end]] as const) {
+        if (on) el.setAttribute(name, '')
+        else el.removeAttribute(name)
+      }
+    }
+    update()
+    el.addEventListener('scroll', update, { passive: true })
+    const ro = typeof ResizeObserver === 'function' ? new ResizeObserver(update) : null
+    ro?.observe(el)
+    return () => {
+      el.removeEventListener('scroll', update)
+      ro?.disconnect()
+    }
+  }, [ref])
+}
+
 // ---------------- simple tabs ----------------
 /** The ids that tie a tab to its panel: `base` is the Tabs' `panels` (one useId per Tabs), `id` the tab's. */
 export const tabIds = (base: string, id: string) => ({ tab: `${base}-tab-${id}`, panel: `${base}-panel-${id}` })
@@ -447,6 +488,7 @@ export function TabPanel({ base, value, className, children, ...rest }: { base: 
  * the ids of the panels (`useId()`), shared with the TabPanel that shows the chosen tab's content. */
 export function Tabs<T extends string>({ value, onChange, items, label, segmented, panels }: { value: T; onChange: (v: T) => void; items: { id: T; label: string }[]; label: string; segmented?: boolean; panels: string }) {
   const list = useRef<HTMLDivElement>(null)
+  useEdgeFade(list)
   // on a phone the tabs may not all fit: the chosen one scrolls into the row (a link can choose the last one). Only
   // then, so a row that fits never moves the page.
   useEffect(() => {
@@ -473,7 +515,7 @@ export function Tabs<T extends string>({ value, onChange, items, label, segmente
     list.current?.querySelectorAll<HTMLElement>('[role="tab"]')[to]?.focus()
   }
   return (
-    <div ref={list} role="tablist" aria-label={label} onKeyDown={onKeyDown} className={clsx('flex overflow-x-auto', segmented ? 'max-w-full gap-0.5 rounded-lg bg-subtle p-0.5' : 'gap-1')}>
+    <div ref={list} role="tablist" aria-label={label} onKeyDown={onKeyDown} className={clsx('edge-fade flex overflow-x-auto', segmented ? 'max-w-full gap-0.5 rounded-lg bg-subtle p-0.5' : 'gap-1')}>
       {items.map((it) => (
         <button
           key={it.id}

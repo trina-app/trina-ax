@@ -13,6 +13,7 @@ import type { EngineId, Me, Memory, Session, Theme } from '@mycel/shared/api'
 import { RELEASE_CHANNEL } from '@mycel/shared'
 import { api, API, errorText } from '../lib/api'
 import { formatDateTime, formatSize } from '../lib/format'
+import { deviceLabel } from '../lib/userAgent'
 import { archNote, installSteps, offeredDownloads, orderDownloads, parseDownloads, showSteps, type DownloadItem } from '../lib/downloads'
 import { installGuideShown, platform, type Platform } from '../lib/pwa'
 import { LOCALES, useLocale, useT, type MessageKey } from '../i18n'
@@ -270,7 +271,8 @@ function Security() {
               <li key={s.id} className="flex items-center gap-3 px-4 py-3 text-sm">
                 <Icon size={18} className="shrink-0 text-muted" aria-hidden />
                 <span className="min-w-0 flex-1">
-                  <span className="block truncate">{s.userAgent ?? t(`client.${s.client}`)}</span>
+                  {/* a short name ("Chrome on macOS"); the raw user agent in the tooltip */}
+                  <span className="block truncate" title={s.userAgent ?? undefined} data-testid="device-name">{deviceLabel(s.client, s.userAgent, t)}</span>
                   <span className="block text-xs text-faint">{t('settings.lastSeen', { date: formatDateTime(s.lastSeenAt, locale) })}</span>
                 </span>
                 {s.current ? (

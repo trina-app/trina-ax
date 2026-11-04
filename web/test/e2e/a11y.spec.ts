@@ -206,7 +206,8 @@ test('no serious accessibility problems at phone width', async ({ page }) => {
   await expect(page.getByTestId('bulk-bar')).toBeVisible()
   await audit(page, 'files selection (phone)')
   await page.goto('/admin/members')
-  await expect(page.getByTestId('members-table')).toBeVisible()
+  // a phone shows a card per member, not the table
+  await expect(page.getByTestId('members-list')).toBeVisible()
   await audit(page, 'admin (phone)')
 })
 

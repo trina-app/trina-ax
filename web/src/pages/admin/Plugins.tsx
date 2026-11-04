@@ -188,6 +188,28 @@ function InstalledRow({ p, reload }: { p: InstalledPlugin; reload: () => void })
   )
 }
 
+/** One licence ("MIT") stays on the line; a list of them ("MIT AND Apache-2.0 AND …") is long and noisy there. */
+export const longLicense = (license: string) => /\s(AND|OR)\s/i.test(license) || license.length > 24
+
+/** The publisher and platforms line. A long licence list is "Licenses" there: the full list in its tooltip, and under
+ * the line when pressed (a phone has no tooltip). */
+export function PluginMeta({ text, license }: { text: string; license: string }) {
+  const t = useT()
+  const [open, setOpen] = useState(false)
+  if (!longLicense(license)) return <p className="text-xs text-faint">{text} · {license}</p>
+  return (
+    <div className="text-xs text-faint">
+      <p>
+        {text} ·{' '}
+        <button type="button" aria-expanded={open} title={license} onClick={() => setOpen((v) => !v)} className="underline decoration-dotted underline-offset-2 hover:text-ink" data-testid="plugin-licenses">
+          {t('plugins.licenses')}
+        </button>
+      </p>
+      {open && <p className="mt-1 break-words" data-testid="plugin-license-list">{license}</p>}
+    </div>
+  )
+}
+
 function CatalogRow({ c, review, fileInstall }: { c: CatalogPlugin; review: (id: string) => Promise<void>; fileInstall: boolean }) {
   const t = useT()
   // the server may first download the package from the release feed
@@ -202,7 +224,7 @@ function CatalogRow({ c, review, fileInstall }: { c: CatalogPlugin; review: (id:
       </div>
       <p className="text-sm text-muted">{c.description}</p>
       <HwpWriting id={c.id} />
-      <p className="text-xs text-faint">{t('plugins.publisher', { name: c.publisher.name })} · {t('plugins.platforms', { list: platformText(t, c.platforms) })} · {c.license}</p>
+      <PluginMeta text={`${t('plugins.publisher', { name: c.publisher.name })} · ${t('plugins.platforms', { list: platformText(t, c.platforms) })}`} license={c.license} />
       {c.recommended && <p className="text-xs text-muted">{t('plugins.recommendedHint')}</p>}
       <Permissions items={c.permissions} />
       {c.availability === 'available' && (!c.installedVersion || c.updateAvailable) && (

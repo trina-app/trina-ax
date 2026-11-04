@@ -971,7 +971,7 @@ export class MockServer {
           : [],
       }
     },
-    mySessions: () => ({ items: [{ id: '0192f0a0-0000-7000-8000-000000000000', client: 'web', userAgent: 'Chrome on macOS', createdAt: now(), lastSeenAt: now(), expiresAt: now(), current: true }] }),
+    mySessions: () => ({ items: [{ id: '0192f0a0-0000-7000-8000-000000000000', client: 'web', userAgent: 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/142.0.0.0 Safari/537.36', createdAt: now(), lastSeenAt: now(), expiresAt: now(), current: true }] }),
     inviteInfo: (c) => {
       const i = this.invites.find((x) => x.token === c.params.token)
       if (!i) fail('not_found', 404)

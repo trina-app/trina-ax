@@ -75,18 +75,22 @@ function Diagnostics({ rev }: { rev: number }) {
       <Loadable state={state}>
         {(d) => (
           <>
-            <div className="mb-3 grid gap-2 text-sm sm:grid-cols-3">
+            {/* the short facts share a line (version, queue); the long ones (server, free space) take the full width, so
+                nothing wraps at a laptop width */}
+            <div className="mb-3 grid gap-x-6 gap-y-1.5 text-sm sm:grid-cols-2" data-testid="system-facts">
               <p>
                 <span className="text-faint">{t('system.version')}</span> {d.version}
               </p>
               <p>
-                <span className="text-faint">{t('system.host')}</span> {d.host.hostname} ({d.host.os}/{d.host.arch})
-              </p>
-              <p>
                 <span className="text-faint">{t('system.queue')}</span> {t('system.queueLine', { running: d.queue.running, queued: d.queue.queued, max: d.queue.concurrency })}
               </p>
-              <p className="flex items-center gap-1">
-                <HardDrive size={13} className="text-faint" aria-hidden /> {t('system.diskFree', { team: formatSize(d.disk.teamFolderFreeBytes, locale), data: formatSize(d.disk.dataFreeBytes, locale) })}
+              <p className="sm:col-span-2">
+                <span className="text-faint">{t('system.host')}</span> {d.host.hostname} ({d.host.os}/{d.host.arch})
+              </p>
+              <p className="flex items-start gap-1.5 sm:col-span-2">
+                {/* the icon on the first line's middle, also when the text wraps (a phone) */}
+                <HardDrive size={14} className="mt-[3px] shrink-0 text-faint" aria-hidden />
+                <span>{t('system.diskFree', { team: formatSize(d.disk.teamFolderFreeBytes, locale), data: formatSize(d.disk.dataFreeBytes, locale) })}</span>
               </p>
             </div>
             <ul className="divide-y divide-line text-sm" data-testid="diagnostics">
