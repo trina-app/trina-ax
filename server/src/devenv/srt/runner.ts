@@ -30,7 +30,7 @@ import { newId } from '../../db'
 import { storageRoom } from '../../system/storage'
 import { resolveLayout } from '../../system/layout'
 import { mayUseDevEnv, teamSetting } from '../setting'
-import { folderView, viewAccess, viewHash, type FolderView } from './access'
+import { folderView, viewAccess, viewHash, type FolderView, type RunWrites } from './access'
 import { RUN_ID_RE, chatWork, devenvPaths, personHome, personLogs, resolveRunCwd, runEnv, settingsProblems, srtSettings, unitName, UNIT_RE } from './config'
 import { effectiveLimits, loadPlan, NO_PLAN_MAX_RUNNING, type DevEnvPlan, type PlanState } from './plan'
 import { holdPlaceholders } from './placeholders'
@@ -155,22 +155,35 @@ export async function srtProblem(c = srtConfig()): Promise<string> {
 // ---------------- the folder access of a person ----------------
 
 /** The person's view, with only the folders that exist now (srt skips what is not there; a folder that appears later
- * changes the hash, and the tracker then stops the person's jobs). Null: the person cannot be loaded. */
-export function personView(ctx: AppContext, userId: string): FolderView | null {
+ * changes the hash, and the tracker then stops the person's jobs). With `run`, the view of a run that starts there
+ * (access.ts: only the starting folder and the person's own folder are writable). Null: the person cannot be loaded. */
+export function personView(ctx: AppContext, userId: string, run?: RunWrites): FolderView | null {
   let p
   try { p = ctx.files.principal(userId) } catch { return null }
-  const v = folderView(ctx.files.rules(), p)
+  const v = folderView(ctx.files.rules(), p, run)
   const root = ctx.files.fx.root
   const there = (rel: string) => { try { return fs.statSync(rel === '' ? root : path.join(root, rel)).isDirectory() } catch { return false } }
   return { read: v.read.filter(there), write: v.write.filter(there), denyRead: v.denyRead.filter(there), denyWrite: v.denyWrite.filter(there) }
 }
 
-/** The hash a running job or dev server is checked against: the person's view, and whether they may still use the
- * dev environment. */
-export function accessHash(ctx: AppContext, userId: string): string {
-  if (!mayUseDevEnv(ctx.db, ctx.files, userId)) return 'off'
-  const v = personView(ctx, userId)
-  return v ? viewHash(v) : 'off'
+/** The writable starting folder of a run in `space`: the project folder (team-relative), or null for the chat's work
+ * folder (outside the team folder). */
+function runWrites(ctx: AppContext, c: SrtConfig, space: Space): RunWrites {
+  if (space.chatId && space.root === chatWork(c.base, space.chatId)) return { start: null }
+  const team = ctx.files.fx.root
+  if (!space.root.startsWith(team + '/')) throw new Error('the person cannot open the folder of this chat now')
+  return { start: space.root.slice(team.length + 1) }
+}
+const runHash = (view: FolderView, run: RunWrites) => viewHash(view, run.start ?? '')
+
+/** The hash a running job or dev server is checked against: the view of a run in this space, and whether the person
+ * may still use the dev environment. */
+export function accessHash(ctx: AppContext, space: Space): string {
+  if (!mayUseDevEnv(ctx.db, ctx.files, space.userId)) return 'off'
+  let run: RunWrites
+  try { run = runWrites(ctx, srtConfig(), space) } catch { return 'off' }
+  const v = personView(ctx, space.userId, run)
+  return v ? runHash(v, run) : 'off'
 }
 
 /** May a run of this person start in `root` now? The root is the chat's work folder, or a team folder the person can
@@ -225,12 +238,13 @@ export function serverPaths(ctx: Pick<AppContext, 'config' | 'engineConfig'>): s
 
 /** The settings of a run, checked; throws with the reason when the run must not start. */
 async function settingsFor(ctx: AppContext, c: SrtConfig, space: Space, network: 'open' | 'offline') {
-  const view = personView(ctx, space.userId)
+  const run = runWrites(ctx, c, space)
+  const view = personView(ctx, space.userId, run)
   if (!view) throw new Error('the person cannot use the dev environment now')
   if (!rootAllowed(ctx, c, space, view)) throw new Error('the person cannot open the folder of this chat now')
-  const work = space.chatId && space.root === chatWork(c.base, space.chatId) ? space.root : null
+  const work = run.start === null ? space.root : null
   const input = {
-    base: c.base, id: c.id, teamRoot: ctx.files.fx.root, userId: space.userId, view, work, network,
+    base: c.base, id: c.id, teamRoot: ctx.files.fx.root, userId: space.userId, view, start: run.start, work, network,
     extraDomains: teamSetting(ctx.db).extraDomains,
     denyHosts: teamHosts(ctx),
     denyAddrs: [...listEnv(process.env.MYCEL_DEV_ENV_DENY_ADDRS), ...await publicIps()],
@@ -239,7 +253,7 @@ async function settingsFor(ctx: AppContext, c: SrtConfig, space: Space, network:
   const settings = srtSettings(input)
   const problems = settingsProblems(settings, input)
   if (problems.length) throw new Error(`refused settings: ${problems.join('; ')}`)
-  return { settings, work, hash: viewHash(view) }
+  return { settings, work, hash: runHash(view, run) }
 }
 
 async function spawnRun(ctx: AppContext, c: SrtConfig, s: RunSpec): Promise<{ pid: number; exited: Promise<{ code: number | null; signal: string | null }>; hash: string }> {
@@ -562,13 +576,15 @@ export async function pollRuns(ctx: AppContext, filter?: { chatId?: string; user
   const out = new Map<string, BoxdJob & { reason?: EndReason }>()
   const room = storageRoom(0)
   const diskStopped = room && !room.ok ? await stopAll(ctx, 'disk') : []
+  // the access of a run depends on the person and on its starting folder (only that folder is writable)
   const hashes = new Map<string, string>()
   for (const r of openRuns(ctx.db, 'running')) {
     if (filter?.chatId && r.chat_id !== filter.chatId) continue
     if (filter?.userId && r.user_id !== filter.userId) continue
-    // the person's access: built again each poll, once per person
-    if (!hashes.has(r.user_id)) hashes.set(r.user_id, accessHash(ctx, r.user_id))
-    if (r.access && hashes.get(r.user_id) !== r.access) { await stopRow(ctx, r, 'setting'); continue }
+    // the run's access: built again each poll, once per person and starting folder
+    const key = `${r.user_id}\0${r.root}`
+    if (!hashes.has(key)) hashes.set(key, accessHash(ctx, spaceOfRow(r)))
+    if (r.access && hashes.get(key) !== r.access) { await stopRow(ctx, r, 'setting'); continue }
     const s = await rowStatus(c, r)
     const seconds = Math.round((Date.now() - Date.parse(r.run_at ?? r.started_at)) / 1000)
     if (s.running) {

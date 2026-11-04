@@ -17,6 +17,13 @@
 //   - users/ is hidden as a whole (it would list everyone's personal folder names); the person's own users/<id> is
 //     writable again. Other people's personal folders stay hidden, for owners and admins too.
 //   - .system/ is hidden.
+//
+// A run (owner decision Q0 (b), docs/research/srt-dev-env.md 0.6): only the starting folder (the project folder) and
+// the person's own folder are writable. Every other folder that the person may write is read-only in the run. So a
+// command writes no file outside the change window of the project folder (other than the person's own folder), it
+// cannot copy a file into a folder that more people can see (except the project folder), and it cannot plant code
+// (.git/hooks, package.json scripts, a Makefile, .envrc) in a shared folder for another person's run (G-SRT-11).
+// folderView with no run gives the person's access (what the person may open); with a run, the access of that run.
 import crypto from 'node:crypto'
 import { PRODUCT } from '@mycel/shared'
 import { atLeast, type Access, type Principal, type RuleSet } from '../../policy/access'
@@ -36,8 +43,20 @@ function accessOf(rules: Pick<RuleSet, 'access'>, p: Principal, folder: string):
   return rules.access(p, s)
 }
 
-export function folderView(rules: Pick<RuleSet, 'access' | 'ruleFolders'>, p: Principal): FolderView {
+/** The folders that a run may write. start: the starting folder, team-relative (a project folder); null: the run
+ * starts in the chat's work folder (outside the team folder), so only the person's own folder is writable. */
+export interface RunWrites { start: string | null }
+
+/** May a run with this starting folder write in `folder` (when the rules let the person write there)? */
+export const runMayWrite = (run: RunWrites, personId: string, folder: string) =>
+  (run.start !== null && isUnder(folder, run.start)) || isUnder(folder, `users/${personId}`)
+
+export function folderView(rules: Pick<RuleSet, 'access' | 'ruleFolders'>, p: Principal, run?: RunWrites): FolderView {
+  // the team root as a starting folder would make every folder writable again: fail closed
+  if (run && run.start !== null && (run.start === '' || run.start.split('/').some((x) => x === '' || x === '.' || x === '..'))) throw new Error(`not a starting folder: ${JSON.stringify(run.start)}`)
   const cands = new Set<string>(['', 'users', `users/${p.id}`, PRODUCT.systemDir])
+  // access can change at the starting folder too (write in it, read above it), also when it has no rules of its own
+  if (run?.start) cands.add(run.start)
   for (const f of rules.ruleFolders()) {
     const s = segsOf(f)
     // rules under users/ are ignored by the rules themselves; a temp name never has rules that matter
@@ -48,7 +67,8 @@ export function folderView(rules: Pick<RuleSet, 'access' | 'ruleFolders'>, p: Pr
   const out: FolderView = { read: [], write: [], denyRead: [], denyWrite: [] }
   const got = new Map<string, Access>()
   for (const c of sorted) {
-    const a = accessOf(rules, p, c)
+    let a = accessOf(rules, p, c)
+    if (run && a === 'write' && !runMayWrite(run, p.id, c)) a = 'read'
     got.set(c, a)
     // the nearest candidate above (the team root has none above it: none)
     let parent: Access = 'none'

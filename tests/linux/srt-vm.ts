@@ -50,7 +50,7 @@ interface Run { runId: string; code: number | null; out: string; info: Record<st
 /** One run as the runner makes it. during(runId) runs while it runs. */
 async function run(command: string, o: { limits?: Partial<ScopeLimits>; network?: 'open' | 'offline'; during?: (runId: string) => Promise<void>; wait?: boolean } = {}): Promise<Run> {
   const runId = randomId()
-  const input = { base: BASE, id: ID, teamRoot: TEAM, userId: ME, view: VIEW, work: null, network: o.network ?? 'open', extraDomains: [], denyHosts: [], denyAddrs: [] }
+  const input = { base: BASE, id: ID, teamRoot: TEAM, userId: ME, view: VIEW, start: 'projects/one', work: null, network: o.network ?? 'open', extraDomains: [], denyHosts: [], denyAddrs: [] }
   const settings = srtSettings(input)
   const problems = settingsProblems(settings, input)
   if (problems.length) throw new Error(problems.join('; '))

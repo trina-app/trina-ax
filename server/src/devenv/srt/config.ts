@@ -64,8 +64,11 @@ export interface SettingsInput {
   teamRoot: string
   /** the person who owns the chat */
   userId: string
-  /** the person's folder access now (access.ts folderView), team-relative */
+  /** the folder access of this run now (access.ts folderView with the run's starting folder), team-relative */
   view: FolderView
+  /** the run's starting folder, team-relative (a project folder), or null (the chat's work folder): the only team
+   * folder that the run may write, besides the person's own folder (owner decision Q0 (b)) */
+  start: string | null
   /** the chat's work folder (a chat with no project), else null */
   work: string | null
   network: 'open' | 'offline'
@@ -114,7 +117,7 @@ const inside = (child: string, parent: string) => child === parent || child.star
 
 /** Checks that a settings file keeps the rules of the design. Returns the problems (empty = good). The runner calls it
  * before every spawn, so a bug in the builder does not reach srt. */
-export function settingsProblems(s: ReturnType<typeof srtSettings>, i: Pick<SettingsInput, 'base' | 'teamRoot' | 'userId' | 'work' | 'serverPaths'>): string[] {
+export function settingsProblems(s: ReturnType<typeof srtSettings>, i: Pick<SettingsInput, 'base' | 'teamRoot' | 'userId' | 'work' | 'serverPaths' | 'start'>): string[] {
   const out: string[] = []
   const deny = s.filesystem.denyRead
   const users = path.join(i.teamRoot, 'users'), own = path.join(users, i.userId), system = path.join(i.teamRoot, PRODUCT.systemDir)
@@ -135,6 +138,12 @@ export function settingsProblems(s: ReturnType<typeof srtSettings>, i: Pick<Sett
     return true
   }
   for (const w of s.filesystem.allowWrite) if (!allowed(w, [])) out.push(`a path that a run may not write: ${w}`)
+  // Q0 (b): in the team folder, only the starting folder and the person's own folder are writable (a view of the
+  // person, not of the run, fails here)
+  const start = i.start === null || i.start === '' ? null : abs(i.teamRoot, i.start)
+  for (const w of s.filesystem.allowWrite) {
+    if (inside(w, i.teamRoot) && !inside(w, own) && !(start !== null && inside(w, start))) out.push(`a team folder outside the starting folder is writable: ${w}`)
+  }
   for (const r of s.filesystem.allowRead) if (!allowed(r, [logs])) out.push(`a path that a run may not read: ${r}`)
   for (const sys of Object.values(SRT_PATHS)) if (inside(sys, i.base)) out.push(`${sys} is inside the base folder`)
   return out
@@ -161,6 +170,8 @@ export function runEnv(i: EnvInput): Record<string, string> {
   return {
     PATH: `${path.dirname(i.nodeBin ?? SRT_PATHS.node)}:/usr/local/bin:/usr/bin:/bin`,
     HOME: home,
+    // srt's own temp files (proxy sockets) land here too. A server-only TMPDIR for the srt process was tried (S7,
+    // 2026-11-04, Docker suite): srt then binds that folder into the sandbox writable and the allowed-site proxy broke
     TMPDIR: path.join(home, 'tmp'),
     // srt sets TMPDIR in the sandbox to this value (else /tmp/claude, which the settings hide)
     CLAUDE_CODE_TMPDIR: path.join(home, 'tmp'),
