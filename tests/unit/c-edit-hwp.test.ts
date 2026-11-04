@@ -6,8 +6,8 @@ import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from '
 import fs from 'node:fs'
 import path from 'node:path'
 import { makeHandler } from '../../server/src/mcp/protocol'
-import { employmentForm, hwpxDoc, para, purchaseForm } from '../lib/hwpx'
-import { hwpEmploymentForm, hwpPurchaseForm, hwpStreams, paragraphs } from '../lib/hwp'
+import { employmentForm, hwpxDoc, onePageForm, para, purchaseForm } from '../lib/hwpx'
+import { hwpEmploymentForm, hwpOnePageForm, hwpPurchaseForm, hwpStreams, paragraphs } from '../lib/hwp'
 import { makeCApp, sha256hex, type CApp, type Person } from '../lib/c-app'
 import { hwpPluginOn } from '../lib/hwp-plugin'
 
@@ -262,6 +262,25 @@ describe('a .hwp', () => {
       expect(r.text).toContain(why)
       expect(bytes(f).equals(before)).toBe(true)
       expect(versions(f)).toEqual([])
+    }
+  })
+
+  test('rows a one-page form cannot hold: the AI gets the refusal with how many fit, and no version is saved', async () => {
+    for (const [rel, form] of [['groups/marketing/forms/교부신청서.hwp', hwpOnePageForm()], ['groups/marketing/forms/교부신청서.hwpx', onePageForm()]] as const) {
+      put(rel, form)
+      const before = bytes(rel)
+      const call = turn('alice')
+      await call('read', { file_path: rel })
+      const r = await call('edit_hwp', { file_path: rel, changes: [{ cell: { table: 1, row: 2, col: 2 }, value: '홍예시' }, { add_rows: { table: 1, after_row: 3, rows: [['자녀', '홍둘째', ''], ['자녀', '홍셋째', '']] } }] })
+      expect(r.isError, rel).toBe(true)
+      expect(r.text).toContain('change 2: table 1 fills its page and cannot continue on the next page (it is placed as a character, 글자처럼 취급), so Hangul would cut off its end: ' +
+        '2 rows were asked for and about 1 fit. Add at most 1 row, and write the rest on a separate sheet (별지), as such forms usually ask. Nothing was saved.')
+      expect(bytes(rel).equals(before)).toBe(true)
+      expect(versions(rel)).toEqual([])
+      // the one row that fits is saved
+      const one = await call('edit_hwp', { file_path: rel, changes: [{ add_rows: { table: 1, after_row: 3, rows: [['자녀', '홍둘째', '']] } }] })
+      expect(one.isError, one.text).toBe(false)
+      expect(versions(rel).map((v) => v.version)).toEqual([1])
     }
   })
 
