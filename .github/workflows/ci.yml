@@ -135,10 +135,27 @@ jobs:
         # tests/linux/run.ts runs the container --privileged --cgroupns=private (bwrap userns + mounts, nft
         # CAP_NET_ADMIN, a writable cgroup tree). GitHub's runners allow --privileged.
         run: bun run tests/linux/run.ts
+      - name: Dev environment on srt, host like a team server (Debian 13, no AppArmor userns restriction)
+        # srt runs bwrap as the server account (not root). Ubuntu 24.04 runners set
+        # kernel.apparmor_restrict_unprivileged_userns=1: such a user namespace gets no capabilities, so bwrap stops at
+        # "loopback: Failed RTM_NEWADDR: Operation not permitted" (--privileged does not change it; the sysctl is
+        # global to the kernel). The dev environment on srt is for Debian 13 only (install-srt.sh refuses Ubuntu,
+        # srt-dev-env.md spike S6), and Debian 13 has no such restriction. The sandbox settings stay the same.
+        run: |
+          if [ -e /proc/sys/kernel/apparmor_restrict_unprivileged_userns ]; then
+            sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+          fi
       - name: Dev environment on srt, attack suite (Docker debian:13, srt 0.0.81)
         # tests/linux/srt-run.ts: the srt settings of the runner hide the base folder, other projects and the server's
         # files; the network goes only through srt's proxy to allowed sites (needs network). --privileged for bwrap.
+        # The suite first runs `true` through srt and stops if that fails, so a broken host cannot pass the attacks.
         run: bun run tests/linux/srt-run.ts
+      - name: Host back to the Ubuntu default (AppArmor userns restriction on)
+        if: always()
+        run: |
+          if [ -e /proc/sys/kernel/apparmor_restrict_unprivileged_userns ]; then
+            sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=1
+          fi
       - name: Old version folders removed, roll-back still works (Docker debian:13)
         # tests/linux/prune-versions.ts: the server account stages four versions, the Linux bootstrap built above
         # confirms each one, then admin.js prune-versions and roll-back after the prune (no --privileged needed)

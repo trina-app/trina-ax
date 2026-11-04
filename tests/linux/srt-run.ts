@@ -1,6 +1,8 @@
 // Builds tests/linux/Dockerfile.srt and runs the srt attack suite (tests/linux/srt-attack.ts) in it. --privileged:
 // bwrap's user namespaces and mounts, as in tests/linux/run.ts. Needs network: the suite checks that an allowed site
-// works through srt's proxy and that others do not.
+// works through srt's proxy and that others do not. On an Ubuntu 24.04 host (kernel.apparmor_restrict_unprivileged_userns=1)
+// bwrap fails as the server account: set the sysctl to 0 first, as CI does (ci.yml). A Debian 13 team server has no
+// such restriction.
 //   bun tests/linux/srt-run.ts
 import path from 'node:path'
 const root = path.join(import.meta.dir, '..', '..')
