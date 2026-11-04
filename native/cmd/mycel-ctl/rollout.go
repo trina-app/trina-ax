@@ -50,8 +50,15 @@ func rolloutBucket(salt, installID string) int {
 	return int(binary.BigEndian.Uint16(h[:2]) % 100)
 }
 
-// publishedMs reads publishedAt (RFC 3339, as the TS side's ISO_TIME accepts it); ok false when it cannot.
+// isoTime is the TS side's ISO_TIME (rollout.ts): time.Parse alone also takes a comma before the fraction, more than
+// nine fraction digits and an offset of 24 hours, which the TS side does not.
+var isoTime = regexp.MustCompile(`^\d{4}-\d{2}-\d{2}T([01]\d|2[0-3]):[0-5]\d:[0-5]\d(\.\d{1,9})?(Z|[+-]([01]\d|2[0-3]):[0-5]\d)$`)
+
+// publishedMs reads publishedAt (RFC 3339, exactly what the TS side's ISO_TIME accepts); ok false when it cannot.
 func publishedMs(s string) (int64, bool) {
+	if !isoTime.MatchString(s) {
+		return 0, false
+	}
 	t, err := time.Parse(time.RFC3339Nano, s)
 	if err != nil {
 		return 0, false

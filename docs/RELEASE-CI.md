@@ -108,19 +108,23 @@ Worker(`scripts/release/worker.js`)는 이 경로만 읽기 전용으로 내준�
     `admin.js update-window`의 `installId`. 읽을 수 없으면 마지막 차례(99, 100% 단계)다. 영원히 빠지는 서버는 없다.
   - 기다리지 않는 것: beta 채널의 설치(stable 릴리스가 beta 머리도 되므로 같은 바이트를 보지만 `ramp`를 무시), 피드의 `urgent: true`,
     관리자가 직접 하는 업데이트(관리자 › 시스템 › 업데이트, `sudo mycel-ctl update`, 사무실 "지금 업데이트"·`teamax update now`).
-  - 보이는 곳: `sudo mycel-ctl status`("this server's turn comes at …", `--detail --json`의 `updates.rollout`), 앱의 `GET /api/admin/update`
-    `turnAt`, 사무실 `teamax update status`.
+  - 보이는 곳: 관리자 › 홈("새 버전 … · 이 서버 차례인 내일 새벽 03:00–05:00에 자동으로 설치돼요", 지금 설치 버튼), `sudo mycel-ctl status`
+    ("this server's turn comes at …", `--detail --json`의 `updates.rollout`), 앱의 `GET /api/admin/update` `hold: 'rollout'`과 `turnAt`,
+    사무실 `teamax update status`.
+  - root 타이머는 창 안에서 조용한 때를 기다리는 동안(최대 1시간) 피드에 새 릴리스가 올라와도 그 회차에는 설치하지 않는다. 처음
+    판단한 버전만 설치하고, 새 릴리스는 다음 확인이 차례를 보고 판단한다.
 - **옛 설치(0.4.0-beta.2 이하)**: `rollout`을 zod `z.object`(엄격하지 않음)로 읽어 `ramp`를 버리고 `percent`(100)만 본다. Go `mycel-ctl`도
   모르는 필드를 무시한다. 그래서 예전처럼 바로 받는다(시험: `tests/unit/g-rollout.test.ts` "older servers", `TestOldTimerReadsARampedFeed`).
   서명은 바이트 그대로 검증하고, `minReaderRequired`·reader 수준과는 관계없다.
 - **모두에게 한 번에** (나쁜 릴리스를 고치는 릴리스, 보안 수정): 태그 메시지에 한 줄 `Rollout: all`. prepare가 그 줄을 노트에서 빼고
   (`release-ci.ts rollout`) 두 피드에 `--rollout all`을 넘긴다. 그러면 `rollout`이 아예 없다. 손으로 다시 돌릴 때는 Run workflow의
-  `rollout` 입력(`tag`=태그 메시지대로, `staged`, `all`). `Rollout:` 뒤에 `all`·`staged`가 아닌 말이 있으면 prepare가 멈춘다(오타가 배포
-  속도를 정하지 않게).
+  `rollout` 입력(`tag`=태그 메시지대로, `staged`, `all`). `Rollout:` 뒤에 `all`·`staged`가 아닌 말이 있거나, `Rollout:`로 시작하는 줄이
+  목록·인용·제목·굵게 표시이거나 뒤에 다른 말이 붙으면 prepare가 멈춘다(오타나 꾸밈이 배포 속도를 정하지 않게).
   - 나쁜 릴리스를 고친 릴리스는 `Rollout: all`로 낸다. salt가 릴리스마다 달라서, 나쁜 릴리스를 먼저 받은 서버가 고친 릴리스는
     마지막 차례가 될 수 있다.
 - 결정은 처음 올린 `release.json`에 남는다. 다시 돌리면(같은 버전, 다른 채널) 그 `release.json`을 그대로 쓴다(`--rollout all`이어도.
-  경고를 남긴다). 사무실 목록도 다시 돌리면 처음 올린 `<dir>/<version>/<channel>.json`을 머리에 다시 둔다(`publishedAt`과 salt가 그대로).
+  경고를 남긴다). 사무실 목록도 다시 돌리면 처음 올린 `<dir>/<version>/<channel>.json`을 머리에 다시 둔다(`publishedAt`과 salt가 그대로). 처음에
+  윈도우 설치 파일 없이 올린 버전에 다시 돌려 그 파일을 더해도 처음의 `publishedAt`과 `rollout`으로 다시 서명한다.
 - 로컬에서: `publish-server.ts --rollout staged|all`, `publish.ts --rollout staged|all`(기본 staged, beta 채널은 늘 없음).
 
 ## 3. 지키는 것

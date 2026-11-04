@@ -88,6 +88,9 @@ type updater struct {
 	busyWith  string
 	deferred  bool
 	turnedOff bool
+	// gateVersion: the release the scheduled gate decided on (its window, hold and staged roll-out); run() installs only
+	// that one, so a release published while the gate waited for a quiet moment waits for the next check's own gate
+	gateVersion string
 	// attempted: the run began to bring the release in (a download, or a --bundle unpacked); a failure from then on
 	// holds the release from the update timer (root/update-failed.json, schedule.go). rootIn: its root files are in
 	// place (updateRoot finished), so what failed was the app: the long hold
@@ -300,6 +303,7 @@ func (u *updater) gate(onlyRoot bool) (bool, error) {
 			return false, nil
 		}
 	}
+	u.gateVersion = feed.Version
 	u.quietBy = s.w.end(now)
 	if lim := now.Add(scheduleRunWait); lim.Before(u.quietBy) {
 		u.quietBy = lim
@@ -409,6 +413,10 @@ func (u *updater) run(version, bundleFile string, onlyRoot bool) error {
 			return err
 		}
 		u.res.To, needsRoot = feed.Version, rootJob(feed, rootVersion(u.e), u.res.From) || heldHere(u.e, feed.Version)
+		if u.scheduled && u.gateVersion != "" && feed.Version != u.gateVersion {
+			u.res.Result, u.res.Skipped, u.res.Detail = "ok", true, "the feed moved from "+u.gateVersion+" to "+feed.Version+" while this run waited for a quiet moment; the next check decides on "+feed.Version
+			return nil
+		}
 		if version == "" {
 			if why := notNewer(feed.Version, u.res.From, rootVersion(u.e)); why != "" {
 				u.res.Result, u.res.Skipped, u.res.Detail = "ok", true, why

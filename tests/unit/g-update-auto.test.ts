@@ -317,6 +317,15 @@ describe('through the app', () => {
       // a roll-out that leaves this server out (percent alone): null, still held by the roll-out
       check({ rollout: { percent: 30, salt } })
       expect(await owner.call('GET', '/api/admin/update')).toMatchObject({ hold: 'rollout', turnAt: null })
+      // "Update now" does not wait for the turn: the release is offered and the update starts (it then stops at the
+      // download here, which has no feed); the route never asks the roll-out
+      check({})
+      const ops = getOps(h.ctx)!
+      const r = await owner.try('POST', '/api/admin/update', { password: OWNER_PW })
+      expect(r.status).toBe(202)
+      expect(r.body.jobId).toBeTruthy()
+      for (let i = 0; i < 200 && ops.busyWith; i++) await new Promise((x) => setTimeout(x, 50))
+      expect(ops.busyWith).toBeNull()
     } finally {
       if (was !== undefined) process.env.MYCEL_INSTALL_ID = was
       fs.rmSync(path.join(h.ctx.config.dataDir, 'update-check.json'), { force: true })

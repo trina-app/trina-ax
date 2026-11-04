@@ -149,9 +149,18 @@ export interface OfficeFeedRun {
   fetch?: typeof fetch
   retry?: RetryOptions
   log?: (line: string) => void
+  /** signs a manifest again (the release key): a re-run that adds the Windows installer to a release published without
+   * it keeps that first manifest's publishedAt and roll-out, so the staged roll-out does not start again */
+  resign?: (r: OfficeRelease) => string
 }
 
 const utf8 = (b: Uint8Array) => Buffer.from(b).toString('utf8')
+
+/** `r` with the roll-out clock of `first` (its publishedAt and rollout, or none) */
+export function keepRolloutOf(r: OfficeRelease, first: OfficeRelease): OfficeRelease {
+  const { rollout: _, ...rest } = r
+  return { ...rest, publishedAt: first.publishedAt, ...(first.rollout ? { rollout: first.rollout } : {}) }
+}
 
 /** Steps 2-4 at the top: everything that reads or writes the feed. Nothing goes up on a read that failed or a lone 404. */
 export async function publishToFeed(o: OfficeFeedRun): Promise<'published' | 'head-stays' | 'dry-run'> {
@@ -181,6 +190,11 @@ export async function publishToFeed(o: OfficeFeedRun): Promise<'published' | 'he
   const have = await read.bytes(vkey)
   const vaction = versionManifestAction(have ? utf8(have) : null, release, { keys, feed })
   if (vaction === 'keep') log(`= ${vkey} (already there, same files)`)
+  // the manifest that goes up: a re-run keeps the first one's roll-out clock (server/src/system/rollout.ts)
+  const first = have ? verifyRelease(utf8(have), { keys, channel, feed }) : null
+  let manifest = signed
+  if (first && vaction === 'upload' && o.resign) manifest = o.resign(keepRolloutOf(release, first))
+  if (first && !first.rollout !== !release.rollout) log(`warning: ${vkey} was first published ${first.rollout ? 'with' : 'without'} the staged roll-out; this run keeps that (--rollout applies to a release published for the first time)`)
   if (o.dryRun || !bucket) { log('dry run: nothing uploaded'); return 'dry-run' }
 
   for (const a of arts) {
@@ -194,7 +208,7 @@ export async function publishToFeed(o: OfficeFeedRun): Promise<'published' | 'he
   const tmp = path.join(tmpDir, `${channel}.json`)
   // a re-run (the version's manifest kept) puts that manifest at the head again, as first published: its publishedAt,
   // which the staged roll-out is measured from, and its salt stay (server/src/system/rollout.ts)
-  fs.writeFileSync(tmp, vaction === 'keep' && have ? have : signed)
+  fs.writeFileSync(tmp, vaction === 'keep' && have ? have : manifest)
   try {
     if (vaction === 'upload') { log(`↑ ${vkey}`); await bucket.put(vkey, tmp, 'application/json') }
     if (headStays) return 'head-stays'
@@ -248,7 +262,8 @@ async function main() {
   if (rolloutMode !== 'staged' && rolloutMode !== 'all') throw new Error('--rollout staged|all')
   const release = officeRelease({ channel, version, minFrom, notes, office: arts[0]!.meta, windows, rollout: rolloutMode })
   console.log(release.rollout ? `rollout: staged, ${rampText(release.rollout.ramp!)} (from publishedAt)` : 'rollout: none, every office at once')
-  const signed = signRelease(release, readReleaseKey())
+  const pem = readReleaseKey()
+  const signed = signRelease(release, pem)
   verifyRelease(signed, { keys: OFFICE_RELEASE_KEYS, channel, feed }) // signed with the key this build trusts
   console.log(`release ${version} (${channel}, from ${minFrom}): ${arts.map((a) => `${a.meta.file} ${(a.meta.size / 1048576).toFixed(1)} MB`).join(', ')}`)
 
@@ -265,7 +280,7 @@ async function main() {
   const { openBucket } = await import('./cloudflare')
   // a dry run uploads nothing, so it may go without a token; it then asks nobody about a 404 (feedReader)
   const bucket = dry ? await openBucket().catch((e) => { console.log(`no bucket to ask (${(e as Error).message})`); return null }) : await openBucket()
-  await publishToFeed({ feed, release, signed, arts, ifNewer: process.argv.includes('--if-newer'), dryRun: dry, keys: OFFICE_RELEASE_KEYS, bucket })
+  await publishToFeed({ feed, release, signed, arts, ifNewer: process.argv.includes('--if-newer'), dryRun: dry, keys: OFFICE_RELEASE_KEYS, bucket, resign: (r) => signRelease(r, pem) })
 }
 
 if (import.meta.main) {

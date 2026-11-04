@@ -76,12 +76,14 @@ describe('the staged roll-out (tag message "Rollout: all", the manual run\'s inp
     expect(rolloutOf(`${NOTES}\nrollout:ALL  \n`)).toEqual({ rollout: 'all', notes: `${NOTES}\n` })
     expect(rolloutOf(`Rollout: all\r\n${NOTES}`).rollout).toBe('all')
     expect(rolloutOf(`Rollout: staged\n${NOTES}`)).toEqual({ rollout: 'staged', notes: NOTES })
-    // a sentence that starts with the word is notes, not the marker
-    const prose = `${NOTES}Rollout: all servers get it over three days.\n`
+    // a sentence about roll-outs that does not start with "Rollout:" is notes
+    const prose = `${NOTES}The rollout: all servers get it over three days.\nRollout of the fix comes later.\n`
     expect(rolloutOf(prose)).toEqual({ rollout: 'staged', notes: prose })
   })
   test('a typo stops the release instead of choosing for it', () => {
     for (const bad of ['Rollout: al', 'Rollout: everyone', 'Rollout:', 'ROLLOUT: none']) expect(() => rolloutOf(`${bad}\n${NOTES}`), bad).toThrow(/Rollout: all/)
+    // markup or more words on the line: the intent is unclear, so it stops rather than staging without a word
+    for (const bad of ['- Rollout: all', '* Rollout: all', '> Rollout: all', '## Rollout: all', '**Rollout: all**', '**Rollout:** all', 'Rollout: all servers at once']) expect(() => rolloutOf(`${NOTES}${bad}\n`), bad).toThrow(/alone on its own line/)
     expect(() => rolloutOf(`Rollout: all\nRollout: staged\n`)).toThrow(/both/)
     expect(() => rolloutOf(NOTES, 'fast')).toThrow(/tag, staged or all/)
   })

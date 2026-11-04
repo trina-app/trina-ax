@@ -42,7 +42,7 @@ export const LAST_BUCKET = 99
 const HOUR_MS = 3_600_000
 const ISO_TIME = /^(\d{4})-(\d{2})-(\d{2})T([01]\d|2[0-3]):[0-5]\d:[0-5]\d(?:\.\d{1,9})?(?:Z|[+-](?:[01]\d|2[0-3]):[0-5]\d)$/
 
-/** publishedAt in ms, or null when it is not an RFC 3339 time (the Go side reads the same ones: time.RFC3339Nano) */
+/** publishedAt in ms, or null when it is not an RFC 3339 time (the Go side checks the same pattern before time.Parse) */
 export function publishedMs(s: string | undefined): number | null {
   const m = s ? ISO_TIME.exec(s) : null
   if (!m) return null

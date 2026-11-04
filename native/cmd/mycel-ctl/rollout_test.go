@@ -224,6 +224,33 @@ func TestScheduledUpdateRolloutSkips(t *testing.T) {
 	}
 }
 
+// A release published while the scheduled run waited for a quiet moment is not installed by that run: the gate decided
+// on the one before (its window, hold and roll-out), and the next check's gate decides on the new one (review finding:
+// a ramped 0.2.20 at 10% went in on day 0 whatever the server's bucket).
+func TestScheduledUpdateKeepsTheReleaseItDecidedOn(t *testing.T) {
+	f := newFeedServer(t)
+	f.channel("0.2.19", true) // no roll-out: this server may take it now
+	tb, r := scheduledAt(t, f, "2026-11-01T18:10:00Z", "install-0")
+	r.turns = func(call int) int {
+		if call == 1 {
+			// published during the wait, ramped from now: install-0 (bucket 62) waits 48 h for it
+			f.publishWith("/server/stable.json", "0.2.20", true, rampFeed(map[string]any{"publishedAt": "2026-11-01T18:10:00Z"}))
+			return 1
+		}
+		return 0
+	}
+	code, res := tb.scheduled(t, f)
+	if code != 0 || !res.Skipped || res.RootUpdated || res.AppUpdated || f.downloaded() != 0 ||
+		res.Detail != "the feed moved from 0.2.19 to 0.2.20 while this run waited for a quiet moment; the next check decides on 0.2.20" {
+		t.Fatalf("%d %+v (downloads %d)", code, res, f.downloaded())
+	}
+	// the next check: 0.2.20 is not this server's turn yet
+	r.turns = nil
+	if code, res := tb.scheduled(t, f); code != 0 || !res.Skipped || !strings.Contains(res.Detail, "release 0.2.20 is in a staged roll-out: this server's turn comes at 2026-11-04 03:10 KST") {
+		t.Fatalf("next check: %d %+v", code, res)
+	}
+}
+
 // The root files of the version that runs catch up without waiting (the app already took that release).
 func TestScheduledRootCatchUpDoesNotWait(t *testing.T) {
 	f := newFeedServer(t)

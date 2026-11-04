@@ -45,16 +45,22 @@ export function parseReleaseTag(rawTag: string, packageVersion: string): TagRele
 
 export type RolloutMode = 'staged' | 'all'
 const ROLLOUT_LINE = /^[ \t]*rollout[ \t]*:[ \t]*([^\s]*)[ \t\r]*$/gim
+/** a line that starts like the marker (also as a list item, a quote, a heading or in bold) */
+const ROLLOUT_LIKE = /^[ \t>#*_+-]*rollout[ \t*_]*:/i
 
 /**
  * The staged roll-out of a release (server/src/system/rollout.ts, docs/RELEASE-CI.md "단계적 배포"): a line `Rollout: all`
  * in the tag message publishes a stable release to every server at once (a fix for a bad release, a security fix);
  * `Rollout: staged` or no such line keeps the default (about 10% of the servers the first day, 50% the second, all
  * from the third). The line is taken out of the notes (they become the release notes). `override` is the workflow's
- * input on a manual run ('staged' or 'all'; '' or 'tag' follows the tag message). Anything else after "Rollout:" stops
- * the release: a typo must not decide how fast a release goes out.
+ * input on a manual run ('staged' or 'all'; '' or 'tag' follows the tag message). Anything else after "Rollout:", or a
+ * line that starts like the marker but is not one ("- Rollout: all", "**Rollout: all**", "Rollout: all servers …"),
+ * stops the release: neither a typo nor markup may decide how fast a release goes out.
  */
 export function rolloutOf(notes: string, override = ''): { rollout: RolloutMode; notes: string } {
+  for (const line of notes.split('\n')) {
+    if (ROLLOUT_LIKE.test(line) && !new RegExp(ROLLOUT_LINE.source, 'i').test(line)) throw new Error(`the tag message has the line ${JSON.stringify(line.trim().slice(0, 80))}: write "Rollout: all" alone on its own line (every server at once), or start the line with another word`)
+  }
   const found = [...notes.matchAll(ROLLOUT_LINE)].map((m) => m[1]!.toLowerCase())
   for (const v of found) if (v !== 'staged' && v !== 'all') throw new Error(`the tag message says "Rollout: ${v}": write "Rollout: all" (every server at once) or leave the line out (staged over three days)`)
   if (new Set(found).size > 1) throw new Error('the tag message has both "Rollout: all" and "Rollout: staged"')

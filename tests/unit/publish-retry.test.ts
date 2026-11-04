@@ -13,7 +13,7 @@ import { OFFICE_PRODUCT, signRelease, verifyRelease, type OfficeRelease } from '
 import { DEFAULT_RAMP } from '../../server/src/system/rollout'
 import { BUCKET, CfError, Cloudflare, listReport, openBucket, type Bucket } from '../../scripts/release/cloudflare'
 import { cloudflareStore } from '../../scripts/release/publish-server'
-import { alreadyPublished, officeRelease, publishToFeed, type Artifact } from '../../scripts/release/publish'
+import { alreadyPublished, keepRolloutOf, officeRelease, publishToFeed, type Artifact } from '../../scripts/release/publish'
 import { ABSENT_READS, CONFIRM_READS, compareRemote, feedReader, publicKeyOfPem, remoteBytes, remoteHash, remoteSize, RETRY_TRIES, steadyFetch, thereAnyway, TransientError, type RemoteFile } from '../../scripts/release/sign'
 
 const T = fs.mkdtempSync(path.join(os.tmpdir(), 'publish-retry-'))
@@ -429,6 +429,28 @@ describe('publish.ts: the channel head and the kept manifest', () => {
     // the staged roll-out is measured from publishedAt (server/src/system/rollout.ts): a re-run must not start it again
     expect(feed.bucket.get('office/beta.json')!.equals(kept)).toBe(true)
     expect(feed.bucket.get('office/0.2.20/beta.json')!.equals(kept)).toBe(true)
+  })
+
+  test('a re-run that adds the Windows installer keeps the first manifest\'s publishedAt and roll-out (the ramp does not start again)', async () => {
+    const first = officeBuild('0.2.20', 'stable')
+    const r1: OfficeRelease = { ...first.release, rollout: { percent: 100, salt: 'aa', ramp: [...DEFAULT_RAMP] } }
+    const s1 = signRelease(r1, OFFICE_PEM)
+    const feed = memoryFeed({ 'office/stable.json': s1, 'office/0.2.20/stable.json': s1, [first.arts[0]!.key]: first.body })
+    const file = (name: string, body: string): Artifact => {
+      const f = path.join(T, `${crypto.randomBytes(4).toString('hex')}-${name}`)
+      fs.writeFileSync(f, body)
+      return { key: `office/0.2.20/${name}`, file: f, type: 'application/octet-stream', meta: { file: name, url: `${ORIGIN}/office/0.2.20/${name}`, ...hashOf(Buffer.from(body)) } }
+    }
+    const win = [file('setup.exe', 'the installer'), file('latest.yml', 'version: 0.2.20')]
+    const r2: OfficeRelease = { ...first.release, publishedAt: '2026-11-01T00:00:00.000Z', rollout: { percent: 100, salt: 'bb', ramp: [...DEFAULT_RAMP] }, windows: { version: '0.2.20', installer: win[0]!.meta, latestYml: win[1]!.meta } }
+    const out = await publishToFeed({ feed: feed.origin, release: r2, signed: signRelease(r2, OFFICE_PEM), arts: [...first.arts, ...win], ifNewer: false, dryRun: false, keys: OFFICE_KEYS,
+      bucket: feed.the, fetch: feed.fetch, retry: quiet(), log: () => {}, resign: (r) => signRelease(r, OFFICE_PEM) })
+    expect(out).toBe('published')
+    const head = verifyRelease(feed.bucket.get('office/stable.json')!.toString('utf8'), { keys: OFFICE_KEYS, channel: 'stable', feed: ORIGIN })
+    expect(head).toMatchObject({ publishedAt: first.release.publishedAt, rollout: { salt: 'aa' }, windows: { version: '0.2.20' } })
+    expect(feed.bucket.get('office/0.2.20/stable.json')!.equals(feed.bucket.get('office/stable.json')!)).toBe(true)
+    // first published without a roll-out: none now either
+    expect(keepRolloutOf(r2, first.release).rollout).toBeUndefined()
   })
 
   test('the manifest of a stable release has the staged roll-out; Rollout: all and beta releases have none', () => {
