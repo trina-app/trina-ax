@@ -1,17 +1,18 @@
 // Left sidebar, sized like Claude's (280 px, 14 px rows of 32 px, 16 px icons): new chat, search, projects, files, team
 // skills, admin, recent chats by date, and the account menu (the person's email or ID, Settings, Usage for admins,
-// Appearance, Sign out), which opens above the profile line. Below 768 px it is a drawer opened from the top bar.
+// Appearance, Deleted chats, Sign out), which opens above the profile line. Below 768 px it is a drawer opened from the top bar.
 import clsx from 'clsx'
-import { BookMarked, Check, ChevronDown, ChevronRight, FolderOpen, FolderKanban, Gauge, Loader2, LogOut, MessageSquarePlus, MoreHorizontal, Palette, Pencil, Search, Settings, Shield, Trash2 } from 'lucide-react'
-import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react'
+import { BookMarked, Check, ChevronDown, ChevronRight, FolderKanban, FolderOpen, Gauge, ListFilter, Loader2, LogOut, MessageSquarePlus, MoreHorizontal, Palette, Pencil, Search, Settings, Shield, Trash2, X } from 'lucide-react'
+import { useCallback, useEffect, useId, useMemo, useRef, useState, type KeyboardEvent } from 'react'
+import { createPortal } from 'react-dom'
 import { Link, NavLink, useNavigate } from 'react-router-dom'
 import { PRODUCT } from '@mycel/shared'
 import type { Chat, Theme } from '@mycel/shared/api'
 import { api, API } from '../lib/api'
-import { dateBucket, type DateBucket } from '../lib/format'
+import { dateBucket, formatRelative, type DateBucket } from '../lib/format'
 import { clearLocalData } from '../lib/localData'
 import { platform } from '../lib/pwa'
-import { useT, type MessageKey } from '../i18n'
+import { useLocale, useT, type MessageKey } from '../i18n'
 import { useChats } from '../store/chats'
 import { skillsChanged } from '../store/live'
 import { isAdmin, useMeStrict, useSession } from '../store/session'
@@ -26,6 +27,56 @@ const BUCKET_LABEL: Record<DateBucket, MessageKey> = { today: 'sidebar.today', y
 
 /** never sent in and never named: created for the attachments of a draft (the composer, "Ask AI about this") */
 const isUnused = (c: Chat) => !c.title && c.createdAt === c.updatedAt && c.runState === 'idle'
+
+/** How Recents is filtered, grouped and sorted, like Claude's: only what the chat list itself knows. Status "Active" is
+ * every chat in the list (deleted ones are under the account menu's Deleted chats); "Waiting": an answer is running or
+ * queued, or the AI waits for the person. */
+const VIEW = {
+  status: { label: 'sidebar.view.status', options: { all: 'sidebar.status.all', waiting: 'sidebar.filter.active', project: 'sidebar.filter.project', noProject: 'sidebar.filter.noProject', confidential: 'sidebar.filter.confidential' } },
+  activity: { label: 'sidebar.view.activity', options: { all: 'sidebar.activity.all', today: 'sidebar.today', week: 'sidebar.week', month: 'sidebar.month' } },
+  group: { label: 'sidebar.view.group', options: { none: 'sidebar.group.none', date: 'sidebar.group.date', project: 'sidebar.group.project' } },
+  sort: { label: 'sidebar.view.sort', options: { updated: 'sidebar.sort.updated', created: 'sidebar.sort.created', title: 'sidebar.sort.title' } },
+} as const satisfies Record<string, { label: MessageKey; options: Record<string, MessageKey> }>
+type ViewKey = keyof typeof VIEW
+type RecentsView = { [K in ViewKey]: keyof (typeof VIEW)[K]['options'] }
+const DEFAULT_VIEW: RecentsView = { status: 'all', activity: 'all', group: 'date', sort: 'updated' }
+const VIEW_KEY = 'mycel.sidebar.recentsView'
+const DAY = 86_400_000
+const passes = (v: RecentsView, c: Chat, waiting: boolean, now: number) => {
+  const s = v.status
+  const ok = s === 'waiting' ? c.runState !== 'idle' || waiting : s === 'project' ? !!c.projectId : s === 'noProject' ? !c.projectId : s === 'confidential' ? !!c.confidential : true
+  const age = now - new Date(c.updatedAt).getTime()
+  const fresh = v.activity === 'today' ? dateBucket(c.updatedAt) === 'today' : v.activity === 'week' ? age <= 7 * DAY : v.activity === 'month' ? age <= 30 * DAY : true
+  return ok && fresh
+}
+const rememberedView = (): RecentsView => {
+  try {
+    const v = JSON.parse(localStorage.getItem(VIEW_KEY) ?? '{}') as Partial<RecentsView>
+    const out = { ...DEFAULT_VIEW }
+    for (const k of Object.keys(VIEW) as ViewKey[]) if (v[k] && v[k] in VIEW[k].options) (out as Record<string, string>)[k] = v[k] as string
+    return out
+  } catch {
+    return DEFAULT_VIEW
+  }
+}
+
+/** This browser remembers whether Recents is open and how it is shown (a private window may refuse: it just forgets). */
+const remembered = <T extends string>(key: string, ok: readonly T[], fallback: T): T => {
+  try {
+    const v = localStorage.getItem(key) as T | null
+    return v && ok.includes(v) ? v : fallback
+  } catch {
+    return fallback
+  }
+}
+const remember = (key: string, v: string) => {
+  try {
+    localStorage.setItem(key, v)
+  } catch {
+    /* not kept */
+  }
+}
+const OPEN_KEY = 'mycel.sidebar.recents'
 
 export default function Sidebar() {
   const t = useT()
@@ -43,16 +94,38 @@ export default function Sidebar() {
     if (!loaded) void loadChats(true).catch(() => {})
   }, [loaded, loadChats])
 
+  const [recentsOpen, setRecentsOpen] = useState(() => remembered(OPEN_KEY, ['open', 'closed'] as const, 'open') === 'open')
+  const [view, setViewState] = useState<RecentsView>(rememberedView)
+  const setView = (v: RecentsView) => {
+    setViewState(v)
+    remember(VIEW_KEY, JSON.stringify(v))
+  }
+  const changed = (Object.keys(VIEW) as ViewKey[]).filter((k) => view[k] !== DEFAULT_VIEW[k])
+  const waiting = useChats((s) => s.requests)
+  // project names, only when Recents is grouped by project (one read, kept while the sidebar is there)
+  const [projects, setProjects] = useState<Map<string, string> | null>(null)
+  useEffect(() => {
+    if (view.group !== 'project' || projects) return
+    api.call(API.listProjects).then((r) => setProjects(new Map(r.items.map((p) => [p.id, p.name]))), () => setProjects(new Map()))
+  }, [view.group, projects])
   const groups = useMemo(() => {
-    const g = new Map<DateBucket, Chat[]>()
-    for (const c of chats) {
-      // a chat made only to hold attachments (a file attached, nothing sent yet) is not a conversation yet
-      if (isUnused(c)) continue
-      const b = dateBucket(c.updatedAt)
-      g.set(b, [...(g.get(b) ?? []), c])
+    const asked = new Set(Object.values(waiting).map((r) => r.chatId))
+    const now = Date.now()
+    // a chat made only to hold attachments (a file attached, nothing sent yet) is not a conversation yet
+    const shown = chats.filter((c) => !isUnused(c) && passes(view, c, asked.has(c.id), now))
+    const when = (c: Chat) => (view.sort === 'created' ? c.createdAt : c.updatedAt)
+    shown.sort((a, b) => (view.sort === 'title' ? (a.title || '').localeCompare(b.title || '') : when(b).localeCompare(when(a))))
+    const g = new Map<string, { label: string | null; items: Chat[] }>()
+    for (const c of shown) {
+      const key = view.group === 'date' ? dateBucket(when(c)) : view.group === 'project' ? (c.projectId ?? '') : ''
+      const label = view.group === 'date' ? t(BUCKET_LABEL[key as DateBucket]) : view.group === 'project' ? (c.projectId ? (projects?.get(c.projectId) ?? '…') : t('sidebar.noProject')) : null
+      if (!g.has(key)) g.set(key, { label, items: [] })
+      g.get(key)!.items.push(c)
     }
     return [...g.entries()]
-  }, [chats])
+  }, [chats, view, waiting, projects, t])
+  const listId = useId()
+  const peek = useChatPeek()
 
   const close = () => setDrawer(false)
   // suggestions waiting for me (I manage their skills folder): a count next to "팀 스킬"
@@ -62,7 +135,7 @@ export default function Sidebar() {
     void load()
     return skillsChanged.on(() => void load())
   }, [])
-  const nav = 'flex h-8 items-center gap-2.5 rounded-lg px-2.5 text-sm text-ink hover:bg-hover max-sm:h-10'
+  const nav = 'flex h-9 items-center gap-2.5 rounded-lg px-3 text-sm text-ink hover:bg-hover max-sm:h-10'
   const active = ({ isActive }: { isActive: boolean }) => clsx(nav, isActive && 'bg-hover font-medium')
 
   return (
@@ -111,44 +184,66 @@ export default function Sidebar() {
         )}
       </div>
 
-      <div className="scroll-thin mt-4 min-h-0 flex-1 overflow-y-auto px-2 pb-2">
-        <h2 className="px-2.5 pb-1 text-xs font-medium text-faint">{t('sidebar.recents')}</h2>
-        {!loaded && <Loader2 size={16} className="mx-auto mt-4 animate-spin text-faint" aria-label={t('common.loading')} />}
-        {loaded && !chats.some((c) => !isUnused(c)) && <p className="px-2.5 py-2 text-sm text-faint">{t('sidebar.noChats')}</p>}
-        {groups.map(([bucket, list]) => (
-          <div key={bucket} className="mb-2">
-            <h3 className="px-2.5 pt-2 pb-1 text-[11px] font-medium text-faint">{t(BUCKET_LABEL[bucket])}</h3>
-            <ul>
-              {list.map((c) => (
-                <ChatItem key={c.id} chat={c} onNavigate={close} />
-              ))}
-            </ul>
-          </div>
-        ))}
-        {cursor && (
-          <button
-            type="button"
-            className="w-full rounded-lg px-2.5 py-1.5 text-left text-xs text-muted hover:bg-hover"
-            disabled={more}
-            onClick={async () => {
-              setMore(true)
-              await loadChats(false).catch(() => {})
-              setMore(false)
-            }}
-          >
-            {more ? t('common.loading') : t('sidebar.more')}
-          </button>
-        )}
-        <NavLink to="/trash" className={({ isActive }) => clsx('mt-2 flex items-center gap-2 rounded-lg px-2.5 py-1.5 text-xs text-muted hover:bg-hover', isActive && 'bg-hover')} onClick={close}>
-          <Trash2 size={14} aria-hidden /> {t('sidebar.trash')}
-        </NavLink>
+      <div className="scroll-thin mt-4 min-h-0 flex-1 overflow-y-auto overscroll-contain px-2 pb-2" onScroll={peek.hide}>
+        <div className="group/recents flex items-center gap-1 pr-1 pl-3">
+          <h2 className="text-xs font-medium text-faint">
+            <button type="button" aria-expanded={recentsOpen} aria-controls={listId} onClick={() => setRecentsOpen((v) => (remember(OPEN_KEY, v ? 'closed' : 'open'), !v))} className="flex items-center gap-1 rounded py-1 hover:text-muted" data-testid="recents-toggle">
+              {t('sidebar.recents')}
+              <ChevronDown size={12} className={clsx('transition-transform', !recentsOpen && '-rotate-90')} aria-hidden />
+            </button>
+          </h2>
+          {changed.length > 0 && (
+            <span className="flex min-w-0 items-center gap-0.5 text-xs text-faint" data-testid="recents-filter-label">
+              <span aria-hidden>·</span>
+              <span className="truncate">{changed.map((k) => t((VIEW[k].options as Record<string, MessageKey>)[view[k]])).join(', ')}</span>
+              <button type="button" onClick={() => setView(DEFAULT_VIEW)} aria-label={t('sidebar.filter.clear')} title={t('sidebar.filter.clear')} className="shrink-0 rounded p-0.5 hover:bg-hover hover:text-ink" data-testid="recents-filter-clear">
+                <X size={11} aria-hidden />
+              </button>
+            </span>
+          )}
+          <RecentsMenu view={view} onChange={setView} changed={changed.length > 0} />
+        </div>
+        <div id={listId} hidden={!recentsOpen} data-testid="recents-list">
+          {!loaded && <Loader2 size={16} className="mx-auto mt-4 animate-spin text-faint" aria-label={t('common.loading')} />}
+          {loaded && !chats.some((c) => !isUnused(c)) && <p className="px-3 py-2 text-sm text-faint">{t('sidebar.noChats')}</p>}
+          {loaded && chats.some((c) => !isUnused(c)) && !groups.length && (
+            <p className="px-3 py-2 text-sm text-faint" data-testid="recents-no-match">
+              {t('sidebar.filter.none')}
+            </p>
+          )}
+          {groups.map(([key, { label, items }]) => (
+            <div key={key || 'all'} className="mb-2">
+              {label && <h3 className="px-3 pt-2 pb-1 text-[11px] font-medium text-faint">{label}</h3>}
+              <ul>
+                {items.map((c) => (
+                  <ChatItem key={c.id} chat={c} onNavigate={close} peek={peek} />
+                ))}
+              </ul>
+            </div>
+          ))}
+          {cursor && (
+            <button
+              type="button"
+              className="w-full rounded-lg px-3 py-1.5 text-left text-xs text-muted hover:bg-hover"
+              disabled={more}
+              onClick={async () => {
+                setMore(true)
+                await loadChats(false).catch(() => {})
+                setMore(false)
+              }}
+            >
+              {more ? t('common.loading') : t('sidebar.more')}
+            </button>
+          )}
+        </div>
       </div>
+      {peek.card}
       <AccountMenu />
     </nav>
   )
 }
 
-function ChatItem({ chat, onNavigate }: { chat: Chat; onNavigate: () => void }) {
+function ChatItem({ chat, onNavigate, peek }: { chat: Chat; onNavigate: () => void; peek: ChatPeek }) {
   const t = useT()
   const [menu, setMenu] = useState(false)
   const actions = useChatActions()
@@ -172,11 +267,17 @@ function ChatItem({ chat, onNavigate }: { chat: Chat; onNavigate: () => void }) 
   }
 
   return (
-    <li ref={ref} className="group relative">
+    <li ref={ref} className="group relative" onMouseEnter={(e) => peek.soon(chat, e.currentTarget, 400)} onMouseLeave={peek.hide}>
       <NavLink
         to={`/c/${chat.id}`}
-        onClick={onNavigate}
-        className={({ isActive }) => clsx('flex h-8 items-center gap-2 rounded-lg pr-8 pl-2.5 text-sm hover:bg-hover max-sm:h-10', isActive ? 'bg-hover font-medium text-ink' : 'text-muted')}
+        onClick={() => {
+          peek.hide()
+          onNavigate()
+        }}
+        onFocus={(e) => e.currentTarget.matches(':focus-visible') && peek.soon(chat, ref.current!, 600)}
+        onBlur={peek.hide}
+        onKeyDown={(e) => e.key === 'Escape' && peek.hide()}
+        className={({ isActive }) => clsx('flex h-9 items-center gap-2 rounded-lg pr-9 pl-3 text-sm hover:bg-hover max-sm:h-10', isActive ? 'bg-hover font-medium text-ink' : 'text-muted')}
       >
         {needsAnswer ? (
           <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-warn" aria-hidden />
@@ -195,7 +296,7 @@ function ChatItem({ chat, onNavigate }: { chat: Chat; onNavigate: () => void }) 
         aria-label={t('chat.menu')}
         aria-expanded={menu}
         onClick={() => setMenu((v) => !v)}
-        className={clsx('absolute top-1/2 right-1 -translate-y-1/2 rounded p-1 text-faint hover:bg-surface hover:text-ink', menu ? 'opacity-100' : 'opacity-0 group-hover:opacity-100 focus-visible:opacity-100 max-sm:opacity-100')}
+        className={clsx('absolute top-1/2 right-1.5 -translate-y-1/2 rounded p-1 text-faint hover:bg-surface hover:text-ink', menu ? 'opacity-100' : 'opacity-0 group-focus-within:opacity-100 group-hover:opacity-100 focus-visible:opacity-100 max-sm:opacity-100')}
       >
         <MoreHorizontal size={15} aria-hidden />
       </button>
@@ -215,7 +316,7 @@ function ChatItem({ chat, onNavigate }: { chat: Chat; onNavigate: () => void }) 
 
 /** The profile line at the bottom and its menu above it, like Claude's: who is signed in, then Settings (a dialog over
  * the page, components/settings/SettingsDialog.tsx), Usage (admins: Admin > Usage), Appearance (the theme, chosen right
- * there) and Sign out. Arrow keys, Home and End move in the menu; Esc closes it and gives the keyboard back. */
+ * there), Deleted chats and Sign out. Arrow keys, Home and End move in the menu; Esc closes it and gives the keyboard back. */
 function AccountMenu() {
   const t = useT()
   const me = useMeStrict()
@@ -308,6 +409,18 @@ function AccountMenu() {
               ))}
             </div>
           )}
+          <Link
+            role="menuitem"
+            to="/trash"
+            onClick={() => {
+              hide(false)
+              setDrawer(false)
+            }}
+            className={item}
+            data-testid="account-trash"
+          >
+            <Trash2 size={16} className="text-muted" aria-hidden /> {t('sidebar.trash')}
+          </Link>
           <div role="separator" className="mx-1 my-1.5 border-t border-line" />
           <button role="menuitem" type="button" onClick={logout} className={item} data-testid="logout">
             <LogOut size={16} className="text-muted" aria-hidden /> {t('auth.logout')}
@@ -337,4 +450,234 @@ function AccountMenu() {
       </button>
     </div>
   )
+}
+
+/** Filter and sort beside "Recents", like Claude's: a square button (a dot when something is not at its default) that
+ * opens a menu of four rows (Status, Last activity | Group by, Sort by), each with its current value and a submenu of
+ * choices. Keyboard: Enter opens it, arrows move, → or Enter opens a submenu, ← or Esc goes back, Esc closes. The
+ * menus sit in <body> (the Recents list scrolls and would clip them); on a narrow screen a submenu takes the menu's
+ * place with a way back. */
+function RecentsMenu({ view, onChange, changed }: { view: RecentsView; onChange: (v: RecentsView) => void; changed: boolean }) {
+  const t = useT()
+  const [open, setOpen] = useState(false)
+  const [sub, setSub] = useState<ViewKey | null>(null)
+  const [pos, setPos] = useState({ top: 0, left: 0 })
+  const button = useRef<HTMLButtonElement>(null)
+  const menu = useRef<HTMLDivElement>(null)
+  const subMenu = useRef<HTMLDivElement>(null)
+  const W = 224
+  const sideBySide = typeof window !== 'undefined' && pos.left + 2 * W + 8 < window.innerWidth
+  const close = (focus: boolean) => {
+    setOpen(false)
+    setSub(null)
+    if (focus) button.current?.focus()
+  }
+  const items = (box: HTMLElement | null) => [...(box?.querySelectorAll<HTMLElement>('[role^="menuitem"]') ?? [])]
+  useEffect(() => {
+    if (!open) return
+    if (!sub) items(menu.current)[0]?.focus()
+    const h = (e: MouseEvent) => {
+      const n = e.target as Node
+      if (!menu.current?.contains(n) && !subMenu.current?.contains(n) && !button.current?.contains(n)) close(false)
+    }
+    document.addEventListener('mousedown', h)
+    return () => document.removeEventListener('mousedown', h)
+  }, [open, sub])
+  useEffect(() => {
+    if (sub) (subMenu.current?.querySelector<HTMLElement>('[aria-checked="true"]') ?? items(subMenu.current)[0])?.focus()
+  }, [sub])
+  const openMenu = () => {
+    const r = button.current!.getBoundingClientRect()
+    setPos({ top: r.bottom + 4, left: Math.max(8, Math.min(r.right - W, window.innerWidth - W - 8)) })
+    setOpen(true)
+  }
+  const back = () => {
+    const k = sub
+    setSub(null)
+    requestAnimationFrame(() => menu.current?.querySelector<HTMLElement>(`[data-view="${k}"]`)?.focus())
+  }
+  const onKey = (e: KeyboardEvent) => {
+    const inSub = !!sub && subMenu.current?.contains(document.activeElement)
+    const list = items(inSub ? subMenu.current : menu.current)
+    const i = list.indexOf(document.activeElement as HTMLElement)
+    const go = (n: number) => {
+      e.preventDefault()
+      list[(n + list.length) % list.length]?.focus()
+    }
+    if (e.key === 'ArrowDown') go(i + 1)
+    else if (e.key === 'ArrowUp') go(i - 1)
+    else if (e.key === 'Home') go(0)
+    else if (e.key === 'End') go(-1)
+    else if (e.key === 'Escape' || (e.key === 'ArrowLeft' && inSub)) {
+      e.preventDefault()
+      e.stopPropagation()
+      if (inSub) back()
+      else close(true)
+    } else if (e.key === 'ArrowRight' && !inSub) {
+      const k = (document.activeElement as HTMLElement)?.dataset.view as ViewKey | undefined
+      if (k) {
+        e.preventDefault()
+        setSub(k)
+      }
+    } else if (e.key === 'Tab') close(false)
+  }
+  const row = 'flex h-8 w-full items-center gap-2 rounded-lg px-2.5 text-left text-sm hover:bg-hover focus-visible:-outline-offset-2'
+  const panel = 'fixed z-50 w-56 rounded-xl border border-line bg-surface p-1 shadow-lg'
+  const subTop = sub ? (menu.current?.querySelector<HTMLElement>(`[data-view="${sub}"]`)?.getBoundingClientRect().top ?? pos.top) - 4 : 0
+  return (
+    <div className="ml-auto" onKeyDown={onKey}>
+      <button
+        ref={button}
+        type="button"
+        aria-haspopup="menu"
+        aria-expanded={open}
+        aria-label={t('sidebar.filter')}
+        title={t('sidebar.filter')}
+        onClick={() => (open ? close(false) : openMenu())}
+        className={clsx('relative flex size-7 items-center justify-center rounded-md text-faint hover:bg-hover hover:text-ink focus-visible:opacity-100 max-sm:opacity-100', open ? 'bg-hover text-ink opacity-100' : changed ? 'opacity-100' : 'opacity-0 group-hover/recents:opacity-100')}
+        data-testid="recents-filter"
+      >
+        <ListFilter size={15} aria-hidden />
+        {changed && <span className="absolute top-1 right-1 size-1.5 rounded-full bg-accent" data-testid="recents-filter-dot" />}
+      </button>
+      {open &&
+        createPortal(
+          // its keys reach onKey through React (a portal's events bubble to the button's box)
+          <div>
+            {(sideBySide || !sub) && (
+              <div ref={menu} role="menu" aria-label={t('sidebar.filter')} className={panel} style={{ top: pos.top, left: pos.left }} data-testid="recents-filter-menu">
+                {(Object.keys(VIEW) as ViewKey[]).map((k, i) => (
+                  <div key={k}>
+                    {i === 2 && <div role="separator" className="mx-1 my-1 border-t border-line" />}
+                    <button
+                      type="button"
+                      role="menuitem"
+                      aria-haspopup="menu"
+                      aria-expanded={sub === k}
+                      data-view={k}
+                      onClick={() => setSub(sub === k ? null : k)}
+                      className={clsx(row, sub === k && 'bg-hover')}
+                      data-testid={`recents-view-${k}`}
+                    >
+                      <span className="text-ink">{t(VIEW[k].label)}</span>
+                      <span className="ml-auto truncate text-xs text-faint">{t((VIEW[k].options as Record<string, MessageKey>)[view[k]])}</span>
+                      <ChevronRight size={14} className="shrink-0 text-faint" aria-hidden />
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+            {sub && (
+              <div ref={subMenu} role="menu" aria-label={t(VIEW[sub].label)} className={panel} style={sideBySide ? { top: subTop, left: pos.left + W + 4 } : { top: pos.top, left: pos.left }} data-testid="recents-submenu">
+                {!sideBySide && (
+                  <button type="button" role="menuitem" onClick={back} className={clsx(row, 'text-faint')}>
+                    <ChevronRight size={14} className="rotate-180" aria-hidden /> {t(VIEW[sub].label)}
+                  </button>
+                )}
+                {Object.entries(VIEW[sub].options as Record<string, MessageKey>).map(([id, label]) => (
+                  <button
+                    key={id}
+                    type="button"
+                    role="menuitemradio"
+                    aria-checked={view[sub] === id}
+                    onClick={() => {
+                      onChange({ ...view, [sub]: id })
+                      back()
+                    }}
+                    className={row}
+                    data-testid={`recents-${sub}-${id}`}
+                  >
+                    {t(label)}
+                    {view[sub] === id && <Check size={14} className="ml-auto text-accent-text" aria-hidden />}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>,
+          document.body,
+        )}
+    </div>
+  )
+}
+
+/** The hover quick view of a recent chat, like Claude's: after resting on it (or reaching it with the keyboard), a
+ * card beside the sidebar with the start of the last answer or its first file, the title and when. Only where there is
+ * a mouse; decorative (aria-hidden: the link already says the title), never in the way (no pointer events), and gone on
+ * leave, Esc, a click or a scroll. One read of the last two messages per chat version, kept for the session. */
+type ChatPeek = ReturnType<typeof useChatPeek>
+const peeks = new Map<string, Promise<{ text: string; file: string | null }>>()
+function peekOf(c: Chat) {
+  const key = `${c.id}:${c.updatedAt}`
+  let p = peeks.get(key)
+  if (!p) {
+    p = api.call(API.listMessages, { params: { id: c.id }, query: { limit: 2 } }).then(
+      (page) => {
+        const items = [...page.items].reverse()
+        const answer = items.find((m) => m.role === 'assistant')
+        const text = (answer?.content ?? '').replace(/```[\s\S]*?```/g, ' ').replace(/[#>*_`|[\]()]/g, '').replace(/\s+/g, ' ').trim().slice(0, 240)
+        const file = items.flatMap((m) => m.attachments).find(Boolean)?.name ?? null
+        return { text, file }
+      },
+      () => ({ text: '', file: null }),
+    )
+    peeks.set(key, p)
+  }
+  return p
+}
+const canHover = () => typeof matchMedia === 'function' && matchMedia('(hover: hover) and (pointer: fine) and (min-width: 768px)').matches
+
+function useChatPeek() {
+  const t = useT()
+  const locale = useLocale()
+  const timer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const [shown, setShown] = useState<{ chat: Chat; top: number; left: number } | null>(null)
+  const [data, setData] = useState<{ id: string; text: string; file: string | null } | null>(null)
+  const hide = useCallback(() => {
+    if (timer.current) clearTimeout(timer.current)
+    timer.current = null
+    setShown(null)
+  }, [])
+  const soon = useCallback((chat: Chat, row: HTMLElement, ms: number) => {
+    if (!canHover()) return
+    if (timer.current) clearTimeout(timer.current)
+    timer.current = setTimeout(() => {
+      const r = row.getBoundingClientRect()
+      const side = row.closest('nav')?.getBoundingClientRect()
+      setShown({ chat, top: Math.max(8, Math.min(r.top - 8, innerHeight - 200)), left: (side?.right ?? r.right) + 8 })
+      void peekOf(chat).then((d) => setData({ id: chat.id, ...d }))
+    }, ms)
+  }, [])
+  useEffect(() => {
+    if (!shown) return
+    const k = (e: globalThis.KeyboardEvent) => e.key === 'Escape' && hide()
+    window.addEventListener('keydown', k)
+    window.addEventListener('blur', hide)
+    return () => {
+      window.removeEventListener('keydown', k)
+      window.removeEventListener('blur', hide)
+    }
+  }, [shown, hide])
+  useEffect(() => hide, [hide])
+  const d = shown && data?.id === shown.chat.id ? data : null
+  const card = shown
+    ? createPortal(
+        <div aria-hidden className="pointer-events-none fixed z-40 w-72 rounded-xl border border-line bg-surface p-3 shadow-lg" style={{ top: shown.top, left: shown.left }} data-testid="chat-peek">
+          <div className="mb-2 min-h-12 rounded-lg bg-subtle p-2.5 text-xs text-muted" data-testid="chat-peek-preview">
+            {!d ? (
+              <span className="block h-3 w-2/3 animate-pulse rounded bg-hover" />
+            ) : d.file ? (
+              <span className="inline-flex max-w-full items-center rounded-md border border-line bg-surface px-2 py-0.5 text-[11px] text-ink">
+                <span className="truncate">{d.file}</span>
+              </span>
+            ) : (
+              <span className="line-clamp-3">{d.text || t('sidebar.peek.empty')}</span>
+            )}
+          </div>
+          <p className="truncate text-sm font-medium text-ink">{shown.chat.title || t('chat.untitled')}</p>
+          <p className="text-xs text-faint">{formatRelative(shown.chat.updatedAt, locale)}</p>
+        </div>,
+        document.body,
+      )
+    : null
+  return { soon, hide, card }
 }

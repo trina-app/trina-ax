@@ -758,7 +758,8 @@ test('the focus ring of the admin and settings menus is not cut off by the scrol
     await page.goto('/admin/folders')
     await inside('폴더 권한')
     await page.screenshot({ path: process.env.RING_SHOTS ? `${process.env.RING_SHOTS}/admin-${size.width}.png` : undefined })
-    await page.goto('/settings/profile')
+    // Settings is a dialog: its list is beside the section on a wide screen, on its own on a phone (/settings)
+    await page.goto(size.width < 768 ? '/settings' : '/settings/profile')
     await inside('프로필')
   }
 })

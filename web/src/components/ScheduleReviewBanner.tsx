@@ -3,18 +3,19 @@
 // with the way to Settings › Scheduled tasks ("다시 확인" there). Not shown on that screen itself.
 import { ShieldAlert } from 'lucide-react'
 import { useEffect, useState } from 'react'
-import { Link, useLocation } from 'react-router-dom'
+import { Link } from 'react-router-dom'
 import { api, API } from '../lib/api'
 import { useT } from '../i18n'
 import { notificationsChanged, reloadAsked, schedulesChanged } from '../store/live'
 import { useMe } from '../store/session'
+import { useRealPath } from '../lib/realPath'
 
 const RELOAD_MS = 5 * 60_000
 
 export default function ScheduleReviewBanner() {
   const t = useT()
   const me = useMe()
-  const { pathname } = useLocation()
+  const pathname = useRealPath()
   const [n, setN] = useState(0)
   const signedIn = !!me
   useEffect(() => {

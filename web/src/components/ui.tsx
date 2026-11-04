@@ -3,6 +3,7 @@
 import clsx from 'clsx'
 import { Check, Copy, Loader2, X } from 'lucide-react'
 import { cloneElement, createContext, isValidElement, useCallback, useContext, useEffect, useId, useLayoutEffect, useRef, useState, type ButtonHTMLAttributes, type ReactNode } from 'react'
+import { createPortal } from 'react-dom'
 import { create } from 'zustand'
 import { useT } from '../i18n'
 import { useUi } from '../store/ui'
@@ -163,16 +164,23 @@ export function useFocusTrap(ref: React.RefObject<HTMLElement | null>, open: boo
     const prev = document.activeElement as HTMLElement | null
     const el = ref.current
     const first = el?.querySelector<HTMLElement>('[data-autofocus]') ?? el?.querySelector<HTMLElement>(FOCUSABLE)
+    // the dialog below (Settings under a confirm) is out of reach while this one is open: inert, and hidden from
+    // assistive technology, like the page behind a modal
+    const below = trapStack[trapStack.length - 1]
+    below?.setAttribute('inert', '')
+    below?.setAttribute('aria-hidden', 'true')
     if (el) trapStack.push(el) // before focusing, so the dialog below doesn't pull focus back
     ;(first ?? el)?.focus()
     const onTop = () => !!el && trapStack[trapStack.length - 1] === el
+    // Esc after the dialog's own controls had their say: one that closes or cancels something of its own (an edit
+    // field, a menu) stops it, and the dialog stays open
+    const onEscape = (e: KeyboardEvent) => {
+      if (!onTop() || e.key !== 'Escape' || e.defaultPrevented) return
+      e.stopPropagation()
+      closeRef.current()
+    }
     const onKey = (e: KeyboardEvent) => {
       if (!onTop()) return
-      if (e.key === 'Escape') {
-        e.stopPropagation()
-        closeRef.current()
-        return
-      }
       if (e.key !== 'Tab' || !el) return
       const items = [...el.querySelectorAll<HTMLElement>(FOCUSABLE)].filter((x) => x.offsetParent !== null || x === document.activeElement)
       if (!items.length) return
@@ -191,12 +199,18 @@ export function useFocusTrap(ref: React.RefObject<HTMLElement | null>, open: boo
       if (onTop() && el && e.target instanceof Node && !el.contains(e.target)) (first ?? el).focus()
     }
     document.addEventListener('keydown', onKey, true)
+    document.addEventListener('keydown', onEscape)
     document.addEventListener('focusin', onFocusIn)
     return () => {
       document.removeEventListener('keydown', onKey, true)
+      document.removeEventListener('keydown', onEscape)
       document.removeEventListener('focusin', onFocusIn)
       const i = el ? trapStack.lastIndexOf(el) : -1
       if (i >= 0) trapStack.splice(i, 1)
+      if (below && !trapStack.slice(trapStack.indexOf(below) + 1).length) {
+        below.removeAttribute('inert')
+        below.removeAttribute('aria-hidden')
+      }
       const back = returnRef.current
       ;(back?.isConnected ? back : prev)?.focus?.()
     }
@@ -210,6 +224,8 @@ export function Modal({ open, onClose, title, children, width = 480, footer, ret
   useFocusTrap(ref, open, onClose, returnTo)
   if (!open) return null
   return (
+    // in <body>, so a dialog opened from inside another dialog (Settings) is not inside it: the one below goes inert
+    createPortal(
     // phones: a bottom sheet; tall content scrolls inside so the header and close button stay reachable
     <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/40 sm:items-center sm:p-4" onMouseDown={onClose}>
       <div
@@ -218,7 +234,7 @@ export function Modal({ open, onClose, title, children, width = 480, footer, ret
         aria-modal="true"
         aria-labelledby={titleId}
         tabIndex={-1}
-        className="flex max-h-[92dvh] w-full flex-col rounded-t-2xl bg-surface text-ink shadow-xl outline-none sm:max-h-[calc(100dvh-2rem)] sm:rounded-2xl"
+        className="flex max-h-[92dvh] w-full flex-col rounded-t-2xl bg-surface text-ink shadow-xl outline-none [--sticky-bg:var(--c-surface)] sm:max-h-[calc(100dvh-2rem)] sm:rounded-2xl"
         style={{ maxWidth: width }}
         onMouseDown={(e) => e.stopPropagation()}
       >
@@ -233,7 +249,9 @@ export function Modal({ open, onClose, title, children, width = 480, footer, ret
         <div className="scroll-thin min-h-0 overflow-y-auto overscroll-contain p-5">{children}</div>
         {footer && <div className="flex shrink-0 flex-wrap items-center justify-end gap-2 border-t border-line px-5 py-3 pb-[max(0.75rem,env(safe-area-inset-bottom))]">{footer}</div>}
       </div>
-    </div>
+    </div>,
+    document.body,
+    )
   )
 }
 
@@ -530,8 +548,9 @@ export function useStickyHeader<T extends HTMLElement>() {
   }, [])
   return { ref, scrolled }
 }
-/** On the page's own colour, so nothing shows through while it scrolls under the row. */
-export const stickyCls = 'sticky top-0 z-20 bg-canvas'
+/** Filled with the surface it sits on (--sticky-bg: the page, or a dialog's panel), so it looks transparent and nothing
+ * shows through while it scrolls under the row. */
+export const stickyCls = 'sticky top-0 z-20 bg-[var(--sticky-bg)]'
 
 /** A title row (title, tabs, search, the main button) that stays at the top while the page scrolls, with a hairline under
  * it once the page has scrolled (like Claude's Customize page). `bar`: a full-width bar that has its own line already
@@ -545,16 +564,22 @@ export function StickyHeader({ className, children, testId, bar }: { className?:
   )
 }
 
-/** A page's full-width title bar: it keeps its line and stays at the top while the page scrolls. */
+/** A page's content column: centred in the space beside the sidebar, like Claude's Customize page (phones: full width). */
+export const pageColumn = 'mx-auto w-full max-w-5xl'
+
+/** A page's full-width title bar: it keeps its line and stays at the top while the page scrolls; its contents line up
+ * with the page's column (pageColumn). */
 export function PageHeader({ title, desc, actions }: { title: ReactNode; desc?: ReactNode; actions?: ReactNode }) {
   const { ref } = useStickyHeader<HTMLDivElement>()
   return (
-    <div ref={ref} data-sticky-header className={clsx(stickyCls, 'flex shrink-0 flex-wrap items-end justify-between gap-3 border-b border-line px-4 py-4 sm:px-6 sm:py-5')}>
+    <div ref={ref} data-sticky-header className={clsx(stickyCls, 'shrink-0 border-b border-line')}>
+      <div className={clsx(pageColumn, 'flex flex-wrap items-end justify-between gap-3 px-4 py-4 sm:px-6 sm:py-5')}>
       <div className="min-w-0">
         <h1 className="text-xl font-semibold tracking-tight">{title}</h1>
         {desc && <p className="mt-1 text-sm text-muted">{desc}</p>}
       </div>
       {actions && <div className="flex flex-wrap items-center gap-2">{actions}</div>}
+      </div>
     </div>
   )
 }
