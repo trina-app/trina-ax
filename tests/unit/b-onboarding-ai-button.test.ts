@@ -26,3 +26,19 @@ test('the store forgets the last person on sign-out, and the button hides while 
   useAiAccess.getState().reset()
   expect(useAiAccess.getState()).toMatchObject({ loaded: false, usable: true, action: 'ask_owner', requested: false })
 })
+
+test('an answer that arrives after sign-out does not reach the next person', async () => {
+  const { useAiAccess } = await import('../../web/src/store/aiAccess')
+  const { api } = await import('../../web/src/lib/api')
+  const real = api.call
+  let release!: (v: unknown) => void
+  ;(api as any).call = () => new Promise((r) => { release = r })
+  try {
+    useAiAccess.getState().reset()
+    const pending = useAiAccess.getState().load()
+    useAiAccess.getState().reset()
+    release({ usable: false, action: 'connect_team', requested: true })
+    await pending
+    expect(useAiAccess.getState()).toMatchObject({ loaded: false, usable: true, requested: false })
+  } finally { (api as any).call = real }
+})

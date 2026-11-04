@@ -17,26 +17,35 @@ interface State {
   reset: () => void
 }
 
+/** bumped on sign-out: an answer that arrives after it belongs to the previous person and is dropped */
+let generation = 0
+
 export const useAiAccess = create<State>((set, get) => ({
   loaded: false, usable: true, action: 'ask_owner', requested: false, sending: false, failed: false,
   async load(force) {
     if (get().loaded && !force) return
+    const g = generation
     try {
       const r = await api.call(API.getAiAccess)
+      if (g !== generation) return
       set({ loaded: true, usable: r.usable, action: r.action, requested: r.requested })
     } catch {
+      if (g !== generation) return
       // a failed check is not "no AI": nothing shows
       set({ loaded: true, usable: true })
     }
   },
-  reset() { set({ loaded: false, usable: true, action: 'ask_owner', requested: false, sending: false, failed: false }) },
+  reset() { generation++; set({ loaded: false, usable: true, action: 'ask_owner', requested: false, sending: false, failed: false }) },
   async ask() {
     if (get().sending || get().requested) return
     set({ sending: true, failed: false })
+    const g = generation
     try {
       await api.call(API.requestAiAccess)
+      if (g !== generation) return
       set({ requested: true, sending: false })
     } catch {
+      if (g !== generation) return
       set({ sending: false, failed: true })
     }
   },
