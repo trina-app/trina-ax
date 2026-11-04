@@ -4,6 +4,9 @@
 # drop-in that turns on MYCEL_DEV_ENV. The first run restarts the team server, so it ends the running answers. A re-run
 # moves an older install to the paths below. It restarts the team server only if its drop-in changed, and boxd only if its
 # unit changed or the program in memory is not the file on the disk. It stops on a hosted server.
+# Box state goes on the disk of <base> (the team data disk on a VM with one): box volumes in <base>/boxd, podman's storage
+# in <base>/boxd-storage. A re-run moves them from /var/lib/mycel-boxd and the box account's home: it stops boxd and
+# every box, copies the volumes and builds the image again.
 # uninstall-trial.sh removes all of it.
 #   scripts/dev-env/install-trial.sh [--boxd /path/to/mycel-boxd] [--id mycel]
 # The service runs <base>/root/mycel-boxd, which the kit ships. --boxd copies a program to that path, for a build
@@ -34,6 +37,12 @@ DROPIN=/etc/systemd/system/$SERVER_UNIT.d/dev-env.conf
 SOCK=/run/mycel-boxd/boxd.sock
 ROOT_BOXD=$BASE/root/mycel-boxd
 OLD_BOXD=/usr/local/sbin/mycel-boxd
+# Box volumes (boxd --state-dir) and podman's storage, on the disk of BASE. Older runs used the OLD_ paths, on /.
+BOXD_STATE=$BASE/boxd
+BOX_STORE=$BASE/boxd-storage
+OLD_BOXD_STATE=/var/lib/mycel-boxd
+OLD_STORE=/home/$BOX_USER/.local/share/containers/storage
+STORE_CONF=/home/$BOX_USER/.config/containers/storage.conf
 TIMER_FREE=$STATE/update-timer-free
 # root runs this path, so only root may change it. A version folder belongs to the server account: never run from there.
 root_only() { [ ! -L "$1" ] && [ "$(stat -c %u "$1")" = 0 ] && [ -z "$(find "$1" -maxdepth 0 -perm /022)" ]; }
@@ -43,6 +52,17 @@ put_changed() {
   install -o root -g root -m 0644 "$1" "$2" || die "cannot write $2"
   rm -f "$1"
 }
+# Mounts under the given folders, deepest first.
+mounts_under() { local re; re=$(printf '%s|' "$@"); findmnt -rn -o TARGET | grep -E "^(${re%|})(/|$)" | sort -r || true; }
+# A box folder is a mount of a real project folder, on the same disk as BASE: removing through a mount deletes team
+# files, and rm --one-file-system does not stop that. So every mount goes first, or the script stops.
+unmount_under() {
+  local m
+  for m in $(mounts_under "$@"); do umount "$m" || umount -l "$m" || true; done
+  [ -z "$(mounts_under "$@")" ] || die "mounts are still there, nothing was deleted: $(mounts_under "$@" | tr '\n' ' ')"
+}
+# Bytes on the disk (a sparse image counts what it holds). A path that is not there counts 0.
+bytes_used() { { du -s -B1 "$@" 2>/dev/null || true; } | awk '{n+=$1} END {print n+0}'; }
 note_timer() { if systemctl is-enabled -q "$TIMER" 2>/dev/null; then echo enabled > "$STATE/update-timer"; else echo disabled > "$STATE/update-timer"; fi; }
 
 # ---- look first: nothing below changes the system until every check passes ----
@@ -55,6 +75,17 @@ systemctl cat "$SERVER_UNIT" >/dev/null 2>&1 || die "no $SERVER_UNIT here: this 
 ! grep -Eq '"hosted"[[:space:]]*:[[:space:]]*true' "$BASE/root/install.json" || die "this is a hosted server: the dev environment is for a team VM only"
 command -v jq >/dev/null || die "jq is missing, and the script cannot read $BASE/config/server.json without it: apt-get install jq, then run this again"
 [ -d "$BASE/root" ] && root_only "$BASE/root" || die "$BASE/root must belong to root, and only root may write to it"
+root_only "$BASE" || die "$BASE must belong to root, and only root may write to it: box state goes there"
+[ ! -e "$BOXD_STATE" ] || { [ -d "$BOXD_STATE" ] && root_only "$BOXD_STATE"; } || die "$BOXD_STATE must be a folder of root, and only root may write to it"
+[ ! -L "$BOX_STORE" ] && { [ ! -e "$BOX_STORE" ] || [ -d "$BOX_STORE" ]; } || die "$BOX_STORE must be a folder"
+# The move copies the box volumes to the disk of BASE and builds the image there again. That disk keeps 3 GiB more.
+MOVE=0
+if [ -d "$OLD_BOXD_STATE" ] || [ -d "$OLD_STORE" ]; then
+  MOVE=1
+  NEED=$(( $(bytes_used "$OLD_BOXD_STATE"/boxes/*/volume.img "$OLD_STORE") + (3 << 30) ))
+  FREE=$(df -P -B1 "$BASE" | awk 'NR==2 {print $4}')
+  [ "$FREE" -ge "$NEED" ] || die "the box state moves to $BASE, which needs $((NEED >> 20)) MiB free and has $((FREE >> 20)) MiB"
+fi
 if [ -n "$BOXD" ]; then
   [ -f "$BOXD" ] && [ -x "$BOXD" ] || die "--boxd must name the built mycel-boxd program"
 else
@@ -131,6 +162,45 @@ loginctl enable-linger "$BOX_USER"
 for _ in $(seq 1 30); do [ -d "/run/user/$BOX_UID" ] && break; sleep 0.5; done
 [ -d "/run/user/$BOX_UID" ] || die "no /run/user/$BOX_UID"
 
+say "box state on the disk of $BASE"
+BOX_GID=$(id -g "$BOX_USER")
+# A new OS disk can give the box account another uid. The storage and the volumes of the old uid are of no use to it.
+if [ -d "$BOX_STORE" ] && [ "$(stat -c %u "$BOX_STORE")" != "$BOX_UID" ]; then
+  say "$BOX_STORE belongs to another uid: storage and box volumes start empty"
+  systemctl stop mycel-boxd.service 2>/dev/null || true
+  unmount_under "$BOX_STORE" "$BOXD_STATE" /run/mycel-boxd
+  rm -rf --one-file-system "$BOX_STORE" "$BOXD_STATE/boxes"
+fi
+if [ "$MOVE" = 1 ]; then
+  say "move from $OLD_BOXD_STATE and $OLD_STORE: boxd and every box stop"
+  systemctl stop mycel-boxd.service 2>/dev/null || true
+  # Before storage.conf changes: podman finds the old containers only in the old storage. boxd makes them again.
+  runuser -u "$BOX_USER" -- env XDG_RUNTIME_DIR="/run/user/$BOX_UID" podman rm -af -t 5 >/dev/null 2>&1 || true
+  unmount_under "$OLD_BOXD_STATE" "$BOXD_STATE" /run/mycel-boxd
+  install -d -o root -g root -m 0711 "$BOXD_STATE" "$BOXD_STATE/boxes"
+  # Only volume.img: volume and work are mount points, and boxd makes them again. --sparse: the image stays sparse.
+  for img in "$OLD_BOXD_STATE"/boxes/*/volume.img; do
+    [ -f "$img" ] && [ ! -L "$img" ] || continue
+    d=$(basename "$(dirname "$img")")
+    [[ $d =~ ^[A-Za-z0-9._-]+$ ]] || die "box folder with an unusual name: $img"
+    # A run that stopped half way copied it already, and the box can have written to it since: that copy stays.
+    if [ -e "$BOXD_STATE/boxes/$d/volume.img" ]; then say "box $d: the volume is already in $BOXD_STATE"; continue; fi
+    install -d -o root -g "$BOX_GID" -m 0710 "$BOXD_STATE/boxes/$d"
+    cp -a --sparse=always "$img" "$BOXD_STATE/boxes/$d/volume.img.new" || die "cannot copy $img. The old state stays."
+    cmp -s "$img" "$BOXD_STATE/boxes/$d/volume.img.new" || die "the copy of $img is not the same. The old state stays."
+    mv -f "$BOXD_STATE/boxes/$d/volume.img.new" "$BOXD_STATE/boxes/$d/volume.img"
+  done
+fi
+install -d -o root -g root -m 0711 "$BOXD_STATE"
+install -d -o "$BOX_USER" -g "$BOX_GID" -m 0700 "$BOX_STORE"
+# One file for every podman of the box account (boxd, build-image.sh, vm-tests.sh, a prune by hand): they all have its
+# HOME. runroot stays at its default, /run/user/<uid>/containers. As the box account: root must not write through a
+# link in that home.
+runuser -u "$BOX_USER" -- mkdir -p -m 0700 "/home/$BOX_USER/.config/containers"
+printf '[storage]\ndriver = "overlay"\ngraphroot = "%s"\n' "$BOX_STORE" | runuser -u "$BOX_USER" -- sh -c "cat > '$STORE_CONF.new' && chmod 0644 '$STORE_CONF.new' && mv -f '$STORE_CONF.new' '$STORE_CONF'"
+GRAPH=$(runuser -u "$BOX_USER" -- env XDG_RUNTIME_DIR="/run/user/$BOX_UID" podman info --format '{{.Store.GraphRoot}}')
+[ "$GRAPH" = "$BOX_STORE" ] || die "podman of $BOX_USER uses $GRAPH, not $BOX_STORE"
+
 say "box image (a few minutes)"
 "$HERE/build-image.sh" "$BOX_USER"
 
@@ -151,11 +221,12 @@ cat > "$STATE/unit.new" <<UNIT_EOF
 Description=Trina dev environment box helper (trial)
 After=network-online.target user@$BOX_UID.service
 Wants=network-online.target
+RequiresMountsFor=$BASE
 Before=$SERVER_UNIT
 
 [Service]
 Type=simple
-ExecStart=$ROOT_BOXD --server-uid $SRV_UID --server-gid $SRV_GID --team-root $TEAM
+ExecStart=$ROOT_BOXD --server-uid $SRV_UID --server-gid $SRV_GID --team-root $TEAM --state-dir $BOXD_STATE
 Restart=on-failure
 RestartSec=5
 
@@ -182,6 +253,15 @@ echo "$ST"
 [ "$(jq -r .available <<<"$ST")" = true ] || die "boxd says boxes are not available: $(jq -r .reason <<<"$ST"). The team server was not changed."
 # An older run of this script put the program there. Remove it only now: the service runs from the new path.
 if [ "$RERUN" = 1 ]; then rm -f "$OLD_BOXD"; fi
+# The old box state goes only now too: boxd runs on the new paths. The files of the old storage belong to subuids, so
+# the box account removes them in its user namespace: root must not delete through a link in that home.
+if [ "$MOVE" = 1 ]; then
+  unmount_under "$OLD_BOXD_STATE"
+  rm -rf --one-file-system "$OLD_BOXD_STATE"
+  runuser -u "$BOX_USER" -- env XDG_RUNTIME_DIR="/run/user/$BOX_UID" podman unshare rm -rf --one-file-system "$OLD_STORE" \
+    || die "cannot remove $OLD_STORE. boxd runs on the new paths: run this script again"
+  say "the old box state is gone: $OLD_BOXD_STATE, $OLD_STORE"
+fi
 
 install -d -m 0755 "$(dirname "$DROPIN")"
 cat > "$STATE/dropin.new" <<DROPIN_EOF
@@ -215,4 +295,5 @@ if [ -z "$UNSIGNED" ] && [ ! -e "$TIMER_FREE" ]; then
   touch "$TIMER_FREE"
 fi
 say "$TIMER: $(systemctl is-enabled "$TIMER" 2>/dev/null || true)"
+say "box state: $BOXD_STATE, $BOX_STORE"
 say "ok: box limit 1 CPU, 2.5 GB. Turn on dev mode in a project page. No preview domain: the Preview button stays off."
