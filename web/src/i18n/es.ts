@@ -597,7 +597,7 @@ export const es: Record<MessageKey, string> = {
   'files.packHint.campaigns': 'Guarde aquí anuncios anteriores y planes de campaña.',
   'files.packHint.reports': 'Guarde aquí los informes semanales y los resultados.',
   'files.packHint.competitors': 'Guarde aquí material y capturas de la competencia.',
-  'md.copyBlock': 'Copiar esta parte',
+  'md.copyQuote': 'Copiar {what}',
   'files.noSubfolders': "No hay subcarpetas",
   'files.pickNeedsWrite': "Elija una carpeta en la que pueda escribir.",
   'files.conflictCopy': "Copia en conflicto",

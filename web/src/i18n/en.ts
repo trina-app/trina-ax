@@ -617,7 +617,7 @@ export const en: Record<MessageKey, string> = {
   'files.packHint.campaigns': 'Put past ads and campaign plans here.',
   'files.packHint.reports': 'Put weekly reports and results here.',
   'files.packHint.competitors': 'Put competitor material and screenshots here.',
-  'md.copyBlock': 'Copy this part',
+  'md.copyQuote': 'Copy {what}',
   'files.noSubfolders': 'No subfolders',
   'files.pickNeedsWrite': 'Pick a folder you can write to.',
   'files.conflictCopy': 'Conflict copy',

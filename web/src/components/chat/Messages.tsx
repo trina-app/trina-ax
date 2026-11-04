@@ -286,34 +286,63 @@ function ArtifactCards({ chatId, messageId, className = 'mt-3' }: { chatId: stri
 
 /** Where the answer's artifact cards go: at the point of the text where the AI made the first one (Step.textAt), so
  * "caption → preview → options" reads in that order; null (after the text, as before) for steps from before that field
- * or when the cut would fall inside a code block. */
+ * or when the cut would fall inside a code block. The cut never splits a block: a point inside a paragraph, list or
+ * quote moves back to the blank line before that block (or stays when the block ends right there); with no blank line
+ * before it, the cards go after the text. */
 export function artifactSplit(content: string, steps: readonly Step[]): number | null {
   const at = steps.filter((s) => s.kind === 'artifact' && !s.parentId && s.textAt !== undefined).reduce<number | null>((min, s) => (min === null ? s.textAt! : Math.min(min, s.textAt!)), null)
   if (at === null) return null
-  const cut = Math.min(at, content.length)
-  if (cut >= content.length) return null
+  const raw = Math.min(at, content.length)
+  if (raw >= content.length) return null
+  // made before any text: the cards first
+  if (raw === 0) return 0
+  const before = content.slice(0, raw)
+  // already between blocks: a blank line right before the point, or the block ends at it (a blank line follows)
+  let cut: number | null = /\n[ \t]*\n[ \t]*$/.test(before) || /^[ \t]*\n[ \t]*\n/.test(content.slice(raw)) ? raw : null
+  if (cut === null) {
+    const blank = [...before.matchAll(/\n[ \t]*\n/g)].pop()
+    cut = blank ? blank.index! + blank[0].length : null
+  }
+  if (cut === null) return null
+  // a heading stays with the block under it ("### 1안" above its quote): go back before a heading right above the cut
+  for (;;) {
+    const head = /(^|\n[ \t]*\n)(#{1,6} [^\n]*\n[ \t]*\n)$/.exec(content.slice(0, cut))
+    if (!head) break
+    cut -= head[2]!.length
+  }
+  if (cut === 0) return 0
   // an odd number of ``` fences before the cut: it is inside a code block
   if ((content.slice(0, cut).match(/```/g)?.length ?? 0) % 2 === 1) return null
   return cut
 }
 
-/** The answer's text and its artifact cards, the cards where the AI made them. */
+/** The text before and after the cards (null: none there). While the answer streams, the part still being written is
+ * the last one with text: after the cards, or before them while nothing follows yet. */
+export function answerParts(content: string, cut: number, streaming: boolean) {
+  const before = content.slice(0, cut), after = content.slice(cut)
+  const tail = !!after.trim()
+  return {
+    before: before.trim() ? { text: before, streaming: streaming && !tail } : null,
+    after: tail ? { text: after, streaming } : null,
+  }
+}
+
+/** The answer's text and its artifact cards, the cards where the AI made them. Top-level quotes copy on their own. */
 function AnswerBody({ m, chatId, streaming }: { m: ViewMessage; chatId: string; streaming: boolean }) {
   const cut = artifactSplit(m.content, m.steps)
   if (cut === null)
     return (
       <>
-        {m.content && <Markdown text={m.content} streaming={streaming} />}
+        {m.content && <Markdown text={m.content} streaming={streaming} copyQuotes />}
         <ArtifactCards chatId={chatId} messageId={m.id} />
       </>
     )
-  const before = m.content.slice(0, cut)
-  const after = m.content.slice(cut)
+  const p = answerParts(m.content, cut, streaming)
   return (
     <>
-      {before.trim() && <Markdown text={before} />}
-      <ArtifactCards chatId={chatId} messageId={m.id} className={clsx(before.trim() && 'mt-3', after.trim() && 'mb-3')} />
-      {after.trim() && <Markdown text={after} streaming={streaming} />}
+      {p.before && <Markdown text={p.before.text} streaming={p.before.streaming} copyQuotes />}
+      <ArtifactCards chatId={chatId} messageId={m.id} className={clsx(p.before && 'mt-3', p.after && 'mb-3')} />
+      {p.after && <Markdown text={p.after.text} streaming={p.after.streaming} copyQuotes />}
     </>
   )
 }

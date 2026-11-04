@@ -597,7 +597,7 @@ export const ja: Record<MessageKey, string> = {
   'files.packHint.campaigns': '過去の広告や企画書を入れておきましょう。',
   'files.packHint.reports': '週次報告や成果の資料を入れておきましょう。',
   'files.packHint.competitors': '競合の資料やスクリーンショットを入れておきましょう。',
-  'md.copyBlock': 'この部分をコピー',
+  'md.copyQuote': '{what}をコピー',
   'files.noSubfolders': "サブフォルダーはありません",
   'files.pickNeedsWrite': "書き込み可能なフォルダーを選んでください。",
   'files.conflictCopy': "競合コピー",

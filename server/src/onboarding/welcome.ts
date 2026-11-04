@@ -63,6 +63,8 @@ function view(raw: Raw, now: string): WelcomeProgress {
     site: pick(opt, raw.site, null),
     dismissedAt: pick(opt, raw.dismissedAt, null),
     finishedAt: pick(opt, raw.finishedAt, null),
+    // the three-step version's team step, put off and never answered since: the pack is not installed by itself
+    ...(steps.team === 'skipped' && pick(TeamType.nullable(), raw.teamType, null) === null ? { teamSkipped: true } : {}),
   }
 }
 

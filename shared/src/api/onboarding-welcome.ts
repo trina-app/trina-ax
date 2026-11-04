@@ -49,6 +49,9 @@ export const WelcomeProgress = z.object({
   site: z.string().nullable(),
   /** the owner hid the "continue" entry on Home */
   dismissedAt: z.string().nullable(),
+  /** a row from the three-step version whose team step was put off ("나중에") and no team type picked since: the
+   * marketing pack is not installed by itself when the first step is left (the earlier choice stands); absent = no */
+  teamSkipped: z.boolean().optional(),
   /** profile and result done, and the invite done or skipped */
   finishedAt: z.string().nullable(),
 })

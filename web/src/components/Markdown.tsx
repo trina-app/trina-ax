@@ -185,8 +185,9 @@ function CopyableTable({ children }: { children: ReactNode }) {
 
 // ---------------- quotes ----------------
 /** A quote with its own quiet copy button (an ad option, a message draft: each block copies on its own). Phones: the
- * button is always there, under the quote on the right; screens with a pointer: on hover or focus. No frame added. */
-function CopyableQuote({ children }: { children: ReactNode }) {
+ * button is always there, under the quote on the right; screens with a pointer: on hover or focus. No frame added.
+ * Only top-level quotes of an assistant answer (labelQuotes, `copyQuotes`); `label` names what it copies. */
+function CopyableQuote({ label, children }: { label: string; children: ReactNode }) {
   const t = useT()
   const ref = useRef<HTMLQuoteElement>(null)
   const { copied, copy } = useCopy()
@@ -199,7 +200,7 @@ function CopyableQuote({ children }: { children: ReactNode }) {
       <button
         type="button"
         onClick={() => void copy((ref.current?.innerText ?? ref.current?.textContent ?? '').trim())}
-        aria-label={copied ? t('common.copied') : t('md.copyBlock')}
+        aria-label={copied ? t('common.copied') : t('md.copyQuote', { what: label })}
         className="not-prose mt-1 flex items-center gap-1 self-end rounded-md px-1.5 py-0.5 text-xs font-medium text-muted transition hover:bg-hover hover:text-ink [@media(hover:hover)]:opacity-0 [@media(hover:hover)]:group-focus-within/quote:opacity-100 [@media(hover:hover)]:group-hover/quote:opacity-100"
         data-testid="copy-quote"
       >
@@ -266,7 +267,6 @@ const origin = () => (typeof location === 'undefined' ? 'http://localhost' : loc
 // defined once: inline component functions are new types on every render, which remounts (and resets) diagrams
 const COMPONENTS: Components = {
   table: ({ children }) => <CopyableTable>{children}</CopyableTable>,
-  blockquote: ({ children }) => <CopyableQuote>{children}</CopyableQuote>,
   a: ({ href, children }) => {
     const l = classifyLink(href, origin())
     if (l.kind === 'team-file') return <TeamFileLink path={l.path} at={l.at}>{children}</TeamFileLink>
@@ -291,6 +291,15 @@ const COMPONENTS: Components = {
     if (k.kind === 'inline-data') return <img src={k.src} alt={alt ?? ''} className="max-h-80 rounded-lg" />
     if (k.kind === 'external') return <ExternalImage href={k.href} host={k.host} alt={alt} />
     return <span className="text-faint">[{alt}]</span>
+  },
+}
+/** An assistant answer's Markdown: the top-level quotes labelQuotes named get a copy button each; other quotes stay
+ * plain quotes, as in files, docs, artifacts and the rest of the app. */
+const COMPONENTS_ANSWER: Components = {
+  ...COMPONENTS,
+  blockquote: ({ node, children }) => {
+    const label = node?.properties?.dataQuoteLabel
+    return typeof label === 'string' ? <CopyableQuote label={label}>{children}</CopyableQuote> : <blockquote>{children}</blockquote>
   },
 }
 
@@ -327,7 +336,44 @@ export function hideHtmlComments() {
   }
 }
 
+/** The visible text of a hast node (no markup). */
+function hastText(n: Root | RootContent | ElementContent): string {
+  if (n.type === 'text') return n.value
+  return 'children' in n ? (n.children as RootContent[]).map(hastText).join('') : ''
+}
+/** Longest name a copy button gets from a heading or a quote's first line. */
+const QUOTE_LABEL_MAX = 40
+
+/**
+ * Assistant answers only: every top-level quote (a child of the answer itself, never a quote inside a quote or a list)
+ * gets the name of its copy button in `data-quote-label`: the heading right before it ("1안 · 혜택 중심"), else its own
+ * first line, else its number; a name already used in the answer gets " (2)", " (3)". A quote without the name keeps
+ * the plain quote styling (COMPONENTS_ANSWER).
+ */
+export function labelQuotes() {
+  return (tree: Root) => {
+    const used = new Map<string, number>()
+    let heading: string | null = null
+    let n = 0
+    for (const c of tree.children) {
+      if (c.type === 'text' && !c.value.trim()) continue
+      if (c.type === 'element' && /^h[1-6]$/.test(c.tagName)) { heading = hastText(c).trim(); continue }
+      if (c.type === 'element' && c.tagName === 'blockquote') {
+        n++
+        const first = hastText(c).trim().split('\n')[0]!.trim()
+        let label = (heading || first || `#${n}`).replace(/\s+/g, ' ')
+        if (label.length > QUOTE_LABEL_MAX) label = label.slice(0, QUOTE_LABEL_MAX - 1).trimEnd() + '…'
+        const seen = (used.get(label) ?? 0) + 1
+        used.set(label, seen)
+        c.properties = { ...c.properties, dataQuoteLabel: seen > 1 ? `${label} (${seen})` : label }
+      }
+      heading = null
+    }
+  }
+}
+
 const REHYPE = [hideHtmlComments, mathRehype as never]
+const REHYPE_ANSWER = [hideHtmlComments, labelQuotes, mathRehype as never]
 
 /** Keep the react-markdown default URL check (javascript: etc. become empty), but let our own download links through. */
 export function urlTransform(url: string): string {
@@ -344,7 +390,8 @@ const SIZES = {
   small: 'text-xs leading-5 prose-h1:text-sm prose-h2:text-sm prose-h3:text-xs',
 }
 
-export const Markdown = memo(function Markdown({ text, streaming, className, size = 'answer' }: { text: string; streaming?: boolean; className?: string; size?: keyof typeof SIZES }) {
+/** `copyQuotes`: an assistant answer in the chat, where each top-level quote copies on its own (ad options, drafts). */
+export const Markdown = memo(function Markdown({ text, streaming, className, size = 'answer', copyQuotes }: { text: string; streaming?: boolean; className?: string; size?: keyof typeof SIZES; copyQuotes?: boolean }) {
   return (
     <div
       className={clsx(
@@ -353,7 +400,7 @@ export const Markdown = memo(function Markdown({ text, streaming, className, siz
         className,
       )}
     >
-      <ReactMarkdown remarkPlugins={REMARK} rehypePlugins={REHYPE} components={COMPONENTS} urlTransform={urlTransform}>
+      <ReactMarkdown remarkPlugins={REMARK} rehypePlugins={copyQuotes ? REHYPE_ANSWER : REHYPE} components={copyQuotes ? COMPONENTS_ANSWER : COMPONENTS} urlTransform={urlTransform}>
         {prepareMarkdown(text, streaming)}
       </ReactMarkdown>
     </div>

@@ -29,8 +29,10 @@ export const doneCount = (p: WelcomeProgress | null) => (p ? WELCOME_COUNTED.fil
 export const stepTotal = () => WELCOME_COUNTED.length
 
 /** Leaving the first step installs the marketing pack: not installed yet, and no other team type was picked (no type
- * reads as marketing). Another type gets the offer on the result step instead (a click, never by itself). */
-export const wantsPack = (p: WelcomeProgress | null) => !!p && !p.pack && (p.teamType === null || !!TEAM_TYPE_PACK[p.teamType])
+ * reads as marketing, unless the person put the team question off in the three-step version: that choice stands).
+ * Another type, or that earlier "later", gets the offer on the result step instead (a click, never by itself). */
+export const wantsPack = (p: WelcomeProgress | null) =>
+  !!p && !p.pack && (p.teamType !== null ? !!TEAM_TYPE_PACK[p.teamType] : !p.teamSkipped)
 
 /** The Home entry shows while the steps were started and are neither finished nor hidden. */
 export const showResume = (p: WelcomeProgress | null) => !!p && !p.finishedAt && !p.dismissedAt

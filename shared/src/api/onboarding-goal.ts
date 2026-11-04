@@ -39,8 +39,8 @@ export const TeamGoal = z.object({
   /** open goals only (absent otherwise): the people who joined (the accounts after the team's first one that signed
    * in and are still there), for "아직 아무도 안 들어왔어요" */
   joined: z.number().int().nonnegative().optional(),
-  /** open goals only (absent otherwise): who joined but has not run `skill` yet in the window (any team skill while
-   * `skill` is null), the viewer left out: the first to join by name and the others as a count, never a list
+  /** open goals only (absent otherwise): who joined but has run no team skill yet in the window (someone who tried
+   * another team skill is not named as not having tried `skill`), the viewer left out: the first to join by name and the others as a count, never a list
    * (docs/DECISIONS.md "Y — Home shows one thing at a time"); null when nobody waits */
   waiting: z.object({ first: z.string(), more: z.number().int().nonnegative() }).nullable().optional(),
 })

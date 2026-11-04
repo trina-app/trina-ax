@@ -616,7 +616,7 @@ export const ko = {
   'files.packHint.campaigns': '지난 광고, 기획안을 넣어 두세요.',
   'files.packHint.reports': '주간 보고, 성과 자료를 넣어 두세요.',
   'files.packHint.competitors': '경쟁사 자료, 캡처를 넣어 두세요.',
-  'md.copyBlock': '이 부분 복사',
+  'md.copyQuote': '{what} 복사',
   'files.noSubfolders': '하위 폴더가 없어요',
   'files.pickNeedsWrite': '쓰기 권한이 있는 폴더를 골라 주세요.',
   'files.conflictCopy': '충돌 사본',

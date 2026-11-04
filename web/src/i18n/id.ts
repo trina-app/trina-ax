@@ -617,7 +617,7 @@ export const id: Record<MessageKey, string> = {
   'files.packHint.campaigns': 'Simpan iklan sebelumnya dan rencana kampanye di sini.',
   'files.packHint.reports': 'Simpan laporan mingguan dan data hasil di sini.',
   'files.packHint.competitors': 'Simpan materi dan tangkapan layar pesaing di sini.',
-  'md.copyBlock': 'Salin bagian ini',
+  'md.copyQuote': 'Salin {what}',
   'files.noSubfolders': 'Tidak ada subfolder',
   'files.pickNeedsWrite': 'Pilih folder yang bisa kamu tulis.',
   'files.conflictCopy': 'Salinan konflik',

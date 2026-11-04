@@ -153,6 +153,9 @@ describe('where the steps go', () => {
     expect(wantsPack({ ...fresh(), teamType: 'sales' })).toBe(false)
     expect(wantsPack({ ...fresh(), pack: PACK })).toBe(false)
     expect(wantsPack(null)).toBe(false)
+    // the three-step version's team question put off: that "later" stands, until a team type is picked
+    expect(wantsPack({ ...fresh(), teamSkipped: true })).toBe(false)
+    expect(wantsPack({ ...fresh(), teamSkipped: true, teamType: 'marketing' })).toBe(true)
     expect(showResume(p)).toBe(true)
     expect(showResume({ ...p, dismissedAt: 'x' })).toBe(false)
     expect(showResume({ ...p, finishedAt: 'x' })).toBe(false)
@@ -271,6 +274,25 @@ describe('/welcome', () => {
       await m.until(() => m.find('welcome-result-no-pack'), 'the offer')
       expect(called('POST /api/onboarding/welcome/pack')).toEqual([])
       expect(progress!.teamType).toBe('operations')
+    } finally { await m.unmount() }
+  })
+
+  test('the team question put off in the three-step version: no promise, nothing installed by itself, no type set', async () => {
+    signIn('owner')
+    progress = { ...fresh(), teamSkipped: true }
+    const m = await app()
+    try {
+      // the type picker with nothing chosen and no promise line
+      await m.until(() => m.find('welcome-team'), 'the types, open')
+      expect(m.find('welcome-pack-line')).toBeNull()
+      expect(m.find('welcome-team-pack')).toBeNull()
+      expect(m.get('welcome-team-marketing').getAttribute('aria-checked')).toBe('false')
+      await m.until(() => m.find('profile-step-site'), 'the profile step (D)')
+      const later = (globalThis.document as any).body.querySelectorAll('button').find((b: any) => b.textContent === translate('ko', 'welcome.later'))
+      await m.click(later)
+      await m.until(() => m.find('welcome-result-no-pack'), 'the offer on the result step')
+      expect(called('POST /api/onboarding/welcome/pack')).toEqual([])
+      expect(progress!.teamType).toBeNull()
     } finally { await m.unmount() }
   })
 

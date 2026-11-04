@@ -212,3 +212,25 @@ test('"마케팅 스킬 7개": the number the first step says is the pack\'s own
   expect(done.finishedAt).not.toBeNull()
   expect(getSetting<any>(h.ctx.db, WELCOME_SETTING).steps.team).toBeNull()
 })
+
+test('a row from the three-step version whose team step was put off: that "later" stands until a team type is picked', async () => {
+  const { owner } = await setup()
+  const row = (o: Record<string, unknown> = {}) => setSetting(h.ctx.db, WELCOME_SETTING, {
+    startedAt: '2026-11-04T00:00:00.000Z', updatedAt: '2026-11-04T00:00:00.000Z', teamType: null,
+    steps: { team: 'skipped', profile: null, result: null, invite: null }, pack: null, resultChatId: null, inviteShownAt: null, site: null, dismissedAt: null, finishedAt: null, ...o,
+  })
+  const read = async () => (await owner.call('GET', '/api/onboarding/welcome')).progress
+  row()
+  // the client reads it as "do not install the pack by itself" (web/src/lib/welcome.ts wantsPack)
+  expect(await read()).toMatchObject({ teamType: null, teamSkipped: true, pack: null })
+  // a team type picked since answers the question: no longer skipped
+  row({ teamType: 'marketing' })
+  expect((await read()).teamSkipped).toBeUndefined()
+  // a team step that was done (or never answered) is no skip either
+  row({ steps: { team: 'done', profile: null, result: null, invite: null } })
+  expect((await read()).teamSkipped).toBeUndefined()
+  row({ steps: { profile: null, result: null, invite: null } })
+  expect((await read()).teamSkipped).toBeUndefined()
+  // the row is never rewritten for it
+  expect(getSetting<any>(h.ctx.db, WELCOME_SETTING).teamSkipped).toBeUndefined()
+})

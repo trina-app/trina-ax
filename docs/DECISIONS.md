@@ -7507,3 +7507,30 @@ addition removes something. Placement: Team AX core (Home, Admin › Home, the g
   subtitle on Home, two skills needed), `onboarding-polish.test.tsx` (a done step is not listed), e2e `admin-home`
   (the checklist on Admin Home only, done steps hidden, dismissed after a reload, never for an admin) and `auth`
   (a new owner's Home has no checklist; Admin Home has it).
+
+## X and Y: fixes from the review (integration, 2026-11-05)
+
+- **Copy buttons on quotes, answers only**: X gave every quote in every Markdown view a copy button (quotes lost their
+  italics everywhere, and a quote inside a quote got two buttons). Now only an assistant answer in the chat
+  (`Markdown copyQuotes`, components/chat/Messages.tsx) gives its top-level quotes (children of the answer itself) a
+  button; a quote inside a quote or a list, and every quote in files, docs, artifacts, skills, project notes and
+  release notes, stays a plain quote with the usual styling. Each button is named for what it copies (rehype
+  `labelQuotes`): the heading right above the quote ("1안 · 혜택 복사"), else the quote's first line, else its number;
+  a name used twice in one answer gets " (2)".
+- **Cards never split a block**: `artifactSplit` cut the answer at `Step.textAt`, which can fall inside a paragraph,
+  list or quote. The cut now moves back to the blank line before that block (or stays where a block ends), a heading
+  right above goes with its block, a cut with no blank line before it puts the cards after the text as before, and a
+  cut inside a code block still does. While the answer streams, the part still being written (after the cards, or
+  before them while nothing follows yet) keeps the streaming flag (`answerParts`).
+- **An earlier "later" on the team question stands**: a welcome row from the three-step version whose team step was
+  put off, with no team type picked since, reads `teamSkipped: true` (the row is not rewritten). Leaving the first step
+  then installs nothing by itself and sets no type; the type picker shows with nothing chosen and no promise, and the
+  result step offers the pack on a click. Picking a type answers the question.
+- **"○○님이 들어왔지만 '광고 문구'는 아직이에요" names only someone who ran no team skill**: Y counted people who
+  joined and had not run the top skill, so someone who had tried another team skill was named as not having started.
+  The simpler fix of the two: `waiting` now counts only people who joined and ran no team skill at all in the window
+  (the wording stays true for them).
+- Tests: `web/test/unit/markdown-render.test.tsx` (answers only, one button per top-level quote, names, plain quotes
+  elsewhere), `artifact-placement.test.tsx` (paragraph, list, quote, heading, code block, streaming parts),
+  `welcome.test.tsx` and `tests/unit/b-onboarding-welcome.test.ts` (the skipped team step), `b-onboarding-goal.test.ts`
+  (someone who ran another skill is not waiting).

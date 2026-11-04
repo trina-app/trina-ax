@@ -102,7 +102,8 @@ function WelcomeSteps() {
     const w = useWelcome.getState()
     // the pack once: these steps never install it again by themselves (the server keeps that record as well)
     const blocked = wantsPack(w.progress) && (await installPack(t)) === 'blocked'
-    go(await w.update({ ...(w.progress?.teamType ? {} : { teamType: 'marketing' }), step: { id: 'profile', state } }), 'profile')
+    // no type yet reads as marketing, except a team question put off before (that "later" stands)
+    go(await w.update({ ...(w.progress?.teamType || w.progress?.teamSkipped ? {} : { teamType: 'marketing' }), step: { id: 'profile', state } }), 'profile')
     if (blocked) setError(t('welcome.packBlocked'))
   })
   const installForResult = () => run(async () => { if ((await installPack(t)) === 'blocked') throw new Error(t('welcome.packBlocked')) })
@@ -204,9 +205,10 @@ function Later({ onClick, disabled }: { onClick: () => void; disabled?: boolean 
  * with the honest note that their pack is being prepared; a type without a pack stays open (it says what happens). */
 function PackLine({ progress, busy, onChoose }: { progress: WelcomeProgress; busy: boolean; onChoose: (t: TeamType) => void }) {
   const t = useT()
-  const chosen: TeamType = progress.teamType ?? 'marketing'
-  const [open, setOpen] = useState(!TEAM_TYPE_PACK[chosen])
-  const noPack = !TEAM_TYPE_PACK[chosen]
+  // a team question put off in the three-step version: nothing chosen, no promise; picking a type answers it
+  const chosen: TeamType | null = progress.teamType ?? (progress.teamSkipped ? null : 'marketing')
+  const [open, setOpen] = useState(!chosen || !TEAM_TYPE_PACK[chosen])
+  const noPack = !!chosen && !TEAM_TYPE_PACK[chosen]
   if (!open)
     return (
       <p className="mb-5 text-sm text-muted" data-testid="welcome-pack-line">
@@ -238,9 +240,11 @@ function PackLine({ progress, busy, onChoose }: { progress: WelcomeProgress; bus
           )
         })}
       </div>
-      <p role="status" className="text-sm text-muted" data-testid={noPack ? 'welcome-team-no-pack' : 'welcome-team-pack'}>
-        {noPack ? t('welcome.team.noPack') : t('welcome.pack.line', { n: WELCOME_PACK_SKILLS })}
-      </p>
+      {chosen && (
+        <p role="status" className="text-sm text-muted" data-testid={noPack ? 'welcome-team-no-pack' : 'welcome-team-pack'}>
+          {noPack ? t('welcome.team.noPack') : t('welcome.pack.line', { n: WELCOME_PACK_SKILLS })}
+        </p>
+      )}
     </div>
   )
 }

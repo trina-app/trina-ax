@@ -82,6 +82,8 @@ export interface GoalProgress extends GoalWindow {
   reachedAt: string | null
   /** people who ran any team skill in the window */
   peopleWithRun: number
+  /** who they are (ids): the goal card's "joined and has not tried a skill yet" leaves them out */
+  runnerIds: ReadonlySet<string>
   /** people with any successful answer in the window */
   peopleAnswered: number
 }
@@ -96,7 +98,7 @@ export function goalProgress(db: Database): GoalProgress | null {
   // per person, through turns(user_id, started_at): no scan of every turn of an older team
   const answered = (db.query(`SELECT COUNT(*) AS n FROM users u WHERE EXISTS (SELECT 1 FROM turns t WHERE t.user_id = u.id AND ${COUNTED})`)
     .get(w.startedAt, w.endsAt) as { n: number }).n
-  return { ...w, best: skills[0] ?? null, reachedAt: reached[0] ?? null, peopleWithRun: runners.size, peopleAnswered: answered }
+  return { ...w, best: skills[0] ?? null, reachedAt: reached[0] ?? null, peopleWithRun: runners.size, runnerIds: runners, peopleAnswered: answered }
 }
 
 /** Names of the accounts still there, in the given order (deleted accounts are counted, never named). */
@@ -110,8 +112,9 @@ function namesOf(db: Database, ids: string[]): string[] {
 }
 
 /**
- * While the goal is open: the people who joined, and of them (the viewer left out) the ones who have not run the top
- * skill in the window, or any team skill while there is none (`ran`: the people who ran it). Joined = an account after
+ * While the goal is open: the people who joined, and of them (the viewer left out) the ones who have run no team skill
+ * at all in the window (`ran`: the people who ran one), so "○○님이 들어왔지만 '광고 문구'는 아직이에요" never names
+ * someone who already tried another team skill. Joined = an account after
  * the team's first one, still there, active, that signed in at least once (an account made for someone who never
  * came in has not joined). The earliest to join is named, the rest only counted (docs/DECISIONS.md "Y — Home shows
  * one thing at a time": never a list of who has not run it).
@@ -152,7 +155,7 @@ export function teamGoal(ctx: AppContext, viewerId: string, now = new Date()): T
     reachedAt: p.reachedAt,
   }
   // who joined and has not run it: only while the goal is open (in the window, not reached)
-  if (goal.state === 'open' && open) Object.assign(goal, joinedNotRun(ctx.db, viewerId, p, new Set(best?.people.map((x) => x.userId))))
+  if (goal.state === 'open' && open) Object.assign(goal, joinedNotRun(ctx.db, viewerId, p, p.runnerIds))
   return goal
 }
 

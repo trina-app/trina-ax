@@ -199,9 +199,10 @@ describe('the card and the owners\' notice', () => {
     turn(ids.admin, { status: 'error', skill: AD })
     const g = await goal()
     expect(g).toMatchObject({ state: 'open', skill: { path: AD.path, name: '광고 문구', runners: 2, people: ['MINA', 'Olga Owner'] } })
-    // who ran it: never who did not (adam's failed answer); adam is the one who joined and has not run it yet (Y)
+    // who ran it: never who did not (adam's failed answer); adam is the first who joined and ran no team skill yet (Y);
+    // erin ran another skill, so she is not among those waiting
     expect(g.skill.people).not.toContain('ADAM')
-    expect(g.waiting).toEqual({ first: 'ADAM', more: 2 })
+    expect(g.waiting).toEqual({ first: 'ADAM', more: 1 })
     // a third person: reached, and still shown while the window runs
     turn(ids.erin, { skill: AD })
     expect(await goal()).toMatchObject({ state: 'reached', skill: { runners: 3 } })
@@ -222,17 +223,19 @@ describe('the card and the owners\' notice', () => {
       // the viewer is never named to themselves
       expect(await goal(admin)).toMatchObject({ joined: 4, waiting: { first: 'MINA', more: 2 } })
       turn(ids.owner, { skill: AD }); turn(ids.admin, { skill: AD })
-      // erin ran another skill: she has still not run the top one
+      // erin ran another skill: "has not tried '광고 문구' yet" would be true but misleading, so she is not counted as
+      // waiting; only who ran no team skill at all is (mina, finn)
       turn(ids.erin, { skill: SEO })
       const g = await goal()
-      expect(g).toMatchObject({ skill: { path: AD.path, runners: 2 }, joined: 4, waiting: { first: 'MINA', more: 2 } })
+      expect(g).toMatchObject({ skill: { path: AD.path, runners: 2 }, joined: 4, waiting: { first: 'MINA', more: 1 } })
       // one name only: the others who wait are a count
       expect(JSON.stringify(g)).not.toContain('ERIN')
       expect(JSON.stringify(g)).not.toContain('FINN')
       // an account made for someone who never signed in has not joined; a deleted one is gone
       h.ctx.db.query('UPDATE users SET last_seen_at = NULL WHERE id = ?').run(ids.member)
       h.ctx.db.query("UPDATE users SET status = 'disabled', deleted_at = ? WHERE id = ?").run(new Date().toISOString(), ids.finn)
-      expect(await goal()).toMatchObject({ joined: 2, waiting: { first: 'ERIN', more: 0 } })
+      // adam and erin joined; both ran a team skill: nobody waits
+      expect(await goal()).toMatchObject({ joined: 2, waiting: null })
       // nobody else signed in: nobody joined, nobody waits
       h.ctx.db.query('UPDATE users SET last_seen_at = NULL WHERE id <> ?').run(ids.owner)
       expect(await goal()).toMatchObject({ joined: 0, waiting: null })
