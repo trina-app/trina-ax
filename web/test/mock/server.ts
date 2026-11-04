@@ -1503,8 +1503,14 @@ export class MockServer {
       const next = l!.skillPath && this.teamLinkSkillName(l!.skillPath) ? `/skills?run=${encodeURIComponent(l!.skillPath)}` : null
       return { status: 201, cookie: this.startSession(u), body: { me: this.me(u, ''), next } }
     },
+    // onboarding A, B, D: the scripted AI answers everyone, there is no hosting trial credit and no company profile yet
+    // (the composer's "no AI" line, Admin › AI connections and the skill forms ask for these on their own)
+    getAiAccess: (c) => ({ usable: true, action: c.user.role === 'owner' ? 'connect_team' : 'ask_owner', requested: false }),
+    requestAiAccess: () => fail('forbidden', 403, '이미 AI를 쓸 수 있어요.'),
+    trialCredit: () => ({ credit: null }),
+    getCompanyProfile: () => ({ profile: null }),
     // members as the server counts them (group_members): those the group lists and those whose groups name it
-    listGroups: () => ({ items: this.groups.map((g) => ({ ...g, memberIds: [...new Set([...g.memberIds, ...this.users.filter((u) => u.groupIds.includes(g.id)).map((u) => u.id)])] })) }),
+    listGroups:() => ({ items: this.groups.map((g) => ({ ...g, memberIds: [...new Set([...g.memberIds, ...this.users.filter((u) => u.groupIds.includes(g.id)).map((u) => u.id)])] })) }),
     createGroup: (c) => {
       const g: Group = { id: uuidv7(), name: c.body.name, description: c.body.description ?? null, memberIds: c.body.memberIds ?? [] }
       this.groups.push(g)

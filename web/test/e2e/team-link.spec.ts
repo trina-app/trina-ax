@@ -1,7 +1,7 @@
 // The team invite link (onboarding stream E): an admin makes it on Admin › Members, copies the link and the
 // ready-made message; someone opens it in another browser, the token leaves the address bar, they join with name,
-// username and password (no second password field), and land on the skill the link names. A revoked link says to ask
-// for a new one.
+// username and password (no second password field), and land on the form of the skill the link names. A revoked link
+// says to ask for a new one.
 import AxeBuilder from '@axe-core/playwright'
 import { expect, test, type Page } from '@playwright/test'
 import { realErrors, reset, signIn, watchConsole } from './helpers'
@@ -51,6 +51,10 @@ test('make the team link, copy the message, join with it, land on the skill; a r
   await p2.getByTestId('invite-submit').click()
   await expect(p2).toHaveURL(/\/skills\?run=/)
   expect(new URL(p2.url()).searchParams.get('run')).toBe('skills/광고-문구.md')
+  // the Skills page opens that skill's form (onboarding C), ready to run
+  await expect(p2.getByTestId('skill-form')).toBeVisible()
+  await expect(p2.getByTestId('skill-form')).toHaveAttribute('data-path', 'skills/광고-문구.md')
+  await expect(p2.getByTestId('skill-form-run')).toBeEnabled()
   expect(requests.filter((r) => r.includes(token))).toEqual([])
   await other.close()
 

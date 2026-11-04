@@ -8,6 +8,8 @@ import path from 'node:path'
 import { Plan, setPlanForTests } from '../../server/src/system/limits'
 import { DEFAULT_LIMITS } from '../../server/src/auth/rate-limit'
 import { addMember, harness, withOwner, type Client, type Harness } from './a-lib'
+import { joinNext } from '../../web/src/lib/team-link'
+import { profilePrefill } from '@mycel/shared/api'
 
 const PW = 'tulip meadow 2026'
 const plan = (maxActiveMembers: number) => Plan.parse({ format: 1, plan: 'team', maxConcurrency: 3, memoryMiB: 4096, cpuCores: 2, diskGiB: 50, maxActiveMembers })
@@ -315,6 +317,30 @@ describe('skill deep link', () => {
     expect(r.status).toBe(201)
     expect(r.body.next).toBeNull()
     expect((await owner.call('GET', '/api/admin/team-link')).link.skill).toEqual({ path: 'skills/sales/pitch/SKILL.md', name: 'pitch' })
+  })
+
+  test('a skill of the marketing pack (onboarding C): the new member lands on its form, and their own list carries it with its fields', async () => {
+    setPlanForTests(null)
+    expect((await owner.try('POST', '/api/onboarding/packs/marketing/install')).status).toBe(200)
+    expect((await owner.try('PUT', '/api/onboarding/profile', { website: 'https://www.acme.example/', oneLine: '', products: 'Paper planners', audience: 'Small offices', tone: ['friendly'], avoid: '', sources: [] })).status).toBe(200)
+    const skillPath = 'skills/marketing/campaign-plan/SKILL.md'
+    const { link } = await owner.call('POST', '/api/admin/team-link', { skillPath })
+    const c = h.client({ ip: '10.9.1.1' })
+    const r = await join(tokenOf(link.url), { tokenMode: 'cookie' }, c)
+    expect(r.status).toBe(201)
+    // the address the join page goes to (web/src/lib/team-link.ts joinNext keeps exactly this one)
+    const next = joinNext(r.body.next)
+    expect(next).toBe(`/skills?run=${encodeURIComponent(skillPath)}`)
+    const run = new URL(next, 'http://x').searchParams.get('run')
+    // what the Skills page's form reads as that member: the skill by that path, with its fields, the only one of its
+    // name (so "/campaign-plan" runs it), and the company profile for the fields that ask for it
+    const items = (await c.call('GET', '/api/skills')).items as { path: string; name: string; inputs?: { name: string; prefill?: string }[] }[]
+    const skill = items.find((s) => s.path === run)
+    expect(skill?.name).toBe('campaign-plan')
+    expect(skill!.inputs!.length).toBeGreaterThan(0)
+    expect(items.filter((s) => s.name === skill!.name)).toHaveLength(1)
+    const prefill = profilePrefill((await c.call('GET', '/api/onboarding/profile')).profile)
+    for (const i of skill!.inputs!) if (i.prefill) expect(prefill[i.prefill], i.name).toBeTruthy()
   })
 })
 
