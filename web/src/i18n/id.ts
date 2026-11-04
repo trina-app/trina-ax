@@ -1109,6 +1109,8 @@ export const id: Record<MessageKey, string> = {
   "common.less": "Lebih sedikit",
   "adminHome.attention": "Perlu perhatian",
   "adminHome.allGood": "Tidak ada yang perlu diperhatikan",
+  "adminHome.notAllChecked": "Tidak semua bisa diperiksa",
+  "adminHome.notAllChecked.more": "Beberapa area tidak dimuat, jadi daftar ini bisa belum lengkap.",
   "adminHome.areas": "Ringkasan",
   "adminHome.item": "{name}: {state}",
   "adminHome.noAi": "{count} orang tidak bisa memakai AI: {names}",
@@ -1747,6 +1749,7 @@ export const id: Record<MessageKey, string> = {
   'audit.tool.connect': 'Alat AI terhubung',
 
   'system.diagnostics': 'Diagnostik',
+  "system.allFailed": "Halaman ini tidak dapat dimuat. Server tim tidak menjawab. Coba lagi sebentar lagi.",
   'system.version': 'Versi',
   'system.host': 'Server',
   'system.queue': 'Antrean',

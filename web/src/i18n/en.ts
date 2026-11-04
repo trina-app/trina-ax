@@ -1109,6 +1109,8 @@ export const en: Record<MessageKey, string> = {
   "common.less": "Less",
   "adminHome.attention": "Needs attention",
   "adminHome.allGood": "Nothing needs attention",
+  "adminHome.notAllChecked": "Could not check everything",
+  "adminHome.notAllChecked.more": "Some areas did not load, so this list can be incomplete.",
   "adminHome.areas": "Overview",
   "adminHome.item": "{name}: {state}",
   "adminHome.noAi": "{count, plural, one {# person can't use AI} other {# people can't use AI}}: {names}",
@@ -1747,6 +1749,7 @@ export const en: Record<MessageKey, string> = {
   'audit.tool.connect': 'AI tools connected',
 
   'system.diagnostics': 'Diagnostics',
+  "system.allFailed": "Could not load this page. The team server did not answer. Try again in a moment.",
   'system.version': 'Version',
   'system.host': 'Server',
   'system.queue': 'Queue',

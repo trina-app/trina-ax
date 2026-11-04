@@ -119,7 +119,9 @@ export function Card({ title, actions, children, desc, headingRef }: { title: Re
   return (
     <section className="mb-6 rounded-2xl border border-line bg-surface">
       <header className="flex flex-wrap items-center gap-2 border-b border-line px-4 py-3">
-        <div className="min-w-0 flex-1">
+        {/* a phone: the title and its line take the whole row and the buttons go under them, so the line is not cut
+            to a few words */}
+        <div className="min-w-0 flex-1 max-sm:basis-full">
           <h2 ref={headingRef} tabIndex={headingRef ? -1 : undefined} className="text-sm font-semibold">{title}</h2>
           {desc && <OneLine className="mt-0.5 text-xs text-muted">{desc}</OneLine>}
         </div>

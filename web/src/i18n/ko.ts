@@ -1108,6 +1108,8 @@ export const ko = {
   "common.less": "접기",
   "adminHome.attention": "확인이 필요해요",
   "adminHome.allGood": "확인할 것이 없어요",
+  "adminHome.notAllChecked": "모두 확인하지 못했어요",
+  "adminHome.notAllChecked.more": "일부 영역을 불러오지 못해서 이 목록이 다 보이지 않을 수 있어요.",
   "adminHome.areas": "한눈에 보기",
   "adminHome.item": "{name}: {state}",
   "adminHome.noAi": "{count}명이 AI를 쓸 수 없어요: {names}",
@@ -1746,6 +1748,7 @@ export const ko = {
   'audit.tool.connect': 'AI 도구 연결',
 
   'system.diagnostics': '진단',
+  "system.allFailed": "이 페이지를 불러오지 못했어요. 팀 서버가 응답하지 않아요. 잠시 뒤 다시 시도해 주세요.",
   'system.version': '버전',
   'system.host': '서버',
   'system.queue': '대기열',

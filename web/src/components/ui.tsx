@@ -1,7 +1,7 @@
 // Shared building blocks. Every icon-only button takes an aria-label (translated); modals trap focus and give it
 // back to where it was (tab 5 "접근성").
 import clsx from 'clsx'
-import { Check, Copy, Loader2, X } from 'lucide-react'
+import { Check, CircleAlert, Copy, Loader2, X } from 'lucide-react'
 import { cloneElement, createContext, isValidElement, useCallback, useContext, useEffect, useId, useLayoutEffect, useRef, useState, type ButtonHTMLAttributes, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
 import { create } from 'zustand'
@@ -118,12 +118,19 @@ export function EmptyState({ icon, title, children }: { icon?: ReactNode; title:
   )
 }
 
-export function ErrorNote({ children, onRetry }: { children: ReactNode; onRetry?: () => void }) {
+/** An error with an icon, the message in the body colour and an optional small detail (such as "HTTP 503") under it. */
+export function ErrorNote({ children, onRetry, detail }: { children: ReactNode; onRetry?: () => void; detail?: ReactNode }) {
   const t = useT()
   return (
-    <div role="alert" className="flex flex-wrap items-center gap-2 rounded-lg bg-danger-soft px-3 py-2 text-sm text-danger">
+    <div role="alert" className="flex flex-wrap items-center gap-2 rounded-lg bg-danger-soft px-3 py-2.5 text-sm text-ink">
       {/* at least ~12rem for the text: on a phone the button wraps below instead of squeezing it to a column */}
-      <span className="min-w-0 flex-[1_1_12rem]">{children}</span>
+      <span className="flex min-w-0 flex-[1_1_12rem] items-start gap-2">
+        <CircleAlert size={16} className="mt-0.5 shrink-0 text-danger" aria-hidden />
+        <span className="min-w-0">
+          {children}
+          {detail && <span className="mt-0.5 block text-xs text-muted">{detail}</span>}
+        </span>
+      </span>
       {onRetry && (
         <Button size="sm" variant="secondary" className="ml-auto" onClick={onRetry}>
           {t('common.retry')}
