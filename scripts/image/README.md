@@ -41,7 +41,10 @@ image mode + the first-boot pieces (`mycel-enroll`).
 - `mycel-link` at `/usr/local/sbin/mycel-link` + `mycel-link.service` (enabled, `ConditionPathExists=/etc/ax/link.json`):
   the ax-link agent, the guest channel on EC2 and Oracle (trina-cloud `docs/research/ec2-per-team.md` §6). On Proxmox
   there is no `link.json`, so it stays inactive and the qemu guest agent is the channel. `--link-bin` of `customize.sh`;
-  without it the image works on Proxmox only.
+  without it the image works on Proxmox only. Source: `native/cmd/mycel-link` (its `main.go` describes the protocol).
+  Files in the guest: `/etc/ax/link.json` (cloud-init; the agent removes the one-time `token` after its register),
+  `/var/lib/ax-link/key` (the agent's Ed25519 key, root 0600; on the root disk, so a reimage makes a new one) and
+  `/run/ax-link/*.result.json` (results that hostd has not taken yet; tmpfs, sent again after an agent restart).
 - `mycel-enroll` at `/usr/local/sbin/mycel-enroll` + `mycel-enroll.service` (oneshot, `ConditionPathExists=/run/ax/enroll.json`,
   no `[Install]`: cloud-init `runcmd` starts it).
 - Kit units (`mycel-firewall.timer`, `mycel-launcher`, `mycel-server`, `mycel-update.timer`) are **disabled** in the
@@ -192,7 +195,7 @@ nothing in AWS except the AMI and its root snapshot.
 Inputs, all for **linux amd64** (t3a is x86-64; on an Apple silicon Mac cross-compile):
 
 ```sh
-ARCHS=amd64 bash native/build.sh                     # native/bin/linux-amd64/mycel-enroll (and mycel-link, when it exists)
+ARCHS=amd64 bash native/build.sh                     # native/bin/linux-amd64/mycel-enroll and mycel-link
 scripts/image/build-ami.sh \
   --profile <trina profile> --account <trina account id> \
   --kit dist/TeamAX-server-0.3.0-linux-amd64.tar.gz \
