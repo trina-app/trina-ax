@@ -1,0 +1,23 @@
+#!/bin/bash
+# Trina dev environment (srt runner): the first program in each run's scope (docs/research/srt-dev-env.md 2.2).
+# A scope has no exec properties, so this script does what a service unit would do:
+#   1. rlimits: file size 4 GiB, open files 4096, no core files;
+#   2. oom_score_adj 800: when the whole machine is short of memory, the kernel picks the run before the server;
+#   3. runs the rest of the argv (srt);
+#   4. writes the exit code to the exit file. The server reads it; the sandbox can only read that folder.
+# Usage: run-wrap <exit-file> -- <program> [args...]
+# Root owns this file (0755). It runs as the server account.
+set -u
+EXIT_FILE=${1:?exit file}
+shift
+[ "${1:-}" = "--" ] || { echo "run-wrap: missing --" >&2; exit 2; }
+shift
+ulimit -f 8388608   # in 512-byte blocks: 4 GiB
+ulimit -n 4096
+ulimit -c 0
+echo 800 > /proc/self/oom_score_adj 2>/dev/null || true
+"$@"
+code=$?
+# no shell redirection follows a link here: the folder belongs to the server and the sandbox cannot write it
+printf '%s\n' "$code" > "$EXIT_FILE.tmp" && mv -f "$EXIT_FILE.tmp" "$EXIT_FILE"
+exit "$code"

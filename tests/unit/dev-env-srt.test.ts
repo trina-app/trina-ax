@@ -280,7 +280,7 @@ describe('a command', () => {
     expect(out(r)).toContain('Exit code 0.')
     expect(out(r)).toContain('hello')
     const run = [...runs.values()][0]!
-    expect(run.spec.cwd).toBe(path.join(h.team, FOLDER))
+    expect(run.spec.cwd).toBe(fs.realpathSync(path.join(h.team, FOLDER)))
     expect(run.spec.limits).toEqual({ cpus: 1, memoryMiB: 1536, pids: 512, runtimeMaxSec: 150 })
     expect(run.settingsMode).toBe(0o600)
     expect((run.settings as { filesystem: { denyRead: string[]; allowWrite: string[] } }).filesystem.allowWrite).toEqual([path.join(h.team, FOLDER), path.join(devBase, 'devenv/home', projectId)])
@@ -305,7 +305,18 @@ describe('a command', () => {
     const r = await shell().call({ command: 'write a.txt hi', cwd: 'src' })
     expect(out(r)).toContain('created')
     expect(out(r)).toContain('src/a.txt')
-    expect([...runs.values()][0]!.spec.cwd).toBe(path.join(h.team, FOLDER, 'src'))
+    expect([...runs.values()][0]!.spec.cwd).toBe(fs.realpathSync(path.join(h.team, FOLDER, 'src')))
+  })
+  test('a cwd through a link out of the project folder is refused before the run (A10)', async () => {
+    const link = path.join(h.team, FOLDER, 'out')
+    fs.rmSync(link, { force: true })
+    fs.symlinkSync(devBase, link)
+    try {
+      const r = await shell().call({ command: 'echo x', cwd: 'out' })
+      expect(r.isError).toBe(true)
+      expect(out(r)).toContain('cwd must be a folder inside the project folder')
+      expect(runs.size).toBe(0)
+    } finally { fs.rmSync(link, { force: true }) }
   })
   test('a failing command; an unknown one has stderr', async () => {
     expect(out(await shell().call({ command: 'exit 3' }))).toContain('Exit code 3.')

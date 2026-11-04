@@ -23,7 +23,7 @@ import { newId } from '../../db'
 import { getSetting } from '../../admin/settings'
 import { storageRoom } from '../../system/storage'
 import { devEnvSetting, mayUseBox } from '../setting'
-import { RUN_ID_RE, devenvPaths, runEnv, settingsProblems, srtSettings, unitName, UNIT_RE } from './config'
+import { RUN_ID_RE, devenvPaths, resolveRunCwd, runEnv, settingsProblems, srtSettings, unitName, UNIT_RE } from './config'
 import { effectiveLimits, loadPlan, NO_PLAN_MAX_RUNNING, type DevEnvPlan, type PlanState } from './plan'
 import { directSystem, systemdSystem, type SrtSystem } from './system'
 
@@ -159,11 +159,14 @@ async function spawnRun(ctx: AppContext, c: SrtConfig, s: RunSpec): Promise<{ pi
   const settings = srtSettings(input)
   const problems = settingsProblems(settings, { base: c.base, projectDir: s.projectDir, teamRoot: ctx.files.fx.root })
   if (problems.length) throw new Error(`refused settings: ${problems.join('; ')}`)
+  // a cwd through a link out of the project folder is refused before the run (attack A10)
+  const cwd = resolveRunCwd(s.projectDir, s.cwd)
+  if (!cwd) throw new Error('cwd must be a folder inside the project folder')
   const settingsFile = path.join(p.run, `${s.runId}.json`)
   fs.writeFileSync(settingsFile, JSON.stringify(settings), { mode: 0o600, flag: 'wx' })
   const exitFile = path.join(p.logs, `${s.runId}.exit`)
   return c.system.spawn({
-    runId: s.runId, id: c.id, cwd: path.join(s.projectDir, s.cwd), env: runEnv({ base: c.base, projectId: s.projectId }),
+    runId: s.runId, id: c.id, cwd, env: runEnv({ base: c.base, projectId: s.projectId }),
     limits: { cpus: s.limits.cpus, memoryMiB: s.limits.memoryMiB, pids: s.limits.pids, runtimeMaxSec: s.runtimeMaxSec }, exitFile, settingsFile, command: s.command,
     stdoutFile: s.stdoutFile, stderrFile: s.stderrFile,
   })

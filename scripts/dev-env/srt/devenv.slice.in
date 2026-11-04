@@ -1,0 +1,11 @@
+# Trina dev environment (srt runner): the hard ceiling of all runs together, from <base>/root/dev-env.json.
+# The name makes it a child of @ID@.slice. Root writes this file (install-srt.sh); the server cannot raise it.
+[Unit]
+Description=Trina dev environment runs (@ID@)
+
+[Slice]
+MemoryAccounting=yes
+MemoryMax=@MEMORY_MAX@
+MemorySwapMax=0
+CPUQuota=@CPU_QUOTA@
+TasksMax=@TASKS_MAX@

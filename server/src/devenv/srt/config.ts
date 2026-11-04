@@ -1,5 +1,6 @@
 // The parts of a run on srt with no side effects (docs/research/srt-dev-env.md section 2): the srt settings file, the
 // environment of the run and the argv of `systemd-run --scope`. Tests check each one (tests/unit/dev-env-srt.test.ts).
+import fs from 'node:fs'
 import path from 'node:path'
 import { DEV_ENV_DEFAULT_DOMAINS } from '@mycel/shared'
 
@@ -100,6 +101,17 @@ export function settingsProblems(s: ReturnType<typeof srtSettings>, i: Pick<Sett
   if (!inside(i.projectDir, i.teamRoot) || i.projectDir === i.teamRoot) out.push('the project folder is not a folder of the team folder')
   for (const sys of Object.values(SRT_PATHS)) if (inside(sys, i.base)) out.push(`${sys} is inside the base folder`)
   return out
+}
+
+/** The real folder a run starts in: `rel` (already checked by boxCwd: no "..", not absolute) must not leave the project
+ * folder through a link. Null when it does, or when it is not a folder. */
+export function resolveRunCwd(projectDir: string, rel: string): string | null {
+  try {
+    const root = fs.realpathSync(projectDir)
+    const real = fs.realpathSync(path.join(projectDir, rel))
+    if (!inside(real, root) || !fs.statSync(real).isDirectory()) return null
+    return real
+  } catch { return null }
 }
 
 export interface EnvInput { base: string; projectId: string; nodeBin?: string }

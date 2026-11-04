@@ -135,6 +135,10 @@ jobs:
         # tests/linux/run.ts runs the container --privileged --cgroupns=private (bwrap userns + mounts, nft
         # CAP_NET_ADMIN, a writable cgroup tree). GitHub's runners allow --privileged.
         run: bun run tests/linux/run.ts
+      - name: Dev environment on srt, attack suite (Docker debian:13, srt 0.0.81)
+        # tests/linux/srt-run.ts: the srt settings of the runner hide the base folder, other projects and the server's
+        # files; the network goes only through srt's proxy to allowed sites (needs network). --privileged for bwrap.
+        run: bun run tests/linux/srt-run.ts
       - name: Old version folders removed, roll-back still works (Docker debian:13)
         # tests/linux/prune-versions.ts: the server account stages four versions, the Linux bootstrap built above
         # confirms each one, then admin.js prune-versions and roll-back after the prune (no --privileged needed)
