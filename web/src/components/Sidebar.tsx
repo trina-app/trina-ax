@@ -1,5 +1,5 @@
 // Left sidebar, sized like Claude's (280 px, 14 px rows of 32 px, 16 px icons): new chat, search, projects, files, team
-// skills, admin, recent chats by date, and the account menu (the person's email or ID, Settings, Usage for admins,
+// skills, admin, recent chats by date, and the account menu (the person's email or ID, Settings, Usage (their own, in Settings),
 // Appearance, Sign out), which opens above the profile line. Below 768 px it is a drawer opened from the top bar.
 import clsx from 'clsx'
 import { BookMarked, Check, ChevronDown, ChevronRight, FolderOpen, FolderKanban, Gauge, Loader2, LogOut, MessageSquarePlus, MoreHorizontal, Palette, Pencil, Search, Settings, Shield, Trash2 } from 'lucide-react'
@@ -214,7 +214,7 @@ function ChatItem({ chat, onNavigate }: { chat: Chat; onNavigate: () => void }) 
 }
 
 /** The profile line at the bottom and its menu above it, like Claude's: who is signed in, then Settings (a dialog over
- * the page, components/settings/SettingsDialog.tsx), Usage (admins: Admin > Usage), Appearance (the theme, chosen right
+ * the page, components/settings/SettingsDialog.tsx), Usage (their own usage in Settings; the team's is Admin > Usage), Appearance (the theme, chosen right
  * there) and Sign out. Arrow keys, Home and End move in the menu; Esc closes it and gives the keyboard back. */
 function AccountMenu() {
   const t = useT()
@@ -289,11 +289,20 @@ function AccountMenu() {
           >
             <Settings size={16} className="text-muted" aria-hidden /> {t('sidebar.settings')}
           </button>
-          {isAdmin(me) && (
-            <Link role="menuitem" to="/admin/usage" onClick={() => hide(false)} className={item} data-testid="account-usage">
-              <Gauge size={16} className="text-muted" aria-hidden /> {t('sidebar.usage')}
-            </Link>
-          )}
+          <button
+            role="menuitem"
+            type="button"
+            className={item}
+            onClick={() => {
+              settingsOpenedFrom(button.current)
+              hide(false)
+              setDrawer(false)
+              navigate('/settings/usage')
+            }}
+            data-testid="account-usage"
+          >
+            <Gauge size={16} className="text-muted" aria-hidden /> {t('sidebar.usage')}
+          </button>
           <button role="menuitem" type="button" aria-expanded={appearance} className={item} onClick={() => setAppearance((v) => !v)} data-testid="account-appearance">
             <Palette size={16} className="text-muted" aria-hidden /> {t('sidebar.appearance')}
             <ChevronRight size={14} className={clsx('ml-auto text-faint transition-transform', appearance && 'rotate-90')} aria-hidden />
