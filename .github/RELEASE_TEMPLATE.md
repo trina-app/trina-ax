@@ -2,6 +2,8 @@
 
 Use this to write the annotated tag message before the release workflow runs. Replace every placeholder with reviewed changes; a title-only tag is not useful release guidance. Publishing/backfilling GitHub releases is a separate maintainer action.
 
+**Roll-out / 배포 속도:** a stable release reaches about 10% of servers and offices the first day, 50% the second and all from the third (docs/RELEASE-CI.md "단계적 배포"). To send it to every server at once (a fix for a bad release, a security fix), add a line that says only `Rollout: all` (without the backticks) anywhere in the tag message; the workflow removes it from the notes. Any other word after `Rollout:` on such a line stops the release. / stable 릴리스는 첫날 약 10%, 둘째 날 50%, 셋째 날부터 모두가 받습니다. 모두에게 한 번에 보내려면(나쁜 릴리스를 고친 릴리스, 보안 수정) 태그 메시지에 `Rollout: all`만 있는 줄을 넣으세요(백틱 없이). 워크플로가 노트에서 뺍니다.
+
 ## Who benefits / 누구에게 도움이 되나요?
 
 One sentence describing an observable benefit. / 실제 사용자가 체감할 변화 한 문장.

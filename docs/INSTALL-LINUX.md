@@ -186,7 +186,7 @@ description: 허용된 회의록의 결정과 할 일을 정리합니다.
 
 - **앱만 바뀌는 릴리스**: 서버가 스스로 적용한다(`server.json`의 `update.auto: true`, 설치기가 자체 설치에 켬). 팀 시간대의
   업데이트 창(관리자 › 설정 › 업데이트 시간, 기본 03:00–05:00) 안에서, 답변이 하나도 돌지 않을 때만. 새 버전이 켜지지 않으면
-  bootstrap이 이전 버전으로 되돌리고, 그 버전은 7일 동안 자동으로 다시 시도하지 않는다. 피드의 단계적 배포(`rollout`)를 따른다.
+  bootstrap이 이전 버전으로 되돌리고, 그 버전은 7일 동안 자동으로 다시 시도하지 않는다. 피드의 단계적 배포(`rollout`, 아래)를 따른다.
 - **root 부분(실행기·샌드박스·유닛, root가 따로 두는 1A 프로그램 `mycel-safeops`·`pandoc`)이 바뀌는 릴리스**: 관리자 › 시스템 › 업데이트에 "관리자 권한 필요"가 보이고 진단이 경고한다.
   `mycel-update.timer`가 15분마다 확인하고, 팀 시간대의 업데이트 시간(관리자 › 설정 › 업데이트 시간, 비었으면 03:00–05:00)
   안에서 진행 중인 답변이 없을 때만 설치한다. 답변이 돌고 있으면 끊지 않고 조용해질 때까지 기다린다(한 번에 최대 1시간,
@@ -216,6 +216,14 @@ description: 허용된 회의록의 결정과 할 일을 정리합니다.
   does not know the restart: run the new `scripts/dev-env/install-trial.sh` once after that update. It sees that the
   service runs a program other than the file and restarts it.
 - **더 오래된 릴리스로 내려가지 않음**: `mycel-update.timer`와 `--version` 없는 `sudo mycel-ctl update`는 피드의 버전이 지금 돌고 있는 앱보다 새로울 때만 설치한다(서버의 앱 업데이트와 같은 버전 순서. 0.2.18-pre.1 같은 사전 릴리스가 돌면 0.2.17 피드는 건너뛰고 그렇게 적는다). 일부러 되돌리려면 버전을 준다: `sudo mycel-ctl update --version <버전>`(더 새 root 부분은 그대로 둔다).
+- **단계적 배포**: 새 stable 릴리스는 모든 서버에 같은 밤 가지 않는다. 피드가 게시된 뒤 첫날 약 10%, 둘째 날 약 50%, 셋째
+  날부터 모든 서버가 자동 업데이트로 받는다. 나쁜 릴리스가 닿는 팀이 적어진다. 서버마다 설치 id(`MYCEL_INSTALL_ID`, 없으면
+  앱이 만든 id)와 릴리스마다 새로 정하는 값으로 차례가 정해지고, 각 서버가 피드의 서명된 `publishedAt`부터 스스로 센다. 서버의
+  앱 업데이트, `mycel-update.timer`, 사무실 맥이 같은 규칙을 쓴다. 차례가 오면 그다음 업데이트 시간에 설치한다. 설치 id를 읽을
+  수 없는 서버는 마지막 차례(100%)다. beta 채널, 급한 릴리스(`urgent`), 관리자가 직접 하는 업데이트(관리자 › 시스템 ›
+  업데이트, `sudo mycel-ctl update`)는 기다리지 않는다. 차례를 기다리는 동안 `sudo mycel-ctl status`가 "this server's turn comes
+  at …"을 보여 주고, 앱의 업데이트 상태(`GET /api/admin/update`)에 `turnAt`이 있다. 이 규칙을 모르는 0.4.0-beta.2 이하 서버는
+  예전처럼 바로 받는다.
 - 끄기·켜기: `sudo mycel-ctl auto-update off|on`(타이머와 `server.json`의 `update.auto`를 함께 바꾸고 답변이 없을 때 서버를
   다시 시작한다. 설치 때는 `--no-auto-update`/`--auto-update`). repair·update는 이 플래그가 없으면 지금 타이머 상태를 그대로
   둔다. 꺼져 있으면 `sudo mycel-ctl status`와 관리자 › 진단이 경고한다.
