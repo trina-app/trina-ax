@@ -18,8 +18,8 @@ import { api, API } from '../../lib/api'
 import { formatDateTime, formatNumber, formatUsd } from '../../lib/format'
 import { useLocale, useT } from '../../i18n'
 import { isOwner, useMeStrict } from '../../store/session'
-import { Badge, Button, Field, IconButton, Modal, StickyHeader, Switch, TabPanel, Tabs, inputCls, noKeyRepeat } from '../../components/ui'
-import { Loadable, OneLine, useAction, useActionOk, useFocusAfterRemove, useLoad, useOneAtATime } from './common'
+import { Badge, Button, Field, IconButton, Modal, Switch, TabPanel, Tabs, inputCls, noKeyRepeat } from '../../components/ui'
+import { AdminPageHeader, Loadable, OneLine, useAction, useActionOk, useFocusAfterRemove, useLoad, useOneAtATime } from './common'
 import { useEngines } from '../../store/engines'
 
 type EnginesTab = 'providers' | 'team'
@@ -37,6 +37,7 @@ export default function Engines() {
         if (v === 'team') n.set('tab', 'team')
         else n.delete('tab')
         n.delete('engine')
+        n.delete('focus')
         return n
       },
       { replace: true },
@@ -58,8 +59,7 @@ export default function Engines() {
 
   return (
     <>
-      <StickyHeader className="-mt-3 mb-2 flex flex-wrap items-center gap-x-4 gap-y-3 py-3" testId="engines-header">
-        <h2 className="text-lg font-semibold tracking-tight">{t('admin.engines')}</h2>
+      <AdminPageHeader title={t('admin.engines')} testId="engines-header" className="mb-2">
         <Tabs
           segmented
           value={tab}
@@ -68,7 +68,7 @@ export default function Engines() {
           panels={panels}
           items={[{ id: 'providers', label: t('engines.tab.providers') }, { id: 'team', label: t('engines.tab.team') }]}
         />
-      </StickyHeader>
+      </AdminPageHeader>
       <TabPanel base={panels} value={tab}>
         <Loadable state={state}>
           {(d) =>
@@ -94,7 +94,7 @@ export default function Engines() {
               <>
                 <Defaults data={d} onSaved={(r) => state.setData(r)} />
                 <MemberChoice data={d} onSaved={(r) => state.setData(r)} />
-                <Budgets />
+                <Budgets openHere={params.get('focus') === 'limits'} />
               </>
             )
           }
@@ -119,6 +119,9 @@ function EngineRow({ e, owner, initiallyOpen, checking, onCheck, onToggle, onApi
   const meta = [mode, models, checked].filter(Boolean).join(' · ')
   // what to know about this engine; the row shows it when opened
   const hint = [e.authMode === 'local-login' && t('engines.localHelp'), e.beta && t('engines.betaHint'), e.id === 'api' && t('engines.experimentalHint')].filter(Boolean).join(' ')
+  // the API engine is not "installed": it has an address, a model and a key, or not yet. Its form is in the opened row,
+  // so the row says "Not set up" and offers to open it (the server's text points "below", where nothing is yet)
+  const apiNotSet = e.id === 'api' && e.status === 'not_installed'
   return (
     <li className="px-2 py-3" data-testid="engine-card" data-engine={e.id}>
       <div className="flex items-start gap-3">
@@ -137,14 +140,32 @@ function EngineRow({ e, owner, initiallyOpen, checking, onCheck, onToggle, onApi
                 <span className="break-words">{e.label}</span>
               </button>
             </h3>
-            <Badge tone={ok ? 'ok' : 'warn'}>{t(`engines.status.${e.status}`)}</Badge>
+            <Badge tone={ok ? 'ok' : 'warn'}>{apiNotSet ? t('adminux.engines.apiNotSet') : t(`engines.status.${e.status}`)}</Badge>
             {e.beta && <Badge tone="warn">{t('engines.beta')}</Badge>}
             {e.id === 'api' && <span data-testid="engine-experimental"><Badge tone="warn">{t('engines.experimental')}</Badge></span>}
           </div>
           <p className="mt-0.5 truncate pl-5 text-xs text-faint" title={meta}>{meta}</p>
-          {e.detail && (
+          {apiNotSet ? (
+            <p className="mt-1 pl-5 text-xs text-warn" data-testid="engine-detail">
+              {t(owner ? 'adminux.engines.apiNotSetHint' : 'adminux.engines.apiNotSetOwner')}{' '}
+              {owner && !open && (
+                <button type="button" className="font-medium text-accent-text underline" onClick={() => {
+                  setOpen(true)
+                  // this button goes away with the open row: the keyboard moves on to the form's first field
+                  requestAnimationFrame(() => document.getElementById(details)?.querySelector<HTMLElement>('input, select, textarea')?.focus())
+                }} data-testid="engine-api-setup">
+                  {t('adminux.engines.apiSetUp')}
+                </button>
+              )}
+            </p>
+          ) : e.detail && (
             <div className="mt-1 flex min-w-0 items-baseline gap-2 pl-5">
-              <OneLine className={clsx('min-w-0 flex-1 text-xs', ok ? 'text-muted' : 'text-warn')} testId="engine-detail">{e.detail}</OneLine>
+              {/* a problem's line is the fix (a command to run): shown whole, never cut behind "More" */}
+              {ok ? (
+                <OneLine className="min-w-0 flex-1 text-xs text-muted" testId="engine-detail">{e.detail}</OneLine>
+              ) : (
+                <p className="min-w-0 flex-1 text-xs break-words text-warn" data-testid="engine-detail"><CodeText text={e.detail} /></p>
+              )}
               {e.authMode === 'managed' && e.status === 'not_logged_in' && (
                 <Link to="/admin/credentials" className="shrink-0 text-xs font-medium text-accent-text underline" data-testid="engine-go-credentials">{t('engines.goCredentials')}</Link>
               )}
@@ -180,7 +201,7 @@ function SettingsSection({ title, desc, actions, footer, children, headingRef, t
     <section className="mb-10" data-testid={testId}>
       <header className="flex flex-wrap items-start gap-3 pb-2">
         <div className="min-w-0 flex-1">
-          <h3 ref={headingRef} tabIndex={headingRef ? -1 : undefined} className="text-base font-semibold">{title}</h3>
+          <h3 ref={headingRef} tabIndex={headingRef ? -1 : undefined} className="scroll-mt-28 text-base font-semibold">{title}</h3>
           {desc && <OneLine className="mt-0.5 text-xs text-muted">{desc}</OneLine>}
         </div>
         {actions}
@@ -271,7 +292,7 @@ function Defaults({ data, onSaved }: { data: EnginesData; onSaved: (r: EnginesDa
   )
 }
 
-function Budgets() {
+function Budgets({ openHere }: { openHere?: boolean }) {
   const t = useT()
   const locale = useLocale()
   const actOk = useActionOk()
@@ -280,6 +301,13 @@ function Budgets() {
   const groups = useLoad(async () => (await api.call(API.listGroups)).items)
   const [editing, setEditing] = useState<Budget | 'new' | null>(null)
   const heading = useRef<HTMLHeadingElement>(null)
+  // opened from a "Usage limits" link (Usage, AI connections): bring this section into view and put the focus on its
+  // title, so a keyboard or screen reader starts here
+  useEffect(() => {
+    if (!openHere) return
+    heading.current?.scrollIntoView({ block: 'start' })
+    heading.current?.focus({ preventScroll: true })
+  }, [openHere])
   // a limit goes at once, with no confirm dialog: the focus goes on to the next row's Edit (else the title), never to its
   // delete, one delete runs at a time, and a held key does not repeat it
   const focus = useFocusAfterRemove(budgets.data, () => heading.current)
@@ -588,5 +616,23 @@ function ApiEngineForm({ onSaved }: { onSaved: () => void }) {
         </div>
       )}
     </div>
+  )
+}
+
+/** A server line with a command in backticks ("Run `codex login --device-auth` on the server Mac"): the command shown as
+ * code, without the backticks. */
+function CodeText({ text }: { text: string }) {
+  return (
+    <>
+      {text.split(/(`[^`]+`)/).map((part, i) =>
+        /^`[^`]+`$/.test(part) ? (
+          <code key={i} className="rounded bg-subtle px-1 font-mono text-[0.95em] text-ink select-all">
+            {part.slice(1, -1)}
+          </code>
+        ) : (
+          part
+        ),
+      )}
+    </>
   )
 }

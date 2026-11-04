@@ -11,7 +11,7 @@ import { api, API } from '../../lib/api'
 import { useT } from '../../i18n'
 import { isSkillsPath } from '../../lib/access-view'
 import { IconButton, Spinner, TabPanel, Tabs, confirmDialog } from '../../components/ui'
-import { useActionOk, useOneAtATime } from './common'
+import { AdminPageHeader, useActionOk, useOneAtATime } from './common'
 
 const AccessPeople = lazy(() => import('./AccessPeople'))
 const AccessTree = lazy(() => import('./AccessTree'))
@@ -106,8 +106,8 @@ export default function Folders() {
   }
   return (
     <>
-      {/* a flex row, so the switch is as wide as its two tabs */}
-      <div className="mb-4 flex">
+      {/* the page title with the switch next to it, like AI engines; the switch is as wide as its two tabs */}
+      <AdminPageHeader title={t('admin.folders')} testId="folders-header" still>
         <Tabs
           segmented
           value={view}
@@ -119,7 +119,7 @@ export default function Folders() {
           ]}
           label={t('accessView.tabs')}
         />
-      </div>
+      </AdminPageHeader>
       <TabPanel base={panels} value={view}>
         <Suspense fallback={<Spinner />}>{view === 'people' ? <AccessPeople /> : <AccessTree />}</Suspense>
       </TabPanel>

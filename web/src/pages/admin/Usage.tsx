@@ -3,15 +3,16 @@
 // notes on one line with "More"). Amounts are estimates, not bills. A person's own usage is Settings > Usage
 // (components/settings/MyUsage.tsx).
 import clsx from 'clsx'
-import { useEffect, useId, useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
+import { Link } from 'react-router-dom'
 import type { z } from 'zod'
 import type { UsageResponse } from '@mycel/shared/api'
 import { api, API, errorText, saveBlob } from '../../lib/api'
 import { formatNumber, formatUsd, localDay, localDayRange } from '../../lib/format'
 import { useLocale, useT } from '../../i18n'
-import { Button, StickyHeader } from '../../components/ui'
+import { Button } from '../../components/ui'
 import { UsageBar } from '../../components/UsageBar'
-import { Loadable, OneLine } from './common'
+import { AdminPageHeader, Loadable, OneLine, USAGE_LIMITS_LINK } from './common'
 import { usageCsv } from '../../lib/usage-csv'
 import { usageShares } from '../../lib/usage-share'
 
@@ -20,7 +21,6 @@ type GroupBy = 'user' | 'engine' | 'model' | 'day' | 'group' | 'credential' | 's
 export default function Usage() {
   const t = useT()
   const locale = useLocale()
-  const ids = useId()
   const [groupBy, setGroupBy] = useState<GroupBy>('user')
   const [from, setFrom] = useState(() => localDay(new Date(Date.now() - 29 * 86400_000)))
   const [to, setTo] = useState(() => localDay(new Date()))
@@ -48,19 +48,25 @@ export default function Usage() {
   }
   const small = 'h-8 rounded-lg border border-field-border bg-surface px-2 text-sm text-ink outline-none focus:border-accent focus:ring-1 focus:ring-accent max-sm:min-h-10'
   return (
-    <section aria-labelledby={`${ids}-h`} data-testid="admin-usage">
-      {/* the title row stays at the top while the table scrolls, like the other pages */}
-      <StickyHeader className="-mt-3 flex flex-wrap items-center gap-3 py-3" testId="usage-header">
-        <h2 id={`${ids}-h`} className="min-w-0 flex-1 text-lg font-semibold tracking-tight">
-          {t('admin.usage')}
-        </h2>
-        <Button size="sm" disabled={!state.data} data-testid="usage-csv" onClick={csv}>
-          {t('usage.exportCsv')}
-        </Button>
-      </StickyHeader>
-      <OneLine className="text-xs text-muted" testId="usage-desc">
-        {t('usage.desc')}
-      </OneLine>
+    <section aria-label={t('admin.usage')} data-testid="admin-usage">
+      {/* the title row stays at the top while the table scrolls, like the other pages; the usage limits live on AI
+          engines › Team provider settings, so a link goes there */}
+      <AdminPageHeader
+        title={t('admin.usage')}
+        desc={t('usage.desc')}
+        testId="usage-header"
+        className="mb-0"
+        actions={
+          <>
+            <Link to={USAGE_LIMITS_LINK} className="text-sm font-medium text-accent-text underline-offset-2 hover:underline" data-testid="usage-limits-link">
+              {t('adminux.usageLimitsLink')}
+            </Link>
+            <Button size="sm" disabled={!state.data} data-testid="usage-csv" onClick={csv}>
+              {t('usage.exportCsv')}
+            </Button>
+          </>
+        }
+      />
       {/* compact controls on one line, like Claude's period picker */}
       <div className="mt-4 flex flex-wrap items-center gap-x-4 gap-y-2 text-sm" data-testid="usage-controls">
         <label className="flex items-center gap-2">

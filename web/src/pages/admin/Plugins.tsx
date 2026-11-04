@@ -13,7 +13,7 @@ import { formatSize } from '../../lib/format'
 import { DICTS, useLocale, useT, type MessageKey } from '../../i18n'
 import { toast } from '../../store/ui'
 import { Badge, Button, EmptyState, Modal, confirmDialog } from '../../components/ui'
-import { Card, Loadable, useLoad } from './common'
+import { AdminPageHeader, Card, Loadable, useLoad } from './common'
 
 type T = ReturnType<typeof useT>
 
@@ -215,6 +215,30 @@ function CatalogRow({ c, review, fileInstall }: { c: CatalogPlugin; review: (id:
   const t = useT()
   // the server may first download the package from the release feed
   const [busy, setBusy] = useState(false)
+  // installed and up to date: the full text is already in "Installed" above, so here one line and a link to it
+  if (c.installedVersion && !c.updateAvailable) {
+    return (
+      <li className="flex flex-wrap items-center gap-2 px-4 py-2.5 text-sm" data-testid="plugin-catalog" data-plugin={c.id} data-compact>
+        <span className="font-medium">{c.name}</span>
+        <Badge tone="ok">{t('plugins.installedVersion', { version: c.installedVersion })}</Badge>
+        <button
+          type="button"
+          className="ml-auto text-xs font-medium text-accent-text underline-offset-2 hover:underline"
+          aria-label={t('adminux.plugins.showInstalledNamed', { name: c.name })}
+          onClick={() => {
+            const el = [...document.querySelectorAll<HTMLElement>('[data-testid="plugin-installed"]')].find((x) => x.dataset.plugin === c.id)
+            if (!el) return
+            el.tabIndex = -1
+            el.scrollIntoView({ block: 'center' })
+            el.focus({ preventScroll: true })
+          }}
+          data-testid="plugin-catalog-show-installed"
+        >
+          {t('adminux.plugins.showInstalled')}
+        </button>
+      </li>
+    )
+  }
   return (
     <li className="space-y-2 px-4 py-3" data-testid="plugin-catalog" data-plugin={c.id}>
       <div className="flex flex-wrap items-center gap-2">
@@ -264,6 +288,8 @@ export default function Plugins() {
     try { setPlan(await fn()) } catch (e) { toast({ level: 'error', text: refusal(t, e, locale) }) }
   }
   return (
+    <>
+    <AdminPageHeader title={t('admin.plugins')} />
     <Loadable state={state}>
       {(d: PluginList) => (
         <>
@@ -309,5 +335,6 @@ export default function Plugins() {
         </>
       )}
     </Loadable>
+    </>
   )
 }

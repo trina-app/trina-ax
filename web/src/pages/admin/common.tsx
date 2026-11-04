@@ -4,7 +4,10 @@ import { useCallback, useEffect, useLayoutEffect, useRef, useState, type ReactNo
 import { errorText } from '../../lib/api'
 import { useLocale, useT } from '../../i18n'
 import { toast } from '../../store/ui'
-import { Button, ErrorNote, Field, Modal, Skeleton, inputCls } from '../../components/ui'
+import { Button, ErrorNote, Field, Modal, Skeleton, StickyHeader, inputCls } from '../../components/ui'
+
+/** AI engines › Team provider settings, scrolled to Usage limits (Engines.tsx reads focus=limits). */
+export const USAGE_LIMITS_LINK = '/admin/engines?tab=team&focus=limits'
 
 export function useLoad<T>(fn: () => Promise<T>, deps: unknown[] = []) {
   const t = useT()
@@ -114,19 +117,45 @@ export function useOneAtATime<K>() {
   return { busy, run }
 }
 
-/** headingRef: the title takes the focus (tabIndex -1) when a list has no row left to focus, see useFocusAfterRemove */
-export function Card({ title, actions, children, desc, headingRef }: { title: ReactNode; actions?: ReactNode; children: ReactNode; desc?: ReactNode; headingRef?: Ref<HTMLHeadingElement> }) {
+/**
+ * The one page header of every admin page: the page title, then (optional) tabs or filters next to it, the page's own
+ * buttons on the right, and one line on what the page is for. It stays at the top while the page scrolls. The cards
+ * go under it. Engines, Usage and Activity log started this pattern; the other pages use it too now, so all admin
+ * pages look the same.
+ */
+export function AdminPageHeader({ title, desc, actions, children, testId, className, still }: { title: ReactNode; desc?: ReactNode; actions?: ReactNode; children?: ReactNode; testId?: string; className?: string; still?: boolean }) {
+  const body = (
+    <>
+      <div className="flex flex-wrap items-center gap-x-4 gap-y-3">
+        <h2 className="text-lg font-semibold tracking-tight">{title}</h2>
+        {children}
+        {actions && <div className="ml-auto flex flex-wrap items-center gap-2">{actions}</div>}
+      </div>
+      {desc && <OneLine className="mt-1 text-xs text-muted" twoOnPhone>{desc}</OneLine>}
+    </>
+  )
+  // still: the header scrolls away with the page, for a page with a sticky part of its own (Folder permissions' detail)
+  if (still) return <div className={clsx('mb-3 pb-3', className)} data-testid={testId}>{body}</div>
+  return <StickyHeader className={clsx('-mt-3 mb-3 py-3', className)} testId={testId}>{body}</StickyHeader>
+}
+
+/** headingRef: the title takes the focus (tabIndex -1) when a list has no row left to focus, see useFocusAfterRemove.
+ * No title, no line and no buttons: the card has no header row (the page header above names it). */
+export function Card({ title, actions, children, desc, headingRef, testId }: { title?: ReactNode; actions?: ReactNode; children: ReactNode; desc?: ReactNode; headingRef?: Ref<HTMLHeadingElement>; testId?: string }) {
+  const head = title || desc || actions
   return (
-    <section className="mb-6 rounded-2xl border border-line bg-surface">
-      <header className="flex flex-wrap items-center gap-2 border-b border-line px-4 py-3">
-        {/* a phone: the title and its line take the whole row and the buttons go under them, so the line is not cut
-            to a few words */}
-        <div className="min-w-0 flex-1 max-sm:basis-full">
-          <h2 ref={headingRef} tabIndex={headingRef ? -1 : undefined} className="text-sm font-semibold">{title}</h2>
-          {desc && <OneLine className="mt-0.5 text-xs text-muted" twoOnPhone>{desc}</OneLine>}
-        </div>
-        {actions}
-      </header>
+    <section className="mb-6 rounded-2xl border border-line bg-surface" data-testid={testId}>
+      {head && (
+        <header className="flex flex-wrap items-center gap-2 border-b border-line px-4 py-3">
+          {/* a phone: the title and its line take the whole row and the buttons go under them, so the line is not cut
+              to a few words */}
+          <div className="min-w-0 flex-1 max-sm:basis-full">
+            {title && <h2 ref={headingRef} tabIndex={headingRef ? -1 : undefined} className="text-sm font-semibold">{title}</h2>}
+            {desc && <OneLine className="mt-0.5 text-xs text-muted" twoOnPhone>{desc}</OneLine>}
+          </div>
+          {actions}
+        </header>
+      )}
       <div className="p-4">{children}</div>
     </section>
   )
