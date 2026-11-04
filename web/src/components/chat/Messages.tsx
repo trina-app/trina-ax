@@ -21,6 +21,8 @@ import { useChats, useQueuePosition } from '../../store/chats'
 import type { ViewMessage } from '../../store/thread'
 import { TYPE_LABEL } from '../artifactLabels'
 import { Markdown } from '../Markdown'
+import AiAccessButton from './AiAccessButton'
+import { isNoAiReason } from '../../lib/aiAccess'
 import { Button, CopyButton, IconButton, inputCls } from '../ui'
 import AskCard from './AskCard'
 import ConnectCard from './ConnectCard'
@@ -357,6 +359,7 @@ export function AssistantMessage({
             <span className="min-w-0 flex-[1_1_12rem] py-1 leading-6">{errText ?? t('chat.answerFailed')}</span>
             {isLast && (
               <span className="ml-auto flex flex-wrap justify-end gap-2">
+                {isNoAiReason(reason) && <AiAccessButton />}
                 <Button size="sm" variant="secondary" disabled={busy} onClick={() => onRegenerate(m)} data-testid="retry">
                   <RotateCcw size={13} aria-hidden /> {t('common.retry')}
                 </Button>

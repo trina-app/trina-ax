@@ -9,16 +9,18 @@ export const PushEventType = z.enum(['schedule.success', 'schedule.failure', 'co
 export type PushEventType = z.infer<typeof PushEventType>
 /** Skill suggestion notices are inbox only (table skill_notices), and so are dev environment notices (dev_env_notices)
  * and an admin's request to connect a service as one's own connection (integration_request_notices). */
-export const NotificationEventType = z.enum([...PushEventType.options, 'skill.suggested', 'skill.reviewed', 'dev_env.job', 'dev_env.box', 'integration.request'])
+export const NotificationEventType = z.enum([...PushEventType.options, 'skill.suggested', 'skill.reviewed', 'dev_env.job', 'dev_env.box', 'integration.request', 'onboarding.ai_request'])
 export type NotificationEventType = z.infer<typeof NotificationEventType>
 export const InboxNotification = z.object({
   id: z.string(), eventType: NotificationEventType, sourceId: z.string(), code: NotificationEventType,
-  createdAt: z.string(), readAt: z.string().nullable(), chatId: z.string().nullable(), link: z.enum(['chat', 'connections', 'skills', 'project', 'integrations']).nullable(),
+  createdAt: z.string(), readAt: z.string().nullable(), chatId: z.string().nullable(), link: z.enum(['chat', 'connections', 'skills', 'project', 'integrations', 'admin_credentials']).nullable(),
   /** scheduled runs only: succeeded / finished with problems / failed (the inbox text follows it; older servers omit it) */
   outcome: ScheduleRunOutcome.nullable().optional(),
   /** 'integration.request' only, while the request is there: the service's name and the host of its address (where the
    * member's key or sign-in would go); older servers omit it */
   request: z.object({ name: z.string(), host: z.string() }).optional(),
+  /** 'onboarding.ai_request' only (owners): the member who asks for an AI connection, by display name; older servers omit it */
+  requester: z.object({ name: z.string() }).optional(),
   /** 'schedule.failure' only: scheduled tasks nobody confirmed were paused until their owner checks them again
    * (Settings › Scheduled tasks, "다시 확인"); older servers omit it */
   review: z.boolean().optional(),

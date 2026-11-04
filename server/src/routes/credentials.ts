@@ -18,6 +18,8 @@ import {
 import { credentialsOf } from '../credentials/store'
 import { ct } from '../credentials/i18n'
 import { engineStatusCache } from '../admin/engines'
+import { aiAccessFor } from '../credentials/access'
+import { notificationsOf } from '../notifications/service'
 import { getChatRuntime } from '../chat/runtime'
 
 /** open composers ask GET /api/engines again (an engine may have gained or lost its last connection) */
@@ -76,6 +78,24 @@ export function registerCredentialRoutes(kit: RouteKit, ctx: AppContext) {
   // ---------------- one's own connections ----------------
   const ownAllowed = (locale: Locale) => { if (!memberOwnAllowed(ctx.db)) fail('forbidden', ct('memberOwnOff', locale)) }
   kit.handle(API.myCredentials, ({ c, auth }) => ({ allowed: memberOwnAllowed(ctx.db), allowedKinds: [...cc().allowedKinds], items: myCredentials(cc(), auth.user.id, loc(c)), anthropicGateway: gateway() }))
+  // onboarding: the person's way out of "no AI" (credentials/access.ts aiAccessFor) and the one request to the owner(s)
+  const accessOf = (auth: { user: { id: string; role: string } }) => {
+    const person = { id: auth.user.id, role: auth.user.role }
+    return { person, ...aiAccessFor(ctx, person, memberOwnAllowed(ctx.db)) }
+  }
+  kit.handle(API.getAiAccess, ({ auth }) => {
+    const { usable, action } = accessOf(auth)
+    return { usable, action, requested: notificationsOf(ctx).aiRequested(auth.user.id) }
+  })
+  kit.handle(API.requestAiAccess, ({ c, auth }) => {
+    const { person, usable } = accessOf(auth)
+    if (person.role === 'owner' || usable) fail('forbidden', ct('aiRequestNotNeeded', loc(c)))
+    const n = notificationsOf(ctx)
+    if (n.aiRequested(person.id)) return { requested: true as const, already: true }
+    const owners = ctx.db.query("SELECT id FROM users WHERE role='owner' AND status='active' AND deleted_at IS NULL").all() as { id: string }[]
+    for (const o of owners) n.onboardingAiRequest(o.id, person.id)
+    return { requested: true as const, already: false }
+  })
   kit.handle(API.createMyCredential, async ({ c, body, auth }) => {
     ownAllowed(loc(c))
     const secret = await unsealOrFail(cc(), body.sealed, 'credential.create', loc(c))

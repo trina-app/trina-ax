@@ -10,6 +10,7 @@ import { Emitter } from '../lib/emitter'
 import { defaultWsBase, RealtimeClient, type ConnState } from '../lib/realtime'
 import { t } from '../i18n'
 import { useChats } from './chats'
+import { useAiAccess } from './aiAccess'
 import { useEngines } from './engines'
 import { useJobs } from './jobs'
 import { useSession } from './session'
@@ -81,6 +82,8 @@ export function dispatch(ev: ServerEvent) {
         // the admin changed who may pick the engine or which engines are on: show / hide the picker without a reload
         void useSession.getState().refreshMe()
         void useEngines.getState().load(true)
+        // an AI connection was added or lost: the "no AI" banner follows
+        void useAiAccess.getState().load(true)
         return
       }
       if (ev.data.code === 'browser_policy_changed') {

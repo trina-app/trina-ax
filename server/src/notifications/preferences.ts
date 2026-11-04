@@ -21,5 +21,7 @@ export function eventEnabled(p: NotificationPreferences, event: NotificationEven
     case 'dev_env.job': case 'dev_env.box': return true
     // an admin waits for the answer (shown always, Notifications.integrationRequest)
     case 'integration.request': return true
+    // a member without AI asks the owner (shown always: the member cannot work until it is answered)
+    case 'onboarding.ai_request': return true
   }
 }

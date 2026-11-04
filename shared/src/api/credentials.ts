@@ -121,7 +121,14 @@ export const MyCredentialsResponse = z.object({ allowed: z.boolean(), allowedKin
 export const CreateMyCredentialBody = CreateCredentialBody.omit({ assignments: true, priority: true, moveFrom: true, password: true })
 export const StartMyLoginBody = StartCredentialLoginBody.omit({ assignments: true, priority: true, password: true })
 
+/** Stream A (onboarding): can I use AI now, and what can I do if not. `requested`: I already asked the owner. */
+export const AiAccessResponse = z.object({ usable: z.boolean(), action: z.enum(['connect_team', 'connect_own', 'ask_owner']), requested: z.boolean() })
+export type AiAccessResponse = z.infer<typeof AiAccessResponse>
+export const AiAccessRequestResponse = z.object({ requested: z.literal(true), already: z.boolean() })
+
 export const CREDENTIALS = {
+  getAiAccess: endpoint({ method: 'GET', path: '/api/me/ai-access', auth: 'user', owner: 'A', response: AiAccessResponse, summary: 'Can I use AI now, which button fits me (connect for the team / connect my own / ask the owner), and did I already ask.' }),
+  requestAiAccess: endpoint({ method: 'POST', path: '/api/me/ai-access/request', auth: 'user', owner: 'A', response: AiAccessRequestResponse, summary: 'Tell the owner(s) I have no AI connection: one inbox notice per owner, a second ask changes nothing. Not for the owner, nor for someone who can use AI.' }),
   listCredentials: endpoint({ method: 'GET', path: '/api/admin/credentials', auth: 'admin', owner: 'A', response: CredentialsResponse, summary: 'AI connections of the team (and that members have their own), with state and this month\'s use. Never a secret.' }),
   createCredential: endpoint({ method: 'POST', path: '/api/admin/credentials', auth: 'owner-reauth', owner: 'A', status: 201, body: CreateCredentialBody, response: Credential, summary: 'Add a Claude subscription token or an API key (sealed in the browser); checked without spending tokens. Already connected: 409 saying where (DuplicateCredentialParams); with moveFrom, a member\'s personal copy moves to the team.' }),
   updateCredential: endpoint({ method: 'PATCH', path: '/api/admin/credentials/:id', auth: 'owner', owner: 'A', body: UpdateCredentialBody, response: Credential, summary: 'Rename, order, switch off, assign to groups / people, monthly limit.' }),
