@@ -333,3 +333,10 @@ Source change from potenlab/team-ax branch `feat/sidebar-account-settings` (on t
 - Taken as they are: `web/src/components/settings/SettingsDialog.tsx`, `web/src/pages/settingsTabs.ts` (sections in groups), `useSettingsOverlay` in `web/src/App.tsx` (Settings over the page it was opened from), the `SettingsPane` and `Row` of `web/src/pages/Settings.tsx`, the sidebar's sizes and `AccountMenu` in `web/src/components/Sidebar.tsx`, the 280 px column in `Layout.tsx` and `web/test/e2e/account-settings.spec.ts`.
 - Here the dialog gives the keyboard back through this repository's `useFocusTrap(…, returnTo)` and `menuOpener`; core, whose trap has no `returnTo`, does it in the dialog itself.
 - Only here: the new strings in Spanish and Japanese.
+
+## 2026-11-04 Search like Claude's
+
+Source change from potenlab/team-ax branch `feat/search-palette` (on top of `feat/sidebar-account-settings`, not yet on core main), ported by hand. No core history was imported.
+
+- Taken as they are: the palette in `web/src/components/SearchDialog.tsx` (type tabs, Needs attention, Recents, Actions, keys and hints), `?new=1` on Projects and `?add=1` on MCP (`Projects.tsx`, `Integrations.tsx`), and `web/test/e2e/search-palette.spec.ts`.
+- Only here: the Files tab and row (this repository's file content search, still started only by choosing that row), a chat row's menu with rename and delete (`chat/chatActions.ts`, ⌥↵ / Alt+Enter), scheduled tasks to confirm again under Needs attention (`needsReview`), and the strings in Spanish and Japanese.
