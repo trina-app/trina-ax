@@ -30,7 +30,9 @@ test.describe('first-run setup in an English browser', () => {
     await page.goto('/')
     await expect(page.getByRole('heading', { name: /Kim Owner님/ })).toBeVisible()
     await expect(page.getByTestId('welcome-resume')).toContainText('시작 설정 이어하기 (0/3)')
-    await expect(page.getByTestId('owner-checklist')).toBeVisible()
+    // one thing at the top of Home: the setup checklist is on Admin › Home, with what is still to do
+    await expect(page.getByTestId('owner-checklist')).toHaveCount(0)
+    await page.goto('/admin')
     // the starting folder rules come with every team: "set folder permissions" is still to do
     await expect(page.getByTestId('owner-checklist').getByRole('link', { name: '할 일 폴더 권한 정하기' })).toBeVisible()
     // the owner has no language of their own: "team default (한국어)" is the chosen one

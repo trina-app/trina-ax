@@ -308,6 +308,34 @@ test('the HWP plugin to-do shows with a button to the plugin, and "not needed" k
   await expect(page.getByTestId('attention-after-hwp-plugin')).toHaveCount(0)
 })
 
+// Y — Home shows one thing at a time: the owner's setup checklist moved here from the chat Home, finished steps hidden
+test('the owner\'s setup steps still to do are on Admin Home (not on Home); hidden once dismissed; admins never see them', async ({ page }) => {
+  await start(page)
+  await expect(page.getByTestId('composer-input')).toBeVisible()
+  await expect(page.getByTestId('owner-checklist')).toHaveCount(0)
+  await page.goto('/admin')
+  const list = page.getByTestId('owner-checklist')
+  await expect(list.getByRole('heading', { name: t['owner.check.title'] })).toBeVisible()
+  // the mock's Claude Code works and the team has members: those steps are done, so they are not listed
+  await expect(list.getByRole('link')).not.toHaveCount(0)
+  await expect(list.getByText(t['owner.check.engine'])).toHaveCount(0)
+  await expect(list.getByText(t['owner.check.members'])).toHaveCount(0)
+  for (const link of await list.getByRole('link').all()) await expect(link).toHaveAccessibleName(new RegExp(`^${t['common.todo']} `))
+  await list.getByTestId('owner-checklist-hide').click()
+  await expect(list).toHaveCount(0)
+  await page.reload()
+  await expect(page.getByTestId('admin-home-members')).toBeVisible()
+  await expect(page.getByTestId('owner-checklist')).toHaveCount(0)
+  // an admin who is not the owner
+  expect((await page.request.patch('/api/admin/users/bob', { headers: { [CSRF_HEADER]: '1' }, data: { role: 'admin' } })).ok()).toBe(true)
+  await page.evaluate(() => localStorage.clear())
+  await page.context().clearCookies()
+  await signIn(page, { username: 'bob', password: 'bob password 1' })
+  await page.goto('/admin')
+  await expect(page.getByTestId('admin-home-members')).toBeVisible()
+  await expect(page.getByTestId('owner-checklist')).toHaveCount(0)
+})
+
 test('an admin who is not the owner does not ask for the update status', async ({ page }) => {
   await start(page)
   expect((await page.request.patch('/api/admin/users/bob', { headers: { [CSRF_HEADER]: '1' }, data: { role: 'admin' } })).ok()).toBe(true)

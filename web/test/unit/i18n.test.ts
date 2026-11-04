@@ -169,8 +169,9 @@ describe('translations', () => {
   test('no Korean screen text outside the Korean dictionary (comments aside)', () => {
     const src = path.resolve(import.meta.dir, '../../src')
     // the one place that must recognise a Korean file name: conflict copies made by a Korean team ("충돌 사본")
-    // and the Korean object particle after a skill's name (을 / 를: grammar, not text; lib/teamGoal.ts objectParticle)
-    const allowed: Record<string, RegExp> = { 'lib/paths.ts': /충돌 사본\|conflict copy\|salinan konflik/, 'lib/teamGoal.ts': /^[^\uAC00-\uD7A3]*(?:[을를][^\uAC00-\uD7A3]*)+$/ }
+    // and the Korean object and topic particles after a skill's name (을 / 를, 은 / 는: grammar, not text;
+    // lib/teamGoal.ts objectParticle, topicParticle)
+    const allowed: Record<string, RegExp> = { 'lib/paths.ts': /충돌 사본\|conflict copy\|salinan konflik/, 'lib/teamGoal.ts': /^[^\uAC00-\uD7A3]*(?:[을를은는][^\uAC00-\uD7A3]*)+$/ }
     const files = fs.readdirSync(src, { recursive: true }).map(String).filter((f) => /\.tsx?$/.test(f) && f !== path.join('i18n', 'ko.ts'))
     for (const f of files) {
       const lines = stripComments(fs.readFileSync(path.join(src, f), 'utf8')).split('\n')

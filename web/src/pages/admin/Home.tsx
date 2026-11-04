@@ -2,7 +2,8 @@
 // AI connection or a service to sign in again, a disk filling up, a failed server check), then one card per area with
 // its state in a few words, each opening its page. It reads only what the admin pages already read, with the same
 // ranges (Usage: the last 30 days, as Admin > Usage opens); an area that cannot be read says so on its card and the
-// others still show. Diagnostics are the owner's (Admin > System), so only the owner's Home asks for them.
+// others still show. Diagnostics are the owner's (Admin > System), so only the owner's Home asks for them. The owner
+// also gets the setup steps still to do (OwnerChecklist; it was on the chat Home before).
 import { Activity, AlertTriangle, Cable, CheckCircle2, ChevronRight, Cpu, Gauge, KeyRound, Lock, Puzzle, ScrollText, Users, type LucideIcon } from 'lucide-react'
 import type { ReactNode } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
@@ -16,6 +17,7 @@ import { Badge, Button } from '../../components/ui'
 import { actionLabel } from './Audit'
 import { useAction, useLoad } from './common'
 import { JobLine, useUpdateInstall } from './jobs'
+import { OwnerChecklist } from './OwnerChecklist'
 
 /** AI connection states an admin should act on (a member's own connection is theirs to fix, so team ones only) */
 const CREDENTIAL_PROBLEMS: CredentialState[] = ['expiring', 'expired', 'invalid', 'needs_reconnect', 'over_limit']
@@ -177,6 +179,8 @@ export default function Home() {
           )}
         </section>
       )}
+
+      {owner && <OwnerChecklist />}
 
       <section aria-labelledby="admin-home-areas">
         <h2 id="admin-home-areas" className="mb-2 text-sm font-semibold">

@@ -7292,3 +7292,51 @@ The UX pass on the onboarding (A–E, W, G) for Korean marketers. Placement: Tea
   "/" menu finds a title, one primary, no frames, the checklist with an active, expired, used-up or no link),
   `team-link-skill-form.test.tsx` (join page and dialog by title). Screens checked at 390px (dark and light) and 1280px
   against the mock.
+
+## Y — Home shows one thing at a time (feat/onboarding-y, 2026-11-04)
+
+The lean onboarding pass (the owner: "또 너무 많은 버튼을 보여주는건 오바 아냐?"): one primary action per screen, every
+addition removes something. Placement: Team AX core (Home, Admin › Home, the goal endpoint).
+
+- **The top of Home is one card for owners and admins.** While the welcome steps are unfinished (started, neither
+  finished nor hidden) the owner sees only "시작 설정 이어하기 (n/2)" (its progress dots and its second sentence
+  removed; the count is read through `lib/welcome.ts`'s `doneCount`, so the steps decide how many there are); after
+  that, or for an admin, only the goal card. The owner's Home waits for the steps' progress before it shows either,
+  so the goal card never flashes first; a failed read counts as "nothing to continue".
+- **The goal card is a title, one line and one button** (`web/src/components/onboarding/GoalCard.tsx`,
+  `web/src/lib/teamGoal.ts`): "7일 안에 3명이 같은 스킬 써 보기 · 1/3 · 5일 남음", then in this order:
+  someone joined and has not run the skill → "민지님이 들어왔지만 '광고 문구'는 아직이에요." (several: "민지님 외 2명이…")
+  with [다시 보내기], which copies "민지님, '광고 문구' 한 번 눌러 보세요: <team address>/skills?run=<path>" (the skill
+  form for a signed-in member; to several people without a name); one more person → "한 명만 더 쓰면 달성이에요.";
+  nobody joined → "아직 아무도 안 들어왔어요."; otherwise "n명 더 쓰면 달성이에요." Those three have [초대 문구 복사] (the
+  team link's message) or [팀원 초대] while no link works. Removed: the three-segment bar, the line of who ran it,
+  the second button. Reached: "달성했어요 · 민지·지훈·Olga", hidden once dismissed (as before). The skill named is the
+  top skill, else the team link's skill, else "팀 스킬". The team's address is the team link's origin (an office's
+  public address), else the page's. The Korean topic particle follows the name (은/는, as 을/를 already did).
+- **New visibility, recorded on purpose (it changes G's "never a hasn't-run list").** `GET /api/onboarding/goal` now
+  also says, while the goal is open (in the window and not reached), `joined` (how many joined: accounts after the
+  team's first one, still there, active, that signed in at least once; an account made for someone who never came
+  in has not joined) and `waiting` (of those, the viewer left out, the ones who have not run the top skill in the
+  window, or any team skill while there is none): **the first to join by name, the rest only as a count**. Why: the
+  leader's next step is a nudge to a person, and "who has joined but not tried it" is what makes the nudge possible;
+  a full list would read as a performance board, so it stays one name. Limits: owners and admins only (the
+  endpoint's auth), only during the 7-day window while the goal is open, never after it or in the "reached" time,
+  never in the operator's counts. Both fields are optional (`TeamGoal` is not strict), so an older reader ignores them.
+- **The owner checklist moved to Admin › Home** for every install, hosted and self-installed
+  (`web/src/pages/admin/OwnerChecklist.tsx`): only the steps still to do are listed (done steps are not shown
+  struck through), the section goes once all are done or the owner hides it (the same browser key as before). Its
+  "AI 엔진에서…" sentence and its "아직 AI를 못 써요" line are gone: Admin › Home's own attention list already names
+  the people without AI. On Home it no longer shows, so the hosted/self-installed split of G is gone.
+- **「자주 쓰는 스킬」 on Home** waits until two or more different skills were used in the last 30 days (one used skill
+  is not a choice yet), and its subtitle is gone on Home (the title heads the rows).
+- **i18n:** removed `goal.ranBy`, `goal.none`, `goal.reachedBody`, `owner.check.filesReady`, `owner.check.noAi`,
+  `home.popularSkillsHint`; added one block (`goal.nobody` … `home.setupResume`) in the five languages.
+  `welcome.resume.title` / `welcome.resume.desc` are no longer read (left for the welcome stream's merge).
+- Tests: `tests/unit/b-onboarding-goal.test.ts` (joined and waiting: everyone before any run, the viewer never named,
+  another skill still waits, one name only, never-signed-in and deleted accounts, nobody joined; nothing when reached
+  or after the window), `web/test/unit/goal-card.test.tsx` (the particles, the line's order and words, the nudge and
+  its link, one button per state, reached, English; the top of Home: the steps' row alone while unfinished, the card
+  after finished, hidden or never started and for admins, nothing without a goal), `popular-skills.test.tsx` (no
+  subtitle on Home, two skills needed), `onboarding-polish.test.tsx` (a done step is not listed), e2e `admin-home`
+  (the checklist on Admin Home only, done steps hidden, dismissed after a reload, never for an admin) and `auth`
+  (a new owner's Home has no checklist; Admin Home has it).
