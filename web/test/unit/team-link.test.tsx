@@ -102,6 +102,8 @@ describe('the panel (Admin › Members, the wizard)', () => {
       expect(html).toContain(translate('en', key).replace(/'/g, '&#x27;'))
       expect(html).toContain('data-testid="team-link-form"')
       expect(html).not.toContain('data-testid="team-link-url"')
+      // it can be turned off for good from here (a stopped link would work again if its maker got the right back)
+      expect(html).toContain('data-testid="team-link-revoke"')
     }
   })
 })
@@ -217,9 +219,23 @@ describe('on screen', () => {
     }
   })
 
+  test('changing a link without a skill picker (the wizard) keeps its skill; the picker\'s choice wins where there is one', async () => {
+    const made: unknown[] = []
+    for (const [skills, want] of [[null, 'skills/marketing/ad-copy/SKILL.md'], [[{ path: 'skills/marketing/ad-copy/SKILL.md', name: 'ad-copy', description: '' }], 'skills/marketing/ad-copy/SKILL.md']] as const) {
+      made.length = 0
+      const m = await mount(<TeamLinkView data={LINK} inviter="Olga" groups={[]} skills={skills as never} busy={false} onCreate={(b) => made.push(b)} onRevoke={noop} />)
+      try {
+        await m.click('team-link-replace')
+        await m.click('team-link-create')
+        expect(made).toEqual([{ groupIds: [], expiresInDays: 14, skillPath: want }])
+      } finally { await m.unmount() }
+    }
+  })
+
   test('InviteStep: makes the link in one press, shows the message; "later" asks softly first', async () => {
     let link: TeamLinkResponse = { link: null, seats: { used: 1, limit: null } }
     routes = {
+      'GET /api/admin/groups': () => json(200, { items: [] }),
       'GET /api/admin/team-link': () => json(200, link),
       'POST /api/admin/team-link': () => { link = { ...LINK, link: { ...LINK.link!, skill: null, uses: 0, maxUses: 20 }, seats: { used: 1, limit: null } }; return json(201, link) },
     }

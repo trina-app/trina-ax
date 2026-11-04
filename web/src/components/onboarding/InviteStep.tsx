@@ -24,7 +24,7 @@ export function InviteStep({ onDone, onSkip, skillPath }: InviteStepProps) {
         <h2 className="text-lg font-semibold">{t('teamLink.stepTitle')}</h2>
         <p className="mt-1 text-sm text-muted">{t('teamLink.stepDesc')}</p>
       </div>
-      <TeamLinkPanel withGroups={false} skillPath={skillPath ?? null} />
+      <TeamLinkPanel skillPicker={false} skillPath={skillPath} />
       <div className="flex flex-wrap justify-end gap-2 border-t border-line pt-4">
         {onSkip && (
           <Button variant="ghost" onClick={() => setAsking(true)} data-testid="invite-step-skip">

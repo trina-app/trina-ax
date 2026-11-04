@@ -186,16 +186,28 @@ export function createTeamLink(c: Context<AppEnv>, ctx: AppContext, b: z.output<
   return getTeamLink(c, ctx)
 }
 
-/** DELETE /api/admin/team-link: the link stops working for good; its sealed token is wiped (a new link gets a new one). */
+/** DELETE /api/admin/team-link: the open link, whatever its state, stops working for good; its sealed token is wiped
+ * (a new link gets a new one). Read and changed in one write: a link another admin makes at the same moment stays. */
 export function revokeTeamLink(c: Context<AppEnv>, ctx: AppContext): void {
   const auth = c.get('auth')!
-  const r = openRow(ctx.db)
-  if (!r) fail('not_found')
   const at = new Date(authOf(ctx).now()).toISOString()
-  ctx.db.transaction(() => {
-    ctx.db.query('UPDATE team_links SET revoked_at = ?, revoked_by = ?, token_enc = NULL WHERE id = ? AND revoked_at IS NULL').run(at, auth.user.id, r!.id)
-    audit(ctx.db, { actor: auth.user.id, action: 'team_link.revoke', target: r!.id, detail: { uses: r!.uses, maxUses: r!.max_uses } })
-  })()
+  const done = ctx.db.transaction(() => {
+    const r = openRow(ctx.db)
+    if (!r) return false
+    ctx.db.query('UPDATE team_links SET revoked_at = ?, revoked_by = ?, token_enc = NULL WHERE id = ? AND revoked_at IS NULL').run(at, auth.user.id, r.id)
+    audit(ctx.db, { actor: auth.user.id, action: 'team_link.revoke', target: r.id, detail: { uses: r.uses, maxUses: r.max_uses } })
+    return true
+  }).immediate()
+  if (!done) fail('not_found')
+}
+
+/**
+ * The open link made by someone who can no longer invite (disabled, deleted, no longer an admin) stops for good, like
+ * their invites (admin/users.ts revokeInvitesBy). The check at every use is the second line: without this, enabling
+ * the person again would bring back a link they had posted in a chat.
+ */
+export function revokeTeamLinksBy(ctx: AppContext, userId: string): number {
+  return ctx.db.query('UPDATE team_links SET revoked_at = ?, token_enc = NULL WHERE created_by = ? AND revoked_at IS NULL').run(new Date().toISOString(), userId).changes
 }
 
 /** Unknown tokens count against the caller's IP, like invite and reset tokens (accounts.ts). */
@@ -227,8 +239,8 @@ export async function joinTeamLink(c: Context<AppEnv>, ctx: AppContext, b: z.out
   const guard = tokenGuard(ctx, info.ip)
   const r = rowByToken(ctx.db, b.token)
   if (!r) { guard.fail(); return fail('not_found') }
-  // every attempt through this link counts (right or wrong, from anywhere), before the slow password hash, so a link
-  // posted in a big chat cannot be used to hammer the server or to try usernames
+  // every attempt through this link counts from anywhere, before the slow password hash, so a link posted in a big
+  // chat cannot be used to hammer the server or to try usernames; only a join that worked is taken back below
   const hold = a.limiter.hold([linkKey(r.id)])
   if (hold.wait > 0) {
     if (a.firstInMinute(`rl-link:${r.id}`)) audit(ctx.db, { actor: null, action: 'team_link.rate_limited', target: r.id, detail: { ip: info.ip, via: viaOf(info) } })
@@ -267,6 +279,9 @@ export async function joinTeamLink(c: Context<AppEnv>, ctx: AppContext, b: z.out
   }
   if (result! === 'full') fail('plan_limit', say('full', locale), { params: { reason: 'seat_limit', limit: seatLimit() ?? 0 } })
   if (result! !== 'ok') fail('gone', problemText(result!, locale), { params: { reason: result! } })
+  // a join that worked does not count toward the link's limit (its uses cap those): a big team joining at once is not
+  // turned away, only failed and refused attempts add up
+  hold.release()
   ensurePersonalFolder(ctx.files.fx.root, id)
   // the owners hear about every join, and so does the admin who made the link
   const owners = (ctx.db.query("SELECT id FROM users WHERE role = 'owner' AND status = 'active' AND deleted_at IS NULL").all() as { id: string }[]).map((u) => u.id)

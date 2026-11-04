@@ -142,12 +142,13 @@ describe('joining', () => {
     expect((await owner.call('GET', '/api/admin/team-link')).link.uses).toBe(0)
   })
 
-  test('max uses: the last use is the last join; then "used up"', async () => {
+  test('max uses: the last use is the last join, also with more joins at once than uses; then "used up"', async () => {
     const { link } = await owner.call('POST', '/api/admin/team-link', { maxUses: 2 })
     const t = tokenOf(link.url)
-    // two at once for the last two uses, then one more
-    const both = await Promise.all([join(t), join(t)])
-    expect(both.map((x) => x.status)).toEqual([201, 201])
+    // three at once for two uses: exactly two get in
+    const all = await Promise.all([join(t), join(t), join(t)])
+    expect(all.map((x) => x.status).sort()).toEqual([201, 201, 410])
+    expect(all.find((x) => x.status === 410)!.body.error.params.reason).toBe('used_up')
     const third = await join(t)
     expect(third.status).toBe(410)
     expect(third.body.error.params.reason).toBe('used_up')
@@ -182,13 +183,56 @@ describe('joining', () => {
     expect((await join(tokenOf(other.url), {}, h.client({ ip: '10.7.0.10' }))).status).toBe(201)
   })
 
-  test('the link stops when its maker can no longer invite', async () => {
+  test('per-link rate limit: joins that work do not count, so a big team joining at once is not turned away', async () => {
+    h.auth.limiter.limits = { ...DEFAULT_LIMITS, perLink: 3 }
+    const { link } = await owner.call('POST', '/api/admin/team-link', {})
+    const t = tokenOf(link.url)
+    for (let i = 0; i < 6; i++) expect((await join(t, {}, h.client({ ip: `10.6.0.${i + 1}` }))).status).toBe(201)
+    expect((await owner.call('GET', '/api/admin/team-link')).link.uses).toBe(6)
+  })
+
+  test('the link ends for good when its maker can no longer invite; enabling them again does not bring it back', async () => {
     const ex = await addMember(h, owner, { username: 'ezra', role: 'admin' })
     const { link } = await ex.client.call('POST', '/api/admin/team-link', {})
-    await owner.call('PATCH', `/api/admin/users/${ex.id}`, { role: 'member' })
+    await owner.call('PATCH', `/api/admin/users/${ex.id}`, { status: 'disabled' })
+    expect((await info(tokenOf(link.url))).body).toMatchObject({ valid: false, problem: 'revoked' })
+    expect((await owner.call('GET', '/api/admin/team-link')).link).toBeNull()
+    await owner.call('PATCH', `/api/admin/users/${ex.id}`, { status: 'active' })
+    expect((await info(tokenOf(link.url))).body).toMatchObject({ valid: false, problem: 'revoked' })
+    expect((await join(tokenOf(link.url))).status).toBe(410)
+    // demoted to member: the same
+    const ivy = await addMember(h, owner, { username: 'ivo', role: 'admin' })
+    const second = (await ivy.client.call('POST', '/api/admin/team-link', {})).link
+    await owner.call('PATCH', `/api/admin/users/${ivy.id}`, { role: 'member' })
+    expect((await info(tokenOf(second.url))).body.problem).toBe('revoked')
+  })
+
+  test('the check at every use: a maker who lost the right by another way stops the link ("stopped")', async () => {
+    const ex = await addMember(h, owner, { username: 'enzo', role: 'admin' })
+    const { link } = await ex.client.call('POST', '/api/admin/team-link', {})
+    // a change the admin screens never make (a damaged or edited database): the use-time check still holds
+    h.ctx.db.query("UPDATE users SET role = 'member' WHERE id = ?").run(ex.id)
     expect((await info(tokenOf(link.url))).body).toMatchObject({ valid: false, problem: 'stopped' })
     expect((await join(tokenOf(link.url))).status).toBe(410)
     expect((await owner.call('GET', '/api/admin/team-link')).link.state).toBe('stopped')
+    // it can still be turned off for good from the card
+    await owner.call('DELETE', '/api/admin/team-link')
+    expect((await info(tokenOf(link.url))).body.problem).toBe('revoked')
+  })
+
+  test('a restored database copy brings no open link back: it is revoked like unused invites', async () => {
+    const { endSessions } = await import('../../server/src/system/backup')
+    const { Database } = await import('bun:sqlite')
+    const { link } = await owner.call('POST', '/api/admin/team-link', {})
+    const copy = path.join(path.dirname(h.ctx.config.dataDir), 'restore-copy.db')
+    fs.rmSync(copy, { force: true })
+    h.ctx.db.run(`VACUUM INTO '${copy}'`)
+    endSessions(copy)
+    const db = new Database(copy)
+    try {
+      expect(db.query('SELECT COUNT(*) AS n FROM team_links WHERE revoked_at IS NULL OR token_enc IS NOT NULL').get()).toEqual({ n: 0 })
+      expect(db.query('SELECT revoked_at IS NOT NULL AS r FROM team_links WHERE id = ?').get(link.id)).toEqual({ r: 1 })
+    } finally { db.close(); fs.rmSync(copy, { force: true }) }
   })
 
   test('the owners and the link\'s maker hear about every join (metadata only, the name while the account is there)', async () => {

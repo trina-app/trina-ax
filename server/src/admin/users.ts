@@ -20,6 +20,7 @@ import { audit } from './audit'
 import { afterAccessChange, captureState, resetEngineSessions } from './folders'
 import { stopTurnsOf } from '../chat/runtime'
 import { getTeamSettings, LOCALE_CHANGED } from './settings'
+import { revokeTeamLinksBy } from '../auth/team-links'
 
 type In<T extends z.ZodType> = z.output<T>
 
@@ -131,7 +132,7 @@ export function updateUser(c: Context<AppEnv>, ctx: AppContext, id: string, b: I
     stopTurnsOf(ctx, id)
     resetEngineSessions(ctx, id)
   }
-  if (changed.status === 'disabled' || changed.role === 'member') { revokeInvitesBy(ctx, id); revokeResetLinksBy(ctx, id) }
+  if (changed.status === 'disabled' || changed.role === 'member') { revokeInvitesBy(ctx, id); revokeResetLinksBy(ctx, id); revokeTeamLinksBy(ctx, id) }
   if (changed.role !== undefined || changed.groupIds !== undefined) afterAccessChange(ctx, before, { actor: auth.user.id, target: id })
   return toUser(ctx.db, getUser(ctx.db, id)!)
 }
@@ -214,6 +215,7 @@ export function deleteUser(c: Context<AppEnv>, ctx: AppContext, id: string, pers
   resetEngineSessions(ctx, id)
   revokeInvitesBy(ctx, id)
   revokeResetLinksBy(ctx, id)
+  revokeTeamLinksBy(ctx, id)
   // the account is gone either way; a folder that could not be handled stays where it is (only nobody sees it now)
   let movedTo: string | null = null
   let folderError: string | null = null

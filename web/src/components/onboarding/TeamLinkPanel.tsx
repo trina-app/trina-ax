@@ -14,13 +14,14 @@ import { Badge, Button, CopyButton, Field, confirmDialog, inputCls } from '../ui
 import { GroupChecks } from '../../pages/admin/people-choices'
 import { Card, Loadable, useAction, useActionOk, useLoad } from '../../pages/admin/common'
 
-/** The panel with its data: loads the link, makes and revokes it. `skillPath`: the wizard's skill (no picker then). */
-export function TeamLinkPanel({ withGroups = true, skillPath, onChange }: { withGroups?: boolean; skillPath?: string | null; onChange?: (r: TeamLinkResponse) => void }) {
+/** The panel with its data: loads the link, makes and revokes it. `skillPicker` false: no skill list (the wizard);
+ * `skillPath`: the wizard's skill for a new link (without one, a changed link keeps the skill it had). */
+export function TeamLinkPanel({ withGroups = true, skillPicker = true, skillPath, onChange }: { withGroups?: boolean; skillPicker?: boolean; skillPath?: string | null; onChange?: (r: TeamLinkResponse) => void }) {
   const me = useMe()
   const state = useLoad(() => api.call(API.getTeamLink))
   const groups = useLoad(async () => (withGroups ? (await api.call(API.listGroups)).items : []), [withGroups])
   // the picker lists the team skills the admin can read (skills/…, not their personal ones)
-  const skills = useLoad(async () => (skillPath === undefined ? (await api.call(API.listSkills)).items.filter((s) => s.path.startsWith('skills/')) : []), [skillPath])
+  const skills = useLoad(async () => (skillPicker ? (await api.call(API.listSkills)).items.filter((s) => s.path.startsWith('skills/')) : []), [skillPicker])
   const act = useAction()
   const actOk = useActionOk()
   const [busy, setBusy] = useState(false)
@@ -47,7 +48,7 @@ export function TeamLinkPanel({ withGroups = true, skillPath, onChange }: { with
           data={data}
           inviter={me?.user.name ?? ''}
           groups={groups.data ?? []}
-          skills={skillPath === undefined ? (skills.data ?? []) : null}
+          skills={skillPicker ? (skills.data ?? []) : null}
           fixedSkillPath={skillPath}
           busy={busy}
           onCreate={(b) => void create(b)}
@@ -63,7 +64,7 @@ export interface TeamLinkViewProps {
   /** the person copying the message: they are the one who sends it */
   inviter: string
   groups: Group[]
-  /** the skills to pick from; null: no picker (fixedSkillPath decides) */
+  /** the skills to pick from; null: no picker (fixedSkillPath, else the skill the link had) */
   skills: SkillInfo[] | null
   fixedSkillPath?: string | null
   busy: boolean
@@ -93,7 +94,13 @@ export function TeamLinkView({ data, inviter, groups, skills, fixedSkillPath, bu
     const stale = link && !editing ? STALE[link.url || link.state !== 'active' ? link.state : 'unreadable'] : null
     return (
       <div className="space-y-4">
-        {stale && <p className="rounded-lg bg-warn-soft px-3 py-2 text-sm text-warn" data-testid="team-link-stale">{t(stale)}</p>}
+        {stale && (
+          <div className="flex flex-wrap items-center gap-2 rounded-lg bg-warn-soft px-3 py-2" data-testid="team-link-stale">
+            <p className="min-w-0 flex-1 text-sm text-warn">{t(stale)}</p>
+            {/* a stopped link would work again if its maker got the right back: it can be turned off for good here */}
+            <RevokeButton busy={busy} onRevoke={onRevoke} />
+          </div>
+        )}
         <CreateForm
           key={link?.id ?? 'new'}
           initial={link ? { groupIds: link.groupIds, skillPath: link.skill?.path ?? null } : null}
@@ -160,19 +167,27 @@ export function TeamLinkView({ data, inviter, groups, skills, fixedSkillPath, bu
         <Button size="sm" variant="ghost" disabled={busy} onClick={() => setEditing(true)} data-testid="team-link-replace">
           <RefreshCw size={14} aria-hidden /> {t('teamLink.replace')}
         </Button>
-        <Button
-          size="sm"
-          variant="ghost-danger"
-          busy={busy}
-          data-testid="team-link-revoke"
-          onClick={async () => {
-            if (await confirmDialog({ title: t('teamLink.revokeTitle'), body: t('teamLink.revokeBody'), confirm: t('teamLink.revoke'), danger: true })) onRevoke()
-          }}
-        >
-          {t('teamLink.revoke')}
-        </Button>
+        <RevokeButton busy={busy} onRevoke={onRevoke} />
       </div>
     </div>
+  )
+}
+
+/** Turn the link off, after a confirm: the address already sent stops working for good. */
+function RevokeButton({ busy, onRevoke }: { busy: boolean; onRevoke: () => void }) {
+  const t = useT()
+  return (
+    <Button
+      size="sm"
+      variant="ghost-danger"
+      busy={busy}
+      data-testid="team-link-revoke"
+      onClick={async () => {
+        if (await confirmDialog({ title: t('teamLink.revokeTitle'), body: t('teamLink.revokeBody'), confirm: t('teamLink.revoke'), danger: true })) onRevoke()
+      }}
+    >
+      {t('teamLink.revoke')}
+    </Button>
   )
 }
 
@@ -189,7 +204,7 @@ function CreateForm({ initial, groups, skills, fixedSkillPath, seatsLeft, planLi
   const [uses, setUses] = useState('')
   const [days, setDays] = useState<number>(TEAM_LINK_DEFAULT_DAYS)
   const [skill, setSkill] = useState<string>(initial?.skillPath ?? '')
-  const max = planLimit ?? TEAM_LINK_MAX_USES
+  const max = Math.min(planLimit ?? TEAM_LINK_MAX_USES, TEAM_LINK_MAX_USES)
   const defaultUses = seatsLeft ?? TEAM_LINK_DEFAULT_USES
   const n = uses.trim() === '' ? null : Number(uses)
   const usesProblem = n !== null && (!Number.isInteger(n) || n < 1 || n > max) ? t('teamLink.usesRule', { max }) : null
@@ -198,7 +213,8 @@ function CreateForm({ initial, groups, skills, fixedSkillPath, seatsLeft, planLi
   const pickedSkill = skill && skills?.some((s) => s.path === skill) ? skill : ''
   const submit = () => {
     if (usesProblem || full) return
-    const skillPath = fixedSkillPath !== undefined ? fixedSkillPath : pickedSkill || null
+    // the wizard's skill; else the picker's; without a picker, the skill the link had
+    const skillPath = fixedSkillPath ? fixedSkillPath : skills ? pickedSkill || null : (initial?.skillPath ?? null)
     onCreate({ groupIds, expiresInDays: days as 7 | 14 | 30, ...(n !== null ? { maxUses: n } : {}), ...(skillPath ? { skillPath } : {}) })
   }
   return (
