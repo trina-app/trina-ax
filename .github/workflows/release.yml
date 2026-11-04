@@ -8,6 +8,10 @@
 #     publish     sign the Linux builds, office feed (publish.ts), server feed (publish-server.ts), SHA256SUMS + .sig
 #     github-release  the tag's GitHub Release with the kits, the office zip, the Windows installer and SHA256SUMS(.sig)
 #
+# The Linux server release does not wait for the desktop builds: when build-office or build-windows fails or gets no
+# runner, publish still runs (prepare, test and build-linux must pass), the office feed stays at the previous release,
+# and the GitHub Release says which downloads are missing. "Re-run failed jobs" later adds them (docs/RELEASE-CI.md 6).
+#
 # Secrets (repository secrets, set by the owner: docs/RELEASE-CI.md): RELEASE_SIGNING_KEY (the Ed25519 PEM) and
 # CLOUDFLARE_API_TOKEN. Only `prepare` (checks the key) and `publish` see them, only in the steps that use them; the
 # key lives in a 600 file under $RUNNER_TEMP that is removed whatever happens. Nothing here runs for pull requests.
@@ -267,6 +271,9 @@ jobs:
   publish:
     name: Sign and publish to the update feed
     needs: [prepare, test, build-linux, build-office, build-windows]
+    # the server release goes out without the office zip or the Windows installer (macOS runners got none on
+    # 2026-11-02..04); !cancelled(): a person who cancels the run still stops it
+    if: ${{ !cancelled() && needs.prepare.result == 'success' && needs.test.result == 'success' && needs.build-linux.result == 'success' }}
     environment: release
     runs-on: ubuntu-24.04
     timeout-minutes: 60
@@ -276,6 +283,11 @@ jobs:
       CHANNEL: ${{ needs.prepare.outputs.channel }}
       SHA: ${{ needs.prepare.outputs.sha }}
       ROLLOUT: ${{ needs.prepare.outputs.rollout }}
+      OFFICE_OK: ${{ needs.build-office.result == 'success' }}
+      WINDOWS_OK: ${{ needs.build-windows.result == 'success' }}
+    outputs:
+      office: ${{ steps.desktop.outputs.office }}
+      windows: ${{ steps.desktop.outputs.windows }}
     steps:
       - name: The tag still names the tested commit
         env:
@@ -302,7 +314,14 @@ jobs:
             mkdir -p "build/linux-$a"
             tar -xpf "in/release-linux-$a/release-linux-$a.tar" -C "build/linux-$a"
           done
-          ls -l in/release-office in/release-windows
+      # only the files of a build that passed this run (an older attempt's artifact can still be there)
+      - name: Which desktop builds are here
+        id: desktop
+        run: |
+          echo "office=$OFFICE_OK" >> "$GITHUB_OUTPUT"
+          echo "windows=$WINDOWS_OK" >> "$GITHUB_OUTPUT"
+          if [ "$OFFICE_OK" = true ]; then ls -l in/release-office; else echo "::warning::build-office did not pass: no office zip in this release"; fi
+          if [ "$WINDOWS_OK" = true ]; then ls -l in/release-windows; else echo "::warning::build-windows did not pass: no Windows installer in this release"; fi
       - name: Release key (from the secret, never printed)
         env:
           RELEASE_SIGNING_KEY: ${{ secrets.RELEASE_SIGNING_KEY }}
@@ -320,7 +339,7 @@ jobs:
           done
           ls -l build/server
       - name: Office feed (zip + Windows installer)
-        if: needs.prepare.outputs.feed == 'true'
+        if: needs.prepare.outputs.feed == 'true' && needs.build-office.result == 'success' && needs.build-windows.result == 'success'
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
         run: |
@@ -331,6 +350,9 @@ jobs:
           if [ "$CHANNEL" = stable ]; then
             bun scripts/release/publish.ts --channel beta --if-newer --version "$VERSION" --office "$zip" --windows "$exe" --notes-file in/release-notes/notes.md --rollout "$ROLLOUT"
           fi
+      - name: Office feed not changed
+        if: needs.prepare.outputs.feed == 'true' && !(needs.build-office.result == 'success' && needs.build-windows.result == 'success')
+        run: echo "::warning::office and Windows were not published to the update feed (build-office $OFFICE_OK, build-windows $WINDOWS_OK); the office feed keeps the previous release"
       - name: Server feed (Linux)
         if: needs.prepare.outputs.feed == 'true'
         env:
@@ -344,7 +366,9 @@ jobs:
       - name: SHA256SUMS and its signature
         run: |
           mkdir -p assets
-          cp build/server/*.tar.gz in/release-office/*-mac.zip in/release-windows/*-Setup-*-win-x64.exe assets/
+          cp build/server/*.tar.gz assets/
+          if [ "$OFFICE_OK" = true ]; then cp in/release-office/*-mac.zip assets/; fi
+          if [ "$WINDOWS_OK" = true ]; then cp in/release-windows/*-Setup-*-win-x64.exe assets/; fi
           bun scripts/release/release-ci.ts sums assets "$TEAMAX_RELEASE_KEY" assets/*
           bun scripts/release/release-ci.ts verify-sums assets/SHA256SUMS
       - name: Remove the release key
@@ -361,6 +385,7 @@ jobs:
   github-release:
     name: GitHub Release
     needs: [prepare, publish]
+    if: ${{ !cancelled() && needs.publish.result == 'success' }}
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     permissions:
@@ -369,6 +394,8 @@ jobs:
       TAG: ${{ needs.prepare.outputs.tag }}
       SHA: ${{ needs.prepare.outputs.sha }}
       PRERELEASE: ${{ needs.prepare.outputs.prerelease }}
+      OFFICE_OK: ${{ needs.publish.outputs.office }}
+      WINDOWS_OK: ${{ needs.publish.outputs.windows }}
       GH_TOKEN: ${{ github.token }}
     steps:
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
@@ -387,7 +414,15 @@ jobs:
             gh release upload "$TAG" assets/* --repo "$GITHUB_REPOSITORY" --clobber
             exit 0
           fi
+          missing=()
+          if [ "$OFFICE_OK" != true ]; then missing+=("Mac (office zip)"); fi
+          if [ "$WINDOWS_OK" != true ]; then missing+=("Windows (installer)"); fi
           flags=(--verify-tag --title "$TAG")
-          if [ -s notes/notes.md ]; then flags+=(--notes-file notes/notes.md); else flags+=(--generate-notes); fi
+          if [ ${#missing[@]} -gt 0 ]; then
+            line="**Downloads not in this release yet:** ${missing[0]}${missing[1]:+, ${missing[1]}}. Their build did not finish; the Linux server release is complete."
+            { echo "$line"; echo; cat notes/notes.md; } > notes/body.md
+            flags+=(--notes-file notes/body.md)
+            if [ ! -s notes/notes.md ]; then flags+=(--generate-notes); fi
+          elif [ -s notes/notes.md ]; then flags+=(--notes-file notes/notes.md); else flags+=(--generate-notes); fi
           if [ "$PRERELEASE" = true ]; then flags+=(--prerelease); else flags+=(--latest); fi
           gh release create "$TAG" assets/* --repo "$GITHUB_REPOSITORY" "${flags[@]}"
