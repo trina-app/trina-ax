@@ -213,6 +213,23 @@ describe('Linux root scripts: syntax and rules', () => {
     expect(s).toMatch(/sha256sum "\$out"/)
   })
 
+  test('--image-mode (template build, scripts/image/customize.sh): accepted, install only, enables and starts nothing', () => {
+    const run = (...a: string[]) => Bun.spawnSync(['/bin/bash', path.join(REPO, 'scripts', 'install-linux.sh'), ...a], { stdout: 'pipe', stderr: 'pipe' })
+    // the pilot of 2026-10-30: customize.sh passes it, and the installer stopped with "unknown option --image-mode"
+    expect(run('install', '--image-mode').stderr.toString()).not.toContain('unknown option')
+    expect(run('repair', '--image-mode').stderr.toString()).toContain('--image-mode is for install only')
+    const s = read('scripts/install-linux.sh')
+    expect(s).toMatch(/--image-mode\) IMAGE_MODE=1; HOSTED=1;/)
+    // it exits after install.json and the units, before any unit is enabled or started
+    const exit = s.indexOf('in image mode: units installed, none enabled or started')
+    expect(exit).toBeGreaterThan(s.indexOf('install -o root -g root -m 644 "$ITMP/install.json" "$INSTALL_JSON"'))
+    expect(exit).toBeLessThan(s.indexOf('systemctl enable "${ENABLE[@]}"'))
+    expect(s).toContain('if [ "$IMAGE_MODE" = 0 ] && [ ! -f "$BASE/setup/code" ]')
+    expect(s).toMatch(/if \[ "\$IMAGE_MODE" = 1 \]; then\n\s+say "image mode: engine firewall not loaded/)
+    // an engine version it cannot read only warns for a file that matched the pinned SHA-256 (no --engine NAME=FILE)
+    expect(s).toContain('if [ "$IMAGE_MODE" = 1 ] && [ -z "$got" ] && [ -z "$src" ]; then')
+  })
+
   test('unit templates: the spec\'s hardening, the launcher\'s sandbox flags, only known placeholders', () => {
     const dir = path.join(REPO, 'scripts', 'linux', 'systemd')
     const known = new Set(['BASE', 'ID', 'SRV', 'AGT', 'SRV_UID', 'AGT_UID', 'PORT', 'PROXY_PORT', 'TLS_PORT', 'PUBKEYS', 'ENGINE_ARGS', 'CA_BUNDLE', 'LANDLOCK', 'CGROUP', 'ALLOW_UNSIGNED_ENV'])

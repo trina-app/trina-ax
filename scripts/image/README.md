@@ -14,10 +14,12 @@ image mode + the first-boot pieces (`mycel-enroll`).
 
 ## What is in the image
 
-- **Accounts first, fixed ids**: `axserver` uid/gid **990**, `axagent` **991** (system range → the launcher's
+- **Accounts first, fixed ids**: `axserver` uid/gid **980**, `axagent` **981** (system range → the launcher's
   `checkDedicated` accepts the engine account, `native/cmd/mycel-launcher/main.go:65-77`). They are created before any
   package install (systemd-sysusers hands out system ids from 999 down) and are the same in every template version, so
-  the files on a tenant's data disk keep their owners when `reimageTenant` swaps the OS disk.
+  the files on a tenant's data disk keep their owners when `reimageTenant` swaps the OS disk. Not 990/991: the Debian 13
+  genericcloud base already uses 988-999 (pilot 2026-10-30: uid 990 = systemd-resolve). If a later base image takes
+  980/981, `customize.sh` stops with `uid N is taken by <account>`.
 - Packages: `qemu-guest-agent chrony nftables bubblewrap systemd-zram-generator unattended-upgrades needrestart
   ca-certificates e2fsprogs cloud-guest-utils` (+ systemd/udev/tzdata). `openssh-server` purged, `ssh.service`,
   `ssh.socket`, `sshd.service` masked (D15). The kit's own apt step installs its runtime packages.
@@ -149,8 +151,8 @@ qm stop 990 && qm destroy 990 --purge
 
 After a real `createTenant` the same script also checks the enrolled state (data disk mounted at BASE, kit on it).
 
-`vm-smoke.sh` checks: accounts 990/991 locked with nologin, `unshare -Ur true` and `bwrap --unshare-all` as an
-unprivileged user, `nft -f` with `meta skuid "axagent"`, `mycel-launcher --dedicated-account` running as uid 991,
+`vm-smoke.sh` checks: accounts 980/981 locked with nologin, `unshare -Ur true` and `bwrap --unshare-all` as an
+unprivileged user, `nft -f` with `meta skuid "axagent"`, `mycel-launcher --dedicated-account` running as uid 981,
 the launcher's `tcp-peer` probe naming the engine-account process, the four sysctls, no sshd (binary, units, `:22`
 listener), guest agent / chrony / zram / fstrim, chrony only `10.200.0.1`, UTC, the cloud-init lock, the first-boot
 units, the data-disk mount point and seed (before enroll) or the kit on the data disk (after enroll). The W1 engine

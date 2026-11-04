@@ -20,9 +20,9 @@ trap cleanup EXIT
 export DEBIAN_FRONTEND=noninteractive
 apt-get -qq update >/dev/null && apt-get -qq install -y --no-install-recommends e2fsprogs >/dev/null
 
-# accounts with the fixed uids of the image build (interfaces: axserver 990, axagent 991)
-groupadd --system -g 990 axserver && useradd --system -u 990 -g axserver -M -s /usr/sbin/nologin axserver
-groupadd --system -g 991 axagent && useradd --system -u 991 -g axagent -M -s /usr/sbin/nologin axagent
+# accounts with the fixed uids of the image build (interfaces: axserver 980, axagent 981)
+groupadd --system -g 980 axserver && useradd --system -u 980 -g axserver -M -s /usr/sbin/nologin axserver
+groupadd --system -g 981 axagent && useradd --system -u 981 -g axagent -M -s /usr/sbin/nologin axagent
 
 # a seed like the kit's image mode would leave in /usr/lib/mycel/seed-base
 S=/usr/lib/mycel/seed-base

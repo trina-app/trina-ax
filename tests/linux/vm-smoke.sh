@@ -41,8 +41,8 @@ acct() {
   [[ "$(cut -d: -f7 <<<"$e")" == /usr/sbin/nologin ]] || { echo "$name shell $(cut -d: -f7 <<<"$e")"; return 1; }
   [[ "$(passwd -S "$name" | awk '{print $2}')" == L ]] || { echo "$name password not locked"; return 1; }
 }
-check "account axserver uid 990" acct axserver 990
-check "account axagent uid 991" acct axagent 991
+check "account axserver uid 980" acct axserver 980
+check "account axagent uid 981" acct axagent 981
 check "root locked" bash -c '[[ "$(passwd -S root | awk "{print \$2}")" == L ]]'
 
 # ---- kernel features the per-turn sandbox needs (unprivileged user)
@@ -95,8 +95,8 @@ else
     ${AX_SMOKE_LAUNCHER_ARGS:-} > "$T/launcher.log" 2>&1 &
   for _ in $(seq 1 50); do grep -q ready "$T/launcher.log" 2>/dev/null && break; sleep 0.1; done
   LPID="$(pgrep -u axagent -f -- "--listen $T/sock/launcher.sock" | head -n1)"
-  if grep -q ready "$T/launcher.log" && [[ -n "$LPID" ]] && [[ "$(stat -c %u "/proc/$LPID")" == 991 ]]; then
-    pass "mycel-launcher --dedicated-account runs as uid 991 (< 1000)"
+  if grep -q ready "$T/launcher.log" && [[ -n "$LPID" ]] && [[ "$(stat -c %u "/proc/$LPID")" == 981 ]]; then
+    pass "mycel-launcher --dedicated-account runs as uid 981 (< 1000)"
     # tcp-peer: an axagent process connects to a root listener; the launcher must name that process
     if perl -MIO::Socket::INET -MIO::Socket::UNIX -e1 2>/dev/null; then
       perl -MIO::Socket::INET -e '$s=IO::Socket::INET->new(LocalAddr=>"127.0.0.1",LocalPort=>0,Listen=>5,ReuseAddr=>1) or die;
@@ -118,7 +118,7 @@ else
       skip "tcp-peer probe" "perl IO::Socket not available"
     fi
   else
-    fail "mycel-launcher --dedicated-account" "not ready as uid 991: $(tail -n 3 "$T/launcher.log" | tr '\n' ' ')"
+    fail "mycel-launcher --dedicated-account" "not ready as uid 981: $(tail -n 3 "$T/launcher.log" | tr '\n' ' ')"
     skip "tcp-peer probe" "launcher did not start"
   fi
   [[ -n "$LPID" ]] && kill "$LPID" 2>/dev/null

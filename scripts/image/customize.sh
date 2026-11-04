@@ -16,7 +16,7 @@
 # Disk layout (decision L1, ee/cloud/README.md): BASE = /var/lib/mycel is the mount point of the tenant DATA disk.
 # The kit is installed with `--image-mode` (install, do not enable or start units, no setup code) into BASE on the OS
 # disk, then that tree is moved to /usr/lib/mycel/seed-base and BASE is left empty. mycel-enroll copies the seed onto
-# the data disk at first boot. axserver/axagent get FIXED uids (990/991) so files on a data disk keep their owners
+# the data disk at first boot. axserver/axagent get FIXED uids (980/981) so files on a data disk keep their owners
 # when the OS disk is replaced by a newer template (reimageTenant).
 set -euo pipefail
 export LC_ALL=C.UTF-8 DEBIAN_FRONTEND=noninteractive NEEDRESTART_MODE=a NEEDRESTART_SUSPEND=1
@@ -47,8 +47,10 @@ BASE=/var/lib/mycel
 LIBDIR=/usr/lib/mycel
 SEED="$LIBDIR/seed-base"
 KITDIR="$LIBDIR/kit"
-SERVER_UID=990
-AGENT_UID=991
+# 980/981, not 990/991: the Debian 13 genericcloud base already uses 988-999 (2026-10: systemd-resolve 990, gid 991
+# render). If a later base image takes these ids too, ensure_account stops with "uid N is taken by ...".
+SERVER_UID=980
+AGENT_UID=981
 PACKAGES=(systemd systemd-sysv udev tzdata qemu-guest-agent chrony nftables bubblewrap systemd-zram-generator
   unattended-upgrades needrestart ca-certificates e2fsprogs cloud-guest-utils util-linux procps perl-base)
 PURGE=(openssh-server openssh-sftp-server)
@@ -105,7 +107,7 @@ svc_mask() {
 }
 pkg_installed() { [[ "$(dpkg-query -W -f '${db:Status-Status}' "$1" 2>/dev/null || true)" == installed ]]; }
 
-# ---- 1. accounts first: package postinsts (systemd-sysusers allocates system uids from 999 down) must not take 990/991
+# ---- 1. accounts first: package postinsts (systemd-sysusers allocates system uids from 999 down) must not take 980/981
 
 ensure_account() {
   local name="$1" id="$2" home="$3" comment="$4" u g
