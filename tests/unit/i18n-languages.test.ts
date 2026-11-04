@@ -159,6 +159,8 @@ const KOREAN_ALLOWED: Record<string, { why: string; also?: RegExp }> = {
   'server/src/system/egress.ts': { why: 'the cloud API address refusal (ko next to en/id/ja/es)' },
   'server/src/system/messages-linux.ts': { why: 'Linux and cloud diagnostics texts (ko next to en/id/ja/es)' },
   'server/src/system/update-job.ts': { why: 'update progress lines (ko next to en/id/ja/es)' },
+  'server/src/onboarding/profile.ts': { why: 'company profile save refusals (ko next to en/id/ja/es)' },
+  'server/src/onboarding/draft.ts': { why: 'company profile draft: the request message, chat title and refusals (ko next to en/id/ja/es)' },
 }
 
 /** Whether every Korean text on the line is the Korean slot of a table entry: `ko: '…'` (or `ko: (n) => `…``, or

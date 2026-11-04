@@ -29,6 +29,7 @@ import { chatEnginesFor, checkChatEngineChange, newChatEngine, turnEngine, type 
 import { budgetBlock } from '../admin/budgets'
 import { viewSources } from '../files/sources'
 import { finishCard } from '../chat/connect-service'
+import { refuseDraftAttachments } from '../onboarding/draft'
 
 const WINDOW_RE = /^[A-Za-z0-9_-]{8,64}$/
 export const windowOf = (c: Context<AppEnv>) => { const w = c.req.header(WINDOW_HEADER); return w && WINDOW_RE.test(w) ? w : null }
@@ -79,6 +80,8 @@ function notifyInstructionsChanged(ctx: AppContext, r: ProjectRowT, by: AuthInfo
 /** Attachments of the message (component C stores them; B only reads them back by id). */
 function attachments(ctx: AppContext, auth: AuthInfo, chatId: string, ids: string[], locale: Locale): Attachment[] {
   if (!ids.length) return []
+  // a company profile draft chat takes none (onboarding/draft.ts): no team file reaches its card-free web turn
+  refuseDraftAttachments(ctx.db, chatId, ids, locale)
   const store = ctx.services.attachments
   const r = store?.lookup ? store.lookup(auth.user.id, chatId, ids) : { found: store ? store.get(auth.user.id, chatId, ids) : [], unavailable: [] }
   if (r.found.length === new Set(ids).size) return r.found

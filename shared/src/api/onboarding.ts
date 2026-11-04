@@ -60,7 +60,8 @@ export const ProfileDraftStarted = z.object({
   chatId: z.string(),
   /** the address the AI starts from (normalized), '' for pasted text */
   website: z.string(),
-  /** the one site (registrable domain) the AI may read, null for pasted text */
+  /** what the AI may read: a host with its subdomains ("acme.co.kr"), or on a shared platform a host and path
+   * ("blog.naver.com/acme"); null for pasted text */
   site: z.string().nullable(),
 })
 export type ProfileDraftStarted = z.infer<typeof ProfileDraftStarted>
@@ -110,7 +111,7 @@ export const ONBOARDING = {
   saveCompanyProfile: endpoint({ method: 'PUT', path: '/api/onboarding/profile', auth: 'admin', owner: 'B', body: CompanyProfileInput, response: CompanyProfile,
     summary: 'Save the company profile a person checked (owner or admin, and the folder rules of skills/ must let them write).' }),
   startProfileDraft: endpoint({ method: 'POST', path: '/api/onboarding/profile/draft', auth: 'admin', owner: 'B', body: StartProfileDraft, response: ProfileDraftStarted, status: 201,
-    summary: 'Draft the company profile in a new chat of the caller: the AI reads the website (same site, at most 4 pages) or the pasted text.' }),
+    summary: 'Draft the company profile in a new chat of the caller: the AI reads the website (that host or platform path, at most 4 pages) or the pasted text.' }),
   getProfileDraft: endpoint({ method: 'GET', path: '/api/onboarding/profile/draft/:chatId', auth: 'admin', owner: 'B', response: ProfileDraftState,
     summary: 'The state of a profile draft chat of the caller and the draft read from its latest answer.' }),
 } as const

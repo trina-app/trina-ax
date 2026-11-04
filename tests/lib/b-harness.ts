@@ -20,6 +20,7 @@ import type { AuthInfo, SessionService } from '../../server/src/services'
 import { configureChat, getChatRuntime, type ChatRuntimeOptions } from '../../server/src/chat/runtime'
 import { LocalEngines, StaticEngines, type EngineConfs } from '../../server/src/chat/engines'
 import { makeFixture, seed } from './fixtures'
+import { registerCTools } from '../../server/src/tools'
 import { WORK } from './env'
 
 export const FAKE_ENGINE_TS = path.join(import.meta.dir, 'b-fake-engine.ts')
@@ -146,6 +147,8 @@ export interface HarnessOptions extends ChatRuntimeOptions {
   /** the fake engine executables (default: a script running tests/lib/b-fake-engine.ts with this bun). A Linux turn
    * sandbox shows only the engine's own folder, so T1 uses compiled copies named claude and codex. */
   engineBins?: { claude: string; codex: string }
+  /** web_fetch / save_url network options (tests: a local server for public names) */
+  fetch?: import('../../server/src/tools/web-fetch').FetchOptions
 }
 
 /** the harness's default AI connections (fake keys; nothing reaches a real provider) */
@@ -207,7 +210,11 @@ export async function startHarness(o: HarnessOptions): Promise<Harness> {
   if (o.engineConfig) Object.assign(ctx.engineConfig, o.engineConfig)
   configureChat(ctx, { ...o, engines: o.realEngines || o.realCore ? new LocalEngines(ctx) : new StaticEngines(fakeEngines(bin, dataDir, codexBin)) })
   // test sessions last: init() runs in order, so they replace the real session service (component A)
-  const app = await buildApp(ctx, [...ROUTE_MODULES, sessionModule])
+  // web_fetch with the test's network options: registered just before the files module, which would register it without
+  // (the first registration wins; the tools need the chat runtime, installed earlier)
+  const modules = [...ROUTE_MODULES]
+  if (o.fetch) modules.splice(modules.findIndex((m) => m.name === 'files'), 0, { name: 'test-fetch', owner: 'C', init(c) { registerCTools(c, { fetch: o.fetch }) }, register() {} })
+  const app = await buildApp(ctx, [...modules, sessionModule])
   const server = Bun.serve({ port: 0, hostname: '127.0.0.1', websocket, maxRequestBodySize: 60 * 1024 * 1024, fetch: (req, s) => app.fetch(req, { ip: '127.0.0.1', via: 'test', server: s }) })
   const url = `http://127.0.0.1:${server.port}`
   const headers = (user: string | null, w?: string, client?: ClientKind) => {

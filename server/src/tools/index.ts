@@ -186,7 +186,10 @@ export function registerCTools(ctx: AppContext, o: { fetch?: FetchOptions; saveU
         unattended: 'the address redirected to one that matches what the AI had sent to a tool earlier in this chat (a site may have kept it and given it back, like a link shortener), which needs a person to confirm it, and nobody can confirm it here, so it was not opened',
         declined: 'the user did not allow following the redirect, so the page was not opened. Do not try other addresses to get around this; tell the user what you could not do',
       })
-      const r = await webFetch(a.url, { ...o.fetch, blockedIps, maxChars: a.maxChars, pdftotext: ctx.engineConfig.pdftotext, onRedirect: redirects.check })
+      // a turn with a narrower scope (a company profile draft) keeps every redirect hop inside it too
+      const scope = t.person?.scope
+      const onRedirect = scope ? async (next: string) => { const no = scope(next); if (no) throw new ToolError(`the page redirected outside what this chat may open: ${no}`); await redirects.check(next) } : redirects.check
+      const r = await webFetch(a.url, { ...o.fetch, blockedIps, maxChars: a.maxChars, pdftotext: ctx.engineConfig.pdftotext, onRedirect })
       ctx.files.events.emit('external', { turnId: t.turnId, userId: t.user.id, source: 'web_fetch', url: r.url })
       // links on the page may be opened later in this chat without a card (rule ①: "an earlier web_fetch result"),
       // within the link budget, unless one carries what the AI sent before (an echo: always a card)

@@ -370,5 +370,5 @@ The API serves the Trina AX apps. It is not yet a stable public API for other pr
 |---|---|---|---|
 | `GET` | `/api/onboarding/profile` | Signed in | The team's company profile (skills/company-profile.json) when the caller can read it, else null. |
 | `PUT` | `/api/onboarding/profile` | Admin | Save the company profile a person checked (owner or admin, and the folder rules of skills/ must let them write). |
-| `POST` | `/api/onboarding/profile/draft` | Admin | Draft the company profile in a new chat of the caller: the AI reads the website (same site, at most 4 pages) or the pasted text. |
+| `POST` | `/api/onboarding/profile/draft` | Admin | Draft the company profile in a new chat of the caller: the AI reads the website (that host or platform path, at most 4 pages) or the pasted text. |
 | `GET` | `/api/onboarding/profile/draft/:chatId` | Admin | The state of a profile draft chat of the caller and the draft read from its latest answer. |

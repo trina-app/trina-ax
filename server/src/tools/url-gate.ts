@@ -114,6 +114,12 @@ export interface TurnPerson {
   turnUrls(): Iterable<string>
   /** a scheduled run: nobody is watching, so no card is raised (it could only go unanswered) */
   unattended?: boolean
+  /** how a refusal names an unattended run that is not a scheduled task (a company profile draft's answer) */
+  unattendedLabel?: string
+  /** a narrower set of addresses this turn may open at all (a company profile draft: the typed site, onboarding/
+   * draft.ts): the refusal for an address outside it, null inside. The gate checks the address, web_fetch every
+   * redirect hop. */
+  scope?: (url: string) => string | null
 }
 
 /** Addresses written out in what the person typed in this chat (user messages the server did not send for them). A
@@ -405,6 +411,8 @@ export type GateResult = 'seen' | 'site' | 'confirmed'
 export async function gateUrl(db: Database, chatId: string | null, rawUrl: string, person: TurnPerson | null, o: { egressKnown?: boolean; turnId?: string | null; userId?: string | null; connection?: boolean } = {}): Promise<GateResult> {
   const url = normUrl(rawUrl)
   if (!url) throw new ToolError('only http and https URLs can be fetched')
+  const outOfScope = person?.scope?.(url)
+  if (outOfScope) throw new ToolError(outOfScope)
   const parsed = new URL(url)
   const long = parsed.search.slice(1).length > MAX_UNCONFIRMED_QUERY
   // this server's own public exit address is not known yet (tools/egress.ts): no URL opens without the person
@@ -441,9 +449,9 @@ export async function gateUrl(db: Database, chatId: string | null, rawUrl: strin
   if (unattended) {
     const b = budgetFor(true)
     throw new ToolError(why === 'budget'
-      ? `this address came from a web page or search result, the AI already opened as many of those without asking as allowed where nobody can confirm them (${b.turn} per ${person ? 'scheduled run' : 'answer'}, ${b.chat} per chat), and nobody can confirm it here, so it was not opened`
+      ? `this address came from a web page or search result, the AI already opened as many of those without asking as allowed where nobody can confirm them (${b.turn} per ${person ? person.unattendedLabel ?? 'scheduled run' : 'answer'}, ${b.chat} per chat), and nobody can confirm it here, so it was not opened`
       : why === 'noEgress'
-        ? 'this server does not know its own public internet address yet, so every web address needs a person to confirm it, and nobody can confirm it here, so it was not opened. It is not because of this address or the instruction (writing the address into a scheduled task does not change it); tell the user the server could not open web addresses this time'
+        ? 'this server does not know its own public internet address yet, so every web address needs a person to confirm it, and nobody can confirm it here, so it was not opened. It is not because of this address or the instruction' + (person?.unattendedLabel ? '' : ' (writing the address into a scheduled task does not change it)') + '; tell the user the server could not open web addresses this time'
         : why === 'echo'
           ? 'this address came back from a connected service, but the AI had sent this address or a part of it to a tool earlier in this chat (the service may have repeated it), so it needs a person to confirm it, and nobody can confirm it here, so it was not opened'
         : why === 'echoWeb'

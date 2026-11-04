@@ -277,8 +277,11 @@ export class TurnExec {
     const { rt, spec } = this
     try { this.principal = rt.files.principal(spec.userId) } catch { this.error = engineError('user_disabled', spec.locale); return }
     this.templateScope = spec.clientKind === 'schedule' && validateTemplateTurn(rt.ctx, spec.userId, spec.turnId)
-    const draft = draftScopeOf(rt.db, spec.chatId)
-    this.profileDraft = draft ? { scope: draft, fetched: new Set() } : null
+    // a company profile draft chat runs restricted; if that cannot be read, the turn does not run at all (fails closed)
+    try {
+      const draft = draftScopeOf(rt.db, spec.chatId)
+      this.profileDraft = draft ? { scope: draft, fetched: new Set() } : null
+    } catch (e) { rt.log.error('profile draft check failed', { err: e, turn: this.id }); this.error = engineError('crash', spec.locale); return }
     // the chat's engine was switched off by an admin: this answer comes from the team default
     if (spec.substitutedFrom) this.addStep({ kind: 'tool', tool: 'engine', label: tr('engineOffDefault', spec.locale, { from: ENGINE_LABELS[spec.substitutedFrom], to: ENGINE_LABELS[spec.engine] }), status: 'ok' })
     const confs = rt.engines.get()
@@ -319,13 +322,15 @@ export class TurnExec {
       fs.rmSync(stash, { force: true })
     }
     if (!resume && userMsg.parent_id === null) this.newSession()
-    const project = rt.projectForChat(chat.project_id, this.principal)
+    // a draft chat gets no project (no instructions, no folder): no team content in a card-free web turn
+    const project = this.profileDraft ? null : rt.projectForChat(chat.project_id, this.principal)
     this.projectFolder = project?.folderPath ?? null
     if (rt.projectTaints(project, spec.userId)) this.taint()
     // project instructions go into the prompt: their folder joins the read scope (tab 7)
     if (project && project.instructions.trim()) addSources(rt.db, spec.chatId, [sourceOf(rt.db, rt.files.rules(), project.folderPath)])
     if (hasAttachments(userMsg)) this.taint() // attached files are outside content too (tab 3 "remember 보호")
-    const atts = await this.attachmentsForTurn(userMsg)
+    // nor attachments (the send refuses them in a draft chat; an older message that has some is sent without them)
+    const atts = this.profileDraft ? [] : await this.attachmentsForTurn(userMsg)
     if (this.stopReason) return
 
     // sub-agents (docs/DECISIONS.md "Sub-agents"): Claude only, while the team allows them, never in an approved

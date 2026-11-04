@@ -30,7 +30,7 @@ import { cleanAiTitle, graphemes, setAiTitle, titleToolOffered } from './title'
 import { recordSent } from '../tools/connection-urls'
 import { boxShellTool } from '../devenv/tool'
 import { connectService } from './connect-service'
-import { DRAFT_FILE_REFUSAL, draftToolRefusal } from '../onboarding/draft'
+import { DRAFT_FILE_REFUSAL, draftToolRefusal, draftUrlRefusal } from '../onboarding/draft'
 
 interface Tool {
   name: string
@@ -69,8 +69,9 @@ export function buildToolSet(exec: TurnExec): ChatToolSet {
   const tools = new Map<string, Tool>()
   const templateWrites = new Set<string>()
   const add = (t: Tool): boolean => {
-    // a company profile draft (onboarding/draft.ts): web_fetch is its only tool besides the refused file tools
-    if (exec.profileDraft && t.name !== 'web_fetch') return false
+    // a company profile draft (onboarding/draft.ts): web_fetch is its only tool besides the refused file tools, and a
+    // draft from pasted text has none
+    if (exec.profileDraft && (t.name !== 'web_fetch' || exec.profileDraft.scope.source !== 'website')) return false
     if(confidential && !localTool(t.name)) return false
     if (t.name in FILE_TOOLS || tools.has(t.name)) { exec.rt.log.warn('turn tool name taken, skipped', { tool: t.name }); return false }
     tools.set(t.name, t)
@@ -203,6 +204,7 @@ export function turnPerson(exec: TurnExec): TurnPerson {
     // waitForPerson answers "no answer" at once in a scheduled run; tools say why instead of "declined". A company
     // profile draft raises no card either: its screen shows none, so only the typed address and links of its pages open
     unattended: exec.spec.clientKind === 'schedule' || !!exec.profileDraft,
+    ...(exec.profileDraft ? { unattendedLabel: 'company profile draft answer', scope: (url: string) => draftUrlRefusal(exec.profileDraft!.scope, url) } : {}),
   }
 }
 
