@@ -143,6 +143,14 @@ func setup() error {
 		}
 		os.Chmod(d, 0o711)
 	}
+	// the disks of the watchdog: box files go to the team root, the state folder and podman's storage
+	diskPaths = []string{*teamRoot, *stateDir}
+	if g, err := podmanOut("info", "--format", "{{.Store.GraphRoot}}"); err == nil && filepath.IsAbs(strings.TrimSpace(g)) {
+		diskPaths = append(diskPaths, strings.TrimSpace(g))
+	} else {
+		log.Printf("setup: cannot read the podman storage path, the watchdog does not read that disk")
+	}
+	avail.checks["disks"] = strings.Join(diskPaths, " ")
 	avail.ok = true
 	avail.reason = ""
 	return nil
@@ -606,20 +614,40 @@ func markStop(b *box, watch chan struct{}, code, reason string) bool {
 	return true
 }
 
-// diskSpace: free bytes for accounts that are not root, and the size of the disk of the team folder.
+// diskPaths: the folders whose disks the watchdog reads (setup). Written once before the first box starts.
+var diskPaths []string
+
+// diskSpace: free bytes for accounts that are not root, and the size, of the box disk nearest its floor (worstDisk).
+// A path that statfs cannot read does not hide the others. An error only if no disk can be read.
 func diskSpace() (free, total uint64, err error) {
-	var st unix.Statfs_t
-	if err := unix.Statfs(*teamRoot, &st); err != nil {
+	paths := diskPaths
+	if len(paths) == 0 {
+		paths = []string{*teamRoot}
+	}
+	var ds []disk
+	for _, p := range paths {
+		var st unix.Statfs_t
+		if e := unix.Statfs(p, &st); e != nil {
+			err = e
+			continue
+		}
+		size := uint64(st.Frsize)
+		if size == 0 {
+			size = uint64(st.Bsize)
+		}
+		ds = append(ds, disk{st.Bavail * size, uint64(st.Blocks) * size})
+	}
+	w, ok := worstDisk(ds)
+	if !ok {
+		if err == nil {
+			err = errors.New("no disk of known size")
+		}
 		return 0, 0, err
 	}
-	size := uint64(st.Frsize)
-	if size == 0 {
-		size = uint64(st.Bsize)
-	}
-	return st.Bavail * size, uint64(st.Blocks) * size, nil
+	return w.free, w.total, nil
 }
 
-// watchBox runs for one start of one box and ends when the box stops. Only a statfs and a stat per poll, and no
+// watchBox runs for one start of one box and ends when the box stops. Only a statfs per disk and a stat per poll, and no
 // podman: at 740 MiB/s a slow poll goes far past the floor. A box in which a command ended the main process also ends
 // here, so status says stopped.
 func watchBox(b *box, watch chan struct{}, cg string) {

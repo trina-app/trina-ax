@@ -1,4 +1,5 @@
-// Settings > External services: the person's own connections to MCP servers and APIs (used only in their own chats),
+// Settings > MCP (called "External services" before; the address is still /settings/integrations):
+// the person's own connections to MCP servers and APIs (used only in their own chats),
 // then the team connections an admin lets them use (read-only unless they manage them); above them, services an admin
 // asked them to connect as their own (components/integrations/AnswerDialog.tsx). Not the "App connectors" tab
 // (ConnectorConnections.tsx): that is the other direction, claude.ai using this server's files. "Discover" adds a known

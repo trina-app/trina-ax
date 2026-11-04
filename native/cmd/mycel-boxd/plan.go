@@ -20,7 +20,8 @@
 //
 // Disk: diskGiB sizes only the box volume. /work is the team folder on the server's disk, and the team file system has
 // no project quota, so one watchdog per running box stops the box when the server disk comes under diskFloor. It runs
-// per box and not per exec, because a background command writes after its exec returned.
+// per box and not per exec, because a background command writes after its exec returned. It reads every disk that box
+// files go to: the team root, --state-dir (box volumes) and podman's storage. The disk nearest its floor counts.
 //
 // Jobs: exec with job true starts a background command in a wrapper that writes /cache/logs/<name>.exit. boxd reads that
 // file and the log from the box volume directly, because an exec counts as activity. The box writes that volume and
@@ -460,8 +461,26 @@ func diskFloor(total uint64) uint64 {
 	return diskFloorMin
 }
 
-// diskLow: from statfs of the team root. 0 = not known: the box stays.
+// diskLow: from statfs of the box disks (worstDisk). 0 = not known: the box stays.
 func diskLow(free, total uint64) bool { return total > 0 && free < diskFloor(total) }
+
+// disk: free bytes and size of one file system.
+type disk struct{ free, total uint64 }
+
+// worstDisk: the disk with the least free space over its floor. A disk of no known size does not count. ok is false if
+// no disk counts.
+func worstDisk(ds []disk) (w disk, ok bool) {
+	for _, d := range ds {
+		if d.total == 0 {
+			continue
+		}
+		// free - floor, smallest wins; added on both sides, so no uint underflow
+		if !ok || d.free+diskFloor(w.total) < w.free+diskFloor(d.total) {
+			w, ok = d, true
+		}
+	}
+	return w, ok
+}
 
 const freeSpaceHint = "Free space: empty the trash or delete files. An admin sees the details in Admin > System"
 

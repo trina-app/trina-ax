@@ -51,5 +51,13 @@ it there. It never runs from a version folder: the server account owns those fol
 the dev environment needs the `mycel-boxd.service` unit and `MYCEL_DEV_ENV=1`, and only `install-trial.sh` adds them.
 
 On a hosted team VM, `install-trial.sh` runs only if `root/dev-env.json` (the plan's caps, root-owned) is there, and
-boxd then refuses a box over those caps (`TRIAL.md` "Hosted team VM"). Do not turn it on on a shared server. A team server needs the owner's approval (`TRIAL.md`). For tests, use the test VM
+boxd then refuses a box over those caps (`TRIAL.md` "Hosted team VM").
+
+Box state: `install-trial.sh` runs boxd with `--state-dir <base>/boxd` (box volumes) and sets the podman storage of the box
+account to `<base>/boxd-storage`. Both are on the disk of `<base>`, the team data disk on a VM with one. The flag default
+stays `/var/lib/mycel-boxd`, because `mycel-ctl update` does not write the boxd unit: a new default would point an older
+unit at an empty folder. The disk watchdog reads the team root, the state folder and the podman storage, and the disk
+nearest its floor counts.
+
+Do not turn it on on a shared server. A team server needs the owner's approval (`TRIAL.md`). For tests, use the test VM
 (`docs/research/dev-env-test-vm-plan.md`).
