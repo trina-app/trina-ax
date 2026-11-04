@@ -10,13 +10,19 @@
 # Everything that srt or a run executes is outside <base>: the srt settings hide all of <base>.
 # The first run restarts the team server, so it ends the running answers. A re-run changes only what changed.
 # uninstall-srt.sh removes it again.
-#   scripts/dev-env/srt/install-srt.sh [--id mycel]
+#   scripts/dev-env/srt/install-srt.sh [--id mycel] [--image-mode]
+# --image-mode: for a template build (scripts/image/customize.sh, in a chroot or container, no running systemd). It
+# installs only what does not depend on the team: the packages, node, srt and run-wrap. No polkit rule, slice or
+# drop-in, no check of the server unit, nothing started. The dev environment stays off. A later run without
+# --image-mode on the team server turns it on, and then has nothing to download.
 set -euo pipefail
 HERE=$(cd "$(dirname "$0")" && pwd)
 ID=mycel
+IMAGE_MODE=0
 while [ $# -gt 0 ]; do
   case "$1" in
     --id) ID=${2:?}; shift 2 ;;
+    --image-mode) IMAGE_MODE=1; shift ;;
     *) echo "unknown option $1" >&2; exit 2 ;;
   esac
 done
@@ -60,16 +66,17 @@ case "$OS" in
   *) die "this script is for Debian 13 (found $OS)" ;;
 esac
 case "$(uname -m)" in x86_64) ARCH=x64 ;; aarch64) ARCH=arm64 ;; *) die "unknown machine $(uname -m)" ;; esac
+for f in "$HERE/package.json" "$HERE/package-lock.json" "$HERE/run-wrap" "$HERE/devenv.rules.in" "$HERE/devenv.slice.in"; do
+  [ -f "$f" ] || die "$f is missing"
+done
+grep -q "\"@anthropic-ai/sandbox-runtime\": \"$SRT_VERSION\"" "$HERE/package.json" || die "package.json does not pin srt $SRT_VERSION"
+if [ "$IMAGE_MODE" = 0 ]; then
 systemctl cat "$SERVER_UNIT" >/dev/null 2>&1 || die "no $SERVER_UNIT here: this is not a Trina server"
 SRV_USER=$(systemctl show -p User --value "$SERVER_UNIT")
 [ -n "$SRV_USER" ] && [ "$SRV_USER" != root ] || die "cannot read the server account of $SERVER_UNIT"
 [ -d "$BASE/root" ] && root_only "$BASE/root" || die "$BASE/root must belong to root, and only root may write to it"
 [ -f "$BASE/root/install.json" ] || die "no $BASE/root/install.json"
 command -v jq >/dev/null || die "jq is missing: apt-get install jq, then run this again"
-for f in "$HERE/package.json" "$HERE/package-lock.json" "$HERE/run-wrap" "$HERE/devenv.rules.in" "$HERE/devenv.slice.in"; do
-  [ -f "$f" ] || die "$f is missing"
-done
-grep -q "\"@anthropic-ai/sandbox-runtime\": \"$SRT_VERSION\"" "$HERE/package.json" || die "package.json does not pin srt $SRT_VERSION"
 
 # The plan caps. A hosted team VM must have root/dev-env.json (one team per VM); the server reads the same file.
 HOSTED=0
@@ -88,12 +95,13 @@ else
 fi
 CPU_QUOTA=$(awk -v c="$CPUS" 'BEGIN { printf "%d%%", c * 100 }')
 TASKS_MAX=$(( PIDS * (2 * MAXRUN + 2) ))
+fi
 
 # ---- packages ----
 say "packages"
 export DEBIAN_FRONTEND=noninteractive
 apt-get update -q
-apt-get install -y -q --no-install-recommends bubblewrap socat ripgrep polkitd git curl ca-certificates xz-utils \
+apt-get install -y -q --no-install-recommends bubblewrap socat ripgrep polkitd jq git curl ca-certificates xz-utils \
   python3 python3-venv python3-pip ffmpeg chromium build-essential fonts-noto-cjk
 dpkg --compare-versions "$(dpkg-query -W -f '${Version}' bubblewrap)" ge 0.8.0 || die "bubblewrap is older than 0.8.0"
 
@@ -136,6 +144,10 @@ done
 # ---- run-wrap, polkit rule, slice ----
 install -d -o root -g root -m 755 "$OPT/devenv"
 T=$(mktemp); cp "$HERE/run-wrap" "$T"; put_changed "$T" 755 "$OPT/devenv/run-wrap" || true
+if [ "$IMAGE_MODE" = 1 ]; then
+  say "image mode done: srt $SRT_VERSION, node $NODE_VERSION, run-wrap. The dev environment is not turned on"
+  exit 0
+fi
 install -d -o root -g root -m 755 /etc/polkit-1/rules.d
 T=$(mktemp); sed "s/@SRV_USER@/$SRV_USER/g" "$HERE/devenv.rules.in" > "$T"
 put_changed "$T" 644 "$RULE" && systemctl try-restart polkit.service || true

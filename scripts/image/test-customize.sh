@@ -3,7 +3,7 @@
 # a privileged Debian 13 container with a FAKE Team AX kit (honours only the --image-mode contract) and the real Linux
 # mycel-launcher (built here with Go), check the second run changes nothing, then run tests/linux/vm-smoke.sh --container.
 #
-#   bash scripts/image/test-customize.sh [--platform linux/amd64|linux/arm64] [--image debian:trixie] [--keep]
+#   bash scripts/image/test-customize.sh [--platform linux/amd64|linux/arm64] [--image debian:trixie] [--keep] [--no-srt]
 #
 # Needs: docker (privileged containers), go (optional: without it the launcher / tcp-peer checks are skipped).
 # Work folder: .tmp/image-test (git-ignored). The container is removed unless --keep.
@@ -12,11 +12,13 @@ REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 PLATFORM=""
 IMAGE="debian:trixie"
 KEEP=0
+SRT=1
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --platform) PLATFORM="$2"; shift 2 ;;
     --image) IMAGE="$2"; shift 2 ;;
     --keep) KEEP=1; shift ;;
+    --no-srt) SRT=0; shift ;;
     *) echo "test-customize: unknown argument $1" >&2; exit 2 ;;
   esac
 done
@@ -28,6 +30,13 @@ WORK="$REPO/.tmp/image-test"
 NAME="ax-image-test-$$"
 rm -rf "$WORK"; mkdir -p "$WORK/src/kit/root" "$WORK/src/bin"
 cp -a "$REPO/scripts/image/customize.sh" "$REPO/scripts/image/files" "$WORK/src/"
+# the dev environment on srt, image part (the same files build-ami.sh stages). --no-srt skips it (faster)
+if [[ $SRT == 1 ]]; then
+  mkdir -p "$WORK/src/dev-env-srt"
+  for f in install-srt.sh uninstall-srt.sh package.json package-lock.json run-wrap devenv.rules.in devenv.slice.in README.md; do
+    cp -p "$REPO/scripts/dev-env/srt/$f" "$WORK/src/dev-env-srt/"
+  done
+fi
 cp "$REPO/tests/linux/vm-smoke.sh" "$WORK/vm-smoke.sh"
 
 # ---- fake kit: VERSION + install-linux.sh honouring the --image-mode contract + the real launcher
@@ -90,6 +99,19 @@ echo "$run2" | grep -q 'changed=0$' || { echo "test-customize: FAIL: second run 
 
 echo "--- seed / mount point:"
 docker exec "$NAME" bash -c 'ls -ln /usr/lib/mycel/seed-base /usr/lib/mycel/seed-base/root; echo "BASE entries: $(ls -A /var/lib/mycel | wc -l)"; cat /etc/ax-template.json'
+if [[ $SRT == 1 ]]; then
+  echo "--- dev environment on srt (image part): installed, and NOT turned on:"
+  docker exec "$NAME" bash -c 'set -e
+    v=$(sed -n "s/^SRT_VERSION=//p" /usr/lib/mycel/dev-env/srt/install-srt.sh)
+    [ "$(/opt/trina/node/bin/node /opt/trina/srt/$v/cli.js --version)" = "$v" ] || { echo "srt $v does not answer"; exit 1; }
+    [ "$(stat -c "%U %a" /opt/trina/devenv/run-wrap)" = "root 755" ] || { echo "run-wrap owner/mode"; exit 1; }
+    for p in bubblewrap socat ripgrep polkitd jq python3 ffmpeg chromium build-essential; do dpkg-query -W -f "\${db:Status-Status}" $p | grep -qx installed || { echo "package $p missing"; exit 1; }; done
+    [ -z "$(find /opt/trina -perm /022 ! -type l)" ] || { echo "a file in /opt/trina is group/world writable"; exit 1; }
+    for f in /etc/polkit-1/rules.d/60-mycel-devenv.rules /etc/systemd/system/mycel-devenv.slice /etc/systemd/system/mycel-server.service.d/dev-env.conf; do
+      [ ! -e "$f" ] || { echo "image mode wrote $f (the dev environment must stay off)"; exit 1; }; done
+    grep -q "\"srt\":\"present\"" /etc/ax-template.json || { echo "ax-template.json has no srt present"; exit 1; }
+    echo "srt $v, node $(/opt/trina/node/bin/node --version), run-wrap, packages: ok; no polkit rule, slice or drop-in"'
+fi
 echo "--- vm-smoke --container:"
 docker exec "$NAME" bash /w/vm-smoke.sh --container
 echo "--- negative: no kit must fail with the contract message"
