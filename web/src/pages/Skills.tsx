@@ -3,6 +3,7 @@
 // suggestions with their status, and for the owner and admins every recent change under skills/ with a link to its
 // version history (where the previous version can be restored). Quiet on purpose: rows keep to a line or two, the
 // details open on demand.
+import clsx from 'clsx'
 import { Bot, History, Lightbulb, Search } from 'lucide-react'
 import { useCallback, useEffect, useId, useRef, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
@@ -18,7 +19,7 @@ import { AvailableSkills } from '../components/AvailableSkills'
 import { Markdown } from '../components/Markdown'
 import { SkillIssues } from '../components/SkillIssues'
 import { SkillListNote } from '../components/SkillListNote'
-import { Badge, Button, EmptyState, ErrorNote, Field, Modal, Skeleton, StickyHeader, TabPanel, Tabs, inputCls, promptDialog } from '../components/ui'
+import { Badge, Button, EmptyState, ErrorNote, Field, Modal, Skeleton, StickyHeader, TabPanel, Tabs, inputCls, pageColumn, promptDialog } from '../components/ui'
 
 type Tab = 'skills' | 'review' | 'mine' | 'changes'
 
@@ -102,7 +103,7 @@ export default function Skills() {
 
   return (
     <div className="flex h-full flex-col overflow-y-auto">
-      <div className="w-full max-w-4xl p-4 sm:p-6">
+      <div className={clsx(pageColumn, 'p-4 sm:p-6')}>
         <StickyHeader className="-mt-3 mb-2 flex flex-wrap items-center gap-x-4 gap-y-3 py-3" testId="skills-header">
           <h1 className="text-xl font-semibold tracking-tight">{t('skills.title')}</h1>
           {overview && <Tabs segmented value={current} onChange={setTab} items={tabs} label={t('skills.title')} panels={panels} />}

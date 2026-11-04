@@ -22,7 +22,7 @@ import { TitleMenu } from '../components/TitleMenu'
 import { NewChatComposer } from '../components/chat/NewChatComposer'
 import { ProjectForm } from '../components/ProjectForm'
 import { ProjectTrashNote } from '../components/ProjectTrashNote'
-import { Button, EmptyState, ErrorNote, PageHeader, Skeleton, StickyHeader, confirmDialog } from '../components/ui'
+import { Button, EmptyState, ErrorNote, PageHeader, Skeleton, StickyHeader, confirmDialog, pageColumn } from '../components/ui'
 import { DevEnvRow } from './DevEnvSection'
 
 export function ProjectList() {
@@ -57,7 +57,7 @@ export function ProjectList() {
           </Button>
         }
       />
-      <div className="p-4 sm:p-6">
+      <div className={`${pageColumn} p-4 sm:p-6`}>
         {error && <ErrorNote onRetry={load}>{error}</ErrorNote>}
         {!items && !error && <Skeleton lines={4} />}
         {items && !items.length && <EmptyState icon={<FolderKanban size={28} />} title={t('projects.empty')} />}

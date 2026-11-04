@@ -1,14 +1,14 @@
-// Personal settings: profile, language and theme, password, signed-in devices, the in-app browser's site setting (desktop
+// The sections of the personal Settings dialog (components/settings/SettingsDialog.tsx): profile, language and theme, password, signed-in devices, the in-app browser's site setting (desktop
 // app only: BrowserSettings.tsx), what the AI remembers, scheduled tasks, apps (the guide to add the app to the home
 // screen, components/settings/InstallGuide.tsx, in a web browser only / desktop app download, none inside a Mac App
 // Store build: only the App Store line),
 // about (version, license, source code), the member's own AI connections when the team allows them (the team's
-// connections are made by the owner in Admin > AI connections), and the external services the AI may use with the
+// connections are made by the owner in Admin > AI connections), and the MCP connections the AI may use with the
 // member's own accounts (Integrations.tsx).
 import clsx from 'clsx'
 import { Brain, CalendarClock, Download, Laptop, Monitor, Pencil, Plus, ShieldAlert, Smartphone, Trash2 } from 'lucide-react'
-import { useEffect, useRef, useState } from 'react'
-import { Link, Navigate, NavLink, useNavigate, useParams } from 'react-router-dom'
+import { useEffect, useId, useRef, useState } from 'react'
+import { Link, useNavigate } from 'react-router-dom'
 import type { EngineId, Me, Memory, Schedule, ScheduleReviewCard, Session, Theme } from '@mycel/shared/api'
 import { RELEASE_CHANNEL } from '@mycel/shared'
 import { api, API, errorText, isApiError } from '../lib/api'
@@ -24,9 +24,8 @@ import { toast } from '../store/ui'
 import { ChangePasswordForm } from './Auth'
 import { MyCredentials } from './admin/Credentials'
 import { BrowserSettings } from './BrowserSettings'
-import { settingsTabs } from './settingsTabs'
 import { browserSettingsBridge, storeApp } from '../lib/desktop'
-import { Badge, Button, EmptyState, ErrorNote, Field, IconButton, PageHeader, Skeleton, confirmDialog, inputCls, noKeyRepeat } from '../components/ui'
+import { Badge, Button, EmptyState, ErrorNote, Field, IconButton, Skeleton, confirmDialog, inputCls, noKeyRepeat } from '../components/ui'
 import { SourceCodeLinks, useServerSource } from '../components/SourceCodeLink'
 import { DriveConnection } from '../components/settings/DriveConnection'
 import { ScheduleTemplates } from '../components/settings/ScheduleTemplates'
@@ -39,53 +38,26 @@ import AskCard from '../components/chat/AskCard'
 import ConnectorConnections from './ConnectorConnections'
 import Integrations from './Integrations'
 
-export default function Settings() {
-  const t = useT()
+/** One section of the Settings dialog (components/settings/SettingsDialog.tsx, which owns the list, the address and
+ * which sections there are): `tab` is one of settingsTabs(). */
+export default function SettingsPane({ tab }: { tab: string }) {
   const me = useMeStrict()
-  const { tab = 'profile' } = useParams()
-  const [own, setOwn] = useState<boolean | null>(null)
-  useEffect(() => {
-    api.call(API.myCredentials).then((r) => setOwn(r.allowed || r.items.length > 0), () => setOwn(false))
-  }, [])
-  // the desktop app's site setting: only inside a desktop app that offers it (the value lives there)
   const browser = browserSettingsBridge()
-  const tabs = settingsTabs(Boolean(browser), Boolean(own))
-  // an old or mistyped link (/settings/devices), or /settings/browser outside the desktop app, would show an empty
-  // page: open the profile instead
-  if (tab === 'credentials' && own === null) return null
-  if (!tabs.some((x) => x.id === tab)) return <Navigate to="/settings" replace />
-  // The title and the menu stay where they are while a page scrolls (like Admin): only the page beside the menu (under
-  // the strip on a phone) scrolls, so a page's own title row (MCP) can stay at its top.
   return (
-    <div className="flex h-full min-h-0 flex-col">
-      <PageHeader title={t('settings.title')} />
-      <div className="flex min-h-0 flex-1 flex-col md:flex-row">
-        {/* phones: the tab strip runs to the screen edges, so a tab cut off at the right reads as "scroll for more" */}
-        <nav aria-label={t('settings.title')} className="scroll-thin flex shrink-0 gap-1 overflow-x-auto px-4 pt-4 pb-1 sm:px-6 sm:pt-6 md:w-[13.5rem] md:flex-col md:overflow-x-hidden md:overflow-y-auto md:pr-0 md:pb-6" data-testid="settings-menu">
-          {tabs.map((x) => (
-            <NavLink key={x.id} to={`/settings/${x.id}`} className={({ isActive }) => clsx('flex items-center gap-2 rounded-lg px-3 py-2 text-sm whitespace-nowrap hover:bg-hover focus-visible:-outline-offset-2', (isActive || (x.id === 'profile' && tab === 'profile')) && 'bg-hover font-medium')}>
-              <x.icon size={15} aria-hidden /> {t(x.label)}
-            </NavLink>
-          ))}
-        </nav>
-        <div className="min-h-0 min-w-0 flex-1 overflow-y-auto" data-testid="settings-content">
-          <div className="max-w-2xl p-4 sm:p-6">
-            {tab === 'profile' && <Profile />}
-            {tab === 'security' && <Security />}
-            {tab === 'browser' && browser && <BrowserSettings bridge={browser} />}
-            {tab === 'memory' && <Memories />}
-            {tab === 'drive' && <DriveConnection key={`${me.user.id}:${me.session.id}`} />}
-            {tab === 'integrations' && <Integrations key={`${me.user.id}:${me.session.id}`} />}
-            {tab === 'connectors' && <ConnectorConnections key={`${me.user.id}:${me.session.id}`} />}
-            {tab === 'schedules' && <Schedules key={`${me.user.id}:${me.session.id}`} />}
-            {tab === 'notifications' && <Notifications key={`${me.user.id}:${me.session.id}`} />}
-            {tab === 'apps' && <Apps />}
-            {tab === 'credentials' && <MyCredentials />}
-            {tab === 'about' && <About />}
-          </div>
-        </div>
-      </div>
-    </div>
+    <>
+      {tab === 'profile' && <Profile />}
+      {tab === 'security' && <Security />}
+      {tab === 'browser' && browser && <BrowserSettings bridge={browser} />}
+      {tab === 'memory' && <Memories />}
+      {tab === 'drive' && <DriveConnection key={`${me.user.id}:${me.session.id}`} />}
+      {tab === 'integrations' && <Integrations key={`${me.user.id}:${me.session.id}`} />}
+      {tab === 'connectors' && <ConnectorConnections key={`${me.user.id}:${me.session.id}`} />}
+      {tab === 'schedules' && <Schedules key={`${me.user.id}:${me.session.id}`} />}
+      {tab === 'notifications' && <Notifications key={`${me.user.id}:${me.session.id}`} />}
+      {tab === 'apps' && <Apps />}
+      {tab === 'credentials' && <MyCredentials />}
+      {tab === 'about' && <About />}
+    </>
   )
 }
 
@@ -99,8 +71,33 @@ function Section({ title, children, desc }: { title: string; children: React.Rea
   )
 }
 
+/** One setting, like Claude's Settings: what it is on the left, its control on the right, a hairline between rows (on a
+ * phone the control goes under its name). */
+function Row({ label, hint, htmlFor, hintId, children }: { label: string; hint?: string; htmlFor?: string; hintId?: string; children: React.ReactNode }) {
+  return (
+    <div className="flex flex-col gap-2 border-b border-line py-3 last:border-b-0 sm:flex-row sm:items-center sm:justify-between sm:gap-6">
+      <div className="min-w-0">
+        {htmlFor ? (
+          <label htmlFor={htmlFor} className="text-sm text-ink">
+            {label}
+          </label>
+        ) : (
+          <p className="text-sm text-ink">{label}</p>
+        )}
+        {hint && (
+          <p id={hintId} className="mt-0.5 text-xs text-muted">
+            {hint}
+          </p>
+        )}
+      </div>
+      <div className="min-w-0 sm:w-72 sm:max-w-[60%] sm:shrink-0">{children}</div>
+    </div>
+  )
+}
+
 function Profile() {
   const t = useT()
+  const ids = useId()
   const locale = useLocale()
   const me = useMeStrict()
   const signedIn = useSession((s) => s.signedIn)
@@ -124,23 +121,27 @@ function Profile() {
   return (
     <>
       <Section title={t('settings.profile')}>
-        <div className="space-y-3">
-          <Field label={t('auth.name')}>
-            <input className={inputCls} value={name} onChange={(e) => setName(e.target.value)} maxLength={100} />
-          </Field>
-          <Field label={t('settings.email')} hint={t('settings.emailHint')}>
-            <input className={inputCls} type="email" value={email} onChange={(e) => setEmail(e.target.value)} />
-          </Field>
-          <Field label={t('auth.username')}>
-            <input className={inputCls} value={me.user.username} disabled />
-          </Field>
-          <p className="text-xs text-faint">
-            {t('settings.role')}: <Badge>{t(`role.${me.user.role}`)}</Badge> · {me.groups.map((g) => g.name).join(', ') || t('settings.noGroups')}
-          </p>
-          <Button variant="primary" busy={busy} disabled={!name.trim()} onClick={save}>
-            {t('common.save')}
-          </Button>
+        <div>
+          <Row label={t('auth.name')} htmlFor={`${ids}-name`}>
+            <input id={`${ids}-name`} className={inputCls} value={name} onChange={(e) => setName(e.target.value)} maxLength={100} />
+          </Row>
+          <Row label={t('settings.email')} hint={t('settings.emailHint')} htmlFor={`${ids}-email`} hintId={`${ids}-email-hint`}>
+            <input id={`${ids}-email`} className={inputCls} type="email" value={email} onChange={(e) => setEmail(e.target.value)} aria-describedby={`${ids}-email-hint`} />
+          </Row>
+          <Row label={t('auth.username')}>
+            <span className="block truncate text-sm text-muted sm:text-right" data-testid="profile-username">
+              {me.user.username}
+            </span>
+          </Row>
+          <Row label={t('settings.role')}>
+            <span className="flex flex-wrap items-center gap-1.5 text-sm text-muted sm:justify-end">
+              <Badge>{t(`role.${me.user.role}`)}</Badge> · {me.groups.map((g) => g.name).join(', ') || t('settings.noGroups')}
+            </span>
+          </Row>
         </div>
+        <Button variant="primary" className="mt-3" busy={busy} disabled={!name.trim()} onClick={save}>
+          {t('common.save')}
+        </Button>
       </Section>
       <Section title={t('settings.language')} desc={t('settings.languageHint')}>
         <div className="flex flex-wrap gap-2" role="radiogroup" aria-label={t('settings.language')}>
