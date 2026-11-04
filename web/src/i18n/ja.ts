@@ -827,6 +827,8 @@ export const ja: Record<MessageKey, string> = {
   'scheduleTemplates.outcome.budget_exceeded': "使用量の上限により実行できませんでした",
   'scheduleTemplates.outcome.user_unavailable': "ユーザーの状態により実行できませんでした",
   'notifications.title': "通知",
+  'inbox.title': "受信箱",
+  'inbox.open': "受信箱を開く",
   'connectors.title': "アプリコネクター",
   'connectors.description': "自分の権限でClaudeからチームのファイルを使用します。",
   'connectors.disabled': "まず管理者がこのサーバーでアプリコネクターを設定する必要があります。",

@@ -851,6 +851,8 @@ export const id: Record<MessageKey, string> = {
   'scheduleTemplates.outcome.budget_exceeded': 'Batas penggunaan mencegah eksekusi',
   'scheduleTemplates.outcome.user_unavailable': 'Status pengguna mencegah eksekusi',
   'notifications.title': 'Notifikasi',
+  'inbox.title': 'Kotak masuk',
+  'inbox.open': 'Buka kotak masuk',
   'connectors.title': 'Konektor aplikasi',
   'connectors.description': 'Gunakan file tim dari Claude dengan izinmu sendiri.',
   'connectors.disabled': 'Administrator perlu mengatur konektor aplikasi di server ini terlebih dahulu.',

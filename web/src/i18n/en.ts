@@ -851,6 +851,8 @@ export const en: Record<MessageKey, string> = {
   'scheduleTemplates.outcome.budget_exceeded': 'Usage limit prevented the run',
   'scheduleTemplates.outcome.user_unavailable': 'User status prevented the run',
   'notifications.title': 'Notifications',
+  'inbox.title': 'Inbox',
+  'inbox.open': 'Open the inbox',
   'connectors.title': 'App connectors',
   'connectors.description': 'Use team files from Claude with your own permissions.',
   'connectors.disabled': 'An administrator needs to configure app connectors on this server first.',

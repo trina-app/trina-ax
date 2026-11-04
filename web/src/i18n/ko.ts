@@ -850,6 +850,8 @@ export const ko = {
   'scheduleTemplates.outcome.budget_exceeded': '사용 한도로 실행하지 못했어요',
   'scheduleTemplates.outcome.user_unavailable': '사용자 상태로 실행하지 못했어요',
   'notifications.title': '알림',
+  'inbox.title': '알림함',
+  'inbox.open': '알림함 열기',
   'connectors.title': '앱 커넥터',
   'connectors.description': 'Claude에서 내 권한으로 팀 파일을 사용해요.',
   'connectors.disabled': '관리자가 이 서버의 앱 커넥터를 먼저 설정해야 해요.',
