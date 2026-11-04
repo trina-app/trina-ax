@@ -48,7 +48,10 @@
     "e2e:ui": "bun run --cwd tests e2e:ui",
     "check:i18n": "bun scripts/check-i18n.ts",
     "demo": "bun scripts/demo/start.ts",
-    "check:docs": "bun scripts/check-onboarding-docs.ts"
+    "check:docs": "bun scripts/check-onboarding-docs.ts",
+    "docs:build": "bun scripts/docs/build.ts",
+    "docs:api": "bun scripts/docs/api-reference.ts",
+    "docs:serve": "bun scripts/docs/serve.ts"
   },
   "devDependencies": {
     "@types/bun": "1.3.12",

@@ -25,6 +25,7 @@ Markdown is the canonical operating guide. Printable PDFs are optional generated
 
 - [Detailed permissions (Korean)](PERMISSIONS.md), [security reporting](../SECURITY.md)
 - [MCP / HTTP integrations](INTEGRATIONS.md), [Google Drive](GOOGLE-DRIVE.md)
+- [Developer and agent docs](site/index.md): the documentation site (intro, guides, HTTP API, CLI, agent docs); `bun run docs:build` builds it with `llms.txt`
 - [Development and tests](DEVELOPMENT.md), [contributing](../CONTRIBUTING.md), [conduct](../CODE_OF_CONDUCT.md)
 - [Design system](DESIGN-SYSTEM.md): colours, type, layout, components, copy and accessibility rules for every Trina screen
 - [Changelog](../CHANGELOG.md), [release CI](RELEASE-CI.md), [release channels](EDITION-RELEASE.md)
