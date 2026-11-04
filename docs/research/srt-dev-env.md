@@ -665,7 +665,8 @@ page's modal (saves the team setting on srt) and the warning text (version 2, no
 
 Verified after the scope change (2026-11-04):
 
-- Docker attack suite (real srt 0.0.81, Debian 13, arm64): all 26 attacks held. New lines: A0 (the person's folders,
+- Docker attack suite (real srt 0.0.81, Debian 13, arm64): all 26 attacks held (again with node 22.23.4 and
+  `NODE_USE_ENV_PROXY`, 2026-11-04). New lines: A0 (the person's folders,
   read-only folders), A0b (a chat with no project), A2 (another group, another project, a hidden folder inside her
   group, `users/bob`, `.system`; the listings show only her folders), A2b (another chat's work folder, another person's
   logs and home), A2c (write into read-only folders), A2d. So srt's nesting (a deny inside an allow inside a deny, and a
@@ -741,7 +742,7 @@ Fixed on the branch after the first two VM runs:
 
 - **Node programs had no network.** Node ignores `HTTPS_PROXY` unless `NODE_USE_ENV_PROXY=1` (node 22.21 or later).
   `runEnv` sets it, and the pinned node is now 22.23.4. npm, pip and curl read the proxy variables already.
-- **srt's mount points.** For an absent name that it protects in the cwd (`.bashrc`, `.mcp.json`, `.vscode`, ...) srt
+- **srt's mount points (in the starting folder).** For an absent name that it protects in the cwd (`.bashrc`, `.mcp.json`, `.vscode`, ...) srt
   makes an empty file and removes it at its end. A killed run (time limit, stop, OOM) left the files in the project.
   Worse: when two runs share a folder, the first to end removes the mount points and the denies of the other run stop
   (Docker and VM: a command wrote `.bashrc` after a job in the same folder ended). Now the runner makes these names
@@ -749,6 +750,12 @@ Fixed on the branch after the first two VM runs:
 
 Open:
 
+- **srt's fixed write denies apply only in the cwd of a run** (security, linked to Q0). After the scope change a run
+  may write every team folder the person may write. In those other folders a run can write `.git/hooks/pre-commit`,
+  `.git/config`, `.mcp.json` and `.bashrc` (Docker, srt 0.0.81: all succeeded). A hook there runs on a person's
+  computer when they use git in a synced copy. Options: `denyWrite` entries for these names in each writable root
+  (absent names need mount points, as in `placeholders.ts`), or every folder except the starting folder and the
+  person's own folder read-only (the simplest option of Q0).
 - Remotion's download lock (`node_modules/.remotion/chrome-headless-shell/download.lock`, with hostname and pid) stays
   after a failed download. In runs 1 and 2 every later download and render then hung until its time limit. Removing the
   lock fixes it. Probable cause: each srt run has a new pid namespace, so the old pid looks alive. The tool text could
