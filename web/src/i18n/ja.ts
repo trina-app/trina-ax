@@ -538,7 +538,6 @@ export const ja: Record<MessageKey, string> = {
   'browser.allowAlways': "常に許可",
   'browser.deny': "拒否",
   'hwp.disabled': "このチームではハングル文書のプレビューがオンになっていません。原本のダウンロードと、AIによる文書のテキストの読み取りは引き続き利用できます。",
-  'hwp.adminNotice': "HWP/HWPXプレビューと、AIによるハングル文書の作成・記入は「HWPプレビュー」プラグインで使えます（管理 > プラグインでインストールしてオン）。Debian 12（glibc 2.36）など、glibc 2.39より古いLinuxでは利用できません。原本のダウンロードとテキストの読み取りはいつでも利用できます。",
   'hwp.viewer': "ハングル文書のプレビュー",
   'hwp.pages': "ページ移動",
   'hwp.previous': "前へ",

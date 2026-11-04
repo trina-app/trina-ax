@@ -510,7 +510,6 @@ export const en: Record<MessageKey, string> = {
   'preview.notFound': "The file can't be found, or you don't have access to it.",
   'preview.tooLarge': 'This file is too large to preview ({size}). Download it to open it.',
   'hwp.disabled': "Hangul preview is not turned on for this team. You can still download the original and ask AI to read its text.",
-  'hwp.adminNotice': "HWP/HWPX preview, and the AI making and filling in Hangul documents, come with the HWP Preview plugin (install it and turn it on in Admin > Plugins). It is not available on Linux older than glibc 2.39, such as Debian 12 (glibc 2.36). Original downloads and text reading are always available.",
   'hwp.viewer': "Hangul document preview",
   'hwp.pages': "Page navigation",
   'hwp.previous': "Previous",

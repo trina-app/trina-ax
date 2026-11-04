@@ -538,7 +538,6 @@ export const es: Record<MessageKey, string> = {
   'browser.allowAlways': "Permitir siempre",
   'browser.deny': "Denegar",
   'hwp.disabled': "La vista previa de documentos Hangul no está activada para este equipo. Puede seguir descargando el original y pedir a la IA que lea su texto.",
-  'hwp.adminNotice': "La vista previa de HWP/HWPX, y que la IA cree y rellene documentos Hangul, vienen con el complemento Vista previa de HWP (instálelo y actívelo en Administración > Complementos). No está disponible en Linux con glibc anterior a 2.39, como Debian 12 (glibc 2.36). La descarga del original y la lectura de texto siempre están disponibles.",
   'hwp.viewer': "Vista previa de documentos Hangul",
   'hwp.pages': "Navegación por páginas",
   'hwp.previous': "Anterior",

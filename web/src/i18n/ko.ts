@@ -509,7 +509,6 @@ export const ko = {
   'preview.notFound': '파일을 찾을 수 없거나 볼 권한이 없어요.',
   'preview.tooLarge': '파일이 커서({size}) 미리 볼 수 없어요. 내려받아서 열어 주세요.',
   'hwp.disabled': "이 팀에서는 한글 미리보기가 켜져 있지 않아요. 원본 다운로드와 AI의 글자 읽기는 계속 쓸 수 있어요.",
-  'hwp.adminNotice': "HWP/HWPX 미리보기와 AI의 한글 문서 만들기·채우기는 '한글 문서 미리보기' 플러그인이에요(관리 > 플러그인에서 설치하고 켜기). Debian 12(glibc 2.36)처럼 glibc 2.39보다 오래된 Linux에서는 쓸 수 없어요. 원본 다운로드와 글자 읽기는 늘 쓸 수 있어요.",
   'hwp.viewer': "한글 문서 미리보기",
   'hwp.pages': "페이지 이동",
   'hwp.previous': "이전",
