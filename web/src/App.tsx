@@ -1,7 +1,7 @@
 // Routes and the sign-in gate: first-run setup → /setup, signed out → /login (invite links still open),
 // must change password → /password, otherwise the app with its WebSocket running.
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef } from 'react'
-import { BrowserRouter, Navigate, Route, Routes, useLocation, useNavigate, useNavigationType, type Location } from 'react-router-dom'
+import { BrowserRouter, Link, Navigate, Route, Routes, useLocation, useNavigate, useNavigationType, type Location } from 'react-router-dom'
 import { PRODUCT } from '@mycel/shared'
 import { ApiError, errorText } from './lib/api'
 import { useLocale, useT } from './i18n'
@@ -172,6 +172,8 @@ function Gate() {
           <Route path="scheduled" element={<ScheduledList />} />
           <Route path="scheduled/:id" element={<ScheduledTask />} />
           <Route path="connectors/authorize" element={<ConnectorConsent key={`${status.me.user.id}:${status.me.session.id}`} />} />
+          {/* an unknown address: say so (with a way home) instead of opening Home without a word */}
+          <Route path="*" element={<NotFound />} />
         </Route>
         <Route path="/login" element={<AfterSignIn />} />
         <Route path="/setup" element={<Navigate to="/" replace />} />
@@ -179,7 +181,6 @@ function Gate() {
         <Route path="/invite/:token" element={<Navigate to="/" replace />} />
         {/* a reset link opened while someone is signed in (a shared computer): using it signs that person in instead */}
         <Route path="/reset-password/:token" element={<ResetPassword />} />
-        <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
       </div>
       </RealPath.Provider>
@@ -204,6 +205,21 @@ export default function App() {
         <Toaster />
       </AnnounceProvider>
     </BrowserRouter>
+  )
+}
+
+/** An address the app does not know (a wrong or old link): a clear message and a link to Home, inside the normal layout. */
+function NotFound() {
+  const t = useT()
+  return (
+    // the layout already has the <main> landmark; the page heading is an h1 like on other pages
+    <div className="flex flex-1 flex-col items-center justify-center gap-2 px-6 py-12 text-center" data-testid="not-found">
+      <h1 className="text-lg font-semibold text-balance text-ink">{t('notFound.title')}</h1>
+      <p className="max-w-md text-sm text-balance text-muted">{t('notFound.hint')}</p>
+      <Link to="/" className="mt-3 text-sm font-medium text-accent-text underline">
+        {t('notFound.home')}
+      </Link>
+    </div>
   )
 }
 

@@ -16,7 +16,7 @@ import { isOwner, useMeStrict } from '../../store/session'
 import { credentialLogin } from '../../store/live'
 import { toast } from '../../store/ui'
 import { Badge, Button, CopyButton, Field, IconButton, Modal, Switch, confirmDialog, inputCls } from '../../components/ui'
-import { Card, Loadable, useAction, useActionOk, useLoad } from './common'
+import { AdminPageHeader, Card, Loadable, USAGE_LIMITS_LINK, useAction, useActionOk, useLoad } from './common'
 
 const FAMILY: Record<'claude' | 'codex', CredentialKind[]> = { claude: ['anthropic-oauth', 'anthropic-api-key'], codex: ['chatgpt', 'openai-api-key'] }
 const SUBSCRIPTION = new Set<CredentialKind>(['anthropic-oauth', 'chatgpt'])
@@ -84,14 +84,16 @@ export default function Credentials() {
     : !c.assignments.length ? t('credentials.target.team') : c.assignments.map((a) => a.name).join(', ')
 
   return (
+    <>
+    <AdminPageHeader
+      title={t('admin.credentials')}
+      desc={t('credentials.desc')}
+      actions={owner ? <Button size="sm" variant="primary" disabled={!state.data} onClick={() => setAdding(true)} data-testid="credential-add"><Plus size={14} aria-hidden /> {t('credentials.add')}</Button> : undefined}
+    />
     <Loadable state={state}>
       {(d) => (
         <>
-          <Card
-            title={t('admin.credentials')}
-            desc={t('credentials.desc')}
-            actions={owner ? <Button size="sm" variant="primary" onClick={() => setAdding(true)} data-testid="credential-add"><Plus size={14} aria-hidden /> {t('credentials.add')}</Button> : undefined}
-          >
+          <Card>
             {/* the connections here are for Claude and Codex only; other providers are the API engine's (one key there) */}
             <p className="mb-4 text-xs text-muted" data-testid="credentials-api-engine-hint">
               {t('credentials.apiEngineHint')}{' '}
@@ -116,7 +118,11 @@ export default function Credentials() {
               )
             })}
             <p className="text-xs text-muted">{t('credentials.order')}</p>
-            <p className="mt-2 text-xs text-muted">{t('credentials.companyBudgetHint')}</p>
+            {/* the usage limits are on AI engines › Team provider settings: a link that opens that tab at the limits */}
+            <p className="mt-2 text-xs text-muted" data-testid="credentials-budget-hint">
+              {t('adminux.credentials.budgetHint')}{' '}
+              <Link to={USAGE_LIMITS_LINK} className="font-medium text-accent-text underline">{t('adminux.usageLimitsLink')}</Link>
+            </p>
             {owner && (
               <div className="mt-4 space-y-1">
                 <Switch checked={d.memberOwn} label={t('credentials.memberOwn')} onChange={async (v) => {
@@ -158,6 +164,7 @@ export default function Credentials() {
         </>
       )}
     </Loadable>
+    </>
   )
 }
 

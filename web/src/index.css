@@ -132,6 +132,13 @@ select:not([multiple]):not([size]) {
   background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23c2bcb1' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");
 }
 
+/* Search fields with a clear button of their own (data-own-clear): the browser's blue "x" is hidden, so the field does
+   not show two clear buttons. A field without its own button keeps the browser's one, so a mouse can still clear it. */
+input[type="search"][data-own-clear]::-webkit-search-cancel-button { -webkit-appearance: none; appearance: none; display: none; }
+
+/* Native checkboxes and radios use the app's accent colour (not the browser's blue) in both themes. */
+input[type="checkbox"], input[type="radio"] { accent-color: var(--c-accent); }
+
 .scroll-thin { scrollbar-width: thin; scrollbar-color: var(--c-line) transparent; }
 
 /* A row that scrolls sideways (useEdgeFade in components/ui.tsx): an edge with more behind it fades out, in both

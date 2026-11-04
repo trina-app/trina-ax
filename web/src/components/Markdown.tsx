@@ -5,7 +5,7 @@ import 'katex/dist/katex.min.css'
 import clsx from 'clsx'
 import type { Element, ElementContent, Root, RootContent } from 'hast'
 import { fromHtml } from 'hast-util-from-html'
-import { Check, Copy, Download, Eye, FileText, ImageOff, ExternalLink } from 'lucide-react'
+import { Check, ChevronRight, Copy, Download, Eye, FileText, ImageOff, ExternalLink } from 'lucide-react'
 import { memo, useEffect, useRef, useState, type ReactNode } from 'react'
 import ReactMarkdown, { type Components } from 'react-markdown'
 import { Link } from 'react-router-dom'
@@ -168,10 +168,16 @@ function CopyableTable({ children }: { children: ReactNode }) {
   return (
     // phones (button always shown): the button sits under the table instead of on its top border, over the header row
     <div className="group relative my-3 max-sm:flex max-sm:flex-col">
-      <div ref={scroller} className="edge-fade overflow-x-auto rounded-lg border border-line" data-testid="md-table-scroll">
-        <table ref={ref} className="m-0 min-w-full text-sm">
-          {children}
-        </table>
+      <div className="relative">
+        {/* a wider fade than the tab rows, and a round arrow at the cut edge: the mask alone is faint on the dark page */}
+        <div ref={scroller} className="edge-fade peer overflow-x-auto rounded-lg border border-line [--fade:3rem]!" data-testid="md-table-scroll">
+          <table ref={ref} className="m-0 min-w-full text-sm">
+            {children}
+          </table>
+        </div>
+        <span className="pointer-events-none absolute top-1/2 right-1.5 hidden size-6 -translate-y-1/2 items-center justify-center rounded-full border border-line-strong bg-surface text-muted shadow-sm peer-data-[fade-end]:flex" aria-hidden data-testid="md-table-more">
+          <ChevronRight size={14} />
+        </span>
       </div>
       <button
         type="button"

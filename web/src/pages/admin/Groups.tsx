@@ -5,7 +5,7 @@ import type { Group, User } from '@mycel/shared/api'
 import { api, API } from '../../lib/api'
 import { useT } from '../../i18n'
 import { Button, Field, IconButton, Modal, confirmDialog, inputCls } from '../../components/ui'
-import { Card, Loadable, useAction, useActionOk, useFocusAfterRemove, useLoad } from './common'
+import { AdminPageHeader, Card, Loadable, useAction, useActionOk, useFocusAfterRemove, useLoad } from './common'
 import { SkillManagerCell, useSkillManagers } from './SkillManagers'
 
 export default function Groups() {
@@ -26,7 +26,7 @@ export default function Groups() {
   }
   return (
     <>
-      <Card
+      <AdminPageHeader
         title={t('admin.groups')}
         desc={t('groups.desc')}
         actions={
@@ -34,7 +34,8 @@ export default function Groups() {
             <Plus size={14} aria-hidden /> {t('groups.new')}
           </Button>
         }
-      >
+      />
+      <Card>
         <div ref={focus.box}>
           <Loadable state={groups}>
             {(list) =>

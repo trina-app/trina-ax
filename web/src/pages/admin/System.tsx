@@ -9,7 +9,7 @@ import { formatDateTime, formatSize } from '../../lib/format'
 import { useLocale, useT, type MessageKey } from '../../i18n'
 import { toast } from '../../store/ui'
 import { Badge, Button, ErrorNote, Field, Modal, confirmDialog, inputCls } from '../../components/ui'
-import { Card, Loadable as CardLoadable, ReauthDialog, useAction, useActionOk, useLoad } from './common'
+import { AdminPageHeader, Card, Loadable as CardLoadable, ReauthDialog, useAction, useActionOk, useLoad } from './common'
 import OfficeUpdate from './OfficeUpdate'
 import { JobLine, useJobRunner, useUpdateInstall } from './jobs'
 import { ReleaseNotes } from '../../components/ReleaseNotes'
@@ -65,10 +65,12 @@ function AllFailed({ detail, onRetry }: { detail: string | null; onRetry: () => 
 }
 
 export default function System() {
+  const t = useT()
   const loads = useLoadReport()
   // the cards stay mounted while hidden, so they can report that they loaded again after a retry
   return (
     <LoadReport.Provider value={loads.report}>
+      <AdminPageHeader title={t('admin.system')} />
       {loads.allFailed && <AllFailed detail={loads.firstError} onRetry={() => void loads.reloadAll()} />}
       <div hidden={loads.allFailed}>
         <SystemCards />
@@ -158,7 +160,9 @@ function Diagnostics({ rev }: { rev: number }) {
                   <li key={c.id} className="flex items-start gap-2 py-2">
                     <Icon size={16} className={`mt-0.5 shrink-0 ${STATUS_CLS[c.status]}`} aria-label={t(`system.check.${c.status}`)} />
                     <span className="min-w-0 flex-1">
-                      <span className="block font-medium">{c.label}</span>
+                      {/* the disk check is the server's free space, not the team's storage use (Storage below, and Home):
+                          the label says so, so the two do not read as two answers to one question */}
+                      <span className="block font-medium">{c.id === 'disk' ? t('adminux.system.diskCheck') : c.label}</span>
                       {c.detail && <span className="block text-xs text-muted">{c.detail}</span>}
                     </span>
                   </li>
@@ -203,11 +207,12 @@ function Storage() {
               {s.graceEndsAt && !s.writesRefused && <p className="text-xs text-warn" role="status">{t('storage.grace', { date: formatDateTime(s.graceEndsAt, locale) })}</p>}
               {s.level !== 'ok' && <p className="text-xs text-warn">{t('storage.howToFree')}</p>}
               {s.breakdown && (
-                <ul className="grid gap-1 text-xs sm:grid-cols-2" data-testid="storage-breakdown">
+                // a wide gap between the two columns, so one column's size does not run into the next column's name
+                <ul className="grid gap-x-10 gap-y-1 text-xs sm:grid-cols-2" data-testid="storage-breakdown">
                   {STORAGE_PARTS.map((k) => (
-                    <li key={k} className="flex justify-between gap-2">
-                      <span className="text-muted">{t(`storage.part.${k}`)}</span>
-                      <span>{formatSize(s.breakdown![k], locale)}</span>
+                    <li key={k} className="flex justify-between gap-4">
+                      <span className="min-w-0 text-muted">{t(`storage.part.${k}`)}</span>
+                      <span className="shrink-0 tabular-nums">{formatSize(s.breakdown![k], locale)}</span>
                     </li>
                   ))}
                 </ul>

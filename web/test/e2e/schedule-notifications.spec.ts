@@ -158,12 +158,13 @@ for (const timezoneId of ['Asia/Jakarta', 'UTC']) {
         await expect(view.getByRole('switch', { name: dict['scheduled.switch'] })).toBeChecked()
         for (const [key, reason] of [['completed', 'completed'], ['expired', 'expired']] as const) {
           view = await open(key)
-          await expect(view.getByTestId('schedule-blocked-hint')).toHaveText(dict[`schedules.${reason}Hint`])
+          // Run now is offered on a finished one-time task, so the hint points to it
+          await expect(view.getByTestId('schedule-blocked-hint')).toHaveText(dict[`scheduled.${reason}RunHint`])
           await expect(view.getByTestId('schedule-status')).toHaveText(dict[`schedules.${reason}`])
           // visible but disabled, described by the reason (no silent no-op, no PATCH)
           const sw = view.getByRole('switch', { name: dict['scheduled.switch'] })
           await expect(sw).toBeDisabled()
-          await expect(sw).toHaveAccessibleDescription(dict[`schedules.${reason}Hint`])
+          await expect(sw).toHaveAccessibleDescription(dict[`scheduled.${reason}RunHint`])
         }
         for (const key of ['future', 'daily']) {
           view = await open(key)

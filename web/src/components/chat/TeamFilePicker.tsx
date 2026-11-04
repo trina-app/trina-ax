@@ -215,6 +215,7 @@ export default function TeamFilePicker({ open, onClose, onPick, room, max, attac
           aria-label={path ? t('picker.searchIn', { folder: folderName(path) }) : t('picker.search')}
           className={clsx(inputCls, 'pr-9 pl-9')}
           data-testid="picker-search"
+          data-own-clear
           // the dialog puts focus here when it opens (mouse and keyboard; phones would open the keyboard over the list)
           data-autofocus={fine ? '' : undefined}
         />

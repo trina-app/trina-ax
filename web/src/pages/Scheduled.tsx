@@ -6,14 +6,14 @@
 // again" instead, which opens its schedule card here; edits go through ScheduleEditDialog. New tasks are made by the AI
 // in a chat (its card) or from a template. Only presentation moved: the API is the same (shared/src/api/schedules.ts).
 import clsx from 'clsx'
-import { ChevronDown, LayoutTemplate, MessageSquarePlus, Pencil, Play, Search, ShieldAlert, Trash2, X } from 'lucide-react'
+import { CalendarClock, ChevronDown, LayoutTemplate, MessageSquarePlus, Pencil, Play, Search, ShieldAlert, Trash2, X } from 'lucide-react'
 import { useCallback, useEffect, useId, useRef, useState, type KeyboardEvent, type ReactNode } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import type { Project, Schedule, ScheduleReviewCard } from '@mycel/shared/api'
 import { api, API, errorText, isApiError } from '../lib/api'
 import { formatDateTime } from '../lib/format'
 import { readDraft, writeDraft } from '../lib/localData'
-import { cardLine, outcomeLabel, outcomeTone, repeatText, scheduleName, schedulePreview, scheduleState, stateLabel, type Tone } from '../lib/scheduleText'
+import { cardLine, outcomeLabel, outcomeReason, outcomeTone, repeatText, scheduleName, schedulePreview, scheduleState, stateLabel, type Tone } from '../lib/scheduleText'
 import { useLocale, useT } from '../i18n'
 import { schedulesChanged } from '../store/live'
 import { useMeStrict } from '../store/session'
@@ -73,9 +73,19 @@ function useScheduleList() {
   return { items, tz, error, load, replace, add, drop, life }
 }
 
+/** "Describe it in a chat": a new chat with a start for the sentence in its box. */
+function useStartInChat() {
+  const t = useT(), me = useMeStrict(), navigate = useNavigate()
+  return () => {
+    // a start for the sentence in the new-chat box, unless something is already typed there
+    if (!readDraft(me.user.id, 'new')) writeDraft(me.user.id, 'new', t('scheduled.chatStarter'))
+    navigate('/')
+  }
+}
+
 /** "New task ⌄": describe it to the AI in a new chat (it makes it on a card), or fill in a template. */
 function NewTaskMenu({ onTemplate, testId }: { onTemplate: () => void; testId: string }) {
-  const t = useT(), me = useMeStrict(), navigate = useNavigate()
+  const t = useT()
   const box = useRef<HTMLDivElement>(null)
   const [open, setOpen] = useState(false)
   const menuItems = () => [...(box.current?.querySelectorAll<HTMLElement>('[role="menuitem"]') ?? [])]
@@ -100,11 +110,7 @@ function NewTaskMenu({ onTemplate, testId }: { onTemplate: () => void; testId: s
       all[(at + (e.key === 'ArrowDown' ? 1 : all.length - 1)) % all.length]?.focus()
     }
   }
-  const inChat = () => {
-    // a start for the sentence in the new-chat box, unless something is already typed there
-    if (!readDraft(me.user.id, 'new')) writeDraft(me.user.id, 'new', t('scheduled.chatStarter'))
-    navigate('/')
-  }
+  const inChat = useStartInChat()
   const items = [
     { label: t('scheduled.newInChat'), icon: <MessageSquarePlus size={15} aria-hidden />, run: inChat, id: 'chat' },
     { label: t('scheduled.newFromTemplate'), icon: <LayoutTemplate size={15} aria-hidden />, run: onTemplate, id: 'template' },
@@ -158,6 +164,7 @@ export function ScheduledList() {
   const [query, setQuery] = useState('')
   const [searching, setSearching] = useState(false)
   const [templateOpen, setTemplateOpen] = useState(false)
+  const startInChat = useStartInChat()
   const q = query.trim().toLowerCase()
   const shown = items?.filter((s) => !q || scheduleName(s, t).toLowerCase().includes(q)) ?? []
   const closeSearch = () => { setQuery(''); setSearching(false) }
@@ -171,7 +178,7 @@ export function ScheduledList() {
               <div className="relative w-48 sm:w-56">
                 <Search size={15} className="pointer-events-none absolute top-1/2 left-3 -translate-y-1/2 text-faint" aria-hidden />
                 <input type="search" autoFocus value={query} onChange={(e) => setQuery(e.target.value)} onKeyDown={(e) => { if (e.key === 'Escape') { e.stopPropagation(); closeSearch() } }}
-                  placeholder={t('scheduled.search')} aria-label={t('scheduled.search')} className={`${inputCls} pr-8 pl-9`} data-testid="scheduled-search" />
+                  placeholder={t('scheduled.search')} aria-label={t('scheduled.search')} className={`${inputCls} pr-8 pl-9`} data-testid="scheduled-search" data-own-clear />
                 <button type="button" aria-label={t('scheduled.closeSearch')} onClick={closeSearch} className="absolute top-1/2 right-2 -translate-y-1/2 rounded p-0.5 text-faint hover:text-ink">
                   <X size={14} aria-hidden />
                 </button>
@@ -189,7 +196,20 @@ export function ScheduledList() {
         {error && <ErrorNote onRetry={() => void load()}>{error}</ErrorNote>}
         {!items && !error && <Skeleton lines={4} />}
         {items && !items.length && (
-          <p className="py-16 text-center text-sm text-muted" data-testid="scheduled-empty">{t('schedules.empty')}</p>
+          <div data-testid="scheduled-empty">
+            <EmptyState icon={<CalendarClock size={28} aria-hidden />} title={t('schedules.empty')}>
+              <p>{t('scheduled.emptyBody')}</p>
+              {/* the same two ways to start as the "New task" menu, shown as buttons so the first step is visible */}
+              <div className="mt-4 flex flex-wrap justify-center gap-2">
+                <Button variant="primary" onClick={startInChat} data-testid="scheduled-empty-chat">
+                  <MessageSquarePlus size={15} aria-hidden /> {t('scheduled.newInChat')}
+                </Button>
+                <Button onClick={() => setTemplateOpen(true)} data-testid="scheduled-empty-template">
+                  <LayoutTemplate size={15} aria-hidden /> {t('scheduled.newFromTemplate')}
+                </Button>
+              </div>
+            </EmptyState>
+          </div>
         )}
         {items && items.length > 0 && (
           <>
@@ -248,25 +268,43 @@ export function ScheduleView({ s, tz, project, onToggle, onRunNow, running, onRe
   const when = (iso: string | null | undefined) => formatDateTime(iso, locale, tz || undefined)
   const hintId = `${base}-hint`
   const status = state === 'on' ? (s.nextRunAt ? t('schedules.next', { time: when(s.nextRunAt) }) : '') : stateLabel(s, t)
-  const hint = blocked ? t(`schedules.${state}Hint`) : waiting ? t('schedules.reviewHint') : state === 'paused' ? t('schedules.pausedHint') : ''
+  // a last run that did not succeed also shows under the title: on a phone the run section is far below the fold
+  const badOutcome = s.lastOutcome && s.lastOutcome !== 'done' ? s.lastOutcome : null
+  // a finished or expired one-time task can still run once with "Run now", so its hint says that, not "create a new schedule"
+  const runNowShown = !!onRunNow && !waiting
+  const hint = blocked
+    ? t(runNowShown ? (state === 'completed' ? 'scheduled.completedRunHint' : 'scheduled.expiredRunHint') : `schedules.${state}Hint`)
+    : waiting ? t('schedules.reviewHint') : state === 'paused' ? t('schedules.pausedHint') : ''
   const long = !s.templateId && (s.prompt.length > 180 || s.prompt.split('\n').length > 3)
   const ran = s.lastRunAt || s.lastChatId
+  const reason = outcomeReason(s, t)
+  // The API keeps only the last run (lastRunAt, lastChatId, lastOutcome), so the section shows that one run: when it ran,
+  // how it went, why in plain words, and a link to its chat.
   const runLine = (
-    <>
-      <span className="min-w-0 flex-1">
-        <span className="block truncate text-sm text-ink">{t('scheduled.run', { title: name })}</span>
-        <span className="block text-xs text-faint">{s.lastRunAt ? when(s.lastRunAt) : t('schedules.lastRun')}</span>
-        {s.lastOutcome && <span className={clsx('block text-xs', TEXT[outcomeTone(s.lastOutcome)])} data-testid="schedule-outcome" data-outcome={s.lastOutcome}>{outcomeLabel(s, t)}</span>}
-      </span>
-      <OutcomeDot s={s} />
-    </>
+    <span className="min-w-0 flex-1">
+      <span className="block text-sm text-ink">{s.lastRunAt ? when(s.lastRunAt) : t('schedules.lastRun')}</span>
+      {s.lastOutcome && (
+        <span className={clsx('mt-0.5 flex items-center gap-1.5 text-xs', TEXT[outcomeTone(s.lastOutcome)])} data-testid="schedule-outcome" data-outcome={s.lastOutcome}>
+          <OutcomeDot s={s} />
+          <span aria-hidden>{outcomeLabel(s, t)}</span>
+        </span>
+      )}
+      {reason && <span className="mt-1 block text-xs text-muted" data-testid="schedule-outcome-reason">{reason}</span>}
+      {s.lastChatId && <span className="mt-1 block text-xs text-accent-text">{t('scheduled.openResult')}</span>}
+    </span>
   )
   return (
     <div data-testid="schedule-view" data-review={waiting ? 'waiting' : undefined}>
       <div className="flex flex-wrap items-start gap-x-6 gap-y-4">
         <div className="min-w-0 flex-[1_1_18rem]">
           <h1 className="text-[26px] font-semibold tracking-tight break-words sm:text-[30px]">{name}</h1>
-          {status && <p className={clsx('mt-1.5 text-sm', waiting ? 'text-warn' : 'text-muted')} data-testid="schedule-status">{status}</p>}
+          {(status || badOutcome) && (
+            <p className={clsx('mt-1.5 text-sm', waiting ? 'text-warn' : 'text-muted')} data-testid="schedule-status">
+              {status}
+              {status && badOutcome && <span aria-hidden> · </span>}
+              {badOutcome && <span className={TEXT[outcomeTone(badOutcome)]} data-testid="schedule-status-outcome">{outcomeLabel(s, t)}</span>}
+            </p>
+          )}
           {hint && (
             <p id={hintId} className={clsx('mt-1 flex items-start gap-1 text-xs', waiting ? 'text-warn' : 'text-faint')} data-testid={blocked ? 'schedule-blocked-hint' : waiting ? 'schedule-review-hint' : 'schedule-paused-hint'}>
               {waiting && <ShieldAlert size={13} className="mt-px shrink-0" aria-hidden />}
@@ -287,7 +325,8 @@ export function ScheduleView({ s, tz, project, onToggle, onRunNow, running, onRe
             </Button>
           ) : (
             <span className="flex items-center gap-2 text-sm text-muted">
-              <span aria-hidden>{s.enabled ? t('scheduled.on') : stateLabel(s, t)}</span>
+              {/* a disabled switch has no label: the state is already in the status line and the hint */}
+              {!blocked && <span aria-hidden>{s.enabled ? t('scheduled.on') : stateLabel(s, t)}</span>}
               <button type="button" role="switch" aria-checked={s.enabled} aria-label={t('scheduled.switch')} disabled={blocked}
                 aria-describedby={blocked ? hintId : undefined} onClick={blocked ? undefined : onToggle} data-testid="schedule-toggle"
                 className="relative h-5 w-9 shrink-0 rounded-full bg-field-border transition after:absolute after:top-0.5 after:left-0.5 after:size-4 after:rounded-full after:bg-white after:transition aria-checked:bg-accent aria-checked:after:translate-x-4 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent disabled:cursor-not-allowed disabled:opacity-50 dark:aria-checked:after:bg-accent-ink" />
@@ -299,12 +338,12 @@ export function ScheduleView({ s, tz, project, onToggle, onRunNow, running, onRe
       {/* phone: what it is first, then its runs; wide: the runs on the left, what it is beside them */}
       <div className="mt-8 grid gap-x-12 gap-y-8 border-t border-line pt-6 lg:grid-cols-[minmax(0,1fr)_340px]">
         <section aria-labelledby={`${base}-history`} className="order-2 min-w-0 lg:order-1" data-testid="schedule-history">
-          <h2 id={`${base}-history`} className="text-sm font-medium">{t('scheduled.history')}</h2>
+          <h2 id={`${base}-history`} className="text-sm font-medium">{t('scheduled.lastRunTitle')}</h2>
           {ran ? (
             <ul className="mt-2 divide-y divide-line">
               <li>
                 {s.lastChatId ? (
-                  <Link to={`/c/${s.lastChatId}`} className="-mx-2 flex items-center gap-3 rounded-lg px-2 py-2.5 hover:bg-hover" data-testid="schedule-run-link">{runLine}</Link>
+                  <Link to={`/c/${s.lastChatId}`} className="-mx-2 flex items-start gap-3 rounded-lg px-2 py-2.5 hover:bg-hover" data-testid="schedule-run-link">{runLine}</Link>
                 ) : (
                   <div className="flex items-center gap-3 py-2.5">{runLine}</div>
                 )}

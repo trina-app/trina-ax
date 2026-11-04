@@ -8,6 +8,7 @@
 // logo (the tab icon and the home-screen app icon; shared/src/team-icon.ts), and for the owner the ownership transfer
 // (TransferOwner.tsx). The OpenRouter key is sealed in the
 // browser (lib/seal.ts), asks for the password again, and is never shown again (only its last 4 characters).
+import clsx from 'clsx'
 import { useEffect, useRef, useState } from 'react'
 import { ExternalLink, RotateCcw, Upload } from 'lucide-react'
 import { teamIconUrl, TEAM_ICON_TYPES } from '@mycel/shared'
@@ -18,7 +19,7 @@ import { LOCALES, useLocale, useT } from '../../i18n'
 import { isOwner, useMeStrict, useSession } from '../../store/session'
 import { toast } from '../../store/ui'
 import { Button, confirmDialog, Field, inputCls, Switch } from '../../components/ui'
-import { Card, Loadable, useAction, useLoad } from './common'
+import { AdminPageHeader, Card, Loadable, useAction, useLoad } from './common'
 import { legacyWindow } from '../../lib/officeUpdate'
 import { timeZoneOptions } from '../../lib/time-zones'
 import { checkIconFile } from '../../lib/team-icon'
@@ -53,15 +54,25 @@ export default function TeamSettingsPage() {
     // and the chat retention that the chat delete, chat trash and member delete dialogs name (read from /api/me)
     if (r && (changed.defaultLocale || changed.speechProvider || changed.chatTrashRetentionDays !== undefined)) await api.call(API.me).then(signedIn, () => {})
   }
+  // what is not saved yet (text fields and switches alike), and what blocks Save: the bar under the form says both
+  const unsaved = !!f && !!state.data && Object.entries(f).some(([k, v]) => state.data![k as keyof TeamSettings] !== v)
+  const nameOk = !!f?.teamName.trim()
+  const fix = !windowOk ? 'window' : !nameOk ? 'name' : null
+  const goToFix = () => {
+    const el = document.querySelector<HTMLElement>(fix === 'window' ? '[data-team-field="update-window"]' : '[data-team-field="name"]')
+    el?.scrollIntoView({ block: 'center' })
+    el?.focus({ preventScroll: true })
+  }
   return (
     <>
+      <AdminPageHeader title={t('admin.settings')} desc={t('adminux.settings.saveModel')} />
       <Loadable state={state}>
         {() =>
           f && (
-            <Card title={t('admin.settings')}>
+            <Card>
               <div className="grid gap-4 sm:grid-cols-2">
                 <Field label={t('setup.teamName')} hint={isOwner(me) ? t('teamSettings.nameHint') : t('teamSettings.nameOwnerOnly')}>
-                  <input className={inputCls} value={f.teamName} disabled={!isOwner(me)} onChange={(e) => setF({ ...f, teamName: e.target.value })} maxLength={100} />
+                  <input className={inputCls} data-team-field="name" value={f.teamName} disabled={!isOwner(me)} onChange={(e) => setF({ ...f, teamName: e.target.value })} maxLength={100} />
                 </Field>
                 <Field label={t('teamSettings.defaultLocale')} hint={t('teamSettings.defaultLocaleHint')}>
                   <select className={inputCls} value={f.defaultLocale} onChange={(e) => setF({ ...f, defaultLocale: e.target.value as Locale })} data-testid="team-default-locale">
@@ -108,9 +119,26 @@ export default function TeamSettingsPage() {
                 <SpeechSection provider={f.speechProvider} model={f.speechModel} transcripts={f.aiMediaTranscripts} saved={state.data!} onChange={(p) => setF({ ...f, ...p })}
                   onSaved={(r) => state.setData(r)} />
               </div>
-              <Button variant="primary" className="mt-4" busy={busy} disabled={!windowOk || !f.teamName.trim()} onClick={save}>
-                {t('common.save')}
-              </Button>
+              {/* one Save for the whole form, switches too. The bar stays at the bottom of the screen while the form is
+                  longer than the screen, and says what is not saved yet or which field needs a fix (with a button that
+                  goes to it), so a disabled Save is never a mystery a screen away from its error. */}
+              <div className="sticky bottom-0 z-10 -mx-4 -mb-4 mt-4 flex flex-wrap items-center gap-x-3 gap-y-2 rounded-b-2xl border-t border-line bg-surface px-4 py-3" data-testid="team-settings-savebar">
+                <Button variant="primary" busy={busy} disabled={!!fix} onClick={save}>
+                  {t('common.save')}
+                </Button>
+                <p className="min-w-0 flex-1 text-xs" role="status">
+                  {fix ? (
+                    <span className="text-danger">
+                      {t('adminux.settings.needsFix')}{' '}
+                      <button type="button" className="font-medium underline" onClick={goToFix} data-testid="team-settings-go-fix">
+                        {t('adminux.settings.goToField')}
+                      </button>
+                    </span>
+                  ) : unsaved ? (
+                    <span className="text-warn">{t('adminux.settings.unsaved')}</span>
+                  ) : null}
+                </p>
+              </div>
             </Card>
           )
         }
@@ -245,7 +273,7 @@ export function UpdateWindowField({ value, ok, legacy, onChange }: { value: stri
   const t = useT()
   return (
     <Field label={t('teamSettings.updateWindow')} hint={legacy ? t('teamSettings.updateWindowLegacy', legacy) : t('teamSettings.updateWindowHint')} error={ok ? null : t('teamSettings.updateWindowBad')}>
-      <input className={inputCls} placeholder={legacy?.window ?? '02:00-05:00'} value={value ?? ''} onChange={(e) => onChange(e.target.value.trim() || null)} />
+      <input className={clsx(inputCls, !ok && 'border-danger focus:border-danger focus:ring-danger')} data-team-field="update-window" placeholder={legacy?.window ?? '02:00-05:00'} value={value ?? ''} onChange={(e) => onChange(e.target.value.trim() || null)} />
     </Field>
   )
 }

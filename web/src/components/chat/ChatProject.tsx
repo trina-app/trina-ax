@@ -1,5 +1,5 @@
 // A chat's project in the chat header: the project's own name, linked to its page, before the chat's title (like
-// Claude; from the "sm" width up, as the header has room), and the dialog that the title menu's "Move to project…" opens:
+// Claude; on a phone a short chip with a folder icon, so the person still sees that the chat is in a project), and the dialog that the title menu's "Move to project…" opens:
 // it moves the chat into a project or out of it (PATCH /api/chats/:id {projectId}; the server checks that the person
 // can see the project). The name comes from store/projects.ts, so a rename saved anywhere in this window shows at once;
 // it is asked again when the window comes back to the front (a rename on another device). A project the person cannot
@@ -39,7 +39,8 @@ export function useChatProject(projectId: string | null): Project | undefined {
 }
 
 /** "Project /" before the chat's title in the header: the project's name, linked to its page; nothing for a chat
- * outside a project or in one the person cannot see. Hidden below "sm": a phone's header keeps the title. A project whose
+ * outside a project or in one the person cannot see. Below "sm" it is a narrow chip (folder icon and a cut name) and
+ * the title keeps most of the room. A project whose
  * folder is in the trash (only admins see it) says so after its name: no turn of the chat gets it. */
 export function ChatProjectCrumb({ projectId }: { projectId: string | null }) {
   const t = useT()
@@ -50,10 +51,11 @@ export function ChatProjectCrumb({ projectId }: { projectId: string | null }) {
       <Link
         to={`/projects/${project.id}`}
         title={t('chat.project.open', { name: project.name })}
-        className="hidden max-w-[40%] shrink-0 truncate rounded-md px-1.5 py-1 text-muted hover:text-ink sm:block"
+        className="flex max-w-[35%] shrink-0 items-center gap-1 rounded-md bg-subtle px-1.5 py-1 text-xs text-muted hover:text-ink sm:max-w-[40%] sm:bg-transparent sm:text-sm"
         data-testid="chat-project"
       >
-        {project.name}
+        <FolderKanban size={13} className="shrink-0 sm:hidden" aria-hidden />
+        <span className="truncate">{project.name}</span>
       </Link>
       {project.inTrash && (
         <span className="hidden shrink-0 text-xs text-warn sm:inline" data-testid="chat-project-in-trash">

@@ -104,7 +104,12 @@ function Profile() {
   const [name, setName] = useState(me.user.name)
   const [email, setEmail] = useState(me.user.email ?? '')
   const [busy, setBusy] = useState(false)
-  const save = async () => {
+  // Name and email are the only fields saved with a button (everything else on this tab saves at once): the button
+  // sits in their own card and is off until one of them changed
+  const changed = name.trim() !== me.user.name || (email.trim() || null) !== (me.user.email ?? null)
+  const save = async (e?: React.FormEvent) => {
+    e?.preventDefault()
+    if (!changed || !name.trim() || busy) return
     setBusy(true)
     try {
       signedIn(await api.call(API.updateMe, { body: { name: name.trim(), email: email.trim() || null } }))
@@ -119,13 +124,21 @@ function Profile() {
   return (
     <>
       <Section title={t('settings.profile')}>
-        <div>
+        {/* noValidate: the server checks the email and its answer shows in the app's own style, not a browser popup */}
+        <form onSubmit={save} noValidate className="rounded-xl border border-line px-4 pb-4" data-testid="profile-form">
           <Row label={t('auth.name')} htmlFor={`${ids}-name`}>
             <input id={`${ids}-name`} className={inputCls} value={name} onChange={(e) => setName(e.target.value)} maxLength={100} />
           </Row>
           <Row label={t('settings.email')} hint={t('settings.emailHint')} htmlFor={`${ids}-email`} hintId={`${ids}-email-hint`}>
             <input id={`${ids}-email`} className={inputCls} type="email" value={email} onChange={(e) => setEmail(e.target.value)} aria-describedby={`${ids}-email-hint`} />
           </Row>
+          <div className="flex justify-end pt-3">
+            <Button type="submit" variant="primary" busy={busy} disabled={!name.trim() || !changed}>
+              {t('common.save')}
+            </Button>
+          </div>
+        </form>
+        <div className="mt-2">
           <Row label={t('auth.username')}>
             <span className="block truncate text-sm text-muted sm:text-right" data-testid="profile-username">
               {me.user.username}
@@ -137,9 +150,6 @@ function Profile() {
             </span>
           </Row>
         </div>
-        <Button variant="primary" className="mt-3" busy={busy} disabled={!name.trim()} onClick={save}>
-          {t('common.save')}
-        </Button>
       </Section>
       <Section title={t('settings.language')} desc={t('settings.languageHint')}>
         <div className="flex flex-wrap gap-2" role="radiogroup" aria-label={t('settings.language')}>

@@ -1,10 +1,11 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
+import { Plug } from 'lucide-react'
 import { REMOTE_MCP, type RemoteConnectionInfo } from '@mycel/shared/api'
 import { api, errorText } from '../lib/api'
 import { formatDateTime } from '../lib/format'
 import { useLocale, useT } from '../i18n'
 import { accessChanged, reloadAsked } from '../store/live'
-import { Button, ErrorNote, Skeleton } from '../components/ui'
+import { Button, EmptyState, ErrorNote, Skeleton } from '../components/ui'
 
 export default function ConnectorConnections() {
   const t = useT(), locale = useLocale()
@@ -40,14 +41,19 @@ export default function ConnectorConnections() {
     {error && <ErrorNote onRetry={() => void load()}>{error}</ErrorNote>}
     {!items && !error && <Skeleton lines={3} />}
     {items && <>
-      {!configured && <p className="text-sm text-muted">{t('connectors.disabled')}</p>}
+      {!configured && items.length > 0 && <p className="text-sm text-muted">{t('connectors.disabled')}</p>}
       {resource && <div className="rounded-xl border border-line p-4"><p className="mb-1 text-sm font-medium">{t('connectors.address')}</p><code className="break-all text-sm">{resource}</code></div>}
-      <p className="text-sm text-muted">{t('connectors.sessionBound')}</p>
-      {items.length === 0 && <p className="text-sm text-muted">{t('connectors.empty')}</p>}
-      <ul className="divide-y divide-line">{items.map(item => <li key={item.id} className="flex items-start gap-3 py-4" data-testid="connector-item">
+      {/* no connected app: the same dashed empty card as the MCP tab; when the server has no connectors, it says why */}
+      {items.length === 0 && <div className="rounded-xl border border-dashed border-line" data-testid="connectors-empty">
+        <EmptyState icon={<Plug size={26} aria-hidden />} title={t('connectors.empty')}>
+          <p>{t(configured ? 'connectors.emptyHint' : 'connectors.disabled')}</p>
+        </EmptyState>
+      </div>}
+      {items.length > 0 && <ul className="divide-y divide-line">{items.map(item => <li key={item.id} className="flex items-start gap-3 py-4" data-testid="connector-item">
         <div className="min-w-0 flex-1"><p className="break-words text-sm font-medium">{item.clientName}</p><p className="mt-1 text-xs text-muted">{item.scopes.map(label).join(' · ')}</p><p className="mt-1 text-xs text-faint">{t('connectors.expires', { date: formatDateTime(item.expiresAt, locale) })}</p>{item.currentSession && <p className="mt-1 text-xs text-faint">{t('connectors.currentSession')}</p>}</div>
         <Button variant="danger" size="sm" disabled={busy !== null} busy={busy === item.id} onClick={() => void disconnect(item.id)}>{t('connectors.disconnect')}</Button>
-      </li>)}</ul>
+      </li>)}</ul>}
+      {configured && <p className="text-xs text-muted">{t('connectors.sessionBound')}</p>}
     </>}
   </section>
 }
