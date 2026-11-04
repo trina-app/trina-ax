@@ -3,6 +3,10 @@
 Published artifacts and authoritative release notes are in [GitHub Releases](https://github.com/trina-app/trina-ax/releases).
 This file summarizes user-visible changes; it is not a list of every commit.
 
+## Unreleased
+
+- Filling Hangul forms: when added table rows would no longer fit on the page of a table that cannot continue on the next one (most one-page statutory forms), the AI no longer hands over a form whose last lines Hangul cuts off; nothing is saved, and it says how many rows fit and that the rest can go on a separate sheet (별지).
+
 ## 0.4.0-beta.6 — 2026-11-05
 
 Same app as 0.4.0-beta.5, which was never published: its release test failed on the GitHub Linux runners.
