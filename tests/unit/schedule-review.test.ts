@@ -109,7 +109,7 @@ describe('a task nobody confirmed never runs (unknown = paused)', () => {
     legacy('alice', { enabled: 0 })
     h.rt().schedules.pauseForReview(h.rt().schedules.list('alice')[0]!)
     const r = await toolRegistry(h.ctx.files).call('schedule_list', {}, { user: h.ctx.files.principal('alice'), turnId: null, files: new TurnFiles() })
-    expect(r.text).toContain('paused until the user confirms it again in Settings › Scheduled tasks')
+    expect(r.text).toContain('paused until the user confirms it again in Scheduled tasks in the sidebar')
   })
 
   test('confirmed tasks and templates run as before', async () => {

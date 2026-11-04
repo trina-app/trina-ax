@@ -129,7 +129,7 @@ function SearchBox({ onClose }: { onClose: () => void }) {
   const projectRow = (p: Project): Row => ({ key: `project:${p.id}`, kind: 'project', icon: FolderKanban, title: p.name, sub: p.folderPath, href: `/projects/${p.id}`, match: true })
   const skillRow = (s: Skill): Row => ({ key: `skill:${s.path}`, kind: 'skill', icon: BookMarked, title: s.name, sub: parentOf(s.path), href: skillFileLink(s.path), match: true })
   const scheduleRow = (s: Schedule, attention?: string): Row => ({
-    key: `schedule:${s.id}`, kind: 'schedule', icon: CalendarClock, title: s.title, href: '/settings/schedules', match: true,
+    key: `schedule:${s.id}`, kind: 'schedule', icon: CalendarClock, title: s.title, href: `/scheduled/${encodeURIComponent(s.id)}`, match: true,
     sub: attention ?? (s.projectId ? projectName.get(s.projectId) : undefined), attention: !!attention,
   })
   const mcpRow = (i: Integration, attention?: string): Row => ({
@@ -142,7 +142,7 @@ function SearchBox({ onClose }: { onClose: () => void }) {
     const list: Row[] = [
       { key: 'act:chat', kind: 'action', icon: MessageSquarePlus, title: t('sidebar.newChat'), href: '/' },
       { key: 'act:project', kind: 'action', icon: FolderPlus, title: t('projects.new'), href: '/projects?new=1' },
-      { key: 'act:schedule', kind: 'action', icon: CalendarPlus, title: t('search.newScheduled'), href: '/settings/schedules' },
+      { key: 'act:schedule', kind: 'action', icon: CalendarPlus, title: t('search.newScheduled'), href: '/scheduled' },
     ]
     const m = ok(mcp)
     if (m?.personalAllowed) list.push({ key: 'act:mcp', kind: 'action', icon: Plus, title: t('search.addMcp'), href: '/settings/integrations?add=1' })

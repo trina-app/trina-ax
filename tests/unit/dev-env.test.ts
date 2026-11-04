@@ -192,6 +192,16 @@ describe('a project on the team root', () => {
     expect(folderOf(id)).toBe('projects/배너 영상-2')
   })
 
+  test('the new folder steps around a path another project still names (its folder in the trash): one project per folder', async () => {
+    h.ctx.db.query("INSERT INTO projects (id, name, folder_path, instructions, created_by, created_at) VALUES ('ghost-project', 'Ghost', 'projects/Ghost', '', 'carol', ?)").run(new Date().toISOString())
+    expect(fs.existsSync(path.join(h.team, 'projects', 'Ghost'))).toBe(false)
+    const id = rootProject('root-project-7', 'Ghost')
+    await h.api('carol').call(API.updateDevEnv, { params: { id }, body })
+    expect(folderOf(id)).toBe('projects/Ghost-2')
+    expect(folderOf('ghost-project')).toBe('projects/Ghost')
+    expect(fs.existsSync(path.join(h.team, 'projects', 'Ghost'))).toBe(false)
+  })
+
   test('a project already on with no folder gets one at the next save', async () => {
     const id = rootProject('root-project-2', 'Already on')
     saveDevEnvSetting(h.ctx.db, id, { ...OFF_SETTING, enabled: true, consent: newConsent({ id: 'carol', name: 'Carol Park' }) })

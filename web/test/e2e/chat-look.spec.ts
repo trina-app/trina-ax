@@ -94,6 +94,10 @@ test("the chat's name opens rename and delete, after the project it is in", asyn
   await name.click()
   await expect(page.getByTestId('chat-rename')).toBeFocused()
   await page.keyboard.press('ArrowDown')
+  // the chat is in a project: "Change project…" sits between Rename and Delete
+  await expect(page.getByTestId('chat-project-move')).toBeFocused()
+  await expect(page.getByTestId('chat-project-move')).toHaveText(/Change project…|프로젝트 바꾸기…/)
+  await page.keyboard.press('ArrowDown')
   await expect(page.getByTestId('chat-delete')).toBeFocused()
   await audit(page, 'chat menu')
   await page.keyboard.press('Escape')
