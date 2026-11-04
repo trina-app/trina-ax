@@ -102,8 +102,15 @@ Worker(`scripts/release/worker.js`)는 이 경로만 읽기 전용으로 내준�
 - 피드의 `rollout`: `{ percent: 100, salt, ramp: [{ afterHours: 0, percent: 10 }, { afterHours: 24, percent: 50 }, { afterHours: 48, percent: 100 }] }`.
   `publish-server.ts`(`release.json`)와 `publish.ts`(사무실 stable 목록)가 stable 릴리스에 쓰고, `salt`는 릴리스마다 새로 고른다(16바이트 무작위, hex).
 - 각 설치가 스스로 판단한다(`server/src/system/rollout.ts`, Go는 `native/cmd/mycel-ctl/rollout.go`, 두 쪽이 `testdata/rollout.json`을 같이 시험한다):
-  차례 = sha256(salt + 설치 id)의 앞 2바이트(big-endian) % 100. 차례 < 지금 percent면 자동 업데이트가 받는다. percent는 피드의 서명된
-  `publishedAt`부터 지난 시간의 단계다(지난 단계 중 `afterHours`가 가장 큰 것). 다시 게시할 필요가 없다.
+  차례 = sha256(salt + 설치 id)의 앞 2바이트(big-endian) % 100. 차례 < 지금 percent면 자동 업데이트가 받는다. percent는 ramp가 시작된
+  때(`since`, 없으면 피드의 서명된 `publishedAt`)부터 지난 시간의 단계다(지난 단계 중 `afterHours`가 가장 큰 것). 다시 게시할 필요가 없다.
+  - **연달아 낸 릴리스**: 앞 stable 릴리스의 ramp가 아직 끝나지 않았을 때(시작 뒤 48시간 안) 낸 릴리스는 그 릴리스의 salt·ramp·시작을
+    이어받는다(`rollout.since`, `inheritRollout`, 두 배포 스크립트가 채널 머리를 읽어 정한다). 그래서 몇 시간 간격으로 여러 번 내도 첫
+    릴리스 뒤 48시간 안에 모든 서버에 닿는다. 매번 10%부터 다시 시작하면 20시간 간격의 배포에서 서버의 절반쯤이 며칠씩 늦고 일부는
+    두 주 동안 받지 못한다(시험의 모의 실험). 서버는 `since`가 `publishedAt`보다 늦거나 지금보다 늦으면 `publishedAt`을 쓴다.
+  - **너그럽게 읽는다**: 읽을 수 없는 `rollout`(객체가 아님, `null`, percent가 0–100의 수가 아님, salt가 100자 이하 문자열이 아님)은
+    단계적 배포가 없는 것으로, 읽을 수 없는 `ramp`·`since`는 빠진 것으로 읽는다. 형식이 나중에 바뀌어도 피드 전체를 거부해 "지금 업데이트"까지
+    막히는 일이 없다. TS와 Go가 같게 읽는지 `testdata/rollout.json`의 `reads`로 시험한다.
   - 설치 id: 앱은 `MYCEL_INSTALL_ID`, 없으면 설정 표의 `system.installId`. root 타이머는 `/etc/default/<id>`의 `MYCEL_INSTALL_ID`, 없으면
     `admin.js update-window`의 `installId`. 읽을 수 없으면 마지막 차례(99, 100% 단계)다. 영원히 빠지는 서버는 없다.
   - 기다리지 않는 것: beta 채널의 설치(stable 릴리스가 beta 머리도 되므로 같은 바이트를 보지만 `ramp`를 무시), 피드의 `urgent: true`,
@@ -118,12 +125,14 @@ Worker(`scripts/release/worker.js`)는 이 경로만 읽기 전용으로 내준�
   서명은 바이트 그대로 검증하고, `minReaderRequired`·reader 수준과는 관계없다.
 - **모두에게 한 번에** (나쁜 릴리스를 고치는 릴리스, 보안 수정): 태그 메시지에 한 줄 `Rollout: all`. prepare가 그 줄을 노트에서 빼고
   (`release-ci.ts rollout`) 두 피드에 `--rollout all`을 넘긴다. 그러면 `rollout`이 아예 없다. 손으로 다시 돌릴 때는 Run workflow의
-  `rollout` 입력(`tag`=태그 메시지대로, `staged`, `all`). `Rollout:` 뒤에 `all`·`staged`가 아닌 말이 있거나, `Rollout:`로 시작하는 줄이
-  목록·인용·제목·굵게 표시이거나 뒤에 다른 말이 붙으면 prepare가 멈춘다(오타나 꾸밈이 배포 속도를 정하지 않게).
-  - 나쁜 릴리스를 고친 릴리스는 `Rollout: all`로 낸다. salt가 릴리스마다 달라서, 나쁜 릴리스를 먼저 받은 서버가 고친 릴리스는
-    마지막 차례가 될 수 있다.
-- 결정은 처음 올린 `release.json`에 남는다. 다시 돌리면(같은 버전, 다른 채널) 그 `release.json`을 그대로 쓴다(`--rollout all`이어도.
-  경고를 남긴다). 사무실 목록도 다시 돌리면 처음 올린 `<dir>/<version>/<channel>.json`을 머리에 다시 둔다(`publishedAt`과 salt가 그대로). 처음에
+  `rollout` 입력(`tag`=태그 메시지대로, `staged`, `all`). 표시는 그 말만 있는 한 줄이어야 한다. `rollout:`(전각 콜론 `：`도)이 들어간 다른
+  줄(목록·인용·제목·굵게·코드·HTML·문장 안, 뒤에 다른 말)이나 `all`·`staged`가 아닌 값이 있으면 prepare가 멈춘다(오타나 꾸밈이 배포 속도를
+  정하지 않게). 코드 블록(```, ~~~) 안의 줄은 표시로 보지 않고 노트에 그대로 둔다.
+  - 나쁜 릴리스를 고친 릴리스는 `Rollout: all`로 내거나 `urgent`로 낸다. salt를 릴리스마다 새로 고르므로(같은 팀이 매번 먼저 받지 않게),
+    ramp가 끝난 뒤 낸 고친 릴리스는 나쁜 릴리스를 먼저 받은 서버에 마지막 차례로 갈 수 있다. ramp가 도는 중에 낸 릴리스는 같은 salt를
+    이어받으므로 나쁜 릴리스를 받은 서버가 먼저 받는다.
+- 결정은 처음 올린 `release.json`에 남는다. 다시 돌리면(같은 버전, 다른 채널) 그 `release.json`을 그대로 쓴다(요청한 `--rollout`과 다르면
+  어느 쪽이든 경고를 남긴다). 사무실 목록도 다시 돌리면 처음 올린 `<dir>/<version>/<channel>.json`을 머리에 다시 둔다(`publishedAt`과 salt가 그대로). 처음에
   윈도우 설치 파일 없이 올린 버전에 다시 돌려 그 파일을 더해도 처음의 `publishedAt`과 `rollout`으로 다시 서명한다.
 - 로컬에서: `publish-server.ts --rollout staged|all`, `publish.ts --rollout staged|all`(기본 staged, beta 채널은 늘 없음).
 
