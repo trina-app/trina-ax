@@ -189,8 +189,10 @@ export default function Sidebar() {
         >
           <Bell size={16} aria-hidden /> {t('inbox.title')}
           {unread > 0 && (
-            <span className="ml-auto rounded-full bg-accent px-1.5 text-[11px] font-medium text-accent-ink" data-testid="inbox-unread" aria-label={t('notifications.unread', { count: unread })}>
-              {unread > 99 ? '99+' : unread}
+            // aria-label on a plain span is not read: the number is hidden from screen readers and the words are sr-only
+            <span className="ml-auto rounded-full bg-accent px-1.5 text-[11px] font-medium text-accent-ink" data-testid="inbox-unread">
+              <span aria-hidden>{unread > 99 ? '99+' : unread}</span>
+              <span className="sr-only">{t('notifications.unread', { count: unread })}</span>
             </span>
           )}
         </NavLink>
