@@ -3,12 +3,15 @@
 # task H-05). build.sh runs it through `virt-customize --run-command`; scripts/image/test-customize.sh runs it in a
 # privileged Debian container. Idempotent: a second run changes nothing (it prints "customize: changed=0").
 #
-#   customize.sh [--src DIR] [--kit DIR] [--enroll-bin FILE] [--template-version V] [--allow-missing-kit] [--no-cleanup]
+#   customize.sh [--src DIR] [--kit DIR] [--enroll-bin FILE] [--link-bin FILE] [--template-version V]
+#                [--allow-missing-kit] [--no-cleanup]
 #
 #   --src DIR            folder holding files/ (default: this script's folder)
 #   --kit DIR            the W1 Linux kit (install-linux.sh + VERSION + app/<v>/…, linux-runtime.md §3.6.1)
 #                        (default: <src>/kit when it exists)
 #   --enroll-bin FILE    linux mycel-enroll binary (default: <src>/bin/mycel-enroll)
+#   --link-bin FILE      linux mycel-link binary, the ax-link agent for EC2 and Oracle (default: <src>/bin/mycel-link).
+#                        Optional: without it the image works on Proxmox only (build-ami.sh requires it)
 #   --template-version V written to /etc/ax-template.json (build.sh passes <kitVersion>-d13-<yyyymmdd>)
 #   --allow-missing-kit  pipeline dry run: everything except the kit; the image is marked "not for production"
 #   --no-cleanup         keep apt lists, machine-id, logs (debugging)
@@ -24,6 +27,7 @@ export LC_ALL=C.UTF-8 DEBIAN_FRONTEND=noninteractive NEEDRESTART_MODE=a NEEDREST
 SRC="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 KIT=""
 ENROLL_BIN=""
+LINK_BIN=""
 TEMPLATE_VERSION=""
 ALLOW_MISSING_KIT=0
 CLEANUP=1
@@ -32,16 +36,18 @@ while [[ $# -gt 0 ]]; do
     --src) SRC="$2"; shift 2 ;;
     --kit) KIT="$2"; shift 2 ;;
     --enroll-bin) ENROLL_BIN="$2"; shift 2 ;;
+    --link-bin) LINK_BIN="$2"; shift 2 ;;
     --template-version) TEMPLATE_VERSION="$2"; shift 2 ;;
     --allow-missing-kit) ALLOW_MISSING_KIT=1; shift ;;
     --no-cleanup) CLEANUP=0; shift ;;
-    -h|--help) sed -n '2,24p' "$0"; exit 0 ;;
+    -h|--help) sed -n '2,23p' "$0"; exit 0 ;;
     *) echo "customize.sh: unknown argument $1" >&2; exit 2 ;;
   esac
 done
 FILES="$SRC/files"
 [[ -z "$KIT" && -d "$SRC/kit" ]] && KIT="$SRC/kit"
 [[ -z "$ENROLL_BIN" ]] && ENROLL_BIN="$SRC/bin/mycel-enroll"
+[[ -z "$LINK_BIN" ]] && LINK_BIN="$SRC/bin/mycel-link"
 
 BASE=/var/lib/mycel
 LIBDIR=/usr/lib/mycel
@@ -170,6 +176,8 @@ put_file "$FILES/needrestart-ax.conf" /etc/needrestart/conf.d/ax.conf 0644
 put_file "$FILES/90-axdata-resize.rules" /etc/udev/rules.d/90-axdata-resize.rules 0644
 put_file "$FILES/var-lib-mycel.mount" /etc/systemd/system/var-lib-mycel.mount 0644
 put_file "$FILES/mycel-enroll.service" /etc/systemd/system/mycel-enroll.service 0644
+put_file "$FILES/mycel-link.service" /etc/systemd/system/mycel-link.service 0644
+put_file "$FILES/axdata-grow.service" /etc/systemd/system/axdata-grow.service 0644
 for u in mycel-server mycel-launcher mycel-firewall mycel-update; do
   put_file "$FILES/10-ax-data.conf" "/etc/systemd/system/$u.service.d/10-ax-data.conf" 0644
 done
@@ -190,6 +198,13 @@ elif [[ $ALLOW_MISSING_KIT == 1 ]]; then
   say "warning: no mycel-enroll binary ($ENROLL_BIN): dry-run image cannot enroll"
 else
   die "no mycel-enroll binary at $ENROLL_BIN (build it: bash native/build.sh; it lands in native/bin/linux-<arch>/mycel-enroll)"
+fi
+# the ax-link agent (EC2, Oracle). mycel-link.service has ConditionPathExists=/etc/ax/link.json, so on Proxmox it stays
+# inactive even when the binary is here.
+if [[ -f "$LINK_BIN" ]]; then
+  put_file "$LINK_BIN" /usr/local/sbin/mycel-link 0755
+else
+  say "warning: no mycel-link binary ($LINK_BIN): this image has no ax-link agent and works on Proxmox only"
 fi
 
 # ---- 5. the Team AX Linux kit (W1) in image mode, moved to the seed
@@ -246,6 +261,9 @@ svc_enable chrony.service
 svc_enable serial-getty@ttyS0.service
 # qemu-guest-agent is started by udev when the virtio port appears (static unit); enable only if it has [Install]
 svc_enable qemu-guest-agent.service
+# both wait for their own condition: link.json (EC2, Oracle) and the mounted data disk
+svc_enable mycel-link.service
+svc_enable axdata-grow.service
 
 # ---- 7. lock root (emergency access is the guest agent / serial console through the host, D15)
 
@@ -272,6 +290,9 @@ if [[ $CLEANUP == 1 ]]; then
   rm -f /etc/ssh/ssh_host_* /root/.bash_history
   if command -v cloud-init >/dev/null 2>&1; then cloud-init clean --logs --seed >/dev/null 2>&1 || true; fi
   rm -f /etc/cloud/cloud-init.disabled
+  # network state of a boot (none in a fresh base image; a reused builder disk may have it): cloud-init writes it again
+  rm -f /etc/network/interfaces.d/50-cloud-init /etc/netplan/50-cloud-init.yaml /var/lib/dhcp/*.leases
+  rm -rf /var/lib/cloud/* 2>/dev/null || true
   [[ -s /etc/machine-id ]] && truncate -s 0 /etc/machine-id
   [[ -f /var/lib/dbus/machine-id && ! -L /var/lib/dbus/machine-id ]] && rm -f /var/lib/dbus/machine-id
   rm -rf /var/log/journal/* /tmp/* /var/tmp/* 2>/dev/null || true

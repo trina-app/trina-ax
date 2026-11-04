@@ -9,6 +9,8 @@ image mode + the first-boot pieces (`mycel-enroll`).
 | `customize.sh` | Runs **inside** the image as root (virt-customize). Idempotent: the second run prints `changed=0` |
 | `files/` | Units, udev rule, cloud-init lock, sysctl, zram, chrony, journald, unattended-upgrades, needrestart |
 | `pve-import.sh` | Manual import on a Proxmox host as template `tmpl-ax-<version>` (what ax-hostd `installTemplate` does) |
+| `build-ami.sh` | Builds the same image as an EC2 AMI (Seoul, t3a) + a signed manifest `teamax-<templateVersion>.ami.json` (section "EC2 image (AMI)") |
+| `ami-chroot.sh` | Runs on the AMI builder instance: grows the work volume and runs `customize.sh` in a chroot on it |
 | `test-customize.sh` | Local proof without KVM: customize twice in a privileged Debian container + `vm-smoke.sh --container` |
 | `../../tests/linux/vm-smoke.sh` | H-05 done-when checks, run inside a VM booted from the template |
 
@@ -33,6 +35,13 @@ image mode + the first-boot pieces (`mycel-enroll`).
   drop-ins `mycel-{server,launcher,firewall,update}.service.d/10-ax-data.conf` (`RequiresMountsFor=/var/lib/mycel`), so
   no service ever runs on the empty OS-disk directory. `mycel-enroll` starts the mount itself.
 - `90-axdata-resize.rules`: on a block `change` uevent of the `axdata` filesystem, `resize2fs` online (resizeTenant).
+- `axdata-grow.service` (enabled, `WantedBy=var-lib-mycel.mount`): `resize2fs` each time the data disk is mounted. EC2
+  grows a volume while the instance is stopped, and the bigger disk shows up at boot as an `add` event, which the udev
+  rule does not see.
+- `mycel-link` at `/usr/local/sbin/mycel-link` + `mycel-link.service` (enabled, `ConditionPathExists=/etc/ax/link.json`):
+  the ax-link agent, the guest channel on EC2 and Oracle (trina-cloud `docs/research/ec2-per-team.md` §6). On Proxmox
+  there is no `link.json`, so it stays inactive and the qemu guest agent is the channel. `--link-bin` of `customize.sh`;
+  without it the image works on Proxmox only.
 - `mycel-enroll` at `/usr/local/sbin/mycel-enroll` + `mycel-enroll.service` (oneshot, `ConditionPathExists=/run/ax/enroll.json`,
   no `[Install]`: cloud-init `runcmd` starts it).
 - Kit units (`mycel-firewall.timer`, `mycel-launcher`, `mycel-server`, `mycel-update.timer`) are **disabled** in the
@@ -40,11 +49,13 @@ image mode + the first-boot pieces (`mycel-enroll`).
 - `/etc/sysctl.d/99-ax-guest.conf`: `kernel.yama.ptrace_scope=2`, `kernel.unprivileged_bpf_disabled=1`,
   `kernel.kptr_restrict=2`, `kernel.dmesg_restrict=1`. Named `99-` so it wins over the kit's `60-mycel.conf`
   (`ptrace_scope = 1` for self-host). Unprivileged user namespaces stay on (bwrap).
-- zram (`ram / 2`, zstd), chrony with `server 10.200.0.1 iburst` only, journald `SystemMaxUse=200M`, system time zone
+- zram (`ram / 2`, zstd), chrony with only the platform sources (`server 10.200.0.1 iburst` for
+  Proxmox, `server 169.254.169.123 iburst` = Amazon Time Sync for EC2), journald `SystemMaxUse=200M`, system time zone
   `Etc/UTC` (the team zone is `MYCEL_TEAM_TZ`), `fstrim.timer`, serial getty on ttyS0, root locked.
 - unattended-upgrades: **Debian-Security only** (`#clear` of the default origins), no automatic reboot (the kit's
   maintenance timer reboots in the team's window); needrestart restarts services automatically.
-- cloud-init `99-ax.cfg`: `datasource_list: [ NoCloud, None ]`, no users, no SSH keys, modules limited to what the
+- cloud-init `99-ax.cfg`: `datasource_list: [ NoCloud, Ec2, Oracle, None ]` (ds-identify picks Ec2 or
+  Oracle only on that platform; Proxmox gives the NoCloud drive), no users, no SSH keys, modules limited to what the
   first boot needs (`write_files`, `growpart`, `resizefs`, hostname, `runcmd`). `mycel-enroll` writes
   `/etc/cloud/cloud-init.disabled` after enrolling.
 - `/etc/ax-template.json` (template version, kit version, `production`), `/usr/lib/mycel/image-packages.txt`.
@@ -170,3 +181,73 @@ second run must report `changed=0`), checks the seed move and an empty BASE, run
 negatives (no kit → refused with the contract message; an `sshd` binary → smoke FAIL). In a container on an Ubuntu
 host kernel (colima) the unprivileged-userns checks are SKIP: that restriction is the host's
 (`apparmor_restrict_unprivileged_userns=1`), the Debian template kernel has none.
+
+## EC2 image (AMI)
+
+The EC2 plan (trina-cloud `docs/research/ec2-per-team.md`) runs each team on its own EC2 instance. The team image is
+then an AMI, not a qcow2. `build-ami.sh` makes it from the official Debian 13 AMI with the same `customize.sh`, so the
+two images have the same content. It runs on a Mac or Linux with the owner's AWS CLI session (no IAM role) and keeps
+nothing in AWS except the AMI and its root snapshot.
+
+Inputs, all for **linux amd64** (t3a is x86-64; on an Apple silicon Mac cross-compile):
+
+```sh
+ARCHS=amd64 bash native/build.sh                     # native/bin/linux-amd64/mycel-enroll (and mycel-link, when it exists)
+scripts/image/build-ami.sh \
+  --kit dist/TeamAX-server-0.3.0-linux-amd64.tar.gz \
+  --enroll-bin native/bin/linux-amd64/mycel-enroll \
+  --link-bin native/bin/linux-amd64/mycel-link \
+  --subnet-id subnet-…                                 # internet access + a NACL that lets SSH in (not a team subnet)
+  --sign-key /secure/release-ed25519.pem               # the same release key as for the qcow2
+```
+
+Steps (each id goes into `dist/image/ami-build-<templateVersion>.state` before the next call):
+
+1. A temporary security group (tcp 22 from your address only) and a t3a.medium builder from the Debian AMI (checked
+   against Debian's owner id 136693071363). The SSH host key and login key are made on your machine and sent in
+   user-data, so the first SSH login checks a known host key. IMDSv2 only.
+2. A 20 GiB gp3 encrypted work volume from the Debian AMI's root snapshot, attached to the builder.
+3. `ami-chroot.sh` on the builder: finds the volume by its EBS serial (`/dev/disk/by-id/nvme-Amazon_Elastic_Block_Store_vol…`;
+   the attach name and the file system UUID do not help on NVMe), grows partition 1 and its file system, mounts it,
+   binds `/dev /dev/pts /proc /sys /run`, puts the builder's `resolv.conf` in for the build, runs `customize.sh` in a
+   chroot, puts the image's own `resolv.conf` back and checks that `/var/lib/cloud`, the machine id and the SSH host
+   keys are empty. A new instance then runs cloud-init as a first boot.
+4. Detach, snapshot (waits for `completed`), RegisterImage: `x86_64`, ENA, `uefi-preferred`, IMDSv2 (`v2.0`), root
+   `/dev/xvda`, gp3, 20 GiB.
+5. Terminate the builder, delete the work volume and the security group.
+6. `teamax-<templateVersion>.ami.json` is written once, then hashed (`.sha256`) and signed (`.sig`):
+
+```json
+{"v":1,"kind":"ami","templateVersion":"0.3.0-d13-20261105","region":"ap-northeast-2","imageId":"ami-…","rootSnapshotId":"snap-…","architecture":"x86_64","sourceImageId":"ami-…","kitVersion":"0.3.0","builtAt":"2026-11-05T…Z"}
+```
+
+The signature is the one of "Signing and installTemplate" above, over the sha256 of the manifest file:
+`ax-template-v1\n<templateVersion>\n<sha256 of teamax-<templateVersion>.ami.json>`. Upload the manifest and its `.sig`
+where the qcow2 goes. The CP's `installTemplate` sends `url`, `sha256` and `sig` as for the qcow2; ax-hostd (EC2 driver)
+checks the signature, then checks that the AMI exists in its region with `ax:template = <templateVersion>` and this root
+snapshot.
+
+Tags: builder, its root volume, the work volume and the security group get `ax:managed=ami-build`; the AMI and its
+snapshot get `ax:managed=ami` and `ax:template=<templateVersion>`. `--test` adds `trina-test=ec2-driver` and a Name that
+starts with `trina-test-` on everything, so a check by that tag finds all of it. `--tag K=V` adds more.
+
+Failure: the script removes what the state file names (builder, work volume, security group, and the snapshot while no
+AMI is registered), and only when the resource carries the expected `ax:managed` tag. It never deletes by filter: the
+account also holds production. After a hard stop (kill, lost laptop) run `build-ami.sh --cleanup <state file>`.
+`--dry-run` prints every aws command and calls none. An AMI for the same template version stops the build before any
+create call.
+
+Cost of one build: a t3a.medium for about 30 minutes and a 20 GiB volume for the same time (cents), then the AMI
+snapshot (20 GiB of which only the used blocks count, about $0.05 per GB-month).
+
+Smoke test on EC2 (after the build): launch one t3a.medium from the AMI with a data volume as `/dev/sdf` and no
+user-data or a hand-made one, then run `tests/linux/vm-smoke.sh` in it (it detects EC2: no qemu guest agent check;
+`mycel-link` is checked when `/etc/ax/link.json` exists; chrony must select 169.254.169.123). Not checked by any test
+yet, so check by hand on the first instance:
+
+- the uids 980/981 are free in the Debian AMI (`customize.sh` stops with `uid N is taken` if not),
+- DNS works for the server account: if `resolv.conf` names 169.254.169.253, the kit firewall (`server_out` rejects
+  169.254.0.0/16) blocks it, and the firewall rule generator must allow the resolver,
+- `resize2fs` after a data volume grow while the instance is stopped (`axdata-grow.service`).
+
+Local test without AWS: `bun test tests/unit/image-build-ami.test.ts` (stub `aws`, `ssh` and `scp` on PATH).

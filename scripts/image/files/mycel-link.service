@@ -1,0 +1,24 @@
+# Team AX ax-link agent (EC2 and Oracle; docs: trina-cloud docs/research/ec2-per-team.md §6). It dials out to ax-hostd
+# over TLS with a pinned certificate and runs only the commands on its allow-list. /etc/ax/link.json is written by
+# cloud-init at first boot on EC2. A Proxmox tenant has no such file, so the unit does nothing there (the qemu guest
+# agent is the channel). Enabled in the template; cloud-init runcmd also starts it at first boot.
+[Unit]
+Description=Team AX ax-link agent (mycel-link)
+ConditionPathExists=/etc/ax/link.json
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+ExecStart=/usr/local/sbin/mycel-link
+Restart=always
+RestartSec=5
+StateDirectory=ax-link
+StateDirectoryMode=0700
+RuntimeDirectory=ax-link
+RuntimeDirectoryMode=0700
+RuntimeDirectoryPreserve=yes
+UMask=0077
+
+[Install]
+WantedBy=multi-user.target
