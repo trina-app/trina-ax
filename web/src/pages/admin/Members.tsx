@@ -272,7 +272,7 @@ function NoAiBadge() {
 }
 
 /** Scheduled tasks paused until their owners confirm them again (made without the schedule card). Metadata only: the
- * title and the instruction are the person's own words; the owner checks them in Settings › Scheduled tasks. Shown
+ * title and the instruction are the person's own words; the owner checks them in Scheduled tasks (sidebar). Shown
  * only while some task waits. */
 function ScheduleReviews() {
   const t = useT()

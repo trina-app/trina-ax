@@ -24,6 +24,8 @@ const ProjectHome = lazy(() => import('./pages/Projects').then((m) => ({ default
 const AdminLayout = lazy(() => import('./pages/admin/AdminLayout'))
 const Trash = lazy(() => import('./pages/Trash'))
 const Skills = lazy(() => import('./pages/Skills'))
+const ScheduledList = lazy(() => import('./pages/Scheduled').then((m) => ({ default: m.ScheduledList })))
+const ScheduledTask = lazy(() => import('./pages/Scheduled').then((m) => ({ default: m.ScheduledTask })))
 const ConnectorConsent = lazy(() => import('./pages/ConnectorConsent'))
 
 function Splash() {
@@ -143,6 +145,8 @@ function Gate() {
           <Route path="admin/:section" element={<AdminLayout />} />
           <Route path="trash" element={<Trash />} />
           <Route path="skills" element={<Skills />} />
+          <Route path="scheduled" element={<ScheduledList />} />
+          <Route path="scheduled/:id" element={<ScheduledTask />} />
           <Route path="connectors/authorize" element={<ConnectorConsent key={`${status.me.user.id}:${status.me.session.id}`} />} />
         </Route>
         <Route path="/login" element={<AfterSignIn />} />
@@ -156,6 +160,8 @@ function Gate() {
       {settings.open && (
         <Routes>
           <Route path="/settings" element={<SettingsDialog onClose={settings.close} />} />
+          {/* scheduled tasks moved to the sidebar: old links (banners, notifications, bookmarks) go there */}
+          <Route path="/settings/schedules" element={<Navigate to="/scheduled" replace />} />
           <Route path="/settings/:tab" element={<SettingsDialog onClose={settings.close} />} />
         </Routes>
       )}

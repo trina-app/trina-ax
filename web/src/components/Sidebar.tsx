@@ -2,7 +2,7 @@
 // skills, admin, recent chats by date, and the account menu (the person's email or ID, Settings, Usage for admins,
 // Appearance, Sign out), which opens above the profile line. Below 768 px it is a drawer opened from the top bar.
 import clsx from 'clsx'
-import { BookMarked, Check, ChevronDown, ChevronRight, FolderOpen, FolderKanban, Gauge, Loader2, LogOut, MessageSquarePlus, MoreHorizontal, Palette, Pencil, Search, Settings, Shield, Trash2 } from 'lucide-react'
+import { BookMarked, CalendarClock, Check, ChevronDown, ChevronRight, FolderOpen, FolderKanban, Gauge, Loader2, LogOut, MessageSquarePlus, MoreHorizontal, Palette, Pencil, Search, Settings, Shield, Trash2 } from 'lucide-react'
 import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react'
 import { Link, NavLink, useNavigate } from 'react-router-dom'
 import { PRODUCT } from '@mycel/shared'
@@ -92,6 +92,9 @@ export default function Sidebar() {
         </button>
         <NavLink to="/projects" className={active} onClick={close}>
           <FolderKanban size={16} aria-hidden /> {t('sidebar.projects')}
+        </NavLink>
+        <NavLink to="/scheduled" className={active} onClick={close} data-testid="nav-scheduled">
+          <CalendarClock size={16} aria-hidden /> {t('sidebar.scheduled')}
         </NavLink>
         <NavLink to="/files" className={active} onClick={close}>
           <FolderOpen size={16} aria-hidden /> {t('sidebar.files')}
