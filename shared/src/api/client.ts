@@ -2,7 +2,17 @@
 //   const api = new ApiClient({ baseUrl: '' })
 //   const chats = await api.call(API.listChats, { query: { limit: 20 } })
 import { buildPath, isSchema, type BodyOf, type Endpoint, type ParamsOf, type QueryOf, type ResponseOf } from './endpoint'
-import { ApiErrorResponse, CSRF_HEADER, WINDOW_HEADER, type ApiErrorBody } from './common'
+import { ApiErrorResponse, CSRF_HEADER, DEFAULT_LOCALE, WINDOW_HEADER, type ApiErrorBody, type ErrorCode } from './common'
+import { ERROR_MESSAGES } from './errors'
+
+/** The error code for a response with no JSON error body (a proxy or relay page, a crash before the handler). */
+function fallbackCode(status: number): ErrorCode {
+  if (status === 502 || status === 503 || status === 504) return 'unavailable'
+  if (status === 429) return 'rate_limited'
+  // not 404 → not_found: a 404 page from a proxy does not mean the item is gone, and callers act on not_found
+  // (drop a project, leave a folder, hide a section)
+  return 'internal'
+}
 
 export class ApiError extends Error {
   constructor(public status: number, public body: ApiErrorBody) {
@@ -77,7 +87,10 @@ export class ApiClient {
       ? await this.o.fetchWithProgress(this.url(ep, a), init, a.onUploadProgress)
       : await f(this.url(ep, a), init)
     if (!res.ok && !(res.status === 206)) {
-      let parsed: ApiErrorBody = { code: 'internal', message: `HTTP ${res.status}` }
+      // No JSON body: a plain default message (the web app shows it in the UI language) instead of "HTTP 503".
+      // The status stays in `params.httpStatus` (and ApiError.status) for a small detail line.
+      const code = fallbackCode(res.status)
+      let parsed: ApiErrorBody = { code, message: ERROR_MESSAGES[code][DEFAULT_LOCALE], params: { httpStatus: res.status } }
       try {
         const j = ApiErrorResponse.safeParse(await res.json())
         if (j.success) parsed = j.data.error

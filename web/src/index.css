@@ -134,6 +134,13 @@ select:not([multiple]):not([size]) {
 
 .scroll-thin { scrollbar-width: thin; scrollbar-color: var(--c-line) transparent; }
 
+/* A row that scrolls sideways (useEdgeFade in components/ui.tsx): an edge with more behind it fades out, in both
+   themes (a mask, not a colour), and a tab scrolled into view keeps a margin from the edge instead of sitting cut. */
+.edge-fade { --fade: 1.75rem; scroll-padding-inline: 2rem; }
+.edge-fade[data-fade-end] { -webkit-mask-image: linear-gradient(to right, #000 calc(100% - var(--fade)), transparent); mask-image: linear-gradient(to right, #000 calc(100% - var(--fade)), transparent); }
+.edge-fade[data-fade-start] { -webkit-mask-image: linear-gradient(to right, transparent, #000 var(--fade)); mask-image: linear-gradient(to right, transparent, #000 var(--fade)); }
+.edge-fade[data-fade-start][data-fade-end] { -webkit-mask-image: linear-gradient(to right, transparent, #000 var(--fade), #000 calc(100% - var(--fade)), transparent); mask-image: linear-gradient(to right, transparent, #000 var(--fade), #000 calc(100% - var(--fade)), transparent); }
+
 .sr-only-focusable:not(:focus) { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
 
 @keyframes blink { 0%, 100% { opacity: .2 } 50% { opacity: 1 } }

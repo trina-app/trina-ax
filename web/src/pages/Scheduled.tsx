@@ -13,7 +13,7 @@ import type { Project, Schedule, ScheduleReviewCard } from '@mycel/shared/api'
 import { api, API, errorText, isApiError } from '../lib/api'
 import { formatDateTime } from '../lib/format'
 import { readDraft, writeDraft } from '../lib/localData'
-import { cardLine, outcomeTone, repeatText, scheduleName, schedulePreview, scheduleState, stateLabel, type Tone } from '../lib/scheduleText'
+import { cardLine, outcomeLabel, outcomeTone, repeatText, scheduleName, schedulePreview, scheduleState, stateLabel, type Tone } from '../lib/scheduleText'
 import { useLocale, useT } from '../i18n'
 import { schedulesChanged } from '../store/live'
 import { useMeStrict } from '../store/session'
@@ -32,7 +32,7 @@ function OutcomeDot({ s }: { s: Schedule }) {
   const t = useT()
   if (!s.lastOutcome) return null
   const tone = outcomeTone(s.lastOutcome)
-  const label = t(`scheduleTemplates.outcome.${s.lastOutcome}`)
+  const label = outcomeLabel(s, t)
   return (
     <span className="inline-flex shrink-0 items-center" title={label} data-testid="schedule-dot" data-outcome={s.lastOutcome}>
       <span className={clsx('size-2 rounded-full', DOT[s.lastOutcome === 'done' ? 'ok' : tone])} aria-hidden />
@@ -137,11 +137,16 @@ function ScheduleCard({ s }: { s: Schedule }) {
       <span className="flex min-w-0 items-center gap-2">
         <span className="min-w-0 truncate text-sm font-medium">{scheduleName(s, t)}</span>
         {waiting && <ShieldAlert size={14} className="shrink-0 text-warn" aria-hidden />}
-        <span className="ml-auto" />
-        <OutcomeDot s={s} />
       </span>
       <span className="mt-1 line-clamp-2 text-[13px] leading-5 text-muted">{schedulePreview(s)}</span>
       <span className={clsx('mt-1.5 block truncate text-xs', waiting ? 'text-warn' : 'text-faint')}>{cardLine(s, t, locale)}</span>
+      {/* the last result in words beside its dot: phones have no hover title, and every failure is the same red */}
+      {s.lastOutcome && (
+        <span className="mt-1 flex min-w-0 items-center gap-1.5 text-xs" data-testid="schedule-card-outcome" data-outcome={s.lastOutcome}>
+          <span className={clsx('size-2 shrink-0 rounded-full', DOT[s.lastOutcome === 'done' ? 'ok' : outcomeTone(s.lastOutcome)])} aria-hidden />
+          <span className={clsx('truncate', s.lastOutcome === 'done' ? 'text-faint' : TEXT[outcomeTone(s.lastOutcome)])}>{outcomeLabel(s, t)}</span>
+        </span>
+      )}
     </Link>
   )
 }
@@ -251,7 +256,7 @@ export function ScheduleView({ s, tz, project, onToggle, onRunNow, running, onRe
       <span className="min-w-0 flex-1">
         <span className="block truncate text-sm text-ink">{t('scheduled.run', { title: name })}</span>
         <span className="block text-xs text-faint">{s.lastRunAt ? when(s.lastRunAt) : t('schedules.lastRun')}</span>
-        {s.lastOutcome && <span className={clsx('block text-xs', TEXT[outcomeTone(s.lastOutcome)])} data-testid="schedule-outcome" data-outcome={s.lastOutcome}>{t(`scheduleTemplates.outcome.${s.lastOutcome}`)}</span>}
+        {s.lastOutcome && <span className={clsx('block text-xs', TEXT[outcomeTone(s.lastOutcome)])} data-testid="schedule-outcome" data-outcome={s.lastOutcome}>{outcomeLabel(s, t)}</span>}
       </span>
       <OutcomeDot s={s} />
     </>

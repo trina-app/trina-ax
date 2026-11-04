@@ -42,6 +42,8 @@ export default function AdminIntegrations() {
   return (
     <>
       <ConnectorsHeader title={t('admin.integrations')} tab={tab} onTab={setTab} query={query} onQuery={setQuery} onAdd={() => setDialog({})} panels={panels} />
+      {/* what this page is for, right under its title (not lost between the list and the requests) */}
+      {tab === 'connected' && <p className="mb-4 text-sm text-muted" data-testid="team-integrations-note">{t('integrations.admin.desc')}</p>}
       <TabPanel base={panels} value={tab}>
       <Loadable state={state}>
         {(list) => {
@@ -80,12 +82,7 @@ export default function AdminIntegrations() {
           )
         }}
       </Loadable>
-      {tab === 'connected' && (
-        <>
-          <p className="mt-3 text-xs text-faint" data-testid="team-integrations-note">{t('integrations.admin.desc')}</p>
-          <div className="mt-8"><TeamRequests /></div>
-        </>
-      )}
+      {tab === 'connected' && <div className="mt-8"><TeamRequests /></div>}
       </TabPanel>
       {dialog && (
         <IntegrationDialog

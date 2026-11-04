@@ -119,9 +119,11 @@ export function Card({ title, actions, children, desc, headingRef }: { title: Re
   return (
     <section className="mb-6 rounded-2xl border border-line bg-surface">
       <header className="flex flex-wrap items-center gap-2 border-b border-line px-4 py-3">
-        <div className="min-w-0 flex-1">
+        {/* a phone: the title and its line take the whole row and the buttons go under them, so the line is not cut
+            to a few words */}
+        <div className="min-w-0 flex-1 max-sm:basis-full">
           <h2 ref={headingRef} tabIndex={headingRef ? -1 : undefined} className="text-sm font-semibold">{title}</h2>
-          {desc && <OneLine className="mt-0.5 text-xs text-muted">{desc}</OneLine>}
+          {desc && <OneLine className="mt-0.5 text-xs text-muted" twoOnPhone>{desc}</OneLine>}
         </div>
         {actions}
       </header>
@@ -131,8 +133,9 @@ export function Card({ title, actions, children, desc, headingRef }: { title: Re
 }
 
 /** An explanation kept to one line; "More" opens the rest when it does not fit (and "Less" closes it again). The whole
- * text stays in the page, so a screen reader reads all of it either way. */
-export function OneLine({ children, className, testId }: { children: ReactNode; className?: string; testId?: string }) {
+ * text stays in the page, so a screen reader reads all of it either way. twoOnPhone: 2 lines below 640 px (a card
+ * header, where one line holds only a few words). */
+export function OneLine({ children, className, testId, twoOnPhone }: { children: ReactNode; className?: string; testId?: string; twoOnPhone?: boolean }) {
   const t = useT()
   const ref = useRef<HTMLParagraphElement>(null)
   const [open, setOpen] = useState(false)
@@ -140,7 +143,8 @@ export function OneLine({ children, className, testId }: { children: ReactNode; 
   useLayoutEffect(() => {
     const el = ref.current
     if (!el || open) return
-    const measure = () => setCut(el.scrollWidth > el.clientWidth + 1)
+    // cut sideways (one line) or below (the 2-line clamp)
+    const measure = () => setCut(el.scrollWidth > el.clientWidth + 1 || el.scrollHeight > el.clientHeight + 1)
     measure()
     const ro = new ResizeObserver(measure)
     ro.observe(el)
@@ -149,7 +153,7 @@ export function OneLine({ children, className, testId }: { children: ReactNode; 
   return (
     <div className={clsx('flex items-baseline gap-1.5', className)} data-testid={testId}>
       {/* inline-size containment: a line that does not wrap must not widen what holds it (a grid cell, a fieldset) */}
-      <p ref={ref} className={clsx('min-w-0 flex-1 [contain:inline-size]', !open && 'truncate')}>
+      <p ref={ref} className={clsx('min-w-0 flex-1 [contain:inline-size]', !open && (twoOnPhone ? 'max-sm:line-clamp-2 sm:truncate' : 'truncate'))}>
         {children}
       </p>
       {(cut || open) && (

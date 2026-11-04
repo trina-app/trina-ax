@@ -1,11 +1,12 @@
 // ⌘/Ctrl+K: one place to find the team's own things, like Claude's search. Type tabs (all, chats, projects, files,
-// skills, scheduled, MCP); with no text it shows what needs attention, recent chats and projects, and actions.
+// skills, scheduled, MCP); with no text it shows what needs attention, recent chats and projects, and actions (the
+// inbox among them, with its unread count).
 // Chats are searched on the server by title and content (GET /api/chats?q=). Projects, skills, scheduled tasks and MCP
 // connections come from the lists the app already reads and are matched here by name. Files: the dialog does not search
 // file contents itself, so a key press starts no file search (R2-ETC-02); its row opens the file screen's content
 // search with the same text.
 import clsx from 'clsx'
-import { BookMarked, Cable, CalendarClock, CalendarPlus, CornerDownLeft, FileSearch, FolderKanban, FolderOpen, FolderPlus, MessageSquare, MessageSquarePlus, MoreHorizontal, Pencil, Plus, Trash2, X } from 'lucide-react'
+import { Bell, BookMarked, Cable, CalendarClock, CalendarPlus, CornerDownLeft, FileSearch, FolderKanban, FolderOpen, FolderPlus, MessageSquare, MessageSquarePlus, MoreHorizontal, Pencil, Plus, Trash2, X } from 'lucide-react'
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { useNavigate } from 'react-router-dom'
 import type { Chat, Integration, Project, Schedule } from '@mycel/shared/api'
@@ -13,7 +14,7 @@ import { api, API, errorText } from '../lib/api'
 import { platform } from '../lib/pwa'
 import { useLocale, useT, type MessageKey } from '../i18n'
 import { useUi } from '../store/ui'
-import { useFocusTrap } from './ui'
+import { useEdgeFade, useFocusTrap } from './ui'
 import { contentQueryReady } from './FileContentSearch'
 import { skillFileLink } from './AvailableSkills'
 import { useChatActions } from './chat/chatActions'
@@ -42,6 +43,8 @@ interface Row {
   attention?: boolean
   /** highlight the typed text in the title */
   match?: boolean
+  /** more words the typed text may match (an action's other name) */
+  terms?: string
   icon: typeof MessageSquare
   href: string
   chat?: Chat
@@ -91,6 +94,7 @@ function SearchBox({ onClose }: { onClose: () => void }) {
   const skills = useList<Skill[]>(() => api.call(API.listSkills).then((r) => r.items))
   const schedules = useList(() => api.call(API.listSchedules).then((r) => r.items))
   const mcp = useList(() => api.call(API.listIntegrations))
+  const unread = useList(() => api.call(API.listNotifications, { query: { limit: 1 } }).then((r) => r.unreadCount))
 
   const query = norm(q.trim())
   // chats by title and content, on the server
@@ -147,9 +151,15 @@ function SearchBox({ onClose }: { onClose: () => void }) {
     const m = ok(mcp)
     if (m?.personalAllowed) list.push({ key: 'act:mcp', kind: 'action', icon: Plus, title: t('search.addMcp'), href: '/settings/integrations?add=1' })
     list.push({ key: 'act:files', kind: 'action', icon: FolderOpen, title: t('search.openFiles'), href: '/files' })
+    // the inbox lives in Settings > Notifications; unread notifications show as a count and an attention dot
+    const n = ok(unread) ?? 0
+    list.push({
+      key: 'act:inbox', kind: 'action', icon: Bell, title: t('inbox.open'), href: '/settings/notifications', terms: `${t('inbox.title')} ${t('notifications.title')}`,
+      sub: n > 0 ? t('notifications.unread', { count: n }) : undefined, attention: n > 0,
+    })
     return list
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [mcp, locale])
+  }, [mcp, unread, locale])
 
   const sections: Section[] = useMemo(() => {
     const chats = ok(recent) ?? []
@@ -196,7 +206,7 @@ function SearchBox({ onClose }: { onClose: () => void }) {
     if (tab === 'all' || tab === 'scheduled') push('scheduled', typeLabel('scheduled'), allSchedules.filter((s) => has(query, s.title, s.prompt)).slice(0, few).map((s) => scheduleRow(s)))
     if (tab === 'all' || tab === 'mcp') push('mcp', typeLabel('mcp'), allMcp.filter((i) => has(query, i.name, i.url)).slice(0, few).map((i) => mcpRow(i)))
     if ((tab === 'all' || tab === 'files') && contentQueryReady(q)) push('files', typeLabel('files'), [filesRow()])
-    if (tab === 'all') push('actions', t('search.actions'), actions.filter((a) => has(query, a.title)))
+    if (tab === 'all') push('actions', t('search.actions'), actions.filter((a) => has(query, a.title, a.terms)))
     return out
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [query, tab, recent, projects, skills, schedules, mcp, found, actions, locale])
@@ -223,6 +233,15 @@ function SearchBox({ onClose }: { onClose: () => void }) {
     const at = el?.getBoundingClientRect()
     setMenu({ row: r, top: at && box ? at.bottom - box.top : 0 })
   }
+  // the type tabs scroll sideways on a phone: fade the cut edge, and bring the chosen one into view (arrow keys at the
+  // ends of the text choose another)
+  const tabRow = useRef<HTMLDivElement>(null)
+  useEdgeFade(tabRow)
+  useEffect(() => {
+    const row = tabRow.current
+    if (!row || row.scrollWidth <= row.clientWidth) return
+    row.querySelector<HTMLElement>('[role="tab"][aria-selected="true"]')?.scrollIntoView({ block: 'nearest', inline: 'nearest' })
+  }, [tab])
   const moveTab = (d: 1 | -1) => setTab((x) => SEARCH_TABS[(SEARCH_TABS.indexOf(x) + d + SEARCH_TABS.length) % SEARCH_TABS.length]!)
   const loading = (tab === 'chats' && (query ? found === null && !error : recent === null)) || (tab === 'projects' && projects === null) || (tab === 'skills' && skills === null) || (tab === 'scheduled' && schedules === null) || (tab === 'mcp' && mcp === null)
   const failed = (tab === 'projects' && projects === 'error') || (tab === 'skills' && skills === 'error') || (tab === 'scheduled' && schedules === 'error') || (tab === 'mcp' && mcp === 'error') || (tab === 'chats' && !query && recent === 'error')
@@ -297,24 +316,27 @@ function SearchBox({ onClose }: { onClose: () => void }) {
             <X size={18} aria-hidden />
           </button>
         </div>
-        <div role="tablist" aria-label={t('search.types')} className="scroll-thin flex shrink-0 gap-1 overflow-x-auto border-b border-line px-4 pb-3">
-          {SEARCH_TABS.map((x) => (
-            <button
-              key={x}
-              type="button"
-              role="tab"
-              aria-selected={tab === x}
-              tabIndex={tab === x ? 0 : -1}
-              data-testid={`search-tab-${x}`}
-              onClick={() => {
-                setTab(x)
-                inputRef.current?.focus()
-              }}
-              className={clsx('shrink-0 rounded-lg px-3 py-1.5 text-sm', tab === x ? 'bg-hover font-medium text-text' : 'text-muted hover:text-text')}
-            >
-              {t(TAB_LABEL[x])}
-            </button>
-          ))}
+        {/* the line under the tabs sits outside the row, so the row's edge fade does not fade it too */}
+        <div className="shrink-0 border-b border-line">
+          <div ref={tabRow} role="tablist" aria-label={t('search.types')} className="scroll-thin edge-fade flex gap-1 overflow-x-auto px-4 pb-3">
+            {SEARCH_TABS.map((x) => (
+              <button
+                key={x}
+                type="button"
+                role="tab"
+                aria-selected={tab === x}
+                tabIndex={tab === x ? 0 : -1}
+                data-testid={`search-tab-${x}`}
+                onClick={() => {
+                  setTab(x)
+                  inputRef.current?.focus()
+                }}
+                className={clsx('shrink-0 rounded-lg px-3 py-1.5 text-sm', tab === x ? 'bg-hover font-medium text-text' : 'text-muted hover:text-text')}
+              >
+                {t(TAB_LABEL[x])}
+              </button>
+            ))}
+          </div>
         </div>
         <div ref={listRef} id="search-results" role="listbox" aria-label={t('search.title')} className="scroll-thin min-h-0 flex-1 overflow-y-auto overscroll-contain p-2 sm:max-h-[56vh]">
           {error && <p className="px-3 py-2 text-sm text-danger">{error}</p>}

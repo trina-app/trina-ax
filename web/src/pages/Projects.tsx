@@ -67,7 +67,7 @@ export function ProjectList() {
         {error && <ErrorNote onRetry={load}>{error}</ErrorNote>}
         {!items && !error && <Skeleton lines={4} />}
         {items && !items.length && <EmptyState icon={<FolderKanban size={28} />} title={t('projects.empty')} />}
-        <ul className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+        <ul className="grid items-start gap-3 sm:grid-cols-2 lg:grid-cols-3">
           {items?.map((p) => (
             <li key={p.id}>
               <Link to={`/projects/${p.id}`} className="block h-full rounded-2xl border border-line bg-surface p-4 transition hover:bg-hover">
@@ -75,7 +75,8 @@ export function ProjectList() {
                   <FolderKanban size={16} className="text-accent-text" aria-hidden /> {p.name}
                 </span>
                 <span className="mt-1 block truncate text-xs text-faint">{p.folderPath || t('files.root')}</span>
-                {p.instructions && <span className="mt-2 line-clamp-2 block text-sm text-muted">{p.instructions}</span>}
+                {/* plain text of the first paragraph, at most 2 lines ('block' would cancel line-clamp's display) */}
+                {p.instructions && <span className="mt-2 line-clamp-2 text-sm text-muted">{firstParagraph(p.instructions)}</span>}
               </Link>
             </li>
           ))}

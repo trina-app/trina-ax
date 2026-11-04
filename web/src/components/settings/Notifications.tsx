@@ -73,13 +73,9 @@ export function Notifications() {
     <div><h2 className="text-base font-semibold">{t('notifications.title')}</h2><p className="mt-1 text-sm text-muted">{t('notifications.description')}</p></div>
     {error && <ErrorNote onRetry={() => void load()}>{error}</ErrorNote>}
     {!items && !error && <Skeleton lines={3} />}
-    {preferences && <fieldset disabled={busy} className="space-y-3 rounded-xl border border-line p-4"><legend className="px-1 text-sm font-medium">{t('notifications.preferences')}</legend>
-      {preferenceKeys.map(key => <label key={key} className="flex items-center gap-2 text-sm"><input type="checkbox" checked={preferences[key]} onChange={e => void update(key, e.target.checked)} data-testid={`notification-pref-${key}`} />{t(`notifications.${key}`)}</label>)}
-      <p className="text-xs text-muted">{t('notifications.preferenceHint')}</p>
-    </fieldset>}
-    <PushNotifications />
-    {items && <div>
-      <h3 className="mb-3 text-sm font-semibold">{t('notifications.unread', { count: unread })}</h3>
+    {/* the inbox comes first: it is what the sidebar's "Inbox" opens; the preferences follow below it */}
+    {items && <div data-testid="notifications-inbox">
+      <h3 className="mb-3 text-sm font-semibold">{t('inbox.title')} <span className="font-normal text-muted">· {t('notifications.unread', { count: unread })}</span></h3>
       {!items.length && <p className="text-sm text-muted">{t('notifications.empty')}</p>}
       <ul className="divide-y divide-line">{items.map(item => <li key={item.id} className="flex items-start gap-3 py-3" data-testid="notification-item">
         <div className="min-w-0 flex-1"><p className={`text-sm ${item.readAt ? 'text-muted' : 'font-medium'}`}>{item.code === 'dev_env.job' || item.code === 'dev_env.box' ? devEnvText(item, t) : item.code === 'integration.request' && item.request ? t('notifications.event.integration.requestNamed', { name: item.request.name, host: item.request.host }) : t(item.code === 'schedule.failure' && item.review ? 'notifications.event.schedule.review' : item.code === 'schedule.failure' && item.outcome === 'problems' ? 'notifications.event.schedule.problems' : `notifications.event.${item.code}`)}</p><p className="mt-1 text-xs text-faint">{formatDateTime(item.createdAt, locale)}</p>
@@ -96,5 +92,10 @@ export function Notifications() {
       </li>)}</ul>
       {cursor && <Button onClick={() => void load(cursor)}>{t('common.loadMore')}</Button>}
     </div>}
+    {preferences && <fieldset disabled={busy} className="space-y-3 rounded-xl border border-line p-4"><legend className="px-1 text-sm font-medium">{t('notifications.preferences')}</legend>
+      {preferenceKeys.map(key => <label key={key} className="flex items-center gap-2 text-sm"><input type="checkbox" checked={preferences[key]} onChange={e => void update(key, e.target.checked)} data-testid={`notification-pref-${key}`} />{t(`notifications.${key}`)}</label>)}
+      <p className="text-xs text-muted">{t('notifications.preferenceHint')}</p>
+    </fieldset>}
+    <PushNotifications />
   </section>
 }

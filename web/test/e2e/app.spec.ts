@@ -59,6 +59,9 @@ test('settings: memory list and forget; devices', async ({ page }) => {
   await expect(page.getByText('AI가 기억하는 내용이 없어요')).toBeVisible()
   await page.getByRole('link', { name: '보안·기기' }).click()
   await expect(page.getByText('지금 이 기기')).toBeVisible()
+  // a short device name, the raw user agent only in the tooltip
+  await expect(page.getByTestId('device-name')).toHaveText('macOS의 Chrome')
+  await expect(page.getByTestId('device-name')).toHaveAttribute('title', /^Mozilla\/5\.0 \(Macintosh/)
 })
 
 test('settings: add a memory, correct one, the limits of the AI\'s remember', async ({ page }) => {
