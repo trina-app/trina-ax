@@ -63,6 +63,7 @@ import { limitFallbackOn } from '../admin/engine-choice'
 import { runApiAgent } from '../engine/api-agent'
 import { makeHandler } from '../mcp/protocol'
 import { hasCredentialFor, resolveCredential, type CredEngine } from '../credentials/resolve'
+import { connectionRoute } from '../credentials/access'
 import { createTrialMeter, HOSTED_CHAT_ID, HOSTED_CHAT_MAX_TOKENS, hostedChatConf, hostedChatState } from '../credentials/hosted-chat'
 import { credentialsOf, getRow, metaOf } from '../credentials/store'
 import { dummyAuthJson } from '../credentials/codex-home'
@@ -288,14 +289,21 @@ export class TurnExec {
     // the chat's engine was switched off by an admin: this answer comes from the team default
     if (spec.substitutedFrom) this.addStep({ kind: 'tool', tool: 'engine', label: tr('engineOffDefault', spec.locale, { from: ENGINE_LABELS[spec.substitutedFrom], to: ENGINE_LABELS[spec.engine] }), status: 'ok' })
     const confs = rt.engines.get()
-    // the hosting service's trial credit (credentials/hosted-chat.ts, docs/DECISIONS.md "Z"): a Claude Code or Codex
-    // turn that no AI connection of this person can answer runs on the app's own API engine with the trial key instead.
-    // Claude Code and Codex never run on it (Anthropic's terms for products that run Claude Code)
-    const trial = this.trialAnswers(confs)
-    const problem = trial ? undefined : confs.problems[spec.engine]
-    const claude = !trial && spec.engine === 'claude-code' ? confs.claude : null
-    const codex = !trial && spec.engine === 'codex' ? confs.codex : null
-    const api = trial ? hostedChatConf(rt.ctx.config) : spec.engine === 'api' ? confs.api ?? null : null
+    // on a server with the hosting service's trial credit (credentials/hosted-chat.ts, docs/DECISIONS.md "Z"): a Claude
+    // Code or Codex turn that no AI connection of this person can answer goes to the other of the two when the team
+    // connected that one (a step says so), else, while the credit is active, runs on the app's own API engine with the
+    // trial key. Claude Code and Codex never run on the credit (Anthropic's terms for products that run Claude Code)
+    const route = this.route(confs)
+    const trial = route === 'trial'
+    const engine: EngineId = route === 'claude-code' || route === 'codex' ? route : spec.engine
+    const routed = engine !== spec.engine
+    // a model named for the chat's engine means nothing to the other one: its default
+    const chosenModel = routed ? null : spec.model
+    if (routed) this.addStep({ kind: 'tool', tool: 'engine', label: tr('engineNoConnection', spec.locale, { from: ENGINE_LABELS[spec.engine], to: ENGINE_LABELS[engine] }), status: 'ok' })
+    const problem = trial ? undefined : confs.problems[engine]
+    const claude = !trial && engine === 'claude-code' ? confs.claude : null
+    const codex = !trial && engine === 'codex' ? confs.codex : null
+    const api = trial ? hostedChatConf(rt.ctx.config) : engine === 'api' ? confs.api ?? null : null
     if (problem || (!claude && !codex && !api)) { this.error = engineError(problem ?? 'engine_missing', spec.locale); return }
     const core = await rt.core()
     this.activeCore = core
@@ -407,13 +415,15 @@ export class TurnExec {
       return `${buildTurnContext(rt.files, { ...promptInput(false), connected: toolSet.context.join('\n\n') || null, skillChanges: changes })}\n\n${message}`
     }
     // the API engine always answers with the owner's one model: the turn records it (usage by model), never empty; a
-    // trial answer is the API engine's on the trial model, and Admin › Usage by connection names the trial credit
-    const { turn, token } = core.turns.create(spec.userId, spec.chatId, trial ? 'api' : spec.engine, api ? api.model : spec.model, spec.turnId)
+    // trial answer is the API engine's on the trial model (turns.engine api: no images, Usage by engine), and Admin ›
+    // Usage by connection names the trial credit. The answer keeps the chat's engine: the person never chose the API
+    // engine, so the chat shows no switch to it and back (only the model says what answered)
+    const { turn, token } = core.turns.create(spec.userId, spec.chatId, trial ? 'api' : engine, api ? api.model : chosenModel, spec.turnId)
     this.registered = true
     if (trial) {
-      rt.db.query("UPDATE messages SET engine = 'api', model = ? WHERE id = ?").run(api!.model, spec.assistantId)
+      rt.db.query('UPDATE messages SET model = ? WHERE id = ?').run(api!.model, spec.assistantId)
       rt.db.query('UPDATE turns SET credential_id = ? WHERE id = ?').run(HOSTED_CHAT_ID, spec.turnId)
-    }
+    } else if (routed) rt.db.query('UPDATE messages SET engine = ?, model = NULL WHERE id = ?').run(engine, spec.assistantId)
     if (invoked) {
       // Reporting is auxiliary: keep permission checks outside this boundary and omit file/body/error details.
       try { recordSkillUse(rt.db, { turnId: spec.turnId, userId: spec.userId, skill: invoked.skill, source: 'command' }) }
@@ -438,7 +448,7 @@ export class TurnExec {
       // a team / chat / personal model if someone chose one; else a Claude subscription connection runs on Opus (set
       // where the attempt picks its connection below; main's subscription-mode rule, v0.2.2), an API key keeps Claude
       // Code's own default
-      let model = safeModel(spec.model) ? spec.model : undefined
+      let model = safeModel(chosenModel) ? chosenModel : undefined
       const retried = new Set<string>()
       // managed: each attempt runs on one AI connection of this person (credentials/resolve.ts); a refused or limited
       // one moves the turn to the next (at most 2 switches, counted apart from the attempts below)
@@ -517,7 +527,7 @@ export class TurnExec {
         break
       }
     } else if (codex) {
-      const model = spec.model && rt.engines.get().codexModels.includes(spec.model) ? spec.model : undefined
+      const model = chosenModel && rt.engines.get().codexModels.includes(chosenModel) ? chosenModel : undefined
       await this.runCodex(core, codex, { chatDir, token, systemPrompt: prompt(true), message, extraTools, model })
     } else if (api) {
       // the team's API engine runs here in the server: its only tools are the turn's MCP tools, answered by the same
@@ -693,21 +703,18 @@ export class TurnExec {
     return codex.auth !== 'managed' || hasCredentialFor(rt.db, spec.userId, 'codex', credentialsOf(rt.ctx).allowedKinds)
   }
 
-  /** Does the hosting service's trial credit answer this turn (credentials/hosted-chat.ts, docs/DECISIONS.md "Z")? A
-   * Claude Code or Codex turn on AI connections (managed) while the credit is active, when no connection of this person
-   * can answer that engine now (none, or all switched off, refused or at a limit). Any connection the team or the
-   * person adds that works comes first. One exception keeps the team's own AI first: a Claude connection only at its
-   * limit while "Claude 한도에 닿으면 Codex로 넘기기" would send the turn to a Codex connection of the person's (the
-   * turn goes there as before). The API engine has its own key. */
-  private trialAnswers(confs: EngineConfs): boolean {
+  /** Where this turn goes on a server with the hosting service's trial credit (credentials/access.ts connectionRoute,
+   * the same rule as /api/me/ai-access): its own engine, the other connection engine when only that one has a working
+   * connection of this person, or the credit (on the API engine). Only Claude Code and Codex turns on AI connections
+   * (managed), and only to an engine set up the same way here. The API engine has its own key. */
+  private route(confs: EngineConfs): 'own' | 'trial' | CredEngine {
     const { rt, spec } = this
     const engine = spec.engine
-    if (engine === 'api') return false
-    if (!(engine === 'claude-code' ? confs.claude?.authMode === 'managed' && !!confs.claude.modelProxy : confs.codex?.auth === 'managed')) return false
-    if (hostedChatState(rt.db, new Date()) !== 'active') return false
-    const r = resolveCredential(rt.db, { userId: spec.userId, engine, allowedKinds: credentialsOf(rt.ctx).allowedKinds })
-    if (r.ok) return false
-    return !(engine === 'claude-code' && r.skipped.some((s) => s.why === 'limited') && this.codexFallbackReady())
+    if (engine === 'api') return 'own'
+    const managed = (e: CredEngine) => e === 'claude-code' ? confs.claude?.authMode === 'managed' && !!confs.claude.modelProxy : confs.codex?.auth === 'managed'
+    if (!managed(engine)) return 'own'
+    const r = connectionRoute(rt.ctx, { id: spec.userId }, engine, { problems: confs.problems, allowed: credentialsOf(rt.ctx).allowedKinds })
+    return r === 'own' || r === 'trial' || managed(r) ? r : 'own'
   }
 
   /** The model proxy refused or failed a request of this turn: the turn ends with that reason (design tab 1 "예산 초과",

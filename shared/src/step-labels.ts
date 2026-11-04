@@ -111,6 +111,9 @@ export const STEP_TEXT = {
   refusedRetry: t('AI가 답하지 않아 다른 모델({model})로 다시 답해요', 'The AI declined; answering again with another model ({model})', 'AI menolak; menjawab ulang dengan model lain ({model})', "AIが拒否したため、別のモデル（{model}）で再回答します", "La IA rechazó la solicitud; se responde de nuevo con otro modelo ({model})"),
   /** the chat's engine was switched off by an admin: this answer uses the team default */
   engineOffDefault: t('{from} 엔진이 꺼져 있어 팀 기본 엔진({to})으로 답해요', '{from} is switched off; answering with the team default ({to})', '{from} dimatikan; menjawab dengan mesin bawaan tim ({to})', "{from}が無効のため、チームの既定（{to}）で回答します", "{from} está desactivado; se responde con el predeterminado del equipo ({to})"),
+  /** a server with the hosting service's trial credit: the chat's engine has no AI connection for the person, the other
+   * one has (server/src/credentials/access.ts connectionRoute) */
+  engineNoConnection: t('{from}에 쓸 AI 연결이 없어 연결된 {to}로 답해요', 'No AI connection for {from}; answering with {to}, which is connected', 'Tidak ada koneksi AI untuk {from}; menjawab dengan {to} yang terhubung', "{from}用のAI接続がないため、接続済みの{to}で回答します", "No hay conexión de IA para {from}; se responde con {to}, que sí está conectado"),
   /** "Claude 한도에 닿으면 Codex로 넘기기": the subscription limit was hit and the admin allowed the fallback */
   limitFallback: t('{from} 사용 한도에 닿아 {to} 엔진으로 이어서 답해요', '{from} usage limit reached; continuing with {to}', 'Batas pemakaian {from} tercapai; dilanjutkan dengan {to}', "{from}の使用量上限に達したため、{to}で続けます", "Se alcanzó el límite de uso de {from}; se continúa con {to}"),
   credentialSwitchLimit: t('사용 한도에 닿아 다른 AI 연결로 이어서 답해요', 'Usage limit reached; continuing with another AI connection', 'Batas pemakaian tercapai; dilanjutkan dengan koneksi AI lain', "使用量の上限に達したため、別のAI接続で続けます", "Se alcanzó el límite de uso; se continúa con otra conexión de IA"),
@@ -237,7 +240,7 @@ export function localizeStep(step: { kind: string; tool?: string; label: string;
   if (step.kind === 'thinking') label = retemplate(['thinking'], step.label, locale)
   else if (step.kind === 'web_search') label = retemplate(['webSearch', 'webSearchRunning', 'webSearchOpen', 'webSearchPlain'], step.label, locale)
   else if (tool === 'refusal') label = retemplate(['refusedRetry'], step.label, locale)
-  else if (tool === 'engine') label = retemplate(['engineOffDefault', 'limitFallback', 'credentialSwitchLimit', 'credentialSwitchInvalid'], step.label, locale)
+  else if (tool === 'engine') label = retemplate(['engineOffDefault', 'engineNoConnection', 'limitFallback', 'credentialSwitchLimit', 'credentialSwitchInvalid'], step.label, locale)
   else if (tool === 'attachment') label = retemplate(['attachChanged', 'attachMoved', 'attachUnavailable'], step.label, locale)
   else if (tool === 'agent') label = retemplate(['subtask'], step.label, locale)
   else if (tool === 'ask_user') label = retemplate(['asked'], step.label, locale)

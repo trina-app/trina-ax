@@ -1710,6 +1710,8 @@ export const ko = {
   // B — hosted trial AI credit (server/src/credentials/hosted-chat.ts, components/TrialCreditBar.tsx)
   'chat.error.trial_credit_used': CHAT_ERROR_MESSAGES.trial_credit_used.ko,
   'chat.error.trial_ended': CHAT_ERROR_MESSAGES.trial_ended.ko,
+  // Z — the API engine stopped at its output limit (server/src/engine/api-agent.ts)
+  'chat.error.output_limit': CHAT_ERROR_MESSAGES.output_limit.ko,
   'audit.act.ai.hosted_trial_key': "호스팅 체험 AI 키 변경",
   'trialCredit.active': "체험 크레딧: {used} / {cap} 사용 · {date}까지 · 내 AI를 연결하면 그걸 먼저 써요",
   'trialCredit.used': "체험 크레딧을 다 썼어요({used} / {cap}) · 내 AI를 연결하면 이어서 쓸 수 있어요",

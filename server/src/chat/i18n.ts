@@ -85,6 +85,7 @@ export const TEXT = {
   // steps
   refusedRetry: STEP_TEXT.refusedRetry,
   engineOffDefault: STEP_TEXT.engineOffDefault,
+  engineNoConnection: STEP_TEXT.engineNoConnection,
   limitFallback: STEP_TEXT.limitFallback,
   credentialSwitchLimit: STEP_TEXT.credentialSwitchLimit,
   credentialSwitchInvalid: STEP_TEXT.credentialSwitchInvalid,

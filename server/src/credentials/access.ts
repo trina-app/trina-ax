@@ -4,11 +4,11 @@
 // has a connection for the person comes from credentials/resolve.ts (the same candidates and checks as the turn and the
 // model proxy). A connection at a provider's short limit counts as usable: that person only waits.
 import type { EngineId } from '@mycel/shared/api'
-import { allowedCredentialKinds, isManaged } from '../app-config'
+import { allowedCredentialKinds, isManaged, type AllowedKinds } from '../app-config'
 import type { AppContext } from '../context'
 import { canChooseEngine, choosableEngines, engineOn, teamDefault, type Person } from '../admin/engine-choice'
 import type { EngineConfs } from '../chat/engines'
-import { hasCredentialSoonFor } from './resolve'
+import { hasCredentialSoonFor, resolveCredential, type CredEngine } from './resolve'
 import { hostedChatState } from './hosted-chat'
 
 type Ctx = Pick<AppContext, 'db' | 'config'>
@@ -26,17 +26,39 @@ export function enginesAnswering(ctx: Ctx, p: Person, problems: EngineConfs['pro
 }
 
 /** Can this person use AI now (or once a short limit is over)? The API engine answers with its own key, not with an
- * AI connection. While the hosting service's trial credit is active it answers Claude Code and Codex turns that no
- * connection can (credentials/hosted-chat.ts, chat/turn.ts trialAnswers), so those engines count as usable. */
+ * AI connection. On a server that holds the hosting service's trial credit, a Claude Code or Codex turn that its own
+ * engine cannot answer may go to the other engine or to the credit (connectionRoute, the same rule as chat/turn.ts), so
+ * such an engine counts as usable then. */
 export function canUseAi(ctx: Ctx, p: Person, o: AccessOptions = {}, allowed = allowedCredentialKinds(ctx.config)): boolean {
   const now = o.now ?? new Date()
-  const engines = enginesAnswering(ctx, p, o.problems)
-  if (engines.some((e) => e !== 'api') && trialActive(ctx, now)) return true
-  return engines.some((e) => e === 'api' || hasCredentialSoonFor(ctx.db, p.id, e, allowed, now))
+  return enginesAnswering(ctx, p, o.problems).some((e) => e === 'api' || hasCredentialSoonFor(ctx.db, p.id, e, allowed, now)
+    || (isManaged(ctx.config) && connectionRoute(ctx, p, e, { now, problems: o.problems, allowed }) !== 'own'))
 }
 
-/** the hosting service's trial credit answers turns now (managed servers only: the turns on AI connections) */
-export const trialActive = (ctx: Ctx, now = new Date()): boolean => isManaged(ctx.config) && hostedChatState(ctx.db, now) === 'active'
+const OTHER: Record<CredEngine, CredEngine> = { 'claude-code': 'codex', codex: 'claude-code' }
+/**
+ * Where a Claude Code or Codex turn of this person goes on a server that holds the hosting service's trial credit
+ * (credentials/hosted-chat.ts, docs/DECISIONS.md "Z"). The team's own AI always comes first, the credit last:
+ *   'own'      its engine has a connection that works now; or one only at a limit while the other engine has one (the
+ *              usual wait, or the admin's "Claude 한도에 닿으면 Codex로 넘기기"); or nothing answers (the usual errors)
+ *   the other  its engine has no connection that works, the other of the two has one and is on here: that one answers
+ *              (a team that connected only ChatGPT gets its Claude Code chats answered by Codex, not by the credit)
+ *   'trial'    no connection of the person works on either engine and the credit is active
+ * A server without a trial credit always gets 'own' (unchanged). Managed servers only (the caller checks).
+ */
+export function connectionRoute(ctx: Ctx, p: { id: string }, engine: CredEngine, o: { now?: Date; problems?: EngineConfs['problems']; allowed?: AllowedKinds } = {}): 'own' | 'trial' | CredEngine {
+  const now = o.now ?? new Date()
+  const state = hostedChatState(ctx.db, now)
+  if (!state) return 'own'
+  const allowedKinds = o.allowed ?? allowedCredentialKinds(ctx.config)
+  const own = resolveCredential(ctx.db, { userId: p.id, engine, allowedKinds, now })
+  if (own.ok) return 'own'
+  const other = OTHER[engine]
+  if (engineOn(ctx, other) && !o.problems?.[other] && resolveCredential(ctx.db, { userId: p.id, engine: other, allowedKinds, now }).ok) {
+    return own.skipped.some((s) => s.why === 'limited') ? 'own' : other
+  }
+  return state === 'active' ? 'trial' : 'own'
+}
 
 /** The ids of the active people who cannot use AI now, in the members list's order; null when this server does not
  * answer with AI connections (engine.authMode other than managed: the engines' own sign-in, which is not per person). */

@@ -1,10 +1,10 @@
 import { z } from 'zod'
 
-/** model_not_found, endpoint_unreachable, provider_error: the API engine (server/src/engine/api-agent.ts) only */
+/** model_not_found, endpoint_unreachable, provider_error, output_limit: the API engine (server/src/engine/api-agent.ts) only */
 /** totals of one sub-agent (Claude Code AgentOutput / task_progress): tool calls, working time, tokens */
 export const AgentStats = z.object({ toolUses: z.number().int().nonnegative().optional(), ms: z.number().nonnegative().optional(), tokens: z.number().int().nonnegative().optional() })
 export type AgentStats = z.infer<typeof AgentStats>
-export const EngineErrorCode = z.enum(['auth', 'rate_limit', 'context', 'timeout', 'refused', 'crash', 'model_not_found', 'endpoint_unreachable', 'provider_error'])
+export const EngineErrorCode = z.enum(['auth', 'rate_limit', 'context', 'timeout', 'refused', 'crash', 'model_not_found', 'endpoint_unreachable', 'provider_error', 'output_limit'])
 export const EngineEvent = z.discriminatedUnion('type', [
   z.object({ type: z.literal('text'), delta: z.string() }),
   z.object({ type: z.literal('thinking'), delta: z.string() }),

@@ -1677,6 +1677,8 @@ export const es: Record<MessageKey, string> = {
   // B — hosted trial AI credit (server/src/credentials/hosted-chat.ts, components/TrialCreditBar.tsx)
   'chat.error.trial_credit_used': CHAT_ERROR_MESSAGES.trial_credit_used.es,
   'chat.error.trial_ended': CHAT_ERROR_MESSAGES.trial_ended.es,
+  // Z — the API engine stopped at its output limit (server/src/engine/api-agent.ts)
+  'chat.error.output_limit': CHAT_ERROR_MESSAGES.output_limit.es,
   'audit.act.ai.hosted_trial_key': "Cambió la clave de IA de prueba alojada",
   'trialCredit.active': "Crédito de prueba: {used} de {cap} usados · hasta el {date} · La IA que conecte se usa primero",
   'trialCredit.used': "Se agotó el crédito de prueba ({used} de {cap}) · Conecte su propia IA para continuar",

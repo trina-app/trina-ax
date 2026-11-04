@@ -185,6 +185,8 @@ async function stream(conf: ApiEngineConf, key: string | null, body: string, emi
   // one usage per completion: some providers repeat the (cumulative) usage on several chunks
   let usage: unknown = null
   let requestId: string | undefined
+  // why the model stopped ("stop", "tool_calls", "length" …)
+  let finish: string | undefined
   // the completion's usage goes out as an event; its cost is what the meter counts (none known: its reservation)
   const counted = (ev: Extract<EngineEvent, { type: 'usage' }>) => { emit(ev); spent.cost = ev.costUsd ?? 'unfinished' }
   for await (const chunk of res.body as unknown as AsyncIterable<Uint8Array>) {
@@ -207,6 +209,7 @@ async function stream(conf: ApiEngineConf, key: string | null, body: string, emi
       }
       if (typeof j.id === 'string' && j.id && !requestId) requestId = j.id.slice(0, 120)
       if (j.usage) usage = j.usage
+      if (typeof j.choices?.[0]?.finish_reason === 'string') finish = j.choices[0].finish_reason
       const d = j.choices?.[0]?.delta
       if (!d) continue
       if (typeof d.content === 'string' && d.content) {
@@ -224,6 +227,12 @@ async function stream(conf: ApiEngineConf, key: string | null, body: string, emi
     }
   }
   if (usage) counted(usageEvent(conf.model, usage, requestId))
+  // the model stopped at its output limit (max_tokens): the answer is cut off, and a tool call in it may be too (its
+  // arguments half written). Nothing more is sent: another round would cost again and could only repeat the cut
+  if (finish === 'length') {
+    emit({ type: 'error', code: 'output_limit', message: 'the model stopped at its output limit (finish_reason length)' })
+    return null
+  }
   // the instructions name the tools mcp__team__<name> (the other engines' spelling): the handler knows <name>
   return { text, calls: calls.filter(Boolean).map((c, i) => ({ ...c, name: c.name.replace(/^mcp__team__/, ''), id: c.id || `call_${i}_${Date.now()}` })) }
 }
