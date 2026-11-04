@@ -63,6 +63,13 @@ person and their AI may open in the file tools.
   a candidate (its write access often comes from a parent folder). The team root is never a starting folder (fail
   closed). `settingsProblems` refuses a settings file with a writable team folder outside the starting folder and the
   own folder. What a run can see does not change.
+- A writable folder inside a read-only one is common now: the project folder of an owner or admin (the team root is
+  read-only in the run), or a project folder inside a group folder. srt (0.0.81, `pushReadDenyDirMounts`) binds the
+  allowed paths of a denied folder back writes first and reads second, so the read-only parent covered the project
+  folder and it was read-only (Docker, A28c). `srtSettings` adds each such writable folder to `denyRead` as well:
+  srt then puts a landing there, after the parent, and binds the folder back writable. srt's fixed write denies
+  (`.git/hooks`, `.bashrc`) still hold there (A28e). The attack suite now makes srt's protected names in the cwd
+  first, as the runner does (`placeholders.ts`).
 - The tracker's hash is per person and starting folder (two runs of one person in different folders have different
   views).
 - Only folders that exist go into the settings (srt skips the others).

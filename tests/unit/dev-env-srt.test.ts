@@ -206,6 +206,20 @@ describe('the srt settings file', () => {
     expect(settingsProblems(s, w)).toEqual([])
     expect(settingsProblems(s, { ...w, work: `${BASE}/data` }).join()).toContain('work folder')
   })
+  test('a writable folder inside a read-only one is a denyRead landing too, so srt binds it back writable (A28c, A28d)', () => {
+    const v = folderView(FIXTURE_RULES, PEOPLE.carol!, { start: 'projects/falcon' })
+    const c = { ...input, userId: 'carol', view: v }
+    const s = srtSettings(c)
+    expect(v.read).toEqual([''])
+    expect(s.filesystem.allowRead).toContain(TEAM)
+    expect(s.filesystem.allowWrite).toEqual([`${TEAM}/projects/falcon`, `${TEAM}/users/carol`, `${BASE}/devenv/home/carol`])
+    expect(s.filesystem.denyRead).toContain(`${TEAM}/projects/falcon`)
+    // her own folder is below the team root too: it gets a landing as well (A28d: still writable)
+    expect(s.filesystem.denyRead).toContain(`${TEAM}/users/carol`)
+    expect(settingsProblems(s, c)).toEqual([])
+    // alice's project folder is not inside a folder she reads: no extra landing
+    expect(srtSettings(input).filesystem.denyRead).not.toContain(`${TEAM}/projects/falcon`)
+  })
   test('the check refuses a team folder outside the starting folder that is writable (a view of the person, not of the run)', () => {
     const personOnly = { ...input, view: folderView(FIXTURE_RULES, PEOPLE.alice!) }
     const problems = settingsProblems(srtSettings(personOnly), personOnly).join('\n')

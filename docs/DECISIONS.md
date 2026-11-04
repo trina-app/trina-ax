@@ -5464,7 +5464,9 @@ later PR removes it.
   folder is a code channel between people (a git hook, `package.json` scripts or a Makefile that another person's AI
   runs later with that person's access, G-SRT-11). The project folder stays shared by its writers, with its change
   window. A copy from a folder the person may read into the project folder still skips the read-scope check.
-  `settingsProblems` refuses a run whose settings make another team folder writable.
+  `settingsProblems` refuses a run whose settings make another team folder writable. A writable folder inside a
+  read-only one (an admin's project folder below the read-only team root) also gets a `denyRead` landing, because srt
+  binds reads back after writes and would cover it read-only (Docker A28c, A28d).
 - **Files.** The srt settings hide the whole base folder and `/etc/default/<ID>`, and give back the person's team
   folders (read from the rules; write only in the starting folder and the own folder), the person's home (read and write) and logs (read). srt itself denies writes to `.git/hooks`, `.git/config` and
   similar files. The environment has only listed keys, never the server's. A `cwd` through a link out of the project is

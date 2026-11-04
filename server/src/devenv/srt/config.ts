@@ -92,11 +92,17 @@ export function srtSettings(i: SettingsInput) {
   const home = personHome(i.base, i.userId), logs = personLogs(i.base, i.userId)
   const domains = i.network === 'open' ? [...new Set([...DEV_ENV_DEFAULT_DOMAINS, ...i.extraDomains])] : []
   const fixedHidden = [abs(i.teamRoot, 'users'), abs(i.teamRoot, PRODUCT.systemDir)]
+  // srt binds a denied folder's allowed paths back writes first, then reads: a writable folder inside a read-only one
+  // (the starting folder inside a folder that Q0 (b) made read-only, for example the team root of an admin) would be
+  // read-only. A denyRead landing on the writable folder itself makes srt bind it back again, writable, after the
+  // read-only folder above it (srt 0.0.81 linux-sandbox-utils pushReadDenyDirMounts; Docker attack A28c).
+  const writeInRead = i.view.write.filter((w) => i.view.read.some((r) => r !== w && (r === '' || w.startsWith(r + '/'))))
   return {
     filesystem: {
       // the whole base folder, not a list of its folders: a file made later in a hidden folder stays hidden
       denyRead: uniq([i.base, ...(inside(i.teamRoot, i.base) ? [] : [i.teamRoot]), ...serverFilesOutsideBase(i.id), ...DENIED_SYSTEM_PATHS,
-        ...(i.serverPaths ?? []).filter((p) => !inside(p, i.base)), ...fixedHidden, ...i.view.denyRead.map((r) => abs(i.teamRoot, r))]),
+        ...(i.serverPaths ?? []).filter((p) => !inside(p, i.base)), ...fixedHidden, ...i.view.denyRead.map((r) => abs(i.teamRoot, r)),
+        ...writeInRead.map((w) => abs(i.teamRoot, w))]),
       allowRead: uniq([...i.view.read, ...i.view.write].map((r) => abs(i.teamRoot, r)).concat([home, logs], i.work ? [i.work] : [])),
       allowWrite: uniq(i.view.write.map((r) => abs(i.teamRoot, r)).concat([home], i.work ? [i.work] : [])),
       denyWrite: uniq(i.view.denyWrite.map((r) => abs(i.teamRoot, r))),
