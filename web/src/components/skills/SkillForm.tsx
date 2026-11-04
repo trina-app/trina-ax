@@ -166,7 +166,8 @@ export function SkillForm({ path, skill: given, onDone, onSkip, skipLabel, onCom
 export function SkillFormDialog({ path, skill, onClose, onCompose }: { path: string; skill?: SkillInfo; onClose: () => void; onCompose?: (message: string) => void }) {
   const t = useT()
   const [loaded, setLoaded] = useState<SkillInfo | null>(null)
-  const shown = loaded ?? skill
+  // only the skill of this path (a dialog kept open while its path changes never shows the one before)
+  const shown = (loaded?.path === path ? loaded : null) ?? skill
   return (
     <Modal open onClose={onClose} width={560} title={shown ? t('skillForm.title', { name: skillTitle(shown) }) : t('skillForm.titlePlain')}>
       <SkillForm path={path} skill={skill} onSkill={setLoaded} onCompose={onCompose ? (m) => { onCompose(m); onClose() } : undefined} />

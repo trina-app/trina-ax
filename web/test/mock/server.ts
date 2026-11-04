@@ -546,7 +546,7 @@ export class MockServer {
       const name = head ? /^name:\s*(.+)$/m.exec(head)?.[1]?.trim() : undefined
       if (!name) continue
       // a SKILL.md's metadata title (the name people read), as the server reads it
-      const title = p.endsWith('/SKILL.md') ? /^metadata:\n(?:[ \t]+.*\n)*?[ \t]+title:\s*(.+)$/m.exec(head!)?.[1]?.trim() : undefined
+      const title = p.endsWith('/SKILL.md') ? /^metadata:\n(?:[ \t]+.*\n)*?[ \t]+title:[ \t]*(.+)$/m.exec(head!)?.[1]?.trim().replace(/^(["'])(.*)\1$/, '$2') : undefined
       out.push({ path: p, name, description: /^description:\s*(.+)$/m.exec(head!)?.[1]?.trim() ?? '', ...(title ? { title } : {}), ...(p.startsWith(mine) ? { personal: true as const } : {}) })
     }
     return out.sort((a, b) => a.name.localeCompare(b.name) || a.path.localeCompare(b.path))

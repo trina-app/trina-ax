@@ -71,6 +71,8 @@ function standardFields(header: string): { fields: Map<string, string>; metadata
         for (const pair of item.value.items) {
           if (!scalar(pair.key)) return null
           if (pair.key.value === 'inputs' && !scalar(pair.value)) { inputsNotText = true; continue }
+          // a title that is not text (left empty, a number, a list) is no title: the skill loads and shows its name
+          if (pair.key.value === 'title' && !scalar(pair.value)) continue
           if (!scalar(pair.value)) return null
           metadata.set(pair.key.value, pair.value.value)
         }

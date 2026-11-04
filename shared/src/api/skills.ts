@@ -30,11 +30,12 @@ export const SkillInfo = z.object({
 export type SkillInfo = z.infer<typeof SkillInfo>
 /** The longest metadata `title` a skill may have (characters); a longer one is ignored and the name shows. */
 export const SKILL_TITLE_MAX = 60
-/** A SKILL.md's metadata `title` as people read it, or null when it is not one: empty, more than one line, or longer
- * than SKILL_TITLE_MAX (the skill still loads; its name shows instead). */
+/** A SKILL.md's metadata `title` as people read it, or null when it is not one: empty, more than one line, longer
+ * than SKILL_TITLE_MAX, or holding control or text-direction characters (it reaches the join page and the copied
+ * invite message). The skill still loads; its name shows instead. */
 export function readSkillTitle(raw: string | undefined): string | null {
   const v = raw?.trim()
-  return v && !/[\r\n]/.test(v) && [...v].length <= SKILL_TITLE_MAX ? v : null
+  return v && !/[\u0000-\u001f\u007f-\u009f\u2028\u2029\u200e\u200f\u202a-\u202e\u2066-\u2069]/.test(v) && [...v].length <= SKILL_TITLE_MAX ? v : null
 }
 /** What a person reads as a skill's name: its title, else its name. Every screen, message and notice that names a
  * skill to a person uses this; a command the person types or sends stays "/<name>". */

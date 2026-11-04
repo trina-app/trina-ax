@@ -24,15 +24,19 @@ put('skills/no-title/SKILL.md', skill('no-title', ''))
 put('skills/long-title/SKILL.md', skill('long-title', `metadata:\n  title: ${'가'.repeat(SKILL_TITLE_MAX + 1)}\n`))
 put('skills/two-lines/SKILL.md', skill('two-lines', 'metadata:\n  title: "광고\\n문구"\n'))
 put('skills/blank/SKILL.md', skill('blank', 'metadata:\n  title: "  "\n'))
-// a title that is not text breaks the header like any other metadata value that is not text (as before)
+// a title that is not text (left empty, a number, a list) is no title; the skill loads all the same
 put('skills/list-title/SKILL.md', skill('list-title', 'metadata:\n  title:\n    - 광고\n'))
+put('skills/empty-title/SKILL.md', skill('empty-title', 'metadata:\n  title:\n'))
+put('skills/number-title/SKILL.md', skill('number-title', 'metadata:\n  title: 2026\n'))
+// a direction override would turn the join page's text around
+put('skills/bidi-title/SKILL.md', skill('bidi-title', 'metadata:\n  title: "광고\u202e문구"\n'))
 // a legacy file's own name is already what people read: no metadata map, no title
 put('skills/주간-보고.md', '---\nname: 주간 보고\ndescription: 매주\n---\nLegacy')
 
 test('readSkillTitle: one line of at most 60 characters, trimmed; anything else is no title', () => {
   expect(readSkillTitle(' 광고 문구 ')).toBe('광고 문구')
   expect(readSkillTitle('가'.repeat(SKILL_TITLE_MAX))).toBe('가'.repeat(SKILL_TITLE_MAX))
-  for (const bad of [undefined, '', '   ', '가'.repeat(SKILL_TITLE_MAX + 1), 'a\nb', 'a\rb']) expect(readSkillTitle(bad)).toBeNull()
+  for (const bad of [undefined, '', '   ', '가'.repeat(SKILL_TITLE_MAX + 1), 'a\nb', 'a\rb', 'a\tb', 'a\u2028b', 'a\u0085b', 'a\u202eb', 'a\u2066b', 'a\u0000b']) expect(readSkillTitle(bad)).toBeNull()
 })
 
 test('a SKILL.md with a title lists it; the name, the folder rule and "/<name>" are unchanged', () => {
@@ -42,12 +46,11 @@ test('a SKILL.md with a title lists it; the name, the folder rule and "/<name>" 
   const listed = Object.fromEntries(listSkills(files, user).map((s) => [s.path, skillInfo(s)]))
   expect(listed['skills/ad-copy/SKILL.md']).toEqual({ path: 'skills/ad-copy/SKILL.md', name: 'ad-copy', description: '광고 문구 — 광고 문구 3안을 써요.', title: '광고 문구' })
   // without a valid title the listing keeps exactly its old shape, and the skill loads all the same
-  for (const name of ['no-title', 'long-title', 'two-lines', 'blank']) expect(listed[`skills/${name}/SKILL.md`]).toEqual({ path: `skills/${name}/SKILL.md`, name, description: '광고 문구 — 광고 문구 3안을 써요.' })
+  for (const name of ['no-title', 'long-title', 'two-lines', 'blank', 'list-title', 'empty-title', 'number-title', 'bidi-title']) expect(listed[`skills/${name}/SKILL.md`]).toEqual({ path: `skills/${name}/SKILL.md`, name, description: '광고 문구 — 광고 문구 3안을 써요.' })
   expect(listed['skills/주간-보고.md']).toEqual({ path: 'skills/주간-보고.md', name: '주간 보고', description: '매주' })
-  expect(listed['skills/list-title/SKILL.md']).toBeUndefined()
   for (const s of Object.values(listed)) expect(SkillInfo.safeParse(s).success).toBe(true)
   // a title that is too long or not one line is no skill issue: the skill works and shows its name
-  expect(skillIssues(files, user).map((i) => i.path).filter((p) => /long-title|two-lines|blank|no-title|ad-copy/.test(p))).toEqual([])
+  expect(skillIssues(files, user).map((i) => i.path).filter((p) => /title|two-lines|blank|ad-copy/.test(p))).toEqual([])
 })
 
 test('skillTitle falls back to the name; skillSummary drops a lead that repeats the title', () => {
@@ -60,4 +63,8 @@ test('skillTitle falls back to the name; skillSummary drops a lead that repeats 
   expect(skillSummary({ name: 'ad-copy', title: '광고 문구', description: '배너 문구 — 짧게 써요.' })).toBe('배너 문구 — 짧게 써요.')
   expect(skillSummary({ name: 'ad-copy', description: '광고 문구 — 짧게 써요.' })).toBe('광고 문구 — 짧게 써요.')
   expect(skillSummary({ name: 'x', title: 'X', description: '' })).toBe('')
+  // a hyphen or an en dash with spaces is a lead too; a hyphen inside a word is not
+  expect(skillSummary({ name: 'ad-copy', title: 'Ad copy', description: 'Ad copy - three options.' })).toBe('three options.')
+  expect(skillSummary({ name: 'ad-copy', title: 'Ad copy', description: 'Ad copy – three options.' })).toBe('three options.')
+  expect(skillSummary({ name: 'e-mail', title: 'E-mail', description: 'E-mail drafts.' })).toBe('E-mail drafts.')
 })

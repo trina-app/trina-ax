@@ -98,6 +98,25 @@ describe('the team link on a phone: one primary action, no boxes', () => {
     expect(html).toContain(`data-testid="team-link-uses">${en('teamLink.uses', { used: 0, max: 20 })}<`)
     expect(html).toContain(en('teamLink.memberNote'))
     expect(html).not.toContain('<dl')
+    // the date says what it is in every language ("Works until Nov 18, …", "사용 기한 …까지")
+    expect(html).toContain(`${en('teamLink.expiresLabel')} <span class="text-ink" data-testid="team-link-expires">`)
+  })
+
+  test('the groups line: the names; how many while the groups load; "no group" only on a team that has groups', () => {
+    const G = { id: '01900000-0000-7000-8000-0000000000aa', name: '디자인팀' }
+    const html = (l: TeamLinkResponse, groups: { id: string; name: string }[]) =>
+      renderToStaticMarkup(<TeamLinkView data={l} inviter="김팀장" groups={groups as never} skills={null} busy={false} onCreate={noop} onRevoke={noop} />)
+    expect(html(link({ groupIds: [G.id] }), [G])).toContain('data-testid="team-link-groups">디자인팀<')
+    expect(html(link({ groupIds: [G.id] }), [])).toContain('data-testid="team-link-groups">1<')
+    expect(html(link(), [G])).toContain(en('members.noGroups'))
+    expect(html(link(), [])).not.toContain(en('members.noGroups'))
+  })
+
+  test('two skills that read the same are told apart in the picker', () => {
+    const twin: SkillInfo = { path: 'skills/광고-문구.md', name: '광고 문구', description: '' }
+    const html = renderToStaticMarkup(<TeamLinkView data={{ link: null, seats: { used: 1, limit: null } }} inviter="김팀장" groups={[]} skills={[AD, twin]} busy={false} onCreate={noop} onRevoke={noop} />)
+    expect(html).toContain(`>광고 문구 · ${AD.path}</option>`)
+    expect(html).toContain(`>광고 문구 · ${twin.path}</option>`)
   })
 
   test('the invite step\'s "다 했어요" is not a second primary', async () => {

@@ -7219,9 +7219,10 @@ The UX pass on the onboarding (A–E, W, G) for Korean marketers. Placement: Tea
 
 - **A skill's title: `metadata.title` in SKILL.md.** People saw folder names ("'ad-copy' 스킬을 같이 써 보자고 해요"). The
   folder name must equal `name` and a name is lowercase ASCII (the Agent Skills format), so the name stays and a title is
-  added where the format puts its own fields: the metadata string map (as `inputs`). One line, at most 60 characters
-  (`SKILL_TITLE_MAX`, `readSkillTitle`, shared); anything else is left out without a skill issue: the skill works and
-  shows its name. Legacy `.md` skills have no metadata map; their name is already free text. `SkillInfo.title` is
+  added where the format puts its own fields: the metadata string map (as `inputs`). One line, at most 60 characters,
+  no control or text-direction characters (it reaches the join page and the copied message; `SKILL_TITLE_MAX`,
+  `readSkillTitle`, shared); anything else, a `title:` left empty or a number included, is left out without a skill
+  issue: the skill works and shows its name. Legacy `.md` skills have no metadata map; their name is already free text. `SkillInfo.title` is
   optional and absent without a title, so every older reader and test sees the same objects.
 - **One rule everywhere: `skillTitle()` = the title, else the name** (`shared/src/api/skills.ts`). Shown on Team skills
   (rows, the run and "…" buttons' labels, search), the "/" menu (the title with "/name" beside it; typing "/광고" finds
@@ -7246,7 +7247,8 @@ The UX pass on the onboarding (A–E, W, G) for Korean marketers. Placement: Tea
   border near the screen edge reads as tight. `TeamLinkView`: the message as quoted text with a 2px hairline, then the one
   primary "메시지 복사" (the message ends with the link; full width on a phone), the link as plain selectable text with
   quiet "링크만 복사" (was "링크 복사") and "QR 코드", uses / expiry / skill / groups and the member note as quiet lines
-  (the groups only on a team that has groups; no role badge), replace and turn off as quiet text buttons on the left.
+  (the groups when the link has some, "그룹 없음" only on a team that has groups; no role badge), replace and turn off as
+  quiet text buttons on the left. The link form's skill picker adds the path when two skills read the same.
   `InviteStep`'s "다 했어요" is no longer primary (secondary), so the screen has one: "초대 링크 만들기" before the link,
   "메시지 복사" after. From the chat bar the dialog's title is the step's question and the step adds no second heading
   (`title={null}`). Admin › Members uses the same view; its card keeps the admin card frame from 640px and on a phone is

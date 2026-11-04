@@ -122,6 +122,8 @@ export function TeamLinkView({ data, inviter, groups, skills, fixedSkillPath, bu
   const skillName = link.skill ? (link.skill.title ?? link.skill.name) : null
   const message = teamLinkMessage(t, { name: inviter, url, skill: skillName })
   const groupNames = link.groupIds.map((id) => groups.find((g) => g.id === id)?.name).filter((x): x is string => !!x)
+  // the groups line: always when the link puts people in groups; "그룹 없음" only on a team that has groups
+  const showGroups = link.groupIds.length > 0 || groups.length > 0
   // on a phone a frame near the screen edge reads as tight: one primary action (the message holds the link), the rest
   // as plain text, a hairline and quiet text buttons (docs/DESIGN-SYSTEM.md, Layout patterns)
   return (
@@ -156,13 +158,16 @@ export function TeamLinkView({ data, inviter, groups, skills, fixedSkillPath, bu
       <div className="space-y-1 text-[13px] leading-5 text-muted" data-testid="team-link-facts">
         <p>
           {t('teamLink.usesLabel')} <span className="text-ink tabular-nums" data-testid="team-link-uses">{t('teamLink.uses', { used: link.uses, max: link.maxUses })}</span>
-          {' · '}{t('teamLink.until', { date: formatDateTime(link.expiresAt, locale) })}
+          {' · '}{t('teamLink.expiresLabel')} <span className="text-ink" data-testid="team-link-expires">{t('teamLink.until', { date: formatDateTime(link.expiresAt, locale) })}</span>
         </p>
-        {(link.skill || groups.length > 0) && (
+        {(link.skill || showGroups) && (
           <p>
             {link.skill && <>{t('teamLink.skill')} <span className="text-ink" data-testid="team-link-skill-name">{skillName ?? link.skill.path}</span></>}
-            {link.skill && groups.length > 0 && ' · '}
-            {groups.length > 0 && (groupNames.length ? <>{t('admin.groups')} <span className="text-ink">{groupNames.join(', ')}</span></> : t('members.noGroups'))}
+            {link.skill && showGroups && ' · '}
+            {showGroups && (link.groupIds.length
+              // the names once the groups loaded; until then (or when they did not load) how many
+              ? <>{t('admin.groups')} <span className="text-ink" data-testid="team-link-groups">{groupNames.length ? groupNames.join(', ') : link.groupIds.length}</span></>
+              : t('members.noGroups'))}
           </p>
         )}
         <p>
@@ -274,7 +279,8 @@ function CreateForm({ initial, groups, skills, fixedSkillPath, seatsLeft, planLi
             <option value="">{t('teamLink.noSkill')}</option>
             {skills.map((s) => (
               <option key={s.path} value={s.path}>
-                {skillTitle(s)}
+                {/* two skills that read the same (a title and another skill's name) are told apart by their path */}
+                {skills.some((o) => o !== s && skillTitle(o) === skillTitle(s)) ? `${skillTitle(s)} · ${s.path}` : skillTitle(s)}
               </option>
             ))}
           </select>
