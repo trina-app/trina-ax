@@ -119,7 +119,7 @@ test('keyboard: ⌘K opens search, Esc closes it, ⌘⇧O starts a new chat', as
   await page.goto('/files')
   await expect(page.getByTestId('file-table')).toBeVisible()
   await page.keyboard.press('ControlOrMeta+k')
-  await expect(page.getByRole('dialog', { name: '채팅 검색' })).toBeVisible()
+  await expect(page.getByRole('dialog', { name: '검색' })).toBeVisible()
   await page.keyboard.press('Escape')
   await expect(page.getByRole('dialog')).toHaveCount(0)
   await page.keyboard.press('ControlOrMeta+Shift+o')

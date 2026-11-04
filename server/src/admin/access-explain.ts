@@ -110,8 +110,9 @@ function teamFolders(ctx: AppContext, rules: RuleSet): Candidate[] {
     const c = add(g.path, 'group')
     if (c) c.group = { id: g.id, name: g.name }
   }
-  // personal projects (users/<id>/…) are dropped by add(): their names are their owner's
-  for (const pr of ctx.db.query('SELECT id, name, folder_path FROM projects ORDER BY name, id').all() as { id: string; name: string; folder_path: string }[]) {
+  // personal projects (users/<id>/…) are dropped by add(): their names are their owner's. A project whose folder is in
+  // the trash is not there: its path may be another folder's, and members do not see the project (canSeeProject)
+  for (const pr of ctx.db.query('SELECT id, name, folder_path FROM projects WHERE trashed_with IS NULL ORDER BY name, id').all() as { id: string; name: string; folder_path: string }[]) {
     const c = add(pr.folder_path, 'project')
     if (c) (c.projects ??= []).push({ id: pr.id, name: pr.name })
   }
@@ -218,8 +219,9 @@ export function explainTree(ctx: AppContext, q: { path?: string; cursor?: string
     return m
   }
   for (const g of ctx.db.query('SELECT g.id, g.name, f.path FROM groups g JOIN folders f ON f.id = g.folder_id ORDER BY g.name').all() as { id: string; name: string; path: string }[]) mark(g.path, 'group').group = { id: g.id, name: g.name }
-  // personal projects (users/<id>/…) are left out by the tree (their names are their owner's)
-  for (const pr of ctx.db.query('SELECT id, name, folder_path FROM projects ORDER BY name, id').all() as { id: string; name: string; folder_path: string }[]) {
+  // personal projects (users/<id>/…) are left out by the tree (their names are their owner's); so is a project whose
+  // folder is in the trash (members do not see it, and its path may be another folder's)
+  for (const pr of ctx.db.query('SELECT id, name, folder_path FROM projects WHERE trashed_with IS NULL ORDER BY name, id').all() as { id: string; name: string; folder_path: string }[]) {
     const m = mark(pr.folder_path, 'project')
     ;(m.projects ??= []).push({ id: pr.id, name: pr.name })
   }
