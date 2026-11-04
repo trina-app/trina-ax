@@ -7049,3 +7049,78 @@ Onboarding wave 1, stream E. Placement: Team AX core (accounts and invites are c
 - **Second review** (the coordinator's): the server messages moved into the auth message table (`auth/messages.ts`, `teamLink*` keys; the Korean-text check allows Korean only in language tables); the printed guide (`docs/guide/guide.html`) no longer asks for "비밀번호 확인" and explains the team link for members and admins; the admin view carries `limitedUntil` while the per-link limit refuses every join, and the card says "최근에 틀린 시도가 많아 … 링크를 바꾸면 바로 풀려요"; disabling an admin (confirm dialog) or making one a member (a note after saving) suggests replacing the team link, since only the links they made end with them.
 - **Not done**: the mobile app's address box (`mobile/src/address.ts`) still accepts only `/invite/<token>` links, not `/join#t=`; a list of who joined through which link beyond the audit log; single-use invites keep their token in the path (`/invite/<token>`, unchanged, already masked in logs).
 - Tests: `tests/unit/a-team-links.test.ts` (make, show again, replace, revoke; sealed and hashed at rest; members only with a role in the request; groups; taken username, weak password, unknown token; max uses with three joins at once for two uses; expiry; the per-link limit across addresses, and joins that work not counting; a maker disabled, enabled again or demoted; the use-time check; a restored copy; the owners' and the maker's inbox; seats: default, cap, full; the skill deep link and the folder rules; no path or query parameter and nothing logged with the token), `web/test/unit/team-link.test.tsx` (the fragment, the next page, the message in five languages, the panel's states, the join form without a second password, `/join` sending the token only in POST bodies, every "no longer works" message, InviteStep and its soft dialog), `web/test/e2e/team-link.spec.ts` (the whole flow in a real browser against the mock: make, copy the message, join, land on the skill, no request URL with the token, revoke).
+
+## G — The 7-day team goal: its count, the card, the owners' notice, the operator's counts (feat/onboarding-g, 2026-11-04)
+
+Onboarding wave 2, stream G. Placement: Team AX core (skills, chat turns, notifications, the hosting status contract);
+the activation mails and the list of teams to contact belong to the hosting console (trina-cloud), not here. The
+owner's metric, the only thing a trial chases: **within 7 days of the team's start, 3 or more different people (the
+owner included) each ran the SAME team skill at least once** (`GOAL_DAYS`, `GOAL_PEOPLE`, `shared/src/api/onboarding-goal.ts`;
+counting in `server/src/onboarding/goal.ts`).
+
+- **A run is "/name" (a skill form too) or the skill tool, never a plain read.** `turn_skill_usage.source` could not
+  say it: the skill tool was recorded there as `read` together with a plain read of the SKILL.md, the first row of a
+  turn wins (ON CONFLICT DO NOTHING), and its CHECK list cannot change without rebuilding the table (forbidden). So
+  runs get a table of their own, `turn_skill_runs` (migration 223, source `command` | `tool`), written by the same
+  `recordSkillUse` (new source `tool`, still stored as `read` in `turn_skill_usage`, so Admin › Usage and every
+  older reader are unchanged). Earlier "/name" runs come over in the migration; earlier skill-tool runs cannot be told
+  from reads and are not guessed (a team in its first week at the update may count one run short per such use).
+- **What counts:** a successful answer only (`turns.status = 'done'`; an answer paused at a per-answer limit also ends
+  `done`), started inside `[start, start + 7 days)`, not a scheduled run (`schedule_id`: nobody was there). Team skills
+  only (personal skills are never recorded). A personal skill with the same name takes the team skill's place for
+  its owner ("/name" runs the personal one), so that person's run does not count for the team skill: accepted (C's
+  install already refuses a second TEAM skill of a name). Keyed by path: renaming or moving a skill gives it a new
+  path, and runs before and after count as two skills (progress drops back). People deleted later still count (turns
+  stay; a deleted account is a tombstone) but are never named; their count shows as "+N".
+- **The team's start** is its first account (`MIN(users.created_at)`, the owner made at setup, deleted accounts
+  included), not the audit log (pruned after its retention).
+- **The card** (`GET /api/onboarding/goal`, owners and admins; `web/src/components/onboarding/GoalCard.tsx`): "7일 안에
+  3명이 같은 스킬 써 보기 · 2/3 · 5일 남음", three segments, the top skill by its plain name (the description's lead
+  before " — ", the pack's convention: "광고 문구") and the names of the people who ran it, [팀원 초대] (E's
+  `InviteStep` in a dialog, with that skill) and [초대 문구 복사] (E's ready-made message, only while an active team
+  link exists; otherwise the dialog makes one). Ties go to the skill that got to that many people first. Reached:
+  "달성했어요 · 3명이 '광고 문구' 스킬을 함께 썼어요", hidden once dismissed (per browser, `localStorage`, as the
+  checklist's own hide).
+  - Shown while the window is open; a reached goal also for 7 days after the window, but only when the team was served
+    the card during its window (settings row `onboarding.goalShownAt`, set on the first view). A team older than
+    7 days at the update never sees it, reached or not (existing customers get nothing new on Home).
+  - On a hosted team the owner checklist gives way to the card while the card shows; on a self-installed or office
+    server both show (the checklist has the backup and folder steps those owners need). Admins see the card too, never
+    the checklist (as before). Nothing renders until the goal has loaded; a failed load shows the checklist.
+  - Phones: the card has no frame of its own, only a line under it (fewer boxes); a card from 640px.
+- **New visibility (recorded on purpose):** until now admins saw usage by person or by skill (Admin › Usage,
+  `admin/budgets.ts`), never both. The goal card shows owners and admins WHO ran ONE skill (names, first run first)
+  during the first 7 days. Only who did, never who has not (no "still to run" list), only the top skill, and only in
+  the window (and the short "reached" time after it).
+- **Owners' notice** "○○님이 '광고 문구'를 처음 써 봤어요 (2/3)": event `onboarding.first_run` in its own table
+  `onboarding_goal_notices` (migration 223; the inbox tables have fixed CHECK lists and are never rebuilt, as for A's
+  and E's notices), source = the turn of the first successful run, with the member, the skill path and the count then.
+  Written when an answer ends `done` (`noteGoalRun`, `chat/turn.ts`): only inside the window, only for the person's
+  first successful run of that skill (an earlier finished one means no notice; `UNIQUE(user_id, member_id,
+  skill_path)` besides), to every active owner except the person who ran it (an owner's own run is not news to them;
+  admins are not told). Shown always, no OS push. The count is "n/3", then "4명" past the target; the Korean object
+  particle follows the name's last sound (을/를, "을(를)" when it cannot be told: `web/src/lib/teamGoal.ts`). A deleted
+  member's notice reads "팀원 한 명이 …".
+- **Operator counts:** `TenantStatus.onboarding` (optional, strict, counts and yes/no only: never a name, mail, skill
+  name or path): `day` (whole days since the first account), `packInstalled` (`skills/marketing/` holds a SKILL.md),
+  `profileSaved` (`skills/company-profile.json` with a field filled in, read as D's reader does), `inviteMade` (an
+  invite or a team link was made, or someone joined), `membersJoined` (accounts after the first, deleted included),
+  `peopleAnswered` (people with a successful answer in the window), `membersWithFirstRun` (people who ran a team
+  skill in the window, the owner included), `bestSkillRunners`, `goalReached`. admin.js `cloud-status` adds it
+  (`onboarding/tenant-status.ts`; left out while there is no account, and never fatal to the rest); mycel-ctl passes
+  it through with its known fields only, whole numbers in range, decoded on its own so a bad block drops only itself.
+  **Rollout order: ax-hostd's copy of `TenantStatus` is strict and reports a tenant with an unknown field as
+  `app: null`, so trina-cloud must sync this contract and deploy hostd and the control plane before any hosted
+  tenant runs a release with this mycel-ctl.** The rest (day 1 / 3 / 5 activation mails, a "stuck" list of day ≥ 3
+  teams with `!inviteMade` or `peopleAnswered === 0` / `membersWithFirstRun === 0`) is the console's.
+- Tests: `tests/unit/b-onboarding-goal.test.ts` (failed, stopped, interrupted and running answers; plain reads; the
+  skill tool and "/name"; personal skills; two skills with two people each; three people with one skill, the owner
+  included; deleted people; the 7-day edge and scheduled runs; plain names; the migration's backfill; the card for
+  owners, admins and members; a new team, an older team after an update, reached and seen, the grace; the notice once
+  per member per skill, its count, failed answers, an earlier run, outside the window, a deleted member; real turns
+  with the fake engine: a read, "/name", a failed "/name", the skill tool and the owner's notices),
+  `tests/unit/g-cloud-tenant.test.ts` (the block from the real admin.js, no names or paths),
+  `tests/unit/cloud-protocol.test.ts` (old and new shapes, strict inside), mycel-ctl `TestTenantStatusOnboarding`,
+  `web/test/unit/goal-card.test.tsx` (the line, names, buttons, reached, dismissed once, hosted vs self, no goal or a
+  failed load, the notice text and particle). Checked in a browser against the mock (`/__test/team-goal`) at 390px and
+  1280px.

@@ -2725,6 +2725,19 @@ export const ko = {
   "audit.act.team_link.revoke": "팀 초대 링크 끔",
   "audit.act.team_link.join": "팀 초대 링크로 가입",
   "audit.act.team_link.rate_limited": "팀 초대 링크 가입 시도 제한",
+  "goal.title": "{days}일 안에 {target}명이 같은 스킬 써 보기",
+  "goal.progress": "{count}/{target}",
+  "goal.daysLeft": "{n}일 남음",
+  "goal.ranBy": "'{skill}' 스킬을 써 본 사람: {names}",
+  "goal.none": "팀 스킬 하나를 골라 함께 써 보세요. 같은 스킬을 {target}명이 쓰면 달성이에요.",
+  "goal.invite": "팀원 초대",
+  "goal.copyInvite": "초대 문구 복사",
+  "goal.reachedTitle": "달성했어요",
+  "goal.reachedBody": "{count}명이 '{skill}' 스킬을 함께 썼어요: {names}",
+  "goal.firstRun": "{name}님이 {skill} 처음 써 봤어요 ({progress})",
+  "goal.firstRunGone": "팀원 한 명이 {skill} 처음 써 봤어요 ({progress})",
+  "goal.firstRunPlain": "팀원이 팀 스킬을 처음 써 봤어요.",
+  "goal.people": "{n}명",
 } as const
 
 export type MessageKey = keyof typeof ko

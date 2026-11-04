@@ -31,7 +31,7 @@ import { z } from 'zod'
 // Keep the server renderer outside the browser TypeScript program; this module runs only in Bun.
 const hwpEngine = import('../../../server/src/files/' + 'hwp-engine.ts').then(m => new m.NativeHwpEngine())
 import {
-  ApiErrorResponse, CSRF_HEADER, type SkillChange, type SkillManagerGrant, type SkillSuggestion, DEV_SESSION_COOKIE, CHAT_ERROR_MESSAGES, type ChatErrorReason, ERROR_MESSAGES, LOCALE_HEADER, Locale, ServerEvent, UPLOAD_CHUNK_SIZE, WS_PATH, WsClose, isSchema, listEndpoints, uuidv7,
+  ApiErrorResponse, CSRF_HEADER, TeamGoal, type SkillChange, type SkillManagerGrant, type SkillSuggestion, DEV_SESSION_COOKIE, CHAT_ERROR_MESSAGES, type ChatErrorReason, ERROR_MESSAGES, LOCALE_HEADER, Locale, ServerEvent, UPLOAD_CHUNK_SIZE, WS_PATH, WsClose, isSchema, listEndpoints, uuidv7,
   type ApiName, type Artifact, type Attachment, type Chat, type Endpoint, type ErrorCode, type FileEntry, type FileVersion, type Folder, type Group, type Invite, type Job, type Me, type Message,
   MemberEngineChoice, type Project, type ConnectionStatus, type ServerEventInput, type Step, type TrashItem, type TurnRequest, type UploadSession, type User, type Memory, type Budget, type TeamSettings, type AuditEntry, type Schedule,
 } from '@mycel/shared/api'
@@ -195,6 +195,8 @@ export class MockServer {
   integrationRequests: (IntegrationRequest & { integrationId: string | null })[] = []
   /** Team AX Cloud (server/src/system/deployment.ts): /__test/cloud switches it on until the next reset */
   cloud = false
+  /** the 7-day team goal Home shows owners and admins (onboarding G): none unless /__test/team-goal sets one */
+  teamGoal: TeamGoal | null = null
   /** POST /__test/dev-env {box?: 'running'}: the dev environment (experiment) of every project is on until the next
    * reset, with a stopped box (or a running one) and a few lines of activity; otherwise its endpoints answer 404, like
    * a server without MYCEL_DEV_ENV */
@@ -221,6 +223,7 @@ export class MockServer {
     this.serverVersion = '0.1.0'
     this.aiList = undefined
     this.cloud = false
+    this.teamGoal = null
     this.devEnv = null
     this.epoch = uuidv7()
     this.seq = 0
@@ -1509,6 +1512,8 @@ export class MockServer {
     requestAiAccess: () => fail('forbidden', 403, '이미 AI를 쓸 수 있어요.'),
     trialCredit: () => ({ credit: null }),
     getCompanyProfile: () => ({ profile: null }),
+    // onboarding G: no 7-day team goal card unless a test sets one (/__test/team-goal); Home then shows the owner checklist
+    getTeamGoal: () => ({ goal: this.teamGoal }),
     // members as the server counts them (group_members): those the group lists and those whose groups name it
     listGroups:() => ({ items: this.groups.map((g) => ({ ...g, memberIds: [...new Set([...g.memberIds, ...this.users.filter((u) => u.groupIds.includes(g.id)).map((u) => u.id)])] })) }),
     createGroup: (c) => {
@@ -2339,6 +2344,7 @@ export class MockServer {
     else if (p === '/__test/server-version') this.serverVersion = String(body.version)
     else if (p === '/__test/upload-delay') this.uploadDelayMs = Number(body.ms)
     else if (p === '/__test/cloud') this.cloud = body.on !== false
+    else if (p === '/__test/team-goal') this.teamGoal = body.goal === null ? null : TeamGoal.parse(body.goal)
     else if (p === '/__test/dev-env') this.devEnv = { box: body.box === 'running' ? 'running' : 'stopped' }
     else if (p === '/__test/skill-list') this.aiList = SkillsOverview.shape.aiList.parse(body)
     else if (p === '/__test/connection') this.connection = { ...this.connection, ...(body as unknown as Partial<ConnectionStatus>) }
