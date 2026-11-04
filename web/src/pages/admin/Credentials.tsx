@@ -131,7 +131,8 @@ export default function Credentials() {
                     if (r) void state.reload()
                   }} />
                 </div>
-                <p className="text-xs text-warn">{t('credentials.sharedRiskWarning')}</p>
+                {/* the risk text speaks of sharing that is on, so it shows only while the switch is on */}
+                {d.sharedSubscriptions && <p className="text-xs text-warn">{t('credentials.sharedRiskWarning')}</p>}
               </div>
             )}
             {d.items.some((x) => x.scope === 'personal') && (

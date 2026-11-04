@@ -1,0 +1,77 @@
+# Trina AX team server with Docker Compose (docs/INSTALL-DOCKER.md).
+#
+#   cd docker && cp env.example .env     # set TRINA_AX_VERSION
+#   docker compose up -d --build
+#   docker compose exec trina-ax trina-ax-setup-link
+#
+# The security settings below are the minimum the engine lockdown needs (bubblewrap sandbox, nftables egress rule).
+# Do not replace them with `privileged: true`. The reasons are in docs/INSTALL-DOCKER.md "Security settings".
+name: trina-ax
+
+services:
+  trina-ax:
+    image: trina-ax:${TRINA_AX_VERSION:?set TRINA_AX_VERSION in .env}
+    build:
+      context: .
+      args:
+        TRINA_AX_VERSION: ${TRINA_AX_VERSION}
+    restart: unless-stopped
+    hostname: trina-ax
+    environment:
+      TRINA_AX_ENGINES: ${TRINA_AX_ENGINES:-claude}
+      TRINA_AX_PUBLIC_HOST: ${TRINA_AX_PUBLIC_HOST:-}
+      TRINA_AX_TIMEZONE: ${TRINA_AX_TIMEZONE:-}
+      # the host port, for the setup link only
+      TRINA_AX_PORT: ${TRINA_AX_PORT:-47820}
+    ports:
+      # loopback of the host by default, like the Linux install: use an SSH tunnel, the relay or a tunnel sidecar
+      - "${TRINA_AX_BIND:-127.0.0.1}:${TRINA_AX_PORT:-47820}:47820"
+    volumes:
+      - data:/var/lib/mycel
+    cap_drop: [ALL]
+    cap_add:
+      - CHOWN         # installer: give folders to axserver / axagent
+      - DAC_OVERRIDE  # installer and supervise: root reads and writes the role accounts' folders
+      - FOWNER        # installer: chmod and setgid on folders root does not own
+      - FSETID        # installer: setgid socket folders (run/tools, run-launcher)
+      - KILL          # installer and supervise: stop the role accounts' processes
+      - SETUID        # supervise, runuser: start the server and the launcher as their accounts
+      - SETGID        # the same, for the groups
+      - NET_ADMIN     # mycel-ctl firewall: the nftables rule that limits axagent to the model proxy
+    security_opt:
+      - no-new-privileges:true
+      # Docker's default seccomp filter plus the namespace calls bubblewrap makes as axagent (clone, unshare, setns,
+      # mount, umount2, pivot_root). Each AI turn also gets the product's own seccomp filter (mycel-sandbox).
+      - seccomp=./seccomp.json
+      # Docker's AppArmor profile refuses mount; hosts without AppArmor ignore this
+      - apparmor=unconfined
+      # bubblewrap mounts a new /proc for each turn; the kernel refuses that while Docker hides parts of /proc
+      - systempaths=unconfined
+    # The whole team (server, converters, every AI turn) runs inside these limits; the container has no per-turn
+    # cgroup limits (docs/INSTALL-DOCKER.md "Limits").
+    mem_limit: ${TRINA_AX_MEMORY:-4g}
+    memswap_limit: ${TRINA_AX_MEMORY:-4g}
+    pids_limit: 2048
+    cpus: ${TRINA_AX_CPUS:-2}
+    # mycel-ctl supervise gives the server and the launcher 30 s to stop
+    stop_grace_period: 40s
+    networks: [trina-ax]
+
+  # Optional: a public https address through Cloudflare Tunnel. The sidecar shares the server's network, so its
+  # requests arrive from 127.0.0.1, which is what the server needs to treat them as the public address. Set
+  # TRINA_AX_PUBLIC_HOST and CLOUDFLARE_TUNNEL_TOKEN in .env, then: docker compose --profile tunnel up -d
+  cloudflared:
+    profiles: [tunnel]
+    image: cloudflare/cloudflared:2025.11.1
+    command: tunnel --no-autoupdate run
+    environment:
+      TUNNEL_TOKEN: ${CLOUDFLARE_TUNNEL_TOKEN:-}
+    network_mode: "service:trina-ax"
+    restart: unless-stopped
+    depends_on: [trina-ax]
+
+volumes:
+  data:
+
+networks:
+  trina-ax:

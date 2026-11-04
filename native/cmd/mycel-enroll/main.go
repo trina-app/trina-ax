@@ -20,7 +20,7 @@
 // Self-host (--standalone): mount/seed as above (the data disk is optional), write a local first-setup token and print
 // how to open the setup page. No control plane is involved.
 //
-// The decisions behind the layout (BASE on the data disk, the seed, fixed uids 990/991) are in docs/DECISIONS.md
+// The decisions behind the layout (BASE on the data disk, the seed, fixed uids 980/981) are in docs/DECISIONS.md
 // ("클라우드 호스트") and ee/cloud/README.md.
 package main
 

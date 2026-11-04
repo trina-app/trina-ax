@@ -3,7 +3,7 @@
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef } from 'react'
 import { BrowserRouter, Navigate, Route, Routes, useLocation, useNavigate, useNavigationType, type Location } from 'react-router-dom'
 import { PRODUCT } from '@mycel/shared'
-import { errorText } from './lib/api'
+import { ApiError, errorText } from './lib/api'
 import { useLocale, useT } from './i18n'
 import { useChats } from './store/chats'
 import { useSendQueue } from './store/sendQueue'
@@ -107,14 +107,24 @@ function Gate() {
   }, [])
 
   if (status.kind === 'loading') return <Splash />
-  if (status.kind === 'error')
+  if (status.kind === 'error') {
+    // The plain hint always shows; the server's own words and the HTTP status are a small detail under it
+    const hint = t('conn.cantReachHint')
+    const text = errorText(status.error, locale, hint)
+    const detail = [text !== hint ? text : null, status.error instanceof ApiError ? `HTTP ${status.error.status}` : null].filter(Boolean).join(' · ')
     return (
-      <div className="flex h-full flex-col items-center justify-center gap-3 p-6 text-center">
+      <div className="flex h-full flex-col items-center justify-center gap-3 bg-canvas p-6 text-center" data-testid="cant-reach">
+        <p className="mb-3 flex items-center justify-center gap-2 text-xl font-semibold tracking-tight">
+          <img src="/favicon.svg" alt="" aria-hidden className="size-7 rounded-lg" />
+          {PRODUCT.displayName}
+        </p>
         <p className="font-medium">{t('conn.cantReach')}</p>
-        <p className="max-w-md text-sm text-muted">{errorText(status.error, locale, t('conn.cantReachHint'))}</p>
+        <p className="max-w-md text-sm text-balance text-muted">{hint}</p>
+        {detail && <p className="max-w-md text-xs text-faint">{detail}</p>}
         <Button onClick={() => void load()}>{t('common.retry')}</Button>
       </div>
     )
+  }
   if (status.kind === 'setup')
     return (
       <Routes>

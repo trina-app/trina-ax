@@ -72,6 +72,9 @@ fi
 ENROLL="$REPO/native/bin/linux-$ARCH/mycel-enroll"
 if [[ -x "$ENROLL" ]]; then cp "$ENROLL" "$WORK/src/bin/mycel-enroll"
 else printf '#!/bin/sh\necho "fake mycel-enroll (test-customize)"\n' > "$WORK/src/bin/mycel-enroll"; chmod 755 "$WORK/src/bin/mycel-enroll"; fi
+LINK="$REPO/native/bin/linux-$ARCH/mycel-link"
+if [[ -x "$LINK" ]]; then cp "$LINK" "$WORK/src/bin/mycel-link"
+else printf '#!/bin/sh\necho "fake mycel-link (test-customize)"\n' > "$WORK/src/bin/mycel-link"; chmod 755 "$WORK/src/bin/mycel-link"; fi
 
 cleanup() { [[ $KEEP == 1 ]] || docker rm -f "$NAME" >/dev/null 2>&1 || true; }
 trap cleanup EXIT

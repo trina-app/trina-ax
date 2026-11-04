@@ -9,8 +9,8 @@ B=/var/lib/mycel
 CTL="$B/root/mycel-ctl"
 CHECK="bun /src/tests/cloud/tenant/check.ts"
 
-groupadd --system -g 990 axserver && useradd --system -u 990 -g axserver -M -d $B/data -s /usr/sbin/nologin axserver
-groupadd --system -g 991 axagent && useradd --system -u 991 -g axagent -M -s /usr/sbin/nologin axagent
+groupadd --system -g 980 axserver && useradd --system -u 980 -g axserver -M -d $B/data -s /usr/sbin/nologin axserver
+groupadd --system -g 981 axagent && useradd --system -u 981 -g axagent -M -s /usr/sbin/nologin axagent
 
 # an install base like the kit's (linux-runtime 3.1.1): root-owned base/root/run, the server account's own folders
 install -d -m 755 $B $B/root $B/run $B/app $B/app/versions/0.3.0/bin $B/app/versions/0.3.0/server/src
@@ -34,7 +34,7 @@ install -m 600 -o axserver -g axserver /dev/stdin $B/config/server.json <<JSON
 JSON
 # the team server, as the server account (its /api/health, status/status.json and the database)
 cd /
-setpriv --reuid=990 --regid=990 --clear-groups env -i PATH=/usr/bin:/bin HOME=$B/data MYCEL_MODE=prod MYCEL_CONFIG=$B/config/server.json \
+setpriv --reuid=980 --regid=980 --clear-groups env -i PATH=/usr/bin:/bin HOME=$B/data MYCEL_MODE=prod MYCEL_CONFIG=$B/config/server.json \
   MYCEL_INSTALL_BASE=$B /usr/local/bin/bun /src/server/src/main.ts > /tmp/server.log 2>&1 &
 bun -e 'for (let i = 0; i < 240; i++) { const r = await fetch("http://127.0.0.1:47820/api/health").catch(() => null); if (r?.ok) process.exit(0); await Bun.sleep(500) } process.exit(1)' || die "the team server did not come up"
 ok "team server up as axserver"
@@ -87,7 +87,7 @@ echo "$out" | $CHECK setup-token-rotate >/dev/null || die "setup-token-rotate ou
 ok "setup-token-rotate: new token in data/setup-token"
 
 # an owner, then reset-link at publicOrigins[0]
-echo 'tenant test owner pw 1' | setpriv --reuid=990 --regid=990 --clear-groups env -i PATH=/usr/bin:/bin HOME=$B/data MYCEL_MODE=prod MYCEL_CONFIG=$B/config/server.json \
+echo 'tenant test owner pw 1' | setpriv --reuid=980 --regid=980 --clear-groups env -i PATH=/usr/bin:/bin HOME=$B/data MYCEL_MODE=prod MYCEL_CONFIG=$B/config/server.json \
   /usr/local/bin/bun /src/server/src/auth/cli.ts create-owner --username kim --name Owner --team Tenant >/dev/null || die "create-owner"
 out=$(run reset-link --owner) || die "reset-link"
 echo "$out" | $CHECK reset-link | grep -q 'https://acme.treesoop.com/reset-password/' || die "reset-link out: $out"

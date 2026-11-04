@@ -2,14 +2,14 @@
 // changes ask for the password again. Long work runs as a job with progress from the WebSocket.
 import { SERVICE_HOSTS } from '@mycel/shared/service-hosts'
 import { CheckCircle2, CircleAlert, CircleHelp, CircleX, Download, FolderSync, HardDrive, RefreshCw, RotateCcw, Trash2, Upload } from 'lucide-react'
-import { useEffect, useState } from 'react'
+import { createContext, useCallback, useContext, useEffect, useId, useState, type ReactNode } from 'react'
 import type { ConnectionMode } from '@mycel/shared/api'
 import { api, API } from '../../lib/api'
 import { formatDateTime, formatSize } from '../../lib/format'
 import { useLocale, useT, type MessageKey } from '../../i18n'
 import { toast } from '../../store/ui'
-import { Badge, Button, Field, Modal, confirmDialog, inputCls } from '../../components/ui'
-import { Card, Loadable, ReauthDialog, useAction, useActionOk, useLoad } from './common'
+import { Badge, Button, ErrorNote, Field, Modal, confirmDialog, inputCls } from '../../components/ui'
+import { Card, Loadable as CardLoadable, ReauthDialog, useAction, useActionOk, useLoad } from './common'
 import OfficeUpdate from './OfficeUpdate'
 import { JobLine, useJobRunner, useUpdateInstall } from './jobs'
 import { ReleaseNotes } from '../../components/ReleaseNotes'
@@ -19,7 +19,65 @@ import { safeHref } from '../../lib/safeLinks'
 const STATUS_ICON = { ok: CheckCircle2, warn: CircleAlert, fail: CircleX, unknown: CircleHelp } as const
 const STATUS_CLS = { ok: 'text-ok', warn: 'text-warn', fail: 'text-danger', unknown: 'text-faint' } as const
 
+type LoadState<T> = { data: T | null; error: string | null; reload: () => Promise<void> }
+type Report = (id: string, entry: { error: string | null; reload: () => Promise<void> } | null) => void
+/** Each card tells the page whether its load failed, so a page where every card failed shows one message, not one per card. */
+const LoadReport = createContext<Report | null>(null)
+
+/** The cards' Loadable: the same, and it reports its load error (or none) to the page. */
+function Loadable<T>({ state, children, lines }: { state: LoadState<T>; children: (d: T) => ReactNode; lines?: number }) {
+  const report = useContext(LoadReport)
+  const id = useId()
+  useEffect(() => {
+    report?.(id, { error: state.error, reload: state.reload })
+  }, [report, id, state.error, state.reload])
+  useEffect(() => () => report?.(id, null), [report, id])
+  return <CardLoadable state={state} lines={lines}>{children}</CardLoadable>
+}
+
+/** The failures the cards reported; allFailed when 2 or more cards report and every one failed (the server did not answer). */
+function useLoadReport() {
+  const [entries, setEntries] = useState<Record<string, { error: string | null; reload: () => Promise<void> }>>({})
+  const report = useCallback<Report>((id, entry) => {
+    setEntries((m) => {
+      if (entry === null) {
+        if (!(id in m)) return m
+        const { [id]: _gone, ...rest } = m
+        return rest
+      }
+      if (m[id]?.error === entry.error && m[id]?.reload === entry.reload) return m
+      return { ...m, [id]: entry }
+    })
+  }, [])
+  const list = Object.values(entries)
+  const allFailed = list.length >= 2 && list.every((e) => e.error !== null)
+  return { report, allFailed, firstError: list[0]?.error ?? null, reloadAll: () => Promise.all(list.map((e) => e.reload())) }
+}
+
+/** One message for the whole page when no card could load, with one retry for all of them. */
+function AllFailed({ detail, onRetry }: { detail: string | null; onRetry: () => void }) {
+  const t = useT()
+  return (
+    <div className="mb-6" data-testid="system-all-failed">
+      <ErrorNote detail={detail} onRetry={onRetry}>{t('system.allFailed')}</ErrorNote>
+    </div>
+  )
+}
+
 export default function System() {
+  const loads = useLoadReport()
+  // the cards stay mounted while hidden, so they can report that they loaded again after a retry
+  return (
+    <LoadReport.Provider value={loads.report}>
+      {loads.allFailed && <AllFailed detail={loads.firstError} onRetry={() => void loads.reloadAll()} />}
+      <div hidden={loads.allFailed}>
+        <SystemCards />
+      </div>
+    </LoadReport.Provider>
+  )
+}
+
+function SystemCards() {
   // office mode: the installation's automatic updates (docs/OFFICE.md "자동 업데이트") instead of the production
   // updater's card; v null = not office mode, an error (older server) = the production card
   const office = useLoad(async () => ({ v: await api.call(API.officeUpdateStatus) }))
@@ -75,18 +133,22 @@ function Diagnostics({ rev }: { rev: number }) {
       <Loadable state={state}>
         {(d) => (
           <>
-            <div className="mb-3 grid gap-2 text-sm sm:grid-cols-3">
+            {/* the short facts share a line (version, queue); the long ones (server, free space) take the full width, so
+                nothing wraps at a laptop width */}
+            <div className="mb-3 grid gap-x-6 gap-y-1.5 text-sm sm:grid-cols-2" data-testid="system-facts">
               <p>
                 <span className="text-faint">{t('system.version')}</span> {d.version}
               </p>
               <p>
-                <span className="text-faint">{t('system.host')}</span> {d.host.hostname} ({d.host.os}/{d.host.arch})
-              </p>
-              <p>
                 <span className="text-faint">{t('system.queue')}</span> {t('system.queueLine', { running: d.queue.running, queued: d.queue.queued, max: d.queue.concurrency })}
               </p>
-              <p className="flex items-center gap-1">
-                <HardDrive size={13} className="text-faint" aria-hidden /> {t('system.diskFree', { team: formatSize(d.disk.teamFolderFreeBytes, locale), data: formatSize(d.disk.dataFreeBytes, locale) })}
+              <p className="sm:col-span-2">
+                <span className="text-faint">{t('system.host')}</span> {d.host.hostname} ({d.host.os}/{d.host.arch})
+              </p>
+              <p className="flex items-start gap-1.5 sm:col-span-2">
+                {/* the icon on the first line's middle, also when the text wraps (a phone) */}
+                <HardDrive size={14} className="mt-[3px] shrink-0 text-faint" aria-hidden />
+                <span>{t('system.diskFree', { team: formatSize(d.disk.teamFolderFreeBytes, locale), data: formatSize(d.disk.dataFreeBytes, locale) })}</span>
               </p>
             </div>
             <ul className="divide-y divide-line text-sm" data-testid="diagnostics">
