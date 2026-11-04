@@ -107,7 +107,6 @@ test('an invite link creates an account', async ({ page, browser }) => {
   await p2.getByTestId('invite-username').fill('newbie')
   await expect(p2.getByTestId('invite-username')).not.toHaveAttribute('aria-invalid', 'true')
   await p2.getByTestId('invite-password').fill('another password 1')
-  await p2.getByTestId('invite-password2').fill('another password 1')
   await p2.getByTestId('invite-submit').click()
   await expect(p2.getByRole('heading', { name: /New Person님/ })).toBeVisible()
   // the used link is now invalid

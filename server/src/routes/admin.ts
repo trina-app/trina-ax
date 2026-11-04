@@ -36,6 +36,7 @@ import { listSkillChanges } from '../skills/changes'
 import { readApiEngine, writeApiEngine } from '../engine/api-agent'
 import { getChatRuntime } from '../chat/runtime'
 import { registerCredentialRoutes } from './credentials'
+import { registerTeamLinkRoutes } from './team-links'
 import { assertConcurrencyAllowed, concurrencyMax } from '../system/limits'
 import { checkApiEngineUrl } from '../system/egress'
 import { feature } from '../system/deployment'
@@ -284,6 +285,7 @@ export const adminRoutes: RouteModule = {
 
     // ---------------- AI connections (server/src/credentials, routes/credentials.ts) ----------------
     registerCredentialRoutes(kit, ctx)
+    registerTeamLinkRoutes(kit, ctx)
 
     // ---------------- budgets, settings, usage, audit ----------------
     kit.handle(API.listBudgets, () => ({ items: listBudgets(ctx.db) }))

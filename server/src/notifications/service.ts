@@ -26,11 +26,12 @@ export type SkillNoticeEvent = Extract<NotificationEventType, 'skill.suggested' 
 export type DevEnvNoticeEvent = Extract<NotificationEventType, 'dev_env.job' | 'dev_env.box'>
 const isSkillEvent = (e: NotificationEventType): e is SkillNoticeEvent => e === 'skill.suggested' || e === 'skill.reviewed'
 const isDevEnvEvent = (e: NotificationEventType): e is DevEnvNoticeEvent => e === 'dev_env.job' || e === 'dev_env.box'
-const tableOf = (e: NotificationEventType) => isSkillEvent(e) ? 'skill_notices' : isDevEnvEvent(e) ? 'dev_env_notices' : e === 'integration.request' ? 'integration_request_notices' : e === 'onboarding.ai_request' ? 'onboarding_notices' : 'notification_inbox'
-/** One inbox over the tables: skill notices (migration 211, R2-SKILL-12), dev environment notices (migration 219) and
- * requests to connect a service (migration 220) have their own tables, because notification_inbox has a fixed
+const tableOf = (e: NotificationEventType) => isSkillEvent(e) ? 'skill_notices' : isDevEnvEvent(e) ? 'dev_env_notices' : e === 'integration.request' ? 'integration_request_notices' : e === 'onboarding.ai_request' ? 'onboarding_notices' : e === 'team.joined' ? 'team_join_notices' : 'notification_inbox'
+/** One inbox over the tables: skill notices (migration 211, R2-SKILL-12), dev environment notices (migration 219),
+ * requests to connect a service (migration 220), a member's request for an AI connection (migration 222) and joins
+ * through the team invite link (migration 111) have their own tables, because notification_inbox has a fixed
  * event_type CHECK list and tables are never rebuilt. */
-const NOTICE_TABLES = ['notification_inbox', 'skill_notices', 'dev_env_notices', 'integration_request_notices', 'onboarding_notices'] as const
+const NOTICE_TABLES = ['notification_inbox', 'skill_notices', 'dev_env_notices', 'integration_request_notices', 'onboarding_notices', 'team_join_notices'] as const
 const INBOX = `(${NOTICE_TABLES.map((t) => `SELECT id,user_id,event_type,source_id,created_at,read_at,suppressed FROM ${t}`).join(' UNION ALL ')})`
 export class Notifications {
   constructor(readonly ctx: AppContext) {}
@@ -86,6 +87,11 @@ export class Notifications {
       touched.add(r.user_id)
     }
     for (const u of touched) this.signal(u)
+  }
+  /** Someone joined through the team invite link (auth/team-links.ts): told to the owners and the link's maker. The
+   * source is the new account's id only. Shown always: there is no setting for it, and a join is rare. */
+  teamJoined(userId: string, joinedUserId: string, createdAt = new Date().toISOString()) {
+    this.record(userId, 'team.joined', joinedUserId, createdAt, true)
   }
   /** A request that no longer waits (connected, declined, withdrawn, expired): its inbox entry counts as read, so the
    * member is not left with something to do that is gone. Expiry is caught by reconcile's tick. */
@@ -193,6 +199,12 @@ export class Notifications {
       const m = this.ctx.db.query("SELECT name FROM users WHERE id=? AND status='active' AND deleted_at IS NULL").get(row.source_id) as { name: string } | null
       return { id: row.id, eventType: row.event_type, sourceId: row.source_id, code: row.event_type, createdAt: row.created_at, readAt: row.read_at, chatId: null, link: 'admin_credentials', outcome: null, ...(m ? { requester: { name: m.name } } : {}) }
     }
+    // the name of who joined, while the account is there (a deleted one keeps the entry without a name)
+    if (row.event_type === 'team.joined') {
+      const u = this.ctx.db.query('SELECT name FROM users WHERE id=? AND deleted_at IS NULL').get(row.source_id) as { name: string } | null
+      return { id: row.id, eventType: row.event_type, sourceId: row.source_id, code: row.event_type, createdAt: row.created_at, readAt: row.read_at, chatId: null, link: null, outcome: null,
+        ...(u ? { joined: { name: u.name } } : {}) }
+    }
     if (row.event_type === 'schedule.failure' && row.source_id.startsWith(REVIEW_SOURCE)) {
       // paused tasks to check again: the schedules list, never a chat
       return { id: row.id, eventType: row.event_type, sourceId: row.source_id, code: row.event_type, createdAt: row.created_at, readAt: row.read_at, chatId: null, link: null, outcome: null, review: true }
@@ -284,6 +296,12 @@ export function notifyDevEnv(ctx: AppContext, userId: string, event: DevEnvNotic
 export function notifyIntegrationRequest(ctx: AppContext, userId: string, requestId: string) {
   try { notificationsOf(ctx).integrationRequest(userId, requestId) }
   catch { ctx.log.warn('connection request notification recording failed') }
+}
+export function notifyTeamJoined(ctx: AppContext, userIds: Iterable<string>, joinedUserId: string) {
+  for (const userId of new Set(userIds)) {
+    try { notificationsOf(ctx).teamJoined(userId, joinedUserId) }
+    catch { ctx.log.warn('team join notification recording failed') }
+  }
 }
 export function settleIntegrationRequestNotice(ctx: AppContext, userId: string) {
   try { notificationsOf(ctx).settleIntegrationRequests(userId) }

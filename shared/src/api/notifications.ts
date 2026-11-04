@@ -7,9 +7,11 @@ export type NotificationPreferences = z.infer<typeof NotificationPreferences>
 /** Events that can also go to OS push (push_deliveries refers to notification_inbox only). */
 export const PushEventType = z.enum(['schedule.success', 'schedule.failure', 'connection.reconnect'])
 export type PushEventType = z.infer<typeof PushEventType>
-/** Skill suggestion notices are inbox only (table skill_notices), and so are dev environment notices (dev_env_notices)
- * and an admin's request to connect a service as one's own connection (integration_request_notices). */
-export const NotificationEventType = z.enum([...PushEventType.options, 'skill.suggested', 'skill.reviewed', 'dev_env.job', 'dev_env.box', 'integration.request', 'onboarding.ai_request'])
+/** Skill suggestion notices are inbox only (table skill_notices), and so are dev environment notices (dev_env_notices),
+ * an admin's request to connect a service as one's own connection (integration_request_notices), a member's request
+ * for an AI connection (onboarding_notices) and, for the owners, someone who joined through the team invite link
+ * (team_join_notices; shared/src/api/team-links.ts). */
+export const NotificationEventType = z.enum([...PushEventType.options, 'skill.suggested', 'skill.reviewed', 'dev_env.job', 'dev_env.box', 'integration.request', 'onboarding.ai_request', 'team.joined'])
 export type NotificationEventType = z.infer<typeof NotificationEventType>
 export const InboxNotification = z.object({
   id: z.string(), eventType: NotificationEventType, sourceId: z.string(), code: NotificationEventType,
@@ -21,6 +23,9 @@ export const InboxNotification = z.object({
   request: z.object({ name: z.string(), host: z.string() }).optional(),
   /** 'onboarding.ai_request' only (owners): the member who asks for an AI connection, by display name; older servers omit it */
   requester: z.object({ name: z.string() }).optional(),
+  /** 'team.joined' only: the name of the person who joined through the team invite link, while the account is there;
+   * older servers omit it */
+  joined: z.object({ name: z.string() }).optional(),
   /** 'schedule.failure' only: scheduled tasks nobody confirmed were paused until their owner checks them again
    * (Settings › Scheduled tasks, "다시 확인"); older servers omit it */
   review: z.boolean().optional(),

@@ -148,6 +148,8 @@ export class FakeElement extends FakeNode {
   set disabled(v: boolean) { if (v) this.setAttribute('disabled', ''); else this.removeAttribute('disabled') }
   get type() { return this.getAttribute('type') ?? (this.localName === 'button' ? 'submit' : this.localName === 'input' ? 'text' : '') }
   set type(v: string) { this.setAttribute('type', v) }
+  /** a <select>'s options: React picks the chosen one through them (updateOptions) */
+  get options(): FakeElement[] | undefined { return this.localName === 'select' ? this.querySelectorAll('option') : undefined }
   get form(): FakeElement | null { for (let n = this.parentNode; n; n = n.parentNode) if (n instanceof FakeElement && n.localName === 'form') return n; return null }
   focus() { if (this.ownerDocument) this.ownerDocument.activeElement = this }
   blur() { if (this.ownerDocument?.activeElement === this) this.ownerDocument.activeElement = this.ownerDocument.body }

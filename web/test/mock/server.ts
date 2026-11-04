@@ -130,6 +130,9 @@ export class MockServer {
   resets = new Map<string, NonNullable<Me['passwordReset']>>()
   groups: Group[] = []
   invites: (Invite & { token: string })[] = []
+  /** the team invite link (shared/src/api/team-links.ts): one open at a time; replaced and revoked tokens say "revoked" */
+  teamLink: { id: string; token: string; groupIds: string[]; skillPath: string | null; maxUses: number; uses: number; createdBy: { id: string; name: string }; createdAt: string; expiresAt: string } | null = null
+  revokedTeamLinks = new Set<string>()
   folders: Folder[] = []
   chats: Chat[] = []
   messages: Message[] = []
@@ -230,6 +233,8 @@ export class MockServer {
     this.users = []
     this.groups = []
     this.invites = []
+    this.teamLink = null
+    this.revokedTeamLinks.clear()
     this.chats = []
     this.sources.clear()
     this.messages = []
@@ -501,6 +506,19 @@ export class MockServer {
   managed(u: User): string[] {
     if (u.role === 'owner' || u.role === 'admin') return ['skills']
     return this.skillManagers.filter((g) => (g.subjectType === 'user' && g.subjectId === u.id) || (g.subjectType === 'group' && u.groupIds.includes(g.subjectId))).map((g) => g.path)
+  }
+  teamLinkSkillName(path: string): string | null {
+    return this.skillsFor(this.users.find((u) => u.role === 'owner')!).find((x) => x.path === path && !x.personal)?.name ?? null
+  }
+  teamLinkResponse(req: Request, viewer: User) {
+    const l = this.teamLink
+    const used = this.users.filter((u) => u.status === 'active').length
+    if (!l) return { link: null, seats: { used, limit: null } }
+    const skill = l.skillPath ? { path: l.skillPath, name: this.skillsFor(viewer).find((x) => x.path === l.skillPath)?.name ?? null } : null
+    return {
+      link: { id: l.id, url: `${new URL(req.url).origin}/join#t=${l.token}`, groupIds: l.groupIds, skill, maxUses: l.maxUses, uses: l.uses, createdBy: l.createdBy, createdAt: l.createdAt, expiresAt: l.expiresAt, state: l.uses >= l.maxUses ? 'used_up' as const : 'active' as const },
+      seats: { used, limit: null },
+    }
   }
   /** like server/src/chat/skills.ts listSkills: skills/**.md and the caller's own users/<id>/skills/ with a name header,
    * only where the caller can read */
@@ -1452,6 +1470,38 @@ export class MockServer {
     revokeInvite: (c) => {
       this.invites = this.invites.filter((i) => i.id !== c.params.id)
       return undefined
+    },
+    // the team invite link, like server/src/auth/team-links.ts (no plan: no seat limit, 20 uses by default)
+    getTeamLink: (c) => this.teamLinkResponse(c.req, c.user),
+    createTeamLink: (c) => {
+      if (this.teamLink) this.revokedTeamLinks.add(this.teamLink.token)
+      const token = 'tl' + uuidv7().replace(/-/g, '')
+      this.teamLink = { id: uuidv7(), token, groupIds: c.body.groupIds ?? [], skillPath: c.body.skillPath ?? null, maxUses: c.body.maxUses ?? 20, uses: 0, createdBy: { id: c.user.id, name: c.user.name }, createdAt: now(), expiresAt: new Date(Date.now() + (c.body.expiresInDays ?? 14) * 86_400_000).toISOString() }
+      return { status: 201, body: this.teamLinkResponse(c.req, c.user) }
+    },
+    revokeTeamLink: () => {
+      if (!this.teamLink) fail('not_found', 404)
+      this.revokedTeamLinks.add(this.teamLink!.token)
+      this.teamLink = null
+      return undefined
+    },
+    teamLinkInfo: (c) => {
+      const l = this.teamLink?.token === c.body.token ? this.teamLink : null
+      if (!l && this.revokedTeamLinks.has(c.body.token)) return { teamName: this.settings.teamName, valid: false, problem: 'revoked', expiresAt: now(), skillName: null }
+      if (!l) fail('not_found', 404)
+      const problem = l!.uses >= l!.maxUses ? 'used_up' : null
+      return { teamName: this.settings.teamName, valid: !problem, problem, expiresAt: l!.expiresAt, skillName: l!.skillPath ? this.teamLinkSkillName(l!.skillPath) : null }
+    },
+    joinTeamLink: (c) => {
+      const l = this.teamLink?.token === c.body.token ? this.teamLink : null
+      if (!l && !this.revokedTeamLinks.has(c.body.token)) fail('not_found', 404)
+      if (!l) fail('gone', 410, '더 이상 쓰지 않는 초대 링크예요. 링크를 보낸 분께 새 링크를 부탁해 주세요.')
+      if (l!.uses >= l!.maxUses) fail('gone', 410, '이 링크로 들어올 수 있는 인원이 다 찼어요. 링크를 보낸 분께 새 링크를 부탁해 주세요.')
+      if (this.users.some((u) => u.username.toLowerCase() === c.body.username.toLowerCase())) fail('conflict', 409, '이미 쓰고 있는 아이디예요.', { 'body.username': 'taken' })
+      const u = this.addUser({ id: c.body.username.toLowerCase(), username: c.body.username, name: c.body.name, role: 'member', groupIds: l!.groupIds, localeChoice: c.body.locale ?? null }, c.body.password)
+      l!.uses++
+      const next = l!.skillPath && this.teamLinkSkillName(l!.skillPath) ? `/skills?run=${encodeURIComponent(l!.skillPath)}` : null
+      return { status: 201, cookie: this.startSession(u), body: { me: this.me(u, ''), next } }
     },
     // members as the server counts them (group_members): those the group lists and those whose groups name it
     listGroups: () => ({ items: this.groups.map((g) => ({ ...g, memberIds: [...new Set([...g.memberIds, ...this.users.filter((u) => u.groupIds.includes(g.id)).map((u) => u.id)])] })) }),

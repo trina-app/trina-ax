@@ -453,7 +453,8 @@ export async function restoreTeamChain(dirs: string[], dest: string, progress: B
  * `admin.js restore-archive` when it unpacks an archive, and the office `teamax restore-archive` swap). Sign-ins come
  * back with an old DB: someone who signed out, was disabled, changed a stolen password or whose device was revoked
  * after the copy was made would be signed in again. Unused password reset links and invites go too: one used or
- * withdrawn after the copy would work again. Everyone signs in again; an admin makes new links.
+ * withdrawn after the copy would work again, and so does the team invite link (revoked). Everyone signs in again; an
+ * admin makes new links.
  */
 export function endSessions(file: string): void {
   const db = new Database(file)
@@ -463,6 +464,9 @@ export function endSessions(file: string): void {
       db.run('DELETE FROM sessions')
       if (has('password_resets')) db.run('DELETE FROM password_resets WHERE used_at IS NULL')
       if (has('invites')) db.run('DELETE FROM invites WHERE used_at IS NULL')
+      // the team invite link too (auth/team-links.ts): one revoked after the copy was made would open again, with its
+      // old count of uses. Revoked rather than deleted: its address then says "ask for a new link".
+      if (has('team_links')) db.run("UPDATE team_links SET revoked_at = strftime('%Y-%m-%dT%H:%M:%fZ','now'), token_enc = NULL WHERE revoked_at IS NULL")
     })()
     db.run('PRAGMA wal_checkpoint(TRUNCATE)') // the copy is moved without side files: nothing may stay in a -wal
   } finally { db.close() }
