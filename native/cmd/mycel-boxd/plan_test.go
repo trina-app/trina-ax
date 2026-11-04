@@ -260,6 +260,78 @@ func TestHostMemoryProblem(t *testing.T) {
 	}
 }
 
+func TestEntitlement(t *testing.T) {
+	const file = `{"format":1,"plan":"team","maxRunning":1,"cpus":1,"memoryMiB":2560,"pids":512,"diskGiB":4}`
+	e, err := parseEntitlement([]byte(file))
+	if err != nil || e.MaxRunning != 1 || e.MemoryMiB != 2560 || e.Network != "" {
+		t.Fatal(e, err)
+	}
+	for _, bad := range []string{
+		`{"format":2,"plan":"team","maxRunning":1,"cpus":1,"memoryMiB":2560,"pids":512,"diskGiB":4}`,
+		`{"format":1,"plan":"","maxRunning":1,"cpus":1,"memoryMiB":2560,"pids":512,"diskGiB":4}`,
+		`{"format":1,"plan":"team","maxRunning":0,"cpus":1,"memoryMiB":2560,"pids":512,"diskGiB":4}`,
+		`{"format":1,"plan":"team","maxRunning":1,"cpus":8,"memoryMiB":2560,"pids":512,"diskGiB":4}`,
+		`{"format":1,"plan":"team","maxRunning":1,"cpus":1,"memoryMiB":2560,"pids":512,"diskGiB":4,"network":"host"}`,
+		`{"format":1,"plan":"team","maxRunning":1,"cpus":1,"memoryMiB":2560,"pids":512,"diskGiB":4,"gpu":1}`,
+		`not json`,
+	} {
+		if _, err := parseEntitlement([]byte(bad)); err == nil {
+			t.Error("accepted", bad)
+		}
+	}
+
+	ensure := func(l limits, network string) error {
+		r := request{Op: "ensure", Box: "p1", Folder: "a", Network: network, Limits: l}
+		return checkRequest(&r)
+	}
+	t.Cleanup(func() { ent = nil; *limitsF = "" })
+	*limitsF = "/var/lib/mycel/root/dev-env.json"
+	ent = nil
+	if err := ensure(okLimits, "offline"); err == nil {
+		t.Error("a limits file that was not read must refuse every box")
+	}
+	*limitsF = ""
+	big := limits{CPUs: 4, MemoryMiB: 8192, Pids: 4096, DiskGiB: 32, IdleStopMin: 30}
+	if err := ensure(big, "open"); err != nil {
+		t.Error("no file: the fixed ranges only", err)
+	}
+	ent = e
+	at := limits{CPUs: 1, MemoryMiB: 2560, Pids: 512, DiskGiB: 4, IdleStopMin: 240}
+	if err := ensure(at, "offline"); err != nil {
+		t.Error("at the caps", err)
+	}
+	for _, l := range []limits{
+		{CPUs: 1.5, MemoryMiB: 2560, Pids: 512, DiskGiB: 4, IdleStopMin: 30},
+		{CPUs: 1, MemoryMiB: 2561, Pids: 512, DiskGiB: 4, IdleStopMin: 30},
+		{CPUs: 1, MemoryMiB: 2560, Pids: 513, DiskGiB: 4, IdleStopMin: 30},
+		{CPUs: 1, MemoryMiB: 2560, Pids: 512, DiskGiB: 5, IdleStopMin: 30},
+	} {
+		if err := ensure(l, "offline"); err == nil || !strings.Contains(err.Error(), "over this team's plan") {
+			t.Error(l, err)
+		}
+	}
+	if err := ensure(at, "open"); err == nil || !strings.Contains(err.Error(), "network open") {
+		t.Error("open without the plan's network", err)
+	}
+	open := *e
+	open.Network = "open"
+	ent = &open
+	if err := ensure(at, "open"); err != nil {
+		t.Error("open in the plan", err)
+	}
+}
+
+func TestPlanMemoryProblem(t *testing.T) {
+	// VM 1000 of the T4 test: 7947 MiB for a 4096 MiB plan and a 2560 MiB box
+	if p := planMemoryProblem(7947*1024, 4096, 2560); p != "" {
+		t.Error(p)
+	}
+	// a VM of the plan's size only
+	if p := planMemoryProblem(3891*1024, 4096, 2560); !strings.Contains(p, "need 6656 MiB") {
+		t.Error(p)
+	}
+}
+
 func TestJobScript(t *testing.T) {
 	s := jobScript("ffmpeg -i a.mp4 b.mp4", "render", "MYCEL_EOF_ab")
 	for _, want := range []string{"<<'MYCEL_EOF_ab' || exit 1\nffmpeg -i a.mp4 b.mp4\nMYCEL_EOF_ab\n",
