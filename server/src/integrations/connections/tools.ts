@@ -699,7 +699,7 @@ export function integrationToolProvider(ctx: AppContext): TurnToolProvider {
       for (const row of rows) {
         const who = row.scope === 'personal' ? 'personal' : 'team'
         const key = connectionKey(row)
-        if (row.status === 'needs_auth' || (row.auth !== 'none' && !row.secret_enc)) { lines.push(`- ${row.name} (${who} connection): not usable now, it needs ${row.auth === 'oauth' ? 'a new sign-in' : 'its key'} (the user can fix it in Settings > External services)`); continue }
+        if (row.status === 'needs_auth' || (row.auth !== 'none' && !row.secret_enc)) { lines.push(`- ${row.name} (${who} connection): not usable now, it needs ${row.auth === 'oauth' ? 'a new sign-in' : 'its key'} (the user can fix it in Settings > MCP)`); continue }
         if (row.kind === 'http') { http.push(row); lines.push(`- ${row.name} (${who} connection, HTTP API): api_request with connection "${key}"`); continue }
         const saved = savedTools(ctx.db, row)
         const off = disabledTools(row)

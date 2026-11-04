@@ -134,12 +134,12 @@ export async function connectService(exec: TurnExec, args: unknown): Promise<Too
       ? [...db.query(`${selectRows(db)} WHERE scope = 'personal' AND owner_user_id = ?`).all(viewer.id) as Row[], ...(db.query(`${selectRows(db)} WHERE scope = 'team'`).all() as Row[]).filter((r) => mayUse(db, r, viewer.id))]
       : db.query(`${selectRows(db)} WHERE scope = 'team'`).all() as Row[]
     const max = scope === 'personal' ? MAX_PERSONAL : MAX_TEAM
-    if (rows.filter((r) => r.scope === scope).length >= max) return early(`There are already ${max} ${scope} connections, the most there can be. One can be removed in ${scope === 'personal' ? 'Settings' : 'Admin'} > External services first.`, 'limit')
+    if (rows.filter((r) => r.scope === scope).length >= max) return early(`There are already ${max} ${scope} connections, the most there can be. One can be removed in ${scope === 'personal' ? 'Settings' : 'Admin'} > MCP first.`, 'limit')
     const dup = rows.find((r) => sameAddress(r.url, address))
     if (dup) {
       const fix = dup.status === 'connected'
         ? 'Its tools are yours in this chat; if you do not have them now, from the person\'s next message.'
-        : `It needs attention: ${dup.scope === 'team' ? 'an admin can fix it in Admin' : 'the person can fix its key or sign-in in Settings'} > External services.`
+        : `It needs attention: ${dup.scope === 'team' ? 'an admin can fix it in Admin' : 'the person can fix its key or sign-in in Settings'} > MCP.`
       return early(`${dup.scope === 'team' ? 'A team connection' : 'A connection of this person'} to this address already exists: "${dup.name}", ${stateOf(dup)}. ${fix} No card was shown.`, 'already exists', dup.status !== 'connected')
     }
     // an HTTP API's usage notes go into api_request's description in later chats: the card shows them, and the
@@ -172,7 +172,7 @@ export async function connectService(exec: TurnExec, args: unknown): Promise<Too
   if (kept.integrationId && (!made || (card.target === 'service' && !asShown(made, card)))) { made = null; kept.changed = true }
   if (made?.status === 'connected') { const tools = toolNames(exec, made); return connectedResult(exec, { name: made.name, status: made.status, ...(tools ? { tools } : {}) }) }
   exec.patchToolStep(CONNECT_TOOL, () => ({ detail: tr('connectNotConnected', L) }))
-  const reason = made ? `"${made.name}" was added but is not working yet (${stateOf(made)}); ${made.scope === 'team' ? 'an admin can fix it in Admin' : 'the person can fix it in Settings'} > External services`
+  const reason = made ? `"${made.name}" was added but is not working yet (${stateOf(made)}); ${made.scope === 'team' ? 'an admin can fix it in Admin' : 'the person can fix it in Settings'} > MCP`
     : kept.changed ? 'the connection this card made was changed or removed in Settings while the card was open, so the card connected nothing; ask the person whether to connect it again' : undefined
   return { content: json({ skipped: true, ...(reason ? { reason } : {}) }), summary: `${CONNECT_TOOL} -> skipped` }
 }
