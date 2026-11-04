@@ -30,6 +30,7 @@ const GROUP_TITLES: Record<keyof typeof API_GROUPS, string> = {
   OFFICE_UPDATE: 'Office Mac updates',
   PLUGINS: 'Plugins',
   DEV_ENV: 'Dev environment',
+  TEAM_LINKS: 'Team invite link',
 }
 
 const WHO: Record<Endpoint['auth'], string> = {

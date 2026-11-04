@@ -21,5 +21,7 @@ export function eventEnabled(p: NotificationPreferences, event: NotificationEven
     case 'dev_env.job': case 'dev_env.box': return true
     // an admin waits for the answer (shown always, Notifications.integrationRequest)
     case 'integration.request': return true
+    // someone joined through the team invite link (shown always, Notifications.teamJoined)
+    case 'team.joined': return true
   }
 }
