@@ -223,7 +223,6 @@ body.toc-collapsed .toc-toggle { margin-left: 0; }
 .has-site-nav .sitenav .nav-links a[aria-current="page"] { color: var(--fg); }
 .sitenav .docs-tools { display: flex; align-items: center; margin-right: 4px; }
 .sitenav .docs-tools .search { width: 230px; height: 36px; margin: 0; }
-.has-site-nav .section-tabs { border-top: 1px solid var(--line); }
 .docs-row { display: none; }
 @media (max-width: 1280px) { .sitenav .docs-tools .search { width: 190px; } }
 
