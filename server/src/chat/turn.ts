@@ -121,9 +121,8 @@ export class TurnExec {
   private runningAtStop: ReadonlySet<string> = new Set()
   status: 'starting' | 'running' | 'finished' = 'starting'
   browser = false
-  /** the project whose dev environment box this turn may use (devenv/tool.ts box_shell), else null */
-  /** the dev environment of this turn: off (null), or on with the chat's project (null for a chat with no project, srt
-   * runner only) */
+  /** the dev environment of this turn (devenv/tool.ts box_shell): off (null), or on with the chat's project (null for a
+   * chat with no project, srt runner only) */
   devEnv: { project: { id: string; folderPath: string; name: string } | null } | null = null
   principal: Principal | null = null
   private templateScope = false

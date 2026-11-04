@@ -675,9 +675,9 @@ Verified after the scope change (2026-11-04):
   RuntimeMaxSec, A17, A20, A22 (fork bomb stops at 512 tasks), A24, A25 (polkit refuses a `.service`, other names,
   other units), a run outlives a restart of the server unit, `/health` stays up. S5: `npm install` and `next build` in
   one run peak at 998 MiB in the scope; the VM kept 2.9 GB free.
-- **A21 failed as written:** a Python memory bomb did not end with `oom-kill`. `MemoryHigh` (0.9 of `MemoryMax`)
-  throttled it at 1471 MiB until `RuntimeMaxSec` ended it (`Result=timeout`). The server lived. Proposal (not built):
-  drop `MemoryHigh`, or set it to `MemoryMax`, so the kernel kills a run at once; test again on the VM.
+- A21: on the first VM run a Python memory bomb did not end with `oom-kill`: `MemoryHigh` (0.9 of `MemoryMax`)
+  throttled it at 1471 MiB until `RuntimeMaxSec` ended it. The scope now has no `MemoryHigh`. On the second VM run
+  (same checks, 0 failed) the bomb ended with `Result=oom-kill` at 1536 MiB, and the server lived.
 - A25b (info): polkit allows a `trina-dev-<16>.scope` in another slice. Only the server account can ask (the sandbox
   cannot reach systemd, A17), so this matters only for a compromised server (out of scope, section 1).
 
@@ -711,10 +711,11 @@ project folder (srt makes the parents of an allowed path).
 
 Not done:
 
-- Preview (S2, `port-forward`); the UI (running and waiting lists, the admin sites, the new stop texts) and i18n. The
-  consent modal still shows the box warning text but sends version 2: do not turn srt on for a team before the UI PR.
+- Preview (S2, `port-forward`).
+- UI after the scope change: no page lists or stops the runs of a chat with no project (the API is there:
+  `GET /api/dev-env/runs`); the team setting is turned on only from a project page's modal (no admin settings block
+  yet), so a team with no project cannot turn it on in the UI.
 - The tool rename; Ubuntu 24.04 (S6); the public IPv6 of the VM (IMDS gives only IPv4 here).
-- Not verified on systemd: S1 (polkit gets `unit` and `verb`; a pid moves from the server's delegated cgroup), the scope
-  limits, `Result=oom-kill`, RuntimeMaxSec, S5 (Starter memory), and attacks A17, A21-A26.
+- Not verified on systemd: A23 (the disk floor) and A26 (preview). The rest of the VM list passed (see above).
 - The devenv slice is a child of `<ID>.slice`: when 1A limits are on, the runs share that ceiling with the server.
 
