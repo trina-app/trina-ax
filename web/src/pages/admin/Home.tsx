@@ -32,8 +32,10 @@ const partOfDay = (window: string) => {
 
 /** What the Home item says about a new version: when it installs by itself, that the timer does it, or that nothing will. */
 function updateLine(t: (k: MessageKey, v?: Record<string, string | number>) => string, u: UpdateStatus, version: string) {
-  if (u.needsRoot) return t('adminHome.update.root', { version })
-  if (!u.auto) return t('adminHome.update.off', { version })
+  if (u.needsRoot) return t(u.hold === 'root_failed' ? 'adminHome.update.rootFailed' : !u.auto ? 'adminHome.update.rootManual' : 'adminHome.update.root', { version })
+  if (!u.auto || u.nextWindow === null) return t('adminHome.update.off', { version })
+  if (u.hold === 'rollout') return t('adminHome.update.rollout', { version })
+  if (u.hold === 'failed' || u.hold === 'root_failed') return t('adminHome.update.failed', { version })
   const n = u.nextWindow
   const window = u.window ? u.window.replace('-', '–') : ''
   const when = !u.window || !n ? t('adminHome.when.window')
@@ -85,7 +87,8 @@ export default function Home() {
   const newVersion = upd && !upd.managed && office.data && !office.data.v ? upd.available?.version : undefined
   // "Install now" is the same install as Admin > System's (jobs.tsx); not when the release needs root (the timer does it)
   const install = useUpdateInstall({ version: newVersion, onDone: () => void update.reload() })
-  const canInstall = !!newVersion && !upd?.needsRoot && !upd?.auto
+  // by hand it works when automatic updates are off or will not install it (a window that never opens, not this server's turn, on hold)
+  const canInstall = !!newVersion && !upd?.needsRoot && (!upd?.auto || upd.nextWindow === null || upd.hold === 'rollout' || upd.hold === 'failed')
 
   const attention: { key: string; text: string; to: string; actions?: ReactNode; job?: string | null }[] = [
     ...badEngines.map((e) => ({ key: `engine-${e.id}`, text: item(e.label, t(`engines.status.${e.status}`)), to: '/admin/engines' })),
@@ -103,7 +106,7 @@ export default function Home() {
       actions: (
         <>
           <Button size="sm" variant="primary" onClick={() => navigate(a.to)} data-testid={`home-after-${a.id}-go`}>{t(`adminHome.after.${a.id}.go` as MessageKey)}</Button>
-          <Button size="sm" variant="ghost" onClick={() => void act(async () => { await api.call(API.dismissAfterUpdate, { params: { id: a.id }, body: {} }); return null }).then(() => after.reload())} data-testid={`home-after-${a.id}-dismiss`}>{t('adminHome.after.dismiss')}</Button>
+          <Button size="sm" variant="ghost" onClick={() => void act(async () => { await api.call(API.dismissAfterUpdate, { params: { id: a.id }, body: {} }); return null }).then((r) => { if (r !== undefined) void after.reload() })} aria-label={t('adminHome.after.dismiss.label', { todo: t(`adminHome.after.${a.id}` as MessageKey) })} data-testid={`home-after-${a.id}-dismiss`}>{t('adminHome.after.dismiss')}</Button>
         </>
       ),
     })),

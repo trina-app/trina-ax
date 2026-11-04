@@ -107,6 +107,8 @@ export function autoUpdateDecision(o: {
   /** the version root's update failed here (root/update-failed.json, native/cmd/mycel-ctl schedule.go), held or not:
    * the root update timer tries it again after its own back-off, so this updater leaves it (0.2.19 review S1) */
   rootHold?: string | null
+  /** decide as if the window were open and no answer ran (Admin Home asks what holds a release back, not when) */
+  ignoreWindow?: boolean
 }): AutoDecision {
   const f = o.feed
   if (!f) return { go: false, why: 'no_feed' }
@@ -120,6 +122,7 @@ export function autoUpdateDecision(o: {
   const failed = (h: History[number]) => h.result !== 'ok' && (h.to === f.version || (h.result === 'rolled_back' && h.from === f.version))
   if (o.history.some((h) => failed(h) && recent(h.at))) return { go: false, why: 'held' }
   if (o.lastAttempt && o.lastAttempt.version === f.version && recent(o.lastAttempt.at)) return { go: false, why: 'held' }
+  if (o.ignoreWindow) return { go: true, version: f.version }
   if (!inWindow(o.window, o.now, o.tz)) return { go: false, why: 'outside_window' }
   if (o.running > 0) return { go: false, why: 'busy' }
   return { go: true, version: f.version }

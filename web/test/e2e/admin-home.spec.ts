@@ -202,7 +202,20 @@ test('automatic updates on: the item says when it installs, with no button; a re
   await page.unroute('**/api/admin/update')
   await answerUpdate(page, () => ({ json: { ...auto, nextWindow: null } }))
   await page.goto('/admin')
-  await expect(page.getByTestId('attention-update')).toContainText(t['adminHome.when.window'])
+  await expect(page.getByTestId('attention-update')).toContainText(t['adminHome.update.off'].replace('{version}', '0.3.0'))
+  await expect(page.getByTestId('attention-update').getByRole('button', { name: t['adminHome.update.install'] })).toBeVisible()
+
+  // not this server's turn / on hold: says so and still offers the manual install; a window that never opens counts as off
+  await page.unroute('**/api/admin/update')
+  await answerUpdate(page, () => ({ json: { ...auto, hold: 'rollout' } }))
+  await page.goto('/admin')
+  await expect(page.getByTestId('attention-update')).toContainText(t['adminHome.update.rollout'].replace('{version}', '0.3.0'))
+  await expect(page.getByTestId('attention-update').getByRole('button', { name: t['adminHome.update.install'] })).toBeVisible()
+  await page.unroute('**/api/admin/update')
+  await answerUpdate(page, () => ({ json: { ...auto, hold: 'failed' } }))
+  await page.goto('/admin')
+  await expect(page.getByTestId('attention-update')).toContainText(t['adminHome.update.failed'].replace('{version}', '0.3.0'))
+  await expect(page.getByTestId('attention-update').getByRole('button', { name: t['adminHome.update.install'] })).toBeVisible()
 
   // needs root: the update timer installs it; no button
   await page.unroute('**/api/admin/update')
@@ -210,6 +223,16 @@ test('automatic updates on: the item says when it installs, with no button; a re
   await page.goto('/admin')
   await expect(page.getByTestId('attention-update')).toContainText(t['adminHome.update.root'].replace('{version}', '0.3.0'))
   await expect(page.getByTestId('attention-update').getByRole('button')).toHaveCount(0)
+  // root's update failed: say so, no timer promise; automatic updates off: run the command
+  await page.unroute('**/api/admin/update')
+  await answerUpdate(page, () => ({ json: { ...auto, needsRoot: true, hold: 'root_failed' } }))
+  await page.goto('/admin')
+  await expect(page.getByTestId('attention-update')).toContainText(t['adminHome.update.rootFailed'].replace('{version}', '0.3.0'))
+  await expect(page.getByTestId('attention-update')).toHaveAttribute('href', '/admin/system')
+  await page.unroute('**/api/admin/update')
+  await answerUpdate(page, () => ({ json: { ...NEW_STATUS, needsRoot: true } }))
+  await page.goto('/admin')
+  await expect(page.getByTestId('attention-update')).toContainText(t['adminHome.update.rootManual'].replace('{version}', '0.3.0'))
 })
 
 test('automatic updates off: the item has an install button that asks what Admin > System asks', async ({ page }) => {
@@ -241,7 +264,7 @@ test('the HWP plugin to-do shows with a button to the plugin, and "not needed" k
   await expect(page.locator('[data-plugin="app.trina.hwp-preview"]').first()).toBeFocused()
 
   await page.goto('/admin')
-  await page.getByTestId('attention-after-hwp-plugin').getByRole('button', { name: t['adminHome.after.dismiss'] }).click()
+  await page.getByTestId('attention-after-hwp-plugin').getByRole('button', { name: t['adminHome.after.dismiss.label'].replace('{todo}', t['adminHome.after.hwp-plugin']) }).click()
   await expect(page.getByTestId('attention-after-hwp-plugin')).toHaveCount(0)
   await page.reload()
   await expect(page.getByTestId('admin-home-members')).toBeVisible()

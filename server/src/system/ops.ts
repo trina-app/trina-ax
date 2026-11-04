@@ -132,6 +132,22 @@ export class OpsService {
     return { window: a.window, timeZone: tz, nextWindow: n ? { at: n.at.toISOString(), day: n.day } : null }
   }
 
+  /** What holds the available release back from installing by itself, from the very decision the automatic update makes
+   * (autoUpdateDecision), the window and running answers aside. null: nothing (or nothing to install). */
+  updateHold(): 'rollout' | 'failed' | 'root_failed' | null {
+    try {
+      const feed = this.updates.lastFeed()
+      if (!feed || !this.updates.installed) return null
+      const rootHold = this.rootUpdateFailure()?.version ?? null
+      if (rootHold && rootHold === feed.version) return 'root_failed'
+      let last: { version: string; at: string } | null = null
+      try { last = JSON.parse(fs.readFileSync(this.autoFile(), 'utf8')) } catch {}
+      const d = autoUpdateDecision({ feed, current: this.ctx.version, installId: installId(this.ctx.db), now: this.now(), tz: teamTimeZone(this.ctx.db),
+        window: null, running: 0, history: this.updates.history(), lastAttempt: last, rootVersion: this.updates.rootVersion(), rootHold, ignoreWindow: true })
+      return d.go ? null : d.why === 'rollout' ? 'rollout' : d.why === 'held' ? 'failed' : null
+    } catch { return null }
+  }
+
   private autoFile() { return path.join(this.ctx.config.dataDir, 'update-auto.json') }
 
   /** One automatic-update check (hourly): the feed, the roll-out, the team's update window, no running answer; then the

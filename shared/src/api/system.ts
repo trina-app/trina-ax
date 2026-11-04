@@ -74,6 +74,10 @@ export const UpdateStatus = z.object({
   /** when the window next opens: `now` = inside it, `today` / `tomorrow` = the day (in the team's zone) it starts.
    * null: the window never opens (equal start and end). Absent without `window`. */
   nextWindow: z.object({ at: IsoTime, day: z.enum(['now', 'today', 'tomorrow']) }).nullable().optional(),
+  /** why the available release will not install by itself even in the window: rollout = not this server's turn yet;
+   * failed = a try of it failed or was rolled back here (on hold); root_failed = root's update of it failed. null/absent:
+   * nothing holds it. Absent from older servers. */
+  hold: z.enum(['rollout', 'failed', 'root_failed']).nullable().optional(),
 })
 export type UpdateStatus = z.infer<typeof UpdateStatus>
 /** After-update to-dos (server/src/system/after-update.ts): something a release leaves for an admin to do, shown on Admin

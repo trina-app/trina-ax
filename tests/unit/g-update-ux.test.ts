@@ -5,7 +5,7 @@ import { afterAll, beforeAll, describe, expect, test } from 'bun:test'
 import { API } from '@mycel/shared/api'
 import { HWP_PLUGIN_ID } from '@mycel/shared/hwp'
 import { getSetting } from '../../server/src/admin/settings'
-import { AFTER_UPDATE_DISMISSED, AFTER_UPDATE_ACTIONS, dismissAfterUpdate, hwpPluginNeeded, pendingAfterUpdate } from '../../server/src/system/after-update'
+import { AFTER_UPDATE_DISMISSED, AFTER_UPDATE_ACTIONS, dismissAfterUpdate, hwpPluginNeeded, pendingAfterUpdate, updatedAcross, type AfterUpdateFacts } from '../../server/src/system/after-update'
 import { nextWindow } from '../../server/src/system/update-job'
 import { installHwpPlugin, removeHwpPlugin, setHwpPlugin } from '../lib/hwp-plugin'
 import { makeCApp, type CApp } from '../lib/c-app'
@@ -48,6 +48,14 @@ describe('nextWindow: when the update window opens next', () => {
     // a zone behind UTC: America/Los_Angeles is -8 in November; 2026-11-04 12:00 UTC = 04:00 there, so inside
     expect(nextWindow('03:00-05:00', at('2026-11-04T12:00:00Z'), 'America/Los_Angeles')?.day).toBe('now')
   })
+  test('across the November change in America/Los_Angeles (DST ends 2026-11-01 02:00): the window start is still 03:00 local', () => {
+    // 2026-10-31 20:00 UTC = 13:00 PDT (-7); the next 03:00 is Nov 1 03:00 PST? Nov 1 03:00 is after the change: -8 -> 11:00 UTC
+    expect(iso(nextWindow('03:00-05:00', at('2026-10-31T20:00:00Z'), 'America/Los_Angeles'))).toEqual({ at: '2026-11-01T11:00:00.000Z', day: 'tomorrow' })
+    // the day after the change, before the window: 2026-11-01 20:00 UTC = 12:00 PST; next is Nov 2 03:00 PST = 11:00 UTC
+    expect(iso(nextWindow('03:00-05:00', at('2026-11-01T20:00:00Z'), 'America/Los_Angeles'))).toEqual({ at: '2026-11-02T11:00:00.000Z', day: 'tomorrow' })
+    // spring: 2026-03-08 02:00 -> 03:00; the day before at noon local, the 03:00 window starts at 10:00 UTC (PDT, -7)
+    expect(iso(nextWindow('03:00-05:00', at('2026-03-07T20:00:00Z'), 'America/Los_Angeles'))).toEqual({ at: '2026-03-08T10:00:00.000Z', day: 'tomorrow' })
+  })
   test('a window that never opens, or an invalid one: null', () => {
     expect(nextWindow('04:00-04:00', at('2026-11-04T01:00:00Z'), 'UTC')).toBeNull()
     expect(nextWindow('00:00-00:00', at('2026-11-04T01:00:00Z'), 'UTC')).toBeNull()
@@ -60,7 +68,9 @@ describe('after-update to-dos', () => {
   beforeAll(async () => { A = await makeCApp('g-update-ux') })
   afterAll(async () => { await A.close() })
 
-  const ids = () => pendingAfterUpdate(A.ctx).map((a) => a.id)
+  const UPDATED: AfterUpdateFacts['history'] = [{ at: '2026-11-05T00:00:00Z', from: '0.3.0', to: '0.4.0-beta.2', result: 'ok', detail: null }]
+  const facts = (o: Partial<AfterUpdateFacts> = {}): AfterUpdateFacts => ({ history: UPDATED, locale: 'ko', ...o })
+  const ids = (o: Partial<AfterUpdateFacts> = {}) => pendingAfterUpdate(A.ctx, facts(o)).map((a) => a.id)
 
   test('HWP plugin: shown while it is not installed (when the list offers it) or not on, gone once it is on', () => {
     removeHwpPlugin(A.ctx)
@@ -69,7 +79,7 @@ describe('after-update to-dos', () => {
     expect(ids().includes('hwp-plugin')).toBe(offered)
     installHwpPlugin(A.ctx, { on: false })
     expect(hwpPluginNeeded(A.ctx)).toBe(true)
-    expect(pendingAfterUpdate(A.ctx).find((a) => a.id === 'hwp-plugin')).toEqual({ id: 'hwp-plugin', since: '0.4.0-beta.2', to: `/admin/plugins?focus=${HWP_PLUGIN_ID}` })
+    expect(pendingAfterUpdate(A.ctx, facts()).find((a) => a.id === 'hwp-plugin')).toEqual({ id: 'hwp-plugin', since: '0.4.0-beta.2', to: `/admin/plugins?focus=${HWP_PLUGIN_ID}` })
     setHwpPlugin(A.ctx, true)
     expect(hwpPluginNeeded(A.ctx)).toBe(false)
     expect(ids()).not.toContain('hwp-plugin')
@@ -77,6 +87,22 @@ describe('after-update to-dos', () => {
     expect(ids()).toContain('hwp-plugin')
   })
 
+  test('HWP plugin: not for a fresh install (no update across 0.4.0-beta.2) and not for a team that does not write Korean', () => {
+    installHwpPlugin(A.ctx, { on: false })
+    expect(ids()).toContain('hwp-plugin')
+    expect(ids({ history: [] })).not.toContain('hwp-plugin')
+    expect(ids({ history: [{ ...UPDATED[0]!, from: '0.4.0-beta.2', to: '0.4.0' }] })).not.toContain('hwp-plugin')
+    expect(ids({ history: [{ ...UPDATED[0]!, result: 'rolled_back' }] })).not.toContain('hwp-plugin')
+    for (const locale of ['en', 'ja', 'es', 'id'] as const) expect(ids({ locale })).not.toContain('hwp-plugin')
+  })
+  test('updatedAcross: from older than the version to the version or newer', () => {
+    const h = (from: string | null, to: string) => [{ at: 'x', from, to, result: 'ok' as const, detail: null }]
+    expect(updatedAcross(h('0.3.0', '0.4.0-beta.2'), '0.4.0-beta.2')).toBe(true)
+    expect(updatedAcross(h('0.4.0-beta.1', '0.4.0'), '0.4.0-beta.2')).toBe(true)
+    expect(updatedAcross(h('0.4.0-beta.2', '0.4.0'), '0.4.0-beta.2')).toBe(false)
+    expect(updatedAcross(h(null, '0.4.0'), '0.4.0-beta.2')).toBe(false)
+    expect(updatedAcross(h('0.3.0', '0.4.0-beta.1'), '0.4.0-beta.2')).toBe(false)
+  })
   test('dismissing is remembered for the team in settings, once, and survives a fresh read of the database', () => {
     installHwpPlugin(A.ctx, { on: false })
     expect(ids()).toContain('hwp-plugin')

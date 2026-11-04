@@ -13,7 +13,7 @@ import { RELEASE_PUBLIC_KEYS, UpdateManager, inRollout, releaseNeedsRoot, type R
 import { autoUpdateDecision, DEFAULT_UPDATE_WINDOW, inWindow, updateWindowAnswer } from '../../server/src/system/update-job'
 import { resolveLayout } from '../../server/src/system/layout'
 import { getOps, systemTestHooks } from '../../server/src/routes/system'
-import { OWNER_PW, harness, testConfig, withOwner, type Client, type Harness } from './a-lib'
+import { OWNER_PW, addMember, harness, testConfig, withOwner, type Client, type Harness } from './a-lib'
 import { WORK } from '../lib/env'
 
 const W = path.join(WORK, 'g-update-auto')
@@ -312,6 +312,32 @@ describe('through the app', () => {
     expect((await owner.try('POST', '/api/admin/after-update/nope/dismiss', {})).status).toBe(404)
     expect((await owner.try('POST', '/api/admin/after-update/hwp-plugin/dismiss', {})).status).toBe(204)
     expect((await owner.call('GET', '/api/admin/after-update')).items.map((a: { id: string }) => a.id)).not.toContain('hwp-plugin')
+  })
+  test('the update status says what holds a release back from installing by itself (the automatic update\'s own decision)', async () => {
+    const check = (f: Partial<ReleaseFeed>) => fs.writeFileSync(path.join(h.ctx.config.dataDir, 'update-check.json'), JSON.stringify({ at: new Date().toISOString(), error: null, feed: feed({ version: '99.0.0', ...f }) }))
+    const auto = path.join(h.ctx.config.dataDir, 'update-auto.json')
+    h.ctx.config.update = { ...h.ctx.config.update, auto: true }
+    try {
+      check({})
+      expect((await owner.call('GET', '/api/admin/update')).hold).toBeNull()
+      // not this server's turn
+      check({ rollout: { percent: 0, salt: 'x' } })
+      expect((await owner.call('GET', '/api/admin/update')).hold).toBe('rollout')
+      // a try of it a moment ago (failed or rolled back): on hold
+      check({})
+      fs.writeFileSync(auto, JSON.stringify({ version: '99.0.0', at: new Date().toISOString() }))
+      expect((await owner.call('GET', '/api/admin/update')).hold).toBe('failed')
+      fs.rmSync(auto)
+      expect((await owner.call('GET', '/api/admin/update')).hold).toBeNull()
+    } finally {
+      fs.rmSync(auto, { force: true })
+      h.ctx.config.update = { ...h.ctx.config.update, auto: false }
+    }
+  })
+  test('after-update to-dos are for admins: a member gets 403 on the list and on dismiss', async () => {
+    const m = await addMember(h, owner, { username: 'mia' })
+    expect((await m.client.try('GET', '/api/admin/after-update')).status).toBe(403)
+    expect((await m.client.try('POST', '/api/admin/after-update/hwp-plugin/dismiss', {})).status).toBe(403)
   })
   test('the maintenance lock is the ops service\'s: what the automatic update holds, the buttons wait for', async () => {
     const ops = getOps(h.ctx)!

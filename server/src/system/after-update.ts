@@ -3,17 +3,36 @@
 // that decides on the server whether it applies to this team right now (it goes away by itself once the thing is done),
 // and where its button goes. An admin can dismiss one ("not needed"); that is kept for the team in the `settings` table
 // (key below), so it survives restarts and shows for no admin again. Clients show only the ids they know.
-import type { AfterUpdateAction } from '@mycel/shared/api'
+import type { AfterUpdateAction, Locale } from '@mycel/shared/api'
+import type { UpdateHistoryEntry } from '@mycel/shared/install'
+import type { z } from 'zod'
 import { HWP_PLUGIN_ID } from '@mycel/shared/hwp'
 import type { AppContext } from '../context'
 import { getSetting, setSetting } from '../admin/settings'
 import { pluginsOf } from '../plugins/manager'
+import { compareVersions } from './update'
 
 export const AFTER_UPDATE_DISMISSED = 'afterUpdate.dismissed'
 
 interface Entry extends AfterUpdateAction {
+  /** only teams whose language is one of these (team default language); absent: any */
+  locales?: Locale[]
   /** does it apply to this team now? (a throw counts as "no") */
   check: (ctx: AppContext) => boolean
+}
+
+/** What the generic rules need to know about this install. */
+export interface AfterUpdateFacts {
+  /** the update history this install keeps (app/state.json) */
+  history: z.infer<typeof UpdateHistoryEntry>[]
+  /** the team's default language */
+  locale: Locale
+}
+
+/** A to-do belongs to an install that was updated across the version it came with: some update went from older than
+ * `since` to `since` or newer. An install made on or after `since` has no such history and is never shown it. */
+export function updatedAcross(history: AfterUpdateFacts['history'], since: string): boolean {
+  return history.some((h) => h.result === 'ok' && !!h.from && compareVersions(h.from, since) < 0 && compareVersions(h.to, since) >= 0)
 }
 
 /** why an installed plugin can never run on this server (turning it on would not help) */
@@ -34,7 +53,7 @@ export function hwpPluginNeeded(ctx: AppContext): boolean {
 }
 
 export const AFTER_UPDATE_ACTIONS: Entry[] = [
-  { id: 'hwp-plugin', since: '0.4.0-beta.2', to: `/admin/plugins?focus=${HWP_PLUGIN_ID}`, check: hwpPluginNeeded },
+  { id: 'hwp-plugin', since: '0.4.0-beta.2', locales: ['ko'], to: `/admin/plugins?focus=${HWP_PLUGIN_ID}`, check: hwpPluginNeeded },
 ]
 
 export function dismissedAfterUpdate(ctx: AppContext): string[] {
@@ -42,12 +61,15 @@ export function dismissedAfterUpdate(ctx: AppContext): string[] {
   return Array.isArray(v) ? v.filter((x): x is string => typeof x === 'string') : []
 }
 
-/** The to-dos that apply to this team now and are not dismissed. */
-export function pendingAfterUpdate(ctx: AppContext): AfterUpdateAction[] {
+/** The to-dos that apply to this team now and are not dismissed: updated across the version, the team's language, then
+ * the entry's own check. */
+export function pendingAfterUpdate(ctx: AppContext, facts: AfterUpdateFacts): AfterUpdateAction[] {
   const gone = new Set(dismissedAfterUpdate(ctx))
   return AFTER_UPDATE_ACTIONS.filter((a) => {
     if (gone.has(a.id)) return false
-    try { return a.check(ctx) } catch { return false }
+    try {
+      return updatedAcross(facts.history, a.since) && (!a.locales || a.locales.includes(facts.locale)) && a.check(ctx)
+    } catch { return false }
   }).map(({ id, since, to }) => ({ id, since, to }))
 }
 
