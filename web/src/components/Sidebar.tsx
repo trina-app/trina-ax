@@ -1,11 +1,12 @@
-// Left sidebar (Claude-like): new chat, search, projects, files, recent chats by date, admin, account menu.
-// Below 768 px it is a drawer opened from the top bar.
+// Left sidebar, sized like Claude's (280 px, 14 px rows of 32 px, 16 px icons): new chat, search, projects, files, team
+// skills, admin, recent chats by date, and the account menu (the person's email or ID, Settings, Usage for admins,
+// Appearance, Sign out), which opens above the profile line. Below 768 px it is a drawer opened from the top bar.
 import clsx from 'clsx'
-import { BookMarked, FolderOpen, FolderKanban, Loader2, LogOut, MessageSquarePlus, MoreHorizontal, Search, Settings, Shield, Trash2, Pencil, ChevronDown } from 'lucide-react'
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { BookMarked, Check, ChevronDown, ChevronRight, FolderOpen, FolderKanban, Gauge, Loader2, LogOut, MessageSquarePlus, MoreHorizontal, Palette, Pencil, Search, Settings, Shield, Trash2 } from 'lucide-react'
+import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react'
 import { Link, NavLink, useNavigate } from 'react-router-dom'
 import { PRODUCT } from '@mycel/shared'
-import type { Chat } from '@mycel/shared/api'
+import type { Chat, Theme } from '@mycel/shared/api'
 import { api, API } from '../lib/api'
 import { dateBucket, type DateBucket } from '../lib/format'
 import { clearLocalData } from '../lib/localData'
@@ -16,6 +17,7 @@ import { skillsChanged } from '../store/live'
 import { isAdmin, useMeStrict, useSession } from '../store/session'
 import { useUi } from '../store/ui'
 import { useChatActions } from './chat/chatActions'
+import { settingsOpenedFrom } from './settings/SettingsDialog'
 
 /** shortcut hints in the keys of this computer (the handlers take ⌘ and Ctrl alike, Layout.tsx) */
 const onMac = () => platform() === 'mac' || platform() === 'ios'
@@ -60,14 +62,14 @@ export default function Sidebar() {
     void load()
     return skillsChanged.on(() => void load())
   }, [])
-  const nav = 'flex items-center gap-2.5 rounded-lg px-2.5 py-2 text-sm text-ink hover:bg-hover max-sm:py-2.5'
+  const nav = 'flex h-8 items-center gap-2.5 rounded-lg px-2.5 text-sm text-ink hover:bg-hover max-sm:h-10'
   const active = ({ isActive }: { isActive: boolean }) => clsx(nav, isActive && 'bg-hover font-medium')
 
   return (
     <nav aria-label={t('sidebar.label')} className="flex h-full w-full flex-col bg-subtle">
-      <div className="flex items-center gap-2 px-4 pt-4 pb-2">
-        <Link to="/" onClick={close} className="flex items-center gap-2 text-[17px] font-semibold tracking-tight">
-          <img src="/favicon.svg" alt="" aria-hidden className="size-6 rounded-md" />
+      <div className="flex items-center gap-2 px-4 pt-3.5 pb-2">
+        <Link to="/" onClick={close} className="flex items-center gap-2 text-[15px] font-semibold tracking-tight">
+          <img src="/favicon.svg" alt="" aria-hidden className="size-5 rounded-md" />
           {PRODUCT.displayName}
         </Link>
       </div>
@@ -81,21 +83,21 @@ export default function Sidebar() {
           }}
           data-testid="new-chat"
         >
-          <MessageSquarePlus size={17} className="text-accent-text" aria-hidden /> {t('sidebar.newChat')}
-          <kbd className="ml-auto hidden text-[11px] text-faint lg:inline">{onMac() ? '⇧⌘O' : 'Ctrl+Shift+O'}</kbd>
+          <MessageSquarePlus size={16} className="text-accent-text" aria-hidden /> {t('sidebar.newChat')}
+          <kbd className="ml-auto hidden font-sans text-[11px] text-faint lg:inline">{onMac() ? '⇧⌘O' : 'Ctrl+Shift+O'}</kbd>
         </button>
         <button type="button" className={clsx(nav, 'w-full')} onClick={() => setSearchOpen(true)}>
-          <Search size={17} aria-hidden /> {t('sidebar.search')}
-          <kbd className="ml-auto hidden text-[11px] text-faint lg:inline">{onMac() ? '⌘K' : 'Ctrl+K'}</kbd>
+          <Search size={16} aria-hidden /> {t('sidebar.search')}
+          <kbd className="ml-auto hidden font-sans text-[11px] text-faint lg:inline">{onMac() ? '⌘K' : 'Ctrl+K'}</kbd>
         </button>
         <NavLink to="/projects" className={active} onClick={close}>
-          <FolderKanban size={17} aria-hidden /> {t('sidebar.projects')}
+          <FolderKanban size={16} aria-hidden /> {t('sidebar.projects')}
         </NavLink>
         <NavLink to="/files" className={active} onClick={close}>
-          <FolderOpen size={17} aria-hidden /> {t('sidebar.files')}
+          <FolderOpen size={16} aria-hidden /> {t('sidebar.files')}
         </NavLink>
         <NavLink to="/skills" className={active} onClick={close} data-testid="nav-skills">
-          <BookMarked size={17} aria-hidden /> {t('sidebar.skills')}
+          <BookMarked size={16} aria-hidden /> {t('sidebar.skills')}
           {pendingSkills > 0 && (
             <span className="ml-auto rounded-full bg-accent px-1.5 text-[11px] font-medium text-accent-ink" data-testid="skills-pending" aria-label={t('skills.tabReview')}>
               {pendingSkills}
@@ -104,12 +106,12 @@ export default function Sidebar() {
         </NavLink>
         {isAdmin(me) && (
           <NavLink to="/admin" className={active} onClick={close}>
-            <Shield size={17} aria-hidden /> {t('sidebar.admin')}
+            <Shield size={16} aria-hidden /> {t('sidebar.admin')}
           </NavLink>
         )}
       </div>
 
-      <div className="scroll-thin mt-3 min-h-0 flex-1 overflow-y-auto px-2 pb-2">
+      <div className="scroll-thin mt-4 min-h-0 flex-1 overflow-y-auto px-2 pb-2">
         <h2 className="px-2.5 pb-1 text-xs font-medium text-faint">{t('sidebar.recents')}</h2>
         {!loaded && <Loader2 size={16} className="mx-auto mt-4 animate-spin text-faint" aria-label={t('common.loading')} />}
         {loaded && !chats.some((c) => !isUnused(c)) && <p className="px-2.5 py-2 text-sm text-faint">{t('sidebar.noChats')}</p>}
@@ -174,7 +176,7 @@ function ChatItem({ chat, onNavigate }: { chat: Chat; onNavigate: () => void }) 
       <NavLink
         to={`/c/${chat.id}`}
         onClick={onNavigate}
-        className={({ isActive }) => clsx('flex items-center gap-2 rounded-lg py-1.5 pr-8 pl-2.5 text-sm hover:bg-hover max-sm:py-2.5', isActive ? 'bg-hover font-medium text-ink' : 'text-muted')}
+        className={({ isActive }) => clsx('flex h-8 items-center gap-2 rounded-lg pr-8 pl-2.5 text-sm hover:bg-hover max-sm:h-10', isActive ? 'bg-hover font-medium text-ink' : 'text-muted')}
       >
         {needsAnswer ? (
           <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-warn" aria-hidden />
@@ -211,52 +213,127 @@ function ChatItem({ chat, onNavigate }: { chat: Chat; onNavigate: () => void }) 
   )
 }
 
+/** The profile line at the bottom and its menu above it, like Claude's: who is signed in, then Settings (a dialog over
+ * the page, components/settings/SettingsDialog.tsx), Usage (admins: Admin > Usage), Appearance (the theme, chosen right
+ * there) and Sign out. Arrow keys, Home and End move in the menu; Esc closes it and gives the keyboard back. */
 function AccountMenu() {
   const t = useT()
   const me = useMeStrict()
   const [open, setOpen] = useState(false)
+  const [appearance, setAppearance] = useState(false)
   const signedOut = useSession((s) => s.signedOut)
+  const setTheme = useSession((s) => s.setTheme)
+  const setDrawer = useUi((s) => s.setDrawer)
   const navigate = useNavigate()
   const ref = useRef<HTMLDivElement>(null)
+  const button = useRef<HTMLButtonElement>(null)
+  const menu = useRef<HTMLDivElement>(null)
+  const theme: Theme = me.user.prefs.theme ?? 'system'
+  const hide = (focusBack: boolean) => {
+    setOpen(false)
+    setAppearance(false)
+    if (focusBack) button.current?.focus()
+  }
   useEffect(() => {
     if (!open) return
-    const h = (e: MouseEvent) => !ref.current?.contains(e.target as Node) && setOpen(false)
-    const k = (e: KeyboardEvent) => e.key === 'Escape' && setOpen(false)
+    menu.current?.querySelector<HTMLElement>('[role^="menuitem"]')?.focus()
+    const h = (e: MouseEvent) => !ref.current?.contains(e.target as Node) && hide(false)
     document.addEventListener('mousedown', h)
-    document.addEventListener('keydown', k)
-    return () => {
-      document.removeEventListener('mousedown', h)
-      document.removeEventListener('keydown', k)
-    }
+    return () => document.removeEventListener('mousedown', h)
   }, [open])
+  const onKey = (e: KeyboardEvent) => {
+    if (!open) return
+    if (e.key === 'Escape') {
+      e.preventDefault()
+      e.stopPropagation()
+      hide(true)
+      return
+    }
+    if (e.key === 'Tab') return hide(false)
+    const items = [...(menu.current?.querySelectorAll<HTMLElement>('[role^="menuitem"]') ?? [])]
+    const i = items.indexOf(document.activeElement as HTMLElement)
+    const go = (n: number) => {
+      e.preventDefault()
+      items[(n + items.length) % items.length]?.focus()
+    }
+    if (e.key === 'ArrowDown') go(i + 1)
+    else if (e.key === 'ArrowUp') go(i < 0 ? -1 : i - 1)
+    else if (e.key === 'Home') go(0)
+    else if (e.key === 'End') go(-1)
+  }
   const logout = async () => {
     await api.call(API.logout).catch(() => {})
     clearLocalData()
     signedOut()
     navigate('/login')
   }
+  const item = 'flex h-9 w-full items-center gap-2.5 rounded-lg px-2.5 text-left text-sm text-ink hover:bg-hover focus-visible:-outline-offset-2'
   return (
-    <div ref={ref} className="relative border-t border-line p-2">
+    <div ref={ref} className="relative border-t border-line p-2" onKeyDown={onKey}>
       {open && (
-        <div role="menu" className="absolute right-2 bottom-full left-2 z-30 mb-1 rounded-xl border border-line bg-surface p-1 shadow-lg">
-          <p className="truncate px-2.5 py-1.5 text-xs text-faint">{me.user.username}</p>
-          <Link role="menuitem" to="/settings" onClick={() => setOpen(false)} className="flex items-center gap-2 rounded-lg px-2.5 py-2 text-sm hover:bg-hover">
-            <Settings size={15} aria-hidden /> {t('sidebar.settings')}
-          </Link>
-          <button role="menuitem" type="button" onClick={logout} className="flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-left text-sm hover:bg-hover" data-testid="logout">
-            <LogOut size={15} aria-hidden /> {t('auth.logout')}
+        <div ref={menu} role="menu" aria-label={me.user.name} className="absolute right-2 bottom-full left-2 z-30 mb-1 rounded-xl border border-line bg-surface p-1.5 shadow-lg" data-testid="account-dropdown">
+          <p className="truncate px-2.5 pt-1 pb-1.5 text-xs text-faint" data-testid="account-who">
+            {me.user.email || me.user.username}
+          </p>
+          <button
+            role="menuitem"
+            type="button"
+            className={item}
+            onClick={() => {
+              settingsOpenedFrom(button.current)
+              hide(false)
+              setDrawer(false)
+              navigate('/settings')
+            }}
+            data-testid="account-settings"
+          >
+            <Settings size={16} className="text-muted" aria-hidden /> {t('sidebar.settings')}
+          </button>
+          {isAdmin(me) && (
+            <Link role="menuitem" to="/admin/usage" onClick={() => hide(false)} className={item} data-testid="account-usage">
+              <Gauge size={16} className="text-muted" aria-hidden /> {t('sidebar.usage')}
+            </Link>
+          )}
+          <button role="menuitem" type="button" aria-expanded={appearance} className={item} onClick={() => setAppearance((v) => !v)} data-testid="account-appearance">
+            <Palette size={16} className="text-muted" aria-hidden /> {t('sidebar.appearance')}
+            <ChevronRight size={14} className={clsx('ml-auto text-faint transition-transform', appearance && 'rotate-90')} aria-hidden />
+          </button>
+          {appearance && (
+            <div role="group" aria-label={t('sidebar.appearance')} className="pl-6">
+              {(['system', 'light', 'dark'] as Theme[]).map((x) => (
+                <button key={x} role="menuitemradio" aria-checked={theme === x} type="button" className={clsx(item, 'h-8')} onClick={() => void setTheme(x).catch(() => {})} data-testid={`account-theme-${x}`}>
+                  {t(`settings.theme.${x}`)}
+                  {theme === x && <Check size={14} className="ml-auto text-accent-text" aria-hidden />}
+                </button>
+              ))}
+            </div>
+          )}
+          <div role="separator" className="mx-1 my-1.5 border-t border-line" />
+          <button role="menuitem" type="button" onClick={logout} className={item} data-testid="logout">
+            <LogOut size={16} className="text-muted" aria-hidden /> {t('auth.logout')}
           </button>
         </div>
       )}
-      <button type="button" aria-expanded={open} aria-haspopup="menu" onClick={() => setOpen((v) => !v)} className="flex w-full items-center gap-2.5 rounded-lg px-2 py-1.5 text-left hover:bg-hover" data-testid="account-menu">
-        <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-accent text-sm font-semibold text-accent-ink" aria-hidden>
+      <button
+        ref={button}
+        type="button"
+        aria-expanded={open}
+        aria-haspopup="menu"
+        onClick={() => (open ? hide(false) : setOpen(true))}
+        className="flex h-10 w-full items-center gap-2 rounded-lg px-2 text-left hover:bg-hover"
+        data-testid="account-menu"
+      >
+        <span className="flex size-6 shrink-0 items-center justify-center rounded-full bg-accent text-xs font-semibold text-accent-ink" aria-hidden>
           {me.user.name.slice(0, 1).toUpperCase()}
         </span>
-        <span className="min-w-0 flex-1">
-          <span className="block truncate text-sm font-medium">{me.user.name}</span>
-          <span className="block truncate text-xs text-faint">{me.team.name}</span>
+        <span className="flex min-w-0 flex-1 items-baseline gap-1">
+          <span className="truncate text-sm font-medium">{me.user.name}</span>
+          <span className="shrink-0 text-xs text-faint" aria-hidden>
+            ·
+          </span>
+          <span className="truncate text-xs text-faint">{me.team.name}</span>
         </span>
-        <ChevronDown size={15} className="text-faint" aria-hidden />
+        <ChevronDown size={14} className={clsx('shrink-0 text-faint transition-transform', open && 'rotate-180')} aria-hidden />
       </button>
     </div>
   )

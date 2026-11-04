@@ -325,3 +325,11 @@ Source change from potenlab/team-ax branch `feat/mcp-sticky-headers` (on top of 
 - Taken as they are: `StickyHeader`, `useStickyHeader` and `stickyCls` in `web/src/components/ui.tsx` (and `PageHeader` staying at the top), the title row of `ConnectorsView.tsx` and `Skills.tsx`, the Settings layout (title and menu in place, only the page beside them scrolls) and `web/test/e2e/sticky-headers.spec.ts`.
 - "External services" becomes "MCP" in the same keys as in core (`integrations.title`, `admin.integrations`, search, Discover, empty states, the audit actions, the request notice, the personal-connections hint, the Admin Home count), and in the server's messages to the AI that name the screen.
 - Only here: the same keys in Spanish and Japanese, and the project page's top line staying at the top (`Projects.tsx`, core has it on its project-page branch).
+
+## 2026-11-04 Sidebar, account menu and Settings like Claude's
+
+Source change from potenlab/team-ax branch `feat/sidebar-account-settings` (on top of `feat/mcp-sticky-headers`, not yet on core main), ported by hand. No core history was imported.
+
+- Taken as they are: `web/src/components/settings/SettingsDialog.tsx`, `web/src/pages/settingsTabs.ts` (sections in groups), `useSettingsOverlay` in `web/src/App.tsx` (Settings over the page it was opened from), the `SettingsPane` and `Row` of `web/src/pages/Settings.tsx`, the sidebar's sizes and `AccountMenu` in `web/src/components/Sidebar.tsx`, the 280 px column in `Layout.tsx` and `web/test/e2e/account-settings.spec.ts`.
+- Here the dialog gives the keyboard back through this repository's `useFocusTrap(…, returnTo)` and `menuOpener`; core, whose trap has no `returnTo`, does it in the dialog itself.
+- Only here: the new strings in Spanish and Japanese.

@@ -91,7 +91,7 @@ export default function Layout() {
       <ScheduleReviewBanner />
       <div className="flex min-h-0 flex-1">
         {/* sidebar: fixed column on wide screens, drawer below md */}
-        <div className="hidden w-64 shrink-0 border-r border-line md:block">
+        <div className="hidden w-[280px] shrink-0 border-r border-line md:block">
           <Sidebar />
         </div>
         {drawer && (

@@ -247,7 +247,7 @@ const useDialogs = create<{ req: DialogReq | null; set: (r: DialogReq | null) =>
 
 /** A dialog opened from a menu item: the item unmounts when its menu closes, so focus would end on BODY (B-W41-2).
  *  Find the menu's trigger now, while the menu is still in the page: the expanded control beside the menu. */
-function menuOpener(): HTMLElement | null {
+export function menuOpener(): HTMLElement | null {
   const menu = document.activeElement?.closest<HTMLElement>('[role="menu"]')
   const btns = menu?.parentElement?.querySelectorAll<HTMLElement>('[aria-expanded="true"]') ?? []
   return [...btns].find((b) => !menu!.contains(b)) ?? null

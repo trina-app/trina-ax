@@ -1,7 +1,7 @@
 // A page's title row stays at the top while the page scrolls (components/ui.tsx StickyHeader, PageHeader): MCP in
-// Admin and Settings, Team skills, Projects and a project's page; Settings keeps its title and menu while only the page
-// beside them scrolls. A title row gets its hairline once the page has scrolled, and the scrolling area keeps the row's
-// height free for the keyboard, so a control that gets focus never hides under it.
+// Admin and Settings, Team skills, Projects and a project's page; the Settings dialog keeps its title while only the
+// section beside its list scrolls. A title row gets its hairline once the page has scrolled, and the scrolling area
+// keeps the row's height free for the keyboard, so a control that gets focus never hides under it.
 import { expect, test, type Locator, type Page } from '@playwright/test'
 import { CSRF_HEADER } from '@mycel/shared/api'
 import { DICTS } from '../../src/i18n'
@@ -53,9 +53,9 @@ for (const [name, size] of [['wide', WIDE], ['phone', PHONE]] as const) {
       await expect(first).toBeFocused()
       await expect.poll(async () => (await first.boundingBox())!.y - ((await header.boundingBox())!.y + (await header.boundingBox())!.height)).toBeGreaterThanOrEqual(0)
     }
-    // Settings: the title and the menu stay where they are; only the page beside the menu scrolls
-    await expect(page.getByRole('heading', { level: 1, name: t['settings.title'] })).toBeInViewport()
-    await expect(page.getByTestId('settings-menu')).toBeInViewport()
+    // Settings is a dialog: its title stays where it is; only the section beside the list scrolls
+    const dialog = page.getByRole('dialog', { name: t['settings.title'] })
+    await expect(dialog.getByRole('heading', { name: t['settings.title'] })).toBeInViewport()
   })
 }
 
