@@ -6,8 +6,9 @@ import { useMeStrict } from '../../store/session'
 import FolderPicker from '../FolderPicker'
 import { Button, ErrorNote, Field, inputCls } from '../ui'
 
-/** Templates are dormant until the person explicitly chooses folders and creates one. */
-export function ScheduleTemplates({ onCreated }: { onCreated: (schedule: Schedule) => void }) {
+/** Templates are dormant until the person explicitly chooses folders and creates one. `inDialog`: inside the "From a
+ * template" dialog of Scheduled tasks (pages/Scheduled.tsx), which has the title, so no box and no heading of its own. */
+export function ScheduleTemplates({ onCreated, inDialog }: { onCreated: (schedule: Schedule) => void; inDialog?: boolean }) {
   const t = useT(), locale = useLocale(), me = useMeStrict()
   const privateRoot = `users/${me.user.id}`
   const [available, setAvailable] = useState<('daily-file-index' | 'weekly-summary')[]>([])
@@ -49,8 +50,8 @@ export function ScheduleTemplates({ onCreated }: { onCreated: (schedule: Schedul
     ? t('scheduleTemplates.limit', { n: error.body.params.limit })
     : errorText(error, locale, t('error.network'))
   const dayName = (day: number) => new Intl.DateTimeFormat(locale, { weekday: 'long', timeZone: 'UTC' }).format(new Date(Date.UTC(2026, 0, 4 + day)))
-  return <section className="mb-5 space-y-3 rounded-xl border border-line p-4" data-testid="schedule-templates" aria-labelledby="schedule-templates-title">
-    <h3 id="schedule-templates-title" className="text-sm font-semibold">{t('scheduleTemplates.title')}</h3>
+  return <section className={inDialog ? 'space-y-3' : 'mb-5 space-y-3 rounded-xl border border-line p-4'} data-testid="schedule-templates" aria-labelledby={inDialog ? undefined : 'schedule-templates-title'}>
+    {!inDialog && <h3 id="schedule-templates-title" className="text-sm font-semibold">{t('scheduleTemplates.title')}</h3>}
     <p className="text-xs text-muted">{t('scheduleTemplates.hint')}</p>
     <fieldset disabled={busy} className="space-y-3">
       <Field label={t('scheduleTemplates.template')}><select className={inputCls} value={templateId} onChange={e => { setTemplateId(e.target.value as typeof templateId); setCreated(false) }} data-testid="template-kind">

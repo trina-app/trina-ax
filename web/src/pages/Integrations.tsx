@@ -6,6 +6,7 @@
 // service by name; "Add connection" takes any MCP server or API by its address.
 import { Cable } from 'lucide-react'
 import { useCallback, useEffect, useId, useState } from 'react'
+import { useSearchParams } from 'react-router-dom'
 import type { Integration, IntegrationList } from '@mycel/shared/api'
 import { api, API } from '../lib/api'
 import type { Connector } from '../lib/connectors'
@@ -35,6 +36,14 @@ export default function Integrations() {
     replace: (i) => state.setData((d) => (d ? { ...d, items: d.items.map((x) => (x.id === i.id ? i : x)) } : d)),
     reload,
   })
+  // ?add=1 (from Search's "Add MCP") opens the add dialog once the list says members may add their own
+  const [params, setParams] = useSearchParams()
+  const personalAllowed = state.data?.personalAllowed
+  useEffect(() => {
+    if (params.get('add') !== '1' || personalAllowed === undefined) return
+    if (personalAllowed) setDialog({})
+    setParams((p) => { p.delete('add'); return p }, { replace: true })
+  }, [params, personalAllowed, setParams])
   const panels = useId()
   return (
     <section data-testid="integrations">

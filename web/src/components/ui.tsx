@@ -9,6 +9,9 @@ import { useT } from '../i18n'
 import { useUi } from '../store/ui'
 import { writeRich } from '../lib/clipboard'
 
+/** A dialog goes into <body> through a portal; rendered to a string (no document, as in a unit test), it stays in place. */
+const inBody = (node: ReactNode, body: Element | null) => (body ? createPortal(node, body) : node)
+
 /** primary: the one main action; secondary (default): a bordered button; ghost: no border (also a plain "no": Deny on a
  * permission card, Skip, Reject of a suggestion, like Claude Code's "No"); danger: a destructive action with a border;
  * ghost-danger: a quiet destructive action beside others that removes or discards something (Delete a project, turn off
@@ -225,7 +228,7 @@ export function Modal({ open, onClose, title, children, width = 480, footer, ret
   if (!open) return null
   return (
     // in <body>, so a dialog opened from inside another dialog (Settings) is not inside it: the one below goes inert
-    createPortal(
+    inBody(
     // phones: a bottom sheet; tall content scrolls inside so the header and close button stay reachable
     <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/40 sm:items-center sm:p-4" onMouseDown={onClose}>
       <div
@@ -250,7 +253,7 @@ export function Modal({ open, onClose, title, children, width = 480, footer, ret
         {footer && <div className="flex shrink-0 flex-wrap items-center justify-end gap-2 border-t border-line px-5 py-3 pb-[max(0.75rem,env(safe-area-inset-bottom))]">{footer}</div>}
       </div>
     </div>,
-    document.body,
+    typeof document === 'undefined' ? null : document.body,
     )
   )
 }
