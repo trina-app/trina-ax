@@ -58,9 +58,10 @@ test('the account menu opens above the profile line, moves with the keyboard and
   await page.getByTestId('account-theme-light').click()
   await expect(page.locator('html')).not.toHaveClass(/dark/)
   await audit(page, 'account menu')
-  // Usage is Admin > Usage
+  // Usage is the person's own usage, in Settings (everyone's is Admin > Usage)
   await page.getByTestId('account-usage').click()
-  await expect(page).toHaveURL(/\/admin\/usage$/)
+  await expect(page).toHaveURL(/\/settings\/usage$/)
+  await expect(page.getByTestId('my-usage')).toBeVisible()
 })
 
 test('Settings opens as a dialog over the page, keeps the keyboard inside, and Esc or ✕ goes back', async ({ page }) => {

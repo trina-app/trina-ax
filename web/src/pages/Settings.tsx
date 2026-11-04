@@ -32,6 +32,7 @@ import { Notifications } from '../components/settings/Notifications'
 import { InstallGuide } from '../components/settings/InstallGuide'
 import { MemoryForm } from '../components/settings/MemoryForm'
 import ConnectorConnections from './ConnectorConnections'
+import MyUsage from '../components/settings/MyUsage'
 import Integrations from './Integrations'
 
 /** One section of the Settings dialog (components/settings/SettingsDialog.tsx, which owns the list, the address and
@@ -43,6 +44,7 @@ export default function SettingsPane({ tab }: { tab: string }) {
     <>
       {tab === 'profile' && <Profile />}
       {tab === 'security' && <Security />}
+      {tab === 'usage' && <MyUsage key={`${me.user.id}:${me.session.id}`} />}
       {tab === 'browser' && browser && <BrowserSettings bridge={browser} />}
       {tab === 'memory' && <Memories />}
       {tab === 'drive' && <DriveConnection key={`${me.user.id}:${me.session.id}`} />}

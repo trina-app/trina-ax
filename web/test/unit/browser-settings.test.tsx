@@ -45,12 +45,12 @@ afterEach(() => {
 describe('where Settings > Browser shows', () => {
   test('a normal browser or the PWA: no Browser tab (the value lives in the desktop app)', () => {
     expect(browserSettingsBridge()).toBeNull()
-    expect(settingsTabs(Boolean(browserSettingsBridge())).map((x) => x.id)).toEqual(['profile', 'security', 'memory', 'drive', 'integrations', 'connectors', 'notifications', 'apps', 'about'])
+    expect(settingsTabs(Boolean(browserSettingsBridge())).map((x) => x.id)).toEqual(['profile', 'security', 'usage', 'memory', 'drive', 'integrations', 'connectors', 'notifications', 'apps', 'about'])
   })
   test('inside the desktop app: the Browser tab, after Security', () => {
     ;(globalThis as Record<string, unknown>)[DESKTOP_BRIDGE_GLOBAL] = fakeBridge(true)
     expect(browserSettingsBridge()).not.toBeNull()
-    expect(settingsTabs(Boolean(browserSettingsBridge())).map((x) => x.id)).toEqual(['profile', 'security', 'browser', 'memory', 'drive', 'integrations', 'connectors', 'notifications', 'apps', 'about'])
+    expect(settingsTabs(Boolean(browserSettingsBridge())).map((x) => x.id)).toEqual(['profile', 'security', 'browser', 'usage', 'memory', 'drive', 'integrations', 'connectors', 'notifications', 'apps', 'about'])
   })
   test('a desktop app from before this addition (no browserSettings): no tab', () => {
     ;(globalThis as Record<string, unknown>)[DESKTOP_BRIDGE_GLOBAL] = fakeBridge(false)
@@ -58,8 +58,8 @@ describe('where Settings > Browser shows', () => {
     expect(settingsTabs(false).some((x) => x.id === 'browser')).toBe(false)
   })
   test('AI connections still comes after what the AI remembers, with or without the Browser tab', () => {
-    expect(settingsTabs(true, true).map((x) => x.id).slice(0, 5)).toEqual(['profile', 'security', 'browser', 'memory', 'credentials'])
-    expect(settingsTabs(false, true).map((x) => x.id).slice(0, 4)).toEqual(['profile', 'security', 'memory', 'credentials'])
+    expect(settingsTabs(true, true).map((x) => x.id).slice(0, 6)).toEqual(['profile', 'security', 'browser', 'usage', 'memory', 'credentials'])
+    expect(settingsTabs(false, true).map((x) => x.id).slice(0, 5)).toEqual(['profile', 'security', 'usage', 'memory', 'credentials'])
   })
 })
 

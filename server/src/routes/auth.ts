@@ -10,6 +10,7 @@ import { startSweeper } from '../auth/sweeper'
 import { getUser, setUserLocale } from '../auth/users'
 import type { RouteModule } from './module'
 import { canChooseEngine, filterEnginePrefs } from '../admin/engine-choice'
+import { myUsage } from '../admin/my-usage'
 
 export const authRoutes: RouteModule = {
   name: 'auth',
@@ -72,6 +73,8 @@ export const authRoutes: RouteModule = {
       return a().me(auth.user.id, auth.session.id)
     })
 
+    // only the caller's own turns: the person comes from the session, never from the request
+    kit.handle(API.myUsage, ({ auth, query }) => myUsage(ctx.db, auth.user.id, query.period))
     kit.handle(API.mySessions, ({ auth }) => ({
       items: a().listSessions(auth.user.id).map((s) => ({
         id: s.id, client: s.client, userAgent: s.user_agent, createdAt: s.created_at, lastSeenAt: s.last_seen_at, expiresAt: s.expires_at,
