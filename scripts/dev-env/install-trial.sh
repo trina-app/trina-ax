@@ -183,6 +183,8 @@ if [ "$MOVE" = 1 ]; then
     [ -f "$img" ] && [ ! -L "$img" ] || continue
     d=$(basename "$(dirname "$img")")
     [[ $d =~ ^[A-Za-z0-9._-]+$ ]] || die "box folder with an unusual name: $img"
+    # A run that stopped half way copied it already, and the box can have written to it since: that copy stays.
+    if [ -e "$BOXD_STATE/boxes/$d/volume.img" ]; then say "box $d: the volume is already in $BOXD_STATE"; continue; fi
     install -d -o root -g "$BOX_GID" -m 0710 "$BOXD_STATE/boxes/$d"
     cp -a --sparse=always "$img" "$BOXD_STATE/boxes/$d/volume.img.new" || die "cannot copy $img. The old state stays."
     cmp -s "$img" "$BOXD_STATE/boxes/$d/volume.img.new" || die "the copy of $img is not the same. The old state stays."
@@ -252,10 +254,12 @@ echo "$ST"
 # An older run of this script put the program there. Remove it only now: the service runs from the new path.
 if [ "$RERUN" = 1 ]; then rm -f "$OLD_BOXD"; fi
 # The old box state goes only now too: boxd runs on the new paths. The files of the old storage belong to subuids, so
-# root removes them.
+# the box account removes them in its user namespace: root must not delete through a link in that home.
 if [ "$MOVE" = 1 ]; then
   unmount_under "$OLD_BOXD_STATE"
-  rm -rf --one-file-system "$OLD_BOXD_STATE" "$OLD_STORE"
+  rm -rf --one-file-system "$OLD_BOXD_STATE"
+  runuser -u "$BOX_USER" -- env XDG_RUNTIME_DIR="/run/user/$BOX_UID" podman unshare rm -rf --one-file-system "$OLD_STORE" \
+    || die "cannot remove $OLD_STORE. boxd runs on the new paths: run this script again"
   say "the old box state is gone: $OLD_BOXD_STATE, $OLD_STORE"
 fi
 
