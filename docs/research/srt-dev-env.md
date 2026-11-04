@@ -22,8 +22,11 @@ Rule for this design: keep it simple. Each fallback gets one line.
 
 - One setting for the team (`devEnv.team`, admins): `enabled`, `scope` (everyone, or selected groups and people),
   `network`, `limits`, `consent` (to warning version 2), and `extraDomains`. The per-project setting
-  (`devEnv.project.<id>`) stays for the box runner only. On srt the project page shows the team setting, and its
-  settings modal saves the team setting (`PUT /api/admin/dev-env`).
+  (`devEnv.project.<id>`) stays for the box runner only. Admins edit the whole team setting in Team settings ›
+  Dev environment (`web/src/pages/admin/DevEnvTeam.tsx`, `PUT /api/admin/dev-env`), so a team with no projects can
+  turn it on. A save sends only the changed fields (a change of network or limits stops every run). The section shows
+  when `Me.server.devEnv` is set (the flag). On srt the project page shows the team setting too, and its settings
+  modal saves the same team setting (groups only; the people chosen by name stay).
 - `mayUseDevEnv(person)` (`server/src/devenv/setting.ts`): the flag, the team setting on with a consent to version 2,
   an active account, and the person in scope. The turn offers `box_shell` in every chat of such a person, also a chat
   with no project. It is never offered in a scheduled run, an approved template run or a confidential chat (no change).

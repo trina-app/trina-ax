@@ -5453,6 +5453,10 @@ later PR removes it.
   box. A run gets the folder access of the person who owns the chat, built from the folder rules for every command
   and job start (`server/src/devenv/srt/access.ts`), plus a home per person and, for a chat with no project, the chat's
   work folder `<base>/devenv/work/<chatId>`. The tracker stops a job when the person's access changes.
+- **Team settings › Dev environment (2026-11-04).** Admins edit the team setting there (on or off, who, network,
+  limits cut to the plan, extra sites, the warning). Before, the only way in was a project's modal, so a team with no
+  projects could not turn it on. A save sends only the changed fields, because a change of network or limits stops
+  every run. `Me.server.devEnv` (the flag) shows the section, so a server without the flag gets no 404 request.
 - **Write only in the starting folder (owner, 2026-11-04, Q0 (b)).** In a run, only the starting folder (the project
   folder) and the person's own `users/<id>` are writable. Every other folder that the person may write is read-only in
   the run, and a run in a chat's work folder writes no team folder except `users/<id>`. Why: a write outside the
