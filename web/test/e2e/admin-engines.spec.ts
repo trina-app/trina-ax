@@ -1,5 +1,5 @@
 // Admin > AI engines in two tabs (pages/admin/Engines.tsx): Providers, one quiet row per engine that opens in place,
-// and Team settings, settings rows whose section shows Save only once something changed. ?tab=team and ?engine=<id>
+// and Team provider settings, settings rows whose section shows Save only once something changed. ?tab=team and ?engine=<id>
 // open either from a link.
 import { expect, test, type Page } from '@playwright/test'
 import { DICTS } from '../../src/i18n'
@@ -67,7 +67,7 @@ test('the owner sets up the API engine from its row; ?engine=api opens it', asyn
   expect((await saved).postDataJSON()).toMatchObject({ baseUrl: 'https://openrouter.ai/api/v1', model: 'openai/gpt-4.1' })
 })
 
-test('the tabs have their own address; Team settings shows Save only once something changed', async ({ page }) => {
+test('the tabs have their own address; Team provider settings shows Save only once something changed', async ({ page }) => {
   const errors = watchConsole(page)
   await start(page)
   await page.goto('/admin/engines')

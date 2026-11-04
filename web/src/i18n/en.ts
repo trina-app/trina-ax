@@ -1445,7 +1445,7 @@ export const en: Record<MessageKey, string> = {
   'engines.checkedAt': 'Checked {date}',
   'engines.enabled': 'Enabled',
   'engines.tab.providers': 'Providers',
-  'engines.tab.team': 'Team settings',
+  'engines.tab.team': 'Team provider settings',
   'engines.enableNamed': 'Use {name}',
   'engines.models': 'Models: {list}',
   'engines.status.ok': 'Connected',

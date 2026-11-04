@@ -1415,7 +1415,7 @@ export const ja: Record<MessageKey, string> = {
   'engines.checkedAt': "確認日時 {date}",
   'engines.enabled': "有効",
   'engines.tab.providers': "プロバイダー",
-  'engines.tab.team': "チーム設定",
+  'engines.tab.team': "チームのプロバイダー設定",
   'engines.enableNamed': "{name}を使う",
   'engines.models': "モデル：{list}",
   'engines.status.ok': "接続済み",

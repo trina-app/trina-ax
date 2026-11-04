@@ -1444,7 +1444,7 @@ export const ko = {
   'engines.checkedAt': '{date} 확인',
   'engines.enabled': '사용',
   'engines.tab.providers': '제공자',
-  'engines.tab.team': '팀 설정',
+  'engines.tab.team': '팀 제공자 설정',
   'engines.enableNamed': '{name} 사용',
   'engines.models': '모델: {list}',
   'engines.status.ok': '연결됨',

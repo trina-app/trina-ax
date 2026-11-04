@@ -334,7 +334,7 @@ Source change from potenlab/team-ax branch `feat/sidebar-account-settings` (on t
 - Here the dialog gives the keyboard back through this repository's `useFocusTrap(…, returnTo)` and `menuOpener`; core, whose trap has no `returnTo`, does it in the dialog itself.
 - Only here: the new strings in Spanish and Japanese.
 
-## 2026-11-04 AI engines: Providers and Team settings
+## 2026-11-04 AI engines: Providers and Team provider settings
 
 Source change from potenlab/team-ax branch `feat/ai-engines-split` (on top of `feat/sidebar-account-settings`, not yet on core main), ported by hand. No core history was imported.
 

@@ -246,7 +246,7 @@ test('system: storage use with what uses it; Team AX Cloud shows the plan and le
   await expect(page.getByRole('button', { name: '연결 방식 바꾸기' })).toHaveCount(0)
   await expect(page.getByTestId('update-managed')).toBeVisible()
   await expect(page.getByTestId('connected-list')).toHaveCount(0)
-  // the plan's maximum for answers at the same time (AI engines > Team settings)
+  // the plan's maximum for answers at the same time (AI engines > Team provider settings)
   await page.goto('/admin/engines?tab=team')
   await expect(page.getByTestId('engines-concurrency')).toHaveAttribute('max', '3')
   expect(realErrors(errors)).toEqual([])

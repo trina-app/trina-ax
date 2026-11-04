@@ -1445,7 +1445,7 @@ export const id: Record<MessageKey, string> = {
   'engines.checkedAt': 'Dicek {date}',
   'engines.enabled': 'Aktif',
   'engines.tab.providers': 'Penyedia',
-  'engines.tab.team': 'Pengaturan tim',
+  'engines.tab.team': 'Pengaturan penyedia tim',
   'engines.enableNamed': 'Gunakan {name}',
   'engines.models': 'Model: {list}',
   'engines.status.ok': 'Terhubung',

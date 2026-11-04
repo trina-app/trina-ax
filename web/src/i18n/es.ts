@@ -1415,7 +1415,7 @@ export const es: Record<MessageKey, string> = {
   'engines.checkedAt': "Comprobado el {date}",
   'engines.enabled': "Habilitado",
   'engines.tab.providers': "Proveedores",
-  'engines.tab.team': "Configuración del equipo",
+  'engines.tab.team': "Configuración de proveedores del equipo",
   'engines.enableNamed': "Usar {name}",
   'engines.models': "Modelos: {list}",
   'engines.status.ok': "Conectado",

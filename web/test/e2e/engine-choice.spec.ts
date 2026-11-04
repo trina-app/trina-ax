@@ -89,11 +89,11 @@ test('the admin lets a member pick; the member sees the picker without reloading
   // Codex off: the fallback is off and cannot be turned on
   await page.reload()
   await expect(card.getByLabel('Claude 한도에 닿으면 Codex로 넘기기')).toBeChecked()
-  // the switch is on the Providers tab; back on Team settings the fallback follows it
+  // the switch is on the Providers tab; back on Team provider settings the fallback follows it
   await page.getByRole('tab', { name: '제공자', exact: true }).click()
   await page.locator('[data-engine="codex"] label').filter({ has: page.getByTestId('engine-switch-codex') }).click()
   await expect(page.getByTestId('engine-switch-codex')).not.toBeChecked()
-  await page.getByRole('tab', { name: '팀 설정', exact: true }).click()
+  await page.getByRole('tab', { name: '팀 제공자 설정', exact: true }).click()
   await expect(card.getByLabel('Claude 한도에 닿으면 Codex로 넘기기')).toBeDisabled()
   await expect(card.getByLabel('Claude 한도에 닿으면 Codex로 넘기기')).not.toBeChecked()
   await expect(card).toContainText('Codex가 꺼져 있어 켤 수 없어요')

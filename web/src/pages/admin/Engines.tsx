@@ -3,7 +3,7 @@
 //   in · its models · when it was checked), what is missing in one line, check again and the on/off switch. The row
 //   opens in place for the rest: the longer explanation, the version and every model, and the owner's API engine form
 //   (address, model, key; ?engine=api opens that row).
-// - Team settings: settings rows (words on the left, the control on the right): team defaults (engine, model, turns at
+// - Team provider settings: settings rows (words on the left, the control on the right): team defaults (engine, model, turns at
 //   the same time); who else may pick the engine ("팀원이 엔진 고르기 허용", off: owner and admins only) and the optional
 //   Claude-limit fallback to Codex (off; warns that data then also goes to OpenAI; unavailable while Codex is off);
 //   usage limits. A section shows Save only once something in it changed.

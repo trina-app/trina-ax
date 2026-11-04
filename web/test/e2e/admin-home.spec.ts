@@ -110,7 +110,7 @@ test('the admin menu stays where it is while the page scrolls, on a wide screen 
   await start(page)
   for (const size of [{ width: 1360, height: 640 }, { width: 390, height: 700 }]) {
     await page.setViewportSize(size)
-    // Team settings: the longer of the two AI engines tabs
+    // Team provider settings: the longer of the two AI engines tabs
     await page.goto('/admin/engines?tab=team')
     await expect(page.getByTestId('engine-choice')).toBeVisible()
     const menu = page.getByTestId('admin-menu')
