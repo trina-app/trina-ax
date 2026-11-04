@@ -1,6 +1,6 @@
 // Left sidebar, sized like Claude's (280 px, 14 px rows of 32 px, 16 px icons): new chat, search, projects, files, team
 // skills, admin, recent chats by date, and the account menu (the person's email or ID, Settings, Usage for admins,
-// Appearance, Sign out), which opens above the profile line. Below 768 px it is a drawer opened from the top bar.
+// Appearance, Deleted chats, Sign out), which opens above the profile line. Below 768 px it is a drawer opened from the top bar.
 import clsx from 'clsx'
 import { BookMarked, Check, ChevronDown, ChevronRight, FolderOpen, FolderKanban, Gauge, Loader2, LogOut, MessageSquarePlus, MoreHorizontal, Palette, Pencil, Search, Settings, Shield, Trash2 } from 'lucide-react'
 import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react'
@@ -139,9 +139,6 @@ export default function Sidebar() {
             {more ? t('common.loading') : t('sidebar.more')}
           </button>
         )}
-        <NavLink to="/trash" className={({ isActive }) => clsx('mt-2 flex items-center gap-2 rounded-lg px-2.5 py-1.5 text-xs text-muted hover:bg-hover', isActive && 'bg-hover')} onClick={close}>
-          <Trash2 size={14} aria-hidden /> {t('sidebar.trash')}
-        </NavLink>
       </div>
       <AccountMenu />
     </nav>
@@ -215,7 +212,7 @@ function ChatItem({ chat, onNavigate }: { chat: Chat; onNavigate: () => void }) 
 
 /** The profile line at the bottom and its menu above it, like Claude's: who is signed in, then Settings (a dialog over
  * the page, components/settings/SettingsDialog.tsx), Usage (admins: Admin > Usage), Appearance (the theme, chosen right
- * there) and Sign out. Arrow keys, Home and End move in the menu; Esc closes it and gives the keyboard back. */
+ * there), Deleted chats and Sign out. Arrow keys, Home and End move in the menu; Esc closes it and gives the keyboard back. */
 function AccountMenu() {
   const t = useT()
   const me = useMeStrict()
@@ -308,6 +305,18 @@ function AccountMenu() {
               ))}
             </div>
           )}
+          <Link
+            role="menuitem"
+            to="/trash"
+            onClick={() => {
+              hide(false)
+              setDrawer(false)
+            }}
+            className={item}
+            data-testid="account-trash"
+          >
+            <Trash2 size={16} className="text-muted" aria-hidden /> {t('sidebar.trash')}
+          </Link>
           <div role="separator" className="mx-1 my-1.5 border-t border-line" />
           <button role="menuitem" type="button" onClick={logout} className={item} data-testid="logout">
             <LogOut size={16} className="text-muted" aria-hidden /> {t('auth.logout')}
