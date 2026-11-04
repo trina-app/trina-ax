@@ -7095,7 +7095,8 @@ one or two".
   question first. When step 3 was put off, the invite is the last step of the page itself, with the pack's skill when
   there is one and E's own heading.
 - **Home** gets one line (`components/onboarding/WelcomeResume.tsx`, owner only): "시작 설정 이어하기 (2/3)" until
-  finished or hidden (its X). Stream G owns the rest of Home.
+  finished or hidden (its X); with the three counted steps done it says "남은 일: 팀원 초대하기" rather than "(3/3)".
+  Stream G owns the rest of Home.
 - **Phones**: no card around the steps (the page is the column), choice cards in one column below 640px, the Home
   entry is one row with its short description hidden on phones.
 - **Integration review fix in D's step**: before starting a draft (website or pasted text) `ProfileStep` asks
