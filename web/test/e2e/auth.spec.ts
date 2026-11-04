@@ -277,6 +277,8 @@ test('recovery does not replace an old login pick or pass a previous account lan
   await page.unroute('**/api/me')
   await page.getByRole('button', { name: '다시 시도', exact: true }).click()
   await expect(page.getByTestId('locale-ko')).toHaveAttribute('aria-checked', 'true')
+  // Settings is a dialog over the page: close it to reach the account menu
+  await page.keyboard.press('Escape')
   await page.getByTestId('account-menu').click()
   await page.getByTestId('logout').click()
   await expect(page.getByRole('heading', { name: 'Masuk' })).toBeVisible()

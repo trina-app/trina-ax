@@ -39,7 +39,7 @@ test('the account menu opens above the profile line, moves with the keyboard and
   await expect(menu).toBeVisible()
   expect((await menu.boundingBox())!.y + (await menu.boundingBox())!.height).toBeLessThanOrEqual((await button.boundingBox())!.y + 1)
   await expect(page.getByTestId('account-who')).toHaveText(/\S/)
-  await expect(menu.getByRole('menuitem')).toHaveText([t['sidebar.settings'], t['sidebar.usage'], t['sidebar.appearance'], t['auth.logout']])
+  await expect(menu.getByRole('menuitem')).toHaveText([t['sidebar.settings'], t['sidebar.usage'], t['sidebar.appearance'], t['sidebar.trash'], t['auth.logout']])
   await expect(menu.getByRole('menuitem', { name: t['sidebar.settings'] })).toBeFocused()
   await page.keyboard.press('ArrowDown')
   await expect(menu.getByRole('menuitem', { name: t['sidebar.usage'] })).toBeFocused()
@@ -72,7 +72,7 @@ test('Settings opens as a dialog over the page, keeps the keyboard inside, and E
   const dialog = page.getByRole('dialog', { name: t['settings.title'] })
   await expect(dialog).toBeVisible()
   // the page it was opened from stays under it
-  await expect(page.getByRole('heading', { level: 1, name: t['projects.title'] })).toBeAttached()
+  await expect(page.getByTestId('project-new')).toBeAttached()
   await expect(dialog.getByRole('heading', { name: t['settings.profile'] })).toBeVisible()
   // the keyboard stays in the dialog
   for (let i = 0; i < 25; i++) {
@@ -145,3 +145,34 @@ for (const scheme of ['light', 'dark'] as const) {
     }
   })
 }
+
+test('Deleted chats is in the account menu, not in the sidebar, on a wide screen and on a phone', async ({ page }) => {
+  await start(page)
+  for (const size of [{ width: 1360, height: 820 }, { width: 390, height: 760 }]) {
+    await page.setViewportSize(size)
+    await page.goto('/')
+    if (size.width < 768) await page.getByRole('button', { name: t['sidebar.open'] }).click()
+    const side = page.getByRole('navigation', { name: t['sidebar.label'] }).last()
+    await expect(side.getByRole('link', { name: t['sidebar.trash'] })).toHaveCount(0)
+    await side.getByTestId('account-menu').click()
+    await side.getByTestId('account-trash').click()
+    await expect(page).toHaveURL(/\/trash$/)
+    await expect(page.getByRole('heading', { level: 1, name: t['trash.title'] })).toBeVisible()
+  }
+})
+
+test('on a wide window a page\'s column is centred beside the sidebar; on a phone it is full width', async ({ page }) => {
+  await start(page)
+  for (const path of ['/skills', '/projects']) {
+    await page.setViewportSize({ width: 1800, height: 900 })
+    await page.goto(path)
+    const main = (await page.locator('#main').boundingBox())!
+    const column = page.locator(path === '/skills' ? '[data-testid="skills-header"]' : '[data-sticky-header] > div').first()
+    await expect(column).toBeVisible()
+    const c = (await column.boundingBox())!
+    expect(Math.abs(c.x - main.x - (main.x + main.width - (c.x + c.width)))).toBeLessThanOrEqual(24)
+    expect(c.width).toBeLessThan(main.width - 200)
+    await page.setViewportSize({ width: 390, height: 760 })
+    expect(Math.round((await column.boundingBox())!.width)).toBeGreaterThanOrEqual(390 - 2 * 24)
+  }
+})

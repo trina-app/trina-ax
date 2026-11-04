@@ -16,7 +16,7 @@ test('ask, connect with the member\'s own key, see it connected; the key never r
   await page.goto('/admin/integrations')
   await expect(page.getByText('아직 보낸 요청이 없어요')).toBeVisible()
   await page.getByTestId('integration-request-add').click()
-  const dialog = page.getByRole('dialog')
+  const dialog = page.getByRole('dialog').filter({ hasNot: page.getByTestId('settings-menu') }) // not Settings itself
   await expect(dialog.getByRole('heading', { name: '멤버에게 연결 요청' })).toBeVisible()
   // nothing goes without a member
   await page.getByTestId('integration-request-send').click()
@@ -51,7 +51,7 @@ test('ask, connect with the member\'s own key, see it connected; the key never r
   await page.context().clearCookies()
   await signIn(page, BOB)
   await page.goto(new URL(link).pathname + new URL(link).search)
-  const answer = page.getByRole('dialog')
+  const answer = page.getByRole('dialog').filter({ hasNot: page.getByTestId('settings-menu') }) // not Settings itself
   await expect(answer.getByRole('heading', { name: 'Ledger 연결' })).toBeVisible()
   await expect(answer).toContainText('Olga님이 이 서비스를 내 계정으로 연결해 달라고 요청했어요.')
   await expect(answer).toContainText('https://api.ledger.example/v1')

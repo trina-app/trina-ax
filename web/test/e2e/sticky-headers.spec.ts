@@ -47,6 +47,9 @@ for (const [name, size] of [['wide', WIDE], ['phone', PHONE]] as const) {
       await expect(page.getByTestId('connector-card').first()).toBeVisible()
       await staysPut(header)
       await expect(header.getByTestId('connector-search')).toBeInViewport()
+      // it looks transparent: filled with exactly the surface it sits on (the Settings panel, or the page)
+      const surface = path.startsWith('/settings') ? page.getByRole('dialog', { name: t['settings.title'] }) : page.locator('body')
+      expect(await header.evaluate((el) => getComputedStyle(el).backgroundColor)).toBe(await surface.evaluate((el) => getComputedStyle(el).backgroundColor))
       // a control that gets focus near the top scrolls into view below the row, not under it
       const first = page.getByTestId('connector-add').first()
       await first.evaluate((el) => (el as HTMLElement).focus())
