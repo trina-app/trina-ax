@@ -5,6 +5,8 @@ This file summarizes user-visible changes; it is not a list of every commit.
 
 ## Unreleased
 
+- Dev environment: Node in the box now sees the CPUs the box has. Before, the box got a lower CPU weight, and Node 20 (libuv 1.50) multiplied its CPU count by that weight, so `os.availableParallelism()` was 1 with 3 CPUs and tools such as Remotion ran on one CPU. The weight did not give the team server more CPU either, so it is gone. Each box is made again once at its next start; its files and caches stay.
+
 ## 0.3.0 — 2026-11-04
 
 [Published release and notes](https://github.com/trina-app/trina-ax/releases/tag/v0.3.0)
