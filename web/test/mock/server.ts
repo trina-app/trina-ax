@@ -197,6 +197,18 @@ export class MockServer {
    * running dev server and a waiting job, warning version 2); otherwise its endpoints answer 404, like
    * a server without MYCEL_DEV_ENV */
   devEnv: { box: 'stopped' | 'running'; srt?: { running: DevEnvRun[]; waiting: DevEnvRun[] } } | null = null
+  /** the team setting devEnv.team (GET and PUT /api/admin/dev-env), off until an admin turns it on */
+  devEnvTeam = MockServer.devEnvTeamDefault()
+  static devEnvTeamDefault() {
+    return { extraDomains: [] as string[], enabled: false, scope: { mode: 'writers' as 'writers' | 'selected', groupIds: [] as string[], userIds: [] as string[] }, network: 'open' as 'open' | 'offline',
+      limits: { cpus: 1, memoryMiB: 2560, pids: 512, diskGiB: 4, idleStopMin: 30 }, consent: null as { by: { id: string; name: string } | null; at: string; warningVersion: number } | null }
+  }
+  devEnvTeamView() {
+    if (!this.devEnv) fail('not_found', 404)
+    const srt = !!this.devEnv!.srt
+    return { setting: this.devEnvTeam, defaultDomains: ['registry.npmjs.org', 'pypi.org', 'github.com'], plan: srt ? { plan: 'starter', maxRunning: 1, cpus: 2, memoryMiB: 3072, pids: 1024, network: 'open' } : null,
+      runner: srt ? 'srt' as const : 'box' as const, warningVersion: srt ? 2 : 1, availability: { available: true } }
+  }
 
   constructor(o: { setup?: boolean } = {}) {
     this.reset(o)
@@ -220,6 +232,7 @@ export class MockServer {
     this.aiList = undefined
     this.cloud = false
     this.devEnv = null
+    this.devEnvTeam = MockServer.devEnvTeamDefault()
     this.epoch = uuidv7()
     this.seq = 0
     this.buffer = []
@@ -564,6 +577,7 @@ export class MockServer {
       server: {
         version: this.serverVersion, dev: !this.cloud, deployment: this.cloud ? 'hosted' : 'self', timeZone: this.settings.timeZone,
         ...(this.allConfidential ? { allChatsConfidential: true as const } : {}),
+        ...(this.devEnv ? { devEnv: true as const } : {}),
         features: this.cloud
           ? { connectionChange: false, selfUpdate: false, officeUpdate: false, connectedFolders: false, apiEngineAnyUrl: false, hostDiagnostics: false, pluginFileInstall: false }
           : { connectionChange: true, selfUpdate: true, officeUpdate: false, connectedFolders: true, apiEngineAnyUrl: true, hostDiagnostics: true, pluginFileInstall: true },
@@ -1143,6 +1157,21 @@ export class MockServer {
       srt!.running = srt!.running.filter((r) => r.id !== c.params.runId)
       srt!.waiting = srt!.waiting.filter((r) => r.id !== c.params.runId)
       return this.devEnvOf(c.user, c.params.id!)
+    },
+    // the team setting (Team settings › Dev environment): like server/src/routes/dev-env.ts, turning on (srt) needs the
+    // current warning accepted
+    devEnvTeam: () => this.devEnvTeamView(),
+    updateDevEnvTeam: (c) => {
+      const v = this.devEnvTeamView()
+      const b = c.body
+      const before = this.devEnvTeam
+      const after = { ...before, limits: { ...before.limits, ...(b.limits ?? {}) }, ...(b.extraDomains ? { extraDomains: b.extraDomains } : {}), ...(b.scope ? { scope: b.scope } : {}), ...(b.network ? { network: b.network } : {}), ...(b.enabled !== undefined ? { enabled: b.enabled } : {}) }
+      if (v.runner === 'srt' && after.enabled && !(before.enabled && before.consent?.warningVersion === v.warningVersion) && after.consent?.warningVersion !== v.warningVersion) {
+        if (b.acceptWarning !== v.warningVersion) fail('conflict', 409, '먼저 개발 환경 경고를 확인해 주세요.')
+        after.consent = { by: { id: c.user.id, name: c.user.name }, at: now(), warningVersion: v.warningVersion }
+      }
+      this.devEnvTeam = after
+      return this.devEnvTeamView()
     },
     devEnvPreview: (c) => {
       this.devEnvOf(c.user, c.params.id!)
