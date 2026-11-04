@@ -62,13 +62,19 @@ if grep -Eq '"hosted"[[:space:]]*:[[:space:]]*true' "$BASE/root/install.json"; t
   [ -e "$ENT" ] || die "this team's plan does not include the dev environment (no $ENT)"
   [ -f "$ENT" ] && root_only "$ENT" || die "$ENT must be a file that belongs to root, and only root may write to it"
   [ -f "$BASE/root/plan.json" ] && root_only "$BASE/root/plan.json" || die "no root-owned $BASE/root/plan.json"
-  int() { jq -er "$1 | select(type == \"number\" and . == floor and . > 0)" "$2" 2>/dev/null; }
-  ENT_RUN=$(int .maxRunning "$ENT") && ENT_MEM=$(int .memoryMiB "$ENT") && ENT_DISK=$(int .diskGiB "$ENT") \
-    || die "$ENT has no whole maxRunning, memoryMiB or diskGiB"
-  [ "$ENT_RUN" -le 4 ] || die "maxRunning in $ENT must be 1 to 4"
-  ENT_CPUS=$(jq -er '.cpus | select(type == "number" and . > 0)' "$ENT" 2>/dev/null) || die "$ENT has no cpus"
-  ENT_NET=$(jq -r '.network // "offline"' "$ENT")
-  PLAN_MEM=$(int .memoryMiB "$BASE/root/plan.json") || die "$BASE/root/plan.json has no memoryMiB"
+  # the same rules as boxd (native/cmd/mycel-boxd/plan.go parseEntitlement): a file that boxd refuses stops here, before
+  # the steps below change the system
+  jq -e 'def whole($lo; $hi): type == "number" and . == floor and . >= $lo and . <= $hi;
+    type == "object" and (keys - ["format","plan","maxRunning","cpus","memoryMiB","pids","diskGiB","network"] == [])
+    and .format == 1 and (.plan | type == "string" and length >= 1 and length <= 32)
+    and (.maxRunning | whole(1; 4)) and (.cpus | type == "number" and . >= 0.25 and . <= 4)
+    and (.memoryMiB | whole(256; 8192)) and (.pids | whole(64; 4096)) and (.diskGiB | whole(1; 32))
+    and (.network == null or .network == "open" or .network == "offline")' "$ENT" >/dev/null 2>&1 \
+    || die "$ENT is not a good plan file (format 1, plan, maxRunning 1-4, cpus 0.25-4, memoryMiB 256-8192, pids 64-4096, diskGiB 1-32, network open or offline, no other keys)"
+  ENT_RUN=$(jq -r .maxRunning "$ENT"); ENT_MEM=$(jq -r .memoryMiB "$ENT"); ENT_DISK=$(jq -r .diskGiB "$ENT")
+  ENT_CPUS=$(jq -r .cpus "$ENT"); ENT_NET=$(jq -r '.network // "offline"' "$ENT")
+  PLAN_MEM=$(jq -er '.memoryMiB | select(type == "number" and . == floor and . > 0)' "$BASE/root/plan.json" 2>/dev/null) \
+    || die "$BASE/root/plan.json has no memoryMiB"
   # the box comes on top of the plan's memory (the launcher and the server units keep their limits)
   HMEM=$(awk '/^MemTotal:/{print int($2/1024)}' /proc/meminfo)
   [ "$HMEM" -ge $((PLAN_MEM + ENT_MEM)) ] || die "this VM has $HMEM MiB; the plan ($PLAN_MEM MiB) and its box ($ENT_MEM MiB) need $((PLAN_MEM + ENT_MEM)) MiB"
