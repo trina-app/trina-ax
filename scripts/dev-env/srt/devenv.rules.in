@@ -1,0 +1,7 @@
+// Trina dev environment (srt runner): the server account may start and stop its own job scopes, nothing else.
+// A transient .service can set User=root, so this rule never allows one. Written by install-srt.sh.
+polkit.addRule(function (action, subject) {
+  if (action.id !== "org.freedesktop.systemd1.manage-units" || subject.user !== "@SRV_USER@") return;
+  var unit = action.lookup("unit") || "", verb = action.lookup("verb") || "";
+  if (/^trina-dev-[a-z0-9]{16}\.scope$/.test(unit) && (verb === "start" || verb === "stop" || verb === "reset-failed")) return polkit.Result.YES;
+});

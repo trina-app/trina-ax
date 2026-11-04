@@ -5438,6 +5438,56 @@ box limits follow the plan.
   podman and a fixed `mycel-devbox` uid in the template, box state on the data disk (G-T4-6), a reinstall after a
   reimage, and idle checks that count box jobs. Until then an operator installs it as a trial.
 
+### Dev environment on srt, behind a flag (feat/srt-dev-env, 2026-11-04)
+
+Input: the owner and Dion chose srt (`@anthropic-ai/sandbox-runtime`) in place of the podman box. Design:
+`docs/research/srt-dev-env.md`. This change builds it behind `MYCEL_DEV_ENV_RUNNER=srt`. The box stays the default, and a
+later PR removes it.
+
+- **Executor.** The server account runs one srt process (CLI mode, node 22 in `/opt/trina/node`) for each command, job
+  or dev server, in a `systemd-run --scope` unit `trina-dev-<16 chars>.scope` in `<ID>-devenv.slice`, with MemoryMax,
+  CPUQuota, TasksMax, OOMPolicy=kill and RuntimeMaxSec. `run-wrap` sets rlimits and `oom_score_adj` 800 and writes the
+  exit code. A polkit rule lets the server account start, stop and reset-failed only these scope names.
+- **Not locked to a project (owner, 2026-11-04).** Any chat, with or without a project, can run commands. The admin
+  turns srt on for the team (`devEnv.team`: on, who, network, limits, consent); the per-project setting stays for the
+  box. A run gets the folder access of the person who owns the chat, built from the folder rules for every command
+  and job start (`server/src/devenv/srt/access.ts`), plus a home per person and, for a chat with no project, the chat's
+  work folder `<base>/devenv/work/<chatId>`. The tracker stops a job when the person's access changes.
+- **Team settings › Dev environment (2026-11-04).** Admins edit the team setting there (on or off, who, network,
+  limits cut to the plan, extra sites, the warning). Before, the only way in was a project's modal, so a team with no
+  projects could not turn it on. A save sends only the changed fields, because a change of network or limits stops
+  every run. `Me.server.devEnv` (the flag) shows the section, so a server without the flag gets no 404 request.
+- **Write only in the starting folder (owner, 2026-11-04, Q0 (b)).** In a run, only the starting folder (the project
+  folder) and the person's own `users/<id>` are writable. Every other folder that the person may write is read-only in
+  the run, and a run in a chat's work folder writes no team folder except `users/<id>`. Why: a write outside the
+  project folder has no change record and no older versions, it skips the read-scope check, and a shared writable
+  folder is a code channel between people (a git hook, `package.json` scripts or a Makefile that another person's AI
+  runs later with that person's access, G-SRT-11). The project folder stays shared by its writers, with its change
+  window. A copy from a folder the person may read into the project folder still skips the read-scope check.
+  `settingsProblems` refuses a run whose settings make another team folder writable. A writable folder inside a
+  read-only one (an admin's project folder below the read-only team root) also gets a `denyRead` landing, because srt
+  binds reads back after writes and would cover it read-only (Docker A28c, A28d).
+- **Files.** The srt settings hide the whole base folder and `/etc/default/<ID>`, and give back the person's team
+  folders (read from the rules; write only in the starting folder and the own folder), the person's home (read and write) and logs (read). srt itself denies writes to `.git/hooks`, `.git/config` and
+  similar files. The environment has only listed keys, never the server's. A `cwd` through a link out of the project is
+  refused before the run.
+- **Network.** `open` now means an allowlist: the defaults in `shared/src/dev-env-domains.ts` plus the team's extra
+  domains (`devEnv.team`, admins). The team's host names (public origins, relay, `MYCEL_DEV_ENV_DENY_HOSTS`) are denied,
+  and an admin cannot allow them. Private, link-local and metadata ranges and the VM's public IPv4 (IMDS) are denied
+  after resolution. srt's warning has version 2, so an owner accepts again before the first srt run.
+- **Queue.** Jobs over `maxRunning` wait (FIFO for the team, 3 per person, 10 for the server, 24 hours). A waiting job
+  checks access again before it starts. Commands over `maxRunning + 1` are refused at once. Dev servers: one per chat,
+  `maxRunning` on the server. Migration 222 adds the table `dev_env_runs` (a run has a person and a chat, the project
+  can be null); `dev_env_jobs` stays for the box.
+- **Plan caps.** The server reads `root/dev-env.json` with a TS port of `parseEntitlement` (fail closed) and cuts each
+  run's limits to it. The install writes the slice from the same file, so the server cannot raise the total.
+- **Left from the design, on purpose.** A drop-in sets the flag and `ReadWritePaths=<base>/devenv`;
+  `server.service.in` and `scripts/linux/deps.txt` do not change (the packages come from `install-srt.sh`). No preview
+  on srt yet (the Q2 fallback). The tool keeps its name `box_shell`. `/run` is denied too. `CLAUDE_CODE_TMPDIR` points
+  srt's sandbox temp folder into the project home (else `/tmp/claude`, which the settings hide).
+- **Tests.** `tests/unit/dev-env-srt.test.ts` (fakes) and `tests/linux/srt-attack.ts` (real srt in Docker, CI). Not yet
+  verified on systemd: polkit, the scope limits, OOM, and the Starter memory budget (design section 11).
+
 ## Folder upload on the file screen (feat/dev-env-video, 2026-11-02)
 
 A team copied 118 clips (1.9 GB) with tar over SSH. A customer needs a way with no SSH.

@@ -24,6 +24,7 @@ import { teamIconVersion } from '../admin/team-icon'
 import { deploymentOf, featuresOf } from '../system/deployment'
 import { windowsAppSourceOf } from '../system/windows-app'
 import { safeOpsEnabled } from '../safe-ops/runner'
+import { devEnvFlag } from '../devenv/setting'
 import { cancelPushSession } from '../notifications/push-events'
 
 export const SESSION_TTL_MS = 30 * 24 * 3600_000
@@ -246,6 +247,7 @@ export class AuthService implements SessionService {
       server: { version: this.ctx.version, dev: this.ctx.config.mode === 'dev' && !this.ctx.config.office,
         deployment: deploymentOf(this.ctx.config), features: featuresOf(this.ctx.config), timeZone: settings.timeZone,
         ...(safeOpsEnabled() ? { allChatsConfidential: true as const } : {}),
+        ...(devEnvFlag() ? { devEnv: true as const } : {}),
         ...(windowsApp ? { windowsApp } : {}) },
       passwordReset: u.password_reset_at ? { by: userRef(this.db, u.password_reset_by), at: u.password_reset_at } : null,
     }

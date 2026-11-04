@@ -1,0 +1,9 @@
+{
+  "name": "trina-devenv-srt",
+  "private": true,
+  "description": "The pinned srt package of the dev environment. Installed by install-srt.sh into /opt/trina/srt/<version> with npm ci --ignore-scripts. Not a bun workspace.",
+  "license": "UNLICENSED",
+  "dependencies": {
+    "@anthropic-ai/sandbox-runtime": "0.0.81"
+  }
+}

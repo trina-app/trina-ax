@@ -1,11 +1,14 @@
 // Dev environment line of a project's page (EXPERIMENT, docs/DECISIONS.md "Dev environment (experiment)"). Hidden when
 // the server answers 404 (the feature flag is off). Closed, it says whether it is on and how the box is; opened, the
-// box, its jobs, the preview and the activity. Admins turn it on after the warning; people who can write the folder
-// see the box; people who can read it open previews and see the activity.
+// box, its jobs, the preview and the activity. On the srt runner (the response asks for warning version 2) there is no
+// box: the page lists the runs of this project's chats (commands, jobs, dev servers) and the jobs that wait in the
+// queue, each with Stop. On srt the setting is the team's (any chat can use it), so the settings modal saves the team
+// setting. Admins turn it on after the warning; people who can write the folder see the box; people who can read it
+// open previews and see the activity.
 import { Play, RotateCcw, Square, TerminalSquare } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import clsx from 'clsx'
-import type { DevEnvActivity, DevEnvProjectResponse, Group, Project } from '@mycel/shared/api'
+import { DEV_ENV_SRT_WARNING_VERSION, type DevEnvActivity, type DevEnvProjectResponse, type DevEnvRun, type Group, type Project } from '@mycel/shared/api'
 import { api, API, errorText, isApiError } from '../lib/api'
 import { formatRelative } from '../lib/format'
 import { useLocale, useT } from '../i18n'
@@ -41,7 +44,7 @@ export function DevEnvRow({ project }: { project: Project }) {
   }, [project.id])
   // a running job's last log line is its progress: the page follows it while one runs, and looks less often for a job
   // that a chat starts while this page is open
-  const pollMs = hidden ? 0 : d?.jobs.length ? 10_000 : d?.setting.enabled && (d.mayUse || d.mayManage) ? 30_000 : 0
+  const pollMs = hidden ? 0 : d?.jobs.length || d?.runs.running.length || d?.runs.waiting.length ? 10_000 : d?.setting.enabled && (d.mayUse || d.mayManage) ? 30_000 : 0
   useEffect(() => {
     if (!pollMs) return
     const timer = setInterval(() => void load(), pollMs)
@@ -54,10 +57,15 @@ export function DevEnvRow({ project }: { project: Project }) {
 
   if (hidden || !d) return null
   const on = d.setting.enabled && d.setting.consent?.warningVersion === d.warningVersion
+  const srt = d.warningVersion === DEV_ENV_SRT_WARNING_VERSION
   const fail = (e: unknown) => toast({ level: 'error', text: errorText(e, locale, t('error.network')) })
   const box = async (action: 'stop' | 'restart') => {
     setBusy(true)
     try { setD(await api.call(API.devEnvBox, { params: { id: project.id }, body: { action } })) } catch (e) { fail(e); void load() } finally { setBusy(false) }
+  }
+  const stopRun = async (r: DevEnvRun) => {
+    setBusy(true)
+    try { setD(await api.call(API.devEnvRunStop, { params: { id: project.id, runId: r.id } })) } catch (e) { fail(e); void load() } finally { setBusy(false) }
   }
   const preview = async () => {
     try {
@@ -68,7 +76,8 @@ export function DevEnvRow({ project }: { project: Project }) {
   const stateLabel = d.box ? t(`devEnv.state.${d.box.state}`) : t('devEnv.state.none')
   const stopped = !!d.box && d.box.state !== 'running' && (d.box.stopCode === 'disk' || d.box.stopCode === 'busy_max')
   // closed, the line says the one thing to know: off, or how the box is
-  const status = !on ? t('devEnv.off') : d.box && d.box.state !== 'none' ? stateLabel : t('devEnv.on')
+  const status = !on ? t('devEnv.off') : srt ? (d.runs.running.length ? t('devEnv.running') : t('devEnv.on')) : d.box && d.box.state !== 'none' ? stateLabel : t('devEnv.on')
+  const mayStop = d.mayUse || d.mayManage
 
   return (
     <>
@@ -77,19 +86,26 @@ export function DevEnvRow({ project }: { project: Project }) {
         icon={<TerminalSquare size={16} />}
         label={t('devEnv.title')}
         badge={<Badge tone="warn">{t('devEnv.experiment')}</Badge>}
-        meta={<span className={clsx('block first-letter:uppercase', (stopped || !d.availability.available) && 'text-warn', on && d.box?.state === 'running' && 'text-ok')}>{status}</span>}
+        meta={<span className={clsx('block first-letter:uppercase', (stopped || !d.availability.available) && 'text-warn', on && (d.box?.state === 'running' || (srt && d.runs.running.length > 0)) && 'text-ok')}>{status}</span>}
       >
         <div className="space-y-3">
           {!d.availability.available && <p className="text-faint">{t('devEnv.unavailable')}</p>}
           {(on || d.mayManage) && (
             <p className="flex items-start gap-2">
-              <span className="min-w-0 flex-1 text-xs text-faint">{on && (d.mayUse ? t('devEnv.youCanUse') : t('devEnv.readOnly'))}</span>
+              <span className="min-w-0 flex-1 text-xs text-faint">{on && (d.mayUse ? t(srt ? 'devEnv.youCanUseSrt' : 'devEnv.youCanUse') : t('devEnv.readOnly'))}</span>
               {d.mayManage && (
                 <button type="button" className="inline-flex min-h-6 shrink-0 items-center rounded-md px-2 text-xs text-muted hover:bg-hover hover:text-ink" onClick={() => setEditing(true)} data-testid="dev-env-edit">
                   {t('common.edit')}
                 </button>
               )}
             </p>
+          )}
+          {on && srt && (
+            <>
+              <RunList testId="dev-env-running" title={t('devEnv.running')} runs={d.runs.running} busy={busy} onStop={mayStop ? (r) => void stopRun(r) : null} stopLabel={t('devEnv.stop')} />
+              <RunList testId="dev-env-waiting" title={t('devEnv.waiting')} runs={d.runs.waiting} busy={busy} onStop={mayStop ? (r) => void stopRun(r) : null} stopLabel={t('devEnv.cancel')} />
+              <p className="text-xs text-faint">{t('devEnv.noPreview')}</p>
+            </>
           )}
           {on && d.box && (
             <>
@@ -167,10 +183,15 @@ function DevEnvForm({ project, d, groups, onClose, onSaved }: { project: Project
   const [accept, setAccept] = useState(false)
   const [busy, setBusy] = useState(false)
   const needsWarning = enabled && d.setting.consent?.warningVersion !== d.warningVersion
+  const srt = d.warningVersion === DEV_ENV_SRT_WARNING_VERSION
   const save = async () => {
     setBusy(true)
     try {
-      onSaved(await api.call(API.updateDevEnv, { params: { id: project.id }, body: { enabled, scope: { mode, groupIds: mode === 'selected' ? groupIds : [], userIds: [] }, network, ...(needsWarning && accept ? { acceptWarning: d.warningVersion } : {}) } }))
+      // the people chosen by name in Team settings stay (this form edits groups only)
+      const body = { enabled, scope: { mode, groupIds: mode === 'selected' ? groupIds : [], userIds: mode === 'selected' ? d.setting.scope.userIds : [] }, network, ...(needsWarning && accept ? { acceptWarning: d.warningVersion } : {}) }
+      // srt: one setting for the whole team (any chat, with or without a project); the page then reads it again
+      if (srt) { await api.call(API.updateDevEnvTeam, { body }); onSaved(await api.call(API.devEnv, { params: { id: project.id } })) }
+      else onSaved(await api.call(API.updateDevEnv, { params: { id: project.id }, body }))
     } catch (e) {
       toast({ level: 'error', text: errorText(e, locale, t('error.network')) })
     } finally { setBusy(false) }
@@ -179,11 +200,12 @@ function DevEnvForm({ project, d, groups, onClose, onSaved }: { project: Project
     <Modal open onClose={onClose} title={t('devEnv.title')} width={520}
       footer={<><Button variant="ghost" onClick={onClose}>{t('common.cancel')}</Button><Button variant="primary" busy={busy} disabled={needsWarning && !accept} onClick={() => void save()}>{t('common.save')}</Button></>}>
       <div className="space-y-4 text-sm">
+        {srt && <p className="text-xs text-muted" data-testid="dev-env-team-wide">{t('devEnv.teamWideSrt')}</p>}
         <label className="flex items-center gap-2"><input type="checkbox" checked={enabled} onChange={(e) => setEnabled(e.target.checked)} /> {t('devEnv.turnOn')}</label>
         <fieldset className="space-y-1">
           <legend className="mb-1 font-medium">{t('devEnv.who')}</legend>
-          <label className="flex items-center gap-2"><input type="radio" checked={mode === 'writers'} onChange={() => setMode('writers')} /> {t('devEnv.scopeWriters')}</label>
-          <label className="flex items-center gap-2"><input type="radio" checked={mode === 'selected'} onChange={() => setMode('selected')} /> {t('devEnv.scopeSelected')}</label>
+          <label className="flex items-center gap-2"><input type="radio" checked={mode === 'writers'} onChange={() => setMode('writers')} /> {t(srt ? 'devEnv.scopeEveryoneSrt' : 'devEnv.scopeWriters')}</label>
+          <label className="flex items-center gap-2"><input type="radio" checked={mode === 'selected'} onChange={() => setMode('selected')} /> {t(srt ? 'devEnv.scopeSelectedSrt' : 'devEnv.scopeSelected')}</label>
           {mode === 'selected' && (
             <div className="ml-6 flex flex-wrap gap-x-4 gap-y-1">
               {groups.map((g) => (
@@ -196,20 +218,46 @@ function DevEnvForm({ project, d, groups, onClose, onSaved }: { project: Project
         </fieldset>
         <Field label={t('devEnv.network')}>
           <select className={inputCls} value={network} onChange={(e) => setNetwork(e.target.value as 'open' | 'offline')}>
-            <option value="open">{t('devEnv.netOpen')}</option>
+            <option value="open">{t(srt ? 'devEnv.netAllowlist' : 'devEnv.netOpen')}</option>
             <option value="offline">{t('devEnv.netOffline')}</option>
           </select>
         </Field>
-        <p className="text-xs text-faint">{t('devEnv.diskNote')}</p>
+        <p className="text-xs text-faint">{t(srt ? 'devEnv.diskNoteSrt' : 'devEnv.diskNote')}</p>
         {enabled && d.needsFolder && <p className="rounded-lg border border-warn/40 bg-warn/10 p-3 text-xs">{t('devEnv.needsFolder')}</p>}
         {needsWarning && (
           <div className="rounded-lg border border-warn/40 bg-warn/10 p-3">
             <p className="mb-2 font-medium">{t('devEnv.warningTitle')}</p>
-            <p className="mb-2 whitespace-pre-line text-xs">{t('devEnv.warningBody')}</p>
+            <p className="mb-2 whitespace-pre-line text-xs">{t(srt ? 'devEnv.warningBodySrt' : 'devEnv.warningBody')}</p>
             <label className="flex items-center gap-2 text-xs"><input type="checkbox" checked={accept} onChange={(e) => setAccept(e.target.checked)} /> {t('devEnv.accept')}</label>
           </div>
         )}
       </div>
     </Modal>
+  )
+}
+
+/** srt runner: what runs now, or what waits in the queue (position 1 starts next). Stop on a waiting one cancels it. */
+function RunList({ testId, title, runs, busy, onStop, stopLabel }: { testId: string; title: string; runs: DevEnvRun[]; busy: boolean; onStop: ((r: DevEnvRun) => void) | null; stopLabel: string }) {
+  const t = useT()
+  const locale = useLocale()
+  if (!runs.length) return null
+  return (
+    <div data-testid={testId}>
+      <p className="mb-1 text-xs font-medium">{title}</p>
+      <ul className="space-y-1 text-xs">
+        {runs.map((r) => (
+          <li key={r.id} className="flex flex-wrap items-center gap-x-2 gap-y-0.5" data-testid="dev-env-run">
+            <span className="shrink-0 text-faint">{r.position !== null ? t('devEnv.position', { n: r.position }) : t(`devEnv.kind.${r.kind}`)}</span>
+            <span className="min-w-0 max-w-[16rem] truncate font-mono" title={r.name}>{r.name}</span>
+            <span className="shrink-0 text-faint">{r.by?.name ?? '—'} · {formatRelative(r.runAt ?? r.startedAt, locale)}</span>
+            {r.memoryMiB !== null && <span className="shrink-0 text-faint">{t('devEnv.memory', { n: Math.round(r.memoryMiB) })}</span>}
+            {onStop && (
+              <Button size="sm" variant="ghost" className="ml-auto" busy={busy} onClick={() => onStop(r)} data-testid="dev-env-run-stop"><Square size={13} aria-hidden /> {stopLabel}</Button>
+            )}
+            {r.lastLine && <span className="basis-full truncate font-mono text-faint" title={r.lastLine}>{r.lastLine}</span>}
+          </li>
+        ))}
+      </ul>
+    </div>
   )
 }
