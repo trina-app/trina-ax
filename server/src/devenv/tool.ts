@@ -66,10 +66,11 @@ export const BOX_SHELL_DESCRIPTION = 'Run a shell command in the dev environment
 /** The tool text with the srt runner (docs/research/srt-dev-env.md section 7). The runner is not locked to a project:
  * the command gets the folder access of the person of this chat. */
 export const SRT_SHELL_DESCRIPTION = 'Run a shell command in the dev environment (bash, git, node, npm, python3, pip, ffmpeg, chromium) on the team server. '
-  + 'The command has the same folder access as the person of this chat: it can read the team folders they may open and write the ones they may write (read-only where they have read access only); other folders are not there. '
+  + 'The command can read the team folders that the person of this chat may open; other folders are not there. '
+  + 'It can write only the folder it starts in and the person\'s own folder users/<id>: every other team folder is read-only in a command, also where the person may write. To save a file in another team folder, use the file tools. '
   + 'Team folders are under $TRINA_TEAM, with the same paths as in the file tools. '
   + 'In a project chat the command starts in the project folder, and changes there are shared with the team and recorded with your name. '
-  + 'In a chat with no project it starts in the chat\'s own work folder ($TRINA_WORK), which only this chat uses and which the file tools do not show: copy a result the person needs into a team folder they can write (for example their own folder users/<id>). '
+  + 'In a chat with no project it starts in the chat\'s own work folder ($TRINA_WORK), which only this chat uses and which the file tools do not show: copy a result the person needs into their own folder users/<id>, or into another team folder they can write with the file tools. '
   + 'node_modules, .venv and build output are in that folder and use team disk. '
   + 'The network reaches only allowed sites (npm, PyPI, GitHub and the sites an admin added), or nothing (the team setting). '
   + 'There are NO credentials: git push, npm publish and other commands that need a login do not work; tell the person to do them on their own computer. '
