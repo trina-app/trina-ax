@@ -6,29 +6,36 @@
 #   - node 22 in /opt/trina/node (Debian 13 has node 20; srt needs 22.12 or later, and NODE_USE_ENV_PROXY needs 22.21), from a pinned tarball;
 #   - srt in /opt/trina/srt/<version> from the pinned package-lock.json (npm ci --ignore-scripts), root-owned;
 #   - /opt/trina/devenv/run-wrap, the polkit rule for the job scopes, the <ID>-devenv.slice with the plan caps;
-#   - a drop-in of the server unit: MYCEL_DEV_ENV=1, MYCEL_DEV_ENV_RUNNER=srt, ReadWritePaths=<base>/devenv.
+#   - a drop-in of the server unit: MYCEL_DEV_ENV=1, MYCEL_DEV_ENV_RUNNER=srt, ReadWritePaths=-<base>/devenv, and an
+#     ExecStartPre=+ that makes <base>/devenv, so a new data disk never stops the server.
 # Everything that srt or a run executes is outside <base>: the srt settings hide all of <base>.
 # The first run restarts the team server, so it ends the running answers. A re-run changes only what changed.
 # uninstall-srt.sh removes it again.
-#   scripts/dev-env/srt/install-srt.sh [--id mycel] [--image-mode]
+#   scripts/dev-env/srt/install-srt.sh [--id mycel] [--image-mode | --boot]
 # --image-mode: for a template build (scripts/image/customize.sh, in a chroot or container, no running systemd). It
 # installs only what does not depend on the team: the packages, node, srt and run-wrap. No polkit rule, slice or
 # drop-in, no check of the server unit, nothing started. The dev environment stays off. A later run without
 # --image-mode on the team server turns it on, and then has nothing to download.
+# --boot: for mycel-devenv-boot (scripts/image/files, a hosted team server made from the image). It downloads nothing
+# (a missing package, node or srt is a stop), and it restarts the server only when it runs, with --no-block: at boot
+# the server waits for this script.
 set -euo pipefail
 HERE=$(cd "$(dirname "$0")" && pwd)
 ID=mycel
 IMAGE_MODE=0
+BOOT=0
 while [ $# -gt 0 ]; do
   case "$1" in
     --id) ID=${2:?}; shift 2 ;;
     --image-mode) IMAGE_MODE=1; shift ;;
+    --boot) BOOT=1; shift ;;
     *) echo "unknown option $1" >&2; exit 2 ;;
   esac
 done
 cd /
 die() { echo "install-srt: STOP: $*" >&2; exit 1; }
 say() { echo "install-srt: $*"; }
+[ "$IMAGE_MODE$BOOT" != 11 ] || die "--image-mode and --boot do not go together"
 
 SRT_VERSION=0.0.81
 NODE_VERSION=22.23.4
@@ -97,17 +104,26 @@ CPU_QUOTA=$(awk -v c="$CPUS" 'BEGIN { printf "%d%%", c * 100 }')
 TASKS_MAX=$(( PIDS * (2 * MAXRUN + 2) ))
 fi
 
-# ---- packages ----
-say "packages"
-export DEBIAN_FRONTEND=noninteractive
-apt-get update -q
-apt-get install -y -q --no-install-recommends bubblewrap socat ripgrep polkitd jq git curl ca-certificates xz-utils \
-  python3 python3-venv python3-pip ffmpeg chromium build-essential fonts-noto-cjk
+# ---- packages (no apt run when all are there: no network and no dpkg lock needed) ----
+PACKAGES="bubblewrap socat ripgrep polkitd jq git curl ca-certificates xz-utils python3 python3-venv python3-pip ffmpeg chromium build-essential fonts-noto-cjk"
+MISSING=
+for p in $PACKAGES; do
+  [ "$(dpkg-query -W -f '${db:Status-Status}' "$p" 2>/dev/null)" = installed ] || MISSING="$MISSING $p"
+done
+if [ -n "$MISSING" ]; then
+  [ "$BOOT" = 0 ] || die "packages missing:$MISSING (--boot downloads nothing; the image should have them)"
+  say "packages:$MISSING"
+  export DEBIAN_FRONTEND=noninteractive
+  apt-get update -q
+  # shellcheck disable=SC2086
+  apt-get install -y -q --no-install-recommends $PACKAGES
+fi
 dpkg --compare-versions "$(dpkg-query -W -f '${Version}' bubblewrap)" ge 0.8.0 || die "bubblewrap is older than 0.8.0"
 
 # ---- node (pinned tarball) ----
 NODE_DIR=$OPT/node-v$NODE_VERSION
 if [ ! -x "$NODE_DIR/bin/node" ]; then
+  [ "$BOOT" = 0 ] || die "no node $NODE_VERSION in $NODE_DIR (--boot downloads nothing)"
   say "node $NODE_VERSION"
   TMP=$(mktemp -d); trap 'rm -rf "$TMP"' EXIT
   TAR=node-v$NODE_VERSION-linux-$ARCH.tar.xz
@@ -124,6 +140,7 @@ ln -sfn "$NODE_DIR" "$OPT/node"
 
 # ---- srt (pinned lockfile, no install scripts) ----
 if [ ! -f "$SRT_DIR/cli.js" ] || ! cmp -s "$HERE/package-lock.json" "$SRT_DIR/package-lock.json"; then
+  [ "$BOOT" = 0 ] || die "no srt $SRT_VERSION in $SRT_DIR (--boot downloads nothing)"
   say "srt $SRT_VERSION"
   NEW=$(mktemp -d "$OPT/srt/.new.XXXXXX" 2>/dev/null || { install -d -m 755 "$OPT/srt"; mktemp -d "$OPT/srt/.new.XXXXXX"; })
   cp "$HERE/package.json" "$HERE/package-lock.json" "$NEW/"
@@ -164,7 +181,8 @@ cat > "$T" <<EOF
 # Trina dev environment on srt (scripts/dev-env/srt/install-srt.sh). Remove with uninstall-srt.sh.
 [Service]
 Environment=MYCEL_DEV_ENV=1 MYCEL_DEV_ENV_RUNNER=srt$IMDS
-ReadWritePaths=$BASE/devenv
+ReadWritePaths=-$BASE/devenv
+ExecStartPre=+/usr/bin/install -d -o $SRV_USER -g $SRV_USER -m 700 $BASE/devenv
 EOF
 DROPIN_CHANGED=0; put_changed "$T" 644 "$DROPIN" && DROPIN_CHANGED=1
 systemctl daemon-reload
@@ -180,7 +198,12 @@ if runuser -u "$SRV_USER" -- systemd-run --quiet --no-ask-password --unit="trina
 fi
 
 if [ "$DROPIN_CHANGED" = 1 ]; then
-  say "restarting $SERVER_UNIT (running answers end)"
-  systemctl restart "$SERVER_UNIT"
+  if [ "$BOOT" = 0 ]; then
+    say "restarting $SERVER_UNIT (running answers end)"
+    systemctl restart "$SERVER_UNIT"
+  elif systemctl is-active -q "$SERVER_UNIT"; then
+    say "restarting $SERVER_UNIT, not waiting (running answers end)"
+    systemctl restart --no-block "$SERVER_UNIT"
+  fi
 fi
 say "done: srt $SRT_VERSION, node $NODE_VERSION, files outside $BASE that runs cannot read: $SERVER_FILES_OUTSIDE_BASE"

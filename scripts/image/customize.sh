@@ -15,7 +15,9 @@
 #   --srt DIR            scripts/dev-env/srt of the same release (default: <src>/dev-env-srt when it exists). Its
 #                        install-srt.sh --image-mode puts the packages, node, srt and run-wrap of the dev environment
 #                        on srt into the image, so a team server never downloads them. It does not turn the dev
-#                        environment on. Without the folder the image has no srt (build.sh, Proxmox)
+#                        environment on. It also installs mycel-devenv-boot (+ .service, .path, a server drop-in):
+#                        on a hosted server it writes dev-env.json from plan.json and runs install-srt.sh --boot.
+#                        Without the folder the image has no srt (build.sh, Proxmox)
 #   --template-version V written to /etc/ax-template.json (build.sh passes <kitVersion>-d13-<yyyymmdd>)
 #   --allow-missing-kit  pipeline dry run: everything except the kit; the image is marked "not for production"
 #   --no-cleanup         keep apt lists, machine-id, logs (debugging)
@@ -46,7 +48,7 @@ while [[ $# -gt 0 ]]; do
     --template-version) TEMPLATE_VERSION="$2"; shift 2 ;;
     --allow-missing-kit) ALLOW_MISSING_KIT=1; shift ;;
     --no-cleanup) CLEANUP=0; shift ;;
-    -h|--help) sed -n '2,27p' "$0"; exit 0 ;;
+    -h|--help) sed -n '2,29p' "$0"; exit 0 ;;
     *) echo "customize.sh: unknown argument $1" >&2; exit 2 ;;
   esac
 done
@@ -283,6 +285,12 @@ if [[ -n "$SRT" ]]; then
     rm -rf "$LIBDIR/dev-env/srt"; mv "$LIBDIR/dev-env/srt.new" "$LIBDIR/dev-env/srt"
   fi
   [[ "$(srt_state)" == "$before" ]] || changed "dev environment on srt (image part)"
+  # hosted team servers: at each server start (and when plan.json changes) mycel-devenv-boot writes dev-env.json from
+  # the plan and runs install-srt.sh --boot (docs/research/srt-hosted-boot.md). The team admin still turns it on.
+  put_file "$FILES/mycel-devenv-boot" /usr/local/sbin/mycel-devenv-boot 0755
+  put_file "$FILES/mycel-devenv-boot.service" /etc/systemd/system/mycel-devenv-boot.service 0644
+  put_file "$FILES/mycel-devenv-plan.path" /etc/systemd/system/mycel-devenv-plan.path 0644
+  put_file "$FILES/20-devenv-boot.conf" /etc/systemd/system/mycel-server.service.d/20-devenv-boot.conf 0644
   SRT_STATE=present
 else
   say "warning: no --srt folder: this image has no dev environment on srt"

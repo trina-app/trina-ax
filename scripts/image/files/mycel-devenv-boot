@@ -1,0 +1,104 @@
+#!/bin/bash
+# Team AX hosted team server: put the dev environment on srt in place from the plan (docs/research/srt-hosted-boot.md).
+# Installed by scripts/image/customize.sh as /usr/local/sbin/mycel-devenv-boot. mycel-devenv-boot.service runs it before
+# mycel-server starts, and mycel-devenv-plan.path runs it again when <base>/root/plan.json changes.
+#
+#   mycel-devenv-boot            read plan.json, write <base>/root/dev-env.json, run install-srt.sh --boot
+#   mycel-devenv-boot --map FILE print the dev-env.json for the plan.json FILE (tests); not 0 if the plan has none
+#
+# It never stops the boot: every failure is logged, and the exit code is 0. The server then starts without the dev
+# environment, or with the state of the last good run.
+#
+# The dev environment stays OFF for the team after this: it only shows the section in Admin > Team settings
+# (MYCEL_DEV_ENV=1). A team admin must turn it on and accept the warning (server/src/devenv/setting.ts).
+#
+# Mapping (the Starter plan: 4096 MiB, 2 vCPU is the reference; u = plan memoryMiB / 4096):
+#   memoryMiB  = 1536 * u        (Starter 1536, Team 3072, Business 6144), at most 8192
+#   cpus       = 0.75 * cpuCores (Starter 1.5,  Team 1.5,  Business 3),    at most 4
+#   pids       = 512 * u         (Starter 512,  Team 1024, Business 2048), at most 4096
+#   diskGiB    = 8 * u           (Starter 8,    Team 16,   Business 32),   at most 32 (srt does not use it)
+#   maxRunning = 1 + log2(u)     (Starter 1,    Team 2,    Business 3),    at most 4
+#   network    = open
+# A plan under 4096 MiB (Free, the old trial) gets NO dev environment: no dev-env.json, no server drop-in.
+set -uo pipefail
+export LC_ALL=C.UTF-8 PATH="${PATH:+$PATH:}/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+
+ID=${MYCEL_DEVENV_ID:-mycel}
+BASE=${MYCEL_DEVENV_BASE:-/var/lib/$ID}
+SRT_DIR=${MYCEL_DEVENV_SRT:-/usr/lib/mycel/dev-env/srt}
+PLAN=$BASE/root/plan.json
+ENT=$BASE/root/dev-env.json
+DROPIN=/etc/systemd/system/$ID-server.service.d/dev-env.conf
+MIN_PLAN_MIB=4096
+
+say() { echo "mycel-devenv-boot: $*"; }
+
+# map PLANFILE: the dev-env.json text on stdout; exit 1 (with a reason on stderr) when the plan has no dev environment
+map() {
+  jq -ce --argjson min "$MIN_PLAN_MIB" '
+    def int: (. | floor);
+    if (.format != 1) or ((.plan|type) != "string") or ((.memoryMiB|type) != "number") or ((.cpuCores|type) != "number")
+    then error("plan.json: not a format 1 plan with memoryMiB and cpuCores")
+    elif .memoryMiB < $min then error("plan \(.plan) has \(.memoryMiB) MiB, under \($min): no dev environment")
+    else
+      (.memoryMiB / 4096) as $u
+      | {format: 1,
+         plan: .plan,
+         maxRunning: ([4, (if $u >= 8 then 4 elif $u >= 4 then 3 elif $u >= 2 then 2 else 1 end)] | min),
+         cpus: ([4, ([0.25, ((.cpuCores * 0.75 * 100 | floor) / 100)] | max)] | min),
+         memoryMiB: ([8192, (1536 * $u | int)] | min),
+         pids: ([4096, (512 * $u | int)] | min),
+         diskGiB: ([32, ([1, (8 * $u | int)] | max)] | min),
+         network: "open"}
+    end' "$1"
+}
+
+if [ "${1:-}" = --map ]; then
+  [ -n "${2:-}" ] || { echo "usage: mycel-devenv-boot --map plan.json" >&2; exit 2; }
+  map "$2"; exit $?
+fi
+
+# off: a plan without a dev environment (a move down to Free). Remove the file and the server switch. node, srt and the
+# packages stay (they are part of the image).
+off() {
+  local changed=0
+  if [ -e "$ENT" ]; then rm -f "$ENT"; changed=1; say "removed $ENT"; fi
+  if grep -qs MYCEL_DEV_ENV_RUNNER=srt "$DROPIN"; then rm -f "$DROPIN"; changed=1; say "removed $DROPIN"; fi
+  if [ "$changed" = 1 ]; then
+    systemctl daemon-reload || true
+    if systemctl is-active -q "$ID-server.service"; then systemctl restart --no-block "$ID-server.service" || true; fi
+  fi
+}
+
+main() {
+  [ "$(id -u)" = 0 ] || { say "not root: nothing done"; return 0; }
+  [ -f "$SRT_DIR/install-srt.sh" ] || { say "no $SRT_DIR/install-srt.sh (an image without srt): nothing done"; return 0; }
+  [ -f "$BASE/root/install.json" ] || { say "no $BASE/root/install.json (data disk not set up yet): nothing done"; return 0; }
+  if ! grep -Eq '"hosted"[[:space:]]*:[[:space:]]*true' "$BASE/root/install.json"; then
+    say "not a hosted server: nothing done (self-hosted servers run install-srt.sh by hand)"; return 0
+  fi
+  [ -f "$PLAN" ] || { say "no $PLAN yet: nothing done (mycel-devenv-plan.path runs this again when it comes)"; return 0; }
+
+  local text
+  if ! text=$(map "$PLAN" 2>&1); then
+    say "$(printf '%s' "${text:-cannot read $PLAN}" | head -c 300)"
+    case "$text" in *"no dev environment"*) off ;; esac
+    return 0
+  fi
+
+  # write dev-env.json (root 0644) only when the bytes change: the server reads it again by its time stamp
+  if [ "$(cat "$ENT" 2>/dev/null)" != "$text" ]; then
+    local tmp="$BASE/root/.dev-env.json.$$"
+    if printf '%s\n' "$text" > "$tmp" && chown root:root "$tmp" && chmod 644 "$tmp" && mv -f "$tmp" "$ENT"; then
+      say "wrote $ENT: $text"
+    else
+      rm -f "$tmp"; say "cannot write $ENT: nothing more done"; return 0
+    fi
+  fi
+
+  bash "$SRT_DIR/install-srt.sh" --id "$ID" --boot || say "install-srt.sh --boot failed (exit $?): the server starts with the last good state"
+  return 0
+}
+
+main "$@" || true
+exit 0
