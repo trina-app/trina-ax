@@ -28,6 +28,7 @@ import type { BoxdExit, BoxdJob } from '@mycel/shared'
 import type { AppContext } from '../../context'
 import { newId } from '../../db'
 import { storageRoom } from '../../system/storage'
+import { resolveLayout } from '../../system/layout'
 import { mayUseDevEnv, teamSetting } from '../setting'
 import { folderView, viewAccess, viewHash, type FolderView } from './access'
 import { RUN_ID_RE, chatWork, devenvPaths, personHome, personLogs, resolveRunCwd, runEnv, settingsProblems, srtSettings, unitName, UNIT_RE } from './config'
@@ -212,6 +213,16 @@ function prepare(c: SrtConfig, userId: string) {
   return { ...p, personHome: home, personLogs: logs }
 }
 
+/** The server's own folders and files, from the server's config (not from the base folder of the env): the data
+ * folder (the DB), the sockets, the engine folders, the secrets, the config file and the TLS key. srtSettings hides the
+ * ones outside the base folder, and settingsProblems refuses a run when one is not hidden. Only paths that exist. */
+export function serverPaths(ctx: Pick<AppContext, 'config' | 'engineConfig'>): string[] {
+  const out: (string | null | undefined)[] = [ctx.config.dataDir, ctx.engineConfig.runDir, ctx.engineConfig.agentRoot, ctx.config.engine.launcherSock,
+    ctx.config.configFile, ctx.config.tls?.keyFile]
+  try { out.push(resolveLayout(ctx.config).secretsDir) } catch {}
+  return [...new Set(out.filter((p): p is string => !!p && path.isAbsolute(p) && fs.existsSync(p)).map((p) => path.resolve(p)))]
+}
+
 /** The settings of a run, checked; throws with the reason when the run must not start. */
 async function settingsFor(ctx: AppContext, c: SrtConfig, space: Space, network: 'open' | 'offline') {
   const view = personView(ctx, space.userId)
@@ -223,6 +234,7 @@ async function settingsFor(ctx: AppContext, c: SrtConfig, space: Space, network:
     extraDomains: teamSetting(ctx.db).extraDomains,
     denyHosts: teamHosts(ctx),
     denyAddrs: [...listEnv(process.env.MYCEL_DEV_ENV_DENY_ADDRS), ...await publicIps()],
+    serverPaths: serverPaths(ctx),
   }
   const settings = srtSettings(input)
   const problems = settingsProblems(settings, input)
@@ -319,7 +331,7 @@ export function commandSlotFree(ctx: AppContext): { ok: true } | { ok: false; me
 
 /** A foreground command: the call waits for it. The answer has the shape of boxd's exec answer, so tool.ts reads both
  * runners the same way. */
-export async function runCommand(ctx: AppContext, o: { space: Space; cwd: string; command: string; timeoutMs: number; signal?: AbortSignal }): Promise<{ ok: true; value: BoxdExit } | { ok: false; message: string }> {
+export async function runCommand(ctx: AppContext, o: { space: Space; cwd: string; command: string; shown?: string; timeoutMs: number; signal?: AbortSignal }): Promise<{ ok: true; value: BoxdExit } | { ok: false; message: string }> {
   const c = srtConfig()
   const lim = limitsFor(ctx)
   if (!lim.ok) return lim
@@ -330,7 +342,8 @@ export async function runCommand(ctx: AppContext, o: { space: Space; cwd: string
     const p = prepare(c, o.space.userId)
     const out = path.join(p.personLogs, `cmd-${runId}.out`), err = path.join(p.personLogs, `cmd-${runId}.err`), exitFile = path.join(p.personLogs, `${runId}.exit`)
     const started = Date.now()
-    const a: Active = { runId, space: o.space, kind: 'command', command: o.command.slice(0, 300), startedAt: new Date(started).toISOString(), pid: 0, stopReason: null }
+    // the lists show this text to other people: the command with secrets hidden, as in a job's row
+    const a: Active = { runId, space: o.space, kind: 'command', command: (o.shown ?? o.command).slice(0, 300), startedAt: new Date(started).toISOString(), pid: 0, stopReason: null }
     active.set(runId, a)
     let oom = false
     try {
@@ -420,8 +433,21 @@ export async function submitJob(ctx: AppContext, j: NewRow): Promise<SubmitResul
   return { ok: true, state: 'waiting', position: pos, rowId: id }
 }
 
+/** One start at a time. The tracker, submitJob and every box_shell call (pollSrt) start waiting jobs; two of them
+ * must not take the same row (the second one ended a running job as "lost" and left its scope with no row), or
+ * start more than maxRunning. */
+let startChain: Promise<unknown> = Promise.resolve()
+function oneStart<T>(fn: () => Promise<T>): Promise<T> {
+  const next = startChain.then(fn, fn)
+  startChain = next.catch(() => {})
+  return next
+}
+
 /** Start a dev server now, or refuse (no queue). */
-export async function startServer(ctx: AppContext, j: NewRow): Promise<{ ok: true; rowId: string } | { ok: false; message: string }> {
+export function startServer(ctx: AppContext, j: NewRow): Promise<{ ok: true; rowId: string } | { ok: false; message: string }> {
+  return oneStart(() => startServerNow(ctx, j))
+}
+async function startServerNow(ctx: AppContext, j: NewRow): Promise<{ ok: true; rowId: string } | { ok: false; message: string }> {
   const lim = limitsFor(ctx)
   if (!lim.ok) return lim
   const servers = openRuns(ctx.db, 'running', 'server')
@@ -467,7 +493,15 @@ async function startRow(ctx: AppContext, row: RunRow): Promise<{ ok: true } | { 
     })
     active.set(runId, { runId, space, kind: row.kind, command: row.command.slice(0, 300), startedAt: new Date().toISOString(), pid: sp.pid, stopReason: null, rowId: row.id })
     void sp.exited.then(() => { const a = active.get(runId); if (a) active.delete(runId) })
-    ctx.db.query("UPDATE dev_env_runs SET state = 'running', run_at = ?, unit = ?, access = ? WHERE id = ?").run(new Date().toISOString(), unitName(runId), accessHashFrom(ctx, row.user_id, sp.hash), row.id)
+    const set = ctx.db.query("UPDATE dev_env_runs SET state = 'running', run_at = ?, unit = ?, access = ? WHERE id = ? AND ended_at IS NULL").run(new Date().toISOString(), unitName(runId), accessHashFrom(ctx, row.user_id, sp.hash), row.id)
+    if (!set.changes) {
+      // the row ended while the run started (a stop of a waiting job): no run may live with no open row
+      const a = active.get(runId)
+      if (a) a.stopReason = 'stopped'
+      await c.system.stop(runId, sp.pid)
+      active.delete(runId)
+      return { ok: false, message: 'the job was stopped before it started' }
+    }
     return { ok: true }
   } catch (e) {
     const m = (e as Error).message.slice(0, 300)
@@ -479,12 +513,17 @@ async function startRow(ctx: AppContext, row: RunRow): Promise<{ ok: true } | { 
 const accessHashFrom = (ctx: AppContext, userId: string, viewHashValue: string) => (mayUseDevEnv(ctx.db, ctx.files, userId) ? viewHashValue : 'off')
 
 /** Start waiting jobs while there are free slots, oldest first. Expired ones end. */
-export async function startWaiting(ctx: AppContext): Promise<void> {
+export function startWaiting(ctx: AppContext): Promise<void> {
+  return oneStart(() => startWaitingNow(ctx))
+}
+async function startWaitingNow(ctx: AppContext): Promise<void> {
   const p = planState()
   const max = p.ok ? (p.plan?.maxRunning ?? NO_PLAN_MAX_RUNNING) : 0
   for (const w of openRuns(ctx.db, 'waiting', 'job')) {
     if (Date.now() - Date.parse(w.started_at) > WAIT_MAX_MS) { takeCommand(srtConfig(), w.id); ender(ctx, w.id, { code: null, reason: 'expired', tail: '', lastLine: '' }); continue }
     if (openRuns(ctx.db, 'running', 'job').length >= max) return
+    // read again: an earlier start in this loop awaited, and a stop may have ended this row meanwhile
+    if (!ctx.db.query("SELECT 1 FROM dev_env_runs WHERE id = ? AND state = 'waiting' AND ended_at IS NULL").get(w.id)) continue
     await startRow(ctx, w)
   }
 }

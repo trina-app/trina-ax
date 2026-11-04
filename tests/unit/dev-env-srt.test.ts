@@ -136,6 +136,14 @@ describe('the srt settings file', () => {
     expect(s.network.deniedResolvedAddresses).toEqual([...DENIED_RANGES, '3.3.3.3'])
     expect(srtSettings({ ...input, network: 'offline' }).network.allowedDomains).toEqual([])
   })
+  test('server paths outside the base folder are hidden too (a wrong base in the env fails closed)', () => {
+    const sp = ['/srv/trina/data', '/srv/trina/secrets', BASE + '/data']
+    const s = srtSettings({ ...input, serverPaths: sp })
+    expect(s.filesystem.denyRead).toEqual(expect.arrayContaining(['/srv/trina/data', '/srv/trina/secrets']))
+    expect(s.filesystem.denyRead).not.toContain(BASE + '/data') // inside the base: hidden already
+    expect(settingsProblems(s, { ...input, serverPaths: sp })).toEqual([])
+    expect(settingsProblems(srtSettings(input), { ...input, serverPaths: sp }).join()).toContain('a server path is not hidden: /srv/trina/data')
+  })
   test('a team folder outside the base folder is hidden too', () => {
     const s = srtSettings({ ...input, teamRoot: '/srv/team' })
     expect(s.filesystem.denyRead).toContain('/srv/team')
@@ -257,6 +265,16 @@ describe('srt\'s write denies in a shared cwd (placeholders.ts)', () => {
     expect(fs.readFileSync(path.join(d, '.bashrc'), 'utf8')).toBe('mine\n')
     expect(_held().size).toBe(0)
     fs.rmSync(d, { recursive: true, force: true })
+  })
+  test('never through a link: a .claude link to a server folder gets no folders made in it', () => {
+    const d = fs.mkdtempSync(path.join(os.tmpdir(), 'srt-ph-'))
+    const outside = fs.mkdtempSync(path.join(os.tmpdir(), 'srt-ph-out-'))
+    fs.symlinkSync(outside, path.join(d, '.claude'))
+    const rel = holdPlaceholders(d)
+    expect(fs.readdirSync(outside)).toEqual([])
+    rel()
+    expect(fs.lstatSync(path.join(d, '.claude')).isSymbolicLink()).toBe(true)
+    fs.rmSync(d, { recursive: true, force: true }); fs.rmSync(outside, { recursive: true, force: true })
   })
 })
 
@@ -746,3 +764,52 @@ describe('the team\'s sites (admins)', () => {
 })
 
 function writeTmp(t: string) { const f = path.join(devBase, `t-${newRunId()}.json`); fs.writeFileSync(f, t); return f }
+
+describe('starts that meet (one start at a time)', () => {
+  /** the fake's spawn waits for this gate: the start is slow, as with systemctl or the IMDS call */
+  let open!: () => void
+  const gated = () => {
+    const gate = new Promise<void>((r) => { open = r })
+    setSrtSystem({ ...fake, spawn: (spec: SpawnSpec) => gate.then(() => fake.spawn(spec)) } as unknown as SrtSystem, { base: devBase, id: 'mycel', plan: STARTER })
+  }
+  test('two polls at the same time start a waiting job once, and never end it "lost"', async () => {
+    await alice().call({ command: 'sleep', job: true, log_name: 'one' })
+    await shell('bob', null, chatBob).call({ command: 'sleep', job: true, log_name: 'two' })
+    finish(runIdOfRow(rows()[0]!), 0)
+    gated()
+    const p1 = pollSrt(h.ctx), p2 = pollSrt(h.ctx)
+    await Bun.sleep(20)
+    open()
+    await Promise.all([p1, p2])
+    expect(rows().map((r) => [r.name, r.state, r.end_reason])).toEqual([['one', 'ended', 'exit'], ['two', 'running', '']])
+    expect([...runs.values()].filter((r) => r.state === 'active')).toHaveLength(1)
+  })
+  test('a waiting job stopped while it starts: its run is stopped too, no run lives with no open row', async () => {
+    await alice().call({ command: 'sleep', job: true, log_name: 'one' })
+    await shell('bob', null, chatBob).call({ command: 'sleep', job: true, log_name: 'two' })
+    finish(runIdOfRow(rows()[0]!), 0)
+    gated()
+    const p = pollSrt(h.ctx)
+    await Bun.sleep(20)
+    await h.api('bob').call(API.stopMyDevEnvRun, { params: { runId: String(rows()[1]!.id) } })
+    open()
+    await p
+    expect(rows()[1]).toMatchObject({ state: 'ended', end_reason: 'stopped' })
+    expect([...runs.values()].filter((r) => r.state === 'active')).toHaveLength(0)
+  })
+  test('a running command shows with its secrets hidden in the lists', async () => {
+    gated()
+    const p = alice().call({ command: 'echo hunter2' })
+    await Bun.sleep(20)
+    const page = await h.api('alice').call(API.devEnv, { params: { id: falconId } })
+    expect(page.runs.running.map((x) => x.name)).toEqual(['echo [hidden]'])
+    open()
+    expect(out(await p)).toContain('Exit code 0.')
+    // the run itself gets the real command
+    expect([...runs.values()][0]!.spec.command).toBe('echo hunter2')
+  })
+  test('the server\'s data folder is hidden from a run even outside the base folder', async () => {
+    await alice().call({ command: 'echo x' })
+    expect(lastSettings().filesystem.denyRead).toContain(path.resolve(h.ctx.config.dataDir))
+  })
+})

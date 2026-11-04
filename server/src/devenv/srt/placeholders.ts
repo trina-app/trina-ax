@@ -24,6 +24,9 @@ export function holdPlaceholders(cwd: string): () => void {
     const make = (rel: string, dir: boolean) => {
       const p = path.join(key, rel)
       try {
+        // never through a link: a run can make .claude a link to a server folder, and mkdir follows a link in the
+        // middle of a path
+        if (path.dirname(p) !== key && !fs.lstatSync(path.dirname(p)).isDirectory()) return
         if (dir) fs.mkdirSync(p)
         else fs.closeSync(fs.openSync(p, fs.constants.O_WRONLY | fs.constants.O_CREAT | fs.constants.O_EXCL | fs.constants.O_NOFOLLOW, 0o644))
         made.push(p)

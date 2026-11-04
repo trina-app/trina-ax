@@ -158,7 +158,7 @@ async function srtShell(h: BoxShellHost, input: BoxShellInput, o: { space: Space
     const base = { space, turnId: h.turnId, command: input.command, shown, cwd }
     if (jobName) return { kind: 'job', r: await submitJob(ctx, { ...base, name: jobName }) }
     if (background) return { kind: 'server', r: await startServer(ctx, { ...base, name: input.log_name ?? 'background' }) }
-    return { kind: 'exit', r: await runCommand(ctx, { space, cwd, command: input.command, timeoutMs, signal: h.signal }) }
+    return { kind: 'exit', r: await runCommand(ctx, { space, cwd, command: input.command, shown, timeoutMs, signal: h.signal }) }
   }
   let w: Window & { value: Out }
   if (o.tracked) {

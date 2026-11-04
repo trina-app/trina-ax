@@ -75,6 +75,9 @@ export interface SettingsInput {
   denyHosts: readonly string[]
   /** this VM's public IPs and other addresses to refuse */
   denyAddrs: readonly string[]
+  /** server folders and files that must be hidden even when they are outside the base folder (data folder, sockets,
+   * engine folders, config file, secrets, TLS key). A path inside the base folder is hidden already. */
+  serverPaths?: readonly string[]
 }
 
 const abs = (teamRoot: string, rel: string) => (rel === '' ? teamRoot : path.join(teamRoot, rel))
@@ -90,7 +93,7 @@ export function srtSettings(i: SettingsInput) {
     filesystem: {
       // the whole base folder, not a list of its folders: a file made later in a hidden folder stays hidden
       denyRead: uniq([i.base, ...(inside(i.teamRoot, i.base) ? [] : [i.teamRoot]), ...serverFilesOutsideBase(i.id), ...DENIED_SYSTEM_PATHS,
-        ...fixedHidden, ...i.view.denyRead.map((r) => abs(i.teamRoot, r))]),
+        ...(i.serverPaths ?? []).filter((p) => !inside(p, i.base)), ...fixedHidden, ...i.view.denyRead.map((r) => abs(i.teamRoot, r))]),
       allowRead: uniq([...i.view.read, ...i.view.write].map((r) => abs(i.teamRoot, r)).concat([home, logs], i.work ? [i.work] : [])),
       allowWrite: uniq(i.view.write.map((r) => abs(i.teamRoot, r)).concat([home], i.work ? [i.work] : [])),
       denyWrite: uniq(i.view.denyWrite.map((r) => abs(i.teamRoot, r))),
@@ -111,7 +114,7 @@ const inside = (child: string, parent: string) => child === parent || child.star
 
 /** Checks that a settings file keeps the rules of the design. Returns the problems (empty = good). The runner calls it
  * before every spawn, so a bug in the builder does not reach srt. */
-export function settingsProblems(s: ReturnType<typeof srtSettings>, i: Pick<SettingsInput, 'base' | 'teamRoot' | 'userId' | 'work'>): string[] {
+export function settingsProblems(s: ReturnType<typeof srtSettings>, i: Pick<SettingsInput, 'base' | 'teamRoot' | 'userId' | 'work' | 'serverPaths'>): string[] {
   const out: string[] = []
   const deny = s.filesystem.denyRead
   const users = path.join(i.teamRoot, 'users'), own = path.join(users, i.userId), system = path.join(i.teamRoot, PRODUCT.systemDir)
@@ -120,6 +123,8 @@ export function settingsProblems(s: ReturnType<typeof srtSettings>, i: Pick<Sett
   if (!deny.some((d) => inside(i.teamRoot, d))) out.push('the team folder is not hidden')
   if (!deny.includes(users)) out.push('the personal folders are not hidden')
   if (!deny.includes(system)) out.push('the system folder is not hidden')
+  // a base folder from the environment that is not the real one must not show the server's data (fail closed)
+  for (const sp of i.serverPaths ?? []) if (!deny.some((d) => inside(sp, d))) out.push(`a server path is not hidden: ${sp}`)
   if (i.work !== null && !inside(i.work, devenvPaths(i.base).work)) out.push(`the work folder is not in the base folder's devenv/work: ${i.work}`)
   /** a path a run may get: a team folder (not .system, not another person's personal folder), the home, the work folder */
   const allowed = (p: string, extra: string[]) => {
