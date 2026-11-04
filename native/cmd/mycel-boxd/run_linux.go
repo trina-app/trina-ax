@@ -24,6 +24,8 @@ import (
 	"time"
 
 	"golang.org/x/sys/unix"
+
+	"mycel/native/internal/plan"
 )
 
 var acct struct {
@@ -68,6 +70,24 @@ func setup() error {
 	avail.checks["memory"] = strconv.FormatInt(mem/1024, 10) + " MiB"
 	if why := hostMemoryProblem(mem); why != "" {
 		return fail(why)
+	}
+	if *limitsF != "" {
+		e, planMiB, err := loadEntitlement(*limitsF)
+		if err != nil {
+			return fail(err.Error())
+		}
+		if why := planMemoryProblem(mem, planMiB, e.MemoryMiB); why != "" {
+			return fail(why)
+		}
+		ent = e
+		if e.MaxRunning < *maxBoxes {
+			*maxBoxes = e.MaxRunning
+		}
+		netw := e.Network
+		if netw == "" {
+			netw = "offline"
+		}
+		avail.checks["plan"] = fmt.Sprintf("%s: %d box, %g CPU, %d MiB, %d GiB, network %s", e.Plan, *maxBoxes, e.CPUs, e.MemoryMiB, e.DiskGiB, netw)
 	}
 	avail.checks["kernel"] = unix.ByteSliceToString(uts.Release[:])
 	if !kernelAtLeast(avail.checks["kernel"], 5, 19) {
@@ -134,6 +154,39 @@ func setup() error {
 	avail.ok = true
 	avail.reason = ""
 	return nil
+}
+
+// loadEntitlement reads --limits-file and the plan.json next to it. Root runs this, and the server account must not be
+// able to change either file: each must be a regular file of root's that only root may write, in a folder of root's that
+// only root may write. A missing file means the plan has no dev environment.
+func loadEntitlement(file string) (*entitlement, int, error) {
+	dir := filepath.Dir(file)
+	for _, p := range []string{dir, file, filepath.Join(dir, "plan.json")} {
+		st, err := os.Lstat(p)
+		if os.IsNotExist(err) && p == file {
+			return nil, 0, errors.New("this team's plan does not include the dev environment (no " + file + ")")
+		}
+		if err != nil {
+			return nil, 0, fmt.Errorf("cannot read %s: %v", p, err)
+		}
+		s := st.Sys().(*syscall.Stat_t)
+		if p != dir && !st.Mode().IsRegular() || p == dir && !st.IsDir() || s.Uid != 0 || st.Mode().Perm()&0o022 != 0 {
+			return nil, 0, errors.New(p + " must belong to root, and only root may write to it")
+		}
+	}
+	b, err := os.ReadFile(file)
+	if err != nil {
+		return nil, 0, err
+	}
+	e, err := parseEntitlement(b)
+	if err != nil {
+		return nil, 0, err
+	}
+	l, ok, err := plan.Load(filepath.Join(dir, "plan.json"))
+	if err != nil || !ok {
+		return nil, 0, fmt.Errorf("cannot read the plan next to %s: %v", file, err)
+	}
+	return e, l.MemoryMiB, nil
 }
 
 func kernelAtLeast(rel string, maj, min int) bool {
