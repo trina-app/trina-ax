@@ -3,13 +3,16 @@
 // users/<me>/skills/, marked "Personal"); choosing one writes "/<name> " and the server puts that
 // skill in front of the message (server/src/chat/skills.ts). Arrow keys move, Enter / Tab choose, Esc closes. Every
 // match is in the list, which scrolls (like Claude Code's "/" menu): the arrow keys keep the chosen row in sight, so a
-// sixth or a twentieth skill is as easy to reach as the first, on a phone as well.
+// sixth or a twentieth skill is as easy to reach as the first, on a phone as well. A skill with a form (metadata
+// `inputs`) opens it (skills/SkillForm.tsx): its values come back as the message, ready to send; closing the form
+// leaves "/<name> " for a free request.
 import clsx from 'clsx'
 import { Sparkles } from 'lucide-react'
 import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react'
 import type { SkillInfo } from '@mycel/shared/api'
 import { api, API } from '../../lib/api'
 import { useT } from '../../i18n'
+import { SkillFormDialog } from '../skills/SkillForm'
 
 /** The skills that fit what is typed after "/" (null: not a skill command, the menu stays closed). All of them. */
 export function matchSkills(skills: SkillInfo[], text: string): SkillInfo[] | null {
@@ -36,6 +39,7 @@ export function useSkillMenu(text: string, setText: (s: string) => void) {
   const [closedFor, setClosedFor] = useState<string | null>(null)
   const listRef = useRef<HTMLUListElement>(null)
   const pointer = useRef<{ x: number; y: number } | null>(null)
+  const [form, setForm] = useState<SkillInfo | null>(null)
   const wanted = text.startsWith('/')
   // loaded each time a message starts with "/" (a skill saved a moment ago shows up without a reload)
   useEffect(() => {
@@ -57,7 +61,10 @@ export function useSkillMenu(text: string, setText: (s: string) => void) {
     list.scrollTop = scrollToShow({ top: row.offsetTop, height: row.offsetHeight }, { scrollTop: list.scrollTop, height: list.clientHeight })
   }, [active, hits])
 
-  const choose = (s: SkillInfo) => setText(`/${s.name} `)
+  const choose = (s: SkillInfo) => {
+    setText(`/${s.name} `)
+    if (s.inputs?.length) setForm(s)
+  }
   /** Handles the key when the menu is open; true = handled (don't send the message). */
   const onKeyDown = (e: KeyboardEvent): boolean => {
     if (!open || e.nativeEvent.isComposing) return false
@@ -79,7 +86,8 @@ export function useSkillMenu(text: string, setText: (s: string) => void) {
     return false
   }
 
-  const menu = open ? (
+  const dialog = form ? <SkillFormDialog path={form.path} skill={form} onClose={() => setForm(null)} onCompose={setText} /> : null
+  const list = open ? (
     <div className="px-3 pt-3" data-testid="skill-menu">
       <div className="mb-1 flex items-center justify-between px-2 text-xs text-faint">
         <span className="flex items-center gap-1.5 font-medium text-muted"><Sparkles size={13} aria-hidden /> {t('skills.menu')}</span>
@@ -117,5 +125,6 @@ export function useSkillMenu(text: string, setText: (s: string) => void) {
       </ul>
     </div>
   ) : null
+  const menu = list || dialog ? <>{list}{dialog}</> : null
   return { menu, onKeyDown }
 }

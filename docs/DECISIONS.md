@@ -6728,3 +6728,64 @@ Decided by the owner on 2026-11-04: "한국인들만 플러그인으로 넣을�
 - **This takes away something 0.3.0 shipped**: 0.3.0 (released 2026-11-04) and 0.4.0-beta.1 (beta channel, the same day) offered make_file .hwpx and edit_hwp on every server. Teams that use them must install and turn on the plugin after updating, and a Debian 12 server loses them. Under the 0.x rule (docs/RELEASE-CI.md "Version numbers") this goes out in a MINOR over 0.3.0 (the 0.4.0 line) with the upgrade note at the top of the release's CHANGELOG section saying what breaks and what to do; the notes of 0.3.0 and 0.4.0-beta.1 are not changed. Not done: turning the plugin on by itself for servers that already used Hangul writing (it would install a native package without an admin's approval of its permissions).
 - Tests: `tests/unit/plugins-hwp-writing.test.ts` (no plugin, installed only, on with a renderer that cannot run and without the page-image permission, make_file .hwpx with a team template, turned off, on, removed and installed again while the server runs, a withdrawn build; reading, grep, the download and the guard in every state; the MCP list and the turn's entries agree), `tests/unit/plugins-hwp.test.ts` (the real package with rhwp: writing follows install, enable, the page-image permission, update, rollback, disable, a replaced executable, a broken store and removal), `tests/unit/i-wiring.test.ts` (a chat turn: tools, instructions, the refusal before the wider-audience card and its audit line; the plugin turned off during a turn, so the next edit_hwp is refused before any card; a resumed session told that writing was turned on, and losing edit_hwp when it is turned off), `web/test/e2e/plugins.spec.ts` (the line on the cards and in the prompt, Korean and English). The tool-path tests of the writers turn the plugin on in their setup (`tests/lib/hwp-plugin.ts`: the rows an install writes, with a stand-in renderer that is never run).
 - **Independent review** (a fresh agent given the diff and the requirements) confirmed one must-fix and two should-fixes, all fixed: the branch was based before Release 0.3.0, which shipped the writer ungated, so the notes saying nothing released was taken away were wrong (rebased; the upgrade note and the entry above say what breaks); a resumed Claude session kept its first instructions, so a chat that started with the plugin off was never told it was turned on (the turn context, with a test); and no test turned the plugin off during a turn, so the refusal of edit_hwp before any card was not covered (a test that fails when that refusal is limited to make_file). It traced every other way to the writers (MCP with and without a turn, sub-agents, the API and Codex engines, the model proxy's tool list, confidential chats, scheduled runs, REST) and found none open while the plugin is off; removing or weakening each part of the gate made tests fail. Left as they are (nits): a `listing()` that throws falls back to the full description (make_file's gate never throws, and the call is refused anyway); the refusal on a connection without a chat uses the person's saved language; on Debian 12 the refusal still says an admin can install the plugin, and Admin › Plugins then says why not.
+
+## C. Onboarding: marketing skill pack and skill forms (feat/onboarding-c, 2026-11-04)
+
+Placement: Trina AX (this repository), the skills and files core; nothing about plans or hosting. Part of wave 1 of
+the team-led onboarding (stream C); the wave-2 welcome steps reuse what is here.
+
+- **Plain files, not a plugin skill pack.** `POST /api/onboarding/packs/:id/install` (owners and admins, id
+  `marketing`, `server/src/onboarding/skill-packs.ts`) writes seven skills to `skills/marketing/<name>/SKILL.md` and
+  four team folders under `shared/` (브랜드, 캠페인, 보고서, 경쟁사; named in the team language in all five). A
+  plugin `skill-pack` (see "Plugins, stage 1") is a managed copy nobody can edit, needs a signed package (the trust
+  root is still empty) and is meant for company-wide packs; a starter pack is a starting point the team should change
+  (tone, channels, report format), so it is plain files from the first second. A plugin that later takes the id
+  `marketing` makes those writes `blocked`, not an error.
+- **As the admin who asks, through the normal file services.** Skills go through `FileService.humanSave` (folder
+  rules, version history, the skills/ change audit and the owner/admin notices, exactly as a save on the file
+  screen), folders through the file screen's own mkdir (file events, `files.changed`). One `onboarding.pack_install`
+  audit row counts what happened.
+- **Idempotent, never overwriting.** An existing file is never replaced: the same bytes are `present`, other bytes
+  `kept` (someone edited it), something in the way (a folder named SKILL.md, a file named like a team folder, a
+  look-alike name, a rule) is `blocked`. The save is made without a "last seen" hash, so a file that appears between
+  the check and the write makes the save refuse (`not_read`) instead of replacing it. Installing again restores only
+  what was deleted. There is no "update the pack" yet: a future pack version would replace only files whose bytes
+  equal a known earlier version.
+- **Language.** The team default language picks the text: Korean and English are written, every other language gets
+  English skills (with folders in its own language). Skill names stay the ASCII folder names the loader requires
+  (`ad-copy`); the description starts with the plain name (광고 문구 —) for people who see the list.
+- **Pack text is bundled as code.** The files live in `resources/skill-packs/marketing/<locale>/<name>/SKILL.md`
+  (reviewable, loaded by the real loader in tests) and are imported with `with { type: 'text' }`, so `Bun.build`
+  inlines them into the release bundle: no change to the bundle file lists or the bootstrap's verified file list.
+- **What the skills promise.** Each uses the company profile facts when the conversation has them (named
+  `company_profile` without angle brackets: inside a skill the prompt neutralizes block tags), asks once and briefly
+  for a missing must-have, never invents figures (prices, results, volumes, competitor numbers; blanks like [가격]
+  instead), lists its assumptions, and saves a file only when asked. competitor-brief reads only the site the person
+  typed (web_fetch, same site, at most four pages), treats page text as data and cites each fact's page.
+- **Skill forms.** A SKILL.md may declare `metadata.inputs`: one string holding a JSON list of at most 8 fields
+  (`name`, `label`, `placeholder?`, `required?`, `prefill?` from the six `company.*` keys, `multiline?`;
+  `shared/src/api/skill-inputs.ts`, strict: unknown keys are refused as typos). The metadata map already had to be a
+  string map, so JSON-in-a-string keeps the header parser unchanged and the Agent Skills format valid. A valid form is
+  listed with the skill (`SkillInfo.inputs`, absent otherwise, so every older reader and test sees the same objects);
+  one that does not parse never stops the skill from loading: it runs without a form, readers get the skill issue
+  `inputs` (its own note on the Team skills page, "these work but open without their form"), and the AI is told
+  when it saved such a file. Legacy `.md` skills have no metadata map and no forms.
+- **Running from a form is the ordinary skill command.** `web/src/components/skills/SkillForm.tsx` composes
+  `/<name>` and one `label: value` line per filled field (multiline values under their label) and sends it as the
+  first message of a new chat (`useChats.send`, the same path as the new-chat box), so the turn's existing
+  `invokedSkill` handling, skill-use counting and the chat transcript need nothing new. Prefill reads
+  `GET /api/onboarding/profile` (stream D) through a local lenient schema and treats 404 or any failure as no
+  profile; a field the person already typed in is never overwritten when the profile arrives late. Opened from the
+  Team skills page (row, run button, menu; skills without a form keep the old "/name" link), `/skills?run=<path>`
+  (closing it removes the parameter; a path the person cannot use says so), and the "/" menu. In the message box
+  the form fills the box instead of starting a chat (`onCompose`), so it works inside an existing chat and the person
+  still presses send.
+- **Empty Team skills page.** Owners and admins see what the pack adds and [추천 묶음 설치]; members read that an
+  admin can install one, above the old suggest-a-skill hint.
+- Tests: `tests/unit/c-onboarding-pack.test.ts` (Korean install as an admin, every skill loads with its form and no
+  skill issue for an admin or a member, the audit rows, a second and third install, an edited file kept and a
+  deleted one restored, members 403 and an unknown pack 404, English skills with Japanese folders, names taken by
+  something else reported as blocked, every pack text in both languages), `tests/unit/c-skill-inputs.test.ts`
+  (parsing and its reasons, a skill without a form keeps its exact shape, bad JSON and an unknown prefill load without
+  a form and are `inputs` issues, the AI's note), `web/test/unit/skill-form.test.tsx` (prefill, required fields, the
+  message, the run link, the empty page for owners/admins/members in five languages, the run button).

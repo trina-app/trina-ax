@@ -2,7 +2,8 @@
 // suggestions to review for the folders I manage ([등록] writes the skill under skills/, [거절] turns it down), my own
 // suggestions with their status, and for the owner and admins every recent change under skills/ with a link to its
 // version history (where the previous version can be restored). Quiet on purpose: rows keep to a line or two, the
-// details open on demand.
+// details open on demand. /skills?run=<path> opens that skill's form (components/skills/SkillForm.tsx; the invite
+// link and the welcome steps link here).
 import clsx from 'clsx'
 import { Bot, History, Lightbulb, Search } from 'lucide-react'
 import { useCallback, useEffect, useId, useRef, useState } from 'react'
@@ -19,6 +20,7 @@ import { AvailableSkills } from '../components/AvailableSkills'
 import { Markdown } from '../components/Markdown'
 import { SkillIssues } from '../components/SkillIssues'
 import { SkillListNote } from '../components/SkillListNote'
+import { SkillFormDialog } from '../components/skills/SkillForm'
 import { Badge, Button, EmptyState, ErrorNote, Field, Modal, Skeleton, StickyHeader, TabPanel, Tabs, inputCls, pageColumn, promptDialog } from '../components/ui'
 
 type Tab = 'skills' | 'review' | 'mine' | 'changes'
@@ -44,6 +46,13 @@ export default function Skills() {
   const [mine, setMine] = useState<SkillSuggestion[] | null>(null)
   const [changes, setChanges] = useState<SkillChange[] | null>(null)
   const [open, setOpen] = useState<SkillSuggestion | null>(null)
+  // ?run=<path>: that skill's form, on top of the page; closing it takes the parameter out of the address
+  const run = params.get('run')
+  const closeRun = () => {
+    const next = new URLSearchParams(params)
+    next.delete('run')
+    setParams(next, { replace: true })
+  }
 
   const load = useCallback(async () => {
     try {
@@ -132,6 +141,7 @@ export default function Skills() {
           </TabPanel>
         )}
       </div>
+      {run && <SkillFormDialog key={run} path={run} onClose={closeRun} />}
       {open && overview && (
         <ReviewDialog
           s={open}

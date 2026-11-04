@@ -4,18 +4,23 @@
 // a chat with the skill, and its "…" menu also opens the file. The whole description is the row's tooltip. The same
 // read-only list for members and admins; what only skill managers and admins do (review suggestions, recent changes)
 // stays in the page's other tabs. A chat starts from the skill's name, so of two skills with one name the server picks
-// (server/src/chat/skills.ts).
-import { FileText, MessageSquarePlus, MoreHorizontal, ScrollText, Sparkles } from 'lucide-react'
+// (server/src/chat/skills.ts). A skill with a form (metadata `inputs`) opens it instead (skills/SkillForm.tsx), from
+// the row, its run button and its menu. With no skill at all, owners and admins can install the recommended pack in
+// one click (POST /api/onboarding/packs/marketing/install); members read that an admin can.
+import { FileText, MessageSquarePlus, MoreHorizontal, PackagePlus, Play, ScrollText, Sparkles } from 'lucide-react'
 import { useEffect, useRef, useState, type KeyboardEvent } from 'react'
 import type { SkillInfo } from '@mycel/shared/api'
-import { api, API } from '../lib/api'
+import { api, API, errorText } from '../lib/api'
 import { navigateTo } from '../lib/nav'
 import { parentPath } from '../lib/paths'
 import { isSkillsPath } from '../lib/skillIssues'
-import { useT } from '../i18n'
+import { useLocale, useT } from '../i18n'
 import { accessChanged, filesChanged, reloadAsked, skillsChanged } from '../store/live'
+import { isAdmin, useMe } from '../store/session'
+import { toast } from '../store/ui'
 import { skillPrompt } from './PopularSkills'
-import { EmptyState, ErrorNote, IconButton, Skeleton } from './ui'
+import { SkillFormDialog } from './skills/SkillForm'
+import { Button, EmptyState, ErrorNote, IconButton, Skeleton } from './ui'
 
 type Skill = SkillInfo & { uses?: number }
 
@@ -66,20 +71,61 @@ export function AvailableSkills({ query }: { query: string }) {
 /** The list without the data load (null: still loading). Personal skills get a section of their own. */
 export function AvailableSkillsList({ items, query = '' }: { items: Skill[] | null; query?: string }) {
   const t = useT()
+  const [running, setRunning] = useState<Skill | null>(null)
   if (!items) return <Skeleton lines={3} />
-  if (!items.length) return <EmptyState icon={<Sparkles size={22} />} title={t('skills.noSkills')}>{t('skills.noSkillsHint')}</EmptyState>
+  if (!items.length) return <NoSkills />
   const q = query.trim().toLowerCase()
   const shown = q ? items.filter((s) => `${s.name} ${s.description}`.toLowerCase().includes(q)) : items
   if (!shown.length) return <EmptyState icon={<Sparkles size={22} />} title={t('skills.noMatch', { q: query.trim() })} />
   return (
     <div className="space-y-6" data-testid="skill-list">
-      <SkillSection title={t('skills.fromTeam')} items={shown.filter((s) => !s.personal)} />
-      <SkillSection title={t('skills.personal')} items={shown.filter((s) => s.personal)} />
+      <SkillSection title={t('skills.fromTeam')} items={shown.filter((s) => !s.personal)} onRun={setRunning} />
+      <SkillSection title={t('skills.personal')} items={shown.filter((s) => s.personal)} onRun={setRunning} />
+      {running && <SkillFormDialog path={running.path} skill={running} onClose={() => setRunning(null)} />}
     </div>
   )
 }
 
-function SkillSection({ title, items }: { title: string; items: Skill[] }) {
+/** No skill yet: owners and admins install the recommended pack here; members learn that an admin can. */
+function NoSkills() {
+  const t = useT()
+  const locale = useLocale()
+  const admin = isAdmin(useMe())
+  const [busy, setBusy] = useState(false)
+  const install = async () => {
+    setBusy(true)
+    try {
+      const r = await api.call(API.installSkillPack, { params: { id: 'marketing' } })
+      const created = r.skills.filter((s) => s.status === 'created').length
+      const blocked = r.skills.filter((s) => s.status === 'blocked').length
+      toast({ level: blocked ? 'warn' : 'success', text: [created ? t('skillPack.installed', { n: created }) : t('skillPack.already'), blocked ? t('skillPack.blocked', { n: blocked }) : ''].filter(Boolean).join(' ') })
+      skillsChanged.emit()
+    } catch (e) {
+      toast({ level: 'error', text: errorText(e, locale, t('error.network')) })
+    } finally {
+      setBusy(false)
+    }
+  }
+  return (
+    <EmptyState icon={<Sparkles size={22} />} title={t('skills.noSkills')}>
+      {admin ? (
+        <div className="flex flex-col items-center gap-3" data-testid="skill-pack-offer">
+          <p>{t('skillPack.adminHint')}</p>
+          <Button variant="primary" busy={busy} onClick={() => void install()} data-testid="skill-pack-install">
+            <PackagePlus size={14} aria-hidden /> {t('skillPack.install')}
+          </Button>
+        </div>
+      ) : (
+        <>
+          <p data-testid="skill-pack-member">{t('skillPack.memberHint')}</p>
+          <p className="mt-1">{t('skills.noSkillsHint')}</p>
+        </>
+      )}
+    </EmptyState>
+  )
+}
+
+function SkillSection({ title, items, onRun }: { title: string; items: Skill[]; onRun: (s: Skill) => void }) {
   if (!items.length) return null
   return (
     <section aria-label={title}>
@@ -88,22 +134,24 @@ function SkillSection({ title, items }: { title: string; items: Skill[] }) {
         <span className="rounded-full bg-subtle px-1.5 text-xs text-muted tabular-nums" data-testid="skill-count">{items.length}</span>
       </h2>
       <ul className="-mx-2 divide-y divide-line">
-        {items.map((s) => <SkillRow key={s.path} skill={s} />)}
+        {items.map((s) => <SkillRow key={s.path} skill={s} onRun={onRun} />)}
       </ul>
     </section>
   )
 }
 
-function SkillRow({ skill: s }: { skill: Skill }) {
+function SkillRow({ skill: s, onRun }: { skill: Skill; onRun: (s: Skill) => void }) {
   const t = useT()
   const line = [s.personal ? '' : `${skillHome(s.path)}/`, s.description].filter(Boolean).join(' · ')
+  // a skill with a form opens it; any other starts a chat with "/<name> " in the message box, as before
+  const use = () => (s.inputs?.length ? onRun(s) : navigateTo(skillChatLink(s.name)))
   return (
     <li className="flex items-center gap-1 py-1" data-testid="skill-row" data-path={s.path}>
       <button
         type="button"
         className="flex min-w-0 flex-1 items-center gap-3 rounded-lg p-2 text-left hover:bg-hover"
         title={s.description || s.path}
-        onClick={() => navigateTo(skillChatLink(s.name))}
+        onClick={use}
         data-testid="skill-use"
       >
         <span className="flex size-9 shrink-0 items-center justify-center rounded-lg border border-line bg-subtle text-muted">
@@ -116,12 +164,17 @@ function SkillRow({ skill: s }: { skill: Skill }) {
         {!!s.uses && <span className="shrink-0 text-xs text-faint tabular-nums" title={t('skills.usesHint')}>{t('skills.uses', { uses: s.uses })}</span>}
         <span className="sr-only">{t('skills.use')}</span>
       </button>
-      <SkillMenu skill={s} />
+      {!!s.inputs?.length && (
+        <IconButton label={t('skillForm.runNamed', { name: s.name })} onClick={() => onRun(s)} data-testid="skill-run">
+          <Play size={16} aria-hidden />
+        </IconButton>
+      )}
+      <SkillMenu skill={s} onUse={use} />
     </li>
   )
 }
 
-function SkillMenu({ skill: s }: { skill: Skill }) {
+function SkillMenu({ skill: s, onUse }: { skill: Skill; onUse: () => void }) {
   const t = useT()
   const box = useRef<HTMLDivElement>(null)
   const [open, setOpen] = useState(false)
@@ -155,7 +208,7 @@ function SkillMenu({ skill: s }: { skill: Skill }) {
       </IconButton>
       {open && (
         <div role="menu" aria-label={t('skills.moreNamed', { name: s.name })} className="absolute top-full right-0 z-30 mt-1 w-44 rounded-lg border border-line bg-surface p-1 shadow-lg">
-          <button role="menuitem" type="button" className={item} onClick={() => navigateTo(skillChatLink(s.name))}>
+          <button role="menuitem" type="button" className={item} onClick={() => { setOpen(false); onUse() }}>
             <MessageSquarePlus size={14} aria-hidden /> {t('skills.use')}
           </button>
           <button role="menuitem" type="button" className={item} onClick={() => navigateTo(skillFileLink(s.path))} data-testid="skill-file">

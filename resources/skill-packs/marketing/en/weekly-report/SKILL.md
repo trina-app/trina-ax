@@ -6,7 +6,7 @@ metadata:
     [
       {"name": "period", "label": "Period", "placeholder": "e.g. first week of November"},
       {"name": "notes", "label": "What was done this week, with numbers", "placeholder": "Pasting rough notes is fine", "required": true, "multiline": true},
-      {"name": "files", "label": "Team files to use (if any)", "placeholder": "e.g. shared/Reports/november-ad-spend.xlsx"}
+      {"name": "files", "label": "Team files to use", "placeholder": "e.g. shared/Reports/november-ad-spend.xlsx"}
     ]
 ---
 

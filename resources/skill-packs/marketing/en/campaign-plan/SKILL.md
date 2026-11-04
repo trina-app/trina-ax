@@ -7,7 +7,7 @@ metadata:
       {"name": "goal", "label": "Goal of this campaign", "placeholder": "e.g. more free-trial sign-ups in December", "required": true},
       {"name": "product", "label": "What are you promoting", "placeholder": "e.g. our team plan", "prefill": "company.products"},
       {"name": "audience", "label": "Who is it for", "placeholder": "e.g. office managers at 10 to 50 person companies", "prefill": "company.audience"},
-      {"name": "period_budget", "label": "Period and budget (as far as you know)", "placeholder": "e.g. Dec 1 to 31, ad budget 3,000 USD"},
+      {"name": "period_budget", "label": "Period and budget", "placeholder": "e.g. Dec 1 to 31, ad budget 3,000 USD (whatever you know)"},
       {"name": "notes", "label": "Anything else to use", "placeholder": "e.g. what worked last time, channels you can use", "multiline": true}
     ]
 ---

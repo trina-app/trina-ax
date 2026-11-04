@@ -7,7 +7,7 @@ metadata:
       {"name": "goal", "label": "이번 캠페인의 목표", "placeholder": "예: 12월 무료 체험 신청 늘리기", "required": true},
       {"name": "product", "label": "알릴 제품·서비스", "placeholder": "예: 팀 요금제", "prefill": "company.products"},
       {"name": "audience", "label": "누구에게", "placeholder": "예: 직원 10~50명 회사의 운영 담당자", "prefill": "company.audience"},
-      {"name": "period_budget", "label": "기간과 예산 (아는 만큼)", "placeholder": "예: 12월 1일~31일, 광고비 300만 원"},
+      {"name": "period_budget", "label": "기간과 예산", "placeholder": "예: 12월 1일~31일, 광고비 300만 원 (아는 만큼만)"},
       {"name": "notes", "label": "참고할 내용", "placeholder": "예: 지난 캠페인에서 잘된 점, 쓸 수 있는 채널", "multiline": true}
     ]
 ---
