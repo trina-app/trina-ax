@@ -267,8 +267,9 @@ function skillTools(exec: TurnExec): Tool[] {
         exec.noteTaint('read', { file_path: skill.path })
         // like a "/name" skill: its folder joins the chat's read scope (what is saved from it asks before going wider)
         addSources(rt.db, spec.chatId, [sourceOf(rt.db, rt.files.rules(), skillFolder(skill.path))])
-        // reporting is auxiliary (admin/skill-usage.ts: team skills only, never a personal one)
-        try { recordSkillUse(rt.db, { turnId: spec.turnId, userId: spec.userId, skill, source: 'read' }) } catch { rt.log.warn('skill usage recording failed', { turn: spec.turnId }) }
+        // reporting is auxiliary (admin/skill-usage.ts: team skills only, never a personal one); a loaded skill is a
+        // run (the onboarding goal counts it), unlike a plain read of the file
+        try { recordSkillUse(rt.db, { turnId: spec.turnId, userId: spec.userId, skill, source: 'tool' }) } catch { rt.log.warn('skill usage recording failed', { turn: spec.turnId }) }
         return { ...text(skillBlock(skill, '', 'loaded')), summary: `skill -> ${isPersonalSkill(skill.path) ? 'a personal skill' : skill.path}` }
       },
     },

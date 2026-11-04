@@ -35,6 +35,7 @@ import { describeSchedule, scheduledRunBlock, type ScheduleRow } from './schedul
 import { safeModel } from './engines'
 import { engineError, stepLabel, tr, turnLimitError } from './i18n'
 import { recordSkillUse } from '../admin/skill-usage'
+import { noteGoalRun } from '../onboarding/goal'
 import { notificationsOf } from '../notifications/service'
 import { scheduleRunOutcome } from './schedule-outcome'
 import { validateTemplateTurn } from './schedule-templates'
@@ -1436,6 +1437,8 @@ export class TurnExec {
       this.rt.log.error('finishing the turn failed', { err: e, turn: this.id })
     }
     if (this.spec.clientKind === 'schedule') notificationsOf(this.rt.ctx).afterTurn(this.id)
+    // the 7-day team goal: a member's first successful run of a team skill tells the owners (never throws)
+    if (turnStatus === 'done') noteGoalRun(this.rt.ctx, this.id)
     // budget notices (80% / 100%) once the turn's usage is in (admin/budget-watch.ts)
     try { if (this.registered) afterUsage(db, this.spec.userId, credentialsOf(this.rt.ctx).notify) } catch (e) { this.rt.log.warn('budget notices failed', { err: e }) }
     this.status = 'finished'

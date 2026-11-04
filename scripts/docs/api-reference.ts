@@ -33,6 +33,7 @@ const GROUP_TITLES: Record<keyof typeof API_GROUPS, string> = {
   ONBOARDING_PACKS: 'Onboarding: skill packs',
   ONBOARDING: 'Onboarding (company profile)',
   TEAM_LINKS: 'Team invite link',
+  ONBOARDING_GOAL: 'Onboarding: the 7-day team goal',
 }
 
 const WHO: Record<Endpoint['auth'], string> = {

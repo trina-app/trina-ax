@@ -18,6 +18,7 @@ import { remoteMcpRoutes } from './remote-mcp'
 import { devEnvRoutes } from './dev-env'
 import { onboardingPacksRoutes } from './onboarding-packs'
 import { onboardingRoutes } from './onboarding'
+import { onboardingGoalRoutes } from './onboarding-goal'
 
 export type { RouteModule } from './module'
 
@@ -38,5 +39,6 @@ export const ROUTE_MODULES: readonly RouteModule[] = [
   devEnvRoutes, // dev environment EXPERIMENT (feat/dev-env; 404 unless MYCEL_DEV_ENV=1)
   onboardingPacksRoutes, // recommended skill packs (onboarding stream C)
   onboardingRoutes, // onboarding: the company profile and its drafts (docs/DECISIONS.md "D — Company profile")
+  onboardingGoalRoutes, // onboarding: the 7-day team goal (docs/DECISIONS.md "G — The 7-day team goal")
   webRoutes, // D (catch-all, keep last)
 ]

@@ -13,6 +13,8 @@ import { readScope } from '../chat/read-scope'
 import { getRow as getIntegration, mayUse as mayUseIntegration } from '../integrations/connections/store'
 import { eventEnabled, getPreferences, savePreferences } from './preferences'
 import { cancelPushUser, cancelDisabledPushDeliveries } from './push-events'
+import { goalSkillTitle } from '../onboarding/goal-names'
+import { GOAL_PEOPLE } from '@mycel/shared/api'
 
 export const NOTIFICATION_RETENTION_MS = 30 * 86400_000
 /** Source of a "scheduled tasks paused for review" notice: the person and the time of the pause (stable while some of
@@ -26,12 +28,13 @@ export type SkillNoticeEvent = Extract<NotificationEventType, 'skill.suggested' 
 export type DevEnvNoticeEvent = Extract<NotificationEventType, 'dev_env.job' | 'dev_env.box'>
 const isSkillEvent = (e: NotificationEventType): e is SkillNoticeEvent => e === 'skill.suggested' || e === 'skill.reviewed'
 const isDevEnvEvent = (e: NotificationEventType): e is DevEnvNoticeEvent => e === 'dev_env.job' || e === 'dev_env.box'
-const tableOf = (e: NotificationEventType) => isSkillEvent(e) ? 'skill_notices' : isDevEnvEvent(e) ? 'dev_env_notices' : e === 'integration.request' ? 'integration_request_notices' : e === 'onboarding.ai_request' ? 'onboarding_notices' : e === 'team.joined' ? 'team_join_notices' : 'notification_inbox'
+const tableOf = (e: NotificationEventType) => isSkillEvent(e) ? 'skill_notices' : isDevEnvEvent(e) ? 'dev_env_notices' : e === 'integration.request' ? 'integration_request_notices' : e === 'onboarding.ai_request' ? 'onboarding_notices' : e === 'team.joined' ? 'team_join_notices' : e === 'onboarding.first_run' ? 'onboarding_goal_notices' : 'notification_inbox'
 /** One inbox over the tables: skill notices (migration 211, R2-SKILL-12), dev environment notices (migration 219),
- * requests to connect a service (migration 220), a member's request for an AI connection (migration 222) and joins
- * through the team invite link (migration 111) have their own tables, because notification_inbox has a fixed
- * event_type CHECK list and tables are never rebuilt. */
-const NOTICE_TABLES = ['notification_inbox', 'skill_notices', 'dev_env_notices', 'integration_request_notices', 'onboarding_notices', 'team_join_notices'] as const
+ * requests to connect a service (migration 220), a member's request for an AI connection (migration 222), joins
+ * through the team invite link (migration 111) and a member's first run of a team skill during the 7-day team goal
+ * (migration 223) have their own tables, because notification_inbox has a fixed event_type CHECK list and tables are
+ * never rebuilt. */
+const NOTICE_TABLES = ['notification_inbox', 'skill_notices', 'dev_env_notices', 'integration_request_notices', 'onboarding_notices', 'team_join_notices', 'onboarding_goal_notices'] as const
 const INBOX = `(${NOTICE_TABLES.map((t) => `SELECT id,user_id,event_type,source_id,created_at,read_at,suppressed FROM ${t}`).join(' UNION ALL ')})`
 export class Notifications {
   constructor(readonly ctx: AppContext) {}
@@ -92,6 +95,16 @@ export class Notifications {
    * source is the new account's id only. Shown always: there is no setting for it, and a join is rare. */
   teamJoined(userId: string, joinedUserId: string, createdAt = new Date().toISOString()) {
     this.record(userId, 'team.joined', joinedUserId, createdAt, true)
+  }
+  /** During the 7-day team goal (onboarding/goal.ts noteGoalRun): a member ran a team skill for the first time. The
+   * source is the turn of that run; the member, the skill's path and how many people had run it then are kept for the
+   * text. Once per owner, member and skill (UNIQUE row, migration 223). Shown always: there is no setting for it, and
+   * it only happens in a new team's first week. */
+  goalFirstRun(ownerId: string, o: { turnId: string; memberId: string; skillPath: string; runners: number }, createdAt = new Date().toISOString()) {
+    if (!this.active(ownerId) || createdAt < this.cutoff()) return
+    const r = this.ctx.db.query(`INSERT INTO onboarding_goal_notices(id,user_id,event_type,source_id,member_id,skill_path,runners,created_at,suppressed)
+      VALUES(?,?,'onboarding.first_run',?,?,?,?,?,0) ON CONFLICT DO NOTHING`).run(newId(), ownerId, o.turnId, o.memberId, o.skillPath, o.runners, createdAt)
+    if (r.changes) this.signal(ownerId)
   }
   /** A request that no longer waits (connected, declined, withdrawn, expired): its inbox entry counts as read, so the
    * member is not left with something to do that is gone. Expiry is caught by reconcile's tick. */
@@ -204,6 +217,13 @@ export class Notifications {
       const u = this.ctx.db.query('SELECT name FROM users WHERE id=? AND deleted_at IS NULL').get(row.source_id) as { name: string } | null
       return { id: row.id, eventType: row.event_type, sourceId: row.source_id, code: row.event_type, createdAt: row.created_at, readAt: row.read_at, chatId: null, link: null, outcome: null,
         ...(u ? { joined: { name: u.name } } : {}) }
+    }
+    // who ran which skill first (a name while the account is there) and the count then; no link
+    if (row.event_type === 'onboarding.first_run') {
+      const n = this.ctx.db.query('SELECT member_id, skill_path, runners FROM onboarding_goal_notices WHERE id=?').get(row.id) as { member_id: string; skill_path: string; runners: number } | null
+      const u = n ? this.ctx.db.query('SELECT name FROM users WHERE id=? AND deleted_at IS NULL').get(n.member_id) as { name: string } | null : null
+      return { id: row.id, eventType: row.event_type, sourceId: row.source_id, code: row.event_type, createdAt: row.created_at, readAt: row.read_at, chatId: null, link: null, outcome: null,
+        ...(n ? { firstRun: { member: u?.name ?? null, skill: goalSkillTitle(this.ctx, row.user_id, n.skill_path), runners: n.runners, target: GOAL_PEOPLE } } : {}) }
     }
     if (row.event_type === 'schedule.failure' && row.source_id.startsWith(REVIEW_SOURCE)) {
       // paused tasks to check again: the schedules list, never a chat

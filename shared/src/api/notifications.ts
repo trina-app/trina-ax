@@ -10,8 +10,9 @@ export type PushEventType = z.infer<typeof PushEventType>
 /** Skill suggestion notices are inbox only (table skill_notices), and so are dev environment notices (dev_env_notices),
  * an admin's request to connect a service as one's own connection (integration_request_notices), a member's request
  * for an AI connection (onboarding_notices) and, for the owners, someone who joined through the team invite link
- * (team_join_notices; shared/src/api/team-links.ts). */
-export const NotificationEventType = z.enum([...PushEventType.options, 'skill.suggested', 'skill.reviewed', 'dev_env.job', 'dev_env.box', 'integration.request', 'onboarding.ai_request', 'team.joined'])
+ * (team_join_notices; shared/src/api/team-links.ts), and during the 7-day team goal a member's first run of a team skill
+ * (onboarding_goal_notices; shared/src/api/onboarding-goal.ts). */
+export const NotificationEventType = z.enum([...PushEventType.options, 'skill.suggested', 'skill.reviewed', 'dev_env.job', 'dev_env.box', 'integration.request', 'onboarding.ai_request', 'team.joined', 'onboarding.first_run'])
 export type NotificationEventType = z.infer<typeof NotificationEventType>
 export const InboxNotification = z.object({
   id: z.string(), eventType: NotificationEventType, sourceId: z.string(), code: NotificationEventType,
@@ -26,6 +27,10 @@ export const InboxNotification = z.object({
   /** 'team.joined' only: the name of the person who joined through the team invite link, while the account is there;
    * older servers omit it */
   joined: z.object({ name: z.string() }).optional(),
+  /** 'onboarding.first_run' only (owners, during the 7-day team goal): who ran which team skill for the first time
+   * (member null once the account is deleted; skill: its plain name), and how many people had run it then, of the
+   * goal's target; older servers omit it */
+  firstRun: z.object({ member: z.string().nullable(), skill: z.string(), runners: z.number().int().positive(), target: z.number().int().positive() }).optional(),
   /** 'schedule.failure' only: scheduled tasks nobody confirmed were paused until their owner checks them again
    * (Settings › Scheduled tasks, "다시 확인"); older servers omit it */
   review: z.boolean().optional(),
