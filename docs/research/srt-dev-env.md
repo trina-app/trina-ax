@@ -663,6 +663,24 @@ the srt rows in `jobs.ts`, `tool.ts` (`srtCall`), the turn (`chat/turn.ts`: ever
 the person's runs), the inbox (`notifications/service.ts`), the work folder's removal (`chat/forget.ts`), the project
 page's modal (saves the team setting on srt) and the warning text (version 2, not yet accepted by any team).
 
+Verified after the scope change (2026-11-04):
+
+- Docker attack suite (real srt 0.0.81, Debian 13, arm64): all 26 attacks held. New lines: A0 (the person's folders,
+  read-only folders), A0b (a chat with no project), A2 (another group, another project, a hidden folder inside her
+  group, `users/bob`, `.system`; the listings show only her folders), A2b (another chat's work folder, another person's
+  logs and home), A2c (write into read-only folders), A2d. So srt's nesting (a deny inside an allow inside a deny, and a
+  `denyWrite` inside an `allowWrite`) works as `access.ts` expects.
+- Spike VM (one t3a.medium, Debian 13, `--profile trina`, tag `trina-test=srt-spike`; terminated, with no instance,
+  volume or security group left): S1 (polkit, a scope from the server unit, the devenv slice), the scope limits,
+  RuntimeMaxSec, A17, A20, A22 (fork bomb stops at 512 tasks), A24, A25 (polkit refuses a `.service`, other names,
+  other units), a run outlives a restart of the server unit, `/health` stays up. S5: `npm install` and `next build` in
+  one run peak at 998 MiB in the scope; the VM kept 2.9 GB free.
+- **A21 failed as written:** a Python memory bomb did not end with `oom-kill`. `MemoryHigh` (0.9 of `MemoryMax`)
+  throttled it at 1471 MiB until `RuntimeMaxSec` ended it (`Result=timeout`). The server lived. Proposal (not built):
+  drop `MemoryHigh`, or set it to `MemoryMax`, so the kernel kills a run at once; test again on the VM.
+- A25b (info): polkit allows a `trina-dev-<16>.scope` in another slice. Only the server account can ask (the sandbox
+  cannot reach systemd, A17), so this matters only for a compromised server (out of scope, section 1).
+
 Code: `server/src/devenv/srt/` (`config.ts` settings, environment and argv; `plan.ts`; `system.ts`; `runner.ts`), the
 forks in `tool.ts`, `jobs.ts`, `setting.ts` and `routes/dev-env.ts`, migration `222_b_dev_env_run_state.sql`, install in
 `scripts/dev-env/srt/`, tests in `tests/unit/dev-env-srt.test.ts` and `tests/linux/srt-attack.ts`.
