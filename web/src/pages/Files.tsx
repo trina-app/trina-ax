@@ -604,8 +604,10 @@ export default function Files() {
   const selectionMovable = movable.length > 0
 
   return (
+    // @container: the toolbar and the columns follow the page's own width, which an open file panel makes narrow on a
+    // desktop screen too (the sm: breakpoints only know the window)
     <div
-      className="flex h-full flex-col"
+      className="@container flex h-full flex-col"
       onDragOver={(e) => {
         if (![...e.dataTransfer.types].includes('Files')) return
         e.preventDefault()
@@ -631,9 +633,10 @@ export default function Files() {
         <h1 className="mr-2 text-lg font-semibold">{t('files.title')}</h1>
         <Tabs value={view} onChange={setView} label={t('files.title')} panels={viewTabs} items={[{ id: 'files', label: t('files.all') }, { id: 'trash', label: t('files.trash') }]} />
         {view === 'files' && (
-          // a phone: the toolbar has its own line, and the search box takes the width the buttons leave
-          <div className="ml-auto flex items-center gap-1 max-sm:w-full">
-            <label className="flex h-8 min-w-0 items-center gap-1.5 rounded-lg max-sm:flex-1 border border-field-border bg-surface px-2 focus-within:border-accent focus-within:ring-1 focus-within:ring-accent">
+          // a narrow page (a phone, or a desktop with the file panel open): the toolbar has its own line, the buttons show
+          // only their icons, and the search box takes the width they leave
+          <div className="ml-auto flex items-center gap-1 @max-2xl:w-full">
+            <label className="flex h-8 min-w-0 items-center gap-1.5 rounded-lg @max-2xl:flex-1 border border-field-border bg-surface px-2 focus-within:border-accent focus-within:ring-1 focus-within:ring-accent">
               <Search size={14} className="shrink-0 text-faint" aria-hidden />
               <span className="sr-only">{t('files.search.label')}</span>
               <input
@@ -648,7 +651,7 @@ export default function Files() {
                 }}
                 placeholder={t('files.search.placeholder')}
                 maxLength={200}
-                className="w-full min-w-0 bg-transparent text-sm outline-none placeholder:text-faint sm:w-48"
+                className="w-full min-w-0 bg-transparent text-sm outline-none placeholder:text-faint @2xl:w-48"
                 data-testid="content-search-input"
               />
               {q && (
@@ -661,12 +664,12 @@ export default function Files() {
               <RefreshCw size={16} />
             </IconButton>
             <Button size="sm" variant="ghost" onClick={mkdir} disabled={!canWrite} aria-label={t('files.newFolder')} title={t('files.newFolder')}>
-              <FolderPlus size={15} aria-hidden /> <span className="max-sm:hidden">{t('files.newFolder')}</span>
+              <FolderPlus size={15} aria-hidden /> <span className="@max-2xl:hidden">{t('files.newFolder')}</span>
             </Button>
             {canPickFolder && (
               <>
-                <Button size="sm" variant="ghost" className="max-sm:hidden" onClick={() => folderInput.current?.click()} disabled={!canWrite} data-testid="folder-upload-button">
-                  <FolderUp size={15} aria-hidden /> {t('files.uploadFolder')}
+                <Button size="sm" variant="ghost" className="max-sm:hidden" onClick={() => folderInput.current?.click()} disabled={!canWrite} aria-label={t('files.uploadFolder')} title={t('files.uploadFolder')} data-testid="folder-upload-button">
+                  <FolderUp size={15} aria-hidden /> <span className="@max-2xl:hidden">{t('files.uploadFolder')}</span>
                 </Button>
                 <input
                   ref={folderInput}
@@ -682,8 +685,8 @@ export default function Files() {
                 />
               </>
             )}
-            <Button size="sm" variant="primary" onClick={() => fileInput.current?.click()} disabled={!canWrite} data-testid="upload-button">
-              <Upload size={15} aria-hidden /> {t('files.upload')}
+            <Button size="sm" variant="primary" onClick={() => fileInput.current?.click()} disabled={!canWrite} aria-label={t('files.upload')} title={t('files.upload')} data-testid="upload-button">
+              <Upload size={15} aria-hidden /> <span className="@max-2xl:hidden">{t('files.upload')}</span>
             </Button>
             <input
               ref={fileInput}
@@ -782,7 +785,8 @@ export default function Files() {
                           />
                         </th>
                         <th className="px-2 py-2 font-medium">{t('files.name')}</th>
-                        <th className="hidden whitespace-nowrap px-2 py-2 font-medium sm:table-cell">{t('files.modified')}</th>
+                        {/* Modified only on a wide page: next to an open file panel the name keeps the room */}
+                        <th className="hidden whitespace-nowrap px-2 py-2 font-medium @xl:table-cell">{t('files.modified')}</th>
                         <th className="hidden whitespace-nowrap px-2 py-2 text-right font-medium sm:table-cell">{t('files.size')}</th>
                         <th className="w-10 px-2 py-2">
                           <span className="sr-only">{t('files.actions')}</span>
@@ -1007,7 +1011,7 @@ function FileRow({ e, selected, checked, onCheck, draggable, onDragStart, onDrag
           )}
         </button>
       </td>
-      <td className="hidden px-2 py-1.5 text-xs whitespace-nowrap text-muted sm:table-cell">{formatDateTime(e.mtime, locale)}</td>
+      <td className="hidden px-2 py-1.5 text-xs whitespace-nowrap text-muted @xl:table-cell">{formatDateTime(e.mtime, locale)}</td>
       <td className="hidden px-2 py-1.5 text-right text-xs whitespace-nowrap text-muted sm:table-cell">{folder ? '' : formatSize(e.size, locale)}</td>
       <td className="relative px-2 py-1.5 text-right">
         {!dim && (
