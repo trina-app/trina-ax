@@ -73,23 +73,34 @@ describe('the staged roll-out (tag message "Rollout: all", the manual run\'s inp
     expect(rolloutOf(NOTES)).toEqual({ rollout: 'staged', notes: NOTES })
     expect(rolloutOf('')).toEqual({ rollout: 'staged', notes: '' })
     expect(rolloutOf(`Rollout: all\n\n${NOTES}`)).toEqual({ rollout: 'all', notes: NOTES })
-    expect(rolloutOf(`${NOTES}\nrollout:ALL  \n`)).toEqual({ rollout: 'all', notes: `${NOTES}\n` })
+    expect(rolloutOf(`${NOTES}\nrollout:ALL  \n`)).toEqual({ rollout: 'all', notes: NOTES })
     expect(rolloutOf(`Rollout: all\r\n${NOTES}`).rollout).toBe('all')
     expect(rolloutOf(`Rollout: staged\n${NOTES}`)).toEqual({ rollout: 'staged', notes: NOTES })
-    // a sentence about roll-outs that does not start with "Rollout:" is notes
-    const prose = `${NOTES}The rollout: all servers get it over three days.\nRollout of the fix comes later.\n`
+    // words about roll-outs without the colon are notes
+    const prose = `${NOTES}The roll-out takes three days.\nRollout of the fix comes later.\n`
     expect(rolloutOf(prose)).toEqual({ rollout: 'staged', notes: prose })
+  })
+  test('fenced code blocks are notes only: a marker in one does not count and stays', () => {
+    for (const fence of ['```', '~~~', '````sh']) {
+      const close = fence.replace('sh', '')
+      const block = `${NOTES}\n${fence}\nRollout: all\n- Rollout: staged\n${close}\n`
+      expect(rolloutOf(block)).toEqual({ rollout: 'staged', notes: block })
+    }
+    // a marker after the block counts, and the block stays as it is
+    const both = `${NOTES}\n\`\`\`\nRollout: all\n\`\`\`\n\nRollout: all\n`
+    expect(rolloutOf(both)).toEqual({ rollout: 'all', notes: `${NOTES}\n\`\`\`\nRollout: all\n\`\`\`\n` })
   })
   test('a typo stops the release instead of choosing for it', () => {
     for (const bad of ['Rollout: al', 'Rollout: everyone', 'Rollout:', 'ROLLOUT: none']) expect(() => rolloutOf(`${bad}\n${NOTES}`), bad).toThrow(/Rollout: all/)
     // markup or more words on the line: the intent is unclear, so it stops rather than staging without a word
-    for (const bad of ['- Rollout: all', '* Rollout: all', '> Rollout: all', '## Rollout: all', '**Rollout: all**', '**Rollout:** all', 'Rollout: all servers at once']) expect(() => rolloutOf(`${NOTES}${bad}\n`), bad).toThrow(/alone on its own line/)
+    for (const bad of ['- Rollout: all', '* Rollout: all', '1. Rollout: all', '> Rollout: all', '## Rollout: all', '**Rollout: all**', '**Rollout:** all', '`Rollout: all`', '<b>Rollout: all</b>',
+      'Rollout： all', 'Rollout: all servers at once', 'The rollout: all servers get it in three days.']) expect(() => rolloutOf(`${NOTES}${bad}\n`), bad).toThrow(/alone on its own line/)
     expect(() => rolloutOf(`Rollout: all\nRollout: staged\n`)).toThrow(/both/)
     expect(() => rolloutOf(NOTES, 'fast')).toThrow(/tag, staged or all/)
   })
   test('the release template pasted as it is keeps the staged roll-out (it only describes the line)', () => {
     const tpl = fs.readFileSync(path.join(ROOT, '.github/RELEASE_TEMPLATE.md'), 'utf8')
-    expect(tpl).toContain('`Rollout: all`')
+    expect(tpl).toContain('```\nRollout: all\n```')
     expect(rolloutOf(tpl)).toEqual({ rollout: 'staged', notes: tpl })
   })
   test('the manual run\'s input wins over the tag message; "tag" or nothing follows it', () => {

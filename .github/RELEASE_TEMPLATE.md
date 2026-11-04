@@ -2,7 +2,11 @@
 
 Use this to write the annotated tag message before the release workflow runs. Replace every placeholder with reviewed changes; a title-only tag is not useful release guidance. Publishing/backfilling GitHub releases is a separate maintainer action.
 
-**Roll-out / 배포 속도:** a stable release reaches about 10% of servers and offices the first day, 50% the second and all from the third (docs/RELEASE-CI.md "단계적 배포"). To send it to every server at once (a fix for a bad release, a security fix), add a line that says only `Rollout: all` (without the backticks) anywhere in the tag message; the workflow removes it from the notes. Any other word after `Rollout:`, or such a line as a list item, a quote, a heading or in bold, stops the release. / stable 릴리스는 첫날 약 10%, 둘째 날 50%, 셋째 날부터 모두가 받습니다. 모두에게 한 번에 보내려면(나쁜 릴리스를 고친 릴리스, 보안 수정) 태그 메시지에 `Rollout: all`만 있는 줄을 넣으세요(백틱 없이). 워크플로가 노트에서 뺍니다.
+**Roll-out / 배포 속도:** a stable release reaches about 10% of servers and offices the first day, 50% the second and all from the third (docs/RELEASE-CI.md "단계적 배포"). To send it to every server at once (a fix for a bad release, a security fix), copy the line in the box below, on its own, anywhere in the tag message outside a code block; the workflow removes it from the notes. Any other line that mentions the word with a colon (in a sentence, a list, bold, code, or with another word after it) stops the release, so write about roll-outs without that colon. / stable 릴리스는 첫날 약 10%, 둘째 날 50%, 셋째 날부터 모두가 받습니다. 모두에게 한 번에 보내려면(나쁜 릴리스를 고친 릴리스, 보안 수정) 아래 상자의 줄을 그대로, 코드 블록 밖의 한 줄로 태그 메시지에 넣으세요. 워크플로가 노트에서 뺍니다. 그 낱말에 콜론을 붙인 다른 줄이 있으면 배포가 멈춰요.
+
+```
+Rollout: all
+```
 
 ## Who benefits / 누구에게 도움이 되나요?
 

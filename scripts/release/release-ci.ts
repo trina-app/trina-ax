@@ -44,31 +44,51 @@ export function parseReleaseTag(rawTag: string, packageVersion: string): TagRele
 }
 
 export type RolloutMode = 'staged' | 'all'
-const ROLLOUT_LINE = /^[ \t]*rollout[ \t]*:[ \t]*([^\s]*)[ \t\r]*$/gim
-/** a line that starts like the marker (also as a list item, a quote, a heading or in bold) */
-const ROLLOUT_LIKE = /^[ \t>#*_+-]*rollout[ \t*_]*:/i
+/** the marker: the word, an ASCII colon and one word, alone on its line */
+const ROLLOUT_LINE = /^[ \t]*rollout[ \t]*:[ \t]*([^\s]*)[ \t\r]*$/i
+/** any line that mentions it (in markup, a list, a sentence, with a full-width colon): not the marker, so it stops */
+const ROLLOUT_MENTION = /rollout\s*[:：]/i
+/** a fenced code block's opening or closing line (CommonMark: three or more ` or ~, indented at most three spaces) */
+const FENCE = /^ {0,3}(`{3,}|~{3,})(.*)$/
 
 /**
- * The staged roll-out of a release (server/src/system/rollout.ts, docs/RELEASE-CI.md "단계적 배포"): a line `Rollout: all`
- * in the tag message publishes a stable release to every server at once (a fix for a bad release, a security fix);
- * `Rollout: staged` or no such line keeps the default (about 10% of the servers the first day, 50% the second, all
- * from the third). The line is taken out of the notes (they become the release notes). `override` is the workflow's
- * input on a manual run ('staged' or 'all'; '' or 'tag' follows the tag message). Anything else after "Rollout:", or a
- * line that starts like the marker but is not one ("- Rollout: all", "**Rollout: all**", "Rollout: all servers …"),
- * stops the release: neither a typo nor markup may decide how fast a release goes out.
+ * The staged roll-out of a release (server/src/system/rollout.ts, docs/RELEASE-CI.md "단계적 배포"): a line that says
+ * only `Rollout: all` in the tag message publishes a stable release to every server at once (a fix for a bad release, a
+ * security fix); `Rollout: staged` or no such line keeps the default (about 10% of the servers the first day, 50% the
+ * second, all from the third). The line is taken out of the notes (they become the release notes). `override` is the
+ * workflow's input on a manual run ('staged' or 'all'; '' or 'tag' follows the tag message). Anything else after
+ * "Rollout:", or any other line that mentions "rollout:" (in a list, a quote, a heading, bold, code, HTML, a sentence,
+ * with a full-width colon), stops the release: neither a typo nor markup may decide how fast a release goes out. Fenced
+ * code blocks are notes only: nothing in them counts, and they stay as they are.
  */
 export function rolloutOf(notes: string, override = ''): { rollout: RolloutMode; notes: string } {
+  const found: string[] = []
+  const kept: string[] = []
+  let fence: string | null = null
+  let dropBlank = false
   for (const line of notes.split('\n')) {
-    if (ROLLOUT_LIKE.test(line) && !new RegExp(ROLLOUT_LINE.source, 'i').test(line)) throw new Error(`the tag message has the line ${JSON.stringify(line.trim().slice(0, 80))}: write "Rollout: all" alone on its own line (every server at once), or start the line with another word`)
+    const f = FENCE.exec(line)
+    if (fence) {
+      // the closing fence: the same character, at least as long, nothing after it
+      if (f && f[1]![0] === fence[0] && f[1]!.length >= fence.length && !f[2]!.trim()) fence = null
+      kept.push(line)
+      continue
+    }
+    if (f && !(f[1]![0] === '`' && f[2]!.includes('`'))) { fence = f[1]!; kept.push(line); continue }
+    const m = ROLLOUT_LINE.exec(line)
+    if (m) { found.push(m[1]!.toLowerCase()); dropBlank = true; continue }
+    if (ROLLOUT_MENTION.test(line)) throw new Error(`the tag message has the line ${JSON.stringify(line.trim().slice(0, 80))}: write "Rollout: all" alone on its own line, outside code (every server at once), or word the line without "rollout:"`)
+    // the blank line a removed marker leaves at the top or doubled
+    if (dropBlank && !line.trim() && (!kept.length || !kept.at(-1)!.trim())) { dropBlank = false; continue }
+    dropBlank = false
+    kept.push(line)
   }
-  const found = [...notes.matchAll(ROLLOUT_LINE)].map((m) => m[1]!.toLowerCase())
   for (const v of found) if (v !== 'staged' && v !== 'all') throw new Error(`the tag message says "Rollout: ${v}": write "Rollout: all" (every server at once) or leave the line out (staged over three days)`)
   if (new Set(found).size > 1) throw new Error('the tag message has both "Rollout: all" and "Rollout: staged"')
   const o = override.trim().toLowerCase()
   if (o && o !== 'tag' && o !== 'staged' && o !== 'all') throw new Error(`rollout input ${JSON.stringify(override)}: tag, staged or all`)
   const rollout: RolloutMode = o === 'staged' || o === 'all' ? o : (found[0] as RolloutMode | undefined) ?? 'staged'
-  const kept = found.length ? notes.replace(ROLLOUT_LINE, '').replace(/\n{3,}/g, '\n\n').replace(/^\n+/, '') : notes
-  return { rollout, notes: kept }
+  return { rollout, notes: found.length ? kept.join('\n') : notes }
 }
 
 export function packageVersion(root = REPO): string {
