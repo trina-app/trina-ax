@@ -26,11 +26,17 @@ export function enginesAnswering(ctx: Ctx, p: Person, problems: EngineConfs['pro
 }
 
 /** Can this person use AI now (or once a short limit is over)? The API engine answers with its own key, not with an
- * AI connection. */
+ * AI connection. While the hosting service's trial credit is active it answers Claude Code and Codex turns that no
+ * connection can (credentials/hosted-chat.ts, chat/turn.ts trialAnswers), so those engines count as usable. */
 export function canUseAi(ctx: Ctx, p: Person, o: AccessOptions = {}, allowed = allowedCredentialKinds(ctx.config)): boolean {
   const now = o.now ?? new Date()
-  return enginesAnswering(ctx, p, o.problems).some((e) => e === 'api' || hasCredentialSoonFor(ctx.db, p.id, e, allowed, now))
+  const engines = enginesAnswering(ctx, p, o.problems)
+  if (engines.some((e) => e !== 'api') && trialActive(ctx, now)) return true
+  return engines.some((e) => e === 'api' || hasCredentialSoonFor(ctx.db, p.id, e, allowed, now))
 }
+
+/** the hosting service's trial credit answers turns now (managed servers only: the turns on AI connections) */
+export const trialActive = (ctx: Ctx, now = new Date()): boolean => isManaged(ctx.config) && hostedChatState(ctx.db, now) === 'active'
 
 /** The ids of the active people who cannot use AI now, in the members list's order; null when this server does not
  * answer with AI connections (engine.authMode other than managed: the engines' own sign-in, which is not per person). */
@@ -49,14 +55,14 @@ export interface AiAccess {
   /** false: nothing answers this person now (always true when engines sign in on their own, authMode other than managed) */
   usable: boolean
   action: AiAction
-  /** not usable, Claude answers this person, and the hosting service's trial AI credit (credentials/hosted-chat.ts),
-   * which answered while it was active, is used up or over: what the person is told first */
+  /** not usable, Claude Code or Codex answers this person, and the hosting service's trial AI credit
+   * (credentials/hosted-chat.ts), which answered while it was active, is used up or over: what the person is told first */
   trial?: 'used' | 'ended'
 }
 export function aiAccessFor(ctx: Ctx, p: Person, memberOwn: boolean, o: AccessOptions = {}): AiAccess {
   const usable = !isManaged(ctx.config) || canUseAi(ctx, p, o)
   const action: AiAction = p.role === 'owner' ? 'connect_team' : memberOwn ? 'connect_own' : 'ask_owner'
-  if (usable || !enginesAnswering(ctx, p, o.problems).includes('claude-code')) return { usable, action }
-  const trial = hostedChatState(ctx.db, o.now ?? new Date(), allowedCredentialKinds(ctx.config))
+  if (usable || !enginesAnswering(ctx, p, o.problems).some((e) => e !== 'api')) return { usable, action }
+  const trial = hostedChatState(ctx.db, o.now ?? new Date())
   return trial === 'used' || trial === 'ended' ? { usable, action, trial } : { usable, action }
 }

@@ -136,7 +136,7 @@ export interface HarnessOptions extends ChatRuntimeOptions {
    * values); [] = none */
   credentials?: { kind: import('@mycel/shared/api').CredentialKind; secret: string; label?: string; priority?: number }[]
   /** where the model proxy sends requests (default: a refused local port, never the internet) */
-  upstreams?: Partial<import('../../server/src/app-config').ModelUpstreams>
+  upstreams?: Partial<import('../../server/src/app-config').ModelUpstreams> & { openrouter?: string }
   /** the locked Codex catalog the proxy's Codex path accepts (default the fake engine's fake-1 / fake-2) */
   codexModels?: string[]
   /** a launcher already running elsewhere (the Linux T1 job: the engine account's launcher in bwrap mode) instead of
@@ -163,7 +163,7 @@ export async function startHarness(o: HarnessOptions): Promise<Harness> {
   const fx = makeFixture(base)
   const dataDir = fx.data
   const dead = 'http://127.0.0.1:9'
-  const upstreams = { anthropic: o.realCore?.engine.modelUpstream ?? dead, openai: dead, chatgpt: dead, openaiAuth: dead, ...o.upstreams }
+  const upstreams = { anthropic: o.realCore?.engine.modelUpstream ?? dead, openai: dead, chatgpt: dead, openaiAuth: dead, openrouter: dead + '/api/v1', ...o.upstreams }
   const cfg: AppConfig = {
     mode: 'dev', configFile: null, listen: { host: '127.0.0.1', port: 0 }, tls: null, publicOrigins: [],
     teamRoot: fx.team, dataDir, logDir: null, logLevel: 'error',

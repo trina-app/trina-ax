@@ -290,7 +290,7 @@ func TestTenantHostedChatKeySet(t *testing.T) {
 	tb := newTestBase(t, "0.3.0")
 	f := &fakeTenant{adminOut: map[string]string{"hosted-chat-key": `{"ok":true,"set":true,"usedUsd":1.25}`}}
 	f.install(t)
-	key := "sk-ant-api03-" + strings.Repeat("0a", 30)
+	key := "sk-or-v1-" + strings.Repeat("0a", 32)
 	grant := `{"key":"` + key + `","capUsd":10,"endsAt":"2026-11-18T15:00:00Z","enabled":true}`
 	code, out, errs := tb.tctl(grant, "hosted-chat-key-set", "--json")
 	if code != 0 || len(f.adminCalls) != 1 || strings.Join(f.adminCalls[0], " ") != "hosted-chat-key" {
@@ -317,8 +317,10 @@ func TestTenantHostedChatKeySet(t *testing.T) {
 	// refused before admin.js runs
 	f.adminCalls = nil
 	for _, bad := range []string{``, `{}`, `{"key":null,"capUsd":1}`, `[1]`, `{"key":1}`,
-		`{"key":"sk-or-v1-` + strings.Repeat("0a", 30) + `","capUsd":10,"endsAt":"2026-11-18T15:00:00Z","enabled":true}`,
+		// a direct Anthropic key or a subscription token: the trial never runs in Claude Code
+		`{"key":"sk-ant-api03-` + strings.Repeat("0a", 30) + `","capUsd":10,"endsAt":"2026-11-18T15:00:00Z","enabled":true}`,
 		`{"key":"sk-ant-oat01-` + strings.Repeat("0a", 30) + `","capUsd":10,"endsAt":"2026-11-18T15:00:00Z","enabled":true}`,
+		`{"key":"sk-or-short","capUsd":10,"endsAt":"2026-11-18T15:00:00Z","enabled":true}`,
 		`{"key":"` + key + `","capUsd":10,"endsAt":"2026-11-18T15:00:00Z"}`,
 		`{"key":"` + key + `","capUsd":-1,"endsAt":"2026-11-18T15:00:00Z","enabled":true}`,
 		`{"key":"` + key + `","capUsd":"10","endsAt":"2026-11-18T15:00:00Z","enabled":true}`,

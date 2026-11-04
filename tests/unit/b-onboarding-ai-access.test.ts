@@ -88,10 +88,10 @@ describe('asking again', () => {
   })
 })
 
-describe('the hosting service\'s trial AI credit (stream B)', () => {
+describe('the hosting service\'s trial AI credit (streams B and Z)', () => {
   test('usable while it is active; used up or over: the same buttons, and the reason first', async () => {
     const cc = credentialsOf(h.ctx)
-    const grant = { key: 'sk-ant-api03-TRIAL-' + 'x'.repeat(30), capUsd: 5, endsAt: new Date(Date.now() + 14 * 86400_000).toISOString(), enabled: true }
+    const grant = { key: 'sk-or-v1-TRIAL-' + 'x'.repeat(40), capUsd: 5, endsAt: new Date(Date.now() + 14 * 86400_000).toISOString(), enabled: true }
     h.ctx.db.query('DELETE FROM engine_credentials').run()
     writeHostedChatKey(cc, grant)
     try {

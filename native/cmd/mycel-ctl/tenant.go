@@ -636,13 +636,11 @@ func cmdHostedSpeechKeySet(e *env, args []string) (int, error) {
 	return t.out(map[string]any{"ok": true, "set": *r.Set})
 }
 
-// antKeyRE: a direct Anthropic API key (shared/src/cloud-protocol AnthropicApiKey)
-var antKeyRE = regexp.MustCompile(`^sk-ant-api[0-9]{2}-[A-Za-z0-9_-]{20,300}$`)
-
-// hosted-chat-key-set < { key: "sk-ant-api…", capUsd, endsAt, enabled } | { key: null }: the hosting service's trial AI
+// hosted-chat-key-set < { key: "sk-or-…", capUsd, endsAt, enabled } | { key: null }: the hosting service's trial AI
 // credit for this team (its chats are answered before it connects an AI of its own), kept by admin.js hosted-chat-key
-// encrypted with the credentials vault. The key goes only on admin.js's stdin: never in an argument, an error or the
-// answer { ok, set, usedUsd }. No restart: the server reads it at its next turn.
+// encrypted with the credentials vault. An OpenRouter key (orKeyRE): the app answers with it on its own API engine,
+// never in Claude Code, so a direct Anthropic key is refused here already. The key goes only on admin.js's stdin: never
+// in an argument, an error or the answer { ok, set, usedUsd }. No restart: the server reads it at its next turn.
 func cmdHostedChatKeySet(e *env, args []string) (int, error) {
 	t := newTenant(e, "hosted-chat-key-set")
 	if c, err := t.open(args); err != nil {
@@ -667,8 +665,8 @@ func cmdHostedChatKeySet(e *env, args []string) (int, error) {
 			return 1, fmt.Errorf("stdin must be { key, capUsd, endsAt, enabled }")
 		}
 		var key string
-		if json.Unmarshal(raw, &key) != nil || !antKeyRE.MatchString(key) {
-			return 1, fmt.Errorf("key: not a direct Anthropic API key")
+		if json.Unmarshal(raw, &key) != nil || !orKeyRE.MatchString(key) {
+			return 1, fmt.Errorf("key: not an OpenRouter key")
 		}
 		// a JSON number (not a string or null), passed on as it was written
 		capUsd := json.RawMessage(bytes.TrimSpace(m["capUsd"]))

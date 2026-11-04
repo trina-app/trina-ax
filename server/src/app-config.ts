@@ -138,8 +138,9 @@ export const AppConfigFile = z.object({
      * cannot be added, and existing connections of it are skipped (shown as "off on this server", never deleted).
      * The hosted cloud's enrollment writes all four (CLOUD_DEFAULT_CREDENTIAL_KINDS); the control plane may narrow it. */
     credentialKinds: z.array(CredentialKind).min(1).optional(),
-    /** where the model proxy sends each family (tests: fake upstreams). Same rule as modelUpstream. */
-    modelUpstreams: z.object({ anthropic: UpstreamUrl.optional(), openai: UpstreamUrl.optional(), chatgpt: UpstreamUrl.optional(), openaiAuth: UpstreamUrl.optional() }).optional(),
+    /** where the model proxy sends each family (tests: fake upstreams). Same rule as modelUpstream. `openrouter`: where
+     * the hosting service's trial credit answers go (OPENROUTER_API; tests only, credentials/hosted-chat.ts) */
+    modelUpstreams: z.object({ anthropic: UpstreamUrl.optional(), openai: UpstreamUrl.optional(), chatgpt: UpstreamUrl.optional(), openaiAuth: UpstreamUrl.optional(), openrouter: UpstreamUrl.optional() }).optional(),
     /** Claude Code on another company's models (AnthropicGatewayConf); managed mode only, never with
      * modelUpstreams.anthropic / modelUpstream. Claude subscription connections are off while it is set. */
     anthropicGateway: AnthropicGatewayConf.optional(),
@@ -216,7 +217,7 @@ export interface AppConfig {
     modelUpstream?: string
     /** absent = all four kinds */
     credentialKinds?: CredentialKind[]
-    modelUpstreams?: Partial<ModelUpstreams>
+    modelUpstreams?: Partial<ModelUpstreams> & { openrouter?: string }
     /** see AppConfigFile engine.anthropicGateway */
     anthropicGateway?: AnthropicGatewayConf
   }
@@ -360,6 +361,12 @@ export function modelUpstreams(config: Pick<AppConfig, 'engine'>): ModelUpstream
     openaiAuth: trim(o.openaiAuth ?? DEFAULT_UPSTREAMS.openaiAuth),
   }
 }
+
+/** OpenRouter's OpenAI-compatible API: the hosting service's trial credit answers there (credentials/hosted-chat.ts) */
+export const OPENROUTER_API = 'https://openrouter.ai/api/v1'
+/** where trial answers go: OpenRouter, or engine.modelUpstreams.openrouter (tests) */
+export const openRouterUpstream = (config: Pick<AppConfig, 'engine'>): string =>
+  (config.engine.modelUpstreams?.openrouter ?? OPENROUTER_API).replace(/\/+$/, '')
 
 /** managed mode (the team's AI connections behind the model proxy) */
 export const isManaged = (config: Pick<AppConfig, 'engine'>) => config.engine.authMode === 'managed'

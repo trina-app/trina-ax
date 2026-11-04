@@ -11,6 +11,7 @@ import { fail } from '../http/errors'
 import { codexBetaAllowed, codexIsBeta, safeModel, type EngineConfs } from '../chat/engines'
 import { allowedCredentialKinds, isManaged } from '../app-config'
 import { hasCredentialFor } from '../credentials/resolve'
+import { hostedChatState } from '../credentials/hosted-chat'
 import { tr } from '../chat/i18n'
 import { enginesEnabled, getSetting, getTeamSettings, setSetting } from './settings'
 import { CLAUDE_MODELS, ENGINE_LABELS, codexModels, engineEnv, engineStatusCache } from './engines'
@@ -181,12 +182,15 @@ export async function chatEnginesFor(ctx: AppContext, p: Person, problems: Engin
   const of = (id: EngineId) => id === 'api' && api ? { label: api.label, models: [{ id: api.model, label: api.label }] }
     : { label: ENGINE_LABELS[id], models: id === 'claude-code' ? env.claudeModels ?? CLAUDE_MODELS : codexModels(env) }
   // the same cached checks as Admin > AI engines; managed: an engine this person has no usable AI connection for is
-  // left out (an engine whose only connection is assigned to a group shows only for that group's members)
+  // left out (an engine whose only connection is assigned to a group shows only for that group's members), unless the
+  // hosting service's trial credit answers its turns now (credentials/hosted-chat.ts; chat/turn.ts runs them on the API
+  // engine)
   const cache = engineStatusCache(ctx)
   const managed = isManaged(ctx.config)
   const allowed = allowedCredentialKinds(ctx.config)
+  const trial = managed && hostedChatState(ctx.db, new Date()) === 'active'
   const ready = await readyEngines(choosableEngines(ctx, p), problems, async (id) => {
-    if (managed && id !== 'api') return hasCredentialFor(ctx.db, p.id, id, allowed) ? 'ok' : 'not_logged_in'
+    if (managed && id !== 'api') return trial || hasCredentialFor(ctx.db, p.id, id, allowed) ? 'ok' : 'not_logged_in'
     return (await cache.get(id, true, locale)).status
   }, () => ctx.services.realtime.publishEach(() => ENGINE_CHOICE_CHANGED))
   return { canChoose, defaultEngine: def.engine, defaultModel: def.model, engines: ready.map((id) => ({ id, ...of(id) })) }
