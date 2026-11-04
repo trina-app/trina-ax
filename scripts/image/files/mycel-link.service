@@ -13,6 +13,10 @@ Type=simple
 ExecStart=/usr/local/sbin/mycel-link
 Restart=always
 RestartSec=5
+# A stop or restart kills the commands too (the whole cgroup), and systemd waits for them before the next start. Do
+# not use process or mixed: a command that outlives the agent writes to a closed pipe, nobody enforces its timeout,
+# and its result is lost. The next agent reports a killed command as timed out at once (/run/ax-link/<id>.running).
+KillMode=control-group
 StateDirectory=ax-link
 StateDirectoryMode=0700
 RuntimeDirectory=ax-link

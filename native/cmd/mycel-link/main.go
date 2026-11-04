@@ -10,6 +10,7 @@
 //	run       the allow-listed argv only (exec, no shell, as root, stdin on fd 0), at most 4 at a time, killed at
 //	          timeoutSec (timedOut: true)
 //	result    signed POST /link/v1/result; kept in /run/ax-link/ until hostd answers 200, so a restart sends it again
+//	lost      a command that a restart of the agent killed (same boot) is reported as timed out at once
 //
 // TLS: the agent accepts only a certificate whose SubjectPublicKeyInfo SHA-256 (base64url) equals pin. The key type
 // does not matter (hostd uses ECDSA P-256). The log never holds the token, stdin, stdout or stderr of a command.

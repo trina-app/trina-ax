@@ -195,6 +195,27 @@ func TestHostdLinkServer(t *testing.T) {
 		}
 	})
 
+	parent := t
+	t.Run("agent restart in the same boot: hostd fails the killed command at once", func(t *testing.T) {
+		mark := filepath.Join(t.TempDir(), "started")
+		ch := h.call(map[string]any{"op": "exec", "argv": []string{"/bin/sh", "-c", "touch " + mark + "; sleep 60"}, "stdin": nil, "timeoutSec": 60})
+		eventually(t, "command start", 10*time.Second, func() bool { _, err := os.Stat(mark); return err == nil })
+		t0 := time.Now()
+		stop1()
+		o1 := e.opts("boot-1")
+		o1.Allow = allowTest
+		// the parent test: the agent must outlive this subtest
+		stop1 = start(parent, o1)
+		select {
+		case r := <-ch:
+			if r["ok"] != false || r["code"] != "guest_agent_timeout" || time.Since(t0) > 15*time.Second {
+				t.Fatalf("%v after %v", r, time.Since(t0))
+			}
+		case <-time.After(30 * time.Second):
+			t.Fatal("hostd still waits for the killed command")
+		}
+	})
+
 	var stop2 func()
 	t.Run("reboot: hostd sends the lost command again; the token is not needed", func(t *testing.T) {
 		mark := filepath.Join(t.TempDir(), "first-run")

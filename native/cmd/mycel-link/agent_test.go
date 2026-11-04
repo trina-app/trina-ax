@@ -469,6 +469,53 @@ func TestResultIsSpooledAndSentAgain(t *testing.T) {
 	eventually(t, "spool empty", 2*time.Second, func() bool { ents, _ := os.ReadDir(e.spool); return len(ents) == 0 })
 }
 
+func TestCommandLostInARestartIsReportedAtOnce(t *testing.T) {
+	f := newFixture(t)
+	e := newEnv(t, f.srv.URL, f.pin, f.token, "T1")
+	o := e.opts("b")
+	started := make(chan struct{})
+	// like a real command: it ends when the agent stops (runCommand kills the group on ctx)
+	o.Run = func(ctx context.Context, c Command) Result { close(started); <-ctx.Done(); return Result{ExitCode: -1} }
+	stop := start(t, o)
+	f.push(Command{ID: "c-7", Argv: []string{mycelCtl, "apply-plan"}, TimeoutSec: 600})
+	<-started
+	stop()
+	if _, err := os.Stat(filepath.Join(e.spool, "c-7"+runningSuffix)); err != nil {
+		t.Fatalf("no running marker: %v", err)
+	}
+	if _, ok := f.result("c-7"); ok {
+		t.Fatal("a result before the restart")
+	}
+	o2 := e.opts("b")
+	o2.Run = func(context.Context, Command) Result { t.Error("ran again"); return Result{} }
+	start(t, o2)
+	eventually(t, "lost result", 10*time.Second, func() bool { _, ok := f.result("c-7"); return ok })
+	if r, _ := f.result("c-7"); !r.TimedOut || r.ExitCode != -1 {
+		t.Fatalf("%+v", r)
+	}
+	eventually(t, "spool empty", 2*time.Second, func() bool { ents, _ := os.ReadDir(e.spool); return len(ents) == 0 })
+}
+
+func TestRunningMarkerWithResultOrOfAnotherBoot(t *testing.T) {
+	f := newFixture(t)
+	e := newEnv(t, f.srv.URL, f.pin, f.token, "T1")
+	os.MkdirAll(e.spool, 0o700)
+	// the result was spooled, then the agent died before it removed the marker: the real result goes
+	os.WriteFile(filepath.Join(e.spool, "c-8"+resultSuffix), encodeResult(Result{ID: "c-8", Stdout: "real"}), 0o600)
+	os.WriteFile(filepath.Join(e.spool, "c-8"+runningSuffix), []byte("b"), 0o600)
+	// a marker of an earlier boot: hostd sends that command again itself, so no result
+	os.WriteFile(filepath.Join(e.spool, "c-9"+runningSuffix), []byte("old-boot"), 0o600)
+	start(t, e.opts("b"))
+	eventually(t, "c-8", 5*time.Second, func() bool { _, ok := f.result("c-8"); return ok })
+	if r, _ := f.result("c-8"); r.Stdout != "real" || r.TimedOut {
+		t.Fatalf("%+v", r)
+	}
+	eventually(t, "spool empty", 2*time.Second, func() bool { ents, _ := os.ReadDir(e.spool); return len(ents) == 0 })
+	if _, ok := f.result("c-9"); ok {
+		t.Fatal("a result for a command of another boot")
+	}
+}
+
 func TestPollUnauthorizedRegistersAgain(t *testing.T) {
 	f := newFixture(t)
 	f.fail401 = 1

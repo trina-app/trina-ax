@@ -46,7 +46,9 @@ const (
 	minPollEvery = time.Second
 	keyFile      = "key"
 	resultSuffix = ".result.json"
-	doneKeep     = 256
+	// a command that runs now; the file holds the boot id (see loadSpool)
+	runningSuffix = ".running"
+	doneKeep      = 256
 )
 
 // cmd ids become file names in the spool; hostd sends UUIDs
@@ -510,6 +512,10 @@ func (a *Agent) accept(ctx context.Context, c Command) {
 		a.finish(ctx, Result{ID: c.ID, ExitCode: 126, Stderr: "mycel-link: command not allowed\n"})
 		return
 	}
+	// the marker: if this process stops before the result is spooled, the next process reports the command as lost
+	if err := writeFileAtomic(filepath.Join(a.o.SpoolDir, c.ID+runningSuffix), []byte(a.bootID)); err != nil {
+		a.o.Log.Warn("ax-link cannot write a running marker", "id", c.ID, "error", err.Error())
+	}
 	a.wg.Add(1)
 	go func() {
 		defer a.wg.Done()
@@ -523,7 +529,8 @@ func (a *Agent) accept(ctx context.Context, c Command) {
 		r := a.o.Run(ctx, c)
 		r.ID = c.ID
 		if ctx.Err() != nil {
-			// the agent stops: no result; hostd times the command out (a reboot makes it send the command again)
+			// the agent stops and the command was killed: no result here. The marker stays; the next process in this
+			// boot reports the command as lost (loadSpool). After a reboot hostd sends the command again.
 			return
 		}
 		a.o.Log.Info("ax-link command done", "id", c.ID, "cmd", cmdName(c.Argv), "exitCode", r.ExitCode, "timedOut", r.TimedOut, "ms", time.Since(t0).Milliseconds())
@@ -536,6 +543,8 @@ func (a *Agent) finish(ctx context.Context, r Result) {
 	b := encodeResult(r)
 	if err := writeFileAtomic(filepath.Join(a.o.SpoolDir, r.ID+resultSuffix), b); err != nil {
 		a.o.Log.Warn("ax-link cannot spool a result; it is sent from memory only", "id", r.ID, "error", err.Error())
+	} else {
+		os.Remove(filepath.Join(a.o.SpoolDir, r.ID+runningSuffix))
 	}
 	a.mu.Lock()
 	delete(a.running, r.ID)
@@ -551,13 +560,21 @@ func (a *Agent) wake() {
 	}
 }
 
-// loadSpool marks the results of an earlier process (same boot) as pending
+// loadSpool marks the results of an earlier process (same boot) as pending. A running marker without a result is a
+// command that the earlier process did not finish: systemd killed it with the unit (KillMode=control-group), so it
+// does not run any more. It is reported at once as timed out, so hostd does not wait timeoutSec + 30 s for it. A
+// marker of another boot is only removed: hostd sends that command again when it sees the new boot id.
 func (a *Agent) loadSpool() error {
 	ents, err := os.ReadDir(a.o.SpoolDir)
 	if err != nil {
 		return fmt.Errorf("spool dir: %w", err)
 	}
+	var lost []string
 	for _, e := range ents {
+		if id, ok := strings.CutSuffix(e.Name(), runningSuffix); ok && e.Type().IsRegular() && cmdIDRe.MatchString(id) {
+			lost = append(lost, id)
+			continue
+		}
 		id, ok := strings.CutSuffix(e.Name(), resultSuffix)
 		if !ok || !e.Type().IsRegular() || !cmdIDRe.MatchString(id) {
 			continue
@@ -567,6 +584,19 @@ func (a *Agent) loadSpool() error {
 			return fmt.Errorf("spool: %w", err)
 		}
 		a.pending[id] = b
+	}
+	for _, id := range lost {
+		marker := filepath.Join(a.o.SpoolDir, id+runningSuffix)
+		boot, _ := os.ReadFile(marker)
+		if _, done := a.pending[id]; !done && string(boot) == a.bootID {
+			a.o.Log.Warn("ax-link command lost in an agent restart; reported as timed out", "id", id)
+			b := encodeResult(Result{ID: id, ExitCode: -1, TimedOut: true, Stderr: "mycel-link: the agent restarted and the command was stopped\n"})
+			if err := writeFileAtomic(filepath.Join(a.o.SpoolDir, id+resultSuffix), b); err != nil {
+				return fmt.Errorf("spool: %w", err)
+			}
+			a.pending[id] = b
+		}
+		os.Remove(marker)
 	}
 	return nil
 }
@@ -623,6 +653,7 @@ func (a *Agent) sender(ctx context.Context) {
 
 func (a *Agent) sent(id string) {
 	os.Remove(filepath.Join(a.o.SpoolDir, id+resultSuffix))
+	os.Remove(filepath.Join(a.o.SpoolDir, id+runningSuffix))
 	a.mu.Lock()
 	delete(a.pending, id)
 	a.done[id] = true
