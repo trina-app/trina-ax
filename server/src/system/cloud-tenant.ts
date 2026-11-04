@@ -117,8 +117,9 @@ export function setHostedSpeechKey(o: { db: Database; secretsDir: string; config
 }
 
 /**
- * hosted-chat-key: the trial AI credit the hosting service gives this team (credentials/hosted-chat.ts): a direct
- * Anthropic key with its dollar cap, end time and switch, or { key: null } to take it away. Hosted servers only. The
+ * hosted-chat-key: the trial AI credit the hosting service gives this team (credentials/hosted-chat.ts): an OpenRouter
+ * key for the API engine (never Claude Code, docs/DECISIONS.md "Z") with its dollar cap, end time and switch, or
+ * { key: null } to take it away. Hosted servers only. The
  * key comes on stdin (never in argv), is stored encrypted with the credentials vault and is in no output, error or audit
  * row: the audit says "set" or "removed" with the cap, end and switch. The answer carries what the team spent of the
  * credit so far (the server's own count, across key rotations), so the hosting service can size a new cap. The next
@@ -127,7 +128,7 @@ export function setHostedSpeechKey(o: { db: Database; secretsDir: string; config
 export function setHostedChatKey(o: { db: Database; secretsDir: string; config: AppConfig; log: Pick<Logger, 'info' | 'warn' | 'error'> }, input: unknown): { ok: true; set: boolean; usedUsd: number } {
   if (!isHosted(o.config)) throw new CloudTenantError('hosted-chat-key is for hosted servers only (server.json deployment "hosted")')
   const p = HostedChatKeyInput.safeParse(input)
-  if (!p.success) throw new CloudTenantError('stdin must be { key: a direct Anthropic API key, capUsd, endsAt, enabled } or { key: null }')
+  if (!p.success) throw new CloudTenantError('stdin must be { key: an OpenRouter key, capUsd, endsAt, enabled } or { key: null }')
   const cc = makeCredCtx({ db: o.db, secretsDir: o.secretsDir, config: o.config, log: o.log })
   const grant = p.data.key === null ? null : p.data as Extract<HostedChatKeyInput, { capUsd: number }>
   const r = writeHostedChatKey(cc, grant)

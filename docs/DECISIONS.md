@@ -6767,6 +6767,10 @@ An independent review said "merge after should-fix" and found nothing that break
 
 ## B — Hosted trial AI credit (feat/onboarding-b, 2026-11-04)
 
+> Superseded in part by "Z — trial credit on the API engine" (end of this file): the trial key is an OpenRouter key
+> and answers on the app's own API engine, never in Claude Code; what follows about the direct Anthropic key, its place
+> in `resolveCredential`, the Claude launch and the model proxy no longer holds.
+
 Owner decision (onboarding plan, trial credits approved): during a hosted trial a team gets AI answers without
 connecting anything. The team server's side; issuing, delivering and rotating the key belong to the hosting console.
 
@@ -7292,3 +7296,90 @@ The UX pass on the onboarding (A–E, W, G) for Korean marketers. Placement: Tea
   "/" menu finds a title, one primary, no frames, the checklist with an active, expired, used-up or no link),
   `team-link-skill-form.test.tsx` (join page and dialog by title). Screens checked at 390px (dark and light) and 1280px
   against the mock.
+
+## Z — trial credit on the API engine (feat/onboarding-z, 2026-11-04)
+
+Supersedes the Claude Code parts of "B — Hosted trial AI credit" above (which key, where it sits in the order, the launch
+path, the proxy's part); B's cap, holds, errors, storage and screens stay, now on the API engine. Why: Anthropic's
+terms for products that run Claude Code (https://code.claude.com/docs/en/legal-and-compliance, "Can customers offer
+Claude Code in their products?") say: "Customers may not pay for, resell, or intermediate Claude usage on their end
+users' behalf. Each end user must authenticate with their own Anthropic API key, Claude subscription plan credentials,
+or 3P inference provider credential". B's key, paid by the hosting service and put on Claude Code's requests, was exactly
+that case. Ordinary API use of the app's own agent falls under the Commercial Terms instead.
+
+- **The trial never runs Claude Code (or Codex).** A Claude Code or Codex turn on AI connections (managed) that no
+  connection of the person can answer now (none, or all switched off, refused, at a limit) runs on the app's own API
+  engine (`engine/api-agent.ts runApiAgent`) with the trial key while the credit is active (`chat/turn.ts trialAnswers`,
+  decided once when the turn starts). `resolveCredential` no longer knows the credit (no `hosted` tier, no
+  `Resolution.trial`, no `codexFallback`): no Claude Code launch, rate-limit fallback (Codex), scheduled run, sub-agent
+  or profile draft can resolve it, and the model proxy's broker refuses `hosted-trial` like any id without a row
+  (`credential_gone`, nothing sent). B's one exception stays: a Claude connection only at its limit while "Claude 한도에
+  닿으면 Codex로 넘기기" would send the turn to the person's Codex connection goes there as before.
+- **Engine choice, without touching Admin › AI engines.** Chats keep their engine (`chats.engine`); only the turn moves:
+  `turns.engine` and the answer's `messages.engine` are `api`, the model is the trial model, `turns.credential_id` is
+  `hosted-trial` (Admin › Usage by connection "Trial credit (hosting)"). `turns.engine = api` also keeps images out
+  (`files/vision.ts`: the API engine passes text only). Once the team or the person adds a connection that works for the
+  chat's engine, the next turn runs there as chosen; nothing else changes (no engine-api.json is written, the team
+  default stays). A turn decided on its connection that loses it mid-answer is not handed to the credit (B did that
+  inside Claude Code); the next message is. The composer (`chatEnginesFor`) lists Claude Code and Codex while the credit
+  answers; `canUseAi` counts it for every engine but `api` (A's `/api/me/ai-access` `usable`, Admin › Members "No AI",
+  the profile step); `aiAccessFor`'s `trial: used | ended` now applies to Codex users too. `hasCredentialFor` /
+  `hasCredentialSoonFor` are about connections only again (the turn's Codex-fallback check needs exactly that).
+- **The key: a per-team OpenRouter key, the same command.** `hosted-chat-key-set` keeps its name and stdin
+  (`{ key, capUsd, endsAt, enabled } | { key: null }`); `key` is now an OpenRouter key (`OpenRouterApiKey`, as for
+  hosted speech) and a direct Anthropic key or subscription token is refused by the protocol schema, mycel-ctl and
+  admin.js. A v2 was not added: B is in no release (no tag contains it, no hosting console sends it yet), so nothing
+  depends on the old form, and a v1 left beside a v2 could only ever hand over a key for Claude Code. Copies of the
+  protocol on either side of a mismatch fail closed (the old schema refuses `sk-or-`, the new one `sk-ant-`), so a key
+  never reaches the wrong provider. Stored as before but with AAD `mycel-cred-v1|ai.hostedChat|openrouter-api-key` and
+  `kind: openrouter-api-key` in the row; a row without it (a B test install) counts as no credit.
+- **Model: `anthropic/claude-haiku-5.5`** (`HOSTED_CHAT_MODEL`), OpenRouter's id of Claude Haiku 5.5, listed by
+  `GET https://openrouter.ai/api/v1/models` on 2026-11-04 at $0.10 / $0.50 per million tokens ($0.50 / $2.50 above
+  100,000 input tokens), tools supported, the same prices B chose it for. Base address `https://openrouter.ai/api/v1`
+  (`OPENROUTER_API`; `engine.modelUpstreams.openrouter` overrides it in tests only). The hosted cloud's egress check of the
+  API engine (public https only) applies to it.
+- **Spend: the team server still counts, per completion.** `createTrialMeter` (credentials/hosted-chat.ts) is the API
+  engine's new optional `meter`: before each completion the credit must be active, the key is read again (a rotated key
+  is used at once), and the completion's reservation (body bytes / 3 as input at the 1-hour cache-write price, its
+  `max_tokens` as output) is held while spent + held is under the cap, else it is not sent and the answer stops with
+  `trial_credit_used` (`trial_ended` past its end, switched off, taken away). Trial completions send `max_tokens` 16,000
+  (`HOSTED_CHAT_MAX_TOKENS`), which bounds one completion (about $0.01 normally, $0.04 at the long-context price). The
+  cost counted is OpenRouter's own `usage.cost` (what the key's limit counts too), else the list price; an answer that
+  started but whose usage never came (Stop, a broken stream, an error inside the stream) counts its whole reservation;
+  a refusal or an unreachable service gives the hold back. All the turns together pass the cap by at most the last
+  completion admitted. `proxy_tokens.budget_usd` is not used for the trial any more: the per-completion hold already
+  bounds every answer, and the API engine has no proxy token.
+- **OpenRouter's key limit is the backstop.** 402 (insufficient credits on the key or account) and 403 with
+  `error.metadata.limit_source` `openrouter_key_limit` (or "Key limit" / "$X of $Y used" in the message), as an HTTP
+  answer or an error inside the stream, end the answer with `trial_credit_used`, not a provider error
+  (`isOpenRouterLimitError`). A 401 marks the stored key refused (audited `credential.rejected` on `hosted-trial`; a late
+  401 for a key rotated away since leaves the new one alone) and the answer ends with `trial_ended`. Other refusals (a
+  moderation 403, 5xx) are the API engine's usual errors. The key stays in the server process; no engine program ever
+  sees it, and nothing of the hosting service's account reaches the person.
+- **Removed as dead code in the Claude path:** the model proxy's trial handling (`TRIAL_DROP_RESPONSE`,
+  `isSpendLimitError`, the trial model allow-list, the trial estimate and holds, the unfinished-stream counting,
+  `TURN_BUDGET_REACHED`, the `trial` turn event), the broker's `hosted-trial` branches (forRequest, onUnauthorized,
+  record, release), resolve's `hosted` tier, `buildClaudeLaunch`'s `onlyModel`, the turn's `beforeTrial` / `showModel` /
+  trial budget, and the fake engine's alias model; those files are back to their state before B. Kept because the API
+  engine path needs them: the storage, cap, holds, settle / release, refusal mark, `trialCredit` view, rekey, drop,
+  export and restore of credentials/hosted-chat.ts; `proxy_tokens.budget_usd` and its generic check stay as they were
+  before B (no caller sets it).
+- **Visibility.** `GET /api/admin/trial-credit` and the TrialCreditBar are unchanged except that `model` is the
+  OpenRouter id and an Anthropic-compatible gateway no longer hides the credit (it never touches Claude requests).
+- **Recommendation to the hosting console:** make the trial key like the speech key, by API (`POST /keys` with the
+  management key, a guardrail of Claude Haiku 5.5 only with zero data retention, its own workspace), with OpenRouter's
+  key `limit` as the backstop at `capUsd` + $2 and no monthly reset; the owner no longer makes Anthropic keys by hand.
+  The handoff is outside this repository.
+- **Not run against the real OpenRouter API:** no OpenRouter key was available on the build machine; every test uses a
+  fake OpenRouter. Before the first trial team, one real answer, one skill run and one profile draft on a test key are
+  worth a look (Haiku 5.5 through Chat Completions with tools, `usage.cost` present, the guardrail not refusing).
+- Tests: `tests/unit/a-hosted-trial-credit.test.ts` (the command's gate and admin.js with OpenRouter and Anthropic keys,
+  a B row ignored, the resolver and the model proxy never giving the key to a Claude Code launch, the meter: key per
+  completion, max_tokens, OpenRouter's cost, list price, refused at the cap before sending, ended, 401 and a late 401,
+  OpenRouter's limit over HTTP and in the stream, moderation and 5xx passing on, a broken-off answer, eight answers at
+  once near the cap; the view, rekey, drop, export, restore), `tests/unit/b-hosted-trial-turn.test.ts` (real runtime
+  and launcher: a Claude Code and a Codex chat answered on the API engine with no launch, a team connection taking over,
+  the Codex fallback first, used and ended before anything runs, used up mid-answer, OpenRouter's limit and a refused
+  key, a scheduled run, a profile draft with web_fetch on the typed site only, a marketing pack skill run as the form
+  sends it, the admin API), `b-onboarding-ai-access` (an OpenRouter key), `web/test/unit/trial-credit-bar.test.tsx`,
+  the contract vectors and `cloud-protocol.test.ts`, mycel-ctl `TestTenantHostedChatKeySet`.

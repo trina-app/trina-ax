@@ -127,21 +127,22 @@ export const StartMyLoginBody = StartCredentialLoginBody.omit({ assignments: tru
 export const AiAccessResponse = z.object({ usable: z.boolean(), action: z.enum(['connect_team', 'connect_own', 'ask_owner']), requested: z.boolean(), trial: z.enum(['used', 'ended']).optional() })
 export type AiAccessResponse = z.infer<typeof AiAccessResponse>
 export const AiAccessRequestResponse = z.object({ requested: z.literal(true), already: z.boolean() })
-/** The hosting service's trial AI credit (docs/DECISIONS.md "B — Hosted trial AI credit"): a key of the hosting
- * service's that answers the team's chats only when no AI connection of the team or the person can. `state`: active
- * (answers now), used (the dollar cap is reached), ended (past `endsAt`, paused by the hosting service, or refused by
- * the provider). Dollars as the team server counts them (list prices). Never the key, not even part of it. */
+/** The hosting service's trial AI credit (docs/DECISIONS.md "B — Hosted trial AI credit", "Z — trial credit on the API
+ * engine"): a key of the hosting service's that answers the team's chats on the app's own API engine only when no AI
+ * connection of the team or the person can. `state`: active (answers now), used (the dollar cap is reached), ended
+ * (past `endsAt`, paused by the hosting service, or refused by the provider). Dollars as the team server counts them
+ * (the provider's reported cost, else list prices). Never the key, not even part of it. */
 /** the credential id of turns answered on the trial credit (turns.credential_id; Admin › Usage by connection): no
  * connection row has it */
 export const TRIAL_CREDENTIAL_ID = 'hosted-trial'
 export const TrialCredit = z.object({
   active: z.boolean(), state: z.enum(['active', 'used', 'ended']),
   usedUsd: z.number().nonnegative(), capUsd: z.number().nonnegative(), endsAt: IsoTime,
-  /** the one model trial answers run on */
+  /** the one model trial answers run on (an OpenRouter model id: the trial answers on the API engine) */
   model: z.string(),
 })
 export type TrialCredit = z.infer<typeof TrialCredit>
-/** null: this server holds no trial credit (not hosted, never had one, taken away, or Claude requests go to a gateway) */
+/** null: this server holds no trial credit (not hosted, never had one, or taken away) */
 export const TrialCreditResponse = z.object({ credit: TrialCredit.nullable() })
 export type TrialCreditResponse = z.infer<typeof TrialCreditResponse>
 

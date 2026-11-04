@@ -102,7 +102,7 @@ export const ServerConfigPatch = z.strictObject({
   engine: z.strictObject({ credentialKinds: z.array(CredentialKind).min(1).max(4) }).optional(),
 }).refine((p) => p.relay !== undefined || p.publicOrigins !== undefined || p.engine !== undefined, 'nothing to change')
 
-/** An OpenRouter API key ("sk-or-v1-…"). It is only ever in hosted-speech-key-set's stdin. */
+/** An OpenRouter API key ("sk-or-v1-…"). It is only ever in hosted-speech-key-set's and hosted-chat-key-set's stdin. */
 export const OpenRouterApiKey = z.string().regex(/^sk-or-[A-Za-z0-9_-]{16,200}$/)
 /** hosted-speech-key-set's stdin: the OpenRouter key the hosting service gives this team for speech-to-text (hosted
  * voice input and video sound, 10 free hours a team a month, counted by the app), or null to take it away. The app
@@ -111,17 +111,16 @@ export const OpenRouterApiKey = z.string().regex(/^sk-or-[A-Za-z0-9_-]{16,200}$/
 export const HostedSpeechKeyInput = z.strictObject({ key: OpenRouterApiKey.nullable() })
 export type HostedSpeechKeyInput = z.infer<typeof HostedSpeechKeyInput>
 
-/** A direct Anthropic API key ("sk-ant-api03-…"; the team server's own rule for one). It is only ever in
- * hosted-chat-key-set's stdin. */
-export const AnthropicApiKey = z.string().regex(/^sk-ant-api\d{2}-[A-Za-z0-9_-]{20,300}$/)
 /** hosted-chat-key-set's stdin: the trial AI credit the hosting service gives this team, so its chats are answered
- * before it connects an AI of its own. `key` is a direct Anthropic API key (never a gateway's), `capUsd` the dollars
- * the team may spend with it in all (counted by the app across key rotations; raise it to give more), `endsAt` when it
+ * before it connects an AI of its own. `key` is an OpenRouter API key made for this team (its own key limit as the
+ * backstop): the app answers with it on its own API engine and one Claude Haiku model, never in Claude Code, whose
+ * terms do not allow a key the hosting service pays for. A direct Anthropic key is refused. `capUsd` the dollars the
+ * team may spend with it in all (counted by the app across key rotations; raise it to give more), `endsAt` when it
  * stops, `enabled` false to pause it without taking the key away. `{ key: null }` takes it away. The app keeps the
  * key encrypted with its credentials vault and never shows, logs or audits it; any AI connection the team or a
  * person adds always comes first. */
 export const HostedChatKeyInput = z.union([
-  z.strictObject({ key: AnthropicApiKey, capUsd: z.number().min(0).max(1000), endsAt: IsoTime, enabled: z.boolean() }),
+  z.strictObject({ key: OpenRouterApiKey, capUsd: z.number().min(0).max(1000), endsAt: IsoTime, enabled: z.boolean() }),
   z.strictObject({ key: z.null() }),
 ])
 export type HostedChatKeyInput = z.infer<typeof HostedChatKeyInput>

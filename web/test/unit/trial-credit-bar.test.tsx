@@ -6,7 +6,7 @@ import type { TrialCredit } from '@mycel/shared/api'
 import { translate } from '../../src/i18n'
 import { TrialCreditBar } from '../../src/components/TrialCreditBar'
 
-const base: TrialCredit = { active: true, state: 'active', usedUsd: 1.5, capUsd: 10, endsAt: '2026-11-18T15:00:00.000Z', model: 'claude-haiku-5-5' }
+const base: TrialCredit = { active: true, state: 'active', usedUsd: 1.5, capUsd: 10, endsAt: '2026-11-18T15:00:00.000Z', model: 'anthropic/claude-haiku-5.5' }
 // server rendering reads the locale store's first state: English
 const render = (c: TrialCredit, timeZone?: string) => renderToStaticMarkup(<TrialCreditBar credit={c} timeZone={timeZone} />)
 

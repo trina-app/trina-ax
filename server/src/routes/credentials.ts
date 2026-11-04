@@ -72,7 +72,7 @@ export function registerCredentialRoutes(kit: RouteKit, ctx: AppContext) {
   kit.handle(API.sealingKey, () => cc().sealer.publicKey())
   // the hosting service's trial AI credit (credentials/hosted-chat.ts): Admin › AI connections and the start goal card.
   // Only turns that answer with AI connections (managed mode) ever use it.
-  kit.handle(API.trialCredit, () => ({ credit: isManaged(ctx.config) ? trialCredit(ctx.db, new Date(), cc().allowedKinds) : null }))
+  kit.handle(API.trialCredit, () => ({ credit: isManaged(ctx.config) ? trialCredit(ctx.db, new Date()) : null }))
 
   // ChatGPT sign-ins (the team's: owner + password; one's own: while the team allows personal connections)
   kit.handle(API.startCredentialLogin, ({ c, body, auth }) => logins().start({ userId: auth.user.id, locale: loc(c), personal: false, label: body.label, assignments: body.assignments, priority: body.priority, reconnectId: body.reconnectId }))

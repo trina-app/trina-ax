@@ -32,7 +32,7 @@ import { getTeamSettings } from '../admin/settings'
 import { invokedSkill, listSkills, skillFolder } from './skills'
 import { buildSkillList, chatSkillOrder, descriptionOrder, hintSkills, listedFor, recordListed, skillChanges, skillChangesText, usageScores } from './skill-list'
 import { describeSchedule, scheduledRunBlock, type ScheduleRow } from './schedules'
-import { safeModel } from './engines'
+import { safeModel, type EngineConfs } from './engines'
 import { engineError, stepLabel, tr, turnLimitError } from './i18n'
 import { recordSkillUse } from '../admin/skill-usage'
 import { noteGoalRun } from '../onboarding/goal'
@@ -63,7 +63,7 @@ import { limitFallbackOn } from '../admin/engine-choice'
 import { runApiAgent } from '../engine/api-agent'
 import { makeHandler } from '../mcp/protocol'
 import { hasCredentialFor, resolveCredential, type CredEngine } from '../credentials/resolve'
-import { HOSTED_CHAT_ID, HOSTED_CHAT_MODEL, hostedChatLeftUsd } from '../credentials/hosted-chat'
+import { createTrialMeter, HOSTED_CHAT_ID, HOSTED_CHAT_MAX_TOKENS, hostedChatConf, hostedChatState } from '../credentials/hosted-chat'
 import { credentialsOf, getRow, metaOf } from '../credentials/store'
 import { dummyAuthJson } from '../credentials/codex-home'
 import { afterUsage } from '../admin/budget-watch'
@@ -287,10 +287,14 @@ export class TurnExec {
     // the chat's engine was switched off by an admin: this answer comes from the team default
     if (spec.substitutedFrom) this.addStep({ kind: 'tool', tool: 'engine', label: tr('engineOffDefault', spec.locale, { from: ENGINE_LABELS[spec.substitutedFrom], to: ENGINE_LABELS[spec.engine] }), status: 'ok' })
     const confs = rt.engines.get()
-    const problem = confs.problems[spec.engine]
-    const claude = spec.engine === 'claude-code' ? confs.claude : null
-    const codex = spec.engine === 'codex' ? confs.codex : null
-    const api = spec.engine === 'api' ? confs.api ?? null : null
+    // the hosting service's trial credit (credentials/hosted-chat.ts, docs/DECISIONS.md "Z"): a Claude Code or Codex
+    // turn that no AI connection of this person can answer runs on the app's own API engine with the trial key instead.
+    // Claude Code and Codex never run on it (Anthropic's terms for products that run Claude Code)
+    const trial = this.trialAnswers(confs)
+    const problem = trial ? undefined : confs.problems[spec.engine]
+    const claude = !trial && spec.engine === 'claude-code' ? confs.claude : null
+    const codex = !trial && spec.engine === 'codex' ? confs.codex : null
+    const api = trial ? hostedChatConf(rt.ctx.config) : spec.engine === 'api' ? confs.api ?? null : null
     if (problem || (!claude && !codex && !api)) { this.error = engineError(problem ?? 'engine_missing', spec.locale); return }
     const core = await rt.core()
     this.activeCore = core
@@ -401,9 +405,14 @@ export class TurnExec {
       const changes = skillChangesText(before === 'stale' ? 'stale' : skillChanges(before, skills), neutralizeTags)
       return `${buildTurnContext(rt.files, { ...promptInput(false), connected: toolSet.context.join('\n\n') || null, skillChanges: changes })}\n\n${message}`
     }
-    // the API engine always answers with the owner's one model: the turn records it (usage by model), never empty
-    const { turn, token } = core.turns.create(spec.userId, spec.chatId, spec.engine, api ? api.model : spec.model, spec.turnId)
+    // the API engine always answers with the owner's one model: the turn records it (usage by model), never empty; a
+    // trial answer is the API engine's on the trial model, and Admin › Usage by connection names the trial credit
+    const { turn, token } = core.turns.create(spec.userId, spec.chatId, trial ? 'api' : spec.engine, api ? api.model : spec.model, spec.turnId)
     this.registered = true
+    if (trial) {
+      rt.db.query("UPDATE messages SET engine = 'api', model = ? WHERE id = ?").run(api!.model, spec.assistantId)
+      rt.db.query('UPDATE turns SET credential_id = ? WHERE id = ?').run(HOSTED_CHAT_ID, spec.turnId)
+    }
     if (invoked) {
       // Reporting is auxiliary: keep permission checks outside this boundary and omit file/body/error details.
       try { recordSkillUse(rt.db, { turnId: spec.turnId, userId: spec.userId, skill: invoked.skill, source: 'command' }) }
@@ -434,8 +443,6 @@ export class TurnExec {
       // one moves the turn to the next (at most 2 switches, counted apart from the attempts below)
       const managed = !!(claude.modelProxy && core.proxy)
       const exclude = new Set<string>()
-      // the model chosen before an attempt on the trial credit (which runs on its own model), null when none was
-      let beforeTrial: { model: string | undefined } | null = null
       // tool rounds this answer may take (Admin > Team settings answerStepLimit), read once for all its attempts
       const maxTurns = rt.maxEngineTurns
       for (let attempt = 0; attempt < 4 && !this.stopReason; attempt++) {
@@ -452,27 +459,14 @@ export class TurnExec {
         if (claude.modelProxy || tunnelPort !== null) revokeProxyTokens(rt.db, spec.turnId)
         let proxyToken: string | undefined
         let tokenKind: 'oauth' | 'api-key' = 'oauth'
-        let onlyModel: string | undefined
         if (managed) {
           const c = this.pickCredential('claude-code', exclude)
           if (!c) break
           tokenKind = c.kind === 'anthropic-api-key' ? 'api-key' : 'oauth'
-          // an attempt on a real connection after one on the trial credit runs on what was chosen again
-          if (beforeTrial && c.credentialId !== HOSTED_CHAT_ID) { model = beforeTrial.model; this.showModel(spec.model ?? null); beforeTrial = null }
           // with our per-turn token on fd 3 Claude Code cannot tell the plan and starts on Sonnet: a subscription runs on
           // Opus unless someone chose (also makes the refusal retry's "other model" really another one)
           if (model === undefined && c.kind === 'anthropic-oauth') model = SUBSCRIPTION_DEFAULT_MODEL
-          // the hosting service's trial credit (credentials/hosted-chat.ts): its one model whatever was chosen, and this
-          // attempt may spend what is left of the credit, no more (the proxy stops it there)
-          let budgetUsd: number | undefined
-          if (c.credentialId === HOSTED_CHAT_ID) {
-            beforeTrial ??= { model }
-            model = onlyModel = HOSTED_CHAT_MODEL
-            this.showModel(HOSTED_CHAT_MODEL) // the answer says the model that answered
-            const spent = (rt.db.query('SELECT cost_usd FROM turns WHERE id = ?').get(spec.turnId) as { cost_usd: number | null } | null)?.cost_usd ?? 0
-            budgetUsd = spent + hostedChatLeftUsd(rt.db)
-          }
-          proxyToken = issueProxyToken(rt.db, spec.turnId, spec.userId, { ttlMs: LAUNCHER_BACKSTOP_MS + 60_000, credentialId: c.credentialId, family: 'anthropic', tools: { agent: subagents, webSearch, team: turnTools }, ...(budgetUsd !== undefined ? { budgetUsd } : {}) })
+          proxyToken = issueProxyToken(rt.db, spec.turnId, spec.userId, { ttlMs: LAUNCHER_BACKSTOP_MS + 60_000, credentialId: c.credentialId, family: 'anthropic', tools: { agent: subagents, webSearch, team: turnTools } })
         } else if (claude.modelProxy || tunnelPort !== null) proxyToken = issueProxyToken(rt.db, spec.turnId, spec.userId, { ttlMs: LAUNCHER_BACKSTOP_MS + 60_000, tools: { agent: subagents, webSearch, team: turnTools } })
         this.lockdown = { webSearch, subagents, team: new Set(turnTools) }
         // calls wait for the stream to say which agent made them from the start when sub-agents are possible: a child's
@@ -480,7 +474,7 @@ export class TurnExec {
         this.files.subagents ||= subagents
         const lr = buildClaudeLaunch({ webSearch, subagents: subagentLaunch(),
           turnId: spec.turnId, chatDir, token, systemPrompt: prompt(!resume, true, sid), message: claudeMessage(resume, sid), sessionId: sid, resume,
-          stash: resume ? fs.readFileSync(rt.sessionStash(spec.chatId, sid)) : null, model, maxTurns, timeoutMs: LAUNCHER_BACKSTOP_MS, extraTools, proxyToken, tokenKind, onlyModel,
+          stash: resume ? fs.readFileSync(rt.sessionStash(spec.chatId, sid)) : null, model, maxTurns, timeoutMs: LAUNCHER_BACKSTOP_MS, extraTools, proxyToken, tokenKind,
           ...(tunnelPort !== null && proxyToken ? { tunnel: { port: tunnelPort, token: proxyToken } } : {}),
         }, claude)
         const { exit, stderr } = await this.launch(core, lr, (l) => { for (const e of parser.push(l)) this.onEvent(e, errors) })
@@ -499,8 +493,7 @@ export class TurnExec {
         if (resume && noConversation && !retried.has('resume')) { // stash unusable -> fresh session from the DB history
           retried.add('resume'); resume = false; sid = crypto.randomUUID(); continue
         }
-        // the safety classifier declined a normal request -> other model, once (not on the trial credit: it has one model)
-        if (parser.refused && !retried.has('refused') && !onlyModel) {
+        if (parser.refused && !retried.has('refused')) { // the safety classifier declined a normal request -> other model, once
           retried.add('refused')
           const next = rt.fallbackModel(model)
           this.addStep({ kind: 'tool', tool: 'refusal', label: tr('refusedRetry', spec.locale, { model: next }), status: 'ok' })
@@ -532,10 +525,16 @@ export class TurnExec {
       const handler = makeHandler(rt.files, rt.db, { user: this.principal!, turnId: spec.turnId, files: turn.files, signal: turn.abort.signal }, toolSet)
       const errors: EngineEvent[] = []
       this.attemptHadOutput = false
-      await runApiAgent({ conf: api, systemPrompt: prompt(true), message, rpc: handler, emit: (e) => this.onEvent(e, errors), signal: this.abort.signal, publicOrigins: rt.ctx.config.publicOrigins })
+      // a trial answer: every completion is held against the credit and counted (credentials/hosted-chat.ts); why it
+      // stopped on the credit (used, ended) is the answer's error
+      const stopped: { reason: 'used' | 'ended' | null } = { reason: null }
+      const meter = trial ? createTrialMeter(credentialsOf(rt.ctx), (r) => { stopped.reason ??= r }) : undefined
+      await runApiAgent({ conf: api, systemPrompt: prompt(true), message, rpc: handler, emit: (e) => this.onEvent(e, errors), signal: this.abort.signal, publicOrigins: rt.ctx.config.publicOrigins,
+        ...(meter ? { meter, maxTokens: HOSTED_CHAT_MAX_TOKENS } : {}) })
       this.closeThinking()
       const err = errors.find((e) => e.type === 'error') as Extract<EngineEvent, { type: 'error' }> | undefined
-      if (err && !this.stopReason) {
+      if (stopped.reason && !this.stopReason) this.error = engineError(stopped.reason === 'used' ? 'trial_credit_used' : 'trial_ended', spec.locale)
+      else if (err && !this.stopReason) {
         rt.log.warn('engine attempt failed', { turn: this.id, engine: 'api', code: err.code, status: err.status, message: err.message.slice(0, 300) })
         this.error = engineError(err.code, spec.locale, undefined, err.status)
       }
@@ -550,10 +549,13 @@ export class TurnExec {
    * follow, D15). */
   private pickCredential(engine: CredEngine, exclude: ReadonlySet<string>): { credentialId: string; kind: import('@mycel/shared/api').CredentialKind } | null {
     const { rt, spec } = this
-    const r = resolveCredential(rt.db, { userId: spec.userId, engine, exclude, allowedKinds: credentialsOf(rt.ctx).allowedKinds, codexFallback: engine === 'claude-code' && this.codexFallbackReady() })
+    const r = resolveCredential(rt.db, { userId: spec.userId, engine, exclude, allowedKinds: credentialsOf(rt.ctx).allowedKinds })
     if (r.ok) { this.lastCredential = r.credentialId; return r }
+    // no connection at all: once the hosting service's trial credit, which answered such turns, is used up or over,
+    // that is what the person hears instead of "no AI connection"
+    const t = r.reason === 'none' ? hostedChatState(rt.db, new Date()) : null
     if (this.proxyError) this.error = this.proxyError
-    else if (r.trial) this.error = engineError(r.trial === 'used' ? 'trial_credit_used' : 'trial_ended', spec.locale)
+    else if (t === 'used' || t === 'ended') this.error = engineError(t === 'used' ? 'trial_credit_used' : 'trial_ended', spec.locale)
     else if (r.reason === 'none') this.error = engineError('no_credential', spec.locale)
     else if (r.retryAt) this.error = engineError('rate_limit', spec.locale, Math.max(1, Math.ceil((Date.parse(r.retryAt) - Date.now()) / 1000)))
     else this.error = engineError('credential_unusable', spec.locale)
@@ -568,10 +570,7 @@ export class TurnExec {
     const f = this.credentialFailure
     if (!f || this.stopReason || this.switches >= 2) return false
     exclude.add(f.id)
-    // a Claude limit that goes on to Codex (limitFallback) does not go to the hosting service's trial credit
-    const codexFallback = engine === 'claude-code' && this.codexFallbackReady()
-    const next = resolveCredential(rt.db, { userId: spec.userId, engine, allowedKinds: credentialsOf(rt.ctx).allowedKinds, codexFallback,
-      exclude: codexFallback && f.reason === 'limited' ? new Set([...exclude, HOSTED_CHAT_ID]) : exclude })
+    const next = resolveCredential(rt.db, { userId: spec.userId, engine, exclude, allowedKinds: credentialsOf(rt.ctx).allowedKinds })
     if (!next.ok) return false
     this.switches++
     this.credentialFailure = null
@@ -693,10 +692,21 @@ export class TurnExec {
     return codex.auth !== 'managed' || hasCredentialFor(rt.db, spec.userId, 'codex', credentialsOf(rt.ctx).allowedKinds)
   }
 
-  /** The answer and the turn name the model of the attempt that answers (the trial credit's own model, Usage by model). */
-  private showModel(model: string | null) {
-    this.rt.db.query('UPDATE messages SET model = ? WHERE id = ?').run(model, this.spec.assistantId)
-    this.rt.db.query('UPDATE turns SET model = ? WHERE id = ?').run(model, this.spec.turnId)
+  /** Does the hosting service's trial credit answer this turn (credentials/hosted-chat.ts, docs/DECISIONS.md "Z")? A
+   * Claude Code or Codex turn on AI connections (managed) while the credit is active, when no connection of this person
+   * can answer that engine now (none, or all switched off, refused or at a limit). Any connection the team or the
+   * person adds that works comes first. One exception keeps the team's own AI first: a Claude connection only at its
+   * limit while "Claude 한도에 닿으면 Codex로 넘기기" would send the turn to a Codex connection of the person's (the
+   * turn goes there as before). The API engine has its own key. */
+  private trialAnswers(confs: EngineConfs): boolean {
+    const { rt, spec } = this
+    const engine = spec.engine
+    if (engine === 'api') return false
+    if (!(engine === 'claude-code' ? confs.claude?.authMode === 'managed' && !!confs.claude.modelProxy : confs.codex?.auth === 'managed')) return false
+    if (hostedChatState(rt.db, new Date()) !== 'active') return false
+    const r = resolveCredential(rt.db, { userId: spec.userId, engine, allowedKinds: credentialsOf(rt.ctx).allowedKinds })
+    if (r.ok) return false
+    return !(engine === 'claude-code' && r.skipped.some((s) => s.why === 'limited') && this.codexFallbackReady())
   }
 
   /** The model proxy refused or failed a request of this turn: the turn ends with that reason (design tab 1 "예산 초과",
@@ -715,9 +725,6 @@ export class TurnExec {
     const L = this.spec.locale
     if (ev.type === 'lockdown') return this.stopAtLockdown(ev.reason, 'proxy')
     if (ev.type === 'auth') this.proxyError = engineError('auth', L)
-    // the trial credit is used or over (or Anthropic refused its key): nothing to switch to, it was the last resort
-    else if (ev.type === 'trial') this.proxyError = engineError(ev.reason === 'used' ? 'trial_credit_used' : 'trial_ended', L)
-    else if (ev.type === 'credential' && ev.credentialId === HOSTED_CHAT_ID) this.proxyError = engineError('trial_ended', L)
     else if (ev.type === 'budget') this.proxyError = { code: 'budget_exceeded', message: budgetBlock(this.rt.db, this.spec.userId, L)?.message ?? tr('errBudget', L) }
     else if (ev.type === 'credential') {
       this.proxyError = ev.reason === 'over_limit' ? { code: 'budget_exceeded', message: tr('errCredentialLimit', L) } : engineError('credential_unusable', L)
