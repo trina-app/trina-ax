@@ -3,6 +3,7 @@
 // A message sent while an answer runs waits under the conversation and goes when the answer is done
 // (store/sendQueue.ts, components/chat/QueuedMessages.tsx); while the AI waits for the answer to its question, the
 // message box answers that question instead (lib/askAnswer.ts).
+import AiAccessBanner from '../components/chat/AiAccessBanner'
 import { Globe, Loader2, RotateCcw, Trash2 } from 'lucide-react'
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
@@ -287,6 +288,8 @@ function ChatView({ chatId }: { chatId: string }) {
         {chat?.deletedAt ? (
           <TrashedBanner chat={chat} onRestored={(c) => { setChat(c); upsertChat(c) }} />
         ) : (
+          <>
+          <AiAccessBanner />
           <Composer
             ref={composer}
             draftId={chatId}
@@ -304,6 +307,7 @@ function ChatView({ chatId }: { chatId: string }) {
             footer={t('chat.footer')}
             autoFocus
           />
+          </>
         )}
         {chat?.deletedAt && <p className="pt-2 text-center text-[11px] text-faint">{t('chat.footer')}</p>}
       </div>

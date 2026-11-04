@@ -5,6 +5,8 @@ import { newId } from '../db'
 import { HttpError } from '../http/errors'
 import { decodeCursor, encodeCursor } from '../chat/store'
 import { admins } from '../credentials/store'
+import { canUseAi } from '../credentials/access'
+import { isManaged } from '../app-config'
 import { authorize } from '../policy/authorize'
 import { atLeast } from '../policy/access'
 import { readScope } from '../chat/read-scope'
@@ -24,11 +26,11 @@ export type SkillNoticeEvent = Extract<NotificationEventType, 'skill.suggested' 
 export type DevEnvNoticeEvent = Extract<NotificationEventType, 'dev_env.job' | 'dev_env.box'>
 const isSkillEvent = (e: NotificationEventType): e is SkillNoticeEvent => e === 'skill.suggested' || e === 'skill.reviewed'
 const isDevEnvEvent = (e: NotificationEventType): e is DevEnvNoticeEvent => e === 'dev_env.job' || e === 'dev_env.box'
-const tableOf = (e: NotificationEventType) => isSkillEvent(e) ? 'skill_notices' : isDevEnvEvent(e) ? 'dev_env_notices' : e === 'integration.request' ? 'integration_request_notices' : 'notification_inbox'
+const tableOf = (e: NotificationEventType) => isSkillEvent(e) ? 'skill_notices' : isDevEnvEvent(e) ? 'dev_env_notices' : e === 'integration.request' ? 'integration_request_notices' : e === 'onboarding.ai_request' ? 'onboarding_notices' : 'notification_inbox'
 /** One inbox over the tables: skill notices (migration 211, R2-SKILL-12), dev environment notices (migration 219) and
  * requests to connect a service (migration 220) have their own tables, because notification_inbox has a fixed
  * event_type CHECK list and tables are never rebuilt. */
-const NOTICE_TABLES = ['notification_inbox', 'skill_notices', 'dev_env_notices', 'integration_request_notices'] as const
+const NOTICE_TABLES = ['notification_inbox', 'skill_notices', 'dev_env_notices', 'integration_request_notices', 'onboarding_notices'] as const
 const INBOX = `(${NOTICE_TABLES.map((t) => `SELECT id,user_id,event_type,source_id,created_at,read_at,suppressed FROM ${t}`).join(' UNION ALL ')})`
 export class Notifications {
   constructor(readonly ctx: AppContext) {}
@@ -60,6 +62,31 @@ export class Notifications {
   integrationRequest(userId: string, requestId: string, createdAt = new Date().toISOString()) {
     this.record(userId, 'integration.request', requestId, createdAt, true)
   }
+  /** A member without AI asks this owner to connect one. The source is the member's id only; a second ask is a no-op
+   * (UNIQUE row, migration 222). Shown always. */
+  onboardingAiRequest(ownerId: string, memberId: string, createdAt = new Date().toISOString()) {
+    // a settled or read row from an earlier ask is armed again (unread, new time) instead of being swallowed by the unique row
+    const again = this.ctx.db.query("UPDATE onboarding_notices SET read_at=NULL, created_at=? WHERE user_id=? AND event_type='onboarding.ai_request' AND source_id=? AND read_at IS NOT NULL").run(createdAt, ownerId, memberId)
+    if (again.changes) { if (this.active(ownerId)) this.signal(ownerId); return }
+    this.record(ownerId, 'onboarding.ai_request', memberId, createdAt, true)
+  }
+  /** Is this member's ask still waiting (an unread row for any owner)? A settled or read one is not: they can ask again. */
+  aiRequested(memberId: string): boolean {
+    return !!this.ctx.db.query("SELECT 1 FROM onboarding_notices WHERE event_type='onboarding.ai_request' AND source_id=? AND read_at IS NULL AND created_at>=? LIMIT 1").get(memberId, this.cutoff())
+  }
+  /** A request whose member can use AI now (or is gone) counts as read: the owner is not left with something done. */
+  settleAiRequests(userId?: string) {
+    if (!isManaged(this.ctx.config)) return
+    const rows = this.ctx.db.query(`SELECT id, user_id, source_id FROM onboarding_notices WHERE read_at IS NULL ${userId ? 'AND user_id=?' : ''}`).all(...(userId ? [userId] : [])) as { id: string; user_id: string; source_id: string }[]
+    const now = new Date().toISOString(), touched = new Set<string>()
+    for (const r of rows) {
+      const m = this.ctx.db.query("SELECT id, role FROM users WHERE id=? AND status='active' AND deleted_at IS NULL").get(r.source_id) as { id: string; role: string } | null
+      if (m && !canUseAi(this.ctx, m)) continue
+      this.ctx.db.query('UPDATE onboarding_notices SET read_at=? WHERE id=? AND read_at IS NULL').run(now, r.id)
+      touched.add(r.user_id)
+    }
+    for (const u of touched) this.signal(u)
+  }
   /** A request that no longer waits (connected, declined, withdrawn, expired): its inbox entry counts as read, so the
    * member is not left with something to do that is gone. Expiry is caught by reconcile's tick. */
   settleIntegrationRequests(userId?: string) {
@@ -86,6 +113,7 @@ export class Notifications {
     const db = this.ctx.db
     for (const table of NOTICE_TABLES) db.query(`DELETE FROM ${table} WHERE created_at < ?`).run(this.cutoff())
     this.settleIntegrationRequests(userId)
+    this.settleAiRequests(userId)
     db.query('DELETE FROM schedule_outcomes WHERE created_at < ?').run(this.cutoff())
     const rows = db.query(`SELECT t.id,t.user_id,t.status,t.ended_at,t.run_outcome FROM turns t
       WHERE EXISTS(SELECT 1 FROM users u WHERE u.id=t.user_id AND u.status='active' AND u.deleted_at IS NULL)
@@ -159,6 +187,11 @@ export class Notifications {
       try { host = q ? new URL(q.url).host : '' } catch {}
       return { id: row.id, eventType: row.event_type, sourceId: row.source_id, code: row.event_type, createdAt: row.created_at, readAt: row.read_at, chatId: null, link: 'integrations', outcome: null,
         ...(q && host ? { request: { name: q.name, host } } : {}) }
+    }
+    // the owner sees who asks (a name, nothing else) and goes to Admin › AI connections
+    if (row.event_type === 'onboarding.ai_request') {
+      const m = this.ctx.db.query("SELECT name FROM users WHERE id=? AND status='active' AND deleted_at IS NULL").get(row.source_id) as { name: string } | null
+      return { id: row.id, eventType: row.event_type, sourceId: row.source_id, code: row.event_type, createdAt: row.created_at, readAt: row.read_at, chatId: null, link: 'admin_credentials', outcome: null, ...(m ? { requester: { name: m.name } } : {}) }
     }
     if (row.event_type === 'schedule.failure' && row.source_id.startsWith(REVIEW_SOURCE)) {
       // paused tasks to check again: the schedules list, never a chat

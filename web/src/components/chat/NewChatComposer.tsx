@@ -9,6 +9,7 @@ import { draftChat, draftChatIfAny, forgetDraftChat, rememberChat } from '../../
 import { useChats } from '../../store/chats'
 import { useEngines } from '../../store/engines'
 import { canChooseEngine, useMeStrict } from '../../store/session'
+import AiAccessBanner from './AiAccessBanner'
 import Composer, { type EngineChoice } from './Composer'
 
 export function NewChatComposer({ projectId, initialText, resetKey = 0, autoFocus, placeholder }: {
@@ -59,6 +60,8 @@ export function NewChatComposer({ projectId, initialText, resetKey = 0, autoFocu
   }
 
   return (
+    <>
+    <AiAccessBanner />
     <Composer
       key={`${draftId}-${resetKey}`}
       draftId={draftId}
@@ -74,5 +77,6 @@ export function NewChatComposer({ projectId, initialText, resetKey = 0, autoFocu
       autoFocus={autoFocus}
       placeholder={placeholder}
     />
+    </>
   )
 }

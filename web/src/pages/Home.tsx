@@ -169,8 +169,8 @@ function OwnerChecklist() {
   const { noAi, ...steps } = state ?? { noAi: [] }
   if (hidden || !state || (Object.values(steps).every(Boolean) && !noAi.length)) return null
   const items: { done: boolean; label: MessageKey; to: string }[] = [
+    { done: state.engine, label: 'owner.check.engine', to: '/admin/credentials' },
     { done: state.folders, label: 'owner.check.folders', to: '/admin/folders' },
-    { done: state.engine, label: 'owner.check.engine', to: '/admin/engines' },
     { done: state.members, label: 'owner.check.members', to: '/admin/members' },
     { done: state.skill, label: 'owner.check.skill', to: '/skills' },
     { done: state.backup, label: 'owner.check.backup', to: '/admin/system' },
