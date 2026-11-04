@@ -2,7 +2,7 @@
 // changes only with a release. An admin can add more for the team (setting devEnv.team). Every other host is
 // blocked by srt's proxy.
 
-/** The default allowlist: package registries and GitHub. */
+/** The default allowlist: package registries, GitHub, and the Remotion browser download. */
 export const DEV_ENV_DEFAULT_DOMAINS: readonly string[] = [
   // npm
   'registry.npmjs.org', 'registry.yarnpkg.com',
@@ -10,6 +10,8 @@ export const DEV_ENV_DEFAULT_DOMAINS: readonly string[] = [
   'pypi.org', 'files.pythonhosted.org',
   // GitHub (clone over https, release downloads, raw files)
   'github.com', 'codeload.github.com', 'objects.githubusercontent.com', 'raw.githubusercontent.com',
+  // Remotion: the first render downloads Chrome Headless Shell from here (srt-dev-env.md section 13)
+  'remotion.media',
 ]
 
 /** At most this many domains an admin can add. */

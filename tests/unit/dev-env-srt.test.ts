@@ -394,6 +394,17 @@ describe('the host names of this server', () => {
   })
 })
 
+describe('the default domains', () => {
+  test('a Remotion render can download its browser without an admin domain', () => {
+    expect(DEV_ENV_DEFAULT_DOMAINS).toContain('remotion.media')
+    expect(srtSettings({ ...input, network: 'open', extraDomains: [] }).network.allowedDomains).toContain('remotion.media')
+  })
+  test('every default domain passes the same check as an admin domain', () => {
+    for (const d of DEV_ENV_DEFAULT_DOMAINS) expect(extraDomainProblem(d)).toBeNull()
+    expect(new Set(DEV_ENV_DEFAULT_DOMAINS).size).toBe(DEV_ENV_DEFAULT_DOMAINS.length)
+  })
+})
+
 describe('the team\'s extra domains', () => {
   test('host names with two labels, or *. and one', () => {
     for (const d of ['api.example.net', '*.example.net', 'cdn.jsdelivr.net']) expect(extraDomainProblem(d)).toBeNull()
