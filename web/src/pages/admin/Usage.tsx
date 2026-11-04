@@ -55,7 +55,7 @@ export default function Usage() {
         title={t('admin.usage')}
         desc={t('usage.desc')}
         testId="usage-header"
-        className="mb-0"
+        className="!mb-0"
         actions={
           <>
             <Link to={USAGE_LIMITS_LINK} className="text-sm font-medium text-accent-text underline-offset-2 hover:underline" data-testid="usage-limits-link">

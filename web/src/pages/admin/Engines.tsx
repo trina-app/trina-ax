@@ -59,7 +59,7 @@ export default function Engines() {
 
   return (
     <>
-      <AdminPageHeader title={t('admin.engines')} testId="engines-header" className="mb-2">
+      <AdminPageHeader title={t('admin.engines')} testId="engines-header" className="!mb-2">
         <Tabs
           segmented
           value={tab}

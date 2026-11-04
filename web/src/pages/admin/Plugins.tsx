@@ -224,7 +224,6 @@ function CatalogRow({ c, review, fileInstall }: { c: CatalogPlugin; review: (id:
         <button
           type="button"
           className="ml-auto text-xs font-medium text-accent-text underline-offset-2 hover:underline"
-          aria-label={t('adminux.plugins.showInstalledNamed', { name: c.name })}
           onClick={() => {
             const el = [...document.querySelectorAll<HTMLElement>('[data-testid="plugin-installed"]')].find((x) => x.dataset.plugin === c.id)
             if (!el) return
@@ -234,7 +233,9 @@ function CatalogRow({ c, review, fileInstall }: { c: CatalogPlugin; review: (id:
           }}
           data-testid="plugin-catalog-show-installed"
         >
+          {/* the visible words start the name (a voice command says them); the plugin name follows for screen readers */}
           {t('adminux.plugins.showInstalled')}
+          <span className="sr-only">: {c.name}</span>
         </button>
       </li>
     )

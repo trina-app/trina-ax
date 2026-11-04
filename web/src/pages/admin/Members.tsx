@@ -6,7 +6,7 @@
 // (name, role and status, the skills switch) with the row's actions in a "…" menu; wider screens keep the table.
 import { KeyRound, Link2, MoreHorizontal, Pencil, Plus, QrCode as QrIcon, RefreshCw, Trash2, UserPlus, UserRoundKey, UserRoundX, UserRoundCheck } from 'lucide-react'
 import clsx from 'clsx'
-import { useEffect, useId, useRef, useState, type KeyboardEvent, type ReactNode } from 'react'
+import { useEffect, useId, useLayoutEffect, useRef, useState, type CSSProperties, type KeyboardEvent, type ReactNode } from 'react'
 import { Link } from 'react-router-dom'
 import type { z } from 'zod'
 import type { CreatedInvite as CreatedInviteSchema, Group, Invite, Locale, User } from '@mycel/shared/api'
@@ -319,10 +319,32 @@ export function MemberMenu({ name, items }: { name: string; items: MemberMenuIte
   const t = useT()
   const box = useRef<HTMLDivElement>(null)
   const [open, setOpen] = useState(false)
+  // The menu has a fixed position at the "…" button: in a table row it must not be cut off by the table's sideways
+  // scroll box (the last row's menu went below its edge). It opens upwards when there is no room below.
+  const [pos, setPos] = useState<CSSProperties | null>(null)
+  const place = () => {
+    const r = box.current?.querySelector('button')?.getBoundingClientRect()
+    if (!r) return
+    const right = window.innerWidth - r.right
+    const up = window.innerHeight - r.bottom < items.length * 34 + 24 && r.top > window.innerHeight - r.bottom
+    setPos(up ? { position: 'fixed', bottom: window.innerHeight - r.top + 4, right } : { position: 'fixed', top: r.bottom + 4, right })
+  }
   const menuItems = () => [...(box.current?.querySelectorAll<HTMLElement>('[role="menuitem"]') ?? [])]
+  useLayoutEffect(() => {
+    if (!open) return setPos(null)
+    place()
+    // the page (or the table) scrolls, or the window changes size: the menu stays at its button
+    window.addEventListener('scroll', place, true)
+    window.addEventListener('resize', place)
+    return () => {
+      window.removeEventListener('scroll', place, true)
+      window.removeEventListener('resize', place)
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open])
   useEffect(() => {
     if (!open) return
-    menuItems()[0]?.focus()
+    menuItems()[0]?.focus({ preventScroll: true })
     // not on losing focus: Safari moves focus off a button when it is pressed, and the click would find the menu gone
     const outside = (e: MouseEvent) => { if (!box.current?.contains(e.target as Node)) setOpen(false) }
     document.addEventListener('mousedown', outside)
@@ -348,7 +370,7 @@ export function MemberMenu({ name, items }: { name: string; items: MemberMenuIte
         <MoreHorizontal size={16} aria-hidden />
       </IconButton>
       {open && (
-        <div role="menu" aria-label={label} className="absolute top-full right-0 z-30 mt-1 w-52 rounded-lg border border-line bg-surface p-1 shadow-lg">
+        <div role="menu" aria-label={label} style={pos ?? undefined} className="fixed z-30 w-52 rounded-lg border border-line bg-surface p-1 shadow-lg">
           {items.map((it) => (
             <button
               key={it.testId}
