@@ -1,5 +1,9 @@
 // Builds the documentation site in docs/site/ into a static folder (default dist/docs-site/). `bun run docs:build`.
-//   bun scripts/docs/build.ts [--out DIR] [--base /docs] [--site-url https://docs.example.com]
+//   bun scripts/docs/build.ts [--out DIR] [--base /docs] [--site-url https://docs.example.com] [--site-nav nav.json]
+// --site-nav puts a website's own navigation bar on top of every page instead of the docs' header bar (ax.trina.app
+// passes its header, rendered by its own build). The file is SiteNav JSON: `html` is the bar's markup with the
+// `<!--docs-tools-->` marker where the docs search goes, `css` and `assets` are files next to the JSON that are copied
+// to assets/site-nav/, and `themeKey` is the localStorage key the website keeps the light or dark choice under.
 // The public copy is ax.trina.app/docs: --base /docs --site-url https://ax.trina.app (the website repository's
 // scripts/sync-docs.mjs runs that). Pages carry no inline script or style attribute, so they work under that site's
 // Content-Security-Policy (script-src 'self'; style-src 'self'; img-src 'self').
@@ -33,14 +37,15 @@ const strip = (html: string) => unesc(html.replace(/<[^>]+>/g, ' ')).replace(/\s
 
 // ---------------- options ----------------
 function options(argv: string[]) {
-  const o = { out: path.join(ROOT, 'dist/docs-site'), base: '', siteUrl: '' }
+  const o = { out: path.join(ROOT, 'dist/docs-site'), base: '', siteUrl: '', siteNav: '' }
   for (let i = 0; i < argv.length; i += 2) {
     const [k, v] = [argv[i], argv[i + 1]]
     if (v === undefined) throw new Error(`${k} needs a value`)
     if (k === '--out') o.out = path.resolve(v)
     else if (k === '--base') o.base = v.replace(/\/+$/, '')
     else if (k === '--site-url') o.siteUrl = v.replace(/\/+$/, '')
-    else throw new Error('Usage: bun scripts/docs/build.ts [--out DIR] [--base /path] [--site-url https://host]')
+    else if (k === '--site-nav') o.siteNav = path.resolve(v)
+    else throw new Error('Usage: bun scripts/docs/build.ts [--out DIR] [--base /path] [--site-url https://host] [--site-nav nav.json]')
   }
   return o
 }
@@ -72,7 +77,23 @@ function icon(name: string): string {
 }
 
 // ---------------- links ----------------
-interface Ctx { nav: Nav; pages: Page[]; base: string; siteUrl: string }
+/** A website's navigation bar to show instead of the docs' own (see --site-nav). */
+export interface SiteNav { html: string; css?: string[]; assets?: string[]; themeKey?: string }
+export const DOCS_TOOLS_MARKER = '<!--docs-tools-->'
+interface Ctx { nav: Nav; pages: Page[]; base: string; siteUrl: string; siteNav: SiteNav | null }
+
+function readSiteNav(file: string): SiteNav | null {
+  if (!file) return null
+  const n = JSON.parse(fs.readFileSync(file, 'utf8')) as SiteNav
+  if (typeof n.html !== 'string' || !n.html.includes(DOCS_TOOLS_MARKER)) throw new Error(`${file}: html needs the ${DOCS_TOOLS_MARKER} marker`)
+  // the docs page is the page's only <header>; the website's bar sits inside it
+  if (/<\/?header[\s>]/i.test(n.html)) throw new Error(`${file}: html must not contain a <header> element`)
+  if (/<script[\s>]|\son[a-z]+=|\sstyle=/i.test(n.html)) throw new Error(`${file}: html must not carry scripts, event handlers or inline styles`)
+  for (const f of [...(n.css ?? []), ...(n.assets ?? [])]) {
+    if (!/^[\w.-]+$/.test(f)) throw new Error(`${file}: ${f} must be a plain file name next to the JSON`)
+  }
+  return n
+}
 const pageUrl = (ctx: Ctx, slug: string) => (slug === 'index' ? `${ctx.base}/` : `${ctx.base}/${slug}/`)
 const pageMdUrl = (ctx: Ctx, slug: string) => `${ctx.base}/${slug}.md`
 
@@ -223,6 +244,7 @@ function postProcess(ctx: Ctx, page: Page, html: string): { html: string; toc: T
   return { html, toc }
 }
 
+const themeKey = (ctx: Ctx) => ctx.siteNav?.themeKey || 'trina-docs-theme'
 const firstSlug = (t: NavTab) => t.groups[0]!.pages[0]!
 const pageCount = (t: NavTab) => t.groups.reduce((n, g) => n + g.pages.length, 0)
 
@@ -234,16 +256,22 @@ function header(ctx: Ctx, page: Page | null): string {
       : ''
     return `<div class="section-tab${active ? ' active' : ''}"><a href="${pageUrl(ctx, firstSlug(t))}"${active ? ' aria-current="true"' : ''}>${esc(t.title)}</a>${menu}</div>`
   }).join('')
+  if (ctx.siteNav) {
+    // the website's own bar, with the docs search in it; on phones a second row holds the docs menu and the search
+    return `<header class="site-header with-site-nav">
+  <div class="sitenav">${ctx.siteNav.html.replace(DOCS_TOOLS_MARKER, `<div class="docs-tools" data-slot="bar">${searchBox()}</div>`)}</div>
+  <div class="docs-row">
+    <button class="menu-button docs-menu" type="button" aria-label="Open the docs navigation" aria-controls="sidebar" aria-expanded="false">${icon('panel-left')}<span>Docs</span></button>
+    <div class="docs-tools" data-slot="row"></div>
+  </div>
+  <nav class="section-tabs" aria-label="Sections">${tabs}</nav>
+</header>`
+  }
   return `<header class="site-header">
   <div class="bar">
     <button class="menu-button icon-button" type="button" aria-label="Open navigation" aria-controls="sidebar" aria-expanded="false">${icon('menu')}</button>
     <a class="brand" href="${pageUrl(ctx, 'index')}"><img src="${ctx.base}/assets/favicon.svg" alt="" width="24" height="24"><span>${esc(ctx.nav.title)}</span></a>
-    <div class="search" role="search">
-      ${icon('search')}
-      <input id="search-input" type="search" placeholder="Search…" aria-label="Search the docs" autocomplete="off" aria-controls="search-results" aria-expanded="false">
-      <kbd>⌘K</kbd>
-      <ul id="search-results" class="search-results" role="listbox" hidden></ul>
-    </div>
+    ${searchBox()}
     <nav class="bar-links" aria-label="Links">
       <a class="quiet-link" href="${ctx.nav.repo}" rel="noopener">GitHub</a>
       <a class="open-product" href="${esc(ctx.nav.product.url)}" rel="noopener">${esc(ctx.nav.product.label)}${icon('chevron-right')}</a>
@@ -252,6 +280,15 @@ function header(ctx: Ctx, page: Page | null): string {
   </div>
   <nav class="section-tabs" aria-label="Sections">${tabs}</nav>
 </header>`
+}
+
+function searchBox(): string {
+  return `<div class="search" role="search">
+      ${icon('search')}
+      <input id="search-input" type="search" placeholder="Search…" aria-label="Search the docs" autocomplete="off" aria-controls="search-results" aria-expanded="false">
+      <kbd>⌘K</kbd>
+      <ul id="search-results" class="search-results" role="listbox" hidden></ul>
+    </div>`
 }
 
 function sidebar(ctx: Ctx, page: Page | null): string {
@@ -282,7 +319,7 @@ function layout(ctx: Ctx, page: Page | null, content: string, toc: Toc, meta: { 
   const canonical = ctx.siteUrl && page ? `<link rel="canonical" href="${ctx.siteUrl}${pageUrl(ctx, page.slug)}">\n` : ''
   const alt = page ? `<link rel="alternate" type="text/markdown" href="${pageMdUrl(ctx, page.slug)}">\n` : ''
   return `<!doctype html>
-<html lang="en">
+<html lang="en"${ctx.siteNav ? ' class="has-site-nav"' : ''}>
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -290,9 +327,9 @@ function layout(ctx: Ctx, page: Page | null, content: string, toc: Toc, meta: { 
 <meta name="description" content="${esc(meta.description)}">
 ${canonical}${alt}<link rel="icon" href="${ctx.base}/assets/favicon.svg">
 <link rel="stylesheet" href="${ctx.base}/assets/site.css">
-<script src="${ctx.base}/assets/theme.js"></script>
+${(ctx.siteNav?.css ?? []).map((f) => `<link rel="stylesheet" href="${ctx.base}/assets/site-nav/${f}">\n`).join('')}<script src="${ctx.base}/assets/theme.js" data-key="${esc(themeKey(ctx))}"></script>
 </head>
-<body data-base="${esc(ctx.base)}">
+<body data-base="${esc(ctx.base)}" data-theme-key="${esc(themeKey(ctx))}">
 <a class="skip" href="#content">Skip to content</a>
 ${header(ctx, page)}
 <div class="shell">
@@ -321,7 +358,7 @@ export function build(argv: string[]) {
   const nav = readNav()
   const pages = loadPages(nav)
   for (const p of pages) if (!p.title || !p.description) throw new Error(`${p.file}: front matter needs title and description`)
-  const ctx: Ctx = { nav, pages, base: o.base, siteUrl: o.siteUrl }
+  const ctx: Ctx = { nav, pages, base: o.base, siteUrl: o.siteUrl, siteNav: readSiteNav(o.siteNav) }
   fs.rmSync(o.out, { recursive: true, force: true })
   fs.mkdirSync(path.join(o.out, 'assets'), { recursive: true })
 
@@ -356,6 +393,10 @@ export function build(argv: string[]) {
   const assets = path.join(import.meta.dir, 'assets')
   for (const f of fs.readdirSync(assets)) fs.copyFileSync(path.join(assets, f), path.join(o.out, 'assets', f))
   fs.copyFileSync(path.join(ROOT, 'web/public/favicon.svg'), path.join(o.out, 'assets/favicon.svg'))
+  if (ctx.siteNav) {
+    fs.mkdirSync(path.join(o.out, 'assets/site-nav'), { recursive: true })
+    for (const f of [...(ctx.siteNav.css ?? []), ...(ctx.siteNav.assets ?? [])]) fs.copyFileSync(path.join(path.dirname(o.siteNav), f), path.join(o.out, 'assets/site-nav', f))
+  }
   const images = path.join(ROOT, 'docs/site/images')
   if (fs.existsSync(images)) fs.cpSync(images, path.join(o.out, 'images'), { recursive: true })
   fs.writeFileSync(path.join(o.out, '404.html'), layout(ctx, null, `<p><a href="${pageUrl(ctx, 'index')}">Go to the intro</a>, or search above.</p>`, [],
