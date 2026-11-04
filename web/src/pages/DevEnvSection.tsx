@@ -1,8 +1,10 @@
 // Dev environment line of a project's page (EXPERIMENT, docs/DECISIONS.md "Dev environment (experiment)"). Hidden when
 // the server answers 404 (the feature flag is off). Closed, it says whether it is on and how the box is; opened, the
 // box, its jobs, the preview and the activity. On the srt runner (the response asks for warning version 2) there is no
-// box: the page lists the runs (commands, jobs, dev servers) and the jobs that wait in the queue, each with Stop. Admins turn it on after the warning; people who can write the folder
-// see the box; people who can read it open previews and see the activity.
+// box: the page lists the runs of this project's chats (commands, jobs, dev servers) and the jobs that wait in the
+// queue, each with Stop. On srt the setting is the team's (any chat can use it), so the settings modal saves the team
+// setting. Admins turn it on after the warning; people who can write the folder see the box; people who can read it
+// open previews and see the activity.
 import { Play, RotateCcw, Square, TerminalSquare } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import clsx from 'clsx'
@@ -185,7 +187,10 @@ function DevEnvForm({ project, d, groups, onClose, onSaved }: { project: Project
   const save = async () => {
     setBusy(true)
     try {
-      onSaved(await api.call(API.updateDevEnv, { params: { id: project.id }, body: { enabled, scope: { mode, groupIds: mode === 'selected' ? groupIds : [], userIds: [] }, network, ...(needsWarning && accept ? { acceptWarning: d.warningVersion } : {}) } }))
+      const body = { enabled, scope: { mode, groupIds: mode === 'selected' ? groupIds : [], userIds: [] }, network, ...(needsWarning && accept ? { acceptWarning: d.warningVersion } : {}) }
+      // srt: one setting for the whole team (any chat, with or without a project); the page then reads it again
+      if (srt) { await api.call(API.updateDevEnvTeam, { body }); onSaved(await api.call(API.devEnv, { params: { id: project.id } })) }
+      else onSaved(await api.call(API.updateDevEnv, { params: { id: project.id }, body }))
     } catch (e) {
       toast({ level: 'error', text: errorText(e, locale, t('error.network')) })
     } finally { setBusy(false) }
@@ -194,11 +199,12 @@ function DevEnvForm({ project, d, groups, onClose, onSaved }: { project: Project
     <Modal open onClose={onClose} title={t('devEnv.title')} width={520}
       footer={<><Button variant="ghost" onClick={onClose}>{t('common.cancel')}</Button><Button variant="primary" busy={busy} disabled={needsWarning && !accept} onClick={() => void save()}>{t('common.save')}</Button></>}>
       <div className="space-y-4 text-sm">
+        {srt && <p className="text-xs text-muted" data-testid="dev-env-team-wide">{t('devEnv.teamWideSrt')}</p>}
         <label className="flex items-center gap-2"><input type="checkbox" checked={enabled} onChange={(e) => setEnabled(e.target.checked)} /> {t('devEnv.turnOn')}</label>
         <fieldset className="space-y-1">
           <legend className="mb-1 font-medium">{t('devEnv.who')}</legend>
-          <label className="flex items-center gap-2"><input type="radio" checked={mode === 'writers'} onChange={() => setMode('writers')} /> {t('devEnv.scopeWriters')}</label>
-          <label className="flex items-center gap-2"><input type="radio" checked={mode === 'selected'} onChange={() => setMode('selected')} /> {t('devEnv.scopeSelected')}</label>
+          <label className="flex items-center gap-2"><input type="radio" checked={mode === 'writers'} onChange={() => setMode('writers')} /> {t(srt ? 'devEnv.scopeEveryoneSrt' : 'devEnv.scopeWriters')}</label>
+          <label className="flex items-center gap-2"><input type="radio" checked={mode === 'selected'} onChange={() => setMode('selected')} /> {t(srt ? 'devEnv.scopeSelectedSrt' : 'devEnv.scopeSelected')}</label>
           {mode === 'selected' && (
             <div className="ml-6 flex flex-wrap gap-x-4 gap-y-1">
               {groups.map((g) => (

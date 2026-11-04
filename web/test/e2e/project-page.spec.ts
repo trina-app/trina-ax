@@ -170,6 +170,9 @@ test('on the srt runner: no box; the runs and the queue, each with Stop; the srt
   const dialog = page.getByRole('dialog', { name: '개발 환경' })
   await expect(dialog.getByRole('combobox')).toContainText('허용된 사이트만')
   await expect(dialog).toContainText('팀 디스크')
+  // one setting for the whole team: chats with no project use it too
+  await expect(dialog.getByTestId('dev-env-team-wide')).toContainText('팀 전체')
+  await expect(dialog).toContainText('팀의 모든 사람')
 })
 
 for (const scheme of ['light', 'dark'] as const) {

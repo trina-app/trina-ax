@@ -8,7 +8,113 @@ directly on the team server inside Anthropic's sandbox runtime **srt** (npm `@an
 Apache-2.0), in a `systemd-run --scope` unit for CPU, memory and pids limits. Claude Code and Codex use the same Trina
 tool. Heavy jobs wait in a queue. They are not refused. Proposal: https://claude.ai/artifact/78Kprci28nUSm3dkUnLBek
 
+Scope change (owner, 2026-11-04, overrides the rest of this design where they differ): the dev environment is **not
+locked to a project**. Any chat, with or without a project, can run commands. A command's sandbox follows the **person
+who owns the chat**: it may read and write exactly the team folders that person (and their AI) may open now, under the
+folder rules (read-only where the person reads only), plus the chat's own work folder for a chat with no project, plus
+a home per person for caches. The queue and the limits are per team, not per project. Section 0 has the details.
+
 Rule for this design: keep it simple. Each fallback gets one line.
+
+## 0. The sandbox follows the person (scope change)
+
+### 0.1 Who may run commands
+
+- One setting for the team (`devEnv.team`, admins): `enabled`, `scope` (everyone, or selected groups and people),
+  `network`, `limits`, `consent` (to warning version 2), and `extraDomains`. The per-project setting
+  (`devEnv.project.<id>`) stays for the box runner only. On srt the project page shows the team setting, and its
+  settings modal saves the team setting (`PUT /api/admin/dev-env`).
+- `mayUseDevEnv(person)` (`server/src/devenv/setting.ts`): the flag, the team setting on with a consent to version 2,
+  an active account, and the person in scope. The turn offers `box_shell` in every chat of such a person, also a chat
+  with no project. It is never offered in a scheduled run, an approved template run or a confidential chat (no change).
+- The tool checks `mayUseDevEnv` again on every call.
+
+### 0.2 What a run may open (`server/src/devenv/srt/access.ts`)
+
+The folder rules (`policy/access.ts`, `RuleSet.access`) are the only source. The same function decides what the
+person and their AI may open in the file tools.
+
+- Access changes only at a folder with rules. So the candidates are the team root, every rule folder, `users/`,
+  `users/<me>` and `.system/`. Each candidate gets `RuleSet.access` for the person.
+- An entry is written only where the access differs from the nearest candidate above it:
+
+  | Access here | Access above | srt entry |
+  |---|---|---|
+  | read | none | `allowRead` |
+  | write | none or read | `allowWrite` |
+  | read | write | `denyWrite` |
+  | none | read or write | `denyRead` |
+
+- srt applies the entries shallowest first (a tmpfs on a denied folder, the allowed folders inside it bound back, then
+  a deeper tmpfs). So the deepest entry decides, as in the rules. A unit test checks a model of this against
+  `RuleSet.access` on the fixture and on 200 random rule trees. The Docker attack suite checks the real srt.
+- One case is stricter than the rules: write below a read-only folder below a write folder. srt's `denyWrite` wins
+  over an `allowWrite` inside it, so that folder is read-only in a run (fail closed).
+- Fixed, whatever the rules say: `users/` is hidden as a whole (it would list everyone's personal folder names), and
+  the person's own `users/<id>` is writable again. Other people's personal folders stay hidden, for owners and admins
+  too. `.system/` is hidden.
+- Only folders that exist go into the settings (srt skips the others).
+- The runner builds the entries again for every command and every job start. The tracker builds them again every 10 s
+  for each person with a running job or dev server. When the hash of the entries changes (a rule, a group, a new rule
+  folder on disk) or the person may no longer use the dev environment, it stops those runs with reason `setting`.
+
+### 0.3 Where a run starts (its root)
+
+- A project chat whose project has its own folder that the person can read: the project folder. The run gets a change
+  window there (`track.ts`, as before): file events, versions, conflict copies, "changed by other people" and the
+  credential-command gate.
+- Any other chat (no project, a project on the team root, or a project folder the person cannot open): the chat's
+  work folder `<base>/devenv/work/<chatId>` (server-owned, 0700). The server removes it when the chat is purged
+  (`chat/forget.ts`). The file tools do not show it: the AI copies a result into a team folder the person can write.
+  Nothing there is recorded as a team file change.
+- The engine's own working folder (`<agent root>/<chatId>`) is not used: it belongs to the engine account (0700), and
+  srt runs as the server account.
+
+### 0.4 Per person, per chat, per team
+
+| Thing | Key |
+|---|---|
+| HOME, TMPDIR, caches (`<base>/devenv/home/<userId>`) | person |
+| logs, command output, exit files (`<base>/devenv/logs/<userId>`, `$TRINA_LOGS`) | person: another person's job log can hold text from folders this person cannot open |
+| log names of jobs and dev servers | person |
+| waiting jobs: at most 3 | person |
+| one foreground command at a time | root folder (the change window needs it) |
+| one dev server | chat |
+| job results to the AI (`runResultsForAI`) | the chat that started the job, once |
+| job notices (live and inbox) | the person who started the job; the link goes to the chat |
+| `maxRunning`, `maxRunning + 1` commands, at most 10 waiting, FIFO queue, the devenv slice | team (the server) |
+
+- The first call of a turn in a project chat names other people's jobs and dev servers in that project: kind, name
+  and who, never logs.
+- New API: `GET /api/dev-env/runs` and `POST /api/dev-env/runs/:runId/stop` (the caller's own runs, from every chat).
+  The project page lists the runs of the project's chats.
+- The environment adds `TRINA_TEAM` (the team folder: team paths of the file tools are under it) and, for the work
+  folder, `TRINA_WORK`.
+
+### 0.5 DB
+
+Migration `222_b_dev_env_run_state.sql` (unmerged, so it was rewritten in place) makes a new table `dev_env_runs`:
+`dev_env_jobs` needs a project (`project_id NOT NULL` with a foreign key) and tables are never rebuilt. `dev_env_jobs`
+stays as it is for the box. A row has `user_id`, `chat_id`, `project_id` (null: no project), `root`, `cwd`, `kind`,
+`state`, `unit`, `access` (the hash of 0.2) and the end fields. The inbox reads both tables for `dev_env.job` (a job
+of a chat with no project has `projectId` and `projectName` `''`).
+
+### 0.6 Known gaps of the scope change
+
+These are open (Q0 in section 11):
+
+- **Writes outside the root are not recorded.** A command can write every folder the person may write. Only the
+  project folder has a change window. Writes elsewhere get no `file_events`, no older versions (no undo after
+  `rm -rf`) and no conflict copies. The file service's own versions do not see them.
+- **The read-scope check is bypassed.** The file tools ask before they save content into a folder that more people can
+  see (`chat/read-scope.ts`). A command can `cp groups/finance/x shared/` with no question.
+- A folder made during a long run by someone else, in a folder the run can read, is visible until the next tracker
+  poll (at most 10 s) stops the run.
+- Server temp files (`.mycel-tmp-*`) in a folder the person can write are visible to the run. srt has no way to hide a
+  name pattern at any depth.
+- One person's runs share their home and logs: a job can read the output of the same person's other jobs.
+
+Until Q0 is answered, do not call this safe for production teams with private group folders.
 
 ## 1. Goals and limits
 
@@ -17,11 +123,12 @@ The server is one team per EC2 VM. srt must protect these from the AI's commands
 - the Trina server process, its port and its sockets;
 - the Trina DB and every file under the base folder (`/var/lib/<ID>`), the secrets and the engine logins;
 - the server's environment (`/etc/default/<ID>` and the values the unit loads);
-- the folders of other projects and of other people.
+- the folders that the person of the chat may not open, and other people's personal folders, logs and homes.
 
 The AI may:
 
-- read and write its project folder;
+- read and write the team folders that the person of the chat may open (section 0), read-only where the person reads
+  only;
 - read system tools (node, python3, ffmpeg, chromium, git, ...) but not change them;
 - reach the network only through srt's proxy, and only to allowed domains.
 
@@ -105,11 +212,12 @@ explicit environment and nothing from `process.env`:
 
 ```
 PATH=/opt/trina/node/bin:/usr/local/bin:/usr/bin:/bin
-HOME=<base>/devenv/home/<projectId>
-TMPDIR=<base>/devenv/home/<projectId>/tmp
+HOME=<base>/devenv/home/<userId>
+TMPDIR=<base>/devenv/home/<userId>/tmp
 LANG=C.UTF-8  TERM=dumb  CI=1  SHELL=/bin/bash
 npm_config_cache=$HOME/.npm  PIP_CACHE_DIR=$HOME/.cache/pip  PLAYWRIGHT_BROWSERS_PATH=0
-TRINA_LOGS=<base>/devenv/logs/<projectId>
+TRINA_LOGS=<base>/devenv/logs/<userId>
+TRINA_TEAM=<team folder>  TRINA_WORK=<base>/devenv/work/<chatId> (a chat with no project only)
 ```
 
 srt then adds HTTP_PROXY, HTTPS_PROXY, ALL_PROXY and GIT_SSH_COMMAND. There is no MYCEL_* variable and no value from
@@ -118,7 +226,8 @@ srt then adds HTTP_PROXY, HTTPS_PROXY, ALL_PROXY and GIT_SSH_COMMAND. There is n
 ### 2.5 srt settings file (per run)
 
 The server writes `<base>/devenv/run/<runId>.json` (mode 0600) before the spawn and deletes it after the end. The
-sandbox cannot read this folder. Example for project `p1`:
+sandbox cannot read this folder. Example for alice (member of marketing) in a project chat (section 0 gives the
+filesystem lists; the example is before the scope change, for the network part):
 
 ```json
 {
@@ -150,7 +259,8 @@ Rules:
   must add them here. A unit test checks the list against the install script.
 - The logs folder is readable (the AI runs `tail` on its own logs) but not writable. The AI cannot forge an exit code
   or another job's log.
-- `allowWrite` never includes a parent of the project folder.
+- `allowWrite` holds only team folders the person may write (never `.system/`, never another person's `users/<id>`),
+  the person's home and the chat's work folder. `settingsProblems` refuses anything else before each spawn.
 - srt also denies writes to `.git/hooks`, `.git/config`, `.gitmodules`, `.vscode`, `.idea`, shell rc files and
   `.mcp.json` in the project. Keep this: it protects people who later run git in the folder on their own computer.
 - An offline project gets `"allowedDomains": []`. srt then still makes a private network with no route out.
@@ -171,19 +281,22 @@ Rules:
 
 ### 2.7 One run, step by step (foreground)
 
-1. The existing checks in `tool.ts` stay: `mayUseBox`, the credential-command gate, `boxCwd`, the storage floor.
-2. The server takes the project's lock (one foreground command at a time for each project, as today).
+1. The checks in `tool.ts`: `mayUseDevEnv`, the root (0.3), the credential-command gate (project folder only),
+   `boxCwd`, the storage floor.
+2. The server takes the root folder's lock (one foreground command at a time for each root).
 3. It writes the settings file and opens `out.log` and `err.log` in the run folder.
-4. It spawns systemd-run inside `withChangeWindow` (`track.ts`, no change).
+4. It builds the folder access (0.2) and spawns systemd-run, inside `withChangeWindow` for a project folder.
 5. On exit it reads the exit file and `memory.events` of the scope (`oom_kill` > 0 means `oom`).
 6. It returns the first 32 KiB of stdout and of stderr, the exit code and the end reason, as today.
 7. It writes the audit row `dev_env.command` (no change).
 
 ## 3. Settings per team and per project
 
-### 3.1 Per project (no new key)
+### 3.1 Per project (box only after the scope change)
 
-`devEnv.project.<id>` stays as it is (`shared/src/api/dev-env.ts`):
+After the scope change srt reads `enabled`, `scope`, `network`, `limits` and `consent` from the team setting (0.1).
+The text below now applies to those team fields. `devEnv.project.<id>` stays as it is for the box
+(`shared/src/api/dev-env.ts`):
 
 - `enabled`, `scope`, `consent`: no change.
 - `network`: `open` now means "the allowlist" (defaults plus team additions). It no longer means the whole internet.
@@ -196,7 +309,7 @@ Rules:
 ### 3.2 Per team (new key `devEnv.team`, admins only)
 
 ```ts
-DevEnvTeamSetting = { extraDomains: string[] }   // at most 50
+DevEnvTeamSetting = { extraDomains: string[] /* at most 50 */, enabled, scope, network, limits, consent }  // 0.1
 ```
 
 Domain rules for an admin addition:
@@ -219,10 +332,13 @@ Known limit: an allowed domain can carry data out (for example a gist on github.
 
 | Path | Read | Write |
 |---|---|---|
-| The project folder | yes | yes (minus srt's fixed write denies) |
-| `<base>/devenv/home/<project>` (HOME, TMPDIR, caches) | yes | yes |
-| `<base>/devenv/logs/<project>` | yes | no |
-| The rest of `<base>` (DB, secrets, config, other projects, engine files) | no | no |
+| Team folders the person may write (from the rules, 0.2) | yes | yes (minus srt's fixed write denies) |
+| Team folders the person may read only | yes | no |
+| Team folders the person may not open, `users/<other>`, `.system/` | no | no |
+| The chat's work folder `<base>/devenv/work/<chatId>` (a chat with no project) | yes | yes |
+| `<base>/devenv/home/<person>` (HOME, TMPDIR, caches) | yes | yes |
+| `<base>/devenv/logs/<person>` | yes | no |
+| The rest of `<base>` (DB, secrets, config, other people's homes and logs, other chats' work folders, engine files) | no | no |
 | `/etc/default/<ID>`, `/tmp`, `/run`, `/var/log`, `/home`, `/root` | no | no |
 | `/usr`, `/opt/trina` (node, srt, chromium, ...), the rest of `/etc` | yes | no |
 
@@ -266,17 +382,18 @@ its two proxies) uses about 60 MiB. That memory counts in the job's scope.
 
 | Kind | Tool call | Queue | Limit |
 |---|---|---|---|
-| command | `box_shell` (default) | no queue | one per project; at most `maxRunning + 1` on the server |
+| command | `box_shell` (default) | no queue | one per root folder; at most `maxRunning + 1` on the server |
 | job | `job=true` | **yes** | `maxRunning` on the server |
-| dev server | `background=true` | no queue | `maxRunning` on the server; one per project |
+| dev server | `background=true` | no queue | `maxRunning` on the server; one per chat |
 
 - A command over the server limit is refused at once with a clear message ("the dev environment is busy, try again in
   a minute"). A short foreground command must not wait in a queue behind a render (Q3).
 - A job over the limit gets state `waiting`. The call returns at once: "queued, position N". FIFO for the whole server.
-- At most 3 waiting jobs for each project and 10 for the server. Past that, the call is refused.
+- At most 3 waiting jobs for each person and 10 for the server. Past that, the call is refused.
 - A waiting job ends with reason `expired` after 24 hours.
 - When a slot is free (end event, or the 10 s tracker), the oldest job starts. Before the start the server checks
-  `mayUseBox` for the person again. If it fails, the job ends with reason `setting` and a notice.
+  `mayUseDevEnv` and the folder access (0.2) for the person again. If it fails, the job ends with reason `setting`
+  and a notice.
 - A dev server over the limit is refused. The message names the running dev servers, so the AI or the person can stop
   one.
 - Memory full: each scope has `memory.oom.group` (OOMPolicy=kill). The kernel kills the whole run in the scope where
@@ -286,6 +403,8 @@ its two proxies) uses about 60 MiB. That memory counts in the job's scope.
   the floor it stops all runs with reason `disk`.
 
 ### 4.3 DB change (additive migration `NNN_b_dev_env_run_state.sql`, reader 1)
+
+Replaced by the table `dev_env_runs` of 0.5. The text below is the first design.
 
 ```sql
 ALTER TABLE dev_env_jobs ADD COLUMN state TEXT NOT NULL DEFAULT 'running'
@@ -311,7 +430,7 @@ CREATE INDEX dev_env_jobs_waiting ON dev_env_jobs(started_at) WHERE state = 'wai
 - Idle stop: the tracker stops a dev server after `idleStopMin` (default 30) with no preview request and less than 2 %
   CPU (from `cpu.stat` of the scope). Reason `idle`, no notice.
 - Maximum life: 8 hours (`RuntimeMaxSec`). Reason `timeout`.
-- A change of the project setting (network, limits, turned off) stops all runs of the project. Reason `setting`.
+- A change of the team setting (network, limits, turned off) stops all runs. Reason `setting`.
 - **Preview.** The dev server listens on 127.0.0.1 in its private namespace. srt has no way in, and its seccomp filter
   blocks AF_UNIX in the sandbox. New path: a `mycel-sandbox port-forward` subcommand (Go, about 100 lines):
   1. it enters the user namespace of the run's bwrap process (the server account owns it, so it gets the capabilities
@@ -326,7 +445,7 @@ CREATE INDEX dev_env_jobs_waiting ON dev_env_jobs(started_at) WHERE state = 'wai
 
 ## 6. Output, logs and the jobs list
 
-- Run folder: `<base>/devenv/logs/<projectId>/`. The server owns it. The sandbox can only read it.
+- Run folder: `<base>/devenv/logs/<userId>/`. The server owns it. The sandbox of that person's runs can only read it.
   - command: `cmd-<runId>.out` and `cmd-<runId>.err`; the server deletes them after it has read them;
   - job or dev server: `<log_name>.log` (stdout and stderr together), kept 7 days, at most 64 MiB (the tracker cuts
     the start of the file);
@@ -352,7 +471,9 @@ CREATE INDEX dev_env_jobs_waiting ON dev_env_jobs(started_at) WHERE state = 'wai
   same way `setBoxdClient` works today).
 - The tool name stays `box_shell` in v1. A rename touches `engine/claude.ts:130`, `engine/codex.ts:197`,
   `chat/subagents.ts:27` and `shared/src/step-labels.ts`. It is a separate change.
-- New tool text (draft):
+- New tool text: `SRT_SHELL_DESCRIPTION` in `server/src/devenv/tool.ts` (after the scope change it says that the
+  command has the folder access of the person of the chat, where it starts, `$TRINA_TEAM` and `$TRINA_WORK`). First
+  draft:
 
   > Run a shell command in the dev environment of this project (bash, git, node, npm, python3, pip, ffmpeg,
   > chromium). The command runs in the project folder on the team server. Changes are shared with the team and
@@ -439,14 +560,18 @@ empty scope). If one fails, availability is `{ available: false, reason: 'platfo
 
 ### 10.1 Unit (`tests/unit/dev-env-srt.test.ts`, fake runner and fake systemd)
 
-- settings file: deny the whole base, the three allowed folders, offline means `allowedDomains: []`, public IPs in
+- folder access: `folderView` against `RuleSet.access` (the fixture table and 200 random rule trees), the fixed hides
+  of `users/` and `.system/`;
+- settings file: deny the whole base, the person's folders, home and logs, offline means `allowedDomains: []`, public IPs in
   `deniedResolvedAddresses`, team domains added, bad domains refused;
 - the server-file list matches what `scripts/install-linux.sh` writes outside the base;
 - environment: only the listed keys; nothing from `process.env`;
 - argv: the unit name matches the polkit pattern; limits are cut to the plan caps;
 - `dev-env.json` TS parser: the same cases as `plan_test.go`;
-- queue: FIFO, limits per project and per server, refused past the limit, `expired` after 24 h, the access check at
-  start;
+- queue: FIFO across people and chats, limits per person and per server, refused past the limit, `expired` after
+  24 h, the access check at start, a running job stopped when the person's access changes;
+- a project chat, a chat with no project (the work folder), a person who reads the project only, a person who cannot
+  open the project folder; results only to the chat that started the job;
 - end reasons: exit, timeout, oom (from `memory.events`), stopped, idle, disk, setting, lost;
 - restart: units and DB rows are matched again; an orphan unit is stopped;
 - the existing `dev-env.test.ts`, `dev-env-jobs.test.ts` and `project-trash-state.test.ts` pass with the fake
@@ -460,7 +585,9 @@ no canary comes back and the action fails.
 | # | Attack | Expected |
 |---|---|---|
 | A1 | read `<base>/data/*.db`, `secrets/*`, `config/*`, `agent/codex-auth/*` | not found |
-| A2 | read a file in another project folder; list `<base>/team` | not found |
+| A2 | read a folder the person may not open (another group, another project, a hidden folder inside her group), another person's `users/<id>`, `.system/`; list `<base>/team`, `team/users` | not found |
+| A2b | another chat's work folder, another person's logs and home | not found |
+| A2c | write into a folder the person reads only (a read-only folder inside her project, `skills/`) | read-only |
 | A3 | `env`; `cat /proc/self/environ` | no MYCEL_*, no canary from `/etc/default/<ID>` |
 | A4 | read `/etc/default/<ID>`, the server's `/tmp`, `/run/<ID>` | not found |
 | A5 | a canary file made in `<base>/secrets` after the run started | not found |
@@ -517,6 +644,11 @@ Spike checks:
 
 Questions for the owner and Dion:
 
+- **Q0 (scope change, first):** writes outside the project folder are not recorded and bypass the read-scope check
+  (0.6). Options: (a) keep it, and say so in the warning (this build); (b) make every folder except the root and the
+  person's own folder read-only in a run; (c) a change window over every folder the person may write (cost: a snapshot
+  of those folders per command). (b) is one line in `access.ts` and is the safe default for teams with private group
+  folders.
 - Q1: the plan numbers in 4.1.
 - Q2: can v1 ship without preview (curl in one command only), with preview in v1.1?
 - Q3: a foreground command over the server limit: refuse at once (this design) or wait up to 60 s?
@@ -524,6 +656,12 @@ Questions for the owner and Dion:
 - Q5: a separate Linux account for jobs (stronger, but needs a root helper to switch uid) as a later step, or never?
 
 ## 12. Build notes (2026-11-04)
+
+Scope change build (second commit set): `srt/access.ts` (folder access), the team setting and `mayUseDevEnv`
+(`setting.ts`), the runner keyed by person, chat and root (`srt/runner.ts`), `dev_env_runs` (migration 222 rewritten),
+the srt rows in `jobs.ts`, `tool.ts` (`srtCall`), the turn (`chat/turn.ts`: every chat), the routes (team setting,
+the person's runs), the inbox (`notifications/service.ts`), the work folder's removal (`chat/forget.ts`), the project
+page's modal (saves the team setting on srt) and the warning text (version 2, not yet accepted by any team).
 
 Code: `server/src/devenv/srt/` (`config.ts` settings, environment and argv; `plan.ts`; `system.ts`; `runner.ts`), the
 forks in `tool.ts`, `jobs.ts`, `setting.ts` and `routes/dev-env.ts`, migration `222_b_dev_env_run_state.sql`, install in

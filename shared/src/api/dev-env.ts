@@ -45,10 +45,27 @@ export const DevEnvLimits = z.object({
 export type DevEnvLimits = z.infer<typeof DevEnvLimits>
 export const DEV_ENV_DEFAULT_LIMITS: DevEnvLimits = DevEnvLimits.parse({})
 
-/** What is stored per team (settings key devEnv.team, admins): the sites that the AI may reach in addition to the
- * default list (shared/src/dev-env-domains.ts). Used by the srt runner only. */
+/** Can this server run boxes? flag: MYCEL_DEV_ENV=1 is not set; boxd: the box helper does not answer;
+ * platform: the box helper says it cannot run boxes here (not Linux, no rootless podman, no idmapped mounts). */
+export const DevEnvAvailability = z.object({
+  available: z.boolean(),
+  reason: z.enum(['flag', 'boxd', 'platform']).optional(),
+  detail: z.string().max(500).optional(),
+})
+export type DevEnvAvailability = z.infer<typeof DevEnvAvailability>
+
+/** What is stored per team (settings key devEnv.team, admins). The srt runner is turned on for the whole team, not per
+ * project (docs/research/srt-dev-env.md section 3): any chat of a person in scope can run commands, with that person's
+ * folder access. extraDomains: the sites that the AI may reach in addition to the default list
+ * (shared/src/dev-env-domains.ts). scope "writers" means every active person here. The box runner reads only
+ * extraDomains; it keeps the per-project setting. */
 export const DevEnvTeamSetting = z.object({
   extraDomains: z.array(z.string().min(3).max(253)).max(50).default([]),
+  enabled: z.boolean().default(false),
+  scope: DevEnvScope.default({ mode: 'writers', groupIds: [], userIds: [] }),
+  network: DevEnvNetwork.default('open'),
+  limits: DevEnvLimits.default(DEV_ENV_DEFAULT_LIMITS),
+  consent: DevEnvConsent.nullable().default(null),
 })
 export type DevEnvTeamSetting = z.infer<typeof DevEnvTeamSetting>
 export const DevEnvTeamResponse = z.object({
@@ -57,8 +74,21 @@ export const DevEnvTeamResponse = z.object({
   /** the plan caps of this server (root/dev-env.json), or null when there is no file (self-hosted) */
   plan: z.object({ plan: z.string(), maxRunning: z.number(), cpus: z.number(), memoryMiB: z.number(), pids: z.number(), network: z.string() }).nullable(),
   runner: z.enum(['box', 'srt']),
+  /** srt runner: the warning version that turning on needs (older servers omit it) */
+  warningVersion: z.number().int().optional(),
+  availability: DevEnvAvailability.optional(),
 })
 export type DevEnvTeamResponse = z.infer<typeof DevEnvTeamResponse>
+/** A change of the team setting. Only the fields given change. Turning on needs the current warning accepted. */
+export const UpdateDevEnvTeamBody = z.object({
+  extraDomains: z.array(z.string().min(3).max(253)).max(50).optional(),
+  enabled: z.boolean().optional(),
+  scope: DevEnvScope.optional(),
+  network: DevEnvNetwork.optional(),
+  limits: DevEnvLimits.partial().optional(),
+  acceptWarning: z.number().int().min(1).optional(),
+})
+export type UpdateDevEnvTeamBody = z.infer<typeof UpdateDevEnvTeamBody>
 
 /** What is stored per project (settings key devEnv.project.<id>). */
 export const DevEnvProjectSetting = z.object({
@@ -70,14 +100,6 @@ export const DevEnvProjectSetting = z.object({
 })
 export type DevEnvProjectSetting = z.infer<typeof DevEnvProjectSetting>
 
-/** Can this server run boxes? flag: MYCEL_DEV_ENV=1 is not set; boxd: the box helper does not answer;
- * platform: the box helper says it cannot run boxes here (not Linux, no rootless podman, no idmapped mounts). */
-export const DevEnvAvailability = z.object({
-  available: z.boolean(),
-  reason: z.enum(['flag', 'boxd', 'platform']).optional(),
-  detail: z.string().max(500).optional(),
-})
-export type DevEnvAvailability = z.infer<typeof DevEnvAvailability>
 
 export const DevEnvProcess = z.object({ pid: z.number().int(), seconds: z.number().int(), command: z.string() })
 export const DevEnvBox = z.object({
@@ -111,6 +133,9 @@ export const DevEnvRun = z.object({
   position: z.number().int().nullable(),
   memoryMiB: z.number().nullable(),
   lastLine: z.string(),
+  /** srt runner: the chat and the project of the run (null: none, or not shown to this person) */
+  chatId: z.string().nullable().optional(),
+  projectId: z.string().nullable().optional(),
 })
 export type DevEnvRun = z.infer<typeof DevEnvRun>
 export const DevEnvRuns = z.object({ running: z.array(DevEnvRun), waiting: z.array(DevEnvRun) })
@@ -131,6 +156,9 @@ export const DevEnvProjectResponse = z.object({
   jobs: z.array(DevEnvJob).default([]),
   /** srt runner: what runs and what waits; empty with the box runner and on older servers */
   runs: DevEnvRuns.default({ running: [], waiting: [] }),
+  /** box: the per-project setting applies. srt: the team setting applies (setting is the team's), and this page only
+   * shows the runs of this project's chats. Older servers omit it. */
+  runner: z.enum(['box', 'srt']).default('box'),
 })
 export type DevEnvProjectResponse = z.infer<typeof DevEnvProjectResponse>
 
@@ -166,6 +194,8 @@ export const DEV_ENV = {
   devEnvPreview: endpoint({ method: 'POST', path: '/api/projects/:id/dev-env/preview', auth: 'user', owner: 'B', body: DevEnvPreviewBody, response: DevEnvPreviewLink, summary: 'A short-lived link to a dev server port of the box, on the separate preview origin (read access to the folder; audited).' }),
   devEnvRunStop: endpoint({ method: 'POST', path: '/api/projects/:id/dev-env/runs/:runId/stop', auth: 'user', owner: 'B', response: DevEnvProjectResponse, summary: 'srt runner: stop a running job, dev server or command, or cancel a waiting job (the person who started it, people who may use the dev environment, admins; audited).' }),
   devEnvTeam: endpoint({ method: 'GET', path: '/api/admin/dev-env', auth: 'admin', owner: 'B', response: DevEnvTeamResponse, summary: 'Dev environment of the team: the extra sites the AI may reach, the default sites and the plan caps.' }),
-  updateDevEnvTeam: endpoint({ method: 'PUT', path: '/api/admin/dev-env', auth: 'admin', owner: 'B', body: DevEnvTeamSetting, response: DevEnvTeamResponse, summary: 'Change the extra sites the AI may reach in the dev environment (audited).' }),
+  updateDevEnvTeam: endpoint({ method: 'PUT', path: '/api/admin/dev-env', auth: 'admin', owner: 'B', body: UpdateDevEnvTeamBody, response: DevEnvTeamResponse, summary: 'Change the dev environment of the team: on or off (srt), who may use it, network, limits and the extra sites the AI may reach (audited).' }),
+  myDevEnvRuns: endpoint({ method: 'GET', path: '/api/dev-env/runs', auth: 'user', owner: 'B', response: DevEnvRuns, summary: 'srt runner: the runs of the caller (every chat, with or without a project): what runs and what waits.' }),
+  stopMyDevEnvRun: endpoint({ method: 'POST', path: '/api/dev-env/runs/:runId/stop', auth: 'user', owner: 'B', response: DevEnvRuns, summary: 'srt runner: stop a run of the caller, or cancel a waiting job of the caller (audited).' }),
   devEnvActivity: endpoint({ method: 'GET', path: '/api/projects/:id/dev-env/activity', auth: 'user', owner: 'B', response: z.object({ items: z.array(DevEnvActivity) }), summary: 'Box audit of a project: AI commands, changed files, box and preview events (read access to the folder).' }),
 } as const

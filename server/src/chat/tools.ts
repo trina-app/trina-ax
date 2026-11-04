@@ -87,7 +87,7 @@ export function buildToolSet(exec: TurnExec): ChatToolSet {
   if (exec.devEnv) {
     const person = turnPerson(exec)
     add(boxShellTool({
-      ctx: exec.rt.ctx, project: exec.devEnv, userId: exec.spec.userId, turnId: exec.spec.turnId, chatId: exec.spec.chatId, signal: exec.abort.signal,
+      ctx: exec.rt.ctx, project: exec.devEnv.project, userId: exec.spec.userId, turnId: exec.spec.turnId, chatId: exec.spec.chatId, signal: exec.abort.signal,
       redact: (s) => exec.redact(s),
       confirm: async (question, options, details) => (person.choose
         ? person.choose(question, options, { details: [{ label: 'Changes', text: details.join('\n') }] })

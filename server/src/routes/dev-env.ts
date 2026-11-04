@@ -3,7 +3,7 @@
 // so the feature does not exist for clients of a normal install.
 import fs from 'node:fs'
 import path from 'node:path'
-import { API, type DevEnvAvailability, type DevEnvBox, type DevEnvProjectResponse, type DevEnvActivity } from '@mycel/shared/api'
+import { API, DEV_ENV_SRT_WARNING_VERSION, type DevEnvAvailability, type DevEnvBox, type DevEnvProjectResponse, type DevEnvActivity, type DevEnvProjectSetting } from '@mycel/shared/api'
 import type { BoxdBoxInfo } from '@mycel/shared'
 import type { AppContext } from '../context'
 import type { RouteModule } from './module'
@@ -14,10 +14,9 @@ import { assertFolderFree, canRead, canSeeProject, ensureProjectFolderEx, projec
 import type { Locale } from '@mycel/shared/api'
 import type { Principal } from '../policy/access'
 import { boxd } from '../devenv/boxd'
-import { devEnvFlag, devEnvInForce, devEnvRunner, devEnvSetting, mayUseBox, newConsent, requiredWarningVersion, saveDevEnvSetting } from '../devenv/setting'
+import { devEnvFlag, devEnvInForce, devEnvRunner, devEnvSetting, mayUseBox, mayUseDevEnv, newConsent, requiredWarningVersion, saveDevEnvSetting, saveTeamSetting, teamInForce, teamSetting } from '../devenv/setting'
 import { DEV_ENV_DEFAULT_DOMAINS, DEV_ENV_MAX_EXTRA_DOMAINS, cleanExtraDomains, extraDomainProblem } from '@mycel/shared'
-import { setSetting } from '../admin/settings'
-import { planState, runsOf, srtProblem, stopProject, stopRun, TEAM_SETTING_KEY, teamHosts, teamSetting } from '../devenv/srt/runner'
+import { findRun, planState, runsOf, srtProblem, stopAll, stopRun, stopWhere, teamHosts } from '../devenv/srt/runner'
 import { issuePreview, startPreviewGateway } from '../devenv/preview'
 import { runningJobs, startJobTracker } from '../devenv/jobs'
 
@@ -102,13 +101,23 @@ export const devEnvRoutes: RouteModule = {
       if (!r || !canSeeProject(ctx.files, p, r)) fail('not_found')
       return { p, r: r!, ref: { id: r!.id, folderPath: r!.folder_path } }
     }
+    /** srt: the team setting, in the shape of a project setting (the project page shows it read-only) */
+    const teamAsProject = (): DevEnvProjectSetting => { const t = teamSetting(ctx.db); return { enabled: t.enabled, scope: t.scope, network: t.network, limits: t.limits, consent: t.consent } }
     const response = async (id: string, folderPath: string, p: Principal): Promise<DevEnvProjectResponse> => {
+      if (devEnvRunner() === 'srt') {
+        // a person in scope can run commands in this project's chats when they can open its folder
+        const mayUse = mayUseDevEnv(ctx.db, ctx.files, p.id) && canRead(ctx.files, p, folderPath)
+        return {
+          availability: await availability(), setting: teamAsProject(), warningVersion: requiredWarningVersion(),
+          mayUse, mayManage: isAdmin(p), needsFolder: false, box: null, jobs: [],
+          runs: mayUse || isAdmin(p) ? await runsOf(ctx, { projectId: id }) : { running: [], waiting: [] }, runner: 'srt',
+        }
+      }
       const mayUse = mayUseBox(ctx.db, ctx.files, { id, folderPath }, p.id)
       return {
         availability: await availability(), setting: devEnvSetting(ctx.db, id), warningVersion: requiredWarningVersion(),
         mayUse, mayManage: isAdmin(p), needsFolder: folderPath === '', box: await boxState(id, mayUse || isAdmin(p)),
-        jobs: mayUse || isAdmin(p) ? runningJobs(ctx.db, id) : [],
-        runs: devEnvRunner() === 'srt' && (mayUse || isAdmin(p)) ? await runsOf(ctx, id) : { running: [], waiting: [] },
+        jobs: mayUse || isAdmin(p) ? runningJobs(ctx.db, id) : [], runs: { running: [], waiting: [] }, runner: 'box',
       }
     }
 
@@ -119,6 +128,7 @@ export const devEnvRoutes: RouteModule = {
 
     kit.handle(API.updateDevEnv, async ({ c, params, body, auth }) => {
       const { p, r, ref } = project(params.id, auth.user.id)
+      if (devEnvRunner() === 'srt') fail('conflict', 'On this server the dev environment is turned on for the whole team, in Admin settings, not per project.', { params: { reason: 'dev_env_team_setting' } })
       if (r.folder_path === 'users' || r.folder_path.startsWith('users/')) fail('validation', 'The dev environment is for team folders only, not personal projects.')
       const groups = new Set((ctx.db.query('SELECT id FROM groups').all() as { id: string }[]).map((g) => g.id))
       if (body.scope.groupIds.some((g) => !groups.has(g))) fail('validation', 'Unknown group.', { fields: { 'body.scope.groupIds': 'unknown group' } })
@@ -147,20 +157,20 @@ export const devEnvRoutes: RouteModule = {
       audit(ctx.db, { actor: auth.user.id, action: 'dev_env.setting', target: ref.id, detail: { before: { enabled: before.enabled, scope: before.scope, network: before.network, limits: before.limits }, after: { enabled: after.enabled, scope: after.scope, network: after.network, limits: after.limits } } })
       // off, or a change the box must start again for (network, limits): stop it; the next command starts it again
       const changed = before.network !== after.network || JSON.stringify(before.limits) !== JSON.stringify(after.limits)
-      if (devEnvRunner() === 'srt') { if (!devEnvInForce(after) || changed) await stopProject(ctx, ref.id, 'setting') }
-      else if (!devEnvInForce(after) || changed) await boxd()?.stop(ref.id).catch(() => null)
+      if (!devEnvInForce(after) || changed) await boxd()?.stop(ref.id).catch(() => null)
       return response(ref.id, folderPath, p)
     })
 
     kit.handle(API.devEnvBox, async ({ params, body, auth }) => {
       const { p, ref } = project(params.id, auth.user.id)
-      if (!mayUseBox(ctx.db, ctx.files, ref, p.id) && !isAdmin(p)) fail('forbidden')
       if (devEnvRunner() === 'srt') {
-        // no box to start again: both stop every run of the project
-        await stopProject(ctx, ref.id, 'stopped')
+        if (!mayUseDevEnv(ctx.db, ctx.files, p.id) && !isAdmin(p)) fail('forbidden')
+        // no box to start again: both stop every run of the project's chats
+        await stopWhere(ctx, (s) => s.projectId === ref.id, 'stopped')
         audit(ctx.db, { actor: p.id, action: 'dev_env.stop', target: ref.id, detail: { runner: 'srt' } })
         return response(ref.id, ref.folderPath, p)
       }
+      if (!mayUseBox(ctx.db, ctx.files, ref, p.id) && !isAdmin(p)) fail('forbidden')
       const c = boxd()
       if (!c) fail('conflict', 'The dev environment helper is not set up on this server.')
       const r = await c!.stop(ref.id)
@@ -176,8 +186,8 @@ export const devEnvRoutes: RouteModule = {
 
     kit.handle(API.devEnvPreview, async ({ c, params, body, auth }) => {
       const { p, ref } = project(params.id, auth.user.id)
-      if (!devEnvInForce(devEnvSetting(ctx.db, ref.id))) fail('conflict', 'The dev environment of this project is off.')
       if (devEnvRunner() === 'srt') fail('conflict', 'Preview is not available yet on this server. Ask the AI to test the dev server with curl in one command.', { params: { reason: 'dev_env_preview_not_configured' } })
+      if (!devEnvInForce(devEnvSetting(ctx.db, ref.id))) fail('conflict', 'The dev environment of this project is off.')
       const r = issuePreview(ctx, { projectId: ref.id, folderPath: ref.folderPath, port: body.port, userId: p.id, appHost: c.req.header('host') ?? null })
       if ('error' in r) fail('conflict', r.error === 'same_site' ? 'The preview origin must be on another domain than the app.' : 'The preview origin is not set up on this server.', { params: { reason: `dev_env_preview_${r.error}` } })
       return r as { url: string; expiresAt: string }
@@ -186,38 +196,85 @@ export const devEnvRoutes: RouteModule = {
     kit.handle(API.devEnvRunStop, async ({ params, auth }) => {
       const { p, ref } = project(params.id, auth.user.id)
       if (devEnvRunner() !== 'srt') fail('not_found')
-      const row = ctx.db.query('SELECT user_id FROM dev_env_jobs WHERE id = ? AND project_id = ? AND ended_at IS NULL').get(params.runId, ref.id) as { user_id: string } | null
-      const own = row?.user_id === p.id
-      if (!own && !mayUseBox(ctx.db, ctx.files, ref, p.id) && !isAdmin(p)) fail('forbidden')
-      if (!await stopRun(ctx, ref.id, params.runId, 'stopped')) fail('not_found')
+      const f = findRun(ctx, params.runId)
+      const owner = !f ? null : 'row' in f ? { userId: f.row.user_id, projectId: f.row.project_id } : { userId: f.command.space.userId, projectId: f.command.space.projectId }
+      if (!owner || owner.projectId !== ref.id) fail('not_found')
+      const own = owner!.userId === p.id
+      if (!own && !(mayUseDevEnv(ctx.db, ctx.files, p.id) && canRead(ctx.files, p, ref.folderPath)) && !isAdmin(p)) fail('forbidden')
+      if (!await stopRun(ctx, params.runId, 'stopped')) fail('not_found')
       audit(ctx.db, { actor: p.id, action: 'dev_env.stop', target: ref.id, detail: { run: params.runId, runner: 'srt' } })
       return response(ref.id, ref.folderPath, p)
     })
 
-    const teamView = () => {
+    // srt: the runs of one person, from every chat (a chat with no project has no project page)
+    const mine = (userId: string) => {
+      if (!devEnvFlag() || devEnvRunner() !== 'srt') fail('not_found')
+      try { ctx.files.principal(userId) } catch { fail('forbidden') }
+      return runsOf(ctx, { userId })
+    }
+    kit.handle(API.myDevEnvRuns, ({ auth }) => mine(auth.user.id))
+    kit.handle(API.stopMyDevEnvRun, async ({ params, auth }) => {
+      await mine(auth.user.id)
+      const f = findRun(ctx, params.runId)
+      const userId = !f ? null : 'row' in f ? f.row.user_id : f.command.space.userId
+      if (userId !== auth.user.id) fail('not_found')
+      if (!await stopRun(ctx, params.runId, 'stopped')) fail('not_found')
+      audit(ctx.db, { actor: auth.user.id, action: 'dev_env.stop', target: null, detail: { run: params.runId, runner: 'srt' } })
+      return mine(auth.user.id)
+    })
+
+    const teamView = async () => {
       const plan = planState()
       return {
         setting: teamSetting(ctx.db), defaultDomains: [...DEV_ENV_DEFAULT_DOMAINS],
         plan: plan.ok && plan.plan ? { plan: plan.plan.plan, maxRunning: plan.plan.maxRunning, cpus: plan.plan.cpus, memoryMiB: plan.plan.memoryMiB, pids: plan.plan.pids, network: plan.plan.network || 'offline' } : null,
-        runner: devEnvRunner(),
+        runner: devEnvRunner(), warningVersion: DEV_ENV_SRT_WARNING_VERSION, availability: await availability(),
       }
     }
     kit.handle(API.devEnvTeam, () => {
       if (!devEnvFlag()) fail('not_found')
       return teamView()
     })
-    kit.handle(API.updateDevEnvTeam, ({ body, auth }) => {
+    kit.handle(API.updateDevEnvTeam, async ({ body, auth }) => {
       if (!devEnvFlag()) fail('not_found')
-      const list = cleanExtraDomains(body.extraDomains)
-      if (list.length > DEV_ENV_MAX_EXTRA_DOMAINS) fail('validation', `At most ${DEV_ENV_MAX_EXTRA_DOMAINS} sites.`)
-      const hosts = teamHosts(ctx)
-      for (const d of list) {
-        const why = extraDomainProblem(d, hosts)
-        if (why) fail('validation', `${d}: ${why}.`, { fields: { 'body.extraDomains': `${d}: ${why}` } })
-      }
       const before = teamSetting(ctx.db)
-      setSetting(ctx.db, TEAM_SETTING_KEY, { extraDomains: list })
-      audit(ctx.db, { actor: auth.user.id, action: 'dev_env.team', target: null, detail: { before: before.extraDomains, after: list } })
+      const after = { ...before, limits: { ...before.limits, ...(body.limits ?? {}) } }
+      if (body.extraDomains) {
+        const list = cleanExtraDomains(body.extraDomains)
+        if (list.length > DEV_ENV_MAX_EXTRA_DOMAINS) fail('validation', `At most ${DEV_ENV_MAX_EXTRA_DOMAINS} sites.`)
+        const hosts = teamHosts(ctx)
+        for (const d of list) {
+          const why = extraDomainProblem(d, hosts)
+          if (why) fail('validation', `${d}: ${why}.`, { fields: { 'body.extraDomains': `${d}: ${why}` } })
+        }
+        after.extraDomains = list
+      }
+      if (body.scope) {
+        const groups = new Set((ctx.db.query('SELECT id FROM groups').all() as { id: string }[]).map((g) => g.id))
+        if (body.scope.groupIds.some((g) => !groups.has(g))) fail('validation', 'Unknown group.', { fields: { 'body.scope.groupIds': 'unknown group' } })
+        const people = new Set((ctx.db.query('SELECT id FROM users WHERE deleted_at IS NULL').all() as { id: string }[]).map((u) => u.id))
+        if (body.scope.userIds.some((u) => !people.has(u))) fail('validation', 'Unknown person.', { fields: { 'body.scope.userIds': 'unknown person' } })
+        after.scope = body.scope
+      }
+      if (body.network) after.network = body.network
+      if (body.enabled !== undefined) after.enabled = body.enabled
+      // turning on (srt): the server must run srt, and the current warning must be accepted
+      if (devEnvRunner() === 'srt' && after.enabled && !teamInForce(before)) {
+        const a = await availability()
+        if (!a.available) fail('conflict', 'This server cannot run the dev environment.', { params: { reason: 'dev_env_unavailable', why: a.reason ?? 'platform' } })
+        if (after.consent?.warningVersion !== DEV_ENV_SRT_WARNING_VERSION) {
+          if (body.acceptWarning !== DEV_ENV_SRT_WARNING_VERSION) fail('conflict', 'Accept the dev environment warning first.', { params: { reason: 'dev_env_warning', warningVersion: DEV_ENV_SRT_WARNING_VERSION } })
+          after.consent = { by: { id: auth.user.id, name: auth.user.name }, at: new Date().toISOString(), warningVersion: DEV_ENV_SRT_WARNING_VERSION }
+          audit(ctx.db, { actor: auth.user.id, action: 'dev_env.consent', target: null, detail: { warningVersion: DEV_ENV_SRT_WARNING_VERSION, team: true } })
+        }
+      }
+      saveTeamSetting(ctx.db, after)
+      const pick = (t: typeof after) => ({ enabled: t.enabled, scope: t.scope, network: t.network, limits: t.limits, extraDomains: t.extraDomains })
+      audit(ctx.db, { actor: auth.user.id, action: 'dev_env.team', target: null, detail: { before: pick(before), after: pick(after) } })
+      // off, or a change that every run must start again for (network, limits): stop them; a change of who may use
+      // it is checked by the tracker per person
+      const changed = before.network !== after.network || JSON.stringify(before.limits) !== JSON.stringify(after.limits)
+      if (devEnvRunner() === 'srt' && (changed || (teamInForce(before) && !teamInForce(after)))) await stopAll(ctx, 'setting')
       return teamView()
     })
 

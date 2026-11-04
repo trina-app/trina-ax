@@ -1,38 +1,66 @@
 // Dev environment on srt: attack suite (docs/research/srt-dev-env.md 10.2). Runs INSIDE the Docker image of
 // tests/linux/Dockerfile.srt as root: it makes a team server's folders with canary strings in every place a run must
-// not see, then runs each attack as the server account through the same pieces as the runner (srtSettings, runEnv,
-// resolveRunCwd, run-wrap, srt), with no systemd scope. An attack passes when no canary comes back and its check holds.
-// Lines that need systemd and polkit (A17, A21-A23, A25, A26) and chromium (A24) run on the spike VM.
+// not see, then runs each attack as the server account through the same pieces as the runner (folderView from the
+// folder rules of one person, srtSettings, runEnv, resolveRunCwd, run-wrap, srt), with no systemd scope. A run has the
+// folder access of the person who owns the chat: it must see her folders, write only where she writes, and see nothing
+// of the folders she may not open, of other people's personal folders, logs and homes, or of the server. An attack
+// passes when no canary comes back and its check holds. Lines that need systemd and polkit (A17, A21-A23, A25, A26)
+// and chromium (A24) run on the spike VM.
 import fs from 'node:fs'
 import net from 'node:net'
 import path from 'node:path'
-import { devenvPaths, resolveRunCwd, runEnv, srtSettings, settingsProblems, wrappedArgv } from '../../server/src/devenv/srt/config'
+import { RuleSet, type Access } from '../../server/src/policy/access'
+import { folderView } from '../../server/src/devenv/srt/access'
+import { chatWork, devenvPaths, personHome, personLogs, resolveRunCwd, runEnv, srtSettings, settingsProblems, wrappedArgv } from '../../server/src/devenv/srt/config'
 
 const ID = 'mycel'
 const BASE = `/var/lib/${ID}`
 const TEAM = `${BASE}/team`
-const P1 = 'p1', P2 = 'p2'
-const DIR1 = `${TEAM}/projects/one`, DIR2 = `${TEAM}/projects/two`
+const DIR1 = `${TEAM}/projects/one`
+const WORK = chatWork(BASE, 'chat-1')
 const SRV = 'axserver'
 const CANARY = 'CANARY-7f3a'
+const ME = 'alice'
 
 function sh(cmd: string) { const r = Bun.spawnSync(['bash', '-c', cmd]); if (r.exitCode !== 0) throw new Error(`${cmd}: ${r.stderr.toString()}`) }
 
 // ---- the team server's folders (as install-linux.sh and the server make them) ----
 for (const d of ['data', 'secrets', 'config', 'agent/codex-auth', 'root', 'run/tools', 'devenv/run']) fs.mkdirSync(path.join(BASE, d), { recursive: true })
-fs.mkdirSync(DIR1, { recursive: true }); fs.mkdirSync(DIR2, { recursive: true })
+const w = (rel: string, text: string) => { const f = path.join(TEAM, rel); fs.mkdirSync(path.dirname(f), { recursive: true }); fs.writeFileSync(f, text) }
 fs.writeFileSync(`${BASE}/data/app.db`, `${CANARY}-db`)
 fs.writeFileSync(`${BASE}/secrets/master.key`, `${CANARY}-secret`)
 fs.writeFileSync(`${BASE}/config/server.json`, `{"x":"${CANARY}-config"}`)
 fs.writeFileSync(`${BASE}/agent/codex-auth/auth.json`, `${CANARY}-codex`)
-fs.writeFileSync(`${DIR2}/private.md`, `${CANARY}-other-project`)
-fs.writeFileSync(`${DIR1}/readme.md`, 'hello from p1\n')
+// the team folder: what alice may open (shared, her group, her project, her own folder, skills read-only) and what
+// she may not (finance, another project, a hidden folder inside her group, bob's folder, .system)
+w('projects/one/readme.md', 'hello from p1\n')
+w('projects/one/public/notice.md', 'read only for alice\n')
+w('shared/s.md', 'shared text\n')
+w('skills/rules.md', 'skills text\n')
+w('groups/marketing/brief.md', 'marketing brief\n')
+w('groups/marketing/salaries/2026.md', `${CANARY}-salaries`)
+w('groups/finance/budget.md', `${CANARY}-finance`)
+w('projects/two/private.md', `${CANARY}-other-project`)
+w('users/alice/todo.md', 'alice todo\n')
+w('users/bob/notes.md', `${CANARY}-bob`)
+w('.system/history/old.bin', `${CANARY}-system`)
 fs.mkdirSync(`${DIR1}/.git/hooks`, { recursive: true }); fs.writeFileSync(`${DIR1}/.git/config`, '[core]\n')
+const RULES = new RuleSet(([
+  ['shared', 'everyone', null, 'write'], ['skills', 'everyone', null, 'read'],
+  ['groups/marketing', 'group', 'marketing', 'write'], ['groups/marketing/salaries', 'group', 'marketing', 'none'],
+  ['groups/finance', 'group', 'finance', 'write'],
+  ['projects/one', 'user', ME, 'write'], ['projects/one/public', 'everyone', null, 'read'],
+  ['projects/two', 'group', 'finance', 'write'],
+] as [string, 'everyone' | 'group' | 'user', string | null, Access][]).map(([p, t, s, a]) => ({ path: p, subject_type: t, subject_id: s, access: a })))
+const VIEW = folderView(RULES, { id: ME, name: 'Alice', role: 'member', groups: ['marketing'] })
 fs.mkdirSync('/etc/default', { recursive: true }); fs.writeFileSync(`/etc/default/${ID}`, `MYCEL_TOKEN=${CANARY}-etcdefault\n`)
 fs.mkdirSync('/tmp/server-private', { recursive: true }); fs.writeFileSync('/tmp/server-private/t', `${CANARY}-tmp`)
 fs.mkdirSync(`/run/${ID}`, { recursive: true }); fs.writeFileSync(`/run/${ID}/x`, `${CANARY}-run`)
-for (const p of [P1, P2]) { const d = devenvPaths(BASE, p); fs.mkdirSync(path.join(d.home, 'tmp'), { recursive: true }); fs.mkdirSync(d.logs, { recursive: true }) }
-fs.writeFileSync(path.join(devenvPaths(BASE, P2).home, 'secret'), `${CANARY}-other-home`)
+for (const u of [ME, 'bob']) { fs.mkdirSync(path.join(personHome(BASE, u), 'tmp'), { recursive: true }); fs.mkdirSync(personLogs(BASE, u), { recursive: true }) }
+fs.writeFileSync(path.join(personHome(BASE, 'bob'), 'secret'), `${CANARY}-other-home`)
+fs.writeFileSync(path.join(personLogs(BASE, 'bob'), 'job.log'), `${CANARY}-other-log`)
+fs.mkdirSync(WORK, { recursive: true }); fs.mkdirSync(chatWork(BASE, 'chat-2'), { recursive: true })
+fs.writeFileSync(path.join(chatWork(BASE, 'chat-2'), 'x'), `${CANARY}-other-chat`)
 sh(`chown -R ${SRV}:${SRV} ${BASE} /tmp/server-private /run/${ID} && chown root:${SRV} /etc/default/${ID} && chmod 640 /etc/default/${ID}`)
 // a host name that resolves to a private address, one to loopback (the resolved-address check)
 fs.appendFileSync('/etc/hosts', '10.11.12.13 private.attack.test\n127.0.0.1 loop.attack.test\n')
@@ -46,18 +74,21 @@ process.env.MYCEL_LEAK = `${CANARY}-env`
 
 // ---- one run, as the runner does it (no scope) ----
 let n = 0
-async function run(command: string, o: { network?: 'open' | 'offline'; cwd?: string; extra?: string[]; during?: () => void; timeoutMs?: number } = {}): Promise<{ code: number | null; out: string; refused?: string }> {
+async function run(command: string, o: { network?: 'open' | 'offline'; cwd?: string; extra?: string[]; during?: () => void; timeoutMs?: number; work?: boolean } = {}): Promise<{ code: number | null; out: string; refused?: string }> {
   const runId = `attack${String(++n).padStart(10, '0')}`
-  const settings = srtSettings({ base: BASE, id: ID, projectId: P1, projectDir: DIR1, teamRoot: TEAM, network: o.network ?? 'open', extraDomains: o.extra ?? [], denyHosts: ['team.trina.test'], denyAddrs: ['203.0.113.7'] })
-  const problems = settingsProblems(settings, { base: BASE, projectDir: DIR1, teamRoot: TEAM })
+  const work = o.work ? WORK : null
+  const input = { base: BASE, id: ID, teamRoot: TEAM, userId: ME, view: VIEW, work, network: o.network ?? 'open', extraDomains: o.extra ?? [], denyHosts: ['team.trina.test'], denyAddrs: ['203.0.113.7'] }
+  const settings = srtSettings(input)
+  const problems = settingsProblems(settings, input)
   if (problems.length) throw new Error(problems.join('; '))
-  const cwd = resolveRunCwd(DIR1, o.cwd ?? '')
+  const root = work ?? DIR1
+  const cwd = resolveRunCwd(root, o.cwd ?? '')
   if (!cwd) return { code: null, out: '', refused: 'cwd' }
   const settingsFile = path.join(devenvPaths(BASE).run, `${runId}.json`)
   fs.writeFileSync(settingsFile, JSON.stringify(settings), { mode: 0o600 }); sh(`chown ${SRV} ${settingsFile}`)
-  const exitFile = path.join(devenvPaths(BASE, P1).logs, `${runId}.exit`)
+  const exitFile = path.join(personLogs(BASE, ME), `${runId}.exit`)
   const argv = ['setpriv', `--reuid=${SRV}`, `--regid=${SRV}`, '--init-groups', '--', ...wrappedArgv({ exitFile, settingsFile, command })]
-  const p = Bun.spawn(argv, { cwd, env: runEnv({ base: BASE, projectId: P1 }), stdin: 'ignore', stdout: 'pipe', stderr: 'pipe' })
+  const p = Bun.spawn(argv, { cwd, env: runEnv({ base: BASE, userId: ME, teamRoot: TEAM, work }), stdin: 'ignore', stdout: 'pipe', stderr: 'pipe' })
   const t = setTimeout(() => p.kill('SIGKILL'), o.timeoutMs ?? 60_000)
   if (o.during) setTimeout(o.during, 1500)
   const [a, b] = await Promise.all([new Response(p.stdout).text(), new Response(p.stderr).text()])
@@ -74,14 +105,17 @@ const has = (s: string): Check => (r) => (r.out.includes(s) ? null : `no "${s}" 
 const both = (...cs: Check[]): Check => (r) => cs.map((c) => c(r)).find((x) => x) ?? null
 
 const attacks: { id: string; what: string; cmd: string; check: Check; o?: Parameters<typeof run>[1]; after?: () => string | null }[] = [
-  { id: 'A0', what: 'the project folder: read and write', cmd: 'cat readme.md && echo new > new.txt && cat new.txt && echo $HOME && touch $TMPDIR/x', check: both(ok, has('hello from p1'), has('new')) },
+  { id: 'A0', what: 'the project folder and the person\'s other folders: read and write; read-only folders: read', cmd: `cat readme.md && echo new > new.txt && cat new.txt && echo $HOME && touch $TMPDIR/x && cat ${TEAM}/skills/rules.md && echo x >> ${TEAM}/shared/s.md && cat ${TEAM}/groups/marketing/brief.md && echo y > ${TEAM}/users/alice/new.md && cat public/notice.md`, check: both(ok, has('hello from p1'), has('new'), has('skills text'), has('marketing brief'), has('read only for alice')) },
+  { id: 'A0b', what: 'a chat with no project: the work folder, and the person\'s folders', cmd: `pwd && echo w > w.txt && cat w.txt && cat ${TEAM}/shared/s.md && echo $TRINA_WORK`, check: both(ok, has(WORK), has('shared text')), o: { work: true } },
   { id: 'A1', what: 'the DB, secrets, config, engine logins', cmd: `cat ${BASE}/data/app.db || cat ${BASE}/secrets/master.key || cat ${BASE}/config/server.json || cat ${BASE}/agent/codex-auth/auth.json || grep -r ${CANARY} ${BASE}`, check: failsQuietly },
-  // srt shows the folders on the way to the project folder, with only that path in them
-  { id: 'A2', what: 'another project folder; the team folder list', cmd: `cat ${DIR2}/private.md 2>/dev/null; ls -a ${TEAM} ${TEAM}/projects`, check: (r) => (/\btwo\b|\bdata\b/.test(r.out) ? `another folder is listed: ${r.out.slice(0, 200)}` : null) },
+  // srt shows the folders on the way to an allowed folder, with only those paths in them
+  { id: 'A2', what: 'folders the person may not open: another project, another group, a hidden folder inside her group, another person\'s folder, .system', cmd: `cat ${TEAM}/projects/two/private.md; cat ${TEAM}/groups/finance/budget.md; cat ${TEAM}/groups/marketing/salaries/2026.md; cat ${TEAM}/users/bob/notes.md; cat ${TEAM}/.system/history/old.bin; ls -a ${TEAM} ${TEAM}/projects ${TEAM}/groups ${TEAM}/users ${TEAM}/groups/marketing`, check: (r) => (/\btwo\b|\bfinance\b|\bbob\b|\.system|\bdata\b/.test(r.out.replace(/No such file or directory/g, '').replace(/cat: [^\n]*\n/g, '')) ? `a hidden folder is listed: ${r.out.slice(0, 300)}` : null) },
+  { id: 'A2b', what: 'another chat\'s work folder; another person\'s logs and home', cmd: `cat ${chatWork(BASE, 'chat-2')}/x || ls ${devenvPaths(BASE).work} || cat ${personLogs(BASE, 'bob')}/job.log || ls ${personLogs(BASE, 'bob')} || cat ${personHome(BASE, 'bob')}/secret`, check: failsQuietly, o: { work: true } },
+  { id: 'A2c', what: 'write where the person reads only: skills/, the read-only folder in her project', cmd: `echo x > ${TEAM}/skills/x || echo x > public/x || echo x >> public/notice.md`, check: failsQuietly, after: () => (fs.existsSync(`${TEAM}/skills/x`) || fs.existsSync(`${DIR1}/public/x`) || fs.readFileSync(`${DIR1}/public/notice.md`, 'utf8').includes('x\n') ? 'a read-only folder changed' : null) },
   { id: 'A3', what: 'environment: no server values', cmd: 'env; cat /proc/self/environ | tr "\\0" "\\n"; cat /proc/1/environ', check: (r) => (/MYCEL_/.test(r.out) ? 'a MYCEL_ variable' : null) },
   { id: 'A4', what: '/etc/default/<ID>, the server /tmp, /run/<ID>', cmd: `cat /etc/default/${ID} || cat /tmp/server-private/t || cat /run/${ID}/x || ls /tmp/server-private || ls /run/${ID}`, check: failsQuietly },
   { id: 'A5', what: 'a secret made after the run started', cmd: `sleep 4; cat ${BASE}/secrets/late.key || ls ${BASE}/secrets`, check: failsQuietly, o: { during: () => { fs.writeFileSync(`${BASE}/secrets/late.key`, `${CANARY}-late`); sh(`chown ${SRV} ${BASE}/secrets/late.key`) } } },
-  { id: 'A6', what: 'write system tools, srt, the logs, another home', cmd: `touch /usr/local/bin/x || touch /opt/trina/srt/0.0.81/x || touch $TRINA_LOGS/x || touch ${devenvPaths(BASE, P2).home}/x || cat ${devenvPaths(BASE, P2).home}/secret || echo pwned > /opt/trina/devenv/run-wrap`, check: failsQuietly },
+  { id: 'A6', what: 'write system tools, srt, the logs, another home', cmd: `touch /usr/local/bin/x || touch /opt/trina/srt/0.0.81/x || touch $TRINA_LOGS/x || touch ${personHome(BASE, 'bob')}/x || cat ${personHome(BASE, 'bob')}/secret || echo pwned > /opt/trina/devenv/run-wrap`, check: failsQuietly },
   { id: 'A7', what: 'forge an exit file; read or write a settings file', cmd: `echo 0 > $TRINA_LOGS/forged.exit || ls ${BASE}/devenv/run || echo {} > ${BASE}/devenv/run/x.json`, check: failsQuietly },
   { id: 'A8', what: '.git/hooks and .git/config', cmd: 'echo "curl evil" > .git/hooks/pre-commit || echo "[core] hooksPath=/tmp" >> .git/config', check: failsQuietly, after: () => (fs.existsSync(`${DIR1}/.git/hooks/pre-commit`) || fs.readFileSync(`${DIR1}/.git/config`, 'utf8').includes('hooksPath') ? 'a git file changed' : null) },
   { id: 'A9', what: 'a link to a denied file', cmd: `ln -sf ${BASE}/secrets/master.key l && cat l; ln ${BASE}/secrets/master.key hl && cat hl`, check: failsQuietly },

@@ -2,7 +2,7 @@
 // use the box. Off unless the server runs with MYCEL_DEV_ENV=1 AND an owner or admin turned it on for the project
 // after accepting the current warning. Folder permissions stay the only permission model: in every scope a person
 // needs write access to the project folder (the box writes the folder), checked again on every command.
-import { DEV_ENV_DEFAULT_LIMITS, DEV_ENV_SRT_WARNING_VERSION, DEV_ENV_WARNING_VERSION, DevEnvProjectSetting, type DevEnvConsent, type DevEnvScope } from '@mycel/shared/api'
+import { DEV_ENV_DEFAULT_LIMITS, DEV_ENV_SRT_WARNING_VERSION, DEV_ENV_WARNING_VERSION, DevEnvProjectSetting, DevEnvTeamSetting, type DevEnvConsent, type DevEnvScope } from '@mycel/shared/api'
 import type { Database } from 'bun:sqlite'
 import type { FileService } from '../files/service'
 import { canSeeProject, canWrite } from '../chat/projects'
@@ -59,6 +59,37 @@ export function mayUseBox(db: Database, files: FileService, project: ProjectRef,
   if (!p) return false
   if (!inScope(db, s.scope, userId)) return false
   return canSeeProject(files, p, { folder_path: project.folderPath, trashed_with: row.trashed_with }) && canWrite(files, p, project.folderPath)
+}
+
+// ---------------- the srt runner: one setting for the team ----------------
+// With srt the dev environment is not locked to a project (owner, 2026-11-04): an admin turns it on for the team, any
+// chat of a person in scope can run commands, and each run gets that person's folder access (srt/access.ts). The
+// per-project setting above stays for the box runner only.
+
+export const TEAM_SETTING_KEY = 'devEnv.team'
+
+/** the team setting (admins); a bad or missing row is off */
+export function teamSetting(db: Database): DevEnvTeamSetting {
+  const v = DevEnvTeamSetting.safeParse(getSetting(db, TEAM_SETTING_KEY) ?? {})
+  return v.success ? v.data : DevEnvTeamSetting.parse({})
+}
+
+export function saveTeamSetting(db: Database, s: DevEnvTeamSetting) {
+  setSetting(db, TEAM_SETTING_KEY, { ...s, scope: { mode: s.scope.mode, groupIds: [...new Set(s.scope.groupIds)], userIds: [...new Set(s.scope.userIds)] } })
+}
+
+/** srt: on for the team, with a consent to the srt warning */
+export function teamInForce(s: DevEnvTeamSetting, flag = devEnvFlag()): boolean {
+  return flag && s.enabled && s.consent?.warningVersion === DEV_ENV_SRT_WARNING_VERSION
+}
+
+/** srt: may this person run commands now, in any chat? Active account, the team setting in force, in scope. What the
+ * person may read and write is decided per run from the folder rules (srt/access.ts), not here. */
+export function mayUseDevEnv(db: Database, files: FileService, userId: string, flag = devEnvFlag()): boolean {
+  const s = teamSetting(db)
+  if (!teamInForce(s, flag)) return false
+  try { if (!files.principal(userId)) return false } catch { return false }
+  return inScope(db, s.scope, userId)
 }
 
 export function newConsent(by: { id: string; name: string }): DevEnvConsent {

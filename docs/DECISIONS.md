@@ -5448,18 +5448,24 @@ later PR removes it.
   or dev server, in a `systemd-run --scope` unit `trina-dev-<16 chars>.scope` in `<ID>-devenv.slice`, with MemoryMax,
   CPUQuota, TasksMax, OOMPolicy=kill and RuntimeMaxSec. `run-wrap` sets rlimits and `oom_score_adj` 800 and writes the
   exit code. A polkit rule lets the server account start, stop and reset-failed only these scope names.
-- **Files.** The srt settings hide the whole base folder and `/etc/default/<ID>`, and give back the project folder (read
-  and write), its home (read and write) and its logs (read). srt itself denies writes to `.git/hooks`, `.git/config` and
+- **Not locked to a project (owner, 2026-11-04).** Any chat, with or without a project, can run commands. The admin
+  turns srt on for the team (`devEnv.team`: on, who, network, limits, consent); the per-project setting stays for the
+  box. A run gets the folder access of the person who owns the chat, built from the folder rules for every command
+  and job start (`server/src/devenv/srt/access.ts`), plus a home per person and, for a chat with no project, the chat's
+  work folder `<base>/devenv/work/<chatId>`. The tracker stops a job when the person's access changes. Writes outside
+  the project folder are not recorded and bypass the read-scope check: an open owner question (design 0.6, Q0).
+- **Files.** The srt settings hide the whole base folder and `/etc/default/<ID>`, and give back the person's team
+  folders (read, or read and write, from the rules), the person's home (read and write) and logs (read). srt itself denies writes to `.git/hooks`, `.git/config` and
   similar files. The environment has only listed keys, never the server's. A `cwd` through a link out of the project is
   refused before the run.
 - **Network.** `open` now means an allowlist: the defaults in `shared/src/dev-env-domains.ts` plus the team's extra
   domains (`devEnv.team`, admins). The team's host names (public origins, relay, `MYCEL_DEV_ENV_DENY_HOSTS`) are denied,
   and an admin cannot allow them. Private, link-local and metadata ranges and the VM's public IPv4 (IMDS) are denied
   after resolution. srt's warning has version 2, so an owner accepts again before the first srt run.
-- **Queue.** Jobs over `maxRunning` wait (FIFO for the server, 3 per project, 10 for the server, 24 hours). A waiting job
-  checks access again before it starts. Commands over `maxRunning + 1` are refused at once. Dev servers: one per project,
-  `maxRunning` on the server. Migration 222 adds `state`, `kind`, `run_at`, `cwd`, `unit` and `end_reason` to
-  `dev_env_jobs`.
+- **Queue.** Jobs over `maxRunning` wait (FIFO for the team, 3 per person, 10 for the server, 24 hours). A waiting job
+  checks access again before it starts. Commands over `maxRunning + 1` are refused at once. Dev servers: one per chat,
+  `maxRunning` on the server. Migration 222 adds the table `dev_env_runs` (a run has a person and a chat, the project
+  can be null); `dev_env_jobs` stays for the box.
 - **Plan caps.** The server reads `root/dev-env.json` with a TS port of `parseEntitlement` (fail closed) and cuts each
   run's limits to it. The install writes the slice from the same file, so the server cannot raise the total.
 - **Left from the design, on purpose.** A drop-in sets the flag and `ReadWritePaths=<base>/devenv`;

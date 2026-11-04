@@ -586,7 +586,7 @@ export class MockServer {
     if (srt) return {
       availability: { available: true },
       setting: { enabled: true, scope: { mode: 'writers' as const, groupIds: [], userIds: [] }, network: 'open' as const, limits: { cpus: 1, memoryMiB: 1536, pids: 512, diskGiB: 4, idleStopMin: 30 }, consent: { by: null, at: now(), warningVersion: 2 } },
-      warningVersion: 2, mayUse: true, mayManage: user.role !== 'member', needsFolder: false, box: null, jobs: [], runs: srt,
+      warningVersion: 2, mayUse: true, mayManage: user.role !== 'member', needsFolder: false, box: null, jobs: [], runs: srt, runner: 'srt' as const,
     }
     return {
       availability: { available: true },
@@ -597,6 +597,8 @@ export class MockServer {
       needsFolder: false,
       box: { state: this.devEnv!.box, startedAt: running ? now() : null, lastActiveAt: now(), memoryMiB: running ? 412 : null, processes: running ? [{ pid: 41, seconds: 120, command: 'npx remotion studio --port 5173' }] : [], stopCode: null },
       jobs: [],
+      runs: { running: [], waiting: [] },
+      runner: 'box' as const,
     }
   }
 

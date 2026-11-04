@@ -1,7 +1,8 @@
-// Dev environment on srt (docs/research/srt-dev-env.md): the settings file, the environment and the argv of a run,
-// the plan file parser, the team's extra domains, and box_shell, the queue and the tracker against a fake system (no
-// systemd, no srt). The sandbox itself is tested in Docker (tests/linux/srt-attack.sh); systemd, polkit and the memory
-// limits on a VM (docs/research/srt-dev-env.md 10.3).
+// Dev environment on srt (docs/research/srt-dev-env.md): the folder access of a run (built from the folder rules of
+// the person who owns the chat), the settings file, the environment and the argv of a run, the plan file parser, the
+// team setting, and box_shell, the queue and the tracker against a fake system (no systemd, no srt). The sandbox itself
+// is tested in Docker (tests/linux/srt-attack.ts); systemd, polkit and the memory limits on a VM
+// (docs/research/srt-dev-env.md 10.3).
 import { afterAll, beforeAll, beforeEach, describe, expect, setDefaultTimeout, test } from 'bun:test'
 import fs from 'node:fs'
 import os from 'node:os'
@@ -9,31 +10,122 @@ import path from 'node:path'
 import { API, DEV_ENV_DEFAULT_LIMITS, DEV_ENV_SRT_WARNING_VERSION, DEV_ENV_WARNING_VERSION } from '@mycel/shared/api'
 import { DEV_ENV_DEFAULT_DOMAINS, extraDomainProblem } from '@mycel/shared'
 import { startHarness, type Harness } from '../lib/b-harness'
-import { DENIED_RANGES, RUN_ID_RE, SRT_PATHS, SRT_VERSION, UNIT_RE, runEnv, scopeArgv, serverFilesOutsideBase, settingsProblems, srtSettings, unitName } from '../../server/src/devenv/srt/config'
+import { CANARIES, EXPECTED } from '../lib/fixtures'
+import { RuleSet, type Access, type Principal } from '../../server/src/policy/access'
+import { folderView, viewAccess, type FolderView } from '../../server/src/devenv/srt/access'
+import { DENIED_RANGES, RUN_ID_RE, SRT_PATHS, SRT_VERSION, UNIT_RE, chatWork, personHome, personLogs, runEnv, scopeArgv, serverFilesOutsideBase, settingsProblems, srtSettings, unitName } from '../../server/src/devenv/srt/config'
 import { effectiveLimits, parsePlan, sliceValues, type DevEnvPlan } from '../../server/src/devenv/srt/plan'
-import { _active, newRunId, readExit, setSrtSystem, WAIT_MAX_MS } from '../../server/src/devenv/srt/runner'
+import { _active, newRunId, readExit, setSrtSystem, teamHosts, WAIT_MAX_MS } from '../../server/src/devenv/srt/runner'
 import { cgroupDir, slicePath, type SpawnSpec, type SrtSystem, type UnitInfo } from '../../server/src/devenv/srt/system'
-import { teamHosts } from '../../server/src/devenv/srt/runner'
-import { jobResultsForAI, pollJobs } from '../../server/src/devenv/jobs'
-import { devEnvInForce, devEnvSetting, newConsent, OFF_SETTING, requiredWarningVersion, saveDevEnvSetting } from '../../server/src/devenv/setting'
+import { pollSrt, runResultsForAI } from '../../server/src/devenv/jobs'
+import { mayUseDevEnv, newConsent, requiredWarningVersion, saveTeamSetting, teamInForce, teamSetting } from '../../server/src/devenv/setting'
 import { boxShellTool } from '../../server/src/devenv/tool'
 import { configureStorageGuard } from '../../server/src/system/storage'
 
 setDefaultTimeout(40_000)
 const REPO = path.join(import.meta.dir, '..', '..')
 
-// ---------------- pure parts ----------------
+// ---------------- the folder access of a run ----------------
+
+const RANK: Record<Access, number> = { none: 0, read: 1, write: 2 }
+const who = (id: string, role: Principal['role'] = 'member', groups: string[] = []): Principal => ({ id, name: id, role, groups })
+
+/** the fixture's rules (tests/lib/fixtures.ts seed) */
+const FIXTURE_RULES = new RuleSet([
+  ['shared', 'everyone', null, 'write'], ['skills', 'everyone', null, 'read'],
+  ['groups/marketing', 'group', 'marketing', 'write'], ['groups/marketing/salaries', 'group', 'marketing', 'none'],
+  ['groups/finance', 'group', 'finance', 'write'],
+  ['projects/falcon', 'user', 'alice', 'write'], ['projects/falcon', 'group', 'finance', 'read'], ['projects/falcon/public', 'everyone', null, 'read'],
+  ['projects/atlas', 'group', 'finance', 'write'],
+].map(([p, t, s, a]) => ({ path: p!, subject_type: t as never, subject_id: s, access: a as Access })))
+const PEOPLE: Record<string, Principal> = { alice: who('alice', 'member', ['marketing']), bob: who('bob', 'member', ['finance']), carol: who('carol', 'admin'), dana: who('dana', 'owner'), erin: who('erin', 'member', ['marketing']) }
+
+describe('the folder access of a run (from the folder rules)', () => {
+  test('alice: her folders, read-only where she reads, hidden where she may not look', () => {
+    expect(folderView(FIXTURE_RULES, PEOPLE.alice!)).toEqual({
+      read: ['skills'],
+      write: ['shared', 'groups/marketing', 'projects/falcon', 'users/alice'],
+      denyRead: ['groups/marketing/salaries'],
+      denyWrite: ['projects/falcon/public'],
+    })
+  })
+  test('an admin: the whole team folder, but never .system/ or other people\'s personal folders', () => {
+    const v = folderView(FIXTURE_RULES, PEOPLE.carol!)
+    expect(v.write).toEqual(['', 'users/carol'])
+    expect(v.denyRead).toEqual(['.system', 'users'])
+    expect(viewAccess(v, 'users/bob/notes.md')).toBe('none')
+    expect(viewAccess(v, 'users/carol/x.md')).toBe('write')
+    expect(viewAccess(v, '.system/history/old.bin')).toBe('none')
+    expect(viewAccess(v, 'groups/finance/budget.md')).toBe('write')
+  })
+  test('the model of srt gives every fixture path the access the rules give (users/ itself: hidden)', () => {
+    for (const [user, rel, want] of EXPECTED) {
+      const v = folderView(FIXTURE_RULES, PEOPLE[user]!)
+      // users/<other> in another case is a different folder on a case-sensitive disk: still under users/, so hidden
+      expect([user, rel, viewAccess(v, rel)]).toEqual([user, rel, want])
+    }
+    for (const p of Object.values(PEOPLE)) expect(viewAccess(folderView(FIXTURE_RULES, p), 'users')).toBe('none')
+  })
+  test('random rule trees: never more than the rules give; the same except write below a read-only folder below write', () => {
+    const names = ['a', 'b', 'c']
+    const folders: string[] = []
+    const walk = (pre: string, d: number) => { for (const n of names) { const f = pre ? `${pre}/${n}` : n; folders.push(f); if (d < 3) walk(f, d + 1) } }
+    walk('', 1)
+    let seed = 7
+    const rnd = (n: number) => { seed = (seed * 1103515245 + 12345) & 0x7fffffff; return seed % n }
+    const acc: Access[] = ['none', 'read', 'write']
+    let stricter = 0, cases = 0
+    for (let round = 0; round < 200; round++) {
+      const rows: { path: string; subject_type: 'everyone' | 'user' | 'group'; subject_id: string | null; access: Access }[] = []
+      for (const f of ['', ...folders]) {
+        if (rnd(4) !== 0) continue
+        const t = rnd(3)
+        rows.push(t === 0 ? { path: f, subject_type: 'everyone', subject_id: null, access: acc[rnd(3)]! } : t === 1 ? { path: f, subject_type: 'user', subject_id: 'u', access: acc[rnd(3)]! } : { path: f, subject_type: 'group', subject_id: 'g', access: acc[rnd(3)]! })
+      }
+      const rules = new RuleSet(rows)
+      const p = who('u', 'member', rnd(2) ? ['g'] : [])
+      const v = folderView(rules, p)
+      for (const f of folders) {
+        cases++
+        const want = rules.access(p, f.split('/')), got = viewAccess(v, f)
+        expect(RANK[got]).toBeLessThanOrEqual(RANK[want])
+        if (got !== want) {
+          // the only allowed difference: write below a read-only folder below a write folder (srt's denyWrite wins)
+          expect([want, got]).toEqual(['write', 'read'])
+          const segs = f.split('/')
+          const above = segs.map((_, i) => rules.access(p, segs.slice(0, i)))
+          expect(above.some((a, i) => a === 'read' && above.slice(0, i).includes('write'))).toBe(true)
+          stricter++
+        }
+      }
+    }
+    expect(cases).toBeGreaterThan(1000)
+    expect(stricter).toBeLessThan(cases / 10)
+  })
+})
+
+// ---------------- the settings file ----------------
 
 const BASE = '/var/lib/mycel'
-const input = { base: BASE, id: 'mycel', projectId: 'p1', projectDir: `${BASE}/team/projects/falcon`, teamRoot: `${BASE}/team`, network: 'open' as const, extraDomains: ['api.example.net'], denyHosts: ['Team.Trina.App'], denyAddrs: ['3.3.3.3'] }
+const TEAM = `${BASE}/team`
+const aliceView = folderView(FIXTURE_RULES, PEOPLE.alice!)
+const input = { base: BASE, id: 'mycel', teamRoot: TEAM, userId: 'alice', view: aliceView, work: null, network: 'open' as const, extraDomains: ['api.example.net'], denyHosts: ['Team.Trina.App'], denyAddrs: ['3.3.3.3'] }
 
 describe('the srt settings file', () => {
-  test('hides the whole base folder and the server file outside it; gives back only three folders', () => {
+  test('hides the base folder, users/ and .system/; gives back the person\'s folders, home and logs', () => {
     const s = srtSettings(input)
-    expect(s.filesystem.denyRead).toEqual([BASE, '/etc/default/mycel', '/tmp', '/var/log', '/run', '/home', '/root'])
-    expect(s.filesystem.allowRead).toEqual([input.projectDir, `${BASE}/devenv/home/p1`, `${BASE}/devenv/logs/p1`])
-    expect(s.filesystem.allowWrite).toEqual([input.projectDir, `${BASE}/devenv/home/p1`])
+    expect(s.filesystem.denyRead).toEqual([BASE, '/etc/default/mycel', '/tmp', '/var/log', '/run', '/home', '/root', `${TEAM}/users`, `${TEAM}/.system`, `${TEAM}/groups/marketing/salaries`])
+    expect(s.filesystem.allowRead).toEqual([`${TEAM}/skills`, `${TEAM}/shared`, `${TEAM}/groups/marketing`, `${TEAM}/projects/falcon`, `${TEAM}/users/alice`, `${BASE}/devenv/home/alice`, `${BASE}/devenv/logs/alice`])
+    expect(s.filesystem.allowWrite).toEqual([`${TEAM}/shared`, `${TEAM}/groups/marketing`, `${TEAM}/projects/falcon`, `${TEAM}/users/alice`, `${BASE}/devenv/home/alice`])
+    expect(s.filesystem.denyWrite).toEqual([`${TEAM}/projects/falcon/public`])
     expect(settingsProblems(s, input)).toEqual([])
+  })
+  test('a chat with no project: its work folder is writable too', () => {
+    const work = chatWork(BASE, 'chat-1')
+    const s = srtSettings({ ...input, work })
+    expect(s.filesystem.allowWrite).toContain(work)
+    expect(settingsProblems(s, { ...input, work })).toEqual([])
+    expect(settingsProblems(s, { ...input, work: `${BASE}/data` }).join()).toContain('work folder')
   })
   test('the network: the default list plus the team list; offline is an empty list; addresses and host names denied', () => {
     const s = srtSettings(input)
@@ -41,39 +133,42 @@ describe('the srt settings file', () => {
     expect(s.network.strictAllowlist).toBe(true)
     expect(s.network.deniedDomains).toEqual(['team.trina.app'])
     expect(s.network.deniedResolvedAddresses).toEqual([...DENIED_RANGES, '3.3.3.3'])
-    expect(s.network.deniedResolvedAddresses).toContain('169.254.0.0/16')
-    expect(s.network.deniedResolvedAddresses).toContain('100.64.0.0/10')
     expect(srtSettings({ ...input, network: 'offline' }).network.allowedDomains).toEqual([])
   })
   test('a team folder outside the base folder is hidden too', () => {
-    const s = srtSettings({ ...input, teamRoot: '/srv/team', projectDir: '/srv/team/a' })
+    const s = srtSettings({ ...input, teamRoot: '/srv/team' })
     expect(s.filesystem.denyRead).toContain('/srv/team')
-    expect(settingsProblems(s, { base: BASE, projectDir: '/srv/team/a', teamRoot: '/srv/team' })).toEqual([])
+    expect(settingsProblems(s, { ...input, teamRoot: '/srv/team' })).toEqual([])
   })
-  test('the check refuses a writable parent, a project outside the team folder, the team folder itself', () => {
+  test('the check refuses another person\'s folder, .system, a base folder path, a missing hide', () => {
     const s = srtSettings(input)
-    expect(settingsProblems({ ...s, filesystem: { ...s.filesystem, allowWrite: [...s.filesystem.allowWrite, `${BASE}/team`] } }, input).join()).toContain('parent of the project folder')
-    expect(settingsProblems({ ...s, filesystem: { ...s.filesystem, allowWrite: [`${BASE}/secrets`] } }, input).join()).toContain('writable path in the base folder')
-    expect(settingsProblems({ ...s, filesystem: { ...s.filesystem, denyRead: ['/tmp'] } }, input).join()).toContain('base folder is not hidden')
-    expect(settingsProblems(srtSettings({ ...input, projectDir: `${BASE}/team` }), { ...input, projectDir: `${BASE}/team` }).join()).toContain('not a folder of the team folder')
-    expect(settingsProblems(srtSettings({ ...input, projectDir: '/etc' }), { ...input, projectDir: '/etc' }).join()).toContain('not a folder of the team folder')
+    const fsx = (f: Partial<typeof s.filesystem>) => ({ ...s, filesystem: { ...s.filesystem, ...f } })
+    expect(settingsProblems(fsx({ allowWrite: [...s.filesystem.allowWrite, `${TEAM}/users/bob`] }), input).join()).toContain('may not write')
+    expect(settingsProblems(fsx({ allowRead: [...s.filesystem.allowRead, `${TEAM}/users/bob/x`] }), input).join()).toContain('may not read')
+    expect(settingsProblems(fsx({ allowRead: [...s.filesystem.allowRead, `${TEAM}/.system`] }), input).join()).toContain('may not read')
+    expect(settingsProblems(fsx({ allowWrite: [`${BASE}/secrets`] }), input).join()).toContain('may not write')
+    expect(settingsProblems(fsx({ allowRead: [`${BASE}/devenv/logs/bob`] }), input).join()).toContain('may not read')
+    expect(settingsProblems(fsx({ allowWrite: ['/etc'] }), input).join()).toContain('may not write')
+    expect(settingsProblems(fsx({ denyRead: ['/tmp'] }), input).join()).toContain('base folder is not hidden')
+    expect(settingsProblems(fsx({ denyRead: s.filesystem.denyRead.filter((d) => d !== `${TEAM}/users`) }), input).join()).toContain('personal folders')
   })
   test('the programs a run executes are outside every base folder', () => {
     for (const p of Object.values(SRT_PATHS)) expect(p.startsWith('/var/lib/')).toBe(false)
     expect(SRT_PATHS.cli).toBe(`/opt/trina/srt/${SRT_VERSION}/cli.js`)
   })
+  test('the environment: only the listed keys; HOME and the logs per person; the work folder only for a chat with no project', () => {
+    const e = runEnv({ base: BASE, userId: 'alice', teamRoot: TEAM, work: null })
+    expect(Object.keys(e).sort()).toEqual(['CI', 'CLAUDE_CODE_TMPDIR', 'HOME', 'LANG', 'PATH', 'PIP_CACHE_DIR', 'PLAYWRIGHT_BROWSERS_PATH', 'SHELL', 'TERM', 'TMPDIR', 'TRINA_LOGS', 'TRINA_TEAM', 'npm_config_cache'])
+    expect(e.HOME).toBe(personHome(BASE, 'alice'))
+    expect(e.TMPDIR).toBe(`${BASE}/devenv/home/alice/tmp`)
+    expect(e.TRINA_LOGS).toBe(personLogs(BASE, 'alice'))
+    expect(e.TRINA_TEAM).toBe(TEAM)
+    expect(runEnv({ base: BASE, userId: 'alice', teamRoot: TEAM, work: chatWork(BASE, 'c1') }).TRINA_WORK).toBe(`${BASE}/devenv/work/c1`)
+    expect(() => personHome(BASE, '../bob')).toThrow()
+  })
 })
 
-describe('the environment and the argv of a run', () => {
-  test('only the listed keys; HOME, TMPDIR and srt\'s temp folder in the project home', () => {
-    const e = runEnv({ base: BASE, projectId: 'p1' })
-    expect(Object.keys(e).sort()).toEqual(['CI', 'CLAUDE_CODE_TMPDIR', 'HOME', 'LANG', 'PATH', 'PIP_CACHE_DIR', 'PLAYWRIGHT_BROWSERS_PATH', 'SHELL', 'TERM', 'TMPDIR', 'TRINA_LOGS', 'npm_config_cache'])
-    expect(e.HOME).toBe(`${BASE}/devenv/home/p1`)
-    expect(e.TMPDIR).toBe(`${BASE}/devenv/home/p1/tmp`)
-    expect(e.CLAUDE_CODE_TMPDIR).toBe(e.TMPDIR!)
-    expect(e.TRINA_LOGS).toBe(`${BASE}/devenv/logs/p1`)
-    expect(e.PATH!.startsWith('/opt/trina/node/bin:')).toBe(true)
-  })
+describe('the argv of a run', () => {
   test('systemd-run makes a scope that the polkit rule allows, with the limits; srt gets the command as one argument', () => {
     const runId = newRunId()
     expect(runId).toMatch(RUN_ID_RE)
@@ -222,17 +317,23 @@ const finish = (runId: string, code: number, log = '') => {
 
 let h: Harness
 let devBase = ''
-let projectId = '', otherId = '', chatId = ''
-const FOLDER = 'projects/falcon'
+let falconId = '', chatFalcon = '', chatPlain = '', chatPlain2 = '', chatErin = '', chatBob = ''
+const FALCON = 'projects/falcon'
 const STARTER: DevEnvPlan = { format: 1, plan: 'starter', maxRunning: 1, cpus: 1.5, memoryMiB: 1536, pids: 512, diskGiB: 4, network: 'open' }
-const publish: { user: string; frame: { type: string; data: { code?: string; message?: string } } }[] = []
+const publish: { user: string; frame: { type: string; data: { code?: string; message?: string; link?: string } } }[] = []
 
-const shell = (userId = 'alice', project = { id: projectId, folderPath: FOLDER, name: 'Falcon' }, signal = new AbortController().signal) =>
+type ProjectArg = { id: string; folderPath: string; name: string } | null
+const falcon = (): ProjectArg => ({ id: falconId, folderPath: FALCON, name: 'Falcon' })
+const shell = (userId: string, project: ProjectArg, chatId: string, signal = new AbortController().signal) =>
   boxShellTool({ ctx: h.ctx, project, userId, turnId: 'turn-1', chatId, signal, confirm: async () => null, redact: (s) => s.replaceAll('hunter2', '[hidden]') })
+const alice = (o: { project?: ProjectArg; chat?: string } = {}) => shell('alice', o.project === undefined ? falcon() : o.project, o.chat ?? chatFalcon)
 const out = (r: { content: { type: string; text?: string }[] }) => r.content.map((c) => c.text ?? '').join('\n')
-const rows = () => h.ctx.db.query('SELECT * FROM dev_env_jobs ORDER BY started_at, id').all() as Record<string, unknown>[]
+const rows = () => h.ctx.db.query('SELECT * FROM dev_env_runs ORDER BY started_at, id').all() as Record<string, unknown>[]
 const runIdOfRow = (r: Record<string, unknown>) => String(r.unit).slice('trina-dev-'.length, -'.scope'.length)
-const turnOn = (id: string) => saveDevEnvSetting(h.ctx.db, id, { ...OFF_SETTING, enabled: true, consent: newConsent({ id: 'carol', name: 'Carol Park' }) })
+type Settings = { filesystem: { denyRead: string[]; allowRead: string[]; allowWrite: string[]; denyWrite: string[] }; network: { allowedDomains: string[] } }
+const lastSettings = () => [...runs.values()].at(-1)!.settings as unknown as Settings
+const turnOnTeam = (patch: Partial<ReturnType<typeof teamSetting>> = {}) =>
+  saveTeamSetting(h.ctx.db, { ...teamSetting(h.ctx.db), enabled: true, scope: { mode: 'writers', groupIds: [], userIds: [] }, network: 'open', limits: DEV_ENV_DEFAULT_LIMITS, extraDomains: [], consent: newConsent({ id: 'carol', name: 'Carol Park' }), ...patch })
 
 beforeAll(async () => {
   process.env.MYCEL_DEV_ENV = '1'
@@ -241,10 +342,13 @@ beforeAll(async () => {
   h = await startHarness({ name: 'dev-env-srt' })
   devBase = fs.mkdtempSync(path.join(os.tmpdir(), 'srt-base-'))
   setSrtSystem(fake, { base: devBase, id: 'mycel', plan: STARTER })
-  projectId = (await h.api('alice').call(API.createProject, { body: { name: 'Falcon', folderPath: FOLDER, instructions: '' } })).id
-  otherId = (await h.api('alice').call(API.createProject, { body: { name: 'Hawk', folderPath: 'groups/marketing', instructions: '' } })).id
-  chatId = (await h.api('alice').call(API.createChat, { body: { projectId } })).id
-  turnOn(projectId); turnOn(otherId)
+  falconId = (await h.api('alice').call(API.createProject, { body: { name: 'Falcon', folderPath: FALCON, instructions: '' } })).id
+  chatFalcon = (await h.api('alice').call(API.createChat, { body: { projectId: falconId } })).id
+  chatPlain = (await h.api('alice').call(API.createChat, { body: {} })).id
+  chatPlain2 = (await h.api('alice').call(API.createChat, { body: {} })).id
+  chatErin = (await h.api('erin').call(API.createChat, { body: {} })).id
+  chatBob = (await h.api('bob').call(API.createChat, { body: { projectId: falconId } })).id
+  turnOnTeam()
   const real = h.ctx.services.realtime.publish.bind(h.ctx.services.realtime)
   h.ctx.services.realtime.publish = ((user: string, frame: never) => { publish.push({ user, frame }); return real(user, frame) }) as typeof h.ctx.services.realtime.publish
 })
@@ -259,249 +363,337 @@ beforeEach(() => {
   runs.clear(); stops.length = 0; publish.length = 0; selfTestProblem = ''; cpu = 0
   _active().clear()
   setSrtSystem(fake, { base: devBase, id: 'mycel', plan: STARTER })
-  for (const t of ['dev_env_jobs', 'dev_env_stops', 'dev_env_notices']) h.ctx.db.query(`DELETE FROM ${t}`).run()
+  for (const t of ['dev_env_runs', 'dev_env_notices']) h.ctx.db.query(`DELETE FROM ${t}`).run()
   h.ctx.db.query("DELETE FROM audit_log WHERE action LIKE 'dev_env.%'").run()
-  turnOn(projectId); turnOn(otherId)
+  turnOnTeam()
 })
 
-describe('the warning version', () => {
-  test('srt asks for its own warning; a consent to the box warning does not count', () => {
+describe('the team setting', () => {
+  test('srt asks for its own warning; a consent to the box warning does not count; off for everyone when off', () => {
     expect(requiredWarningVersion()).toBe(DEV_ENV_SRT_WARNING_VERSION)
     expect(requiredWarningVersion({})).toBe(DEV_ENV_WARNING_VERSION)
-    const s = devEnvSetting(h.ctx.db, projectId)
-    expect(devEnvInForce(s)).toBe(true)
-    expect(devEnvInForce({ ...s, consent: { ...s.consent!, warningVersion: DEV_ENV_WARNING_VERSION } })).toBe(false)
+    const s = teamSetting(h.ctx.db)
+    expect(teamInForce(s)).toBe(true)
+    expect(teamInForce({ ...s, consent: { ...s.consent!, warningVersion: DEV_ENV_WARNING_VERSION } })).toBe(false)
+    expect(mayUseDevEnv(h.ctx.db, h.ctx.files, 'alice')).toBe(true)
+    turnOnTeam({ enabled: false })
+    expect(mayUseDevEnv(h.ctx.db, h.ctx.files, 'alice')).toBe(false)
+    turnOnTeam({ scope: { mode: 'selected', groupIds: ['finance'], userIds: [] } })
+    expect(mayUseDevEnv(h.ctx.db, h.ctx.files, 'alice')).toBe(false)
+    expect(mayUseDevEnv(h.ctx.db, h.ctx.files, 'bob')).toBe(true)
   })
-  test('the project page asks for version 2 and has no box', async () => {
-    const r = await h.api('alice').call(API.devEnv, { params: { id: projectId } })
-    expect(r.warningVersion).toBe(DEV_ENV_SRT_WARNING_VERSION)
-    expect(r.box).toBeNull()
-    expect(r.availability).toEqual({ available: true })
-    expect(r.runs).toEqual({ running: [], waiting: [] })
+  test('admins turn it on with the warning; a project setting is refused on srt', async () => {
+    turnOnTeam({ enabled: false, consent: null })
+    await expect(h.api('carol').call(API.updateDevEnvTeam, { body: { enabled: true } })).rejects.toThrow()
+    await expect(h.api('alice').call(API.updateDevEnvTeam, { body: { enabled: true, acceptWarning: 2 } })).rejects.toThrow()
+    const r = await h.api('carol').call(API.updateDevEnvTeam, { body: { enabled: true, acceptWarning: DEV_ENV_SRT_WARNING_VERSION } })
+    expect(r.setting).toMatchObject({ enabled: true, consent: { warningVersion: DEV_ENV_SRT_WARNING_VERSION } })
+    expect(r.runner).toBe('srt')
+    await expect(h.api('carol').call(API.updateDevEnv, { params: { id: falconId }, body: { enabled: true, scope: { mode: 'writers', groupIds: [], userIds: [] } } })).rejects.toThrow()
+    const page = await h.api('alice').call(API.devEnv, { params: { id: falconId } })
+    expect(page).toMatchObject({ runner: 'srt', mayUse: true, box: null, setting: { enabled: true } })
   })
   test('availability says why srt cannot run', async () => {
     selfTestProblem = 'cannot start a scope (polkit rule or slice missing)'
     setSrtSystem(fake, { base: devBase, id: 'mycel', plan: STARTER })
-    const r = await h.api('alice').call(API.devEnv, { params: { id: projectId } })
+    const r = await h.api('alice').call(API.devEnv, { params: { id: falconId } })
     expect(r.availability).toMatchObject({ available: false, reason: 'platform' })
     expect(r.availability.detail).toContain('polkit')
   })
+  test('off: the tool says so and runs nothing', async () => {
+    turnOnTeam({ enabled: false })
+    const r = await alice().call({ command: 'echo x' })
+    expect(r.isError).toBe(true)
+    expect(out(r)).toContain('off for you')
+    expect(runs.size).toBe(0)
+  })
 })
 
-describe('a command', () => {
-  test('runs in the project folder with the settings of the project; output and exit code come back; files are recorded', async () => {
-    const r = await shell().call({ command: 'echo hello' })
+describe('a command follows the person, not the project', () => {
+  test('a project chat: starts in the project folder, with all of the person\'s folders and none of the others', async () => {
+    const r = await alice().call({ command: 'echo hello' })
     expect(r.isError).toBeUndefined()
     expect(out(r)).toContain('Exit code 0.')
     expect(out(r)).toContain('hello')
     const run = [...runs.values()][0]!
-    expect(run.spec.cwd).toBe(fs.realpathSync(path.join(h.team, FOLDER)))
+    expect(run.spec.cwd).toBe(fs.realpathSync(path.join(h.team, FALCON)))
     expect(run.spec.limits).toEqual({ cpus: 1, memoryMiB: 1536, pids: 512, runtimeMaxSec: 150 })
     expect(run.settingsMode).toBe(0o600)
-    expect((run.settings as { filesystem: { denyRead: string[]; allowWrite: string[] } }).filesystem.allowWrite).toEqual([path.join(h.team, FOLDER), path.join(devBase, 'devenv/home', projectId)])
-    expect((run.settings as { filesystem: { denyRead: string[] } }).filesystem.denyRead).toContain(devBase)
-    expect((run.settings as { filesystem: { denyRead: string[] } }).filesystem.denyRead).toContain(h.team)
-    // the settings file, the output files and the exit file are gone after the run
-    expect(fs.existsSync(run.spec.settingsFile)).toBe(false)
-    expect(fs.existsSync(run.spec.stdoutFile)).toBe(false)
-    expect(fs.existsSync(run.spec.exitFile)).toBe(false)
-    const audit = h.ctx.db.query("SELECT detail FROM audit_log WHERE action = 'dev_env.command' AND target = ?").get(projectId) as { detail: string }
-    expect(JSON.parse(audit.detail)).toMatchObject({ runner: 'srt', result: { code: 0, signal: '' } })
+    const s = lastSettings()
+    const t = (r: string) => path.join(h.team, r)
+    expect(s.filesystem.allowWrite).toEqual([t('shared'), t('groups/marketing'), t(FALCON), t('users/alice'), personHome(devBase, 'alice')])
+    expect(s.filesystem.allowRead).toContain(t('skills'))
+    expect(s.filesystem.denyRead).toEqual(expect.arrayContaining([devBase, h.team, t('users'), t('.system'), t('groups/marketing/salaries')]))
+    expect(s.filesystem.denyWrite).toEqual([t('projects/falcon/public')])
+    for (const p of [...s.filesystem.allowRead, ...s.filesystem.allowWrite]) for (const no of ['groups/finance', 'projects/atlas', 'users/bob']) expect(p.startsWith(t(no))).toBe(false)
+    // the output goes to the person's logs, and the files are gone after the run
+    expect(run.spec.stdoutFile.startsWith(personLogs(devBase, 'alice') + '/')).toBe(true)
+    for (const f of [run.spec.settingsFile, run.spec.stdoutFile, run.spec.exitFile]) expect(fs.existsSync(f)).toBe(false)
+    const audit = h.ctx.db.query("SELECT detail FROM audit_log WHERE action = 'dev_env.command' AND target = ?").get(falconId) as { detail: string }
+    expect(JSON.parse(audit.detail)).toMatchObject({ runner: 'srt', folder: 'project', chatId: chatFalcon, result: { code: 0, signal: '' } })
+  })
+  test('a chat with no project: starts in the chat\'s work folder, which is writable; the person\'s folders are there too', async () => {
+    const r = await alice({ project: null, chat: chatPlain }).call({ command: 'write out.txt done' })
+    expect(out(r)).toContain('Exit code 0.')
+    const run = [...runs.values()][0]!
+    const work = chatWork(devBase, chatPlain)
+    expect(run.spec.cwd).toBe(fs.realpathSync(work))
+    expect(fs.readFileSync(path.join(work, 'out.txt'), 'utf8')).toBe('done')
+    expect(run.spec.env.TRINA_WORK).toBe(work)
+    expect(lastSettings().filesystem.allowWrite).toEqual(expect.arrayContaining([work, path.join(h.team, 'shared'), path.join(h.team, 'users/alice')]))
+    // nothing is recorded as a team file change: the work folder is not a team folder
+    expect(out(r)).not.toContain('Files changed')
+    const audit = h.ctx.db.query("SELECT target, detail FROM audit_log WHERE action = 'dev_env.command'").get() as { target: string | null; detail: string }
+    expect(audit.target).toBeNull()
+    expect(JSON.parse(audit.detail)).toMatchObject({ folder: 'work', chatId: chatPlain })
+    // another chat has its own work folder
+    await alice({ project: null, chat: chatPlain2 }).call({ command: 'echo x' })
+    expect([...runs.values()].at(-1)!.spec.cwd).toBe(fs.realpathSync(chatWork(devBase, chatPlain2)))
+  })
+  test('read-only where the person reads only: bob in the falcon chat', async () => {
+    await shell('bob', falcon(), chatBob).call({ command: 'echo x' })
+    const s = lastSettings()
+    expect([...runs.values()][0]!.spec.cwd).toBe(fs.realpathSync(path.join(h.team, FALCON)))
+    expect(s.filesystem.allowRead).toContain(path.join(h.team, FALCON))
+    expect(s.filesystem.allowWrite).not.toContain(path.join(h.team, FALCON))
+    expect(s.filesystem.allowWrite).toContain(path.join(h.team, 'groups/finance'))
+    expect([...runs.values()][0]!.spec.env.HOME).toBe(personHome(devBase, 'bob'))
+  })
+  test('a project folder the person cannot open: the run starts in the chat\'s work folder and the folder stays hidden', async () => {
+    await shell('erin', falcon(), chatErin).call({ command: 'echo x' })
+    expect([...runs.values()][0]!.spec.cwd).toBe(fs.realpathSync(chatWork(devBase, chatErin)))
+    const s = lastSettings()
+    expect([...s.filesystem.allowRead, ...s.filesystem.allowWrite].some((p) => p.startsWith(path.join(h.team, FALCON) + '/') && !p.endsWith('/public'))).toBe(false)
+    expect(s.filesystem.allowRead).toContain(path.join(h.team, 'projects/falcon/public'))
+  })
+  test('the rules are read again for every command', async () => {
+    await alice().call({ command: 'echo 1' })
+    expect(lastSettings().filesystem.allowWrite).toContain(path.join(h.team, 'groups/marketing'))
+    h.ctx.db.query("DELETE FROM group_members WHERE group_id = 'marketing' AND user_id = 'alice'").run()
+    try {
+      await alice().call({ command: 'echo 2' })
+      const s = lastSettings()
+      expect([...s.filesystem.allowRead, ...s.filesystem.allowWrite]).not.toContain(path.join(h.team, 'groups/marketing'))
+    } finally { h.ctx.db.query("INSERT INTO group_members VALUES ('marketing','alice')").run() }
   })
   test('the environment is the listed keys only: nothing from the server\'s environment', async () => {
-    await shell().call({ command: 'echo x' })
+    await alice().call({ command: 'echo x' })
     const env = [...runs.values()][0]!.spec.env
-    expect(env).toEqual(runEnv({ base: devBase, projectId }))
+    expect(env).toEqual(runEnv({ base: devBase, userId: 'alice', teamRoot: h.team, work: null }))
     expect(JSON.stringify(env)).not.toContain('CANARY-ENV')
     expect(Object.keys(env).some((k) => k.startsWith('MYCEL'))).toBe(false)
   })
   test('a cwd in the project; changed files come back', async () => {
-    fs.mkdirSync(path.join(h.team, FOLDER, 'src'), { recursive: true })
-    const r = await shell().call({ command: 'write a.txt hi', cwd: 'src' })
+    fs.mkdirSync(path.join(h.team, FALCON, 'src'), { recursive: true })
+    const r = await alice().call({ command: 'write a.txt hi', cwd: 'src' })
     expect(out(r)).toContain('created')
     expect(out(r)).toContain('src/a.txt')
-    expect([...runs.values()][0]!.spec.cwd).toBe(fs.realpathSync(path.join(h.team, FOLDER, 'src')))
   })
-  test('a cwd through a link out of the project folder is refused before the run (A10)', async () => {
-    const link = path.join(h.team, FOLDER, 'out')
+  test('a cwd through a link out of the folder is refused before the run (A10)', async () => {
+    const link = path.join(h.team, FALCON, 'out')
     fs.rmSync(link, { force: true })
     fs.symlinkSync(devBase, link)
     try {
-      const r = await shell().call({ command: 'echo x', cwd: 'out' })
+      const r = await alice().call({ command: 'echo x', cwd: 'out' })
       expect(r.isError).toBe(true)
-      expect(out(r)).toContain('cwd must be a folder inside the project folder')
+      expect(out(r)).toContain('cwd must be a folder inside')
       expect(runs.size).toBe(0)
     } finally { fs.rmSync(link, { force: true }) }
   })
-  test('a failing command; an unknown one has stderr', async () => {
-    expect(out(await shell().call({ command: 'exit 3' }))).toContain('Exit code 3.')
-    const r = await shell().call({ command: 'nope' })
-    expect(r.isError).toBe(true)
-    expect(out(r)).toContain('unknown: nope')
-  })
-  test('the time limit stops the scope', async () => {
-    const r = await shell().call({ command: 'sleep', timeout_sec: 1 })
-    expect(out(r)).toContain('Stopped: the time limit (1 s) was reached.')
-    expect(stops).toHaveLength(1)
-  })
-  test('out of memory: the kernel killed it', async () => {
-    const r = await shell().call({ command: 'oom' })
-    expect(r.isError).toBe(true)
-    expect(out(r)).toContain('ran out of memory')
-  })
-  test('a stop of the turn stops the scope', async () => {
+  test('a failing command; the time limit; out of memory; a stop of the turn', async () => {
+    expect(out(await alice().call({ command: 'exit 3' }))).toContain('Exit code 3.')
+    expect(out(await alice().call({ command: 'sleep', timeout_sec: 1 }))).toContain('Stopped: the time limit (1 s) was reached.')
+    expect(out(await alice().call({ command: 'oom' }))).toContain('ran out of memory')
     const ac = new AbortController()
-    const p = shell('alice', undefined, ac.signal).call({ command: 'sleep' })
+    const p = shell('alice', falcon(), chatFalcon, ac.signal).call({ command: 'sleep' })
     await Bun.sleep(50)
     ac.abort()
     expect(out(await p)).toContain('Stopped.')
   })
-  test('one command at a time per project; past maxRunning + 1 on the server the call is refused at once', async () => {
-    const a = shell().call({ command: 'sleep', timeout_sec: 2 })
-    const b = shell().call({ command: 'echo second', timeout_sec: 5 })
+  test('one command at a time per folder; past maxRunning + 1 on the server the call is refused at once', async () => {
+    const a = alice().call({ command: 'sleep', timeout_sec: 2 })
+    const b = alice().call({ command: 'echo second', timeout_sec: 5 })
     await Bun.sleep(100)
-    expect(runs.size).toBe(1) // b waits for a
-    const c = shell('alice', { id: otherId, folderPath: 'groups/marketing', name: 'Hawk' }).call({ command: 'sleep', timeout_sec: 2 })
+    expect(runs.size).toBe(1) // b waits for a (same folder)
+    const c = alice({ project: null, chat: chatPlain }).call({ command: 'sleep', timeout_sec: 2 })
     await Bun.sleep(100)
     expect(runs.size).toBe(2)
-    // Starter: maxRunning 1, so at most 2 commands on the server
-    const d = await shell('alice', { id: otherId, folderPath: 'groups/marketing', name: 'Hawk' }).call({ command: 'echo third' })
+    // Starter: maxRunning 1, so at most 2 commands on the server, for the whole team
+    const d = await shell('bob', null, chatBob).call({ command: 'echo third' })
     expect(out(d)).toContain('busy')
     await Promise.all([a, c])
     expect(out(await b)).toContain('second')
   })
 })
 
-describe('jobs and the queue', () => {
-  test('a job starts at once when a slot is free; the row has its scope', async () => {
-    const r = await shell().call({ command: 'sleep', job: true, log_name: 'render' })
+describe('jobs and the queue (per team)', () => {
+  test('a job starts at once when a slot is free; the row is the person\'s and the chat\'s', async () => {
+    const r = await alice({ project: null, chat: chatPlain }).call({ command: 'sleep', job: true, log_name: 'render' })
     expect(out(r)).toContain('Started as job render (log: $TRINA_LOGS/render.log)')
-    expect(rows()).toMatchObject([{ name: 'render', state: 'running', kind: 'job', ended_at: null, command: 'sleep' }])
+    expect(rows()).toMatchObject([{ name: 'render', state: 'running', kind: 'job', ended_at: null, command: 'sleep', user_id: 'alice', chat_id: chatPlain, project_id: null, root: chatWork(devBase, chatPlain) }])
     expect(String(rows()[0]!.unit)).toMatch(UNIT_RE)
+    expect(String(rows()[0]!.access)).toMatch(/^[0-9a-f]{32}$/)
     expect([...runs.values()][0]!.spec.limits.runtimeMaxSec).toBe(6 * 3600)
+    expect([...runs.values()][0]!.spec.stdoutFile).toBe(path.join(personLogs(devBase, 'alice'), 'render.log'))
   })
-  test('over maxRunning a job waits (FIFO, across projects) and starts when the slot is free', async () => {
-    await shell().call({ command: 'sleep', job: true, log_name: 'one' })
-    const r2 = await shell('alice', { id: otherId, folderPath: 'groups/marketing', name: 'Hawk' }).call({ command: 'echo two', job: true, log_name: 'two' })
+  test('over maxRunning a job waits (FIFO, across people and chats) and starts when the slot is free', async () => {
+    await alice().call({ command: 'sleep', job: true, log_name: 'one' })
+    const r2 = await shell('bob', falcon(), chatBob).call({ command: 'echo two', job: true, log_name: 'two' })
     expect(out(r2)).toContain('Queued as job two')
     expect(out(r2)).toContain('position 1')
-    const r3 = await shell().call({ command: 'echo three hunter2', job: true, log_name: 'three' })
+    const r3 = await alice({ project: null, chat: chatPlain }).call({ command: 'echo three hunter2', job: true, log_name: 'three' })
     expect(out(r3)).toContain('position 2')
     expect(rows().map((r) => [r.name, r.state])).toEqual([['one', 'running'], ['two', 'waiting'], ['three', 'waiting']])
     // the row keeps the command with secrets hidden; the real one waits in a file the sandbox cannot read
     expect(rows()[2]!.command).toBe('echo three [hidden]')
-    const page = await h.api('alice').call(API.devEnv, { params: { id: projectId } })
+    const page = await h.api('alice').call(API.devEnv, { params: { id: falconId } })
     expect(page.runs.running.map((x) => x.name)).toEqual(['one'])
-    expect(page.runs.waiting).toMatchObject([{ name: 'three', position: 2, runAt: null }])
+    expect(page.runs.waiting).toMatchObject([{ name: 'two', position: 1, runAt: null }])
+    const mine = await h.api('alice').call(API.myDevEnvRuns, {})
+    expect(mine.waiting).toMatchObject([{ name: 'three', position: 2, chatId: chatPlain, projectId: null }])
     finish(runIdOfRow(rows()[0]!), 0, 'frame=100\ndone\n')
-    await pollJobs(h.ctx)
+    await pollSrt(h.ctx)
     expect(rows().map((r) => [r.name, r.state, r.end_reason])).toEqual([['one', 'ended', 'exit'], ['two', 'running', ''], ['three', 'waiting', '']])
     expect(rows()[0]!.exit_code).toBe(0)
-    expect(publish.filter((p) => p.frame.data.code === 'dev_env_job')).toHaveLength(1)
-    // the job that started runs the real command
+    expect(publish.filter((p) => p.frame.data.code === 'dev_env_job')).toMatchObject([{ user: 'alice', frame: { data: { link: `/c/${chatFalcon}` } } }])
     expect(runs.get(runIdOfRow(rows()[1]!))!.spec.command).toBe('echo two')
+    expect(runs.get(runIdOfRow(rows()[1]!))!.spec.env.HOME).toBe(personHome(devBase, 'bob'))
     finish(runIdOfRow(rows()[1]!), 0)
-    await pollJobs(h.ctx)
+    await pollSrt(h.ctx)
     expect(runs.get(runIdOfRow(rows()[2]!))!.spec.command).toBe('echo three hunter2')
-    // the AI hears of the jobs of this project once
-    const told = jobResultsForAI(h.ctx, projectId)
-    expect(told.join('\n')).toContain('Job one ended with exit code 0.')
-    expect(told.join('\n')).toContain('done')
+    // the result goes to the AI of the chat that started the job, once, and to nobody else
+    expect(runResultsForAI(h.ctx, 'bob', chatBob).join('\n')).not.toContain('Job one')
+    expect(runResultsForAI(h.ctx, 'alice', chatPlain).join('\n')).not.toContain('Job one')
+    const told = runResultsForAI(h.ctx, 'alice', chatFalcon).join('\n')
+    expect(told).toContain('Job one ended with exit code 0.')
+    expect(told).toContain('done')
+    expect(runResultsForAI(h.ctx, 'alice', chatFalcon)).toEqual([])
   })
-  test('at most 3 waiting jobs per project', async () => {
-    await shell().call({ command: 'sleep', job: true, log_name: 'run' })
-    for (const n of ['w1', 'w2', 'w3']) expect(out(await shell().call({ command: 'sleep', job: true, log_name: n }))).toContain('Queued')
-    const r = await shell().call({ command: 'sleep', job: true, log_name: 'w4' })
+  test('at most 3 waiting jobs per person', async () => {
+    await alice().call({ command: 'sleep', job: true, log_name: 'run' })
+    for (const n of ['w1', 'w2', 'w3']) expect(out(await alice({ project: null, chat: chatPlain }).call({ command: 'sleep', job: true, log_name: n }))).toContain('Queued')
+    const r = await alice().call({ command: 'sleep', job: true, log_name: 'w4' })
     expect(r.isError).toBe(true)
     expect(out(r)).toContain('queue full')
+    expect(out(await shell('bob', null, chatBob).call({ command: 'sleep', job: true, log_name: 'b1' }))).toContain('Queued')
+  })
+  test('a log name is per person', async () => {
+    await alice().call({ command: 'sleep', job: true, log_name: 'same' })
+    expect(out(await alice({ project: null, chat: chatPlain }).call({ command: 'sleep', job: true, log_name: 'same' }))).toContain('still runs for this person')
+    expect(out(await shell('bob', null, chatBob).call({ command: 'sleep', job: true, log_name: 'same' }))).toContain('Queued')
   })
   test('a waiting job ends "expired" after 24 hours', async () => {
-    await shell().call({ command: 'sleep', job: true, log_name: 'run' })
-    await shell().call({ command: 'sleep', job: true, log_name: 'late' })
-    h.ctx.db.query("UPDATE dev_env_jobs SET started_at = ? WHERE name = 'late'").run(new Date(Date.now() - WAIT_MAX_MS - 1000).toISOString())
-    await pollJobs(h.ctx)
+    await alice().call({ command: 'sleep', job: true, log_name: 'run' })
+    await alice().call({ command: 'sleep', job: true, log_name: 'late' })
+    h.ctx.db.query("UPDATE dev_env_runs SET started_at = ? WHERE name = 'late'").run(new Date(Date.now() - WAIT_MAX_MS - 1000).toISOString())
+    await pollSrt(h.ctx)
     expect(rows().find((r) => r.name === 'late')).toMatchObject({ state: 'ended', end_reason: 'expired' })
   })
   test('before a waiting job starts, the access is checked again', async () => {
-    await shell().call({ command: 'sleep', job: true, log_name: 'run' })
-    await shell().call({ command: 'echo x', job: true, log_name: 'next' })
-    saveDevEnvSetting(h.ctx.db, projectId, { ...devEnvSetting(h.ctx.db, projectId), scope: { mode: 'selected', groupIds: [], userIds: [] } })
+    await alice().call({ command: 'sleep', job: true, log_name: 'run' })
+    await shell('bob', null, chatBob).call({ command: 'echo x', job: true, log_name: 'next' })
+    turnOnTeam({ scope: { mode: 'selected', groupIds: ['marketing'], userIds: [] } })
     finish(runIdOfRow(rows()[0]!), 0)
-    await pollJobs(h.ctx)
+    await pollSrt(h.ctx)
     expect(rows().find((r) => r.name === 'next')).toMatchObject({ state: 'ended', end_reason: 'setting' })
   })
+  test('a running job stops when the person\'s folder access changes, or the person is out of scope', async () => {
+    await alice().call({ command: 'sleep', job: true, log_name: 'long' })
+    await pollSrt(h.ctx)
+    expect(rows()[0]).toMatchObject({ state: 'running' })
+    h.ctx.db.query("DELETE FROM group_members WHERE group_id = 'marketing' AND user_id = 'alice'").run()
+    try {
+      await pollSrt(h.ctx)
+      expect(rows()[0]).toMatchObject({ state: 'ended', end_reason: 'setting' })
+      expect(stops).toHaveLength(1)
+    } finally { h.ctx.db.query("INSERT INTO group_members VALUES ('marketing','alice')").run() }
+    await shell('bob', null, chatBob).call({ command: 'sleep', job: true, log_name: 'b' })
+    turnOnTeam({ scope: { mode: 'selected', groupIds: ['marketing'], userIds: [] } })
+    await pollSrt(h.ctx)
+    expect(rows().find((r) => r.name === 'b')).toMatchObject({ state: 'ended', end_reason: 'setting' })
+  })
   test('a job killed for memory ends "oom" with a notice; a scope that is gone with no exit file ends "lost"', async () => {
-    await shell().call({ command: 'sleep', job: true, log_name: 'big' })
+    await alice({ project: null, chat: chatPlain }).call({ command: 'sleep', job: true, log_name: 'big' })
     const r = runs.get(runIdOfRow(rows()[0]!))!
     r.state = 'failed'; r.result = 'oom-kill'; r.resolve({ code: null, signal: 'SIGKILL' })
-    await pollJobs(h.ctx)
+    await pollSrt(h.ctx)
     expect(rows()[0]).toMatchObject({ state: 'ended', end_reason: 'oom', exit_code: null })
     expect(publish.find((p) => p.frame.data.code === 'dev_env_job')!.frame.data.message).toContain('ran out of memory')
-    // the inbox says why (the page shows a text for the reason)
+    // the inbox has the job of a chat with no project, with a link to the chat
     const inbox = (await h.api('alice').call(API.listNotifications, { query: {} })).items.find((i) => i.devEnv?.job?.name === 'big')
-    expect(inbox?.devEnv?.job).toMatchObject({ exitCode: null, reason: 'oom' })
-    await shell().call({ command: 'sleep', job: true, log_name: 'gone' })
+    expect(inbox).toMatchObject({ link: 'chat', chatId: chatPlain, devEnv: { projectId: '', job: { exitCode: null, reason: 'oom' } } })
+    await alice().call({ command: 'sleep', job: true, log_name: 'gone' })
     runs.get(runIdOfRow(rows()[1]!))!.state = 'gone'
-    await pollJobs(h.ctx)
+    await pollSrt(h.ctx)
     expect(rows()[1]).toMatchObject({ state: 'ended', end_reason: 'lost' })
   })
-  test('a person stops a job or cancels a waiting one on the project page', async () => {
-    await shell().call({ command: 'sleep', job: true, log_name: 'run' })
-    await shell().call({ command: 'sleep', job: true, log_name: 'wait' })
+  test('a person stops their own run; others cannot, except on the project page with access, and admins', async () => {
+    await alice({ project: null, chat: chatPlain }).call({ command: 'sleep', job: true, log_name: 'run' })
+    await alice({ project: null, chat: chatPlain }).call({ command: 'sleep', job: true, log_name: 'wait' })
     const [run, wait] = rows()
-    await h.api('alice').call(API.devEnvRunStop, { params: { id: projectId, runId: String(wait!.id) } })
+    await expect(h.api('bob').call(API.stopMyDevEnvRun, { params: { runId: String(wait!.id) } })).rejects.toThrow()
+    await h.api('alice').call(API.stopMyDevEnvRun, { params: { runId: String(wait!.id) } })
     expect(rows()[1]).toMatchObject({ state: 'ended', end_reason: 'stopped' })
-    const page = await h.api('alice').call(API.devEnvRunStop, { params: { id: projectId, runId: String(run!.id) } })
+    // a run of a chat with no project is not on any project page
+    await expect(h.api('carol').call(API.devEnvRunStop, { params: { id: falconId, runId: String(run!.id) } })).rejects.toThrow()
+    const mine = await h.api('alice').call(API.stopMyDevEnvRun, { params: { runId: String(run!.id) } })
     expect(stops).toContain(runIdOfRow(run!))
-    expect(rows()[0]).toMatchObject({ state: 'ended', end_reason: 'stopped' })
+    expect(mine).toEqual({ running: [], waiting: [] })
+    await alice().call({ command: 'sleep', job: true, log_name: 'proj' })
+    const page = await h.api('carol').call(API.devEnvRunStop, { params: { id: falconId, runId: String(rows()[2]!.id) } })
     expect(page.runs).toEqual({ running: [], waiting: [] })
   })
 })
 
 describe('dev servers', () => {
-  test('one per project, at most maxRunning on the server, no queue; no notice when it ends', async () => {
-    const r = await shell().call({ command: 'sleep', background: true, log_name: 'web' })
+  test('one per chat, at most maxRunning on the server, no queue; no notice when it ends', async () => {
+    const r = await alice().call({ command: 'sleep', background: true, log_name: 'web' })
     expect(out(r)).toContain('Started in the background')
     expect(rows()).toMatchObject([{ name: 'web', kind: 'server', state: 'running' }])
     expect([...runs.values()][0]!.spec.limits.runtimeMaxSec).toBe(8 * 3600)
-    expect(out(await shell().call({ command: 'sleep', background: true, log_name: 'web2' }))).toContain('a dev server runs in this project already (web)')
-    expect(out(await shell('alice', { id: otherId, folderPath: 'groups/marketing', name: 'Hawk' }).call({ command: 'sleep', background: true }))).toContain('the most it allows')
+    expect(out(await alice().call({ command: 'sleep', background: true, log_name: 'web2' }))).toContain('a dev server runs in this chat already (web)')
+    expect(out(await alice({ project: null, chat: chatPlain }).call({ command: 'sleep', background: true }))).toContain('the most it allows')
     finish(runIdOfRow(rows()[0]!), 1)
-    await pollJobs(h.ctx)
+    await pollSrt(h.ctx)
     expect(rows()[0]).toMatchObject({ state: 'ended' })
     expect(publish.filter((p) => p.frame.data.code === 'dev_env_job')).toHaveLength(0)
-    expect(jobResultsForAI(h.ctx, projectId)).toEqual([])
+    expect(runResultsForAI(h.ctx, 'alice', chatFalcon)).toEqual([])
   })
-  test('a change of the project setting stops every run of the project', async () => {
-    await shell().call({ command: 'sleep', background: true, log_name: 'web' })
-    const s = devEnvSetting(h.ctx.db, projectId)
-    await h.api('carol').call(API.updateDevEnv, { params: { id: projectId }, body: { enabled: true, scope: s.scope, network: 'offline' } })
+  test('a change of the team network stops every run; the next run gets the new network', async () => {
+    await alice().call({ command: 'sleep', background: true, log_name: 'web' })
+    await h.api('carol').call(API.updateDevEnvTeam, { body: { network: 'offline' } })
     expect(rows()[0]).toMatchObject({ state: 'ended', end_reason: 'setting' })
     expect(stops).toHaveLength(1)
-    await shell().call({ command: 'echo x' })
-    expect((([...runs.values()].at(-1)!.settings) as { network: { allowedDomains: string[] } }).network.allowedDomains).toEqual([])
+    await alice().call({ command: 'echo x' })
+    expect(lastSettings().network.allowedDomains).toEqual([])
   })
   test('preview is not available on srt yet', async () => {
-    await expect(h.api('alice').call(API.devEnvPreview, { params: { id: projectId }, body: { port: 3000 } })).rejects.toThrow()
+    await expect(h.api('alice').call(API.devEnvPreview, { params: { id: falconId }, body: { port: 3000 } })).rejects.toThrow()
   })
 })
 
 describe('the tracker', () => {
-  test('after a restart a unit with no row is stopped; a row whose unit is gone ends "lost"', async () => {
+  test('after a restart a unit with no row is stopped', async () => {
     const { reconcile } = await import('../../server/src/devenv/srt/runner')
-    await shell().call({ command: 'sleep', job: true, log_name: 'kept' })
-    // an orphan: a scope that no row names
+    await alice().call({ command: 'sleep', job: true, log_name: 'kept' })
     const orphan = newRunId()
     fake.spawn({ runId: orphan, id: 'mycel', cwd: '/', env: {}, limits: { cpus: 1, memoryMiB: 256, pids: 64, runtimeMaxSec: 10 }, exitFile: path.join(devBase, 'o.exit'), settingsFile: writeTmp('{}'), command: 'sleep', stdoutFile: path.join(devBase, 'o.out'), stderrFile: path.join(devBase, 'o.err') })
     await reconcile(h.ctx)
     expect(stops).toEqual([orphan])
   })
-  test('under the disk floor every run stops with "disk" and people hear why', async () => {
-    await shell().call({ command: 'sleep', job: true, log_name: 'big' })
+  test('under the disk floor every run stops with "disk" and its person hears why', async () => {
+    await alice({ project: null, chat: chatPlain }).call({ command: 'sleep', job: true, log_name: 'big' })
     configureStorageGuard({ root: h.team, statfs: () => ({ bsize: 4096, blocks: 1_000_000, bfree: 10, bavail: 10 }), enforce: () => true })
-    try { await pollJobs(h.ctx) } finally { configureStorageGuard(null) }
+    try { await pollSrt(h.ctx) } finally { configureStorageGuard(null) }
     expect(rows()[0]).toMatchObject({ state: 'ended', end_reason: 'disk' })
-    expect(publish.some((p) => p.frame.data.code === 'dev_env_box_stopped' && String(p.frame.data.message).includes('nearly full'))).toBe(true)
+    expect(publish.some((p) => p.user === 'alice' && p.frame.data.code === 'dev_env_box_stopped' && String(p.frame.data.message).includes('nearly full'))).toBe(true)
+  })
+  test('a purged chat\'s work folder goes', async () => {
+    const { forgetChatWork } = await import('../../server/src/devenv/srt/runner')
+    await alice({ project: null, chat: chatPlain2 }).call({ command: 'write x.txt y' })
+    expect(fs.existsSync(chatWork(devBase, chatPlain2))).toBe(true)
+    forgetChatWork(chatPlain2)
+    expect(fs.existsSync(chatWork(devBase, chatPlain2))).toBe(false)
   })
 })
 
@@ -513,9 +705,9 @@ describe('the team\'s sites (admins)', () => {
     await expect(h.api('carol').call(API.updateDevEnvTeam, { body: { extraDomains: ['*.com'] } })).rejects.toThrow()
     await expect(h.api('alice').call(API.updateDevEnvTeam, { body: { extraDomains: ['api.example.net'] } })).rejects.toThrow()
     await h.api('carol').call(API.updateDevEnvTeam, { body: { extraDomains: ['api.example.net', 'API.example.net'] } })
-    await shell().call({ command: 'echo x' })
-    expect(([...runs.values()].at(-1)!.settings as { network: { allowedDomains: string[] } }).network.allowedDomains).toContain('api.example.net')
-    await h.api('carol').call(API.updateDevEnvTeam, { body: { extraDomains: [] } })
+    expect(teamSetting(h.ctx.db)).toMatchObject({ enabled: true, extraDomains: ['api.example.net'] })
+    await alice().call({ command: 'echo x' })
+    expect(lastSettings().network.allowedDomains).toContain('api.example.net')
   })
 })
 

@@ -1,5 +1,6 @@
 // What a permanently deleted chat leaves outside the DB (linux-runtime L18): the engine session stash (the server's,
-// <data>/sessions/<chatId>) and the engine's working folder <agent root>/<chatId>. In production that folder belongs to
+// <data>/sessions/<chatId>), the engine's working folder <agent root>/<chatId>, and the dev environment's work folder
+// of the chat (devenv/srt/runner.ts forgetChatWork). In production the engine's folder belongs to
 // the engine account (700): the server cannot remove it, so it asks the launcher (op `forget`, native/cmd/mycel-launcher
 // /ops.go). Dev and office mode run the engine as the server's own user: the folder is removed directly as before.
 //
@@ -14,6 +15,7 @@ import path from 'node:path'
 import type { AppContext } from '../context'
 import { getSetting, setSetting } from '../admin/settings'
 import { launcherForget } from '../native'
+import { forgetChatWork } from '../devenv/srt/runner'
 
 export const FORGET_PENDING_KEY = 'chat.forgetPending'
 export const MAX_FORGET_PENDING = 500
@@ -45,6 +47,8 @@ export function forgetPurgedChats(ctx: AppContext, chatIds: string[]): Promise<v
     try { fs.rmSync(path.join(ctx.config.dataDir, 'sessions', id), { recursive: true, force: true }) } catch (e) { ctx.log.warn('chat session stash not removed', { chat: id, err: e }) }
     // dev / office: the engine runs as this user. Production: EACCES here, the launcher removes it below.
     try { fs.rmSync(path.join(ctx.engineConfig.agentRoot, id), { recursive: true, force: true }) } catch {}
+    // the dev environment's work folder of the chat (srt runner, server-owned: <base>/devenv/work/<chatId>)
+    forgetChatWork(id)
   }
   const sock = launcherSockOf(ctx)
   if (!sock || !ids.length) return Promise.resolve()
