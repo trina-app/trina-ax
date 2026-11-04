@@ -4,7 +4,11 @@
 //   bun scripts/release/publish.ts --channel beta|stable [--build] [--version X]
 //       [--office dist/office/<officeBundle>-X-mac.zip]
 //       [--windows desktop/release/<artifactBase>-Setup-Y-win-x64.exe]   (its latest.yml must be next to it)
-//       [--min-from 0.2.0-0] [--notes "…" | --notes-file F] [--if-newer] [--out DIR [--feed http://127.0.0.1:PORT]] [--dry-run]
+//       [--min-from 0.2.0-0] [--notes "…" | --notes-file F] [--rollout staged|all] [--if-newer]
+//       [--out DIR [--feed http://127.0.0.1:PORT]] [--dry-run]
+//
+// --rollout: staged (default) gives a stable release's manifest the staged roll-out (about 10% of the offices the first
+// day, 50% the second, all from the third, server/src/system/rollout.ts); all, or the beta channel, has none.
 //
 // --build first builds both (bun run build:office with --version X; the Windows app with version X): otherwise the
 // files are taken as given (default: dist/office/<officeBundle>-<version>-mac.zip and, when it exists,
@@ -32,6 +36,7 @@ import path from 'node:path'
 import { compareVersions } from '../../server/src/system/update'
 import { DEFAULT_FEED, fileUrl, manifestUrl, OFFICE_PRODUCT, OFFICE_RELEASE_KEYS, signRelease, verifyRelease, VERSION_RE, type Channel, type OfficeRelease, type ReleaseFile } from '../../server/src/office/release'
 import { checkLatestYml } from '../../server/src/office/update'
+import { newRollout, rampText } from '../../server/src/system/rollout'
 import type { Bucket } from './cloudflare'
 import { readReleaseKey } from './keygen'
 import { compareRemote, feedReader, type RetryOptions } from './sign'
@@ -82,6 +87,16 @@ export function officeZipVersion(zip: string): string {
 }
 
 export interface Artifact { key: string; file: string; type: string; meta: ReleaseFile }
+
+/** The manifest of a release: a stable one gets the staged roll-out unless `rollout` is 'all' (the tag message's
+ * `Rollout: all`, docs/RELEASE-CI.md), a beta one none (server/src/system/rollout.ts newRollout). */
+export function officeRelease(o: { channel: Channel; version: string; minFrom: string; notes: string; office: ReleaseFile; windows: OfficeRelease['windows']; rollout: 'staged' | 'all'; now?: Date; salt?: string }): OfficeRelease {
+  const rollout = newRollout(o.channel, o.rollout, o.salt)
+  return {
+    format: 1, product: OFFICE_PRODUCT, channel: o.channel, version: o.version, minFrom: o.minFrom, publishedAt: (o.now ?? new Date()).toISOString(), notes: o.notes,
+    office: [{ ...o.office, arch: 'universal' }], windows: o.windows, ...(rollout ? { rollout } : {}),
+  }
+}
 
 /** <dir>/<version>/<channel>.json: this version's signed manifest on that channel, never replaced */
 export const versionManifestKey = (version: string, channel: Channel) => `${DIR}/${version}/${channel}.json`
@@ -177,7 +192,9 @@ export async function publishToFeed(o: OfficeFeedRun): Promise<'published' | 'he
   }
   const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'publish-office-'))
   const tmp = path.join(tmpDir, `${channel}.json`)
-  fs.writeFileSync(tmp, signed)
+  // a re-run (the version's manifest kept) puts that manifest at the head again, as first published: its publishedAt,
+  // which the staged roll-out is measured from, and its salt stay (server/src/system/rollout.ts)
+  fs.writeFileSync(tmp, vaction === 'keep' && have ? have : signed)
   try {
     if (vaction === 'upload') { log(`↑ ${vkey}`); await bucket.put(vkey, tmp, 'application/json') }
     if (headStays) return 'head-stays'
@@ -227,10 +244,10 @@ async function main() {
     windows = { version: y.version, installer: ie.meta, latestYml: ye.meta }
   }
 
-  const release: OfficeRelease = {
-    format: 1, product: OFFICE_PRODUCT, channel, version, minFrom, publishedAt: new Date().toISOString(), notes,
-    office: [{ ...arts[0]!.meta, arch: 'universal' }], windows,
-  }
+  const rolloutMode = arg('--rollout') ?? 'staged'
+  if (rolloutMode !== 'staged' && rolloutMode !== 'all') throw new Error('--rollout staged|all')
+  const release = officeRelease({ channel, version, minFrom, notes, office: arts[0]!.meta, windows, rollout: rolloutMode })
+  console.log(release.rollout ? `rollout: staged, ${rampText(release.rollout.ramp!)} (from publishedAt)` : 'rollout: none, every office at once')
   const signed = signRelease(release, readReleaseKey())
   verifyRelease(signed, { keys: OFFICE_RELEASE_KEYS, channel, feed }) // signed with the key this build trusts
   console.log(`release ${version} (${channel}, from ${minFrom}): ${arts.map((a) => `${a.meta.file} ${(a.meta.size / 1048576).toFixed(1)} MB`).join(', ')}`)

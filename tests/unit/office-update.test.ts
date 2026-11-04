@@ -406,6 +406,69 @@ describe('a whole update run (fake bundle, fake health)', () => {
     expect(r.message).toContain(`${PRODUCT.officeBundle}-0.3.0`)
     expect(fs.readFileSync(path.join(home, 'app', 'VERSION'), 'utf8').trim()).toBe('0.2.0')
   })
+
+  // the staged roll-out (server/src/system/rollout.ts, the same rule as a Linux server's): install-0 is bucket 62 with
+  // this salt (native/cmd/mycel-ctl/testdata/rollout.json), the third wave
+  const SALT = '3f9a1c7e5b2d4086a1e0c9b8f7d6e5a4'
+  const ramp = { percent: 100, salt: SALT, ramp: [{ afterHours: 0, percent: 10 }, { afterHours: 24, percent: 50 }, { afterHours: 48, percent: 100 }] }
+  function withInstallId(home: string, id: string) {
+    fs.rmSync(path.join(home, 'data', 'app.db'))
+    const db = new Database(path.join(home, 'data', 'app.db'))
+    db.run('CREATE TABLE settings (key TEXT PRIMARY KEY, value TEXT NOT NULL)')
+    db.query('INSERT INTO settings (key, value) VALUES (?, ?)').run('system.installId', JSON.stringify(id))
+    db.close()
+  }
+  function publishStable(files: Map<string, Uint8Array | string>, version: string, zip: Uint8Array, publishedAt: Date) {
+    const name = `${PRODUCT.officeBundle}-${version}-mac.zip`
+    files.set(fileUrl(FEED, version, name), zip)
+    files.set(manifestUrl(FEED, 'stable'), signRelease(release({ version, channel: 'stable', publishedAt: publishedAt.toISOString(), rollout: ramp }, [{ name, bytes: zip }]), keyPem))
+  }
+
+  withZip('a stable release in its staged roll-out: the nightly run waits for this Mac\'s turn, "update now" does not', async () => {
+    const home = makeHome('run-rollout', '0.2.0')
+    writeUpdateSettings(home, { channel: 'stable' })
+    withInstallId(home, 'install-0')
+    const files = new Map<string, Uint8Array | string>()
+    const f = fakeDeps(home, files)
+    const published = new Date(f.deps.now!().getTime() - 3600_000)
+    publishStable(files, '0.3.0', makeZip('0.3.0'), published)
+    const turn = new Date(published.getTime() + 48 * 3600_000).toISOString()
+    const night = await runUpdate(home, { reason: 'schedule', deps: f.deps, ...short })
+    expect(night).toMatchObject({ kind: 'skipped', version: '0.3.0' })
+    expect(night.message).toBe(`0.3.0 is in a staged roll-out: this Mac's turn comes at ${turn} (teamax update now installs it now)`)
+    expect(f.calls).toEqual([]) // nothing downloaded, checked or installed
+    expect(readUpdateState(home).available).toMatchObject({ version: '0.3.0', turnAt: turn })
+    expect(updateView(home).available?.turnAt).toBe(turn)
+    expect(viewText(updateView(home))).toContain("this Mac's turn")
+    // a look only says the same
+    expect((await runUpdate(home, { reason: 'check', deps: f.deps, ...short })).kind).toBe('available')
+    expect(readUpdateState(home).available?.turnAt).toBe(turn)
+    // "update now": at once
+    const now = await runUpdate(home, { reason: 'now', deps: f.deps, ...short })
+    expect(now).toMatchObject({ kind: 'updated', version: '0.3.0' })
+  })
+
+  withZip('the staged roll-out: an office without an install id is the last wave (48 h), never left out; the beta channel does not wait', async () => {
+    const home = makeHome('run-rollout-noid', '0.2.0') // data/app.db is not a database: no install id
+    writeUpdateSettings(home, { channel: 'stable' })
+    const files = new Map<string, Uint8Array | string>()
+    const f = fakeDeps(home, files)
+    const published = new Date(f.deps.now!().getTime() - 47 * 3600_000)
+    publishStable(files, '0.3.0', makeZip('0.3.0'), published)
+    expect((await runUpdate(home, { reason: 'schedule', deps: f.deps, ...short })).kind).toBe('skipped')
+    await f.deps.sleep!(3600_000) // the fake clock: 48 h after publishing
+    expect(await runUpdate(home, { reason: 'schedule', deps: f.deps, ...short })).toMatchObject({ kind: 'updated', version: '0.3.0' })
+    // the beta channel: a stable release with a ramp is taken at once
+    const beta = makeHome('run-rollout-beta', '0.2.0')
+    withInstallId(beta, 'install-0')
+    const files2 = new Map<string, Uint8Array | string>()
+    const f2 = fakeDeps(beta, files2)
+    const zip = makeZip('0.3.0')
+    const name = `${PRODUCT.officeBundle}-0.3.0-mac.zip`
+    files2.set(fileUrl(FEED, '0.3.0', name), zip)
+    files2.set(manifestUrl(FEED, 'beta'), signRelease(release({ version: '0.3.0', publishedAt: f2.deps.now!().toISOString(), rollout: ramp }, [{ name, bytes: zip }]), keyPem))
+    expect(await runUpdate(beta, { reason: 'schedule', deps: f2.deps, ...short })).toMatchObject({ kind: 'updated', version: '0.3.0' })
+  })
 })
 
 // ---- the Windows app in data/downloads ------------------------------------------------------------------------

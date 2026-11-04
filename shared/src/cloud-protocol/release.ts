@@ -4,8 +4,9 @@
 //   <feed>/server/<version>/release.json (+ .sig) one version, so the control plane can roll out a version that is no
 //                                                 longer the channel head
 // Both are the server's ReleaseFeed (server/src/system/update.ts) with optional fields added (never removed or
-// changed): `rollout` (linux runtime), readerLevel / minReaderRequired / checks / notesI18n / engines / desktop (control
-// plane). The .sig file is { keyId, sig }: Ed25519 over the exact bytes of the .json (the office release key).
+// changed): `rollout` (linux runtime; later its `ramp`), readerLevel / minReaderRequired / checks / notesI18n / engines /
+// desktop (control plane). The .sig file is { keyId, sig }: Ed25519 over the exact bytes of the .json (the office
+// release key).
 import { z } from 'zod'
 import { HttpsUrl, IsoTime, Sha256Hex } from './common.ts'
 
@@ -32,8 +33,14 @@ export const ReleaseFeed = z.object({
   publishedAt: IsoTime,
   bundles: z.array(z.object({ os: z.string(), arch: z.string(), url: HttpsUrl, sha256: Sha256Hex, size: z.number().int() })),
   // ---- linux runtime (3.6.3) ----
-  /** self-hosted servers apply it automatically only when sha256(salt + installId)[0..2] % 100 < percent */
-  rollout: z.object({ percent: z.number().int().min(0).max(100), salt: z.string().min(1).max(64) }).optional(),
+  /** self-hosted servers apply it automatically only when sha256(salt + installId)[0..2] % 100 < percent. `ramp` (added
+   * later) moves the percent with the hours since publishedAt (the step with the largest afterHours that has passed);
+   * servers that do not know it read `percent`, which a ramped release sets to 100 (server/src/system/rollout.ts) */
+  rollout: z.object({
+    percent: z.number().int().min(0).max(100),
+    salt: z.string().min(1).max(64),
+    ramp: z.array(z.object({ afterHours: z.number().min(0).max(8760), percent: z.number().int().min(0).max(100) })).max(20).optional(),
+  }).optional(),
   /** the oldest release with this release's root files (needsRoot only compares with the channel heads): an install
    * whose root files are older than it needs the root update, one at it or newer does not (feeds from 0.2.19 on). In
    * such a feed needsRoot stays true while rootSince is newer than 0.2.18, for the updaters of 0.2.18 and older that

@@ -24,6 +24,7 @@ import { diskSpace, resolveLayout, type InstallLayout } from './layout'
 import { M as MAC_M, tr, uptimeText } from './messages'
 import { engineSockets, maxSocketPathBytes, probeSocket, tooLongSockets, underSandboxDeniedTmp } from './sockets'
 import { compareVersions, UpdateManager } from './update'
+import { rolloutTurn } from './rollout'
 import { lastPrune, PRUNE_FIRST_MS, pruneVersions, PRUNE_TEXT, type PruneResult } from './prune'
 import { configurePlan, currentPlan, effectiveConcurrency, planDiskBytes, planFileProblem } from './limits'
 import { configureNotices, noticesFileProblem } from './managed'
@@ -143,7 +144,8 @@ export class OpsService {
       let last: { version: string; at: string } | null = null
       try { last = JSON.parse(fs.readFileSync(this.autoFile(), 'utf8')) } catch {}
       const d = autoUpdateDecision({ feed, current: this.ctx.version, installId: installId(this.ctx.db), now: this.now(), tz: teamTimeZone(this.ctx.db),
-        window: null, running: 0, history: this.updates.history(), lastAttempt: last, rootVersion: this.updates.rootVersion(), rootHold, ignoreWindow: true })
+        window: null, running: 0, history: this.updates.history(), lastAttempt: last, rootVersion: this.updates.rootVersion(), rootHold, ignoreWindow: true,
+        channel: this.ctx.config.update.channel })
       return d.go ? null : d.why === 'rollout' ? 'rollout' : d.why === 'held' ? 'failed' : null
     } catch { return null }
   }
@@ -162,7 +164,7 @@ export class OpsService {
       const s = getTeamSettings(this.ctx.db)
       return autoUpdateDecision({ feed, current: this.ctx.version, installId: installId(this.ctx.db), now: this.now(), tz: teamTimeZone(this.ctx.db),
         window: s.updateWindow, running: this.queue().running, history: this.updates.history(), lastAttempt: last, rootVersion: this.updates.rootVersion(),
-        rootHold: this.rootUpdateFailure()?.version ?? null })
+        rootHold: this.rootUpdateFailure()?.version ?? null, channel: this.ctx.config.update.channel })
     }
     const first = decide()
     if (!first.go) return first.why
@@ -193,6 +195,18 @@ export class OpsService {
       log.warn('automatic update failed', { to: d.version, err: String(e).slice(0, 300) })
       return 'failed'
     } finally { this.unlock() }
+  }
+
+  /** When the feed's newer release reaches this server's automatic updates in its staged roll-out (system/rollout.ts),
+   * while it waits for that: an ISO time, or null when this feed's roll-out leaves the server out. undefined when nothing
+   * waits (no newer release, already this server's turn, no roll-out, the hosted cloud). Only shown (UpdateStatus
+   * turnAt); autoUpdateDecision and the root update timer decide, and "update now" does not wait. */
+  rolloutTurnAt(): string | null | undefined {
+    if (!feature(this.ctx.config, 'selfUpdate')) return undefined
+    const f = this.updates.lastFeed()
+    if (!f || compareVersions(f.version, this.ctx.version) <= 0) return undefined
+    const t = rolloutTurn(f, installId(this.ctx.db), { now: this.now(), channel: this.ctx.config.update.channel })
+    return t.wait ? t.at?.toISOString() ?? null : undefined
   }
 
   /** A Linux server (self-installed or a hosted tenant): the feed this server takes its Windows desktop app from

@@ -104,6 +104,11 @@ func newFeedServer(t *testing.T) *feedServer {
 
 // publish makes a signed bundle of v (its launcher says which version it is) and its signed feed at p.
 func (f *feedServer) publish(p, v string, needsRoot bool) {
+	f.publishWith(p, v, needsRoot, nil)
+}
+
+// publishWith is publish with more (or other) feed fields: rollout, urgent, publishedAt (rollout_test.go).
+func (f *feedServer) publishWith(p, v string, needsRoot bool, extra map[string]any) {
 	t := f.t
 	arch := filepath.Join(t.TempDir(), v+"-linux-"+runtime.GOARCH+".tar.zst")
 	mkArchive(t, signedBundle(t, v, f.priv, "launcher "+v), arch, nil)
@@ -112,6 +117,9 @@ func (f *feedServer) publish(p, v string, needsRoot bool) {
 	sum := sha256.Sum256(ab)
 	feed := map[string]any{"version": v, "minFrom": "0.2.0", "needsRoot": needsRoot, "notes": "", "publishedAt": "2026-11-01T00:00:00Z",
 		"bundles": []map[string]any{{"os": "linux", "arch": runtime.GOARCH, "url": f.srv.URL + "/bundles/" + v + ".tar.zst", "sha256": hex.EncodeToString(sum[:]), "size": len(ab)}}}
+	for k, x := range extra {
+		feed[k] = x
+	}
 	body, _ := json.Marshal(feed)
 	sig, _ := json.Marshal(map[string]string{"keyId": bundle.KeyID(f.priv.Public().(ed25519.PublicKey)), "sig": base64.StdEncoding.EncodeToString(ed25519.Sign(f.priv, body))})
 	f.mu.Lock()

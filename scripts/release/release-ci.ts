@@ -4,6 +4,9 @@
 //   bun scripts/release/release-ci.ts tag <tag>
 //       the release of a tag: v<version> where <version> is server/package.json's; a tag with "-" (v0.3.0-beta.1) is
 //       the beta channel, otherwise stable. Prints version=, channel=, prerelease= lines (for $GITHUB_OUTPUT).
+//   bun scripts/release/release-ci.ts rollout <notes file> [tag|staged|all]
+//       the staged roll-out of the release (rolloutOf): a "Rollout: all" line in the tag message, or the workflow's
+//       input; takes the line out of the notes file and prints rollout=staged|all (for $GITHUB_OUTPUT)
 //   bun scripts/release/release-ci.ts check-key <pem file>
 //       the key's public part must be one of RELEASE_CHANNEL.keys (shared/src/release-channel.ts); prints its key id
 //   bun scripts/release/release-ci.ts sign-linux <dir> <amd64|arm64> <pem file>
@@ -38,6 +41,28 @@ export function parseReleaseTag(rawTag: string, packageVersion: string): TagRele
   if (version !== packageVersion) throw new Error(`tag ${tag} is not the version in server/package.json (${packageVersion}): bump it in a commit, then tag that commit v${packageVersion}`)
   const beta = version.includes('-')
   return { tag, version, channel: beta ? 'beta' : 'stable', prerelease: beta }
+}
+
+export type RolloutMode = 'staged' | 'all'
+const ROLLOUT_LINE = /^[ \t]*rollout[ \t]*:[ \t]*([^\s]*)[ \t\r]*$/gim
+
+/**
+ * The staged roll-out of a release (server/src/system/rollout.ts, docs/RELEASE-CI.md "단계적 배포"): a line `Rollout: all`
+ * in the tag message publishes a stable release to every server at once (a fix for a bad release, a security fix);
+ * `Rollout: staged` or no such line keeps the default (about 10% of the servers the first day, 50% the second, all
+ * from the third). The line is taken out of the notes (they become the release notes). `override` is the workflow's
+ * input on a manual run ('staged' or 'all'; '' or 'tag' follows the tag message). Anything else after "Rollout:" stops
+ * the release: a typo must not decide how fast a release goes out.
+ */
+export function rolloutOf(notes: string, override = ''): { rollout: RolloutMode; notes: string } {
+  const found = [...notes.matchAll(ROLLOUT_LINE)].map((m) => m[1]!.toLowerCase())
+  for (const v of found) if (v !== 'staged' && v !== 'all') throw new Error(`the tag message says "Rollout: ${v}": write "Rollout: all" (every server at once) or leave the line out (staged over three days)`)
+  if (new Set(found).size > 1) throw new Error('the tag message has both "Rollout: all" and "Rollout: staged"')
+  const o = override.trim().toLowerCase()
+  if (o && o !== 'tag' && o !== 'staged' && o !== 'all') throw new Error(`rollout input ${JSON.stringify(override)}: tag, staged or all`)
+  const rollout: RolloutMode = o === 'staged' || o === 'all' ? o : (found[0] as RolloutMode | undefined) ?? 'staged'
+  const kept = found.length ? notes.replace(ROLLOUT_LINE, '').replace(/\n{3,}/g, '\n\n').replace(/^\n+/, '') : notes
+  return { rollout, notes: kept }
 }
 
 export function packageVersion(root = REPO): string {
@@ -118,6 +143,11 @@ export async function main(argv: string[], out: (s: string) => void = (s) => pro
   if (cmd === 'tag' && a.length === 1) {
     const r = parseReleaseTag(a[0]!, packageVersion())
     out(`tag=${r.tag}\nversion=${r.version}\nchannel=${r.channel}\nprerelease=${r.prerelease}\n`)
+  } else if (cmd === 'rollout' && (a.length === 1 || a.length === 2)) {
+    const file = path.resolve(a[0]!)
+    const r = rolloutOf(fs.readFileSync(file, 'utf8'), a[1] ?? '')
+    fs.writeFileSync(file, r.notes)
+    out(`rollout=${r.rollout}\n`)
   } else if (cmd === 'check-key' && a.length === 1) {
     out(`release key ${checkSigningKey(readKeyFile(a[0]!))}: one of this product's release keys\n`)
   } else if (cmd === 'sign-linux' && a.length === 3) {
@@ -129,7 +159,7 @@ export async function main(argv: string[], out: (s: string) => void = (s) => pro
   } else if (cmd === 'verify-sums' && a.length === 1) {
     for (const n of verifySums(path.resolve(a[0]!))) out(`${n}: OK\n`)
   } else {
-    throw new Error('usage: release-ci.ts tag <tag> | check-key <pem> | sign-linux <dir> <arch> <pem> | sums <out> <pem> <file>... | verify-sums <SHA256SUMS>')
+    throw new Error('usage: release-ci.ts tag <tag> | rollout <notes file> [tag|staged|all] | check-key <pem> | sign-linux <dir> <arch> <pem> | sums <out> <pem> <file>... | verify-sums <SHA256SUMS>')
   }
 }
 

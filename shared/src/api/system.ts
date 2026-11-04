@@ -78,6 +78,10 @@ export const UpdateStatus = z.object({
    * failed = a try of it failed or was rolled back here (on hold); root_failed = root's update of it failed. null/absent:
    * nothing holds it. Absent from older servers. */
   hold: z.enum(['rollout', 'failed', 'root_failed']).nullable().optional(),
+  /** staged roll-out of a stable release (server/src/system/rollout.ts): the feed's newer release reaches this
+   * server's automatic updates at this time ("this server's turn"; it comes with hold 'rollout'); null: this release's
+   * roll-out leaves the server out. Absent when nothing waits for it (and from older servers). "Update now" does not wait. */
+  turnAt: IsoTime.nullable().optional(),
 })
 export type UpdateStatus = z.infer<typeof UpdateStatus>
 /** After-update to-dos (server/src/system/after-update.ts): something a release leaves for an admin to do, shown on Admin

@@ -120,6 +120,8 @@ type schedRun struct {
 	// the admin.js of app/versions/<v> (readSchedule when the app that runs cannot answer): its window ("" = fails)
 	versionWindow string
 	versionAsked  []string
+	// installID: what update-window says the app's install id is ("" = an older admin.js that does not say)
+	installID string
 }
 
 // scheduledHooks: the run's clock, admin.js (update-window, switch) and the launcher's running turns are fakes.
@@ -140,6 +142,9 @@ func scheduledHooks(t *testing.T, tb *testBase, r *schedRun) {
 			case "update-window":
 				if r.window == "" {
 					return "usage: admin.js backup|...", fmt.Errorf("exit status 2")
+				}
+				if r.installID != "" {
+					return fmt.Sprintf(`{"window":%q,"timeZone":%q,"custom":true,"installId":%q}`, r.window, r.zone, r.installID) + "\n", nil
 				}
 				return "warning: something on stderr\n" + fmt.Sprintf(`{"window":%q,"timeZone":%q,"custom":true}`, r.window, r.zone) + "\n", nil
 			case "switch":

@@ -5,7 +5,9 @@
 // now`, Admin > System "지금 업데이트": a request file + launchctl kickstart):
 //
 //   1. GET <feed>/<dir>/<channel>.json (the only address contacted: RELEASE_CHANNEL.feed), verify the Ed25519
-//      signature with a key baked into this build (./release.ts), the channel, no downgrade, not below minFrom
+//      signature with a key baked into this build (./release.ts), the channel, no downgrade, not below minFrom; the
+//      nightly run also waits for this Mac's turn in a stable release's staged roll-out (system/rollout.ts, the same
+//      rule as a Linux server's; about 10% of offices the first day, 50% the second, all from the third)
 //   2. download the office zip, check its size and SHA-256, unpack it into update/staging/ (what an earlier failed
 //      release left there and in update/download is removed first)
 //   3. the new bundle's own installer with --check-only, wait until no answer is running, a database backup (admin.js
@@ -34,6 +36,7 @@ import { TeamSettings } from '@mycel/shared/api'
 import { defaultTimeZone, isValidTimeZone, zonedParts, zonedToUtc } from '../system/time-zone'
 import { compareVersions } from '../system/update'
 import { DEFAULT_UPDATE_WINDOW, inWindow } from '../system/update-job'
+import { rolloutTurn, type RolloutTurn } from '../system/rollout'
 import { CHANNELS, decide, DEFAULT_FEED, fileUrl, manifestUrl, OFFICE_RELEASE_KEYS, ReleaseError, verifyRelease, VERSION_RE, type Channel, type OfficeRelease, type ReleaseFile } from './release'
 import { addInstaller, ensureDir, planAdd, readIndex } from './desktop'
 import { reserveBytes, snapshotOf } from '../system/storage'
@@ -60,8 +63,9 @@ export interface UpdateState {
   lastCheckAt: string | null
   /** what the last run (or check) found */
   last: { kind: ResultKind; at: string; version: string | null; message: string | null } | null
-  /** a newer version on the feed that is not installed yet */
-  available: { version: string; channel: Channel; notes: string; publishedAt: string } | null
+  /** a newer version on the feed that is not installed yet; turnAt: when the nightly run may take it in its staged
+   * roll-out (null: never with this release), absent when nothing waits (officeRolloutTurn) */
+  available: { version: string; channel: Channel; notes: string; publishedAt: string; turnAt?: string | null } | null
   /** the last install attempt */
   lastUpdate: { from: string; to: string; at: string; result: 'updated' | 'rolled-back' | 'failed'; error: string | null } | null
   /** versions that failed and were rolled back: the nightly run does not try them again */
@@ -173,6 +177,26 @@ export function officeSchedule(home: string, env: Record<string, string | undefi
   const legacy = readUpdateSettings(home).time
   if (legacy !== DEFAULT_UPDATE_SETTINGS.time) return { window: `${legacy}-${plus(legacy, 120)}`, timeZone, source: 'legacy' }
   return { window: DEFAULT_UPDATE_WINDOW, timeZone, source: 'default' }
+}
+
+/** The install id of this office (the server's own, server/src/admin/settings.ts installId: MYCEL_INSTALL_ID, else the
+ * settings table, read only), for the staged roll-out (system/rollout.ts); null when there is none yet: the last wave. */
+export function officeInstallId(home: string, env: Record<string, string | undefined> = process.env): string | null {
+  const e = env.MYCEL_INSTALL_ID
+  if (e && /^[A-Za-z0-9._-]{1,128}$/.test(e)) return e
+  try {
+    const db = new Database(path.join(officePaths(home).data, 'app.db'), { readonly: true })
+    try {
+      const r = db.query("SELECT value FROM settings WHERE key = 'system.installId'").get() as { value: string } | null
+      const v: unknown = r ? JSON.parse(r.value) : null
+      return typeof v === 'string' && v ? v : null
+    } finally { db.close() }
+  } catch { return null }
+}
+
+/** This Mac's turn for a release in its staged roll-out (system/rollout.ts): the same rule as a Linux server's. */
+export function officeRolloutTurn(home: string, r: Pick<OfficeRelease, 'rollout' | 'publishedAt'>, channel: Channel, now: Date): RolloutTurn {
+  return rolloutTurn(r, officeInstallId(home), { now, channel })
 }
 
 /** When the window that holds `now` closes (the next end after now, in the window's zone). */
@@ -731,9 +755,13 @@ export async function runUpdate(home: string, o: RunOptions): Promise<RunResult>
       return finish({ kind: e instanceof ReleaseError ? 'refused' : 'failed', version: null, message: (e as Error).message })
     }
     const dec = decide(current, r)
+    // the staged roll-out (system/rollout.ts): the nightly run waits for this Mac's turn; "update now" does not
+    const turn = dec.kind === 'install' ? officeRolloutTurn(home, r, set.channel, d.now()) : null
     patchUpdateState(home, (s) => {
       s.lastCheckAt = d.now().toISOString()
-      s.available = dec.kind === 'install' || dec.kind === 'too-old' ? { version: r.version, channel: r.channel, notes: r.notes, publishedAt: r.publishedAt } : null
+      s.available = dec.kind === 'install' || dec.kind === 'too-old'
+        ? { version: r.version, channel: r.channel, notes: r.notes, publishedAt: r.publishedAt, ...(turn?.wait ? { turnAt: turn.at?.toISOString() ?? null } : {}) }
+        : null
     })
     if (dec.kind === 'older' || dec.kind === 'too-old') return finish({ kind: 'refused', version: r.version, message: dec.reason })
     if (dec.kind === 'current') {
@@ -744,6 +772,10 @@ export async function runUpdate(home: string, o: RunOptions): Promise<RunResult>
     if (o.reason === 'check') return finish({ kind: 'available', version: r.version, message: null })
     const failedBefore = readUpdateState(home).failed[r.version]
     if (failedBefore && o.reason === 'schedule') return finish({ kind: 'skipped', version: r.version, message: `${r.version} failed on ${failedBefore.at} and was rolled back; not tried again at night (teamax update now tries again)` })
+    if (turn?.wait && o.reason === 'schedule') {
+      const when = turn.at ? `this Mac's turn comes at ${turn.at.toISOString()}` : 'this release does not reach this Mac by itself'
+      return finish({ kind: 'skipped', version: r.version, message: `${r.version} is in a staged roll-out: ${when} (teamax update now installs it now)` })
+    }
     return finish(await install(home, current, r, d, o, phase))
   } catch (e) {
     return finish({ kind: 'failed', version: null, message: (e as Error).message })

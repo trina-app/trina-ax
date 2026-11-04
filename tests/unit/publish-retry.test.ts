@@ -9,10 +9,11 @@ import net from 'node:net'
 import os from 'node:os'
 import path from 'node:path'
 import zlib from 'node:zlib'
-import { OFFICE_PRODUCT, signRelease, type OfficeRelease } from '../../server/src/office/release'
+import { OFFICE_PRODUCT, signRelease, verifyRelease, type OfficeRelease } from '../../server/src/office/release'
+import { DEFAULT_RAMP } from '../../server/src/system/rollout'
 import { BUCKET, CfError, Cloudflare, listReport, openBucket, type Bucket } from '../../scripts/release/cloudflare'
 import { cloudflareStore } from '../../scripts/release/publish-server'
-import { alreadyPublished, publishToFeed, type Artifact } from '../../scripts/release/publish'
+import { alreadyPublished, officeRelease, publishToFeed, type Artifact } from '../../scripts/release/publish'
 import { ABSENT_READS, CONFIRM_READS, compareRemote, feedReader, publicKeyOfPem, remoteBytes, remoteHash, remoteSize, RETRY_TRIES, steadyFetch, thereAnyway, TransientError, type RemoteFile } from '../../scripts/release/sign'
 
 const T = fs.mkdtempSync(path.join(os.tmpdir(), 'publish-retry-'))
@@ -419,6 +420,25 @@ describe('publish.ts: the channel head and the kept manifest', () => {
     expect(await run(feed, rerun)).toBe('published')
     expect(feed.puts).toEqual(['office/beta.json'])
     expect(feed.bucket.get('office/0.2.20/beta.json')!.equals(kept)).toBe(true)
+  })
+
+  test('a re-run puts the manifest as first published back at the head: its publishedAt and roll-out salt stay', async () => {
+    const { feed, kept, rerun } = published()
+    expect(await run(feed, rerun)).toBe('published')
+    expect(feed.puts).toEqual(['office/beta.json'])
+    // the staged roll-out is measured from publishedAt (server/src/system/rollout.ts): a re-run must not start it again
+    expect(feed.bucket.get('office/beta.json')!.equals(kept)).toBe(true)
+    expect(feed.bucket.get('office/0.2.20/beta.json')!.equals(kept)).toBe(true)
+  })
+
+  test('the manifest of a stable release has the staged roll-out; Rollout: all and beta releases have none', () => {
+    const meta = { file: 'x.zip', url: `${ORIGIN}/office/1.0.0/x.zip`, sha256: 'a'.repeat(64), size: 1 }
+    const at = new Date('2026-11-04T01:00:00.000Z')
+    const stable = officeRelease({ channel: 'stable', version: '1.0.0', minFrom: '0.2.0-0', notes: '', office: meta, windows: null, rollout: 'staged', now: at, salt: 'ab' })
+    expect(stable).toMatchObject({ publishedAt: at.toISOString(), office: [{ ...meta, arch: 'universal' }], rollout: { percent: 100, salt: 'ab', ramp: [...DEFAULT_RAMP] } })
+    expect(verifyRelease(signRelease(stable, OFFICE_PEM), { keys: OFFICE_KEYS, channel: 'stable', feed: ORIGIN }).rollout).toEqual(stable.rollout)
+    expect(officeRelease({ channel: 'stable', version: '1.0.0', minFrom: '0.2.0-0', notes: '', office: meta, windows: null, rollout: 'all' }).rollout).toBeUndefined()
+    expect(officeRelease({ channel: 'beta', version: '1.0.0', minFrom: '0.2.0-0', notes: '', office: meta, windows: null, rollout: 'staged' }).rollout).toBeUndefined()
   })
 
   test('a 502 and a network error on the version manifest are read again', async () => {

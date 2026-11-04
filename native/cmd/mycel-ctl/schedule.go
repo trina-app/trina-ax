@@ -123,6 +123,9 @@ type updateSchedule struct {
 	zone string
 	// note says why it is not the team's own window ("" when it is)
 	note string
+	// installID is the app's install id as admin.js update-window said it (the staged roll-out, rollout.go
+	// installIDOf); "" when admin.js did not answer or is older: the last bucket
+	installID string
 }
 
 func (s updateSchedule) String() string {
@@ -201,15 +204,20 @@ func (u *updater) readSchedule() updateSchedule {
 		loc, zone := fallbackZone(u.in.ID)
 		return updateSchedule{w: def, loc: loc, zone: zone, note: "the team's update window could not be read (" + msg + "), so the default"}
 	}
-	// kept only when it is a real window and zone (it is read back with a 4 KiB limit)
+	// kept only when it is a real window and zone (it is read back with a 4 KiB limit); without the install id, which
+	// only the app's own answer gives (the file is 0644)
 	_, wok := parseWindow(got.Window)
 	_, zok := loadZone(got.TimeZone)
-	if b, _ := json.Marshal(got); wok && zok && len(b) < 512 {
+	keep := windowReply{Window: got.Window, TimeZone: got.TimeZone}
+	if b, _ := json.Marshal(keep); wok && zok && len(b) < 512 {
 		if old, rerr := readRootFile(u.e.root("update-window.json"), 4<<10); rerr != nil || string(old) != string(b)+"\n" {
 			_ = writeRootFile(u.e.root("update-window.json"), append(b, '\n'), 0o644)
 		}
 	}
 	s := u.scheduleOf(got.Window, got.TimeZone)
+	if len(got.InstallID) <= 256 {
+		s.installID = got.InstallID
+	}
 	if via != "" {
 		s.note = joinNote("read by "+via+"'s admin.js (the app that runs, "+orNone(currentVersion(u.e.base))+", cannot tell it)", s.note)
 	}
@@ -219,6 +227,8 @@ func (u *updater) readSchedule() updateSchedule {
 type windowReply struct {
 	Window   string `json:"window"`
 	TimeZone string `json:"timeZone"`
+	// InstallID: the app's install id (admin.js of this change on; the staged roll-out, rollout.go)
+	InstallID string `json:"installId,omitempty"`
 }
 
 // windowAnswer reads admin.js update-window's output: its JSON line (other lines, a warning on stderr, are skipped).

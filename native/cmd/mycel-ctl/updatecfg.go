@@ -54,9 +54,20 @@ type UpdateSettings struct {
 	Deferred *deferredUpdate `json:"deferred,omitempty"`
 	// Held: a release that failed or was rolled back here, which the update timer leaves until Held.Until
 	// (root/update-failed.json, schedule.go); only while the hold lasts
-	Held     *failedUpdate `json:"held,omitempty"`
-	Warnings []string      `json:"warnings,omitempty"`
-	Notes    []string      `json:"notes,omitempty"`
+	Held *failedUpdate `json:"held,omitempty"`
+	// Rollout: a newer release the app found on the feed (its last check) waits for this server's turn in its staged
+	// roll-out (rollout.go); only while it waits
+	Rollout  *rolloutStatus `json:"rollout,omitempty"`
+	Warnings []string       `json:"warnings,omitempty"`
+	Notes    []string       `json:"notes,omitempty"`
+}
+
+type rolloutStatus struct {
+	Version string `json:"version"`
+	// TurnAt: this server's turn (automatic updates take the release from then on); null: this release's roll-out
+	// leaves the server out
+	TurnAt *time.Time `json:"turnAt"`
+	Bucket int        `json:"bucket"`
 }
 
 // autoUpdatesOn: every part of automatic updates is on (a hosted server has none of its own: the control plane updates).
@@ -89,6 +100,12 @@ func collectUpdateSettings(e *env, in *Install) *UpdateSettings {
 		}
 		sc := u.readSchedule()
 		s.Window, s.TimeZone, s.WindowNote = sc.w.String(), sc.zone, sc.note
+		// the staged roll-out of the release the app last saw on the feed: this server's turn (no network here)
+		if f, cur := appCheckedFeed(in.Base), currentVersion(in.Base); f != nil && cur != "" && compareVersions(f.Version, cur) > 0 {
+			if w := rolloutTurn(f, installIDOf(in, sc), serverChannel(in.Base), e.now()); w.wait {
+				s.Rollout = &rolloutStatus{Version: f.Version, TurnAt: w.at, Bucket: w.bucket}
+			}
+		}
 	}
 	// the server account's file: no link, a regular file, small (it could name a device)
 	if b, err := readSmall(filepath.Join(in.Base, "config", "server.json"), 256<<10); err == nil {
@@ -357,6 +374,13 @@ func printUpdateSettings(w io.Writer, s *UpdateSettings, in *Install, systemd bo
 	}
 	if h := s.Held; h != nil {
 		fmt.Fprintf(w, "  HELD: %s\n", h.String())
+	}
+	if r := s.Rollout; r != nil {
+		loc, ok := loadZone(s.TimeZone)
+		if !ok {
+			loc = time.UTC
+		}
+		fmt.Fprintf(w, "  %s\n", rolloutWait{wait: true, at: r.TurnAt}.detail(r.Version, loc))
 	}
 	for _, x := range s.Warnings {
 		fmt.Fprintln(w, "  WARNING: "+x)

@@ -126,7 +126,9 @@ export const systemRoutes: RouteModule = {
         await Promise.race([feedCheck, new Promise((r) => { timer = setTimeout(r, systemTestHooks.updateWaitMs ?? UPDATE_CHECK_WAIT_MS) })])
         clearTimeout(timer)
       }
-      return { ...u.status(), auto: ops().autoUpdates, managed: !feature(ctx.config, 'selfUpdate'), ...ops().updateWindowStatus(), hold: ops().updateHold() }
+      // turnAt: when the staged roll-out reaches this server (system/rollout.ts), while hold is 'rollout'
+      const turnAt = ops().rolloutTurnAt()
+      return { ...u.status(), auto: ops().autoUpdates, managed: !feature(ctx.config, 'selfUpdate'), ...ops().updateWindowStatus(), hold: ops().updateHold(), ...(turnAt !== undefined ? { turnAt } : {}) }
     })
 
     // what a release left for an admin to do (system/after-update.ts)

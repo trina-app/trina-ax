@@ -2,8 +2,12 @@
 // docs/INSTALL-LINUX.md "업데이트", docs/RELEASE-CI.md). The release workflow runs it; the owner can too.
 //
 //   bun scripts/release/publish-server.ts --channel beta|stable --dir DIR [--version X] [--archs amd64,arm64]
-//       [--min-from V] [--needs-root auto|yes|no] [--notes "…" | --notes-file F] [--if-newer] [--dry-run]
-//       [--out FEED_DIR [--feed https://127.0.0.1:PORT] [--trust <public key>,…]]
+//       [--min-from V] [--needs-root auto|yes|no] [--rollout staged|all] [--notes "…" | --notes-file F] [--if-newer]
+//       [--dry-run] [--out FEED_DIR [--feed https://127.0.0.1:PORT] [--trust <public key>,…]]
+//
+// --rollout (a new release.json only): staged (default) gives a stable release the staged roll-out, about 10% of the
+// servers the first day, 50% the second and all of them from the third, measured from publishedAt by every server
+// itself (server/src/system/rollout.ts); all, or a beta release, has no roll-out (every server at once).
 //
 // DIR holds the signed build of every arch (release-ci.ts sign-linux): <version>-linux-<arch>.tar.zst (what an
 // installed server downloads) and <kit>-<version>-linux-<arch>.tar.gz (the install kit). On the feed:
@@ -48,6 +52,7 @@ import { silentLogger } from '../../server/src/log'
 import { readFileChunks, zstdDecompress } from '../../server/src/system/streams'
 import { extractTar, readTar } from '../../server/src/system/tar'
 import { bundleReaderLevel, compareVersions, ReleaseFeed, UpdateManager, verifyBundleDir } from '../../server/src/system/update'
+import { newRollout, rampText } from '../../server/src/system/rollout'
 import { elfArch, kitName, LINUX_ROOT_COPIES } from '../build-bundle'
 import { RELEASE_VERSION_RE, type Channel } from './release-ci'
 import type { Bucket } from './cloudflare'
@@ -282,6 +287,10 @@ export interface PublishServerOptions {
   store: FeedStore
   /** the kits' product.env must name this feed (RELEASE_CHANNEL.feed) */
   productFeed?: string
+  /** staged (default): a stable release ramps over three days with a new random salt (server/src/system/rollout.ts
+   * newRollout); all: no roll-out, every server at once (the tag message's `Rollout: all`, docs/RELEASE-CI.md). Only a
+   * new release.json takes it: one already on the feed is kept as it is */
+  rollout?: 'staged' | 'all'
   now?: () => Date
   log?: (s: string) => void
   /** waiting and logging of reads that are tried again (tests) */
@@ -343,6 +352,8 @@ export async function publishServer(o: PublishServerOptions): Promise<PublishSer
     if (!match) throw new Error(`${relKey} is already published with other files: publish a new version instead`)
     relSig = utf8(s)
     log(`${relKey} is already there (published ${prev.publishedAt}): kept as it is`)
+    // its roll-out (or none) was decided when it was first published; the beta channel's servers skip a ramp anyway
+    if (o.rollout === 'all' && prev.rollout?.ramp?.length && o.channel === 'stable') log(`warning: ${relKey} keeps its staged roll-out (${rampText(prev.rollout.ramp)}): --rollout all only applies to a release published for the first time`)
   } else {
     let needsRoot = o.needsRoot
     // the releases the installations of either channel run now
@@ -364,9 +375,14 @@ export async function publishServer(o: PublishServerOptions): Promise<PublishSer
         log(`warning: --needs-root no: a server on ${NEEDS_ROOT_ONLY_UNTIL} or older with root files older than ${rootSince} takes this release without them and then refuses later ones`)
       }
     }
+    // the staged roll-out: measured from publishedAt, so the ramp moves on by itself (servers that do not know `ramp`
+    // read percent 100 and take it as before)
+    const rollout = newRollout(o.channel, o.rollout ?? 'staged')
+    log(rollout ? `rollout: staged, ${rampText(rollout.ramp!)} (from publishedAt)` : `rollout: none, every server at once${o.channel === 'stable' ? ' (Rollout: all)' : ' (beta)'}`)
     const r = {
       version: o.version, minFrom: o.minFrom, urgent: false, needsRoot, rootSince, notes: o.notes, publishedAt: (o.now?.() ?? new Date()).toISOString(), bundles,
       minReaderRequired: Math.max(...builds.map((b) => b.readerLevel)),
+      ...(rollout ? { rollout } : {}),
     }
     ReleaseFeed.parse(r)
     ProtocolReleaseFeed.parse(r)
@@ -442,6 +458,8 @@ export async function main(argv: string[]): Promise<PublishServerResult> {
   const archs = (val('--archs') ?? 'amd64,arm64').split(',').map((s) => s.trim()) as LinuxArch[]
   const nr = val('--needs-root') ?? 'auto'
   if (!['auto', 'yes', 'no'].includes(nr)) throw new Error('--needs-root auto|yes|no')
+  const rollout = val('--rollout') ?? 'staged'
+  if (rollout !== 'staged' && rollout !== 'all') throw new Error('--rollout staged|all')
   const notes = val('--notes-file') ? fs.readFileSync(val('--notes-file')!, 'utf8') : val('--notes') ?? ''
   const out = val('--out')
   const feed = val('--feed') ?? RELEASE_CHANNEL.feed
@@ -452,7 +470,7 @@ export async function main(argv: string[]): Promise<PublishServerResult> {
   const { readReleaseKey } = await import('./keygen')
   return publishServer({
     channel, version, dir: path.resolve(dir), archs, minFrom: val('--min-from') ?? null, needsRoot: nr === 'auto' ? 'auto' : nr === 'yes', notes,
-    ifNewer: has('--if-newer'), dryRun: has('--dry-run'), feed, keys, pem: readReleaseKey(),
+    ifNewer: has('--if-newer'), dryRun: has('--dry-run'), feed, keys, pem: readReleaseKey(), rollout,
     store: out ? dirStore(path.resolve(out), feed) : await cloudflareStore(feed),
   })
 }

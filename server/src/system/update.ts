@@ -28,6 +28,7 @@ import type { Logger } from '../log'
 import { readFileChunks, writeAtomic, zstdDecompress } from './streams'
 import { extractTar } from './tar'
 import { RELEASE_KEYS } from './release-keys'
+import { Rollout } from './rollout'
 
 /** Ed25519 release public keys (base64, raw 32 bytes): system/release-keys.ts. */
 export const RELEASE_PUBLIC_KEYS: readonly string[] = RELEASE_KEYS
@@ -142,8 +143,9 @@ export const ReleaseFeed = z.object({
   publishedAt: z.string(),
   bundles: z.array(z.object({ os: z.string(), arch: z.string(), url: z.url(), sha256: z.string(), size: z.number().int() })),
   /** staged roll-out for self-installed servers (absent = everyone): an install takes the release automatically when
-   * sha256(salt + install id)'s first two bytes % 100 < percent. the hosted cloud ignores it (the control plane picks). */
-  rollout: z.object({ percent: z.number().min(0).max(100), salt: z.string().max(100) }).optional(),
+   * sha256(salt + install id)'s first two bytes % 100 < percent, the percent moving over time with `ramp`
+   * (system/rollout.ts). the hosted cloud ignores it (the control plane picks). */
+  rollout: Rollout.optional(),
   /** the oldest release with this release's root files (scripts/release/publish-server.ts, feeds from 0.2.19 on):
    * root/VERSION older than it needs the root update, one at it or newer does not, whatever needsRoot says (that is
    * for the updaters of 0.2.18 and older then; releaseNeedsRoot) */
@@ -168,12 +170,8 @@ export function releaseNeedsRoot(feed: Pick<ReleaseFeed, 'needsRoot' | 'rootSinc
   return compareVersions(rootVersion, feed.rootSince) < 0
 }
 
-/** Is this install in the release's roll-out? */
-export function inRollout(feed: Pick<ReleaseFeed, 'rollout'>, installId: string): boolean {
-  if (!feed.rollout) return true
-  const b = crypto.createHash('sha256').update(feed.rollout.salt + installId).digest().readUInt16BE(0) % 100
-  return b < feed.rollout.percent
-}
+/** Is this install in the release's roll-out? (system/rollout.ts, the rule every updater shares) */
+export { inRollout } from './rollout'
 
 export interface UpdateManagerOptions {
   appDir: string | null

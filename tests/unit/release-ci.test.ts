@@ -9,7 +9,7 @@ import path from 'node:path'
 import { RELEASE_CHANNEL } from '../../shared/src/release-channel'
 import { VERSION_RE } from '../../server/src/office/release'
 import { verifySignature } from '../../server/src/system/update'
-import { main, packageVersion, parseReleaseTag, RELEASE_VERSION_RE, sha256sums, verifySums, writeSums } from '../../scripts/release/release-ci'
+import { main, packageVersion, parseReleaseTag, RELEASE_VERSION_RE, rolloutOf, sha256sums, verifySums, writeSums } from '../../scripts/release/release-ci'
 import { checkSigningKey, keyIdOfRaw, publicKeyOfPem, readKeyFile, signDetached, verifyDetached } from '../../scripts/release/sign'
 import { workerCode } from '../../scripts/release/worker-code'
 
@@ -64,6 +64,57 @@ describe('release tag', () => {
     const bash = new RegExp(re!)
     for (const t of ['v0.3.0', 'v0.3.0-beta.1', 'v10.20.300-rc.1']) expect(bash.test(t), t).toBe(RELEASE_VERSION_RE.test(t.slice(1)))
     for (const t of ['v0.3', '0.3.0', 'v0.3.0;rm', 'v0.3.0-a..b']) expect(bash.test(t), t).toBe(false)
+  })
+})
+
+describe('the staged roll-out (tag message "Rollout: all", the manual run\'s input)', () => {
+  const NOTES = '## Who benefits\n\nA fix.\n'
+  test('no line: staged; "Rollout: all" (any case, spaces, CRLF): all, and the line leaves the notes', () => {
+    expect(rolloutOf(NOTES)).toEqual({ rollout: 'staged', notes: NOTES })
+    expect(rolloutOf('')).toEqual({ rollout: 'staged', notes: '' })
+    expect(rolloutOf(`Rollout: all\n\n${NOTES}`)).toEqual({ rollout: 'all', notes: NOTES })
+    expect(rolloutOf(`${NOTES}\nrollout:ALL  \n`)).toEqual({ rollout: 'all', notes: `${NOTES}\n` })
+    expect(rolloutOf(`Rollout: all\r\n${NOTES}`).rollout).toBe('all')
+    expect(rolloutOf(`Rollout: staged\n${NOTES}`)).toEqual({ rollout: 'staged', notes: NOTES })
+    // a sentence that starts with the word is notes, not the marker
+    const prose = `${NOTES}Rollout: all servers get it over three days.\n`
+    expect(rolloutOf(prose)).toEqual({ rollout: 'staged', notes: prose })
+  })
+  test('a typo stops the release instead of choosing for it', () => {
+    for (const bad of ['Rollout: al', 'Rollout: everyone', 'Rollout:', 'ROLLOUT: none']) expect(() => rolloutOf(`${bad}\n${NOTES}`), bad).toThrow(/Rollout: all/)
+    expect(() => rolloutOf(`Rollout: all\nRollout: staged\n`)).toThrow(/both/)
+    expect(() => rolloutOf(NOTES, 'fast')).toThrow(/tag, staged or all/)
+  })
+  test('the release template pasted as it is keeps the staged roll-out (it only describes the line)', () => {
+    const tpl = fs.readFileSync(path.join(ROOT, '.github/RELEASE_TEMPLATE.md'), 'utf8')
+    expect(tpl).toContain('`Rollout: all`')
+    expect(rolloutOf(tpl)).toEqual({ rollout: 'staged', notes: tpl })
+  })
+  test('the manual run\'s input wins over the tag message; "tag" or nothing follows it', () => {
+    expect(rolloutOf(`Rollout: all\n${NOTES}`, 'staged')).toEqual({ rollout: 'staged', notes: NOTES })
+    expect(rolloutOf(NOTES, 'all').rollout).toBe('all')
+    expect(rolloutOf(`Rollout: all\n${NOTES}`, 'tag').rollout).toBe('all')
+    expect(rolloutOf(NOTES, '').rollout).toBe('staged')
+  })
+  test('the CLI rewrites the notes file and prints rollout= for $GITHUB_OUTPUT', async () => {
+    const f = path.join(T, 'notes.md')
+    fs.writeFileSync(f, `Rollout: all\n\n${NOTES}`)
+    const out: string[] = []
+    await main(['rollout', f, ''], (s) => out.push(s))
+    expect(out.join('')).toBe('rollout=all\n')
+    expect(fs.readFileSync(f, 'utf8')).toBe(NOTES)
+    out.length = 0
+    await main(['rollout', f], (s) => out.push(s))
+    expect(out.join('')).toBe('rollout=staged\n')
+  })
+  test('the workflow passes it from the tag message (or the input) to both feeds', () => {
+    const wf = fs.readFileSync(path.join(ROOT, '.github/workflows/release.yml'), 'utf8')
+    expect(wf).toContain('bun scripts/release/release-ci.ts rollout notes/notes.md "$INPUT_ROLLOUT" | tee -a "$GITHUB_OUTPUT"')
+    expect(wf).toContain('rollout: ${{ steps.notes.outputs.rollout }}')
+    expect(wf).toContain('ROLLOUT: ${{ needs.prepare.outputs.rollout }}')
+    const publishes = wf.split('\n').filter((l) => /bun scripts\/release\/publish(-server)?\.ts --channel/.test(l))
+    expect(publishes.length).toBe(4)
+    for (const l of publishes) expect(l.trim().endsWith('--rollout "$ROLLOUT"'), l).toBe(true)
   })
 })
 
