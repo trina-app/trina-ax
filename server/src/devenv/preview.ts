@@ -13,7 +13,7 @@
 import crypto from 'node:crypto'
 import type { AppContext } from '../context'
 import { audit } from '../admin/audit'
-import { canRead } from '../chat/projects'
+import { canSeeProject } from '../chat/projects'
 import { boxd } from './boxd'
 import { devEnvInForce, devEnvSetting } from './setting'
 
@@ -64,12 +64,13 @@ const withoutOurCookie = (h: string | null) => (h ?? '').split(';').map((s) => s
 
 const deny = (status: number, msg: string) => new Response(msg, { status, headers: { 'content-type': 'text/plain; charset=utf-8', 'cache-control': 'no-store', 'referrer-policy': 'no-referrer' } })
 
-/** the person may still see this preview: active, can read the folder, dev environment in force */
+/** the person may still see this preview: active, sees the project (can read the folder, which is in place unless they
+ * are an admin), dev environment in force */
 function stillAllowed(ctx: AppContext, l: Link): boolean {
   if (!devEnvInForce(devEnvSetting(ctx.db, l.projectId))) return false
-  const p = ctx.db.query('SELECT folder_path FROM projects WHERE id = ?').get(l.projectId) as { folder_path: string } | null
+  const p = ctx.db.query('SELECT folder_path, trashed_with FROM projects WHERE id = ?').get(l.projectId) as { folder_path: string; trashed_with: string | null } | null
   if (!p || p.folder_path !== l.folderPath) return false
-  try { return canRead(ctx.files, ctx.files.principal(l.userId), l.folderPath) } catch { return false }
+  try { return canSeeProject(ctx.files, ctx.files.principal(l.userId), p) } catch { return false }
 }
 
 export type PreviewUpstream = (socket: string, req: Request) => Promise<Response>

@@ -42,10 +42,13 @@ describe('a project folder is admin-only while the project lasts, and only then'
     expect((await trash('erin', 'groups/marketing/q')).status).toBe(200)
   })
 
-  test('two projects on one folder: it stays locked until the last one goes', async () => {
+  test('two projects on one folder (made before one project per folder): it stays locked until the last one goes', async () => {
     expect((await mkdir('alice', 'shared/two')).status).toBe(201)
     const a = await create('alice', 'shared/two')
-    const b = await create('erin', 'shared/two')
+    // a second project on the folder is refused now (tests/security/project-is-folder.test.ts); older rows stay
+    expect((await A.json('/api/projects', { as: 'erin', ...jsonBody({ name: 'P again', folderPath: 'shared/two' }) })).status).toBe(409)
+    const b = '01900000-0000-7000-8000-0000000000b2'
+    A.ctx.db.query("INSERT INTO projects (id, name, folder_path, instructions, created_by) VALUES (?, 'P old', 'shared/two', '', 'erin')").run(b)
     await remove('alice', a)
     expect(row('shared/two')).not.toBeNull()
     expect((await move('alice', 'shared/two', 'shared/two-x')).status).toBe(403)
