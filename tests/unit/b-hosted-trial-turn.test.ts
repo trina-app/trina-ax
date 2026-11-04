@@ -7,6 +7,8 @@ import { afterAll, beforeAll, beforeEach, describe, expect, setDefaultTimeout, t
 import { API } from '@mycel/shared/api'
 import { ask, startHarness, type Harness, type TestSocket } from '../lib/b-harness'
 import { addCred } from '../lib/credentials'
+import { setSetting } from '../../server/src/admin/settings'
+import { LIMIT_FALLBACK_KEY } from '../../server/src/admin/engine-choice'
 import { credentialsOf } from '../../server/src/credentials/store'
 import { chargeHostedChat, HOSTED_CHAT_ID, HOSTED_CHAT_KEY_SETTING, HOSTED_CHAT_MODEL, HOSTED_CHAT_USAGE_SETTING, hostedChatUsedUsd, writeHostedChatKey } from '../../server/src/credentials/hosted-chat'
 import { claudeCost } from '../../server/src/credentials/prices'
@@ -15,6 +17,8 @@ setDefaultTimeout(60_000)
 const fake = (...ds: unknown[]) => ds.map((d) => '@fake ' + JSON.stringify(d)).join('\n')
 const KEY = 'sk-ant-api03-TRIAL-TURN-' + 'k'.repeat(30)
 const TEAM_KEY = 'sk-ant-api03-TEAM-TURN-' + 't'.repeat(30)
+const LIMITED_KEY = 'sk-ant-api03-LIMITED-TURN-' + 'l'.repeat(30)
+const OKEY = 'sk-proj-' + 'O'.repeat(40)
 const USAGE = { input_tokens: 10_000, output_tokens: 2_000 }
 const EACH = claudeCost(HOSTED_CHAT_MODEL, USAGE)
 const seen: { key: string | null; model: string }[] = []
@@ -23,9 +27,15 @@ const ev = (o: unknown) => enc.encode(`event: e\ndata: ${JSON.stringify(o)}\n\n`
 const up = Bun.serve({
   port: 0, hostname: '127.0.0.1', idleTimeout: 0,
   async fetch(req) {
+    if (new URL(req.url).pathname.endsWith('/responses')) {
+      await req.text()
+      seen.push({ key: 'openai', model: '' })
+      return new Response(`event: x\ndata: ${JSON.stringify({ type: 'response.output_text.delta', delta: 'codex answered' })}\n\nevent: x\ndata: ${JSON.stringify({ type: 'response.completed', response: { model: 'gpt-5.4', output: [], usage: { input_tokens: 5, output_tokens: 2 } } })}\n\n`, { headers: { 'content-type': 'text/event-stream' } })
+    }
     const body = await req.json() as { model: string }
     const key = req.headers.get('x-api-key')
     seen.push({ key, model: body.model })
+    if (key === LIMITED_KEY) return Response.json({ type: 'error', error: { type: 'rate_limit_error', message: 'limit' } }, { status: 429, headers: { 'retry-after': '3600' } })
     return new Response(new ReadableStream<Uint8Array>({ start(c) {
       c.enqueue(ev({ type: 'message_start', message: { model: body.model, usage: { input_tokens: USAGE.input_tokens, output_tokens: 1 } } }))
       c.enqueue(ev({ type: 'content_block_delta', index: 0, delta: { type: 'text_delta', text: key === KEY ? 'trial answered ' : 'team answered ' } }))
@@ -37,7 +47,8 @@ const up = Bun.serve({
 let h: Harness
 let alice: TestSocket
 beforeAll(async () => {
-  h = await startHarness({ name: 'b-hosted-trial', turnTimeoutMs: 60_000, upstreams: { anthropic: `http://127.0.0.1:${up.port}` }, credentials: [] })
+  const u = `http://127.0.0.1:${up.port}`
+  h = await startHarness({ name: 'b-hosted-trial', turnTimeoutMs: 60_000, upstreams: { anthropic: u, openai: u + '/v1' }, credentials: [] })
   alice = await h.ws('alice', { windowId: 'win-alice-trial' }); await alice.next('hello')
 })
 afterAll(async () => { alice?.close(); await h?.close(); up.stop(true) })
@@ -56,8 +67,10 @@ describe('a turn on the trial credit', () => {
     const { started, done } = await ask(h, alice, 'alice', (await newChat()).id, fake({ modelAny: 'hi' }), { ms: 30_000 })
     expect(done.status).toBe('done')
     expect(done.content).toContain('trial answered')
-    // the engine named the trial model (--model and its aliases): the proxy forwards no other
+    // the engine named the trial model (--model and its aliases): the proxy forwards no other; the answer says so
     expect(seen).toEqual([{ key: KEY, model: HOSTED_CHAT_MODEL }])
+    expect(done.model).toBe(HOSTED_CHAT_MODEL)
+    expect((h.ctx.db.query('SELECT model FROM turns WHERE id = ?').get(started.turnId) as { model: string }).model).toBe(HOSTED_CHAT_MODEL)
     const turn = h.ctx.db.query('SELECT credential_id, cost_usd FROM turns WHERE id = ?').get(started.turnId) as { credential_id: string; cost_usd: number }
     expect(turn.credential_id).toBe(HOSTED_CHAT_ID)
     expect(turn.cost_usd).toBeCloseTo(EACH, 9)
@@ -72,6 +85,29 @@ describe('a turn on the trial credit', () => {
     expect(done.content).toContain('team answered')
     expect(seen.map((s) => s.key)).toEqual([TEAM_KEY])
     expect(hostedChatUsedUsd(h.ctx.db)).toBe(0)
+  })
+  test('a subscription at its limit with the admin\'s Codex fallback on: the team\'s Codex answers, not the credit', async () => {
+    grant()
+    const cc = credentialsOf(h.ctx)
+    addCred(cc, 'anthropic-api-key', LIMITED_KEY, { label: 'limited' })
+    addCred(cc, 'openai-api-key', OKEY, { label: 'codex' })
+    setSetting(h.ctx.db, LIMIT_FALLBACK_KEY, true)
+    try {
+      const { done } = await ask(h, alice, 'alice', (await newChat()).id, fake({ modelAny: 'hi' }), { ms: 30_000 })
+      expect(done.content).toContain('codex answered')
+      expect(seen.map((s) => s.key)).toEqual([LIMITED_KEY, 'openai'])
+      expect(hostedChatUsedUsd(h.ctx.db)).toBe(0)
+      // the next turn starts with the subscription still at its limit: Codex again, the credit untouched
+      seen.length = 0
+      const next = await ask(h, alice, 'alice', (await newChat()).id, fake({ modelAny: 'hi' }), { ms: 30_000 })
+      expect(next.done.content).toContain('codex answered')
+      expect(seen.map((s) => s.key)).toEqual(['openai'])
+    } finally { setSetting(h.ctx.db, LIMIT_FALLBACK_KEY, false) }
+    // without the fallback the credit answers while the subscription waits
+    seen.length = 0
+    const r = await ask(h, alice, 'alice', (await newChat()).id, fake({ modelAny: 'hi' }), { ms: 30_000 })
+    expect(r.done.content).toContain('trial answered')
+    expect(seen.map((s) => s.key)).toEqual([KEY])
   })
   test('used up or ended: its own error before any engine runs', async () => {
     grant({ capUsd: 0.5 })

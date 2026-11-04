@@ -5,7 +5,7 @@
 import clsx from 'clsx'
 import { useEffect, useId, useMemo, useState } from 'react'
 import type { z } from 'zod'
-import type { UsageResponse } from '@mycel/shared/api'
+import { TRIAL_CREDENTIAL_ID, type UsageResponse } from '@mycel/shared/api'
 import { api, API, errorText, saveBlob } from '../../lib/api'
 import { formatNumber, formatUsd, localDay, localDayRange } from '../../lib/format'
 import { useLocale, useT } from '../../i18n'
@@ -106,7 +106,7 @@ export default function Usage() {
                       const share = shares[i] ?? 0
                       return (
                         <tr key={r.key}>
-                          <td className="max-w-[16rem] truncate py-2.5 pr-3" title={r.label || undefined}>{groupBy === 'credential' && !r.label ? <span className="text-faint">{t('usage.deletedCredential')}</span> : r.label}</td>
+                          <td className="max-w-[16rem] truncate py-2.5 pr-3" title={r.label || undefined}>{groupBy === 'credential' && r.key === TRIAL_CREDENTIAL_ID ? t('trialCredit.usageLabel') : groupBy === 'credential' && !r.label ? <span className="text-faint">{t('usage.deletedCredential')}</span> : r.label}</td>
                           <td className="py-2.5 pr-3 text-right tabular-nums">{formatNumber(r.turns, locale)}</td>
                           <td className="py-2.5 pr-3 text-right tabular-nums">{formatNumber(tok, locale)}</td>
                           <td className="w-48 py-2.5 pr-3">

@@ -1659,6 +1659,7 @@ export const es: Record<MessageKey, string> = {
   'trialCredit.active': "Crédito de prueba: {used} de {cap} usados · hasta el {date} · La IA que conecte se usa primero",
   'trialCredit.used': "Se agotó el crédito de prueba ({used} de {cap}) · Conecte su propia IA para continuar",
   'trialCredit.ended': "El crédito de prueba ya no se puede usar (la prueba terminó o se desactivó) · Conecte su propia IA para continuar",
+  'trialCredit.usageLabel': "Crédito de prueba (alojamiento)",
   'audit.act.media.transcribe': "Convirtió en texto el sonido de un archivo de video o audio",
   'audit.act.engines.update': "Cambió la configuración del motor de IA",
   'audit.act.storage.warn': "Almacenamiento superior al 80% (administradores avisados)",

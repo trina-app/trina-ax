@@ -420,6 +420,8 @@ export class TurnExec {
       // one moves the turn to the next (at most 2 switches, counted apart from the attempts below)
       const managed = !!(claude.modelProxy && core.proxy)
       const exclude = new Set<string>()
+      // the model chosen before an attempt on the trial credit (which runs on its own model), null when none was
+      let beforeTrial: { model: string | undefined } | null = null
       // tool rounds this answer may take (Admin > Team settings answerStepLimit), read once for all its attempts
       const maxTurns = rt.maxEngineTurns
       for (let attempt = 0; attempt < 4 && !this.stopReason; attempt++) {
@@ -441,6 +443,8 @@ export class TurnExec {
           const c = this.pickCredential('claude-code', exclude)
           if (!c) break
           tokenKind = c.kind === 'anthropic-api-key' ? 'api-key' : 'oauth'
+          // an attempt on a real connection after one on the trial credit runs on what was chosen again
+          if (beforeTrial && c.credentialId !== HOSTED_CHAT_ID) { model = beforeTrial.model; this.showModel(spec.model ?? null); beforeTrial = null }
           // with our per-turn token on fd 3 Claude Code cannot tell the plan and starts on Sonnet: a subscription runs on
           // Opus unless someone chose (also makes the refusal retry's "other model" really another one)
           if (model === undefined && c.kind === 'anthropic-oauth') model = SUBSCRIPTION_DEFAULT_MODEL
@@ -448,7 +452,9 @@ export class TurnExec {
           // attempt may spend what is left of the credit, no more (the proxy stops it there)
           let budgetUsd: number | undefined
           if (c.credentialId === HOSTED_CHAT_ID) {
+            beforeTrial ??= { model }
             model = onlyModel = HOSTED_CHAT_MODEL
+            this.showModel(HOSTED_CHAT_MODEL) // the answer says the model that answered
             const spent = (rt.db.query('SELECT cost_usd FROM turns WHERE id = ?').get(spec.turnId) as { cost_usd: number | null } | null)?.cost_usd ?? 0
             budgetUsd = spent + hostedChatLeftUsd(rt.db)
           }
@@ -530,7 +536,7 @@ export class TurnExec {
    * follow, D15). */
   private pickCredential(engine: CredEngine, exclude: ReadonlySet<string>): { credentialId: string; kind: import('@mycel/shared/api').CredentialKind } | null {
     const { rt, spec } = this
-    const r = resolveCredential(rt.db, { userId: spec.userId, engine, exclude, allowedKinds: credentialsOf(rt.ctx).allowedKinds })
+    const r = resolveCredential(rt.db, { userId: spec.userId, engine, exclude, allowedKinds: credentialsOf(rt.ctx).allowedKinds, codexFallback: engine === 'claude-code' && this.codexFallbackReady() })
     if (r.ok) { this.lastCredential = r.credentialId; return r }
     if (this.proxyError) this.error = this.proxyError
     else if (r.trial) this.error = engineError(r.trial === 'used' ? 'trial_credit_used' : 'trial_ended', spec.locale)
@@ -548,7 +554,10 @@ export class TurnExec {
     const f = this.credentialFailure
     if (!f || this.stopReason || this.switches >= 2) return false
     exclude.add(f.id)
-    const next = resolveCredential(rt.db, { userId: spec.userId, engine, exclude, allowedKinds: credentialsOf(rt.ctx).allowedKinds })
+    // a Claude limit that goes on to Codex (limitFallback) does not go to the hosting service's trial credit
+    const codexFallback = engine === 'claude-code' && this.codexFallbackReady()
+    const next = resolveCredential(rt.db, { userId: spec.userId, engine, allowedKinds: credentialsOf(rt.ctx).allowedKinds, codexFallback,
+      exclude: codexFallback && f.reason === 'limited' ? new Set([...exclude, HOSTED_CHAT_ID]) : exclude })
     if (!next.ok) return false
     this.switches++
     this.credentialFailure = null
@@ -638,11 +647,8 @@ export class TurnExec {
    */
   private async limitFallback(core: Running, o: { chatDir: string; token: string; systemPrompt: () => string; message: string; extraTools: string[] }) {
     const { rt, spec } = this
-    if (!limitFallbackOn(rt.ctx)) return
-    const confs = rt.engines.get()
-    const codex = confs.codex
-    if (!codex || confs.problems.codex) return
-    if (codex.auth === 'managed' && !hasCredentialFor(rt.db, spec.userId, 'codex', credentialsOf(rt.ctx).allowedKinds)) return
+    if (!this.codexFallbackReady()) return
+    const codex = rt.engines.get().codex!
     const label = tr('limitFallback', spec.locale, { from: ENGINE_LABELS['claude-code'], to: ENGINE_LABELS.codex })
     this.addStep({ kind: 'tool', tool: 'engine', label, status: 'ok' })
     rt.hub.publish(spec.userId, { type: 'notice', data: { level: 'info', code: 'engine_limit_fallback', message: label } })
@@ -659,6 +665,23 @@ export class TurnExec {
     rt.db.query('UPDATE chats SET engine_session_id = NULL, engine_session_leaf_id = NULL WHERE id = ?').run(spec.chatId)
     // built only now: the fresh session's history (and whether it was cut) belongs to the Codex attempt
     await this.runCodex(core, codex, { ...o, systemPrompt: o.systemPrompt(), model: undefined })
+  }
+
+  /** A Claude limit would go on to Codex now (limitFallback's conditions): the admin's switch, Codex set up and running
+   * here, and (managed) a Codex connection for this person. */
+  private codexFallbackReady(): boolean {
+    const { rt, spec } = this
+    if (!limitFallbackOn(rt.ctx)) return false
+    const confs = rt.engines.get()
+    const codex = confs.codex
+    if (!codex || confs.problems.codex) return false
+    return codex.auth !== 'managed' || hasCredentialFor(rt.db, spec.userId, 'codex', credentialsOf(rt.ctx).allowedKinds)
+  }
+
+  /** The answer and the turn name the model of the attempt that answers (the trial credit's own model, Usage by model). */
+  private showModel(model: string | null) {
+    this.rt.db.query('UPDATE messages SET model = ? WHERE id = ?').run(model, this.spec.assistantId)
+    this.rt.db.query('UPDATE turns SET model = ? WHERE id = ?').run(model, this.spec.turnId)
   }
 
   /** The model proxy refused or failed a request of this turn: the turn ends with that reason (design tab 1 "예산 초과",

@@ -1693,6 +1693,7 @@ export const id: Record<MessageKey, string> = {
   'trialCredit.active': "Kredit uji coba: {used} dari {cap} terpakai · sampai {date} · AI yang Anda hubungkan dipakai lebih dulu",
   'trialCredit.used': "Kredit uji coba sudah habis ({used} dari {cap}) · Hubungkan AI Anda sendiri untuk melanjutkan",
   'trialCredit.ended': "Kredit uji coba tidak bisa dipakai lagi (masa uji coba berakhir atau dimatikan) · Hubungkan AI Anda sendiri untuk melanjutkan",
+  'trialCredit.usageLabel': "Kredit uji coba (hosting)",
   'audit.act.media.transcribe': "Mengubah suara berkas video atau audio menjadi teks",
   'audit.act.engines.update': 'Mengubah pengaturan mesin AI',
   'audit.act.storage.warn': 'Penyimpanan lebih dari 80% (admin diberi tahu)',

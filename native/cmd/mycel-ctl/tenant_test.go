@@ -323,6 +323,9 @@ func TestTenantHostedChatKeySet(t *testing.T) {
 		`{"key":"` + key + `","capUsd":"10","endsAt":"2026-11-18T15:00:00Z","enabled":true}`,
 		`{"key":"` + key + `","capUsd":10,"endsAt":"next week","enabled":true}`,
 		`{"key":"` + key + `","capUsd":10,"endsAt":"2026-11-18T15:00:00Z","enabled":"yes"}`,
+		`{"key":"` + key + `","capUsd":null,"endsAt":"2026-11-18T15:00:00Z","enabled":true}`,
+		`{"key":"` + key + `","capUsd":10,"endsAt":null,"enabled":true}`,
+		`{"key":"` + key + `","capUsd":10,"endsAt":"2026-11-18T15:00:00Z","enabled":null}`,
 		`{"key":"` + key + `; rm -rf /","capUsd":10,"endsAt":"2026-11-18T15:00:00Z","enabled":true}`,
 		`{"key":"` + key + `","capUsd":10,"endsAt":"2026-11-18T15:00:00Z","enabled":true,"x":1}`,
 	} {

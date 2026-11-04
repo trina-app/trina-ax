@@ -1693,6 +1693,7 @@ export const en: Record<MessageKey, string> = {
   'trialCredit.active': "Trial credit: {used} of {cap} used · until {date} · An AI you connect is used first",
   'trialCredit.used': "The trial credit is used up ({used} of {cap}) · Connect your own AI to go on",
   'trialCredit.ended': "The trial credit can no longer be used (the trial ended or was switched off) · Connect your own AI to go on",
+  'trialCredit.usageLabel': "Trial credit (hosting)",
   'audit.act.media.transcribe': "Turned the sound of a video or audio file into text",
   'audit.act.engines.update': 'Changed AI engine settings',
   'audit.act.storage.warn': 'Storage over 80% (admins told)',

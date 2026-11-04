@@ -125,8 +125,9 @@ export function createBroker(cc: CredCtx): CredentialBroker {
 
     async onUnauthorized(credentialId, sentAccess) {
       if (credentialId === HOSTED_CHAT_ID) {
-        // Anthropic refused the hosting service's key: no request goes out with it until a new one comes
-        if (markHostedChatRefused(cc.db, new Date(cc.now()))) {
+        // Anthropic refused the hosting service's key: no request goes out with it until a new one comes. A late 401
+        // for a key the hosting service has replaced since (rotation) leaves the new one alone.
+        if (markHostedChatRefused(cc, sentAccess, new Date(cc.now()))) {
           audit(cc.db, { actor: null, action: 'credential.rejected', target: HOSTED_CHAT_ID, detail: { kind: 'anthropic-api-key', upstreamStatus: 401, newStatus: 'invalid' } })
           cc.log.warn('the hosting service\'s trial AI key was refused by its provider', { credential: HOSTED_CHAT_ID })
         }

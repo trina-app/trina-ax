@@ -1659,6 +1659,7 @@ export const ja: Record<MessageKey, string> = {
   'trialCredit.active': "トライアルクレジット: {cap} 中 {used} 使用 · {date}まで · 自分のAIを接続すると、そちらが先に使われます",
   'trialCredit.used': "トライアルクレジットを使い切りました（{cap} 中 {used}） · 自分のAIを接続すると続けて使えます",
   'trialCredit.ended': "トライアルクレジットはもう使えません（トライアル期間が終了したか、オフになりました） · 自分のAIを接続すると続けて使えます",
+  'trialCredit.usageLabel': "トライアルクレジット（ホスティング）",
   'audit.act.media.transcribe': "動画・音声ファイルの音声をテキストに変換",
   'audit.act.engines.update': "AIエンジンの設定を変更",
   'audit.act.storage.warn': "ストレージ使用率80%超過（管理者に通知）",

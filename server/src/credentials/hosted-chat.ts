@@ -14,9 +14,10 @@
 // Metering: the team server counts what the key spent itself, in dollars at list price (credentials/prices.ts), in one
 // settings row (no text, no key). The broker refuses a request before it is sent once the cap is used, the end time
 // passed or the switch is off, and each attempt's proxy token carries the dollars left as its budget (proxy_tokens.
-// budget_usd), so one turn cannot spend past the cap by more than the request in flight.
+// budget_usd), so a turn cannot spend past the cap by more than its requests in flight (an answer is counted when it
+// ends; sub-agents of one turn may have a few out at once).
 import type { Database } from 'bun:sqlite'
-import type { TrialCredit } from '@mycel/shared/api'
+import { TRIAL_CREDENTIAL_ID, type TrialCredit } from '@mycel/shared/api'
 import { getSetting, HOSTED_CHAT_KEY_SETTING, HOSTED_CHAT_USAGE_SETTING, setSetting } from '../admin/settings'
 import type { AllowedKinds } from '../app-config'
 import { VaultError, type Vault } from './vault'
@@ -25,7 +26,7 @@ import type { CredCtx } from './store'
 export { HOSTED_CHAT_KEY_SETTING, HOSTED_CHAT_USAGE_SETTING }
 /** the credential id of a trial attempt (proxy_tokens.credential_id, turns.credential_id): not a UUID, so no row of
  * engine_credentials ever has it */
-export const HOSTED_CHAT_ID = 'hosted-trial'
+export const HOSTED_CHAT_ID = TRIAL_CREDENTIAL_ID
 /** The one model trial answers run on (the engine's aliases and side requests too; the proxy forwards no other).
  * Chosen for cost: Claude Haiku 5.5 is $0.10 / $0.50 per million tokens, a twentieth of Sonnet 5.5 (DECISIONS). */
 export const HOSTED_CHAT_MODEL = 'claude-haiku-5-5'
@@ -106,13 +107,15 @@ export function dropHostedChatKey(db: Database): boolean {
   return db.query('DELETE FROM settings WHERE key = ?').run(HOSTED_CHAT_KEY_SETTING).changes > 0
 }
 
-/** Anthropic refused the key (401: taken away at Anthropic, the trial's workspace switched off): the trial is over on
- * this server until the hosting service sends a key again. Returns whether this changed anything. */
-export function markHostedChatRefused(db: Database, now: Date): boolean {
-  const s = stored(db)
-  if (!s || s.refusedAt) return false
-  setSetting(db, HOSTED_CHAT_KEY_SETTING, { ...s, refusedAt: now.toISOString() } satisfies Stored)
-  return true
+/** Anthropic refused `sentKey` (401: taken away at Anthropic, the trial's workspace switched off): when it is still the
+ * stored key, the trial is over on this server until the hosting service sends a key again. One statement on that very
+ * row, so a key set in the meantime is never marked. Returns whether this changed anything. */
+export function markHostedChatRefused(cc: Pick<CredCtx, 'db' | 'vault'>, sentKey: string, now: Date): boolean {
+  const s = stored(cc.db)
+  if (!s || s.refusedAt || readHostedChatKey(cc) !== sentKey) return false
+  return cc.db.query(`UPDATE settings SET value = json_set(value, '$.refusedAt', ?1)
+    WHERE key = ?2 AND json_valid(value) AND json_extract(value, '$.enc') = ?3 AND json_extract(value, '$.refusedAt') IS NULL`)
+    .run(now.toISOString(), HOSTED_CHAT_KEY_SETTING, s.enc).changes > 0
 }
 
 /** The key in clear for one request; null without one or when it no longer decrypts (key file lost). */

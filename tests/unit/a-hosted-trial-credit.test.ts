@@ -75,8 +75,8 @@ const call = (token: string, model = HOSTED_CHAT_MODEL, o: { stream?: boolean } 
 const turnCost = (turn: string) => (env.db.query('SELECT cost_usd FROM turns WHERE id = ?').get(turn) as { cost_usd: number | null }).cost_usd ?? 0
 const grant = (o: Partial<{ key: string; capUsd: number; endsAt: string; enabled: boolean }> = {}) =>
   writeHostedChatKey(t.cc, { key: KEY, capUsd: 1, endsAt: future(), enabled: true, ...o })
-const resolve = (userId = 'alice', o: { engine?: 'claude-code' | 'codex'; exclude?: Set<string>; allowed?: typeof ALL & { gateway?: string | null } } = {}) =>
-  resolveCredential(env.db, { userId, engine: o.engine ?? 'claude-code', allowedKinds: o.allowed ?? ALL, ...(o.exclude ? { exclude: o.exclude } : {}) })
+const resolve = (userId = 'alice', o: { engine?: 'claude-code' | 'codex'; exclude?: Set<string>; allowed?: typeof ALL & { gateway?: string | null }; codexFallback?: boolean } = {}) =>
+  resolveCredential(env.db, { userId, engine: o.engine ?? 'claude-code', allowedKinds: o.allowed ?? ALL, ...(o.exclude ? { exclude: o.exclude } : {}), ...(o.codexFallback ? { codexFallback: true } : {}) })
 /** one request's cost at the fake's usage, at the trial model's list price */
 const perRequest = () => claudeCost(HOSTED_CHAT_MODEL, usage)
 
@@ -192,6 +192,18 @@ describe('which AI answers: the trial credit is last', () => {
     expect(r).toMatchObject({ ok: false, reason: 'all_unusable', retryAt: until })
     expect((r as { trial?: string }).trial).toBeUndefined()
   })
+  test('a Claude limit that goes on to the person\'s Codex (the admin\'s fallback) keeps the credit out', () => {
+    grant()
+    const team = addCred(t.cc, 'anthropic-api-key', TEAM_KEY, { label: 'team' })
+    const until = new Date(Date.now() + 3600_000).toISOString()
+    env.db.query('UPDATE engine_credentials SET limited_until = ? WHERE id = ?').run(until, team)
+    // without the fallback the credit answers; with it the limit stands, so the turn moves on to Codex
+    expect(resolve()).toMatchObject({ ok: true, credentialId: HOSTED_CHAT_ID })
+    expect(resolve('alice', { codexFallback: true })).toMatchObject({ ok: false, reason: 'all_unusable', retryAt: until })
+    // a connection that is off (not limited) does not lead to Codex: the credit answers
+    env.db.query('UPDATE engine_credentials SET limited_until = NULL, disabled = 1 WHERE id = ?').run(team)
+    expect(resolve('alice', { codexFallback: true })).toMatchObject({ ok: true, credentialId: HOSTED_CHAT_ID })
+  })
   test('with an Anthropic-compatible gateway the direct key is never offered (nor shown)', () => {
     grant()
     const gw = Object.assign(new Set(ALL_CREDENTIAL_KINDS.filter((k) => k !== 'anthropic-oauth')), { gateway: 'openrouter.ai' })
@@ -297,6 +309,13 @@ describe('the model proxy with the trial credit', () => {
     grant({ key: KEY2 })
     expect((await call(tok(turn))).status).toBe(200)
     expect(seen).toEqual([{ key: KEY2, model: HOSTED_CHAT_MODEL }])
+  })
+  test('a late 401 for a key rotated away since leaves the new key alone', async () => {
+    grant({ key: KEY2 })
+    expect(await broker.onUnauthorized(HOSTED_CHAT_ID, KEY)).toBe('refused')
+    expect(hostedChatState(env.db, new Date())).toBe('active')
+    expect(await broker.onUnauthorized(HOSTED_CHAT_ID, KEY2)).toBe('refused')
+    expect(hostedChatState(env.db, new Date())).toBe('ended')
   })
 })
 

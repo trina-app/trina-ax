@@ -68,7 +68,10 @@ export function candidates(db: Database, userId: string, engine: CredEngine, exc
     || a.row.created_at.localeCompare(b.row.created_at) || a.row.id.localeCompare(b.row.id))
 }
 
-export function resolveCredential(db: Database, q: { userId: string; engine: CredEngine; now?: Date; exclude?: ReadonlySet<string>; allowedKinds: AllowedKinds }): Resolution {
+/** `codexFallback`: a Claude limit goes on to Codex for this person ("Claude 한도에 닿으면 Codex로 넘기기" on and a Codex
+ * connection, chat/turn.ts): then a connection skipped only for its limit keeps the trial credit out, so the team's own
+ * Codex answers instead of the hosting service's key. */
+export function resolveCredential(db: Database, q: { userId: string; engine: CredEngine; now?: Date; exclude?: ReadonlySet<string>; allowedKinds: AllowedKinds; codexFallback?: boolean }): Resolution {
   const now = q.now ?? new Date()
   const list = candidates(db, q.userId, q.engine, q.exclude)
   const skipped: { id: string; why: Unusable }[] = []
@@ -83,7 +86,7 @@ export function resolveCredential(db: Database, q: { userId: string; engine: Cre
   // person can act on (ask an admin), not "the connection was refused"
   const real = skipped.some((s) => s.why !== 'disabled' && s.why !== 'kind_off' && s.why !== 'sharing_off')
   // the trial credit, last; once it is used or over it is what a person without a connection hears about
-  if (FAMILY_OF[q.engine] === 'anthropic' && !q.exclude?.has(HOSTED_CHAT_ID)) {
+  if (FAMILY_OF[q.engine] === 'anthropic' && !q.exclude?.has(HOSTED_CHAT_ID) && !(q.codexFallback && skipped.some((s) => s.why === 'limited'))) {
     const trial = hostedChatState(db, now, q.allowedKinds)
     if (trial === 'active') return { ok: true, credentialId: HOSTED_CHAT_ID, kind: 'anthropic-api-key', tier: 'hosted' }
     if (trial && !real) return { ok: false, reason: 'none', retryAt, skipped, trial }

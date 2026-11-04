@@ -670,10 +670,10 @@ func cmdHostedChatKeySet(e *env, args []string) (int, error) {
 		if json.Unmarshal(raw, &key) != nil || !antKeyRE.MatchString(key) {
 			return 1, fmt.Errorf("key: not a direct Anthropic API key")
 		}
-		// a JSON number (not a string), passed on as it was written
+		// a JSON number (not a string or null), passed on as it was written
 		capUsd := json.RawMessage(bytes.TrimSpace(m["capUsd"]))
 		var f float64
-		if json.Unmarshal(capUsd, &f) != nil {
+		if string(capUsd) == "null" || json.Unmarshal(capUsd, &f) != nil {
 			return 1, fmt.Errorf("capUsd: a number of dollars")
 		}
 		if f < 0 || f > 1000 {
@@ -687,7 +687,7 @@ func cmdHostedChatKeySet(e *env, args []string) (int, error) {
 			return 1, fmt.Errorf("endsAt: an ISO time")
 		}
 		var enabled bool
-		if json.Unmarshal(m["enabled"], &enabled) != nil {
+		if string(bytes.TrimSpace(m["enabled"])) == "null" || json.Unmarshal(m["enabled"], &enabled) != nil {
 			return 1, fmt.Errorf("enabled: true or false")
 		}
 		in, _ = json.Marshal(map[string]any{"key": key, "capUsd": capUsd, "endsAt": endsAt, "enabled": enabled})

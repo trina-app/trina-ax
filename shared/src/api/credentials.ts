@@ -125,6 +125,9 @@ export const StartMyLoginBody = StartCredentialLoginBody.omit({ assignments: tru
  * service's that answers the team's chats only when no AI connection of the team or the person can. `state`: active
  * (answers now), used (the dollar cap is reached), ended (past `endsAt`, paused by the hosting service, or refused by
  * the provider). Dollars as the team server counts them (list prices). Never the key, not even part of it. */
+/** the credential id of turns answered on the trial credit (turns.credential_id; Admin › Usage by connection): no
+ * connection row has it */
+export const TRIAL_CREDENTIAL_ID = 'hosted-trial'
 export const TrialCredit = z.object({
   active: z.boolean(), state: z.enum(['active', 'used', 'ended']),
   usedUsd: z.number().nonnegative(), capUsd: z.number().nonnegative(), endsAt: IsoTime,
