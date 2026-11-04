@@ -15,6 +15,7 @@ import { formatDateTime } from '../../lib/format'
 import { chatTrashDays } from '../../lib/chat-trash'
 import { newTemporaryPassword } from '../../lib/temp-password'
 import { PASSWORD_MIN } from '../Auth'
+import { toast } from '../../store/ui'
 import { LOCALES, useLocale, useT, type MessageKey } from '../../i18n'
 import { isOwner, useMeStrict } from '../../store/session'
 import QrCode from '../../components/QrCode'
@@ -60,7 +61,9 @@ export default function Members() {
   }
   const toggleDisabled = async (u: User) => {
     const disabling = u.status === 'active'
-    if (disabling && !(await confirmDialog({ title: t('members.disableTitle', { name: u.name }), body: t('members.disableBody'), confirm: t('members.disable'), danger: true }))) return
+    // an admin who leaves could see the team invite link: their own link ends with them, someone else's may need replacing
+    const body = u.role === 'admin' ? <><p>{t('members.disableBody')}</p><p className="mt-2" data-testid="disable-team-link-hint">{t('teamLink.adminHint')}</p></> : t('members.disableBody')
+    if (disabling && !(await confirmDialog({ title: t('members.disableTitle', { name: u.name }), body, confirm: t('members.disable'), danger: true }))) return
     if (await act(() => api.call(API.updateUser, { params: { id: u.id }, body: { status: disabling ? 'disabled' : 'active' } }))) void users.reload()
   }
   const remove = async (u: User) => {
@@ -654,6 +657,8 @@ function EditMember({ user, groups, canChangeRole, onClose, onSaved }: { user: U
               setBusy(true)
               const r = await act(() => api.call(API.updateUser, { params: { id: user.id }, body: { name: name.trim(), groupIds, ...(canChangeRole ? { role } : {}), ...(language !== (user.localeChoice ?? '') ? { locale: language || null } : {}) } }))
               setBusy(false)
+              // an admin made a member could see the team invite link: suggest replacing it
+              if (r && user.role === 'admin' && r.role === 'member') toast({ level: 'info', text: t('teamLink.adminHint') })
               if (r) onSaved()
             }}
           >

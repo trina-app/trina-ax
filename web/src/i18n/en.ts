@@ -2619,6 +2619,8 @@ export const en: Record<MessageKey, string> = {
   "teamLink.problem.missing": "This invite link doesn't work. Check that you copied all of it, or ask the person who sent it for a new link.",
   "teamLink.joinedNotice": "{name} joined through the team invite link.",
   "teamLink.joinedNoticeGone": "Someone joined through the team invite link.",
+  "teamLink.limited": "Too many failed attempts lately: the link is blocked until {time}. Replacing the link lifts it at once.",
+  "teamLink.adminHint": "This admin could see the team invite link. If it may have spread, replace it with a new link in the team invite link card on Members.",
   "audit.act.team_link.create": "Made the team invite link",
   "audit.act.team_link.revoke": "Turned off the team invite link",
   "audit.act.team_link.join": "Joined through the team invite link",

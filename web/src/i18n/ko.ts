@@ -2618,6 +2618,8 @@ export const ko = {
   "teamLink.problem.missing": "열 수 없는 초대 링크예요. 링크를 끝까지 복사했는지 확인하거나, 보낸 분께 새 링크를 부탁해 주세요.",
   "teamLink.joinedNotice": "{name}님이 팀 초대 링크로 들어왔어요.",
   "teamLink.joinedNoticeGone": "누군가 팀 초대 링크로 들어왔어요.",
+  "teamLink.limited": "최근에 틀린 시도가 많아 링크가 {time}까지 잠시 막혔어요. 링크를 바꾸면 바로 풀려요.",
+  "teamLink.adminHint": "이 관리자는 팀 초대 링크를 볼 수 있었어요. 링크가 퍼졌을 수 있다면 멤버 화면의 팀 초대 링크에서 새 링크로 바꿔 주세요.",
   "audit.act.team_link.create": "팀 초대 링크 만듦",
   "audit.act.team_link.revoke": "팀 초대 링크 끔",
   "audit.act.team_link.join": "팀 초대 링크로 가입",

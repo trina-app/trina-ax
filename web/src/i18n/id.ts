@@ -2619,6 +2619,8 @@ export const id: Record<MessageKey, string> = {
   "teamLink.problem.missing": "Tautan undangan ini tidak berfungsi. Periksa apakah tautan tersalin utuh, atau minta tautan baru ke orang yang mengirimnya.",
   "teamLink.joinedNotice": "{name} bergabung lewat tautan undangan tim.",
   "teamLink.joinedNoticeGone": "Seseorang bergabung lewat tautan undangan tim.",
+  "teamLink.limited": "Terlalu banyak percobaan gagal belakangan ini: tautan diblokir sampai {time}. Mengganti tautan langsung membukanya lagi.",
+  "teamLink.adminHint": "Admin ini bisa melihat tautan undangan tim. Jika tautan itu mungkin sudah tersebar, ganti dengan tautan baru di kartu tautan undangan tim pada halaman Anggota.",
   "audit.act.team_link.create": "Membuat tautan undangan tim",
   "audit.act.team_link.revoke": "Mematikan tautan undangan tim",
   "audit.act.team_link.join": "Bergabung lewat tautan undangan tim",

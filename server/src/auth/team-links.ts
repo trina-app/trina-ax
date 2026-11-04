@@ -36,7 +36,7 @@ import type { Principal } from '../policy/access'
 import { assertSeatFree, seatLimit, seatsUsed } from '../system/limits'
 import { resolveLayout } from '../system/layout'
 import { linkBase, viaOf } from './accounts'
-import { msg, weakPasswordMessage } from './messages'
+import { msg, weakPasswordMessage, type MessageKey } from './messages'
 import { hashPassword, hashToken, newToken, passwordProblem } from './passwords'
 import { linkKey, tokenIpKeys } from './rate-limit'
 import { authOf } from './service'
@@ -46,17 +46,8 @@ const DAY_MS = 86_400_000
 const SEAL_KIND = 'team-link'
 const aadOf = (id: string) => `team-link:${id}`
 
-const M = {
-  expired: { ko: '기간이 지난 초대 링크예요. 링크를 보낸 분께 새 링크를 부탁해 주세요.', en: 'This invite link has expired. Ask the person who sent it for a new link.', id: 'Tautan undangan ini sudah kedaluwarsa. Minta tautan baru ke orang yang mengirimnya.', ja: 'この招待リンクは期限切れです。送ってくれた人に新しいリンクを頼んでください。', es: 'Este enlace de invitación venció. Pida uno nuevo a quien se lo envió.' },
-  used_up: { ko: '이 링크로 들어올 수 있는 인원이 다 찼어요. 링크를 보낸 분께 새 링크를 부탁해 주세요.', en: 'Everyone this link was for has joined already. Ask the person who sent it for a new link.', id: 'Kuota tautan ini sudah habis. Minta tautan baru ke orang yang mengirimnya.', ja: 'このリンクで参加できる人数に達しました。送ってくれた人に新しいリンクを頼んでください。', es: 'Este enlace ya alcanzó su número de usos. Pida uno nuevo a quien se lo envió.' },
-  revoked: { ko: '더 이상 쓰지 않는 초대 링크예요. 링크를 보낸 분께 새 링크를 부탁해 주세요.', en: 'This invite link is no longer in use. Ask the person who sent it for a new link.', id: 'Tautan undangan ini tidak dipakai lagi. Minta tautan baru ke orang yang mengirimnya.', ja: 'この招待リンクはもう使えません。送ってくれた人に新しいリンクを頼んでください。', es: 'Este enlace de invitación ya no se usa. Pida uno nuevo a quien se lo envió.' },
-  full: { ko: '팀 인원이 다 찼어요. 링크를 보낸 분께 알려 주세요.', en: 'The team has no free seats right now. Let the person who sent the link know.', id: 'Kursi tim sedang penuh. Beri tahu orang yang mengirim tautan.', ja: 'チームの人数が上限に達しています。リンクを送ってくれた人に伝えてください。', es: 'El equipo no tiene plazas libres ahora. Avise a quien le envió el enlace.' },
-  tooMany: { ko: '이 링크로 가입을 너무 자주 시도했어요. 잠시 뒤 다시 해 주세요.', en: 'Too many attempts to join with this link. Please try again in a little while.', id: 'Terlalu banyak percobaan bergabung dengan tautan ini. Coba lagi sebentar lagi.', ja: 'このリンクでの参加の試行が多すぎます。しばらくしてからもう一度お試しください。', es: 'Demasiados intentos de unirse con este enlace. Vuelva a intentarlo en un rato.' },
-  overPlan: { ko: '요금제의 인원 한도({n}명)보다 많이 정할 수 없어요.', en: 'It cannot be more than the plan\'s member limit ({n}).', id: 'Tidak bisa lebih dari batas anggota paket ({n}).', ja: 'プランのメンバー上限（{n}）より多くは設定できません。', es: 'No puede superar el límite de miembros del plan ({n}).' },
-  skillNotForNew: { ko: '새로 들어올 사람이 열 수 없는 스킬이에요. 그룹을 함께 고르거나 다른 스킬을 골라 주세요.', en: 'Someone joining with these groups could not open this skill. Pick a group that can, or another skill.', id: 'Orang yang bergabung dengan grup ini tidak bisa membuka skill ini. Pilih grup yang bisa, atau skill lain.', ja: 'このグループで参加する人はこのスキルを開けません。開けるグループか、別のスキルを選んでください。', es: 'Quien se una con estos grupos no podría abrir esta habilidad. Elija un grupo que pueda o otra habilidad.' },
-  noKey: { ko: '링크를 안전하게 보관할 열쇠를 만들지 못했어요. 서버 관리자에게 알려 주세요.', en: 'The key that keeps the link safe could not be made. Tell whoever runs the server.', id: 'Kunci untuk menyimpan tautan dengan aman tidak bisa dibuat. Beri tahu pengelola server.', ja: 'リンクを安全に保管する鍵を作成できませんでした。サーバーの管理者に知らせてください。', es: 'No se pudo crear la clave que protege el enlace. Avise a quien administra el servidor.' },
-} satisfies Record<string, Record<Locale, string>>
-const say = (k: keyof typeof M, locale: Locale, n?: number) => (M[k][locale] ?? M[k].en).replace('{n}', String(n ?? ''))
+const KEYS = { expired: 'teamLinkExpired', used_up: 'teamLinkUsedUp', revoked: 'teamLinkRevoked', full: 'teamLinkFull', tooMany: 'teamLinkTooMany', overPlan: 'teamLinkOverPlan', skillNotForNew: 'teamLinkSkillNotForNew', noKey: 'teamLinkNoKey' } as const satisfies Record<string, MessageKey>
+const say = (k: keyof typeof KEYS, locale: Locale, n?: number) => msg(KEYS[k], locale).replace('{n}', String(n ?? ''))
 const problemText = (p: TeamLinkProblem, locale: Locale) => say(p === 'stopped' ? 'revoked' : p, locale)
 
 interface Row {
@@ -135,7 +126,16 @@ function toTeamLink(c: Context<AppEnv>, ctx: AppContext, r: Row, viewer: Princip
     skill: r.skill_path ? { path: r.skill_path, name: (viewer && teamSkill(ctx, viewer, r.skill_path)?.name) ?? null } : null,
     maxUses: r.max_uses, uses: r.uses, createdBy: userRef(ctx.db, r.created_by), createdAt: r.created_at, expiresAt: r.expires_at,
     state: stateOf(ctx.db, r, authOf(ctx).now()),
+    limitedUntil: limitedUntil(ctx, r.id),
   }
+}
+
+/** While the per-link limit refuses every join (someone holding the link kept failing), until when; else null. The
+ * card says so: the link looks active but lets nobody in, and a new link is not limited. */
+function limitedUntil(ctx: AppContext, id: string): string | null {
+  const a = authOf(ctx)
+  const wait = a.limiter.retryAfter([linkKey(id)])
+  return wait > 0 ? new Date(a.now() + wait * 1000).toISOString() : null
 }
 
 const viewerOf = (ctx: AppContext, userId: string): Principal | null => { try { return ctx.files.principal(userId) } catch { return null } }
@@ -207,7 +207,7 @@ export function revokeTeamLink(c: Context<AppEnv>, ctx: AppContext): void {
  * the person again would bring back a link they had posted in a chat.
  */
 export function revokeTeamLinksBy(ctx: AppContext, userId: string): number {
-  return ctx.db.query('UPDATE team_links SET revoked_at = ?, token_enc = NULL WHERE created_by = ? AND revoked_at IS NULL').run(new Date().toISOString(), userId).changes
+  return ctx.db.query('UPDATE team_links SET revoked_at = ?, token_enc = NULL WHERE created_by = ? AND revoked_at IS NULL').run(new Date(authOf(ctx).now()).toISOString(), userId).changes
 }
 
 /** Unknown tokens count against the caller's IP, like invite and reset tokens (accounts.ts). */

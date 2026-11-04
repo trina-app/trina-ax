@@ -48,6 +48,9 @@ export const TeamLink = z.object({
   createdAt: IsoTime,
   expiresAt: IsoTime,
   state: TeamLinkState,
+  /** too many join attempts through it lately (the per-link limit): it refuses everyone until then; a new link is not
+   * limited. null or absent: not limited */
+  limitedUntil: IsoTime.nullable().optional(),
 })
 export type TeamLink = z.infer<typeof TeamLink>
 

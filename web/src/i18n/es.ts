@@ -2579,6 +2579,8 @@ export const es: Record<MessageKey, string> = {
   "teamLink.problem.missing": "Este enlace de invitación no funciona. Compruebe que lo copió completo o pida uno nuevo a quien se lo envió.",
   "teamLink.joinedNotice": "{name} se unió con el enlace de invitación del equipo.",
   "teamLink.joinedNoticeGone": "Alguien se unió con el enlace de invitación del equipo.",
+  "teamLink.limited": "Demasiados intentos fallidos últimamente: el enlace está bloqueado hasta el {time}. Cambiar el enlace lo desbloquea enseguida.",
+  "teamLink.adminHint": "Este administrador podía ver el enlace de invitación del equipo. Si puede haberse difundido, cámbielo por uno nuevo en la tarjeta del enlace de invitación del equipo en Miembros.",
   "audit.act.team_link.create": "Creó el enlace de invitación del equipo",
   "audit.act.team_link.revoke": "Desactivó el enlace de invitación del equipo",
   "audit.act.team_link.join": "Se unió con el enlace de invitación del equipo",

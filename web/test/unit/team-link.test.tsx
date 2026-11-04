@@ -82,6 +82,12 @@ describe('the panel (Admin › Members, the wizard)', () => {
     expect(html).toContain('data-testid="team-link-revoke"')
     expect(html).not.toContain('data-testid="team-link-form"')
   })
+  test('a link held back by its limit says so, and that a new link lifts it', () => {
+    expect(view(LINK)).not.toContain('data-testid="team-link-limited"')
+    const html = view({ ...LINK, link: { ...LINK.link!, limitedUntil: '2026-11-04T10:00:00.000Z' } })
+    expect(html).toContain('data-testid="team-link-limited"')
+    expect(html).toContain('Replacing the link lifts it at once.')
+  })
   test('no link yet: the form, its uses default to the seats left and never above the plan', () => {
     const html = view({ link: null, seats: { used: 4, limit: 10 } }, [{ path: 'skills/marketing/ad-copy/SKILL.md', name: 'ad-copy', description: '' }])
     expect(html).toContain('data-testid="team-link-form"')

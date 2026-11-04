@@ -178,8 +178,13 @@ describe('joining', () => {
     expect(r.status).toBe(429)
     expect(Number(r.headers.get('retry-after') ?? r.body.error.retryAfter)).toBeGreaterThan(0)
     expect(audits(h, 'team_link.rate_limited').at(-1)).toMatchObject({ target: link.id })
+    // the card says so: the link looks active but lets nobody in until then
+    const shown = (await owner.call('GET', '/api/admin/team-link')).link
+    expect(shown.state).toBe('active')
+    expect(Date.parse(shown.limitedUntil) - Date.now()).toBeGreaterThan(60_000)
     // another link has its own counter
     const other = (await owner.call('POST', '/api/admin/team-link', {})).link
+    expect(other.limitedUntil).toBeNull()
     expect((await join(tokenOf(other.url), {}, h.client({ ip: '10.7.0.10' }))).status).toBe(201)
   })
 

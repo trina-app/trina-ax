@@ -123,6 +123,11 @@ export function TeamLinkView({ data, inviter, groups, skills, fixedSkillPath, bu
   const groupNames = link.groupIds.map((id) => groups.find((g) => g.id === id)?.name).filter((x): x is string => !!x)
   return (
     <div className="space-y-4" data-testid="team-link">
+      {link.limitedUntil && (
+        <p className="rounded-lg bg-warn-soft px-3 py-2 text-sm text-warn" data-testid="team-link-limited">
+          {t('teamLink.limited', { time: formatDateTime(link.limitedUntil, locale) })}
+        </p>
+      )}
       <div className="space-y-1.5">
         <p className="text-xs font-medium text-muted">{t('teamLink.link')}</p>
         <div className="flex items-center gap-2 rounded-lg border border-line bg-subtle px-3 py-2">

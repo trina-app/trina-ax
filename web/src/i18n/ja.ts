@@ -2579,6 +2579,8 @@ export const ja: Record<MessageKey, string> = {
   "teamLink.problem.missing": "この招待リンクは使えません。リンクを最後までコピーしたか確認するか、送ってくれた人に新しいリンクを頼んでください。",
   "teamLink.joinedNotice": "{name}さんがチーム招待リンクから参加しました。",
   "teamLink.joinedNoticeGone": "チーム招待リンクから誰かが参加しました。",
+  "teamLink.limited": "最近失敗した試行が多いため、リンクは{time}まで一時的にブロックされています。リンクを切り替えるとすぐに解除されます。",
+  "teamLink.adminHint": "この管理者はチーム招待リンクを見ることができました。リンクが広まった可能性がある場合は、メンバー画面のチーム招待リンクで新しいリンクに切り替えてください。",
   "audit.act.team_link.create": "チーム招待リンクを作成",
   "audit.act.team_link.revoke": "チーム招待リンクを無効化",
   "audit.act.team_link.join": "チーム招待リンクで参加",
