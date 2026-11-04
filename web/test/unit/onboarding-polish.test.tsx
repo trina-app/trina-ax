@@ -119,7 +119,7 @@ describe('the team link on a phone: one primary action, no boxes', () => {
     expect(html).toContain(`>광고 문구 · ${twin.path}</option>`)
   })
 
-  test('the invite step\'s "다 했어요" is not a second primary', async () => {
+  test('the invite step\'s "다 했어요" is not a second primary; the link waits folded under "링크 관리"', async () => {
     installDom()
     const realFetch = globalThis.fetch
     globalThis.fetch = (async (input: RequestInfo | URL) => {
@@ -130,11 +130,21 @@ describe('the team link on a phone: one primary action, no boxes', () => {
     try {
       const m = await mount(<MemoryRouter><InviteStep onDone={noop} onSkip={noop} /></MemoryRouter>)
       try {
-        await m.until(() => m.find('team-link-url'), 'the link')
+        await m.until(() => m.find('team-link-message'), 'the link')
         const primaries = [...m.html().matchAll(/<button[^>]*>/g)].map((b) => b[0]).filter((b) => b.includes('bg-accent '))
         expect(primaries).toHaveLength(1)
         expect(primaries[0]).toContain('team-link-copy-message')
         expect(m.get('invite-step-done').getAttribute('class')).not.toContain('bg-accent ')
+        // the rest is one quiet "링크 관리" row, folded; opened, still one primary and no "링크 끄기"
+        expect(m.get('team-link-manage').getAttribute('class')).toContain('text-muted')
+        expect(m.get('team-link-manage').textContent).toContain(ko('teamLink.manage'))
+        expect(m.find('team-link-url')).toBeNull()
+        await m.click('team-link-manage')
+        expect(m.find('team-link-url')).not.toBeNull()
+        expect(m.find('team-link-revoke')).toBeNull()
+        expect([...m.html().matchAll(/<button[^>]*>/g)].map((b) => b[0]).filter((b) => b.includes('bg-accent '))).toHaveLength(1)
+        // no new frame: the fold adds no border of its own
+        expect(/<div[^>]*data-testid="team-link-manage-panel"[^>]*>/.exec(m.html())?.[0]).not.toContain('border')
       } finally { await m.unmount() }
     } finally {
       globalThis.fetch = realFetch

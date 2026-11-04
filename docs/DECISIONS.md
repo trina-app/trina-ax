@@ -7292,3 +7292,72 @@ The UX pass on the onboarding (A–E, W, G) for Korean marketers. Placement: Tea
   "/" menu finds a title, one primary, no frames, the checklist with an active, expired, used-up or no link),
   `team-link-skill-form.test.tsx` (join page and dialog by title). Screens checked at 390px (dark and light) and 1280px
   against the mock.
+
+## X — Lean onboarding: two steps, a short form, one preview, a folded invite, one suggestion (feat/onboarding-x, 2026-11-04)
+
+The owner's direction for this pass: fewer things on screen, one primary action per screen, one contextual suggestion
+instead of a row of buttons, and on phones fewer frames rather than more padding. Placement: Team AX core (welcome
+steps, skill forms, chat, team link, files). Every addition removed something.
+
+- **Two steps.** The team type is no longer a step: `WELCOME_STEPS` is profile → result → invite, the bar says "1/2 회사
+  소개 · 2/2 첫 결과", and Home's entry counts n/2 (`lib/welcome.ts stepTotal()` for the number; the Home line itself is
+  stream Y's). Above the first step one quiet line: "마케팅 스킬 7개를 넣어 둘게요 · 다른 팀이에요" (`WELCOME_PACK_SKILLS`, a
+  test holds it to the pack). "다른 팀이에요" opens the four types in place as chips; a type without a pack keeps them open
+  with the honest "준비 중" note and records the type at once. Leaving the first step (saved or put off) installs the pack
+  through the same `POST /api/onboarding/welcome/pack`, so W's guarantees hold unchanged (once, never restoring a deleted
+  skill, already-installed teams recorded without installing, blocked = nothing recorded). A blocked install moves on to
+  the first result, which says why and offers [마케팅 스킬 묶음 넣기] (a click). Another type installs nothing; its first
+  result offers the pack on a click, as before. A `team` step in a row written before is kept and no longer read; the
+  update body refuses it. Finished = profile and result done and the invite answered.
+- **Short skill forms.** `SkillInput` gains `type: "choice"` (chips, one pick; `options` 2–8 of `{ value, label }`, an
+  optional `default`; no placeholder, prefill or multiline) and `advanced: true` (folded under "더 자세히 정하기", still
+  sent when filled, from the profile too; a required one left empty opens the fold). Strict as before: a choice without
+  options, a default that is no option, or text-only keys on a choice make the form an `inputs` issue (the skill still
+  loads). The message carries the option's label. Chips are radio inputs under labels (arrows and screen readers work).
+  The ad copy form shows 알릴 제품·서비스 and the channel chips (인스타그램 피드 default); audience, must-include and tone
+  are folded. The welcome step drops the skill's description (the heading says it) and its button says 「광고 문구 만들기」;
+  at 390×844 the button is on screen without scrolling (checked on the dev server).
+- **One preview, three copyable options.** The ad copy skill (ko, en) first writes one caption line ("추천 N안을 …에
+  올리면 이렇게 보여요"), then makes ONE html artifact of the recommended option in a generic frame for the channel (feed
+  card, search result, banner, SMS bubble), the company name only when the profile shows it, no real logos, trademarks,
+  external images, fonts or scripts, at most 360px wide, no tabs or channel switcher; then the three options, each as
+  one blockquote. Text messages start with (광고) and end with an opt-out blank. Installed copies are not changed (no
+  file is); a team that installed the earlier text sees it reported `kept` on a later install.
+  - Artifact cards where the AI made them: `Step.textAt` (optional) records how much answer text came before the step;
+    the chat shows the cards at the first artifact's point. Older answers, or a cut inside a code block, keep the cards
+    after the text.
+  - Each quote copies on its own: every Markdown blockquote gets a quiet copy button (always under it on phones, on hover
+    or focus elsewhere), no frame added; quotes are upright and without the typography's added quote marks (Korean has
+    no italics, and an option to copy is not a citation).
+- **The invite step, folded** (`TeamLinkPanel folded`): the message, one primary 「메시지 복사」, and one collapsed quiet
+  「링크 관리」 row holding the link text, 링크만 복사, QR, uses/expiry/skill/groups/member note and 새 링크로 바꾸기. Before a
+  link exists, 「초대 링크 만들기」 is the one visible action with its settings folded under the same row (a number that
+  does not fit keeps it open). The invite step never turns a link off; 「링크 끄기」 stays on Admin › Members, whose card
+  is unchanged.
+- **One suggestion under a result** (`components/onboarding/ResultSuggestion.tsx`, one line above the message box where
+  the invite bar was; never two at once): the lead's first result keeps the invite bar; otherwise
+  `GET /api/onboarding/suggestion` (own chats; `server/src/onboarding/suggestions.ts`) answers for the newest answer:
+  - the same person ran the same team skill in at least two successful answers (not scheduled runs; "/name", a form or
+    the skill tool) and no task of theirs runs it (an instruction starting with "/name", or a scheduled run of it):
+    "매주 이 시간에 자동으로 받을까요?" [예약하기]. Tasks are made one way only, by the AI's schedule card, so the button
+    sends "매주 {요일} {시각}에 아래 요청을 그대로 실행하는 예약 작업을 만들어 줘" with the original request (the "/ad-copy"
+    message with its form lines) in this chat; the person confirms the title, time and whole instruction on the card.
+    The weekday and time are the browser's now; the card shows the team time zone's.
+  - else a report-like answer (the weekly report, or 2,000+ characters of prose with code blocks left out): [PPT로
+    만들기], which sends "이 내용을 PPT로 만들어 줘".
+  - Closing one (X) closes it for good for that person: `suggestion_dismissals` (migration 229, per person, keys `ppt`
+    and `schedule:<skill path>`), `POST /api/onboarding/suggestion/dismiss`. Acting on one only hides it under that answer.
+- **Empty pack folders say what goes there.** The folder names moved to shared `PACK_FOLDERS` (the server installs from
+  the same table); the empty view of shared/브랜드, 캠페인, 보고서 or 경쟁사 (any language) adds one line above the existing
+  drop zone. No new cards elsewhere.
+- Removed: the team-type step and its cards, the "다음" button, the skill description above the welcome form, the link,
+  QR, facts and "링크 끄기" from the open invite step, five unused i18n keys.
+- Tests: `tests/unit/b-onboarding-welcome.test.ts` (two steps, the team step refused, an older row finishing, the pack
+  count), `tests/unit/c-skill-inputs.test.ts` (choice and advanced rules), `tests/unit/b-result-suggestions.test.ts`
+  (2nd run, failed and scheduled runs, an existing task, the skill tool, PPT by length or skill, code is no prose,
+  schedule before PPT, closed for good per person, own chats, keys), `tests/unit/b-step-text-at.test.ts`,
+  `c-onboarding-pack` (folders from the shared table), `web/test/unit/welcome.test.tsx` (the line, the types in place,
+  install on leaving, never twice, blocked, other types, the short form and its message),
+  `skill-form(-dom).test.tsx` (chips, defaults, the fold), `result-suggestion.test.tsx`, `team-link.test.tsx`,
+  `onboarding-polish.test.tsx`, `artifact-placement.test.tsx`, `markdown-render.test.tsx`, `web/test/e2e/auth.spec.ts`.
+  Walked through on a dev server with the real AI at 390px.

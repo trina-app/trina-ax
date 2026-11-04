@@ -10,7 +10,7 @@ import { checkSkill, listSkills, skillIssues } from '../../server/src/chat/skill
 import { setSetting } from '../../server/src/admin/settings'
 import { earlierPackTexts, SKILL_PACKS } from '../../server/src/onboarding/skill-packs'
 import { PROFILE_PATH } from '../../server/src/onboarding/profile'
-import { CompanyProfileResponse, profilePrefill } from '@mycel/shared/api'
+import { CompanyProfileResponse, packFolderKind, profilePrefill } from '@mycel/shared/api'
 
 let h: Harness
 afterEach(async () => { await h?.close() })
@@ -206,4 +206,23 @@ test('with a saved company profile: the install leaves it alone, it is no skill,
   for (const key of asked) expect(prefill[key], key).toBeTruthy()
   expect(prefill['company.products']).toBe('Desk fans\nFan filters')
   expect(prefill['company.tone']).toBe('friendly, plain')
+})
+
+test('the team folders come from the shared table (same names, same order); the Files screen knows each one', () => {
+  expect(SKILL_PACKS.marketing.folders).toEqual({
+    ko: ['브랜드', '캠페인', '보고서', '경쟁사'],
+    en: ['Brand', 'Campaigns', 'Reports', 'Competitors'],
+    id: ['Merek', 'Kampanye', 'Laporan', 'Pesaing'],
+    ja: ['ブランド', 'キャンペーン', 'レポート', '競合'],
+    es: ['Marca', 'Campañas', 'Informes', 'Competencia'],
+  })
+  expect(packFolderKind('shared/브랜드')).toBe('brand')
+  expect(packFolderKind('shared/Campaigns/')).toBe('campaigns')
+  expect(packFolderKind('shared/レポート')).toBe('reports')
+  // a decomposed Korean name (as a Mac may write it) is the same folder
+  expect(packFolderKind('shared/' + '경쟁사'.normalize('NFD'))).toBe('competitors')
+  expect(packFolderKind('shared/브랜드/로고')).toBeNull()
+  expect(packFolderKind('users/ada/브랜드')).toBeNull()
+  expect(packFolderKind('shared/brand')).toBeNull()
+  expect(packFolderKind('')).toBeNull()
 })

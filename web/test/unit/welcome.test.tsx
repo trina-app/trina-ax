@@ -1,7 +1,8 @@
-// Onboarding wave 2, the welcome steps (docs/DECISIONS.md "W — Welcome steps"), rendered and clicked against a small
-// fake of the server's rules (tests/unit/b-onboarding-welcome.test.ts checks the server itself):
+// Onboarding wave 2, the welcome steps (docs/DECISIONS.md "W — Welcome steps", "X — Lean onboarding"), rendered and
+// clicked against a small fake of the server's rules (tests/unit/b-onboarding-welcome.test.ts checks the server itself):
 // - /welcome is the owner's: members and admins are sent Home; right after /setup the owner lands there;
-// - choosing 마케팅 installs the pack once; resuming (another device) opens the next step and never installs again;
+// - two steps (회사 소개 → 첫 결과); one quiet line above the first says the marketing pack goes in ("다른 팀이에요" opens
+//   the other types in place); leaving the first step installs it once; resuming never installs again;
 // - the first result: the ad copy form, which opens its chat; without a usable AI, A's connect button instead;
 // - the chat of the first result offers the invite with that skill; Home offers to continue until finished or hidden;
 // - the company profile step (D) shows A's connect button instead of starting a draft that cannot run.
@@ -15,7 +16,7 @@ import { AfterSetup } from '../../src/App'
 import { WelcomeInviteBar } from '../../src/components/onboarding/WelcomeInviteBar'
 import { WelcomeResume } from '../../src/components/onboarding/WelcomeResume'
 import ProfileStep from '../../src/components/onboarding/ProfileStep'
-import { doneCount, nextStep, resumeStep, showInviteBar, showResume } from '../../src/lib/welcome'
+import { doneCount, nextStep, resumeStep, showInviteBar, showResume, stepTotal, wantsPack } from '../../src/lib/welcome'
 import { rememberSetupSite, setupSite } from '../../src/lib/setupLink'
 import { useAiAccess } from '../../src/store/aiAccess'
 import { useSession } from '../../src/store/session'
@@ -29,10 +30,17 @@ const meOf = (role: 'owner' | 'admin' | 'member') => ({
   groups: [], team: { name: 'Acme', defaultLocale: 'ko' },
   session: { id: '01900000-0000-7000-8000-00000000000a', client: 'web', expiresAt: '2026-12-04T00:00:00.000Z' }, server: { version: '0', dev: true },
 })
-const adCopy: SkillInfo = { path: WELCOME_RESULT_SKILL, name: 'ad-copy', description: '광고 문구 — 3안', inputs: [{ name: 'product', label: '알릴 제품·서비스', required: true, prefill: 'company.products' }] }
+const adCopy: SkillInfo = {
+  path: WELCOME_RESULT_SKILL, name: 'ad-copy', title: '광고 문구', description: '광고 문구 — 알릴 제품과 실을 곳을 받아 3안을 써요', inputs: [
+    { name: 'product', label: '알릴 제품·서비스', required: true, prefill: 'company.products' },
+    { name: 'channel', label: '어디에 실을까요', type: 'choice', default: 'instagram', options: [{ value: 'instagram', label: '인스타그램 피드' }, { value: 'search', label: '네이버 검색광고' }, { value: 'banner', label: '카카오 배너' }, { value: 'sms', label: '문자' }] },
+    { name: 'audience', label: '누구에게 알리나요', prefill: 'company.audience', advanced: true },
+    { name: 'tone', label: '말투', advanced: true },
+  ],
+}
 const fresh = (): WelcomeProgress => ({
   startedAt: '2026-11-04T00:00:00.000Z', updatedAt: '2026-11-04T00:00:00.000Z', teamType: null,
-  steps: { team: null, profile: null, result: null, invite: null }, pack: null, resultChatId: null, inviteShownAt: null, site: null, dismissedAt: null, finishedAt: null,
+  steps: { profile: null, result: null, invite: null }, pack: null, resultChatId: null, inviteShownAt: null, site: null, dismissedAt: null, finishedAt: null,
 })
 const PACK = { id: 'marketing' as const, at: '2026-11-04T00:00:00.000Z', skillPath: WELCOME_RESULT_SKILL }
 
@@ -50,7 +58,7 @@ function apply(u: WelcomeUpdate): WelcomeProgress {
   if (u.inviteShown) p.inviteShownAt ??= '2026-11-04T00:01:00.000Z'
   if (u.site) p.site = u.site
   if (u.dismissed !== undefined) p.dismissedAt = u.dismissed ? '2026-11-04T00:02:00.000Z' : null
-  if (!p.finishedAt && p.steps.team === 'done' && p.steps.profile === 'done' && p.steps.result === 'done' && p.steps.invite) p.finishedAt = '2026-11-04T00:03:00.000Z'
+  if (!p.finishedAt && p.steps.profile === 'done' && p.steps.result === 'done' && p.steps.invite) p.finishedAt = '2026-11-04T00:03:00.000Z'
   progress = { ...p, steps: { ...p.steps } }
   return progress
 }
@@ -127,17 +135,24 @@ const stepOf = (m: Mounted) => m.container.querySelector('[data-step]')?.getAttr
 
 describe('where the steps go', () => {
   test('resume: the first open step, then a put-off one; after a step, only open steps ahead of it', () => {
-    expect(resumeStep(null)).toBe('team')
+    expect(resumeStep(null)).toBe('profile')
+    expect(stepTotal()).toBe(2)
     const p = fresh()
-    p.steps = { team: 'done', profile: 'skipped', result: null, invite: null }
+    p.steps = { profile: 'skipped', result: null, invite: null }
     expect(resumeStep(p)).toBe('result')
-    expect(nextStep(p, 'team')).toBe('result')
-    p.steps = { team: 'done', profile: 'skipped', result: 'done', invite: 'skipped' }
+    expect(nextStep(p, 'profile')).toBe('result')
+    p.steps = { profile: 'skipped', result: 'done', invite: 'skipped' }
     // everything has an answer: "later" is now, the put-off profile comes back from Home
     expect(resumeStep(p)).toBe('profile')
     // but never straight after putting off the invite (Home instead)
     expect(nextStep(p, 'invite')).toBeNull()
-    expect(doneCount(p)).toBe(2)
+    expect(doneCount(p)).toBe(1)
+    // the pack goes in when the first step is left: no type yet or marketing, and not installed yet
+    expect(wantsPack(fresh())).toBe(true)
+    expect(wantsPack({ ...fresh(), teamType: 'marketing' })).toBe(true)
+    expect(wantsPack({ ...fresh(), teamType: 'sales' })).toBe(false)
+    expect(wantsPack({ ...fresh(), pack: PACK })).toBe(false)
+    expect(wantsPack(null)).toBe(false)
     expect(showResume(p)).toBe(true)
     expect(showResume({ ...p, dismissedAt: 'x' })).toBe(false)
     expect(showResume({ ...p, finishedAt: 'x' })).toBe(false)
@@ -190,78 +205,110 @@ describe('/welcome', () => {
     }
   })
 
-  test('마케팅 installs the pack once; resuming on another device opens the next step and never installs again', async () => {
+  test('one quiet line promises the pack; leaving the first step installs it once; resuming never installs again', async () => {
     signIn('owner')
     rememberSetupSite('https://acme.example/')
     let m = await app()
     try {
-      await m.until(() => m.find('welcome-team'), 'step 1')
+      await m.until(() => stepOf(m) === 'profile', 'step 1')
       // the first visit started the progress on the server, with the setup link's website (for any device)
       expect(called('PATCH /api/onboarding/welcome')[0]!.body).toEqual({ site: 'https://acme.example/' })
-      expect(m.get('welcome-progress').textContent).toContain('1/3 팀 유형')
-      expect(m.html()).toContain(translate('ko', 'welcome.team.title'))
-      // 영업 has no pack: it says so (honestly) before going on
+      expect(m.get('welcome-progress').textContent).toContain('1/2 회사 소개')
+      expect(m.get('welcome-progress').textContent).toContain('2/2 첫 결과')
+      expect(m.get('welcome-pack-line').textContent).toContain('마케팅 스킬 7개를 넣어 둘게요')
+      expect(m.get('welcome-pack-line').textContent).toContain(translate('ko', 'welcome.pack.other'))
+      // "다른 팀이에요": the other types open in place; 영업 has no pack and says so (honestly)
+      await m.click('welcome-other-team')
+      await m.until(() => m.find('welcome-team'), 'the types')
+      expect(m.get('welcome-team-marketing').getAttribute('aria-checked')).toBe('true')
       await m.click('welcome-team-sales')
+      await m.until(() => m.find('welcome-team-no-pack'), 'the note')
       expect(m.get('welcome-team-no-pack').textContent).toBe(translate('ko', 'welcome.team.noPack'))
+      expect(progress!.teamType).toBe('sales')
       await m.click('welcome-team-marketing')
-      expect(m.get('welcome-team-marketing').getAttribute('aria-pressed')).toBe('true')
-      await m.click('welcome-next')
-      await m.until(() => stepOf(m) === 'profile', 'step 2')
-      expect(called('POST /api/onboarding/welcome/pack')).toHaveLength(1)
-      expect(progress!.teamType).toBe('marketing')
-      expect(progress!.steps.team).toBe('done')
+      await m.until(() => progress!.teamType === 'marketing', 'marketing again')
+      expect(called('POST /api/onboarding/welcome/pack')).toEqual([])
+      // "나중에 하기" on the profile: the pack goes in (once), on to the first result
       await m.until(() => m.find('profile-step-site'), 'the profile step (D)')
+      const later = (globalThis.document as any).body.querySelectorAll('button').find((b: any) => b.textContent === translate('ko', 'welcome.later'))
+      await m.click(later)
+      await m.until(() => stepOf(m) === 'result', 'step 2')
+      expect(called('POST /api/onboarding/welcome/pack')).toHaveLength(1)
+      expect(progress!.pack).toEqual(PACK)
+      expect(progress!.steps.profile).toBe('skipped')
+      expect(m.find('welcome-progress')!.querySelector('[aria-current="step"]')!.textContent).toContain('2/2 첫 결과')
     } finally { await m.unmount() }
     sessionStorage.clear()
 
-    // another device: the progress comes from the server, the steps open on the profile
+    // another device: the progress comes from the server, the steps open on the first result
     useWelcome.getState().reset()
     calls = []
     m = await app()
     try {
-      await m.until(() => stepOf(m) === 'profile', 'resumed on step 2')
-      // the website came from the server's copy, not this tab
+      await m.until(() => stepOf(m) === 'result', 'resumed on step 2')
+      // back to step 1: the website came from the server's copy, the pack is in (no line), leaving again installs nothing
+      await m.click('welcome-back')
       await m.until(() => m.find('profile-step-site'), 'the profile step')
       expect((m.get('profile-step-site').querySelector('input[inputmode="url"]') as unknown as { value: string }).value).toBe('https://acme.example/')
-      expect(m.find('welcome-progress')!.querySelector('[aria-current="step"]')!.textContent).toContain('2/3 회사 소개')
-      // back to step 1 and the same choice again: no second install
-      await m.click('welcome-back')
-      await m.until(() => m.find('welcome-team'), 'step 1 again')
-      expect(m.get('welcome-team-marketing').getAttribute('aria-pressed')).toBe('true')
-      expect(m.html()).toContain(translate('ko', 'welcome.team.packThere'))
-      await m.click('welcome-next')
-      await m.until(() => stepOf(m) === 'profile', 'step 2 again')
-      expect(called('POST /api/onboarding/welcome/pack')).toEqual([])
-      // "나중에 하기" on the profile: put off, on to the first result
-      await m.until(() => m.html().includes(translate('ko', 'welcome.later')), 'the later button')
+      expect(m.find('welcome-pack-line')).toBeNull()
       const later = (globalThis.document as any).body.querySelectorAll('button').find((b: any) => b.textContent === translate('ko', 'welcome.later'))
       await m.click(later)
-      await m.until(() => stepOf(m) === 'result', 'step 3')
-      expect(progress!.steps.profile).toBe('skipped')
+      await m.until(() => stepOf(m) === 'result', 'step 2 again')
+      expect(called('POST /api/onboarding/welcome/pack')).toEqual([])
     } finally { await m.unmount() }
   })
 
-  test('the first result: the ad copy form, filled from the profile, opens its chat and records it', async () => {
+  test('another team type: leaving the first step installs nothing; the first result offers the pack on a click', async () => {
     signIn('owner')
-    progress = { ...fresh(), teamType: 'marketing', pack: PACK, steps: { team: 'done', profile: 'done', result: null, invite: null } }
+    progress = { ...fresh(), teamType: 'operations' }
+    const m = await app()
+    try {
+      await m.until(() => m.find('welcome-team-no-pack'), 'the types stay open with the note')
+      expect(m.get('welcome-team-operations').getAttribute('aria-checked')).toBe('true')
+      await m.until(() => m.find('profile-step-site'), 'the profile step (D)')
+      const later = (globalThis.document as any).body.querySelectorAll('button').find((b: any) => b.textContent === translate('ko', 'welcome.later'))
+      await m.click(later)
+      await m.until(() => m.find('welcome-result-no-pack'), 'the offer')
+      expect(called('POST /api/onboarding/welcome/pack')).toEqual([])
+      expect(progress!.teamType).toBe('operations')
+    } finally { await m.unmount() }
+  })
+
+  test('the first result: a short ad copy form (product, channel chips, the rest folded) opens its chat and records it', async () => {
+    signIn('owner')
+    progress = { ...fresh(), teamType: 'marketing', pack: PACK, steps: { profile: 'done', result: null, invite: null } }
     const m = await app()
     try {
       await m.until(() => m.find('skill-form'), 'the ad copy form')
       expect(m.html()).toContain(translate('ko', 'welcome.result.title'))
       expect(m.get('skill-form').getAttribute('data-path')).toBe(WELCOME_RESULT_SKILL)
+      // the heading says what it does: the skill's description is not shown a second time
+      expect(m.get('skill-form').textContent).not.toContain('알릴 제품과 실을 곳을 받아')
+      // the channel as chips, Instagram picked; the other fields folded
+      await m.until(() => m.find('skill-choice-channel-instagram')?.getAttribute('data-on') === 'true', 'the default chip')
+      expect(m.find('skill-input-audience')).toBeNull()
+      expect(m.get('skill-form-more').getAttribute('aria-expanded')).toBe('false')
+      expect(m.get('skill-form-run').textContent).toContain('광고 문구 만들기')
       await m.until(() => !m.get('skill-form-run').hasAttribute('disabled'), 'Run on')
       await m.type('skill-input-product', '종이 플래너')
+      // a browser checks the radio before the click's listeners run, past React's value tracker (this small DOM does not)
+      const sms = m.get('skill-choice-channel-sms').querySelector('input')!
+      Object.getOwnPropertyDescriptor(Object.getPrototypeOf(sms), 'checked')!.set!.call(sms, true)
+      await m.click(sms)
+      expect(m.get('skill-choice-channel-sms').getAttribute('data-on')).toBe('true')
       await m.click('skill-form-run')
       await m.until(() => at(m) === `/c/${CHAT}`, 'the chat')
       expect(progress!.steps.result).toBe('done')
       expect(progress!.resultChatId).toBe(CHAT)
+      const sent = calls.find((c) => c.key === `POST /api/chats/${CHAT}/messages`)?.body as { content: string } | undefined
+      expect(sent?.content).toBe('/ad-copy\n알릴 제품·서비스: 종이 플래너\n\n어디에 실을까요: 문자')
     } finally { await m.unmount() }
   })
 
   test('the first result with no usable AI (self-hosted, no trial key): A\'s connect button, no form', async () => {
     signIn('owner')
     ai = { usable: false, action: 'connect_team', requested: false }
-    progress = { ...fresh(), teamType: 'marketing', pack: PACK, steps: { team: 'done', profile: 'done', result: null, invite: null } }
+    progress = { ...fresh(), teamType: 'marketing', pack: PACK, steps: { profile: 'done', result: null, invite: null } }
     const m = await app()
     try {
       await m.until(() => m.find('welcome-result-no-ai'), 'the no-AI step')
@@ -276,24 +323,24 @@ describe('/welcome', () => {
     } finally { await m.unmount() }
   })
 
-  test('the pack blocked by folder rules: the steps say so and stay; nothing is recorded', async () => {
+  test('the pack blocked by folder rules: the first result says so and offers it again; nothing is recorded', async () => {
     signIn('owner')
     packStatus = 'blocked'
     const m = await app()
     try {
-      await m.until(() => m.find('welcome-team'), 'step 1')
-      await m.click('welcome-team-marketing')
-      await m.click('welcome-next')
+      await m.until(() => m.find('profile-step-site'), 'step 1')
+      const later = (globalThis.document as any).body.querySelectorAll('button').find((b: any) => b.textContent === translate('ko', 'welcome.later'))
+      await m.click(later)
       await m.until(() => m.html().includes(translate('ko', 'welcome.packBlocked')), 'the message')
-      expect(stepOf(m)).toBe('team')
+      expect(stepOf(m)).toBe('result')
+      expect(m.find('welcome-result-install')).not.toBeNull()
       expect(progress!.pack).toBeNull()
-      expect(progress!.steps.team).toBeNull()
     } finally { await m.unmount() }
   })
 
-  test('a team without a pack: step 3 offers the marketing pack (installed once, on the click)', async () => {
+  test('a team without a pack: the first result offers the marketing pack (installed once, on the click)', async () => {
     signIn('owner')
-    progress = { ...fresh(), teamType: 'operations', steps: { team: 'done', profile: 'done', result: null, invite: null } }
+    progress = { ...fresh(), teamType: 'operations', steps: { profile: 'done', result: null, invite: null } }
     const m = await app()
     try {
       await m.until(() => m.find('welcome-result-no-pack'), 'the offer')
@@ -307,7 +354,7 @@ describe('/welcome', () => {
 })
 
 describe('after the first result', () => {
-  const ran = (): WelcomeProgress => ({ ...fresh(), teamType: 'marketing', pack: PACK, resultChatId: CHAT, steps: { team: 'done', profile: 'done', result: 'done', invite: null } })
+  const ran = (): WelcomeProgress => ({ ...fresh(), teamType: 'marketing', pack: PACK, resultChatId: CHAT, steps: { profile: 'done', result: 'done', invite: null } })
 
   test('the chat of the first result offers the invite with the skill just used; done finishes the steps', async () => {
     signIn('owner')
@@ -364,19 +411,19 @@ describe('after the first result', () => {
     } finally { await m.unmount() }
   })
 
-  test('Home: "시작 설정 이어하기 (n/3)" for the owner until finished or hidden', async () => {
+  test('Home: "시작 설정 이어하기 (n/2)" for the owner until finished or hidden', async () => {
     signIn('owner')
-    progress = { ...fresh(), steps: { team: 'done', profile: 'skipped', result: null, invite: null } }
+    progress = { ...fresh(), steps: { profile: 'done', result: null, invite: null } }
     let m = await mount(<MemoryRouter><WelcomeResume /></MemoryRouter>)
     try {
       await m.until(() => m.find('welcome-resume'), 'the entry')
-      expect(m.get('welcome-resume-link').textContent).toContain('시작 설정 이어하기 (1/3)')
+      expect(m.get('welcome-resume-link').textContent).toContain('시작 설정 이어하기 (1/2)')
       expect(m.get('welcome-resume-link').getAttribute('href')).toBe('/welcome')
       await m.click('welcome-resume-hide')
       await m.until(() => !m.find('welcome-resume'), 'hidden')
       expect(progress!.dismissedAt).not.toBeNull()
     } finally { await m.unmount() }
-    // the three counted steps done: only the invite is left, and the entry says so
+    // both counted steps done: only the invite is left, and the entry says so
     useWelcome.getState().reset()
     progress = ran()
     m = await mount(<MemoryRouter><WelcomeResume /></MemoryRouter>)
@@ -385,7 +432,7 @@ describe('after the first result', () => {
       expect(m.get('welcome-resume-link').textContent).toContain(translate('ko', 'welcome.resume.inviteLeft'))
     } finally { await m.unmount() }
     // never started (a team from before the steps), or finished: nothing
-    for (const p of [null, { ...ran(), steps: { team: 'done', profile: 'done', result: 'done', invite: 'done' }, finishedAt: 'x' } as WelcomeProgress]) {
+    for (const p of [null, { ...ran(), steps: { profile: 'done', result: 'done', invite: 'done' }, finishedAt: 'x' } as WelcomeProgress]) {
       useWelcome.getState().reset()
       progress = p
       m = await mount(<MemoryRouter><WelcomeResume /></MemoryRouter>)

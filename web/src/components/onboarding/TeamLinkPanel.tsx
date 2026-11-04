@@ -1,8 +1,11 @@
 // The team invite link (shared/src/api/team-links.ts): make it, copy it or the ready-made message for KakaoTalk or Slack,
 // see how many joined and until when it works, change it or turn it off. Used by Admin › Members (TeamLinkCard) and
 // by the onboarding wizard's InviteStep. Everyone who joins with it is a member; the owner/admin picks the groups.
-import { Check, Copy, Plus, QrCode as QrIcon, RefreshCw } from 'lucide-react'
-import { useEffect, useId, useState } from 'react'
+// Folded (the invite step): the message and "메시지 복사" only; the link, its settings and "새 링크로 바꾸기" wait under
+// one quiet "링크 관리" row, and the link cannot be turned off there (Admin › Members can).
+import clsx from 'clsx'
+import { Check, ChevronDown, Copy, Plus, QrCode as QrIcon, RefreshCw } from 'lucide-react'
+import { useEffect, useId, useState, type ReactNode } from 'react'
 import { TEAM_LINK_DAYS, TEAM_LINK_DEFAULT_DAYS, TEAM_LINK_DEFAULT_USES, TEAM_LINK_MAX_USES, skillTitle, type CreateTeamLinkBody, type Group, type SkillInfo, type TeamLinkResponse, type TeamLinkState } from '@mycel/shared/api'
 import { api, API } from '../../lib/api'
 import { formatDateTime } from '../../lib/format'
@@ -15,8 +18,9 @@ import { GroupChecks } from '../../pages/admin/people-choices'
 import { Loadable, OneLine, useAction, useActionOk, useLoad } from '../../pages/admin/common'
 
 /** The panel with its data: loads the link, makes and revokes it. `skillPicker` false: no skill list (the wizard);
- * `skillPath`: the wizard's skill for a new link (without one, a changed link keeps the skill it had). */
-export function TeamLinkPanel({ withGroups = true, skillPicker = true, skillPath, onChange }: { withGroups?: boolean; skillPicker?: boolean; skillPath?: string | null; onChange?: (r: TeamLinkResponse) => void }) {
+ * `skillPath`: the wizard's skill for a new link (without one, a changed link keeps the skill it had); `folded`: the
+ * invite step's short view (TeamLinkView). */
+export function TeamLinkPanel({ withGroups = true, skillPicker = true, skillPath, folded, onChange }: { withGroups?: boolean; skillPicker?: boolean; skillPath?: string | null; folded?: boolean; onChange?: (r: TeamLinkResponse) => void }) {
   const me = useMe()
   const state = useLoad(() => api.call(API.getTeamLink))
   const groups = useLoad(async () => (withGroups ? (await api.call(API.listGroups)).items : []), [withGroups])
@@ -51,6 +55,7 @@ export function TeamLinkPanel({ withGroups = true, skillPicker = true, skillPath
           skills={skillPicker ? (skills.data ?? []) : null}
           fixedSkillPath={skillPath}
           busy={busy}
+          folded={folded}
           onCreate={(b) => void create(b)}
           onRevoke={() => void revoke()}
         />
@@ -68,6 +73,8 @@ export interface TeamLinkViewProps {
   skills: SkillInfo[] | null
   fixedSkillPath?: string | null
   busy: boolean
+  /** the invite step: the message and its copy button; the rest under a collapsed "링크 관리", no "링크 끄기" */
+  folded?: boolean
   onCreate: (body: CreateTeamLinkBody) => void
   onRevoke: () => void
 }
@@ -82,7 +89,7 @@ const STALE = {
 } as const satisfies Record<TeamLinkState | 'unreadable', MessageKey | null>
 
 /** What the panel shows, without loading anything (tests render it as it is). */
-export function TeamLinkView({ data, inviter, groups, skills, fixedSkillPath, busy, onCreate, onRevoke }: TeamLinkViewProps) {
+export function TeamLinkView({ data, inviter, groups, skills, fixedSkillPath, busy, folded = false, onCreate, onRevoke }: TeamLinkViewProps) {
   const t = useT()
   const locale = useLocale()
   const [editing, setEditing] = useState(false)
@@ -97,8 +104,9 @@ export function TeamLinkView({ data, inviter, groups, skills, fixedSkillPath, bu
         {stale && (
           <div className="flex flex-wrap items-center gap-2 rounded-lg bg-warn-soft px-3 py-2" data-testid="team-link-stale">
             <p className="min-w-0 flex-1 text-sm text-warn">{t(stale)}</p>
-            {/* a stopped link would work again if its maker got the right back: it can be turned off for good here */}
-            <RevokeButton busy={busy} onRevoke={onRevoke} />
+            {/* a stopped link would work again if its maker got the right back: it can be turned off for good here (on
+                Admin › Members; the folded invite step never turns a link off) */}
+            {!folded && <RevokeButton busy={busy} onRevoke={onRevoke} />}
           </div>
         )}
         <CreateForm
@@ -110,6 +118,8 @@ export function TeamLinkView({ data, inviter, groups, skills, fixedSkillPath, bu
           seatsLeft={left}
           planLimit={data.seats.limit}
           replacing={!!link && link.state === 'active'}
+          // a change the person asked for ("새 링크로 바꾸기") shows its settings open
+          folded={folded && !editing}
           busy={busy}
           onCancel={editing ? () => setEditing(false) : undefined}
           onCreate={(b) => { setEditing(false); onCreate(b) }}
@@ -124,22 +134,9 @@ export function TeamLinkView({ data, inviter, groups, skills, fixedSkillPath, bu
   const groupNames = link.groupIds.map((id) => groups.find((g) => g.id === id)?.name).filter((x): x is string => !!x)
   // the groups line: always when the link puts people in groups; "그룹 없음" only on a team that has groups
   const showGroups = link.groupIds.length > 0 || groups.length > 0
-  // on a phone a frame near the screen edge reads as tight: one primary action (the message holds the link), the rest
-  // as plain text, a hairline and quiet text buttons (docs/DESIGN-SYSTEM.md, Layout patterns)
-  return (
-    <div className="space-y-5" data-testid="team-link">
-      {link.limitedUntil && (
-        <p className="rounded-lg bg-warn-soft px-3 py-2 text-sm text-warn" data-testid="team-link-limited">
-          {t('teamLink.limited', { time: formatDateTime(link.limitedUntil, locale) })}
-        </p>
-      )}
-      <div>
-        <p className="text-xs font-medium text-muted">{t('teamLink.messagePreview')}</p>
-        <blockquote className="mt-2 border-l-2 border-line pl-3 text-sm leading-6 whitespace-pre-wrap break-words text-ink" data-testid="team-link-message">
-          {message}
-        </blockquote>
-        <CopyPrimary text={message} label={t('teamLink.copyMessage')} />
-      </div>
+  // the link, its facts and its changes: in place on Admin › Members, under "링크 관리" in the invite step
+  const details = (
+    <>
       <div>
         <p className="text-xs font-medium text-muted">{t('teamLink.link')}</p>
         <p className="mt-1 font-mono text-[13px] leading-5 break-all text-ink select-all" data-testid="team-link-url">{url}</p>
@@ -179,7 +176,47 @@ export function TeamLinkView({ data, inviter, groups, skills, fixedSkillPath, bu
         <Button size="sm" variant="ghost" disabled={busy} onClick={() => setEditing(true)} data-testid="team-link-replace">
           <RefreshCw size={14} aria-hidden /> {t('teamLink.replace')}
         </Button>
-        <RevokeButton busy={busy} onRevoke={onRevoke} />
+        {!folded && <RevokeButton busy={busy} onRevoke={onRevoke} />}
+      </div>
+    </>
+  )
+  // on a phone a frame near the screen edge reads as tight: one primary action (the message holds the link), the rest
+  // as plain text, a hairline and quiet text buttons (docs/DESIGN-SYSTEM.md, Layout patterns)
+  return (
+    <div className="space-y-5" data-testid="team-link" data-folded={folded || undefined}>
+      {link.limitedUntil && (
+        <p className="rounded-lg bg-warn-soft px-3 py-2 text-sm text-warn" data-testid="team-link-limited">
+          {t('teamLink.limited', { time: formatDateTime(link.limitedUntil, locale) })}
+        </p>
+      )}
+      <div>
+        <p className="text-xs font-medium text-muted">{t('teamLink.messagePreview')}</p>
+        <blockquote className="mt-2 border-l-2 border-line pl-3 text-sm leading-6 whitespace-pre-wrap break-words text-ink" data-testid="team-link-message">
+          {message}
+        </blockquote>
+        <CopyPrimary text={message} label={t('teamLink.copyMessage')} />
+      </div>
+      {folded ? <ManageFold>{details}</ManageFold> : details}
+    </div>
+  )
+}
+
+/** "링크 관리": one quiet row that opens the link's details and settings in place (collapsed at first). `keepOpen`: a
+ * setting that does not fit stays in view (the row does not close it until it is fixed). */
+function ManageFold({ keepOpen = false, children }: { keepOpen?: boolean; children: ReactNode }) {
+  const t = useT()
+  const id = useId()
+  const [opened, setOpen] = useState(false)
+  const open = opened || keepOpen
+  return (
+    <div data-testid="team-link-manage-fold">
+      <div className="-ml-2.5">
+        <Button size="sm" variant="ghost" aria-expanded={open} aria-controls={id} onClick={() => { if (!keepOpen) setOpen(!open) }} data-testid="team-link-manage">
+          {t('teamLink.manage')} <ChevronDown size={14} className={clsx('transition-transform', open && 'rotate-180')} aria-hidden />
+        </Button>
+      </div>
+      <div id={id} hidden={!open} className="mt-3 space-y-5" data-testid="team-link-manage-panel">
+        {open && children}
       </div>
     </div>
   )
@@ -226,10 +263,13 @@ function RevokeButton({ busy, onRevoke }: { busy: boolean; onRevoke: () => void 
 }
 
 /** The link's settings: groups, how many people, how long, and a skill to land on. */
-function CreateForm({ initial, groups, skills, fixedSkillPath, seatsLeft, planLimit, replacing, busy, onCancel, onCreate }: {
+function CreateForm({ initial, groups, skills, fixedSkillPath, seatsLeft, planLimit, replacing, folded, busy, onCancel, onCreate }: {
   initial: { groupIds: string[]; skillPath: string | null } | null
   groups: Group[]; skills: SkillInfo[] | null; fixedSkillPath?: string | null
-  seatsLeft: number | null; planLimit: number | null; replacing: boolean; busy: boolean
+  seatsLeft: number | null; planLimit: number | null; replacing: boolean
+  /** the invite step: the button first, the settings (defaults kept) under a collapsed "링크 관리" */
+  folded?: boolean
+  busy: boolean
   onCancel?: () => void; onCreate: (b: CreateTeamLinkBody) => void
 }) {
   const t = useT()
@@ -251,8 +291,8 @@ function CreateForm({ initial, groups, skills, fixedSkillPath, seatsLeft, planLi
     const skillPath = fixedSkillPath ? fixedSkillPath : skills ? pickedSkill || null : (initial?.skillPath ?? null)
     onCreate({ groupIds, expiresInDays: days as 7 | 14 | 30, ...(n !== null ? { maxUses: n } : {}), ...(skillPath ? { skillPath } : {}) })
   }
-  return (
-    <div className="space-y-4" data-testid="team-link-form">
+  const settings = (
+    <>
       {groups.length > 0 && (
         <div>
           <p className="mb-1.5 text-[13px] font-medium">{t('teamLink.groups')}</p>
@@ -287,17 +327,40 @@ function CreateForm({ initial, groups, skills, fixedSkillPath, seatsLeft, planLi
         </Field>
       )}
       <p className="text-xs text-muted">{t('teamLink.memberNote')}</p>
-      {full && <p className="text-sm text-warn" data-testid="team-link-full">{t('teamLink.noSeats')}</p>}
-      {replacing && <p className="text-xs text-warn">{t('teamLink.replaceNote')}</p>}
+    </>
+  )
+  const fullNote = full && <p className="text-sm text-warn" data-testid="team-link-full">{t('teamLink.noSeats')}</p>
+  const replaceNote = replacing && <p className="text-xs text-warn">{t('teamLink.replaceNote')}</p>
+  const create = (
+    <Button variant="primary" className={folded ? 'max-sm:w-full' : undefined} busy={busy} disabled={!!usesProblem || full} onClick={submit} data-testid="team-link-create">
+      {replacing ? <RefreshCw size={14} aria-hidden /> : <Plus size={14} aria-hidden />} {replacing ? t('teamLink.replace') : t('teamLink.create')}
+    </Button>
+  )
+  if (folded)
+    return (
+      <div className="space-y-4" data-testid="team-link-form" data-folded>
+        {/* why the button is off stays in view */}
+        {fullNote}
+        <div>{create}</div>
+        {/* a number that does not fit keeps its settings open: the reason the button is off stays readable */}
+        <ManageFold keepOpen={!!usesProblem}>
+          {settings}
+          {replaceNote}
+        </ManageFold>
+      </div>
+    )
+  return (
+    <div className="space-y-4" data-testid="team-link-form">
+      {settings}
+      {fullNote}
+      {replaceNote}
       <div className="flex flex-wrap justify-end gap-2">
         {onCancel && (
           <Button variant="ghost" onClick={onCancel}>
             {t('common.cancel')}
           </Button>
         )}
-        <Button variant="primary" busy={busy} disabled={!!usesProblem || full} onClick={submit} data-testid="team-link-create">
-          {replacing ? <RefreshCw size={14} aria-hidden /> : <Plus size={14} aria-hidden />} {replacing ? t('teamLink.replace') : t('teamLink.create')}
-        </Button>
+        {create}
       </div>
     </div>
   )

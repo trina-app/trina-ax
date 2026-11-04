@@ -135,6 +135,9 @@ export class MockServer {
   revokedTeamLinks = new Set<string>()
   /** the welcome steps' progress (server/src/onboarding/welcome.ts) */
   welcome: WelcomeProgress | null = null
+  /** the suggestion under answers a test set, and the ones closed */
+  resultSuggestion: import('@mycel/shared/api').ResultSuggestion | null = null
+  closedSuggestions = new Set<string>()
   folders: Folder[] = []
   chats: Chat[] = []
   messages: Message[] = []
@@ -244,6 +247,8 @@ export class MockServer {
     this.teamLink = null
     this.revokedTeamLinks.clear()
     this.welcome = null
+    this.resultSuggestion = null
+    this.closedSuggestions = new Set()
     this.chats = []
     this.sources.clear()
     this.messages = []
@@ -1532,7 +1537,7 @@ export class MockServer {
     getWelcome: () => ({ progress: this.welcome }),
     updateWelcome: (c) => {
       const at = now()
-      const p: WelcomeProgress = this.welcome ?? { startedAt: at, updatedAt: at, teamType: null, steps: { team: null, profile: null, result: null, invite: null }, pack: null, resultChatId: null, inviteShownAt: null, site: null, dismissedAt: null, finishedAt: null }
+      const p: WelcomeProgress = this.welcome ?? { startedAt: at, updatedAt: at, teamType: null, steps: { profile: null, result: null, invite: null }, pack: null, resultChatId: null, inviteShownAt: null, site: null, dismissedAt: null, finishedAt: null }
       const b = c.body as import('@mycel/shared/api').WelcomeUpdate
       if (b.resultChatId !== undefined) {
         if (!this.chats.some((x) => x.id === b.resultChatId)) fail('not_found', 404)
@@ -1546,7 +1551,7 @@ export class MockServer {
       if (b.inviteShown && !p.inviteShownAt) p.inviteShownAt = at
       if (b.site) p.site = b.site
       if (b.dismissed !== undefined) p.dismissedAt = b.dismissed ? (p.dismissedAt ?? at) : null
-      if (!p.finishedAt && p.steps.team === 'done' && p.steps.profile === 'done' && p.steps.result === 'done' && p.steps.invite) p.finishedAt = at
+      if (!p.finishedAt && p.steps.profile === 'done' && p.steps.result === 'done' && p.steps.invite) p.finishedAt = at
       p.updatedAt = at
       this.welcome = p
       return { progress: p }
@@ -1560,6 +1565,10 @@ export class MockServer {
       p.pack = { id: 'marketing', at, skillPath: WELCOME_RESULT_SKILL }
       return { progress: p, install: { pack: 'marketing', locale: this.settings.defaultLocale, skills: [{ name: 'ad-copy', path: WELCOME_RESULT_SKILL, status: 'created' }], folders: [] }, outcome: 'installed' }
     },
+    // the one suggestion under a result (server/src/onboarding/suggestions.ts): none unless a test sets one
+    // (/__test/result-suggestion); closing one keeps it closed
+    getResultSuggestion: () => ({ suggestion: this.resultSuggestion && !this.closedSuggestions.has(this.resultSuggestion.key) ? this.resultSuggestion : null }),
+    dismissSuggestion: (c) => { this.closedSuggestions.add((c.body as { key: string }).key) },
     // onboarding G: no 7-day team goal card unless a test sets one (/__test/team-goal); Home then shows the owner checklist
     getTeamGoal: () => ({ goal: this.teamGoal }),
     // members as the server counts them (group_members): those the group lists and those whose groups name it
@@ -2394,6 +2403,7 @@ export class MockServer {
     else if (p === '/__test/cloud') this.cloud = body.on !== false
     else if (p === '/__test/popular-skills') this.popular = (body.items as { path: string; uses: number; users: number }[]) ?? []
     else if (p === '/__test/team-goal') this.teamGoal = body.goal === null ? null : TeamGoal.parse(body.goal)
+    else if (p === '/__test/result-suggestion') this.resultSuggestion = body.suggestion ? (body.suggestion as unknown as import('@mycel/shared/api').ResultSuggestion) : null
     else if (p === '/__test/dev-env') this.devEnv = { box: body.box === 'running' ? 'running' : 'stopped' }
     else if (p === '/__test/skill-list') this.aiList = SkillsOverview.shape.aiList.parse(body)
     else if (p === '/__test/connection') this.connection = { ...this.connection, ...(body as unknown as Partial<ConnectionStatus>) }

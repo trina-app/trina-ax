@@ -183,6 +183,33 @@ function CopyableTable({ children }: { children: ReactNode }) {
   )
 }
 
+// ---------------- quotes ----------------
+/** A quote with its own quiet copy button (an ad option, a message draft: each block copies on its own). Phones: the
+ * button is always there, under the quote on the right; screens with a pointer: on hover or focus. No frame added. */
+function CopyableQuote({ children }: { children: ReactNode }) {
+  const t = useT()
+  const ref = useRef<HTMLQuoteElement>(null)
+  const { copied, copy } = useCopy()
+  return (
+    <div className="group/quote relative my-3 flex flex-col [&>blockquote]:my-0!" data-testid="copyable-quote">
+      {/* upright and without the typography's added quote marks: an option to copy, not a citation (Korean has no italics) */}
+      <blockquote ref={ref} className="not-italic [&>p:first-of-type]:before:content-none [&>p:last-of-type]:after:content-none">
+        {children}
+      </blockquote>
+      <button
+        type="button"
+        onClick={() => void copy((ref.current?.innerText ?? ref.current?.textContent ?? '').trim())}
+        aria-label={copied ? t('common.copied') : t('md.copyBlock')}
+        className="not-prose mt-1 flex items-center gap-1 self-end rounded-md px-1.5 py-0.5 text-xs font-medium text-muted transition hover:bg-hover hover:text-ink [@media(hover:hover)]:opacity-0 [@media(hover:hover)]:group-focus-within/quote:opacity-100 [@media(hover:hover)]:group-hover/quote:opacity-100"
+        data-testid="copy-quote"
+      >
+        {copied ? <Check size={12} className="text-ok" aria-hidden /> : <Copy size={12} aria-hidden />}
+        {copied ? t('common.copied') : t('common.copy')}
+      </button>
+    </div>
+  )
+}
+
 // ---------------- links and images ----------------
 /** A file the AI made or mentioned: a chip that opens the preview panel. A file without a viewer opens the panel
  *  too, which shows the "can't be previewed" notice and a download button. */
@@ -239,6 +266,7 @@ const origin = () => (typeof location === 'undefined' ? 'http://localhost' : loc
 // defined once: inline component functions are new types on every render, which remounts (and resets) diagrams
 const COMPONENTS: Components = {
   table: ({ children }) => <CopyableTable>{children}</CopyableTable>,
+  blockquote: ({ children }) => <CopyableQuote>{children}</CopyableQuote>,
   a: ({ href, children }) => {
     const l = classifyLink(href, origin())
     if (l.kind === 'team-file') return <TeamFileLink path={l.path} at={l.at}>{children}</TeamFileLink>

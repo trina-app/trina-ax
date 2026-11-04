@@ -1,7 +1,9 @@
-// Route module "onboarding-welcome" (docs/DECISIONS.md "W — Welcome steps"). Implements WELCOME
-// (shared/src/api/onboarding-welcome.ts): the progress of the welcome steps and their one-time pack install.
+// Route module "onboarding-welcome" (docs/DECISIONS.md "W — Welcome steps", "X — Lean onboarding"). Implements WELCOME
+// (shared/src/api/onboarding-welcome.ts): the progress of the welcome steps and their one-time pack install, and the
+// one suggestion under a result.
 import { API } from '@mycel/shared/api'
 import { fail } from '../http/errors'
+import { dismissSuggestion, resultSuggestion } from '../onboarding/suggestions'
 import { installWelcomePack, readWelcome, updateWelcome } from '../onboarding/welcome'
 import type { RouteModule } from './module'
 
@@ -16,5 +18,7 @@ export const onboardingWelcomeRoutes: RouteModule = {
       try { ctx.files.principal(auth.user.id) } catch { return fail('forbidden') }
       return installWelcomePack(ctx, auth.user.id)
     })
+    kit.handle(API.getResultSuggestion, ({ query, auth }) => ({ suggestion: resultSuggestion(ctx, auth.user.id, query.chatId, query.messageId) }))
+    kit.handle(API.dismissSuggestion, ({ body, auth }) => { dismissSuggestion(ctx, auth.user.id, body.key) })
   },
 }

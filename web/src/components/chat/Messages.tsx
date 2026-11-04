@@ -9,7 +9,7 @@ import clsx from 'clsx'
 import { AlertTriangle, BookmarkPlus, ChevronDown, ChevronLeft, ChevronRight, CirclePause, History, Loader2, Pencil, Play, RotateCcw, Shapes, Square } from 'lucide-react'
 import { useMemo, useRef, useState } from 'react'
 import { useShallow } from 'zustand/react/shallow'
-import { chatErrorReason, ERROR_MESSAGES, isDefaultErrorMessage, type Attachment, type EngineId } from '@mycel/shared/api'
+import { chatErrorReason, ERROR_MESSAGES, isDefaultErrorMessage, type Attachment, type EngineId, type Step } from '@mycel/shared/api'
 import { thumbnailUrl } from '../../lib/api'
 import { answerHtml } from '../../lib/richCopy'
 import { formatSize } from '../../lib/format'
@@ -235,7 +235,8 @@ export function UserMessage({ m, chatId, busy, onEdit, onSelectBranch }: { m: Vi
   )
 }
 
-function ArtifactCards({ chatId, messageId }: { chatId: string; messageId: string }) {
+/** `className`: the spacing around the cards (default: a gap above, after the answer's text) */
+function ArtifactCards({ chatId, messageId, className = 'mt-3' }: { chatId: string; messageId: string; className?: string }) {
   const t = useT()
   const groups = useChatArtifacts(chatId)
   const live = useChats((s) => s.liveArtifacts[chatId])
@@ -256,7 +257,7 @@ function ArtifactCards({ chatId, messageId }: { chatId: string; messageId: strin
   }, [groups, live, messageId])
   if (!cards.length) return null
   return (
-    <div className="mt-3 flex flex-col gap-2">
+    <div className={clsx('flex flex-col gap-2', className)} data-testid="artifact-cards">
       {cards.map((a) => {
         const open = panel?.kind === 'artifact' && panel.artifactKey === a.key && panel.chatId === chatId
         return (
@@ -280,6 +281,40 @@ function ArtifactCards({ chatId, messageId }: { chatId: string; messageId: strin
         )
       })}
     </div>
+  )
+}
+
+/** Where the answer's artifact cards go: at the point of the text where the AI made the first one (Step.textAt), so
+ * "caption → preview → options" reads in that order; null (after the text, as before) for steps from before that field
+ * or when the cut would fall inside a code block. */
+export function artifactSplit(content: string, steps: readonly Step[]): number | null {
+  const at = steps.filter((s) => s.kind === 'artifact' && !s.parentId && s.textAt !== undefined).reduce<number | null>((min, s) => (min === null ? s.textAt! : Math.min(min, s.textAt!)), null)
+  if (at === null) return null
+  const cut = Math.min(at, content.length)
+  if (cut >= content.length) return null
+  // an odd number of ``` fences before the cut: it is inside a code block
+  if ((content.slice(0, cut).match(/```/g)?.length ?? 0) % 2 === 1) return null
+  return cut
+}
+
+/** The answer's text and its artifact cards, the cards where the AI made them. */
+function AnswerBody({ m, chatId, streaming }: { m: ViewMessage; chatId: string; streaming: boolean }) {
+  const cut = artifactSplit(m.content, m.steps)
+  if (cut === null)
+    return (
+      <>
+        {m.content && <Markdown text={m.content} streaming={streaming} />}
+        <ArtifactCards chatId={chatId} messageId={m.id} />
+      </>
+    )
+  const before = m.content.slice(0, cut)
+  const after = m.content.slice(cut)
+  return (
+    <>
+      {before.trim() && <Markdown text={before} />}
+      <ArtifactCards chatId={chatId} messageId={m.id} className={clsx(before.trim() && 'mt-3', after.trim() && 'mb-3')} />
+      {after.trim() && <Markdown text={after} streaming={streaming} />}
+    </>
   )
 }
 
@@ -346,8 +381,7 @@ export function AssistantMessage({
             {!m.steps.length && <span className="ml-2 text-sm text-faint">{t('chat.thinking')}</span>}
           </div>
         )}
-        {m.content && <Markdown text={m.content} streaming={streaming} />}
-        <ArtifactCards chatId={chatId} messageId={m.id} />
+        <AnswerBody m={m} chatId={chatId} streaming={streaming} />
         {requests.map((r) => (r.request.kind === 'connect_service' ? <ConnectCard key={r.request.requestId} request={r.request} /> : <AskCard key={r.request.requestId} req={r} />))}
         {m.files && <FileSummary files={m.files} onAskOwnFolder={onAskOwnFolder} disabled={busy} />}
         {!streaming && m.sourceCount ? <SourcesList chatId={chatId} messageId={m.id} count={m.sourceCount} /> : null}

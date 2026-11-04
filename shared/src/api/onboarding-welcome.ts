@@ -1,27 +1,33 @@
-// The welcome steps after a team is made (docs/DECISIONS.md "W — Welcome steps"): 팀 유형 → 회사 소개 → 첫 결과, then
-// the team invite. Route module: server/src/routes/onboarding-welcome.ts. The progress is one settings row of the team
-// (`onboarding.welcome`), so the steps resume where they stopped on any device; owners and admins read it, only the
-// owner (who walks through the steps) writes it. Choosing 마케팅 installs the marketing skill pack once: the server
-// records that it ran and never runs it again by itself (stream C: installing again restores files someone deleted).
+// The welcome steps after a team is made (docs/DECISIONS.md "W — Welcome steps", "X — Lean onboarding"): 회사 소개 →
+// 첫 결과, then the team invite. Route module: server/src/routes/onboarding-welcome.ts. The progress is one settings
+// row of the team (`onboarding.welcome`), so the steps resume where they stopped on any device; owners and admins read
+// it, only the owner (who walks through the steps) writes it. The team type is no longer a step: the first step says
+// "마케팅 스킬 7개를 넣어 둘게요 · 다른 팀이에요", and leaving it installs the marketing skill pack once (unless another
+// team type was picked): the server records that it ran and never runs it again by itself (stream C: installing again
+// restores files someone deleted).
 import { z } from 'zod'
-import { endpoint } from './endpoint'
+import { empty, endpoint } from './endpoint'
 import { SkillPackId, SkillPackInstallResult } from './onboarding-packs'
 
-/** In order. `invite` comes after the three counted steps (the progress bar shows team, profile, result). */
-export const WELCOME_STEPS = ['team', 'profile', 'result', 'invite'] as const
+/** In order. `invite` comes after the two counted steps (the progress bar shows profile, result). A row written before
+ * may still hold a `team` step: it is kept as it is and no longer read. */
+export const WELCOME_STEPS = ['profile', 'result', 'invite'] as const
 export const WelcomeStep = z.enum(WELCOME_STEPS)
 export type WelcomeStep = z.infer<typeof WelcomeStep>
-/** the steps the progress bar counts ("2/3") */
-export const WELCOME_COUNTED = ['team', 'profile', 'result'] as const satisfies readonly WelcomeStep[]
+/** the steps the progress bar counts ("1/2") */
+export const WELCOME_COUNTED = ['profile', 'result'] as const satisfies readonly WelcomeStep[]
 
 export const WelcomeStepState = z.enum(['done', 'skipped'])
 export type WelcomeStepState = z.infer<typeof WelcomeStepState>
 
-/** 마케팅 / 영업 / 경영지원 / 기타. Only marketing has a skill pack today. */
+/** 마케팅 / 영업 / 경영지원 / 기타. Only marketing has a skill pack today (the default: null reads as marketing). */
 export const TEAM_TYPES = ['marketing', 'sales', 'operations', 'other'] as const
 export const TeamType = z.enum(TEAM_TYPES)
 export type TeamType = z.infer<typeof TeamType>
 export const TEAM_TYPE_PACK: Partial<Record<TeamType, SkillPackId>> = { marketing: 'marketing' }
+
+/** How many skills the marketing pack puts in ("마케팅 스킬 7개를 넣어 둘게요"; a test holds it to the pack). */
+export const WELCOME_PACK_SKILLS = 7
 
 /** The first-result skill: the marketing pack's ad copy ("우리 회사 광고 문구 3개"). */
 export const WELCOME_RESULT_SKILL = 'skills/marketing/ad-copy/SKILL.md'
@@ -32,7 +38,7 @@ export const WelcomeProgress = z.object({
   startedAt: z.string(),
   updatedAt: z.string(),
   teamType: TeamType.nullable(),
-  steps: z.object({ team: WelcomeStepState.nullable(), profile: WelcomeStepState.nullable(), result: WelcomeStepState.nullable(), invite: WelcomeStepState.nullable() }),
+  steps: z.object({ profile: WelcomeStepState.nullable(), result: WelcomeStepState.nullable(), invite: WelcomeStepState.nullable() }),
   /** the pack these steps installed, once (never again by themselves), and the path of its first-result skill */
   pack: z.object({ id: SkillPackId, at: z.string(), skillPath: z.string() }).nullable(),
   /** the chat the first result ran in (one of the owner's): it shows the invite bar */
@@ -43,7 +49,7 @@ export const WelcomeProgress = z.object({
   site: z.string().nullable(),
   /** the owner hid the "continue" entry on Home */
   dismissedAt: z.string().nullable(),
-  /** team, profile and result done, and the invite done or skipped */
+  /** profile and result done, and the invite done or skipped */
   finishedAt: z.string().nullable(),
 })
 export type WelcomeProgress = z.infer<typeof WelcomeProgress>
@@ -75,6 +81,25 @@ export const WelcomePackResult = z.object({
 })
 export type WelcomePackResult = z.infer<typeof WelcomePackResult>
 
+/**
+ * One suggestion under a result (docs/DECISIONS.md "X — Lean onboarding"), at most one line, chosen by state (the
+ * lead's first result has the invite bar instead, decided in the web app):
+ * - `schedule`: the person ran this team skill for at least the 2nd time (successful answers, not scheduled runs) and
+ *   has no scheduled task that runs it: "매주 이 시간에 자동으로 받을까요?" [예약하기];
+ * - `ppt`: a long report-like answer (the weekly report, or over PPT_SUGGEST_CHARS of prose): [PPT로 만들기].
+ * A suggestion the person closed never comes back for them (`key`, stored per person on the server).
+ */
+export const SuggestionKey = z.string().max(500).regex(/^(ppt|schedule:skills\/[^\r\n]+)$/)
+export const ResultSuggestion = z.discriminatedUnion('kind', [
+  z.object({ kind: z.literal('schedule'), key: SuggestionKey, skill: z.object({ path: z.string(), name: z.string() }) }),
+  z.object({ kind: z.literal('ppt'), key: z.literal('ppt') }),
+])
+export type ResultSuggestion = z.infer<typeof ResultSuggestion>
+/** an answer of this much prose (code blocks left out) or more reads as a report */
+export const PPT_SUGGEST_CHARS = 2000
+/** the pack's report skill: its answers are report-like whatever their length */
+export const REPORT_SKILLS = ['weekly-report'] as const
+
 export const WELCOME = {
   getWelcome: endpoint({ method: 'GET', path: '/api/onboarding/welcome', auth: 'admin', owner: 'B', response: WelcomeState,
     summary: 'Where the welcome steps stopped (owners and admins read it): which steps are done or skipped, the pack they installed, the first-result chat.' }),
@@ -82,4 +107,9 @@ export const WELCOME = {
     summary: 'Record a welcome step (owner): start, the team type, a step done or skipped, the first-result chat, the invite shown, hide the Home entry.' }),
   installWelcomePack: endpoint({ method: 'POST', path: '/api/onboarding/welcome/pack', auth: 'owner', owner: 'B', response: WelcomePackResult,
     summary: 'Install the marketing skill pack for the welcome steps, once: nothing runs when these steps installed it before or the team already has its skills.' }),
+  getResultSuggestion: endpoint({ method: 'GET', path: '/api/onboarding/suggestion', auth: 'user', owner: 'B',
+    query: z.object({ chatId: z.string().min(1).max(64), messageId: z.string().min(1).max(64) }), response: z.object({ suggestion: ResultSuggestion.nullable() }),
+    summary: 'The one suggestion under an answer of the caller\'s own chat (schedule a skill run for the 2nd time, or a report as a PPT), or null; none the caller closed.' }),
+  dismissSuggestion: endpoint({ method: 'POST', path: '/api/onboarding/suggestion/dismiss', auth: 'user', owner: 'B', body: z.object({ key: SuggestionKey }).strict(), response: empty, status: 204,
+    summary: 'Close a suggestion under answers for good (for the caller only).' }),
 } as const

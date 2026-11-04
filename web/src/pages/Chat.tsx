@@ -4,7 +4,7 @@
 // (store/sendQueue.ts, components/chat/QueuedMessages.tsx); while the AI waits for the answer to its question, the
 // message box answers that question instead (lib/askAnswer.ts).
 import AiAccessBanner from '../components/chat/AiAccessBanner'
-import { WelcomeInviteBar } from '../components/onboarding/WelcomeInviteBar'
+import { ResultSuggestion } from '../components/onboarding/ResultSuggestion'
 import { Globe, Loader2, RotateCcw, Trash2 } from 'lucide-react'
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
@@ -290,8 +290,8 @@ function ChatView({ chatId }: { chatId: string }) {
           <TrashedBanner chat={chat} onRestored={(c) => { setChat(c); upsertChat(c) }} />
         ) : (
           <>
-          {/* the welcome steps' first result: invite the team once the answer is in (owner only) */}
-          <WelcomeInviteBar chatId={chatId} answered={!busy && last?.role === 'assistant' && last.status === 'done'} />
+          {/* one suggestion under the newest answer: the welcome invite on the first result, else schedule or PPT */}
+          <ResultSuggestion chatId={chatId} messages={messages} busy={busy} onSend={(text) => void onSend(text, []).catch(fail)} />
           <AiAccessBanner />
           <Composer
             ref={composer}

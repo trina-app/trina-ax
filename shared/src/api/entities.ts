@@ -218,6 +218,9 @@ export const Step = z.object({
   /** a sub-task step (tool 'agent'): the sub-agent's tool calls and working time so far, and how many of its earliest
    * steps were not kept with the answer (`hidden`; the most recent ones are) */
   subtask: z.object({ toolUses: z.number().int().min(0).optional(), ms: z.number().int().min(0).optional(), hidden: z.number().int().min(0).optional() }).optional(),
+  /** how much of the answer text (characters of Message.content) was written when the step started: an artifact's
+   * card shows at that point of the answer. Absent on steps from before this field */
+  textAt: z.number().int().min(0).optional(),
 })
 export type Step = z.infer<typeof Step>
 
