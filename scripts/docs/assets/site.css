@@ -214,6 +214,18 @@ body.toc-collapsed .shell { grid-template-columns: 280px minmax(0, 1fr) 40px; }
 body.toc-collapsed .toc ul, body.toc-collapsed .toc-head span, body.toc-collapsed .toc-head > svg:first-child { display: none; }
 body.toc-collapsed .toc-toggle { margin-left: 0; }
 
+/* ---------- a website's own bar on top (--site-nav, ax.trina.app/docs) ---------- */
+/* The bar's look comes from the website's CSS in assets/site-nav/ (scoped to .sitenav); here only how it sits in the
+   docs header: not sticky on its own (the whole header is), the docs search in it, and a docs row for phones. */
+:root.has-site-nav { --bar: 65px; }
+.has-site-nav .site-header { border-bottom: 1px solid var(--line); }
+.has-site-nav .sitenav .nav { position: relative; top: auto; z-index: auto; }
+.has-site-nav .sitenav .nav-links a[aria-current="page"] { color: var(--fg); }
+.sitenav .docs-tools { display: flex; align-items: center; margin-right: 4px; }
+.sitenav .docs-tools .search { width: 230px; height: 36px; margin: 0; }
+.docs-row { display: none; }
+@media (max-width: 1280px) { .sitenav .docs-tools .search { width: 190px; } }
+
 /* ---------- smaller screens ---------- */
 @media (max-width: 1280px) {
   .shell { grid-template-columns: 250px minmax(0, 1fr); gap: 0 40px; }
@@ -244,6 +256,17 @@ body.toc-collapsed .toc-toggle { margin-left: 0; }
   .copy-menu { left: 0; right: auto; }
   .cards.cols-3, .cards.cols-2 { grid-template-columns: minmax(0, 1fr); }
   .prose .anchor { display: none; }
+}
+@media (max-width: 900px) {
+  :root.has-site-nav { --bar: 65px; --tabs: 49px; }
+  .has-site-nav .section-tabs { display: none; }
+  .docs-row { display: flex; align-items: center; gap: 8px; height: var(--tabs); padding: 0 12px; border-top: 1px solid var(--line); }
+  .docs-row .docs-tools { flex: 1 1 0; min-width: 0; display: flex; }
+  .docs-row .search { width: auto; flex: 1 1 0; height: 36px; }
+  .docs-menu { display: inline-flex; align-items: center; gap: 6px; width: auto; height: 36px; padding: 0 10px; border: 1px solid var(--line); border-radius: 9px; background: var(--surface); color: var(--ink); font: 500 14px var(--sans); cursor: pointer; }
+  .docs-menu svg { width: 16px; height: 16px; }
+  .has-site-nav .sidebar { top: var(--header); height: calc(100dvh - var(--header)); }
+  .has-site-nav .scrim { inset: var(--header) 0 0 0; }
 }
 @media (max-width: 420px) { .brand span { font-size: 19px; } .pager { grid-template-columns: 1fr; } .pager-next { text-align: left; } }
 @media (prefers-reduced-motion: reduce) { * { transition: none !important; } }

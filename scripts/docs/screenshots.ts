@@ -65,6 +65,8 @@ const SHOTS: Shot[] = [
   { file: 'usage/team', path: '/admin/usage', crop: 'main' },
   { file: 'admin/home', path: '/admin' },
   { file: 'admin/engines', path: '/admin/engines', crop: 'main' },
+  { file: 'admin/engines-open', path: '/admin/engines', prepare: click('[data-testid="engine-open"]'), crop: '[data-testid="engine-card"]', pad: 16 },
+  { file: 'admin/engines-team', path: '/admin/engines?tab=team', crop: 'main' },
   { file: 'admin/activity-log', path: '/admin/audit', crop: 'main' },
   { file: 'settings/account-menu', path: '/', prepare: click('[data-testid="account-menu"]'), crop: '[data-testid="account-dropdown"]', pad: 24 },
   { file: 'settings/settings', path: '/settings/profile', crop: '[data-testid="settings-dialog"]' },

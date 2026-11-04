@@ -23,9 +23,9 @@ description: What owners and admins manage, and where each setting lives.
 Assign folders to groups and check access with two test accounts. [Read about permissions](files-and-permissions.md).
 
 #### Connect the AI
-The owner connects an authorized Claude or OpenAI account in **AI connections**. **AI engines** shows whether each engine is ready.
+The owner connects an authorized Claude or OpenAI account in **AI connections**. **AI engines › Providers** shows whether each engine is ready.
 
-![Admin › AI engines: Claude Code, Codex and the API engine, each with its state, models and an on/off switch](../images/admin/engines.webp "AI engines")
+![Admin › AI engines › Providers: Claude Code, Codex and the API engine, each with its state, models, check again and an on/off switch](../images/admin/engines.webp "AI engines › Providers")
 
 #### Invite the team
 Start with a small pilot group, then confirm roles and folder access.
@@ -45,6 +45,27 @@ Back up, then practise a restore with IT. [Read about backups](../operate/backup
 
 :::warning
 People who operate the server, its OS or its storage can read stored files and chats. In hosted plans, that includes Trina's operators.
+:::
+
+## AI engines
+
+**Admin › AI engines** has two tabs.
+
+| Tab | What it holds |
+|---|---|
+| **Providers** | One row per engine (Claude Code, Codex, API): its state, sign-in mode, models and last check, with **↻** to check again and an on/off switch. |
+| **Team provider settings** | The default engine and model, answers at the same time, who may pick the engine, switching to Codex at Claude's limit, and usage limits. |
+
+Click an engine's name to open its details: what is missing and how to fix it, every model, and for the owner the API engine form.
+
+![An engine row opened: the reason it is not ready, its sign-in mode, models and last check](../images/admin/engines-open.webp "An engine opened")
+
+![Admin › AI engines › Team provider settings: team defaults, who picks the engine, the switch to Codex, and usage limits](../images/admin/engines-team.webp "Team provider settings")
+
+Save and Cancel appear in a section only after you change something in it.
+
+:::note
+The two tabs are new in 0.4.0. In 0.3.0 and earlier, everything is on one **AI engines** page.
 :::
 
 ## Activity log

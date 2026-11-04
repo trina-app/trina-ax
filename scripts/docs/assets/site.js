@@ -8,12 +8,30 @@
   function read(k) { try { return localStorage.getItem(k) } catch (e) { return null } }
 
   // theme
-  var themeButton = $('.theme-button')
-  if (themeButton) themeButton.addEventListener('click', function () {
-    var dark = root.dataset.theme ? root.dataset.theme === 'dark' : matchMedia('(prefers-color-scheme: dark)').matches
-    root.dataset.theme = dark ? 'light' : 'dark'
-    store('trina-docs-theme', root.dataset.theme)
+  var themeKey = document.body.dataset.themeKey || 'trina-docs-theme'
+  $$('.theme-button, [data-theme-toggle]').forEach(function (b) {
+    b.addEventListener('click', function () {
+      var dark = root.dataset.theme ? root.dataset.theme === 'dark' : matchMedia('(prefers-color-scheme: dark)').matches
+      root.dataset.theme = dark ? 'light' : 'dark'
+      store(themeKey, root.dataset.theme)
+    })
   })
+
+  // a website's own bar (--site-nav): its phone menu, and the docs search in the bar or, on phones, in the docs row
+  var siteMenuBtn = $('.sitenav [data-menu-toggle]'), siteMenu = $('.sitenav #mobile-menu')
+  if (siteMenuBtn && siteMenu) {
+    var setSiteMenu = function (open) { siteMenu.dataset.open = String(open); siteMenuBtn.setAttribute('aria-expanded', String(open)) }
+    siteMenuBtn.addEventListener('click', function () { setSiteMenu(siteMenu.dataset.open !== 'true') })
+    siteMenu.addEventListener('click', function (e) { if (e.target.closest('a')) setSiteMenu(false) })
+    document.addEventListener('keydown', function (e) { if (e.key === 'Escape' && siteMenu.dataset.open === 'true') { setSiteMenu(false); siteMenuBtn.focus() } })
+  }
+  var barSlot = $('.docs-tools[data-slot="bar"]'), rowSlot = $('.docs-tools[data-slot="row"]'), searchBox = $('.site-header .search')
+  if (barSlot && rowSlot && searchBox) {
+    var phone = matchMedia('(max-width: 900px)')
+    var placeSearch = function () { (phone.matches ? rowSlot : barSlot).appendChild(searchBox) }
+    placeSearch()
+    if (phone.addEventListener) phone.addEventListener('change', placeSearch)
+  }
 
   // menus (section tab menus and the copy menu): one open at a time, closed by Escape or a click elsewhere
   var openMenu = null
