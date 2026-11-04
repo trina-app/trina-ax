@@ -127,7 +127,7 @@ export class Notifications {
   private devEnvOut(row: Row): InboxNotification {
     const base = { id: row.id, eventType: row.event_type, sourceId: row.source_id, code: row.event_type, createdAt: row.created_at, readAt: row.read_at, chatId: null, link: null, outcome: null }
     const db = this.ctx.db
-    const job = row.event_type === 'dev_env.job' ? db.query('SELECT project_id,name,chat_id,exit_code,end_note,log_tail FROM dev_env_jobs WHERE id=? AND user_id=?').get(row.source_id, row.user_id) as { project_id: string; name: string; chat_id: string | null; exit_code: number | null; end_note: string; log_tail: string } | null : null
+    const job = row.event_type === 'dev_env.job' ? db.query('SELECT project_id,name,chat_id,exit_code,end_note,log_tail,end_reason FROM dev_env_jobs WHERE id=? AND user_id=?').get(row.source_id, row.user_id) as { project_id: string; name: string; chat_id: string | null; exit_code: number | null; end_note: string; log_tail: string; end_reason: string } | null : null
     const stop = row.event_type === 'dev_env.box' ? db.query('SELECT project_id,code FROM dev_env_stops WHERE id=?').get(row.source_id) as { project_id: string; code: string } | null : null
     const projectId = job?.project_id ?? stop?.project_id
     const project = projectId ? db.query('SELECT name,folder_path,trashed_with FROM projects WHERE id=?').get(projectId) as { name: string; folder_path: string; trashed_with: string | null } | null : null
@@ -142,7 +142,7 @@ export class Notifications {
     }
     if (stop) return { ...base, link: 'project', devEnv: { ...devEnv, stopCode: stop.code } }
     const chat = job!.chat_id ? db.query('SELECT id FROM chats WHERE id=? AND user_id=? AND deleted_at IS NULL').get(job!.chat_id, row.user_id) as { id: string } | null : null
-    return { ...base, chatId: chat?.id ?? null, link: chat ? 'chat' : 'project', devEnv: { ...devEnv, job: { name: job!.name, exitCode: job!.exit_code, note: job!.end_note, tail: job!.log_tail } } }
+    return { ...base, chatId: chat?.id ?? null, link: chat ? 'chat' : 'project', devEnv: { ...devEnv, job: { name: job!.name, exitCode: job!.exit_code, note: job!.end_note, tail: job!.log_tail, ...(job!.end_reason && job!.end_reason !== 'exit' ? { reason: job!.end_reason } : {}) } } }
   }
   private out(row: Row): InboxNotification {
     let chatId: string | null = null, outcome: ScheduleRunOutcome | null = null

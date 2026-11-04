@@ -13,9 +13,14 @@ const preferenceKeys = ['scheduleSuccess', 'scheduleFailure', 'connectionReconne
 /** A suggestion to review opens in the review tab, an own result in "my suggestions" (the Skills screen checks access). */
 export const skillsLink = (item: Pick<InboxNotification, 'code' | 'sourceId'>) => `/skills?${item.code === 'skill.suggested' ? 'review' : 'mine'}=${encodeURIComponent(item.sourceId)}`
 
+export type DevEnvEndReason = 'timeout' | 'oom' | 'stopped' | 'idle' | 'disk' | 'setting' | 'expired' | 'lost'
+export const END_REASONS: ReadonlySet<string> = new Set<DevEnvEndReason>(['timeout', 'oom', 'stopped', 'idle', 'disk', 'setting', 'expired', 'lost'])
+
 /** The text of a dev environment notice: with the job or the project while the person can still read that project. */
 const devEnvText = (item: InboxNotification, t: ReturnType<typeof useT>) => {
   const d = item.devEnv
+  // srt runner: a job with no exit code says why it ended (a reason the page does not know is the old text)
+  if (d?.job && d.job.exitCode === null && d.job.reason && END_REASONS.has(d.job.reason)) return t('notifications.event.dev_env.jobReason', { name: d.job.name, why: t(`devEnv.end.${d.job.reason as DevEnvEndReason}`) })
   if (d?.job) return d.job.exitCode === null ? t('notifications.event.dev_env.jobNoCode', { name: d.job.name }) : t('notifications.event.dev_env.jobEnded', { name: d.job.name, code: d.job.exitCode })
   if (d?.stopCode === 'disk') return t('notifications.event.dev_env.boxDisk', { project: d.projectName })
   if (d?.stopCode === 'busy_max') return t('notifications.event.dev_env.boxBusy', { project: d.projectName })

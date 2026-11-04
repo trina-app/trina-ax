@@ -26,13 +26,13 @@
 // External services: an address on a "down." host fails its check, the key "wrong-key" is refused, the fake MCP server
 // offers two tools at the first check and a third from the next one (one on a "many." host offers 150, of which the
 // first 100 are kept), and a sign-in completes on the second poll.
-// POST /__test/dev-env {box?: 'running'} turns the dev environment (experiment) on for every project until the next reset.
+// POST /__test/dev-env {box?: 'running', srt?: true} turns the dev environment (experiment) on for every project until the next reset.
 import { z } from 'zod'
 // Keep the server renderer outside the browser TypeScript program; this module runs only in Bun.
 const hwpEngine = import('../../../server/src/files/' + 'hwp-engine.ts').then(m => new m.NativeHwpEngine())
 import {
   ApiErrorResponse, CSRF_HEADER, type SkillChange, type SkillManagerGrant, type SkillSuggestion, DEV_SESSION_COOKIE, CHAT_ERROR_MESSAGES, type ChatErrorReason, ERROR_MESSAGES, LOCALE_HEADER, Locale, ServerEvent, UPLOAD_CHUNK_SIZE, WS_PATH, WsClose, isSchema, listEndpoints, uuidv7,
-  type ApiName, type Artifact, type Attachment, type Chat, type Endpoint, type ErrorCode, type FileEntry, type FileVersion, type Folder, type Group, type Invite, type Job, type Me, type Message,
+  type ApiName, type Artifact, type Attachment, type DevEnvRun, type Chat, type Endpoint, type ErrorCode, type FileEntry, type FileVersion, type Folder, type Group, type Invite, type Job, type Me, type Message,
   MemberEngineChoice, type Project, type ConnectionStatus, type ServerEventInput, type Step, type TrashItem, type TurnRequest, type UploadSession, type User, type Memory, type Budget, type TeamSettings, type AuditEntry, type Schedule,
 } from '@mycel/shared/api'
 import fs from 'node:fs'
@@ -193,9 +193,10 @@ export class MockServer {
   /** Team AX Cloud (server/src/system/deployment.ts): /__test/cloud switches it on until the next reset */
   cloud = false
   /** POST /__test/dev-env {box?: 'running'}: the dev environment (experiment) of every project is on until the next
-   * reset, with a stopped box (or a running one) and a few lines of activity; otherwise its endpoints answer 404, like
+   * reset, with a stopped box (or a running one) and a few lines of activity; srt: true is the srt runner (no box, a
+   * running dev server and a waiting job, warning version 2); otherwise its endpoints answer 404, like
    * a server without MYCEL_DEV_ENV */
-  devEnv: { box: 'stopped' | 'running' } | null = null
+  devEnv: { box: 'stopped' | 'running'; srt?: { running: DevEnvRun[]; waiting: DevEnvRun[] } } | null = null
 
   constructor(o: { setup?: boolean } = {}) {
     this.reset(o)
@@ -581,6 +582,12 @@ export class MockServer {
   devEnvOf(user: User, projectId: string) {
     if (!this.devEnv || !this.projects.some((p) => p.id === projectId)) fail('not_found', 404)
     const running = this.devEnv!.box === 'running'
+    const srt = this.devEnv!.srt
+    if (srt) return {
+      availability: { available: true },
+      setting: { enabled: true, scope: { mode: 'writers' as const, groupIds: [], userIds: [] }, network: 'open' as const, limits: { cpus: 1, memoryMiB: 1536, pids: 512, diskGiB: 4, idleStopMin: 30 }, consent: { by: null, at: now(), warningVersion: 2 } },
+      warningVersion: 2, mayUse: true, mayManage: user.role !== 'member', needsFolder: false, box: null, jobs: [], runs: srt,
+    }
     return {
       availability: { available: true },
       setting: { enabled: true, scope: { mode: 'writers' as const, groupIds: [], userIds: [] }, network: 'open' as const, limits: { cpus: 1, memoryMiB: 2560, pids: 512, diskGiB: 4, idleStopMin: 30 }, consent: { by: null, at: now(), warningVersion: 1 } },
@@ -1125,6 +1132,14 @@ export class MockServer {
     devEnvBox: (c) => {
       this.devEnvOf(c.user, c.params.id!)
       this.devEnv!.box = c.body.action === 'stop' ? 'stopped' : 'running'
+      return this.devEnvOf(c.user, c.params.id!)
+    },
+    devEnvRunStop: (c) => {
+      this.devEnvOf(c.user, c.params.id!)
+      const srt = this.devEnv!.srt
+      if (!srt) fail('not_found', 404)
+      srt!.running = srt!.running.filter((r) => r.id !== c.params.runId)
+      srt!.waiting = srt!.waiting.filter((r) => r.id !== c.params.runId)
       return this.devEnvOf(c.user, c.params.id!)
     },
     devEnvPreview: (c) => {
@@ -2283,7 +2298,11 @@ export class MockServer {
     else if (p === '/__test/server-version') this.serverVersion = String(body.version)
     else if (p === '/__test/upload-delay') this.uploadDelayMs = Number(body.ms)
     else if (p === '/__test/cloud') this.cloud = body.on !== false
-    else if (p === '/__test/dev-env') this.devEnv = { box: body.box === 'running' ? 'running' : 'stopped' }
+    else if (p === '/__test/dev-env') {
+      const by = this.users[0] ? { id: this.users[0].id, name: this.users[0].name } : null
+      const run = (id: string, kind: 'job' | 'server', name: string, position: number | null, lastLine: string) => ({ id, kind, name, by, startedAt: now(), runAt: position === null ? now() : null, position, memoryMiB: position === null ? 320 : null, lastLine })
+      this.devEnv = { box: body.box === 'running' ? 'running' : 'stopped', ...(body.srt ? { srt: { running: [run('r1', 'server', 'npm run dev', null, 'ready on http://localhost:3000')], waiting: [run('r2', 'job', 'render', 1, '')] } } : {}) }
+    }
     else if (p === '/__test/skill-list') this.aiList = SkillsOverview.shape.aiList.parse(body)
     else if (p === '/__test/connection') this.connection = { ...this.connection, ...(body as unknown as Partial<ConnectionStatus>) }
     else if (p === '/__test/speech-host') this.speechHost = { ...this.speechHost, ...(body as unknown as Partial<typeof this.speechHost>) }

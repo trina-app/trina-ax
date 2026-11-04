@@ -24,10 +24,11 @@ export const InboxNotification = z.object({
   review: z.boolean().optional(),
   /** 'dev_env.job' and 'dev_env.box' only, while the person can read the project folder, and 'dev_env.box' for an admin too.
    * The text stays in the job's own row, not in the inbox. exitCode null: no exit code is known; note says why, in
-   * English, from boxd. stopCode: why the box stopped. */
+   * English, from boxd. reason: why the job ended (srt runner: timeout, oom, stopped, disk, setting, expired, lost; older
+   * rows and the box omit it). stopCode: why the box stopped. */
   devEnv: z.object({
     projectId: z.string(), projectName: z.string(),
-    job: z.object({ name: z.string(), exitCode: z.number().int().nullable(), note: z.string(), tail: z.string() }).optional(),
+    job: z.object({ name: z.string(), exitCode: z.number().int().nullable(), note: z.string(), tail: z.string(), reason: z.string().optional() }).optional(),
     stopCode: z.string().optional(),
   }).optional(),
 })

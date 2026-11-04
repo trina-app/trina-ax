@@ -437,6 +437,9 @@ describe('jobs and the queue', () => {
     await pollJobs(h.ctx)
     expect(rows()[0]).toMatchObject({ state: 'ended', end_reason: 'oom', exit_code: null })
     expect(publish.find((p) => p.frame.data.code === 'dev_env_job')!.frame.data.message).toContain('ran out of memory')
+    // the inbox says why (the page shows a text for the reason)
+    const inbox = (await h.api('alice').call(API.listNotifications, { query: {} })).items.find((i) => i.devEnv?.job?.name === 'big')
+    expect(inbox?.devEnv?.job).toMatchObject({ exitCode: null, reason: 'oom' })
     await shell().call({ command: 'sleep', job: true, log_name: 'gone' })
     runs.get(runIdOfRow(rows()[1]!))!.state = 'gone'
     await pollJobs(h.ctx)
