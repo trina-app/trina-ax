@@ -9,7 +9,8 @@ import { ERROR_MESSAGES } from './errors'
 function fallbackCode(status: number): ErrorCode {
   if (status === 502 || status === 503 || status === 504) return 'unavailable'
   if (status === 429) return 'rate_limited'
-  if (status === 404) return 'not_found'
+  // not 404 → not_found: a 404 page from a proxy does not mean the item is gone, and callers act on not_found
+  // (drop a project, leave a folder, hide a section)
   return 'internal'
 }
 
