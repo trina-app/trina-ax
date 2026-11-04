@@ -3,7 +3,8 @@
 # (scripts/dev-env/TRIAL.md). Adds podman, the box image, the mycel-devbox account, mycel-boxd as a service, and a
 # drop-in that turns on MYCEL_DEV_ENV. The first run restarts the team server, so it ends the running answers. A re-run
 # moves an older install to the paths below. It restarts the team server only if its drop-in changed, and boxd only if its
-# unit changed or the program in memory is not the file on the disk. It stops on a hosted server.
+# unit changed or the program in memory is not the file on the disk. On a hosted team VM it runs only if the team's plan
+# includes the dev environment: root/dev-env.json, which boxd also reads (--limits-file) to cap each box.
 # Box state goes on the disk of <base> (the team data disk on a VM with one): box volumes in <base>/boxd, podman's storage
 # in <base>/boxd-storage. A re-run moves them from /var/lib/mycel-boxd and the box account's home: it stops boxd and
 # every box, copies the volumes and builds the image again.
@@ -71,10 +72,35 @@ OS=$(. /etc/os-release; echo "$ID $VERSION_ID"); [ "$OS" = "debian 13" ] || die 
 systemctl cat "$SERVER_UNIT" >/dev/null 2>&1 || die "no $SERVER_UNIT here: this is not a Trina server"
 [ -f "$BASE/config/server.json" ] || die "no $BASE/config/server.json"
 [ -f "$BASE/root/install.json" ] || die "no $BASE/root/install.json"
-# A hosted server is a shared host: its kit has root/mycel-boxd too, but this service must not go there.
-! grep -Eq '"hosted"[[:space:]]*:[[:space:]]*true' "$BASE/root/install.json" || die "this is a hosted server: the dev environment is for a team VM only"
 command -v jq >/dev/null || die "jq is missing, and the script cannot read $BASE/config/server.json without it: apt-get install jq, then run this again"
 [ -d "$BASE/root" ] && root_only "$BASE/root" || die "$BASE/root must belong to root, and only root may write to it"
+# A hosted server is a Trina Cloud team VM: one team on its own VM. The plan says if it has a box and its caps, in a
+# root-owned file. boxd refuses a box over these caps, so the server account cannot raise them.
+HOSTED=0; ENT=$BASE/root/dev-env.json; BOXD_FLAGS=; BOX_SAY="1 CPU, 2.5 GB"
+if grep -Eq '"hosted"[[:space:]]*:[[:space:]]*true' "$BASE/root/install.json"; then
+  HOSTED=1
+  [ -e "$ENT" ] || die "this team's plan does not include the dev environment (no $ENT)"
+  [ -f "$ENT" ] && root_only "$ENT" || die "$ENT must be a file that belongs to root, and only root may write to it"
+  [ -f "$BASE/root/plan.json" ] && root_only "$BASE/root/plan.json" || die "no root-owned $BASE/root/plan.json"
+  # the same rules as boxd (native/cmd/mycel-boxd/plan.go parseEntitlement): a file that boxd refuses stops here, before
+  # the steps below change the system
+  jq -e 'def whole($lo; $hi): type == "number" and . == floor and . >= $lo and . <= $hi;
+    type == "object" and (keys - ["format","plan","maxRunning","cpus","memoryMiB","pids","diskGiB","network"] == [])
+    and .format == 1 and (.plan | type == "string" and length >= 1 and length <= 32)
+    and (.maxRunning | whole(1; 4)) and (.cpus | type == "number" and . >= 0.25 and . <= 4)
+    and (.memoryMiB | whole(256; 8192)) and (.pids | whole(64; 4096)) and (.diskGiB | whole(1; 32))
+    and (.network == null or .network == "open" or .network == "offline")' "$ENT" >/dev/null 2>&1 \
+    || die "$ENT is not a good plan file (format 1, plan, maxRunning 1-4, cpus 0.25-4, memoryMiB 256-8192, pids 64-4096, diskGiB 1-32, network open or offline, no other keys)"
+  ENT_RUN=$(jq -r .maxRunning "$ENT"); ENT_MEM=$(jq -r .memoryMiB "$ENT"); ENT_DISK=$(jq -r .diskGiB "$ENT")
+  ENT_CPUS=$(jq -r .cpus "$ENT"); ENT_NET=$(jq -r '.network // "offline"' "$ENT")
+  PLAN_MEM=$(jq -er '.memoryMiB | select(type == "number" and . == floor and . > 0)' "$BASE/root/plan.json" 2>/dev/null) \
+    || die "$BASE/root/plan.json has no memoryMiB"
+  # the box comes on top of the plan's memory (the launcher and the server units keep their limits)
+  HMEM=$(awk '/^MemTotal:/{print int($2/1024)}' /proc/meminfo)
+  [ "$HMEM" -ge $((PLAN_MEM + ENT_MEM)) ] || die "this VM has $HMEM MiB; the plan ($PLAN_MEM MiB) and its box ($ENT_MEM MiB) need $((PLAN_MEM + ENT_MEM)) MiB"
+  BOXD_FLAGS=" --max-running $ENT_RUN --limits-file $ENT"
+  BOX_SAY="$ENT_CPUS CPU, $ENT_MEM MiB, $ENT_DISK GiB disk, network $ENT_NET (from $ENT)"
+fi
 root_only "$BASE" || die "$BASE must belong to root, and only root may write to it: box state goes there"
 [ ! -e "$BOXD_STATE" ] || { [ -d "$BOXD_STATE" ] && root_only "$BOXD_STATE"; } || die "$BOXD_STATE must be a folder of root, and only root may write to it"
 [ ! -L "$BOX_STORE" ] && { [ ! -e "$BOX_STORE" ] || [ -d "$BOX_STORE" ]; } || die "$BOX_STORE must be a folder"
@@ -91,6 +117,11 @@ if [ -n "$BOXD" ]; then
 else
   [ -f "$ROOT_BOXD" ] && [ -x "$ROOT_BOXD" ] || die "no $ROOT_BOXD: the running kit has no mycel-boxd. Update the server (sudo mycel-ctl update), or give --boxd"
   root_only "$ROOT_BOXD" || die "$ROOT_BOXD must be a file that belongs to root, and only root may write to it"
+fi
+# An older boxd does not know --limits-file: its unit would restart again and again after the slow steps below.
+if [ "$HOSTED" = 1 ]; then
+  HELP=$("${BOXD:-$ROOT_BOXD}" -h 2>&1 || true)
+  grep -q -- -limits-file <<<"$HELP" || die "this mycel-boxd has no --limits-file: update the server (sudo mycel-ctl update), or give --boxd"
 fi
 SRV=$(systemctl show -p User --value "$SERVER_UNIT"); [ -n "$SRV" ] || die "$SERVER_UNIT has no User="
 SRV_UID=$(id -u "$SRV"); SRV_GID=$(id -g "$SRV")
@@ -226,7 +257,7 @@ Before=$SERVER_UNIT
 
 [Service]
 Type=simple
-ExecStart=$ROOT_BOXD --server-uid $SRV_UID --server-gid $SRV_GID --team-root $TEAM --state-dir $BOXD_STATE
+ExecStart=$ROOT_BOXD --server-uid $SRV_UID --server-gid $SRV_GID --team-root $TEAM --state-dir $BOXD_STATE$BOXD_FLAGS
 Restart=on-failure
 RestartSec=5
 
@@ -234,6 +265,11 @@ RestartSec=5
 WantedBy=multi-user.target
 UNIT_EOF
 if put_changed "$STATE/unit.new" "$UNIT"; then BOXD_RESTART=1; fi
+# boxd reads the plan's caps only when it starts: a changed file needs a restart. The copy in STATE is what it last read.
+if [ "$HOSTED" = 1 ]; then
+  cp "$ENT" "$STATE/dev-env.new"
+  if put_changed "$STATE/dev-env.new" "$STATE/dev-env.json"; then BOXD_RESTART=1; fi
+fi
 systemctl daemon-reload
 systemctl enable mycel-boxd.service
 if [ "$BOXD_RESTART" = 1 ]; then
@@ -296,4 +332,4 @@ if [ -z "$UNSIGNED" ] && [ ! -e "$TIMER_FREE" ]; then
 fi
 say "$TIMER: $(systemctl is-enabled "$TIMER" 2>/dev/null || true)"
 say "box state: $BOXD_STATE, $BOX_STORE"
-say "ok: box limit 1 CPU, 2.5 GB. Turn on dev mode in a project page. No preview domain: the Preview button stays off."
+say "ok: box limit $BOX_SAY. Turn on dev mode in a project page. No preview domain: the Preview button stays off."

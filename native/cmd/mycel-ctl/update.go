@@ -853,7 +853,8 @@ func (u *updater) updateRoot(dir, v string) error {
 
 // The dev environment's root helper: root/<boxdProgram> comes with every kit, and only a server with the dev env has
 // the service (scripts/dev-env/install-trial.sh writes it, with this name for every install id). Without the service the
-// file runs nothing, so a hosted server or a server without the dev env has no step here.
+// file runs nothing, so a server without the dev env has no step here. A hosted team VM with the service takes the same
+// step: the control plane's update runs this code too.
 const (
 	boxdProgram = "mycel-boxd"
 	boxdUnit    = "mycel-boxd.service"

@@ -5269,8 +5269,8 @@ the P0 spike (`docs/research/dev-env-p0-spike.md` on `spike/dev-env-p0`). Archiv
   1 MiB, 256 MiB per project, by hash) becomes a file version. A Files save during a command that the command then
   overwrites is kept as a conflict copy. Commands of one project run one at a time.
 - **Hole 5, resources:** the limits above, per project setting (`limits`), changed only by admins; a change of network
-  or limits stops the box (it starts with the new values at the next command). Team/Pro VMs only for hosted (spike 4.4);
-  not decided here because the experiment does not run on hosted.
+  or limits stops the box (it starts with the new values at the next command). Hosted: see "Dev environment on hosted team VMs"
+  below (2026-11-04).
 - **Hole 6, Claude Code licence:** no engine in the image (the Containerfile fails if `claude` or `codex` is in it), no
   engine mount (a boxd test checks the podman arguments). The engine is the launcher's pinned download, as before.
 - **Hole 7, audit:** `dev_env.command` per command (person, turn, command text redacted, cwd, result, number of changed
@@ -5280,7 +5280,7 @@ the P0 spike (`docs/research/dev-env-p0-spike.md` on `spike/dev-env-p0`). Archiv
 - **Web:** a "Dev environment" section on the project page (`web/src/pages/DevEnvSection.tsx`), hidden when the API is 404: state, box, running processes, stop / restart, a preview button with a port, the last activity; admins edit the setting and accept the warning in a dialog. Audit actions have words in five languages.
 - **Not in the experiment:** egress allowlist mode, credential helper, WebSocket preview, folder
   size quota (a disk floor protects the server disk, see "Dev environment: disk floor, jobs, CPU as activity"), hosted
-  plans, macOS. Isolation and limits are tested only on the `dev-env-test` VM
+  plans from the control plane (see "Dev environment on hosted team VMs"), macOS. Isolation and limits are tested only on the `dev-env-test` VM
   (`docs/research/dev-env-test-vm-plan.md`, `scripts/dev-env/vm-tests.sh`), never on a shared or team server.
 - Tests: `tests/unit/dev-env.test.ts` (flag, consent, scope and write access, admin API and audit, tool offered and
   refused, change window with versions and background changes, the credential card, the conflict copy, preview link
@@ -5409,6 +5409,34 @@ Tests: `native/cmd/mycel-boxd/plan_test.go` (each decision), `volread_linux_test
 size cap; Linux only), `tests/unit/dev-env-jobs.test.ts` (the tracker with a fake boxd, the notice, the inbox, the AI's
 result, an older boxd, the stop notice, the storage rule). The steps with the real box are in `vm-tests.sh` (`JOBS=1`, with
 `LONG=1`) and have not run.
+
+### Dev environment on hosted team VMs (fix/box-hosted, 2026-11-04)
+
+Input: feasibility test T4 (G-T4-1). `install-trial.sh` stopped on every hosted server, because it took a hosted server
+for a shared host. That is wrong: each Trina Cloud team has its own VM. Dion's hosting plan: one box per server, and the
+box limits follow the plan.
+
+- **Entitlement file.** `<base>/root/dev-env.json`, root-owned:
+  `{"format":1,"plan","maxRunning","cpus","memoryMiB","pids","diskGiB","network"?}`. Not a `plan.json` key: `plan.json`
+  refuses unknown keys, so a new key would stop `apply-plan` on a tenant with an older kit. An older kit ignores the new
+  file and stays off.
+- **Root enforces the caps.** `install-trial.sh` on hosted gives boxd `--limits-file` and `--max-running maxRunning`.
+  boxd refuses an ensure with limits over the file ("limits over the plan"). The server account cannot change the file.
+  The server does not clamp the setting yet, so an admin can save higher limits and gets boxd's error at the next
+  command.
+- **Fail closed.** With `--limits-file`, a missing file, a file root does not own, an unknown key, or a value out of range
+  means boxes are not available. No `--limits-file` (self-hosted) keeps the fixed ranges, as before.
+- **Network.** `open` only if the file has `"network":"open"`. An open box goes out from the host's public address with
+  no allowlist (G-T4-11), so this is the owner's choice per plan. Without it, only `offline`.
+- **Memory.** The box comes on top of the plan's memory, not out of the launcher's budget. VM RAM for a plan with a box =
+  `plan.json` `memoryMiB` + box `memoryMiB` + about 0.5 GiB for the OS. The check is `MemTotal >= memoryMiB + box
+  memoryMiB`: `MemTotal` is already under the VM size by about that OS share (see `minHostMiB`). The sum of the units'
+  `MemoryMax` is not used: it is the plan plus the converter share (5120 MiB for a 4096 MiB plan), and those caps do not
+  all fill at the same time. T4's VM (7947 MiB, 4096 MiB plan, 2560 MiB box) passes. A VM of the plan's size only is
+  refused. Box sizes per plan are the owner's: T4 shows 2560 MiB and 1 CPU are enough for a 1080p Remotion render.
+- **Not done (product).** A control-plane command to write the file and install the box, the build files in the kit,
+  podman and a fixed `mycel-devbox` uid in the template, box state on the data disk (G-T4-6), a reinstall after a
+  reimage, and idle checks that count box jobs. Until then an operator installs it as a trial.
 
 ## Folder upload on the file screen (feat/dev-env-video, 2026-11-02)
 

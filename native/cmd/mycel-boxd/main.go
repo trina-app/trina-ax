@@ -25,6 +25,7 @@ var (
 	image     = flag.String("image", "localhost/mycel-devbox:1", "box image (no AI engine in it)")
 	seccompF  = flag.String("seccomp", "/etc/mycel-boxd/box-seccomp.json", "box seccomp profile (scripts/dev-env/make-seccomp.py)")
 	maxBoxes  = flag.Int("max-running", 1, "boxes that may run at the same time (P0 spike section 4.4: one on a 4 GB VM)")
+	limitsF   = flag.String("limits-file", "", "a hosted team's plan caps (<base>/root/dev-env.json); given but missing = no boxes")
 )
 
 // box: what boxd knows of one box while it runs (state on disk is podman's).
