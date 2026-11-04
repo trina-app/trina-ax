@@ -30,6 +30,7 @@ import { cleanAiTitle, graphemes, setAiTitle, titleToolOffered } from './title'
 import { recordSent } from '../tools/connection-urls'
 import { boxShellTool } from '../devenv/tool'
 import { connectService } from './connect-service'
+import { DRAFT_FILE_REFUSAL, draftToolRefusal } from '../onboarding/draft'
 
 interface Tool {
   name: string
@@ -68,6 +69,8 @@ export function buildToolSet(exec: TurnExec): ChatToolSet {
   const tools = new Map<string, Tool>()
   const templateWrites = new Set<string>()
   const add = (t: Tool): boolean => {
+    // a company profile draft (onboarding/draft.ts): web_fetch is its only tool besides the refused file tools
+    if (exec.profileDraft && t.name !== 'web_fetch') return false
     if(confidential && !localTool(t.name)) return false
     if (t.name in FILE_TOOLS || tools.has(t.name)) { exec.rt.log.warn('turn tool name taken, skipped', { tool: t.name }); return false }
     tools.set(t.name, t)
@@ -99,7 +102,7 @@ export function buildToolSet(exec: TurnExec): ChatToolSet {
   const prompt: string[] = []
   const context: string[] = []
   const labels = new Map<string, (args: unknown, locale: Locale) => string>()
-  for (const p of confidential ? [] : exec.rt.ctx.services.turnToolProviders ?? []) {
+  for (const p of confidential || exec.profileDraft ? [] : exec.rt.ctx.services.turnToolProviders ?? []) {
     let built: ReturnType<typeof p.build>
     try { built = p.build({ userId: exec.spec.userId, chatId: exec.spec.chatId, turnId: exec.spec.turnId, browser: exec.browser, scheduled: exec.spec.clientKind === 'schedule' }) }
     catch (e) { exec.rt.log.warn('turn tool provider failed', { provider: p.name, err: e }); continue }
@@ -116,6 +119,9 @@ export function buildToolSet(exec: TurnExec): ChatToolSet {
     has: (n) => tools.has(n),
     async call(name, args, caller) {
       const files = caller?.files ?? exec.files
+      // a profile draft: the same site and at most 4 pages per answer, counted before the call starts
+      const draftNo = exec.profileDraft ? draftToolRefusal(exec.profileDraft, name, args) : null
+      if (draftNo) return { ...text(draftNo, true), summary: `${name} -> refused: company profile draft (${draftNo.slice(0, 80)})` }
       const refusal = templateToolRefusal(exec.rt.ctx, exec.spec.userId, exec.id, name, args, templateWrites)
       if (refusal) return { ...text(refusal, true), summary: 'scheduled template scope refused' }
       if (writesHangul(name, args) && !hwpWritingOn(exec.rt.ctx)) {
@@ -161,6 +167,7 @@ export function buildToolSet(exec: TurnExec): ChatToolSet {
         recordSkillRead(exec.rt.db, exec.rt.files, exec.livePrincipal(), exec.id, filePath)
     },
     beforeFileTool: async (name, args, caller) => {
+      if (exec.profileDraft) return { refusal: DRAFT_FILE_REFUSAL, summary: `${name} -> refused: company profile draft (no team files)` }
       const refusal = templateToolRefusal(exec.rt.ctx, exec.spec.userId, exec.id, name, args, templateWrites)
       if (refusal) return { refusal, summary: 'scheduled template scope refused' }
       recordSent(exec.rt.db, exec.spec.chatId, args)
@@ -193,8 +200,9 @@ export function turnPerson(exec: TurnExec): TurnPerson {
       return (await choose(question, [{ label: allow, value: 'allow' }, { label: deny, value: 'deny' }], extra)) === 'allow'
     },
     *turnUrls() { for (const s of exec.steps) for (const src of s.sources ?? []) yield src.url },
-    // waitForPerson answers "no answer" at once in a scheduled run; tools say why instead of "declined"
-    unattended: exec.spec.clientKind === 'schedule',
+    // waitForPerson answers "no answer" at once in a scheduled run; tools say why instead of "declined". A company
+    // profile draft raises no card either: its screen shows none, so only the typed address and links of its pages open
+    unattended: exec.spec.clientKind === 'schedule' || !!exec.profileDraft,
   }
 }
 

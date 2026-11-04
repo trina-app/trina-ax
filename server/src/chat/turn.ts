@@ -67,6 +67,7 @@ import { dummyAuthJson } from '../credentials/codex-home'
 import { afterUsage } from '../admin/budget-watch'
 import type { QueueTiming } from './fair-queue'
 import { RedactingText, redactorFor, type Redactor } from '../integrations/connections/redact'
+import { draftScopeOf, draftSystemPrompt, type DraftTurn } from '../onboarding/draft'
 
 /** Turn time limit (tab 3: 20 minutes, paused while waiting for a person). */
 export const TURN_TIMEOUT_MS = 20 * 60_000
@@ -125,6 +126,9 @@ export class TurnExec {
   devEnv: { id: string; folderPath: string; name: string } | null = null
   principal: Principal | null = null
   private templateScope = false
+  /** a company profile draft chat (onboarding/draft.ts): its own instructions, web_fetch only on the typed site, at
+   * most 4 pages per answer, no card for anyone; null for every other chat */
+  profileDraft: DraftTurn | null = null
   /** office-network hosts the person allowed "once" in this turn */
   readonly allowedHosts = new Set<string>()
   readonly files = new TurnFiles()
@@ -273,6 +277,8 @@ export class TurnExec {
     const { rt, spec } = this
     try { this.principal = rt.files.principal(spec.userId) } catch { this.error = engineError('user_disabled', spec.locale); return }
     this.templateScope = spec.clientKind === 'schedule' && validateTemplateTurn(rt.ctx, spec.userId, spec.turnId)
+    const draft = draftScopeOf(rt.db, spec.chatId)
+    this.profileDraft = draft ? { scope: draft, fetched: new Set() } : null
     // the chat's engine was switched off by an admin: this answer comes from the team default
     if (spec.substitutedFrom) this.addStep({ kind: 'tool', tool: 'engine', label: tr('engineOffDefault', spec.locale, { from: ENGINE_LABELS[spec.substitutedFrom], to: ENGINE_LABELS[spec.engine] }), status: 'ok' })
     const confs = rt.engines.get()
@@ -289,11 +295,11 @@ export class TurnExec {
     const userMsg = rt.store.messageRow(spec.userMessageId)
     if (!chat || !userMsg) { this.error = engineError('crash', spec.locale); return }
 
-    this.browser = spec.clientKind === 'desktop' && !!spec.windowId && await rt.relay.waitForWindow(spec.userId, spec.windowId)
+    this.browser = !this.profileDraft && spec.clientKind === 'desktop' && !!spec.windowId && await rt.relay.waitForWindow(spec.userId, spec.windowId)
     if (this.stopReason) return
     // dev environment EXPERIMENT (devenv/setting.ts): a project chat whose box this person may use, never a scheduled
     // run (nobody there answers the credential card) or an approved template run (its scope is fixed)
-    if (devEnvFlag() && chat.project_id && !this.templateScope && spec.clientKind !== 'schedule') {
+    if (devEnvFlag() && chat.project_id && !this.templateScope && !this.profileDraft && spec.clientKind !== 'schedule') {
       const p = rt.store.projectRow(chat.project_id)
       if (p && mayUseBox(rt.db, rt.files, { id: p.id, folderPath: p.folder_path }, spec.userId)) this.devEnv = { id: p.id, folderPath: p.folder_path, name: p.name }
     }
@@ -325,8 +331,8 @@ export class TurnExec {
     // sub-agents (docs/DECISIONS.md "Sub-agents"): Claude only, while the team allows them, never in an approved
     // template run (its scope is fixed); see LOCAL_LOGIN_CONFIDENTIAL_SUBAGENTS for confidential chats in office mode
     const confidential = confidentialChat(rt.db, spec.chatId)
-    const webSearch = !this.templateScope && !confidential
-    const subagents = !!claude && !this.templateScope && getTeamSettings(rt.db).aiSubagents
+    const webSearch = !this.templateScope && !this.profileDraft && !confidential
+    const subagents = !!claude && !this.templateScope && !this.profileDraft && getTeamSettings(rt.db).aiSubagents
       && !(claude.authMode === 'local-login' && confidential && !LOCAL_LOGIN_CONFIDENTIAL_SUBAGENTS)
     // the skills of this turn (chat/skill-list.ts), one walk for the instructions, the hints and "/name": every skill
     // the person can use, one line each, the descriptions in the chat's fixed order (so the instructions stay the same
@@ -356,13 +362,15 @@ export class TurnExec {
     const prompt = (fresh: boolean, claudeAttempt = true, sessionId: string | null = null) => {
       const input = { ...promptInput(fresh), subagents: subagents && claudeAttempt }
       this.historyTrimmed = fresh ? historyTrimmed(input.history) : before?.role === 'assistant' && before.history_trimmed === 1
+      // a company profile draft: its own short instructions, none of the team's (onboarding/draft.ts)
+      if (this.profileDraft) return draftSystemPrompt(this.profileDraft.scope, { locale: spec.locale, history: input.history })
       if (fresh && sessionId) { try { recordListed(rt.db, spec.chatId, skills, sessionId) } catch (e) { rt.log.warn('skill list record failed', { err: e, turn: this.id }) } }
       return buildTurnPrompt(rt.files, input)
     }
     // "/<skill name> …": that skill goes in front of the message for this turn (skills.ts); its folder joins the read
     // scope like a file the AI read. The list is that of the person who runs the turn (the sender; for a scheduled run
     // the schedule owner): team skills they can read and their own personal skills
-    const invoked = invokedSkill(skills, userMsg.content)
+    const invoked = this.profileDraft ? null : invokedSkill(skills, userMsg.content)
     if (invoked) addSources(rt.db, spec.chatId, [sourceOf(rt.db, rt.files.rules(), skillFolder(invoked.skill.path))])
     // a scheduled task's run: nobody is watching (waitForPerson answers at once), and the AI is told so
     let scheduled = ''
@@ -376,12 +384,12 @@ export class TurnExec {
     const continued = cutOff ? `${continuationBlock(cutOff)}\n\n` : ''
     // the skill list is cut (more skills than fit): the few whose words match this message go in front of it, so the
     // AI does not miss one only because it is listed by name only (not for a "/name" message: that skill is given)
-    const hints = !invoked && skillList.cut ? skillHintsBlock(hintSkills(skills, userMsg.content, { scores: skillScores, projectFolder: this.projectFolder })) : ''
+    const hints = !invoked && !this.profileDraft && skillList.cut ? skillHintsBlock(hintSkills(skills, userMsg.content, { scores: skillScores, projectFolder: this.projectFolder })) : ''
     const message = scheduled + continued + (hints ? `${hints}\n\n` : '') + (invoked ? `${skillBlock(invoked.skill, invoked.input)}\n\n` : '') + composeMessage(userMsg, atts)
     // a resumed Claude session keeps its first system prompt: what changes per turn travels with the message, with the
     // skills added, changed or removed since that session's instructions listed them
     const claudeMessage = (resumed: boolean, sessionId: string) => {
-      if (!resumed) return message
+      if (!resumed || this.profileDraft) return message
       const before = listedFor(rt.db, spec.chatId, sessionId, spec.userId)
       const changes = skillChangesText(before === 'stale' ? 'stale' : skillChanges(before, skills), neutralizeTags)
       return `${buildTurnContext(rt.files, { ...promptInput(false), connected: toolSet.context.join('\n\n') || null, skillChanges: changes })}\n\n${message}`
@@ -575,7 +583,7 @@ export class TurnExec {
         prepareCodexTurn(codex, chatDir)
         // Codex's own web search, cached index only (docs/DECISIONS.md "Codex web search"): never in an approved
         // template run or a confidential chat; the model proxy refuses its searches for a token without it as well
-        const webSearch = !this.templateScope && !confidentialChat(rt.db, spec.chatId)
+        const webSearch = !this.templateScope && !this.profileDraft && !confidentialChat(rt.db, spec.chatId)
         const parser = new CodexEventParser()
         const errors: EngineEvent[] = []
         this.attemptHadOutput = false
