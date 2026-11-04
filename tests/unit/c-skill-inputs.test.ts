@@ -29,6 +29,13 @@ put('skills/with-form/SKILL.md', manifest('with-form', FORM))
 put('skills/no-form/SKILL.md', manifest('no-form', null))
 put('skills/bad-json/SKILL.md', manifest('bad-json', '[{"name": "product", "label": "x",]'))
 put('skills/bad-key/SKILL.md', manifest('bad-key', JSON.stringify([{ name: 'product', label: 'x', prefill: 'company.revenue' }])))
+// JSON is YAML: a form without "|" is a YAML list, not one text
+put('skills/json-line/SKILL.md', `---\nname: json-line\ndescription: A skill.\nmetadata:\n  inputs: [{"name": "product", "label": "제품"}]\n---\nBody\n`)
+put('skills/yaml-list/SKILL.md', '---\nname: yaml-list\ndescription: A skill.\nmetadata:\n  inputs:\n    - name: product\n      label: 제품\n---\nBody\n')
+// the largest form the rules allow, in Korean (3 bytes a letter), with a long Korean description: a valid header of
+// more than 8 KB
+const BIG = JSON.stringify(Array.from({ length: 8 }, (_, i) => ({ name: `f${i}`, label: '가'.repeat(60), placeholder: '나'.repeat(200), required: true, prefill: 'company.products', multiline: true })))
+put('skills/big-form/SKILL.md', manifest('big-form', BIG).replace('description: A skill.', `description: ${'설명'.repeat(500)}`))
 put('skills/legacy.md', '---\nname: 옛 스킬\ndescription: legacy\nmetadata: {"inputs": "[]"}\n---\nLegacy')
 
 test('parseSkillInputs: a list of fields, or a short reason', () => {
@@ -60,7 +67,7 @@ test('a SKILL.md with a valid form lists it; without one, nothing changes', () =
 
 test('a form that does not parse: the skill still loads, without a form, and is a loader warning (not a crash)', () => {
   const listed = listSkills(files, user)
-  for (const name of ['bad-json', 'bad-key']) {
+  for (const name of ['bad-json', 'bad-key', 'json-line', 'yaml-list', 'big-form']) {
     const s = listed.find((x) => x.name === name)
     expect(s, name).toBeDefined()
     expect(s!.inputs).toBeUndefined()
@@ -70,10 +77,37 @@ test('a form that does not parse: the skill still loads, without a form, and is 
   expect(issues).toEqual([
     { path: 'skills/bad-json/SKILL.md', problem: 'inputs' },
     { path: 'skills/bad-key/SKILL.md', problem: 'inputs' },
+    { path: 'skills/big-form/SKILL.md', problem: 'inputs' },
+    { path: 'skills/json-line/SKILL.md', problem: 'inputs' },
+    { path: 'skills/yaml-list/SKILL.md', problem: 'inputs' },
   ])
   for (const i of issues) expect(SkillIssue.parse(i)).toEqual(i)
   // a legacy file has no metadata map: its header is not a form, and it is no issue
   expect(listed.find((s) => s.name === '옛 스킬')?.inputs).toBeUndefined()
+})
+
+test('a form written as YAML (a list, or JSON without "|") loads the skill without it and says how to write it', () => {
+  for (const name of ['json-line', 'yaml-list']) {
+    const text = fs.readFileSync(path.join(root, `skills/${name}/SKILL.md`), 'utf8')
+    const r = checkSkill(text, `skills/${name}/SKILL.md`)
+    expect(r).toMatchObject({ ok: true, name, description: 'A skill.', body: 'Body\n' })
+    expect(r.ok && r.badInputs).toContain('inputs: |')
+    expect(skillWriteNote(root, `skills/${name}/SKILL.md`, Buffer.from(text))).toContain('write "inputs: |"')
+  }
+  // any other metadata value that is not text still breaks the header, as before
+  expect(checkSkill('---\nname: x\ndescription: d\nmetadata:\n  tags: [a, b]\n---\n', 'skills/x/SKILL.md')).toEqual({ ok: false, problem: 'header' })
+})
+
+test('a form that makes the header larger than 8 KB: the skill loads without it and the issue says why', () => {
+  const text = fs.readFileSync(path.join(root, 'skills/big-form/SKILL.md'), 'utf8')
+  expect(parseSkillInputs(BIG).ok).toBe(true) // a valid form, only too large for the header
+  const r = checkSkill(text, 'skills/big-form/SKILL.md')
+  expect(Buffer.byteLength(text)).toBeGreaterThan(8 * 1024)
+  expect(r).toMatchObject({ ok: true, name: 'big-form', description: '설명'.repeat(500), body: 'Body\n' })
+  expect(r.ok && r.badInputs).toMatch(/header is \d+ bytes, over the 8 KB limit/)
+  // without a form to leave out, an oversized header is a broken header, as before
+  const long = `---\nname: long\ndescription: ${'다'.repeat(1000)}\nmetadata:\n${Array.from({ length: 60 }, (_, i) => `  k${i}: ${'라'.repeat(40)}`).join('\n')}\n---\nBody\n`
+  expect(checkSkill(long, 'skills/long/SKILL.md')).toEqual({ ok: false, problem: 'header' })
 })
 
 test('the AI is told when a skill it saved loads without its form', () => {

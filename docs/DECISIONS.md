@@ -6749,8 +6749,14 @@ the team-led onboarding (stream C); the wave-2 welcome steps reuse what is here.
   `kept` (someone edited it), something in the way (a folder named SKILL.md, a file named like a team folder, a
   look-alike name, a rule) is `blocked`. The save is made without a "last seen" hash, so a file that appears between
   the check and the write makes the save refuse (`not_read`) instead of replacing it. Installing again restores only
-  what was deleted. There is no "update the pack" yet: a future pack version would replace only files whose bytes
-  equal a known earlier version.
+  what was deleted, so it also brings back a skill someone deleted on purpose: the wave-2 welcome steps must not call
+  install again by themselves (only on a person's click). There is no "update the pack" yet: a future pack version
+  would replace only files whose bytes equal a known earlier version.
+- **Names are what runs.** "/<name>" (and so a form) runs a skill by name: a personal skill first, then the first
+  path (`invokedSkill`). A pack skill whose name another team skill already has (any case, legacy files too) is
+  `blocked` with `sameNameAs`, so install never creates a second team skill of that name. Personal skills are not
+  checked (an admin cannot see members' ones, and a personal skill only takes the team skill's place for its owner);
+  the form handles them.
 - **Language.** The team default language picks the text: Korean and English are written, every other language gets
   English skills (with folders in its own language). Skill names stay the ASCII folder names the loader requires
   (`ad-copy`); the description starts with the plain name (광고 문구 —) for people who see the list.
@@ -6761,11 +6767,20 @@ the team-led onboarding (stream C); the wave-2 welcome steps reuse what is here.
   `company_profile` without angle brackets: inside a skill the prompt neutralizes block tags), asks once and briefly
   for a missing must-have, never invents figures (prices, results, volumes, competitor numbers; blanks like [가격]
   instead), lists its assumptions, and saves a file only when asked. competitor-brief reads only the site the person
-  typed (web_fetch, same site, at most four pages), treats page text as data and cites each fact's page.
+  typed (web_fetch, same site, at most four pages), treats page text as data, cites each fact's page, and says so when
+  a page opens with almost no text (image pages, script-drawn sites) instead of guessing. ad-copy writes each option
+  as its own block (easy to copy on a phone) and claims no exact character count: models miscount Korean, so it asks
+  the person to check the count in the ad tool.
 - **Skill forms.** A SKILL.md may declare `metadata.inputs`: one string holding a JSON list of at most 8 fields
   (`name`, `label`, `placeholder?`, `required?`, `prefill?` from the six `company.*` keys, `multiline?`;
   `shared/src/api/skill-inputs.ts`, strict: unknown keys are refused as typos). The metadata map already had to be a
-  string map, so JSON-in-a-string keeps the header parser unchanged and the Agent Skills format valid. A valid form is
+  string map, so JSON-in-a-string keeps the header format and the Agent Skills format valid. JSON is YAML, so the
+  likeliest mistake is a form written without `|` (a one-line JSON list, or a YAML list): an `inputs` value that is
+  not text no longer breaks the whole header; the skill loads without the form and the issue says to write
+  `inputs: |`. Any other metadata value that is not text still breaks the header, as before. The 8 KB header limit is
+  in bytes, so a large Korean form with a long description can pass it: the server then reads the header without the
+  form's lines (the rest must fit in 8 KB, so the parser's work stays bounded) and reports `inputs` with the size,
+  instead of a broken header and no skill. A valid form is
   listed with the skill (`SkillInfo.inputs`, absent otherwise, so every older reader and test sees the same objects);
   one that does not parse never stops the skill from loading: it runs without a form, readers get the skill issue
   `inputs` (its own note on the Team skills page, "these work but open without their form"), and the AI is told
@@ -6777,7 +6792,10 @@ the team-led onboarding (stream C); the wave-2 welcome steps reuse what is here.
   `GET /api/onboarding/profile` (stream D) through a local lenient schema and treats 404 or any failure as no
   profile; a field the person already typed in is never overwritten when the profile arrives late. Opened from the
   Team skills page (row, run button, menu; skills without a form keep the old "/name" link), `/skills?run=<path>`
-  (closing it removes the parameter; a path the person cannot use says so), and the "/" menu. In the message box
+  (closing it removes the parameter; a path the person cannot use says so, and says when their personal skill of the
+  same name is in the way), and the "/" menu. The form checks its name against the person's own list
+  (`skillRunBy`, the server's order): when "/<name>" would run another skill, it names that skill and does not run.
+  With nothing filled in it sends "/<name> " (the space keeps the "/" menu closed). In the message box
   the form fills the box instead of starting a chat (`onCompose`), so it works inside an existing chat and the person
   still presses send.
 - **Empty Team skills page.** Owners and admins see what the pack adds and [추천 묶음 설치]; members read that an
@@ -6785,7 +6803,11 @@ the team-led onboarding (stream C); the wave-2 welcome steps reuse what is here.
 - Tests: `tests/unit/c-onboarding-pack.test.ts` (Korean install as an admin, every skill loads with its form and no
   skill issue for an admin or a member, the audit rows, a second and third install, an edited file kept and a
   deleted one restored, members 403 and an unknown pack 404, English skills with Japanese folders, names taken by
-  something else reported as blocked, every pack text in both languages), `tests/unit/c-skill-inputs.test.ts`
-  (parsing and its reasons, a skill without a form keeps its exact shape, bad JSON and an unknown prefill load without
-  a form and are `inputs` issues, the AI's note), `web/test/unit/skill-form.test.tsx` (prefill, required fields, the
-  message, the run link, the empty page for owners/admins/members in five languages, the run button).
+  something else reported as blocked, a team skill of the same name (also a legacy file in another case) blocking a
+  pack skill while an admin's personal one does not, every pack text in both languages),
+  `tests/unit/c-skill-inputs.test.ts` (parsing and its reasons, a skill without a form keeps its exact shape, bad
+  JSON and an unknown prefill load without a form and are `inputs` issues, a one-line JSON list and a YAML list load
+  without a form with the "inputs: |" advice, a valid 8-field Korean form over 8 KB loads without it and says the
+  size, an oversized header without a form is still `header`, the AI's note), `web/test/unit/skill-form.test.tsx`
+  (prefill, required fields, the message and "/<name> " keeping the "/" menu closed, which skill a name runs, the
+  run link, the empty page for owners/admins/members in five languages, the run button).

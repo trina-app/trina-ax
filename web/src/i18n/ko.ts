@@ -2574,7 +2574,7 @@ export const ko = {
   "skillPack.memberHint": "관리자가 추천 스킬 묶음을 설치할 수 있어요.",
   "skillPack.installed": "스킬 {n}개를 넣었어요.",
   "skillPack.already": "추천 묶음은 이미 설치돼 있어요.",
-  "skillPack.blocked": "{n}개는 넣지 못했어요. 폴더 권한이나 같은 이름의 파일을 확인해 주세요.",
+  "skillPack.blocked": "{n}개는 넣지 못했어요. 같은 이름의 스킬이 이미 있거나, 폴더 권한이나 같은 이름의 파일 때문이에요.",
   "skillForm.title": "{name} 실행",
   "skillForm.titlePlain": "스킬 실행",
   "skillForm.notFound": "이 스킬을 찾을 수 없어요. 지워졌거나 볼 권한이 없어요.",
@@ -2588,8 +2588,10 @@ export const ko = {
   "skillForm.run": "실행",
   "skillForm.fill": "메시지에 넣기",
   "skillForm.runNamed": "{name} 실행",
+  "skillForm.sameName": "같은 이름의 스킬({path})이 있어서 /{name} 명령은 그 스킬을 실행해요. 이 양식으로는 실행할 수 없으니, 둘 중 하나의 이름을 바꿔 달라고 관리자에게 알려 주세요.",
+  "skillForm.shadowed": "내 개인 스킬 {name}이(가) 같은 이름의 팀 스킬을 대신하고 있어서 이 양식을 열 수 없어요. 팀 스킬을 쓰려면 내 스킬의 이름을 바꿔 주세요.",
   "skills.issues.inputsTitle": "아래 스킬은 쓸 수 있지만, 입력 양식 없이 열려요.",
-  "skills.issues.inputs": "머리말 metadata의 inputs가 올바른 목록이 아니에요. JSON 목록으로 쓰고, 칸마다 name과 label을 넣어 주세요.",
+  "skills.issues.inputs": "입력 양식(metadata의 inputs)을 읽지 못했어요. \"inputs: |\"라고 쓰고, 다음 줄부터 JSON 목록을 들여 써 주세요. 칸마다 name과 label이 있어야 하고, 머리말은 8KB(한글 약 2,700자)를 넘으면 안 돼요.",
   "audit.act.onboarding.pack_install": "추천 스킬 묶음 설치",
 } as const
 

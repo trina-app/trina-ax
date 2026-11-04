@@ -19,7 +19,7 @@ import { readRegular } from '../files/store'
 import { HttpError } from '../http/errors'
 import { authorize } from '../policy/authorize'
 import { Denied, ToolError } from '../policy/errors'
-import { SKILL_FILE_MAX_BYTES } from '../chat/skills'
+import { listTeamSkills, sameSkillName, SKILL_FILE_MAX_BYTES } from '../chat/skills'
 import { componentC } from '../team-files/component'
 import { FileError } from '../team-files/errors'
 import koAdCopy from '../../../resources/skill-packs/marketing/ko/ad-copy/SKILL.md' with { type: 'text' }
@@ -65,9 +65,14 @@ export const packLocale = (pack: SkillPack, team: Locale): Locale => (pack.skill
 
 const refused = (e: unknown) => e instanceof Denied || e instanceof ToolError || e instanceof FileError || e instanceof HttpError
 
-/** One skill file: written when the name is free, otherwise left as it is. */
-function placeSkill(ctx: AppContext, userId: string, rel: string, text: string): { path: string; status: PackItemStatus } {
+/** One skill file: written when the name is free, otherwise left as it is. A team skill elsewhere with the same
+ * skill name blocks it: "/<name>" (and so a form, which runs by name) would run either one. */
+function placeSkill(ctx: AppContext, userId: string, rel: string, name: string, text: string, team: { path: string; name: string }[]): { path: string; status: PackItemStatus; sameNameAs?: string } {
   const user = ctx.files.principal(userId)
+  // the pack's own file (installed before) is not another skill; on a case-insensitive disk neither is its other spelling
+  const fold = (p: string) => (ctx.files.fx.caseInsensitive ? p.normalize('NFC').toLowerCase() : p)
+  const other = team.find((s) => sameSkillName(s.name, name) && fold(s.path) !== fold(rel))
+  if (other) return { path: rel, status: 'blocked', sameNameAs: other.path }
   let r
   try { r = authorize(ctx.files.fx, ctx.files.rules(), user, rel, 'write', { createDirs: true }) } catch (e) {
     if (refused(e)) return { path: rel, status: 'blocked' }
@@ -109,7 +114,9 @@ export function installSkillPack(ctx: AppContext, userId: string, id: SkillPackI
   const team = teamDefaultLocale(ctx.db)
   const locale = packLocale(pack, team)
   const texts = pack.skills[locale]!
-  const skills = Object.entries(texts).map(([name, text]) => ({ name, ...placeSkill(ctx, userId, `skills/${id}/${name}/SKILL.md`, text) }))
+  // the team skills as the admin sees them (owners and admins read every team folder), personal ones left out
+  const teamSkills = listTeamSkills(ctx.files, ctx.files.principal(userId)).map((s) => ({ path: s.path, name: s.name }))
+  const skills = Object.entries(texts).map(([name, text]) => ({ name, ...placeSkill(ctx, userId, `skills/${id}/${name}/SKILL.md`, name, text, teamSkills) }))
   const folders = pack.folders[team].map((f) => placeFolder(ctx, userId, `shared/${f}`))
   const count = (s: string) => [...skills, ...folders].filter((x) => x.status === s).length
   audit(ctx.db, { actor: userId, action: 'onboarding.pack_install', target: `skills/${id}`, detail: { pack: id, locale, created: count('created'), present: count('present'), kept: count('kept'), blocked: count('blocked') } })

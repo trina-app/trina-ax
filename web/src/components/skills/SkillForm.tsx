@@ -5,13 +5,15 @@
 //
 // Opened from the Team skills page (a skill's run button, and /skills?run=<path>), from the "/" menu in the message
 // box (there it fills the box instead: `onCompose`), and later from the welcome steps. Standalone: `onDone` after the
-// chat started (default: open it), `onSkip` adds a quiet "Skip" button.
+// chat started (default: open it), `onSkip` adds a quiet "Skip" button. The command runs by name, so a form whose
+// name runs another skill for this person (a personal skill or another team skill with the same name) refuses to run
+// and says which one is in the way.
 import { Play } from 'lucide-react'
 import { useEffect, useId, useRef, useState, type FormEvent } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { SKILL_INPUT_TEXT_MAX, SKILL_INPUT_VALUE_MAX, type SkillInfo } from '@mycel/shared/api'
 import { api, API, errorText } from '../../lib/api'
-import { composeSkillMessage, loadProfile, missingRequired, withPrefill } from '../../lib/skillForm'
+import { composeSkillMessage, loadProfile, missingRequired, skillRunBy, withPrefill } from '../../lib/skillForm'
 import { rememberChat } from '../../lib/teamAttach'
 import { useLocale, useT } from '../../i18n'
 import { useChats } from '../../store/chats'
@@ -21,8 +23,8 @@ import { Button, ErrorNote, Field, Modal, Skeleton, inputCls } from '../ui'
 type Props = {
   /** the skill's entry point (GET /api/skills `path`) */
   path: string
-  /** the skill, when the caller already looked it up (null: not one this person can use); else found by `path` */
-  skill?: SkillInfo | null
+  /** the skill, when the caller has it: shown at once (the form still checks it against the person's list) */
+  skill?: SkillInfo
   /** the chat started (default: it opens) */
   onDone?: (chatId: string) => void
   onSkip?: () => void
@@ -36,7 +38,7 @@ export function SkillForm({ path, skill: given, onDone, onSkip, onCompose }: Pro
   const me = useMeStrict()
   const navigate = useNavigate()
   const send = useChats((s) => s.send)
-  const [skill, setSkill] = useState<SkillInfo | null | undefined>(given)
+  const [list, setList] = useState<SkillInfo[] | null>(null)
   const [loadError, setLoadError] = useState<string | null>(null)
   const [values, setValues] = useState<Record<string, string>>({})
   const [free, setFree] = useState('')
@@ -46,18 +48,19 @@ export function SkillForm({ path, skill: given, onDone, onSkip, onCompose }: Pro
   const [error, setError] = useState<string | null>(null)
   const formId = useId()
 
-  // the skill: from the caller, or looked up among the skills this person can use (another path is "not found")
+  // the skills this person can use: the form's own (by path; any other path is "not found") and the one "/<name>"
+  // runs for them
   useEffect(() => {
-    if (given !== undefined) { setSkill(given); return }
     let live = true
-    setSkill(undefined)
-    api.call(API.listSkills).then(
-      (r) => live && setSkill(r.items.find((s) => s.path === path) ?? null),
-      (e) => live && setLoadError(errorText(e, locale, t('error.network'))),
-    )
+    setList(null)
+    setLoadError(null)
+    api.call(API.listSkills).then((r) => live && setList(r.items), (e) => live && setLoadError(errorText(e, locale, t('error.network'))))
     return () => { live = false }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [path, given])
+  }, [path])
+  const skill = list ? (list.find((s) => s.path === path) ?? null) : given
+  const runs = list && skill ? skillRunBy(list, skill.name) : null
+  const clash = runs && skill && runs.path !== skill.path ? runs : null
 
   // the company profile fills the fields that ask for it, unless the person already typed there
   const inputs = skill?.inputs ?? []
@@ -67,11 +70,16 @@ export function SkillForm({ path, skill: given, onDone, onSkip, onCompose }: Pro
     void loadProfile().then((profile) => { if (live && profile) setValues((v) => withPrefill(inputs, profile, v, typed.current)) })
     return () => { live = false }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [skill])
+  }, [skill?.path, !!skill?.inputs])
 
-  if (loadError) return <ErrorNote>{loadError}</ErrorNote>
+  if (loadError && !skill) return <ErrorNote>{loadError}</ErrorNote>
   if (skill === undefined) return <Skeleton lines={4} />
-  if (skill === null) return <p className="text-sm text-muted" data-testid="skill-form-missing">{t('skillForm.notFound')}</p>
+  if (skill === null) {
+    // a personal skill of the same name takes the team skill's place for this person (server/src/chat/skills.ts)
+    const folder = /([^/]+)\/SKILL\.md$/.exec(path)?.[1]
+    const mine = folder ? list?.find((s) => s.personal && s.name.normalize('NFC').toLowerCase() === folder.normalize('NFC').toLowerCase()) : undefined
+    return <p className="text-sm text-muted" data-testid="skill-form-missing">{mine ? t('skillForm.shadowed', { name: mine.name }) : t('skillForm.notFound')}</p>
+  }
 
   const set = (name: string, v: string) => {
     typed.current.add(name)
@@ -80,6 +88,7 @@ export function SkillForm({ path, skill: given, onDone, onSkip, onCompose }: Pro
   }
   const submit = async (e: FormEvent) => {
     e.preventDefault()
+    if (clash) return
     const left = missingRequired(inputs, values)
     setMissing(left)
     if (left.length) {
@@ -105,6 +114,7 @@ export function SkillForm({ path, skill: given, onDone, onSkip, onCompose }: Pro
   return (
     <form onSubmit={(e) => void submit(e)} noValidate className="space-y-3" data-testid="skill-form" data-path={skill.path}>
       {skill.description && <p className="text-sm text-muted">{skill.description}</p>}
+      {clash && <p role="alert" className="rounded-lg bg-warn-soft px-3 py-2 text-xs text-warn" data-testid="skill-form-clash">{t('skillForm.sameName', { name: skill.name, path: clash.path })}</p>}
       {inputs.map((i) => {
         const common = {
           id: `${formId}-${i.name}`,
@@ -131,7 +141,7 @@ export function SkillForm({ path, skill: given, onDone, onSkip, onCompose }: Pro
       {error && <ErrorNote>{error}</ErrorNote>}
       <div className="flex items-center justify-end gap-2 pt-1">
         {onSkip && <Button variant="ghost" className="mr-auto" onClick={onSkip} data-testid="skill-form-skip">{t('skillForm.skip')}</Button>}
-        <Button type="submit" variant="primary" busy={busy} data-testid="skill-form-run">
+        <Button type="submit" variant="primary" busy={busy} disabled={!!clash} data-testid="skill-form-run">
           <Play size={14} aria-hidden /> {onCompose ? t('skillForm.fill') : t('skillForm.run')}
         </Button>
       </div>
@@ -139,28 +149,14 @@ export function SkillForm({ path, skill: given, onDone, onSkip, onCompose }: Pro
   )
 }
 
-/** The form in a dialog (Team skills page, /skills?run=, "/" menu). `skill` when the caller has it; else found by
- * `path` among the skills this person can use. */
-export function SkillFormDialog({ path, skill: given, onClose, onCompose }: { path: string; skill?: SkillInfo; onClose: () => void; onCompose?: (message: string) => void }) {
+/** The form in a dialog (Team skills page, /skills?run=, "/" menu). The title names the skill: from `skill`, or the
+ * folder of a SKILL.md (its name must equal it). */
+export function SkillFormDialog({ path, skill, onClose, onCompose }: { path: string; skill?: SkillInfo; onClose: () => void; onCompose?: (message: string) => void }) {
   const t = useT()
-  const locale = useLocale()
-  const [skill, setSkill] = useState<SkillInfo | null | undefined>(given)
-  const [error, setError] = useState<string | null>(null)
-  useEffect(() => {
-    if (given) { setSkill(given); return }
-    let live = true
-    api.call(API.listSkills).then(
-      (r) => live && setSkill(r.items.find((s) => s.path === path) ?? null),
-      (e) => live && setError(errorText(e, locale, t('error.network'))),
-    )
-    return () => { live = false }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [path, given])
+  const name = skill?.name ?? /([^/]+)\/SKILL\.md$/.exec(path)?.[1]
   return (
-    <Modal open onClose={onClose} width={560} title={skill ? t('skillForm.title', { name: skill.name }) : t('skillForm.titlePlain')}>
-      {error ? <ErrorNote>{error}</ErrorNote>
-        : skill === undefined ? <Skeleton lines={4} />
-        : <SkillForm path={path} skill={skill} onCompose={onCompose ? (m) => { onCompose(m); onClose() } : undefined} />}
+    <Modal open onClose={onClose} width={560} title={name ? t('skillForm.title', { name }) : t('skillForm.titlePlain')}>
+      <SkillForm path={path} skill={skill} onCompose={onCompose ? (m) => { onCompose(m); onClose() } : undefined} />
     </Modal>
   )
 }

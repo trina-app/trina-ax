@@ -21,7 +21,12 @@ export const SkillPackInstallResult = z.object({
   pack: SkillPackId,
   /** the language of the skill text that was used (the team's language, or English) */
   locale: Locale,
-  skills: z.array(z.object({ name: z.string(), path: z.string(), status: PackItemStatus })),
+  skills: z.array(z.object({
+    name: z.string(), path: z.string(), status: PackItemStatus,
+    /** blocked because another team skill the caller can read already has this name ("/<name>" would run either one):
+     * its path */
+    sameNameAs: z.string().optional(),
+  })),
   folders: z.array(z.object({ path: z.string(), status: z.enum(['created', 'present', 'blocked']) })),
 })
 export type SkillPackInstallResult = z.infer<typeof SkillPackInstallResult>

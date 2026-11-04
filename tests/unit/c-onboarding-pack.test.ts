@@ -108,6 +108,29 @@ test('a name taken by something else is left alone and reported', async () => {
   expect(r.body.skills.filter((s: any) => s.status === 'created')).toHaveLength(6)
 })
 
+test('a team skill that already has a pack skill\'s name blocks it: "/<name>" would run either one', async () => {
+  const { owner, ada, root } = await setup()
+  const put = (rel: string, text: string) => { fs.mkdirSync(path.dirname(path.join(root, rel)), { recursive: true }); fs.writeFileSync(path.join(root, rel), text) }
+  put('skills/ad-copy/SKILL.md', '---\nname: ad-copy\ndescription: our own ad copy\n---\nOURS\n')
+  put('skills/영업/brief.md', '---\nname: SEO-Brief\ndescription: legacy, another case\n---\nOURS\n')
+  // an admin's personal skill of the same name only takes the team skill's place for that admin: no clash for the team
+  put(`users/${ada.id}/skills/weekly-report/SKILL.md`, '---\nname: weekly-report\ndescription: mine\n---\nMINE\n')
+  const r = await install(ada.client)
+  expect(r.status).toBe(200)
+  const by = Object.fromEntries(r.body.skills.map((s: any) => [s.name, s]))
+  expect(by['ad-copy']).toEqual({ name: 'ad-copy', path: 'skills/marketing/ad-copy/SKILL.md', status: 'blocked', sameNameAs: 'skills/ad-copy/SKILL.md' })
+  expect(by['seo-brief']).toMatchObject({ status: 'blocked', sameNameAs: 'skills/영업/brief.md' })
+  expect(by['weekly-report'].status).toBe('created')
+  expect(fs.existsSync(path.join(root, 'skills/marketing/ad-copy'))).toBe(false)
+  expect(fs.readFileSync(path.join(root, 'skills/ad-copy/SKILL.md'), 'utf8')).toContain('OURS')
+  // once the other skill is renamed, installing again adds the pack's (and its own installed skills are no clash)
+  fs.renameSync(path.join(root, 'skills/ad-copy'), path.join(root, 'skills/our-ads'))
+  fs.writeFileSync(path.join(root, 'skills/our-ads/SKILL.md'), '---\nname: our-ads\ndescription: our own ad copy\n---\nOURS\n')
+  const again = await install(owner)
+  expect(again.body.skills.find((s: any) => s.name === 'ad-copy').status).toBe('created')
+  expect(again.body.skills.filter((s: any) => s.status === 'present')).toHaveLength(5)
+})
+
 test('every pack text, in every language, loads as a skill with a valid form', () => {
   for (const [locale, texts] of Object.entries(SKILL_PACKS.marketing.skills)) {
     expect(Object.keys(texts!).sort(), locale).toEqual(NAMES)

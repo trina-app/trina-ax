@@ -30,7 +30,12 @@ metadata:
 - Save to a file only when asked, and ask where.
 
 ## Output
-| Option | Headline | Body | Call to action | Characters |
-|---|---|---|---|---|
+Write each option as its own block, not in a table, so it can be copied as it is on a phone.
 
-Below the table, name the option you recommend and why, in one line.
+### Option 1 · (angle)
+Headline: …
+Body: …
+Call to action: …
+
+- Where the channel has a character limit, aim for it but do not claim an exact count. Ask the person to check the real count in the ad tool before publishing.
+- End with the option you recommend and why, in one line.

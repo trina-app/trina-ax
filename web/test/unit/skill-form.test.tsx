@@ -6,7 +6,8 @@ import type { Locale, SkillInfo, SkillInput } from '@mycel/shared/api'
 import { translate, useLocaleStore } from '../../src/i18n'
 import { useSession } from '../../src/store/session'
 import { AvailableSkillsList } from '../../src/components/AvailableSkills'
-import { composeSkillMessage, missingRequired, prefillValue, skillRunLink, withPrefill } from '../../src/lib/skillForm'
+import { composeSkillMessage, missingRequired, prefillValue, skillRunBy, skillRunLink, withPrefill } from '../../src/lib/skillForm'
+import { matchSkills } from '../../src/components/chat/SkillMenu'
 
 const inputs: SkillInput[] = [
   { name: 'product', label: '알릴 제품', required: true, prefill: 'company.products' },
@@ -34,10 +35,22 @@ describe('skill form values', () => {
   test('the message is the skill command with one "label: value" per filled field', () => {
     expect(composeSkillMessage('ad-copy', inputs, { product: ' 종이 플래너 ', tone: '', notes: '첫 줄\r\n둘째 줄' }))
       .toBe('/ad-copy\n알릴 제품: 종이 플래너\n\n참고 메모:\n첫 줄\n둘째 줄')
-    expect(composeSkillMessage('ad-copy', inputs, {})).toBe('/ad-copy')
+    // nothing filled in: "/<name> ", which the message box's "/" menu takes as chosen (it does not open again)
+    expect(composeSkillMessage('ad-copy', inputs, {})).toBe('/ad-copy ')
+    expect(matchSkills([{ path: 'skills/marketing/ad-copy/SKILL.md', name: 'ad-copy', description: '' }], composeSkillMessage('ad-copy', inputs, {}))).toBeNull()
     // a skill without a form: one free text after its name
     expect(composeSkillMessage('weekly', undefined, {}, '  이번 주 것만 ')).toBe('/weekly 이번 주 것만')
-    expect(composeSkillMessage('weekly', [], {}, '')).toBe('/weekly')
+    expect(composeSkillMessage('weekly', [], {}, '')).toBe('/weekly ')
+  })
+
+  test('the skill "/<name>" runs for this person: a personal one first, then the first path (as the server picks)', () => {
+    const pack = { path: 'skills/marketing/ad-copy/SKILL.md', name: 'ad-copy', description: '' }
+    const older = { path: 'skills/ad-copy/SKILL.md', name: 'Ad-Copy', description: '' }
+    const mine = { path: 'users/u1/skills/ad-copy/SKILL.md', name: 'ad-copy', description: '', personal: true }
+    expect(skillRunBy([pack], 'ad-copy')).toBe(pack)
+    expect(skillRunBy([pack, older], 'ad-copy')).toBe(older)
+    expect(skillRunBy([older, pack, mine], 'ad-copy')).toBe(mine)
+    expect(skillRunBy([pack], 'other')).toBeNull()
   })
 
   test('the run link', () => {

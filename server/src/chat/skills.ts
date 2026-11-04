@@ -52,12 +52,15 @@ const hasFrontmatter = (text: string) => /^\uFEFF?---[ \t]*(?:\r?\n|$)/.test(tex
 
 /** Decode the standard metadata without constructing JS objects or expanding aliases. Only the root and the
  * optional metadata string map may be collections. The bounded header also limits parser work before validation.
- * `metadata` holds the metadata map's values (the form of a skill is its `inputs`). */
-function standardFields(header: string): { fields: Map<string, string>; metadata: Map<string, string> } | null {
+ * `metadata` holds the metadata map's values (the form of a skill is its `inputs`). A form written as YAML instead of
+ * one text (a list, or a JSON list without `|`: JSON is YAML) is never read, and never breaks the header: the skill
+ * loads without its form (`inputsNotText`). */
+function standardFields(header: string): { fields: Map<string, string>; metadata: Map<string, string>; inputsNotText: boolean } | null {
   try {
     const doc = parseDocument(header, { strict: true, uniqueKeys: true, schema: 'core', version: '1.2', prettyErrors: false, logLevel: 'silent' })
     if (doc.errors.length || doc.warnings.length || !isMap(doc.contents) || doc.contents.anchor || doc.contents.tag) return null
     const fields = new Map<string, string>(), metadata = new Map<string, string>()
+    let inputsNotText = false
     const scalar = (v: unknown): v is import('yaml').Scalar<string> => isScalar(v) && typeof v.value === 'string' && !v.anchor && !v.tag
     for (const item of doc.contents.items) {
       if (!scalar(item.key)) return null
@@ -65,7 +68,9 @@ function standardFields(header: string): { fields: Map<string, string>; metadata
       if (key === 'metadata') {
         if (!isMap(item.value) || item.value.anchor || item.value.tag) return null
         for (const pair of item.value.items) {
-          if (!scalar(pair.key) || !scalar(pair.value)) return null
+          if (!scalar(pair.key)) return null
+          if (pair.key.value === 'inputs' && !scalar(pair.value)) { inputsNotText = true; continue }
+          if (!scalar(pair.value)) return null
           metadata.set(pair.key.value, pair.value.value)
         }
       } else {
@@ -73,8 +78,23 @@ function standardFields(header: string): { fields: Map<string, string>; metadata
         fields.set(key, item.value.value)
       }
     }
-    return { fields, metadata }
+    return { fields, metadata, inputsNotText }
   } catch { return null }
+}
+
+const HEADER_RE = /^---[ \t]*\r?\n([\s\S]*?)\r?\n---[ \t]*(?:\r?\n|$)/
+const INPUTS_NOT_TEXT = 'inputs must be one JSON text: write "inputs: |" and the JSON list on the lines below it, indented'
+
+/** The header with its form (metadata `inputs` and the lines under it) left empty, or null when it has none: a
+ * SKILL.md whose form makes the header larger than HEADER_MAX still loads, without the form. */
+function withoutInputs(header: string): string | null {
+  const lines = header.split(/\r?\n/)
+  const at = lines.findIndex((l) => /^[ \t]+inputs[ \t]*:/.test(l))
+  if (at < 0) return null
+  const indent = /^[ \t]*/.exec(lines[at]!)![0]
+  let end = at + 1
+  while (end < lines.length && (!lines[end]!.trim() || /^[ \t]*/.exec(lines[end]!)![0].length > indent.length)) end++
+  return [...lines.slice(0, at), `${indent}inputs: ""`, ...lines.slice(end)].join('\n')
 }
 
 /** Why an entry with a header is not a skill. Codes only: the screens translate them (R2-SKILL-03). */
@@ -142,13 +162,24 @@ export function checkSkill(text: string, rel?: string): SkillCheck {
   const no = (problem: SkillProblem): SkillCheck => ({ ok: false, problem })
   if (Buffer.byteLength(text, 'utf8') > SKILL_FILE_MAX_BYTES) return no('too_large')
   const t = text.replace(/^\uFEFF/, '')
-  const m = /^---[ \t]*\r?\n([\s\S]*?)\r?\n---[ \t]*(?:\r?\n|$)/.exec(t.slice(0, HEADER_MAX + 16))
-  if (!m || Buffer.byteLength(m[1]!, 'utf8') > HEADER_MAX) return no('header')
+  let m = HEADER_RE.exec(t.slice(0, HEADER_MAX + 16))
+  let headerText = m?.[1]
+  let oversized = 0
+  if (!m || Buffer.byteLength(m[1]!, 'utf8') > HEADER_MAX) {
+    // a SKILL.md whose form makes the header too large (Korean takes 3 bytes a letter): the skill without its form,
+    // and an `inputs` issue that says why, rather than a broken header and no skill at all
+    const big = rel !== undefined && isSkillManifest(rel) ? HEADER_RE.exec(t) : null
+    const rest = big ? withoutInputs(big[1]!) : null
+    if (!big || rest === null || Buffer.byteLength(rest, 'utf8') > HEADER_MAX) return no('header')
+    m = big
+    headerText = rest
+    oversized = Buffer.byteLength(big[1]!, 'utf8')
+  }
   if (rel !== undefined && isSkillManifest(rel)) {
     const parts = rel.split('/')
     const root = skillRootLength(parts)
     if (root === null || parts.length < root + 2 || parts.length > root + MAX_DEPTH) return no('location')
-    const header = standardFields(m[1]!)
+    const header = standardFields(headerText!)
     if (!header) return no('header')
     const { fields } = header
     const name = fields.get('name'), description = fields.get('description')
@@ -158,6 +189,8 @@ export function checkSkill(text: string, rel?: string): SkillCheck {
     const compatibility = fields.get('compatibility')
     if (compatibility !== undefined && (!compatibility.trim() || [...compatibility].length > 500)) return no('compatibility')
     const ok = { ok: true as const, name, description: description.trim(), body: t.slice(m[0].length) }
+    if (oversized) return { ...ok, badInputs: `with this form the header is ${oversized} bytes, over the ${HEADER_MAX / 1024} KB limit (a Korean letter takes 3 bytes): shorten the labels and placeholders` }
+    if (header.inputsNotText) return { ...ok, badInputs: INPUTS_NOT_TEXT }
     const raw = header.metadata.get('inputs')
     if (raw === undefined) return ok
     const form = parseSkillInputs(raw)
@@ -320,6 +353,21 @@ const nameKey = (s: string) => s.normalize('NFC').toLowerCase()
 export function listSkills(files: FileService, user: Principal): Skill[] {
   return scanSkills(files, user).skills
 }
+
+/** The team skills `user` can read (skills/ only), whether or not a personal skill of theirs has the same name: for
+ * a check of names before a team skill is added (onboarding/skill-packs.ts). */
+export function listTeamSkills(files: FileService, user: Principal): Skill[] {
+  const out: Skill[] = []
+  const scan: Scan = { rules: files.rules(), dirs: new Map() }
+  walkSkillRoot(files, user, SKILLS_DIR, (rel) => {
+    const skill = readSkillIn(files, user, rel, scan)
+    if (skill) out.push(skill)
+  }, scan)
+  return out
+}
+
+/** The same skill name for "/<name>" (invokedSkill compares names this way). */
+export const sameSkillName = (a: string, b: string) => nameKey(a) === nameKey(b)
 
 /** listSkills, and the roots whose walk stopped at MAX_FILES (skills/ or the caller's users/<id>/skills). */
 export function scanSkills(files: FileService, user: Principal): { skills: Skill[]; capped: string[] } {
