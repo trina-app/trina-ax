@@ -4,6 +4,7 @@ import path from 'node:path'
 import { PRODUCT } from '../shared/src/product'
 import desktopConfig from '../desktop/electron-builder.config'
 import { checkSkill, listSkills, skillIssues } from '../server/src/chat/skills'
+import { siteMarkdownFiles } from './docs/site'
 
 const ROOT = path.resolve(import.meta.dir, '..')
 export const ENTRY = ['README.md', 'README.ko.md', 'README.ja.md', 'README.es.md', 'README.zh-CN.md', 'SUPPORT.md', 'docs/README.md', 'docs/QUICKSTART.md', 'docs/QUICKSTART.ko.md', 'docs/for-teams.md', 'docs/for-teams.ko.md', 'docs/for-admins.md', 'docs/for-admins.ko.md', 'docs/INSTALL-LINUX.md', 'docs/INSTALL-LINUX.en.md', 'docs/OFFICE.md', 'docs/OFFICE.en.md', 'docs/FAQ.md', 'docs/FAQ.ko.md', 'docs/BACKUP-RESTORE.md', 'docs/CONFIGURATION.md', 'docs/TROUBLESHOOTING.md', 'docs/DEVELOPMENT.md', 'examples/README.md', 'examples/README.ko.md']
@@ -25,7 +26,8 @@ export function localLinkProblems(file: string, root = ROOT): string[] {
   return problems
 }
 export function checkOnboarding(): string[] {
-  const errors = ENTRY.flatMap(file => localLinkProblems(file))
+  // the entry pages, and every page of the documentation site (docs/site/, built by `bun run docs:build`)
+  const errors = [...ENTRY, ...siteMarkdownFiles()].flatMap(file => localLinkProblems(file))
   const readme = fs.readFileSync(path.join(ROOT, 'README.md'), 'utf8')
   const documentedOn = readme.includes('one company connection can serve the whole team by default')
   if (documentedOn !== PRODUCT.sharedSubscriptionsDefault) errors.push('README fresh-team default disagrees with PRODUCT; review defaults and all translations')
@@ -52,5 +54,5 @@ export function checkOnboarding(): string[] {
 if (import.meta.main) {
   const errors = checkOnboarding()
   if (errors.length) { console.error(errors.join('\n')); process.exitCode = 1 }
-  else console.log(`Onboarding contracts OK: ${ENTRY.length} entry pages, six discovered skills without loader warnings, release artifact names.`)
+  else console.log(`Onboarding contracts OK: ${ENTRY.length} entry pages, ${siteMarkdownFiles().length} docs site pages, six discovered skills without loader warnings, release artifact names.`)
 }
