@@ -74,8 +74,8 @@ func (t *tailBuf) bytes() []byte {
 // runCommand runs argv with exec (no shell) in its own process group, stdin on fd 0, and kills the whole group at
 // timeoutSec. Exit codes: the command's own; -1 when a signal ended it; 127 when it could not start.
 func runCommand(ctx context.Context, c Command) Result {
-	timeout := time.Duration(c.TimeoutSec * float64(time.Second))
-	timeout = max(time.Second, min(timeout, maxTimeout))
+	// clamp as a float first: a huge timeoutSec does not fit in a Duration
+	timeout := time.Duration(max(1, min(c.TimeoutSec, maxTimeout.Seconds())) * float64(time.Second))
 	cctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 	cmd := exec.CommandContext(cctx, c.Argv[0], c.Argv[1:]...)

@@ -289,13 +289,18 @@ func pinnedClient(pin []byte) *http.Client {
 			return nil
 		},
 	}
-	return &http.Client{Transport: &http.Transport{
-		Proxy:               nil,
-		TLSClientConfig:     tc,
-		TLSHandshakeTimeout: 15 * time.Second,
-		MaxIdleConnsPerHost: 4,
-		IdleConnTimeout:     90 * time.Second,
-	}}
+	return &http.Client{
+		Transport: &http.Transport{
+			Proxy:               nil,
+			TLSClientConfig:     tc,
+			TLSHandshakeTimeout: 15 * time.Second,
+			MaxIdleConnsPerHost: 4,
+			IdleConnTimeout:     90 * time.Second,
+		},
+		// never follow a redirect: a 307 or 308 sends the body (the token) and the signed headers again, and an http://
+		// target has no TLS, so no pin. A 3xx is not 200, so post returns an error.
+		CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse },
+	}
 }
 
 func systemBootID() string {

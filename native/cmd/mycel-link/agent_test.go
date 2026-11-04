@@ -498,6 +498,44 @@ func TestWrongPinNeverTalks(t *testing.T) {
 	}
 }
 
+// a redirect from the pinned server is not followed: the token and the signed headers never go to another URL
+func TestRedirectIsNotFollowed(t *testing.T) {
+	var hits int
+	var mu sync.Mutex
+	other := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
+		hits++
+		mu.Unlock()
+	}))
+	t.Cleanup(other.Close)
+	srv := httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, other.URL+r.URL.Path, http.StatusTemporaryRedirect)
+	}))
+	cert, pin := ecdsaCert(t)
+	srv.TLS = &tls.Config{Certificates: []tls.Certificate{cert}}
+	srv.StartTLS()
+	t.Cleanup(srv.Close)
+	e := newEnv(t, srv.URL, pin, "tok-redirect", "T1")
+	start(t, e.opts("b"))
+	eventually(t, "register refused", 5*time.Second, func() bool { return strings.Contains(e.log.String(), "HTTP 307") })
+	mu.Lock()
+	defer mu.Unlock()
+	if hits != 0 {
+		t.Fatal("the agent followed a redirect")
+	}
+	b, _ := os.ReadFile(e.cfg)
+	if !strings.Contains(string(b), "tok-redirect") {
+		t.Fatal("token removed without a register")
+	}
+}
+
+func TestHugeTimeoutIsClamped(t *testing.T) {
+	r := runCommand(context.Background(), Command{Argv: []string{"/bin/sh", "-c", "exit 3"}, TimeoutSec: 1e300})
+	if r.TimedOut || r.ExitCode != 3 {
+		t.Fatalf("got %+v", r)
+	}
+}
+
 func TestBadLinkFile(t *testing.T) {
 	d := t.TempDir()
 	for _, s := range []string{`{}`, `{"v":2,"tenantId":"T","url":"https://a:1","pin":"x"}`, `{"v":1,"tenantId":"T","url":"http://a:1","pin":"` + strings.Repeat("A", 43) + `"}`, `{"v":1,"tenantId":"T","url":"https://a:1","pin":"short"}`} {
