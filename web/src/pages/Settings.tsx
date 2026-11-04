@@ -1,22 +1,22 @@
 // The sections of the personal Settings dialog (components/settings/SettingsDialog.tsx): profile, language and theme, password, signed-in devices, the in-app browser's site setting (desktop
-// app only: BrowserSettings.tsx), what the AI remembers, scheduled tasks, apps (the guide to add the app to the home
+// app only: BrowserSettings.tsx), what the AI remembers, apps (the guide to add the app to the home
 // screen, components/settings/InstallGuide.tsx, in a web browser only / desktop app download, none inside a Mac App
 // Store build: only the App Store line),
 // about (version, license, source code), the member's own AI connections when the team allows them (the team's
 // connections are made by the owner in Admin > AI connections), and the MCP connections the AI may use with the
 // member's own accounts (Integrations.tsx).
 import clsx from 'clsx'
-import { Brain, CalendarClock, Download, Laptop, Monitor, Pencil, Plus, ShieldAlert, Smartphone, Trash2 } from 'lucide-react'
-import { useEffect, useId, useRef, useState } from 'react'
-import { Link, useNavigate } from 'react-router-dom'
-import type { EngineId, Me, Memory, Schedule, ScheduleReviewCard, Session, Theme } from '@mycel/shared/api'
+import { Brain, Download, Laptop, Monitor, Pencil, Plus, ShieldAlert, Smartphone, Trash2 } from 'lucide-react'
+import { useEffect, useId, useState } from 'react'
+import { Link } from 'react-router-dom'
+import type { EngineId, Me, Memory, Session, Theme } from '@mycel/shared/api'
 import { RELEASE_CHANNEL } from '@mycel/shared'
-import { api, API, errorText, isApiError } from '../lib/api'
+import { api, API, errorText } from '../lib/api'
 import { formatDateTime, formatSize } from '../lib/format'
 import { archNote, installSteps, offeredDownloads, orderDownloads, parseDownloads, showSteps, type DownloadItem } from '../lib/downloads'
 import { installGuideShown, platform, type Platform } from '../lib/pwa'
 import { LOCALES, useLocale, useT, type MessageKey } from '../i18n'
-import { memoryChanged, schedulesChanged } from '../store/live'
+import { memoryChanged } from '../store/live'
 import { canChooseEngine, useMeStrict, useSession } from '../store/session'
 import { useEngines } from '../store/engines'
 import { ENGINE_LABEL } from '../components/chat/EngineMenu'
@@ -28,13 +28,9 @@ import { browserSettingsBridge, storeApp } from '../lib/desktop'
 import { Badge, Button, EmptyState, ErrorNote, Field, IconButton, Skeleton, confirmDialog, inputCls, noKeyRepeat } from '../components/ui'
 import { SourceCodeLinks, useServerSource } from '../components/SourceCodeLink'
 import { DriveConnection } from '../components/settings/DriveConnection'
-import { ScheduleTemplates } from '../components/settings/ScheduleTemplates'
 import { Notifications } from '../components/settings/Notifications'
 import { InstallGuide } from '../components/settings/InstallGuide'
-import { ScheduleItem } from '../components/settings/ScheduleItem'
 import { MemoryForm } from '../components/settings/MemoryForm'
-import { ScheduleEditDialog } from '../components/settings/ScheduleEditDialog'
-import AskCard from '../components/chat/AskCard'
 import ConnectorConnections from './ConnectorConnections'
 import Integrations from './Integrations'
 
@@ -52,7 +48,6 @@ export default function SettingsPane({ tab }: { tab: string }) {
       {tab === 'drive' && <DriveConnection key={`${me.user.id}:${me.session.id}`} />}
       {tab === 'integrations' && <Integrations key={`${me.user.id}:${me.session.id}`} />}
       {tab === 'connectors' && <ConnectorConnections key={`${me.user.id}:${me.session.id}`} />}
-      {tab === 'schedules' && <Schedules key={`${me.user.id}:${me.session.id}`} />}
       {tab === 'notifications' && <Notifications key={`${me.user.id}:${me.session.id}`} />}
       {tab === 'apps' && <Apps />}
       {tab === 'credentials' && <MyCredentials />}
@@ -301,150 +296,6 @@ function Security() {
         </ul>
       </Section>
     </>
-  )
-}
-
-function Schedules() {
-  const t = useT()
-  const locale = useLocale()
-  const [items, setItems] = useState<Schedule[] | null>(null)
-  const [tz, setTz] = useState('')
-  const [error, setError] = useState<string | null>(null)
-  const life = useRef(0), revision = useRef(0)
-  const load = async () => {
-    const generation = life.current, rev = ++revision.current
-    try {
-      const r = await api.call(API.listSchedules)
-      if (generation !== life.current || rev !== revision.current) return
-      setItems(r.items)
-      setTz(r.timeZone)
-      setError(null)
-    } catch (e) {
-      if (generation === life.current && rev === revision.current) setError(errorText(e, locale, t('error.network')))
-    }
-  }
-  useEffect(() => {
-    life.current++
-    void load()
-    return () => { life.current++ }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [])
-  const weekday = (n: number) => new Intl.DateTimeFormat(locale, { weekday: 'long', timeZone: 'UTC' }).format(new Date(Date.UTC(2026, 0, 4 + n)))
-  const when = (s: Schedule) => t(`schedules.repeat.${s.repeat}` as MessageKey, { time: s.time, date: s.date ?? '', day: String(s.day ?? ''), weekday: weekday(s.weekday ?? 0) })
-  const toggle = async (s: Schedule) => {
-    const generation = life.current
-    try {
-      const u = await api.call(API.updateSchedule, { params: { id: s.id }, body: { enabled: !s.enabled } })
-      if (generation !== life.current) return
-      revision.current++
-      setItems((cur) => cur?.map((x) => (x.id === s.id ? u : x)) ?? null)
-    } catch (e) {
-      toast({ level: 'error', text: errorText(e, locale, t('error.network')) })
-    }
-  }
-  // "다시 확인": a task nobody confirmed shows its schedule card here; resuming is answering it
-  const [review, setReview] = useState<{ id: string; card: ScheduleReviewCard } | null>(null)
-  const openReview = async (s: Schedule) => {
-    if (review?.id === s.id) { setReview(null); return }
-    const generation = life.current
-    try {
-      const card = await api.call(API.getScheduleReview, { params: { id: s.id } })
-      if (generation === life.current) setReview({ id: s.id, card })
-    } catch (e) {
-      toast({ level: 'error', text: errorText(e, locale, t('error.network')) })
-      if (generation === life.current) void load()
-    }
-  }
-  const answerReview = async (s: Schedule, requestId: string, answer: string | string[] | null) => {
-    const value = Array.isArray(answer) ? answer[0] ?? null : answer
-    // "Skip" leaves it paused, like "Keep it paused"
-    if (!value || value === 'keep') { setReview(null); return }
-    const generation = life.current
-    try {
-      const u = await api.call(API.confirmScheduleReview, { params: { id: s.id }, body: { requestId, answer: value } })
-      if (generation !== life.current) return
-      revision.current++
-      setItems((cur) => cur?.map((x) => (x.id === s.id ? u : x)) ?? null)
-      setReview(null)
-      schedulesChanged.emit()
-      if (u.enabled) toast({ level: 'success', text: t('schedules.reviewDone') })
-    } catch (e) {
-      // the task or its connections changed since the card was shown: show the card as it is now
-      if (isApiError(e, 'conflict') && e.body.params?.reason === 'schedule_card_changed') {
-        toast({ level: 'error', text: errorText(e, locale, t('error.network')) })
-        try {
-          const card = await api.call(API.getScheduleReview, { params: { id: s.id } })
-          if (generation === life.current) setReview({ id: s.id, card })
-        } catch { if (generation === life.current) { setReview(null); void load() } }
-        return
-      }
-      throw e
-    }
-  }
-  // "지금 실행": a run now, in a new chat (the toast opens it); the list shows its result like a scheduled run's
-  const navigate = useNavigate()
-  const [starting, setStarting] = useState<string | null>(null)
-  const runNow = async (s: Schedule) => {
-    const generation = life.current
-    setStarting(s.id)
-    try {
-      const r = await api.call(API.runScheduleNow, { params: { id: s.id }, body: {} })
-      if (generation !== life.current) return
-      revision.current++
-      setItems((cur) => cur?.map((x) => (x.id === s.id ? r.schedule : x)) ?? null)
-      toast({ level: 'success', text: t('schedules.runStarted'), action: { label: t('schedules.openRun'), run: () => navigate(`/c/${r.chatId}`) } })
-    } catch (e) {
-      toast({ level: 'error', text: errorText(e, locale, t('error.network')) })
-    } finally {
-      if (generation === life.current) setStarting(null)
-    }
-  }
-  const [editing, setEditing] = useState<Schedule | null>(null)
-  const edited = (u: Schedule) => {
-    revision.current++
-    setItems((cur) => cur?.map((x) => (x.id === u.id ? u : x)) ?? null)
-    setEditing(null)
-    if (u.needsReview === false) schedulesChanged.emit()
-    toast({ level: 'success', text: t('schedules.edited') })
-  }
-  const remove = async (s: Schedule) => {
-    const generation = life.current
-    if (!(await confirmDialog({ title: t('schedules.deleteTitle'), body: t('schedules.deleteBody', { title: s.title }), confirm: t('schedules.delete'), danger: true }))) return
-    if (generation !== life.current) return
-    try {
-      await api.call(API.deleteSchedule, { params: { id: s.id } })
-      if (generation !== life.current) return
-      revision.current++
-      setItems((cur) => cur?.filter((x) => x.id !== s.id) ?? null)
-      if (s.needsReview) schedulesChanged.emit()
-    } catch (e) {
-      toast({ level: 'error', text: errorText(e, locale, t('error.network')) })
-    }
-  }
-  return (
-    <Section title={t('settings.schedules')} desc={t('schedules.desc')}>
-      <ScheduleTemplates onCreated={schedule => { revision.current++; setItems(current => [schedule, ...(current ?? []).filter(item => item.id !== schedule.id)]) }} />
-      {error && <ErrorNote onRetry={() => void load()}>{error}</ErrorNote>}
-      {!items && !error && <Skeleton lines={3} />}
-      {items && !items.length && <EmptyState icon={<CalendarClock size={26} />} title={t('schedules.empty')} />}
-      {items && items.length > 0 && (
-        <>
-          <ul className="divide-y divide-line rounded-xl border border-line" data-testid="schedule-list">
-            {items.map((s) => (
-              <ScheduleItem key={s.id} s={s} tz={tz} when={when(s)} onToggle={() => void toggle(s)} onRemove={() => void remove(s)} onReview={() => void openReview(s)}
-                onRunNow={() => void runNow(s)} running={starting === s.id} onEdit={() => setEditing(s)}
-                review={review?.id === s.id ? (
-                  <div className="mt-2" data-testid="schedule-review-card">
-                    <AskCard key={review.card.request.requestId} req={review.card} onAnswer={(requestId, body) => answerReview(s, requestId, body.kind === 'ask_user' ? body.answer : null)} />
-                  </div>
-                ) : undefined} />
-            ))}
-          </ul>
-          {tz && <p className="mt-2 text-xs text-faint">{t('schedules.timeZone', { tz })}</p>}
-        </>
-      )}
-      {editing && <ScheduleEditDialog key={editing.id} s={editing} tz={tz || null} onClose={() => setEditing(null)} onSaved={edited} />}
-    </Section>
   )
 }
 

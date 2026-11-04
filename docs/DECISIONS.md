@@ -3686,7 +3686,7 @@ reading and writing files, and nobody had ever confirmed them.
   `schedule-review-<person>-<time>`, `review: true`; nothing about the task in it), shown in the app whatever the
   "scheduled task failed" setting is (the task stopped), and pushed per that setting (the push table takes only the
   three push events; the lock-screen text is the generic "needs your attention", Korean now "앱에서 확인해 주세요"). A
-  banner under the others says how many of the person's tasks wait, with a link to Settings › Scheduled tasks.
+  banner under the others says how many of the person's tasks wait, with a link to Scheduled tasks (since 2026-11-04 in the sidebar, `/scheduled`; `/settings/schedules` goes there).
 - **"다시 확인".** The waiting task has "다시 확인" instead of "켜기"; it opens the same server card the AI's
   `schedule_create` raises (`scheduleCard(…, 'review')`: title on one line, schedule, the whole instruction, the
   addresses in it, long random-looking parts marked, the "allow" team connections) rendered by the chat's own
