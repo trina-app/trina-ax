@@ -2,7 +2,8 @@
 // their folder names, no engine call); the owner sees a setup checklist until it is done (tab 5 "상태별 화면").
 import { CheckCircle2, Circle, Folder, Lock, Pencil, X } from 'lucide-react'
 import { useEffect, useMemo, useState } from 'react'
-import { Link, useNavigationType, useSearchParams } from 'react-router-dom'
+import { Link, useSearchParams } from 'react-router-dom'
+import { useRealNavigationType } from '../lib/realPath'
 import type { FileEntry, Project } from '@mycel/shared/api'
 import { api, API } from '../lib/api'
 import { visibleFolders } from '../lib/visibleFolders'
@@ -16,7 +17,7 @@ import { PopularSkills } from '../components/PopularSkills'
 export default function Home() {
   const t = useT()
   const me = useMeStrict()
-  const navigationType = useNavigationType()
+  const navigationType = useRealNavigationType()
   const [params] = useSearchParams()
   const projectId = params.get('project')
   const prompt = params.get('prompt') ?? undefined
