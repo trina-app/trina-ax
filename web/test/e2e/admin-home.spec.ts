@@ -3,6 +3,7 @@
 import { expect, test, type Page } from '@playwright/test'
 import { CSRF_HEADER } from '@mycel/shared/api'
 import { DICTS, type MessageKey } from '../../src/i18n'
+import { turnWhen } from '../../src/lib/updateTurn'
 import { realErrors, reset, signIn, watchConsole } from './helpers'
 
 const t = DICTS.en
@@ -211,6 +212,25 @@ test('automatic updates on: the item says when it installs, with no button; a re
   await page.goto('/admin')
   await expect(page.getByTestId('attention-update')).toContainText(t['adminHome.update.rollout'].replace('{version}', '0.3.0'))
   await expect(page.getByTestId('attention-update').getByRole('button', { name: t['adminHome.update.install'] })).toBeVisible()
+  // the server says when this server's turn comes (turnAt): the window that turn falls in, in the same day words, or its
+  // date when it is further away; Install now still takes it at once
+  for (const days of [1, 3]) {
+    const turnAt = new Date(Date.now() + days * 86_400_000).toISOString()
+    await page.unroute('**/api/admin/update')
+    await answerUpdate(page, () => ({ json: { ...auto, hold: 'rollout', turnAt } }))
+    await page.goto('/admin')
+    const w = turnWhen(turnAt, '03:00-05:00', 'Asia/Seoul')!
+    const date = new Intl.DateTimeFormat('en-US', { month: 'short', day: 'numeric', timeZone: 'UTC' }).format(w.date)
+    const when = t[`adminHome.when.${w.day}.dawn` as MessageKey].replace('{window}', '03:00–05:00').replace('{date}', date)
+    if (days === 3) expect(w.day).toBe('date')
+    await expect(page.getByTestId('attention-update')).toContainText(t['adminHome.update.rolloutAt'].replace('{version}', '0.3.0').replace('{when}', when))
+    await expect(page.getByTestId('attention-update').getByRole('button', { name: t['adminHome.update.install'] })).toBeVisible()
+  }
+  // a turn this release never reaches (null) keeps the plain line
+  await page.unroute('**/api/admin/update')
+  await answerUpdate(page, () => ({ json: { ...auto, hold: 'rollout', turnAt: null } }))
+  await page.goto('/admin')
+  await expect(page.getByTestId('attention-update')).toContainText(t['adminHome.update.rollout'].replace('{version}', '0.3.0'))
   await page.unroute('**/api/admin/update')
   await answerUpdate(page, () => ({ json: { ...auto, hold: 'failed' } }))
   await page.goto('/admin')
