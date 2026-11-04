@@ -466,6 +466,10 @@ export function buildTurnContext(files: FileService, i: PromptInput): string {
     i.browser ? BROWSER_RULES : '',
     // a session started before sub-agents existed (or while they were off) lacks this in its first instructions
     i.subagents ? `## Sub-agents\n${subagentRule()}` : '',
+    // a session started while Hangul writing was off (the HWP plugin, tools/hwp-writing.ts) lacks these in its first
+    // instructions. One started while it was on keeps them after it is turned off: its list then has no edit_hwp and
+    // no .hwpx, and such a call is refused with the reason
+    i.tools.includes('edit_hwp') ? `## Hangul documents\n${i.tools.includes('make_file') ? `${makeFileRule(true)} ` : ''}${EDIT_HWP_RULE}` : '',
     // skills added, changed or removed since this session's instructions were written (skill-list.ts)
     i.skillChanges ?? '',
   ].filter(Boolean)
