@@ -311,6 +311,36 @@ func TestDiskFloor(t *testing.T) {
 	}
 }
 
+func TestWorstDisk(t *testing.T) {
+	const g = uint64(1) << 30
+	if _, ok := worstDisk(nil); ok {
+		t.Error("no disk")
+	}
+	if _, ok := worstDisk([]disk{{0, 0}}); ok {
+		t.Error("a disk of no known size does not count")
+	}
+	// a large data disk with much free space, a small OS disk near its floor: the OS disk counts
+	data, osd := disk{150 * g, 157 * g}, disk{3 * g, 12 * g}
+	if w, _ := worstDisk([]disk{data, osd}); w != osd {
+		t.Errorf("%v", w)
+	}
+	if w, _ := worstDisk([]disk{osd, data}); w != osd {
+		t.Errorf("order: %v", w)
+	}
+	// the margin to the floor counts, not the free bytes: 9 GiB of 200 is under its 10 GiB floor, 3 of 12 is over 2
+	big := disk{9 * g, 200 * g}
+	if w, _ := worstDisk([]disk{osd, big}); w != big || !diskLow(w.free, w.total) {
+		t.Errorf("margin: %v", w)
+	}
+	// free under the floor of the other disk: no underflow
+	if w, _ := worstDisk([]disk{{0, 12 * g}, data}); w.free != 0 {
+		t.Errorf("full disk: %v", w)
+	}
+	if w, ok := worstDisk([]disk{{0, 0}, data}); !ok || w != data {
+		t.Errorf("unknown size skipped: %v", w)
+	}
+}
+
 func TestCPUUse(t *testing.T) {
 	if n, ok := cpuUsageUsec("usage_usec 1234\nuser_usec 1000\nsystem_usec 234\n"); !ok || n != 1234 {
 		t.Error(n, ok)
