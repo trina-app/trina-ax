@@ -16,7 +16,7 @@ import type { AppContext } from '../context'
 import { newId } from '../db'
 import { audit } from '../admin/audit'
 import { teamDefaultLocale } from '../admin/settings'
-import { canRead } from '../chat/projects'
+import { canSeeProject } from '../chat/projects'
 import { admins } from '../credentials/store'
 import { carryLength, redactorFor, type Redactor } from '../integrations/connections/redact'
 import { notifyDevEnv } from '../notifications/service'
@@ -90,8 +90,9 @@ const BOX_STOPPED: Record<string, Record<Locale, (project: string) => string>> =
   },
 }
 
-function readableBy(ctx: AppContext, userId: string, folderPath: string): boolean {
-  try { return canRead(ctx.files, ctx.files.principal(userId), folderPath) } catch { return false }
+/** May this person see the project (its folder readable, and in place unless they are an admin)? */
+function seenBy(ctx: AppContext, userId: string, project: { folder_path: string; trashed_with: string | null }): boolean {
+  try { return canSeeProject(ctx.files, ctx.files.principal(userId), project) } catch { return false }
 }
 
 const clipEnd = (s: string, max: number) => (s.length > max ? '...' + s.slice(-max) : s)
@@ -115,8 +116,8 @@ function endJob(ctx: AppContext, row: JobRow, end: { code: number | null; note: 
   audit(ctx.db, { actor: row.user_id, action: 'dev_env.job', target: row.project_id, detail: {
     job: row.id, name: row.name, turnId: row.turn_id, code: end.code, note: end.note, seconds: Math.round((Date.parse(at) - Date.parse(row.started_at)) / 1000),
   } })
-  const p = ctx.db.query('SELECT folder_path FROM projects WHERE id = ?').get(row.project_id) as { folder_path: string } | null
-  if (!p || !readableBy(ctx, row.user_id, p.folder_path)) return // no access now: the log stays out of the notice
+  const p = ctx.db.query('SELECT folder_path, trashed_with FROM projects WHERE id = ?').get(row.project_id) as { folder_path: string; trashed_with: string | null } | null
+  if (!p || !seenBy(ctx, row.user_id, p)) return // no access now (or the folder is in the trash): the log stays out of the notice
   const code = end.code === null ? NO_CODE[localeOf(ctx.db, row.user_id)] : String(end.code)
   const text = JOB_ENDED[localeOf(ctx.db, row.user_id)](row.name, code)
   const link = row.chat_id ? `/c/${encodeURIComponent(row.chat_id)}` : `/projects/${encodeURIComponent(row.project_id)}`

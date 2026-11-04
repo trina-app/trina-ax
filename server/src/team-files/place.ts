@@ -189,13 +189,15 @@ const takenKeys = (dirAbs: string, visible?: (name: string) => boolean) =>
  * the same not-found answer as the exact hidden name. Server-made names (conflict copies, attachments) leave it out
  * so a save never fails because of something the saver cannot see.
  */
-export function freeName(dirAbs: string, name: string, folder = false, visible?: (name: string) => boolean): string {
+export function freeName(dirAbs: string, name: string, folder = false, visible?: (name: string) => boolean, alsoTaken?: (name: string) => boolean): string {
   const existing = takenKeys(dirAbs, visible)
-  if (!existing.has(foldKey(name))) return name
+  // `alsoTaken`: names that are not on disk but must not be taken either (a folder a project still names)
+  const free = (n: string) => !existing.has(foldKey(n)) && !alsoTaken?.(n)
+  if (free(name)) return name
   const [base, ext] = splitExt(name, folder)
   for (let i = 2; i < 10_000; i++) {
     const cand = `${base} (${i})${ext}`
-    if (!existing.has(foldKey(cand))) return cand
+    if (free(cand)) return cand
   }
   throw new ToolError('no free name', 'conflict')
 }

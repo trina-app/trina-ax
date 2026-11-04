@@ -130,10 +130,14 @@ export class Notifications {
     const job = row.event_type === 'dev_env.job' ? db.query('SELECT project_id,name,chat_id,exit_code,end_note,log_tail FROM dev_env_jobs WHERE id=? AND user_id=?').get(row.source_id, row.user_id) as { project_id: string; name: string; chat_id: string | null; exit_code: number | null; end_note: string; log_tail: string } | null : null
     const stop = row.event_type === 'dev_env.box' ? db.query('SELECT project_id,code FROM dev_env_stops WHERE id=?').get(row.source_id) as { project_id: string; code: string } | null : null
     const projectId = job?.project_id ?? stop?.project_id
-    const project = projectId ? db.query('SELECT name,folder_path FROM projects WHERE id=?').get(projectId) as { name: string; folder_path: string } | null : null
+    const project = projectId ? db.query('SELECT name,folder_path,trashed_with FROM projects WHERE id=?').get(projectId) as { name: string; folder_path: string; trashed_with: string | null } | null : null
     if (!project) return base
     const devEnv = { projectId: projectId!, projectName: project.name }
-    try { authorize(this.ctx.files.fx, this.ctx.files.rules(), this.ctx.files.principal(row.user_id), project.folder_path, 'read') } catch {
+    try {
+      // a project whose folder is in the trash is the admins' and the owner's (chat/projects.ts canSeeProject)
+      if (project.trashed_with !== null && !admins(db).includes(row.user_id)) throw new Error('project folder in the trash')
+      authorize(this.ctx.files.fx, this.ctx.files.rules(), this.ctx.files.principal(row.user_id), project.folder_path, 'read')
+    } catch {
       return stop && admins(db).includes(row.user_id) ? { ...base, devEnv: { ...devEnv, stopCode: stop.code } } : base
     }
     if (stop) return { ...base, link: 'project', devEnv: { ...devEnv, stopCode: stop.code } }
@@ -171,8 +175,9 @@ export class Notifications {
           const p = this.ctx.files.principal(row.user_id), rules = this.ctx.files.rules()
           if (chat.template_source_path) authorize(this.ctx.files.fx, rules, p, chat.template_source_path, 'read')
           if (chat.project_id) {
-            const project = this.ctx.db.query('SELECT folder_path FROM projects WHERE id=?').get(chat.project_id) as { folder_path: string } | null
+            const project = this.ctx.db.query('SELECT folder_path, trashed_with FROM projects WHERE id=?').get(chat.project_id) as { folder_path: string; trashed_with: string | null } | null
             if (!project) throw new Error('missing project')
+            if (project.trashed_with !== null && p.role !== 'owner' && p.role !== 'admin') throw new Error('project folder in the trash')
             authorize(this.ctx.files.fx, rules, p, project.folder_path, 'read')
           }
           for (const source of readScope(this.ctx.db, chat.id) ?? []) {
