@@ -20,7 +20,8 @@
 //
 // Disk: diskGiB sizes only the box volume. /work is the team folder on the server's disk, and the team file system has
 // no project quota, so one watchdog per running box stops the box when the server disk comes under diskFloor. It runs
-// per box and not per exec, because a background command writes after its exec returned.
+// per box and not per exec, because a background command writes after its exec returned. It reads every disk that box
+// files go to: the team root, --state-dir (box volumes) and podman's storage. The disk nearest its floor counts.
 //
 // Jobs: exec with job true starts a background command in a wrapper that writes /cache/logs/<name>.exit. boxd reads that
 // file and the log from the box volume directly, because an exec counts as activity. The box writes that volume and
@@ -248,7 +249,10 @@ func createArgs(box string, p boxPaths, image, seccomp, imgHash string, l limits
 		"--read-only", "--tmpfs", "/tmp:rw,nosuid,nodev,size=" + tmpSize + ",mode=1777",
 		"--cap-drop=ALL", "--security-opt", "no-new-privileges", "--security-opt", "seccomp=" + seccomp,
 		"--pids-limit", strconv.Itoa(l.Pids), "--memory", mem, "--memory-swap", mem,
-		"--cpus", strconv.FormatFloat(l.CPUs, 'f', -1, 64), "--cpu-shares", "512", // lower weight than the team server
+		// No --cpu-shares: libuv 1.50 (Node 20 in the box) multiplies the CPU count by cpu.weight/100, so weight 20
+		// gave os.availableParallelism() 1 at any --cpus. The weight also never ranked the box below the team server:
+		// the box's scope is in user.slice, the server in mycel.slice.
+		"--cpus", strconv.FormatFloat(l.CPUs, 'f', -1, 64),
 		"--userns", "keep-id:uid=0,gid=0", "--user", "0:0", "--init",
 		"-v", p.Work + ":/work:rw",
 		"-v", p.Vol + "/cache:/cache:rw",
@@ -267,7 +271,7 @@ const labelsFormat = `{{index .Config.Labels "mycel.config"}} {{index .Config.La
 // configHash: the label mycel.config, what a running box must match. A change here stops a running box. Change the
 // last value when createArgs changes: each box is then made again once.
 func configHash(l limits, network string) string {
-	b, _ := json.Marshal([]any{l.CPUs, l.MemoryMiB, l.Pids, network, 2})
+	b, _ := json.Marshal([]any{l.CPUs, l.MemoryMiB, l.Pids, network, 3})
 	h := sha256.Sum256(b)
 	return hex.EncodeToString(h[:8])
 }
@@ -372,8 +376,26 @@ func diskFloor(total uint64) uint64 {
 	return diskFloorMin
 }
 
-// diskLow: from statfs of the team root. 0 = not known: the box stays.
+// diskLow: from statfs of the box disks (worstDisk). 0 = not known: the box stays.
 func diskLow(free, total uint64) bool { return total > 0 && free < diskFloor(total) }
+
+// disk: free bytes and size of one file system.
+type disk struct{ free, total uint64 }
+
+// worstDisk: the disk with the least free space over its floor. A disk of no known size does not count. ok is false if
+// no disk counts.
+func worstDisk(ds []disk) (w disk, ok bool) {
+	for _, d := range ds {
+		if d.total == 0 {
+			continue
+		}
+		// free - floor, smallest wins; added on both sides, so no uint underflow
+		if !ok || d.free+diskFloor(w.total) < w.free+diskFloor(d.total) {
+			w, ok = d, true
+		}
+	}
+	return w, ok
+}
 
 const freeSpaceHint = "Free space: empty the trash or delete files. An admin sees the details in Admin > System"
 
