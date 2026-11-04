@@ -147,7 +147,7 @@ Going back to an older image tag does not downgrade the volume: the installer ke
 
 The whole install is in one named volume (`trina-ax_data` on `/var/lib/mycel`): the app versions, the root files, `data/` (database, backups), `team/` (the team folder), `config/`, `secrets/` and the engine account's folder.
 
-Inside the app (the server stays up; these commands are not tested in the container yet):
+Inside the app (the server stays up):
 
 ```sh
 trina_admin() { docker compose exec -T -w / -u axserver -e MYCEL_CONFIG=/var/lib/mycel/config/server.json trina-ax \
@@ -183,7 +183,7 @@ A volume copy holds secrets (AI connections, keys): keep it encrypted and off th
 
 ## Test
 
-`docker/test.sh` builds the image, starts it with a separate project name and port, and checks: health, the setup page, the setup link, first-run setup through the published port, the engine firewall (`axagent` reaches only the model proxy), bubblewrap + Landlock + seccomp as `axagent`, and a new container on the same volume. Then it removes the container, the volume and the network.
+`docker/test.sh` builds the image, starts it with a separate project name and port, and checks: health, the setup page, the setup link, first-run setup through the published port, the engine firewall (`axagent` reaches only the model proxy), bubblewrap + Landlock + seccomp as `axagent`, the launcher's own status (bwrap, Landlock required, firewall loaded), and a new container on the same volume. It does not run a real AI turn (that needs an AI account). Then it removes the container, the volume and the network.
 
 ```sh
 TRINA_AX_VERSION=0.3.0 bash docker/test.sh
@@ -206,6 +206,7 @@ docker compose down -v     # also deletes the volume: all team data. Only after 
 | `... has no setgid bit` | `cap_add: FSETID` is missing. Add it, start once with `TRINA_AX_REINSTALL=1` |
 | `downloading https://downloads.claude.ai/... failed` | No outbound https at first start. The container tries again (restart policy) |
 | Installer warning `this kernel has no Landlock in its LSM list` | The container cannot read `/sys/kernel/security`. Check Landlock with `docker compose exec trina-ax runuser -u axagent -- /var/lib/mycel/root/mycel-sandbox probe`: `landlockAbi` must be 1 or more |
+| `opening seccomp profile (./seccomp.json) failed` | Run `docker compose` inside the `docker/` folder: the profile path is read from the current folder |
 | `kernel.yama.ptrace_scope is 0` | On the host: `sysctl -w kernel.yama.ptrace_scope=1` and add it to `/etc/sysctl.d/` |
 
 Logs: `docker compose logs trina-ax`. Status: `docker compose exec trina-ax mycel-ctl status`.
