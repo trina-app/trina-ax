@@ -65,11 +65,14 @@ export class Notifications {
   /** A member without AI asks this owner to connect one. The source is the member's id only; a second ask is a no-op
    * (UNIQUE row, migration 222). Shown always. */
   onboardingAiRequest(ownerId: string, memberId: string, createdAt = new Date().toISOString()) {
+    // a settled or read row from an earlier ask is armed again (unread, new time) instead of being swallowed by the unique row
+    const again = this.ctx.db.query("UPDATE onboarding_notices SET read_at=NULL, created_at=? WHERE user_id=? AND event_type='onboarding.ai_request' AND source_id=? AND read_at IS NOT NULL").run(createdAt, ownerId, memberId)
+    if (again.changes) { if (this.active(ownerId)) this.signal(ownerId); return }
     this.record(ownerId, 'onboarding.ai_request', memberId, createdAt, true)
   }
-  /** Did this member already ask (a row for any owner is there)? */
+  /** Is this member's ask still waiting (an unread row for any owner)? A settled or read one is not: they can ask again. */
   aiRequested(memberId: string): boolean {
-    return !!this.ctx.db.query("SELECT 1 FROM onboarding_notices WHERE event_type='onboarding.ai_request' AND source_id=? AND created_at>=? LIMIT 1").get(memberId, this.cutoff())
+    return !!this.ctx.db.query("SELECT 1 FROM onboarding_notices WHERE event_type='onboarding.ai_request' AND source_id=? AND read_at IS NULL AND created_at>=? LIMIT 1").get(memberId, this.cutoff())
   }
   /** A request whose member can use AI now (or is gone) counts as read: the owner is not left with something done. */
   settleAiRequests(userId?: string) {

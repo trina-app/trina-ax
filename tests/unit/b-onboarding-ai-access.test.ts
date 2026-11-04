@@ -71,3 +71,30 @@ describe('asking the owner', () => {
     expect(n.every((i) => i.readAt !== null)).toBe(true)
   })
 })
+
+describe('asking again', () => {
+  test('ask, connect (settled), lose AI, ask again: the owner hears again', async () => {
+    const before = (await ownerNotices()).filter((i) => i.sourceId === mia.id)
+    expect(before[0].readAt).not.toBeNull()
+    expect((await access(mia.client)).requested).toBe(false)
+    h.ctx.db.query('DELETE FROM engine_credentials').run()
+    expect((await access(mia.client)).usable).toBe(false)
+    expect(await mia.client.call('POST', '/api/me/ai-access/request')).toEqual({ requested: true, already: false })
+    const after = (await ownerNotices()).filter((i) => i.sourceId === mia.id)
+    expect(after).toHaveLength(1)
+    expect(after[0].readAt).toBeNull()
+    expect(await mia.client.call('POST', '/api/me/ai-access/request')).toEqual({ requested: true, already: true })
+  })
+})
+
+describe('engines that sign in on their own', () => {
+  test('usable is true and a request is refused', async () => {
+    const h2 = await harness('b-onb-ai-access-local', { engine: { authMode: 'local-login' } })
+    try {
+      const o = await withOwner(h2)
+      const m = await addMember(h2, o, { username: 'lia' })
+      expect((await m.client.call('GET', '/api/me/ai-access')).usable).toBe(true)
+      expect((await m.client.try('POST', '/api/me/ai-access/request')).status).toBe(403)
+    } finally { await h2.close() }
+  })
+})

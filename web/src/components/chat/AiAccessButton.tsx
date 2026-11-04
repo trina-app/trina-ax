@@ -9,9 +9,11 @@ import { Button } from '../ui'
 export default function AiAccessButton({ size = 'sm' }: { size?: 'sm' | 'md' }) {
   const t = useT()
   const navigate = useNavigate()
-  const { loaded, action, requested, sending, failed, ask, load } = useAiAccess()
-  useEffect(() => { void load() }, [load])
-  if (!loaded) return null
+  const { loaded, usable, action, requested, sending, failed, ask, load } = useAiAccess()
+  // a chat error never uses an old answer: ask again when the button appears
+  useEffect(() => { void load(true) }, [load])
+  // AI works (again), or this install signs in on its own: nothing to connect or ask for
+  if (!loaded || usable) return null
   const b = aiButton(action, requested)
   return (
     <span className="inline-flex flex-wrap items-center gap-2">

@@ -13,6 +13,8 @@ interface State {
   failed: boolean
   load: (force?: boolean) => Promise<void>
   ask: () => Promise<void>
+  /** sign-out: nothing one person saw stays for the next */
+  reset: () => void
 }
 
 export const useAiAccess = create<State>((set, get) => ({
@@ -27,6 +29,7 @@ export const useAiAccess = create<State>((set, get) => ({
       set({ loaded: true, usable: true })
     }
   },
+  reset() { set({ loaded: false, usable: true, action: 'ask_owner', requested: false, sending: false, failed: false }) },
   async ask() {
     if (get().sending || get().requested) return
     set({ sending: true, failed: false })

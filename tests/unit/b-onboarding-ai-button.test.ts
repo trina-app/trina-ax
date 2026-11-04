@@ -19,3 +19,10 @@ test('only the two no-AI errors get the button', () => {
   expect(isNoAiReason('rate_limit')).toBe(false)
   expect(isNoAiReason(null)).toBe(false)
 })
+
+test('the store forgets the last person on sign-out, and the button hides while AI works', async () => {
+  const { useAiAccess } = await import('../../web/src/store/aiAccess')
+  useAiAccess.setState({ loaded: true, usable: false, action: 'connect_team', requested: true })
+  useAiAccess.getState().reset()
+  expect(useAiAccess.getState()).toMatchObject({ loaded: false, usable: true, action: 'ask_owner', requested: false })
+})
