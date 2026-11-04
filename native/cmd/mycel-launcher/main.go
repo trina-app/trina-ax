@@ -88,6 +88,7 @@ func killLeftovers() {
 		n := 0
 		for _, p := range ps {
 			if p.Pid != me {
+				logKill("leftover", p)
 				_ = syscall.Kill(p.Pid, syscall.SIGKILL)
 				n++
 			}
@@ -99,7 +100,10 @@ func killLeftovers() {
 	}
 }
 
-// reaper kills processes of this uid that were orphaned (ppid 1) and are not in a live turn session.
+// reaper kills processes of this uid that were orphaned (ppid 1) and are not in a live turn session. It checks
+// every 5 s, so such a process dies 0-5 s after it starts, whatever its size. This also kills a process that an
+// operator starts as the engine account from systemd (systemd-run, a unit with User=): its ppid is 1. Turns are
+// safe on Linux: bwrap --unshare-pid makes the turn's own init the parent of its orphans, never host pid 1.
 func reaper() {
 	me, myPpid := os.Getpid(), os.Getppid()
 	mySid, _ := unix.Getsid(me)
@@ -114,12 +118,39 @@ func reapOnce(me, myPpid, mySid int) {
 	if err != nil {
 		return
 	}
-	for _, p := range ps {
-		if p.Pid == me || p.Pid == myPpid || p.Sid == mySid || live.has(p.Sid) || p.Ppid != 1 {
-			continue
-		}
+	for _, p := range strays(ps, me, myPpid, mySid, live.has) {
+		logKill("orphan", p)
 		_ = syscall.Kill(p.Pid, syscall.SIGKILL)
 	}
+}
+
+// strays: the processes reapOnce kills. Not the launcher, its parent or its session; not a live turn session; only
+// orphans (ppid 1).
+func strays(ps []peer.Proc, me, myPpid, mySid int, isLive func(int) bool) []peer.Proc {
+	var out []peer.Proc
+	for _, p := range ps {
+		if p.Pid == me || p.Pid == myPpid || p.Sid == mySid || isLive(p.Sid) || p.Ppid != 1 {
+			continue
+		}
+		out = append(out, p)
+	}
+	return out
+}
+
+// logKill writes one journal line for each process the launcher kills, so the kill has a reason in the log. Only
+// pid, ppid, sid and the process name (comm): never cmdline or environ, which can hold secrets.
+func logKill(why string, p peer.Proc) {
+	fmt.Fprintf(os.Stderr, "mycel-launcher: SIGKILL %s pid=%d ppid=%d sid=%d comm=%q\n", why, p.Pid, p.Ppid, p.Sid, procComm(p.Pid))
+}
+
+// procComm: the process name from /proc/<pid>/comm ("" when there is no /proc, as on macOS). The process sets this
+// name itself, so the caller prints it quoted.
+func procComm(pid int) string {
+	b, err := os.ReadFile("/proc/" + strconv.Itoa(pid) + "/comm")
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSuffix(string(b), "\n")
 }
 
 type fileSpec struct {
