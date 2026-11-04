@@ -204,6 +204,22 @@ describe('build-ami.sh', () => {
     expect(r.calls.filter((c) => / (create|run|register)-/.test(` ${c}`))).toEqual([])
   })
 
+  test('--account: another account stops before any change, also for --cleanup', () => {
+    const s = setup()
+    let r = run(s, ['--account', '999988887777'])
+    expect(r.code).not.toBe(0)
+    expect(r.out).toContain('the AWS session is account 111122223333, not --account 999988887777')
+    expect(r.calls).toEqual(['sts get-caller-identity --query Account --output text'].map((c) => `--region ap-northeast-2 ${c}`))
+    r = run(s, ['--account', '111122223333'])
+    expect(r.code).toBe(0)
+    const state = path.join(s.dir, 'left.state')
+    fs.writeFileSync(state, 'instance i-0left\n')
+    fs.rmSync(s.log, { force: true })
+    r = run(s, ['--account', '999988887777', '--cleanup', state])
+    expect(r.code).not.toBe(0)
+    expect(r.calls.filter((c) => / (terminate|delete)-/.test(` ${c}`))).toEqual([])
+  })
+
   test('--dry-run prints the aws commands and calls nothing', () => {
     const s = setup()
     const r = run(s, ['--dry-run'])

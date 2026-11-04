@@ -7,6 +7,8 @@
 #
 # Options (defaults):
 #   --region ap-northeast-2     --profile P (AWS CLI profile)
+#   --account ID                stop before any change when the AWS session is not this account (use it: the
+#                               default profile of a machine can be another account)
 #   --subnet-id subnet-…        (required) a subnet with a route to the internet and a NACL that lets SSH in from
 #                               --ssh-cidr (the hostd subnet of trina-teams, or a default-VPC subnet). Not a team subnet:
 #                               their NACL blocks inbound SSH.
@@ -44,7 +46,7 @@ set -euo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO="$(cd "$HERE/../.." && pwd)"
 
-KIT=""; ENROLL_BIN=""; LINK_BIN=""; SUBNET=""; REGION=ap-northeast-2; PROFILE=""; SOURCE_AMI=""
+KIT=""; ENROLL_BIN=""; LINK_BIN=""; SUBNET=""; REGION=ap-northeast-2; PROFILE=""; ACCOUNT_WANT=""; SOURCE_AMI=""
 BUILDER_TYPE=t3a.medium; SSH_CIDR=""; DATE="$(date -u +%Y%m%d)"; SIGN_KEY=""; OUT="$REPO/dist/image"; ROOT_GB=20
 TEST=0; EXTRA_TAGS=(); ALLOW_MISSING_KIT=0; DRY=0; YES=0; CLEANUP_STATE=""
 while [[ $# -gt 0 ]]; do
@@ -55,6 +57,7 @@ while [[ $# -gt 0 ]]; do
     --subnet-id) SUBNET="$2"; shift 2 ;;
     --region) REGION="$2"; shift 2 ;;
     --profile) PROFILE="$2"; shift 2 ;;
+    --account) ACCOUNT_WANT="$2"; shift 2 ;;
     --source-ami) SOURCE_AMI="$2"; shift 2 ;;
     --builder-type) BUILDER_TYPE="$2"; shift 2 ;;
     --ssh-cidr) SSH_CIDR="$2"; shift 2 ;;
@@ -68,7 +71,7 @@ while [[ $# -gt 0 ]]; do
     --dry-run) DRY=1; shift ;;
     --yes|-y) YES=1; shift ;;
     --cleanup) CLEANUP_STATE="$2"; shift 2 ;;
-    -h|--help) sed -n '2,47p' "$0"; exit 0 ;;
+    -h|--help) sed -n '2,44p' "$0"; exit 0 ;;
     *) echo "build-ami: unknown argument $1" >&2; exit 2 ;;
   esac
 done
@@ -141,8 +144,17 @@ cleanup_state() {
   fi
 }
 
+[[ -z "$ACCOUNT_WANT" || "$ACCOUNT_WANT" =~ ^[0-9]{12}$ ]] || die "--account is a 12-digit AWS account id"
+# the account of the AWS session; with --account, stop when it is another one
+check_account() {
+  ACCOUNT="$("${AWS[@]}" sts get-caller-identity --query Account --output text)" || die "aws credentials do not work (aws configure, or --profile)"
+  [[ -z "$ACCOUNT_WANT" || "$ACCOUNT" == "$ACCOUNT_WANT" ]] || die "the AWS session is account $ACCOUNT, not --account $ACCOUNT_WANT (check --profile)"
+  say "account $ACCOUNT"
+}
+
 if [[ -n "$CLEANUP_STATE" ]]; then
   [[ -f "$CLEANUP_STATE" ]] || die "no state file $CLEANUP_STATE"
+  check_account
   STATE="$CLEANUP_STATE"
   cleanup_state
   say "cleanup done ($STATE)"
@@ -253,10 +265,7 @@ tagspec() {
 BUILD_NAME="${NAME_PREFIX}ax-ami-build-$TEMPLATE_VERSION"
 
 # ---- 1. read-only checks in AWS
-if [[ $DRY != 1 ]]; then
-  ACCOUNT="$(q - sts get-caller-identity --query Account --output text)" || die "aws credentials do not work (aws configure, or --profile)"
-  say "account $ACCOUNT"
-fi
+[[ $DRY == 1 ]] || check_account
 if [[ -z "$SOURCE_AMI" ]]; then
   SOURCE_AMI="$(q ami-DRYRUN ssm get-parameter --name /aws/service/debian/release/13/latest/amd64 --query Parameter.Value --output text 2>/dev/null || true)"
   [[ "$SOURCE_AMI" =~ ^ami- ]] || SOURCE_AMI="$(q ami-DRYRUN ec2 describe-images --owners "$DEBIAN_OWNER" --filters 'Name=name,Values=debian-13-amd64-*' \
@@ -291,7 +300,7 @@ if [[ $DRY != 1 && $YES != 1 ]]; then
   [[ -t 0 ]] || die "no terminal for the confirmation prompt: pass --yes"
   echo "build-ami: makes a $BUILDER_TYPE builder (about 30 min), a ${ROOT_GB} GiB gp3 work volume and a security group (SSH from"
   echo "           $SSH_CIDR), then keeps an AMI + one snapshot (${ROOT_GB} GiB, about \$0.05 per GB-month)."
-  read -r -p "Build AMI $AMI_NAME in $REGION now? [y/N] " a
+  read -r -p "Build AMI $AMI_NAME in account $ACCOUNT, $REGION now? [y/N] " a
   [[ "$a" == y || "$a" == Y ]] || die "aborted"
 fi
 

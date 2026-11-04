@@ -216,7 +216,10 @@ describe('Linux root scripts: syntax and rules', () => {
   test('--image-mode (template build, scripts/image/customize.sh): accepted, install only, enables and starts nothing', () => {
     const run = (...a: string[]) => Bun.spawnSync(['/bin/bash', path.join(REPO, 'scripts', 'install-linux.sh'), ...a], { stdout: 'pipe', stderr: 'pipe' })
     // the pilot of 2026-10-30: customize.sh passes it, and the installer stopped with "unknown option --image-mode"
-    expect(run('install', '--image-mode').stderr.toString()).not.toContain('unknown option')
+    // with --auto-update it stops at the argument checks (it implies --hosted), so the test never installs, even as root
+    const img = run('install', '--image-mode', '--auto-update').stderr.toString()
+    expect(img).not.toContain('unknown option')
+    expect(img).toContain('--auto-update is for self-installs')
     expect(run('repair', '--image-mode').stderr.toString()).toContain('--image-mode is for install only')
     const s = read('scripts/install-linux.sh')
     expect(s).toMatch(/--image-mode\) IMAGE_MODE=1; HOSTED=1;/)
