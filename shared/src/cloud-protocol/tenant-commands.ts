@@ -87,8 +87,9 @@ export const TenantStatus = z.strictObject({
     diskUsed: z.number().nonnegative(), diskTotal: z.number().nonnegative(),
   }),
   update: z.strictObject({ running: z.boolean(), step: z.string().regex(/^[a-z0-9_-]{1,40}$/).nullable() }),
-  /** optional (added for the onboarding goal): left out by older servers and while the team has no account. The
-   * control plane must know this field before any tenant sends it (the schema is strict) */
+  /** optional and opt-in (`status --onboarding`, added for the onboarding goal): only when the reader asked for it,
+   * and then left out by older servers and while the team has no account. The schema is strict, so the order is: the
+   * control plane accepts the field, then ax-hostd asks for it */
   onboarding: TenantOnboarding.optional(),
 })
 export type TenantStatus = z.infer<typeof TenantStatus>
@@ -179,7 +180,10 @@ interface CommandDef {
 }
 
 export const TENANT_COMMANDS = {
-  status: { args: NoArgs, stdin: null, output: TenantStatus, timeoutSec: 15 },
+  /** onboarding: add TenantStatus.onboarding (opt-in: a reader that does not ask gets the earlier shape, and the
+   * tenant does not count it). ax-hostd sends it only after its contract sync, and retries without it when an older
+   * mycel-ctl refuses the flag (exit 2, unknown flag). */
+  status: { args: z.strictObject({ onboarding: z.literal(true).optional() }), stdin: null, output: TenantStatus, timeoutSec: 15 },
   'apply-plan': { args: NoArgs, stdin: PlanFile, output: Ok, timeoutSec: 60 },
   'notices-set': { args: NoArgs, stdin: NoticesFile, output: Ok, timeoutSec: 30 },
   'set-server-config': { args: NoArgs, stdin: ServerConfigPatch, output: z.object({ ok: z.literal(true), restarted: z.boolean() }), timeoutSec: 120 },

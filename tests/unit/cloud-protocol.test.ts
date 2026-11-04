@@ -124,6 +124,13 @@ describe('cloud-protocol: tenant commands', () => {
     expect(TenantStatus.safeParse({ ...ok, onboarding: { ...onboarding, membersJoined: 1.5 } }).success).toBe(false)
     expect(TenantStatus.safeParse({ ...ok, onboarding: null }).success).toBe(false)
   })
+  test('status --onboarding: an opt-in flag; without it the argv is the earlier one', () => {
+    expect(tenantCommandArgv('status', {})).toEqual(['status', '--json'])
+    expect(tenantCommandArgv('status', { onboarding: true })).toEqual(['status', '--json', '--onboarding'])
+    expect(tenantCommandProblem('status', { onboarding: true }, null)).toBeNull()
+    expect(tenantCommandProblem('status', { onboarding: 'yes' }, null)).not.toBeNull()
+    expect(tenantCommandProblem('status', { onboarding: false }, null)).not.toBeNull()
+  })
 })
 
 describe('cloud-protocol: enroll', () => {

@@ -72,6 +72,17 @@ describe('admin.js cloud-status', () => {
 })
 
 describe('admin.js cloud-status: the team\'s first days (onboarding)', () => {
+  test('opt-in: without --onboarding the status keeps its earlier fields exactly', () => {
+    const t = install('onboarding-off')
+    const db = t.db()
+    db.query("INSERT INTO users (id, username, name, role) VALUES ('olga', 'olga', 'Olga Kim', 'owner')").run()
+    db.close()
+    const s = JSON.parse(t.run('cloud-status').out)
+    expect(Object.keys(s).sort()).toEqual(['activeMembers', 'ai', 'checks', 'credentialsKey', 'lastLocalBackup', 'lastUploadedLocalId', 'overall', 'queue', 'relay', 'setupNeeded'])
+    expect(JSON.parse(t.run('cloud-status', '--onboarding').out).onboarding).toMatchObject({ day: 0, goalReached: false })
+    // no account yet: left out even when asked
+    expect(JSON.parse(install('onboarding-empty').run('cloud-status', '--onboarding').out)).not.toHaveProperty('onboarding')
+  })
   test('counts and yes/no only: day, pack, profile, invites, people, the best skill, the goal; never a name or path', () => {
     const t = install('onboarding')
     const day = 86_400_000, start = new Date(Date.now() - 2.5 * day).toISOString()
@@ -83,7 +94,7 @@ describe('admin.js cloud-status: the team\'s first days (onboarding)', () => {
     const d0 = t0.db()
     d0.query("INSERT INTO users (id, username, name, role, created_at) VALUES ('olga', 'olga', 'Olga Kim', 'owner', ?)").run(start)
     d0.close()
-    const s0 = JSON.parse(t0.run('cloud-status').out)
+    const s0 = JSON.parse(t0.run('cloud-status', '--onboarding').out)
     expect(s0.onboarding).toEqual({ day: 2, packInstalled: false, profileSaved: false, inviteMade: false, membersJoined: 0, peopleAnswered: 0, membersWithFirstRun: 0, bestSkillRunners: 0, goalReached: false })
     expect(TenantStatus.safeParse({ ...rootPart, ...s0 }).success).toBe(true)
 
@@ -97,7 +108,7 @@ describe('admin.js cloud-status: the team\'s first days (onboarding)', () => {
     turn('t1', 'olga'); turn('t2', 'mina'); turn('t3', 'jun', 'error'); turn('t4', 'jun')
     w.query("INSERT INTO turn_skill_runs (turn_id, skill_path, skill_name, source) VALUES ('t1', ?, 'ad-copy', 'command'), ('t2', ?, 'ad-copy', 'tool'), ('t3', ?, 'ad-copy', 'command')").run(path1, path1, path1)
     w.close()
-    const s = JSON.parse(t.run('cloud-status').out)
+    const s = JSON.parse(t.run('cloud-status', '--onboarding').out)
     expect(s.onboarding).toEqual({ day: 2, packInstalled: true, profileSaved: false, inviteMade: true, membersJoined: 2, peopleAnswered: 3, membersWithFirstRun: 2, bestSkillRunners: 2, goalReached: false })
     expect(TenantStatus.safeParse({ ...rootPart, ...s }).success).toBe(true)
     for (const word of ['Olga', 'Mina', 'olga', 'ad-copy', 'marketing', '광고']) expect(JSON.stringify(s)).not.toContain(word)
@@ -107,7 +118,7 @@ describe('admin.js cloud-status: the team\'s first days (onboarding)', () => {
     const w2 = t.db()
     w2.query("INSERT INTO turn_skill_runs (turn_id, skill_path, skill_name, source) VALUES ('t4', ?, 'ad-copy', 'command')").run(path1)
     w2.close()
-    expect(JSON.parse(t.run('cloud-status').out).onboarding).toMatchObject({ profileSaved: true, membersWithFirstRun: 3, bestSkillRunners: 3, goalReached: true })
+    expect(JSON.parse(t.run('cloud-status', '--onboarding').out).onboarding).toMatchObject({ profileSaved: true, membersWithFirstRun: 3, bestSkillRunners: 3, goalReached: true })
   })
 })
 

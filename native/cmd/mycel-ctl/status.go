@@ -44,12 +44,15 @@ func cmdStatus(e *env, args []string) (int, error) {
 	asJSON := t.fs.Lookup("json")
 	_ = asJSON.Value.Set("false")
 	detail := t.fs.Bool("detail", false, "the install's detailed report (with --json: as JSON)")
+	// opt-in by the reader: ax-hostd's TenantStatus is strict, so the block is sent only to a hostd that asks for it
+	// (after its contract sync); without the flag the output keeps its exact earlier shape and admin.js skips the count
+	onboarding := t.fs.Bool("onboarding", false, "with --json: add the team's first days (TenantStatus.onboarding)")
 	if c, err := t.open(args); err != nil {
 		return c, err
 	}
 	in := t.in
 	if asJSON.Value.String() == "true" && !*detail {
-		return t.out(t.tenantStatus())
+		return t.out(t.tenantStatus(*onboarding))
 	}
 	s := collectStatus(e, in)
 	if asJSON.Value.String() == "true" {

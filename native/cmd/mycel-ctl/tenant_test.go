@@ -413,25 +413,53 @@ func TestTenantStatus(t *testing.T) {
 	}
 }
 
-// The optional onboarding block: passed through with its known fields only; a block out of range or of the wrong
-// type is dropped alone, and the rest of the app's part stays.
+// The optional onboarding block is opt-in by the reader (ax-hostd's TenantStatus is strict): without --onboarding the
+// status keeps its exact earlier fields and admin.js is not asked to count; with it, the block passes with its known
+// fields only, and a block that is null, partial, out of range or of the wrong type is dropped alone.
 func TestTenantStatusOnboarding(t *testing.T) {
 	tb := newTestBase(t, "0.3.0")
 	app := `{"setupNeeded":false,"activeMembers":3,"queue":null,"relay":null,"lastLocalBackup":null,"lastUploadedLocalId":null,"overall":"ok","checks":[],"ai":{"claude":"ok","codex":"none"},"credentialsKey":{"present":true,"version":1},"onboarding":%s}`
 	good := `{"day":2,"packInstalled":true,"profileSaved":false,"inviteMade":true,"membersJoined":2,"peopleAnswered":3,"membersWithFirstRun":2,"bestSkillRunners":2,"goalReached":false,"skillName":"ad-copy"}`
 	f := &fakeTenant{adminOut: map[string]string{"cloud-status": fmt.Sprintf(app, good)}}
 	f.install(t)
+	// not asked: today's exact fields, and admin.js cloud-status without the flag
 	code, out, errs := tb.tctl("", "status", "--json")
 	if code != 0 {
 		t.Fatalf("%d %s", code, errs)
+	}
+	var keys []string
+	for k := range jsonOf(t, out) {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	if strings.Join(keys, " ") != "activeMembers ai app at checks credentialsKey kitVersion lastLocalBackup lastUploadedLocalId overall queue relay resources rootVersion setupNeeded update" {
+		t.Fatalf("fields without --onboarding: %v", keys)
+	}
+	if last := f.adminCalls[len(f.adminCalls)-1]; strings.Join(last, " ") != "cloud-status" {
+		t.Fatalf("admin.js %v", last)
+	}
+	// asked
+	code, out, errs = tb.tctl("", "status", "--json", "--onboarding")
+	if code != 0 {
+		t.Fatalf("%d %s", code, errs)
+	}
+	if last := f.adminCalls[len(f.adminCalls)-1]; strings.Join(last, " ") != "cloud-status --onboarding" {
+		t.Fatalf("admin.js %v", last)
 	}
 	o, ok := jsonOf(t, out)["onboarding"].(map[string]any)
 	if !ok || len(o) != 9 || o["day"] != float64(2) || o["bestSkillRunners"] != float64(2) || o["packInstalled"] != true || strings.Contains(out, "ad-copy") {
 		t.Fatalf("onboarding %s", out)
 	}
-	for _, bad := range []string{`{"day":-1,"packInstalled":true,"profileSaved":false,"inviteMade":true,"membersJoined":2,"peopleAnswered":3,"membersWithFirstRun":2,"bestSkillRunners":2,"goalReached":false}`, `{"day":1.5}`, `"x"`} {
+	full := `"day":1,"packInstalled":true,"profileSaved":false,"inviteMade":true,"membersJoined":2,"peopleAnswered":3,"membersWithFirstRun":2,"bestSkillRunners":2`
+	for _, bad := range []string{
+		`null`, `"x"`, `{}`, `{"day":1.5}`,
+		`{` + full + `}`, // goalReached missing: not zero-filled
+		`{` + full + `,"goalReached":null}`,
+		`{"day":-1,"packInstalled":true,"profileSaved":false,"inviteMade":true,"membersJoined":2,"peopleAnswered":3,"membersWithFirstRun":2,"bestSkillRunners":2,"goalReached":false}`,
+		`{"day":1,"packInstalled":"yes","profileSaved":false,"inviteMade":true,"membersJoined":2,"peopleAnswered":3,"membersWithFirstRun":2,"bestSkillRunners":2,"goalReached":false}`,
+	} {
 		f.adminOut["cloud-status"] = fmt.Sprintf(app, bad)
-		code, out, _ = tb.tctl("", "status", "--json")
+		code, out, _ = tb.tctl("", "status", "--json", "--onboarding")
 		s := jsonOf(t, out)
 		if _, has := s["onboarding"]; code != 0 || has || s["activeMembers"] != float64(3) || s["overall"] != "ok" {
 			t.Fatalf("%s: %d %s", bad, code, out)

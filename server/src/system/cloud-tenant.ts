@@ -2,8 +2,8 @@
 // CT-1). mycel-ctl (root) runs them as the server account and adds what only root sees (kit and root versions,
 // /api/health, cgroup / PSI / disk, the update lock):
 //
-//   cloud-status                         the app's part of TenantStatus (no names, mail, IPs, chats or tokens),
-//                                        with the team's first days (onboarding/tenant-status.ts)
+//   cloud-status [--onboarding]          the app's part of TenantStatus (no names, mail, IPs, chats or tokens);
+//                                        --onboarding adds the team's first days (onboarding/tenant-status.ts)
 //   reset-link [--username U]            a one-time password reset link at publicOrigins[0]: { url, expiresAt }
 //   credentials-escrow-out --recipient R the AI connections' key, age-armored to R: { keyAge, keyVersion } | { absent }
 //   hosted-speech-key < { key | null }   the hosting service's speech-to-text key, kept encrypted: { ok, set }
@@ -41,7 +41,9 @@ const CODE = /^[a-z0-9_]{1,40}$/
 /** status/status.json is written every 30 s; older than this, its queue and checks are not reported */
 const STATUS_FRESH_MS = 3 * 60_000
 
-export function cloudStatus(o: { db: Database; config: AppConfig; dataDir: string; statusDir: string; secretsDir: string; backups: BackupMeta[]; now?: number }): AppTenantStatus {
+/** `onboarding`: the reader asked for TenantStatus.onboarding (opt-in: ax-hostd's schema is strict, and a team that
+ * is not asked is not counted). */
+export function cloudStatus(o: { db: Database; config: AppConfig; dataDir: string; statusDir: string; secretsDir: string; backups: BackupMeta[]; now?: number; onboarding?: boolean }): AppTenantStatus {
   const now = o.now ?? Date.now()
   let st: StatusFile | null = null
   try {
@@ -58,9 +60,9 @@ export function cloudStatus(o: { db: Database; config: AppConfig; dataDir: strin
   const key = vault.check()
   const last = o.backups.filter((b) => LOCAL_ID.test(b.id)).at(-1) ?? null
   const uploaded = lastUploadedLocalId(o.dataDir)
-  // counts only; left out while there is no account (and never fatal to the rest of the status)
+  // only when asked; counts only; left out while there is no account (and never fatal to the rest of the status)
   let onboarding: TenantStatus['onboarding']
-  try { onboarding = tenantOnboarding(o.db, o.config.teamRoot, now) } catch { onboarding = undefined }
+  if (o.onboarding) try { onboarding = tenantOnboarding(o.db, o.config.teamRoot, now) } catch { onboarding = undefined }
   return {
     setupNeeded: users === 0,
     activeMembers: seatsUsed(o.db),
