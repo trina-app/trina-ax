@@ -333,3 +333,10 @@ Source change from potenlab/team-ax branch `feat/sidebar-account-settings` (on t
 - Taken as they are: `web/src/components/settings/SettingsDialog.tsx`, `web/src/pages/settingsTabs.ts` (sections in groups), `useSettingsOverlay` in `web/src/App.tsx` (Settings over the page it was opened from), the `SettingsPane` and `Row` of `web/src/pages/Settings.tsx`, the sidebar's sizes and `AccountMenu` in `web/src/components/Sidebar.tsx`, the 280 px column in `Layout.tsx` and `web/test/e2e/account-settings.spec.ts`.
 - Here the dialog gives the keyboard back through this repository's `useFocusTrap(…, returnTo)` and `menuOpener`; core, whose trap has no `returnTo`, does it in the dialog itself.
 - Only here: the new strings in Spanish and Japanese.
+
+## 2026-11-04 Usage: your own in Settings, everyone's in Admin
+
+The same change as potenlab/team-ax branch `feat/usage-personal-team` (not yet on core main), written here by hand. No core history was imported.
+
+- Taken as they are: `server/src/admin/my-usage.ts` and `GET /api/me/usage` in `shared/src/api/auth.ts` and `server/src/routes/auth.ts`, `web/src/components/settings/MyUsage.tsx`, `web/src/components/UsageBar.tsx`, `tests/unit/a-my-usage.test.ts`, `web/test/e2e/my-usage.spec.ts`, the Settings tab and the account menu's Usage item.
+- Only here: turns that have an unpriced part (`usage_source = 'engine_unpriced'`) count in `unpricedTurns` and show "+?" by the cost; Admin › Usage keeps its share column with percents and puts its long notes on one line with "More" (`OneLine`); strings in Japanese and Spanish too.
