@@ -207,8 +207,9 @@ description: 허용된 회의록의 결정과 할 일을 정리합니다.
 - **Dev environment helper (`root/mycel-boxd`)**: the kit has this program. The installer and `mycel-ctl update` put it in
   `/var/lib/mycel/root/`, root-owned, like `mycel-sandbox`. It runs only from there, never from a version folder. The file
   alone changes nothing: the dev environment stays off without `MYCEL_DEV_ENV=1` and the `mycel-boxd.service` unit
-  (`scripts/dev-env/TRIAL.md`). A hosted server gets the file and no unit, and `install-trial.sh` stops there. On a server
-  with the unit, `mycel-ctl update` restarts the unit only when the program changed, before the team server restarts. The
+  (`scripts/dev-env/TRIAL.md`). A hosted server gets the file and no unit. `install-trial.sh` runs there only if the
+  team's plan includes the dev environment (`root/dev-env.json`, root-owned), and boxd then caps each box at that file's
+  values. On a server with the unit, `mycel-ctl update` restarts the unit only when the program changed, before the team server restarts. The
   restart stops the boxes that run; each starts again at its next use. A service that an administrator stopped stays
   stopped. A failed restart does not stop the update, and neither does a boxd that does not answer or says that boxes are
   not available: the result has a note. The update to the first release with this file runs the older `mycel-ctl`, which
