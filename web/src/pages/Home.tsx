@@ -1,7 +1,8 @@
 // New chat. First-time members see which folders their AI can see and three example questions (filled with
 // their folder names, no engine call). Owners and admins get ONE thing at the top: the welcome steps' "continue" row
 // while they are unfinished, else the 7-day goal card (docs/DECISIONS.md "Y — Home shows one thing at a time"); the
-// owner's setup checklist is on Admin › Home.
+// owner's setup checklist is on Admin › Home. On a demo server (`bun run demo:trina`) a demo person sees only their
+// one line and their questions (components/demo/Demo.tsx).
 import { Folder, Lock, Pencil } from 'lucide-react'
 import { useEffect, useMemo, useState } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
@@ -19,6 +20,7 @@ import { FrequentQuestions } from '../components/FrequentQuestions'
 import { PopularSkills } from '../components/PopularSkills'
 import { WelcomeResume } from '../components/onboarding/WelcomeResume'
 import { HomeGoal } from '../components/onboarding/GoalCard'
+import { DemoIntro, DemoQuestions, useDemoPersona } from '../components/demo/Demo'
 
 export default function Home() {
   const t = useT()
@@ -42,12 +44,15 @@ export default function Home() {
   }, [projectId])
 
   const firstTime = chatsLoaded && chats.length === 0
+  // a demo server's person gets the demo's screen; nothing else shows until it is known whether this is one
+  const { ready: demoKnown, demo } = useDemoPersona()
+  const extras = demoKnown && !demo
 
   return (
     <div className="flex h-full flex-col overflow-y-auto">
       <div className="flex flex-1 flex-col items-center justify-center px-4 py-10">
         <div className="w-full max-w-[720px]">
-          {isAdmin(me) && <HomeTop owner={isOwner(me)} />}
+          {extras && isAdmin(me) && <HomeTop owner={isOwner(me)} />}
           {project && (
             <p className="mb-2 text-center text-sm text-muted">
               <Link to={`/projects/${project.id}`} className="font-medium text-accent-text hover:underline">
@@ -56,7 +61,7 @@ export default function Home() {
               · {t('home.inProject')}
             </p>
           )}
-          <h1 className="mb-6 text-center text-[26px] font-semibold tracking-tight sm:text-[28px]">{t('home.greeting', { name: me.user.name })}</h1>
+          {demo && !projectId ? <DemoIntro persona={demo.persona} /> : <h1 className="mb-6 text-center text-[26px] font-semibold tracking-tight sm:text-[28px]">{t('home.greeting', { name: me.user.name })}</h1>}
           <NewChatComposer
             projectId={projectId}
             initialText={preset?.text}
@@ -64,11 +69,12 @@ export default function Home() {
             // Only in-app PUSH navigation or a chosen preset requests focus; a document load keeps the skip link first.
             autoFocus={navigationType === 'PUSH' || (preset?.n ?? 0) > 0}
           />
-          {firstTime && !projectId && <FirstTime onExample={(text) => setPreset({ text, n: (preset?.n ?? 0) + 1 })} />}
-          {!projectId && <FrequentQuestions key={me.user.id} onChoose={(text) => setPreset({ text, n: (preset?.n ?? 0) + 1 })} />}
+          {demo && !projectId && <DemoQuestions info={demo.info} persona={demo.persona} />}
+          {extras && firstTime && !projectId && <FirstTime onExample={(text) => setPreset({ text, n: (preset?.n ?? 0) + 1 })} />}
+          {extras && !projectId && <FrequentQuestions key={me.user.id} onChoose={(text) => setPreset({ text, n: (preset?.n ?? 0) + 1 })} />}
           {/* B-W7-7: the team's top skills, once two or more were used. A different key from FrequentQuestions: same-key
               siblings render twice */}
-          {!projectId && <PopularSkills key={`skills-${me.user.id}`} limit={3} min={2} className="mt-6" onChoose={(text) => setPreset({ text, n: (preset?.n ?? 0) + 1 })} />}
+          {extras && !projectId && <PopularSkills key={`skills-${me.user.id}`} limit={3} min={2} className="mt-6" onChoose={(text) => setPreset({ text, n: (preset?.n ?? 0) + 1 })} />}
         </div>
       </div>
       <p className="px-4 pb-3 text-center text-[11px] text-faint">{t('chat.footer')}</p>

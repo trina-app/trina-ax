@@ -9,22 +9,47 @@
 // an xlsx, a docx, a PDF, a team rule in skills/). Everything goes through the public REST API, the same calls the
 // admin screens make.
 //
-// It can run again: what already exists is kept (people, groups, rules, files with the same name), so a second run
-// only fills in what is missing. On a server that was set up with another owner it stops and says so.
+// `--company trina` seeds the fictional 15-person company "트리나" instead (scripts/demo/trina/company.ts; what is in
+// it: scripts/demo/trina/README.md). `bun run demo:trina` starts a server for it and seeds it.
 //
-//   bun run demo:seed [--base http://localhost:19100] [--data <dir with setup-token>]
+// It can run again: what already exists is kept (people, groups, rules, files with the same name, a saved company
+// profile), so a second run only fills in what is missing. On a server that was set up with another owner it stops
+// and says so.
+//
+//   bun run demo:seed [--company demo|trina] [--base http://localhost:19100] [--data <dir with setup-token>]
 // The setup token is read from <data>/setup-token (default: $TEAM_AX_DEV_DIR/data or ~/.team-ax-dev/data), where
 // the dev server writes it while no account exists.
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
-import { API, ApiClient, ApiError, type FolderRuleInput, type Group, type Locale } from '../../shared/src/api'
+import { API, ApiClient, ApiError, type CompanyProfileInput, type FolderRuleInput, type Group, type Locale, type User } from '../../shared/src/api'
 
 export const DEMO_PASSWORD = 'teamax-demo-1'
 export const DEMO_TEAM_NAME = '데모 팀'
 export const DEMO_FILES = path.join(import.meta.dir, 'files')
 
 export interface DemoPerson { username: string; name: string; role: 'owner' | 'admin' | 'member'; group: string | null }
+type Level = 'none' | 'read' | 'write'
+/** A folder rule of a demo company, by name: resolved to ids while seeding. */
+export type DemoRule = { group: string; access: Level } | { user: string; access: Level } | { everyone: true; access: Level }
+/** Everything one demo team is made of. The first person is the owner. */
+export interface DemoCompany {
+  teamName: string
+  people: DemoPerson[]
+  groups: { name: string; description: string }[]
+  /** folder rules beyond the group folders (the folder is made with its rules when it is missing) */
+  rules: { path: string; rules: DemoRule[]; why: string }[]
+  /** sample files: <filesDir>/<team path> */
+  filesDir: string
+  /** who uploads a sample file (so the file history and the audit show different people) */
+  uploaderOf(rel: string): string
+  /** files from elsewhere in the repository: team path and source file (e.g. a skill pack's SKILL.md) */
+  extraFiles?: { rel: string; source: string }[]
+  project?: { name: string; folderPath: string; instructions: string }
+  /** the company profile (회사 소개), saved by the owner as the admin screen does */
+  profile?: CompanyProfileInput
+}
+
 export const DEMO_PEOPLE: DemoPerson[] = [
   { username: 'dion', name: 'Dion', role: 'owner', group: null },
   { username: 'admin1', name: '관리자1', role: 'admin', group: null },
@@ -35,16 +60,26 @@ export const DEMO_GROUPS = [
   { name: '마케팅', description: '캠페인, 광고, 홍보' },
   { name: '재무', description: '예산, 회계, 급여' },
 ]
-/** Who uploads which sample file (so the file history and the audit show different people). */
-function uploaderOf(rel: string): string {
-  if (rel.startsWith('groups/마케팅/') || rel.startsWith('shared/회의록/')) return 'alice'
-  if (rel.startsWith('groups/재무/') && !rel.startsWith('groups/재무/급여/')) return 'bob'
-  return 'dion'
-}
-const PROJECT = {
-  name: '신제품 출시',
-  folderPath: 'projects/신제품-출시',
-  instructions: '11월 24일 신제품 출시 준비 프로젝트입니다. 일정은 출시-일정.md를 기준으로 답하고, 바뀐 일정은 그 파일에 반영해 주세요.',
+/** The demo team of `bun run demo:seed` and `bun run demo`. */
+export const DEMO_COMPANY: DemoCompany = {
+  teamName: DEMO_TEAM_NAME,
+  people: DEMO_PEOPLE,
+  groups: DEMO_GROUPS,
+  rules: [
+    { path: 'groups/재무/급여', rules: [{ group: '재무', access: 'none' }], why: '재무 group: none (only admins and the owner see the payroll)' },
+    { path: 'projects/신제품-출시', rules: [{ group: '마케팅', access: 'write' }, { group: '재무', access: 'read' }], why: '마케팅 write, 재무 read' },
+  ],
+  filesDir: DEMO_FILES,
+  uploaderOf(rel) {
+    if (rel.startsWith('groups/마케팅/') || rel.startsWith('shared/회의록/')) return 'alice'
+    if (rel.startsWith('groups/재무/') && !rel.startsWith('groups/재무/급여/')) return 'bob'
+    return 'dion'
+  },
+  project: {
+    name: '신제품 출시',
+    folderPath: 'projects/신제품-출시',
+    instructions: '11월 24일 신제품 출시 준비 프로젝트입니다. 일정은 출시-일정.md를 기준으로 답하고, 바뀐 일정은 그 파일에 반영해 주세요.',
+  },
 }
 
 export interface SeedOptions {
@@ -52,6 +87,9 @@ export interface SeedOptions {
   /** needed only while the server is not set up yet */
   setupToken: string | null
   fetch?: typeof fetch
+  /** which team (default: the demo team, DEMO_COMPANY) */
+  company?: DemoCompany
+  /** sample files from this folder instead of the company's own (and none of its extra files) */
   filesDir?: string
   locale?: Locale
   log?: (line: string) => void
@@ -62,7 +100,9 @@ export interface SeedResult {
   groups: string[]
   rules: string[]
   files: { path: string; uploaded: boolean; by: string }[]
-  project: string
+  project: string | null
+  /** the company profile was saved by this run */
+  profile: boolean
 }
 
 export class SeedError extends Error {}
@@ -71,6 +111,9 @@ const conflict = (e: unknown) => e instanceof ApiError && (e.status === 409 || e
 
 export async function seedDemo(o: SeedOptions): Promise<SeedResult> {
   const log = o.log ?? (() => {})
+  const co = o.company ?? DEMO_COMPANY
+  const first = co.people[0]
+  if (first?.role !== 'owner') throw new SeedError('the first person of a demo company must be its owner')
   const anon = new ApiClient({ baseUrl: o.baseUrl, fetch: o.fetch })
   const as = (token: string) => new ApiClient({ baseUrl: o.baseUrl, fetch: o.fetch, token })
   const login = async (username: string, password: string) => {
@@ -78,7 +121,7 @@ export async function seedDemo(o: SeedOptions): Promise<SeedResult> {
     if (!r.token) throw new SeedError('the server did not return a bearer token')
     return { token: r.token, me: r.me }
   }
-  const result: SeedResult = { createdTeam: false, people: [], groups: [], rules: [], files: [], project: PROJECT.name }
+  const result: SeedResult = { createdTeam: false, people: [], groups: [], rules: [], files: [], project: co.project?.name ?? null, profile: false }
 
   // 1. the team and its owner
   const status = await anon.call(API.setupStatus)
@@ -86,84 +129,98 @@ export async function seedDemo(o: SeedOptions): Promise<SeedResult> {
   if (status.needed) {
     if (!o.setupToken) throw new SeedError('the team is not set up yet and no setup token was found (start `bun run dev` first: it writes <data>/setup-token)')
     await anon.call(API.setup, {
-      body: { setupToken: o.setupToken, teamName: DEMO_TEAM_NAME, locale: o.locale ?? 'ko', owner: { username: 'dion', name: 'Dion', password: DEMO_PASSWORD } },
+      body: { setupToken: o.setupToken, teamName: co.teamName, locale: o.locale ?? 'ko', owner: { username: first.username, name: first.name, password: DEMO_PASSWORD } },
     })
     // setup signs the owner in with a cookie; sign in again for a bearer token the script can carry
-    ownerToken = (await login('dion', DEMO_PASSWORD)).token
+    ownerToken = (await login(first.username, DEMO_PASSWORD)).token
     result.createdTeam = true
-    log(`team "${DEMO_TEAM_NAME}" created, owner dion`)
+    log(`team "${co.teamName}" created, owner ${first.username}`)
   } else {
     try {
-      const r = await login('dion', DEMO_PASSWORD)
-      if (r.me.user.role !== 'owner') throw new SeedError('"dion" exists but is not the owner of this team')
+      const r = await login(first.username, DEMO_PASSWORD)
+      if (r.me.user.role !== 'owner') throw new SeedError(`"${first.username}" exists but is not the owner of this team`)
       ownerToken = r.token
-      log(`team "${status.teamName}" already set up; filling in what is missing`)
+      log(`team already set up (owner ${first.username}); filling in what is missing`)
     } catch (e) {
       if (e instanceof SeedError) throw e
-      throw new SeedError(`this server is already set up ("${status.teamName}") and "dion" cannot sign in with the demo password: seed an empty data folder instead (stop the dev server, move ~/.team-ax-dev aside, start it again)`)
+      throw new SeedError(`this server is already set up${status.teamName ? ` ("${status.teamName}")` : ''} and "${first.username}" cannot sign in with the demo password: seed an empty data folder instead (stop the dev server, move its data folder aside, start it again)`)
     }
   }
   const owner = as(ownerToken)
-  result.people.push({ username: 'dion', role: 'owner', created: result.createdTeam })
+  result.people.push({ username: first.username, role: 'owner', created: result.createdTeam })
 
   // 2. groups
   const groups = new Map<string, Group>((await owner.call(API.listGroups)).items.map((g) => [g.name, g]))
-  for (const g of DEMO_GROUPS) {
+  for (const g of co.groups) {
     if (!groups.has(g.name)) {
       groups.set(g.name, await owner.call(API.createGroup, { body: { name: g.name, description: g.description, memberIds: [] } }))
       log(`group ${g.name} created`)
     }
     result.groups.push(g.name)
   }
-  const groupId = (name: string) => groups.get(name)!.id
+  const groupId = (name: string) => {
+    const g = groups.get(name)
+    if (!g) throw new SeedError(`the demo company has no group "${name}"`)
+    return g.id
+  }
 
   // 3. people: created with a temporary password, which each person then changes to the demo password
-  const users = new Map((await owner.call(API.listUsers)).items.map((u) => [u.username, u]))
-  const tokens = new Map<string, string>([['dion', ownerToken]])
-  for (const p of DEMO_PEOPLE.filter((x) => x.role !== 'owner')) {
+  const users = new Map<string, Pick<User, 'id' | 'groupIds'>>((await owner.call(API.listUsers)).items.map((u) => [u.username, u]))
+  const tokens = new Map<string, string>([[first.username, ownerToken]])
+  for (const p of co.people.slice(1)) {
+    if (p.role === 'owner') throw new SeedError(`a demo company has one owner (${first.username}), not also ${p.username}`)
     const groupIds = p.group ? [groupId(p.group)] : []
     const existing = users.get(p.username)
     if (!existing) {
-      const made = await owner.call(API.createUser, { body: { username: p.username, name: p.name, role: p.role as 'admin' | 'member', groupIds, locale: o.locale ?? 'ko' } })
-      const first = await login(p.username, made.temporaryPassword)
-      await as(first.token).call(API.changePassword, { body: { currentPassword: made.temporaryPassword, newPassword: DEMO_PASSWORD } })
-      tokens.set(p.username, first.token)
+      const made = await owner.call(API.createUser, { body: { username: p.username, name: p.name, role: p.role, groupIds, locale: o.locale ?? 'ko' } })
+      const temp = await login(p.username, made.temporaryPassword)
+      await as(temp.token).call(API.changePassword, { body: { currentPassword: made.temporaryPassword, newPassword: DEMO_PASSWORD } })
+      tokens.set(p.username, temp.token)
+      users.set(p.username, { id: made.user.id, groupIds })
       log(`${p.role} ${p.username} created`)
     } else {
       const missing = groupIds.filter((id) => !existing.groupIds.includes(id))
       if (missing.length) await owner.call(API.updateUser, { params: { id: existing.id }, body: { groupIds: [...existing.groupIds, ...missing] } })
-      try { tokens.set(p.username, (await login(p.username, DEMO_PASSWORD)).token) } catch { log(`${p.username} exists with another password; their files are uploaded by dion`) }
+      try { tokens.set(p.username, (await login(p.username, DEMO_PASSWORD)).token) } catch { log(`${p.username} exists with another password; their files are uploaded by ${first.username}`) }
     }
     result.people.push({ username: p.username, role: p.role, created: !existing })
   }
+  const ruleOf = (r: DemoRule): FolderRuleInput => {
+    if ('group' in r) return { subjectType: 'group', subjectId: groupId(r.group), access: r.access }
+    if ('user' in r) {
+      const u = users.get(r.user)
+      if (!u) throw new SeedError(`the demo company has no person "${r.user}"`)
+      return { subjectType: 'user', subjectId: u.id, access: r.access }
+    }
+    return { subjectType: 'everyone', subjectId: null, access: r.access }
+  }
 
   // 4. folder rules beyond the group folders
-  const RULES: { path: string; rules: FolderRuleInput[]; why: string }[] = [
-    { path: 'groups/재무/급여', rules: [{ subjectType: 'group', subjectId: groupId('재무'), access: 'none' }], why: '재무 group: none (only admins and the owner see the payroll)' },
-    {
-      path: PROJECT.folderPath,
-      rules: [{ subjectType: 'group', subjectId: groupId('마케팅'), access: 'write' }, { subjectType: 'group', subjectId: groupId('재무'), access: 'read' }],
-      why: '마케팅 write, 재무 read',
-    },
-  ]
   const folders = new Map((await owner.call(API.listFolders)).items.map((f) => [f.path, f]))
-  for (const r of RULES) {
+  for (const r of co.rules) {
     const f = folders.get(r.path)
-    if (!f) await owner.call(API.createFolder, { body: { path: r.path, create: true, rules: r.rules } })
-    else if (!f.rules.length) await owner.call(API.putFolderRules, { params: { id: f.id }, body: { rules: r.rules } })
+    const rules = r.rules.map(ruleOf)
+    if (!f) {
+      await mkdirs(owner, path.posix.dirname(r.path))
+      await owner.call(API.createFolder, { body: { path: r.path, create: true, rules } })
+    } else if (!f.rules.length) await owner.call(API.putFolderRules, { params: { id: f.id }, body: { rules } })
     result.rules.push(`${r.path}: ${r.why}`)
   }
 
-  // 5. sample files
-  const dir = o.filesDir ?? DEMO_FILES
-  for (const rel of listFiles(dir)) {
+  // 5. sample files, then files taken from elsewhere in the repository (a skill pack's skills)
+  const dir = o.filesDir ?? co.filesDir
+  const files = [
+    ...listFileEntries(dir).map((e) => ({ rel: e.rel, source: e.abs })),
+    ...(o.filesDir ? [] : co.extraFiles ?? []),
+  ]
+  for (const { rel, source } of files) {
     const folder = path.posix.dirname(rel)
     const name = path.posix.basename(rel)
-    let by = uploaderOf(rel)
-    if (!tokens.has(by)) by = 'dion'
+    let by = co.uploaderOf(rel)
+    if (!tokens.has(by)) by = first.username
     const client = as(tokens.get(by)!)
     await mkdirs(owner, folder)
-    const data = fs.readFileSync(path.join(dir, ...rel.split('/').map((s) => s.normalize('NFC'))))
+    const data = fs.readFileSync(source)
     try {
       await client.call(API.upload, { body: { fields: { folder, name, onExists: 'fail' }, file: new Blob([data]), filename: name } })
       result.files.push({ path: rel, uploaded: true, by })
@@ -174,11 +231,20 @@ export async function seedDemo(o: SeedOptions): Promise<SeedResult> {
     }
   }
 
-  // 6. a project on the launch folder
-  const projects = (await owner.call(API.listProjects)).items
-  if (!projects.some((p) => p.name === PROJECT.name)) {
-    await owner.call(API.createProject, { body: PROJECT })
-    log(`project ${PROJECT.name} created`)
+  // 6. a project on its folder
+  if (co.project) {
+    const projects = (await owner.call(API.listProjects)).items
+    if (!projects.some((p) => p.name === co.project!.name)) {
+      await owner.call(API.createProject, { body: co.project })
+      log(`project ${co.project.name} created`)
+    }
+  }
+
+  // 7. the company profile, only while none is saved (the owner may have edited it since)
+  if (co.profile && !(await owner.call(API.getCompanyProfile)).profile) {
+    await owner.call(API.saveCompanyProfile, { body: co.profile })
+    result.profile = true
+    log('company profile saved')
   }
 
   // sign the script's own sessions out again (people sign in themselves in the browser)
@@ -186,19 +252,23 @@ export async function seedDemo(o: SeedOptions): Promise<SeedResult> {
   return result
 }
 
-/** Team-relative paths (NFC, "/" separated) of the files under dir, sorted. */
+/** Team-relative paths (NFC, "/" separated) of the files under dir, sorted. The on-disk names are kept for reading:
+ * a checkout on macOS may hold NFD names. */
 export function listFiles(dir: string): string[] {
-  const out: string[] = []
+  return listFileEntries(dir).map((e) => e.rel)
+}
+function listFileEntries(dir: string): { rel: string; abs: string }[] {
+  const out: { rel: string; abs: string }[] = []
   const walk = (abs: string, rel: string) => {
     for (const e of fs.readdirSync(abs, { withFileTypes: true })) {
       if (e.name.startsWith('.')) continue
       const r = rel ? `${rel}/${e.name.normalize('NFC')}` : e.name.normalize('NFC')
       if (e.isDirectory()) walk(path.join(abs, e.name), r)
-      else if (e.isFile()) out.push(r)
+      else if (e.isFile()) out.push({ rel: r, abs: path.join(abs, e.name) })
     }
   }
   walk(dir, '')
-  return out.sort()
+  return out.sort((a, b) => (a.rel < b.rel ? -1 : a.rel > b.rel ? 1 : 0))
 }
 
 /** Create every missing folder of `folder` (the upload endpoint needs an existing target folder). */
@@ -219,12 +289,15 @@ if (import.meta.main) {
   const devHome = process.env.TEAM_AX_DEV_DIR ? path.resolve(process.env.TEAM_AX_DEV_DIR) : path.join(os.homedir(), '.team-ax-dev')
   const dataDir = arg('data') ?? process.env.MYCEL_DATA_DIR ?? path.join(devHome, 'data')
   const baseUrl = arg('base') ?? 'http://localhost:19100'
+  const which = arg('company') ?? 'demo'
   let setupToken: string | null = null
   try { setupToken = fs.readFileSync(path.join(dataDir, 'setup-token'), 'utf8').trim() || null } catch {}
   try {
-    const r = await seedDemo({ baseUrl, setupToken, log: (s) => console.log(`[demo] ${s}`) })
-    console.log(`[demo] done: ${r.people.length} people, ${r.groups.length} groups, ${r.files.filter((f) => f.uploaded).length} files uploaded (${r.files.length} samples), project "${r.project}"`)
-    console.log(`[demo] sign in at ${baseUrl} as dion / admin1 / alice / bob with the password ${DEMO_PASSWORD}`)
+    if (which !== 'demo' && which !== 'trina') throw new SeedError(`--company ${which}: choose demo or trina`)
+    const company = which === 'trina' ? (await import('./trina/company')).TRINA : DEMO_COMPANY
+    const r = await seedDemo({ baseUrl, setupToken, company, log: (s) => console.log(`[demo] ${s}`) })
+    console.log(`[demo] done: ${r.people.length} people, ${r.groups.length} groups, ${r.files.filter((f) => f.uploaded).length} files uploaded (${r.files.length} samples)${r.project ? `, project "${r.project}"` : ''}`)
+    console.log(`[demo] sign in at ${baseUrl} as ${r.people.map((p) => p.username).join(' / ')} with the password ${DEMO_PASSWORD}`)
   } catch (e) {
     console.error(`[demo] ${e instanceof Error ? e.message : String(e)}`)
     process.exit(1)

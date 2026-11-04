@@ -19,6 +19,7 @@ import { joinNext, readJoinToken, setAfterJoin } from '../lib/team-link'
 import { SourceCodeLink } from '../components/SourceCodeLink'
 import { Button, Field, IconButton, inputCls } from '../components/ui'
 import { browserTimeZone } from '../lib/time-zones'
+import { DemoStart, useDemoInfo } from '../components/demo/Demo'
 
 /** The password rule's minimum (server: server/src/auth/passwords.ts, the same 8 everywhere). */
 export const PASSWORD_MIN = 8
@@ -111,6 +112,9 @@ export function Login() {
   const [password, setPassword] = useState('')
   const { busy, error, run } = useSubmit()
   const reason = status.kind === 'signed-out' ? status.reason : undefined
+  // a demo server (`bun run demo:trina`): one action, start as the new hire; the usual form is one link away
+  const { info: demo } = useDemoInfo()
+  const [form, setForm] = useState(false)
   const submit = (e: FormEvent) => {
     e.preventDefault()
     void run(async () => {
@@ -119,6 +123,13 @@ export function Login() {
       // the router sends a signed-in person on /login to ?next= (App.tsx AfterSignIn), or to /password
       if (r.me.user.mustChangePassword) navigate('/password', { replace: true })
     })
+  }
+  if (demo && !form) {
+    return (
+      <AuthFrame title={t('demo.signIn.title', { company: demo.company })}>
+        <DemoStart info={demo} onOtherAccount={() => setForm(true)} />
+      </AuthFrame>
+    )
   }
   return (
     <AuthFrame title={t('auth.signIn')} sub={reason === 'ended' ? t('auth.sessionEnded') : reason === 'expired' ? t('auth.sessionExpired') : undefined}>

@@ -7,7 +7,8 @@
 // Env overrides (win over the file): MYCEL_MODE, MYCEL_HOST, MYCEL_PORT, MYCEL_TEAM_ROOT, MYCEL_DATA_DIR,
 // MYCEL_LOG_DIR, MYCEL_LOG_LEVEL, MYCEL_PUBLIC_ORIGINS (comma separated), MYCEL_SETUP_TOKEN,
 // MYCEL_RELAY_URL (ws(s)://<relay>/connect, '' = off), MYCEL_RELAY_TEAM (team name at the relay), MYCEL_RELAY_OFFICIAL
-// (1 = the official relay may be offered), MYCEL_DEPLOYMENT (self | hosted, server/src/system/deployment.ts).
+// (1 = the official relay may be offered), MYCEL_DEPLOYMENT (self | hosted, server/src/system/deployment.ts),
+// MYCEL_DEMO (a demo file, `bun run demo:trina`: development servers only, refused anywhere else; readDemoFile).
 // Office mode (one Mac in a small office, docs/OFFICE.md) is dev mode's engine setup (local-login, engine.sb,
 // lockdown) with `office: true`: no DEV banner, and its supervisor (server/src/office/cli.ts) writes the file (TLS
 // listener on the office network, allowedHosts, publicOrigins).
@@ -18,6 +19,7 @@ import { z } from 'zod'
 import { AuthMode, PRODUCT, SourceCodeConfig } from '@mycel/shared'
 import { CredentialKind } from '@mycel/shared/api'
 import { CLOUD_DEFAULT_CREDENTIAL_KINDS } from '@mycel/shared/cloud-protocol'
+import { DemoFile } from '@mycel/shared/api'
 
 export const REPO_ROOT = path.resolve(import.meta.dir, '..', '..')
 export const DEV_DIR = path.join(REPO_ROOT, '.dev')
@@ -229,6 +231,9 @@ export interface AppConfig {
   deployment?: 'self' | 'hosted'
   /** first-run setup token (POST /api/setup). Dev: printed at start; prod: written by the installer. */
   setupToken: string | null
+  /** demo mode (MYCEL_DEMO, `bun run demo:trina`): the fictional company's demo people. Only ever set on a development
+   * server (readDemoFile); absent everywhere else, and then the demo endpoints answer 404. */
+  demo?: DemoFile
 }
 
 export class ConfigError extends Error { name = 'ConfigError' }
@@ -279,6 +284,7 @@ export function loadAppConfig(o: LoadOptions = {}): AppConfig {
   // two answers to "where do Claude requests go" is a mistake; a local-login engine never uses the proxy
   if (f.engine.anthropicGateway && (f.engine.modelUpstreams?.anthropic || f.engine.modelUpstream)) throw new ConfigError(`config file ${file}: engine.anthropicGateway and engine.modelUpstreams.anthropic (or modelUpstream) cannot both be set`)
   if (f.engine.anthropicGateway && normalizeAuthMode(f.engine.authMode) !== 'managed') throw new ConfigError(`config file ${file}: engine.anthropicGateway needs engine.authMode "managed"`)
+  const demo = readDemoFile(env[P + 'DEMO'], { mode, deployment, office: !!f.office }, cwd)
 
   return {
     mode,
@@ -319,7 +325,28 @@ export function loadAppConfig(o: LoadOptions = {}): AppConfig {
     validateResponses: f.validateResponses ?? mode === 'dev',
     setupToken: env[P + 'SETUP_TOKEN'] ?? null,
     ...(deployment ? { deployment } : {}),
+    ...(demo ? { demo } : {}),
   }
+}
+
+/**
+ * MYCEL_DEMO=<file>: the demo company's people (docs/DECISIONS.md "Demo company: a new hire at 트리나"). The product has
+ * no "sign in as someone else"; the demo's switch between its fictional people exists only on a development server
+ * started for the demo. So the flag stops the server everywhere else (production mode, the hosted service, office mode),
+ * as does a file that is missing or not a demo file. Unset or empty: no demo (null).
+ */
+export function readDemoFile(value: string | undefined, where: { mode: 'dev' | 'prod'; deployment?: 'self' | 'hosted'; office: boolean }, cwd = process.cwd()): DemoFile | null {
+  if (value === undefined || value === '') return null
+  const P = PRODUCT.envPrefix
+  if (where.mode !== 'dev' || where.deployment === 'hosted' || where.office) {
+    throw new ConfigError(`${P}DEMO is for a development demo server only (\`bun run demo:trina\`): remove it from this server's environment. It is never allowed in production mode, on the hosted service or in office mode.`)
+  }
+  const file = path.resolve(cwd, value)
+  let raw: unknown
+  try { raw = JSON.parse(fs.readFileSync(file, 'utf8')) } catch (e) { throw new ConfigError(`${P}DEMO: cannot read the demo file ${file}: ${(e as Error).message}`) }
+  const parsed = DemoFile.safeParse(raw)
+  if (!parsed.success) throw new ConfigError(`${P}DEMO: ${file} is not a demo file: ${parsed.error.issues.map((i) => `${i.path.join('.')}: ${i.message}`).join('; ')}`)
+  return parsed.data
 }
 
 /** The AI connection kinds this server allows: engine.credentialKinds, else the deployment's default — all four on a

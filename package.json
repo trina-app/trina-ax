@@ -14,6 +14,7 @@
     "dev": "bun run scripts/dev.ts",
     "dev:service": "bun scripts/dev-service.ts",
     "demo:seed": "bun scripts/demo/seed.ts",
+    "demo:trina": "bun scripts/demo/trina/start.ts",
     "dev:server": "bun --watch server/src/main.ts",
     "start:server": "bun server/src/main.ts",
     "build": "bash native/build.sh && bun run --cwd web build",

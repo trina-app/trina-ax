@@ -7599,3 +7599,55 @@ button.
   text in the response, a member 403 and the owner, whose draft it is not, 404), `web/test/unit/profile-step.test.tsx`
   (the intro with the site, every kind of line and its order, a title never markup, the count, pasted text, the short
   addresses).
+
+## T — Demo company: a new hire at 트리나 (feat/demo-trina, 2026-11-05)
+
+The owner: "가상의 회사를 대상으로, 너가 오늘 트리나의 신입사원이다 라고 가정하고 사용해 보도록." In five minutes, alone, on a
+phone, a viewer should feel the permissions, the shared files, the team skills and "같은 질문, 사람마다 다른 답".
+
+- **`bun run demo:trina`** (scripts/demo/trina/start.ts) starts `scripts/dev.ts` with its own data folder (`~/.trinademo`)
+  and ports (19830 server, 19831 relay), listening on 0.0.0.0 with the Mac's LAN addresses in `MYCEL_PUBLIC_ORIGINS`, seeds
+  it, and prints the address to open on a phone on the same Wi-Fi. Real AI is the Mac's Claude Code login (dev mode,
+  local-login). Unlike `bun run demo` (never reuses a folder, AI off), the folder is kept: the owner starts and stops it
+  often, and the seed only fills in what is missing. It strips `MYCEL_*` / `TEAM_AX_*` from the environment it passes on
+  (no production config comes along) and prints that anyone on the Wi-Fi can open it and use the Mac's AI login;
+  `--local` listens on this Mac only.
+- **The seed** is the existing one, given a company (`seedDemo({ company })`, `bun run demo:seed --company trina`; the
+  default stays the old demo team): 15 fictional people, the owner is the CEO, groups 마케팅팀 / 영업팀 / 인사팀 /
+  경영지원, everything through the public REST API. Rules: `shared/경영` everyone none (only the owner sees the company
+  budget); `shared/경영/팀별/<team>` read for that team's lead only (the deepest folder with a rule for the person decides,
+  so each lead opens only their own sheet); 인사팀's payroll and reviews sit in its group folder (인사팀 and the owner);
+  `skills/marketing` read for 마케팅팀 only. No admin: an admin would see the payroll. Team skills: "신입 첫 주 안내"
+  (adapted from examples/skills/new-hire-guide), "회의록 → 할 일 정리" (new, general), the pack's "주간 보고" and "광고
+  문구" copied from `resources/skill-packs/marketing/ko` where the pack installs them, the team rule
+  `skills/사내-규정-답변.md`, and the company profile saved through `PUT /api/onboarding/profile`. Everything is plainly
+  fictional (scripts/demo/trina/README.md); the website is `trina-box.example`.
+- **Demo mode, not impersonation.** The product has no "sign in as someone else" (WORKPLAN A; "Asking a member to connect
+  a service as their own"). The person switch exists only with `MYCEL_DEMO=<demo file>`; `loadAppConfig` refuses the
+  variable in production mode, on the hosted service and in office mode (exit 78, `readDemoFile`), and the routes check
+  the mode again. Without it `GET /api/demo` and `POST /api/demo/persona` answer 404 like a route that is not there.
+  The switch is the normal sign-in (`accounts.ts login`: password check, rate limits, audit `auth.login`, the session
+  cookie) of the seeded account with the demo's public password, run by the server so the page never holds the
+  password; the caller's previous session ends. An account whose password was changed cannot be entered this way.
+  Rejected: creating a session for a user id directly (that is the impersonation shortcut). Rejected: the page calling
+  `/api/auth/login` with the password from `/api/demo` (the password in an answer and a bundle, for nothing gained).
+- **On screen, fewer things** (lean rules): in demo mode one strip replaces the development-mode banner ("데모 · 가상 회사
+  트리나 · 신입 한지우" and ONE button, 사람 바꾸기); the banner's words move to the foot of the switch sheet. The sheet
+  lists the three people and one line on the same question. Home for a demo person is their one line ("오늘 트리나
+  마케팅팀에 입사한 한지우예요") and their questions, a tap sends one; no welcome row, goal card, folder card, frequent
+  questions or popular skills. The sign-in page has one primary action, "한지우 님으로 시작하기", and the usual form behind
+  "다른 계정으로 로그인". The team lead and the CEO get the same question first, with one line; the new hire gets it as a
+  fourth question only after a switch in that tab (sessionStorage, a per-viewer convenience). Signed in, only a
+  development server is asked for `/api/demo` (`me.server.dev`); signed out, the sign-in page asks once (404 elsewhere).
+- The intro lines and the questions are the scenario's data in the demo file (written by the starter from
+  `scripts/demo/trina/company.ts`), in the company's language like its files; the app's own words are in five locales.
+- Checked on 2026-11-05 with `bun run demo:trina` and a real Claude Code turn, at 390 px over the LAN address: the leave
+  question answered from `shared/규정/` with its sources; "내 할 일" used the meeting-notes skill and listed 한지우's three
+  rows first; the first week used the new-hire skill; "이번 분기 예산 요약해 줘" gave the CEO the company-wide 1억 원 table,
+  the lead only 마케팅팀's 4,500만 원, and the new hire only the campaign's 1,200만 원 from the team folder, saying the
+  budget sheets were not open to them.
+- Tests: `tests/unit/a-demo-mode.test.ts` (no flag: 404 signed out and in, no cookie; refused in prod, hosted, office; a
+  missing or wrong file; the info; the switch as a real sign-in that ends the old session; a changed password; the
+  routes' own mode check), `tests/unit/demo-trina-seed.test.ts` (who opens which file, the skills per team, the profile,
+  a second run, the demo file, the starter's options, environment and LAN addresses), `web/test/unit/demo.test.tsx`
+  (nothing asked or shown off a development server or on a 404, the bar and sheet, Home's questions, the sign-in start).

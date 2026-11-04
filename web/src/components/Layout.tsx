@@ -18,6 +18,7 @@ import ScheduleReviewBanner from './ScheduleReviewBanner'
 import SearchDialog from './SearchDialog'
 import Sidebar from './Sidebar'
 import { ChunkErrorBoundary } from './ChunkErrorBoundary'
+import { DemoBar, useDemoInfo } from './demo/Demo'
 import { IconButton, Spinner } from './ui'
 
 const ArtifactPanel = lazy(() => import('./ArtifactPanel'))
@@ -90,7 +91,7 @@ export default function Layout() {
       <a href="#main" className="sr-only-focusable absolute top-2 left-2 z-[70] rounded bg-surface px-3 py-2 text-sm shadow">
         {t('a11y.skip')}
       </a>
-      <DevModeBanner />
+      <DemoOrDevBanner />
       <ConnectionBanner />
       <OfficeUpdateBanner />
       <ManagedNoticesBanner />
@@ -149,6 +150,13 @@ export default function Layout() {
       <AttentionTitle />
     </div>
   )
+}
+
+/** A demo server (`bun run demo:trina`) shows the demo bar instead of the development-mode banner: one strip, and the
+ * banner's words are in the bar's sheet (components/demo/Demo.tsx). */
+function DemoOrDevBanner() {
+  const { info } = useDemoInfo()
+  return info ? <DemoBar /> : <DevModeBanner />
 }
 
 /**
