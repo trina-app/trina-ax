@@ -5,7 +5,7 @@
 import { DEV_ENV_DEFAULT_LIMITS, DEV_ENV_WARNING_VERSION, DevEnvProjectSetting, type DevEnvConsent, type DevEnvScope } from '@mycel/shared/api'
 import type { Database } from 'bun:sqlite'
 import type { FileService } from '../files/service'
-import { canWrite } from '../chat/projects'
+import { canSeeProject, canWrite } from '../chat/projects'
 import { getSetting, setSetting } from '../admin/settings'
 
 /** the experiment's feature flag (environment of the server process); off by default */
@@ -38,15 +38,18 @@ function inScope(db: Database, scope: DevEnvScope, userId: string): boolean {
 export interface ProjectRef { id: string; folderPath: string }
 
 /** May this person run commands in the project's box now? Active account, setting in force, in scope, write access
- * to the folder as the rules are now. */
+ * to the folder as the rules are now, and the project's folder in place: while it is in the trash nobody uses the box
+ * (the path may be another folder's by now; members do not even see the project, chat/projects.ts canSeeProject). */
 export function mayUseBox(db: Database, files: FileService, project: ProjectRef, userId: string, flag = devEnvFlag()): boolean {
   const s = devEnvSetting(db, project.id)
   if (!devEnvInForce(s, flag)) return false
+  const row = db.query('SELECT trashed_with FROM projects WHERE id = ?').get(project.id) as { trashed_with: string | null } | null
+  if (!row || row.trashed_with !== null) return false
   let p
   try { p = files.principal(userId) } catch { return false }
   if (!p) return false
   if (!inScope(db, s.scope, userId)) return false
-  return canWrite(files, p, project.folderPath)
+  return canSeeProject(files, p, { folder_path: project.folderPath, trashed_with: row.trashed_with }) && canWrite(files, p, project.folderPath)
 }
 
 export function newConsent(by: { id: string; name: string }): DevEnvConsent {

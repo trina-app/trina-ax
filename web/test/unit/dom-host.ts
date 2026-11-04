@@ -340,11 +340,12 @@ export async function mount(ui: ReactNode): Promise<Mounted> {
   doc.body.appendChild(container)
   const root = createRoot(container as unknown as Element)
   await act(async () => root.render(ui))
-  const find = (id: string) => container.querySelector(`[data-testid="${id}"]`)
+  // the whole body, not only the container: a dialog (ui.tsx Modal) is rendered into <body> through a portal
+  const find = (id: string) => doc.body.querySelector(`[data-testid="${id}"]`)
   const el = (x: string | FakeElement) => {
     if (typeof x !== 'string') return x
     const e = find(x)
-    if (!e) throw new Error(`no [data-testid="${x}"] in ${container.innerHTML}`)
+    if (!e) throw new Error(`no [data-testid="${x}"] in ${doc.body.innerHTML}`)
     return e
   }
   const settle = (ms = 20) => act(async () => { await new Promise((r) => setTimeout(r, ms)) })
@@ -363,14 +364,14 @@ export async function mount(ui: ReactNode): Promise<Mounted> {
         e.dispatchEvent(new FakeEvent('keyup', { bubbles: true }))
       })
     },
-    html: () => container.innerHTML,
+    html: () => doc.body.innerHTML,
     settle,
     until: async (fn, what, ms = 5000) => {
       const end = Date.now() + ms
       for (;;) {
         const v = fn()
         if (v) return v as never
-        if (Date.now() > end) throw new Error(`timed out waiting for ${what}: ${container.innerHTML}`)
+        if (Date.now() > end) throw new Error(`timed out waiting for ${what}: ${doc.body.innerHTML}`)
         await settle()
       }
     },
