@@ -124,17 +124,17 @@ function EngineRow({ e, owner, initiallyOpen, checking, onCheck, onToggle, onApi
       <div className="flex items-start gap-3">
         <div className="min-w-0 flex-1">
           <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1">
-            <h3 className="min-w-0 text-sm font-semibold">
+            <h3 className="text-sm font-semibold">
               <button
                 type="button"
                 aria-expanded={open}
                 aria-controls={open ? details : undefined}
                 onClick={() => setOpen(!open)}
-                className="-ml-1 inline-flex max-w-full items-center gap-1.5 rounded-md px-1 text-left hover:bg-hover"
+                className="-ml-1 inline-flex items-center gap-1.5 rounded-md px-1 text-left hover:bg-hover"
                 data-testid="engine-open"
               >
                 <ChevronRight size={14} className={clsx('shrink-0 text-faint transition-transform', open && 'rotate-90')} aria-hidden />
-                <span className="truncate">{e.label}</span>
+                <span className="break-words">{e.label}</span>
               </button>
             </h3>
             <Badge tone={ok ? 'ok' : 'warn'}>{t(`engines.status.${e.status}`)}</Badge>
