@@ -13,6 +13,7 @@ import { HomeTop } from '../../src/pages/Home'
 import { firstRunText, goalNext, goalNextText, goalProgressText, objectParticle, quotedSkill, resendText, runnerNames, skillRunUrl, skillTopic, topicParticle } from '../../src/lib/teamGoal'
 import { useSession } from '../../src/store/session'
 import { useWelcome } from '../../src/store/welcome'
+import { stepTotal } from '../../src/lib/welcome'
 import { installDom, mount, removeDom } from './dom-host'
 
 const ko = (k: MessageKey, p?: Params) => translate('ko', k, p)
@@ -232,8 +233,9 @@ describe('the top of Home: one thing', () => {
   test('setup unfinished: only "시작 설정 이어하기 (n/2)", no dots, no goal card', async () => {
     welcome = fresh(); teamGoal = goal()
     const t = await top('owner')
-    // the count is lib/welcome.ts's (the steps decide how many there are)
-    expect(t.resume).toMatch(/^시작 설정 이어하기 \(1\/\d\)$/)
+    // the count and the total are lib/welcome.ts's (the steps decide how many there are)
+    expect(t.resume).toBe(`시작 설정 이어하기 (1/${stepTotal()})`)
+    expect(t.resume).toBe(translate('ko', 'home.setupResume', { n: 1, total: stepTotal() }))
     expect({ ...t, resume: null }).toEqual({ resume: null, goal: null, dots: false })
   })
   test('setup finished or hidden: only the goal card; an admin gets the card at once', async () => {

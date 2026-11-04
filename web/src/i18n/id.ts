@@ -2766,8 +2766,6 @@ export const id: Record<MessageKey, string> = {
   "welcome.bar.text": "Suka hasilnya? Ajak tim Anda mencobanya juga.",
   "welcome.bar.invite": "Undang",
   "welcome.bar.later": "Nanti",
-  "welcome.resume.title": "Lanjutkan persiapan awal ({n}/2)",
-  "welcome.resume.desc": "Sekitar sepuluh menit sampai hasil pertama.",
   "welcome.resume.inviteLeft": "Tinggal satu: undang tim Anda",
   "welcome.resume.hide": "Sembunyikan persiapan awal",
   "goal.title": "{target} orang memakai skill yang sama dalam {days} hari",

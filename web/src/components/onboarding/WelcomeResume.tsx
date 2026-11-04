@@ -4,17 +4,12 @@
 import { Sparkles, X } from 'lucide-react'
 import { useEffect } from 'react'
 import { Link } from 'react-router-dom'
-import type { WelcomeProgress } from '@mycel/shared/api'
-import { doneCount, showResume } from '../../lib/welcome'
+import { doneCount, showResume, stepTotal } from '../../lib/welcome'
 import { useT } from '../../i18n'
 import { isOwner, useMe } from '../../store/session'
 import { toast } from '../../store/ui'
 import { useWelcome } from '../../store/welcome'
 import { IconButton } from '../ui'
-
-/** How many steps the entry counts: what lib/welcome.ts counts when every step is done (the steps decide, not this row). */
-export const stepTotal = (p: WelcomeProgress) =>
-  doneCount({ ...p, steps: Object.fromEntries(Object.keys(p.steps).map((s) => [s, 'done'])) as WelcomeProgress['steps'] })
 
 export function WelcomeResume() {
   const t = useT()
@@ -26,7 +21,8 @@ export function WelcomeResume() {
   }, [owner])
   if (!owner || !loaded || !showResume(progress)) return null
   const n = doneCount(progress)
-  const total = stepTotal(progress!)
+  // the step total comes from lib/welcome.ts (the same number as the steps' own progress bar), never a number here
+  const total = stepTotal()
   const hide = () => void useWelcome.getState().update({ dismissed: true }).catch(() => toast({ level: 'error', text: t('error.network') }))
   return (
     <div className="mb-6 flex items-center gap-1 rounded-xl border border-line pr-1.5" data-testid="welcome-resume">

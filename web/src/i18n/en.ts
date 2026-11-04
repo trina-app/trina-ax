@@ -2766,8 +2766,6 @@ export const en: Record<MessageKey, string> = {
   "welcome.bar.text": "Like the result? Let your team try it too.",
   "welcome.bar.invite": "Invite",
   "welcome.bar.later": "Later",
-  "welcome.resume.title": "Continue getting started ({n}/2)",
-  "welcome.resume.desc": "About ten minutes to a first result.",
   "welcome.resume.inviteLeft": "One thing left: invite your team",
   "welcome.resume.hide": "Hide getting started",
   "goal.title": "{target, plural, one {# person uses} other {# people use}} the same skill within {days, plural, one {# day} other {# days}}",

@@ -2726,8 +2726,6 @@ export const ja: Record<MessageKey, string> = {
   "welcome.bar.text": "結果はいかがですか？ チームの人にも使ってもらいましょう。",
   "welcome.bar.invite": "招待する",
   "welcome.bar.later": "あとで",
-  "welcome.resume.title": "はじめの設定を続ける ({n}/2)",
-  "welcome.resume.desc": "最初の成果まで約10分です。",
   "welcome.resume.inviteLeft": "残りはひとつ: チームを招待する",
   "welcome.resume.hide": "はじめの設定を隠す",
   "goal.title": "{days, plural, one {#日} other {#日}}以内に{target, plural, one {#人} other {#人}}が同じスキルを使う",

@@ -2765,8 +2765,6 @@ export const ko = {
   "welcome.bar.text": "결과가 마음에 드세요? 팀원도 같이 써 보게 해요.",
   "welcome.bar.invite": "초대하기",
   "welcome.bar.later": "나중에 하기",
-  "welcome.resume.title": "시작 설정 이어하기 ({n}/2)",
-  "welcome.resume.desc": "첫 결과까지 10분이면 돼요.",
   "welcome.resume.inviteLeft": "남은 일: 팀원 초대하기",
   "welcome.resume.hide": "시작 설정 숨기기",
   "goal.title": "{days}일 안에 {target}명이 같은 스킬 써 보기",
