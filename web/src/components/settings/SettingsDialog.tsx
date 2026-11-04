@@ -35,6 +35,8 @@ export default function SettingsDialog({ onClose }: { onClose: () => void }) {
     return el
   })
   useFocusTrap(ref, true, onClose, returnTo)
+  // the page under the dialog is inert until it has closed, so the keyboard goes back once it is reachable again
+  useEffect(() => () => void requestAnimationFrame(() => returnTo?.isConnected && returnTo.focus()), [returnTo])
   const [own, setOwn] = useState<boolean | null>(null)
   useEffect(() => {
     api.call(API.myCredentials).then((r) => setOwn(r.allowed || r.items.length > 0), () => setOwn(false))
@@ -58,7 +60,7 @@ export default function SettingsDialog({ onClose }: { onClose: () => void }) {
         aria-modal="true"
         aria-labelledby={titleId}
         tabIndex={-1}
-        className="flex h-full w-full flex-col bg-surface text-ink shadow-xl outline-none md:h-[min(760px,100%)] md:max-w-[1040px] md:rounded-2xl"
+        className="flex h-full w-full flex-col bg-surface text-ink shadow-xl outline-none [--sticky-bg:var(--c-surface)] md:h-[min(760px,100%)] md:max-w-[1040px] md:rounded-2xl"
         onMouseDown={(e) => e.stopPropagation()}
         data-testid="settings-dialog"
       >
@@ -109,7 +111,7 @@ export default function SettingsDialog({ onClose }: { onClose: () => void }) {
             </nav>
           </div>
           <div className={clsx('min-h-0 min-w-0 flex-1 overflow-y-auto', !tab && 'max-md:hidden')} data-testid="settings-content">
-            <div className="max-w-2xl p-4 sm:p-6">
+            <div className="mx-auto max-w-3xl p-4 sm:p-6">
               {waiting ? (
                 <Spinner />
               ) : (

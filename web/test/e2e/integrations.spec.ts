@@ -28,7 +28,7 @@ test('a personal API connection with a key: sent once, never shown again; edit s
   await expect(page.getByTestId('integrations-empty')).toContainText('아직 연결한 MCP가 없어요')
 
   await page.getByTestId('integration-add').click()
-  const dialog = page.getByRole('dialog')
+  const dialog = page.getByRole('dialog').filter({ hasNot: page.getByTestId('settings-menu') }) // not Settings itself
   await expect(dialog.getByRole('heading', { name: '연결 추가' })).toBeVisible()
   await page.getByTestId('integration-kind-http').check()
   // sign-in (OAuth) is for MCP servers only
@@ -220,7 +220,7 @@ test('an admin gives a team connection to a group and a person; a member sees it
   // what the page is for, and that an admin has to be among the people to use one in their own chats
   await expect(page.getByTestId('team-integrations-note')).toHaveText('회사 계정으로 서비스를 연결하고 쓸 사람을 정해요. 관리자도 사용할 사람에 들어 있어야 자기 대화에서 쓸 수 있어요.')
   await page.getByTestId('integration-add').click()
-  const dialog = page.getByRole('dialog')
+  const dialog = page.getByRole('dialog').filter({ hasNot: page.getByTestId('settings-menu') }) // not Settings itself
   await expect(dialog.getByRole('heading', { name: '팀 연결 추가' })).toBeVisible()
   const access = page.getByTestId('integration-access')
   await expect(access).toContainText('관리자도 여기에 들어 있어야')
@@ -419,7 +419,7 @@ test('Discover: a listed service in two clicks, marked once added; anything else
 
   const notion = cards.filter({ hasText: 'Notion' })
   await notion.getByRole('button', { name: 'Notion 추가' }).click()
-  const dialog = page.getByRole('dialog')
+  const dialog = page.getByRole('dialog').filter({ hasNot: page.getByTestId('settings-menu') }) // not Settings itself
   // in Admin it says it becomes a team connection
   await expect(dialog.getByRole('heading', { name: 'Notion 팀 연결 추가' })).toBeVisible()
   await expect(page.getByTestId('connector-summary')).toContainText('https://mcp.notion.com/mcp')

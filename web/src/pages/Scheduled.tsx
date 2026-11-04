@@ -22,7 +22,7 @@ import AskCard from '../components/chat/AskCard'
 import { ScheduleEditDialog } from '../components/settings/ScheduleEditDialog'
 import { ScheduleTemplates } from '../components/settings/ScheduleTemplates'
 import { TitleMenu } from '../components/TitleMenu'
-import { Button, EmptyState, ErrorNote, IconButton, Modal, Skeleton, StickyHeader, confirmDialog, inputCls } from '../components/ui'
+import { Button, EmptyState, ErrorNote, IconButton, Modal, Skeleton, StickyHeader, confirmDialog, inputCls, pageColumn } from '../components/ui'
 
 const DOT: Record<Tone | 'ok', string> = { ok: 'bg-ok', muted: 'bg-faint', warn: 'bg-warn', danger: 'bg-danger' }
 const TEXT: Record<Tone, string> = { muted: 'text-muted', warn: 'text-warn', danger: 'text-danger' }
@@ -158,7 +158,7 @@ export function ScheduledList() {
   const closeSearch = () => { setQuery(''); setSearching(false) }
   return (
     <div className="flex h-full flex-col overflow-y-auto">
-      <div className="mx-auto w-full max-w-4xl p-4 sm:p-6">
+      <div className={clsx(pageColumn, 'p-4 sm:p-6')}>
         <StickyHeader className="-mt-3 mb-4 flex flex-wrap items-center gap-x-3 gap-y-3 py-3" testId="scheduled-header">
           <h1 className="text-xl font-semibold tracking-tight">{t('settings.schedules')}</h1>
           <div className="ml-auto flex items-center gap-1.5">

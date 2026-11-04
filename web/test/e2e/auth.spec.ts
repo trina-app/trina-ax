@@ -45,7 +45,8 @@ test.describe('first-run setup in an English browser', () => {
     await page.getByLabel('Confirm password').fill('a long password 1')
     await page.getByRole('button', { name: 'Create team and start' }).click()
     await expect(page.getByRole('heading', { name: 'How can I help you, Kim Owner?' })).toBeVisible()
-    await expect(page.getByRole('button', { name: 'New chat' })).toBeVisible()
+    // the sidebar under the Settings dialog speaks English too
+  await expect(page.getByTestId('new-chat')).toContainText('New chat')
   })
 })
 
@@ -122,7 +123,8 @@ test('language switch to English and Indonesian', async ({ page }) => {
   await page.goto('/settings/profile')
   await page.getByTestId('locale-en').click()
   await expect(page.getByRole('heading', { name: 'Settings' })).toBeVisible()
-  await expect(page.getByRole('button', { name: 'New chat' })).toBeVisible()
+  // the sidebar under the Settings dialog speaks English too
+  await expect(page.getByTestId('new-chat')).toContainText('New chat')
   await page.getByTestId('locale-id').click()
   await expect(page.getByRole('heading', { name: 'Pengaturan' })).toBeVisible()
   await expect(page.locator('html')).toHaveAttribute('lang', 'id')
@@ -147,7 +149,8 @@ test('the sign-in page shows the team default, a pick on it is kept in this brow
   // signed in, the person's language decides: olga has none, so the team default (English)
   await page.getByTestId('login-password').fill(OWNER.password)
   await page.getByTestId('login-submit').click()
-  await expect(page.getByRole('button', { name: 'New chat' })).toBeVisible()
+  // the sidebar under the Settings dialog speaks English too
+  await expect(page.getByTestId('new-chat')).toContainText('New chat')
 })
 
 test('personal setting: team default, an own language, back to the team default; an admin change reaches followers', async ({ page }) => {
@@ -277,6 +280,8 @@ test('recovery does not replace an old login pick or pass a previous account lan
   await page.unroute('**/api/me')
   await page.getByRole('button', { name: '다시 시도', exact: true }).click()
   await expect(page.getByTestId('locale-ko')).toHaveAttribute('aria-checked', 'true')
+  // Settings is a dialog over the page: close it to reach the account menu
+  await page.keyboard.press('Escape')
   await page.getByTestId('account-menu').click()
   await page.getByTestId('logout').click()
   await expect(page.getByRole('heading', { name: 'Masuk' })).toBeVisible()

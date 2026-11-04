@@ -1,6 +1,6 @@
 // Routes and the sign-in gate: first-run setup → /setup, signed out → /login (invite links still open),
 // must change password → /password, otherwise the app with its WebSocket running.
-import { lazy, Suspense, useCallback, useEffect, useRef } from 'react'
+import { lazy, Suspense, useCallback, useEffect, useMemo, useRef } from 'react'
 import { BrowserRouter, Navigate, Route, Routes, useLocation, useNavigate, useNavigationType, type Location } from 'react-router-dom'
 import { PRODUCT } from '@mycel/shared'
 import { errorText } from './lib/api'
@@ -15,6 +15,7 @@ import { AnnounceProvider, Button, DialogHost, Spinner, Toaster } from './compon
 import { AcceptInvite, ForcedPassword, Login, ResetPassword, Setup } from './pages/Auth'
 import Home from './pages/Home'
 import SettingsDialog from './components/settings/SettingsDialog'
+import { RealPath } from './lib/realPath'
 
 const ChatPage = lazy(() => import('./pages/Chat'))
 const Files = lazy(() => import('./pages/Files'))
@@ -63,7 +64,8 @@ function useSettingsOverlay() {
     if (depth.current > 0 && back) navigate(-depth.current)
     else navigate(back ? `${back.pathname}${back.search}${back.hash}` : '/', { replace: true })
   }, [navigate])
-  return { open, under, close }
+  const real = useMemo(() => ({ pathname: location.pathname, navigationType: navType }), [location.pathname, navType])
+  return { open, under, close, real }
 }
 
 function Gate() {
@@ -132,7 +134,9 @@ function Gate() {
     // a lazy route that is gone after a server update: reload once instead of a blank page (lib/chunk-reload.ts)
     <ChunkErrorBoundary>
     <Suspense fallback={<Splash />}>
-      {/* under Settings: the page it was opened from (Settings itself is the dialog below) */}
+      {/* under Settings: the page it was opened from (Settings itself is the dialog below), out of reach while it is open */}
+      <RealPath.Provider value={settings.real}>
+      <div className="h-full" inert={settings.open} aria-hidden={settings.open || undefined}>
       <Routes location={settings.under}>
         <Route element={<Layout />}>
           <Route index element={<Home />} />
@@ -157,12 +161,13 @@ function Gate() {
         <Route path="/reset-password/:token" element={<ResetPassword />} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
+      </div>
+      </RealPath.Provider>
       {settings.open && (
         <Routes>
-          <Route path="/settings" element={<SettingsDialog onClose={settings.close} />} />
           {/* scheduled tasks moved to the sidebar: old links (banners, notifications, bookmarks) go there */}
           <Route path="/settings/schedules" element={<Navigate to="/scheduled" replace />} />
-          <Route path="/settings/:tab" element={<SettingsDialog onClose={settings.close} />} />
+          <Route path="/settings/:tab?" element={<SettingsDialog onClose={settings.close} />} />
         </Routes>
       )}
     </Suspense>
