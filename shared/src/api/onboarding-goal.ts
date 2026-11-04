@@ -2,7 +2,8 @@
 // the team's start, 3 or more different people (the owner included) each ran the SAME team skill at least once.
 // Counted by the server (server/src/onboarding/goal.ts): successful answers only, "/name" (a skill form too) or the
 // skill tool, never a plain read of the file; personal skills never; people deleted later still count. Route module:
-// server/src/routes/onboarding-goal.ts. Home shows it to owners and admins (web/src/components/onboarding/GoalCard.tsx).
+// server/src/routes/onboarding-goal.ts. Home shows it to owners and admins (web/src/components/onboarding/GoalCard.tsx):
+// one line of what to do next, with at most one name of someone who joined and has not run the skill yet.
 import { z } from 'zod'
 import { IsoTime } from './common'
 import { endpoint } from './endpoint'
@@ -35,6 +36,13 @@ export const TeamGoal = z.object({
     people: z.array(z.string()),
   }).nullable(),
   reachedAt: IsoTime.nullable(),
+  /** open goals only (absent otherwise): the people who joined (the accounts after the team's first one that signed
+   * in and are still there), for "아직 아무도 안 들어왔어요" */
+  joined: z.number().int().nonnegative().optional(),
+  /** open goals only (absent otherwise): who joined but has not run `skill` yet in the window (any team skill while
+   * `skill` is null), the viewer left out: the first to join by name and the others as a count, never a list
+   * (docs/DECISIONS.md "Y — Home shows one thing at a time"); null when nobody waits */
+  waiting: z.object({ first: z.string(), more: z.number().int().nonnegative() }).nullable().optional(),
 })
 export type TeamGoal = z.infer<typeof TeamGoal>
 
@@ -47,5 +55,5 @@ export type TeamGoalResponse = z.infer<typeof TeamGoalResponse>
 
 export const ONBOARDING_GOAL = {
   getTeamGoal: endpoint({ method: 'GET', path: '/api/onboarding/goal', auth: 'admin', owner: 'B', response: TeamGoalResponse,
-    summary: 'The 7-day team goal (3 people ran the same team skill) for owners and admins: progress, days left, the top skill and who ran it.' }),
+    summary: 'The 7-day team goal (3 people ran the same team skill) for owners and admins: progress, days left, the top skill and who ran it; while it is open, how many joined and the first of those who have not run it yet.' }),
 } as const

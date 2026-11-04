@@ -199,7 +199,9 @@ describe('the card and the owners\' notice', () => {
     turn(ids.admin, { status: 'error', skill: AD })
     const g = await goal()
     expect(g).toMatchObject({ state: 'open', skill: { path: AD.path, name: '광고 문구', runners: 2, people: ['MINA', 'Olga Owner'] } })
-    expect(JSON.stringify(g)).not.toContain('ADAM')
+    // who ran it: never who did not (adam's failed answer); adam is the one who joined and has not run it yet (Y)
+    expect(g.skill.people).not.toContain('ADAM')
+    expect(g.waiting).toEqual({ first: 'ADAM', more: 2 })
     // a third person: reached, and still shown while the window runs
     turn(ids.erin, { skill: AD })
     expect(await goal()).toMatchObject({ state: 'reached', skill: { runners: 3 } })
@@ -209,6 +211,48 @@ describe('the card and the owners\' notice', () => {
     turn(ids.member, { skill: AD }); turn(ids.finn, { skill: AD })
     h.ctx.db.query("UPDATE users SET status = 'disabled', deleted_at = ? WHERE id = ?").run(new Date().toISOString(), ids.finn)
     expect((await goal()).skill).toMatchObject({ runners: 2, people: ['MINA'] })
+  })
+
+  // Y — Home shows one thing at a time: "민지님이 들어왔지만 '광고 문구'는 아직이에요" (one name and a count, never a list)
+  test('while open: how many joined, and the first who joined and has not run the top skill by name, the rest counted', async () => {
+    const seen = h.ctx.db.query('SELECT id, last_seen_at AS at FROM users').all() as { id: string; at: string | null }[]
+    try {
+      // nobody ran a team skill yet: everyone who joined waits (adam joined first); the owner is not someone who joined
+      expect(await goal()).toMatchObject({ state: 'open', joined: 4, waiting: { first: 'ADAM', more: 3 } })
+      // the viewer is never named to themselves
+      expect(await goal(admin)).toMatchObject({ joined: 4, waiting: { first: 'MINA', more: 2 } })
+      turn(ids.owner, { skill: AD }); turn(ids.admin, { skill: AD })
+      // erin ran another skill: she has still not run the top one
+      turn(ids.erin, { skill: SEO })
+      const g = await goal()
+      expect(g).toMatchObject({ skill: { path: AD.path, runners: 2 }, joined: 4, waiting: { first: 'MINA', more: 2 } })
+      // one name only: the others who wait are a count
+      expect(JSON.stringify(g)).not.toContain('ERIN')
+      expect(JSON.stringify(g)).not.toContain('FINN')
+      // an account made for someone who never signed in has not joined; a deleted one is gone
+      h.ctx.db.query('UPDATE users SET last_seen_at = NULL WHERE id = ?').run(ids.member)
+      h.ctx.db.query("UPDATE users SET status = 'disabled', deleted_at = ? WHERE id = ?").run(new Date().toISOString(), ids.finn)
+      expect(await goal()).toMatchObject({ joined: 2, waiting: { first: 'ERIN', more: 0 } })
+      // nobody else signed in: nobody joined, nobody waits
+      h.ctx.db.query('UPDATE users SET last_seen_at = NULL WHERE id <> ?').run(ids.owner)
+      expect(await goal()).toMatchObject({ joined: 0, waiting: null })
+    } finally {
+      for (const r of seen) h.ctx.db.query('UPDATE users SET last_seen_at = ? WHERE id = ?').run(r.at, r.id)
+    }
+  })
+
+  test('reached, or after the window: neither who joined nor who waits', async () => {
+    for (const u of [ids.owner, ids.member, ids.erin]) turn(u, { skill: AD })
+    const g = await goal()
+    expect(g.state).toBe('reached')
+    expect('joined' in g || 'waiting' in g).toBe(false)
+    // the window ended a day ago (reached in it, the card seen above): the "reached" time after it names nobody either
+    h.ctx.db.query("DELETE FROM turns WHERE id LIKE 'card-%'").run()
+    startedDaysAgo(8)
+    for (const u of [ids.owner, ids.member, ids.erin]) turn(u, { skill: AD, at: new Date(Date.now() - 7.5 * DAY).toISOString() })
+    const after = await goal()
+    expect(after).toMatchObject({ state: 'reached', daysLeft: 0 })
+    expect('joined' in after || 'waiting' in after).toBe(false)
   })
 
   test('an older team after an update never sees it, reached or not; a team that saw it gets "reached" for 7 more days', async () => {

@@ -1,6 +1,8 @@
 // New chat. First-time members see which folders their AI can see and three example questions (filled with
-// their folder names, no engine call); the owner sees a setup checklist until it is done (tab 5 "상태별 화면").
-import { CheckCircle2, Circle, Folder, Lock, Pencil, X } from 'lucide-react'
+// their folder names, no engine call). Owners and admins get ONE thing at the top: the welcome steps' "continue" row
+// while they are unfinished, else the 7-day goal card (docs/DECISIONS.md "Y — Home shows one thing at a time"); the
+// owner's setup checklist is on Admin › Home.
+import { Folder, Lock, Pencil } from 'lucide-react'
 import { useEffect, useMemo, useState } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 import { useRealNavigationType } from '../lib/realPath'
@@ -10,11 +12,13 @@ import { visibleFolders } from '../lib/visibleFolders'
 import { useT, type MessageKey } from '../i18n'
 import { useChats } from '../store/chats'
 import { isAdmin, isOwner, useMeStrict } from '../store/session'
+import { useWelcome } from '../store/welcome'
+import { showResume } from '../lib/welcome'
 import { NewChatComposer } from '../components/chat/NewChatComposer'
 import { FrequentQuestions } from '../components/FrequentQuestions'
 import { PopularSkills } from '../components/PopularSkills'
 import { WelcomeResume } from '../components/onboarding/WelcomeResume'
-import { GoalOrChecklist } from '../components/onboarding/GoalCard'
+import { HomeGoal } from '../components/onboarding/GoalCard'
 
 export default function Home() {
   const t = useT()
@@ -43,9 +47,7 @@ export default function Home() {
     <div className="flex h-full flex-col overflow-y-auto">
       <div className="flex flex-1 flex-col items-center justify-center px-4 py-10">
         <div className="w-full max-w-[720px]">
-          {/* the welcome steps' "continue" entry (owner only, renders nothing otherwise) */}
-          <WelcomeResume />
-          {isAdmin(me) && <GoalOrChecklist checklist={isOwner(me) ? <OwnerChecklist /> : null} />}
+          {isAdmin(me) && <HomeTop owner={isOwner(me)} />}
           {project && (
             <p className="mb-2 text-center text-sm text-muted">
               <Link to={`/projects/${project.id}`} className="font-medium text-accent-text hover:underline">
@@ -64,13 +66,31 @@ export default function Home() {
           />
           {firstTime && !projectId && <FirstTime onExample={(text) => setPreset({ text, n: (preset?.n ?? 0) + 1 })} />}
           {!projectId && <FrequentQuestions key={me.user.id} onChoose={(text) => setPreset({ text, n: (preset?.n ?? 0) + 1 })} />}
-          {/* B-W7-7: the team's top skills. A different key from FrequentQuestions: same-key siblings render twice */}
-          {!projectId && <PopularSkills key={`skills-${me.user.id}`} limit={3} className="mt-6" onChoose={(text) => setPreset({ text, n: (preset?.n ?? 0) + 1 })} />}
+          {/* B-W7-7: the team's top skills, once two or more were used. A different key from FrequentQuestions: same-key
+              siblings render twice */}
+          {!projectId && <PopularSkills key={`skills-${me.user.id}`} limit={3} min={2} className="mt-6" onChoose={(text) => setPreset({ text, n: (preset?.n ?? 0) + 1 })} />}
         </div>
       </div>
       <p className="px-4 pb-3 text-center text-[11px] text-faint">{t('chat.footer')}</p>
     </div>
   )
+}
+
+/**
+ * The one thing at the top of Home for owners and admins: the owner's "시작 설정 이어하기 (n/2)" while the welcome
+ * steps are unfinished (started, neither finished nor hidden), else the goal card. The owner's waits for the steps'
+ * progress so the goal card never shows for a moment first; a failed read counts as "nothing to continue".
+ * Exported for its test.
+ */
+export function HomeTop({ owner }: { owner: boolean }) {
+  const loaded = useWelcome((s) => s.loaded)
+  const progress = useWelcome((s) => s.progress)
+  useEffect(() => {
+    if (owner) void useWelcome.getState().load().catch(() => {})
+  }, [owner])
+  if (!owner) return <HomeGoal />
+  if (!loaded) return null
+  return showResume(progress) ? <WelcomeResume /> : <HomeGoal />
 }
 
 const EXAMPLES: MessageKey[] = ['home.example1', 'home.example2', 'home.example3']
@@ -134,88 +154,5 @@ function FirstTime({ onExample }: { onExample: (text: string) => void }) {
         })}
       </div>
     </div>
-  )
-}
-
-const CHECK_KEY = 'mycel.ownerChecklistHidden'
-
-/** names in a short line: the first three, then "+N" */
-const shortNames = (names: string[]) => names.slice(0, 3).join(', ') + (names.length > 3 ? ` +${names.length - 3}` : '')
-
-/** Owner's first screen: AI connection · invite members · folder permissions · backups. Hidden once all done and
- * everyone can use AI ("No AI": people with no AI connection they can use, the same list as Admin › Members).
- * Exported for its test. */
-export function OwnerChecklist() {
-  const t = useT()
-  const [hidden, setHidden] = useState(() => {
-    try { return localStorage.getItem(CHECK_KEY) === '1' } catch { return false }
-  })
-  const [state, setState] = useState<{ engine: boolean; members: boolean; folders: boolean; skill: boolean; backup: boolean; noAi: string[] } | null>(null)
-  useEffect(() => {
-    if (hidden) return
-    let live = true
-    Promise.allSettled([api.call(API.engines), api.call(API.listUsers, { query: { noAi: '1' } }), api.call(API.listInvites), api.call(API.listFolders), api.call(API.listBackups), api.call(API.listSkills), api.call(API.getTeamLink)]).then(([e, u, i, f, b, sk, tl]) => {
-      if (!live) return
-      setState({
-        engine: e.status === 'fulfilled' && e.value.engines.some((x) => x.enabled && x.status === 'ok'),
-        // invited: someone joined, an invite waits, or the team invite link works now (made in the welcome steps or
-        // Admin › Members; an expired, used-up or stopped link no longer invites anyone)
-        members: (u.status === 'fulfilled' && u.value.items.length > 1) || (i.status === 'fulfilled' && i.value.items.length > 0) || (tl.status === 'fulfilled' && tl.value.link?.state === 'active'),
-        // the starting rules (shared/ and skills/, updatedBy null) come with every new team: done once someone set one
-        folders: f.status === 'fulfilled' && f.value.items.some((x) => x.rules.some((r) => r.updatedBy !== null)),
-        // a team skill: the caller's own personal skills do not count
-        skill: sk.status === 'fulfilled' && sk.value.items.some((x) => !x.personal),
-        backup: b.status === 'fulfilled' && b.value.items.length > 0,
-        noAi: u.status === 'fulfilled' ? u.value.items.filter((x) => u.value.noAi?.includes(x.id)).map((x) => x.name) : [],
-      })
-    })
-    return () => {
-      live = false
-    }
-  }, [hidden])
-  const { noAi, ...steps } = state ?? { noAi: [] }
-  if (hidden || !state || (Object.values(steps).every(Boolean) && !noAi.length)) return null
-  const items: { done: boolean; label: MessageKey; to: string }[] = [
-    { done: state.engine, label: 'owner.check.engine', to: '/admin/credentials' },
-    { done: state.folders, label: 'owner.check.folders', to: '/admin/folders' },
-    { done: state.members, label: 'owner.check.members', to: '/admin/members' },
-    { done: state.skill, label: 'owner.check.skill', to: '/skills' },
-    { done: state.backup, label: 'owner.check.backup', to: '/admin/system' },
-  ]
-  return (
-    <section className="mb-8 rounded-2xl border border-line bg-surface p-4" aria-labelledby="owner-check" data-testid="owner-checklist">
-      <div className="mb-2 flex items-center justify-between">
-        <h2 id="owner-check" className="text-sm font-semibold">
-          {t('owner.check.title')}
-        </h2>
-        <button
-          type="button"
-          aria-label={t('common.hide')}
-          className="rounded p-1 text-faint hover:bg-hover"
-          onClick={() => {
-            try { localStorage.setItem(CHECK_KEY, '1') } catch { /* ignore */ }
-            setHidden(true)
-          }}
-        >
-          <X size={15} />
-        </button>
-      </div>
-      {!state.engine && <p className="mb-3 text-sm text-muted">{t('owner.check.filesReady')}</p>}
-      {noAi.length > 0 && (
-        <p className="mb-3 text-sm" data-testid="owner-check-no-ai">
-          <Link to="/admin/credentials" className="text-warn hover:underline">{t('owner.check.noAi', { names: shortNames(noAi) })}</Link>
-        </p>
-      )}
-      <ul className="grid gap-1 sm:grid-cols-2">
-        {items.map((it) => (
-          <li key={it.label}>
-            <Link to={it.to} className="flex items-center gap-2 rounded-lg px-2 py-1.5 text-sm hover:bg-hover">
-              {it.done ? <CheckCircle2 size={16} className="text-ok" aria-label={t('common.done')} /> : <Circle size={16} className="text-faint" aria-label={t('common.todo')} />}
-              <span className={it.done ? 'text-faint line-through' : ''}>{t(it.label)}</span>
-            </Link>
-          </li>
-        ))}
-      </ul>
-    </section>
   )
 }

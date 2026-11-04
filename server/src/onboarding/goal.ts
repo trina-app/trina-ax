@@ -110,6 +110,21 @@ function namesOf(db: Database, ids: string[]): string[] {
 }
 
 /**
+ * While the goal is open: the people who joined, and of them (the viewer left out) the ones who have not run the top
+ * skill in the window, or any team skill while there is none (`ran`: the people who ran it). Joined = an account after
+ * the team's first one, still there, active, that signed in at least once (an account made for someone who never
+ * came in has not joined). The earliest to join is named, the rest only counted (docs/DECISIONS.md "Y — Home shows
+ * one thing at a time": never a list of who has not run it).
+ */
+export function joinedNotRun(db: Database, viewerId: string, w: GoalWindow, ran: ReadonlySet<string>): { joined: number; waiting: { first: string; more: number } | null } {
+  const rows = db.query(`SELECT id, name FROM users WHERE deleted_at IS NULL AND status = 'active' AND last_seen_at IS NOT NULL
+    AND created_at >= ? AND created_at < ? AND id <> (SELECT id FROM users ORDER BY created_at, rowid LIMIT 1)
+    ORDER BY created_at, rowid`).all(w.startedAt, w.endsAt) as { id: string; name: string }[]
+  const left = rows.filter((r) => r.id !== viewerId && !ran.has(r.id))
+  return { joined: rows.length, waiting: left.length ? { first: left[0]!.name, more: left.length - 1 } : null }
+}
+
+/**
  * The card for an owner or admin (the route checks the role), or null when there is nothing to show:
  *   - open: the window runs and the goal is not reached;
  *   - reached: reached in the window; shown while the window runs, and after it for REACHED_GRACE_MS only when the
@@ -128,7 +143,7 @@ export function teamGoal(ctx: AppContext, viewerId: string, now = new Date()): T
   if (!p || (!open && !p.reachedAt)) return null
   if (open && !getSetting(ctx.db, GOAL_SHOWN_KEY)) setSetting(ctx.db, GOAL_SHOWN_KEY, now.toISOString())
   const best = p.best
-  return {
+  const goal: TeamGoal = {
     state: p.reachedAt ? 'reached' : 'open',
     target: GOAL_PEOPLE, days: GOAL_DAYS,
     startedAt: p.startedAt, endsAt: p.endsAt,
@@ -136,6 +151,9 @@ export function teamGoal(ctx: AppContext, viewerId: string, now = new Date()): T
     skill: best ? { path: best.path, name: titleFor(ctx, viewerId, best.path, best.name), runners: best.people.length, people: namesOf(ctx.db, best.people.map((x) => x.userId)) } : null,
     reachedAt: p.reachedAt,
   }
+  // who joined and has not run it: only while the goal is open (in the window, not reached)
+  if (goal.state === 'open' && open) Object.assign(goal, joinedNotRun(ctx.db, viewerId, p, new Set(best?.people.map((x) => x.userId))))
+  return goal
 }
 
 /**

@@ -12,7 +12,7 @@ import { TeamLinkView } from '../../src/components/onboarding/TeamLinkPanel'
 import { InviteStep } from '../../src/components/onboarding/InviteStep'
 import { PopularSkillsList } from '../../src/components/PopularSkills'
 import { matchSkills } from '../../src/components/chat/SkillMenu'
-import { OwnerChecklist } from '../../src/pages/Home'
+import { OwnerChecklist } from '../../src/pages/admin/OwnerChecklist'
 import { installDom, mount, removeDom } from './dom-host'
 
 const URL_ = 'https://acme.example/join#t=AbCdEfGhIjKlMnOpQrStUvWxYz0123456789_-abcde'
@@ -170,13 +170,14 @@ describe('the owner checklist', () => {
     globalThis.fetch = realFetch
     removeDom()
   })
+  // Admin › Home lists only what is still to do (Y): a done step is not there
   const invited = async (l: TeamLinkResponse | null) => {
     teamLink = l
     const m = await mount(<MemoryRouter><OwnerChecklist /></MemoryRouter>)
     try {
       const list = await m.until(() => m.find('owner-checklist'), 'the checklist')
-      const row = [...list.querySelectorAll('li')].find((li) => li.textContent?.includes(ko('owner.check.members')))!
-      return row.querySelector(`[aria-label="${ko('common.done')}"]`) !== null
+      expect(list.textContent).toContain(ko('owner.check.folders'))
+      return !list.textContent?.includes(ko('owner.check.members'))
     } finally { await m.unmount() }
   }
 

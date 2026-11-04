@@ -406,4 +406,4 @@ The API serves the Trina AX apps. It is not yet a stable public API for other pr
 
 | Method | Path | Who | What it does |
 |---|---|---|---|
-| `GET` | `/api/onboarding/goal` | Admin | The 7-day team goal (3 people ran the same team skill) for owners and admins: progress, days left, the top skill and who ran it. |
+| `GET` | `/api/onboarding/goal` | Admin | The 7-day team goal (3 people ran the same team skill) for owners and admins: progress, days left, the top skill and who ran it; while it is open, how many joined and the first of those who have not run it yet. |

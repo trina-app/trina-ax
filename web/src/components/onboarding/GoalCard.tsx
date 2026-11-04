@@ -1,114 +1,129 @@
-// The 7-day team goal on Home for owners and admins (docs/DECISIONS.md "G — The 7-day team goal"; contract
-// shared/src/api/onboarding-goal.ts): "7일 안에 3명이 같은 스킬 써 보기 · 2/3 · 5일 남음", the top skill and who ran it
-// (never who has not), [팀원 초대] (the team invite link with that skill) and [초대 문구 복사]. Once reached it says so
-// until dismissed. On a hosted team the owner checklist gives way to it while it shows; elsewhere both show.
+// The 7-day team goal on Home for owners and admins (docs/DECISIONS.md "G — The 7-day team goal" and "Y — Home shows
+// one thing at a time"; contract shared/src/api/onboarding-goal.ts): the title "7일 안에 3명이 같은 스킬 써 보기 · 1/3 ·
+// 5일 남음", ONE line of what to do next and ONE button. Someone joined and has not run the skill: "민지님이 들어왔지만
+// '광고 문구'는 아직이에요." [다시 보내기] (copies a nudge with the skill form's link); one more person: "한 명만 더 쓰면
+// 달성이에요."; nobody joined: "아직 아무도 안 들어왔어요." — those two with [초대 문구 복사] (the team link's message), or
+// [팀원 초대] while no link works. Reached: "달성했어요 · 민지·지훈·Olga" until dismissed.
 // On phones the card has no frame of its own, only a line under it (fewer boxes; docs/DESIGN-SYSTEM.md).
-import { CheckCircle2, UserPlus, X } from 'lucide-react'
-import { useEffect, useState, type ReactNode } from 'react'
+import { Check, CheckCircle2, Copy, UserPlus, X } from 'lucide-react'
+import { useEffect, useState } from 'react'
 import type { TeamGoal, TeamLinkResponse } from '@mycel/shared/api'
 import { api, API } from '../../lib/api'
 import { teamLinkMessage } from '../../lib/team-link'
-import { goalProgressText, runnerNames } from '../../lib/teamGoal'
-import { useT } from '../../i18n'
+import { goalNext, goalNextText, goalProgressText, resendText, runnerNames, skillRunUrl } from '../../lib/teamGoal'
+import { useLocale, useT } from '../../i18n'
 import { useMe, useMeStrict } from '../../store/session'
-import { Button, CopyButton, IconButton, Modal } from '../ui'
+import { Button, IconButton, Modal, useCopy } from '../ui'
 import { InviteStep } from './InviteStep'
 
 /** "달성했어요" dismissed in this browser, per team (its start) */
 const doneKey = (startedAt: string) => `mycel.teamGoalDone.${startedAt}`
 const readDone = (startedAt: string) => { try { return localStorage.getItem(doneKey(startedAt)) === '1' } catch { return false } }
 
-/**
- * The top of Home for owners and admins: the goal card while it shows, and `checklist` (the owner's setup checklist,
- * null for an admin) unless the team is hosted and the card shows. The checklist does not wait for the goal: it shows
- * at once and gives way when the goal says so (a new hosted team, which has little to load); a failed load keeps it.
- */
-export function GoalOrChecklist({ checklist }: { checklist: ReactNode }) {
+/** The goal card on Home (owners and admins; Home decides when): loads the goal and shows nothing when there is none,
+ * the load failed, or "달성했어요" was dismissed in this browser. */
+export function HomeGoal() {
   const me = useMeStrict()
-  const [goal, setGoal] = useState<TeamGoal | null | undefined>(undefined)
+  const [goal, setGoal] = useState<TeamGoal | null>(null)
   const [dismissed, setDismissed] = useState(false)
   useEffect(() => {
     let live = true
     api.call(API.getTeamGoal).then((r) => live && setGoal(r.goal), () => live && setGoal(null))
     return () => { live = false }
   }, [me.user.id])
-  const shown = goal && !(goal.state === 'reached' && (dismissed || readDone(goal.startedAt))) ? goal : null
-  const dismiss = (g: TeamGoal) => {
-    try { localStorage.setItem(doneKey(g.startedAt), '1') } catch { /* this tab only */ }
+  if (!goal || (goal.state === 'reached' && (dismissed || readDone(goal.startedAt)))) return null
+  const dismiss = () => {
+    try { localStorage.setItem(doneKey(goal.startedAt), '1') } catch { /* this tab only */ }
     setDismissed(true)
   }
-  return (
-    <>
-      {shown && <GoalCard goal={shown} onDismiss={() => dismiss(shown)} />}
-      {(!shown || me.server.deployment !== 'hosted') && checklist}
-    </>
-  )
+  return <GoalCard goal={goal} onDismiss={dismiss} />
 }
 
-/** The card itself, without loading the goal (tests render it as it is). `link`: the team invite link when known. */
+/** The card itself, without loading the goal (tests render it as it is). `link`: the team invite link when known
+ * (undefined: the card reads it). */
 export function GoalCard({ goal, onDismiss, link: given }: { goal: TeamGoal; onDismiss: () => void; link?: TeamLinkResponse | null }) {
   const t = useT()
+  const locale = useLocale()
   const me = useMe()
   const [inviting, setInviting] = useState(false)
-  const [link, setLink] = useState<TeamLinkResponse | null>(given ?? null)
+  // undefined while it loads: the one button waits for it rather than change under the finger
+  const [link, setLink] = useState<TeamLinkResponse | null | undefined>(given)
   const [linkTick, setLinkTick] = useState(0)
   useEffect(() => {
     if (given !== undefined || goal.state !== 'open') return
     let live = true
-    api.call(API.getTeamLink).then((r) => live && setLink(r), () => {})
+    api.call(API.getTeamLink).then((r) => live && setLink(r), () => live && setLink(null))
     return () => { live = false }
   }, [given, goal.state, linkTick])
   const skill = goal.skill
-  const names = skill ? runnerNames(skill.people, skill.runners) : ''
   const frame = 'mb-6 border-b border-line pb-5 sm:mb-8 sm:rounded-2xl sm:border sm:bg-surface sm:p-4'
 
   if (goal.state === 'reached') {
     return (
       <section className={frame} aria-labelledby="team-goal-title" data-testid="team-goal" data-state="reached">
-        <div className="flex items-start gap-2">
-          <CheckCircle2 size={18} className="mt-0.5 shrink-0 text-ok" aria-hidden />
-          <div className="min-w-0 flex-1">
-            <h2 id="team-goal-title" className="text-sm font-semibold">{t('goal.reachedTitle')}</h2>
-            {skill && <p className="mt-1 text-sm text-muted">{t('goal.reachedBody', { count: skill.runners, skill: skill.name, names })}</p>}
-          </div>
+        <div className="flex items-center gap-2">
+          <CheckCircle2 size={18} className="shrink-0 text-ok" aria-hidden />
+          <h2 id="team-goal-title" className="min-w-0 flex-1 text-sm">
+            <span className="font-semibold">{t('goal.reachedTitle')}</span>
+            {skill && <span className="text-muted" data-testid="team-goal-names"> · {runnerNames(skill.people, skill.runners)}</span>}
+          </h2>
           <IconButton label={t('common.hide')} onClick={onDismiss} data-testid="team-goal-dismiss"><X size={15} aria-hidden /></IconButton>
         </div>
       </section>
     )
   }
 
-  const count = skill?.runners ?? 0
-  const filled = Math.min(count, goal.target)
-  const progress = goalProgressText(t, count, goal.target)
+  const progress = goalProgressText(t, skill?.runners ?? 0, goal.target)
   const open = link?.link && link.link.state === 'active' && link.link.url ? link.link : null
+  // the skill to name: the top one, else the one the team link carries (nobody ran one yet), else any team skill
+  const linkName = open?.skill ? (open.skill.title ?? open.skill.name) : null
+  const named = skill ? { path: skill.path, name: skill.name } : open?.skill && linkName ? { path: open.skill.path, name: linkName } : null
+  const next = goalNext(goal)
   // a link made or changed in the dialog: read it again for [초대 문구 복사]
   const closeInvite = () => { setInviting(false); setLinkTick((n) => n + 1) }
-  const message = open ? teamLinkMessage(t, { name: me?.user.name ?? '', url: open.url!, skill: open.skill ? (open.skill.title ?? open.skill.name) : null }) : null
+
+  let action = null
+  if (link !== undefined) {
+    if (next.kind === 'waiting') {
+      // the team's address as the team link has it (an office's public address), else this page's
+      const base = open?.url ? new URL(open.url).origin : typeof location === 'undefined' ? '' : location.origin
+      const text = resendText(t, locale, { first: next.first, more: next.more, skill: named?.name ?? null, url: skillRunUrl(base, named?.path ?? null) })
+      action = <CopyAction text={text} label={t('goal.resend')} testId="team-goal-resend" />
+    } else if (open) {
+      const message = teamLinkMessage(t, { name: me?.user.name ?? '', url: open.url!, skill: open.skill ? (open.skill.title ?? open.skill.name) : null })
+      action = <CopyAction text={message} label={t('goal.copyInvite')} testId="team-goal-copy-invite" />
+    } else {
+      action = (
+        <Button variant="primary" size="sm" onClick={() => setInviting(true)} data-testid="team-goal-invite">
+          <UserPlus size={14} aria-hidden /> {t('goal.invite')}
+        </Button>
+      )
+    }
+  }
   return (
     <section className={frame} aria-labelledby="team-goal-title" data-testid="team-goal" data-state="open">
       <h2 id="team-goal-title" className="text-sm">
         <span className="font-semibold">{t('goal.title', { days: goal.days, target: goal.target })}</span>
         <span className="text-muted tabular-nums" data-testid="team-goal-progress"> · {progress} · {t('goal.daysLeft', { n: goal.daysLeft })}</span>
       </h2>
-      <div className="mt-2 flex gap-1" role="img" aria-label={progress}>
-        {Array.from({ length: goal.target }, (_, i) => (
-          <span key={i} className={`h-1.5 flex-1 rounded-full ${i < filled ? 'bg-accent' : 'bg-hover'}`} />
-        ))}
-      </div>
-      <p className="mt-3 text-sm text-muted" data-testid="team-goal-skill">
-        {skill ? t('goal.ranBy', { skill: skill.name, names }) : t('goal.none', { target: goal.target })}
-      </p>
-      <div className="mt-3 flex flex-wrap items-center gap-2">
-        <Button variant="primary" size="sm" onClick={() => setInviting(true)} data-testid="team-goal-invite">
-          <UserPlus size={14} aria-hidden /> {t('goal.invite')}
-        </Button>
-        {message && <CopyButton text={message} label={t('goal.copyInvite')} showLabel className="h-8 border border-line max-sm:min-h-9" />}
-      </div>
+      <p className="mt-1 text-sm text-muted" data-testid="team-goal-next" data-next={next.kind}>{goalNextText(t, locale, next, named?.name ?? null)}</p>
+      <div className="mt-3 min-h-8">{action}</div>
       {inviting && (
         <Modal open onClose={closeInvite} title={t('goal.title', { days: goal.days, target: goal.target })} width={560}>
           <InviteStep onDone={closeInvite} skillPath={skill?.path ?? null} />
         </Modal>
       )}
     </section>
+  )
+}
+
+/** The card's one button: copies `text`, and says so for a moment. */
+function CopyAction({ text, label, testId }: { text: string; label: string; testId: string }) {
+  const t = useT()
+  const { copied, copy } = useCopy()
+  return (
+    <Button variant="primary" size="sm" onClick={() => void copy(text)} data-testid={testId}>
+      {copied ? <Check size={14} aria-hidden /> : <Copy size={14} aria-hidden />} {copied ? t('common.copied') : label}
+    </Button>
   )
 }

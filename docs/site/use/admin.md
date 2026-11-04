@@ -4,6 +4,8 @@ description: What owners and admins manage, and where each setting lives.
 ---
 
 **Admin** in the sidebar is for the owner and admins. It opens on **Home**, which lists what needs attention first.
+For the owner, Home also lists the first setup steps that are still to do: check the AI connection, set folder
+permissions, invite your team, prepare a team skill, make the first backup. A finished step leaves the list.
 
 ![Admin Home: Needs attention at the top, then one card per area, with the Admin menu on the left](../images/admin/home.webp "Admin Home")
 
