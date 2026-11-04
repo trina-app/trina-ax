@@ -111,4 +111,56 @@ describe('docs site', () => {
       fs.rmSync(out, { recursive: true, force: true })
     }
   })
+
+  // --site-nav: the website's own bar on top of every page (ax.trina.app passes its rendered header)
+  test.skipIf(!hasMarkdown)('--site-nav puts the website bar on every page, with the docs search in it and its theme key', async () => {
+    const { build } = await import('../../scripts/docs/build')
+    const out = fs.mkdtempSync(path.join(os.tmpdir(), 'docs-site-'))
+    const kit = fs.mkdtempSync(path.join(os.tmpdir(), 'docs-sitenav-'))
+    try {
+      const bar = '<div class="nav"><a class="logo" href="/">Site</a><nav class="nav-links"><a href="/docs/" aria-current="page">Docs</a></nav><div class="nav-right"><!--docs-tools--><a href="/signin">Sign in</a></div></div>'
+      fs.writeFileSync(path.join(kit, 'nav.json'), JSON.stringify({ html: bar, css: ['site-nav.css'], assets: ['font.woff2'], themeKey: 'theme' }))
+      fs.writeFileSync(path.join(kit, 'site-nav.css'), '.sitenav .nav { display: flex; }')
+      fs.writeFileSync(path.join(kit, 'font.woff2'), 'x')
+      build(['--out', out, '--base', '/docs', '--site-url', 'https://ax.trina.app', '--site-nav', path.join(kit, 'nav.json')])
+      for (const p of loadPages()) {
+        const html = fs.readFileSync(path.join(out, p.slug === 'index' ? '' : p.slug, 'index.html'), 'utf8')
+        expect(html, p.slug).toContain('<html lang="en" class="has-site-nav">')
+        expect(html).toContain('<div class="sitenav"><div class="nav"><a class="logo" href="/">Site</a>')
+        // the marker became the docs search; the docs' own bar is gone, the section tabs stay
+        expect(html).not.toContain('<!--docs-tools-->')
+        expect(html).toContain('<div class="docs-tools" data-slot="bar"><div class="search" role="search">')
+        expect(html).not.toContain('<div class="bar">')
+        expect(html).toContain('<nav class="section-tabs" aria-label="Sections">')
+        expect(html).toContain('<link rel="stylesheet" href="/docs/assets/site-nav/site-nav.css">')
+        expect(html).toContain('<script src="/docs/assets/theme.js" data-key="theme"></script>')
+        expect(html).toContain('data-theme-key="theme"')
+        expect((html.match(/<header[\s>]/g) ?? []).length).toBe(1)
+      }
+      expect(fs.readFileSync(path.join(out, 'assets/site-nav/font.woff2'), 'utf8')).toBe('x')
+      // a bar that would add a second <header> or inline code is refused
+      fs.writeFileSync(path.join(kit, 'bad.json'), JSON.stringify({ html: '<header><!--docs-tools--></header>' }))
+      expect(() => build(['--out', out, '--site-nav', path.join(kit, 'bad.json')])).toThrow(/<header>/)
+      fs.writeFileSync(path.join(kit, 'bad.json'), JSON.stringify({ html: '<div onclick="x()"><!--docs-tools--></div>' }))
+      expect(() => build(['--out', out, '--site-nav', path.join(kit, 'bad.json')])).toThrow(/inline/)
+    } finally {
+      fs.rmSync(out, { recursive: true, force: true })
+      fs.rmSync(kit, { recursive: true, force: true })
+    }
+  })
+
+  test.skipIf(!hasMarkdown)('without --site-nav the docs keep their own header and theme key', async () => {
+    const { build } = await import('../../scripts/docs/build')
+    const out = fs.mkdtempSync(path.join(os.tmpdir(), 'docs-site-'))
+    try {
+      build(['--out', out])
+      const html = fs.readFileSync(path.join(out, 'index.html'), 'utf8')
+      expect(html).toContain('<html lang="en">')
+      expect(html).toContain('<div class="bar">')
+      expect(html).toContain('data-key="trina-docs-theme"')
+      expect(fs.existsSync(path.join(out, 'assets/site-nav'))).toBe(false)
+    } finally {
+      fs.rmSync(out, { recursive: true, force: true })
+    }
+  })
 })
