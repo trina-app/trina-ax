@@ -656,6 +656,7 @@ export default function Files() {
                 maxLength={200}
                 className="w-full min-w-0 bg-transparent text-sm outline-none placeholder:text-faint @2xl:w-48"
                 data-testid="content-search-input"
+                data-own-clear
               />
               {q && (
                 <button type="button" className="text-faint hover:text-ink" onClick={() => setQuery('')} aria-label={t('files.search.clear')} title={t('files.search.clear')}>
@@ -801,7 +802,8 @@ export default function Files() {
                         <FileRow
                           key={e.path}
                           e={e}
-                          selected={select === e.name}
+                          // ?select= holds the full path (links from Search, team skills and the server); a bare name also works
+                          selected={select === e.path || select === e.name}
                           open={openPath === e.path}
                           checked={checked.has(e.path)}
                           onCheck={(shift) => check(e.path, shift)}

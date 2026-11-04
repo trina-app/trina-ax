@@ -178,7 +178,7 @@ export function ScheduledList() {
               <div className="relative w-48 sm:w-56">
                 <Search size={15} className="pointer-events-none absolute top-1/2 left-3 -translate-y-1/2 text-faint" aria-hidden />
                 <input type="search" autoFocus value={query} onChange={(e) => setQuery(e.target.value)} onKeyDown={(e) => { if (e.key === 'Escape') { e.stopPropagation(); closeSearch() } }}
-                  placeholder={t('scheduled.search')} aria-label={t('scheduled.search')} className={`${inputCls} pr-8 pl-9`} data-testid="scheduled-search" />
+                  placeholder={t('scheduled.search')} aria-label={t('scheduled.search')} className={`${inputCls} pr-8 pl-9`} data-testid="scheduled-search" data-own-clear />
                 <button type="button" aria-label={t('scheduled.closeSearch')} onClick={closeSearch} className="absolute top-1/2 right-2 -translate-y-1/2 rounded p-0.5 text-faint hover:text-ink">
                   <X size={14} aria-hidden />
                 </button>
