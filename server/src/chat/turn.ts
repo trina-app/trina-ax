@@ -648,7 +648,8 @@ export class TurnExec {
   private async limitFallback(core: Running, o: { chatDir: string; token: string; systemPrompt: () => string; message: string; extraTools: string[] }) {
     const { rt, spec } = this
     if (!this.codexFallbackReady()) return
-    const codex = rt.engines.get().codex!
+    const codex = rt.engines.get().codex
+    if (!codex) return
     const label = tr('limitFallback', spec.locale, { from: ENGINE_LABELS['claude-code'], to: ENGINE_LABELS.codex })
     this.addStep({ kind: 'tool', tool: 'engine', label, status: 'ok' })
     rt.hub.publish(spec.userId, { type: 'notice', data: { level: 'info', code: 'engine_limit_fallback', message: label } })

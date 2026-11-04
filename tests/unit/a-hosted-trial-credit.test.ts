@@ -13,7 +13,7 @@ import { setSetting } from '../../server/src/admin/settings'
 import { createBroker } from '../../server/src/credentials/broker'
 import {
   chargeHostedChat, dropHostedChatKey, HOSTED_CHAT_ID, HOSTED_CHAT_KEY_SETTING, HOSTED_CHAT_MODEL, HOSTED_CHAT_USAGE_SETTING,
-  hostedChatLeftUsd, hostedChatState, hostedChatUsedUsd, readHostedChatKey, trialCredit, writeHostedChatKey,
+  hostedChatHeldUsd, hostedChatLeftUsd, hostedChatState, hostedChatUsedUsd, readHostedChatKey, trialCredit, trialEstimateUsd, writeHostedChatKey,
 } from '../../server/src/credentials/hosted-chat'
 import { claudeCost } from '../../server/src/credentials/prices'
 import { SHARED_SUBSCRIPTIONS_KEY } from '../../server/src/credentials/policy'
@@ -34,22 +34,35 @@ const ALL = new Set(ALL_CREDENTIAL_KINDS)
 const DAY = 86400_000
 const future = () => new Date(Date.now() + 14 * DAY).toISOString()
 
-// a fake Anthropic: what it was sent, the usage it answers with, an optional status
+// a fake Anthropic: what it was sent, the usage it answers with, an optional status / error body, a delay, a stream
+// that stops after message_start (`stream: 'hang'` waits for the caller to hang up, 'cut' ends there)
 const seen: { key: string | null; model: string }[] = []
 let usage: Record<string, number> = { input_tokens: 10_000, output_tokens: 2_000 }
 let status = 200
+let errorBody: unknown = null
+let delayMs = 0
+let streamMode: 'full' | 'hang' | 'cut' = 'full'
+const ORG_HEADERS = { 'anthropic-organization-id': 'org-HOSTING-CANARY', 'anthropic-ratelimit-requests-remaining': '49' }
 const upstream = Bun.serve({
-  port: 0, hostname: '127.0.0.1',
+  port: 0, hostname: '127.0.0.1', idleTimeout: 0,
   async fetch(req) {
     const body = await req.json() as { model: string; stream?: boolean }
     seen.push({ key: req.headers.get('x-api-key'), model: body.model })
-    if (status !== 200) return Response.json({ type: 'error', error: { type: 'authentication_error', message: 'invalid x-api-key' } }, { status })
+    if (delayMs) await Bun.sleep(delayMs)
+    if (status !== 200) return Response.json(errorBody ?? { type: 'error', error: { type: 'authentication_error', message: 'invalid x-api-key' } }, { status, headers: ORG_HEADERS })
+    if (body.stream && streamMode !== 'full') {
+      const start = `data: ${JSON.stringify({ type: 'message_start', message: { model: body.model, usage: { input_tokens: usage.input_tokens, output_tokens: 1 } } })}\n\n`
+      return new Response(new ReadableStream<Uint8Array>({ start(c) {
+        c.enqueue(new TextEncoder().encode(start))
+        if (streamMode === 'cut') c.close()
+      } }), { headers: { 'content-type': 'text/event-stream', ...ORG_HEADERS } })
+    }
     if (body.stream) {
       const sse = [`data: ${JSON.stringify({ type: 'message_start', message: { model: body.model, usage: { input_tokens: usage.input_tokens, output_tokens: 1 } } })}`, '',
         `data: ${JSON.stringify({ type: 'message_delta', usage: { output_tokens: usage.output_tokens } })}`, '', 'data: {"type":"message_stop"}', '', ''].join('\n')
-      return new Response(sse, { headers: { 'content-type': 'text/event-stream' } })
+      return new Response(sse, { headers: { 'content-type': 'text/event-stream', ...ORG_HEADERS } })
     }
-    return Response.json({ id: 'm', model: body.model, content: [{ type: 'text', text: 'ok' }], usage })
+    return Response.json({ id: 'm', model: body.model, content: [{ type: 'text', text: 'ok' }], usage }, { headers: ORG_HEADERS })
   },
 })
 
@@ -68,9 +81,9 @@ const newTurn = () => {
   return id
 }
 const tok = (turn: string, o: { budgetUsd?: number } = {}) => issueProxyToken(env.db, turn, 'alice', { credentialId: HOSTED_CHAT_ID, family: 'anthropic', ...o })
-const call = (token: string, model = HOSTED_CHAT_MODEL, o: { stream?: boolean } = {}) => fetch(proxy.url + '/v1/messages', {
+const call = (token: string, model = HOSTED_CHAT_MODEL, o: { stream?: boolean; maxTokens?: number } = {}) => fetch(proxy.url + '/v1/messages', {
   method: 'POST', headers: { 'content-type': 'application/json', 'x-api-key': token, 'anthropic-version': '2023-06-01' },
-  body: JSON.stringify({ model, max_tokens: 5, messages: [{ role: 'user', content: 'hi' }], ...(o.stream ? { stream: true } : {}) }),
+  body: JSON.stringify({ model, max_tokens: o.maxTokens ?? 5, messages: [{ role: 'user', content: 'hi' }], ...(o.stream ? { stream: true } : {}) }),
 })
 const turnCost = (turn: string) => (env.db.query('SELECT cost_usd FROM turns WHERE id = ?').get(turn) as { cost_usd: number | null }).cost_usd ?? 0
 const grant = (o: Partial<{ key: string; capUsd: number; endsAt: string; enabled: boolean }> = {}) =>
@@ -86,7 +99,7 @@ beforeEach(() => {
   setSetting(env.db, MEMBER_OWN_KEY, false)
   seen.length = 0; events.length = 0
   usage = { input_tokens: 10_000, output_tokens: 2_000 }
-  status = 200
+  status = 200; errorBody = null; delayMs = 0; streamMode = 'full'
 })
 
 describe('the tenant command hosted-chat-key-set (mycel-ctl → admin.js hosted-chat-key)', () => {
@@ -316,6 +329,106 @@ describe('the model proxy with the trial credit', () => {
     expect(hostedChatState(env.db, new Date())).toBe('active')
     expect(await broker.onUnauthorized(HOSTED_CHAT_ID, KEY2)).toBe('refused')
     expect(hostedChatState(env.db, new Date())).toBe('ended')
+  })
+})
+
+describe('requests in flight: held when sent, settled when counted', () => {
+  const waitFor = async (ok: () => boolean) => { for (let i = 0; i < 200 && !ok(); i++) await Bun.sleep(10); return ok() }
+  test('many turns at once near the cap: the credit is passed by one request\'s reservation at most', async () => {
+    const cap = 1
+    grant({ capUsd: cap })
+    const each = perRequest() // what one answer really costs here
+    chargeHostedChat(env.db, cap - each * 3) // three answers left
+    const reservation = trialEstimateUsd({ inputTokens: 100, maxTokens: 8_000 }) // about what each request holds
+    expect(reservation).toBeGreaterThan(each) // the hold covers the answer
+    delayMs = 100 // all of them are out at the same moment
+    const turns = Array.from({ length: 8 }, () => newTurn())
+    const rs = await Promise.all(turns.map((turn) => call(tok(turn), HOSTED_CHAT_MODEL, { maxTokens: 8_000 })))
+    const ok = rs.filter((r) => r.status === 200).length
+    const refused = await Promise.all(rs.filter((r) => r.status === 403).map(async (r) => (await r.json()).error.message))
+    // without holds all eight would go: 5 answers past the credit
+    expect(ok).toBe(2) // 3 answers left, each request holding 2 answers' worth
+    expect(ok + refused.length).toBe(8)
+    expect(new Set(refused)).toEqual(new Set(['trial_credit_used']))
+    expect(seen.length).toBe(ok)
+    expect(hostedChatUsedUsd(env.db)).toBeLessThanOrEqual(cap + reservation)
+    expect(hostedChatHeldUsd(env.db)).toBe(0) // everything settled
+  })
+  test('a hold goes back when no answer came (an error, an unreachable service), and with count_tokens nothing is held', async () => {
+    grant()
+    const turn = newTurn()
+    status = 500
+    expect((await call(tok(turn), HOSTED_CHAT_MODEL, { maxTokens: 8_000 })).status).toBe(500)
+    expect(hostedChatHeldUsd(env.db)).toBe(0)
+    expect(hostedChatUsedUsd(env.db)).toBe(0)
+    status = 200
+    const r = await fetch(proxy.url + '/v1/messages/count_tokens', {
+      method: 'POST', headers: { 'content-type': 'application/json', 'x-api-key': tok(turn), 'anthropic-version': '2023-06-01' },
+      body: JSON.stringify({ model: HOSTED_CHAT_MODEL, messages: [{ role: 'user', content: 'hi' }] }),
+    })
+    expect(r.status).toBe(200)
+    expect(hostedChatHeldUsd(env.db)).toBe(0)
+  })
+  test('a stream the engine hangs up on counts its whole output reservation (stopping cannot dodge the cost)', async () => {
+    grant()
+    streamMode = 'hang'
+    const turn = newTurn()
+    const r = await call(tok(turn), HOSTED_CHAT_MODEL, { stream: true, maxTokens: 4_000 })
+    const reader = r.body!.getReader()
+    await reader.read() // message_start arrived
+    await reader.cancel()
+    const expected = claudeCost(HOSTED_CHAT_MODEL, { input_tokens: usage.input_tokens, output_tokens: 4_000 })
+    expect(await waitFor(() => hostedChatUsedUsd(env.db) > 0)).toBe(true)
+    expect(hostedChatUsedUsd(env.db)).toBeCloseTo(expected, 9)
+    expect(turnCost(turn)).toBeCloseTo(expected, 9)
+    expect(hostedChatHeldUsd(env.db)).toBe(0)
+  })
+  test('a stream that breaks off before its final usage counts the same way', async () => {
+    grant()
+    streamMode = 'cut'
+    const turn = newTurn()
+    await (await call(tok(turn), HOSTED_CHAT_MODEL, { stream: true, maxTokens: 3_000 })).text()
+    expect(await waitFor(() => hostedChatUsedUsd(env.db) > 0)).toBe(true)
+    expect(hostedChatUsedUsd(env.db)).toBeCloseTo(claudeCost(HOSTED_CHAT_MODEL, { input_tokens: usage.input_tokens, output_tokens: 3_000 }), 9)
+  })
+  test('Anthropic\'s own spend limit on the key (the hosting service\'s backstop) reads as a used credit', async () => {
+    grant()
+    for (const [st, body] of [
+      [402, { type: 'error', error: { type: 'billing_error', message: 'billing' } }],
+      [400, { type: 'error', error: { type: 'invalid_request_error', message: 'You have reached your specified workspace API usage limits. You will regain access on 2026-12-01 at 00:00 UTC.' } }],
+      [400, { type: 'error', error: { type: 'invalid_request_error', message: 'Your credit balance is too low to access the Anthropic API.' } }],
+    ] as const) {
+      status = st; errorBody = body
+      const turn = newTurn()
+      const r = await call(tok(turn), HOSTED_CHAT_MODEL, { maxTokens: 8_000 })
+      expect(r.status).toBe(403)
+      expect((await r.json()).error.message).toBe('trial_credit_used')
+      expect(events.at(-1)).toEqual({ turn, ev: { type: 'trial', reason: 'used' } })
+      expect(hostedChatHeldUsd(env.db)).toBe(0)
+    }
+    // any other refusal passes on as it came
+    status = 400; errorBody = { type: 'error', error: { type: 'invalid_request_error', message: 'messages: roles must alternate' } }
+    const r = await call(tok(newTurn()))
+    expect(r.status).toBe(400)
+    expect((await r.json()).error.message).toBe('messages: roles must alternate')
+    // a team connection's own 402 is not the trial's business
+    status = 402; errorBody = null
+    const team = addCred(t.cc, 'anthropic-api-key', TEAM_KEY, { label: 'team' })
+    const teamTurn = newTurn()
+    expect((await call(issueProxyToken(env.db, teamTurn, 'alice', { credentialId: team, family: 'anthropic' }), 'claude-sonnet-5-5')).status).toBe(402)
+  })
+  test('a trial answer does not name the hosting service\'s Anthropic organization; a team connection\'s still does', async () => {
+    grant()
+    for (const stream of [false, true]) {
+      const r = await call(tok(newTurn()), HOSTED_CHAT_MODEL, { stream })
+      await r.text()
+      expect(r.headers.get('anthropic-organization-id')).toBeNull()
+      expect(r.headers.get('anthropic-ratelimit-requests-remaining')).toBe('49') // the engine paces itself by these
+    }
+    const team = addCred(t.cc, 'anthropic-api-key', TEAM_KEY, { label: 'team' })
+    const r = await call(issueProxyToken(env.db, newTurn(), 'alice', { credentialId: team, family: 'anthropic' }), 'claude-sonnet-5-5')
+    await r.text()
+    expect(r.headers.get('anthropic-organization-id')).toBe('org-HOSTING-CANARY')
   })
 })
 

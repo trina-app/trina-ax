@@ -95,7 +95,7 @@ export default function Credentials() {
             desc={t('credentials.desc')}
             actions={owner ? <Button size="sm" variant="primary" onClick={() => setAdding(true)} data-testid="credential-add"><Plus size={14} aria-hidden /> {t('credentials.add')}</Button> : undefined}
           >
-            {trial.data?.credit && <TrialCreditBar credit={trial.data.credit} className="mb-4" />}
+            {trial.data?.credit && <TrialCreditBar credit={trial.data.credit} timeZone={me.server.timeZone} className="mb-4" />}
             {/* the connections here are for Claude and Codex only; other providers are the API engine's (one key there) */}
             <p className="mb-4 text-xs text-muted" data-testid="credentials-api-engine-hint">
               {t('credentials.apiEngineHint')}{' '}

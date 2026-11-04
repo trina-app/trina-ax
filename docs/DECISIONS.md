@@ -6780,12 +6780,36 @@ connecting anything. The team server's side; issuing, delivering and rotating th
   Anthropic marks the key refused (no request goes out with it, audited `credential.rejected` on `hosted-trial`) until
   the hosting service sends a key again, but only when the refused key is still the stored one: a late 401 for a key
   rotated away since leaves the new key alone.
-- **Per-attempt budget.** Each trial attempt's proxy token carries `budget_usd` = what the turn spent so far + what is
-  left of the credit (`proxy_tokens.budget_usd`, unused until now), so a turn cannot spend past the cap by more than
-  its requests in flight (an answer is counted when it ends; a turn's sub-agents may have a few out at once); reaching
-  it ends the answer like a used credit. Turns running at the same moment each get "what is left": together they can
-  pass the cap by their requests in flight (the plan's concurrency bounds the turns). On Haiku 5.5 a request is
-  usually well under a cent.
+- **Requests in flight are held, not only checked.** When the proxy sends a trial request it holds the most that
+  request can cost (`trialEstimate`: the body's bytes / 3 as input tokens at the 1-hour cache-write price, the dearest
+  input column, with Haiku 5.5's long-context price above 100,000; `max_tokens` as output, thinking included). A request
+  is admitted only while spent + held is under the cap (one synchronous step in the broker), the hold is replaced by
+  what the answer cost when it is counted, and given back when no answer came (an error, an unreachable service, a
+  refusal). So every turn and sub-agent together pass the cap by at most the last request admitted, and only when its
+  answer costs more than the rest of the credit; that request's reservation is the bound (a Claude Code request is
+  about 2 cents on Haiku 5.5; one at the full 1M context with 128k output about $1.30). Near the end of a credit a
+  request can be refused while others are out although their answers will cost less than they hold: the price of the
+  bound. Holds live in the server process (a restart drops them with their requests). Web searches ($10 per 1,000) are
+  not in the estimate. Each trial attempt's proxy token also carries `budget_usd` = what the turn spent so far + what
+  is left of the credit (`proxy_tokens.budget_usd`, unused until now); reaching it ends the answer like a used credit.
+- **An answer that does not finish still costs.** A trial stream that ends without its final usage (`message_delta`:
+  the engine hung up on Stop, or the stream broke off) is counted with its input from `message_start` and its whole
+  `max_tokens` as output (what it generated, thinking included, is not known), or the whole estimate when not even
+  `message_start` came; the same for a non-streamed answer that broke off while it was read. Stopping an answer early
+  cannot dodge the cost; it may count a little more than Anthropic bills.
+- **What the engine sees of the hosting service.** A trial answer's `anthropic-organization-*` / `anthropic-workspace-*`
+  response headers are dropped (they name the hosting service's Anthropic account); the rate-limit headers stay, the
+  engine paces itself by them. The launch (environment, arguments, files) never holds the key: the engine has only its
+  per-turn proxy token, as with any connection.
+- **Anthropic's own spend limit is the backstop.** On the trial key, an answer that says the key's workspace or
+  organization limit is reached or the credit is gone (402 `billing_error`, or 400 / 403 / 429 naming the credit balance,
+  a spend limit or a usage limit) reads as a used credit: the answer stops with `trial_credit_used`, not a provider
+  error. **Recommendation to the hosting console:** keep each trial team's key in its own Anthropic workspace and set
+  that workspace's monthly spend limit to the team's `capUsd` + $2 (about two of the largest single requests above),
+  raised together with the cap. The team server's own count then always stops first, and the workspace limit only trips
+  when the count is wrong (a price change prices.ts has not caught, web searches). With several trial keys in one
+  workspace, set its limit to the sum of their caps + $2 per key; one team can then spend another's margin, so one
+  workspace per team is better.
   The key's own spend limit at Anthropic is the backstop the hosting service sets.
 - **Errors.** Chat reasons `trial_credit_used` (the cap is used) and `trial_ended` (past its end, switched off, or the
   key refused), both `engine_unavailable` with `params.reason`; given when the turn starts (resolution) or during it
@@ -6795,16 +6819,19 @@ connecting anything. The team server's side; issuing, delivering and rotating th
 - **Visibility.** `GET /api/admin/trial-credit` (owner and admins): `{ credit: { active, state, usedUsd, capUsd,
   endsAt, model } | null }`; null without a key, outside managed mode, or with a gateway. Admin › AI connections shows
   it read-only (`components/TrialCreditBar.tsx`): "체험 크레딧: $x / $y 사용 · M월 D일까지 · 내 AI를 연결하면 그걸 먼저 써요",
-  with words for used up and ended; the date is the last day (an end at midnight shows the day before). The start goal
-  card of the onboarding (later) can read the same API. Not in TenantStatus: ax-hostd's copy of that schema is strict and drops the app's whole
+  with words for used up and ended; the date is the last day in the team's time zone (`Me.server.timeZone`; an end at
+  the team's midnight shows the day before). The start goal card of the onboarding (later) can read the same API. Not in TenantStatus: ax-hostd's copy of that schema is strict and drops the app's whole
   status for an unknown field.
 - **Known limits.** ax-hostd keeps tenant-command jobs (with the key) until the console re-seals them, like the speech
-  key. The count uses list prices: a mismatch between prices.ts and Anthropic's bill shows up as the same mismatch here.
+  key. The count uses list prices: a mismatch between prices.ts and Anthropic's bill shows up as the same mismatch here
+  (the workspace limit above catches a large one).
 - Tests: `tests/unit/a-hosted-trial-credit.test.ts` (the command's gate and admin.js, the resolution order against team,
   subscription and own connections, Codex and the Codex fallback, gateway, used / ended / switched off, the proxy: key and
   model, cost counted, refused at the cap before sending, the attempt's budget, a 401 and a late 401 after a rotation,
-  rekey, drop, export, restore),
+  eight turns at once near the cap, holds given back, a stopped and a broken-off stream, Anthropic's spend-limit
+  answers, the organization header, rekey, drop, export, restore),
   `tests/unit/b-hosted-trial-turn.test.ts` (real launcher and fake engine: an answer on the credit, its model and budget,
   a team connection taking over, a limited subscription going to Codex instead of the credit, errors before and during a
-  turn, the admin API), `web/test/unit/trial-credit-bar.test.tsx`,
+  turn, the launch never holding the key, the credit switched off mid-turn, a refused trial key handing the turn to a
+  team connection on the chosen model, the admin API), `web/test/unit/trial-credit-bar.test.tsx`,
   the contract vectors and `cloud-protocol.test.ts`, mycel-ctl `TestTenantHostedChatKeySet`.

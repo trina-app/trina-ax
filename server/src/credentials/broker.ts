@@ -12,7 +12,7 @@ import type { ProxyTurnEvent } from '../proxy/model-proxy'
 import { ensureFresh } from './chatgpt-tokens'
 import { ctAll, fmtTime } from './i18n'
 import { costOf, setUnknownPriceHook, type ClaudeUsage, type OpenAiUsage } from './prices'
-import { chargeHostedChat, HOSTED_CHAT_ID, hostedChatState, markHostedChatRefused, readHostedChatKey } from './hosted-chat'
+import { HOSTED_CHAT_ID, holdHostedChat, hostedChatState, markHostedChatRefused, readHostedChatKey, releaseHostedChat, settleHostedChat, type TrialEstimate, type TrialHold } from './hosted-chat'
 import { candidates, familyOfKind, teamCredentialSummary, type Family } from './resolve'
 import { memberOwnAllowed } from './policy'
 import {
@@ -28,7 +28,7 @@ export type Injection =
 
 export interface TokenBinding { credentialId: string | null; family: Family | null; turnId: string; userId: string }
 export type ForRequest =
-  | { ok: true; credentialId: string; kind: CredentialKind; inject: Injection; upstream: string }
+  | { ok: true; credentialId: string; kind: CredentialKind; inject: Injection; upstream: string; hold?: TrialHold }
   | { ok: false; status: 401 | 403 | 502; type: string; message: string; event: ProxyTurnEvent | null; retryAfter?: number }
 
 export interface CredentialBroker {
@@ -36,8 +36,9 @@ export interface CredentialBroker {
   /** engine.anthropicGateway: the anthropic family goes there (upstreams.anthropic), on its models only (the proxy's
    * allow-list); absent or null = Anthropic */
   readonly gateway?: AnthropicGatewayConf | null
-  /** the connection bound to this token, if it can be used now, and what to put on the request */
-  forRequest(t: TokenBinding, want: Family): Promise<ForRequest>
+  /** the connection bound to this token, if it can be used now, and what to put on the request. The trial credit holds
+   * `est` (what the request may cost at most) until record() or release() */
+  forRequest(t: TokenBinding, want: Family, est?: TrialEstimate): Promise<ForRequest>
   /** the upstream answered 401. API keys and Claude tokens: marked refused ('refused'). ChatGPT: refreshed once (or
    * already refreshed by another request): 'retry' = send again with the new token; 'refused' = the sign-in is gone
    * (marked needs_reconnect); 'temporary' = the refresh failed for now (nothing changed). */
@@ -46,8 +47,11 @@ export interface CredentialBroker {
   markInvalid(credentialId: string, code: string, upstreamStatus: number | null): void
   /** a long limit (subscription 5-hour / weekly, out of credit): no request goes out on it until then */
   onLongLimit(credentialId: string, until: Date, code?: string): void
-  /** usage of one request: the turn's totals, the connection's day, last used; cost from the price table */
-  record(credentialId: string, turnId: string, model: string, usage: ClaudeUsage | OpenAiUsage): void
+  /** usage of one request: the turn's totals, the connection's day, last used; cost from the price table (the trial
+   * credit: its hold settled) */
+  record(credentialId: string, turnId: string, model: string, usage: ClaudeUsage | OpenAiUsage, hold?: TrialHold | null): void
+  /** a trial request with no answer to count: its hold goes back */
+  release?(hold: TrialHold | null | undefined): void
   /** the proxy saw an answer that worked: the connection is verified now */
   succeeded(credentialId: string): void
 }
@@ -76,7 +80,7 @@ export function createBroker(cc: CredCtx): CredentialBroker {
     upstreams: cc.upstreams,
     gateway,
 
-    async forRequest(t, want) {
+    async forRequest(t, want, est) {
       if (!t.credentialId || t.family !== want) return fail(403, 'permission_error', 'this token is not bound to an AI connection of this kind', { type: 'auth' })
       if (t.credentialId === HOSTED_CHAT_ID) {
         // the trial credit: refused before anything is sent once its cap is used, it ended or was switched off (or a
@@ -85,7 +89,10 @@ export function createBroker(cc: CredCtx): CredentialBroker {
         if (state !== 'active') return fail(403, 'permission_error', state === 'used' ? 'trial_credit_used' : 'trial_ended', { type: 'trial', reason: state === 'used' ? 'used' : 'ended' })
         const key = readHostedChatKey(cc)
         if (!key) return fail(403, 'permission_error', 'trial_ended', { type: 'trial', reason: 'ended' })
-        return { ok: true, credentialId: HOSTED_CHAT_ID, kind: 'anthropic-api-key', inject: { type: 'anthropic-x-api-key', key }, upstream: cc.upstreams.anthropic }
+        // what it may cost at most is held while it is out; none left beside what is held: refused as used
+        const hold = est ? holdHostedChat(cc.db, est) : undefined
+        if (hold === null) return fail(403, 'permission_error', 'trial_credit_used', { type: 'trial', reason: 'used' })
+        return { ok: true, credentialId: HOSTED_CHAT_ID, kind: 'anthropic-api-key', inject: { type: 'anthropic-x-api-key', key }, upstream: cc.upstreams.anthropic, ...(hold ? { hold } : {}) }
       }
       const row = getRow(cc.db, t.credentialId)
       if (!row || familyOfKind(row.kind) !== want) return fail(403, 'permission_error', 'credential_gone', { type: 'credential', credentialId: t.credentialId, reason: 'gone' })
@@ -163,7 +170,7 @@ export function createBroker(cc: CredCtx): CredentialBroker {
       }
     },
 
-    record(credentialId, turnId, model, usage) {
+    record(credentialId, turnId, model, usage, hold) {
       // the trial credit has no row: an Anthropic key at list price (never with a gateway), counted against its cap
       const trial = credentialId === HOSTED_CHAT_ID
       const row = trial ? null : getRow(cc.db, credentialId)
@@ -182,7 +189,7 @@ export function createBroker(cc: CredCtx): CredentialBroker {
       }
       const now = new Date(cc.now())
       add.run(input, output, cost, turnId)
-      if (trial) chargeHostedChat(cc.db, cost)
+      if (trial) settleHostedChat(cc.db, hold, cost)
       else {
         day.run(credentialId, localDay(now), input, output, cost)
         used.run(now.toISOString(), now.toISOString(), credentialId)
@@ -190,6 +197,8 @@ export function createBroker(cc: CredCtx): CredentialBroker {
       const userId = (cc.db.query('SELECT user_id FROM turns WHERE id = ?').get(turnId) as { user_id: string } | null)?.user_id
       if (userId) for (const fn of (cc.extra.afterUsage ?? []) as ((u: string, c: string) => void)[]) { try { fn(userId, credentialId) } catch (e) { cc.log.warn('usage hook failed', { err: e }) } }
     },
+
+    release(hold) { releaseHostedChat(cc.db, hold) },
 
     succeeded(credentialId) {
       cc.db.query('UPDATE engine_credentials SET checked_at = ? WHERE id = ? AND checked_at IS NULL').run(new Date(cc.now()).toISOString(), credentialId)

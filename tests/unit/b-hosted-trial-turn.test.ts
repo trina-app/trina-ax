@@ -12,6 +12,7 @@ import { LIMIT_FALLBACK_KEY } from '../../server/src/admin/engine-choice'
 import { credentialsOf } from '../../server/src/credentials/store'
 import { chargeHostedChat, HOSTED_CHAT_ID, HOSTED_CHAT_KEY_SETTING, HOSTED_CHAT_MODEL, HOSTED_CHAT_USAGE_SETTING, hostedChatUsedUsd, writeHostedChatKey } from '../../server/src/credentials/hosted-chat'
 import { claudeCost } from '../../server/src/credentials/prices'
+import type { LaunchRequest } from '../../shared/src/engine'
 
 setDefaultTimeout(60_000)
 const fake = (...ds: unknown[]) => ds.map((d) => '@fake ' + JSON.stringify(d)).join('\n')
@@ -22,6 +23,8 @@ const OKEY = 'sk-proj-' + 'O'.repeat(40)
 const USAGE = { input_tokens: 10_000, output_tokens: 2_000 }
 const EACH = claudeCost(HOSTED_CHAT_MODEL, USAGE)
 const seen: { key: string | null; model: string }[] = []
+/** runs when the fake receives a trial request, before it answers; returning a status answers with it instead */
+let onTrial: (() => number | void) | null = null
 const enc = new TextEncoder()
 const ev = (o: unknown) => enc.encode(`event: e\ndata: ${JSON.stringify(o)}\n\n`)
 const up = Bun.serve({
@@ -36,6 +39,8 @@ const up = Bun.serve({
     const key = req.headers.get('x-api-key')
     seen.push({ key, model: body.model })
     if (key === LIMITED_KEY) return Response.json({ type: 'error', error: { type: 'rate_limit_error', message: 'limit' } }, { status: 429, headers: { 'retry-after': '3600' } })
+    const st = key === KEY ? onTrial?.() : undefined
+    if (st) return Response.json({ type: 'error', error: { type: 'authentication_error', message: 'invalid x-api-key' } }, { status: st })
     return new Response(new ReadableStream<Uint8Array>({ start(c) {
       c.enqueue(ev({ type: 'message_start', message: { model: body.model, usage: { input_tokens: USAGE.input_tokens, output_tokens: 1 } } }))
       c.enqueue(ev({ type: 'content_block_delta', index: 0, delta: { type: 'text_delta', text: key === KEY ? 'trial answered ' : 'team answered ' } }))
@@ -55,8 +60,15 @@ afterAll(async () => { alice?.close(); await h?.close(); up.stop(true) })
 const grant = (o: Partial<{ capUsd: number; endsAt: string; enabled: boolean }> = {}) =>
   writeHostedChatKey(credentialsOf(h.ctx), { key: KEY, capUsd: 1, endsAt: new Date(Date.now() + 14 * 86400_000).toISOString(), enabled: true, ...o })
 const newChat = () => h.api('alice').call(API.createChat, { body: { engine: 'claude-code' } })
+/** every launch request of the turns from here on (env, args, files), as JSON */
+const launches: string[] = []
+beforeAll(async () => {
+  const launcher = (await h.ctx.core()).launcher!
+  const orig = launcher.launch.bind(launcher)
+  launcher.launch = (req: LaunchRequest) => { launches.push(JSON.stringify(req)); return orig(req) }
+})
 beforeEach(() => {
-  seen.length = 0
+  seen.length = 0; launches.length = 0; onTrial = null
   h.ctx.db.query('DELETE FROM engine_credentials').run()
   h.ctx.db.query('DELETE FROM settings WHERE key IN (?, ?)').run(HOSTED_CHAT_KEY_SETTING, HOSTED_CHAT_USAGE_SETTING)
 })
@@ -127,6 +139,47 @@ describe('a turn on the trial credit', () => {
     expect(done.error).toMatchObject({ params: { reason: 'trial_credit_used' } })
     // the second request went while some credit was left; the third was refused before it was sent
     expect(seen.length).toBe(2)
+  })
+})
+
+describe('a trial turn, more closely', () => {
+  test('the launch (environment, arguments, files) never holds the key; the engine sees no credential', async () => {
+    grant()
+    const { done } = await ask(h, alice, 'alice', (await newChat()).id, fake({ echo: 'secrets' }, { modelAny: 'hi' }), { ms: 30_000 })
+    expect(done.status).toBe('done')
+    expect(done.content).toContain('envSecrets=none argvSecrets=none')
+    expect(launches.length).toBeGreaterThan(0)
+    for (const l of launches) expect(l).not.toContain('TRIAL-TURN')
+    // what it does hold: the trial model, as --model and every alias
+    const lr = JSON.parse(launches[0]!) as LaunchRequest & { env: Record<string, string>; args: string[] }
+    expect(lr.args[lr.args.indexOf('--model') + 1]).toBe(HOSTED_CHAT_MODEL)
+    expect(lr.env).toMatchObject({ ANTHROPIC_DEFAULT_OPUS_MODEL: HOSTED_CHAT_MODEL, ANTHROPIC_DEFAULT_SONNET_MODEL: HOSTED_CHAT_MODEL, ANTHROPIC_DEFAULT_HAIKU_MODEL: HOSTED_CHAT_MODEL, ANTHROPIC_SMALL_FAST_MODEL: HOSTED_CHAT_MODEL })
+  })
+  test('the credit switched off while a turn runs: its next request is refused and the answer stops', async () => {
+    grant()
+    onTrial = () => { onTrial = null; grant({ enabled: false }) }
+    const { done } = await ask(h, alice, 'alice', (await newChat()).id, fake({ modelAny: 'one' }, { modelAny: 'two' }), { ms: 30_000 })
+    expect(done.status).toBe('error')
+    expect(done.error).toMatchObject({ params: { reason: 'trial_ended' } })
+    expect(seen.map((s) => s.key)).toEqual([KEY])
+  })
+  test('the trial key refused mid-turn and a team connection usable again: the turn goes on there, on the model chosen', async () => {
+    grant()
+    const team = addCred(credentialsOf(h.ctx), 'anthropic-api-key', TEAM_KEY, { label: 'team' })
+    h.ctx.db.query('UPDATE engine_credentials SET limited_until = ? WHERE id = ?').run(new Date(Date.now() + 3600_000).toISOString(), team)
+    // the team connection's limit ends while the trial request is out, and Anthropic refuses the trial key
+    onTrial = () => { h.ctx.db.query('UPDATE engine_credentials SET limited_until = NULL WHERE id = ?').run(team); return 401 }
+    const chat = await h.api('alice').call(API.createChat, { body: { engine: 'claude-code', model: 'opus' } })
+    const { started, done } = await ask(h, alice, 'alice', chat.id, fake({ modelAny: 'hi' }), { ms: 30_000 })
+    expect(done.status).toBe('done')
+    expect(done.content).toContain('team answered')
+    expect(seen.map((s) => [s.key, s.model])).toEqual([[KEY, HOSTED_CHAT_MODEL], [TEAM_KEY, 'claude-sonnet-4-5']])
+    // the second attempt runs on the choice again (--model opus, no pinned aliases), and the answer says so
+    const second = JSON.parse(launches.at(-1)!) as { env: Record<string, string>; args: string[] }
+    expect(second.args[second.args.indexOf('--model') + 1]).toBe('opus')
+    expect(second.env.ANTHROPIC_DEFAULT_SONNET_MODEL).toBeUndefined()
+    expect(done.model).toBe('opus')
+    expect((h.ctx.db.query('SELECT model, credential_id FROM turns WHERE id = ?').get(started.turnId) as { model: string; credential_id: string })).toEqual({ model: 'opus', credential_id: team })
   })
 })
 

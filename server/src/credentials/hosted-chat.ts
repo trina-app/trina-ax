@@ -13,13 +13,17 @@
 //
 // Metering: the team server counts what the key spent itself, in dollars at list price (credentials/prices.ts), in one
 // settings row (no text, no key). The broker refuses a request before it is sent once the cap is used, the end time
-// passed or the switch is off, and each attempt's proxy token carries the dollars left as its budget (proxy_tokens.
-// budget_usd), so a turn cannot spend past the cap by more than its requests in flight (an answer is counted when it
-// ends; sub-agents of one turn may have a few out at once).
+// passed or the switch is off. Every request sent holds the most it can cost (its size as input, max_tokens as output)
+// until its answer is counted (then it costs what it cost) or did not come (given back): a request is admitted only
+// while what was spent and what is held stay under the cap, so all the turns and sub-agents together pass the cap by at
+// most the last request admitted. A stream that ends early is counted with its whole output reservation (the output it
+// generated is not known). Each attempt's proxy token also carries the dollars left as its budget (proxy_tokens.
+// budget_usd).
 import type { Database } from 'bun:sqlite'
 import { TRIAL_CREDENTIAL_ID, type TrialCredit } from '@mycel/shared/api'
 import { getSetting, HOSTED_CHAT_KEY_SETTING, HOSTED_CHAT_USAGE_SETTING, setSetting } from '../admin/settings'
 import type { AllowedKinds } from '../app-config'
+import { claudeCost } from './prices'
 import { VaultError, type Vault } from './vault'
 import type { CredCtx } from './store'
 
@@ -60,6 +64,51 @@ export function hostedChatState(db: Database, now: Date, allowed?: AllowedKinds)
   if (!s || allowed?.gateway) return null
   if (!s.enabled || s.refusedAt || Date.parse(s.endsAt) <= now.getTime()) return 'ended'
   return hostedChatUsedUsd(db) >= s.capUsd ? 'used' : 'active'
+}
+
+// ---------------- requests in flight ----------------
+
+/** What a trial request may cost at most: its body's bytes as input tokens (a token is at least about 3 bytes of the
+ * JSON; images count far more than they cost) and its max_tokens as output (thinking included). */
+export interface TrialEstimate { inputTokens: number; maxTokens: number }
+export function trialEstimate(body: unknown, bytes: number): TrialEstimate {
+  const mt = Number((body as { max_tokens?: unknown } | null)?.max_tokens)
+  return { inputTokens: Math.ceil(Math.max(0, bytes) / 3), maxTokens: Number.isFinite(mt) && mt > 0 ? Math.min(Math.ceil(mt), 1_000_000) : 64_000 }
+}
+/** that estimate in dollars: all input at the 1-hour cache-write price (the dearest input column), the trial model's
+ * long-context price above 100,000 input tokens */
+export const trialEstimateUsd = (e: TrialEstimate): number =>
+  claudeCost(HOSTED_CHAT_MODEL, { cache_creation: { ephemeral_1h_input_tokens: e.inputTokens }, output_tokens: e.maxTokens })
+
+/** dollars held by trial requests in flight, per database (one server process; a restart drops them with the requests) */
+const held = new WeakMap<Database, { usd: number }>()
+const heldOf = (db: Database) => { let h = held.get(db); if (!h) held.set(db, h = { usd: 0 }); return h }
+export const hostedChatHeldUsd = (db: Database): number => held.get(db)?.usd ?? 0
+/** one request's hold, settled once (record or release) */
+export interface TrialHold { usd: number; estimate: TrialEstimate; done: boolean }
+
+/** Just before a trial request is sent: null (refuse it as used) when what was spent and what is held already reach the
+ * cap, else its estimate is held. One synchronous step, so requests sent at the same moment cannot all pass the last
+ * dollars. */
+export function holdHostedChat(db: Database, est: TrialEstimate): TrialHold | null {
+  const s = stored(db)
+  const h = heldOf(db)
+  if (!s || hostedChatUsedUsd(db) + h.usd >= s.capUsd) return null
+  const usd = trialEstimateUsd(est)
+  h.usd += usd
+  return { usd, estimate: est, done: false }
+}
+/** the answer was counted: the hold goes, what it cost is charged */
+export function settleHostedChat(db: Database, hold: TrialHold | null | undefined, costUsd: number): void {
+  releaseHostedChat(db, hold)
+  chargeHostedChat(db, costUsd)
+}
+/** no answer to count (refused, failed, nothing came): the hold goes back */
+export function releaseHostedChat(db: Database, hold: TrialHold | null | undefined): void {
+  if (!hold || hold.done) return
+  hold.done = true
+  const h = heldOf(db)
+  h.usd = Math.max(0, h.usd - hold.usd)
 }
 
 /** Dollars left of the cap (0 when used up or there is no key). */

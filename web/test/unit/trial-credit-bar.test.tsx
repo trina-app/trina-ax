@@ -8,7 +8,7 @@ import { TrialCreditBar } from '../../src/components/TrialCreditBar'
 
 const base: TrialCredit = { active: true, state: 'active', usedUsd: 1.5, capUsd: 10, endsAt: '2026-11-18T15:00:00.000Z', model: 'claude-haiku-5-5' }
 // server rendering reads the locale store's first state: English
-const render = (c: TrialCredit) => renderToStaticMarkup(<TrialCreditBar credit={c} />)
+const render = (c: TrialCredit, timeZone?: string) => renderToStaticMarkup(<TrialCreditBar credit={c} timeZone={timeZone} />)
 
 describe('trial credit bar', () => {
   test('active: used of the cap, until when, and that a connected AI goes first', () => {
@@ -20,10 +20,13 @@ describe('trial credit bar', () => {
     // the Korean line the owner asked for
     expect(translate('ko', 'trialCredit.active', { used: '$1.50', cap: '$10.00', date: '11월 18일' })).toBe('체험 크레딧: $1.50 / $10.00 사용 · 11월 18일까지 · 내 AI를 연결하면 그걸 먼저 써요')
   })
-  test('an end at midnight UTC shows the day before it as the last day', () => {
-    const tz = Intl.DateTimeFormat().resolvedOptions().timeZone
-    if (tz !== 'UTC') return // the rule is about the reader's own midnight; checked where the test runs in UTC
-    expect(render({ ...base, endsAt: '2026-11-19T00:00:00.000Z' })).toContain('until November 18')
+  test('the last day is the team\'s: an end at the team\'s midnight shows the day before, whatever the browser\'s zone', () => {
+    // 2026-11-19 00:00 in Seoul is 2026-11-18 15:00 UTC
+    expect(render({ ...base, endsAt: '2026-11-18T15:00:00.000Z' }, 'Asia/Seoul')).toContain('until November 18')
+    expect(render({ ...base, endsAt: '2026-11-18T15:00:00.000Z' }, 'America/Los_Angeles')).toContain('until November 18')
+    expect(render({ ...base, endsAt: '2026-11-19T00:00:00.000Z' }, 'UTC')).toContain('until November 18')
+    expect(render({ ...base, endsAt: '2026-11-19T00:00:00.000Z' }, 'Asia/Seoul')).toContain('until November 19')
+    expect(render(base, 'Not/AZone')).toContain('until November') // an unknown zone falls back to the browser's
   })
   test('used up and ended: said in words, with what to do', () => {
     const used = render({ ...base, active: false, state: 'used', usedUsd: 10.02 })
