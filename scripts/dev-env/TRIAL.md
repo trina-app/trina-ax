@@ -76,8 +76,9 @@ run there only if the team's plan includes it. The plan says so in `/var/lib/myc
 - Memory: the box comes on top of the plan. The VM must have at least `plan.json` `memoryMiB` plus the box's `memoryMiB`
   (`MemTotal`), or the script stops and boxd says boxes are not available. Example: a 4096 MiB plan with a 2560 MiB box
   needs 6656 MiB, so a 7 GB VM. A VM of the plan's size only is refused.
-- boxd reads the file when it starts. After a change to the file, run the script again or restart `mycel-boxd`. If the
-  file is gone, boxd says boxes are not available.
+- boxd reads the file when it starts. After a change to the file, run the script again: it restarts `mycel-boxd` when the
+  file changed since its last run (a running box stops). If the file is gone, the script stops, and boxd says boxes are
+  not available at its next start.
 - Not done yet: the control plane cannot write the file or install the box, the kit has no `scripts/dev-env/`, the
   template has no podman, and a reimage loses the box (all its state is on the OS disk). For now an operator puts the
   file there and runs the script.

@@ -270,8 +270,13 @@ func TestEntitlement(t *testing.T) {
 		r := request{Op: "ensure", Box: "p1", Folder: "a", Network: network, Limits: l}
 		return checkRequest(&r)
 	}
-	t.Cleanup(func() { ent = nil })
+	t.Cleanup(func() { ent = nil; *limitsF = "" })
+	*limitsF = "/var/lib/mycel/root/dev-env.json"
 	ent = nil
+	if err := ensure(okLimits, "offline"); err == nil {
+		t.Error("a limits file that was not read must refuse every box")
+	}
+	*limitsF = ""
 	big := limits{CPUs: 4, MemoryMiB: 8192, Pids: 4096, DiskGiB: 32, IdleStopMin: 30}
 	if err := ensure(big, "open"); err != nil {
 		t.Error("no file: the fixed ranges only", err)

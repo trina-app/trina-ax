@@ -65,6 +65,7 @@ if grep -Eq '"hosted"[[:space:]]*:[[:space:]]*true' "$BASE/root/install.json"; t
   int() { jq -er "$1 | select(type == \"number\" and . == floor and . > 0)" "$2" 2>/dev/null; }
   ENT_RUN=$(int .maxRunning "$ENT") && ENT_MEM=$(int .memoryMiB "$ENT") && ENT_DISK=$(int .diskGiB "$ENT") \
     || die "$ENT has no whole maxRunning, memoryMiB or diskGiB"
+  [ "$ENT_RUN" -le 4 ] || die "maxRunning in $ENT must be 1 to 4"
   ENT_CPUS=$(jq -er '.cpus | select(type == "number" and . > 0)' "$ENT" 2>/dev/null) || die "$ENT has no cpus"
   ENT_NET=$(jq -r '.network // "offline"' "$ENT")
   PLAN_MEM=$(int .memoryMiB "$BASE/root/plan.json") || die "$BASE/root/plan.json has no memoryMiB"
@@ -79,6 +80,11 @@ if [ -n "$BOXD" ]; then
 else
   [ -f "$ROOT_BOXD" ] && [ -x "$ROOT_BOXD" ] || die "no $ROOT_BOXD: the running kit has no mycel-boxd. Update the server (sudo mycel-ctl update), or give --boxd"
   root_only "$ROOT_BOXD" || die "$ROOT_BOXD must be a file that belongs to root, and only root may write to it"
+fi
+# An older boxd does not know --limits-file: its unit would restart again and again after the slow steps below.
+if [ "$HOSTED" = 1 ]; then
+  HELP=$("${BOXD:-$ROOT_BOXD}" -h 2>&1 || true)
+  grep -q -- -limits-file <<<"$HELP" || die "this mycel-boxd has no --limits-file: update the server (sudo mycel-ctl update), or give --boxd"
 fi
 SRV=$(systemctl show -p User --value "$SERVER_UNIT"); [ -n "$SRV" ] || die "$SERVER_UNIT has no User="
 SRV_UID=$(id -u "$SRV"); SRV_GID=$(id -g "$SRV")
@@ -182,6 +188,11 @@ RestartSec=5
 WantedBy=multi-user.target
 UNIT_EOF
 if put_changed "$STATE/unit.new" "$UNIT"; then BOXD_RESTART=1; fi
+# boxd reads the plan's caps only when it starts: a changed file needs a restart. The copy in STATE is what it last read.
+if [ "$HOSTED" = 1 ]; then
+  cp "$ENT" "$STATE/dev-env.new"
+  if put_changed "$STATE/dev-env.new" "$STATE/dev-env.json"; then BOXD_RESTART=1; fi
+fi
 systemctl daemon-reload
 systemctl enable mycel-boxd.service
 if [ "$BOXD_RESTART" = 1 ]; then

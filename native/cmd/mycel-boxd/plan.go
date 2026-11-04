@@ -152,6 +152,10 @@ func checkRequest(r *request) error {
 		if l.CPUs < 0.25 || l.CPUs > 4 || l.MemoryMiB < 256 || l.MemoryMiB > 8192 || l.Pids < 64 || l.Pids > 4096 || l.DiskGiB < 1 || l.DiskGiB > 32 || l.IdleStopMin < 5 || l.IdleStopMin > 240 {
 			return fmt.Errorf("limits out of range")
 		}
+		// a plan file was given but not read: no caps to check against, so no box (ensure also checks avail.ok)
+		if *limitsF != "" && ent == nil {
+			return fmt.Errorf("this team's plan does not include the dev environment")
+		}
 		if err := ent.allows(l, r.Network); err != nil {
 			return err
 		}
