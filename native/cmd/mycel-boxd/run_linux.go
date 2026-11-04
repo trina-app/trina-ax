@@ -24,6 +24,8 @@ import (
 	"time"
 
 	"golang.org/x/sys/unix"
+
+	"mycel/native/internal/plan"
 )
 
 var acct struct {
@@ -68,6 +70,24 @@ func setup() error {
 	avail.checks["memory"] = strconv.FormatInt(mem/1024, 10) + " MiB"
 	if why := hostMemoryProblem(mem); why != "" {
 		return fail(why)
+	}
+	if *limitsF != "" {
+		e, planMiB, err := loadEntitlement(*limitsF)
+		if err != nil {
+			return fail(err.Error())
+		}
+		if why := planMemoryProblem(mem, planMiB, e.MemoryMiB); why != "" {
+			return fail(why)
+		}
+		ent = e
+		if e.MaxRunning < *maxBoxes {
+			*maxBoxes = e.MaxRunning
+		}
+		netw := e.Network
+		if netw == "" {
+			netw = "offline"
+		}
+		avail.checks["plan"] = fmt.Sprintf("%s: %d box, %g CPU, %d MiB, %d GiB, network %s", e.Plan, *maxBoxes, e.CPUs, e.MemoryMiB, e.DiskGiB, netw)
 	}
 	avail.checks["kernel"] = unix.ByteSliceToString(uts.Release[:])
 	if !kernelAtLeast(avail.checks["kernel"], 5, 19) {
@@ -123,9 +143,50 @@ func setup() error {
 		}
 		os.Chmod(d, 0o711)
 	}
+	// the disks of the watchdog: box files go to the team root, the state folder and podman's storage
+	diskPaths = []string{*teamRoot, *stateDir}
+	if g, err := podmanOut("info", "--format", "{{.Store.GraphRoot}}"); err == nil && filepath.IsAbs(strings.TrimSpace(g)) {
+		diskPaths = append(diskPaths, strings.TrimSpace(g))
+	} else {
+		log.Printf("setup: cannot read the podman storage path, the watchdog does not read that disk")
+	}
+	avail.checks["disks"] = strings.Join(diskPaths, " ")
 	avail.ok = true
 	avail.reason = ""
 	return nil
+}
+
+// loadEntitlement reads --limits-file and the plan.json next to it. Root runs this, and the server account must not be
+// able to change either file: each must be a regular file of root's that only root may write, in a folder of root's that
+// only root may write. A missing file means the plan has no dev environment.
+func loadEntitlement(file string) (*entitlement, int, error) {
+	dir := filepath.Dir(file)
+	for _, p := range []string{dir, file, filepath.Join(dir, "plan.json")} {
+		st, err := os.Lstat(p)
+		if os.IsNotExist(err) && p == file {
+			return nil, 0, errors.New("this team's plan does not include the dev environment (no " + file + ")")
+		}
+		if err != nil {
+			return nil, 0, fmt.Errorf("cannot read %s: %v", p, err)
+		}
+		s := st.Sys().(*syscall.Stat_t)
+		if p != dir && !st.Mode().IsRegular() || p == dir && !st.IsDir() || s.Uid != 0 || st.Mode().Perm()&0o022 != 0 {
+			return nil, 0, errors.New(p + " must belong to root, and only root may write to it")
+		}
+	}
+	b, err := os.ReadFile(file)
+	if err != nil {
+		return nil, 0, err
+	}
+	e, err := parseEntitlement(b)
+	if err != nil {
+		return nil, 0, err
+	}
+	l, ok, err := plan.Load(filepath.Join(dir, "plan.json"))
+	if err != nil || !ok {
+		return nil, 0, fmt.Errorf("cannot read the plan next to %s: %v", file, err)
+	}
+	return e, l.MemoryMiB, nil
 }
 
 func kernelAtLeast(rel string, maj, min int) bool {
@@ -553,20 +614,40 @@ func markStop(b *box, watch chan struct{}, code, reason string) bool {
 	return true
 }
 
-// diskSpace: free bytes for accounts that are not root, and the size of the disk of the team folder.
+// diskPaths: the folders whose disks the watchdog reads (setup). Written once before the first box starts.
+var diskPaths []string
+
+// diskSpace: free bytes for accounts that are not root, and the size, of the box disk nearest its floor (worstDisk).
+// A path that statfs cannot read does not hide the others. An error only if no disk can be read.
 func diskSpace() (free, total uint64, err error) {
-	var st unix.Statfs_t
-	if err := unix.Statfs(*teamRoot, &st); err != nil {
+	paths := diskPaths
+	if len(paths) == 0 {
+		paths = []string{*teamRoot}
+	}
+	var ds []disk
+	for _, p := range paths {
+		var st unix.Statfs_t
+		if e := unix.Statfs(p, &st); e != nil {
+			err = e
+			continue
+		}
+		size := uint64(st.Frsize)
+		if size == 0 {
+			size = uint64(st.Bsize)
+		}
+		ds = append(ds, disk{st.Bavail * size, uint64(st.Blocks) * size})
+	}
+	w, ok := worstDisk(ds)
+	if !ok {
+		if err == nil {
+			err = errors.New("no disk of known size")
+		}
 		return 0, 0, err
 	}
-	size := uint64(st.Frsize)
-	if size == 0 {
-		size = uint64(st.Bsize)
-	}
-	return st.Bavail * size, uint64(st.Blocks) * size, nil
+	return w.free, w.total, nil
 }
 
-// watchBox runs for one start of one box and ends when the box stops. Only a statfs and a stat per poll, and no
+// watchBox runs for one start of one box and ends when the box stops. Only a statfs per disk and a stat per poll, and no
 // podman: at 740 MiB/s a slow poll goes far past the floor. A box in which a command ended the main process also ends
 // here, so status says stopped.
 func watchBox(b *box, watch chan struct{}, cg string) {

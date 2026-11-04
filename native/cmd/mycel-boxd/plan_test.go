@@ -1,6 +1,9 @@
 package main
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
 	"strconv"
 	"strings"
 	"testing"
@@ -69,6 +72,11 @@ func TestCreateArgs(t *testing.T) {
 			t.Errorf("%q in %s", no, a)
 		}
 	}
+	// G-T4-3: no CPU weight on the box. libuv 1.50 gives os.availableParallelism() = floor(cpus * cpu.weight/100),
+	// so --cpu-shares 512 (weight 20) gave Node 1 CPU with --cpus 3.
+	if strings.Contains(a, "--cpu-shares") || strings.Contains(a, "--cpu-weight") {
+		t.Errorf("CPU weight in %s", a)
+	}
 	// host paths name the box id, never the folder
 	if strings.Contains(a, "projects/") {
 		t.Error("folder name in a host path")
@@ -91,6 +99,12 @@ func TestConfigHash(t *testing.T) {
 		if base == configHash(l, "open") {
 			t.Errorf("%+v not in the config hash", l)
 		}
+	}
+	// version 3 (no CPU weight): a box made with --cpu-shares 512 (version 2) is made again once
+	b, _ := json.Marshal([]any{okLimits.CPUs, okLimits.MemoryMiB, okLimits.Pids, "open", 2})
+	h := sha256.Sum256(b)
+	if base == hex.EncodeToString(h[:8]) {
+		t.Error("config hash still version 2")
 	}
 }
 
@@ -246,6 +260,78 @@ func TestHostMemoryProblem(t *testing.T) {
 	}
 }
 
+func TestEntitlement(t *testing.T) {
+	const file = `{"format":1,"plan":"team","maxRunning":1,"cpus":1,"memoryMiB":2560,"pids":512,"diskGiB":4}`
+	e, err := parseEntitlement([]byte(file))
+	if err != nil || e.MaxRunning != 1 || e.MemoryMiB != 2560 || e.Network != "" {
+		t.Fatal(e, err)
+	}
+	for _, bad := range []string{
+		`{"format":2,"plan":"team","maxRunning":1,"cpus":1,"memoryMiB":2560,"pids":512,"diskGiB":4}`,
+		`{"format":1,"plan":"","maxRunning":1,"cpus":1,"memoryMiB":2560,"pids":512,"diskGiB":4}`,
+		`{"format":1,"plan":"team","maxRunning":0,"cpus":1,"memoryMiB":2560,"pids":512,"diskGiB":4}`,
+		`{"format":1,"plan":"team","maxRunning":1,"cpus":8,"memoryMiB":2560,"pids":512,"diskGiB":4}`,
+		`{"format":1,"plan":"team","maxRunning":1,"cpus":1,"memoryMiB":2560,"pids":512,"diskGiB":4,"network":"host"}`,
+		`{"format":1,"plan":"team","maxRunning":1,"cpus":1,"memoryMiB":2560,"pids":512,"diskGiB":4,"gpu":1}`,
+		`not json`,
+	} {
+		if _, err := parseEntitlement([]byte(bad)); err == nil {
+			t.Error("accepted", bad)
+		}
+	}
+
+	ensure := func(l limits, network string) error {
+		r := request{Op: "ensure", Box: "p1", Folder: "a", Network: network, Limits: l}
+		return checkRequest(&r)
+	}
+	t.Cleanup(func() { ent = nil; *limitsF = "" })
+	*limitsF = "/var/lib/mycel/root/dev-env.json"
+	ent = nil
+	if err := ensure(okLimits, "offline"); err == nil {
+		t.Error("a limits file that was not read must refuse every box")
+	}
+	*limitsF = ""
+	big := limits{CPUs: 4, MemoryMiB: 8192, Pids: 4096, DiskGiB: 32, IdleStopMin: 30}
+	if err := ensure(big, "open"); err != nil {
+		t.Error("no file: the fixed ranges only", err)
+	}
+	ent = e
+	at := limits{CPUs: 1, MemoryMiB: 2560, Pids: 512, DiskGiB: 4, IdleStopMin: 240}
+	if err := ensure(at, "offline"); err != nil {
+		t.Error("at the caps", err)
+	}
+	for _, l := range []limits{
+		{CPUs: 1.5, MemoryMiB: 2560, Pids: 512, DiskGiB: 4, IdleStopMin: 30},
+		{CPUs: 1, MemoryMiB: 2561, Pids: 512, DiskGiB: 4, IdleStopMin: 30},
+		{CPUs: 1, MemoryMiB: 2560, Pids: 513, DiskGiB: 4, IdleStopMin: 30},
+		{CPUs: 1, MemoryMiB: 2560, Pids: 512, DiskGiB: 5, IdleStopMin: 30},
+	} {
+		if err := ensure(l, "offline"); err == nil || !strings.Contains(err.Error(), "over this team's plan") {
+			t.Error(l, err)
+		}
+	}
+	if err := ensure(at, "open"); err == nil || !strings.Contains(err.Error(), "network open") {
+		t.Error("open without the plan's network", err)
+	}
+	open := *e
+	open.Network = "open"
+	ent = &open
+	if err := ensure(at, "open"); err != nil {
+		t.Error("open in the plan", err)
+	}
+}
+
+func TestPlanMemoryProblem(t *testing.T) {
+	// VM 1000 of the T4 test: 7947 MiB for a 4096 MiB plan and a 2560 MiB box
+	if p := planMemoryProblem(7947*1024, 4096, 2560); p != "" {
+		t.Error(p)
+	}
+	// a VM of the plan's size only
+	if p := planMemoryProblem(3891*1024, 4096, 2560); !strings.Contains(p, "need 6656 MiB") {
+		t.Error(p)
+	}
+}
+
 func TestJobScript(t *testing.T) {
 	s := jobScript("ffmpeg -i a.mp4 b.mp4", "render", "MYCEL_EOF_ab")
 	for _, want := range []string{"<<'MYCEL_EOF_ab' || exit 1\nffmpeg -i a.mp4 b.mp4\nMYCEL_EOF_ab\n",
@@ -294,6 +380,36 @@ func TestDiskFloor(t *testing.T) {
 	}
 	if why := diskStopReason(g, 20*g); !strings.Contains(why, "1.0 GiB free") || !strings.Contains(why, "2.0 GiB") || !strings.Contains(why, "Free space") {
 		t.Error(why)
+	}
+}
+
+func TestWorstDisk(t *testing.T) {
+	const g = uint64(1) << 30
+	if _, ok := worstDisk(nil); ok {
+		t.Error("no disk")
+	}
+	if _, ok := worstDisk([]disk{{0, 0}}); ok {
+		t.Error("a disk of no known size does not count")
+	}
+	// a large data disk with much free space, a small OS disk near its floor: the OS disk counts
+	data, osd := disk{150 * g, 157 * g}, disk{3 * g, 12 * g}
+	if w, _ := worstDisk([]disk{data, osd}); w != osd {
+		t.Errorf("%v", w)
+	}
+	if w, _ := worstDisk([]disk{osd, data}); w != osd {
+		t.Errorf("order: %v", w)
+	}
+	// the margin to the floor counts, not the free bytes: 9 GiB of 200 is under its 10 GiB floor, 3 of 12 is over 2
+	big := disk{9 * g, 200 * g}
+	if w, _ := worstDisk([]disk{osd, big}); w != big || !diskLow(w.free, w.total) {
+		t.Errorf("margin: %v", w)
+	}
+	// free under the floor of the other disk: no underflow
+	if w, _ := worstDisk([]disk{{0, 12 * g}, data}); w.free != 0 {
+		t.Errorf("full disk: %v", w)
+	}
+	if w, ok := worstDisk([]disk{{0, 0}, data}); !ok || w != data {
+		t.Errorf("unknown size skipped: %v", w)
 	}
 }
 

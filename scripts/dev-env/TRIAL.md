@@ -19,6 +19,13 @@ answers wait in the queue or stop. Watch `free -m` during the trial.
 | Switch | `/etc/systemd/system/mycel-server.service.d/dev-env.conf` (`MYCEL_DEV_ENV=1`) | `install-trial.sh` |
 | Box image | `localhost/mycel-devbox:1`, in the `mycel-devbox` account | `build-image.sh`, on this server |
 | Seccomp profile | `/etc/mycel-boxd/box-seccomp.json` | `build-image.sh`, on this server |
+| Box volumes | `/var/lib/mycel/boxd` (`mycel-boxd --state-dir`) | `install-trial.sh` |
+| podman storage of `mycel-devbox` (images, containers) | `/var/lib/mycel/boxd-storage`, set in `~mycel-devbox/.config/containers/storage.conf` | `install-trial.sh` |
+
+Box state is on the disk of `/var/lib/mycel`: on a VM with a team data disk, that disk, not the small OS disk. So it counts
+in the storage of the plan, and the disk watchdog of boxd sees it. The watchdog reads the disk of the team folder, of the
+box volumes and of the podman storage, and the disk nearest its floor counts. The service unit has
+`RequiresMountsFor=/var/lib/mycel`, so boxd does not start before the data disk is there.
 
 Kits from this change on have `root/mycel-boxd`, also on a server without the dev environment. The file alone changes
 nothing: the dev environment needs the service and the switch. `mycel-boxd` never runs from a version folder, because the server account
@@ -41,9 +48,10 @@ newer one. Run the script from any folder:
 sudo /opt/trina-ax/scripts/dev-env/install-trial.sh
 ```
 
-It needs `jq` (`sudo apt-get install -y jq`). It stops before it changes anything if this is a hosted server, if the VM
-is too small, if the running version has no dev environment, if root does not own `root/mycel-boxd`, or if something of
-the same name is already there and an earlier run did not make it. It reads the team root from `config/server.json`, and
+It needs `jq` (`sudo apt-get install -y jq`). It stops before it changes anything if this is a hosted server whose plan
+does not include the dev environment (below), if the VM is too small, if the running version has no dev environment, if
+root does not own `root/mycel-boxd`, or if something of the same name is already there and an earlier run did not make
+it. It reads the team root from `config/server.json`, and
 it stops if that path has a character other than letters, digits and `. _ / -`: the server account can change this file,
 and root runs the unit with this value. It does not change `mycel-update.timer` on a signed release.
 
@@ -55,6 +63,39 @@ Logs: `journalctl -u mycel-boxd -n 50`.
 A re-run is safe. It rebuilds the image, and a running box does not stop for that. It restarts `mycel-boxd` only if the
 unit changed, or if the service runs a program other than the file `root/mycel-boxd`. It restarts the team server only if
 the drop-in changed.
+
+An install from an older script has the box state on the OS disk: box volumes in `/var/lib/mycel-boxd`, podman storage in
+`/home/mycel-devbox/.local/share/containers/storage`. A re-run moves it. It stops `mycel-boxd` and every box (each starts
+again at its next use), copies the box volumes to `/var/lib/mycel/boxd`, builds the image in the new storage, and removes
+the old folders only after boxd answers on the new paths. It stops before any change if `/var/lib/mycel` has less free
+space than the old volumes and storage plus 3 GiB. If the move stops half way, the old folders stay: run the script again.
+If `mycel-devbox` has a new uid (a new OS disk), the storage and the box volumes start empty.
+
+### Hosted team VM
+
+A hosted server (`"hosted": true` in `root/install.json`) is a Trina Cloud team VM: one team on its own VM. The box can
+run there only if the team's plan includes it. The plan says so in `/var/lib/mycel/root/dev-env.json`, root-owned
+(`0644`, in the root-only `root/` folder):
+
+```json
+{"format":1,"plan":"team","maxRunning":1,"cpus":1,"memoryMiB":2560,"pids":512,"diskGiB":4}
+```
+
+- No file: the script stops ("this team's plan does not include the dev environment").
+- The script gives boxd `--limits-file` with this file and `--max-running` with `maxRunning`. boxd refuses a box with
+  limits over these values ("limits over the plan"). The server account cannot change the file, so it cannot raise them.
+- Network: a box gets `open` only if the file has `"network":"open"`. Without it, only `offline` works, and a project
+  with network `open` gets an error at its first command: set its network to `offline`. An open box goes out from the
+  host's public address with no allowlist, so the owner decides this per plan.
+- Memory: the box comes on top of the plan. The VM must have at least `plan.json` `memoryMiB` plus the box's `memoryMiB`
+  (`MemTotal`), or the script stops and boxd says boxes are not available. Example: a 4096 MiB plan with a 2560 MiB box
+  needs 6656 MiB, so a 7 GB VM. A VM of the plan's size only is refused.
+- boxd reads the file when it starts. After a change to the file, run the script again: it restarts `mycel-boxd` when the
+  file changed since its last run (a running box stops). If the file is gone, the script stops, and boxd says boxes are
+  not available at its next start.
+- Not done yet: the control plane cannot write the file or install the box, the kit has no `scripts/dev-env/`, the
+  template has no podman, and a reimage loses the box account and image (the box volumes stay on the data disk).
+  For now an operator puts the file there and runs the script.
 
 ## 3. Update a server with the dev environment
 
@@ -198,6 +239,12 @@ so do it when nobody renders.
   cd / && sudo runuser -u mycel-devbox -- env XDG_RUNTIME_DIR=/run/user/$(id -u mycel-devbox) podman image prune -f
   ```
 
+  The account's `storage.conf` sends this to `/var/lib/mycel/boxd-storage`. To see the path:
+
+  ```bash
+  cd / && sudo runuser -u mycel-devbox -- env XDG_RUNTIME_DIR=/run/user/$(id -u mycel-devbox) podman info --format '{{.Store.GraphRoot}}'
+  ```
+
 ## 6. Not tested
 
 - An update on a server with the dev environment has not run on a real server. Section 3 says what the code does, not
@@ -221,7 +268,9 @@ project files out.
 
 ## 7. Remove it
 
-This restores the packages and the account. Project folders stay; box volumes (`node_modules`, caches) go.
+This restores the packages and the account. Project folders stay; box volumes (`node_modules`, caches) go, from
+`/var/lib/mycel/boxd` and from `/var/lib/mycel-boxd` of an older install, and so does the podman storage in
+`/var/lib/mycel/boxd-storage`.
 
 ```bash
 sudo /opt/trina-ax/scripts/dev-env/uninstall-trial.sh
@@ -245,7 +294,8 @@ bun run build:web
 bun scripts/build-bundle.ts --os linux --arch amd64 --version <version>-devenv.1 --no-whisper --out dist/linux
 ```
 
-Keep a copy of `root/install.json` first. Stop if `hosted` is true in it, or if `check` reports a problem.
+Keep a copy of `root/install.json` first. Stop if `check` reports a problem. On a hosted team VM, the plan must include
+the dev environment (`root/dev-env.json`, "Hosted team VM" above).
 
 ```bash
 cd /opt/TrinaAX-server-<version>-devenv.1-linux-amd64 && ./install-linux.sh check --from . --allow-unsigned

@@ -1,7 +1,7 @@
 // A page's title row stays at the top while the page scrolls (components/ui.tsx StickyHeader, PageHeader): MCP in
-// Admin and Settings, Team skills, Projects and a project's page; Settings keeps its title and menu while only the page
-// beside them scrolls. A title row gets its hairline once the page has scrolled, and the scrolling area keeps the row's
-// height free for the keyboard, so a control that gets focus never hides under it.
+// Admin and Settings, Team skills, Projects and a project's page; the Settings dialog keeps its title while only the
+// section beside its list scrolls. A title row gets its hairline once the page has scrolled, and the scrolling area
+// keeps the row's height free for the keyboard, so a control that gets focus never hides under it.
 import { expect, test, type Locator, type Page } from '@playwright/test'
 import { CSRF_HEADER } from '@mycel/shared/api'
 import { DICTS } from '../../src/i18n'
@@ -47,15 +47,18 @@ for (const [name, size] of [['wide', WIDE], ['phone', PHONE]] as const) {
       await expect(page.getByTestId('connector-card').first()).toBeVisible()
       await staysPut(header)
       await expect(header.getByTestId('connector-search')).toBeInViewport()
+      // it looks transparent: filled with exactly the surface it sits on (the Settings panel, or the page)
+      const surface = path.startsWith('/settings') ? page.getByRole('dialog', { name: t['settings.title'] }) : page.locator('body')
+      expect(await header.evaluate((el) => getComputedStyle(el).backgroundColor)).toBe(await surface.evaluate((el) => getComputedStyle(el).backgroundColor))
       // a control that gets focus near the top scrolls into view below the row, not under it
       const first = page.getByTestId('connector-add').first()
       await first.evaluate((el) => (el as HTMLElement).focus())
       await expect(first).toBeFocused()
       await expect.poll(async () => (await first.boundingBox())!.y - ((await header.boundingBox())!.y + (await header.boundingBox())!.height)).toBeGreaterThanOrEqual(0)
     }
-    // Settings: the title and the menu stay where they are; only the page beside the menu scrolls
-    await expect(page.getByRole('heading', { level: 1, name: t['settings.title'] })).toBeInViewport()
-    await expect(page.getByTestId('settings-menu')).toBeInViewport()
+    // Settings is a dialog: its title stays where it is; only the section beside the list scrolls
+    const dialog = page.getByRole('dialog', { name: t['settings.title'] })
+    await expect(dialog.getByRole('heading', { name: t['settings.title'] })).toBeInViewport()
   })
 }
 
@@ -92,5 +95,33 @@ test("Projects and a project's page keep their top bar while the page scrolls", 
     await expect(top.getByTestId('project-menu')).toBeVisible()
     await staysPut(top, false)
     await expect(top.getByTestId('project-menu')).toBeInViewport()
+  }
+})
+
+test('the page itself never scrolls: a long page scrolls inside, the sidebar and the Admin menu stay put', async ({ page }) => {
+  await start(page)
+  for (const size of [{ width: 1468, height: 700 }, { width: 390, height: 700 }]) {
+    await page.setViewportSize(size)
+    for (const path of ['/admin/engines?tab=team', '/admin/integrations']) {
+      await page.goto(path)
+      await expect(page.getByTestId('admin-content')).toBeVisible()
+      if (path === '/admin/integrations') await page.getByTestId('connectors-header').getByRole('tab').nth(1).click()
+      const content = page.getByTestId('admin-content')
+      const box = (await content.boundingBox())!
+      await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2)
+      for (let i = 0; i < 12; i++) await page.mouse.wheel(0, 800)
+      await expect.poll(() => content.evaluate((el) => el.scrollTop)).toBeGreaterThan(0)
+      expect(await page.evaluate(() => document.scrollingElement!.scrollTop)).toBe(0)
+      // nothing is taller than the window, so there is nothing for the page to scroll
+      expect(await page.evaluate(() => document.scrollingElement!.scrollHeight)).toBeLessThanOrEqual(size.height)
+      // what stays put is still whole: the sidebar's first item (wide) or the phone's top bar, and the Admin menu
+      if (size.width >= 768) {
+        const first = (await page.getByTestId('new-chat').boundingBox())!
+        expect(first.y).toBeGreaterThanOrEqual(0)
+      } else {
+        expect((await page.getByRole('button', { name: t['sidebar.open'] }).boundingBox())!.y).toBeGreaterThanOrEqual(0)
+      }
+      expect((await page.getByTestId('admin-menu').boundingBox())!.y).toBeGreaterThanOrEqual(0)
+    }
   }
 })

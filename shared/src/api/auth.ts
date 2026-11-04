@@ -163,6 +163,37 @@ export const UpdateMeBody = z.object({
   prefs: UserPrefs.extend({ engine: EngineId.nullable().optional(), model: z.string().max(100).nullable().optional() }).optional(),
 })
 
+/** GET /api/me/usage: the signed-in person's own usage in a period of the team's time zone (today, this week from
+ * Monday, this month), never anyone else's, and the usage limits (Admin budgets) that apply to them. A group's or the
+ * team's limit shows only how full it is, not who used it. */
+const MyUsagePeriod = z.enum(['day', 'week', 'month'])
+export const MyUsageQuery = z.object({ period: MyUsagePeriod.default('month') })
+const MyUsageAmount = z.object({ turns: z.number().int(), inputTokens: z.number().int(), outputTokens: z.number().int(), costUsd: z.number(), unpricedTurns: z.number().int().optional() })
+/** one engine and model the person's answers used (model null = the engine's default) */
+export const MyUsageRow = MyUsageAmount.extend({ key: z.string(), engine: z.string(), model: z.string().nullable() })
+export const MyUsageLimit = z.object({
+  scope: z.enum(['you', 'group', 'team']),
+  /** the group's name (scope 'group') */
+  name: z.string().nullable(),
+  period: z.enum(['day', 'month']),
+  /** how full the limit is in percent (the fuller of money and tokens; over 100 once passed) */
+  usedPct: z.number().nonnegative(),
+  /** block: answers stop at the limit; warn: they go on and admins are told */
+  action: z.enum(['warn', 'block']),
+  exceeded: z.boolean(),
+  resetsAt: IsoTime,
+})
+export type MyUsageLimit = z.infer<typeof MyUsageLimit>
+export const MyUsage = z.object({
+  period: MyUsagePeriod,
+  from: IsoTime,
+  to: IsoTime,
+  totals: MyUsageAmount,
+  byModel: z.array(MyUsageRow),
+  limits: z.array(MyUsageLimit),
+})
+export type MyUsage = z.infer<typeof MyUsage>
+
 export const AUTH = {
   setupStatus: endpoint({ method: 'GET', path: '/api/setup', auth: 'public', owner: 'A', response: SetupStatus, summary: 'Is first-run setup still needed (no owner yet)?' }),
   setup: endpoint({ method: 'POST', path: '/api/setup', auth: 'public', owner: 'A', status: 201, body: SetupBody, response: LoginResponse, summary: 'Create the team and its owner (only while no user exists; needs the setup token). Signs the owner in.' }),
@@ -171,6 +202,7 @@ export const AUTH = {
   changePassword: endpoint({ method: 'POST', path: '/api/auth/password', auth: 'user', owner: 'A', allowWhilePasswordChange: true, body: ChangePasswordBody, response: Ok, summary: 'Change own password; ends every other session of this person.' }),
   me: endpoint({ method: 'GET', path: '/api/me', auth: 'user', owner: 'A', allowWhilePasswordChange: true, response: Me, summary: 'The signed-in person, groups, team name.' }),
   updateMe: endpoint({ method: 'PATCH', path: '/api/me', auth: 'user', owner: 'A', body: UpdateMeBody, response: Me, summary: 'Profile, language, theme and composer preferences.' }),
+  myUsage: endpoint({ method: 'GET', path: '/api/me/usage', auth: 'user', owner: 'A', query: MyUsageQuery, response: MyUsage, summary: 'My own usage this day / week / month (never anyone else\'s) and the usage limits that apply to me.' }),
   mySessions: endpoint({ method: 'GET', path: '/api/me/sessions', auth: 'user', owner: 'A', response: z.object({ items: z.array(Session) }), summary: 'Own signed-in devices.' }),
   revokeMySession: endpoint({ method: 'DELETE', path: '/api/me/sessions/:id', auth: 'user', owner: 'A', response: empty, status: 204, summary: 'Sign out one of own devices.' }),
   inviteInfo: endpoint({ method: 'GET', path: '/api/invites/:token', auth: 'public', owner: 'A', response: InviteInfo, summary: 'What an invite link is for (team name, role, still valid?).' }),

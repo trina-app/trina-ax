@@ -44,7 +44,8 @@ D="node_modules stays in the box volume"; ok test ! -e $T/projects/web/node_modu
 # a bind mount always shows its source path inside its file system in mountinfo (field 4); it cannot be hidden.
 # The box state paths must not show; the folder's own path is a known, documented leak (put the team root on its own
 # file system to shorten it to the path below the team root).
-D="box state paths not in mountinfo"; no x 'grep -q mycel-boxd /proc/self/mountinfo'
+# /var/lib/mycel-boxd (vm-setup.sh) or <base>/boxd (install-trial.sh). The overlay line names the podman storage: known.
+D="box state paths not in mountinfo"; no x 'grep -qE "mycel-boxd|/boxd/" /proc/self/mountinfo'
 echo "KNOWN folder path seen in the box: $(x "awk '\$5==\"/work\" {print \$4}' /proc/self/mountinfo" 2>/dev/null)"
 
 echo "== network (open)"

@@ -79,6 +79,12 @@ export default function Layout() {
 
   useEffect(() => setDrawer(false), [location.pathname, setDrawer])
 
+  // the app is exactly the window: only the areas inside it scroll (index.css html.app-shell)
+  useEffect(() => {
+    document.documentElement.classList.add('app-shell')
+    return () => document.documentElement.classList.remove('app-shell')
+  }, [])
+
   return (
     <div className="flex h-full min-h-0 flex-col">
       <a href="#main" className="sr-only-focusable absolute top-2 left-2 z-[70] rounded bg-surface px-3 py-2 text-sm shadow">
@@ -91,7 +97,7 @@ export default function Layout() {
       <ScheduleReviewBanner />
       <div className="flex min-h-0 flex-1">
         {/* sidebar: fixed column on wide screens, drawer below md */}
-        <div className="hidden w-64 shrink-0 border-r border-line md:block">
+        <div className="hidden w-[280px] shrink-0 border-r border-line md:block">
           <Sidebar />
         </div>
         {drawer && (

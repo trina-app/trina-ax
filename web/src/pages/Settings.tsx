@@ -1,22 +1,22 @@
-// Personal settings: profile, language and theme, password, signed-in devices, the in-app browser's site setting (desktop
-// app only: BrowserSettings.tsx), what the AI remembers, scheduled tasks, apps (the guide to add the app to the home
+// The sections of the personal Settings dialog (components/settings/SettingsDialog.tsx): profile, language and theme, password, signed-in devices, the in-app browser's site setting (desktop
+// app only: BrowserSettings.tsx), what the AI remembers, apps (the guide to add the app to the home
 // screen, components/settings/InstallGuide.tsx, in a web browser only / desktop app download, none inside a Mac App
 // Store build: only the App Store line),
 // about (version, license, source code), the member's own AI connections when the team allows them (the team's
-// connections are made by the owner in Admin > AI connections), and the external services the AI may use with the
+// connections are made by the owner in Admin > AI connections), and the MCP connections the AI may use with the
 // member's own accounts (Integrations.tsx).
 import clsx from 'clsx'
-import { Brain, CalendarClock, Download, Laptop, Monitor, Pencil, Plus, ShieldAlert, Smartphone, Trash2 } from 'lucide-react'
-import { useEffect, useRef, useState } from 'react'
-import { Link, Navigate, NavLink, useNavigate, useParams } from 'react-router-dom'
-import type { EngineId, Me, Memory, Schedule, ScheduleReviewCard, Session, Theme } from '@mycel/shared/api'
+import { Brain, Download, Laptop, Monitor, Pencil, Plus, ShieldAlert, Smartphone, Trash2 } from 'lucide-react'
+import { useEffect, useId, useState } from 'react'
+import { Link } from 'react-router-dom'
+import type { EngineId, Me, Memory, Session, Theme } from '@mycel/shared/api'
 import { RELEASE_CHANNEL } from '@mycel/shared'
-import { api, API, errorText, isApiError } from '../lib/api'
+import { api, API, errorText } from '../lib/api'
 import { formatDateTime, formatSize } from '../lib/format'
 import { archNote, installSteps, offeredDownloads, orderDownloads, parseDownloads, showSteps, type DownloadItem } from '../lib/downloads'
 import { installGuideShown, platform, type Platform } from '../lib/pwa'
 import { LOCALES, useLocale, useT, type MessageKey } from '../i18n'
-import { memoryChanged, schedulesChanged } from '../store/live'
+import { memoryChanged } from '../store/live'
 import { canChooseEngine, useMeStrict, useSession } from '../store/session'
 import { useEngines } from '../store/engines'
 import { ENGINE_LABEL } from '../components/chat/EngineMenu'
@@ -24,68 +24,37 @@ import { toast } from '../store/ui'
 import { ChangePasswordForm } from './Auth'
 import { MyCredentials } from './admin/Credentials'
 import { BrowserSettings } from './BrowserSettings'
-import { settingsTabs } from './settingsTabs'
 import { browserSettingsBridge, storeApp } from '../lib/desktop'
-import { Badge, Button, EmptyState, ErrorNote, Field, IconButton, PageHeader, Skeleton, confirmDialog, inputCls, noKeyRepeat } from '../components/ui'
+import { Badge, Button, EmptyState, ErrorNote, Field, IconButton, Skeleton, confirmDialog, inputCls, noKeyRepeat } from '../components/ui'
 import { SourceCodeLinks, useServerSource } from '../components/SourceCodeLink'
 import { DriveConnection } from '../components/settings/DriveConnection'
-import { ScheduleTemplates } from '../components/settings/ScheduleTemplates'
 import { Notifications } from '../components/settings/Notifications'
 import { InstallGuide } from '../components/settings/InstallGuide'
-import { ScheduleItem } from '../components/settings/ScheduleItem'
 import { MemoryForm } from '../components/settings/MemoryForm'
-import { ScheduleEditDialog } from '../components/settings/ScheduleEditDialog'
-import AskCard from '../components/chat/AskCard'
 import ConnectorConnections from './ConnectorConnections'
+import MyUsage from '../components/settings/MyUsage'
 import Integrations from './Integrations'
 
-export default function Settings() {
-  const t = useT()
+/** One section of the Settings dialog (components/settings/SettingsDialog.tsx, which owns the list, the address and
+ * which sections there are): `tab` is one of settingsTabs(). */
+export default function SettingsPane({ tab }: { tab: string }) {
   const me = useMeStrict()
-  const { tab = 'profile' } = useParams()
-  const [own, setOwn] = useState<boolean | null>(null)
-  useEffect(() => {
-    api.call(API.myCredentials).then((r) => setOwn(r.allowed || r.items.length > 0), () => setOwn(false))
-  }, [])
-  // the desktop app's site setting: only inside a desktop app that offers it (the value lives there)
   const browser = browserSettingsBridge()
-  const tabs = settingsTabs(Boolean(browser), Boolean(own))
-  // an old or mistyped link (/settings/devices), or /settings/browser outside the desktop app, would show an empty
-  // page: open the profile instead
-  if (tab === 'credentials' && own === null) return null
-  if (!tabs.some((x) => x.id === tab)) return <Navigate to="/settings" replace />
-  // The title and the menu stay where they are while a page scrolls (like Admin): only the page beside the menu (under
-  // the strip on a phone) scrolls, so a page's own title row (MCP) can stay at its top.
   return (
-    <div className="flex h-full min-h-0 flex-col">
-      <PageHeader title={t('settings.title')} />
-      <div className="flex min-h-0 flex-1 flex-col md:flex-row">
-        {/* phones: the tab strip runs to the screen edges, so a tab cut off at the right reads as "scroll for more" */}
-        <nav aria-label={t('settings.title')} className="scroll-thin flex shrink-0 gap-1 overflow-x-auto px-4 pt-4 pb-1 sm:px-6 sm:pt-6 md:w-[13.5rem] md:flex-col md:overflow-x-hidden md:overflow-y-auto md:pr-0 md:pb-6" data-testid="settings-menu">
-          {tabs.map((x) => (
-            <NavLink key={x.id} to={`/settings/${x.id}`} className={({ isActive }) => clsx('flex items-center gap-2 rounded-lg px-3 py-2 text-sm whitespace-nowrap hover:bg-hover focus-visible:-outline-offset-2', (isActive || (x.id === 'profile' && tab === 'profile')) && 'bg-hover font-medium')}>
-              <x.icon size={15} aria-hidden /> {t(x.label)}
-            </NavLink>
-          ))}
-        </nav>
-        <div className="min-h-0 min-w-0 flex-1 overflow-y-auto" data-testid="settings-content">
-          <div className="max-w-2xl p-4 sm:p-6">
-            {tab === 'profile' && <Profile />}
-            {tab === 'security' && <Security />}
-            {tab === 'browser' && browser && <BrowserSettings bridge={browser} />}
-            {tab === 'memory' && <Memories />}
-            {tab === 'drive' && <DriveConnection key={`${me.user.id}:${me.session.id}`} />}
-            {tab === 'integrations' && <Integrations key={`${me.user.id}:${me.session.id}`} />}
-            {tab === 'connectors' && <ConnectorConnections key={`${me.user.id}:${me.session.id}`} />}
-            {tab === 'schedules' && <Schedules key={`${me.user.id}:${me.session.id}`} />}
-            {tab === 'notifications' && <Notifications key={`${me.user.id}:${me.session.id}`} />}
-            {tab === 'apps' && <Apps />}
-            {tab === 'credentials' && <MyCredentials />}
-            {tab === 'about' && <About />}
-          </div>
-        </div>
-      </div>
-    </div>
+    <>
+      {tab === 'profile' && <Profile />}
+      {tab === 'security' && <Security />}
+      {tab === 'usage' && <MyUsage key={`${me.user.id}:${me.session.id}`} />}
+      {tab === 'browser' && browser && <BrowserSettings bridge={browser} />}
+      {tab === 'memory' && <Memories />}
+      {tab === 'drive' && <DriveConnection key={`${me.user.id}:${me.session.id}`} />}
+      {tab === 'integrations' && <Integrations key={`${me.user.id}:${me.session.id}`} />}
+      {tab === 'connectors' && <ConnectorConnections key={`${me.user.id}:${me.session.id}`} />}
+      {tab === 'notifications' && <Notifications key={`${me.user.id}:${me.session.id}`} />}
+      {tab === 'apps' && <Apps />}
+      {tab === 'credentials' && <MyCredentials />}
+      {tab === 'about' && <About />}
+    </>
   )
 }
 
@@ -99,8 +68,33 @@ function Section({ title, children, desc }: { title: string; children: React.Rea
   )
 }
 
+/** One setting, like Claude's Settings: what it is on the left, its control on the right, a hairline between rows (on a
+ * phone the control goes under its name). */
+function Row({ label, hint, htmlFor, hintId, children }: { label: string; hint?: string; htmlFor?: string; hintId?: string; children: React.ReactNode }) {
+  return (
+    <div className="flex flex-col gap-2 border-b border-line py-3 last:border-b-0 sm:flex-row sm:items-center sm:justify-between sm:gap-6">
+      <div className="min-w-0">
+        {htmlFor ? (
+          <label htmlFor={htmlFor} className="text-sm text-ink">
+            {label}
+          </label>
+        ) : (
+          <p className="text-sm text-ink">{label}</p>
+        )}
+        {hint && (
+          <p id={hintId} className="mt-0.5 text-xs text-muted">
+            {hint}
+          </p>
+        )}
+      </div>
+      <div className="min-w-0 sm:w-72 sm:max-w-[60%] sm:shrink-0">{children}</div>
+    </div>
+  )
+}
+
 function Profile() {
   const t = useT()
+  const ids = useId()
   const locale = useLocale()
   const me = useMeStrict()
   const signedIn = useSession((s) => s.signedIn)
@@ -124,23 +118,27 @@ function Profile() {
   return (
     <>
       <Section title={t('settings.profile')}>
-        <div className="space-y-3">
-          <Field label={t('auth.name')}>
-            <input className={inputCls} value={name} onChange={(e) => setName(e.target.value)} maxLength={100} />
-          </Field>
-          <Field label={t('settings.email')} hint={t('settings.emailHint')}>
-            <input className={inputCls} type="email" value={email} onChange={(e) => setEmail(e.target.value)} />
-          </Field>
-          <Field label={t('auth.username')}>
-            <input className={inputCls} value={me.user.username} disabled />
-          </Field>
-          <p className="text-xs text-faint">
-            {t('settings.role')}: <Badge>{t(`role.${me.user.role}`)}</Badge> · {me.groups.map((g) => g.name).join(', ') || t('settings.noGroups')}
-          </p>
-          <Button variant="primary" busy={busy} disabled={!name.trim()} onClick={save}>
-            {t('common.save')}
-          </Button>
+        <div>
+          <Row label={t('auth.name')} htmlFor={`${ids}-name`}>
+            <input id={`${ids}-name`} className={inputCls} value={name} onChange={(e) => setName(e.target.value)} maxLength={100} />
+          </Row>
+          <Row label={t('settings.email')} hint={t('settings.emailHint')} htmlFor={`${ids}-email`} hintId={`${ids}-email-hint`}>
+            <input id={`${ids}-email`} className={inputCls} type="email" value={email} onChange={(e) => setEmail(e.target.value)} aria-describedby={`${ids}-email-hint`} />
+          </Row>
+          <Row label={t('auth.username')}>
+            <span className="block truncate text-sm text-muted sm:text-right" data-testid="profile-username">
+              {me.user.username}
+            </span>
+          </Row>
+          <Row label={t('settings.role')}>
+            <span className="flex flex-wrap items-center gap-1.5 text-sm text-muted sm:justify-end">
+              <Badge>{t(`role.${me.user.role}`)}</Badge> · {me.groups.map((g) => g.name).join(', ') || t('settings.noGroups')}
+            </span>
+          </Row>
         </div>
+        <Button variant="primary" className="mt-3" busy={busy} disabled={!name.trim()} onClick={save}>
+          {t('common.save')}
+        </Button>
       </Section>
       <Section title={t('settings.language')} desc={t('settings.languageHint')}>
         <div className="flex flex-wrap gap-2" role="radiogroup" aria-label={t('settings.language')}>
@@ -300,150 +298,6 @@ function Security() {
         </ul>
       </Section>
     </>
-  )
-}
-
-function Schedules() {
-  const t = useT()
-  const locale = useLocale()
-  const [items, setItems] = useState<Schedule[] | null>(null)
-  const [tz, setTz] = useState('')
-  const [error, setError] = useState<string | null>(null)
-  const life = useRef(0), revision = useRef(0)
-  const load = async () => {
-    const generation = life.current, rev = ++revision.current
-    try {
-      const r = await api.call(API.listSchedules)
-      if (generation !== life.current || rev !== revision.current) return
-      setItems(r.items)
-      setTz(r.timeZone)
-      setError(null)
-    } catch (e) {
-      if (generation === life.current && rev === revision.current) setError(errorText(e, locale, t('error.network')))
-    }
-  }
-  useEffect(() => {
-    life.current++
-    void load()
-    return () => { life.current++ }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [])
-  const weekday = (n: number) => new Intl.DateTimeFormat(locale, { weekday: 'long', timeZone: 'UTC' }).format(new Date(Date.UTC(2026, 0, 4 + n)))
-  const when = (s: Schedule) => t(`schedules.repeat.${s.repeat}` as MessageKey, { time: s.time, date: s.date ?? '', day: String(s.day ?? ''), weekday: weekday(s.weekday ?? 0) })
-  const toggle = async (s: Schedule) => {
-    const generation = life.current
-    try {
-      const u = await api.call(API.updateSchedule, { params: { id: s.id }, body: { enabled: !s.enabled } })
-      if (generation !== life.current) return
-      revision.current++
-      setItems((cur) => cur?.map((x) => (x.id === s.id ? u : x)) ?? null)
-    } catch (e) {
-      toast({ level: 'error', text: errorText(e, locale, t('error.network')) })
-    }
-  }
-  // "다시 확인": a task nobody confirmed shows its schedule card here; resuming is answering it
-  const [review, setReview] = useState<{ id: string; card: ScheduleReviewCard } | null>(null)
-  const openReview = async (s: Schedule) => {
-    if (review?.id === s.id) { setReview(null); return }
-    const generation = life.current
-    try {
-      const card = await api.call(API.getScheduleReview, { params: { id: s.id } })
-      if (generation === life.current) setReview({ id: s.id, card })
-    } catch (e) {
-      toast({ level: 'error', text: errorText(e, locale, t('error.network')) })
-      if (generation === life.current) void load()
-    }
-  }
-  const answerReview = async (s: Schedule, requestId: string, answer: string | string[] | null) => {
-    const value = Array.isArray(answer) ? answer[0] ?? null : answer
-    // "Skip" leaves it paused, like "Keep it paused"
-    if (!value || value === 'keep') { setReview(null); return }
-    const generation = life.current
-    try {
-      const u = await api.call(API.confirmScheduleReview, { params: { id: s.id }, body: { requestId, answer: value } })
-      if (generation !== life.current) return
-      revision.current++
-      setItems((cur) => cur?.map((x) => (x.id === s.id ? u : x)) ?? null)
-      setReview(null)
-      schedulesChanged.emit()
-      if (u.enabled) toast({ level: 'success', text: t('schedules.reviewDone') })
-    } catch (e) {
-      // the task or its connections changed since the card was shown: show the card as it is now
-      if (isApiError(e, 'conflict') && e.body.params?.reason === 'schedule_card_changed') {
-        toast({ level: 'error', text: errorText(e, locale, t('error.network')) })
-        try {
-          const card = await api.call(API.getScheduleReview, { params: { id: s.id } })
-          if (generation === life.current) setReview({ id: s.id, card })
-        } catch { if (generation === life.current) { setReview(null); void load() } }
-        return
-      }
-      throw e
-    }
-  }
-  // "지금 실행": a run now, in a new chat (the toast opens it); the list shows its result like a scheduled run's
-  const navigate = useNavigate()
-  const [starting, setStarting] = useState<string | null>(null)
-  const runNow = async (s: Schedule) => {
-    const generation = life.current
-    setStarting(s.id)
-    try {
-      const r = await api.call(API.runScheduleNow, { params: { id: s.id }, body: {} })
-      if (generation !== life.current) return
-      revision.current++
-      setItems((cur) => cur?.map((x) => (x.id === s.id ? r.schedule : x)) ?? null)
-      toast({ level: 'success', text: t('schedules.runStarted'), action: { label: t('schedules.openRun'), run: () => navigate(`/c/${r.chatId}`) } })
-    } catch (e) {
-      toast({ level: 'error', text: errorText(e, locale, t('error.network')) })
-    } finally {
-      if (generation === life.current) setStarting(null)
-    }
-  }
-  const [editing, setEditing] = useState<Schedule | null>(null)
-  const edited = (u: Schedule) => {
-    revision.current++
-    setItems((cur) => cur?.map((x) => (x.id === u.id ? u : x)) ?? null)
-    setEditing(null)
-    if (u.needsReview === false) schedulesChanged.emit()
-    toast({ level: 'success', text: t('schedules.edited') })
-  }
-  const remove = async (s: Schedule) => {
-    const generation = life.current
-    if (!(await confirmDialog({ title: t('schedules.deleteTitle'), body: t('schedules.deleteBody', { title: s.title }), confirm: t('schedules.delete'), danger: true }))) return
-    if (generation !== life.current) return
-    try {
-      await api.call(API.deleteSchedule, { params: { id: s.id } })
-      if (generation !== life.current) return
-      revision.current++
-      setItems((cur) => cur?.filter((x) => x.id !== s.id) ?? null)
-      if (s.needsReview) schedulesChanged.emit()
-    } catch (e) {
-      toast({ level: 'error', text: errorText(e, locale, t('error.network')) })
-    }
-  }
-  return (
-    <Section title={t('settings.schedules')} desc={t('schedules.desc')}>
-      <ScheduleTemplates onCreated={schedule => { revision.current++; setItems(current => [schedule, ...(current ?? []).filter(item => item.id !== schedule.id)]) }} />
-      {error && <ErrorNote onRetry={() => void load()}>{error}</ErrorNote>}
-      {!items && !error && <Skeleton lines={3} />}
-      {items && !items.length && <EmptyState icon={<CalendarClock size={26} />} title={t('schedules.empty')} />}
-      {items && items.length > 0 && (
-        <>
-          <ul className="divide-y divide-line rounded-xl border border-line" data-testid="schedule-list">
-            {items.map((s) => (
-              <ScheduleItem key={s.id} s={s} tz={tz} when={when(s)} onToggle={() => void toggle(s)} onRemove={() => void remove(s)} onReview={() => void openReview(s)}
-                onRunNow={() => void runNow(s)} running={starting === s.id} onEdit={() => setEditing(s)}
-                review={review?.id === s.id ? (
-                  <div className="mt-2" data-testid="schedule-review-card">
-                    <AskCard key={review.card.request.requestId} req={review.card} onAnswer={(requestId, body) => answerReview(s, requestId, body.kind === 'ask_user' ? body.answer : null)} />
-                  </div>
-                ) : undefined} />
-            ))}
-          </ul>
-          {tz && <p className="mt-2 text-xs text-faint">{t('schedules.timeZone', { tz })}</p>}
-        </>
-      )}
-      {editing && <ScheduleEditDialog key={editing.id} s={editing} tz={tz || null} onClose={() => setEditing(null)} onSaved={edited} />}
-    </Section>
   )
 }
 

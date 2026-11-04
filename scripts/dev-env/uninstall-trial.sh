@@ -1,8 +1,8 @@
 #!/bin/bash
 # Removes what install-trial.sh added and restores the state before it. Run as root. The project folders stay: only the
-# box volumes go (node_modules, caches). It restarts the team server. It does not change the installed version:
-# scripts/dev-env/TRIAL.md says how to go back to the release. <base>/root/mycel-boxd stays: the kit owns that file, the
-# next update writes it again, and it does nothing without the service and MYCEL_DEV_ENV=1.
+# box volumes (node_modules, caches) and the box image go. It restarts the team server. It does not change the installed
+# version: scripts/dev-env/TRIAL.md says how to go back to the release. <base>/root/mycel-boxd stays: the kit owns that
+# file, the next update writes it again, and it does nothing without the service and MYCEL_DEV_ENV=1.
 #   scripts/dev-env/uninstall-trial.sh [--id mycel] [--keep-packages]
 set -euo pipefail
 ID=mycel; KEEP=0
@@ -21,7 +21,11 @@ BOX_USER=mycel-devbox
 SERVER_UNIT=$ID-server.service
 TIMER=$ID-update.timer
 STATE=/var/lib/mycel-boxd-trial
-BOXD_STATE=/var/lib/mycel-boxd
+BASE=/var/lib/$ID
+# Box volumes: the new path, and the path of an older install-trial.sh. podman's storage of the box account.
+BOXD_STATE=$BASE/boxd
+OLD_BOXD_STATE=/var/lib/mycel-boxd
+BOX_STORE=$BASE/boxd-storage
 UNIT=/etc/systemd/system/mycel-boxd.service
 DROPIN=/etc/systemd/system/$SERVER_UNIT.d/dev-env.conf
 
@@ -46,11 +50,11 @@ systemctl daemon-reload
 systemctl reset-failed mycel-boxd.service 2>/dev/null || true
 
 # A box folder is a mount of a real project folder. Removing through a mount would delete team files, so every mount
-# goes first, and rm stays on one file system.
-mounts() { findmnt -rn -o TARGET | grep -E "^($BOXD_STATE|/run/mycel-boxd)(/|$)" | sort -r || true; }
+# goes first. $BOXD_STATE is on the disk of the team folder, so rm --one-file-system does not stop that: this check does.
+mounts() { findmnt -rn -o TARGET | grep -E "^($BOXD_STATE|$OLD_BOXD_STATE|$BOX_STORE|/run/mycel-boxd)(/|$)" | sort -r || true; }
 for m in $(mounts); do umount "$m" || umount -l "$m" || true; done
 [ -z "$(mounts)" ] || die "mounts are still there, nothing was deleted: $(mounts | tr '\n' ' ')"
-rm -rf --one-file-system "$BOXD_STATE" /run/mycel-boxd /etc/mycel-boxd
+rm -rf --one-file-system "$BOXD_STATE" "$OLD_BOXD_STATE" /run/mycel-boxd /etc/mycel-boxd
 
 if id "$BOX_USER" >/dev/null 2>&1; then
   say "account $BOX_USER"
@@ -61,6 +65,9 @@ if id "$BOX_USER" >/dev/null 2>&1; then
   sleep 1
   userdel -r "$BOX_USER" 2>/dev/null || die "could not remove $BOX_USER"
 fi
+# userdel -r removes only the home folder (with its storage.conf). The files of the storage belong to subuids: root
+# removes them.
+rm -rf --one-file-system "$BOX_STORE"
 
 if [ "$KEEP" = 0 ] && [ -s "$STATE/packages-new" ]; then
   say "packages this trial added: $(wc -l < "$STATE/packages-new")"
@@ -75,6 +82,6 @@ rm -rf --one-file-system "$STATE"
 
 say "check"
 id "$BOX_USER" >/dev/null 2>&1 && die "$BOX_USER is still there"
-[ ! -e "$UNIT" ] && [ ! -e "$DROPIN" ] && [ ! -e "$BOXD_STATE" ] || die "files are still there"
+[ ! -e "$UNIT" ] && [ ! -e "$DROPIN" ] && [ ! -e "$BOXD_STATE" ] && [ ! -e "$OLD_BOXD_STATE" ] && [ ! -e "$BOX_STORE" ] || die "files are still there"
 systemctl is-active -q "$SERVER_UNIT" || die "$SERVER_UNIT does not run"
 say "ok"
