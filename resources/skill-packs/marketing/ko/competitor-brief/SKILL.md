@@ -2,6 +2,7 @@
 name: competitor-brief
 description: 경쟁사 분석 — 경쟁사 웹사이트 주소를 받아 그 회사가 무엇을 누구에게 어떻게 말하는지 읽고, 우리와 비교한 한 장짜리 요약을 만들어요.
 metadata:
+  title: 경쟁사 분석
   inputs: |
     [
       {"name": "website", "label": "경쟁사 웹사이트 주소", "placeholder": "예: https://www.competitor.example", "required": true},

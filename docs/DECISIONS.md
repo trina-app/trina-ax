@@ -7212,3 +7212,53 @@ counting in `server/src/onboarding/goal.ts`).
   `web/test/unit/goal-card.test.tsx` (the line, names, buttons, reached, dismissed once, hosted vs self, no goal or a
   failed load, the notice text and particle). Checked in a browser against the mock (`/__test/team-goal`) at 390px and
   1280px.
+
+## P — Onboarding polish: skill titles, the invite on a phone, the checklist (feat/onboarding-p, 2026-11-04)
+
+The UX pass on the onboarding (A–E, W, G) for Korean marketers. Placement: Team AX core (skills, the team link, Home).
+
+- **A skill's title: `metadata.title` in SKILL.md.** People saw folder names ("'ad-copy' 스킬을 같이 써 보자고 해요"). The
+  folder name must equal `name` and a name is lowercase ASCII (the Agent Skills format), so the name stays and a title is
+  added where the format puts its own fields: the metadata string map (as `inputs`). One line, at most 60 characters
+  (`SKILL_TITLE_MAX`, `readSkillTitle`, shared); anything else is left out without a skill issue: the skill works and
+  shows its name. Legacy `.md` skills have no metadata map; their name is already free text. `SkillInfo.title` is
+  optional and absent without a title, so every older reader and test sees the same objects.
+- **One rule everywhere: `skillTitle()` = the title, else the name** (`shared/src/api/skills.ts`). Shown on Team skills
+  (rows, the run and "…" buttons' labels, search), the "/" menu (the title with "/name" beside it; typing "/광고" finds
+  it), the skill form and its dialog (a bare `?run=` path shows "스킬 실행" until the person's list says the title, never
+  the folder name first), Home's frequent skills, the search palette, the team link card and its picker, the ready-made
+  message, the join page, the goal card and the owners' first-run notice. Server-built texts use the same function:
+  `onboarding/goal-names.ts` (goal card data and the notice), `auth/team-links.ts` (`TeamLink.skill.title`,
+  `TeamLinkInfo.skillTitle`, both additive and optional), `skills/popular.ts`. G's rule (the description's lead before
+  " — ") is replaced, not kept as a fallback: it guessed from free text and would name any skill whose description has a
+  dash; the pack's descriptions still start with the plain name for the AI. Next to a title the screens drop that lead
+  from the description (`skillSummary`, only when it repeats the title).
+- **Still the name:** "/name" in the composer and every command; the "same name" and "your personal skill" warnings of
+  the form (they are about the name); what the AI is told (its skill list); Admin › Usage (the name recorded at the time,
+  for admins); the chat's tool steps.
+- **The pack has titles** (ko 광고 문구, 블로그·SNS 초안, 캠페인 기획, SEO 기획서, 경쟁사 분석, 브랜드 톤 검토, 주간 보고; en Ad copy,
+  Blog and social draft, Campaign plan, SEO brief, Competitor brief, Brand voice review, Weekly report). Installed files
+  are not migrated. The install compares bytes to tell `present` from `kept`, so the first release's text (the same file
+  without the title line, `earlierPackTexts`; checked byte for byte against the files of 23124770) counts as `present`:
+  installing again on a team that installed before does not report untouched skills as edited. Those files are not
+  replaced either (no file is) and show the name until someone adds the line or deletes the skill and installs again.
+- **The invite on a phone: fewer frames, one primary.** The owner's rule: remove frames rather than add padding, since a
+  border near the screen edge reads as tight. `TeamLinkView`: the message as quoted text with a 2px hairline, then the one
+  primary "메시지 복사" (the message ends with the link; full width on a phone), the link as plain selectable text with
+  quiet "링크만 복사" (was "링크 복사") and "QR 코드", uses / expiry / skill / groups and the member note as quiet lines
+  (the groups only on a team that has groups; no role badge), replace and turn off as quiet text buttons on the left.
+  `InviteStep`'s "다 했어요" is no longer primary (secondary), so the screen has one: "초대 링크 만들기" before the link,
+  "메시지 복사" after. From the chat bar the dialog's title is the step's question and the step adds no second heading
+  (`title={null}`). Admin › Members uses the same view; its card keeps the admin card frame from 640px and on a phone is
+  a heading and a hairline, like the goal card.
+- **Owner checklist "팀원 초대하기"**: done once someone joined, an invite waits, or the team link is `active` (an
+  expired, used-up or stopped link invites nobody).
+- The mock server reads titles, answers the link's title, and `/__test/popular-skills` fills Home's frequent skills.
+- Tests: `tests/unit/c-skill-title.test.ts` (the title rule, listing shape with and without one, no skill issue, the
+  fallbacks, the summary), `c-onboarding-pack` (both languages' titles, the description leads with the title, a first
+  release install is `present` and not replaced while an edited one is `kept`), `a-team-links` (title and fallback on the
+  card and the join info, null when the new member cannot read it), `b-onboarding-goal` (title, else name; the notice),
+  `web/test/unit/onboarding-polish.test.tsx` (message and lines by title, the picker, Home's list keeps "/ad-copy ", the
+  "/" menu finds a title, one primary, no frames, the checklist with an active, expired, used-up or no link),
+  `team-link-skill-form.test.tsx` (join page and dialog by title). Screens checked at 390px (dark and light) and 1280px
+  against the mock.

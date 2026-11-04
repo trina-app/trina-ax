@@ -39,9 +39,10 @@ export const TeamLink = z.object({
    * a new one to copy it again */
   url: z.string().nullable(),
   groupIds: z.array(Uuid7),
-  /** the team skill new members land on after joining (`/skills?run=<path>`); name null when the viewer cannot read
-   * it any more */
-  skill: z.object({ path: z.string(), name: z.string().nullable() }).nullable(),
+  /** the team skill new members land on after joining (`/skills?run=<path>`); name and title null when the viewer
+   * cannot read it any more. `title`: the name people read (its metadata title, else its name; absent from an older
+   * server), for the card and the ready-made message */
+  skill: z.object({ path: z.string(), name: z.string().nullable(), title: z.string().nullable().optional() }).nullable(),
   maxUses: z.number().int().positive(),
   uses: z.number().int().nonnegative(),
   createdBy: UserRef.nullable(),
@@ -87,6 +88,8 @@ export const TeamLinkInfo = z.object({
   expiresAt: IsoTime,
   /** the skill the link names, when someone joining with the link's groups can open it */
   skillName: z.string().nullable(),
+  /** the same skill as people read its name (its metadata title, else its name); absent from an older server */
+  skillTitle: z.string().nullable().optional(),
 })
 export type TeamLinkInfo = z.infer<typeof TeamLinkInfo>
 

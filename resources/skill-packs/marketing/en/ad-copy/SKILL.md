@@ -2,6 +2,7 @@
 name: ad-copy
 description: Ad copy — takes what to promote and where it runs, and writes three ready-to-use ad copy options. For search ads, social posts, banners and text messages.
 metadata:
+  title: Ad copy
   inputs: |
     [
       {"name": "product", "label": "What are you promoting", "placeholder": "e.g. our new monthly plan", "required": true, "prefill": "company.products"},

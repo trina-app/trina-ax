@@ -54,8 +54,9 @@ export function WelcomeInviteBar({ chatId, answered }: { chatId: string; answere
         </div>
       )}
       {open && (
-        <Modal open onClose={() => setOpen(false)} width={560} title={t('teamLink.stepTitle')}>
-          <InviteStep title={skillPath ? t('welcome.invite.title', { skill: t('welcome.skillName') }) : undefined} skillPath={skillPath} onDone={() => finish('done')} onSkip={() => finish('skipped')} />
+        // the dialog's own title is the step's question: no second heading inside it
+        <Modal open onClose={() => setOpen(false)} width={560} title={skillPath ? t('welcome.invite.title', { skill: t('welcome.skillName') }) : t('teamLink.stepTitle')}>
+          <InviteStep title={null} skillPath={skillPath} onDone={() => finish('done')} onSkip={() => finish('skipped')} />
         </Modal>
       )}
       {asking && <SkipDialog onInvite={invite} onLater={() => finish('skipped')} />}

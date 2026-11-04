@@ -2,6 +2,7 @@
 name: campaign-plan
 description: 캠페인 기획 — 목표와 기간을 받아 메시지, 채널, 일정, 측정 지표가 있는 한 장짜리 캠페인 기획안을 만들어요.
 metadata:
+  title: 캠페인 기획
   inputs: |
     [
       {"name": "goal", "label": "이번 캠페인의 목표", "placeholder": "예: 12월 무료 체험 신청 늘리기", "required": true},

@@ -59,7 +59,7 @@ describe('counting', () => {
 
   test('"/name" and the skill tool are runs; a plain read of the file is not (Admin › Usage still sees all three)', () => {
     fs.mkdirSync(path.join(env.fx.team, path.dirname(AD.path)), { recursive: true })
-    fs.writeFileSync(path.join(env.fx.team, AD.path), '---\nname: ad-copy\ndescription: 광고 문구 — 광고 문구 3안을 써요.\n---\nWrite.\n')
+    fs.writeFileSync(path.join(env.fx.team, AD.path), '---\nname: ad-copy\ndescription: 광고 문구 — 광고 문구 3안을 써요.\nmetadata:\n  title: 광고 문구\n---\nWrite.\n')
     const read = turn('alice')
     recordSkillRead(db, env.files, env.files.principal('alice'), read, AD.path)
     turn('bob', { skill: AD, source: 'read' })
@@ -119,10 +119,12 @@ describe('counting', () => {
     expect(progress().reachedAt).toBe(at(6.99))
   })
 
-  test('a skill\'s plain name: the description\'s lead before " — ", else its name', () => {
-    expect(skillTitle({ name: 'ad-copy', description: '광고 문구 — 알릴 제품과 실을 곳을 받아 …' })).toBe('광고 문구')
-    expect(skillTitle({ name: 'Weekly report', description: 'Writes the weekly report.' })).toBe('Weekly report')
-    expect(skillTitle({ name: 'x', description: 'a — b — c' })).toBe('a')
+  test('a skill\'s plain name: its metadata title, else its name (never guessed from the description)', () => {
+    expect(skillTitle({ name: 'ad-copy', title: '광고 문구' })).toBe('광고 문구')
+    expect(skillTitle({ name: 'Weekly report' })).toBe('Weekly report')
+    expect(skillTitle({ name: 'x', title: '  ' })).toBe('x')
+    // a skill written before titles, with the pack's "광고 문구 — …" description, shows its name
+    expect(skillTitle({ name: 'ad-copy', ...{ description: '광고 문구 — 알릴 제품과 실을 곳을 받아 …' } })).toBe('ad-copy')
   })
 
   test('migration 223 brings earlier "/name" runs over from turn_skill_usage, never a read', () => {
@@ -170,7 +172,7 @@ describe('the card and the owners\' notice', () => {
     ids = { owner: 'olga', admin: a.id, member: m.id, erin: e.id, finn: f.id }
     const abs = path.join(h.ctx.config.teamRoot, AD.path)
     fs.mkdirSync(path.dirname(abs), { recursive: true })
-    fs.writeFileSync(abs, '---\nname: ad-copy\ndescription: 광고 문구 — 광고 문구 3안을 써요.\n---\nWrite.\n')
+    fs.writeFileSync(abs, '---\nname: ad-copy\ndescription: 광고 문구 — 광고 문구 3안을 써요.\nmetadata:\n  title: 광고 문구\n---\nWrite.\n')
   })
   afterAll(async () => { await h.close() })
   beforeEach(() => {
@@ -294,7 +296,7 @@ describe('real turns with the fake engine', () => {
 
   beforeAll(async () => {
     h = await startHarness({ name: 'b-onboarding-goal-turns' })
-    put(REL, '---\nname: ad-copy\ndescription: 광고 문구 — 광고 문구 3안을 써요.\n---\nWrite three ads.\n')
+    put(REL, '---\nname: ad-copy\ndescription: 광고 문구 — 광고 문구 3안을 써요.\nmetadata:\n  title: 광고 문구\n---\nWrite three ads.\n')
   })
   afterAll(async () => { await h?.close() })
 

@@ -2,6 +2,7 @@
 name: seo-brief
 description: SEO 기획서 — 주제나 키워드를 받아 검색 의도, 제목, 글 구조, 꼭 답할 질문이 있는 SEO 글 기획서를 만들어요.
 metadata:
+  title: SEO 기획서
   inputs: |
     [
       {"name": "keyword", "label": "주제나 핵심 키워드", "placeholder": "예: 사내 메신저 고르는 법", "required": true},

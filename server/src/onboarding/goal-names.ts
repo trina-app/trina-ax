@@ -1,13 +1,11 @@
 // How the 7-day team goal names a skill to people (onboarding/goal.ts, the owners' inbox in notifications/service.ts).
+import { skillTitle } from '@mycel/shared/api'
 import type { AppContext } from '../context'
 import { readSkill } from '../chat/skills'
 
-/** The plain name people know a skill by: the description's lead before " — " ("광고 문구 — …", the marketing pack's
- * convention), else the skill's name. */
-export function skillTitle(s: { name: string; description?: string }): string {
-  const m = /^\s*([^\n—]{1,40}?)\s+—\s/.exec(s.description ?? '')
-  return m?.[1]?.trim() || s.name
-}
+/** The plain name people know a skill by: its metadata `title` ("광고 문구"), else its name (shared skillTitle, the same
+ * rule as every screen). */
+export { skillTitle }
 
 /** A team skill's plain name as `userId` may read it now; `recorded` (the name the usage rows keep, which Admin ›
  * Usage shows admins already) when they cannot or it is gone. */

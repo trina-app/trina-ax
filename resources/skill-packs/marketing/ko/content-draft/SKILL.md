@@ -2,6 +2,7 @@
 name: content-draft
 description: 블로그·SNS 초안 — 주제와 올릴 곳을 받아 블로그 글, 인스타그램, 링크드인, 뉴스레터 초안을 써요.
 metadata:
+  title: 블로그·SNS 초안
   inputs: |
     [
       {"name": "topic", "label": "무엇에 대해 쓸까요", "placeholder": "예: 우리 제품으로 회의 시간을 줄인 방법", "required": true},

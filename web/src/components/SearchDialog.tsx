@@ -8,7 +8,7 @@ import clsx from 'clsx'
 import { BookMarked, Cable, CalendarClock, CalendarPlus, CornerDownLeft, FileSearch, FolderKanban, FolderOpen, FolderPlus, MessageSquare, MessageSquarePlus, MoreHorizontal, Pencil, Plus, Trash2, X } from 'lucide-react'
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { useNavigate } from 'react-router-dom'
-import type { Chat, Integration, Project, Schedule } from '@mycel/shared/api'
+import { skillTitle, type Chat, type Integration, type Project, type Schedule } from '@mycel/shared/api'
 import { api, API, errorText } from '../lib/api'
 import { platform } from '../lib/pwa'
 import { useLocale, useT, type MessageKey } from '../i18n'
@@ -47,7 +47,7 @@ interface Row {
   chat?: Chat
 }
 interface Section { id: string; label: string; rows: Row[] }
-interface Skill { path: string; name: string; description: string }
+interface Skill { path: string; name: string; description: string; title?: string }
 
 const onMac = () => platform() === 'mac' || platform() === 'ios'
 const norm = (s: string) => s.toLocaleLowerCase()
@@ -127,7 +127,7 @@ function SearchBox({ onClose }: { onClose: () => void }) {
     sub: attention ?? (c.projectId ? projectName.get(c.projectId) : undefined), attention: !!attention, match: true,
   })
   const projectRow = (p: Project): Row => ({ key: `project:${p.id}`, kind: 'project', icon: FolderKanban, title: p.name, sub: p.folderPath, href: `/projects/${p.id}`, match: true })
-  const skillRow = (s: Skill): Row => ({ key: `skill:${s.path}`, kind: 'skill', icon: BookMarked, title: s.name, sub: parentOf(s.path), href: skillFileLink(s.path), match: true })
+  const skillRow = (s: Skill): Row => ({ key: `skill:${s.path}`, kind: 'skill', icon: BookMarked, title: skillTitle(s), sub: parentOf(s.path), href: skillFileLink(s.path), match: true })
   const scheduleRow = (s: Schedule, attention?: string): Row => ({
     key: `schedule:${s.id}`, kind: 'schedule', icon: CalendarClock, title: s.title, href: `/scheduled/${encodeURIComponent(s.id)}`, match: true,
     sub: attention ?? (s.projectId ? projectName.get(s.projectId) : undefined), attention: !!attention,
@@ -192,7 +192,7 @@ function SearchBox({ onClose }: { onClose: () => void }) {
     const few = tab === 'all' ? 4 : 50
     if (tab === 'all' || tab === 'chats') push('chats', typeLabel('chats'), (found ?? []).slice(0, tab === 'all' ? 5 : 30).map((c) => chatRow(c)))
     if (tab === 'all' || tab === 'projects') push('projects', typeLabel('projects'), allProjects.filter((p) => has(query, p.name, p.folderPath)).slice(0, few).map(projectRow))
-    if (tab === 'all' || tab === 'skills') push('skills', typeLabel('skills'), allSkills.filter((s) => has(query, s.name, s.description)).slice(0, few).map(skillRow))
+    if (tab === 'all' || tab === 'skills') push('skills', typeLabel('skills'), allSkills.filter((s) => has(query, s.name, s.title, s.description)).slice(0, few).map(skillRow))
     if (tab === 'all' || tab === 'scheduled') push('scheduled', typeLabel('scheduled'), allSchedules.filter((s) => has(query, s.title, s.prompt)).slice(0, few).map((s) => scheduleRow(s)))
     if (tab === 'all' || tab === 'mcp') push('mcp', typeLabel('mcp'), allMcp.filter((i) => has(query, i.name, i.url)).slice(0, few).map((i) => mcpRow(i)))
     if ((tab === 'all' || tab === 'files') && contentQueryReady(q)) push('files', typeLabel('files'), [filesRow()])

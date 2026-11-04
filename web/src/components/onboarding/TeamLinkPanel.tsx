@@ -1,18 +1,18 @@
 // The team invite link (shared/src/api/team-links.ts): make it, copy it or the ready-made message for KakaoTalk or Slack,
 // see how many joined and until when it works, change it or turn it off. Used by Admin › Members (TeamLinkCard) and
 // by the onboarding wizard's InviteStep. Everyone who joins with it is a member; the owner/admin picks the groups.
-import { Plus, QrCode as QrIcon, RefreshCw } from 'lucide-react'
+import { Check, Copy, Plus, QrCode as QrIcon, RefreshCw } from 'lucide-react'
 import { useEffect, useId, useState } from 'react'
-import { TEAM_LINK_DAYS, TEAM_LINK_DEFAULT_DAYS, TEAM_LINK_DEFAULT_USES, TEAM_LINK_MAX_USES, type CreateTeamLinkBody, type Group, type SkillInfo, type TeamLinkResponse, type TeamLinkState } from '@mycel/shared/api'
+import { TEAM_LINK_DAYS, TEAM_LINK_DEFAULT_DAYS, TEAM_LINK_DEFAULT_USES, TEAM_LINK_MAX_USES, skillTitle, type CreateTeamLinkBody, type Group, type SkillInfo, type TeamLinkResponse, type TeamLinkState } from '@mycel/shared/api'
 import { api, API } from '../../lib/api'
 import { formatDateTime } from '../../lib/format'
 import { teamLinkMessage } from '../../lib/team-link'
 import { useLocale, useT, type MessageKey } from '../../i18n'
 import { useMe } from '../../store/session'
 import QrCode from '../QrCode'
-import { Badge, Button, CopyButton, Field, confirmDialog, inputCls } from '../ui'
+import { Button, Field, confirmDialog, inputCls, useCopy } from '../ui'
 import { GroupChecks } from '../../pages/admin/people-choices'
-import { Card, Loadable, useAction, useActionOk, useLoad } from '../../pages/admin/common'
+import { Loadable, OneLine, useAction, useActionOk, useLoad } from '../../pages/admin/common'
 
 /** The panel with its data: loads the link, makes and revokes it. `skillPicker` false: no skill list (the wizard);
  * `skillPath`: the wizard's skill for a new link (without one, a changed link keeps the skill it had). */
@@ -118,63 +118,87 @@ export function TeamLinkView({ data, inviter, groups, skills, fixedSkillPath, bu
     )
   }
   const url = link.url!
-  const skillName = link.skill?.name ?? null
+  // the skill as people read it (its title, else its name): in the message and the line under it
+  const skillName = link.skill ? (link.skill.title ?? link.skill.name) : null
   const message = teamLinkMessage(t, { name: inviter, url, skill: skillName })
   const groupNames = link.groupIds.map((id) => groups.find((g) => g.id === id)?.name).filter((x): x is string => !!x)
+  // on a phone a frame near the screen edge reads as tight: one primary action (the message holds the link), the rest
+  // as plain text, a hairline and quiet text buttons (docs/DESIGN-SYSTEM.md, Layout patterns)
   return (
-    <div className="space-y-4" data-testid="team-link">
+    <div className="space-y-5" data-testid="team-link">
       {link.limitedUntil && (
         <p className="rounded-lg bg-warn-soft px-3 py-2 text-sm text-warn" data-testid="team-link-limited">
           {t('teamLink.limited', { time: formatDateTime(link.limitedUntil, locale) })}
         </p>
       )}
-      <div className="space-y-1.5">
+      <div>
+        <p className="text-xs font-medium text-muted">{t('teamLink.messagePreview')}</p>
+        <blockquote className="mt-2 border-l-2 border-line pl-3 text-sm leading-6 whitespace-pre-wrap break-words text-ink" data-testid="team-link-message">
+          {message}
+        </blockquote>
+        <CopyPrimary text={message} label={t('teamLink.copyMessage')} />
+      </div>
+      <div>
         <p className="text-xs font-medium text-muted">{t('teamLink.link')}</p>
-        <div className="flex items-center gap-2 rounded-lg border border-line bg-subtle px-3 py-2">
-          <code className="min-w-0 flex-1 font-mono text-sm break-all select-all" data-testid="team-link-url">{url}</code>
+        <p className="mt-1 font-mono text-[13px] leading-5 break-all text-ink select-all" data-testid="team-link-url">{url}</p>
+        <div className="mt-1 -ml-2.5 flex flex-wrap items-center gap-1">
+          <CopyQuiet text={url} label={t('teamLink.copyLink')} />
+          <Button size="sm" variant="ghost" onClick={() => setQr((v) => !v)} aria-expanded={qr} data-testid="team-link-qr">
+            <QrIcon size={14} aria-hidden /> {t('members.qr')}
+          </Button>
         </div>
-      </div>
-      <div className="flex flex-wrap gap-2">
-        <CopyButton text={url} label={t('teamLink.copyLink')} showLabel className="border border-line" />
-        <CopyButton text={message} label={t('teamLink.copyMessage')} showLabel className="border border-line" />
-        <Button size="sm" variant="ghost" onClick={() => setQr((v) => !v)} aria-expanded={qr}>
-          <QrIcon size={14} aria-hidden /> {t('members.qr')}
-        </Button>
-      </div>
-      {qr && (
-        <div className="flex justify-center">
-          <QrCode text={url} label={t('members.qr')} />
-        </div>
-      )}
-      <div className="rounded-lg border border-line px-3 py-2">
-        <p className="mb-1 text-xs font-medium text-muted">{t('teamLink.messagePreview')}</p>
-        <p className="text-sm whitespace-pre-wrap break-words text-ink" data-testid="team-link-message">{message}</p>
-      </div>
-      <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 text-sm">
-        <dt className="text-muted">{t('teamLink.usesLabel')}</dt>
-        <dd data-testid="team-link-uses">{t('teamLink.uses', { used: link.uses, max: link.maxUses })}</dd>
-        <dt className="text-muted">{t('teamLink.expiresLabel')}</dt>
-        <dd>{t('teamLink.until', { date: formatDateTime(link.expiresAt, locale) })}</dd>
-        <dt className="text-muted">{t('admin.groups')}</dt>
-        <dd>{groupNames.length ? groupNames.join(', ') : t('members.noGroups')}</dd>
-        {link.skill && (
-          <>
-            <dt className="text-muted">{t('teamLink.skill')}</dt>
-            <dd>{skillName ?? link.skill.path}</dd>
-          </>
+        {qr && (
+          <div className="mt-2">
+            <QrCode text={url} label={t('members.qr')} />
+          </div>
         )}
-      </dl>
-      <p className="text-xs text-muted">
-        <Badge>{t('role.member')}</Badge> {t('teamLink.memberNote')}
-        {left !== null && <> · {t('teamLink.seatsLeft', { n: left })}</>}
-      </p>
-      <div className="flex flex-wrap justify-end gap-2">
+      </div>
+      <div className="space-y-1 text-[13px] leading-5 text-muted" data-testid="team-link-facts">
+        <p>
+          {t('teamLink.usesLabel')} <span className="text-ink tabular-nums" data-testid="team-link-uses">{t('teamLink.uses', { used: link.uses, max: link.maxUses })}</span>
+          {' · '}{t('teamLink.until', { date: formatDateTime(link.expiresAt, locale) })}
+        </p>
+        {(link.skill || groups.length > 0) && (
+          <p>
+            {link.skill && <>{t('teamLink.skill')} <span className="text-ink" data-testid="team-link-skill-name">{skillName ?? link.skill.path}</span></>}
+            {link.skill && groups.length > 0 && ' · '}
+            {groups.length > 0 && (groupNames.length ? <>{t('admin.groups')} <span className="text-ink">{groupNames.join(', ')}</span></> : t('members.noGroups'))}
+          </p>
+        )}
+        <p>
+          {t('teamLink.memberNote')}
+          {left !== null && <> · {t('teamLink.seatsLeft', { n: left })}</>}
+        </p>
+      </div>
+      <div className="-ml-2.5 flex flex-wrap items-center gap-1">
         <Button size="sm" variant="ghost" disabled={busy} onClick={() => setEditing(true)} data-testid="team-link-replace">
           <RefreshCw size={14} aria-hidden /> {t('teamLink.replace')}
         </Button>
         <RevokeButton busy={busy} onRevoke={onRevoke} />
       </div>
     </div>
+  )
+}
+
+/** The one primary action: copy the ready-made message (it ends with the link). Full width on a phone. */
+function CopyPrimary({ text, label }: { text: string; label: string }) {
+  const t = useT()
+  const { copied, copy } = useCopy()
+  return (
+    <Button variant="primary" className="mt-3 max-sm:w-full" onClick={() => void copy(text)} data-testid="team-link-copy-message">
+      {copied ? <Check size={14} aria-hidden /> : <Copy size={14} aria-hidden />} {copied ? t('common.copied') : label}
+    </Button>
+  )
+}
+
+/** A quiet text button that copies (the link alone). */
+function CopyQuiet({ text, label }: { text: string; label: string }) {
+  const t = useT()
+  const { copied, copy } = useCopy()
+  return (
+    <Button size="sm" variant="ghost" onClick={() => void copy(text)} data-testid="team-link-copy-link">
+      {copied ? <Check size={14} className="text-ok" aria-hidden /> : <Copy size={14} aria-hidden />} {copied ? t('common.copied') : label}
+    </Button>
   )
 }
 
@@ -250,7 +274,7 @@ function CreateForm({ initial, groups, skills, fixedSkillPath, seatsLeft, planLi
             <option value="">{t('teamLink.noSkill')}</option>
             {skills.map((s) => (
               <option key={s.path} value={s.path}>
-                {s.name}
+                {skillTitle(s)}
               </option>
             ))}
           </select>
@@ -273,12 +297,20 @@ function CreateForm({ initial, groups, skills, fixedSkillPath, seatsLeft, planLi
   )
 }
 
-/** Admin › Members: the team invite link as a card. */
+/** Admin › Members: the team invite link. A card from 640px (the admin cards' frame); on a phone no frame of its own,
+ * only a hairline under it, as the Home goal card (a frame near the screen edge reads as tight). */
 export function TeamLinkCard() {
   const t = useT()
+  const id = useId()
   return (
-    <Card title={t('teamLink.title')} desc={t('teamLink.desc')}>
-      <TeamLinkPanel />
-    </Card>
+    <section className="mb-6 border-b border-line pb-6 sm:rounded-2xl sm:border sm:bg-surface sm:pb-0" aria-labelledby={id} data-testid="team-link-card">
+      <header className="pb-4 sm:border-b sm:border-line sm:px-4 sm:py-3">
+        <h2 id={id} className="text-sm font-semibold">{t('teamLink.title')}</h2>
+        <OneLine className="mt-0.5 text-xs text-muted">{t('teamLink.desc')}</OneLine>
+      </header>
+      <div className="sm:p-4">
+        <TeamLinkPanel />
+      </div>
+    </section>
   )
 }

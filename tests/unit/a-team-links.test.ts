@@ -16,10 +16,10 @@ const plan = (maxActiveMembers: number) => Plan.parse({ format: 1, plan: 'team',
 const tokenOf = (url: string) => new URL(url).hash.replace(/^#t=/, '')
 const audits = (h: Harness, action: string) => h.ctx.db.query('SELECT actor_id, target, detail FROM audit_log WHERE action = ? ORDER BY id').all(action) as { actor_id: string | null; target: string; detail: string }[]
 
-function writeSkill(h: Harness, rel: string, name: string) {
+function writeSkill(h: Harness, rel: string, name: string, title?: string) {
   const abs = path.join(h.ctx.config.teamRoot, rel)
   fs.mkdirSync(path.dirname(abs), { recursive: true })
-  fs.writeFileSync(abs, `---\nname: ${name}\ndescription: Writes ad copy.\n---\nWrite three lines of ad copy.\n`)
+  fs.writeFileSync(abs, `---\nname: ${name}\ndescription: Writes ad copy.\n${title ? `metadata:\n  title: ${title}\n` : ''}---\nWrite three lines of ad copy.\n`)
 }
 
 let h: Harness
@@ -290,8 +290,9 @@ describe('skill deep link', () => {
     setPlanForTests(null)
     writeSkill(h, 'skills/marketing/ad-copy/SKILL.md', 'ad-copy')
     const { link } = await owner.call('POST', '/api/admin/team-link', { skillPath: 'skills/marketing/ad-copy/SKILL.md' })
-    expect(link.skill).toEqual({ path: 'skills/marketing/ad-copy/SKILL.md', name: 'ad-copy' })
-    expect((await info(tokenOf(link.url))).body.skillName).toBe('ad-copy')
+    // without a title, people read its name
+    expect(link.skill).toEqual({ path: 'skills/marketing/ad-copy/SKILL.md', name: 'ad-copy', title: 'ad-copy' })
+    expect((await info(tokenOf(link.url))).body).toMatchObject({ skillName: 'ad-copy', skillTitle: 'ad-copy' })
     const r = await join(tokenOf(link.url))
     expect(r.status).toBe(201)
     expect(r.body.next).toBe(`/skills?run=${encodeURIComponent('skills/marketing/ad-copy/SKILL.md')}`)
@@ -299,6 +300,15 @@ describe('skill deep link', () => {
     for (const p of ['shared/x.md', `users/${adminId}/skills/mine/SKILL.md`, 'skills/nope/SKILL.md', '../etc/passwd']) {
       expect((await owner.try('POST', '/api/admin/team-link', { skillPath: p })).status).toBe(400)
     }
+  })
+
+  test('a skill with a title: the card and the join page name it by its title, the deep link still by its path', async () => {
+    setPlanForTests(null)
+    writeSkill(h, 'skills/marketing/ad-copy/SKILL.md', 'ad-copy', '광고 문구')
+    const { link } = await owner.call('POST', '/api/admin/team-link', { skillPath: 'skills/marketing/ad-copy/SKILL.md' })
+    expect(link.skill).toEqual({ path: 'skills/marketing/ad-copy/SKILL.md', name: 'ad-copy', title: '광고 문구' })
+    expect((await info(tokenOf(link.url))).body).toMatchObject({ skillName: 'ad-copy', skillTitle: '광고 문구' })
+    expect((await join(tokenOf(link.url))).body.next).toBe(`/skills?run=${encodeURIComponent('skills/marketing/ad-copy/SKILL.md')}`)
   })
 
   test('the folder rules decide: a group-only skill needs that group on the link, and a lost right drops the deep link', async () => {
@@ -312,11 +322,11 @@ describe('skill deep link', () => {
     expect((await info(tokenOf(link.url))).body.skillName).toBe('pitch')
     // the group loses the folder after the link was made: joining still works, but lands on Home
     await owner.call('PUT', `/api/admin/folders/${folder.id}/rules`, { rules: [{ subjectType: 'everyone', subjectId: null, access: 'none' }] })
-    expect((await info(tokenOf(link.url))).body.skillName).toBeNull()
+    expect((await info(tokenOf(link.url))).body).toMatchObject({ skillName: null, skillTitle: null })
     const r = await join(tokenOf(link.url))
     expect(r.status).toBe(201)
     expect(r.body.next).toBeNull()
-    expect((await owner.call('GET', '/api/admin/team-link')).link.skill).toEqual({ path: 'skills/sales/pitch/SKILL.md', name: 'pitch' })
+    expect((await owner.call('GET', '/api/admin/team-link')).link.skill).toEqual({ path: 'skills/sales/pitch/SKILL.md', name: 'pitch', title: 'pitch' })
   })
 
   test('a skill of the marketing pack (onboarding C): the new member lands on its form, and their own list carries it with its fields', async () => {

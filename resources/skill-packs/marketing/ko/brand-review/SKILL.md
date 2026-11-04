@@ -2,6 +2,7 @@
 name: brand-review
 description: 브랜드 톤 검토 — 초안이 우리 회사 말투와 피할 표현에 맞는지 보고, 고칠 곳과 고친 글을 함께 돌려줘요.
 metadata:
+  title: 브랜드 톤 검토
   inputs: |
     [
       {"name": "draft", "label": "검토할 초안", "placeholder": "글을 붙여 넣어 주세요", "required": true, "multiline": true},

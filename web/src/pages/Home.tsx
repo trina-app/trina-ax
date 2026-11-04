@@ -143,8 +143,9 @@ const CHECK_KEY = 'mycel.ownerChecklistHidden'
 const shortNames = (names: string[]) => names.slice(0, 3).join(', ') + (names.length > 3 ? ` +${names.length - 3}` : '')
 
 /** Owner's first screen: AI connection · invite members · folder permissions · backups. Hidden once all done and
- * everyone can use AI ("No AI": people with no AI connection they can use, the same list as Admin › Members). */
-function OwnerChecklist() {
+ * everyone can use AI ("No AI": people with no AI connection they can use, the same list as Admin › Members).
+ * Exported for its test. */
+export function OwnerChecklist() {
   const t = useT()
   const [hidden, setHidden] = useState(() => {
     try { return localStorage.getItem(CHECK_KEY) === '1' } catch { return false }
@@ -153,11 +154,13 @@ function OwnerChecklist() {
   useEffect(() => {
     if (hidden) return
     let live = true
-    Promise.allSettled([api.call(API.engines), api.call(API.listUsers, { query: { noAi: '1' } }), api.call(API.listInvites), api.call(API.listFolders), api.call(API.listBackups), api.call(API.listSkills)]).then(([e, u, i, f, b, sk]) => {
+    Promise.allSettled([api.call(API.engines), api.call(API.listUsers, { query: { noAi: '1' } }), api.call(API.listInvites), api.call(API.listFolders), api.call(API.listBackups), api.call(API.listSkills), api.call(API.getTeamLink)]).then(([e, u, i, f, b, sk, tl]) => {
       if (!live) return
       setState({
         engine: e.status === 'fulfilled' && e.value.engines.some((x) => x.enabled && x.status === 'ok'),
-        members: (u.status === 'fulfilled' && u.value.items.length > 1) || (i.status === 'fulfilled' && i.value.items.length > 0),
+        // invited: someone joined, an invite waits, or the team invite link works now (made in the welcome steps or
+        // Admin › Members; an expired, used-up or stopped link no longer invites anyone)
+        members: (u.status === 'fulfilled' && u.value.items.length > 1) || (i.status === 'fulfilled' && i.value.items.length > 0) || (tl.status === 'fulfilled' && tl.value.link?.state === 'active'),
         // the starting rules (shared/ and skills/, updatedBy null) come with every new team: done once someone set one
         folders: f.status === 'fulfilled' && f.value.items.some((x) => x.rules.some((r) => r.updatedBy !== null)),
         // a team skill: the caller's own personal skills do not count

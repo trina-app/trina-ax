@@ -2675,7 +2675,7 @@ export const id: Record<MessageKey, string> = {
   "teamLink.title": "Tautan undangan tim",
   "teamLink.desc": "Satu tautan untuk banyak orang. Tempel di Slack, KakaoTalk, atau chat lain.",
   "teamLink.link": "Tautan undangan",
-  "teamLink.copyLink": "Salin tautan",
+  "teamLink.copyLink": "Salin tautannya saja",
   "teamLink.copyMessage": "Salin pesan",
   "teamLink.messagePreview": "Pesan yang dikirim bersama tautan",
   "teamLink.message": "{name} mengajak Anda bekerja bersama di {product}. Anda bisa langsung bergabung lewat tautan ini: {url}",

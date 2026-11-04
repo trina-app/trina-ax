@@ -2635,7 +2635,7 @@ export const ja: Record<MessageKey, string> = {
   "teamLink.title": "チーム招待リンク",
   "teamLink.desc": "1つのリンクで複数の人が参加できます。Slack や KakaoTalk などに貼り付けてください。",
   "teamLink.link": "招待リンク",
-  "teamLink.copyLink": "リンクをコピー",
+  "teamLink.copyLink": "リンクだけコピー",
   "teamLink.copyMessage": "メッセージをコピー",
   "teamLink.messagePreview": "一緒に送るメッセージ",
   "teamLink.message": "{name}さんが{product}で一緒に働こうと招待しています。このリンクからすぐに参加できます: {url}",

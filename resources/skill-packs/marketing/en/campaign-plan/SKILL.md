@@ -2,6 +2,7 @@
 name: campaign-plan
 description: Campaign plan — takes a goal and period, and makes a one-page campaign plan with the message, channels, timeline and how success is measured.
 metadata:
+  title: Campaign plan
   inputs: |
     [
       {"name": "goal", "label": "Goal of this campaign", "placeholder": "e.g. more free-trial sign-ups in December", "required": true},

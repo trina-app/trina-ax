@@ -9,7 +9,7 @@
 import clsx from 'clsx'
 import { Sparkles } from 'lucide-react'
 import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react'
-import type { SkillInfo } from '@mycel/shared/api'
+import { skillSummary, skillTitle, type SkillInfo } from '@mycel/shared/api'
 import { api, API } from '../../lib/api'
 import { useT } from '../../i18n'
 import { SkillFormDialog } from '../skills/SkillForm'
@@ -20,7 +20,8 @@ export function matchSkills(skills: SkillInfo[], text: string): SkillInfo[] | nu
   const q = text.slice(1).toLowerCase()
   // a chosen skill followed by its input: done
   if (skills.some((s) => q.startsWith(s.name.toLowerCase() + ' '))) return null
-  const hits = skills.filter((s) => s.name.toLowerCase().includes(q) || s.path.toLowerCase().includes(q))
+  // the name people read counts too: "/광고" finds ad-copy by its title
+  const hits = skills.filter((s) => s.name.toLowerCase().includes(q) || s.path.toLowerCase().includes(q) || !!s.title?.toLowerCase().includes(q))
   return hits.sort((a, b) => Number(!a.name.toLowerCase().startsWith(q)) - Number(!b.name.toLowerCase().startsWith(q)))
 }
 
@@ -114,11 +115,13 @@ export function useSkillMenu(text: string, setText: (s: string) => void) {
               // one highlighted row: the pointer moving onto a row makes it the chosen one (no second hover colour)
               className={clsx('flex w-full flex-col rounded-xl px-2 py-1.5 text-left', i === active && 'bg-accent-soft')}
             >
-              <span className="flex items-center gap-1.5 text-sm font-medium text-ink">
-                /{s.name}
-                {s.personal && <span className="rounded-full bg-hover px-1.5 text-[11px] font-normal text-muted" data-testid="skill-personal">{t('skills.personal')}</span>}
+              {/* the name people read first; the command it writes beside it ("/ad-copy") */}
+              <span className="flex min-w-0 items-center gap-1.5 text-sm font-medium text-ink">
+                <span className="truncate">{s.title ? skillTitle(s) : `/${s.name}`}</span>
+                {s.title && <span className="shrink-0 font-mono text-xs font-normal text-faint">/{s.name}</span>}
+                {s.personal && <span className="shrink-0 rounded-full bg-hover px-1.5 text-[11px] font-normal text-muted" data-testid="skill-personal">{t('skills.personal')}</span>}
               </span>
-              <span className="truncate text-xs text-muted">{s.description || s.path}</span>
+              <span className="truncate text-xs text-muted">{skillSummary(s) || s.path}</span>
             </button>
           </li>
         ))}

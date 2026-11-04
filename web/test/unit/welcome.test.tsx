@@ -318,7 +318,10 @@ describe('after the first result', () => {
       expect(m.get('welcome-invite-bar').textContent).toContain(translate('ko', 'welcome.bar.text'))
       await m.click('welcome-invite-open')
       await m.until(() => m.find('team-link-create'), 'the invite step')
-      expect(m.get('invite-step').textContent).toContain("방금 쓴 '광고 문구' 스킬, 팀원도 써 보게 할까요?")
+      // the dialog's title asks the question; the step inside adds no second heading
+      expect(m.html()).toContain("방금 쓴 '광고 문구' 스킬, 팀원도 써 보게 할까요?")
+      expect(m.get('invite-step').textContent).not.toContain('방금 쓴')
+      expect(m.get('invite-step').querySelector('h2')).toBeNull()
       expect(progress!.inviteShownAt).not.toBeNull()
       await m.click('team-link-create')
       await m.until(() => called('POST /api/admin/team-link').length, 'the link made')

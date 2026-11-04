@@ -199,6 +199,8 @@ export class MockServer {
   cloud = false
   /** the 7-day team goal Home shows owners and admins (onboarding G): none unless /__test/team-goal sets one */
   teamGoal: TeamGoal | null = null
+  /** Home's frequent skills (GET /api/skills/popular): none unless /__test/popular-skills names some by path */
+  popular: { path: string; uses: number; users: number }[] = []
   /** POST /__test/dev-env {box?: 'running'}: the dev environment (experiment) of every project is on until the next
    * reset, with a stopped box (or a running one) and a few lines of activity; otherwise its endpoints answer 404, like
    * a server without MYCEL_DEV_ENV */
@@ -226,6 +228,7 @@ export class MockServer {
     this.aiList = undefined
     this.cloud = false
     this.teamGoal = null
+    this.popular = []
     this.devEnv = null
     this.epoch = uuidv7()
     this.seq = 0
@@ -514,13 +517,19 @@ export class MockServer {
     return this.skillManagers.filter((g) => (g.subjectType === 'user' && g.subjectId === u.id) || (g.subjectType === 'group' && u.groupIds.includes(g.subjectId))).map((g) => g.path)
   }
   teamLinkSkillName(path: string): string | null {
-    return this.skillsFor(this.users.find((u) => u.role === 'owner')!).find((x) => x.path === path && !x.personal)?.name ?? null
+    return this.teamLinkSkill(path)?.name ?? null
+  }
+  /** the team skill a link names, as the owner reads it (name and title) */
+  teamLinkSkill(path: string, viewer = this.users.find((u) => u.role === 'owner')!): { name: string; title: string } | null {
+    const s = this.skillsFor(viewer).find((x) => x.path === path && !x.personal)
+    return s ? { name: s.name, title: s.title ?? s.name } : null
   }
   teamLinkResponse(req: Request, viewer: User) {
     const l = this.teamLink
     const used = this.users.filter((u) => u.status === 'active').length
     if (!l) return { link: null, seats: { used, limit: null } }
-    const skill = l.skillPath ? { path: l.skillPath, name: this.skillsFor(viewer).find((x) => x.path === l.skillPath)?.name ?? null } : null
+    const named = l.skillPath ? this.teamLinkSkill(l.skillPath, viewer) : null
+    const skill = l.skillPath ? { path: l.skillPath, name: named?.name ?? null, title: named?.title ?? null } : null
     return {
       link: { id: l.id, url: `${new URL(req.url).origin}/join#t=${l.token}`, groupIds: l.groupIds, skill, maxUses: l.maxUses, uses: l.uses, createdBy: l.createdBy, createdAt: l.createdAt, expiresAt: l.expiresAt, state: l.uses >= l.maxUses ? 'used_up' as const : 'active' as const },
       seats: { used, limit: null },
@@ -528,15 +537,17 @@ export class MockServer {
   }
   /** like server/src/chat/skills.ts listSkills: skills/**.md and the caller's own users/<id>/skills/ with a name header,
    * only where the caller can read */
-  skillsFor(u: User): { path: string; name: string; description: string; personal?: true }[] {
+  skillsFor(u: User): { path: string; name: string; description: string; title?: string; personal?: true }[] {
     const mine = `users/${u.id}/skills/`
-    const out: { path: string; name: string; description: string; personal?: true }[] = []
+    const out: { path: string; name: string; description: string; title?: string; personal?: true }[] = []
     for (const [p, n] of this.files) {
       if (n.type !== 'file' || !p.endsWith('.md') || !(p.startsWith('skills/') || p.startsWith(mine)) || this.access(p, u) === 'none') continue
       const head = /^---\n([\s\S]*?)\n---/.exec(dec.decode(n.data!))?.[1]
       const name = head ? /^name:\s*(.+)$/m.exec(head)?.[1]?.trim() : undefined
       if (!name) continue
-      out.push({ path: p, name, description: /^description:\s*(.+)$/m.exec(head!)?.[1]?.trim() ?? '', ...(p.startsWith(mine) ? { personal: true as const } : {}) })
+      // a SKILL.md's metadata title (the name people read), as the server reads it
+      const title = p.endsWith('/SKILL.md') ? /^metadata:\n(?:[ \t]+.*\n)*?[ \t]+title:\s*(.+)$/m.exec(head!)?.[1]?.trim() : undefined
+      out.push({ path: p, name, description: /^description:\s*(.+)$/m.exec(head!)?.[1]?.trim() ?? '', ...(title ? { title } : {}), ...(p.startsWith(mine) ? { personal: true as const } : {}) })
     }
     return out.sort((a, b) => a.name.localeCompare(b.name) || a.path.localeCompare(b.path))
   }
@@ -923,7 +934,8 @@ export class MockServer {
   // ---------------- handlers ----------------
   handlers: Partial<Record<ApiName, Handler>> = {
     frequentQuestions: () => ({ items: [], days: 30, sampled: false }),
-    popularSkills: () => ({ items: [], days: 30 }),
+    // like server/src/skills/popular.ts: only skills the caller can read now, with their title
+    popularSkills: (c) => ({ items: this.popular.flatMap((p) => { const s = this.skillsFor(c.user).find((x) => x.path === p.path && !x.personal); return s ? [{ ...s, uses: p.uses, users: p.users }] : [] }), days: 30 }),
     listSkillIssues: () => ({ items: [] }),
     // the "/" menu, the Skills page and the owner's checklist on the home screen: like the server, the skills the caller
     // can read (none in the seed; POST /__test/skills adds some)
@@ -1496,7 +1508,8 @@ export class MockServer {
       if (!l && this.revokedTeamLinks.has(c.body.token)) return { teamName: this.settings.teamName, valid: false, problem: 'revoked', expiresAt: now(), skillName: null }
       if (!l) fail('not_found', 404)
       const problem = l!.uses >= l!.maxUses ? 'used_up' : null
-      return { teamName: this.settings.teamName, valid: !problem, problem, expiresAt: l!.expiresAt, skillName: l!.skillPath ? this.teamLinkSkillName(l!.skillPath) : null }
+      const skill = l!.skillPath ? this.teamLinkSkill(l!.skillPath) : null
+      return { teamName: this.settings.teamName, valid: !problem, problem, expiresAt: l!.expiresAt, skillName: skill?.name ?? null, skillTitle: skill?.title ?? null }
     },
     joinTeamLink: (c) => {
       const l = this.teamLink?.token === c.body.token ? this.teamLink : null
@@ -1543,7 +1556,7 @@ export class MockServer {
       const p = (this.handlers.updateWelcome!({ ...c, body: {} }) as { progress: WelcomeProgress }).progress
       if (p.pack) return { progress: p, install: null, outcome: 'already' }
       for (const d of ['skills/marketing', 'skills/marketing/ad-copy']) this.files.set(d, this.files.get(d) ?? { type: 'folder', mtime: at })
-      this.putFile(WELCOME_RESULT_SKILL, '---\nname: ad-copy\ndescription: 광고 문구 — 광고 문구 3안\n---\n# 광고 문구\n')
+      this.putFile(WELCOME_RESULT_SKILL, '---\nname: ad-copy\ndescription: 광고 문구 — 광고 문구 3안\nmetadata:\n  title: 광고 문구\n---\n# 광고 문구\n')
       p.pack = { id: 'marketing', at, skillPath: WELCOME_RESULT_SKILL }
       return { progress: p, install: { pack: 'marketing', locale: this.settings.defaultLocale, skills: [{ name: 'ad-copy', path: WELCOME_RESULT_SKILL, status: 'created' }], folders: [] }, outcome: 'installed' }
     },
@@ -2379,6 +2392,7 @@ export class MockServer {
     else if (p === '/__test/server-version') this.serverVersion = String(body.version)
     else if (p === '/__test/upload-delay') this.uploadDelayMs = Number(body.ms)
     else if (p === '/__test/cloud') this.cloud = body.on !== false
+    else if (p === '/__test/popular-skills') this.popular = (body.items as { path: string; uses: number; users: number }[]) ?? []
     else if (p === '/__test/team-goal') this.teamGoal = body.goal === null ? null : TeamGoal.parse(body.goal)
     else if (p === '/__test/dev-env') this.devEnv = { box: body.box === 'running' ? 'running' : 'stopped' }
     else if (p === '/__test/skill-list') this.aiList = SkillsOverview.shape.aiList.parse(body)
@@ -2436,9 +2450,9 @@ export class MockServer {
     else if (p === '/__test/artifact') this.nextArtifact = { type: (['html', 'svg', 'react', 'mermaid'] as const).find((t) => t === body.type) ?? 'html', content: String(body.content) }
     else if (p === '/__test/skills') {
       // skill files: [{path, name, description}] (a name header each), e.g. skills/weekly.md or users/bob/skills/x.md
-      for (const f of (body.files as { path: string; name: string; description?: string }[]) ?? []) {
+      for (const f of (body.files as { path: string; name: string; description?: string; title?: string }[]) ?? []) {
         for (let d = f.path.lastIndexOf('/'); d > 0; d = f.path.lastIndexOf('/', d - 1)) this.files.set(f.path.slice(0, d), this.files.get(f.path.slice(0, d)) ?? { type: 'folder', mtime: now() })
-        this.putFile(f.path, `---\nname: ${f.name}\ndescription: ${f.description ?? ''}\n---\n${f.name} steps\n`)
+        this.putFile(f.path, `---\nname: ${f.name}\ndescription: ${f.description ?? ''}\n${f.title ? `metadata:\n  title: ${f.title}\n` : ''}---\n${f.name} steps\n`)
       }
     }
     else if (p === '/__test/revoke') {

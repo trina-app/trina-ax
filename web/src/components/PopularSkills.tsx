@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
-import type { PopularSkills as Result } from '@mycel/shared/api'
+import { skillSummary, skillTitle, type PopularSkills as Result } from '@mycel/shared/api'
 import { api, API } from '../lib/api'
 import { useT } from '../i18n'
 import { accessChanged, reloadAsked, skillsChanged } from '../store/live'
@@ -39,9 +39,9 @@ export function PopularSkillsList({ result, limit, onChoose, className = 'mb-5' 
     <ol className="space-y-3">{items.map(item => <li key={item.path} className="flex items-center gap-3">
       <div className="min-w-0 flex-1">
         {onChoose
-          ? <button type="button" onClick={() => onChoose(skillPrompt(item.name))} className="text-left text-sm font-medium text-accent-text hover:underline">{item.name}</button>
-          : <Link to={`/?prompt=${encodeURIComponent(skillPrompt(item.name))}`} className="text-sm font-medium text-accent-text hover:underline">{item.name}</Link>}
-        <p className="line-clamp-2 text-xs text-muted">{item.description}</p>
+          ? <button type="button" onClick={() => onChoose(skillPrompt(item.name))} className="text-left text-sm font-medium text-accent-text hover:underline">{skillTitle(item)}</button>
+          : <Link to={`/?prompt=${encodeURIComponent(skillPrompt(item.name))}`} className="text-sm font-medium text-accent-text hover:underline">{skillTitle(item)}</Link>}
+        <p className="line-clamp-2 text-xs text-muted">{skillSummary(item)}</p>
       </div>
       <span className="shrink-0 text-xs text-muted">{t('skills.popularCount', { uses: item.uses, users: item.users })}</span>
     </li>)}</ol>

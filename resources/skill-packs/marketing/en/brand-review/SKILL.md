@@ -2,6 +2,7 @@
 name: brand-review
 description: Brand voice review — checks a draft against our tone and words to avoid, and returns what to change with the revised text.
 metadata:
+  title: Brand voice review
   inputs: |
     [
       {"name": "draft", "label": "Draft to review", "placeholder": "Paste the text here", "required": true, "multiline": true},

@@ -18,7 +18,7 @@ import path from 'node:path'
 import type { Context } from 'hono'
 import type { Database } from 'bun:sqlite'
 import {
-  TEAM_LINK_DEFAULT_USES, TEAM_LINK_FRAGMENT_KEY,
+  TEAM_LINK_DEFAULT_USES, TEAM_LINK_FRAGMENT_KEY, skillTitle,
   type CreateTeamLinkBody, type JoinTeamLinkBody, type JoinTeamLinkResponse, type Locale, type TeamLink, type TeamLinkInfo,
   type TeamLinkProblem, type TeamLinkResponse, type TeamLinkState,
 } from '@mycel/shared/api'
@@ -77,11 +77,15 @@ export function teamLinkUrl(c: Context<AppEnv>, ctx: AppContext, token: string):
 /** Someone about to join with these groups (the same stand-in as Admin › "who will see what", access-explain.ts). */
 const newMember = (groups: string[]): Principal => ({ id: '\u0000new-person', name: '', role: 'member', groups })
 
-/** A team skill (skills/…, never a personal one) this person can open, or null. */
-function teamSkill(ctx: AppContext, who: Principal, p: string): { path: string; name: string } | null {
+/** A team skill (skills/…, never a personal one) this person can open, or null. `title`: the name people read (its
+ * metadata title, else its name), for the card, the join page and the ready-made message. */
+function teamSkill(ctx: AppContext, who: Principal, p: string): { path: string; name: string; title: string } | null {
   const s = readSkill(ctx.files, who, p)
-  return s && s.path.split('/')[0] === 'skills' ? { path: s.path, name: s.name } : null
+  return s && s.path.split('/')[0] === 'skills' ? { path: s.path, name: s.name, title: skillTitle(s) } : null
 }
+
+/** The link's skill as the viewer may read it now: name and title null when they cannot. */
+const skillOf = (s: { name: string; title: string } | null | undefined, path: string) => ({ path, name: s?.name ?? null, title: s?.title ?? null })
 
 /** The link's maker can still make it now: an active owner or admin (a team link only makes members). */
 function makerOk(db: Database, r: Row): boolean {
@@ -123,7 +127,7 @@ function toTeamLink(c: Context<AppEnv>, ctx: AppContext, r: Row, viewer: Princip
   }
   return {
     id: r.id, url, groupIds: parseIds(r.group_ids),
-    skill: r.skill_path ? { path: r.skill_path, name: (viewer && teamSkill(ctx, viewer, r.skill_path)?.name) ?? null } : null,
+    skill: r.skill_path ? skillOf(viewer && teamSkill(ctx, viewer, r.skill_path), r.skill_path) : null,
     maxUses: r.max_uses, uses: r.uses, createdBy: userRef(ctx.db, r.created_by), createdAt: r.created_at, expiresAt: r.expires_at,
     state: stateOf(ctx.db, r, authOf(ctx).now()),
     limitedUntil: limitedUntil(ctx, r.id),
@@ -225,8 +229,8 @@ export function teamLinkInfo(c: Context<AppEnv>, ctx: AppContext, token: string)
   const r = rowByToken(ctx.db, token)
   if (!r) { guard.fail(); return fail('not_found') }
   const problem = problemOf(ctx.db, r, authOf(ctx).now())
-  const skillName = !problem && r.skill_path ? teamSkill(ctx, newMember(existingGroups(ctx.db, parseIds(r.group_ids))), r.skill_path)?.name ?? null : null
-  return { teamName: getTeamSettings(ctx.db).teamName, valid: problem === null, problem, expiresAt: r.expires_at, skillName }
+  const skill = !problem && r.skill_path ? teamSkill(ctx, newMember(existingGroups(ctx.db, parseIds(r.group_ids))), r.skill_path) : null
+  return { teamName: getTeamSettings(ctx.db).teamName, valid: problem === null, problem, expiresAt: r.expires_at, skillName: skill?.name ?? null, skillTitle: skill?.title ?? null }
 }
 
 class UsernameTaken extends Error {}

@@ -8,7 +8,7 @@ import path from 'node:path'
 import { addMember, harness, withOwner, type Harness } from './a-lib'
 import { checkSkill, listSkills, skillIssues } from '../../server/src/chat/skills'
 import { setSetting } from '../../server/src/admin/settings'
-import { SKILL_PACKS } from '../../server/src/onboarding/skill-packs'
+import { earlierPackTexts, SKILL_PACKS } from '../../server/src/onboarding/skill-packs'
 import { PROFILE_PATH } from '../../server/src/onboarding/profile'
 import { CompanyProfileResponse, profilePrefill } from '@mycel/shared/api'
 
@@ -80,6 +80,35 @@ test('installing again changes nothing, keeps an edited skill and brings back a 
   expect(third.body.skills.filter((s: any) => s.status !== 'present').map((s: any) => s.name)).toEqual(['ad-copy'])
 })
 
+test('a file an earlier release installed (no title line) is untouched: present, not kept, and not replaced', async () => {
+  const { owner, mia, root } = await setup()
+  expect((await install(owner)).status).toBe(200)
+  // what the first release of the pack wrote: the same text without its title line
+  const old: Record<string, string> = {}
+  for (const name of NAMES) {
+    const abs = path.join(root, `skills/marketing/${name}/SKILL.md`)
+    const [earlier] = earlierPackTexts(SKILL_PACKS.marketing.skills.ko![name]!)
+    expect(earlier, name).toBeDefined()
+    expect(earlier!.includes('title:'), name).toBe(false)
+    fs.writeFileSync(abs, earlier!)
+    old[name] = earlier!
+  }
+  // and one of them edited by the team since
+  const edited = path.join(root, 'skills/marketing/brand-review/SKILL.md')
+  fs.writeFileSync(edited, old['brand-review']!.replace('# 브랜드 톤 검토', '# 브랜드 톤 검토 (우리 팀)'))
+  const again = await install(owner)
+  const status = Object.fromEntries(again.body.skills.map((s: any) => [s.name, s.status]))
+  expect(status).toEqual({ ...Object.fromEntries(NAMES.map((n) => [n, 'present'])), 'brand-review': 'kept' })
+  // nothing replaced: those skills show their name until someone adds the line
+  expect(fs.readFileSync(path.join(root, 'skills/marketing/ad-copy/SKILL.md'), 'utf8')).toBe(old['ad-copy']!)
+  const listed = await mia.client.call('GET', '/api/skills')
+  expect(listed.items.find((s: any) => s.name === 'ad-copy').title).toBeUndefined()
+  // a fresh install has the titles
+  fs.rmSync(path.join(root, 'skills/marketing/ad-copy'), { recursive: true })
+  await install(owner)
+  expect((await mia.client.call('GET', '/api/skills')).items.find((s: any) => s.name === 'ad-copy').title).toBe('광고 문구')
+})
+
 test('members cannot install; an unknown pack is not found', async () => {
   const { owner, mia, root } = await setup()
   expect((await install(mia.client)).status).toBe(403)
@@ -133,12 +162,20 @@ test('a team skill that already has a pack skill\'s name blocks it: "/<name>" wo
   expect(again.body.skills.filter((s: any) => s.status === 'present')).toHaveLength(5)
 })
 
+test('the Korean and English titles', () => {
+  const titles = (locale: 'ko' | 'en') => Object.fromEntries(Object.entries(SKILL_PACKS.marketing.skills[locale]!).map(([name, text]) => [name, (checkSkill(text, `skills/marketing/${name}/SKILL.md`) as { title?: string }).title]))
+  expect(titles('ko')).toEqual({ 'ad-copy': '광고 문구', 'content-draft': '블로그·SNS 초안', 'campaign-plan': '캠페인 기획', 'seo-brief': 'SEO 기획서', 'competitor-brief': '경쟁사 분석', 'brand-review': '브랜드 톤 검토', 'weekly-report': '주간 보고' })
+  expect(titles('en')).toEqual({ 'ad-copy': 'Ad copy', 'content-draft': 'Blog and social draft', 'campaign-plan': 'Campaign plan', 'seo-brief': 'SEO brief', 'competitor-brief': 'Competitor brief', 'brand-review': 'Brand voice review', 'weekly-report': 'Weekly report' })
+})
+
 test('every pack text, in every language, loads as a skill with a valid form', () => {
   for (const [locale, texts] of Object.entries(SKILL_PACKS.marketing.skills)) {
     expect(Object.keys(texts!).sort(), locale).toEqual(NAMES)
     for (const [name, text] of Object.entries(texts!)) {
       const r = checkSkill(text, `skills/marketing/${name}/SKILL.md`)
       expect(r.ok && r.name === name && !r.badInputs && r.inputs!.length > 0, `${locale}/${name}`).toBe(true)
+      // a title people read (the folder name stays the name "/<name>" runs), and the description starts with it
+      expect(r.ok && !!r.title && r.title !== name && r.description.startsWith(`${r.title} — `), `${locale}/${name}`).toBe(true)
       // the company profile reaches the AI as its own block; a skill names it without the tag's brackets, which the
       // prompt would neutralize inside a skill
       expect(text.includes('<company_profile'), `${locale}/${name}`).toBe(false)

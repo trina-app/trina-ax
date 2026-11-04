@@ -13,8 +13,9 @@ export interface InviteStepProps {
   onSkip?: () => void
   /** the skill the first result used: people who join land on its form (skills/…). Omitted: none. */
   skillPath?: string | null
-  /** the heading in place of "팀원을 초대해요" (the welcome steps name the skill just used) */
-  title?: string
+  /** the heading in place of "팀원을 초대해요" (the welcome steps name the skill just used); null: none, the dialog
+   * around it already names the step (one heading on a phone, not two) */
+  title?: string | null
 }
 
 export function InviteStep({ onDone, onSkip, skillPath, title }: InviteStepProps) {
@@ -23,8 +24,8 @@ export function InviteStep({ onDone, onSkip, skillPath, title }: InviteStepProps
   return (
     <div className="space-y-4" data-testid="invite-step">
       <div>
-        <h2 className="text-lg font-semibold">{title ?? t('teamLink.stepTitle')}</h2>
-        <p className="mt-1 text-sm text-muted">{t('teamLink.stepDesc')}</p>
+        {title !== null && <h2 className="mb-1 text-lg font-semibold">{title ?? t('teamLink.stepTitle')}</h2>}
+        <p className="text-sm text-muted">{t('teamLink.stepDesc')}</p>
       </div>
       <TeamLinkPanel skillPicker={false} skillPath={skillPath} />
       <div className="flex flex-wrap justify-end gap-2 border-t border-line pt-4">
@@ -33,7 +34,8 @@ export function InviteStep({ onDone, onSkip, skillPath, title }: InviteStepProps
             {t('teamLink.later')}
           </Button>
         )}
-        <Button variant="primary" onClick={onDone} data-testid="invite-step-done">
+        {/* not primary: the panel's own action (make the link, then copy the message) is the one primary here */}
+        <Button onClick={onDone} data-testid="invite-step-done">
           {t('teamLink.stepDone')}
         </Button>
       </div>

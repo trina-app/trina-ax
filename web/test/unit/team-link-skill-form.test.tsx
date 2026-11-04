@@ -14,7 +14,7 @@ import { installDom, mount, removeDom, type Mounted } from './dom-host'
 const TOKEN = 'AbCdEfGhIjKlMnOpQrStUvWxYz0123456789_-abcde'
 const PATH = 'skills/marketing/ad-copy/SKILL.md'
 const skill: SkillInfo = {
-  path: PATH, name: 'ad-copy', description: '광고 문구 세 가지',
+  path: PATH, name: 'ad-copy', title: '광고 문구', description: '광고 문구 — 세 가지',
   inputs: [
     { name: 'product', label: '알릴 제품·서비스', required: true, prefill: 'company.products' },
     { name: 'tone', label: '말투', prefill: 'company.tone' },
@@ -31,7 +31,7 @@ const profile = {
 }
 const json = (status: number, body: unknown) => new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json' } })
 const routes: Record<string, () => Response> = {
-  'POST /api/team-link/info': () => json(200, { teamName: 'Acme', valid: true, problem: null, expiresAt: '2026-11-18T00:00:00.000Z', skillName: 'ad-copy' }),
+  'POST /api/team-link/info': () => json(200, { teamName: 'Acme', valid: true, problem: null, expiresAt: '2026-11-18T00:00:00.000Z', skillName: 'ad-copy', skillTitle: '광고 문구' }),
   'POST /api/team-link/join': () => json(201, { me, next: `/skills?run=${encodeURIComponent(PATH)}` }),
   'GET /api/skills': () => json(200, { items: [skill] }),
   'GET /api/onboarding/profile': () => json(200, { profile }),
@@ -77,6 +77,9 @@ test('join with a link that names a skill: the Skills page opens that skill\'s f
       </MemoryRouter>,
     )
     await m.until(() => m!.find('join-form'), 'the join form')
+    // the join page names the skill as people read it (its title), never its folder name
+    expect(m.html()).toContain('광고 문구')
+    expect(m.html()).not.toContain('ad-copy')
     await m.type('invite-name', '김하나')
     await m.type('invite-username', 'hana')
     await m.type('invite-password', 'tulip meadow 2026')
@@ -85,7 +88,11 @@ test('join with a link that names a skill: the Skills page opens that skill\'s f
     const form = await m.until(() => m!.find('skill-form'), 'the skill form on the Skills page', 3000)
     expect(m.get('where').textContent).toBe(`/skills?run=${encodeURIComponent(PATH)}`)
     expect(form.getAttribute('data-path')).toBe(PATH)
-    expect(m.html()).toContain(translate('ko', 'skillForm.title', { name: 'ad-copy' }))
+    // the dialog names it by its title once the person's list has it, and the description drops the repeated lead
+    await m.until(() => m!.html().includes(translate('ko', 'skillForm.title', { name: '광고 문구' })), 'the title in the dialog', 3000)
+    expect(m.html()).not.toContain(translate('ko', 'skillForm.title', { name: 'ad-copy' }))
+    expect(form.textContent).toContain('세 가지')
+    expect(form.textContent).not.toContain('광고 문구 — 세 가지')
     // its own fields, the profile in the ones that ask for it, and Run once the list says /ad-copy runs this skill
     await m.until(() => (m!.get('skill-input-product') as unknown as { value: string }).value !== '', 'the prefill', 3000)
     expect((m.get('skill-input-product') as unknown as { value: string }).value).toBe('종이 플래너, 데스크 매트')

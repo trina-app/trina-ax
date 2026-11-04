@@ -383,7 +383,7 @@ export function TeamJoin() {
       </AuthFrame>
     )
   return (
-    <AuthFrame title={t('invite.joinTeam', { team: info.teamName })} sub={info.skillName ? t('teamLink.joinSubSkill', { skill: info.skillName }) : t('teamLink.joinSub', { date: formatDateTime(info.expiresAt, locale) })}>
+    <AuthFrame title={t('invite.joinTeam', { team: info.teamName })} sub={info.skillName ? t('teamLink.joinSubSkill', { skill: info.skillTitle ?? info.skillName }) : t('teamLink.joinSub', { date: formatDateTime(info.expiresAt, locale) })}>
       <JoinForm submitLabel={t('invite.accept')} busy={busy} error={error} onSubmit={submit} onTooShort={() => setError('auth.passwordRule')} />
     </AuthFrame>
   )

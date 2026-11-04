@@ -2674,7 +2674,7 @@ export const ko = {
   "teamLink.title": "팀 초대 링크",
   "teamLink.desc": "링크 하나로 여러 명이 들어와요. 카카오톡이나 슬랙에 붙여 넣으세요.",
   "teamLink.link": "초대 링크",
-  "teamLink.copyLink": "링크 복사",
+  "teamLink.copyLink": "링크만 복사",
   "teamLink.copyMessage": "메시지 복사",
   "teamLink.messagePreview": "함께 보낼 메시지",
   "teamLink.message": "{name}님이 {product}에서 함께 일하자고 초대했어요. 링크로 바로 들어올 수 있어요: {url}",

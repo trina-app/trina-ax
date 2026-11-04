@@ -7,7 +7,7 @@
 // skills/ change audit and the owner / admin notices follow from it, exactly as for a skill saved on the file screen.
 // From then on the files are the team's own (not a plugin's managed copy): anyone who manages skills edits them.
 // Installing again only adds what is missing. A file that is already there is never replaced, whatever it holds: the
-// same text is `present`, other text (someone edited it) is `kept`.
+// same text (or an earlier release's text of it: earlierPackTexts) is `present`, other text (someone edited it) `kept`.
 //
 // The pack text is in resources/skill-packs/<pack>/<locale>/<name>/SKILL.md, imported as text so a release bundle
 // carries it inside the server code (no extra resource files to list or verify).
@@ -63,6 +63,14 @@ export const SKILL_PACKS: Record<SkillPackId, SkillPack> = {
 /** The language of a pack's skill text for a team: the team's own, or English. */
 export const packLocale = (pack: SkillPack, team: Locale): Locale => (pack.skills[team] ? team : 'en')
 
+/** The texts an earlier release of the pack wrote for this one: the same file without its metadata `title` line (the
+ * titles came after the first install on some teams). A file holding exactly such bytes was never edited, so it is
+ * `present`, not `kept`; it is not replaced (no file is), and it shows the skill's name until someone adds the line. */
+export function earlierPackTexts(text: string): string[] {
+  const before = text.replace(/^(metadata:\r?\n)[ \t]+title:[^\r\n]*\r?\n/m, '$1')
+  return before !== text ? [before] : []
+}
+
 const refused = (e: unknown) => e instanceof Denied || e instanceof ToolError || e instanceof FileError || e instanceof HttpError
 
 /** One skill file: written when the name is free, otherwise left as it is. A team skill elsewhere with the same
@@ -80,7 +88,10 @@ function placeSkill(ctx: AppContext, userId: string, rel: string, name: string, 
   }
   if (r.exists) {
     if (!r.st?.isFile()) return { path: r.rel, status: 'blocked' }
-    try { return { path: r.rel, status: readRegular(r.abs, SKILL_FILE_MAX_BYTES).bytes.equals(Buffer.from(text, 'utf8')) ? 'present' : 'kept' } } catch (e) {
+    try {
+      const bytes = readRegular(r.abs, SKILL_FILE_MAX_BYTES).bytes
+      return { path: r.rel, status: [text, ...earlierPackTexts(text)].some((t) => bytes.equals(Buffer.from(t, 'utf8'))) ? 'present' : 'kept' }
+    } catch (e) {
       if (refused(e)) return { path: r.rel, status: 'kept' }
       throw e
     }

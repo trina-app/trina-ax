@@ -9,7 +9,7 @@
 // one click (POST /api/onboarding/packs/marketing/install); members read that an admin can.
 import { FileText, MessageSquarePlus, MoreHorizontal, PackagePlus, Play, ScrollText, Sparkles } from 'lucide-react'
 import { useEffect, useRef, useState, type KeyboardEvent } from 'react'
-import type { SkillInfo } from '@mycel/shared/api'
+import { skillSummary, skillTitle, type SkillInfo } from '@mycel/shared/api'
 import { api, API, errorText } from '../lib/api'
 import { navigateTo } from '../lib/nav'
 import { parentPath } from '../lib/paths'
@@ -75,7 +75,7 @@ export function AvailableSkillsList({ items, query = '' }: { items: Skill[] | nu
   if (!items) return <Skeleton lines={3} />
   if (!items.length) return <NoSkills />
   const q = query.trim().toLowerCase()
-  const shown = q ? items.filter((s) => `${s.name} ${s.description}`.toLowerCase().includes(q)) : items
+  const shown = q ? items.filter((s) => `${s.name} ${s.title ?? ''} ${s.description}`.toLowerCase().includes(q)) : items
   if (!shown.length) return <EmptyState icon={<Sparkles size={22} />} title={t('skills.noMatch', { q: query.trim() })} />
   return (
     <div className="space-y-6" data-testid="skill-list">
@@ -142,7 +142,9 @@ function SkillSection({ title, items, onRun }: { title: string; items: Skill[]; 
 
 function SkillRow({ skill: s, onRun }: { skill: Skill; onRun: (s: Skill) => void }) {
   const t = useT()
-  const line = [s.personal ? '' : `${skillHome(s.path)}/`, s.description].filter(Boolean).join(' · ')
+  // the name people read (its title, else its name); the description without a lead that repeats the title
+  const title = skillTitle(s)
+  const line = [s.personal ? '' : `${skillHome(s.path)}/`, skillSummary(s)].filter(Boolean).join(' · ')
   // a skill with a form opens it; any other starts a chat with "/<name> " in the message box, as before
   const use = () => (s.inputs?.length ? onRun(s) : navigateTo(skillChatLink(s.name)))
   return (
@@ -158,14 +160,14 @@ function SkillRow({ skill: s, onRun }: { skill: Skill; onRun: (s: Skill) => void
           <ScrollText size={16} aria-hidden />
         </span>
         <span className="min-w-0 flex-1">
-          <span className="block truncate text-sm font-medium" title={s.name}>{s.name}</span>
+          <span className="block truncate text-sm font-medium" title={s.title ? `${title} · /${s.name}` : s.name}>{title}</span>
           {line && <span className="mt-0.5 block truncate text-xs text-muted">{line}</span>}
         </span>
         {!!s.uses && <span className="shrink-0 text-xs text-faint tabular-nums" title={t('skills.usesHint')}>{t('skills.uses', { uses: s.uses })}</span>}
         <span className="sr-only">{t('skills.use')}</span>
       </button>
       {!!s.inputs?.length && (
-        <IconButton label={t('skillForm.runNamed', { name: s.name })} onClick={() => onRun(s)} data-testid="skill-run">
+        <IconButton label={t('skillForm.runNamed', { name: title })} onClick={() => onRun(s)} data-testid="skill-run">
           <Play size={16} aria-hidden />
         </IconButton>
       )}
@@ -203,11 +205,11 @@ function SkillMenu({ skill: s, onUse }: { skill: Skill; onUse: () => void }) {
   const item = 'flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-sm -outline-offset-2 hover:bg-hover focus:bg-hover'
   return (
     <div ref={box} className="relative shrink-0" onKeyDown={onKeyDown}>
-      <IconButton label={t('skills.moreNamed', { name: s.name })} aria-haspopup="menu" aria-expanded={open} onClick={() => setOpen((v) => !v)} data-testid="skill-more">
+      <IconButton label={t('skills.moreNamed', { name: skillTitle(s) })} aria-haspopup="menu" aria-expanded={open} onClick={() => setOpen((v) => !v)} data-testid="skill-more">
         <MoreHorizontal size={16} aria-hidden />
       </IconButton>
       {open && (
-        <div role="menu" aria-label={t('skills.moreNamed', { name: s.name })} className="absolute top-full right-0 z-30 mt-1 w-44 rounded-lg border border-line bg-surface p-1 shadow-lg">
+        <div role="menu" aria-label={t('skills.moreNamed', { name: skillTitle(s) })} className="absolute top-full right-0 z-30 mt-1 w-44 rounded-lg border border-line bg-surface p-1 shadow-lg">
           <button role="menuitem" type="button" className={item} onClick={() => { setOpen(false); onUse() }}>
             <MessageSquarePlus size={14} aria-hidden /> {t('skills.use')}
           </button>

@@ -2,6 +2,7 @@
 name: seo-brief
 description: SEO brief — takes a topic or keyword and makes an SEO content brief with search intent, titles, outline and the questions the page must answer.
 metadata:
+  title: SEO brief
   inputs: |
     [
       {"name": "keyword", "label": "Topic or main keyword", "placeholder": "e.g. how to choose a team chat app", "required": true},

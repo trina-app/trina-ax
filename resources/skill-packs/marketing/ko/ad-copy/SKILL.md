@@ -2,6 +2,7 @@
 name: ad-copy
 description: 광고 문구 — 알릴 제품과 실을 곳을 받아 바로 쓸 수 있는 광고 문구 3안을 써요. 검색광고, SNS, 배너, 문자처럼 짧은 문구가 필요할 때 써요.
 metadata:
+  title: 광고 문구
   inputs: |
     [
       {"name": "product", "label": "알릴 제품·서비스", "placeholder": "예: 새로 나온 월 구독 요금제", "required": true, "prefill": "company.products"},

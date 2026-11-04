@@ -11,7 +11,7 @@
 import { Play } from 'lucide-react'
 import { useEffect, useId, useRef, useState, type FormEvent } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { SKILL_INPUT_TEXT_MAX, SKILL_INPUT_VALUE_MAX, type SkillInfo } from '@mycel/shared/api'
+import { SKILL_INPUT_TEXT_MAX, SKILL_INPUT_VALUE_MAX, skillSummary, skillTitle, type SkillInfo } from '@mycel/shared/api'
 import { api, API, errorText } from '../../lib/api'
 import { composeSkillMessage, loadPrefill, missingRequired, skillRunBy, withPrefill } from '../../lib/skillForm'
 import { rememberChat } from '../../lib/teamAttach'
@@ -32,9 +32,11 @@ type Props = {
   skipLabel?: string
   /** hand the message back instead of starting a chat (the message box's "/" menu) */
   onCompose?: (message: string) => void
+  /** the skill as the person's list has it, once that list loaded (the dialog names it by its title) */
+  onSkill?: (skill: SkillInfo) => void
 }
 
-export function SkillForm({ path, skill: given, onDone, onSkip, skipLabel, onCompose }: Props) {
+export function SkillForm({ path, skill: given, onDone, onSkip, skipLabel, onCompose, onSkill }: Props) {
   const t = useT()
   const locale = useLocale()
   const me = useMeStrict()
@@ -61,6 +63,10 @@ export function SkillForm({ path, skill: given, onDone, onSkip, skipLabel, onCom
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [path])
   const skill = list ? (list.find((s) => s.path === path) ?? null) : given
+  useEffect(() => {
+    if (list && skill) onSkill?.(skill)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [list])
   const runs = list && skill ? skillRunBy(list, skill.name) : null
   const clash = runs && skill && runs.path !== skill.path ? runs : null
   // only once the list says which skill "/<name>" runs for this person (a skill passed in is shown before that)
@@ -117,7 +123,7 @@ export function SkillForm({ path, skill: given, onDone, onSkip, skipLabel, onCom
 
   return (
     <form onSubmit={(e) => void submit(e)} noValidate className="space-y-3" data-testid="skill-form" data-path={skill.path}>
-      {skill.description && <p className="text-sm text-muted">{skill.description}</p>}
+      {skill.description && <p className="text-sm text-muted">{skillSummary(skill)}</p>}
       {loadError && <ErrorNote>{loadError}</ErrorNote>}
       {clash && <p role="alert" className="rounded-lg bg-warn-soft px-3 py-2 text-xs text-warn" data-testid="skill-form-clash">{t('skillForm.sameName', { name: skill.name, path: clash.path })}</p>}
       {inputs.map((i) => {
@@ -154,14 +160,16 @@ export function SkillForm({ path, skill: given, onDone, onSkip, skipLabel, onCom
   )
 }
 
-/** The form in a dialog (Team skills page, /skills?run=, "/" menu). The title names the skill: from `skill`, or the
- * folder of a SKILL.md (its name must equal it). */
+/** The form in a dialog (Team skills page, /skills?run=, "/" menu). The title names the skill as people read it (its
+ * title, else its name): from `skill` or the person's list once it loaded; until then nothing more than "스킬 실행" for
+ * a bare path (a link after joining), so the folder name ("ad-copy") never flashes first. */
 export function SkillFormDialog({ path, skill, onClose, onCompose }: { path: string; skill?: SkillInfo; onClose: () => void; onCompose?: (message: string) => void }) {
   const t = useT()
-  const name = skill?.name ?? /([^/]+)\/SKILL\.md$/.exec(path)?.[1]
+  const [loaded, setLoaded] = useState<SkillInfo | null>(null)
+  const shown = loaded ?? skill
   return (
-    <Modal open onClose={onClose} width={560} title={name ? t('skillForm.title', { name }) : t('skillForm.titlePlain')}>
-      <SkillForm path={path} skill={skill} onCompose={onCompose ? (m) => { onCompose(m); onClose() } : undefined} />
+    <Modal open onClose={onClose} width={560} title={shown ? t('skillForm.title', { name: skillTitle(shown) }) : t('skillForm.titlePlain')}>
+      <SkillForm path={path} skill={skill} onSkill={setLoaded} onCompose={onCompose ? (m) => { onCompose(m); onClose() } : undefined} />
     </Modal>
   )
 }

@@ -2,6 +2,7 @@
 name: weekly-report
 description: 주간 보고 — 이번 주 메모와 팀 파일을 받아 한 일, 숫자, 다음 주 계획, 위험, 결정할 일로 정리한 주간 보고 초안을 만들어요.
 metadata:
+  title: 주간 보고
   inputs: |
     [
       {"name": "period", "label": "기간", "placeholder": "예: 11월 첫째 주"},

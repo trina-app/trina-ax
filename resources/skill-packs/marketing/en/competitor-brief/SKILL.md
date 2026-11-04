@@ -2,6 +2,7 @@
 name: competitor-brief
 description: Competitor brief — takes a competitor's website, reads what they say, to whom and how, and makes a one-page summary compared with us.
 metadata:
+  title: Competitor brief
   inputs: |
     [
       {"name": "website", "label": "Competitor website address", "placeholder": "e.g. https://www.competitor.example", "required": true},

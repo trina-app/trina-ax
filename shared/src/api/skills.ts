@@ -23,8 +23,30 @@ export const SkillInfo = z.object({
   personal: z.boolean().optional(),
   /** the short form the skill runs from (its header's metadata `inputs`, ./skill-inputs.ts); absent: a plain skill */
   inputs: z.array(SkillInput).optional(),
+  /** the name people read ("광고 문구"): a SKILL.md's metadata `title`, one line of at most SKILL_TITLE_MAX characters.
+   * Absent: people read `name`. Commands still run by name ("/ad-copy"): show it through skillTitle(). */
+  title: z.string().optional(),
 })
 export type SkillInfo = z.infer<typeof SkillInfo>
+/** The longest metadata `title` a skill may have (characters); a longer one is ignored and the name shows. */
+export const SKILL_TITLE_MAX = 60
+/** A SKILL.md's metadata `title` as people read it, or null when it is not one: empty, more than one line, or longer
+ * than SKILL_TITLE_MAX (the skill still loads; its name shows instead). */
+export function readSkillTitle(raw: string | undefined): string | null {
+  const v = raw?.trim()
+  return v && !/[\r\n]/.test(v) && [...v].length <= SKILL_TITLE_MAX ? v : null
+}
+/** What a person reads as a skill's name: its title, else its name. Every screen, message and notice that names a
+ * skill to a person uses this; a command the person types or sends stays "/<name>". */
+export const skillTitle = (s: { name: string; title?: string | null }): string => s.title?.trim() || s.name
+/** A skill's description without a lead that only repeats its title: the marketing pack writes "광고 문구 — 알릴 제품과
+ * …" so the AI and older screens read the plain name; next to the title the rest is enough. */
+export function skillSummary(s: { name: string; title?: string | null; description: string }): string {
+  const title = s.title?.trim()
+  if (!title) return s.description
+  const m = /^\s*(.+?)\s+[—–-]\s+/.exec(s.description)
+  return m && m[1]!.trim().normalize('NFC').toLowerCase() === title.normalize('NFC').toLowerCase() ? s.description.slice(m[0].length) : s.description
+}
 export const PopularSkills = z.object({
   items: z.array(SkillInfo.extend({ uses: z.number().int().positive(), users: z.number().int().positive() })).max(10),
   days: z.literal(30),

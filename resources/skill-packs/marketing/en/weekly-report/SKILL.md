@@ -2,6 +2,7 @@
 name: weekly-report
 description: Weekly report — takes this week's notes and team files, and drafts a weekly report with what was done, the numbers, next week, risks and decisions needed.
 metadata:
+  title: Weekly report
   inputs: |
     [
       {"name": "period", "label": "Period", "placeholder": "e.g. first week of November"},

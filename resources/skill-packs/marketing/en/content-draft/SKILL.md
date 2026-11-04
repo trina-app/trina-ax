@@ -2,6 +2,7 @@
 name: content-draft
 description: Blog and social draft — takes a topic and where it will be posted, and drafts a blog post, Instagram or LinkedIn post, or newsletter.
 metadata:
+  title: Blog and social draft
   inputs: |
     [
       {"name": "topic", "label": "What should it be about", "placeholder": "e.g. how our product cut meeting time", "required": true},

@@ -83,7 +83,7 @@ export function GoalCard({ goal, onDismiss, link: given }: { goal: TeamGoal; onD
   const open = link?.link && link.link.state === 'active' && link.link.url ? link.link : null
   // a link made or changed in the dialog: read it again for [초대 문구 복사]
   const closeInvite = () => { setInviting(false); setLinkTick((n) => n + 1) }
-  const message = open ? teamLinkMessage(t, { name: me?.user.name ?? '', url: open.url!, skill: open.skill?.name ?? null }) : null
+  const message = open ? teamLinkMessage(t, { name: me?.user.name ?? '', url: open.url!, skill: open.skill ? (open.skill.title ?? open.skill.name) : null }) : null
   return (
     <section className={frame} aria-labelledby="team-goal-title" data-testid="team-goal" data-state="open">
       <h2 id="team-goal-title" className="text-sm">

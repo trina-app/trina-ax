@@ -2675,7 +2675,7 @@ export const en: Record<MessageKey, string> = {
   "teamLink.title": "Team invite link",
   "teamLink.desc": "One link for many people. Paste it into Slack, KakaoTalk or any chat.",
   "teamLink.link": "Invite link",
-  "teamLink.copyLink": "Copy link",
+  "teamLink.copyLink": "Copy link only",
   "teamLink.copyMessage": "Copy message",
   "teamLink.messagePreview": "Message to send with it",
   "teamLink.message": "{name} invited you to work together in {product}. You can join right away with this link: {url}",
