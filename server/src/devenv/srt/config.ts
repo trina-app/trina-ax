@@ -182,7 +182,8 @@ export function scopeArgv(o: { runId: string; id: string; limits: ScopeLimits; e
   return [
     SRT_PATHS.systemdRun, '--scope', '--quiet', '--no-ask-password',
     `--unit=${unitName(o.runId)}`, `--slice=${o.id}-devenv.slice`,
-    '-p', `MemoryMax=${m}M`, '-p', `MemoryHigh=${Math.floor(m * 0.9)}M`, '-p', 'MemorySwapMax=0',
+    // no MemoryHigh: it throttles a run near the limit for hours in place of an OOM kill (spike VM, A21)
+    '-p', `MemoryMax=${m}M`, '-p', 'MemorySwapMax=0',
     '-p', `CPUQuota=${Math.round(o.limits.cpus * 100)}%`, '-p', `TasksMax=${o.limits.pids}`,
     '-p', 'OOMPolicy=kill', '-p', `RuntimeMaxSec=${o.limits.runtimeMaxSec}`,
     '--', ...wrappedArgv(o),

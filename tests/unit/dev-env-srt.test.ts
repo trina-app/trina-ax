@@ -177,7 +177,8 @@ describe('the argv of a run', () => {
     expect(a).toContain(`--unit=${unitName(runId)}`)
     expect(unitName(runId)).toMatch(UNIT_RE)
     expect(a).toContain('--slice=mycel-devenv.slice')
-    for (const p of ['MemoryMax=1536M', 'MemoryHigh=1382M', 'MemorySwapMax=0', 'CPUQuota=150%', 'TasksMax=512', 'OOMPolicy=kill', 'RuntimeMaxSec=150']) expect(a).toContain(p)
+    for (const p of ['MemoryMax=1536M', 'MemorySwapMax=0', 'CPUQuota=150%', 'TasksMax=512', 'OOMPolicy=kill', 'RuntimeMaxSec=150']) expect(a).toContain(p)
+    expect(a.some((x) => x.startsWith('MemoryHigh'))).toBe(false)
     expect(a.slice(a.indexOf('--') + 1)).toEqual([SRT_PATHS.runWrap, '/x.exit', '--', SRT_PATHS.node, SRT_PATHS.cli, '--settings', '/s.json', '-c', 'npm test; rm -rf /'])
   })
   test('the polkit rule allows the same unit names as the runner, and no .service', () => {

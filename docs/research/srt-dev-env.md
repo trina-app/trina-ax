@@ -160,7 +160,7 @@ For each run the server spawns this (one argv, no shell):
 ```
 systemd-run --scope --quiet --collect
   --unit=trina-dev-<runId>.scope --slice=<ID>-devenv.slice
-  -p MemoryMax=<m> -p MemoryHigh=<0.9 m> -p MemorySwapMax=0 -p CPUQuota=<c*100>% -p TasksMax=<pids>
+  -p MemoryMax=<m> -p MemorySwapMax=0 -p CPUQuota=<c*100>% -p TasksMax=<pids>
   -p OOMPolicy=kill -p RuntimeMaxSec=<limit>
   -- /opt/trina/devenv/run-wrap <exit-file>
   -- /opt/trina/node/bin/node /opt/trina/srt/0.0.81/cli.js --settings <settings-file> -c <command>
