@@ -93,7 +93,6 @@ test('step 1: first owner, language, groups, members (invite + direct), folder r
   await ap.getByTestId('invite-name').fill(st.alice.name)
   await ap.getByTestId('invite-username').fill(st.alice.username)
   await ap.getByTestId('invite-password').fill(st.alice.password)
-  await ap.getByTestId('invite-password2').fill(st.alice.password)
   await ap.getByTestId('invite-submit').click()
   await expect(ap.getByTestId('composer-input')).toBeVisible()
   await actx.close()

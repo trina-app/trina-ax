@@ -1,5 +1,6 @@
 // Members and invites. Invites are links (no mail in v1): pick role and groups, copy the link or show its QR code,
-// hand it over any way you like; revoke unused ones. Members: role, groups, disable (ends their sessions),
+// hand it over any way you like; revoke unused ones. The team invite link (components/onboarding/TeamLinkPanel.tsx) is
+// one link for many people, members only, with a ready-made message for KakaoTalk or Slack. Members: role, groups, disable (ends their sessions),
 // temporary password reset or a one-time reset link to hand over (both audited; the owner resets only on the server
 // Mac), remove. Each person links to the folders they see (Folder permissions › By person); the invite and add dialogs
 // preview the folders someone new with that role and those groups will see.
@@ -22,6 +23,7 @@ import { SkillManagerCell, skillsVia, useFolderPeople, useSkillManagers } from '
 import { Card, Loadable, SecretBox, useAction, useActionOk, useFocusAfterRemove, useLoad, useOneAtATime } from './common'
 import { GroupChecks, RoleSelect, type MemberRole } from './people-choices'
 import { NewPersonPreview, personViewLink } from './AccessResults'
+import { TeamLinkCard } from '../../components/onboarding/TeamLinkPanel'
 
 type CreatedInvite = z.infer<typeof CreatedInviteSchema>
 
@@ -170,6 +172,8 @@ export default function Members() {
       </Card>
 
       <ScheduleReviews />
+
+      <TeamLinkCard />
 
       <Card title={t('members.invites')} desc={t('members.invitesDesc')} headingRef={invitesTitle}>
         <Loadable state={invites}>

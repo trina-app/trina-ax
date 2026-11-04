@@ -1,11 +1,11 @@
-// Sign-in, first-run setup (/setup#token=… or /setup?token=), invite acceptance (/invite/:token) and the forced
-// password change.
+// Sign-in, first-run setup (/setup#token=… or /setup?token=), invite acceptance (/invite/:token), the team invite link
+// (/join#t=…) and the forced password change.
 import clsx from 'clsx'
 import { Eye, EyeOff, Loader2 } from 'lucide-react'
 import { useEffect, useState, type FormEvent, type ReactNode } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import { PRODUCT } from '@mycel/shared'
-import type { InviteInfo, Locale, PasswordResetInfo } from '@mycel/shared/api'
+import type { InviteInfo, Locale, PasswordResetInfo, TeamLinkInfo } from '@mycel/shared/api'
 import { api, API, errorText, isApiError } from '../lib/api'
 import { ERROR_MESSAGES } from '@mycel/shared/api'
 import { formatDateTime } from '../lib/format'
@@ -14,6 +14,7 @@ import { useMe, useSession } from '../store/session'
 import { clientKind } from '../lib/desktop'
 import { clearLocalData } from '../lib/localData'
 import { readSetupLink } from '../lib/setupLink'
+import { joinNext, readJoinToken, setAfterJoin } from '../lib/team-link'
 import { SourceCodeLink } from '../components/SourceCodeLink'
 import { Button, Field, IconButton, inputCls } from '../components/ui'
 import { browserTimeZone } from '../lib/time-zones'
@@ -229,6 +230,57 @@ export function Setup() {
   )
 }
 
+export interface JoinValues { name: string; username: string; password: string }
+
+/**
+ * The new-account form of an invite and of the team invite link: name, username, password. No second password field:
+ * the eye button shows what was typed (and Caps Lock is named), which catches a typo better than typing blind twice.
+ * The same rules as before: the username rule while typing, the length before sending, the server's words after.
+ */
+export function JoinForm({ submitLabel, busy, error, onSubmit, onTooShort }: { submitLabel: string; busy: boolean; error: string | null; onSubmit: (v: JoinValues) => void; onTooShort: () => void }) {
+  const t = useT()
+  const [form, setForm] = useState({ name: '', username: '', password: '' })
+  const [show, setShow] = useState(false)
+  const [capsOn, setCapsOn] = useState(false)
+  const caps = (e: React.KeyboardEvent) => setCapsOn(e.getModifierState?.('CapsLock') ?? false)
+  const set = (k: keyof typeof form) => (e: React.ChangeEvent<HTMLInputElement>) => setForm((f) => ({ ...f, [k]: e.target.value }))
+  const submit = (e: FormEvent) => {
+    e.preventDefault()
+    if ([...form.password].length < PASSWORD_MIN) return onTooShort()
+    onSubmit({ name: form.name.trim(), username: form.username.trim(), password: form.password })
+  }
+  return (
+    <form onSubmit={submit} className="space-y-3" data-testid="join-form">
+      <Field label={t('auth.name')}>
+        <input className={inputCls} value={form.name} onChange={set('name')} required autoComplete="name" maxLength={100} data-testid="invite-name" />
+      </Field>
+      <Field label={t('auth.username')} hint={t('auth.usernameHint')} error={usernameProblem(form.username) ? t('auth.usernameHint') : null}>
+        <input className={inputCls} value={form.username} onChange={set('username')} required autoComplete="username" autoCapitalize="none" pattern="[A-Za-z0-9._@\-]{2,64}" data-testid="invite-username" />
+      </Field>
+      <Field label={t('auth.password')} hint={t('auth.passwordRule')}>
+        <input className={inputCls} type={show ? 'text' : 'password'} value={form.password} onChange={set('password')} onKeyDown={caps} onKeyUp={caps} required autoComplete="new-password" autoCapitalize="none" data-testid="invite-password" />
+      </Field>
+      <div className="flex items-center justify-between gap-2">
+        <span role="status" className="text-xs text-warn" data-testid="caps-lock">
+          {capsOn ? t('auth.capsLock') : ''}
+        </span>
+        <IconButton label={show ? t('auth.hidePassword') : t('auth.showPassword')} aria-pressed={show} onClick={() => setShow(!show)} data-testid="invite-password-show">
+          {show ? <EyeOff size={15} /> : <Eye size={15} />}
+          <span className="ml-1 text-xs">{show ? t('auth.hidePassword') : t('auth.showPassword')}</span>
+        </IconButton>
+      </div>
+      {error && (
+        <p role="alert" className="text-sm text-danger">
+          {error}
+        </p>
+      )}
+      <Button type="submit" variant="primary" className="w-full" busy={busy} data-testid="invite-submit">
+        {submitLabel}
+      </Button>
+    </form>
+  )
+}
+
 export function AcceptInvite() {
   const t = useT()
   const locale = useLocale()
@@ -236,7 +288,6 @@ export function AcceptInvite() {
   const signedIn = useSession((s) => s.signedIn)
   const navigate = useNavigate()
   const [info, setInfo] = useState<InviteInfo | null | 'missing'>(null)
-  const [form, setForm] = useState({ name: '', username: '', password: '', password2: '' })
   const { busy, error, run, setError, setFailure } = useSubmit()
   useEffect(() => {
     let live = true
@@ -249,17 +300,12 @@ export function AcceptInvite() {
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [token])
-  const set = (k: keyof typeof form) => (e: React.ChangeEvent<HTMLInputElement>) => setForm((f) => ({ ...f, [k]: e.target.value }))
-  const submit = (e: FormEvent) => {
-    e.preventDefault()
-    if (form.password !== form.password2) return setError('auth.passwordMismatch')
-    if ([...form.password].length < PASSWORD_MIN) return setError('auth.passwordRule')
+  const submit = (v: JoinValues) =>
     void run(async () => {
-      const r = await api.call(API.acceptInvite, { params: { token: token! }, body: { username: form.username.trim(), name: form.name.trim(), password: form.password, locale: storedLocale() ?? undefined, client: clientKind(), tokenMode: 'cookie' } })
+      const r = await api.call(API.acceptInvite, { params: { token: token! }, body: { ...v, locale: storedLocale() ?? undefined, client: clientKind(), tokenMode: 'cookie' } })
       signedIn(r.me)
       navigate('/', { replace: true })
     })
-  }
   if (info === null)
     return (
       <AuthFrame title={t('invite.title')}>
@@ -277,28 +323,63 @@ export function AcceptInvite() {
     )
   return (
     <AuthFrame title={t('invite.joinTeam', { team: info.teamName })} sub={t('invite.sub', { role: t(`role.${info.role}`), date: formatDateTime(info.expiresAt, locale) })}>
-      <form onSubmit={submit} className="space-y-3">
-        <Field label={t('auth.name')}>
-          <input className={inputCls} value={form.name} onChange={set('name')} required autoComplete="name" maxLength={100} data-testid="invite-name" />
-        </Field>
-        <Field label={t('auth.username')} hint={t('auth.usernameHint')} error={usernameProblem(form.username) ? t('auth.usernameHint') : null}>
-          <input className={inputCls} value={form.username} onChange={set('username')} required autoComplete="username" autoCapitalize="none" pattern="[A-Za-z0-9._@\-]{2,64}" data-testid="invite-username" />
-        </Field>
-        <Field label={t('auth.password')} hint={t('auth.passwordRule')}>
-          <input className={inputCls} type="password" value={form.password} onChange={set('password')} required autoComplete="new-password" data-testid="invite-password" />
-        </Field>
-        <Field label={t('auth.passwordAgain')}>
-          <input className={inputCls} type="password" value={form.password2} onChange={set('password2')} required autoComplete="new-password" data-testid="invite-password2" />
-        </Field>
-        {error && (
-          <p role="alert" className="text-sm text-danger">
-            {error}
-          </p>
-        )}
-        <Button type="submit" variant="primary" className="w-full" busy={busy} data-testid="invite-submit">
-          {t('invite.accept')}
-        </Button>
-      </form>
+      <JoinForm submitLabel={t('invite.accept')} busy={busy} error={error} onSubmit={submit} onTooShort={() => setError('auth.passwordRule')} />
+    </AuthFrame>
+  )
+}
+
+/**
+ * /join#t=<token>: the team invite link (one link for many people; it makes members only). The token is read from the
+ * fragment and leaves the address bar at once; it goes to the server only in a POST body. After joining, a link that
+ * names a skill opens that skill's form (`/skills?run=`) when the new member can read it, else Home.
+ */
+export function TeamJoin() {
+  const t = useT()
+  const locale = useLocale()
+  const signedIn = useSession((s) => s.signedIn)
+  const navigate = useNavigate()
+  const [link] = useState(() => readJoinToken(window.location))
+  const [info, setInfo] = useState<TeamLinkInfo | null | 'missing'>(link.token ? null : 'missing')
+  const { busy, error, run, setError, setFailure } = useSubmit()
+  useEffect(() => {
+    if (link.cleanUrl) window.history.replaceState(window.history.state, '', link.cleanUrl)
+    if (!link.token) return
+    let live = true
+    api.call(API.teamLinkInfo, { body: { token: link.token } }).then(
+      (i) => live && setInfo(i),
+      (e) => live && (isApiError(e, 'not_found') ? setInfo('missing') : setFailure(e)),
+    )
+    return () => {
+      live = false
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+  const submit = (v: JoinValues) =>
+    void run(async () => {
+      const r = await api.call(API.joinTeamLink, { body: { token: link.token!, ...v, locale: storedLocale() ?? undefined, client: clientKind(), tokenMode: 'cookie' } })
+      const next = joinNext(r.next)
+      setAfterJoin(next)
+      signedIn(r.me)
+      navigate(next, { replace: true })
+    })
+  if (info === null)
+    return (
+      <AuthFrame title={t('invite.title')}>
+        {error ? <p role="alert" className="text-sm text-danger">{error}</p> : <Loader2 className="mx-auto animate-spin text-faint" aria-label={t('common.loading')} />}
+      </AuthFrame>
+    )
+  if (info === 'missing' || !info.valid)
+    return (
+      <AuthFrame title={t('invite.title')}>
+        <p className="text-sm text-muted" data-testid="join-problem">{t(info === 'missing' ? 'teamLink.problem.missing' : `teamLink.problem.${info.problem === 'stopped' || !info.problem ? 'revoked' : info.problem}`)}</p>
+        <Link to="/login" className="mt-4 inline-block text-sm text-accent-text underline">
+          {t('auth.signIn')}
+        </Link>
+      </AuthFrame>
+    )
+  return (
+    <AuthFrame title={t('invite.joinTeam', { team: info.teamName })} sub={info.skillName ? t('teamLink.joinSubSkill', { skill: info.skillName }) : t('teamLink.joinSub', { date: formatDateTime(info.expiresAt, locale) })}>
+      <JoinForm submitLabel={t('invite.accept')} busy={busy} error={error} onSubmit={submit} onTooShort={() => setError('auth.passwordRule')} />
     </AuthFrame>
   )
 }

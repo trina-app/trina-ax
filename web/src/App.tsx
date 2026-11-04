@@ -13,10 +13,11 @@ import { useSession } from './store/session'
 import Layout from './components/Layout'
 import { ChunkErrorBoundary } from './components/ChunkErrorBoundary'
 import { AnnounceProvider, Button, DialogHost, Spinner, Toaster } from './components/ui'
-import { AcceptInvite, ForcedPassword, Login, ResetPassword, Setup } from './pages/Auth'
+import { AcceptInvite, ForcedPassword, Login, ResetPassword, Setup, TeamJoin } from './pages/Auth'
 import Home from './pages/Home'
 import SettingsDialog from './components/settings/SettingsDialog'
 import { RealPath } from './lib/realPath'
+import { afterJoinTarget, clearAfterJoin } from './lib/team-link'
 
 const ChatPage = lazy(() => import('./pages/Chat'))
 const Files = lazy(() => import('./pages/Files'))
@@ -128,6 +129,8 @@ function Gate() {
       <Routes>
         <Route path="/login" element={<Login />} />
         <Route path="/invite/:token" element={<AcceptInvite />} />
+        {/* the team invite link: the token is after # (never in a path or a log) */}
+        <Route path="/join" element={<TeamJoin />} />
         <Route path="/reset-password/:token" element={<ResetPassword />} />
         <Route path="*" element={<Navigate to={`/login${next}`} replace />} />
       </Routes>
@@ -167,6 +170,8 @@ function Gate() {
         <Route path="/setup" element={<Navigate to="/" replace />} />
         <Route path="/password" element={<Navigate to="/" replace />} />
         <Route path="/invite/:token" element={<Navigate to="/" replace />} />
+        {/* right after joining with the team link: the skill it names, else Home */}
+        <Route path="/join" element={<AfterJoin />} />
         {/* a reset link opened while someone is signed in (a shared computer): using it signs that person in instead */}
         <Route path="/reset-password/:token" element={<ResetPassword />} />
         <Route path="*" element={<Navigate to="/" replace />} />
@@ -195,6 +200,12 @@ export default function App() {
       </AnnounceProvider>
     </BrowserRouter>
   )
+}
+
+/** Signed in while on /join: the page the team link sent the new member to (lib/team-link.ts), else Home. */
+function AfterJoin() {
+  useEffect(() => () => clearAfterJoin(), [])
+  return <Navigate to={afterJoinTarget()} replace />
 }
 
 /** Signed in while on /login: go where the person was heading (?next=, same-site paths only). */
