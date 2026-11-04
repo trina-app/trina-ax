@@ -19,6 +19,7 @@ By default one answer may use tools up to 150 times (tools the AI uses together 
 | Mode | Guide | Operational boundary |
 |---|---|---|
 | Linux server / VM | [Install](INSTALL-LINUX.en.md) | systemd and cgroup v2, dedicated accounts and OS isolation. Plain Docker is not the production installer target |
+| Docker (Linux or Mac host) | [Install](INSTALL-DOCKER.md) | Same accounts, sandbox and egress rule in one container; no per-turn cgroup limits, updates by image tag. New, less tested |
 | Office Mac | [Install](OFFICE.en.md) | Runs as signed-in user, stops on logout. Claude path, no Codex |
 | Role-account Mac | [Detailed installation](INSTALL.md) | Separate accounts and LaunchDaemons; operator-maintained source bundle, not a released desktop DMG |
 | Fictional local evaluation | [Quick try](QUICKSTART.md) | AI disabled, loopback only, not a production isolation test |
