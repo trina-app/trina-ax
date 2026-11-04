@@ -7,12 +7,14 @@
 import fs from 'node:fs'
 import path from 'node:path'
 import { isMap, isScalar, parseDocument } from 'yaml'
+import { parseSkillInputs, type SkillInput } from '@mycel/shared/api'
 import type { FileService } from '../files/service'
 import { readRegular } from '../files/store'
 import type { Principal } from '../policy/access'
 import { authorize } from '../policy/authorize'
 
-export interface SkillInfo { path: string; name: string; description: string }
+/** `inputs`: the short form the skill runs from (metadata `inputs`, shared/src/api/skill-inputs.ts), only when valid */
+export interface SkillInfo { path: string; name: string; description: string; inputs?: SkillInput[] }
 export interface Skill extends SkillInfo { body: string }
 
 const SKILLS_DIR = 'skills'
@@ -42,37 +44,44 @@ function skillRootLength(parts: readonly string[]): number | null {
 }
 /** A path under users/<id>/skills/ (a personal skill entry). */
 export const isPersonalSkill = (rel: string) => skillRootLength(rel.split('/')) === 3
-/** The metadata a listing shows (no body). `personal` is set only for a personal skill. */
-export const skillInfo = ({ path: p, name, description }: SkillInfo): SkillInfo & { personal?: true } =>
-  (isPersonalSkill(p) ? { path: p, name, description, personal: true } : { path: p, name, description })
+/** The metadata a listing shows (no body). `personal` is set only for a personal skill, `inputs` only for a skill
+ * with a valid form. */
+export const skillInfo = ({ path: p, name, description, inputs }: SkillInfo): SkillInfo & { personal?: true } =>
+  ({ path: p, name, description, ...(isPersonalSkill(p) ? { personal: true as const } : {}), ...(inputs ? { inputs } : {}) })
 const hasFrontmatter = (text: string) => /^\uFEFF?---[ \t]*(?:\r?\n|$)/.test(text)
 
 /** Decode the standard metadata without constructing JS objects or expanding aliases. Only the root and the
- * optional metadata string map may be collections. The bounded header also limits parser work before validation. */
-function standardFields(header: string): Map<string, string> | null {
+ * optional metadata string map may be collections. The bounded header also limits parser work before validation.
+ * `metadata` holds the metadata map's values (the form of a skill is its `inputs`). */
+function standardFields(header: string): { fields: Map<string, string>; metadata: Map<string, string> } | null {
   try {
     const doc = parseDocument(header, { strict: true, uniqueKeys: true, schema: 'core', version: '1.2', prettyErrors: false, logLevel: 'silent' })
     if (doc.errors.length || doc.warnings.length || !isMap(doc.contents) || doc.contents.anchor || doc.contents.tag) return null
-    const fields = new Map<string, string>()
+    const fields = new Map<string, string>(), metadata = new Map<string, string>()
     const scalar = (v: unknown): v is import('yaml').Scalar<string> => isScalar(v) && typeof v.value === 'string' && !v.anchor && !v.tag
     for (const item of doc.contents.items) {
       if (!scalar(item.key)) return null
       const key = item.key.value
       if (key === 'metadata') {
         if (!isMap(item.value) || item.value.anchor || item.value.tag) return null
-        for (const pair of item.value.items) if (!scalar(pair.key) || !scalar(pair.value)) return null
+        for (const pair of item.value.items) {
+          if (!scalar(pair.key) || !scalar(pair.value)) return null
+          metadata.set(pair.key.value, pair.value.value)
+        }
       } else {
         if (!scalar(item.value)) return null
         fields.set(key, item.value.value)
       }
     }
-    return fields
+    return { fields, metadata }
   } catch { return null }
 }
 
 /** Why an entry with a header is not a skill. Codes only: the screens translate them (R2-SKILL-03). */
 export type SkillProblem = 'too_large' | 'header' | 'location' | 'name' | 'name_folder' | 'description' | 'compatibility'
-export type SkillCheck = { ok: true; name: string; description: string; body: string } | { ok: false; problem: SkillProblem }
+/** `inputs` / `badInputs`: a SKILL.md's form (metadata `inputs`), when it declares one: the list when valid, else why
+ * not (the skill still loads, without a form: skillIssues reports `inputs`). */
+export type SkillCheck = { ok: true; name: string; description: string; body: string; inputs?: SkillInput[]; badInputs?: string } | { ok: false; problem: SkillProblem }
 
 /** A header line that the legacy reader takes as a field. legacyHeaderOk uses the same regex for its duplicate check. */
 const LEGACY_KEY = /^([A-Za-z_][\w-]*)\s*:\s*(.*)$/
@@ -139,15 +148,20 @@ export function checkSkill(text: string, rel?: string): SkillCheck {
     const parts = rel.split('/')
     const root = skillRootLength(parts)
     if (root === null || parts.length < root + 2 || parts.length > root + MAX_DEPTH) return no('location')
-    const fields = standardFields(m[1]!)
-    if (!fields) return no('header')
+    const header = standardFields(m[1]!)
+    if (!header) return no('header')
+    const { fields } = header
     const name = fields.get('name'), description = fields.get('description')
     if (!name || name.length > SKILL_NAME_MAX || !/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(name)) return no('name')
     if (name !== parts.at(-2)) return no('name_folder')
     if (!description?.trim() || [...description].length > DESCRIPTION_MAX) return no('description')
     const compatibility = fields.get('compatibility')
     if (compatibility !== undefined && (!compatibility.trim() || [...compatibility].length > 500)) return no('compatibility')
-    return { ok: true, name, description: description.trim(), body: t.slice(m[0].length) }
+    const ok = { ok: true as const, name, description: description.trim(), body: t.slice(m[0].length) }
+    const raw = header.metadata.get('inputs')
+    if (raw === undefined) return ok
+    const form = parseSkillInputs(raw)
+    return form.ok ? { ...ok, inputs: form.inputs } : { ...ok, badInputs: form.reason }
   }
   if (!legacyHeaderOk(m[1]!)) return no('header')
   const fields: Record<string, string> = Object.create(null)
@@ -160,9 +174,15 @@ export function checkSkill(text: string, rel?: string): SkillCheck {
   return { ok: true, name, description: (fields.description ?? '').slice(0, LEGACY_DESCRIPTION_MAX), body: t.slice(m[0].length) }
 }
 
-export function parseSkill(text: string, rel?: string): { name: string; description: string; body: string } | null {
+export function parseSkill(text: string, rel?: string): { name: string; description: string; body: string; inputs?: SkillInput[] } | null {
   const r = checkSkill(text, rel)
-  return r.ok ? { name: r.name, description: r.description, body: r.body } : null
+  return r.ok ? { name: r.name, description: r.description, body: r.body, ...(r.inputs ? { inputs: r.inputs } : {}) } : null
+}
+
+/** Why the form of a skill that loads does not parse (metadata `inputs`), or null: no form, or a valid one. */
+export function skillInputsProblem(text: string, rel: string): string | null {
+  const r = checkSkill(text, rel)
+  return r.ok && r.badInputs ? r.badInputs : null
 }
 
 /** The problem of an entry that looks like a skill: a SKILL.md, or another file with a header. null: it loads, or it
@@ -205,7 +225,10 @@ export function skillFileProblem(root: string, rel: string, text: string): Skill
  * Empty when the file is not a problem. Tool results are in English; the screens use the codes. */
 export function skillWriteNote(root: string, rel: string, data: Buffer): string {
   const problem = skillFileProblem(root, rel, data.toString('utf8'))
-  if (!problem) return ''
+  if (!problem) {
+    const form = isSkillManifest(rel) && skillRootLength(rel.split('/')) !== null && !isSkillResource(root, rel) ? skillInputsProblem(data.toString('utf8'), rel) : null
+    return form ? `\nWarning: the skill loads, but its form (metadata inputs) does not: ${form}. It runs without its form until the value is a JSON list of inputs. Tell the user, and fix it if they want the form.` : ''
+  }
   const how: Record<SkillProblem, string> = {
     too_large: `the file is larger than ${SKILL_FILE_MAX_BYTES / 1024} KB`,
     header: 'the header between the --- lines is broken',
@@ -320,13 +343,14 @@ export function managedSkillRoots(files: FileService, user: Principal): string[]
   return writable.filter((f) => !writable.some((g) => g !== f && f.startsWith(g + '/')))
 }
 
-export interface SkillIssue { path: string; problem: SkillProblem | 'too_many' | 'too_many_rules' }
+export interface SkillIssue { path: string; problem: SkillProblem | 'too_many' | 'too_many_rules' | 'inputs' }
 
 /** Entries that look like skills but do not load (R2-SKILL-03): a SKILL.md that fails validation, or a legacy file
  * with a header that fails. Only entries the caller can read are checked, so a path the caller cannot read never
  * shows. A file without a header is a team rule, not an issue. A root with more entries than MAX_FILES is one issue
  * (`too_many`) for the people who manage it: skill managers for skills/, the owner for their personal skills. More
- * team rule files than the AI follows (`too_many_rules`, prompt.ts teamRules) is one for skill managers. */
+ * team rule files than the AI follows (`too_many_rules`, prompt.ts teamRules) is one for skill managers. A skill that
+ * loads but whose form does not parse (metadata `inputs`) is `inputs`: it runs without its form. */
 export function skillIssues(files: FileService, user: Principal, o: { rules?: { total: number; followed: number } } = {}): SkillIssue[] {
   const out: SkillIssue[] = []
   const capped = walkSkillEntries(files, user, (rel, scan) => {
@@ -338,6 +362,7 @@ export function skillIssues(files: FileService, user: Principal, o: { rules?: { 
       const text = readRegular(r.abs, SKILL_FILE_MAX_BYTES).bytes.toString('utf8')
       const problem = loadProblem(text, r.rel)
       if (problem) out.push({ path: r.rel, problem })
+      else if (isSkillManifest(r.rel) && skillInputsProblem(text, r.rel)) out.push({ path: r.rel, problem: 'inputs' })
     } catch { /* not readable: say nothing */ }
   })
   const manager = managedSkillRoots(files, user).length > 0
