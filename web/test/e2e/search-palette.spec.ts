@@ -81,8 +81,9 @@ test('typing: results by type with the text marked, Enter opens, files go to the
   await open(page)
   await input(page).fill('budget')
   await expect(palette(page).getByTestId('search-section-chats').getByRole('option', { name: /quarterly budget notes/ })).toBeVisible()
+  // file names first (from the server), then the row that opens the file screen's content search
   const files = palette(page).getByTestId('search-section-files').getByRole('option')
-  await files.click()
+  await files.last().click()
   await expect(page).toHaveURL(/\/files\?q=budget$/)
 
   await open(page)

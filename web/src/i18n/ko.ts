@@ -2606,6 +2606,19 @@ export const ko = {
   "pdfView.fitWidth": "너비에 맞추기",
   "pdfView.cantOpen": "이 PDF를 미리 볼 수 없어요. 파일이 손상되었을 수 있어요. 다운로드해서 열어 보세요.",
   "chatux.waitingForYou": "답을 기다려요. 아래 카드를 확인해 주세요.",
+  "scheduled.lastRunTitle": "마지막 실행",
+  "scheduled.openResult": "결과 열기",
+  "scheduled.completedRunHint": "이미 실행된 일회성 예약이에요. 한 번 더 실행하려면 지금 실행을 누르세요.",
+  "scheduled.expiredRunHint": "예약한 시각이 지났어요. 한 번 실행하려면 지금 실행을 누르세요.",
+  "scheduled.emptyBody": "예약 작업은 정한 시각에 지시를 대신 실행해요. 예를 들어 매주 월요일 요약을 만들어요. 채팅에서 설명하거나 템플릿으로 시작하세요.",
+  "scheduled.reason.problems": "일부 단계가 제대로 되지 않았어요. 결과를 열어 어떤 단계인지 확인하세요.",
+  "scheduled.reason.error": "실행이 오류로 멈췄어요. 결과를 열어 오류를 확인한 뒤 지금 실행으로 다시 시도하세요.",
+  "scheduled.reason.stopped": "실행이 끝나기 전에 중지됐어요. 지금 실행으로 다시 실행하세요.",
+  "scheduled.reason.interrupted": "실행이 끝나지 않았어요. 예를 들어 서버가 다시 시작됐을 수 있어요. 지금 실행으로 다시 실행하세요.",
+  "scheduled.reason.budget_exceeded": "사용 한도에 도달해서 실행이 시작되지 않았어요. 관리자에게 한도를 문의하거나 다음 실행을 기다리세요.",
+  "scheduled.reason.user_unavailable": "소유자 계정이 활성 상태가 아니어서 실행이 시작되지 않았고 예약이 꺼졌어요.",
+  "search.fileNamesFailed": "파일 이름을 검색하지 못했어요.",
+  "search.inInstruction": "지시 내용: {text}",
 } as const
 
 export type MessageKey = keyof typeof ko
