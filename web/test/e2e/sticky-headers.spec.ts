@@ -97,3 +97,31 @@ test("Projects and a project's page keep their top bar while the page scrolls", 
     await expect(top.getByTestId('project-menu')).toBeInViewport()
   }
 })
+
+test('the page itself never scrolls: a long page scrolls inside, the sidebar and the Admin menu stay put', async ({ page }) => {
+  await start(page)
+  for (const size of [{ width: 1468, height: 700 }, { width: 390, height: 700 }]) {
+    await page.setViewportSize(size)
+    for (const path of ['/admin/engines', '/admin/integrations']) {
+      await page.goto(path)
+      await expect(page.getByTestId('admin-content')).toBeVisible()
+      if (path === '/admin/integrations') await page.getByTestId('connectors-header').getByRole('tab').nth(1).click()
+      const content = page.getByTestId('admin-content')
+      const box = (await content.boundingBox())!
+      await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2)
+      for (let i = 0; i < 12; i++) await page.mouse.wheel(0, 800)
+      await expect.poll(() => content.evaluate((el) => el.scrollTop)).toBeGreaterThan(0)
+      expect(await page.evaluate(() => document.scrollingElement!.scrollTop)).toBe(0)
+      // nothing is taller than the window, so there is nothing for the page to scroll
+      expect(await page.evaluate(() => document.scrollingElement!.scrollHeight)).toBeLessThanOrEqual(size.height)
+      // what stays put is still whole: the sidebar's first item (wide) or the phone's top bar, and the Admin menu
+      if (size.width >= 768) {
+        const first = (await page.getByTestId('new-chat').boundingBox())!
+        expect(first.y).toBeGreaterThanOrEqual(0)
+      } else {
+        expect((await page.getByRole('button', { name: t['sidebar.open'] }).boundingBox())!.y).toBeGreaterThanOrEqual(0)
+      }
+      expect((await page.getByTestId('admin-menu').boundingBox())!.y).toBeGreaterThanOrEqual(0)
+    }
+  }
+})

@@ -95,6 +95,10 @@
 }
 
 html, body { height: 100%; }
+/* the signed-in app (components/Layout.tsx) is exactly the window: the page itself never scrolls or rubber-bands, only
+   the areas inside it do (a hidden screen-reader label positioned against the page could otherwise make it scroll) */
+html.app-shell, html.app-shell body { overflow: hidden; overscroll-behavior: none; }
+html.app-shell #root { position: relative; overflow: clip; }
 #root { height: var(--app-h, 100dvh); }
 body { background: var(--c-canvas); color: var(--c-ink); -webkit-font-smoothing: antialiased; }
 /* Korean wraps between words, not in the middle of one ("정|한"); a very long unbroken run still wraps instead of
