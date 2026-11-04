@@ -2559,4 +2559,11 @@ export const es: Record<MessageKey, string> = {
   "adminux.audit.key.reason": "Motivo",
   "adminux.audit.done": "Hecho",
   "adminux.audit.moreDetails": "Más detalles (como los escribió el servidor)",
+  "files.passThroughShort": "Solo de paso",
+  "pdfView.toolbar": "Herramientas de vista PDF",
+  "pdfView.zoomOut": "Alejar",
+  "pdfView.zoomIn": "Acercar",
+  "pdfView.zoomLevel": "{n}%",
+  "pdfView.fitWidth": "Ajustar al ancho",
+  "pdfView.cantOpen": "No se puede mostrar este PDF. Puede que el archivo esté dañado. Descárguelo para abrirlo.",
 }

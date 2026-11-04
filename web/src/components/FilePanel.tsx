@@ -249,7 +249,7 @@ export default function FilePanel({ file, onClose }: { file: PreviewFile; onClos
           </p>
         ) : (
           <Suspense fallback={<p className="p-6 text-sm text-faint">{t('common.loading')}</p>}>
-            <Viewer kind={kind} blob={blob} width={width} name={file.name} at={file.source === 'team' ? file.at : undefined} path={file.source === 'team' ? file.path : null} />
+            <Viewer kind={kind} blob={blob} width={width} name={file.name} at={file.source === 'team' ? file.at : undefined} path={file.source === 'team' ? file.path : null} download={download} />
           </Suspense>
         )}
       </div>
@@ -259,10 +259,11 @@ export default function FilePanel({ file, onClose }: { file: PreviewFile; onClos
 
 /** `at`: the place to open the file at (an answer's source, a link): a PDF page, a slide, a sheet and its range. Word
  * and Hangul previews have no such place and open at the top. */
-function Viewer({ kind, blob, width, name, at, path }: { kind: PreviewKind; blob: Blob; width: number; name: string; at?: SourceLoc; path: string | null }) {
+function Viewer({ kind, blob, width, name, at, path, download }: { kind: PreviewKind; blob: Blob; width: number; name: string; at?: SourceLoc; path: string | null; download: () => void }) {
   switch (kind) {
     case 'pdf':
-      return <PdfView blob={blob} width={width} startPage={at?.kind === 'page' ? at.page : undefined} />
+      // `download`: a PDF that pdf.js cannot read shows a Download button in place of the pages
+      return <PdfView blob={blob} width={width} startPage={at?.kind === 'page' ? at.page : undefined} download={download} />
     case 'docx':
       return <DocxView blob={blob} />
     case 'pptx':

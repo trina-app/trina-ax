@@ -2599,4 +2599,11 @@ export const id: Record<MessageKey, string> = {
   "adminux.audit.key.reason": "Alasan",
   "adminux.audit.done": "Selesai",
   "adminux.audit.moreDetails": "Detail lain (seperti yang ditulis server)",
+  "files.passThroughShort": "Hanya dilewati",
+  "pdfView.toolbar": "Alat tampilan PDF",
+  "pdfView.zoomOut": "Perkecil",
+  "pdfView.zoomIn": "Perbesar",
+  "pdfView.zoomLevel": "{n}%",
+  "pdfView.fitWidth": "Sesuaikan lebar",
+  "pdfView.cantOpen": "PDF ini tidak bisa ditampilkan. File mungkin rusak. Unduh file untuk membukanya.",
 }

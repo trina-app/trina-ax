@@ -2598,6 +2598,13 @@ export const ko = {
   "adminux.audit.key.reason": "이유",
   "adminux.audit.done": "완료",
   "adminux.audit.moreDetails": "자세한 정보 (서버 기록 그대로)",
+  "files.passThroughShort": "이동만 가능",
+  "pdfView.toolbar": "PDF 보기 도구",
+  "pdfView.zoomOut": "축소",
+  "pdfView.zoomIn": "확대",
+  "pdfView.zoomLevel": "{n}%",
+  "pdfView.fitWidth": "너비에 맞추기",
+  "pdfView.cantOpen": "이 PDF를 미리 볼 수 없어요. 파일이 손상되었을 수 있어요. 다운로드해서 열어 보세요.",
 } as const
 
 export type MessageKey = keyof typeof ko

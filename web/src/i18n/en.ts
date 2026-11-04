@@ -2599,4 +2599,11 @@ export const en: Record<MessageKey, string> = {
   "adminux.audit.key.reason": "Reason",
   "adminux.audit.done": "Done",
   "adminux.audit.moreDetails": "More details (as the server wrote them)",
+  "files.passThroughShort": "Pass-through only",
+  "pdfView.toolbar": "PDF view tools",
+  "pdfView.zoomOut": "Zoom out",
+  "pdfView.zoomIn": "Zoom in",
+  "pdfView.zoomLevel": "{n}%",
+  "pdfView.fitWidth": "Fit to width",
+  "pdfView.cantOpen": "This PDF can't be shown. The file may be damaged. Download it to open it.",
 }

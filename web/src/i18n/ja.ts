@@ -2559,4 +2559,11 @@ export const ja: Record<MessageKey, string> = {
   "adminux.audit.key.reason": "理由",
   "adminux.audit.done": "完了",
   "adminux.audit.moreDetails": "詳細（サーバーの記録のまま）",
+  "files.passThroughShort": "通過のみ",
+  "pdfView.toolbar": "PDF表示ツール",
+  "pdfView.zoomOut": "縮小",
+  "pdfView.zoomIn": "拡大",
+  "pdfView.zoomLevel": "{n}%",
+  "pdfView.fitWidth": "幅に合わせる",
+  "pdfView.cantOpen": "このPDFはプレビューできません。ファイルが壊れている可能性があります。ダウンロードして開いてください。",
 }
