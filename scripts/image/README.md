@@ -194,7 +194,7 @@ Inputs, all for **linux amd64** (t3a is x86-64; on an Apple silicon Mac cross-co
 ```sh
 ARCHS=amd64 bash native/build.sh                     # native/bin/linux-amd64/mycel-enroll (and mycel-link, when it exists)
 scripts/image/build-ami.sh \
-  --profile trina --account 896568317806 \
+  --profile <trina profile> --account <trina account id> \
   --kit dist/TeamAX-server-0.3.0-linux-amd64.tar.gz \
   --enroll-bin native/bin/linux-amd64/mycel-enroll \
   --link-bin native/bin/linux-amd64/mycel-link \
@@ -202,8 +202,8 @@ scripts/image/build-ami.sh \
   --sign-key /secure/release-ed25519.pem               # the same release key as for the qcow2
 ```
 
-`--account` stops the build before any change when the AWS session is another account. Use it: the default AWS CLI
-profile of a machine can belong to another company.
+`--account` is required (except with `--dry-run`, also for `--cleanup`): the build stops before any change when the AWS
+session is another account. The default AWS CLI profile of a machine can belong to another company.
 
 Steps (each id goes into `dist/image/ami-build-<templateVersion>.state` before the next call):
 

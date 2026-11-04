@@ -85,7 +85,7 @@ function setup() {
 function run(s: ReturnType<typeof setup>, args: string[], env: Record<string, string> = {}) {
   const p = Bun.spawnSync(['/bin/bash', SCRIPT, '--kit', s.kit, '--enroll-bin', path.join(s.dir, 'mycel-enroll'),
     '--link-bin', path.join(s.dir, 'mycel-link'), '--subnet-id', 'subnet-0abc', '--ssh-cidr', '198.51.100.1/32',
-    '--date', '20261105', '--out', s.out, '--yes', ...args], {
+    '--date', '20261105', '--out', s.out, '--yes', '--account', '111122223333', ...args], {
     env: { PATH: `${s.bin}:${path.dirname(OPENSSL ?? '/usr/bin/openssl')}:/usr/bin:/bin:/usr/sbin:/sbin`, HOME: s.dir,
       TMPDIR: s.dir, STUB_LOG: s.log, STUB_TEMPLATE: '0.3.0-d13-20261105', ...env },
     stdout: 'pipe', stderr: 'pipe',
@@ -212,6 +212,13 @@ describe('build-ami.sh', () => {
     expect(r.calls).toEqual(['sts get-caller-identity --query Account --output text'].map((c) => `--region ap-northeast-2 ${c}`))
     r = run(s, ['--account', '111122223333'])
     expect(r.code).toBe(0)
+    // without --account: stop before any call
+    fs.rmSync(s.log, { force: true })
+    const p = Bun.spawnSync(['/bin/bash', SCRIPT, '--subnet-id', 'subnet-0abc', '--yes'], {
+      env: { PATH: `${s.bin}:/usr/bin:/bin`, HOME: s.dir, TMPDIR: s.dir, STUB_LOG: s.log }, stdout: 'pipe', stderr: 'pipe' })
+    expect(p.exitCode).not.toBe(0)
+    expect(p.stderr.toString()).toContain('--account <12-digit id> is required')
+    expect(fs.existsSync(s.log) ? fs.readFileSync(s.log, 'utf8').trim() : '').toBe('')
     const state = path.join(s.dir, 'left.state')
     fs.writeFileSync(state, 'instance i-0left\n')
     fs.rmSync(s.log, { force: true })

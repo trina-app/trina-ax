@@ -7,8 +7,9 @@
 #
 # Options (defaults):
 #   --region ap-northeast-2     --profile P (AWS CLI profile)
-#   --account ID                stop before any change when the AWS session is not this account (use it: the
-#                               default profile of a machine can be another account)
+#   --account ID                (required, except with --dry-run) the AWS account to build in. The script stops
+#                               before any change when the session is another account: the default profile of a
+#                               machine can belong to another company
 #   --subnet-id subnet-…        (required) a subnet with a route to the internet and a NACL that lets SSH in from
 #                               --ssh-cidr (the hostd subnet of trina-teams, or a default-VPC subnet). Not a team subnet:
 #                               their NACL blocks inbound SSH.
@@ -71,7 +72,7 @@ while [[ $# -gt 0 ]]; do
     --dry-run) DRY=1; shift ;;
     --yes|-y) YES=1; shift ;;
     --cleanup) CLEANUP_STATE="$2"; shift 2 ;;
-    -h|--help) sed -n '2,44p' "$0"; exit 0 ;;
+    -h|--help) sed -n '2,45p' "$0"; exit 0 ;;
     *) echo "build-ami: unknown argument $1" >&2; exit 2 ;;
   esac
 done
@@ -144,6 +145,7 @@ cleanup_state() {
   fi
 }
 
+[[ $DRY == 1 || -n "$ACCOUNT_WANT" ]] || die "--account <12-digit id> is required (the account to build in; see --help)"
 [[ -z "$ACCOUNT_WANT" || "$ACCOUNT_WANT" =~ ^[0-9]{12}$ ]] || die "--account is a 12-digit AWS account id"
 # the account of the AWS session; with --account, stop when it is another one
 check_account() {
