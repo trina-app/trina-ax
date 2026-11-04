@@ -16,7 +16,7 @@ Open **Usage** from your account menu. It shows your answers, tokens and estimat
 ![Settings › Usage: Your usage, your answers by model for this month, and answers, tokens and estimated cost](../images/usage/mine.webp "Your own usage, in Settings")
 
 :::note
-Personal usage is new. In older versions, only admins see usage, in **Admin › Usage**.
+Personal usage is new in 0.4.0. Before that, only admins see usage, in **Admin › Usage**.
 :::
 
 ## The team's usage
@@ -33,7 +33,7 @@ Personal skills are never counted by name, so no admin sees what someone keeps p
 
 ## Set limits
 
-There are no limits by default. Admins add them in **Admin › AI engines**, under usage limits.
+There are no limits by default. Admins add them in **Admin › AI engines › Team provider settings**, under **Usage limits**.
 
 | Limit for | Period |
 |---|---|

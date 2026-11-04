@@ -6,7 +6,7 @@ description: Let the AI use outside services such as Notion and Linear, with a p
 An MCP connection lets the AI use a service outside the team server. The AI uses the service's tools with the credentials of the connection.
 
 :::note
-Older versions call this screen **External services**.
+Before 0.4.0, this screen is called **External services**.
 :::
 
 ## Two kinds of connection
