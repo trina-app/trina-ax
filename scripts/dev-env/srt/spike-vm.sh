@@ -5,7 +5,7 @@
 #   - No key pair and no IAM: a new SSH key goes to the VM in its user data.
 #   - The VM, its volume and its security group carry the tag trina-test=srt-spike. The teardown runs on every exit.
 # Usage, from the repo root (commit or keep the files you want to test; untracked files are sent too):
-#   scripts/dev-env/srt/spike-vm.sh [log-file]
+#   scripts/dev-env/srt/spike-vm.sh [log-file] [checks|bench]
 set -euo pipefail
 PROFILE=trina
 REGION=ap-northeast-2
@@ -16,6 +16,7 @@ TYPE=t3a.medium
 DEBIAN_OWNER=136693071363
 BUN_VERSION=1.3.12
 LOG=${1:-srt-spike-vm.log}
+MODE=${2:-checks}
 aws_() { aws --profile "$PROFILE" --region "$REGION" "$@"; }
 say() { echo "spike-vm: $*" >&2; }
 
@@ -64,7 +65,7 @@ IID=$(aws_ ec2 run-instances --image-id "$AMI" --instance-type "$TYPE" --securit
 say "instance $IID"
 aws_ ec2 wait instance-running --instance-ids "$IID"
 IP=$(aws_ ec2 describe-instances --instance-ids "$IID" --query 'Reservations[0].Instances[0].PublicIpAddress' --output text)
-SSH=(ssh -i "$WORK/key" -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o LogLevel=ERROR -o ConnectTimeout=10 "admin@$IP")
+SSH=(ssh -i "$WORK/key" -o ServerAliveInterval=30 -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o LogLevel=ERROR -o ConnectTimeout=10 "admin@$IP")
 for _ in $(seq 1 40); do "${SSH[@]}" true 2>/dev/null && break; sleep 5; done
 say "ssh to $IP is up; sending the repo"
 
@@ -85,11 +86,12 @@ cd /opt/mycel && sudo HOME=/root /usr/local/bin/bun install --frozen-lockfile --
 sudo chown -R root:root /opt/mycel && sudo chmod -R go-w /opt/mycel
 echo "bun $(/usr/local/bin/bun --version), repo ready"
 EOF
-say "running vm-check.sh (about 10 to 20 minutes); log: $LOG"
+say "CPU credits: $(aws_ ec2 describe-instance-credit-specifications --instance-ids "$IID" --query 'InstanceCreditSpecifications[0].CpuCredits' --output text)"
+say "running vm-check.sh $MODE (checks: 10 to 20 minutes; bench: about 40 minutes); log: $LOG"
 set +e
-"${SSH[@]}" 'sudo /opt/mycel/scripts/dev-env/srt/vm-check.sh /opt/mycel' 2>&1 | tee "$LOG"
+"${SSH[@]}" "sudo /opt/mycel/scripts/dev-env/srt/vm-check.sh /opt/mycel $MODE" 2>&1 | tee "$LOG"
 CODE=${PIPESTATUS[0]}
-"${SSH[@]}" 'free -m; systemd --version | head -1; uname -r' 2>&1 | tee -a "$LOG"
+"${SSH[@]}" 'free -m; systemd --version | head -1; uname -r; lscpu | grep -E "Model name|^CPU\(s\)"' 2>&1 | tee -a "$LOG"
 set -e
 say "vm-check exit code $CODE"
 exit "$CODE"

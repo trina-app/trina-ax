@@ -1,0 +1,21 @@
+// The Remotion scene of srt-vm-bench.ts: the T4 scene (feasibility step.sh, from scripts/dev-env/in-box/remotion.sh) at 1920x1080, 30 fps,
+// 450 frames (15 s). It is copied into the project folder of the test; it is not built with the repo.
+import React from 'react'
+import { AbsoluteFill, Composition, interpolate, spring, useCurrentFrame, useVideoConfig } from 'remotion'
+const FRAMES = 450, WIDTH = 1920, HEIGHT = 1080
+const Scene: React.FC = () => {
+  const frame = useCurrentFrame()
+  const { fps } = useVideoConfig()
+  const pop = spring({ frame, fps, config: { damping: 12 } })
+  const hue = interpolate(frame, [0, FRAMES], [200, 320])
+  return (
+    <AbsoluteFill style={{ background: `linear-gradient(${frame * 2}deg, hsl(${hue},70%,35%), hsl(${hue + 60},70%,20%))`, alignItems: 'center', justifyContent: 'center', fontFamily: 'sans-serif', color: 'white' }}>
+      <svg width={WIDTH} height={HEIGHT} style={{ position: 'absolute' }}>
+        {Array.from({ length: 24 }, (_, i) => <circle key={i} r={27 + i} fill="white" opacity={0.12} cx={WIDTH / 2 + WIDTH * 0.33 * Math.cos(i + frame / 25)} cy={HEIGHT / 2 + HEIGHT * 0.33 * Math.sin(i * 2 + frame / 25)} />)}
+      </svg>
+      <div style={{ fontSize: 144, fontWeight: 700, transform: `scale(${pop})` }}>개발 환경 Remotion</div>
+      <div style={{ fontSize: 60, opacity: interpolate(frame, [30, 60], [0, 1], { extrapolateRight: 'clamp', extrapolateLeft: 'clamp' }) }}>1080p · 15 s · frame {frame}</div>
+    </AbsoluteFill>
+  )
+}
+export const Root: React.FC = () => <Composition id="Main" component={Scene} durationInFrames={FRAMES} fps={30} width={WIDTH} height={HEIGHT} />
