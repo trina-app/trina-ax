@@ -6795,7 +6795,10 @@ core (chat instructions, files and permissions); the hosting side only passes th
   further pages and every source must be on the typed site. Excerpts are not checked against the page text: the
   person checks them. A build without migration 227 (a rollback) runs a draft chat as an ordinary chat of its person.
   A server that does not know its exit address yet opens nothing in a draft: the step then offers the text and the
-  questions.
+  questions. Checked by hand on 2026-11-04 (`bun run dev`, a real Claude turn): without the relay the dev server
+  never learns its exit address and the draft came back empty (the model wrote the empty JSON, no guesses), and the
+  step offered the text and the questions; with the local relay it read two pages of one site, and the saved profile
+  reached a new chat.
 - Tests: `tests/unit/b-onboarding-profile.test.ts` (GET and PUT permissions, every cap and refusal, the file history,
   someone kept out of skills/ gets no profile and no block, the file never a rule or a skill even with a skill
   header, the block in the instructions, the turn context and sub-agents with tags neutralized, a hand-edited file,

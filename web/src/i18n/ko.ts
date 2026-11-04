@@ -2617,7 +2617,7 @@ export const ko = {
   "onboarding.profile.save": "저장",
   "onboarding.profile.saved": "회사 소개를 저장했어요.",
   "onboarding.profile.readAgain": "홈페이지 다시 읽기",
-  "onboarding.profile.cardDesc": "팀의 모든 대화에서 AI가 참고하는 회사 정보예요. 소유자와 관리자만 고칠 수 있어요.",
+  "onboarding.profile.cardDesc": "팀의 모든 대화에서 AI가 참고하는 회사 정보예요. 팀장과 관리자만 고칠 수 있어요.",
   "onboarding.profile.none": "아직 회사 소개가 없어요.",
   "onboarding.profile.create": "만들기",
   "onboarding.profile.edit": "고치기",
