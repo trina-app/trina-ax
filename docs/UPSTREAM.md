@@ -334,6 +334,14 @@ Source change from potenlab/team-ax branch `feat/sidebar-account-settings` (on t
 - Here the dialog gives the keyboard back through this repository's `useFocusTrap(…, returnTo)` and `menuOpener`; core, whose trap has no `returnTo`, does it in the dialog itself.
 - Only here: the new strings in Spanish and Japanese.
 
+## 2026-11-04 Activity log: filters at the top, a simpler list
+
+Source change from potenlab/team-ax branch `feat/activity-log` (on top of `feat/sidebar-account-settings`, not yet on core main), ported by hand. No core history was imported.
+
+- Taken as they are: `web/src/lib/activity.ts` (filters in the address, time presets, day groups and folded repeats), `web/src/pages/admin/Audit.tsx`, `web/test/unit/activity.test.ts`, `web/test/e2e/activity-log.spec.ts` and the made-up activity rows of the mock server.
+- Here the title row is this repository's `StickyHeader` in Admin's own scrolling area; core keeps Admin's page title at the top of the same area, so its row sticks just under that title.
+- Only here: the custom range keeps this repository's both-days-included `localDayBounds` (core gets the same helper), and the new strings in Spanish and Japanese.
+
 ## 2026-11-04 Usage: your own in Settings, everyone's in Admin
 
 The same change as potenlab/team-ax branch `feat/usage-personal-team` (not yet on core main), written here by hand. No core history was imported.

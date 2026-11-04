@@ -76,6 +76,25 @@ function checkTemp(pw: string | undefined): void {
 }
 const tempUntil = () => new Date(Date.now() + 7 * 86400_000).toISOString()
 const now = () => new Date().toISOString()
+/** Admin > Activity log rows (made up), newest first: see the `audit` handler. */
+function auditRows(): AuditEntry[] {
+  const t = Date.now()
+  const at = (ms: number) => new Date(t - ms).toISOString()
+  const olga = { id: 'olga', name: 'Olga' }
+  const bob = { id: 'bob', name: 'Bob' }
+  const min = 60_000
+  const day = 86_400_000
+  const rows: AuditEntry[] = [
+    { id: 'a1', source: 'admin', at: at(0), actor: olga, action: 'invite.create', target: 'member', turnId: null, detail: { role: 'member' } },
+    ...[2, 4, 6, 8, 10].map((m, i): AuditEntry => ({ id: `s${i}`, source: 'auth', at: at(m * min), actor: bob, action: 'auth.login', target: 'bob', turnId: null, detail: { ip: '10.0.0.7' } })),
+    { id: 'f1', source: 'file', at: at(12 * min), actor: olga, action: 'update', target: 'finance/2026/plan.md', turnId: null, detail: { size: 2048, sha256: 'c'.repeat(64), detail: null } },
+    { id: 't1', source: 'tool', at: at(14 * min), actor: bob, action: 'read', target: null, turnId: null, detail: { summary: 'read hr/salaries.xlsx -> denied: no access', ok: 0 } },
+    { id: 't2', source: 'tool', at: at(16 * min), actor: bob, action: 'read', target: null, turnId: null, detail: { summary: 'read marketing/plan.md', ok: 1 } },
+    { id: 'k1', source: 'admin', at: at(day + 5 * min), actor: olga, action: 'skills.change', target: 'skills/weekly-team-report/SKILL.md', turnId: null, detail: null },
+  ]
+  for (let d = 2; d <= 121; d++) rows.push({ id: `o${d}`, source: 'auth', at: at(d * day), actor: olga, action: 'auth.login', target: 'olga', turnId: null, detail: { ip: '10.0.0.2' } })
+  return rows
+}
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))
 
 interface FileNode { type: 'file' | 'folder'; data?: Uint8Array; mtime: string; mime?: string }
@@ -1645,7 +1664,19 @@ export class MockServer {
         ? [{ key: 'model-test', label: 'model-test', turns: 15, inputTokens: 14000, outputTokens: 4100, costUsd: 0.47 }]
         : [{ key: 'olga', label: 'Olga', turns: 12, inputTokens: 12000, outputTokens: 3400, costUsd: 0.42 }, { key: 'bob', label: 'Bob', turns: 3, inputTokens: 2000, outputTokens: 700, costUsd: 0.05 }],
       totals: { turns: 15, inputTokens: 14000, outputTokens: 4100, costUsd: 0.47 } }),
-    audit: () => ({ items: [{ id: 'a1', source: 'admin', at: now(), actor: { id: 'olga', name: 'Olga' }, action: 'invite.create', target: 'member', turnId: null, detail: { role: 'member' } } satisfies AuditEntry], nextCursor: null }),
+    // like server/src/admin/audit.ts listAudit: newest first, filtered by kind, person, path (file events only) and
+    // [from, to); paged by an index cursor. Made-up rows: today's invite first, repeats, a refused AI tool call, a team
+    // skill change yesterday, and a sign-in every day before that (enough to scroll and to need "Load more").
+    audit: (c) => {
+      const f = c.query
+      const rows = auditRows().filter((e) => (!f.source || e.source === f.source) && (!f.actor || e.actor?.id === f.actor)
+        && (f.path === undefined || (e.source === 'file' && (e.target === f.path || (e.target ?? '').startsWith(f.path + '/'))))
+        && (!f.from || e.at >= new Date(f.from).toISOString()) && (!f.to || e.at < new Date(f.to).toISOString()))
+      const start = f.cursor ? Number(f.cursor) : 0
+      const limit = Number(f.limit ?? 50)
+      const items = rows.slice(start, start + limit)
+      return { items, nextCursor: start + limit < rows.length ? String(start + limit) : null }
+    },
     diagnostics: () => ({ version: this.serverVersion, host: { os: 'darwin', arch: 'arm64', hostname: 'mac-mini' }, disk: { teamFolderFreeBytes: 500e9, dataFreeBytes: 500e9 }, queue: { running: 0, queued: 0, concurrency: 2 }, checks: [{ id: 'relay', group: 'relay', label: 'Relay connection', status: 'warn', detail: 'Relay not configured (dev)' }, { id: 'disk', group: 'disk', label: 'Disk space', status: 'ok', detail: null }], generatedAt: now() }),
     updateStatus: () => ({ current: this.serverVersion, channel: 'stable', available: null, lastCheckedAt: now(), previous: null, managed: this.cloud }),
     // like server/src/system/storage.ts: a 50 GB disk, 41 GB used (over 80%); the plan on Team AX Cloud
