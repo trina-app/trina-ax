@@ -95,8 +95,7 @@ run there only if the team's plan includes it. The plan says so in `/var/lib/myc
   not available at its next start.
 - Not done yet: the control plane cannot write the file or install the box, the kit has no `scripts/dev-env/`, the
   template has no podman, and a reimage loses the box account and image (the box volumes stay on the data disk).
-  For now an operator puts the
-  file there and runs the script.
+  For now an operator puts the file there and runs the script.
 
 ## 3. Update a server with the dev environment
 
