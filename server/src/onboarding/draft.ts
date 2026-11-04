@@ -159,8 +159,11 @@ export function draftSystemPrompt(s: DraftScope, o: { locale: Locale; history?: 
     '## Answer',
     'Answer with one JSON object in a ```json code block and nothing else:',
     '```json',
-    '{"oneLine": "", "products": "", "audience": "", "tone": [], "avoid": "", "sources": [{"field": "oneLine", "url": "", "excerpt": ""}]}',
+    '{"name": "", "oneLine": "", "products": "", "audience": "", "tone": [], "avoid": "", "sources": [{"field": "oneLine", "url": "", "excerpt": ""}]}',
     '```',
+    s.source === 'website'
+      ? `- name: the company's name as the site writes it, from the page title or the site's name (at most ${PROFILE_LIMITS.name} characters), without a tagline or the page's own title. Empty when the pages do not show one.`
+      : `- name: the company's name as the text writes it (at most ${PROFILE_LIMITS.name} characters). Empty when the text does not say.`,
     `- oneLine: what the company does, in one sentence (at most ${PROFILE_LIMITS.oneLine} characters).`,
     `- products: its products or services (at most ${PROFILE_LIMITS.products} characters).`,
     `- audience: who its customers are (at most ${PROFILE_LIMITS.audience} characters).`,

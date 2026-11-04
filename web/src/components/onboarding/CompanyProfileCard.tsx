@@ -42,6 +42,7 @@ export default function CompanyProfileCard() {
 function Summary({ p }: { p: CompanyProfile }) {
   const t = useT()
   const rows: [string, string][] = [
+    [t('onboarding.profile.f.name'), p.name ?? ''],
     [t('onboarding.profile.f.oneLine'), p.oneLine],
     [t('onboarding.profile.f.products'), p.products],
     [t('onboarding.profile.f.audience'), p.audience],

@@ -16,6 +16,7 @@ import { readRegular } from '../files/store'
 import { zonedParts } from '../system/time-zone'
 import { MAX_CONCURRENT_SUBAGENTS } from '../engine/claude'
 import { profileFactLines, readCompanyProfile } from '../onboarding/profile'
+import { getTeamSettings } from '../admin/settings'
 
 export const MEMORY_ITEM_MAX = MEMORY_TEXT_MAX
 /** A memory's text as it is kept: runs of spaces and line breaks folded into one space, trimmed; refused when empty or
@@ -133,7 +134,7 @@ export function memoryBlock(memories: { id: string; text: string }[]): string {
  */
 export function companyProfileBlock(files: FileService, user: Principal): string {
   const p = readCompanyProfile(files, user)
-  const lines = p ? profileFactLines(p) : []
+  const lines = p ? profileFactLines(p, undefined, getTeamSettings(files.db).teamName) : []
   if (!lines.length) return ''
   return [
     '<company_profile>',

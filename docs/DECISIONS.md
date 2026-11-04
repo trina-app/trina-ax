@@ -7057,6 +7057,13 @@ core (chat instructions, files and permissions); the hosting side only passes th
   hosts, the scope on every redirect hop, no attachments or project in a draft chat, the marking failing closed,
   tests with the real web_fetch and the launch flags, no tool for pasted text, draft wording in the gate's refusals
   (`TurnPerson.unattendedLabel`), and the preference framing of tone and avoid. All done as above.
+- **Company name (integration, 2026-11-05)**: the ad-copy preview showed "[회사 이름]" because a profile had no name.
+  `name` is an optional field (≤ 80 characters, one line; profiles and bodies from before it stay valid), the first
+  field of the review ("회사 이름") and of the facts block ("Company name: …"), a source like any field, and the prefill
+  key `company.name`. The website draft fills it from the page title or the site's name, never a guess. Empty, the
+  team's name (Admin › Team settings) stands in everywhere: the block, the prefill (also without a profile) and the
+  review's starting value (`profileName`). The ad-copy skill has an optional "회사 이름" field prefilled with it and
+  writes [회사 이름] only when neither the field nor the profile has one.
 
 ## E — 팀 초대 링크: one team invite link for a chat app, a shorter join form (feat/onboarding-e, 2026-11-04)
 

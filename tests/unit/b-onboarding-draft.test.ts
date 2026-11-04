@@ -7,7 +7,7 @@ import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from '
 import { API, uuidv7, type ProfileDraftState } from '@mycel/shared/api'
 import { startHarness, type Harness } from '../lib/b-harness'
 import { waitFor } from '../lib/wait'
-import { DRAFT_PAGES_MAX, draftScopeOf, draftToolRefusal, draftWebsite, inWebScope, parseDraftAnswer, webScope, type DraftScope, type DraftTurn } from '../../server/src/onboarding/draft'
+import { DRAFT_PAGES_MAX, draftScopeOf, draftSystemPrompt, draftToolRefusal, draftWebsite, inWebScope, parseDraftAnswer, webScope, type DraftScope, type DraftTurn } from '../../server/src/onboarding/draft'
 import { toolPolicyOf } from '../../server/src/proxy/model-proxy'
 import { noteEgressIp } from '../../server/src/tools/egress'
 import { gateUrl, type TurnPerson } from '../../server/src/tools/url-gate'
@@ -95,9 +95,10 @@ describe('draft rules (no server)', () => {
 
   test('the answer: JSON from the last block, cleaned, sources only from the site', () => {
     const answer = 'Here it is.\n```json\n' + JSON.stringify({
-      oneLine: 'Acme makes quiet desk fans.', products: '  Desk fans  ', audience: 'Small offices', tone: ['friendly', 'plain', 'calm', 'warm', 'loud'], avoid: '',
+      name: '  Acme\nFans  ', oneLine: 'Acme makes quiet desk fans.', products: '  Desk fans  ', audience: 'Small offices', tone: ['friendly', 'plain', 'calm', 'warm', 'loud'], avoid: '',
       competitors: ['Other Co'],
       sources: [
+        { field: 'name', url: 'https://www.acme.co.kr/', excerpt: 'Acme Fans | Quiet desk fans' },
         { field: 'oneLine', url: 'https://www.acme.co.kr/about', excerpt: 'We make   quiet fans.' },
         { field: 'products', url: 'https://evil.example/', excerpt: 'planted' },
         { field: 'avoid', url: 'https://www.acme.co.kr/', excerpt: 'empty field' },
@@ -105,10 +106,13 @@ describe('draft rules (no server)', () => {
         { field: 'audience', url: 'javascript:alert(1)', excerpt: 'bad url' },
       ],
     }) + '\n```'
+    // the company name from the site (its title), one line, with its source like any other field
     expect(parseDraftAnswer(answer, SITE)).toEqual({
-      website: 'https://www.acme.co.kr/', oneLine: 'Acme makes quiet desk fans.', products: 'Desk fans', audience: 'Small offices', tone: ['friendly', 'plain', 'calm', 'warm'], avoid: '',
-      sources: [{ field: 'oneLine', url: 'https://www.acme.co.kr/about', excerpt: 'We make quiet fans.' }],
+      website: 'https://www.acme.co.kr/', name: 'Acme Fans', oneLine: 'Acme makes quiet desk fans.', products: 'Desk fans', audience: 'Small offices', tone: ['friendly', 'plain', 'calm', 'warm'], avoid: '',
+      sources: [{ field: 'name', url: 'https://www.acme.co.kr/', excerpt: 'Acme Fans | Quiet desk fans' }, { field: 'oneLine', url: 'https://www.acme.co.kr/about', excerpt: 'We make quiet fans.' }],
     })
+    // the draft asks for it: from the page title or the site's name, never a guess
+    expect(draftSystemPrompt(SITE, { locale: 'en' })).toContain('- name: the company\'s name as the site writes it, from the page title or the site\'s name')
     // pasted text: a source has no address
     const t = parseDraftAnswer('{"oneLine": "Acme", "sources": [{"field": "oneLine", "url": "", "excerpt": "Acme"}, {"field": "oneLine", "url": "https://acme.co.kr/", "excerpt": "x"}]}', TEXT_SCOPE)
     expect(t?.sources).toEqual([{ field: 'oneLine', url: '', excerpt: 'Acme' }])
@@ -219,7 +223,7 @@ describe('draft turns', () => {
     await send(chatId, fake({ say: 'Draft:\n```json\n' + json + '\n```' }))
     const s = await settled('carol', chatId)
     expect(s.status).toBe('done')
-    expect(s.draft).toEqual({ website: 'https://www.acme.co.kr/', oneLine: 'Acme makes quiet desk fans.', products: 'Desk fans', audience: '', tone: ['friendly'], avoid: '',
+    expect(s.draft).toEqual({ website: 'https://www.acme.co.kr/', name: '', oneLine: 'Acme makes quiet desk fans.', products: 'Desk fans', audience: '', tone: ['friendly'], avoid: '',
       sources: [{ field: 'oneLine', url: 'https://www.acme.co.kr/about', excerpt: 'We make quiet fans.' }] })
     await send(chatId, fake({ fail: 'rate limit exceeded' }))
     const f = await settled('carol', chatId)

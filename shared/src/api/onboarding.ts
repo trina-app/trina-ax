@@ -6,14 +6,15 @@
 import { z } from 'zod'
 import { endpoint } from './endpoint'
 
-/** The fields of a profile that reach the AI (website besides). Skill inputs read them as `company.<field>`. */
-export const PROFILE_FIELDS = ['oneLine', 'products', 'audience', 'tone', 'avoid'] as const
+/** The fields of a profile that reach the AI (website besides). Skill inputs read them as `company.<field>`. `name`
+ * (the company's name) is optional: profiles saved before it have none, and an empty one reads as the team's name. */
+export const PROFILE_FIELDS = ['name', 'oneLine', 'products', 'audience', 'tone', 'avoid'] as const
 export const ProfileField = z.enum(PROFILE_FIELDS)
 export type ProfileField = z.infer<typeof ProfileField>
 
 /** Characters per field (and the source lines). Together they keep the prompt block under PROFILE_BLOCK_MAX. */
 export const PROFILE_LIMITS = {
-  website: 200, oneLine: 120, products: 400, audience: 300, avoid: 300,
+  website: 200, name: 80, oneLine: 120, products: 400, audience: 300, avoid: 300,
   /** tone: at most this many chips, each at most toneItem characters */
   toneCount: 4, toneItem: 20,
   sources: 10, sourceUrl: 500, excerpt: 200,
@@ -34,6 +35,8 @@ export type ProfileSource = z.infer<typeof ProfileSource>
 /** A profile as the person saves it (PUT) and as a draft comes back: every field may be empty. */
 export const CompanyProfileInput = z.object({
   website: z.string().max(PROFILE_LIMITS.website),
+  /** the company's name ("회사 이름"); absent or empty: the team's name stands in (profileName) */
+  name: z.string().max(PROFILE_LIMITS.name).optional(),
   oneLine: z.string().max(PROFILE_LIMITS.oneLine),
   products: z.string().max(PROFILE_LIMITS.products),
   audience: z.string().max(PROFILE_LIMITS.audience),
@@ -93,13 +96,17 @@ export function normalizeWebsite(raw: string): string | null {
   return u.href.length > PROFILE_LIMITS.website ? null : u.href
 }
 
+/** The company's name as everything uses it: the profile's own, else the team's name (Admin › Team settings). */
+export const profileName = (p: Pick<CompanyProfileInput, 'name'> | null | undefined, teamName = ''): string =>
+  (p?.name ?? '').trim() || teamName.trim()
+
 /** The skill-input prefill keys (stream C reads them): `company.<field>` and `company.website`, each as text (tone chips
- * joined with ", "). Empty fields are left out; no profile, no keys. */
-export function profilePrefill(p: CompanyProfileInput | null | undefined): Record<string, string> {
+ * joined with ", "). Empty fields are left out; no profile, no keys. `company.name` falls back to `teamName`. */
+export function profilePrefill(p: CompanyProfileInput | null | undefined, teamName = ''): Record<string, string> {
   if (!p) return {}
   const out: Record<string, string> = {}
   for (const f of ['website', ...PROFILE_FIELDS] as const) {
-    const v = f === 'tone' ? p.tone.join(', ') : p[f]
+    const v = f === 'tone' ? p.tone.join(', ') : f === 'name' ? profileName(p, teamName) : p[f]
     if (v.trim()) out[`company.${f}`] = v.trim()
   }
   return out

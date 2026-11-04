@@ -43,8 +43,12 @@ describe('skill form values', () => {
   })
 
   test('every prefill key a form may ask for is one the company profile gives', () => {
-    const full = profilePrefill({ ...saved.profile!, audience: 'Small offices', avoid: 'Superlatives' })
+    const full = profilePrefill({ ...saved.profile!, audience: 'Small offices', avoid: 'Superlatives' }, 'Acme team')
     expect(Object.keys(full).sort()).toEqual([...SKILL_INPUT_PREFILL].sort())
+    // the company name: the profile's own, else the team's name (no name and no team name: left out)
+    expect(full['company.name']).toBe('Acme team')
+    expect(profilePrefill({ ...saved.profile!, name: 'Acme' }, 'Acme team')['company.name']).toBe('Acme')
+    expect(profilePrefill(saved.profile)).not.toHaveProperty('company.name')
   })
 
   test('the profile fills the fields that ask for it, never over what the person typed', () => {

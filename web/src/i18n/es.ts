@@ -2618,6 +2618,7 @@ export const es: Record<MessageKey, string> = {
   "onboarding.profile.reviewTitle": "Esto es lo que entendimos",
   "onboarding.profile.reviewDesc": "Quite o corrija lo que esté mal. Una vez guardado, la IA lo usa en todos los chats del equipo.",
   "onboarding.profile.f.website": "Sitio web",
+  "onboarding.profile.f.name": "Nombre de la empresa",
   "onboarding.profile.f.oneLine": "Presentación en una línea",
   "onboarding.profile.f.products": "Productos y servicios",
   "onboarding.profile.f.audience": "Clientes",

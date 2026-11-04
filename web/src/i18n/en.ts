@@ -2658,6 +2658,7 @@ export const en: Record<MessageKey, string> = {
   "onboarding.profile.reviewTitle": "Here is what we understood",
   "onboarding.profile.reviewDesc": "Remove or fix anything wrong. Once saved, the AI uses it in every team chat.",
   "onboarding.profile.f.website": "Website",
+  "onboarding.profile.f.name": "Company name",
   "onboarding.profile.f.oneLine": "One-line intro",
   "onboarding.profile.f.products": "Products and services",
   "onboarding.profile.f.audience": "Customers",

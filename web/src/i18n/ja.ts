@@ -2618,6 +2618,7 @@ export const ja: Record<MessageKey, string> = {
   "onboarding.profile.reviewTitle": "このように理解しました",
   "onboarding.profile.reviewDesc": "間違っている内容は消すか直してください。保存すると、チームのすべての会話でAIが参考にします。",
   "onboarding.profile.f.website": "ホームページ",
+  "onboarding.profile.f.name": "会社名",
   "onboarding.profile.f.oneLine": "ひとこと紹介",
   "onboarding.profile.f.products": "製品・サービス",
   "onboarding.profile.f.audience": "顧客",

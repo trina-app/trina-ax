@@ -7,7 +7,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { addMember, harness, withOwner, type Harness } from './a-lib'
 import { checkSkill, listSkills, skillIssues } from '../../server/src/chat/skills'
-import { setSetting } from '../../server/src/admin/settings'
+import { getTeamSettings, setSetting } from '../../server/src/admin/settings'
 import { earlierPackTexts, SKILL_PACKS } from '../../server/src/onboarding/skill-packs'
 import { PROFILE_PATH } from '../../server/src/onboarding/profile'
 import { CompanyProfileResponse, packFolderKind, profilePrefill } from '@mycel/shared/api'
@@ -200,12 +200,14 @@ test('with a saved company profile: the install leaves it alone, it is no skill,
   expect(skillIssues(h.ctx.files, member)).toEqual([])
 
   // what a member's form gets (GET /api/onboarding/profile through the shared contract and prefill helper)
-  const prefill = profilePrefill(CompanyProfileResponse.parse(await mia.client.call('GET', '/api/onboarding/profile')).profile)
+  // (the company name: the profile has none, so the team's name stands in, as the form does)
+  const prefill = profilePrefill(CompanyProfileResponse.parse(await mia.client.call('GET', '/api/onboarding/profile')).profile, getTeamSettings(h.ctx.db).teamName)
   const asked = listSkills(h.ctx.files, member).filter((s) => s.path.startsWith('skills/marketing/')).flatMap((s) => s.inputs ?? []).flatMap((i) => (i.prefill ? [i.prefill] : []))
-  expect(new Set(asked)).toEqual(new Set(['company.products', 'company.audience', 'company.tone', 'company.avoid', 'company.website']))
+  expect(new Set(asked)).toEqual(new Set(['company.name', 'company.products', 'company.audience', 'company.tone', 'company.avoid', 'company.website']))
   for (const key of asked) expect(prefill[key], key).toBeTruthy()
   expect(prefill['company.products']).toBe('Desk fans\nFan filters')
   expect(prefill['company.tone']).toBe('friendly, plain')
+  expect(prefill['company.name']).toBe('Acme')
 })
 
 test('the team folders come from the shared table (same names, same order); the Files screen knows each one', () => {

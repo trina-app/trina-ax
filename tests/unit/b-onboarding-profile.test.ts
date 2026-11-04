@@ -5,7 +5,8 @@
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from 'bun:test'
 import fs from 'node:fs'
 import path from 'node:path'
-import { API, PROFILE_BLOCK_MAX, PROFILE_LIMITS, type CompanyProfileInput } from '@mycel/shared/api'
+import { API, PROFILE_BLOCK_MAX, PROFILE_LIMITS, profilePrefill, type CompanyProfileInput } from '@mycel/shared/api'
+import { getTeamSettings } from '../../server/src/admin/settings'
 import { startHarness, type Harness } from '../lib/b-harness'
 import { buildSubagentPrompt, buildTurnContext, buildTurnPrompt, companyProfileBlock, teamRuleFiles, type PromptInput } from '../../server/src/chat/prompt'
 import { listSkills, skillIssues } from '../../server/src/chat/skills'
@@ -140,6 +141,29 @@ describe('company profile API', () => {
     expect(buildSubagentPrompt(h.ctx.files, input('alice'), [])).toContain(block)
   })
 
+  test('the company name: the profile\'s own first in the block and the prefill, else the team\'s name', async () => {
+    const team = getTeamSettings(h.ctx.db).teamName
+    expect(team).toBeTruthy()
+    // a profile without a name (saved before the field existed, or left empty): the team's name stands in
+    await h.api('carol').call(API.saveCompanyProfile, { body: profile() })
+    expect((await h.api('alice').call(API.getCompanyProfile)).profile!.name).toBe('')
+    let block = companyProfileBlock(h.ctx.files, h.ctx.files.principal('alice'))
+    expect(block.split('\n')[2]).toBe(`Company name: ${team}`)
+    expect(profilePrefill((await h.api('alice').call(API.getCompanyProfile)).profile, team)['company.name']).toBe(team)
+    // its own name, cleaned to one line, wins everywhere
+    await h.api('carol').call(API.saveCompanyProfile, { body: profile({ name: '  Acme\nFans ', sources: [{ field: 'name', url: 'https://www.acme.example/', excerpt: 'Acme Fans' }] }) })
+    const saved = (await h.api('alice').call(API.getCompanyProfile)).profile!
+    expect(saved.name).toBe('Acme Fans')
+    expect(saved.sources.map((s) => s.field)).toEqual(['name'])
+    block = companyProfileBlock(h.ctx.files, h.ctx.files.principal('alice'))
+    expect(block.split('\n')[2]).toBe('Company name: Acme Fans')
+    expect(profilePrefill(saved, team)['company.name']).toBe('Acme Fans')
+    // capped like every field; a body from before the field (no name) is still valid
+    expect((await h.req('carol', '/api/onboarding/profile', json(profile({ name: 'x'.repeat(PROFILE_LIMITS.name + 1) })))).status).toBe(400)
+    const { name: _, ...old } = profile()
+    expect((await h.req('carol', '/api/onboarding/profile', json(old))).status).toBe(200)
+  })
+
   test('a hand-edited file: clipped to the limits, unknown keys and broken JSON ignored', () => {
     const before = fs.readFileSync(file(), 'utf8')
     try {
@@ -157,10 +181,10 @@ describe('company profile API', () => {
   test('every field at its limit stays under PROFILE_BLOCK_MAX characters of facts', () => {
     const full = cleanProfile({
       website: 'https://www.' + ('a'.repeat(40) + '.').repeat(4) + 'example/', oneLine: 'o'.repeat(500), products: 'p'.repeat(5000), audience: 'c'.repeat(5000),
-      tone: ['t'.repeat(30), 'u'.repeat(30), 'v'.repeat(30), 'w'.repeat(30)], avoid: 'v'.repeat(5000),
+      tone: ['t'.repeat(30), 'u'.repeat(30), 'v'.repeat(30), 'w'.repeat(30)], avoid: 'v'.repeat(5000), name: 'n'.repeat(500),
     })!
     const lines = profileFactLines(full, Infinity)
-    expect(lines).toHaveLength(6)
+    expect(lines).toHaveLength(7)
     expect(lines.join('\n').length).toBeLessThanOrEqual(PROFILE_BLOCK_MAX)
   })
 })

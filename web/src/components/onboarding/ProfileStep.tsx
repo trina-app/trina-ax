@@ -10,11 +10,12 @@
 import { useEffect, useId, useRef, useState, type ReactNode } from 'react'
 import { Link } from 'react-router-dom'
 import { ExternalLink, X } from 'lucide-react'
-import { normalizeWebsite, PROFILE_FIELDS, PROFILE_LIMITS, PROFILE_TEXT_MAX, type CompanyProfile, type CompanyProfileInput, type ProfileField, type ProfileSource } from '@mycel/shared/api'
+import { normalizeWebsite, PROFILE_FIELDS, PROFILE_LIMITS, PROFILE_TEXT_MAX, profileName, type CompanyProfile, type CompanyProfileInput, type ProfileField, type ProfileSource } from '@mycel/shared/api'
 import { api, API, errorText } from '../../lib/api'
 import { setupSite } from '../../lib/setupLink'
 import { useLocale, useT, type MessageKey } from '../../i18n'
 import { useAiAccess } from '../../store/aiAccess'
+import { useMe } from '../../store/session'
 import { toast } from '../../store/ui'
 import AiAccessBanner from '../chat/AiAccessBanner'
 import { Button, ErrorNote, Field, IconButton, inputCls, Spinner } from '../ui'
@@ -40,12 +41,12 @@ type Phase =
   | { kind: 'review' }
 
 const POLL_MS = 2500
-const blank = (website = ''): CompanyProfileInput => ({ website, oneLine: '', products: '', audience: '', tone: [], avoid: '', sources: [] })
+const blank = (website = ''): CompanyProfileInput => ({ website, name: '', oneLine: '', products: '', audience: '', tone: [], avoid: '', sources: [] })
 const FIELD_LABEL: Record<ProfileField | 'website', MessageKey> = {
-  website: 'onboarding.profile.f.website', oneLine: 'onboarding.profile.f.oneLine', products: 'onboarding.profile.f.products',
+  website: 'onboarding.profile.f.website', name: 'onboarding.profile.f.name', oneLine: 'onboarding.profile.f.oneLine', products: 'onboarding.profile.f.products',
   audience: 'onboarding.profile.f.audience', tone: 'onboarding.profile.f.tone', avoid: 'onboarding.profile.f.avoid',
 }
-const filled = (p: CompanyProfileInput, f: ProfileField) => (f === 'tone' ? p.tone.length > 0 : p[f].trim().length > 0)
+const filled = (p: CompanyProfileInput, f: ProfileField) => (f === 'tone' ? p.tone.length > 0 : (p[f] ?? '').trim().length > 0)
 /** chips from "friendly, expert" (commas, line breaks), at most PROFILE_LIMITS.toneCount, no repeats */
 export function toneChips(text: string, have: string[] = []): string[] {
   const out = [...have]
@@ -59,6 +60,7 @@ export function toneChips(text: string, have: string[] = []): string[] {
 export function tidyProfile(p: CompanyProfileInput): CompanyProfileInput {
   const out: CompanyProfileInput = {
     website: p.website.trim() ? normalizeWebsite(p.website) ?? p.website.trim() : '',
+    name: (p.name ?? '').trim(),
     oneLine: p.oneLine.trim(), products: p.products.trim(), audience: p.audience.trim(), tone: p.tone.map((t) => t.trim()).filter(Boolean),
     avoid: p.avoid.trim(), sources: [],
   }
@@ -72,7 +74,10 @@ export default function ProfileStep({ onDone, onSkip, skipLabel, initial, initia
   const [phase, setPhase] = useState<Phase>(initial ? { kind: 'review' } : { kind: 'site' })
   const [site, setSite] = useState(() => initial?.website || initialWebsite || setupSite() || '')
   const [siteError, setSiteError] = useState<string | null>(null)
-  const [draft, setDraft] = useState<CompanyProfileInput>(() => (initial ? { ...initial } : blank()))
+  // the company name starts as the team's name (Admin › Team settings) when the profile has none: one less thing to type
+  const teamName = useMe()?.team.name ?? ''
+  const named = (d: CompanyProfileInput): CompanyProfileInput => ({ ...d, name: profileName(d, teamName) })
+  const [draft, setDraft] = useState<CompanyProfileInput>(() => named(initial ? { ...initial } : blank()))
   const [text, setText] = useState('')
   const [answers, setAnswers] = useState({ what: '', who: '', tone: '' })
   const [busy, setBusy] = useState(false)
@@ -118,7 +123,7 @@ export default function ProfileStep({ onDone, onSkip, skipLabel, initial, initia
         if (s.status === 'running') { timer = setTimeout(tick, POLL_MS); return }
         if (s.status === 'done' && s.draft) {
           const d = s.draft
-          setDraft((prev) => ({ ...d, website: d.website || prev.website }))
+          setDraft((prev) => named({ ...d, website: d.website || prev.website }))
           setPhase({ kind: 'review' })
           return
         }
@@ -310,6 +315,9 @@ export default function ProfileStep({ onDone, onSkip, skipLabel, initial, initia
   return (
     <div className="space-y-4" data-testid="profile-step-review">
       {head(t('onboarding.profile.reviewTitle'), t('onboarding.profile.reviewDesc'))}
+      <ReviewField field="name" value={draft.name ?? ''} source={sourceOf('name')} onClear={() => clear('name')}>
+        {(id) => <input id={id} className={inputCls} value={draft.name ?? ''} onChange={(e) => set('name', e.target.value)} maxLength={PROFILE_LIMITS.name} data-testid="profile-name" />}
+      </ReviewField>
       <Field label={t('onboarding.profile.f.website')}>
         <input className={inputCls} value={draft.website} onChange={(e) => setDraft({ ...draft, website: e.target.value })} placeholder="acme.co.kr" inputMode="url" autoCapitalize="none" spellCheck={false} maxLength={PROFILE_LIMITS.website} />
       </Field>

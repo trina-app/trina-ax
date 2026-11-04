@@ -9,10 +9,12 @@ import { api } from './api'
  * `profilePrefill`: tone chips joined with ", ", empty fields left out). */
 export type Prefill = Readonly<Record<string, string>>
 
-/** The team's company profile (GET /api/onboarding/profile) as prefill values; empty when none is saved, the person
- * cannot read it, or the server has no profiles (404) or any other failure. */
-export async function loadPrefill(): Promise<Prefill> {
-  try { return profilePrefill((await api.call(API.getCompanyProfile)).profile) } catch { return {} }
+/** The team's company profile (GET /api/onboarding/profile) as prefill values; none when none is saved, the person
+ * cannot read it, or the server has no profiles (404) or any other failure. `company.name` is the profile's, else
+ * `teamName` (the team's name stands in for the company's, with or without a profile). */
+export async function loadPrefill(teamName = ''): Promise<Prefill> {
+  const name: Record<string, string> = teamName.trim() ? { 'company.name': teamName.trim() } : {}
+  try { return { ...name, ...profilePrefill((await api.call(API.getCompanyProfile)).profile, teamName) } } catch { return name }
 }
 
 /** The text for one field ('' when the profile has none). A one-line field gets the lines of a longer profile field

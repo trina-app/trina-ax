@@ -91,7 +91,7 @@ export function SkillForm({ path, skill: given, onDone, onSkip, skipLabel, onCom
   useEffect(() => {
     if (!inputs.some((i) => i.prefill)) return
     let live = true
-    void loadPrefill().then((prefill) => { if (live && Object.keys(prefill).length) setValues((v) => withPrefill(inputs, prefill, v, typed.current)) })
+    void loadPrefill(me.team.name).then((prefill) => { if (live && Object.keys(prefill).length) setValues((v) => withPrefill(inputs, prefill, v, typed.current)) })
     return () => { live = false }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [skill?.path, !!skill?.inputs])

@@ -21,7 +21,7 @@
 import { z } from 'zod'
 
 /** Company profile fields a form may fill in for the person (GET /api/onboarding/profile). */
-export const SKILL_INPUT_PREFILL = ['company.oneLine', 'company.products', 'company.audience', 'company.tone', 'company.avoid', 'company.website'] as const
+export const SKILL_INPUT_PREFILL = ['company.name', 'company.oneLine', 'company.products', 'company.audience', 'company.tone', 'company.avoid', 'company.website'] as const
 export type SkillInputPrefill = (typeof SKILL_INPUT_PREFILL)[number]
 
 export const SKILL_INPUTS_MAX = 8

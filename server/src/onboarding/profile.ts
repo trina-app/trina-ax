@@ -5,7 +5,7 @@
 // files, so this file can never become a rule or a skill whatever it holds. The AI gets the facts as their own
 // <company_profile> block (chat/prompt.ts companyProfileBlock), never as instructions.
 import type { CompanyProfile, CompanyProfileInput, Locale, ProfileField } from '@mycel/shared/api'
-import { normalizeWebsite, PROFILE_BLOCK_MAX, PROFILE_FIELDS, PROFILE_LIMITS } from '@mycel/shared/api'
+import { normalizeWebsite, PROFILE_BLOCK_MAX, PROFILE_FIELDS, PROFILE_LIMITS, profileName } from '@mycel/shared/api'
 import type { FileService } from '../files/service'
 import { readRegular, sha256 } from '../files/store'
 import type { Principal } from '../policy/access'
@@ -48,6 +48,7 @@ export function cleanProfile(raw: unknown, sourceOk: (url: string) => boolean = 
   const r = raw as Record<string, unknown>
   const p: CompanyProfileInput = {
     website: normalizeWebsite(cleanText(r.website, PROFILE_LIMITS.website)) ?? '',
+    name: cleanText(r.name, PROFILE_LIMITS.name).replace(/\n/g, ' '),
     oneLine: cleanText(r.oneLine, PROFILE_LIMITS.oneLine).replace(/\n/g, ' '),
     products: cleanText(r.products, PROFILE_LIMITS.products),
     audience: cleanText(r.audience, PROFILE_LIMITS.audience),
@@ -69,16 +70,18 @@ export function cleanProfile(raw: unknown, sourceOk: (url: string) => boolean = 
   return p
 }
 
-const filled = (p: CompanyProfileInput, f: ProfileField) => (f === 'tone' ? p.tone.length > 0 : p[f].length > 0)
+const filled = (p: CompanyProfileInput, f: ProfileField) => (f === 'tone' ? p.tone.length > 0 : (p[f] ?? '').length > 0)
 /** Nothing worth giving the AI (or keeping as a draft). */
 export const profileEmpty = (p: CompanyProfileInput) => !p.website && PROFILE_FIELDS.every((f) => !filled(p, f))
 
 /** The facts as the AI reads them: fixed English labels, one line per field (line breaks inside a field become
- * " · "), empty fields left out, at most `max` characters in all (lines that do not fit are left out). Tags are
- * neutralized by the caller. */
-export function profileFactLines(p: CompanyProfileInput, max = PROFILE_BLOCK_MAX): string[] {
+ * " · "), empty fields left out, at most `max` characters in all (lines that do not fit are left out). The company
+ * name is the profile's, else `teamName` (Admin › Team settings). Tags are neutralized by the caller. */
+export function profileFactLines(p: CompanyProfileInput, max = PROFILE_BLOCK_MAX, teamName = ''): string[] {
   const one = (s: string) => s.split('\n').map((l) => l.trim()).filter(Boolean).join(' · ')
+  const name = profileName(p, teamName)
   const lines = [
+    name ? `Company name: ${name}` : '',
     p.website ? `Website: ${p.website}` : '',
     p.oneLine ? `One-line intro: ${one(p.oneLine)}` : '',
     p.products ? `Products and services: ${one(p.products)}` : '',

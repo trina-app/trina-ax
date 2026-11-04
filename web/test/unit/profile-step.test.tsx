@@ -64,3 +64,21 @@ test('skill inputs read the profile as company.<field> (tone as one text); empty
   })
   expect(profilePrefill(null)).toEqual({})
 })
+
+test('the company name is the first field: the profile\'s own, else the team\'s name to confirm', async () => {
+  const { useSession } = await import('../../src/store/session')
+  const before = useSession.getInitialState().status
+  // a static render reads the store's initial state
+  Object.assign(useSession.getInitialState(), { status: { kind: 'signed-in', me: { user: { id: 'u1', role: 'owner' }, team: { name: 'Acme Team', defaultLocale: 'en' } } } })
+  try {
+    const html = render(<ProfileStep initial={PROFILE} onDone={noop} />)
+    expect(html).toContain('data-testid="profile-name"')
+    expect(html).toContain('value="Acme Team"')
+    // first: before the website and the one-line intro
+    expect(html.indexOf('data-testid="profile-name"')).toBeLessThan(html.indexOf('value="https://www.acme.example/"'))
+    expect(html.indexOf('>Company name<')).toBeLessThan(html.indexOf('>One-line intro<'))
+    expect(render(<ProfileStep initial={{ ...PROFILE, name: 'Acme' }} onDone={noop} />)).toContain('value="Acme"')
+    // what is saved keeps the name, trimmed
+    expect(tidyProfile({ ...PROFILE, name: '  Acme  ' }).name).toBe('Acme')
+  } finally { Object.assign(useSession.getInitialState(), { status: before }) }
+})

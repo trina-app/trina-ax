@@ -2658,6 +2658,7 @@ export const id: Record<MessageKey, string> = {
   "onboarding.profile.reviewTitle": "Ini yang kami pahami",
   "onboarding.profile.reviewDesc": "Hapus atau perbaiki yang salah. Setelah disimpan, AI memakainya di setiap obrolan tim.",
   "onboarding.profile.f.website": "Situs web",
+  "onboarding.profile.f.name": "Nama perusahaan",
   "onboarding.profile.f.oneLine": "Perkenalan satu baris",
   "onboarding.profile.f.products": "Produk dan layanan",
   "onboarding.profile.f.audience": "Pelanggan",
