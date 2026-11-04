@@ -5238,8 +5238,9 @@ the P0 spike (`docs/research/dev-env-p0-spike.md` on `spike/dev-env-p0`). Archiv
   `mycel-devbox` account). Not the launcher, because the launcher runs as the engine account and the box needs root
   for the idmapped mount and for the rules in the box's network namespace. Socket for the server's uid only (root: status only, since 2026-11-02). Box =
   spike box: read-only root, `--cap-drop=ALL`, no-new-privileges, the box seccomp profile, 1 CPU (no CPU weight since
-  2026-11-04: weight 20 made Node in the box see 1 CPU, and did not rank the box below the server), 1.5 GB
-  without swap, 512 processes, /tmp 256 MB, a size-limited loop volume per box (4 GB) for HOME, caches, `node_modules` and `.venv`. The folder is opened with `openat2(RESOLVE_NO_SYMLINKS | RESOLVE_BENEATH)`
+  2026-11-04: weight 20 made Node in the box see 1 CPU, and did not rank the box below the server), 1.5 GB without
+  swap, 512 processes, /tmp 256 MB, a size-limited loop volume per box (4 GB) for HOME, caches, `node_modules` and
+  `.venv`. The folder is opened with `openat2(RESOLVE_NO_SYMLINKS | RESOLVE_BENEATH)`
   below `--team-root` and mounted from that descriptor (idmapped server account → box account, nosuid, nodev). Host
   paths name the box id only. Rules (open: the spike's reject list plus the team server's addresses from
   `MYCEL_DEV_ENV_DENY_ADDRS`; offline: loopback only) load before any command, or the box stops. One running box per
