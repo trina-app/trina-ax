@@ -11,7 +11,7 @@
 //
 // The pack text is in resources/skill-packs/<pack>/<locale>/<name>/SKILL.md, imported as text so a release bundle
 // carries it inside the server code (no extra resource files to list or verify).
-import type { Locale, PackItemStatus, SkillPackId, SkillPackInstallResult } from '@mycel/shared/api'
+import { Locale, PACK_FOLDER_KINDS, PACK_FOLDERS, type PackItemStatus, type SkillPackId, type SkillPackInstallResult } from '@mycel/shared/api'
 import type { AppContext } from '../context'
 import { audit } from '../admin/audit'
 import { teamDefaultLocale } from '../admin/settings'
@@ -50,13 +50,8 @@ export const SKILL_PACKS: Record<SkillPackId, SkillPack> = {
       ko: { 'ad-copy': koAdCopy, 'content-draft': koContentDraft, 'campaign-plan': koCampaignPlan, 'seo-brief': koSeoBrief, 'competitor-brief': koCompetitorBrief, 'brand-review': koBrandReview, 'weekly-report': koWeeklyReport },
       en: { 'ad-copy': enAdCopy, 'content-draft': enContentDraft, 'campaign-plan': enCampaignPlan, 'seo-brief': enSeoBrief, 'competitor-brief': enCompetitorBrief, 'brand-review': enBrandReview, 'weekly-report': enWeeklyReport },
     },
-    folders: {
-      ko: ['브랜드', '캠페인', '보고서', '경쟁사'],
-      en: ['Brand', 'Campaigns', 'Reports', 'Competitors'],
-      id: ['Merek', 'Kampanye', 'Laporan', 'Pesaing'],
-      ja: ['ブランド', 'キャンペーン', 'レポート', '競合'],
-      es: ['Marca', 'Campañas', 'Informes', 'Competencia'],
-    },
+    // 브랜드, 캠페인, 보고서, 경쟁사 (shared, so the Files screen can say what goes in each)
+    folders: Object.fromEntries(Locale.options.map((l) => [l, PACK_FOLDER_KINDS.map((k) => PACK_FOLDERS[k][l])])) as Record<Locale, string[]>,
   },
 }
 

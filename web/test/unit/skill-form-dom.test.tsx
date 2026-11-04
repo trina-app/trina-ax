@@ -68,3 +68,54 @@ describe('skill form: Run only for the skill its name runs', () => {
     await m.unmount()
   })
 })
+
+describe('skill form: chips and the fold (docs/DECISIONS.md "X — Lean onboarding")', () => {
+  const short: SkillInfo = {
+    path: 'skills/marketing/ad-copy/SKILL.md', name: 'ad-copy', description: 'Ad copy — three options', inputs: [
+      { name: 'product', label: 'Product' },
+      { name: 'channel', label: 'Where', type: 'choice', default: 'feed', options: [{ value: 'feed', label: 'Feed' }, { value: 'sms', label: 'Text message' }] },
+      { name: 'when', label: 'When', type: 'choice', options: [{ value: 'now', label: 'Now' }, { value: 'later', label: 'Later' }] },
+      { name: 'audience', label: 'Audience', required: true, advanced: true },
+    ],
+  }
+  const check = (el: { querySelector: (s: string) => unknown }) => {
+    const radio = el.querySelector('input')!
+    // a browser checks the radio before the click's listeners run, past React's value tracker (this small DOM does not)
+    Object.getOwnPropertyDescriptor(Object.getPrototypeOf(radio), 'checked')!.set!.call(radio, true)
+    return radio as never
+  }
+
+  test('a choice starts on its default, one pick; "(optional)" only where nothing is picked by default; the description can go', async () => {
+    skills = () => json(200, { items: [short] })
+    const m = await mount(<MemoryRouter><SkillForm path={short.path} skill={short} description={false} runLabel="Write ad copy" /></MemoryRouter>)
+    await m.until(() => m.find('skill-choice-channel-feed')?.getAttribute('data-on') === 'true', 'the default', 2000)
+    expect(m.get('skill-form').textContent).not.toContain('three options')
+    expect(m.get('skill-input-channel').textContent).toContain('Where')
+    expect(m.get('skill-input-channel').textContent).not.toContain(translate('en', 'skillForm.optional', { label: 'Where' }))
+    expect(m.get('skill-input-when').textContent).toContain(translate('en', 'skillForm.optional', { label: 'When' }))
+    expect(m.get('skill-input-channel').querySelectorAll('input[type="radio"]')).toHaveLength(2)
+    await m.click(check(m.get('skill-choice-channel-sms')))
+    expect(m.get('skill-choice-channel-sms').getAttribute('data-on')).toBe('true')
+    expect(m.get('skill-choice-channel-feed').getAttribute('data-on')).toBeNull()
+    expect(m.get('skill-form-run').textContent).toContain('Write ad copy')
+    await m.unmount()
+  })
+
+  test('advanced fields stay folded; a required one left empty opens the fold and says so', async () => {
+    skills = () => json(200, { items: [short] })
+    let composed = ''
+    const m = await mount(<MemoryRouter><SkillForm path={short.path} skill={short} onCompose={(t) => { composed = t }} /></MemoryRouter>)
+    await m.until(() => !m.get('skill-form-run').hasAttribute('disabled'), 'Run on', 2000)
+    expect(m.find('skill-input-audience')).toBeNull()
+    expect(m.get('skill-form-more').getAttribute('aria-expanded')).toBe('false')
+    await m.click('skill-form-run')
+    await m.until(() => m.find('skill-input-audience'), 'the fold open', 2000)
+    expect(m.get('skill-form-more').getAttribute('aria-expanded')).toBe('true')
+    expect(m.html()).toContain(translate('en', 'skillForm.required'))
+    expect(composed).toBe('')
+    await m.type('skill-input-audience', 'Small offices')
+    await m.click('skill-form-run')
+    expect(composed).toBe('/ad-copy\nWhere: Feed\n\nAudience: Small offices')
+    await m.unmount()
+  })
+})

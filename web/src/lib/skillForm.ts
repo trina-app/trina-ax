@@ -2,7 +2,7 @@
 // the skill. The message is the ordinary skill command ("/<name>" first, server/src/chat/skills.ts invokedSkill),
 // followed by one "label: value" line per filled field, so the chat shows what was asked and the AI gets it as the
 // skill's input.
-import { API, profilePrefill, type SkillInfo, type SkillInput } from '@mycel/shared/api'
+import { API, isChoice, profilePrefill, type SkillInfo, type SkillInput } from '@mycel/shared/api'
 import { api } from './api'
 
 /** What a form can fill in: the company profile as skill-input prefill values (`company.<field>` → text, shared
@@ -25,20 +25,32 @@ export function prefillValue(prefill: Prefill, input: Pick<SkillInput, 'prefill'
 /** Start values: from the profile where a field asks for it, without touching what the person already typed. */
 export function withPrefill(inputs: readonly SkillInput[], prefill: Prefill, values: Record<string, string>, typed: ReadonlySet<string>): Record<string, string> {
   const next = { ...values }
-  for (const i of inputs) if (!typed.has(i.name) && !next[i.name]?.trim()) next[i.name] = prefillValue(prefill, i)
+  for (const i of inputs) if (!isChoice(i) && !typed.has(i.name) && !next[i.name]?.trim()) next[i.name] = prefillValue(prefill, i)
   return next
+}
+
+/** The values a form starts with: each choice field on its default (text fields start empty, the profile fills them). */
+export const initialValues = (inputs: readonly SkillInput[]): Record<string, string> =>
+  Object.fromEntries(inputs.flatMap((i) => (isChoice(i) && i.default ? [[i.name, i.default]] : [])))
+
+/** A field's value as the message carries it: a choice field's option label (nothing for a value that is not one of
+ * its options), else the text as typed. */
+export function valueText(i: SkillInput, values: Record<string, string>): string {
+  const v = values[i.name] ?? ''
+  if (isChoice(i)) return i.options.find((o) => o.value === v)?.label ?? ''
+  return v.replace(/\r\n?/g, '\n').trim()
 }
 
 /** The required fields left empty. */
 export const missingRequired = (inputs: readonly SkillInput[], values: Record<string, string>) =>
-  inputs.filter((i) => i.required && !values[i.name]?.trim()).map((i) => i.name)
+  inputs.filter((i) => i.required && !valueText(i, values)).map((i) => i.name)
 
 /** The message that runs the skill. A skill without a form takes one free text after its name. With nothing filled
  * in it is "/<name> " (the space: the message box's "/" menu takes the skill as chosen and stays closed). */
 export function composeSkillMessage(name: string, inputs: readonly SkillInput[] | undefined, values: Record<string, string>, free = ''): string {
   if (!inputs?.length) return `/${name} ${free.trim()}`
   const parts = inputs.flatMap((i) => {
-    const v = (values[i.name] ?? '').replace(/\r\n?/g, '\n').trim()
+    const v = valueText(i, values)
     if (!v) return []
     return [i.multiline || v.includes('\n') ? `${i.label}:\n${v}` : `${i.label}: ${v}`]
   })

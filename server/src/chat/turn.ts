@@ -997,6 +997,10 @@ export class TurnExec {
       ...(s.parentId ? { parentId: stepId(s.parentId) } : {}), ...(s.subtask ? { subtask: s.subtask } : {}),
     }
     const i = this.steps.findIndex((x) => x.id === step.id)
+    // where in the answer the step started (held text is let out before a tool step): an artifact's card shows there.
+    // A step replaced under the same id keeps where it first started.
+    const textAt = i >= 0 ? this.steps[i]!.textAt : this.content.length
+    if (textAt !== undefined) step.textAt = textAt
     if (i >= 0) this.steps[i] = step
     else this.steps.push(step)
     this.dirty = true

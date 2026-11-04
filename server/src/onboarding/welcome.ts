@@ -1,9 +1,10 @@
-// The welcome steps' progress (docs/DECISIONS.md "W — Welcome steps"; contract shared/src/api/onboarding-welcome.ts):
+// The welcome steps' progress (docs/DECISIONS.md "W — Welcome steps", "X — Lean onboarding"; contract
+// shared/src/api/onboarding-welcome.ts):
 // one settings row of the team, so the steps resume on another device. The owner writes it, owners and admins read
 // it. The marketing pack is installed here at most once: the row records that it ran, and a second call (the same
 // choice again, a resume, two windows) does not install again, since installing again would restore skills someone
 // deleted on purpose (stream C). Everything below is synchronous, so a check and its write never interleave with
-// another request's.
+// another request's. A `team` step of a row written before the team type stopped being a step is kept, not read.
 //
 // The row is read field by field: a field that does not read (a later release changed it, a hand edit) falls back to
 // its default for display, and a write changes only the fields it sets, keeping everything else of the stored object
@@ -67,7 +68,7 @@ function view(raw: Raw, now: string): WelcomeProgress {
 
 const fresh = (now: string): Raw => ({
   startedAt: now, updatedAt: now, teamType: null,
-  steps: { team: null, profile: null, result: null, invite: null },
+  steps: { profile: null, result: null, invite: null },
   pack: null, resultChatId: null, inviteShownAt: null, site: null, dismissedAt: null, finishedAt: null,
 })
 
@@ -85,8 +86,8 @@ export function readWelcome(ctx: Pick<AppContext, 'db'>): WelcomeProgress | null
   return s.raw ? view(s.raw, new Date().toISOString()) : null
 }
 
-/** team, profile and result done, and the invite either way */
-export const welcomeFinished = (p: WelcomeProgress) => p.steps.team === 'done' && p.steps.profile === 'done' && p.steps.result === 'done' && p.steps.invite !== null
+/** profile and result done, and the invite either way */
+export const welcomeFinished = (p: WelcomeProgress) => p.steps.profile === 'done' && p.steps.result === 'done' && p.steps.invite !== null
 
 function save(ctx: Pick<AppContext, 'db'>, raw: Raw, now: string): WelcomeProgress {
   if (!view(raw, now).finishedAt && welcomeFinished(view(raw, now))) raw.finishedAt = now

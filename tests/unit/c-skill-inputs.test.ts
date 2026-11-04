@@ -6,7 +6,7 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { checkSkill, listSkills, skillInfo, skillIssues, skillWriteNote } from '../../server/src/chat/skills'
-import { parseSkillInputs, SkillInfo, SkillIssue } from '@mycel/shared/api'
+import { isChoice, parseSkillInputs, SkillInfo, SkillIssue } from '@mycel/shared/api'
 
 const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'c-skill-inputs-')))
 afterAll(() => fs.rmSync(root, { recursive: true, force: true }))
@@ -135,4 +135,33 @@ test('the AI is told when a skill it saved loads without its form', () => {
   expect(skillWriteNote(root, 'skills/with-form/SKILL.md', Buffer.from(manifest('with-form', FORM)))).toBe('')
   // outside the skill roots a SKILL.md is another tool's file: no note
   expect(skillWriteNote(root, 'shared/x/bad-json/SKILL.md', bad)).toBe('')
+})
+
+test('choice fields (chips, one pick, a default) and folded "advanced" fields (docs/DECISIONS.md "X — Lean onboarding")', () => {
+  const channel = { name: 'channel', label: '어디에 실을까요', type: 'choice', default: 'instagram', options: [{ value: 'instagram', label: '인스타그램 피드' }, { value: 'sms', label: '문자' }] }
+  const form = [{ name: 'product', label: '알릴 제품', required: true }, channel, { name: 'tone', label: '말투', prefill: 'company.tone', advanced: true }]
+  expect(parseSkillInputs(JSON.stringify(form))).toEqual({ ok: true, inputs: form as never })
+  expect(isChoice(form[1] as never)).toBe(true)
+  expect(isChoice(form[0] as never)).toBe(false)
+  const bad = (i: unknown) => { const r = parseSkillInputs(JSON.stringify([i])); return r.ok ? null : r.reason }
+  expect(bad({ ...channel, options: undefined })).toContain('options')
+  expect(bad({ ...channel, options: [channel.options[0]] })).toBeTruthy() // one chip is no choice
+  expect(bad({ ...channel, options: Array.from({ length: 9 }, (_, i) => ({ value: `o${i}`, label: 'x' })) })).toBeTruthy()
+  expect(bad({ ...channel, options: [channel.options[0], channel.options[0]] })).toContain('different')
+  expect(bad({ ...channel, default: 'kakao' })).toContain('default')
+  expect(bad({ ...channel, prefill: 'company.tone' })).toContain('prefill')
+  expect(bad({ ...channel, multiline: true })).toContain('multiline')
+  expect(bad({ ...channel, placeholder: 'x' })).toContain('placeholder')
+  expect(bad({ ...channel, options: [{ value: 'Insta', label: 'x' }, { value: 'b', label: 'y' }] })).toContain('value')
+  expect(bad({ ...channel, options: [{ value: 'a', label: 'x', extra: 1 }, { value: 'b', label: 'y' }] })).toBeTruthy()
+  expect(bad({ ...channel, options: [{ value: 'a', label: 'line\nbreak' }, { value: 'b', label: 'y' }] })).toBeTruthy()
+  // a text field takes no options or default
+  expect(bad({ name: 'a', label: 'A', options: channel.options })).toContain('choice')
+  expect(bad({ name: 'a', label: 'A', default: 'x' })).toContain('choice')
+  expect(bad({ name: 'a', label: 'A', type: 'list' })).toBeTruthy()
+  // a SKILL.md with such a form lists it as written
+  put('skills/chips/SKILL.md', manifest('chips', JSON.stringify(form, null, 1)))
+  const s = listSkills(files, user).find((x) => x.name === 'chips')!
+  expect(skillInfo(s).inputs).toEqual(form as never)
+  expect(SkillInfo.parse(skillInfo(s))).toEqual(skillInfo(s))
 })

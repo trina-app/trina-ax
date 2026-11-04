@@ -13,7 +13,7 @@ import clsx from 'clsx'
 import { ArchiveRestore, BookmarkPlus, ChevronRight, Copy, Download, Eye, File as FileIcon, FileImage, FileSpreadsheet, FileText, Folder, FolderInput, FolderKanban, FolderPlus, FolderUp, History, Home, Lock, MessageSquarePlus, MoreHorizontal, Paperclip, Pencil, Presentation, Search, Sparkles, RefreshCw, Trash2, Upload, X, FileCode, FileArchive, FileAudio, FileVideo } from 'lucide-react'
 import { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
-import type { FileEntry, FileHistoryEvent, FileVersion, HistoryResponse, Project, TrashItem, TreeResponse } from '@mycel/shared/api'
+import { packFolderKind, type FileEntry, type FileHistoryEvent, type FileVersion, type HistoryResponse, type Project, type TrashItem, type TreeResponse } from '@mycel/shared/api'
 import { api, API, errorText, fileUrl, isApiError, startDownload, versionDownloadUrl } from '../lib/api'
 import { canChange, canShare, chatDraggable, clickSelect, dragPayload, dragSet, dropRefusal, failureList, FILES_MOVE_DRAG_TYPE, moveMany, selectable, selectionState, shareMany, toggleAll, trashMany, type DropRefusal, type Outcome } from '../lib/bulkFiles'
 import { formatDateTime, formatSize } from '../lib/format'
@@ -210,6 +210,8 @@ export default function Files() {
   }
 
   const canWrite = tree?.access === 'write'
+  // the marketing pack's team folders (shared/브랜드 …) say what goes in them while empty
+  const packKind = packFolderKind(path)
   const errText = (e: unknown) => errorText(e, locale, t('error.network'))
   const fail = (e: unknown) => toast({ level: 'error', text: errText(e) })
 
@@ -755,6 +757,8 @@ export default function Files() {
                 {!tree && !error && <Skeleton lines={8} className="p-4" />}
                 {tree && !tree.entries.length && (
                   <EmptyState icon={<Upload size={28} />} title={canWrite ? t('files.emptyDrop') : t('files.emptyReadOnly')}>
+                    {/* a pack folder (shared/브랜드 …): one line on what goes here */}
+                    {packKind && <p data-testid="pack-folder-hint">{t(`files.packHint.${packKind}`)}</p>}
                     {canWrite && (
                       <Button size="sm" className="mt-2" onClick={() => fileInput.current?.click()}>
                         {t('files.upload')}

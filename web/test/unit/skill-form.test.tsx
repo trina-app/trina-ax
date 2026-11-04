@@ -6,7 +6,7 @@ import { CompanyProfileResponse, profilePrefill, SKILL_INPUT_PREFILL, type Local
 import { translate, useLocaleStore } from '../../src/i18n'
 import { useSession } from '../../src/store/session'
 import { AvailableSkillsList } from '../../src/components/AvailableSkills'
-import { composeSkillMessage, missingRequired, prefillValue, skillRunBy, skillRunLink, withPrefill } from '../../src/lib/skillForm'
+import { composeSkillMessage, initialValues, missingRequired, prefillValue, skillRunBy, skillRunLink, valueText, withPrefill } from '../../src/lib/skillForm'
 import { matchSkills } from '../../src/components/chat/SkillMenu'
 
 const inputs: SkillInput[] = [
@@ -23,6 +23,25 @@ const saved = CompanyProfileResponse.parse({ profile: {
 const prefill = profilePrefill(saved.profile)
 
 describe('skill form values', () => {
+  test('a choice field: its default to start, its option label in the message, never prefilled (docs/DECISIONS.md "X — Lean onboarding")', () => {
+    const form: SkillInput[] = [
+      { name: 'product', label: '알릴 제품', required: true, prefill: 'company.products' },
+      { name: 'channel', label: '어디에 실을까요', type: 'choice', default: 'instagram', options: [{ value: 'instagram', label: '인스타그램 피드' }, { value: 'sms', label: '문자' }] },
+      { name: 'when', label: '언제', type: 'choice', required: true, options: [{ value: 'now', label: '지금' }, { value: 'later', label: '나중에' }] },
+      { name: 'tone', label: '말투', prefill: 'company.tone', advanced: true },
+    ]
+    expect(initialValues(form)).toEqual({ channel: 'instagram' })
+    expect(withPrefill(form, prefill, initialValues(form), new Set())).toEqual({ product: '종이 플래너, 데스크 매트', channel: 'instagram', tone: '친근하게, 짧게' })
+    expect(valueText(form[1]!, { channel: 'sms' })).toBe('문자')
+    // a value that is not one of the options is nothing
+    expect(valueText(form[1]!, { channel: 'kakao' })).toBe('')
+    expect(missingRequired(form, { product: 'x', channel: 'sms' })).toEqual(['when'])
+    expect(missingRequired(form, { product: 'x', when: 'bogus' })).toEqual(['when'])
+    // folded fields filled from the profile still go along
+    expect(composeSkillMessage('ad-copy', form, { product: '플래너', channel: 'sms', when: 'now', tone: '친근하게' }))
+      .toBe('/ad-copy\n알릴 제품: 플래너\n\n어디에 실을까요: 문자\n\n언제: 지금\n\n말투: 친근하게')
+  })
+
   test('every prefill key a form may ask for is one the company profile gives', () => {
     const full = profilePrefill({ ...saved.profile!, audience: 'Small offices', avoid: 'Superlatives' })
     expect(Object.keys(full).sort()).toEqual([...SKILL_INPUT_PREFILL].sort())

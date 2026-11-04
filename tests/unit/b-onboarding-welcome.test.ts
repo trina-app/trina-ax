@@ -1,13 +1,15 @@
-// Onboarding wave 2 (welcome steps, docs/DECISIONS.md "W — Welcome steps"): the progress is one settings row of the
-// team that the owner writes and owners and admins read, so the steps resume on another device; the marketing pack is
-// installed once by these steps and never again by themselves (installing again would restore what someone deleted).
+// Onboarding wave 2 (welcome steps, docs/DECISIONS.md "W — Welcome steps", "X — Lean onboarding"): the progress is one
+// settings row of the team that the owner writes and owners and admins read, so the steps resume on another device; the
+// marketing pack is installed once by these steps and never again by themselves (installing again would restore what
+// someone deleted). Two counted steps now (profile, result); a `team` step of an older row is kept, not read.
 import { afterEach, expect, test } from 'bun:test'
 import fs from 'node:fs'
 import path from 'node:path'
 import { addMember, harness, withOwner, type Harness } from './a-lib'
 import { WELCOME_SETTING } from '../../server/src/onboarding/welcome'
 import { getSetting, setSetting } from '../../server/src/admin/settings'
-import { WELCOME_RESULT_SKILL, WelcomeProgress } from '@mycel/shared/api'
+import { SKILL_PACKS } from '../../server/src/onboarding/skill-packs'
+import { WELCOME_PACK_SKILLS, WELCOME_RESULT_SKILL, WelcomeProgress } from '@mycel/shared/api'
 
 let h: Harness
 afterEach(async () => { await h?.close() })
@@ -34,11 +36,12 @@ test('nothing until the steps start; then each step is kept on the server and re
 
   // the first visit starts it, with the setup link's website (normalized)
   const started = (await owner.call('PATCH', '/api/onboarding/welcome', { site: 'www.acme.example' })).progress
-  expect(started.steps).toEqual({ team: null, profile: null, result: null, invite: null })
+  expect(started.steps).toEqual({ profile: null, result: null, invite: null })
   expect(started.site).toBe('https://www.acme.example/')
   expect(started.finishedAt).toBeNull()
 
-  await owner.call('PATCH', '/api/onboarding/welcome', { teamType: 'sales', step: { id: 'team', state: 'done' } })
+  // the team type is no step: the line above the first step records it on its own
+  await owner.call('PATCH', '/api/onboarding/welcome', { teamType: 'sales' })
   await owner.call('PATCH', '/api/onboarding/welcome', { step: { id: 'profile', state: 'skipped' } })
 
   // another device (a second session of the owner) and an admin read the same; the row holds exactly that
@@ -46,7 +49,7 @@ test('nothing until the steps start; then each step is kept on the server and re
   await other.login('olga', 'owner horse battery 42')
   const read = (await other.call('GET', '/api/onboarding/welcome')).progress
   expect(read.teamType).toBe('sales')
-  expect(read.steps).toEqual({ team: 'done', profile: 'skipped', result: null, invite: null })
+  expect(read.steps).toEqual({ profile: 'skipped', result: null, invite: null })
   expect((await ada.client.call('GET', '/api/onboarding/welcome')).progress).toEqual(read)
   expect(WelcomeProgress.parse(getSetting(h.ctx.db, WELCOME_SETTING))).toEqual(read)
 
@@ -56,17 +59,18 @@ test('nothing until the steps start; then each step is kept on the server and re
   expect((await ada.client.try('POST', '/api/onboarding/welcome/pack')).status).toBe(403)
   expect((await mia.client.try('PATCH', '/api/onboarding/welcome', {})).status).toBe(403)
   // unknown fields are refused (a typo never silently records nothing)
-  expect((await owner.try('PATCH', '/api/onboarding/welcome', { step: 'team' })).status).toBe(400)
+  expect((await owner.try('PATCH', '/api/onboarding/welcome', { step: 'profile' })).status).toBe(400)
+  // the team type is not a step any more
+  expect((await owner.try('PATCH', '/api/onboarding/welcome', { step: { id: 'team', state: 'done' } })).status).toBe(400)
   expect((await owner.try('PATCH', '/api/onboarding/welcome', { finished: true })).status).toBe(400)
 })
 
 test('done stays done, the first result must be the owner\'s own chat and brings a put-off invite back, then it is finished', async () => {
   const { owner, ownerId, mia } = await setup()
   const patch = async (b: unknown) => (await owner.call('PATCH', '/api/onboarding/welcome', b)).progress
-  await patch({ step: { id: 'team', state: 'done' } })
-  // going back and putting it off again does not undo it
-  expect((await patch({ step: { id: 'team', state: 'skipped' } })).steps.team).toBe('done')
   await patch({ step: { id: 'profile', state: 'done' } })
+  // going back and putting it off again does not undo it
+  expect((await patch({ step: { id: 'profile', state: 'skipped' } })).steps.profile).toBe('done')
   await patch({ step: { id: 'result', state: 'skipped' } })
   const offInvite = await patch({ step: { id: 'invite', state: 'skipped' } })
   expect(offInvite.finishedAt).toBeNull()
@@ -113,7 +117,7 @@ test('the pack is installed once: a second choice, a resume or another window do
   expect(installs()).toBe(1)
   expect(fs.existsSync(path.join(root, 'skills/marketing/seo-brief'))).toBe(false)
   // the record survives the other changes
-  const later = (await owner.call('PATCH', '/api/onboarding/welcome', { step: { id: 'team', state: 'done' }, teamType: 'marketing' })).progress
+  const later = (await owner.call('PATCH', '/api/onboarding/welcome', { step: { id: 'profile', state: 'done' }, teamType: 'marketing' })).progress
   expect(later.pack).toEqual(first.progress.pack)
 })
 
@@ -135,7 +139,7 @@ test('a stored row a later release changed: read field by field, the pack never 
     pack: { id: 'marketing', version: 2, installedAt: '2026-11-04T00:00:00.000Z' }, goal: { people: 3 },
   })
   const read = (await ada.client.call('GET', '/api/onboarding/welcome')).progress
-  expect(read.steps).toEqual({ team: 'done', profile: null, result: null, invite: null })
+  expect(read.steps).toEqual({ profile: null, result: null, invite: null })
   expect(read.pack).toEqual({ id: 'marketing', at: '', skillPath: WELCOME_RESULT_SKILL })
   expect(read.site).toBeNull()
 
@@ -192,4 +196,19 @@ test('the pack already installed from the Skills page: recorded without installi
   expect(r.progress.pack).toMatchObject({ id: 'marketing', skillPath: WELCOME_RESULT_SKILL })
   expect(installs()).toBe(1) // the Skills page's own
   expect(fs.existsSync(path.join(root, 'skills/marketing/seo-brief'))).toBe(false)
+})
+
+test('"마케팅 스킬 7개": the number the first step says is the pack\'s own; a row from before (team step) finishes on two steps', async () => {
+  for (const texts of Object.values(SKILL_PACKS.marketing.skills)) expect(Object.keys(texts!).length).toBe(WELCOME_PACK_SKILLS)
+  const { owner, ownerId } = await setup()
+  // a row written while the team type was a step: its `team` step is kept and no longer read
+  setSetting(h.ctx.db, WELCOME_SETTING, {
+    startedAt: '2026-11-04T00:00:00.000Z', updatedAt: '2026-11-04T00:00:00.000Z', teamType: 'marketing',
+    steps: { team: null, profile: 'done', result: null, invite: null }, pack: null, resultChatId: null, inviteShownAt: null, site: null, dismissedAt: null, finishedAt: null,
+  })
+  const patch = async (b: unknown) => (await owner.call('PATCH', '/api/onboarding/welcome', b)).progress
+  await patch({ step: { id: 'result', state: 'done' }, resultChatId: chatOf(ownerId) })
+  const done = await patch({ step: { id: 'invite', state: 'skipped' } })
+  expect(done.finishedAt).not.toBeNull()
+  expect(getSetting<any>(h.ctx.db, WELCOME_SETTING).steps.team).toBeNull()
 })

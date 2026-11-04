@@ -65,8 +65,8 @@ const LINK: TeamLinkResponse = {
   link: { id: '01900000-0000-7000-8000-000000000001', url: URL_, groupIds: [], skill: { path: 'skills/marketing/ad-copy/SKILL.md', name: 'ad-copy' }, maxUses: 10, uses: 3, createdBy: { id: 'olga', name: 'Olga' }, createdAt: '2026-11-04T00:00:00.000Z', expiresAt: '2026-11-18T00:00:00.000Z', state: 'active' },
   seats: { used: 4, limit: 10 },
 }
-const view = (data: TeamLinkResponse, skills: { path: string; name: string; description: string }[] | null = []) =>
-  renderToStaticMarkup(<TeamLinkView data={data} inviter="Olga" groups={[]} skills={skills} busy={false} onCreate={noop} onRevoke={noop} />)
+const view = (data: TeamLinkResponse, skills: { path: string; name: string; description: string }[] | null = [], folded = false) =>
+  renderToStaticMarkup(<TeamLinkView data={data} inviter="Olga" groups={[]} skills={skills} busy={false} folded={folded} onCreate={noop} onRevoke={noop} />)
 
 // rendered to a string, the screen language is the store's first one (English): the texts are compared in English
 describe('the panel (Admin › Members, the wizard)', () => {
@@ -111,6 +111,45 @@ describe('the panel (Admin › Members, the wizard)', () => {
       // it can be turned off for good from here (a stopped link would work again if its maker got the right back)
       expect(html).toContain('data-testid="team-link-revoke"')
     }
+  })
+})
+
+describe('folded (the invite step): the message, one copy button, the rest under "링크 관리"', () => {
+  test('an open link: the message and "Copy message"; the link, its facts and "replace" wait in a collapsed row; never "turn off"', () => {
+    const html = view(LINK, null, true)
+    expect(html).toContain('data-testid="team-link-message"')
+    expect(html).toContain('data-testid="team-link-copy-message"')
+    const toggle = /<button[^>]*data-testid="team-link-manage"[^>]*>/.exec(html)?.[0]
+    expect(toggle).toContain('aria-expanded="false"')
+    expect(toggle).toContain('aria-controls=')
+    expect(html).toContain(translate('en', 'teamLink.manage'))
+    expect(/<div[^>]*data-testid="team-link-manage-panel"[^>]*>/.exec(html)?.[0]).toContain('hidden=""')
+    for (const hidden of ['team-link-url', 'team-link-copy-link', 'team-link-qr', 'team-link-facts', 'team-link-uses', 'team-link-replace', 'team-link-revoke'])
+      expect({ hidden, there: html.includes(`data-testid="${hidden}"`) }).toEqual({ hidden, there: false })
+    // the link is only in the message, never as its own line
+    expect(html.split(URL_.replace(/&/g, '&amp;')).length - 1).toBe(1)
+  })
+  test('a link held back by its limit still says so, outside the fold', () => {
+    const html = view({ ...LINK, link: { ...LINK.link!, limitedUntil: '2026-11-04T10:00:00.000Z' } }, null, true)
+    expect(html).toContain('data-testid="team-link-limited"')
+  })
+  test('no link yet: the create button shows; the settings are folded; an old link is never turned off from here', () => {
+    const html = view({ link: null, seats: { used: 4, limit: 10 } }, null, true)
+    expect(html).toContain('data-testid="team-link-create"')
+    expect(html).toContain('data-testid="team-link-manage"')
+    for (const hidden of ['team-link-uses-input', 'team-link-days', 'team-link-skill'])
+      expect({ hidden, there: html.includes(`data-testid="${hidden}"`) }).toEqual({ hidden, there: false })
+    for (const state of ['expired', 'used_up', 'stopped'] as const) {
+      const stale = view({ ...LINK, link: { ...LINK.link!, state } }, null, true)
+      expect(stale).toContain('data-testid="team-link-stale"')
+      expect(stale).toContain('data-testid="team-link-create"')
+      expect(stale).not.toContain('data-testid="team-link-revoke"')
+    }
+  })
+  test('no seats left: why the button is off stays in view', () => {
+    const html = view({ link: null, seats: { used: 10, limit: 10 } }, null, true)
+    expect(html).toContain('data-testid="team-link-full"')
+    expect(/<button[^>]*data-testid="team-link-create"[^>]*>/.exec(html)?.[0]).toContain('disabled=""')
   })
 })
 
@@ -238,6 +277,48 @@ describe('on screen', () => {
     }
   })
 
+  test('folded: "링크 관리" opens the link, copy link, QR, its facts and "새 링크로 바꾸기" in place; never "링크 끄기"', async () => {
+    const made: unknown[] = []
+    const m = await mount(<TeamLinkView data={LINK} inviter="Olga" groups={[]} skills={null} busy={false} folded onCreate={(b) => made.push(b)} onRevoke={noop} />)
+    try {
+      expect(m.find('team-link-url')).toBeNull()
+      expect(m.get('team-link-manage').getAttribute('aria-expanded')).toBe('false')
+      await m.click('team-link-manage')
+      expect(m.get('team-link-manage').getAttribute('aria-expanded')).toBe('true')
+      const panel = m.get('team-link-manage-panel')
+      expect(panel.hasAttribute('hidden')).toBe(false)
+      expect(m.get('team-link-manage').getAttribute('aria-controls')).toBe(panel.id)
+      expect(m.get('team-link-url').textContent).toBe(URL_)
+      for (const there of ['team-link-copy-link', 'team-link-qr', 'team-link-uses', 'team-link-expires', 'team-link-replace']) expect({ there, ok: !!m.find(there) }).toEqual({ there, ok: true })
+      expect(m.find('team-link-revoke')).toBeNull()
+      // a change asked for shows its settings open, with the skill the link had
+      await m.click('team-link-replace')
+      expect(m.find('team-link-uses-input')).not.toBeNull()
+      await m.click('team-link-create')
+      expect(made).toEqual([{ groupIds: [], expiresInDays: 14, skillPath: 'skills/marketing/ad-copy/SKILL.md' }])
+    } finally { await m.unmount() }
+  })
+
+  test('folded, no link yet: "링크 관리" opens the settings; what is set there goes with the one press', async () => {
+    const made: unknown[] = []
+    const m = await mount(<TeamLinkView data={{ link: null, seats: { used: 1, limit: null } }} inviter="Olga" groups={[]} skills={null} busy={false} folded onCreate={(b) => made.push(b)} onRevoke={noop} />)
+    try {
+      expect(m.find('team-link-uses-input')).toBeNull()
+      await m.click('team-link-manage')
+      await m.type('team-link-uses-input', '5')
+      // a number that does not fit keeps the settings open, so the reason the button is off stays readable
+      await m.type('team-link-uses-input', '0')
+      await m.click('team-link-manage')
+      expect(m.find('team-link-uses-input')).not.toBeNull()
+      expect(m.get('team-link-create').hasAttribute('disabled')).toBe(true)
+      await m.type('team-link-uses-input', '5')
+      await m.click('team-link-manage')
+      expect(m.find('team-link-uses-input')).toBeNull()
+      await m.click('team-link-create')
+      expect(made).toEqual([{ groupIds: [], expiresInDays: 14, maxUses: 5 }])
+    } finally { await m.unmount() }
+  })
+
   test('InviteStep: makes the link in one press, shows the message; "later" asks softly first', async () => {
     let link: TeamLinkResponse = { link: null, seats: { used: 1, limit: null } }
     routes = {
@@ -252,10 +333,15 @@ describe('on screen', () => {
     await m.until(() => m.find('team-link-create'), 'the create button')
     // the wizard has no group or skill picker
     expect(m.find('team-link-skill')).toBeNull()
+    // the settings wait under "링크 관리"; the one press makes the link with the defaults
+    expect(m.find('team-link-uses-input')).toBeNull()
     await m.click('team-link-create')
-    await m.until(() => m.find('team-link-url'), 'the link')
+    await m.until(() => m.find('team-link-message'), 'the link')
     expect(JSON.parse(calls.find((c) => c.key === 'POST /api/admin/team-link')!.body!)).toEqual({ groupIds: [], expiresInDays: 14 })
     expect(m.get('team-link-message').textContent).toContain(URL_)
+    // the link itself is folded; no "링크 끄기" in this step
+    expect(m.find('team-link-url')).toBeNull()
+    expect(m.find('team-link-revoke')).toBeNull()
     // later → the soft dialog; 초대하기 goes back, 나중에 skips
     await m.click('invite-step-skip')
     expect(m.html()).toContain('대부분의 팀은 1~2명부터 초대해요')

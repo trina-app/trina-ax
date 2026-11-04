@@ -42,7 +42,7 @@ describe('Markdown rendering', () => {
   test('hides comments in nested Markdown and raw HTML, including template content', () => {
     const html = render('> Before<!-- nested sentinel -->after\n\n- item<!-- list sentinel -->end\n\n<div>before<!-- first sentinel --><template><!-- template sentinel --></template><!-- last sentinel -->after</div>')
     expect(html).not.toContain('sentinel')
-    expect(html).toContain('<blockquote>')
+    expect(html).toMatch(/<blockquote[ >]/)
     expect(html).toContain('Beforeafter')
     expect(html).toContain('itemend')
     expect(html).toContain('&lt;div&gt;before&lt;template&gt;&lt;/template&gt;after&lt;/div&gt;')
@@ -82,5 +82,23 @@ describe('Markdown rendering', () => {
     expect(html).toContain('<table')
     expect(html).toContain('class="katex"')
     expect(html).toContain('class="katex-display"')
+  })
+
+  test('each quote has its own quiet copy button (an ad option copies on its own); no frame is added', () => {
+    const html = render('### 1안\n\n> 제목: 월요일 아침\n> CTA: 지금 보기\n\n### 2안\n\n> 제목: 하루 5분')
+    expect(html.match(/data-testid="copyable-quote"/g)?.length).toBe(2)
+    expect(html.match(/data-testid="copy-quote"/g)?.length).toBe(2)
+    expect(html).toMatch(/<blockquote[ >]/)
+    // the button is a sibling of the quote, so the quote's text (what it copies) is only the option
+    expect(/<blockquote[^>]*>([\s\S]*?)<\/blockquote>/.exec(html)![1]).not.toContain('button')
+    // upright, without the typography's quote marks (an option to copy, not a citation)
+    expect(/<blockquote class="([^"]*)"/.exec(html)![1]).toContain('not-italic')
+    const wrap = /<div class="([^"]*)" data-testid="copyable-quote"/.exec(html)![1]!
+    expect(wrap).not.toMatch(/\bborder\b|rounded/)
+    // phones (no hover): always shown; pointer screens: on hover or focus
+    const button = /<button[^>]*data-testid="copy-quote"[^>]*>/.exec(html)![0]
+    expect(button).toContain('[@media(hover:hover)]:opacity-0')
+    expect(button).toContain('group-hover/quote:opacity-100')
+    expect(button).toContain('group-focus-within/quote:opacity-100')
   })
 })

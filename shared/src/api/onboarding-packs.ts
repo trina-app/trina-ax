@@ -11,6 +11,24 @@ export const SKILL_PACK_IDS = ['marketing'] as const
 export const SkillPackId = z.enum(SKILL_PACK_IDS)
 export type SkillPackId = z.infer<typeof SkillPackId>
 
+/** The marketing pack's team folders under shared/, named in each language (installed in the team's language). The
+ * Files screen tells what goes in each when it is empty (packFolderKind). */
+export const PACK_FOLDERS = {
+  brand: { ko: '브랜드', en: 'Brand', id: 'Merek', ja: 'ブランド', es: 'Marca' },
+  campaigns: { ko: '캠페인', en: 'Campaigns', id: 'Kampanye', ja: 'キャンペーン', es: 'Campañas' },
+  reports: { ko: '보고서', en: 'Reports', id: 'Laporan', ja: 'レポート', es: 'Informes' },
+  competitors: { ko: '경쟁사', en: 'Competitors', id: 'Pesaing', ja: '競合', es: 'Competencia' },
+} as const satisfies Record<string, Record<Locale, string>>
+export type PackFolderKind = keyof typeof PACK_FOLDERS
+export const PACK_FOLDER_KINDS = Object.keys(PACK_FOLDERS) as PackFolderKind[]
+
+/** Which pack folder `shared/<name>` is (a name in any language, directly under shared/), or null. */
+export function packFolderKind(path: string): PackFolderKind | null {
+  const m = /^shared\/([^/]+)\/?$/.exec(path.normalize('NFC'))
+  if (!m) return null
+  return PACK_FOLDER_KINDS.find((k) => Object.values(PACK_FOLDERS[k]).some((n) => n.normalize('NFC') === m[1])) ?? null
+}
+
 /** created: written now · present: already there with the pack's own text · kept: there with other text (someone
  * edited it, or another file has the name): left as it is · blocked: could not be written here (folder rules, a
  * plugin's folder, a name that clashes with another file's) */

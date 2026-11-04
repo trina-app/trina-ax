@@ -1,5 +1,6 @@
-// The onboarding wizard's invite step (wave 2 strings it after 팀 유형 → 회사 소개 → 첫 결과). Standalone: it shows the
-// team invite link and the ready-made message, or makes the link in one press. Skipping asks once, softly, whether to
+// The onboarding wizard's invite step (after the welcome steps' first result). Standalone: it shows the ready-made
+// message with the team invite link and one "메시지 복사", or makes the link in one press; the link itself, its settings
+// and "새 링크로 바꾸기" are folded under "링크 관리" (TeamLinkPanel `folded`). Skipping asks once, softly, whether to
 // invite one or two people first, because a team skill is only a team's once others use it.
 import { useState } from 'react'
 import { useT } from '../../i18n'
@@ -27,7 +28,8 @@ export function InviteStep({ onDone, onSkip, skillPath, title }: InviteStepProps
         {title !== null && <h2 className="mb-1 text-lg font-semibold">{title ?? t('teamLink.stepTitle')}</h2>}
         <p className="text-sm text-muted">{t('teamLink.stepDesc')}</p>
       </div>
-      <TeamLinkPanel skillPicker={false} skillPath={skillPath} />
+      {/* folded: the message and "메시지 복사"; the link and its settings wait under "링크 관리" (no "링크 끄기" here) */}
+      <TeamLinkPanel skillPicker={false} skillPath={skillPath} folded />
       <div className="flex flex-wrap justify-end gap-2 border-t border-line pt-4">
         {onSkip && (
           <Button variant="ghost" onClick={() => setAsking(true)} data-testid="invite-step-skip">
