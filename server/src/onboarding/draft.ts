@@ -13,8 +13,9 @@
 // contract. The person edits it and saves it with PUT: the AI never writes the profile.
 import type { Database } from 'bun:sqlite'
 import { PRODUCT } from '@mycel/shared'
-import { normalizeWebsite, PROFILE_LIMITS, type CompanyProfileInput, type Locale, type ProfileDraftStarted, type ProfileDraftState, type StartProfileDraft } from '@mycel/shared/api'
+import { normalizeWebsite, PROFILE_DRAFT_PAGES_MAX, PROFILE_DRAFT_STEPS_MAX, PROFILE_LIMITS, type CompanyProfileInput, type Locale, type ProfileDraftPage, type ProfileDraftPageReason, type ProfileDraftStarted, type ProfileDraftState, type StartProfileDraft } from '@mycel/shared/api'
 import type { AppContext } from '../context'
+import type { Logger } from '../log'
 import type { AuthInfo } from '../services'
 import type { ChatRuntime } from '../chat/runtime'
 import { HttpError } from '../http/errors'
@@ -23,11 +24,11 @@ import { historyBlock, LANGUAGE } from '../chat/prompt'
 import { newChatEngine, turnEngine } from '../admin/engine-choice'
 import { budgetBlock } from '../admin/budgets'
 import { precheckTarget } from '../tools/web-fetch'
-import { normUrl, siteOf, MAX_UNCONFIRMED_QUERY } from '../tools/url-gate'
+import { normUrl, siteOf, MAX_UNCONFIRMED_QUERY, type WebPageEntry, type WebPageFailure, type WebPageLog } from '../tools/url-gate'
 import { cleanProfile, profileEmpty } from './profile'
 
 /** Pages one answer of a draft chat may open: the home page and up to three linked from it. */
-export const DRAFT_PAGES_MAX = 4
+export const DRAFT_PAGES_MAX = PROFILE_DRAFT_PAGES_MAX
 
 /**
  * Hosts that hold many customers' pages under paths (a Naver blog or store, a Google site, a Notion page, a social
@@ -86,8 +87,9 @@ export interface DraftScope {
   /** what may be opened, from `website`; null for pasted text (and for a row whose website has no scope: nothing opens) */
   web: WebScope | null
 }
-/** A running draft turn: its scope and the pages it opened (or is opening) so far. */
-export interface DraftTurn { scope: DraftScope; fetched: Set<string> }
+/** A running draft turn: its scope, the pages it opened (or is opening) so far, and what the profile screen is shown of
+ * them (absent in tests of the rules alone). */
+export interface DraftTurn { scope: DraftScope; fetched: Set<string>; pages?: DraftPages }
 
 /** The draft marking of a chat, or null for every other chat. Only a database without the table (a test database of
  * another component) reads as "not a draft"; any other failure throws, and the turn refuses to run (fails closed). */
@@ -122,14 +124,113 @@ export const DRAFT_FILE_REFUSAL = 'This chat only drafts the company profile fro
 export function draftToolRefusal(d: DraftTurn, name: string, args: unknown): string | null {
   if (name !== 'web_fetch') return `${name} is not available in this chat: it only drafts the company profile, and web_fetch is the only tool.`
   const raw = (args as { url?: unknown } | null)?.url
-  const no = draftUrlRefusal(d.scope, typeof raw === 'string' ? raw : '')
-  if (no) return no
+  const asked = typeof raw === 'string' ? raw : ''
+  const no = draftUrlRefusal(d.scope, asked)
+  // the profile screen shows the refused address too (pasted text has no website: nothing to show)
+  if (no) { if (d.scope.source === 'website' && asked) d.pages?.refused(asked, 'off_site'); return no }
   const url = normUrl(raw as string)!
   if (!d.fetched.has(url)) {
-    if (d.fetched.size >= DRAFT_PAGES_MAX) return `At most ${DRAFT_PAGES_MAX} pages can be opened for one draft. Answer from the pages you already read.`
+    if (d.fetched.size >= DRAFT_PAGES_MAX) { d.pages?.refused(url, 'limit'); return `At most ${DRAFT_PAGES_MAX} pages can be opened for one draft. Answer from the pages you already read.` }
     d.fetched.add(url)
   }
   return null
+}
+
+/** Opened, but fewer characters of text than this: "almost no text" (a page that needs a browser to show anything). */
+export const DRAFT_EMPTY_CHARS = 200
+const TITLE_MAX = 200
+const URL_MAX = 2000
+
+/**
+ * The pages of one draft answer as the server opens or refuses them (onboarding_draft_pages), so the profile screen can
+ * show what really happens, line by line: the address asked for, where it ended up, its title and the outcome; never
+ * the page's text. Refusals are written by the draft's rules (draftToolRefusal), the rest by web_fetch itself
+ * (TurnPerson.pages). The same address again is one line. A write that fails is logged and the answer goes on: the
+ * lines are for the person to watch, not a rule.
+ */
+export class DraftPages implements WebPageLog {
+  private seqs = new Map<string, number>()
+  private open = 0
+  /** pages opened that ended (read or not) */
+  private ended = 0
+  /** how much of the answer was written when a page last started or ended */
+  private textAt = 0
+  constructor(private db: Database, private messageId: string, private log: Pick<Logger, 'warn'>, private textLength: () => number = () => 0) {}
+
+  /** a call refused before it ran: outside the site, or no page left */
+  refused(url: string, reason: 'off_site' | 'limit'): void {
+    const seq = this.line(url)
+    if (seq !== null) this.end(seq, 'refused', reason, null, null)
+  }
+
+  start(url: string): WebPageEntry {
+    const seq = this.line(url)
+    this.open++
+    this.textAt = this.textLength()
+    let ended = false
+    const finish = (status: 'ok' | 'failed', reason: ProfileDraftPageReason | null, finalUrl: string | null, title: string | null) => {
+      if (ended) return
+      ended = true
+      this.open = Math.max(0, this.open - 1)
+      this.ended++
+      this.textAt = this.textLength()
+      if (seq !== null) this.end(seq, status, reason, finalUrl, title)
+    }
+    return {
+      ok: (r) => finish(r.chars < DRAFT_EMPTY_CHARS ? 'failed' : 'ok', r.chars < DRAFT_EMPTY_CHARS ? 'empty' : null, r.url, r.title?.replace(/\s+/g, ' ').trim() || null),
+      failed: (why: WebPageFailure, hop?: string) => finish('failed', why, hop ?? null, null),
+    }
+  }
+
+  /** No page is open, and a page was opened before (or the answer has begun its JSON): the AI is working on the profile
+   * from what it read. It may still open another page: then that page's line follows. (An engine that hands over its
+   * text only at the end, like Claude Code, shows no JSON before it is done, so the text alone cannot tell.) */
+  writing(text: string): boolean {
+    return this.open === 0 && (this.ended > 0 || text.slice(this.textAt).includes('{'))
+  }
+
+  /** the line of this address (a new one, or the same address again: started over), or null past the cap */
+  private line(raw: string): number | null {
+    const url = (normUrl(raw) ?? raw).slice(0, URL_MAX)
+    const now = new Date().toISOString()
+    try {
+      const had = this.seqs.get(url)
+      if (had !== undefined) {
+        this.db.query("UPDATE onboarding_draft_pages SET status = 'running', reason = NULL, final_url = NULL, title = NULL, started_at = ?, ended_at = NULL WHERE message_id = ? AND seq = ?").run(now, this.messageId, had)
+        return had
+      }
+      if (this.seqs.size >= PROFILE_DRAFT_STEPS_MAX) return null
+      const seq = this.seqs.size + 1
+      this.db.query("INSERT INTO onboarding_draft_pages (message_id, seq, url, status, started_at) VALUES (?, ?, ?, 'running', ?)").run(this.messageId, seq, url, now)
+      this.seqs.set(url, seq)
+      return seq
+    } catch (err) {
+      this.log.warn('profile draft page line not written', { err })
+      return null
+    }
+  }
+
+  private end(seq: number, status: 'ok' | 'refused' | 'failed', reason: ProfileDraftPageReason | null, finalUrl: string | null, title: string | null) {
+    try {
+      this.db.query('UPDATE onboarding_draft_pages SET status = ?, reason = ?, final_url = ?, title = ?, ended_at = ? WHERE message_id = ? AND seq = ?')
+        .run(status, reason, finalUrl ? finalUrl.slice(0, URL_MAX) : null, title ? title.slice(0, TITLE_MAX) : null, new Date().toISOString(), this.messageId, seq)
+    } catch (err) {
+      this.log.warn('profile draft page line not written', { err })
+    }
+  }
+}
+
+/** The page lines of one answer, oldest first. An answer that is over leaves no line running: one still open was cut
+ * off (stopped, failed) and reads as not opened. */
+export function draftPages(db: Database, messageId: string, answerOver: boolean): ProfileDraftPage[] {
+  let rows: { url: string; final_url: string | null; status: ProfileDraftPage['status']; reason: ProfileDraftPageReason | null; title: string | null; started_at: string; ended_at: string | null }[]
+  try {
+    rows = db.query('SELECT url, final_url, status, reason, title, started_at, ended_at FROM onboarding_draft_pages WHERE message_id = ? ORDER BY seq LIMIT ?').all(messageId, PROFILE_DRAFT_STEPS_MAX) as typeof rows
+  } catch { return [] }
+  return rows.map((r) => {
+    const cut = answerOver && r.status === 'running'
+    return { url: r.url, finalUrl: r.final_url, status: cut ? 'failed' : r.status, reason: cut ? 'unreachable' : r.reason, title: r.title, startedAt: r.started_at, endedAt: cut ? r.started_at : r.ended_at }
+  })
 }
 
 /** The instructions of a draft turn (fixed, English like every instruction; the values in the person's language). */
@@ -305,11 +406,17 @@ export function profileDraftState(ctx: AppContext, rt: ChatRuntime, userId: stri
   const scope = chat ? draftScopeOf(ctx.db, chat.id) : null
   if (!chat || !scope) throw new HttpError('not_found')
   const leaf = chat.active_leaf_id ? rt.store.messageRow(chat.active_leaf_id) : null
-  const base = { website: scope.website, draft: null, error: null }
-  if (!leaf || leaf.role !== 'assistant' || leaf.status === 'streaming') return { ...base, status: 'running' }
-  const m = rt.store.toMessage(leaf)
-  if (leaf.status !== 'done') return { ...base, status: 'failed', error: m.error?.message ?? null }
-  return { ...base, status: 'done', draft: parseDraftAnswer(leaf.content, scope) }
+  const answer = leaf?.role === 'assistant' ? leaf : null
+  // the pages of the latest answer as the server opened or refused them (no page text), for the person who asked only
+  const steps = answer ? draftPages(ctx.db, answer.id, answer.status !== 'streaming') : []
+  const base = { website: scope.website, draft: null, error: null, steps, writing: false }
+  if (!answer || answer.status === 'streaming') {
+    const exec = answer ? rt.execForMessage(answer.id) : undefined
+    return { ...base, status: 'running', writing: !!exec?.profileDraft?.pages?.writing(exec.content) }
+  }
+  const m = rt.store.toMessage(answer)
+  if (answer.status !== 'done') return { ...base, status: 'failed', error: m.error?.message ?? null }
+  return { ...base, status: 'done', draft: parseDraftAnswer(answer.content, scope) }
 }
 
 /** sendMessage / editMessage (routes/chats.ts): a draft chat takes no attachments, so no team file reaches a turn whose

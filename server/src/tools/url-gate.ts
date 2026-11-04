@@ -120,7 +120,22 @@ export interface TurnPerson {
    * draft.ts): the refusal for an address outside it, null inside. The gate checks the address, web_fetch every
    * redirect hop. */
   scope?: (url: string) => string | null
+  /** a turn that shows the person each page it opens as it happens (a company profile draft: onboarding/draft.ts
+   * DraftPages): web_fetch reports every call, where it ended up and how it went */
+  pages?: WebPageLog
 }
+
+/** Why web_fetch did not read a page: not_linked (the gate refused an address that was neither typed nor linked),
+ * off_site (a redirect hop outside the turn's `scope`), unreachable (anything else: no answer, an error page, a type
+ * it cannot read, an address it may not open, the exit address unknown). */
+export type WebPageFailure = 'not_linked' | 'off_site' | 'unreachable'
+/** One web_fetch call as the server saw it: started with the address asked for, then ok or failed once. */
+export interface WebPageEntry {
+  ok(r: { url: string; title?: string; chars: number }): void
+  /** `hop`: the redirect address that was refused (off_site) */
+  failed(why: WebPageFailure, hop?: string): void
+}
+export interface WebPageLog { start(url: string): WebPageEntry }
 
 /** Addresses written out in what the person typed in this chat (user messages the server did not send for them). A
  * scheduled turn's message counts as sent for them also without the mark: an older build run on this database (a

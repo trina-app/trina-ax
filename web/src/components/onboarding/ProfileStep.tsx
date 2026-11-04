@@ -1,6 +1,7 @@
 // The company profile step (docs/DECISIONS.md "D — Company profile from the company website"). Standalone: the
 // wave-2 welcome wizard and Admin > Team settings (CompanyProfileCard.tsx) both use it.
-//   website → "읽는 중" (the AI reads it in a chat of this person: server/src/onboarding/draft.ts) → "이렇게 이해했어요":
+//   website → "읽는 중" (the AI reads it in a chat of this person: server/src/onboarding/draft.ts; each page the server
+//   opens or skips shows as a line as it happens, DraftActivity) → "이렇게 이해했어요":
 //   every field editable, its source page and excerpt under it, a wrong one removed with one click → Save
 //   (PUT /api/onboarding/profile). The AI never saves anything: the person does.
 // When the site can't be read (or there is none): paste a text (the same draft, from the text) or answer three
@@ -9,16 +10,17 @@
 // connect button instead of starting one, and the three questions (no AI needed) stay open.
 import { useEffect, useId, useRef, useState, type ReactNode } from 'react'
 import { Link } from 'react-router-dom'
-import { ExternalLink, X } from 'lucide-react'
-import { normalizeWebsite, PROFILE_FIELDS, PROFILE_LIMITS, PROFILE_TEXT_MAX, profileName, type CompanyProfile, type CompanyProfileInput, type ProfileField, type ProfileSource } from '@mycel/shared/api'
+import { Check, ExternalLink, Globe, Loader2, Minus, X } from 'lucide-react'
+import { normalizeWebsite, PROFILE_DRAFT_PAGES_MAX, PROFILE_FIELDS, PROFILE_LIMITS, PROFILE_TEXT_MAX, profileName, type CompanyProfile, type CompanyProfileInput, type ProfileDraftPage, type ProfileField, type ProfileSource } from '@mycel/shared/api'
 import { api, API, errorText } from '../../lib/api'
 import { setupSite } from '../../lib/setupLink'
 import { useLocale, useT, type MessageKey } from '../../i18n'
 import { useAiAccess } from '../../store/aiAccess'
+import { chatActivity } from '../../store/live'
 import { useMe } from '../../store/session'
 import { toast } from '../../store/ui'
 import AiAccessBanner from '../chat/AiAccessBanner'
-import { Button, ErrorNote, Field, IconButton, inputCls, Spinner } from '../ui'
+import { Button, ErrorNote, Field, IconButton, inputCls } from '../ui'
 
 export interface ProfileStepProps {
   /** saved: the profile as the server keeps it */
@@ -34,13 +36,16 @@ export interface ProfileStepProps {
 
 type Phase =
   | { kind: 'site' }
-  | { kind: 'reading'; chatId: string; source: 'website' | 'text' }
+  | { kind: 'reading'; chatId: string; source: 'website' | 'text'; site: string | null }
   | { kind: 'fallback'; unreadable: boolean; error: string | null }
   | { kind: 'paste' }
   | { kind: 'questions' }
   | { kind: 'review' }
 
 const POLL_MS = 2500
+/** after a step event of the draft chat (realtime): ask again this soon (the tool call reaches the server a moment after
+ * the engine reports its step) */
+const NUDGE_MS = 250
 const blank = (website = ''): CompanyProfileInput => ({ website, name: '', oneLine: '', products: '', audience: '', tone: [], avoid: '', sources: [] })
 const FIELD_LABEL: Record<ProfileField | 'website', MessageKey> = {
   website: 'onboarding.profile.f.website', name: 'onboarding.profile.f.name', oneLine: 'onboarding.profile.f.oneLine', products: 'onboarding.profile.f.products',
@@ -82,6 +87,8 @@ export default function ProfileStep({ onDone, onSkip, skipLabel, initial, initia
   const [answers, setAnswers] = useState({ what: '', who: '', tone: '' })
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  // while reading: the pages the server opened or skipped so far, and whether the AI is writing the profile
+  const [activity, setActivity] = useState<{ steps: ProfileDraftPage[]; writing: boolean }>({ steps: [], writing: false })
   const heading = useRef<HTMLHeadingElement>(null)
   // no usable AI: no draft can be made (the questions need none)
   const ai = useAiAccess()
@@ -103,7 +110,8 @@ export default function ProfileStep({ onDone, onSkip, skipLabel, initial, initia
       if (!useAiAccess.getState().usable) { setPhase({ kind: 'fallback', unreadable: false, error: null }); return }
       const r = await api.call(API.startProfileDraft, { body })
       if (r.website) setDraft((d) => ({ ...d, website: r.website }))
-      setPhase({ kind: 'reading', chatId: r.chatId, source: 'website' in body ? 'website' : 'text' })
+      setActivity({ steps: [], writing: false })
+      setPhase({ kind: 'reading', chatId: r.chatId, source: 'website' in body ? 'website' : 'text', site: r.site })
     } catch (e) {
       setError(errorText(e, locale, t('error.network')))
     } finally {
@@ -111,16 +119,26 @@ export default function ProfileStep({ onDone, onSkip, skipLabel, initial, initia
     }
   }
 
-  // while reading: ask the server every few seconds how the draft chat is doing
+  // while reading: ask the server how the draft chat is doing, right after each of its realtime step events and every
+  // few seconds besides (a missed event, a reconnecting socket)
   useEffect(() => {
     if (phase.kind !== 'reading') return
     let stopped = false
+    let inFlight = false
+    let again = false
     let timer: ReturnType<typeof setTimeout> | undefined
+    const schedule = (ms: number) => { clearTimeout(timer); timer = setTimeout(() => void tick(), ms) }
     const tick = async () => {
+      if (inFlight) { again = true; return }
+      inFlight = true
       try {
         const s = await api.call(API.getProfileDraft, { params: { chatId: phase.chatId } })
         if (stopped) return
-        if (s.status === 'running') { timer = setTimeout(tick, POLL_MS); return }
+        if (s.status === 'running') {
+          setActivity({ steps: s.steps ?? [], writing: !!s.writing })
+          schedule(again ? NUDGE_MS : POLL_MS)
+          return
+        }
         if (s.status === 'done' && s.draft) {
           const d = s.draft
           setDraft((prev) => named({ ...d, website: d.website || prev.website }))
@@ -131,11 +149,15 @@ export default function ProfileStep({ onDone, onSkip, skipLabel, initial, initia
         // the answer may have failed for want of AI (the trial credit ran out): the fallback then offers the button
         if (s.status === 'failed') void useAiAccess.getState().load(true)
       } catch {
-        if (!stopped) timer = setTimeout(tick, POLL_MS * 2)
+        if (!stopped) schedule(POLL_MS * 2)
+      } finally {
+        inFlight = false
+        again = false
       }
     }
-    timer = setTimeout(tick, POLL_MS)
-    return () => { stopped = true; clearTimeout(timer) }
+    const off = chatActivity.on((id) => { if (id !== phase.chatId || stopped) return; if (inFlight) again = true; else schedule(NUDGE_MS) })
+    schedule(POLL_MS)
+    return () => { stopped = true; clearTimeout(timer); off() }
   }, [phase])
 
   const readSite = () => {
@@ -212,10 +234,17 @@ export default function ProfileStep({ onDone, onSkip, skipLabel, initial, initia
   if (phase.kind === 'reading')
     return (
       <div className="space-y-4" data-testid="profile-step-reading">
-        {head(t('onboarding.profile.title'))}
-        <div className="rounded-xl border border-line bg-subtle px-4 py-5">
-          <Spinner label={t(phase.source === 'website' ? 'onboarding.profile.reading' : 'onboarding.profile.readingText')} />
-          <p className="mt-2 text-xs text-faint">{t('onboarding.profile.readingHint')}</p>
+        <div className="flex items-baseline justify-between gap-3">
+          {head(t('onboarding.profile.title'))}
+          {phase.source === 'website' && (
+            <span className="shrink-0 text-xs text-faint tabular-nums" data-testid="profile-activity-count">
+              {t('onboarding.profile.activity.count', { n: pagesUsed(activity.steps), max: PROFILE_DRAFT_PAGES_MAX })}
+            </span>
+          )}
+        </div>
+        <div>
+          <DraftActivity source={phase.source} site={phase.site} steps={activity.steps} writing={activity.writing} />
+          <p className="mt-3 text-xs text-faint">{t('onboarding.profile.readingHint')}</p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
           <Link to={`/c/${phase.chatId}`} className="inline-flex h-9 items-center gap-1.5 rounded-lg px-3.5 text-sm font-medium text-accent-text hover:bg-hover max-sm:min-h-10">
@@ -345,6 +374,63 @@ export default function ProfileStep({ onDone, onSkip, skipLabel, initial, initia
         <span className="ml-auto">{skip}</span>
       </div>
     </div>
+  )
+}
+
+/** Pages that took one of the draft's places: everything but what the server refused before opening it. */
+export const pagesUsed = (steps: readonly ProfileDraftPage[]) => Math.min(PROFILE_DRAFT_PAGES_MAX, steps.filter((s) => s.status !== 'refused').length)
+
+/** "acme.co.kr/about": an address without its scheme, www. and trailing slash, readable (decoded), cut to `max`. */
+export function shortUrl(raw: string, max = 48): string {
+  let s = raw
+  try {
+    const u = new URL(raw)
+    let path = u.pathname
+    try { path = decodeURI(path) } catch { /* as written */ }
+    s = (u.host.replace(/^www\./, '') + path + u.search).replace(/\/$/, '')
+  } catch { /* as written */ }
+  return s.length > max ? s.slice(0, max - 1) + '…' : s
+}
+const clipTitle = (s: string, max = 40) => (s.length > max ? s.slice(0, max - 1).trimEnd() + '…' : s)
+
+/**
+ * What the AI is doing while it drafts the profile: plain lines, newest last, each with a small mark. First what will
+ * happen ("공개된 페이지만, acme.co.kr 안에서 최대 4개 읽어요"), then one line per page as the server opened or skipped it
+ * (the real addresses, from GET /api/onboarding/profile/draft/:chatId), then "회사 소개 정리 중" while it writes. Pasted
+ * text has one line.
+ */
+export function DraftActivity({ source, site, steps, writing }: { source: 'website' | 'text'; site: string | null; steps: readonly ProfileDraftPage[]; writing: boolean }) {
+  const t = useT()
+  const max = PROFILE_DRAFT_PAGES_MAX
+  const spin = <Loader2 size={14} className="animate-spin text-faint" aria-hidden />
+  const line = (key: string, mark: ReactNode, text: string, tone = 'text-muted', testId?: string) => (
+    <li key={key} className={`flex items-start gap-2 ${tone}`} data-testid={testId}>
+      <span className="mt-[3px] shrink-0">{mark}</span>
+      <span className="min-w-0 break-words">{text}</span>
+    </li>
+  )
+  const page = (s: ProfileDraftPage, i: number) => {
+    if (s.status === 'running') return line(`p${i}`, spin, t('onboarding.profile.activity.reading', { page: shortUrl(s.url) }), 'text-ink', 'profile-activity-running')
+    if (s.status === 'ok') {
+      const where = shortUrl(s.finalUrl ?? s.url)
+      return line(`p${i}`, <Check size={14} className="text-ok" aria-hidden />, s.title
+        ? t('onboarding.profile.activity.readTitled', { title: clipTitle(s.title), page: where })
+        : t('onboarding.profile.activity.read', { page: where }), 'text-muted', 'profile-activity-ok')
+    }
+    // a refused redirect shows both addresses: the page asked for and where it tried to go
+    const where = s.reason === 'off_site' && s.finalUrl ? `${shortUrl(s.url, 36)} → ${shortUrl(s.finalUrl, 36)}` : shortUrl(s.url)
+    const why = t(`onboarding.profile.activity.why.${s.reason ?? 'unreachable'}` as MessageKey, { max })
+    return line(`p${i}`, <Minus size={14} className="text-faint" aria-hidden />, t('onboarding.profile.activity.skipped', { page: where, why }), 'text-faint', 'profile-activity-skipped')
+  }
+  const idle = steps.length === 0 && !writing
+  return (
+    <ul className="space-y-1.5 text-[13px]" aria-label={t('onboarding.profile.activity.label')} aria-live="polite" data-testid="profile-activity">
+      {source === 'website'
+        ? line('intro', idle ? spin : <Globe size={14} className="text-faint" aria-hidden />, t('onboarding.profile.activity.intro', { site: site ?? '', max }), 'text-muted', 'profile-activity-intro')
+        : line('text', spin, t('onboarding.profile.activity.text'), 'text-ink')}
+      {source === 'website' && steps.map(page)}
+      {source === 'website' && writing && line('writing', spin, t('onboarding.profile.activity.writing'), 'text-ink', 'profile-activity-writing')}
+    </ul>
   )
 }
 

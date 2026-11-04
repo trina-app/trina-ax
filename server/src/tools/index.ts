@@ -20,7 +20,7 @@ import { registerScheduleTools, SCHEDULE_TOOL_NAMES } from './schedules'
 import { registerSearch } from './search'
 import { registerDriveTools, DRIVE_TOOL_NAMES } from './drive'
 import { registerFileMoveTools, FILE_MOVE_TOOL_NAMES } from './file-moves'
-import { extractUrls, gateUrl, rememberUrls, TEXT as GATE_TEXT } from './url-gate'
+import { extractUrls, gateUrl, rememberUrls, TEXT as GATE_TEXT, type WebPageFailure } from './url-gate'
 import { redirectGuard, webEcho } from './connection-urls'
 import { precheckTarget, webFetch, wrapExternal, type FetchOptions } from './web-fetch'
 import { SAVE_URL_DESCRIPTION, saveUrl, type SaveUrlOptions } from './save-url'
@@ -170,31 +170,48 @@ export function registerCTools(ctx: AppContext, o: { fetch?: FetchOptions; saveU
     // the full URL is kept in the audit log (design tab 1 tool_events)
     describe: (a) => `web_fetch ${a.url}`,
     async run(a, t) {
-      // the address rules that need no DNS first (a private literal or local name is refused without bothering the
-      // person), then where the URL came from: an address the conversation never showed needs the person's OK (design
-      // tab 7, server/src/tools/url-gate.ts). The name is looked up only after that (webFetch): a host name can carry
-      // data to the attacker's name server even when the person declines (docs/DECISIONS.md "Outbound web channels")
-      const blockedIps = () => egressOf(ctx).ips
-      precheckTarget(a.url, { ...o.fetch, blockedIps })
-      const chatId = t.turnId ? (ctx.db.query('SELECT chat_id FROM turns WHERE id = ?').get(t.turnId) as { chat_id: string } | null)?.chat_id ?? null : null
-      // right after a start the server may still be learning its exit address (tools/egress.ts): a moment, not a card
-      await egressSettled(ctx)
-      const how = await gateUrl(ctx.db, chatId, a.url, t.person ?? null, { egressKnown: egressOf(ctx).known, turnId: t.turnId, userId: t.user.id })
-      // a redirect to an address that echoes what the AI sent in this chat asks first, as in save_url
-      const redirects = redirectGuard(ctx.db, chatId, a.url, t.person ?? null, {
-        ask: GATE_TEXT.redirectEcho,
-        unattended: 'the address redirected to one that matches what the AI had sent to a tool earlier in this chat (a site may have kept it and given it back, like a link shortener), which needs a person to confirm it, and nobody can confirm it here, so it was not opened',
-        declined: 'the user did not allow following the redirect, so the page was not opened. Do not try other addresses to get around this; tell the user what you could not do',
-      })
-      // a turn with a narrower scope (a company profile draft) keeps every redirect hop inside it too
-      const scope = t.person?.scope
-      const onRedirect = scope ? async (next: string) => { const no = scope(next); if (no) throw new ToolError(`the page redirected outside what this chat may open: ${no}`); await redirects.check(next) } : redirects.check
-      const r = await webFetch(a.url, { ...o.fetch, blockedIps, maxChars: a.maxChars, pdftotext: ctx.engineConfig.pdftotext, onRedirect })
-      ctx.files.events.emit('external', { turnId: t.turnId, userId: t.user.id, source: 'web_fetch', url: r.url })
-      // links on the page may be opened later in this chat without a card (rule ①: "an earlier web_fetch result"),
-      // within the link budget, unless one carries what the AI sent before (an echo: always a card)
-      if (chatId) rememberUrls(ctx.db, chatId, [r.url, ...extractUrls(r.text)], 'fetched', webEcho(ctx.db, chatId, [a.url, r.url]))
-      return { text: wrapExternal(r), summary: `web_fetch ${a.url} -> ${r.text.length} chars${r.truncated ? ' (cut)' : ''}${how === 'confirmed' ? ' (confirmed by the user)' : how === 'site' ? ' (site allowed in this chat)' : ''}${redirects.confirmed() ? ' (redirect confirmed by the user)' : ''}`.slice(0, 1000), structured: { url: r.url, ...(r.title ? { title: r.title } : {}), text: r.text, truncated: r.truncated } }
+      // a turn that shows its pages as they open (a company profile draft): this call, then how it went
+      const page = t.person?.pages?.start(a.url) ?? null
+      let why: WebPageFailure = 'unreachable'
+      let hop: string | undefined
+      try {
+        // the address rules that need no DNS first (a private literal or local name is refused without bothering the
+        // person), then where the URL came from: an address the conversation never showed needs the person's OK (design
+        // tab 7, server/src/tools/url-gate.ts). The name is looked up only after that (webFetch): a host name can carry
+        // data to the attacker's name server even when the person declines (docs/DECISIONS.md "Outbound web channels")
+        const blockedIps = () => egressOf(ctx).ips
+        precheckTarget(a.url, { ...o.fetch, blockedIps })
+        const chatId = t.turnId ? (ctx.db.query('SELECT chat_id FROM turns WHERE id = ?').get(t.turnId) as { chat_id: string } | null)?.chat_id ?? null : null
+        // right after a start the server may still be learning its exit address (tools/egress.ts): a moment, not a card
+        await egressSettled(ctx)
+        const egressKnown = egressOf(ctx).known
+        if (egressKnown) why = 'not_linked'
+        const how = await gateUrl(ctx.db, chatId, a.url, t.person ?? null, { egressKnown, turnId: t.turnId, userId: t.user.id })
+        why = 'unreachable'
+        // a redirect to an address that echoes what the AI sent in this chat asks first, as in save_url
+        const redirects = redirectGuard(ctx.db, chatId, a.url, t.person ?? null, {
+          ask: GATE_TEXT.redirectEcho,
+          unattended: 'the address redirected to one that matches what the AI had sent to a tool earlier in this chat (a site may have kept it and given it back, like a link shortener), which needs a person to confirm it, and nobody can confirm it here, so it was not opened',
+          declined: 'the user did not allow following the redirect, so the page was not opened. Do not try other addresses to get around this; tell the user what you could not do',
+        })
+        // a turn with a narrower scope (a company profile draft) keeps every redirect hop inside it too
+        const scope = t.person?.scope
+        const onRedirect = scope ? async (next: string) => {
+          const no = scope(next)
+          if (no) { why = 'off_site'; hop = next; throw new ToolError(`the page redirected outside what this chat may open: ${no}`) }
+          await redirects.check(next)
+        } : redirects.check
+        const r = await webFetch(a.url, { ...o.fetch, blockedIps, maxChars: a.maxChars, pdftotext: ctx.engineConfig.pdftotext, onRedirect })
+        ctx.files.events.emit('external', { turnId: t.turnId, userId: t.user.id, source: 'web_fetch', url: r.url })
+        // links on the page may be opened later in this chat without a card (rule ①: "an earlier web_fetch result"),
+        // within the link budget, unless one carries what the AI sent before (an echo: always a card)
+        if (chatId) rememberUrls(ctx.db, chatId, [r.url, ...extractUrls(r.text)], 'fetched', webEcho(ctx.db, chatId, [a.url, r.url]))
+        page?.ok({ url: r.url, ...(r.title ? { title: r.title } : {}), chars: r.text.trim().length })
+        return { text: wrapExternal(r), summary: `web_fetch ${a.url} -> ${r.text.length} chars${r.truncated ? ' (cut)' : ''}${how === 'confirmed' ? ' (confirmed by the user)' : how === 'site' ? ' (site allowed in this chat)' : ''}${redirects.confirmed() ? ' (redirect confirmed by the user)' : ''}`.slice(0, 1000), structured: { url: r.url, ...(r.title ? { title: r.title } : {}), text: r.text, truncated: r.truncated } }
+      } catch (e) {
+        page?.failed(why, hop)
+        throw e
+      }
     },
   })
 

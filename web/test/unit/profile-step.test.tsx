@@ -4,8 +4,8 @@
 import { expect, test } from 'bun:test'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { MemoryRouter } from 'react-router-dom'
-import { profilePrefill, type CompanyProfile } from '@mycel/shared/api'
-import ProfileStep, { tidyProfile, toneChips } from '../../src/components/onboarding/ProfileStep'
+import { profilePrefill, type CompanyProfile, type ProfileDraftPage } from '@mycel/shared/api'
+import ProfileStep, { DraftActivity, pagesUsed, shortUrl, tidyProfile, toneChips } from '../../src/components/onboarding/ProfileStep'
 
 const noop = () => {}
 const PROFILE: CompanyProfile = {
@@ -81,4 +81,70 @@ test('the company name is the first field: the profile\'s own, else the team\'s 
     // what is saved keeps the name, trimmed
     expect(tidyProfile({ ...PROFILE, name: '  Acme  ' }).name).toBe('Acme')
   } finally { Object.assign(useSession.getInitialState(), { status: before }) }
+})
+
+// While the AI reads the website: what will happen first, then one line per page as the server opened or skipped it
+// (real addresses, the page title when there is one, a short reason), then "writing" (docs/DECISIONS.md "R").
+const page = (p: Partial<ProfileDraftPage> & Pick<ProfileDraftPage, 'url' | 'status'>): ProfileDraftPage =>
+  ({ finalUrl: null, reason: null, title: null, startedAt: '2026-11-05T00:00:00.000Z', endedAt: null, ...p })
+
+test('reading: before any page, one line that says what will happen, with the site', () => {
+  const html = render(<DraftActivity source="website" site="acme.example" steps={[]} writing={false} />)
+  expect(html).toContain('data-testid="profile-activity-intro"')
+  expect(html).toContain('Public pages only: up to 4 on acme.example')
+  expect(html).not.toContain('profile-activity-ok')
+  expect(html).not.toContain('Writing the company profile')
+})
+
+test('reading: one plain line per page, newest last: reading, read with its title, not read with why, then writing', () => {
+  const steps = [
+    page({ url: 'https://www.acme.example/', status: 'ok', finalUrl: 'https://www.acme.example/ko/', title: 'Acme Fans | Quiet desk fans for every small office in town' }),
+    page({ url: 'https://acme.example/about', status: 'ok', finalUrl: 'https://acme.example/about' }),
+    page({ url: 'https://acme.example/blank', status: 'failed', reason: 'empty', finalUrl: 'https://acme.example/blank' }),
+    page({ url: 'https://acme.example/missing', status: 'failed', reason: 'unreachable' }),
+    page({ url: 'https://acme.example/go', status: 'failed', reason: 'off_site', finalUrl: 'https://other.example/landing' }),
+    page({ url: 'https://acme.example/guess', status: 'failed', reason: 'not_linked' }),
+    page({ url: 'https://acme.example/more', status: 'refused', reason: 'limit' }),
+    page({ url: 'https://other.example/x', status: 'refused', reason: 'off_site' }),
+    page({ url: 'https://acme.example/%ED%9A%8C%EC%82%AC', status: 'running' }),
+  ]
+  const html = render(<DraftActivity source="website" site="acme.example" steps={steps} writing />)
+  // the page title, then where it really was (after redirects)
+  expect(html).toContain('Read · Acme Fans | Quiet desk fans for every s… (acme.example/ko)')
+  expect(html).toContain('Read · acme.example/about')
+  expect(html).toContain('Not read · acme.example/blank (almost no text)')
+  expect(html).toContain('Not read · acme.example/missing (did not open)')
+  // a refused redirect: the page asked for and where it tried to go
+  expect(html).toContain('Not read · acme.example/go → other.example/landing (outside this site, skipped)')
+  expect(html).toContain('Not read · acme.example/guess (not linked from a page, skipped)')
+  expect(html).toContain('Not read · acme.example/more (only 4 pages, skipped)')
+  expect(html).toContain('Not read · other.example/x (outside this site, skipped)')
+  // a Korean path reads as written
+  expect(html).toContain('Reading · acme.example/회사')
+  expect(html).toContain('Writing the company profile')
+  // newest last: the intro first, the writing line at the end
+  const at = (s: string) => html.indexOf(s)
+  expect(at('Public pages only')).toBeLessThan(at('Read · Acme Fans'))
+  expect(at('Not read · other.example/x')).toBeLessThan(at('Reading · acme.example/회사'))
+  expect(at('Reading · acme.example/회사')).toBeLessThan(at('Writing the company profile'))
+  // plain lines, no boxes; a page title is text, never markup
+  expect(html).not.toContain('border')
+  expect(render(<DraftActivity source="website" site="acme.example" steps={[page({ url: 'https://acme.example/', status: 'ok', title: '<img src=x onerror=alert(1)>' })]} writing={false} />)).not.toContain('<img')
+  // the count: pages that took a place (refused ones did not), at most 4
+  expect(pagesUsed(steps)).toBe(4)
+  expect(pagesUsed(steps.slice(0, 2))).toBe(2)
+  expect(pagesUsed([])).toBe(0)
+})
+
+test('reading pasted text: one line, no pages', () => {
+  const html = render(<DraftActivity source="text" site={null} steps={[]} writing={false} />)
+  expect(html).toContain('Going through the pasted text')
+  expect(html).not.toContain('Public pages only')
+})
+
+test('addresses as shown: no scheme, www. or trailing slash, cut when long', () => {
+  expect(shortUrl('https://www.acme.example/')).toBe('acme.example')
+  expect(shortUrl('http://shop.acme.example/p?id=1')).toBe('shop.acme.example/p?id=1')
+  expect(shortUrl(`https://acme.example/${'a'.repeat(80)}`)).toHaveLength(48)
+  expect(shortUrl('not a url')).toBe('not a url')
 })

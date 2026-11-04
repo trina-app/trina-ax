@@ -69,6 +69,34 @@ export const ProfileDraftStarted = z.object({
 })
 export type ProfileDraftStarted = z.infer<typeof ProfileDraftStarted>
 
+/** Pages one answer of a draft may open (the server counts each before it opens it; a failed one counts too). */
+export const PROFILE_DRAFT_PAGES_MAX = 4
+/** At most this many page lines are kept per answer (the AI may keep asking for refused ones). */
+export const PROFILE_DRAFT_STEPS_MAX = 20
+
+/** Why a page of a draft was not read: off_site (outside the typed site: the address, or a redirect hop), limit (the
+ * pages were used up), not_linked (an address neither typed nor linked from a page read), unreachable (no answer, an
+ * error page, a type it cannot read), empty (opened, but almost no text: a page that needs a browser to show). */
+export const ProfileDraftPageReason = z.enum(['off_site', 'limit', 'not_linked', 'unreachable', 'empty'])
+export type ProfileDraftPageReason = z.infer<typeof ProfileDraftPageReason>
+
+/** One page the server opened or refused for the draft's latest answer, as the server saw it (never what the AI only
+ * meant to open). No page text. */
+export const ProfileDraftPage = z.object({
+  /** the address the AI asked for */
+  url: z.string(),
+  /** where it ended up after redirects (ok), or the redirect hop that was refused (off_site); null otherwise */
+  finalUrl: z.string().nullable(),
+  /** refused: never opened, no page used; failed: a page used, nothing to read */
+  status: z.enum(['running', 'ok', 'refused', 'failed']),
+  reason: ProfileDraftPageReason.nullable(),
+  /** the page's own title when it has one (text the site chose: show it as text) */
+  title: z.string().nullable(),
+  startedAt: z.string(),
+  endedAt: z.string().nullable(),
+})
+export type ProfileDraftPage = z.infer<typeof ProfileDraftPage>
+
 export const ProfileDraftState = z.object({
   /** running: queued or answering; done: the answer is in (draft null when it held no usable JSON); failed: the
    * answer ended with an error or was stopped */
@@ -77,6 +105,11 @@ export const ProfileDraftState = z.object({
   draft: CompanyProfileInput.nullable(),
   /** the answer's error text (the person's language) when it failed */
   error: z.string().nullable(),
+  /** the pages of the latest answer, oldest first (pasted text: none). Absent from servers before it. */
+  steps: z.array(ProfileDraftPage).max(PROFILE_DRAFT_STEPS_MAX).optional(),
+  /** running, no page open, and a page was opened before (or the answer has begun its JSON): the AI is working on the
+   * profile from what it read (it may still open another page). Absent: not known. */
+  writing: z.boolean().optional(),
 })
 export type ProfileDraftState = z.infer<typeof ProfileDraftState>
 
@@ -120,5 +153,5 @@ export const ONBOARDING = {
   startProfileDraft: endpoint({ method: 'POST', path: '/api/onboarding/profile/draft', auth: 'admin', owner: 'B', body: StartProfileDraft, response: ProfileDraftStarted, status: 201,
     summary: 'Draft the company profile in a new chat of the caller: the AI reads the website (that host or platform path, at most 4 pages) or the pasted text.' }),
   getProfileDraft: endpoint({ method: 'GET', path: '/api/onboarding/profile/draft/:chatId', auth: 'admin', owner: 'B', response: ProfileDraftState,
-    summary: 'The state of a profile draft chat of the caller and the draft read from its latest answer.' }),
+    summary: 'The state of a profile draft chat of the caller: the draft read from its latest answer, and the pages the server opened or refused for it (addresses, titles and outcomes, no page text).' }),
 } as const

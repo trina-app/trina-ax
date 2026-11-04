@@ -204,7 +204,7 @@ export function turnPerson(exec: TurnExec): TurnPerson {
     // waitForPerson answers "no answer" at once in a scheduled run; tools say why instead of "declined". A company
     // profile draft raises no card either: its screen shows none, so only the typed address and links of its pages open
     unattended: exec.spec.clientKind === 'schedule' || !!exec.profileDraft,
-    ...(exec.profileDraft ? { unattendedLabel: 'company profile draft answer', scope: (url: string) => draftUrlRefusal(exec.profileDraft!.scope, url) } : {}),
+    ...(exec.profileDraft ? { unattendedLabel: 'company profile draft answer', scope: (url: string) => draftUrlRefusal(exec.profileDraft!.scope, url), ...(exec.profileDraft.pages ? { pages: exec.profileDraft.pages } : {}) } : {}),
   }
 }
 

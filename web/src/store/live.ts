@@ -31,6 +31,9 @@ export const schedulesChanged = new Emitter<void>()
 export const credentialLogin = new Emitter<CredentialLogin>()
 /** the server could not resume us: screens that hold REST data reload it */
 export const reloadAsked = new Emitter<'reset' | 'resync'>()
+/** an answer of this chat took a step or ended (message.step / message.done), also for a chat no screen has open: the
+ * company profile step asks for its draft's pages right away instead of at its next poll */
+export const chatActivity = new Emitter<string>()
 
 let client: RealtimeClient | null = null
 let relay: BrowserRelay | null = null
@@ -40,6 +43,7 @@ export function dispatch(ev: ServerEvent) {
   if (ev.type === 'message.done' && typeof document !== 'undefined' && document.hidden) {
     useUi.getState().setUnseenDone(useUi.getState().unseenDone + 1)
   }
+  if (ev.type === 'message.step' || ev.type === 'message.done') chatActivity.emit(ev.data.chatId)
   switch (ev.type) {
     case 'message.created':
     case 'message.delta':

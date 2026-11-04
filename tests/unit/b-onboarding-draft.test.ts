@@ -7,7 +7,10 @@ import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from '
 import { API, uuidv7, type ProfileDraftState } from '@mycel/shared/api'
 import { startHarness, type Harness } from '../lib/b-harness'
 import { waitFor } from '../lib/wait'
-import { DRAFT_PAGES_MAX, draftScopeOf, draftSystemPrompt, draftToolRefusal, draftWebsite, inWebScope, parseDraftAnswer, webScope, type DraftScope, type DraftTurn } from '../../server/src/onboarding/draft'
+import { Database } from 'bun:sqlite'
+import fs from 'node:fs'
+import path from 'node:path'
+import { DRAFT_EMPTY_CHARS, DRAFT_PAGES_MAX, DraftPages, draftPages, draftScopeOf, draftSystemPrompt, draftToolRefusal, draftWebsite, inWebScope, parseDraftAnswer, webScope, type DraftScope, type DraftTurn } from '../../server/src/onboarding/draft'
 import { toolPolicyOf } from '../../server/src/proxy/model-proxy'
 import { noteEgressIp } from '../../server/src/tools/egress'
 import { gateUrl, type TurnPerson } from '../../server/src/tools/url-gate'
@@ -124,6 +127,80 @@ describe('draft rules (no server)', () => {
   })
 })
 
+describe('the page lines of a draft answer (no server)', () => {
+  const pagesDb = () => {
+    const db = new Database(':memory:')
+    db.exec(fs.readFileSync(path.join(import.meta.dir, '../../server/migrations/230_b_onboarding_draft_pages.sql'), 'utf8'))
+    return db
+  }
+  const warned: unknown[] = []
+  const log = { warn: (_m: string, f?: unknown) => { warned.push(f) } }
+  const strip = (p: ReturnType<typeof draftPages>) => p.map(({ url, finalUrl, status, reason, title }) => ({ url, finalUrl, status, reason, title }))
+
+  test('refused before the call, then each call opened: ok with its title, almost no text, a failure, a refused redirect hop', () => {
+    const db = pagesDb()
+    let text = ''
+    const pages = new DraftPages(db, 'm1', log, () => text.length)
+    const d: DraftTurn = { ...turn(), pages }
+    // the rules write their refusals: another site, then (later) the fifth page
+    expect(draftToolRefusal(d, 'web_fetch', { url: 'https://evil.example/x' })).toContain('Only pages of acme.co.kr')
+    // a tool that is not web_fetch is no page
+    expect(draftToolRefusal(d, 'read', { file_path: 'shared/x.md' })).toContain('not available')
+    // nothing opened yet: not writing; the AI may write its JSON straight away (nothing could be read)
+    expect(pages.writing('')).toBe(false)
+    expect(pages.writing('```json\n{"oneLine": ""')).toBe(true)
+    const home = pages.start('https://www.acme.co.kr/')
+    expect(strip(draftPages(db, 'm1', false)).at(-1)).toEqual({ url: 'https://www.acme.co.kr/', finalUrl: null, status: 'running', reason: null, title: null })
+    // a page open: reading, not writing
+    expect(pages.writing('')).toBe(false)
+    home.ok({ url: 'https://www.acme.co.kr/ko/', title: '  Acme\n Fans  ', chars: 900 })
+    // a page read and none open: working on the profile (another page may still follow)
+    expect(pages.writing('')).toBe(true)
+    pages.start('https://acme.co.kr/blank').ok({ url: 'https://acme.co.kr/blank', chars: DRAFT_EMPTY_CHARS - 1 })
+    pages.start('https://acme.co.kr/down').failed('unreachable')
+    const go = pages.start('https://acme.co.kr/go')
+    go.failed('off_site', 'https://evil.example/landing')
+    // the same entry twice changes nothing
+    go.ok({ url: 'https://acme.co.kr/go', chars: 999 })
+    for (const u of ['https://www.acme.co.kr/', 'https://acme.co.kr/blank', 'https://acme.co.kr/down', 'https://acme.co.kr/go']) expect(draftToolRefusal(d, 'web_fetch', { url: u })).toBeNull()
+    expect(draftToolRefusal(d, 'web_fetch', { url: 'https://acme.co.kr/team' })).toContain(`At most ${DRAFT_PAGES_MAX} pages`)
+    expect(strip(draftPages(db, 'm1', false))).toEqual([
+      { url: 'https://evil.example/x', finalUrl: null, status: 'refused', reason: 'off_site', title: null },
+      { url: 'https://www.acme.co.kr/', finalUrl: 'https://www.acme.co.kr/ko/', status: 'ok', reason: null, title: 'Acme Fans' },
+      { url: 'https://acme.co.kr/blank', finalUrl: 'https://acme.co.kr/blank', status: 'failed', reason: 'empty', title: null },
+      { url: 'https://acme.co.kr/down', finalUrl: null, status: 'failed', reason: 'unreachable', title: null },
+      { url: 'https://acme.co.kr/go', finalUrl: 'https://evil.example/landing', status: 'failed', reason: 'off_site', title: null },
+      { url: 'https://acme.co.kr/team', finalUrl: null, status: 'refused', reason: 'limit', title: null },
+    ])
+    text += 'Here is the draft:\n```json\n{"oneLine": '
+    expect(pages.writing(text)).toBe(true)
+    // the same address again is the same line, running again: reading, not writing
+    const again = pages.start('https://www.acme.co.kr/')
+    expect(pages.writing(text)).toBe(false)
+    expect(draftPages(db, 'm1', false).filter((p) => p.url === 'https://www.acme.co.kr/')).toMatchObject([{ status: 'running', finalUrl: null, title: null }])
+    // an answer that is over leaves no line running (stopped mid-page)
+    expect(draftPages(db, 'm1', true).find((p) => p.url === 'https://www.acme.co.kr/')).toMatchObject({ status: 'failed', reason: 'unreachable' })
+    again.ok({ url: 'https://www.acme.co.kr/', chars: 500 })
+    // another answer has its own lines; pasted text has none
+    expect(draftPages(db, 'm2', true)).toEqual([])
+    const textTurn: DraftTurn = { ...turn(TEXT_SCOPE), pages: new DraftPages(db, 'm3', log) }
+    expect(draftToolRefusal(textTurn, 'web_fetch', { url: 'https://www.acme.co.kr/' })).toContain('pasted')
+    expect(draftPages(db, 'm3', true)).toEqual([])
+    expect(warned).toEqual([])
+  })
+
+  test('at most 20 lines per answer; a database that cannot write only loses the lines', () => {
+    const db = pagesDb()
+    const pages = new DraftPages(db, 'm1', log)
+    for (let i = 0; i < 25; i++) pages.refused(`https://evil.example/${i}`, 'off_site')
+    expect(draftPages(db, 'm1', true)).toHaveLength(20)
+    const broken = new DraftPages({ query() { throw new Error('disk I/O error') } } as never, 'm1', log)
+    const before = warned.length
+    expect(() => broken.start('https://acme.co.kr/').ok({ url: 'https://acme.co.kr/', chars: 500 })).not.toThrow()
+    expect(warned.length).toBe(before + 1)
+  })
+})
+
 describe('draft turns', () => {
   let h: Harness
   const fetched: { url: string; unattended: boolean | undefined; chatId: string }[] = []
@@ -178,7 +255,7 @@ describe('draft turns', () => {
     expect((await h.req('dana', `/api/onboarding/profile/draft/${chatId}`)).status).toBe(404)
     const s = await settled('carol', chatId)
     // the fake engine's answer is not JSON: done, no draft
-    expect(s).toEqual({ status: 'done', website: 'https://www.acme.co.kr/', draft: null, error: null })
+    expect(s).toEqual({ status: 'done', website: 'https://www.acme.co.kr/', draft: null, error: null, steps: [], writing: false })
   })
 
   test('its own instructions, web_fetch the only tool besides the refused team files, no web search', async () => {
@@ -213,6 +290,9 @@ describe('draft turns', () => {
     const ev = events(r.turnId)
     expect(ev.filter((e) => e.tool === 'web_fetch' && e.ok === 1)).toHaveLength(DRAFT_PAGES_MAX)
     expect(ev.filter((e) => /refused: company profile draft/.test(e.summary)).map((e) => e.tool)).toEqual(['read', 'write', 'web_fetch', 'web_fetch'])
+    // the profile screen's lines: the refused addresses (this stand-in web_fetch reports nothing of its own)
+    const lines = (await settled('carol', chatId)).steps!
+    expect(lines.map((l) => [l.url, l.status, l.reason])).toEqual([['https://evil.example/?d=1', 'refused', 'off_site'], ['https://acme.co.kr/team', 'refused', 'limit']])
     // nothing was written
     expect(require('node:fs').existsSync(`${h.team}/shared/x.md`)).toBe(false)
   })
@@ -299,6 +379,14 @@ describe('draft turns with the real web_fetch (a local server stands in for the 
       const host = (req.headers.get('host') ?? '').replace(/:\d+$/, '')
       hits.push(host + u.pathname)
       if (host === 'www.acme.example') {
+        // the pages of the line-by-line test: a home page with a title and links, a long page, an almost empty one, a
+        // missing one and one that redirects to another site
+        const long = (s: string) => `<p>${s}: ${'Acme makes quiet desk fans for small offices. '.repeat(8)}</p>`
+        if (u.pathname === '/r/') return new Response(`<!doctype html><html><head><title>Acme Fans | Quiet desk fans</title></head><body>${long('HOME-LONG-CANARY')}<a href="/r/about">About</a> <a href="/r/blank">Blank</a> <a href="/r/missing">Missing</a> <a href="/r/go">Shop</a> <a href="/r/more">More</a></body></html>`, { headers: { 'content-type': 'text/html; charset=utf-8' } })
+        if (u.pathname === '/r/about') return html(long('ABOUT-LONG-CANARY'))
+        if (u.pathname === '/r/blank') return html('<div id="app"></div><p>Loading</p>')
+        if (u.pathname === '/r/missing') return new Response('not here', { status: 404 })
+        if (u.pathname === '/r/go') return Response.redirect(`http://evil.example:${web.port}/landing`, 302)
         if (u.pathname === '/') return html(`<h1>Welcome to Acme</h1><a href="/about">About us</a> <a href="/go">Our shop</a> <a href="http://evil.example:${web.port}/planted">Partner</a>`)
         if (u.pathname === '/about') return html('<p>ABOUT-ACME-CANARY: quiet desk fans</p>')
         if (u.pathname === '/team') return html('<p>TEAM-CANARY</p>')
@@ -338,5 +426,46 @@ describe('draft turns with the real web_fetch (a local server stands in for the 
     expect(hits).toEqual(['www.acme.example/', 'www.acme.example/about', 'www.acme.example/go'])
     expect(sock.frames.some((f) => f.type === 'turn.request')).toBe(false)
     sock.close()
+  })
+
+  test('the lines of an answer, as the server opened or refused each page: titles, redirects, refusals; no page text; only for the person who asked', async () => {
+    const base = `http://www.acme.example:${web.port}/r/`
+    const evil = `http://evil.example:${web.port}`
+    const chat = await h.api('carol').call(API.createChat, { body: {} })
+    h.ctx.db.query("INSERT INTO onboarding_profile_drafts (chat_id, user_id, source, website, site, created_at) VALUES (?, 'carol', 'website', ?, 'acme.example', ?)").run(chat.id, base, new Date().toISOString())
+    const ask = async (content: string) => {
+      const r = await h.api('carol').call(API.sendMessage, { params: { id: chat.id }, body: { content, clientMessageId: 'cm-' + crypto.randomUUID(), attachmentIds: [] } })
+      await waitFor(() => (h.ctx.db.query('SELECT status FROM messages WHERE id = ?').get(r.assistantMessage.id) as { status: string }).status !== 'streaming', { timeoutMs: 30_000 })
+      return h.api('carol').call(API.getProfileDraft, { params: { chatId: chat.id } })
+    }
+    // the directives' own addresses must not count as typed ("://" written as \u003a//)
+    const fetches = (...urls: string[]) => fake(...urls.flatMap((url) => [{ tool: 'web_fetch', args: { url }, sayResult: true }, { say: '\n' }])).replace(/:\/\//g, '\\u003a//')
+    const lines = (s: ProfileDraftState) => s.steps!.map((l) => ({ url: l.url, finalUrl: l.finalUrl, status: l.status, reason: l.reason, title: l.title }))
+    // one answer: the typed page (with its title), a linked long page, an almost empty one, a missing one; then a fifth
+    // page of the site and another site, both refused before anything opens
+    const first = await ask(`Read ${base}\n${fetches(base, `${base}about`, `${base}blank`, `${base}missing`, `${base}more`, `${evil}/x`)}`)
+    expect(lines(first)).toEqual([
+      { url: base, finalUrl: base, status: 'ok', reason: null, title: 'Acme Fans | Quiet desk fans' },
+      { url: `${base}about`, finalUrl: `${base}about`, status: 'ok', reason: null, title: null },
+      { url: `${base}blank`, finalUrl: `${base}blank`, status: 'failed', reason: 'empty', title: null },
+      { url: `${base}missing`, finalUrl: null, status: 'failed', reason: 'unreachable', title: null },
+      { url: `${base}more`, finalUrl: null, status: 'refused', reason: 'limit', title: null },
+      { url: `${evil}/x`, finalUrl: null, status: 'refused', reason: 'off_site', title: null },
+    ])
+    expect(first.steps!.every((l) => l.startedAt && l.endedAt && l.endedAt >= l.startedAt)).toBe(true)
+    expect(first.writing).toBe(false)
+    // no page text, only addresses, titles and outcomes
+    expect(JSON.stringify(first)).not.toMatch(/LONG-CANARY|quiet desk fans for small offices|not here/)
+    // the next answer has its own lines: a linked page that redirects to another site (the hop it refused), and an
+    // address no page linked
+    const second = await ask(fetches(`${base}go`, `${base}guessed`))
+    expect(lines(second)).toEqual([
+      { url: `${base}go`, finalUrl: `${evil}/landing`, status: 'failed', reason: 'off_site', title: null },
+      { url: `${base}guessed`, finalUrl: null, status: 'failed', reason: 'not_linked', title: null },
+    ])
+    expect(hits.filter((x) => x.startsWith('evil.example'))).toEqual([])
+    // only the person whose draft it is: a member is refused, the owner (not their draft) finds nothing
+    expect((await h.req('alice', `/api/onboarding/profile/draft/${chat.id}`)).status).toBe(403)
+    expect((await h.req('dana', `/api/onboarding/profile/draft/${chat.id}`)).status).toBe(404)
   })
 })

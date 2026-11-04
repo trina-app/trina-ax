@@ -69,7 +69,7 @@ import { dummyAuthJson } from '../credentials/codex-home'
 import { afterUsage } from '../admin/budget-watch'
 import type { QueueTiming } from './fair-queue'
 import { RedactingText, redactorFor, type Redactor } from '../integrations/connections/redact'
-import { draftScopeOf, draftSystemPrompt, type DraftTurn } from '../onboarding/draft'
+import { DraftPages, draftScopeOf, draftSystemPrompt, type DraftTurn } from '../onboarding/draft'
 
 /** Turn time limit (tab 3: 20 minutes, paused while waiting for a person). */
 export const TURN_TIMEOUT_MS = 20 * 60_000
@@ -282,7 +282,8 @@ export class TurnExec {
     // a company profile draft chat runs restricted; if that cannot be read, the turn does not run at all (fails closed)
     try {
       const draft = draftScopeOf(rt.db, spec.chatId)
-      this.profileDraft = draft ? { scope: draft, fetched: new Set() } : null
+      // the pages it opens or is refused are written down as they happen: the profile screen shows them line by line
+      this.profileDraft = draft ? { scope: draft, fetched: new Set(), pages: new DraftPages(rt.db, spec.assistantId, rt.log, () => this.content.length) } : null
     } catch (e) { rt.log.error('profile draft check failed', { err: e, turn: this.id }); this.error = engineError('crash', spec.locale); return }
     // the chat's engine was switched off by an admin: this answer comes from the team default
     if (spec.substitutedFrom) this.addStep({ kind: 'tool', tool: 'engine', label: tr('engineOffDefault', spec.locale, { from: ENGINE_LABELS[spec.substitutedFrom], to: ENGINE_LABELS[spec.engine] }), status: 'ok' })

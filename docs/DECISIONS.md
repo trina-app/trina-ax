@@ -7534,3 +7534,48 @@ addition removes something. Placement: Team AX core (Home, Admin › Home, the g
   elsewhere), `artifact-placement.test.tsx` (paragraph, list, quote, heading, code block, streaming parts),
   `welcome.test.tsx` and `tests/unit/b-onboarding-welcome.test.ts` (the skipped team step), `b-onboarding-goal.test.ts`
   (someone who ran another skill is not waiting).
+
+## R — What the AI reads for the company profile, line by line (feat/onboarding-r, 2026-11-05)
+
+The owner: while the AI reads the website the step only showed a spinner, and nobody asked before it opened pages, so
+"which page is it fetching, what is it doing" should be on screen. The reading phase of `ProfileStep.tsx` is now a short
+list of plain lines (`DraftActivity`), newest last, each with a small mark, no box: "공개된 페이지만, acme.co.kr 안에서 최대
+4개 읽어요", then one line per page ("읽는 중 · acme.co.kr/about" → "읽음 · 회사 소개 (acme.co.kr/about)" with the page's own
+title, or "못 읽음 · … (열리지 않음 / 글이 거의 없음 / 이 사이트 밖이라 건너뜀 / 페이지에 없는 주소라 건너뜀 / 4개까지만 읽어서
+건너뜀)", a refused redirect as "asked → where it went"), then "회사 소개 정리 중", and "n/4 페이지" beside the heading. Pasted
+text has one line ("붙여 넣은 글을 정리 중"); the three questions never read. The spinner box and its label went; no new
+button.
+
+- **The server writes the lines where it decides** (`onboarding/draft.ts DraftPages`, table `onboarding_draft_pages`,
+  migration 230): the draft's rules (`draftToolRefusal`) write what they refuse before anything opens (outside the site,
+  no page left), and web_fetch itself reports each call through the turn person (`TurnPerson.pages`, tools/url-gate.ts):
+  the address asked for, then the address it ended on and the page's title, or why not (the gate refused an address no
+  page linked, a redirect hop outside the site with that hop, anything else as "did not open"); opened with fewer than
+  `DRAFT_EMPTY_CHARS` = 200 characters of text is "almost no text". So every address shown is one the server opened or
+  refused, never one the AI only meant to open; the screen doubles as a record of what was read. The same address again
+  is the same line; at most 20 lines per answer; a line that cannot be written is logged and the draft goes on (the
+  lines are for watching, not a rule). Rejected: reading the answer's tool steps (`messages.steps`): their label is the
+  AI's input cut to 80 characters, with no final address, title or reason, and putting refused addresses into a step's
+  `sources` would make them openable (the gate reads step sources as search results). Rejected: memory only: the lines
+  would vanish when the answer ends, and could not be tested through real turns.
+- **GET `/api/onboarding/profile/draft/:chatId`** gains `steps` (the latest answer's lines: url, finalUrl, status
+  running / ok / refused / failed, reason, title, startedAt, endedAt; no page text) and `writing`. Same guard as before:
+  owners and admins, and only their own draft chat (another person gets 404). Lines of an answer that is over are never
+  "running" (one cut off reads as "did not open"). Both fields are optional in the contract.
+- **"정리 중"** (`writing`): no page is open, and a page was opened before or the answer has begun its JSON. The answer's
+  text alone could not tell: Claude Code hands its text over only at the end (checked on a real turn: the JSON never
+  showed while it was written). So the line also shows between two pages, and the next page's line follows it.
+- **Faster lines**: the chat's realtime events (`message.step`, `message.done`) of the draft chat ask for the state again
+  after 250 ms (`store/live.ts chatActivity`; the tool call reaches the server a moment after the engine reports its
+  step); the 2.5 s poll stays as the backstop. No new event type.
+- The count is pages that took one of the four places (everything but what was refused before opening), as the server
+  counts them.
+- Checked on 2026-11-05 with `bun run dev` and the local relay, a real Claude Code turn on a public website at 390 px: the
+  lines appeared one by one (a redirect showed the page it ended on), "정리 중" after the fourth, then the review.
+- Tests: `tests/unit/b-onboarding-draft.test.ts` (the lines without a server: refusals, ok with title, almost no text,
+  failed, a refused hop, the same address again, the cap, a failing database, `writing`; through the stand-in
+  web_fetch: refused lines; with the real web_fetch and a local server: a titled page, a long page, an almost empty
+  one, a 404, the fifth page, another site, a redirect off the site with its hop, an address no page linked, no page
+  text in the response, a member 403 and the owner, whose draft it is not, 404), `web/test/unit/profile-step.test.tsx`
+  (the intro with the site, every kind of line and its order, a title never markup, the count, pasted text, the short
+  addresses).
