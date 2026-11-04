@@ -32,6 +32,8 @@ Admins use **Admin › Folder permissions**.
 #### Pick a folder
 **By folder** shows the team folder as a tree. Each row says who can open it and where that comes from.
 
+![Admin › Folder permissions › By folder: the team folder as a tree, each folder with who can open it](../images/files/folder-permissions.webp "Folder permissions, by folder")
+
 #### Choose the basic access
 Follow the folder above, only the people named, everyone reads, or everyone reads and writes.
 
@@ -49,6 +51,8 @@ The server works out who loses or gains access, and the Save button says it. Not
 :::
 
 ## Working with files
+
+![The Files screen: the team folder with groups, projects, shared, skills and users](../images/files/files.webp "The Files screen")
 
 - **Upload** files or whole folders from the Files screen.
 - **History**: every change keeps a version you can open or restore.

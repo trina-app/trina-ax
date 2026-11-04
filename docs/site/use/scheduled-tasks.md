@@ -9,9 +9,13 @@ A scheduled task runs a request again and again: every weekday morning, every Mo
 In current versions, scheduled tasks have their own **Scheduled** item in the sidebar. Older versions keep them under **Settings › Schedules**.
 :::
 
+![The Scheduled tasks page: two task cards with their folders and times, and a New task button](../images/scheduled/list.webp "Scheduled tasks, with Scheduled in the sidebar")
+
 ## Create a task
 
-There are two ways:
+Choose **New task**. There are two ways:
+
+![The New task menu with Describe it in a chat and From a template](../images/scheduled/new-task.webp "New task")
 
 - **Describe it in a chat.** For example: "Every Monday at 9:00, summarize last week's notes in shared/sales." The AI creates the schedule and shows it.
 - **Start from a template.** Pick a template, fill in its folders and time, and save.
@@ -30,8 +34,16 @@ There are two ways:
 
 Open a task to see its schedule, instructions, next run and last run.
 
+![A task page: the title with Run now and an On switch, the history on the left, and Instruction, Repeats, Runs with and Details on the right](../images/scheduled/task.webp "A scheduled task")
+
 - **Run now** runs it at once.
 - The switch pauses and resumes it.
 - The menu on its name has **Edit** and **Delete**.
 
 A finished one-time task, or one that can no longer run, says why it cannot be turned on.
+
+## On a phone
+
+The cards stack in one column.
+
+![Scheduled tasks on a phone: the cards in one column under the title and New task](../images/scheduled/list-phone.webp "Scheduled tasks on a phone")

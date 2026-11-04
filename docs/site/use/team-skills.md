@@ -11,6 +11,8 @@ A skill is a reusable procedure in a `SKILL.md` file. It tells the AI how your t
 - The AI can also find and load a skill by itself when it fits the request.
 - **Team skills** in the sidebar lists the skills you can use.
 
+![The Team skills page: tabs for available skills, review, suggestions and recent changes, and a list of six team skills](../images/skills/team-skills.webp "Team skills")
+
 ## Where skills live
 
 | Location | Who sees it |

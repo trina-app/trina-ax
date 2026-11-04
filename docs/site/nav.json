@@ -10,7 +10,8 @@
     ] },
     { "title": "Use Trina AX", "groups": [
       { "title": "Work with the AI", "pages": ["use/chats-and-projects", "use/team-skills", "use/mcp", "use/scheduled-tasks"] },
-      { "title": "Files and people", "pages": ["use/files-and-permissions", "use/usage-and-limits", "use/admin"] }
+      { "title": "Files and people", "pages": ["use/files-and-permissions", "use/usage-and-limits", "use/admin"] },
+      { "title": "Your account", "pages": ["use/settings-and-search"] }
     ] },
     { "title": "Run and operate", "groups": [
       { "title": "Set up", "pages": ["operate/install", "operate/configuration"] },

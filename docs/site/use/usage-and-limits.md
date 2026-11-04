@@ -13,6 +13,8 @@ Costs are estimates of the equivalent API price, not bills. Subscription connect
 
 Open **Usage** from your account menu. It shows your answers, tokens and estimated cost, and how full each limit that applies to you is. You only ever see your own numbers.
 
+![Settings › Usage: Your usage, your answers by model for this month, and answers, tokens and estimated cost](../images/usage/mine.webp "Your own usage, in Settings")
+
 :::note
 Personal usage is new. In older versions, only admins see usage, in **Admin › Usage**.
 :::
@@ -24,6 +26,8 @@ Admins open **Admin › Usage**.
 - **Group by** person, group, engine, model, day, AI connection or skill.
 - Pick a date range.
 - **Download CSV** to work with the numbers elsewhere.
+
+![Admin › Usage: Group by, the date range, a row per person with answers, tokens and estimated cost, and Download CSV](../images/usage/team.webp "The team's usage, in Admin")
 
 Personal skills are never counted by name, so no admin sees what someone keeps privately.
 

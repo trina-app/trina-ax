@@ -39,3 +39,11 @@ bun run docs:build        # writes dist/docs-site/
 ```
 
 `bun run docs:api` regenerates the [HTTP API reference](../reference/http-api.md) from the API contract. A unit test fails when it is out of date.
+
+The screenshots in `docs/site/images/` come from a running server with made-up data. Refresh them after a UI change:
+
+```sh
+DOCS_SHOT_USER=dion DOCS_SHOT_PASSWORD=… bun run docs:screenshots --url https://team.example.com
+```
+
+It signs in through the form, uses the light theme at 1280×800 (2× pixels), hides the development banner and writes WebP files. `--only scheduled` refreshes one page's shots.

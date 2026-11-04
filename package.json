@@ -51,7 +51,8 @@
     "check:docs": "bun scripts/check-onboarding-docs.ts",
     "docs:build": "bun scripts/docs/build.ts",
     "docs:api": "bun scripts/docs/api-reference.ts",
-    "docs:serve": "bun scripts/docs/serve.ts"
+    "docs:serve": "bun scripts/docs/serve.ts",
+    "docs:screenshots": "bun scripts/docs/screenshots.ts"
   },
   "devDependencies": {
     "@types/bun": "1.3.12",

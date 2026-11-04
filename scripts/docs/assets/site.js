@@ -118,6 +118,17 @@
     })
   })
 
+  // screenshots: click to see them larger
+  var lightbox = $('.lightbox')
+  if (lightbox && lightbox.showModal) {
+    var big = $('img', lightbox)
+    $$('.shot-zoom').forEach(function (b) {
+      b.addEventListener('click', function () { big.src = b.dataset.src; big.alt = $('img', b).alt; lightbox.showModal() })
+    })
+    $('.lightbox-close', lightbox).addEventListener('click', function () { lightbox.close() })
+    lightbox.addEventListener('click', function (e) { if (e.target === lightbox) lightbox.close() })
+  }
+
   // copy buttons on code
   $$('.copy-code').forEach(function (b) {
     b.addEventListener('click', function () {

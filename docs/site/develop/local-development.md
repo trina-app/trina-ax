@@ -68,5 +68,6 @@ The e2e tests run the web app against the mock server in `web/test/mock/`, so mo
 | `bun run check:i18n` | Check strings in all five languages |
 | `bun run check:docs` | Check the entry docs and this site's links |
 | `bun run docs:build` | Build this documentation site |
+| `bun run docs:screenshots` | Refresh the docs screenshots from a running server with made-up data |
 
 Next: [run the tests](testing.md).

@@ -27,6 +27,24 @@ describe('docs site', () => {
     expect(siteMarkdownFiles().flatMap((f) => localLinkProblems(f))).toEqual([])
   })
 
+  test('every screenshot a page shows exists, has alt text, and every screenshot is used', () => {
+    const used = new Set<string>()
+    for (const f of siteMarkdownFiles()) {
+      const text = fs.readFileSync(path.join(ROOT, f), 'utf8').replace(/```[\s\S]*?```/g, '')
+      for (const m of text.matchAll(/!\[([^\]]*)\]\(([^)\s]+)(?:\s+"[^"]*")?\)/g)) {
+        const target = path.posix.normalize(path.posix.join(path.posix.dirname(f), m[2]!))
+        expect(m[1]!.trim().length, `${f}: alt text for ${m[2]}`).toBeGreaterThan(10)
+        expect(target.startsWith('docs/site/images/'), `${f}: ${m[2]} is outside docs/site/images`).toBe(true)
+        expect(fs.existsSync(path.join(ROOT, target)), `${f}: ${m[2]} is missing`).toBe(true)
+        used.add(target)
+      }
+    }
+    const images = path.join(ROOT, 'docs/site/images')
+    const all = fs.existsSync(images) ? (fs.readdirSync(images, { recursive: true }) as string[]).filter((n) => /\.(webp|png|jpe?g)$/.test(n)).map((n) => `docs/site/images/${n.split(path.sep).join('/')}`) : []
+    expect(all.filter((a) => !used.has(a)), 'screenshots no page uses').toEqual([])
+    for (const a of all) expect(fs.statSync(path.join(ROOT, a)).size, `${a} is too large`).toBeLessThan(300 * 1024)
+  })
+
   test('the HTTP API page is generated from the contract (bun run docs:api)', () => {
     expect(fs.readFileSync(path.join(ROOT, API_REFERENCE_FILE), 'utf8')).toBe(apiReferenceMarkdown())
   })
@@ -58,6 +76,9 @@ describe('docs site', () => {
       // tabs become labelled sections in the Markdown copy, and real tabs in HTML
       expect(fs.readFileSync(path.join(out, 'operate/install.md'), 'utf8')).toContain('**Office Mac**')
       expect(fs.readFileSync(path.join(out, 'operate/install/index.html'), 'utf8')).toContain('role="tablist"')
+      // screenshots are copied and shown as figures with their alt text
+      expect(fs.existsSync(path.join(out, 'images/mcp/add.webp'))).toBe(true)
+      expect(fs.readFileSync(path.join(out, 'use/mcp/index.html'), 'utf8')).toMatch(/<figure class="shot">[\s\S]*?src="\/docs\/images\/mcp\/add\.webp" alt="The Add Notion dialog/)
     } finally {
       fs.rmSync(out, { recursive: true, force: true })
     }

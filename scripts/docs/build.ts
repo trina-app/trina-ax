@@ -12,6 +12,7 @@
 //   :::steps … :::                          steps; each starts with a "#### Title" line
 //   :::cards cols=2 … :::                   cards; each line "- icon=name | [Title](link.md) | One sentence."
 //   :::tabs … :::                           tabs; each panel starts with an "@tab Title" line
+// Screenshots: ![alt text](../images/<page>/<name>.webp "Optional caption") on a line of its own (docs:screenshots).
 import fs from 'node:fs'
 import path from 'node:path'
 import { createRequire } from 'node:module'
@@ -82,6 +83,7 @@ function resolveLink(ctx: Ctx, page: Page, href: string, forMarkdown: boolean): 
     const slug = target.slice('docs/site/'.length, -3)
     if (ctx.pages.some((p) => p.slug === slug)) return (forMarkdown ? pageMdUrl(ctx, slug) : pageUrl(ctx, slug)) + hash
   }
+  if (target.startsWith('docs/site/images/')) return `${ctx.siteUrl && forMarkdown ? ctx.siteUrl : ''}${ctx.base}/${target.slice('docs/site/'.length)}`
   return `${ctx.nav.repo}/blob/main/${target}${hash}`
 }
 
@@ -210,6 +212,11 @@ function postProcess(ctx: Ctx, page: Page, html: string): { html: string; toc: T
     return `<h${level} id="${id}"><a class="anchor" href="#${id}" aria-label="Link to this section">#</a>${inner}</h${level}>`
   })
   html = html.replace(/<table>/g, '<div class="table"><table>').replace(/<\/table>/g, '</table></div>')
+  // an image alone in a paragraph is a screenshot: a figure, its title as the caption, larger on click
+  html = html.replace(/<p><img src="([^"]+)" alt="([^"]*)"(?: title="([^"]*)")?\s*\/?><\/p>/g, (_m, src: string, alt: string, title: string | undefined) => {
+    const url = esc(resolveLink(ctx, page, unesc(src), false))
+    return `<figure class="shot"><button class="shot-zoom" type="button" data-src="${url}" aria-label="Enlarge: ${alt}"><img src="${url}" alt="${alt}" loading="lazy" decoding="async"></button>${title ? `<figcaption>${title}</figcaption>` : ''}</figure>`
+  })
   return { html, toc }
 }
 
@@ -298,6 +305,7 @@ ${header(ctx, page)}
   ${tocHtml}
 </div>
 <div class="scrim" hidden></div>
+<dialog class="lightbox" aria-label="Screenshot"><button class="lightbox-close icon-button" type="button" aria-label="Close">${icon('x')}</button><img alt=""></dialog>
 <script src="${ctx.base}/assets/site.js" defer></script>
 </body>
 </html>
@@ -345,6 +353,8 @@ export function build(argv: string[]) {
   const assets = path.join(import.meta.dir, 'assets')
   for (const f of fs.readdirSync(assets)) fs.copyFileSync(path.join(assets, f), path.join(o.out, 'assets', f))
   fs.copyFileSync(path.join(ROOT, 'web/public/favicon.svg'), path.join(o.out, 'assets/favicon.svg'))
+  const images = path.join(ROOT, 'docs/site/images')
+  if (fs.existsSync(images)) fs.cpSync(images, path.join(o.out, 'images'), { recursive: true })
   fs.writeFileSync(path.join(o.out, '404.html'), layout(ctx, null, `<p><a href="${pageUrl(ctx, 'index')}">Go to the intro</a>, or search above.</p>`, [],
     { title: 'Page not found', description: 'This page does not exist.', eyebrow: '' }))
   return { out: o.out, pages: pages.length }

@@ -151,6 +151,18 @@ h1 { flex: 1; font: 400 40px/1.15 var(--serif); letter-spacing: -0.015em; margin
 .tab-list button[aria-selected="true"]::after { content: ""; position: absolute; left: 0; right: 0; bottom: -1px; height: 2px; background: var(--accent); }
 .tab-panel:focus-visible { outline-offset: 6px; }
 
+/* screenshots */
+.shot { margin: 6px 0 22px; }
+.shot-zoom { display: block; width: 100%; padding: 0; border: 1px solid var(--line); border-radius: 12px; overflow: hidden; background: var(--surface); cursor: zoom-in; box-shadow: 0 1px 2px rgb(0 0 0 / 0.04), 0 8px 24px rgb(0 0 0 / 0.06); }
+.shot-zoom:hover { border-color: var(--line-strong); }
+.shot img { display: block; width: 100%; height: auto; }
+.shot figcaption { margin-top: 8px; font-size: 13.5px; color: var(--muted); text-align: center; }
+.step .shot { margin-top: 12px; }
+.lightbox { max-width: min(1400px, 96vw); max-height: 94vh; padding: 0; border: 1px solid var(--line); border-radius: 14px; background: var(--surface); box-shadow: 0 24px 64px rgb(0 0 0 / 0.35); }
+.lightbox::backdrop { background: rgb(0 0 0 / 0.6); }
+.lightbox img { display: block; max-width: 100%; max-height: 94vh; object-fit: contain; }
+.lightbox-close { position: absolute; top: 8px; right: 8px; background: var(--surface); border: 1px solid var(--line); }
+
 /* callouts */
 .callout { margin: 0 0 20px; padding: 12px 16px; border-radius: var(--radius); border: 1px solid; font-size: 15.5px; }
 .callout p:last-child { margin-bottom: 0; }

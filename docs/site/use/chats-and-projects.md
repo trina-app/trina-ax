@@ -11,6 +11,8 @@ A chat is a conversation with the AI. Only you see your chats. Admins see which 
 #### Open a new chat
 Choose **New chat** in the sidebar, or type in the box on the home page.
 
+![The home page: a first-steps checklist, "How can I help you?" with the message box, and the folders the AI can see](../images/chats/home.webp "The home page, with the message box and the folders your AI can see")
+
 #### Ask in plain words
 For example: "Summarize last week's sales notes in shared/sales." Type `/` to pick a team skill.
 
@@ -46,11 +48,17 @@ Say what the work is and how the AI should help. The first paragraph shows under
 
 #### Chat in the project
 Start a chat from the project's page, or move a chat in from the chat title's menu. The AI then gets that folder and those instructions.
+
+![A project page: its title and instructions, a box to start a chat in the project, and Instructions and Files on the side](../images/chats/project.webp "A project's page")
 :::
 
 - There is no member list. Whoever can read the folder sees the project.
 - A folder holds one project. Once it is a project, only an admin moves, renames or deletes the folder.
 - Instructions you did not write all by yourself count as outside content. The AI asks before it remembers anything after reading them.
+
+## Find anything
+
+Press ⌘K (Ctrl+K on Windows) or choose **Search** in the sidebar to find chats, projects, files, skills, scheduled tasks and MCP connections. [Read about search and settings](settings-and-search.md).
 
 ## Deleted chats
 

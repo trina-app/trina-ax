@@ -39,8 +39,12 @@ Leave this terminal running. It builds, starts on http://127.0.0.1:19760 and see
 #### Sign in
 Open http://127.0.0.1:19760 and sign in as `alice` with `teamax-demo-1`. The other accounts are `bob`, `admin1` and the owner `dion`. The password is public on purpose.
 
+![The Trina AX sign-in page with Username and Password fields and a Sign in button](../images/quickstart/sign-in.webp "The sign-in page")
+
 #### Check folder permissions
 Open **Files → shared → 팀-용어집.md**. Then sign in as `bob` in a private window. Bob sees the finance group, but not the marketing group.
+
+![The Files screen with the shared folder open and the glossary file shown in the side panel](../images/quickstart/files-glossary.webp "The glossary file, open in Files")
 :::
 
 :::tip
