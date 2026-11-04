@@ -1085,6 +1085,7 @@ export const ja: Record<MessageKey, string> = {
   "adminHome.item": "{name}: {state}",
   "adminHome.noAi": "{count, plural, one {#人がAIを使えません} other {#人がAIを使えません}}: {names}",
   "adminHome.storage": "ストレージ {percent}% 使用",
+  "adminHome.newVersion": "新しいバージョン {version} が出ました",
   "adminHome.members": "{count, plural, one {メンバー#人} other {メンバー#人}}",
   "adminHome.invites": "{count, plural, one {有効な招待#件} other {有効な招待#件}}",
   "adminHome.default": "既定: {engine}",

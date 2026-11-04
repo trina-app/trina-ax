@@ -139,3 +139,27 @@ test('a long explanation stays on one line until "More" opens it', async ({ page
   await expect(card.getByRole('button', { name: t['common.less'], exact: true }).first()).toHaveAttribute('aria-expanded', 'true')
   expect(await desc.evaluate((el) => el.getBoundingClientRect().height)).toBeGreaterThan(oneLine * 1.5)
 })
+
+test('a new version is an attention item for the owner; a failed update status is no item and Home still shows', async ({ page }) => {
+  await start(page)
+  const status = { current: '0.2.0', channel: 'stable', available: { version: '0.3.0', notes: '', needsBackupRestoreToRollBack: false }, lastCheckedAt: new Date().toISOString(), previous: null, feed: true, needsRoot: false, auto: false, managed: false }
+  const answer = (make: () => { status?: number; json: unknown }) => page.route('**/api/admin/update', (r) => (r.request().method() === 'GET' ? r.fulfill(make()) : r.fallback()))
+  await answer(() => ({ json: status }))
+  await page.goto('/admin')
+  const row = page.getByTestId('admin-attention').getByRole('link', { name: t['adminHome.newVersion'].replace('{version}', '0.3.0') })
+  await expect(row).toHaveAttribute('href', '/admin/system')
+
+  // managed (hosted) installs are updated by the provider: no item
+  await page.unroute('**/api/admin/update')
+  await answer(() => ({ json: { ...status, managed: true } }))
+  await page.goto('/admin')
+  await expect(page.getByTestId('admin-home-members')).toBeVisible()
+  await expect(page.getByTestId('admin-attention').getByRole('link', { name: /0\.3\.0/ })).toHaveCount(0)
+
+  // a failing status: no item, nothing else breaks
+  await page.unroute('**/api/admin/update')
+  await answer(() => ({ status: 500, json: { error: { code: 'internal', message: 'boom' } } }))
+  await page.goto('/admin')
+  await expect(page.getByTestId('admin-home-engines')).toContainText('Default: Claude Code')
+  await expect(page.getByTestId('admin-attention').getByRole('link', { name: /0\.3\.0/ })).toHaveCount(0)
+})

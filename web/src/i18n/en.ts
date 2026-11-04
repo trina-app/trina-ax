@@ -1111,6 +1111,7 @@ export const en: Record<MessageKey, string> = {
   "adminHome.item": "{name}: {state}",
   "adminHome.noAi": "{count, plural, one {# person can't use AI} other {# people can't use AI}}: {names}",
   "adminHome.storage": "Storage {percent}% used",
+  "adminHome.newVersion": "Version {version} is out",
   "adminHome.members": "{count, plural, one {# member} other {# members}}",
   "adminHome.invites": "{count, plural, one {# open invite} other {# open invites}}",
   "adminHome.default": "Default: {engine}",

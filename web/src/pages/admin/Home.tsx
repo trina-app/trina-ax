@@ -38,6 +38,10 @@ export default function Home() {
   const audit = useLoad(async () => (await api.call(API.audit, { query: { limit: 3 } })).items)
   const storage = useLoad(() => api.call(API.storage))
   const diagnostics = useLoad(async () => (owner ? (await api.call(API.diagnostics)).checks : []), [owner])
+  // A new version (the owner's; Admin > System installs it). Never blocks Home: no `settled`, and an error is no item.
+  // Office mode has its own banner and update card, so it is skipped there (the office status is null outside it).
+  const update = useLoad(async () => (owner ? { u: await api.call(API.updateStatus) } : { u: null }), [owner])
+  const office = useLoad(async () => (owner ? { v: await api.call(API.officeUpdateStatus) } : { v: null }), [owner])
 
   const item = (name: string, state: string) => t('adminHome.item', { name, state })
   const active = users.data?.items.filter((u) => u.status === 'active') ?? []
@@ -50,6 +54,8 @@ export default function Home() {
   const failedChecks = diagnostics.data?.filter((c) => c.status === 'fail') ?? []
   const checksToLook = diagnostics.data?.filter((c) => c.status === 'fail' || c.status === 'warn') ?? []
 
+  const newVersion = update.data?.u && !update.data.u.managed && office.data && !office.data.v ? update.data.u.available?.version : undefined
+
   const attention: { key: string; text: string; to: string }[] = [
     ...badEngines.map((e) => ({ key: `engine-${e.id}`, text: item(e.label, t(`engines.status.${e.status}`)), to: '/admin/engines' })),
     ...(noAi.length ? [{ key: 'no-ai', text: t('adminHome.noAi', { count: noAi.length, names: names(noAi) }), to: '/admin/credentials' }] : []),
@@ -57,6 +63,7 @@ export default function Home() {
     ...badServices.map((s) => ({ key: `service-${s.id}`, text: item(s.name, t(`integrations.status.${s.status}`)), to: '/admin/integrations' })),
     ...(storageBad && storage.data ? [{ key: 'storage', text: t('adminHome.storage', { percent: Math.round(storage.data.percent) }), to: '/admin/system' }] : []),
     ...failedChecks.map((c) => ({ key: `check-${c.id}`, text: c.label, to: '/admin/system' })),
+    ...(newVersion ? [{ key: 'update', text: t('adminHome.newVersion', { version: newVersion }), to: '/admin/system' }] : []),
   ]
   const ready = settled(users, engines, credentials, services, storage, diagnostics)
   const defaultEngine = engines.data?.engines.find((e) => e.id === engines.data?.defaultEngine)?.label

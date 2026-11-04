@@ -28,7 +28,11 @@ const opsByCtx = new WeakMap<AppContext, OpsService>()
 export const getOps = (ctx: AppContext) => opsByCtx.get(ctx) ?? null
 
 /** Test hook: options for the next OpsService (layout, fake engines, restart). */
-export const systemTestHooks: { opsOptions: OpsOptions | null; restart: (() => void) | null } = { opsOptions: null, restart: null }
+export const systemTestHooks: { opsOptions: OpsOptions | null; restart: (() => void) | null; updateWaitMs?: number } = { opsOptions: null, restart: null }
+
+/** Admin > System asks the release feed again when the last check is older than this, and waits at most this long. */
+const UPDATE_CHECK_MAX_AGE_MS = 3600_000
+const UPDATE_CHECK_WAIT_MS = 5000
 
 /** Planned restart: main.ts shuts down gracefully on SIGTERM; root/bootstrap starts app/current again. */
 function scheduleRestart(ctx: AppContext, why: string) {
@@ -107,10 +111,19 @@ export const systemRoutes: RouteModule = {
     kit.handle(API.plan, ({ c }) => planStatus(ctx.db, c.get('locale')))
     kit.handle(API.managedNotices, ({ c, auth }) => ({ items: noticesFor(auth.user.role, c.get('locale')) }))
 
-    kit.handle(API.updateStatus, () => {
+    // one feed fetch at a time, however many times the page is opened
+    let feedCheck: Promise<unknown> | null = null
+    kit.handle(API.updateStatus, async () => {
       const u = ops().updates
       const last = u.status().lastCheckedAt
-      if (u.installed && u.feedUsable && (!last || Date.now() - Date.parse(last) > 24 * 3600_000)) void u.checkFeed()
+      // older than an hour: look at the feed again and wait a few seconds for it, so the answer is the feed's; on a
+      // timeout or an error the recorded answer stands (a slow fetch carries on in the background)
+      if (u.installed && u.feedUsable && (!last || Date.now() - Date.parse(last) > UPDATE_CHECK_MAX_AGE_MS)) {
+        feedCheck ??= u.checkFeed().catch(() => null).finally(() => { feedCheck = null })
+        let timer: ReturnType<typeof setTimeout> | undefined
+        await Promise.race([feedCheck, new Promise((r) => { timer = setTimeout(r, systemTestHooks.updateWaitMs ?? UPDATE_CHECK_WAIT_MS) })])
+        clearTimeout(timer)
+      }
       return { ...u.status(), auto: ops().autoUpdates, managed: !feature(ctx.config, 'selfUpdate') }
     })
 

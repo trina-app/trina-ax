@@ -1085,6 +1085,7 @@ export const es: Record<MessageKey, string> = {
   "adminHome.item": "{name}: {state}",
   "adminHome.noAi": "{count, plural, one {# persona no puede usar la IA} other {# personas no pueden usar la IA}}: {names}",
   "adminHome.storage": "Almacenamiento usado: {percent}%",
+  "adminHome.newVersion": "Ya está la versión {version}",
   "adminHome.members": "{count, plural, one {# miembro} other {# miembros}}",
   "adminHome.invites": "{count, plural, one {# invitación abierta} other {# invitaciones abiertas}}",
   "adminHome.default": "Predeterminado: {engine}",

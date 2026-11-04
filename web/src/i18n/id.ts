@@ -1111,6 +1111,7 @@ export const id: Record<MessageKey, string> = {
   "adminHome.item": "{name}: {state}",
   "adminHome.noAi": "{count} orang tidak bisa memakai AI: {names}",
   "adminHome.storage": "Penyimpanan terpakai {percent}%",
+  "adminHome.newVersion": "Versi {version} sudah tersedia",
   "adminHome.members": "{count} anggota",
   "adminHome.invites": "{count} undangan terbuka",
   "adminHome.default": "Bawaan: {engine}",

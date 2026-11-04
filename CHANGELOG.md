@@ -5,6 +5,8 @@ This file summarizes user-visible changes; it is not a list of every commit.
 
 ## Unreleased
 
+- Admin: a new version of a self-hosted server now shows on Admin > Home for the owner ("Version 0.3.0 is out"), not only inside Admin > System. The server also looks at the release feed again when the last check is more than an hour old (it was a day) and waits a few seconds for the answer, so Admin > System no longer says "up to date" for a day after a release. In all five languages.
+
 ## 0.4.0-beta.2 — 2026-11-04
 
 [Published release and notes](https://github.com/trina-app/trina-ax/releases/tag/v0.4.0-beta.2) · beta channel only; stable stays on 0.3.0

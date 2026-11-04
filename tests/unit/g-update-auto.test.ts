@@ -200,6 +200,50 @@ describe('through the app', () => {
     const d = await owner.call('GET', '/api/admin/diagnostics')
     expect(d.checks.find((c: { id: string }) => c.id === 'update_root')).toMatchObject({ status: 'warn' })
   })
+  test('GET /api/admin/update looks at the feed again when the last check is over an hour old, waits for it briefly, and fetches once at a time', async () => {
+    const u = getOps(h.ctx)!.updates
+    const rec = (ageMin: number, version: string) => fs.writeFileSync(path.join(h.ctx.config.dataDir, 'update-check.json'), JSON.stringify({ at: new Date(Date.now() - ageMin * 60_000).toISOString(), error: null, feed: feed({ version }) }))
+    let calls = 0
+    let behaviour: 'new' | 'slow' | 'fail' = 'new'
+    let release: () => void = () => {}
+    Object.defineProperty(u, 'feedUsable', { value: true, configurable: true })
+    u.checkFeed = async () => {
+      calls++
+      if (behaviour === 'fail') throw new Error('offline')
+      if (behaviour === 'slow') await new Promise<void>((r) => { release = r })
+      rec(0, '99.0.0')
+      return feed({ version: '99.0.0' })
+    }
+    try {
+      // fresh (30 minutes): no fetch, the recorded answer
+      rec(30, '98.0.0')
+      expect((await owner.call('GET', '/api/admin/update')).available.version).toBe('98.0.0')
+      expect(calls).toBe(0)
+      // stale (2 hours): fetched and waited for, the answer is the new feed
+      rec(120, '98.0.0')
+      expect((await owner.call('GET', '/api/admin/update')).available.version).toBe('99.0.0')
+      expect(calls).toBe(1)
+      // two quick calls on a slow feed: one fetch, both answer with the recorded feed after the wait
+      systemTestHooks.updateWaitMs = 50
+      behaviour = 'slow'
+      rec(120, '98.0.0')
+      const both = await Promise.all([owner.call('GET', '/api/admin/update'), owner.call('GET', '/api/admin/update')])
+      expect(both.map((x) => x.available.version)).toEqual(['98.0.0', '98.0.0'])
+      expect(calls).toBe(2)
+      release()
+      await new Promise((r) => setTimeout(r, 20))
+      // an error: the recorded answer, no failure
+      behaviour = 'fail'
+      rec(120, '98.0.0')
+      expect((await owner.call('GET', '/api/admin/update')).available.version).toBe('98.0.0')
+      expect(calls).toBe(3)
+    } finally {
+      systemTestHooks.updateWaitMs = undefined
+      release()
+      delete (u as unknown as Record<string, unknown>).checkFeed
+      delete (u as unknown as Record<string, unknown>).feedUsable
+    }
+  })
   test('automatic updates: off unless update.auto on a self-host; never on Team AX Cloud', async () => {
     const ops = getOps(h.ctx)!
     expect(ops.autoUpdates).toBe(false)
