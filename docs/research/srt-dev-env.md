@@ -113,6 +113,16 @@ These are open (Q0 in section 11):
 - Server temp files (`.mycel-tmp-*`) in a folder the person can write are visible to the run. srt has no way to hide a
   name pattern at any depth.
 - One person's runs share their home and logs: a job can read the output of the same person's other jobs.
+- **A shared writable folder is a code channel between people** (review, 2026-11-04). This is wider than srt's fixed
+  denies (G-SRT-11): `package.json` scripts, `.npmrc`, a Makefile or `.envrc` work the same way as `.git/hooks`.
+  Person A's AI plants code, and person B's AI runs it later with B's access. A `denyWrite` per writable root does not
+  close this. Only Q0 (b) does, for folders other than the starting folder.
+- **Data can leave through the allowed sites** (review, 2026-11-04). GitHub, npm and PyPI accept uploads. A prompt
+  injection can give the AI a token of the attacker and have it `git push` or `npm publish` every file the person may
+  read. The allowlist stops unknown hosts only. The warning text must say this.
+- srt's own temp files (proxy sockets, empty mount source) are in the person's `home/tmp` (S7), which the same
+  person's runs in other chats can write. Give the srt process a server-only `TMPDIR`; keep `CLAUDE_CODE_TMPDIR` for
+  the command.
 
 Until Q0 is answered, do not call this safe for production teams with private group folders.
 
@@ -764,3 +774,13 @@ Open:
   changes for a job.
 - A write into a hidden folder "succeeds" into srt's empty tmpfs over that folder. Nothing reaches the disk.
 - Each node `fetch` with `NODE_USE_ENV_PROXY` prints an "experimental" warning on stderr (the AI sees it).
+
+Fixed after the review (2026-11-04):
+
+- Two starts of the queue at the same time (the tracker and a `box_shell` poll) could take the same waiting row. The
+  second ended a running job "lost" and left its scope with no row, for up to 6 hours. Starts now go one at a time, and
+  a run whose row ended while it started is stopped.
+- The server's data folder, sockets, engine folders, secrets, config file and TLS key are hidden from a run also when
+  they are outside the base folder of the env. A run is refused when one is not hidden.
+- A running command shows in the lists with secrets hidden (it was the raw text).
+- `placeholders.ts` never makes a folder through a link (`.claude` as a link to a server folder).
