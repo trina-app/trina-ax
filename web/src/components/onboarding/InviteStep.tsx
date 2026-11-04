@@ -13,15 +13,17 @@ export interface InviteStepProps {
   onSkip?: () => void
   /** the skill the first result used: people who join land on its form (skills/…). Omitted: none. */
   skillPath?: string | null
+  /** the heading in place of "팀원을 초대해요" (the welcome steps name the skill just used) */
+  title?: string
 }
 
-export function InviteStep({ onDone, onSkip, skillPath }: InviteStepProps) {
+export function InviteStep({ onDone, onSkip, skillPath, title }: InviteStepProps) {
   const t = useT()
   const [asking, setAsking] = useState(false)
   return (
     <div className="space-y-4" data-testid="invite-step">
       <div>
-        <h2 className="text-lg font-semibold">{t('teamLink.stepTitle')}</h2>
+        <h2 className="text-lg font-semibold">{title ?? t('teamLink.stepTitle')}</h2>
         <p className="mt-1 text-sm text-muted">{t('teamLink.stepDesc')}</p>
       </div>
       <TeamLinkPanel skillPicker={false} skillPath={skillPath} />

@@ -9,6 +9,7 @@ import { useChats } from './store/chats'
 import { useSendQueue } from './store/sendQueue'
 import { useProjects } from './store/projects'
 import { useAiAccess } from './store/aiAccess'
+import { useWelcome } from './store/welcome'
 import { startLive, stopLive } from './store/live'
 import { useSession } from './store/session'
 import Layout from './components/Layout'
@@ -19,6 +20,7 @@ import Home from './pages/Home'
 import SettingsDialog from './components/settings/SettingsDialog'
 import { RealPath } from './lib/realPath'
 import { afterJoinTarget, clearAfterJoin } from './lib/team-link'
+import { afterSetupTarget, clearAfterSetup } from './lib/welcome'
 
 const ChatPage = lazy(() => import('./pages/Chat'))
 const Files = lazy(() => import('./pages/Files'))
@@ -31,6 +33,7 @@ const Skills = lazy(() => import('./pages/Skills'))
 const ScheduledList = lazy(() => import('./pages/Scheduled').then((m) => ({ default: m.ScheduledList })))
 const ScheduledTask = lazy(() => import('./pages/Scheduled').then((m) => ({ default: m.ScheduledTask })))
 const ConnectorConsent = lazy(() => import('./pages/ConnectorConsent'))
+const Welcome = lazy(() => import('./pages/Welcome'))
 
 function Splash() {
   const t = useT()
@@ -85,6 +88,7 @@ export function useSessionLifecycle(): boolean {
         useSendQueue.getState().reset()
         useProjects.getState().reset()
         useAiAccess.getState().reset()
+        useWelcome.getState().reset()
       }
     }
   }, [signedIn, status.kind])
@@ -166,10 +170,13 @@ function Gate() {
           <Route path="skills" element={<Skills />} />
           <Route path="scheduled" element={<ScheduledList />} />
           <Route path="scheduled/:id" element={<ScheduledTask />} />
+          {/* the welcome steps after /setup (owner only; pages/Welcome.tsx) */}
+          <Route path="welcome" element={<Welcome />} />
           <Route path="connectors/authorize" element={<ConnectorConsent key={`${status.me.user.id}:${status.me.session.id}`} />} />
         </Route>
         <Route path="/login" element={<AfterSignIn />} />
-        <Route path="/setup" element={<Navigate to="/" replace />} />
+        {/* right after making the team: the welcome steps (lib/welcome.ts), else Home */}
+        <Route path="/setup" element={<AfterSetup />} />
         <Route path="/password" element={<Navigate to="/" replace />} />
         <Route path="/invite/:token" element={<Navigate to="/" replace />} />
         {/* right after joining with the team link: the skill it names, else Home */}
@@ -208,6 +215,12 @@ export default function App() {
 function AfterJoin() {
   useEffect(() => () => clearAfterJoin(), [])
   return <Navigate to={afterJoinTarget()} replace />
+}
+
+/** Signed in while on /setup: the welcome steps right after the team was made (lib/welcome.ts), else Home. */
+export function AfterSetup() {
+  useEffect(() => () => clearAfterSetup(), [])
+  return <Navigate to={afterSetupTarget()} replace />
 }
 
 /** Signed in while on /login: go where the person was heading (?next=, same-site paths only). */
