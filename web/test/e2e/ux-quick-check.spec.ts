@@ -50,6 +50,8 @@ test('Admin › Members on a phone: a card per member, the actions behind "…";
   await page.getByTestId('reset-password-bob').click()
   await expect(page.getByRole('dialog')).toBeVisible()
   await page.keyboard.press('Escape')
+  // the dialog gives focus back to "…" (the menu item it came from is gone)
+  await expect(bob.getByTestId('member-more')).toBeFocused()
   // wide again: the table
   await page.setViewportSize({ width: 1280, height: 800 })
   await expect(page.getByTestId('members-table')).toContainText('Bob')
@@ -94,6 +96,7 @@ test('Admin › Plugins: a long licence list is "Licenses", the list in its tool
   await expect(page.getByText('MIT AND Apache-2.0 AND BSD-3-Clause', { exact: false })).toHaveCount(0)
   await button.click()
   await expect(button).toHaveAttribute('aria-expanded', 'true')
+  await expect(page.locator(`[id="${await button.getAttribute('aria-controls')}"]`)).toContainText('LicenseRef-HWP-Notices')
   await expect(page.getByTestId('plugin-license-list').first()).toContainText('LicenseRef-HWP-Notices')
 })
 

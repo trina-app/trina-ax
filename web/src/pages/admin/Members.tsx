@@ -358,6 +358,8 @@ export function MemberMenu({ name, items }: { name: string; items: MemberMenuIte
               className={clsx('flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-sm -outline-offset-2 hover:bg-hover focus:bg-hover', it.danger && 'text-danger')}
               onClick={() => {
                 setOpen(false)
+                // focus on "…" first: the item goes away, and a dialog it opens gives focus back to "…" when it closes
+                box.current?.querySelector('button')?.focus()
                 it.onSelect()
               }}
               data-testid={it.testId}

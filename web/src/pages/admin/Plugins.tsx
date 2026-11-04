@@ -3,7 +3,7 @@
 // platform) and the admin approves exactly the digest and permissions shown. Optional permissions start ticked (as in
 // Claude Code) and the prompt says so. Stage 1 turns plugins on for the whole company only.
 import { AlertTriangle, Check, FileUp, Minus, Puzzle, RotateCcw, Trash2 } from 'lucide-react'
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useId, useRef, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import type { CatalogPlugin, InstalledPlugin, PluginList, PluginPlan } from '@mycel/shared/api'
 import type { PluginPermission, PluginPlatform } from '@mycel/shared/plugins'
@@ -196,16 +196,17 @@ export const longLicense = (license: string) => /\s(AND|OR)\s/i.test(license) ||
 export function PluginMeta({ text, license }: { text: string; license: string }) {
   const t = useT()
   const [open, setOpen] = useState(false)
+  const listId = useId()
   if (!longLicense(license)) return <p className="text-xs text-faint">{text} · {license}</p>
   return (
     <div className="text-xs text-faint">
       <p>
         {text} ·{' '}
-        <button type="button" aria-expanded={open} title={license} onClick={() => setOpen((v) => !v)} className="underline decoration-dotted underline-offset-2 hover:text-ink" data-testid="plugin-licenses">
+        <button type="button" aria-expanded={open} aria-controls={listId} title={license} onClick={() => setOpen((v) => !v)} className="underline decoration-dotted underline-offset-2 hover:text-ink" data-testid="plugin-licenses">
           {t('plugins.licenses')}
         </button>
       </p>
-      {open && <p className="mt-1 break-words" data-testid="plugin-license-list">{license}</p>}
+      {open && <p id={listId} className="mt-1 break-words" data-testid="plugin-license-list">{license}</p>}
     </div>
   )
 }
