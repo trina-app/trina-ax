@@ -591,10 +591,12 @@ func (a *Agent) loadSpool() error {
 		if _, done := a.pending[id]; !done && string(boot) == a.bootID {
 			a.o.Log.Warn("ax-link command lost in an agent restart; reported as timed out", "id", id)
 			b := encodeResult(Result{ID: id, ExitCode: -1, TimedOut: true, Stderr: "mycel-link: the agent restarted and the command was stopped\n"})
-			if err := writeFileAtomic(filepath.Join(a.o.SpoolDir, id+resultSuffix), b); err != nil {
-				return fmt.Errorf("spool: %w", err)
-			}
 			a.pending[id] = b
+			if err := writeFileAtomic(filepath.Join(a.o.SpoolDir, id+resultSuffix), b); err != nil {
+				// like finish: send it from memory; the marker stays until sent() removes it
+				a.o.Log.Warn("ax-link cannot spool a result; it is sent from memory only", "id", id, "error", err.Error())
+				continue
+			}
 		}
 		os.Remove(marker)
 	}
