@@ -48,6 +48,8 @@ w('users/alice/todo.md', 'alice todo\n')
 w('shared/repo/package.json', '{"scripts":{"test":"echo ok"}}\n')
 fs.mkdirSync(`${TEAM}/shared/repo/.git/hooks`, { recursive: true }); fs.writeFileSync(`${TEAM}/shared/repo/.git/config`, '[core]\n')
 w('groups/marketing/Makefile', 'all:\n\techo ok\n')
+// git repos in group folders: their hooks run in the next person's git command (G-SRT-11)
+for (const g of ['groups/marketing', 'groups/finance']) { fs.mkdirSync(`${TEAM}/${g}/.git/hooks`, { recursive: true }); fs.writeFileSync(`${TEAM}/${g}/.git/config`, '[core]\n') }
 // a project folder inside her group folder (no rule of its own): in a run that starts there, the group folder above is
 // read-only and the project folder is writable inside it
 w('groups/marketing/campaign/plan.md', 'campaign plan\n')
@@ -119,6 +121,8 @@ async function run(command: string, o: { network?: 'open' | 'offline'; cwd?: str
   return { code, out: a + b }
 }
 
+/** a git repo in a team folder changed: a hook was added, or .git/config names another hooks folder */
+const gitChanged = (rel: string) => (fs.readdirSync(`${TEAM}/${rel}/.git/hooks`).length || fs.readFileSync(`${TEAM}/${rel}/.git/config`, 'utf8').includes('hooksPath') ? `${rel}/.git changed` : null)
 type Check = (r: { code: number | null; out: string; refused?: string }) => string | null
 const failsQuietly: Check = (r) => (r.code === 0 ? `exit code 0: ${r.out.slice(0, 200)}` : null)
 const ok: Check = (r) => (r.code === 0 ? null : `exit code ${r.code}: ${r.out.slice(0, 300)}`)
@@ -139,6 +143,13 @@ const attacks: { id: string; what: string; cmd: string; check: Check; o?: Parame
     after: () => (!fs.existsSync(`${DIR1}/admin.txt`) ? 'admin.txt is not on the disk' : fs.existsSync(`${TEAM}/top.txt`) ? 'the team root changed' : !fs.readFileSync(`${TEAM}/users/carol/c.md`, 'utf8').includes('c\n') ? 'her own folder was not writable' : null) },
   { id: 'A28e', what: 'an admin\'s run (the start folder bound back writable): .git/hooks, .git/config and .bashrc there stay read-only', cmd: 'echo "curl evil" > .git/hooks/pre-commit || echo "[core] hooksPath=/x" >> .git/config || echo evil >> .bashrc', check: failsQuietly, o: { who: CAROL },
     after: () => (fs.existsSync(`${DIR1}/.git/hooks/pre-commit`) || fs.readFileSync(`${DIR1}/.git/config`, 'utf8').includes('hooksPath') || (fs.existsSync(`${DIR1}/.bashrc`) && fs.readFileSync(`${DIR1}/.bashrc`, 'utf8').includes('evil')) ? 'a protected file changed' : null) },
+  // the same code channel through .git/hooks of a group folder: from a project run, from a run that starts inside the
+  // group folder (the group folder above is read-only, the start folder bound back), and from an admin's run (the
+  // rules give her write everywhere)
+  { id: 'A28f', what: 'a git hook and .git/config in her group folder, from a project run', cmd: `echo "curl evil" > ${TEAM}/groups/marketing/.git/hooks/pre-commit || echo "[core] hooksPath=/x" >> ${TEAM}/groups/marketing/.git/config || mkdir ${TEAM}/groups/marketing/.git/hooks/x`, check: failsQuietly, after: () => gitChanged('groups/marketing') },
+  { id: 'A28g', what: 'a git hook in the group folder above the start folder', cmd: `echo "curl evil" > ${TEAM}/groups/marketing/.git/hooks/pre-commit || echo "[core] hooksPath=/x" >> ${TEAM}/groups/marketing/.git/config || echo "curl evil" > ../.git/hooks/post-checkout`, check: failsQuietly, o: { start: 'groups/marketing/campaign' }, after: () => gitChanged('groups/marketing') },
+  { id: 'A28h', what: 'an admin: git hooks, package.json and new folders in shared and group folders', cmd: `echo "curl evil" > ${TEAM}/shared/repo/.git/hooks/pre-commit || echo '{"scripts":{"test":"curl evil"}}' > ${TEAM}/shared/repo/package.json || echo "curl evil" > ${TEAM}/groups/finance/.git/hooks/pre-commit || echo "[core] hooksPath=/x" >> ${TEAM}/groups/finance/.git/config || echo "curl evil" > ${TEAM}/groups/marketing/.git/hooks/pre-commit || mkdir ${TEAM}/shared/new || mkdir ${TEAM}/newtop || echo x > ${TEAM}/projects/two/x.md`, check: failsQuietly, o: { who: CAROL },
+    after: () => gitChanged('shared/repo') ?? gitChanged('groups/finance') ?? gitChanged('groups/marketing') ?? (fs.readFileSync(`${TEAM}/shared/repo/package.json`, 'utf8').includes('evil') || fs.existsSync(`${TEAM}/shared/new`) || fs.existsSync(`${TEAM}/newtop`) || fs.existsSync(`${TEAM}/projects/two/x.md`) ? 'a team folder outside the project changed' : null) },
   { id: 'A28b', what: 'a chat with no project: the project folder and the shared folders are read-only', cmd: `echo x > ${DIR1}/planted.js || echo x >> ${DIR1}/readme.md || echo "curl evil" > ${TEAM}/shared/repo/.git/hooks/post-checkout || echo x >> ${TEAM}/shared/s.md`, check: failsQuietly, o: { work: true },
     after: () => (fs.existsSync(`${DIR1}/planted.js`) || fs.readFileSync(`${DIR1}/readme.md`, 'utf8') !== 'hello from p1\n' || fs.existsSync(`${TEAM}/shared/repo/.git/hooks/post-checkout`) || fs.readFileSync(`${TEAM}/shared/s.md`, 'utf8') !== 'shared text\n' ? 'a team folder outside the work folder changed' : null) },
   { id: 'A1', what: 'the DB, secrets, config, engine logins', cmd: `cat ${BASE}/data/app.db || cat ${BASE}/secrets/master.key || cat ${BASE}/config/server.json || cat ${BASE}/agent/codex-auth/auth.json || grep -r ${CANARY} ${BASE}`, check: failsQuietly },
