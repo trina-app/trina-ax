@@ -1652,6 +1652,13 @@ export const es: Record<MessageKey, string> = {
   'audit.act.settings.update': "Cambió la configuración del equipo",
   'audit.act.speech.key': "Cambió la clave de OpenRouter para entrada de voz",
   'audit.act.speech.hosted_key': "Cambió la clave de transcripción alojada",
+  // B — hosted trial AI credit (server/src/credentials/hosted-chat.ts, components/TrialCreditBar.tsx)
+  'chat.error.trial_credit_used': CHAT_ERROR_MESSAGES.trial_credit_used.es,
+  'chat.error.trial_ended': CHAT_ERROR_MESSAGES.trial_ended.es,
+  'audit.act.ai.hosted_trial_key': "Cambió la clave de IA de prueba alojada",
+  'trialCredit.active': "Crédito de prueba: {used} de {cap} usados · hasta el {date} · La IA que conecte se usa primero",
+  'trialCredit.used': "Se agotó el crédito de prueba ({used} de {cap}) · Conecte su propia IA para continuar",
+  'trialCredit.ended': "El crédito de prueba ya no se puede usar (la prueba terminó o se desactivó) · Conecte su propia IA para continuar",
   'audit.act.media.transcribe': "Convirtió en texto el sonido de un archivo de video o audio",
   'audit.act.engines.update': "Cambió la configuración del motor de IA",
   'audit.act.storage.warn': "Almacenamiento superior al 80% (administradores avisados)",

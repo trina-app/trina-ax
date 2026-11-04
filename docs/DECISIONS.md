@@ -6728,3 +6728,72 @@ Decided by the owner on 2026-11-04: "한국인들만 플러그인으로 넣을�
 - **This takes away something 0.3.0 shipped**: 0.3.0 (released 2026-11-04) and 0.4.0-beta.1 (beta channel, the same day) offered make_file .hwpx and edit_hwp on every server. Teams that use them must install and turn on the plugin after updating, and a Debian 12 server loses them. Under the 0.x rule (docs/RELEASE-CI.md "Version numbers") this goes out in a MINOR over 0.3.0 (the 0.4.0 line) with the upgrade note at the top of the release's CHANGELOG section saying what breaks and what to do; the notes of 0.3.0 and 0.4.0-beta.1 are not changed. Not done: turning the plugin on by itself for servers that already used Hangul writing (it would install a native package without an admin's approval of its permissions).
 - Tests: `tests/unit/plugins-hwp-writing.test.ts` (no plugin, installed only, on with a renderer that cannot run and without the page-image permission, make_file .hwpx with a team template, turned off, on, removed and installed again while the server runs, a withdrawn build; reading, grep, the download and the guard in every state; the MCP list and the turn's entries agree), `tests/unit/plugins-hwp.test.ts` (the real package with rhwp: writing follows install, enable, the page-image permission, update, rollback, disable, a replaced executable, a broken store and removal), `tests/unit/i-wiring.test.ts` (a chat turn: tools, instructions, the refusal before the wider-audience card and its audit line; the plugin turned off during a turn, so the next edit_hwp is refused before any card; a resumed session told that writing was turned on, and losing edit_hwp when it is turned off), `web/test/e2e/plugins.spec.ts` (the line on the cards and in the prompt, Korean and English). The tool-path tests of the writers turn the plugin on in their setup (`tests/lib/hwp-plugin.ts`: the rows an install writes, with a stand-in renderer that is never run).
 - **Independent review** (a fresh agent given the diff and the requirements) confirmed one must-fix and two should-fixes, all fixed: the branch was based before Release 0.3.0, which shipped the writer ungated, so the notes saying nothing released was taken away were wrong (rebased; the upgrade note and the entry above say what breaks); a resumed Claude session kept its first instructions, so a chat that started with the plugin off was never told it was turned on (the turn context, with a test); and no test turned the plugin off during a turn, so the refusal of edit_hwp before any card was not covered (a test that fails when that refusal is limited to make_file). It traced every other way to the writers (MCP with and without a turn, sub-agents, the API and Codex engines, the model proxy's tool list, confidential chats, scheduled runs, REST) and found none open while the plugin is off; removing or weakening each part of the gate made tests fail. Left as they are (nits): a `listing()` that throws falls back to the full description (make_file's gate never throws, and the call is refused anyway); the refusal on a connection without a chat uses the person's saved language; on Debian 12 the refusal still says an admin can install the plugin, and Admin › Plugins then says why not.
+
+## B — Hosted trial AI credit (feat/onboarding-b, 2026-11-04)
+
+Owner decision (onboarding plan, trial credits approved): during a hosted trial a team gets AI answers without
+connecting anything. The team server's side; issuing, delivering and rotating the key belong to the hosting console.
+
+- **A direct Anthropic key, not the gateway.** The hosting service gives each trial team its own Anthropic API key. It
+  does not go through OpenRouter as `engine.anthropicGateway`: turning the gateway on switches off Claude subscription
+  connections and makes every Anthropic key a gateway key ("Anthropic-compatible gateway" above), which would break
+  the team's own connections. While a gateway is set the trial key is never offered or shown (a direct key never goes
+  to a gateway).
+- **Delivery and storage, like the hosting speech key.** Tenant command `hosted-chat-key-set` (stdin
+  `{ key, capUsd, endsAt, enabled }` or `{ key: null }`; mycel-ctl → `admin.js hosted-chat-key`, hosted servers only;
+  answer `{ ok, set, usedUsd }`). The key is kept encrypted with the credentials vault in one settings row
+  (`ai.hostedChatKey`, AAD `mycel-cred-v1|ai.hostedChat|anthropic-api-key`) with its cap, end and switch; never in a
+  response, log line or audit row, not even its last characters (audit `ai.hosted_trial_key`: set / removed with the
+  cap, end and switch). credentials-rekey encrypts it again; a server that is not hosted drops it at start; the team's
+  export leaves it out; a restore keeps the current key and spend (`SERVER_OWN_SETTINGS`). It is not a row of
+  `engine_credentials`: it never shows as a connection and nobody on the team can edit, assign or remove it.
+- **Last in the order.** `resolveCredential` offers it after every candidate of every tier (tier `hosted`), for Claude
+  only, while it is active: any connection the team or the person adds always comes first. It also answers when the
+  team's connections exist but none can answer now (switched off, refused, at a limit): the turn goes on, on the
+  credit. `hasCredentialFor` / `hasCredentialSoonFor` count it, so the composer offers Claude Code and Admin › Members
+  shows no "No AI" during the trial. `teamCredentialSummary` (Admin › AI engines, TenantStatus `ai.claude`) stays about
+  the team's own connections: the console can tell whether a trial team connected its own AI.
+- **The same launch path as an Anthropic key connection.** A trial attempt's proxy token is bound to the id
+  `hosted-trial` (no row; never a UUID), kind `anthropic-api-key`; the broker checks it before every request and puts
+  the key on as `x-api-key` towards `modelUpstreams.anthropic`. No second launch path: `buildClaudeLaunch` gets
+  `onlyModel`, which sets `--model` and the aliases and small fast model like a gateway's default, and the proxy's
+  allow-list for a trial token is exactly that model (another is refused before anything is sent).
+- **Model: `claude-haiku-5-5` (`HOSTED_CHAT_MODEL`), chosen for cost.** List prices (prices.ts, 2026-10-22): Haiku 5.5
+  $0.10 in / $0.50 out per million tokens (cache read $0.01, 5-minute cache write $0.125), against Sonnet 5.5 at
+  $2 / $10 and Opus 5.5 at $4 / $20. A typical answer (several requests of 10–30 thousand mostly cached input tokens and
+  a few thousand output) is about a cent on Haiku 5.5 and 10–20 cents on Sonnet 5.5, so a credit of a few dollars lasts
+  a 3+ person team through the trial instead of a few dozen answers. The trial ignores the team default, the chat's
+  and the person's model choice. If first results are not good enough, the constant is the one thing to change
+  (`claude-sonnet-5-5`; caps then need about 20 times more). Above 100,000 input tokens in one request Haiku 5.5 is
+  billed at $0.50 / $2.50 (prices.ts already counts that).
+- **Metering in dollars, by the team server.** The broker refuses a request before it is sent once the credit is used,
+  past `endsAt`, switched off or refused (`forRequest`). What an answer cost is the Anthropic key price of the model
+  it names (`costOf`, as for a key connection), added to the turn (`turns.cost_usd`: Admin › Usage and the team's
+  budgets see it) and to the trial count (settings `ai.hostedChatUsage` `{usd}`, one SQL statement; not
+  `credential_usage_daily`, whose rows need a connection row). The count runs across key rotations: `capUsd` is for
+  the whole trial, the hosting service raises it to give more and reads `usedUsd` in each set's answer. A 401 from
+  Anthropic marks the key refused (no request goes out with it, audited `credential.rejected` on `hosted-trial`) until
+  the hosting service sends a key again.
+- **Per-attempt budget.** Each trial attempt's proxy token carries `budget_usd` = what the turn spent so far + what is
+  left of the credit (`proxy_tokens.budget_usd`, unused until now), so one turn cannot spend past the cap by more than
+  the request in flight; reaching it ends the answer like a used credit. Turns running at the same moment each get
+  "what is left": together they can pass the cap by at most one request each (the plan's concurrency bounds them).
+  The key's own spend limit at Anthropic is the backstop the hosting service sets.
+- **Errors.** Chat reasons `trial_credit_used` (the cap is used) and `trial_ended` (past its end, switched off, or the
+  key refused), both `engine_unavailable` with `params.reason`; given when the turn starts (resolution) or during it
+  (proxy event `trial`). The web offers "connect your own AI" for both. A credit taken away (`{ key: null }`) is the
+  plain "no AI connection".
+- **Visibility.** `GET /api/admin/trial-credit` (owner and admins): `{ credit: { active, state, usedUsd, capUsd,
+  endsAt, model } | null }`; null without a key, outside managed mode, or with a gateway. Admin › AI connections shows
+  it read-only (`components/TrialCreditBar.tsx`): "체험 크레딧: $x / $y 사용 · M월 D일까지 · 내 AI를 연결하면 그걸 먼저 써요",
+  with words for used up and ended; the date is the last day (an end at midnight shows the day before). The start goal
+  card reads the same API. Not in TenantStatus: ax-hostd's copy of that schema is strict and drops the app's whole
+  status for an unknown field.
+- **Known limits.** ax-hostd keeps tenant-command jobs (with the key) until the console re-seals them, like the speech
+  key. The count uses list prices: a mismatch between prices.ts and Anthropic's bill shows up as the same mismatch here.
+- Tests: `tests/unit/a-hosted-trial-credit.test.ts` (the command's gate and admin.js, the resolution order against team,
+  subscription and own connections, Codex, gateway, used / ended / switched off, the proxy: key and model, cost counted,
+  refused at the cap before sending, the attempt's budget, a 401, rekey, drop, export, restore),
+  `tests/unit/b-hosted-trial-turn.test.ts` (real launcher and fake engine: an answer on the credit and its budget, a
+  team connection taking over, errors before and during a turn, the admin API), `web/test/unit/trial-credit-bar.test.tsx`,
+  the contract vectors and `cloud-protocol.test.ts`, mycel-ctl `TestTenantHostedChatKeySet`.

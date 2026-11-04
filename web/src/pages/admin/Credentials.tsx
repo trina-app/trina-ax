@@ -17,6 +17,7 @@ import { credentialLogin } from '../../store/live'
 import { toast } from '../../store/ui'
 import { Badge, Button, CopyButton, Field, IconButton, Modal, Switch, confirmDialog, inputCls } from '../../components/ui'
 import { Card, Loadable, useAction, useActionOk, useLoad } from './common'
+import { TrialCreditBar } from '../../components/TrialCreditBar'
 
 const FAMILY: Record<'claude' | 'codex', CredentialKind[]> = { claude: ['anthropic-oauth', 'anthropic-api-key'], codex: ['chatgpt', 'openai-api-key'] }
 const SUBSCRIPTION = new Set<CredentialKind>(['anthropic-oauth', 'chatgpt'])
@@ -44,6 +45,8 @@ export default function Credentials() {
   const act = useAction()
   const actOk = useActionOk()
   const state = useLoad(() => api.call(API.listCredentials))
+  // the hosting service's trial AI credit, when this team has one (an older server or an error: nothing shown)
+  const trial = useLoad(() => api.call(API.trialCredit).catch(() => ({ credit: null })))
   const groups = useLoad(async () => (owner ? (await api.call(API.listGroups)).items : []), [owner])
   const users = useLoad(async () => (owner ? (await api.call(API.listUsers)).items : []), [owner])
   const [adding, setAdding] = useState(false)
@@ -92,6 +95,7 @@ export default function Credentials() {
             desc={t('credentials.desc')}
             actions={owner ? <Button size="sm" variant="primary" onClick={() => setAdding(true)} data-testid="credential-add"><Plus size={14} aria-hidden /> {t('credentials.add')}</Button> : undefined}
           >
+            {trial.data?.credit && <TrialCreditBar credit={trial.data.credit} className="mb-4" />}
             {/* the connections here are for Claude and Codex only; other providers are the API engine's (one key there) */}
             <p className="mb-4 text-xs text-muted" data-testid="credentials-api-engine-hint">
               {t('credentials.apiEngineHint')}{' '}
