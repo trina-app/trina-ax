@@ -67,8 +67,25 @@ export const UpdateStatus = z.object({
   auto: z.boolean().optional(),
   /** the hosted cloud: the hosting provider installs updates; the in-app update and roll-back are off */
   managed: z.boolean().optional(),
+  /** the team's update window ("HH:mm-HH:mm", team time zone; the default when none is set) and the zone. Only on a
+   * server with automatic updates; absent from older servers. */
+  window: z.string().optional(),
+  timeZone: z.string().optional(),
+  /** when the window next opens: `now` = inside it, `today` / `tomorrow` = the day (in the team's zone) it starts.
+   * null: the window never opens (equal start and end). Absent without `window`. */
+  nextWindow: z.object({ at: IsoTime, day: z.enum(['now', 'today', 'tomorrow']) }).nullable().optional(),
 })
 export type UpdateStatus = z.infer<typeof UpdateStatus>
+/** After-update to-dos (server/src/system/after-update.ts): something a release leaves for an admin to do, shown on Admin
+ * Home with a button until it is done or dismissed. `id` is stable; clients show only the ids they know. */
+export const AfterUpdateAction = z.object({
+  id: z.string(),
+  /** the version it came with */
+  since: z.string(),
+  /** where its button goes (an admin path) */
+  to: z.string(),
+})
+export type AfterUpdateAction = z.infer<typeof AfterUpdateAction>
 export const ReauthBody = z.object({ password: z.string().min(1).max(256) })
 export const StartUpdateBody = ReauthBody.extend({
   /** default: the available version; 'rollback' = switch back to the previous version */
@@ -228,6 +245,8 @@ export const SYSTEM = {
   diagnostics: endpoint({ method: 'GET', path: '/api/admin/diagnostics', auth: 'owner', owner: 'G', response: Diagnostics, summary: 'Relay, disk, engine keys, queue, pf anchor, sandbox, backups.' }),
   updateStatus: endpoint({ method: 'GET', path: '/api/admin/update', auth: 'owner', owner: 'G', response: UpdateStatus, summary: 'Current / available version.' }),
   startUpdate: endpoint({ method: 'POST', path: '/api/admin/update', auth: 'owner-reauth', owner: 'G', status: 202, body: StartUpdateBody, response: JobAccepted, summary: 'Back up the DB, switch app/current, restart; roll back if the health check fails.' }),
+  afterUpdateActions: endpoint({ method: 'GET', path: '/api/admin/after-update', auth: 'admin', owner: 'G', response: z.object({ items: z.array(AfterUpdateAction) }), summary: 'What a release left for an admin to do and that still applies to this team (not dismissed).' }),
+  dismissAfterUpdate: endpoint({ method: 'POST', path: '/api/admin/after-update/:id/dismiss', auth: 'admin', owner: 'G', status: 204, body: z.object({}), response: empty, summary: 'Remember for the team that one after-update to-do is not needed.' }),
   listBackups: endpoint({ method: 'GET', path: '/api/admin/backups', auth: 'owner', owner: 'G', response: z.object({ items: z.array(BackupInfo) }), summary: 'Backups in .system/backups/.' }),
   startBackup: endpoint({ method: 'POST', path: '/api/admin/backup', auth: 'owner', owner: 'G', status: 202, body: StartBackupBody, response: JobAccepted, summary: 'Back up now (VACUUM INTO + team folder manifest diff).' }),
   startRestore: endpoint({ method: 'POST', path: '/api/admin/restore', auth: 'owner-reauth', owner: 'G', status: 202, body: StartRestoreBody, response: JobAccepted, summary: 'Restore a backup (everything after it is lost; the UI shows how much).' }),

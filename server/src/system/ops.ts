@@ -32,7 +32,7 @@ import { pruneOld } from './retention'
 import { cappedSnapshot, configureStorageGuard, levelOf, planView, reserveBytes, snapshotOf, storageState, StorageMonitor, timeIn } from './storage'
 import { hostMessages, ML } from './messages-linux'
 import { audit } from '../admin/audit'
-import { autoUpdateDecision, DEFAULT_UPDATE_WINDOW, runUpdate } from './update-job'
+import { autoUpdateDecision, DEFAULT_UPDATE_WINDOW, nextWindow, runUpdate, updateWindowAnswer } from './update-job'
 import { zonedParts } from './time-zone'
 import { refreshWindowsApp, WINDOWS_EVERY_MS, WINDOWS_FIRST_MS, WINDOWS_TEXT, windowsAppFeedOf, windowsDiagnostic, type WindowsAppResult } from './windows-app'
 import { getChatRuntime } from '../chat/runtime'
@@ -121,6 +121,16 @@ export class OpsService {
 
   /** This server applies app-only releases by itself (Linux self-host: server.json update.auto, never the hosted cloud). */
   get autoUpdates(): boolean { return !!this.ctx.config.update.auto && feature(this.ctx.config, 'selfUpdate') && this.updates.installed }
+
+  /** The team's update window and when it next opens, for the update status (Admin Home says when an automatic update
+   * will install). Only while automatic updates are on. */
+  updateWindowStatus(): { window: string; timeZone: string; nextWindow: { at: string; day: 'now' | 'today' | 'tomorrow' } | null } | null {
+    if (!this.autoUpdates) return null
+    const tz = teamTimeZone(this.ctx.db)
+    const a = updateWindowAnswer(getTeamSettings(this.ctx.db), tz)
+    const n = nextWindow(a.window, this.now(), tz)
+    return { window: a.window, timeZone: tz, nextWindow: n ? { at: n.at.toISOString(), day: n.day } : null }
+  }
 
   private autoFile() { return path.join(this.ctx.config.dataDir, 'update-auto.json') }
 

@@ -6,7 +6,7 @@ import { TeamSettings, type Locale } from '@mycel/shared/api'
 import type { UpdateHistoryEntry } from '@mycel/shared/install'
 import type { BackupManager } from './backup'
 import { enPlural, stepText, tr } from './messages'
-import { zonedParts } from './time-zone'
+import { zonedDay, zonedParts, zonedToUtc } from './time-zone'
 import { UpdateError, compareVersions, inRollout, releaseNeedsRoot, type ReleaseFeed, type UpdateManager } from './update'
 import type { z } from 'zod'
 
@@ -77,6 +77,23 @@ export function inWindow(window: string | null, now: Date, tz: string): boolean 
   const p = zonedParts(now, tz)
   const at = p.h * 60 + p.min
   return from <= to ? at >= from && at < to : at >= from || at < to
+}
+
+/** When the window next opens, for Admin Home ("tonight 03:00-05:00"): now when inside it, else the next start. `day` is
+ * the start's calendar day in the team's zone against today's. null: the window never opens (invalid, or equal ends). */
+export function nextWindow(window: string | null, now: Date, tz: string): { at: Date; day: 'now' | 'today' | 'tomorrow' } | null {
+  if (!TeamSettings.shape.updateWindow.safeParse(window).success) return null
+  const m = /^(\d{2}):(\d{2})-(\d{2}):(\d{2})$/.exec(window ?? DEFAULT_UPDATE_WINDOW)
+  if (!m || (+m[1]! === +m[3]! && +m[2]! === +m[4]!)) return null
+  if (inWindow(window, now, tz)) return { at: now, day: 'now' }
+  const p = zonedParts(now, tz)
+  const today = zonedDay(now, tz)
+  for (let k = 0; k <= 2; k++) {
+    const d = new Date(Date.UTC(p.y, p.m - 1, p.d + k))
+    const at = zonedToUtc(d.getUTCFullYear(), d.getUTCMonth() + 1, d.getUTCDate(), +m[1]!, +m[2]!, tz)
+    if (at.getTime() > now.getTime()) return { at, day: zonedDay(at, tz) === today ? 'today' : 'tomorrow' }
+  }
+  return null
 }
 
 export type AutoDecision = { go: true; version: string } | { go: false; why: 'no_feed' | 'up_to_date' | 'needs_root' | 'rollout' | 'held' | 'outside_window' | 'busy' }

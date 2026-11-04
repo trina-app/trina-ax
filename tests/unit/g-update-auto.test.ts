@@ -285,6 +285,34 @@ describe('through the app', () => {
     h.ctx.config.deployment = undefined
     h.ctx.config.update = { ...h.ctx.config.update, auto: false }
   })
+  test('the update status carries the window and when it opens next only while automatic updates are on (Admin Home says when)', async () => {
+    const ops = getOps(h.ctx)!
+    const off = await owner.call('GET', '/api/admin/update')
+    expect(off.auto).toBe(false)
+    expect(off.window).toBeUndefined()
+    expect(off.nextWindow).toBeUndefined()
+    h.ctx.config.update = { ...h.ctx.config.update, auto: true }
+    try {
+      expect(ops.updateWindowStatus()).toMatchObject({ window: DEFAULT_UPDATE_WINDOW, nextWindow: { day: expect.stringMatching(/^(now|today|tomorrow)$/) } })
+      await owner.call('PATCH', '/api/admin/settings', { updateWindow: '22:00-01:00', timeZone: 'Asia/Seoul' })
+      const on = await owner.call('GET', '/api/admin/update')
+      expect(on).toMatchObject({ auto: true, window: '22:00-01:00', timeZone: 'Asia/Seoul' })
+      expect(Date.parse(on.nextWindow.at)).toBeGreaterThan(Date.now() - 1000)
+      expect(['now', 'today', 'tomorrow']).toContain(on.nextWindow.day)
+      await owner.call('PATCH', '/api/admin/settings', { updateWindow: '04:00-04:00' })
+      expect((await owner.call('GET', '/api/admin/update')).nextWindow).toBeNull()
+    } finally {
+      await owner.call('PATCH', '/api/admin/settings', { updateWindow: null })
+      h.ctx.config.update = { ...h.ctx.config.update, auto: false }
+    }
+  })
+  test('after-update to-dos: listed for an admin, an unknown id is refused, a dismissed one is gone', async () => {
+    const list = await owner.call('GET', '/api/admin/after-update')
+    expect(Array.isArray(list.items)).toBe(true)
+    expect((await owner.try('POST', '/api/admin/after-update/nope/dismiss', {})).status).toBe(404)
+    expect((await owner.try('POST', '/api/admin/after-update/hwp-plugin/dismiss', {})).status).toBe(204)
+    expect((await owner.call('GET', '/api/admin/after-update')).items.map((a: { id: string }) => a.id)).not.toContain('hwp-plugin')
+  })
   test('the maintenance lock is the ops service\'s: what the automatic update holds, the buttons wait for', async () => {
     const ops = getOps(h.ctx)!
     expect(ops.tryLock('update')).toBe(true)

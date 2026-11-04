@@ -18,6 +18,7 @@ import { LocalJobService } from '../system/job-runner'
 import { enPlural, M, stepText, tr } from '../system/messages'
 import { OpsService, type OpsOptions } from '../system/ops'
 import { runUpdate } from '../system/update-job'
+import { dismissAfterUpdate, pendingAfterUpdate } from '../system/after-update'
 import type { RouteModule } from './module'
 import { feature, isHosted } from '../system/deployment'
 import { noticesFor, planStatus } from '../system/managed'
@@ -124,8 +125,12 @@ export const systemRoutes: RouteModule = {
         await Promise.race([feedCheck, new Promise((r) => { timer = setTimeout(r, systemTestHooks.updateWaitMs ?? UPDATE_CHECK_WAIT_MS) })])
         clearTimeout(timer)
       }
-      return { ...u.status(), auto: ops().autoUpdates, managed: !feature(ctx.config, 'selfUpdate') }
+      return { ...u.status(), auto: ops().autoUpdates, managed: !feature(ctx.config, 'selfUpdate'), ...ops().updateWindowStatus() }
     })
+
+    // what a release left for an admin to do (system/after-update.ts)
+    kit.handle(API.afterUpdateActions, () => ({ items: pendingAfterUpdate(ctx) }))
+    kit.handle(API.dismissAfterUpdate, ({ params }) => { if (!dismissAfterUpdate(ctx, params.id)) fail('not_found') })
 
     kit.handle(API.startUpdate, ({ c, body, auth }) => {
       const locale = c.get('locale')
