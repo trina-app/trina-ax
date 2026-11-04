@@ -61,6 +61,8 @@ export function SkillForm({ path, skill: given, onDone, onSkip, onCompose }: Pro
   const skill = list ? (list.find((s) => s.path === path) ?? null) : given
   const runs = list && skill ? skillRunBy(list, skill.name) : null
   const clash = runs && skill && runs.path !== skill.path ? runs : null
+  // only once the list says which skill "/<name>" runs for this person (a skill passed in is shown before that)
+  const ready = !!list && !clash
 
   // the company profile fills the fields that ask for it, unless the person already typed there
   const inputs = skill?.inputs ?? []
@@ -88,7 +90,7 @@ export function SkillForm({ path, skill: given, onDone, onSkip, onCompose }: Pro
   }
   const submit = async (e: FormEvent) => {
     e.preventDefault()
-    if (clash) return
+    if (!ready) return
     const left = missingRequired(inputs, values)
     setMissing(left)
     if (left.length) {
@@ -114,6 +116,7 @@ export function SkillForm({ path, skill: given, onDone, onSkip, onCompose }: Pro
   return (
     <form onSubmit={(e) => void submit(e)} noValidate className="space-y-3" data-testid="skill-form" data-path={skill.path}>
       {skill.description && <p className="text-sm text-muted">{skill.description}</p>}
+      {loadError && <ErrorNote>{loadError}</ErrorNote>}
       {clash && <p role="alert" className="rounded-lg bg-warn-soft px-3 py-2 text-xs text-warn" data-testid="skill-form-clash">{t('skillForm.sameName', { name: skill.name, path: clash.path })}</p>}
       {inputs.map((i) => {
         const common = {
@@ -141,7 +144,7 @@ export function SkillForm({ path, skill: given, onDone, onSkip, onCompose }: Pro
       {error && <ErrorNote>{error}</ErrorNote>}
       <div className="flex items-center justify-end gap-2 pt-1">
         {onSkip && <Button variant="ghost" className="mr-auto" onClick={onSkip} data-testid="skill-form-skip">{t('skillForm.skip')}</Button>}
-        <Button type="submit" variant="primary" busy={busy} disabled={!!clash} data-testid="skill-form-run">
+        <Button type="submit" variant="primary" busy={busy} disabled={!ready} data-testid="skill-form-run">
           <Play size={14} aria-hidden /> {onCompose ? t('skillForm.fill') : t('skillForm.run')}
         </Button>
       </div>

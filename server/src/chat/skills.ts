@@ -85,16 +85,27 @@ function standardFields(header: string): { fields: Map<string, string>; metadata
 const HEADER_RE = /^---[ \t]*\r?\n([\s\S]*?)\r?\n---[ \t]*(?:\r?\n|$)/
 const INPUTS_NOT_TEXT = 'inputs must be one JSON text: write "inputs: |" and the JSON list on the lines below it, indented'
 
-/** The header with its form (metadata `inputs` and the lines under it) left empty, or null when it has none: a
- * SKILL.md whose form makes the header larger than HEADER_MAX still loads, without the form. */
+/** The header with its form (the `inputs` key directly under `metadata:` and the lines under it) left empty, or null
+ * when it has none: a SKILL.md whose form makes the header larger than HEADER_MAX still loads, without the form. An
+ * `inputs:` line anywhere else (inside a description block, deeper in another metadata value) is not the form. */
 function withoutInputs(header: string): string | null {
   const lines = header.split(/\r?\n/)
-  const at = lines.findIndex((l) => /^[ \t]+inputs[ \t]*:/.test(l))
-  if (at < 0) return null
-  const indent = /^[ \t]*/.exec(lines[at]!)![0]
-  let end = at + 1
-  while (end < lines.length && (!lines[end]!.trim() || /^[ \t]*/.exec(lines[end]!)![0].length > indent.length)) end++
-  return [...lines.slice(0, at), `${indent}inputs: ""`, ...lines.slice(end)].join('\n')
+  const indentOf = (l: string) => /^[ \t]*/.exec(l)![0]
+  const meta = lines.findIndex((l) => /^metadata[ \t]*:[ \t]*(?:#.*)?$/.test(l))
+  if (meta < 0) return null
+  let child: string | null = null
+  for (let at = meta + 1; at < lines.length; at++) {
+    const line = lines[at]!
+    if (!line.trim()) continue
+    const indent = indentOf(line)
+    if (!indent) return null // the metadata map ended
+    child ??= indent // its keys are as indented as its first one
+    if (indent !== child || !/^[ \t]+inputs[ \t]*:/.test(line)) continue
+    let end = at + 1
+    while (end < lines.length && (!lines[end]!.trim() || indentOf(lines[end]!).length > indent.length)) end++
+    return [...lines.slice(0, at), `${indent}inputs: ""`, ...lines.slice(end)].join('\n')
+  }
+  return null
 }
 
 /** Why an entry with a header is not a skill. Codes only: the screens translate them (R2-SKILL-03). */

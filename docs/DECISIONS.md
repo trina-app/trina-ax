@@ -6779,7 +6779,8 @@ the team-led onboarding (stream C); the wave-2 welcome steps reuse what is here.
   not text no longer breaks the whole header; the skill loads without the form and the issue says to write
   `inputs: |`. Any other metadata value that is not text still breaks the header, as before. The 8 KB header limit is
   in bytes, so a large Korean form with a long description can pass it: the server then reads the header without the
-  form's lines (the rest must fit in 8 KB, so the parser's work stays bounded) and reports `inputs` with the size,
+  form's lines (only the `inputs` key directly under `metadata:`; the rest must fit in 8 KB, so the parser's work
+  stays bounded) and reports `inputs` with the size,
   instead of a broken header and no skill. A valid form is
   listed with the skill (`SkillInfo.inputs`, absent otherwise, so every older reader and test sees the same objects);
   one that does not parse never stops the skill from loading: it runs without a form, readers get the skill issue
@@ -6794,7 +6795,8 @@ the team-led onboarding (stream C); the wave-2 welcome steps reuse what is here.
   Team skills page (row, run button, menu; skills without a form keep the old "/name" link), `/skills?run=<path>`
   (closing it removes the parameter; a path the person cannot use says so, and says when their personal skill of the
   same name is in the way), and the "/" menu. The form checks its name against the person's own list
-  (`skillRunBy`, the server's order): when "/<name>" would run another skill, it names that skill and does not run.
+  (`skillRunBy`, the server's order): Run stays off until that list has loaded (and when it fails), and when
+  "/<name>" would run another skill it names that skill and does not run.
   With nothing filled in it sends "/<name> " (the space keeps the "/" menu closed). In the message box
   the form fills the box instead of starting a chat (`onCompose`), so it works inside an existing chat and the person
   still presses send.

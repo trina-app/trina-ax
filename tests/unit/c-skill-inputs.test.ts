@@ -110,6 +110,25 @@ test('a form that makes the header larger than 8 KB: the skill loads without it 
   expect(checkSkill(long, 'skills/long/SKILL.md')).toEqual({ ok: false, problem: 'header' })
 })
 
+test('only the inputs key directly under metadata is the form: an "inputs:" line in a description block stays', () => {
+  const description = `description: |\n  ${'설명'.repeat(400)}\n  inputs: this line belongs to the description\n    and so does this one\n`
+  const form = BIG.split('\n').map((l) => `    ${l}`).join('\n')
+  const text = `---\nname: desc-inputs\n${description}metadata:\n  owner: marketing\n  inputs: |\n${form}\n---\nBody\n`
+  expect(Buffer.byteLength(text)).toBeGreaterThan(8 * 1024)
+  const r = checkSkill(text, 'skills/desc-inputs/SKILL.md')
+  expect(r).toMatchObject({ ok: true, name: 'desc-inputs', body: 'Body\n' })
+  expect(r.ok && r.description).toBe(`${'설명'.repeat(400)}\ninputs: this line belongs to the description\n  and so does this one`)
+  expect(r.ok && r.badInputs).toMatch(/over the 8 KB limit/)
+  // the same oversized header with no form under metadata: nothing to leave out, so a broken header as before
+  const noForm = `---\nname: desc-inputs\n${description.replace('설명'.repeat(400), '설명'.repeat(1400))}metadata:\n  owner: marketing\n---\nBody\n`
+  expect(Buffer.byteLength(noForm)).toBeGreaterThan(8 * 1024)
+  expect(checkSkill(noForm, 'skills/desc-inputs/SKILL.md')).toEqual({ ok: false, problem: 'header' })
+  // deeper inside another metadata value is not the form either
+  const deeper = `---\nname: deeper\ndescription: ${'설명'.repeat(500)}\nmetadata:\n  notes: |\n    inputs: not the form\n    ${'메모'.repeat(900)}\n---\nBody\n`
+  expect(Buffer.byteLength(deeper)).toBeGreaterThan(8 * 1024)
+  expect(checkSkill(deeper, 'skills/deeper/SKILL.md')).toEqual({ ok: false, problem: 'header' })
+})
+
 test('the AI is told when a skill it saved loads without its form', () => {
   const bad = Buffer.from(manifest('bad-json', '[1, 2'))
   expect(skillWriteNote(root, 'skills/bad-json/SKILL.md', bad)).toContain('its form (metadata inputs) does not: not valid JSON')
