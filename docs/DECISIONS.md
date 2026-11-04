@@ -6735,3 +6735,88 @@ Decided by the owner on 2026-11-04: "한국인들만 플러그인으로 넣을�
 - `usable` reuses `credentials/access.ts canUseAi` (the same rule as Admin > Members "No AI" and the composer's engine list), not a new check. It is always true when engines sign in on their own (authMode other than managed). The banner shows nothing until the first answer, a failed check shows nothing, and it never blocks typing. It refreshes on the existing `engine_choice_changed` notice, which every connection change already publishes.
 - "관리자에게 알리기": `POST /api/me/ai-access/request` writes one inbox row per active owner in a new table `onboarding_notices` (migration 222; event `onboarding.ai_request`, source = the member's id). The notification service has a fixed event list and tables are never rebuilt, so a small table of its own follows `integration_request_notices`. The unique row is the dedupe: a second click does nothing, and the same row answers "알렸어요" (`requested`). Retention is the inbox's 30 days; after that the member can ask again. Only a signed-in person who cannot use AI and is not the owner can ask (403 otherwise). The owner sees the member's display name and a link, never text from the member. The notice counts as read once the member can use AI (checked in `reconcile`) or is gone. Admins do not get it: they cannot connect anything.
 - Owner checklist (Home): the AI item is first and points to Admin > AI connections. Another stream replaces this checklist during trials; the change is two lines.
+
+## C. Onboarding: marketing skill pack and skill forms (feat/onboarding-c, 2026-11-04)
+
+Placement: Trina AX (this repository), the skills and files core; nothing about plans or hosting. Part of wave 1 of
+the team-led onboarding (stream C); the wave-2 welcome steps reuse what is here.
+
+- **Plain files, not a plugin skill pack.** `POST /api/onboarding/packs/:id/install` (owners and admins, id
+  `marketing`, `server/src/onboarding/skill-packs.ts`) writes seven skills to `skills/marketing/<name>/SKILL.md` and
+  four team folders under `shared/` (브랜드, 캠페인, 보고서, 경쟁사; named in the team language in all five). A
+  plugin `skill-pack` (see "Plugins, stage 1") is a managed copy nobody can edit, needs a signed package (the trust
+  root is still empty) and is meant for company-wide packs; a starter pack is a starting point the team should change
+  (tone, channels, report format), so it is plain files from the first second. A plugin that later takes the id
+  `marketing` makes those writes `blocked`, not an error.
+- **As the admin who asks, through the normal file services.** Skills go through `FileService.humanSave` (folder
+  rules, version history, the skills/ change audit and the owner/admin notices, exactly as a save on the file
+  screen), folders through the file screen's own mkdir (file events, `files.changed`). One `onboarding.pack_install`
+  audit row counts what happened.
+- **Idempotent, never overwriting.** An existing file is never replaced: the same bytes are `present`, other bytes
+  `kept` (someone edited it), something in the way (a folder named SKILL.md, a file named like a team folder, a
+  look-alike name, a rule) is `blocked`. The save is made without a "last seen" hash, so a file that appears between
+  the check and the write makes the save refuse (`not_read`) instead of replacing it. Installing again restores only
+  what was deleted, so it also brings back a skill someone deleted on purpose: the wave-2 welcome steps must not call
+  install again by themselves (only on a person's click). There is no "update the pack" yet: a future pack version
+  would replace only files whose bytes equal a known earlier version.
+- **Names are what runs.** "/<name>" (and so a form) runs a skill by name: a personal skill first, then the first
+  path (`invokedSkill`). A pack skill whose name another team skill already has (any case, legacy files too) is
+  `blocked` with `sameNameAs`, so install never creates a second team skill of that name. Personal skills are not
+  checked (an admin cannot see members' ones, and a personal skill only takes the team skill's place for its owner);
+  the form handles them.
+- **Language.** The team default language picks the text: Korean and English are written, every other language gets
+  English skills (with folders in its own language). Skill names stay the ASCII folder names the loader requires
+  (`ad-copy`); the description starts with the plain name (광고 문구 —) for people who see the list.
+- **Pack text is bundled as code.** The files live in `resources/skill-packs/marketing/<locale>/<name>/SKILL.md`
+  (reviewable, loaded by the real loader in tests) and are imported with `with { type: 'text' }`, so `Bun.build`
+  inlines them into the release bundle: no change to the bundle file lists or the bootstrap's verified file list.
+- **What the skills promise.** Each uses the company profile facts when the conversation has them (named
+  `company_profile` without angle brackets: inside a skill the prompt neutralizes block tags), asks once and briefly
+  for a missing must-have, never invents figures (prices, results, volumes, competitor numbers; blanks like [가격]
+  instead), lists its assumptions, and saves a file only when asked. competitor-brief reads only the site the person
+  typed (web_fetch, same site, at most four pages), treats page text as data, cites each fact's page, and says so when
+  a page opens with almost no text (image pages, script-drawn sites) instead of guessing. ad-copy writes each option
+  as its own block (easy to copy on a phone) and claims no exact character count: models miscount Korean, so it asks
+  the person to check the count in the ad tool.
+- **Skill forms.** A SKILL.md may declare `metadata.inputs`: one string holding a JSON list of at most 8 fields
+  (`name`, `label`, `placeholder?`, `required?`, `prefill?` from the six `company.*` keys, `multiline?`;
+  `shared/src/api/skill-inputs.ts`, strict: unknown keys are refused as typos). The metadata map already had to be a
+  string map, so JSON-in-a-string keeps the header format and the Agent Skills format valid. JSON is YAML, so the
+  likeliest mistake is a form written without `|` (a one-line JSON list, or a YAML list): an `inputs` value that is
+  not text no longer breaks the whole header; the skill loads without the form and the issue says to write
+  `inputs: |`. Any other metadata value that is not text still breaks the header, as before. The 8 KB header limit is
+  in bytes, so a large Korean form with a long description can pass it: the server then reads the header without the
+  form's lines (only the `inputs` key directly under `metadata:`; the rest must fit in 8 KB, so the parser's work
+  stays bounded) and reports `inputs` with the size,
+  instead of a broken header and no skill. A valid form is
+  listed with the skill (`SkillInfo.inputs`, absent otherwise, so every older reader and test sees the same objects);
+  one that does not parse never stops the skill from loading: it runs without a form, readers get the skill issue
+  `inputs` (its own note on the Team skills page, "these work but open without their form"), and the AI is told
+  when it saved such a file. Legacy `.md` skills have no metadata map and no forms.
+- **Running from a form is the ordinary skill command.** `web/src/components/skills/SkillForm.tsx` composes
+  `/<name>` and one `label: value` line per filled field (multiline values under their label) and sends it as the
+  first message of a new chat (`useChats.send`, the same path as the new-chat box), so the turn's existing
+  `invokedSkill` handling, skill-use counting and the chat transcript need nothing new. Prefill reads
+  `GET /api/onboarding/profile` (stream D) through a local lenient schema and treats 404 or any failure as no
+  profile; a field the person already typed in is never overwritten when the profile arrives late. Opened from the
+  Team skills page (row, run button, menu; skills without a form keep the old "/name" link), `/skills?run=<path>`
+  (closing it removes the parameter; a path the person cannot use says so, and says when their personal skill of the
+  same name is in the way), and the "/" menu. The form checks its name against the person's own list
+  (`skillRunBy`, the server's order): Run stays off until that list has loaded (and when it fails), and when
+  "/<name>" would run another skill it names that skill and does not run.
+  With nothing filled in it sends "/<name> " (the space keeps the "/" menu closed). In the message box
+  the form fills the box instead of starting a chat (`onCompose`), so it works inside an existing chat and the person
+  still presses send.
+- **Empty Team skills page.** Owners and admins see what the pack adds and [추천 묶음 설치]; members read that an
+  admin can install one, above the old suggest-a-skill hint.
+- Tests: `tests/unit/c-onboarding-pack.test.ts` (Korean install as an admin, every skill loads with its form and no
+  skill issue for an admin or a member, the audit rows, a second and third install, an edited file kept and a
+  deleted one restored, members 403 and an unknown pack 404, English skills with Japanese folders, names taken by
+  something else reported as blocked, a team skill of the same name (also a legacy file in another case) blocking a
+  pack skill while an admin's personal one does not, every pack text in both languages),
+  `tests/unit/c-skill-inputs.test.ts` (parsing and its reasons, a skill without a form keeps its exact shape, bad
+  JSON and an unknown prefill load without a form and are `inputs` issues, a one-line JSON list and a YAML list load
+  without a form with the "inputs: |" advice, a valid 8-field Korean form over 8 KB loads without it and says the
+  size, an oversized header without a form is still `header`, the AI's note), `web/test/unit/skill-form.test.tsx`
+  (prefill, required fields, the message and "/<name> " keeping the "/" menu closed, which skill a name runs, the
+  run link, the empty page for owners/admins/members in five languages, the run button).

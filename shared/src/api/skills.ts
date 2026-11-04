@@ -10,6 +10,7 @@ import { Uuid7 } from '../ids'
 import { IsoTime, RelPath, page, PageQuery } from './common'
 import { endpoint } from './endpoint'
 import { UserRef } from './entities'
+import { SkillInput } from './skill-inputs'
 
 export const SkillInfo = z.object({
   /** Entry point: legacy skills/주간-보고서.md or standard skills/weekly-report/SKILL.md. */
@@ -20,6 +21,8 @@ export const SkillInfo = z.object({
   description: z.string(),
   /** true for a personal skill of the caller (users/<caller>/skills/...): only the caller can see or use it */
   personal: z.boolean().optional(),
+  /** the short form the skill runs from (its header's metadata `inputs`, ./skill-inputs.ts); absent: a plain skill */
+  inputs: z.array(SkillInput).optional(),
 })
 export type SkillInfo = z.infer<typeof SkillInfo>
 export const PopularSkills = z.object({
@@ -31,7 +34,9 @@ export type PopularSkills = z.infer<typeof PopularSkills>
 export const SkillProblem = z.enum(['too_large', 'header', 'location', 'name', 'name_folder', 'description', 'compatibility',
   // a whole folder, for the people who manage it: more entries than the server reads (1,000 per skills folder), or more
   // team rule files than the AI follows (10)
-  'too_many', 'too_many_rules'])
+  'too_many', 'too_many_rules',
+  // the skill loads, but its metadata `inputs` is not a valid form (./skill-inputs.ts): it runs without its form
+  'inputs'])
 export type SkillProblem = z.infer<typeof SkillProblem>
 export const SkillIssue = z.object({ path: z.string(), problem: SkillProblem })
 export type SkillIssue = z.infer<typeof SkillIssue>
