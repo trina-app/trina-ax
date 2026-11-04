@@ -22,11 +22,18 @@ export interface MessageRow {
   /** migration 213: 1 when the AI got only the recent part of the conversation for this answer */
   history_trimmed: number
 }
-export interface ProjectRow { id: string; name: string; folder_path: string; instructions: string; created_by: string | null; created_at: string }
+export interface ProjectRow {
+  id: string; name: string; folder_path: string; instructions: string; created_by: string | null; created_at: string
+  /** migration 221: the one person who wrote every saved version of the instructions (null: several, or not known),
+   * and the instructions as that person last saved them (a build without these columns may have changed them since) */
+  instructions_author: string | null; instructions_authored: string | null
+  /** migration 332: the trash item that took its folder to the trash (null: in place); admins and the owner only then */
+  trashed_with: string | null
+}
 
 export const CHAT_COLS = 'id, user_id, project_id, title, engine, model, engine_session_id, engine_session_leaf_id, session_tainted, active_leaf_id, created_at, updated_at, deleted_at, title_source'
 export const MESSAGE_COLS = 'id, chat_id, parent_id, role, author_id, content, attachments, steps, status, error, turn_id, engine, model, files, client_message_id, created_at, updated_at, stop_reason, history_trimmed'
-export const PROJECT_COLS = 'id, name, folder_path, instructions, created_by, created_at'
+export const PROJECT_COLS = 'id, name, folder_path, instructions, created_by, created_at, instructions_author, instructions_authored, trashed_with'
 
 /** SQLite timestamps ("2026-10-21T03:04:05.678Z" from strftime, or ISO from JS) -> ISO with offset. */
 export function iso(t: string | null | undefined): string {
@@ -190,7 +197,7 @@ export class ChatStore {
   // ---------------- projects ----------------
   projectRow(id: string): ProjectRow | null { return this.db.query(`SELECT ${PROJECT_COLS} FROM projects WHERE id = ?`).get(id) as ProjectRow | null }
   toProject(r: ProjectRow, canEdit: boolean): Project {
-    return { id: r.id, name: r.name, folderPath: r.folder_path, instructions: r.instructions, createdBy: this.userRef(r.created_by), createdAt: iso(r.created_at), canEdit }
+    return { id: r.id, name: r.name, folderPath: r.folder_path, instructions: r.instructions, createdBy: this.userRef(r.created_by), createdAt: iso(r.created_at), canEdit, inTrash: r.trashed_with !== null }
   }
 
   // ---------------- memories ----------------

@@ -486,8 +486,8 @@ r1 OS 층 수정의 재공격(엔진의 도구 잠금 1·2겹이 뚫렸다고 �
 ## 보안 r2 — sharing-works (sec/r2-sharing-works, 2026-10-21)
 
 - **휴지통 항목은 지운 자리의 폴더(`trash_items.folder_id`)를 따라간다.** 원래 경로만 보면, 관리자가 그룹·프로젝트 폴더를 휴지통에 넣은 뒤 그 이름을 다른 그룹(또는 새 규칙 폴더)이 가져가면 그 그룹이 옛 그룹이 먼저 지운 파일을 자기 휴지통에서 보고 자기 폴더로 되돌려 내용까지 읽었다. 이제 `TeamFiles.trashHome()`이 항목의 folder_id 행을 확인한다: 그 폴더가 휴지통에 있거나(행이 `.system/` 아래로 옮겨져 있음) 영구 삭제되었거나 원래 경로를 더 이상 품지 않으면 **아무에게도(관리자 포함) 보이지 않고 되돌릴 수 없다.** 폴더를 되돌리면(" (복원됨)" 이름이어도) 그 안에서 먼저 지운 항목의 `original_path`가 되돌린 자리로 따라와 다시 그 폴더 사람들의 휴지통에 보이고, 폴더를 영구 삭제하면 그 항목들도 같이 지운다. 폴더 휴지통 항목의 권한은 옮겨 둔 자기 규칙으로 보되, 그 사이 같은 경로에 생긴 다른 폴더의 규칙은 넣지 않는다. 관리자가 폴더의 규칙을 지우면(`DELETE /api/admin/folders/:id`, `dropFolderRow()`) 그 행에 묶인 휴지통 항목·버전은 바로 위 folders 행으로 옮겨 묶여 계속 지금 규칙대로 보인다. 회귀 시험: `tests/security/r2-trash-home.test.ts`.
-- **규칙 없는 folders 행은 프로젝트가 그 폴더를 쓰는 동안만 '관리되는 폴더'다.** 전에는 행이 있기만 하면 그 폴더와 그 위 폴더들의 이동·이름 바꾸기·휴지통이 영영 admin 전용이 되어, 프로젝트를 지운 뒤에도 만든 사람 자신조차 자기 폴더를 정리할 수 없었고, 팀원이 동료의 폴더에 프로젝트를 만들었다 지우는 것만으로 그 폴더를 잠글 수 있었다. 이제 `managedInside()`는 규칙 폴더, 그룹 폴더(`groups.folder_id`), shared/·skills/, 그리고 users/ 밖에서 프로젝트가 쓰는 폴더(행이 있든 없든: 관리자가 폴더를 바꾼 프로젝트에는 행이 없다)만 센다. 프로젝트를 지우거나 다른 폴더로 옮기거나(PATCH folderPath, 공유 복사) 그 폴더를 쓰는 마지막 프로젝트가 떠나면 규칙 없는 표시 행을 같은 트랜잭션에서 지운다(`dropProjectMarker()`: 규칙·그룹·다른 프로젝트가 있거나 shared/·skills/면 남김). 그룹을 지워 규칙이 다 빠진 옛 그룹 폴더도 이제 관리되는 폴더가 아니다(쓰기 권한이 있는 사람만 옮길 수 있는 것은 그대로). **owner 결정으로 남긴 것**: ② 기존 폴더에 프로젝트를 만들 때 그 폴더의 부모 쓰기 권한까지 요구할지(그러면 옮길 수 없는 폴더를 잠그지 못한다)는 정하지 않았다. 지금은 설계대로 그 폴더 쓰기 권한만 본다. 회귀 시험: `tests/security/r2-project-folder-unlock.test.ts`.
-- **휴지통에 간 그룹·프로젝트·규칙 폴더는 admin·owner에게만 보이고 그들만 되돌린다.** 그런 폴더를 휴지통에 넣는 것이 admin·owner만이므로(위 '관리되는 폴더') 되돌리기도 같게 했다(설계 4번 탭 move/delete, 보안 r2의 두 안 중 A). 전에는 옮겨 둔 규칙 덕에 팀원 휴지통 목록에 보였지만, 되돌리기는 groups/·projects/ 쓰기 권한을 요구해 404였다(되지 않을 일을 보여 줌). 판단은 `managedRows()`로 그 폴더와 함께 옮겨 둔 folders 행이 관리되는 행인지(규칙·그룹·shared/·skills/·프로젝트) 본다. 팀원이 지운 일반 폴더는 전처럼 원래 경로 쓰기 권한으로 보이고 되돌린다. 팀 프로젝트 폴더가 휴지통에 있는 동안 참여자에게 그 프로젝트는 404다(관리자에게 되돌려 달라고 해야 한다). 회귀 시험: `tests/security/r2-trash-home.test.ts`의 #5.
+- **규칙 없는 folders 행은 프로젝트가 그 폴더를 쓰는 동안만 '관리되는 폴더'다.** 전에는 행이 있기만 하면 그 폴더와 그 위 폴더들의 이동·이름 바꾸기·휴지통이 영영 admin 전용이 되어, 프로젝트를 지운 뒤에도 만든 사람 자신조차 자기 폴더를 정리할 수 없었고, 팀원이 동료의 폴더에 프로젝트를 만들었다 지우는 것만으로 그 폴더를 잠글 수 있었다. 이제 `managedInside()`는 규칙 폴더, 그룹 폴더(`groups.folder_id`), shared/·skills/, 그리고 users/ 밖에서 프로젝트가 쓰는 폴더(행이 있든 없든: 관리자가 폴더를 바꾼 프로젝트에는 행이 없다)만 센다. 프로젝트를 지우거나 다른 폴더로 옮기거나(PATCH folderPath, 공유 복사) 그 폴더를 쓰는 마지막 프로젝트가 떠나면 규칙 없는 표시 행을 같은 트랜잭션에서 지운다(`dropProjectMarker()`: 규칙·그룹·다른 프로젝트가 있거나 shared/·skills/면 남김). 그룹을 지워 규칙이 다 빠진 옛 그룹 폴더도 이제 관리되는 폴더가 아니다(쓰기 권한이 있는 사람만 옮길 수 있는 것은 그대로). **owner 결정(2026-11-03)**: ② 기존 폴더에 프로젝트를 만들 때 그 폴더가 아직 관리되는 폴더가 아니면 그 폴더가 든 폴더(부모)에도 쓰기 권한이 있어야 한다. 자기가 피해 갈 수 있는 잠금만 걸 수 있다는 뜻이다. 이미 관리되는 폴더(그룹·규칙 폴더, shared/, skills/, 그런 폴더를 품은 폴더)는 전처럼 그 폴더 쓰기 권한만 본다. 아래 "Projects: a folder with instructions". 회귀 시험: `tests/security/r2-project-folder-unlock.test.ts`.
+- **휴지통에 간 그룹·프로젝트·규칙 폴더는 admin·owner에게만 보이고 그들만 되돌린다.** 그런 폴더를 휴지통에 넣는 것이 admin·owner만이므로(위 '관리되는 폴더') 되돌리기도 같게 했다(설계 4번 탭 move/delete, 보안 r2의 두 안 중 A). 전에는 옮겨 둔 규칙 덕에 팀원 휴지통 목록에 보였지만, 되돌리기는 groups/·projects/ 쓰기 권한을 요구해 404였다(되지 않을 일을 보여 줌). 판단은 `managedRows()`로 그 폴더와 함께 옮겨 둔 folders 행이 관리되는 행인지(규칙·그룹·shared/·skills/·프로젝트) 본다. 팀원이 지운 일반 폴더는 전처럼 원래 경로 쓰기 권한으로 보이고 되돌린다. 팀 프로젝트 폴더가 휴지통에 있는 동안 참여자에게 그 프로젝트는 404다(관리자에게 되돌려 달라고 해야 한다). (리뷰에서 코드가 이를 지키지 않음을 찾아 2026-11-03에 맞췄다: 아래 "Projects: a folder with instructions"의 `canSeeProject()`.) 회귀 시험: `tests/security/r2-trash-home.test.ts`의 #5.
 - **충돌 사본은 어느 길로 생기든 같은 기록·알림을 남긴다**(`recordConflictCopy()`, `files/store.ts`): 원본에 `file_versions` kind `conflict_copy`(사본 경로), `file_events` `conflict`(`changedBy`), 그리고 저장한 사람과 마지막으로 바꾼 사람에게 `files.conflict`(보내기 직전 둘 다 원본·사본을 읽을 수 있는지 확인, 위 '충돌 알림'). 파일 화면 저장, AI write·edit, make_file, `POST /api/files/copy`(onExists replace + 바뀐 baseSha256)가 모두 이 함수를 부른다. 보안 r2: 전에는 복사와 make_file의 충돌 사본은 아무에게도 알리지 않았고 make_file의 사본은 원본 기록에 없었으며, AI write는 마지막 변경이 업로드·버전 되돌리기면 엉뚱한 사람을 '바꾼 사람'으로 말하고 알렸다(이제 update·create·upload·restore 중 마지막). 복사의 충돌 사본 이름도 팀 기본 언어. 회귀 시험: `tests/security/r2-conflict-copy-paths.test.ts`.
 
 ## 보안 감사 r3: OS 층 — 에이전트 루트와 `/`의 메타데이터 (sec/r3-os-layer, 2026-10-21)
@@ -6485,3 +6485,203 @@ Asked for: the AI fills in and changes an existing .hwp (HWP 5.x binary) the sam
 - Evidence used: Hancom's public HWP 5.0 document; Hangul-saved files only for checking, never committed: hwplib's `sample_hwp` (Apache-2.0; hwplib's code was neither read nor copied) and seven statutory forms of 주민등록법 시행규칙 from law.go.kr (not protected, 저작권법 제7조), each downloaded into its own folder and only read. All 54 sample and fixture containers (hwplib's, the seven forms, the repository's three) read and wrote back identically through both readers, across the 4096-byte line and a 10 MB file; a word replaced in every sample that is not refused, each result rendered by rhwp. NOTICE has Hancom's current attribution sentence ("본 제품은 한컴의 HWP 문서 파일(.hwp) 공개 문서를 참고하여 개발하였습니다", its page asks for it in the user interface, manuals, help and source code; the guide, the .hwp source files and Settings → About carry it; Korean shows Hancom's sentence as written, the other four languages a translation, as every screen text has).
 - Tests: `tests/lib/hwp.ts` builds .hwp documents record by record (paragraphs with shapes and controls, tables with zones and captions, Hangul's streams); `tests/unit/hwp-edit.test.ts` (each change kind and the records it rewrites and nothing else, controls and shapes next to an edit, a line break, headings, empty cells with and without PARA_TEXT, fields in cells, rows with TABLE, zones, addresses and height, every other stream and the directory byte for byte, a second section, compressed and uncompressed documents, the extended record size both ways, the mini-stream line both ways, unknown records and streams, Hangul's default scripts, every untrusted case, damaged containers, the model checked against hwp.ts, the server's read-back, the worker modes, the review's cases (names in other case, rows in nested tables in both orders, characters outside the BMP, rows after a row with no cells, an OLE storage, forbidden name characters, the paragraph limit); Hangul-saved samples and rhwp rendering when `MYCEL_HWP_SAMPLES` names a folder); `tests/unit/hwpx-edit.test.ts` (nested-table rows in both orders for .hwpx); `tests/unit/c-edit-hwp.test.ts` (a .hwp through the tool: a new version with history, a new .hwp, an output in the other format refused, refused documents saving nothing, write and edit still refusing).
 - Needed in the core too (potenlab/team-ax): everything here; nothing is Trina-specific.
+
+## Projects: a folder with instructions (feat/project-is-folder, 2026-11-03)
+
+Two reviews found that a project overlapped with folders (people mixed up the Project object and the `projects/<p>/`
+folder), that several projects could sit on one folder, and that a member could make a teammate's folder admin-only to
+move just by making a project on it. The owner wants people to see "a project is a folder with instructions". The
+`projects` table and its ids stay: the dev environment, schedules and the desktop PC runner are keyed by project id.
+Nothing is removed or re-keyed.
+
+- **One project per folder.** Every way a project gets a folder refuses a folder another project names, with 409
+  `conflict` that names that project (`params: { reason: 'project_folder_taken', projectId }`): the three ways to make
+  one (an existing folder, `scope: 'personal'`, a new `projects/<slug>`), the admin repoint (`PATCH folderPath`) and
+  sharing a personal project by copy, and the dev environment's folder for a project on the team root
+  (`assertFolderFree()` in `chat/projects.ts`, inside the transaction that writes the row). The 409 names the project
+  only when the caller can see it (`canSeeProject()`, below); otherwise it says only that another project uses the
+  folder, without `projectId`. Only projects whose folder is in place count: one whose folder is in the trash holds no
+  path (below). Paths are compared the way the volume compares names (`volumeKey()`: NFC, lower case on a
+  case-insensitive volume). The automatic folder names of a new team project folder, a personal project and the dev environment's folder step around
+  the paths projects name, as around folders rows, so they never get a 409. A repoint into a folder it had to make removes that folder again.
+- **Moves.** `TeamFiles.move()` rewrites `projects.folder_path`; in the same transaction it now refuses (409,
+  `projectThere`, `params.reason: 'project_folder_taken'`) a move that would put a project inside the moved folder on a
+  path that a project in place outside it still names (one whose folder is gone from disk keeps its path). A project
+  whose folder went to the trash from inside the moved folder moves along with its trash item, so it still comes back
+  with its folder; one whose folder was trashed elsewhere keeps its path. Such projects do not make the moved folder
+  admin-only (`managedRows()` counts projects in place).
+- **Sharing by copy.** The copy's name (`copyFolderTree()`, also for sharing a folder) steps around the folder's visible
+  entries and also around every path a project names (`freeName(…, alsoTaken)`). Before (review), it avoided only
+  folders on disk, so a copy could land on the path of a project whose folder was gone: the copy became that old
+  project's live folder, with its instructions, seen by everyone who could read it, and admin-only to trash (the member
+  got 403). (A project whose folder is in the trash no longer takes over a folder by its path at all, below; one whose
+  folder vanished from disk another way still could.) Stepping around tells the caller only that some project names that path, never which. If a project
+  is made on the copy's path in the moment between the copy and the share's transaction, the share is 409 and the copy
+  is removed again (`TeamFiles.discardCopy()`: for good, not through the trash, with a delete event); the project
+  stays personal.
+- **Rows from before the rule** are left as they are (no data migration): two projects on one folder keep working,
+  move together with the folder, and can be renamed and edited. Only a new or repointed project is refused.
+- **A project whose folder is in the trash** (review; this was so on main before). Projects are seen by their folder's
+  path, and a trashed folder's rules go to the trash with it, so the path fell back to the rules above: after an admin
+  trashed the finance-only `shared/secret`, every member listed and opened its project, got its instructions in their
+  AI, and the 409 named it. "휴지통에 간 그룹·프로젝트·규칙 폴더" (보안 r2) says such a project is 404 for participants and
+  only admins and the owner see and restore it; the code now does that, **by the project's own state**
+  (`projects.trashed_with`, migration 332), not by looking its path up in the trash. A first version (review round 1)
+  looked for an unrestored trash row at or above the path, and review round 2 found three ways that went wrong: a purge
+  deletes the trash row, so the finance project showed to every member again; a restore under a " (restored)" name left
+  the project on its old path, now someone else's folder, whose readers then got its instructions; an old, unrelated
+  trash row at a path hid a new project made there from its own maker (and the list scanned the trash once per
+  project: 100k trash rows and 1000 projects took 6.8 s, blocking the server).
+  - `TeamFiles.remove()` of a folder sets `trashed_with` (the trash item's id), in the same transaction, on every team
+    project at or under it that has none yet (a project keeps the folder trashed first). Personal projects (users/) are
+    their person's in the trash too and are left alone.
+  - A restore (`projectsBack()`) moves the projects of that trash item to where the folder came back (its old path or a
+    " (restored)" name, the same rewrite as a move) and clears the mark; projects whose folders were trashed from inside
+    it earlier move along with their items. **One project per folder through a restore:** a restored project whose new
+    path a project in place already names (its folder gone from disk) stays detached: at its old path, still marked,
+    admins and the owner only, for an admin to point at a folder. Refusing the restore instead would keep the files in
+    the trash because of a project row.
+  - A purge (by hand or by the retention sweep) keeps the mark: the project stays the admins' and the owner's, to delete
+    or to point at a folder. An admin's `PATCH folderPath` clears the mark, also to the same path (to take the folder
+    now there). Deleting or pointing elsewhere a marked project does not drop a rule-less row at its old path
+    (`dropProjectMarker`): its own marker went to the trash with the folder, and the row there now belongs to another
+    folder (for example an admin's "follow the folder above" row).
+  - In the trash, a folder whose projects went there with it is a project folder still: only admins and the owner see
+    and restore it (`trashVisible()` → `managedRows(…, trashId)` counts the projects marked with that item). Review
+    round 3: once marked projects stopped counting as "in place", a member saw and restored a project folder an admin
+    had trashed (the member could not trash it).
+  - **No turn gets a marked project, admins included** (`projectForChat` is null, as the box is off): its path may be
+    another folder's by now, and the turn recorded the instructions' source by that path. Admins and the owner still see,
+    edit and delete it. The API says so: `Project.inTrash` (true only for them, since nobody else sees such a project);
+    the project page shows them one line (restore the folder from Files › Trash, or choose another folder in Edit), and
+    the edit dialog shows it too. **The dialog sends a folder only when the admin chose one in it** (choosing the old path
+    in the picker counts, to take the folder now there); a save of the name or the instructions keeps the project
+    marked. Review round 4: the dialog sent the old path on every save, the server made a folder there with no rules of
+    its own, so a trashed finance project opened to everyone reading `shared/` (the notice, the list, its instructions),
+    and with another project on that path every save failed with 409. **The server points a marked project only at a
+    folder that is there** (409 `conflict`, `params.reason: 'project_folder_missing'`, also for its old path); nothing is
+    made for it. Once the admin has chosen a folder, the dialog no longer says that saving keeps the project as it is: a
+    warning says that everyone who can read that folder will see the project and its instructions, with how many people
+    that is (`GET /api/admin/access/folder`, the summary's read and write counts; the admins are the only ones who see
+    such a project). The server does not refuse it: it is the admin's choice. The picker opens at the nearest folder
+    above the old path that is there, not on the missing old path. The project page shows the trash line in place of the
+    new-chat box, which would only end in the 409 below.
+  - **No chat goes into a marked project:** making a chat in it or moving one into it is 409 `conflict`,
+    `params.reason: 'project_in_trash'` for admins (everyone else gets 404, as they do not see it); out of it is always
+    fine. The move dialog lists such a project (admins see it) as "in the trash", not to be chosen, and the chat header
+    says "in the trash" after its name. Before, an admin could do it and the AI silently got nothing.
+  - The "instructions changed" notice goes to who sees the project (`canSeeProject`), not to who reads its old path
+    (review round 3: an admin's edit of a trashed finance project's instructions told every member its name).
+  - While marked, the project holds no path: another project may be made on a folder made at its old path (it follows
+    its own folder when that comes back), the share copy's names and moves ignore it, and it does not make a folder at
+    its old path admin-only.
+  - `canSeeProject()`: read access to the folder, and while marked, admins and the owner only. It decides the list,
+    `GET/PATCH/DELETE /api/projects/:id`, share, a chat moved into or made in the project, the project's instructions in a
+    turn (`projectForChat`, so schedules too), the dev environment's project lookup, the job notice and the preview
+    gateway (`stillAllowed`), the inbox's dev environment and chat notices, and whether a 409 names it. Nobody uses the
+    box of a marked project (`mayUseBox`, which also decides who hears that a box stopped: the admins only then): its
+    path may be another folder's by now. The admin access views (`access-explain.ts`) leave marked projects out.
+  - **Existing rows** (migration 332, in C's range because it reads `trash_items.kind` from 301; `projects` itself is
+    the foundation's, 001): the earliest unrestored folder item at or above a team project's folder, deleted after the
+    project was made (an older folder of that name, trashed before the project, was another folder). When the trashed
+    folder took folders rows with it (parked under its storage path), one must be the project's own, parked at the
+    project's place: a project moved later onto a path where an unrelated folder had been trashed has its row in place.
+    When it took none (a project an admin pointed at a folder has no row), the item counts, failing closed: the project
+    is the admins' until the folder is restored or the project pointed at a folder. Left as they were: an unrelated
+    trashed folder with a row at exactly the project's place (taken for the project's row), and a project without a row
+    of its own inside a trashed folder whose rows were parked elsewhere (it shows by its path's rules, as before). It
+    looks up each project's own folder and the folders above it in a temporary index on `trash_items(original_path)`:
+    1000 projects, 100k trash rows, 0.1 s. A folder trashed and purged before this build left no row and is not found;
+    such a project shows by its path's rules, as before.
+  - **Rollback.** A build without the column (after a rollback) trashes folders without marking their projects. Rolled
+    forward again, the backfill does not run a second time (migrations run once, and no start-up re-run was added), so
+    such a project is not marked: it shows by its path's rules, as before this build, until an admin acts on it.
+  - Regression tests: `tests/security/project-trashed-folder.test.ts`, `tests/security/project-trash-state.test.ts` (the
+    purge, the restore under a new name, the detached restore, a move with a trashed project folder inside, an old
+    trash row and a new project, a project folder moved onto a trashed path, a folder above the project, the child and
+    then its parent (also with the parent back under a new name), a folder moved onto a marked project's path, a
+    repoint to the same path, deletes and repoints leaving the old path's row, the instructions notice, the trash list
+    and restore for members, the box, its stop notice, a job's notice, the inbox entries and the preview, the admin
+    access views, the backfill); each single line of the trash handling was reverted once and some test failed.
+    `web/test/unit/project-folders*.test.tsx` cover the page line and the dialog's same-path save.
+- **Migration 221 on a large server.** `audit_log` is indexed on `at` only, so the backfill read the whole log once per
+  project: 1000 projects and 1M audit rows took 29.5 s on the test Mac (107 s in the review) under the write lock at
+  start. The migration makes a temporary index on `audit_log(target, action)` before the backfill and drops it after:
+  0.4 s. A partial index (`WHERE action IN (…)`) is not used by the planner for these queries (still 30 s).
+- **The lock** (owner decision, see "보안 r2 — sharing-works" above). A project on a folder that is not managed yet makes
+  that folder and the folders above it admin-only to move, rename or trash (`managedInside()`). The creator may add that
+  only when they also write the folder it is in, so they could already move it themselves: else 403 `forbidden`,
+  `params.reason: 'parent_not_writable'`, before anything is made. **This check refuses nothing today; it is a guard
+  (owner decision: keep it in case folder inheritance ever changes).** Managed folders (rule, group, shared/, skills/
+  folders, or a folder holding one, `TeamFiles.managedFolder()`) keep the rule before: write on the folder. A member
+  with write on `projects/falcon` (a rule folder) still makes a project there although `projects/` is closed to them.
+  Nothing is locked in a personal folder or on the team root, so neither is checked (the person's own `users/<me>` sits
+  in `users/`, which nobody writes).
+  - **Why it refuses nothing.** A folder without rules has its parent's access for every member (the deepest rule that
+    names the person decides, `policy/access.ts`), and a folder that is not managed has no rules. So write on such a
+    folder is write on its parent. The case from the review stays allowed: alice can still make a project on erin's `shared/erin-notes` or `groups/marketing/erin-drafts`,
+    because alice could already move, rename or trash that folder herself. The lock takes nothing from erin that alice
+    could not already do. Erin asks alice or an admin to delete the project, after which the folder is free again (r2).
+    The guard's test (named so) therefore uses a permission function where a folder's access differs from its parent's.
+- **Who wrote the instructions** (remember protection). `projectTaints()` compared only `created_by`, so after an admin
+  rewrote the creator's instructions the creator's turns were not tainted. Now a person's turn counts the instructions
+  as outside content unless that same person wrote every saved version: migration 221 adds
+  `projects.instructions_author` (that one person, else NULL) and `projects.instructions_authored` (the instructions as
+  that person last saved them). Making a project sets both to the creator. A save that changes the instructions keeps
+  the author only when it is the author's own save and the text was still theirs; otherwise both become NULL for good
+  (the creator writing them again does not make the history theirs alone). Renames and repoints do not count. A build
+  without the columns (after a rollback) may still change the instructions; the text then differs from
+  `instructions_authored`, and the author no longer counts. Empty instructions taint nobody, as before. When the
+  author's account is purged (`auth/sweeper.ts`, as for `created_by`) both columns become NULL: nobody wrote the
+  instructions alone any more, so every turn counts them as outside content.
+  - **Existing rows.** The audit log is the only history. It is complete for a project made by a build that audited
+    every instruction change (`project.update` came in e482a367, before `project.create` in 4ed7bf8d) whose
+    `project.create` entry is still kept: the retention purge removes the oldest rows first, so every later entry is
+    kept too. For such a project the author is `created_by` when every `project.update` whose `changed.instructions` is
+    true, or whose detail cannot be read, was made by `created_by`. Every other row stays NULL: everyone's turns, the
+    creator's included, count its instructions as outside content (the AI asks before remembering). That errs towards
+    asking. Nothing marks an old project as one person's again; deleting it and making it again on the same folder
+    starts a new history (its chats then leave the project). See above for the temporary index the backfill uses.
+- **Files.** A folder's menu has "Open project" when the folder is a project the person can see, else "Make it a
+  project" when they can write it. That opens the project dialog (now `components/ProjectForm.tsx`, shared with the
+  Projects page) on "Existing folder" with the folder chosen and its name filled in. A project folder shows the project
+  icon, and says so to screen readers. In the dialog, an empty name on a chosen folder is the folder's own name (the
+  placeholder and a hint say so; cut to 100 UTF-16 units, as the server's `max(100)` counts, without splitting a
+  character). For a personal or new team folder a name is still needed. **"Existing folder" needs a folder chosen:**
+  Save stays off until one is (the field says "No folder chosen yet" and the hint asks for one), and the team root
+  (`''`) never counts as chosen. Before (review), the mode started on `''`, the team root, so New project and Save made
+  a project on the whole team folder, or a confusing 409 where an older server already had one there. Editing a project
+  made on the team root before still saves. A 409 that names the project already on the folder shows "Open project"
+  next to the message.
+- **Chat.** Main's header (a chat's project, " / ", then the title as a menu with Rename and Delete; 13661b84) is kept.
+  The project part (`ChatProjectCrumb`) shows the project's own name, linked to its page, and nothing at all for a
+  project the person cannot see (404: no read access any more, or its folder in the trash), never the generic
+  "Projects"; like main, it is hidden below the `sm` width, where the header keeps the title. The name comes from a small
+  store of projects as this window last saw them (`store/projects.ts`): the project dialog, the Projects page and the
+  move dialog put what the server answered, so a rename shows at once; the header asks the server again when the
+  window gets the focus back (a rename on another device), and drops a project that answers 404; only the latest answer
+  counts (a slow 200 after a newer 404 does not bring the name back, nor does a slow 404 after a newer 200 drop it).
+  Signing out empties that store with the chats (`useSessionLifecycle()` in `App.tsx`, the Gate's session effects).
+  The title menu (`ChatTitleMenu`) has "Move to project…" ("Change project…" whenever the chat has a project, also
+  one whose name is hidden) between Rename and Delete, so it works on a phone too; main's
+  `web/test/e2e/chat-look.spec.ts` follows the new order. It opens
+  "Project of this chat": no project, or a project the person can see, saved with the existing
+  `PATCH /api/chats/:id {projectId}`, which still checks that the person can see the project (404 otherwise; out of a
+  project needs no check). When the chat's own project is not among them, it is listed as "A project you can no
+  longer see" and stays chosen until another choice is saved. From the next answer the AI gets the new project's
+  folder and instructions.
+- **Wording.** `docs/PERMISSIONS.md` said `projects/<p>/` was for "people in that project"; there is no such
+  membership: the folder's rules decide, and the project is seen by whoever can read its folder. The Korean
+  `projects.participantsHint` said admins were left out of a new team project folder; the owner and admins see and
+  write every team folder (`policy/access.ts`), as the other languages said. All five now name the owner and admins.
+  `projects.folderHint` says a folder can be one project. `docs/for-teams.md` and `docs/for-teams.ko.md` have a
+  paragraph on projects.
+- Tests (also those under "A project whose folder is in the trash"): `tests/security/project-is-folder.test.ts` (each way, an older row stored in another case (skipped on a
+  case-sensitive volume, where it is another folder), the repoint, the copy stepping around a project's path and the
+  copy removed after a 409, moves, rows from before the rule, the lock's guard, a chat moved into a project it cannot
+  read), `tests/security/project-trashed-folder.test.ts`, `tests/unit/b-project-taint.test.ts` (a real turn of the
+  creator after an admin's edit, the creator's own edits, a change by a build without the columns, empty instructions,
+  the sweep of the author's account, the migration's backfill), `web/test/unit/project-folders.test.tsx` and
+  `project-folders-dom.test.tsx` (the header's project after a rename, on focus and after a 404, the hidden project in
+  the move dialog, the 409's link); `tests/security/r2-project-folder-unlock.test.ts` now makes its two-projects-on-one-folder case as a row
+  from before the rule. Needed in the core too.
