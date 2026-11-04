@@ -83,4 +83,32 @@ describe('docs site', () => {
       fs.rmSync(out, { recursive: true, force: true })
     }
   })
+
+  // ax.trina.app/docs: the website copies this build into public/docs/ (its scripts/sync-docs.mjs). That site's
+  // Content-Security-Policy is script-src 'self'; style-src 'self'; img-src 'self'.
+  test.skipIf(!hasMarkdown)('a build for ax.trina.app/docs stays under /docs, has absolute agent links and no inline code', async () => {
+    const { build } = await import('../../scripts/docs/build')
+    const out = fs.mkdtempSync(path.join(os.tmpdir(), 'docs-site-'))
+    try {
+      build(['--out', out, '--base', '/docs', '--site-url', 'https://ax.trina.app'])
+      const htmls = (fs.readdirSync(out, { recursive: true }) as string[]).filter((n) => n.endsWith('.html'))
+      expect(htmls.length).toBeGreaterThan(loadPages().length)
+      for (const n of htmls) {
+        const html = fs.readFileSync(path.join(out, n), 'utf8')
+        // every address on the site stays under /docs/ (or is outside the site)
+        expect(html, n).not.toMatch(/(?:href|src|data-src|data-md)="\/(?!docs\/)[^"]*"/)
+        // no inline script (only <script src>), no style attribute, no inline event handler, no data: URL
+        expect(html, n).not.toMatch(/<script(?![^>]*\ssrc=)[^>]*>/)
+        expect(html, n).not.toMatch(/\sstyle="|\son[a-z]+="|="data:/)
+      }
+      for (const f of ['assets/site.css', 'assets/site.js', 'assets/theme.js']) expect(fs.readFileSync(path.join(out, f), 'utf8'), f).not.toContain('data:')
+      const llms = fs.readFileSync(path.join(out, 'llms.txt'), 'utf8')
+      expect(llms).toContain('https://ax.trina.app/docs/\n')
+      for (const p of loadPages()) expect(llms).toContain(`(https://ax.trina.app/docs/${p.slug}.md)`)
+      expect(fs.readFileSync(path.join(out, 'llms-full.txt'), 'utf8')).toContain('Source: https://ax.trina.app/docs/get-started/quickstart.md')
+      expect(fs.readFileSync(path.join(out, 'index.html'), 'utf8')).toContain('<link rel="canonical" href="https://ax.trina.app/docs/">')
+    } finally {
+      fs.rmSync(out, { recursive: true, force: true })
+    }
+  })
 })

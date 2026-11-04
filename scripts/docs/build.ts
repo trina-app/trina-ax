@@ -1,5 +1,8 @@
 // Builds the documentation site in docs/site/ into a static folder (default dist/docs-site/). `bun run docs:build`.
 //   bun scripts/docs/build.ts [--out DIR] [--base /docs] [--site-url https://docs.example.com]
+// The public copy is ax.trina.app/docs: --base /docs --site-url https://ax.trina.app (the website repository's
+// scripts/sync-docs.mjs runs that). Pages carry no inline script or style attribute, so they work under that site's
+// Content-Security-Policy (script-src 'self'; style-src 'self'; img-src 'self').
 // Output: <slug>/index.html for every page, <slug>.md (plain Markdown for agents), llms.txt, llms-full.txt,
 // search-index.json, 404.html and assets/. No dependencies beyond the repository's own: Bun's Markdown renderer,
 // plus highlight.js and lucide icons from web/node_modules when they are installed.
@@ -287,7 +290,7 @@ function layout(ctx: Ctx, page: Page | null, content: string, toc: Toc, meta: { 
 <meta name="description" content="${esc(meta.description)}">
 ${canonical}${alt}<link rel="icon" href="${ctx.base}/assets/favicon.svg">
 <link rel="stylesheet" href="${ctx.base}/assets/site.css">
-<script>try{var t=localStorage.getItem('trina-docs-theme');if(t)document.documentElement.dataset.theme=t}catch(e){}</script>
+<script src="${ctx.base}/assets/theme.js"></script>
 </head>
 <body data-base="${esc(ctx.base)}">
 <a class="skip" href="#content">Skip to content</a>
