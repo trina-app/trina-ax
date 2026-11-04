@@ -5,6 +5,8 @@ This file summarizes user-visible changes; it is not a list of every commit.
 
 ## Unreleased
 
+- Dev environment (experiment): box state is now on the disk of `/var/lib/mycel`, the team data disk on a VM with one, and no longer on the OS disk. `install-trial.sh` runs `mycel-boxd` with `--state-dir /var/lib/mycel/boxd` (box volumes) and puts the podman storage of the box account in `/var/lib/mycel/boxd-storage`. On a test VM the box added about 2.7 GiB to a 12 GiB OS disk, outside the plan storage and outside the disk watchdog. A re-run of `install-trial.sh` moves an older install: it stops `mycel-boxd` and every box, copies the box volumes, builds the image again and then removes the old folders. The unit now has `RequiresMountsFor`, so boxd waits for the data disk. The disk watchdog now reads the disk of the team folder, of the box volumes and of the podman storage, and the disk nearest its floor counts. `mycel-ctl update` does not move anything: run `install-trial.sh` again after the update. `uninstall-trial.sh` removes both the old and the new paths.
+
 ## 0.3.0 — 2026-11-04
 
 [Published release and notes](https://github.com/trina-app/trina-ax/releases/tag/v0.3.0)
