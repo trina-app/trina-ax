@@ -719,3 +719,41 @@ Not done:
 - Not verified on systemd: A23 (the disk floor) and A26 (preview). The rest of the VM list passed (see above).
 - The devenv slice is a child of `<ID>.slice`: when 1A limits are on, the runs share that ceiling with the server.
 
+
+## 13. Real work on the Starter size (2026-11-04)
+
+Test: `scripts/dev-env/srt/spike-vm.sh <log> bench` (one t3a.medium, 2 vCPU, 4 GB, Debian 13, CPU credits
+"unlimited"). `tests/linux/srt-vm-bench.ts` runs in the stand-in server unit as the server account and calls the real
+`box_shell` tool of a test server with the real runner. Third run: 0 failed. Full results:
+`feasibility/results/SRT-results.md` (outside this repo).
+
+| Work | Result |
+|---|---|
+| `npm install` of Remotion 4.0.539 (cpus 1) | 58 s, scope peak 843 MiB |
+| Remotion browser download | needs the admin domain `remotion.media`; 11.4 s |
+| render 1080p 15 s, cpus 1, concurrency 1 | 223.5 s, peak 1452 MiB, no OOM (the box on the same size: 180.8 s) |
+| render 1080p 15 s, cpus 1.5 (Remotion picks 1x) | 126.2 s and 128.3 s, peak 1499 MiB, no OOM |
+| pip in a venv, then import | 7.3 s |
+| memory bomb (job) | `oom`; the server lives, 0 failed health checks |
+| two renders, maxRunning 1 | the second waits (position 1), starts when the first ends; never two scopes |
+
+Fixed on the branch after the first two VM runs:
+
+- **Node programs had no network.** Node ignores `HTTPS_PROXY` unless `NODE_USE_ENV_PROXY=1` (node 22.21 or later).
+  `runEnv` sets it, and the pinned node is now 22.23.4. npm, pip and curl read the proxy variables already.
+- **srt's mount points.** For an absent name that it protects in the cwd (`.bashrc`, `.mcp.json`, `.vscode`, ...) srt
+  makes an empty file and removes it at its end. A killed run (time limit, stop, OOM) left the files in the project.
+  Worse: when two runs share a folder, the first to end removes the mount points and the denies of the other run stop
+  (Docker and VM: a command wrote `.bashrc` after a job in the same folder ended). Now the runner makes these names
+  before the first run in a folder and removes the empty ones after the last (`srt/placeholders.ts`).
+
+Open:
+
+- Remotion's download lock (`node_modules/.remotion/chrome-headless-shell/download.lock`, with hostname and pid) stays
+  after a failed download. In runs 1 and 2 every later download and render then hung until its time limit. Removing the
+  lock fixes it. Probable cause: each srt run has a new pid namespace, so the old pid looks alive. The tool text could
+  say so; not done.
+- A long job's mount points show in the project's change list ("deleted .bashrc" in the background). srt alone makes the same
+  changes for a job.
+- A write into a hidden folder "succeeds" into srt's empty tmpfs over that folder. Nothing reaches the disk.
+- Each node `fetch` with `NODE_USE_ENV_PROXY` prints an "experimental" warning on stderr (the AI sees it).

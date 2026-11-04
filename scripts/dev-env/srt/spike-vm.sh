@@ -91,7 +91,7 @@ say "running vm-check.sh $MODE (checks: 10 to 20 minutes; bench: about 40 minute
 set +e
 "${SSH[@]}" "sudo /opt/mycel/scripts/dev-env/srt/vm-check.sh /opt/mycel $MODE" 2>&1 | tee "$LOG"
 CODE=${PIPESTATUS[0]}
-"${SSH[@]}" 'free -m; systemd --version | head -1; uname -r; lscpu | grep -E "Model name|^CPU\(s\)"' 2>&1 | tee -a "$LOG"
+"${SSH[@]}" 'free -m; systemctl --version | head -1; uname -r; lscpu | grep -E "Model name|^CPU\(s\)"' 2>&1 | tee -a "$LOG"
 set -e
 say "vm-check exit code $CODE"
 exit "$CODE"
