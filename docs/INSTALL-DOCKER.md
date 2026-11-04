@@ -11,7 +11,7 @@ Run the team server with `docker compose up` on a Linux server or on a Mac with 
 | Item | Requirement |
 |---|---|
 | Docker | Docker Engine with Compose v2 (`docker compose`), or Docker Desktop / OrbStack on a Mac. Tested with Docker 29.4 |
-| Host kernel | Landlock, cgroup v2, nftables, unprivileged user namespaces. 6.12+ recommended, as for the Linux install. Debian 13 and Ubuntu 24.04 kernels have Landlock; Docker Desktop and OrbStack VMs too (checked: OrbStack) |
+| Host kernel | Landlock, cgroup v2, nftables, unprivileged user namespaces. 6.12+ recommended, as for the Linux install. Debian 13 and Ubuntu 24.04 kernels have Landlock. Checked on OrbStack only; Docker Desktop and Colima are not checked |
 | CPU | amd64 with SSE4.2, or arm64 |
 | RAM / disk | 4 GB for the container (2 GB: one concurrent run); 20 GB for the volume plus space for files, history and backups |
 | Network | Outbound https for the image build (GitHub releases), the first start (the AI engine download) and AI providers |
@@ -28,7 +28,7 @@ docker compose up -d --build
 docker compose logs -f trina-ax
 ```
 
-The build downloads `TrinaAX-server-<version>-linux-<arch>.tar.gz` and `SHA256SUMS` from GitHub Releases, checks the checksum, and checks the release signature (`mycel-ctl verify-bundle`). The build stops if a check fails.
+The build downloads `TrinaAX-server-<version>-linux-<arch>.tar.gz` and `SHA256SUMS` from GitHub Releases, checks the checksum, and checks the release signature (`mycel-ctl verify-bundle`). The build stops if a check fails. The checksum file, the signature and the `mycel-ctl` that checks it all come from the same download: these checks find a damaged download, not a replaced release (the same as the [Linux install](INSTALL-LINUX.en.md#download-verify-check)).
 
 The first start takes a few minutes. The installer downloads the pinned AI engine (Claude Code, about 300 MB) and checks its SHA-256. The log shows `mycel-ctl supervise: started server` when the server runs. `docker compose ps` shows `healthy` when `/api/health` answers.
 
@@ -39,7 +39,7 @@ Settings in `.env`:
 | `TRINA_AX_VERSION` | (required) | Release to run. Change it to update |
 | `TRINA_AX_ENGINES` | `claude` | `claude`, `codex` or `claude codex` |
 | `TRINA_AX_BIND` / `TRINA_AX_PORT` | `127.0.0.1` / `47820` | Host address and port of the web app |
-| `TRINA_AX_TIMEZONE` | host zone | Team time zone for the first run (IANA name) |
+| `TRINA_AX_TIMEZONE` | browser zone at setup, else UTC | Team time zone for the first run (IANA name). The container does not use the host's zone |
 | `TRINA_AX_MEMORY` / `TRINA_AX_CPUS` | `4g` / `2` | Limits for the whole container |
 | `TRINA_AX_PUBLIC_HOST` | none | Public https name, for the Cloudflare Tunnel sidecar |
 
@@ -60,7 +60,7 @@ Create the owner, the team name and the language. Then continue as in the Linux 
 
 ```sh
 docker compose exec -T trina-ax /var/lib/mycel/root/set-claude-token < token.txt   # from `claude setup-token`
-docker compose exec trina-ax mycel-ctl codex-login
+docker compose exec trina-ax mycel-ctl codex-login                               # not tested in Docker yet
 docker compose exec trina-ax /var/lib/mycel/root/mycel-account reset-link         # owner password recovery
 ```
 
@@ -108,7 +108,7 @@ Security options (`security_opt`):
 | `no-new-privileges:true` | Nothing in the container gains privileges through setuid files | None. supervise sets the same flag itself |
 | `seccomp=./seccomp.json` | Docker's default filter refuses the namespace calls bubblewrap makes as `axagent`. The file is Docker's default profile plus one rule: `clone`, `unshare`, `setns`, `mount`, `umount2`, `pivot_root` without `CAP_SYS_ADMIN` ([seccomp.NOTICE](../docker/seccomp.NOTICE)) | Root and `axserver` processes may call these. Each AI turn also gets the product's own seccomp filter inside bubblewrap |
 | `apparmor=unconfined` | Docker's AppArmor profile refuses `mount` | No AppArmor confinement of the container. Hosts without AppArmor ignore it |
-| `systempaths=unconfined` | bubblewrap mounts a new `/proc` in each turn's PID namespace. The kernel refuses that while Docker hides parts of `/proc` | **Main risk.** `/proc/sys` is writable for root in the container, and `/proc/kcore` and similar files are visible to root. A process that runs as root in the container could change host kernel settings. Only the entrypoint, the installer and supervise run as root, all from the signed kit. With rootless Docker or `userns-remap`, container root is not host root, and this risk goes away (not tested yet) |
+| `systempaths=unconfined` | bubblewrap mounts a new `/proc` in each turn's PID namespace. The kernel refuses that while Docker hides parts of `/proc` | **Main risk.** `/proc/sys` and `/proc/sysrq-trigger` are writable for root in the container, and `/proc/kcore` and similar files are readable by root. Without user namespace remapping, root in the container is root on the host: a process that runs as root in the container can take over the host (for example through `kernel.core_pattern`). The engine (`axagent`) and the server (`axserver`) cannot write these files. Only the entrypoint, the installer and supervise run as root, all from the signed kit. With rootless Docker or `userns-remap`, container root is not host root, and this risk goes away (not tested yet) |
 
 Not changed from the Linux install: engine turns run as `axagent` in bubblewrap (user, PID, network, IPC and UTS namespaces), Landlock (`--landlock required`) and the product's seccomp filter; the nftables egress rule; the model proxy as the only network path; signed kits only (`--require-signed`).
 
@@ -146,6 +146,10 @@ Going back to an older image tag does not downgrade the volume: the installer ke
 ## Backups
 
 The whole install is in one named volume (`trina-ax_data` on `/var/lib/mycel`): the app versions, the root files, `data/` (database, backups), `team/` (the team folder), `config/`, `secrets/` and the engine account's folder.
+
+Keep the data in the named volume. Do not replace it with a bind mount of a host folder: on a Mac the file sharing may not keep owners and the setgid bits, and the engine then cannot reach the server.
+
+The entrypoint writes `/etc/default/mycel` again at each start, in the container, not in the volume. Changes that `mycel-ctl` makes to that file are lost at the next start.
 
 Inside the app (the server stays up):
 

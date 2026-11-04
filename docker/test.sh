@@ -60,7 +60,15 @@ pass "setup page 200"
 # the engine lockdown inside the container
 X() { $C exec -T trina-ax "$@"; }
 X runuser -u axagent -- curl -sS --max-time 5 -o /dev/null https://example.com 2>/dev/null && fail "axagent reached the internet"
+# TCP by address (no DNS): axserver must get out, axagent must not
+X runuser -u axserver -- timeout 10 bash -c 'exec 3<>/dev/tcp/1.1.1.1/443' || fail "axserver cannot reach 1.1.1.1:443 (no outbound network for this test?)"
+X runuser -u axagent -- timeout 10 bash -c 'exec 3<>/dev/tcp/1.1.1.1/443' 2>/dev/null && fail "axagent reached 1.1.1.1:443"
 X runuser -u axagent -- curl -sS --max-time 5 -o /dev/null "http://127.0.0.1:47820/api/health" 2>/dev/null && fail "axagent reached the app port"
+# the server listens on all container addresses (MYCEL_HOST=0.0.0.0): the container's own address too
+CIP=$(X getent hosts trina-ax | awk '{print $1; exit}')
+[ -n "$CIP" ] || fail "no container address"
+X curl -fsS --max-time 5 -o /dev/null "http://$CIP:47820/api/health" || fail "root cannot reach $CIP:47820"
+X runuser -u axagent -- curl -sS --max-time 5 -o /dev/null "http://$CIP:47820/api/health" 2>/dev/null && fail "axagent reached $CIP:47820"
 X runuser -u axagent -- bash -c 'exec 3<>/dev/tcp/127.0.0.1/47821' || fail "axagent cannot reach the model proxy"
 pass "engine firewall: axagent reaches only 127.0.0.1:47821"
 P=$(X runuser -u axagent -- /var/lib/mycel/root/mycel-sandbox probe)
