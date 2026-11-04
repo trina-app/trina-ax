@@ -1,9 +1,9 @@
 ---
 title: Install
-description: Choose between Trina hosting, a Linux server and an office Mac, and get each one running.
+description: Choose between Trina hosting, a Linux server, an office Mac and the local demo, and get each one running.
 ---
 
-There are four ways to run Trina AX. Pick the one that fits who will look after it.
+There are four ways to run Trina AX. Pick the one that fits who will look after it. One installation is one team.
 
 | | Trina hosting | Linux server | Office Mac | Local demo |
 |---|---|---|---|---|
@@ -11,13 +11,14 @@ There are four ways to run Trina AX. Pick the one that fits who will look after 
 | **Who runs it** | Trina, in AWS Seoul | Your IT | Your office operator | You |
 | **AI** | Your authorized Claude or OpenAI connection | Same | Claude (no Codex) | Off |
 | **OS isolation** | Yes | Yes | Runs as the signed-in user | No |
-| **Start** | [See the plans](https://ax.trina.app/#pricing) | [Below](#linux-server) | [Below](#office-mac) | [Quickstart](../get-started/quickstart.md) |
 
-One installation is one team.
+## Get started
 
-## Linux server
+Choose a setup below.
 
-### Requirements
+:::tabs
+@tab Linux server
+A Linux server or VM runs Trina AX with dedicated service accounts and OS isolation.
 
 | Item | Requirement |
 |---|---|
@@ -26,8 +27,6 @@ One installation is one team.
 | Memory and disk | 4 GB RAM recommended; at least 20 GB disk plus your files, history and backups |
 | System | systemd with cgroup v2. A plain Docker container is not supported. |
 | Access | sudo, curl, tar and Python 3 for the checksum check |
-
-### Install
 
 :::steps
 #### Download and verify the kit
@@ -50,15 +49,14 @@ The installer creates the service accounts, installs into `/var/lib/mycel` and s
 Open an SSH tunnel (`ssh -L 47820:127.0.0.1:47820 <server>`), read the setup code from `/var/lib/mycel/setup/code` on the server, and open the setup page.
 
 #### Give it an HTTPS address
-Put a tunnel or reverse proxy in front of `127.0.0.1:47820`, then register its hostname with `sudo ./install-linux.sh repair --public-host team.example.com`.
+Put a tunnel or reverse proxy in front of `127.0.0.1:47820`, then register its host name with `sudo ./install-linux.sh repair --public-host team.example.com`.
 :::
 
 :::warning
 Do not use `--allow-unsigned` for published releases. It is only for kits you built yourself.
 :::
 
-## Office Mac
-
+@tab Office Mac
 An office Mac runs Trina AX as a dedicated, signed-in macOS user. It stops when that user logs out.
 
 | Item | Requirement |
@@ -69,7 +67,7 @@ An office Mac runs Trina AX as a dedicated, signed-in macOS user. It stops when 
 
 :::steps
 #### Download and verify the ZIP
-Download `TrinaAX-office-<version>-mac.zip` and `SHA256SUMS` from the latest release, and compare the checksum.
+Download `TrinaAX-office-<version>-mac.zip` and `SHA256SUMS` from the [latest release](https://github.com/trina-app/trina-ax/releases/latest), and compare the checksum.
 
 #### Check, then install
 ```sh
@@ -83,6 +81,21 @@ Use the local setup link the installer prints. Office computers then use `https:
 :::
 
 Full guide: [Office Mac](../../OFFICE.en.md).
+
+@tab Trina hosting
+Trina runs the team server for you in AWS Seoul, and installs updates during the maintenance window. You bring an authorized Claude or OpenAI connection.
+
+[See the current plans](https://ax.trina.app/#pricing), or email contact@trina.app.
+
+@tab Local demo
+A fictional team on your own computer, with the AI off. It is for looking around, not for real data.
+
+```sh
+bun run demo
+```
+
+[Follow the quickstart](../get-started/quickstart.md).
+:::
 
 ## After installing
 

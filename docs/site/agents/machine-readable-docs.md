@@ -12,19 +12,19 @@ These docs are built for people and for AI agents. Every page has a plain Markdo
 | Page Markdown | Add `.md` to a page address, for example `/get-started/quickstart.md` | One page, without the site around it |
 | Source | `docs/site/` in the repository | Edit the docs |
 
-Each page also has **Copy page** to copy its Markdown, and **View as Markdown**.
+Each page has a **Copy page** button. Its menu also has **View as Markdown** and **Copy llms.txt link**.
 
 ## Format of llms.txt
 
 ```text
-# Trina AX docs
+# Trina AX Docs
 
 > How to use, run, build on and automate Trina AX ...
 
 ## Root URL
 ...
 
-### Get started
+### Getting started
 - [Intro to Trina AX](/index.md) - Trina AX puts Claude Code and Codex on one company server ...
 ```
 

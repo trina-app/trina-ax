@@ -47,7 +47,13 @@ Open **Files → shared → 팀-용어집.md**. Then sign in as `bob` in a priva
 Use `127.0.0.1`, not `localhost`. They are different cookie origins, so sign-in would repeat.
 :::
 
-## Change the port, data folder or language
+## Go further
+
+The demo is the quickest start. When you want more, pick one of these.
+
+:::tabs
+@tab Port and language
+Choose another port, a new data folder and the Korean interface:
 
 ```sh
 bun run demo --port 19761 --data "$HOME/.trina-evaluation-new" --locale ko
@@ -55,8 +61,7 @@ bun run demo --port 19761 --data "$HOME/.trina-evaluation-new" --locale ko
 
 The data folder must not exist yet. A busy port or an existing folder is refused.
 
-## Try the AI (optional)
-
+@tab Try the AI
 The demo cannot call AI. For a development server that uses your own Claude Code or Codex login, stop the demo first and run:
 
 ```sh
@@ -69,8 +74,7 @@ TEAM_AX_DEV_DIR="$HOME/.trina-ai-evaluation-new" bun run demo:seed --base http:/
 In development mode the engines run as your OS user, with no production isolation. Connect only accounts you may use this way.
 :::
 
-## Share a preview on your tailnet (optional)
-
+@tab Share on your tailnet
 To let teammates on your Tailscale network click through a preview, run a development server with the AI turned off and an extra allowed origin.
 
 :::steps
@@ -107,6 +111,7 @@ The demo password is public. Change it for every account before you share the ad
 :::
 
 To stop: press Ctrl-C in the server terminal, then run `tailscale serve --https=8443 off`.
+:::
 
 ## Next steps
 

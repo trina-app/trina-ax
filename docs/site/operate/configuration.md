@@ -11,7 +11,11 @@ Use the installer and the Admin screens first. `server.json` is for the operator
 
 ## Common settings
 
-| Setting | What it does |
+Settings come from two places. Environment variables win over the file.
+
+:::tabs
+@tab Environment variables
+| Variable | What it does |
 |---|---|
 | `MYCEL_CONFIG` or `--config` | The server JSON path. Prevents picking another installation by accident. |
 | `MYCEL_MODE` | `dev` or `prod`. Changing it alone does not install OS isolation. |
@@ -20,12 +24,20 @@ Use the installer and the Admin screens first. `server.json` is for the operator
 | `MYCEL_PUBLIC_ORIGINS` | Comma-separated browser origins of the installation. A wrong host or port causes cookie and origin errors. |
 | `MYCEL_LOG_LEVEL` | `debug`, `info`, `warn` or `error`. |
 | `MYCEL_EXIT_ADDRESS_CHECK` | `off` stops the server asking the release feed for its own public address. Then every web address the AI opens needs a person. |
+
+On Linux, put environment overrides in `/etc/default/mycel`.
+
+@tab server.json
+| Key | What it does |
+|---|---|
 | `engine.authMode` | `local-login` uses the OS user's CLI login. `managed` uses AI connections behind the model proxy. |
 | `engine.credentialKinds` | Narrows which connection kinds the team may add. |
 | `engine.anthropicGateway` | Runs Claude Code on other models. See below. |
+| `appConnectors` | `true` with `tunnel.host` turns on the [MCP connector](../agents/mcp-connector.md). |
 | `relay`, `tunnel`, `update` | Address and update-feed settings. Keep what the installer wrote. |
+:::
 
-[See every environment variable](../reference/environment.md).
+[See every variable and key](../reference/environment.md).
 
 ## Anthropic-compatible gateway
 

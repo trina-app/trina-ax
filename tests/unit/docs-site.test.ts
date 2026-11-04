@@ -5,14 +5,15 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { describe, expect, test } from 'bun:test'
-import { ROOT, loadPages, readNav, siteMarkdownFiles } from '../../scripts/docs/site'
+import { ROOT, loadPages, navSlugs, readNav, siteMarkdownFiles } from '../../scripts/docs/site'
 import { API_REFERENCE_FILE, apiReferenceMarkdown } from '../../scripts/docs/api-reference'
 import { localLinkProblems } from '../../scripts/check-onboarding-docs'
 
 describe('docs site', () => {
   test('every page is in the navigation once, with a title and a description', () => {
     const nav = readNav()
-    const slugs = nav.groups.flatMap((g) => g.pages)
+    const slugs = navSlugs(nav)
+    for (const t of nav.tabs) expect(t.groups.length, t.title).toBeGreaterThan(0)
     expect(new Set(slugs).size).toBe(slugs.length)
     expect(siteMarkdownFiles()).toEqual(slugs.map((s) => `docs/site/${s}.md`).sort())
     for (const p of loadPages(nav)) {
@@ -54,6 +55,9 @@ describe('docs site', () => {
         expect(llms).toContain(`(/docs/${p.slug}.md)`)
       }
       expect(fs.readFileSync(path.join(out, 'llms-full.txt'), 'utf8')).toContain('# Quickstart')
+      // tabs become labelled sections in the Markdown copy, and real tabs in HTML
+      expect(fs.readFileSync(path.join(out, 'operate/install.md'), 'utf8')).toContain('**Office Mac**')
+      expect(fs.readFileSync(path.join(out, 'operate/install/index.html'), 'utf8')).toContain('role="tablist"')
     } finally {
       fs.rmSync(out, { recursive: true, force: true })
     }

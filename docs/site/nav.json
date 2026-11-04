@@ -1,14 +1,37 @@
 {
-  "title": "Trina AX docs",
+  "title": "Trina AX Docs",
   "description": "How to use, run, build on and automate Trina AX: the company AI workspace with your files, team skills and folder permissions.",
   "repo": "https://github.com/trina-app/trina-ax",
-  "groups": [
-    { "title": "Get started", "pages": ["index", "get-started/quickstart", "get-started/key-concepts"] },
-    { "title": "Use Trina AX", "pages": ["use/chats-and-projects", "use/files-and-permissions", "use/team-skills", "use/mcp", "use/scheduled-tasks", "use/usage-and-limits", "use/admin"] },
-    { "title": "Run and operate", "pages": ["operate/install", "operate/configuration", "operate/updates-and-releases", "operate/backups", "operate/security", "operate/troubleshooting"] },
-    { "title": "Developer guide", "pages": ["develop/architecture", "develop/repository-layout", "develop/local-development", "develop/testing", "develop/i18n-and-design", "develop/contributing", "develop/versioning", "develop/core-and-trina"] },
-    { "title": "For AI agents", "pages": ["agents/overview", "agents/coding-agents", "agents/runtime", "agents/mcp-connector", "agents/skills-format", "agents/plugins", "agents/machine-readable-docs"] },
-    { "title": "Reference", "pages": ["reference/http-api", "reference/cli", "reference/environment", "reference/glossary"] },
-    { "title": "Resources", "pages": ["resources/support"] }
+  "product": { "label": "Open Trina AX", "url": "https://ax.trina.app" },
+  "tabs": [
+    { "title": "Getting started", "groups": [
+      { "title": "Getting started", "pages": ["index", "get-started/quickstart"] },
+      { "title": "Core concepts", "pages": ["get-started/key-concepts"] }
+    ] },
+    { "title": "Use Trina AX", "groups": [
+      { "title": "Work with the AI", "pages": ["use/chats-and-projects", "use/team-skills", "use/mcp", "use/scheduled-tasks"] },
+      { "title": "Files and people", "pages": ["use/files-and-permissions", "use/usage-and-limits", "use/admin"] }
+    ] },
+    { "title": "Run and operate", "groups": [
+      { "title": "Set up", "pages": ["operate/install", "operate/configuration"] },
+      { "title": "Keep it running", "pages": ["operate/updates-and-releases", "operate/backups", "operate/troubleshooting"] },
+      { "title": "Security", "pages": ["operate/security"] }
+    ] },
+    { "title": "Developer guide", "groups": [
+      { "title": "Understand the code", "pages": ["develop/architecture", "develop/repository-layout"] },
+      { "title": "Make a change", "pages": ["develop/local-development", "develop/testing", "develop/i18n-and-design", "develop/contributing"] },
+      { "title": "Releases", "pages": ["develop/versioning", "develop/core-and-trina"] }
+    ] },
+    { "title": "For AI agents", "groups": [
+      { "title": "Overview", "pages": ["agents/overview"] },
+      { "title": "Coding agents", "pages": ["agents/coding-agents", "agents/machine-readable-docs"] },
+      { "title": "Runtime agents", "pages": ["agents/runtime", "agents/mcp-connector", "agents/skills-format", "agents/plugins"] }
+    ] },
+    { "title": "Reference", "groups": [
+      { "title": "Reference", "pages": ["reference/http-api", "reference/cli", "reference/environment", "reference/glossary"] }
+    ] },
+    { "title": "Resources", "groups": [
+      { "title": "Resources", "pages": ["resources/support"] }
+    ] }
   ]
 }
