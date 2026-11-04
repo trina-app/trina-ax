@@ -35,7 +35,7 @@ die() { echo "ami-chroot: ERROR: $*" >&2; exit 1; }
 [[ "$VOLUME_ID" =~ ^vol-[0-9a-f]+$ ]] || die "--volume-id vol-… is required"
 [[ -n "$TEMPLATE_VERSION" ]] || die "--template-version is required"
 [[ -f "$STAGE/customize.sh" && -d "$STAGE/files" ]] || die "--stage must hold customize.sh and files/"
-for t in growpart e2fsck resize2fs findmnt mountpoint partprobe; do command -v "$t" >/dev/null 2>&1 || die "missing $t on the builder"; done
+for t in growpart e2fsck resize2fs findmnt mountpoint partx; do command -v "$t" >/dev/null 2>&1 || die "missing $t on the builder"; done
 
 # ---- 1. the work volume by its EBS serial (vol-0abc… → nvme-Amazon_Elastic_Block_Store_vol0abc…)
 DEV_LINK="/dev/disk/by-id/nvme-Amazon_Elastic_Block_Store_${VOLUME_ID/-/}"
@@ -53,7 +53,8 @@ say "work volume $VOLUME_ID = $DISK, root partition $PART1"
 # ---- 2. grow the root partition and its file system to the volume size
 rc=0; growpart "$DISK" 1 || rc=$?
 [[ $rc -le 1 ]] || die "growpart $DISK 1 failed ($rc)"   # 1 = NOCHANGE
-partprobe "$DISK" || true
+# the Debian 13 AMI has no partprobe (parted); partx is in util-linux
+partx -u "$DISK" || true
 udevadm settle || true
 rc=0; e2fsck -f -p "$PART1" || rc=$?
 [[ $rc -le 1 ]] || die "e2fsck found errors on $PART1 ($rc)"   # 1 = errors fixed
