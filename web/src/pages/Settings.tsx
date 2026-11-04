@@ -54,31 +54,35 @@ export default function Settings() {
   // page: open the profile instead
   if (tab === 'credentials' && own === null) return null
   if (!tabs.some((x) => x.id === tab)) return <Navigate to="/settings" replace />
+  // The title and the menu stay where they are while a page scrolls (like Admin): only the page beside the menu (under
+  // the strip on a phone) scrolls, so a page's own title row (MCP) can stay at its top.
   return (
-    <div className="flex h-full flex-col overflow-y-auto">
+    <div className="flex h-full min-h-0 flex-col">
       <PageHeader title={t('settings.title')} />
-      <div className="flex flex-col gap-6 p-4 sm:p-6 md:flex-row">
+      <div className="flex min-h-0 flex-1 flex-col md:flex-row">
         {/* phones: the tab strip runs to the screen edges, so a tab cut off at the right reads as "scroll for more" */}
-        <nav aria-label={t('settings.title')} className="scroll-thin -mx-4 flex gap-1 overflow-x-auto px-4 sm:-mx-6 sm:px-6 md:mx-0 md:w-48 md:flex-col md:px-0">
+        <nav aria-label={t('settings.title')} className="scroll-thin flex shrink-0 gap-1 overflow-x-auto px-4 pt-4 pb-1 sm:px-6 sm:pt-6 md:w-[13.5rem] md:flex-col md:overflow-x-hidden md:overflow-y-auto md:pr-0 md:pb-6" data-testid="settings-menu">
           {tabs.map((x) => (
             <NavLink key={x.id} to={`/settings/${x.id}`} className={({ isActive }) => clsx('flex items-center gap-2 rounded-lg px-3 py-2 text-sm whitespace-nowrap hover:bg-hover focus-visible:-outline-offset-2', (isActive || (x.id === 'profile' && tab === 'profile')) && 'bg-hover font-medium')}>
               <x.icon size={15} aria-hidden /> {t(x.label)}
             </NavLink>
           ))}
         </nav>
-        <div className="min-w-0 flex-1 max-w-2xl">
-          {tab === 'profile' && <Profile />}
-          {tab === 'security' && <Security />}
-          {tab === 'browser' && browser && <BrowserSettings bridge={browser} />}
-          {tab === 'memory' && <Memories />}
-          {tab === 'drive' && <DriveConnection key={`${me.user.id}:${me.session.id}`} />}
-          {tab === 'integrations' && <Integrations key={`${me.user.id}:${me.session.id}`} />}
-          {tab === 'connectors' && <ConnectorConnections key={`${me.user.id}:${me.session.id}`} />}
-          {tab === 'schedules' && <Schedules key={`${me.user.id}:${me.session.id}`} />}
-          {tab === 'notifications' && <Notifications key={`${me.user.id}:${me.session.id}`} />}
-          {tab === 'apps' && <Apps />}
-          {tab === 'credentials' && <MyCredentials />}
-          {tab === 'about' && <About />}
+        <div className="min-h-0 min-w-0 flex-1 overflow-y-auto" data-testid="settings-content">
+          <div className="max-w-2xl p-4 sm:p-6">
+            {tab === 'profile' && <Profile />}
+            {tab === 'security' && <Security />}
+            {tab === 'browser' && browser && <BrowserSettings bridge={browser} />}
+            {tab === 'memory' && <Memories />}
+            {tab === 'drive' && <DriveConnection key={`${me.user.id}:${me.session.id}`} />}
+            {tab === 'integrations' && <Integrations key={`${me.user.id}:${me.session.id}`} />}
+            {tab === 'connectors' && <ConnectorConnections key={`${me.user.id}:${me.session.id}`} />}
+            {tab === 'schedules' && <Schedules key={`${me.user.id}:${me.session.id}`} />}
+            {tab === 'notifications' && <Notifications key={`${me.user.id}:${me.session.id}`} />}
+            {tab === 'apps' && <Apps />}
+            {tab === 'credentials' && <MyCredentials />}
+            {tab === 'about' && <About />}
+          </div>
         </div>
       </div>
     </div>

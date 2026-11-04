@@ -24,8 +24,8 @@ test('a personal API connection with a key: sent once, never shown again; edit s
   const errors = watchConsole(page)
   await signIn(page)
   await page.goto('/settings/integrations')
-  await expect(page.getByRole('heading', { name: '외부 서비스', level: 2 })).toBeVisible()
-  await expect(page.getByTestId('integrations-empty')).toContainText('아직 연결한 서비스가 없어요')
+  await expect(page.getByRole('heading', { name: 'MCP', level: 2 })).toBeVisible()
+  await expect(page.getByTestId('integrations-empty')).toContainText('아직 연결한 MCP가 없어요')
 
   await page.getByTestId('integration-add').click()
   const dialog = page.getByRole('dialog')
@@ -215,8 +215,8 @@ test('an admin gives a team connection to a group and a person; a member sees it
   const errors = watchConsole(page)
   await signIn(page)
   await page.goto('/admin/integrations')
-  await expect(page.getByRole('heading', { name: '외부 서비스' }).first()).toBeVisible()
-  await expect(page.getByText('아직 팀 연결이 없어요')).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'MCP' }).first()).toBeVisible()
+  await expect(page.getByText('아직 팀 MCP 연결이 없어요')).toBeVisible()
   // what the page is for, and that an admin has to be among the people to use one in their own chats
   await expect(page.getByTestId('team-integrations-note')).toHaveText('회사 계정으로 서비스를 연결하고 쓸 사람을 정해요. 관리자도 사용할 사람에 들어 있어야 자기 대화에서 쓸 수 있어요.')
   await page.getByTestId('integration-add').click()

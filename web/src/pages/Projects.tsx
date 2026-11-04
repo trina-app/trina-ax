@@ -18,7 +18,7 @@ import { Markdown } from '../components/Markdown'
 import { DisclosureRow } from '../components/DisclosureRow'
 import { TitleMenu } from '../components/TitleMenu'
 import { NewChatComposer } from '../components/chat/NewChatComposer'
-import { Button, EmptyState, ErrorNote, Field, Modal, PageHeader, Skeleton, confirmDialog, inputCls } from '../components/ui'
+import { Button, EmptyState, ErrorNote, Field, Modal, PageHeader, Skeleton, StickyHeader, confirmDialog, inputCls } from '../components/ui'
 import { DevEnvRow } from './DevEnvSection'
 
 export function ProjectList() {
@@ -272,8 +272,9 @@ export function ProjectHome() {
   const sideAction = 'rounded-md px-1.5 py-1 text-muted hover:bg-hover hover:text-ink'
   return (
     <div className="flex h-full flex-col overflow-y-auto">
-      {/* like Claude's project page: where you are, with the few things you rarely do behind the name */}
-      <div className="flex h-12 shrink-0 items-center border-b border-line px-4 sm:px-6">
+      {/* like Claude's project page: where you are, with the few things you rarely do behind the name; it stays at the
+          top while the page scrolls */}
+      <StickyHeader bar className="flex h-12 shrink-0 items-center border-b border-line px-4 sm:px-6" testId="project-topline">
         <nav aria-label={t('files.breadcrumb')} className="flex min-w-0 items-center gap-1.5 text-sm">
           <Link to="/projects" className="shrink-0 text-muted hover:text-ink">
             {t('projects.title')}
@@ -297,7 +298,7 @@ export function ProjectHome() {
             </span>
           )}
         </nav>
-      </div>
+      </StickyHeader>
       <div className="mx-auto w-full max-w-[1080px] px-4 pt-8 pb-12 sm:px-6 sm:pt-10">
         <h1 className="text-[26px] font-semibold tracking-tight break-words sm:text-[30px]">{p.name}</h1>
         {summary && (
