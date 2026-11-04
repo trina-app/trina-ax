@@ -75,6 +75,10 @@ export function buildVectors() {
         // the hosting service's speech key, and taking it away
         { command: 'hosted-speech-key-set', args: {}, stdin: { key: 'sk-or-test-vector-not-a-key-0123456789' } },
         { command: 'hosted-speech-key-set', args: {}, stdin: { key: null } },
+        // the hosting service's trial AI credit, paused, and taken away
+        { command: 'hosted-chat-key-set', args: {}, stdin: { key: 'sk-ant-api03-test-vector-not-a-key-0123456789', capUsd: 10, endsAt: '2026-11-18T15:00:00Z', enabled: true } },
+        { command: 'hosted-chat-key-set', args: {}, stdin: { key: 'sk-ant-api03-test-vector-not-a-key-0123456789', capUsd: 12.5, endsAt: '2026-11-19T00:00:00+09:00', enabled: false } },
+        { command: 'hosted-chat-key-set', args: {}, stdin: { key: null } },
       ],
       refused: [
         { command: 'sh', args: {}, stdin: null, why: 'not a command' },
@@ -87,6 +91,12 @@ export function buildVectors() {
         { command: 'set-server-config', args: {}, stdin: { publicOrigins: ['http://evil.example'] }, why: 'http to another machine' },
         { command: 'hosted-speech-key-set', args: {}, stdin: { key: 'sk-or-short' }, why: 'not an OpenRouter key' },
         { command: 'hosted-speech-key-set', args: {}, stdin: { key: 'sk-or-test-vector-not-a-key-0123456789', extra: 1 }, why: 'unknown stdin field' },
+        { command: 'hosted-chat-key-set', args: {}, stdin: { key: 'sk-or-test-vector-not-a-key-0123456789', capUsd: 10, endsAt: '2026-11-18T15:00:00Z', enabled: true }, why: 'not a direct Anthropic key' },
+        { command: 'hosted-chat-key-set', args: {}, stdin: { key: 'sk-ant-oat01-test-vector-not-a-key-0123456789', capUsd: 10, endsAt: '2026-11-18T15:00:00Z', enabled: true }, why: 'a subscription token, not an API key' },
+        { command: 'hosted-chat-key-set', args: {}, stdin: { key: 'sk-ant-api03-test-vector-not-a-key-0123456789', capUsd: 10, endsAt: '2026-11-18T15:00:00Z' }, why: 'enabled missing' },
+        { command: 'hosted-chat-key-set', args: {}, stdin: { key: 'sk-ant-api03-test-vector-not-a-key-0123456789', capUsd: -1, endsAt: '2026-11-18T15:00:00Z', enabled: true }, why: 'negative cap' },
+        { command: 'hosted-chat-key-set', args: {}, stdin: { key: 'sk-ant-api03-test-vector-not-a-key-0123456789', capUsd: 10, endsAt: 'next week', enabled: true }, why: 'not a time' },
+        { command: 'hosted-chat-key-set', args: {}, stdin: { key: null, capUsd: 10 }, why: 'unknown field beside a null key' },
       ],
     },
     enroll: {
