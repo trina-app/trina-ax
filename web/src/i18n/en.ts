@@ -2750,6 +2750,7 @@ export const en: Record<MessageKey, string> = {
   "welcome.team.noPack": "There is no skill pack for this team yet. You can still do the company profile and a first result.",
   "welcome.team.packThere": "The marketing skill pack is already in.",
   "welcome.team.installed": "Added {n, plural, one {# marketing skill} other {# marketing skills}} and the team folders.",
+  "welcome.packBlocked": "The skill pack could not be added. Check the permissions of the team skills folder (skills).",
   "welcome.result.title": "Write three ads for your company",
   "welcome.result.desc": "The fields the company profile can fill are filled in. Change what you like and run it: the answer comes in a new chat.",
   "welcome.result.noAi": "A first result needs an AI.",

@@ -2710,6 +2710,7 @@ export const es: Record<MessageKey, string> = {
   "welcome.team.noPack": "Aún no hay un paquete de habilidades para este equipo. Igual puede hacer el perfil de la empresa y un primer resultado.",
   "welcome.team.packThere": "El paquete de habilidades de marketing ya está añadido.",
   "welcome.team.installed": "Se {n, plural, one {añadió # habilidad} other {añadieron # habilidades}} de marketing y las carpetas del equipo.",
+  "welcome.packBlocked": "No se pudo añadir el paquete de habilidades. Revise los permisos de la carpeta de habilidades del equipo (skills).",
   "welcome.result.title": "Escriba tres anuncios para su empresa",
   "welcome.result.desc": "Los campos que el perfil de la empresa puede completar ya están completos. Cambie lo que quiera y ejecútelo: la respuesta llega en un chat nuevo.",
   "welcome.result.noAi": "Un primer resultado necesita una IA.",

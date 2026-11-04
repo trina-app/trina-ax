@@ -1538,11 +1538,11 @@ export class MockServer {
     installWelcomePack: (c) => {
       const at = now()
       const p = (this.handlers.updateWelcome!({ ...c, body: {} }) as { progress: WelcomeProgress }).progress
-      if (p.pack) return { progress: p, install: null }
+      if (p.pack) return { progress: p, install: null, outcome: 'already' }
       for (const d of ['skills/marketing', 'skills/marketing/ad-copy']) this.files.set(d, this.files.get(d) ?? { type: 'folder', mtime: at })
       this.putFile(WELCOME_RESULT_SKILL, '---\nname: ad-copy\ndescription: 광고 문구 — 광고 문구 3안\n---\n# 광고 문구\n')
       p.pack = { id: 'marketing', at, skillPath: WELCOME_RESULT_SKILL }
-      return { progress: p, install: { pack: 'marketing', locale: this.settings.defaultLocale, skills: [{ name: 'ad-copy', path: WELCOME_RESULT_SKILL, status: 'created' }], folders: [] } }
+      return { progress: p, install: { pack: 'marketing', locale: this.settings.defaultLocale, skills: [{ name: 'ad-copy', path: WELCOME_RESULT_SKILL, status: 'created' }], folders: [] }, outcome: 'installed' }
     },
     // members as the server counts them (group_members): those the group lists and those whose groups name it
     listGroups:() => ({ items: this.groups.map((g) => ({ ...g, memberIds: [...new Set([...g.memberIds, ...this.users.filter((u) => u.groupIds.includes(g.id)).map((u) => u.id)])] })) }),

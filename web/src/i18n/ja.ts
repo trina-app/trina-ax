@@ -2710,6 +2710,7 @@ export const ja: Record<MessageKey, string> = {
   "welcome.team.noPack": "このチーム向けのスキルパックはまだありません。会社紹介と最初の成果はそのまま試せます。",
   "welcome.team.packThere": "マーケティングのスキルパックは追加済みです。",
   "welcome.team.installed": "マーケティングのスキル{n, plural, one {#個} other {#個}}とチームフォルダーを追加しました。",
+  "welcome.packBlocked": "スキルパックを追加できませんでした。チームスキルのフォルダー (skills) の権限を確認してください。",
   "welcome.result.title": "自社の広告文を3つ作ってみる",
   "welcome.result.desc": "会社紹介から埋められる欄は埋めてあります。直したいところだけ直して実行すると、新しいチャットに答えが出ます。",
   "welcome.result.noAi": "最初の成果を作るには AI が必要です。",

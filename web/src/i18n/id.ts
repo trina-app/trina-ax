@@ -2750,6 +2750,7 @@ export const id: Record<MessageKey, string> = {
   "welcome.team.noPack": "Belum ada paket skill untuk tim ini. Profil perusahaan dan hasil pertama tetap bisa dicoba.",
   "welcome.team.packThere": "Paket skill pemasaran sudah ditambahkan.",
   "welcome.team.installed": "{n} skill pemasaran dan folder tim sudah ditambahkan.",
+  "welcome.packBlocked": "Paket skill tidak bisa ditambahkan. Periksa izin folder skill tim (skills).",
   "welcome.result.title": "Buat tiga teks iklan untuk perusahaan Anda",
   "welcome.result.desc": "Kolom yang bisa diisi dari profil perusahaan sudah terisi. Ubah seperlunya lalu jalankan: jawabannya muncul di chat baru.",
   "welcome.result.noAi": "Hasil pertama memerlukan AI.",

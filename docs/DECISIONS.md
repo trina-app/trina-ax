@@ -7073,6 +7073,10 @@ one or two".
   and putting a step off does not undo it). The first-result chat must be one of the caller's own (404 otherwise).
   Finished = team, profile and result done and the invite done or put off; a first result brings back an invite put
   off before it (the bar on that chat asks again). The row is team data like other settings: restoring a backup brings the backup's copy.
+  The row is read field by field (review fix): a field that does not read (a later release changed it, a hand edit)
+  shows as its default, a write changes only its own fields and keeps the rest of the stored object (unknown fields
+  too), a recorded pack in any shape counts as installed, and a row that is not a JSON object makes writes answer 409
+  instead of starting over. Fields added later must be optional or defaulted.
 - **Where the steps open.** The first step without an answer; with none left, the first counted step that was put off
   ("나중에 하기" is now later). After a step: the next open one after it, else Home, so a step put off never comes
   straight back. A Back button goes to the previous step whatever its state.
@@ -7080,6 +7084,10 @@ one or two".
   which runs `installSkillPack` only when the row has no pack yet and records it in the same synchronous step: a second
   choice, a resume, a second window or two requests at once install nothing (installing again would restore skills
   someone deleted on purpose; C's note). The page also does not call it when the copy it has says installed. The
+  answer says `installed`, `already` or `blocked` (review fixes): when the team already has skills under
+  `skills/marketing/` (installed from the Skills page) the pack is recorded without installing, so a skill deleted
+  there stays deleted; when the folder rules (or something in the way) kept the ad copy out, nothing is recorded and
+  the steps say "스킬 묶음을 넣지 못했어요" instead of opening a form for a skill that is not there. The
   Skills page's own button (C) is unchanged and still installs on a click. 영업 / 경영지원 / 기타 have no pack: the cards
   and a note say a pack for them is being prepared, and the steps go on; their step 3 offers the marketing pack's ad
   copy with a button that installs it (once, on that click), never by itself.

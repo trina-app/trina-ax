@@ -40,6 +40,7 @@ const PACK = { id: 'marketing' as const, at: '2026-11-04T00:00:00.000Z', skillPa
 let progress: WelcomeProgress | null = null
 let ai = { usable: true, action: 'connect_team', requested: false }
 let calls: { key: string; body: unknown }[] = []
+let packStatus: 'created' | 'blocked' = 'created'
 function apply(u: WelcomeUpdate): WelcomeProgress {
   const p = progress ?? fresh()
   if (u.teamType) p.teamType = u.teamType
@@ -58,9 +59,12 @@ const routes: Record<string, (body: any) => Response> = {
   'PATCH /api/onboarding/welcome': (b) => json(200, { progress: apply(b) }),
   'POST /api/onboarding/welcome/pack': () => {
     const p = apply({})
-    if (p.pack) return json(200, { progress: p, install: null })
+    if (p.pack) return json(200, { progress: p, install: null, outcome: 'already' })
+    const install = { pack: 'marketing', locale: 'ko', skills: [{ name: 'ad-copy', path: WELCOME_RESULT_SKILL, status: packStatus }, { name: 'seo-brief', path: 'skills/marketing/seo-brief/SKILL.md', status: packStatus }], folders: [] }
+    // folder rules kept the first-result skill out: nothing recorded
+    if (packStatus === 'blocked') return json(200, { progress: p, install, outcome: 'blocked' })
     progress = { ...p, pack: PACK }
-    return json(200, { progress, install: { pack: 'marketing', locale: 'ko', skills: [{ name: 'ad-copy', path: WELCOME_RESULT_SKILL, status: 'created' }, { name: 'seo-brief', path: 'skills/marketing/seo-brief/SKILL.md', status: 'created' }], folders: [] } })
+    return json(200, { progress, install, outcome: 'installed' })
   },
   'GET /api/me/ai-access': () => json(200, ai),
   'GET /api/onboarding/profile': () => json(200, { profile: null }),
@@ -95,6 +99,7 @@ afterEach(() => {
   progress = null
   ai = { usable: true, action: 'connect_team', requested: false }
   calls = []
+  packStatus = 'created'
   useWelcome.getState().reset()
   useAiAccess.getState().reset()
   sessionStorage.clear()
@@ -268,6 +273,21 @@ describe('/welcome', () => {
       expect(progress!.steps.result).toBe('skipped')
       // no result yet: E's own words, but people who join still land on the ad copy
       expect(m.html()).toContain(translate('ko', 'teamLink.stepTitle'))
+    } finally { await m.unmount() }
+  })
+
+  test('the pack blocked by folder rules: the steps say so and stay; nothing is recorded', async () => {
+    signIn('owner')
+    packStatus = 'blocked'
+    const m = await app()
+    try {
+      await m.until(() => m.find('welcome-team'), 'step 1')
+      await m.click('welcome-team-marketing')
+      await m.click('welcome-next')
+      await m.until(() => m.html().includes(translate('ko', 'welcome.packBlocked')), 'the message')
+      expect(stepOf(m)).toBe('team')
+      expect(progress!.pack).toBeNull()
+      expect(progress!.steps.team).toBeNull()
     } finally { await m.unmount() }
   })
 

@@ -26,6 +26,8 @@ export const TEAM_TYPE_PACK: Partial<Record<TeamType, SkillPackId>> = { marketin
 /** The first-result skill: the marketing pack's ad copy ("우리 회사 광고 문구 3개"). */
 export const WELCOME_RESULT_SKILL = 'skills/marketing/ad-copy/SKILL.md'
 
+/** A field added later must be optional or have a default: the server reads the stored row field by field (a field
+ * that does not read falls back to its default; a recorded pack always counts as installed). */
 export const WelcomeProgress = z.object({
   startedAt: z.string(),
   updatedAt: z.string(),
@@ -64,8 +66,12 @@ export type WelcomeUpdate = z.infer<typeof WelcomeUpdate>
 
 export const WelcomePackResult = z.object({
   progress: WelcomeProgress,
-  /** what the install did; null when these steps had installed the pack before (nothing ran now) */
+  /** what the install did; null when nothing ran now */
   install: SkillPackInstallResult.nullable(),
+  /** installed: it ran now and is recorded · already: recorded before, or the team already had the pack's skills
+   * (recorded now without installing, so nothing deleted on purpose comes back) · blocked: it ran but the
+   * first-result skill could not be written (folder rules): nothing recorded */
+  outcome: z.enum(['installed', 'already', 'blocked']),
 })
 export type WelcomePackResult = z.infer<typeof WelcomePackResult>
 
@@ -75,5 +81,5 @@ export const WELCOME = {
   updateWelcome: endpoint({ method: 'PATCH', path: '/api/onboarding/welcome', auth: 'owner', owner: 'B', body: WelcomeUpdate, response: WelcomeState,
     summary: 'Record a welcome step (owner): start, the team type, a step done or skipped, the first-result chat, the invite shown, hide the Home entry.' }),
   installWelcomePack: endpoint({ method: 'POST', path: '/api/onboarding/welcome/pack', auth: 'owner', owner: 'B', response: WelcomePackResult,
-    summary: 'Install the marketing skill pack for the welcome steps, once: when these steps installed it before, nothing runs again.' }),
+    summary: 'Install the marketing skill pack for the welcome steps, once: nothing runs when these steps installed it before or the team already has its skills.' }),
 } as const

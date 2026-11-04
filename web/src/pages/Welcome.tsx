@@ -8,7 +8,7 @@ import clsx from 'clsx'
 import { ArrowLeft, Briefcase, Handshake, Megaphone, Shapes } from 'lucide-react'
 import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { Navigate, useNavigate } from 'react-router-dom'
-import { TEAM_TYPE_PACK, TEAM_TYPES, WELCOME_COUNTED, WELCOME_STEPS, type CompanyProfile, type SkillPackInstallResult, type TeamType, type WelcomeProgress, type WelcomeStep, type WelcomeStepState } from '@mycel/shared/api'
+import { TEAM_TYPE_PACK, TEAM_TYPES, WELCOME_COUNTED, WELCOME_STEPS, type CompanyProfile, type TeamType, type WelcomeProgress, type WelcomeStep, type WelcomeStepState } from '@mycel/shared/api'
 import { api, API, errorText } from '../lib/api'
 import { setupSite } from '../lib/setupLink'
 import { nextStep, prevStep, resumeStep } from '../lib/welcome'
@@ -33,8 +33,14 @@ export default function Welcome() {
 const TEAM_ICON = { marketing: Megaphone, sales: Handshake, operations: Briefcase, other: Shapes } as const
 const STEP_LABEL: Record<(typeof WELCOME_COUNTED)[number], MessageKey> = { team: 'welcome.progress.team', profile: 'welcome.progress.profile', result: 'welcome.progress.result' }
 
-/** "마케팅 스킬 7개와 팀 폴더를 넣었어요" */
-const installedText = (t: ReturnType<typeof useT>, r: SkillPackInstallResult) => t('welcome.team.installed', { n: r.skills.filter((s) => s.status !== 'blocked').length })
+/** Install the pack and say what happened: "마케팅 스킬 7개와 팀 폴더를 넣었어요"; nothing when it was there already; an
+ * error when the folder rules kept the first-result skill out (nothing is recorded then). */
+async function installPack(t: ReturnType<typeof useT>): Promise<boolean> {
+  const r = await useWelcome.getState().installPack()
+  if (r.outcome === 'blocked') throw new Error(t('welcome.packBlocked'))
+  if (r.install) toast({ level: 'success', text: t('welcome.team.installed', { n: r.install.skills.filter((s) => s.status !== 'blocked').length }) })
+  return true
+}
 
 function WelcomeSteps() {
   const t = useT()
@@ -88,16 +94,10 @@ function WelcomeSteps() {
   const chooseTeam = (type: TeamType) => run(async () => {
     const w = useWelcome.getState()
     // the pack once: these steps never install it again by themselves (the server keeps that record as well)
-    if (TEAM_TYPE_PACK[type] && !w.progress?.pack) {
-      const r = await w.installPack()
-      if (r) toast({ level: 'success', text: installedText(t, r) })
-    }
+    if (TEAM_TYPE_PACK[type] && !w.progress?.pack) await installPack(t)
     go(await w.update({ teamType: type, step: { id: 'team', state: 'done' } }), 'team')
   })
-  const installForResult = () => run(async () => {
-    const r = await useWelcome.getState().installPack()
-    if (r) toast({ level: 'success', text: installedText(t, r) })
-  })
+  const installForResult = () => run(async () => { await installPack(t) })
   const ran = (chatId: string) => run(async () => {
     // the chat opens either way; without the record it only lacks the invite bar
     await useWelcome.getState().update({ step: { id: 'result', state: 'done' }, resultChatId: chatId }).catch(() => {})

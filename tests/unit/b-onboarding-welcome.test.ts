@@ -6,7 +6,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { addMember, harness, withOwner, type Harness } from './a-lib'
 import { WELCOME_SETTING } from '../../server/src/onboarding/welcome'
-import { getSetting } from '../../server/src/admin/settings'
+import { getSetting, setSetting } from '../../server/src/admin/settings'
 import { WELCOME_RESULT_SKILL, WelcomeProgress } from '@mycel/shared/api'
 
 let h: Harness
@@ -25,6 +25,7 @@ const chatOf = (userId: string) => {
   h.ctx.db.query('INSERT INTO chats (id, user_id) VALUES (?, ?)').run(id, userId)
   return id
 }
+const readPack = () => (getSetting<any>(h.ctx.db, WELCOME_SETTING) ?? {}).pack ?? null
 const installs = () => (h.ctx.db.query("SELECT COUNT(*) AS n FROM audit_log WHERE action = 'onboarding.pack_install'").get() as { n: number }).n
 
 test('nothing until the steps start; then each step is kept on the server and read back on any device', async () => {
@@ -94,6 +95,7 @@ test('done stays done, the first result must be the owner\'s own chat and brings
 test('the pack is installed once: a second choice, a resume or another window does not install again', async () => {
   const { owner, root } = await setup()
   const first = await owner.call('POST', '/api/onboarding/welcome/pack')
+  expect(first.outcome).toBe('installed')
   expect(first.install.pack).toBe('marketing')
   expect(first.install.skills.find((s: any) => s.name === 'ad-copy')).toEqual({ name: 'ad-copy', path: WELCOME_RESULT_SKILL, status: 'created' })
   expect(first.progress.pack).toMatchObject({ id: 'marketing', skillPath: WELCOME_RESULT_SKILL })
@@ -103,6 +105,7 @@ test('the pack is installed once: a second choice, a resume or another window do
   // someone deletes a pack skill on purpose; the steps run again (same choice, another device): nothing comes back
   fs.rmSync(path.join(root, 'skills/marketing/seo-brief'), { recursive: true })
   const second = await owner.call('POST', '/api/onboarding/welcome/pack')
+  expect(second.outcome).toBe('already')
   expect(second.install).toBeNull()
   expect(second.progress.pack).toEqual(first.progress.pack)
   const [a, b] = await Promise.all([owner.call('POST', '/api/onboarding/welcome/pack'), owner.call('POST', '/api/onboarding/welcome/pack')])
@@ -121,4 +124,72 @@ test('when another team skill already has the name, the first result points at t
   const r = await owner.call('POST', '/api/onboarding/welcome/pack')
   expect(r.install.skills.find((s: any) => s.name === 'ad-copy')).toMatchObject({ status: 'blocked', sameNameAs: 'skills/ours/ad-copy/SKILL.md' })
   expect(r.progress.pack.skillPath).toBe('skills/ours/ad-copy/SKILL.md')
+})
+
+test('a stored row a later release changed: read field by field, the pack never reset, nothing installed again', async () => {
+  const { owner, ada } = await setup()
+  // a step this release does not know, a pack in another shape, a field it never heard of
+  setSetting(h.ctx.db, WELCOME_SETTING, {
+    startedAt: '2026-11-04T00:00:00.000Z', updatedAt: '2026-11-04T00:00:00.000Z', teamType: 'marketing',
+    steps: { team: 'done', profile: 'later', result: null, invite: null, goal: 'done' },
+    pack: { id: 'marketing', version: 2, installedAt: '2026-11-04T00:00:00.000Z' }, goal: { people: 3 },
+  })
+  const read = (await ada.client.call('GET', '/api/onboarding/welcome')).progress
+  expect(read.steps).toEqual({ team: 'done', profile: null, result: null, invite: null })
+  expect(read.pack).toEqual({ id: 'marketing', at: '', skillPath: WELCOME_RESULT_SKILL })
+  expect(read.site).toBeNull()
+
+  // a write changes only its own field and keeps the rest of the row as it was
+  await owner.call('PATCH', '/api/onboarding/welcome', { step: { id: 'profile', state: 'done' } })
+  const row = getSetting<any>(h.ctx.db, WELCOME_SETTING)
+  expect(row.pack).toEqual({ id: 'marketing', version: 2, installedAt: '2026-11-04T00:00:00.000Z' })
+  expect(row.goal).toEqual({ people: 3 })
+  expect(row.steps).toEqual({ team: 'done', profile: 'done', result: null, invite: null, goal: 'done' })
+  // the pack counts as installed: nothing runs
+  const again = await owner.call('POST', '/api/onboarding/welcome/pack')
+  expect(again.outcome).toBe('already')
+  expect(installs()).toBe(0)
+  expect(getSetting<any>(h.ctx.db, WELCOME_SETTING).pack).toEqual(row.pack)
+})
+
+test('a stored row that is not an object: shown as none, and writes refuse instead of starting over', async () => {
+  const { owner } = await setup()
+  for (const bad of ['not json', '"text"', '[1,2]']) {
+    h.ctx.db.query('INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value').run(WELCOME_SETTING, bad)
+    expect((await owner.call('GET', '/api/onboarding/welcome')).progress).toBeNull()
+    expect((await owner.try('PATCH', '/api/onboarding/welcome', {})).status).toBe(409)
+    expect((await owner.try('POST', '/api/onboarding/welcome/pack')).status).toBe(409)
+    expect((h.ctx.db.query('SELECT value FROM settings WHERE key = ?').get(WELCOME_SETTING) as { value: string }).value).toBe(bad)
+  }
+  expect(installs()).toBe(0)
+})
+
+test('the first-result skill blocked by what is in the way: nothing recorded, the answer says blocked', async () => {
+  const { owner, root } = await setup()
+  // a file where the pack's folder goes: every pack skill is blocked
+  fs.writeFileSync(path.join(root, 'skills/marketing'), 'not a folder')
+  const r = await owner.call('POST', '/api/onboarding/welcome/pack')
+  expect(r.outcome).toBe('blocked')
+  expect(r.install.skills.every((s: any) => s.status === 'blocked')).toBe(true)
+  expect(r.progress.pack).toBeNull()
+  expect(readPack()).toBeNull()
+  // once the way is clear, the next choice installs (nothing was recorded)
+  fs.rmSync(path.join(root, 'skills/marketing'))
+  const ok = await owner.call('POST', '/api/onboarding/welcome/pack')
+  expect(ok.outcome).toBe('installed')
+  expect(ok.progress.pack.skillPath).toBe(WELCOME_RESULT_SKILL)
+})
+
+test('the pack already installed from the Skills page: recorded without installing, a deleted skill stays deleted', async () => {
+  const { owner, root } = await setup()
+  expect((await owner.call('POST', '/api/onboarding/packs/marketing/install')).skills.length).toBe(7)
+  fs.rmSync(path.join(root, 'skills/marketing/seo-brief'), { recursive: true })
+  expect((await owner.call('GET', '/api/onboarding/welcome')).progress).toBeNull()
+
+  const r = await owner.call('POST', '/api/onboarding/welcome/pack')
+  expect(r.outcome).toBe('already')
+  expect(r.install).toBeNull()
+  expect(r.progress.pack).toMatchObject({ id: 'marketing', skillPath: WELCOME_RESULT_SKILL })
+  expect(installs()).toBe(1) // the Skills page's own
+  expect(fs.existsSync(path.join(root, 'skills/marketing/seo-brief'))).toBe(false)
 })

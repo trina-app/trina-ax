@@ -398,4 +398,4 @@ The API serves the Trina AX apps. It is not yet a stable public API for other pr
 |---|---|---|---|
 | `GET` | `/api/onboarding/welcome` | Admin | Where the welcome steps stopped (owners and admins read it): which steps are done or skipped, the pack they installed, the first-result chat. |
 | `PATCH` | `/api/onboarding/welcome` | Owner | Record a welcome step (owner): start, the team type, a step done or skipped, the first-result chat, the invite shown, hide the Home entry. |
-| `POST` | `/api/onboarding/welcome/pack` | Owner | Install the marketing skill pack for the welcome steps, once: when these steps installed it before, nothing runs again. |
+| `POST` | `/api/onboarding/welcome/pack` | Owner | Install the marketing skill pack for the welcome steps, once: nothing runs when these steps installed it before or the team already has its skills. |

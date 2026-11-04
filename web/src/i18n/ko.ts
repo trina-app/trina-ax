@@ -2749,6 +2749,7 @@ export const ko = {
   "welcome.team.noPack": "이 팀에 맞는 스킬 묶음은 아직 없어요. 회사 소개와 첫 결과는 그대로 해 볼 수 있어요.",
   "welcome.team.packThere": "마케팅 스킬 묶음은 이미 넣어 두었어요.",
   "welcome.team.installed": "마케팅 스킬 {n}개와 팀 폴더를 넣었어요.",
+  "welcome.packBlocked": "스킬 묶음을 넣지 못했어요. 팀 스킬 폴더(skills)의 권한을 확인해 주세요.",
   "welcome.result.title": "우리 회사 광고 문구 3개 만들어 보기",
   "welcome.result.desc": "회사 소개로 채울 수 있는 칸은 채워 두었어요. 고칠 곳만 고치고 실행하면 새 채팅에 답이 나와요.",
   "welcome.result.noAi": "첫 결과를 만들려면 AI가 필요해요.",
