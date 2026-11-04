@@ -2606,4 +2606,5 @@ export const en: Record<MessageKey, string> = {
   "pdfView.zoomLevel": "{n}%",
   "pdfView.fitWidth": "Fit to width",
   "pdfView.cantOpen": "This PDF can't be shown. The file may be damaged. Download it to open it.",
+  "chatux.waitingForYou": "Waiting for you. See the card below.",
 }

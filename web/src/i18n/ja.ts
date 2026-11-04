@@ -2566,4 +2566,5 @@ export const ja: Record<MessageKey, string> = {
   "pdfView.zoomLevel": "{n}%",
   "pdfView.fitWidth": "幅に合わせる",
   "pdfView.cantOpen": "このPDFはプレビューできません。ファイルが壊れている可能性があります。ダウンロードして開いてください。",
+  "chatux.waitingForYou": "あなたを待っています。下のカードを確認してください。",
 }

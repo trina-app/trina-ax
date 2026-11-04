@@ -330,7 +330,7 @@ export const ko = {
   'chat.reply': '답장하기',
   "outbox.label": "보낼 메시지",
   "outbox.placeholder": "다음 메시지를 입력하세요. 답이 끝나면 보내요",
-  "outbox.placeholderChoice": "먼저 위에서 골라 주세요. 지금 입력한 메시지는 답이 끝나면 보내요",
+  "outbox.placeholderChoice": "먼저 위에서 골라 주세요. 쓴 글은 답 뒤에 보내요",
   "outbox.sendLater": "답이 끝나면 보내기",
   "outbox.waitingOne": "답이 끝나면 보낼게요.",
   "outbox.waitingMany": "답이 끝나면 {n}개를 한 메시지로 함께 보낼게요.",
@@ -2605,6 +2605,7 @@ export const ko = {
   "pdfView.zoomLevel": "{n}%",
   "pdfView.fitWidth": "너비에 맞추기",
   "pdfView.cantOpen": "이 PDF를 미리 볼 수 없어요. 파일이 손상되었을 수 있어요. 다운로드해서 열어 보세요.",
+  "chatux.waitingForYou": "답을 기다려요. 아래 카드를 확인해 주세요.",
 } as const
 
 export type MessageKey = keyof typeof ko

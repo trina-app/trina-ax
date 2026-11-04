@@ -2606,4 +2606,5 @@ export const id: Record<MessageKey, string> = {
   "pdfView.zoomLevel": "{n}%",
   "pdfView.fitWidth": "Sesuaikan lebar",
   "pdfView.cantOpen": "PDF ini tidak bisa ditampilkan. File mungkin rusak. Unduh file untuk membukanya.",
+  "chatux.waitingForYou": "Menunggu Anda. Lihat kartu di bawah.",
 }

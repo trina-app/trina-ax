@@ -2566,4 +2566,5 @@ export const es: Record<MessageKey, string> = {
   "pdfView.zoomLevel": "{n}%",
   "pdfView.fitWidth": "Ajustar al ancho",
   "pdfView.cantOpen": "No se puede mostrar este PDF. Puede que el archivo esté dañado. Descárguelo para abrirlo.",
+  "chatux.waitingForYou": "Esperando su respuesta. Vea la tarjeta de abajo.",
 }
