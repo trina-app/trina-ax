@@ -9,11 +9,13 @@ import { makeHandler } from '../../server/src/mcp/protocol'
 import { employmentForm, hwpxDoc, para, purchaseForm } from '../lib/hwpx'
 import { hwpEmploymentForm, hwpPurchaseForm, hwpStreams, paragraphs } from '../lib/hwp'
 import { makeCApp, sha256hex, type CApp, type Person } from '../lib/c-app'
+import { hwpPluginOn } from '../lib/hwp-plugin'
 
 setDefaultTimeout(60_000)
 
 let A: CApp
-beforeAll(async () => { A = await makeCApp('c-edit-hwpx') })
+// filling Hangul documents comes with the HWP plugin: on here (off: plugins-hwp-writing.test.ts)
+beforeAll(async () => { A = await makeCApp('c-edit-hwpx'); hwpPluginOn(A.ctx) })
 afterAll(async () => { await A.close() })
 
 const file = (rel: string) => path.join(A.team, ...rel.split('/'))

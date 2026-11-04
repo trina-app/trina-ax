@@ -1,10 +1,11 @@
 // The non-file engine tools of component C, registered into the MCP tool registry of this server instance:
-// make_file, edit_hwp (tools/edit-hwp.ts), share_file, artifact, web_fetch (design tab 3 "도구 목록"), save_url (tools/save-url.ts), and move_files / copy_files / rename_file
+// make_file, edit_hwp (tools/edit-hwp.ts; Hangul writing only while the HWP plugin is on, tools/hwp-writing.ts), share_file, artifact, web_fetch (design tab 3 "도구 목록"), save_url (tools/save-url.ts), and move_files / copy_files / rename_file
 // (tools/file-moves.ts). Inputs are the shared contracts
 // (shared/src/tools.ts); the engine sees mcp__team__<name>.
 import { registerHwpRender } from './hwp-render'
 import { ArtifactInput, EditHwpInput, MakeFileInput, SaveUrlInput, ShareFileInput, WebFetchInput } from '@mycel/shared'
 import { editHwpFile, editHwpFileText } from './edit-hwp'
+import { hwpWritingOffTextFor, hwpWritingOn, MakeFileInputWithoutHwpx, writesHangul } from './hwp-writing'
 import { fileShareUrl } from '@mycel/shared/api'
 import type { AppContext } from '../context'
 import type { ToolCtx } from '../files/service'
@@ -45,10 +46,14 @@ export function registerCTools(ctx: AppContext, o: { fetch?: FetchOptions; saveU
   // with the turn's file-tool context (same input checks, error mapping and audit summary as the MCP path)
   const turnTools = (ctx.services.turnTools ??= [])
   const exposeToTurns = (name: string) => {
-    const entry = reg.describeTool(name)!
     turnTools.push({
-      name, description: entry.description, inputSchema: entry.inputSchema,
-      // a tool that is not offered now (hwp_render without a usable HWP plugin) is left out of the turn's list
+      name,
+      // read when a turn starts: what the AI is shown can follow the server's state (make_file without .hwpx while
+      // Hangul writing is off, tools/hwp-writing.ts)
+      get description() { return reg.describeTool(name)!.description },
+      get inputSchema() { return reg.describeTool(name)!.inputSchema },
+      // a tool that is not offered now (hwp_render without a usable HWP plugin, edit_hwp without the HWP plugin on) is
+      // left out of the turn's list
       available: () => reg.available(name),
       async call(args, t) {
         const r = await reg.call(name, args, t.files)
@@ -57,27 +62,34 @@ export function registerCTools(ctx: AppContext, o: { fetch?: FetchOptions; saveU
     })
   }
 
-  reg.register({
-    name: 'make_file',
-    description: 'Create a Word (.docx), PowerPoint (.pptx), Excel (.xlsx), PDF or Hangul (.hwpx) file in the team folder from Markdown or CSV. ' +
+  // make_file's description; the Hangul parts only while Hangul writing is on (tools/hwp-writing.ts)
+  const makeFileDescription = (hangul: boolean) =>
+    `Create a Word (.docx), PowerPoint (.pptx), Excel (.xlsx)${hangul ? ', PDF or Hangul (.hwpx)' : ' or PDF'} file in the team folder from Markdown or CSV. ` +
       'Give exactly one of `source` (a .md/.csv file in the team folder) or `content` (Markdown; for xlsx also CSV). For xlsx every Markdown ' +
       'pipe table becomes a sheet. xlsx formulas: a data cell that starts with "=" is written as a formula, e.g. "=SUM(B2:E2)"; start it ' +
       'with "\'=" for literal text. Row 1 is the header, data starts at row 2, columns are A, B, ... in table order; a sheet is named ' +
       'after the heading above its table (max 31 characters, \\ / ? * [ ] : removed), e.g. "=Q3!B2" or "=\'Q3 sales\'!B2". Formulas may ' +
       'use only cells of this workbook (no other files, DDE, HYPERLINK, WEBSERVICE, INDIRECT). The file stores no results: Excel or ' +
       'LibreOffice calculate them when the file opens, so do not state computed values as read from the file. ' +
-      'Images must be team-folder files referenced by relative path. If `output` exists and you did not read it in this turn, a conflict copy is saved next to it instead. `template`: a .docx/.pptx/.hwpx under skills/ for styles. ' +
-      'hwpx (Hangul): # to ###### headings become Hangul outline levels 1-6; also paragraphs, **bold**, *italic*, bullet and numbered lists (up to 6 levels), ' +
-      'simple tables (no merged cells, plain text in cells) and page breaks (a line with only \\newpage). Nothing else: images, links, footnotes, code, ' +
-      'block quotes, horizontal rules, HTML, math and YAML metadata are refused and nothing is saved, so write those as plain text (a link as "text (address)"). ' +
-      'With a team template whose outline numbers its headings, leave the numbers out of the headings. A .hwp cannot be written. To change an existing .hwp or .hwpx (fill in a form), use edit_hwp. ' +
+      `Images must be team-folder files referenced by relative path. If \`output\` exists and you did not read it in this turn, a conflict copy is saved next to it instead. \`template\`: a ${hangul ? '.docx/.pptx/.hwpx' : '.docx/.pptx'} under skills/ for styles. ` +
+      (hangul ? 'hwpx (Hangul): # to ###### headings become Hangul outline levels 1-6; also paragraphs, **bold**, *italic*, bullet and numbered lists (up to 6 levels), ' +
+        'simple tables (no merged cells, plain text in cells) and page breaks (a line with only \\newpage). Nothing else: images, links, footnotes, code, ' +
+        'block quotes, horizontal rules, HTML, math and YAML metadata are refused and nothing is saved, so write those as plain text (a link as "text (address)"). ' +
+        'With a team template whose outline numbers its headings, leave the numbers out of the headings. A .hwp cannot be written. To change an existing .hwp or .hwpx (fill in a form), use edit_hwp. ' : '') +
       'pptx: ' + PPTX_FORMAT_HINT + ' When the user names a slide count, give `expected_slides` (and `expected_notes` for speaker notes); ' +
       'the result states the real slide and notes counts: report those, never other numbers. ' +
       'When safe operations are enabled, PPTX uses only the bundled reference: uploaded templates are deferred. ' +
-      'Limits: 30 slides, 20 PNG/JPEG/WebP/HEIC images, 100,000 text characters. expected_layouts checks the bundled layout for each slide.',
+      'Limits: 30 slides, 20 PNG/JPEG/WebP/HEIC images, 100,000 text characters. expected_layouts checks the bundled layout for each slide.'
+  const withoutHangul = { description: makeFileDescription(false), input: MakeFileInputWithoutHwpx }
+  reg.register({
+    name: 'make_file',
+    description: makeFileDescription(true),
     input: MakeFileInput,
+    listing: () => (hwpWritingOn(ctx) ? null : withoutHangul),
     describe: (a) => `make_file ${a.format} -> ${a.output}`,
     async run(a, t) {
+      // a Hangul document while the HWP plugin is off (an engine that kept an older list): refused before any work
+      if (writesHangul('make_file', a) && !hwpWritingOn(ctx)) throw new ToolError(hwpWritingOffTextFor(ctx.db, t.user.id), 'hwp_writing_off')
       const r = await c.makeFile.run(t, a)
       const saved = r.conflictCopyOf
         ? `'${r.conflictCopyOf}' already exists and was not read in this turn, so the new file was saved as '${r.path}' (${human(r.size)}). Tell the user about both.`
@@ -104,6 +116,9 @@ export function registerCTools(ctx: AppContext, o: { fetch?: FetchOptions; saveU
       'same file (the previous one stays in its history); with `output` a new file of the same format. ' +
       'To write a new document, use make_file. write and edit cannot change .hwp or .hwpx files.',
     input: EditHwpInput,
+    // only while the HWP plugin is installed and on for the company (tools/hwp-writing.ts); otherwise not listed, and a
+    // call is refused as unknown, as for hwp_render
+    available: () => hwpWritingOn(ctx),
     describe: (a) => `edit_hwp ${a.file_path}${a.output ? ` -> ${a.output}` : ''} (${a.changes.length} changes)`,
     async run(a, t) {
       const r = await editHwpFile(ctx, c.files, t, a)

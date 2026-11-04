@@ -11,13 +11,15 @@ import { defaultHeaderXml } from '../../server/src/files/hwpx-template'
 import { makeHandler } from '../../server/src/mcp/protocol'
 import { hwpxParts, hwpxTemplate } from '../lib/hwpx'
 import { makeCApp, type CApp } from '../lib/c-app'
+import { hwpPluginOn } from '../lib/hwp-plugin'
 
 setDefaultTimeout(60_000)
 const pandoc = which('pandoc')
 const tools = { pandoc, pdftotext: null }
 
 let A: CApp
-beforeAll(async () => { A = await makeCApp('c-make-file-hwpx') })
+// writing Hangul documents comes with the HWP plugin: on here (off: plugins-hwp-writing.test.ts)
+beforeAll(async () => { A = await makeCApp('c-make-file-hwpx'); hwpPluginOn(A.ctx) })
 afterAll(async () => { await A.close() })
 
 let rpcId = 0

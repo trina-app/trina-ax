@@ -126,7 +126,7 @@ Self-hosting is not offline: the context a request needs goes to the AI provider
 - No security certification, perfect answers, guaranteed savings or automatic legal, financial or HR decisions. Review outputs and deployment boundaries.
 - The AI sees photos and scanned PDF pages as images (an admin can turn this off), but Linux servers run no OCR: scanned documents and photos are not text-searchable there.
 - On Linux servers the AI also reads video and audio files: evenly spaced frames go to the AI provider like images, and the sound is turned into text by the team's speech provider only when an admin allows it ("Turn video sound into text"). With OpenRouter as the provider, the sound of team files goes to OpenRouter and its provider; confidential chats never send it. Office Macs cannot read video yet.
-- HWP/HWPX text extraction is available. [Visual previews](resources/hwp/README.md) come as the optional HWP Preview plugin, which needs macOS or Linux with glibc 2.39 or newer, so Debian 12 does **not** support them.
+- HWP/HWPX text extraction is available to every team. [Visual previews](resources/hwp/README.md), and the AI making and filling in Hangul documents, come with the optional HWP Preview plugin, which needs macOS or Linux with glibc 2.39 or newer, so Debian 12 does **not** support them.
 - In managed installations, eligible personal connections take priority, followed by connections assigned to a person, a group, then the whole team. On fresh Trina teams, one company connection can serve the whole team by default; existing saved choices persist. Connection-level consent still applies. **This software setting does not grant permission under Anthropic's or OpenAI's terms.** The local demo disables AI; development and office local-login modes have different connection behavior. [Connection details](docs/FAQ.md)
 
 </details>
@@ -157,7 +157,7 @@ Self-hosting is not offline: the context a request needs goes to the AI provider
 <details>
 <summary><b>Does it work with Korean HWP files?</b></summary>
 
-<br>Yes for text: the AI can read text from HWP/HWPX files, it can make new .hwpx documents (headings, paragraphs, lists, simple tables), and it can fill in an existing .hwp or .hwpx form (placeholders, empty cells, table rows) and save it in the same format, keeping the rest of the file as it was. Visual previews need the optional plugin, which does not run on Debian 12. More in the [FAQ](docs/FAQ.md).
+<br>Yes. The AI reads the text of HWP/HWPX files on every server. With the optional HWP Preview plugin turned on, it also makes new .hwpx documents (headings, paragraphs, lists, simple tables), fills in an existing .hwp or .hwpx form (placeholders, empty cells, table rows) and saves it in the same format, keeping the rest of the file as it was, and shows visual previews. The plugin does not run on Debian 12. More in the [FAQ](docs/FAQ.md).
 
 </details>
 

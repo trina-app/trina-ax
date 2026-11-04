@@ -12,12 +12,14 @@ import { cellValue, formulaOf, markdownTables, parseCsv } from '../../server/src
 import { toolRegistry } from '../../server/src/tools/registry'
 import { which } from '../../server/src/config'
 import { makeCApp, type CApp, type Person } from '../lib/c-app'
+import { hwpPluginOn } from '../lib/hwp-plugin'
 
 // make_file runs pandoc / typst / the xlsx writer in child processes: seconds on a busy machine
 setDefaultTimeout(30_000)
 
 let A: CApp
-beforeAll(async () => { A = await makeCApp('c-tools') })
+// Hangul writing (edit_hwp, make_file .hwpx) on: it comes with the HWP plugin (off: plugins-hwp-writing.test.ts)
+beforeAll(async () => { A = await makeCApp('c-tools'); hwpPluginOn(A.ctx) })
 afterAll(async () => { await A.close() })
 
 let rpcId = 0

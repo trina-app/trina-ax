@@ -10,6 +10,7 @@ import { ask, startHarness, type Harness, type TestSocket } from '../lib/b-harne
 import { waitFor } from '../lib/wait'
 import { FakeServices, MCP_KEY } from '../lib/fake-services'
 import { integrationsOf } from '../../server/src/integrations/connections/service'
+import { hwpPluginOn, setHwpPlugin } from '../lib/hwp-plugin'
 
 setDefaultTimeout(30_000)
 const fake = (...ds: unknown[]) => ds.map((d) => '@fake ' + JSON.stringify(d)).join('\n')
@@ -18,6 +19,8 @@ let h: Harness
 let alice: TestSocket
 beforeAll(async () => {
   h = await startHarness({ name: 'i-wiring', askUserTimeoutMs: 3000, turnTimeoutMs: 60_000 })
+  // edit_hwp and make_file .hwpx come with the HWP plugin (tools/hwp-writing.ts): on, but where a test turns it off
+  hwpPluginOn(h.ctx)
   alice = await h.ws('alice', { windowId: 'win-i-main' })
   await alice.next('hello')
 })
@@ -28,6 +31,38 @@ describe('B turns use C tools', () => {
     const chat = await h.api('alice').call(API.createChat, { body: {} })
     const r = await ask(h, alice, 'alice', chat.id, fake({ echo: 'tools' }))
     expect(r.done.content.split(',')).toEqual(['artifact', 'ask_user', 'connect_service', 'copy_files', 'edit', 'edit_files', 'edit_hwp', 'find_skills', 'forget', 'glob', 'grep', 'list', 'make_file', 'move_files', 'read', 'remember', 'rename_file', 'save_url', 'schedule_create', 'schedule_delete', 'schedule_list', 'set_title', 'share_file', 'skill', 'web_fetch', 'write'])
+  })
+
+  test('Hangul writing follows the HWP plugin in a turn: off, no edit_hwp and no .hwpx in the instructions, make_file .hwpx refused before any card; on again, both back', async () => {
+    fs.mkdirSync(path.join(h.team, 'users', 'alice'), { recursive: true })
+    fs.writeFileSync(path.join(h.team, 'users', 'alice', 'hwp-memo.md'), 'words only alice may read\n')
+    setHwpPlugin(h.ctx, false)
+    try {
+      const chat = await h.api('alice').call(API.createChat, { body: {} })
+      // after reading a personal file, a save to shared/ would ask the person first (a wider audience): refused before that
+      const r = await ask(h, alice, 'alice', chat.id, fake(
+        { echo: 'tools' }, { say: ' | ' }, { echo: 'system' }, { say: ' | ' },
+        { tool: 'read', args: { file_path: 'users/alice/hwp-memo.md' } },
+        { tool: 'make_file', args: { content: '# 보고서\n\n본문\n', format: 'hwpx', output: 'shared/hwp-report' }, sayResult: true },
+      ))
+      const [tools, system, made] = r.done.content.split(' | ')
+      expect(tools!.split(',')).toContain('make_file')
+      expect(tools!.split(',')).not.toContain('edit_hwp')
+      expect(system).toContain('To produce Word / PowerPoint / Excel / PDF files')
+      expect(system).not.toContain('hwpx')
+      expect(system).not.toContain('edit_hwp')
+      expect(made).toContain('Making or filling Hangul documents (HWP, HWPX) needs the HWP plugin')
+      expect(alice.frames.some((f) => f.type === 'turn.request' && f.data.turnId === r.started.turnId)).toBe(false)
+      expect(fs.existsSync(path.join(h.team, 'shared', 'hwp-report.hwpx'))).toBe(false)
+      const audit = h.ctx.db.query("SELECT summary, ok FROM tool_events WHERE turn_id = ? AND tool = 'make_file'").all(r.started.turnId) as { summary: string; ok: number }[]
+      expect(audit).toEqual([{ summary: 'make_file -> refused: Hangul writing is off (HWP plugin)', ok: 0 }])
+    } finally { setHwpPlugin(h.ctx, true) }
+    const chat = await h.api('alice').call(API.createChat, { body: {} })
+    const on = await ask(h, alice, 'alice', chat.id, fake({ echo: 'tools' }, { say: ' | ' }, { echo: 'system' }))
+    const [tools, system] = on.done.content.split(' | ')
+    expect(tools!.split(',')).toContain('edit_hwp')
+    expect(system).toContain('Hangul (.hwpx)')
+    expect(system).toContain('use edit_hwp')
   })
 
   test('artifact from a turn: saved for the answer, artifact.updated, listed over REST, audited with C\'s summary', async () => {

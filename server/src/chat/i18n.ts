@@ -92,6 +92,12 @@ export const TEXT = {
   attachMoved: STEP_TEXT.attachMoved,
   attachUnavailable: STEP_TEXT.attachUnavailable,
   subtask: STEP_TEXT.subtask,
+  // make_file .hwpx or edit_hwp while the HWP plugin is off (tools/hwp-writing.ts): the AI passes it on
+  hwpWritingOff: t('한글 문서(HWP·HWPX)를 만들거나 채우려면 한글 문서 플러그인이 있어야 해요. 관리자가 관리 > 플러그인에서 "한글 문서 미리보기"를 설치하고 켜면 쓸 수 있어요. 아무것도 저장하지 않았어요.',
+    'Making or filling Hangul documents (HWP, HWPX) needs the HWP plugin. An admin can install and turn on "HWP Preview" in Admin > Plugins. Nothing was saved.',
+    'Membuat atau mengisi dokumen Hangul (HWP, HWPX) memerlukan plugin HWP. Admin dapat memasang dan mengaktifkan "Pratinjau HWP" di Admin > Plugin. Tidak ada yang disimpan.',
+    'ハングル文書（HWP・HWPX）の作成や記入には HWP プラグインが必要です。管理者が 管理 > プラグイン で「HWPプレビュー」をインストールしてオンにすると使えます。何も保存していません。',
+    'Crear o rellenar documentos Hangul (HWP, HWPX) requiere el complemento de HWP. Un administrador puede instalar y activar «Vista previa de HWP» en Administración > Complementos. No se guardó nada.'),
   memoryEmpty: t('기억할 내용을 적어 주세요.', 'Write what the AI should remember.', 'Tulis apa yang harus diingat AI.', "AIに覚えてほしい内容を入力してください。", "Escriba lo que la IA debe recordar."),
   memoryTooLong: t('메모리는 한 줄에 {max}자까지 쓸 수 있어요(지금 {n}자). 줄여 주세요.', 'A memory can be one line of up to {max} characters (this is {n}). Make it shorter.', 'Memori bisa berupa satu baris hingga {max} karakter (ini {n}). Persingkat.', "メモリーは1行{max}文字までです（現在{n}文字）。短くしてください。", "Una memoria puede ser una línea de hasta {max} caracteres (esta tiene {n}). Acórtela."),
   rememberConfirm: t('AI가 다음 내용을 기억하려고 해요. 기억할까요?\n\n{text}', 'The AI wants to remember this about you. OK?\n\n{text}', 'AI ingin mengingat hal ini tentang Anda. Boleh?\n\n{text}', "AIが自分について次の内容を記憶しようとしています。よろしいですか？\n\n{text}", "La IA quiere recordar esto sobre usted. ¿Está de acuerdo?\n\n{text}"),

@@ -126,7 +126,7 @@ Autoalojar no significa funcionar sin conexión: el contexto que necesita cada p
 - No ofrecemos certificaciones de seguridad, respuestas perfectas, ahorros garantizados ni decisiones automáticas en materia legal, financiera o de RR. HH. Revisa los resultados y los límites de tu despliegue.
 - La IA ve las fotos y las páginas escaneadas de PDF como imágenes (un administrador puede desactivarlo), pero los servidores Linux no hacen OCR: en ellos, los documentos escaneados y las fotos no se pueden buscar como texto.
 - En los servidores Linux, la IA también lee archivos de video y audio: los fotogramas, repartidos a intervalos regulares, se envían al proveedor de IA como imágenes, y el sonido lo convierte en texto el proveedor de voz del equipo solo si un administrador lo permite ("Convertir el sonido de los videos en texto"). Si el proveedor de voz es OpenRouter, el sonido de los archivos del equipo va a OpenRouter y a su proveedor; los chats confidenciales nunca lo envían. Los Mac de oficina todavía no leen video.
-- Se puede extraer el texto de archivos HWP/HWPX. Las [vistas previas visuales](resources/hwp/README.md) se ofrecen con el plugin opcional HWP Preview, que requiere macOS o Linux con glibc 2.39 o posterior, así que Debian 12 **no** las admite.
+- Cualquier equipo puede extraer el texto de archivos HWP/HWPX. Las [vistas previas visuales](resources/hwp/README.md), y que la IA cree y rellene documentos Hangul, se ofrecen con el plugin opcional HWP Preview, que requiere macOS o Linux con glibc 2.39 o posterior, así que Debian 12 **no** las admite.
 - En las instalaciones gestionadas, tienen prioridad las conexiones personales elegibles; después, las asignadas a una persona, a un grupo y, por último, a todo el equipo. En los equipos de Trina recién creados, una conexión de la empresa puede servir a todo el equipo por defecto; las opciones ya guardadas se conservan. El consentimiento a nivel de cada conexión se sigue aplicando. **Este ajuste del software no concede ningún permiso conforme a los términos de Anthropic u OpenAI.** La demo local desactiva la IA; los modos de desarrollo y de inicio de sesión local de Mac de oficina gestionan las conexiones de otra manera. [Detalles de conexión](docs/FAQ.md)
 
 </details>
@@ -157,7 +157,7 @@ Autoalojar no significa funcionar sin conexión: el contexto que necesita cada p
 <details>
 <summary><b>¿Funciona con archivos HWP coreanos?</b></summary>
 
-<br>Con el texto, sí: la IA puede leer el texto de archivos HWP/HWPX crear documentos .hwpx nuevos (títulos, párrafos, listas y tablas sencillas) y rellenar un formulario .hwp o .hwpx existente (marcadores, celdas vacías, filas de tabla) y guardarlo en el mismo formato sin tocar el resto del archivo. Las vistas previas visuales requieren el plugin opcional, que no funciona en Debian 12. Más información en las [preguntas frecuentes](docs/FAQ.md).
+<br>Sí. La IA lee el texto de archivos HWP/HWPX en cualquier servidor. Con el plugin opcional HWP Preview activado, también crea documentos .hwpx nuevos (títulos, párrafos, listas y tablas sencillas), rellena un formulario .hwp o .hwpx existente (marcadores, celdas vacías, filas de tabla) y lo guarda en el mismo formato sin tocar el resto del archivo, y muestra vistas previas visuales. El plugin no funciona en Debian 12. Más información en las [preguntas frecuentes](docs/FAQ.md).
 
 </details>
 

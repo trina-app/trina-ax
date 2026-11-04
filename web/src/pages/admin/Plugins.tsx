@@ -6,6 +6,7 @@ import { AlertTriangle, Check, FileUp, Minus, Puzzle, RotateCcw, Trash2 } from '
 import { useRef, useState } from 'react'
 import type { CatalogPlugin, InstalledPlugin, PluginList, PluginPlan } from '@mycel/shared/api'
 import type { PluginPermission, PluginPlatform } from '@mycel/shared/plugins'
+import { HWP_PLUGIN_ID } from '@mycel/shared/hwp'
 import { api, API, errorText, isApiError } from '../../lib/api'
 import { formatSize } from '../../lib/format'
 import { DICTS, useLocale, useT, type MessageKey } from '../../i18n'
@@ -41,6 +42,14 @@ function TrustBadge({ trust, verifiedBy }: { trust: InstalledPlugin['trust']; ve
       {trust === 'official' && verifiedBy === 'release' && <span className="text-xs text-faint" data-testid="plugin-verified-release">{t('plugins.trust.release')}</span>}
     </>
   )
+}
+
+/** What the HWP plugin also turns on, from core (its package text describes the preview only and is pinned): writing
+ * and filling Hangul documents (docs/DECISIONS.md "Hangul writing and filling come with the HWP plugin"). */
+function HwpWriting({ id, className = '' }: { id: string; className?: string }) {
+  const t = useT()
+  if (id !== HWP_PLUGIN_ID) return null
+  return <p className={`text-sm text-muted ${className}`} data-testid="plugin-hwp-writing">{t('plugins.hwpWriting')}</p>
 }
 
 /** `showGrant`: an installed plugin — an optional permission the admin did not allow is shown as such. */
@@ -101,6 +110,7 @@ function PlanDialog({ plan, onClose, onDone }: { plan: PluginPlan; onClose: () =
             <TrustBadge trust={plan.trust} verifiedBy={plan.verifiedBy} />
           </p>
           <p className="mt-1 text-muted">{plan.description}</p>
+          <HwpWriting id={plan.id} className="mt-1" />
           <p className="mt-1 text-xs text-faint">{t('plugins.publisher', { name: plan.publisher.name })} · {t('plugins.prompt.size', { size: formatSize(plan.sizeBytes, locale) })} · {t('plugins.platforms', { list: platformText(t, plan.platforms) })}</p>
         </div>
         {!plan.supported && (
@@ -150,6 +160,7 @@ function InstalledRow({ p, reload }: { p: InstalledPlugin; reload: () => void })
         {status}
       </div>
       <p className="text-sm text-muted">{p.description}</p>
+      <HwpWriting id={p.id} />
       <p className="text-xs text-faint">
         {t('plugins.publisher', { name: p.publisher.name })} · {p.kinds.map((k) => t(`plugins.kind.${k}` as MessageKey)).join(', ')} · {t('plugins.platforms', { list: platformText(t, p.platforms) })}
       </p>
@@ -189,6 +200,7 @@ function CatalogRow({ c, review, fileInstall }: { c: CatalogPlugin; review: (id:
         {c.installedVersion && <Badge>{t('plugins.installedVersion', { version: c.installedVersion })}</Badge>}
       </div>
       <p className="text-sm text-muted">{c.description}</p>
+      <HwpWriting id={c.id} />
       <p className="text-xs text-faint">{t('plugins.publisher', { name: c.publisher.name })} · {t('plugins.platforms', { list: platformText(t, c.platforms) })} · {c.license}</p>
       {c.recommended && <p className="text-xs text-muted">{t('plugins.recommendedHint')}</p>}
       <Permissions items={c.permissions} />

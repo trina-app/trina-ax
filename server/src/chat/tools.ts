@@ -23,6 +23,7 @@ import { extractUrls, gateUrl, type ConfirmExtra, type TurnPerson } from '../too
 import { ToolError } from '../policy/errors'
 import { visionText } from '../files/vision-text'
 import { hwpOutputPath } from '../files/hwpx-check'
+import { hwpWritingOffText, hwpWritingOn, writesHangul } from '../tools/hwp-writing'
 import { recordSkillRead, recordSkillUse } from '../admin/skill-usage'
 import { templateToolRefusal } from './schedule-templates'
 import { cleanAiTitle, graphemes, setAiTitle, titleToolOffered } from './title'
@@ -117,6 +118,11 @@ export function buildToolSet(exec: TurnExec): ChatToolSet {
       const files = caller?.files ?? exec.files
       const refusal = templateToolRefusal(exec.rt.ctx, exec.spec.userId, exec.id, name, args, templateWrites)
       if (refusal) return { ...text(refusal, true), summary: 'scheduled template scope refused' }
+      if (writesHangul(name, args) && !hwpWritingOn(exec.rt.ctx)) {
+        // Hangul writing comes with the HWP plugin (tools/hwp-writing.ts): make_file .hwpx while it is off, or edit_hwp
+        // after it was turned off during this turn, is refused before anyone is asked anything (the tool refuses it too)
+        return { ...text(hwpWritingOffText(exec.spec.locale), true), summary: `${name} -> refused: Hangul writing is off (HWP plugin)` }
+      }
       const t = tools.get(name)!
       exec.noteTaint(name, args)
       // what the AI sends leaves marks, so an address that a connection repeats back is not taken as the service's own

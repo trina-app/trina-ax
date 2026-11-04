@@ -9,6 +9,7 @@ import { startHarness, type Harness, type TestSocket } from '../lib/b-harness'
 import { hostOf, isPrivateHost, privateIp } from '../../server/src/realtime/private-net'
 import { urlsOf } from '../../server/src/realtime/browser-tools'
 import { VISION_TURN_IMAGES } from '../../server/src/files/vision'
+import { hwpPluginOn } from '../lib/hwp-plugin'
 
 setDefaultTimeout(30_000)
 const fake = (...ds: unknown[]) => ds.map((d) => '@fake ' + JSON.stringify(d)).join('\n')
@@ -21,6 +22,8 @@ let desk: TestSocket
 let web: TestSocket
 beforeAll(async () => {
   h = await startHarness({ name: 'b-browser', askUserTimeoutMs: 5000, relay: { windowGoneMs: 600, sweepMs: 100 } })
+  // edit_hwp is in the lists below: it comes with the HWP plugin (tools/hwp-writing.ts)
+  hwpPluginOn(h.ctx)
   desk = await h.ws('alice', { windowId: DESK, client: 'desktop' })
   await desk.next('hello')
   web = await h.ws('alice', { windowId: 'win-web-00001' })

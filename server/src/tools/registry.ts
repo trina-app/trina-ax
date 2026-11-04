@@ -22,10 +22,16 @@ export interface ToolDef<I extends z.ZodType = z.ZodType> {
   /** offered right now? (default: always). A tool that is not available is not listed and its calls are refused as
    * unknown, e.g. hwp_render while the HWP plugin is not usable (server/src/plugins). */
   available?(): boolean
+  /** what the AI is shown right now when that depends on the server's state (default, or null: `description` and
+   * `input`), e.g. make_file without .hwpx while Hangul writing is off (tools/hwp-writing.ts). Calls are still parsed
+   * with `input`, so run() refuses what the listing left out. */
+  listing?(): { description: string; input: z.ZodType } | null
 }
 
 export class ToolRegistry {
   private tools = new Map<string, ToolDef>()
+  /** JSON schema per input schema (a listing is built at every turn's start) */
+  private schemas = new WeakMap<z.ZodType, Record<string, unknown>>()
   constructor(private files?: FileService) {}
 
   register<I extends z.ZodType>(def: ToolDef<I>): void {
@@ -39,15 +45,23 @@ export class ToolRegistry {
   available(name: string) { const t = this.tools.get(name); return !!t && this.offered(t) }
 
   private entry(t: ToolDef) {
-    const schema = z.toJSONSchema(t.input as z.ZodType, { target: 'draft-7', io: 'input' }) as Record<string, unknown>
-    delete schema.$schema
-    return { name: t.name, description: t.description, inputSchema: schema }
+    let shown: ReturnType<NonNullable<ToolDef['listing']>> = null
+    try { shown = t.listing?.() ?? null } catch { shown = null }
+    const input = shown?.input ?? t.input
+    let schema = this.schemas.get(input)
+    if (!schema) {
+      schema = z.toJSONSchema(input as z.ZodType, { target: 'draft-7', io: 'input' }) as Record<string, unknown>
+      delete schema.$schema
+      this.schemas.set(input, schema)
+    }
+    return { name: t.name, description: shown?.description ?? t.description, inputSchema: schema }
   }
   /** MCP tools/list entries (only the tools offered right now) */
   list(): { name: string; description: string; inputSchema: Record<string, unknown> }[] {
     return [...this.tools.values()].filter((t) => this.offered(t)).map((t) => this.entry(t))
   }
-  /** One registered tool's listing, offered or not (for wiring it into chat turns with its own availability). */
+  /** One registered tool's listing as it is now, offered or not (for wiring it into chat turns with its own
+   * availability). */
   describeTool(name: string) { const t = this.tools.get(name); return t ? this.entry(t) : undefined }
 
   /** Run a tool; errors become an isError result (the engine sees the message, the audit log the summary). */

@@ -128,7 +128,7 @@ Linux 自托管需要 Debian 12/13 或 Ubuntu 24.04、启用 cgroup v2 的 syste
 - 撤销文件夹权限并不会删除之前的回答。扩大共享范围时的确认提示，也不等于全面的数据防泄漏（DLP）。
 - 不具备任何安全认证，不保证回答完美、一定省钱，也不会自动做出法务、财务或人事决策。请自行审核输出结果和部署边界。
 - AI 会把照片和扫描版 PDF 页面当作图片来看（管理员可以关闭），但 Linux 服务器不做 OCR：在 Linux 上，扫描件和照片无法按文字搜索。
-- 支持提取 HWP/HWPX 的文字。[可视化预览](resources/hwp/README.md)由可选的 HWP Preview 插件提供，需要 macOS 或 glibc 2.39 及以上的 Linux，因此 Debian 12 **不**支持。
+- 任何团队都能提取 HWP/HWPX 的文字。[可视化预览](resources/hwp/README.md)以及 AI 新建和填写韩文（Hangul）文档，由可选的 HWP Preview 插件提供，需要 macOS 或 glibc 2.39 及以上的 Linux，因此 Debian 12 **不**支持。
 - 在受管安装中，符合条件的本人连接优先，然后依次是分配给个人、组和整个团队的连接。新建的 Trina 团队默认可以让一个公司连接供整个团队使用；已经保存过的选择保持不变。每个连接自身的同意要求仍然适用。**这个软件设置并不代表你获得了 Anthropic 或 OpenAI 条款下的许可。** 本地演示禁用 AI；开发模式和办公室本地登录模式的连接行为有所不同。[连接详情](docs/FAQ.md)
 
 </details>
@@ -159,7 +159,7 @@ Linux 自托管需要 Debian 12/13 或 Ubuntu 24.04、启用 cgroup v2 的 syste
 <details>
 <summary><b>支持韩国的 HWP 文件吗？</b></summary>
 
-<br>文字部分支持：AI 可以读取 HWP/HWPX 文件里的文字，也能新建 .hwpx 文档（标题、段落、列表和简单表格），还能填写已有的 .hwp 或 .hwpx 表单（占位符、空白单元格、表格行）并以原格式保存，文件其余部分保持原样。可视化预览需要可选插件，而这个插件不能在 Debian 12 上运行。更多内容见 [FAQ](docs/FAQ.md)。
+<br>支持。AI 在任何服务器上都能读取 HWP/HWPX 文件里的文字。打开可选的 HWP Preview 插件后，还能新建 .hwpx 文档（标题、段落、列表和简单表格），填写已有的 .hwp 或 .hwpx 表单（占位符、空白单元格、表格行）并以原格式保存（文件其余部分保持原样），并显示可视化预览。这个插件不能在 Debian 12 上运行。更多内容见 [FAQ](docs/FAQ.md)。
 
 </details>
 
