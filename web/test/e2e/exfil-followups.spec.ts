@@ -1,6 +1,6 @@
 // Follow-ups of the outbound-web fixes (docs/DECISIONS.md "Scheduled tasks nobody confirmed", "Allow a site for one
 // conversation"): the address card's "allow this site in this conversation" choice, and "다시 확인" for a scheduled task
-// made without its card — the same server card in Settings, the banner that says some wait, the admin's list.
+// made without its card — the same server card on the task's page (Scheduled in the sidebar), the banner that says some wait, the admin's list.
 import AxeBuilder from '@axe-core/playwright'
 import { expect, test, type Page } from '@playwright/test'
 import { realErrors, reset, signIn, watchConsole } from './helpers'
@@ -59,14 +59,19 @@ test('a task made without its card: the banner, "다시 확인" opens the same c
   const banner = page.getByTestId('schedule-review-banner')
   await expect(banner).toContainText('확인 카드 없이 만들어진 예약 작업 1개를 멈춰 뒀어요')
   await banner.getByRole('link', { name: '예약 작업 보기' }).click()
-  await expect(page).toHaveURL(/\/settings\/schedules$/)
+  await expect(page).toHaveURL(/\/scheduled$/)
   await expect(banner).toHaveCount(0)
-  const item = page.getByTestId('schedule-item')
+  const card0 = page.getByTestId('schedule-item')
+  await expect(card0).toHaveAttribute('data-review', 'waiting')
+  await expect(card0).toContainText('다시 확인 필요')
+  await card0.click()
+  await expect(page).toHaveURL(/\/scheduled\/[0-9a-f-]+$/)
+  const item = page.getByTestId('schedule-view')
   await expect(item).toHaveAttribute('data-review', 'waiting')
-  await expect(item).toContainText('다시 확인 필요')
   await expect(item.getByTestId('schedule-review-hint')).toContainText('확인 카드 없이 만들어진 예약 작업이라 멈춰 뒀어요')
-  // no plain switch: only the card resumes it
-  await expect(item.getByRole('button', { name: '켜기' })).toHaveCount(0)
+  // no plain switch and no run now: only the card resumes it
+  await expect(item.getByRole('switch')).toHaveCount(0)
+  await expect(item.getByTestId('schedule-run-now')).toHaveCount(0)
   await item.getByTestId('schedule-review').click()
   const card = item.getByTestId('schedule-review-card').getByTestId('ask-card')
   await expect(card).toHaveAttribute('data-origin', 'server')
@@ -88,7 +93,7 @@ test('a task made without its card: the banner, "다시 확인" opens the same c
   await again.getByRole('button', { name: '답하기' }).click()
   await expect(page.getByText('예약 작업을 다시 켰어요.')).toBeVisible()
   await expect(item).not.toHaveAttribute('data-review', 'waiting')
-  await expect(item.getByRole('button', { name: '끄기' })).toBeVisible()
+  await expect(item.getByRole('switch', { name: '예약대로 실행' })).toBeChecked()
   await page.goto('/')
   await expect(page.getByTestId('composer-input')).toBeVisible()
   await expect(page.getByTestId('schedule-review-banner')).toHaveCount(0)
@@ -110,12 +115,13 @@ test('admins see tasks waiting for their owner: who and when, never the title or
 })
 
 for (const scheme of ['light', 'dark'] as const) {
-  test(`the schedule card in Settings has no serious accessibility problems (${scheme})`, async ({ page }) => {
+  test(`the schedule card on the task's page has no serious accessibility problems (${scheme})`, async ({ page }) => {
     await page.emulateMedia({ colorScheme: scheme })
     await reset(page)
     await signIn(page)
     await waitingTask(page)
-    await page.goto('/settings/schedules')
+    await page.goto('/scheduled')
+    await page.getByTestId('schedule-item').click()
     await page.getByTestId('schedule-review').click()
     await expect(page.getByTestId('schedule-review-card').getByTestId('ask-detail-mark').first()).toBeVisible()
     const r = await new AxeBuilder({ page }).withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa', 'wcag22aa']).exclude('iframe').analyze()

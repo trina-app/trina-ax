@@ -949,6 +949,22 @@ export class MockServer {
       this.tempLogins.delete(c.user.id)
       return { ok: true }
     },
+    // Settings > Usage: made-up numbers for whoever is signed in (the real server reads only the caller's own turns,
+    // tests/unit/a-my-usage.test.ts); the owner has a monthly limit of their own and a group's daily one
+    myUsage: (c) => {
+      const mine = c.user.id === 'olga'
+      const end = new Date(Date.now() + 5 * 86400_000).toISOString()
+      return {
+        period: c.query.period ?? 'month', from: now(), to: now(),
+        totals: mine ? { turns: 12, inputTokens: 12000, outputTokens: 3400, costUsd: 0.42 } : { turns: 3, inputTokens: 2000, outputTokens: 700, costUsd: 0.05 },
+        byModel: mine
+          ? [{ key: 'claude-code:sonnet', engine: 'claude-code', model: 'sonnet', turns: 9, inputTokens: 9000, outputTokens: 2600, costUsd: 0.3 }, { key: 'codex:', engine: 'codex', model: null, turns: 3, inputTokens: 3000, outputTokens: 800, costUsd: 0.12 }]
+          : [{ key: 'claude-code:sonnet', engine: 'claude-code', model: 'sonnet', turns: 3, inputTokens: 2000, outputTokens: 700, costUsd: 0.05 }],
+        limits: mine
+          ? [{ scope: 'you', name: null, period: 'month', usedPct: 42, action: 'block', exceeded: false, resetsAt: end }, { scope: 'group', name: 'Design', period: 'day', usedPct: 12.5, action: 'warn', exceeded: false, resetsAt: end }]
+          : [],
+      }
+    },
     mySessions: () => ({ items: [{ id: '0192f0a0-0000-7000-8000-000000000000', client: 'web', userAgent: 'Chrome on macOS', createdAt: now(), lastSeenAt: now(), expiresAt: now(), current: true }] }),
     inviteInfo: (c) => {
       const i = this.invites.find((x) => x.token === c.params.token)

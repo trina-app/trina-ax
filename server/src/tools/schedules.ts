@@ -218,7 +218,7 @@ export function registerScheduleTools(ctx: AppContext, reg: ToolRegistry) {
     const p = zonedParts(new Date(iso), rt.timeZone)
     return `${p.y}-${String(p.m).padStart(2, '0')}-${String(p.d).padStart(2, '0')} ${String(p.h).padStart(2, '0')}:${String(p.min).padStart(2, '0')} (${rt.timeZone})`
   }
-  const line = (s: ScheduleRow) => `- ${s.id}: "${s.title}", ${describeSchedule(s)}${s.enabled ? `, next ${local(s.next_run_at)}` : needsReview(s) ? ', paused until the user confirms it again in Settings › Scheduled tasks (it was made without its card)' : ', off'}${s.last_run_at ? `, last ran ${local(s.last_run_at)}` : ''}\n  prompt: ${s.prompt.replace(/\s+/g, ' ').slice(0, 200)}`
+  const line = (s: ScheduleRow) => `- ${s.id}: "${s.title}", ${describeSchedule(s)}${s.enabled ? `, next ${local(s.next_run_at)}` : needsReview(s) ? ', paused until the user confirms it again in Scheduled tasks in the sidebar (it was made without its card)' : ', off'}${s.last_run_at ? `, last ran ${local(s.last_run_at)}` : ''}\n  prompt: ${s.prompt.replace(/\s+/g, ' ').slice(0, 200)}`
 
   reg.register({
     name: 'schedule_create',
@@ -250,7 +250,7 @@ export function registerScheduleTools(ctx: AppContext, reg: ToolRegistry) {
       const s = rt.schedules.create(t.user.id, parsed.data, new Date(), { allowedUrls: card.urls, writeConnections: answer === 'create_write' ? writable.map((r) => r.id) : [] })
       const blocked = !urlsOpen && card.urls.length > card.longQuery.length ? ' This server does not know its own public internet address yet, so its runs cannot open the web addresses in the prompt until it does (the card said so); tell the user.' : ''
       const longQuery = card.longQuery.length ? ` Its runs never open ${card.longQuery.length === 1 ? 'the address' : `the ${card.longQuery.length} addresses`} with a query over ${MAX_UNCONFIRMED_QUERY} characters: such an address always needs a person to confirm it (the card said so); tell the user.` : ''
-      return { text: `Scheduled "${s.title}": ${describeSchedule(s)}. First run: ${local(s.next_run_at)}. Id ${s.id}. The user can turn it off in Settings › Scheduled tasks.${blocked}${longQuery}`, summary: `schedule_create ${s.id} ${s.repeat} ${s.time} (confirmed by the user${answer === 'create_write' ? `, may send to ${writable.length} connections` : ''})`, structured: { id: s.id, nextRunAt: s.next_run_at } }
+      return { text: `Scheduled "${s.title}": ${describeSchedule(s)}. First run: ${local(s.next_run_at)}. Id ${s.id}. The user can turn it off in Scheduled tasks in the sidebar.${blocked}${longQuery}`, summary: `schedule_create ${s.id} ${s.repeat} ${s.time} (confirmed by the user${answer === 'create_write' ? `, may send to ${writable.length} connections` : ''})`, structured: { id: s.id, nextRunAt: s.next_run_at } }
     },
   })
   reg.register({

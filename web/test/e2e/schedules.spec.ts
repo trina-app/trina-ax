@@ -1,5 +1,5 @@
-// Settings › Scheduled tasks: run now, edit through the schedule card, pause/resume (docs/DECISIONS.md "Scheduled
-// tasks: run now, edit, pause"), against the mock server's copy of the server's rules.
+// Scheduled tasks (sidebar › Scheduled, a task's page): run now, edit through the schedule card, pause/resume
+// (docs/DECISIONS.md "Scheduled tasks: run now, edit, pause"), against the mock server's copy of the server's rules.
 import AxeBuilder from '@axe-core/playwright'
 import { expect, test, type Page } from '@playwright/test'
 import { realErrors, reset, signIn, watchConsole } from './helpers'
@@ -8,34 +8,43 @@ async function task(page: Page, data: Record<string, unknown> = {}) {
   expect((await page.request.post('/__test/schedule', { data })).ok()).toBeTruthy()
 }
 const LONG = `https://collect.example.net/in?d=${'q'.repeat(230)}`
+/** the task's page, from the list */
+async function open(page: Page, title = '주간 회의록 요약') {
+  await page.goto('/scheduled')
+  await page.getByTestId('schedule-item').filter({ hasText: title }).click()
+  await expect(page).toHaveURL(/\/scheduled\/[0-9a-f-]+$/)
+  return page.getByTestId('schedule-view')
+}
 
 test('run now: a new chat now, the schedule stays; a paused task says it does not run and can still be run now', async ({ page }) => {
   await reset(page)
   const errors = watchConsole(page)
   await task(page)
   await signIn(page)
-  await page.goto('/settings/schedules')
-  const item = page.getByTestId('schedule-item')
+  const item = await open(page)
   await expect(item).toContainText('주간 회의록 요약')
-  await expect(item).toContainText('다음 실행')
+  await expect(item.getByTestId('schedule-status')).toContainText('다음 실행')
+  await expect(item.getByTestId('schedule-history')).toContainText('아직 실행한 적이 없어요.')
   // pause: the state is written out
-  await item.getByTestId('schedule-toggle').click()
-  await expect(item).toContainText('꺼짐')
+  const sw = item.getByRole('switch', { name: '예약대로 실행' })
+  await expect(sw).toBeChecked()
+  await sw.click()
+  await expect(sw).not.toBeChecked()
+  await expect(item.getByTestId('schedule-status')).toHaveText('꺼짐')
   await expect(item.getByTestId('schedule-paused-hint')).toHaveText('꺼진 동안에는 예약 시각이 와도 실행되지 않아요.')
-  await expect(item.getByTestId('schedule-toggle')).toHaveText('켜기')
-  // run now while paused: it runs once, stays paused
+  // run now while paused: it runs once, stays paused; the run is in the history, linked to its chat
   await item.getByTestId('schedule-run-now').click()
   const toast = page.getByText('지금 실행했어요. 결과는 새 채팅에 남아요.')
   await expect(toast).toBeVisible()
-  await expect(item).toContainText('꺼짐')
-  await expect(item.getByRole('link', { name: '마지막 실행 결과' })).toBeVisible()
+  await expect(sw).not.toBeChecked()
+  await expect(item.getByTestId('schedule-run-link')).toHaveAttribute('href', /\/c\/[0-9a-f-]+$/)
   await page.getByRole('button', { name: '채팅 열기' }).click()
   await expect(page).toHaveURL(/\/c\/[0-9a-f-]+$/)
   await expect(page.getByTestId('chat-title')).toContainText('⏰ 주간 회의록 요약')
-  await page.goto('/settings/schedules')
-  await item.getByTestId('schedule-toggle').click()
+  await page.goBack()
+  await sw.click()
+  await expect(sw).toBeChecked()
   await expect(item.getByTestId('schedule-paused-hint')).toHaveCount(0)
-  await expect(item).not.toContainText('꺼짐')
   const log = (await (await page.request.post('/__test/log')).json()) as string[]
   expect(log.filter((l) => /\/api\/schedules\/[^/]+(\/run)?$/.test(l) && !l.startsWith('GET'))).toEqual([
     expect.stringMatching(/^PATCH /), expect.stringMatching(/^POST .*\/run$/), expect.stringMatching(/^PATCH /),
@@ -48,12 +57,10 @@ test('run now refused (a used-up limit) says why; a task nobody confirmed has no
   await task(page, { title: 'budget test' })
   expect((await page.request.post('/__test/schedule-review', { data: {} })).ok()).toBeTruthy()
   await signIn(page)
-  await page.goto('/settings/schedules')
-  const items = page.getByTestId('schedule-item')
-  const used = items.filter({ hasText: 'budget test' })
+  const used = await open(page, 'budget test')
   await used.getByTestId('schedule-run-now').click()
   await expect(page.getByText('오늘 AI 사용 한도를 다 썼어요.', { exact: false })).toBeVisible()
-  const waiting = items.filter({ hasText: '아침 요약' })
+  const waiting = await open(page, '아침 요약')
   await expect(waiting).toHaveAttribute('data-review', 'waiting')
   await expect(waiting.getByTestId('schedule-run-now')).toHaveCount(0)
 })
@@ -63,9 +70,9 @@ test('edit: the same schedule card as creation (a long-query address listed apar
   const errors = watchConsole(page)
   await task(page)
   await signIn(page)
-  await page.goto('/settings/schedules')
-  const item = page.getByTestId('schedule-item')
-  await item.getByRole('button', { name: '주간 회의록 요약 수정' }).click()
+  const item = await open(page)
+  await page.getByTestId('schedule-menu').click()
+  await page.getByTestId('schedule-edit').click()
   const dialog = page.getByRole('dialog', { name: '예약 작업 수정' })
   await expect(dialog.getByTestId('schedule-edit-title')).toHaveValue('주간 회의록 요약')
   await expect(dialog.getByTestId('schedule-edit-repeat')).toHaveValue('weekly')
@@ -101,7 +108,7 @@ test('edit: the same schedule card as creation (a long-query address listed apar
   await expect(dialog).toHaveCount(0)
   await expect(page.getByText('예약 작업을 바꿨어요.')).toBeVisible()
   await expect(item).toContainText('매일 회의록 요약')
-  await expect(item).toContainText('매일 08:30')
+  await expect(item.getByTestId('schedule-repeats')).toContainText('매일 08:30')
   const log = (await (await page.request.post('/__test/log')).json()) as string[]
   expect(log.filter((l) => /^(POST|PUT) \/api\/schedules\/[^/]+(\/edit)?$/.test(l)).map((l) => l.split(' ')[0] + (l.endsWith('/edit') ? ' edit' : ''))).toEqual(['POST edit', 'POST edit', 'POST edit', 'PUT'])
   // the refused past date is the one 400
@@ -112,9 +119,9 @@ test('edit a template: its time and folders only, no card', async ({ page }) => 
   await reset(page)
   await task(page, { templateId: 'weekly-summary' })
   await signIn(page)
-  await page.goto('/settings/schedules')
-  const item = page.getByTestId('schedule-item')
-  await item.getByTestId('schedule-edit').click()
+  const item = await open(page, '주간 요약')
+  await page.getByTestId('schedule-menu').click()
+  await page.getByTestId('schedule-edit').click()
   const dialog = page.getByRole('dialog', { name: '예약 작업 수정' })
   await expect(dialog.getByTestId('schedule-edit-template')).toBeVisible()
   await expect(dialog.getByTestId('schedule-edit-prompt')).toHaveCount(0)
@@ -122,6 +129,6 @@ test('edit a template: its time and folders only, no card', async ({ page }) => 
   await dialog.getByTestId('schedule-edit-weekday').selectOption('3')
   await dialog.getByTestId('schedule-edit-save').click()
   await expect(dialog).toHaveCount(0)
-  await expect(item).toContainText('07:15')
-  await expect(item).toContainText('수요일')
+  await expect(item.getByTestId('schedule-repeats')).toContainText('07:15')
+  await expect(item.getByTestId('schedule-repeats')).toContainText('수요일')
 })

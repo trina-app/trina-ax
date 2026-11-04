@@ -342,3 +342,16 @@ Source change from potenlab/team-ax branch `feat/activity-log` (on top of `feat/
 - Here the title row is this repository's `StickyHeader` in Admin's own scrolling area; core keeps Admin's page title at the top of the same area, so its row sticks just under that title.
 - Only here: the custom range keeps this repository's both-days-included `localDayBounds` (core gets the same helper), and the new strings in Spanish and Japanese.
 
+## 2026-11-04 Usage: your own in Settings, everyone's in Admin
+
+The same change as potenlab/team-ax branch `feat/usage-personal-team` (not yet on core main), written here by hand. No core history was imported.
+
+- Taken as they are: `server/src/admin/my-usage.ts` and `GET /api/me/usage` in `shared/src/api/auth.ts` and `server/src/routes/auth.ts`, `web/src/components/settings/MyUsage.tsx`, `web/src/components/UsageBar.tsx`, `tests/unit/a-my-usage.test.ts`, `web/test/e2e/my-usage.spec.ts`, the Settings tab and the account menu's Usage item.
+- Only here: turns that have an unpriced part (`usage_source = 'engine_unpriced'`) count in `unpricedTurns` and show "+?" by the cost; Admin › Usage keeps its share column with percents and puts its long notes on one line with "More" (`OneLine`); strings in Japanese and Spanish too.
+
+## 2026-11-04 Search like Claude's
+
+Source change from potenlab/team-ax branch `feat/search-palette` (on top of `feat/sidebar-account-settings`, not yet on core main), ported by hand. No core history was imported.
+
+- Taken as they are: the palette in `web/src/components/SearchDialog.tsx` (type tabs, Needs attention, Recents, Actions, keys and hints), `?new=1` on Projects and `?add=1` on MCP (`Projects.tsx`, `Integrations.tsx`), and `web/test/e2e/search-palette.spec.ts`.
+- Only here: the Files tab and row (this repository's file content search, still started only by choosing that row), a chat row's menu with rename and delete (`chat/chatActions.ts`, ⌥↵ / Alt+Enter), scheduled tasks to confirm again under Needs attention (`needsReview`), and the strings in Spanish and Japanese.
