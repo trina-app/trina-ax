@@ -3,6 +3,14 @@
 Published artifacts and authoritative release notes are in [GitHub Releases](https://github.com/trina-app/trina-ax/releases).
 This file summarizes user-visible changes; it is not a list of every commit.
 
+## 0.4.0-beta.4 — 2026-11-04
+
+Same app as 0.4.0-beta.3, which could not be published because GitHub had no macOS runner for the desktop build.
+
+- Release: the Linux server release is published even when the Mac or Windows desktop build fails or gets no runner. The office feed then keeps the previous release, and the GitHub Release says which downloads are missing.
+
+Upgrade: no database migration, nothing to do. Root update as in 0.4.0-beta.3.
+
 ## 0.4.0-beta.3 — 2026-11-04
 
 [Published release and notes](https://github.com/trina-app/trina-ax/releases/tag/v0.4.0-beta.3) · beta channel only; stable stays on 0.3.0
