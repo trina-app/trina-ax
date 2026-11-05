@@ -379,7 +379,7 @@ them in the browser; nothing on the server's command line is needed.
 
 - **Claude API key** / **OpenAI API key** (pay as you go, made for team use): paste a key made for this team in the
   provider's console (set a monthly limit there too). Checked with `GET /models` (no tokens spent).
-- **Claude subscription (Pro, Max, Team)**: on any computer run `claude setup-token`, paste the `sk-ant-oat01-…` token.
+- **Claude subscription (Pro, Max, Team)**: "Connect Claude subscription" shows Claude's approval link; approve with the account and paste the code Claude shows. The server's own Claude Code makes the token (`claude setup-token` as the engine account, in the sandbox). Or, folded under "Make it in a terminal instead": on any computer run `claude setup-token` and paste the `sk-ant-oat01-…` token.
   Trina estimates expiry from the stored issue time and warns 14 days before; actual validity depends on the provider. Checked without spending tokens where the provider allows it.
 - **ChatGPT plan (Codex)**: "Start sign-in" shows an address and a one-time code; sign in with an account authorized for the intended use. The server keeps the sign-in and refreshes it itself.
 - Confirm that the account and plan authorize the intended use. The screen requires connection-level acknowledgment; it does not grant provider permission.

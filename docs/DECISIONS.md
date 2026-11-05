@@ -1215,7 +1215,7 @@ owner 원칙: Team AX는 범용 제품이다(치과 전용이 아님). 저장소
 - **D3 턴마다 하나**: 시도마다 해석기(`credentials/resolve.ts`)가 하나를 골라 `proxy_tokens.credential_id`·`family`에 묶는다. 프록시는 요청마다 그 행을 다시 읽는다(끄거나 지우면 다음 요청부터 막힘). 엔진이 보낸 헤더(계정 id, 키)로는 절대 고르지 않는다.
 - **D4/D5 해석 순서**: 본인 연결(설정이 켜졌을 때만) → 사람 지정 → 그룹 지정(지금 속한 그룹) → 팀 공용. 같은 단계는 priority → 구독 먼저 → created_at → id. 쓸 수 없는 것은 건너뛰고, 지정된 것을 못 쓰면 팀 공용으로 넘어간다. 남의 개인 연결은 어떤 경우에도 후보가 아니다.
 - **D6 보관**: 비밀값은 `secret_enc`(AES-256-GCM, AAD `mycel-cred-v1|<id>|<kind>`)에만. 열쇠 `<secrets>/credentials.key`(32바이트, 600, `O_EXCL|O_NOFOLLOW`로 만들고 링크·다른 권한·다른 소유자·크기 이상이면 거부). 복호화 실패 → 그 연결만 `needs_reconnect`, 감사, 관리자 알림, 서버는 계속.
-- **D7/D8 연결 흐름**: Claude 구독은 아무 PC의 `claude setup-token` 붙여 넣기. API 키는 붙여 넣기. 둘 다 토큰을 쓰지 않는 확인(count_tokens / GET models)으로 200=확인, 401(키는 403도)=저장 안 함, 그 밖=저장 후 "첫 질문 때 확인". ChatGPT는 브라우저에서 시작하는 기기 로그인: 실행기가 `<agent root>/.codex-login/<loginId>`에서 공식 `codex login --device-auth`를 돌리고, 주소·코드는 시작한 사람에게만(WebSocket `credential.login` + GET), 결과 auth.json은 실행기 소켓으로 서버에, 폴더는 어떤 경우든 지운다(codex-login v2).
+- **D7/D8 연결 흐름**: Claude 구독은 아무 PC의 `claude setup-token` 붙여 넣기(2026-11-05부터는 브라우저 로그인이 기본이고 붙여 넣기는 접힌 대안: 아래 "Claude 구독 연결: 브라우저에서"). API 키는 붙여 넣기. 둘 다 토큰을 쓰지 않는 확인(count_tokens / GET models)으로 200=확인, 401(키는 403도)=저장 안 함, 그 밖=저장 후 "첫 질문 때 확인". ChatGPT는 브라우저에서 시작하는 기기 로그인: 실행기가 `<agent root>/.codex-login/<loginId>`에서 공식 `codex login --device-auth`를 돌리고, 주소·코드는 시작한 사람에게만(WebSocket `credential.login` + GET), 결과 auth.json은 실행기 소켓으로 서버에, 폴더는 어떤 경우든 지운다(codex-login v2).
 - **D9 Codex는 진짜 토큰을 받지 않는다**: 턴의 `CODEX_HOME/auth.json`은 가짜(접근 토큰·API 키 자리 = 이 턴의 프록시 토큰, refresh 자리 = `teamax-no-refresh`, account_id = `teamax-<sha256(연결 id)[:12]>`, 서명 없는 id_token에 진짜 플랜 종류만). 공급자 `teamax`(이름은 PRODUCT.displayName, "OpenAI"가 아님)가 `http://127.0.0.1:<proxy>/codex/<chatgpt|openai>`로 보내고, 프록시가 진짜 Authorization·ChatGPT-Account-ID(또는 키)를 넣는다. Codex 턴의 CONNECT 터널은 없앴다(`connect.ts`의 `codexTurns`는 F1·옛 구성에서만). `chatgpt_base_url`·갱신 주소도 프록시로: `/codex/backend/wham/config/bundle`은 `{}`, 그 밖 배경 호출은 404(Codex 0.163이 ChatGPT 턴마다 부르는 `accounts/check`·`settings/user`는 경고 없이), `/codex/oauth/token`은 400 invalid_grant + 감사.
 - **D10 갱신은 서버가**: 연결별 single-flight, 회전된 refresh token을 같은 트랜잭션에서 먼저 저장한 뒤 새 접근 토큰을 쓴다. `invalid_grant`·`refresh_token_*`·401이면 `needs_reconnect`. 일시 실패는 그 요청만 502. 하루 한 번 8일 넘게 안 쓴 연결을 갱신.
 - **D12 봉인**: 브라우저(`web/src/lib/seal.ts`)가 서버 공개키(`<secrets>/credential-sealing.jwk`, P-256)로 ECDH + HKDF-SHA256(info `mycel-seal-v1|<kid>`) + AES-256-GCM으로 봉인. 평문 `{secret, nonce, purpose}`: purpose가 엔드포인트와 다르면 거부, 같은 nonce는 10분 안에 두 번 받지 않음. 계약에 봉인 안 된 비밀값 필드가 없다. `crypto.subtle`이 없는 화면(LAN의 http)은 "https에서만"이라고 말한다.
@@ -1262,6 +1262,109 @@ owner 원칙: Team AX는 범용 제품이다(치과 전용이 아님). 저장소
 - **CR-00 스파이크 S1(실제 ChatGPT·OpenAI)·CR-01 스파이크 S2(실제 setup-token)**: owner 계정이 필요하다. 실행 파일은 준비했다(`tests/engine/codex-managed-spike.ts`, `tests/e2e/g-subscription-real-claude.ts --real`). owner 할 일로 남아 있다.
 - **CR-19 F1 대안**: S1이 실패할 때만. 가짜 상위로는 주 설계가 실제 Codex에서 동작함을 확인했다. 옛 agent-own 경로(턴마다 로그인 복사, 전역 세마포어, CONNECT 터널)는 코드에 남겨 두어 F1의 바탕으로 쓸 수 있다.
 - **CR-21 다음 릴리스 정리**: 설치기·사무실이 `managed`를 쓰기, 옛 파일·`codex-export`·`accounts` 필드·옛 문구 지우기.
+
+## Claude 구독 연결: 브라우저에서 (feat/claude-login, 2026-11-05)
+
+D7의 Claude 구독 연결은 Claude Code를 설치하고 터미널에서 `claude setup-token`을 돌려 토큰을 붙여 넣는 것이었다. 대부분의
+사람이 이걸 하지 못해서, ChatGPT 로그인(codex-login v2, D8)과 같은 구조로 브라우저에서 끝나게 했다. 새 구조는 만들지 않고
+그 흐름을 그대로 따랐다: 같은 시작 경로(`POST …/credential-logins`에 `kind: "anthropic-oauth"`), 같은 관문(팀장 비밀번호
+다시 입력 D13, D23 안내 확인, `memberOwn`·`sharedSubscriptions`, 허용 종류 D22), 같은 진행 알림(시작한 사람에게만 WebSocket
+`credential.login` + GET), 팀에 한 번에 하나(두 종류 합쳐서), 16분, 취소, 서버 재시작이면 사라짐.
+
+- **흐름**: 서버가 실행기에 `claude-login`을 부탁한다. 실행기는 고정 버전의 공식 `claude`를 고치지 않고 엔진 계정으로
+  `<agent root>/.claude-login/<loginId>`에서 `setup-token`으로 돌린다(HOME·`CLAUDE_CONFIG_DIR`·TMPDIR은 그 폴더 안, 턴처럼
+  작업 폴더 기준 상대 경로). 화면에 승인 주소와 붙여 넣기 칸("Paste code here")이 뜨면 주소만 서버로 보낸다. 사람은 자기
+  브라우저에서 승인하고 Claude가 보여 주는 코드(`<code>#<state>`)를 화면에 붙여 넣는다. 코드는 토큰처럼 봉인되어(D12, 자기
+  purpose `credential.login-code`; 계약에는 여전히 봉인 안 된 비밀값 필드가 없다) 새 경로 `POST …/credential-logins/:id/code`
+  (팀: owner, 개인: 본인)로 오고, 실행기가 그 프로그램에 붙여 넣기(bracketed paste)와 Enter로 친다. CLI가 교환해서 찍은
+  `sk-ant-oat01-` 토큰은 실행기 소켓으로만 서버에 오고, 서버는 붙여 넣기 경로와 같은 코드(`createCredential` /
+  `replaceSecret`: 형식, 정책 다시, count_tokens 200=확인·401=저장 안 함·그 밖=저장 후 "첫 질문 때 확인", 중복 409, 감사)로
+  저장한다. 그 코드의 오류는 로그인의 이유(`refused`, `duplicate`, `policy_changed`, …)가 되고 토큰은 어떤 오류 문구에도
+  들어가지 않는다. 상태 `checking`(코드를 받아 교환·확인 중)을 계약에 더했고 `CredentialLogin`에 `kind`를 넣었다.
+- **터미널(PTY)**: setup-token은 Ink 전체 화면 프로그램이라 TTY가 아니면 돌지 않는다. 실행기가 `golang.org/x/sys/unix`로
+  가상 터미널을 직접 연다(macOS `TIOCPTYGRANT`/`TIOCPTYUNLK`/`TIOCPTYGNAME`, Linux `TIOCSPTLCK`/`TIOCGPTN`; 새 의존성 없음).
+  slave가 프로그램의 0·1·2와 제어 터미널(setsid + TIOCSCTTY), master는 실행기만 읽고 쓴다. 폭 500·높이 100: 주소(약 330자)와
+  토큰이 한 줄에 들어간다. master는 poll로 읽는다(막힌 read는 끊을 수 없다). **프로그램이 끝날 때까지 계속 읽는다**: 첫 실험에서
+  읽기를 멈추고 SIGTERM을 보냈더니 macOS에서 프로세스가 터미널 출력을 비우려다 종료 중 상태로 멈췄다.
+- **화면을 칸으로 읽는다(vt.go)**: 2.1.305는 띄어쓰기를 공백이 아니라 열 이동(`ESC [ n G`)으로 그리고, 다시 그릴 때 바뀐
+  칸만 쓴다. ANSI를 지우기만 하면 이웃 글자가 토큰에 붙거나 토큰이 잘린다. 그래서 작은 터미널 화면(커서 이동·지우기·스크롤,
+  OSC 8 링크 대상 보관)을 두고 사람이 보는 그대로 읽는다. 주소는 OSC 8 링크 대상(화면 폭과 상관없이 전체)을 먼저 본다.
+  주소는 Anthropic의 수동 코드 페이지만 받는다(https, `claude.com`/`claude.ai`/`platform.claude.com`, `/oauth/authorize`,
+  `redirect_uri=https://platform.claude.com/oauth/code/callback`; 실행기와 서버가 둘 다 확인). 붙여 넣기 칸이 떴는데 그런 주소가
+  2초 안에 없으면 `unexpected_url`로 끝낸다(다른 주소를 사람에게 보여 주지 않는다). **프로그램 출력은 서버로 보내지 않는다**:
+  ChatGPT는 출력을 서버가 읽지만, 여기서는 화면에 토큰이 나오므로 실행기가 읽고 정해진 사건(`claude_url`, `claude_code`,
+  `claude_failed`, `claude_token`)만 보낸다. 토큰은 코드를 친 뒤에 나온 것만, 멈추기(취소·시간 초과)보다 먼저 끝났을 때만
+  넘긴다. 프로그램은 토큰을 보여 주고 0.5초 뒤 스스로 끝나며, 15초 넘게 남으면 멈춘다. 화면은 끝나면 지운다. 예외 하나:
+  주소가 뜨기 전에 프로그램이 스스로 끝나면(샌드박스가 못 띄움, 라이브러리 없음, 정책) 화면의 마지막 몇 줄을 `cli_exit`의
+  `detail`로 보내고 서버가 경고 로그에 남긴다. 그때는 코드도 토큰도 화면에 있을 수 없다. Linux 확인 중 bwrap의 "Can't find
+  source path …"를 이것으로 찾았다.
+- **호스트(바이너리에서 찾음)**: 2.1.305의 OAuth 설정 덩어리(`TOKEN_URL:"https://platform.claude.com/v1/oauth/token"`,
+  `MANUAL_REDIRECT_URL`, `CLAUDE_AI_AUTHORIZE_URL:"https://claude.com/cai/oauth/authorize"`)와 교환 함수(코드 → `TOKEN_URL`에
+  POST)를 바이너리 문자열에서 읽었다. 교환에 필요한 곳은 `platform.claude.com:443` 하나라서 1회용 프록시 토큰
+  (`claude-login:pending-`… → 시작 pid에 묶임, ChatGPT 로그인과 같은 방식)은 그 호스트로만 터널을 연다. 교환 직후 CLI는
+  `api.anthropic.com/api/oauth/profile`로 계정 정보를 묻는데, setup-token은 그 답을 쓰지 않고 실패해도 자기 로그에만 남긴다.
+  그래서 열지 않는다. 다만 매 로그인마다 활동 기록에 "거부"가 남으면 의미 없는 경고가 되므로, **그 프로세스에서 온 바로 그
+  호스트만** 기록 없이 거부한다(다른 프로세스, 다른 호스트는 그대로 기록). 주소가 뜨기 전에는 연결이 하나도 없다: 기록용
+  프록시로 2.1.305와 로컬 2.1.318을 돌려 CONNECT 0개를 확인했다. 원격 측정·오류 보고·업데이트·feature flag 등은 환경 변수로 끈다
+  (`CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC`, `DISABLE_TELEMETRY`, `DISABLE_ERROR_REPORTING`, `DISABLE_AUTOUPDATER`,
+  `DISABLE_GROWTHBOOK` 외). 서버는 환경을 보내지 않고 실행기가 정한다.
+- **서버에서 브라우저를 열지 않는다**: setup-token은 콜백 리스너를 띄울 수 있을 때만 브라우저를 연다(리스너가 없으면 주소와
+  붙여 넣기 칸으로 간다, `onCallbackListenerUnavailable`). 샌드박스는 포트 바인드를 막고(macOS SBPL은 network-bind 없음,
+  Linux seccomp는 listen 거부), 엔진 폴더 밖의 실행 파일을 못 띄우게 한다(`open`·`xdg-open` 불가). 그 위에 `BROWSER=true`(아무것도
+  하지 않는 프로그램)를 준다. 실제 실행에서 화면이 "The browser can't return the sign-in to Claude Code automatically"였다
+  (리스너 없음).
+- **macOS 샌드박스**: 새 매개변수 `LOGIN_TTY`(이 로그인의 터미널 경로)만 읽기·쓰기·ioctl을 연다. 실험에서 상속받은 pty에도
+  `stty`가 `TIOCGETD: Operation not permitted`였다. 패턴(`/dev/ttys*`)은 쓰지 않는다: 개발 모드에서 엔진은 owner로 돌아서 owner의
+  다른 터미널이 열린다. 턴은 빈 값이라 아무것도 열리지 않는다. 로그인은 `--local-login`이어도 늘 `LOCAL_LOGIN=0`이다(맥의
+  Claude 로그인·키체인을 보지 않는다). TLS는 Security 서비스 없이도 된다(아래 확인).
+- **Linux(bwrap)**: 상속한 pty 설명자가 그대로 들어간다. seccomp는 TIOCSTI·TIOCLINUX만 막아 터미널 설정 ioctl은 된다. Landlock은
+  실행만 제한한다. 로그인 cgroup 이름은 `claude-login`(같은 이름의 cgroup이 이미 있으면 먼저 것을 죽이므로 ChatGPT의 `login`과
+  다르게). 실행기의 로그인 칸은 ChatGPT v2 로그인과 같은 하나를 쓴다. 시험: Linux 작업(`tests/linux/driver.ts`)에서 컴파일한
+  가짜 setup-token을 bwrap 실행기로 끝까지(주소, 코드, 터널, 토큰 저장).
+- **틀린 코드는 실패로 끝낸다**: CLI는 Enter로 다시 시도할 수 있지만 그때는 새 주소(PKCE·state가 새로)라서 어차피 다시 승인해야
+  한다. 그 자리에서 다시 시도하는 상태 기계 대신 `bad_code`로 끝내고 "다시 시작"(비밀번호 칸은 그대로)을 쓴다. 형식이 틀린 코드
+  (`#` 없음, 공백, 제어 문자)는 서버와 실행기가 400으로 막고 로그인은 계속 기다린다. 코드는 한 번만 받는다(두 번째는 409).
+- **확인 중의 취소**: 토큰을 확인·저장하는 몇 초 동안의 취소는 저장을 멈추지 않는다(결과가 곧 온다). 그 전의 취소는 실행기가
+  프로그램을 멈추고 폴더를 지운다.
+- **화면**: 버튼 하나("Claude 구독 연결"). 누르면 "Claude 열어서 승인하기"(새 탭)와 코드 칸 하나. 예전 터미널 붙여 넣기는
+  카드가 아니라 작은 접힘("터미널로 직접 만들기") 안에 두었고, 펼치면 같은 버튼이 붙여 넣은 토큰을 연결한다. Claude 연결의
+  "다시 연결"도 같은 로그인이다(`reconnectId`).
+- **개발 모드**: `bun run dev`의 기본(local-login)에는 모델 프록시가 없어서 이 로그인(ChatGPT 로그인도)은 시작하지 않는다
+  ("이 서버에서는 Claude 로그인을 시작할 수 없어요"). `engine.authMode: "managed"`인 server.json(`MYCEL_CONFIG`)으로 띄우면
+  운영과 같은 샌드박스·프록시로 돈다.
+- **확인한 것**: 단위·통합 시험(가짜 setup-token은 isatty가 아니면 거부: 정상, 틀린 코드, 형식, 시간 초과, 취소, 폴더 삭제,
+  로그·감사·이벤트·DB에 토큰 없음, 한 번에 하나, 정책, 다시 연결, 주소 검사, 권한 매트릭스 두 경로), Go 시험(pty, 화면, 실행기
+  op; macOS와 Linux 컨테이너). 실제 바이너리(`bun tests/engine/claude-login-real.ts`): 2.1.305와 2.1.318이 운영 프로필의
+  샌드박스에서 0.1~0.3초에 주소와 붙여 넣기 칸까지, 그 전 연결 0, 취소 뒤 폴더·프로세스 없음. `--tls-handshake`: 지어낸 코드를
+  쳐서 CLI가 `platform.claude.com:443`으로만 터널을 열고, 샌드박스 안에서 실제 인증서를 검증했다(TLS 1.3 Finished 53바이트)는
+  것까지 봤고, 프록시가 그 레코드 전에 끊어서 HTTP 요청·코드는 Anthropic에 가지 않았다. 개발 서버(managed)에서 화면의 버튼을
+  눌러 승인 링크와 코드 칸이 나오는 것을 헤드리스 브라우저로 확인했다(링크는 열지 않음).
+  Linux(호스팅 모양): Linux 작업 이미지 위에서 실제 2.1.305 linux-arm64(engines.lock.json의 sha256과 같음)를 bwrap 실행기
+  (엔진 계정, nftables로 프록시 포트만, Landlock, seccomp, cgroup)로 돌려 0.2초에 주소, 그 전 연결 0, 지어낸 코드 뒤
+  `platform.claude.com:443`만, 샌드박스의 `/etc/ssl/cert.pem`만으로 인증서 검증(Finished 53바이트), 끊긴 교환은
+  `exchange_failed`까지 봤다(이 실행은 저장소 시험이 아니라 일회성 확인).
+- **독립 검토 뒤 고친 것(같은 가지)**: ① 토큰이 잘릴 수 있었다: 처음 맞는 순간 화면에서 집었고 줄 끝을 토큰 끝으로 봤는데,
+  macOS의 pty는 3000바이트 쓰기를 1024바이트씩 넘겨서 성공 화면이 토큰 중간에서 끊길 수 있다(40/100자를 집은 재현). 401이면
+  "거절"로 토큰을 잃고, 확인이 애매하면 잘린 토큰이 "확인 전"으로 저장될 뻔했다. 이제 토큰은 2.1.305가 그리는 덩어리 안에서만,
+  제목("Your OAuth token …")과 다음 줄("Store this token securely …") 사이의 줄들이 통째로 토큰 하나일 때만 세고, 붙여 넣기 칸이
+  화면에서 사라진 뒤에만 센다. 읽을 때마다 다시 보고, 넘기는 값은 프로그램이 끝난 뒤의 마지막 화면에서 읽는다(없으면 마지막으로
+  본 온전한 덩어리). 시험: 실제 모양의 성공 화면을 1024바이트씩, 그리고 모든 지점에서 둘로 나눠 넣어 부분 토큰이 한 번도 나오지
+  않음. ② 토큰 모양의 글(붙여 넣은 코드 등)은 그 덩어리 밖이라 세지 않고, `sk-ant-`가 든 코드는 서버와 실행기가 아예 받지
+  않는다. ③ 다시 연결(`replaceSecret`)은 정책을 다시 보지 않아서, 저장 직전에 ChatGPT처럼 허용 종류·`memberOwn`·
+  `sharedSubscriptions`를 다시 본다(팀원의 다시 연결 중에 팀장이 개인 연결을 끄면 저장 안 함). ④ 코드 뒤에는 90초 안에 토큰이나
+  아는 오류가 없으면 `exchange_failed`(전에는 16분 내내 "확인 중"). ⑤ 화면: 코드를 두 번(Enter 두 번) 보내지 않는다. ⑥ 저장 중의
+  취소는 409("저장하는 중이에요")이고 대화 상자는 결과까지 남는다. ⑦ 실행기가 코드를 치지 않았다고 답하면(`claude_code ok:false`)
+  `code_refused`로 끝낸다. ⑧ 실행기가 시작할 때 `.claude-login`과 `.codex-login`의 남은 폴더를 지운다(그때는 로그인이 없다;
+  ChatGPT 쪽 남은 auth.json도).
+- **재검토 뒤 더한 것**: 성공 화면의 모양은 가짜로만 확인했다. 실제 화면이 다르면 모든 로그인이 안전하게 실패하지만 전에는
+  `exit_0`만 보였고 만들어진 1년짜리 토큰은 사라졌다. 이제 코드를 친 뒤 프로그램이 스스로 끝났는데 온전한 토큰 덩어리를 못
+  알아봤으면 실행기가 `token_unreadable`로 끝내고(화면: "Claude가 보여 준 결과를 트리나가 읽지 못했어요(새 토큰이 만들어졌을 수
+  있어요)…", 다섯 언어), 화면의 마지막 줄들을 서버 경고 로그에 남긴다. `sk-ant-…`와 숫자·`_`·`-`가 든 16자 넘는 토큰 문자 덩어리는
+  실행기와 서버가 둘 다 가린다(토큰은 어떤 로그에도 가지 않는다). 엔진 고정 버전을 올리는 단계(`versions.json`의 `_comment`)에
+  "setup-token 성공 화면 다시 확인"을 넣었다. 또 "마지막으로 본 온전한 덩어리"(마지막 화면에 덩어리가 없을 때 쓰는 값)는 이미
+  가진 값의 앞부분인 값으로 바꾸지 않는다: 토큰 줄만 제자리에서 다시 그리는 중에 읽기가 끊기면 위아래 줄은 그대로라 짧은 토큰이
+  온전한 덩어리처럼 보였다.
+- **확인하지 못한 것**: 사람이 승인한 실제 로그인 한 번(토큰이 나오는 화면을 실제로 읽는 것, 교환 직후의 프로필 요청).
 
 ## 클라우드·리눅스 서버: 배포 형태, 요금제 한도, 팀 시간대, 저장 공간, 리눅스 진단, 업데이트 (feat/cloud-linux-server, 2026-10-22)
 

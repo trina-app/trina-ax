@@ -21,7 +21,7 @@ import { makeEnv, WORK } from '../lib/env'
 import { catalogModels, CODEX_CATALOG_FILE, codexAuthDir, codexCatalogFor, writeLockedCatalog } from '../../server/src/engine/codex'
 import { lockCatalog } from '../../scripts/macos/codex-catalog.mjs'
 import { issueProxyToken, startModelProxy } from '../../server/src/proxy/model-proxy'
-import { CODEX_LOGIN_BOUND, CODEX_LOGIN_PENDING } from '../../server/src/proxy/connect'
+import { CLAUDE_LOGIN_BOUND, CLAUDE_LOGIN_PENDING, CODEX_LOGIN_BOUND, CODEX_LOGIN_PENDING } from '../../server/src/proxy/connect'
 import { codexDeviceLogin, codexLoginState, codexLogout, SocketLauncher, startLauncher } from '../../server/src/native'
 import { codexCommand, parseDeviceLogin } from '../../server/src/system/codex-login'
 import { nativeBinDir } from '../../server/src/config'
@@ -157,6 +157,41 @@ describe('model proxy CONNECT (Codex tunnels)', () => {
     peer = 7
     expect(await connect(proxy.port, 'auth.openai.com:443', `turn:${tok}`)).toMatch(/^HTTP\/1\.1 403/)
     peer = 4242
+  })
+  test('the Claude sign-in token: bound to its process, only platform.claude.com:443; the profile lookup refused unrecorded', async () => {
+    const pending = CLAUDE_LOGIN_PENDING + 'cl-login'
+    const tok = issueProxyToken(db, pending, 'dana')
+    expect(await connect(proxy.port, 'platform.claude.com:443', `turn:${tok}`)).toMatch(/^HTTP\/1\.1 403/) // never bound
+    const late = connect(proxy.port, 'platform.claude.com:443', `turn:${tok}`)
+    await Bun.sleep(100)
+    db.query('UPDATE proxy_tokens SET turn_id = ? WHERE turn_id = ?').run(CLAUDE_LOGIN_BOUND + '4242', pending) // the launcher's "started"
+    expect(await late).toBe('HTTP/1.1 200 Connection Established')
+    expect(dialed.at(-1)).toBe('platform.claude.com:443')
+    // the CLI's profile lookup after the exchange: refused, no Activity log line; any other host: refused and recorded
+    let before = refusals()
+    expect(await connect(proxy.port, 'api.anthropic.com:443', `turn:${tok}`)).toMatch(/^HTTP\/1\.1 403/)
+    expect(refusals()).toBe(before)
+    for (const h of ['claude.ai:443', 'auth.openai.com:443', 'chatgpt.com:443', 'platform.claude.com:80', 'example.com:443']) expect(await connect(proxy.port, h, `turn:${tok}`)).toMatch(/^HTTP\/1\.1 403/)
+    expect(refusals() - before).toBe(5)
+    // another process with the token: refused, and recorded even for the profile host
+    peer = 7
+    before = refusals()
+    expect(await connect(proxy.port, 'platform.claude.com:443', `turn:${tok}`)).toMatch(/^HTTP\/1\.1 403/)
+    expect(await connect(proxy.port, 'api.anthropic.com:443', `turn:${tok}`)).toMatch(/^HTTP\/1\.1 403/)
+    expect(refusals() - before).toBe(2)
+    peer = 4242
+    // a ChatGPT sign-in token does not reach Anthropic's sign-in host
+    const codexLogin = issueProxyToken(db, CODEX_LOGIN_BOUND + '4242', 'dana')
+    expect(await connect(proxy.port, 'platform.claude.com:443', `turn:${codexLogin}`)).toMatch(/^HTTP\/1\.1 403/)
+    // neither HTTP path takes the sign-in token (it is not a turn of either family)
+    const p = await startModelProxy({ db, broker: null })
+    try {
+      expect((await fetch(p.url + '/v1/messages', { method: 'POST', headers: { 'x-api-key': tok, 'content-type': 'application/json' }, body: '{}' })).status).toBe(403)
+      expect((await fetch(p.url + '/codex/chatgpt/responses', { method: 'POST', headers: { authorization: 'Bearer ' + tok, 'content-type': 'application/json' }, body: '{}' })).status).toBe(403)
+    } finally { await p.stop() }
+    // revoked: refused
+    db.query('UPDATE proxy_tokens SET revoked_at = ? WHERE turn_id = ?').run(new Date().toISOString(), CLAUDE_LOGIN_BOUND + '4242')
+    expect(await connect(proxy.port, 'platform.claude.com:443', `turn:${tok}`)).toMatch(/^HTTP\/1\.1 407/)
   })
   test('the Claude path of a proxy without AI connections answers 503, never forwards', async () => {
     const r = await fetch(proxy.url + '/v1/messages', { method: 'POST', headers: { 'x-api-key': issueProxyToken(db, 'cl1', 'alice', { family: 'anthropic' }), 'content-type': 'application/json' }, body: '{}' })

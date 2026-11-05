@@ -428,6 +428,8 @@ export const SPECS: Record<string, Spec> = {
   startCredentialLogin: { skipPositive: true, build: (c) => c.post('/api/admin/credential-logins', { label: 'x', acknowledgedPlanNotice: true, password: 'wrong-pass' }), scope: 'byLevel' },
   getCredentialLogin: { build: (c) => c.get('/api/admin/credential-logins/nonexistent-login-id-0000'), scope: 'nobody' },
   cancelCredentialLogin: { build: (c) => c.del('/api/admin/credential-logins/nonexistent-login-id-0000'), scope: 'nobody' },
+  // the Claude code of a sign-in: only its starter's (an unknown sign-in: 404 before the sealed value is opened)
+  submitCredentialLoginCode: { build: (c) => c.post('/api/admin/credential-logins/nonexistent-login-id-0000/code', { sealed: FAKE_SEALED }), scope: 'nobody' },
   updateCredentialSettings: { build: (c) => c.patch('/api/admin/credential-settings', { memberOwn: true }), scope: 'byLevel' },
   sealingKey: { build: (c) => c.get('/api/credentials/sealing-key'), scope: 'self',
     check: (r) => { if (r.status === 200 && ('d' in (r.json?.publicJwk ?? {}) || /"d"\s*:/.test(r.text))) throw new Error('the sealing key response carries the private part') } },
@@ -439,6 +441,7 @@ export const SPECS: Record<string, Spec> = {
   startMyCredentialLogin: { skipPositive: true, build: (c) => c.post('/api/me/credential-logins', { label: '', acknowledgedPlanNotice: true }), scope: 'self' },
   getMyCredentialLogin: { build: (c) => c.get('/api/me/credential-logins/nonexistent-login-id-0000'), scope: 'nobody' },
   cancelMyCredentialLogin: { build: (c) => c.del('/api/me/credential-logins/nonexistent-login-id-0000'), scope: 'nobody' },
+  submitMyCredentialLoginCode: { build: (c) => c.post('/api/me/credential-logins/nonexistent-login-id-0000/code', { sealed: FAKE_SEALED }), scope: 'nobody' },
   listBudgets: { build: (c) => c.get('/api/admin/budgets'), scope: 'byLevel' },
   createBudget: { build: (c) => c.post('/api/admin/budgets', { subjectType: 'team', subjectId: null, period: 'day', limitUsd: 10, action: 'warn' }), scope: 'byLevel' },
   updateBudget: { build: (c, w) => c.patch(`/api/admin/budgets/${w.ids.budget}`, { limitUsd: 20 }), scope: 'byLevel' },
