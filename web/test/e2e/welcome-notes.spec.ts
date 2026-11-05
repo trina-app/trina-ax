@@ -15,7 +15,9 @@ test('a company intro in, the card news out; [팀에 공유] invites with that s
   await reset(page)
   await signIn(page)
   await page.goto('/welcome')
-  await expect(page.getByTestId('welcome-pack-line')).toHaveText('팀 스킬을 넣어 둘게요 · 마케팅팀이에요')
+  // nothing above the first step: no team question, no promise of skills
+  await expect(page.getByTestId('welcome-profile')).toBeVisible()
+  await expect(page.getByTestId('welcome-pack-line')).toHaveCount(0)
   // the profile put off: the team's start goes in, then the first result asks for a company or team intro
   await page.getByTestId('welcome-profile').getByRole('button', { name: '나중에 하기' }).click()
   await expect(page.getByRole('heading', { name: '회사 소개서나 팀 소개 자료가 있으면 놓아 주세요' })).toBeVisible()

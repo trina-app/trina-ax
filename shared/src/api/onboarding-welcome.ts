@@ -3,10 +3,9 @@
 // meeting notes put into the team's folder and turned into tasks per person; every team gets the general skill pack
 // and a group named after the team with its folder (groups/<team>/), once. Route module: server/src/routes/onboarding-welcome.ts. The progress is one settings
 // row of the team (`onboarding.welcome`), so the steps resume where they stopped on any device; owners and admins read
-// it, only the owner (who walks through the steps) writes it. The team type is no longer a step: the first step says
-// "마케팅 스킬 7개를 넣어 둘게요 · 다른 팀이에요", and leaving it installs the marketing skill pack once (unless another
-// team type was picked): the server records that it ran and never runs it again by itself (stream C: installing again
-// restores files someone deleted).
+// it, only the owner (who walks through the steps) writes it. The team type is no longer asked: the steps never install
+// the marketing skill pack by themselves (Team skills offers it on a click); POST …/pack still installs it once and
+// records that it ran, never running it again by itself (stream C: installing again restores files someone deleted).
 import { z } from 'zod'
 import { empty, endpoint } from './endpoint'
 import { SkillPackId, SkillPackInstallResult } from './onboarding-packs'
@@ -26,9 +25,9 @@ export const WELCOME_COUNTED = ['profile', 'result'] as const satisfies readonly
 export const WelcomeStepState = z.enum(['done', 'skipped'])
 export type WelcomeStepState = z.infer<typeof WelcomeStepState>
 
-/** 마케팅 / 영업 / 경영지원 / 기타. Only marketing has a skill pack, an addition to the general pack: the first step's
- * line "팀 스킬을 넣어 둘게요 · 마케팅팀이에요" sets `marketing`; null (no answer) is the general pack only. Rows from
- * before (X) may hold the other types; they read as "not marketing". */
+/** 마케팅 / 영업 / 경영지원 / 기타. Only marketing has a skill pack, an addition to the general pack. The welcome steps
+ * no longer ask (docs/DECISIONS.md "W2"): rows from before may hold a type, kept and readable; the team skill draft
+ * still reads `marketing` to pick its pack folder. null: no answer. */
 export const TEAM_TYPES = ['marketing', 'sales', 'operations', 'other'] as const
 export const TeamType = z.enum(TEAM_TYPES)
 export type TeamType = z.infer<typeof TeamType>

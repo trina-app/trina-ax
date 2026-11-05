@@ -54,18 +54,10 @@ export const doneCount = (p: WelcomeProgress | null, aiReady = true) => (p ? cou
 /** How many steps the progress counts (the "/2", "/3" with the AI step): read it from here, never as a number of its own. */
 export const stepTotal = (p: WelcomeProgress | null = null, aiReady = true) => countedSteps(p, aiReady).length
 
-/** Leaving the first step installs the marketing pack only when the owner said "마케팅팀이에요" and it is not in yet.
- * No answer (null) is the general pack only; a type from before (영업, 기타 …) reads as "not marketing". */
-export const wantsPack = (p: WelcomeProgress | null) => !!p && p.teamType === 'marketing' && !p.pack
-
 /** Every team's start (POST /api/onboarding/welcome/team): the general pack and the team's own group with its brand
  * folder, while any is missing (the server installs and creates each once, whatever the page asks; a group recorded
  * before the brand folder existed gets it then). */
 export const wantsTeam = (p: WelcomeProgress | null) => !!p && (!p.general || !p.teamGroup || !p.teamGroup.brandFolder)
-
-/** The line above the first step goes once what it promised is recorded: the general pack, and the marketing pack when
- * the owner asked for it. */
-export const packsRecorded = (p: WelcomeProgress) => !!p.general && (p.teamType !== 'marketing' || !!p.pack)
 
 /** The name a skill is run by ("/meeting-tasks"): the folder of a SKILL.md, else the file name of a legacy skill. */
 export function skillNameOf(path: string | null | undefined): string {

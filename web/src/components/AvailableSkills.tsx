@@ -6,10 +6,12 @@
 // stays in the page's other tabs. A chat starts from the skill's name, so of two skills with one name the server picks
 // (server/src/chat/skills.ts). A skill with a form (metadata `inputs`) opens it instead (skills/SkillForm.tsx), from
 // the row, its run button and its menu. With no skill at all, owners and admins can install the recommended pack in
-// one click (POST /api/onboarding/packs/marketing/install); members read that an admin can.
+// one click (POST /api/onboarding/packs/marketing/install); members read that an admin can. A team that has skills but
+// none under skills/marketing/ (every team that walked the welcome steps has the general pack) gets one quiet line under
+// the list for owners and admins: "마케팅 스킬 7개 넣기", the same install on a click.
 import { FileText, MessageSquarePlus, MoreHorizontal, PackagePlus, Play, ScrollText, Sparkles } from 'lucide-react'
 import { useEffect, useRef, useState, type KeyboardEvent } from 'react'
-import { skillSummary, skillTitle, type SkillInfo } from '@mycel/shared/api'
+import { skillSummary, skillTitle, WELCOME_PACK_SKILLS, type SkillInfo, type SkillPackId } from '@mycel/shared/api'
 import { api, API, errorText } from '../lib/api'
 import { navigateTo } from '../lib/nav'
 import { parentPath } from '../lib/paths'
@@ -68,29 +70,35 @@ export function AvailableSkills({ query }: { query: string }) {
   return <AvailableSkillsList items={items} query={query} />
 }
 
+/** The marketing pack's skills live here (the server installs a pack under skills/<id>/). */
+const MARKETING_FOLDER = `skills/${'marketing' satisfies SkillPackId}/`
+
 /** The list without the data load (null: still loading). Personal skills get a section of their own. */
 export function AvailableSkillsList({ items, query = '' }: { items: Skill[] | null; query?: string }) {
   const t = useT()
+  const admin = isAdmin(useMe())
   const [running, setRunning] = useState<Skill | null>(null)
   if (!items) return <Skeleton lines={3} />
   if (!items.length) return <NoSkills />
   const q = query.trim().toLowerCase()
   const shown = q ? items.filter((s) => `${s.name} ${s.title ?? ''} ${s.description}`.toLowerCase().includes(q)) : items
   if (!shown.length) return <EmptyState icon={<Sparkles size={22} />} title={t('skills.noMatch', { q: query.trim() })} />
+  // no marketing skill in the team yet: owners and admins can add the pack (not while searching)
+  const offerMarketing = admin && !q && !items.some((s) => !s.personal && s.path.startsWith(MARKETING_FOLDER))
   return (
     <div className="space-y-6" data-testid="skill-list">
       <SkillSection title={t('skills.fromTeam')} items={shown.filter((s) => !s.personal)} onRun={setRunning} />
       <SkillSection title={t('skills.personal')} items={shown.filter((s) => s.personal)} onRun={setRunning} />
+      {offerMarketing && <MarketingPackLine />}
       {running && <SkillFormDialog path={running.path} skill={running} onClose={() => setRunning(null)} />}
     </div>
   )
 }
 
-/** No skill yet: owners and admins install the recommended pack here; members learn that an admin can. */
-function NoSkills() {
+/** Install the marketing pack on a click and say what happened (only what is missing goes in; nothing is replaced). */
+function usePackInstall() {
   const t = useT()
   const locale = useLocale()
-  const admin = isAdmin(useMe())
   const [busy, setBusy] = useState(false)
   const install = async () => {
     setBusy(true)
@@ -106,6 +114,28 @@ function NoSkills() {
       setBusy(false)
     }
   }
+  return { busy, install }
+}
+
+/** Under the list, one quiet text button: "마케팅 스킬 7개 넣기" (what goes in is its tooltip). */
+function MarketingPackLine() {
+  const t = useT()
+  const { busy, install } = usePackInstall()
+  return (
+    <p className="text-[13px]">
+      <button type="button" className="font-medium text-muted underline decoration-line-strong underline-offset-4 hover:text-ink hover:decoration-ink disabled:opacity-50"
+        title={t('skillPack.adminHint')} disabled={busy} onClick={() => void install()} data-testid="skill-pack-marketing">
+        {t('skillPack.addMarketing', { n: WELCOME_PACK_SKILLS })}
+      </button>
+    </p>
+  )
+}
+
+/** No skill yet: owners and admins install the recommended pack here; members learn that an admin can. */
+function NoSkills() {
+  const t = useT()
+  const admin = isAdmin(useMe())
+  const { busy, install } = usePackInstall()
   return (
     <EmptyState icon={<Sparkles size={22} />} title={t('skills.noSkills')}>
       {admin ? (

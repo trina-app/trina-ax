@@ -3,10 +3,9 @@
 // against a small fake of the server's rules (tests/unit/b-onboarding-welcome.test.ts checks the server itself):
 // - /welcome is the owner's: members and admins are sent Home; right after /setup the owner lands there;
 // - without an AI that answers the owner, the AI step first (1/3 AI 연결: Claude 구독 연결, the other ways folded,
-//   나중에 leaves the steps), never in front of the invite; with one, two steps (회사 소개 → 첫 결과); one quiet line
-//   above the first: "팀 스킬을 넣어 둘게요 · 마케팅팀이에요" (the tap adds
-//   the marketing pack, 취소 takes it back); leaving the first step sets the team up once (the general pack, the team's
-//   group and folders) and installs the marketing pack once, only when asked; resuming never installs again;
+//   나중에 leaves the steps), never in front of the invite; with one, two steps (회사 소개 → 첫 결과); nothing above the
+//   first (no team question): leaving it sets the team up once (the general pack, the team's group and folders), never
+//   the marketing pack (one click on Team skills); resuming never sets up again;
 // - the first result for every team, the company card news: files into the team's brand folder, the server starts the
 //   result (its chat, the files to attach), then "/card-news …" with them in that chat; "자료 없이 만들게요": the same
 //   without files (the server's 회사 소개.md attached); the server's refusal in its own words; AI gone by then: the AI
@@ -31,7 +30,7 @@ import { InviteStep } from '../../src/components/onboarding/InviteStep'
 import { forgetPatched } from '../../src/components/onboarding/TeamLinkPanel'
 import { WelcomeResume } from '../../src/components/onboarding/WelcomeResume'
 import ProfileStep from '../../src/components/onboarding/ProfileStep'
-import { countedSteps, doneCount, inviteSkill, nextStep, packsRecorded, prevStep, readNotesHint, resultSkill, resumeStep, showInviteBar, showResume, skillNameOf, stepTotal, teamReach, wantsPack, wantsTeam } from '../../src/lib/welcome'
+import { countedSteps, doneCount, inviteSkill, nextStep, prevStep, readNotesHint, resultSkill, resumeStep, showInviteBar, showResume, skillNameOf, stepTotal, teamReach, wantsTeam } from '../../src/lib/welcome'
 import { rememberSetupSite, setupSite } from '../../src/lib/setupLink'
 import { useAiAccess } from '../../src/store/aiAccess'
 import { useSession } from '../../src/store/session'
@@ -320,15 +319,7 @@ describe('where the steps go', () => {
     expect(teamReach([u('olga', 'owner')], ['olga'])).toEqual({ viewers: 1, outside: [] })
   })
 
-  test('the packs: every team gets its start; the marketing pack only when asked for, and never by default', () => {
-    // no answer is the general pack only (it used to read as marketing)
-    expect(wantsPack(fresh())).toBe(false)
-    expect(wantsPack({ ...fresh(), teamType: 'marketing' })).toBe(true)
-    expect(wantsPack({ ...fresh(), teamType: 'sales' })).toBe(false)
-    expect(wantsPack({ ...fresh(), teamType: 'other' })).toBe(false)
-    expect(wantsPack({ ...fresh(), teamType: 'marketing', pack: PACK })).toBe(false)
-    expect(wantsPack({ ...fresh(), teamSkipped: true })).toBe(false)
-    expect(wantsPack(null)).toBe(false)
+  test('every team gets its start, while any part of it is missing', () => {
     expect(wantsTeam(fresh())).toBe(true)
     expect(wantsTeam({ ...fresh(), general: GENERAL })).toBe(true)
     expect(wantsTeam({ ...fresh(), teamGroup: TEAM })).toBe(true)
@@ -336,11 +327,6 @@ describe('where the steps go', () => {
     // a group recorded before the brand folder existed: the start runs again (and adds it)
     expect(wantsTeam({ ...fresh(), general: GENERAL, teamGroup: { ...TEAM, brandFolder: undefined } })).toBe(true)
     expect(wantsTeam(null)).toBe(false)
-    // the line above the first step goes once what it promised is recorded
-    expect(packsRecorded(fresh())).toBe(false)
-    expect(packsRecorded({ ...fresh(), general: GENERAL })).toBe(true)
-    expect(packsRecorded({ ...fresh(), general: GENERAL, teamType: 'marketing' })).toBe(false)
-    expect(packsRecorded({ ...fresh(), general: GENERAL, teamType: 'marketing', pack: PACK })).toBe(true)
     // the name a skill runs by
     expect(skillNameOf(GENERAL_TASKS_SKILL)).toBe('meeting-tasks')
     expect(skillNameOf(GENERAL_CARDNEWS_SKILL)).toBe('card-news')
@@ -414,7 +400,7 @@ describe('/welcome', () => {
     }
   })
 
-  test('the line: team skills for every team; 마케팅팀이에요 adds the marketing pack, 취소 takes it back; leaving the first step sets the team up and installs it, once; resuming never installs again', async () => {
+  test('no line above the first step and no team question; leaving it sets the team up, once, never the marketing pack; resuming never sets up again', async () => {
     signIn('owner')
     rememberSetupSite('https://acme.example/')
     let m = await app()
@@ -424,31 +410,22 @@ describe('/welcome', () => {
       expect(called('PATCH /api/onboarding/welcome')[0]!.body).toEqual({ site: 'https://acme.example/' })
       expect(m.get('welcome-progress').textContent).toContain('1/2 회사 소개')
       expect(m.get('welcome-progress').textContent).toContain('2/2 첫 결과')
-      // one line, no chooser of team types
-      expect(m.get('welcome-pack-line').textContent).toBe('팀 스킬을 넣어 둘게요 · 마케팅팀이에요')
-      expect(m.find('welcome-team')).toBeNull()
-      expect(m.html()).not.toContain('준비 중')
-      await m.click('welcome-marketing')
-      await m.until(() => m.find('welcome-marketing-cancel'), 'the marketing promise')
-      expect(progress!.teamType).toBe('marketing')
-      expect(m.get('welcome-pack-line').textContent).toBe('팀 스킬과 마케팅 스킬 7개를 넣어 둘게요 · 취소')
-      // 취소 takes it back (the type "other": not marketing), and the tap again adds it once more
-      await m.click('welcome-marketing-cancel')
-      await m.until(() => m.find('welcome-marketing'), 'back to the team skills only')
-      expect(progress!.teamType).toBe('other')
-      await m.click('welcome-marketing')
-      await m.until(() => progress!.teamType === 'marketing', 'marketing again')
-      expect(called('POST /api/onboarding/welcome/pack')).toEqual([])
-      expect(called('POST /api/onboarding/welcome/team')).toEqual([])
-      // "나중에 하기" on the profile: the team's start and the marketing pack go in (once), on to the first result
+      // nothing above the step: no promise of skills, no chooser of team types
       await m.until(() => m.find('profile-step-site'), 'the profile step (D)')
+      expect(m.find('welcome-pack-line')).toBeNull()
+      expect(m.find('welcome-marketing')).toBeNull()
+      expect(m.html()).not.toContain('마케팅팀이에요')
+      expect(m.html()).not.toContain('팀 스킬을 넣어 둘게요')
+      expect(called('POST /api/onboarding/welcome/team')).toEqual([])
+      // "나중에 하기" on the profile: the team's start goes in (once), on to the first result
       await m.click(laterButton())
       await m.until(() => stepOf(m) === 'result', 'step 2')
       expect(called('POST /api/onboarding/welcome/team')).toHaveLength(1)
-      expect(called('POST /api/onboarding/welcome/pack')).toHaveLength(1)
+      expect(called('POST /api/onboarding/welcome/pack')).toEqual([])
+      expect(called('PATCH /api/onboarding/welcome').some((c) => 'teamType' in c.body)).toBe(false)
       expect(progress!.general).toEqual(GENERAL)
       expect(progress!.teamGroup).toEqual(TEAM)
-      expect(progress!.pack).toEqual(PACK)
+      expect(progress!.pack).toBeNull()
       expect(progress!.steps.profile).toBe('skipped')
       expect(m.find('welcome-progress')!.querySelector('[aria-current="step"]')!.textContent).toContain('2/2 첫 결과')
       // every team's first result: the team's files
@@ -462,11 +439,10 @@ describe('/welcome', () => {
     m = await app()
     try {
       await m.until(() => stepOf(m) === 'result', 'resumed on step 2')
-      // back to step 1: the website came from the server's copy, the packs are in (no line), leaving again installs nothing
+      // back to step 1: the website came from the server's copy, the team is set up, leaving again installs nothing
       await m.click('welcome-back')
       await m.until(() => m.find('profile-step-site'), 'the profile step')
       expect((m.get('profile-step-site').querySelector('input[inputmode="url"]') as unknown as { value: string }).value).toBe('https://acme.example/')
-      expect(m.find('welcome-pack-line')).toBeNull()
       await m.click(laterButton())
       await m.until(() => stepOf(m) === 'result', 'step 2 again')
       expect(called('POST /api/onboarding/welcome/pack')).toEqual([])
@@ -474,15 +450,14 @@ describe('/welcome', () => {
     } finally { await m.unmount() }
   })
 
-  test('no marketing (no answer, another type from before, or a team question put off): leaving sets the team up, no marketing pack', async () => {
-    for (const start of [fresh(), { ...fresh(), teamType: 'operations' as const }, { ...fresh(), teamSkipped: true }]) {
+  test('a row from before with a team type (marketing too, its pack not in yet) or the team question put off: leaving sets the team up, never the marketing pack', async () => {
+    for (const start of [{ ...fresh(), teamType: 'marketing' as const }, { ...fresh(), teamType: 'operations' as const }, { ...fresh(), teamSkipped: true }]) {
       signIn('owner')
       progress = start
       const m = await app()
       try {
-        await m.until(() => m.find('welcome-pack-line'), 'the line')
-        expect(m.get('welcome-pack-line').textContent).toBe('팀 스킬을 넣어 둘게요 · 마케팅팀이에요')
         await m.until(() => m.find('profile-step-site'), 'the profile step (D)')
+        expect(m.find('welcome-pack-line')).toBeNull()
         await m.click(laterButton())
         await m.until(() => m.find('welcome-files-pick'), 'the files step')
         expect(called('POST /api/onboarding/welcome/team')).toHaveLength(1)
@@ -749,26 +724,6 @@ describe('/welcome', () => {
       await act(async () => { await new Promise((r) => setTimeout(r, 30)) })
       expect(progress!.steps.ai).toBeUndefined()
       expect(called('PATCH /api/onboarding/welcome').filter((c) => c.body?.step?.id === 'ai')).toEqual([])
-    } finally { await m.unmount() }
-  })
-
-  test('the marketing pack blocked by folder rules: the step says so; the card news still works', async () => {
-    signIn('owner')
-    packStatus = 'blocked'
-    progress = { ...fresh(), teamType: 'marketing' }
-    const m = await app()
-    try {
-      await m.until(() => m.find('profile-step-site'), 'step 1')
-      await m.click(laterButton())
-      await m.until(() => m.html().includes(translate('ko', 'welcome.packBlocked')), 'the message')
-      expect(stepOf(m)).toBe('result')
-      expect(progress!.pack).toBeNull()
-      expect(called('POST /api/onboarding/welcome/pack')).toHaveLength(1)
-      // no install offer here: the card news does not need the marketing pack
-      await m.until(() => m.find('welcome-files-none'), 'the files step')
-      await m.click('welcome-files-none')
-      await m.until(() => at(m) === `/c/${CHAT}`, 'the chat')
-      expect(called('POST /api/onboarding/welcome/pack')).toHaveLength(1)
     } finally { await m.unmount() }
   })
 

@@ -10,22 +10,21 @@
 // team (components/onboarding/WelcomeInviteBar.tsx: the invite with it). Every step can be put off; the progress is
 // kept on the server (store/welcome.ts), so the steps resume where they stopped, on any device, from the entry on Home.
 //
-// Above the first step one quiet line says "팀 스킬을 넣어 둘게요 · 마케팅팀이에요": leaving the first step sets up every
-// team once (the general pack and a group named after the team with its folders, POST /api/onboarding/welcome/team),
-// and adds the marketing pack only when the owner said so. The server keeps every guarantee: once, never restoring
-// deleted skills, blocked.
+// Leaving the first step sets up every team once (the general pack and a group named after the team with its folders,
+// POST /api/onboarding/welcome/team); the server keeps every guarantee: once, never restoring deleted skills, blocked.
+// Nothing is asked about the team for it: the marketing pack is one click on Team skills (components/AvailableSkills.tsx).
 import clsx from 'clsx'
 import { ArrowLeft, Check, CircleAlert, Loader2, Upload } from 'lucide-react'
 import { useEffect, useRef, useState, type DragEvent, type ReactNode } from 'react'
 import { Navigate, useNavigate } from 'react-router-dom'
-import { FIRST_RESULT_FILES_MAX, uuidv7, WELCOME_PACK_SKILLS, type CompanyProfile, type FirstResultStarted, type TeamType, type WelcomeProgress, type WelcomeStep, type WelcomeStepState } from '@mycel/shared/api'
+import { FIRST_RESULT_FILES_MAX, uuidv7, type CompanyProfile, type FirstResultStarted, type WelcomeProgress, type WelcomeStep, type WelcomeStepState } from '@mycel/shared/api'
 import { api, API, errorText } from '../lib/api'
 import { markBusy } from '../lib/busy'
 import { joinPath } from '../lib/paths'
 import { setupSite } from '../lib/setupLink'
 import { rememberChat } from '../lib/teamAttach'
 import { uploadFile, type UploadProgress } from '../lib/upload'
-import { countedSteps, inviteSkill, nextStep, packsRecorded, prevStep, resumeStep, skillNameOf, teamReach, wantsPack, wantsTeam } from '../lib/welcome'
+import { countedSteps, inviteSkill, nextStep, prevStep, resumeStep, skillNameOf, teamReach, wantsTeam } from '../lib/welcome'
 import { useLocale, useT, type MessageKey } from '../i18n'
 import { useAiAccess } from '../store/aiAccess'
 import { useChats } from '../store/chats'
@@ -50,15 +49,6 @@ const STEP_LABEL: Partial<Record<WelcomeStep, MessageKey>> = { ai: 'welcome.prog
 /** At most this many files in one go: a company intro or a deck is enough, and each goes up on its own (the server
  * takes as many: FIRST_RESULT_FILES_MAX). */
 export const WELCOME_FILES_MAX = FIRST_RESULT_FILES_MAX
-
-/** Install the marketing pack and say what happened: "마케팅 스킬 7개와 팀 폴더를 넣었어요"; nothing when it was there
- * already; `blocked` when the folder rules kept the ad copy out (nothing is recorded then). */
-async function installPack(t: ReturnType<typeof useT>): Promise<'ok' | 'blocked'> {
-  const r = await useWelcome.getState().installPack()
-  if (r.outcome === 'blocked') return 'blocked'
-  if (r.install) toast({ level: 'success', text: t('welcome.team.installed', { n: r.install.skills.filter((s) => s.status !== 'blocked').length }) })
-  return 'ok'
-}
 
 function WelcomeSteps() {
   const t = useT()
@@ -127,18 +117,14 @@ function WelcomeSteps() {
   useEffect(() => {
     if (needAi) void useWelcome.getState().update({ step: { id: 'ai', state: 'skipped' } }).catch(() => {})
   }, [needAi])
-  /** the line above the first step: "마케팅팀이에요" (the marketing pack too), or "취소" */
-  const chooseTeam = (type: TeamType) => run(async () => { await useWelcome.getState().update({ teamType: type }) })
   /** Leaving the first step (saved or put off): every team's start (the general pack, the team's group and folders),
-   * then the marketing pack when the owner asked for it, each once; then the next step. When the folder rules kept a
-   * pack out, nothing of it is recorded and the step says so; the first result tries the team's start again. */
+   * once; then the next step. When the folder rules kept the pack out, nothing of it is recorded and the step says so;
+   * the first result tries the team's start again. */
   const leaveProfile = (state: WelcomeStepState) => run(async () => {
     const w = useWelcome.getState()
     let blocked = false
     // a failure here does not hold the owner on this step: picking files asks again and shows why
     if (wantsTeam(w.progress)) blocked = (await w.setupTeam().catch(() => null))?.outcome === 'blocked'
-    // the marketing pack once: these steps never install it again by themselves (the server keeps that record as well)
-    if (wantsPack(useWelcome.getState().progress)) blocked = (await installPack(t)) === 'blocked' || blocked
     go(await w.update({ step: { id: 'profile', state } }), 'profile')
     if (blocked) setError(t('welcome.packBlocked'))
   })
@@ -176,12 +162,7 @@ function WelcomeSteps() {
       )}
       <div ref={region} tabIndex={-1} className={back ? 'mt-2 outline-none' : 'mt-8 outline-none'} data-step={gate ? 'ai' : step}>
         {gate && <AiStep busy={busy} onLater={() => navigate('/')} />}
-        {!gate && step === 'profile' && (
-          <>
-            {!packsRecorded(progress) && <PackLine progress={progress} busy={busy} onChoose={(type) => void chooseTeam(type)} />}
-            <ProfileWizardStep progress={progress} onDone={() => void leaveProfile('done')} onSkip={() => void leaveProfile('skipped')} />
-          </>
-        )}
+        {!gate && step === 'profile' && <ProfileWizardStep progress={progress} onDone={() => void leaveProfile('done')} onSkip={() => void leaveProfile('skipped')} />}
         {!gate && step === 'result' && <ResultStep progress={progress} busy={busy} onRan={(id) => void ran(id)} onSkip={() => void mark('result', 'skipped')} />}
         {!gate && step === 'invite' && <InviteWizardStep progress={progress} onDone={() => void mark('invite', 'done')} onSkip={() => void mark('invite', 'skipped')} />}
       </div>
@@ -244,28 +225,6 @@ function Later({ onClick, disabled }: { onClick: () => void; disabled?: boolean 
 }
 
 const quietLink = 'font-medium text-ink underline decoration-line-strong underline-offset-4 hover:decoration-ink disabled:opacity-50'
-
-/** Above the first step, one quiet line: "팀 스킬을 넣어 둘게요 · 마케팅팀이에요". The tap adds the marketing pack to the
- * promise ("팀 스킬과 마케팅 스킬 7개를 넣어 둘게요 · 취소"); 취소 takes it back. No team chooser: every team gets the
- * general pack, and only marketing has a pack of its own. */
-function PackLine({ progress, busy, onChoose }: { progress: WelcomeProgress; busy: boolean; onChoose: (t: TeamType) => void }) {
-  const t = useT()
-  // a marketing pack already in (an earlier version of these steps): nothing to choose
-  const marketing = progress.teamType === 'marketing' && !progress.pack
-  return (
-    <p className="mb-5 text-sm text-muted" aria-live="polite" data-testid="welcome-pack-line">
-      {marketing ? t('welcome.packLine.withMarketing', { n: WELCOME_PACK_SKILLS }) : t('welcome.packLine.team')}
-      {!progress.pack && (
-        <>
-          <span aria-hidden> · </span>
-          <button type="button" className={quietLink} disabled={busy} onClick={() => onChoose(marketing ? 'other' : 'marketing')} data-testid={marketing ? 'welcome-marketing-cancel' : 'welcome-marketing'}>
-            {t(marketing ? 'welcome.packLine.cancel' : 'welcome.packLine.marketing')}
-          </button>
-        </>
-      )}
-    </p>
-  )
-}
 
 /** 1/2 the company profile (stream D's step), starting from the saved profile or the setup link's website. */
 function ProfileWizardStep({ progress, onDone, onSkip }: { progress: WelcomeProgress; onDone: () => void; onSkip: () => void }) {
