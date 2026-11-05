@@ -223,14 +223,14 @@ function SettingsSection({ title, desc, actions, footer, children, headingRef, t
 
 /** A settings row: the words on the left (with a one-line hint), the control on the right; `stacked`: the control goes
  * under the words (a wide one). On a phone the control always goes under. */
-function SettingRow({ label, hint, htmlFor, stacked, children }: { label: ReactNode; hint?: ReactNode; htmlFor?: string; stacked?: boolean; children: ReactNode }) {
+function SettingRow({ label, hint, htmlFor, stacked, toggle, children }: { label: ReactNode; hint?: ReactNode; htmlFor?: string; stacked?: boolean; /** a switch: at the right edge, not in the select column */ toggle?: boolean; children: ReactNode }) {
   return (
     <div className={clsx('flex flex-col gap-2 py-4', !stacked && 'sm:flex-row sm:items-center sm:gap-6')}>
       <div className="min-w-0 flex-1">
         {htmlFor ? <label htmlFor={htmlFor} className="text-sm font-medium">{label}</label> : <p className="text-sm font-medium">{label}</p>}
         {hint && <OneLine className="mt-0.5 text-xs text-muted">{hint}</OneLine>}
       </div>
-      <div className={clsx('min-w-0', !stacked && 'sm:w-64 sm:shrink-0')}>{children}</div>
+      <div className={clsx('min-w-0', toggle ? 'shrink-0' : !stacked && 'sm:w-64 sm:shrink-0')}>{children}</div>
     </div>
   )
 }
@@ -259,13 +259,13 @@ function MemberAccounts({ tc }: { tc: TeamCredentials }) {
   if (!d) return null
   return (
     <SettingsSection title={t('providers.memberAccounts')} testId="member-accounts">
-      <SettingRow label={t('credentials.memberOwn')} hint={t('credentials.memberOwnHint')}>
+      <SettingRow label={t('credentials.memberOwn')} hint={t('credentials.memberOwnHint')} toggle>
         <Switch checked={d.memberOwn} disabled={!tc.owner} label={t('credentials.memberOwn')} hideLabel testId="member-own-switch" onChange={async (v) => {
           const r = await tc.act(() => api.call(API.updateCredentialSettings, { body: { memberOwn: v } }))
           if (r) tc.state.setData({ ...d, memberOwn: r.memberOwn })
         }} />
       </SettingRow>
-      <SettingRow label={t('credentials.sharedSubscriptions')} hint={d.sharedSubscriptions ? <span className="text-warn">{t('credentials.sharedRiskWarning')}</span> : undefined}>
+      <SettingRow label={t('credentials.sharedSubscriptions')} hint={d.sharedSubscriptions ? <span className="text-warn">{t('credentials.sharedRiskWarning')}</span> : undefined} toggle>
         <div data-testid="shared-subscriptions-setting">
           <Switch checked={d.sharedSubscriptions} disabled={!tc.owner} label={t('credentials.sharedSubscriptions')} hideLabel onChange={async (v) => {
             if (v && !(await confirmDialog({ title: t('credentials.sharedRiskTitle'), body: t('credentials.sharedRiskWarning'), confirm: t('credentials.sharedRiskConfirm'), danger: true }))) return
