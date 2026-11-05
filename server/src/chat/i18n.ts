@@ -127,6 +127,7 @@ export const TEXT = {
   roomAiConfirm: t('대화방에서 받은 질문으로 트리나가 이 작업을 하려고 해요: {what}. 대화방에는 다른 사람의 메시지도 있어요. 하게 할까요?', 'The AI wants to do this for your question in the room: {what}. The room also holds other people\'s messages. Allow it?', 'AI ingin melakukan ini untuk pertanyaan Anda di ruang obrolan: {what}. Ruang ini juga berisi pesan orang lain. Izinkan?', "ルームでの質問のために、AIがこの操作をしようとしています：{what}。ルームにはほかの人のメッセージもあります。許可しますか？", "La IA quiere hacer esto por su pregunta en la sala: {what}. La sala también tiene mensajes de otras personas. ¿Lo permite?"),
   roomAiConfirmYes: t('하게 하기', 'Allow', 'Izinkan', "許可する", "Permitir"),
   roomAiConfirmNo: t('하지 않기', 'Don\'t', 'Jangan', "許可しない", "No permitir"),
+  roomAiConfirmFiles: t('바꿀 파일', 'Files', 'Berkas', "変更するファイル", "Archivos"),
   roomAiConfirmInput: t('바꿀 내용', 'What it would change', 'Yang akan diubah', "変更する内容", "Lo que cambiaría"),
   roomAiReasonsChanged: t('그 사이에 대화방 멤버나 권한이 바뀌었어요. 바뀐 이유를 확인하고 다시 올려 주세요.', 'The room\'s members or access changed in the meantime. Check the new reasons and post it again.', 'Anggota atau akses ruang berubah sementara itu. Periksa alasan barunya lalu kirim lagi.', "その間にルームのメンバーや権限が変わりました。新しい理由を確認して、もう一度投稿してください。", "Los miembros o el acceso de la sala cambiaron mientras tanto. Revise los nuevos motivos y publíquela de nuevo."),
   roomAiCut: t('(답이 길어서 여기까지만 올렸어요.)', '(The answer was long, so it was cut here.)', '(Jawabannya panjang, jadi dipotong di sini.)', "（回答が長いため、ここまでにしました。）", "(La respuesta era larga, así que se cortó aquí.)"),

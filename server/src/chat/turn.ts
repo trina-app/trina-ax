@@ -73,7 +73,7 @@ import { RedactingText, redactorFor, type Redactor } from '../integrations/conne
 import { DraftPages, draftScopeOf, draftSystemPrompt, type DraftTurn } from '../onboarding/draft'
 import { backdateChat, DEMO_REPLAY_TOOL, demoReplayFor, runReplay } from '../demo/replay'
 import { getUser } from '../auth/users'
-import { ROOM_FILE_TOOLS, ROOM_READ_ONLY_TOOLS } from '../rooms/ai-tools'
+import { PATH_ARGS, ROOM_FILE_TOOLS, ROOM_READ_ONLY_TOOLS } from '../rooms/ai-tools'
 import type { RoomTurnContext } from './runtime'
 
 /** Turn time limit (tab 3: 20 minutes, paused while waiting for a person). */
@@ -364,7 +364,9 @@ export class TurnExec {
     // engine session: resume only when the session ends exactly where this turn continues (same branch)
     let sid = chat.engine_session_id ?? ''
     const stash = sid ? rt.sessionStash(spec.chatId, sid) : ''
-    let resume = !!claude && !!sid && chat.engine_session_leaf_id === userMsg.parent_id && fs.existsSync(stash)
+    // a room's session never resumes: its instructions (folders, skills, rules, the members' access) are made again for
+    // every question, and the conversation so far comes as history (rooms/ai.ts)
+    let resume = !!claude && !this.room && !!sid && chat.engine_session_leaf_id === userMsg.parent_id && fs.existsSync(stash)
     // a team file attached earlier on this branch that the person can no longer open: the stashed session still holds
     // its content and answered from it (security round 4). Start from the DB history, where it is blanked. Moves and
     // deletes reset the sessions of people who lose a file (FileService.dropSessionsOf); this covers any other way.
@@ -420,7 +422,7 @@ export class TurnExec {
       user: this.principal!, groupNames: rt.groupNames(this.principal!), locale: spec.locale, timeZone: rt.timeZone,
       // personal memories are not part of a room (docs/DECISIONS.md "대화방의 트리나")
       memories: this.room ? [] : rt.memoriesForPrompt(spec.userId), project, browser: this.browser, tools: extraTools,
-      history: fresh ? rt.history(userMsg.parent_id) : null, connected: toolSet.prompt.join('\n\n') || null, subagents, skillList,
+      history: fresh ? rt.history(userMsg.parent_id, !!this.room) : null, connected: toolSet.prompt.join('\n\n') || null, subagents, skillList,
       room: roomCtx?.prompt ?? null, roomReadable: this.roomReadable,
     })
     // what a general-purpose sub-agent may use, and the instructions every sub-agent gets (memories and history never)
@@ -1189,9 +1191,19 @@ export class TurnExec {
    * its answers stay private to the person. A folder `list`ed (`ok`: the listing came back) joins the read scope like
    * a read: its file names may go into the answer.
    */
-  noteRoomTool(tool: string) {
-    if (!this.room || ROOM_FILE_TOOLS.has(tool)) return
-    this.rt.db.query('UPDATE chats SET room_outside = 1 WHERE id = ? AND room_outside = 0').run(this.spec.chatId)
+  noteRoomTool(tool: string, input?: unknown) {
+    if (!this.room) return
+    if (!ROOM_FILE_TOOLS.has(tool)) { this.rt.db.query('UPDATE chats SET room_outside = 1 WHERE id = ? AND room_outside = 0').run(this.spec.chatId); return }
+    // every team path a call names counts like a name read, whatever the call answers: a read of a folder some member
+    // cannot see ("is a folder") and of a path that does not exist ("not found") then keep the answer private alike, and
+    // so does a search with no result in such a folder
+    const a = input && typeof input === 'object' ? input as Record<string, unknown> : {}
+    for (const k of PATH_ARGS) {
+      for (const v of Array.isArray(a[k]) ? a[k] as unknown[] : [a[k]]) {
+        if (typeof v !== 'string' || /^[a-z][a-z0-9+.-]*:/i.test(v)) continue
+        this.files.namePaths.add(v.split('/').filter((x) => x && x !== '.').join('/'))
+      }
+    }
   }
 
   /**
@@ -1211,7 +1223,7 @@ export class TurnExec {
     const answer = await this.waitForPerson({
       kind: 'ask_user', origin: 'server', requestId: crypto.randomUUID(), question: tr('roomAiConfirm', L, { what }),
       options: [{ label: tr('roomAiConfirmYes', L), value: 'allow' }, { label: tr('roomAiConfirmNo', L), value: 'skip' }], multiple: false, allowText: false,
-      details: [{ label: tr('roomAiConfirmInput', L), text: this.redact(args.length > 4000 ? `${args.slice(0, 3999)}…` : args) }],
+      details: roomChangeDetails(tool, input, args, L).map((d) => ({ ...d, text: this.redact(d.text) })),
       expiresAt: new Date(Date.now() + this.rt.askUserTimeoutMs()).toISOString(),
     } as TurnRequest, { timeoutMs: this.rt.askUserTimeoutMs() })
     if (answer === 'allow' || (Array.isArray(answer) && answer.length === 1 && answer[0] === 'allow')) {
@@ -1655,4 +1667,18 @@ const clip = (s: string, n: number) => { const v = s.replace(/\s+/g, ' ').trim()
 /** a sub-task step's numbers (whole milliseconds) */
 function subtaskOf(st: AgentStats): NonNullable<Step['subtask']> {
   return { ...(st.toolUses !== undefined ? { toolUses: st.toolUses } : {}), ...(st.ms !== undefined ? { ms: Math.round(st.ms) } : {}) }
+}
+
+/** What a room's change card shows (TurnExec.confirmRoomChange): for edit_files every file and the replacement, for
+ * anything else the call's input. Long texts are cut in the middle of their own field, never the list of files. */
+function roomChangeDetails(tool: string, input: unknown, args: string, L: Locale): { label: string; text: string }[] {
+  const cut = (t: string, n = 2000) => (t.length > n ? `${t.slice(0, n - 1)}…` : t)
+  const b = tool === 'edit_files' && input && typeof input === 'object' ? input as { file_paths?: unknown; old_string?: unknown; new_string?: unknown } : null
+  if (b && Array.isArray(b.file_paths)) {
+    return [
+      { label: tr('roomAiConfirmFiles', L), text: b.file_paths.map(String).join('\n') },
+      { label: tr('roomAiConfirmInput', L), text: `${cut(String(b.old_string ?? ''))}\n→\n${cut(String(b.new_string ?? ''))}` },
+    ]
+  }
+  return [{ label: tr('roomAiConfirmInput', L), text: cut(args, 4000) }]
 }
