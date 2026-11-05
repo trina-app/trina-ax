@@ -262,8 +262,9 @@ export class RoomAi implements RoomTurns {
     const db = this.db, rooms = roomsOf(this.ctx)
     const { me } = rooms.mine(userId, roomId)
     const m = messageRow(db, roomId, messageId)
-    // someone else's preview is never theirs to see (canSee): the same 404 as a message that does not exist
-    if (!m || m.author_kind !== 'ai' || m.deleted_at || !canSee(m, me)) return fail('not_found')
+    // only the person who asked; someone else's preview is never theirs to see (canSee): the same 404 as a message that
+    // does not exist, also once it is in the room
+    if (!m || m.author_kind !== 'ai' || m.asked_by !== userId || m.deleted_at || !canSee(m, me)) return fail('not_found')
     if (m.visibility === 'room') return messagesOut(db, [m], me)[0]!
     const people = this.memberPrincipals(roomId)
     const rules = this.ctx.files.rules(), fx = this.ctx.files.fx

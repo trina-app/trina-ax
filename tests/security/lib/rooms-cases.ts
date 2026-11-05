@@ -30,6 +30,12 @@ export const ROOM_SPECS: Record<string, Spec> = {
   markRoomRead: { build: (c, w) => c.post(`/api/rooms/${w.ids.dmRoom}/read`, { seq: 1 }), scope: 'room-dm' },
   listRoomMembers: { build: (c, w) => c.get(`/api/rooms/${w.ids.dmRoom}/members`), scope: 'room-dm' },
   uploadRoomFile: { build: (c, w) => c.req('POST', `/api/rooms/${w.ids.dmRoom}/files`, undefined, { form: form(), headers: { [CSRF_HEADER]: '1' } }), scope: 'room-dm' },
+  // the AI in rooms: the DM's count and my own runs (both people), alice's preview and her question's turn (alice only;
+  // erin, in the DM, is refused like everyone else), the sources of a message (both)
+  getRoomAi: { build: (c, w) => c.get(`/api/rooms/${w.ids.dmRoom}/ai`), scope: 'room-dm' },
+  stopRoomAi: { build: (c, w) => c.post(`/api/rooms/${w.ids.dmRoom}/ai/${w.ids.dmAiTurn}/stop`), scope: 'own-alice' },
+  shareRoomMessage: { build: (c, w) => c.post(`/api/rooms/${w.ids.dmRoom}/messages/${w.ids.dmAiPreview}/share`), scope: 'own-alice' },
+  roomMessageSources: { build: (c, w) => c.get(`/api/rooms/${w.ids.dmRoom}/messages/${w.ids.dmMsg}/sources`), scope: 'room-dm' },
   roomFile: {
     build: (c, w) => c.get(`/api/rooms/${w.ids.dmRoom}/files/${w.ids.dmFile}?download=1`), scope: 'room-dm',
     check: (r) => { if (r.status === 200 && !r.headers.get('content-disposition')?.includes(C.dmFileName)) throw new Error('the member did not get the room file') },
