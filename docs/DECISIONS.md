@@ -8625,7 +8625,8 @@ Placement: Team AX core (onboarding, web reading, skills, chat). Each fix is its
   welcome steps' first result, not a draft chat, not an answer a skill was already shared from, and only when the draft
   would start: S's own refusals (`conversationUse` and `sourceRefusal`: confidential, web or outside content, unverified
   reads, a file the team's stand-in cannot open). The button opens the card in a dialog (a bottom sheet on a phone):
-  the draft, [팀에 공유], then the invite with that skill (`InviteStep made`), as before. Order in the slot: the weekly
+  the draft, [팀에 공유], then the invite with that skill (`InviteStep made`), as before; the card's draft of this page
+  load is kept per answer (`answerId`), not per chat, so a later answer of the same chat gets its own. Order in the slot: the weekly
   schedule (needs a skill run, so never together with this), then this, then the PPT (both can apply to a long answer
   from team files; making it the team's way is the landing's promise, and it is the rarer one). Closing it is for good
   for that person, like the others. The check runs on every such answer the person reads, cheap checks first.

@@ -143,6 +143,14 @@ describe('the suggestion under a result', () => {
       expect(called('POST /api/onboarding/suggestion/dismiss')[0]!.body).toEqual({ key: 'team-skill' })
       expect(m.find('skill-share')).toBeNull()
     } finally { await m.unmount() }
+    // a later answer of the same chat starts its own draft (the card never shows the earlier answer's)
+    const later = '01900000-0000-7000-8000-0000000000a3'
+    m = await mount(<MemoryRouter><ResultSuggestion chatId={CHAT} messages={[...thread(), msg(later, 'assistant', '다음 답', { parentId: ASK })]} busy={false} onSend={(t) => sent.push(t)} /></MemoryRouter>)
+    try {
+      await m.until(() => m.find('result-suggestion'), 'the line')
+      await m.click('result-suggestion-act')
+      await m.until(() => called('POST /api/onboarding/skill-draft').length === 2, 'a new draft')
+    } finally { await m.unmount() }
     for (const l of ['ko', 'en', 'id', 'ja', 'es'] as const) expect([translate(l, 'resultTip.teamSkill.text'), translate(l, 'resultTip.teamSkill.act')].every((x) => x && !x.startsWith('resultTip'))).toBe(true)
   })
 

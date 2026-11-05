@@ -38,10 +38,13 @@ export function fileLabel(f: SkillDraftFile, t: ReturnType<typeof useT>): string
   return t('skillShare.latest', { folder, kind: f.like || t('skillShare.latestFile') })
 }
 
-export function SkillShareCard({ chatId, onShared, onLater }: { chatId: string; onShared: (saved: SavedSkillDraft) => void; onLater: () => void }) {
+/** `answerId`: the answer the card was opened under (a chat has several; the server drafts from the chat's newest one),
+ * so a later answer of the same chat starts its own draft instead of showing the earlier one's. */
+export function SkillShareCard({ chatId, answerId, onShared, onLater }: { chatId: string; answerId?: string; onShared: (saved: SavedSkillDraft) => void; onLater: () => void }) {
+  const cacheKey = answerId ? `${chatId}:${answerId}` : chatId
   const t = useT()
   const locale = useLocale()
-  const [draftChat, setDraftChat] = useState<string | null>(started.get(chatId) ?? null)
+  const [draftChat, setDraftChat] = useState<string | null>(started.get(cacheKey) ?? null)
   const [state, setState] = useState<SkillDraftState | null>(null)
   // the start refused (a confidential chat, outside content, files the team cannot open: the server says which), or
   // failed; `again`: trying again may help (a network failure, not a refusal)
@@ -57,7 +60,7 @@ export function SkillShareCard({ chatId, onShared, onLater }: { chatId: string; 
     if (draftChat) return
     let live = true
     api.call(API.startSkillDraft, { body: { chatId } }).then(
-      (r) => { started.set(chatId, r.draftChatId); if (live) setDraftChat(r.draftChatId) },
+      (r) => { started.set(cacheKey, r.draftChatId); if (live) setDraftChat(r.draftChatId) },
       (e) => live && setFailed({ text: errorText(e, locale, t('skillShare.failed')), again: !isApiError(e, 'conflict') }),
     )
     return () => { live = false }
@@ -104,7 +107,7 @@ export function SkillShareCard({ chatId, onShared, onLater }: { chatId: string; 
 
   /** 다시 정리하기: a new draft (the server never reuses a failed one) */
   const retry = () => {
-    started.delete(chatId)
+    started.delete(cacheKey)
     setFailed(null)
     setState(null)
     setTitle('')

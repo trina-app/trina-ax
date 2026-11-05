@@ -52,8 +52,8 @@ export function ResultSuggestion({ chatId, messages, busy, onSend }: { chatId: s
   const inviteHere = owner && (!welcomeLoaded || (!!progress && showInviteBar(progress, chatId)))
   const [got, setGot] = useState<{ messageId: string; suggestion: Suggestion | null } | null>(null)
   const [done, setDone] = useState<string | null>(null)
-  // the skill card of "팀 스킬로 만들기", then the invite with the skill it shared
-  const [card, setCard] = useState(false)
+  // the skill card of "팀 스킬로 만들기" (the answer it was opened under), then the invite with the skill it shared
+  const [card, setCard] = useState<string | null>(null)
   const [shared, setShared] = useState<SavedSkillDraft | null>(null)
   const lastId = answered ? last!.id : null
   useEffect(() => {
@@ -66,12 +66,12 @@ export function ResultSuggestion({ chatId, messages, busy, onSend }: { chatId: s
     return () => { live = false }
   }, [chatId, lastId, inviteHere])
 
-  const closeCard = () => { setCard(false); setShared(null) }
+  const closeCard = () => { setCard(null); setShared(null) }
   const cardDialog = card && (
     <Modal open onClose={closeCard} width={520} title={shared ? t('teamLink.stepTitle') : t('resultTip.teamSkill.act')}>
       {shared
         ? <InviteStep title={null} skillPath={shared.path} made onDone={closeCard} />
-        : <SkillShareCard chatId={chatId} onShared={setShared} onLater={closeCard} />}
+        : <SkillShareCard chatId={chatId} answerId={card} onShared={setShared} onLater={closeCard} />}
     </Modal>
   )
   const bar = <><WelcomeInviteBar chatId={chatId} answered={answered} messages={messages} />{cardDialog}</>
@@ -79,7 +79,7 @@ export function ResultSuggestion({ chatId, messages, busy, onSend }: { chatId: s
   const s = got.suggestion
   const act = () => {
     setDone(lastId)
-    if (s.kind === 'team-skill') return setCard(true)
+    if (s.kind === 'team-skill') return setCard(lastId)
     if (s.kind === 'ppt') return onSend(t('resultTip.ppt.message'))
     // the request that made this answer, as the person sent it ("/ad-copy" and the form's lines)
     const request = messages.find((m) => m.id === last!.parentId)?.content.trim() || `/${s.skill.name}`
