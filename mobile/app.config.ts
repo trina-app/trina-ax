@@ -10,7 +10,7 @@ const VERSION = '1.0.0'
 
 /** `MYCEL_MOBILE_EDITION=<name>` reads editions/<name>/branding/mobile.json (only the fields src/product.ts accepts) and
  * the fixed asset names in editions/<name>/branding/mobile/. Without it the neutral Team AX defaults apply. */
-function edition(projectRoot: string): { values: unknown; assets: Record<'icon' | 'adaptive' | 'splash', string> | null } {
+function edition(projectRoot: string): { values: unknown; assets: Record<'icon' | 'adaptive' | 'splash' | 'notification', string> | null } {
   const name = process.env.MYCEL_MOBILE_EDITION
   if (!name) return { values: undefined, assets: null }
   if (!/^[a-z][a-z0-9-]{0,30}$/.test(name)) throw new Error('MYCEL_MOBILE_EDITION must be an edition folder name')
@@ -18,7 +18,7 @@ function edition(projectRoot: string): { values: unknown; assets: Record<'icon' 
   const dir = path.join('..', 'editions', name, 'branding')
   const values = JSON.parse(fs.readFileSync(path.join(projectRoot, dir, 'mobile.json'), 'utf8')) as unknown
   const file = (n: string) => path.join(dir, 'mobile', n)
-  const assets = { icon: file('icon.png'), adaptive: file('adaptive-icon.png'), splash: file('splash-icon.png') }
+  const assets = { icon: file('icon.png'), adaptive: file('adaptive-icon.png'), splash: file('splash-icon.png'), notification: file('notification-icon.png') }
   return { values, assets: Object.values(assets).every(f => fs.existsSync(path.join(projectRoot, f))) ? assets : null }
 }
 
@@ -68,7 +68,8 @@ export default ({ config, projectRoot }: ConfigContext): ExpoConfig => {
       'expo-secure-store',
       'expo-localization',
       // aps-environment entitlement; Xcode's App Store export switches it to production.
-      ['expo-notifications', { defaultChannel: 'default' }],
+      // Android's status bar icon is a white silhouette (otherwise the system shows a plain circle)
+      ['expo-notifications', { defaultChannel: 'default', ...(chosen.assets ? { icon: chosen.assets.notification, color: product.accent } : {}) }],
       ['expo-splash-screen', { backgroundColor: background, ...(chosen.assets ? { image: chosen.assets.splash, imageWidth: 112 } : {}) }],
       // target 36 (Play's requirement since 2026-08-31); compile against 37, which the SDK 58 modules require
       ['expo-build-properties', { android: { targetSdkVersion: 36, compileSdkVersion: 37 } }],
