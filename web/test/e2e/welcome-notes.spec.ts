@@ -34,6 +34,12 @@ test('a company intro in, the card news out; the lead\'s way becomes a team skil
   const listed = await page.request.get(`/api/files/tree?path=${encodeURIComponent('groups/Acme/브랜드')}`)
   expect((await listed.json()).entries.filter((e: { type: string }) => e.type === 'file').map((e: { name: string }) => e.name)).toEqual(['회사 소개서.md'])
 
+  // the cards open by themselves beside the chat (the team server sends them saved, no "writing" first); ✕ closes them
+  const panel = page.getByTestId('artifact-panel')
+  await expect(panel.getByRole('heading', { name: 'Acme 카드뉴스' })).toBeVisible()
+  await panel.getByRole('button', { name: '닫기' }).click()
+  await expect(panel).toHaveCount(0)
+  await expect(page.getByTestId('artifact-card')).toContainText('Acme 카드뉴스')
   // under the answer: one bar, one button: the lead's way becomes a team skill
   await expect(page.getByTestId('welcome-invite-text')).toHaveText('마음에 드시나요? 팀 스킬로 저장하면 다른 분들도 같은 방식으로 만들 수 있어요')
   await expect(page.getByTestId('skill-share-open')).toHaveText('팀 스킬로 저장')
@@ -71,8 +77,9 @@ test('a company intro in, the card news out; the lead\'s way becomes a team skil
   expect(realErrors(errors)).toEqual([])
 })
 
-test('"자료 없이 만들게요": the card news from the server\'s 회사 소개.md, nothing uploaded', async ({ page }) => {
+test('"자료 없이 만들게요" on a phone: the card news from the server\'s 회사 소개.md, nothing uploaded; the cards open as a sheet that closes', async ({ page }) => {
   const errors = watchConsole(page)
+  await page.setViewportSize({ width: 390, height: 844 })
   await reset(page)
   await signIn(page)
   await page.goto('/welcome')
@@ -85,6 +92,14 @@ test('"자료 없이 만들게요": the card news from the server\'s 회사 소�
   await expect(question).toContainText('회사 소개.md')
   const listed = await page.request.get(`/api/files/tree?path=${encodeURIComponent('groups/Acme/브랜드')}`)
   expect((await listed.json()).entries.filter((e: { type: string }) => e.type === 'file').map((e: { name: string }) => e.name)).toEqual(['회사 소개.md'])
+  // the full-screen sheet over the chat, its ✕ in reach; closed, the chat and the bar under the answer are back
+  const panel = page.getByTestId('artifact-panel')
+  await expect(panel.getByRole('heading', { name: 'Acme 카드뉴스' })).toBeVisible()
+  // the whole screen, but for the sheet's 1 px left border
+  expect(await panel.evaluate((el) => { const r = el.getBoundingClientRect(); return [Math.round(r.right), Math.round(r.top), Math.round(r.height)] })).toEqual([390, 0, 844])
+  await expect(panel.getByRole('button', { name: '닫기' })).toBeInViewport()
+  await panel.getByRole('button', { name: '닫기' }).click()
+  await expect(panel).toHaveCount(0)
   await expect(page.getByTestId('welcome-invite-text')).toHaveText('마음에 드시나요? 팀 스킬로 저장하면 다른 분들도 같은 방식으로 만들 수 있어요')
   expect(realErrors(errors)).toEqual([])
 })

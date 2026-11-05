@@ -33,7 +33,7 @@ const hwpEngine = import('../../../server/src/files/' + 'hwp-engine.ts').then(m 
 import {
   ApiErrorResponse, CSRF_HEADER, TeamGoal, type SkillChange, type SkillManagerGrant, type SkillSuggestion, DEV_SESSION_COOKIE, CHAT_ERROR_MESSAGES, type ChatErrorReason, ERROR_MESSAGES, LOCALE_HEADER, Locale, ServerEvent, UPLOAD_CHUNK_SIZE, WS_PATH, WsClose, isSchema, listEndpoints, uuidv7,
   type ApiName, type Artifact, type Attachment, type SkillInput, type DevEnvRun, type Chat, type Endpoint, type ErrorCode, type FileEntry, type FileVersion, type Folder, type Group, type Invite, type Job, type Me, type Message,
-  MemberEngineChoice, WELCOME_RESULT_SKILL, GENERAL_TASKS_SKILL, GENERAL_BRIEF_SKILL, GENERAL_CARDNEWS_SKILL, NOTES_FOLDER, PACK_FOLDERS, BRAND_IMAGES_FOLDER, type TeamLinkStarter, type WelcomeProgress, type Project, type ConnectionStatus, type ServerEventInput, type Step, type TrashItem, type TurnRequest, type UploadSession, type User, type Memory, type Budget, type TeamSettings, type AuditEntry, type Schedule,
+  MemberEngineChoice, WELCOME_RESULT_SKILL, GENERAL_TASKS_SKILL, GENERAL_BRIEF_SKILL, GENERAL_CARDNEWS_SKILL, CARD_NEWS_ARTIFACT_KEY, NOTES_FOLDER, PACK_FOLDERS, BRAND_IMAGES_FOLDER, type TeamLinkStarter, type WelcomeProgress, type Project, type ConnectionStatus, type ServerEventInput, type Step, type TrashItem, type TurnRequest, type UploadSession, type User, type Memory, type Budget, type TeamSettings, type AuditEntry, type Schedule,
 } from '@mycel/shared/api'
 import fs from 'node:fs'
 import * as XLSX from 'xlsx'
@@ -903,6 +903,15 @@ export class MockServer {
       this.artifacts.push(a)
       const { content: _c, ...summary } = a
       pub({ type: 'artifact.updated', data: { chatId, messageId: assistant.id, key, type, title: a.title, status: 'done', artifact: { ...summary, size: content.length } } })
+    }
+    if (/^\/card-news\b/.test(prompt)) {
+      // like the team server (server/src/tools/artifact.ts): the card news arrives saved, with no "writing" previews
+      const content = '<!DOCTYPE html><html lang="ko"><body><section class="card"><h1>조용한 책상 선풍기</h1></section></body></html>'
+      const version = this.artifacts.filter((a) => a.chatId === chatId && a.key === CARD_NEWS_ARTIFACT_KEY).length + 1
+      const a: Artifact = { id: uuidv7(), chatId, messageId: assistant.id, key: CARD_NEWS_ARTIFACT_KEY, version, type: 'html', title: 'Acme 카드뉴스', language: null, content, createdAt: now() }
+      this.artifacts.push(a)
+      const { content: _c, ...summary } = a
+      pub({ type: 'artifact.updated', data: { chatId, messageId: assistant.id, key: a.key, type: a.type, title: a.title, status: 'done', artifact: { ...summary, size: content.length } } })
     }
     const capped = /cap-tools/i.test(prompt) ? 'tool_limit' as const : /cap-time/i.test(prompt) ? 'time_limit' as const : null
     // the time limit stops a step that is still running (a long read): like turn.ts, it ends paused, not failed;

@@ -21,6 +21,9 @@ export const GENERAL_BRIEF_SKILL = 'skills/general/doc-brief/SKILL.md'
  * five square cards from the company intro (an uploaded deck, or 회사 소개.md written from the website), the images the
  * website read collected and the brand colours. */
 export const GENERAL_CARDNEWS_SKILL = 'skills/general/card-news/SKILL.md'
+/** The artifact key the card news skill writes its cards under (both languages' SKILL.md name it): the web app opens
+ * that artifact by itself when it is saved, as the cards are the whole answer (docs/DECISIONS.md "W2"). */
+export const CARD_NEWS_ARTIFACT_KEY = 'card-news'
 
 /** The meeting notes folder inside the team's own group folder (groups/<team>/회의록/), named in the team language. */
 export const NOTES_FOLDER = { ko: '회의록', en: 'Meeting notes', id: 'Notulen rapat', ja: '議事録', es: 'Actas de reuniones' } as const satisfies Record<Locale, string>
