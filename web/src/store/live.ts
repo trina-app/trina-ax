@@ -112,10 +112,10 @@ export function dispatch(ev: ServerEvent) {
         return
       }
       if (ev.data.code === 'profile_changed') {
-        // someone changed their name, title, status or photo (routes/people.ts): the own profile and the people list
-        // follow, quietly (the notice carries no text to show)
+        // someone changed their name, title, status or photo (routes/people.ts): the own profile and the people list (when
+        // a screen has read it) follow, quietly: the notice carries no text to show
         void useSession.getState().refreshMe()
-        void usePeople.getState().load(true)
+        if (usePeople.getState().loaded) void usePeople.getState().load(true)
         return
       }
       if (ev.data.code === 'speech_changed') {

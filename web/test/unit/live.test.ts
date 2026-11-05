@@ -31,7 +31,7 @@ describe('profile_changed', () => {
   test('no toast; the people list is read again', () => {
     let loads = 0
     const load = usePeople.getState().load
-    usePeople.setState({ load: async () => { loads++ } })
+    usePeople.setState({ loaded: true, load: async () => { loads++ } })
     const before = JSON.stringify(useUi.getState())
     try {
       dispatch({ type: 'notice', seq: 8, at: Date.now(), data: { level: 'info', code: 'profile_changed', message: '' } })

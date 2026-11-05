@@ -30,6 +30,7 @@ import { TEXT as SAVE_URL_TEXT } from '../../server/src/tools/save-url'
 import { TEXT as SCHEDULE_CARD_TEXT } from '../../server/src/tools/schedules'
 import { TEXT as INTEGRATION_TEXT } from '../../server/src/integrations/connections/text'
 import { TEXT as TEAM_ICON_TEXT } from '../../server/src/admin/team-icon'
+import { AVATAR_TEXT } from '../../server/src/auth/profiles'
 import { TEXT as PUSH_TEXT } from '../../server/src/notifications/text'
 import { PRUNE_TEXT } from '../../server/src/system/prune'
 
@@ -71,6 +72,7 @@ describe('server and relay texts', () => {
     checkTable('scheduled task card', SCHEDULE_CARD_TEXT, 10)
     checkTable('external-service connections', INTEGRATION_TEXT)
     checkTable('team logo', TEAM_ICON_TEXT)
+    checkTable('profile photo', AVATAR_TEXT)
     checkTable('push notifications', PUSH_TEXT)
     checkTable('system routes', SYSTEM_ROUTE_TEXT)
     checkTable('relay notices', NOTICES, 2)
@@ -151,6 +153,7 @@ const KOREAN_ALLOWED: Record<string, { why: string; also?: RegExp }> = {
   'server/src/tools/schedules.ts': { why: 'the scheduled task confirmation card (ko next to en/id/ja/es)' },
   'server/src/integrations/connections/text.ts': { why: 'external-service connection texts: the confirmation card, refusals, check results (ko next to en/id/ja/es)' },
   'server/src/admin/team-icon.ts': { why: 'team logo upload refusals (ko next to en/id/ja/es)' },
+  'server/src/auth/profiles.ts': { why: 'profile photo upload refusals (ko next to en/id/ja/es)' },
   'server/src/tools/higgsfield.ts': { why: 'the video confirmation card (ko next to en/id/ja/es)' },
   'server/src/tools/save-url.ts': { why: 'the large-download card and the disk refusal (ko next to en/id/ja/es)' },
   'server/src/chat/runtime.ts': { why: 'queue-full messages (ko next to en/id/ja/es)' },
