@@ -31,7 +31,8 @@ import { SlackApi, SlackApiError, type SlackDeps } from './api'
 import { AppMention, BlockActions, EventCallback, ImMessage, type Envelope } from './envelope'
 import { BOT_SCOPES, createAppUrl, slackManifest } from './manifest'
 import { SlackSocket, errorCode } from './socket'
-import { clip, plain, questionText, say, sections, toMrkdwn } from './text'
+import { slackAnswer } from './rich-text'
+import { clip, plain, questionText, say } from './text'
 
 export const LINK_TTL_MS = 10 * 60_000
 const LINK_PER_HOUR = 10
@@ -783,27 +784,28 @@ export class SlackConnector {
       if (!this.stillLinked(r)) { this.db.query("UPDATE slack_requests SET state = 'failed' WHERE id = ?").run(r.id); return }
       const locale = this.localeOf(r.user_id)
       const a = this.answerOf(r, locale)
-      const body = a.ok ? sections(toMrkdwn(a.text, cfg.link_origin), 4) : { blocks: [{ type: 'section' as const, text: { type: 'mrkdwn' as const, text: toMrkdwn(a.text, cfg.link_origin) } }], cut: false }
+      // rich text (rich-text.ts): bold next to Hangul stays bold; a failure is our own sentence, shown as it is
+      const body = slackAnswer(a.text, cfg.link_origin, a.ok ? 4 : 1, a.ok)
       const notes = [a.ok && body.cut ? say('more', locale) : '', this.chatLink(cfg, r.chat_id, locale)].filter(Boolean).join('  ')
-      const fallback = plain(clip(a.text, 300).text)
+      const fallback = body.text
       if (r.channel_kind === 'im') {
         // a new message (Slack notifies for it, not for an edit); the "working…" one goes. A try that timed out may
         // have reached Slack: the thread is read first, so the answer is never there twice
-        const blocks = [...body.blocks, ...(notes ? [{ type: 'context', elements: [{ type: 'mrkdwn', text: notes }] }] : [])]
+        const blocks = (answer: unknown[]) => [...answer, ...(notes ? [{ type: 'context', elements: [{ type: 'mrkdwn', text: notes }] }] : [])]
         const there = r.attempts > 0 ? await this.alreadyInThread(tk.bot, cfg, r, fallback) : false
         // Slack did not say whether it is there: tried again later rather than risk a second copy (after 3 tries it is sent)
         if (there === null && r.attempts < 4) throw new SlackApiError('unreachable')
-        if (!there) await this.api.call('chat.postMessage', tk.bot, { channel: r.channel_id, thread_ts: r.thread_ts, text: fallback, blocks, unfurl_links: false, unfurl_media: false })
+        if (!there) await refusedBlocksAgain(body, (answer) => this.api.call('chat.postMessage', tk.bot, { channel: r.channel_id, thread_ts: r.thread_ts, text: fallback, blocks: blocks(answer), unfurl_links: false, unfurl_media: false }))
         if (r.progress_ts) await this.api.call('chat.delete', tk.bot, { channel: r.channel_id, ts: r.progress_ts }).catch(() => {})
       } else {
         // a channel shared with another organization (Slack Connect): no button; it says why
         const postable = a.ok && !r.ext_shared
-        const blocks = [
-          ...body.blocks,
+        const blocks = (answer: unknown[]) => [
+          ...answer,
           { type: 'context', elements: [{ type: 'mrkdwn', text: [r.ext_shared ? say('sharedChannel', locale) : say('onlyYou', locale), notes].filter(Boolean).join('  ') }] },
           ...(postable ? [{ type: 'actions', elements: [{ type: 'button', action_id: ACTION_POST, style: 'primary', value: r.id, text: { type: 'plain_text', text: say('post', locale).slice(0, 75) } }] }] : []),
         ]
-        await this.api.call('chat.postEphemeral', tk.bot, { channel: r.channel_id, user: r.slack_user_id, ...(r.in_thread ? { thread_ts: r.thread_ts } : {}), text: fallback, blocks })
+        await refusedBlocksAgain(body, (answer) => this.api.call('chat.postEphemeral', tk.bot, { channel: r.channel_id, user: r.slack_user_id, ...(r.in_thread ? { thread_ts: r.thread_ts } : {}), text: fallback, blocks: blocks(answer) }))
       }
       if (!a.ok) this.db.query("UPDATE slack_requests SET state = 'failed' WHERE id = ?").run(r.id)
     } catch (e) {
@@ -859,13 +861,13 @@ export class SlackConnector {
     const a = this.answerOf(r, locale)
     if (!a.ok) { await reply(say('postGone', locale)); return }
     const link = this.ownerOf(r.team_id, r.slack_user_id)!
-    const body = sections(toMrkdwn(a.text, cfg.link_origin), 10)
+    const body = slackAnswer(a.text, cfg.link_origin, 10)
     // a name as text, never a mention (no ping)
     const asker = link.slack_name ? plain(link.slack_name) : say('teammate', locale)
-    const blocks = [{ type: 'context', elements: [{ type: 'mrkdwn', text: say('askedBy', locale, { name: asker }) }] }, ...body.blocks]
+    const blocks = (answer: unknown[]) => [{ type: 'context', elements: [{ type: 'mrkdwn', text: say('askedBy', locale, { name: asker }) }] }, ...answer]
     if (!this.db.query("UPDATE slack_requests SET state = 'posted', posted_at = ? WHERE id = ? AND state = 'delivered'").run(iso(this.now()), r.id).changes) { await reply(say('postedAlready', locale)); return }
     try {
-      await this.api.call('chat.postMessage', tk.bot, { channel: r.channel_id, thread_ts: r.thread_ts, text: plain(clip(a.text, 300).text), blocks, unfurl_links: false, unfurl_media: false })
+      await refusedBlocksAgain(body, (answer) => this.api.call('chat.postMessage', tk.bot, { channel: r.channel_id, thread_ts: r.thread_ts, text: body.text, blocks: blocks(answer), unfurl_links: false, unfurl_media: false }))
     } catch (e) {
       this.db.query("UPDATE slack_requests SET state = 'delivered', posted_at = NULL WHERE id = ?").run(r.id)
       this.log.warn('slack answer could not be posted', { reason: e instanceof SlackApiError ? e.code : 'unknown' })
@@ -874,6 +876,16 @@ export class SlackConnector {
     }
     audit(this.db, { actor: r.user_id, action: 'slack.posted', target: r.chat_id, detail: { channel: r.channel_id } })
     await reply(say('posted', locale))
+  }
+}
+
+/** Slack refused the answer's blocks (their size or shape): the same answer once more as plain text in one block,
+ * rather than no answer. Nothing was posted by the refused call. */
+const REFUSED_BLOCKS = new Set(['invalid_blocks', 'invalid_blocks_format', 'msg_blocks_too_long', 'msg_too_long'])
+async function refusedBlocksAgain(body: { blocks: unknown[]; plainBlocks: unknown[] }, send: (answer: unknown[]) => Promise<unknown>) {
+  try { await send(body.blocks) } catch (e) {
+    if (!(e instanceof SlackApiError) || !REFUSED_BLOCKS.has(e.code)) throw e
+    await send(body.plainBlocks)
   }
 }
 

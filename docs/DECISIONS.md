@@ -8595,7 +8595,8 @@ People ask the team's AI from Slack (`@app` in a channel, a DM to the app). Guid
   (the button's value is checked against the request's Slack user, the link and the account). Nothing the channel sees
   carries steps, file names, sources or the chat's link. Ephemeral messages are not kept by Slack, so every message to the
   asker links to the chat. Answers are converted from Markdown to mrkdwn with `&`, `<`, `>` written out, so an answer can
-  never mention `@channel` or a person or hide a link; at most 4 sections of 2,900 characters ephemeral and 10 posted.
+  never mention `@channel` or a person or hide a link; at most 4 sections of 2,900 characters ephemeral and 10 posted
+  (rich text since 2026-11-06, below).
 - **Delivery** is a poll of `slack_requests` against `turns.status` (1 s), not a hook in the turn code: it survives a
   restart (an interrupted turn is delivered as interrupted), needs no change in B's files, and a row is claimed before it
   is sent. A 429 or a network failure puts it back for the next tick. A turn waiting for a card tells the asker once to
@@ -8733,6 +8734,21 @@ People ask the team's AI from Slack (`@app` in a channel, a DM to the app). Guid
     installation", so listing them would add them to the owner's "Install to Workspace" flow with the bot scopes.
   - Migration `335_c_slack.sql` was changed in place again (the link key, the flow's `client`): no server outside this
     Mac's throwaway development databases ever ran it.
+- **Answers in rich text, not mrkdwn (fix/slack-format, 2026-11-06).** In real Slack, "**하나뿐**이에요" came out as
+  "*하나뿐*이에요" with the asterisks showing: mrkdwn closes `*bold*` only before a space or punctuation, and Korean puts a
+  particle right after the word. A zero-width space around the markers was not chosen: Slack does not document it, and
+  it is copied along with the text. Answers are now `rich_text` blocks (`rich-text.ts`; docs.slack.dev "Rich text block",
+  "Text element": `style` takes `bold`, `italic`, `strike`, `code`; "Link element": `url`, `text`), which Slack does not
+  parse, in DMs, ephemeral messages and posted thread replies alike. Our own Markdown reading pairs `**`, `*`, `_`, `~~`
+  and backticks whatever letter comes next (`_` not inside a word), so bold before a particle works; headings are bold
+  lines, lists are `rich_text_list` (nesting by `indent`, numbers by `offset`), quotes and code blocks their elements.
+  A text element shows `<!channel>` as text, so nothing needs escaping in the blocks. A link's text is shown alone
+  unless it reads as a web address (a scheme, `www.`, an IP or a host name, not a file name like `budget-2027.txt`) of
+  another host than the link's, which shows the real address next to it; the app's own links never do. The
+  notification `text` is the answer as plain text (no markers, a link as its text, `&`, `<`, `>` written out). Slack
+  documents no size for a rich text block: blocks keep the 2,900 characters a section had (4 ephemeral, 10 posted), and
+  when Slack refuses them (`invalid_blocks`, `msg_blocks_too_long`, …) the answer goes again once as plain text in one
+  block.
 
 ## S — The lead's way becomes a team skill (feat/onboarding-s, 2026-11-05)
 

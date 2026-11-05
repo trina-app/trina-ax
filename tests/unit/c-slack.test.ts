@@ -10,7 +10,8 @@ import { sealSecret } from '../../web/src/lib/seal'
 import { createLogger } from '../../server/src/log'
 import { credentialsOf } from '../../server/src/credentials/store'
 import { appIdOfToken, normEmail, slackOf } from '../../server/src/integrations/slack/service'
-import { questionText, refusal, say as sayText, toMrkdwn } from '../../server/src/integrations/slack/text'
+import { questionText, refusal, say as sayText } from '../../server/src/integrations/slack/text'
+import { isWebAddress, plainOf, richBlocks, richText, slackAnswer } from '../../server/src/integrations/slack/rich-text'
 import { slackManifest } from '../../server/src/integrations/slack/manifest'
 import { startHarness, type Harness } from '../lib/b-harness'
 import { nextTs, startFakeSlack, type FakeSlack } from '../lib/fake-slack'
@@ -617,8 +618,9 @@ describe('asking', () => {
   test('an answer\'s link to a page of the app opens at the team\'s address in Slack', async () => {
     mention('U0ALICE', say('[shared](/files/view?path=shared) 폴더는 지금 비어 있어요.'), { channel: 'C0LINKS' })
     const a = await waitFor(() => ephemeralsTo('U0ALICE').find((c) => c.args.channel === 'C0LINKS' && blocksOf(c).includes('폴더는')), { timeoutMs: 30_000 })
-    expect(blocksOf(a!)).toContain(`<${h.url}/files/view?path=shared|shared> 폴더는 지금 비어 있어요.`)
+    expect((JSON.parse(a!.args.blocks!) as any[])[0].elements[0].elements).toEqual([{ type: 'link', url: `${h.url}/files/view?path=shared`, text: 'shared' }, { type: 'text', text: ' 폴더는 지금 비어 있어요.' }])
     expect(blocksOf(a!)).not.toContain('[shared](')
+    expect(a!.args.text).toBe('shared 폴더는 지금 비어 있어요.')
   })
 
   test('a follow-up in the thread continues the same chat', async () => {
@@ -644,13 +646,33 @@ describe('asking', () => {
     // nothing in the blocks or the notification text mentions anyone or hides where a link goes
     expect(answer!.args.text).toContain('&lt;!here&gt;')
     expect(answer!.args.text).not.toContain('<!here>')
-    expect(blocksOf(answer!)).toContain('https://bank.example (<https://evil.example>)')
+    const shown = (JSON.parse(answer!.args.blocks!) as any[]).find((b) => b.type === 'rich_text').elements[0].elements
+    expect(shown).toEqual([{ type: 'text', text: 'Hello from the DM. <!here> https://bank.example (' }, { type: 'link', url: 'https://evil.example' }, { type: 'text', text: ')' }])
+    expect(JSON.stringify(shown)).not.toMatch(/"type":"(broadcast|user|channel)"/)
     expect(await waitFor(() => fake.of('chat.delete').some((c) => c.args.channel === 'D0ALICE'))).toBe(true)
     // the bot's own messages and edits in the DM are not questions
     fake.event({ type: 'message', channel_type: 'im', user: 'U0BOT', bot_id: 'B0BOT', text: 'Working on it…', ts: nextTs(), channel: 'D0ALICE' })
     fake.event({ type: 'message', channel_type: 'im', subtype: 'message_changed', user: 'U0ALICE', text: 'x', ts: nextTs(), channel: 'D0ALICE' })
     await Bun.sleep(200)
     expect((h.ctx.db.query("SELECT count(*) n FROM slack_threads WHERE channel_id = 'D0ALICE'").get() as { n: number }).n).toBe(1)
+  })
+
+  test('bold before a Korean particle and a file link arrive as rich text with a plain notification; blocks Slack refuses are sent again as plain text', async () => {
+    const md = '**하나뿐**이에요. [budget-2027.txt](/files/view?path=groups%2Facme%2Fbudget-2027.txt)를 보세요.'
+    const isAnswer = (a: Record<string, string>) => a.channel === 'D0ALICE3' && (a.blocks ?? '').includes('하나뿐')
+    fake.failNext['chat.postMessage'] = { error: 'msg_blocks_too_long', match: isAnswer }
+    const ts = nextTs()
+    fake.event({ type: 'message', channel_type: 'im', user: 'U0ALICE', text: say(md), ts, channel: 'D0ALICE3', event_ts: ts })
+    const tries = await waitFor(() => { const all = fake.of('chat.postMessage').filter((c) => isAnswer(c.args)); return all.length >= 2 ? all : null }, { timeoutMs: 30_000 })
+    const [refused, again] = tries!
+    expect((JSON.parse(refused!.args.blocks!) as any[])[0]).toEqual({ type: 'rich_text', elements: [{ type: 'rich_text_section', elements: [
+      { type: 'text', text: '하나뿐', style: { bold: true } }, { type: 'text', text: '이에요. ' },
+      { type: 'link', url: `${h.url}/files/view?path=groups%2Facme%2Fbudget-2027.txt`, text: 'budget-2027.txt' }, { type: 'text', text: '를 보세요.' },
+    ] }] })
+    expect(refused!.args.text).toBe('하나뿐이에요. budget-2027.txt를 보세요.')
+    expect((JSON.parse(again!.args.blocks!) as any[])[0]).toEqual({ type: 'rich_text', elements: [{ type: 'rich_text_section', elements: [{ type: 'text', text: '하나뿐이에요. budget-2027.txt를 보세요.' }] }] })
+    expect(again!.args.text).toBe(refused!.args.text)
+    expect(fake.of('chat.postMessage').filter((c) => isAnswer(c.args)).length).toBe(2)
   })
 
   test('the same event id, or the same message as another event, runs once', async () => {
@@ -801,26 +823,129 @@ describe('text', () => {
     expect(normEmail(null)).toBeNull()
   })
 
-  test('the app\'s own links open at the team\'s address; other kinds stay text; code is left alone', () => {
-    const o = 'https://team.acme.example'
-    expect(toMrkdwn('[shared](/files/view?path=shared) 폴더는 지금 비어 있어요.', o)).toBe('<https://team.acme.example/files/view?path=shared|shared> 폴더는 지금 비어 있어요.')
-    expect(toMrkdwn('[docs](https://acme.example/a?b=1&c=2)', o)).toBe('<https://acme.example/a?b=1&amp;c=2|docs>')
-    // & < > in the label, the address and the text around
-    expect(toMrkdwn('a < b & [x<y & z>](/files/view?path=a&b=c) >', o)).toBe('a &lt; b &amp; <https://team.acme.example/files/view?path=a&amp;b=c|x&lt;y &amp; z&gt;> &gt;')
-    // no team address: the text alone; a protocol-relative or another scheme: as written, no link
-    expect(toMrkdwn('[shared](/files/view?path=shared) 폴더', null)).toBe('shared 폴더')
-    expect(toMrkdwn('[x](//evil.example/p) [m](mailto:a@acme.example) [j](javascript:alert(1))', o)).toBe('[x](//evil.example/p) [m](mailto:a@acme.example) [j](javascript:alert(1))')
-    // code spans and blocks stay as they are (only Slack's &, <, > escaped)
-    expect(toMrkdwn('`[shared](/files/view?path=shared)` and\n```md\n[shared](/files/view?path=shared) <b>\n```', o)).toBe('`[shared](/files/view?path=shared)` and\n```\n[shared](/files/view?path=shared) &lt;b&gt;\n```')
-    // an origin that is not one is not used
-    expect(toMrkdwn('[shared](/x)', 'javascript:alert(1)')).toBe('shared')
-  })
-
-  test('Slack markup to the question; the answer to mrkdwn without mentions or hidden links', () => {
+  test('Slack markup to the question', () => {
     expect(questionText('<@U0BOT> look at <https://acme.example/a?b=1&amp;c=2|the doc> with <@U0BOB|bob> in <#C1|general> &lt;now&gt;', 'U0BOT'))
       .toBe('look at the doc (https://acme.example/a?b=1&c=2) with @bob in #general <now>')
-    expect(toMrkdwn('# Title\n**bold** and [link](https://acme.example) <!channel> <@U1>\n- item\n```ts\na < b && c\n```'))
-      .toBe('*Title*\n*bold* and <https://acme.example|link> &lt;!channel&gt; &lt;@U1&gt;\n• item\n```\na &lt; b &amp;&amp; c\n```')
+  })
+
+  // Answers go to Slack as rich text (rich-text.ts): styles are fields, so nothing depends on Slack's mrkdwn rule that
+  // a closing `*` needs a space or punctuation after it (which broke bold before a Korean particle).
+  const o = 'https://team.acme.example'
+  const one = (md: string, origin: string | null = o) => { const els = richText(md, origin); expect(els.length).toBe(1); return (els[0] as { elements: unknown[] }).elements }
+  const t = (text: string, style?: Record<string, true>): any => ({ type: 'text', text, ...(style ? { style } : {}) })
+  const a = (url: string, text?: string, style?: Record<string, true>): any => ({ type: 'link', url, ...(text !== undefined ? { text } : {}), ...(style ? { style } : {}) })
+
+  test('bold, italic, strikethrough and code right before Korean particles stay styled, no markers left', () => {
+    expect(one('**하나뿐**이에요')).toEqual([t('하나뿐', { bold: true }), t('이에요')])
+    expect(one('*기울임*이고 _이것도_예요')).toEqual([t('기울임', { italic: true }), t('이고 '), t('이것도', { italic: true }), t('예요')])
+    expect(one('~~취소~~됐고 `npm run build`를 했어요')).toEqual([t('취소', { strike: true }), t('됐고 '), t('npm run build', { code: true }), t('를 했어요')])
+    expect(one('***둘 다***예요 **"인용"**이에요')).toEqual([t('둘 다', { bold: true, italic: true }), t('예요 '), t('"인용"', { bold: true }), t('이에요')])
+    expect(plainOf(richText('**하나뿐**이에요'))).toBe('하나뿐이에요')
+    // no invisible characters anywhere (a zero-width space would be copied along with the text)
+    expect(JSON.stringify(richText('**하나뿐**이에요 *기울임*이고 ~~취소~~됐고 `코드`예요'))).not.toMatch(/[​-‍⁠﻿]/)
+  })
+
+  test('mixed Korean and English; markers that do not pair, snake_case and arithmetic stay text', () => {
+    expect(one('**Trina AX**는 *team* 단위로 동작해요. See [the docs](https://acme.example/docs) for **more**.')).toEqual([
+      t('Trina AX', { bold: true }), t('는 '), t('team', { italic: true }), t(' 단위로 동작해요. See '), a('https://acme.example/docs', 'the docs'), t(' for '), t('more', { bold: true }), t('.'),
+    ])
+    expect(one('file_name_here 와 2 * 3 * 4, **안 닫힘, 1~3일, \\*별표\\*')).toEqual([t('file_name_here 와 2 * 3 * 4, **안 닫힘, 1~3일, *별표*')])
+  })
+
+  test('a file link shows its name only; the address is shown next to a text only when that text is another web address', () => {
+    const path = '/files/view?path=groups%2F%EC%9E%AC%EB%AC%B4%2Fbudget-2027.txt'
+    expect(one(`[budget-2027.txt](${path})를 열어 보세요.`)).toEqual([a(o + path, 'budget-2027.txt'), t('를 열어 보세요.')])
+    expect(JSON.stringify(richText(`[budget-2027.txt](${path})`, o))).not.toContain('(https://')
+    expect(plainOf(richText(`[budget-2027.txt](${path})를 열어 보세요.`, o))).toBe('budget-2027.txt를 열어 보세요.')
+    // a file name linking elsewhere, and an address linking to the same host: the text alone
+    expect(one('[report.pdf](https://files.acme.example/r.pdf) [acme.example](https://www.acme.example/refunds)')).toEqual([
+      a('https://files.acme.example/r.pdf', 'report.pdf'), t(' '), a('https://www.acme.example/refunds', 'acme.example'),
+    ])
+    // a text that names another address: the real one next to it
+    expect(one('[https://bank.example](https://evil.example)')).toEqual([t('https://bank.example ('), a('https://evil.example'), t(')')])
+    expect(one('[bank.example/login](https://evil.example)')).toEqual([t('bank.example/login ('), a('https://evil.example'), t(')')])
+    for (const f of ['budget-2027.txt', '보고서.hwpx', 'Q3 결산.xlsx', 'notes.md', 'setup.zip']) expect(isWebAddress(f)).toBe(false)
+    for (const w of ['https://bank.example', 'www.bank.example', 'bank.example', 'bank.example/login', '10.0.0.1', 'files.acme.example:8443']) expect(isWebAddress(w)).toBe(true)
+  })
+
+  test('bold inside and around links; the app\'s own links open at the team\'s address; other kinds stay as written', () => {
+    expect(one('[**budget-2027.txt**](/files/view?path=a) 와 **[보고서](https://acme.example/r)**를 [**굵게** 링크](https://acme.example/b)')).toEqual([
+      a(o + '/files/view?path=a', 'budget-2027.txt', { bold: true }), t(' 와 '), a('https://acme.example/r', '보고서', { bold: true }), t('를 '),
+      a('https://acme.example/b', '굵게', { bold: true }), a('https://acme.example/b', ' 링크'),
+    ])
+    expect(one('[`budget`](/files/view?path=b)')).toEqual([a(o + '/files/view?path=b', 'budget')])
+    // & < > need no escaping in rich text: the label, the address and the text around are as written
+    expect(one('a < b & [x<y & z>](/files/view?path=a&b=c) >')).toEqual([t('a < b & '), a(o + '/files/view?path=a&b=c', 'x<y & z>'), t(' >')])
+    // no team address (or one that is not one): the text alone
+    expect(one('[shared](/files/view?path=shared) 폴더', null)).toEqual([t('shared 폴더')])
+    expect(one('[shared](/x)', 'javascript:alert(1)')).toEqual([t('shared')])
+    // a protocol-relative link or another scheme: as written, no link
+    expect(one('[x](//evil.example/p) [m](mailto:a@acme.example) [j](javascript:alert(1))')).toEqual([t('[x](//evil.example/p) [m](mailto:a@acme.example) [j](javascript:alert(1))')])
+    // bare and <> addresses are links; Hangul and punctuation after them are not part of them
+    expect(one('https://acme.example/a_(b)에서 (https://acme.example/x). <https://acme.example/y>')).toEqual([
+      a('https://acme.example/a_(b)'), t('에서 ('), a('https://acme.example/x'), t('). '), a('https://acme.example/y'),
+    ])
+  })
+
+  test('lists with bold, nested and numbered; headings, quotes, code; nothing mentions anyone', () => {
+    const els = richText('## 요약\n- **하나**: 첫째\n- 둘째 **굵게**예요\n  - 안쪽 *기울임*\n    이어지는 줄\n1. 번호\n2. **둘**\n\n3. 셋\n\n끝 문단', o)
+    expect(els).toEqual([
+      { type: 'rich_text_section', elements: [t('요약', { bold: true })] },
+      { type: 'rich_text_list', style: 'bullet', indent: 0, elements: [
+        { type: 'rich_text_section', elements: [t('하나', { bold: true }), t(': 첫째')] },
+        { type: 'rich_text_section', elements: [t('둘째 '), t('굵게', { bold: true }), t('예요')] },
+      ] },
+      { type: 'rich_text_list', style: 'bullet', indent: 1, elements: [{ type: 'rich_text_section', elements: [t('안쪽 '), t('기울임', { italic: true }), t('\n이어지는 줄')] }] },
+      { type: 'rich_text_list', style: 'ordered', indent: 0, elements: [
+        { type: 'rich_text_section', elements: [t('번호')] }, { type: 'rich_text_section', elements: [t('둘', { bold: true })] }, { type: 'rich_text_section', elements: [t('셋')] },
+      ] },
+      { type: 'rich_text_section', elements: [t('끝 문단')] },
+    ])
+    expect(plainOf(els)).toBe('요약\n• 하나: 첫째\n• 둘째 굵게예요\n  • 안쪽 기울임\n이어지는 줄\n1. 번호\n2. 둘\n3. 셋\n끝 문단')
+    // a numbered list that starts later keeps its number
+    expect(richText('3. 셋\n4. 넷')[0]).toMatchObject({ type: 'rich_text_list', style: 'ordered', offset: 2 })
+    expect(richText('> 인용 **굵게**\n> - 항목\n\n```ts\n**x** [a](/files/view?path=a) <b>\n```\n`[shared](/files/view?path=shared)` 첫 줄\n둘째 줄\n\n셋째', o)).toEqual([
+      { type: 'rich_text_quote', elements: [t('인용 '), t('굵게', { bold: true }), t('\n• 항목')] },
+      { type: 'rich_text_preformatted', elements: [t('**x** [a](/files/view?path=a) <b>')] },
+      { type: 'rich_text_section', elements: [t('[shared](/files/view?path=shared)', { code: true }), t(' 첫 줄\n둘째 줄\n\n셋째')] },
+    ])
+    expect(one('```npm test```로 확인해요')).toEqual([t('npm test', { code: true }), t('로 확인해요')])
+    // Slack's markup in an answer is text: no broadcast, user or channel element, nothing escaped in the blocks
+    expect(one('<!channel> <@U1> <#C1> & a < b')).toEqual([t('<!channel> <@U1> <#C1> & a < b')])
+  })
+
+  test('the notification text is plain: no markers, links as their text, Slack\'s &, <, > written out, about 300 characters', () => {
+    const r = slackAnswer('**하나뿐**이에요. [budget-2027.txt](/files/view?path=x) 참고 <!here>\n- **항목** ~~옛~~', o, 4)
+    expect(r.text).toBe('하나뿐이에요. budget-2027.txt 참고 &lt;!here&gt;\n• 항목 옛')
+    expect(slackAnswer('가'.repeat(1000), o, 4).text.length).toBeLessThanOrEqual(302)
+    // the plain version for blocks Slack refuses: one block, one text, no markers
+    expect(r.plainBlocks).toEqual([{ type: 'rich_text', elements: [{ type: 'rich_text_section', elements: [t('하나뿐이에요. budget-2027.txt 참고 <!here>\n• 항목 옛')] }] }])
+    // a sentence of ours is not read as Markdown
+    expect(slackAnswer('Could not answer. *stars* stay.', o, 1, false).blocks[0]!.elements).toEqual([{ type: 'rich_text_section', elements: [t('Could not answer. *stars* stay.')] }])
+  })
+
+  test('a long answer: blocks of at most 2,900 characters, at most `max`, the last ends with …; a list goes on with its numbers', () => {
+    const long = Array.from({ length: 400 }, (_, i) => `${i + 1}. 항목 **굵게** ${'가나다 '.repeat(10)}`).join('\n')
+    const els = richText(long)
+    const whole = plainOf(els)
+    const r = richBlocks(els, 4)
+    expect(r.cut).toBe(true)
+    expect(plainOf(els)).toBe(whole) // the " …" is on the block's copy, not in the answer
+    expect(r.blocks.length).toBe(4)
+    const chars = (els: unknown) => JSON.stringify(els).match(/"text":"[^"]*"/g)!.reduce((n, x) => n + x.length - 9, 0)
+    for (const b of r.blocks) expect(chars(b.elements)).toBeLessThanOrEqual(2900 + 2)
+    expect(JSON.stringify(r.blocks.at(-1)!.elements.at(-1))).toContain('…')
+    const first = r.blocks[0]!.elements[0] as { elements: unknown[] }
+    expect(r.blocks[1]!.elements[0]).toMatchObject({ type: 'rich_text_list', style: 'ordered', offset: first.elements.length })
+    // one paragraph longer than a block is cut at a space, never inside a word or a link
+    const para = richBlocks(richText(`${'단어 '.repeat(2000)}[끝](https://acme.example/end)`), 10)
+    expect(para.cut).toBe(false)
+    expect(para.blocks.length).toBe(3)
+    expect(JSON.stringify(para.blocks)).not.toContain('"text":""')
+    const pieces = para.blocks.map((b) => plainOf(b.elements))
+    for (const x of pieces.slice(0, -1)) expect(x.endsWith('단어')).toBe(true)
+    for (const x of pieces.slice(1)) expect(x.startsWith('단어')).toBe(true)
+    expect((para.blocks.at(-1)!.elements.at(-1) as { elements: unknown[] }).elements.at(-1)).toEqual(a('https://acme.example/end', '끝'))
   })
 
   test('a reason code is a plain sentence in Slack; a sentence stays; one wording for an outsider', () => {

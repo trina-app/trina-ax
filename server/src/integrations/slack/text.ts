@@ -1,5 +1,5 @@
 // Words the Slack connector says in Slack (docs/SLACK.md), in the asker's language (an unlinked person: the team's),
-// and the two text conversions: Slack's message text to the question, the AI's Markdown answer to Slack's mrkdwn.
+// and Slack's message text as the question (the answer's way back is rich-text.ts).
 import { PRODUCT } from '@mycel/shared'
 import { ErrorCode, errorMessage, type Locale } from '@mycel/shared/api'
 
@@ -81,53 +81,11 @@ export function questionText(raw: string, botUserId: string | null): string {
   return decode(s).replace(/[ \t]+/g, ' ').replace(/^\s+|\s+$/g, '')
 }
 
-/** Characters Slack reads as markup are written out, so an answer can never mention @channel or a person, or link
- * somewhere other than what it shows. */
+/** Characters Slack reads as markup in mrkdwn and a message's text are written out, so nothing there can mention
+ * @channel or a person, or link somewhere other than what it shows. */
 const escape = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
 /** Text with no markup at all (the notification text of a message, a Slack name): nothing in it mentions or links. */
 export const plain = (s: string) => escape(s.replace(/\u0000/g, ''))
-/** a link's text that reads like an address: shown next to the real address instead of hiding it */
-const looksLikeAddress = (s: string) => /:\/\/|^www\.|[a-z0-9-]\.[a-z]{2,}(\/|$|\s)/i.test(s.trim())
-
-/** The AI's Markdown answer in Slack's mrkdwn (https://docs.slack.dev/messaging/formatting-message-text). */
-/** The team's address for the app's own links, an http(s) origin and nothing else; null otherwise */
-const originOf = (o: string | null | undefined): string | null => {
-  if (!o) return null
-  try { const u = new URL(o); return (u.protocol === 'https:' || u.protocol === 'http:') && u.origin === o.replace(/\/$/, '') ? u.origin : null } catch { return null }
-}
-
-/** `origin`: the team's address (where people sign in). The app's own links in an answer (`[shared](/files/view?…)`)
- * open there; without it, only their text is kept. Links of another kind than http(s) or the app's own stay as written
- * (plain text, no link). Code spans and code blocks are left as they are. */
-export function toMrkdwn(md: string, origin: string | null = null): string {
-  const home = originOf(origin)
-  md = md.replace(/\u0000/g, '')
-  const out: string[] = []
-  // code blocks stay as they are (without the language after ```), everything else is converted
-  const parts = md.split(/(```[^\n]*\n[\s\S]*?```)/g)
-  for (const part of parts) {
-    if (part.startsWith('```')) { out.push('```\n' + escape(part.replace(/^```[^\n]*\n/, '').replace(/```$/, '')) + '```'); continue }
-    const lines = part.split('\n').map((line) => {
-      const codes: string[] = []
-      let l = line.replace(/`([^`\n]+)`/g, (_m, c: string) => { codes.push(c); return `\u0000${codes.length - 1}\u0000` })
-      l = escape(l)
-      l = l.replace(/^\s{0,3}#{1,6}\s+(.+?)\s*#*\s*$/, (_m, h: string) => `*${h.replace(/\*\*/g, '')}*`)
-      l = l.replace(/^(\s*)[-*+]\s+/, '$1• ')
-      const link = (text: string, url: string) => {
-        const u = url.replace(/\|/g, '%7C')
-        return looksLikeAddress(text) && text.trim() !== url ? `${text} (<${u}>)` : `<${u}|${text.replace(/\|/g, '/')}>`
-      }
-      l = l.replace(/\[([^\]\n]{1,500})\]\((https?:\/\/[^\s)]{1,2000})\)/g, (_m, text: string, url: string) => link(text, url))
-      // the app's own pages (a path from the root, not //host): at the team's address, or the text alone
-      l = l.replace(/\[([^\]\n]{1,500})\]\((\/(?!\/)[^\s)]{0,2000})\)/g, (_m, text: string, path: string) => home ? link(text, home + path) : text)
-      l = l.replace(/\*\*(?=\S)([^*\n]+?)\*\*/g, '*$1*').replace(/__(?=\S)([^_\n]+?)__/g, '*$1*').replace(/~~(?=\S)([^~\n]+?)~~/g, '~$1~')
-      return l.replace(/\u0000(\d+)\u0000/g, (_m, i: string) => '`' + escape(codes[Number(i)]!) + '`')
-    })
-    out.push(lines.join('\n'))
-  }
-  return out.join('')
-}
-
 /** Cut text to at most `max` characters at a line or word end; `cut` says whether anything was left out. */
 export function clip(s: string, max: number): { text: string; cut: boolean } {
   if (s.length <= max) return { text: s, cut: false }
@@ -135,22 +93,6 @@ export function clip(s: string, max: number): { text: string; cut: boolean } {
   if (end < max * 0.6) end = s.lastIndexOf(' ', max)
   if (end < max * 0.6) end = max
   return { text: s.slice(0, end).trimEnd() + ' …', cut: true }
-}
-
-/** mrkdwn in sections of at most 2,900 characters (Slack allows 3,000 per text), at most `max` of them; `cut`: something
- * was left out */
-export function sections(mrkdwn: string, max: number): { blocks: { type: 'section'; text: { type: 'mrkdwn'; text: string } }[]; cut: boolean } {
-  const blocks: { type: 'section'; text: { type: 'mrkdwn'; text: string } }[] = []
-  let rest = mrkdwn
-  while (rest.length && blocks.length < max) {
-    const piece = clip(rest, 2900)
-    // the last section allowed: what does not fit is left out (marked " …" by clip)
-    if (!piece.cut || blocks.length === max - 1) { blocks.push({ type: 'section', text: { type: 'mrkdwn', text: piece.text || ' ' } }); return { blocks, cut: piece.cut } }
-    const chunk = piece.text.slice(0, -2) // without clip's " …": the next section goes on
-    blocks.push({ type: 'section', text: { type: 'mrkdwn', text: chunk || ' ' } })
-    rest = rest.slice(chunk.length).replace(/^\s+/, '')
-  }
-  return { blocks, cut: rest.length > 0 }
 }
 
 /** Why a request of the Slack screens was refused, for the reader (the reason code is in params.reason too) */

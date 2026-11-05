@@ -119,8 +119,9 @@ after 1, 2, 4 … seconds (at most a minute).
   Mode needs no request signature; every envelope is checked against strict shapes, the workspace and the app id saved
   with the tokens (nothing is handled while the app id is unknown).
 - An answer goes out only while the Slack account is still linked to the person it ran as; unlinked or disabled
-  meanwhile, it stays in the chat only. Answers are written in Slack's markup with `&`, `<`, `>` written out, so they
-  never mention `@here`, `@channel` or a person, and a link whose text looks like an address shows the real address.
+  meanwhile, it stays in the chat only. Answers go as Slack rich text (bold, italic, lists and links are fields Slack
+  does not parse), so they never mention `@here`, `@channel` or a person, and a link whose text reads as another web
+  address shows the real address (a file name does not). The notification text is plain, with `&`, `<`, `>` written out.
 - The connection is pinged every 30 seconds; one that stops answering (the Mac slept, the network dropped it) is opened
   again.
 - A link is bound to the Slack account it was sent to, and binds only when that account's e-mail (Slack's, read by the
