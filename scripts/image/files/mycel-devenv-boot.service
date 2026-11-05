@@ -1,0 +1,18 @@
+# Team AX hosted team server: the dev environment on srt from the plan (docs/research/srt-hosted-boot.md). Installed by
+# scripts/image/customize.sh. 20-devenv-boot.conf of mycel-server.service wants it and orders the server after it, so
+# it runs at each server start, after the data disk is mounted. mycel-devenv-plan.path starts it again when plan.json
+# changes. It never stops the server: the server only wants it, and the script always exits 0.
+[Unit]
+Description=Team AX dev environment on srt (from plan.json)
+RequiresMountsFor=/var/lib/mycel
+ConditionPathExists=/usr/lib/mycel/dev-env/srt/install-srt.sh
+ConditionPathExists=/var/lib/mycel/root/install.json
+After=dbus.service polkit.service
+Before=mycel-server.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/mycel-devenv-boot
+TimeoutStartSec=3min
+StandardOutput=journal
+StandardError=journal

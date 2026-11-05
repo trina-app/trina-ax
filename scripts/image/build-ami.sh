@@ -31,7 +31,9 @@
 #   1. A temporary security group (SSH from --ssh-cidr only) and a builder instance from the Debian AMI. Its SSH host
 #      key and login key are made here and sent in user-data, so the first SSH login checks a known host key.
 #   2. A 20 GiB gp3 work volume (encrypted) from the Debian AMI's root snapshot, attached to the builder.
-#   3. ami-chroot.sh on the builder: grow the file system, run customize.sh in a chroot on the work volume.
+#   3. ami-chroot.sh on the builder: grow the file system, run customize.sh in a chroot on the work volume. It also
+#      puts the dev environment on srt (packages, node, srt; scripts/dev-env/srt/install-srt.sh --image-mode) into the
+#      image. The dev environment stays off until install-srt.sh runs on the team server.
 #   4. Detach, snapshot (wait "completed"), RegisterImage (x86_64, ENA, uefi-preferred, IMDSv2, /dev/xvda).
 #   5. Terminate the builder, delete the work volume and the security group.
 #   6. Write teamax-<templateVersion>.ami.json once, then its .sha256 and .sig. The release key signs
@@ -245,6 +247,13 @@ for pair in "enroll:$ENROLL_BIN" "link:$LINK_BIN"; do
   fi
 done
 cp -a "$HERE/customize.sh" "$HERE/files" "$STAGE/"
+# the dev environment on srt, image part (customize.sh --srt, default <stage>/dev-env-srt): only the install files
+SRT_FILES=(install-srt.sh uninstall-srt.sh package.json package-lock.json run-wrap devenv.rules.in devenv.slice.in README.md)
+mkdir -p "$STAGE/dev-env-srt"
+for f in "${SRT_FILES[@]}"; do
+  [[ -f "$REPO/scripts/dev-env/srt/$f" ]] || die "missing scripts/dev-env/srt/$f"
+  cp -p "$REPO/scripts/dev-env/srt/$f" "$STAGE/dev-env-srt/"
+done
 cp "$HERE/ami-chroot.sh" "$WORK/stage/ami-chroot.sh"
 
 TEMPLATE_VERSION="$KIT_VERSION-d13-$DATE"
