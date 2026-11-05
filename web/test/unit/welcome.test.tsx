@@ -909,6 +909,23 @@ describe('after the first result', () => {
     } finally { await m.unmount() }
   })
 
+  test('the read right before making a link fails: nothing is made, the form with its "make link" button stays', async () => {
+    signIn('owner')
+    progress = ran()
+    withGroup()
+    let reads = 0
+    routes['GET /api/admin/team-link'] = () => reads++ === 0 ? json(200, { link: null, seats: { used: 1, limit: null } }) : json(500, { error: { code: 'internal', message: '읽지 못했어요' } })
+    const m = await mount(<MemoryRouter><WelcomeInviteBar chatId={CHAT} answered messages={cardNews()} /></MemoryRouter>)
+    try {
+      await m.until(() => m.find('welcome-invite-open'), 'the bar')
+      await m.click('welcome-invite-open')
+      await m.until(() => m.find('team-link-create'), 'the make-link button')
+      expect(reads).toBeGreaterThanOrEqual(2)
+      expect(called('POST /api/admin/team-link')).toEqual([])
+      expect(m.find('team-link-message')).toBeNull()
+    } finally { await m.unmount() }
+  })
+
   test('an open link that leads elsewhere (the meeting notes and their files) is changed to the skill, same address, no files; nothing made', async () => {
     signIn('owner')
     progress = ran()

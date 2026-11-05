@@ -8515,7 +8515,8 @@ ends and weight before the first result. Fixed here, each in its own commit:
 - **The invite opens ready.** For the owner walking the steps the link is made as the invite opens, only when no link
   could let anyone in (none, expired or used up) and a seat is left; an active link is reused or pointed at the skill at
   the same address; a stopped link, or one whose address the server cannot show, is never replaced by itself; the
-  link is read again right before one is made, so two screens of the owner do not end each other's link (review fix). The
+  link is read again right before one is made, so two screens of the owner do not end each other's link, and when that
+  read fails nothing is made (the form with its button stays) (review fixes). The
   message and one "메시지 복사" show at once, "링크 관리" (link, QR, uses, expiry, replace) is folded. The goal card and
   Admin › Members keep their button.
 - **One simple connect dialog** (`components/onboarding/ConnectAi.tsx`) from every "AI 연결하기": the welcome step, the

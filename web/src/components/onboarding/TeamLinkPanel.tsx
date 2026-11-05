@@ -140,7 +140,10 @@ export function TeamLinkPanel({ withGroups = true, skillPicker = true, skillPath
       // read again right before: another screen of the owner (a second tab, the phone) may have made one meanwhile, and
       // making a link ends the open one, so the link that screen shows would stop working
       const now = await api.call(API.getTeamLink).catch(() => null)
-      if (now && !linkToMake(now)) { state.setData(now); setEarly('done'); return }
+      // that read failed: nothing is made (it could end a link the owner just made elsewhere); the form with its
+      // "make link" button stays, as for anyone the link is not made for
+      if (!now) { setEarly('done'); return }
+      if (!linkToMake(now)) { state.setData(now); setEarly('done'); return }
       const r = await act(() => api.call(API.createTeamLink, { body }))
       if (r) state.setData(r)
       setEarly('done')
