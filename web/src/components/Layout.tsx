@@ -162,7 +162,7 @@ export default function Layout() {
   )
 }
 
-/** A demo server (`bun run demo:trina`) shows the demo bar instead of the development-mode banner: one strip, and the
+/** A demo server (`bun run demo:company`) shows the demo bar instead of the development-mode banner: one strip, and the
  * banner's words are in the bar's sheet (components/demo/Demo.tsx). */
 function DemoOrDevBanner() {
   const { info } = useDemoInfo()

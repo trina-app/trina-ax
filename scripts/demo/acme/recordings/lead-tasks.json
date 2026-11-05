@@ -1,0 +1,79 @@
+{
+ "v": 1,
+ "username": "sam",
+ "userId": "sam",
+ "prompt": "Turn this week's marketing meeting notes into an Excel task sheet (owner, task, due date) and save it in my folder",
+ "kind": "showcase",
+ "recordedAt": "2026-11-05T04:38:39.300Z",
+ "engine": "claude-code",
+ "model": "claude-opus-5-5",
+ "events": [
+  {
+   "type": "tool",
+   "t": 2438,
+   "name": "mcp__team__set_title",
+   "input": {
+    "title": "Marketing meeting tasks to Excel"
+   },
+   "ok": true,
+   "ms": 11
+  },
+  {
+   "type": "tool",
+   "t": 3252,
+   "name": "mcp__team__skill",
+   "input": {
+    "name": "meeting-action-items"
+   },
+   "ok": true,
+   "ms": 10
+  },
+  {
+   "type": "tool",
+   "t": 3256,
+   "name": "mcp__team__glob",
+   "input": {
+    "pattern": "**/*meeting*"
+   },
+   "ok": true,
+   "ms": 22
+  },
+  {
+   "type": "tool",
+   "t": 5374,
+   "name": "mcp__team__glob",
+   "input": {
+    "pattern": "**/meetings/**"
+   },
+   "ok": true,
+   "ms": 13
+  },
+  {
+   "type": "tool",
+   "t": 7571,
+   "name": "mcp__team__read",
+   "input": {
+    "file_path": "groups/Marketing/meetings/2026-11-03-marketing-weekly.md"
+   },
+   "ok": true,
+   "ms": 5
+  },
+  {
+   "type": "tool",
+   "t": 16215,
+   "name": "mcp__team__make_file",
+   "input": {
+    "format": "xlsx",
+    "output": "users/sam/2026-11-03-marketing-weekly-tasks.xlsx",
+    "content": "# Tasks\n\n| Owner | Task | Due | Source |\n|---|---|---|---|\n| Alex Kim | Read the brand voice page and the November campaign plan | Friday, November 6 | groups/Marketing/meetings/2026-11-03-marketing-weekly.md · Tasks |\n| Sam Ortiz | October results summary for Dana | Friday, November 6 | groups/Marketing/meetings/2026-11-03-marketing-weekly.md · Tasks |\n| Jordan Lee | Search ads: new keywords and the extra $500 | Monday, November 9 | groups/Marketing/meetings/2026-11-03-marketing-weekly.md · Tasks |\n| Jordan Lee | Final cut of the two LinkedIn videos | Wednesday, November 11 | groups/Marketing/meetings/2026-11-03-marketing-weekly.md · Tasks |\n| Alex Kim | Draft the November 19 newsletter (customer story and the free month) | Thursday, November 12 | groups/Marketing/meetings/2026-11-03-marketing-weekly.md · Tasks |\n| Alex Kim | Collect three customer quotes for the landing page from Sales | Friday, November 13 | groups/Marketing/meetings/2026-11-03-marketing-weekly.md · Tasks |\n| Sam Ortiz | Sign off the landing page and the videos | Friday, November 13 | groups/Marketing/meetings/2026-11-03-marketing-weekly.md · Tasks |\n"
+   },
+   "ok": true,
+   "ms": 27
+  },
+  {
+   "type": "text",
+   "t": 22283,
+   "text": "I made the task sheet from Tuesday's notes and saved it in your folder as [2026-11-03-marketing-weekly-tasks.xlsx](/files/view?path=users%2Fsam%2F2026-11-03-marketing-weekly-tasks.xlsx). The notes were [2026-11-03-marketing-weekly.md](/files/view?path=groups%2FMarketing%2Fmeetings%2F2026-11-03-marketing-weekly.md), the only marketing notes for this week. I used the team's \"meeting-action-items\" skill.\n\nThe sheet has 7 tasks, sorted by due date. Besides owner, task and due date, I added a Source column so each row points back to the notes. None of the tasks are late yet.\n\n**Your tasks**\n| Task | Due |\n|---|---|\n| October results summary for Dana | Friday, November 6 |\n| Sign off the landing page and the videos | Friday, November 13 |\n\n**Team tasks**\n| Owner | Task | Due |\n|---|---|---|\n| Alex Kim | Read the brand voice page and the November campaign plan | Friday, November 6 |\n| Jordan Lee | Search ads: new keywords and the extra $500 | Monday, November 9 |\n| Jordan Lee | Final cut of the two LinkedIn videos | Wednesday, November 11 |\n| Alex Kim | Draft the November 19 newsletter (customer story and the free month) | Thursday, November 12 |\n| Alex Kim | Collect three customer quotes for the landing page from Sales | Friday, November 13 |\n\nThe decision to start LinkedIn on November 18 has no owner in the notes, so I didn't add it as a task.\n\nThe meeting was Tuesday, November 3, and the next one is Tuesday, November 10, at 10:00."
+  }
+ ]
+}

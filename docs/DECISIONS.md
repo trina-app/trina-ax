@@ -8208,3 +8208,47 @@ chat tools); the hosting side only hands over the image key.
   S's outside-content check although the words came from the web. They are the company's own public pages, read
   within the typed site's scope, saved by the owner after confirming the profile, each part under its address; the
   team skill names the file, which anyone on the team can open and edit.
+
+## Demo content: the mechanism is open, a company's content is a folder (feat/demo-content-split, 2026-11-05)
+
+The owner (2026-11-05): the demo's mechanism stays open source here; the 트리나-branded demo content moves to the private
+repository. REPOSITORY-RULES already puts Trina's operations and site in the private `trina-ax-core` `editions/trina/`;
+a demo of Trina's own company, with photos made on Trina's Higgsfield account and a designed proposal template, is the
+same kind of thing.
+
+- **One format, read from a folder** (`scripts/demo/company/README.md`): `company.json` (owner, people, groups, folder
+  rules, uploaders, pack skills, settings, memories, company profile, the three personas with their lines and
+  questions, the scenarios, and `checks`), `files/` at team paths, `recordings/` (`<slug>.json`), an optional
+  `assets/` the demo never reads. The schema is `DemoContentCompany` in `shared/src/api/demo.ts` (zod lives there; the
+  scripts only read it), the loader `scripts/demo/company/content.ts`. A folder is checked whole before the server
+  starts: unknown fields, a name no person or group has, a persona that is the owner, files outside `shared/`,
+  `groups/<group>/`, `skills/`, a pack skill that is not in the repository, a recording that is not one of a scenario
+  by its person with its prompt. Every problem is listed at once; a broken folder never half-seeds a team.
+- **Data, never code.** The old company file was TypeScript (a function chose the uploader, a function wrote the
+  intro lines). A content folder from another repository must not run code in this checkout, so the uploaders are an
+  ordered path list and the intro lines are plain text. The server side is unchanged: the same `MYCEL_DEMO` file,
+  person switch, replays and fences (`server/src/demo/`, `routes/demo.ts`), as strict as before.
+- **The owner is always an account of its own** with a random password (`ensureOwnerPassword`, now in
+  `scripts/demo/seed.ts`), and the format has no admin role at all: every person is a member, because the demo password
+  is public and the demo may be open to the network (the rule from "Demo company", now in the schema, not a habit).
+- **Scripts**: `bun run demo:company [--content <dir>]` (else `MYCEL_DEMO_CONTENT`, else the open example);
+  `bun run demo:trina` is the same script with `--require-content trina` and, without content, says where the 트리나
+  content is (private `trina-ax-core`, `editions/trina/demo`) and that `demo:company` runs Acme. The data folder is
+  `~/.<id>demo`, so the 트리나 content (id `trina`) opens the same `~/.trinademo` as before. `bun run demo:seed
+  --content <dir>` replaces `--company trina`. `MYCEL_DEMO_CONTENT` is stripped from the server's environment with the
+  other `MYCEL_*` variables (the server only ever reads the demo file).
+- **The open example, Acme** (`scripts/demo/acme`): six people, Marketing and Sales and a CEO, one closed folder
+  (`shared/budget/`, with each lead's own team sheet under it) for "the same question, different answers", a handful
+  of Markdown files and four spreadsheets made by `tests/demo/make-acme-files.ts`, one team skill, one rule, two
+  English pack skills, no pictures. Three scenes recorded with the real AI on a separate port (a Word brief, an Excel
+  task sheet, a past chat). Its `checks` say who opens what; the seed test checks them on a real app, and with
+  `MYCEL_DEMO_CONTENT=<dir>` the same seed and recording tests run on another content folder too (the private
+  content's own check), including "every recorded line is in the team's language" for `ko` and `en`.
+- **Moved out**: `scripts/demo/trina/` (company, scenarios, README, files, recordings) and `tests/demo/make-trina-*`.
+  Git history keeps the v1/v2 content that was public; it was not rewritten. The later photos (Higgsfield), the
+  designed proposal template, the card-news and proposal rules and their recordings were never committed here and live
+  only in the private content folder. Tests now use Acme (`demo-company-seed`, `demo-company-record`, the web demo
+  test's fixture).
+- Rejected: keeping the 트리나 content here behind a flag (the brand content would still be public); a content folder
+  with a `company.ts` (code from another repository running in this checkout); copying the private content into
+  `editions/trina/` of this repository (only `branding/` belongs here).
