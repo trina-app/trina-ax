@@ -217,52 +217,60 @@ test('realtime: room events reach the room\'s members only, and a read names nob
   expect(hub.to('room.message.updated').map((e) => e.target).sort()).toEqual([mia.id, nora.id].sort())
 })
 
-test('notices: a DM or an @mention, one unread notice of each per room; muted rooms are quiet; reading clears them; no text', async () => {
+test('notices: a DM or an @mention, one unread notice of each per room (pushed, never listed in the Inbox); muted rooms are quiet; reading clears them; no text', async () => {
   const { mia, nora, teamRoom, send } = await setup()
   const n = notificationsOf(h.ctx)
+  // the room notices a push opens by id (GET /api/notifications/:id); the Inbox's own list leaves them out (the 대화
+  // tab's badge is where unread room messages are)
+  const notices = (uid: string) => {
+    const rows = h.ctx.db.query('SELECT id FROM room_notices WHERE user_id = ? AND suppressed = 0 ORDER BY created_at DESC, id DESC').all(uid) as { id: string }[]
+    const items = rows.map((r) => n.get(uid, r.id))
+    expect(n.list(uid, {}).items.some((x) => x.code === 'room.dm' || x.code === 'room.mention')).toBe(false)
+    return { items, unreadCount: items.filter((x) => x.readAt === null).length }
+  }
   const dm = await mia.client.call('POST', '/api/rooms', { kind: 'dm', userId: nora.id })
   await send(mia.client, dm.id, 'TOP SECRET ONE')
   await send(mia.client, dm.id, 'TOP SECRET TWO')
-  let inbox = n.list(nora.id, {})
+  let inbox = notices(nora.id)
   expect(inbox.items).toHaveLength(1)
   expect(inbox.items[0]).toMatchObject({ code: 'room.dm', link: 'room', room: { id: dm.id, from: 'MIA' }, chatId: null })
   expect(JSON.stringify(inbox)).not.toContain('TOP SECRET')
-  expect(n.list(mia.id, {}).items).toHaveLength(0)
+  expect(notices(mia.id).items).toHaveLength(0)
   // reading the DM marks it read; the next message is a new notice
   const last = (await nora.client.call('GET', `/api/rooms/${dm.id}`)).lastSeq
   await nora.client.call('POST', `/api/rooms/${dm.id}/read`, { seq: last })
-  expect(n.list(nora.id, {}).unreadCount).toBe(0)
+  expect(notices(nora.id).unreadCount).toBe(0)
   // a team room message notifies only those mentioned, and mentions too come once per unread run
   const team = await teamRoom(mia.client)
   await send(mia.client, team.id, 'for everyone')
-  expect(n.list(nora.id, {}).unreadCount).toBe(0)
+  expect(notices(nora.id).unreadCount).toBe(0)
   await send(mia.client, team.id, '@NORA look', { mentions: [nora.id] })
   await send(mia.client, team.id, '@NORA and this', { mentions: [nora.id] })
-  inbox = n.list(nora.id, {})
+  inbox = notices(nora.id)
   expect(inbox.unreadCount).toBe(1)
   expect(inbox.items[0]).toMatchObject({ code: 'room.mention', room: { id: team.id } })
   await nora.client.call('POST', `/api/rooms/${team.id}/read`, { seq: 999 })
-  expect(n.list(nora.id, {}).unreadCount).toBe(0)
+  expect(notices(nora.id).unreadCount).toBe(0)
   // muted: neither DM messages nor mentions make a notice
   await nora.client.call('PATCH', `/api/rooms/${dm.id}`, { muted: true })
   await nora.client.call('PATCH', `/api/rooms/${team.id}`, { muted: true })
   await send(mia.client, dm.id, 'quiet')
   await send(mia.client, dm.id, '@NORA look', { mentions: [nora.id] })
   await send(mia.client, team.id, '@NORA in the team room', { mentions: [nora.id] })
-  expect(n.list(nora.id, {}).unreadCount).toBe(0)
+  expect(notices(nora.id).unreadCount).toBe(0)
   await nora.client.call('PATCH', `/api/rooms/${team.id}`, { muted: false })
   // the person's setting turns room notices off
   n.setPreferences(nora.id, { roomMessages: false })
   await send(mia.client, team.id, '@NORA again', { mentions: [nora.id] })
-  expect(n.list(nora.id, {}).unreadCount).toBe(0)
+  expect(notices(nora.id).unreadCount).toBe(0)
   // a deleted message takes its notice with it
   n.setPreferences(nora.id, { roomMessages: true })
   await nora.client.call('PATCH', `/api/rooms/${dm.id}`, { muted: false })
   await nora.client.call('POST', `/api/rooms/${dm.id}/read`, { seq: 999 })
   const gone = await send(mia.client, dm.id, 'to be deleted')
-  expect(n.list(nora.id, {}).unreadCount).toBe(1)
+  expect(notices(nora.id).unreadCount).toBe(1)
   await mia.client.call('DELETE', `/api/rooms/${dm.id}/messages/${gone.id}`)
-  expect(n.list(nora.id, {}).unreadCount).toBe(0)
+  expect(notices(nora.id).unreadCount).toBe(0)
 })
 
 test('sending is rate limited per person; a resend of the same message is free', async () => {

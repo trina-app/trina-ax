@@ -37,7 +37,12 @@ const tableOf = (e: NotificationEventType) => isSkillEvent(e) ? 'skill_notices' 
  * (migration 223) and room notices (a DM message or an @mention, migration 241) have their own tables, because notification_inbox has a fixed event_type CHECK list and tables are
  * never rebuilt. */
 const NOTICE_TABLES = ['notification_inbox', 'skill_notices', 'dev_env_notices', 'integration_request_notices', 'onboarding_notices', 'team_join_notices', 'onboarding_goal_notices', 'room_notices'] as const
-const INBOX = `(${NOTICE_TABLES.map((t) => `SELECT id,user_id,event_type,source_id,created_at,read_at,suppressed FROM ${t}`).join(' UNION ALL ')})`
+const union = (tables: readonly string[]) => `(${tables.map((t) => `SELECT id,user_id,event_type,source_id,created_at,read_at,suppressed FROM ${t}`).join(' UNION ALL ')})`
+const INBOX = union(NOTICE_TABLES)
+/** What the Inbox lists and counts: every notice but the rooms' (a DM message, an @mention). Those still push, and a
+ * push opens its notice by id (get/read below); the unread room messages themselves are the 대화 tab's badge and the
+ * rooms list's, one place for them (docs/DECISIONS.md "대화방의 트리나", UX review). */
+const LISTED = union(NOTICE_TABLES.filter((t) => t !== 'room_notices'))
 export class Notifications {
   constructor(readonly ctx: AppContext) {}
   private active(userId: string) { return !!this.ctx.db.query("SELECT 1 FROM users WHERE id=? AND status='active' AND deleted_at IS NULL").get(userId) }
@@ -311,11 +316,11 @@ export class Notifications {
     if (o.cursor && (!cur || !Number.isFinite(Date.parse(cur.t!)))) throw new HttpError('validation')
     if (!this.active(userId)) return { items: [], nextCursor: null, unreadCount: 0 }
     const limit = Math.min(100, Math.max(1, o.limit ?? 30)), db = this.ctx.db, cutoff = this.cutoff()
-    const rows = db.query(`SELECT * FROM ${INBOX} WHERE user_id=? AND suppressed=0 AND created_at>=?
+    const rows = db.query(`SELECT * FROM ${LISTED} WHERE user_id=? AND suppressed=0 AND created_at>=?
       ${cur ? 'AND (created_at<? OR (created_at=? AND id<?))' : ''} ORDER BY created_at DESC,id DESC LIMIT ?`)
       .all(...(cur ? [userId, cutoff, cur.t!, cur.t!, cur.id!, limit + 1] : [userId, cutoff, limit + 1])) as Row[]
     const selected = rows.slice(0, limit), last = selected.at(-1)
-    const { n } = db.query(`SELECT COUNT(*) n FROM ${INBOX} WHERE user_id=? AND suppressed=0 AND read_at IS NULL AND created_at>=?`).get(userId, cutoff) as { n: number }
+    const { n } = db.query(`SELECT COUNT(*) n FROM ${LISTED} WHERE user_id=? AND suppressed=0 AND read_at IS NULL AND created_at>=?`).get(userId, cutoff) as { n: number }
     return { items: selected.map(r => this.out(r)), nextCursor: rows.length > limit && last ? encodeCursor({ t: last.created_at, id: last.id }) : null, unreadCount: n }
   }
   get(userId: string, id: string): InboxNotification {
