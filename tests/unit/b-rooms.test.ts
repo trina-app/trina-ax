@@ -447,3 +447,44 @@ test('push: a room notice goes out through the push service with ids and an even
     expect(sent).toHaveLength(1)
   } finally { await p.stop() }
 })
+
+test('push: room notices and the other notices reach Web Push and phones alike; a phone opens the room', async () => {
+  const { mia, nora, otto, send } = await setup()
+  const { PushService } = await import('../../server/src/notifications/push-service')
+  const crypto = await import('node:crypto')
+  const e = crypto.createECDH('prime256v1'); e.generateKeys()
+  const keys = { publicKey: e.getPublicKey().toString('base64url'), privateKey: e.getPrivateKey().toString('base64url') }
+  const web: any[] = [], phone: any[] = []
+  let now = Date.now()
+  const p = new PushService(h.ctx, { config: () => ({ enabled: true, subject: 'mailto:push@example.test', ...keys }), native: () => ({ url: 'https://push.example.test' }), now: () => now,
+    transport: async (i) => { web.push(i.payload); return { statusCode: 201 } }, nativeTransport: async (i) => { phone.push(i.payload); return { statusCode: 200 } } })
+  try {
+    const sid = (userId: string) => (h.ctx.db.query('SELECT id FROM sessions WHERE user_id = ? ORDER BY created_at DESC').get(userId) as { id: string }).id
+    const k = crypto.createECDH('prime256v1'); k.generateKeys()
+    const sub = p.subscribe(nora.id, sid(nora.id), { consent: true, endpoint: 'https://fcm.googleapis.com/fcm/send/synthetic-room-web', keys: { p256dh: k.getPublicKey().toString('base64url'), auth: crypto.randomBytes(16).toString('base64url') } })
+    const device = p.registerDevice(otto.id, sid(otto.id), { consent: true, platform: 'ios', environment: 'production', token: crypto.randomBytes(32).toString('hex') })
+    now += 10
+    const toNora = await mia.client.call('POST', '/api/rooms', { kind: 'dm', userId: nora.id })
+    const toOtto = await mia.client.call('POST', '/api/rooms', { kind: 'dm', userId: otto.id })
+    await send(mia.client, toNora.id, 'LOCK SCREEN MUST NOT SHOW THIS')
+    await send(mia.client, toOtto.id, 'LOCK SCREEN MUST NOT SHOW THIS')
+    notificationsOf(h.ctx).connectionReconnect(otto.id, 'reconnect-1', new Date(now).toISOString())
+    now = Date.now() + 20
+    await p.tick(); await p.tick()
+    expect(web).toEqual([{ notificationId: expect.any(String), subscriptionId: sub.id, code: 'room.dm' }])
+    expect(phone).toHaveLength(2)
+    // ids, the event code, the language, the device tag and an id path: never names or text
+    expect(phone.find((x) => x.code === 'room.dm')).toEqual({ notificationId: expect.any(String), code: 'room.dm', locale: expect.any(String), tag: device.id, path: `/rooms/${toOtto.id}` })
+    expect(phone.find((x) => x.code === 'connection.reconnect')).toEqual({ notificationId: expect.any(String), code: 'connection.reconnect', locale: expect.any(String), tag: device.id, path: '/settings/notifications' })
+    expect(JSON.stringify([web, phone])).not.toContain('LOCK SCREEN')
+    expect(h.ctx.db.query('SELECT state FROM room_push_deliveries WHERE subscription_id = ?').all(device.id)).toEqual([{ state: 'sent' }])
+    expect(h.ctx.db.query('SELECT state FROM push_deliveries WHERE subscription_id = ?').all(device.id)).toEqual([{ state: 'sent' }])
+    // the room setting off: no phone push for a room notice, the other notices still go
+    await otto.client.call('PATCH', '/api/notification-preferences', { roomMessages: false })
+    await otto.client.call('POST', `/api/rooms/${toOtto.id}/read`, { seq: 99 })
+    await send(mia.client, toOtto.id, 'muted run')
+    now = Date.now() + 40
+    await p.tick()
+    expect(phone).toHaveLength(2)
+  } finally { await p.stop() }
+})

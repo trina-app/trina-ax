@@ -8329,3 +8329,16 @@ The phone app (mobile/, Expo SDK 58 WebView of a team's HTTPS web app) goes to T
 - Known limits: an iOS build made in Xcode with a development profile but Release configuration reports sandbox only if
   its profile says so; a removal owed to a team whose server stays unreachable for 30 days is dropped, and that team
   keeps the device until the session ends (its pushes show generic text, a tap opens nothing because of the tag).
+
+## 대화방 알림이 폰으로 (rooms and native push together, feat/team-chat, 2026-11-05)
+
+- **Every notice source reaches every kind of device.** The push service queues `notification_inbox` →
+  `push_deliveries` and `room_notices` → `room_push_deliveries` alike for Web Push rows (current VAPID key) and phone
+  rows (`kind 'native'`, current gateway address); the due delivery is taken across both sources with its device row's
+  config key and sent by the row's kind. The room rules (one notice per unread run, mute, the "Room messages" switch,
+  reading the room) decide whether a room notice exists or is still unread, so they hold for phones too; the gateway
+  shows its generic "새 메시지가 있어요" for both room codes.
+- **A tapped room push opens the room.** `room.dm` and `room.mention` resolve to `/rooms/<room id>` (ids only,
+  `server/src/notifications/push-events.ts`), only while the person is still in that room and it is not archived;
+  otherwise the app opens its start page. The room page checks membership again. Web Push keeps its own way (the room
+  id from the signed-in fetch at show time, never from the payload).

@@ -1,6 +1,6 @@
 // Small lifecycle bridge: auth/notification policy can cancel work without importing network/secret modules.
 import type { AppContext } from '../context'
-import type { NotificationPreferences } from '@mycel/shared/api'
+import { ROOM_PUSH_EVENTS, type NotificationPreferences } from '@mycel/shared/api'
 import { eventEnabled } from './preferences'
 type Stop = (scope: { userId?: string; sessionId?: string }) => void
 const listeners = new WeakMap<AppContext, Stop>()
@@ -25,6 +25,14 @@ type PushPath = (ctx: AppContext, notificationId: string) => string | null | und
 const PATH = /^\/(?:[A-Za-z0-9_-]+(?:\/[A-Za-z0-9_-]+)*)?$/
 // the existing events open the inbox, as a Web Push click does (web/pwa/sw.js)
 const pushPaths = new Map<string, PushPath>(['schedule.success', 'schedule.failure', 'connection.reconnect'].map(code => [code, () => '/settings/notifications']))
+// a room notice opens its room (the same page a Web Push click opens, web/pwa/sw.js), only while the person is still in
+// that room and it is not archived; the room page checks membership again
+const roomPath: PushPath = (ctx, id) => {
+  const r = ctx.db.query(`SELECT n.room_id FROM room_notices n JOIN room_members m ON m.room_id=n.room_id AND m.user_id=n.user_id
+    JOIN rooms r ON r.id=n.room_id AND r.archived_at IS NULL WHERE n.id=?`).get(id) as { room_id: string } | null
+  return r ? `/rooms/${r.room_id}` : null
+}
+for (const code of ROOM_PUSH_EVENTS) pushPaths.set(code, roomPath)
 export function registerPushPath(code: string, path: PushPath) { pushPaths.set(code, path) }
 export function pushPathOf(ctx: AppContext, code: string, notificationId: string): string | undefined {
   try {
