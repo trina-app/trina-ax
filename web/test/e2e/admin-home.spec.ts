@@ -10,7 +10,7 @@ const t = DICTS.en
 
 const MENU: [MessageKey, MessageKey[]][] = [
   ['admin.group.people', ['admin.members', 'admin.groups', 'admin.folders']],
-  ['admin.group.shared', ['admin.engines', 'admin.credentials', 'admin.integrations', 'admin.plugins']],
+  ['admin.group.shared', ['admin.engines', 'admin.credentials', 'admin.integrations', 'connectors.title', 'admin.plugins']],
   ['admin.group.activity', ['admin.usage', 'admin.audit']],
   ['admin.group.settings', ['admin.settings', 'admin.system']],
 ]

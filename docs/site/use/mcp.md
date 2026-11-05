@@ -36,9 +36,6 @@ Admins manage team connections but do not use them unless a rule names them. Who
 
 #### Pick a service or add by address
 **Discover** lists services that support sign-in with Trina AX. **Add connection** takes any MCP server address.
-In **Settings › MCP**, Discover also starts with **Built in**: Google Drive, your own Google account, which the AI can
-search and read. Its **+** opens the Google sign-in; once linked it is a row under **Connected**, where you can reconnect
-or disconnect it. It shows "Not available yet" until the server has a Google client (an admin sees the setup guide).
 
 ![The Discover tab: MCP servers ready to add, such as Notion, Linear, Atlassian, Canva and Figma, each with a + button](../images/mcp/discover.webp "Discover: services you can add by name")
 

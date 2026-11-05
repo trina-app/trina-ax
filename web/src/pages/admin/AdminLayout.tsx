@@ -4,10 +4,10 @@
 //
 // The menu stays where it is while a page scrolls: its own column on wide screens, a strip under the title on narrow
 // ones. It is grouped so what the whole team shares (AI engines, AI connections, external services, plugins) sits
-// apart from people, activity and the server. Home (/admin) comes first: what needs attention, then one line per area
+// apart from people, activity and the server (App connectors: what this server offers members, AppConnectors.tsx). Home (/admin) comes first: what needs attention, then one line per area
 // (Home.tsx).
 import clsx from 'clsx'
-import { Activity, Cable, Cpu, FolderLock, Gauge, House, KeyRound, Puzzle, ScrollText, Settings2, Users, UsersRound } from 'lucide-react'
+import { Activity, Cable, Cpu, FolderLock, Gauge, House, KeyRound, Plug, Puzzle, ScrollText, Settings2, Users, UsersRound } from 'lucide-react'
 import { lazy, Suspense, useEffect, useRef } from 'react'
 import { Navigate, NavLink, useParams } from 'react-router-dom'
 import { useT, type MessageKey } from '../../i18n'
@@ -21,6 +21,7 @@ const Folders = lazy(() => import('./Folders'))
 const Engines = lazy(() => import('./Engines'))
 const Credentials = lazy(() => import('./Credentials'))
 const Integrations = lazy(() => import('./Integrations'))
+const AppConnectors = lazy(() => import('./AppConnectors'))
 const Plugins = lazy(() => import('./Plugins'))
 const TeamSettingsPage = lazy(() => import('./TeamSettings'))
 const Usage = lazy(() => import('./Usage'))
@@ -46,6 +47,7 @@ const MENU: { label: MessageKey | null; items: Section[] }[] = [
       { id: 'engines', label: 'admin.engines', icon: Cpu },
       { id: 'credentials', label: 'admin.credentials', icon: KeyRound },
       { id: 'integrations', label: 'admin.integrations', icon: Cable },
+      { id: 'app-connectors', label: 'connectors.title', icon: Plug },
       { id: 'plugins', label: 'admin.plugins', icon: Puzzle },
     ],
   },
@@ -121,6 +123,7 @@ export default function AdminLayout() {
             {section === 'engines' && <Engines />}
             {section === 'credentials' && <Credentials />}
             {section === 'integrations' && <Integrations />}
+            {section === 'app-connectors' && <AppConnectors />}
             {section === 'plugins' && <Plugins />}
             {section === 'usage' && <Usage />}
             {section === 'audit' && <Audit />}

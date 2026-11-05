@@ -3,11 +3,9 @@
 // then the team connections an admin lets them use (read-only unless they manage them); above them, services an admin
 // asked them to connect as their own (components/integrations/AnswerDialog.tsx). Not the "App connectors" tab
 // (ConnectorConnections.tsx): that is the other direction, claude.ai using this server's files. "Discover" adds a known
-// service by name; "Add connection" takes any MCP server or API by its address. Google Drive is built into the server:
-// its card leads Discover and its row leads Connected (components/integrations/DriveConnector.tsx); ?drive=1 (the old
-// /settings/drive) opens its dialog.
+// service by name; "Add connection" takes any MCP server or API by its address.
 import { Cable } from 'lucide-react'
-import { useCallback, useEffect, useId, useRef, useState } from 'react'
+import { useCallback, useEffect, useId, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import type { Integration, IntegrationList } from '@mycel/shared/api'
 import { api, API } from '../lib/api'
@@ -17,8 +15,6 @@ import { useT } from '../i18n'
 import { reloadAsked } from '../store/live'
 import { EmptyState, TabPanel } from '../components/ui'
 import { afterAdded, ConnectorDiscover, ConnectorsHeader, matchesQuery, type ConnectorTab } from '../components/integrations/ConnectorsView'
-import { DriveCard, DriveDialog, DriveRow, driveLinked, driveMatches } from '../components/integrations/DriveConnector'
-import { useDriveConnection } from '../components/settings/DriveConnection'
 import { MyRequests } from '../components/integrations/AnswerDialog'
 import { IntegrationDialog } from '../components/integrations/IntegrationDialog'
 import { IntegrationRow, useIntegrationActions } from '../components/integrations/IntegrationRow'
@@ -48,30 +44,12 @@ export default function Integrations() {
     if (personalAllowed) setDialog({})
     setParams((p) => { p.delete('add'); return p }, { replace: true })
   }, [params, personalAllowed, setParams])
-  // Google Drive: a connect finished in its dialog closes it and shows the new row under Connected
-  const [driveOpen, setDriveOpen] = useState(false)
-  const driveOpenRef = useRef(false)
-  driveOpenRef.current = driveOpen
-  const drive = useDriveConnection(() => {
-    if (!driveOpenRef.current) return
-    setDriveOpen(false)
-    afterAdded(setTab, setQuery)
-  })
-  useEffect(() => {
-    if (params.get('drive') !== '1') return
-    setDriveOpen(true)
-    setParams((p) => { p.delete('drive'); return p }, { replace: true })
-  }, [params, setParams])
-  const driveAvailable = !!drive.connection?.configured
-  // the tabs are there when there is something to discover: MCP servers this person may add, or Google Drive
-  const showTabs = !!personalAllowed || driveAvailable
-  const driveRow = driveLinked(drive.connection) && driveMatches(query, t)
   const panels = useId()
   return (
     <section data-testid="integrations">
-      <ConnectorsHeader title={t('integrations.title')} tab={tab} onTab={setTab} query={query} onQuery={setQuery} onAdd={state.data?.personalAllowed ? () => setDialog({}) : undefined} tabs={showTabs} panels={panels} />
+      <ConnectorsHeader title={t('integrations.title')} tab={tab} onTab={setTab} query={query} onQuery={setQuery} onAdd={state.data?.personalAllowed ? () => setDialog({}) : undefined} panels={panels} />
       {/* with tabs (adding allowed), what the chosen one shows */}
-      <TabPanel base={showTabs ? panels : null} value={tab}>
+      <TabPanel base={state.data?.personalAllowed ? panels : null} value={tab}>
       <div className="[&:not(:empty)]:mb-5">
         <MyRequests
           version={requests}
@@ -82,31 +60,10 @@ export default function Integrations() {
         {(d) => {
           const { mine, team } = splitByScope(d.items)
           // a team connection a member may use is the company's account, so their own stays addable
-          if (tab === 'discover' && showTabs) {
-            const driveShown = driveMatches(query, t)
-            return (
-              <div className="space-y-6">
-                {driveShown && (
-                  <section aria-labelledby="integrations-builtin" data-testid="connector-builtin">
-                    <h3 id="integrations-builtin" className="mb-3 text-sm font-medium">{t('integrations.discover.builtIn')}</h3>
-                    <ul className="grid gap-3 sm:grid-cols-2">
-                      <DriveCard s={drive} onOpen={() => setDriveOpen(true)} />
-                    </ul>
-                  </section>
-                )}
-                {d.personalAllowed ? (
-                  <ConnectorDiscover connected={mine} query={query} onAdd={(c) => setDialog({ connector: c })} onCustom={() => setDialog({})} />
-                ) : !driveShown ? (
-                  <EmptyState title={t('integrations.noMatch', { q: query.trim() })} />
-                ) : (
-                  <p className="text-sm text-muted" data-testid="integrations-personal-off-discover">{t('integrations.personalOff')}</p>
-                )}
-              </div>
-            )
-          }
+          if (tab === 'discover' && d.personalAllowed) return <ConnectorDiscover connected={mine} query={query} onAdd={(c) => setDialog({ connector: c })} onCustom={() => setDialog({})} />
           const shownMine = mine.filter((i) => matchesQuery(i, query))
           const shownTeam = team.filter((i) => matchesQuery(i, query))
-          if (query.trim() && !shownMine.length && !shownTeam.length && !driveRow) return <EmptyState title={t('integrations.noMatch', { q: query.trim() })} />
+          if (query.trim() && !shownMine.length && !shownTeam.length) return <EmptyState title={t('integrations.noMatch', { q: query.trim() })} />
           return (
             <div className="space-y-5">
               {!d.personalAllowed && mine.length > 0 && (
@@ -114,12 +71,11 @@ export default function Integrations() {
                   {t('integrations.personalOff')}
                 </p>
               )}
-              {drive.revokeWarning && <p role="status" className="text-sm text-muted" data-testid="drive-revoke-warning">{t('drive.revokeWarning')}</p>}
-              {(!query.trim() || shownMine.length > 0 || driveRow) && <section aria-labelledby="integrations-mine">
+              {(!query.trim() || shownMine.length > 0) && <section aria-labelledby="integrations-mine">
                 <h3 id="integrations-mine" className="mb-2 text-sm font-semibold">
                   {t('integrations.mine')}
                 </h3>
-                {!mine.length && !driveRow ? (
+                {!mine.length ? (
                   <div className="rounded-xl border border-dashed border-line" data-testid="integrations-empty">
                     <EmptyState icon={<Cable size={26} />} title={d.personalAllowed ? t('integrations.empty') : t('integrations.personalOffTitle')}>
                       <p>{d.personalAllowed ? t('integrations.emptyHint') : t('integrations.personalOff')}</p>
@@ -127,7 +83,6 @@ export default function Integrations() {
                   </div>
                 ) : (
                   <ul className="-mx-2 divide-y divide-line" data-testid="integrations-mine">
-                    {driveRow && <DriveRow s={drive} inDialog={driveOpen} />}
                     {shownMine.map((i) => (
                       <IntegrationRow key={i.id} i={i} actions={actions} onEdit={() => setDialog({ existing: i })} />
                     ))}
@@ -153,7 +108,6 @@ export default function Integrations() {
         }}
       </Loadable>
       </TabPanel>
-      {driveOpen && <DriveDialog s={drive} onClose={() => setDriveOpen(false)} />}
       {dialog && (
         <IntegrationDialog
           scope={dialog.existing?.scope ?? 'personal'}

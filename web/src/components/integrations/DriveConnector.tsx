@@ -1,8 +1,8 @@
-// Google Drive in Settings > MCP (pages/Integrations.tsx), like an MCP server but built into this server: a card in
-// Discover's "Built in" group, a dialog with the connect flow (the same API and steps as before, from
-// components/settings/DriveConnection.tsx), and a row under Connected once the person's own Google account is linked.
-// It was its own Settings section; /settings/drive now opens the dialog here. Only the person's own Drive: no team-level
-// Drive exists (the server's Google client is set up by the operator, docs/GOOGLE-DRIVE.md).
+// Google Drive in Settings › App connectors (pages/ConnectorConnections.tsx): the first app connector in the list, a
+// row with its logo and + (or, once the person's own Google account is linked, its email, ✓, Reconnect and Disconnect),
+// and a dialog with the connect flow (the same API and steps as before, components/settings/DriveConnection.tsx). It was
+// its own Settings section; /settings/drive now opens the dialog there. Admin › App connectors shows whether the server
+// has a Google client (pages/admin/AppConnectors.tsx); that is set up by the operator (docs/GOOGLE-DRIVE.md).
 import clsx from 'clsx'
 import { Check, ChevronDown, ExternalLink, Plus } from 'lucide-react'
 import { useId, useState } from 'react'
@@ -17,16 +17,10 @@ import { DriveFlowPanel, type DriveConnectionState } from '../settings/DriveConn
 import { LogoTile } from './ConnectorsView'
 
 const DRIVE = BUILT_IN[0]
-const SETUP_GUIDE = `${SOURCE_CODE.repository}/blob/main/docs/GOOGLE-DRIVE.md`
+export const DRIVE_SETUP_GUIDE = `${SOURCE_CODE.repository}/blob/main/docs/GOOGLE-DRIVE.md`
 
 /** Linked (or linked and needing a new sign-in): the connection has a row under Connected. */
 export const driveLinked = (c: DriveConnection | null) => !!c?.configured && (c.status === 'connected' || c.status === 'needs_reconnect')
-
-/** The built-in Drive entry fits the search box: its name or what it does. */
-export function driveMatches(query: string, t: ReturnType<typeof useT>) {
-  const q = query.trim().toLowerCase()
-  return !q || `${DRIVE.name} ${t('drive.cardDesc')}`.toLowerCase().includes(q)
-}
 
 export function DriveLogo({ className }: { className?: string }) {
   return <LogoTile src={builtInLogo('google-drive')} className={className} />
@@ -34,23 +28,24 @@ export function DriveLogo({ className }: { className?: string }) {
 
 const admin = (role: string) => role === 'owner' || role === 'admin'
 
-/** Discover's card. Not set up on this server: one line instead of the + (an admin also gets the setup guide). */
-export function DriveCard({ s, onOpen }: { s: DriveConnectionState; onOpen: () => void }) {
+/** The list row while Drive is not linked: logo, name, what it does, and + to open the dialog. Not set up on this
+ * server: one line instead of the + (an owner or admin also gets the setup guide). */
+export function DriveItem({ s, onOpen }: { s: DriveConnectionState; onOpen: () => void }) {
   const t = useT()
   const me = useMeStrict()
   const c = s.connection
   const unavailable = !!c && !c.configured
   return (
-    <li className="flex items-start gap-3 rounded-xl bg-subtle p-3" data-testid="drive-card" data-status={c ? (c.configured ? c.status : 'disabled') : 'loading'}>
-      <DriveLogo className="size-10" />
+    <li className="flex items-center gap-3 p-2" data-testid="drive-item" data-status={c ? (c.configured ? c.status : 'disabled') : 'loading'}>
+      <DriveLogo className="size-9" />
       <span className="min-w-0 flex-1">
         <span className="block truncate text-sm font-medium">{DRIVE.name}</span>
         {unavailable ? (
-          <span className="mt-0.5 block text-xs text-muted" data-testid="drive-card-unavailable">
+          <span className="mt-0.5 block text-xs text-muted" data-testid="drive-item-unavailable">
             {admin(me.user.role) ? (
               <>
                 {t('drive.adminNotSet')}{' '}
-                <a href={SETUP_GUIDE} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-0.5 text-accent-text underline underline-offset-2" data-testid="drive-setup-guide">
+                <a href={DRIVE_SETUP_GUIDE} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-0.5 text-accent-text underline underline-offset-2" data-testid="drive-setup-guide">
                   {t('drive.setupGuide')}
                   <ExternalLink size={11} aria-hidden />
                 </a>
@@ -58,15 +53,11 @@ export function DriveCard({ s, onOpen }: { s: DriveConnectionState; onOpen: () =
             ) : t('drive.notAvailable')}
           </span>
         ) : (
-          <span className="mt-0.5 line-clamp-2 text-xs text-muted">{t('drive.cardDesc')}</span>
+          <span className="mt-0.5 block truncate text-xs text-muted">{s.loadFailed ? t('drive.loadFailed') : t('drive.cardDesc')}</span>
         )}
       </span>
-      {unavailable ? null : c?.status === 'connected' ? (
-        <span className="flex size-8 shrink-0 items-center justify-center text-ok" role="img" aria-label={t('integrations.discover.added', { name: DRIVE.name })} data-testid="drive-card-added">
-          <Check size={16} aria-hidden />
-        </span>
-      ) : (
-        <IconButton label={t('integrations.discover.add', { name: DRIVE.name })} className="shrink-0" onClick={onOpen} data-testid="drive-card-add">
+      {!unavailable && (
+        <IconButton label={t('integrations.discover.add', { name: DRIVE.name })} className="shrink-0" onClick={onOpen} data-testid="drive-add">
           <Plus size={16} aria-hidden />
         </IconButton>
       )}
@@ -96,7 +87,7 @@ export function DriveDialog({ s, onClose }: { s: DriveConnectionState; onClose: 
             {admin(me.user.role) && (
               <>
                 {' '}
-                <a href={SETUP_GUIDE} target="_blank" rel="noopener noreferrer" className="text-accent-text underline underline-offset-2">{t('drive.setupGuide')}</a>
+                <a href={DRIVE_SETUP_GUIDE} target="_blank" rel="noopener noreferrer" className="text-accent-text underline underline-offset-2">{t('drive.setupGuide')}</a>
               </>
             )}
           </p>
@@ -128,7 +119,7 @@ export function DriveDialog({ s, onClose }: { s: DriveConnectionState; onClose: 
   )
 }
 
-/** The row under Connected (only while linked): like an MCP connection's row, details open in place. A Drive that needs
+/** The row while linked: like an MCP connection's row, details open in place. A Drive that needs
  * a new sign-in says so on the row with Reconnect beside it. */
 export function DriveRow({ s, inDialog }: { s: DriveConnectionState; inDialog: boolean }) {
   const t = useT()

@@ -9,10 +9,9 @@ import { Button, EmptyState, IconButton, StickyHeader, Tabs, inputCls } from '..
 
 export type ConnectorTab = 'connected' | 'discover'
 
-/** `onAdd`: this person may add connections (without it, no adding by address). `tabs`: show Connected / Discover
- * (default: when adding is allowed; Settings also shows them for a built-in service such as Google Drive). `panels`: the
- * ids that tie the tabs to the TabPanel below them (`useId()`). */
-export function ConnectorsHeader({ title, tab, onTab, query, onQuery, onAdd, panels, tabs = !!onAdd }: {
+/** `onAdd`: this person may add connections (without it, no adding and no Discover, and no tabs). `panels`: the ids
+ * that tie the tabs to the TabPanel below them (`useId()`). */
+export function ConnectorsHeader({ title, tab, onTab, query, onQuery, onAdd, panels }: {
   title: string
   panels: string
   tab: ConnectorTab
@@ -20,13 +19,12 @@ export function ConnectorsHeader({ title, tab, onTab, query, onQuery, onAdd, pan
   query: string
   onQuery: (q: string) => void
   onAdd?: () => void
-  tabs?: boolean
 }) {
   const t = useT()
   return (
     <StickyHeader className="-mt-3 mb-2 flex flex-wrap items-center gap-x-4 gap-y-3 py-3" testId="connectors-header">
       <h2 className="text-lg font-semibold tracking-tight">{title}</h2>
-      {tabs && (
+      {onAdd && (
         <div className="contents" data-connector-tabs>
           <Tabs
             segmented

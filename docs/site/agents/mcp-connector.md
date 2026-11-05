@@ -34,6 +34,10 @@ Claude opens a Trina AX sign-in. Check the request and choose **Allow**.
 
 **Settings › App connectors** lists your connected apps, with **Disconnect**. A connection also ends when the app session that authorized it ends.
 
+The same list starts with **Google Drive**: your own Google account, which Trina's AI can search and read (the other
+direction: [Google Drive setup](https://github.com/trina-app/trina-ax/blob/main/docs/GOOGLE-DRIVE.md)). Admins see
+whether this server offers each connector in **Admin › App connectors**.
+
 ## Protocol
 
 | Item | Value |

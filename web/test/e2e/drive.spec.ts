@@ -1,6 +1,7 @@
-// Google Drive in Settings > MCP (components/integrations/DriveConnector.tsx): the "Built in" card in Discover, the
-// connect dialog (explicit account confirmation, as before), the row under Connected, the old /settings/drive address,
-// a server without a Google client, a Drive that needs a new sign-in, phone width and accessibility.
+// Google Drive in Settings › App connectors (components/integrations/DriveConnector.tsx, pages/ConnectorConnections.tsx):
+// the first connector in the list, its connect dialog (explicit account confirmation, as before), its linked row, the
+// old /settings/drive address, a server without a Google client, a Drive that needs a new sign-in, no Drive item in the
+// Settings menu and none in MCP, phone width and accessibility. Admin › App connectors: admin-app-connectors.spec.ts.
 import AxeBuilder from '@axe-core/playwright'
 import { expect, test, type Page } from '@playwright/test'
 import { realErrors, reset, signIn, watchConsole } from './helpers'
@@ -26,20 +27,20 @@ async function fakeDrive(page: Page, start: object = disconnected) {
   return state
 }
 
-const discover = (page: Page) => page.getByTestId('connectors-header').getByRole('tab', { name: '둘러보기' })
+const list = (page: Page) => page.getByTestId('app-connectors')
 
-test('Drive is a built-in card in Discover: the dialog connects after an explicit account confirmation, then it is a row under Connected', async ({ page }) => {
+test('Drive is the first app connector: the dialog connects after an explicit account confirmation, then its row shows the account', async ({ page }) => {
   await reset(page)
   const state = await fakeDrive(page)
   const errors = watchConsole(page)
   await signIn(page)
-  await page.goto('/settings/integrations')
-  await discover(page).click()
-  const card = page.getByTestId('drive-card')
-  await expect(page.getByTestId('connector-builtin')).toBeVisible()
-  await expect(card).toContainText('Google Drive')
-  await expect(card.getByTestId('connector-logo')).toHaveAttribute('src', '/icons/connectors/google-drive.svg')
-  await card.getByRole('button', { name: 'Google Drive 추가' }).click()
+  await page.goto('/settings/connectors')
+  const item = list(page).getByTestId('drive-item')
+  await expect(item).toContainText('Google Drive')
+  await expect(item.getByTestId('connector-logo')).toHaveAttribute('src', '/icons/connectors/google-drive.svg')
+  // AI apps such as Claude come after it in the same list
+  await expect(list(page).locator(':scope > li').nth(1)).toHaveAttribute('data-testid', 'ai-apps')
+  await item.getByRole('button', { name: 'Google Drive 추가' }).click()
 
   const dialog = page.getByRole('dialog', { name: 'Google Drive' })
   await expect(dialog.getByTestId('drive-status')).toHaveText('연결되지 않음')
@@ -48,58 +49,61 @@ test('Drive is a built-in card in Discover: the dialog connects after an explici
   expect(state.completed).toBe(0)
   await dialog.getByRole('button', { name: '이 계정으로 연결 완료' }).click()
 
-  // the dialog closes and Connected shows the new row
+  // the dialog closes and the list shows the linked row
   await expect(dialog).toHaveCount(0)
-  await expect(page.getByTestId('connectors-header').getByRole('tab', { name: '연결됨' })).toHaveAttribute('aria-selected', 'true')
-  const row = page.getByTestId('drive-row')
+  const row = list(page).getByTestId('drive-row')
   await expect(row).toContainText('fixture@example.test')
   expect(state.completed).toBe(1)
-  // and Discover marks it added
-  await discover(page).click()
-  await expect(page.getByTestId('drive-card-added')).toBeVisible()
-  await page.getByTestId('connectors-header').getByRole('tab', { name: '연결됨' }).click()
 
   // disconnect from the row: Google's revocation could not be done, and the person is told
   await row.getByTestId('drive-row-toggle').click()
   await row.getByRole('button', { name: '연결 해제', exact: true }).click()
   await page.getByRole('dialog').getByRole('button', { name: '연결 해제', exact: true }).click()
-  await expect(page.getByTestId('drive-row')).toHaveCount(0)
+  await expect(list(page).getByTestId('drive-row')).toHaveCount(0)
+  await expect(list(page).getByTestId('drive-item')).toBeVisible()
   await expect(page.getByTestId('drive-revoke-warning')).toContainText('Google 계정의 연결된 앱에서도')
   expect(state.disconnected).toBe(1)
   expect(realErrors(errors)).toEqual([])
 })
 
-test('the old Settings > Google Drive address opens the Drive dialog in MCP, and the Settings search finds it', async ({ page }) => {
+test('no Drive item in the Settings menu or in MCP; the old address and Settings search lead to App connectors', async ({ page }) => {
   await reset(page)
   await fakeDrive(page)
   await signIn(page)
   await page.goto('/settings/drive')
-  await expect(page).toHaveURL(/\/settings\/integrations$/)
-  await expect(page.getByRole('dialog', { name: 'Google Drive' }).getByTestId('drive-status')).toHaveText('연결되지 않음')
-  await page.getByRole('dialog', { name: 'Google Drive' }).getByRole('button', { name: '닫기' }).click()
-  await expect(page.getByRole('dialog', { name: 'Google Drive' })).toHaveCount(0)
-  // no separate Drive section any more; searching "drive" in Settings finds MCP
+  await expect(page).toHaveURL(/\/settings\/connectors$/)
+  const dialog = page.getByRole('dialog', { name: 'Google Drive' })
+  await expect(dialog.getByTestId('drive-status')).toHaveText('연결되지 않음')
+  await dialog.getByRole('button', { name: '닫기' }).click()
+  await expect(dialog).toHaveCount(0)
+
   const settings = page.getByTestId('settings-dialog')
   await expect(settings.getByRole('link', { name: 'Google Drive', exact: true })).toHaveCount(0)
   await page.getByTestId('settings-search').fill('drive')
-  await expect(settings.getByRole('link', { name: 'MCP', exact: true })).toBeVisible()
+  await expect(settings.getByRole('link', { name: '앱 커넥터', exact: true })).toBeVisible()
+  await expect(settings.getByRole('link', { name: 'MCP', exact: true })).toHaveCount(0)
+
+  // MCP has no Drive card in Discover and no Drive row
+  await page.goto('/settings/integrations')
+  await page.getByTestId('connectors-header').getByRole('tab', { name: '둘러보기' }).click()
+  await expect(page.getByTestId('connector-list')).toBeVisible()
+  await expect(page.getByTestId('drive-item')).toHaveCount(0)
+  await expect(page.getByText('Google Drive', { exact: true })).toHaveCount(0)
 })
 
-test('a server without a Google client: the card says so, members see "not available", admins get the setup guide', async ({ page }) => {
+test('a server without a Google client: members see "not available", admins get the setup guide, no connect button', async ({ page }) => {
   await reset(page)
   // the test server itself answers "not configured"
   await signIn(page, { username: 'bob', password: 'bob password 1' })
-  await page.goto('/settings/integrations')
-  await discover(page).click()
-  const card = page.getByTestId('drive-card')
-  await expect(card.getByTestId('drive-card-unavailable')).toHaveText('아직 쓸 수 없어요')
-  await expect(card.getByRole('button')).toHaveCount(0)
-  await expect(card.getByTestId('drive-setup-guide')).toHaveCount(0)
+  await page.goto('/settings/connectors')
+  const item = page.getByTestId('drive-item')
+  await expect(item.getByTestId('drive-item-unavailable')).toHaveText('아직 쓸 수 없어요')
+  await expect(item.getByRole('button')).toHaveCount(0)
+  await expect(item.getByTestId('drive-setup-guide')).toHaveCount(0)
 
   await page.context().clearCookies()
   await signIn(page)
-  await page.goto('/settings/integrations')
-  await discover(page).click()
+  await page.goto('/settings/connectors')
   await expect(page.getByTestId('drive-setup-guide')).toHaveAttribute('href', /docs\/GOOGLE-DRIVE\.md$/)
   // the old address still opens the dialog, which explains the same
   await page.goto('/settings/drive')
@@ -111,7 +115,7 @@ test('a Drive that needs a new sign-in says so on its row, with Reconnect beside
   await reset(page)
   const state = await fakeDrive(page, { ...connected, status: 'needs_reconnect' })
   await signIn(page)
-  await page.goto('/settings/integrations')
+  await page.goto('/settings/connectors')
   const row = page.getByTestId('drive-row')
   await expect(row).toHaveAttribute('data-status', 'needs_reconnect')
   await expect(row).toContainText('다시 연결 필요')
@@ -122,38 +126,46 @@ test('a Drive that needs a new sign-in says so on its row, with Reconnect beside
   expect(state.completed).toBe(1)
 })
 
-test('phone width: the card and the dialog fit without sideways scrolling', async ({ page }) => {
+test('AI apps with no connected app: one quiet line, the address with Copy', async ({ page }) => {
+  await reset(page)
+  await page.route('**/api/connectors/remote', (r) => r.fulfill({ json: { configured: true, resource: 'https://team.example/mcp', items: [] } }))
+  await signIn(page)
+  await page.goto('/settings/connectors')
+  const apps = page.getByTestId('ai-apps')
+  await expect(apps.getByTestId('connector-address')).toContainText('https://team.example/mcp')
+  await expect(apps.getByTestId('connectors-empty')).toHaveText('연결된 앱이 없어요.')
+  await expect(page.locator('.border-dashed')).toHaveCount(0)
+})
+
+test('phone width: the list and the dialog fit without sideways scrolling', async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 })
   await reset(page)
   await fakeDrive(page)
   await signIn(page)
-  await page.goto('/settings/integrations?drive=1')
+  await page.goto('/settings/connectors?drive=1')
   const dialog = page.getByRole('dialog', { name: 'Google Drive' })
   await expect(dialog.getByTestId('drive-status')).toBeVisible()
   const box = await dialog.boundingBox()
   expect(box!.width).toBeLessThanOrEqual(390)
   await dialog.getByRole('button', { name: '닫기' }).click()
-  await discover(page).click()
-  await expect(page.getByTestId('drive-card')).toBeVisible()
+  await expect(page.getByTestId('drive-item')).toBeVisible()
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true)
 })
 
 for (const scheme of ['light', 'dark'] as const) {
-  test(`the Drive card and dialog have no serious accessibility problems (${scheme})`, async ({ page }) => {
+  test(`App connectors and the Drive dialog have no serious accessibility problems (${scheme})`, async ({ page }) => {
     await page.emulateMedia({ colorScheme: scheme })
     await reset(page)
     await fakeDrive(page, connected)
     await signIn(page)
-    await page.goto('/settings/integrations')
+    await page.goto('/settings/connectors')
     await expect(page.getByTestId('drive-row')).toBeVisible()
-    await discover(page).click()
-    await expect(page.getByTestId('drive-card-added')).toBeVisible()
     const audit = async () => {
       const r = await new AxeBuilder({ page }).withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa', 'wcag22aa']).exclude('iframe').analyze()
       return r.violations.filter((v) => v.impact === 'serious' || v.impact === 'critical').map((v) => `${v.id} — ${v.nodes.map((n) => n.target.join(' ')).slice(0, 3).join(', ')}`)
     }
     expect(await audit()).toEqual([])
-    await page.goto('/settings/integrations?drive=1')
+    await page.goto('/settings/connectors?drive=1')
     await expect(page.getByRole('dialog', { name: 'Google Drive' }).getByTestId('drive-status')).toHaveText('연결됨')
     expect(await audit()).toEqual([])
   })
