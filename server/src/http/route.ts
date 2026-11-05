@@ -11,6 +11,7 @@ import { HttpError, fail } from './errors'
 import { msg } from '../auth/messages'
 import type { AuthInfo } from '../services'
 import type { AppContext } from '../context'
+import { demoGuard } from '../demo/guard'
 
 /** Default JSON body limit; endpoints that need more set it in BODY_LIMITS below (or via kit.handle options). */
 export const DEFAULT_JSON_LIMIT = 1024 * 1024
@@ -134,6 +135,9 @@ export class RouteKit {
       } else if (spec && spec.kind === 'binary') {
         body = boundedBody(c.req.raw, spec.maxBytes)
       }
+
+      // demo mode (MYCEL_DEMO): no owner password re-checks, the demo people's accounts stay as seeded
+      if (this.ctx.config.demo) demoGuard(this.ctx, ep, { params: params as Record<string, string>, body, auth, locale: c.get('locale') })
 
       if (ep.auth === 'owner-reauth') {
         const pw = (body as { password?: unknown } | undefined)?.password

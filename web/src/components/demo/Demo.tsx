@@ -110,6 +110,7 @@ function PersonaSheet({ info, onClose }: { info: DemoInfo; onClose: () => void }
         })}
       </ul>
       {error && <p role="alert" className="mt-3 text-sm text-danger">{error}</p>}
+      {info.network && <p className="mt-4 rounded-lg bg-warn-soft px-3 py-2 text-xs text-warn" data-testid="demo-network">{t('demo.sheet.network')}</p>}
       <p className="mt-4 text-xs text-faint">{t('demo.sheet.note')} {t('dev.banner')}</p>
     </Modal>
   )

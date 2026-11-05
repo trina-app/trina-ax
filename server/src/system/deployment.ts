@@ -22,7 +22,7 @@ export function isHosted(cfg: AppConfig | Record<string, unknown>): boolean {
 /** The way this server runs: the hosted service, a customer's own server (Linux or the Mac role-account install),
  * office mode (one Mac in a small office), or development. */
 export type RunKind = 'hosted' | 'selfhost' | 'office' | 'dev'
-type Cfg = Pick<AppConfig, 'mode'> & Partial<Pick<AppConfig, 'office' | 'deployment'>>
+type Cfg = Pick<AppConfig, 'mode'> & Partial<Pick<AppConfig, 'office' | 'deployment' | 'demo'>>
 
 export function runKindOf(cfg: Cfg): RunKind {
   if (isHosted(cfg as Record<string, unknown>)) return 'hosted'
@@ -57,8 +57,13 @@ const TABLE: Record<RunKind, Features> = {
   dev: { connectionChange: true, selfUpdate: true, officeUpdate: false, connectedFolders: true, apiEngineAnyUrl: true, hostDiagnostics: true, pluginFileInstall: true },
 }
 
-export function featuresOf(cfg: Cfg): Features { return { ...TABLE[runKindOf(cfg)] } }
-export function feature(cfg: Cfg, name: keyof Features): boolean { return TABLE[runKindOf(cfg)][name] }
+/** A demo server (MYCEL_DEMO, `bun run demo:trina`) may be open to every network its Mac is on and its demo people's
+ * password is public: nothing that reaches the Mac's own folders or runs code from a file or an address of the
+ * caller's choosing (docs/DECISIONS.md "Demo company: a new hire at 트리나"). */
+const DEMO_OFF: Partial<Features> = { connectedFolders: false, pluginFileInstall: false, apiEngineAnyUrl: false }
+
+export function featuresOf(cfg: Cfg): Features { return { ...TABLE[runKindOf(cfg)], ...(cfg.demo ? DEMO_OFF : {}) } }
+export function feature(cfg: Cfg, name: keyof Features): boolean { return featuresOf(cfg)[name] }
 
 /**
  * Which machine the wording talks about (system/messages-linux.ts): 'mac' (the role-account install, office mode, dev

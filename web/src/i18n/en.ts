@@ -2826,6 +2826,7 @@ export const en: Record<MessageKey, string> = {
   "demo.sheet.now": "Current person",
   "demo.sheet.switching": "Switching…",
   "demo.sheet.note": "Every person and file here is fictional.",
+  "demo.sheet.network": "Anyone on any network this Mac is on (Wi-Fi, VPN, Tailscale) can use this demo with this Mac's Claude login. Turn it off when the demo is over.",
   "demo.home.same": "Ask the same question as the other people too: each can open different folders, so the answers differ.",
   "demo.start": "Start as {name}",
   "demo.notSeeded": "The demo accounts aren't there yet. Wait a moment for the demo server to finish setting up.",

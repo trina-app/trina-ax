@@ -36,8 +36,10 @@ bun run demo:trina
   폴더 + 팀 스킬 "회의록 → 할 일 정리"), "신입 첫 주에 뭘 하면 돼?"(팀 스킬 "신입 첫 주 안내").
 - 위쪽 띠의 **사람 바꾸기** → 팀장 서민재, 대표 정해온으로 "이번 분기 예산 요약해 줘": 신입은 캠페인 예산만, 팀장은
   마케팅팀 예산만, 대표는 회사 전체 예산을 봐요.
-- 모든 사람·파일은 가상이에요([scripts/demo/trina/README.md](../scripts/demo/trina/README.md)). 계정 비밀번호는 공개
-  값이고 같은 Wi-Fi의 누구나 열 수 있으니 끝나면 Ctrl-C로 꺼 주세요. 사람 바꾸기는 이 데모 서버에만 있어요.
+- 모든 사람·파일은 가상이에요([scripts/demo/trina/README.md](../scripts/demo/trina/README.md)). 직원 계정 비밀번호는
+  공개 값이고(owner `trina-admin`만 데이터 폴더의 무작위 비밀번호), 이 맥이 연결된 모든 네트워크(Wi-Fi, VPN,
+  Tailscale)의 누구나 이 맥의 Claude 로그인으로 쓸 수 있으니 끝나면 Ctrl-C로 꺼 주세요. 이 맥에서만 열려면
+  `bun run demo:trina --local`. 사람 바꾸기는 이 데모 서버에만 있어요.
 
 ## 주소
 

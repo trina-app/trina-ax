@@ -46,6 +46,8 @@ export const DemoInfo = z.object({
   sameQuestion: z.string().nullable(),
   /** which demo person the caller is signed in as (null: signed out, or another account) */
   current: DemoPersonaKey.nullable(),
+  /** the server listens beyond this machine (not only 127.0.0.1): anyone on a network the machine is on can use it */
+  network: z.boolean(),
   personas: z.array(DemoPersona),
 })
 export type DemoInfo = z.infer<typeof DemoInfo>
@@ -59,6 +61,6 @@ export const DEMO = {
   }),
   demoSwitch: endpoint({
     method: 'POST', path: '/api/demo/persona', auth: 'public', owner: 'A', body: DemoSwitchBody, response: z.object({ ok: z.literal(true) }),
-    summary: 'Demo mode only: sign in as one of the demo people (a normal sign-in of that seeded account with the public demo password, rate-limited and audited like any sign-in); the previous session ends.',
+    summary: 'Demo mode only: sign in as one of the demo people (the seeded account\'s password check, session and audit row of a sign-in, with the public demo password; never the owner); the previous session ends.',
   }),
 } as const

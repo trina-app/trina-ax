@@ -2826,6 +2826,7 @@ export const id: Record<MessageKey, string> = {
   "demo.sheet.now": "Orang saat ini",
   "demo.sheet.switching": "Mengganti…",
   "demo.sheet.note": "Semua orang dan file di sini fiktif.",
+  "demo.sheet.network": "Siapa pun di jaringan mana pun yang terhubung ke Mac ini (Wi-Fi, VPN, Tailscale) bisa memakai demo ini dengan login Claude Mac ini. Matikan setelah demo selesai.",
   "demo.home.same": "Ajukan juga pertanyaan yang sama sebagai orang lain: folder yang bisa dibuka berbeda, jadi jawabannya berbeda.",
   "demo.start": "Mulai sebagai {name}",
   "demo.notSeeded": "Akun demo belum ada. Tunggu sebentar sampai server demo selesai disiapkan.",

@@ -12,7 +12,7 @@ import { useSession } from '../../src/store/session'
 import { installDom, mount, removeDom } from './dom-host'
 
 const INFO: DemoInfo = {
-  company: '트리나', sameQuestion: '이번 분기 예산 요약해 줘', current: 'newHire',
+  company: '트리나', sameQuestion: '이번 분기 예산 요약해 줘', current: 'newHire', network: true,
   personas: [
     { key: 'newHire', name: '한지우', team: '마케팅팀', intro: '오늘 트리나 마케팅팀에 입사한 한지우예요', questions: ['우리 회사 휴가 규정 알려줘', '이번 주 마케팅팀 회의록에서 내 할 일 정리해 줘', '신입 첫 주에 뭘 하면 돼?'] },
     { key: 'lead', name: '서민재', team: '마케팅팀', intro: '트리나 마케팅팀 팀장 서민재예요', questions: ['이번 분기 예산 요약해 줘'] },
@@ -101,8 +101,9 @@ describe('a demo server', () => {
       expect(sheet.textContent).toContain('팀장 · 서민재 · 마케팅팀')
       expect(sheet.textContent).toContain('대표 · 정해온')
       expect(m.get('demo-persona-newHire').getAttribute('aria-current')).toBe('true')
-      // the development-mode notice moved into the sheet
+      // the development-mode notice moved into the sheet, with who else can use this demo
       expect(m.html()).toContain('개발 모드')
+      expect(m.get('demo-network').textContent).toContain('이 맥이 연결된 모든 네트워크(Wi-Fi, VPN, Tailscale)의 누구나')
       await m.click('demo-persona-lead')
       await m.settle()
       const sw = requests.find((r) => r.url.endsWith('/api/demo/persona'))!
@@ -110,6 +111,16 @@ describe('a demo server', () => {
       expect(JSON.parse(sw.body!)).toEqual({ key: 'lead' })
       expect(assigned).toEqual(['/'])
       expect(sessionStorage.getItem('mycel.demo.switched')).toBe('1')
+    } finally { await m.unmount() }
+  })
+
+  test('a demo that listens on this Mac only does not warn about the network', async () => {
+    demoAnswer = { ...INFO, network: false }
+    const m = await mount(<DemoBar />)
+    try {
+      await m.settle()
+      await m.click('demo-switch')
+      expect(m.find('demo-network')).toBeNull()
     } finally { await m.unmount() }
   })
 

@@ -3,12 +3,13 @@
 // second run, and the starter's options and environment (docs/DECISIONS.md "Demo company: a new hire at 트리나").
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test'
 import fs from 'node:fs'
+import os from 'node:os'
 import path from 'node:path'
 import { API, ApiClient, DemoFile } from '../../shared/src/api'
 import { checkSkill } from '../../server/src/chat/skills'
 import { DEMO_PASSWORD, listFiles, seedDemo } from '../../scripts/demo/seed'
-import { copula, TRINA, TRINA_CEO, TRINA_LEADS, TRINA_NEW_HIRE, trinaDemoFile } from '../../scripts/demo/trina/company'
-import { demoEnv, lanAddresses, options } from '../../scripts/demo/trina/start'
+import { copula, ensureOwnerPassword, TRINA, TRINA_CEO, TRINA_LEADS, TRINA_NEW_HIRE, TRINA_OWNER, trinaDemoFile } from '../../scripts/demo/trina/company'
+import { demoEnv, lanAddresses, NETWORK_WARNING, options } from '../../scripts/demo/trina/start'
 import { harness, SETUP_TOKEN, type Harness } from './a-lib'
 
 let h: Harness
@@ -16,8 +17,10 @@ const BASE = 'http://team.localhost'
 const appFetch = ((url: string | URL | Request, init?: RequestInit) =>
   h.app.fetch(new Request(url, init), { ip: '127.0.0.1', via: 'test' })) as typeof fetch
 
+const OWNER_PASSWORD = 'a random owner password for tests 1'
 async function as(username: string) {
-  const r = await new ApiClient({ baseUrl: BASE, fetch: appFetch }).call(API.login, { body: { username, password: DEMO_PASSWORD, client: 'web', tokenMode: 'bearer' } })
+  const password = username === TRINA_OWNER ? OWNER_PASSWORD : DEMO_PASSWORD
+  const r = await new ApiClient({ baseUrl: BASE, fetch: appFetch }).call(API.login, { body: { username, password, client: 'web', tokenMode: 'bearer' } })
   return new ApiClient({ baseUrl: BASE, fetch: appFetch, token: r.token! })
 }
 /** can this person open the file (read its bytes)? */
@@ -37,20 +40,29 @@ beforeAll(async () => { h = await harness('demo-trina') })
 afterAll(async () => { await h.close() })
 
 describe('트리나 seed', () => {
-  test('the team, 15 people, four groups, the rules, every file and the company profile', async () => {
-    const r = await seedDemo({ baseUrl: BASE, setupToken: SETUP_TOKEN, fetch: appFetch, company: TRINA })
+  test('the team, its owner account and 15 people, four groups, the rules, every file and the company profile', async () => {
+    const r = await seedDemo({ baseUrl: BASE, setupToken: SETUP_TOKEN, fetch: appFetch, company: TRINA, ownerPassword: OWNER_PASSWORD })
     expect(r.createdTeam).toBe(true)
-    expect(r.people.length).toBe(15)
-    expect(r.people.filter((p) => p.role === 'owner').map((p) => p.username)).toEqual([TRINA_CEO])
+    expect(r.people.length).toBe(16)
+    // the owner is an account of its own, never a demo person; nobody else is an owner or an admin
+    expect(r.people.filter((p) => p.role !== 'member').map((p) => `${p.username}:${p.role}`)).toEqual([`${TRINA_OWNER}:owner`])
+    expect(trinaDemoFile().personas.map((p) => p.username)).not.toContain(TRINA_OWNER)
     expect(r.groups).toEqual(['마케팅팀', '영업팀', '인사팀', '경영지원'])
     expect(r.files.length).toBe(listFiles(TRINA.filesDir).length + 2)
     expect(r.files.every((f) => f.uploaded)).toBe(true)
     expect(r.files.find((f) => f.path === PAYROLL)!.by).toBe(TRINA_LEADS.인사팀)
     expect(r.profile).toBe(true)
-    const owner = await as(TRINA_CEO)
+    const owner = await as(TRINA_OWNER)
     const me = await owner.call(API.me)
     expect(me.team.name).toBe('트리나')
+    expect(me.user.role).toBe('owner')
     expect((await owner.call(API.getCompanyProfile)).profile?.name).toBe('트리나')
+    // the CEO is a member: the public password reaches nothing an owner or admin could do
+    const ceo = await as(TRINA_CEO)
+    expect((await ceo.call(API.me)).user.role).toBe('member')
+    await expect(ceo.call(API.listUsers)).rejects.toThrow()
+    // the owner's password is not the public one
+    await expect(new ApiClient({ baseUrl: BASE, fetch: appFetch }).call(API.login, { body: { username: TRINA_OWNER, password: DEMO_PASSWORD, client: 'web', tokenMode: 'bearer' } })).rejects.toThrow()
   }, 120_000)
 
   test('the new hire: the rules, the team folder and its notes; no budget, payroll or reviews', async () => {
@@ -90,12 +102,14 @@ describe('트리나 seed', () => {
   }, 60_000)
 
   test('a second run only fills in what is missing', async () => {
-    const r = await seedDemo({ baseUrl: BASE, setupToken: null, fetch: appFetch, company: TRINA })
+    const r = await seedDemo({ baseUrl: BASE, setupToken: null, fetch: appFetch, company: TRINA, ownerPassword: OWNER_PASSWORD })
     expect(r.createdTeam).toBe(false)
     expect(r.people.every((p) => !p.created)).toBe(true)
     expect(r.files.every((f) => !f.uploaded)).toBe(true)
     expect(r.profile).toBe(false)
-    expect((await (await as(TRINA_CEO)).call(API.listUsers)).items.length).toBe(15)
+    expect((await (await as(TRINA_OWNER)).call(API.listUsers)).items.length).toBe(16)
+    // without its owner password a second run stops (an older demo folder whose owner was the CEO, say)
+    await expect(seedDemo({ baseUrl: BASE, setupToken: null, fetch: appFetch, company: TRINA })).rejects.toThrow(/cannot sign in/)
   }, 120_000)
 })
 
@@ -109,6 +123,24 @@ describe('the demo file and the starter', () => {
     expect(d.personas[0]!.questions).toEqual(['우리 회사 휴가 규정 알려줘', '이번 주 마케팅팀 회의록에서 내 할 일 정리해 줘', '신입 첫 주에 뭘 하면 돼?'])
     for (const p of d.personas.slice(1)) expect(p.questions[0]).toBe(d.sameQuestion!)
     expect(['서민재', '정해온', '한지우'].map(copula)).toEqual(['예요', '이에요', '예요'])
+  })
+
+  test('the owner\'s password: random, kept in the demo folder for this Mac user only, the same on the next start', () => {
+    const home = fs.mkdtempSync(path.join(os.tmpdir(), 'trina-owner-'))
+    try {
+      const a = ensureOwnerPassword(home)
+      expect(a.created).toBe(true)
+      expect(a.password.length).toBeGreaterThanOrEqual(20)
+      expect(a.password).not.toBe(DEMO_PASSWORD)
+      expect(fs.statSync(a.file).mode & 0o777).toBe(0o600)
+      const b = ensureOwnerPassword(home)
+      expect(b).toEqual({ ...a, created: false })
+      expect(ensureOwnerPassword(fs.mkdtempSync(path.join(os.tmpdir(), 'trina-owner-'))).password).not.toBe(a.password)
+    } finally { fs.rmSync(home, { recursive: true, force: true }) }
+  })
+
+  test('the start-up warning names every network, not only the Wi-Fi', () => {
+    expect(NETWORK_WARNING).toContain("anyone on any network this Mac is on (Wi-Fi, VPN, Tailscale) can use this demo with this Mac's Claude login")
   })
 
   test('options: the default ports and folder, --local, refusals', () => {

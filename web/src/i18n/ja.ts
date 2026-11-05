@@ -2786,6 +2786,7 @@ export const ja: Record<MessageKey, string> = {
   "demo.sheet.now": "今の人",
   "demo.sheet.switching": "切り替え中…",
   "demo.sheet.note": "人とファイルはすべて架空です。",
+  "demo.sheet.network": "このMacがつながっているネットワーク（Wi-Fi、VPN、Tailscale）の誰でも、このMacのClaudeログインでこのデモを使えます。デモが終わったら止めてください。",
   "demo.home.same": "同じ質問をほかの人としてもしてみてください。開けるフォルダーが違うので答えが変わります。",
   "demo.start": "{name}さんとして始める",
   "demo.notSeeded": "デモ用のアカウントがまだありません。デモサーバーの準備が終わるまで少しお待ちください。",

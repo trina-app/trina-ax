@@ -2,13 +2,20 @@
 // number and document is made up. The viewer is 한지우, who joined the 마케팅팀 today; the demo can also show the
 // same question asked as the team lead and as the CEO (docs/DECISIONS.md "Demo company: a new hire at 트리나").
 //
+// The team's owner is a separate account, `trina-admin`, with a random password of its own (start.ts writes it to the
+// data folder, 0600): the demo can be open to every network the Mac is on and the demo people's password is public, so
+// no demo person may be the owner or an admin (an owner or admin can reach the Mac through admin screens). The CEO,
+// 정해온, is a member who reads more through folder rules.
+//
 // Who sees what (folder rules, set through the same REST API as Admin › 폴더 권한):
 //   shared/ (공용)                    everyone (규정, 신입 온보딩 가이드, 사내 용어집, 전사 회의록)
-//   groups/<team>/                    that team (made with the group); 인사팀's 급여표 and 평가 are there, so only
-//                                     인사팀 and the owner (대표) see them
-//   shared/경영/                      nobody but the owner (대표): the company-wide budget
-//   shared/경영/팀별/<team>/          that team's lead only (read): each lead sees their own team's budget sheet
+//   groups/<team>/                    that team (made with the group); the CEO reads every team folder (`groups`), so
+//                                     인사팀's 급여표 and 평가 are for 인사팀 and the CEO
+//   shared/경영/                      the CEO only (write): the company-wide budget
+//   shared/경영/팀별/<team>/          that team's lead (read) and the CEO: each lead sees their own team's budget sheet
 //   skills/marketing/                 마케팅팀 only (read): the two skills from the marketing pack
+import crypto from 'node:crypto'
+import fs from 'node:fs'
 import path from 'node:path'
 import type { DemoFile } from '../../../shared/src/api'
 import { DEMO_PASSWORD, type DemoCompany, type DemoPerson } from '../seed'
@@ -20,8 +27,11 @@ export const TRINA_TEAMS = ['마케팅팀', '영업팀', '인사팀', '경영지
 type Team = (typeof TRINA_TEAMS)[number]
 const person = (username: string, name: string, group: Team | null, role: DemoPerson['role'] = 'member'): DemoPerson => ({ username, name, role, group })
 
+/** the team's owner: not a person of the company, never a demo person (its password: start.ts ownerPassword) */
+export const TRINA_OWNER = 'trina-admin'
 export const TRINA_PEOPLE: DemoPerson[] = [
-  person('haeon', '정해온', null, 'owner'), // 대표
+  person(TRINA_OWNER, '데모 관리자', null, 'owner'),
+  person('haeon', '정해온', null), // 대표 (a member)
   person('minjae', '서민재', '마케팅팀'), // 마케팅팀 팀장
   person('haneul', '이하늘', '마케팅팀'),
   person('doyoon', '김도윤', '마케팅팀'),
@@ -54,7 +64,8 @@ export const TRINA: DemoCompany = {
     { name: '경영지원', description: '비용, 장비, 계약 관리' },
   ],
   rules: [
-    { path: 'shared/경영', rules: [{ everyone: true, access: 'none' }], why: 'everyone: none (only the owner, 대표, sees the company budget)' },
+    { path: 'groups', rules: [{ user: 'haeon', access: 'read' }], why: 'the CEO (haeon): read every team folder' },
+    { path: 'shared/경영', rules: [{ everyone: true, access: 'none' }, { user: 'haeon', access: 'write' }], why: 'everyone: none, the CEO (haeon): write' },
     ...TRINA_TEAMS.map((t) => ({ path: `shared/경영/팀별/${t}`, rules: [{ user: TRINA_LEADS[t], access: 'read' as const }], why: `${t} lead (${TRINA_LEADS[t]}): read` })),
     { path: 'skills/marketing', rules: [{ everyone: true, access: 'none' }, { group: '마케팅팀', access: 'read' }], why: '마케팅팀: read, everyone else: none' },
   ],
@@ -64,10 +75,12 @@ export const TRINA: DemoCompany = {
       const team = rel.split('/')[1] as Team
       // the meeting notes are written by a team member, the rest by the lead
       if (team === '마케팅팀' && rel.includes('/회의록/')) return 'yuna'
-      return TRINA_LEADS[team] ?? TRINA_CEO
+      return TRINA_LEADS[team] ?? TRINA_OWNER
     }
     if (rel.startsWith('shared/규정/') || rel === 'shared/신입-온보딩-가이드.md') return TRINA_LEADS.인사팀
     if (rel.startsWith('shared/회의록/')) return TRINA_LEADS.경영지원
+    // team skills and rules: only the owner writes skills/
+    if (rel.startsWith('skills/')) return TRINA_OWNER
     return TRINA_CEO
   },
   // two skills of the marketing pack, where the pack installs them (server/src/onboarding/skill-packs.ts)
@@ -121,4 +134,21 @@ export function trinaDemoFile(): DemoFile {
       },
     ],
   }
+}
+
+/** Where the owner's password is kept: <demo folder>/owner-password, readable by this Mac user only. */
+export const ownerPasswordFile = (home: string) => path.join(home, 'owner-password')
+
+/** The owner's password: read from the demo folder, or made (random, 0600) the first time. `created`: show it once. */
+export function ensureOwnerPassword(home: string): { password: string; created: boolean; file: string } {
+  const file = ownerPasswordFile(home)
+  try {
+    const password = fs.readFileSync(file, 'utf8').trim()
+    if (password.length >= 16) return { password, created: false, file }
+  } catch {}
+  fs.mkdirSync(home, { recursive: true, mode: 0o700 })
+  const password = crypto.randomBytes(18).toString('base64url')
+  fs.writeFileSync(file, password + '\n', { mode: 0o600 })
+  fs.chmodSync(file, 0o600)
+  return { password, created: true, file }
 }

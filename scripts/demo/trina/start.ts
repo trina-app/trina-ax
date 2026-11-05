@@ -13,9 +13,11 @@ import os from 'node:os'
 import path from 'node:path'
 import { checkDataDir, checkPorts } from '../../dev-checks'
 import { DEMO_PASSWORD, seedDemo } from '../seed'
-import { TRINA, TRINA_CEO, TRINA_LEADS, TRINA_NEW_HIRE, trinaDemoFile } from './company'
+import { ensureOwnerPassword, TRINA, TRINA_CEO, TRINA_LEADS, TRINA_NEW_HIRE, TRINA_OWNER, trinaDemoFile } from './company'
 
 const ROOT = path.resolve(import.meta.dir, '..', '..', '..')
+/** said at start and in the demo bar's sheet (web i18n demo.sheet.network) */
+export const NETWORK_WARNING = "anyone on any network this Mac is on (Wi-Fi, VPN, Tailscale) can use this demo with this Mac's Claude login: stop it (Ctrl-C) when the demo is over."
 export const USAGE = 'Usage: bun run demo:trina [--port 19830] [--relay-port 19831] [--data <folder>] [--local]'
 
 export interface DemoOptions { port: number; relayPort: number; home: string; local: boolean }
@@ -99,18 +101,21 @@ export async function start(args: string[]) {
         await Bun.sleep(250)
       }
     }
-    const r = await seedDemo({ baseUrl, setupToken, company: TRINA, log: (s) => console.log(`[trina] ${s}`) })
+    // the owner is not a demo person: a random password of its own, shown once and kept in the data folder (0600)
+    const owner = ensureOwnerPassword(o.home)
+    if (owner.created) console.log(`[trina] owner account ${TRINA_OWNER}: password ${owner.password} (shown once; kept in ${owner.file}, readable by you only)`)
+    const r = await seedDemo({ baseUrl, setupToken, company: TRINA, ownerPassword: owner.password, log: (s) => console.log(`[trina] ${s}`) })
     const name = (u: string) => TRINA.people.find((p) => p.username === u)!.name
     const urls = o.local ? [] : lan.map((a) => `[trina] ${isPrivate(a) ? 'phone:    ' : 'other:    '} http://${a}:${o.port}   (${isPrivate(a) ? 'same Wi-Fi' : 'another network this Mac is on, e.g. a VPN'})`)
     console.log([
       '',
-      `[trina] ready${r.createdTeam ? ' (new team seeded)' : ''}: ${r.people.length} people, ${r.files.length} sample files. Everything in it is fictional.`,
+      `[trina] ready${r.createdTeam ? ' (new team seeded)' : ''}: ${r.people.filter((p) => p.role !== 'owner').length} people and the owner account, ${r.files.length} sample files. Everything in it is fictional.`,
       `[trina] this Mac:   http://localhost:${o.port}`,
       ...urls,
       `[trina] open it and press "${name(TRINA_NEW_HIRE)} 님으로 시작하기": you are the new hire of the 마케팅팀.`,
       `[trina] the bar at the top switches to ${name(TRINA_LEADS.마케팅팀)} (팀장) or ${name(TRINA_CEO)} (대표) for the same question.`,
-      `[trina] accounts: ${r.people.map((p) => p.username).join(', ')}; demo password ${DEMO_PASSWORD} (public).`,
-      o.local ? '[trina] --local: only this Mac can open it.' : '[trina] anyone on this Wi-Fi can open it and use this Mac\'s AI login: stop it when the demo is over.',
+      `[trina] demo people: ${r.people.filter((p) => p.role !== 'owner').map((p) => p.username).join(', ')}; password ${DEMO_PASSWORD} (public). Owner ${TRINA_OWNER}: password in ${owner.file}.`,
+      o.local ? '[trina] --local: only this Mac can open it.' : `[trina] ${NETWORK_WARNING}`,
       `[trina] data: ${o.home} (kept; delete only this folder to start over). Ctrl-C stops it. Runner pid ${child.pid}.`,
       '',
     ].join('\n'))

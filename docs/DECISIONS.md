@@ -7612,25 +7612,47 @@ phone, a viewer should feel the permissions, the shared files, the team skills a
   often, and the seed only fills in what is missing. It strips `MYCEL_*` / `TEAM_AX_*` from the environment it passes on
   (no production config comes along) and prints that anyone on the Wi-Fi can open it and use the Mac's AI login;
   `--local` listens on this Mac only.
-- **The seed** is the existing one, given a company (`seedDemo({ company })`, `bun run demo:seed --company trina`; the
-  default stays the old demo team): 15 fictional people, the owner is the CEO, groups 마케팅팀 / 영업팀 / 인사팀 /
-  경영지원, everything through the public REST API. Rules: `shared/경영` everyone none (only the owner sees the company
-  budget); `shared/경영/팀별/<team>` read for that team's lead only (the deepest folder with a rule for the person decides,
-  so each lead opens only their own sheet); 인사팀's payroll and reviews sit in its group folder (인사팀 and the owner);
-  `skills/marketing` read for 마케팅팀 only. No admin: an admin would see the payroll. Team skills: "신입 첫 주 안내"
-  (adapted from examples/skills/new-hire-guide), "회의록 → 할 일 정리" (new, general), the pack's "주간 보고" and "광고
-  문구" copied from `resources/skill-packs/marketing/ko` where the pack installs them, the team rule
-  `skills/사내-규정-답변.md`, and the company profile saved through `PUT /api/onboarding/profile`. Everything is plainly
-  fictional (scripts/demo/trina/README.md); the website is `trina-box.example`.
+- **The seed** is the existing one, given a company (`seedDemo({ company, ownerPassword })`, `bun run demo:seed --company
+  trina`; the default stays the old demo team): 15 fictional people, all members, groups 마케팅팀 / 영업팀 / 인사팀 /
+  경영지원, everything through the public REST API. The team's owner is a separate account, `trina-admin`, not a person of
+  the company: its password is random, written to `<demo folder>/owner-password` (0600) and shown in the terminal once.
+  No demo person is the owner or an admin: the demo may be open to every network the Mac is on and the demo people's
+  password is public, and an owner or admin reaches the Mac through admin screens (a connected folder from any folder of
+  the server, a plugin file, an API engine address). The CEO, 정해온, is a member who reads more through rules. Rules:
+  `groups` read for the CEO (every team folder, so 인사팀's payroll and reviews are for 인사팀 and the CEO);
+  `shared/경영` everyone none, the CEO write; `shared/경영/팀별/<team>` read for that team's lead (the deepest folder with a
+  rule for the person decides, so each lead opens only their own sheet and the CEO all of them); `skills/marketing`
+  read for 마케팅팀 only. Team skills: "신입 첫 주 안내" (adapted from examples/skills/new-hire-guide), "회의록 → 할 일
+  정리" (new, general), the pack's "주간 보고" and "광고 문구" copied from `resources/skill-packs/marketing/ko` where the
+  pack installs them, the team rule `skills/사내-규정-답변.md`, and the company profile saved through `PUT
+  /api/onboarding/profile`. Everything is plainly fictional (scripts/demo/trina/README.md); the website is
+  `trina-box.example`.
 - **Demo mode, not impersonation.** The product has no "sign in as someone else" (WORKPLAN A; "Asking a member to connect
   a service as their own"). The person switch exists only with `MYCEL_DEMO=<demo file>`; `loadAppConfig` refuses the
   variable in production mode, on the hosted service and in office mode (exit 78, `readDemoFile`), and the routes check
   the mode again. Without it `GET /api/demo` and `POST /api/demo/persona` answer 404 like a route that is not there.
-  The switch is the normal sign-in (`accounts.ts login`: password check, rate limits, audit `auth.login`, the session
-  cookie) of the seeded account with the demo's public password, run by the server so the page never holds the
-  password; the caller's previous session ends. An account whose password was changed cannot be entered this way.
-  Rejected: creating a session for a user id directly (that is the impersonation shortcut). Rejected: the page calling
+  The switch checks the seeded account's password (the demo's public one) as a sign-in does, writes the same audit row
+  (`auth.login`, detail `demo: true`), makes a normal session with its cookie (`AuthService.signIn`) and ends the
+  caller's previous session; the page never holds the password. Only an active member without a pending password
+  change can be entered: an account whose password was changed, the owner and admins cannot. It does not use the
+  sign-in page's failure counters: the caller sends only a key, so there is nothing to guess, and a stranger's wrong
+  guesses on the sign-in page (which lock that page for the account) must not lock the demo. Rejected: creating a
+  session for a user id without the password (the impersonation shortcut). Rejected: the page calling
   `/api/auth/login` with the password from `/api/demo` (the password in an answer and a bundle, for nothing gained).
+- **Fences in demo mode** (defence in depth, whoever asks; `server/src/demo/guard.ts` called from `RouteKit.handle`, and
+  the feature table): connected folders, plugin package files and API engines on any address are off
+  (`system/deployment.ts` featuresOf: the same switches the hosted service turns off); every owner-reauth endpoint
+  (update, restore, transfer ownership, connected folders, AI connections …) and the admins' speech key, which re-check
+  a password, are refused before the password is checked; a demo person's password cannot be changed (only the seed's
+  first change from the temporary password), reset, disabled, promoted or deleted. The terminal at start and the switch
+  sheet say that anyone on any network the Mac is on (Wi-Fi, VPN, Tailscale) can use the demo with the Mac's Claude
+  login (`DemoInfo.network`: the server listens beyond loopback); `--local` listens on the Mac only.
+- **"Not found or no access" in the instructions** (every server, prompt.ts): the file tools answer "Access denied: not
+  found or no access: '…'" for a missing file and a closed one alike, on purpose. The assistant was told to report an
+  access denial plainly, so the new hire's answer said a budget sheet "exists but is closed". The instruction now quotes
+  that exact answer: say it could not be found in the files the person can open, never that it exists or that
+  permission is the reason; other refusals (read-only) are still reported plainly. The sub-agent's report line says the
+  same. The company meeting notes no longer name the leads' budget folder.
 - **On screen, fewer things** (lean rules): in demo mode one strip replaces the development-mode banner ("데모 · 가상 회사
   트리나 · 신입 한지우" and ONE button, 사람 바꾸기); the banner's words move to the foot of the switch sheet. The sheet
   lists the three people and one line on the same question. Home for a demo person is their one line ("오늘 트리나
@@ -7647,7 +7669,12 @@ phone, a viewer should feel the permissions, the shared files, the team skills a
   the lead only 마케팅팀's 4,500만 원, and the new hire only the campaign's 1,200만 원 from the team folder, saying the
   budget sheets were not open to them.
 - Tests: `tests/unit/a-demo-mode.test.ts` (no flag: 404 signed out and in, no cookie; refused in prod, hosted, office; a
-  missing or wrong file; the info; the switch as a real sign-in that ends the old session; a changed password; the
-  routes' own mode check), `tests/unit/demo-trina-seed.test.ts` (who opens which file, the skills per team, the profile,
-  a second run, the demo file, the starter's options, environment and LAN addresses), `web/test/unit/demo.test.tsx`
-  (nothing asked or shown off a development server or on a 404, the bar and sheet, Home's questions, the sign-in start).
+  missing or wrong file; the info; the switch as a sign-in that ends the old session; a changed password; a locked
+  sign-in page does not lock the switch; the demo people's accounts fenced, others not; owner re-checks, connected
+  folders, plugin files and API engine addresses off; the owner or an admin named in a demo file cannot be entered;
+  the network flag; the routes' own mode check), `tests/unit/demo-trina-seed.test.ts` (the owner account and its
+  password file, the CEO a member, who opens which file, the skills per team, the profile, a second run and one without
+  the owner password, the demo file, the starter's options, warning, environment and LAN addresses),
+  `tests/unit/b-prompt-not-found.test.ts` (the exact denied answer in both instructions), `web/test/unit/demo.test.tsx`
+  (nothing asked or shown off a development server or on a 404, the bar and sheet with the network line, Home's
+  questions, the sign-in start).

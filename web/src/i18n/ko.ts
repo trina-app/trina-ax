@@ -2825,6 +2825,7 @@ export const ko = {
   "demo.sheet.now": "지금 보는 사람",
   "demo.sheet.switching": "바꾸는 중…",
   "demo.sheet.note": "사람과 파일은 모두 가상이에요.",
+  "demo.sheet.network": "이 맥이 연결된 모든 네트워크(Wi-Fi, VPN, Tailscale)의 누구나 이 데모를 열고 이 맥의 Claude 로그인으로 AI를 쓸 수 있어요. 데모가 끝나면 꺼 주세요.",
   "demo.home.same": "같은 질문을 다른 사람으로도 해 보세요. 볼 수 있는 폴더가 달라서 답이 달라요.",
   "demo.start": "{name} 님으로 시작하기",
   "demo.notSeeded": "데모 계정이 아직 없어요. 데모 서버가 준비를 마칠 때까지 잠시 기다려 주세요.",

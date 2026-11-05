@@ -2786,6 +2786,7 @@ export const es: Record<MessageKey, string> = {
   "demo.sheet.now": "Persona actual",
   "demo.sheet.switching": "Cambiando…",
   "demo.sheet.note": "Todas las personas y archivos de aquí son ficticios.",
+  "demo.sheet.network": "Cualquiera en cualquier red a la que esté conectado este Mac (Wi-Fi, VPN, Tailscale) puede usar esta demostración con el inicio de sesión de Claude de este Mac. Apágala cuando termine la demostración.",
   "demo.home.same": "Haz la misma pregunta también como las otras personas: cada una puede abrir carpetas distintas, así que las respuestas cambian.",
   "demo.start": "Empezar como {name}",
   "demo.notSeeded": "Las cuentas de la demo aún no existen. Espera un momento a que el servidor de la demo termine de prepararse.",

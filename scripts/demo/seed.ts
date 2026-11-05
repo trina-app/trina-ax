@@ -91,6 +91,8 @@ export interface SeedOptions {
   company?: DemoCompany
   /** sample files from this folder instead of the company's own (and none of its extra files) */
   filesDir?: string
+  /** the owner's password (default: the public demo password; `bun run demo:trina` gives its owner a random one) */
+  ownerPassword?: string
   locale?: Locale
   log?: (line: string) => void
 }
@@ -122,6 +124,7 @@ export async function seedDemo(o: SeedOptions): Promise<SeedResult> {
     return { token: r.token, me: r.me }
   }
   const result: SeedResult = { createdTeam: false, people: [], groups: [], rules: [], files: [], project: co.project?.name ?? null, profile: false }
+  const ownerPassword = o.ownerPassword ?? DEMO_PASSWORD
 
   // 1. the team and its owner
   const status = await anon.call(API.setupStatus)
@@ -129,21 +132,21 @@ export async function seedDemo(o: SeedOptions): Promise<SeedResult> {
   if (status.needed) {
     if (!o.setupToken) throw new SeedError('the team is not set up yet and no setup token was found (start `bun run dev` first: it writes <data>/setup-token)')
     await anon.call(API.setup, {
-      body: { setupToken: o.setupToken, teamName: co.teamName, locale: o.locale ?? 'ko', owner: { username: first.username, name: first.name, password: DEMO_PASSWORD } },
+      body: { setupToken: o.setupToken, teamName: co.teamName, locale: o.locale ?? 'ko', owner: { username: first.username, name: first.name, password: ownerPassword } },
     })
     // setup signs the owner in with a cookie; sign in again for a bearer token the script can carry
-    ownerToken = (await login(first.username, DEMO_PASSWORD)).token
+    ownerToken = (await login(first.username, ownerPassword)).token
     result.createdTeam = true
     log(`team "${co.teamName}" created, owner ${first.username}`)
   } else {
     try {
-      const r = await login(first.username, DEMO_PASSWORD)
+      const r = await login(first.username, ownerPassword)
       if (r.me.user.role !== 'owner') throw new SeedError(`"${first.username}" exists but is not the owner of this team`)
       ownerToken = r.token
       log(`team already set up (owner ${first.username}); filling in what is missing`)
     } catch (e) {
       if (e instanceof SeedError) throw e
-      throw new SeedError(`this server is already set up${status.teamName ? ` ("${status.teamName}")` : ''} and "${first.username}" cannot sign in with the demo password: seed an empty data folder instead (stop the dev server, move its data folder aside, start it again)`)
+      throw new SeedError(`this server is already set up${status.teamName ? ` ("${status.teamName}")` : ''} and "${first.username}" cannot sign in with ${o.ownerPassword ? 'the owner password it was given' : 'the demo password'}: seed an empty data folder instead (stop the dev server, move its data folder aside, start it again)`)
     }
   }
   const owner = as(ownerToken)
@@ -201,7 +204,8 @@ export async function seedDemo(o: SeedOptions): Promise<SeedResult> {
     const f = folders.get(r.path)
     const rules = r.rules.map(ruleOf)
     if (!f) {
-      await mkdirs(owner, path.posix.dirname(r.path))
+      const parent = path.posix.dirname(r.path)
+      if (parent !== '.') await mkdirs(owner, parent)
       await owner.call(API.createFolder, { body: { path: r.path, create: true, rules } })
     } else if (!f.rules.length) await owner.call(API.putFolderRules, { params: { id: f.id }, body: { rules } })
     result.rules.push(`${r.path}: ${r.why}`)
@@ -294,10 +298,14 @@ if (import.meta.main) {
   try { setupToken = fs.readFileSync(path.join(dataDir, 'setup-token'), 'utf8').trim() || null } catch {}
   try {
     if (which !== 'demo' && which !== 'trina') throw new SeedError(`--company ${which}: choose demo or trina`)
-    const company = which === 'trina' ? (await import('./trina/company')).TRINA : DEMO_COMPANY
-    const r = await seedDemo({ baseUrl, setupToken, company, log: (s) => console.log(`[demo] ${s}`) })
+    const trina = which === 'trina' ? await import('./trina/company') : null
+    // 트리나's owner is not a demo person: its password is random, kept in the dev folder (0600)
+    const owner = trina ? trina.ensureOwnerPassword(devHome) : null
+    if (owner?.created) console.log(`[demo] owner ${trina!.TRINA_OWNER}: password ${owner.password} (shown once; kept in ${owner.file})`)
+    const r = await seedDemo({ baseUrl, setupToken, company: trina?.TRINA ?? DEMO_COMPANY, ownerPassword: owner?.password, log: (s) => console.log(`[demo] ${s}`) })
     console.log(`[demo] done: ${r.people.length} people, ${r.groups.length} groups, ${r.files.filter((f) => f.uploaded).length} files uploaded (${r.files.length} samples)${r.project ? `, project "${r.project}"` : ''}`)
-    console.log(`[demo] sign in at ${baseUrl} as ${r.people.map((p) => p.username).join(' / ')} with the password ${DEMO_PASSWORD}`)
+    const people = r.people.filter((p) => !owner || p.role !== 'owner').map((p) => p.username)
+    console.log(`[demo] sign in at ${baseUrl} as ${people.join(' / ')} with the password ${DEMO_PASSWORD}${owner ? ` (the owner's password is in ${owner.file})` : ''}`)
   } catch (e) {
     console.error(`[demo] ${e instanceof Error ? e.message : String(e)}`)
     process.exit(1)
