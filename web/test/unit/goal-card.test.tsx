@@ -184,7 +184,7 @@ describe('the card: a title, one line, one button', () => {
   })
   test('English (the static renderer reads English)', () => {
     const h = renderToStaticMarkup(<GoalCard goal={goal({ daysLeft: 1, joined: 1, waiting: { first: 'Minji', more: 0 } })} onDismiss={() => {}} link={LINK} />)
-    expect(h).toContain('3 people use the same skill within 7 days')
+    expect(h).toContain('Get 3 people using the same skill in 7 days')
     expect(h).toContain(' · 1/3 · 1 day left')
     expect(h).toContain("Minji joined but hasn&#x27;t tried &#x27;광고 문구&#x27; yet.")
     expect(h).toContain('Send again')

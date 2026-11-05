@@ -4,7 +4,7 @@
 # privileged Debian container. Idempotent: a second run changes nothing (it prints "customize: changed=0").
 #
 #   customize.sh [--src DIR] [--kit DIR] [--enroll-bin FILE] [--link-bin FILE] [--template-version V]
-#                [--allow-missing-kit] [--no-cleanup]
+#                [--srt DIR] [--allow-missing-kit] [--no-cleanup]
 #
 #   --src DIR            folder holding files/ (default: this script's folder)
 #   --kit DIR            the W1 Linux kit (install-linux.sh + VERSION + app/<v>/…, linux-runtime.md §3.6.1)
@@ -12,6 +12,12 @@
 #   --enroll-bin FILE    linux mycel-enroll binary (default: <src>/bin/mycel-enroll)
 #   --link-bin FILE      linux mycel-link binary, the ax-link agent for EC2 and Oracle (default: <src>/bin/mycel-link).
 #                        Optional: without it the image works on Proxmox only (build-ami.sh requires it)
+#   --srt DIR            scripts/dev-env/srt of the same release (default: <src>/dev-env-srt when it exists). Its
+#                        install-srt.sh --image-mode puts the packages, node, srt and run-wrap of the dev environment
+#                        on srt into the image, so a team server never downloads them. It does not turn the dev
+#                        environment on. It also installs mycel-devenv-boot (+ .service, .path, a server drop-in):
+#                        on a hosted server it writes dev-env.json from plan.json and runs install-srt.sh --boot.
+#                        Without the folder the image has no srt (build.sh, Proxmox)
 #   --template-version V written to /etc/ax-template.json (build.sh passes <kitVersion>-d13-<yyyymmdd>)
 #   --allow-missing-kit  pipeline dry run: everything except the kit; the image is marked "not for production"
 #   --no-cleanup         keep apt lists, machine-id, logs (debugging)
@@ -28,6 +34,7 @@ SRC="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 KIT=""
 ENROLL_BIN=""
 LINK_BIN=""
+SRT=""
 TEMPLATE_VERSION=""
 ALLOW_MISSING_KIT=0
 CLEANUP=1
@@ -37,10 +44,11 @@ while [[ $# -gt 0 ]]; do
     --kit) KIT="$2"; shift 2 ;;
     --enroll-bin) ENROLL_BIN="$2"; shift 2 ;;
     --link-bin) LINK_BIN="$2"; shift 2 ;;
+    --srt) SRT="$2"; shift 2 ;;
     --template-version) TEMPLATE_VERSION="$2"; shift 2 ;;
     --allow-missing-kit) ALLOW_MISSING_KIT=1; shift ;;
     --no-cleanup) CLEANUP=0; shift ;;
-    -h|--help) sed -n '2,23p' "$0"; exit 0 ;;
+    -h|--help) sed -n '2,29p' "$0"; exit 0 ;;
     *) echo "customize.sh: unknown argument $1" >&2; exit 2 ;;
   esac
 done
@@ -48,6 +56,7 @@ FILES="$SRC/files"
 [[ -z "$KIT" && -d "$SRC/kit" ]] && KIT="$SRC/kit"
 [[ -z "$ENROLL_BIN" ]] && ENROLL_BIN="$SRC/bin/mycel-enroll"
 [[ -z "$LINK_BIN" ]] && LINK_BIN="$SRC/bin/mycel-link"
+[[ -z "$SRT" && -d "$SRC/dev-env-srt" ]] && SRT="$SRC/dev-env-srt"
 
 BASE=/var/lib/mycel
 LIBDIR=/usr/lib/mycel
@@ -254,6 +263,39 @@ else
 fi
 if [[ -n "$(find "$BASE" -mindepth 1 -maxdepth 1 2>/dev/null)" ]]; then die "$BASE is not empty; it must be a bare mount point in the template"; fi
 
+# ---- 5b. the dev environment on srt, image part (docs/research/srt-dev-env.md §9): packages, node, srt, run-wrap.
+# Off until install-srt.sh runs on the team server without --image-mode (polkit rule, slice from dev-env.json, drop-in).
+
+SRT_STATE=none
+if [[ -n "$SRT" ]]; then
+  [[ -f "$SRT/install-srt.sh" ]] || die "--srt $SRT has no install-srt.sh"
+  # what install-srt.sh --image-mode may change: the package list, /opt/trina and the srt files the image keeps
+  srt_state() {
+    { dpkg-query -W -f '${Package}=${Version}\n' | sort
+      { find /opt/trina -maxdepth 3 \( -type f -o -type l \) -printf '%p %l %s %m\n' 2>/dev/null || true; } | sort
+      { find "$LIBDIR/dev-env/srt" -type f -exec cksum {} + 2>/dev/null || true; } | sort; } | cksum
+  }
+  before="$(srt_state)"
+  bash "$SRT/install-srt.sh" --image-mode || die "install-srt.sh --image-mode failed"
+  # keep the scripts in the image: the later run on the team server (no --image-mode) uses this copy
+  mkdir -p "$LIBDIR/dev-env"
+  if ! diff -rq "$SRT" "$LIBDIR/dev-env/srt" >/dev/null 2>&1; then
+    rm -rf "$LIBDIR/dev-env/srt.new"; cp -a "$SRT" "$LIBDIR/dev-env/srt.new"
+    chown -R root:root "$LIBDIR/dev-env/srt.new"; chmod -R go-w "$LIBDIR/dev-env/srt.new"
+    rm -rf "$LIBDIR/dev-env/srt"; mv "$LIBDIR/dev-env/srt.new" "$LIBDIR/dev-env/srt"
+  fi
+  [[ "$(srt_state)" == "$before" ]] || changed "dev environment on srt (image part)"
+  # hosted team servers: at each server start (and when plan.json changes) mycel-devenv-boot writes dev-env.json from
+  # the plan and runs install-srt.sh --boot (docs/research/srt-hosted-boot.md). The team admin still turns it on.
+  put_file "$FILES/mycel-devenv-boot" /usr/local/sbin/mycel-devenv-boot 0755
+  put_file "$FILES/mycel-devenv-boot.service" /etc/systemd/system/mycel-devenv-boot.service 0644
+  put_file "$FILES/mycel-devenv-plan.path" /etc/systemd/system/mycel-devenv-plan.path 0644
+  put_file "$FILES/20-devenv-boot.conf" /etc/systemd/system/mycel-server.service.d/20-devenv-boot.conf 0644
+  SRT_STATE=present
+else
+  say "warning: no --srt folder: this image has no dev environment on srt"
+fi
+
 # ---- 6. services
 
 svc_enable fstrim.timer
@@ -274,7 +316,7 @@ if [[ "$(passwd -S root | awk '{print $2}')" != L ]]; then passwd -l root >/dev/
 [[ -n "$TEMPLATE_VERSION" ]] || TEMPLATE_VERSION="$KIT_VERSION-d13-unversioned"
 production=true; [[ "$KIT_STATE" == present ]] || production=false
 put_text /etc/ax-template.json 0644 <<EOF
-{"format":1,"templateVersion":"$TEMPLATE_VERSION","kitVersion":"$KIT_VERSION","kit":"$KIT_STATE","production":$production,"base":"$BASE","seed":"$SEED","serverUid":$SERVER_UID,"agentUid":$AGENT_UID}
+{"format":1,"templateVersion":"$TEMPLATE_VERSION","kitVersion":"$KIT_VERSION","kit":"$KIT_STATE","srt":"$SRT_STATE","production":$production,"base":"$BASE","seed":"$SEED","serverUid":$SERVER_UID,"agentUid":$AGENT_UID}
 EOF
 pkglist="$(mktemp)"
 dpkg-query -W -f '${Package}=${Version}\n' | sort > "$pkglist"

@@ -17,9 +17,17 @@ export type SkillPackId = z.infer<typeof SkillPackId>
  * person, or the asking person's own) and "핵심 정리" (a document's brief, or what the asking person needs to know). */
 export const GENERAL_TASKS_SKILL = 'skills/general/meeting-tasks/SKILL.md'
 export const GENERAL_BRIEF_SKILL = 'skills/general/doc-brief/SKILL.md'
+/** "카드뉴스": the welcome steps' first result (docs/DECISIONS.md "N — The first result is the company's card news"):
+ * five square cards from the company intro (an uploaded deck, or 회사 소개.md written from the website), the images the
+ * website read collected and the brand colours. */
+export const GENERAL_CARDNEWS_SKILL = 'skills/general/card-news/SKILL.md'
 
 /** The meeting notes folder inside the team's own group folder (groups/<team>/회의록/), named in the team language. */
 export const NOTES_FOLDER = { ko: '회의록', en: 'Meeting notes', id: 'Notulen rapat', ja: '議事録', es: 'Actas de reuniones' } as const satisfies Record<Locale, string>
+
+/** Inside the team's own group folder: the brand folder (the company intro, 회사 소개.md) and its images folder (what
+ * the website reading collected, and the photos made for the first card news): groups/<team>/브랜드/이미지/. */
+export const BRAND_IMAGES_FOLDER = { ko: '이미지', en: 'Images', id: 'Gambar', ja: '画像', es: 'Imágenes' } as const satisfies Record<Locale, string>
 
 /** The marketing pack's team folders under shared/, named in each language (installed in the team's language). The
  * Files screen tells what goes in each when it is empty (packFolderKind). */

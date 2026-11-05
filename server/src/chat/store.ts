@@ -5,6 +5,7 @@ import { STEP_TEXT } from '@mycel/shared'
 import { newId } from '../db'
 import { isConfidentialChat } from '../safe-ops/confidential'
 import { isTeamFilePath, sourceCount, teamSourcePaths } from '../files/sources'
+import { skillMakerName } from '../skills/author'
 
 export interface ChatRow {
   id: string; user_id: string; project_id: string | null; title: string; engine: string; model: string | null
@@ -183,13 +184,28 @@ export class ChatStore {
   /** The skill a finished answer ran (a command first, else the skill tool's first) and how many team files went into
    * it: the question's team-file references and the files it read, outside personal folders and skills/. Counts only:
    * the names stay behind the sources list, which checks the viewer's access. */
-  receiptOf(r: MessageRow): { receipt?: { skill: { path: string; name: string }; teamFiles: number } } {
+  receiptOf(r: MessageRow): { receipt?: { skill: { path: string; name: string; by?: string }; teamFiles: number } } {
     const run = this.db.query(`SELECT skill_path AS path, skill_name AS name FROM turn_skill_runs WHERE turn_id = ?
       ORDER BY CASE source WHEN 'command' THEN 0 ELSE 1 END, recorded_at LIMIT 1`).get(r.turn_id) as { path: string; name: string } | null
     if (!run) return {}
-    const asked = r.parent_id ? (this.db.query('SELECT attachments FROM messages WHERE id = ?').get(r.parent_id) as { attachments: string } | null) : null
+    const asked = r.parent_id ? (this.db.query('SELECT attachments, author_id FROM messages WHERE id = ?').get(r.parent_id) as { attachments: string; author_id: string | null } | null) : null
     const refs = json<Attachment[]>(asked?.attachments ?? '[]', []).filter((a) => a.source === 'team' && isTeamFilePath(a.path)).map((a) => a.path)
-    return { receipt: { skill: { path: run.path, name: run.name }, teamFiles: new Set([...refs, ...teamSourcePaths(this.db, r.id)]).size } }
+    // who made the skill (its file's first version, never its text), when that is someone else than the asker and not a
+    // starter pack's text: "김지훈님의 팀 스킬 '견적서 쓰기'" (docs/DECISIONS.md "S")
+    const maker = this.makerOf(run.path)
+    const by = maker && maker.id !== asked?.author_id ? { by: maker.name } : {}
+    return { receipt: { skill: { path: run.path, name: run.name, ...by }, teamFiles: new Set([...refs, ...teamSourcePaths(this.db, r.id)]).size } }
+  }
+  /** skills/author.ts for one path, kept a minute: a chat's answers often ran the same skill */
+  private makers = new Map<string, { at: number; v: { id: string; name: string } | null }>()
+  private makerOf(rel: string): { id: string; name: string } | null {
+    const now = Date.now()
+    const had = this.makers.get(rel)
+    if (had && now - had.at < 60_000) return had.v
+    const v = skillMakerName(this.db, rel)
+    if (this.makers.size > 500) this.makers.clear()
+    this.makers.set(rel, { at: now, v })
+    return v
   }
   turnUsage(turnId: string): Usage | null {
     const t = this.db.query('SELECT input_tokens, output_tokens, cost_usd, status FROM turns WHERE id = ?').get(turnId) as { input_tokens: number; output_tokens: number; cost_usd: number; status: string } | null

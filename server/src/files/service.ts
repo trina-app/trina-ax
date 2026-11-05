@@ -1200,11 +1200,13 @@ export class FileService {
   }
 
   // ---------------- human-side operations (file screen; same rules) ----------------
-  humanSave(userId: string, rel: string, content: Buffer, baseSha: string | null): ToolOutput {
+  /** `by`: what the file event records as the writer's tool ('human'; a starter pack's install says 'pack_install', so
+   * nobody is named as the maker of a skill the pack wrote, skills/author.ts) */
+  humanSave(userId: string, rel: string, content: Buffer, baseSha: string | null, by: 'human' | 'pack_install' = 'human'): ToolOutput {
     const ctx: ToolCtx = { user: this.principal(userId), turnId: null, files: new TurnFiles() }
     const seen = new Map<string, string>()
     if (baseSha) seen.set(authorize(this.fx, this.rules(), ctx.user, rel, 'write', { createDirs: true }).rel, baseSha)
-    return this.writeBytes(ctx, rel, content, seen, 'human')
+    return this.writeBytes(ctx, rel, content, seen, by)
   }
   deleteFile(userId: string, rel: string, turnId: string | null = null) {
     const user = this.principal(userId)

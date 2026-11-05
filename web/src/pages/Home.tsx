@@ -1,7 +1,7 @@
 // New chat. First-time members see which folders their AI can see and three example questions (filled with
 // their folder names, no engine call). Owners and admins get ONE thing at the top: the welcome steps' "continue" row
 // while they are unfinished, else the 7-day goal card (docs/DECISIONS.md "Y — Home shows one thing at a time"); the
-// owner's setup checklist is on Admin › Home. On a demo server (`bun run demo:trina`) a demo person sees only their
+// owner's setup checklist is on Admin › Home. On a demo server (`bun run demo:company`) a demo person sees only their
 // one line and their questions (components/demo/Demo.tsx).
 // Two moments of the meeting-notes start (docs/DECISIONS.md "M — One meeting note, everyone's own tasks") show here as
 // one line each, with nothing else added:
@@ -9,6 +9,8 @@
 //     2개를 올려 뒀어요" above the box, the box holding the skill as a chip ("할 일 정리") and "내 할 일 정리해 줘", the
 //     files attached,
 //     the box's own send button as the one action, and who sees the chat under it; nothing else on Home until it is sent;
+//     a team skill a person made without a form ("S"): "지훈님이 만든 팀 스킬이에요", its title as the chip and
+//     "이 방식대로 해 줘";
 //   - the owner who ended the welcome steps without files: "회의록이 생기면 {팀} 폴더에 놓아 주세요".
 import { Folder, Lock, Pencil } from 'lucide-react'
 import { useEffect, useMemo, useState } from 'react'
@@ -46,7 +48,7 @@ export default function Home() {
   const notes = readNotesHint(useLocation().state)
   const [preset, setPreset] = useState<{ text: string; n: number } | null>(() => (starter ? { text: starterQuestion(starter, t), n: 0 } : prompt ? { text: prompt, n: 0 } : null))
   useEffect(() => {
-    if (!starter || starterAttached(me.user.id)) return
+    if (!starter || !starter.files.length || starterAttached(me.user.id)) return
     // once: the box keeps its chips across a reload by itself
     void sendToComposer('new', starter.files.map((f) => f.path)).then((r) => { if (r.added > 0) markStarterAttached(me.user.id) })
   }, [starter, me.user.id])
@@ -110,14 +112,16 @@ export default function Home() {
 /** The member's own question ("내 할 일 정리해 줘"); the link's skill goes with it as the box's chip ("할 일 정리"), and
  * sending runs "/meeting-tasks 내 할 일 정리해 줘". */
 export function starterQuestion(s: JoinStarter, t: ReturnType<typeof useT>): string {
-  return t(s.kind === 'brief' ? 'starter.askBrief' : 'starter.askTasks')
+  return t(s.kind === 'brief' ? 'starter.askBrief' : s.kind === 'skill' ? 'starter.askSkill' : 'starter.askTasks')
 }
 
-/** "민지님이 이번 주 팀 회의록 2개를 올려 뒀어요" (the files are in the box below). */
+/** "민지님이 이번 주 팀 회의록 2개를 올려 뒀어요" (the files are in the box below); a team skill without a form
+ * (docs/DECISIONS.md "S"): "지훈님이 만든 팀 스킬이에요" (its title is the box's chip). */
 function StarterLine({ starter }: { starter: JoinStarter }) {
   const t = useT()
   const n = starter.files.length
-  const key: MessageKey = starter.kind === 'brief' ? (starter.by ? 'starter.briefBy' : 'starter.brief') : starter.by ? 'starter.tasksBy' : 'starter.tasks'
+  const key: MessageKey = starter.kind === 'skill' ? (starter.by ? 'starter.skillBy' : 'starter.skill')
+    : starter.kind === 'brief' ? (starter.by ? 'starter.briefBy' : 'starter.brief') : starter.by ? 'starter.tasksBy' : 'starter.tasks'
   return <p className="mb-3 text-center text-sm text-muted" data-testid="starter-line">{t(key, { n, by: starter.by ?? '' })}</p>
 }
 

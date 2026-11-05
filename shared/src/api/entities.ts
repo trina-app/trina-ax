@@ -309,8 +309,10 @@ export const Message = z.object({
   sourceCount: z.number().int().positive().optional(),
   /** finished answers that ran a team skill ("/name", a form or the skill tool): the skill as recorded, and how many
    * team files went into it (team-file references of the question and files read, outside personal folders and
-   * skills/). The step summary then reads "팀 스킬 '할 일 정리' · 팀 파일 2개". Absent: no team skill ran */
-  receipt: z.object({ skill: z.object({ path: z.string(), name: z.string() }), teamFiles: z.number().int().nonnegative() }).optional(),
+   * skills/). The step summary then reads "팀 스킬 '할 일 정리' · 팀 파일 2개". Absent: no team skill ran. `by`: who made the
+   * skill (its file's first version), when that is someone else than the person who asked and not a starter pack's
+   * text: "김지훈님의 팀 스킬 '견적서 쓰기' · 팀 파일 1개" */
+  receipt: z.object({ skill: z.object({ path: z.string(), name: z.string(), by: z.string().optional() }), teamFiles: z.number().int().nonnegative() }).optional(),
 })
 export type Message = z.infer<typeof Message>
 

@@ -1,12 +1,12 @@
-// Demo mode on screen (`bun run demo:trina`; docs/DECISIONS.md "Demo company: a new hire at 트리나"). Nothing here renders
-// unless the server answers GET /api/demo, which only a development server started for the demo does.
+// Demo mode on screen (`bun run demo:company`; docs/DECISIONS.md "Demo company: a new hire at 트리나"). Nothing here
+// renders unless the server answers GET /api/demo, which only a development server started for the demo does.
 //
 // - DemoBar: one strip at the top, in place of the development-mode banner (its words move into the sheet): "데모 ·
-//   가상 회사 트리나 · 신입 한지우" and ONE button, 사람 바꾸기, which opens a sheet with the three people and the same
+//   가상 회사 Acme · 신입 Alex Kim" and ONE button, 사람 바꾸기, which opens a sheet with the three people and the same
 //   question to ask each of them.
-// - DemoIntro / DemoQuestions: Home for a demo person: their one line ("오늘 트리나 마케팅팀에 입사한 한지우예요") above
-//   the message box and their suggested questions under it; a tap sends one. Nothing else (no cards).
-// - DemoStart: the sign-in page's one action, "한지우 님으로 시작하기"; the usual form is one quiet link away.
+// - DemoIntro / DemoQuestions: Home for a demo person: their one line (the demo content's intro) above the message box
+//   and their suggested questions under it; a tap sends one. Nothing else (no cards).
+// - DemoStart: the sign-in page's one action, "Alex Kim 님으로 시작하기"; the usual form is one quiet link away.
 import clsx from 'clsx'
 import { Check } from 'lucide-react'
 import { useEffect, useState } from 'react'

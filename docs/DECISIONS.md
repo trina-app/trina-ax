@@ -8584,3 +8584,435 @@ People ask the team's AI from Slack (`@app` in a channel, a DM to the app). Guid
     installation", so listing them would add them to the owner's "Install to Workspace" flow with the bot scopes.
   - Migration `335_c_slack.sql` was changed in place again (the link key, the flow's `client`): no server outside this
     Mac's throwaway development databases ever ran it.
+
+## S — The lead's way becomes a team skill (feat/onboarding-s, 2026-11-05)
+
+The owner: "회의록이 아닐 수도 있고 … 이렇게 스킬을 만들어서 팀과 공유할까요? 이런 느낌으로 가는 건?" The landing's promise (one
+way of working for everyone) was not felt: the lead only used skills we pre-installed, and a "team skill" copied from
+that first chat would copy ours. The lead's way lives in the files they drop (a quote template, a notes folder, a
+report), so a team skill is the team's files plus only what changes each time, asked as inputs. A cut review removed
+the "3 proposals" step and the bar after sharing. Placement: Team AX core (skills, files, chat, team link).
+
+- **Step 2 asks for any work files**: "평소 일에 쓰는 파일을 놓아 주세요 / 회의록, 견적서, 보고서 · 몇 개면 충분해요"; the upload
+  runs at once as before (into the team's notes folder) and sends "/meeting-tasks 이 파일로 정리해 줘". The general pack's
+  `doc-brief` gains a template mode (견적서 · 공문 · 보고서 · 신청서: the frame, the fields filled in each time, what stays,
+  never the file's own values), and `meeting-tasks` sends a template there too: its first line says what it read
+  ("이렇게 읽었어요: 견적서 양식"); the lead types a correction when it is wrong. Meeting notes keep the tasks path. No
+  server-side guess from names (M's reason holds).
+- **One bar under the lead's first answer** (with their files; owner, until the invite is answered): "팀원 AI도 이 방식대로
+  하게 할까요?" [팀 스킬로 만들기] ×. It replaces M's invite text ("팀원도 이 회의록에서 …"); its X puts the invite off without
+  the soft question (it asked about a skill). The ad copy's first result keeps its invite bar: the ad copy is our own
+  skill, and a team skill made of it would only copy ours.
+- **The draft is a turn** (`onboarding/skill-draft.ts`; there is no AI call outside `chat/turn.ts`): `POST
+  /api/onboarding/skill-draft` (owners and admins) makes a chat of the caller ("팀 스킬 초안 · …") marked in
+  `onboarding_skill_drafts` (migration 232) with a snapshot of the source answer: the question, the answer (cut at
+  12,000 characters), the team files it used (team-file references and sources, `isTeamFilePath`), the skill it ran,
+  the team's language and pack folder. Every turn of such a chat runs like a profile draft from pasted text: no tool at
+  all (the always-listed file tools are refused, `SKILL_DRAFT_FILE_REFUSAL`), no team rules, skills, memories,
+  project, attachments, browser, sub-agents or web search, nobody asked (`TurnExec.restricted`). Its instructions put
+  the snapshot inside `<material>` as data and ask for JSON `{title, description, inputs, files, recurring, steps}`:
+  what belonged to that run (names, customers, dates, amounts, prices, links, file contents) becomes an input or goes;
+  at most three text inputs; a way to pick (mine / everyone's) is one choice input; dated files are their folder and
+  "latest"; `recurring: "weekly"` for weekly work. The same source answer again reuses the unsaved draft.
+- **The server reads it** (`parseSkillDraft`): the form must pass `SkillInputs` (strict, as any SKILL.md); more than three
+  visible fields fold (`advanced`); "쓰는 자료" only from the files the run used, never a personal folder, `skills/` or
+  `.system/` (teammates cannot read `users/<me>/`); a file whose name carries a date (or that the model marks latest)
+  becomes its folder and "the latest" of the same kind: the words of its name without the date (`like`, "주간회의" of
+  "2026-11-03_주간회의.md"), because the welcome step puts every file in the notes folder and the newest file there may
+  be another kind (found in the acceptance run: a monthly report's skill would have read the meeting notes). A name
+  that carries a specific of the run gives no kind. A template stays itself, wherever it sits. The card reads "Acme 회의록
+  폴더의 가장 최근 주간회의" (or "… 회의록" without words), so next week only the new file is dropped. **Specifics** (`onboarding/specifics.ts`): from the run's question, answer and file names, the team's account
+  names found there (and a Korean given name), names before 님/씨, family name + job title ("이 대리"), the per-person
+  headings of the answer, names with a company suffix (㈜, 주식회사, Inc …), dates (11/6, 2026-11-03, 11월 6일, 6(금)),
+  amounts (₩, 원, 만원, thousands separators) and every link; the team's and the company's own names are not specifics.
+  Any of them in the title, line, steps or form words: the server asks once for a rewrite (a follow-up message naming
+  them; `rewrite_at` taken once, keyed to the answer; a turn still closing is asked on the next read); still there,
+  or no usable JSON after it: no card ("지금은 정리하지 못했어요"). A heuristic: a name the patterns miss can stay, which is
+  why the card says "팀 스킬에서 언제든 고칠 수 있어요".
+- **The card** (`SkillShareCard`, a bottom sheet on phones): "팀 스킬로 정리하는 중…", then six things: the title (tap to
+  change), one line, "팀원에게 물어볼 것: 고객사 · 품목" (read only; a choice as its chips with the default filled), "쓰는 자료:
+  …", [팀에 공유], 나중에, and one quiet line "팀 전체 AI가 이 방식을 따라요 · 팀 스킬에서 언제든 고칠 수 있어요". No steps, no
+  Markdown or YAML, no folder name or picker. **Accepted risk, recorded**: the steps teammates' AI follows are not shown
+  before sharing (the owner's call: the quiet line is the consent of a human save). Limits around it: the draft turn
+  has no tool and gets the material as data, steps are capped at 6,000 characters, links in them stop the card, the
+  file is an ordinary skill in `skills/` (the skill change audit, the owner/admin notices, version history; any skill
+  manager reads and edits it), and the run's specifics are checked.
+- **Sharing is a human save** (`POST …/skill-draft/:chatId/save`, owners and admins): the draft read again from the
+  answer (the card's copy is never trusted; only the title comes from it), written with `FileService.humanSave` like an
+  approved suggestion (folder rules, versions, audit, notices; no "last seen" hash, so a file that appeared meanwhile is
+  a 409, never replaced) to `skills/<marketing|general>/<name>/SKILL.md` (marketing when the team chose it) with
+  `metadata.title`, `metadata.inputs` and `recurring: weekly` when weekly, then "쓰는 자료", "하는 방법" (the steps) and fixed
+  rules in the team's language; the server's own reader must accept it first. `skillFileText` (suggestions:
+  `skills/<name>.md`, name and description only) is not reused: no form, no title. **The name** is the server's and
+  never shown: the title romanized (Hangul by the Revised Romanization table, accents dropped; "team-skill" when
+  nothing is left), and "-2", "-3" … when any team skill, the caller's own, any pack skill (installed or not: a later
+  install would be `blocked`) or a folder already has it. Saved again: the same answer. Audited `onboarding.skill_share`.
+  Goals count by path, so the new skill counts from its own runs (no backdating of the lead's meeting-tasks run).
+- **The invite carries the skill**: [팀에 공유] opens the existing invite step with that skill (`InviteStep made`); a new
+  link names it, an open link that led elsewhere (M's starter with files) is changed to it with no files (PATCH, same
+  address), and the message is "우리 팀 '{스킬}' 스킬을 만들어 뒀어요. 링크 열면 같은 방식으로 바로 써요." No file list
+  travels with the link (the skill names its files).
+- **Who made it** (`skills/author.ts`): the person whose save made the skill file's first version, read from the file's
+  own history (`files/timeline.ts`, back through edits and moves to the event that made the file), never from its
+  text. The spec named `file_versions.author_id`, but that table keeps content a save replaced (its `author_id` is the
+  replacer): a file nobody edited has no row, so the history's first content event is that first version. A first
+  version that is a pack's text (any language, earlier releases) has no maker: the owner who pressed install did not
+  write it. Used three ways: the join answer's new `skillBy` (and `starter.by` for a skill without a form), the receipt
+  (`Message.receipt.skill.by`, only when the maker is not the asker; cached a minute per path), nothing else.
+- **The member**: a skill with a form opens on `/skills?run=` as before, with one line on top in place of its description:
+  "{팀장}님이 만든 팀 스킬이에요 · 이 채팅은 {이름}님만 봐요" (`skillBy`, held in this tab until the form goes away,
+  `lib/starter.ts holdMadeBy`). A skill without a form gets M's arrival on Home with a new starter kind `skill` (no
+  files): "{팀장}님이 만든 팀 스킬이에요", its title as the box's chip and "이 방식대로 해 줘". The answer's step line reads
+  "김지훈님의 팀 스킬 '견적서 쓰기' · 팀 파일 1개". Members keep "스킬로 제안" for improvements; nothing new for them here.
+- **Meeting notes fold in**: the card for notes reads "주간회의 할 일", asks nothing, shows the chips "내 할 일 · 사람별" (the
+  default 내 할 일) and "쓰는 자료: Acme 회의록 폴더의 가장 최근 주간회의"; the link needs no file list.
+- **Checked on 2026-11-05** with `bun run dev` (Claude Code login; the hosted trial key is not on this Mac) at 390 px:
+  three kinds × three runs through the API (meeting notes → "주간회의 할 일", the choice, the notes folder, weekly; quote
+  template → "견적서 쓰기" asking 수신 · 품목 · 견적일자, the template file, not weekly; monthly report → "월간보고 핵심
+  정리", no inputs, the newest 월간보고, not weekly), none with a name, date or amount of the run, one rewrite used and
+  passed; and the whole walk twice in a browser (quote: card, share, invite, a member on the form with the line, a new
+  quote for another customer, "김지훈님의 팀 스킬 '견적서 쓰기' · 팀 파일 1개"; notes: the same with the choice form). The
+  first walk found the draft summarizing the template instead of writing a new quote: the instructions now say so.
+- **Side fix: the weekly suggestion only for weekly work.** "매주 이 시간에 자동으로 받을까요?" (X) now also needs the skill's
+  metadata `recurring: weekly`: set on the pack's weekly report, competitor brief and meeting tasks (ko, en), and on a
+  drafted skill when the draft judged the work weekly; never ad copy or a quote. A file without the key (installed
+  before the line, or unreadable now) reads as the pack says (`RECURRING_PACK_SKILLS`); `recurring: "no"` turns it off.
+  `earlierPackTexts` knows the texts without the line, so an untouched install stays `present`. `SkillInfo.recurring`
+  is server-side only (listings leave it out).
+- **Removed**: M's invite bar texts for the lead's files ("팀원도 이 회의록에서 …", "팀원도 이 자료에서 …"; `welcome.bar.tasks`,
+  `welcome.bar.brief`) and the starter the bar made; the "3 proposals" idea; no slug anywhere on screen.
+- **Not done**: the upload still goes into the team's notes folder whatever the file is (a quote template then sits in
+  회의록/); a member's improvement still goes through "스킬로 제안"; the hosted trial engine was not used for the
+  acceptance runs (no key on this Mac): Claude Code (local login).
+- Tests: `tests/unit/b-skill-share.test.ts` (reading a draft: card, folded inputs, files and folders, unreadable and its
+  reasons, specifics of a run and what is left, the name and clashes, the file the reader takes back, pack texts with
+  `recurring` and their earlier texts; real turns with the fake engine: owners and admins, own finished answers, a
+  draft chat is no source, the fixed request and the snapshot, one rewrite then no card, the instructions and the tool
+  list, files refused, no attachments, a JSON answer as the card without steps, a leftover named in the rewrite, the
+  save with a free name, the history and audit, saved again, a member lists it with its form),
+  `tests/unit/a-skill-maker.test.ts` (the first version's maker after another admin's edit, none for a pack text or a
+  file from outside, `skillBy` and the `skill` starter at the join, the receipt for others only),
+  `tests/unit/b-result-suggestions.test.ts` (weekly work only), `web/test/unit/welcome.test.tsx` (the bar, the six things,
+  the title edit, share then invite with the skill, the PATCH of an open link and the message, no card, X),
+  `web/test/unit/skill-share-member.test.tsx` (the maker held at the join, the form's line, the arrival without a form,
+  the receipt, the message in five languages), `web/test/e2e/welcome-notes.spec.ts` (notes in, the card, share, invite,
+  a member on the form with the line).
+
+### S, review fixes (feat/onboarding-s, 2026-11-05)
+
+- **Who may read what the skill names (must-fix).** The draft endpoint takes any chat of the caller, so a chat that read
+  an admin-only file could have put its path and layout into `skills/general/`, which every member reads. Now, when the
+  draft starts and again when it is shared, every file the conversation up to that answer attached or read (as
+  recorded: question attachments and the answers' sources, personal files and uploads included) and every file the
+  skill names must be readable by the people it is shared with: the team link's stand-in (`newMember` with the team's
+  own group, as for a link's skill and starter files; `readableFile`). Any one that is not refuses the draft with its
+  name ("팀원이 모두 볼 수는 없는 파일을 쓴 답이라 …: 급여.xlsx"), rather than leaving it out: its content is in the answer,
+  and the answer is the material. Also refused: a confidential conversation (1A, `confidentialChat`) and one with
+  anything from the web or an outside service in it (a web search or browser step, web_fetch, save_url, a connection's
+  tools or api_request, a step with web sources). Not refused: `session_tainted` as such, which every chat that read a
+  team file carries (the welcome result itself); the outside part of it is what the step check refuses.
+- **The hidden steps guard** (`specifics.ts outsideIn`, the same one-rewrite-then-no-card rule): links, e-mail
+  addresses, domains (tldts; file names such as report.md are not), phone and account numbers, team paths the skill
+  does not list as its files, outside tools by name (web_fetch, save_url, api_request, browser tools with an
+  underscore, connection tools) and wording that sends, uploads or shares outside. `<material>` tags inside the material
+  are broken (‹/material>), so an answer cannot close the block.
+- **Fewer false positives**: no names from headings; a given name only with 님/씨 (하나, 지원 are words); a surname list
+  before a job title (각 팀장, 내 책임 are not people); role words before 님 (고객사님, 수신자님, 원장님, 부모님) are not
+  names; amounts need a currency or a million; a year alone is no date. The attendee line ("참석: …") names people.
+- **다시 정리하기**: a failed draft is never reused; starting again makes a new one, and the card offers it (not for a
+  refusal, which would only repeat).
+- **Reading changes nothing**: GET says `rewrite: true` when the first answer needs its one rewrite; the card then starts
+  the draft again, and the POST queues it.
+- **Makers**: a pack's install marks its file event (`humanSave(..., 'pack_install')`); an install from before the mark
+  is recognized by its `onboarding.pack_install` audit row within a minute, for a skill of a pack's name in that
+  folder (the hash comparison missed packs whose text changed). The first version is read with direct queries (the
+  first content event after the name was last freed, back through the file's moves and trash trips), the timeline walk
+  only when a folder above was moved.
+- **Outside content, fail closed (second review)**: the step check missed Google Drive. It is now an allowlist,
+  `chat/team-content-tools.ts`: only tools whose results are the team's files or the person's own data (built from the
+  tools' exported name lists where they have one); any other tool in the conversation (Drive, web pages, the browser,
+  generated video, connections, plugins, the dev box, a Codex command, a tool added later) refuses the draft as
+  outside content. Also refused, as `unverified`: an answer with a read that worked but no sources row (the save
+  failed) or as many rows as the cap keeps (500): what it read cannot all be known.
+- CHANGELOG: the feature, and that older team skills no longer get the weekly suggestion without `recurring: weekly`.
+- Tests: `b-skill-share` (refusals: a group file, a personal file, web, confidential, and at the save; the guard and
+  the escaped material; the false positives; reading queues nothing, the rewrite on start, a failed draft not reused),
+  `a-skill-maker` (trash and back, a new file of the same name, an older pack install, the mark), `welcome.test.tsx`
+  (the rewrite asked by starting again, 다시 정리하기, a refusal's reason without it).
+
+## Q — The onboarding in English (feat/onboarding-2, 2026-11-05)
+
+The owner asked whether the English version works too. Nobody had walked it as an English team, so it was walked end
+to end on a dev server (Claude Code login, 390 px) as a five-person US marketing team: the website profile with its
+reading lines, two English meeting notes with mixed name forms ("Sarah", "Sarah K.", "Mike from sales", an unclear
+owner), the first answer, the bar, the card, share, the invite, a member named in the notes joining and running the
+skill, the receipt line, the goal card, a quote template (.xlsx) through the same path, the no-files path, and the ad
+copy form with its preview. The AI answered in English throughout and the flow worked; the copy did not read as a
+native product writer would write it. Placement: Team AX core (copy, the English skill packs, the specifics check).
+
+- **Copy** (`web/src/i18n/en.ts`; the other four only where the meaning changed): literal or stiff lines rewritten
+  ("Here is what we understood" → "Here's what we found", "Drop in the files you use for your usual work" → "Add files
+  from your everyday work", "Paste a text" → "Paste a description", "Sort out my tasks" → "List my tasks", "A team skill
+  {by} made · only you, {name}, see this chat" → "{by} made this team skill · Only {name} can see this chat", "{n} more
+  people and the goal is reached" → "{n} more people to go", the goal title as a goal: "Get 3 people using the same skill
+  in 7 days", "put up" → "shared", "Make a PPT" → "Make slides", "invited you to work together … together" once), a
+  grammar error fixed ("Only the 1 person in … see" → "Only Acme Marketing (1 person) can see"), and KakaoTalk named
+  only in Korean: English says Slack or Teams, Indonesian and Spanish WhatsApp, Japanese LINE.
+- **No Korean in English screens**: the website field's example was a fixed "acme.co.kr"; it is now per language
+  (`onboarding.profile.sitePlaceholder`: acme.com, acme.co.id, acme.co.jp, acme.es), like the address check's example.
+- **The card's files line** read "the newest Meeting notes in the Acme Marketing Meeting notes folder". The team's
+  folder is now joined per language (`skillShare.teamFolder`: "Acme Marketing › Meeting notes" in English, Indonesian
+  and Spanish; Korean and Japanese unchanged) and the notes folder has its own words (`skillShare.latestNotes`: "the
+  newest meeting notes in …"; Spanish no longer reads "el Actas de reuniones más reciente"). Korean output is the same.
+- **Skill summaries start as a sentence**: the English packs write "Tasks from notes — reads the team's meeting notes
+  …", so lists showed "reads the team's …". `skillSummary` capitalizes a lowercase Latin first letter of what is left.
+- **English skill texts**: the ad copy's fixed first line was "… would look in Instagram feed" (no article); it now
+  names the channel with its article. The template headings "Frame" and "Kept as it is" are "Layout" and "Stays the
+  same"; contradictions go under "### To check" (the AI wrote "This is to check"); a drafted skill's rule reads "Use only
+  the files listed under "Files it uses"" (was "the files it uses"); British spellings in the packs (colour, organise,
+  summarise) follow the US spelling of the screens. A copy of these English skills installed from an earlier build of
+  this branch now reads `kept` on a later install (no release shipped the packs; no file is replaced either way).
+- **Leftover specifics in English** (`onboarding/specifics.ts`; S's check was Korean-first: English caught only an
+  account's capitalized words, the "Attendees:" line, one word before "Inc", numeric dates and "$"): a team account
+  named in any form ("Sarah", "Sarah K.", "Ms. Klein") puts all its forms; titled names ("Ms. Rivera": that form and
+  "Rivera"); the lines that list people ("Present:", "Owner:", "Prepared by:", "Attn:" …); "Mike from sales", "Mike
+  (sales)", "Sarah K."; a task's owner at a line's start ("- Dan to …", "- Priya — …") only when the run says the name
+  more than once; a per-person heading only when the name is also said outside the headings; companies of up to five
+  words before Inc, LLC, Ltd, Corp, Co … (comma allowed; "Brightline Outdoor" and "Brightline"); US dates (11/20,
+  11/3/26, Nov 20, November 20th, 20 November, each also as the others); "$1,200", "$1.2k", "USD 500", "500 dollars",
+  "1.2k" only beside a budget word; document numbers (Q-2026-0117); US phone formats, in the always-on guard too. Not
+  specifics: a stoplist of structure and form words (Overview, Action items, Customer, Recipient, Qty, Total …), roles,
+  weekdays and month names alone, the verbs steps start with, and, where only a word's place says it is a name, words
+  the run also writes in lower case. Names that are also words (Will, May, Mark, Grace) count only where they read as a
+  name ("Mark each task" and "May 20" stay clean). The team's own name is excluded by whole words ("Mark" is no part of
+  "Acme Marketing"). Still a heuristic: a name said once at a line start is missed on purpose ("- Yuki: book the venue").
+- **A listed team folder with a space in its name** ("groups/Acme Marketing/Meeting notes") was cut at the space by the
+  always-on path guard and read as another folder ("groups/Acme"); the guard now compares the listed path where it
+  stands (a longer folder name, "…/Meeting notes old/", is still another one).
+- **Not changed**: the AI's own wording in answers (a member's answer once opened with "Both are the same week; reading
+  both." and closed with "I used the weekly-meeting-tasks skill"; the drafted skill's steps are the AI's); "Only Acme
+  Marketing (1 person)" while the owner is alone in the team; the profile review's "Read the website again" after the
+  three questions (not English-specific).
+- Tests: `tests/unit/b-specifics-en.test.ts` (the two notes of the run as material: every name, company, date, amount
+  and phone form found; headings, labels, roles, weekdays, months, sentence starts, acronyms, counts and a bare year
+  not; a clean English skill keeps its card, a leaking one names "Sarah Klein", "Ms. Rivera", "Brightline Outdoor",
+  "Nov 20", "$4,500"; the quote template run; a listed folder with spaces), `c-skill-title` (the summary as a sentence),
+  `web/test/unit/skill-share-member.test.tsx` (the files line in English and Spanish, Korean unchanged),
+  `team-link.test.tsx`, `goal-card.test.tsx`, e2e `auth.spec.ts`. Walked again after the fixes at 390 px with the real AI
+  (website, notes, card, share, invite, a member named in the notes, the goal card, the no-files path, a search ad).
+
+## N — The first result is the company's card news (feat/onboarding-cardnews, 2026-11-05)
+
+The owner uploaded a 36-page company intro at the files step; the chat was titled "회의록 할 일 정리", ran the meeting
+tasks skill and answered "회의록이 아니라서 핵심만 정리했어요" with a dry list ("회의록이던 다른 거를 남기라고 해놓고 이게
+뭐야"). The first result must impress any company: five square promo cards of the company, made from its own intro
+or website, its own pictures and colours ("퀄리티 개 좋아야 해"). Placement: Team AX core (onboarding, files, skills,
+chat tools); the hosting side only hands over the image key.
+
+- **Step 1 also collects the brand** (`onboarding/brand-assets.ts`). The draft AI still only reads pages; web_fetch
+  keeps the markup of each page it opened in a draft turn (`keepHtml`, never shown to the AI), and the draft's page log
+  hands it to a collector in the background: the logo (JSON-LD or itemprop logo, an `<img>` named or labelled logo, an
+  apple-touch-icon as the last resort), the pictures the page shows (og:image / twitter:image, `<img>` with srcset or
+  lazy-load attributes, inline background images), and colours (theme-color, brand-named custom properties of the
+  page's style blocks and of at most two style sheets of the same scope, the logo's dominant colours, saturated colours
+  used often). Only addresses the page itself embeds are fetched, never one the AI wrote, with web_fetch's network
+  rules (public addresses, this server's exit address refused, pinned connection, every redirect hop checked, ports 80
+  and 443). **Deviation from "same site", on purpose:** a picture may sit on another host, since site builders keep
+  them on CDNs (imweb, Naver, Wix, Shopify: with the scope rule an imweb site gave no picture); a page link (`<a>`) is
+  never followed for pictures and style sheets stay on the scope. What is kept is decided by the bytes: PNG, JPEG or
+  WebP whose header gives a size (no SVG, so no script; no GIF), at most 6 MB, content pictures at least 300 px on the
+  short side and not a strip, logos at least 64 px; the same bytes once; at most 8 per draft and 24 tries; pictures
+  over 2,000 px or 1.5 MB become a 1,600 px JPEG (isolated ffmpeg). They wait in `<data>/onboarding-assets/<chat>/`
+  (rows in `onboarding_brand_assets`, migration 233, with each read page's text cut to 4,000 characters) until the
+  first result places them. The reading log says "로고와 이미지 n개 가져옴" (`ProfileDraftState.assets`).
+- **Colours on the profile**: `CompanyProfileInput.colors` (optional, at most 5 `#rrggbb`); the review shows them as
+  swatches the person can remove (no picker), Admin › Team settings shows them, the facts block says "Brand colours
+  (main first): …". The AI's JSON never sets them (dropped in `parseDraftAnswer`). Ranking: a colour group is as strong
+  as its strongest hit (theme-color 120, the logo 150, one to three brand-named variables 90, a palette of more 20,
+  colours the CSS repeats at most 30) and only groups of 30 or more count; white and greys never, a near-black only
+  from a strong source (a black-and-white brand keeps its black). First found on a real site: summing every hit made a
+  design system's red the brand colour of a purple brand, and an imweb theme's cyan that of a black one.
+- **Step 2** (`pages/Welcome.tsx`): "회사 소개서나 팀 소개 자료가 있으면 놓아 주세요 / 없으면 홈페이지에서 찾은 내용으로
+  만들게요", one [파일 고르기], the line about who sees the files, one link "자료 없이 만들게요". Files go into the team's
+  brand folder (`groups/<team>/브랜드/`, `TeamGroupRef.brandFolder`, made by the team's start). Then `POST
+  /api/onboarding/welcome/first-result` (owner; `onboarding/welcome-result.ts`): the team's start when missing,
+  "/card-news" (installed alone once for a row whose general pack was recorded before the skill: `general.cardNewsPath`),
+  the staged pictures into `브랜드/이미지/` as the owner's saves (each once), and without files `회사 소개.md` in the
+  brand folder: the confirmed profile and the text of the pages the server opened, each part under its source, no AI
+  and nothing invented; one already there is kept (someone may have edited it); neither profile nor pages: 409 with a
+  plain message. It makes the chat, titled "우리 회사 홍보 카드뉴스" (`title_source` user: the AI does not rename it)
+  and listed in `onboarding_result_chats`; the page attaches the files and sends "/card-news 우리 회사 홍보 카드뉴스 5장
+  만들어 줘" like any message. Removed from this step: the meeting tasks run, the ad copy alternative and `finish`.
+- **The skill** (`resources/skill-packs/general/{ko,en}/card-news`, title 카드뉴스 / Card news, form 주제 · 어디에
+  올릴까요 · 자료 파일): read all the material; look at every picture; five cards with fixed roles (cover with the
+  strongest line, the problem, what we do, one number written in the material, the next step with the logo), one
+  message each, headline and body two lines each with counted characters per line and chosen `<br>`; a fixed HTML
+  template of five layouts (photo-top, panel-top, split, number / fact, cta) in container units, `word-break:
+  keep-all`, text and page numbers only on solid panels, `object-position` chosen per photo, team pictures by path.
+  The rules came from the gate runs: no counted or rounded numbers (a run counted four shops from a list), the cover
+  shows the company's own product or place (a run put a customer's product on it), case portraits only on the case
+  card, no number twice, no full stop in a headline, a panel as tall as its text (the fixed 47% cramped four lines).
+  One `artifact` (the preview inlines team pictures, `lib/frame-files.ts`). **No PDF or PNG**: make_file turns
+  Markdown into documents (pandoc, typst) and cannot render this HTML; the artifact panel's download gives the HTML.
+- **Brand photos with Higgsfield, only here** (taken out before the merge: "N, Higgsfield taken out" below;
+  `onboarding/brand-image.ts`, tool `brand_image`): when fewer than three
+  usable pictures exist. Offered only in a chat of `onboarding_result_chats`, only to its owner, only with the key and
+  while the team has photos left: 4 per team for its whole life (rows not failed; the row is written in the same
+  synchronous step as the count, so two calls cannot both take the last; a failed job gives it back). Never for
+  sub-agents. The server adds "no people, faces, hands, text, numbers, logos, signs" to every prompt; nothing from the
+  team's files is sent. No confirm card (unlike generate_video, whose credits are the team's): the photos are Trina's
+  and capped, and a card would stop the first result. The result comes over https through the hardened download, is
+  made a 1,600 px JPEG and saved with `placeProduced` in the brand images folder. On the team-content list (S: the
+  photo is a team file the server made from the AI's words). **Model: `z_image` (Z Image), 0.15 credits a picture**:
+  in one test prompt Soul 2.0 (0.12) wrote words on a laptop screen and Soul Location (0.12) put a person in; Z Image
+  kept to the rules and looked as good as Seedream 5.0 Flash and Kling O1 (0.5 each).
+- **The API and the key** (taken out with the photos). Higgsfield's developer API that its CLI uses: `https://fnf-api-gw.higgsfield.ai/fnf`,
+  `POST /developer/v2alpha/images/<job type>/generations {params}` → `{id}`, `GET /developer/v2alpha/jobs/<id>` →
+  `status`, `result_url`; `Authorization: Bearer <access token>` and `hf-workspace-id`. A hosted team gets the key from
+  the hosting service like the speech key: tenant command `hosted-image-key-set` (`{ token, workspace }` or `{ token:
+  null }`; mycel-ctl → `admin.js hosted-image-key`), kept encrypted with the credentials vault
+  (`onboarding.hostedImageKey`), never in a response, log or audit row, dropped at start on a server that is not
+  hosted, left out of the team's export, kept across a restore, rekeyed with the vault. A development or own server
+  reads `<data>/secrets/higgsfield-onboarding.key` (`{"token","workspace"}`, 0600); the hosting key comes first.
+  **Handoff to the hosting console**: hold Trina's Higgsfield credential, send `hosted-image-key-set` to each hosted
+  team and `{ token: null }` to take it away. The token is an OAuth access token that expires within a day: the
+  console must refresh it and push the new one before it does; ask Higgsfield for a long-lived developer key limited
+  to image models with a spend limit.
+- **After the result**: S's bar now reads "마음에 드시나요? 팀 스킬로 저장하면 다른 분들도 같은 방식으로 만들 수 있어요"
+  [팀 스킬로 저장]. The skill draft's instructions say that work made from the company's own material asks the topic
+  and the channel and names the brand images folder (the folder of several pictures, not each picture).
+  A folder of pictures the run picked from, named with `"latest": false`, stays the whole folder (`draftFiles`; the card
+  says "마케팅팀 이미지 폴더의 사진"): as "the newest file" of it, the team skill would read one picture next time.
+- **Checked on 2026-11-05** with `bun run dev` (Claude Code login, the local relay), through the API and once in a
+  browser at 390 px, on five teams: a Korean B2B SaaS (8 pictures, the purple logo colour), a café roastery on imweb
+  (8 pictures, its charcoal), a shipbuilding-parts maker (5 pictures, SVG logo so none, no colour), an English SaaS on
+  an English team (the English skill and folders), and a
+  fictional 20-page PDF deck with no website (three photos made). 4 rounds of the skill, each card looked at full size;
+  the answers took 70–170 s; no card overflowed its square; numbers were checked against the material. 7 brand photos
+  were made, none failed (0.15 credits each), plus 1.39 credits of model comparison: 2.44 credits.
+- **Not done**: a PDF or PNG of the cards (above); the AI still sometimes puts a customer's portrait on a card about the
+  product when a site's pictures are mostly case studies; a draft started from Admin › Team settings collects pictures
+  that are placed only by a later first result; staged pictures of drafts that never reach a first result stay in
+  the data folder; Home's meeting notes line (`readNotesHint`) is left unused. (The Higgsfield items of this section were taken out
+  before the merge: see "N, Higgsfield taken out; type-only cards" below.)
+- Tests: `tests/unit/b-onboarding-cardnews.test.ts` (what a page offers, colour ranking, pictures by bytes, profile
+  colours and the facts line, 회사 소개.md, a hostile page in one pass; with the real web_fetch and a stand-in photo
+  service: the collected pictures, the CDN picture, never another site's style sheet; the first result owner-only,
+  placed once, 회사 소개.md kept, files checked; an old row gets "카드뉴스" once; the picture folder of a team skill;
+  the Higgsfield tests went with the photos, see below),
+  `b-onboarding-draft` and `b-onboarding-team-space` (the `assets` field, the third general skill),
+  `web/test/unit/welcome.test.tsx`, `profile-step.test.tsx`, `web/test/e2e/welcome-notes.spec.ts`.
+
+### N, review fixes (feat/onboarding-cardnews, 2026-11-05)
+
+- **Pages are read in one pass (must-fix).** The collector runs inside web_fetch's page callback, so a slow parse
+  stops the server. Tags, attributes, inline `url(…)` values and style blocks are now found with `indexOf` scans, no
+  pattern that backtracks (`startTags`, `attrsOf`, `cssUrl`, `styleBlocks`); the remaining patterns have bounded
+  whitespace. The review's hostile pages (600,000 bare "<", long style values, spaced `data-bg`, unclosed quotes,
+  spaced CSS) each take milliseconds (test).
+- **The photo cap holds against stop and resend (must-fix).** A photo is given back only when the service refused the
+  request or said the job failed (`NotCharged`); a job it took that never became a file (stopped, timed out, the
+  download or the save failed) is `lost` and still counts, since it may be charged. Each request to the service has a
+  30-second timeout.
+- Pictures over 40 megapixels are not kept; the isolated ffmpeg gets a 768 MiB memory limit. The first result uses the
+  recorded brand folder (the one the page uploads into), not one named after the team's current language. Staged
+  pictures of deleted chats and of the same person's drafts older than a placed one are removed at the next first
+  result (never another owner's, never a draft that wrote a row in the last ten minutes: its file may be on its way).
+- **Accepted, recorded**: 회사 소개.md quotes the website's text in a team file, so a card news chat that read it passes
+  S's outside-content check although the words came from the web. They are the company's own public pages, read
+  within the typed site's scope, saved by the owner after confirming the profile, each part under its address; the
+  team skill names the file, which anyone on the team can open and edit.
+
+### N in English (integration with Q, 2026-11-05)
+
+Q's English walk ran before the card news replaced welcome step 2, so the new lines were read again as an English team
+would. "Card news" is a Korean genre an English reader does not know: the English skill is titled "Promo cards" (its
+name and command stay `card-news`), the chat "Promo cards for our company" and the artifact "(Company name) promo
+cards". Step 2 reads "Add a company or team overview if you have one / No file? We'll use what we found on your
+website", the link "Continue without a file", the question "Make five promo cards for our company"; the reading log
+"Found the logo and n images" (was "Got …"); the bar "Like it? Save it as a team skill so your teammates can do it the
+same way"; the brand images folder line follows Q's per-language team folder ("the photos in Acme Marketing ›
+Images"). US spelling as in Q: "Brand colors" on the review, in 회사 소개.md's English words and in the facts line the AI
+reads (both skills name that label), color and center in the English skill. Q's rewrites of the old files step and of
+the ad copy result left with those lines. Korean, Japanese, Indonesian and Spanish are unchanged.
+
+
+### N, Higgsfield taken out; type-only cards (integration, 2026-11-05)
+
+The owner finds the brand photos overkill, and the gate data agrees: every real company in the gate runs had 5–8 usable
+pictures on its own site; only the fictional deck without a website needed made ones. Keeping the photos would also
+need a handoff the hosting side cannot hold yet: the token is an OAuth access token that expires within a day, so the
+console would have to refresh and push it to every hosted team before it runs out (no long-lived key limited to image
+models exists). Taken out before the merge; the code stays on `feat/onboarding-cardnews` for later.
+
+- **Gone**: `onboarding/brand-image.ts` (tool `brand_image`, its offer in the first-result chat, 4 a team, `z_image`),
+  the dev key file `<data>/secrets/higgsfield-onboarding.key`, `credentials/hosted-image.ts` (vault entry, rekey, export
+  and restore rules, the drop on a server that is not hosted), the tenant command `hosted-image-key-set` (cloud
+  protocol, vectors, `admin.js hosted-image-key`, `mycel-ctl`, now as on main: no root update for this PR), its audit
+  label. The first-result chats are no longer marked: nothing but the photo tool read `onboarding_result_chats`.
+- **Migration 233** (unreleased) keeps only `onboarding_brand_assets`, which the website reading fills and the first
+  result places (pictures, page text, colours); `onboarding_result_chats` and `onboarding_images` are not created.
+- **Type-only cards.** With fewer fitting pictures than the photo layouts need (only the brand images folder and photo
+  files attached to the message count), the skill never makes, downloads or draws a picture; cards 1–3 without one use
+  a designed version: `type-cover` (the brand colour, the logo on a white tile or the company name, one disc, the
+  headline low), `type-statement` (paper, a bar, a large line, a corner disc), `type-points` (the brand panel above, two
+  or three numbered points below). The only shapes are that disc and bar, text never on them, no empty photo slot. A
+  card made without a photo is named in one line of the answer, with how to add photos.
+- **Light brand colours**: `--brand-text` (the brand colour when dark, #111111 when light) for headlines, eyebrows and
+  the wordmark on paper; a yellow brand's headlines were unreadable on paper before, in the photo layouts too.
+- **Checked** in a browser render at 1080 px with a dark green, a deep blue and a yellow brand, Korean and English (no
+  text outside its card or on a shape), then with the real AI on `bun run dev` (Claude Code login): the fictional
+  20-page deck with no website and no logo used all three type-only versions with the company name as the mark; its
+  numbers were the deck's (18 %, 87 sites, p. 11); the answer said that photos added to the brand images folder can go in
+  next time (81 s). A real company's English site whose eight pictures were all
+  product screenshots, banners and mascot drawings: the skill found none usable, made the three type-only versions with
+  the app-icon logo on its tile, a yellow brand with near-black headlines on paper, and its two numbers were the site's
+  as written (60 s). A dev server needs its relay for this: with `--no-relay` it never learns its exit address and every
+  web address waits for a person's OK.
+- Tests: `b-onboarding-cardnews` (the first-result chat offers no image tool, also with a key file on the server),
+  `c-tools` (the registry is back to main's list; it failed with `brand_image` in it), `cloud-protocol` (main's
+  commands).
+
+## Demo content: the mechanism is open, a company's content is a folder (feat/demo-content-split, 2026-11-05)
+
+The owner (2026-11-05): the demo's mechanism stays open source here; the 트리나-branded demo content moves to the private
+repository. REPOSITORY-RULES already puts Trina's operations and site in the private `trina-ax-core` `editions/trina/`;
+a demo of Trina's own company, with photos made on Trina's Higgsfield account and a designed proposal template, is the
+same kind of thing.
+
+- **One format, read from a folder** (`scripts/demo/company/README.md`): `company.json` (owner, people, groups, folder
+  rules, uploaders, pack skills, settings, memories, company profile, the three personas with their lines and
+  questions, the scenarios, and `checks`), `files/` at team paths, `recordings/` (`<slug>.json`), an optional
+  `assets/` the demo never reads. The schema is `DemoContentCompany` in `shared/src/api/demo.ts` (zod lives there; the
+  scripts only read it), the loader `scripts/demo/company/content.ts`. A folder is checked whole before the server
+  starts: unknown fields, a name no person or group has, a persona that is the owner, files outside `shared/`,
+  `groups/<group>/`, `skills/`, a pack skill that is not in the repository, a recording that is not one of a scenario
+  by its person with its prompt. Every problem is listed at once; a broken folder never half-seeds a team.
+- **Data, never code.** The old company file was TypeScript (a function chose the uploader, a function wrote the
+  intro lines). A content folder from another repository must not run code in this checkout, so the uploaders are an
+  ordered path list and the intro lines are plain text. The server side is unchanged: the same `MYCEL_DEMO` file,
+  person switch, replays and fences (`server/src/demo/`, `routes/demo.ts`), as strict as before.
+- **The owner is always an account of its own** with a random password (`ensureOwnerPassword`, now in
+  `scripts/demo/seed.ts`), and the format has no admin role at all: every person is a member, because the demo password
+  is public and the demo may be open to the network (the rule from "Demo company", now in the schema, not a habit).
+- **Scripts**: `bun run demo:company [--content <dir>]` (else `MYCEL_DEMO_CONTENT`, else the open example);
+  `bun run demo:trina` is the same script with `--require-content trina` and, without content, says where the 트리나
+  content is (private `trina-ax-core`, `editions/trina/demo`) and that `demo:company` runs Acme. The data folder is
+  `~/.<id>demo`, so the 트리나 content (id `trina`) opens the same `~/.trinademo` as before. `bun run demo:seed
+  --content <dir>` replaces `--company trina`. `MYCEL_DEMO_CONTENT` is stripped from the server's environment with the
+  other `MYCEL_*` variables (the server only ever reads the demo file).
+- **The open example, Acme** (`scripts/demo/acme`): six people, Marketing and Sales and a CEO, one closed folder
+  (`shared/budget/`, with each lead's own team sheet under it) for "the same question, different answers", a handful
+  of Markdown files and four spreadsheets made by `tests/demo/make-acme-files.ts`, one team skill, one rule, two
+  English pack skills, no pictures. Three scenes recorded with the real AI on a separate port (a Word brief, an Excel
+  task sheet, a past chat). Its `checks` say who opens what; the seed test checks them on a real app, and with
+  `MYCEL_DEMO_CONTENT=<dir>` the same seed and recording tests run on another content folder too (the private
+  content's own check), including "every recorded line is in the team's language" for `ko` and `en`.
+- **Moved out**: `scripts/demo/trina/` (company, scenarios, README, files, recordings) and `tests/demo/make-trina-*`.
+  Git history keeps the v1/v2 content that was public; it was not rewritten. The later photos (Higgsfield), the
+  designed proposal template, the card-news and proposal rules and their recordings were never committed here and live
+  only in the private content folder. Tests now use Acme (`demo-company-seed`, `demo-company-record`, the web demo
+  test's fixture).
+- Rejected: keeping the 트리나 content here behind a flag (the brand content would still be public); a content folder
+  with a `company.ts` (code from another repository running in this checkout); copying the private content into
+  `editions/trina/` of this repository (only `branding/` belongs here).

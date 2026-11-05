@@ -9,6 +9,7 @@ metadata:
       {"name": "ours", "label": "우리 제품·서비스", "placeholder": "예: 작은 팀을 위한 일정 관리 앱", "prefill": "company.products"},
       {"name": "focus", "label": "특히 보고 싶은 것", "placeholder": "예: 가격, 내세우는 장점, 고객 사례"}
     ]
+  recurring: weekly
 ---
 
 # 경쟁사 분석

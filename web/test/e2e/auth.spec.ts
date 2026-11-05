@@ -53,7 +53,7 @@ test.describe('first-run setup in an English browser', () => {
     await page.getByLabel('Password', { exact: true }).fill('a long password 1')
     await page.getByLabel('Confirm password').fill('a long password 1')
     await page.getByRole('button', { name: 'Create team and start' }).click()
-    await expect(page.getByTestId('welcome-pack-line')).toContainText("We'll add the team skills")
+    await expect(page.getByTestId('welcome-pack-line')).toContainText("We'll set up team skills")
     await page.goto('/')
     await expect(page.getByRole('heading', { name: 'How can I help you, Kim Owner?' })).toBeVisible()
     // the sidebar under the Settings dialog speaks English too
@@ -73,7 +73,7 @@ test.describe('first-run setup in a browser in Jakarta', () => {
     await page.getByLabel('Password', { exact: true }).fill('a long password 1')
     await page.getByLabel('Confirm password').fill('a long password 1')
     await page.getByRole('button', { name: 'Create team and start' }).click()
-    await expect(page.getByTestId('welcome-pack-line')).toContainText("We'll add the team skills")
+    await expect(page.getByTestId('welcome-pack-line')).toContainText("We'll set up team skills")
     await page.goto('/admin/settings')
     await expect(page.getByTestId('team-time-zone')).toHaveValue('Asia/Jakarta')
   })

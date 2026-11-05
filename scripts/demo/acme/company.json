@@ -1,0 +1,87 @@
+{
+  "format": 1,
+  "id": "acme",
+  "teamName": "Acme",
+  "locale": "en",
+  "owner": { "username": "acme-admin", "name": "Demo admin" },
+  "people": [
+    { "username": "dana", "name": "Dana Brooks", "group": null, "note": "CEO (a member who reads more through folder rules)" },
+    { "username": "sam", "name": "Sam Ortiz", "group": "Marketing", "note": "Marketing lead" },
+    { "username": "alex", "name": "Alex Kim", "group": "Marketing", "note": "new hire, joined Marketing today" },
+    { "username": "jordan", "name": "Jordan Lee", "group": "Marketing" },
+    { "username": "priya", "name": "Priya Nair", "group": "Sales", "note": "Sales lead" },
+    { "username": "leo", "name": "Leo Martin", "group": "Sales" }
+  ],
+  "groups": [
+    { "name": "Marketing", "description": "Campaigns, ads, content" },
+    { "name": "Sales", "description": "Customers, trials, contracts" }
+  ],
+  "rules": [
+    { "path": "groups", "rules": [{ "user": "dana", "access": "read" }], "why": "the CEO reads every team folder" },
+    { "path": "shared/budget", "rules": [{ "everyone": true, "access": "none" }, { "user": "dana", "access": "write" }], "why": "the budget: the CEO only" },
+    { "path": "shared/budget/teams/Marketing", "rules": [{ "user": "sam", "access": "read" }], "why": "the Marketing lead reads the Marketing budget" },
+    { "path": "shared/budget/teams/Sales", "rules": [{ "user": "priya", "access": "read" }], "why": "the Sales lead reads the Sales budget" },
+    { "path": "skills/marketing", "rules": [{ "everyone": true, "access": "none" }, { "group": "Marketing", "access": "read" }, { "user": "dana", "access": "read" }], "why": "the marketing pack's skills: Marketing and the CEO" }
+  ],
+  "uploaders": [
+    { "path": "groups/Marketing/meetings", "username": "jordan" },
+    { "path": "groups/Marketing", "username": "sam" },
+    { "path": "groups/Sales", "username": "priya" },
+    { "path": "skills", "username": "acme-admin" }
+  ],
+  "defaultUploader": "dana",
+  "packSkills": [{ "pack": "marketing", "locale": "en", "skills": ["weekly-report", "ad-copy"] }],
+  "settings": { "aiSubagents": false, "timeZone": "America/New_York" },
+  "profile": {
+    "website": "https://acme.example",
+    "name": "Acme",
+    "oneLine": "Acme makes Acme Desk, a desk-booking app for offices of 10 to 200 people.",
+    "products": "Acme Desk Starter ($4 per desk a month), Acme Desk Pro ($7 per desk a month, with floor maps and reports)",
+    "audience": "Office managers and operations leads at companies of 10 to 200 people",
+    "tone": ["Friendly", "Short and clear", "No hype"],
+    "avoid": "Superlatives (best, number one) and claims we cannot back with numbers",
+    "sources": []
+  },
+  "demo": {
+    "sameQuestion": "Summarize this quarter's budget",
+    "personas": [
+      { "key": "newHire", "username": "alex", "intro": "I'm Alex Kim. I joined Acme's Marketing team today.", "questions": ["What is our leave policy?", "List my tasks from this week's marketing meeting", "What should I do in my first week?"] },
+      { "key": "lead", "username": "sam", "intro": "I'm Sam Ortiz, Marketing lead at Acme.", "questions": ["Summarize this quarter's budget"] },
+      { "key": "ceo", "username": "dana", "intro": "I'm Dana Brooks, CEO of Acme.", "questions": ["Summarize this quarter's budget", "How is the sales pipeline looking?"] }
+    ]
+  },
+  "scenarios": [
+    { "slug": "newhire-brief", "username": "alex", "kind": "showcase", "prompt": "Make a one-page Word brief of the November campaign for me and save it in my folder" },
+    { "slug": "lead-tasks", "username": "sam", "kind": "showcase", "prompt": "Turn this week's marketing meeting notes into an Excel task sheet (owner, task, due date) and save it in my folder" },
+    { "slug": "ceo-pipeline", "username": "dana", "kind": "history", "daysAgo": 1, "prompt": "Summarize the sales pipeline by stage in a short table" }
+  ],
+  "checks": [
+    {
+      "username": "alex",
+      "opens": ["shared/handbook/leave-and-benefits.md", "shared/onboarding-guide.md", "groups/Marketing/november-campaign-plan.md", "groups/Marketing/meetings/2026-11-03-marketing-weekly.md", "skills/answer-rules.md"],
+      "closed": ["shared/budget/2026-Q4-company-budget.xlsx", "shared/budget/teams/Marketing/2026-Q4-marketing-budget.xlsx", "groups/Sales/pipeline.xlsx"],
+      "skills": ["ad-copy", "meeting-action-items", "weekly-report"]
+    },
+    {
+      "username": "sam",
+      "opens": ["shared/budget/teams/Marketing/2026-Q4-marketing-budget.xlsx", "groups/Marketing/november-campaign-plan.md"],
+      "closed": ["shared/budget/2026-Q4-company-budget.xlsx", "shared/budget/teams/Sales/2026-Q4-sales-budget.xlsx", "groups/Sales/pipeline.xlsx"]
+    },
+    {
+      "username": "priya",
+      "opens": ["shared/budget/teams/Sales/2026-Q4-sales-budget.xlsx", "groups/Sales/pipeline.xlsx"],
+      "closed": ["shared/budget/2026-Q4-company-budget.xlsx", "shared/budget/teams/Marketing/2026-Q4-marketing-budget.xlsx", "groups/Marketing/november-campaign-plan.md"],
+      "skills": ["meeting-action-items"]
+    },
+    {
+      "username": "leo",
+      "opens": ["groups/Sales/pipeline.xlsx"],
+      "closed": ["shared/budget/teams/Sales/2026-Q4-sales-budget.xlsx"]
+    },
+    {
+      "username": "dana",
+      "opens": ["shared/budget/2026-Q4-company-budget.xlsx", "shared/budget/teams/Marketing/2026-Q4-marketing-budget.xlsx", "shared/budget/teams/Sales/2026-Q4-sales-budget.xlsx", "groups/Sales/pipeline.xlsx", "groups/Marketing/november-campaign-plan.md"],
+      "skills": ["ad-copy", "meeting-action-items", "weekly-report"]
+    }
+  ]
+}

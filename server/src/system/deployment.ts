@@ -57,7 +57,7 @@ const TABLE: Record<RunKind, Features> = {
   dev: { connectionChange: true, selfUpdate: true, officeUpdate: false, connectedFolders: true, apiEngineAnyUrl: true, hostDiagnostics: true, pluginFileInstall: true },
 }
 
-/** A demo server (MYCEL_DEMO, `bun run demo:trina`) may be open to every network its Mac is on and its demo people's
+/** A demo server (MYCEL_DEMO, `bun run demo:company`) may be open to every network its Mac is on and its demo people's
  * password is public: nothing that reaches the Mac's own folders or runs code from a file or an address of the
  * caller's choosing (docs/DECISIONS.md "Demo company: a new hire at 트리나"). */
 const DEMO_OFF: Partial<Features> = { connectedFolders: false, pluginFileInstall: false, apiEngineAnyUrl: false }

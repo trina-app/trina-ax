@@ -76,7 +76,7 @@ describe('the panel (Admin › Members, the wizard)', () => {
     expect(html).toContain(`data-testid="team-link-url">${URL_.replace(/&/g, '&amp;')}<`)
     expect(html).toContain('Copy link')
     expect(html).toContain('Copy message')
-    expect(html).toContain(`Olga invited you to work together in ${PRODUCT.displayName} and to try the &#x27;ad-copy&#x27; skill together.`)
+    expect(html).toContain(`Olga invited you to ${PRODUCT.displayName} to try the &#x27;ad-copy&#x27; skill together.`)
     expect(html).toContain('data-testid="team-link-uses">3 of 10<')
     expect(html).toContain('Seats left: 6')
     expect(html).toContain('data-testid="team-link-replace"')
@@ -398,10 +398,10 @@ describe('the starter and the team\'s group', () => {
 
   test('the panel shows the starter\'s message and one quiet line; a starter with no file left is the usual message', () => {
     const html = view({ ...LINK, link: { ...LINK.link!, starter: { kind: 'tasks', files: 2 } } })
-    expect(html).toContain('I&#x27;ve put up this week&#x27;s team meeting notes. Open the link to see your own tasks right away.')
-    expect(html).toContain('data-testid="team-link-starter">On joining: their own tasks · 2 files<')
+    expect(html).toContain('I&#x27;ve shared this week&#x27;s team meeting notes. Open the link to see your tasks right away.')
+    expect(html).toContain('data-testid="team-link-starter">When they join: their own tasks · 2 files<')
     const none = view({ ...LINK, link: { ...LINK.link!, starter: { kind: 'tasks', files: 0 } } })
-    expect(none).toContain('invited you to work together')
+    expect(none).toContain('invited you to')
     expect(none).not.toContain('data-testid="team-link-starter"')
   })
 

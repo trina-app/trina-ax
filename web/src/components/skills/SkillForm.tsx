@@ -18,6 +18,7 @@ import { useNavigate } from 'react-router-dom'
 import { SKILL_INPUT_TEXT_MAX, SKILL_INPUT_VALUE_MAX, isChoice, skillSummary, skillTitle, type SkillInfo, type SkillInput } from '@mycel/shared/api'
 import { api, API, errorText } from '../../lib/api'
 import { composeSkillMessage, initialValues, loadPrefill, missingRequired, skillRunBy, withPrefill } from '../../lib/skillForm'
+import { clearMadeBy, heldMadeBy } from '../../lib/starter'
 import { rememberChat } from '../../lib/teamAttach'
 import { useLocale, useT } from '../../i18n'
 import { useChats } from '../../store/chats'
@@ -42,9 +43,12 @@ type Props = {
   description?: boolean
   /** the run button's words (default "실행"; the welcome steps say "광고 문구 만들기") */
   runLabel?: string
+  /** who made this team skill, for a member who just joined to use it (docs/DECISIONS.md "S"): one line on top,
+   * "지훈님이 만든 팀 스킬이에요 · 이 채팅은 민지님만 봐요" */
+  by?: string | null
 }
 
-export function SkillForm({ path, skill: given, onDone, onSkip, skipLabel, onCompose, onSkill, description = true, runLabel }: Props) {
+export function SkillForm({ path, skill: given, onDone, onSkip, skipLabel, onCompose, onSkill, description = true, runLabel, by }: Props) {
   const t = useT()
   const locale = useLocale()
   const me = useMeStrict()
@@ -161,7 +165,8 @@ export function SkillForm({ path, skill: given, onDone, onSkip, skipLabel, onCom
   const advanced = inputs.filter((i) => i.advanced)
   return (
     <form onSubmit={(e) => void submit(e)} noValidate className="space-y-3" data-testid="skill-form" data-path={skill.path}>
-      {description && skill.description && <p className="text-sm text-muted">{skillSummary(skill)}</p>}
+      {by && <p className="text-sm text-muted" data-testid="skill-form-by">{t('skillForm.madeBy', { by, name: me.user.name })}</p>}
+      {description && !by && skill.description && <p className="text-sm text-muted">{skillSummary(skill)}</p>}
       {loadError && <ErrorNote>{loadError}</ErrorNote>}
       {clash && <p role="alert" className="rounded-lg bg-warn-soft px-3 py-2 text-xs text-warn" data-testid="skill-form-clash">{t('skillForm.sameName', { name: skill.name, path: clash.path })}</p>}
       {inputs.filter((i) => !i.advanced).map(field)}
@@ -241,12 +246,16 @@ function ChoiceField({ id, input, label, value, error, onChange }: { id: string;
  * a bare path (a link after joining), so the folder name ("ad-copy") never flashes first. */
 export function SkillFormDialog({ path, skill, onClose, onCompose }: { path: string; skill?: SkillInfo; onClose: () => void; onCompose?: (message: string) => void }) {
   const t = useT()
+  const me = useMeStrict()
   const [loaded, setLoaded] = useState<SkillInfo | null>(null)
+  // a member who just joined with a link to a team skill a person made: who made it, until this form goes away
+  const [by] = useState(() => (onCompose ? null : heldMadeBy(me.user.id, path)))
+  useEffect(() => () => { if (by) clearMadeBy(me.user.id) }, [by, me.user.id])
   // only the skill of this path (a dialog kept open while its path changes never shows the one before)
   const shown = (loaded?.path === path ? loaded : null) ?? skill
   return (
     <Modal open onClose={onClose} width={560} title={shown ? t('skillForm.title', { name: skillTitle(shown) }) : t('skillForm.titlePlain')}>
-      <SkillForm path={path} skill={skill} onSkill={setLoaded} onCompose={onCompose ? (m) => { onCompose(m); onClose() } : undefined} />
+      <SkillForm path={path} skill={skill} onSkill={setLoaded} onCompose={onCompose ? (m) => { onCompose(m); onClose() } : undefined} by={by} />
     </Modal>
   )
 }

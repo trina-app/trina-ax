@@ -49,6 +49,6 @@ export const ROUTE_MODULES: readonly RouteModule[] = [
   onboardingWelcomeRoutes, // onboarding: the welcome steps' progress (docs/DECISIONS.md "W — Welcome steps")
   onboardingGoalRoutes, // onboarding: the 7-day team goal (docs/DECISIONS.md "G — The 7-day team goal")
   slackRoutes, // C: the Slack connector (docs/SLACK.md); after chats, whose runtime its questions use
-  demoRoutes, // demo company (`bun run demo:trina`; 404 unless a development server runs with MYCEL_DEMO)
+  demoRoutes, // demo company (`bun run demo:company`; 404 unless a development server runs with MYCEL_DEMO)
   webRoutes, // D (catch-all, keep last)
 ]

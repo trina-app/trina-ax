@@ -16,7 +16,7 @@ import { clearLocalData } from '../lib/localData'
 import { readSetupLink, rememberSetupSite } from '../lib/setupLink'
 import { setAfterSetup } from '../lib/welcome'
 import { joinNext, readJoinToken, setAfterJoin } from '../lib/team-link'
-import { holdStarter } from '../lib/starter'
+import { holdMadeBy, holdStarter } from '../lib/starter'
 import { SourceCodeLink } from '../components/SourceCodeLink'
 import { Button, Field, IconButton, inputCls } from '../components/ui'
 import { browserTimeZone } from '../lib/time-zones'
@@ -146,7 +146,7 @@ export function Login() {
   const { busy, error, run } = useSubmit()
   const { errorOf, check } = useFieldChecks({ username: requiredCheck(username), password: password ? null : 'auth.required' })
   const reason = status.kind === 'signed-out' ? status.reason : undefined
-  // a demo server (`bun run demo:trina`): one action, start as the new hire; the usual form is one link away
+  // a demo server (`bun run demo:company`): one action, start as the new hire; the usual form is one link away
   const { info: demo } = useDemoInfo()
   const [form, setForm] = useState(false)
   const submit = (e: FormEvent<HTMLFormElement>) => {
@@ -423,6 +423,9 @@ export function TeamJoin() {
       // the lead's files waiting for them (docs/DECISIONS.md "M"): Home fills the box with them and the question
       if (r.starter) holdStarter(r.me.user.id, r.starter)
       const next = r.starter ? '/' : joinNext(r.next)
+      // a team skill a person made: its form says who ("지훈님이 만든 팀 스킬이에요", docs/DECISIONS.md "S")
+      const formPath = !r.starter && r.skillBy && next.startsWith('/skills?run=') ? new URLSearchParams(next.slice('/skills?'.length)).get('run') : null
+      if (formPath) holdMadeBy(r.me.user.id, formPath, r.skillBy!)
       setAfterJoin(next)
       signedIn(r.me)
       navigate(next, { replace: true })

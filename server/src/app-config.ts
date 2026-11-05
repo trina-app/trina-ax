@@ -8,7 +8,7 @@
 // MYCEL_LOG_DIR, MYCEL_LOG_LEVEL, MYCEL_PUBLIC_ORIGINS (comma separated), MYCEL_SETUP_TOKEN,
 // MYCEL_RELAY_URL (ws(s)://<relay>/connect, '' = off), MYCEL_RELAY_TEAM (team name at the relay), MYCEL_RELAY_OFFICIAL
 // (1 = the official relay may be offered), MYCEL_DEPLOYMENT (self | hosted, server/src/system/deployment.ts),
-// MYCEL_DEMO (a demo file, `bun run demo:trina`: development servers only, refused anywhere else; readDemoFile),
+// MYCEL_DEMO (a demo file, `bun run demo:company`: development servers only, refused anywhere else; readDemoFile),
 // MYCEL_PUSH_GATEWAY (the native app push gateway, https://<host> or http://127.0.0.1:<port>; unset or '' = off).
 // Office mode (one Mac in a small office, docs/OFFICE.md) is dev mode's engine setup (local-login, engine.sb,
 // lockdown) with `office: true`: no DEV banner, and its supervisor (server/src/office/cli.ts) writes the file (TLS
@@ -237,7 +237,7 @@ export interface AppConfig {
   deployment?: 'self' | 'hosted'
   /** first-run setup token (POST /api/setup). Dev: printed at start; prod: written by the installer. */
   setupToken: string | null
-  /** demo mode (MYCEL_DEMO, `bun run demo:trina`): the fictional company's demo people. Only ever set on a development
+  /** demo mode (MYCEL_DEMO, `bun run demo:company`): the fictional company's demo people. Only ever set on a development
    * server (readDemoFile); absent everywhere else, and then the demo endpoints answer 404. */
   demo?: DemoFile
 }
@@ -348,7 +348,7 @@ export function readDemoFile(value: string | undefined, where: { mode: 'dev' | '
   if (value === undefined || value === '') return null
   const P = PRODUCT.envPrefix
   if (where.mode !== 'dev' || where.deployment === 'hosted' || where.office) {
-    throw new ConfigError(`${P}DEMO is for a development demo server only (\`bun run demo:trina\`): remove it from this server's environment. It is never allowed in production mode, on the hosted service or in office mode.`)
+    throw new ConfigError(`${P}DEMO is for a development demo server only (\`bun run demo:company\`): remove it from this server's environment. It is never allowed in production mode, on the hosted service or in office mode.`)
   }
   const file = path.resolve(cwd, value)
   let raw: unknown
