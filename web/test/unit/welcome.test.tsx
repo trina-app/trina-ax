@@ -890,6 +890,25 @@ describe('after the first result', () => {
     } finally { await m.unmount() }
   })
 
+  test('another screen of the owner made a link meanwhile: read again right before, that link is used, none made over it', async () => {
+    signIn('owner')
+    progress = ran()
+    withGroup()
+    const link = openLink({ skill: { path: GENERAL_CARDNEWS_SKILL, name: 'card-news', title: '카드뉴스' }, url: 'https://acme.example/join#t=other' })
+    // the panel's first read sees no link; the second tab makes one before the read right before making
+    let reads = 0
+    routes['GET /api/admin/team-link'] = () => json(200, reads++ === 0 ? { link: null, seats: { used: 1, limit: null } } : { link, seats: { used: 1, limit: null } })
+    const m = await mount(<MemoryRouter><WelcomeInviteBar chatId={CHAT} answered messages={cardNews()} /></MemoryRouter>)
+    try {
+      await m.until(() => m.find('welcome-invite-open'), 'the bar')
+      await m.click('welcome-invite-open')
+      await m.until(() => m.find('team-link-message'), 'the message')
+      expect(reads).toBeGreaterThanOrEqual(2)
+      expect(called('POST /api/admin/team-link')).toEqual([])
+      expect(m.get('team-link-message').textContent).toContain('https://acme.example/join#t=other')
+    } finally { await m.unmount() }
+  })
+
   test('an open link that leads elsewhere (the meeting notes and their files) is changed to the skill, same address, no files; nothing made', async () => {
     signIn('owner')
     progress = ran()

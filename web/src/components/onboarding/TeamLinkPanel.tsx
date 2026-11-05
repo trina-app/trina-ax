@@ -136,10 +136,15 @@ export function TeamLinkPanel({ withGroups = true, skillPicker = true, skillPath
     const groupIds = [...new Set([...(old?.groupIds ?? []), ...(teamGroup ? [teamGroup.id] : [])])]
     const skill = skillPath ?? old?.skill?.path ?? null
     const body: CreateTeamLinkBody = { groupIds, expiresInDays: TEAM_LINK_DEFAULT_DAYS, ...(skill ? { skillPath: skill } : {}), ...(skill && starter ? { starter } : {}) }
-    void act(() => api.call(API.createTeamLink, { body })).then((r) => {
+    void (async () => {
+      // read again right before: another screen of the owner (a second tab, the phone) may have made one meanwhile, and
+      // making a link ends the open one, so the link that screen shows would stop working
+      const now = await api.call(API.getTeamLink).catch(() => null)
+      if (now && !linkToMake(now)) { state.setData(now); setEarly('done'); return }
+      const r = await act(() => api.call(API.createTeamLink, { body }))
       if (r) state.setData(r)
       setEarly('done')
-    })
+    })()
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [wantEarly])
   // the message of the link as it was would be copied a moment too early; a link being made shows nothing to copy yet
