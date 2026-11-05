@@ -30,8 +30,9 @@ export const ORPHAN_KEEP_MS = 30 * 86400_000
 const THUMB = '.thumb.jpg'
 const MOVING = '.moving'
 const stamp = (ms: number) => new Date(ms).toISOString().replace(/[-:]/g, '').replace(/\.\d+Z$/, 'Z')
+/** the time in an orphan batch's name (<stamp>-<pid>-<n>; a bare <stamp> from before is read too) */
 const parseStamp = (s: string): number | null => {
-  const m = /^(\d{4})(\d{2})(\d{2})T(\d{2})(\d{2})(\d{2})Z$/.exec(s)
+  const m = /^(\d{4})(\d{2})(\d{2})T(\d{2})(\d{2})(\d{2})Z(?:-\d+-\d+)?$/.exec(s)
   return m ? Date.UTC(+m[1]!, +m[2]! - 1, +m[3]!, +m[4]!, +m[5]!, +m[6]!) : null
 }
 const services = new WeakMap<AppContext, RoomFiles>()
@@ -118,7 +119,9 @@ export class RoomFiles {
    */
   reconcile(now = Date.now()): { movedFiles: number; missingFiles: number; orphansMoved: number; orphanBatchesPurged: number; skipped?: true } {
     const out = { movedFiles: 0, missingFiles: 0, orphansMoved: 0, orphanBatchesPurged: 0 }
-    out.movedFiles = this.moveLegacy()
+    // the first layout moves over only into a team folder that is there: an empty mount point of a share that is not
+    // mounted yet gets no .system/rooms of its own
+    if (this.teamFolderPresent()) out.movedFiles = this.moveLegacy()
     const root = this.root()
     let rooms: string[]
     try {
@@ -133,7 +136,7 @@ export class RoomFiles {
     const rows = this.ctx.db.query('SELECT id, room_id FROM room_files').all() as Pick<FileRow, 'id' | 'room_id'>[]
     const known = new Set(rows.map((r) => `${r.room_id}/${r.id}`))
     for (const r of rows) if (!fs.existsSync(this.abs(r))) out.missingFiles++
-    const batch = path.join(this.orphansRoot(), stamp(now))
+    const batch = this.newBatch(now)
     for (const room of rooms) {
       const dir = path.join(root, room)
       let names: string[] = []
@@ -155,11 +158,28 @@ export class RoomFiles {
 
   private orphansRoot() { return path.join(this.ctx.files.fx.root, PRODUCT.systemDir, 'rooms-orphans') }
 
+  /** A batch folder name no other start uses: the time, this process and a count (two starts in one second differ). */
+  private newBatch(now: number): string {
+    for (let i = 0; ; i++) {
+      const p = path.join(this.orphansRoot(), `${stamp(now)}-${process.pid}-${i}`)
+      if (!fs.existsSync(p)) return p
+    }
+  }
+
+  /** The team folder can be read and written and holds something (setup makes its folders; an unmounted share is empty). */
+  private teamFolderPresent(): boolean {
+    try {
+      const t = this.ctx.files.fx.root
+      fs.accessSync(t, fs.constants.R_OK | fs.constants.W_OK | fs.constants.X_OK)
+      return fs.readdirSync(t).length > 0
+    } catch { return false }
+  }
+
   /** <data dir>/rooms/<room>/<file> → <team>/.system/rooms/<room>/<file>, each file copied to `<name>.moving` and renamed
    * (a rename when both are on one disk), then the old one removed. A file already there is not copied again. */
   private moveLegacy(): number {
     const legacy = path.join(this.ctx.config.dataDir, 'rooms')
-    if (!fs.existsSync(legacy) || !fs.existsSync(this.ctx.files.fx.root)) return 0
+    if (!fs.existsSync(legacy)) return 0
     let moved = 0
     for (const room of fs.readdirSync(legacy)) {
       const from = path.join(legacy, room), to = this.dir(room)
@@ -182,14 +202,23 @@ export class RoomFiles {
     return moved
   }
 
-  /** Orphan batches older than ORPHAN_KEEP_MS go. */
+  /** Orphan batches older than ORPHAN_KEEP_MS by both the time in their name and their folder's time go. Not when the
+   * clock looks wrong (earlier than the newest room file: a Mac with a dead clock battery, a restored VM). */
   private purgeOrphans(now: number): number {
+    const newest = (this.ctx.db.query('SELECT MAX(created_at) t FROM room_files').get() as { t: string | null }).t
+    if (newest && now < Date.parse(newest)) {
+      this.ctx.log.warn('the clock is earlier than the newest room file; set-aside room files are kept', { newest })
+      return 0
+    }
     let n = 0
     let batches: string[] = []
     try { batches = fs.readdirSync(this.orphansRoot()) } catch { return 0 }
     for (const b of batches) {
       const at = parseStamp(b)
       if (at === null || now - at < ORPHAN_KEEP_MS) continue
+      let mtime: number
+      try { mtime = fs.statSync(path.join(this.orphansRoot(), b)).mtimeMs } catch { continue }
+      if (now - mtime < ORPHAN_KEEP_MS) continue
       fs.rmSync(path.join(this.orphansRoot(), b), { recursive: true, force: true })
       n++
     }

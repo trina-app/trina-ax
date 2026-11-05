@@ -358,8 +358,15 @@ test('backups: room files are in the team archive and come back with a restore; 
   expect(fs.existsSync(path.join(sys, 'rooms', dm.id, b.file.id))).toBe(false)
   const [batch] = fs.readdirSync(path.join(sys, 'rooms-orphans'))
   expect(fs.readFileSync(path.join(sys, 'rooms-orphans', batch!, dm.id, b.file.id), 'utf8')).toBe('second file')
-  // a second start changes nothing more; after 30 days the set-aside batch goes
+  expect(batch).toMatch(/^\d{8}T\d{6}Z-\d+-0$/)
+  // a second start changes nothing more; a clock earlier than the newest room file purges nothing; after 30 days (by the
+  // name and the folder's time) the set-aside batch goes
   expect(roomFilesOf(h.ctx).reconcile()).toMatchObject({ orphansMoved: 0, orphanBatchesPurged: 0 })
+  expect(roomFilesOf(h.ctx).reconcile(Date.now() - 86400_000)).toMatchObject({ orphanBatchesPurged: 0 })
+  // a name 40 days old on a folder made now (a clock that was wrong when it was made) is not enough either
+  const aged = new Date(Date.now() - 40 * 86400_000).toISOString().replace(/[-:]/g, '').replace(/\.\d+Z$/, 'Z') + '-1-0'
+  fs.renameSync(path.join(sys, 'rooms-orphans', batch!), path.join(sys, 'rooms-orphans', aged))
+  expect(roomFilesOf(h.ctx).reconcile()).toMatchObject({ orphanBatchesPurged: 0 })
   expect(roomFilesOf(h.ctx).reconcile(Date.now() + 31 * 86400_000)).toMatchObject({ orphanBatchesPurged: 1 })
   expect(fs.readdirSync(path.join(sys, 'rooms-orphans'))).toEqual([])
   // the folder missing (a share not mounted yet) or unreadable: nothing is touched
