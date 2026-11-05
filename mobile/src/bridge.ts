@@ -79,6 +79,12 @@ export class FileTransfers {
   }
 }
 
+/** True at most once per `ms`: open-settings, so a page cannot keep sending the person to the phone's Settings. */
+export function onceEvery(ms: number, now: () => number = Date.now): () => boolean {
+  let last = -Infinity
+  return () => { const t = now(); if (t - last < ms) return false; last = t; return true }
+}
+
 /** The only push failures the web page learns: the person said no, or this build/device cannot receive push. */
 export class PushRefused extends Error { constructor(readonly code: 'push_denied' | 'push_unavailable') { super(code) } }
 /** token: ask the OS (permission prompt) for the device token; registered: the page registered it with its team;

@@ -21,3 +21,13 @@ export function insetScript(i: Insets): string {
     + `if(!a()){var o=new MutationObserver(function(){if(a())o.disconnect()});o.observe(document,{childList:true,subtree:true})}})();true;`
 }
 const px = (n: number) => Number.isFinite(n) && n > 0 ? Math.min(Math.round(n * 10) / 10, 200) : 0
+
+/** The app's own padding around the page. A page that pads itself (it said so: appearance-v1) gets the whole screen. Any
+ * other page, from a team server that has not updated yet, keeps the padding it had before: below the status bar, and on
+ * Android above the navigation bar (its WebView reports no insets) except on the sign-in pages, whose footer keeps clear
+ * of it. On Android the keyboard lifts the page in either case (edge to edge the window does not shrink for it). */
+export function frame(o: { selfPadded: boolean; android: boolean; footer: boolean; keyboard: number; insets: Insets }): { top: number; bottom: number } {
+  const top = o.selfPadded ? 0 : o.insets.top
+  if (o.android && o.keyboard > 0) return { top, bottom: o.keyboard + o.insets.bottom }
+  return { top, bottom: o.selfPadded || o.footer || !o.android ? 0 : o.insets.bottom }
+}

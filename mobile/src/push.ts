@@ -5,8 +5,8 @@ import { fetch } from 'expo/fetch'
 import * as SecureStore from 'expo-secure-store'
 import * as Application from 'expo-application'
 import * as Notifications from 'expo-notifications'
-import { Linking, Platform } from 'react-native'
-import { PushRefused } from './bridge'
+import { AppState, Linking, Platform } from 'react-native'
+import { onceEvery, PushRefused } from './bridge'
 import { parseTeamAddress } from './address'
 import type { DeviceDeps, Slot } from './device'
 import { tappedNotificationPath, type PushEnvironment, type PushPermission, type PushToken } from './protocol'
@@ -36,8 +36,13 @@ export async function notificationPermission(): Promise<PushPermission> {
   return status.status === 'granted' ? 'granted' : status.canAskAgain ? 'undetermined' : 'denied'
 }
 
-/** This app's page in the phone's Settings (notifications are switched on there once the person said no). */
-export async function openAppSettings(): Promise<void> { await Linking.openSettings() }
+const settingsOnce = onceEvery(3000)
+/** This app's page in the phone's Settings (notifications are switched on there once the person said no): only while
+ * the app is on screen, and at most once every few seconds, whatever the page asks. */
+export async function openAppSettings(): Promise<void> {
+  if (AppState.currentState !== 'active' || !settingsOnce()) return
+  await Linking.openSettings()
+}
 
 /** Asks for permission (only when the person has not answered yet) and returns this phone's device token. One prompt
  * at a time: a second request while the dialog is open waits for the same answer. The page sends this only when the

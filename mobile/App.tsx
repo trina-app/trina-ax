@@ -13,7 +13,7 @@ import { clearDownloadCache, fileTransferIO } from './src/files'
 import { APPEARANCE_CAPABILITY, MOBILE_CAPABILITIES, PUSH_CAPABILITY, PUSH_PERMISSION_CAPABILITY, PUSH_REGISTERED_CAPABILITY, googleOAuthUrl, navigationDecision, sameTeam, type MobileConfig } from './src/protocol'
 import { accentInk, mobileProduct } from './src/product'
 import { devicePushToken, devices, forgetDelivered, notificationPermission, onNotificationTap, openAppSettings, quietForeground } from './src/push'
-import { DARK, LIGHT, insetScript, isDark, type Palette } from './src/look'
+import { DARK, LIGHT, frame, insetScript, isDark, type Palette } from './src/look'
 import { currentDevice, leaveTeam, rememberDevice, retryRemovals } from './src/device'
 import { offlineError, stringsFor } from './src/strings'
 import { checkTeam, parseTeamAddress, savedTeamSince, savedTeamUrl, saveTeamUrl } from './src/team'
@@ -111,6 +111,9 @@ function TeamWeb({ address, opened, onDevice, onAppearance, onChangeTeam }: { ad
   const [canBack, setCanBack] = useState(false), [pathname, setPathname] = useState(address.entryPath), [failed, setFailed] = useState<Failure | null>(null)
   const [source, setSource] = useState(address.origin + address.entryPath)
   const insets = useSafeAreaInsets(), c = useContext(Look)
+  // the page on screen pads itself (it reported its look, appearance-v1): until then, and again after every full load,
+  // the app keeps its own padding, so a team server that has not updated still fits between the system bars
+  const [selfPadded, setSelfPadded] = useState(false)
   const receiver = useRef<MobileReceiver | null>(null)
   if (!receiver.current) {
     const config: MobileConfig = { protocol: 1, appVersion: VERSION, platform: Platform.OS === 'ios' ? 'ios' : 'android', nonce: '0'.repeat(64), generation: 1, capabilities: [...MOBILE_CAPABILITIES, PUSH_CAPABILITY, PUSH_REGISTERED_CAPABILITY, PUSH_PERMISSION_CAPABILITY, APPEARANCE_CAPABILITY] }
@@ -118,7 +121,7 @@ function TeamWeb({ address, opened, onDevice, onAppearance, onChangeTeam }: { ad
       token: () => devicePushToken(t.channelName),
       async registered({ deviceId, removeKey }) { await rememberDevice(devices, { origin: address.origin, deviceId, removeKey, at: Date.now() }); onDevice(deviceId) },
       permission: notificationPermission, openSettings: openAppSettings,
-    }, onAppearance)
+    }, look => { onAppearance(look); setSelfPadded(true) })
     void receiver.current.disable()
   }
   const r = receiver.current
@@ -136,10 +139,10 @@ function TeamWeb({ address, opened, onDevice, onAppearance, onChangeTeam }: { ad
     if (ready.current) web.current?.injectJavaScript(`window.location.assign(${JSON.stringify(opened.path)});true;`)
     else setSource(target)
   }, [opened, address.origin])
-  // the page draws under the status bar and the home indicator / navigation bar and pads itself (web/src/index.css);
-  // insets that change while a page is open (Android's navigation mode) reach it here, a new page before it loads
+  // a page that pads itself draws under the status bar and the home indicator / navigation bar (web/src/index.css); it
+  // gets the insets as CSS variables when it said so, and again when they change (Android's navigation mode)
   const insetJs = insetScript(insets)
-  useEffect(() => { if (ready.current) web.current?.injectJavaScript(insetJs) }, [insetJs])
+  useEffect(() => { if (selfPadded) web.current?.injectJavaScript(insetJs) }, [selfPadded, insetJs])
   // Android draws edge to edge (target SDK 36), so the window no longer shrinks for the keyboard and the page's message
   // box stayed under it. The app lifts the page by the keyboard (React Native reports its height without the navigation
   // bar under it); the page then sees a short viewport and drops its own bottom inset (web/src/lib/viewport.ts).
@@ -181,12 +184,13 @@ function TeamWeb({ address, opened, onDevice, onAppearance, onChangeTeam }: { ad
     <Pressable style={s.button} onPress={() => setFailed(null)} testID="retry"><Text style={s.buttonText}>{t.retry}</Text></Pressable>
     <Pressable style={s.link} onPress={() => void changeTeam()} testID="failed-change-team"><Text style={[s.linkText, { color: c.ink }]}>{t.changeTeam}</Text></Pressable></Center>
   const showFooter = pathname === '/login' || pathname.startsWith('/invite')
-  // Edge to edge: the page fills the screen under the status bar and the home indicator / navigation bar in its own
-  // colours and pads itself (env(safe-area-inset-*), and --app-inset-* from insetScript for WebViews that report none).
-  // Only the sign-in pages end above the app's own "another team" footer.
-  return <View style={[s.fill, { backgroundColor: c.canvas, paddingLeft: insets.left, paddingRight: insets.right, paddingBottom: keyboard ? keyboard + insets.bottom : 0 }]}><View style={s.fill}>
+  // Edge to edge for a page that pads itself: it fills the screen under the status bar and the home indicator /
+  // navigation bar in its own colours (env(safe-area-inset-*), and --app-inset-* from insetScript for WebViews that
+  // report none). Any other page keeps the app's padding (src/look.ts frame). The sign-in pages end above the app's own
+  // "another team" footer.
+  const pad = frame({ selfPadded, android: Platform.OS === 'android', footer: showFooter, keyboard, insets })
+  return <View style={[s.fill, { backgroundColor: c.canvas, paddingTop: pad.top, paddingLeft: insets.left, paddingRight: insets.right, paddingBottom: pad.bottom }]}><View style={s.fill}>
     <WebView ref={web} source={{ uri: source }} style={[s.fill, { backgroundColor: c.canvas }]}
-      injectedJavaScriptBeforeContentLoaded={insetJs}
       originWhitelist={['*']} applicationNameForUserAgent={`${product.userAgent}/${VERSION}`}
       sharedCookiesEnabled thirdPartyCookiesEnabled={false} mixedContentMode="never" allowFileAccess={false}
       allowFileAccessFromFileURLs={false} allowUniversalAccessFromFileURLs={false}
@@ -206,7 +210,7 @@ function TeamWeb({ address, opened, onDevice, onAppearance, onChangeTeam }: { ad
       // Android also reports a same-document navigation (history.pushState: the web app moving to its next page, as
       // after sign-in) as a load start, with no load end after it. The document and its bridge stay then, so nothing
       // is fenced: fencing it left the bridge off until the next full load (no session reset, push or file share).
-      onLoadStart={event => { if (Platform.OS === 'android' && !event.nativeEvent.loading) return; loadFailed.current = false; ready.current = false; void clear() }}
+      onLoadStart={event => { if (Platform.OS === 'android' && !event.nativeEvent.loading) return; loadFailed.current = false; ready.current = false; setSelfPadded(false); void clear() }}
       onLoadEnd={event => { void loaded(event.nativeEvent.url).then(() => { ready.current = !loadFailed.current }, () => fail('unreachable')) }}
       onNavigationStateChange={state => { setCanBack(state.canGoBack); if (sameTeam(address.origin, state.url)) setPathname(new URL(state.url).pathname) }}
       onMessage={event => {

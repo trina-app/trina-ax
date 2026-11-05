@@ -1,10 +1,10 @@
 import { afterEach, expect, test } from 'bun:test'
 import fs from 'node:fs'
 import path from 'node:path'
-import { FileTransfers, MobileReceiver, PushRefused, type TransferIO } from '../../mobile/src/bridge'
+import { FileTransfers, MobileReceiver, onceEvery, PushRefused, type TransferIO } from '../../mobile/src/bridge'
 import { currentDevice, leaveTeam, rememberDevice, retryRemovals, type DeviceDeps, type TeamDevice } from '../../mobile/src/device'
 import { APPEARANCE_CAPABILITY, MOBILE_CAPABILITIES, PUSH_CAPABILITY, PUSH_PERMISSION_CAPABILITY, PUSH_REGISTERED_CAPABILITY, notificationPath, parseMessage, tappedNotificationPath, validConfig, validPushToken, type MobileConfig, type PushPermission, type PushToken } from '../../mobile/src/protocol'
-import { DARK, LIGHT, insetScript, isDark } from '../../mobile/src/look'
+import { DARK, LIGHT, frame, insetScript, isDark } from '../../mobile/src/look'
 import { IOS_USAGE, offlineError, stringsFor } from '../../mobile/src/strings'
 import appConfig from '../../mobile/app.config'
 
@@ -280,4 +280,30 @@ test('the look: the page says first, the phone before that; insets reach the pag
   observer!()
   expect(Object.fromEntries(set)).toEqual({ '--app-inset-top': '59px', '--app-inset-right': '0px', '--app-inset-bottom': '34px', '--app-inset-left': '0px' })
   expect(observer).toBeNull()
+})
+
+test('a page that does not pad itself (a team server not updated yet) keeps the app padding it had before', () => {
+  const insets = { top: 59, right: 0, bottom: 34, left: 0 }
+  const f = (o: Partial<Parameters<typeof frame>[0]>) => frame({ selfPadded: false, android: false, footer: false, keyboard: 0, insets, ...o })
+  // iOS: below the status bar; the page itself keeps clear of the home indicator through env(), as before
+  expect(f({})).toEqual({ top: 59, bottom: 0 })
+  // Android: below the status bar and above the navigation bar (its WebView reports no insets), not under the footer
+  expect(f({ android: true })).toEqual({ top: 59, bottom: 34 })
+  expect(f({ android: true, footer: true })).toEqual({ top: 59, bottom: 0 })
+  // once the page said it pads itself (appearance-v1): the whole screen
+  expect(f({ selfPadded: true })).toEqual({ top: 0, bottom: 0 })
+  expect(f({ selfPadded: true, android: true })).toEqual({ top: 0, bottom: 0 })
+  // the Android keyboard lifts the page either way, by its height plus the navigation bar
+  expect(f({ android: true, keyboard: 300 })).toEqual({ top: 59, bottom: 334 })
+  expect(f({ android: true, keyboard: 300, selfPadded: true })).toEqual({ top: 0, bottom: 334 })
+  expect(f({ keyboard: 300 })).toEqual({ top: 59, bottom: 0 }) // iOS: WKWebView handles its keyboard
+})
+
+test('open-settings: at most once every few seconds, whatever the page sends', () => {
+  let t = 1_000_000
+  const once = onceEvery(3000, () => t)
+  expect(once()).toBe(true)
+  t += 100; expect(once()).toBe(false)
+  t += 2899; expect(once()).toBe(false)
+  t += 1; expect(once()).toBe(true)
 })
