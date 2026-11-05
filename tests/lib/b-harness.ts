@@ -52,6 +52,11 @@ const people: Record<string, { id: string; name: string; role: 'owner' | 'admin'
   dana: { id: 'dana', name: 'Dana Choi', role: 'owner', locale: 'ko' },
   erin: { id: 'erin', name: 'Erin Yoo', role: 'member', locale: 'id' },
 }
+/** Someone who got an account during a test (a team link's join, say): from now on the test sessions sign them in by
+ * `key` (x-test-user) as the account with this id. */
+export function addTestPerson(key: string, p: { id: string; name: string; role: 'owner' | 'admin' | 'member'; locale: 'ko' | 'en' | 'id' }) {
+  people[key] = p
+}
 const sessionIds = new Map<string, string>()
 /** test session service: x-test-user (cookie-like, needs Origin on WebSockets) or Bearer test-<user> */
 export const testSessions: SessionService = {
