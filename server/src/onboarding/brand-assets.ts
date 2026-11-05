@@ -371,14 +371,25 @@ export async function downsize(img: { bytes: Buffer; ext: string; width: number;
   return size ? { bytes: jpeg, ext: 'jpg', ...size } : null
 }
 
-/** The logo's dominant colours (opaque pixels that are not white, black or grey), strongest first. */
+/** The logo is looked at this many pixels on its long side, at most. */
+const LOGO_SAMPLE_SIDE = 128
+
+/**
+ * The logo's dominant colours (opaque pixels that are not white, black or grey), strongest first. The logo is
+ * point-sampled (nearest neighbour, its own shape kept), never averaged: squeezing a wide logo of thin letters into a
+ * small square blended every letter with the white around it, so a deep blue came out a muted indigo and became the
+ * brand colour (docs/DECISIONS.md "W3"). Buckets of close colours are
+ * merged after averaging, so one colour on a bucket edge (JPEG noise around 160) counts once.
+ */
 export async function logoColors(bytes: Buffer, ext: string): Promise<ColorHit[]> {
-  const raw = await ffmpegPipe(bytes, ext, ['-frames:v', '1', '-vf', 'scale=32:32', '-f', 'rawvideo', '-pix_fmt', 'rgba', 'pipe:1'], 64 * 1024)
-  if (!raw || raw.length < 32 * 32 * 4) return []
+  const side = LOGO_SAMPLE_SIDE
+  const raw = await ffmpegPipe(bytes, ext, ['-frames:v', '1', '-vf', `scale=${side}:${side}:force_original_aspect_ratio=decrease:flags=neighbor`, '-f', 'rawvideo', '-pix_fmt', 'rgba', 'pipe:1'], side * side * 4 + 1024)
+  const pixels = raw ? Math.floor(raw.length / 4) : 0
+  if (pixels < 64) return []
   const buckets = new Map<string, { n: number; r: number; g: number; b: number }>()
-  for (let i = 0; i + 3 < raw.length; i += 4) {
-    if (raw[i + 3]! < 160) continue
-    const r = raw[i]!, g = raw[i + 1]!, b = raw[i + 2]!
+  for (let i = 0; i + 3 < raw!.length; i += 4) {
+    if (raw![i + 3]! < 160) continue
+    const r = raw![i]!, g = raw![i + 1]!, b = raw![i + 2]!
     const hex = '#' + hex2(r) + hex2(g) + hex2(b)
     if (!brandish(hex)) continue
     const key = `${r >> 5}-${g >> 5}-${b >> 5}`
@@ -386,8 +397,17 @@ export async function logoColors(bytes: Buffer, ext: string): Promise<ColorHit[]
     k.n++; k.r += r; k.g += g; k.b += b
     buckets.set(key, k)
   }
-  return [...buckets.values()].filter((k) => k.n >= 12).sort((a, b) => b.n - a.n).slice(0, 2)
-    .map((k, i) => ({ hex: '#' + hex2(k.r / k.n) + hex2(k.g / k.n) + hex2(k.b / k.n), weight: i === 0 ? 150 : 60 }))
+  // close buckets are one colour (the biggest one's sums take the others in)
+  const merged: { n: number; r: number; g: number; b: number }[] = []
+  const avg = (k: { n: number; r: number; g: number; b: number }) => '#' + hex2(k.r / k.n) + hex2(k.g / k.n) + hex2(k.b / k.n)
+  for (const k of [...buckets.values()].sort((a, b) => b.n - a.n)) {
+    const into = merged.find((m) => close(avg(m), avg(k)))
+    if (into) { into.n += k.n; into.r += k.r; into.g += k.g; into.b += k.b } else merged.push({ ...k })
+  }
+  // at least about 1 % of the picture (12 of the 32 × 32 the logo was once squeezed into)
+  const least = Math.max(6, Math.round(pixels * 0.012))
+  return merged.filter((k) => k.n >= least).sort((a, b) => b.n - a.n).slice(0, 2)
+    .map((k, i) => ({ hex: avg(k), weight: i === 0 ? 150 : 60 }))
 }
 
 // ---------------- the collector of one draft answer ----------------

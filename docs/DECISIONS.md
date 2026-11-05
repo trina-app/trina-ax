@@ -8569,3 +8569,18 @@ ends and weight before the first result. Fixed here, each in its own commit:
   chat list, its search, its realtime updates and Home's frequent questions (`server/src/chat/internal-chats.ts`), marked
   by their existing tables (`onboarding_profile_drafts`, `onboarding_skill_drafts`; no migration). Their flows read them
   by id as before and they still open by address. The reading hint no longer says the chat stays in the list.
+
+## W3 — Fixes from a walk with a large company's website (fix/onboarding-walk, 2026-11-06)
+
+A walk of the whole onboarding on a dev server (Claude Code login, 390 px and a computer) with a large company's real
+website, an owner and a member, found what the smaller sites of the earlier gate runs did not.
+Placement: Team AX core (onboarding, web reading, skills, chat). Each fix is its own commit with its tests.
+
+- **The brand colour was a blend.** The site has no theme-color and its style sheets only UI blues; its logo is a wide
+  JPEG of thin deep-blue letters on white. `logoColors` squeezed the logo into 32 × 32 pixels, which averaged every
+  letter with the white around it: a muted indigo came out as the logo's colour (150) and won over the brand's own
+  deep blue. The logo is now point-sampled (nearest neighbour, at most 128 px on its long side, its shape kept), so a
+  pixel is the logo's own colour; close buckets are merged after averaging (one colour on a bucket edge counts once);
+  the share a colour needs stays about 1 % of the picture. Nothing else in the ranking changed. Test: a generated
+  logo of the same shape (a made-up blue) gives exactly its blue, and the page's UI blues do not beat it.
+

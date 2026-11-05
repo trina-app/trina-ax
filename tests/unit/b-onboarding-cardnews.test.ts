@@ -9,7 +9,9 @@ import { API, CARD_NEWS_ARTIFACT_KEY, GENERAL_CARDNEWS_SKILL } from '@mycel/shar
 import { startHarness, type Harness } from '../lib/b-harness'
 import { waitFor } from '../lib/wait'
 import { noteEgressIp } from '../../server/src/tools/egress'
-import { acceptImage, cssColors, extractPageAssets, imageKind, largestSrc, normColor, rankColors } from '../../server/src/onboarding/brand-assets'
+import { acceptImage, cssColors, extractPageAssets, imageKind, largestSrc, logoColors, normColor, rankColors } from '../../server/src/onboarding/brand-assets'
+import { which } from '../../server/src/config'
+import { pngOf } from '../lib/images'
 import { cleanColors, cleanProfile, profileFactLines } from '../../server/src/onboarding/profile'
 import { parseDraftAnswer, webScope, type DraftScope } from '../../server/src/onboarding/draft'
 import { introMarkdown } from '../../server/src/onboarding/welcome-result'
@@ -70,6 +72,23 @@ describe('what a page offers (pure)', () => {
     expect(rankColors([...palette, { hex: '#4d24fc', weight: 150 }])).toEqual(['#4d24fc'])
     expect(rankColors([{ hex: '#ffffff', weight: 120 }, { hex: '#808080', weight: 120 }, { hex: '#212121', weight: 120 }, { hex: '#05b2f5', weight: 16 }])).toEqual(['#212121'])
     expect(largestSrc('a.jpg 1x, b.jpg 2x')).toBe('b.jpg')
+  })
+  // docs/DECISIONS.md "W3": a company site with no theme-color and only UI blues in its style sheets, its logo a wide
+  // wordmark of thin deep-blue letters on white: the logo squeezed into 32 × 32 blended every letter with the white
+  // around it, and that blend, as the logo's colour (150), won
+  test.skipIf(!which('ffmpeg'))('the logo\'s colour is its own, never its letters blended with the white around them (ffmpeg)', async () => {
+    const blue = [0x1f, 0x3a, 0x93] as const, white = [255, 255, 255] as const
+    // a wordmark: 600 × 160, letters of 8 px strokes every 20 px, white around them
+    const wordmark = Buffer.from(pngOf(600, 160, (x, y) => (y >= 40 && y < 120 && x >= 40 && x < 560 && x % 20 < 8 ? blue : white)))
+    const hits = await logoColors(wordmark, 'png')
+    // its own blue, and nothing else: no blend of blue and white
+    expect(hits).toEqual([{ hex: '#1f3a93', weight: 150 }])
+    // the page's own UI blues (a few repeated colours, weak) do not beat it
+    const page = cssColors('.btn{color:#3b82f6}.a{color:#3b82f6}.b{background:#2563eb}.c{border-color:#2563eb}', 0.8)
+    expect(rankColors([...hits, ...page])[0]).toBe('#1f3a93')
+    // a solid icon and a two-colour mark keep both colours, the larger first
+    const two = Buffer.from(pngOf(180, 180, (x) => (x < 120 ? [0x0e, 0x5e, 0x4e] : [0xf5, 0xa6, 0x23])))
+    expect((await logoColors(two, 'png')).map((h) => h.hex)).toEqual(['#0e5e4e', '#f5a623'])
   })
   test('pictures are judged by their bytes: PNG, JPEG, WebP of a real size; never SVG, HTML or a strip', () => {
     expect(imageKind(png(10, 10))).toBe('png')
