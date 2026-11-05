@@ -33,7 +33,7 @@ export default function RoomPage() {
 function RoomNotFound() {
   const t = useT()
   return (
-    <div className="flex h-full flex-col" data-testid="room-not-found">
+    <div className="flex h-full flex-col justify-center" data-testid="room-not-found">
       <EmptyState title={t('rooms.notFound')}>
         <p>{t('rooms.notFoundHint')}</p>
         <Link to="/rooms" className="mt-3 inline-block font-medium text-accent-text underline">

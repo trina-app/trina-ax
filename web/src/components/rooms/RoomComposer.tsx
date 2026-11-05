@@ -163,7 +163,7 @@ export function RoomComposer({ roomId, members, meId, reply, onCancelReply, onRe
             ))}
           </ul>
         )}
-        <div className="flex items-end gap-1 px-1.5 py-1.5">
+        <div className="flex items-end gap-1 px-1.5 py-1.5 max-md:px-3">
           <IconButton label={t('composer.attach')} onClick={() => picker.current?.click()} className="touch-hit mb-0.5" data-testid="room-attach">
             <Paperclip size={18} />
           </IconButton>

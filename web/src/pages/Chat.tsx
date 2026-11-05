@@ -29,7 +29,7 @@ import QueuedMessages from '../components/chat/QueuedMessages'
 import { ChatProjectCrumb, MoveToProjectDialog } from '../components/chat/ChatProject'
 import type { EnginePick } from '../components/chat/EngineMenu'
 import { ChatTitleMenu } from '../components/chat/ChatTitleMenu'
-import { Button, ErrorNote, IconButton, Skeleton, confirmDialog, useAnnounce } from '../components/ui'
+import { Button, EmptyState, ErrorNote, IconButton, Skeleton, confirmDialog, useAnnounce } from '../components/ui'
 
 export default function ChatPage() {
   const { chatId } = useParams()
@@ -242,11 +242,12 @@ function ChatView({ chatId }: { chatId: string }) {
 
   if (loadError && isApiError(loadError, 'not_found'))
     return (
-      <div className="p-8 text-center text-sm text-muted">
-        {t('chat.notFound')}{' '}
-        <Link to="/" className="text-accent-text underline">
-          {t('sidebar.newChat')}
-        </Link>
+      <div className="flex h-full flex-col justify-center" data-testid="chat-not-found">
+        <EmptyState title={t('chat.notFound')}>
+          <Link to="/" className="mt-1 inline-block font-medium text-accent-text underline">
+            {t('sidebar.newChat')}
+          </Link>
+        </EmptyState>
       </div>
     )
 
@@ -293,7 +294,7 @@ function ChatView({ chatId }: { chatId: string }) {
           {!chat?.deletedAt && <QueuedMessages chatId={chatId} onFocusComposer={() => composer.current?.focus()} />}
         </div>
       </div>
-      <div className="mx-auto w-full max-w-[780px] px-3 pb-[max(0.75rem,var(--safe-bottom))] sm:px-4">
+      <div className="mx-auto w-full max-w-[780px] px-4 pb-[max(0.75rem,var(--safe-bottom))]">
         {chat?.deletedAt ? (
           <TrashedBanner chat={chat} onRestored={(c) => { setChat(c); upsertChat(c) }} />
         ) : (
