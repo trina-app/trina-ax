@@ -2984,6 +2984,7 @@ export const en: Record<MessageKey, string> = {
   "welcome.ai.notYet": "The connection is saved, but AI can't answer yet. Check the connection or connect another way.",
   "aiConnect.terms": "I checked that the provider's terms allow this account and plan to be used this way. {product} cannot grant that permission.",
   "aiConnect.password": "This connection is for the whole team, so your password is checked once more",
+  "aiConnect.member": "You can start as soon as the team owner connects an AI",
   "aiConnect.error.no_credential": "No AI is connected yet. Connect one and it can answer right away.",
   "aiConnect.error.credential_unusable": "The AI connection cannot be used (refused, or it needs to be connected again). Connect again, or reconnect it in Admin › AI connections.",
   "aiConnect.error.trial_credit_used": "The trial AI credit is used up. Connect the team's own AI to go on.",

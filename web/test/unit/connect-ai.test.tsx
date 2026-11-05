@@ -3,14 +3,18 @@
 //   its simple form: Claude chosen, the whole team (no target), named "Claude" (no name field), the provider's terms in
 //   one line, the password again (the server checks it on every team add); "다른 방법" shows every way;
 // - "내 AI 연결하기" opens one's own dialog (no password, as in Settings);
-// - Admin › AI connections keeps the full dialog (name, target, the whole notice).
+// - Admin › AI connections keeps the full dialog (name, target, the whole notice);
+// - a failed answer without AI: the owner's words and "AI 연결하기", an admin told to tell the owner;
+// - Home's one card: the owner's way to connect; a member's "팀장이 AI를 연결하면 바로 쓸 수 있어요" with the ask and,
+//   only where the team allows it, a quiet "내 AI 연결하기".
 import { afterAll, afterEach, beforeAll, describe, expect, test } from 'bun:test'
+import { act } from 'react'
 import { MemoryRouter } from 'react-router-dom'
 import { CHAT_ERROR_MESSAGES } from '@mycel/shared/api'
 import { translate, useLocaleStore } from '../../src/i18n'
 import AiAccessButton from '../../src/components/chat/AiAccessButton'
 import { AssistantMessage } from '../../src/components/chat/Messages'
-import { ConnectAiButton } from '../../src/components/onboarding/ConnectAi'
+import { ConnectAiButton, NoAiCard } from '../../src/components/onboarding/ConnectAi'
 import { AddCredential } from '../../src/pages/admin/Credentials'
 import { useAiAccess } from '../../src/store/aiAccess'
 import { useSession } from '../../src/store/session'
@@ -200,6 +204,42 @@ describe('a failed answer without AI', () => {
     m = await failed('trial_credit_used')
     try {
       expect(m.get('answer-error').textContent).toContain(ko('aiConnect.error.trial_credit_used'))
+    } finally { await m.unmount() }
+  })
+})
+
+describe('Home\'s one card without AI', () => {
+  const card = async (s: Partial<ReturnType<typeof useAiAccess.getState>>) => {
+    useAiAccess.setState({ loaded: true, usable: false, requested: false, trial: null, ...s })
+    return mount(<MemoryRouter><NoAiCard /></MemoryRouter>)
+  }
+  test('the owner: the welcome step\'s heading and way to connect', async () => {
+    const m = await card({ action: 'connect_team', trial: 'used' })
+    try {
+      await m.until(() => m.find('welcome-ai-claude'), 'the Claude button')
+      expect(m.get('no-ai-card').textContent).toContain(ko('welcome.ai.title'))
+      expect(m.get('ai-access-trial').textContent).toBe(ko('aiAccess.banner.trialUsed'))
+      expect(m.find('welcome-ai-other')).not.toBeNull()
+    } finally { await m.unmount() }
+  })
+  test('a member: the owner connects; one ask; their own connection only where the team allows it', async () => {
+    let m = await card({ action: 'ask_owner' })
+    try {
+      expect(m.get('no-ai-card').textContent).toContain(ko('aiConnect.member'))
+      expect(m.find('no-ai-own')).toBeNull()
+      await m.click('ai-access-button')
+      await m.until(() => !m.find('ai-access-button'), 'asked')
+      expect(m.get('no-ai-card').textContent).toContain(ko('aiAccess.banner.asked'))
+      expect(calls.filter((c) => c.key === 'POST /api/me/ai-access/request')).toHaveLength(1)
+    } finally { await m.unmount() }
+    m = await card({ action: 'connect_own' })
+    try {
+      expect(m.get('no-ai-card').textContent).toContain(ko('aiConnect.member'))
+      expect(m.get('ai-access-button').textContent).toBe(ko('aiAccess.askOwner'))
+      expect(m.get('no-ai-own').textContent).toBe(ko('aiAccess.connectOwn'))
+      await m.click('no-ai-own')
+      await m.until(() => q('kind-anthropic-oauth'), 'one\'s own dialog')
+      await act(async () => {})
     } finally { await m.unmount() }
   })
 })

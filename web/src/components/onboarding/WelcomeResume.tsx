@@ -1,6 +1,8 @@
-// "시작 설정 이어하기 (1/2)", "(0/3)" while no AI answers the owner, on the owner's Home until the welcome steps are finished or hidden (pages/Welcome.tsx).
-// One slim row, the only thing at the top of Home while it shows (docs/DECISIONS.md "Y — Home shows one thing at a
-// time"; Home decides). Nothing shows for anyone else, or before the steps were started.
+// "시작 설정 이어하기 (1/2)" ("(1/3)" once the AI step was shown), on the owner's Home until the welcome steps are
+// finished or hidden (pages/Welcome.tsx). One slim row, the only thing at the top of Home while it shows
+// (docs/DECISIONS.md "Y — Home shows one thing at a time"; Home decides: while no AI answers the owner, Home's connect
+// card stands in its place, so the row never leads back to the AI step). Nothing shows for anyone else, or before the
+// steps were started.
 import { Sparkles, X } from 'lucide-react'
 import { useEffect } from 'react'
 import { Link } from 'react-router-dom'

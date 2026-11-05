@@ -2944,6 +2944,7 @@ export const ja: Record<MessageKey, string> = {
   "welcome.ai.notYet": "接続は保存しましたが、まだAIが応答できません。接続を確認するか、ほかの方法で接続してください。",
   "aiConnect.terms": "このアカウントとプランをこの用途で使うことが提供元の規約で認められているか確認しました。{product}がその許可を与えることはできません。",
   "aiConnect.password": "チーム全体で使う接続なので、パスワードをもう一度確認します",
+  "aiConnect.member": "オーナーがAIを接続すると、すぐに使えます",
   "aiConnect.error.no_credential": "まだAIが接続されていません。接続するとすぐに回答できます。",
   "aiConnect.error.credential_unusable": "AI接続を使用できません（拒否されたか、再接続が必要です）。新しく接続するか、「管理 › AI接続」で再接続してください。",
   "aiConnect.error.trial_credit_used": "トライアルのAIクレジットを使い切りました。チームのAIを接続すると、続けて使えます。",

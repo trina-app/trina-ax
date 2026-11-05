@@ -2,7 +2,7 @@
 // onboarding", "M — One meeting note, everyone's own tasks", "N — The first result is the company's card news", "W2 —
 // AI connection first"): AI 연결 (only while no AI answers the owner) → 회사 소개 → 첫 결과, then the team invite.
 // 회사 소개 and 첫 결과 need AI, so without it the AI step opens in front of them, never in front of the invite; "나중에
-// 하기" there leaves the steps (Home keeps its connect line). The first result is the company's own card news: the lead
+// 하기" there leaves the steps (Home shows its connect card). The first result is the company's own card news: the lead
 // drops a company intro or a team deck into the team's brand folder (groups/<team>/브랜드/), or goes on without one
 // ("자료 없이 만들게요": the server writes 회사 소개.md there from the website reading); POST
 // /api/onboarding/welcome/first-result makes the chat and says which team files to attach, and the general skill

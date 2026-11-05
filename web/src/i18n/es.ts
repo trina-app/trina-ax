@@ -2944,6 +2944,7 @@ export const es: Record<MessageKey, string> = {
   "welcome.ai.notYet": "La conexión se guardó, pero la IA aún no puede responder. Revise la conexión o conecte de otra forma.",
   "aiConnect.terms": "Comprobé que los términos del proveedor permiten usar esta cuenta y plan de esta forma. {product} no puede conceder esa autorización.",
   "aiConnect.password": "Esta conexión es para todo el equipo, por eso se vuelve a comprobar su contraseña",
+  "aiConnect.member": "Podrá empezar en cuanto el propietario del equipo conecte una IA",
   "aiConnect.error.no_credential": "Todavía no hay ninguna IA conectada. Conecte una y podrá responder enseguida.",
   "aiConnect.error.credential_unusable": "La conexión de IA no se puede usar (se rechazó o debe volver a conectarse). Conecte de nuevo o vuelva a conectarla en Administración › Conexiones de IA.",
   "aiConnect.error.trial_credit_used": "Se agotó el crédito de IA de prueba. Conecte la IA propia del equipo para continuar.",

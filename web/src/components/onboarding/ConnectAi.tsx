@@ -10,6 +10,7 @@ import { lazy, Suspense, useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import type { CredentialKind } from '@mycel/shared/api'
 import { api, API, errorText } from '../../lib/api'
+import { trialLine } from '../../lib/aiAccess'
 import { useLocale, useT, type MessageKey } from '../../i18n'
 import { useAiAccess } from '../../store/aiAccess'
 import { toast } from '../../store/ui'
@@ -152,5 +153,46 @@ export function ConnectAiButton({ personal = false, size = 'sm', quiet, label, .
       )}
       {ways && <Dialog ways={ways} personal={personal} claude={!personal && claudeOf(ways, false)} onClose={() => setWays(null)} onDone={() => void done()} />}
     </>
+  )
+}
+
+/**
+ * Home while no AI answers this person (docs/DECISIONS.md "Y — Home shows one thing at a time"): ONE card in place of
+ * the top row (the welcome steps' "continue" row, the goal card) and of the suggestions, which would all fail. The
+ * owner: the welcome step's own heading and way to connect. Anyone else (an admin too: only the owner adds the team's
+ * connections): "팀장이 AI를 연결하면 바로 쓸 수 있어요" with [팀장에게 알리기] (one notice per owner, then "알렸어요"),
+ * and, where the team allows personal connections, a quiet "내 AI 연결하기" under it.
+ */
+export function NoAiCard() {
+  const t = useT()
+  const { action, requested, trial, sending, failed, ask } = useAiAccess()
+  const trialNote = trial && <p className="mb-1 text-sm font-medium text-ink" data-testid="ai-access-trial">{t(trialLine(trial))}</p>
+  if (action === 'connect_team')
+    return (
+      <section className="mb-6 rounded-2xl border border-line p-4 sm:p-5" aria-labelledby="no-ai-title" data-testid="no-ai-card" data-action={action}>
+        {trialNote}
+        <h2 id="no-ai-title" className="font-semibold text-ink">{t('welcome.ai.title')}</h2>
+        <p className="mt-1 mb-4 text-sm text-muted">{t('welcome.ai.why')}</p>
+        <ConnectAiPanel />
+      </section>
+    )
+  return (
+    <section role="status" className="mb-6 rounded-2xl border border-line px-4 py-3.5" data-testid="no-ai-card" data-action={action}>
+      {trialNote}
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
+        <p className="min-w-0 flex-[1_1_12rem] text-sm leading-6 text-ink">{t(requested ? 'aiAccess.banner.asked' : 'aiConnect.member')}</p>
+        {!requested && (
+          <Button size="sm" variant="primary" busy={sending} onClick={() => void ask()} data-testid="ai-access-button" data-action="ask_owner">
+            {sending ? t('aiAccess.asking') : t('aiAccess.askOwner')}
+          </Button>
+        )}
+      </div>
+      {failed && <p role="alert" className="mt-1 text-xs text-danger">{t('aiAccess.askFailed')}</p>}
+      {action === 'connect_own' && (
+        <p className="mt-2 text-[13px]">
+          <ConnectAiButton personal quiet data-testid="no-ai-own" />
+        </p>
+      )}
+    </section>
   )
 }

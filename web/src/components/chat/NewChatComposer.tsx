@@ -12,7 +12,7 @@ import { canChooseEngine, useMeStrict } from '../../store/session'
 import AiAccessBanner from './AiAccessBanner'
 import Composer, { type EngineChoice } from './Composer'
 
-export function NewChatComposer({ projectId, initialText, resetKey = 0, autoFocus, placeholder, onSent, skill }: {
+export function NewChatComposer({ projectId, initialText, resetKey = 0, autoFocus, placeholder, onSent, skill, aiLine = true }: {
   projectId: string | null
   initialText?: string
   /** a new value starts the box again with `initialText` (a chosen example or question) */
@@ -23,6 +23,8 @@ export function NewChatComposer({ projectId, initialText, resetKey = 0, autoFocu
   onSent?: (chatId: string) => void
   /** a skill chosen for the first message, shown by its title (Composer `skill`) */
   skill?: { name: string; title: string } | null
+  /** the "no AI" line above the box (false: Home shows its own card instead) */
+  aiLine?: boolean
 }) {
   const me = useMeStrict()
   const navigate = useNavigate()
@@ -66,7 +68,7 @@ export function NewChatComposer({ projectId, initialText, resetKey = 0, autoFocu
 
   return (
     <>
-    <AiAccessBanner />
+    {aiLine && <AiAccessBanner />}
     <Composer
       key={`${draftId}-${resetKey}`}
       draftId={draftId}
