@@ -107,6 +107,7 @@ const KOREAN_ALLOWED: Record<string, { why: string; also?: RegExp }> = {
   'server/src/files/locations.ts': { why: 'the words of the place labels the AI sees, "시트 \'매출\'", "슬라이드 3" (ko next to en/id/ja/es)' },
   'server/src/files/media.ts': { why: 'a whisper marker dropped from transcripts, and its video-outro inventions a retry may not be (not screen text)', also: /MUSIC\|음악|^const OUTRO = \// },
   'server/src/notifications/text.ts': { why: 'generic push notification texts (ko next to en/id/ja/es)' },
+  'server/src/chat/schedule-templates.ts': { why: 'template schedule names and the instruction the AI is given (ko next to en/id/ja/es)' },
   'server/src/devenv/jobs.ts': { why: 'dev environment job and box stop notices (ko next to en/id/ja/es)' },
   'desktop/src/common/i18n.ts': { why: 'the desktop dictionary (ko next to en/id/ja/es)', also: /^\s*'[\w.]+': '/ },
   'desktop/src/common/locales.ts': { why: 'the name 한국어 in the language picker', also: /label: '한국어'/ },
