@@ -3028,6 +3028,22 @@ export const ko = {
   "audit.act.slack.linked": "Slack 계정 연결",
   "audit.act.slack.unlinked": "Slack 계정 연결 끊음",
   "audit.act.slack.posted": "Slack 채널에 답 올림",
+  "slack.link.emailMismatch": "이 Slack 계정의 이메일이 {product} 계정과 달라요. 팀장에게 연결을 부탁하세요.",
+  "slack.link.emailMissing": "이메일로 확인할 수 없어요(Slack이나 {product} 계정에 이메일이 없어요). 팀장에게 연결을 부탁하세요.",
+  "slack.link.emailUnavailable": "Slack이 지금 답하지 않아요. 잠시 뒤 이 페이지를 다시 열어 주세요.",
+  "slack.people.title": "사람 연결",
+  "slack.people.desc": "대부분은 Slack에서 받은 링크로 직접 연결해요. Slack과 {product}의 이메일이 다른 사람만 여기서 연결해 주세요.",
+  "slack.people.search": "이름이나 이메일로 찾기",
+  "slack.people.noEmail": "이메일 없음",
+  "slack.people.link": "연결",
+  "slack.people.truncated": "처음 2,000명만 보여요.",
+  "slack.people.dialogTitle": "Slack 계정 연결",
+  "slack.people.choose": "연결할 사람 고르기",
+  "slack.people.confirm": "연결하기",
+  "slack.people.warning": "같은 사람인지 이름과 이메일로 확인해 주세요. 이 Slack 계정으로 물어보면 고른 사람의 권한으로 답해요. Slack에서 그 사람에게 알려요.",
+  "slack.people.linked": "연결했어요. Slack에서 그 사람에게 알렸어요.",
+  "audit.act.slack.mapped": "Slack 계정을 팀원과 연결",
+  "audit.act.slack.link_refused": "Slack 계정 연결 거절됨(이메일 불일치)",
 } as const
 
 export type MessageKey = keyof typeof ko

@@ -61,7 +61,9 @@ export default function SlackLink() {
               <dd className="break-words font-medium" data-testid="slack-link-me">{info.me.name} <span className="text-xs text-faint">@{info.me.username}</span></dd>
             </div>
           </dl>
-          {info.linkedElsewhere ? (
+          {info.emailCheck !== 'match' && !info.linkedElsewhere ? (
+            <p className="text-sm text-warn" data-testid="slack-link-email">{t(info.emailCheck === 'mismatch' ? 'slack.link.emailMismatch' : info.emailCheck === 'missing' ? 'slack.link.emailMissing' : 'slack.link.emailUnavailable')}</p>
+          ) : info.linkedElsewhere ? (
             <p className="text-sm text-warn" data-testid="slack-link-elsewhere">
               {t('slack.link.elsewhere')} <Link to="/settings/connectors" className="text-accent underline-offset-2 hover:underline">{t('slack.link.toSettings')}</Link>
             </p>
@@ -69,7 +71,7 @@ export default function SlackLink() {
             <p className="text-sm text-warn">{t('slack.link.warning')}</p>
           )}
           <div className="flex gap-3">
-            {!info.linkedElsewhere && <Button variant="primary" busy={busy} disabled={busy} onClick={() => void decide(true)} data-testid="slack-link-confirm">{t('slack.link.confirm')}</Button>}
+            {!info.linkedElsewhere && info.emailCheck === 'match' && <Button variant="primary" busy={busy} disabled={busy} onClick={() => void decide(true)} data-testid="slack-link-confirm">{t('slack.link.confirm')}</Button>}
             <Button disabled={busy} onClick={() => void decide(false)} data-testid="slack-link-cancel">{t('slack.link.cancel')}</Button>
           </div>
         </>

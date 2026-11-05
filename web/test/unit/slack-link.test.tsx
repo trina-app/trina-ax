@@ -18,7 +18,7 @@ beforeAll(() => { installDom(); useLocaleStore.setState({ locale: 'en' }) })
 afterAll(() => removeDom())
 beforeEach(() => {
   calls = []
-  preview = { workspace: 'Acme', slack: { userId: 'U0ALICE', name: 'alice.slack', realName: 'Alice in Slack', handle: 'alice' }, me: { name: 'Bob Lee', username: 'bob' }, expiresAt: new Date(Date.now() + 600_000).toISOString(), linkedElsewhere: false }
+  preview = { workspace: 'Acme', slack: { userId: 'U0ALICE', name: 'alice.slack', realName: 'Alice in Slack', handle: 'alice' }, me: { name: 'Bob Lee', username: 'bob' }, expiresAt: new Date(Date.now() + 600_000).toISOString(), linkedElsewhere: false, emailCheck: 'match' }
   globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
     const url = new URL(String(input), 'http://team.localhost')
     calls.push({ method: init?.method ?? 'GET', path: url.pathname, url: url.href, raw: typeof init?.body === 'string' ? init.body : '' })
@@ -57,6 +57,15 @@ describe('the Slack link page', () => {
     await m.click('slack-link-cancel')
     await m.until(() => m.find('slack-link-done'), 'cancelled')
     expect(calls.at(-1)!.path).toBe('/api/slack/link/cancel')
+    await m.unmount()
+  })
+
+  test('another person\'s Slack account (its e-mail is not mine): no Link button, the reason and who to ask', async () => {
+    preview = { ...preview, emailCheck: 'mismatch' }
+    const m = await page(`?t=${TOKEN}`)
+    await m.until(() => m.find('slack-link-email'), 'the reason')
+    expect(m.get('slack-link-email').textContent).toContain('Ask your team owner to link it.')
+    expect(m.find('slack-link-confirm')).toBeNull()
     await m.unmount()
   })
 
