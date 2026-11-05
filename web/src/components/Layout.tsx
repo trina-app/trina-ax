@@ -19,7 +19,7 @@ import ManagedNoticesBanner from './ManagedNoticesBanner'
 import ScheduleReviewBanner from './ScheduleReviewBanner'
 import SearchDialog from './SearchDialog'
 import Sidebar from './Sidebar'
-import { BottomTabs } from './BottomTabs'
+import { BottomTabs, hidesTabs } from './BottomTabs'
 import { useRoomsSync } from './rooms/useRoomsSync'
 import { ChunkErrorBoundary } from './ChunkErrorBoundary'
 import { DemoBar, useDemoInfo } from './demo/Demo'
@@ -117,8 +117,8 @@ export default function Layout() {
           </div>
         )}
         <main id="main" tabIndex={-1} className="flex min-w-0 flex-1 flex-col">
-          {/* inside a room the room's own header (with its back arrow) is the only bar on a phone */}
-          <div className={clsx('flex h-12 shrink-0 items-center gap-1 border-b border-line px-2 md:hidden', /^\/rooms\/[^/]+/.test(location.pathname) && 'hidden')}>
+          {/* inside a room or an AI chat its own header (with its back arrow) is the only bar on a phone */}
+          <div className={clsx('flex h-12 shrink-0 items-center gap-1 border-b border-line px-2 md:hidden', hidesTabs(location.pathname) && 'hidden')}>
             {/* the Inbox count lives in the drawer: a dot on the menu button says that something is unread */}
             <IconButton
               label={unread > 0 ? `${t('sidebar.open')} (${t('notifications.unread', { count: unread })})` : t('sidebar.open')}
