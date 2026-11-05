@@ -3052,6 +3052,12 @@ export const ko = {
   "audit.act.slack.proposed": "Slack 계정 연결 제안",
   "audit.act.slack.proposal_cancelled": "Slack 계정 연결 제안 취소",
   "audit.act.slack.proposal_declined": "Slack 계정 연결 제안 거절",
+  "slack.link.proposal": "팀장이 제안한 연결이에요. 연결하기를 누르면 이 Slack 계정이 내 것임을 확인해요. 설정에서도 받아들이면 연결돼요.",
+  "slack.link.half": "Slack 계정을 확인했어요. 설정 › 앱 커넥터에서 제안을 받아들이면 연결돼요.",
+  "slack.mine.proposalSlackHalf": "받아들였어요. 이제 Slack에서 앱에게 한 번 물어보고, 받은 링크를 열어 이 Slack 계정이 내 것임을 확인해 주세요.",
+  "slack.mine.emailSetByOther": "관리자가 최근 내 이메일을 바꿨어요. 7일 동안은 이메일로 Slack 계정을 확인할 수 없어요. 프로필에서 직접 다시 저장하거나 팀장에게 연결 제안을 부탁하세요.",
+  "audit.act.slack.proposal_accepted": "Slack 연결 제안 수락",
+  "audit.act.slack.proposal_confirmed": "Slack 연결 제안의 Slack 계정 확인",
 } as const
 
 export type MessageKey = keyof typeof ko

@@ -3013,4 +3013,10 @@ export const ja: Record<MessageKey, string> = {
   "audit.act.slack.proposed": "Slackアカウントの連携を提案",
   "audit.act.slack.proposal_cancelled": "Slack連携の提案を取り消し",
   "audit.act.slack.proposal_declined": "Slack連携の提案を拒否",
+  "slack.link.proposal": "チームのオーナーが提案した連携です。「連携する」を押すとこのSlackアカウントがあなたのものだと確認します。設定でも承認すると連携されます。",
+  "slack.link.half": "Slackアカウントを確認しました。設定 › アプリコネクタで提案を承認すると連携されます。",
+  "slack.mine.proposalSlackHalf": "承認しました。次にSlackでアプリに一度質問し、届いたリンクを開いてこのSlackアカウントがあなたのものだと確認してください。",
+  "slack.mine.emailSetByOther": "管理者が最近あなたのメールアドレスを変更しました。7日間はメールアドレスでSlackアカウントを確認できません。プロフィールで自分で保存し直すか、チームのオーナーに連携の提案を依頼してください。",
+  "audit.act.slack.proposal_accepted": "Slack連携の提案を承認",
+  "audit.act.slack.proposal_confirmed": "Slack連携の提案のSlackアカウントを確認",
 }

@@ -3053,4 +3053,10 @@ export const en: Record<MessageKey, string> = {
   "audit.act.slack.proposed": "Proposed linking a Slack account",
   "audit.act.slack.proposal_cancelled": "Withdrew a Slack link proposal",
   "audit.act.slack.proposal_declined": "Declined a Slack link proposal",
+  "slack.link.proposal": "Your team owner proposed this link. Link confirms this Slack account is yours; it is linked once it is also accepted in Settings.",
+  "slack.link.half": "The Slack account is confirmed. It is linked once you accept the proposal in Settings › App connectors.",
+  "slack.mine.proposalSlackHalf": "Accepted. Now ask the app something in Slack once and open the link you get, to confirm this Slack account is yours.",
+  "slack.mine.emailSetByOther": "An admin recently changed your e-mail. For 7 days it cannot confirm a Slack account. Save it again yourself in Profile, or ask your team owner to propose the link.",
+  "audit.act.slack.proposal_accepted": "Accepted a Slack link proposal",
+  "audit.act.slack.proposal_confirmed": "Confirmed the Slack account of a link proposal",
 }

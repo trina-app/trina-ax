@@ -3,7 +3,7 @@
 // "Link" button at all.
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, test } from 'bun:test'
 import { MemoryRouter, Route, Routes } from 'react-router-dom'
-import type { SlackLinkPreview } from '@mycel/shared/api'
+import type { MySlack, SlackLinkPreview } from '@mycel/shared/api'
 import SlackLink from '../../src/pages/SlackLink'
 import { useLocaleStore } from '../../src/i18n'
 import { installDom, mount, removeDom } from './dom-host'
@@ -12,18 +12,20 @@ const TOKEN = 'AbCdEfGhIjKlMnOpQrStUvWxYz0123456789_-abcde'
 const realFetch = globalThis.fetch
 let calls: { method: string; path: string; url: string; raw: string }[] = []
 let preview: SlackLinkPreview
+let confirmAnswer: MySlack
 const json = (b: unknown, status = 200) => new Response(JSON.stringify(b), { status, headers: { 'content-type': 'application/json' } })
 
 beforeAll(() => { installDom(); useLocaleStore.setState({ locale: 'en' }) })
 afterAll(() => removeDom())
 beforeEach(() => {
   calls = []
+  confirmAnswer = { available: true, workspace: 'Acme', link: { slackUserId: 'U0ALICE', slackName: 'alice.slack', linkedAt: new Date().toISOString() }, proposal: null, emailSetByOther: false }
   preview = { workspace: 'Acme', slack: { userId: 'U0ALICE', name: 'alice.slack', realName: 'Alice in Slack', handle: 'alice' }, me: { name: 'Bob Lee', username: 'bob' }, expiresAt: new Date(Date.now() + 600_000).toISOString(), linkedElsewhere: false, emailCheck: 'match', email: 'bob@acme.example' }
   globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
     const url = new URL(String(input), 'http://team.localhost')
     calls.push({ method: init?.method ?? 'GET', path: url.pathname, url: url.href, raw: typeof init?.body === 'string' ? init.body : '' })
     if (url.pathname === '/api/slack/link/preview') return json(preview)
-    if (url.pathname === '/api/slack/link/confirm') return json({ available: true, workspace: 'Acme', link: { slackUserId: 'U0ALICE', slackName: 'alice.slack', linkedAt: new Date().toISOString() }, proposal: null })
+    if (url.pathname === '/api/slack/link/confirm') return json(confirmAnswer)
     if (url.pathname === '/api/slack/link/cancel') return new Response(null, { status: 204 })
     return json({ error: { code: 'not_found', message: 'not here' } }, 404)
   }) as typeof fetch
@@ -67,6 +69,18 @@ describe('the Slack link page', () => {
     await m.until(() => m.find('slack-link-email'), 'the reason')
     expect(m.get('slack-link-email').textContent).toContain('Ask your team owner to link it.')
     expect(m.find('slack-link-confirm')).toBeNull()
+    await m.unmount()
+  })
+
+  test('the Slack half of an owner\'s proposal: Link confirms it and points to Settings to finish', async () => {
+    preview = { ...preview, emailCheck: 'proposal' }
+    confirmAnswer = { available: true, workspace: 'Acme', link: null, emailSetByOther: false,
+      proposal: { id: 'p1', slack: { userId: 'U0ALICE', name: 'alice.slack', realName: null, handle: null, email: null }, proposedBy: 'Dana', expiresAt: new Date(Date.now() + 86_400_000).toISOString(), memberAccepted: false, slackConfirmed: true } }
+    const m = await page(`?t=${TOKEN}`)
+    await m.until(() => m.find('slack-link-proposal'), 'the note')
+    await m.click('slack-link-confirm')
+    await m.until(() => m.find('slack-link-done'), 'half done')
+    expect(m.get('slack-link-done').textContent).toContain('accept the proposal in Settings')
     await m.unmount()
   })
 

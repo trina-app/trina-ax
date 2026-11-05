@@ -3053,4 +3053,10 @@ export const id: Record<MessageKey, string> = {
   "audit.act.slack.proposed": "Mengusulkan tautan akun Slack",
   "audit.act.slack.proposal_cancelled": "Menarik usulan tautan Slack",
   "audit.act.slack.proposal_declined": "Menolak usulan tautan Slack",
+  "slack.link.proposal": "Pemilik tim mengusulkan tautan ini. Tautkan memastikan akun Slack ini milik Anda; akun tertaut setelah juga diterima di Pengaturan.",
+  "slack.link.half": "Akun Slack sudah dipastikan. Akan tertaut setelah Anda menerima usulan di Pengaturan › Konektor aplikasi.",
+  "slack.mine.proposalSlackHalf": "Diterima. Sekarang tanyakan sesuatu ke aplikasi di Slack sekali dan buka tautan yang Anda terima untuk memastikan akun Slack ini milik Anda.",
+  "slack.mine.emailSetByOther": "Admin baru saja mengubah e-mail Anda. Selama 7 hari e-mail itu tidak bisa memastikan akun Slack. Simpan sendiri lagi di Profil, atau minta pemilik tim mengusulkan tautan.",
+  "audit.act.slack.proposal_accepted": "Menerima usulan tautan Slack",
+  "audit.act.slack.proposal_confirmed": "Memastikan akun Slack dari usulan tautan",
 }

@@ -41,8 +41,10 @@ export function SlackAccount() {
           <p className="mt-1 text-sm font-medium">{me.proposal.slack.name ?? me.proposal.slack.realName ?? me.proposal.slack.handle ?? me.proposal.slack.userId}</p>
           <p className="text-xs text-muted">{[me.proposal.slack.realName, me.proposal.slack.handle ? `@${me.proposal.slack.handle}` : null, me.proposal.slack.email ?? t('slack.people.noEmail')].filter(Boolean).join(' · ')}</p>
           <p className="mt-2 text-xs text-warn">{t('slack.mine.proposalWarning')}</p>
+          {/* two halves, either order: accepted here, and the link that Slack account gets confirmed here */}
+          {me.proposal.memberAccepted && !me.proposal.slackConfirmed && <p className="mt-2 text-xs text-muted" data-testid="slack-proposal-slack-half">{t('slack.mine.proposalSlackHalf')}</p>}
           <div className="mt-3 flex gap-2">
-            <Button variant="primary" size="sm" busy={busy} disabled={busy} onClick={() => void answer(true)} data-testid="slack-proposal-accept">{t('slack.link.confirm')}</Button>
+            {!me.proposal.memberAccepted && <Button variant="primary" size="sm" busy={busy} disabled={busy} onClick={() => void answer(true)} data-testid="slack-proposal-accept">{t('slack.link.confirm')}</Button>}
             <Button size="sm" disabled={busy} onClick={() => void answer(false)} data-testid="slack-proposal-decline">{t('slack.mine.decline')}</Button>
           </div>
         </div>
@@ -56,7 +58,10 @@ export function SlackAccount() {
           <Button variant="danger" size="sm" busy={busy} disabled={busy} onClick={() => void unlink()} data-testid="slack-unlink">{t('slack.mine.unlink')}</Button>
         </div>
       ) : (
-        <p className="text-sm text-muted">{t('slack.mine.how', { workspace: me.workspace ?? '' })}</p>
+        <>
+          <p className="text-sm text-muted">{t('slack.mine.how', { workspace: me.workspace ?? '' })}</p>
+          {me.emailSetByOther && <p className="text-xs text-warn" data-testid="slack-email-set-by-other">{t('slack.mine.emailSetByOther')}</p>}
+        </>
       )}
     </div>
   )

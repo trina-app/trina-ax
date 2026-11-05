@@ -14,7 +14,7 @@ export default function SlackLink() {
   const t = useT(), locale = useLocale()
   const [info, setInfo] = useState<SlackLinkPreview | null>(null)
   const [error, setError] = useState<string | null>(null)
-  const [done, setDone] = useState<'linked' | 'cancelled' | null>(null)
+  const [done, setDone] = useState<'linked' | 'cancelled' | 'half' | null>(null)
   const [busy, setBusy] = useState(false)
   const writing = useRef(false)
   useEffect(() => {
@@ -30,9 +30,11 @@ export default function SlackLink() {
     if (writing.current) return
     writing.current = true; setBusy(true); setError(null)
     try {
-      if (link) await api.call(SLACK.confirmSlackLink, { body: { token } })
-      else await api.call(SLACK.cancelSlackLink, { body: { token } })
-      setDone(link ? 'linked' : 'cancelled')
+      if (link) {
+        const r = await api.call(SLACK.confirmSlackLink, { body: { token } })
+        // the Slack half of an owner's proposal: linked once it is accepted in Settings too
+        setDone(r.link ? 'linked' : 'half')
+      } else { await api.call(SLACK.cancelSlackLink, { body: { token } }); setDone('cancelled') }
     } catch (e) { setError(errorText(e, locale, t('error.network'))) }
     finally { writing.current = false; setBusy(false) }
   }
@@ -44,7 +46,7 @@ export default function SlackLink() {
       </div>
       {error && <ErrorNote>{error}</ErrorNote>}
       {!info && !error && <Skeleton lines={4} />}
-      {done && <p className="text-sm" data-testid="slack-link-done">{t(done === 'linked' ? 'slack.link.linked' : 'slack.link.cancelled')}</p>}
+      {done && <p className="text-sm" data-testid="slack-link-done">{t(done === 'linked' ? 'slack.link.linked' : done === 'half' ? 'slack.link.half' : 'slack.link.cancelled')}{done === 'half' && <> <Link to="/settings/connectors" className="text-accent underline-offset-2 hover:underline">{t('slack.link.toSettings')}</Link></>}</p>}
       {info && !done && (
         <>
           <dl className="space-y-3 rounded-xl border border-line p-4 text-sm">
@@ -63,7 +65,9 @@ export default function SlackLink() {
                 <span className="mt-0.5 block text-xs font-normal text-muted" data-testid="slack-link-email-compared">{info.email ? t('slack.link.compared', { email: info.email }) : t('slack.people.noEmail')}</span></dd>
             </div>
           </dl>
-          {info.emailCheck !== 'match' && !info.linkedElsewhere ? (
+          {info.emailCheck === 'proposal' && !info.linkedElsewhere ? (
+            <p className="text-sm text-warn" data-testid="slack-link-proposal">{t('slack.link.proposal')}</p>
+          ) : info.emailCheck !== 'match' && !info.linkedElsewhere ? (
             <p className="text-sm text-warn" data-testid="slack-link-email">{t(info.emailCheck === 'mismatch' ? 'slack.link.emailMismatch' : info.emailCheck === 'missing' ? 'slack.link.emailMissing' : info.emailCheck === 'recent' ? 'slack.link.emailRecent' : 'slack.link.emailUnavailable')}</p>
           ) : info.linkedElsewhere ? (
             <p className="text-sm text-warn" data-testid="slack-link-elsewhere">
@@ -73,7 +77,7 @@ export default function SlackLink() {
             <p className="text-sm text-warn">{t('slack.link.warning')}</p>
           )}
           <div className="flex gap-3">
-            {!info.linkedElsewhere && info.emailCheck === 'match' && <Button variant="primary" busy={busy} disabled={busy} onClick={() => void decide(true)} data-testid="slack-link-confirm">{t('slack.link.confirm')}</Button>}
+            {!info.linkedElsewhere && (info.emailCheck === 'match' || info.emailCheck === 'proposal') && <Button variant="primary" busy={busy} disabled={busy} onClick={() => void decide(true)} data-testid="slack-link-confirm">{t('slack.link.confirm')}</Button>}
             <Button disabled={busy} onClick={() => void decide(false)} data-testid="slack-link-cancel">{t('slack.link.cancel')}</Button>
           </div>
         </>
