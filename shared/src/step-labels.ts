@@ -2,8 +2,9 @@
 // The server stores a label in the language of the person who ran the answer (older readers show it as is); the web
 // app redraws it in the language on screen from these same words, so an old chat follows a later language switch
 // (docs/DECISIONS.md "언어"). A label is always "<words> + what the AI touched" (a path, a query, a remembered text),
-// and only the words are translated.
+// and only the words are translated. On screen, a path's well-known team folders are said in words (stepPlace).
 import type { Locale } from './api/common'
+import { BRAND_IMAGES_FOLDER, NOTES_FOLDER, PACK_FOLDERS } from './api/onboarding-packs'
 import { mediaKind, type MediaKind } from './media'
 import { maskSecrets } from './secrets'
 
@@ -189,6 +190,67 @@ export function stepLabel(tool: string, input: unknown, locale: Locale, browserT
 
 const LOCALES: Locale[] = ['en', 'ko', 'id', 'ja', 'es']
 const escape = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+
+/** The team's well-known folders by name in a step line (docs/DECISIONS.md "W2"): "파일 읽기 · 브랜드 이미지 폴더 ›
+ * 홈페이지-6.jpg", not "groups/<team>/브랜드/이미지/홈페이지-6.jpg", which a phone cut before the file's name. */
+export const STEP_PLACE = {
+  /** groups/<team>/브랜드/이미지/ (the brand folder's images folder, named in the team's language) */
+  brandImages: t('브랜드 이미지 폴더', 'Brand images folder', 'Folder gambar merek', "ブランド画像フォルダー", "Carpeta de imágenes de marca"),
+  /** groups/<team>/브랜드/ */
+  brand: t('브랜드 폴더', 'Brand folder', 'Folder merek', "ブランドフォルダー", "Carpeta de marca"),
+  /** groups/<team>/회의록/ */
+  notes: t('회의록 폴더', 'Meeting notes folder', 'Folder notulen rapat', "議事録フォルダー", "Carpeta de actas"),
+  /** groups/<team>/: the team's folder, by the team's name */
+  team: t('{team} 폴더', '{team} folder', 'Folder {team}', "{team}フォルダー", "Carpeta {team}"),
+  /** users/<id>/.attachments/<chat>/: what the person attached to the chat */
+  attachments: t('첨부한 파일', 'Attachments', 'Lampiran', "添付ファイル", "Adjuntos"),
+  /** users/<id>/: an answer only ever reaches the person's own */
+  own: t('내 폴더', 'My folder', 'Folder saya', "自分のフォルダー", "Mi carpeta"),
+  /** shared/: the whole team's */
+  shared: t('공유 폴더', 'Shared folder', 'Folder bersama', "共有フォルダー", "Carpeta compartida"),
+} satisfies Record<string, T>
+
+const nfcSet = (names: Record<Locale, string>) => new Set(Object.values(names).map((n) => n.normalize('NFC')))
+const BRAND_NAMES = nfcSet(PACK_FOLDERS.brand)
+const IMAGES_NAMES = nfcSet(BRAND_IMAGES_FOLDER)
+const NOTES_NAMES = nfcSet(NOTES_FOLDER)
+
+/** A team path with its well-known folder in words ("브랜드 이미지 폴더 › 홈페이지-6.jpg"), or null for any other path
+ * (a web address, a folder these words do not name). The folder names match in any language, as a team's folders are
+ * named in the team's language and the screen may be in another. */
+export function placeName(path: string, locale: Locale): string | null {
+  const segs = path.normalize('NFC').replace(/^\/+|\/+$/g, '').split('/')
+  if (segs.some((s) => !s)) return null
+  const say = (key: keyof typeof STEP_PLACE, from: number, vars: Record<string, string> = {}) =>
+    [fill(STEP_PLACE[key][locale] ?? STEP_PLACE[key].en, vars), ...segs.slice(from)].join(' › ')
+  const [top, a, b, c] = segs
+  if (top === 'groups' && a) {
+    if (b && BRAND_NAMES.has(b)) return c && IMAGES_NAMES.has(c) ? say('brandImages', 4) : say('brand', 3)
+    if (b && NOTES_NAMES.has(b)) return say('notes', 3)
+    return say('team', 2, { team: a })
+  }
+  if (top === 'users' && a) return b === '.attachments' && c ? say('attachments', 4) : say('own', 2)
+  if (top === 'shared') return say('shared', 1)
+  return null
+}
+
+/** Tools whose step line ends in a team path ("<verb> · <path>"; edit_files adds "+N", hwp_render "#page"). */
+const PATH_STEP_TOOLS = new Set(['list', 'glob', 'grep', 'search', 'read', 'write', 'edit', 'edit_files', 'make_file', 'edit_hwp', 'share_file', 'move_files', 'copy_files', 'rename_file', 'save_url', 'hwp_render'])
+
+/**
+ * A step line (already in the language on screen, localizeStep) with its team path in words, and that path for a
+ * tooltip: { label: "파일 읽기 · 브랜드 이미지 폴더 › 홈페이지-6.jpg", path: "groups/Acme/브랜드/이미지/홈페이지-6.jpg" }.
+ * Any other line comes back as it is, without `path`.
+ */
+export function stepPlace(step: { tool?: string }, label: string, locale: Locale): { label: string; path?: string } {
+  if (!PATH_STEP_TOOLS.has(step.tool ?? '')) return { label }
+  const at = label.lastIndexOf(' · ')
+  if (at < 0) return { label }
+  const tail = label.slice(at + 3)
+  const [, path = tail, suffix = ''] = /^(.*?)( \+\d+| #\d+)?$/s.exec(tail) ?? []
+  const named = placeName(path, locale)
+  return named ? { label: `${label.slice(0, at + 3)}${named}${suffix}`, path } : { label }
+}
 
 /** "Remembered: {text}" -> /^Remembered: ([\s\S]*)$/ with the names of the captured parts. */
 function templateMatch(template: string, label: string): Record<string, string> | null {

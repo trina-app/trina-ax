@@ -13,7 +13,7 @@ import { M as SYSTEM_TEXT } from '../../server/src/system/messages'
 import { ML as LINUX_TEXT } from '../../server/src/system/messages-linux'
 import { MSG as FILE_TEXT } from '../../server/src/team-files/errors'
 import { pageMessage, type PageKind } from '../../relay/src/pages'
-import { BROWSER_STEP_VERB, FILE_STEP_VERB, STEP_TEXT } from '@mycel/shared'
+import { BROWSER_STEP_VERB, FILE_STEP_VERB, STEP_PLACE, STEP_TEXT } from '@mycel/shared'
 import { PERIOD } from '../../server/src/admin/budgets'
 import { T as ENGINE_TEXT } from '../../server/src/admin/engines'
 import { ARCHIVE_DIR } from '../../server/src/admin/users'
@@ -64,6 +64,7 @@ describe('server and relay texts', () => {
     checkTable('steps', STEP_TEXT)
     checkTable('file step verbs', FILE_STEP_VERB)
     checkTable('browser step verbs', BROWSER_STEP_VERB)
+    checkTable('step places', STEP_PLACE)
     checkTable('engines', ENGINE_TEXT)
     checkTable('url gate', URL_GATE_TEXT, 2)
     checkTable('file moves', FILE_MOVE_TEXT)
