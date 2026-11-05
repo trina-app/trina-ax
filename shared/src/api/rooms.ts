@@ -29,7 +29,11 @@ export const ROOM_AI_ANSWER_MAX = 60_000
 
 /** The names that call the AI in a room ("@트리나 …"): its Korean name, the Latin and Japanese ones, and the product's
  * own names. Matched without regard to case; the web app's "@" list offers the first one in Korean. */
-export const ROOM_AI_NAMES: readonly string[] = [...new Set(['트리나', 'Trina', 'トリナ', PRODUCT.shortName, PRODUCT.displayName])]
+const AI_OWN_NAMES = ['트리나', 'Trina', 'トリナ']
+export const ROOM_AI_NAMES: readonly string[] = [...new Set([...AI_OWN_NAMES, PRODUCT.shortName, PRODUCT.displayName])]
+/** The product is named after its AI (the Trina edition): the app calls the AI by its short name there (the web app's
+ * rooms.aiName, "트리나", like "@트리나"); the core edition calls it by the product's name. */
+export const PRODUCT_NAMED_AFTER_AI = AI_OWN_NAMES.some((n) => PRODUCT.displayName.includes(n))
 const AI_NAMES_LONGEST = [...ROOM_AI_NAMES].sort((a, b) => b.length - a.length)
 const isWordChar = (c: string | undefined) => !!c && /[\p{L}\p{N}_]/u.test(c)
 

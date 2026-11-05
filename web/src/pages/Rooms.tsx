@@ -1,11 +1,11 @@
 // The rooms list (/rooms; the 대화 tab on phones): first a pinned row for the AI chat (like KakaoTalk's "나와의
-// 채팅"), then my rooms by latest activity, each with its last line, when, and my unread count. Rows are separated by
-// hairlines, no cards. "새 1:1 대화" opens the people list.
+// 채팅"; called like "@트리나" in the Trina edition), then my rooms by latest activity, each with its last line, when,
+// and my unread count. Rows are separated by hairlines, no cards. "새 1:1 대화" opens the people list.
 import { BellOff, Plus } from 'lucide-react'
 import { useState } from 'react'
 import { Link } from 'react-router-dom'
 import { PRODUCT } from '@mycel/shared'
-import type { Locale, Room } from '@mycel/shared/api'
+import { PRODUCT_NAMED_AFTER_AI, type Locale, type Room } from '@mycel/shared/api'
 import { errorText } from '../lib/api'
 import { dateBucket, formatDate, intlTag } from '../lib/format'
 import { badgeText } from '../lib/rooms'
@@ -48,7 +48,7 @@ export default function Rooms() {
             <Link to="/" className={row} data-testid="rooms-ai">
               <img src="/favicon.svg" alt="" aria-hidden className="size-10 shrink-0 rounded-full" />
               <span className="min-w-0 flex-1">
-                <span className="block truncate font-medium text-ink">{PRODUCT.displayName}</span>
+                <span className="block truncate font-medium text-ink">{PRODUCT_NAMED_AFTER_AI ? t('rooms.aiName') : PRODUCT.displayName}</span>
                 <span className="block truncate text-sm text-muted">{t('rooms.ai.hint')}</span>
               </span>
             </Link>
