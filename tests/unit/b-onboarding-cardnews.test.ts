@@ -83,6 +83,8 @@ describe('what a page offers (pure)', () => {
     expect(acceptImage(png(2400, 500), 'image')).toBeNull()
     expect(acceptImage(png(180, 180), 'logo')).toEqual({ ext: 'png', width: 180, height: 180 })
     expect(acceptImage(png(32, 32), 'logo')).toBeNull()
+    // a giant picture is never kept (nor decoded)
+    expect(acceptImage(png(10_000, 5_000), 'image')).toBeNull()
   })
   test('the profile keeps the person\'s colours; the AI\'s colours in a draft are dropped; the facts block names them', () => {
     expect(cleanColors(['#ABC', '#0e5e4e', '#0e5e4e', 'blue', 7, '#123456', '#111111', '#222222', '#333333', '#444444'])).toEqual(['#aabbcc', '#0e5e4e', '#123456', '#111111', '#222222'])
@@ -120,6 +122,7 @@ describe('the website reading, the first result and the brand photo (the real we
   const hits: string[] = []
   const hfCalls: { path: string; body: unknown }[] = []
   let hfFail = false
+  let resultMissing = false
   const site = () => `http://www.acme.example:${web.port}/`
   beforeAll(async () => {
     web = Bun.serve({ port: 0, hostname: '127.0.0.1', fetch(req) {
@@ -152,7 +155,7 @@ describe('the website reading, the first result and the brand photo (the real we
       if (req.headers.get('authorization') !== 'Bearer hf-test-token' || req.headers.get('hf-workspace-id') !== 'ws-1') return Response.json({ detail: 'Invalid or expired token' }, { status: 401 })
       hfCalls.push({ path: u.pathname, body: req.method === 'POST' ? await req.json() : null })
       if (req.method === 'POST' && u.pathname === '/developer/v2alpha/images/z_image/generations') return Response.json({ id: `job-${hfCalls.length}`, job_type: 'z_image', credits: 0.15 })
-      if (u.pathname.startsWith('/developer/v2alpha/jobs/')) return Response.json(hfFail ? { status: 'failed' } : { status: 'completed', result_url: `http://127.0.0.1:${web.port}/out.png` })
+      if (u.pathname.startsWith('/developer/v2alpha/jobs/')) return Response.json(hfFail ? { status: 'failed' } : { status: 'completed', result_url: `http://127.0.0.1:${web.port}/${resultMissing ? 'gone' : 'out'}.png` })
       return new Response('no', { status: 404 })
     } })
     process.env.MYCEL_HIGGSFIELD_ONBOARDING_API = `http://127.0.0.1:${hf.port}`
@@ -262,10 +265,15 @@ describe('the website reading, the first result and the brand photo (the real we
     hfFail = false
     const counts = () => h.ctx.db.query("SELECT status, count(*) AS n FROM onboarding_images GROUP BY status ORDER BY status").all()
     expect(counts()).toEqual([{ status: 'done', n: 1 }, { status: 'failed', n: 1 }])
-    // three more fit (four in all), then the tool is not offered any more
-    for (let i = 0; i < BRAND_IMAGES_PER_TEAM - 1; i++) expect(await send('dana', r.chatId, tool({ ...args, name: `사진-${i}` }))).toContain('Saved the brand photo')
+    // a job the service took that never became a file (here the download fails) still counts: it may be charged
+    resultMissing = true
+    expect(await send('dana', r.chatId, tool(args))).not.toContain('Saved the brand photo')
+    resultMissing = false
+    expect(counts()).toEqual([{ status: 'done', n: 1 }, { status: 'failed', n: 1 }, { status: 'lost', n: 1 }])
+    // two more fit (four counted in all), then the tool is not offered any more
+    for (let i = 0; i < BRAND_IMAGES_PER_TEAM - 2; i++) expect(await send('dana', r.chatId, tool({ ...args, name: `사진-${i}` }))).toContain('Saved the brand photo')
     expect(await send('dana', r.chatId, tool(args))).toMatch(/unknown tool|not available|no such tool/i)
-    expect((h.ctx.db.query("SELECT count(*) AS n FROM onboarding_images WHERE status = 'done'").get() as { n: number }).n).toBe(BRAND_IMAGES_PER_TEAM)
+    expect((h.ctx.db.query("SELECT count(*) AS n FROM onboarding_images WHERE status != 'failed'").get() as { n: number }).n).toBe(BRAND_IMAGES_PER_TEAM)
   })
 })
 
@@ -276,6 +284,22 @@ describe('a hostile page does not stall the server', () => {
     const a = extractPageAssets(page, new URL('https://acme.example/'))
     expect(performance.now() - t0).toBeLessThan(1500)
     expect(a.images.length).toBeLessThanOrEqual(1)
+  })
+  test('the review\'s pages: bare "<", long style values, spaced data-bg, unclosed quotes, spaced CSS', () => {
+    const base = new URL('https://acme.example/')
+    const pages = [
+      '<'.repeat(600_000) + '>',
+      Array.from({ length: 700 }, () => `<div style="background:${'x'.repeat(3900)}">`).join(''),
+      Array.from({ length: 700 }, () => `<div data-bg="url(a.jpg${' '.repeat(3900)}x">`).join(''),
+      Array.from({ length: 700 }, () => `<img ${'a="'.repeat(1300)}>`).join(''),
+      `<style>${'--brand-a' + ' '.repeat(50_000)}${'color' + ' '.repeat(50_000)}</style>`.repeat(20),
+      `"logo"${' '.repeat(100_000)}`.repeat(20),
+    ]
+    for (const page of pages) {
+      const t0 = performance.now()
+      extractPageAssets(page, base)
+      expect(performance.now() - t0, page.slice(0, 20)).toBeLessThan(1500)
+    }
   })
 })
 

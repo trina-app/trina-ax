@@ -75,24 +75,34 @@ export function brandImagesUsed(db: AppContext['db']): number {
 
 type Job = { id?: string; status?: string; result_url?: string | null; detail?: unknown }
 
+/** A failure the service will not charge for: it refused the request or said the job failed. Its photo is given back;
+ * any other failure after the service took the job (stopped, timed out, the download or the save failed) keeps it:
+ * the job may still finish and be charged. */
+export class NotCharged extends ToolError {}
+/** Each request to the service gives up after this long (the poll as a whole: WAIT_MAX_MS). */
+const REQUEST_MS = 30_000
+const withTimeout = (signal?: AbortSignal) => (signal ? AbortSignal.any([signal, AbortSignal.timeout(REQUEST_MS)]) : AbortSignal.timeout(REQUEST_MS))
+
 /** Submit one picture and wait for it: the result's address. */
 export async function runBrandImage(o: { key: HiggsfieldToken; prompt: string; aspect: string; fetchFn?: typeof fetch; pollMs?: number; waitMaxMs?: number; signal?: AbortSignal }): Promise<{ jobId: string; url: string }> {
   const f = o.fetchFn ?? fetch
   const headers = { Authorization: `Bearer ${o.key.token}`, 'hf-workspace-id': o.key.workspace, 'Content-Type': 'application/json', Accept: 'application/json' }
-  const sub = await f(`${apiBase()}/developer/v2alpha/images/${BRAND_IMAGE_MODEL}/generations`, { method: 'POST', headers, body: JSON.stringify({ params: { prompt: o.prompt, aspect_ratio: o.aspect } }), signal: o.signal })
+  let sub: Response
+  // no answer to the submit: the service may still have taken it, so it is not given back (a ToolError, not NotCharged)
+  try { sub = await f(`${apiBase()}/developer/v2alpha/images/${BRAND_IMAGE_MODEL}/generations`, { method: 'POST', headers, body: JSON.stringify({ params: { prompt: o.prompt, aspect_ratio: o.aspect } }), signal: withTimeout(o.signal) }) } catch { throw new ToolError('the photo service did not answer; make the card without a new photo') }
   const first = await sub.json().catch(() => ({})) as Job
-  if (!sub.ok) throw new ToolError(`the photo service refused the request (HTTP ${sub.status}${sub.status === 401 || sub.status === 403 ? ': the image key is not valid any more' : ''}); make the card without a new photo`)
+  if (!sub.ok) throw new NotCharged(`the photo service refused the request (HTTP ${sub.status}${sub.status === 401 || sub.status === 403 ? ': the image key is not valid any more' : ''}); make the card without a new photo`)
   const id = first.id
-  if (!id) throw new ToolError('the photo service did not return a job id; make the card without a new photo')
+  if (!id) throw new NotCharged('the photo service did not return a job id; make the card without a new photo')
   const until = Date.now() + (o.waitMaxMs ?? WAIT_MAX_MS)
   for (;;) {
     // a local stand-in for the API (tests) answers at once
     await new Promise((r) => setTimeout(r, o.pollMs ?? (process.env.MYCEL_HIGGSFIELD_ONBOARDING_API ? 50 : POLL_MS)))
     if (o.signal?.aborted) throw new ToolError('stopped')
-    const r = await f(`${apiBase()}/developer/v2alpha/jobs/${encodeURIComponent(id)}`, { headers, signal: o.signal })
-    const s = await r.json().catch(() => ({})) as Job
+    let s: Job = {}
+    try { s = await (await f(`${apiBase()}/developer/v2alpha/jobs/${encodeURIComponent(id)}`, { headers, signal: withTimeout(o.signal) })).json().catch(() => ({})) as Job } catch { /* asked again next round */ }
     if (s.status === 'completed' && s.result_url) return { jobId: id, url: s.result_url }
-    if (s.status && ['failed', 'nsfw', 'canceled', 'cancelled'].includes(s.status)) throw new ToolError(`the photo could not be made (${s.status}, not charged); change the description or make the card without it`)
+    if (s.status && ['failed', 'nsfw', 'canceled', 'cancelled'].includes(s.status)) throw new NotCharged(`the photo could not be made (${s.status}, not charged); change the description or make the card without it`)
     if (Date.now() > until) throw new ToolError('the photo was not ready in time; make the card without it')
   }
 }
@@ -120,8 +130,8 @@ export async function makeBrandImage(ctx: AppContext, a: z.output<typeof BrandIm
     return true
   })()
   if (!reserved) throw new ToolError(`this team's ${BRAND_IMAGES_PER_TEAM} brand photos are used; make the cards with the pictures there are`)
-  const end = (status: 'done' | 'failed', p: string | null = null) => ctx.db.query('UPDATE onboarding_images SET status = ?, path = ?, credits = ?, ended_at = ? WHERE id = ?')
-    .run(status, p, status === 'done' ? BRAND_IMAGE_CREDITS : null, new Date().toISOString(), id)
+  const end = (status: 'done' | 'failed' | 'lost', p: string | null = null) => ctx.db.query('UPDATE onboarding_images SET status = ?, path = ?, credits = ?, ended_at = ? WHERE id = ?')
+    .run(status, p, status === 'failed' ? null : BRAND_IMAGE_CREDITS, new Date().toISOString(), id)
   const work = fs.mkdtempSync(path.join(os.tmpdir(), 'mycel-brand-'))
   try {
     const prompt = `${a.prompt.trim().replace(/\s+/g, ' ')} ${PROMPT_RULES}`
@@ -147,7 +157,9 @@ export async function makeBrandImage(ctx: AppContext, a: z.output<typeof BrandIm
       structured: { path: made.path, jobId: r.jobId, used },
     }
   } catch (e) {
-    end('failed')
+    // given back only when the service will not charge it; anything else after it took the job still counts, or a
+    // loop of stop and send again would buy photos without end
+    end(e instanceof NotCharged ? 'failed' : 'lost')
     throw e
   } finally { fs.rmSync(work, { recursive: true, force: true }) }
 }

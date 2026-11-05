@@ -147,6 +147,23 @@ export function placeBrandAssets(ctx: AppContext, userId: string, chatId: string
   return placed
 }
 
+/** Staged pictures that will never be placed: those of chats deleted since, and those of drafts older than the latest
+ * one that a first result placed (only the latest draft's pictures are ever placed). Their rows stay with the chat. */
+export function sweepStagedAssets(ctx: AppContext): void {
+  const root = path.join(ctx.engineConfig.dataDir, 'onboarding-assets')
+  let dirs: string[]
+  try { dirs = fs.readdirSync(root) } catch { return }
+  for (const d of dirs) {
+    try {
+      const chat = ctx.db.query('SELECT 1 FROM chats WHERE id = ? AND deleted_at IS NULL').get(d)
+      const pending = ctx.db.query("SELECT 1 FROM onboarding_brand_assets WHERE chat_id = ? AND file IS NOT NULL AND placed_path IS NULL LIMIT 1").get(d)
+      const placedLater = ctx.db.query(`SELECT 1 FROM onboarding_brand_assets a JOIN onboarding_profile_drafts p ON p.chat_id = a.chat_id
+        WHERE a.placed_path IS NOT NULL AND p.created_at > (SELECT created_at FROM onboarding_profile_drafts WHERE chat_id = ?) LIMIT 1`).get(d)
+      if (!chat || !pending || placedLater) fs.rmSync(path.join(root, d), { recursive: true, force: true })
+    } catch (err) { ctx.log.warn('staged brand pictures not swept', { err }) }
+  }
+}
+
 /** A file the owner gave: a team file they can read (the upload just made it), normalized. */
 function ownerFile(ctx: AppContext, userId: string, rel: string, locale: Locale): string {
   try {
@@ -166,11 +183,12 @@ export function startFirstResult(ctx: AppContext, rt: ChatRuntime, auth: AuthInf
   const skillPath = cardNewsSkill(ctx, userId, () => installPackSkill(ctx, userId, 'general', 'card-news'))
   if (!skillPath) throw new HttpError('conflict', TEXT.blocked[locale])
   const team = teamDefaultLocale(ctx.db)
-  const { brandFolder, imagesFolder } = brandFoldersOf(ctx, userId, group.folder)
+  const { brandFolder, imagesFolder } = brandFoldersOf(ctx, userId, group.folder, group.brandFolder)
   const files = [...new Set(body.files.map((f) => ownerFile(ctx, userId, f.replace(/^\/+/, ''), locale)))]
   // the website's pictures (the latest website draft of the owner that collected any)
   const draft = latestDraftChat(ctx, userId)
   const images = draft ? placeBrandAssets(ctx, userId, draft, imagesFolder, team) : []
+  sweepStagedAssets(ctx)
   let intro: string | null = null
   if (!files.length) {
     const profile = readCompanyProfile(ctx.files, ctx.files.principal(userId))

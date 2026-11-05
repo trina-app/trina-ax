@@ -46,6 +46,10 @@ const LOGO_MIN_SIDE = 64
 /** Made into a 1,600 px JPEG above these. */
 const RESIZE_SIDE = 2000
 const RESIZE_BYTES = 1.5 * 1024 * 1024
+/** Pictures larger than this are not kept (and never decoded). */
+export const MAX_PIXELS = 40_000_000
+/** The isolated ffmpeg is stopped above this much memory. */
+const FFMPEG_RSS_MIB = 768
 
 export interface Candidate { url: string; kind: 'logo' | 'image'; alt: string; weight: number }
 export interface ColorHit { hex: string; weight: number }
@@ -66,11 +70,13 @@ export function* startTags(page: string): Generator<{ name: string; attrs: strin
     if (lt < 0) return
     let j = lt + 1
     while (j < page.length && nameChar(page.charCodeAt(j))) j++
+    // "<" that names no tag (text, "</", "<!"): on to the next "<", never a search for ">" from here
+    if (j === lt + 1) { i = lt + 1; continue }
     const gt = page.indexOf('>', j)
     if (gt < 0) return
     const name = page.slice(lt + 1, j).toLowerCase()
     if (TAGS.has(name)) yield { name, attrs: page.slice(j, Math.min(gt, j + TAG_ATTRS_MAX)) }
-    i = name ? gt + 1 : lt + 1
+    i = gt + 1
   }
 }
 
@@ -89,18 +95,51 @@ export function* styleBlocks(page: string, max = 200_000): Generator<string> {
     i = close + 7
   }
 }
-const ATTR = /([a-zA-Z_:][-a-zA-Z0-9_:.]*)\s*(?:=\s*(?:"([^"]*)"|'([^']*)'|([^\s"'=<>`]+)))?/g
+const space = (c: number) => c === 32 || c === 9 || c === 10 || c === 13 || c === 12
 
-/** The attributes of one tag (names lower case, values with entities decoded). */
+/** The attributes of one tag (names lower case, values with entities decoded). One forward pass, no pattern: a value
+ * whose quote never closes runs to the end of the tag text. */
 export function attrsOf(s: string): Record<string, string> {
   const out: Record<string, string> = {}
-  ATTR.lastIndex = 0
-  for (let m = ATTR.exec(s); m; m = ATTR.exec(s)) {
-    if (m[0] === '') { ATTR.lastIndex++; continue }
-    const k = m[1]!.toLowerCase()
-    if (!(k in out)) out[k] = decodeEntities(m[2] ?? m[3] ?? m[4] ?? '')
+  const n = s.length
+  let i = 0
+  while (i < n) {
+    while (i < n && (space(s.charCodeAt(i)) || s[i] === '/')) i++
+    const ns = i
+    while (i < n && !space(s.charCodeAt(i)) && s[i] !== '=' && s[i] !== '/' && s[i] !== '>') i++
+    const k = s.slice(ns, i).toLowerCase()
+    if (!k) { i++; continue }
+    while (i < n && space(s.charCodeAt(i))) i++
+    let v = ''
+    if (s[i] === '=') {
+      i++
+      while (i < n && space(s.charCodeAt(i))) i++
+      const q = s[i]
+      if (q === '"' || q === "'") {
+        const e = s.indexOf(q, i + 1)
+        v = s.slice(i + 1, e < 0 ? n : e)
+        i = e < 0 ? n : e + 1
+      } else {
+        const vs = i
+        while (i < n && !space(s.charCodeAt(i)) && s[i] !== '>') i++
+        v = s.slice(vs, i)
+      }
+    }
+    if (!(k in out)) out[k] = decodeEntities(v)
   }
   return out
+}
+
+/** The address inside a CSS url(...) (quotes dropped), found with indexOf; null without one. */
+export function cssUrl(v: string): string | null {
+  const low = v.toLowerCase()
+  const at = low.indexOf('url(')
+  if (at < 0) return null
+  const end = v.indexOf(')', at + 4)
+  const inner = v.slice(at + 4, end < 0 ? Math.min(v.length, at + 2004) : Math.min(end, at + 2004)).trim()
+  const q = inner[0]
+  const u = q === '"' || q === "'" ? inner.slice(1, inner.endsWith(q) ? -1 : undefined) : inner
+  return u.trim() || null
 }
 
 /** An absolute http(s) address from a page's reference, or null (data:, javascript:, broken). */
@@ -189,7 +228,7 @@ export function cssColors(css: string, weight = 1): ColorHit[] {
   const out: ColorHit[] = []
   const text = css.slice(0, STYLESHEET_BYTES)
   const vars = new Set<string>()
-  for (const m of text.matchAll(/--([a-z0-9_-]{1,60})\s*:\s*(#[0-9a-f]{3,8}|rgba?\([^)]{5,40}\))/gi)) {
+  for (const m of text.matchAll(/--([a-z0-9_-]{1,60})\s{0,20}:\s{0,20}(#[0-9a-f]{3,8}|rgba?\([^)]{5,40}\))/gi)) {
     if (!VAR_NAME.test(m[1]!) || /(text|font|border|shadow|bg-light|gray|grey|white|black|neutral|red|orange|yellow|green|blue|purple|pink|cyan|teal|olive|success|danger|warning|error|info)/i.test(m[1]!)) continue
     const hex = normColor(m[2]!)
     if (hex) vars.add(hex)
@@ -197,7 +236,7 @@ export function cssColors(css: string, weight = 1): ColorHit[] {
   // one or a few brand-named colours are the brand's; many are a design system's palette
   for (const hex of vars) out.push({ hex, weight: (vars.size <= 3 ? 90 : 20) * weight })
   const count = new Map<string, number>()
-  for (const m of text.matchAll(/(?:background(?:-color)?|color|fill|border-color)\s*:\s*(#[0-9a-f]{3,8}|rgba?\([^)]{5,40}\))/gi)) {
+  for (const m of text.matchAll(/(?:background(?:-color)?|color|fill|border-color)\s{0,20}:\s{0,20}(#[0-9a-f]{3,8}|rgba?\([^)]{5,40}\))/gi)) {
     const hex = normColor(m[1]!)
     if (hex && brandish(hex)) count.set(hex, (count.get(hex) ?? 0) + 1)
   }
@@ -230,7 +269,7 @@ export function extractPageAssets(html: string, base: URL): PageAssets {
       if (key === 'og:image' || key === 'og:image:url' || key === 'og:image:secure_url') add(images, 'image', a.content, 90)
       else if (key === 'twitter:image' || key === 'twitter:image:src') add(images, 'image', a.content, 85)
       else if (key === 'og:logo' || key === 'logo') add(logos, 'logo', a.content, 85)
-      else if (key === 'theme-color' || key === 'msapplication-tilecolor') { const hex = normColor(a.content ?? ''); if (hex) colors.push({ hex, weight: key === 'theme-color' ? 120 : 85 }) }
+      else if (key === 'theme-color' || key === 'msapplication-tilecolor') { const hex = normColor((a.content ?? '').slice(0, 60)); if (hex) colors.push({ hex, weight: key === 'theme-color' ? 120 : 85 }) }
       continue
     }
     if (name === 'link') {
@@ -256,13 +295,13 @@ export function extractPageAssets(html: string, base: URL): PageAssets {
     }
     // inline background pictures of hero sections
     const style = a.style ?? ''
-    const bg = /background(?:-image)?\s*:[^;]*url\(\s*['"]?([^'")]+)['"]?\s*\)/i.exec(style)
-    if (bg) add(images, 'image', bg[1], 62 - Math.min(20, order / 60))
-    const dataBg = a['data-bg'] ?? a['data-background'] ?? a['data-background-image']
-    if (dataBg) add(images, 'image', dataBg.replace(/^url\(\s*['"]?|['"]?\s*\)$/g, ''), 60 - Math.min(20, order / 60))
+    const bg = style.toLowerCase().includes('background') ? cssUrl(style) : null
+    if (bg) add(images, 'image', bg, 62 - Math.min(20, order / 60))
+    const dataBg = (a['data-bg'] ?? a['data-background'] ?? a['data-background-image'] ?? '').trim()
+    if (dataBg) add(images, 'image', cssUrl(dataBg) ?? dataBg, 60 - Math.min(20, order / 60))
   }
   // the JSON-LD organization's logo
-  for (const m of page.matchAll(/"logo"\s*:\s*(?:\{[^{}]{0,400}?"url"\s*:\s*)?"(https?:[^"\s]{1,1000})"/gi)) add(logos, 'logo', m[1]!.replace(/\\\//g, '/'), 88)
+  for (const m of page.matchAll(/"logo"\s{0,20}:\s{0,20}(?:\{[^{}]{0,400}?"url"\s{0,20}:\s{0,20})?"(https?:[^"\s]{1,1000})"/gi)) add(logos, 'logo', m[1]!.replace(/\\\//g, '/'), 88)
   // the page's own style blocks (custom properties, often-used colours)
   for (const css of styleBlocks(page)) colors.push(...cssColors(css))
   const sort = (m: Map<string, Candidate>) => [...m.values()].sort((x, y) => y.weight - x.weight)
@@ -305,6 +344,8 @@ export function acceptImage(b: Buffer, kind: Candidate['kind']): { ext: 'png' | 
   const ext = imageKind(b)
   const size = ext ? imageSize(b) : null
   if (!ext || !size) return null
+  // a decoder would need gigabytes for a giant picture (the 40-megapixel cap of media.ts)
+  if (size.width * size.height > MAX_PIXELS) return null
   const short = Math.min(size.width, size.height), long = Math.max(size.width, size.height)
   if (kind === 'logo') return short >= LOGO_MIN_SIDE ? { ext, ...size } : null
   if (short < MIN_SIDE || long / short > 3.2 || size.width * size.height < 160_000) return null
@@ -317,7 +358,7 @@ async function ffmpegPipe(bytes: Buffer, ext: string, args: string[], maxStdout:
   const work = makeWorkDir()
   try {
     fs.writeFileSync(path.join(work, `in.${ext}`), bytes, { mode: 0o600 })
-    const r = await runIsolated({ cmd: ffmpeg, workDir: work, timeoutMs: 20_000, maxStdout, args: ['-nostdin', '-hide_banner', '-loglevel', 'error', '-i', `in.${ext}`, ...args] })
+    const r = await runIsolated({ cmd: ffmpeg, workDir: work, timeoutMs: 20_000, maxStdout, maxRssMiB: FFMPEG_RSS_MIB, args: ['-nostdin', '-hide_banner', '-loglevel', 'error', '-i', `in.${ext}`, ...args] })
     return r.code === 0 ? r.stdout : null
   } catch { return null } finally { fs.rmSync(work, { recursive: true, force: true }) }
 }

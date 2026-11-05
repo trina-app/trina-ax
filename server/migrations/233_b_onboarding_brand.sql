@@ -11,6 +11,8 @@
 --
 -- onboarding_images: the brand photos made with the hosting service's image key, per team (the cap counts the rows that
 -- are not 'failed'; a row is written before the request goes out, so two calls at once cannot both take the last one).
+-- 'failed' only when the service refused the request or said the job failed (not charged); a job it took that never
+-- became a saved file (stopped, timed out, the download or the save failed) is 'lost' and still counts.
 -- No prompt text is kept beyond a short cut for the operator's view of what was made.
 -- Additive only (reader 1): an older build never reads or writes these tables.
 CREATE TABLE onboarding_brand_assets (
@@ -43,7 +45,7 @@ CREATE TABLE onboarding_images (
   id TEXT PRIMARY KEY,
   chat_id TEXT REFERENCES chats(id) ON DELETE SET NULL,
   user_id TEXT REFERENCES users(id) ON DELETE SET NULL,
-  status TEXT NOT NULL CHECK (status IN ('running', 'done', 'failed')),
+  status TEXT NOT NULL CHECK (status IN ('running', 'done', 'failed', 'lost')),
   model TEXT NOT NULL,
   credits REAL,
   path TEXT,

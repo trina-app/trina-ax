@@ -8188,3 +8188,22 @@ chat tools); the hosting side only hands over the image key.
   output, export, restore, rekey, strict stdin), `cloud-protocol` vectors, mycel-ctl `TestTenantHostedImageKeySet`,
   `b-onboarding-draft` and `b-onboarding-team-space` (the `assets` field, the third general skill),
   `web/test/unit/welcome.test.tsx`, `profile-step.test.tsx`, `web/test/e2e/welcome-notes.spec.ts`.
+
+### N, review fixes (feat/onboarding-cardnews, 2026-11-05)
+
+- **Pages are read in one pass (must-fix).** The collector runs inside web_fetch's page callback, so a slow parse
+  stops the server. Tags, attributes, inline `url(…)` values and style blocks are now found with `indexOf` scans, no
+  pattern that backtracks (`startTags`, `attrsOf`, `cssUrl`, `styleBlocks`); the remaining patterns have bounded
+  whitespace. The review's hostile pages (600,000 bare "<", long style values, spaced `data-bg`, unclosed quotes,
+  spaced CSS) each take milliseconds (test).
+- **The photo cap holds against stop and resend (must-fix).** A photo is given back only when the service refused the
+  request or said the job failed (`NotCharged`); a job it took that never became a file (stopped, timed out, the
+  download or the save failed) is `lost` and still counts, since it may be charged. Each request to the service has a
+  30-second timeout.
+- Pictures over 40 megapixels are not kept; the isolated ffmpeg gets a 768 MiB memory limit. The first result uses the
+  recorded brand folder (the one the page uploads into), not one named after the team's current language. Staged
+  pictures of deleted chats and of drafts older than a placed one are removed at the next first result.
+- **Accepted, recorded**: 회사 소개.md quotes the website's text in a team file, so a card news chat that read it passes
+  S's outside-content check although the words came from the web. They are the company's own public pages, read
+  within the typed site's scope, saved by the owner after confirming the profile, each part under its address; the
+  team skill names the file, which anyone on the team can open and edit.

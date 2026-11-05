@@ -198,9 +198,10 @@ function ensureNotesFolder(ctx: AppContext, userId: string, rel: string): void {
 
 /** The brand folder inside the team folder (groups/<team>/브랜드, localized) and its images folder, made when missing:
  * the company intro, 회사 소개.md and the pictures of the first result go there (docs/DECISIONS.md "N"). */
-export function brandFoldersOf(ctx: AppContext, userId: string, folder: string): { brandFolder: string; imagesFolder: string } {
+export function brandFoldersOf(ctx: AppContext, userId: string, folder: string, recorded?: string): { brandFolder: string; imagesFolder: string } {
   const locale = teamDefaultLocale(ctx.db)
-  const brandFolder = `${folder}/${PACK_FOLDERS.brand[locale]}`
+  // the one recorded keeps its name when the team's language changes later (the page uploads into it)
+  const brandFolder = recorded && recorded.startsWith(`${folder}/`) ? recorded : `${folder}/${PACK_FOLDERS.brand[locale]}`
   const imagesFolder = `${brandFolder}/${BRAND_IMAGES_FOLDER[locale]}`
   ensureNotesFolder(ctx, userId, brandFolder)
   ensureNotesFolder(ctx, userId, imagesFolder)
@@ -219,7 +220,7 @@ function teamGroupFor(ctx: AppContext, userId: string, recorded: TeamGroupRef | 
     if (folder && name) {
       const notesFolder = recorded.folder === folder ? recorded.notesFolder : `${folder}/${notes}`
       ensureNotesFolder(ctx, userId, notesFolder)
-      return { id: recorded.id, name, folder, notesFolder, brandFolder: brandFoldersOf(ctx, userId, folder).brandFolder }
+      return { id: recorded.id, name, folder, notesFolder, brandFolder: brandFoldersOf(ctx, userId, folder, recorded.folder === folder ? recorded.brandFolder : undefined).brandFolder }
     }
   }
   const team = getTeamSettings(ctx.db).teamName.trim().slice(0, 100) || 'Team'
