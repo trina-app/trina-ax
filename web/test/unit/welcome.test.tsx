@@ -775,6 +775,22 @@ describe('/welcome', () => {
     } finally { await m3.unmount() }
   })
 
+  test('AI connected on the AI step with only a put-off 회사 소개 left: back to 회사 소개, not Home', async () => {
+    signIn('owner')
+    ai = { usable: false, action: 'connect_team', requested: false }
+    progress = atResult({ steps: { ai: 'skipped', profile: 'skipped', result: 'done', invite: 'skipped' }, resultChatId: CHAT })
+    const m = await app()
+    try {
+      await m.until(() => m.find('welcome-ai-claude'), 'the AI step')
+      ai = { usable: true, action: 'connect_team', requested: false }
+      await act(async () => { await useAiAccess.getState().load(true) })
+      await m.until(() => stepOf(m) === 'profile', 'back to 회사 소개')
+      // still on the steps (Home would render the catch-all route)
+      expect(m.find('where')).toBeNull()
+      expect(progress!.steps.ai).toBe('done')
+    } finally { await m.unmount() }
+  })
+
   test('AI gone by the first result (the trial credit used): the AI step holds the steps back, no picker', async () => {
     signIn('owner')
     ai = { usable: false, action: 'connect_team', requested: false }

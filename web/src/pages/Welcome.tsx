@@ -110,10 +110,19 @@ function WelcomeSteps() {
   }
   const mark = (id: WelcomeStep, state: WelcomeStepState) => run(async () => go(await useWelcome.getState().update({ step: { id, state } }), id))
   /** AI answers now (connected in the dialog, in another tab, or a trial credit arrived): recorded once, so the progress
-   * keeps the step, then on to the next open step */
-  const aiConnected = () => run(async () => go(await useWelcome.getState().update({ step: { id: 'ai', state: 'done' } }), 'ai'))
+   * keeps the step, then where the steps resume with AI (an open step, else a counted step that was put off: the one
+   * the owner came back for), Home when nothing is left */
+  const aiConnected = () => run(async () => {
+    const p = await useWelcome.getState().update({ step: { id: 'ai', state: 'done' } })
+    const s = resumeStep(p, true)
+    if (s) setStep(s)
+    else go(p, 'ai')
+  })
   useEffect(() => {
-    if (step === 'ai' && ai.loaded && ai.usable && !busy) void aiConnected()
+    if (!ai.loaded || !ai.usable || busy) return
+    if (step === 'ai') void aiConnected()
+    // AI back while the AI screen stood in for 회사 소개 or 첫 결과: that step shows again, the bar's AI step is done
+    else if (progress?.steps.ai === 'skipped') void useWelcome.getState().update({ step: { id: 'ai', state: 'done' } }).catch(() => {})
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [step, ai.loaded, ai.usable])
   // the AI step on screen: recorded once as needed, so the progress keeps it (1/3) after AI is connected anywhere
