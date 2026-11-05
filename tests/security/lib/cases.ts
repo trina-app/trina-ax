@@ -11,6 +11,7 @@ import { C, USER_OF, WHO, type Who, type World } from './world'
 import { P4_SPECS } from './p4-cases'
 import { INTEGRATION_SPECS } from './integrations-cases'
 import { TEAM_ICON_SPECS } from './team-icon-cases'
+import { PEOPLE_SPECS } from './people-cases'
 import { REMOTE_MCP_SPECS } from './remote-mcp-cases'
 import { PLUGIN_SPECS } from './plugin-cases'
 
@@ -69,6 +70,7 @@ export const SPECS: Record<string, Spec> = {
   ...P4_SPECS,
   ...INTEGRATION_SPECS,
   ...TEAM_ICON_SPECS,
+  ...PEOPLE_SPECS,
   ...REMOTE_MCP_SPECS,
   ...PLUGIN_SPECS,
   // ---- auth / me (self or public) ----
