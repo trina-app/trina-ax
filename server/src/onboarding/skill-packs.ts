@@ -41,6 +41,8 @@ import koMeetingTasks from '../../../resources/skill-packs/general/ko/meeting-ta
 import koDocBrief from '../../../resources/skill-packs/general/ko/doc-brief/SKILL.md' with { type: 'text' }
 import enMeetingTasks from '../../../resources/skill-packs/general/en/meeting-tasks/SKILL.md' with { type: 'text' }
 import enDocBrief from '../../../resources/skill-packs/general/en/doc-brief/SKILL.md' with { type: 'text' }
+import koCardNews from '../../../resources/skill-packs/general/ko/card-news/SKILL.md' with { type: 'text' }
+import enCardNews from '../../../resources/skill-packs/general/en/card-news/SKILL.md' with { type: 'text' }
 
 export interface SkillPack {
   /** skill name → its SKILL.md text, per language the pack is written in (English always) */
@@ -62,8 +64,8 @@ export const SKILL_PACKS: Record<SkillPackId, SkillPack> = {
   // team's files go into its own group folder (onboarding/welcome.ts setupWelcomeTeam)
   general: {
     skills: {
-      ko: { 'meeting-tasks': koMeetingTasks, 'doc-brief': koDocBrief },
-      en: { 'meeting-tasks': enMeetingTasks, 'doc-brief': enDocBrief },
+      ko: { 'meeting-tasks': koMeetingTasks, 'doc-brief': koDocBrief, 'card-news': koCardNews },
+      en: { 'meeting-tasks': enMeetingTasks, 'doc-brief': enDocBrief, 'card-news': enCardNews },
     },
     folders: Object.fromEntries(Locale.options.map((l) => [l, []])) as unknown as Record<Locale, string[]>,
   },
@@ -73,12 +75,21 @@ export const SKILL_PACKS: Record<SkillPackId, SkillPack> = {
 export const packLocale = (pack: SkillPack, team: Locale): Locale => (pack.skills[team] ? team : 'en')
 
 /** The texts an earlier release of the pack wrote for this one: the same file without its metadata `title` line (the
- * titles came after the first install on some teams). A file holding exactly such bytes was never edited, so it is
- * `present`, not `kept`; it is not replaced (no file is), and it shows the skill's name until someone adds the line. */
+ * titles came after the first install on some teams), without its `recurring` line (docs/DECISIONS.md "S"), or without
+ * both. A file holding exactly such bytes was never edited, so it is `present`, not `kept`; it is not replaced (no file
+ * is), and it shows the skill's name until someone adds the line. */
 export function earlierPackTexts(text: string): string[] {
-  const before = text.replace(/^(metadata:\r?\n)[ \t]+title:[^\r\n]*\r?\n/m, '$1')
-  return before !== text ? [before] : []
+  const noTitle = (t: string) => t.replace(/^(metadata:\r?\n)[ \t]+title:[^\r\n]*\r?\n/m, '$1')
+  const noRecurring = (t: string) => t.replace(/^[ \t]+recurring:[^\r\n]*\r?\n(?=---)/m, '')
+  return [...new Set([noTitle(text), noRecurring(text), noTitle(noRecurring(text))])].filter((t) => t !== text)
 }
+
+/** Pack skills whose work comes back every week (their metadata says `recurring: weekly`): a copy installed before that
+ * line existed has no `recurring` key and is read as the pack says (onboarding/suggestions.ts). */
+export const RECURRING_PACK_SKILLS: ReadonlySet<string> = new Set(['skills/general/meeting-tasks/SKILL.md', 'skills/marketing/weekly-report/SKILL.md', 'skills/marketing/competitor-brief/SKILL.md'])
+
+/** Every skill name a pack has (any pack, any language): a team skill made later never takes one (skill-draft.ts). */
+export const packSkillNames = (): string[] => [...new Set(Object.values(SKILL_PACKS).flatMap((p) => Object.values(p.skills).flatMap((t) => Object.keys(t ?? {}))))]
 
 const refused = (e: unknown) => e instanceof Denied || e instanceof ToolError || e instanceof FileError || e instanceof HttpError
 
@@ -107,7 +118,8 @@ function placeSkill(ctx: AppContext, userId: string, rel: string, name: string, 
   }
   try {
     // no "last seen" hash: should the file appear meanwhile, the save refuses (not_read) instead of replacing it
-    ctx.files.humanSave(userId, rel, Buffer.from(text, 'utf8'), null)
+    // marked as the pack's: the person who pressed install did not write it (skills/author.ts)
+    ctx.files.humanSave(userId, rel, Buffer.from(text, 'utf8'), null, 'pack_install')
   } catch (e) {
     if (e instanceof ToolError && e.code === 'not_read') return { path: r.rel, status: 'kept' }
     if (refused(e)) return { path: r.rel, status: 'blocked' }
@@ -126,6 +138,20 @@ function placeFolder(ctx: AppContext, userId: string, rel: string): { path: stri
     if (refused(e)) return { path: rel, status: 'blocked' }
     throw e
   }
+}
+
+/** One skill of a pack, alone (the welcome steps' first result adds "카드뉴스" to a team whose general pack was recorded
+ * before the skill existed, once: docs/DECISIONS.md "N"). Like the pack install: never replaces a file, a team skill of
+ * the same name elsewhere blocks it, written as the person through the file layer. */
+export function installPackSkill(ctx: AppContext, userId: string, id: SkillPackId, name: string): { path: string; status: PackItemStatus; sameNameAs?: string } {
+  const pack = SKILL_PACKS[id]
+  const locale = packLocale(pack, teamDefaultLocale(ctx.db))
+  const text = pack.skills[locale]![name]
+  if (!text) throw new Error(`no skill ${name} in pack ${id}`)
+  const teamSkills = listTeamSkills(ctx.files, ctx.files.principal(userId)).map((s) => ({ path: s.path, name: s.name }))
+  const r = placeSkill(ctx, userId, `skills/${id}/${name}/SKILL.md`, name, text, teamSkills)
+  audit(ctx.db, { actor: userId, action: 'onboarding.pack_install', target: `skills/${id}/${name}`, detail: { pack: id, locale, skill: name, status: r.status } })
+  return r
 }
 
 /** Install pack `id` as `userId` (the route lets owners and admins only). Idempotent; never replaces a file. */

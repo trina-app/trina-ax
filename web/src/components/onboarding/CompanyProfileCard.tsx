@@ -1,13 +1,14 @@
 // Admin > Team settings: the team's company profile (docs/DECISIONS.md "D — Company profile from the company website"),
-// what every team chat's AI is told about the company. Shows what is saved; "Create" / "Edit" opens the same step the
-// welcome wizard uses (ProfileStep.tsx) in a dialog. Owner and admins only (the page is theirs; the server checks again).
-import { useState } from 'react'
+// what every team chat's AI is told about the company. Shows what is saved (the brand colours as small swatches); "Create"
+// / "Edit" opens the same step the welcome wizard uses (ProfileStep.tsx) in a dialog. Owner and admins only (the page is
+// theirs; the server checks again).
+import { useState, type ReactNode } from 'react'
 import { API, type CompanyProfile } from '@mycel/shared/api'
 import { api } from '../../lib/api'
 import { useT } from '../../i18n'
 import { Card, Loadable, useLoad } from '../../pages/admin/common'
 import { Button, Modal } from '../ui'
-import ProfileStep from './ProfileStep'
+import ProfileStep, { brandColors, ColorSwatch } from './ProfileStep'
 
 export default function CompanyProfileCard() {
   const t = useT()
@@ -41,12 +42,18 @@ export default function CompanyProfileCard() {
 
 function Summary({ p }: { p: CompanyProfile }) {
   const t = useT()
-  const rows: [string, string][] = [
+  const colors = brandColors(p.colors)
+  const rows: [string, ReactNode][] = [
     [t('onboarding.profile.f.name'), p.name ?? ''],
     [t('onboarding.profile.f.oneLine'), p.oneLine],
     [t('onboarding.profile.f.products'), p.products],
     [t('onboarding.profile.f.audience'), p.audience],
     [t('onboarding.profile.f.tone'), p.tone.join(', ')],
+    [t('onboarding.profile.f.colors'), colors.length > 0 && (
+      <span className="flex flex-wrap gap-1.5" data-testid="company-profile-colors">
+        {colors.map((c) => <ColorSwatch key={c} color={c} />)}
+      </span>
+    )],
     [t('onboarding.profile.f.avoid'), p.avoid],
     [t('onboarding.profile.f.website'), p.website],
   ]

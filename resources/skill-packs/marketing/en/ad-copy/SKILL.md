@@ -35,11 +35,11 @@ metadata:
 - Save to a file only when asked, and ask where.
 
 ## Output (in this order)
-1. The first line is only this: "This is how option N, the one I recommend, would look in (channel)."
+1. The first line is only this: "Here's how option N, the one I recommend, would look as (an Instagram feed post / a search ad / a banner / a text message)."
 2. Then make exactly one preview with the artifact tool: type "html", key "ad-preview", title "(channel) preview".
    - A simple frame that looks like the recommended option placed there: for an Instagram feed a post card (a round avatar with the company name, a square image area holding the headline in large type, the body and call to action below), for a search ad one search result (a small "Ad" label, the headline, the website address, the description), for a banner a wide banner (big line, small line, button), for a text message a phone message bubble.
    - For the company name use the "Company name" the person gave, else the "Company name" line of the company profile. Write [company name] only when neither has one; never guess it from the website address.
-   - No real platform logos, trademarks, icons or signature colour schemes. No external images, fonts, scripts or links. Fill the image area with a plain colour block and text.
+   - No real platform logos, trademarks, icons or signature color schemes. No external images, fonts, scripts or links. Fill the image area with a plain color block and text.
    - Keep it small: one HTML page, inline CSS only, 100% wide up to 360px, readable on a phone as it is.
    - No tabs, no buttons that switch views, no channel switcher, and not one preview per option.
 3. Below it, the three options as text. Under each option's heading, write the whole option as one blockquote (>), with an empty quote line (>) between its lines, so each option can be copied on its own. No tables.

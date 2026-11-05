@@ -555,7 +555,8 @@ function decodeText(b: Buffer, charset: string): string {
   try { return new TextDecoder(charset).decode(b) } catch { return new TextDecoder('utf-8').decode(b) }
 }
 
-export interface WebFetchResult { url: string; title?: string; text: string; truncated: boolean }
+/** `html`: the page's markup, only when the call asked for it (keepHtml) and the page was HTML */
+export interface WebFetchResult { url: string; title?: string; text: string; truncated: boolean; html?: string }
 
 export interface FetchOptions extends ResolveOptions {
   maxChars?: number
@@ -571,6 +572,9 @@ export interface WebFetchCall extends FetchOptions {
   /** called with each redirect's next address before it is looked up or requested (throw to stop); time spent here,
    * a card waiting for the person, does not count against the time limit */
   onRedirect?: (next: string) => Promise<void> | void
+  /** keep the page's markup in the result (a company profile draft looks at it for the brand's pictures and colours,
+   * onboarding/brand-assets.ts); the AI still gets only the text */
+  keepHtml?: boolean
 }
 
 /** Fetch a page as text. Throws ToolError with a message for the model. */
@@ -597,6 +601,7 @@ export async function webFetch(rawUrl: string, o: WebFetchCall = {}): Promise<We
     const maxChars = o.maxChars ?? DEFAULT_MAX_CHARS
     let title: string | undefined
     let text: string
+    let html: string | undefined
     if (/pdf/.test(ct) || (!ct && data.subarray(0, 5).toString('latin1') === '%PDF-')) {
       const bin = o.pdftotext === undefined ? which('pdftotext') : o.pdftotext
       if (!bin) throw new ToolError('this is a PDF and pdftotext is not installed on the server')
@@ -605,13 +610,13 @@ export async function webFetch(rawUrl: string, o: WebFetchCall = {}): Promise<We
       text = p.stdout.toString('utf8')
     } else if (!ct || /^(text\/|application\/(xhtml\+xml|xml|json|ld\+json|rss\+xml|atom\+xml|javascript))/.test(ct)) {
       const s = decodeText(data, charsetOf(ct, data))
-      if (/html/.test(ct) || (!ct && /<html|<!doctype html/i.test(s.slice(0, 2000)))) ({ title, text } = htmlToText(s, t.url))
+      if (/html/.test(ct) || (!ct && /<html|<!doctype html/i.test(s.slice(0, 2000)))) { ({ title, text } = htmlToText(s, t.url)); if (o.keepHtml) html = s }
       else text = s
     } else {
       throw new ToolError(`unsupported content type ${ct.split(';')[0]} (web_fetch reads web pages, text, JSON and PDF)`)
     }
     const truncated = cut || r.truncated || text.length > maxChars
-    return { url: t.url.href, title, text: text.slice(0, maxChars), truncated }
+    return { url: t.url.href, title, text: text.slice(0, maxChars), truncated, ...(html !== undefined ? { html } : {}) }
   }
 }
 

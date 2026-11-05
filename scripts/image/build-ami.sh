@@ -26,6 +26,9 @@
 #   --dry-run                   print every aws command, run none, make nothing
 #   --yes, -y                   no confirmation prompt (needed when stdin is not a terminal)
 #   --cleanup STATEFILE         remove what a failed run left behind (only the ids in its state file), then exit
+#   --manifest-v2 …             (first argument) no build: run ami-manifest-v2.sh with the other arguments. It copies
+#                               a built AMI to more regions and/or writes the signed v2 manifest
+#                               teamax-<templateVersion>.v2.ami.json for a hostd with several regions (see its --help)
 #
 # What it does:
 #   1. A temporary security group (SSH from --ssh-cidr only) and a builder instance from the Debian AMI. Its SSH host
@@ -48,6 +51,7 @@
 set -euo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO="$(cd "$HERE/../.." && pwd)"
+if [[ "${1:-}" == --manifest-v2 ]]; then shift; exec "${BASH:-/bin/bash}" "$HERE/ami-manifest-v2.sh" "$@"; fi
 
 KIT=""; ENROLL_BIN=""; LINK_BIN=""; SUBNET=""; REGION=ap-northeast-2; PROFILE=""; ACCOUNT_WANT=""; SOURCE_AMI=""
 BUILDER_TYPE=t3a.medium; SSH_CIDR=""; DATE="$(date -u +%Y%m%d)"; SIGN_KEY=""; OUT="$REPO/dist/image"; ROOT_GB=20
@@ -74,7 +78,7 @@ while [[ $# -gt 0 ]]; do
     --dry-run) DRY=1; shift ;;
     --yes|-y) YES=1; shift ;;
     --cleanup) CLEANUP_STATE="$2"; shift 2 ;;
-    -h|--help) sed -n '2,45p' "$0"; exit 0 ;;
+    -h|--help) sed -n '2,50p' "$0"; exit 0 ;;
     *) echo "build-ami: unknown argument $1" >&2; exit 2 ;;
   esac
 done

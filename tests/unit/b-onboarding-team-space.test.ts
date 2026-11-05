@@ -12,7 +12,7 @@ import { SKILL_PACKS } from '../../server/src/onboarding/skill-packs'
 import { WELCOME_SETTING } from '../../server/src/onboarding/welcome'
 import { packInstalled } from '../../server/src/onboarding/tenant-status'
 import { getSetting } from '../../server/src/admin/settings'
-import { GENERAL_BRIEF_SKILL, GENERAL_TASKS_SKILL, WelcomeProgress } from '@mycel/shared/api'
+import { GENERAL_BRIEF_SKILL, GENERAL_CARDNEWS_SKILL, GENERAL_TASKS_SKILL, WelcomeProgress } from '@mycel/shared/api'
 
 let h: Harness
 afterEach(async () => { await h?.close() })
@@ -37,7 +37,7 @@ test('the general pack and the team group with its folders, once; the owner in i
   // the operator's count sees the general pack too (TenantStatus.onboarding.packInstalled)
   expect(packInstalled(root)).toBe(true)
   expect(r.outcome).toBe('installed')
-  expect(r.install.skills.map((s: any) => [s.path, s.status])).toEqual([[GENERAL_TASKS_SKILL, 'created'], [GENERAL_BRIEF_SKILL, 'created']])
+  expect(r.install.skills.map((s: any) => [s.path, s.status])).toEqual([[GENERAL_TASKS_SKILL, 'created'], [GENERAL_BRIEF_SKILL, 'created'], [GENERAL_CARDNEWS_SKILL, 'created']])
   expect(r.install.folders).toEqual([])
   expect(fs.readFileSync(path.join(root, GENERAL_TASKS_SKILL), 'utf8')).toBe(SKILL_PACKS.general.skills.ko!['meeting-tasks']!)
   expect(r.progress.general).toMatchObject({ tasksPath: GENERAL_TASKS_SKILL, briefPath: GENERAL_BRIEF_SKILL })
@@ -59,6 +59,7 @@ test('the general pack and the team group with its folders, once; the owner in i
   const member = h.ctx.files.principal(mia.id)
   const general = listSkills(h.ctx.files, member).filter((s) => s.path.startsWith('skills/general/'))
   expect(general.map((s) => [s.name, s.title, s.inputs?.map((i) => i.name)])).toEqual([
+    ['card-news', '카드뉴스', ['topic', 'channel', 'files']],
     ['doc-brief', '핵심 정리', ['scope', 'files']],
     ['meeting-tasks', '할 일 정리', ['scope', 'files']],
   ])
