@@ -22,7 +22,7 @@ No Expo account or EAS project is used. `MYCEL_MOBILE_EDITION=trina npx expo pre
 ASC_KEY_ID=<key id> ASC_ISSUER_ID=<issuer id> ASC_KEY_PATH=<outside the repo>/AuthKey_<key id>.p8 BUILD_NUMBER=<n> scripts/ios-release.sh --upload
 ```
 
-The key stays where it is; the script only passes its path. `BUILD_NUMBER` must grow with every upload. `eas.json` is optional and unused. A simulator build: prebuild, then `xcodebuild -workspace ios/TrinaAX.xcworkspace -scheme TrinaAX -configuration Release -sdk iphonesimulator -derivedDataPath build/sim CODE_SIGNING_ALLOWED=NO build`.
+The key stays where it is; the script only passes its path. `BUILD_NUMBER` must grow with every upload. `eas.json` is optional and unused. A simulator build: with `MYCEL_MOBILE_EDITION=trina` exported (Expo's "Generate app.config" build phase reads it again inside xcodebuild, and the app reads that config at runtime), prebuild, then `xcodebuild -workspace ios/TrinaAX.xcworkspace -scheme TrinaAX -configuration Release -sdk iphonesimulator -derivedDataPath build/sim CODE_SIGN_IDENTITY=- CODE_SIGN_STYLE=Manual DEVELOPMENT_TEAM= build`. Keep it signed (ad hoc): an unsigned build cannot use the keychain, so SecureStore fails to save the team address.
 
 Exact versions are locked in `package.json`/`package-lock.json`. The selected SDK 58 modules match the installed Expo package's `bundledNativeModules.json` compatibility ranges. SDK documentation may recommend a newer patch; this package does not claim to track latest versions automatically.
 
