@@ -2659,7 +2659,7 @@ export const es: Record<MessageKey, string> = {
   "onboarding.profile.read": "Leer el sitio",
   "onboarding.profile.noSite": "No tenemos sitio web",
   "onboarding.profile.later": "Más tarde",
-  "onboarding.profile.readingHint": "Suele tardar menos de un minuto. El chat también queda en su lista de chats.",
+  "onboarding.profile.readingHint": "Suele tardar menos de un minuto.",
   "onboarding.profile.unreadable": "No pudimos leer un perfil de la empresa en el sitio web.",
   "onboarding.profile.fallbackTitle": "Hágalo de otra forma",
   "onboarding.profile.fallbackDesc": "Pegue un texto sobre su empresa o responda tres preguntas.",

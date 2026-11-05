@@ -320,6 +320,25 @@ describe('draft turns and the save', () => {
     await settled('carol', b, src3)
   })
 
+  test('a draft chat is not in the chat list, its search or the chat list events; the card still reads it', async () => {
+    const sock = await h.ws('carol')
+    await sock.next('hello')
+    try {
+      const src4 = await source()
+      const { draftChatId } = await h.api('carol').call(API.startSkillDraft, { body: { chatId: src4 } })
+      await sock.next('message.done', (f) => f.data.chatId === draftChatId, 30_000)
+      expect(sock.frames.some((f) => f.type === 'chat.updated' && f.data.chatId === draftChatId)).toBe(false)
+      expect(sock.frames.some((f) => f.type === 'chat.updated' && f.data.chatId === src4)).toBe(true)
+      for (const q of [undefined, '팀 스킬 초안', '팀 스킬로 정리']) {
+        const ids = (await h.api('carol').call(API.listChats, { query: q ? { q } : {} })).items.map((c) => c.id)
+        expect(ids, q).not.toContain(draftChatId)
+        expect(ids, q).not.toContain(draft)
+        if (!q) expect(ids).toContain(src4)
+      }
+      expect(await settled('carol', draftChatId, src4)).toMatchObject({ status: 'failed' })
+    } finally { sock.close() }
+  })
+
   test('its own instructions with the answer as data; no tool besides the refused file tools; no attachments', async () => {
     const r = await send('carol', draft, fake({ echo: 'system' }, { say: '\n=====\n' }, { echo: 'tools' }))
     const [system, tools] = r.content.split('\n=====\n')
