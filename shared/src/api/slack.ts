@@ -29,6 +29,8 @@ export const SlackAdmin = z.object({
   workspace: SlackWorkspace.nullable(),
   /** the bot's name in Slack, as people @mention it */
   botName: z.string().nullable(),
+  /** the Slack app's id (A…), for links to its settings pages in Slack; null until known */
+  appId: z.string().nullable(),
   state: SlackState,
   lastError: SlackErrorCode.nullable(),
   /** where the links in Slack open (the address the owner saved the tokens from) */
