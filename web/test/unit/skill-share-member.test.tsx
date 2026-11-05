@@ -167,5 +167,13 @@ describe('a member and a team skill someone made', () => {
     expect(fileLabel({ path: 'groups/Acme/회의록', latest: true }, t)).toBe('Acme 회의록 폴더의 가장 최근 회의록')
     expect(fileLabel({ path: 'groups/Acme/회의록', latest: true, like: '월간보고' }, t)).toBe('Acme 회의록 폴더의 가장 최근 월간보고')
     expect(fileLabel({ path: 'shared/보고서', latest: true }, t)).toBe('보고서 폴더의 가장 최근 파일')
+    // English reads the team's folder as a place and the notes in plain words, not "the newest Meeting notes in the
+    // Acme Marketing Meeting notes folder"
+    const en = (k: Parameters<typeof translate>[1], p?: Record<string, string | number>) => translate('en', k, p)
+    expect(fileLabel({ path: 'groups/Acme Marketing/Meeting notes', latest: true }, en)).toBe('the newest meeting notes in Acme Marketing › Meeting notes')
+    expect(fileLabel({ path: 'groups/Acme Marketing/Meeting notes', latest: true, like: 'Weekly sync' }, en)).toBe('the newest Weekly sync in Acme Marketing › Meeting notes')
+    expect(fileLabel({ path: 'shared/Reports', latest: true }, en)).toBe('the newest file in Reports')
+    // Spanish no longer reads "el Actas de reuniones más reciente"
+    expect(fileLabel({ path: 'groups/Acme/Actas de reuniones', latest: true }, (k, p) => translate('es', k, p))).toBe('las actas de reunión más recientes de la carpeta Acme › Actas de reuniones')
   })
 })

@@ -41,9 +41,9 @@ Meeting notes have things like attendees, an agenda, discussion, decisions, acti
 - If only some of several files are meeting notes, list the tasks from those and name the other files in one line.
 
 ## Template documents
-- `### Frame`: how the document is laid out, briefly (title, addressee, table columns, total, notes).
+- `### Layout`: how the document is laid out, briefly (title, addressee, table columns, total, notes).
 - `### Filled in each time`: only the names of the fields filled in anew each time (customer, date, item, quantity, unit price).
-- `### Kept as it is`: what stays the same every time (company details, bank account, standard notes).
+- `### Stays the same`: what stays the same every time (company details, bank account, standard notes).
 - Do not copy the actual values in the file (customer names, people's names, dates, amounts). Name the fields only.
 
 ## By person (the default)
@@ -71,7 +71,7 @@ Meeting notes have things like attendees, an agenda, discussion, decisions, acti
 ## Several notes
 - Combine them.
 - When the same task is in an older and a newer note, keep the newer one and say what changed: (changed on 11-05: this week → by Thu 11/12)
-- Mark anything that contradicts itself as "to check".
+- Put anything that contradicts itself under `### To check`, saying what does not match.
 
 ## Output
 - The top line says what you used: Based on 2 meeting notes (11-03 weekly meeting, 11-05 campaign kickoff). When one of the fixed first-line sentences above applies, leave one blank line after it and put this line below.

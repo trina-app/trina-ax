@@ -2975,6 +2975,10 @@ export const ko = {
   "onboarding.profile.f.colors": "브랜드 색",
   "audit.act.onboarding.hosted_image_key": "호스팅 브랜드 사진 키 변경",
   "audit.act.onboarding.first_result": "첫 결과 시작(시작 설정)",
+  // English QA pass (onboarding): the site placeholder per language, the team folder and its newest notes on the team skill card
+  "onboarding.profile.sitePlaceholder": "acme.co.kr",
+  "skillShare.teamFolder": "{team} {name}",
+  "skillShare.latestNotes": "{folder} 폴더의 가장 최근 회의록",
 } as const
 
 export type MessageKey = keyof typeof ko

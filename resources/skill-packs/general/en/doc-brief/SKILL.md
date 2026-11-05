@@ -33,9 +33,9 @@ metadata:
 
 ## Template documents
 1. The first line is "Here is how I read it: a {kind of document} template" (for example: Here is how I read it: a quote template), in the language you answer in (Korean: 이렇게 읽었어요: 견적서 양식), then one blank line.
-2. `### Frame`: how the document is laid out, briefly (title, addressee, table columns, total, notes).
+2. `### Layout`: how the document is laid out, briefly (title, addressee, table columns, total, notes).
 3. `### Filled in each time`: only the names of the fields filled in anew each time (customer, date, item, quantity, unit price).
-4. `### Kept as it is`: what stays the same every time (company details, bank account, standard notes).
+4. `### Stays the same`: what stays the same every time (company details, bank account, standard notes).
 - Do not copy the actual values in the file (customer names, people's names, dates, amounts). Name the fields only.
 
 ## What I need to know

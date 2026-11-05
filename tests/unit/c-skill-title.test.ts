@@ -58,13 +58,17 @@ test('skillTitle falls back to the name; skillSummary drops a lead that repeats 
   expect(skillTitle({ name: 'ad-copy' })).toBe('ad-copy')
   expect(skillTitle({ name: 'ad-copy', title: null })).toBe('ad-copy')
   expect(skillSummary({ name: 'ad-copy', title: '광고 문구', description: '광고 문구 — 알릴 제품과 실을 곳을 받아 3안을 써요.' })).toBe('알릴 제품과 실을 곳을 받아 3안을 써요.')
-  expect(skillSummary({ name: 'ad-copy', title: 'Ad copy', description: 'ad copy — three options.' })).toBe('three options.')
+  expect(skillSummary({ name: 'ad-copy', title: 'Ad copy', description: 'ad copy — three options.' })).toBe('Three options.')
   // a lead that is not the title, or no title at all: the whole description
   expect(skillSummary({ name: 'ad-copy', title: '광고 문구', description: '배너 문구 — 짧게 써요.' })).toBe('배너 문구 — 짧게 써요.')
   expect(skillSummary({ name: 'ad-copy', description: '광고 문구 — 짧게 써요.' })).toBe('광고 문구 — 짧게 써요.')
   expect(skillSummary({ name: 'x', title: 'X', description: '' })).toBe('')
   // a hyphen or an en dash with spaces is a lead too; a hyphen inside a word is not
-  expect(skillSummary({ name: 'ad-copy', title: 'Ad copy', description: 'Ad copy - three options.' })).toBe('three options.')
-  expect(skillSummary({ name: 'ad-copy', title: 'Ad copy', description: 'Ad copy – three options.' })).toBe('three options.')
+  expect(skillSummary({ name: 'ad-copy', title: 'Ad copy', description: 'Ad copy - three options.' })).toBe('Three options.')
+  expect(skillSummary({ name: 'ad-copy', title: 'Ad copy', description: 'Ad copy – three options.' })).toBe('Three options.')
   expect(skillSummary({ name: 'e-mail', title: 'E-mail', description: 'E-mail drafts.' })).toBe('E-mail drafts.')
+  // the rest starts as a sentence (the English pack writes "Ad copy — takes …"); other scripts and a capital stay
+  expect(skillSummary({ name: 'meeting-tasks', title: 'Tasks from notes', description: "Tasks from notes — reads the team's meeting notes." })).toBe("Reads the team's meeting notes.")
+  expect(skillSummary({ name: 'x', title: 'Weekly meeting tasks', description: 'Weekly meeting tasks — Turns the notes into tasks.' })).toBe('Turns the notes into tasks.')
+  expect(skillSummary({ name: 'x', title: 'Key points', description: 'Key points — 3–7 points with sources.' })).toBe('3–7 points with sources.')
 })

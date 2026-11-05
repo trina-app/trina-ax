@@ -233,7 +233,7 @@ export default function ProfileStep({ onDone, onSkip, skipLabel, initial, initia
       <form className="space-y-4" onSubmit={(e) => { e.preventDefault(); readSite() }} data-testid="profile-step-site">
         {head(t('onboarding.profile.siteTitle'), t('onboarding.profile.siteDesc'))}
         <Field label={t('onboarding.profile.siteLabel')} error={siteError}>
-          <input className={inputCls} value={site} onChange={(e) => setSite(e.target.value)} placeholder="acme.co.kr" inputMode="url" autoComplete="url" autoCapitalize="none" spellCheck={false} maxLength={PROFILE_LIMITS.website} />
+          <input className={inputCls} value={site} onChange={(e) => setSite(e.target.value)} placeholder={t('onboarding.profile.sitePlaceholder')} inputMode="url" autoComplete="url" autoCapitalize="none" spellCheck={false} maxLength={PROFILE_LIMITS.website} />
         </Field>
         {note}
         {noAiNote}
@@ -366,7 +366,7 @@ export default function ProfileStep({ onDone, onSkip, skipLabel, initial, initia
         {(id) => <input id={id} className={inputCls} value={draft.name ?? ''} onChange={(e) => set('name', e.target.value)} maxLength={PROFILE_LIMITS.name} data-testid="profile-name" />}
       </ReviewField>
       <Field label={t('onboarding.profile.f.website')}>
-        <input className={inputCls} value={draft.website} onChange={(e) => setDraft({ ...draft, website: e.target.value })} placeholder="acme.co.kr" inputMode="url" autoCapitalize="none" spellCheck={false} maxLength={PROFILE_LIMITS.website} />
+        <input className={inputCls} value={draft.website} onChange={(e) => setDraft({ ...draft, website: e.target.value })} placeholder={t('onboarding.profile.sitePlaceholder')} inputMode="url" autoCapitalize="none" spellCheck={false} maxLength={PROFILE_LIMITS.website} />
       </Field>
       <ReviewField field="oneLine" value={draft.oneLine} source={sourceOf('oneLine')} hint={fromDraft && !draft.oneLine ? t('onboarding.profile.notFound') : undefined} onClear={() => clear('oneLine')}>
         {(id) => <input id={id} className={inputCls} value={draft.oneLine} onChange={(e) => set('oneLine', e.target.value)} maxLength={PROFILE_LIMITS.oneLine} />}

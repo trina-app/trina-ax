@@ -2748,7 +2748,7 @@ export const id: Record<MessageKey, string> = {
   "onboarding.profile.activity.label": "Yang sedang dilakukan AI",
   // onboarding stream E: the team invite link (components/onboarding/TeamLinkPanel.tsx, InviteStep.tsx, pages/Auth.tsx TeamJoin)
   "teamLink.title": "Tautan undangan tim",
-  "teamLink.desc": "Satu tautan untuk banyak orang. Tempel di Slack, KakaoTalk, atau chat lain.",
+  "teamLink.desc": "Satu tautan untuk banyak orang. Tempel di Slack, WhatsApp, atau chat lain.",
   "teamLink.link": "Tautan undangan",
   "teamLink.copyLink": "Salin tautannya saja",
   "teamLink.copyMessage": "Salin pesan",
@@ -2781,7 +2781,7 @@ export const id: Record<MessageKey, string> = {
   "teamLink.replaceNote": "Membuat tautan baru langsung menghentikan tautan yang sekarang.",
   "teamLink.create": "Buat tautan undangan",
   "teamLink.stepTitle": "Undang tim Anda",
-  "teamLink.stepDesc": "Satu tautan bisa dipakai beberapa orang. Salin pesannya lalu tempel di Slack atau KakaoTalk.",
+  "teamLink.stepDesc": "Satu tautan bisa dipakai beberapa orang. Salin pesannya lalu tempel di Slack, WhatsApp, atau chat lain.",
   "teamLink.stepDone": "Selesai",
   "teamLink.later": "Nanti",
   "teamLink.invite": "Undang",
@@ -2976,4 +2976,8 @@ export const id: Record<MessageKey, string> = {
   "onboarding.profile.f.colors": "Warna merek",
   "audit.act.onboarding.hosted_image_key": "Mengubah kunci foto merek hosting",
   "audit.act.onboarding.first_result": "Hasil pertama dimulai (langkah awal)",
+  // English QA pass (onboarding): the site placeholder per language, the team folder and its newest notes on the team skill card
+  "onboarding.profile.sitePlaceholder": "acme.co.id",
+  "skillShare.teamFolder": "{team} › {name}",
+  "skillShare.latestNotes": "notulen rapat terbaru di folder {folder}",
 }

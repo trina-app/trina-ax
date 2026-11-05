@@ -8086,6 +8086,67 @@ the "3 proposals" step and the bar after sharing. Placement: Team AX core (skill
   `a-skill-maker` (trash and back, a new file of the same name, an older pack install, the mark), `welcome.test.tsx`
   (the rewrite asked by starting again, 다시 정리하기, a refusal's reason without it).
 
+## Q — The onboarding in English (feat/onboarding-2, 2026-11-05)
+
+The owner asked whether the English version works too. Nobody had walked it as an English team, so it was walked end
+to end on a dev server (Claude Code login, 390 px) as a five-person US marketing team: the website profile with its
+reading lines, two English meeting notes with mixed name forms ("Sarah", "Sarah K.", "Mike from sales", an unclear
+owner), the first answer, the bar, the card, share, the invite, a member named in the notes joining and running the
+skill, the receipt line, the goal card, a quote template (.xlsx) through the same path, the no-files path, and the ad
+copy form with its preview. The AI answered in English throughout and the flow worked; the copy did not read as a
+native product writer would write it. Placement: Team AX core (copy, the English skill packs, the specifics check).
+
+- **Copy** (`web/src/i18n/en.ts`; the other four only where the meaning changed): literal or stiff lines rewritten
+  ("Here is what we understood" → "Here's what we found", "Drop in the files you use for your usual work" → "Add files
+  from your everyday work", "Paste a text" → "Paste a description", "Sort out my tasks" → "List my tasks", "A team skill
+  {by} made · only you, {name}, see this chat" → "{by} made this team skill · Only {name} can see this chat", "{n} more
+  people and the goal is reached" → "{n} more people to go", the goal title as a goal: "Get 3 people using the same skill
+  in 7 days", "put up" → "shared", "Make a PPT" → "Make slides", "invited you to work together … together" once), a
+  grammar error fixed ("Only the 1 person in … see" → "Only Acme Marketing (1 person) can see"), and KakaoTalk named
+  only in Korean: English says Slack or Teams, Indonesian and Spanish WhatsApp, Japanese LINE.
+- **No Korean in English screens**: the website field's example was a fixed "acme.co.kr"; it is now per language
+  (`onboarding.profile.sitePlaceholder`: acme.com, acme.co.id, acme.co.jp, acme.es), like the address check's example.
+- **The card's files line** read "the newest Meeting notes in the Acme Marketing Meeting notes folder". The team's
+  folder is now joined per language (`skillShare.teamFolder`: "Acme Marketing › Meeting notes" in English, Indonesian
+  and Spanish; Korean and Japanese unchanged) and the notes folder has its own words (`skillShare.latestNotes`: "the
+  newest meeting notes in …"; Spanish no longer reads "el Actas de reuniones más reciente"). Korean output is the same.
+- **Skill summaries start as a sentence**: the English packs write "Tasks from notes — reads the team's meeting notes
+  …", so lists showed "reads the team's …". `skillSummary` capitalizes a lowercase Latin first letter of what is left.
+- **English skill texts**: the ad copy's fixed first line was "… would look in Instagram feed" (no article); it now
+  names the channel with its article. The template headings "Frame" and "Kept as it is" are "Layout" and "Stays the
+  same"; contradictions go under "### To check" (the AI wrote "This is to check"); a drafted skill's rule reads "Use only
+  the files listed under "Files it uses"" (was "the files it uses"); British spellings in the packs (colour, organise,
+  summarise) follow the US spelling of the screens. A copy of these English skills installed from an earlier build of
+  this branch now reads `kept` on a later install (no release shipped the packs; no file is replaced either way).
+- **Leftover specifics in English** (`onboarding/specifics.ts`; S's check was Korean-first: English caught only an
+  account's capitalized words, the "Attendees:" line, one word before "Inc", numeric dates and "$"): a team account
+  named in any form ("Sarah", "Sarah K.", "Ms. Klein") puts all its forms; titled names ("Ms. Rivera": that form and
+  "Rivera"); the lines that list people ("Present:", "Owner:", "Prepared by:", "Attn:" …); "Mike from sales", "Mike
+  (sales)", "Sarah K."; a task's owner at a line's start ("- Dan to …", "- Priya — …") only when the run says the name
+  more than once; a per-person heading only when the name is also said outside the headings; companies of up to five
+  words before Inc, LLC, Ltd, Corp, Co … (comma allowed; "Brightline Outdoor" and "Brightline"); US dates (11/20,
+  11/3/26, Nov 20, November 20th, 20 November, each also as the others); "$1,200", "$1.2k", "USD 500", "500 dollars",
+  "1.2k" only beside a budget word; document numbers (Q-2026-0117); US phone formats, in the always-on guard too. Not
+  specifics: a stoplist of structure and form words (Overview, Action items, Customer, Recipient, Qty, Total …), roles,
+  weekdays and month names alone, the verbs steps start with, and, where only a word's place says it is a name, words
+  the run also writes in lower case. Names that are also words (Will, May, Mark, Grace) count only where they read as a
+  name ("Mark each task" and "May 20" stay clean). The team's own name is excluded by whole words ("Mark" is no part of
+  "Acme Marketing"). Still a heuristic: a name said once at a line start is missed on purpose ("- Yuki: book the venue").
+- **A listed team folder with a space in its name** ("groups/Acme Marketing/Meeting notes") was cut at the space by the
+  always-on path guard and read as another folder ("groups/Acme"); the guard now compares the listed path where it
+  stands (a longer folder name, "…/Meeting notes old/", is still another one).
+- **Not changed**: the AI's own wording in answers (a member's answer once opened with "Both are the same week; reading
+  both." and closed with "I used the weekly-meeting-tasks skill"; the drafted skill's steps are the AI's); "Only Acme
+  Marketing (1 person)" while the owner is alone in the team; the profile review's "Read the website again" after the
+  three questions (not English-specific).
+- Tests: `tests/unit/b-specifics-en.test.ts` (the two notes of the run as material: every name, company, date, amount
+  and phone form found; headings, labels, roles, weekdays, months, sentence starts, acronyms, counts and a bare year
+  not; a clean English skill keeps its card, a leaking one names "Sarah Klein", "Ms. Rivera", "Brightline Outdoor",
+  "Nov 20", "$4,500"; the quote template run; a listed folder with spaces), `c-skill-title` (the summary as a sentence),
+  `web/test/unit/skill-share-member.test.tsx` (the files line in English and Spanish, Korean unchanged),
+  `team-link.test.tsx`, `goal-card.test.tsx`, e2e `auth.spec.ts`. Walked again after the fixes at 390 px with the real AI
+  (website, notes, card, share, invite, a member named in the notes, the goal card, the no-files path, a search ad).
+
 ## N — The first result is the company's card news (feat/onboarding-cardnews, 2026-11-05)
 
 The owner uploaded a 36-page company intro at the files step; the chat was titled "회의록 할 일 정리", ran the meeting

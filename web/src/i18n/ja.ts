@@ -2708,7 +2708,7 @@ export const ja: Record<MessageKey, string> = {
   "onboarding.profile.activity.label": "AIがしていること",
   // onboarding stream E: the team invite link (components/onboarding/TeamLinkPanel.tsx, InviteStep.tsx, pages/Auth.tsx TeamJoin)
   "teamLink.title": "チーム招待リンク",
-  "teamLink.desc": "1つのリンクで複数の人が参加できます。Slack や KakaoTalk などに貼り付けてください。",
+  "teamLink.desc": "1つのリンクで複数の人が参加できます。Slack や LINE などに貼り付けてください。",
   "teamLink.link": "招待リンク",
   "teamLink.copyLink": "リンクだけコピー",
   "teamLink.copyMessage": "メッセージをコピー",
@@ -2741,7 +2741,7 @@ export const ja: Record<MessageKey, string> = {
   "teamLink.replaceNote": "新しいリンクを作成すると、今のリンクはすぐに停止します。",
   "teamLink.create": "招待リンクを作成",
   "teamLink.stepTitle": "チームを招待しましょう",
-  "teamLink.stepDesc": "1つのリンクで複数の人が参加できます。メッセージをコピーして Slack や KakaoTalk に貼り付けてください。",
+  "teamLink.stepDesc": "1つのリンクで複数の人が参加できます。メッセージをコピーして Slack や LINE などに貼り付けてください。",
   "teamLink.stepDone": "完了",
   "teamLink.later": "あとで",
   "teamLink.invite": "招待する",
@@ -2936,4 +2936,8 @@ export const ja: Record<MessageKey, string> = {
   "onboarding.profile.f.colors": "ブランドカラー",
   "audit.act.onboarding.hosted_image_key": "ホスティングのブランド写真キーを変更",
   "audit.act.onboarding.first_result": "最初の成果を開始(はじめの設定)",
+  // English QA pass (onboarding): the site placeholder per language, the team folder and its newest notes on the team skill card
+  "onboarding.profile.sitePlaceholder": "acme.co.jp",
+  "skillShare.teamFolder": "{team} {name}",
+  "skillShare.latestNotes": "{folder} フォルダーの最新の議事録",
 }

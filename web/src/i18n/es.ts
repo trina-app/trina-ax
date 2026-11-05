@@ -2708,7 +2708,7 @@ export const es: Record<MessageKey, string> = {
   "onboarding.profile.activity.label": "Lo que hace la IA",
   // onboarding stream E: the team invite link (components/onboarding/TeamLinkPanel.tsx, InviteStep.tsx, pages/Auth.tsx TeamJoin)
   "teamLink.title": "Enlace de invitación del equipo",
-  "teamLink.desc": "Un enlace para muchas personas. Péguelo en Slack, KakaoTalk o cualquier chat.",
+  "teamLink.desc": "Un enlace para muchas personas. Péguelo en Slack, WhatsApp o cualquier chat.",
   "teamLink.link": "Enlace de invitación",
   "teamLink.copyLink": "Copiar solo el enlace",
   "teamLink.copyMessage": "Copiar mensaje",
@@ -2741,7 +2741,7 @@ export const es: Record<MessageKey, string> = {
   "teamLink.replaceNote": "Al crear un enlace nuevo, el actual deja de funcionar enseguida.",
   "teamLink.create": "Crear enlace de invitación",
   "teamLink.stepTitle": "Invite a su equipo",
-  "teamLink.stepDesc": "Un solo enlace sirve para varias personas. Copie el mensaje y péguelo en Slack o KakaoTalk.",
+  "teamLink.stepDesc": "Un solo enlace sirve para varias personas. Copie el mensaje y péguelo en Slack, WhatsApp o cualquier chat.",
   "teamLink.stepDone": "Listo",
   "teamLink.later": "Más tarde",
   "teamLink.invite": "Invitar",
@@ -2936,4 +2936,8 @@ export const es: Record<MessageKey, string> = {
   "onboarding.profile.f.colors": "Colores de marca",
   "audit.act.onboarding.hosted_image_key": "Cambió la clave alojada de fotos de marca",
   "audit.act.onboarding.first_result": "Primer resultado iniciado (primeros pasos)",
+  // English QA pass (onboarding): the site placeholder per language, the team folder and its newest notes on the team skill card
+  "onboarding.profile.sitePlaceholder": "acme.es",
+  "skillShare.teamFolder": "{team} › {name}",
+  "skillShare.latestNotes": "las actas de reunión más recientes de la carpeta {folder}",
 }
