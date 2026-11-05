@@ -82,12 +82,13 @@ export async function makePromoVideo(ctx: AppContext, a: PromoVideoInput, t: Too
     .run(s.id, turn.chatId, t.user.id, JSON.stringify({ title: a.title, sources: checked.spec.sources, doc }), new Date().toISOString())
   tries.delete(key)
   const style = STYLE_NAME[lang][doc.family]
-  const typeOnly = [doc.promise.picture ? '' : 'promise', doc.work.picture ? '' : 'work'].filter(Boolean)
+  // only scenes 2 and 3 have a picture of their own; the hook, the proof and the end card are type and light by design
+  const typeOnly = [doc.promise.picture ? '' : 'scene 2 (the promise)', doc.work.picture ? '' : 'scene 3 (what the company does)'].filter(Boolean)
   const changed = a.style && a.style !== doc.family ? ` (the "${a.style}" style does not fit this brand colour, so the server used "${doc.family}")` : ''
   return {
     text: `Made the promo video "${a.title}" (${DURATION} s with music, the "${style}" style${changed}; beats made with type and light instead of a picture: ${typeOnly.join(', ') || 'none'}). ` +
       'It opens by itself next to the chat (muted until the person turns the sound on). Your answer is one short line in the person\'s language: that the video is made and that they can say which scene or words to change; ' +
-      'if a beat was made with type and light, one more sentence that pictures added to the brand images folder can go in next time. ' +
+      'only if scene 2 or 3 is listed above as made with type and light, one more sentence that names that scene (in plain words, e.g. "두 번째 장면") and says pictures added to the brand images folder can go in next time; scenes 1, 4 and 5 never count. ' +
       'Nothing else: no tool, skill or slot names, no style ids, colour codes or file paths, no list of the beats, no HTML.',
     summary: `${PROMO_TOOL} ${doc.family} -> artifact ${s.key} v${s.version}`,
     structured: { key: s.key, version: s.version, artifactId: s.id },

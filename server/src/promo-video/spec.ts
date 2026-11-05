@@ -133,8 +133,10 @@ export async function checkPromoInput(ctx: AppContext, t: ToolCtx, a: PromoVideo
     else if (!known) problems.push(`website "${a.website}" is not written in the sources or the company profile; leave it out`)
     else website = h
   }
-  // the style: among those that fit the brand colour
-  const brand = a.brand_color ? a.brand_color.toLowerCase() : null
+  // the style: among those that fit the brand colour; without one from the AI, the saved profile's first brand colour
+  // (the website reading's, point-sampled from the logo: docs/DECISIONS.md "W3")
+  const savedColor = (() => { try { return readCompanyProfile(ctx.files, t.user)?.colors?.[0] ?? null } catch { return null } })()
+  const brand = (a.brand_color ?? savedColor)?.toLowerCase() ?? null
   const fits = fittingFamilies(brand)
   const family: Family = a.style && fits.includes(a.style) ? a.style : fits[0]!
   // pictures: each once

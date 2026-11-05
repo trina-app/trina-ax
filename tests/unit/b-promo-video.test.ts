@@ -290,7 +290,8 @@ describe('the promo_video tool and the MP4 (a real app, the fake engine)', () =>
     const chat = await h.api('dana').call(API.createChat, { body: {} })
     const answer = await send('dana', chat.id, fake({ tool: 'promo_video', args: slots(), sayResult: true }))
     expect(answer).toContain('Made the promo video "Acme promo video"')
-    expect(answer).toContain('beats made with type and light instead of a picture: work')
+    expect(answer).toContain('beats made with type and light instead of a picture: scene 3 (what the company does)')
+    expect(answer).toContain('scenes 1, 4 and 5 never count')
     const art = h.ctx.db.query('SELECT id, key, type, title, content, version FROM artifacts WHERE chat_id = ?').get(chat.id) as { id: string; key: string; type: string; title: string; content: string; version: number }
     expect(art).toMatchObject({ key: PROMO_ARTIFACT_KEY, type: 'html', title: 'Acme promo video', version: 1 })
     expect(art.content).toContain('data-composition-id="promo"')
@@ -318,6 +319,16 @@ describe('the promo_video tool and the MP4 (a real app, the fake engine)', () =>
     // a style that does not fit the colour is replaced by one that does, never refused
     const grey = await send('dana', chat.id, fake({ tool: 'promo_video', args: slots({ style: 'ink', brand_color: '#808080' }), sayResult: true }))
     expect(grey).toContain('so the server used "mono"')
+  })
+
+  test('without a brand colour from the AI, the saved profile\'s first colour (the website reading\'s) chooses the style', async () => {
+    await h.api('dana').call(API.saveCompanyProfile, { body: { website: 'acme.example', oneLine: 'Factory energy', products: '', audience: '', tone: [], avoid: '', sources: [], colors: ['#1428a0', '#cad3fb'] } })
+    const chat = await h.api('dana').call(API.createChat, { body: {} })
+    const { brand_color: _, ...noColour } = slots()
+    await send('dana', chat.id, fake({ tool: 'promo_video', args: noColour, sayResult: true }))
+    const row = h.ctx.db.query('SELECT spec FROM promo_videos WHERE chat_id = ?').get(chat.id) as { spec: string }
+    // a deep blue: its own hue becomes the ground
+    expect(JSON.parse(row.spec).doc).toMatchObject({ brand: '#1428a0', family: 'deep' })
   })
 
   test.if(process.platform === 'darwin' && !!Bun.which('node'))('the MP4 on a development Mac: the pinned CLI renders the checked slots (the pictures copied out with the owner\'s permissions); one download', async () => {

@@ -55,6 +55,6 @@ Make an 18-second promo video (1080×1350, five beats, music) that looks like an
 
 ## 7. The answer
 - The video opens by itself beside the chat (the sound is turned on with the button under it), so the answer is one line, written after the video is made: "I made a promo video for (Company name). Tell me which scene or words you would like changed."
-- Beats made without a picture: add one sentence, "Add pictures to the brand images folder and ask me again to put them in."
+- Only when scene 2 (promise) or scene 3 (work) was made with type and light because no picture fitted, add one sentence that names it: "Scene (n) has no fitting picture, so it is made with type only. Add pictures to the brand images folder and ask me again to put them in." Scenes 1 (hook), 4 (proof) and 5 (cta) are made without a picture by design and never count. When both used a picture, say nothing about pictures.
 - Nothing else in the answer: no skill or tool name, no slot names, no style names, no color codes, no file path or file name, no line per beat, no number sources, no list of the pictures you used or left out. Never paste HTML or the tool's slots, and write nothing before the video either.
 - Make the video only: never post, send or share it, and never say you did.
