@@ -71,7 +71,7 @@ function parseStarter(s: string | null): TeamLinkStarter | null {
 }
 
 /** A team file this person can open now (the file screen's own test), as its team path; null otherwise. */
-function readableFile(ctx: AppContext, who: Principal, p: string): string | null {
+export function readableFile(ctx: AppContext, who: Principal, p: string): string | null {
   try {
     const rules = ctx.files.rules()
     const a = authorize(ctx.files.fx, rules, who, p, 'read')
@@ -109,7 +109,7 @@ export function teamLinkUrl(c: Context<AppEnv>, ctx: AppContext, token: string):
 }
 
 /** Someone about to join with these groups (the same stand-in as Admin › "who will see what", access-explain.ts). */
-const newMember = (groups: string[]): Principal => ({ id: '\u0000new-person', name: '', role: 'member', groups })
+export const newMember = (groups: string[]): Principal => ({ id: '\u0000new-person', name: '', role: 'member', groups })
 
 /** A team skill (skills/…, never a personal one) this person can open, or null. `title`: the name people read (its
  * metadata title, else its name), for the card, the join page and the ready-made message. */

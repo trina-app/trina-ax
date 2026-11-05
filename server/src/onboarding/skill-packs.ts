@@ -16,7 +16,7 @@ import { Locale, PACK_FOLDER_KINDS, PACK_FOLDERS, type PackItemStatus, type Skil
 import type { AppContext } from '../context'
 import { audit } from '../admin/audit'
 import { teamDefaultLocale } from '../admin/settings'
-import { readRegular, sha256 } from '../files/store'
+import { readRegular } from '../files/store'
 import { HttpError } from '../http/errors'
 import { authorize } from '../policy/authorize'
 import { Denied, ToolError } from '../policy/errors'
@@ -86,19 +86,6 @@ export function earlierPackTexts(text: string): string[] {
  * line existed has no `recurring` key and is read as the pack says (onboarding/suggestions.ts). */
 export const RECURRING_PACK_SKILLS: ReadonlySet<string> = new Set(['skills/general/meeting-tasks/SKILL.md', 'skills/marketing/weekly-report/SKILL.md', 'skills/marketing/competitor-brief/SKILL.md'])
 
-let packHashes: Set<string> | null = null
-/** sha256 of every text a pack writes or wrote (any language, earlier releases too): a skill file whose first version
- * is one of them was installed from a pack, not made by a person (skills/author.ts). */
-export function packTextHashes(): ReadonlySet<string> {
-  if (packHashes) return packHashes
-  const out = new Set<string>()
-  for (const pack of Object.values(SKILL_PACKS))
-    for (const texts of Object.values(pack.skills))
-      for (const t of Object.values(texts ?? {}))
-        for (const v of [t, ...earlierPackTexts(t)]) out.add(sha256(v))
-  return (packHashes = out)
-}
-
 /** Every skill name a pack has (any pack, any language): a team skill made later never takes one (skill-draft.ts). */
 export const packSkillNames = (): string[] => [...new Set(Object.values(SKILL_PACKS).flatMap((p) => Object.values(p.skills).flatMap((t) => Object.keys(t ?? {}))))]
 
@@ -129,7 +116,8 @@ function placeSkill(ctx: AppContext, userId: string, rel: string, name: string, 
   }
   try {
     // no "last seen" hash: should the file appear meanwhile, the save refuses (not_read) instead of replacing it
-    ctx.files.humanSave(userId, rel, Buffer.from(text, 'utf8'), null)
+    // marked as the pack's: the person who pressed install did not write it (skills/author.ts)
+    ctx.files.humanSave(userId, rel, Buffer.from(text, 'utf8'), null, 'pack_install')
   } catch (e) {
     if (e instanceof ToolError && e.code === 'not_read') return { path: r.rel, status: 'kept' }
     if (refused(e)) return { path: r.rel, status: 'blocked' }

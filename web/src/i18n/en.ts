@@ -2964,6 +2964,7 @@ export const en: Record<MessageKey, string> = {
   "skillShare.latest": "the newest {kind} in the {folder} folder",
   "skillShare.latestFile": "file",
   "skillShare.share": "Share with the team",
+  "skillShare.retry": "Try again",
   "skillShare.later": "Later",
   "skillShare.note": "Everyone's AI on the team follows this way · change it anytime in Team skills",
   "teamLink.messageMade": "I made our team skill '{skill}'. Open the link and use it the same way right away.\n{url}",

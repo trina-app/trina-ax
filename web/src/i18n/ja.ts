@@ -2924,6 +2924,7 @@ export const ja: Record<MessageKey, string> = {
   "skillShare.latest": "{folder} フォルダーの最新の{kind}",
   "skillShare.latestFile": "ファイル",
   "skillShare.share": "チームに共有",
+  "skillShare.retry": "もう一度まとめる",
   "skillShare.later": "あとで",
   "skillShare.note": "チーム全員のAIがこのやり方に従います · チームのスキルでいつでも直せます",
   "teamLink.messageMade": "チームのスキル「{skill}」を作っておきました。リンクを開けば同じやり方ですぐ使えます。\n{url}",

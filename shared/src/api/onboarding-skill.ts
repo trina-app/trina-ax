@@ -45,7 +45,8 @@ export const SkillDraftStarted = z.object({ draftChatId: z.string() })
 export type SkillDraftStarted = z.infer<typeof SkillDraftStarted>
 
 /** Why there is no card: `failed` the answer ended with an error, `unreadable` no valid JSON or form, `specific` names,
- * dates or amounts of that one run still in the steps after the one rewrite. */
+ * dates or amounts of that one run (or a link, contact data, a path or a tool reaching outside) still in the steps after
+ * the one rewrite. A failed draft is not reused: starting again makes a new one (다시 정리하기). */
 export const SkillDraftProblem = z.enum(['failed', 'unreadable', 'specific'])
 export type SkillDraftProblem = z.infer<typeof SkillDraftProblem>
 export const SkillDraftState = z.object({
@@ -54,6 +55,9 @@ export const SkillDraftState = z.object({
   problem: SkillDraftProblem.nullable(),
   /** shared already: where it went */
   saved: z.object({ path: z.string(), name: z.string(), title: z.string() }).nullable(),
+  /** running: the first answer did not pass and its one rewrite was not asked yet; starting the draft again (POST, same
+   * chat) asks for it. Reading the state never queues anything. Absent: no */
+  rewrite: z.boolean().optional(),
 })
 export type SkillDraftState = z.infer<typeof SkillDraftState>
 
@@ -66,7 +70,7 @@ export type SavedSkillDraft = z.infer<typeof SavedSkillDraft>
 
 export const SKILL_SHARE = {
   startSkillDraft: endpoint({ method: 'POST', path: '/api/onboarding/skill-draft', auth: 'admin', owner: 'B', body: StartSkillDraft, response: SkillDraftStarted, status: 201,
-    summary: 'Draft a team skill from one of the caller\'s chats, in a new chat of theirs (a turn without tools; only the specifics of that run become inputs).' }),
+    summary: 'Draft a team skill from one of the caller\'s chats, in a new chat of theirs (a turn without tools; only the specifics of that run become inputs). 409 for a confidential chat, one with web or outside content, or one that used files the team cannot open. Again for the same answer: the same draft, its one rewrite, or a new draft after a failed one.' }),
   getSkillDraft: endpoint({ method: 'GET', path: '/api/onboarding/skill-draft/:chatId', auth: 'admin', owner: 'B', response: SkillDraftState,
     summary: 'The state of a team skill draft chat of the caller: title, one line, inputs and team files read from its latest answer (never the steps).' }),
   saveSkillDraft: endpoint({ method: 'POST', path: '/api/onboarding/skill-draft/:chatId/save', auth: 'admin', owner: 'B', body: SaveSkillDraft, response: SavedSkillDraft,

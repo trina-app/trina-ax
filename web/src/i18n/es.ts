@@ -2924,6 +2924,7 @@ export const es: Record<MessageKey, string> = {
   "skillShare.latest": "el {kind} más reciente de la carpeta {folder}",
   "skillShare.latestFile": "archivo",
   "skillShare.share": "Compartir con el equipo",
+  "skillShare.retry": "Intentar de nuevo",
   "skillShare.later": "Más tarde",
   "skillShare.note": "La IA de todo el equipo seguirá esta forma · puede cambiarla cuando quiera en Habilidades del equipo",
   "teamLink.messageMade": "Dejé lista nuestra habilidad del equipo '{skill}'. Abra el enlace y úsela igual al momento.\n{url}",

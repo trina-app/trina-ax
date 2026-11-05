@@ -85,3 +85,28 @@ test('the receipt names the maker for others, never for the maker, never for a p
   expect(await receipt(owner, answer(ownerId, { path: QUOTE, name: 'gyeonjeokseo-sseugi' }))).toEqual({ skill: { path: QUOTE, name: 'gyeonjeokseo-sseugi' }, teamFiles: 0 })
   expect(await receipt(mia.client, answer(mia.id, { path: TASKS, name: 'meeting-tasks' }))).toEqual({ skill: { path: TASKS, name: 'meeting-tasks' }, teamFiles: 0 })
 })
+
+test('the first version read directly: back from the trash it is still the maker\'s; a new file of the same name is its own; an older pack install by its audit row', async () => {
+  const admin = (h.ctx.db.query("SELECT id FROM users WHERE username = 'ari'").get() as { id: string }).id
+  const rel = 'skills/general/bogoseo-sseugi/SKILL.md'
+  h.ctx.files.humanSave(ownerId, rel, Buffer.from(skillText('bogoseo-sseugi', '보고서 쓰기')), null)
+  const trashId = h.ctx.files.deleteFile(admin, rel)
+  h.ctx.files.restoreTrash(admin, trashId)
+  expect(skillMakerId(h.ctx.db, rel)).toBe(ownerId)
+  // deleted for good, then another person writes a file of that name: theirs
+  h.ctx.files.deleteFile(ownerId, rel)
+  h.ctx.db.query('UPDATE trash_items SET restored_at = ? WHERE original_path = ?').run(new Date().toISOString(), rel)
+  h.ctx.files.humanSave(admin, rel, Buffer.from(skillText('bogoseo-sseugi', '보고서 쓰기 2')), null)
+  expect(skillMakerId(h.ctx.db, rel)).toBe(admin)
+  // a pack skill written before installs were marked (a plain human save), within a minute of the install's audit row
+  const old = 'skills/marketing/ad-copy/SKILL.md'
+  h.ctx.db.query("INSERT INTO audit_log (actor_id, action, target, detail) VALUES (?, 'onboarding.pack_install', 'skills/marketing', '{}')").run(ownerId)
+  h.ctx.files.humanSave(ownerId, old, Buffer.from(skillText('ad-copy', '광고 문구')), null)
+  expect(skillMakerId(h.ctx.db, old)).toBeNull()
+  // a file of a pack's name with no install near it is a person's
+  h.ctx.db.query("DELETE FROM audit_log WHERE action = 'onboarding.pack_install' AND target = 'skills/marketing'").run()
+  expect(skillMakerId(h.ctx.db, old)).toBe(ownerId)
+  // the mark itself: the general pack installed in beforeAll
+  const ev = h.ctx.db.query("SELECT detail FROM file_events WHERE path = ? AND action = 'create'").get('skills/general/meeting-tasks/SKILL.md') as { detail: string }
+  expect(JSON.parse(ev.detail).tool).toBe('pack_install')
+})

@@ -8043,3 +8043,39 @@ the "3 proposals" step and the bar after sharing. Placement: Team AX core (skill
   `web/test/unit/skill-share-member.test.tsx` (the maker held at the join, the form's line, the arrival without a form,
   the receipt, the message in five languages), `web/test/e2e/welcome-notes.spec.ts` (notes in, the card, share, invite,
   a member on the form with the line).
+
+### S, review fixes (feat/onboarding-s, 2026-11-05)
+
+- **Who may read what the skill names (must-fix).** The draft endpoint takes any chat of the caller, so a chat that read
+  an admin-only file could have put its path and layout into `skills/general/`, which every member reads. Now, when the
+  draft starts and again when it is shared, every file the conversation up to that answer attached or read (as
+  recorded: question attachments and the answers' sources, personal files and uploads included) and every file the
+  skill names must be readable by the people it is shared with: the team link's stand-in (`newMember` with the team's
+  own group, as for a link's skill and starter files; `readableFile`). Any one that is not refuses the draft with its
+  name ("팀원이 모두 볼 수는 없는 파일을 쓴 답이라 …: 급여.xlsx"), rather than leaving it out: its content is in the answer,
+  and the answer is the material. Also refused: a confidential conversation (1A, `confidentialChat`) and one with
+  anything from the web or an outside service in it (a web search or browser step, web_fetch, save_url, a connection's
+  tools or api_request, a step with web sources). Not refused: `session_tainted` as such, which every chat that read a
+  team file carries (the welcome result itself); the outside part of it is what the step check refuses.
+- **The hidden steps guard** (`specifics.ts outsideIn`, the same one-rewrite-then-no-card rule): links, e-mail
+  addresses, domains (tldts; file names such as report.md are not), phone and account numbers, team paths the skill
+  does not list as its files, outside tools by name (web_fetch, save_url, api_request, browser tools with an
+  underscore, connection tools) and wording that sends, uploads or shares outside. `<material>` tags inside the material
+  are broken (‹/material>), so an answer cannot close the block.
+- **Fewer false positives**: no names from headings; a given name only with 님/씨 (하나, 지원 are words); a surname list
+  before a job title (각 팀장, 내 책임 are not people); role words before 님 (고객사님, 수신자님, 원장님, 부모님) are not
+  names; amounts need a currency or a million; a year alone is no date. The attendee line ("참석: …") names people.
+- **다시 정리하기**: a failed draft is never reused; starting again makes a new one, and the card offers it (not for a
+  refusal, which would only repeat).
+- **Reading changes nothing**: GET says `rewrite: true` when the first answer needs its one rewrite; the card then starts
+  the draft again, and the POST queues it.
+- **Makers**: a pack's install marks its file event (`humanSave(..., 'pack_install')`); an install from before the mark
+  is recognized by its `onboarding.pack_install` audit row within a minute, for a skill of a pack's name in that
+  folder (the hash comparison missed packs whose text changed). The first version is read with direct queries (the
+  first content event after the name was last freed, back through the file's moves and trash trips), the timeline walk
+  only when a folder above was moved.
+- CHANGELOG: the feature, and that older team skills no longer get the weekly suggestion without `recurring: weekly`.
+- Tests: `b-skill-share` (refusals: a group file, a personal file, web, confidential, and at the save; the guard and
+  the escaped material; the false positives; reading queues nothing, the rewrite on start, a failed draft not reused),
+  `a-skill-maker` (trash and back, a new file of the same name, an older pack install, the mark), `welcome.test.tsx`
+  (the rewrite asked by starting again, 다시 정리하기, a refusal's reason without it).

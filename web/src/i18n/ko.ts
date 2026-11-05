@@ -2963,6 +2963,7 @@ export const ko = {
   "skillShare.latest": "{folder} 폴더의 가장 최근 {kind}",
   "skillShare.latestFile": "파일",
   "skillShare.share": "팀에 공유",
+  "skillShare.retry": "다시 정리하기",
   "skillShare.later": "나중에",
   "skillShare.note": "팀 전체 AI가 이 방식을 따라요 · 팀 스킬에서 언제든 고칠 수 있어요",
   "teamLink.messageMade": "우리 팀 '{skill}' 스킬을 만들어 뒀어요. 링크 열면 같은 방식으로 바로 써요.\n{url}",

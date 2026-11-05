@@ -386,7 +386,7 @@ The API serves the Trina AX apps. It is not yet a stable public API for other pr
 | `PUT` | `/api/onboarding/profile` | Admin | Save the company profile a person checked (owner or admin, and the folder rules of skills/ must let them write). |
 | `POST` | `/api/onboarding/profile/draft` | Admin | Draft the company profile in a new chat of the caller: the AI reads the website (that host or platform path, at most 4 pages) or the pasted text. |
 | `GET` | `/api/onboarding/profile/draft/:chatId` | Admin | The state of a profile draft chat of the caller: the draft read from its latest answer, and the pages the server opened or refused for it (addresses, titles and outcomes, no page text). |
-| `POST` | `/api/onboarding/skill-draft` | Admin | Draft a team skill from one of the caller's chats, in a new chat of theirs (a turn without tools; only the specifics of that run become inputs). |
+| `POST` | `/api/onboarding/skill-draft` | Admin | Draft a team skill from one of the caller's chats, in a new chat of theirs (a turn without tools; only the specifics of that run become inputs). 409 for a confidential chat, one with web or outside content, or one that used files the team cannot open. Again for the same answer: the same draft, its one rewrite, or a new draft after a failed one. |
 | `GET` | `/api/onboarding/skill-draft/:chatId` | Admin | The state of a team skill draft chat of the caller: title, one line, inputs and team files read from its latest answer (never the steps). |
 | `POST` | `/api/onboarding/skill-draft/:chatId/save` | Admin | Share the drafted skill with the team: written as the caller to skills/<pack folder>/<name>/SKILL.md (the server picks the name). |
 

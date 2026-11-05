@@ -2964,6 +2964,7 @@ export const id: Record<MessageKey, string> = {
   "skillShare.latest": "{kind} terbaru di folder {folder}",
   "skillShare.latestFile": "file",
   "skillShare.share": "Bagikan ke tim",
+  "skillShare.retry": "Coba susun lagi",
   "skillShare.later": "Nanti",
   "skillShare.note": "AI seluruh tim mengikuti cara ini · bisa diubah kapan saja di Skill tim",
   "teamLink.messageMade": "Saya sudah membuat skill tim '{skill}'. Buka tautannya dan langsung pakai dengan cara yang sama.\n{url}",

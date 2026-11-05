@@ -8,7 +8,7 @@
 import { Loader2, Pencil } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
 import { NOTES_FOLDER, SKILL_DRAFT_TITLE_MAX, isChoice, type SavedSkillDraft, type SkillDraft, type SkillDraftFile, type SkillDraftState } from '@mycel/shared/api'
-import { api, API, errorText } from '../../lib/api'
+import { api, API, errorText, isApiError } from '../../lib/api'
 import { useLocale, useT } from '../../i18n'
 import { Button, ErrorNote, inputCls } from '../ui'
 
@@ -38,7 +38,9 @@ export function SkillShareCard({ chatId, onShared, onLater }: { chatId: string; 
   const locale = useLocale()
   const [draftChat, setDraftChat] = useState<string | null>(started.get(chatId) ?? null)
   const [state, setState] = useState<SkillDraftState | null>(null)
-  const [failed, setFailed] = useState<string | null>(null)
+  // the start refused (a confidential chat, outside content, files the team cannot open: the server says which), or
+  // failed; `again`: trying again may help (a network failure, not a refusal)
+  const [failed, setFailed] = useState<{ text: string; again: boolean } | null>(null)
   const [title, setTitle] = useState('')
   const [editing, setEditing] = useState(false)
   const [saving, setSaving] = useState(false)
@@ -51,7 +53,7 @@ export function SkillShareCard({ chatId, onShared, onLater }: { chatId: string; 
     let live = true
     api.call(API.startSkillDraft, { body: { chatId } }).then(
       (r) => { started.set(chatId, r.draftChatId); if (live) setDraftChat(r.draftChatId) },
-      (e) => live && setFailed(errorText(e, locale, t('skillShare.failed'))),
+      (e) => live && setFailed({ text: errorText(e, locale, t('skillShare.failed')), again: !isApiError(e, 'conflict') }),
     )
     return () => { live = false }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -65,6 +67,8 @@ export function SkillShareCard({ chatId, onShared, onLater }: { chatId: string; 
         if (!live) return
         setState(s)
         if (s.draft) setTitle((cur) => cur || s.draft!.title)
+        // the first answer did not pass: starting again asks for its one rewrite (reading never queues anything)
+        if (s.rewrite) void api.call(API.startSkillDraft, { body: { chatId } }).catch(() => {})
         if (s.status === 'running') timer = setTimeout(() => void read(), SKILL_DRAFT_POLL_MS)
       },
       () => { if (live) timer = setTimeout(() => void read(), SKILL_DRAFT_POLL_MS * 2) },
@@ -93,15 +97,26 @@ export function SkillShareCard({ chatId, onShared, onLater }: { chatId: string; 
     }
   }
 
-  if (failed || state?.status === 'failed')
+  /** 다시 정리하기: a new draft (the server never reuses a failed one) */
+  const retry = () => {
+    started.delete(chatId)
+    setFailed(null)
+    setState(null)
+    setTitle('')
+    setDraftChat(null)
+  }
+  if (failed || state?.status === 'failed') {
+    const again = failed ? failed.again : true
     return (
       <div className="space-y-4" data-testid="skill-share" data-state="failed">
-        <p className="text-sm text-ink">{t('skillShare.failed')}</p>
-        <div className="flex justify-end">
-          <Button variant="ghost" onClick={onLater} data-testid="skill-share-later">{t('skillShare.later')}</Button>
+        <p className="text-sm text-ink" data-testid="skill-share-failed">{failed?.text ?? t('skillShare.failed')}</p>
+        <div className="flex flex-wrap items-center justify-end gap-2">
+          <Button variant="ghost" onClick={onLater} className="max-sm:order-2 max-sm:w-full" data-testid="skill-share-later">{t('skillShare.later')}</Button>
+          {again && <Button variant="primary" onClick={retry} className="max-sm:w-full" data-testid="skill-share-retry">{t('skillShare.retry')}</Button>}
         </div>
       </div>
     )
+  }
   const d = state?.status === 'done' ? state.draft : null
   if (!d)
     return (

@@ -628,10 +628,13 @@ describe('after the first result', () => {
     files: [{ path: 'groups/Acme/회의록', latest: true }],
   }
   /** the server's draft: running for the first read, then the card (or a failure) */
-  const drafting = (end: { status: 'done' | 'failed'; draft?: unknown; problem?: string }) => {
+  const drafting = (end: { status: 'done' | 'failed'; draft?: unknown; problem?: string }, o: { rewrite?: boolean } = {}) => {
     let reads = 0
     routes['POST /api/onboarding/skill-draft'] = () => json(201, { draftChatId: DRAFT })
-    routes[`GET /api/onboarding/skill-draft/${DRAFT}`] = () => json(200, ++reads < 2 ? { status: 'running', draft: null, problem: null, saved: null } : { status: end.status, draft: end.draft ?? null, problem: end.problem ?? null, saved: null })
+    // with `rewrite`: the second read says the first answer needs its rewrite (the card starts the draft again for it)
+    routes[`GET /api/onboarding/skill-draft/${DRAFT}`] = () => json(200, ++reads < 2 ? { status: 'running', draft: null, problem: null, saved: null }
+      : o.rewrite && reads === 2 ? { status: 'running', draft: null, problem: null, saved: null, rewrite: true }
+      : { status: end.status, draft: end.draft ?? null, problem: end.problem ?? null, saved: null })
     routes[`POST /api/onboarding/skill-draft/${DRAFT}/save`] = () => json(200, SHARED)
   }
   afterEach(() => {
@@ -714,16 +717,29 @@ describe('after the first result', () => {
   test('no card when the draft could not be made: "지금은 정리하지 못했어요"; 나중에 closes it, the bar stays; its X puts the invite off', async () => {
     signIn('owner')
     progress = ran()
-    drafting({ status: 'failed', problem: 'specific' })
+    drafting({ status: 'failed', problem: 'specific' }, { rewrite: true })
     const m = await mount(<MemoryRouter><WelcomeInviteBar chatId={CHAT} answered messages={[ask(FILES), { role: 'assistant' as const, content: '## 민지', attachments: [] }]} /></MemoryRouter>)
     try {
       await m.until(() => m.find('skill-share-open'), 'the bar')
       await m.click('skill-share-open')
-      await m.until(() => m.find('skill-share')?.getAttribute('data-state') === 'failed', 'no card', 6000)
+      await m.until(() => m.find('skill-share')?.getAttribute('data-state') === 'failed', 'no card', 12000)
       expect(m.get('skill-share').textContent).toContain('지금은 정리하지 못했어요')
       expect(m.find('skill-share-share')).toBeNull()
+      // the rewrite was asked by starting again (reading asks for nothing); then one way on: 다시 정리하기
+      expect(called('POST /api/onboarding/skill-draft')).toHaveLength(2)
+      expect(m.get('skill-share-retry').textContent).toBe('다시 정리하기')
+      drafting({ status: 'done', draft: CARD })
+      await m.click('skill-share-retry')
+      await m.until(() => m.find('skill-share')?.getAttribute('data-state') === 'ready', 'the card after trying again', 12000)
+      expect(called('POST /api/onboarding/skill-draft')).toHaveLength(3)
       await m.click('skill-share-later')
       await m.until(() => !m.find('skill-share'), 'closed')
+      // opened again: the same draft read again (no new start)
+      await m.click('skill-share-open')
+      await m.until(() => m.find('skill-share')?.getAttribute('data-state') === 'ready', 'the same card', 12000)
+      expect(called('POST /api/onboarding/skill-draft')).toHaveLength(3)
+      await m.click('skill-share-later')
+      await m.until(() => !m.find('skill-share'), 'closed again')
       expect(m.find('welcome-invite-bar')).not.toBeNull()
       expect(called(`POST /api/onboarding/skill-draft/${DRAFT}/save`)).toEqual([])
       // the bar's X: the invite is put off, without the soft question (it asked about a skill, not an invite)
@@ -731,6 +747,20 @@ describe('after the first result', () => {
       await m.until(() => !m.find('welcome-invite-bar'), 'the bar gone')
       expect(m.html()).not.toContain(translate('ko', 'teamLink.skipTitle'))
       expect(progress!.steps.invite).toBe('skipped')
+    } finally { await m.unmount() }
+  }, 30_000)
+
+  test('a conversation the server refuses (files the team cannot open): its reason, and no 다시 정리하기', async () => {
+    signIn('owner')
+    progress = ran()
+    routes['POST /api/onboarding/skill-draft'] = () => json(409, { error: { code: 'conflict', message: '팀원이 모두 볼 수는 없는 파일을 쓴 답이라 팀 스킬로 만들 수 없어요: 급여.xlsx', params: { reason: 'private' } } })
+    const m = await mount(<MemoryRouter><WelcomeInviteBar chatId={CHAT} answered messages={[ask(FILES), { role: 'assistant' as const, content: '## 민지', attachments: [] }]} /></MemoryRouter>)
+    try {
+      await m.until(() => m.find('skill-share-open'), 'the bar')
+      await m.click('skill-share-open')
+      await m.until(() => m.find('skill-share')?.getAttribute('data-state') === 'failed', 'refused')
+      expect(m.get('skill-share-failed').textContent).toBe('팀원이 모두 볼 수는 없는 파일을 쓴 답이라 팀 스킬로 만들 수 없어요: 급여.xlsx')
+      expect(m.find('skill-share-retry')).toBeNull()
     } finally { await m.unmount() }
   })
 
