@@ -3,11 +3,13 @@
 // use and the order they are tried in. Admins see and re-check; only the owner adds, replaces, orders, assigns,
 // limits, switches off and removes (adding and replacing ask for the password again). Tokens and keys are sealed in
 // the browser before they are sent (lib/seal.ts) and never shown again. Settings > AI connections (MyCredentials)
-// is a member's own list, when the team allows it.
+// is a member's own list, when the team allows it. A Claude subscription and a ChatGPT plan connect with a sign-in in
+// the browser (one button; docs/DECISIONS.md "Claude 구독 연결: 브라우저에서"); the old terminal paste for Claude stays
+// folded under a small disclosure.
 import { ArrowDown, ArrowUp, ExternalLink, KeyRound, MoreHorizontal, Plus, RefreshCw, Trash2 } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { DuplicateCredentialParams, type Credential, type CredentialAssignment, type CredentialKind, type CredentialLogin, type CredentialsResponse, type Group, type User } from '@mycel/shared/api'
+import { DuplicateCredentialParams, type Credential, type CredentialAssignment, type CredentialKind, type CredentialLogin, type CredentialLoginKind, type CredentialsResponse, type Group, type User } from '@mycel/shared/api'
 import { api, API, errorText, isApiError } from '../../lib/api'
 import { canSeal, sealSecret } from '../../lib/seal'
 import { formatDateTime, formatNumber, formatUsd } from '../../lib/format'
@@ -28,6 +30,9 @@ const TONE: Record<Credential['state'], 'ok' | 'warn' | 'danger' | 'neutral'> = 
   ok: 'ok', unverified: 'neutral', expiring: 'warn', expired: 'danger', invalid: 'danger', needs_reconnect: 'danger', limited: 'warn', over_limit: 'warn', disabled: 'neutral', kind_off: 'neutral', sharing_off: 'warn',
 }
 const CLAUDE_TOKEN_RE = /^sk-ant-oat\d{2}-[A-Za-z0-9_-]{20,1000}$/
+/** the code the Claude page shows after approval (server/src/credentials/login.ts CLAUDE_LOGIN_CODE_RE) */
+const CLAUDE_CODE_RE = /^[A-Za-z0-9._~-]{1,512}#[A-Za-z0-9._~-]{1,512}$/
+const FINISHED: CredentialLogin['state'][] = ['done', 'failed', 'expired', 'cancelled']
 const ANTHROPIC_KEY_RE = /^sk-ant-api\d{2}-[A-Za-z0-9_-]{20,300}$/
 const OPENAI_KEY_RE = /^sk-[A-Za-z0-9_-]{20,300}$/
 /** a key of the server's Anthropic-compatible gateway (server/src/credentials/validate.ts GATEWAY_KEY_RE), never an Anthropic one */
@@ -214,7 +219,7 @@ function CredentialRow({ c, target, owner, checking, personal, ownDelete, onChec
             {menu && (
               <div role="menu" className="absolute right-0 z-30 mt-1 w-48 rounded-lg border border-line bg-surface py-1 text-sm shadow-lg" onClick={() => setMenu(false)}>
                 {!personal && <button role="menuitem" type="button" className="block w-full px-3 py-1.5 text-left hover:bg-hover" onClick={onEdit}>{t('credentials.rename')} · {t('credentials.changeTarget')} · {t('credentials.spendLimit')}</button>}
-                {!personal && <button role="menuitem" type="button" className="block w-full px-3 py-1.5 text-left hover:bg-hover" onClick={onReplace}>{c.kind === 'chatgpt' ? t('credentials.reconnect') : t('credentials.replace')}</button>}
+                {!personal && <button role="menuitem" type="button" className="block w-full px-3 py-1.5 text-left hover:bg-hover" onClick={onReplace}>{SUBSCRIPTION.has(c.kind) ? t('credentials.reconnect') : t('credentials.replace')}</button>}
                 <button role="menuitem" type="button" className="block w-full px-3 py-1.5 text-left hover:bg-hover" onClick={onToggle}>{c.disabled ? t('credentials.enable') : t('credentials.disable')}</button>
                 <button role="menuitem" type="button" className="block w-full px-3 py-1.5 text-left text-danger hover:bg-danger-soft" onClick={onRemove}>{t('common.delete')}</button>
               </div>
@@ -255,7 +260,8 @@ function TargetPicker({ value, onChange, groups, users }: { value: CredentialAss
 
 /**
  * Add a connection (owner: the team's; personal: one's own), or put a new token / key on one (replace), or sign the
- * ChatGPT plan in again (replace of a chatgpt connection).
+ * ChatGPT plan or the Claude subscription in again (replace of a subscription connection). Subscriptions connect with
+ * a sign-in in the browser; a Claude token made in a terminal can still be pasted (the folded "in a terminal" part).
  */
 export function AddCredential({ allowedKinds, gateway, groups, users, replace, personal, sharedSubscriptions = false, onClose, onDone }: {
   allowedKinds: CredentialKind[]; gateway?: Gateway; groups: Group[]; users: User[]; replace?: Credential; personal?: boolean; sharedSubscriptions?: boolean; onClose: () => void; onDone: () => void
@@ -271,17 +277,24 @@ export function AddCredential({ allowedKinds, gateway, groups, users, replace, p
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [login, setLogin] = useState<CredentialLogin | null>(null)
+  /** Claude: the terminal fallback is open (paste a setup-token token instead of the sign-in) */
+  const [manual, setManual] = useState(false)
+  /** Claude: the code the person pastes after approving */
+  const [loginCode, setLoginCode] = useState('')
+  const [codeBusy, setCodeBusy] = useState(false)
   /** the token is already a personal connection the owner may move to the team (409 params.movable) */
   const [move, setMove] = useState<DuplicateCredentialParams | null>(null)
   const secure = canSeal()
   const subscription = kind !== null && SUBSCRIPTION.has(kind)
   const sharingBlocked = subscription && !personal && !sharedSubscriptions
   const needsPassword = !personal
-  const ready = kind !== null && !sharingBlocked && (replace || label.trim().length > 0) && (kind === 'chatgpt' || formatOk(kind, secret.trim(), gateway)) && (!subscription || replace || ack) && (!needsPassword || password.length > 0)
+  /** a subscription signed in from the browser (ChatGPT always, Claude unless the terminal paste is open) */
+  const signIn = kind === 'chatgpt' || (kind === 'anthropic-oauth' && !manual)
+  const ready = kind !== null && !sharingBlocked && (replace || label.trim().length > 0) && (signIn || formatOk(kind, secret.trim(), gateway)) && (!subscription || replace || ack) && (!needsPassword || password.length > 0)
 
-  // ChatGPT sign-in progress: the WebSocket event, and a poll in case the socket is down
+  // sign-in progress: the WebSocket event, and a poll in case the socket is down
   useEffect(() => {
-    if (!login || ['done', 'failed', 'expired', 'cancelled'].includes(login.state)) return
+    if (!login || FINISHED.includes(login.state)) return
     const off = credentialLogin.on((l) => { if (l.loginId === login.loginId) setLogin(l) })
     const poll = setInterval(async () => {
       try { setLogin(await api.call(personal ? API.getMyCredentialLogin : API.getCredentialLogin, { params: { id: login.loginId } })) } catch { /* the event will do */ }
@@ -293,8 +306,10 @@ export function AddCredential({ allowedKinds, gateway, groups, users, replace, p
     if (!kind || !ready) return
     setBusy(true); setError(null)
     try {
-      if (kind === 'chatgpt') {
-        const common = { label: label.trim() || replace?.label || 'ChatGPT', acknowledgedPlanNotice: true as const, ...(replace ? { reconnectId: replace.id } : {}) }
+      if (signIn) {
+        const loginKind = kind as CredentialLoginKind
+        const common = { kind: loginKind, label: label.trim() || replace?.label || (loginKind === 'chatgpt' ? 'ChatGPT' : 'Claude'), acknowledgedPlanNotice: true as const, ...(replace ? { reconnectId: replace.id } : {}) }
+        setLoginCode('')
         setLogin(personal ? await api.call(API.startMyCredentialLogin, { body: common }) : await api.call(API.startCredentialLogin, { body: { ...common, assignments, password } }))
         return
       }
@@ -322,8 +337,21 @@ export function AddCredential({ allowedKinds, gateway, groups, users, replace, p
       }
     } finally { setBusy(false) }
   }
+  /** Claude: the pasted code, sealed like a token, to the sign-in that waits for it */
+  const sendCode = async () => {
+    if (!login || !CLAUDE_CODE_RE.test(loginCode.trim())) return
+    setCodeBusy(true); setError(null)
+    try {
+      const key = await api.call(API.sealingKey)
+      const sealed = await sealSecret(key, loginCode.trim(), 'credential.login-code')
+      setLogin(await api.call(personal ? API.submitMyCredentialLoginCode : API.submitCredentialLoginCode, { params: { id: login.loginId }, body: { sealed } }))
+      setLoginCode('')
+    } catch (e) {
+      setError(errorText(e, locale, t('error.network')))
+    } finally { setCodeBusy(false) }
+  }
   const cancelLogin = async () => {
-    if (login && !['done', 'failed', 'expired', 'cancelled'].includes(login.state)) {
+    if (login && !FINISHED.includes(login.state)) {
       try { await api.call(personal ? API.cancelMyCredentialLogin : API.cancelCredentialLogin, { params: { id: login.loginId } }) } catch { /* gone already */ }
     }
     onClose()
@@ -333,26 +361,34 @@ export function AddCredential({ allowedKinds, gateway, groups, users, replace, p
   const mover = move?.where === 'personal' && move.ownerId ? users.find((u) => u.id === move.ownerId) : undefined
   const leftOut = !!mover && assignments.length > 0
     && !assignments.some((a) => (a.subjectType === 'user' && a.subjectId === mover.id) || (a.subjectType === 'group' && mover.groupIds.includes(a.subjectId)))
-  const finished = login && ['done', 'failed', 'expired', 'cancelled'].includes(login.state)
+  const finished = login && FINISHED.includes(login.state)
+  const claudeWaits = login?.kind === 'anthropic-oauth' && (login.state === 'code' || login.state === 'checking')
 
   return (
-    <Modal open onClose={cancelLogin} width={560} title={replace ? (replace.kind === 'chatgpt' ? t('credentials.reconnect') : t('credentials.replace')) : t('credentials.add')}
+    <Modal open onClose={cancelLogin} width={560} title={replace ? (SUBSCRIPTION.has(replace.kind) ? t('credentials.reconnect') : t('credentials.replace')) : t('credentials.add')}
       footer={login ? (
         <>
           {login.state === 'done' ? <Button variant="primary" onClick={onDone}>{t('common.done')}</Button>
-            : finished ? <Button variant="primary" onClick={() => setLogin(null)}>{t('credentials.chatgpt.restart')}</Button>
+            : finished ? <Button variant="primary" onClick={() => { setLogin(null); setError(null) }}>{t('credentials.chatgpt.restart')}</Button>
             : <Button variant="ghost" onClick={cancelLogin}>{t('common.cancel')}</Button>}
+          {claudeWaits && (
+            <Button variant="primary" busy={codeBusy || login.state === 'checking'} disabled={login.state !== 'code' || !CLAUDE_CODE_RE.test(loginCode.trim())} onClick={sendCode} data-testid="claude-code-submit">
+              {login.state === 'checking' ? t('credentials.checking') : t('credentials.connect')}
+            </Button>
+          )}
         </>
       ) : (
         <>
           <Button variant="ghost" onClick={onClose}>{t('common.cancel')}</Button>
           <Button variant="primary" busy={busy} disabled={!ready || !secure} onClick={submit} data-testid="credential-submit">
-            {busy ? t('credentials.checking') : kind === 'chatgpt' ? t('credentials.chatgpt.start') : move ? t('credentials.moveToTeam') : t('credentials.connect')}
+            {busy ? t('credentials.checking') : kind === 'chatgpt' ? t('credentials.chatgpt.start') : kind === 'anthropic-oauth' && signIn ? t('credentials.claude.start') : move ? t('credentials.moveToTeam') : t('credentials.connect')}
           </Button>
         </>
       )}>
       {!secure ? <p className="text-sm text-warn" data-testid="credential-https-only">{t('credentials.httpsOnly')}</p>
-        : login ? <ChatgptProgress l={login} />
+        : login ? (login.kind === 'anthropic-oauth'
+          ? <ClaudeProgress l={login} code={loginCode} onCode={(v) => { setLoginCode(v); setError(null) }} onSubmit={sendCode} error={error} />
+          : <ChatgptProgress l={login} />)
         : (
           <div className="space-y-4">
             {personal && <p className="text-sm text-muted">{t('credentials.personalFirst')}</p>}
@@ -377,17 +413,7 @@ export function AddCredential({ allowedKinds, gateway, groups, users, replace, p
                 })}
               </fieldset>
             )}
-            {kind === 'anthropic-oauth' && (
-              <ol className="list-decimal space-y-2 pl-5 text-sm" data-testid="setup-token-steps">
-                <li>{t('credentials.setupToken.steps.1')}
-                  <CommandLine text="curl -fsSL https://claude.ai/install.sh | bash" />
-                  <span className="text-xs text-muted">{t('credentials.setupToken.steps.1win')}</span> <CommandLine text="irm https://claude.ai/install.ps1 | iex" />
-                </li>
-                <li>{t('credentials.setupToken.steps.2')} <CommandLine text="claude setup-token" /></li>
-                <li>{t('credentials.setupToken.steps.3')}</li>
-                <li>{t('credentials.setupToken.steps.4')}</li>
-              </ol>
-            )}
+            {kind === 'anthropic-oauth' && !manual && <p className="text-sm text-muted" data-testid="claude-login-how">{t('credentials.claude.how')}</p>}
             {(kind === 'anthropic-api-key' || kind === 'openai-api-key') && (
               <p className="text-sm text-muted">
                 {t('credentials.apiKey.hint')}{' '}
@@ -401,9 +427,8 @@ export function AddCredential({ allowedKinds, gateway, groups, users, replace, p
                 <input className={inputCls} value={label} maxLength={60} onChange={(e) => setLabel(e.target.value)} data-testid="credential-label" />
               </Field>
             )}
-            {kind && kind !== 'chatgpt' && (
-              <Field label={t(kind === 'anthropic-oauth' ? 'credentials.setupToken.paste' : 'credentials.apiKey.paste')}
-                error={secret.trim() && !formatOk(kind, secret.trim(), gateway) ? t(kind === 'anthropic-oauth' ? 'credentials.setupToken.invalidFormat' : 'credentials.apiKey.invalidFormat') : null}>
+            {(kind === 'anthropic-api-key' || kind === 'openai-api-key') && (
+              <Field label={t('credentials.apiKey.paste')} error={secret.trim() && !formatOk(kind, secret.trim(), gateway) ? t('credentials.apiKey.invalidFormat') : null}>
                 <input className={inputCls} type="password" autoComplete="off" spellCheck={false} value={secret} onChange={(e) => { setSecret(e.target.value); if (move) { setMove(null); setError(null) } }} data-testid="credential-secret" />
               </Field>
             )}
@@ -427,6 +452,26 @@ export function AddCredential({ allowedKinds, gateway, groups, users, replace, p
                 <input className={inputCls} type="password" autoComplete="current-password" value={password} onChange={(e) => setPassword(e.target.value)} data-testid="credential-password" />
               </Field>
             )}
+            {kind === 'anthropic-oauth' && (
+              // the fallback: a token made with `claude setup-token` on any computer, pasted (folded: the sign-in is the way)
+              <details open={manual} onToggle={(e) => { const open = (e.currentTarget as HTMLDetailsElement).open; setManual(open); if (!open) { setSecret(''); setMove(null) } }} data-testid="claude-manual">
+                <summary className="cursor-pointer text-xs text-muted select-none">{t('credentials.claude.manual')}</summary>
+                <div className="mt-2 space-y-3">
+                  <ol className="list-decimal space-y-2 pl-5 text-sm" data-testid="setup-token-steps">
+                    <li>{t('credentials.setupToken.steps.1')}
+                      <CommandLine text="curl -fsSL https://claude.ai/install.sh | bash" />
+                      <span className="text-xs text-muted">{t('credentials.setupToken.steps.1win')}</span> <CommandLine text="irm https://claude.ai/install.ps1 | iex" />
+                    </li>
+                    <li>{t('credentials.setupToken.steps.2')} <CommandLine text="claude setup-token" /></li>
+                    <li>{t('credentials.setupToken.steps.3')}</li>
+                    <li>{t('credentials.setupToken.steps.4')}</li>
+                  </ol>
+                  <Field label={t('credentials.setupToken.paste')} error={secret.trim() && !formatOk(kind, secret.trim(), gateway) ? t('credentials.setupToken.invalidFormat') : null}>
+                    <input className={inputCls} type="password" autoComplete="off" spellCheck={false} value={secret} onChange={(e) => { setSecret(e.target.value); if (move) { setMove(null); setError(null) } }} data-testid="credential-secret" />
+                  </Field>
+                </div>
+              </details>
+            )}
           </div>
         )}
     </Modal>
@@ -440,6 +485,32 @@ function CommandLine({ text }: { text: string }) {
       <CopyButton text={text} />
     </span>
   )
+}
+
+/** Claude: open the authorize page (a new tab), paste the code it shows; then the check, then the result */
+function ClaudeProgress({ l, code, onCode, onSubmit, error }: { l: CredentialLogin; code: string; onCode: (v: string) => void; onSubmit: () => void; error: string | null }) {
+  const t = useT()
+  if (l.state === 'starting') return <p className="text-sm text-muted" data-testid="claude-starting">{t('credentials.claude.starting')}</p>
+  if ((l.state === 'code' || l.state === 'checking') && l.url) {
+    const bad = code.trim() !== '' && !CLAUDE_CODE_RE.test(code.trim())
+    return (
+      <div className="space-y-4" data-testid="claude-code">
+        <a className="inline-flex items-center gap-1.5 text-sm font-medium text-accent-text underline" href={l.url} target="_blank" rel="noreferrer noopener" data-testid="claude-open">
+          {t('credentials.claude.open')} <ExternalLink size={13} aria-hidden />
+        </a>
+        <Field label={t('credentials.claude.code')} error={bad ? t('credentials.claude.codeInvalid') : null}>
+          <input className={inputCls} autoComplete="off" spellCheck={false} value={code} disabled={l.state !== 'code'} data-testid="claude-code-input"
+            onChange={(e) => onCode(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') onSubmit() }} />
+        </Field>
+        {error && <p className="text-sm text-danger" role="alert" data-testid="dialog-error">{error}</p>}
+      </div>
+    )
+  }
+  if (l.state === 'done') return <p className="text-sm text-ok" data-testid="claude-done">{l.credential?.state === 'unverified' ? t('credentials.unverifiedSaved') : t('credentials.claude.done')}</p>
+  if (l.state === 'expired') return <p className="text-sm text-warn">{t('credentials.chatgpt.expired')}</p>
+  if (l.state === 'cancelled') return <p className="text-sm text-muted">{t('credentials.chatgpt.cancelled')}</p>
+  const reason: MessageKey = l.reason === 'bad_code' ? 'credentials.claude.badCode' : l.reason === 'refused' ? 'credentials.claude.refused' : l.reason === 'duplicate' ? 'credentials.claude.duplicate' : 'credentials.claude.failed'
+  return <p className="text-sm text-danger" data-testid="claude-failed">{t(reason)}</p>
 }
 
 function ChatgptProgress({ l }: { l: CredentialLogin }) {
