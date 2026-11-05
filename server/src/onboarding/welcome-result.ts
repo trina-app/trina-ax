@@ -30,13 +30,13 @@ import { installPackSkill } from './skill-packs'
 import { brandFoldersOf, cardNewsSkill, readWelcome, setupWelcomeTeam } from './welcome'
 
 const TEXT = {
-  title: { ko: '우리 회사 홍보 카드뉴스', en: 'Our company card news', id: 'Kartu berita perusahaan kami', ja: '会社紹介カードニュース', es: 'Tarjetas de presentación de la empresa' },
+  title: { ko: '우리 회사 홍보 카드뉴스', en: 'Promo cards for our company', id: 'Kartu berita perusahaan kami', ja: '会社紹介カードニュース', es: 'Tarjetas de presentación de la empresa' },
   intro: { ko: '회사 소개.md', en: 'Company intro.md', id: 'Profil perusahaan.md', ja: '会社紹介.md', es: 'Presentación de la empresa.md' },
   logo: { ko: '로고', en: 'logo', id: 'logo', ja: 'ロゴ', es: 'logotipo' },
   image: { ko: '홈페이지', en: 'website', id: 'situs', ja: 'サイト', es: 'sitio' },
   blocked: {
     ko: '카드뉴스 스킬을 넣지 못했어요. 폴더 권한을 확인해 주세요.',
-    en: 'The card news skill could not be added. Check the folder permissions.',
+    en: 'The promo cards skill could not be added. Check the folder permissions.',
     id: 'Skill kartu berita tidak bisa ditambahkan. Periksa izin folder.',
     ja: 'カードニュースのスキルを追加できませんでした。フォルダーの権限を確認してください。',
     es: 'No se pudo añadir la habilidad de tarjetas. Revise los permisos de la carpeta.',
@@ -60,7 +60,7 @@ const TEXT = {
 /** 회사 소개.md's own words (the team's language). */
 const MD: Record<Locale, { head: (name: string) => string; lead: (site: string) => string; leadNoSite: string; oneLine: string; products: string; audience: string; tone: string; avoid: string; colors: string; pages: string; source: string }> = {
   ko: { head: (n) => `# ${n} 회사 소개`, lead: (s) => `홈페이지(${s})를 읽고 확인한 내용이에요. 숫자와 사실은 아래에 적힌 것만 써요.`, leadNoSite: '회사 소개 단계에서 확인한 내용이에요. 숫자와 사실은 아래에 적힌 것만 써요.', oneLine: '한 줄 소개', products: '제품·서비스', audience: '고객', tone: '말투', avoid: '피하는 표현', colors: '브랜드 색', pages: '홈페이지에서 읽은 글', source: '출처' },
-  en: { head: (n) => `# ${n} company intro`, lead: (s) => `What the website (${s}) says, as checked in the welcome steps. Use only the facts and numbers written here.`, leadNoSite: 'What was checked in the welcome steps. Use only the facts and numbers written here.', oneLine: 'In one line', products: 'Products and services', audience: 'Customers', tone: 'Tone of voice', avoid: 'Expressions to avoid', colors: 'Brand colours', pages: 'Text read on the website', source: 'Source' },
+  en: { head: (n) => `# ${n} company intro`, lead: (s) => `What the website (${s}) says, as checked in the welcome steps. Use only the facts and numbers written here.`, leadNoSite: 'What was checked in the welcome steps. Use only the facts and numbers written here.', oneLine: 'In one line', products: 'Products and services', audience: 'Customers', tone: 'Tone of voice', avoid: 'Expressions to avoid', colors: 'Brand colors', pages: 'Text read on the website', source: 'Source' },
   id: { head: (n) => `# Profil perusahaan ${n}`, lead: (s) => `Isi situs web (${s}) yang diperiksa di langkah awal. Gunakan hanya fakta dan angka yang tertulis di sini.`, leadNoSite: 'Yang diperiksa di langkah awal. Gunakan hanya fakta dan angka yang tertulis di sini.', oneLine: 'Satu kalimat', products: 'Produk dan layanan', audience: 'Pelanggan', tone: 'Gaya bahasa', avoid: 'Ungkapan yang dihindari', colors: 'Warna merek', pages: 'Teks dari situs web', source: 'Sumber' },
   ja: { head: (n) => `# ${n} 会社紹介`, lead: (s) => `ホームページ（${s}）を読んで確認した内容です。数字と事実はここに書かれたものだけを使います。`, leadNoSite: '会社紹介のステップで確認した内容です。数字と事実はここに書かれたものだけを使います。', oneLine: 'ひとことで', products: '製品・サービス', audience: '顧客', tone: '話し方', avoid: '避ける表現', colors: 'ブランドカラー', pages: 'ホームページで読んだ文章', source: '出典' },
   es: { head: (n) => `# Presentación de ${n}`, lead: (s) => `Lo que dice el sitio web (${s}), revisado en los primeros pasos. Use solo los datos y cifras escritos aquí.`, leadNoSite: 'Lo revisado en los primeros pasos. Use solo los datos y cifras escritos aquí.', oneLine: 'En una línea', products: 'Productos y servicios', audience: 'Clientes', tone: 'Tono', avoid: 'Expresiones que se evitan', colors: 'Colores de marca', pages: 'Texto leído en el sitio web', source: 'Fuente' },

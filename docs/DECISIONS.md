@@ -8332,9 +8332,9 @@ chat tools); the hosting side only hands over the image key.
   A folder of pictures the run picked from, named with `"latest": false`, stays the whole folder (`draftFiles`; the card
   says "마케팅팀 이미지 폴더의 사진"): as "the newest file" of it, the team skill would read one picture next time.
 - **Checked on 2026-11-05** with `bun run dev` (Claude Code login, the local relay), through the API and once in a
-  browser at 390 px, on five teams: a Korean B2B SaaS (8 pictures, the purple logo colour), a café roastery
-  on imweb (8 pictures, its charcoal), a shipbuilding-parts maker (5 pictures,
-  SVG logo so none, no colour), an English SaaS on an English team (the English skill and folders), and a
+  browser at 390 px, on five teams: a Korean B2B SaaS (8 pictures, the purple logo colour), a café roastery on imweb
+  (8 pictures, its charcoal), a shipbuilding-parts maker (5 pictures, SVG logo so none, no colour), an English SaaS on
+  an English team (the English skill and folders), and a
   fictional 20-page PDF deck with no website (three photos made). 4 rounds of the skill, each card looked at full size;
   the answers took 70–170 s; no card overflowed its square; numbers were checked against the material. 7 brand photos
   were made, none failed (0.15 credits each), plus 1.39 credits of model comparison: 2.44 credits.
@@ -8372,6 +8372,19 @@ chat tools); the hosting side only hands over the image key.
   S's outside-content check although the words came from the web. They are the company's own public pages, read
   within the typed site's scope, saved by the owner after confirming the profile, each part under its address; the
   team skill names the file, which anyone on the team can open and edit.
+
+### N in English (integration with Q, 2026-11-05)
+
+Q's English walk ran before the card news replaced welcome step 2, so the new lines were read again as an English team
+would. "Card news" is a Korean genre an English reader does not know: the English skill is titled "Promo cards" (its
+name and command stay `card-news`), the chat "Promo cards for our company" and the artifact "(Company name) promo
+cards". Step 2 reads "Add a company or team overview if you have one / No file? We'll use what we found on your
+website", the link "Continue without a file", the question "Make five promo cards for our company"; the reading log
+"Found the logo and n images" (was "Got …"); the bar "Like it? Save it as a team skill so your teammates can do it the
+same way"; the brand images folder line follows Q's per-language team folder ("the photos in Acme Marketing ›
+Images"). US spelling as in Q: "Brand colors" on the review, in 회사 소개.md's English words and in the facts line the AI
+reads (both skills name that label), color and center in the English skill. Q's rewrites of the old files step and of
+the ad copy result left with those lines. Korean, Japanese, Indonesian and Spanish are unchanged.
 
 ## Demo content: the mechanism is open, a company's content is a folder (feat/demo-content-split, 2026-11-05)
 

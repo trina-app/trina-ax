@@ -90,7 +90,7 @@ describe('what a page offers (pure)', () => {
     expect(cleanColors(['#ABC', '#0e5e4e', '#0e5e4e', 'blue', 7, '#123456', '#111111', '#222222', '#333333', '#444444'])).toEqual(['#aabbcc', '#0e5e4e', '#123456', '#111111', '#222222'])
     const p = cleanProfile({ website: 'https://acme.example', name: 'Acme', oneLine: 'Quiet fans', products: '', audience: '', tone: [], avoid: '', sources: [], colors: ['#0E5E4E', '#3fd0a5'] })!
     expect(p.colors).toEqual(['#0e5e4e', '#3fd0a5'])
-    expect(profileFactLines(p)).toContain('Brand colours (main first): #0e5e4e, #3fd0a5')
+    expect(profileFactLines(p)).toContain('Brand colors (main first): #0e5e4e, #3fd0a5')
     expect(cleanProfile({ website: '', oneLine: 'x', products: '', audience: '', tone: [], avoid: '', sources: [] })!.colors).toBeUndefined()
     const scope: DraftScope = { chatId: 'c', source: 'website', website: 'https://acme.example/', site: 'acme.example', web: webScope('https://acme.example/') }
     const d = parseDraftAnswer('```json\n{"name":"Acme","oneLine":"Quiet fans","products":"","audience":"","tone":[],"avoid":"","sources":[],"colors":["#ff0000"]}\n```', scope)!

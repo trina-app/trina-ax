@@ -169,7 +169,7 @@ test('brand colours: "#rrggbb" in lower case, each once, at most five; saved onl
 test('the review: the brand colours as round swatches, the hex as their name, each with its own remove button; none: no field', () => {
   const html = render(<ProfileStep initial={{ ...PROFILE, colors: ['#37ee6a', '#0b140d'] }} onDone={noop} />)
   expect(html).toContain('data-testid="profile-colors"')
-  expect(html).toContain('>Brand colours<')
+  expect(html).toContain('>Brand colors<')
   expect(html).toContain('role="img" aria-label="#37ee6a" title="#37ee6a"')
   expect(html).toContain('background-color:#37ee6a')
   expect(html).toContain('aria-label="Remove #37ee6a"')

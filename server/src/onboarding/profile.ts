@@ -102,7 +102,7 @@ export function profileFactLines(p: CompanyProfileInput, max = PROFILE_BLOCK_MAX
     p.audience ? `Customers: ${one(p.audience)}` : '',
     p.tone.length ? `Tone of voice: ${p.tone.join(', ')}` : '',
     p.avoid ? `Expressions to avoid: ${one(p.avoid)}` : '',
-    p.colors?.length ? `Brand colours (main first): ${p.colors.join(', ')}` : '',
+    p.colors?.length ? `Brand colors (main first): ${p.colors.join(', ')}` : '',
   ].filter(Boolean)
   const out: string[] = []
   let used = 0
