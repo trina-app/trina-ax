@@ -372,30 +372,35 @@ describe('the owner proposes a link for e-mails that differ; only the member can
 
 describe('an e-mail someone else set', () => {
   test('is no proof for 7 days: the member is told, the page shows it, refused until they set it themselves', async () => {
-    // an admin sets erin's e-mail through Admin › Members (the harness's group ids make the answer itself fail the
-    // contract check, after the change was saved)
-    await call('dana', 'PATCH', '/api/admin/users/erin', { email: 'erin@acme.example' })
-    expect(h.ctx.db.query("SELECT actor_id FROM audit_log WHERE action = 'user.update' AND target = 'erin'").get()).toEqual({ actor_id: 'dana' })
-    expect(await waitFor(() => notices.some((n) => n.userId === 'erin' && n.ev.data.code === 'slack_email_changed'))).toBe(true)
-    expect((await call('erin', 'GET', '/api/slack/me')).json.emailSetByOther).toBe(true)
-    const t1 = await newLink('U0ERIN')
-    const p = await call('erin', 'POST', '/api/slack/link/preview', { token: t1 })
-    expect(p.json).toMatchObject({ emailCheck: 'recent', email: 'erin@acme.example' })
-    const refused = await call('erin', 'POST', '/api/slack/link/confirm', { token: t1 })
+    // carol (in no fixture group: the harness's fixture groups have ids the contract refuses in an answer, which real
+    // groups never have; tests/unit/c-slack-email-routes.test.ts does the same with a real group on a real server)
+    // links her own Slack account later; first she gives up the one from the proposal tests
+    expect((await call('carol', 'DELETE', '/api/slack/me')).status).toBe(200)
+    // an admin sets carol's e-mail in Admin › Members
+    const byAdmin = await call('dana', 'PATCH', '/api/admin/users/carol', { email: 'carol@acme.example' })
+    expect(byAdmin.status).toBe(200)
+    expect(byAdmin.json).toMatchObject({ id: 'carol', email: 'carol@acme.example' })
+    expect(await waitFor(() => notices.some((n) => n.userId === 'carol' && n.ev.data.code === 'slack_email_changed'))).toBe(true)
+    expect((await call('carol', 'GET', '/api/slack/me')).json.emailSetByOther).toBe(true)
+    const t1 = await newLink('U0CAROL')
+    const p = await call('carol', 'POST', '/api/slack/link/preview', { token: t1 })
+    expect(p.json).toMatchObject({ emailCheck: 'recent', email: 'carol@acme.example' })
+    const refused = await call('carol', 'POST', '/api/slack/link/confirm', { token: t1 })
     expect(refused.json.error.params.reason).toBe('email_recent')
-    // erin sets it herself in Settings › Profile (PATCH /api/me; its answer needs a stored session the harness's test
-    // sessions do not have, so it says 401 after the change was saved): hers again
+    // carol sets it herself in Settings › Profile: hers again
     await Bun.sleep(1100)
-    await call('erin', 'PATCH', '/api/me', { email: 'Erin@acme.example' })
-    expect((h.ctx.db.query("SELECT email FROM users WHERE id = 'erin'").get() as { email: string }).email).toBe('Erin@acme.example')
-    expect((await call('erin', 'POST', '/api/slack/link/preview', { token: t1 })).json.emailCheck).toBe('match')
-    expect((await call('erin', 'GET', '/api/slack/me')).json.emailSetByOther).toBe(false)
+    const own = await call('carol', 'PATCH', '/api/me', { email: 'Carol@acme.example' })
+    expect(own.status).toBe(200)
+    expect(own.json.user).toMatchObject({ id: 'carol', email: 'Carol@acme.example' })
+    expect((await call('carol', 'POST', '/api/slack/link/preview', { token: t1 })).json.emailCheck).toBe('match')
+    expect((await call('carol', 'GET', '/api/slack/me')).json.emailSetByOther).toBe(false)
   })
 
   test('an account an admin created with an e-mail: no proof for its first 7 days', async () => {
-    await call('dana', 'POST', '/api/admin/users', { username: 'frank', name: 'Frank Oh', email: 'frank@acme.example', role: 'member' })
+    const made = await call('dana', 'POST', '/api/admin/users', { username: 'frank', name: 'Frank Oh', email: 'frank@acme.example', role: 'member' })
+    expect(made.status).toBe(201)
     const frank = h.ctx.db.query("SELECT id FROM users WHERE username = 'frank'").get() as { id: string }
-    expect(frank).toBeTruthy()
+    expect(made.json.user.id).toBe(frank.id)
     // (signed in once and the temporary password changed; the e-mail stays the admin's)
     h.ctx.db.query('UPDATE users SET must_change_password = 0 WHERE id = ?').run(frank.id)
     const t = await newLink('U0FRANK')
