@@ -4,7 +4,7 @@
 import { API } from '@mycel/shared/api'
 import { LOCALE_CHANGED } from '../admin/settings'
 import { audit } from '../admin/audit'
-import { PROFILE_CHANGED } from '../auth/profiles'
+import { profileChangedFor } from '../auth/profiles'
 import { fail } from '../http/errors'
 import { acceptInvite, changePassword, completeReset, inviteInfo, login, resetInfo, setup, setupStatus } from '../auth/accounts'
 import { authOf, installAuth } from '../auth/service'
@@ -73,7 +73,7 @@ export const authRoutes: RouteModule = {
       })()
       if (renamed) {
         audit(ctx.db, { actor: auth.user.id, action: 'profile.update', target: auth.user.id, detail: { fields: ['name'], name: { from: u!.name, to: body.name } } })
-        ctx.services.realtime.publishEach(() => PROFILE_CHANGED)
+        ctx.services.realtime.publishEach(profileChangedFor(auth.user.id))
       }
       // the person's other windows and devices switch too
       if (body.locale !== undefined) ctx.services.realtime.publish(auth.user.id, LOCALE_CHANGED)
