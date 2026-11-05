@@ -1,7 +1,7 @@
 // App frame: sidebar (drawer on phones), the page, and the right-hand panel (artifact / file preview / browser),
 // which is a full-screen sheet below 768 px. Also: connection banner, keyboard shortcuts, the new-version reload.
 import clsx from 'clsx'
-import { Menu, MessageSquarePlus, ShieldAlert, WifiOff, RefreshCw } from 'lucide-react'
+import { Menu, MessageCirclePlus, MessageSquarePlus, ShieldAlert, WifiOff, RefreshCw } from 'lucide-react'
 import { lazy, Suspense, useEffect, useState } from 'react'
 import { Outlet, useLocation, useNavigate } from 'react-router-dom'
 import { PRODUCT } from '@mycel/shared'
@@ -129,10 +129,13 @@ export default function Layout() {
               <Menu size={20} />
               {unread > 0 && <span className="absolute top-1 right-1 size-2.5 rounded-full bg-accent ring-2 ring-canvas" aria-hidden data-testid="menu-unread" />}
             </IconButton>
-            <span className="flex-1 truncate text-center text-sm font-semibold">{PRODUCT.displayName}</span>
-            {/* the 대화 list has the AI chat pinned on top: no second way to it there (the empty box keeps the name centred) */}
+            {/* the 대화 list: its own name here (no second title row on the page) and a new 1:1 chat instead of a new AI
+                chat (the AI chat is pinned on top of the list) */}
+            <span className="flex-1 truncate text-center text-sm font-semibold">{location.pathname === '/rooms' ? t('tabs.chats') : PRODUCT.displayName}</span>
             {location.pathname === '/rooms' ? (
-              <span className="size-8 shrink-0 max-sm:size-9" aria-hidden />
+              <IconButton label={t('rooms.newDm')} onClick={() => navigate('/rooms?new=1', { replace: true })} data-testid="topbar-new-dm">
+                <MessageCirclePlus size={20} />
+              </IconButton>
             ) : (
               <IconButton label={t('sidebar.newChat')} onClick={() => navigate('/')} data-testid="topbar-new-chat">
                 <MessageSquarePlus size={20} />
