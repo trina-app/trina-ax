@@ -471,6 +471,7 @@ func main() {
 	if *exitWithParent {
 		go func() { _, _ = io.Copy(io.Discard, os.Stdin); stopAllAndExit() }()
 	}
+	clearSignInLeftovers() // claudelogin.go: folders of sign-ins an earlier launcher did not finish
 	_ = os.Remove(*listen)
 	ln, err := net.ListenUnix("unix", &net.UnixAddr{Name: *listen, Net: "unix"})
 	if err != nil {

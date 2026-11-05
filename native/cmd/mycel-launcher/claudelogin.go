@@ -43,14 +43,17 @@ const (
 	claudeTokenGrace = 15 * time.Second
 	// a code goes in as a terminal paste, Enter after a pause (one keystroke the program reads on its own)
 	claudeEnterDelay = 300 * time.Millisecond
+	// after the code: the exchange (a 30 s request in 2.1.305) and the token on the screen, or the sign-in ends
+	// (exchange_failed) instead of "checking" until the overall time limit; the request may ask for less (tests)
+	claudeExchangeWait = 90 * time.Second
 )
 
 var (
-	// what `claude setup-token` 2.1.305 prints (sk-ant-oat01-…), as the paste path accepts it
+	// the whole token `claude setup-token` 2.1.305 prints (sk-ant-oat01-…), as the paste path accepts it
 	// (server/src/credentials/validate.ts CLAUDE_TOKEN_RE)
-	claudeTokenRe = regexp.MustCompile(`(?:^|[^A-Za-z0-9_-])(sk-ant-oat[0-9]{2}-[A-Za-z0-9_-]{20,1000})(?:$|[^A-Za-z0-9_-])`)
+	claudeTokenFull = regexp.MustCompile(`^sk-ant-oat[0-9]{2}-[A-Za-z0-9_-]{20,1000}$`)
 	// the code the browser page shows after approval: <authorization code>#<state>. Nothing else can be typed into
-	// the program (no control keys, no spaces, no second line).
+	// the program (no control keys, no spaces, no second line), and never anything token-shaped (claudeCodeOK).
 	claudeCodeRe = regexp.MustCompile(`^[A-Za-z0-9._~-]{1,512}#[A-Za-z0-9._~-]{1,512}$`)
 	claudeURLRe  = regexp.MustCompile(`https://[A-Za-z0-9.-]+/[^\s"'<>]*oauth/authorize\?[^\s"'<>]+`)
 )
@@ -96,6 +99,51 @@ func claudeAuthorizeURL(links, lines []string) string {
 	return ""
 }
 
+func claudeCodeOK(code string) bool {
+	return claudeCodeRe.MatchString(code) && !strings.Contains(strings.ToLower(code), "sk-ant-")
+}
+
+// claudeTokenFrom: the token in the block setup-token 2.1.305 draws on success, and only there:
+//
+//	✓ Long-lived authentication token created successfully!
+//	Your OAuth token (valid for 1 year):
+//	<token>
+//	Store this token securely. You won't be able to see it again.
+//
+// the rows between the heading and "Store this token securely" (joined, for a token wrapped over rows) must be
+// exactly one whole token, and the paste prompt (with whatever was typed into it) must be gone from the screen. A
+// screen that came in only partly (a read can end inside the token) has no "Store" row yet and gives nothing, and
+// token-shaped text anywhere else (the typed code, a message) never counts.
+func claudeTokenFrom(lines []string, screen string) string {
+	// words are matched with any run of blanks between them (the program places words by column)
+	words := func(s string) string { return strings.Join(strings.Fields(s), " ") }
+	if strings.Contains(words(screen), "Paste code here") {
+		return ""
+	}
+	h := -1
+	for i := len(lines) - 1; i >= 0; i-- {
+		if strings.Contains(words(lines[i]), "Your OAuth token") {
+			h = i
+			break
+		}
+	}
+	if h < 0 {
+		return ""
+	}
+	var b strings.Builder
+	for _, l := range lines[h+1:] {
+		t := strings.TrimSpace(l)
+		if strings.Contains(words(t), "Store this token securely") {
+			if tok := b.String(); claudeTokenFull.MatchString(tok) {
+				return tok
+			}
+			return ""
+		}
+		b.WriteString(t)
+	}
+	return ""
+}
+
 // claudeScreenFailure: the program shows an error on its screen (setup-token waits for Enter to retry then). Before
 // a code: it could not start the sign-in; after: Anthropic refused the code, or the exchange failed.
 func claudeScreenFailure(text string, codeSent bool) string {
@@ -132,6 +180,19 @@ type claudeLoginRequest struct {
 	Proxy     string `json:"proxy"`
 	LoginID   string `json:"loginId"`
 	TimeoutMs int64  `json:"timeoutMs"`
+	// how long after the code the token may take (default claudeExchangeWait, 1 s to 10 min)
+	ExchangeTimeoutMs int64 `json:"exchangeTimeoutMs"`
+}
+
+// clearSignInLeftovers removes what sign-ins of an earlier launcher left (killed mid-way: its folders, a ChatGPT
+// login's auth.json among them). At start no sign-in runs.
+func clearSignInLeftovers() {
+	if *agentRoot == "" {
+		return
+	}
+	for _, d := range []string{claudeLoginDir, ".codex-login"} {
+		_ = os.RemoveAll(filepath.Join(filepath.Clean(*agentRoot), d))
+	}
 }
 
 // claudeControl: what the server sends after the request (codes, kill / hang-up)
@@ -205,7 +266,12 @@ func claudeLogin(line []byte, o *out, ctl claudeControl) error {
 	if timeout <= 0 || timeout > 20*time.Minute {
 		timeout = 16 * time.Minute
 	}
-	r := runClaudeLogin(cmd, pt, te, o, ctl, timeout)
+	exchange := time.Duration(req.ExchangeTimeoutMs) * time.Millisecond
+	if exchange <= 0 {
+		exchange = claudeExchangeWait
+	}
+	exchange = min(max(exchange, time.Second), 10*time.Minute)
+	r := runClaudeLogin(cmd, pt, te, o, ctl, timeout, exchange)
 	if r.token != "" {
 		o.send(map[string]any{"ev": "claude_token", "b64": base64.StdEncoding.EncodeToString([]byte(r.token))})
 		r.token = ""
@@ -228,7 +294,7 @@ type claudeResult struct {
 // runClaudeLogin starts the program on the terminal (new session, the terminal as its controlling terminal), reads
 // its screen until it ends and types the code once. The terminal is read until the program is gone (also while it is
 // being stopped): a process that exits with output still queued for the terminal waits until it is read.
-func runClaudeLogin(cmd *exec.Cmd, pt *ptyPair, te *turnEnv, o *out, ctl claudeControl, timeout time.Duration) claudeResult {
+func runClaudeLogin(cmd *exec.Cmd, pt *ptyPair, te *turnEnv, o *out, ctl claudeControl, timeout, exchangeWait time.Duration) claudeResult {
 	cmd.Stdin, cmd.Stdout, cmd.Stderr = pt.slave, pt.slave, pt.slave
 	attr := te.procAttr()
 	attr.Setsid, attr.Setctty, attr.Ctty = true, true, 0
@@ -284,7 +350,9 @@ func runClaudeLogin(cmd *exec.Cmd, pt *ptyPair, te *turnEnv, o *out, ctl claudeC
 		werr               error
 		enter, grace       <-chan time.Time
 		killHard, giveUp   <-chan time.Time
-		noURL              <-chan time.Time
+		noURL, exchange    <-chan time.Time
+		success            bool   // the token block was on the screen whole at least once
+		lastToken          string // the token of the latest whole block (the final screen wins, claudeTokenFrom)
 		deadline           = time.After(timeout)
 		stopChan, codeChan = ctl.stop, ctl.codes
 	)
@@ -310,13 +378,18 @@ func runClaudeLogin(cmd *exec.Cmd, pt *ptyPair, te *turnEnv, o *out, ctl claudeC
 				noURL = time.After(2 * time.Second)
 			}
 		}
-		if codeSent && res.token == "" && failed == "" {
-			if m := claudeTokenRe.FindStringSubmatch(text); m != nil {
-				res.token = m[1]
-				grace = time.After(claudeTokenGrace)
+		// re-read on every chunk: only a whole token block counts, and the newest one; the token itself is taken from the
+		// final screen once the program is gone (below)
+		if codeSent && failed == "" {
+			if t := claudeTokenFrom(lines, scr.text()); t != "" {
+				lastToken = t
+				if !success {
+					success, exchange = true, nil
+					grace = time.After(claudeTokenGrace)
+				}
 			}
 		}
-		if res.token == "" && failed == "" && !stopping {
+		if !success && failed == "" && !stopping {
 			if f := claudeScreenFailure(text, codeSent); f != "" {
 				failed = f
 				o.send(map[string]any{"ev": "claude_failed", "reason": f})
@@ -335,7 +408,7 @@ func runClaudeLogin(cmd *exec.Cmd, pt *ptyPair, te *turnEnv, o *out, ctl claudeC
 			look()
 		case code := <-codeChan:
 			code = strings.TrimSpace(code)
-			if urlSent == "" || codeSent || stopping || !claudeCodeRe.MatchString(code) {
+			if urlSent == "" || codeSent || stopping || !claudeCodeOK(code) {
 				o.send(map[string]any{"ev": "claude_code", "ok": false})
 				continue
 			}
@@ -343,6 +416,7 @@ func runClaudeLogin(cmd *exec.Cmd, pt *ptyPair, te *turnEnv, o *out, ctl claudeC
 			// a terminal paste (setup-token turns bracketed paste on), then Enter on its own
 			_ = pt.write([]byte("\x1b[200~" + code + "\x1b[201~"))
 			enter = time.After(claudeEnterDelay)
+			exchange = time.After(exchangeWait)
 			o.send(map[string]any{"ev": "claude_code", "ok": true})
 		case <-enter:
 			enter = nil
@@ -364,6 +438,14 @@ func runClaudeLogin(cmd *exec.Cmd, pt *ptyPair, te *turnEnv, o *out, ctl claudeC
 			giveUp = time.After(2 * time.Second)    // the rest of the screen (the token may be in it), then go on
 		case <-giveUp:
 			chunks = nil
+		case <-exchange:
+			exchange = nil
+			if !success && failed == "" && !stopping {
+				// the code went in, but no token and no error the launcher knows came up in time
+				failed = "exchange_failed"
+				o.send(map[string]any{"ev": "claude_failed", "reason": failed})
+				stop("failed")
+			}
 		case <-noURL:
 			noURL = nil
 			if urlSent == "" && failed == "" {
@@ -383,10 +465,14 @@ func runClaudeLogin(cmd *exec.Cmd, pt *ptyPair, te *turnEnv, o *out, ctl claudeC
 	if urlSent == "" && !codeSent && failed == "" && res.sig == "" {
 		o.send(map[string]any{"ev": "claude_failed", "reason": "cli_exit", "detail": claudeScreenTail(scr.lines(), 4, 400)})
 	}
-	// the token counts only when the program printed it after our code and was not stopped before (a cancel or the
-	// time limit wins over a token that came too late)
-	if res.token != "" && res.sig != "" {
-		res.token = ""
+	// the token: from the final screen (everything the program wrote has been read), else the latest whole block seen
+	// (should the program clear its screen on exit). It counts only after our code, without a failure, and when the
+	// program was not stopped before it (a cancel or the time limit wins over a token that came too late).
+	if codeSent && success && failed == "" && res.sig == "" {
+		if res.token = claudeTokenFrom(scr.lines(), scr.text()); res.token == "" {
+			res.token = lastToken
+		}
 	}
+	lastToken = ""
 	return res
 }

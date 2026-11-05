@@ -1,6 +1,7 @@
 package main
 
 import (
+	"strconv"
 	"strings"
 	"testing"
 )
@@ -43,20 +44,103 @@ func TestScreenReadsTheSignInScreen(t *testing.T) {
 	}
 }
 
-func TestScreenTokenIsWhatTheScreenShows(t *testing.T) {
-	tok := "sk-ant-oat01-" + strings.Repeat("A", 40) + "_tail-" + strings.Repeat("z", 40)
-	s := newScreen(200, 20)
-	// first frame: the prompt row
-	s.feed([]byte("\x1b[2GPaste\x1b[8Gcode\x1b[13Ghere\x1b[18G>\x1b[20G*********\r\n"))
-	// second frame: the token drawn over the same row, cells that already match skipped with a column jump (a
-	// renderer that writes only changed cells), the next word right after it with a jump: never glued to the token
-	s.feed([]byte("\x1b[1A\r\x1b[2K\x1b[33m" + tok[:20] + "\x1b[" + "23G" + tok[22:] + "\x1b[39m\x1b[110GStore\x1b[116Gthis\r\n"))
-	s.feed([]byte("\x1b[1A\x1b[21G" + tok[20:22]))
-	m := claudeTokenRe.FindStringSubmatch(strings.Join(s.lines(), "\n"))
-	if m == nil || m[1] != tok {
-		t.Fatalf("token %q, screen:\n%s", m, s.text())
+// jumps places words with column jumps, as Claude Code's renderer does
+func jumps(text string, col int) string {
+	var b strings.Builder
+	for _, w := range strings.Split(text, " ") {
+		b.WriteString("\x1b[" + strconv.Itoa(col) + "G" + w)
+		col += len(w) + 1
 	}
-	// a stream that only drops the escapes would have glued "Store" to it or cut it at the jump
+	return b.String()
+}
+
+const fakeToken = "sk-ant-oat01-" + "AbCdEfGhIjKlMnOpQrStUvWxYz0123456789_-AbCdEfGhIjKlMnOpQrStUvWxYz0123456789_-AbCdEfGhIjKlMnOpQrS-AA"
+
+// successScreen: the waiting screen with the masked code, then the success block of 2.1.305 drawn over it (the
+// region moved up and cleared, rows with gaps, the token in the warning colour), padded like the real frame so the
+// whole is well over 1 KB (macOS hands a 3000-byte write to the reader as 1024 + 1024 + 952)
+func successScreen(token string) []byte {
+	var b strings.Builder
+	b.WriteString(setupTokenScreen(fakeAuthorize))
+	b.WriteString("\x1b[1A\x1b[19G" + strings.Repeat("*", 60) + "\r\r\n")
+	b.WriteString("\x1b[14A\r\x1b[J")
+	// the whole frame again: the welcome header with its block-character art (multi-byte), then the success block
+	b.WriteString("\x1b[38;5;174m" + jumps("Welcome to Claude Code", 1) + "\x1b[24G\x1b[38;5;246mv2.1.305\x1b[39m\r\r\n")
+	for i := 0; i < 16; i++ {
+		b.WriteString("\x1b[" + strconv.Itoa(4+i) + "G\x1b[38;5;174m" + strings.Repeat("\u2588\u2593\u2591", 18) + "\x1b[39m\r\r\n")
+	}
+	b.WriteString("\x1b[2G\x1b[38;5;114m\u2713" + jumps("Long-lived authentication token created successfully!", 4) + "\x1b[39m\r\r\n\r\r\n")
+	b.WriteString(jumps("Your OAuth token (valid for 1 year):", 2) + "\r\r\n\r\r\n")
+	b.WriteString("\x1b[2G\x1b[38;5;220m" + token + "\x1b[39m\r\r\n\r\r\n")
+	b.WriteString("\x1b[2m" + jumps("Store this token securely. You won't be able to see it again.", 2) + "\x1b[22m\r\r\n")
+	b.WriteString("\x1b[2m" + jumps("Use this token by setting: export CLAUDE_CODE_OAUTH_TOKEN=<token>", 2) + "\x1b[22m\r\r\n")
+	b.WriteString("\x1b[?1006l\x1b[?1003l\x1b[?1002l\x1b[?1000l\x1b[?1004l\x1b[>4m\x1b[<u\x1b[?2031l\x1b[?2004l\x1b(B\x0f\x1b[?25h\x1b7\x1b[r\x1b8\x1b]0;\x07")
+	return []byte(b.String())
+}
+
+func tokenOf(s *vtScreen) string { return claudeTokenFrom(s.lines(), s.text()) }
+
+func TestScreenTokenNeverPartial(t *testing.T) {
+	full := successScreen(fakeToken)
+	if len(full) < 2048 {
+		t.Fatalf("the success screen is only %d bytes", len(full))
+	}
+	// the way macOS hands it over: 1024-byte reads
+	s := newScreen(claudeCols, claudeRows)
+	for i := 0; i < len(full); i += 1024 {
+		s.feed(full[i:min(i+1024, len(full))])
+		if got := tokenOf(s); got != "" && got != fakeToken {
+			t.Fatalf("after %d bytes: partial token %q", min(i+1024, len(full)), got)
+		}
+	}
+	if got := tokenOf(s); got != fakeToken {
+		t.Fatalf("whole screen: %q\n%s", got, s.text())
+	}
+	// every split point: before the "Store" row is in, nothing; after it, the whole token
+	start := strings.Index(string(full), fakeToken)
+	for k := 1; k < len(full); k++ {
+		s := newScreen(claudeCols, claudeRows)
+		s.feed(full[:k])
+		got := tokenOf(s)
+		if got != "" && got != fakeToken {
+			t.Fatalf("split at %d (token starts at %d): partial token %q", k, start, got)
+		}
+		if k > start && k < start+len(fakeToken) && got != "" {
+			t.Fatalf("split at %d inside the token gave %q", k, got)
+		}
+		s.feed(full[k:])
+		if got := tokenOf(s); got != fakeToken {
+			t.Fatalf("split at %d: whole screen gives %q", k, got)
+		}
+	}
+}
+
+func TestScreenTokenOnlyInItsBlock(t *testing.T) {
+	code := "sk-ant-oat01-" + strings.Repeat("A", 40) + "#x"
+	// the typed code echoed in the prompt: the prompt is up, nothing counts
+	s := newScreen(claudeCols, claudeRows)
+	s.feed([]byte(setupTokenScreen(fakeAuthorize) + "\x1b[1A\x1b[19G" + code + "\r\n"))
+	if got := tokenOf(s); got != "" {
+		t.Fatalf("the typed code read as the token: %q", got)
+	}
+	// token-shaped text outside the block (a message above the heading), and a block whose rows are not one token
+	s = newScreen(claudeCols, claudeRows)
+	s.feed([]byte("note: " + fakeToken + "\r\n\r\nYour OAuth token (valid for 1 year):\r\n\r\n" + fakeToken + " and more\r\n\r\nStore this token securely.\r\n"))
+	if got := tokenOf(s); got != "" {
+		t.Fatalf("not a whole token row, read as %q", got)
+	}
+	// a token wrapped over two rows (a narrow terminal) is joined
+	s = newScreen(80, 20)
+	s.feed([]byte("Your OAuth token (valid for 1 year):\r\n\r\n" + fakeToken + "\r\n\r\nStore this token securely.\r\n"))
+	if got := tokenOf(s); got != fakeToken {
+		t.Fatalf("wrapped token: %q", got)
+	}
+	// the heading without the row after the token yet: nothing
+	s = newScreen(claudeCols, claudeRows)
+	s.feed([]byte("Your OAuth token (valid for 1 year):\r\n\r\n" + fakeToken + "\r\n"))
+	if got := tokenOf(s); got != "" {
+		t.Fatalf("no Store row yet, read as %q", got)
+	}
 	s.wipe()
 	if strings.Contains(s.text(), "sk-ant") || s.hist != nil || s.links != nil {
 		t.Fatal("wipe left the screen")
@@ -117,12 +201,12 @@ func TestClaudeScreenFailure(t *testing.T) {
 		}
 	}
 	for _, code := range []string{"abc#def", "A-b_c.9~#x"} {
-		if !claudeCodeRe.MatchString(code) {
+		if !claudeCodeOK(code) {
 			t.Errorf("code %q refused", code)
 		}
 	}
-	for _, code := range []string{"abc", "#def", "abc#", "a b#c", "abc#d\r", "abc#d\x1b[A", "a#b#c", "abc#def\n"} {
-		if claudeCodeRe.MatchString(code) {
+	for _, code := range []string{"abc", "#def", "abc#", "a b#c", "abc#d\r", "abc#d\x1b[A", "a#b#c", "abc#def\n", "sk-ant-oat01-AAAAAAAAAAAAAAAAAAAAAAAA#x", "x#SK-ANT-oat01-y"} {
+		if claudeCodeOK(code) {
 			t.Errorf("code %q accepted", code)
 		}
 	}

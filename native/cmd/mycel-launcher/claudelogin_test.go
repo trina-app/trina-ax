@@ -58,7 +58,8 @@ func TestPTYIsTheProgramsTerminal(t *testing.T) {
 // fakeClaude writes a stand-in for `claude setup-token` named claude: it refuses to run without a terminal, draws the
 // address and the paste prompt like 2.1.305 (column jumps, hyperlink), reads a pasted code and prints a token for
 // good#state, else the 401 error and waits for Enter. mode "slow" never prints the prompt; "linger" stays after the
-// token; "ignore" ignores SIGTERM; "evil" shows another site's address; "die" ends before the prompt with a message.
+// token; "ignore" ignores SIGTERM; "evil" shows another site's address; "die" ends before the prompt with a message;
+// "hang" shows nothing after the code.
 func fakeClaude(t *testing.T, mode string) string {
 	dir := t.TempDir()
 	p := filepath.Join(dir, "claude")
@@ -81,6 +82,10 @@ func fakeClaude(t *testing.T, mode string) string {
 	if mode == "linger" {
 		after = "sleep 60"
 	}
+	exchange := ""
+	if mode == "hang" {
+		exchange = "sleep 60"
+	}
 	script := `#!/bin/sh
 ` + trap + `[ "$1" = "setup-token" ] || { echo "fake claude: only setup-token" >&2; exit 2; }
 [ -t 0 ] && [ -t 1 ] || { echo "fake claude: needs a terminal" >&2; exit 3; }
@@ -92,9 +97,10 @@ printf '\033]8;id=1;%s\007\033[38;5;246m%s\033[39m\033]8;;\007\r\n\r\n' "$U" "$U
 ` + prompt + `
 IFS= read -r line
 code=$(printf '%s' "$line" | tr -d '\033\r' | sed -e 's/\[200~//' -e 's/\[201~//')
+` + exchange + `
 if [ "$code" = "good#state" ]; then
-  printf '\r\n\033[32m\342\234\223 Long-lived authentication token created successfully!\033[39m\r\n\r\n'
-  printf 'Your OAuth token (valid for 1 year):\r\n\r\n\033[33m%s\033[39m\033[150GStore\r\n' "sk-ant-oat01-` + strings.Repeat("x", 80) + `fakeTOKEN"
+  printf '\033[1A\r\033[J\033[32m\342\234\223 Long-lived authentication token created successfully!\033[39m\r\n\r\n'
+  printf 'Your OAuth token (valid for 1 year):\r\n\r\n\033[33m%s\033[39m\r\n\r\n\033[2mStore\033[7Gthis\033[12Gtoken\033[18Gsecurely.\033[22m\r\n' "sk-ant-oat01-` + strings.Repeat("x", 80) + `fakeTOKEN"
   ` + after + `
 fi
 printf 'OAuth error: Authentication failed: Invalid authorization code\r\n\r\nPress Enter to retry.\r\n'
@@ -116,7 +122,7 @@ type signIn struct {
 }
 
 // startSignIn runs claudeLogin as serve() would, with this test's launcher settings, and collects its events.
-func startSignIn(t *testing.T, bin, loginID string, timeoutMs int64) *signIn {
+func startSignIn(t *testing.T, bin, loginID string, timeoutMs int64, extra ...map[string]any) *signIn {
 	t.Helper()
 	root := t.TempDir()
 	oldRoot, oldAllow, oldPort := *agentRoot, allowCmd, *proxyPort
@@ -142,7 +148,13 @@ func startSignIn(t *testing.T, bin, loginID string, timeoutMs int64) *signIn {
 			}
 		}
 	}()
-	req, _ := json.Marshal(map[string]any{"op": "claude-login", "cmd": bin, "proxy": "http://turn:" + strings.Repeat("t", 20) + "@127.0.0.1:47999", "loginId": loginID, "timeoutMs": timeoutMs})
+	m := map[string]any{"op": "claude-login", "cmd": bin, "proxy": "http://turn:" + strings.Repeat("t", 20) + "@127.0.0.1:47999", "loginId": loginID, "timeoutMs": timeoutMs}
+	for _, e := range extra {
+		for k, v := range e {
+			m[k] = v
+		}
+	}
+	req, _ := json.Marshal(m)
 	go func() {
 		err := claudeLogin(req, &out{c: ca.(*net.UnixConn)}, claudeControl{stop: s.stop, codes: s.code})
 		ca.Close()
@@ -301,6 +313,60 @@ func TestClaudeLoginOnlyAnthropicsAddress(t *testing.T) {
 	}
 	<-s.done
 	folderGone(t)
+}
+
+func TestClaudeLoginTokenShapedCodeIsNotTyped(t *testing.T) {
+	s := startSignIn(t, fakeClaude(t, ""), "login-shape-00000001", 0)
+	s.next("claude_url")
+	s.code <- "sk-ant-oat01-AAAAAAAAAAAAAAAAAAAAAAAA#x"
+	if c := s.next("claude_code"); c["ok"] != false {
+		t.Fatalf("code %v", c)
+	}
+	close(s.stop)
+	all := s.rest()
+	if evOf(all, "claude_token") != nil {
+		t.Fatalf("a token: %v", all)
+	}
+	<-s.done
+}
+
+func TestClaudeLoginExchangeDeadline(t *testing.T) {
+	s := startSignIn(t, fakeClaude(t, "hang"), "login-hang-000000001", 0, map[string]any{"exchangeTimeoutMs": 1500})
+	s.next("claude_url")
+	t0 := time.Now()
+	s.code <- "good#state"
+	s.next("claude_code")
+	all := s.rest()
+	if f := evOf(all, "claude_failed"); f == nil || f["reason"] != "exchange_failed" || evOf(all, "claude_token") != nil {
+		t.Fatalf("events %v", all)
+	}
+	if d := time.Since(t0); d > 10*time.Second {
+		t.Fatalf("took %v", d)
+	}
+	<-s.done
+	folderGone(t)
+}
+
+func TestClearSignInLeftovers(t *testing.T) {
+	root := t.TempDir()
+	old := *agentRoot
+	*agentRoot = root
+	defer func() { *agentRoot = old }()
+	for _, p := range []string{".claude-login/abc/config", ".codex-login/def", "chat-1/.home"} {
+		if err := os.MkdirAll(filepath.Join(root, p), 0o700); err != nil {
+			t.Fatal(err)
+		}
+	}
+	_ = os.WriteFile(filepath.Join(root, ".codex-login/def/auth.json"), []byte("{}"), 0o600)
+	clearSignInLeftovers()
+	for _, gone := range []string{".claude-login", ".codex-login"} {
+		if _, err := os.Lstat(filepath.Join(root, gone)); !os.IsNotExist(err) {
+			t.Errorf("%s left: %v", gone, err)
+		}
+	}
+	if _, err := os.Stat(filepath.Join(root, "chat-1/.home")); err != nil {
+		t.Errorf("a chat folder went too: %v", err)
+	}
 }
 
 func TestClaudeLoginSaysWhyWhenTheProgramCannotStart(t *testing.T) {
