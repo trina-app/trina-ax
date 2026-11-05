@@ -170,8 +170,8 @@ export default function FilePanel({ file, onClose }: { file: PreviewFile; onClos
         </h2>
         <div className="ml-auto flex shrink-0 items-center">
           {file.source === 'team' && chatActionsFor(file, error, downloadOnly) && (
-            <button type="button" onClick={() => chatAttach.askAi([file.path])} title={t('files.askAi')} aria-label={t('files.askAi')} className="mr-1 inline-flex items-center gap-1 rounded-md px-2 py-1 text-xs font-medium text-accent-text hover:bg-accent-soft max-sm:py-1.5" data-testid="file-ask-ai">
-              <Sparkles size={14} aria-hidden /> <span className="max-md:hidden">{t('files.askAiShort')}</span>
+            <button type="button" onClick={() => chatAttach.askAi([file.path])} title={t('files.askAi')} className="mr-1 inline-flex items-center gap-1 rounded-md px-2 py-1 text-xs font-medium text-accent-text hover:bg-accent-soft max-sm:py-1.5" data-testid="file-ask-ai">
+              <Sparkles size={14} aria-hidden /> <span className="max-md:sr-only">{t('files.askAiShort')}</span>
             </button>
           )}
           {file.source === 'team' && chatActionsFor(file, error, downloadOnly) && chatAttach.target && (
