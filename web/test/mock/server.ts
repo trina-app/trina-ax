@@ -2282,6 +2282,7 @@ export class MockServer {
     pub()
     setTimeout(() => {
       if (l.state !== 'checking') return
+      if (code === 'odd-code#good-state') { l.state = 'failed'; l.reason = 'token_unreadable'; pub(); return }
       if (code !== 'good-code#good-state') { l.state = 'failed'; l.reason = 'bad_code'; pub(); return }
       if (l.reconnectId) { const x = this.credentials.find((y) => y.id === l.reconnectId); if (x) { x.state = 'ok'; x.detail = null; l.credential = x } }
       else { const c = this.newCredential(user, 'anthropic-oauth', l.label, l.personal, 'ok'); this.credentials.push(c); l.credential = c }

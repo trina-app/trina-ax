@@ -247,6 +247,25 @@ describe('Claude sign-in for the team', () => {
     } finally { delete deps.exchangeTimeoutMs; setFake({}) }
   })
 
+  test('a success screen the launcher does not know: its own reason, the screen in the log masked, the token nowhere', async () => {
+    const odd = 'sk-ant-oat01-' + 'unreadableToken'.repeat(6)
+    setFake({ FAKE_CLAUDE_ODD: '1', FAKE_CLAUDE_TOKEN: odd })
+    try {
+      const before = listRows(h.ctx.db).length
+      const s = await team('Odd screen')
+      await waiting(dana, s.loginId)
+      await postCode('dana', 'admin', s.loginId, FAKE_CLAUDE_GOOD_CODE)
+      expect(await final(dana, s.loginId)).toMatchObject({ state: 'failed', reason: 'token_unreadable' })
+      expect(listRows(h.ctx.db).length).toBe(before)
+      const line = logLines.find((l) => l.includes('token_unreadable'))
+      expect(line).toBeDefined()
+      expect(line).toContain('Token: sk-ant-[masked')
+      expect(everything()).not.toContain(odd)
+      expect(everything()).not.toContain('unreadableTokenunreadable')
+      expect(await waitFor(() => leftovers().length === 0, { timeoutMs: 10_000 })).toBe(true)
+    } finally { setFake({}) }
+  })
+
   test('a code the launcher does not type ends the sign-in (code_refused), never "checking"', async () => {
     const s = await team('refused code')
     await waiting(dana, s.loginId)

@@ -2153,6 +2153,7 @@ export const es: Record<MessageKey, string> = {
   'credentials.claude.refused': "Claude no aceptó el token nuevo. Empiece de nuevo.",
   'credentials.claude.duplicate': "Este token de Claude ya está conectado en este equipo.",
   'credentials.claude.failed': "El inicio de sesión de Claude no terminó. Empiece de nuevo o cree el token en una terminal.",
+  'credentials.claude.tokenUnreadable': "Trina no pudo leer lo que mostró Claude (puede que se haya creado un token nuevo). Empiece de nuevo o cree el token en una terminal.",
   'settings.credentials': "Conexiones de IA",
   'settings.credentials.desc': "Sus preguntas usan primero estas conexiones. Si no tiene ninguna, responden las del equipo.",
   'usage.by.credential': "Conexión de IA",

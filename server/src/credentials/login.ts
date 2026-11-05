@@ -33,6 +33,11 @@ export const LOGIN_TIMEOUT_MS = 16 * 60_000
 const KEEP_FINISHED_MS = 30 * 60_000
 /** the code the Claude page shows after approval: <authorization code>#<state> (the launcher checks the same) */
 export const CLAUDE_LOGIN_CODE_RE = /^[A-Za-z0-9._~-]{1,512}#[A-Za-z0-9._~-]{1,512}$/
+/** what never reaches a log (the launcher masks the same): sk-ant-…, and long runs of token characters with a digit, "_"
+ * or "-" in them (a piece of a token on its own row); plain words stay readable */
+export const maskTokenLike = (s: string) => s
+  .replace(/sk-ant-[A-Za-z0-9_-]+/gi, (m) => `sk-ant-[masked ${m.length}]`)
+  .replace(/[A-Za-z0-9_-]{16,}/g, (m) => (/[0-9_-]/.test(m) ? `[masked ${m.length}]` : m))
 /** never anything token-shaped is typed into the program (the launcher refuses it too) */
 export const claudeLoginCodeOk = (c: string) => CLAUDE_LOGIN_CODE_RE.test(c) && !/sk-ant-/i.test(c)
 
@@ -195,8 +200,10 @@ class Logins {
       code: (ok) => { if (!ok && l.endedAt === null && !l.storing) { l.cancel(); this.end(l, 'failed', 'code_refused') } },
       failed: (reason, detail) => {
         failed = reason
-        // it could not start (before the address nothing secret is on its screen): why, for whoever runs the server
-        if (detail) cc.log.warn('Claude sign-in: setup-token ended before showing the address', { reason, detail })
+        // why, for whoever runs the server: it could not start (cli_exit, before the address: nothing secret on its
+        // screen), or it ended after the code with no token block this server knows (token_unreadable: a new CLI
+        // layout; the launcher masked everything token-like, and it is masked here once more)
+        if (detail) cc.log.warn(reason === 'token_unreadable' ? 'Claude sign-in: setup-token ended after the code without a token block this server can read; its last screen rows (masked)' : 'Claude sign-in: setup-token ended before showing the address', { reason, screen: maskTokenLike(detail) })
       },
       token: (t) => { token = t },
     })

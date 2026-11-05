@@ -2189,6 +2189,7 @@ export const ko = {
   'credentials.claude.refused': 'Claude가 새 토큰을 받지 않았어요. 다시 시작해 주세요.',
   'credentials.claude.duplicate': '이 Claude 토큰은 이미 이 팀에 연결되어 있어요.',
   'credentials.claude.failed': 'Claude 로그인을 마치지 못했어요. 다시 시작하거나 터미널로 직접 만들어 주세요.',
+  'credentials.claude.tokenUnreadable': 'Claude가 보여 준 결과를 트리나가 읽지 못했어요(새 토큰이 만들어졌을 수 있어요). 다시 시작하거나 터미널로 직접 만들어 주세요.',
   'settings.credentials': 'AI 연결',
   'settings.credentials.desc': '내 질문에는 여기 연결이 먼저 쓰여요. 없으면 팀 연결을 써요.',
   'usage.by.credential': 'AI 연결',

@@ -9,7 +9,8 @@
 // Settings (a wrapper script may export them): FAKE_CLAUDE_GOOD_CODE (good-code#good-state), FAKE_CLAUDE_TOKEN,
 // FAKE_CLAUDE_URL (the authorize address), FAKE_CLAUDE_PROMPT_MS (0: how long before the prompt), FAKE_CLAUDE_LINGER=1
 // (does not exit after the token), FAKE_CLAUDE_NO_EXCHANGE=1 (prints the token without the CONNECT), FAKE_CLAUDE_HANG=1
-// (shows nothing after the code). The success screen is the whole frame again (header art and all, about 3 KB) in one
+// (shows nothing after the code), FAKE_CLAUDE_ODD=1 (the token in a layout the launcher does not know, then exit 0).
+// The success screen is the whole frame again (header art and all, about 3 KB) in one
 // write, as Ink draws it: the terminal hands it to the reader in pieces (macOS: 1024 bytes), often inside the token.
 import net from 'node:net'
 import tty from 'node:tty'
@@ -75,6 +76,11 @@ export async function fakeSetupToken(argv = process.argv.slice(2)): Promise<numb
       await new Promise(() => {})
     }
     await connect('api.anthropic.com:443') // the profile lookup: refused, which the real CLI only logs
+  }
+  if (process.env.FAKE_CLAUDE_ODD) {
+    out(`${ESC}[3A${ESC}[J\u2713 Done\r\r\n\r\r\nToken: ${token}\r\r\n`)
+    await Bun.sleep(300)
+    return 0
   }
   // the success frame redraws the region above (cursor up, erase) with the header art again, like Ink, in one write
   const art = Array.from({ length: 16 }, (_, k) => `${ESC}[${4 + k}G${ESC}[38;5;174m${'\u2588\u2593\u2591'.repeat(18)}${ESC}[39m\r\r\n`).join('')

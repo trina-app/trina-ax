@@ -2190,6 +2190,7 @@ export const en: Record<MessageKey, string> = {
   'credentials.claude.refused': 'Claude did not accept the new token. Start again.',
   'credentials.claude.duplicate': 'This Claude token is already connected on this team.',
   'credentials.claude.failed': 'The Claude sign-in did not finish. Start again, or make the token in a terminal.',
+  'credentials.claude.tokenUnreadable': 'Trina could not read what Claude showed (a new token may have been made). Start again, or make the token in a terminal.',
   'settings.credentials': 'AI connections',
   'settings.credentials.desc': 'Your questions use these connections first. Without one, the team\'s connections answer.',
   'usage.by.credential': 'AI connection',

@@ -516,7 +516,8 @@ function ClaudeProgress({ l, code, onCode, onSubmit, error }: { l: CredentialLog
   if (l.state === 'done') return <p className="text-sm text-ok" data-testid="claude-done">{l.credential?.state === 'unverified' ? t('credentials.unverifiedSaved') : t('credentials.claude.done')}</p>
   if (l.state === 'expired') return <p className="text-sm text-warn">{t('credentials.chatgpt.expired')}</p>
   if (l.state === 'cancelled') return <p className="text-sm text-muted">{t('credentials.chatgpt.cancelled')}</p>
-  const reason: MessageKey = l.reason === 'bad_code' ? 'credentials.claude.badCode' : l.reason === 'refused' ? 'credentials.claude.refused' : l.reason === 'duplicate' ? 'credentials.claude.duplicate' : 'credentials.claude.failed'
+  const reason: MessageKey = l.reason === 'bad_code' ? 'credentials.claude.badCode' : l.reason === 'refused' ? 'credentials.claude.refused' : l.reason === 'duplicate' ? 'credentials.claude.duplicate'
+    : l.reason === 'token_unreadable' ? 'credentials.claude.tokenUnreadable' : 'credentials.claude.failed'
   return <p className="text-sm text-danger" data-testid="claude-failed">{t(reason)}</p>
 }
 

@@ -2190,6 +2190,7 @@ export const id: Record<MessageKey, string> = {
   'credentials.claude.refused': 'Claude tidak menerima token baru. Mulai lagi.',
   'credentials.claude.duplicate': 'Token Claude ini sudah terhubung di tim ini.',
   'credentials.claude.failed': 'Login Claude tidak selesai. Mulai lagi, atau buat token lewat terminal.',
+  'credentials.claude.tokenUnreadable': 'Trina tidak bisa membaca hasil yang ditampilkan Claude (token baru mungkin sudah dibuat). Mulai lagi, atau buat token lewat terminal.',
   'settings.credentials': 'Koneksi AI',
   'settings.credentials.desc': 'Pertanyaan Anda memakai koneksi ini lebih dulu. Jika tidak ada, koneksi tim yang menjawab.',
   'usage.by.credential': 'Koneksi AI',

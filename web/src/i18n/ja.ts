@@ -2153,6 +2153,7 @@ export const ja: Record<MessageKey, string> = {
   'credentials.claude.refused': "Claudeが新しいトークンを受け付けませんでした。最初からやり直してください。",
   'credentials.claude.duplicate': "このClaudeトークンは、このチームで接続済みです。",
   'credentials.claude.failed': "Claudeログインを完了できませんでした。やり直すか、ターミナルでトークンを作成してください。",
+  'credentials.claude.tokenUnreadable': "Claudeが表示した結果をTrinaが読み取れませんでした（新しいトークンが作成された可能性があります）。最初からやり直すか、ターミナルでトークンを作成してください。",
   'settings.credentials': "AI接続",
   'settings.credentials.desc': "自分の質問にはこれらの接続を優先します。ない場合はチームの接続で回答します。",
   'usage.by.credential': "AI接続",

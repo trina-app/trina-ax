@@ -147,6 +147,17 @@ test('personal connections are available by default, prefer subscriptions, and p
   await page.getByTestId('my-credential-delete').click()
   await page.getByRole('dialog').getByRole('button', { name: '삭제' }).click()
   await expect(page.getByTestId('my-credentials')).toHaveCount(0)
+  // a sign-in whose result the server could not read: said in words, with the way out
+  await page.getByTestId('my-credential-add').click()
+  await page.getByTestId('kind-anthropic-oauth').check()
+  await page.getByTestId('credential-label').fill('내 Claude')
+  await page.getByTestId('plan-notice-ack').check()
+  await page.getByTestId('credential-submit').click()
+  await page.getByTestId('claude-code-input').fill('odd-code#good-state')
+  await page.getByTestId('claude-code-submit').click()
+  await expect(page.getByTestId('claude-failed')).toHaveText('Claude가 보여 준 결과를 트리나가 읽지 못했어요(새 토큰이 만들어졌을 수 있어요). 다시 시작하거나 터미널로 직접 만들어 주세요.')
+  await page.getByRole('dialog', { name: '연결 추가' }).getByRole('button', { name: '닫기' }).click()
+  await expect(page.getByRole('dialog', { name: '연결 추가' })).toHaveCount(0)
   // a Claude token made in a terminal: the folded fallback (steps with copyable commands, the token field), then the
   // same button connects the pasted token instead of starting a sign-in
   await page.getByTestId('my-credential-add').click()
