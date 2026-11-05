@@ -28,7 +28,6 @@ import { BrowserSettings } from './BrowserSettings'
 import { browserSettingsBridge, storeApp } from '../lib/desktop'
 import { Badge, Button, EmptyState, ErrorNote, Field, IconButton, Skeleton, confirmDialog, inputCls, noKeyRepeat } from '../components/ui'
 import { SourceCodeLinks, useServerSource } from '../components/SourceCodeLink'
-import { DriveConnection } from '../components/settings/DriveConnection'
 import { Notifications } from '../components/settings/Notifications'
 import { InstallGuide } from '../components/settings/InstallGuide'
 import { MemoryForm } from '../components/settings/MemoryForm'
@@ -48,7 +47,6 @@ export default function SettingsPane({ tab }: { tab: string }) {
       {tab === 'usage' && <MyUsage key={`${me.user.id}:${me.session.id}`} />}
       {tab === 'browser' && browser && <BrowserSettings bridge={browser} />}
       {tab === 'memory' && <Memories />}
-      {tab === 'drive' && <DriveConnection key={`${me.user.id}:${me.session.id}`} />}
       {tab === 'integrations' && <Integrations key={`${me.user.id}:${me.session.id}`} />}
       {tab === 'connectors' && <ConnectorConnections key={`${me.user.id}:${me.session.id}`} />}
       {tab === 'notifications' && <Notifications key={`${me.user.id}:${me.session.id}`} />}

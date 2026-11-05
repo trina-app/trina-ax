@@ -5,7 +5,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { describe, expect, test } from 'bun:test'
 import { IntegrationInput } from '@mycel/shared/api'
-import { connectorFor, CONNECTORS, isConnected } from '../../src/lib/connectors'
+import { BUILT_IN, connectorFor, CONNECTORS, isConnected } from '../../src/lib/connectors'
 import { canonicalService, emptyForm, toInput, validate } from '../../src/lib/integrations'
 import { DICTS } from '../../src/i18n'
 
@@ -29,8 +29,11 @@ describe('Discover', () => {
 
   test('every service has its logo, and a logo can run nothing and load nothing', () => {
     const dir = path.join(import.meta.dir, '../../public/icons/connectors')
-    expect(fs.readdirSync(dir).sort()).toEqual(CONNECTORS.map((c) => c.logo).sort())
-    for (const c of CONNECTORS) {
+    // the MCP servers' logos and the built-in services' (Google Drive is not an MCP server: no address, its own flow)
+    const all = [...CONNECTORS, ...BUILT_IN]
+    expect(fs.readdirSync(dir).sort()).toEqual(all.map((c) => c.logo).sort())
+    expect(new Set(all.map((c) => c.id)).size).toBe(all.length)
+    for (const c of all) {
       const file = fs.readFileSync(path.join(dir, c.logo))
       if (c.logo.endsWith('.png')) {
         expect(file.subarray(1, 4).toString()).toBe('PNG')

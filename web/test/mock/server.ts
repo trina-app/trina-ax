@@ -2024,6 +2024,10 @@ export class MockServer {
     cancelCredentialLogin: (c) => { this.cancelLogin(c.params.id, c.user); return undefined },
     cancelMyCredentialLogin: (c) => { this.cancelLogin(c.params.id, c.user); return undefined },
 
+    // Google Drive (server/src/routes/drive.ts): this test server has no Google client, like a server not set up for it.
+    // e2e tests that need the other states answer these addresses themselves (test/e2e/drive.spec.ts).
+    myDriveConnection: () => ({ configured: false, status: 'disabled', account: null, scopes: [], expiresAt: null }),
+
     // ---------------- external services (like server/src/routes/integrations.ts) ----------------
     listIntegrations: (c) => ({
       items: this.integrations.filter((x) => this.integrationAllows(x, c.user)).map((x) => this.integrationView(x, c.user)),

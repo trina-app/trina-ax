@@ -3,7 +3,7 @@ import type { DriveConnection as Connection, DriveFlow } from '@mycel/shared/api
 import { api, API } from '../../lib/api'
 import { mobileApp, openExternal } from '../../lib/mobile'
 import { useT } from '../../i18n'
-import { Button, ErrorNote, Skeleton, confirmDialog } from '../ui'
+import { Button, confirmDialog } from '../ui'
 
 function googleAuthorization(value: string): string {
   const u = new URL(value)
@@ -12,7 +12,7 @@ function googleAuthorization(value: string): string {
 }
 
 /**
- * Connecting the person's own Google account to Drive (Settings > Google Drive, and a chat's connect_service card):
+ * Connecting the person's own Google account to Drive (Settings > MCP, and a chat's connect_service card):
  * authorize in a window reserved during the click (the phone app: the browser), poll the flow, then the person
  * confirms the account they signed in with. `onConnected`: the connection once it is complete (here or in another
  * window). `generation` is shared with the caller's own requests: starting over makes older answers stale.
@@ -102,14 +102,21 @@ export function DriveFlowPanel({ d, flow }: { d: DriveFlowState; flow: DriveFlow
   </div>
 }
 
-export function DriveConnection() {
+/**
+ * The person's own Google Drive connection, for Settings > MCP (components/integrations/DriveConnector.tsx: the
+ * "Built in" card in Discover, its dialog and the row under Connected): the status, a connect that ends in
+ * `onConnected`, and disconnect (with Google's revocation reported when it could not be done).
+ */
+export function useDriveConnection(onConnected?: (c: Connection) => void) {
   const t = useT()
   const [connection, setConnection] = useState<Connection | null>(null)
   const [revokeWarning, setRevokeWarning] = useState(false)
   // The first load of the status failed: this is not a failed connection, so it has its own message and a Retry.
   const [loadFailed, setLoadFailed] = useState(false)
-  const d = useDriveFlow(setConnection)
-  const { busy, error, setBusy, setError, generation, flow } = d
+  const connected = useRef(onConnected)
+  connected.current = onConnected
+  const d = useDriveFlow((c) => { setConnection(c); connected.current?.(c) })
+  const { setBusy, setError, generation } = d
   const load = () => {
     const g = ++generation.current
     setLoadFailed(false)
@@ -134,22 +141,6 @@ export function DriveConnection() {
     } catch { if (g === generation.current) setError(true) }
     finally { if (g === generation.current) setBusy(false) }
   }
-  return <section className="space-y-4" data-testid="drive-connection">
-    <div><h2 className="text-base font-semibold">{t('drive.title')}</h2><p className="mt-1 text-sm text-muted">{t('drive.description')}</p></div>
-    <p className="rounded-xl bg-subtle p-3 text-xs text-muted">{t('drive.privacy')}</p>
-    {mobileApp() && <p className="text-xs text-muted">{t('drive.mobileBrowserLogin')}</p>}
-    {!connection && loadFailed && <ErrorNote onRetry={load}>{t('drive.loadFailed')}</ErrorNote>}
-    {error && <ErrorNote>{t('drive.failed')}</ErrorNote>}
-    {revokeWarning && <p role="status" className="text-sm text-muted">{t('drive.revokeWarning')}</p>}
-    {!connection && !loadFailed && <Skeleton lines={3} />}
-    {connection && !connection.configured && <p>{t('drive.notConfigured')}</p>}
-    {connection?.configured && <>
-      <p data-testid="drive-status">{t(`drive.status.${connection.status}`)}</p>
-      {connection.account && <p className="text-sm">{connection.account.name} {connection.account.email}</p>}
-      {d.inProgress && flow ? <DriveFlowPanel d={d} flow={flow} /> : <div className="flex gap-2">
-        <Button variant="primary" busy={busy} onClick={start}>{t(connection.status === 'connected' || connection.status === 'needs_reconnect' ? 'drive.reconnect' : 'drive.connect')}</Button>
-        {connection.status !== 'disconnected' && <Button disabled={busy} onClick={disconnect}>{t('drive.disconnect')}</Button>}
-      </div>}
-    </>}
-  </section>
+  return { connection, loadFailed, load, revokeWarning, start, disconnect, d }
 }
+export type DriveConnectionState = ReturnType<typeof useDriveConnection>

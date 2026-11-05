@@ -56,6 +56,11 @@ export type Connector = (typeof CONNECTORS)[number]
 
 export const connectorLogo = (c: Connector) => `/icons/connectors/${c.logo}`
 
+/** Services built into this server rather than added as an MCP server: shown above Discover's MCP list, with their own
+ * connect flow (Google Drive: components/integrations/DriveConnector.tsx). Their logos sit beside the MCP ones. */
+export const BUILT_IN = [{ id: 'google-drive', name: 'Google Drive', logo: 'google-drive.svg' }] as const
+export const builtInLogo = (id: (typeof BUILT_IN)[number]['id']) => `/icons/connectors/${BUILT_IN.find((b) => b.id === id)!.logo}`
+
 /** The listed service at this address, if there is one (a connection added by hand shows its logo too). */
 export const connectorFor = (url: string): Connector | undefined => CONNECTORS.find((c) => canonicalService(c.url) === canonicalService(url))
 

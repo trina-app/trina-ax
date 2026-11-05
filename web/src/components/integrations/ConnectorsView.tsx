@@ -9,9 +9,10 @@ import { Button, EmptyState, IconButton, StickyHeader, Tabs, inputCls } from '..
 
 export type ConnectorTab = 'connected' | 'discover'
 
-/** `onAdd`: this person may add connections (without it, no adding and no Discover, and no tabs). `panels`: the ids
- * that tie the tabs to the TabPanel below them (`useId()`). */
-export function ConnectorsHeader({ title, tab, onTab, query, onQuery, onAdd, panels }: {
+/** `onAdd`: this person may add connections (without it, no adding by address). `tabs`: show Connected / Discover
+ * (default: when adding is allowed; Settings also shows them for a built-in service such as Google Drive). `panels`: the
+ * ids that tie the tabs to the TabPanel below them (`useId()`). */
+export function ConnectorsHeader({ title, tab, onTab, query, onQuery, onAdd, panels, tabs = !!onAdd }: {
   title: string
   panels: string
   tab: ConnectorTab
@@ -19,12 +20,13 @@ export function ConnectorsHeader({ title, tab, onTab, query, onQuery, onAdd, pan
   query: string
   onQuery: (q: string) => void
   onAdd?: () => void
+  tabs?: boolean
 }) {
   const t = useT()
   return (
     <StickyHeader className="-mt-3 mb-2 flex flex-wrap items-center gap-x-4 gap-y-3 py-3" testId="connectors-header">
       <h2 className="text-lg font-semibold tracking-tight">{title}</h2>
-      {onAdd && (
+      {tabs && (
         <div className="contents" data-connector-tabs>
           <Tabs
             segmented
@@ -102,9 +104,13 @@ export function ConnectorDiscover({ connected, query, onAdd, onCustom }: {
 
 /** A service's logo. On white in both themes, like the logo pages of most of them: they are drawn for a light background. */
 export function ConnectorLogo({ c, className }: { c: Connector; className?: string }) {
+  return <LogoTile src={connectorLogo(c)} className={className} />
+}
+
+export function LogoTile({ src, className }: { src: string; className?: string }) {
   return (
     <span className={`flex shrink-0 items-center justify-center rounded-lg border border-line bg-white p-1.5 ${className ?? ''}`}>
-      <img src={connectorLogo(c)} alt="" className="size-full object-contain" data-testid="connector-logo" />
+      <img src={src} alt="" className="size-full object-contain" data-testid="connector-logo" />
     </span>
   )
 }

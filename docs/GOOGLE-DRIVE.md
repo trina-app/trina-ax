@@ -1,6 +1,6 @@
 # Personal Google Drive integration
 
-The core server implements one personal connection per team user and three read-only tools: `drive_search`, `drive_list`, `drive_read`. A configured OAuth client enables these tools at server startup. Missing or invalid configuration leaves Settings disabled and does not register the tools. No Google client or account is provisioned by this code.
+The core server implements one personal connection per team user and three read-only tools: `drive_search`, `drive_list`, `drive_read`. A configured OAuth client enables these tools at server startup. Missing or invalid configuration leaves the Google Drive card in Settings › MCP unavailable ("Not available yet"; admins see a link to this guide) and does not register the tools. No Google client or account is provisioned by this code.
 
 ## Operator configuration
 
