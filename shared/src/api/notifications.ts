@@ -3,7 +3,7 @@ import { endpoint } from './endpoint'
 import { ScheduleRunOutcome } from './schedules'
 /** skillSuggestions: a suggestion to review, and the review result of an own suggestion (R2-SKILL-12) */
 /** roomMessages: a DM message or an @mention in a room (docs/DECISIONS.md "대화방 v1"); older servers omit it */
-export const NotificationPreferences = z.object({ scheduleSuccess: z.boolean(), scheduleFailure: z.boolean(), connectionReconnect: z.boolean(), skillSuggestions: z.boolean(), roomMessages: z.boolean() })
+export const NotificationPreferences = z.object({ scheduleSuccess: z.boolean(), scheduleFailure: z.boolean(), connectionReconnect: z.boolean(), skillSuggestions: z.boolean(), roomMessages: z.boolean().optional() })
 export type NotificationPreferences = z.infer<typeof NotificationPreferences>
 /** Events that can also go to OS push. Room notices (room.dm: a DM message, room.mention: an @mention) are kept in
  * room_notices with their own deliveries (room_push_deliveries); the rest in notification_inbox (push_deliveries). */

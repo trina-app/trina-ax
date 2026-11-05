@@ -8,7 +8,7 @@ export function savePreferences(db: Database, userId: string, patch: Partial<Not
   const p = { ...getPreferences(db, userId), ...patch }
   db.query(`INSERT INTO notification_preferences(user_id,schedule_success,schedule_failure,connection_reconnect,skill_suggestions,room_messages) VALUES(?,?,?,?,?,?)
     ON CONFLICT(user_id) DO UPDATE SET schedule_success=excluded.schedule_success,schedule_failure=excluded.schedule_failure,connection_reconnect=excluded.connection_reconnect,skill_suggestions=excluded.skill_suggestions,room_messages=excluded.room_messages`)
-    .run(userId, Number(p.scheduleSuccess), Number(p.scheduleFailure), Number(p.connectionReconnect), Number(p.skillSuggestions), Number(p.roomMessages))
+    .run(userId, Number(p.scheduleSuccess), Number(p.scheduleFailure), Number(p.connectionReconnect), Number(p.skillSuggestions), Number(p.roomMessages !== false))
   return p
 }
 export function eventEnabled(p: NotificationPreferences, event: NotificationEventType) {
@@ -26,6 +26,6 @@ export function eventEnabled(p: NotificationPreferences, event: NotificationEven
     // someone joined through the team invite link (shown always, Notifications.teamJoined)
     case 'team.joined': return true
     // a DM message or an @mention in a room (Notifications.roomNotice)
-    case 'room.dm': case 'room.mention': return p.roomMessages
+    case 'room.dm': case 'room.mention': return p.roomMessages !== false
   }
 }

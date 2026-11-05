@@ -14,6 +14,6 @@ export function cancelDisabledPushDeliveries(ctx: AppContext, userId: string, pr
   if (disabled.length) ctx.db.query(`UPDATE push_deliveries SET state='cancelled',lease_until=NULL WHERE state IN ('pending','sending') AND notification_id IN
     (SELECT id FROM notification_inbox WHERE user_id=? AND event_type IN (${disabled.map(() => '?').join(',')}))`).run(userId, ...disabled)
   // room notices have their own deliveries (migration 241)
-  if (!preferences.roomMessages) ctx.db.query(`UPDATE room_push_deliveries SET state='cancelled',lease_until=NULL WHERE state IN ('pending','sending') AND notification_id IN
+  if (preferences.roomMessages === false) ctx.db.query(`UPDATE room_push_deliveries SET state='cancelled',lease_until=NULL WHERE state IN ('pending','sending') AND notification_id IN
     (SELECT id FROM room_notices WHERE user_id=?)`).run(userId)
 }
