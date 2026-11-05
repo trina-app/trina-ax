@@ -56,12 +56,18 @@ export type Connector = (typeof CONNECTORS)[number]
 
 export const connectorLogo = (c: Connector) => `/icons/connectors/${c.logo}`
 
-/** Services built into this server rather than added as an MCP server, with their own connect flow: Google Drive, in
- * Settings › App connectors (components/integrations/DriveConnector.tsx). Their logos sit beside the MCP ones. */
-export const BUILT_IN = [{ id: 'google-drive', name: 'Google Drive', logo: 'google-drive.svg' }] as const
-export const builtInLogo = (id: (typeof BUILT_IN)[number]['id']) => `/icons/connectors/${BUILT_IN.find((b) => b.id === id)!.logo}`
+/** App connectors: apps this server's AI connects to for a person, with the person's own account and a connect flow
+ * built into the server (not an MCP server someone adds): Settings › App connectors, one card each
+ * (components/integrations/DriveConnector.tsx for Google Drive). Another platform is one more entry here and one card.
+ * Not the same as AI apps below (outside AI apps that use this server). Their logos sit beside the MCP ones. */
+export const APP_CONNECTORS = [{ id: 'google-drive', name: 'Google Drive', logo: 'google-drive.svg' }] as const
+export type AppConnector = (typeof APP_CONNECTORS)[number]
+export const appConnectorLogo = (a: AppConnector) => `/icons/connectors/${a.logo}`
+/** the earlier name of APP_CONNECTORS (the logo checks in test/unit/connectors.test.ts) */
+export const BUILT_IN = APP_CONNECTORS
+export const builtInLogo = (id: AppConnector['id']) => appConnectorLogo(APP_CONNECTORS.find((b) => b.id === id)!)
 
-/** Outside AI apps that can use this server's MCP connector (Settings › App connectors, components/integrations/
+/** Outside AI apps that can use this server's MCP connector (Settings › AI apps, components/integrations/
  * AiAppConnect.tsx). Only apps whose sign-in the server accepts are named: the connector's OAuth takes claude.ai's
  * callback (Claude on the web, desktop and phone) and a loopback http://localhost/…/callback (Claude Code and other
  * apps that sign in on the computer); server/src/connectors/remote-mcp/policy.ts redirectAllowed. `logo: null` is the

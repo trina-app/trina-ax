@@ -7,11 +7,13 @@ The AI can use services outside the team server with a person's or the team's ow
 - **HTTP APIs with a key** (an internal tool such as AI PM): address, key and a note on how to use it. The AI gets one
   tool, `api_request`, that can only call addresses under that connection's address.
 
-Google Drive keeps its own integration ([GOOGLE-DRIVE.md](GOOGLE-DRIVE.md)), shown in Settings › App connectors as the
-first connector in the list (`web/src/components/integrations/DriveConnector.tsx`; the old `/settings/drive` opens its
-dialog there), next to the AI apps that use this server's MCP connector. Admin › App connectors shows whether the server
-offers each. These connections are the other direction
-from the "connectors" of `server/src/connectors/remote-mcp` (claude.ai using this server's files).
+Google Drive keeps its own integration ([GOOGLE-DRIVE.md](GOOGLE-DRIVE.md)), shown in Settings › App connectors as a
+card whose Connect goes straight to Google (`web/src/components/integrations/DriveConnector.tsx`; the old
+`/settings/drive` leads there). App connectors are the apps this server's AI uses with a person's own account
+(`web/src/lib/connectors.ts` `APP_CONNECTORS`, one card each). Admin › App connectors shows whether the server has a
+Google client and how many members are connected, and an admin can set the client up there. These connections are the
+other direction from the "connectors" of `server/src/connectors/remote-mcp` (outside AI apps such as Claude using this
+server's files), which are Settings › AI apps and Admin › AI apps.
 
 ## App connectors (the other direction)
 

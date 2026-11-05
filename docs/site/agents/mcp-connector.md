@@ -23,10 +23,10 @@ The connector is off until the server has a public HTTPS address for it. Use one
 
 :::steps
 #### Copy the connector address
-Open **Settings › App connectors**. It shows the connector address, which ends in `/mcp`.
+Open **Settings › AI apps**. It shows the connector address, which ends in `/mcp`.
 
 #### Add it to Claude
-Under **AI apps**, choose **Connect** next to Claude, Claude Code or Other MCP apps for the exact steps with Copy. In Claude, add a custom connector (Settings › Connectors) with the address. In Claude Code, run `claude mcp add --transport http <name> <address>`, then `/mcp` to sign in.
+Choose **Connect** next to Claude, Claude Code or Other MCP apps for the exact steps with Copy. In Claude, add a custom connector (Settings › Connectors) with the address. In Claude Code, run `claude mcp add --transport http <name> <address>`, then `/mcp` to sign in.
 
 #### Sign in and allow
 Claude opens a Trina AX sign-in. Check the request and choose **Allow**.
@@ -34,11 +34,10 @@ Claude opens a Trina AX sign-in. Check the request and choose **Allow**.
 
 The sign-in accepts Claude's own callback (Claude on the web, desktop and phone) and a local `http://localhost/…/callback` (Claude Code and other apps that sign in on the computer). An app that signs in through its own website, such as ChatGPT, cannot connect yet.
 
-**Settings › App connectors** lists your connected apps, with when they connected and **Disconnect**. A connection also ends when the app session that authorized it ends.
+**Settings › AI apps** lists your connected apps, with when they connected and **Disconnect**. A connection also ends when the app session that authorized it ends.
 
-The same list starts with **Google Drive**: your own Google account, which Trina's AI can search and read (the other
-direction: [Google Drive setup](https://github.com/trina-app/trina-ax/blob/main/docs/GOOGLE-DRIVE.md)). Admins see
-whether this server offers each connector in **Admin › App connectors**.
+Admins see whether this server's connector is on in **Admin › AI apps**. The other direction, apps Trina's AI uses with
+your own account such as **Google Drive**, is **Settings › App connectors** ([Google Drive setup](https://github.com/trina-app/trina-ax/blob/main/docs/GOOGLE-DRIVE.md)).
 
 ## Protocol
 

@@ -1,178 +1,176 @@
-// Google Drive in Settings › App connectors (pages/ConnectorConnections.tsx): the first app connector in the list, a
-// row with its logo and + (or, once the person's own Google account is linked, its email, ✓, Reconnect and Disconnect),
-// and a dialog with the connect flow (the same API and steps as before, components/settings/DriveConnection.tsx). It was
-// its own Settings section; /settings/drive now opens the dialog there. Admin › App connectors shows whether the server
-// has a Google client (pages/admin/AppConnectors.tsx); that is set up by the operator (docs/GOOGLE-DRIVE.md).
-import clsx from 'clsx'
-import { Check, ChevronDown, ExternalLink, Plus } from 'lucide-react'
-import { useId, useState } from 'react'
-import type { DriveConnection } from '@mycel/shared/api'
-import { SOURCE_CODE } from '@mycel/shared'
-import { BUILT_IN, builtInLogo } from '../../lib/connectors'
-import { mobileApp } from '../../lib/mobile'
+// Google Drive as an app connector: one card in the App connectors grid (lib/connectors.ts APP_CONNECTORS).
+//  - Settings › App connectors (DriveCard): Connect goes straight to Google sign-in (the same flow as before,
+//    components/settings/DriveConnection.tsx). Google sends the person back and the card asks to confirm the account
+//    they signed in with: that confirmation is a security step (the server holds the connection until the same person
+//    confirms it, docs/GOOGLE-DRIVE.md), so it stays, inside the card. Once linked: the account, "Connected" and a ⋯ menu
+//    with Reconnect and Disconnect. No Google client on this server: "Not available yet".
+//  - Admin › App connectors (DriveAdminCard): On / Not set up, how many members are connected, and Set up (or Replace) when
+//    the page may set the client up (integrations/google-drive/admin-setup.ts), in a small dialog (DriveSetupDialog).
+import { Check, Copy, Upload } from 'lucide-react'
+import { useRef, useState, type ChangeEvent } from 'react'
+import { API, type DriveAdminStatus, type DriveConnection } from '@mycel/shared/api'
+import { APP_CONNECTORS, appConnectorLogo } from '../../lib/connectors'
+import { api, ApiError } from '../../lib/api'
+import { mobileApp, openExternal } from '../../lib/mobile'
 import { useT } from '../../i18n'
-import { useMeStrict } from '../../store/session'
-import { Badge, Button, ErrorNote, IconButton, Modal, Skeleton } from '../ui'
-import { DriveFlowPanel, type DriveConnectionState } from '../settings/DriveConnection'
+import { Badge, Button, Field, inputCls, Modal, useCopy } from '../ui'
+import type { DriveConnectionState } from '../settings/DriveConnection'
 import { LogoTile } from './ConnectorsView'
+import { AppConnectorCard, CardMenu } from './AppConnectorCard'
 
-const DRIVE = BUILT_IN[0]
-export const DRIVE_SETUP_GUIDE = `${SOURCE_CODE.repository}/blob/main/docs/GOOGLE-DRIVE.md`
+const DRIVE = APP_CONNECTORS[0]
 
-/** Linked (or linked and needing a new sign-in): the connection has a row under Connected. */
+/** Linked (or linked and needing a new sign-in). */
 export const driveLinked = (c: DriveConnection | null) => !!c?.configured && (c.status === 'connected' || c.status === 'needs_reconnect')
 
 export function DriveLogo({ className }: { className?: string }) {
-  return <LogoTile src={builtInLogo('google-drive')} className={className} />
+  return <LogoTile src={appConnectorLogo(DRIVE)} className={className} />
 }
 
-const admin = (role: string) => role === 'owner' || role === 'admin'
-
-/** The list row while Drive is not linked: logo, name, what it does, and + to open the dialog. Not set up on this
- * server: one line instead of the + (an owner or admin also gets the setup guide). */
-export function DriveItem({ s, onOpen }: { s: DriveConnectionState; onOpen: () => void }) {
+/** The person's own Google Drive: Connect, the Google step inside the card, then the account with ⋯. */
+export function DriveCard({ s }: { s: DriveConnectionState }) {
   const t = useT()
-  const me = useMeStrict()
-  const c = s.connection
-  const unavailable = !!c && !c.configured
-  return (
-    <li className="flex items-center gap-3 p-2" data-testid="drive-item" data-status={c ? (c.configured ? c.status : 'disabled') : 'loading'}>
-      <DriveLogo className="size-9" />
-      <span className="min-w-0 flex-1">
-        <span className="block truncate text-sm font-medium">{DRIVE.name}</span>
-        {unavailable ? (
-          <span className="mt-0.5 block text-xs text-muted" data-testid="drive-item-unavailable">
-            {admin(me.user.role) ? (
-              <>
-                {t('drive.adminNotSet')}{' '}
-                <a href={DRIVE_SETUP_GUIDE} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-0.5 text-accent-text underline underline-offset-2" data-testid="drive-setup-guide">
-                  {t('drive.setupGuide')}
-                  <ExternalLink size={11} aria-hidden />
-                </a>
-              </>
-            ) : t('drive.notAvailable')}
-          </span>
-        ) : (
-          <span className="mt-0.5 block truncate text-xs text-muted">{s.loadFailed ? t('drive.loadFailed') : t('drive.cardDesc')}</span>
-        )}
-      </span>
-      {!unavailable && (
-        <IconButton label={t('integrations.discover.add', { name: DRIVE.name })} className="shrink-0" onClick={onOpen} data-testid="drive-add">
-          <Plus size={16} aria-hidden />
-        </IconButton>
-      )}
-    </li>
-  )
-}
-
-/** The connect flow in a dialog: status, account, connect or reconnect, the Google step, disconnect. */
-export function DriveDialog({ s, onClose }: { s: DriveConnectionState; onClose: () => void }) {
-  const t = useT()
-  const me = useMeStrict()
   const c = s.connection
   const { d } = s
   const linked = driveLinked(c)
-  return (
-    <Modal open title={DRIVE.name} onClose={onClose} width={480}>
-      <div className="space-y-4" data-testid="drive-connection">
-        <div className="flex items-start gap-3">
-          <DriveLogo className="size-10" />
-          <p className="text-sm text-muted">{t('drive.description')}</p>
-        </div>
-        {!c && s.loadFailed && <ErrorNote onRetry={s.load}>{t('drive.loadFailed')}</ErrorNote>}
-        {!c && !s.loadFailed && <Skeleton lines={3} />}
-        {c && !c.configured && (
-          <p role="note" className="text-sm" data-testid="drive-unavailable">
-            {t('drive.notConfigured')}
-            {admin(me.user.role) && (
-              <>
-                {' '}
-                <a href={DRIVE_SETUP_GUIDE} target="_blank" rel="noopener noreferrer" className="text-accent-text underline underline-offset-2">{t('drive.setupGuide')}</a>
-              </>
-            )}
-          </p>
-        )}
-        {c?.configured && (
-          <>
-            <div className="flex items-center justify-between gap-3 rounded-xl border border-line px-3 py-2.5">
-              <span className="min-w-0">
-                <span className="block text-sm" data-testid="drive-status">{t(`drive.status.${c.status}`)}</span>
-                {c.account && <span className="block truncate text-xs text-muted" data-testid="drive-connected-account">{c.account.name} · {c.account.email}</span>}
-              </span>
-              {c.status === 'connected' && <Check size={16} className="shrink-0 text-ok" aria-hidden />}
-              {c.status === 'needs_reconnect' && <Badge tone="warn" className="shrink-0">{t('drive.status.needs_reconnect')}</Badge>}
-            </div>
-            {d.error && <ErrorNote>{t('drive.failed')}</ErrorNote>}
-            {s.revokeWarning && <p role="status" className="text-sm text-muted" data-testid="drive-revoke-warning">{t('drive.revokeWarning')}</p>}
-            {d.inProgress && d.flow ? <DriveFlowPanel d={d} flow={d.flow} /> : (
-              <div className="flex flex-wrap gap-2">
-                <Button variant="primary" busy={d.busy} onClick={s.start} data-testid="drive-connect">{t(linked ? 'drive.reconnect' : 'drive.connect')}</Button>
-                {c.status !== 'disconnected' && <Button disabled={d.busy} onClick={() => void s.disconnect()} data-testid="drive-disconnect">{t('drive.disconnect')}</Button>}
-              </div>
-            )}
-            {mobileApp() && <p className="text-xs text-muted">{t('drive.mobileBrowserLogin')}</p>}
-            <p className="text-xs text-faint">{t('drive.privacy')}</p>
-          </>
-        )}
-      </div>
-    </Modal>
-  )
-}
+  const reconnect = c?.status === 'needs_reconnect'
+  const unavailable = !!c && !c.configured
+  const flow = d.inProgress ? d.flow : null
 
-/** The row while linked: like an MCP connection's row, details open in place. A Drive that needs
- * a new sign-in says so on the row with Reconnect beside it. */
-export function DriveRow({ s, inDialog }: { s: DriveConnectionState; inDialog: boolean }) {
-  const t = useT()
-  const [details, setDetails] = useState(false)
-  const detailsId = useId()
-  const c = s.connection!
-  const { d } = s
-  const reconnect = c.status === 'needs_reconnect'
+  let line: string = t('drive.cardDesc')
+  if (!c && s.loadFailed) line = t('drive.loadFailed')
+  else if (unavailable) line = t('drive.notAvailable')
+  else if (reconnect) line = t('drive.status.needs_reconnect')
+  else if (linked && c?.account) line = c.account.email ?? c.account.name ?? t('drive.status.connected')
+
+  const action = !c
+    ? (s.loadFailed ? <Button size="sm" onClick={s.load} data-testid="drive-retry">{t('common.retry')}</Button> : null)
+    : unavailable
+      ? <Button size="sm" disabled data-testid="drive-connect">{t('aiApps.connect')}</Button>
+      : flow
+        ? null
+        : linked
+          ? <>
+              {reconnect
+                ? <Button size="sm" variant="primary" busy={d.busy} onClick={s.start} data-testid="drive-reconnect">{t('drive.reconnect')}</Button>
+                : <span className="flex items-center gap-1 text-xs text-ok" data-testid="drive-connected"><Check size={14} aria-hidden />{t('drive.status.connected')}</span>}
+              <CardMenu label={t('appConnectors.more', { name: DRIVE.name })} testId="drive-menu" items={[
+                ...(reconnect ? [] : [{ label: t('drive.reconnect'), onSelect: s.start, disabled: d.busy, testId: 'drive-menu-reconnect' }]),
+                { label: t('drive.disconnect'), onSelect: () => void s.disconnect(), danger: true, disabled: d.busy, testId: 'drive-menu-disconnect' },
+              ]} />
+            </>
+          : <Button size="sm" variant="primary" busy={d.busy} onClick={s.start} data-testid="drive-connect">{t('aiApps.connect')}</Button>
+
   return (
-    <li className="py-1" data-testid="drive-row" data-status={c.status}>
-      <div className="flex items-center gap-1">
-        <button
-          type="button"
-          aria-expanded={details}
-          aria-controls={details ? detailsId : undefined}
-          onClick={() => setDetails((v) => !v)}
-          className="flex min-w-0 flex-1 items-center gap-3 rounded-lg p-2 text-left hover:bg-hover"
-          data-testid="drive-row-toggle"
-        >
-          <DriveLogo className="size-9" />
-          <span className="min-w-0 flex-1">
-            <span className="block truncate text-sm font-medium">{DRIVE.name}</span>
-            <span className={clsx('mt-0.5 block truncate text-xs', reconnect ? 'text-warn' : 'text-muted')}>
-              {reconnect ? t('drive.status.needs_reconnect') : c.account ? c.account.email : t('drive.status.connected')}
-            </span>
-          </span>
-          {reconnect ? (
-            <Badge tone="warn" className="shrink-0 max-sm:hidden">{t('drive.status.needs_reconnect')}</Badge>
-          ) : (
-            <span className="flex shrink-0 items-center text-ok" title={t('drive.status.connected')}>
-              <Check size={16} aria-hidden />
-              <span className="sr-only">{t('drive.status.connected')}</span>
-            </span>
+    <AppConnectorCard testId="drive-card" state={!c ? 'loading' : unavailable ? 'disabled' : flow ? `flow-${flow.state}` : c.status}
+      logo={<DriveLogo className="size-10" />} name={DRIVE.name} line={line} lineTone={reconnect ? 'warn' : 'muted'} action={action}>
+      {flow && flow.state !== 'ready' && (
+        <div className="flex flex-wrap items-center gap-2 text-sm" role="status" data-testid="drive-waiting">
+          <span className="text-muted">{t('drive.waitingShort')}</span>
+          {d.authorizationUrl && (
+            <a href={d.authorizationUrl} target="_blank" rel="noopener noreferrer" className="text-accent-text hover:underline"
+              onClick={mobileApp() ? (e) => { e.preventDefault(); void openExternal(d.authorizationUrl!, { purpose: 'google-oauth' }).catch(() => d.setError(true)) } : undefined}>
+              {t('drive.openGoogle')}
+            </a>
           )}
-          <ChevronDown size={15} className={clsx('shrink-0 text-faint transition-transform', details && 'rotate-180')} aria-hidden />
-        </button>
-        {reconnect && !d.inProgress && (
-          <Button size="sm" variant="primary" className="shrink-0" busy={d.busy} onClick={s.start} data-testid="drive-row-reconnect">{t('drive.reconnect')}</Button>
-        )}
-      </div>
-      {/* a reconnect started from this row (not from the dialog) shows its Google step here */}
-      {!inDialog && d.inProgress && d.flow && <div className="px-2 pb-2 sm:pl-14"><DriveFlowPanel d={d} flow={d.flow} /></div>}
-      {!inDialog && d.error && <div className="px-2 pb-2 sm:pl-14"><ErrorNote onRetry={s.start}>{t('drive.failed')}</ErrorNote></div>}
-      {details && (
-        <div id={detailsId} className="pr-2 pb-3 pl-2 sm:pl-14" data-testid="drive-details">
-          {c.account && <p className="text-xs text-muted">{c.account.name} · {c.account.email}</p>}
-          <p className="mt-1 text-xs text-faint">{t('drive.privacy')}</p>
-          <div className="mt-2 flex flex-wrap gap-2">
-            {!reconnect && <Button size="sm" busy={d.busy} disabled={d.inProgress} onClick={s.start} data-testid="drive-row-reconnect-details">{t('drive.reconnect')}</Button>}
-            <Button size="sm" disabled={d.busy} onClick={() => void s.disconnect()} data-testid="drive-row-disconnect">{t('drive.disconnect')}</Button>
+          <Button size="sm" variant="ghost" className="ml-auto" disabled={d.busy} onClick={d.cancel} data-testid="drive-cancel">{t('common.cancel')}</Button>
+        </div>
+      )}
+      {flow?.state === 'ready' && (
+        <div className="space-y-2" data-testid="drive-confirm-step">
+          <p className="text-sm" role="status">{t('drive.confirmAccount')} <span className="font-medium" data-testid="drive-account">{[flow.account?.name, flow.account?.email].filter(Boolean).join(' · ')}</span></p>
+          <p className="text-xs text-faint">{t('drive.privacyShort')}</p>
+          <div className="flex gap-2">
+            <Button size="sm" variant="primary" busy={d.busy} onClick={d.complete} data-testid="drive-confirm">{t('drive.confirm')}</Button>
+            <Button size="sm" disabled={d.busy} onClick={d.cancel} data-testid="drive-cancel">{t('common.cancel')}</Button>
           </div>
         </div>
       )}
-    </li>
+      {d.error && !flow && <p className="text-sm text-danger" role="alert" data-testid="drive-error">{t('drive.failed')}</p>}
+      {s.revokeWarning && <p className="text-xs text-muted" role="status" data-testid="drive-revoke-warning">{t('drive.revokeWarning')}</p>}
+    </AppConnectorCard>
+  )
+}
+
+/** Admin › App connectors: is Drive on, how many members use it, and Set up / Replace where this page may do it. */
+export function DriveAdminCard({ status, onSetUp }: { status: DriveAdminStatus; onSetUp: () => void }) {
+  const t = useT()
+  const line = status.configured
+    ? t('appConnectors.connectedMembers', { count: status.connectedMembers })
+    : status.blocked === 'hosted' ? t('appConnectors.blocked.hosted')
+      : status.blocked === 'public_host' ? t('appConnectors.blocked.publicHost')
+        : t('appConnectors.notSetUpLine')
+  return (
+    <AppConnectorCard testId="admin-drive" state={status.configured ? 'on' : 'off'} logo={<DriveLogo className="size-10" />} name={DRIVE.name} line={line}
+      action={<>
+        <Badge tone={status.configured ? 'ok' : 'neutral'} className="shrink-0">{t(status.configured ? 'appConnectors.on' : 'appConnectors.notSetUp')}</Badge>
+        {status.canSetUp && <Button size="sm" variant={status.configured ? 'secondary' : 'primary'} onClick={onSetUp} data-testid="drive-setup">{t(status.configured ? 'appConnectors.replace' : 'appConnectors.setUpAction')}</Button>}
+      </>}>
+      {status.configured && status.source === 'server' && <p className="text-xs text-faint" data-testid="drive-by-server">{t('appConnectors.byServer')}</p>}
+    </AppConnectorCard>
+  )
+}
+
+/** Set up Google Drive: the Google OAuth web client (the file Google Cloud downloads, or its ID and secret). */
+export function DriveSetupDialog({ status, onClose, onSaved }: { status: DriveAdminStatus; onClose: () => void; onSaved: (s: DriveAdminStatus) => void }) {
+  const t = useT()
+  const [file, setFile] = useState<{ name: string; text: string } | null>(null)
+  const [clientId, setClientId] = useState(''), [clientSecret, setClientSecret] = useState('')
+  const [busy, setBusy] = useState(false), [error, setError] = useState<string | null>(null)
+  const input = useRef<HTMLInputElement>(null)
+  const { copied, copy } = useCopy()
+  const ready = !!file || (clientId.trim() !== '' && clientSecret.trim() !== '')
+  const pick = async (e: ChangeEvent<HTMLInputElement>) => {
+    const f = e.target.files?.[0]
+    e.target.value = ''
+    if (!f) return
+    if (f.size > 16_384) { setError(t('driveSetup.error.invalid')); return }
+    setFile({ name: f.name, text: await f.text() }); setError(null)
+  }
+  const save = async () => {
+    if (busy || !ready) return
+    setBusy(true); setError(null)
+    try {
+      const body = file ? { file: file.text } : { clientId: clientId.trim(), clientSecret: clientSecret.trim() }
+      onSaved(await api.call(API.setDriveClient, { body }))
+    } catch (e) {
+      const m = e instanceof ApiError ? e.message : ''
+      setError(t(m.includes('client_redirect') ? 'driveSetup.error.redirect' : m.includes('client_invalid') ? 'driveSetup.error.invalid' : 'driveSetup.error.failed'))
+    } finally { setBusy(false) }
+  }
+  return (
+    <Modal open title={t(status.configured ? 'driveSetup.replaceTitle' : 'driveSetup.title')} onClose={onClose} width={480}
+      footer={<>
+        <Button onClick={onClose} disabled={busy}>{t('common.cancel')}</Button>
+        <Button variant="primary" busy={busy} disabled={!ready} onClick={() => void save()} data-testid="drive-setup-save">{t('common.save')}</Button>
+      </>}>
+      <div className="space-y-4" data-testid="drive-setup-dialog">
+        {status.redirectUri && (
+          <div className="flex items-center gap-2 rounded-xl border border-line px-3 py-2">
+            <span className="min-w-0 flex-1">
+              <span className="block text-xs text-muted">{t('driveSetup.redirect')}</span>
+              <code className="block text-xs break-all" data-testid="drive-setup-redirect">{status.redirectUri}</code>
+            </span>
+            <Button size="sm" variant="ghost" onClick={() => void copy(status.redirectUri!)} aria-label={t('common.copy')} data-testid="drive-setup-copy">
+              {copied ? <Check size={14} aria-hidden /> : <Copy size={14} aria-hidden />}
+            </Button>
+          </div>
+        )}
+        <div>
+          <input ref={input} type="file" accept="application/json,.json" className="sr-only" onChange={(e) => void pick(e)} data-testid="drive-setup-file" aria-label={t('driveSetup.file')} />
+          <Button onClick={() => input.current?.click()} data-testid="drive-setup-upload"><Upload size={14} aria-hidden />{file ? file.name : t('driveSetup.file')}</Button>
+          {file && <Button size="sm" variant="ghost" className="ml-2" onClick={() => setFile(null)}>{t('driveSetup.clearFile')}</Button>}
+        </div>
+        {!file && (
+          <>
+            <p className="text-xs text-muted">{t('driveSetup.orPaste')}</p>
+            <Field label={t('driveSetup.clientId')}><input className={inputCls} value={clientId} onChange={(e) => setClientId(e.target.value)} autoComplete="off" spellCheck={false} data-testid="drive-setup-id" /></Field>
+            <Field label={t('driveSetup.clientSecret')}><input className={inputCls} type="password" value={clientSecret} onChange={(e) => setClientSecret(e.target.value)} autoComplete="off" spellCheck={false} data-testid="drive-setup-secret" /></Field>
+          </>
+        )}
+        {status.configured && <p className="text-xs text-muted">{t('driveSetup.replaceNote')}</p>}
+        {error && <p className="text-sm text-danger" role="alert" data-testid="drive-setup-error">{error}</p>}
+      </div>
+    </Modal>
   )
 }
