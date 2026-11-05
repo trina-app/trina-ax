@@ -52,7 +52,8 @@ describe('the page', () => {
       const page = m.get('account-deletion').textContent ?? ''
       expect(page).toContain('계정 삭제 요청')
       expect(page).toContain('팀장이 계정을 삭제해요')
-      expect(page).toContain('개인 폴더의 파일도 지워져요')
+      expect(page).toContain('팀장만 읽을 수 있는 보관 폴더로 옮겨지고')
+      expect(page).not.toContain('파일도 지워져요')
       expect(page).toContain('14일 뒤')
       expect(page).toContain('팀 폴더에 둔 파일은 팀에 남아요')
       expect(m.container.querySelectorAll('button').length).toBe(1)
@@ -84,8 +85,9 @@ describe('the page', () => {
 describe('texts', () => {
   test('English reads naturally, with the plural of days', () => {
     expect(en('accountDeletion.title')).toBe('Request account deletion')
-    expect(en('accountDeletion.body', { days: 1 })).toContain('after 1 day;')
-    expect(en('accountDeletion.body', { days: 30 })).toContain('after 30 days;')
+    expect(en('accountDeletion.body', { days: 1 })).toContain('after 1 day,')
+    expect(en('accountDeletion.body', { days: 1 })).toContain('archive that only the team owner can read')
+    expect(en('accountDeletion.body', { days: 30 })).toContain('after 30 days,')
   })
   test('the owners\' inbox: a name while the account is there; taken back; done; an older server with no detail', () => {
     expect(deletionNoticeText(ko, { deletionRequest: { name: '민지', state: 'open' } })).toBe('민지님이 계정 삭제를 요청했어요.')

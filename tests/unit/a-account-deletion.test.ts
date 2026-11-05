@@ -130,13 +130,14 @@ describe('cancel and ask again', () => {
 })
 
 describe('the owner handles it', () => {
-  test('Admin › Members tells the owner (not admins) who asked; deleting the account closes the request', async () => {
+  test('Admin › Members tells the owner (not admins) who asked; deleting the account archives the files and closes the request', async () => {
     const m = await addMember(h, owner, { username: 'dora' })
     await m.client.call('POST', PATH, { confirm: true })
     expect((await owner.call('GET', '/api/admin/users')).deletionRequested).toContain(m.id)
     expect((await admin.client.call('GET', '/api/admin/users')).deletionRequested).toBeUndefined()
     fs.writeFileSync(path.join(h.ctx.files.fx.root, 'users', m.id, 'notes.md'), 'dora')
-    expect((await owner.try('DELETE', `/api/admin/users/${m.id}?personalFolder=delete`)).status).toBe(204)
+    // removed like anyone else: the personal files go to the owner's archive, they are not deleted
+    expect((await owner.try('DELETE', `/api/admin/users/${m.id}`)).status).toBe(204)
     expect(fs.existsSync(path.join(h.ctx.files.fx.root, 'users', m.id))).toBe(false)
     const row = h.ctx.db.query('SELECT handled_at, handled_by, cancelled_at FROM account_deletion_requests WHERE user_id = ?').get(m.id) as { handled_at: string | null; handled_by: string | null; cancelled_at: string | null }
     expect(row.handled_by).toBe(ownerId)
@@ -147,7 +148,9 @@ describe('the owner handles it', () => {
     expect(entry.readAt).not.toBeNull()
     expect((await owner.call('GET', '/api/admin/users')).deletionRequested).not.toContain(m.id)
     const audit = h.ctx.db.query("SELECT detail FROM audit_log WHERE action = 'user.delete' AND target = ?").get(m.id) as { detail: string }
-    expect(JSON.parse(audit.detail)).toMatchObject({ personalFolder: 'delete', requested: true })
+    const detail = JSON.parse(audit.detail)
+    expect(detail).toMatchObject({ personalFolder: 'transfer', requested: true })
+    expect(fs.readFileSync(path.join(h.ctx.files.fx.root, detail.movedTo, 'notes.md'), 'utf8')).toBe('dora')
   })
 
   test('a new owner (owner transfer) gets the open requests; a person who became the owner is left out', async () => {

@@ -5,8 +5,8 @@
 // Mac), remove. Each person links to the folders they see (Folder permissions › By person); the invite and add dialogs
 // preview the folders someone new with that role and those groups will see. Below the md width each member is a card
 // (name, role and status, the skills switch) with the row's actions in a "…" menu; wider screens keep the table.
-// The owner sees who asked for their account to be deleted (Settings › Profile › 계정 삭제 요청): a badge, and removing
-// that person deletes their personal files too. The owner's inbox entry opens /admin/members?member=<id>: that person's
+// The owner sees who asked for their account to be deleted (Settings › Profile › 계정 삭제 요청): a badge. Removing
+// that person works as for anyone: their personal files go to the owner's archive. The owner's inbox entry opens /admin/members?member=<id>: that person's
 // row is marked and scrolled to.
 import { KeyRound, Link2, MoreHorizontal, Pencil, Plus, QrCode as QrIcon, RefreshCw, Trash2, UserPlus, UserRoundKey, UserRoundX, UserRoundCheck } from 'lucide-react'
 import clsx from 'clsx'
@@ -92,11 +92,10 @@ export default function Members() {
     if (await act(() => api.call(API.updateUser, { params: { id: u.id }, body: { status: disabling ? 'disabled' : 'active' } }))) void users.reload()
   }
   const remove = async (u: User) => {
-    // they asked for it: their personal files go too, instead of to the owner's archive
-    const asked = requested(u)
-    const body = asked ? t('accountDeletion.removeBody', { name: u.name, days: chatTrashDays(me) }) : t('members.removeBody', { days: chatTrashDays(me) })
+    // personal files are archived for the owner either way; the text only says that this person asked
+    const body = requested(u) ? t('accountDeletion.removeBody', { name: u.name, days: chatTrashDays(me) }) : t('members.removeBody', { days: chatTrashDays(me) })
     if (!(await confirmDialog({ title: t('members.removeTitle', { name: u.name }), body, confirm: t('common.delete'), danger: true }))) return
-    if (await actOk(() => api.call(API.deleteUser, { params: { id: u.id }, ...(asked ? { query: { personalFolder: 'delete' as const } } : {}) }))) await users.reload()
+    if (await actOk(() => api.call(API.deleteUser, { params: { id: u.id } }))) await users.reload()
   }
   /** The actions used less often: on a phone in the card's "…" menu with the others, on a wide screen in the row's
    * "…" menu next to Edit and Reset password, so the row keeps one line. */
