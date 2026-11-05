@@ -21,12 +21,13 @@ export const EMBEDDED_DATA = [
  * the notice fails.
  */
 export const BUNDLED_FONTS = [
-  { id: 'noto-sans-cjk', name: 'Noto Sans CJK', license: 'OFL-1.1', source: 'https://github.com/notofonts/noto-cjk',
+  { id: 'noto-sans-cjk', name: 'Noto Sans CJK', license: 'OFL-1.1', source: 'https://github.com/notofonts/noto-cjk', withWeb: false,
     staged: ['fonts/NotoSansCJK-Regular.ttc', 'fonts/NotoSansCJK-Bold.ttc'], dir: 'resources/notices/noto-sans-cjk', files: ['NOTICE.txt', 'OFL-1.1.txt'] },
   // the promo video templates' typeface (docs/DECISIONS.md "V"): served to the chat's page from the web build's vendor
-  // folder, read by the MP4 render from resources/
-  { id: 'pretendard', name: 'Pretendard', license: 'OFL-1.1', source: 'https://github.com/orioncactus/pretendard',
-    staged: ['vendor/fonts/PretendardVariable.woff2', 'web/dist/vendor/fonts/PretendardVariable.woff2', 'resources/promo-video/fonts/PretendardVariable.woff2'], dir: 'resources/notices/pretendard', files: ['NOTICE.txt', 'OFL-1.1.txt'] },
+  // folder (web/vendor/ in a server bundle, which copies web/dist to web/), read by the MP4 render from resources/;
+  // it comes with the web app, so a bundle without the web app needs no notice for it (`withWeb`)
+  { id: 'pretendard', name: 'Pretendard', license: 'OFL-1.1', source: 'https://github.com/orioncactus/pretendard', withWeb: true,
+    staged: ['vendor/fonts/PretendardVariable.woff2', 'web/vendor/fonts/PretendardVariable.woff2', 'web/dist/vendor/fonts/PretendardVariable.woff2', 'resources/promo-video/fonts/PretendardVariable.woff2'], dir: 'resources/notices/pretendard', files: ['NOTICE.txt', 'OFL-1.1.txt'] },
 ] as const
 /** what every server and office bundle must hold (the server always carries tldts) */
 export const RELEASE_NOTICE_FILES = ['LICENSE', 'licenses/manifest.json', 'licenses/README.txt',
