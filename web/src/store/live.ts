@@ -13,6 +13,7 @@ import { useChats } from './chats'
 import { useAiAccess } from './aiAccess'
 import { useEngines } from './engines'
 import { useJobs } from './jobs'
+import { usePeople } from './people'
 import { useRooms } from './rooms'
 import { useSession } from './session'
 import { toast, useUi } from './ui'
@@ -113,6 +114,12 @@ export function dispatch(ev: ServerEvent) {
       if (ev.data.code === 'speech_changed') {
         // an admin turned voice input on or off: the composer shows or hides the mic (Me.team.voiceInput)
         void useSession.getState().refreshMe()
+        return
+      }
+      if (ev.data.code === 'profile_changed') {
+        // someone changed their name, line or photo (routes/people.ts): the people list (names, photos) is read again,
+        // quietly; it carries no text to show
+        void usePeople.getState().load(true)
         return
       }
       if (ev.data.code === 'locale_changed') {

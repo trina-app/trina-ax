@@ -5,6 +5,8 @@ import { beforeEach, describe, expect, test } from 'bun:test'
 import type { Me, ServerEvent } from '@mycel/shared/api'
 import { dispatch } from '../../src/store/live'
 import { useSession } from '../../src/store/session'
+import { usePeople } from '../../src/store/people'
+import { useUi } from '../../src/store/ui'
 
 const ended = (reason: 'logout' | 'password_changed' | 'disabled' = 'password_changed'): ServerEvent => ({ type: 'session.ended', seq: 7, at: Date.now(), data: { reason } })
 
@@ -22,5 +24,19 @@ describe('session.ended', () => {
     useSession.getState().signedOut()
     dispatch(ended('logout'))
     expect(useSession.getState().status).toEqual({ kind: 'signed-out', reason: undefined })
+  })
+})
+
+describe('profile_changed', () => {
+  test('no toast; the people list is read again', () => {
+    let loads = 0
+    const load = usePeople.getState().load
+    usePeople.setState({ load: async () => { loads++ } })
+    const before = JSON.stringify(useUi.getState())
+    try {
+      dispatch({ type: 'notice', seq: 8, at: Date.now(), data: { level: 'info', code: 'profile_changed', message: '' } })
+      expect(loads).toBe(1)
+      expect(JSON.stringify(useUi.getState())).toBe(before)
+    } finally { usePeople.setState({ load }); useSession.getState().signedOut() } // later files expect no half-made session
   })
 })
