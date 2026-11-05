@@ -6,11 +6,11 @@
 //   the brand colours the server found as swatches (remove only; docs/DECISIONS.md "N") → Save
 //   (PUT /api/onboarding/profile). The AI never saves anything: the person does.
 // When the site can't be read (or there is none): paste a text (the same draft, from the text) or answer three
-// questions (무엇을 파나요 / 누구에게 / 어떤 말투로), which go straight to the same review.
+// questions (무엇을 파나요 / 누구에게 / 어떤 말투로), which go straight to the same review. While it reads, the step
+// offers nothing but "later" (docs/DECISIONS.md "W2"): a reading that fails opens that fallback by itself.
 // A draft is an AI answer: with no AI the person can use (GET /api/me/ai-access, stream A), the step says so with A's
 // connect button instead of starting one, and the three questions (no AI needed) stay open.
 import { useEffect, useId, useRef, useState, type ReactNode } from 'react'
-import { Link } from 'react-router-dom'
 import { Check, ExternalLink, Globe, Loader2, Minus, X } from 'lucide-react'
 import { normalizeWebsite, PROFILE_DRAFT_PAGES_MAX, PROFILE_FIELDS, PROFILE_LIMITS, PROFILE_TEXT_MAX, profileName, type CompanyProfile, type CompanyProfileInput, type ProfileDraftPage, type ProfileDraftState, type ProfileField, type ProfileSource } from '@mycel/shared/api'
 import { api, API, errorText } from '../../lib/api'
@@ -264,15 +264,9 @@ export default function ProfileStep({ onDone, onSkip, skipLabel, initial, initia
           <DraftActivity source={phase.source} site={phase.site} steps={activity.steps} writing={activity.writing} assets={activity.assets} />
           <p className="mt-3 text-xs text-faint">{t('onboarding.profile.readingHint')}</p>
         </div>
-        <div className="flex flex-wrap items-center gap-2">
-          <Link to={`/c/${phase.chatId}`} className="inline-flex h-9 items-center gap-1.5 rounded-lg px-3.5 text-sm font-medium text-accent-text hover:bg-hover max-sm:min-h-10">
-            {t('onboarding.profile.openChat')}
-          </Link>
-          <Button variant="ghost" onClick={() => setPhase({ kind: 'fallback', unreadable: false, error: null })}>
-            {t('onboarding.profile.stopWaiting')}
-          </Button>
-          <span className="ml-auto">{skip}</span>
-        </div>
+        {/* only "나중에 하기" while it reads (docs/DECISIONS.md "W2"): the chat and the written path are not offered here;
+            a reading that fails opens the fallback (paste a text, three questions) by itself */}
+        {skip && <div className="flex justify-end">{skip}</div>}
       </div>
     )
 

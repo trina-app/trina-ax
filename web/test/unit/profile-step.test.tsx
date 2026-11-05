@@ -2,7 +2,7 @@
 // field with its source page and excerpt and a way to remove it; only http(s) sources become links; tone stays at
 // four chips; what is saved is trimmed and keeps sources only for fields that still have a value. The reading lines
 // ("R"), and what the server collected while reading ("N"): the images line, the brand colours as swatches that can
-// only be removed, saved with the profile, and shown in Admin › Team settings.
+// only be removed, saved with the profile, and shown in Admin › Team settings. While it reads, only "later" ("W2").
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { MemoryRouter } from 'react-router-dom'
@@ -285,6 +285,30 @@ describe('colours and images, clicked', () => {
       await m.click(saveButton())
       await m.until(() => puts().length, 'saved')
       expect(puts()[0].colors).toEqual(['#37ee6a', '#f5f9f2'])
+    } finally { await m.unmount() }
+  })
+
+  test('while it reads, only "later" (docs/DECISIONS.md "W2"): no chat link, no "write it myself"; a reading that fails opens the fallback by itself', async () => {
+    calls = []
+    draftState = { status: 'running', website: 'https://acme.example/', draft: null, error: null, steps: [page({ url: 'https://acme.example/', status: 'ok', title: 'Acme' })], writing: false }
+    let skipped = 0
+    const m = await mount(<MemoryRouter><ProfileStep onDone={noop} onSkip={() => { skipped++ }} skipLabel="나중에 하기" initialWebsite="https://acme.example/" /></MemoryRouter>)
+    try {
+      await m.until(() => !m.get('profile-step-site').querySelector('button[type="submit"]')!.hasAttribute('disabled'), 'Read on')
+      await m.click(m.get('profile-step-site').querySelector('button[type="submit"]')!)
+      await m.until(() => m.find('profile-step-reading'), 'reading')
+      const reading = m.get('profile-step-reading')
+      expect(reading.querySelectorAll('button').map((b: any) => b.textContent)).toEqual(['나중에 하기'])
+      expect(reading.querySelectorAll('a')).toEqual([])
+      expect(m.html()).not.toContain('대화로 보기')
+      expect(m.html()).not.toContain('직접 쓸게요')
+      await m.click(reading.querySelectorAll('button')[0]!)
+      expect(skipped).toBe(1)
+      // the reading fails: the pasted text and the three questions open without a click
+      draftState = { status: 'failed', website: 'https://acme.example/', draft: null, error: '홈페이지를 열지 못했어요', steps: [] }
+      chatActivity.emit(CHAT)
+      await m.until(() => m.find('profile-step-fallback'), 'the fallback')
+      expect(m.html()).toContain('홈페이지에서 회사 소개를 읽지 못했어요.')
     } finally { await m.unmount() }
   })
 

@@ -2699,8 +2699,6 @@ export const ko = {
   "onboarding.profile.noSite": "홈페이지가 없어요",
   "onboarding.profile.later": "나중에 할게요",
   "onboarding.profile.readingHint": "보통 1분 안에 끝나요. 이 대화는 채팅 목록에도 남아요.",
-  "onboarding.profile.openChat": "대화로 보기",
-  "onboarding.profile.stopWaiting": "직접 쓸게요",
   "onboarding.profile.unreadable": "홈페이지에서 회사 소개를 읽지 못했어요.",
   "onboarding.profile.fallbackTitle": "다른 방법으로 만들어요",
   "onboarding.profile.fallbackDesc": "회사 소개 글을 붙여 넣거나, 세 가지 질문에 답해 주세요.",

@@ -2700,8 +2700,6 @@ export const id: Record<MessageKey, string> = {
   "onboarding.profile.noSite": "Kami tidak punya situs web",
   "onboarding.profile.later": "Nanti saja",
   "onboarding.profile.readingHint": "Biasanya kurang dari semenit. Obrolan ini juga tetap ada di daftar obrolan Anda.",
-  "onboarding.profile.openChat": "Buka obrolan",
-  "onboarding.profile.stopWaiting": "Saya tulis sendiri",
   "onboarding.profile.unreadable": "Kami tidak bisa membaca profil perusahaan dari situs web.",
   "onboarding.profile.fallbackTitle": "Buat dengan cara lain",
   "onboarding.profile.fallbackDesc": "Tempel teks tentang perusahaan Anda, atau jawab tiga pertanyaan.",

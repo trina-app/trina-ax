@@ -2660,8 +2660,6 @@ export const ja: Record<MessageKey, string> = {
   "onboarding.profile.noSite": "ホームページがありません",
   "onboarding.profile.later": "あとで",
   "onboarding.profile.readingHint": "たいてい1分以内に終わります。この会話はチャット一覧にも残ります。",
-  "onboarding.profile.openChat": "会話を開く",
-  "onboarding.profile.stopWaiting": "自分で書きます",
   "onboarding.profile.unreadable": "ホームページから会社紹介を読み取れませんでした。",
   "onboarding.profile.fallbackTitle": "別の方法で作りましょう",
   "onboarding.profile.fallbackDesc": "会社紹介の文章を貼り付けるか、3つの質問に答えてください。",
