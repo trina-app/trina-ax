@@ -32,9 +32,14 @@ Slack. Saving tokens of another workspace removes every link of the old one.
 ## Using it (everyone)
 
 - **The first time**, the app answers only you ("Only visible to you") with *Connect account*. The link opens the app
-  (sign in if needed), shows the Slack account and your account side by side, and links them when you press *Link*. Only
-  link a Slack account that is yours: whoever uses it can then ask with your permissions. Slack then says which account
-  it is linked to, and every "working…" names the account it answers as. Then ask again.
+  (sign in if needed) and shows the Slack account and your account side by side. *Link* works only when the e-mail Slack
+  has for that Slack account is the e-mail of your account here (compared without case or surrounding spaces): that is
+  the proof the Slack account is yours. Slack then says which account it is linked to, and every "working…" names the
+  account it answers as. Then ask again.
+- **E-mails that differ** (or none on either side): the page says "이 Slack 계정의 이메일이 … 계정과 달라요. 팀장에게
+  연결을 부탁하세요" and links nothing. The owner links that person in Admin › Slack › People: the list of the
+  workspace's people (no bots, no deactivated people, no one of another workspace), *Link*, choose the member, check
+  both names and e-mails, confirm. The person gets one DM in Slack saying which account it is and how to undo it.
 - **In a channel** the answer is shown to you only, with *Post to channel*. Pressing it posts the answer to the thread,
   "Asked by <you>", without the steps, the files it read or the link to your chat. Each answer can be posted once, and
   only by the person who asked.
@@ -50,7 +55,9 @@ Slack. Saving tokens of another workspace removes every link of the old one.
 | `app_mentions:read` | the `app_mention` event: `@trina-ax` in a channel the app is in |
 | `im:history` | the `message.im` event: messages in the app's DM |
 | `chat:write` | "working…", answers, the link prompt (ephemeral messages included), posting to the thread |
-| `users:read` | the asker's Slack name on the link page and in "Asked by"; refusing bots and people of other workspaces |
+| `users:read` | the asker's Slack name on the link page and in "Asked by"; refusing bots and people of other workspaces; the People list (`users.list`) |
+| `users:read.email` | the Slack account's e-mail: the proof a self-made link needs, and what the owner checks before linking someone |
+| `im:write` | `conversations.open` for the one DM that tells a person the owner linked their Slack account |
 
 The app-level token needs `connections:write` (Socket Mode). No user token, no channel history, no files, no slash
 command.
@@ -62,7 +69,8 @@ command.
 | Workspaces | one per team server; an organization-wide (Enterprise Grid) install is refused |
 | Who can ask | linked people of the installed workspace; people of another workspace in a shared channel (Slack Connect) and bots are not answered; no link while Slack cannot say who is asking |
 | One-time link | 10 minutes, used once, the newest one only, 10 per Slack account per hour, one a minute |
-| Links | one Slack account per person, one person per Slack account |
+| Links | one Slack account per person, one person per Slack account; self-made only with the same e-mail on both sides |
+| People list (owner) | the first 2,000 people of the workspace, read again after a minute |
 | What the AI gets | the question's text only: no earlier messages of the thread, no files |
 | Answer in Slack | shortened to about 11,000 characters, with a link to the whole answer in the chat; posted to a thread: about 29,000 |
 | Waiting for an answer | 2 hours, then the asker is told (the chat keeps a later answer); a turn that waits for a card (a question of the AI, a confirmation) tells the asker to answer it in the app |
@@ -86,13 +94,15 @@ after 1, 2, 4 … seconds (at most a minute).
   never mention `@here`, `@channel` or a person, and a link whose text looks like an address shows the real address.
 - The connection is pinged every 30 seconds; one that stops answering (the Mac slept, the network dropped it) is opened
   again.
-- A link is bound to the Slack account it was sent to. It cannot link another Slack account, and an account already
-  linked elsewhere cannot take it. The page names both accounts (the Slack display name with the full name, the user
-  name and the id, since a display name is anyone's choice), so a person who was sent somebody else's link can see that
-  the Slack account is not theirs. Nothing proves in the browser that the person who confirms owns the Slack account
-  (no "Sign in with Slack" yet): see DECISIONS.md.
-- Audit log: `slack.tokens`, `slack.enabled`, `slack.disabled`, `slack.removed`, `slack.linked`, `slack.unlinked`,
-  `slack.posted`.
+- A link is bound to the Slack account it was sent to, and binds only when that account's e-mail (Slack's, read by the
+  server with `users.info` at confirm time) is the confirming person's e-mail, and no other active account here has the
+  same e-mail. So a link sent on to somebody else is refused for them; it cannot link another Slack account, and an
+  account already linked elsewhere cannot take it. A refused try is audited (`slack.link_refused`).
+- The e-mail here is the person's own setting (Settings › Profile, not verified by the app); Slack's is verified by
+  Slack. Someone who sets their e-mail here to another person's Slack e-mail still needs that person's link, which only
+  that person's Slack account gets; the same e-mail on two accounts here proves nothing and is refused.
+- Audit log: `slack.tokens`, `slack.enabled`, `slack.disabled`, `slack.removed`, `slack.linked`, `slack.link_refused`,
+  `slack.mapped` (the owner linked someone), `slack.unlinked`, `slack.posted`.
 
 ## Code and tests
 

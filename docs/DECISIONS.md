@@ -8104,15 +8104,35 @@ People ask the team's AI from Slack (`@app` in a channel, a DM to the app). Guid
   nothing is handled without one; at most `max` sections; DM answers are a new message (notified) and "working…" is
   deleted; posting from a chat deleted in the app is refused; a stopped connection's late attempt writes no state; the
   clean-up runs once a minute; two quick link requests make one link; a request past 2 hours tells the asker.
-- **"Send the victim my link" stays a risk to watch.** The link binds the Slack account it was sent to, and the page
-  names that account (display name, full name, user name, id) and the signed-in person, but a person who does not read
-  it can still link someone else's Slack account to themselves (the other one then asks as them), or link their own
-  account to a Slack account that is not theirs. Two more signals were added: Slack tells the linked Slack account which
-  account it now asks as, and every "working…" names it. The fix that proves ownership is Sign in with Slack (OpenID
-  Connect) on the link page, or matching the Slack e-mail (`users:read.email`) with the account's; both need more than
-  the minimal scopes and a redirect address the owner registers, so they are left for the next step.
+- **"Send the victim my link" is closed with an e-mail proof (2026-11-05, before shipping).** An attacker's Slack account
+  bound to someone else's account would ask with that person's permissions, so names on a page were not enough. Confirm
+  now binds only when Slack's e-mail of the Slack account the link was sent to (`users.info` with `users:read.email`,
+  read by the server at confirm time, from the Slack id bound in the link, never from the request) equals the confirming
+  person's e-mail: Unicode NFC, trimmed, lower case. NFKC was rejected: it would make a full-width look-alike equal to a
+  real address. No e-mail on either side (Slack hides it, a bot, a guest without one, an account here without one),
+  another workspace, or the same e-mail on another active account here: refused, nothing bound, `slack.link_refused`
+  audited. The preview says `emailCheck` so the page shows the reason ("이 Slack 계정의 이메일이 … 계정과 달라요.
+  팀장에게 연결을 부탁하세요") instead of a Link button. Sign in with Slack was not chosen: it needs a redirect address
+  registered per team and a second OAuth flow, while the e-mail is already verified by Slack.
+- **Residual:** the e-mail here is self-set (Settings › Profile) and not verified. Someone could set theirs to a
+  colleague's Slack e-mail, but would still need that colleague's own one-time link (only their Slack account gets it,
+  ephemeral); the same e-mail on two accounts is refused; and Slack tells the Slack account which account it was linked
+  to. Verified e-mails here would close this too.
+- **The owner links people whose e-mails differ** (Admin › Slack › People): one list of the workspace's people
+  (`users.list`, at most 2,000, a minute in memory; no bots, no deactivated people, no one of another workspace), one
+  action, Link: choose a member, see both names and e-mails, confirm. The server asks Slack about that Slack person again
+  (`users.info`) and refuses one of another workspace or a bot; one Slack account per person and one person per Slack
+  account still hold. Audited `slack.mapped` (actor, member, Slack id). The Slack person gets one DM
+  (`conversations.open`, scope `im:write`, then `chat.postMessage`) naming the owner, the account and how to undo it
+  (Settings › App connectors, or the owner). Owner only, like the rest of Admin › Slack. No owner unlink yet: the person
+  unlinks, or the owner disables the account or removes Slack.
+- Scopes are now `app_mentions:read`, `chat:write`, `im:history`, `im:write`, `users:read`, `users:read.email`; the token
+  check refuses a bot token without any of them.
 - Tests: `tests/unit/c-slack.test.ts` with `tests/lib/fake-slack.ts` (owner only; wrong tokens, missing scopes, a seal
-  for another purpose; the link prompt to the asker only; both names, used once, expiry, cancel, linked elsewhere;
+  for another purpose; the link prompt to the asker only; somebody else's link refused by the e-mail check, no e-mail on
+  either side refused, the matching e-mail binds (case and spaces aside), NFC and full-width e-mails; the owner's People
+  list and link: owner only, no bots, deactivated people or other workspaces, already linked either way, the audit and
+  the one DM; both names, used once, expiry, cancel, linked elsewhere;
   Slack Connect; a turn as the linked person answered ephemerally with the button; posting once, not by someone else; a
   thread follow-up in the same chat; a DM; dedupe; other workspace or app and malformed events; a refresh; the tokens in
   no log, row or answer; unlink and a disabled account; off and remove), the permission matrix
