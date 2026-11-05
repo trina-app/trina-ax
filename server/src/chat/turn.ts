@@ -1224,14 +1224,23 @@ export class TurnExec {
     // - a path the person may read: its folder, like a read (what is there, or that nothing is)
     // - a path they may only list (a folder on the way to theirs; users/ itself, which holds only the personal
     //   folders): its name, which every member who may list it sees too (read-scope.ts {type:'name'})
-    // - a path they cannot list: nothing. The call answered "not found or no access", the same as for a path that does
-    //   not exist and as for anyone else who cannot open it (policy/authorize.ts), so the answer can carry no more than
-    //   the path as the AI typed it (a guess, or a name from the room's messages, which the room has seen)
+    // - a path they can neither read nor list: the call answered "not found or no access", the same for a folder
+    //   hidden from them and for a name that does not exist (policy/authorize.ts). Where that answer would count for a
+    //   missing name, it counts for a hidden one too, or where the answer goes would tell which it was: the nearest
+    //   folder above that they may list decides. One they may read: its content (only its readers can tell a name is
+    //   not there). One they may only list (the team root for a member, users/): nothing; anyone without access gets
+    //   that same answer, so it carries no more than the path the AI typed (a guess, or a name the room has seen)
+    const readable = (segs: string[]) => !!me && atLeast(rules.access(me, segs), 'read') && !(segs.length === 1 && segs[0] === 'users')
     const note = (p: string) => {
       const segs = p.split('/').filter(Boolean)
       if (!me) { this.files.namePaths.add(p); return }
-      if (atLeast(rules.access(me, segs), 'read') && !(segs.length === 1 && segs[0] === 'users')) this.files.namePaths.add(p)
-      else if (rules.canList(me, segs)) this.files.listedNames.add(p)
+      if (readable(segs)) { this.files.namePaths.add(p); return }
+      if (rules.canList(me, segs)) { this.files.listedNames.add(p); return }
+      for (let n = segs.length - 1; n >= 0; n--) {
+        const up = segs.slice(0, n)
+        if (readable(up)) { this.files.namePaths.add(up.join('/')); return }
+        if (rules.canList(me, up)) return
+      }
     }
     for (const k of PATH_ARGS) {
       for (const v of Array.isArray(a[k]) ? a[k] as unknown[] : [a[k]]) {

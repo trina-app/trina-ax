@@ -8310,10 +8310,15 @@ every week. Placement: Team AX core (skills, files and permissions, the team lin
       root for a member, `users/`, or a folder on the way to theirs): every member must be able to list it
       (`RuleSet.canList`), because then they would see the same name. New source `{type:'name', path}` in
       `chat/read-scope.ts`, recorded only in room sessions (`TurnFiles.listedNames`);
-    - *a path the asker cannot list*: nothing. The tools answer it "not found or no access", the same as a path that
-      does not exist and the same as for anyone else without access (`policy/authorize.ts` checks access before it
-      looks at the disk), so the answer can hold nothing but the path as the AI typed it: a guess, or a name from the
-      room's messages or the question, which the room has already seen.
+    - *a path the asker can neither read nor list*: the tools answer it "not found or no access", the same for a
+      folder hidden from them and for a name that does not exist (`policy/authorize.ts` checks access before it looks
+      at the disk). It counts exactly as a missing name in the same place would, or where the answer goes would tell
+      which it was (independent review of ae4c861c: `groups/marketing/salaries/…`, hidden from marketing members,
+      was posted while `groups/marketing/nosuch/…` was private, so the outcome said that salaries/ exists). The nearest
+      folder above it that the asker may list decides: one they may read counts as read (only its readers can tell a
+      name is not there); one they may only list (the team root for a member, `users/`) counts for nothing, because
+      anyone without access gets that same answer and it carries no more than the path the AI typed (a guess, or a
+      name from the room's messages or the question, which the room has seen).
     This only stops over-counting: content still needs read for everyone, a missing path in a folder the asker may
     read still counts (only readers can tell it is missing), a search still counts every folder it looked in, and a
     folder the asker read and can no longer open (a rule changed since) still counts, unnamed to them.

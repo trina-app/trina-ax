@@ -768,14 +768,20 @@ describe('a search start in another spelling, and folders the asker cannot open'
     db.query("INSERT OR IGNORE INTO folder_rules (id, folder_id, subject_type, subject_id, access) VALUES ('r5sealed-a', 'f_r5sealed', 'user', 'alice', 'none')").run()
     db.query("INSERT OR IGNORE INTO folder_rules (id, folder_id, subject_type, subject_id, access) VALUES ('r5sealed-e', 'f_r5sealed', 'user', 'erin', 'none')").run()
     try {
+      // a folder alice may open (erin may not), and one neither may open: refused as "not found or no access", which a
+      // name that does not exist there gets too. The two must give the same answer: same place, same reasons
+      const preview = async (other: string) => {
+        const roomId = await room(['alice', 'erin'])
+        const { q } = await ask('alice', roomId, `@트리나 x\n${fake({ tool: 'read', args: { file_path: 'projects/falcon/plan.md' } }, { tool: 'read', args: { file_path: other }, sayResult: true })}`)
+        expect(await answerTo('erin', roomId, q)).toBeUndefined()
+        return (await answerTo('alice', roomId, q))!.preview
+      }
+      const sealed = await preview('shared/r5-sealed/plan.md')
+      expect(sealed).toEqual(await preview('shared/r5-nosuch/plan.md'))
+      expect(sealed).toMatchObject({ folders: ['projects/falcon'] })
+      expect(JSON.stringify(sealed)).not.toContain('r5-sealed')
       const roomId = await room(['alice', 'erin'])
-      // a folder alice may open (erin may not) and one neither may open (refused: it tells nothing and is not counted)
-      const { q } = await ask('alice', roomId, `@트리나 x\n${fake({ tool: 'read', args: { file_path: 'projects/falcon/plan.md' } }, { tool: 'read', args: { file_path: 'shared/r5-sealed/plan.md' }, sayResult: true })}`)
-      expect(await answerTo('erin', roomId, q)).toBeUndefined()
-      const mine = (await answerTo('alice', roomId, q))!
-      expect(mine.preview).toMatchObject({ folders: ['projects/falcon'] })
-      expect(mine.preview?.otherFolders).toBeUndefined()
-      expect(JSON.stringify(mine.preview)).not.toContain('r5-sealed')
+      await ask('alice', roomId, `@트리나 x\n${fake({ say: 'hi' })}`)
       // content from a folder alice cannot open now (a rule changed after she read it): counted, never named to her
       const scope = { sources: [{ type: 'folder' as const, id: 'f_groups_finance' }], outside: false }
       expect(roomAiOf(h.ctx).decide(roomId, sessionOf(roomId, 'alice')!.id, scope)).toMatchObject({ post: false, folders: [], otherFolders: true })
@@ -783,6 +789,36 @@ describe('a search start in another spelling, and folders the asker cannot open'
       db.query("DELETE FROM folder_rules WHERE id IN ('r5sealed-a', 'r5sealed-e')").run()
       fs.rmSync(path.join(h.team, 'shared/r5-sealed'), { recursive: true, force: true })
     }
+  })
+})
+
+// ---------------- independent review of ae4c861c: where the answer goes must not tell hidden from missing ----------------
+describe('a hidden folder and a missing name give the same answer', () => {
+  /** alice's answer about one path, in a room of her own with bob (who cannot read groups/marketing) */
+  const outcome = async (file: string) => {
+    const roomId = await room(['alice', 'bob'])
+    const { q } = await ask('alice', roomId, `@트리나 x\n${fake({ tool: 'read', args: { file_path: file }, sayResult: true }, { say: 'done' })}`)
+    const mine = (await answerTo('alice', roomId, q))!
+    const bobs = await messages('bob', roomId)
+    return { body: mine.body, visibility: mine.visibility, preview: mine.preview, bobSeesNote: !!bobs.find((m) => m.id === q.id)?.answeredPrivately }
+  }
+
+  test('under a folder the asker reads and a member cannot: both private, the same reasons (no existence oracle)', async () => {
+    // groups/marketing/salaries is hidden from marketing members by a 'none' rule (fixtures); nosuch-zz does not exist
+    const hidden = await outcome('groups/marketing/salaries/2026.md')
+    const missing = await outcome('groups/marketing/nosuch-zz/2026.md')
+    expect(hidden.body).toContain('not found or no access')
+    expect(missing.body.replace('nosuch-zz', 'salaries')).toBe(hidden.body)
+    expect(hidden).toMatchObject({ visibility: 'private', preview: { folders: ['groups/marketing'] }, bobSeesNote: true })
+    expect({ ...missing, body: '' }).toEqual({ ...hidden, body: '' })
+  })
+
+  test('under a folder the asker may only list: both count for nothing, both go to the room', async () => {
+    // groups/finance is hidden from alice; groups/nosuch-zz does not exist; alice may list groups/ (her group is in it)
+    const hidden = await outcome('groups/finance/budget.md')
+    const missing = await outcome('groups/nosuch-zz/budget.md')
+    expect({ ...missing, body: '' }).toEqual({ ...hidden, body: '' })
+    expect(hidden.visibility).toBe('room')
   })
 })
 
