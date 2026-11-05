@@ -310,7 +310,8 @@ describe('the argv of a run', () => {
     expect(sh).toContain(`SRT_VERSION=${SRT_VERSION}`)
     const files = /SERVER_FILES_OUTSIDE_BASE="([^"]*)"/.exec(sh)![1]!.split(' ').map((f) => f.replace('$ID', 'mycel'))
     expect(files).toEqual(serverFilesOutsideBase('mycel'))
-    expect(sh).toContain('ReadWritePaths=$BASE/devenv')
+    expect(sh).toContain('ReadWritePaths=-$BASE/devenv')
+    expect(sh).toContain('ExecStartPre=+/usr/bin/install -d -o $SRV_USER -g $SRV_USER -m 700 $BASE/devenv')
     expect(sh).toContain('MYCEL_DEV_ENV_RUNNER=srt')
   })
   test('the exit file: a number from 0 to 255, else none', () => {
