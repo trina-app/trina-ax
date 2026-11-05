@@ -83,8 +83,10 @@ export function Notifications() {
     try { await api.call(API.markNotificationRead, { params: { id: item.id } }); if (generation === life.current) await load() }
     catch (e) { if (generation === life.current) setError(errorText(e, locale, t('error.network'))) }
   }
-  return <section className="space-y-5" data-testid="notifications">
-    <div><h2 className="text-base font-semibold">{t('notifications.title')}</h2><p className="mt-1 text-sm text-muted">{t('notifications.description')}</p></div>
+  // Phones: whether alerts reach this phone comes right after the title (it is what matters there); no frames inside
+  // the Settings card, and hints as large as the text they explain.
+  return <section className="flex flex-col gap-5" data-testid="notifications">
+    <div className="max-md:order-first"><h2 className="text-base font-semibold">{t('notifications.title')}</h2><p className="mt-1 text-sm text-muted">{t('notifications.description')}</p></div>
     {error && <ErrorNote onRetry={() => void load()}>{error}</ErrorNote>}
     {!items && !error && <Skeleton lines={3} />}
     {/* the inbox comes first: it is what the sidebar's "Inbox" opens; the preferences follow below it */}
@@ -110,11 +112,11 @@ export function Notifications() {
       </li>)}</ul>
       {cursor && <Button onClick={() => void load(cursor)}>{t('common.loadMore')}</Button>}
     </div>}
-    {preferences && <fieldset disabled={busy} className="space-y-3 rounded-xl border border-line p-4"><legend className="px-1 text-sm font-medium">{t('notifications.preferences')}</legend>
+    {preferences && <fieldset disabled={busy} className="space-y-3 md:rounded-xl md:border md:border-line md:p-4"><legend className="text-sm font-medium md:px-1 max-md:mb-3">{t('notifications.preferences')}</legend>
       {/* a server from before a preference existed leaves it out: no box for it */}
       {preferenceKeys.filter(key => typeof preferences[key] === 'boolean').map(key => <label key={key} className="flex items-center gap-2 text-sm"><input type="checkbox" checked={preferences[key]} onChange={e => void update(key, e.target.checked)} data-testid={`notification-pref-${key}`} />{t(`notifications.${key}`)}</label>)}
-      <p className="text-xs text-muted">{t('notifications.preferenceHint')}</p>
+      <p className="text-xs text-muted max-md:text-sm">{t('notifications.preferenceHint')}</p>
     </fieldset>}
-    <PushNotifications />
+    <div className="max-md:-order-1"><PushNotifications /></div>
   </section>
 }
