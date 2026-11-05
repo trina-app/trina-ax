@@ -1,16 +1,18 @@
-// The welcome steps for the owner who just made the team (docs/DECISIONS.md "W — Welcome steps", "X — Lean onboarding",
-// "M — One meeting note, everyone's own tasks", "N — The first result is the company's card news", "W2 — AI connection
-// first", "V — The first result is the company's promo video"): AI 연결 (only while no AI answers the owner) → 회사 소개 → 첫
-// 결과, then the team invite. 회사 소개 and 첫 결과 need AI, so without it the AI step opens in front of them, never in front of
-// the invite; "나중에 하기" there leaves the steps (Home shows its connect card). 회사 소개 saves a website reading with a
-// one-line intro by itself (ProfileStep autoSave) and goes on; 첫 결과 opens with one line of what was saved, "이렇게 이해했어요:
-// … · 고치기", whose 고치기 opens the full review in a dialog. The first result is the company's own promo video: the lead
-// drops a company intro or a team deck into the team's brand folder (groups/<team>/브랜드/), or goes on without one ("자료
-// 없이 만들게요": the server writes 회사 소개.md there from the website reading); POST /api/onboarding/welcome/first-result makes
-// the chat and says which team files to attach, and the general skill "/promo-video" makes the video from them in that
-// chat (it opens beside the chat by itself). Under the answer the chat offers to share that skill with the team
-// (components/onboarding/WelcomeInviteBar.tsx: the invite with it). Every step can be put off; the progress is kept on
-// the server (store/welcome.ts), so the steps resume where they stopped, on any device, from the entry on Home.
+// The welcome steps for the owner who just made the team (docs/DECISIONS.md "W — Welcome steps", "X — Lean
+// onboarding", "M — One meeting note, everyone's own tasks", "N — The first result is the company's card news", "W2 —
+// AI connection first", "V — The first result is the company's promo video"): AI 연결 (only while no AI answers the
+// owner) → 회사 소개 → 첫 결과, then the team invite.
+// 회사 소개 and 첫 결과 need AI, so without it the AI step opens in front of them, never in front of the invite; "나중에
+// 하기" there leaves the steps (Home shows its connect card). 회사 소개 saves a website reading with a one-line intro by
+// itself (ProfileStep autoSave) and goes on; 첫 결과 opens with one line of what was saved, "이렇게 이해했어요: … · 고치기",
+// whose 고치기 opens the full review in a dialog. The first result is the company's own promo video: the lead
+// drops a company intro or a team deck into the team's brand folder (groups/<team>/브랜드/), or goes on without one
+// ("자료 없이 만들게요": the server writes 회사 소개.md there from the website reading); POST
+// /api/onboarding/welcome/first-result makes the chat and says which team files to attach, and the general skill
+// "/promo-video" makes the video from them in that chat, which opens it beside the chat by itself. Under the answer
+// the chat offers to share that skill with the
+// team (components/onboarding/WelcomeInviteBar.tsx: the invite with it). Every step can be put off; the progress is
+// kept on the server (store/welcome.ts), so the steps resume where they stopped, on any device, from the entry on Home.
 //
 // Leaving the first step sets up every team once (the general pack and a group named after the team with its folders,
 // POST /api/onboarding/welcome/team); the server keeps every guarantee: once, never restoring deleted skills, blocked.
