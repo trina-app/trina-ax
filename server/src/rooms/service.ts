@@ -17,12 +17,14 @@ import { fail } from '../http/errors'
 import { audit } from '../admin/audit'
 import { notificationsOf } from '../notifications/service'
 import {
-  canSee, memberRow, members, membersOut, messageRow, messagesOut, MSG_COLS, roomOut, roomRow, SEE_SQL, unreadCount,
+  canSee, memberRow, members, membersOut, messageRow, messagesOut, MSG_COLS, roomOut, roomRow, SEE_SQL, setRoomPathCheck, unreadCount,
   type MemberRow, type MessageRow, type RoomRow,
 } from './store'
 import { roomFilesOf } from './files'
 import { roomAiOf, type AskOptions } from './ai'
 import { roomAiCalled } from '@mycel/shared/api'
+import { loadPrincipal } from '../policy/access'
+import { authorize, visiblePath } from '../policy/authorize'
 
 const services = new WeakMap<AppContext, Rooms>()
 /** Sending: a burst of SEND_BURST messages, then SEND_PER_SECOND a second (per person, all rooms together). More than
@@ -195,11 +197,14 @@ export class Rooms {
 
   /** Delete my own message: its text, mentions and files go; the row stays as "deleted". Its notices go too. */
   remove(userId: string, roomId: string, messageId: string): void {
-    this.mine(userId, roomId)
-    const m = this.own(roomId, messageId, userId)
+    const { me } = this.mine(userId, roomId)
+    const m = this.removable(roomId, messageId, userId, me)
     const now = nowIso()
     const noticed = this.db.transaction(() => {
       this.db.query("UPDATE room_messages SET body = '', mentions = '[]', deleted_at = ? WHERE id = ?").run(now, m.id)
+      // an AI answer's "참고한 파일" go with it
+      this.db.query('DELETE FROM room_message_sources WHERE message_id = ?').run(m.id)
+      if (m.author_kind === 'ai' && m.asked_by !== userId) audit(this.db, { actor: userId, action: 'room.ai_delete', target: m.id, detail: { roomId } })
       return (this.db.query('DELETE FROM room_notices WHERE source_id = ? AND room_id = ? RETURNING user_id').all(m.id, roomId) as { user_id: string }[]).map((r) => r.user_id)
     })()
     roomFilesOf(this.ctx).removeForMessage(m.id)
@@ -216,6 +221,18 @@ export class Rooms {
     this.sendBudget.set(userId, b)
     if (b.tokens < 1) fail('rate_limited', undefined, { retryAfter: Math.max(1, Math.ceil((1 - b.tokens) / SEND_PER_SECOND)) })
     b.tokens -= 1
+  }
+
+  /** What `userId` may delete: their own message; an AI answer they asked for (a private preview of theirs too, which
+   * is how they put one away), or any AI answer they can see when they are an owner or admin in the room. */
+  private removable(roomId: string, messageId: string, userId: string, me: MemberRow): MessageRow {
+    const m = messageRow(this.db, roomId, messageId)
+    if (!m || (m.author_kind === 'ai' && !canSee(m, me))) return fail('not_found')
+    if (m.author_kind !== 'ai') return this.own(roomId, messageId, userId)
+    const role = (this.db.query('SELECT role FROM users WHERE id = ?').get(userId) as { role: string } | null)?.role
+    if (m.asked_by !== userId && role !== 'owner' && role !== 'admin') return fail('forbidden')
+    if (m.deleted_at) return fail('conflict')
+    return m
   }
 
   private own(roomId: string, messageId: string, userId: string): MessageRow {
@@ -357,7 +374,18 @@ export class Rooms {
 
 export function roomsOf(ctx: AppContext): Rooms {
   let s = services.get(ctx)
-  if (!s) { s = new Rooms(ctx); services.set(ctx, s) }
+  if (!s) {
+    s = new Rooms(ctx)
+    services.set(ctx, s)
+    // an AI answer's file links: shown as links only to people who may open the file now (store.ts openableFor)
+    setRoomPathCheck(ctx.db, (userId, rel) => {
+      const who = loadPrincipal(ctx.db, userId)
+      if (!who) return false
+      const rules = ctx.files.rules()
+      const a = authorize(ctx.files.fx, rules, who, rel, 'read')
+      return !a.st?.isDirectory() && !!visiblePath(ctx.files.fx, rules, who, a.rel)
+    })
+  }
   return s
 }
 
