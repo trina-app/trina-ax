@@ -59,7 +59,7 @@ func TestPTYIsTheProgramsTerminal(t *testing.T) {
 // address and the paste prompt like 2.1.305 (column jumps, hyperlink), reads a pasted code and prints a token for
 // good#state, else the 401 error and waits for Enter. mode "slow" never prints the prompt; "linger" stays after the
 // token; "ignore" ignores SIGTERM; "evil" shows another site's address; "die" ends before the prompt with a message;
-// "hang" shows nothing after the code.
+// "hang" shows nothing after the code; "odd" shows the token in a layout the launcher does not know and exits 0.
 func fakeClaude(t *testing.T, mode string) string {
 	dir := t.TempDir()
 	p := filepath.Join(dir, "claude")
@@ -85,6 +85,9 @@ func fakeClaude(t *testing.T, mode string) string {
 	exchange := ""
 	if mode == "hang" {
 		exchange = "sleep 60"
+	}
+	if mode == "odd" { // a success screen in a layout the launcher does not know, then a normal exit
+		exchange = `printf '\033[1A\r\033[J\342\234\223 Done\r\n\r\nToken: sk-ant-oat01-` + strings.Repeat("x", 80) + `fakeTOKEN\r\n'; sleep 0.2; exit 0`
 	}
 	script := `#!/bin/sh
 ` + trap + `[ "$1" = "setup-token" ] || { echo "fake claude: only setup-token" >&2; exit 2; }
@@ -328,6 +331,27 @@ func TestClaudeLoginTokenShapedCodeIsNotTyped(t *testing.T) {
 		t.Fatalf("a token: %v", all)
 	}
 	<-s.done
+}
+
+func TestClaudeLoginUnknownSuccessScreen(t *testing.T) {
+	s := startSignIn(t, fakeClaude(t, "odd"), "login-odd-0000000001", 0)
+	s.next("claude_url")
+	s.code <- "good#state"
+	s.next("claude_code")
+	all := s.rest()
+	f := evOf(all, "claude_failed")
+	if f == nil || f["reason"] != "token_unreadable" || evOf(all, "claude_token") != nil {
+		t.Fatalf("events %v", all)
+	}
+	d := f["detail"].(string)
+	if !strings.Contains(d, "Done") || !strings.Contains(d, "Token: sk-ant-[masked") || strings.Contains(d, "fakeTOKEN") || strings.Contains(d, "xxxxxxxx") {
+		t.Fatalf("detail %q", d)
+	}
+	if ex := all[len(all)-1]; ex["code"] != float64(0) || ex["signal"] != nil {
+		t.Fatalf("exit %v", ex)
+	}
+	<-s.done
+	folderGone(t)
 }
 
 func TestClaudeLoginExchangeDeadline(t *testing.T) {

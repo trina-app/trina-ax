@@ -382,7 +382,7 @@ func runClaudeLogin(cmd *exec.Cmd, pt *ptyPair, te *turnEnv, o *out, ctl claudeC
 		// final screen once the program is gone (below)
 		if codeSent && failed == "" {
 			if t := claudeTokenFrom(lines, scr.text()); t != "" {
-				lastToken = t
+				lastToken = keepToken(lastToken, t)
 				if !success {
 					success, exchange = true, nil
 					grace = time.After(claudeTokenGrace)
@@ -474,5 +474,42 @@ func runClaudeLogin(cmd *exec.Cmd, pt *ptyPair, te *turnEnv, o *out, ctl claudeC
 		}
 	}
 	lastToken = ""
+	// the program ended by itself after the code, and no whole token block was recognised: a layout this launcher does
+	// not know (a new CLI version) or a message it does not know. Its own reason, not a bare exit code; the last rows
+	// of the screen, with anything token-like masked, go to the server's log so the real layout can be seen
+	if codeSent && failed == "" && res.sig == "" && res.token == "" {
+		o.send(map[string]any{"ev": "claude_failed", "reason": "token_unreadable", "detail": claudeMaskedTail(scr.lines(), 14, 1500)})
+	}
 	return res
+}
+
+// keepToken: the token of the newest whole block, except a value that only begins the kept one (the program rewrote
+// the token row and a read ended inside it while the rows around it were still on the screen)
+func keepToken(kept, seen string) string {
+	if kept != "" && len(seen) < len(kept) && strings.HasPrefix(kept, seen) {
+		return kept
+	}
+	return seen
+}
+
+// tokenLike: what must never reach a log: sk-ant-… whatever follows, and long runs of token characters that have a
+// digit, "_" or "-" in them (a piece of a token on a row of its own); plain words stay readable
+var (
+	skAntRe    = regexp.MustCompile(`(?i)sk-ant-[A-Za-z0-9_-]*`)
+	tokenRunRe = regexp.MustCompile(`[A-Za-z0-9_-]{16,}`)
+)
+
+// claudeMaskedTail: the last n rows with text, joined, everything token-like masked, at most max bytes
+func claudeMaskedTail(lines []string, n, max int) string {
+	s := skAntRe.ReplaceAllStringFunc(claudeScreenTail(lines, n, 1<<16), func(m string) string { return "sk-ant-[masked " + strconv.Itoa(len(m)) + "]" })
+	s = tokenRunRe.ReplaceAllStringFunc(s, func(m string) string {
+		if strings.ContainsAny(m, "0123456789_-") {
+			return "[masked " + strconv.Itoa(len(m)) + "]"
+		}
+		return m
+	})
+	if len(s) > max {
+		s = strings.ToValidUTF8(s[:max], "")
+	}
+	return s
 }

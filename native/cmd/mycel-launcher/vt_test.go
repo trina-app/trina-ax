@@ -115,6 +115,54 @@ func TestScreenTokenNeverPartial(t *testing.T) {
 	}
 }
 
+func TestScreenTokenRowRewrittenInPlace(t *testing.T) {
+	s := newScreen(claudeCols, claudeRows)
+	s.feed(successScreen(fakeToken))
+	kept := keepToken("", tokenOf(s))
+	if kept != fakeToken {
+		t.Fatalf("first block %q", kept)
+	}
+	// the program draws the token row again in place and a read ends inside it: the rows around it are still there,
+	// so the block reads as a whole one with a shorter token, which must not replace the kept value
+	row := strings.Index(s.text(), fakeToken)
+	r := strings.Count(s.text()[:row], "\n")
+	s.feed([]byte("\x1b[" + strconv.Itoa(r+1) + ";1H\x1b[2K\x1b[2G" + fakeToken[:50]))
+	seen := tokenOf(s)
+	if seen != fakeToken[:50] {
+		t.Fatalf("the half-drawn row reads %q", seen)
+	}
+	if kept = keepToken(kept, seen); kept != fakeToken {
+		t.Fatalf("kept %q", kept)
+	}
+	s.feed([]byte(fakeToken[50:]))
+	if kept = keepToken(kept, tokenOf(s)); kept != fakeToken {
+		t.Fatalf("after the rest %q", kept)
+	}
+	// a different whole token (a new block) does replace it
+	if got := keepToken(kept, "sk-ant-oat01-"+strings.Repeat("B", 40)); got == kept {
+		t.Fatal("a new token did not replace the kept one")
+	}
+}
+
+func TestClaudeMaskedTail(t *testing.T) {
+	lines := []string{"", "Welcome to Claude Code v2.1.305", "Your new long-lived authentication token:", "sk-ant-oat01-" + strings.Repeat("Ab3_", 25),
+		"continued " + strings.Repeat("Zz9-", 10), "Store this somewhere safe.", ""}
+	got := claudeMaskedTail(lines, 14, 1500)
+	for _, leak := range []string{"Ab3_Ab3_", "Zz9-Zz9-", "oat01-A"} {
+		if strings.Contains(got, leak) {
+			t.Fatalf("masked tail leaks %q: %q", leak, got)
+		}
+	}
+	for _, keep := range []string{"Welcome to Claude Code v2.1.305", "long-lived authentication token:", "sk-ant-[masked 113]", "continued [masked 40]", "Store this somewhere safe."} {
+		if !strings.Contains(got, keep) {
+			t.Fatalf("masked tail lacks %q: %q", keep, got)
+		}
+	}
+	if len(claudeMaskedTail([]string{strings.Repeat("\u2588", 1000)}, 1, 100)) > 100 {
+		t.Fatal("not cut to the limit")
+	}
+}
+
 func TestScreenTokenOnlyInItsBlock(t *testing.T) {
 	code := "sk-ant-oat01-" + strings.Repeat("A", 40) + "#x"
 	// the typed code echoed in the prompt: the prompt is up, nothing counts
