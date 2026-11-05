@@ -28,13 +28,15 @@ export type SkillNoticeEvent = Extract<NotificationEventType, 'skill.suggested' 
 export type DevEnvNoticeEvent = Extract<NotificationEventType, 'dev_env.job' | 'dev_env.box'>
 const isSkillEvent = (e: NotificationEventType): e is SkillNoticeEvent => e === 'skill.suggested' || e === 'skill.reviewed'
 const isDevEnvEvent = (e: NotificationEventType): e is DevEnvNoticeEvent => e === 'dev_env.job' || e === 'dev_env.box'
-const tableOf = (e: NotificationEventType) => isSkillEvent(e) ? 'skill_notices' : isDevEnvEvent(e) ? 'dev_env_notices' : e === 'integration.request' ? 'integration_request_notices' : e === 'onboarding.ai_request' ? 'onboarding_notices' : e === 'team.joined' ? 'team_join_notices' : e === 'onboarding.first_run' ? 'onboarding_goal_notices' : 'notification_inbox'
+export type RoomNoticeEvent = Extract<NotificationEventType, 'room.dm' | 'room.mention'>
+const isRoomEvent = (e: NotificationEventType): e is RoomNoticeEvent => e === 'room.dm' || e === 'room.mention'
+const tableOf = (e: NotificationEventType) => isSkillEvent(e) ? 'skill_notices' : isDevEnvEvent(e) ? 'dev_env_notices' : e === 'integration.request' ? 'integration_request_notices' : e === 'onboarding.ai_request' ? 'onboarding_notices' : e === 'team.joined' ? 'team_join_notices' : e === 'onboarding.first_run' ? 'onboarding_goal_notices' : isRoomEvent(e) ? 'room_notices' : 'notification_inbox'
 /** One inbox over the tables: skill notices (migration 211, R2-SKILL-12), dev environment notices (migration 219),
  * requests to connect a service (migration 220), a member's request for an AI connection (migration 231), joins
- * through the team invite link (migration 111) and a member's first run of a team skill during the 7-day team goal
- * (migration 223) have their own tables, because notification_inbox has a fixed event_type CHECK list and tables are
+ * through the team invite link (migration 111), a member's first run of a team skill during the 7-day team goal
+ * (migration 223) and room notices (a DM message or an @mention, migration 241) have their own tables, because notification_inbox has a fixed event_type CHECK list and tables are
  * never rebuilt. */
-const NOTICE_TABLES = ['notification_inbox', 'skill_notices', 'dev_env_notices', 'integration_request_notices', 'onboarding_notices', 'team_join_notices', 'onboarding_goal_notices'] as const
+const NOTICE_TABLES = ['notification_inbox', 'skill_notices', 'dev_env_notices', 'integration_request_notices', 'onboarding_notices', 'team_join_notices', 'onboarding_goal_notices', 'room_notices'] as const
 const INBOX = `(${NOTICE_TABLES.map((t) => `SELECT id,user_id,event_type,source_id,created_at,read_at,suppressed FROM ${t}`).join(' UNION ALL ')})`
 export class Notifications {
   constructor(readonly ctx: AppContext) {}
@@ -56,6 +58,17 @@ export class Notifications {
   /** A skill suggestion to review, or the review result of an own suggestion. The source is the suggestion id only. */
   skillNotice(userId: string, event: SkillNoticeEvent, suggestionId: string, createdAt = new Date().toISOString()) {
     this.record(userId, event, suggestionId, createdAt)
+  }
+  /** A DM message or an @mention in a room (rooms/service.ts notify). The source is the message id only, never its
+   * text. A DM adds no second notice while one of that room is still unread (one per unread run: a burst of messages
+   * is one notice and one push); reading the room marks them read. Follows the person's room setting. */
+  roomNotice(userId: string, event: RoomNoticeEvent, messageId: string, roomId: string, at = new Date().toISOString()) {
+    if (!this.active(userId) || at < this.cutoff()) return
+    if (event === 'room.dm' && this.ctx.db.query("SELECT 1 FROM room_notices WHERE user_id=? AND room_id=? AND event_type='room.dm' AND read_at IS NULL AND suppressed=0 AND created_at>=?").get(userId, roomId, this.cutoff())) return
+    const enabled = eventEnabled(this.preferences(userId), event)
+    const r = this.ctx.db.query('INSERT INTO room_notices(id,user_id,event_type,source_id,room_id,created_at,suppressed) VALUES(?,?,?,?,?,?,?) ON CONFLICT(user_id,event_type,source_id) DO NOTHING')
+      .run(newId(), userId, event, messageId, roomId, at, enabled ? 0 : 1)
+    if (r.changes && enabled) this.signal(userId)
   }
   /** A dev environment job ended, or boxd stopped a box. The source is the id of the job or the stop row only. */
   devEnvNotice(userId: string, event: DevEnvNoticeEvent, sourceId: string, createdAt = new Date().toISOString()) {
@@ -216,6 +229,17 @@ export class Notifications {
       return { id: row.id, eventType: row.event_type, sourceId: row.source_id, code: row.event_type, createdAt: row.created_at, readAt: row.read_at, chatId: null, link: 'skills', outcome: null }
     }
     if (isDevEnvEvent(row.event_type)) return this.devEnvOut(row)
+    // a room notice links to the room and names who wrote it while the person is still in the room and may see the
+    // message; never its text
+    if (isRoomEvent(row.event_type)) {
+      const base = { id: row.id, eventType: row.event_type, sourceId: row.source_id, code: row.event_type, createdAt: row.created_at, readAt: row.read_at, chatId: null, outcome: null }
+      const m = this.ctx.db.query(`SELECT m.room_id, m.author_id, m.seq, m.visibility, m.visible_to, m.deleted_at, rm.visible_from_seq FROM room_messages m
+        JOIN room_members rm ON rm.room_id = m.room_id AND rm.user_id = ? JOIN rooms r ON r.id = m.room_id AND r.archived_at IS NULL WHERE m.id = ?`)
+        .get(row.user_id, row.source_id) as { room_id: string; author_id: string | null; seq: number; visibility: string; visible_to: string | null; deleted_at: string | null; visible_from_seq: number } | null
+      if (!m || m.deleted_at || m.seq <= m.visible_from_seq || (m.visibility !== 'room' && m.visible_to !== row.user_id)) return { ...base, link: null }
+      const from = m.author_id ? (this.ctx.db.query('SELECT name FROM users WHERE id=?').get(m.author_id) as { name: string } | null)?.name ?? null : null
+      return { ...base, link: 'room', room: { id: m.room_id, from } }
+    }
     // Settings › External services opens the request (?request=<sourceId>) and says if it is no longer waiting. The
     // service's name with the host of its address (where the member's key would go), while the request is there.
     if (row.event_type === 'integration.request') {

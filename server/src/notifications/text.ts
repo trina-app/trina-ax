@@ -21,6 +21,17 @@ export const TEXT = {
     en: 'A connection needs you to sign in again.',
     id: 'Koneksi perlu login ulang.', ja: "接続のために再ログインが必要です。", es: "Una conexión requiere que vuelva a iniciar sesión.",
   },
+  // rooms: who wrote what stays in the app; the lock screen only says that something came
+  'room.dm': {
+    ko: '새 메시지가 왔어요.',
+    en: 'You have a new message.',
+    id: 'Ada pesan baru untuk Anda.', ja: "新しいメッセージが届きました。", es: "Tiene un mensaje nuevo.",
+  },
+  'room.mention': {
+    ko: '대화방에서 나를 언급한 메시지가 있어요.',
+    en: 'Someone mentioned you in a room.',
+    id: 'Seseorang menyebut Anda di ruang obrolan.', ja: "ルームであなたがメンションされました。", es: "Alguien le mencionó en una sala.",
+  },
 } satisfies Record<'title' | PushEventType, Record<Locale, string>>
 
 export function pushMessages(locale: Locale) {
@@ -28,5 +39,7 @@ export function pushMessages(locale: Locale) {
     'schedule.success': TEXT['schedule.success'][locale],
     'schedule.failure': TEXT['schedule.failure'][locale],
     'connection.reconnect': TEXT['connection.reconnect'][locale],
+    'room.dm': TEXT['room.dm'][locale],
+    'room.mention': TEXT['room.mention'][locale],
   } }
 }

@@ -19,12 +19,17 @@ type Subscription={id:string;user_id:string;session_id:string;secret_enc:string;
 type Delivery={notification_id:string;subscription_id:string;attempts:number;expires_at:string}
 const TTL_MS=86400_000,MAX_ATTEMPTS=3,MAX_SUBSCRIPTIONS=10
 const services=new WeakMap<AppContext,PushService>()
+/** Where push notices come from: an inbox table and its deliveries table. notification_inbox (migration 208) and room
+ * notices (a DM message or an @mention, migration 241: notification_inbox has a fixed event_type list), checked and sent
+ * the same way. */
+const SOURCES=[{inbox:'notification_inbox',deliveries:'push_deliveries'},{inbox:'room_notices',deliveries:'room_push_deliveries'}] as const
+type Source=typeof SOURCES[number]
 export class PushService {
   private readonly o:PushOptions
   private readonly vault:Vault
   private readonly secrets:string
   private stopped=false
-  private flight:{abort:AbortController;userId:string;sessionId:string;subscriptionId:string;notificationId:string;configKey:string}|null=null
+  private flight:{abort:AbortController;src:Source;userId:string;sessionId:string;subscriptionId:string;notificationId:string;configKey:string}|null=null
   private work:Promise<void>|null=null
   private timer:ReturnType<typeof setInterval>|null=null
   private unlisten:()=>void
@@ -33,7 +38,7 @@ export class PushService {
     this.secrets=path.join(ctx.config.dataDir,'secrets','push');this.vault=new Vault(this.secrets)
     this.unlisten=onPushCancellation(ctx,scope=>{
       const f=this.flight
-      if(f&&(!scope.userId||f.userId===scope.userId)&&(!scope.sessionId||f.sessionId===scope.sessionId)&&!this.eligible(f.subscriptionId,f.notificationId,f.configKey))f.abort.abort()
+      if(f&&(!scope.userId||f.userId===scope.userId)&&(!scope.sessionId||f.sessionId===scope.sessionId)&&!this.eligible(f.src,f.subscriptionId,f.notificationId,f.configKey))f.abort.abort()
     })
   }
   private iso(ms=this.o.now()){return new Date(ms).toISOString()}
@@ -90,12 +95,12 @@ export class PushService {
     cancelPushUser(this.ctx,userId)
   }
   /** Every invocation (including after async DNS) rechecks current DB/config, never an old captured auth object. */
-  private eligible(id:string,notificationId:string,configKey:string){
+  private eligible(src:Source,id:string,notificationId:string,configKey:string){
     const c=this.o.config();if(this.stopped||!c||pushConfigKey(c)!==configKey)return null
-    if(!this.ctx.db.query("SELECT 1 FROM push_deliveries WHERE subscription_id=? AND notification_id=? AND state IN ('pending','sending')").get(id,notificationId))return null
+    if(!this.ctx.db.query(`SELECT 1 FROM ${src.deliveries} WHERE subscription_id=? AND notification_id=? AND state IN ('pending','sending')`).get(id,notificationId))return null
     const sub=this.ctx.db.query('SELECT * FROM push_subscriptions WHERE id=? AND config_key=?').get(id,configKey) as Subscription|null
     if(!sub||!this.session(sub.user_id,sub.session_id)||!this.enabled(sub.user_id))return null
-    const row=this.ctx.db.query('SELECT event_type,created_at FROM notification_inbox WHERE id=? AND user_id=? AND suppressed=0 AND read_at IS NULL').get(notificationId,sub.user_id) as {event_type:PushEventType;created_at:string}|null
+    const row=this.ctx.db.query(`SELECT event_type,created_at FROM ${src.inbox} WHERE id=? AND user_id=? AND suppressed=0 AND read_at IS NULL`).get(notificationId,sub.user_id) as {event_type:PushEventType;created_at:string}|null
     const prefs=this.ctx.db.query('SELECT enabled_at FROM push_preferences WHERE user_id=?').get(sub.user_id) as {enabled_at:string}|null
     if(!row||row.created_at<sub.created_at||row.created_at<(prefs?.enabled_at??this.iso())||Date.parse(row.created_at)+TTL_MS<=this.o.now()||!eventEnabled(getPreferences(this.ctx.db,sub.user_id),row.event_type))return null
     return{sub,event:row.event_type}
@@ -103,14 +108,16 @@ export class PushService {
   private enqueue(config:PushConfig){
     const db=this.ctx.db,now=this.iso(),key=pushConfigKey(config)
     db.query('DELETE FROM push_subscriptions WHERE NOT EXISTS(SELECT 1 FROM sessions s JOIN users u ON u.id=s.user_id WHERE s.id=push_subscriptions.session_id AND s.user_id=push_subscriptions.user_id AND s.expires_at>? AND u.status=\'active\' AND u.deleted_at IS NULL)').run(now)
-    db.query("UPDATE push_deliveries SET state='pending',lease_until=NULL WHERE state='sending' AND lease_until<=?").run(now)
-    db.query("UPDATE push_deliveries SET state='failed',lease_until=NULL WHERE state='pending' AND (expires_at<=? OR attempts>=?)").run(now,MAX_ATTEMPTS)
-    db.query(`INSERT INTO push_deliveries(notification_id,subscription_id,next_at,expires_at)
-      SELECT n.id,s.id,?,strftime('%Y-%m-%dT%H:%M:%fZ',n.created_at,'+1 day') FROM notification_inbox n JOIN push_subscriptions s ON s.user_id=n.user_id
+    for(const src of SOURCES){
+    db.query(`UPDATE ${src.deliveries} SET state='pending',lease_until=NULL WHERE state='sending' AND lease_until<=?`).run(now)
+    db.query(`UPDATE ${src.deliveries} SET state='failed',lease_until=NULL WHERE state='pending' AND (expires_at<=? OR attempts>=?)`).run(now,MAX_ATTEMPTS)
+    db.query(`INSERT INTO ${src.deliveries}(notification_id,subscription_id,next_at,expires_at)
+      SELECT n.id,s.id,?,strftime('%Y-%m-%dT%H:%M:%fZ',n.created_at,'+1 day') FROM ${src.inbox} n JOIN push_subscriptions s ON s.user_id=n.user_id
       JOIN push_preferences p ON p.user_id=n.user_id AND p.enabled=1
       WHERE n.suppressed=0 AND n.read_at IS NULL AND n.created_at>=s.created_at AND n.created_at>=p.enabled_at AND n.created_at>? AND s.config_key=?
-      AND NOT EXISTS(SELECT 1 FROM push_deliveries d WHERE d.notification_id=n.id AND d.subscription_id=s.id)
+      AND NOT EXISTS(SELECT 1 FROM ${src.deliveries} d WHERE d.notification_id=n.id AND d.subscription_id=s.id)
       ORDER BY n.created_at,n.id LIMIT 500 ON CONFLICT(notification_id,subscription_id) DO NOTHING`).run(now,this.iso(this.o.now()-TTL_MS),key)
+    }
   }
   tick():Promise<void>{
     if(this.work)return this.work
@@ -123,31 +130,33 @@ export class PushService {
     this.enqueue(config);const started=performance.now(),key=pushConfigKey(config)
     // One in-flight transport, at most ten per tick and 30 s total; interval calls never overlap.
     for(let i=0;i<10&&!this.stopped&&performance.now()-started<29_000;i++){
-      const row=this.ctx.db.query("SELECT notification_id,subscription_id,attempts,expires_at FROM push_deliveries WHERE state='pending' AND next_at<=? ORDER BY next_at,notification_id,subscription_id LIMIT 1").get(this.iso()) as Delivery|null
-      if(!row)return
-      const allowed=this.eligible(row.subscription_id,row.notification_id,key)
-      if(!allowed){this.ctx.db.query("UPDATE push_deliveries SET state='cancelled' WHERE notification_id=? AND subscription_id=? AND state='pending'").run(row.notification_id,row.subscription_id);continue}
-      const changed=this.ctx.db.query("UPDATE push_deliveries SET state='sending',attempts=attempts+1,lease_until=? WHERE notification_id=? AND subscription_id=? AND state='pending'").run(this.iso(this.o.now()+35_000),row.notification_id,row.subscription_id)
+      // the delivery due first, of either source
+      let src:Source|null=null,row:Delivery|null=null
+      for(const s of SOURCES){const r=this.ctx.db.query(`SELECT notification_id,subscription_id,attempts,expires_at,next_at FROM ${s.deliveries} WHERE state='pending' AND next_at<=? ORDER BY next_at,notification_id,subscription_id LIMIT 1`).get(this.iso()) as (Delivery&{next_at:string})|null;if(r&&(!row||r.next_at<(row as Delivery&{next_at:string}).next_at)){src=s;row=r}}
+      if(!row||!src)return
+      const allowed=this.eligible(src,row.subscription_id,row.notification_id,key)
+      if(!allowed){this.ctx.db.query(`UPDATE ${src.deliveries} SET state='cancelled' WHERE notification_id=? AND subscription_id=? AND state='pending'`).run(row.notification_id,row.subscription_id);continue}
+      const changed=this.ctx.db.query(`UPDATE ${src.deliveries} SET state='sending',attempts=attempts+1,lease_until=? WHERE notification_id=? AND subscription_id=? AND state='pending'`).run(this.iso(this.o.now()+35_000),row.notification_id,row.subscription_id)
       if(!changed.changes)continue
-      const abort=new AbortController();this.flight={abort,userId:allowed.sub.user_id,sessionId:allowed.sub.session_id,subscriptionId:row.subscription_id,notificationId:row.notification_id,configKey:key}
+      const abort=new AbortController(),r=row,from=src;this.flight={abort,src,userId:allowed.sub.user_id,sessionId:allowed.sub.session_id,subscriptionId:row.subscription_id,notificationId:row.notification_id,configKey:key}
       let status=0
       try{
         this.safeSecrets()
         const sub=this.vault.decrypt(`${allowed.sub.user_id}|${allowed.sub.session_id}|${allowed.sub.id}`,'web-push',allowed.sub.secret_enc,allowed.sub.key_version) as PushSubscription
         const timeout=Math.min(this.o.requestTimeoutMs??10_000,Math.max(1,30_000-(performance.now()-started)))
         const timer=setTimeout(()=>abort.abort(),timeout)
-        try{status=(await bounded(this.o.transport({subscription:sub,payload:{notificationId:row.notification_id,subscriptionId:row.subscription_id,code:allowed.event},config,signal:abort.signal,beforeSend:()=>!abort.signal.aborted&&!!this.eligible(row.subscription_id,row.notification_id,key),ttlSeconds:Math.max(0,Math.floor((Date.parse(row.expires_at)-this.o.now())/1000))}),abort.signal,timeout)).statusCode}
+        try{status=(await bounded(this.o.transport({subscription:sub,payload:{notificationId:row.notification_id,subscriptionId:row.subscription_id,code:allowed.event},config,signal:abort.signal,beforeSend:()=>!abort.signal.aborted&&!!this.eligible(from,r.subscription_id,r.notification_id,key),ttlSeconds:Math.max(0,Math.floor((Date.parse(row.expires_at)-this.o.now())/1000))}),abort.signal,timeout)).statusCode}
         finally{clearTimeout(timer)}
       }catch{/* No provider body, endpoint, key, or raw error is logged. */}
       finally{abort.abort();this.flight=null}
-      if(this.stopped){this.ctx.db.query("UPDATE push_deliveries SET state='pending',next_at=?,lease_until=NULL WHERE notification_id=? AND subscription_id=? AND state='sending'").run(this.iso(this.o.now()+30_000),row.notification_id,row.subscription_id);return}
+      if(this.stopped){this.ctx.db.query(`UPDATE ${src.deliveries} SET state='pending',next_at=?,lease_until=NULL WHERE notification_id=? AND subscription_id=? AND state='sending'`).run(this.iso(this.o.now()+30_000),row.notification_id,row.subscription_id);return}
       if(status===404||status===410){this.ctx.db.query('DELETE FROM push_subscriptions WHERE id=?').run(row.subscription_id);continue}
-      if(!this.eligible(row.subscription_id,row.notification_id,key)){
-        this.ctx.db.query("UPDATE push_deliveries SET state='cancelled',lease_until=NULL WHERE notification_id=? AND subscription_id=? AND state='sending'").run(row.notification_id,row.subscription_id);continue
+      if(!this.eligible(src,row.subscription_id,row.notification_id,key)){
+        this.ctx.db.query(`UPDATE ${src.deliveries} SET state='cancelled',lease_until=NULL WHERE notification_id=? AND subscription_id=? AND state='sending'`).run(row.notification_id,row.subscription_id);continue
       }
       const attempts=row.attempts+1,success=status>=200&&status<300,retry=status===0||status===429||status>=500
       const state=success?'sent':retry&&attempts<MAX_ATTEMPTS?'pending':'failed'
-      this.ctx.db.query("UPDATE push_deliveries SET state=?,next_at=?,lease_until=NULL WHERE notification_id=? AND subscription_id=? AND state='sending'").run(state,this.iso(this.o.now()+(attempts===1?30_000:120_000)),row.notification_id,row.subscription_id)
+      this.ctx.db.query(`UPDATE ${src.deliveries} SET state=?,next_at=?,lease_until=NULL WHERE notification_id=? AND subscription_id=? AND state='sending'`).run(state,this.iso(this.o.now()+(attempts===1?30_000:120_000)),row.notification_id,row.subscription_id)
     }
   }
   start(){if(this.timer||this.stopped)return;this.timer=setInterval(()=>void this.tick(),1000);this.timer.unref?.();void this.tick()}

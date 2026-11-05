@@ -2,10 +2,14 @@ import { z } from 'zod'
 import { endpoint } from './endpoint'
 import { ScheduleRunOutcome } from './schedules'
 /** skillSuggestions: a suggestion to review, and the review result of an own suggestion (R2-SKILL-12) */
-export const NotificationPreferences = z.object({ scheduleSuccess: z.boolean(), scheduleFailure: z.boolean(), connectionReconnect: z.boolean(), skillSuggestions: z.boolean() })
+/** roomMessages: a DM message or an @mention in a room (docs/DECISIONS.md "대화방 v1"); older servers omit it */
+export const NotificationPreferences = z.object({ scheduleSuccess: z.boolean(), scheduleFailure: z.boolean(), connectionReconnect: z.boolean(), skillSuggestions: z.boolean(), roomMessages: z.boolean() })
 export type NotificationPreferences = z.infer<typeof NotificationPreferences>
-/** Events that can also go to OS push (push_deliveries refers to notification_inbox only). */
-export const PushEventType = z.enum(['schedule.success', 'schedule.failure', 'connection.reconnect'])
+/** Events that can also go to OS push. Room notices (room.dm: a DM message, room.mention: an @mention) are kept in
+ * room_notices with their own deliveries (room_push_deliveries); the rest in notification_inbox (push_deliveries). */
+export const PushEventType = z.enum(['schedule.success', 'schedule.failure', 'connection.reconnect', 'room.dm', 'room.mention'])
+/** The room notices among them (server/src/rooms/notices.ts). */
+export const ROOM_PUSH_EVENTS = ['room.dm', 'room.mention'] as const
 export type PushEventType = z.infer<typeof PushEventType>
 /** Skill suggestion notices are inbox only (table skill_notices), and so are dev environment notices (dev_env_notices),
  * an admin's request to connect a service as one's own connection (integration_request_notices), a member's request
@@ -16,7 +20,7 @@ export const NotificationEventType = z.enum([...PushEventType.options, 'skill.su
 export type NotificationEventType = z.infer<typeof NotificationEventType>
 export const InboxNotification = z.object({
   id: z.string(), eventType: NotificationEventType, sourceId: z.string(), code: NotificationEventType,
-  createdAt: z.string(), readAt: z.string().nullable(), chatId: z.string().nullable(), link: z.enum(['chat', 'connections', 'skills', 'project', 'integrations', 'admin_credentials']).nullable(),
+  createdAt: z.string(), readAt: z.string().nullable(), chatId: z.string().nullable(), link: z.enum(['chat', 'connections', 'skills', 'project', 'integrations', 'admin_credentials', 'room']).nullable(),
   /** scheduled runs only: succeeded / finished with problems / failed (the inbox text follows it; older servers omit it) */
   outcome: ScheduleRunOutcome.nullable().optional(),
   /** 'integration.request' only, while the request is there: the service's name and the host of its address (where the
@@ -31,6 +35,9 @@ export const InboxNotification = z.object({
    * (member null once the account is deleted; skill: its plain name), and how many people had run it then, of the
    * goal's target; older servers omit it */
   firstRun: z.object({ member: z.string().nullable(), skill: z.string(), runners: z.number().int().positive(), target: z.number().int().positive() }).optional(),
+  /** 'room.dm' and 'room.mention' only, while the person is still in the room and the message is there: the room (link
+   * 'room' opens /rooms/<id>) and who wrote it, by name. Never the message's text; older servers omit it */
+  room: z.object({ id: z.string(), from: z.string().nullable() }).optional(),
   /** 'schedule.failure' only: scheduled tasks nobody confirmed were paused until their owner checks them again
    * (Settings › Scheduled tasks, "다시 확인"); older servers omit it */
   review: z.boolean().optional(),
