@@ -1,4 +1,4 @@
-// Demo mode (`bun run demo:trina`, docs/DECISIONS.md "Demo company: a new hire at 트리나"): GET /api/demo answers only on
+// Demo mode (`bun run demo:company`, docs/DECISIONS.md "Demo company: a new hire at 트리나"): GET /api/demo answers only on
 // a development server started for the demo; everywhere else it is 404 and nothing of the demo shows. Read once per
 // page load (a persona switch reloads the page).
 import { create } from 'zustand'

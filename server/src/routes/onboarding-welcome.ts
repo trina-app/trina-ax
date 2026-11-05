@@ -6,6 +6,8 @@ import { API } from '@mycel/shared/api'
 import { fail } from '../http/errors'
 import { dismissSuggestion, resultSuggestion } from '../onboarding/suggestions'
 import { installWelcomePack, readWelcome, setupWelcomeTeam, updateWelcome } from '../onboarding/welcome'
+import { startFirstResult } from '../onboarding/welcome-result'
+import { getChatRuntime } from '../chat/runtime'
 import type { RouteModule } from './module'
 
 export const onboardingWelcomeRoutes: RouteModule = {
@@ -23,6 +25,11 @@ export const onboardingWelcomeRoutes: RouteModule = {
       // the pack and the team folder are written as the owner through the file layer (their folder rules)
       try { ctx.files.principal(auth.user.id) } catch { return fail('forbidden') }
       return setupWelcomeTeam(ctx, auth.user.id, c.get('locale'))
+    })
+    kit.handle(API.startFirstResult, ({ auth, c, body }) => {
+      // the pictures, 회사 소개.md and the chat are written as the owner through the file layer (their folder rules)
+      try { ctx.files.principal(auth.user.id) } catch { return fail('forbidden') }
+      return startFirstResult(ctx, getChatRuntime(ctx), auth, c.get('locale'), body)
     })
     kit.handle(API.getResultSuggestion, ({ query, auth }) => ({ suggestion: resultSuggestion(ctx, auth.user.id, query.chatId, query.messageId) }))
     kit.handle(API.dismissSuggestion, ({ body, auth }) => { dismissSuggestion(ctx, auth.user.id, body.key) })

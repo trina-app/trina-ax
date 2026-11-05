@@ -1,0 +1,69 @@
+{
+ "v": 1,
+ "username": "alex",
+ "userId": "alex",
+ "prompt": "Make a one-page Word brief of the November campaign for me and save it in my folder",
+ "kind": "showcase",
+ "recordedAt": "2026-11-05T04:38:42.309Z",
+ "engine": "claude-code",
+ "model": "claude-opus-5-5",
+ "events": [
+  {
+   "type": "tool",
+   "t": 2866,
+   "name": "mcp__team__set_title",
+   "input": {
+    "title": "November campaign one-page brief"
+   },
+   "ok": true,
+   "ms": 10
+  },
+  {
+   "type": "tool",
+   "t": 3480,
+   "name": "mcp__team__grep",
+   "input": {
+    "pattern": "(?i)november|nov campaign"
+   },
+   "ok": true,
+   "ms": 35
+  },
+  {
+   "type": "tool",
+   "t": 5824,
+   "name": "mcp__team__read",
+   "input": {
+    "file_path": "groups/Marketing/november-campaign-plan.md"
+   },
+   "ok": true,
+   "ms": 6
+  },
+  {
+   "type": "tool",
+   "t": 6168,
+   "name": "mcp__team__read",
+   "input": {
+    "file_path": "groups/Marketing/meetings/2026-11-03-marketing-weekly.md"
+   },
+   "ok": true,
+   "ms": 4
+  },
+  {
+   "type": "tool",
+   "t": 18163,
+   "name": "mcp__team__make_file",
+   "input": {
+    "format": "docx",
+    "output": "users/alex/november-campaign-brief.docx",
+    "content": "# November campaign brief: \"Book the desk, skip the guesswork\"\n\n**Owner:** Sam Ortiz · **Dates:** Monday, November 16 to Sunday, December 13, 2026 · **Product:** Acme Desk Pro, first month free for new teams\n\n## Goal\n120 trial sign-ups from offices of 10 to 200 people (October: 74). Cost per sign-up under $75 (October: $82).\n\n## Message\n- **One line:** \"See who is in, book a desk in two taps.\"\n- **Proof:** Harbor Labs cut empty desks from 40% to 15% in two months (approved by Harbor Labs).\n- **Avoid:** \"the best\", \"number one\", numbers we cannot show.\n\n## Budget: $12,000 (Marketing Q4 budget)\n- Ads: $9,000. Plan: search $5,000, LinkedIn $4,000. Decided November 3: search gets $500 more of the ads budget.\n- Content: $3,000 (two short videos, one customer story)\n\n## Channels and timing\n| Channel | What | When |\n|---|---|---|\n| Website | Landing page with a 2-minute product tour | Live Monday, November 16 |\n| Search ads | \"desk booking app\", \"hot desk software\" | November 16 to December 13 |\n| LinkedIn | Two videos for office managers | November 18 to December 10 |\n| Newsletter | Customer story and the free month | Thursday, November 19 and Thursday, December 3 |\n\n## Status (November 3)\nLanding page copy is final. The two LinkedIn videos are in editing. In October, search did better than LinkedIn.\n\n## Key tasks\n| Owner | Task | Due |\n|---|---|---|\n| Jordan Lee | Search ads: new keywords and the extra $500 | Monday, November 9 |\n| Jordan Lee | Final cut of the two LinkedIn videos | Wednesday, November 11 |\n| Alex Kim | Draft the November 19 newsletter | Thursday, November 12 |\n| Alex Kim | Collect three customer quotes for the landing page from Sales | Friday, November 13 |\n| Sam Ortiz | Sign off the landing page and the videos | Friday, November 13 |\n\n## How we measure\nTrial sign-ups · cost per sign-up (target under $75) · trials that become paid within 30 days\n\n*Sources: groups/Marketing/november-campaign-plan.md; groups/Marketing/meetings/2026-11-03-marketing-weekly.md*\n"
+   },
+   "ok": true,
+   "ms": 456
+  },
+  {
+   "type": "text",
+   "t": 25330,
+   "text": "I made the one-page brief and saved it in your folder: [november-campaign-brief.docx](/files/view?path=users%2Falex%2Fnovember-campaign-brief.docx).\n\nIt covers:\n- **Goal:** 120 trial sign-ups (October had 74), and a cost per sign-up under $75 (October was $82)\n- **Message:** the one-line pitch, the Harbor Labs result (empty desks cut from 40% to 15%) and the words to avoid\n- **Budget:** $12,000 in total: $9,000 for ads and $3,000 for content\n- **Channels and timing:** the website, search ads, LinkedIn and the newsletter, from Monday, November 16 to Sunday, December 13\n- **Status and key tasks:** where things stood at the November 3 meeting, with who does what and by when. Your two tasks are there: the newsletter draft is due Thursday, November 12, and the customer quotes are due Friday, November 13.\n\n**Budget needs checking:** At the November 3 meeting, the team gave search $500 more from the ads budget. The plan still lists search at $5,000 and LinkedIn at $4,000. The notes don't say whether the $500 comes out of LinkedIn's share, so the brief shows the plan's numbers next to that decision. Sam Ortiz can confirm the final split.\n\nSources: [november-campaign-plan.md](/files/view?path=groups%2FMarketing%2Fnovember-campaign-plan.md), [2026-11-03-marketing-weekly.md](/files/view?path=groups%2FMarketing%2Fmeetings%2F2026-11-03-marketing-weekly.md)"
+  }
+ ]
+}

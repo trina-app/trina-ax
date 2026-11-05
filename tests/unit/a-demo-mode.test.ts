@@ -1,4 +1,4 @@
-// Demo mode (MYCEL_DEMO, `bun run demo:trina`; docs/DECISIONS.md "Demo company: a new hire at 트리나"). The product has no
+// Demo mode (MYCEL_DEMO, `bun run demo:company`; docs/DECISIONS.md "Demo company: a new hire at 트리나"). The product has no
 // "sign in as someone else": the demo's person switch must not exist without the flag, the flag must stop any server
 // that is not a development server, and the switch must be a sign-in of the seeded member account (its password, its
 // audit row, its session), ending the previous session. A demo can be open to every network its Mac is on with a public

@@ -26,12 +26,17 @@
 #   --dry-run                   print every aws command, run none, make nothing
 #   --yes, -y                   no confirmation prompt (needed when stdin is not a terminal)
 #   --cleanup STATEFILE         remove what a failed run left behind (only the ids in its state file), then exit
+#   --manifest-v2 …             (first argument) no build: run ami-manifest-v2.sh with the other arguments. It copies
+#                               a built AMI to more regions and/or writes the signed v2 manifest
+#                               teamax-<templateVersion>.v2.ami.json for a hostd with several regions (see its --help)
 #
 # What it does:
 #   1. A temporary security group (SSH from --ssh-cidr only) and a builder instance from the Debian AMI. Its SSH host
 #      key and login key are made here and sent in user-data, so the first SSH login checks a known host key.
 #   2. A 20 GiB gp3 work volume (encrypted) from the Debian AMI's root snapshot, attached to the builder.
-#   3. ami-chroot.sh on the builder: grow the file system, run customize.sh in a chroot on the work volume.
+#   3. ami-chroot.sh on the builder: grow the file system, run customize.sh in a chroot on the work volume. It also
+#      puts the dev environment on srt (packages, node, srt; scripts/dev-env/srt/install-srt.sh --image-mode) into the
+#      image. The dev environment stays off until install-srt.sh runs on the team server.
 #   4. Detach, snapshot (wait "completed"), RegisterImage (x86_64, ENA, uefi-preferred, IMDSv2, /dev/xvda).
 #   5. Terminate the builder, delete the work volume and the security group.
 #   6. Write teamax-<templateVersion>.ami.json once, then its .sha256 and .sig. The release key signs
@@ -46,6 +51,7 @@
 set -euo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO="$(cd "$HERE/../.." && pwd)"
+if [[ "${1:-}" == --manifest-v2 ]]; then shift; exec "${BASH:-/bin/bash}" "$HERE/ami-manifest-v2.sh" "$@"; fi
 
 KIT=""; ENROLL_BIN=""; LINK_BIN=""; SUBNET=""; REGION=ap-northeast-2; PROFILE=""; ACCOUNT_WANT=""; SOURCE_AMI=""
 BUILDER_TYPE=t3a.medium; SSH_CIDR=""; DATE="$(date -u +%Y%m%d)"; SIGN_KEY=""; OUT="$REPO/dist/image"; ROOT_GB=20
@@ -72,7 +78,7 @@ while [[ $# -gt 0 ]]; do
     --dry-run) DRY=1; shift ;;
     --yes|-y) YES=1; shift ;;
     --cleanup) CLEANUP_STATE="$2"; shift 2 ;;
-    -h|--help) sed -n '2,45p' "$0"; exit 0 ;;
+    -h|--help) sed -n '2,50p' "$0"; exit 0 ;;
     *) echo "build-ami: unknown argument $1" >&2; exit 2 ;;
   esac
 done
@@ -245,6 +251,13 @@ for pair in "enroll:$ENROLL_BIN" "link:$LINK_BIN"; do
   fi
 done
 cp -a "$HERE/customize.sh" "$HERE/files" "$STAGE/"
+# the dev environment on srt, image part (customize.sh --srt, default <stage>/dev-env-srt): only the install files
+SRT_FILES=(install-srt.sh uninstall-srt.sh package.json package-lock.json run-wrap devenv.rules.in devenv.slice.in README.md)
+mkdir -p "$STAGE/dev-env-srt"
+for f in "${SRT_FILES[@]}"; do
+  [[ -f "$REPO/scripts/dev-env/srt/$f" ]] || die "missing scripts/dev-env/srt/$f"
+  cp -p "$REPO/scripts/dev-env/srt/$f" "$STAGE/dev-env-srt/"
+done
 cp "$HERE/ami-chroot.sh" "$WORK/stage/ami-chroot.sh"
 
 TEMPLATE_VERSION="$KIT_VERSION-d13-$DATE"

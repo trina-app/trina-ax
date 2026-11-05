@@ -255,7 +255,8 @@ describe('draft turns', () => {
     expect((await h.req('dana', `/api/onboarding/profile/draft/${chatId}`)).status).toBe(404)
     const s = await settled('carol', chatId)
     // the fake engine's answer is not JSON: done, no draft
-    expect(s).toEqual({ status: 'done', website: 'https://www.acme.co.kr/', draft: null, error: null, steps: [], writing: false })
+    // nothing was opened: no pictures or colours either (docs/DECISIONS.md "N")
+    expect(s).toEqual({ status: 'done', website: 'https://www.acme.co.kr/', draft: null, error: null, steps: [], writing: false, assets: { images: 0, logo: false, colors: [] } })
   })
 
   test('its own instructions, web_fetch the only tool besides the refused team files, no web search', async () => {

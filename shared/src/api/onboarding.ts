@@ -5,6 +5,7 @@
 // they typed (at most 4 pages); the person checks, edits and saves it with PUT.
 import { z } from 'zod'
 import { endpoint } from './endpoint'
+import { SKILL_SHARE } from './onboarding-skill'
 
 /** The fields of a profile that reach the AI (website besides). Skill inputs read them as `company.<field>`. `name`
  * (the company's name) is optional: profiles saved before it have none, and an empty one reads as the team's name. */
@@ -18,7 +19,11 @@ export const PROFILE_LIMITS = {
   /** tone: at most this many chips, each at most toneItem characters */
   toneCount: 4, toneItem: 20,
   sources: 10, sourceUrl: 500, excerpt: 200,
+  /** brand colours (#rrggbb), at most this many */
+  colors: 5,
 } as const
+/** A brand colour as the profile keeps it: "#rrggbb", lower case. */
+export const BrandColor = z.string().regex(/^#[0-9a-f]{6}$/)
 /** The rendered facts of a profile (labels included) in the AI's instructions: at most this many characters. */
 export const PROFILE_BLOCK_MAX = 2000
 /** A draft from pasted text: at most this many characters of it. */
@@ -43,6 +48,9 @@ export const CompanyProfileInput = z.object({
   tone: z.array(z.string().max(PROFILE_LIMITS.toneItem)).max(PROFILE_LIMITS.toneCount),
   avoid: z.string().max(PROFILE_LIMITS.avoid),
   sources: z.array(ProfileSource).max(PROFILE_LIMITS.sources),
+  /** the brand colours (main first), read from the website by the server (its theme colour, its style sheets, the
+   * logo) and kept or removed by the person; absent on profiles from before them (docs/DECISIONS.md "N") */
+  colors: z.array(BrandColor).max(PROFILE_LIMITS.colors).optional(),
 }).strict()
 export type CompanyProfileInput = z.infer<typeof CompanyProfileInput>
 
@@ -110,6 +118,10 @@ export const ProfileDraftState = z.object({
   /** running, no page open, and a page was opened before (or the answer has begun its JSON): the AI is working on the
    * profile from what it read (it may still open another page). Absent: not known. */
   writing: z.boolean().optional(),
+  /** what the server collected from the pages it opened for the latest answer (docs/DECISIONS.md "N"): images it saved
+   * aside for the brand folder (the logo among them when there was one) and the brand colours it found, main first.
+   * The images go into the team's brand folder when the first result starts. Absent from servers before it. */
+  assets: z.object({ images: z.number().int().nonnegative(), logo: z.boolean(), colors: z.array(BrandColor).max(PROFILE_LIMITS.colors) }).optional(),
 })
 export type ProfileDraftState = z.infer<typeof ProfileDraftState>
 
@@ -154,4 +166,6 @@ export const ONBOARDING = {
     summary: 'Draft the company profile in a new chat of the caller: the AI reads the website (that host or platform path, at most 4 pages) or the pasted text.' }),
   getProfileDraft: endpoint({ method: 'GET', path: '/api/onboarding/profile/draft/:chatId', auth: 'admin', owner: 'B', response: ProfileDraftState,
     summary: 'The state of a profile draft chat of the caller: the draft read from its latest answer, and the pages the server opened or refused for it (addresses, titles and outcomes, no page text).' }),
+  // the lead's way of working becomes a team skill (onboarding-skill.ts)
+  ...SKILL_SHARE,
 } as const

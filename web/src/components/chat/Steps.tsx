@@ -143,7 +143,8 @@ export default function Steps({ steps: all, streaming, receipt }: { steps: Step[
   // a team skill on team files, once the answer is done
   const rec = !streaming && receipt && receipt.teamFiles > 0 ? receipt : null
   const skill = useSkillTitle(rec?.skill.path ?? null, rec?.skill.name ?? '')
-  const receiptText = rec ? t('steps.receipt', { skill, n: rec.teamFiles }) : null
+  // a skill someone else made ("S"): "김지훈님의 팀 스킬 '견적서 쓰기' · 팀 파일 1개"
+  const receiptText = rec ? (rec.skill.by ? t('steps.receiptBy', { by: rec.skill.by, skill, n: rec.teamFiles }) : t('steps.receipt', { skill, n: rec.teamFiles })) : null
   if (!steps.length) return receiptText ? <p className="mb-3 px-1 text-[13px] text-faint" data-testid="steps-receipt">{receiptText}</p> : null
   const { top, kids } = groupSteps(steps)
   // images the AI chose to show (shared browser screenshots) stay visible even when the list is folded

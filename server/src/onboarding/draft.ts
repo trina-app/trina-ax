@@ -26,6 +26,7 @@ import { budgetBlock } from '../admin/budgets'
 import { precheckTarget } from '../tools/web-fetch'
 import { normUrl, siteOf, MAX_UNCONFIRMED_QUERY, type WebPageEntry, type WebPageFailure, type WebPageLog } from '../tools/url-gate'
 import { cleanProfile, profileEmpty } from './profile'
+import { brandAssetsOf, type BrandCollector } from './brand-assets'
 
 /** Pages one answer of a draft chat may open: the home page and up to three linked from it. */
 export const DRAFT_PAGES_MAX = PROFILE_DRAFT_PAGES_MAX
@@ -155,7 +156,11 @@ export class DraftPages implements WebPageLog {
   private ended = 0
   /** how much of the answer was written when a page last started or ended */
   private textAt = 0
-  constructor(private db: Database, private messageId: string, private log: Pick<Logger, 'warn'>, private textLength: () => number = () => 0) {}
+  /** web_fetch keeps each page's markup for the brand collector (docs/DECISIONS.md "N") */
+  readonly wantsHtml: boolean
+  constructor(private db: Database, private messageId: string, private log: Pick<Logger, 'warn'>, private textLength: () => number = () => 0, private brand: BrandCollector | null = null) {
+    this.wantsHtml = !!brand
+  }
 
   /** a call refused before it ran: outside the site, or no page left */
   refused(url: string, reason: 'off_site' | 'limit'): void {
@@ -177,7 +182,11 @@ export class DraftPages implements WebPageLog {
       if (seq !== null) this.end(seq, status, reason, finalUrl, title)
     }
     return {
-      ok: (r) => finish(r.chars < DRAFT_EMPTY_CHARS ? 'failed' : 'ok', r.chars < DRAFT_EMPTY_CHARS ? 'empty' : null, r.url, r.title?.replace(/\s+/g, ' ').trim() || null),
+      ok: (r) => {
+        finish(r.chars < DRAFT_EMPTY_CHARS ? 'failed' : 'ok', r.chars < DRAFT_EMPTY_CHARS ? 'empty' : null, r.url, r.title?.replace(/\s+/g, ' ').trim() || null)
+        // the page's own pictures, colours and text for the brand folder and 회사 소개.md (in the background)
+        if (this.brand && r.chars >= DRAFT_EMPTY_CHARS && r.text !== undefined) this.brand.page({ url: r.url, title: r.title, text: r.text, html: r.html }, r.fetch ?? {})
+      },
       failed: (why: WebPageFailure, hop?: string) => finish('failed', why, hop ?? null, null),
     }
   }
@@ -296,7 +305,8 @@ export function answerJson(text: string): unknown {
 export function parseDraftAnswer(text: string, s: DraftScope): CompanyProfileInput | null {
   const raw = answerJson(text)
   const sourceOk = (u: string) => (s.source === 'text' ? u === '' : !!u && !!s.web && inWebScope(s.web, u))
-  const p = cleanProfile(raw && typeof raw === 'object' ? { ...(raw as object), website: s.website } : raw, sourceOk)
+  // colours are the server's (what it found on the pages, GET's `assets`), never the AI's
+  const p = cleanProfile(raw && typeof raw === 'object' ? { ...(raw as object), website: s.website, colors: undefined } : raw, sourceOk)
   if (!p) return null
   return profileEmpty({ ...p, website: '' }) ? null : p
 }
@@ -409,7 +419,7 @@ export function profileDraftState(ctx: AppContext, rt: ChatRuntime, userId: stri
   const answer = leaf?.role === 'assistant' ? leaf : null
   // the pages of the latest answer as the server opened or refused them (no page text), for the person who asked only
   const steps = answer ? draftPages(ctx.db, answer.id, answer.status !== 'streaming') : []
-  const base = { website: scope.website, draft: null, error: null, steps, writing: false }
+  const base = { website: scope.website, draft: null, error: null, steps, writing: false, ...(scope.source === 'website' ? { assets: brandAssetsOf(ctx.db, chat.id) } : {}) }
   if (!answer || answer.status === 'streaming') {
     const exec = answer ? rt.execForMessage(answer.id) : undefined
     return { ...base, status: 'running', writing: !!exec?.profileDraft?.pages?.writing(exec.content) }
