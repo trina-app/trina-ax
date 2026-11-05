@@ -136,7 +136,9 @@ test('one DM per pair, from either side; never with oneself or a disabled accoun
   await owner.call('PATCH', `/api/admin/users/${otto.id}`, { status: 'disabled' })
   expect((await mia.client.try('POST', '/api/rooms', { kind: 'dm', userId: otto.id })).status).toBe(404)
   expect((await mia.client.try('POST', '/api/rooms', { kind: 'group', memberIds: [nora.id] })).status).toBe(400)
-  expect(h.ctx.db.query("SELECT COUNT(*) n FROM audit_log WHERE action = 'room.create' AND target = ?").get(a.id)).toEqual({ n: 1 })
+  // admins read the audit log: who opened a DM with whom is not in it
+  const rows = h.ctx.db.query('SELECT action, target, detail FROM audit_log').all() as { action: string; target: string | null; detail: string | null }[]
+  expect(rows.filter((r) => r.target === a.id || (r.detail ?? '').includes(a.id) || (r.detail ?? '').includes('"dm"'))).toEqual([])
 })
 
 test('unread: each message counts the members who have not read it; reads move forward only', async () => {

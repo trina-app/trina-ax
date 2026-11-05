@@ -84,7 +84,7 @@ export class Rooms {
     return roomOut(this.db, room, me)
   }
 
-  /** The DM with `otherId` (made when there is none yet; audited). Only an active person other than me. */
+  /** The DM with `otherId` (made when there is none yet; not audited). Only an active person other than me. */
   openDm(userId: string, otherId: string): Room {
     if (otherId === userId) fail('validation', undefined, { fields: { 'body.userId': 'yourself' } })
     const other = this.db.query("SELECT id FROM users WHERE id = ? AND status = 'active' AND deleted_at IS NULL").get(otherId)
@@ -100,7 +100,7 @@ export class Rooms {
           const add = this.db.query('INSERT INTO room_members (room_id, user_id, joined_at) VALUES (?, ?, ?)')
           add.run(id, userId, now)
           add.run(id, otherId, now)
-          audit(this.db, { actor: userId, action: 'room.create', target: id, detail: { kind: 'dm', memberIds: [userId, otherId].sort() } })
+          // not audited: the audit log is the admins' to read, and they must not learn who talks to whom
         })()
       } catch (e) {
         // the other person opened the same DM at the same moment (UNIQUE dm_key): theirs is the one

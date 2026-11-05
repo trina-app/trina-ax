@@ -7949,7 +7949,8 @@ every week. Placement: Team AX core (skills, files and permissions, the team lin
   their `GET /api/rooms` (a new account from an invite or the team link), and once a minute. A disabled or deleted
   account leaves the rooms (its unread count would never go down otherwise); turned on again it joins again, from then
   on. A group deleted: its room is archived with nobody in it (rows kept; nobody can read them; a purge is for later).
-  Member changes and room creation are audited (`room.create`, `room.members`, `room.archive`); a message's text never.
+  Team and everyone rooms' creation and member changes are audited (`room.create`, `room.members`, `room.archive`); a
+  DM is not (admins read the audit log and must not learn who talks to whom), and a message's text never is.
 - **A later member sees from their join on.** `room_members.visible_from_seq` is the room's `last_seq` when they
   joined (0 for the first members at the first start): messages, the last-message line, unread counts, quotes of earlier
   messages ("deleted" for them) and room files all go by it. Their read position starts there too.

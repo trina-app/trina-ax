@@ -437,7 +437,7 @@ The API serves the Trina AX apps. It is not yet a stable public API for other pr
 | Method | Path | Who | What it does |
 |---|---|---|---|
 | `GET` | `/api/rooms` | Signed in | The rooms I am in (my team rooms, everyone, DMs), most recent activity first, with my unread count and the last message. |
-| `POST` | `/api/rooms` | Signed in | Open the DM with a person (the existing one when there is one); a new one is audited. |
+| `POST` | `/api/rooms` | Signed in | Open the DM with a person (the existing one when there is one). Not audited: admins do not learn who talks to whom. |
 | `GET` | `/api/rooms/:id` | Signed in | One room I am in (404 for anyone else, admins included). |
 | `PATCH` | `/api/rooms/:id` | Signed in | Mute or unmute a room for me. |
 | `GET` | `/api/rooms/:id/messages` | Signed in | Messages of a room I am in from my join on, newest page first, oldest first within it; each with its unread count. |
