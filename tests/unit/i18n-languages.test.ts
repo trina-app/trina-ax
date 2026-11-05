@@ -161,7 +161,7 @@ const KOREAN_ALLOWED: Record<string, { why: string; also?: RegExp }> = {
   'server/src/system/update-job.ts': { why: 'update progress lines (ko next to en/id/ja/es)' },
   'server/src/onboarding/profile.ts': { why: 'company profile save refusals (ko next to en/id/ja/es)' },
   'server/src/onboarding/draft.ts': { why: 'company profile draft: the request message, chat title and refusals (ko next to en/id/ja/es)' },
-  'server/src/onboarding/skill-draft.ts': { why: 'team skill draft: the request and rewrite messages, chat title, refusals, the skill file\'s headings and fixed lines, the examples the model gets (ko next to en/id/ja/es)', also: /^\s*(ko: \{ title1:|files: \{ ko:|how: \{ ko:|rules: \{ ko:)/ },
+  'server/src/onboarding/skill-draft.ts': { why: 'team skill draft: the request and rewrite messages, chat title, refusals, the skill file\'s headings and fixed lines, the examples the model gets (ko next to en/id/ja/es)', also: /^\s*(ko: \{ title1:|files: \{ ko:|how: \{ ko:|rules: \{ ko:|ko: \(folder: string, like: string\) =>)/ },
   'server/src/onboarding/specifics.ts': { why: 'the Korean job titles, words that are no one\'s name, day and money words looked for in a run so they do not stay in a team skill (not screen text)', also: /./ },
   'shared/src/api/onboarding-packs.ts': { why: 'the marketing pack\'s team folder names (ko next to en/id/ja/es)' },
   'server/src/demo/guard.ts': { why: 'demo mode refusals (ko next to en/id/ja/es)' },
