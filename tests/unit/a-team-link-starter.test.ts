@@ -51,7 +51,7 @@ test('made with a starter: only files a new member with the link\'s groups could
   expect((await owner.try('POST', '/api/admin/team-link', { skillPath: TASKS, starter: { kind: 'mine', files } })).status).toBe(400)
 
   const { link } = await owner.call('POST', '/api/admin/team-link', { groupIds: [team.id], skillPath: TASKS, starter: { kind: 'tasks', files: [...files, 'groups/Acme/회의록/없는 파일.md', '../etc/passwd'] } })
-  expect(link.starter).toEqual({ kind: 'tasks', files: 2 })
+  expect(link.starter).toEqual({ kind: 'tasks', files: 2, paths: files })
   const stored = JSON.parse((h.ctx.db.query('SELECT starter FROM team_links WHERE id = ?').get(link.id) as { starter: string }).starter)
   expect(stored).toEqual({ kind: 'tasks', files })
   const audit = h.ctx.db.query("SELECT detail FROM audit_log WHERE action = 'team_link.create' AND target = ?").get(link.id) as { detail: string }
@@ -73,11 +73,11 @@ test('at the join each file is checked with the new account: one they cannot rea
   setPlanForTests(null)
   const files = ['groups/Acme/회의록/11-03 주간회의.md', 'shared/공지.md']
   const { link } = await owner.call('POST', '/api/admin/team-link', { groupIds: [team.id], skillPath: TASKS, starter: { kind: 'brief', files } })
-  expect(link.starter).toEqual({ kind: 'brief', files: 2 })
+  expect(link.starter).toEqual({ kind: 'brief', files: 2, paths: files })
   // the team folder's rules change after the link was made: the notes are kept from people who are not admins
   const folder = h.ctx.db.query("SELECT id FROM folders WHERE path = 'groups/Acme'").get() as { id: string }
   await owner.call('PUT', `/api/admin/folders/${folder.id}/rules`, { rules: [{ subjectType: 'everyone', subjectId: null, access: 'none' }] })
-  expect((await owner.call('GET', '/api/admin/team-link')).link.starter).toEqual({ kind: 'brief', files: 1 })
+  expect((await owner.call('GET', '/api/admin/team-link')).link.starter).toEqual({ kind: 'brief', files: 1, paths: ['shared/공지.md'] })
   const r = await join(tokenOf(link.url))
   expect(r.status).toBe(201)
   expect(r.body.starter.files).toEqual([{ path: 'shared/공지.md', name: '공지.md' }])
@@ -102,11 +102,11 @@ test('PATCH changes the open link\'s skill and starter and adds groups, keeping 
   const lone = await owner.call('PATCH', '/api/admin/team-link', { skillPath: TASKS, starter: { kind: 'tasks', files: notes } })
   expect(lone.link.starter).toBeNull()
   const r = await owner.call('PATCH', '/api/admin/team-link', { skillPath: TASKS, starter: { kind: 'tasks', files: notes }, addGroupIds: [team.id] })
-  expect(r.link).toMatchObject({ id: link.id, url: link.url, groupIds: [team.id], skill: { path: TASKS, title: '할 일 정리' }, starter: { kind: 'tasks', files: 1 } })
+  expect(r.link).toMatchObject({ id: link.id, url: link.url, groupIds: [team.id], skill: { path: TASKS, title: '할 일 정리' }, starter: { kind: 'tasks', files: 1, paths: notes } })
   // adding the same group again keeps one; groups are never removed by PATCH
   const again = await owner.call('PATCH', '/api/admin/team-link', { addGroupIds: [team.id] })
   expect(again.link.groupIds).toEqual([team.id])
-  expect(again.link.starter).toEqual({ kind: 'tasks', files: 1 })
+  expect(again.link.starter).toEqual({ kind: 'tasks', files: 1, paths: notes })
   // the member who joins gets the group and the notes
   const j = await join(tokenOf(link.url))
   expect(j.body.starter.files).toEqual([{ path: notes[0], name: '11-03 주간회의.md' }])

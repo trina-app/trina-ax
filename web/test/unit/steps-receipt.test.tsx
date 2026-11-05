@@ -8,7 +8,7 @@ import { MemoryRouter } from 'react-router-dom'
 import type { Message, Step } from '@mycel/shared/api'
 import { translate, useLocaleStore } from '../../src/i18n'
 import Steps from '../../src/components/chat/Steps'
-import { AssistantMessage } from '../../src/components/chat/Messages'
+import { AssistantMessage, UserText } from '../../src/components/chat/Messages'
 import { CHAT, msg, step } from './fixtures'
 import { installDom, mount, removeDom } from './dom-host'
 
@@ -86,5 +86,34 @@ describe('the receipt', () => {
     try {
       await m.until(() => m.find('steps-receipt')?.textContent === "팀 스킬 '할 일 정리' · 팀 파일 2개", 'the receipt')
     } finally { await m.unmount() }
+  })
+})
+
+// A question that runs a skill reads as the skill's title (a chip) and the question; the command is what was sent
+// ("/meeting-tasks …" in the transcript, copy and edit) and what runs.
+describe('a question that runs a skill', () => {
+  test('"/meeting-tasks 이 회의록으로…" shows the chip "할 일 정리" and the question; a form\'s lines follow the chip', async () => {
+    let m = await mount(<UserText content="/meeting-tasks 이 회의록으로 이번 주 할 일, 사람별로 정리해 줘" clamp />)
+    try {
+      await m.until(() => m.find('skill-chip'), 'the chip')
+      expect(m.get('skill-chip').textContent).toBe('할 일 정리')
+      expect(m.get('user-text-skill').textContent).toBe('할 일 정리이 회의록으로 이번 주 할 일, 사람별로 정리해 줘')
+      expect(m.html()).not.toContain('/meeting-tasks 이')
+    } finally { await m.unmount() }
+    m = await mount(<UserText content={'/meeting-tasks\n누구 할 일: 내 할 일만'} clamp />)
+    try {
+      await m.until(() => m.find('skill-chip'), 'the chip')
+      expect(m.get('user-text-skill').textContent).toBe('할 일 정리누구 할 일: 내 할 일만')
+    } finally { await m.unmount() }
+  })
+
+  test('a command no skill of the person\'s has, or plain text, stays as typed', async () => {
+    for (const text of ['/etc/hosts 열어 줘', '/nope 해 줘', '회의록 정리해 줘']) {
+      const m = await mount(<UserText content={text} clamp />)
+      try {
+        await m.settle(30)
+        expect({ text, chip: !!m.find('skill-chip'), shown: m.container.textContent }).toEqual({ text, chip: false, shown: text })
+      } finally { await m.unmount() }
+    }
   })
 })

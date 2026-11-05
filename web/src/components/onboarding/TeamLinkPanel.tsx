@@ -22,11 +22,30 @@ import { Button, Field, Skeleton, confirmDialog, inputCls, useCopy } from '../ui
 import { GroupChecks } from '../../pages/admin/people-choices'
 import { Loadable, OneLine, useAction, useActionOk, useLoad } from '../../pages/admin/common'
 
-/** Does the open link already carry this starter, this skill and the team's group? (A link that cannot be shared is
- * replaced with a new one instead.) */
-export function linkDiffers(link: TeamLink | null, want: { skillPath: string; starter: TeamLinkStarter; groupId: string | null }): boolean {
+type Want = { skillPath: string; starter: TeamLinkStarter; groupId: string | null }
+const sameFiles = (a: readonly string[], b: readonly string[]) => {
+  const x = [...new Set(a)].sort()
+  const y = [...new Set(b)].sort()
+  return x.length === y.length && x.every((p, i) => p === y[i])
+}
+/** what a change asked for on this link (its id, the kind, the skill, the files): asked once per page load. The server
+ * may keep fewer files (one a newcomer could not read) and the link then still differs: asking again would change
+ * nothing, so it is not asked again. */
+const patched = new Set<string>()
+const patchKey = (link: TeamLink, want: Want) => `${link.id}|${want.starter.kind}|${want.skillPath}|${[...want.starter.files].sort().join('\u0000')}`
+/** Call when the change went out (or was refused): this link is not changed again for the same wish. */
+export const markPatched = (link: TeamLink, want: Want) => { patched.add(patchKey(link, want)) }
+/** test hook */
+export const forgetPatched = () => patched.clear()
+
+/** Does the open link lead elsewhere than this starter, skill and team group (the file list itself, not only how many)?
+ * A link that cannot be shared is replaced with a new one instead; a wish already sent for this link is not sent again. */
+export function linkDiffers(link: TeamLink | null, want: Want): boolean {
   if (!link || link.state !== 'active' || !link.url) return false
-  return link.starter?.kind !== want.starter.kind || link.starter?.files !== want.starter.files.length || link.skill?.path !== want.skillPath
+  if (patched.has(patchKey(link, want))) return false
+  const files = link.starter?.paths
+  return link.starter?.kind !== want.starter.kind || link.skill?.path !== want.skillPath
+    || (files ? !sameFiles(files, want.starter.files) : link.starter?.files !== want.starter.files.length)
     || (!!want.groupId && !link.groupIds.includes(want.groupId))
 }
 
@@ -75,6 +94,8 @@ export function TeamLinkPanel({ withGroups = true, skillPicker = true, skillPath
   useEffect(() => {
     if (!wantPatch || !want) return
     setPatch('running')
+    // once for this link and this wish, whatever the answer (a refusal says so; trying again on every open would not help)
+    if (state.data?.link) markPatched(state.data.link, want)
     void act(() => api.call(API.updateTeamLink, { body: { skillPath: want.skillPath, starter: want.starter, addGroupIds: want.groupId ? [want.groupId] : [] } })).then((r) => {
       if (r) state.setData(r)
       setPatch('done')

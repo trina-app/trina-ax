@@ -10,6 +10,7 @@ import { listSkills, skillIssues } from '../../server/src/chat/skills'
 import { authorize } from '../../server/src/policy/authorize'
 import { SKILL_PACKS } from '../../server/src/onboarding/skill-packs'
 import { WELCOME_SETTING } from '../../server/src/onboarding/welcome'
+import { packInstalled } from '../../server/src/onboarding/tenant-status'
 import { getSetting } from '../../server/src/admin/settings'
 import { GENERAL_BRIEF_SKILL, GENERAL_TASKS_SKILL, WelcomeProgress } from '@mycel/shared/api'
 
@@ -31,7 +32,10 @@ const can = (userId: string, rel: string, op: 'read' | 'write') => {
 
 test('the general pack and the team group with its folders, once; the owner in it; its members read and write it', async () => {
   const { owner, ownerId, ada, mia, root } = await setup()
+  expect(packInstalled(root)).toBe(false)
   const r = await owner.call('POST', '/api/onboarding/welcome/team')
+  // the operator's count sees the general pack too (TenantStatus.onboarding.packInstalled)
+  expect(packInstalled(root)).toBe(true)
   expect(r.outcome).toBe('installed')
   expect(r.install.skills.map((s: any) => [s.path, s.status])).toEqual([[GENERAL_TASKS_SKILL, 'created'], [GENERAL_BRIEF_SKILL, 'created']])
   expect(r.install.folders).toEqual([])
@@ -86,29 +90,35 @@ test('a deleted skill is not brought back; a team that has the general skills is
   expect(count('onboarding.pack_install')).toBe(1)
 })
 
-test('blocked "할 일 정리" records no pack but still makes the team folder; a group of the team\'s name is used as it is', async () => {
+test('blocked "할 일 정리" records no pack but still makes the team folder; a group the steps did not make is never taken over', async () => {
   const { owner, ownerId, root } = await setup()
   // something in the way of the skill file: a folder named SKILL.md
   fs.mkdirSync(path.join(root, GENERAL_TASKS_SKILL), { recursive: true })
-  // an admin made a group named like the team before
+  // an admin made a group named like the team before, with a rule on another folder
   const made = await owner.call('POST', '/api/admin/groups', { name: 'acme', memberIds: [] })
+  await owner.call('POST', '/api/admin/folders', { path: 'shared/finance', rules: [{ subjectType: 'everyone', subjectId: null, access: 'none' }, { subjectType: 'group', subjectId: made.id, access: 'write' }] })
   const r = await owner.call('POST', '/api/onboarding/welcome/team')
   expect(r.outcome).toBe('blocked')
   expect(r.progress.general).toBeUndefined()
-  expect(r.progress.teamGroup).toMatchObject({ id: made.id, name: 'acme', folder: 'groups/acme', notesFolder: 'groups/acme/회의록' })
-  // used as it is: its members are the admin's choice
-  expect((await owner.call('GET', '/api/admin/groups')).items.find((x: any) => x.id === made.id).memberIds).toEqual([])
-  expect(count('group.create')).toBe(1)
-  // the way cleared: the next call installs it
+  // a group of its own beside it: "Acme 2", the owner in it; the admin's group keeps its members and rules
+  const g = r.progress.teamGroup
+  expect(g.id).not.toBe(made.id)
+  expect(g).toMatchObject({ name: 'Acme 2', folder: 'groups/Acme 2', notesFolder: 'groups/Acme 2/회의록' })
+  const groups = (await owner.call('GET', '/api/admin/groups')).items
+  expect(groups.find((x: any) => x.id === made.id).memberIds).toEqual([])
+  expect(groups.find((x: any) => x.id === g.id).memberIds).toEqual([ownerId])
+  expect(count('group.create')).toBe(2)
+  // the way cleared: the next call installs it, and keeps the recorded group
   fs.rmSync(path.join(root, GENERAL_TASKS_SKILL), { recursive: true })
-  expect((await owner.call('POST', '/api/onboarding/welcome/team')).outcome).toBe('installed')
+  const again = await owner.call('POST', '/api/onboarding/welcome/team')
+  expect(again.outcome).toBe('installed')
+  expect(again.progress.teamGroup).toEqual(g)
 
-  // the recorded group deleted later: a new one named after the team, in a new folder (never the old group's files)
-  await owner.call('DELETE', `/api/admin/groups/${made.id}`)
+  // the recorded group deleted later: a new one, in a new folder (never the old group's files), never the admin's
+  await owner.call('DELETE', `/api/admin/groups/${g.id}`)
   const next = (await owner.call('POST', '/api/onboarding/welcome/team')).progress.teamGroup
-  expect(next.id).not.toBe(made.id)
-  expect(next.name).toBe('Acme')
-  expect(next.folder).not.toBe('groups/acme')
+  expect([made.id, g.id]).not.toContain(next.id)
+  expect(next.folder).not.toBe(g.folder)
   expect((await owner.call('GET', '/api/admin/groups')).items.find((x: any) => x.id === next.id).memberIds).toEqual([ownerId])
 })
 

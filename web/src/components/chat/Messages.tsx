@@ -9,9 +9,10 @@ import clsx from 'clsx'
 import { AlertTriangle, BookmarkPlus, ChevronDown, ChevronLeft, ChevronRight, CirclePause, History, Loader2, Pencil, Play, RotateCcw, Shapes, Square } from 'lucide-react'
 import { useMemo, useRef, useState } from 'react'
 import { useShallow } from 'zustand/react/shallow'
-import { chatErrorReason, ERROR_MESSAGES, isDefaultErrorMessage, type Attachment, type EngineId, type Step } from '@mycel/shared/api'
+import { chatErrorReason, ERROR_MESSAGES, isDefaultErrorMessage, skillTitle, type Attachment, type EngineId, type Step } from '@mycel/shared/api'
 import { thumbnailUrl } from '../../lib/api'
 import { answerHtml } from '../../lib/richCopy'
+import { skillByName, splitCommand, useSkillList } from '../../lib/skillTitles'
 import { formatSize } from '../../lib/format'
 import { openArtifact, openTeamFile, useSidePanel } from '../../lib/sidePanel'
 import { TEAM_FILE_DRAG_TYPE } from '../../lib/teamAttach'
@@ -31,6 +32,7 @@ import SuggestSkillDialog from '../SuggestSkillDialog'
 import FileSummary from './FileSummary'
 import SourcesList from './SourcesList'
 import Steps from './Steps'
+import { SkillChip } from './SkillChip'
 import { ENGINE_LABEL, EngineOptions, type EnginePick } from './EngineMenu'
 
 export { ENGINE_LABEL }
@@ -122,6 +124,22 @@ export function AttachmentView({ a, align = 'end' }: { a: Attachment; align?: 's
   )
 }
 
+/** A question as the person reads it: one that runs a skill shows the skill by its title as a chip ("할 일 정리") and
+ * then the rest of the question, in place of "/meeting-tasks …" (the command is what was sent and what runs; copy and
+ * edit keep it). A command no skill of the person's has stays as it was typed. */
+export function UserText({ content, clamp }: { content: string; clamp: boolean }) {
+  const cmd = splitCommand(content)
+  const items = useSkillList(!!cmd)
+  const skill = cmd && items ? skillByName(items, cmd.name) : null
+  if (!cmd || !skill) return <div className={clsx('whitespace-pre-wrap [overflow-wrap:anywhere]', clamp && 'line-clamp-[12]')}>{content}</div>
+  return (
+    <div data-testid="user-text-skill">
+      <SkillChip title={skillTitle(skill)} name={skill.name} />
+      {cmd.rest.trim() && <div className={clsx('mt-1 whitespace-pre-wrap [overflow-wrap:anywhere]', clamp && 'line-clamp-[12]')}>{cmd.rest}</div>}
+    </div>
+  )
+}
+
 export function UserMessage({ m, chatId, busy, onEdit, onSelectBranch }: { m: ViewMessage; chatId: string; busy: boolean; onEdit: (m: ViewMessage, text: string) => void; onSelectBranch: (id: string) => void }) {
   const t = useT()
   const [editing, setEditing] = useState(false)
@@ -189,7 +207,7 @@ export function UserMessage({ m, chatId, busy, onEdit, onSelectBranch }: { m: Vi
       ) : (
         m.content && (
           <div className={clsx('max-w-[85%] min-w-0 rounded-3xl bg-subtle px-4 py-2.5 text-[15px] leading-7 sm:max-w-[80%]', m.local && 'opacity-70')} data-testid="user-text">
-            <div className={clsx('whitespace-pre-wrap [overflow-wrap:anywhere]', !open && 'line-clamp-[12]')}>{m.content}</div>
+            <UserText content={m.content} clamp={!open} />
             {long && (
               <button type="button" onClick={() => setOpen((v) => !v)} className="mt-1 text-xs font-medium text-muted hover:text-ink">
                 {open ? t('chat.showLess') : t('chat.showAll')}

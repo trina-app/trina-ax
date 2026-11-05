@@ -22,7 +22,7 @@ import { AfterSetup } from '../../src/App'
 import { WelcomeInviteBar } from '../../src/components/onboarding/WelcomeInviteBar'
 import { WelcomeResume } from '../../src/components/onboarding/WelcomeResume'
 import ProfileStep from '../../src/components/onboarding/ProfileStep'
-import { doneCount, isBriefSwitch, nextStep, packsRecorded, readNotesHint, resultStarter, resumeStep, showInviteBar, showResume, skillNameOf, stepTotal, wantsPack, wantsTeam } from '../../src/lib/welcome'
+import { doneCount, isBriefSwitch, nextStep, packsRecorded, readNotesHint, resultStarter, resumeStep, showInviteBar, showResume, skillNameOf, stepTotal, teamReach, wantsPack, wantsTeam } from '../../src/lib/welcome'
 import { rememberSetupSite, setupSite } from '../../src/lib/setupLink'
 import { useAiAccess } from '../../src/store/aiAccess'
 import { useSession } from '../../src/store/session'
@@ -235,6 +235,13 @@ describe('where the steps go', () => {
     expect(showInviteBar({ ...p, resultChatId: CHAT, steps: { ...p.steps, invite: null } }, 'other')).toBe(false)
   })
 
+  test('who sees the team folder: its group and the owners and admins, active ones; members outside it can be added', () => {
+    const u = (id: string, role: 'owner' | 'admin' | 'member', status: 'active' | 'disabled' = 'active') => ({ id, role, status })
+    const users = [u('olga', 'owner'), u('ada', 'admin'), u('mia', 'member'), u('jun', 'member'), u('ha', 'member'), u('old', 'member', 'disabled')]
+    expect(teamReach(users, ['olga', 'mia', 'old'])).toEqual({ viewers: 3, outside: ['jun', 'ha'] })
+    expect(teamReach([u('olga', 'owner')], ['olga'])).toEqual({ viewers: 1, outside: [] })
+  })
+
   test('the packs: every team gets its start; the marketing pack only when asked for, and never by default', () => {
     // no answer is the general pack only (it used to read as marketing)
     expect(wantsPack(fresh())).toBe(false)
@@ -445,6 +452,34 @@ describe('/welcome', () => {
       expect(progress!.steps.result).toBe('done')
       expect(progress!.resultChatId).toBe(CHAT)
     } finally { await m.unmount() }
+  })
+
+  test('the line says how many see the team folder; members who joined before can be added in one quiet click', async () => {
+    signIn('owner')
+    progress = atResult()
+    let members = ['olga']
+    const user = (id: string, role: string, status = 'active') => ({ id, username: id, name: id, email: null, role, status, mustChangePassword: false, locale: 'ko', localeChoice: null, groupIds: members.includes(id) ? [TEAM.id] : [], createdAt: '2026-11-04T00:00:00.000Z', lastSeenAt: null })
+    const saved = { groups: routes['GET /api/admin/groups']! }
+    routes['GET /api/admin/users'] = () => json(200, { items: [user('olga', 'owner'), user('ada', 'admin'), user('jun', 'member'), user('ha', 'member'), user('old', 'member', 'disabled')], noAi: [] })
+    routes['GET /api/admin/groups'] = () => json(200, { items: [{ id: TEAM.id, name: 'Acme', description: null, memberIds: members }] })
+    routes[`PATCH /api/admin/groups/${TEAM.id}`] = (b) => { members = b.memberIds; return json(200, { id: TEAM.id, name: 'Acme', description: null, memberIds: members }) }
+    const m = await app()
+    try {
+      // the owner and the admin see it; jun and ha joined before the group was made
+      await m.until(() => m.get('welcome-files-who')?.textContent === '여기 올린 파일은 Acme 2명만 봐요 · 채팅은 각자만 봐요', 'the count')
+      expect(m.get('welcome-files-add-members').textContent).toBe('지금 있는 팀원 2명도 넣기')
+      // nobody is added by itself
+      expect(called(`PATCH /api/admin/groups/${TEAM.id}`)).toEqual([])
+      await m.click('welcome-files-add-members')
+      await m.until(() => m.get('welcome-files-who')?.textContent === '여기 올린 파일은 Acme 4명만 봐요 · 채팅은 각자만 봐요', 'the new count')
+      expect(called(`PATCH /api/admin/groups/${TEAM.id}`).map((c) => c.body)).toEqual([{ memberIds: ['olga', 'jun', 'ha'] }])
+      expect(m.find('welcome-files-add-members')).toBeFalsy()
+    } finally {
+      await m.unmount()
+      delete routes['GET /api/admin/users']
+      delete routes[`PATCH /api/admin/groups/${TEAM.id}`]
+      routes['GET /api/admin/groups'] = saved.groups
+    }
   })
 
   test('up to ten files go up; an older row without the team\'s start sets it up first', async () => {

@@ -12,7 +12,7 @@ import { canChooseEngine, useMeStrict } from '../../store/session'
 import AiAccessBanner from './AiAccessBanner'
 import Composer, { type EngineChoice } from './Composer'
 
-export function NewChatComposer({ projectId, initialText, resetKey = 0, autoFocus, placeholder, onSent }: {
+export function NewChatComposer({ projectId, initialText, resetKey = 0, autoFocus, placeholder, onSent, skill }: {
   projectId: string | null
   initialText?: string
   /** a new value starts the box again with `initialText` (a chosen example or question) */
@@ -21,6 +21,8 @@ export function NewChatComposer({ projectId, initialText, resetKey = 0, autoFocu
   placeholder?: string
   /** the first message went out (its chat opens next) */
   onSent?: (chatId: string) => void
+  /** a skill chosen for the first message, shown by its title (Composer `skill`) */
+  skill?: { name: string; title: string } | null
 }) {
   const me = useMeStrict()
   const navigate = useNavigate()
@@ -77,6 +79,7 @@ export function NewChatComposer({ projectId, initialText, resetKey = 0, autoFocu
       engines={engines}
       models={models}
       initialText={initialText}
+      skill={skill}
       autoFocus={autoFocus}
       placeholder={placeholder}
     />

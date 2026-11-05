@@ -2774,6 +2774,8 @@ export const es: Record<MessageKey, string> = {
   "welcome.files.pick": "Elegir archivos",
   "welcome.files.dropHint": "o arrástrelos aquí",
   "welcome.files.who": "Solo {team} ve los archivos que suba aquí · Cada chat lo ve solo quien lo escribe",
+  "welcome.files.whoCount": "Solo {n, plural, one {# persona} other {# personas}} de {team} ven los archivos que suba aquí · Cada chat lo ve solo quien lo escribe",
+  "welcome.files.addMembers": "Añadir también {n, plural, one {# compañero} other {# compañeros}} que ya están",
   "welcome.files.none": "Probar sin archivos",
   "welcome.files.max": "Hasta {n, plural, one {# archivo} other {# archivos}} a la vez",
   "welcome.files.question": "Con estas actas, organiza las tareas de esta semana por persona",
@@ -2797,5 +2799,6 @@ export const es: Record<MessageKey, string> = {
   "starter.privateBy": "Solo {name} ve este chat. Ni siquiera {by} puede verlo.",
   "starter.private": "Solo {name} ve este chat.",
   "steps.receipt": "Habilidad del equipo '{skill}' · {n, plural, one {# archivo del equipo} other {# archivos del equipo}}",
+  "composer.skillRemove": "Quitar «{skill}»",
   "audit.act.team_link.update": "Cambió el enlace de invitación del equipo",
 }

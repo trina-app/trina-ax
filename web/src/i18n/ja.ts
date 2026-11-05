@@ -2774,6 +2774,8 @@ export const ja: Record<MessageKey, string> = {
   "welcome.files.pick": "ファイルを選ぶ",
   "welcome.files.dropHint": "ここにドラッグしても大丈夫です",
   "welcome.files.who": "ここに置いたファイルは{team}だけが見られます · チャットは各自だけが見られます",
+  "welcome.files.whoCount": "ここに置いたファイルは{team}の{n, plural, one {#人} other {#人}}だけが見られます · チャットは各自だけが見られます",
+  "welcome.files.addMembers": "今いるメンバー{n, plural, one {#人} other {#人}}も入れる",
   "welcome.files.none": "資料なしで試す",
   "welcome.files.max": "一度に置けるファイルは{n, plural, one {#個} other {#個}}までです",
   "welcome.files.question": "この議事録から今週のやることを人ごとにまとめて",
@@ -2797,5 +2799,6 @@ export const ja: Record<MessageKey, string> = {
   "starter.privateBy": "このチャットは{name}さんだけが見られます。{by}さんも見られません。",
   "starter.private": "このチャットは{name}さんだけが見られます。",
   "steps.receipt": "チームスキル「{skill}」 · チームのファイル{n, plural, one {#個} other {#個}}",
+  "composer.skillRemove": "「{skill}」を外す",
   "audit.act.team_link.update": "チーム招待リンクを変更",
 }

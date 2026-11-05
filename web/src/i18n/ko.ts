@@ -2813,6 +2813,8 @@ export const ko = {
   "welcome.files.pick": "파일 고르기",
   "welcome.files.dropHint": "여기로 끌어다 놓아도 돼요",
   "welcome.files.who": "여기 올린 파일은 {team}만 봐요 · 채팅은 각자만 봐요",
+  "welcome.files.whoCount": "여기 올린 파일은 {team} {n}명만 봐요 · 채팅은 각자만 봐요",
+  "welcome.files.addMembers": "지금 있는 팀원 {n}명도 넣기",
   "welcome.files.none": "자료 없이 해 볼게요",
   "welcome.files.max": "파일은 한 번에 {n}개까지 올려요",
   "welcome.files.question": "이 회의록으로 이번 주 할 일, 사람별로 정리해 줘",
@@ -2836,6 +2838,7 @@ export const ko = {
   "starter.privateBy": "이 채팅은 {name}님만 봐요. {by}님도 못 봐요.",
   "starter.private": "이 채팅은 {name}님만 봐요.",
   "steps.receipt": "팀 스킬 '{skill}' · 팀 파일 {n}개",
+  "composer.skillRemove": "'{skill}' 빼기",
   "audit.act.team_link.update": "팀 초대 링크 바꿈",
 } as const
 

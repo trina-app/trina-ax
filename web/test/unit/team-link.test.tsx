@@ -10,7 +10,7 @@ import type { TeamLinkResponse } from '@mycel/shared/api'
 import { DICTS, LOCALES, translate, useLocaleStore, type MessageKey } from '../../src/i18n'
 import { joinNext, readJoinToken, teamLinkMessage } from '../../src/lib/team-link'
 import { JoinForm, TeamJoin } from '../../src/pages/Auth'
-import { TeamLinkPanel, TeamLinkView } from '../../src/components/onboarding/TeamLinkPanel'
+import { forgetPatched, linkDiffers, markPatched, TeamLinkPanel, TeamLinkView } from '../../src/components/onboarding/TeamLinkPanel'
 import { InviteStep } from '../../src/components/onboarding/InviteStep'
 import { useSession } from '../../src/store/session'
 import { useWelcome } from '../../src/store/welcome'
@@ -377,6 +377,25 @@ describe('the starter and the team\'s group', () => {
     }
   })
 
+  test('whether the open link leads elsewhere: the file list itself, and a wish already sent for this link is not sent again', () => {
+    forgetPatched()
+    const want = { skillPath: TASKS, starter: STARTER, groupId: GROUP }
+    const there = { ...LINK.link!, groupIds: [GROUP], skill: { path: TASKS, name: 'meeting-tasks', title: '할 일 정리' }, starter: { kind: 'tasks' as const, files: 2, paths: [...FILES].reverse() } }
+    expect(linkDiffers(there, want)).toBe(false)
+    // the same number of files, other files: it differs
+    expect(linkDiffers({ ...there, starter: { kind: 'tasks', files: 2, paths: ['groups/Acme/회의록/a.md', 'groups/Acme/회의록/c.md'] } }, want)).toBe(true)
+    // the server kept one file (a newcomer could not read the other): it differs, until that wish was sent once
+    const kept = { ...there, starter: { kind: 'tasks' as const, files: 1, paths: [FILES[0]!] } }
+    expect(linkDiffers(kept, want)).toBe(true)
+    markPatched(kept, want)
+    expect(linkDiffers(kept, want)).toBe(false)
+    // another wish for the same link is still sent
+    expect(linkDiffers(kept, { ...want, starter: { kind: 'brief', files: FILES } })).toBe(true)
+    // a link that cannot be shared is not changed (a new one is made instead)
+    expect(linkDiffers({ ...there, state: 'expired', skill: null }, want)).toBe(false)
+    forgetPatched()
+  })
+
   test('the panel shows the starter\'s message and one quiet line; a starter with no file left is the usual message', () => {
     const html = view({ ...LINK, link: { ...LINK.link!, starter: { kind: 'tasks', files: 2 } } })
     expect(html).toContain('I&#x27;ve put up this week&#x27;s team meeting notes. Open the link to see your own tasks right away.')
@@ -461,10 +480,12 @@ describe('the starter and the team\'s group', () => {
         'GET /api/admin/groups': () => json(200, { items: groups }),
         'GET /api/admin/team-link': () => json(200, link),
         'PATCH /api/admin/team-link': (b) => {
-          link = { ...LINK, link: { ...LINK.link!, groupIds: [...LINK.link!.groupIds, ...b.addGroupIds], skill: { path: b.skillPath, name: 'meeting-tasks', title: '할 일 정리' }, starter: { kind: b.starter.kind, files: b.starter.files.length } } }
+          // the server keeps only the files a newcomer could read: here one of the two
+          link = { ...LINK, link: { ...LINK.link!, groupIds: [...LINK.link!.groupIds, ...b.addGroupIds], skill: { path: b.skillPath, name: 'meeting-tasks', title: '할 일 정리' }, starter: { kind: b.starter.kind, files: 1, paths: [b.starter.files[0]] } } }
           return json(200, link)
         },
       }
+      forgetPatched()
       let m = await mount(<MemoryRouter><InviteStep title={null} skillPath={TASKS} starter={STARTER} onDone={noop} /></MemoryRouter>)
       try {
         await m.until(() => m.find('team-link-message'), 'the message')
@@ -472,7 +493,7 @@ describe('the starter and the team\'s group', () => {
         expect(m.get('team-link-message').textContent).toBe(`이번 주 팀 회의록 올려 뒀어요. 링크 열면 내 할 일이 바로 나와요.\n${URL_}`)
         expect(called('POST /api/admin/team-link')).toEqual([])
       } finally { await m.unmount() }
-      // opened again: the link already leads there, nothing to change
+      // opened again: the same wish was sent for this link already (the server kept what it could), nothing to change
       calls = []
       m = await mount(<MemoryRouter><InviteStep title={null} skillPath={TASKS} starter={STARTER} onDone={noop} /></MemoryRouter>)
       try {

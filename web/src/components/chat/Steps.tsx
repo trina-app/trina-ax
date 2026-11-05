@@ -11,10 +11,10 @@
 // files; it still opens the step list.
 import clsx from 'clsx'
 import { AudioLines, Brain, Check, ChevronDown, ChevronRight, CircleAlert, CirclePause, CircleStop, FileSearch, Film, Globe, Info, Loader2, MessageCircleQuestion, Monitor, Shapes, Workflow, Wrench } from 'lucide-react'
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
 import { localizeStep, mediaStepKind } from '@mycel/shared'
-import { skillTitle, type Message, type SkillInfo, type Step } from '@mycel/shared/api'
-import { api, API } from '../../lib/api'
+import type { Message, Step } from '@mycel/shared/api'
+import { useSkillTitle } from '../../lib/skillTitles'
 import { useLocale, useT } from '../../i18n'
 import { safeHref } from '../../lib/safeLinks'
 import { TeamImage } from '../Markdown'
@@ -127,33 +127,6 @@ export function groupSteps(steps: Step[]): { top: Step[]; kids: Map<string, Step
     else top.push(s)
   }
   return { top, kids }
-}
-
-/** The team's skills, asked once per page load for the receipts' titles (a failure asks again next time). */
-let skillList: Promise<SkillInfo[]> | null = null
-function teamSkills(): Promise<SkillInfo[]> {
-  if (!skillList) {
-    const p = api.call(API.listSkills).then((r) => r.items)
-    skillList = p
-    p.catch(() => { if (skillList === p) skillList = null })
-  }
-  return skillList
-}
-
-/** A skill as people read it (its title, else its name) by its path; `fallback` (the recorded name) until the list
- * says, or when the person cannot see it. */
-function useSkillTitle(path: string | null, fallback: string): string {
-  const [title, setTitle] = useState<{ path: string; title: string } | null>(null)
-  useEffect(() => {
-    if (!path) return
-    let live = true
-    teamSkills().then((items) => {
-      const s = items.find((x) => x.path === path)
-      if (live && s) setTitle({ path, title: skillTitle(s) })
-    }, () => {})
-    return () => { live = false }
-  }, [path])
-  return title && title.path === path ? title.title : fallback
 }
 
 export default function Steps({ steps, streaming, receipt }: { steps: Step[]; streaming: boolean; receipt?: Message['receipt'] }) {

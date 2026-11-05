@@ -68,9 +68,9 @@ export const TeamLink = z.object({
   /** too many join attempts through it lately (the per-link limit): it refuses everyone until then; a new link is not
    * limited. null or absent: not limited */
   limitedUntil: IsoTime.nullable().optional(),
-  /** what people who join land on: the kind and how many files (those a person joining with the link's groups could
-   * read now). null or absent: none */
-  starter: z.object({ kind: StarterKind, files: z.number().int().nonnegative() }).nullable().optional(),
+  /** what people who join land on: the kind, how many files and which (those a person joining with the link's groups
+   * could read now; owners and admins read every team folder anyway). null or absent: none */
+  starter: z.object({ kind: StarterKind, files: z.number().int().nonnegative(), paths: z.array(z.string()).optional() }).nullable().optional(),
 })
 export type TeamLink = z.infer<typeof TeamLink>
 

@@ -2814,6 +2814,8 @@ export const id: Record<MessageKey, string> = {
   "welcome.files.pick": "Pilih file",
   "welcome.files.dropHint": "atau seret ke sini",
   "welcome.files.who": "File yang diunggah di sini hanya dilihat {team} · Setiap chat hanya dilihat pemiliknya",
+  "welcome.files.whoCount": "File yang diunggah di sini hanya dilihat {n} orang di {team} · Setiap chat hanya dilihat pemiliknya",
+  "welcome.files.addMembers": "Tambahkan juga {n} rekan tim yang sudah ada",
   "welcome.files.none": "Coba tanpa file",
   "welcome.files.max": "Paling banyak {n} file sekaligus",
   "welcome.files.question": "Dari notulen rapat ini, susun tugas minggu ini per orang",
@@ -2837,5 +2839,6 @@ export const id: Record<MessageKey, string> = {
   "starter.privateBy": "Chat ini hanya dilihat {name}. {by} pun tidak bisa melihatnya.",
   "starter.private": "Chat ini hanya dilihat {name}.",
   "steps.receipt": "Skill tim '{skill}' · {n} file tim",
+  "composer.skillRemove": "Hapus '{skill}'",
   "audit.act.team_link.update": "Mengubah tautan undangan tim",
 }

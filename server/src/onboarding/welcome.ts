@@ -196,8 +196,10 @@ function ensureNotesFolder(ctx: AppContext, userId: string, rel: string): void {
   if (!r.exists) componentC(ctx).files.mkdir(userId, rel)
 }
 
-/** The team's own group: the recorded one while it is there, else a group with the team's name (an admin may have made
- * one already: it is used as it is), else a new one with the owner in it. */
+/** The team's own group: the one these steps recorded while it is there, else a new one named after the team with the
+ * owner in it. A group these steps did not make is never taken over, even with the team's name (an admin's group may
+ * carry rules on other folders that the team link would hand to everyone who joins): a name already taken gets a
+ * number ("Acme 2"). */
 function teamGroupFor(ctx: AppContext, userId: string, recorded: TeamGroupRef | null, locale: Locale): TeamGroupRef {
   const notes = NOTES_FOLDER[teamDefaultLocale(ctx.db)]
   if (recorded) {
@@ -209,21 +211,15 @@ function teamGroupFor(ctx: AppContext, userId: string, recorded: TeamGroupRef | 
       return { id: recorded.id, name, folder, notesFolder }
     }
   }
-  const name = getTeamSettings(ctx.db).teamName.trim().slice(0, 100) || 'Team'
-  let id = groupIdByName(ctx, name)
-  let folder = id ? groupFolder(ctx, id) : null
-  if (!id || !folder) {
-    // a group of that name without a folder of its own: a new group beside it, named after the team as well
-    const free = id ? [2, 3, 4, 5, 6, 7, 8, 9].map((n) => `${name.slice(0, 96)} ${n}`).find((n) => !groupIdByName(ctx, n)) ?? `${name.slice(0, 80)} ${Date.now()}` : name
-    const g = createGroupAs(ctx, userId, { name: free, memberIds: [userId] }, locale)
-    id = g.id
-    folder = groupFolder(ctx, g.id)
-    if (!folder) fail('internal')
-  }
+  const team = getTeamSettings(ctx.db).teamName.trim().slice(0, 100) || 'Team'
+  const name = !groupIdByName(ctx, team) ? team
+    : [2, 3, 4, 5, 6, 7, 8, 9].map((n) => `${team.slice(0, 96)} ${n}`).find((n) => !groupIdByName(ctx, n)) ?? `${team.slice(0, 80)} ${Date.now()}`
+  const g = createGroupAs(ctx, userId, { name, memberIds: [userId] }, locale)
+  const folder = groupFolder(ctx, g.id)
+  if (!folder) return fail('internal')
   const notesFolder = `${folder}/${notes}`
   ensureNotesFolder(ctx, userId, notesFolder)
-  const row = ctx.db.query('SELECT name FROM groups WHERE id = ?').get(id) as { name: string }
-  return { id: id!, name: row.name, folder: folder!, notesFolder }
+  return { id: g.id, name: g.name, folder, notesFolder }
 }
 
 /**
@@ -232,8 +228,9 @@ function teamGroupFor(ctx: AppContext, userId: string, recorded: TeamGroupRef | 
  * - the general pack: recorded before → nothing runs; the team already has skills under skills/general/ → recorded
  *   without installing (nothing deleted on purpose comes back); else installed, and recorded when "할 일 정리" is there
  *   afterwards (written now, already there, or another team skill of its name), `blocked` (nothing recorded) otherwise;
- * - the team group: the recorded one while it exists, else the group named after the team, else a new one with the
- *   owner in it; its folder and the meeting notes folder in it (made when missing, through the file layer).
+ * - the team group: the recorded one while it exists, else a new one named after the team ("Acme 2" when the name is
+ *   taken: a group these steps did not make is never taken over) with the owner in it; its folder and the meeting notes
+ *   folder in it (made when missing, through the file layer).
  * The pack's record is saved before the group is made, so a failure there never installs the pack twice.
  */
 export function setupWelcomeTeam(ctx: AppContext, userId: string, locale: Locale): WelcomeTeamResult {

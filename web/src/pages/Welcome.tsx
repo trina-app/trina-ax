@@ -21,7 +21,7 @@ import { joinPath } from '../lib/paths'
 import { setupSite } from '../lib/setupLink'
 import { rememberChat } from '../lib/teamAttach'
 import { uploadFile, type UploadProgress } from '../lib/upload'
-import { nextStep, packsRecorded, prevStep, resumeStep, skillNameOf, stepTotal, wantsPack, wantsTeam } from '../lib/welcome'
+import { nextStep, packsRecorded, prevStep, resumeStep, skillNameOf, stepTotal, teamReach, wantsPack, wantsTeam } from '../lib/welcome'
 import { useLocale, useT, type MessageKey } from '../i18n'
 import { useAiAccess } from '../store/aiAccess'
 import { useChats } from '../store/chats'
@@ -305,6 +305,57 @@ function ResultStep({ progress, busy, onRan, onInstall, onSkip, onFinish }: { pr
   return <FilesStep progress={progress} busy={busy} onRan={onRan} onNone={() => (progress.pack || progress.teamType === 'marketing' ? setNoFiles(true) : onFinish())} />
 }
 
+/** "여기 올린 파일은 {팀} n명만 봐요 · 채팅은 각자만 봐요", with the real count (the group's members and the owners and
+ * admins), and, when members of the team are not in its group yet, one quiet "지금 있는 팀원 n명도 넣기" that adds them
+ * (the owner's choice: nobody is added by itself). Until the count is known, or when it cannot be read, the line
+ * without a number. */
+function TeamReach({ team, groupId }: { team: string; groupId: string | null }) {
+  const t = useT()
+  const locale = useLocale()
+  const [reach, setReach] = useState<{ viewers: number; outside: string[]; memberIds: string[] } | null>(null)
+  const [adding, setAdding] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const load = async (id: string) => {
+    const [users, groups] = await Promise.all([api.call(API.listUsers), api.call(API.listGroups)])
+    const group = groups.items.find((g) => g.id === id)
+    if (!group) return setReach(null)
+    setReach({ ...teamReach(users.items, group.memberIds), memberIds: group.memberIds })
+  }
+  useEffect(() => {
+    if (!groupId) return
+    void load(groupId).catch(() => setReach(null))
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [groupId])
+  const add = async () => {
+    if (!groupId || !reach) return
+    setAdding(true)
+    setError(null)
+    try {
+      await api.call(API.updateGroup, { params: { id: groupId }, body: { memberIds: [...new Set([...reach.memberIds, ...reach.outside])] } })
+      await load(groupId)
+    } catch (e) {
+      setError(errorText(e, locale, t('error.network')))
+    } finally {
+      setAdding(false)
+    }
+  }
+  return (
+    <div className="space-y-1">
+      <p className="text-[13px] leading-5 text-muted" data-testid="welcome-files-who">
+        {reach ? t('welcome.files.whoCount', { team, n: reach.viewers }) : t('welcome.files.who', { team })}
+      </p>
+      {reach && reach.outside.length > 0 && (
+        <p className="text-[13px]">
+          <button type="button" className={quietLink} disabled={adding} onClick={() => void add()} data-testid="welcome-files-add-members">
+            {t('welcome.files.addMembers', { n: reach.outside.length })}
+          </button>
+        </p>
+      )}
+      {error && <ErrorNote>{error}</ErrorNote>}
+    </div>
+  )
+}
+
 interface Picked {
   id: string
   file: File
@@ -417,7 +468,7 @@ function FilesStep({ progress, busy: stepBusy, onRan, onNone }: { progress: Welc
           </Button>
           <span className="text-sm text-faint max-sm:hidden">{t('welcome.files.dropHint')}</span>
         </div>
-        <p className="text-[13px] leading-5 text-muted" data-testid="welcome-files-who">{t('welcome.files.who', { team })}</p>
+        <TeamReach team={team} groupId={progress.teamGroup?.id ?? null} />
         {items.length > 0 && (
           <ul className="space-y-1 text-sm" aria-label={t('welcome.files.title')} data-testid="welcome-files-list">
             {items.map((x) => (

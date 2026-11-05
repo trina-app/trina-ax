@@ -166,7 +166,9 @@ function toTeamLink(c: Context<AppEnv>, ctx: AppContext, r: Row, viewer: Princip
     limitedUntil: limitedUntil(ctx, r.id),
     starter: (() => {
       const st = parseStarter(r.starter)
-      return st ? { kind: st.kind, files: readableFiles(ctx, newMember(existingGroups(ctx.db, parseIds(r.group_ids))), st.files).length } : null
+      if (!st) return null
+      const paths = readableFiles(ctx, newMember(existingGroups(ctx.db, parseIds(r.group_ids))), st.files)
+      return { kind: st.kind, files: paths.length, paths }
     })(),
   }
 }

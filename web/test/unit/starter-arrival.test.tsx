@@ -1,8 +1,9 @@
 // A new member's arrival with the lead's files (docs/DECISIONS.md "M — One meeting note, everyone's own tasks"):
 // - the join page holds the link's starter for the new account (lib/starter.ts: this tab, per person, a reload keeps
 //   it, blocked storage still works for the page) and goes Home instead of a skill form;
-// - Home then shows one line ("김하나님이 이번 주 팀 회의록 2개를 올려 뒀어요"), the box filled with "/meeting-tasks 내 할
-//   일 정리해 줘" and the files attached once, who sees the chat under it, and nothing else; sending clears it;
+// - Home then shows one line ("김하나님이 이번 주 팀 회의록 2개를 올려 뒀어요"), the box holding the skill as a chip by its
+//   title ("할 일 정리") and the question "내 할 일 정리해 줘" (sent as "/meeting-tasks 내 할 일 정리해 줘"), the files
+//   attached once, who sees the chat under it, and nothing else; sending clears it;
 // - the owner who ended the welcome steps without files gets one line pointing at the team's folder.
 import { afterAll, afterEach, beforeAll, describe, expect, test } from 'bun:test'
 import { MemoryRouter, Route, Routes, useLocation } from 'react-router-dom'
@@ -161,7 +162,10 @@ describe('Home on arrival', () => {
     try {
       await m.until(() => m.find('starter-line'), 'the line')
       expect(m.get('starter-line').textContent).toBe('김하나님이 이번 주 팀 회의록 2개를 올려 뒀어요')
-      expect(value(m, 'composer-input')).toBe('/meeting-tasks 내 할 일 정리해 줘')
+      // the skill by the name people read, the command underneath: no "/meeting-tasks" in the box
+      expect(value(m, 'composer-input')).toBe('내 할 일 정리해 줘')
+      expect(m.get('composer-skill').textContent).toBe('할 일 정리')
+      expect(m.get('skill-chip').getAttribute('title')).toBe('/meeting-tasks')
       expect(m.get('starter-private').textContent).toBe('이 채팅은 민지님만 봐요. 김하나님도 못 봐요.')
       await m.until(() => m.container.querySelectorAll('[data-testid="attachment-chip"]').length === 2 && starterAttached('minji'), 'the files in the box')
       expect(called('POST /api/attachments/team-file').map((c) => c.body)).toEqual(FILES.map((path) => ({ chatId: CHAT, path })))
@@ -188,7 +192,12 @@ describe('Home on arrival', () => {
     try {
       await m.until(() => m.find('starter-line'), 'the line')
       expect(m.get('starter-line').textContent).toBe('팀 자료 1개가 올라와 있어요')
-      expect(value(m, 'composer-input')).toBe('/doc-brief 내가 알아야 할 것만 알려 줘')
+      expect(value(m, 'composer-input')).toBe('내가 알아야 할 것만 알려 줘')
+      expect(m.get('composer-skill').textContent).toBe('핵심 정리')
+      // taken out, the question goes without the skill
+      await m.click('skill-chip-remove')
+      expect(m.find('composer-skill')).toBeNull()
+      expect(value(m, 'composer-input')).toBe('내가 알아야 할 것만 알려 줘')
       expect(m.get('starter-private').textContent).toBe('이 채팅은 민지님만 봐요.')
       await m.until(() => starterAttached('minji'), 'attached')
     } finally { await m.unmount() }

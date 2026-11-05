@@ -17,14 +17,18 @@ test('meeting notes in, tasks out; the invite carries the files; a member lands 
   // the profile put off: the team's start goes in, then the first result asks for files
   await page.getByTestId('welcome-profile').getByRole('button', { name: '나중에 하기' }).click()
   await expect(page.getByRole('heading', { name: '최근 회의록이나 업무 파일을 놓아 주세요' })).toBeVisible()
-  await expect(page.getByTestId('welcome-files-who')).toHaveText('여기 올린 파일은 Acme만 봐요 · 채팅은 각자만 봐요')
+  // who sees it, with the real number (the group's members and the owners and admins)
+  await expect(page.getByTestId('welcome-files-who')).toHaveText(/^여기 올린 파일은 Acme \d+명만 봐요 · 채팅은 각자만 봐요$/)
   await page.getByTestId('welcome-files-input').setInputFiles([
     note('11월 1주 회의.md', '# 11월 1주 주간 회의\n- 민지: 랜딩 시안 금요일까지\n- 지훈: 광고 집행 보고\n'),
     note('11월 2주 회의.md', '# 11월 2주 주간 회의\n- 김 대리: 견적서 정리\n'),
   ])
   await expect(page).toHaveURL(/\/c\/[0-9a-f-]+$/)
   const question = page.getByTestId('user-message').first()
-  await expect(question).toContainText('/meeting-tasks 이 회의록으로 이번 주 할 일, 사람별로 정리해 줘')
+  // the skill by its title, then the question (the command runs underneath)
+  await expect(question.getByTestId('skill-chip')).toHaveText('할 일 정리')
+  await expect(question).toContainText('이 회의록으로 이번 주 할 일, 사람별로 정리해 줘')
+  await expect(question).not.toContainText('/meeting-tasks')
   await expect(question).toContainText('11월 1주 회의.md')
   await expect(question).toContainText('11월 2주 회의.md')
   // the files are in the team's meeting notes folder
@@ -49,13 +53,15 @@ test('meeting notes in, tasks out; the invite carries the files; a member lands 
   await p2.getByTestId('invite-submit').click()
   // Home, not a form: one line, the box filled in with the files attached, who sees the chat
   await expect(p2.getByTestId('starter-line')).toHaveText('Olga님이 이번 주 팀 회의록 2개를 올려 뒀어요')
-  await expect(p2.getByTestId('composer-input')).toHaveValue('/meeting-tasks 내 할 일 정리해 줘')
+  await expect(p2.getByTestId('composer-input')).toHaveValue('내 할 일 정리해 줘')
+  await expect(p2.getByTestId('composer-skill')).toHaveText('할 일 정리')
   await expect(p2.getByTestId('composer').getByTestId('attachment-chip')).toHaveCount(2)
   await expect(p2.getByTestId('starter-private')).toHaveText('이 채팅은 민지님만 봐요. Olga님도 못 봐요.')
   await expect(p2.getByTestId('first-time-folders')).toHaveCount(0)
   await p2.getByTestId('send').click()
   await expect(p2).toHaveURL(/\/c\/[0-9a-f-]+$/)
-  await expect(p2.getByTestId('user-message').first()).toContainText('/meeting-tasks 내 할 일 정리해 줘')
+  await expect(p2.getByTestId('user-message').first().getByTestId('skill-chip')).toHaveText('할 일 정리')
+  await expect(p2.getByTestId('user-message').first()).toContainText('내 할 일 정리해 줘')
   await expect(p2.getByTestId('user-message').first()).toContainText('11월 1주 회의.md')
   await expect(p2.getByTestId('user-message').first()).toContainText('11월 2주 회의.md')
   await p2.goto('/')

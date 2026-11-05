@@ -1,7 +1,7 @@
 // The welcome steps (pages/Welcome.tsx; docs/DECISIONS.md "W — Welcome steps", "X — Lean onboarding", "M — One meeting
 // note, everyone's own tasks"): which step to open, what the Home entry counts, what leaving the first step installs,
 // what the invite under the first answer carries, and where the owner goes right after /setup.
-import { GENERAL_TASKS_SKILL, LOCALE_ORDER, WELCOME_COUNTED, WELCOME_STEPS, type Message, type StarterKind, type WelcomeProgress, type WelcomeStep } from '@mycel/shared/api'
+import { GENERAL_TASKS_SKILL, LOCALE_ORDER, WELCOME_COUNTED, WELCOME_STEPS, type Message, type StarterKind, type User, type WelcomeProgress, type WelcomeStep } from '@mycel/shared/api'
 import { translate } from '../i18n'
 
 /** Where the steps resume: the first step not yet done or put off; with none left, the first counted step that was
@@ -100,3 +100,18 @@ let afterSetup: string | null = null
 export const setAfterSetup = (to: string) => { afterSetup = to }
 export const afterSetupTarget = (): string => afterSetup ?? '/'
 export const clearAfterSetup = () => { afterSetup = null }
+
+/**
+ * Who sees the team's folder (groups/<team>/): its group's members and the owners and admins (they read every team
+ * folder), active accounts only; and the active members outside the group, whom "지금 있는 팀원 n명도 넣기" adds (people
+ * who joined before the group was made: an older team resuming the steps, or single-use invites). Folder rules an admin
+ * changed by hand are not read here: the steps made the folder with the group's own rule.
+ */
+export function teamReach(users: Pick<User, 'id' | 'role' | 'status'>[], memberIds: readonly string[]): { viewers: number; outside: string[] } {
+  const active = users.filter((u) => u.status === 'active')
+  const inGroup = new Set(memberIds)
+  return {
+    viewers: active.filter((u) => inGroup.has(u.id) || u.role === 'owner' || u.role === 'admin').length,
+    outside: active.filter((u) => u.role === 'member' && !inGroup.has(u.id)).map((u) => u.id),
+  }
+}

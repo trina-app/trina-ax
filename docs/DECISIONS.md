@@ -7215,7 +7215,8 @@ counting in `server/src/onboarding/goal.ts`).
   particle follows the name's last sound (을/를, "을(를)" when it cannot be told: `web/src/lib/teamGoal.ts`). A deleted
   member's notice reads "팀원 한 명이 …".
 - **Operator counts:** `TenantStatus.onboarding` (optional, strict, counts and yes/no only: never a name, mail, skill
-  name or path): `day` (whole days since the first account), `packInstalled` (`skills/marketing/` holds a SKILL.md),
+  name or path): `day` (whole days since the first account), `packInstalled` (`skills/marketing/` or, since M,
+  `skills/general/` holds a SKILL.md),
   `profileSaved` (`skills/company-profile.json` with a field filled in, read as D's reader does), `inviteMade` (an
   invite or a team link was made, or someone joined), `membersJoined` (accounts after the first, deleted included),
   `peopleAnswered` (people with a successful answer in the window), `membersWithFirstRun` (people who ran a team
@@ -7620,12 +7621,20 @@ every week. Placement: Team AX core (skills, files and permissions, the team lin
   skill deleted there stays deleted, and without "할 일 정리" it is `blocked`; an install of these steps that was
   blocked may run again, it only adds what is missing), and a group named after the team (Admin › Groups' own path,
   `createGroupAs`: its folder `groups/<name>/`, the rule "this group writes", audited `group.create`) with the owner in it
-  and the meeting notes folder `groups/<name>/회의록` (localized, `NOTES_FOLDER`) made through the file layer. A group of
-  the team's name made by an admin before is used as it is (its members are their choice); a recorded group deleted
-  later is replaced by a new one in a new folder (never the old group's files). The pack's record is saved before the
+  and the meeting notes folder `groups/<name>/회의록` (localized, `NOTES_FOLDER`) made through the file layer. A group
+  these steps did not make is never taken over, even with the team's name (review must-fix: an admin's "acme" may carry
+  rules on other folders, and as the team link's default group, or added to a posted link by the invite's PATCH, it
+  would hand those rules to everyone who joins): the name gets a number ("Acme 2"). A recorded group deleted later is
+  replaced by a new one in a new folder (never the old group's files). The pack's record is saved before the
   group is made, so a failure there never installs twice. Why a group and not `shared/`: `shared/` is the whole
   company's; a team's notes belong to the team, and group folders are already read and written by their members.
   Never "보기만": members of the group write there too.
+- **Who sees it, said with the real number** (review): the group starts with the owner only, so people who joined
+  before it (an older team resuming the steps, single-use invites) are not in it. The step's line reads "여기 올린 파일은
+  {팀} n명만 봐요 · 채팅은 각자만 봐요" with n = the group's active members and the active owners and admins (who read every
+  team folder; `lib/welcome.ts teamReach`), and when active members are outside the group, one quiet "지금 있는 팀원 n명도
+  넣기" (the owner's click; Admin › Groups' own update). Nobody is added by itself. Until the count is read, or when it
+  cannot be, the line without a number.
 - **Step 2 for every team: the team's own files.** "최근 회의록이나 업무 파일을 놓아 주세요 / 몇 개면 충분해요", one
   [파일 고르기] (drop on desktop; phones pick files), the line about who sees them, and "자료 없이 해 볼게요". The files go
   into the notes folder through the normal upload (versions, file events, the folder rules), are attached to a new chat
@@ -7653,11 +7662,22 @@ every week. Placement: Team AX core (skills, files and permissions, the team lin
   people who join see the team's folder; when the lead invites from the notes and the open link lacks it, the PATCH adds
   it (adding a group is what the lead's click asks for; groups are never removed this way).
 - **The member's arrival**: a new chat, not a form. One line "{팀장}님이 이번 주 팀 회의록 {n}개를 올려 뒀어요", the box
-  holding "/meeting-tasks 내 할 일 정리해 줘" with the files attached as team-file references (the composer's own attach
+  holding the skill as a chip by its title ("할 일 정리") and the question "내 할 일 정리해 줘" (sent as "/meeting-tasks 내
+  할 일 정리해 줘"; the chip's X sends the question without the skill), with the files attached as team-file references (the composer's own attach
   path checks them again), one send, and "이 채팅은 {이름}님만 봐요. {팀장}님도 못 봐요." (chats are personal). The skill
-  finds the person by the `User:` line of its instructions (full name, given name, 님/씨 forms; a family name with a job
-  title only when exactly one person can be meant); not found: "회의록에서 {이름}님 이름을 못 찾았어요. 팀 전체 할
-  일이에요" and the team's list. Owners, tasks and dates are never invented; due dates only when written.
+  finds the person by the `User:` line of its instructions (full name, given name, 님/씨 forms; a full name with another
+  family name, 박민지 for 김민지, is someone else, so "민지" alone is not enough then). A family name with a job title ("이
+  대리") is never theirs for sure (review: the AI sees only the people the notes name, not the team): unless the notes
+  tie the title to their full name it goes under "### 확인 필요" as "회의록의 '이 대리'가 {이름}님이라면: …". Not found: "회의록에서 {이름}님 이름을 못 찾았어요. 팀 전체 할
+  일이에요" and the team's list. Owners, tasks and dates are never invented; due dates only when written. The fixed first
+  lines are followed by a blank line (one paragraph otherwise), and the English skill, which Japanese, Indonesian and
+  Spanish teams get, names the "not meeting notes" sentence in each of those languages, the same words the web looks for
+  (`welcome.files.briefSwitch`; a test holds each locale's sentence to the skill that locale's team gets).
+- **A command reads as its skill** (owner-facing polish): a question that runs a skill shows the skill's title as a chip
+  and then the rest ("할 일 정리" · "이 회의록으로 이번 주 할 일…") in place of "/meeting-tasks …", the lead's first chat and
+  the ad copy form's message included (`Messages.tsx UserText`, the person's skill list by name, `lib/skillTitles.ts`); a
+  command no skill of theirs has stays as typed; copy and edit keep the command. The composer takes a chosen skill as
+  the same chip (`Composer` `skill`).
 - **The receipt**: a finished answer that ran a team skill gets `Message.receipt { skill { path, name }, teamFiles }`
   (`chat/store.ts receiptOf`: the first "/name" run, else the skill tool's; team files = the question's team-file
   references and the answer's sources, each once, outside personal folders, `skills/` and `.system/`). The folded step
@@ -7667,9 +7687,11 @@ every week. Placement: Team AX core (skills, files and permissions, the team lin
 - **The invite**: under the lead's first answer "팀원도 이 회의록에서 각자 할 일을 바로 받아요 [팀원 초대]" (replaces "결과가
   마음에 드세요?…"); the message "이번 주 팀 회의록 올려 뒀어요. 링크 열면 내 할 일이 바로 나와요." (not meeting notes: "팀
   자료 올려 뒀어요. 링크 열면 나한테 필요한 것만 바로 볼 수 있어요.") follows the link's starter, also on Admin › Members.
-  X's folded invite step stays (one [메시지 복사], 링크 관리 folded).
+  X's folded invite step stays (one [메시지 복사], 링크 관리 folded). The automatic PATCH compares the link's file list
+  (`TeamLink.starter.paths`, admins only), not its count, and a wish already sent for a link is not sent again in that
+  page load (the server may keep fewer files than asked: asking again would change nothing).
 - **The goal** keeps counting team-skill runs; `meeting-tasks` is the one most teams will share. The operator's
-  `packInstalled` still means the marketing pack.
+  `packInstalled` counts the general pack too (`skills/general/`): every team that walked the steps has it.
 - **Not now** (next): "관리자로 초대" for a lead who is not the owner (today only the owner walks the steps; an admin
   lead would need the owner to invite them as admin first), a weekly reminder to drop the notes, Drive import, tools
   (Notion and others).
@@ -7693,4 +7715,8 @@ every week. Placement: Team AX core (skills, files and permissions, the team lin
   groups, admins only, 404 with no open link), `tests/unit/b-answer-receipt.test.ts` (the skill, each team file once,
   personal folders and skills/ left out, a command before the skill tool, no receipt without a run or while streaming),
   `a-team-links` (six endpoints), `web/test/unit/welcome.test.tsx`, `team-link.test.tsx`, `starter-arrival.test.tsx`,
-  `steps-receipt.test.tsx`, `web/test/e2e/welcome-notes.spec.ts`, `auth.spec.ts`.
+  `steps-receipt.test.tsx`, `web/test/e2e/welcome-notes.spec.ts`, `auth.spec.ts`. Review fixes: the admin's group never
+  taken over ("Acme 2"), `packInstalled` with the general pack (`b-onboarding-team-space`), `paths` on the admin view
+  (`a-team-link-starter`), `tests/unit/c-general-pack-switch.test.ts`, the count and "지금 있는 팀원 n명도 넣기"
+  (`welcome.test.tsx`), the file list and the patched memory (`team-link.test.tsx`), the chip in the box and in a question
+  (`starter-arrival.test.tsx`, `steps-receipt.test.tsx`).

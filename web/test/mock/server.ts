@@ -536,7 +536,8 @@ export class MockServer {
     const named = l.skillPath ? this.teamLinkSkill(l.skillPath, viewer) : null
     const skill = l.skillPath ? { path: l.skillPath, name: named?.name ?? null, title: named?.title ?? null } : null
     // the starter's files a newcomer with the link's groups could read now (here: those that exist)
-    const starter = l.starter ? { kind: l.starter.kind, files: l.starter.files.filter((f) => this.files.get(f)?.type === 'file').length } : null
+    const paths = l.starter ? l.starter.files.filter((f) => this.files.get(f)?.type === 'file') : []
+    const starter = l.starter ? { kind: l.starter.kind, files: paths.length, paths } : null
     return {
       link: { id: l.id, url: `${new URL(req.url).origin}/join#t=${l.token}`, groupIds: l.groupIds, skill, starter, maxUses: l.maxUses, uses: l.uses, createdBy: l.createdBy, createdAt: l.createdAt, expiresAt: l.expiresAt, state: l.uses >= l.maxUses ? 'used_up' as const : 'active' as const },
       seats: { used, limit: null },
@@ -1607,9 +1608,11 @@ export class MockServer {
         install = { pack: 'general' as const, locale: this.settings.defaultLocale, skills: skills.map(([name, path]) => ({ name, path, status: 'created' as const })), folders: [] }
       }
       if (!p.teamGroup) {
-        const name = this.settings.teamName
-        const g = this.groups.find((x) => x.name === name) ?? (this.handlers.createGroup!({ ...c, body: { name, memberIds: [c.user.id] } }) as { body: Group }).body
-        if (!g.memberIds.includes(c.user.id)) g.memberIds.push(c.user.id)
+        // like server/src/onboarding/welcome.ts: a group these steps did not make is never taken over ("Acme 2")
+        const team = this.settings.teamName
+        const taken = (n: string) => this.groups.some((x) => x.name.toLowerCase() === n.toLowerCase())
+        const name = !taken(team) ? team : [2, 3, 4, 5, 6, 7, 8, 9].map((n) => `${team} ${n}`).find((n) => !taken(n)) ?? `${team} ${Date.now()}`
+        const g = (this.handlers.createGroup!({ ...c, body: { name, memberIds: [c.user.id] } }) as { body: Group }).body
         const folder = `groups/${g.name}`
         const notesFolder = `${folder}/${NOTES_FOLDER[this.settings.defaultLocale as keyof typeof NOTES_FOLDER] ?? NOTES_FOLDER.en}`
         for (const d of ['groups', folder, notesFolder]) this.files.set(d, this.files.get(d) ?? { type: 'folder', mtime: at })

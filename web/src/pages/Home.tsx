@@ -5,7 +5,8 @@
 // Two moments of the meeting-notes start (docs/DECISIONS.md "M — One meeting note, everyone's own tasks") show here as
 // one line each, with nothing else added:
 //   - a member who just joined with a link that carries the lead's files (lib/starter.ts): "민지님이 이번 주 팀 회의록
-//     2개를 올려 뒀어요" above the box, the box filled with "/meeting-tasks 내 할 일 정리해 줘" and the files attached,
+//     2개를 올려 뒀어요" above the box, the box holding the skill as a chip ("할 일 정리") and "내 할 일 정리해 줘", the
+//     files attached,
 //     the box's own send button as the one action, and who sees the chat under it; nothing else on Home until it is sent;
 //   - the owner who ended the welcome steps without files: "회의록이 생기면 {팀} 폴더에 놓아 주세요".
 import { Folder, Lock, Pencil } from 'lucide-react'
@@ -81,6 +82,7 @@ export default function Home() {
             // Only in-app PUSH navigation or a chosen preset requests focus; a document load keeps the skip link first.
             autoFocus={navigationType === 'PUSH' || (preset?.n ?? 0) > 0}
             onSent={starter ? () => clearStarter(me.user.id) : undefined}
+            skill={starter ? { name: starter.skill.name, title: starter.skill.title } : undefined}
           />
           {starter && (
             <p className="mt-2 text-center text-xs text-faint" data-testid="starter-private">
@@ -99,9 +101,10 @@ export default function Home() {
   )
 }
 
-/** "/meeting-tasks 내 할 일 정리해 줘": the link's skill and the member's own question (the name is not translated). */
+/** The member's own question ("내 할 일 정리해 줘"); the link's skill goes with it as the box's chip ("할 일 정리"), and
+ * sending runs "/meeting-tasks 내 할 일 정리해 줘". */
 export function starterQuestion(s: JoinStarter, t: ReturnType<typeof useT>): string {
-  return `/${s.skill.name} ${t(s.kind === 'brief' ? 'starter.askBrief' : 'starter.askTasks')}`
+  return t(s.kind === 'brief' ? 'starter.askBrief' : 'starter.askTasks')
 }
 
 /** "민지님이 이번 주 팀 회의록 2개를 올려 뒀어요" (the files are in the box below). */
