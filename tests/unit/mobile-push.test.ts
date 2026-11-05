@@ -3,11 +3,11 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { FileTransfers, MobileReceiver, PushRefused, type TransferIO } from '../../mobile/src/bridge'
 import { currentDevice, leaveTeam, rememberDevice, retryRemovals, type DeviceDeps, type TeamDevice } from '../../mobile/src/device'
-import { MOBILE_CAPABILITIES, PUSH_CAPABILITY, notificationPath, parseMessage, tappedNotificationPath, validConfig, validPushToken, type MobileConfig, type PushToken } from '../../mobile/src/protocol'
+import { MOBILE_CAPABILITIES, PUSH_CAPABILITY, PUSH_REGISTERED_CAPABILITY, notificationPath, parseMessage, tappedNotificationPath, validConfig, validPushToken, type MobileConfig, type PushToken } from '../../mobile/src/protocol'
 import { IOS_USAGE, offlineError, stringsFor } from '../../mobile/src/strings'
 import appConfig from '../../mobile/app.config'
 
-const config: MobileConfig = { protocol: 1, platform: 'ios', appVersion: '1.0.0', nonce: 'a'.repeat(64), generation: 1, capabilities: [...MOBILE_CAPABILITIES, PUSH_CAPABILITY] }
+const config: MobileConfig = { protocol: 1, platform: 'ios', appVersion: '1.0.0', nonce: 'a'.repeat(64), generation: 1, capabilities: [...MOBILE_CAPABILITIES, PUSH_CAPABILITY, PUSH_REGISTERED_CAPABILITY] }
 const ios: PushToken = { platform: 'ios', token: 'ab'.repeat(32), environment: 'production' }
 const io: TransferIO = { async create() {}, async append() {}, async inspect() { return { size: 0, sha256: '' } }, async share() {}, async remove() {} }
 function make(source: (() => Promise<PushToken>) | undefined, capabilities = config.capabilities) {
@@ -147,16 +147,16 @@ test('push-registered: the page hands over its device id and removal key through
   expect(f.registered).toHaveLength(0)
   expect((await f.receiver.receive(msg(), 'https://team.example/'))?.ok).toBe(true)
   expect(f.registered).toEqual([{ deviceId: 'dev_1', removeKey: 'k'.repeat(43) }])
-  const old = make(async () => ios, [...MOBILE_CAPABILITIES])
+  const old = make(async () => ios, [...MOBILE_CAPABILITIES, PUSH_CAPABILITY])
   expect((await old.receiver.receive(old.request({ type: 'push-registered', deviceId: 'dev_1', removeKey: 'k'.repeat(43) }), 'https://team.example'))?.error).toBe('push_unavailable')
 })
 
-test('a tap whose tag is another device (another team) opens nothing; no tag (older server) still opens', () => {
+test('a tap whose device is another one (another team) opens nothing; none (older server) still opens', () => {
   const since = Date.UTC(2026, 10, 5), at = since + 5000
-  expect(tappedNotificationPath({ path: '/rooms/r1', tag: 'dev_now' }, at, since, 'dev_now')).toBe('/rooms/r1')
-  expect(tappedNotificationPath({ path: '/rooms/r1', tag: 'dev_old_team' }, at, since, 'dev_now')).toBeNull()
+  expect(tappedNotificationPath({ path: '/rooms/r1', device: 'dev_now' }, at, since, 'dev_now')).toBe('/rooms/r1')
+  expect(tappedNotificationPath({ path: '/rooms/r1', device: 'dev_old_team' }, at, since, 'dev_now')).toBeNull()
   expect(tappedNotificationPath({ path: '/rooms/r1' }, at, since, 'dev_now')).toBe('/rooms/r1')
-  expect(tappedNotificationPath({ path: '/rooms/r1', tag: 'dev_x' }, at, since, null)).toBe('/rooms/r1')
+  expect(tappedNotificationPath({ path: '/rooms/r1', device: 'dev_x' }, at, since, null)).toBe('/rooms/r1')
 })
 
 function memory(remove: (d: TeamDevice) => Promise<boolean>) {

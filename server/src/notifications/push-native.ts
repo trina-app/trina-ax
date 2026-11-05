@@ -15,7 +15,7 @@ import { HttpError } from '../http/errors'
 import { loadOrCreateKey } from '../relay-client/registration'
 import { postPinned, type PushLookup } from './push-transport'
 
-/** The gateway address (AppConfig push.gatewayUrl: the edition's default, MYCEL_PUSH_GATEWAY, server.json; unset = off). */
+/** The gateway address (AppConfig push.gatewayUrl: MYCEL_PUSH_GATEWAY or server.json push.gatewayUrl; unset = off). */
 export interface NativePushConfig { url: string }
 export interface NativeDevice { platform: PushPlatform; token: string; environment: PushEnvironment }
 export interface NativePayload { notificationId: string; code: PushEventType; locale: PushLocale; tag?: string; path?: string }

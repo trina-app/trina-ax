@@ -1,4 +1,4 @@
-import { base64Size, MAX_FILE_BYTES, parseMessage, PUSH_CAPABILITY, sameTeam, TRANSFER_IDLE_MS, validPushToken, type FileMessage, type MobileConfig, type MobileReply, type PushToken } from './protocol'
+import { base64Size, MAX_FILE_BYTES, parseMessage, PUSH_CAPABILITY, PUSH_REGISTERED_CAPABILITY, sameTeam, TRANSFER_IDLE_MS, validPushToken, type FileMessage, type MobileConfig, type MobileReply, type PushToken } from './protocol'
 export interface TransferIO {
   create(id: string, name: string, mime: string): Promise<void>
   append(id: string, b64: string): Promise<void>
@@ -110,7 +110,7 @@ export class MobileReceiver {
         if (!validPushToken(token)) throw new PushRefused('push_unavailable')
         reply.push = { platform: token.platform, token: token.token, environment: token.environment }
       } else if (m.type === 'push-registered') {
-        if (!this.push || !current.capabilities.includes(PUSH_CAPABILITY)) throw new PushRefused('push_unavailable')
+        if (!this.push || !current.capabilities.includes(PUSH_REGISTERED_CAPABILITY)) throw new PushRefused('push_unavailable')
         await this.push.registered({ deviceId: m.deviceId, removeKey: m.removeKey })
       } else await this.files.receive(m)
     } catch (error) { reply.ok = false; reply.error = error instanceof PushRefused ? error.code : 'mobile_operation_failed' }

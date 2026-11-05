@@ -8,6 +8,9 @@ export const MOBILE_CAPABILITIES = ['file-share-v1', 'external-oauth-v1'] as con
 /** Optional, versioned: the web page asks for this phone's native push token (APNs/FCM) after sign-in. An app without
  * it, or a web page that does not know it, keeps working; push simply stays off. */
 export const PUSH_CAPABILITY = 'push-token-v1'
+/** Optional, versioned: the app takes `push-registered` (the team's device id and removal key). An app without it (the
+ * first App Store build) never answers that message, so the page sends it only when this is offered. */
+export const PUSH_REGISTERED_CAPABILITY = 'push-registered-v1'
 export type PushPlatform = 'ios' | 'android'
 /** APNs host the token belongs to: development builds get sandbox tokens; TestFlight and App Store builds production. */
 export type PushEnvironment = 'sandbox' | 'production'
@@ -91,11 +94,12 @@ export function notificationPath(v: unknown): string | null {
   return typeof v === 'string' && v.length <= 200 && /^\/(?:[A-Za-z0-9_-]+(?:\/[A-Za-z0-9_-]+)*)?$/.test(v) ? v : null
 }
 /** The path a tapped notification opens, or null. date: iOS reports seconds, Android milliseconds. A notification
- * delivered before the current team was chosen (teamSince, ms) opens nothing, and neither does one whose tag (the
+ * delivered before the current team was chosen (teamSince, ms) opens nothing, and neither does one whose `device` (the
  * team's device id) is not the device this app registered with the current team: it belongs to another team. */
 export function tappedNotificationPath(data: unknown, date: unknown, teamSince: number, device?: string | null): string | null {
   if (typeof date !== 'number' || !Number.isFinite(date) || (date < 1e11 ? date * 1000 : date) < teamSince || !object(data)) return null
-  if (device && typeof data.tag === 'string' && data.tag !== device) return null
+  // `device`, not `tag`: expo-notifications on Android uses data.tag as the notification's identifier
+  if (device && typeof data.device === 'string' && data.device !== device) return null
   return notificationPath(data.path)
 }
 export function validConfig(v: unknown): v is MobileConfig {

@@ -27,7 +27,8 @@ export async function registerMobilePush(turn = epoch): Promise<string> {
   const token = await requestPushToken()
   if (turn !== epoch) throw new DOMException('Mobile operation cancelled', 'AbortError')
   const { id, removeKey } = await api.call(API.registerPushDevice, { body: { consent: true, ...token } })
-  // an older app without push-registered support still gets push; it only cannot remove itself on a team switch
-  await confirmPushDevice(id, removeKey).catch(() => {})
+  // An app without push-registered-v1 (the first store build) still gets push; it only cannot remove itself on a team
+  // switch or tell this team's taps from another's. confirmPushDevice does not even ask such an app.
+  await confirmPushDevice(id, removeKey).catch(() => false)
   return id
 }

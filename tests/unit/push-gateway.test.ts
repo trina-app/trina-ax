@@ -371,7 +371,7 @@ describe('push gateway: APNs', () => {
     // only aps and body at the top level: expo-notifications reads the data from userInfo["body"] on iOS
     expect(JSON.parse(prod!.body)).toEqual({
       aps: { alert: { title: 'Trina AX', body: '새 메시지가 있어요' }, sound: 'default' },
-      body: { notificationId: 'n1', code: 'room.message', path: '/rooms/abc123', tag: 'dev_42' },
+      body: { notificationId: 'n1', code: 'room.message', path: '/rooms/abc123', device: 'dev_42' },
     })
     expect(JSON.parse(sandbox!.body)).toEqual({
       aps: { alert: { title: 'Trina AX', body: 'A scheduled task needs your attention.' }, sound: 'default' },
@@ -468,7 +468,7 @@ describe('push gateway: FCM', () => {
         token: ANDROID_TOKEN,
         notification: { title: 'Trina AX', body: '接続のために再ログインが必要です。' },
         // flat strings and no key named "body" (Android would read a JSON "body" as expo-notifications' own format)
-        data: { notificationId: 'n1', code: 'connection.reconnect', path: '/rooms/abc123', tag: 'dev-7' },
+        data: { notificationId: 'n1', code: 'connection.reconnect', path: '/rooms/abc123', device: 'dev-7' },
         android: { priority: 'HIGH', ttl: '600s', collapse_key: 'n1', notification: { channel_id: 'default', tag: 'n1' } },
       },
     })

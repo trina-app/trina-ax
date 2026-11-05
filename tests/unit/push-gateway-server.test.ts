@@ -96,7 +96,7 @@ describe('push gateway server: APNs over HTTP/2, SQLite state', () => {
     expect(String(seen[0]!.headers.authorization)).toMatch(/^bearer /)
     expect(JSON.parse(seen[0]!.body)).toEqual({
       aps: { alert: { title: 'Trina AX', body: 'You have a new message' }, sound: 'default' },
-      body: { notificationId: 'n1', code: 'room.message', tag: 'dev-1' },
+      body: { notificationId: 'n1', code: 'room.message', device: 'dev-1' },
     })
     const dead = await fetch(signed(`${base}/v1/send`, body({ token: 'dead'.repeat(16) })))
     expect(dead.status).toBe(410)

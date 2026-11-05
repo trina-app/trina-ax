@@ -1,7 +1,8 @@
 // APNs with token auth (developer.apple.com "Sending notification requests to APNs"). APNs speaks only HTTP/2: the
 // `fetch` given here must do HTTP/2 to api.push.apple.com (bun.ts: node:http2).
 //
-// Payload: { aps: { alert, sound }, body: { notificationId, code, path?, tag? } } and nothing else. expo-notifications
+// Payload: { aps: { alert, sound }, body: { notificationId, code, path?, device? } } and nothing else (device = the
+// request's tag, see fcm.ts appData). expo-notifications
 // reads a remote notification's data on iOS from userInfo["body"].
 import type { PushGatewaySend } from '../../shared/src/cloud-protocol/push-gateway.ts'
 import { importEs256, sha256Hex, signJwt, type FetchLike } from './crypto.ts'

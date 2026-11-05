@@ -7967,12 +7967,13 @@ The phone app (mobile/, Expo SDK 58 WebView of a team's HTTPS web app) goes to T
   (`MYCEL_MOBILE_GOOGLE_SERVICES`); without it an Android build logs one line and push stays off.
 - **A tap opens only an id path on the current team** (`/rooms/<id>` style, no scheme, host, `//`, `..`, query or
   fragment; the same rule as the gateway's `validPushPath`, a test keeps them equal), and only when the notification's
-  `tag` (the team's device id) is the device the app registered with the current team; a notification delivered before
+  `device` (the team's device id; the request field is `tag`, the data key is `device` because expo-notifications on
+  Android uses `data.tag` as the notification id) is the device the app registered with the current team; a notification delivered before
   the current team was chosen opens nothing either. Changing team clears delivered notifications. In the foreground a
   notification goes to the list without a banner (the web app is live). On iOS, expo-notifications reads remote data
-  from the APNs payload's `body` dictionary, so the gateway puts `{ notificationId, code, path, tag }` there; FCM data
-  stays flat.
-- **Server: a native device is a `push_subscriptions` row of kind `native`** (migration 240: `kind`, `remove_hash`), not
+  from the APNs payload's `body` dictionary, so the gateway puts `{ notificationId, code, path, device }` there; FCM
+  data stays flat.
+- **Server: a native device is a `push_subscriptions` row of kind `native`** (migration 240: `kind`; 242: `remove_hash`), not
   a second table. Every event the push service delivers, including codes other branches add, reaches phones through the
   same `push_deliveries`, session binding (`ON DELETE CASCADE`: logout removes the device), opt-out, beforeSend
   re-check after DNS, retry budget and expiry. The token is vault-encrypted (kind `native-push`, so an older build
@@ -7980,7 +7981,9 @@ The phone app (mobile/, Expo SDK 58 WebView of a team's HTTPS web app) goes to T
   `native: { available, deviceId, gateway }` and `optedOut`. A token belongs to the latest session that registered it,
   also for another account: on a reinstalled phone the previous account's row is replaced, never kept delivering.
 - **Leaving a team removes the phone there.** Registration returns a removal key (only its sha256 is stored); the page
-  hands device id and key to the app (`push-registered`). On a team switch, also from the cannot-reach screen, the app
+  hands device id and key to the app (`push-registered`), only when the app offers `push-registered-v1`: the first
+  store build (1.0.0 build 1) has push-token-v1 but would never answer that message, so it gets push without the
+  removal and the device check. On a team switch, also from the cannot-reach screen, the app
   calls the public `POST /api/push/devices/:id/remove` with the key (always 204, no session: the person is leaving that
   team). If that server cannot be reached, the removal is kept (at most four, 30 days) and retried at each app start.
 - **Off until the operator chooses a gateway.** Team servers never get Apple's .p8 key or Google's service account;

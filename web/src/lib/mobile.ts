@@ -1,4 +1,4 @@
-import { MAX_CHUNK_BYTES, MAX_FILE_BYTES, PUSH_CAPABILITY, safeFileName, sameTeam, googleOAuthUrl, validConfig, validPushToken, type MobileConfig, type MobileMessage, type MobileReply, type PushToken } from '../../../mobile/src/protocol'
+import { MAX_CHUNK_BYTES, MAX_FILE_BYTES, PUSH_CAPABILITY, PUSH_REGISTERED_CAPABILITY, safeFileName, sameTeam, googleOAuthUrl, validConfig, validPushToken, type MobileConfig, type MobileMessage, type MobileReply, type PushToken } from '../../../mobile/src/protocol'
 
 type PhoneWindow = Window & { mycelMobile?: unknown; ReactNativeWebView?: { postMessage(raw: string): void } }
 export function mobileApp(): MobileConfig | null {
@@ -152,14 +152,16 @@ export async function requestPushToken(): Promise<PushToken> {
   return reply.push
 }
 /** Tells the app which device id this team gave it (taps from other teams are ignored) and the removal key the app
- * uses to remove the device when the person switches team. */
-export async function confirmPushDevice(deviceId: string, removeKey: string): Promise<void> {
+ * uses to remove the device when the person switches team. Only an app offering push-registered-v1 gets it: an older
+ * build would never answer. Returns whether the app took it. */
+export async function confirmPushDevice(deviceId: string, removeKey: string): Promise<boolean> {
   const turn = epoch
   await barrier
   if (turn !== epoch) throw cancelled()
   const config = mobileApp()
-  if (!config?.capabilities.includes(PUSH_CAPABILITY)) throw new Error('push_unavailable')
+  if (!config?.capabilities.includes(PUSH_REGISTERED_CAPABILITY)) return false
   await request({ ...envelope(config), type: 'push-registered', deviceId, removeKey }, config)
+  return true
 }
 export function initMobile(errorHandler?: (error: unknown) => void): void {
   if (typeof window === 'undefined' || initialized) return

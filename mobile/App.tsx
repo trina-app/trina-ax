@@ -9,7 +9,7 @@ import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context'
 import { WebView as NativeWebView, type WebViewProps } from 'react-native-webview'
 import { FileTransfers, MobileReceiver } from './src/bridge'
 import { clearDownloadCache, fileTransferIO } from './src/files'
-import { MOBILE_CAPABILITIES, PUSH_CAPABILITY, googleOAuthUrl, navigationDecision, sameTeam, type MobileConfig } from './src/protocol'
+import { MOBILE_CAPABILITIES, PUSH_CAPABILITY, PUSH_REGISTERED_CAPABILITY, googleOAuthUrl, navigationDecision, sameTeam, type MobileConfig } from './src/protocol'
 import { accentInk, mobileProduct } from './src/product'
 import { devicePushToken, devices, forgetDelivered, onNotificationTap, quietForeground } from './src/push'
 import { currentDevice, leaveTeam, rememberDevice, retryRemovals } from './src/device'
@@ -87,7 +87,7 @@ function TeamWeb({ address, opened, onDevice, onChangeTeam }: { address: TeamAdd
   const [source, setSource] = useState(address.origin + address.entryPath)
   const receiver = useRef<MobileReceiver | null>(null)
   if (!receiver.current) {
-    const config: MobileConfig = { protocol: 1, appVersion: VERSION, platform: Platform.OS === 'ios' ? 'ios' : 'android', nonce: '0'.repeat(64), generation: 1, capabilities: [...MOBILE_CAPABILITIES, PUSH_CAPABILITY] }
+    const config: MobileConfig = { protocol: 1, appVersion: VERSION, platform: Platform.OS === 'ios' ? 'ios' : 'android', nonce: '0'.repeat(64), generation: 1, capabilities: [...MOBILE_CAPABILITIES, PUSH_CAPABILITY, PUSH_REGISTERED_CAPABILITY] }
     receiver.current = new MobileReceiver(address.origin, config, new FileTransfers(fileTransferIO()), async url => { await Linking.openURL(url) }, {
       token: () => devicePushToken(t.channelName),
       async registered({ deviceId, removeKey }) { await rememberDevice(devices, { origin: address.origin, deviceId, removeKey, at: Date.now() }); onDevice(deviceId) },

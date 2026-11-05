@@ -1,8 +1,10 @@
 // FCM HTTP v1 (firebase.google.com/docs/cloud-messaging/send/v1-api) with a service account: an RS256 JWT assertion
 // is exchanged for an OAuth access token at the account's token_uri, cached until 60 s before it expires.
 //
-// `data` is flat strings { notificationId, code, path?, tag? } and never has a key named "body" (expo-notifications on
-// Android would read a JSON "body" as its own format).
+// `data` is flat strings { notificationId, code, path?, device? } and never has a key named "body" (expo-notifications on
+// Android would read a JSON "body" as its own format) or "tag" (expo-notifications 58 uses data["tag"] as the
+// notification's identifier, so a per-device tag would make every push replace the previous one). The request's `tag`
+// (the team's device id) therefore travels as `device`.
 import type { PushGatewaySend } from '../../shared/src/cloud-protocol/push-gateway.ts'
 import { importRs256, signJwt, type FetchLike } from './crypto.ts'
 
@@ -12,7 +14,7 @@ export type SendOutcome = 'sent' | 'token_invalid' | 'provider_error'
 export function appData(msg: PushGatewaySend): Record<string, string> {
   const data: Record<string, string> = { notificationId: msg.notificationId, code: msg.code }
   if (msg.path !== undefined) data.path = msg.path
-  if (msg.tag !== undefined) data.tag = msg.tag
+  if (msg.tag !== undefined) data.device = msg.tag
   return data
 }
 

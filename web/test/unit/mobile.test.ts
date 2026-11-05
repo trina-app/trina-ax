@@ -2,7 +2,7 @@ import { afterAll, beforeAll, beforeEach, expect, test } from 'bun:test'
 import { createHash } from 'node:crypto'
 import { initMobile, mobileApp, sendFileToApp, setMobileSession, openExternal, downloadToApp, readMobileDownload, requestPushToken, confirmPushDevice, MobileFileTooLarge } from '../../src/lib/mobile'
 import { clientKind } from '../../src/lib/desktop'
-import { MAX_CHUNK_BYTES, MAX_FILE_BYTES, MOBILE_CAPABILITIES, PUSH_CAPABILITY, type MobileConfig, type MobileMessage, type MobileReply } from '../../../mobile/src/protocol'
+import { MAX_CHUNK_BYTES, MAX_FILE_BYTES, MOBILE_CAPABILITIES, PUSH_CAPABILITY, PUSH_REGISTERED_CAPABILITY, type MobileConfig, type MobileMessage, type MobileReply } from '../../../mobile/src/protocol'
 const config: MobileConfig = { protocol: 1, appVersion: '0.2.2', platform: 'ios', nonce: 'c'.repeat(64), generation: 1, capabilities: MOBILE_CAPABILITIES }
 const win = Object.assign(new EventTarget(), { self: null as unknown, top: null as unknown, mycelMobile: { ...config }, ReactNativeWebView: { postMessage: (_raw: string) => {} } })
 win.self = win; win.top = win
@@ -119,9 +119,13 @@ test('a token requested before logout is not handed to the next session', async 
   setMobileSession('session-after-logout-push')
   expect(await pending).toBeInstanceOf(DOMException)
 })
-test('push-registered hands the team device id and removal key to the app, only through push-token-v1', async () => {
-  await expect(confirmPushDevice('device-1', 'k'.repeat(43))).rejects.toThrow('push_unavailable')
+test('push-registered goes only to an app that offers push-registered-v1; the first store build is not asked', async () => {
+  // the build already at Apple: push-token-v1 but no push-registered-v1. It would never answer, so nothing is sent
   win.mycelMobile = { ...config, capabilities: [...MOBILE_CAPABILITIES, PUSH_CAPABILITY] }
-  await confirmPushDevice('device-1', 'k'.repeat(43))
+  const before = messages.length, started = Date.now()
+  expect(await confirmPushDevice('device-1', 'k'.repeat(43))).toBe(false)
+  expect(messages.length).toBe(before); expect(Date.now() - started).toBeLessThan(1000)
+  win.mycelMobile = { ...config, capabilities: [...MOBILE_CAPABILITIES, PUSH_CAPABILITY, PUSH_REGISTERED_CAPABILITY] }
+  expect(await confirmPushDevice('device-1', 'k'.repeat(43))).toBe(true)
   expect(messages.at(-1)).toMatchObject({ type: 'push-registered', deviceId: 'device-1', removeKey: 'k'.repeat(43) })
 })

@@ -5,7 +5,4 @@
 --   opt-out, cancellation, retry and expiry as Web Push, without a second queue.
 -- Additive only (reader 1): an older build ignores the column; it cannot decrypt a native row as Web Push (other
 --   vault kind), so such a delivery fails and is retried at most three times, sending nothing.
---   remove_hash: sha256 hex of the device's removal key. The app keeps the key, so it can remove its device from this
---   team when the person switches team, also later when this server was unreachable at the switch (no session needed).
 ALTER TABLE push_subscriptions ADD COLUMN kind TEXT NOT NULL DEFAULT 'web' CHECK(kind IN ('web','native'));
-ALTER TABLE push_subscriptions ADD COLUMN remove_hash TEXT;

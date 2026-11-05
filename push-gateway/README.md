@@ -22,9 +22,10 @@ service. It runs on Bun with its state in one SQLite file, behind a TLS terminat
 - Notification content: there is no message content (App Review 4.5.4). The title is `APP_TITLE`; the body is a
   generic line picked from `code` and `locale` (`src/text.ts`).
 - Data the app reads:
-  - iOS: the APNs payload is `{aps:{alert,sound}, body:{notificationId, code, path?, tag?}}`. expo-notifications reads
+  - iOS: the APNs payload is `{aps:{alert,sound}, body:{notificationId, code, path?, device?}}`. expo-notifications reads
     remote data from `userInfo["body"]`.
-  - Android: FCM `data` is the same keys as flat strings, and never a key named `body`.
+  - Android: FCM `data` is the same keys as flat strings, and never a key named `body` or `tag` (expo-notifications uses
+    `data.tag` as the notification id, so the request's `tag` travels as `device`).
 - Logs: only `{evt, outcome, platform, status}`. Tokens, bodies, keys, signatures, client addresses and provider
   answers are never logged.
 
