@@ -395,7 +395,7 @@ function FilesStep({ progress, busy: stepBusy, onRan }: { progress: WelcomeProgr
       }
       const files = withFiles.current ? itemsRef.current.map((x) => x.path!) : []
       const key = files.join('\n')
-      // the server makes the chat (the brand photo tool may run there), the intro when there is no file, and says what
+      // the server makes the chat, the intro when there is no file, and says what
       // to attach; it may refuse with its own words (no profile and no website yet, the skill kept out)
       if (started.current?.key !== key) started.current = { key, r: await api.call(API.startFirstResult, { body: { files } }) }
       const r = started.current.r

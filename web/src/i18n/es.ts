@@ -2947,7 +2947,6 @@ export const es: Record<MessageKey, string> = {
   "onboarding.profile.activity.logoImages": "Logotipo y {n, plural, one {# imagen guardados} other {# imágenes guardados}}",
   "onboarding.profile.activity.logo": "Logotipo guardado",
   "onboarding.profile.f.colors": "Colores de marca",
-  "audit.act.onboarding.hosted_image_key": "Cambió la clave alojada de fotos de marca",
   "audit.act.onboarding.first_result": "Primer resultado iniciado (primeros pasos)",
   // English QA pass (onboarding): the site placeholder per language, the team folder and its newest notes on the team skill card
   "onboarding.profile.sitePlaceholder": "acme.es",

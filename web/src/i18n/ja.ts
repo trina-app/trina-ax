@@ -2947,7 +2947,6 @@ export const ja: Record<MessageKey, string> = {
   "onboarding.profile.activity.logoImages": "ロゴと画像{n, plural, one {#枚} other {#枚}}を取り込みました",
   "onboarding.profile.activity.logo": "ロゴを取り込みました",
   "onboarding.profile.f.colors": "ブランドカラー",
-  "audit.act.onboarding.hosted_image_key": "ホスティングのブランド写真キーを変更",
   "audit.act.onboarding.first_result": "最初の成果を開始(はじめの設定)",
   // English QA pass (onboarding): the site placeholder per language, the team folder and its newest notes on the team skill card
   "onboarding.profile.sitePlaceholder": "acme.co.jp",

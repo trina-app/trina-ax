@@ -7,15 +7,12 @@ import { fail } from '../http/errors'
 import { dismissSuggestion, resultSuggestion } from '../onboarding/suggestions'
 import { installWelcomePack, readWelcome, setupWelcomeTeam, updateWelcome } from '../onboarding/welcome'
 import { startFirstResult } from '../onboarding/welcome-result'
-import { registerBrandImage } from '../onboarding/brand-image'
 import { getChatRuntime } from '../chat/runtime'
 import type { RouteModule } from './module'
 
 export const onboardingWelcomeRoutes: RouteModule = {
   name: 'onboarding-welcome',
   owner: 'B',
-  // the welcome steps' brand photo tool (offered only in a first-result chat, docs/DECISIONS.md "N")
-  init(ctx) { registerBrandImage(ctx) },
   register(kit, ctx) {
     kit.handle(API.getWelcome, () => ({ progress: readWelcome(ctx) }))
     kit.handle(API.updateWelcome, ({ body, auth }) => ({ progress: updateWelcome(ctx, auth.user.id, body) }))

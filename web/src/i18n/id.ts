@@ -2987,7 +2987,6 @@ export const id: Record<MessageKey, string> = {
   "onboarding.profile.activity.logoImages": "Logo dan {n} gambar diambil",
   "onboarding.profile.activity.logo": "Logo diambil",
   "onboarding.profile.f.colors": "Warna merek",
-  "audit.act.onboarding.hosted_image_key": "Mengubah kunci foto merek hosting",
   "audit.act.onboarding.first_result": "Hasil pertama dimulai (langkah awal)",
   // English QA pass (onboarding): the site placeholder per language, the team folder and its newest notes on the team skill card
   "onboarding.profile.sitePlaceholder": "acme.co.id",

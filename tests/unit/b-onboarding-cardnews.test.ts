@@ -1,7 +1,7 @@
 // Onboarding N (docs/DECISIONS.md "N — The first result is the company's card news"): while a company profile draft
 // reads the website, the server collects the brand's pictures and colours from the pages it opened itself; the first
-// result places them into the team's brand folder, writes 회사 소개.md when no file was given, and opens a chat where
-// the brand photo tool (Higgsfield, at most 4 a team) may run; nowhere else.
+// result places them into the team's brand folder, writes 회사 소개.md when no file was given, and opens the chat. No
+// picture is made anywhere: too few pictures and the skill uses its type-only cards (Higgsfield taken out).
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from 'bun:test'
 import fs from 'node:fs'
 import path from 'node:path'
@@ -13,8 +13,6 @@ import { acceptImage, cssColors, extractPageAssets, imageKind, largestSrc, normC
 import { cleanColors, cleanProfile, profileFactLines } from '../../server/src/onboarding/profile'
 import { parseDraftAnswer, webScope, type DraftScope } from '../../server/src/onboarding/draft'
 import { introMarkdown } from '../../server/src/onboarding/welcome-result'
-import { BRAND_IMAGE_TOOL, BRAND_IMAGES_PER_TEAM, PROMPT_RULES } from '../../server/src/onboarding/brand-image'
-import { outsideContentTool } from '../../server/src/chat/team-content-tools'
 import { WELCOME_SETTING } from '../../server/src/onboarding/welcome'
 import { getSetting, setSetting } from '../../server/src/admin/settings'
 
@@ -109,20 +107,12 @@ describe('what a page offers (pure)', () => {
     expect(md).toContain('### 회사 소개\n\n출처: https://acme.example/about\n\n> 소개\n> 링크 글 2019년에 세웠어요.')
     expect(md).not.toContain('## 고객')
   })
-  test('the brand photo is the team\'s own content (a skill can be made of the chat); every prompt carries the rules', () => {
-    expect(outsideContentTool(`mcp__team__${BRAND_IMAGE_TOOL}`)).toBe(false)
-    expect(PROMPT_RULES).toMatch(/No people, no faces.*no text.*no logos/)
-  })
 })
 
-describe('the website reading, the first result and the brand photo (the real web_fetch, a local web and a stand-in photo service)', () => {
+describe('the website reading and the first result (the real web_fetch and a local web)', () => {
   let h: Harness
   let web: ReturnType<typeof Bun.serve>
-  let hf: ReturnType<typeof Bun.serve>
   const hits: string[] = []
-  const hfCalls: { path: string; body: unknown }[] = []
-  let hfFail = false
-  let resultMissing = false
   const site = () => `http://www.acme.example:${web.port}/`
   beforeAll(async () => {
     web = Bun.serve({ port: 0, hostname: '127.0.0.1', fetch(req) {
@@ -147,22 +137,12 @@ describe('the website reading, the first result and the brand photo (the real we
         if (u.pathname === '/site.css') return new Response(':root{--brand-accent:#3fd0a5}', { headers: { 'content-type': 'text/css' } })
       }
       if (host === 'cdn.example' && u.pathname === '/product.jpg') return new Response(new Uint8Array(jpeg(1000, 800)), { headers: { 'content-type': 'image/jpeg' } })
-      if (host === '127.0.0.1' && u.pathname === '/out.png') return new Response(new Uint8Array(png(1024, 1024)), { headers: { 'content-type': 'image/png' } })
       return new Response('EVIL-CANARY', { status: 404 })
     } })
-    hf = Bun.serve({ port: 0, hostname: '127.0.0.1', async fetch(req) {
-      const u = new URL(req.url)
-      if (req.headers.get('authorization') !== 'Bearer hf-test-token' || req.headers.get('hf-workspace-id') !== 'ws-1') return Response.json({ detail: 'Invalid or expired token' }, { status: 401 })
-      hfCalls.push({ path: u.pathname, body: req.method === 'POST' ? await req.json() : null })
-      if (req.method === 'POST' && u.pathname === '/developer/v2alpha/images/z_image/generations') return Response.json({ id: `job-${hfCalls.length}`, job_type: 'z_image', credits: 0.15 })
-      if (u.pathname.startsWith('/developer/v2alpha/jobs/')) return Response.json(hfFail ? { status: 'failed' } : { status: 'completed', result_url: `http://127.0.0.1:${web.port}/${resultMissing ? 'gone' : 'out'}.png` })
-      return new Response('no', { status: 404 })
-    } })
-    process.env.MYCEL_HIGGSFIELD_ONBOARDING_API = `http://127.0.0.1:${hf.port}`
     h = await startHarness({ name: 'b-onboarding-cardnews', fetch: { testAllow: (ip) => ip === '127.0.0.1', lookup: async () => [{ address: '127.0.0.1', family: 4 }], timeoutMs: 3000 } })
     noteEgressIp(h.ctx, '203.0.113.9')
   })
-  afterAll(async () => { delete process.env.MYCEL_HIGGSFIELD_ONBOARDING_API; await h?.close(); web?.stop(true); hf?.stop(true) })
+  afterAll(async () => { await h?.close(); web?.stop(true) })
 
   const fake = (...ds: unknown[]) => ds.map((d) => '@fake ' + JSON.stringify(d)).join('\n')
   const send = async (user: string, chatId: string, content: string, attachmentIds: string[] = []) => {
@@ -242,38 +222,13 @@ describe('the website reading, the first result and the brand photo (the real we
     expect(getSetting<Record<string, any>>(h.ctx.db, WELCOME_SETTING)!.general.cardNewsPath).toBe(GENERAL_CARDNEWS_SKILL)
   })
 
-  test('the brand photo: only in a first-result chat of its owner, with the key; saved in the brand folder; at most 4 a team', async () => {
-    const tool = (args: unknown) => fake({ tool: BRAND_IMAGE_TOOL, args, sayResult: true })
-    const args = { prompt: 'A bright small office desk with a quiet white fan, deep green accents', aspect_ratio: '1:1', name: '조용한-선풍기' }
-    const r = await h.api('dana').call(API.startFirstResult, { body: { files: [] } })
-    // no key on the server: not offered
-    expect(await send('dana', r.chatId, tool(args))).toMatch(/unknown tool|not available|no such tool/i)
+  test('no picture is made: the first-result chat offers no image tool, also with a Higgsfield key file on the server', async () => {
     fs.mkdirSync(path.join(h.dataDir, 'secrets'), { recursive: true })
     fs.writeFileSync(path.join(h.dataDir, 'secrets', 'higgsfield-onboarding.key'), JSON.stringify({ token: 'hf-test-token', workspace: 'ws-1' }), { mode: 0o600 })
-    // an ordinary chat of the owner: not offered either
-    const plain = await h.api('dana').call(API.createChat, { body: {} })
-    expect(await send('dana', plain.id, tool(args))).toMatch(/unknown tool|not available|no such tool/i)
-    expect(hfCalls).toEqual([])
-    // the first-result chat: made, saved as a team file in the brand images folder
-    const made = await send('dana', r.chatId, tool(args))
-    expect(made).toContain(`Saved the brand photo: ${r.imagesFolder}/조용한-선풍기.png`)
-    expect(fs.existsSync(path.join(h.team, r.imagesFolder, '조용한-선풍기.png'))).toBe(true)
-    expect((hfCalls[0]!.body as { params: { prompt: string; aspect_ratio: string } }).params).toEqual({ prompt: `${args.prompt} ${PROMPT_RULES}`, aspect_ratio: '1:1' })
-    // a failed job gives its photo back
-    hfFail = true
-    expect(await send('dana', r.chatId, tool(args))).toContain('could not be made')
-    hfFail = false
-    const counts = () => h.ctx.db.query("SELECT status, count(*) AS n FROM onboarding_images GROUP BY status ORDER BY status").all()
-    expect(counts()).toEqual([{ status: 'done', n: 1 }, { status: 'failed', n: 1 }])
-    // a job the service took that never became a file (here the download fails) still counts: it may be charged
-    resultMissing = true
-    expect(await send('dana', r.chatId, tool(args))).not.toContain('Saved the brand photo')
-    resultMissing = false
-    expect(counts()).toEqual([{ status: 'done', n: 1 }, { status: 'failed', n: 1 }, { status: 'lost', n: 1 }])
-    // two more fit (four counted in all), then the tool is not offered any more
-    for (let i = 0; i < BRAND_IMAGES_PER_TEAM - 2; i++) expect(await send('dana', r.chatId, tool({ ...args, name: `사진-${i}` }))).toContain('Saved the brand photo')
-    expect(await send('dana', r.chatId, tool(args))).toMatch(/unknown tool|not available|no such tool/i)
-    expect((h.ctx.db.query("SELECT count(*) AS n FROM onboarding_images WHERE status != 'failed'").get() as { n: number }).n).toBe(BRAND_IMAGES_PER_TEAM)
+    const r = await h.api('dana').call(API.startFirstResult, { body: { files: [] } })
+    const call = fake({ tool: 'brand_image', args: { prompt: 'A bright small office desk with a quiet white fan', aspect_ratio: '1:1', name: 'fan' }, sayResult: true })
+    expect(await send('dana', r.chatId, call)).toMatch(/unknown tool|not available|no such tool/i)
+    expect(fs.readdirSync(path.join(h.team, r.imagesFolder)).filter((f) => f.startsWith('fan'))).toEqual([])
   })
 })
 

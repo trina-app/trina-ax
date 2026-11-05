@@ -7,8 +7,9 @@
 //   4. no file from the owner: 회사 소개.md in the brand folder, written from the saved company profile and the text of
 //      the pages the server opened, each part under its source (no AI here: nothing is invented); one already there is
 //      kept as it is (someone may have edited it);
-//   5. a new chat of the owner titled after the result ("우리 회사 홍보 카드뉴스", a title the AI does not rename), listed
-//      in onboarding_result_chats: only there is the brand photo tool offered (brand-image.ts).
+//   5. a new chat of the owner titled after the result ("우리 회사 홍보 카드뉴스", a title the AI does not rename).
+// No picture is made here or in that chat: with too few pictures the skill uses its type-only cards (docs/DECISIONS.md
+// "N", Higgsfield taken out).
 // The page then attaches the files and sends "/card-news …" like any message of the owner's (pages/Welcome.tsx), so
 // the turn is an ordinary skill run (the goal, the receipt and the transcript need nothing new).
 import fs from 'node:fs'
@@ -207,25 +208,12 @@ export function startFirstResult(ctx: AppContext, rt: ChatRuntime, auth: AuthInf
     }
     files.push(r.rel)
   }
-  // the chat: titled after the result (the AI does not rename a title the server gave), listed as the first result's
+  // the chat: titled after the result (the AI does not rename a title the server gave)
   const { engine, model } = newChatEngine(ctx, auth.user, {}, locale)
   const id = newId(), now = new Date().toISOString()
-  ctx.db.transaction(() => {
-    ctx.db.query("INSERT INTO chats (id, user_id, project_id, title, title_source, engine, model, created_at, updated_at) VALUES (?,?,NULL,?,'user',?,?,?,?)")
-      .run(id, userId, TEXT.title[locale], engine, model ?? null, now, now)
-    ctx.db.query('INSERT INTO onboarding_result_chats (chat_id, user_id, skill_path, images_folder, intro_path, created_at) VALUES (?,?,?,?,?,?)')
-      .run(id, userId, skillPath, imagesFolder, intro, now)
-  })()
+  ctx.db.query("INSERT INTO chats (id, user_id, project_id, title, title_source, engine, model, created_at, updated_at) VALUES (?,?,NULL,?,'user',?,?,?,?)")
+    .run(id, userId, TEXT.title[locale], engine, model ?? null, now, now)
   audit(ctx.db, { actor: userId, action: 'onboarding.first_result', target: id, detail: { files: files.length, intro: !!intro, images: images.length } })
   rt.publishChat(userId, id, 'created')
   return { chatId: id, title: TEXT.title[locale], skillPath: skillPath ?? GENERAL_CARDNEWS_SKILL, files, intro, imagesFolder, images }
-}
-
-/** The first-result marking of a chat (the brand photo tool's gate): its images folder, or null for every other chat.
- * A database without the table (a test database of another component) reads as "not marked". */
-export function resultChatOf(db: AppContext['db'], chatId: string): { userId: string; imagesFolder: string } | null {
-  try {
-    const r = db.query('SELECT user_id, images_folder FROM onboarding_result_chats WHERE chat_id = ?').get(chatId) as { user_id: string; images_folder: string } | null
-    return r ? { userId: r.user_id, imagesFolder: r.images_folder } : null
-  } catch { return null }
 }

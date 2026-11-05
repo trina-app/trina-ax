@@ -2987,7 +2987,6 @@ export const en: Record<MessageKey, string> = {
   "onboarding.profile.activity.logoImages": "Found the logo and {n, plural, one {# image} other {# images}}",
   "onboarding.profile.activity.logo": "Found the logo",
   "onboarding.profile.f.colors": "Brand colors",
-  "audit.act.onboarding.hosted_image_key": "Changed the hosted key for brand photos",
   "audit.act.onboarding.first_result": "First result started (welcome steps)",
   // English QA pass (onboarding): the site placeholder per language, the team folder and its newest notes on the team skill card
   "onboarding.profile.sitePlaceholder": "acme.com",

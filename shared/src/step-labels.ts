@@ -37,7 +37,6 @@ export const FILE_STEP_VERB: Record<string, T> = {
   drive_list: t('Google Drive 폴더 보기', 'List Google Drive folder', 'Lihat folder Google Drive', "Google ドライブのフォルダを表示", "Listar carpeta de Google Drive"),
   drive_read: t('Google Drive 파일 읽기', 'Read Google Drive file', 'Baca berkas Google Drive', "Google ドライブのファイルを読む", "Leer archivo de Google Drive"),
   generate_video: t('동영상 만들기', 'Generate video', 'Buat video', "動画を生成", "Generar video"),
-  brand_image: t('브랜드 사진 만들기', 'Make brand photo', 'Buat foto merek', "ブランド写真を作成", "Crear foto de marca"),
   box_shell: t('개발 환경 명령', 'Dev environment command', 'Perintah lingkungan pengembangan', "開発環境のコマンド", "Comando del entorno de desarrollo"),
   ask_user: t('질문', 'Question', 'Pertanyaan', "質問", "Pregunta"),
   skill: t('스킬 사용', 'Use skill', 'Pakai skill', "スキルを使用", "Usar habilidad"),
@@ -172,7 +171,6 @@ export function stepLabel(tool: string, input: unknown, locale: Locale, browserT
     case 'drive_list': return a.folderId && a.folderId !== 'root' ? `${verb} · ${clip(a.folderId, 60)}` : verb!
     case 'drive_read': return `${verb} · ${clip(a.fileId, 60)}`
     case 'generate_video': return `${verb} · ${clip(a.prompt, 80)}`
-    case 'brand_image': return a.name ? `${verb} · ${clip(a.name, 60)}` : verb!
     case 'skill': return `${verb} · ${clip(a.name, 80)}`
     case 'find_skills': case 'find_tools': return `${verb} "${clip(a.query, 60)}"`
     case 'box_shell': return `${verb} · ${clip(String(a.command ?? '').split('\n')[0], 80)}${a.job ? ' (job)' : a.background ? ' (background)' : ''}`

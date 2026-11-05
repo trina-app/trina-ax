@@ -126,7 +126,7 @@ export const FIRST_RESULT_FILES_MAX = 10
 export const StartFirstResult = z.object({ files: z.array(z.string().min(1).max(1000)).max(FIRST_RESULT_FILES_MAX) }).strict()
 export type StartFirstResult = z.infer<typeof StartFirstResult>
 export const FirstResultStarted = z.object({
-  /** a new chat of the owner's, titled after the result ("우리 회사 홍보 카드뉴스"), where the brand photo tool may run */
+  /** a new chat of the owner's, titled after the result ("우리 회사 홍보 카드뉴스") */
   chatId: z.string(),
   title: z.string(),
   /** the skill to run ("/card-news") */
@@ -170,7 +170,7 @@ export const WELCOME = {
   setupWelcomeTeam: endpoint({ method: 'POST', path: '/api/onboarding/welcome/team', auth: 'owner', owner: 'B', response: WelcomeTeamResult,
     summary: 'Every team\'s start, once: the general skill pack (meeting notes → tasks, a document\'s brief) and a group named after the team with its folder groups/<name>/ and a meeting notes folder in it, the owner in it.' }),
   startFirstResult: endpoint({ method: 'POST', path: '/api/onboarding/welcome/first-result', auth: 'owner', owner: 'B', body: StartFirstResult, response: FirstResultStarted, status: 201,
-    summary: 'Start the welcome steps\' first result, the company card news (owner): the website\'s images into the brand folder, a company intro file (named in the team\'s language) when no file was given, and a new chat of the owner where the brand photo tool may run.' }),
+    summary: 'Start the welcome steps\' first result, the company card news (owner): the website\'s images into the brand folder, a company intro file (named in the team\'s language) when no file was given, and a new chat of the owner for it.' }),
   getResultSuggestion: endpoint({ method: 'GET', path: '/api/onboarding/suggestion', auth: 'user', owner: 'B',
     query: z.object({ chatId: z.string().min(1).max(64), messageId: z.string().min(1).max(64) }), response: z.object({ suggestion: ResultSuggestion.nullable() }),
     summary: 'The one suggestion under an answer of the caller\'s own chat (schedule a skill run for the 2nd time, or a report as a PPT), or null; none the caller closed.' }),

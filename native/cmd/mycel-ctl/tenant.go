@@ -636,60 +636,6 @@ func cmdHostedSpeechKeySet(e *env, args []string) (int, error) {
 	return t.out(map[string]any{"ok": true, "set": *r.Set})
 }
 
-// bearerTokenRE / uuidRE: shared/src/cloud-protocol BearerToken and UuidString
-var bearerTokenRE = regexp.MustCompile(`^[A-Za-z0-9._~+/=-]+$`) // 16 to 4096 of them: Go's regexp stops at 1000, so the length is checked apart
-var uuidRE = regexp.MustCompile(`^[0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{12}$`)
-
-// hosted-image-key-set < { token: "<bearer>", workspace: "<uuid>" } | { token: null }: the Higgsfield credential the
-// hosting service gives this team for the welcome steps' brand photos, kept by admin.js hosted-image-key encrypted
-// with the credentials vault. The token goes only on admin.js's stdin: never in an argument, an error or the answer
-// { ok, set }. No restart: the server reads it at its next image request.
-func cmdHostedImageKeySet(e *env, args []string) (int, error) {
-	t := newTenant(e, "hosted-image-key-set")
-	if c, err := t.open(args); err != nil {
-		return c, err
-	}
-	_, m, err := t.stdinJSON(16 << 10)
-	if err != nil {
-		return 1, err
-	}
-	raw, ok := m["token"]
-	if !ok {
-		return 1, fmt.Errorf("stdin must be { token, workspace } or { token: null }")
-	}
-	var in []byte
-	if string(bytes.TrimSpace(raw)) == "null" {
-		if len(m) != 1 {
-			return 1, fmt.Errorf("stdin must be { token: null } to take the token away")
-		}
-		in = []byte(`{"token":null}`)
-	} else {
-		if len(m) != 2 || m["workspace"] == nil {
-			return 1, fmt.Errorf("stdin must be { token, workspace }")
-		}
-		var token, ws string
-		if json.Unmarshal(raw, &token) != nil || len(token) < 16 || len(token) > 4096 || !bearerTokenRE.MatchString(token) {
-			return 1, fmt.Errorf("token: not a bearer token")
-		}
-		if json.Unmarshal(m["workspace"], &ws) != nil || !uuidRE.MatchString(ws) {
-			return 1, fmt.Errorf("workspace: not a UUID")
-		}
-		in, _ = json.Marshal(map[string]string{"token": token, "workspace": ws})
-	}
-	out, err := t.admin(in, 30*time.Second, "hosted-image-key")
-	if err != nil {
-		return 1, err
-	}
-	var r struct {
-		OK  bool  `json:"ok"`
-		Set *bool `json:"set"`
-	}
-	if json.Unmarshal(bytes.TrimSpace(out), &r) != nil || !r.OK || r.Set == nil {
-		return 1, errNoJSONOut
-	}
-	return t.out(map[string]any{"ok": true, "set": *r.Set})
-}
-
 // hosted-chat-key-set < { key: "sk-or-…", capUsd, endsAt, enabled } | { key: null }: the hosting service's trial AI
 // credit for this team (its chats are answered before it connects an AI of its own), kept by admin.js hosted-chat-key
 // encrypted with the credentials vault. An OpenRouter key (orKeyRE): the app answers with it on its own API engine,

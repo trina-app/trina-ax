@@ -49,9 +49,6 @@ export const HOSTED_SPEECH_USAGE_SETTING = 'speech.hostedUsage'
 export const HOSTED_CHAT_KEY_SETTING = 'ai.hostedChatKey'
 /** the dollars spent with that key so far (credentials/hosted-chat.ts) */
 export const HOSTED_CHAT_USAGE_SETTING = 'ai.hostedChatUsage'
-/** The hosting service's Higgsfield credential for the welcome steps' brand photos (credentials/hosted-image.ts, set
- * only by the control plane through mycel-ctl hosted-image-key-set): an access token and its workspace, encrypted. */
-export const HOSTED_IMAGE_KEY_SETTING = 'onboarding.hostedImageKey'
 
 export function getSetting<T>(db: Database, key: string): T | undefined {
   const row = db.query('SELECT value FROM settings WHERE key = ?').get(key) as { value: string } | null
