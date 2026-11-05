@@ -65,7 +65,7 @@ export function SlackAccount({ onShown }: { onShown?: (shown: boolean) => void }
       {p && (
         <div className="flex items-center gap-3">
           {!p.memberAccepted && <Button variant="primary" size="sm" busy={busy} disabled={busy} onClick={() => void answer(true)} data-testid="slack-proposal-accept">{t('slack.link.confirm')}</Button>}
-          <button type="button" className="text-xs text-muted underline-offset-2 hover:underline disabled:opacity-50" disabled={busy} onClick={() => void answer(false)} data-testid="slack-proposal-decline">{t('slack.mine.decline')}</button>
+          <button type="button" className="text-xs text-muted underline underline-offset-2 disabled:opacity-50" disabled={busy} onClick={() => void answer(false)} data-testid="slack-proposal-decline">{t('slack.mine.decline')}</button>
         </div>
       )}
     </div>

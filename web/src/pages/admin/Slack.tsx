@@ -103,11 +103,10 @@ export default function AdminSlack() {
                   <p className="mt-3 flex flex-wrap gap-x-3 gap-y-1 text-xs text-muted">
                     <span>{t('slack.admin.linked', { n: s.linked })}</span>
                     {origin && <span>{t('slack.admin.linksOpen', { origin })}</span>}
-                    <button type="button" className="underline-offset-2 hover:underline" aria-expanded={replacing} onClick={() => setReplacing((v) => !v)} data-testid="slack-replace">{t('slack.admin.replace')}</button>
+                    <button type="button" className="underline underline-offset-2" aria-expanded={replacing} onClick={() => setReplacing((v) => !v)} data-testid="slack-replace">{t('slack.admin.replace')}</button>
                   </p>
                 </Card>
               )}
-              {s.enabled && s.tokens && <People />}
               {(!s.tokens || replacing) && (
                 <Card title={t('slack.admin.setupTitle')} testId="slack-setup">
                   <ol className="space-y-4 text-sm">
@@ -119,7 +118,7 @@ export default function AdminSlack() {
                     </Step>
                   </ol>
                   {s.tokens && (
-                    <button type="button" className="mt-5 text-xs text-danger underline-offset-2 hover:underline" data-testid="slack-remove"
+                    <button type="button" className="mt-5 text-xs text-danger underline underline-offset-2" data-testid="slack-remove"
                       onClick={async () => {
                         if (!(await confirmDialog({ title: t('slack.admin.removeTitle'), body: t('slack.admin.removeBody'), confirm: t('slack.admin.remove'), danger: true }))) return
                         const v = await act(() => api.call(SLACK.removeSlack))
@@ -128,6 +127,7 @@ export default function AdminSlack() {
                   )}
                 </Card>
               )}
+              {s.enabled && s.tokens && <People />}
             </>
           )
         }}

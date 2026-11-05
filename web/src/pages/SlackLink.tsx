@@ -77,7 +77,7 @@ export default function SlackLink() {
           )}
           <div className="flex items-center gap-4">
             {!info.linkedElsewhere && (info.emailCheck === 'match' || info.emailCheck === 'proposal') && <Button variant="primary" busy={busy} disabled={busy} onClick={() => void decide(true)} data-testid="slack-link-confirm">{t('slack.link.confirm')}</Button>}
-            <button type="button" className="text-sm text-muted underline-offset-2 hover:underline disabled:opacity-50" disabled={busy} onClick={() => void decide(false)} data-testid="slack-link-cancel">{t('slack.link.cancel')}</button>
+            <button type="button" className="text-sm text-muted underline underline-offset-2 disabled:opacity-50" disabled={busy} onClick={() => void decide(false)} data-testid="slack-link-cancel">{t('slack.link.cancel')}</button>
           </div>
         </>
       )}
