@@ -1,5 +1,6 @@
 // Settings as a dialog over the page it was opened from, like Claude's: the sections on the left (a search filters them
-// by name, hairlines separate the groups of pages/settingsTabs.ts) and the open section on the right. /settings and
+// by name and by a few words of what is inside, hairlines separate the groups of pages/settingsTabs.ts) and the open
+// section on the right. /settings and
 // /settings/<section> still work: App.tsx keeps the page behind it (Home when the address was opened directly) and
 // `onClose` goes back to that page. On a computer /settings opens on the profile, with the list beside it. On a phone it
 // is the 나 tab (BottomTabs.tsx opens /settings): it fills the screen above the tab bar (the bar is the way out, no ✕)
@@ -15,7 +16,7 @@ import { Link, Navigate, NavLink, useNavigate, useParams } from 'react-router-do
 import { api, API } from '../../lib/api'
 import { browserSettingsBridge } from '../../lib/desktop'
 import { useT } from '../../i18n'
-import { settingsTabs } from '../../pages/settingsTabs'
+import { sectionMatches, settingsTabs } from '../../pages/settingsTabs'
 import { useMeStrict } from '../../store/session'
 import { IconButton, Spinner, inputCls, menuOpener, useFocusTrap, useMediaQuery } from '../ui'
 import { Avatar } from '../Avatar'
@@ -68,7 +69,7 @@ export default function SettingsDialog({ onClose, page }: { onClose: () => void;
   const [more, setMore] = useState(false)
   const searchRef = useRef<HTMLInputElement>(null)
   const q = query.trim().toLowerCase()
-  const shown = tabs.filter((x) => !q || t(x.label).toLowerCase().includes(q))
+  const shown = tabs.filter((x) => sectionMatches(x, q, t))
   const groups = [1, 2, 3].map((g) => shown.filter((x) => x.group === g)).filter((g) => g.length)
   const waiting = tab === 'credentials' && own === null
   // an old or mistyped address (/settings/devices), or /settings/browser outside the desktop app: /settings instead (the
