@@ -13,20 +13,23 @@ import os from 'node:os'
 import path from 'node:path'
 import { checkDataDir, checkPorts } from '../../dev-checks'
 import { DEMO_PASSWORD, seedDemo } from '../seed'
-import { ensureOwnerPassword, TRINA, TRINA_CEO, TRINA_LEADS, TRINA_NEW_HIRE, TRINA_OWNER, trinaDemoFile } from './company'
+import { ensureOwnerPassword, TRINA, TRINA_CEO, TRINA_LEADS, TRINA_NEW_HIRE, TRINA_OWNER, TRINA_RECORDINGS, trinaDemoFile } from './company'
+import { seedHistory } from './history'
 
 const ROOT = path.resolve(import.meta.dir, '..', '..', '..')
 /** said at start and in the demo bar's sheet (web i18n demo.sheet.network) */
 export const NETWORK_WARNING = "anyone on any network this Mac is on (Wi-Fi, VPN, Tailscale) can use this demo with this Mac's Claude login: stop it (Ctrl-C) when the demo is over."
-export const USAGE = 'Usage: bun run demo:trina [--port 19830] [--relay-port 19831] [--data <folder>] [--local]'
+export const USAGE = 'Usage: bun run demo:trina [--port 19830] [--relay-port 19831] [--data <folder>] [--local] [--record]'
 
-export interface DemoOptions { port: number; relayPort: number; home: string; local: boolean }
+export interface DemoOptions { port: number; relayPort: number; home: string; local: boolean; record: boolean }
 
 export function options(args: string[], home = os.homedir()): DemoOptions {
-  const o: DemoOptions = { port: 19830, relayPort: 19831, home: path.join(home, '.trinademo'), local: false }
+  const o: DemoOptions = { port: 19830, relayPort: 19831, home: path.join(home, '.trinademo'), local: false, record: false }
   for (let i = 0; i < args.length; i++) {
     const key = args[i]!
     if (key === '--local') { o.local = true; continue }
+    // recording the real answers (record.ts): no replays and no past chats, every prompt goes to the real AI
+    if (key === '--record') { o.record = true; continue }
     if (!['--port', '--relay-port', '--data'].includes(key)) throw new Error(`unknown option ${key}. ${USAGE}`)
     const value = args[++i]
     if (!value) throw new Error(`${key}: a value is missing. ${USAGE}`)
@@ -73,7 +76,7 @@ export async function start(args: string[]) {
   if (checks.errors.length) throw new Error(checks.errors.join('\n'))
   fs.mkdirSync(o.home, { recursive: true, mode: 0o700 })
   const demoFile = path.join(o.home, 'demo.json')
-  fs.writeFileSync(demoFile, JSON.stringify(trinaDemoFile(), null, 2) + '\n', { mode: 0o600 })
+  fs.writeFileSync(demoFile, JSON.stringify(trinaDemoFile({ replays: o.record ? null : TRINA_RECORDINGS }), null, 2) + '\n', { mode: 0o600 })
   const lan = lanAddresses()
   const child = Bun.spawn([process.execPath, 'scripts/dev.ts', '--team', 'trina'], {
     cwd: ROOT, env: demoEnv(o, demoFile, lan), stdin: 'inherit', stdout: 'inherit', stderr: 'inherit',
@@ -105,6 +108,11 @@ export async function start(args: string[]) {
     const owner = ensureOwnerPassword(o.home)
     if (owner.created) console.log(`[trina] owner account ${TRINA_OWNER}: password ${owner.password} (shown once; kept in ${owner.file}, readable by you only)`)
     const r = await seedDemo({ baseUrl, setupToken, company: TRINA, ownerPassword: owner.password, log: (s) => console.log(`[trina] ${s}`) })
+    // the demo people's past chats: their recorded real answers, replayed at once (history.ts)
+    if (!o.record) {
+      const h = await seedHistory({ baseUrl, dir: TRINA_RECORDINGS, log: (s) => console.log(`[trina] ${s}`) })
+      if (h.made || h.failed) console.log(`[trina] past chats: ${h.made} made, ${h.kept} already there${h.failed ? `, ${h.failed} failed` : ''}`)
+    }
     const name = (u: string) => TRINA.people.find((p) => p.username === u)!.name
     const urls = o.local ? [] : lan.map((a) => `[trina] ${isPrivate(a) ? 'phone:    ' : 'other:    '} http://${a}:${o.port}   (${isPrivate(a) ? 'same Wi-Fi' : 'another network this Mac is on, e.g. a VPN'})`)
     console.log([

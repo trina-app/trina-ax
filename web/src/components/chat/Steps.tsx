@@ -125,9 +125,16 @@ export function groupSteps(steps: Step[]): { top: Step[]; kids: Map<string, Step
   return { top, kids }
 }
 
-export default function Steps({ steps, streaming }: { steps: Step[]; streaming: boolean }) {
+/** A demo server's replayed answer (server/src/demo/replay.ts) carries this step: not a step of the work, but one small
+ * line in the opened list ("데모용으로 미리 준비한 결과예요"), never counted, never in the live tail. */
+export const DEMO_REPLAY_STEP = 'demo_replay'
+
+export default function Steps({ steps: all, streaming }: { steps: Step[]; streaming: boolean }) {
   const t = useT()
+  const locale = useLocale()
   const [open, setOpen] = useState(false)
+  const note = all.find((s) => s.tool === DEMO_REPLAY_STEP)
+  const steps = note ? all.filter((s) => s !== note) : all
   if (!steps.length) return null
   const { top, kids } = groupSteps(steps)
   // images the AI chose to show (shared browser screenshots) stay visible even when the list is folded
@@ -152,6 +159,7 @@ export default function Steps({ steps, streaming }: { steps: Step[]; streaming: 
       </button>
       {open && (
         <ul className="mt-1 space-y-0.5" aria-label={t('steps.label')}>
+          {note && <li className="px-1 text-xs text-faint" data-testid="demo-replay-note">{localizeStep(note, locale).label}</li>}
           {top.map((s) => (
             <StepRow key={s.id} step={s} live={false} kids={kids.get(s.id)} />
           ))}

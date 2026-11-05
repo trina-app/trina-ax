@@ -148,18 +148,20 @@ export function DemoQuestions({ info, persona }: { info: DemoInfo; persona: Demo
   }
   return (
     <div className="mt-5 space-y-2" data-testid="demo-questions">
-      {persona.key !== 'newHire' && info.sameQuestion && <p className="text-center text-sm text-muted">{t('demo.home.same')}</p>}
       {questions.map((q) => (
-        <button
-          key={q}
-          type="button"
-          disabled={!!sending}
-          onClick={() => void ask(q)}
-          className={clsx('block w-full rounded-xl border border-line px-3.5 py-3 text-left text-sm text-ink transition hover:bg-hover', sending && sending !== q && 'opacity-50')}
-          data-testid="demo-question"
-        >
-          {q}
-        </button>
+        <div key={q}>
+          <button
+            type="button"
+            disabled={!!sending}
+            onClick={() => void ask(q)}
+            className={clsx('block w-full rounded-xl border border-line px-3.5 py-3 text-left text-sm text-ink transition hover:bg-hover', sending && sending !== q && 'opacity-50')}
+            data-testid="demo-question"
+          >
+            {q}
+          </button>
+          {/* the same question as the others: one line right under it, for the lead and the CEO */}
+          {persona.key !== 'newHire' && q === info.sameQuestion && <p className="mt-1 mb-3 px-1 text-xs text-muted" data-testid="demo-same-hint">{t('demo.home.same')}</p>}
+        </div>
       ))}
     </div>
   )

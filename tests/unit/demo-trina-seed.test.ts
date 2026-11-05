@@ -8,7 +8,8 @@ import path from 'node:path'
 import { API, ApiClient, DemoFile } from '../../shared/src/api'
 import { checkSkill } from '../../server/src/chat/skills'
 import { DEMO_PASSWORD, listFiles, seedDemo } from '../../scripts/demo/seed'
-import { copula, ensureOwnerPassword, TRINA, TRINA_CEO, TRINA_LEADS, TRINA_NEW_HIRE, TRINA_OWNER, trinaDemoFile } from '../../scripts/demo/trina/company'
+import { copula, ensureOwnerPassword, SHOWCASE, TRINA, TRINA_CEO, TRINA_LEADS, TRINA_NEW_HIRE, TRINA_OWNER, trinaDemoFile } from '../../scripts/demo/trina/company'
+import { SCENARIOS } from '../../scripts/demo/trina/scenarios'
 import { demoEnv, lanAddresses, NETWORK_WARNING, options } from '../../scripts/demo/trina/start'
 import { harness, SETUP_TOKEN, type Harness } from './a-lib'
 
@@ -88,10 +89,12 @@ describe('트리나 seed', () => {
     expect(await opens(await as(TRINA_LEADS.마케팅팀), REVIEW)).toBe(false)
   }, 60_000)
 
-  test('team skills: everyone gets the two general ones, 마케팅팀 also the pack\'s two', async () => {
+  test('team skills: everyone gets the two general ones, 마케팅팀 and the CEO also the pack\'s two', async () => {
     const general = ['meeting-action-items', 'new-hire-first-week']
     expect(await skillNames(await as(TRINA_NEW_HIRE))).toEqual(['ad-copy', ...general, 'weekly-report'].sort())
     expect(await skillNames(await as('sungmin'))).toEqual(general)
+    // the CEO reads the marketing skills too: what they say may be saved in the marketing folder without a wider-audience card
+    expect(await skillNames(await as(TRINA_CEO))).toEqual(['ad-copy', ...general, 'weekly-report'].sort())
     // the team rule is a rule, not a skill, and it is there for everyone
     expect(await opens(await as('sungmin'), 'skills/사내-규정-답변.md')).toBe(true)
     for (const name of general) {
@@ -123,6 +126,30 @@ describe('the demo file and the starter', () => {
     expect(d.personas[0]!.questions).toEqual(['우리 회사 휴가 규정 알려줘', '이번 주 마케팅팀 회의록에서 내 할 일 정리해 줘', '신입 첫 주에 뭘 하면 돼?'])
     for (const p of d.personas.slice(1)) expect(p.questions[0]).toBe(d.sameQuestion!)
     expect(['서민재', '정해온', '한지우'].map(copula)).toEqual(['예요', '이에요', '예요'])
+    expect(d.replays).toBeUndefined()
+  })
+
+  test('a showcase prompt is suggested only to the person whose recording of it is there', () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'trina-rec-'))
+    try {
+      fs.writeFileSync(path.join(dir, 'newhire-cardnews.json'), '{}')
+      fs.writeFileSync(path.join(dir, 'lead-report.json'), '{}')
+      const d = DemoFile.parse(trinaDemoFile({ replays: dir }))
+      expect(d.replays).toBe(dir)
+      expect(d.personas[0]!.questions).toEqual([...trinaDemoFile().personas[0]!.questions, SHOWCASE.cardNews])
+      expect(d.personas[1]!.questions).toEqual([d.sameQuestion!, SHOWCASE.report])
+      expect(d.personas[2]!.questions).toEqual(trinaDemoFile().personas[2]!.questions)
+    } finally { fs.rmSync(dir, { recursive: true, force: true }) }
+  })
+
+  test('every scenario is one demo person\'s, its showcase prompts are the suggested ones, slugs are unique', () => {
+    const personas = new Set(trinaDemoFile().personas.map((p) => p.username))
+    expect(new Set(SCENARIOS.map((s) => s.slug)).size).toBe(SCENARIOS.length)
+    for (const s of SCENARIOS) {
+      expect(personas.has(s.username), s.slug).toBe(true)
+      if (s.kind === 'showcase') expect(Object.values(SHOWCASE) as string[]).toContain(s.prompt)
+      else expect(s.daysAgo, s.slug).toBeGreaterThanOrEqual(0)
+    }
   })
 
   test('the owner\'s password: random, kept in the demo folder for this Mac user only, the same on the next start', () => {
@@ -144,8 +171,9 @@ describe('the demo file and the starter', () => {
   })
 
   test('options: the default ports and folder, --local, refusals', () => {
-    expect(options([], '/home/x')).toEqual({ port: 19830, relayPort: 19831, home: '/home/x/.trinademo', local: false })
+    expect(options([], '/home/x')).toEqual({ port: 19830, relayPort: 19831, home: '/home/x/.trinademo', local: false, record: false })
     expect(options(['--port', '19900', '--relay-port', '19901', '--local'], '/home/x')).toMatchObject({ port: 19900, relayPort: 19901, local: true })
+    expect(options(['--record'], '/home/x').record).toBe(true)
     for (const a of [['--port', '80'], ['--port', '19830', '--relay-port', '19830'], ['--port'], ['--what', '1']]) expect(() => options(a, '/home/x')).toThrow()
   })
 
