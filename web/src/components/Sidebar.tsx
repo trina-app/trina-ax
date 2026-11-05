@@ -202,9 +202,12 @@ export default function Sidebar() {
         <NavLink to="/skills" className={active} onClick={close} data-testid="nav-skills">
           <BookMarked size={16} aria-hidden /> {t('sidebar.skills')}
           {pendingSkills > 0 && (
-            <span className="ml-auto rounded-full bg-accent px-1.5 text-[11px] font-medium text-accent-ink" data-testid="skills-pending" aria-label={t('skills.tabReview')}>
-              {pendingSkills}
-            </span>
+            <>
+              <span className="ml-auto rounded-full bg-accent px-1.5 text-[11px] font-medium text-accent-ink" data-testid="skills-pending" aria-hidden>
+                {pendingSkills}
+              </span>
+              <span className="sr-only">, {t('skills.tabReview')}: {pendingSkills}</span>
+            </>
           )}
         </NavLink>
         {isAdmin(me) && (

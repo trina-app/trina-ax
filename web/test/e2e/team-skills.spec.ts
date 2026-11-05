@@ -214,6 +214,7 @@ test('"스킬로 제안" from an answer → the manager reviews, edits and regis
   const owner = await ctx.newPage()
   await signIn(owner, OWNER)
   await expect(owner.getByTestId('skills-pending')).toHaveText('1')
+  await expect(owner.getByTestId('nav-skills')).toHaveAccessibleName(/검토 대기: 1/)
   await owner.getByTestId('nav-skills').click()
   await owner.getByTestId('review-list').getByTestId('review-open').click()
   const review = owner.getByTestId('review-dialog')
