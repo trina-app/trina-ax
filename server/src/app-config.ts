@@ -9,7 +9,7 @@
 // MYCEL_RELAY_URL (ws(s)://<relay>/connect, '' = off), MYCEL_RELAY_TEAM (team name at the relay), MYCEL_RELAY_OFFICIAL
 // (1 = the official relay may be offered), MYCEL_DEPLOYMENT (self | hosted, server/src/system/deployment.ts),
 // MYCEL_DEMO (a demo file, `bun run demo:trina`: development servers only, refused anywhere else; readDemoFile),
-// MYCEL_PUSH_GATEWAY (the native app push gateway, https://<host>; unset or '' = off).
+// MYCEL_PUSH_GATEWAY (the native app push gateway, https://<host> or http://127.0.0.1:<port>; unset or '' = off).
 // Office mode (one Mac in a small office, docs/OFFICE.md) is dev mode's engine setup (local-login, engine.sb,
 // lockdown) with `office: true`: no DEV banner, and its supervisor (server/src/office/cli.ts) writes the file (TLS
 // listener on the office network, allowedHosts, publicOrigins).
@@ -292,7 +292,7 @@ export function loadAppConfig(o: LoadOptions = {}): AppConfig {
   if (f.engine.anthropicGateway && normalizeAuthMode(f.engine.authMode) !== 'managed') throw new ConfigError(`config file ${file}: engine.anthropicGateway needs engine.authMode "managed"`)
   const demo = readDemoFile(env[P + 'DEMO'], { mode, deployment, office: !!f.office }, cwd)
   const pushGateway = env[P + 'PUSH_GATEWAY'] !== undefined ? (env[P + 'PUSH_GATEWAY'] || null) : (f.push?.gatewayUrl ?? null)
-  if (pushGateway !== null && !/^https:\/\/[a-z0-9-]+(?:\.[a-z0-9-]+)+$/.test(pushGateway)) throw new ConfigError(`push gateway must be https://<host> (${P}PUSH_GATEWAY or push.gatewayUrl)`)
+  if (pushGateway !== null && !/^https:\/\/[a-z0-9-]+(?:\.[a-z0-9-]+)+$/.test(pushGateway) && !/^http:\/\/(?:127\.0\.0\.1|localhost|\[::1\]):\d{1,5}$/.test(pushGateway)) throw new ConfigError(`push gateway must be https://<host> or http://127.0.0.1:<port> (${P}PUSH_GATEWAY or push.gatewayUrl)`)
 
   return {
     mode,

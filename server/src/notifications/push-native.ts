@@ -4,6 +4,7 @@
 // never text; the gateway picks generic words.
 import crypto, { type KeyObject } from 'node:crypto'
 import dns from 'node:dns/promises'
+import http from 'node:http'
 import https from 'node:https'
 import {
   PUSH_GATEWAY_SEND_PATH, PUSH_GATEWAY_MAX_TTL_SECONDS, pushGatewayAuthorization, pushGatewaySigningString, validPushPath,
@@ -22,15 +23,20 @@ export interface NativePayload { notificationId: string; code: PushEventType; lo
 export interface NativeSend { device: NativeDevice; payload: NativePayload; config: NativePushConfig; signal: AbortSignal; beforeSend: () => boolean; ttlSeconds: number }
 export type NativeTransport = (input: NativeSend) => Promise<{ statusCode: number }>
 
-/** https://host[:443] only: no credentials, path, query or fragment (the send path is fixed by the contract). */
+/** https://host[:443], or plain http to a gateway on this machine (http://127.0.0.1:<port>, localhost, [::1]: a gateway
+ * next to the server or a local test, as for the model upstreams). No credentials, path, query or fragment (the send
+ * path is fixed by the contract). */
 export function validGatewayUrl(raw: unknown): string | null {
   if (typeof raw !== 'string' || raw.length > 300) return null
   try {
     const u = new URL(raw)
-    if (u.protocol !== 'https:' || u.username || u.password || u.port || u.search || u.hash || (u.pathname !== '/' && u.pathname !== '') || !u.hostname.includes('.')) return null
+    if (u.username || u.password || u.search || u.hash || (u.pathname !== '/' && u.pathname !== '')) return null
+    if (u.protocol === 'http:') return loopbackHost(u.hostname) && u.port ? u.origin : null
+    if (u.protocol !== 'https:' || u.port || !u.hostname.includes('.')) return null
     return u.origin
   } catch { return null }
 }
+const loopbackHost = (h: string) => h === '127.0.0.1' || h === 'localhost' || h === '[::1]'
 export function readNativePushConfig(ctx: AppContext): NativePushConfig | null {
   const url = validGatewayUrl(ctx.config.push?.gatewayUrl)
   return url ? { url } : null
@@ -55,7 +61,7 @@ export function signedGatewayRequest(send: PushGatewaySend, key: KeyObject, publ
 /** The team key (Ed25519): the relay's <data>/relay/team-key.pem, created on first use exactly like the relay does. */
 function teamKey(dataDir: string) { const { key, publicKey } = loadOrCreateKey(dataDir); return { key, publicKey } }
 
-export function createNativeTransport(o: { dataDir: string; lookup?: PushLookup; request?: typeof https.request; now?: () => number }): NativeTransport {
+export function createNativeTransport(o: { dataDir: string; lookup?: PushLookup; request?: typeof https.request; loopbackRequest?: typeof http.request; now?: () => number }): NativeTransport {
   return async input => {
     const url = validGatewayUrl(input.config.url)
     if (!url) throw new Error('push_gateway_invalid')
@@ -70,10 +76,31 @@ export function createNativeTransport(o: { dataDir: string; lookup?: PushLookup;
     if (input.signal.aborted || !input.beforeSend()) throw new Error('push_cancelled')
     const { key, publicKey } = teamKey(o.dataDir)
     const { body, authorization } = signedGatewayRequest(send, key, publicKey, (o.now ?? Date.now)())
+    const headers = { 'content-type': 'application/json', authorization, 'content-length': String(Buffer.byteLength(body)) }
+    if (new URL(url).protocol === 'http:') return postLoopback(new URL(PUSH_GATEWAY_SEND_PATH, url), headers, Buffer.from(body, 'utf8'), input.signal, input.beforeSend, o.loopbackRequest)
     return postPinned({
       url: new URL(PUSH_GATEWAY_SEND_PATH, url), body: Buffer.from(body, 'utf8'), signal: input.signal, beforeSend: input.beforeSend,
       headers: { 'content-type': 'application/json', authorization, 'content-length': String(Buffer.byteLength(body)) },
       lookup: o.lookup ?? (host => dns.lookup(host, { all: true, verbatim: true })), request: o.request,
     })
   }
+}
+
+/** The configured gateway on this machine: no DNS (the host is a loopback literal or localhost, pinned to 127.0.0.1 /
+ * ::1), no redirects, status only; the same last-moment beforeSend check and 10 s bound as the public path. */
+function postLoopback(u: URL, headers: Record<string, string>, body: Buffer, signal: AbortSignal, beforeSend: () => boolean, request: typeof http.request = http.request): Promise<{ statusCode: number }> {
+  if (signal.aborted || !beforeSend()) return Promise.reject(new Error('push_cancelled'))
+  const host = u.hostname === '[::1]' ? '::1' : '127.0.0.1'
+  return new Promise((resolve, reject) => {
+    let finished = false, req: ReturnType<typeof http.request> | undefined
+    const finish = (error?: Error, statusCode?: number) => { if (finished) return; finished = true; clearTimeout(timer); signal.removeEventListener('abort', abort); req?.destroy(); error ? reject(error) : resolve({ statusCode: statusCode ?? 0 }) }
+    const abort = () => finish(new Error('push_cancelled'))
+    const timer = setTimeout(() => finish(new Error('push_timeout')), 10_000)
+    signal.addEventListener('abort', abort, { once: true })
+    try {
+      req = request({ protocol: 'http:', host, port: Number(u.port), path: u.pathname, method: 'POST', headers: { ...headers, host: u.host }, agent: false }, res => { const statusCode = res.statusCode ?? 0; res.destroy(); finish(undefined, statusCode) })
+      req.once('error', () => finish(new Error('push_transport_failed')))
+      req.end(body)
+    } catch { finish(new Error('push_transport_failed')) }
+  })
 }
