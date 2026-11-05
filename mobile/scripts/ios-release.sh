@@ -19,7 +19,9 @@ here="$(cd "$(dirname "$0")/.." && pwd)"
 case "$(cd "$(dirname "$ASC_KEY_PATH")" && pwd)/" in "$(cd "$here/.." && pwd)/"*) echo "keep the API key outside the repository" >&2; exit 2 ;; esac
 edition="${MYCEL_MOBILE_EDITION:-trina}"
 [[ "$edition" =~ ^[a-z][a-z0-9-]{0,30}$ ]] || { echo "invalid MYCEL_MOBILE_EDITION" >&2; exit 2; }
-team="${APPLE_TEAM_ID:-$(node -p "require('$here/../editions/$edition/branding/mobile.json').appleTeamId || ''")}"
+edition_json="$here/../editions/$edition/branding/mobile.json"
+# paths go to node as arguments, never into the JavaScript text
+team="${APPLE_TEAM_ID:-$(node -p "require(process.argv[1]).appleTeamId || ''" "$edition_json")}"
 [[ "$team" =~ ^[A-Z0-9]{10}$ ]] || { echo "set APPLE_TEAM_ID or appleTeamId in editions/$edition/branding/mobile.json" >&2; exit 2; }
 out="${OUT:-$here/build/ios-$BUILD_NUMBER}"
 auth=(-allowProvisioningUpdates -authenticationKeyPath "$ASC_KEY_PATH" -authenticationKeyID "$ASC_KEY_ID" -authenticationKeyIssuerID "$ASC_ISSUER_ID")
@@ -52,10 +54,14 @@ PLIST
 xcodebuild -exportArchive -archivePath "$out/$scheme.xcarchive" -exportPath "$out/export" -exportOptionsPlist "$out/ExportOptions.plist" "${auth[@]}"
 ipa="$(ls "$out"/export/*.ipa | head -1)"
 # The app must read the edition's config at runtime, not the neutral one.
-unzip -p "$ipa" 'Payload/*.app/EXConstants.bundle/app.config' | node -e "let s='';process.stdin.on('data',d=>s+=d).on('end',()=>{const c=JSON.parse(s),want=require('$here/../editions/$edition/branding/mobile.json');if(c.name!==want.name||c.extra?.teamAxEdition?.bundleId!==want.bundleId){console.error('embedded app.config is not the '+'$edition'+' edition ('+c.name+')');process.exit(1)}})"
-# The export signs with the distribution profile: push must be production there.
-unzip -p "$ipa" 'Payload/*.app/embedded.mobileprovision' 2>/dev/null | security cms -D 2>/dev/null | grep -A1 aps-environment | grep -q production \
-  || echo "warning: the exported profile does not say aps-environment=production; check push before uploading" >&2
+unzip -p "$ipa" 'Payload/*.app/EXConstants.bundle/app.config' > "$out/app.config.json"
+node -e "const c=JSON.parse(require('fs').readFileSync(process.argv[1],'utf8')),want=require(process.argv[2]);if(c.name!==want.name||c.extra?.teamAxEdition?.bundleId!==want.bundleId){console.error('embedded app.config is not the edition ('+c.name+')');process.exit(1)}" "$out/app.config.json" "$edition_json"
+# The export signs with the distribution profile: push must be production there. Files, not pipes, so set -o pipefail
+# cannot turn an early-exiting reader into a false warning.
+unzip -p "$ipa" 'Payload/*.app/embedded.mobileprovision' > "$out/embedded.mobileprovision" 2>/dev/null || true
+security cms -D -i "$out/embedded.mobileprovision" > "$out/profile.plist" 2>/dev/null || true
+aps="$(plutil -extract Entitlements.aps-environment raw -o - "$out/profile.plist" 2>/dev/null || true)"
+[[ "$aps" == production ]] || echo "warning: the exported profile says aps-environment='$aps', not production; check push before uploading" >&2
 echo "built $ipa"
 
 if [[ $upload == 1 ]]; then
