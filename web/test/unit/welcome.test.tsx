@@ -15,6 +15,7 @@ import { afterAll, afterEach, beforeAll, describe, expect, test } from 'bun:test
 import { act } from 'react'
 import { MemoryRouter, Route, Routes, useLocation } from 'react-router-dom'
 import { GENERAL_BRIEF_SKILL, GENERAL_TASKS_SKILL, uuidv7, WELCOME_RESULT_SKILL, type Attachment, type SkillInfo, type TeamGroupRef, type WelcomeProgress, type WelcomeUpdate } from '@mycel/shared/api'
+import { useChats } from '../../src/store/chats'
 import { translate, useLocaleStore } from '../../src/i18n'
 import Welcome from '../../src/pages/Welcome'
 import { Setup } from '../../src/pages/Auth'
@@ -181,6 +182,9 @@ afterEach(() => {
   failUploads = 0
   useWelcome.getState().reset()
   useAiAccess.getState().reset()
+  // a first-result message this file sent stays "sending" in the chats store: the files after this one (the reload
+  // guard) must not see it
+  useChats.setState({ threads: {} })
   sessionStorage.clear()
 })
 afterAll(() => {
