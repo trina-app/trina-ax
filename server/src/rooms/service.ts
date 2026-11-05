@@ -378,12 +378,19 @@ export function roomsOf(ctx: AppContext): Rooms {
     s = new Rooms(ctx)
     services.set(ctx, s)
     // an AI answer's file links: shown as links only to people who may open the file now (store.ts openableFor)
-    setRoomPathCheck(ctx.db, (userId, rel) => {
+    setRoomPathCheck(ctx.db, (userId) => {
       const who = loadPrincipal(ctx.db, userId)
-      if (!who) return false
+      if (!who) return () => false
       const rules = ctx.files.rules()
-      const a = authorize(ctx.files.fx, rules, who, rel, 'read')
-      return !a.st?.isDirectory() && !!visiblePath(ctx.files.fx, rules, who, a.rel)
+      const seen = new Map<string, boolean>()
+      return (rel) => {
+        let ok = seen.get(rel)
+        if (ok === undefined) {
+          try { const a = authorize(ctx.files.fx, rules, who, rel, 'read'); ok = !a.st?.isDirectory() && !!visiblePath(ctx.files.fx, rules, who, a.rel) } catch { ok = false }
+          seen.set(rel, ok)
+        }
+        return ok
+      }
     })
   }
   return s

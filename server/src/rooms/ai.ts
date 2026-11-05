@@ -99,9 +99,11 @@ export class RoomAi implements RoomTurns {
     try {
       let chat = p.chatId ? rt.store.chatRow(p.chatId) : null
       if (!chat) chat = this.createSession(roomId, userId, p.engine)
-      // asked again after a long pause: a new conversation (the room's messages still come with the question)
+      // asked again after a long pause, or the room's members changed since this conversation began (its first
+      // instructions, folder and skill lists were made for the members then): a new conversation (the room's messages
+      // still come with the question)
       const idle = Date.parse(chat.updated_at) < Date.now() - ROOM_SESSION_IDLE_MS
-      const parentId = idle || !chat.active_leaf_id ? null : chat.active_leaf_id
+      const parentId = idle || !chat.active_leaf_id || this.membersChangedSince(roomId, chat.id) ? null : chat.active_leaf_id
       const locale = p.locale ?? rt.userLocale(userId)
       const pick = turnEngine(this.ctx, this.person(userId), chat, {}, locale, (e) => rt.defaultModelFor(e))
       const started = rt.createTurn({
@@ -120,6 +122,13 @@ export class RoomAi implements RoomTurns {
         ? (e as { body: (l: Locale) => ApiErrorBody }).body(locale) : engineError('crash', locale)
       this.ctx.services.realtime.publish(userId, { type: 'room.ai.run', data: { roomId, run: { turnId: newId(), roomId, questionId: q.id, state: 'error', position: 0, steps: [], error, createdAt: nowIso() } } })
     }
+  }
+
+  /** Did anyone join or leave the room since the session's current conversation began (Rooms.sync audits each change)? */
+  private membersChangedSince(roomId: string, chatId: string): boolean {
+    const began = (this.db.query("SELECT MAX(created_at) at FROM messages WHERE chat_id = ? AND role = 'user' AND parent_id IS NULL").get(chatId) as { at: string | null }).at
+    if (!began) return false
+    return !!this.db.query("SELECT 1 FROM audit_log WHERE action = 'room.members' AND target = ? AND at > ? LIMIT 1").get(roomId, began)
   }
 
   /** The person's AI session in the room, or null. */
@@ -186,7 +195,12 @@ export class RoomAi implements RoomTurns {
     // the members now, by the folder rules (no file system): which skills the AI may be shown here
     const readers = this.readers(o.roomId)
     const rules = this.ctx.files.rules()
-    const readable = (rel: string) => { const segs = rel.split('/').filter(Boolean); return readers.every((r) => !!r.who && atLeast(rules.access(r.who, segs), 'read')) }
+    const seen = new Map<string, boolean>()
+    const readable = (rel: string) => {
+      let ok = seen.get(rel)
+      if (ok === undefined) { const segs = rel.split('/').filter(Boolean); ok = readers.every((r) => !!r.who && atLeast(rules.access(r.who, segs), 'read')); seen.set(rel, ok) }
+      return ok
+    }
     return { block, others, fromSeq, prompt, readable }
   }
 

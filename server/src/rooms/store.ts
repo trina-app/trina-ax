@@ -33,8 +33,9 @@ export const messageRow = (db: Database, roomId: string, id: string): MessageRow
 
 /** Who may open which team file now (rooms/service.ts sets it for the server's database): an AI answer's file links
  * are shown as links only for files the viewer may open. Without one, none are (fails closed). */
-const pathChecks = new WeakMap<Database, (userId: string, rel: string) => boolean>()
-export function setRoomPathCheck(db: Database, check: (userId: string, rel: string) => boolean) { pathChecks.set(db, check) }
+const pathChecks = new WeakMap<Database, (userId: string) => (rel: string) => boolean>()
+/** `check(userId)` gives one viewer's test for a list of messages (their access loaded once, each path once). */
+export function setRoomPathCheck(db: Database, check: (userId: string) => (rel: string) => boolean) { pathChecks.set(db, check) }
 
 /** May this member see this message? */
 export function canSee(m: Pick<MessageRow, 'seq' | 'visibility' | 'visible_to'>, member: Pick<MemberRow, 'user_id' | 'visible_from_seq'>): boolean {
@@ -87,6 +88,7 @@ export function messagesOut(db: Database, rows: readonly MessageRow[], viewer: M
   const people = refsOf(db, [...rows.flatMap((r) => [r.author_id, r.asked_by]), ...[...quotes.values()].map((q) => q.author_id)])
   // AI answers (rooms/ai.ts): their source count, and for the person who asked a private preview, why it is private
   const ai = rows.filter((r) => r.author_kind === 'ai').map((r) => r.id)
+  const opens = ai.length ? pathChecks.get(db)?.(viewer.user_id) : undefined
   const sourceCounts = new Map<string, number>()
   const previews = new Map<string, NonNullable<RoomMessage['preview']>>()
   if (ai.length) {
@@ -119,7 +121,7 @@ export function messagesOut(db: Database, rows: readonly MessageRow[], viewer: M
       files: r.deleted_at ? [] : files.get(r.id) ?? [],
       unread: unreadOf(r, all),
       createdAt: r.created_at, editedAt: r.edited_at, deletedAt: r.deleted_at,
-      ...(r.author_kind === 'ai' && !r.deleted_at ? { sourceCount: sourceCounts.get(r.id) ?? 0, openable: openableFor(db, viewer.user_id, r.body) } : {}),
+      ...(r.author_kind === 'ai' && !r.deleted_at ? { sourceCount: sourceCounts.get(r.id) ?? 0, openable: openableFor(opens, r.body) } : {}),
       // only the person it is private to ever gets this (canSee: nobody else is sent a private message at all)
       ...(r.author_kind === 'ai' && r.visibility === 'private' && r.visible_to === viewer.user_id && previews.has(r.id) ? { preview: previews.get(r.id)! } : {}),
     }
@@ -127,10 +129,9 @@ export function messagesOut(db: Database, rows: readonly MessageRow[], viewer: M
 }
 
 /** The team files an AI answer names that this viewer may open now. */
-function openableFor(db: Database, userId: string, body: string): string[] {
-  const check = pathChecks.get(db)
+function openableFor(check: ((rel: string) => boolean) | undefined, body: string): string[] {
   if (!check) return []
-  return answerFilePaths(body).filter((p) => { try { return check(userId, p) } catch { return false } })
+  return answerFilePaths(body).filter((p) => { try { return check(p) } catch { return false } })
 }
 
 /** The rooms list line: the newest message `viewer` can see. */
