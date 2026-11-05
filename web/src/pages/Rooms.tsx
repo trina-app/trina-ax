@@ -55,7 +55,7 @@ export default function Rooms() {
             <Link to="/" className={row} data-testid="rooms-ai">
               <img src="/favicon.svg" alt="" aria-hidden className="size-10 shrink-0 rounded-full" />
               <span className="min-w-0 flex-1">
-                <span className="block truncate font-medium text-ink">{PRODUCT_NAMED_AFTER_AI ? t('rooms.aiName') : PRODUCT.displayName}</span>
+                <span className="block truncate text-base font-medium text-ink">{PRODUCT_NAMED_AFTER_AI ? t('rooms.aiName') : PRODUCT.displayName}</span>
                 <span className="block truncate text-sm text-muted">{t('rooms.ai.hint')}</span>
               </span>
             </Link>
@@ -97,7 +97,7 @@ function RoomListRow({ room, className }: { room: Room; className: string }) {
       {/* the time on the name's line and the count on the preview's, so the preview has the whole width */}
       <span className="min-w-0 flex-1">
         <span className="flex min-w-0 items-center gap-1.5">
-          <span className={unread > 0 ? 'truncate font-semibold text-ink' : 'truncate font-medium text-ink'}>{title}</span>
+          <span className={unread > 0 ? 'truncate text-base font-semibold text-ink' : 'truncate text-base font-medium text-ink'}>{title}</span>
           {room.muted && (
             <>
               <BellOff size={12} className="shrink-0 text-faint" aria-hidden />

@@ -153,7 +153,7 @@ No pair in use is below its floor. `web/test/unit/design-contrast.test.ts` (with
 | auth-title | 18px / 28px | 18px / 28px | 600 | `text-lg font-semibold` | The sign-in card title (text-lg font-semibold). |
 | brand | 17px / 1.5 | 17px / 1.5 | 600 -0.025em | `text-[17px] font-semibold tracking-tight` | The product name beside the 24px mark at the top of the sidebar (text-[17px] font-semibold tracking-tight). |
 | dialog-title | 16px / 24px | 16px / 24px | 600 | `font-semibold` | Modal title (font-semibold at the inherited 1rem). |
-| list-name | 16px / 24px | 17px / 24px | 500 | `text-base font-medium` | Names in the 대화 list and the room header. |
+| list-name | 16px / 24px | 17px / 24px | 500 | `text-base font-medium` | Names in the 대화 list and the room header (a DM's header has the person's title under the name in `text-xs text-muted`, as the people list). |
 | section-title | 14px / 20px | 15px / 22px | 600 | `text-sm font-semibold` | Admin Card title, ask-card header, home cards (text-sm font-semibold). |
 | reading | 15px / 28px | 17px / 28px | 400 | `text-reading leading-7` | Answers (.answer prose text-reading leading-7) and the user message bubble (26px on phones: max-md:leading-reading). |
 | reading-room | 15px / 24px | 17px / 26px | 400 | `text-reading leading-reading` | Room messages and the message boxes (the chat composer, the room composer). |
