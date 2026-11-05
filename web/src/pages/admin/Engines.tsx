@@ -626,7 +626,7 @@ function CodeText({ text }: { text: string }) {
     <>
       {text.split(/(`[^`]+`)/).map((part, i) =>
         /^`[^`]+`$/.test(part) ? (
-          <code key={i} className="rounded bg-subtle px-1 font-mono text-[0.95em] text-ink select-all">
+          <code key={i} className="rounded bg-subtle px-1 font-mono text-[0.95em] text-ink select-all max-md:text-[1em]">
             {part.slice(1, -1)}
           </code>
         ) : (

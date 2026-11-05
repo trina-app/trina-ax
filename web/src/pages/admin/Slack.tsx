@@ -66,7 +66,7 @@ function FixText({ text, href, onClick }: { text: string; href?: string; onClick
 /** A sentence with a command in backticks: the command as code */
 function CodeText({ text }: { text: string }) {
   return <>{text.split(/(`[^`]+`)/).map((part, i) => /^`[^`]+`$/.test(part)
-    ? <code key={i} className="rounded bg-subtle px-1 font-mono text-[0.95em] text-ink select-all">{part.slice(1, -1)}</code>
+    ? <code key={i} className="rounded bg-subtle px-1 font-mono text-[0.95em] text-ink select-all max-md:text-[1em]">{part.slice(1, -1)}</code>
     : part)}</>
 }
 

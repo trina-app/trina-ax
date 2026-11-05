@@ -490,7 +490,7 @@ export default function Composer({
                     <span className="max-w-[180px] truncate font-medium">{f.name}</span>
                   )}
                   {/* the team folder it is in, visible without hovering (phones) */}
-                  {f.source === 'team' && <span className="max-w-[180px] truncate text-nano leading-tight text-faint" data-testid="chip-folder">{folderOf(f.attachment?.path ?? f.path ?? '') || t('files.root')}</span>}
+                  {f.source === 'team' && <span className="max-w-[180px] truncate text-micro leading-tight text-faint" data-testid="chip-folder">{folderOf(f.attachment?.path ?? f.path ?? '') || t('files.root')}</span>}
                 </span>
                 {/* both stay through the whole upload, so a screen reader hears each change */}
                 <span className="flex items-center">
