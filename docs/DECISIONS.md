@@ -1294,7 +1294,10 @@ D7의 Claude 구독 연결은 Claude Code를 설치하고 터미널에서 `claud
   2초 안에 없으면 `unexpected_url`로 끝낸다(다른 주소를 사람에게 보여 주지 않는다). **프로그램 출력은 서버로 보내지 않는다**:
   ChatGPT는 출력을 서버가 읽지만, 여기서는 화면에 토큰이 나오므로 실행기가 읽고 정해진 사건(`claude_url`, `claude_code`,
   `claude_failed`, `claude_token`)만 보낸다. 토큰은 코드를 친 뒤에 나온 것만, 멈추기(취소·시간 초과)보다 먼저 끝났을 때만
-  넘긴다. 프로그램은 토큰을 보여 주고 0.5초 뒤 스스로 끝나며, 15초 넘게 남으면 멈춘다. 화면은 끝나면 지운다.
+  넘긴다. 프로그램은 토큰을 보여 주고 0.5초 뒤 스스로 끝나며, 15초 넘게 남으면 멈춘다. 화면은 끝나면 지운다. 예외 하나:
+  주소가 뜨기 전에 프로그램이 스스로 끝나면(샌드박스가 못 띄움, 라이브러리 없음, 정책) 화면의 마지막 몇 줄을 `cli_exit`의
+  `detail`로 보내고 서버가 경고 로그에 남긴다. 그때는 코드도 토큰도 화면에 있을 수 없다. Linux 확인 중 bwrap의 "Can't find
+  source path …"를 이것으로 찾았다.
 - **호스트(바이너리에서 찾음)**: 2.1.305의 OAuth 설정 덩어리(`TOKEN_URL:"https://platform.claude.com/v1/oauth/token"`,
   `MANUAL_REDIRECT_URL`, `CLAUDE_AI_AUTHORIZE_URL:"https://claude.com/cai/oauth/authorize"`)와 교환 함수(코드 → `TOKEN_URL`에
   POST)를 바이너리 문자열에서 읽었다. 교환에 필요한 곳은 `platform.claude.com:443` 하나라서 1회용 프록시 토큰
@@ -1336,8 +1339,11 @@ D7의 Claude 구독 연결은 Claude Code를 설치하고 터미널에서 `claud
   쳐서 CLI가 `platform.claude.com:443`으로만 터널을 열고, 샌드박스 안에서 실제 인증서를 검증했다(TLS 1.3 Finished 53바이트)는
   것까지 봤고, 프록시가 그 레코드 전에 끊어서 HTTP 요청·코드는 Anthropic에 가지 않았다. 개발 서버(managed)에서 화면의 버튼을
   눌러 승인 링크와 코드 칸이 나오는 것을 헤드리스 브라우저로 확인했다(링크는 열지 않음).
-- **확인하지 못한 것**: 사람이 승인한 실제 로그인 한 번(토큰이 나오는 화면을 실제로 읽는 것, 교환 직후의 요청). 실제 바이너리의
-  Linux bwrap 실행(가짜로만).
+  Linux(호스팅 모양): Linux 작업 이미지 위에서 실제 2.1.305 linux-arm64(engines.lock.json의 sha256과 같음)를 bwrap 실행기
+  (엔진 계정, nftables로 프록시 포트만, Landlock, seccomp, cgroup)로 돌려 0.2초에 주소, 그 전 연결 0, 지어낸 코드 뒤
+  `platform.claude.com:443`만, 샌드박스의 `/etc/ssl/cert.pem`만으로 인증서 검증(Finished 53바이트), 끊긴 교환은
+  `exchange_failed`까지 봤다(이 실행은 저장소 시험이 아니라 일회성 확인).
+- **확인하지 못한 것**: 사람이 승인한 실제 로그인 한 번(토큰이 나오는 화면을 실제로 읽는 것, 교환 직후의 프로필 요청).
 
 ## 클라우드·리눅스 서버: 배포 형태, 요금제 한도, 팀 시간대, 저장 공간, 리눅스 진단, 업데이트 (feat/cloud-linux-server, 2026-10-22)
 
