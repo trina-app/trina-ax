@@ -161,8 +161,8 @@ description: 허용된 회의록의 결정과 할 일을 정리합니다.
 
 ## 6. AI 연결
 
-- owner가 브라우저에서 **관리자 › AI 연결**로 연결한다: Claude(구독의 `claude setup-token` 붙여 넣기 또는 Anthropic API
-  키), Codex(ChatGPT 기기 로그인 또는 OpenAI API 키). 진짜 토큰·키는 서버의 열쇠로 봉인되고 AI 엔진에는 가지 않는다(모델
+- owner가 브라우저에서 **관리자 › AI 연결**로 연결한다: Claude(구독은 "Claude 구독 연결" 버튼으로 브라우저에서 승인하고 코드를 붙여 넣기,
+  또는 `claude setup-token` 토큰 붙여 넣기; 또는 Anthropic API 키), Codex(ChatGPT 기기 로그인 또는 OpenAI API 키). 진짜 토큰·키는 서버의 열쇠로 봉인되고 AI 엔진에는 가지 않는다(모델
   프록시가 요청마다 바꿔 끼움). 자체 설치는 네 종류를 다 쓸 수 있고(구독을 팀이 함께 쓸 때의 약관 안내가 화면에 뜸),
   `server.json`의 `engine.credentialKinds`로 좁힐 수 있다. 호스팅도 기본으로 네 종류를 지원하지만 실제 허용 범위는 운영 설정과 제공사 약관을 따릅니다.
 - CLI 대체(브라우저 연결이 안 될 때만): `sudo /var/lib/mycel/root/set-claude-token < 토큰파일`(표준 입력만),

@@ -383,6 +383,7 @@ type turnEnv struct {
 	// bridge: the real path of --bridge for this turn, the one mcp.json names (main.go). An update switches
 	// app/current under a running launcher, so the path seen at start can be an older version.
 	bridge string
+	sb     sbOpts // a sign-in's terminal (claudelogin.go): the macOS profile only, bwrap passes the descriptor itself
 }
 
 // bridgeReal is this turn's bridge (main.go sets it before the engine starts); the path from the start is only the
@@ -422,9 +423,13 @@ func beginTurn(req *request, chat string) (*turnEnv, error) {
 }
 
 // beginLogin is beginTurn for codex-login (its folder is the Codex login folder; cgroup turns/login).
-func beginLogin(dir string) (*turnEnv, error) {
+func beginLogin(dir string) (*turnEnv, error) { return beginLoginAs(dir, "login") }
+
+// beginLoginAs: a sign-in in its own folder with its own cgroup name (turns/<cgName>; a second cgroup of the same name
+// would kill the first)
+func beginLoginAs(dir, cgName string) (*turnEnv, error) {
 	t := &turnEnv{chat: dir, login: true}
-	if err := t.begin("login"); err != nil {
+	if err := t.begin(cgName); err != nil {
 		t.cleanup()
 		return nil, err
 	}
@@ -487,7 +492,7 @@ func (t *turnEnv) begin(cgName string) error {
 // command builds the engine's process: bubblewrap + mycel-sandbox with --sandbox bwrap, else as before.
 func (t *turnEnv) command(cmdPath string, args []string, chat, sessDir string) (*exec.Cmd, func(), error) {
 	if !lx.bwrap {
-		cmd, cleanup, err := engineCommand(cmdPath, args, chat, sessDir)
+		cmd, cleanup, err := engineCommandWith(cmdPath, args, chat, sessDir, t.sb)
 		if err == nil && t.cg != nil && !lx.cgFdOK && *sandboxHelper != "" {
 			cmd = t.cgexecWrap(cmd)
 		}

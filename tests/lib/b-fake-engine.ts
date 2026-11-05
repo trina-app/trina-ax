@@ -77,6 +77,8 @@ import path from 'node:path'
 
 const argv = process.argv.slice(2)
 if (argv[0] === '--version') { process.stdout.write('0.0.1 (fake engine)\n'); process.exit(0) }
+// `claude setup-token`: the Claude sign-in's stand-in (the Linux job runs this file compiled as /opt/fake-engine/claude)
+if (argv[0] === 'setup-token') { const { fakeSetupToken } = await import('./fake-claude-login'); process.exit(await fakeSetupToken(argv)) }
 const codex = argv[0] === 'exec'
 const arg = (name: string) => { const i = argv.indexOf(name); return i >= 0 ? argv[i + 1] : undefined }
 const stdin = await new Response(Bun.stdin.stream()).text()

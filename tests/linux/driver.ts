@@ -8,6 +8,12 @@ import { fakeTurn } from '../lib/run-turn'
 import { CANARY_RE } from '../lib/fixtures'
 import { API } from '@mycel/shared/api'
 import { HARNESS_KEYS, ask, startHarness } from '../lib/b-harness'
+import net from 'node:net'
+import { FAKE_CLAUDE_GOOD_CODE, FAKE_CLAUDE_TOKEN, FAKE_CLAUDE_URL } from '../lib/fake-claude-login'
+import { credentialLogins } from '../../server/src/credentials/login'
+import { credentialsOf, getRow, secretOf } from '../../server/src/credentials/store'
+import { SHARED_SUBSCRIPTIONS_KEY } from '../../server/src/credentials/policy'
+import { setSetting } from '../../server/src/admin/settings'
 
 const AG = +process.env.AGENT_UID!
 const out: any = { platform: process.platform, uid: process.getuid!(), mallory: process.env.MALLORY_SAYS }
@@ -161,6 +167,7 @@ if (SANDBOX) {
     const u = new URL(req.url)
     const body = await req.text()
     seen.push({ path: u.pathname, headers: Object.fromEntries(req.headers), body })
+    if (u.pathname.endsWith('/v1/messages/count_tokens')) return Response.json({ input_tokens: 1 })
     if (u.pathname.endsWith('/v1/messages')) return sse([
       { type: 'message_start', message: { model: 'claude-sonnet-4-5', usage: { input_tokens: 10, output_tokens: 1 } } },
       { type: 'content_block_delta', index: 0, delta: { type: 'text_delta', text: 'claude via proxy' } },
@@ -174,6 +181,10 @@ if (SANDBOX) {
     return new Response('not found', { status: 404 })
   } })
   const upUrl = `http://127.0.0.1:${UP}`
+  // where the proxy's tunnels go (the Claude sign-in's exchange): an echo server here, nothing leaves the container
+  const echo = net.createServer((c) => c.on('data', (d) => c.write(d)).on('error', () => {}))
+  await new Promise<void>((r) => echo.listen(0, '127.0.0.1', () => r()))
+  const dialed: string[] = []
   let h: Awaited<ReturnType<typeof startHarness>> | null = null
   try {
     h = await startHarness({
@@ -182,6 +193,7 @@ if (SANDBOX) {
       engineConfig: { runDir: '/run/mycel', agentRoot: '/srv/agent', agentUid: AG },
       engineBins: { claude: '/opt/fake-engine/claude', codex: '/opt/fake-engine/codex' },
       upstreams: { anthropic: upUrl, openai: upUrl + '/v1', chatgpt: upUrl + '/backend-api/codex', openaiAuth: upUrl },
+      proxyDial: (host, port) => { dialed.push(`${host}:${port}`); return net.connect((echo.address() as net.AddressInfo).port, '127.0.0.1') },
     })
     const sock = await h.ws('alice', { windowId: 'win-t1-managed' })
     await sock.next('hello')
@@ -219,11 +231,35 @@ if (SANDBOX) {
     const files = (() => { try { return Buffer.from(dump.text, 'base64').toString('utf8') } catch { return dump.text } })()
     check('managed Codex: nothing in CODEX_HOME, HOME or the chat folder holds a real key', /\.codex\/auth\.json/.test(files) && noReal(files), files.slice(0, 300))
     sock.close()
+    // the Claude sign-in in bwrap (docs/DECISIONS.md "Claude 구독 연결: 브라우저에서"): the launcher runs setup-token's
+    // stand-in (the compiled fake engine, which refuses to run without a terminal) on its pseudo-terminal in the turn
+    // sandbox; the address comes up, the code is typed in, the stand-in tunnels through the proxy to
+    // platform.claude.com:443 only (bound to its process), and the token it prints is checked and stored
+    try {
+      setSetting(h.ctx.db, SHARED_SUBSCRIPTIONS_KEY, true)
+      const logins = credentialLogins(credentialsOf(h.ctx), { async launcher() { return { sock: '/run/mycel-launcher/launcher.sock', bin: '/opt/fake-engine/claude', proxyPort: PROXY } } })
+      const dana = await h.ws('dana', { windowId: 'win-t1-claude-login' })
+      await dana.next('hello')
+      dialed.length = 0
+      const s = await logins.start({ userId: 'dana', locale: 'en', personal: false, kind: 'anthropic-oauth', label: 'Linux Claude', assignments: [], priority: 100 })
+      const code = await dana.next('credential.login', (f) => f.data.loginId === s.loginId && f.data.state !== 'starting', 30_000)
+      check('Claude sign-in in bwrap: the authorize address comes up on the terminal', code.data.state === 'code' && code.data.url === FAKE_CLAUDE_URL, JSON.stringify(code.data))
+      logins.submitCode(s.loginId, 'dana', FAKE_CLAUDE_GOOD_CODE, 'en')
+      const end = await dana.next('credential.login', (f) => f.data.loginId === s.loginId && ['done', 'failed', 'expired', 'cancelled'].includes(f.data.state), 30_000)
+      const row = end.data.credential ? getRow(h.ctx.db, end.data.credential.id) : null
+      check('Claude sign-in in bwrap: the typed code gives the token, checked and stored', end.data.state === 'done' && !!row && (secretOf(credentialsOf(h.ctx), row as never) as { token?: string } | null)?.token === FAKE_CLAUDE_TOKEN,
+        JSON.stringify({ state: end.data.state, reason: end.data.reason }))
+      check('Claude sign-in in bwrap: the exchange tunnelled to platform.claude.com:443 only', dialed.join(',') === 'platform.claude.com:443', dialed.join(','))
+      dana.close()
+    } catch (e) {
+      check('Claude sign-in in bwrap ran', false, String((e as Error)?.stack ?? e))
+    }
   } catch (e) {
     check('managed turns under the sandbox ran', false, String((e as Error)?.stack ?? e))
   } finally {
     await h?.close().catch(() => {})
     up.stop(true)
+    echo.close()
   }
 }
 

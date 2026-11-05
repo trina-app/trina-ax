@@ -1,5 +1,5 @@
 {
-  "_comment": "Pinned toolchain and engine versions. The engine lockdown regression tests must pass before any of these move (claude-code: tests/engine/lockdown-claude.ts and tests/engine/lockdown-claude-subagents.ts, the latter with and without --oauth).",
+  "_comment": "Pinned toolchain and engine versions. The engine lockdown regression tests must pass before any of these move (claude-code: tests/engine/lockdown-claude.ts and tests/engine/lockdown-claude-subagents.ts, the latter with and without --oauth). claude-code also: re-check the setup-token success screen the Claude sign-in reads (native/cmd/mycel-launcher/claudelogin.go claudeTokenFrom: the token between the \"Your OAuth token\" heading and the \"Store this token securely\" row; bun tests/engine/claude-login-real.ts up to the paste prompt, and one real sign-in), then scripts/linux/lock-engines.ts.",
   "bun": "1.3.12",
   "go": "1.27.3",
   "ripgrep": "15.2.0",

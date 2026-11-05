@@ -2,12 +2,13 @@
 // the local model proxy (pf / nftables + engine sandbox). Managed Codex turns do NOT tunnel any more (docs/DECISIONS.md
 // "AI 연결" D9: they talk plain HTTP to the proxy's /codex/* path, which puts the real credential on): a Codex turn's
 // token gets 403 here unless `codexTurns` is on (the F1 fallback, D11, and the older agent-own setup). What still
-// tunnels: the ChatGPT sign-in process (codex-login:pid-<pid>, only to auth.openai.com:443) and, in office mode with
-// the Mac user's own Claude login, Claude turns (`claudeHosts`). A tunnelling process gets
+// tunnels: the ChatGPT sign-in process (codex-login:pid-<pid>, only to auth.openai.com:443), the Claude sign-in process
+// (claude-login:pid-<pid>, only to platform.claude.com:443) and, in office mode with the Mac user's own Claude login,
+// Claude turns (`claudeHosts`). A tunnelling process gets
 // HTTPS_PROXY=http://turn:<proxy token>@127.0.0.1:<port>, and the model proxy answers its CONNECT here:
 //   - Proxy-Authorization: Basic base64("turn:" + token), a live proxy token (not revoked, not expired) -> else 407
-//   - the token's turn is a RUNNING Codex turn (a Claude turn's token, or a finished turn -> 403), or the engine
-//     account's device login started by the server CLI (codex-login:pid-<pid>)
+//   - the token's turn is a RUNNING Codex turn (a Claude turn's token, or a finished turn -> 403), or a sign-in process
+//     (codex-login:pid-<pid>, claude-login:pid-<pid>)
 //   - the TCP peer is a process of that turn's engine session (asked of the launcher, like the Claude path) -> else 403
 //   - the target is exactly one of the allowed host:port pairs (codex.connectHosts; default chatgpt.com:443 and
 //     auth.openai.com:443, the hosts Codex 0.163 was seen to use) -> else 403
@@ -36,6 +37,18 @@ export const CLAUDE_CONNECT_HOSTS = ['api.anthropic.com:443', 'platform.claude.c
  * reported the login process, then bound to its pid (= its session id: the launcher starts it with setsid) */
 export const CODEX_LOGIN_PENDING = 'codex-login:pending-'
 export const CODEX_LOGIN_BOUND = 'codex-login:pid-'
+/** The Claude sign-in (`claude setup-token` 2.1.305, credentials/login.ts) exchanges the pasted code at TOKEN_URL
+ * https://platform.claude.com/v1/oauth/token, the only token address in the binary, and nothing else is needed for the
+ * token: no request at all before the address shows (seen through a recording proxy), the browser never runs here. */
+export const CLAUDE_LOGIN_HOSTS = ['platform.claude.com:443']
+/** Right after the exchange the CLI asks api.anthropic.com/api/oauth/profile for the account (the plan name); setup-token
+ * does not use the answer and a failure only goes to its own log. Refused like any other host, without an Activity log
+ * line: it happens on every Claude sign-in and is not a sign of anything (docs/DECISIONS.md "Claude 구독 연결"). */
+export const CLAUDE_LOGIN_QUIET = ['api.anthropic.com:443']
+export const CLAUDE_LOGIN_PENDING = 'claude-login:pending-'
+export const CLAUDE_LOGIN_BOUND = 'claude-login:pid-'
+/** a sign-in process's token (either kind), pending or bound */
+export const isLoginToken = (turnId: string) => turnId.startsWith('codex-login:') || turnId.startsWith('claude-login:')
 
 export interface ConnectOpts {
   db: Database
@@ -45,6 +58,8 @@ export interface ConnectOpts {
   codexTurns?: boolean
   /** allowed targets of the ChatGPT sign-in process (default CODEX_LOGIN_HOSTS) */
   loginHosts?: string[]
+  /** allowed targets of the Claude sign-in process (default CLAUDE_LOGIN_HOSTS) */
+  claudeLoginHosts?: string[]
   /** allowed host:port targets of Claude turns (office mode with the Mac user's login); absent = Claude turns get no
    * tunnel */
   claudeHosts?: string[]
@@ -55,7 +70,7 @@ export interface ConnectOpts {
   turnSession?: (turnId: string) => number | null
   /** open the upstream connection (tests) */
   dial?: (host: string, port: number) => net.Socket
-  /** how long a CONNECT of a codex-login token waits for the CLI to bind it to the login process */
+  /** how long a CONNECT of a sign-in token waits for the server to bind it to the sign-in process */
   loginBindWaitMs?: number
   /** how often open tunnels are re-checked (token revoked or expired, turn no longer running -> closed); default 1000 */
   sweepMs?: number
@@ -80,6 +95,8 @@ function refuse(sock: Duplex, status: 403 | 407 | 502, extra = '') {
 export function codexConnectHandler(o: ConnectOpts): ConnectHandler {
   const hosts = new Set(o.hosts ?? CODEX_CONNECT_HOSTS)
   const loginHosts = new Set(o.loginHosts ?? CODEX_LOGIN_HOSTS)
+  const claudeLoginHosts = new Set(o.claudeLoginHosts ?? CLAUDE_LOGIN_HOSTS)
+  const claudeLoginQuiet = new Set(CLAUDE_LOGIN_QUIET)
   const claudeHosts = o.claudeHosts ? new Set(o.claudeHosts) : null
   const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))
   // Open tunnels outlive the CONNECT check: a tunnel stays open after its token was revoked (turn over, login CLI
@@ -92,7 +109,7 @@ export function codexConnectHandler(o: ConnectOpts): ConnectHandler {
     const r = o.db.query('SELECT turn_id, expires_at, revoked_at FROM proxy_tokens WHERE token_hash = ?').get(tokenHash) as
       { turn_id: string; expires_at: string; revoked_at: string | null } | null
     if (!r || r.revoked_at || r.expires_at < new Date().toISOString() || r.turn_id !== turnId) return false
-    if (turnId.startsWith('codex-login:')) return true
+    if (isLoginToken(turnId)) return true
     const t = o.db.query('SELECT status FROM turns WHERE id = ?').get(turnId) as { status: string } | null
     return t?.status === 'running'
   }
@@ -115,8 +132,8 @@ export function codexConnectHandler(o: ConnectOpts): ConnectHandler {
     const target = String(req.url ?? '')
     const clientPort = (sock as net.Socket).remotePort ?? 0
     const serverPort = (sock as net.Socket).localPort ?? 0
-    const deny = (status: 403 | 407, reason: string, actor: string | null = null, turn: string | null = null) => {
-      audit(o.db, { actor, action: 'proxy.connect_refused', target: turn, detail: { reason, host: target.slice(0, 120) } })
+    const deny = (status: 403 | 407, reason: string, actor: string | null = null, turn: string | null = null, quiet = false) => {
+      if (!quiet) audit(o.db, { actor, action: 'proxy.connect_refused', target: turn, detail: { reason, host: target.slice(0, 120) } })
       refuse(sock, status, status === 407 ? 'Proxy-Authenticate: Basic realm="team-ax"\r\n' : '')
     }
     // token
@@ -129,17 +146,21 @@ export function codexConnectHandler(o: ConnectOpts): ConnectHandler {
     let r = row()
     if (!r || r.revoked_at || r.expires_at < new Date().toISOString()) return deny(407, 'invalid proxy token')
 
-    // whose token: a running Codex turn, or the engine account's device login
+    // whose token: a running Codex turn, or a sign-in process (ChatGPT or Claude)
     let session: number | null = null
     let allowed = hosts
-    if (r.turn_id.startsWith('codex-login:')) {
+    let quiet: Set<string> | null = null
+    if (isLoginToken(r.turn_id)) {
+      const claude = r.turn_id.startsWith('claude-login:')
+      const [pending, bound] = claude ? [CLAUDE_LOGIN_PENDING, CLAUDE_LOGIN_BOUND] : [CODEX_LOGIN_PENDING, CODEX_LOGIN_BOUND]
       const until = Date.now() + (o.loginBindWaitMs ?? 3000)
-      while (r && r.turn_id.startsWith(CODEX_LOGIN_PENDING) && Date.now() < until) { await sleep(50); r = row() }
+      while (r && r.turn_id.startsWith(pending) && Date.now() < until) { await sleep(50); r = row() }
       if (!r || r.revoked_at) return deny(407, 'invalid proxy token')
-      const pid = r.turn_id.startsWith(CODEX_LOGIN_BOUND) ? Number(r.turn_id.slice(CODEX_LOGIN_BOUND.length)) : NaN
+      const pid = r.turn_id.startsWith(bound) ? Number(r.turn_id.slice(bound.length)) : NaN
       if (!Number.isInteger(pid) || pid <= 1) return deny(403, 'login token is not bound to the login process', r.user_id, r.turn_id)
       session = pid
-      allowed = loginHosts
+      allowed = claude ? claudeLoginHosts : loginHosts
+      if (claude) quiet = claudeLoginQuiet
     } else {
       const t = o.db.query('SELECT engine, status FROM turns WHERE id = ?').get(r.turn_id) as { engine: string; status: string } | null
       const claude = t?.engine === 'claude-code' && claudeHosts !== null
@@ -153,7 +174,11 @@ export function codexConnectHandler(o: ConnectOpts): ConnectHandler {
       }
     }
     // target
-    if (!allowed.has(target)) return deny(403, 'host not allowed', r.user_id, r.turn_id)
+    if (!allowed.has(target)) {
+      // the sign-in's own expected lookup (CLAUDE_LOGIN_QUIET) goes unrecorded only when it really comes from that process
+      const expected = !!quiet?.has(target) && (!o.peerSession || (await o.peerSession(clientPort, serverPort)) === session)
+      return deny(403, 'host not allowed', r.user_id, r.turn_id, expected)
+    }
     // caller: a process of that engine session
     if (o.peerSession) {
       const sid = await o.peerSession(clientPort, serverPort)
