@@ -4,14 +4,21 @@
 // handleEvent; the pure with* functions below make the state changes (test/unit/rooms-store.test.ts), handleEvent adds
 // the requests they need. A reconnect the server could not resume reloads through resync (components/rooms/useRoomsSync).
 import { create } from 'zustand'
-import { uuidv7, type Room, type RoomFile, type RoomLastMessage, type RoomMember, type RoomMessage, type RoomQuote, type ServerEvent } from '@mycel/shared/api'
+import { uuidv7, type Room, type RoomAiRun, type RoomFile, type RoomLastMessage, type RoomMember, type RoomMessage, type RoomQuote, type ServerEvent } from '@mycel/shared/api'
 import { api, API, errorText, isApiError } from '../lib/api'
+import { withRun, withRunPosition, withRunStep } from '../lib/rooms'
 import { navigateTo } from '../lib/nav'
 import { currentLocale, t } from '../i18n'
 import { useSession } from './session'
 import { toast } from './ui'
 
-export type RoomEvent = Extract<ServerEvent, { type: 'room.message' | 'room.message.updated' | 'room.read' | 'room.updated' }>
+export type RoomEvent = Extract<ServerEvent, { type: 'room.message' | 'room.message.updated' | 'room.read' | 'room.updated' | 'room.ai' | 'room.ai.run' | 'room.ai.step' | 'queue.position' }>
+
+/** The AI in a room (docs/DECISIONS.md "대화방의 트리나"): how many questions it answers there now (anyone's), and my own
+ * questions: working ones with their steps, and ones that stopped or failed until I close them. A finished answer is a
+ * room message, so its run goes. */
+export interface RoomAi { answering: number; runs: RoomAiRun[] }
+const NO_AI: RoomAi = { answering: 0, runs: [] }
 
 export const ROOM_PAGE = 50
 
@@ -132,6 +139,13 @@ export function withoutRoom(d: RoomsData, roomId: string): RoomsData {
   return { ...d, rooms: d.rooms.filter((r) => r.id !== roomId), thread: d.thread?.roomId === roomId ? null : d.thread }
 }
 
+/** One of my runs changed: a done one goes (its answer is a message now), the others stay in their place. */
+export function withAiRun(ai: Record<string, RoomAi>, roomId: string, run: RoomAiRun): Record<string, RoomAi> {
+  const cur = ai[roomId] ?? NO_AI
+  const runs = run.state === 'done' ? cur.runs.filter((r) => r.turnId !== run.turnId) : withRun(cur.runs, run)
+  return { ...ai, [roomId]: { ...cur, runs } }
+}
+
 /** The read position the server answered: my badge for the room follows it. */
 export function withReadState(d: RoomsData, roomId: string, s: { lastReadSeq: number; unreadCount: number }): RoomsData {
   return { ...d, rooms: d.rooms.map((r) => (r.id === roomId ? { ...r, lastReadSeq: Math.max(r.lastReadSeq, s.lastReadSeq), unreadCount: s.unreadCount, mentioned: s.unreadCount > 0 && r.mentioned } : r)) }
@@ -148,6 +162,7 @@ interface RoomsState extends RoomsData {
   failed: unknown
   members: Record<string, RoomMember[]>
   pending: Record<string, PendingSend[]>
+  ai: Record<string, RoomAi>
   loadRooms: () => Promise<void>
   /** null: not one of my rooms (gone from the list) */
   fetchRoom: (id: string) => Promise<Room | null>
@@ -165,12 +180,19 @@ interface RoomsState extends RoomsData {
   setMuted: (roomId: string, muted: boolean) => Promise<void>
   /** the DM with this person (the existing one when there is one) */
   openDm: (userId: string) => Promise<Room>
+  /** the AI's count and my own questions in a room (GET /api/rooms/:id/ai) */
+  loadAi: (roomId: string) => Promise<void>
+  stopAi: (roomId: string, turnId: string) => Promise<void>
+  /** close a run of mine that stopped or failed */
+  dismissAi: (roomId: string, turnId: string) => void
+  /** post my private preview of an AI answer to the room */
+  shareAi: (roomId: string, messageId: string) => Promise<void>
   resync: () => Promise<void>
   handleEvent: (ev: RoomEvent) => void
   reset: () => void
 }
 
-const EMPTY: Pick<RoomsState, 'rooms' | 'openRoomId' | 'thread' | 'loaded' | 'failed' | 'members' | 'pending'> = { rooms: [], openRoomId: null, thread: null, loaded: false, failed: null, members: {}, pending: {} }
+const EMPTY: Pick<RoomsState, 'rooms' | 'openRoomId' | 'thread' | 'loaded' | 'failed' | 'members' | 'pending' | 'ai'> = { rooms: [], openRoomId: null, thread: null, loaded: false, failed: null, members: {}, pending: {}, ai: {} }
 
 /** what was typed in a room and not sent yet, while this page is open (components/rooms/RoomComposer.tsx); gone at
  * sign-out with the rest */
@@ -237,6 +259,7 @@ export const useRooms = create<RoomsState>((set, get) => {
       set({ openRoomId: roomId, thread: { roomId, messages: [], nextCursor: null, loading: true, error: null } })
       void get().loadNewest(roomId)
       void get().loadMembers(roomId)
+      void get().loadAi(roomId)
     },
 
     close(roomId) {
@@ -340,17 +363,62 @@ export const useRooms = create<RoomsState>((set, get) => {
       return room
     },
 
+    async loadAi(roomId) {
+      try {
+        const r = await api.call(API.getRoomAi, { params: { id: roomId } })
+        set((s) => {
+          // runs that ended here (stopped, failed) stay until closed; the server lists the working ones
+          const ended = (s.ai[roomId]?.runs ?? []).filter((x) => x.state === 'stopped' || x.state === 'error')
+          return { ai: { ...s.ai, [roomId]: { answering: r.answering, runs: [...r.mine, ...ended.filter((x) => !r.mine.some((m) => m.turnId === x.turnId))] } } }
+        })
+      } catch {
+        /* an older server without the AI in rooms: nothing shows */
+      }
+    },
+
+    async stopAi(roomId, turnId) {
+      await api.call(API.stopRoomAi, { params: { id: roomId, turnId } })
+    },
+
+    dismissAi(roomId, turnId) {
+      set((s) => (s.ai[roomId] ? { ai: { ...s.ai, [roomId]: { ...s.ai[roomId]!, runs: s.ai[roomId]!.runs.filter((r) => r.turnId !== turnId) } } } : {}))
+    },
+
+    async shareAi(roomId, messageId) {
+      const m = await api.call(API.shareRoomMessage, { params: { id: roomId, messageId } })
+      set((s) => withMessage(s, roomId, m, myId()))
+    },
+
     async resync() {
       await get().loadRooms()
       const open = get().openRoomId
       if (open) {
         asked.delete(open)
-        await Promise.all([get().loadNewest(open), get().loadMembers(open, true)])
+        await Promise.all([get().loadNewest(open), get().loadMembers(open, true), get().loadAi(open)])
       }
     },
 
     handleEvent(ev) {
       switch (ev.type) {
+        case 'room.ai':
+          set((s) => ({ ai: { ...s.ai, [ev.data.roomId]: { ...(s.ai[ev.data.roomId] ?? NO_AI), answering: ev.data.answering } } }))
+          return
+        case 'room.ai.run':
+          set((s) => ({ ai: withAiRun(s.ai, ev.data.roomId, ev.data.run) }))
+          return
+        case 'room.ai.step': {
+          const cur = get().ai[ev.data.roomId]
+          if (cur?.runs.some((r) => r.turnId === ev.data.turnId)) set((s) => ({ ai: { ...s.ai, [ev.data.roomId]: { ...cur, runs: withRunStep(cur.runs, ev.data.turnId, ev.data.step) } } }))
+          return
+        }
+        case 'queue.position': {
+          // the queue of every answer of mine: only my questions in rooms are kept here
+          const { turnId, position } = ev.data
+          for (const [roomId, cur] of Object.entries(get().ai)) {
+            if (cur.runs.some((r) => r.turnId === turnId)) set((s) => ({ ai: { ...s.ai, [roomId]: { ...cur, runs: withRunPosition(cur.runs, turnId, position) } } }))
+          }
+          return
+        }
         case 'room.message': {
           const { roomId, message } = ev.data
           const known = get().rooms.some((r) => r.id === roomId)

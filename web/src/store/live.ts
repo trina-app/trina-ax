@@ -47,11 +47,15 @@ export function dispatch(ev: ServerEvent) {
   }
   if (ev.type === 'message.step' || ev.type === 'message.done') chatActivity.emit(ev.data.chatId)
   switch (ev.type) {
+    case 'queue.position':
+      // a question to the AI in a room waits in the same queue (store/rooms.ts keeps the room's own)
+      useRooms.getState().handleEvent(ev)
+      useChats.getState().handleEvent(ev)
+      return
     case 'message.created':
     case 'message.delta':
     case 'message.step':
     case 'message.done':
-    case 'queue.position':
     case 'chat.updated':
     case 'turn.request':
     case 'turn.request.closed':
@@ -65,6 +69,9 @@ export function dispatch(ev: ServerEvent) {
     case 'room.message.updated':
     case 'room.read':
     case 'room.updated':
+    case 'room.ai':
+    case 'room.ai.run':
+    case 'room.ai.step':
       // the team chat rooms (store/rooms.ts): only the room's members get these
       useRooms.getState().handleEvent(ev)
       return

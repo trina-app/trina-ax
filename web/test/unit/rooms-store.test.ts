@@ -1,9 +1,9 @@
 // The rooms store (store/rooms.ts): the pure state changes for the room.* events, and handleEvent against a fake REST
 // server where an event needs one (my own read elsewhere recounts the room; leaving a room closes it).
 import { afterEach, beforeEach, describe, expect, test } from 'bun:test'
-import type { Me } from '@mycel/shared/api'
+import { uuidv7, type Me } from '@mycel/shared/api'
 import { setNavigator } from '../../src/lib/nav'
-import { decrementUnread, mergeMessages, withMessage, withRead, withUpdatedMessage, useRooms, type RoomsData } from '../../src/store/rooms'
+import { decrementUnread, mergeMessages, withAiRun, withMessage, withRead, withUpdatedMessage, useRooms, type RoomsData } from '../../src/store/rooms'
 import { useSession } from '../../src/store/session'
 import { at, BEN, ME, message, room } from './rooms-fixtures'
 
@@ -186,5 +186,27 @@ describe('handleEvent', () => {
     await tick()
     expect(calls).toEqual([`GET /api/rooms/${r.id}`])
     expect(useRooms.getState().rooms[0]).toMatchObject({ id: r.id, unreadCount: 1 })
+  })
+})
+
+describe('the AI in a room', () => {
+  test('room.ai counts anyone\'s questions; my run shows its steps, a done one goes (its answer is a message), a stopped one stays until closed', () => {
+    const r = room()
+    const run = { turnId: uuidv7(), roomId: r.id, questionId: uuidv7(), state: 'running' as const, position: 0, steps: [], error: null, createdAt: at(1) }
+    const store = useRooms.getState()
+    store.reset()
+    store.handleEvent({ seq: 1, at: 1, type: 'room.ai', data: { roomId: r.id, answering: 2 } })
+    store.handleEvent({ seq: 2, at: 1, type: 'room.ai.run', data: { roomId: r.id, run } })
+    store.handleEvent({ seq: 3, at: 1, type: 'room.ai.step', data: { roomId: r.id, turnId: run.turnId, step: { id: 's1', kind: 'tool', label: 'Read · acme/notes.md', status: 'running', startedAt: at(1), endedAt: null } } })
+    expect(useRooms.getState().ai[r.id]).toMatchObject({ answering: 2, runs: [{ turnId: run.turnId, steps: [{ id: 's1' }] }] })
+    // a step of a run that is not mine is ignored (nobody else's steps ever come; this one is unknown)
+    store.handleEvent({ seq: 3, at: 1, type: 'room.ai.step', data: { roomId: r.id, turnId: uuidv7(), step: { id: 's2', kind: 'tool', label: 'x', status: 'ok', startedAt: at(1), endedAt: at(1) } } })
+    expect(useRooms.getState().ai[r.id]!.runs).toHaveLength(1)
+    expect(withAiRun(useRooms.getState().ai, r.id, { ...run, state: 'done' })[r.id]!.runs).toEqual([])
+    store.handleEvent({ seq: 2, at: 1, type: 'room.ai.run', data: { roomId: r.id, run: { ...run, state: 'stopped' } } })
+    expect(useRooms.getState().ai[r.id]!.runs[0]).toMatchObject({ state: 'stopped', steps: [{ id: 's1' }] })
+    store.dismissAi(r.id, run.turnId)
+    expect(useRooms.getState().ai[r.id]!.runs).toEqual([])
+    store.reset()
   })
 })

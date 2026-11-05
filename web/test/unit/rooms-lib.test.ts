@@ -2,7 +2,7 @@
 // of a sent text.
 import { describe, expect, test } from 'bun:test'
 import { uuidv7 } from '@mycel/shared/api'
-import { groupRuns, insertMention, keptMentions, matchMembers, mentionAt, mentionParts, roomTitle, totalUnread } from '../../src/lib/rooms'
+import { aiMatches, aiMentionNames, groupRuns, insertMention, keptMentions, matchMembers, mentionAt, mentionParts, roomTitle, runActive, totalUnread, withRun, withRunPosition, withRunStep } from '../../src/lib/rooms'
 import { at, BEN, CY, ME, message, room } from './rooms-fixtures'
 
 const R = uuidv7()
@@ -73,4 +73,30 @@ test('titles and the tab total', () => {
   expect(roomTitle(room({ kind: 'dm', name: null, groupId: null, peers: [BEN] }), words)).toBe('Ben')
   expect(roomTitle(room({ kind: 'dm', name: null, groupId: null, peers: [] }), words)).toBe('Unknown person')
   expect(totalUnread([{ unreadCount: 2 }, { unreadCount: 0 }, { unreadCount: 5 }])).toBe(7)
+})
+
+// ---------------- the AI in a room ----------------
+describe('the AI in a room', () => {
+  test('its "@" entry fits the start of any of its names, and an empty query', () => {
+    expect(aiMatches('')).toBe(true)
+    expect(aiMatches('트')).toBe(true)
+    expect(aiMatches('tri')).toBe(true)
+    expect(aiMatches('bo')).toBe(false)
+    expect(aiMentionNames('@트리나 hi').length).toBeGreaterThan(0)
+    expect(aiMentionNames('no call here')).toEqual([])
+  })
+  test('runs: a state change keeps the steps, a step goes in its place, the queue moves a waiting run', () => {
+    const base = { turnId: uuidv7(), roomId: uuidv7(), questionId: uuidv7(), state: 'queued' as const, position: 2, steps: [], error: null, createdAt: '2026-11-05T09:00:00.000Z' }
+    const step = { id: 's1', kind: 'tool' as const, label: 'Read · a.md', status: 'running' as const, startedAt: base.createdAt, endedAt: null }
+    let runs = withRun([], base)
+    runs = withRunPosition(runs, base.turnId, 1)
+    expect(runs[0]).toMatchObject({ state: 'queued', position: 1 })
+    runs = withRunStep(runs, base.turnId, step)
+    expect(runs[0]).toMatchObject({ state: 'running', position: 0, steps: [step] })
+    runs = withRunStep(runs, base.turnId, { ...step, status: 'ok' })
+    expect(runs[0]!.steps).toEqual([{ ...step, status: 'ok' }])
+    runs = withRun(runs, { ...base, state: 'stopped', position: 0 })
+    expect(runs[0]).toMatchObject({ state: 'stopped', steps: [{ ...step, status: 'ok' }] })
+    expect(runActive(runs[0]!)).toBe(false)
+  })
 })

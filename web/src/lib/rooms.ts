@@ -1,7 +1,7 @@
 // Pure helpers of the team chat rooms ("대화방" v1, shared/src/api/rooms.ts): a room's title, runs of one author's
 // messages, and @mentions (the "@name" being typed, the members that fit it, and the parts of a sent text). No React,
 // no requests: unit tested in test/unit/rooms-lib.test.ts.
-import { ROOM_MENTIONS_MAX, type Room, type RoomMessage } from '@mycel/shared/api'
+import { ROOM_AI_NAMES, ROOM_MENTIONS_MAX, roomAiCalled, type Room, type RoomAiRun, type RoomMessage, type Step } from '@mycel/shared/api'
 
 /** The words a title falls back to: `all` for the everyone room, `gone` for a DM whose other person is gone. */
 export interface TitleWords { all: string; gone: string }
@@ -119,3 +119,43 @@ export function totalUnread(rooms: Pick<Room, 'unreadCount'>[]): number {
 
 /** "99+" past 99, like the Inbox count. */
 export const badgeText = (n: number) => (n > 99 ? '99+' : String(n))
+
+// ---------------- the AI in a room (docs/DECISIONS.md "대화방의 트리나") ----------------
+/** The AI's entry in the "@" list fits the query when one of its names starts with it ("" too: it comes first). */
+export function aiMatches(query: string): boolean {
+  const q = query.toLocaleLowerCase()
+  return ROOM_AI_NAMES.some((n) => n.toLocaleLowerCase().startsWith(q))
+}
+
+/** The "@<AI name>" in a message, as pseudo-mentions for mentionParts (so they stand out like a person's). */
+export function aiMentionNames(body: string, people: { name: string }[] = []): { id: string; name: string }[] {
+  if (!roomAiCalled(body, people.map((p) => p.name))) return []
+  return ROOM_AI_NAMES.map((name) => ({ id: AI_MENTION_ID, name }))
+}
+export const AI_MENTION_ID = '@ai'
+
+/** A run of mine in its place: by turn id; steps the newer copy lacks (a state change carries none) are kept. */
+export function withRun(runs: RoomAiRun[], run: RoomAiRun): RoomAiRun[] {
+  const i = runs.findIndex((r) => r.turnId === run.turnId)
+  if (i < 0) return [...runs, run]
+  const prev = runs[i]!
+  const next = { ...run, steps: run.steps.length ? run.steps : prev.steps }
+  return runs.map((r, j) => (j === i ? next : r))
+}
+
+/** A step of one of my runs: replaced by id, or added at the end. */
+export function withRunStep(runs: RoomAiRun[], turnId: string, step: Step): RoomAiRun[] {
+  return runs.map((r) => {
+    if (r.turnId !== turnId) return r
+    const i = r.steps.findIndex((s) => s.id === step.id)
+    return { ...r, state: r.state === 'queued' ? 'running' : r.state, position: 0, steps: i < 0 ? [...r.steps, step] : r.steps.map((s, j) => (j === i ? step : s)) }
+  })
+}
+
+/** queue.position of a run of mine (0: it runs now). */
+export function withRunPosition(runs: RoomAiRun[], turnId: string, position: number): RoomAiRun[] {
+  return runs.map((r) => (r.turnId === turnId && (r.state === 'queued' || r.state === 'running') ? { ...r, state: position > 0 ? 'queued' : 'running', position } : r))
+}
+
+/** Is the run still working (its block shows the steps and Stop)? */
+export const runActive = (r: Pick<RoomAiRun, 'state'>) => r.state === 'queued' || r.state === 'running'
