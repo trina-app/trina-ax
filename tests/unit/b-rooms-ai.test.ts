@@ -10,6 +10,8 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { chatUrls } from '../../server/src/tools/url-gate'
 import { roomAiOf } from '../../server/src/rooms/ai'
+import { loadPrincipal } from '../../server/src/policy/access'
+import { buildSubagentPrompt, buildTurnContext, buildTurnPrompt, ROOM_PROMPT_SECTIONS, subagentPromptSections, turnContextSections, turnPromptSections, type PromptInput } from '../../server/src/chat/prompt'
 
 setDefaultTimeout(60_000)
 const fake = (...ds: unknown[]) => ds.map((d) => '@fake ' + JSON.stringify(d)).join('\n')
@@ -82,11 +84,11 @@ describe('the AI in a room', () => {
     // alice can read the marketing folder: her answer has it, and since bob cannot, it stays her private preview
     expect(forAlice?.body).toContain('Autumn Upgrade')
     expect(forAlice).toMatchObject({ visibility: 'private', askedBy: { id: 'alice' }, author: null, unread: 0, preview: { folders: ['groups/marketing'], personal: false, outside: false } })
-    // bob's turn ran with bob's access: the same read was refused, and that answer used no file, so the room has it
+    // bob's turn ran with bob's access: the same read was refused. A refused path and a missing one answer alike, and
+    // either may name a folder someone cannot see, so that answer is bob's private preview too
     expect(forBob?.body).not.toContain('Autumn Upgrade')
     expect(forBob?.body).toContain('no access')
-    expect(forBob).toMatchObject({ visibility: 'room', askedBy: { id: 'bob' } })
-    expect(forBob?.preview).toBeUndefined()
+    expect(forBob).toMatchObject({ visibility: 'private', askedBy: { id: 'bob' }, preview: { folders: ['groups/marketing'] } })
     // bob never sees alice's preview, nor anything from it
     const bobsView = await messages('bob', roomId)
     expect(bobsView.some((m) => m.id === forAlice!.id)).toBe(false)
@@ -207,7 +209,10 @@ describe('the AI in a room', () => {
     expect(first.body).toMatch(/<room_message from="Erin Yoo" who="another member"[^>]*>\nhello from erin/)
     const two = await ask('alice', roomId, `@트리나 second\n${fake({ echo: 'resume' }, { echo: 'system' })}`)
     const second = (await answerTo('alice', roomId, two.q))!
-    expect(second.body).toContain('resumed=true')
+    // never a resumed engine session in a room (its instructions are made again for every question); the conversation
+    // so far comes as history
+    expect(second.body).toContain('resumed=false')
+    expect(second.body).toMatch(/<previous_conversation>[\s\S]*User: first/)
     // no personal memories in a room
     expect(second.body).not.toContain('ALICE-ROOM-MEMORY')
     expect(second.body).toContain('## Team chat room')
@@ -446,10 +451,132 @@ describe('what the instructions and the tools may carry into the room', () => {
   test("when the room's members change, the next question starts a new conversation", async () => {
     const { roomId, groupId } = await roomOf(['alice', 'erin'])
     await ask('alice', roomId, `@트리나 first\n${fake({ say: 'one' })}`)
-    const kept = await ask('alice', roomId, `@트리나 again\n${fake({ echo: 'resume' })}`)
-    expect((await answerTo('alice', roomId, kept.q))!.body).toContain('resumed=true')
+    const kept = await ask('alice', roomId, `@트리나 again\n${fake({ echo: 'system' })}`)
+    expect((await answerTo('alice', roomId, kept.q))!.body).toMatch(/<previous_conversation>[\s\S]*User: first/)
     await h.api('dana').call(API.updateGroup, { params: { id: groupId }, body: { memberIds: ['alice', 'erin', 'bob'] } })
-    const fresh = await ask('alice', roomId, `@트리나 after bob\n${fake({ echo: 'resume' })}`)
-    expect((await answerTo('alice', roomId, fresh.q))!.body).toContain('resumed=false')
+    const fresh = await ask('alice', roomId, `@트리나 after bob\n${fake({ echo: 'system' })}`)
+    expect((await answerTo('alice', roomId, fresh.q))!.body).not.toContain('<previous_conversation>')
+  })
+})
+
+// ---------------- third review (2026-11-05): room instructions from an allowlist of sections ----------------
+describe('the instructions of a room session', () => {
+  test('only the sections ROOM_PROMPT_SECTIONS allows, in the main, sub-agent and resumed prompts; nothing about the person', () => {
+    expect(Object.entries(ROOM_PROMPT_SECTIONS).filter(([, ok]) => !ok).map(([id]) => id).sort()).toEqual(['browser', 'connected', 'memories', 'project'])
+    const user = loadPrincipal(h.ctx.db, 'alice')!
+    const input: PromptInput = {
+      user, groupNames: ['ZZ-LAYOFF-COMMITTEE'], locale: 'en', timeZone: 'UTC', memories: [{ id: 'm1', text: 'MEMORY-CANARY' }],
+      project: { name: 'PROJECT-CANARY', folderPath: 'projects/falcon', instructions: 'PROJECT-INSTR-CANARY' }, browser: true,
+      tools: ['make_file', 'edit_hwp', 'search'], history: [{ role: 'user', content: 'earlier' }], connected: '## Connected services\nCONN-CANARY', subagents: true, now: new Date('2026-11-05T09:00:00Z'),
+      room: { name: 'acme', kind: 'team', members: 2, asker: user.name }, roomReadable: (rel) => !rel.startsWith('projects'), skillChanges: 'SKILL-CHANGES',
+    }
+    const built: [ReturnType<typeof turnPromptSections>, string][] = [
+      [turnPromptSections(h.ctx.files, input), buildTurnPrompt(h.ctx.files, input)],
+      [turnContextSections(h.ctx.files, input), buildTurnContext(h.ctx.files, input)],
+      [subagentPromptSections(h.ctx.files, input, ['read', 'write']), buildSubagentPrompt(h.ctx.files, input, ['read', 'write'])],
+    ]
+    for (const [sections, prompt] of built) {
+      for (const sec of sections) if (sec.text) expect({ id: sec.id, in: prompt.includes(sec.text) }).toEqual({ id: sec.id, in: ROOM_PROMPT_SECTIONS[sec.id] === true })
+      for (const canary of ['MEMORY-CANARY', 'PROJECT-CANARY', 'PROJECT-INSTR-CANARY', 'CONN-CANARY', 'ZZ-LAYOFF-COMMITTEE', 'role member', 'projects/falcon']) expect({ canary, in: prompt.includes(canary) }).toEqual({ canary, in: false })
+    }
+    // the same input outside a room keeps every section (the normal prompt is unchanged)
+    const normal = buildTurnPrompt(h.ctx.files, { ...input, room: null, roomReadable: null })
+    for (const canary of ['MEMORY-CANARY', 'PROJECT-INSTR-CANARY', 'CONN-CANARY', 'ZZ-LAYOFF-COMMITTEE']) expect(normal).toContain(canary)
+  })
+
+  test("connections and the asker's group names stay out of a room", async () => {
+    const now = new Date().toISOString()
+    h.ctx.db.query("INSERT INTO integrations (id, scope, owner_user_id, created_by, kind, name, slug, url, auth, write_policy, status, tools_json, version, created_at, updated_at) VALUES ('n1conn', 'personal', 'alice', 'alice', 'mcp', 'ALICE-PRIVATE-LAWYER-MAIL', 'lawyer', 'https://mcp.example/mcp', 'none', 'ask', 'connected', '[]', 1, ?, ?)").run(now, now)
+    const g = await h.api('dana').call(API.createGroup, { body: { name: 'ZZ-LAYOFF-COMMITTEE', memberIds: ['alice'] } })
+    try {
+      const roomId = await room(['alice', 'erin'])
+      const { q } = await ask('alice', roomId, `@트리나 who am i\n${fake({ echo: 'system' }, { echo: 'tools' })}`)
+      const seen = await answerTo('erin', roomId, q)
+      expect(seen?.visibility).toBe('room')
+      expect(seen!.body).toContain('User: Alice Kim (id alice)')
+      for (const canary of ['ALICE-PRIVATE-LAWYER-MAIL', 'ZZ-LAYOFF-COMMITTEE', 'Connected services', 'remember', 'drive_']) expect({ canary, in: seen!.body.includes(canary) }).toEqual({ canary, in: false })
+    } finally {
+      h.ctx.db.query("DELETE FROM integrations WHERE id = 'n1conn'").run()
+      await h.api('dana').call(API.deleteGroup, { params: { id: g.id } })
+    }
+  })
+
+  test('share_file with another spelling of a restricted path (case, NFD) keeps the answer private', async () => {
+    const roomId = await room(['alice', 'erin'])
+    const one = await ask('alice', roomId, `@트리나 link\n${fake({ tool: 'share_file', args: { path: 'PROJECTS/FALCON/plan.md', mode: 'preview' }, sayResult: true })}`)
+    expect(await answerTo('erin', roomId, one.q)).toBeUndefined()
+    const nfc = 'projects/기밀'.normalize('NFC')
+    fs.mkdirSync(path.join(h.team, nfc), { recursive: true })
+    fs.writeFileSync(path.join(h.team, nfc, 'plan.md'), 'secret\n')
+    h.ctx.db.query("INSERT OR IGNORE INTO folders (id, path) VALUES ('f_n4', ?)").run(nfc)
+    h.ctx.db.query("INSERT INTO folder_rules (id, folder_id, subject_type, subject_id, access) VALUES ('n4r', 'f_n4', 'user', 'alice', 'write')").run()
+    try {
+      const r2 = await room(['alice', 'erin'])
+      const two = await ask('alice', r2, `@트리나 link\n${fake({ tool: 'share_file', args: { path: `${nfc}/plan.md`.normalize('NFD'), mode: 'preview' }, sayResult: true })}`)
+      expect(await answerTo('erin', r2, two.q)).toBeUndefined()
+    } finally { h.ctx.db.query("DELETE FROM folder_rules WHERE id = 'n4r'").run(); fs.rmSync(path.join(h.team, nfc), { recursive: true, force: true }) }
+  })
+
+  test('a restricted folder and a missing path answer alike: both keep the answer private, even with no results', async () => {
+    for (const call of [
+      { tool: 'read', args: { file_path: 'projects/falcon' }, sayResult: true },
+      { tool: 'grep', args: { pattern: 'NO-SUCH-WORD-zzz', path: 'projects/falcon' }, sayResult: true },
+      { tool: 'read', args: { file_path: 'projects/nosuch' }, sayResult: true },
+    ]) {
+      const roomId = await room(['alice', 'erin'])
+      const { q } = await ask('alice', roomId, `@트리나 x\n${fake(call)}`)
+      expect({ call: call.args, posted: !!(await answerTo('erin', roomId, q)) }).toEqual({ call: call.args, posted: false })
+    }
+  })
+
+  test("the batch card lists every file and the replacement, not the call's raw input", async () => {
+    const long = 'Q'.repeat(3990)
+    const a = path.join(h.team, 'shared/n6-a.md'), b = path.join(h.team, 'shared/n6-secret-b.md')
+    fs.writeFileSync(a, long + '\n'); fs.writeFileSync(b, long + '\n')
+    try {
+      const roomId = await room(['alice', 'erin'])
+      const q = await send('alice', roomId, `@트리나 ef\n${fake({ tool: 'read', args: { file_path: 'shared/n6-a.md' } }, { tool: 'read', args: { file_path: 'shared/n6-secret-b.md' } }, { tool: 'edit_files', args: { old_string: long, new_string: 'Z', file_paths: ['shared/n6-a.md', 'shared/n6-secret-b.md'] } }, { say: 'done' })}`)
+      const turnId = (await ws.alice!.next('room.ai.run', (f) => f.data.run.questionId === q.id)).data.run.turnId
+      const card = await ws.alice!.next('turn.request', (f) => f.data.turnId === turnId && f.data.request.kind === 'ask_user', 15_000)
+      const req = card.data.request as { details?: { label: string; text: string }[]; requestId: string }
+      expect(req.details?.[0]?.text).toBe('shared/n6-a.md\nshared/n6-secret-b.md')
+      await h.api('alice').call(API.answerTurn, { params: { id: turnId }, body: { kind: 'ask_user', requestId: req.requestId, answer: 'allow' } })
+      await ws.alice!.next('room.ai.run', (f) => f.data.run.questionId === q.id && f.data.run.state === 'done', 30_000)
+      expect([fs.readFileSync(a, 'utf8'), fs.readFileSync(b, 'utf8')]).toEqual(['Z\n', 'Z\n'])
+    } finally { fs.rmSync(a, { force: true }); fs.rmSync(b, { force: true }) }
+  })
+
+  test('a member who loses access to a listed skill: the next question is not shown that skill', async () => {
+    fs.mkdirSync(path.join(h.team, 'skills/n7-secret-skill'), { recursive: true })
+    fs.writeFileSync(path.join(h.team, 'skills/n7-secret-skill/SKILL.md'), '---\nname: n7-secret-skill\ndescription: n7 merger desc\n---\nsteps\n')
+    try {
+      const roomId = await room(['alice', 'erin'])
+      const one = await ask('alice', roomId, `@트리나 first\n${fake({ echo: 'system' })}`)
+      expect((await answerTo('alice', roomId, one.q))!.body).toContain('n7-secret-skill')
+      h.ctx.db.query("INSERT INTO folders (id, path) VALUES ('f_n7', 'skills/n7-secret-skill')").run()
+      h.ctx.db.query("INSERT INTO folder_rules (id, folder_id, subject_type, subject_id, access) VALUES ('n7e', 'f_n7', 'user', 'erin', 'none')").run()
+      const two = await ask('alice', roomId, `@트리나 again\n${fake({ echo: 'system' })}`)
+      const seen = await answerTo('erin', roomId, two.q)
+      expect(seen?.visibility).toBe('room')
+      // the instructions are made again for this question (a room never resumes a session); what the history holds is
+      // the earlier answer erin was shown in the room then
+      expect(seen!.body.split('<previous_conversation>')[0]).not.toContain('n7-secret-skill')
+    } finally {
+      h.ctx.db.query("DELETE FROM folder_rules WHERE id = 'n7e'").run()
+      h.ctx.db.query("DELETE FROM folders WHERE id = 'f_n7'").run()
+      fs.rmSync(path.join(h.team, 'skills/n7-secret-skill'), { recursive: true, force: true })
+    }
+  })
+
+  test('a skill name only the asker has twice answers as if it did not exist (no hidden names or counts)', async () => {
+    const files = ['users/alice/skills/n8a.md', 'users/alice/skills/n8b.md'].map((d) => path.join(h.team, d))
+    for (const f of files) { fs.mkdirSync(path.dirname(f), { recursive: true }); fs.writeFileSync(f, '---\nname: N8-HR-INVESTIGATION\ndescription: x\n---\nsteps\n') }
+    try {
+      const roomId = await room(['alice', 'erin'])
+      const { q } = await ask('alice', roomId, `@트리나 x\n${fake({ tool: 'skill', args: { name: 'N8-HR-INVESTIGATION' }, sayResult: true })}`)
+      const seen = await answerTo('erin', roomId, q)
+      expect(seen?.visibility).toBe('room')
+      expect(seen!.body).not.toMatch(/Several|n8a|n8b|users\/alice/)
+    } finally { for (const f of files) fs.rmSync(f, { force: true }) }
   })
 })
