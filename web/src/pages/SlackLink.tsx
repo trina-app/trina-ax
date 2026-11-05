@@ -50,7 +50,7 @@ export default function SlackLink() {
     finally { writing.current = false; setBusy(false) }
   }
   return (
-    <section className="mx-auto max-w-xl space-y-5 p-6" data-testid="slack-link">
+    <section className="mx-auto max-w-xl space-y-5 p-4 sm:p-6" data-testid="slack-link">
       <div>
         <h1 className="text-xl font-semibold">{t('slack.link.title')}</h1>
         {!done && <p className="mt-2 text-sm text-muted">{t('slack.link.desc')}</p>}

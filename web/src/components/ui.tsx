@@ -253,7 +253,7 @@ export function Modal({ open, onClose, title, children, width = 480, footer, ret
         style={{ maxWidth: width }}
         onMouseDown={(e) => e.stopPropagation()}
       >
-        <div className="flex shrink-0 items-center justify-between gap-2 border-b border-line py-2.5 pr-2.5 pl-5 sm:py-3">
+        <div className="flex shrink-0 items-center justify-between gap-2 border-b border-line py-2.5 pr-2.5 pl-5 max-sm:pr-3 max-sm:pl-4 sm:py-3">
           <h2 id={titleId} className="min-w-0 font-semibold">
             {title}
           </h2>

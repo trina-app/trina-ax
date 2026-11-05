@@ -15,7 +15,7 @@ export function SlackSignInReturn() {
   const target = resumeTarget(search)
   useEffect(() => { if (target) window.location.replace(target) }, [target])
   return (
-    <section className="mx-auto max-w-xl space-y-3 p-6" data-testid="slack-signin-return">
+    <section className="mx-auto max-w-xl space-y-3 p-4 sm:p-6" data-testid="slack-signin-return">
       <h1 className="text-xl font-semibold">Slack</h1>
       <p className="text-sm text-muted">{t(target ? 'slack.signin.resuming' : 'slack.signin.returnBad')}</p>
     </section>
@@ -27,7 +27,7 @@ export function SlackDone({ signedIn }: { signedIn: boolean }) {
   const code = new URLSearchParams(useLocation().search).get('slack') ?? ''
   const ok = code === 'linked'
   return (
-    <section className="mx-auto max-w-xl space-y-3 p-6" data-testid="slack-done">
+    <section className="mx-auto max-w-xl space-y-3 p-4 sm:p-6" data-testid="slack-done">
       <h1 className="text-xl font-semibold">Slack</h1>
       <p className={`text-sm ${ok ? '' : 'text-warn'}`} role="status" data-testid="slack-done-text">{t(ok ? 'slack.signin.doneApp' : outcomeText(code))}</p>
       {signedIn && <Link to="/settings/connectors" className="text-sm text-accent underline-offset-2 hover:underline">{t('slack.link.toSettings')}</Link>}
