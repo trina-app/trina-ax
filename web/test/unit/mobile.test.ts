@@ -357,3 +357,18 @@ test('a build without push (Android without Firebase): the question goes away af
     expect(usePhonePush.getState().ask).toBe(false)
   } finally { server.restore() }
 })
+
+test('store builds 1 and 2: a registered session does not override a "no" this phone gave (no unasked OS prompt)', async () => {
+  const server = pushServer({ enabled: true, native: { available: true, deviceId: 'device-1', gateway: 'push.example.test' } })
+  try {
+    server.stored.set('mycel.phonePush.denied', '1')
+    handler = withPermission('granted')
+    win.mycelMobile = { ...config, capabilities: [...MOBILE_CAPABILITIES, PUSH_CAPABILITY, PUSH_REGISTERED_CAPABILITY] }
+    setMobilePushSession('user:old-build-registered-then-denied')
+    await settle(() => usePhonePush.getState().permission !== null)
+    await settle()
+    expect(usePhonePush.getState()).toMatchObject({ permission: 'denied', ask: false })
+    expect(messages.filter(m => m.type === 'push-token')).toHaveLength(0)
+    expect(server.stored.has('mycel.phonePush.granted')).toBe(false)
+  } finally { server.restore() }
+})

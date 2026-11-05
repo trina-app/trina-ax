@@ -88,7 +88,8 @@ export async function refreshPhonePush(): Promise<void> {
   if (turn !== epoch) return
   // An app that cannot tell (store builds 1 and 2) whose session already has a phone registered: the OS said yes, as
   // the page registered it before this change at every sign-in. Remembered, so later sign-ins register quietly too.
-  const hasDevice = !!(settings.enabled && settings.native.deviceId)
+  // A "no" this phone gave since then still stands: registering would show the OS prompt again where Android allows it.
+  const hasDevice = !!(settings.enabled && settings.native.deviceId) && !read(DENIED)
   if (os === null && hasDevice) write(GRANTED, '1')
   const permission = effective(os ?? (hasDevice ? 'granted' : null))
   usePhonePush.setState({ permission, ask: !settings.optedOut && permission !== 'granted' && permission !== 'denied' && !laterHides(read(LATER), Date.now()) })
