@@ -70,13 +70,17 @@
   --font-mono: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
 
   /* The app's own type sizes next to Tailwind's text-xs / text-sm / text-base: reading (answers, messages, the message
-     boxes), label (field labels, steps, small buttons), micro (tab labels, dates, counts) and nano (badges). No
+     boxes), label (field labels, steps, small buttons), micro (tab labels, dates, counts), nano (badges) and code (code
+     blocks and the file editor; code-sm: diffs and card details; code-file: the plain-text file preview). No
      --line-height companions: each keeps the line height around it, as the px sizes they replace did. Phones get one
      step up (the @media block below); leading-reading is the line of room messages and the message boxes. */
   --text-reading: 15px;
   --text-label: 13px;
   --text-micro: 11px;
   --text-nano: 10px;
+  --text-code: 13px;
+  --text-code-sm: 12px;
+  --text-code-file: 12.5px;
   --leading-reading: 1.5rem;
 
   --color-canvas: var(--c-canvas);
@@ -127,9 +131,11 @@ body { background: var(--c-canvas); color: var(--c-ink); -webkit-font-smoothing:
 :lang(ko) body { word-break: keep-all; overflow-wrap: break-word; }
 ::selection { background: var(--c-accent-soft); }
 
-/* Phones (below 768px, where the phone top bar and the tabs show): every text size one step up, so nothing reads
-   under 11px and messages read at 17px. Width, not the pointer: a narrow window on a computer is laid out as a phone,
-   so it reads as one. Admin pages (data-density="compact" on AdminLayout) keep the computer sizes for their tables. */
+/* Phones (below 768px, where the phone top bar and the tabs show): every text size one step up, to the phone floor
+   (docs/DESIGN-SYSTEM.md "Typography"): body and rows 15px, labels 14px, meta, times and hints 13px, code 13px, badges
+   11px, nothing else under 13px. Width, not the pointer: a narrow window on a computer is laid out as a phone, so it
+   reads as one. Every screen follows it, admin too (its tables keep their secondary columns for wide screens). Check it
+   with web/scripts/type-audit.ts. */
 @media (max-width: 767.98px) {
   :root {
     --text-xs: 0.8125rem; /* 13/18 */
@@ -141,22 +147,11 @@ body { background: var(--c-canvas); color: var(--c-ink); -webkit-font-smoothing:
     --text-reading: 17px;
     --leading-reading: 26px;
     --text-label: 14px;
-    --text-micro: 12px;
+    --text-micro: 13px;
     --text-nano: 11px;
+    --text-code-sm: 13px;
+    --text-code-file: 13px;
   }
-}
-[data-density="compact"] {
-  --text-xs: 0.75rem;
-  --text-xs--line-height: calc(1 / 0.75);
-  --text-sm: 0.875rem;
-  --text-sm--line-height: calc(1.25 / 0.875);
-  --text-base: 1rem;
-  --text-base--line-height: calc(1.5 / 1);
-  --text-reading: 15px;
-  --leading-reading: 1.5rem;
-  --text-label: 13px;
-  --text-micro: 11px;
-  --text-nano: 10px;
 }
 
 /* iOS Safari zooms into fields under 16px and stays zoomed: touch screens get 16px fields. The message boxes keep the

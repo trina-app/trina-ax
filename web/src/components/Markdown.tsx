@@ -136,7 +136,7 @@ export function CodeBlock({ lang, code }: { lang: string | null; code: string })
           </button>
         </span>
       </div>
-      <pre className="m-0 overflow-x-auto p-3 text-[13px] leading-5">
+      <pre className="m-0 overflow-x-auto p-3 text-code leading-5">
         {html !== null ? <code className="hljs font-mono" dangerouslySetInnerHTML={{ __html: html }} /> : <code className="font-mono">{code}</code>}
       </pre>
     </div>

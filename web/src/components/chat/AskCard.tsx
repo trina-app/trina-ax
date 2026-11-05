@@ -220,7 +220,7 @@ function SkillPreview({ p }: { p: SkillWritePreview }) {
         )}
       </div>
       {isDiff ? (
-        <pre className="scroll-thin max-h-64 overflow-auto px-0 py-1 font-mono text-[12px] leading-5" data-testid="skill-preview-diff">
+        <pre className="scroll-thin max-h-64 overflow-auto px-0 py-1 font-mono text-code-sm leading-5" data-testid="skill-preview-diff">
           {lines.map((l, i) => (
             <div
               key={i}
@@ -322,7 +322,7 @@ function DetailText({ d, plain }: { d: ConfirmDetail; plain?: boolean }) {
   return (
     <>
       <pre
-        className={clsx('scroll-thin max-h-64 overflow-auto font-mono text-[12px] leading-5 whitespace-pre-wrap [overflow-wrap:anywhere]', plain ? 'py-0.5 pl-3' : 'px-3 py-2')}
+        className={clsx('scroll-thin max-h-64 overflow-auto font-mono text-code-sm leading-5 whitespace-pre-wrap [overflow-wrap:anywhere]', plain ? 'py-0.5 pl-3' : 'px-3 py-2')}
         tabIndex={0}
         aria-label={d.label}
         data-testid="ask-detail-text"

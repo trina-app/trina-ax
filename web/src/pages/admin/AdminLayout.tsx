@@ -82,9 +82,8 @@ export default function AdminLayout() {
   if (!isAdmin(me)) return <Navigate to="/" replace />
   const menu = MENU.map((g) => ({ ...g, items: g.items.filter((s) => !s.ownerOnly || isOwner(me)) })).filter((g) => g.items.length)
   if (!menu.some((g) => g.items.some((s) => s.id === section))) return <Navigate to="/admin" replace />
-  // compact: admin tables keep the computer's text sizes on a phone too (index.css, the phone type scale)
   return (
-    <div className="flex h-full min-h-0 flex-col lg:flex-row" data-density="compact">
+    <div className="flex h-full min-h-0 flex-col lg:flex-row">
       <div className="shrink-0 border-b border-line lg:flex lg:w-60 lg:flex-col lg:border-r lg:border-b-0">
         <h1 className="px-4 pt-4 pb-2 text-lg font-semibold tracking-tight sm:px-6 lg:px-5 lg:pt-6 lg:pb-4 lg:text-xl">{t('admin.title')}</h1>
         {/* narrow screens: the strip runs to the screen edges, so a link cut off at the right reads as "scroll for more";

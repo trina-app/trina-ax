@@ -204,7 +204,7 @@ export default function FilePanel({ file, onClose }: { file: PreviewFile; onClos
           <div className="flex h-full flex-col gap-2 p-3">
             <textarea
               aria-label={t('preview.editorLabel', { name: file.name })}
-              className="min-h-0 flex-1 resize-none rounded-lg border border-field-border bg-surface p-3 font-mono text-[13px] leading-5 text-ink focus:border-accent focus:ring-1 focus:ring-accent focus:outline-none"
+              className="min-h-0 flex-1 resize-none rounded-lg border border-field-border bg-surface p-3 font-mono text-code leading-5 text-ink focus:border-accent focus:ring-1 focus:ring-accent focus:outline-none"
               value={editing.draft}
               onChange={(e) => setEditing({ ...editing, draft: e.target.value })}
               spellCheck={false}
@@ -372,7 +372,7 @@ function TextKinds({ kind, blob, name, path }: { kind: PreviewKind; blob: Blob; 
   if (kind === 'text' && /\.(txt|log)$/i.test(name))
     return (
       <>
-        <pre className="m-0 min-h-full overflow-auto bg-surface p-4 font-mono text-[12.5px] leading-5 whitespace-pre-wrap text-ink">{text}</pre>
+        <pre className="m-0 min-h-full overflow-auto bg-surface p-4 font-mono text-code-file leading-5 whitespace-pre-wrap text-ink">{text}</pre>
         {cut}
       </>
     )
