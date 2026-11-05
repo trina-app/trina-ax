@@ -26,8 +26,11 @@ auth=(-allowProvisioningUpdates -authenticationKeyPath "$ASC_KEY_PATH" -authenti
 
 cd "$here"
 mkdir -p "$out"
+# For the whole run, not only prebuild: Expo's build phase "Generate app.config for prebuilt Constants.manifest" runs
+# `expo config` again inside xcodebuild, and that config (name, user agent, push flags) is what the app reads at runtime.
+export MYCEL_MOBILE_EDITION="$edition" MYCEL_MOBILE_BUILD_NUMBER="$BUILD_NUMBER"
 npm ci --ignore-scripts --no-audit --no-fund
-MYCEL_MOBILE_EDITION="$edition" MYCEL_MOBILE_BUILD_NUMBER="$BUILD_NUMBER" npx expo prebuild --platform ios --clean
+npx expo prebuild --platform ios --clean
 workspace="$(ls -d ios/*.xcworkspace | head -1)"
 scheme="$(basename "$workspace" .xcworkspace)"
 
@@ -48,6 +51,8 @@ cat > "$out/ExportOptions.plist" <<PLIST
 PLIST
 xcodebuild -exportArchive -archivePath "$out/$scheme.xcarchive" -exportPath "$out/export" -exportOptionsPlist "$out/ExportOptions.plist" "${auth[@]}"
 ipa="$(ls "$out"/export/*.ipa | head -1)"
+# The app must read the edition's config at runtime, not the neutral one.
+unzip -p "$ipa" 'Payload/*.app/EXConstants.bundle/app.config' | node -e "let s='';process.stdin.on('data',d=>s+=d).on('end',()=>{const c=JSON.parse(s),want=require('$here/../editions/$edition/branding/mobile.json');if(c.name!==want.name||c.extra?.teamAxEdition?.bundleId!==want.bundleId){console.error('embedded app.config is not the '+'$edition'+' edition ('+c.name+')');process.exit(1)}})"
 # The export signs with the distribution profile: push must be production there.
 unzip -p "$ipa" 'Payload/*.app/embedded.mobileprovision' 2>/dev/null | security cms -D 2>/dev/null | grep -A1 aps-environment | grep -q production \
   || echo "warning: the exported profile does not say aps-environment=production; check push before uploading" >&2
