@@ -9,6 +9,11 @@
 --   slack_requests: a question asked in Slack whose answer is still to be delivered, or was delivered and may still be
 --     posted to the channel once.
 --   slack_events: event ids and message ids already handled (Slack sends an event again when it was not acknowledged).
+--   slack_link_proposals: the owner proposes linking a Slack person to a member (their e-mails differ); nothing is linked
+--     until that member accepts it in the app with their own session. 7 days.
+--   slack_email_changes: when each account's e-mail was last set (triggers below). Who set it is in the audit log for
+--     admins (user.create, user.update); a change with no admin entry is the person's own. The e-mail proof of a link
+--     is not trusted for 7 days after someone else set it.
 CREATE TABLE slack_config (
   id INTEGER PRIMARY KEY CHECK (id = 1),
   enabled INTEGER NOT NULL DEFAULT 0,
@@ -72,15 +77,47 @@ CREATE TABLE slack_requests (
   channel_kind TEXT NOT NULL CHECK (channel_kind IN ('im', 'channel')),
   thread_ts TEXT NOT NULL,
   in_thread INTEGER NOT NULL DEFAULT 0,
+  ext_shared INTEGER NOT NULL DEFAULT 0,
   slack_user_id TEXT NOT NULL,
   progress_ts TEXT,
   asked_notice INTEGER NOT NULL DEFAULT 0,
+  attempts INTEGER NOT NULL DEFAULT 0,
+  not_before TEXT,
   state TEXT NOT NULL CHECK (state IN ('waiting', 'delivered', 'failed', 'posted')),
   created_at TEXT NOT NULL,
   delivered_at TEXT,
   posted_at TEXT
 );
 CREATE INDEX slack_requests_state ON slack_requests(state, created_at);
+CREATE TABLE slack_link_proposals (
+  id TEXT PRIMARY KEY,
+  user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  team_id TEXT NOT NULL,
+  enterprise_id TEXT NOT NULL DEFAULT '',
+  slack_user_id TEXT NOT NULL,
+  slack_name TEXT,
+  slack_real_name TEXT,
+  slack_handle TEXT,
+  slack_email TEXT,
+  proposed_by TEXT REFERENCES users(id) ON DELETE SET NULL,
+  state TEXT NOT NULL CHECK (state IN ('pending', 'accepted', 'declined', 'cancelled', 'expired')),
+  created_at TEXT NOT NULL,
+  expires_at TEXT NOT NULL,
+  decided_at TEXT
+);
+CREATE INDEX slack_link_proposals_user ON slack_link_proposals(user_id, state);
+CREATE TABLE slack_email_changes (
+  user_id TEXT PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+  changed_at TEXT NOT NULL
+);
+CREATE TRIGGER slack_email_set AFTER INSERT ON users WHEN NEW.email IS NOT NULL
+BEGIN
+  INSERT OR REPLACE INTO slack_email_changes (user_id, changed_at) VALUES (NEW.id, strftime('%Y-%m-%dT%H:%M:%fZ', 'now'));
+END;
+CREATE TRIGGER slack_email_changed AFTER UPDATE OF email ON users WHEN NEW.email IS NOT OLD.email
+BEGIN
+  INSERT OR REPLACE INTO slack_email_changes (user_id, changed_at) VALUES (NEW.id, strftime('%Y-%m-%dT%H:%M:%fZ', 'now'));
+END;
 CREATE TABLE slack_events (
   key TEXT PRIMARY KEY,
   seen_at TEXT NOT NULL
@@ -95,4 +132,5 @@ BEGIN
     WHERE EXISTS (SELECT 1 FROM slack_links WHERE user_id = NEW.id);
   DELETE FROM slack_links WHERE user_id = NEW.id;
   DELETE FROM slack_threads WHERE user_id = NEW.id;
+  UPDATE slack_link_proposals SET state = 'cancelled', decided_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE user_id = NEW.id AND state = 'pending';
 END;

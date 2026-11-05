@@ -27,7 +27,7 @@ export interface FakeSlack {
   connected(): Promise<void>
   send(obj: unknown): void
   /** an Events API envelope; returns its envelope id */
-  event(event: Record<string, unknown>, o?: { eventId?: string; retry?: number; team?: string; appId?: string; enterprise?: string }): string
+  event(event: Record<string, unknown>, o?: { eventId?: string; retry?: number; team?: string; appId?: string; enterprise?: string; extShared?: boolean }): string
   /** an interactive (block_actions) envelope */
   action(payload: Record<string, unknown>): string
   disconnect(reason: string): void
@@ -65,7 +65,7 @@ export function startFakeSlack(): FakeSlack {
       const id = `env-${++envelopes}`
       sent.set(id, Date.now())
       fake.send({ envelope_id: id, type: 'events_api', accepts_response_payload: false, ...(o.retry ? { retry_attempt: o.retry, retry_reason: 'timeout' } : {}),
-        payload: { type: 'event_callback', token: 'unused', team_id: o.team ?? fake.team.id, api_app_id: o.appId ?? fake.appId, event_id: o.eventId ?? `Ev${String(envelopes).padStart(8, '0')}`, event_time: Math.floor(Date.now() / 1000), ...(o.enterprise ? { enterprise_id: o.enterprise } : {}), event } })
+        payload: { type: 'event_callback', token: 'unused', team_id: o.team ?? fake.team.id, api_app_id: o.appId ?? fake.appId, event_id: o.eventId ?? `Ev${String(envelopes).padStart(8, '0')}`, event_time: Math.floor(Date.now() / 1000), ...(o.enterprise ? { enterprise_id: o.enterprise } : {}), is_ext_shared_channel: !!o.extShared, event } })
       return id
     },
     action(payload) {
@@ -125,6 +125,11 @@ export function startFakeSlack(): FakeSlack {
           const all = Object.entries(fake.users).map(([id, x]) => userObject(id, x))
           const half = Math.ceil(all.length / 2)
           return args.cursor === 'page2' ? json({ ok: true, members: all.slice(half), response_metadata: { next_cursor: '' } }) : json({ ok: true, members: all.slice(0, half), response_metadata: { next_cursor: 'page2' } })
+        }
+        case 'conversations.replies': {
+          if (!bot) return json({ ok: false, error: 'invalid_auth' })
+          const ours = fake.calls.filter((c) => c.method === 'chat.postMessage' && c.args.channel === args.channel && c.args.thread_ts === args.ts)
+          return json({ ok: true, messages: ours.map((c) => ({ user: fake.botUserId, bot_id: 'B0BOT', text: c.args.text, ts: nextTs() })) })
         }
         case 'conversations.open': return bot && /^U[A-Z0-9]+$/.test(args.users ?? '') ? json({ ok: true, channel: { id: 'D' + args.users!.slice(1) } }) : json({ ok: false, error: 'invalid_arguments' })
         case 'chat.postMessage': return bot ? json({ ok: true, channel: args.channel, ts: nextTs() }) : json({ ok: false, error: 'invalid_auth' })
