@@ -2992,6 +2992,8 @@ export const ja: Record<MessageKey, string> = {
   "rooms.aiPrivateJoined": "投稿すると、{names}さんにも参加する前の会話の内容が見えます。",
   "rooms.aiRootFolder": "チームフォルダー",
   "rooms.aiMyFolder": "自分のフォルダー",
+  "rooms.aiOtherFolders": "ほかの人が開けないフォルダー",
+  "rooms.aiPrivateOtherFolders": "投稿すると、ほかの人が開けないフォルダーの内容も全員に見えます。",
   "rooms.aiPrivateAll": "投稿すると、ルームの全員に見えます。",
   "rooms.aiShare": "ルームに投稿",
   "rooms.aiMention": "AIに聞く · 自分が開けるファイルで回答します",

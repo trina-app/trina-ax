@@ -1210,12 +1210,16 @@ export class TurnExec {
     // (the person's own folder is left to what the search found there: it is theirs, not a folder of the room)
     // (the engine's own start of a call comes without its input: only the server's call, chat/tools.ts, counts here)
     if (input !== undefined && (tool === 'grep' || tool === 'glob' || tool === 'search')) {
-      const base = typeof a.path === 'string' ? this.roomNames(a.path).at(-1) ?? '' : ''
+      // compared in one form (NFC, and without case on a case-insensitive disk): the start as typed and as found on disk
+      // against each ruled folder as its rule names it
+      const fold = (p: string) => { const n = p.normalize('NFC'); return this.rt.files.fx.caseInsensitive ? n.toLowerCase() : n }
+      const bases = typeof a.path === 'string' ? [...new Set(this.roomNames(a.path).map(fold))] : ['']
+      const under = (f: string) => { const k = fold(f); return bases.some((b) => b === '' || k === b || k.startsWith(b + '/')) }
       const rules = this.rt.files.rules()
       let me: Principal | null = null
       try { me = this.livePrincipal() } catch { /* a disabled account: the call fails anyway */ }
       for (const f of ['', ...rules.ruleFolders()]) {
-        if ((base !== '' && f !== base && !f.startsWith(base + '/')) || f.split('/')[0] === 'users') continue
+        if (!under(f) || f.split('/')[0] === 'users') continue
         if (me && atLeast(rules.access(me, f ? f.split('/') : []), 'read')) this.files.namePaths.add(f)
       }
     }

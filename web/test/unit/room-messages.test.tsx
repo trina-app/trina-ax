@@ -192,3 +192,9 @@ test('a room badge: "@" alone when it mentions me, grey for a muted room; a lett
   expect(face).toContain('>A<')
   expect(face).not.toContain('bg-accent')
 })
+
+test("a preview's folders the asker cannot open themselves are never named, only said to be there", () => {
+  const why = (preview: NonNullable<ReturnType<typeof message>['preview']>) => render([message({ roomId: R, seq: 3, authorKind: 'ai', author: null, askedBy: ME, visibility: 'private', body: 'x', preview })])
+  expect(why({ folders: [], otherFolders: true, personal: false, outside: false })).toContain(translate('en', 'rooms.aiPrivateOtherFolders'))
+  expect(why({ folders: ['acme/finance'], otherFolders: true, personal: false, outside: false })).toContain(translate('en', 'rooms.aiPrivateFolders', { folders: `finance, ${translate('en', 'rooms.aiOtherFolders')}` }))
+})
