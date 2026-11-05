@@ -1,0 +1,361 @@
+// The Slack connector (docs/SLACK.md) against a fake Slack (tests/lib/fake-slack.ts): the owner saves the tokens and
+// turns it on; an unlinked asker gets an ephemeral link; the one-time link (used once, 10 minutes, bound to the Slack
+// account of the event, both names on the page); a linked person's question runs a turn as them (the fake engine) and
+// is answered to them only in a channel, in the thread in a DM; "Post to channel" once, by the asker only; the same
+// event or message twice runs once; Slack's refresh; the tokens nowhere in logs, rows or answers; a disabled account
+// unlinked at once. No real Slack is contacted.
+import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from 'bun:test'
+import { sealSecret } from '../../web/src/lib/seal'
+import { createLogger } from '../../server/src/log'
+import { credentialsOf } from '../../server/src/credentials/store'
+import { slackOf } from '../../server/src/integrations/slack/service'
+import { questionText, toMrkdwn } from '../../server/src/integrations/slack/text'
+import { slackManifest } from '../../server/src/integrations/slack/manifest'
+import { startHarness, type Harness } from '../lib/b-harness'
+import { nextTs, startFakeSlack, type FakeSlack } from '../lib/fake-slack'
+import { waitFor } from '../lib/wait'
+
+setDefaultTimeout(60_000)
+let h: Harness
+let fake: FakeSlack
+const lines: string[] = []
+let skew = 0
+const C = 'C0GENERAL'
+
+const json = (method: string, body?: unknown) => ({ method, headers: { 'content-type': 'application/json' }, ...(body !== undefined ? { body: JSON.stringify(body) } : {}) })
+async function call(user: string, method: string, path: string, body?: unknown) {
+  const r = await h.req(user, path, json(method, body))
+  const text = await r.text()
+  let j: any = null
+  try { j = JSON.parse(text) } catch {}
+  return { status: r.status, json: j, text }
+}
+const seal = async (s: string, purpose: 'slack.token' | 'integration.secret' = 'slack.token') => sealSecret(await credentialsOf(h.ctx).sealer.publicKey(), s, purpose)
+const blocksOf = (c: { args: Record<string, string> }) => JSON.stringify(JSON.parse(c.args.blocks ?? '[]'))
+const ephemeralsTo = (user: string) => fake.of('chat.postEphemeral').filter((c) => c.args.user === user)
+const linkTokenFrom = (c: { args: Record<string, string> }) => /\/slack\/link\?t=([A-Za-z0-9_-]{43})/.exec(blocksOf(c))?.[1] ?? null
+const linksTo = (user: string) => ephemeralsTo(user).filter((x) => linkTokenFrom(x))
+const say = (s: string) => `@fake ${JSON.stringify({ say: s })}`
+const slackTurns = () => (h.ctx.db.query("SELECT count(*) n FROM turns WHERE client_kind = 'slack'").get() as { n: number }).n
+function mention(user: string, text: string, o: { ts?: string; thread?: string; channel?: string; eventId?: string; userTeam?: string } = {}) {
+  const ts = o.ts ?? nextTs()
+  fake.event({ type: 'app_mention', user, text: `<@U0BOT> ${text}`, ts, channel: o.channel ?? C, event_ts: ts, ...(o.thread ? { thread_ts: o.thread } : {}), ...(o.userTeam ? { user_team: o.userTeam } : {}) }, o.eventId ? { eventId: o.eventId } : {})
+  return ts
+}
+/** a new link prompt to this Slack user (one more than before) */
+async function newLink(user: string, text = 'hi') {
+  const before = linksTo(user).length
+  mention(user, text)
+  const c = await waitFor(() => { const all = linksTo(user); return all.length > before ? all.at(-1) : null })
+  if (!c) throw new Error(`no link prompt for ${user}`)
+  return linkTokenFrom(c)!
+}
+
+beforeAll(async () => {
+  fake = startFakeSlack()
+  fake.users = {
+    U0ALICE: { name: 'alice.slack', team_id: 'T0ACME', real_name: 'Alice in Slack' },
+    U0BOB: { name: 'bob.slack', team_id: 'T0ACME' },
+    U0MALLORY: { name: 'mallory', team_id: 'T0ACME' },
+    U0GUEST: { name: 'guest', team_id: 'T0OTHER' },
+  }
+  h = await startHarness({ name: 'c-slack', log: createLogger({ level: 'debug', sink: (l) => lines.push(l) }) })
+  slackOf(h.ctx, { base: fake.url, pollMs: 30, retryMs: 50, now: () => Date.now() + skew })
+})
+afterAll(async () => { await h?.close(); fake?.close() })
+
+describe('setup (the owner)', () => {
+  test('nothing runs until the owner saves the tokens and turns it on; admins and members cannot', async () => {
+    const first = await call('dana', 'GET', '/api/admin/slack')
+    expect(first.status).toBe(200)
+    expect(first.json).toMatchObject({ enabled: false, tokens: false, state: 'off', workspace: null, linked: 0 })
+    expect(JSON.parse(first.json.manifest)).toEqual(slackManifest())
+    expect(first.json.createUrl).toStartWith('https://api.slack.com/apps?new_app=1&manifest_json=')
+    expect(fake.calls).toEqual([])
+    const body = { botToken: await seal(fake.botToken), appToken: await seal(fake.appToken) }
+    for (const who of ['carol', 'alice']) expect((await call(who, 'PUT', '/api/admin/slack/tokens', body)).status).toBe(403)
+    expect((await call('carol', 'GET', '/api/admin/slack')).status).toBe(403)
+    expect((await call('alice', 'POST', '/api/admin/slack/enabled', { enabled: true })).status).toBe(403)
+    // turning it on without tokens is refused
+    expect((await call('dana', 'POST', '/api/admin/slack/enabled', { enabled: true })).json.error.params.reason).toBe('no_tokens')
+  })
+
+  test('wrong tokens are refused with a reason; a seal for another purpose is refused', async () => {
+    const swapped = await call('dana', 'PUT', '/api/admin/slack/tokens', { botToken: await seal(fake.appToken), appToken: await seal(fake.botToken) })
+    expect(swapped.status).toBe(400)
+    expect(swapped.json.error.params.reason).toBe('not_bot_token')
+    const revoked = await call('dana', 'PUT', '/api/admin/slack/tokens', { botToken: await seal('xoxb-999-999-' + 'z'.repeat(24)), appToken: await seal(fake.appToken) })
+    expect(revoked.json.error.params.reason).toBe('invalid_auth')
+    fake.scopes = ['chat:write']
+    const scopes = await call('dana', 'PUT', '/api/admin/slack/tokens', { botToken: await seal(fake.botToken), appToken: await seal(fake.appToken) })
+    expect(scopes.json.error.params).toMatchObject({ reason: 'missing_scope', scopes: 'app_mentions:read, im:history, users:read' })
+    fake.scopes = ['app_mentions:read', 'chat:write', 'im:history', 'users:read']
+    const other = await call('dana', 'PUT', '/api/admin/slack/tokens', { botToken: await seal(fake.botToken, 'integration.secret'), appToken: await seal(fake.appToken) })
+    expect(other.status).toBe(400)
+    expect(h.ctx.db.query('SELECT count(*) n FROM slack_config').get()).toEqual({ n: 0 })
+  })
+
+  test('saved and turned on: one Socket Mode connection, connected', async () => {
+    const saved = await call('dana', 'PUT', '/api/admin/slack/tokens', { botToken: await seal(fake.botToken), appToken: await seal(fake.appToken) })
+    expect(saved.status).toBe(200)
+    expect(saved.json).toMatchObject({ enabled: false, tokens: true, workspace: { teamId: 'T0ACME', name: 'Acme' }, botName: 'trina-ax', linkOrigin: h.url, state: 'off' })
+    const on = await call('dana', 'POST', '/api/admin/slack/enabled', { enabled: true })
+    expect(on.json.enabled).toBe(true)
+    await fake.connected()
+    expect(await waitFor(async () => (await call('dana', 'GET', '/api/admin/slack')).json.state === 'connected')).toBe(true)
+    expect(fake.sockets()).toBe(1)
+    const acts = (h.ctx.db.query("SELECT action FROM audit_log WHERE action LIKE 'slack.%' ORDER BY id").all() as { action: string }[]).map((r) => r.action)
+    expect(acts).toEqual(['slack.tokens', 'slack.enabled'])
+  })
+})
+
+let aliceToken = ''
+describe('linking', () => {
+  test('an unlinked mention gets an ephemeral link prompt, to the asker only; no turn', async () => {
+    const before = fake.acks.length
+    mention('U0ALICE', 'what is our refund policy?')
+    const c = await waitFor(() => linksTo('U0ALICE')[0])
+    expect(c).toBeTruthy()
+    expect(c!.args.channel).toBe(C)
+    expect(c!.args.thread_ts).toBeUndefined() // a top-level mention has no thread yet
+    expect(fake.of('chat.postMessage')).toEqual([]) // nothing the channel sees
+    expect(blocksOf(c!)).toContain(`${h.url}/slack/link?t=`)
+    aliceToken = linkTokenFrom(c!)!
+    // acknowledged at once (Slack waits 3 seconds)
+    await waitFor(() => fake.acks.length > before)
+    expect(fake.acks.at(-1)!.ms).toBeLessThan(3000)
+    expect(slackTurns()).toBe(0)
+    // the token is stored hashed only
+    expect(JSON.stringify(h.ctx.db.query('SELECT * FROM slack_link_tokens').all())).not.toContain(aliceToken)
+    // asking again right away does not make a second link
+    const n = ephemeralsTo('U0ALICE').length
+    mention('U0ALICE', 'hello?')
+    await waitFor(() => ephemeralsTo('U0ALICE').length > n)
+    expect(linkTokenFrom(ephemeralsTo('U0ALICE').at(-1)!)).toBeNull()
+  })
+
+  test('another person signed in sees both names; the link binds the Slack account it was sent to, once', async () => {
+    // bob opens alice's link: the page names the Slack account (alice's) and bob, so bob can see it is not his
+    const asBob = await call('bob', 'POST', '/api/slack/link/preview', { token: aliceToken })
+    expect(asBob.status).toBe(200)
+    expect(asBob.json).toMatchObject({ workspace: 'Acme', slack: { userId: 'U0ALICE', name: 'alice.slack' }, me: { name: 'Bob Lee', username: 'bob' }, linkedElsewhere: false })
+    // a malformed token never reaches the store; an unknown one is not found
+    expect((await call('alice', 'POST', '/api/slack/link/preview', { token: 'short' })).status).toBe(400)
+    expect((await call('alice', 'POST', '/api/slack/link/preview', { token: 'x'.repeat(43) })).status).toBe(404)
+    const ok = await call('alice', 'POST', '/api/slack/link/confirm', { token: aliceToken })
+    expect(ok.status).toBe(200)
+    expect(ok.json).toMatchObject({ available: true, workspace: 'Acme', link: { slackUserId: 'U0ALICE', slackName: 'alice.slack' } })
+    // used once: neither alice again nor bob can use it now
+    expect((await call('alice', 'POST', '/api/slack/link/confirm', { token: aliceToken })).status).toBe(404)
+    expect((await call('bob', 'POST', '/api/slack/link/confirm', { token: aliceToken })).status).toBe(404)
+    expect((await call('bob', 'GET', '/api/slack/me')).json.link).toBeNull()
+    // Slack is told, to alice only, where she asked
+    expect(await waitFor(() => ephemeralsTo('U0ALICE').some((c) => /is connected/.test(c.args.text ?? '')))).toBe(true)
+    expect(h.ctx.db.query("SELECT target, detail FROM audit_log WHERE action = 'slack.linked'").all()).toEqual([{ target: 'alice', detail: JSON.stringify({ slackUser: 'U0ALICE', team: 'T0ACME' }) }])
+  })
+
+  test('a link of another Slack account cannot bind someone already linked; links expire; cancel uses one up', async () => {
+    const bobToken = await newLink('U0BOB')
+    // alice is linked to U0ALICE already: confirming bob's Slack link as alice is refused (unlink first)
+    expect((await call('alice', 'POST', '/api/slack/link/preview', { token: bobToken })).json.linkedElsewhere).toBe(true)
+    const refused = await call('alice', 'POST', '/api/slack/link/confirm', { token: bobToken })
+    expect(refused.status).toBe(409)
+    expect(refused.json.error.params.reason).toBe('linked_elsewhere')
+    // after 10 minutes the link is gone for everyone
+    skew = 11 * 60_000
+    expect((await call('bob', 'POST', '/api/slack/link/preview', { token: bobToken })).status).toBe(404)
+    expect((await call('bob', 'POST', '/api/slack/link/confirm', { token: bobToken })).status).toBe(404)
+    skew = 0
+    // a fresh one, thrown away with cancel: it cannot be confirmed after
+    const mt = await newLink('U0MALLORY')
+    expect((await call('erin', 'POST', '/api/slack/link/cancel', { token: mt })).status).toBe(204)
+    expect((await call('erin', 'POST', '/api/slack/link/confirm', { token: mt })).status).toBe(404)
+    expect(h.ctx.db.query("SELECT count(*) n FROM slack_links WHERE slack_user_id IN ('U0BOB','U0MALLORY')").get()).toEqual({ n: 0 })
+  })
+
+  test('a person of another workspace (Slack Connect) is never offered a link', async () => {
+    const n = fake.of('chat.postEphemeral').length
+    mention('U0GUEST', 'hi', { userTeam: 'T0OTHER' })
+    await waitFor(() => fake.of('chat.postEphemeral').length > n)
+    const c = fake.of('chat.postEphemeral').at(-1)!
+    expect(c.args.user).toBe('U0GUEST')
+    expect(linkTokenFrom(c)).toBeNull()
+    expect(h.ctx.db.query("SELECT count(*) n FROM slack_link_tokens WHERE slack_user_id = 'U0GUEST'").get()).toEqual({ n: 0 })
+  })
+})
+
+let requestId = ''
+let chatId = ''
+let rootTs = ''
+describe('asking', () => {
+  test('a linked person in a channel: a turn as them, the answer to them only with one button', async () => {
+    const posts = fake.of('chat.postMessage').length
+    rootTs = mention('U0ALICE', say('Refunds take 7 days.'))
+    const turn = await waitFor(() => h.ctx.db.query("SELECT * FROM turns WHERE client_kind = 'slack' ORDER BY started_at DESC LIMIT 1").get() as { user_id: string; chat_id: string } | null, { timeoutMs: 10_000 })
+    expect(turn!.user_id).toBe('alice')
+    chatId = turn!.chat_id
+    expect((h.ctx.db.query('SELECT user_id FROM chats WHERE id = ?').get(chatId) as { user_id: string }).user_id).toBe('alice')
+    // "working…" to alice only, with the link to the chat
+    const working = await waitFor(() => ephemeralsTo('U0ALICE').find((c) => /Working/.test(c.args.text ?? '')))
+    expect(blocksOf(working!)).toContain(`${h.url}/c/${chatId}`)
+    const answer = await waitFor(() => ephemeralsTo('U0ALICE').find((c) => blocksOf(c).includes('Refunds take 7 days.')), { timeoutMs: 30_000 })
+    expect(answer).toBeTruthy()
+    expect(answer!.args.channel).toBe(C)
+    const blocks = JSON.parse(answer!.args.blocks!) as any[]
+    const button = blocks.find((b) => b.type === 'actions').elements[0]
+    expect(button).toMatchObject({ action_id: 'trina_post', text: { text: 'Post to channel' } })
+    requestId = button.value
+    expect(blocksOf(answer!)).toContain(`${h.url}/c/${chatId}`)
+    // nothing was posted where the channel sees it
+    expect(fake.of('chat.postMessage').length).toBe(posts)
+    // the full answer is in the chat here
+    const msgs = (await call('alice', 'GET', `/api/chats/${chatId}/messages`)).json.items as { role: string; content: string }[]
+    expect(msgs.map((m) => m.role)).toEqual(['user', 'assistant'])
+    expect(msgs[1]!.content).toContain('Refunds take 7 days.')
+    // bob cannot see alice's chat
+    expect((await call('bob', 'GET', `/api/chats/${chatId}`)).status).toBe(404)
+  })
+
+  test('"Post to channel": the answer alone in the thread, asked by the asker, once; nobody else can post it', async () => {
+    const action = (user: string, value = requestId) => fake.action({
+      type: 'block_actions', api_app_id: 'A0APP', user: { id: user, team_id: 'T0ACME' }, team: { id: 'T0ACME' },
+      container: { type: 'message', channel_id: C, is_ephemeral: true }, channel: { id: C },
+      actions: [{ action_id: 'trina_post', block_id: 'b', value, type: 'button', action_ts: '1' }], response_url: `${fake.url}/actions/${user}/${fake.responses.length}`,
+    })
+    // another Slack user replaying the button's value: nothing posted
+    action('U0BOB')
+    await waitFor(() => fake.responses.length >= 1)
+    expect(fake.responses.at(-1)!.body.text).toMatch(/can no longer be posted/)
+    expect(fake.of('chat.postMessage').filter((c) => c.args.channel === C)).toEqual([])
+    action('U0ALICE')
+    const post = await waitFor(() => fake.of('chat.postMessage').find((c) => c.args.channel === C))
+    expect(post!.args.thread_ts).toBe(rootTs)
+    expect(blocksOf(post!)).toContain('Refunds take 7 days.')
+    expect(blocksOf(post!)).toContain('Asked by alice.slack')
+    // no link to the chat, no steps
+    expect(blocksOf(post!)).not.toContain('/c/')
+    await waitFor(() => fake.responses.some((r) => r.body.text === 'Posted to the thread.'))
+    expect(fake.responses.find((r) => r.body.text === 'Posted to the thread.')!.body.replace_original).toBe(true)
+    // again: already posted
+    action('U0ALICE')
+    await waitFor(() => fake.responses.some((r) => /already posted/.test(String(r.body.text))))
+    expect(fake.of('chat.postMessage').filter((c) => c.args.channel === C).length).toBe(1)
+    expect(h.ctx.db.query("SELECT count(*) n FROM audit_log WHERE action = 'slack.posted'").get()).toEqual({ n: 1 })
+  })
+
+  test('a follow-up in the thread continues the same chat', async () => {
+    const n = slackTurns()
+    mention('U0ALICE', say('And exchanges too.'), { thread: rootTs })
+    await waitFor(() => ephemeralsTo('U0ALICE').some((c) => blocksOf(c).includes('And exchanges too.')), { timeoutMs: 30_000 })
+    const last = ephemeralsTo('U0ALICE').find((c) => blocksOf(c).includes('And exchanges too.'))!
+    expect(last.args.thread_ts).toBe(rootTs) // asked inside the thread: the answer is shown there
+    expect(slackTurns()).toBe(n + 1)
+    const msgs = (await call('alice', 'GET', `/api/chats/${chatId}/messages`)).json.items as { role: string }[]
+    expect(msgs.length).toBe(4)
+  })
+
+  test('in a DM the answer replaces the working message in the DM thread', async () => {
+    const ts = nextTs()
+    fake.event({ type: 'message', channel_type: 'im', user: 'U0ALICE', text: say('Hello from the DM.'), ts, channel: 'D0ALICE', event_ts: ts })
+    const working = await waitFor(() => fake.of('chat.postMessage').find((c) => c.args.channel === 'D0ALICE'))
+    expect(working!.args.thread_ts).toBe(ts)
+    const update = await waitFor(() => fake.of('chat.update').find((c) => c.args.channel === 'D0ALICE' && blocksOf(c).includes('Hello from the DM.')), { timeoutMs: 30_000 })
+    expect(update).toBeTruthy()
+    // no button in a DM: it is the asker's own conversation
+    expect(blocksOf(update!)).not.toContain('trina_post')
+    // the bot's own messages and edits in the DM are not questions
+    fake.event({ type: 'message', channel_type: 'im', user: 'U0BOT', bot_id: 'B0BOT', text: 'Working on it…', ts: nextTs(), channel: 'D0ALICE' })
+    fake.event({ type: 'message', channel_type: 'im', subtype: 'message_changed', user: 'U0ALICE', text: 'x', ts: nextTs(), channel: 'D0ALICE' })
+    await Bun.sleep(200)
+    expect((h.ctx.db.query("SELECT count(*) n FROM slack_threads WHERE channel_id = 'D0ALICE'").get() as { n: number }).n).toBe(1)
+  })
+
+  test('the same event id, or the same message as another event, runs once', async () => {
+    const before = slackTurns()
+    const ts = nextTs()
+    const ev = { type: 'app_mention', user: 'U0ALICE', text: `<@U0BOT> ${say('once')}`, ts, channel: C, event_ts: ts }
+    fake.event(ev, { eventId: 'EvSAME0001' })
+    fake.event(ev, { eventId: 'EvSAME0001', retry: 1 })
+    fake.event(ev, { eventId: 'EvOTHER001' })
+    await waitFor(() => ephemeralsTo('U0ALICE').some((c) => blocksOf(c).includes('once')), { timeoutMs: 30_000 })
+    await Bun.sleep(300)
+    expect(slackTurns()).toBe(before + 1)
+    // every envelope was still acknowledged, at once
+    expect(fake.acks.filter((a) => a.ms < 3000).length).toBe(fake.acks.length)
+  })
+
+  test('events of another workspace or app, and malformed ones, are dropped', async () => {
+    const before = fake.calls.length
+    fake.event({ type: 'app_mention', user: 'U0ALICE', text: '<@U0BOT> hi', ts: nextTs(), channel: C }, { team: 'T0OTHER' })
+    fake.event({ type: 'app_mention', user: 'U0ALICE', text: '<@U0BOT> hi', ts: nextTs(), channel: C }, { appId: 'A0OTHER' })
+    fake.event({ type: 'app_mention', text: '<@U0BOT> hi', ts: nextTs(), channel: C })
+    fake.event({ type: 'app_mention', user: 'U0ALICE; DROP', text: '<@U0BOT> hi', ts: nextTs(), channel: C })
+    await Bun.sleep(300)
+    expect(fake.calls.length).toBe(before)
+  })
+
+  test('Slack refreshes the connection: a new one is opened and events still arrive', async () => {
+    const opens = fake.opens
+    fake.disconnect('refresh_requested')
+    await waitFor(() => fake.opens > opens)
+    await waitFor(() => fake.sockets() === 1, { timeoutMs: 5000 })
+    expect(fake.sockets()).toBe(1)
+    mention('U0ALICE', say('after refresh'))
+    expect(await waitFor(() => ephemeralsTo('U0ALICE').some((c) => blocksOf(c).includes('after refresh')), { timeoutMs: 30_000 })).toBe(true)
+  })
+})
+
+describe('secrets and accounts', () => {
+  test('the tokens are in no log line, row, audit entry or answer', async () => {
+    const view = JSON.stringify((await call('dana', 'GET', '/api/admin/slack')).json)
+    const rows = ['slack_config', 'slack_links', 'slack_link_tokens', 'slack_requests', 'slack_events', 'audit_log', 'messages', 'turns', 'chats', 'tool_events']
+      .map((t) => JSON.stringify(h.ctx.db.query(`SELECT * FROM ${t}`).all())).join('\n')
+    expect(lines.length).toBeGreaterThan(0)
+    for (const secret of [fake.botToken, fake.appToken, fake.botToken.slice(5, 25), fake.appToken.slice(5, 25)]) {
+      expect(view).not.toContain(secret)
+      expect(rows).not.toContain(secret)
+      expect(lines.join('\n')).not.toContain(secret)
+    }
+  })
+
+  test('unlink from Settings; a disabled account is unlinked at once and gets a link prompt again', async () => {
+    // erin links, then unlinks herself (past the "link sent a moment ago" wait)
+    skew = 2 * 60_000
+    const et = await newLink('U0MALLORY', 'hi again')
+    expect((await call('erin', 'POST', '/api/slack/link/confirm', { token: et })).status).toBe(200)
+    skew = 0
+    const off = await call('erin', 'DELETE', '/api/slack/me')
+    expect(off.json.link).toBeNull()
+    expect(h.ctx.db.query("SELECT count(*) n FROM slack_links WHERE user_id = 'erin'").get()).toEqual({ n: 0 })
+    // alice's account is disabled: her link goes with it (whoever disabled it), recorded in the audit log
+    h.ctx.db.query("UPDATE users SET status = 'disabled' WHERE id = 'alice'").run()
+    expect(h.ctx.db.query("SELECT count(*) n FROM slack_links WHERE user_id = 'alice'").get()).toEqual({ n: 0 })
+    expect(h.ctx.db.query("SELECT count(*) n FROM slack_threads WHERE user_id = 'alice'").get()).toEqual({ n: 0 })
+    expect((h.ctx.db.query("SELECT detail FROM audit_log WHERE action = 'slack.unlinked' AND target = 'alice'").get() as { detail: string }).detail).toContain('account_disabled')
+    const turns = (h.ctx.db.query("SELECT count(*) n FROM turns WHERE user_id = 'alice'").get() as { n: number }).n
+    skew = 10 * 60_000
+    await newLink('U0ALICE', say('still me?'))
+    skew = 0
+    expect((h.ctx.db.query("SELECT count(*) n FROM turns WHERE user_id = 'alice'").get() as { n: number }).n).toBe(turns)
+    h.ctx.db.query("UPDATE users SET status = 'active' WHERE id = 'alice'").run()
+  })
+
+  test('turning it off closes the connection; removing it drops the tokens and every link', async () => {
+    await call('dana', 'POST', '/api/admin/slack/enabled', { enabled: false })
+    await waitFor(() => fake.sockets() === 0)
+    expect(fake.sockets()).toBe(0)
+    expect((await call('alice', 'GET', '/api/slack/me')).json.available).toBe(false)
+    const gone = await call('dana', 'DELETE', '/api/admin/slack')
+    expect(gone.json).toMatchObject({ enabled: false, tokens: false, workspace: null, linked: 0 })
+    for (const t of ['slack_config', 'slack_links', 'slack_link_tokens', 'slack_threads']) expect(h.ctx.db.query(`SELECT count(*) n FROM ${t}`).get()).toEqual({ n: 0 })
+  })
+})
+
+describe('text', () => {
+  test('Slack markup to the question; the answer to mrkdwn without mentions or hidden links', () => {
+    expect(questionText('<@U0BOT> look at <https://acme.example/a?b=1&amp;c=2|the doc> with <@U0BOB|bob> in <#C1|general> &lt;now&gt;', 'U0BOT'))
+      .toBe('look at the doc (https://acme.example/a?b=1&c=2) with @bob in #general <now>')
+    expect(toMrkdwn('# Title\n**bold** and [link](https://acme.example) <!channel> <@U1>\n- item\n```ts\na < b && c\n```'))
+      .toBe('*Title*\n*bold* and <https://acme.example|link> &lt;!channel&gt; &lt;@U1&gt;\n• item\n```\na &lt; b &amp;&amp; c\n```')
+  })
+})
