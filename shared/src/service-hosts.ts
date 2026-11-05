@@ -11,8 +11,6 @@ export const SERVICE_HOSTS = {
   accountHost: 'account.trina.app',
   /** the service status page */
   statusHost: 'status.trina.app',
-  /** the push gateway that delivers native app notifications (push-gateway/); '' = no native push by default */
-  pushGateway: 'https://push.trina.app',
 } as const
 
 /** Is this host the hosted service's own (the official relay, a hosted team address)? */

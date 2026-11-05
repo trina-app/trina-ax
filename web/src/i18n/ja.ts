@@ -902,6 +902,8 @@ export const ja: Record<MessageKey, string> = {
   'push.disable': "すべての端末でプッシュ通知をオフ",
   'push.denied': "ブラウザーで通知がブロックされています。サイトの設定で許可してから再試行してください。",
   'push.deniedApp': 'このアプリの通知はオフになっています。端末の設定で通知を許可してから、もう一度お試しください。',
+  'push.phoneGateway': 'スマホアプリのプッシュ: オン。通知は {host} を経由して Apple・Google に送られ、内容を含まない定型文のみです。',
+  'push.phoneOff': 'スマホアプリのプッシュ: オフ。サーバー運用者がプッシュゲートウェイ (push.gatewayUrl) を設定するとオンになります。',
   'push.failed': "プッシュ通知の設定を保存できませんでした。接続を確認して再試行してください。",
   'notifications.description': "過去30日間の通知です。通知にはファイルや会話の内容は含まれません。",
   'notifications.preferences': "受信する通知",

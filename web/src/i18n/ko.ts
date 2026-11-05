@@ -925,6 +925,8 @@ export const ko = {
   'push.disable': '모든 기기 푸시 끄기',
   'push.denied': '브라우저에서 알림이 차단됐어요. 브라우저의 사이트 설정에서 허용한 뒤 다시 시도해 주세요.',
   'push.deniedApp': '이 앱의 알림이 꺼져 있어요. 휴대폰 설정에서 알림을 허용한 뒤 다시 시도해 주세요.',
+  'push.phoneGateway': '휴대폰 앱 푸시: 켜짐. 알림은 {host}를 거쳐 Apple·Google로 가며, 내용 없이 일반 문구만 보내요.',
+  'push.phoneOff': '휴대폰 앱 푸시: 꺼짐. 서버 운영자가 푸시 게이트웨이(push.gatewayUrl)를 정하면 켜져요.',
   'push.failed': '푸시 설정을 저장하지 못했어요. 연결 상태를 확인하고 다시 시도해 주세요.',
   'notifications.description': '최근 30일의 내 알림이에요. 알림에는 파일 내용이나 대화 내용을 넣지 않아요.',
   'notifications.preferences': '받을 알림',

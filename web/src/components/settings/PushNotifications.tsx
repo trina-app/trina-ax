@@ -7,6 +7,7 @@ import { disablePush, enablePush, pushRegistration, pushSupported } from '../../
 import { mobilePushApp, registerMobilePush } from '../../lib/mobile-push'
 import { pushNeedsInstall } from '../../lib/pwa'
 import { useT } from '../../i18n'
+import { isAdmin, useMe } from '../../store/session'
 import { notificationsChanged } from '../../store/live'
 import { Button, ErrorNote } from '../ui'
 
@@ -20,7 +21,7 @@ export function PushNotifications() {
   const life = useRef(0), revision = useRef(0)
   const supported = pushSupported(), needsInstall = pushNeedsInstall()
   // Inside the phone app: native push through the team's push gateway instead of Web Push.
-  const app = mobilePushApp()
+  const app = mobilePushApp(), me = useMe()
   const load = async () => {
     const generation = life.current, rev = ++revision.current
     try {
@@ -72,6 +73,7 @@ export function PushNotifications() {
       </>}
       {settings.enabled && <Button className="ml-2" busy={busy} onClick={() => void change(false)}>{t('push.disable')}</Button>}
     </>}
+    {settings?.native && me && isAdmin(me) && <p className="text-xs text-muted" data-testid="phone-push-gateway">{settings.native.gateway ? t('push.phoneGateway', { host: settings.native.gateway }) : t('push.phoneOff')}</p>}
     {failed && <ErrorNote>{t(denied ? (app ? 'push.deniedApp' : 'push.denied') : 'push.failed')}</ErrorNote>}
   </section>
 }

@@ -926,6 +926,8 @@ export const en: Record<MessageKey, string> = {
   'push.disable': 'Turn off push on all devices',
   'push.denied': 'Notifications are blocked in your browser. Allow them in the browser’s site settings and try again.',
   'push.deniedApp': "Notifications are off for this app. Allow them in the phone's Settings and try again.",
+  'push.phoneGateway': 'Phone app push: on. Alerts go through {host} to Apple and Google, with generic text only.',
+  'push.phoneOff': 'Phone app push: off. The server operator turns it on by setting a push gateway (push.gatewayUrl).',
   'push.failed': 'Could not save push settings. Check your connection and try again.',
   'notifications.description': 'Your notifications from the last 30 days. Notifications contain no file or conversation content.',
   'notifications.preferences': 'Notifications to receive',

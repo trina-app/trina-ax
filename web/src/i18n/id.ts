@@ -926,6 +926,8 @@ export const id: Record<MessageKey, string> = {
   'push.disable': 'Nonaktifkan push di semua perangkat',
   'push.denied': 'Notifikasi diblokir oleh browser. Izinkan di pengaturan situs browser, lalu coba lagi.',
   'push.deniedApp': 'Notifikasi untuk aplikasi ini mati. Izinkan di Pengaturan ponsel, lalu coba lagi.',
+  'push.phoneGateway': 'Push aplikasi ponsel: aktif. Notifikasi lewat {host} ke Apple dan Google, hanya teks umum.',
+  'push.phoneOff': 'Push aplikasi ponsel: mati. Operator server menyalakannya dengan mengatur gateway push (push.gatewayUrl).',
   'push.failed': 'Pengaturan push gagal disimpan. Periksa koneksi dan coba lagi.',
   'notifications.description': 'Notifikasimu selama 30 hari terakhir. Tidak memuat isi file atau percakapan.',
   'notifications.preferences': 'Notifikasi yang diterima',

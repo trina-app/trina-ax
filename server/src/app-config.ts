@@ -9,7 +9,7 @@
 // MYCEL_RELAY_URL (ws(s)://<relay>/connect, '' = off), MYCEL_RELAY_TEAM (team name at the relay), MYCEL_RELAY_OFFICIAL
 // (1 = the official relay may be offered), MYCEL_DEPLOYMENT (self | hosted, server/src/system/deployment.ts),
 // MYCEL_DEMO (a demo file, `bun run demo:trina`: development servers only, refused anywhere else; readDemoFile),
-// MYCEL_PUSH_GATEWAY (the native app push gateway, https://<host>; '' = off).
+// MYCEL_PUSH_GATEWAY (the native app push gateway, https://<host>; unset or '' = off).
 // Office mode (one Mac in a small office, docs/OFFICE.md) is dev mode's engine setup (local-login, engine.sb,
 // lockdown) with `office: true`: no DEV banner, and its supervisor (server/src/office/cli.ts) writes the file (TLS
 // listener on the office network, allowedHosts, publicOrigins).
@@ -18,7 +18,6 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { z } from 'zod'
 import { AuthMode, PRODUCT, SourceCodeConfig } from '@mycel/shared'
-import { SERVICE_HOSTS } from '@mycel/shared/service-hosts'
 import { CredentialKind } from '@mycel/shared/api'
 import { CLOUD_DEFAULT_CREDENTIAL_KINDS } from '@mycel/shared/cloud-protocol'
 import { DemoFile } from '@mycel/shared/api'
@@ -182,8 +181,8 @@ export const AppConfigFile = z.object({
   }).default({ channel: 'stable', feedUrl: null, auto: false }),
   /** Operator-owned corresponding-source metadata. Does not publish or export source. */
   sourceCode: SourceCodeConfig.optional(),
-  /** native app push (server/src/notifications/push-native.ts): the push gateway, https://<host>. Absent = the
-   * edition's default (SERVICE_HOSTS.pushGateway); null = off. */
+  /** native app push (server/src/notifications/push-native.ts): the push gateway, https://<host>. Absent or null = off:
+   * phone tokens go nowhere until the operator chooses a gateway (a hosted service writes it here). */
   push: z.object({ gatewayUrl: z.string().max(300).nullable().optional() }).strict().optional(),
   /** check every JSON response against the contract (default: on in dev) */
   validateResponses: z.boolean().optional(),
@@ -230,7 +229,7 @@ export interface AppConfig {
   }
   relay: { url: string | null; teamName: string | null; officialAvailable?: boolean }
   update: { channel: 'stable' | 'beta'; feedUrl: string | null; auto?: boolean }
-  /** the native app push gateway; absent (tests) or null = no native push */
+  /** the native app push gateway; absent or null = no native push (the default) */
   push?: { gatewayUrl?: string | null }
   sourceCode?: SourceCodeConfig
   validateResponses: boolean
@@ -292,7 +291,7 @@ export function loadAppConfig(o: LoadOptions = {}): AppConfig {
   if (f.engine.anthropicGateway && (f.engine.modelUpstreams?.anthropic || f.engine.modelUpstream)) throw new ConfigError(`config file ${file}: engine.anthropicGateway and engine.modelUpstreams.anthropic (or modelUpstream) cannot both be set`)
   if (f.engine.anthropicGateway && normalizeAuthMode(f.engine.authMode) !== 'managed') throw new ConfigError(`config file ${file}: engine.anthropicGateway needs engine.authMode "managed"`)
   const demo = readDemoFile(env[P + 'DEMO'], { mode, deployment, office: !!f.office }, cwd)
-  const pushGateway = env[P + 'PUSH_GATEWAY'] !== undefined ? (env[P + 'PUSH_GATEWAY'] || null) : f.push?.gatewayUrl !== undefined ? f.push.gatewayUrl : (SERVICE_HOSTS.pushGateway || null)
+  const pushGateway = env[P + 'PUSH_GATEWAY'] !== undefined ? (env[P + 'PUSH_GATEWAY'] || null) : (f.push?.gatewayUrl ?? null)
   if (pushGateway !== null && !/^https:\/\/[a-z0-9-]+(?:\.[a-z0-9-]+)+$/.test(pushGateway)) throw new ConfigError(`push gateway must be https://<host> (${P}PUSH_GATEWAY or push.gatewayUrl)`)
 
   return {

@@ -53,7 +53,7 @@ export class PushService {
     // optedOut: the person turned push off; the phone app then does not register again by itself.
     const optedOut=!!this.ctx.db.query('SELECT 1 FROM push_preferences WHERE user_id=? AND enabled=0').get(userId)
     return{configured:!!c,enabled:this.enabled(userId),publicKey:c?.publicKey??null,subscriptionId:c&&sub?.config_key===pushConfigKey(c)?sub.id:null,messages:pushMessages(locale),
-      native:{available:!!n,deviceId:n&&device?.config_key===nativeConfigKey(n)?device.id:null},optedOut}
+      native:{available:!!n,deviceId:n&&device?.config_key===nativeConfigKey(n)?device.id:null,gateway:n?new URL(n.url).host:null},optedOut}
   }
   private safeSecrets(create=false){
     const realData=fs.realpathSync(this.ctx.config.dataDir),team=fs.realpathSync(this.ctx.config.teamRoot)

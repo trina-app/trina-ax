@@ -31,7 +31,7 @@ afterEach(async () => { await p?.stop(); await h?.close() })
 
 test('off without a gateway; a device is bound to this session, encrypted, idempotent and turns push on', async () => {
   const sid = await setup({ native: () => null })
-  expect(p.settings('olga', sid).native).toEqual({ available: false, deviceId: null })
+  expect(p.settings('olga', sid).native).toEqual({ available: false, deviceId: null, gateway: null })
   expect(() => p.registerDevice('olga', sid, device())).toThrow()
   await p.stop(); p = new PushService(h.ctx, { config: () => null, native: () => gateway, now: () => now })
   const d = device(), reg = p.registerDevice('olga', sid, d)
@@ -99,7 +99,7 @@ test('turning push off removes the phone too and is remembered; a new gateway ad
   await p.stop(); p = new PushService(h.ctx, { config: () => null, native: () => ({ url }), nativeTransport: async () => { calls++; return { statusCode: 200 } }, now: () => now })
   url = 'https://push2.example.test'; now += 10; event('moved'); await p.tick()
   expect(calls).toBe(0)
-  expect(p.settings('olga', sid).native).toEqual({ available: true, deviceId: null })
+  expect(p.settings('olga', sid).native).toEqual({ available: true, deviceId: null, gateway: 'push2.example.test' })
 })
 
 test('a token belongs to the latest session that registered it, also across accounts on a reinstalled phone', async () => {
@@ -125,7 +125,7 @@ test('the HTTP routes need the session and answer 503 while this server has no g
   const r = await owner.raw('POST', '/api/push/devices', device())
   expect(r.status).toBe(503)
   expect((await h.client().raw('POST', '/api/push/devices', device())).status).toBe(401)
-  expect((await owner.call('GET', '/api/push')).native).toEqual({ available: false, deviceId: null })
+  expect((await owner.call('GET', '/api/push')).native).toEqual({ available: false, deviceId: null, gateway: null })
 })
 
 test('the gateway request is signed with the team key over the exact body; private addresses and late cancellation send nothing', async () => {
@@ -155,13 +155,14 @@ test('the gateway request is signed with the team key over the exact body; priva
   expect(again.body).toBe(sentBody)
 })
 
-test('gateway address setting: https host only; the edition default, an override, and off', () => {
+test('gateway address setting: https host only; off by default, server.json or MYCEL_PUSH_GATEWAY turn it on', () => {
   for (const ok of ['https://push.trina.app', 'https://push.example.test/']) expect(validGatewayUrl(ok)).toBe(ok.replace(/\/$/, ''))
   for (const bad of ['http://push.example.test', 'https://u@push.example.test', 'https://push.example.test:444', 'https://push.example.test/v1', 'https://push.example.test?x', 'https://localhost', 42]) expect(validGatewayUrl(bad)).toBeNull()
   const dir = path.join(WORK, 'push-native-config'); fs.mkdirSync(dir, { recursive: true })
   const file = (o: object) => { const f = path.join(dir, `server-${Math.random().toString(36).slice(2)}.json`); fs.writeFileSync(f, JSON.stringify(o)); return f }
   const load = (extra: Record<string, string>, o: object = {}) => { try { return loadAppConfig({ argv: ['--config', file(o)], env: extra }).push } catch (e) { return (e as Error).name } }
-  expect(load({})).toEqual({ gatewayUrl: 'https://push.trina.app' })
+  expect(load({})).toEqual({ gatewayUrl: null }) // off until the operator chooses a gateway
+  expect(load({}, { push: { gatewayUrl: 'https://push.example.test' } })).toEqual({ gatewayUrl: 'https://push.example.test' })
   expect(load({}, { push: { gatewayUrl: null } })).toEqual({ gatewayUrl: null })
   expect(load({ MYCEL_PUSH_GATEWAY: '' })).toEqual({ gatewayUrl: null })
   expect(load({ MYCEL_PUSH_GATEWAY: 'https://push.example.test' })).toEqual({ gatewayUrl: 'https://push.example.test' })

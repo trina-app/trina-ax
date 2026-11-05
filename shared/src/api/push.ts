@@ -5,7 +5,8 @@ export const PushSettings = z.object({ configured: z.boolean(), enabled: z.boole
   // Older servers omit display text; keep settings usable during an upgrade or rollback.
   messages: z.object({ title: z.string(), bodies: z.record(PushEventType, z.string()) }).optional(),
   // The phone app (push-token-v1): whether this server can reach the push gateway, and this session's device.
-  native: z.object({ available: z.boolean(), deviceId: z.string().nullable() }).optional(),
+  // gateway: the host phone tokens go through (owners and admins see it in Settings › Notifications); null = off.
+  native: z.object({ available: z.boolean(), deviceId: z.string().nullable(), gateway: z.string().nullable().optional() }).optional(),
   /** the person turned push off: the phone app does not register again by itself */
   optedOut: z.boolean().optional(),
 })
