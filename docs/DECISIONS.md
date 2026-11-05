@@ -8095,6 +8095,18 @@ every week. Placement: Team AX core (skills, files and permissions, the team lin
     or admin any AI answer they can see (audited `room.ai_delete`).
   - Posting a preview decides again: reasons that changed (a member joined, rules changed) are saved on the preview and
     the post answers 409 `room_ai_reasons_changed`; the asker sees them and posts again.
+- **Second review fixes (2026-11-05, re-review of bd7a6b95).**
+  - The `skill` tool's "Similar:" and "several skills are called …" replies name only skills everyone in the room may
+    read (a skill named exactly still loads; its folder joins the read scope).
+  - The team rule files and the company profile in the instructions are recorded in the read scope at the start of
+    every room turn (recorded, not left out: a resumed session keeps the instructions it started with), so a member who
+    cannot read `skills/` keeps the answer private. The asker's writable and read-only folder lists name only folders
+    everyone in the room may read.
+  - When the room's members changed since the session's current conversation began (`room.members` in the audit log),
+    the next question starts a new conversation: its instructions and lists were made for the members then.
+  - A `share_file` link counts its path like a name read. `edit_files` raises one card for the whole batch
+    (`TurnToolSet.beforeBatch`), and the yes covers each file's edit.
+  - Each viewer's access is loaded once per message list for the answer links, and the skill check caches by path.
 - **Where the answer goes** (`RoomAi.decide`). To the room (`author_kind 'ai'`, `asked_by` = asker, `reply_to_id` =
   the question; the app shows "○○ 님이 물어봄") only when every current member may read every source in the session's
   **cumulative** read scope, not only this answer's list: each ruled folder (or the team root) by the rules now; the
@@ -8125,7 +8137,6 @@ every week. Placement: Team AX core (skills, files and permissions, the team lin
   mention. Under the messages: my question's block (name, "답하는 중" or its place, the last steps, cards, Stop), or for
   the others one line "트리나가 답하는 중". A preview is the answer plus a left-bordered note (no card in a card) and one
   primary button, 대화방에 올리기.
-- **Not in this step.** The AI cannot open files sent in a room (it gets their names). Team rule files under skills/
-  that only some members may read are still in the instructions. The 12-hour new session and the context sizes are
+- **Not in this step.** The AI cannot open files sent in a room (it gets their names). The 12-hour new session and the context sizes are
   first guesses. Cards the AI raised are not shown again after a reload (they time out like an unanswered card). A PC
   runner's tools, once merged, fall under the card rule and the outside mark but are not switched off by name.
