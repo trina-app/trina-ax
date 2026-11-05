@@ -8,15 +8,53 @@
 //
 // Realtime: room.* events in ws.ts go to the room's members only. After a reconnect the server replays them only while
 // the person is still a member; otherwise the window gets `resync` and reloads the rooms over REST.
+//
+// The AI in a room ("대화방의 트리나", docs/DECISIONS.md): a message that calls it ("@트리나 …", roomAiCalled) runs a
+// normal chat turn as the person who sent it, in their own AI session for that room. Only they see its steps and can
+// stop it (room.ai.run / room.ai.step, GET /api/rooms/:id/ai); the others see that the AI is answering (room.ai). The
+// answer is an 'ai' message asked by them: for the whole room when every member may read every file the session read
+// and it used nothing else, else a private preview for them only, which they may post (shareRoomMessage).
 import { z } from 'zod'
 import { UserId, Uuid7 } from '../ids'
-import { IsoTime, PageQuery, QueryBool, SMALL_UPLOAD_MAX, page } from './common'
+import { PRODUCT } from '../product'
+import { ApiErrorBody, IsoTime, PageQuery, QueryBool, SMALL_UPLOAD_MAX, page } from './common'
 import { empty, endpoint, multipart, stream } from './endpoint'
-import { Attachment, UserRef } from './entities'
+import { Attachment, MessageSources, Step, UserRef } from './entities'
 
 export const ROOM_MESSAGE_MAX = 10_000
 export const ROOM_FILES_MAX = 10
 export const ROOM_MENTIONS_MAX = 50
+/** an AI answer in a room is cut here (the rest is said to be cut) */
+export const ROOM_AI_ANSWER_MAX = 60_000
+
+/** The names that call the AI in a room ("@트리나 …"): its Korean name, the Latin and Japanese ones, and the product's
+ * own names. Matched without regard to case; the web app's "@" list offers the first one in Korean. */
+export const ROOM_AI_NAMES: readonly string[] = [...new Set(['트리나', 'Trina', 'トリナ', PRODUCT.shortName, PRODUCT.displayName])]
+const AI_NAMES_LONGEST = [...ROOM_AI_NAMES].sort((a, b) => b.length - a.length)
+const isWordChar = (c: string | undefined) => !!c && /[\p{L}\p{N}_]/u.test(c)
+
+/** Where "@<AI name>" stands in a text: after the start, a space or an opening mark, and not followed by a letter or a
+ * digit ("@트리나야" is not it). `taken`: names of people mentioned in the message (a person called 트리나 wins). */
+export function roomAiMentions(body: string, taken: readonly string[] = []): { start: number; end: number }[] {
+  const out: { start: number; end: number }[] = []
+  const lower = body.toLocaleLowerCase()
+  const people = new Set(taken.map((n) => n.toLocaleLowerCase()))
+  for (let i = body.indexOf('@'); i >= 0; i = body.indexOf('@', i + 1)) {
+    if (i > 0 && !/[\s([{"'“‘]/.test(body[i - 1]!)) continue
+    const name = AI_NAMES_LONGEST.find((n) => lower.startsWith(n.toLocaleLowerCase(), i + 1) && !isWordChar(body[i + 1 + n.length]))
+    if (!name || people.has(name.toLocaleLowerCase())) continue
+    out.push({ start: i, end: i + 1 + name.length })
+  }
+  return out
+}
+/** Does this message call the AI? */
+export const roomAiCalled = (body: string, taken: readonly string[] = []) => roomAiMentions(body, taken).length > 0
+/** What the AI is asked: the message without the "@<AI name>" that starts it ("@트리나 /회의록 …" runs the skill). */
+export function roomAiQuestion(body: string, taken: readonly string[] = []): string {
+  const first = roomAiMentions(body, taken)[0]
+  if (!first || body.slice(0, first.start).trim()) return body.trim()
+  return body.slice(first.end).trim() || body.trim()
+}
 
 export const RoomKind = z.enum(['team', 'all', 'dm'])
 export type RoomKind = z.infer<typeof RoomKind>
@@ -71,8 +109,34 @@ export const RoomMessage = z.object({
   createdAt: IsoTime,
   editedAt: IsoTime.nullable(),
   deletedAt: IsoTime.nullable(),
+  /** an AI answer: how many files its "참고한 파일" list holds (GET …/sources checks each one for the viewer) */
+  sourceCount: z.number().int().nonnegative().optional(),
+  /** a private preview of an AI answer, to the person who asked only: why it did not go to the room. folders: team
+   * folders some member cannot read ('' = the top of the team folder); personal: their own folder (or what only they
+   * see: the in-app browser, a personal connection); outside: web pages, connected services or other tools */
+  preview: z.object({ folders: z.array(z.string()), personal: z.boolean(), outside: z.boolean() }).optional(),
 })
 export type RoomMessage = z.infer<typeof RoomMessage>
+
+/** One question to the AI in a room, as the person who asked sees it (nobody else gets one). */
+export const RoomAiRun = z.object({
+  turnId: Uuid7,
+  roomId: Uuid7,
+  /** the room message that asked */
+  questionId: Uuid7,
+  state: z.enum(['queued', 'running', 'done', 'stopped', 'error']),
+  /** queued: answers ahead in the team's queue (1 = next); 0 otherwise */
+  position: z.number().int().nonnegative(),
+  /** what the AI did so far (file names and searches: for this person only, never for the room) */
+  steps: z.array(Step),
+  /** why it ended without an answer (state error) */
+  error: ApiErrorBody.nullable(),
+  createdAt: IsoTime,
+})
+export type RoomAiRun = z.infer<typeof RoomAiRun>
+/** answering: questions the AI is answering in the room now (anyone's; nobody is named); mine: my own of them */
+export const RoomAiState = z.object({ answering: z.number().int().nonnegative(), mine: z.array(RoomAiRun) })
+export type RoomAiState = z.infer<typeof RoomAiState>
 
 /** One line of the rooms list under a room's name. */
 export const RoomLastMessage = z.object({
@@ -157,4 +221,8 @@ export const ROOMS = {
   listRoomMembers: endpoint({ method: 'GET', path: '/api/rooms/:id/members', auth: 'user', owner: 'B', response: z.object({ items: z.array(RoomMember) }), summary: 'Who is in a room I am in (names only; nobody\'s read position).' }),
   uploadRoomFile: endpoint({ method: 'POST', path: '/api/rooms/:id/files', auth: 'user', owner: 'B', status: 201, body: multipart(RoomFileUploadFields, SMALL_UPLOAD_MAX), response: RoomFile, summary: 'Upload a file (≤ 50 MB) to send in a room I am in; stored outside the team folder, readable by the room\'s members once sent.' }),
   roomFile: endpoint({ method: 'GET', path: '/api/rooms/:id/files/:fileId', auth: 'user', owner: 'B', query: RoomFileQuery, response: stream(true), summary: 'A file sent in a room I am in (membership checked on every read); thumb=1 for an image preview.' }),
+  getRoomAi: endpoint({ method: 'GET', path: '/api/rooms/:id/ai', auth: 'user', owner: 'B', response: RoomAiState, summary: 'How many questions the AI is answering in a room I am in, and my own of them with their steps.' }),
+  stopRoomAi: endpoint({ method: 'POST', path: '/api/rooms/:id/ai/:turnId/stop', auth: 'user', owner: 'B', response: z.object({ stopped: z.boolean() }), summary: 'Stop the AI answering my question (only the person who asked; anyone else gets 404).' }),
+  shareRoomMessage: endpoint({ method: 'POST', path: '/api/rooms/:id/messages/:messageId/share', auth: 'user', owner: 'B', response: RoomMessage, summary: 'Post my private preview of an AI answer to the room: sources some member cannot read are left out; it notifies like a new message and is audited.' }),
+  roomMessageSources: endpoint({ method: 'GET', path: '/api/rooms/:id/messages/:messageId/sources', auth: 'user', owner: 'B', response: MessageSources, summary: 'The files an AI answer in a room I am in used, each checked against my access now (no name or path for the others).' }),
 } as const

@@ -20,7 +20,7 @@ import { ArtifactSummary, ArtifactType, Chat, Job, JobKind, Memory, Message, Mes
 import { CredentialLogin } from './credentials'
 import { IntegrationAuth, IntegrationKind, IntegrationScope } from './integrations'
 import { SkillProblem } from './skills'
-import { Room, RoomMessage } from './rooms'
+import { Room, RoomAiRun, RoomMessage } from './rooms'
 
 export const WS_PATH = '/api/ws'
 export const WS_PING_INTERVAL_MS = 20_000
@@ -208,6 +208,12 @@ export const ServerEvent = z.discriminatedUnion('type', [
   /** added: I am in a new room; members: someone joined or left (reload the members and messages' counts); updated: my
    * setting or the name changed; removed: I am no longer in it (room null: close it) */
   ev('room.updated', z.object({ roomId: Uuid7, change: z.enum(['added', 'updated', 'members', 'removed']), room: Room.nullable() })),
+  /** the AI in a room: how many questions it is answering there now, to every member (nobody is named) */
+  ev('room.ai', z.object({ roomId: Uuid7, answering: z.number().int().nonnegative() })),
+  /** my own question to the AI in a room started, waits, runs or ended (only to the person who asked) */
+  ev('room.ai.run', z.object({ roomId: Uuid7, run: RoomAiRun })),
+  /** a step of my own question's answer (only to the person who asked: labels name files and searches) */
+  ev('room.ai.step', z.object({ roomId: Uuid7, turnId: Uuid7, step: Step })),
   /** the session ended (logout elsewhere, password changed, account disabled); the socket closes with 4401 */
   ev('session.ended', z.object({ reason: z.enum(['logout', 'password_changed', 'disabled', 'expired', 'revoked']) })),
 ])
