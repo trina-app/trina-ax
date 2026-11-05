@@ -328,7 +328,8 @@ function AiStep({ busy, onLater }: { busy: boolean; onLater: () => void }) {
 /** "여기 올린 파일은 {팀} n명만 봐요 · 채팅은 각자만 봐요", with the real count (the group's members and the owners and
  * admins), and, when members of the team are not in its group yet, one quiet "지금 있는 팀원 n명도 넣기" that adds them
  * (the owner's choice: nobody is added by itself). Until the count is known, or when it cannot be read, the line
- * without a number. */
+ * without a number. The owner alone reads "지금은 나만 봐요 · 팀원을 초대하면 {팀} 모두가 봐요" ("{팀} 1명만 봐요" read
+ * oddly: docs/DECISIONS.md "W3"). */
 function TeamReach({ team, groupId }: { team: string; groupId: string | null }) {
   const t = useT()
   const locale = useLocale()
@@ -362,7 +363,7 @@ function TeamReach({ team, groupId }: { team: string; groupId: string | null }) 
   return (
     <div className="space-y-1">
       <p className="text-[13px] leading-5 text-muted" data-testid="welcome-files-who">
-        {reach ? t('welcome.files.whoCount', { team, n: reach.viewers }) : t('welcome.files.who', { team })}
+        {!reach ? t('welcome.files.who', { team }) : reach.viewers <= 1 ? t('welcome.files.whoAlone', { team }) : t('welcome.files.whoCount', { team, n: reach.viewers })}
       </p>
       {reach && reach.outside.length > 0 && (
         <p className="text-[13px]">

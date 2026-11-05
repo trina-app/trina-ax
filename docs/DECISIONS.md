@@ -8602,4 +8602,11 @@ Placement: Team AX core (onboarding, web reading, skills, chat). Each fix is its
   one of cards 1–3 used its type-only version (`type-cover`, `type-statement`, `type-points`), names that card ("2장은
   어울리는 사진이 없어 글자로만 만들었어요.") so the reader knows which one, says that 4 and 5 never count, and says
   nothing about photos when 1–3 all have one. It stays a rule the AI follows (no server check of the answer's words).
+- **Copy.** Step 2's line read "여기 올린 파일은 {팀} 1명만 봐요" for an owner still alone; with one viewer it now reads
+  "여기 올린 파일은 지금은 나만 봐요 · 팀원을 초대하면 {팀} 모두가 봐요" (`welcome.files.whoAlone`, five languages; the
+  chat clause is left out to keep it short: the chat's own line under the box says it). The invite message names the
+  team it leads to: "{이름}님이 {product}에서 {팀}에 함께하자고 초대했어요. …" (and with a skill), and S's "우리 팀
+  '{스킬}' 스킬을 …" became "{팀}에 '{스킬}' 스킬을 만들어 뒀어요. …" (`teamLinkMessage` takes `team`, the team's name
+  from the session; the goal card's copy too). The starter messages of old links (meeting notes, team files) are
+  unchanged.
 
