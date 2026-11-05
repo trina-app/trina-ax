@@ -4,8 +4,8 @@
 // owner's setup checklist is on Admin › Home. While no AI answers the person (GET /api/me/ai-access), everyone gets ONE
 // card instead (components/onboarding/ConnectAi.tsx NoAiCard: the owner connects, anyone else hears that the owner
 // does), in place of that row, the suggestions (which would all fail) and the line above the box; the welcome steps'
-// row comes back once AI answers, so it never leads back to the AI step it was put off at. On a demo server (`bun run demo:company`) a demo person sees only their
-// one line and their questions (components/demo/Demo.tsx).
+// row comes back once AI answers, so it never leads back to the AI step it was put off at. On a demo server (`bun run
+// demo:company`) a demo person sees only their one line and their questions (components/demo/Demo.tsx).
 // Two moments of the meeting-notes start (docs/DECISIONS.md "M — One meeting note, everyone's own tasks") show here as
 // one line each, with nothing else added:
 //   - a member who just joined with a link that carries the lead's files (lib/starter.ts): "민지님이 이번 주 팀 회의록

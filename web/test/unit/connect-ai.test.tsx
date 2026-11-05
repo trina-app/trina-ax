@@ -140,7 +140,7 @@ describe('the simple dialog', () => {
   test('Admin › AI connections keeps the full dialog: name, target, the whole notice', async () => {
     const m = await mount(
       <MemoryRouter>
-        <AddCredential allowedKinds={KINDS as never} sharedSubscriptions groups={[]} users={[]} initialKind="anthropic-oauth" initialLabel="Claude" onClose={() => {}} onDone={() => {}} />
+        <AddCredential allowedKinds={KINDS as never} sharedSubscriptions groups={[]} users={[]} initialKind="anthropic-oauth" onClose={() => {}} onDone={() => {}} />
       </MemoryRouter>,
     )
     try {

@@ -269,18 +269,17 @@ function TargetPicker({ value, onChange, groups, users }: { value: CredentialAss
  * target), named after the kind (no name field), the provider's terms in one line; the password again stays for a
  * team connection (the server checks it on every add, owner-reauth), and one's own needs none, as before.
  */
-export function AddCredential({ allowedKinds, gateway, groups, users, replace, personal, sharedSubscriptions = false, initialKind, initialLabel, simple, onClose, onDone }: {
+export function AddCredential({ allowedKinds, gateway, groups, users, replace, personal, sharedSubscriptions = false, initialKind, simple, onClose, onDone }: {
   allowedKinds: CredentialKind[]; gateway?: Gateway; groups: Group[]; users: User[]; replace?: Credential; personal?: boolean; sharedSubscriptions?: boolean
-  /** one way chosen already (the welcome steps' "Claude 구독 연결"): the list of ways is not shown (in the simple
-   * form, until "다른 방법") */
-  initialKind?: CredentialKind; initialLabel?: string
+  /** one way chosen already ("Claude 구독 연결"): the list of ways is not shown (in the simple form, until "다른 방법") */
+  initialKind?: CredentialKind
   simple?: boolean
   onClose: () => void; onDone: () => void
 }) {
   const t = useT()
   const locale = useLocale()
   const [kind, setKind] = useState<CredentialKind | null>(replace?.kind ?? initialKind ?? null)
-  const [label, setLabel] = useState(replace?.label ?? initialLabel ?? '')
+  const [label, setLabel] = useState(replace?.label ?? '')
   const [secret, setSecret] = useState('')
   const [assignments, setAssignments] = useState<CredentialAssignment[]>([])
   const [ack, setAck] = useState(false)
