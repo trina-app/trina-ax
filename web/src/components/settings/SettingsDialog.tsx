@@ -2,7 +2,8 @@
 // by name, hairlines separate the groups of pages/settingsTabs.ts) and the open section on the right. /settings and
 // /settings/<section> still work: App.tsx keeps the page behind it (Home when the address was opened directly) and
 // `onClose` goes back to that page. On a phone it fills the screen: the list first, then a section with a way back.
-// Admin stays its own page.
+// A page under a section (`page`: /settings/account/delete, the account deletion request under the profile) keeps its
+// section marked in the list, and its way back goes to that section. Admin stays its own page.
 import clsx from 'clsx'
 import { ArrowLeft, Search, X } from 'lucide-react'
 import { lazy, Suspense, useEffect, useId, useRef, useState } from 'react'
@@ -22,9 +23,14 @@ export function settingsOpenedFrom(el: HTMLElement | null) {
   openedFrom = el
 }
 
-export default function SettingsDialog({ onClose }: { onClose: () => void }) {
+/** pages under a section, by their address (App.tsx routes them here) */
+export type SettingsPage = 'account-delete'
+const PAGE_SECTION: Record<SettingsPage, string> = { 'account-delete': 'profile' }
+
+export default function SettingsDialog({ onClose, page }: { onClose: () => void; page?: SettingsPage }) {
   const t = useT()
-  const { tab } = useParams()
+  const params = useParams()
+  const tab = page ? PAGE_SECTION[page] : params.tab
   const navigate = useNavigate()
   const ref = useRef<HTMLDivElement>(null)
   const titleId = useId()
@@ -67,7 +73,7 @@ export default function SettingsDialog({ onClose }: { onClose: () => void }) {
       >
         <div className="flex h-14 shrink-0 items-center gap-1 border-b border-line pr-2.5 pl-3 md:pl-5">
           {tab && (
-            <IconButton label={t('settings.allSections')} className="md:hidden" onClick={() => navigate('/settings', { replace: true })} data-testid="settings-back">
+            <IconButton label={t('settings.allSections')} className="md:hidden" onClick={() => navigate(page ? `/settings/${tab}` : '/settings', { replace: true })} data-testid="settings-back">
               <ArrowLeft size={18} />
             </IconButton>
           )}
@@ -102,7 +108,7 @@ export default function SettingsDialog({ onClose }: { onClose: () => void }) {
                       to={`/settings/${x.id}`}
                       replace
                       className={({ isActive }) =>
-                        clsx('flex h-9 items-center gap-2.5 rounded-lg px-3 text-sm hover:bg-hover focus-visible:-outline-offset-2 max-md:h-11', (isActive || (x.id === 'profile' && !tab)) && 'md:bg-hover md:font-medium', isActive && 'bg-hover font-medium')
+                        clsx('flex h-9 items-center gap-2.5 rounded-lg px-3 text-sm hover:bg-hover focus-visible:-outline-offset-2 max-md:h-11', (isActive || (x.id === 'profile' && !tab) || x.id === tab) && 'md:bg-hover md:font-medium', isActive && 'bg-hover font-medium')
                       }
                     >
                       <x.icon size={16} className="shrink-0 text-muted" aria-hidden /> {t(x.label)}
@@ -123,7 +129,7 @@ export default function SettingsDialog({ onClose }: { onClose: () => void }) {
                 <Spinner />
               ) : (
                 <Suspense fallback={<Spinner />}>
-                  <SettingsPane tab={current} />
+                  <SettingsPane tab={page ?? current} />
                 </Suspense>
               )}
             </div>

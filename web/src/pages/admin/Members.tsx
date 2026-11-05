@@ -5,10 +5,13 @@
 // Mac), remove. Each person links to the folders they see (Folder permissions › By person); the invite and add dialogs
 // preview the folders someone new with that role and those groups will see. Below the md width each member is a card
 // (name, role and status, the skills switch) with the row's actions in a "…" menu; wider screens keep the table.
+// The owner sees who asked for their account to be deleted (Settings › Profile › 계정 삭제 요청): a badge, and removing
+// that person deletes their personal files too. The owner's inbox entry opens /admin/members?member=<id>: that person's
+// row is marked and scrolled to.
 import { KeyRound, Link2, MoreHorizontal, Pencil, Plus, QrCode as QrIcon, RefreshCw, Trash2, UserPlus, UserRoundKey, UserRoundX, UserRoundCheck } from 'lucide-react'
 import clsx from 'clsx'
-import { useEffect, useId, useLayoutEffect, useRef, useState, type CSSProperties, type KeyboardEvent, type ReactNode } from 'react'
-import { Link } from 'react-router-dom'
+import { useCallback, useEffect, useId, useLayoutEffect, useRef, useState, type CSSProperties, type KeyboardEvent, type ReactNode } from 'react'
+import { Link, useSearchParams } from 'react-router-dom'
 import type { z } from 'zod'
 import type { CreatedInvite as CreatedInviteSchema, Group, Invite, Locale, User } from '@mycel/shared/api'
 import { TEMP_PASSWORD_TTL_DAYS, tempPasswordCharsOk } from '@mycel/shared'
@@ -51,6 +54,16 @@ export default function Members() {
   const [resetting, setResetting] = useState<User | null>(null)
   const [resetLink, setResetLink] = useState<{ name: string; url: string; expiresAt: string } | null>(null)
   const [editing, setEditing] = useState<User | null>(null)
+  // the person an inbox entry points at (?member=<id>): marked, and scrolled to once
+  const focusId = useSearchParams()[0].get('member')
+  const scrolled = useRef<string | null>(null)
+  const focusRow = useCallback((el: HTMLElement | null) => {
+    if (!el || scrolled.current === focusId) return
+    scrolled.current = focusId
+    el.scrollIntoView?.({ block: 'center' })
+  }, [focusId])
+  /** asked for their account to be deleted (the owner's list only) */
+  const requested = (u: User) => !!users.data?.deletionRequested?.includes(u.id)
 
   const groupName = (id: string) => groups.data?.find((g) => g.id === id)?.name ?? '?'
   // a phone: one card per member instead of a squeezed table (the same query as Tailwind's md)
@@ -79,8 +92,11 @@ export default function Members() {
     if (await act(() => api.call(API.updateUser, { params: { id: u.id }, body: { status: disabling ? 'disabled' : 'active' } }))) void users.reload()
   }
   const remove = async (u: User) => {
-    if (!(await confirmDialog({ title: t('members.removeTitle', { name: u.name }), body: t('members.removeBody', { days: chatTrashDays(me) }), confirm: t('common.delete'), danger: true }))) return
-    if (await actOk(() => api.call(API.deleteUser, { params: { id: u.id } }))) await users.reload()
+    // they asked for it: their personal files go too, instead of to the owner's archive
+    const asked = requested(u)
+    const body = asked ? t('accountDeletion.removeBody', { name: u.name, days: chatTrashDays(me) }) : t('members.removeBody', { days: chatTrashDays(me) })
+    if (!(await confirmDialog({ title: t('members.removeTitle', { name: u.name }), body, confirm: t('common.delete'), danger: true }))) return
+    if (await actOk(() => api.call(API.deleteUser, { params: { id: u.id }, ...(asked ? { query: { personalFolder: 'delete' as const } } : {}) }))) await users.reload()
   }
   /** The actions used less often: on a phone in the card's "…" menu with the others, on a wide screen in the row's
    * "…" menu next to Edit and Reset password, so the row keeps one line. */
@@ -123,14 +139,14 @@ export default function Members() {
           {({ items: list, noAi }) => phone ? (
             <ul className="divide-y divide-line" data-testid="members-list">
               {list.map((u) => (
-                <li key={u.id} className={clsx('flex items-start gap-2 py-3 text-sm', u.status === 'disabled' && 'opacity-60')} data-testid={`member-card-${u.username}`}>
+                <li key={u.id} ref={u.id === focusId ? focusRow : undefined} className={clsx('flex items-start gap-2 py-3 text-sm', u.status === 'disabled' && 'opacity-60', u.id === focusId && 'bg-accent-soft')} data-testid={`member-card-${u.username}`}>
                   <div className="min-w-0 flex-1">
                     <p className="truncate font-medium">{u.name}</p>
                     <p className="truncate text-xs text-faint">
                       {u.username} · users/{u.id}
                     </p>
                     <div className="mt-1.5 flex flex-wrap items-center gap-y-1">
-                      <MemberBadges user={u} noAi={!!noAi?.includes(u.id)} />
+                      <MemberBadges user={u} noAi={!!noAi?.includes(u.id)} requested={requested(u)} />
                     </div>
                     <div className="mt-2 flex items-start gap-3 text-xs">
                       <span className="pt-0.5 text-muted">{t('skillMgr.column')}</span>
@@ -171,7 +187,7 @@ export default function Members() {
                 </thead>
                 <tbody className="divide-y divide-line">
                   {list.map((u) => (
-                    <tr key={u.id} className={u.status === 'disabled' ? 'opacity-60' : ''}>
+                    <tr key={u.id} ref={u.id === focusId ? focusRow : undefined} className={clsx(u.status === 'disabled' && 'opacity-60', u.id === focusId && 'bg-accent-soft')}>
                       <td className="py-2 pr-3">
                         <span className="block font-medium">{u.name}</span>
                         <span className="block text-xs text-faint">
@@ -183,7 +199,7 @@ export default function Members() {
                         </Link>
                       </td>
                       <td className="py-2 pr-3">
-                        <MemberBadges user={u} noAi={!!noAi?.includes(u.id)} />
+                        <MemberBadges user={u} noAi={!!noAi?.includes(u.id)} requested={requested(u)} />
                       </td>
                       <td className="hidden py-2 pr-3 text-xs text-muted md:table-cell">{u.groupIds.map(groupName).join(', ') || '—'}</td>
                       <td className="hidden py-2 pr-3 text-xs text-muted md:table-cell">{u.lastSeenAt ? formatDateTime(u.lastSeenAt, locale) : '—'}</td>
@@ -306,12 +322,13 @@ export default function Members() {
 }
 
 /** The role, and what needs the admin's eye: disabled, a temporary password, no AI. */
-function MemberBadges({ user: u, noAi }: { user: User; noAi: boolean }) {
+function MemberBadges({ user: u, noAi, requested }: { user: User; noAi: boolean; requested: boolean }) {
   const t = useT()
   return (
     <>
       <Badge tone={u.role === 'member' ? 'neutral' : 'accent'}>{t(`role.${u.role}`)}</Badge>
       {u.status === 'disabled' && <Badge tone="danger" className="ml-1">{t('members.disabled')}</Badge>}
+      {requested && <span className="ml-1 inline-flex" data-testid="member-deletion-requested"><Badge tone="danger">{t('accountDeletion.badge')}</Badge></span>}
       {u.mustChangePassword && <TempPasswordBadge user={u} />}
       {noAi && <NoAiBadge />}
     </>

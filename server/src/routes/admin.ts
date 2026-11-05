@@ -25,6 +25,7 @@ import { credentialsOf } from '../credentials/store'
 import { unsealOrFail } from '../credentials/service'
 import { speechKeyStatus, writeSpeechKey } from '../credentials/speech-key'
 import { createUser, deleteUser, guardResetLink, listUsers, resetPassword, transferOwnership, updateUser } from '../admin/users'
+import { openDeletionRequests } from '../auth/deletion-requests'
 import { peopleWithoutAi } from '../credentials/access'
 import type { Locale } from '@mycel/shared/api'
 import type { RouteModule } from './module'
@@ -61,12 +62,14 @@ export const adminRoutes: RouteModule = {
     const engineCache = engineStatusCache(ctx)
 
     // ---------------- users ----------------
-    kit.handle(API.listUsers, ({ query }) => {
+    kit.handle(API.listUsers, ({ query, auth }) => {
       // "No AI" only for the screens that show it (Admin › Members, the owner's checklist)
       let problems = {}
       if (query.noAi) try { problems = getChatRuntime(ctx).engines.get().problems } catch { /* no chat runtime: none known */ }
       const noAi = query.noAi ? peopleWithoutAi(ctx, { problems }) : null
-      return { items: listUsers(ctx), ...(noAi ? { noAi } : {}) }
+      // who asked for their account to be deleted: the owner's (who deletes accounts) only
+      const deletionRequested = auth.user.role === 'owner' ? openDeletionRequests(ctx) : null
+      return { items: listUsers(ctx), ...(noAi ? { noAi } : {}), ...(deletionRequested ? { deletionRequested } : {}) }
     })
     kit.handle(API.createUser, ({ c, body }) => createUser(c, ctx, body))
     kit.handle(API.updateUser, ({ c, params, body }) => updateUser(c, ctx, params.id, body))

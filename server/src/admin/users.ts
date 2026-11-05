@@ -21,6 +21,8 @@ import { afterAccessChange, captureState, resetEngineSessions } from './folders'
 import { stopTurnsOf } from '../chat/runtime'
 import { getTeamSettings, LOCALE_CHANGED } from './settings'
 import { revokeTeamLinksBy } from '../auth/team-links'
+import { closeDeletionRequest } from '../auth/deletion-requests'
+import { settleDeletionRequestNotices } from '../notifications/service'
 
 type In<T extends z.ZodType> = z.output<T>
 
@@ -198,6 +200,7 @@ export function deleteUser(c: Context<AppEnv>, ctx: AppContext, id: string, pers
   guard(c, target)
   const before = captureState(ctx.db)
   const now = new Date(authOf(ctx).now()).toISOString()
+  let requested = false
   ctx.db.transaction(() => {
     // tombstone: the username is freed for reuse, the id (personal folder name, usage, audit) is never reused
     ctx.db.query("UPDATE users SET status = 'disabled', deleted_at = ?, username = ?, password_hash = NULL, email = NULL WHERE id = ?")
@@ -209,7 +212,10 @@ export function deleteUser(c: Context<AppEnv>, ctx: AppContext, id: string, pers
     // external-service connections: their own go with them (keys included), and they leave team connections' rules
     ctx.db.query("DELETE FROM integrations WHERE scope = 'personal' AND owner_user_id = ?").run(id)
     ctx.db.query("DELETE FROM integration_access WHERE subject_type = 'user' AND subject_id = ?").run(id)
+    // the person had asked for this (Settings › Profile › 계정 삭제 요청): the request is handled
+    requested = closeDeletionRequest(ctx, id, auth.user.id, now)
   })()
+  if (requested) settleDeletionRequestNotices(ctx, id)
   authOf(ctx).endUserSessions(id, 'revoked')
   stopTurnsOf(ctx, id)
   resetEngineSessions(ctx, id)
@@ -223,7 +229,7 @@ export function deleteUser(c: Context<AppEnv>, ctx: AppContext, id: string, pers
     folderError = (e as Error).message
     c.get('log').error('personal folder of a deleted member was not handled', { err: e, userId: id })
   }
-  audit(ctx.db, { actor: auth.user.id, action: 'user.delete', target: id, detail: { personalFolder, movedTo, ...(folderError ? { folderError } : {}) } })
+  audit(ctx.db, { actor: auth.user.id, action: 'user.delete', target: id, detail: { personalFolder, movedTo, ...(folderError ? { folderError } : {}), ...(requested ? { requested: true } : {}) } })
   afterAccessChange(ctx, before, { actor: auth.user.id, target: id })
 }
 

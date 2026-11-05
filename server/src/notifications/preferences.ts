@@ -25,5 +25,7 @@ export function eventEnabled(p: NotificationPreferences, event: NotificationEven
     case 'onboarding.ai_request': return true
     // someone joined through the team invite link (shown always, Notifications.teamJoined)
     case 'team.joined': return true
+    // a person asks the owner to delete their account (shown always, Notifications.deletionRequest)
+    case 'account.deletion_request': return true
   }
 }

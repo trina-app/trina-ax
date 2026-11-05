@@ -89,6 +89,17 @@ export const SPECS: Record<string, Spec> = {
   revokeMySession: { skipPositive: true, build: (c, w) => c.del(`/api/me/sessions/${w.ids.aliceSession}`), scope: 'byLevel',
     // alice's session id: no one else may revoke it (cross-user). bob etc must 404, not kill her session.
     check: (r, w, who) => { if (who !== 'memberIn' && r.status < 400) throw new Error(`${who} revoked alice's session`) } },
+  // own account deletion request (shared/src/api/account-deletion.ts): the caller's own only, whatever the request
+  // names; the owner cannot ask (409, a state to change first, not a permission check)
+  myDeletionRequest: { build: (c) => c.get('/api/me/deletion-request?userId=alice'), scope: 'self',
+    check: (r, _w, who) => { if (r.status < 300 && r.json?.state !== (who === 'owner' ? 'owner' : 'none') && r.json?.state !== 'pending') throw new Error(`unexpected state for ${who}: ${r.text}`) } },
+  requestAccountDeletion: { build: (c) => c.post('/api/me/deletion-request?userId=alice', { confirm: true }), scope: 'self',
+    check: (r, _w, who) => {
+      if (who === 'owner' && r.status !== 409) throw new Error(`the owner asked for their own account to be deleted: ${r.status}`)
+      if (who !== 'owner' && r.status < 300 && r.json?.state !== 'pending') throw new Error(`${who}'s request is not their own: ${r.text}`)
+    } },
+  cancelAccountDeletion: { build: (c) => c.del('/api/me/deletion-request?userId=alice'), scope: 'self',
+    check: (r, _w, who) => { if (r.status < 300 && r.json?.state !== (who === 'owner' ? 'owner' : 'none')) throw new Error(`${who}'s cancel left a request open: ${r.text}`) } },
   inviteInfo: { build: (c, w) => c.get(`/api/invites/${w.ids.inviteToken}`), scope: 'byLevel' },
   acceptInvite: { skipPositive: true, build: (c, w) => c.post(`/api/invites/${w.ids.inviteToken}/accept`, { username: 'newbie' + Math.random().toString(36).slice(2, 7), name: 'New Bie', password: 'Fresh-pass-Owl-3321-xy' }), scope: 'byLevel' },
   passwordResetInfo: { build: (c, w) => c.get(`/api/password-resets/${w.ids.resetToken}`), scope: 'byLevel' },
