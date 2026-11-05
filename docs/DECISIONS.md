@@ -7962,9 +7962,12 @@ the "3 proposals" step and the bar after sharing. Placement: Team AX core (skill
   "latest"; `recurring: "weekly"` for weekly work. The same source answer again reuses the unsaved draft.
 - **The server reads it** (`parseSkillDraft`): the form must pass `SkillInputs` (strict, as any SKILL.md); more than three
   visible fields fold (`advanced`); "쓰는 자료" only from the files the run used, never a personal folder, `skills/` or
-  `.system/` (teammates cannot read `users/<me>/`); a file whose name carries a date, or that sits in a team notes
-  folder, becomes its folder and "the latest" ("{팀} 회의록 폴더의 가장 최근 회의록"), so next week only the new notes are
-  dropped. **Specifics** (`onboarding/specifics.ts`): from the run's question, answer and file names, the team's account
+  `.system/` (teammates cannot read `users/<me>/`); a file whose name carries a date (or that the model marks latest)
+  becomes its folder and "the latest" of the same kind: the words of its name without the date (`like`, "주간회의" of
+  "2026-11-03_주간회의.md"), because the welcome step puts every file in the notes folder and the newest file there may
+  be another kind (found in the acceptance run: a monthly report's skill would have read the meeting notes). A name
+  that carries a specific of the run gives no kind. A template stays itself, wherever it sits. The card reads "Acme 회의록
+  폴더의 가장 최근 주간회의" (or "… 회의록" without words), so next week only the new file is dropped. **Specifics** (`onboarding/specifics.ts`): from the run's question, answer and file names, the team's account
   names found there (and a Korean given name), names before 님/씨, family name + job title ("이 대리"), the per-person
   headings of the answer, names with a company suffix (㈜, 주식회사, Inc …), dates (11/6, 2026-11-03, 11월 6일, 6(금)),
   amounts (₩, 원, 만원, thousands separators) and every link; the team's and the company's own names are not specifics.
@@ -8008,7 +8011,14 @@ the "3 proposals" step and the bar after sharing. Placement: Team AX core (skill
   files): "{팀장}님이 만든 팀 스킬이에요", its title as the box's chip and "이 방식대로 해 줘". The answer's step line reads
   "김지훈님의 팀 스킬 '견적서 쓰기' · 팀 파일 1개". Members keep "스킬로 제안" for improvements; nothing new for them here.
 - **Meeting notes fold in**: the card for notes reads "주간회의 할 일", asks nothing, shows the chips "내 할 일 · 사람별" (the
-  default 내 할 일) and "쓰는 자료: Acme 회의록 폴더의 가장 최근 회의록"; the link needs no file list.
+  default 내 할 일) and "쓰는 자료: Acme 회의록 폴더의 가장 최근 주간회의"; the link needs no file list.
+- **Checked on 2026-11-05** with `bun run dev` (Claude Code login; the hosted trial key is not on this Mac) at 390 px:
+  three kinds × three runs through the API (meeting notes → "주간회의 할 일", the choice, the notes folder, weekly; quote
+  template → "견적서 쓰기" asking 수신 · 품목 · 견적일자, the template file, not weekly; monthly report → "월간보고 핵심
+  정리", no inputs, the newest 월간보고, not weekly), none with a name, date or amount of the run, one rewrite used and
+  passed; and the whole walk twice in a browser (quote: card, share, invite, a member on the form with the line, a new
+  quote for another customer, "김지훈님의 팀 스킬 '견적서 쓰기' · 팀 파일 1개"; notes: the same with the choice form). The
+  first walk found the draft summarizing the template instead of writing a new quote: the instructions now say so.
 - **Side fix: the weekly suggestion only for weekly work.** "매주 이 시간에 자동으로 받을까요?" (X) now also needs the skill's
   metadata `recurring: weekly`: set on the pack's weekly report, competitor brief and meeting tasks (ko, en), and on a
   drafted skill when the draft judged the work weekly; never ad copy or a quote. A file without the key (installed
