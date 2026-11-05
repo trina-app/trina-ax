@@ -7,7 +7,7 @@ import { confidentialChat } from "../safe-ops/confidential"
 import fs from 'node:fs'
 import path from 'node:path'
 import crypto from 'node:crypto'
-import { CLAUDE_AGENT_TOOL_NAMES, FILE_TOOLS, TEAM_TOOL_PREFIX, type AgentStats, type EngineEvent } from '@mycel/shared'
+import { CLAUDE_AGENT_TOOL_NAMES, FILE_STEP_VERB, FILE_TOOLS, TEAM_TOOL_PREFIX, type AgentStats, type EngineEvent } from '@mycel/shared'
 import { recordSent, webEcho } from '../tools/connection-urls'
 import { normUrl, rememberUrls } from '../tools/url-gate'
 import type { ApiErrorBody, Attachment, EngineId, FileChange, FileChangeSummary, Locale, MessageStatus, Step, TurnRequest, TurnStopReason } from '@mycel/shared/api'
@@ -1292,7 +1292,7 @@ export class TurnExec {
     const answer = await this.waitForPerson({
       kind: 'ask_user', origin: 'server', requestId: crypto.randomUUID(), question: tr('roomAiConfirm', L, { what }),
       options: [{ label: tr('roomAiConfirmYes', L), value: 'allow' }, { label: tr('roomAiConfirmNo', L), value: 'skip' }], multiple: false, allowText: false,
-      details: roomChangeDetails(tool, input, args, L).map((d) => ({ ...d, text: this.redact(d.text) })),
+      details: roomChangeDetails(tool, input, L).map((d) => ({ ...d, text: this.redact(d.text), ...(d.fields ? { fields: d.fields.map((f) => ({ name: f.name, value: this.redact(f.value) })) } : {}) })),
       expiresAt: new Date(Date.now() + this.rt.askUserTimeoutMs()).toISOString(),
     } as TurnRequest, { timeoutMs: this.rt.askUserTimeoutMs() })
     if (answer === 'allow' || (Array.isArray(answer) && answer.length === 1 && answer[0] === 'allow')) {
@@ -1742,16 +1742,54 @@ function subtaskOf(st: AgentStats): NonNullable<Step['subtask']> {
   return { ...(st.toolUses !== undefined ? { toolUses: st.toolUses } : {}), ...(st.ms !== undefined ? { ms: Math.round(st.ms) } : {}) }
 }
 
-/** What a room's change card shows (TurnExec.confirmRoomChange): for edit_files every file and the replacement, for
- * anything else the call's input. Long texts are cut in the middle of their own field, never the list of files. */
-function roomChangeDetails(tool: string, input: unknown, args: string, L: Locale): { label: string; text: string }[] {
-  const cut = (t: string, n = 2000) => (t.length > n ? `${t.slice(0, n - 1)}…` : t)
-  const b = tool === 'edit_files' && input && typeof input === 'object' ? input as { file_paths?: unknown; old_string?: unknown; new_string?: unknown } : null
-  if (b && Array.isArray(b.file_paths)) {
-    return [
-      { label: tr('roomAiConfirmFiles', L), text: b.file_paths.map(String).join('\n') },
-      { label: tr('roomAiConfirmInput', L), text: `${cut(String(b.old_string ?? ''))}\n→\n${cut(String(b.new_string ?? ''))}` },
-    ]
+/** the content a room's change card shows, at most (the person sees what it is, not every character) */
+export const ROOM_CHANGE_PREVIEW = 400
+
+/**
+ * What a room's change card shows (TurnExec.confirmRoomChange), in words, never the call's JSON: what it does, the
+ * file or folder, and a short preview of what it writes (cut, with the full length said). edit_files lists every file
+ * and the replacement. A tool without its own lines shows its arguments one per line.
+ */
+function roomChangeDetails(tool: string, input: unknown, L: Locale): { label: string; text: string; fields?: { name: string; value: string }[] }[] {
+  const a = input && typeof input === 'object' && !Array.isArray(input) ? input as Record<string, unknown> : {}
+  const str = (v: unknown) => (typeof v === 'string' ? v : '')
+  const paths = (v: unknown) => (Array.isArray(v) ? v.map(String) : typeof v === 'string' ? [v] : [])
+  const cut = (t: string, n = ROOM_CHANGE_PREVIEW) => (t.length > n ? `${t.slice(0, n - 1).trimEnd()}…\n${tr('roomAiChangeCut', L, { n: String(t.length) })}` : t)
+  const verb = FILE_STEP_VERB[tool]?.[L] ?? tool
+  const field = (name: Parameters<typeof tr>[0], value: string) => ({ name: tr(name, L), value })
+  const detail = (fields: { name: string; value: string }[], text: string) => [{ label: tr('roomAiConfirmInput', L), fields: [field('roomAiChangeAction', verb), ...fields], text }]
+  switch (tool) {
+    case 'edit_files': {
+      if (!Array.isArray(a.file_paths)) break
+      return [
+        { label: tr('roomAiConfirmFiles', L), text: a.file_paths.map(String).join('\n') },
+        { label: tr('roomAiConfirmInput', L), text: `${cut(str(a.old_string), 2000)}\n→\n${cut(str(a.new_string), 2000)}` },
+      ]
+    }
+    case 'write':
+      return detail([field('roomAiChangeFile', str(a.file_path))], cut(str(a.content)) || tr('roomAiChangeEmpty', L))
+    case 'edit':
+      return detail([field('roomAiChangeFile', str(a.file_path))], `${cut(str(a.old_string))}\n→\n${cut(str(a.new_string)) || tr('roomAiChangeEmpty', L)}`)
+    case 'make_file':
+      return detail([
+        field('roomAiChangeFile', str(a.output)),
+        ...(str(a.source) ? [field('roomAiChangeSource', str(a.source))] : []),
+        ...(str(a.template) ? [field('roomAiChangeTemplate', str(a.template))] : []),
+      ], cut(str(a.content)))
+    case 'edit_hwp': {
+      const changes = Array.isArray(a.changes) ? a.changes as Record<string, unknown>[] : []
+      const lines = changes.map((c) => (c && typeof c === 'object' && typeof c.find === 'string' ? `${c.find} → ${str(c.replace)}` : tr('roomAiChangeCell', L)))
+      return detail([field('roomAiChangeFile', str(a.file_path)), ...(str(a.output) ? [field('roomAiChangeSaveAs', str(a.output))] : [])], cut(lines.join('\n')))
+    }
+    case 'move_files':
+    case 'copy_files':
+      return detail([field('roomAiChangeFolder', str(a.to_folder))], paths(a.paths).join('\n'))
+    case 'rename_file':
+      return detail([field('roomAiChangeFile', str(a.path)), field('roomAiChangeNewName', str(a.new_name))], '')
+    case 'save_url':
+      return detail([field('roomAiChangeAddress', str(a.url)), ...(str(a.save_as) ? [field('roomAiChangeSaveAs', str(a.save_as))] : [])], '')
   }
-  return [{ label: tr('roomAiConfirmInput', L), text: cut(args, 4000) }]
+  // any other change (a tool added later): its arguments one per line, each cut
+  const plain = (v: unknown): string => (typeof v === 'string' ? v : Array.isArray(v) ? v.map(plain).join(', ') : v && typeof v === 'object' ? Object.entries(v).map(([k, x]) => `${k}: ${plain(x)}`).join(', ') : String(v))
+  return detail(Object.entries(a).map(([k, v]) => ({ name: k, value: cut(plain(v)) })), '')
 }

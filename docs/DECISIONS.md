@@ -8326,6 +8326,12 @@ every week. Placement: Team AX core (skills, files and permissions, the team lin
     its preview later decides again on that question, not the latest one; a row from before has none and is decided
     on the session's scope. Kept as they were: previews never return as context, the pre-join check, the card for
     every change, the room prompt and tool allowlists.
+  - **The change card in words.** Under "바꿀 내용" the card showed the call's JSON (`{"file_path":…,"content":…}`).
+    It now shows what the call does (the step verb: 파일 저장, 파일 수정, 파일 옮기기, …), the file or folder, and the
+    first 400 characters of what it writes with "(모두 n자 중 앞부분)" when cut (`roomChangeDetails` in
+    `chat/turn.ts`; a tool without its own lines shows its arguments one per line). Nothing is behind a toggle: the
+    card is for deciding, and the preview is enough to see what it is. A detail without text (a rename) shows no
+    empty box.
 - **Not in this step.** The AI cannot open files sent in a room (it gets their names). The 12-hour new session and the context sizes are
   first guesses. Cards the AI raised are not shown again after a reload (they time out like an unanswered card). A PC
   runner's tools, once merged, fall under the card rule and the outside mark but are not switched off by name.
