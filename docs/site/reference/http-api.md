@@ -411,7 +411,7 @@ The API serves the Trina AX apps. It is not yet a stable public API for other pr
 | `PATCH` | `/api/onboarding/welcome` | Owner | Record a welcome step (owner): start, the team type, a step done or skipped, the first-result chat, the invite shown, hide the Home entry. |
 | `POST` | `/api/onboarding/welcome/pack` | Owner | Install the marketing skill pack for the welcome steps, once: nothing runs when these steps installed it before or the team already has its skills. |
 | `POST` | `/api/onboarding/welcome/team` | Owner | Every team's start, once: the general skill pack (meeting notes → tasks, a document's brief) and a group named after the team with its folder groups/<name>/ and a meeting notes folder in it, the owner in it. |
-| `POST` | `/api/onboarding/welcome/first-result` | Owner | Start the welcome steps' first result, the company card news (owner): the website's images into the brand folder, 회사 소개.md when no file was given, and a new chat of the owner where the brand photo tool may run. |
+| `POST` | `/api/onboarding/welcome/first-result` | Owner | Start the welcome steps' first result, the company card news (owner): the website's images into the brand folder, a company intro file (named in the team's language) when no file was given, and a new chat of the owner where the brand photo tool may run. |
 | `GET` | `/api/onboarding/suggestion` | Signed in | The one suggestion under an answer of the caller's own chat (schedule a skill run for the 2nd time, or a report as a PPT), or null; none the caller closed. |
 | `POST` | `/api/onboarding/suggestion/dismiss` | Signed in | Close a suggestion under answers for good (for the caller only). |
 
