@@ -2,7 +2,10 @@
 // upload (drag and drop; chunked and resumable when large), download, new folder, rename / move, trash, version
 // history with restore, conflict copies marked, "start a chat with this file". Refreshes on files.changed.
 // Several items at once: a checkbox per row (Shift+click: a range; the header one: every row listed; Esc: none), then
-// move / share / trash for all of them from the bar that replaces the breadcrumbs (lib/bulkFiles.ts).
+// move / share / trash for all of them from the bar that replaces the breadcrumbs (lib/bulkFiles.ts). Phones (below
+// 768 px) leave out the checkboxes and the header row: a long press on a row selects it, the checkboxes come back while
+// something is selected, and a tap on a row then adds or takes it away instead of opening it. Phones also leave out
+// refresh, and new folder / upload where the folder takes no new files.
 // Drag and drop, like a file manager: a row dragged onto a folder row or a breadcrumb moves there (the selection when
 // that row is selected), with the selection's "move" rules and toast; computer files dropped on a folder row are
 // uploaded into it. The "move" action stays the keyboard way to do the same.
@@ -40,9 +43,13 @@ import SuggestSkillDialog from '../components/SuggestSkillDialog'
 import { SkillIssues } from '../components/SkillIssues'
 import { isSkillsPath } from '../lib/skillIssues'
 import { useMeStrict } from '../store/session'
-import { Badge, Button, EmptyState, ErrorNote, IconButton, Modal, Skeleton, TabPanel, Tabs, confirmDialog, promptDialog } from '../components/ui'
+import { Badge, Button, EmptyState, ErrorNote, IconButton, Modal, Skeleton, TabPanel, Tabs, confirmDialog, promptDialog, useMediaQuery } from '../components/ui'
 
 const ICONS: Record<FileIconKind, typeof FileIcon> = { folder: Folder, image: FileImage, pdf: FileText, doc: FileText, sheet: FileSpreadsheet, slides: Presentation, audio: FileAudio, video: FileVideo, code: FileCode, archive: FileArchive, text: FileText, other: FileIcon }
+
+/** how long a finger stays on a row to select it (phones), and how far it may move meanwhile (more is a scroll) */
+const LONG_PRESS_MS = 500
+const LONG_PRESS_SLOP = 10
 
 /** phones have no folder picker (the attribute can be there and do nothing); the button also hides on a small screen */
 const canPickFolder = typeof HTMLInputElement !== 'undefined' && 'webkitdirectory' in HTMLInputElement.prototype
@@ -97,6 +104,10 @@ export default function Files() {
   const [error, setError] = useState<string | null>(null)
   const [loadingMore, setLoadingMore] = useState(false)
   const [drag, setDrag] = useState(false)
+  // phones (below 768 px, like the tab bar): rows are selected by a long press, not by a checkbox; a touch phone does
+  // not drag rows (a long press there is the selection, and a row cannot be dropped anywhere useful on that screen)
+  const phone = useMediaQuery('(max-width: 767.98px)')
+  const touchPhone = useMediaQuery('(max-width: 767.98px) and (pointer: coarse)')
   const [history, setHistory] = useState<string | null>(params.get('history'))
   const [suggesting, setSuggesting] = useState<string | null>(null)
   const me = useMeStrict()
@@ -666,10 +677,11 @@ export default function Files() {
                 </button>
               )}
             </label>
-            <IconButton label={t('common.refresh')} onClick={() => void load()}>
+            {/* phones: no refresh (the list follows changes on its own), and no new folder / upload where they are off */}
+            <IconButton label={t('common.refresh')} className="max-md:hidden" onClick={() => void load()}>
               <RefreshCw size={16} />
             </IconButton>
-            <Button size="sm" variant="ghost" onClick={mkdir} disabled={!canWrite} aria-label={t('files.newFolder')} title={t('files.newFolder')}>
+            <Button size="sm" variant="ghost" className={clsx(tree && !canWrite && 'max-md:hidden')} onClick={mkdir} disabled={!canWrite} aria-label={t('files.newFolder')} title={t('files.newFolder')}>
               <FolderPlus size={15} aria-hidden /> <span className="@max-2xl:hidden">{t('files.newFolder')}</span>
             </Button>
             {canPickFolder && (
@@ -691,7 +703,7 @@ export default function Files() {
                 />
               </>
             )}
-            <Button size="sm" variant="primary" onClick={() => fileInput.current?.click()} disabled={!canWrite} aria-label={t('files.upload')} title={t('files.upload')} data-testid="upload-button">
+            <Button size="sm" variant="primary" className={clsx(tree && !canWrite && 'max-md:hidden')} onClick={() => fileInput.current?.click()} disabled={!canWrite} aria-label={t('files.upload')} title={t('files.upload')} data-testid="upload-button">
               <Upload size={15} aria-hidden /> <span className="@max-2xl:hidden">{t('files.upload')}</span>
             </Button>
             <input
@@ -776,8 +788,8 @@ export default function Files() {
                 )}
                 {tree && tree.entries.length > 0 && (
                   <table className="w-full text-sm" data-testid="file-table">
-                    {/* on phones too: the header checkbox selects every row listed */}
-                    <thead>
+                    {/* not on phones: no "이름" line over the rows there, rows are selected by a long press */}
+                    <thead className="max-md:hidden">
                       <tr className="text-left text-xs text-faint">
                         <th className="w-0 py-1 pr-0 pl-1">
                           <CheckBox
@@ -811,7 +823,9 @@ export default function Files() {
                           open={openPath === e.path}
                           checked={checked.has(e.path)}
                           onCheck={(shift) => check(e.path, shift)}
-                          draggable={canChange(e) || chatDraggable(e) || (checked.has(e.path) && selectionMovable)}
+                          pressSelect={phone}
+                          selecting={phone && anyChecked}
+                          draggable={!touchPhone && (canChange(e) || chatDraggable(e) || (checked.has(e.path) && selectionMovable))}
                           onDragStart={(ev) => startDrag(e, ev)}
                           onDragEnd={endDrag}
                           dragged={dragPaths?.has(e.path) ?? false}
@@ -946,7 +960,7 @@ function CheckBox({ checked, disabled, label, title, onCheck, inputRef, testId }
   )
 }
 
-function FileRow({ e, selected, open, checked, onCheck, draggable, onDragStart, onDragEnd, dragged, dropTarget, drop, onOpen, onChat, onAddToChat, chatTitle, onRename, onMove, onShare, onDelete, onHistory, project, onProject, onSuggest }: { e: FileEntry; selected: boolean; open: boolean; checked: boolean; onCheck: (shift: boolean) => void; draggable: boolean; onDragStart: (ev: React.DragEvent) => void; onDragEnd: () => void; dragged: boolean; dropTarget: DropHandlers | null; drop: DropOver | null; onOpen: () => void; onChat: () => void; onAddToChat: (() => void) | null; chatTitle: string; onRename: () => void; onMove: () => void; onShare: () => void; onDelete: () => void; onHistory: () => void; project: FolderProjectAction; onProject: (a: NonNullable<FolderProjectAction>) => void; onSuggest: (() => void) | null }) {
+function FileRow({ e, selected, open, checked, onCheck, pressSelect, selecting, draggable, onDragStart, onDragEnd, dragged, dropTarget, drop, onOpen, onChat, onAddToChat, chatTitle, onRename, onMove, onShare, onDelete, onHistory, project, onProject, onSuggest }: { e: FileEntry; selected: boolean; open: boolean; checked: boolean; onCheck: (shift: boolean) => void; pressSelect: boolean; selecting: boolean; draggable: boolean; onDragStart: (ev: React.DragEvent) => void; onDragEnd: () => void; dragged: boolean; dropTarget: DropHandlers | null; drop: DropOver | null; onOpen: () => void; onChat: () => void; onAddToChat: (() => void) | null; chatTitle: string; onRename: () => void; onMove: () => void; onShare: () => void; onDelete: () => void; onHistory: () => void; project: FolderProjectAction; onProject: (a: NonNullable<FolderProjectAction>) => void; onSuggest: (() => void) | null }) {
   const t = useT()
   const locale = useLocale()
   const [menu, setMenu] = useState(false)
@@ -958,6 +972,15 @@ function FileRow({ e, selected, open, checked, onCheck, draggable, onDragStart, 
   const dim = e.access === 'none'
   const writable = e.access === 'write'
   const menuId = useId()
+  // phones (`pressSelect`): a long press selects the row (or takes it out of the selection), and the click that ends it
+  // does not open it; while something is selected (`selecting`) a tap does the same instead of opening
+  const press = useRef<{ timer: number; x: number; y: number } | null>(null)
+  const pressed = useRef(false)
+  const endPress = () => {
+    if (press.current) clearTimeout(press.current.timer)
+    press.current = null
+  }
+  useEffect(() => endPress, [])
   useEffect(() => {
     if (selected) ref.current?.scrollIntoView({ block: 'center' })
   }, [selected])
@@ -986,16 +1009,45 @@ function FileRow({ e, selected, open, checked, onCheck, draggable, onDragStart, 
       data-drop={dropOk ? 'ok' : dropNo ? 'no' : undefined}
       data-testid="file-row"
     >
-      <td className="w-0 py-1 pr-0 pl-1">
+      {/* phones: only while something is selected (a long press starts it) */}
+      <td className={clsx('w-0 py-1 pr-0 pl-1', !selecting && 'max-md:hidden')}>
         <CheckBox checked={checked} disabled={dim} label={t('files.select', { name: e.name })} title={dim ? t('files.navigationOnly') : undefined} onCheck={onCheck} testId="file-check" />
       </td>
       {/* w-full + max-w-0: the name column takes the room that is left and a long name ends in "…" instead of
           pushing the table wider than the screen (phones) or the space beside an open file panel */}
-      <td className="w-full max-w-0 px-2 py-1.5">
+      <td className="w-full max-w-0 px-2 py-1.5 max-md:py-0">
         <button
           type="button"
-          onClick={onOpen}
-          className="flex w-full min-w-0 items-center gap-2.5 rounded py-1 text-left hover:underline"
+          onClick={() => {
+            if (pressed.current) {
+              pressed.current = false
+              return
+            }
+            if (selecting && !dim) onCheck(false)
+            else onOpen()
+          }}
+          onPointerDown={(ev) => {
+            pressed.current = false
+            if (!pressSelect || dim || ev.button !== 0) return
+            endPress()
+            const timer = window.setTimeout(() => {
+              press.current = null
+              pressed.current = true
+              onCheck(false)
+            }, LONG_PRESS_MS)
+            press.current = { timer, x: ev.clientX, y: ev.clientY }
+          }}
+          onPointerMove={(ev) => {
+            const p = press.current
+            if (p && Math.hypot(ev.clientX - p.x, ev.clientY - p.y) > LONG_PRESS_SLOP) endPress()
+          }}
+          onPointerUp={endPress}
+          onPointerCancel={endPress}
+          onPointerLeave={endPress}
+          // a phone's own long-press menu (Android) does not open over the selection
+          onContextMenu={(ev) => (press.current || pressed.current) && ev.preventDefault()}
+          // phones: a 44px row to tap, and a long press selects the row, not its text
+          className="flex w-full min-w-0 items-center gap-2.5 rounded py-1 text-left hover:underline max-md:min-h-11 max-md:select-none max-md:[-webkit-touch-callout:none]"
           title={dim ? t('files.navigationOnly') : undefined}
           aria-current={open ? 'true' : undefined}
           // dragged onto a folder row or a breadcrumb: moved there (with the selection when this row is selected); a
@@ -1010,9 +1062,10 @@ function FileRow({ e, selected, open, checked, onCheck, draggable, onDragStart, 
             {e.name}
           </span>
           {/* a folder the person can only pass through: a visible badge (a hover title alone does not reach phones);
-              screen readers get the full sentence in place of the short badge text */}
+              screen readers get the full sentence in place of the short badge text. Phones show the row greyed out
+              only (next to the folder's own "이동만" badge it read as the same thing twice); inside, that badge says it */}
           {dim && (
-            <span className="shrink-0" data-testid="pass-through">
+            <span className="shrink-0 max-md:sr-only" data-testid="pass-through">
               <Badge>
                 <Signpost size={11} aria-hidden /> <span aria-hidden>{t('files.passThroughShort')}</span>
                 <span className="sr-only">{t('files.navigationOnly')}</span>
