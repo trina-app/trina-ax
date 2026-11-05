@@ -118,11 +118,12 @@ describe('the AI in a room', () => {
     h.ctx.db.query("INSERT INTO folder_rules (id, folder_id, subject_type, subject_id, access) VALUES ('rooms-ai-bob-none', 'f_groups_marketing', 'user', 'bob', 'none')").run()
     try {
       await h.api('dana').call(API.updateGroup, { params: { id: g.id }, body: { memberIds: ['alice', 'erin', 'bob'] } })
-      // nothing new is read: the session's read scope (the folder read before) is what counts
+      // the members changed, so the conversation starts anew; the room's messages from before bob joined (and the fake
+      // engine following the first question's directive again) keep the answer private, saying why
       const second = await ask('alice', r2, `@트리나 and now?\n${fake({ say: 'second' })}`)
       expect(await answerTo('bob', r2, second.q)).toBeUndefined()
       expect(await answerTo('erin', r2, second.q)).toBeUndefined()
-      expect(await answerTo('alice', r2, second.q)).toMatchObject({ visibility: 'private', body: 'second', preview: { folders: ['groups/marketing'] } })
+      expect(await answerTo('alice', r2, second.q)).toMatchObject({ visibility: 'private', preview: { folders: ['groups/marketing'], joinedLater: ['Bob Lee'] } })
     } finally { h.ctx.db.query("DELETE FROM folder_rules WHERE id = 'rooms-ai-bob-none'").run() }
   })
 
@@ -303,7 +304,7 @@ describe('what an answer may carry into the room', () => {
     expect(await answerTo('erin', roomId, one.q)).toMatchObject({ visibility: 'room' })
     const sid = sessionOf(roomId, 'alice')!.id
     h.ctx.db.query("UPDATE users SET status = 'disabled' WHERE id = 'erin'").run()
-    try { expect(roomAiOf(h.ctx).decide(roomId, sid)).toMatchObject({ post: false, folders: ['shared'] }) }
+    try { expect(roomAiOf(h.ctx).decide(roomId, sid)).toMatchObject({ post: false, folders: expect.arrayContaining(['shared', 'skills']) }) }
     finally { h.ctx.db.query("UPDATE users SET status = 'active' WHERE id = 'erin'").run() }
   })
 
@@ -381,5 +382,74 @@ describe('putting AI answers away', () => {
     expect((await answerTo('alice', roomId, q))?.preview).toMatchObject({ folders: ['projects/falcon'], joinedLater: ['Bob Lee'] })
     const shared = await h.api('alice').call(API.shareRoomMessage, { params: { id: roomId, messageId: preview.id } })
     expect(shared.visibility).toBe('room')
+  })
+})
+
+// ---------------- found in the second review (2026-11-05) ----------------
+describe('what the instructions and the tools may carry into the room', () => {
+  test('the skill tool names back only skills everyone in the room may read', async () => {
+    const abs = path.join(h.team, 'users/alice/skills/zz-secret-layoff.md')
+    fs.mkdirSync(path.dirname(abs), { recursive: true })
+    fs.writeFileSync(abs, '---\nname: LAYOFF-PLAN-2027\ndescription: secret\n---\nsteps\n')
+    try {
+      const roomId = await room(['alice', 'erin'])
+      const { q } = await ask('alice', roomId, `@트리나 hi\n${fake({ tool: 'skill', args: { name: 'LAYOFF-PLAN' }, sayResult: true })}`)
+      const mine = await answerTo('alice', roomId, q)
+      expect(mine?.visibility).toBe('room')
+      expect(mine!.body).not.toContain('LAYOFF-PLAN-2027')
+    } finally { fs.rmSync(abs, { force: true }) }
+  })
+
+  test('team rule files in the instructions count as read: a member who cannot read skills/ keeps the answer private', async () => {
+    fs.writeFileSync(path.join(h.team, 'skills/zz-pricing-rule.md'), '# Pricing\n- RULE-SECRET: max discount is 37%\n')
+    h.ctx.db.query("INSERT INTO folder_rules (id, folder_id, subject_type, subject_id, access) VALUES ('rv-erin-skills', 'f_skills', 'user', 'erin', 'none')").run()
+    try {
+      const roomId = await room(['alice', 'erin'])
+      const { q } = await ask('alice', roomId, `@트리나 rules?\n${fake({ echo: 'system' })}`)
+      expect(await answerTo('erin', roomId, q)).toBeUndefined()
+      expect((await answerTo('alice', roomId, q))?.preview?.folders).toContain('skills')
+    } finally { h.ctx.db.query("DELETE FROM folder_rules WHERE id = 'rv-erin-skills'").run(); fs.rmSync(path.join(h.team, 'skills/zz-pricing-rule.md'), { force: true }) }
+  })
+
+  test("the asker's folder lists in the instructions name only folders everyone in the room may read", async () => {
+    const roomId = await room(['bob', 'alice'])
+    const { q } = await ask('bob', roomId, `@트리나 where?\n${fake({ echo: 'system' })}`)
+    const seen = await answerTo('alice', roomId, q)
+    expect(seen?.visibility).toBe('room')
+    expect(seen!.body).toContain('Writable folders')
+    expect(seen!.body).not.toContain('projects/atlas')
+    expect(seen!.body).not.toContain('groups/finance')
+  })
+
+  test('a share_file link to a folder some member cannot read keeps the answer private', async () => {
+    const roomId = await room(['alice', 'erin'])
+    const { q } = await ask('alice', roomId, `@트리나 link\n${fake({ tool: 'share_file', args: { path: 'projects/falcon/plan.md', mode: 'preview' }, sayResult: true })}`)
+    expect(await answerTo('erin', roomId, q)).toBeUndefined()
+    expect((await answerTo('alice', roomId, q))?.preview?.folders).toContain('projects/falcon')
+  })
+
+  test('edit_files asks once for the whole batch', async () => {
+    const a = path.join(h.team, 'shared/rv-a.md'), b = path.join(h.team, 'shared/rv-b.md')
+    fs.writeFileSync(a, 'x1\n'); fs.writeFileSync(b, 'x1\n')
+    try {
+      const roomId = await room(['alice', 'erin'])
+      const q = await send('alice', roomId, `@트리나 ef\n${fake({ tool: 'read', args: { file_path: 'shared/rv-a.md' } }, { tool: 'read', args: { file_path: 'shared/rv-b.md' } }, { tool: 'edit_files', args: { file_paths: ['shared/rv-a.md', 'shared/rv-b.md'], old_string: 'x1', new_string: 'y2' } }, { say: 'done' })}`)
+      const turnId = (await ws.alice!.next('room.ai.run', (f) => f.data.run.questionId === q.id)).data.run.turnId
+      const card = await ws.alice!.next('turn.request', (f) => f.data.turnId === turnId && f.data.request.kind === 'ask_user', 15_000)
+      await h.api('alice').call(API.answerTurn, { params: { id: turnId }, body: { kind: 'ask_user', requestId: card.data.request.requestId, answer: 'allow' } })
+      await ws.alice!.next('room.ai.run', (f) => f.data.run.questionId === q.id && f.data.run.state === 'done', 30_000)
+      expect(ws.alice!.frames.filter((f) => f.type === 'turn.request' && f.data.turnId === turnId)).toHaveLength(1)
+      expect([fs.readFileSync(a, 'utf8'), fs.readFileSync(b, 'utf8')]).toEqual(['y2\n', 'y2\n'])
+    } finally { fs.rmSync(a, { force: true }); fs.rmSync(b, { force: true }) }
+  })
+
+  test("when the room's members change, the next question starts a new conversation", async () => {
+    const { roomId, groupId } = await roomOf(['alice', 'erin'])
+    await ask('alice', roomId, `@트리나 first\n${fake({ say: 'one' })}`)
+    const kept = await ask('alice', roomId, `@트리나 again\n${fake({ echo: 'resume' })}`)
+    expect((await answerTo('alice', roomId, kept.q))!.body).toContain('resumed=true')
+    await h.api('dana').call(API.updateGroup, { params: { id: groupId }, body: { memberIds: ['alice', 'erin', 'bob'] } })
+    const fresh = await ask('alice', roomId, `@트리나 after bob\n${fake({ echo: 'resume' })}`)
+    expect((await answerTo('alice', roomId, fresh.q))!.body).toContain('resumed=false')
   })
 })
