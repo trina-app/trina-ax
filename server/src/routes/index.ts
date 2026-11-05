@@ -22,6 +22,7 @@ import { onboardingRoutes } from './onboarding'
 import { onboardingWelcomeRoutes } from './onboarding-welcome'
 import { onboardingGoalRoutes } from './onboarding-goal'
 import { demoRoutes } from './demo'
+import { roomsRoutes } from './rooms'
 
 export type { RouteModule } from './module'
 
@@ -33,6 +34,7 @@ export const ROUTE_MODULES: readonly RouteModule[] = [
   peopleRoutes, // A (profiles and the people directory)
   chatsRoutes, // B
   memoriesRoutes, // B
+  roomsRoutes, // B (team chat rooms, docs/DECISIONS.md "대화방 v1")
   wsRoutes, // B
   browserRoutes, // B
   filesRoutes, // C

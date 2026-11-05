@@ -11,6 +11,7 @@ import type { AppContext } from '../context'
 import { originAllowed, originsFor } from '../http/middleware'
 import { atLeast, loadPrincipal, RuleSet } from '../policy/access'
 import { visibleChanges } from '../team-files/changes'
+import { isRoomMember } from '../rooms/store'
 
 /** Hard caps on top of the contract's "at least 2000 events / 5 minutes" (memory stays bounded per person). */
 export const REPLAY_MAX_EVENTS = 20_000
@@ -248,9 +249,18 @@ export class Hub implements RealtimeHub {
    * events were filtered when they were published; a person removed from a folder since then must not get its new
    * file and folder names from the buffer when HTTP already answers 404. Anything that no longer passes unchanged
    * turns the whole replay into a resync (the window reloads over REST, which checks again), so nothing is skipped
-   * silently either.
+   * silently either. Room events (room.*) the same way: replayed only while the person is still in the room (a
+   * removed member gets resync; the rooms list over REST no longer has the room).
    */
   private stillVisible(userId: string, entries: readonly Entry[]): boolean {
+    const rooms = new Set<string>()
+    for (const { ev } of entries) if (ev.type === 'room.message' || ev.type === 'room.message.updated' || ev.type === 'room.read' || (ev.type === 'room.updated' && ev.data.change !== 'removed')) rooms.add(ev.data.roomId)
+    try {
+      for (const r of rooms) if (!isRoomMember(this.ctx.db, r, userId)) return false
+    } catch (e) {
+      this.ctx.log.error('replay room check failed', { err: e, user: userId })
+      return false
+    }
     const files = entries.filter((e) => e.ev.type === 'files.changed' || e.ev.type === 'files.conflict')
     if (!files.length) return true
     try {
