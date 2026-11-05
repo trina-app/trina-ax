@@ -8013,6 +8013,15 @@ The phone app (mobile/, Expo SDK 58 WebView of a team's HTTPS web app) goes to T
 - **Release build**: Expo's "Generate app.config" build phase runs `expo config` again inside xcodebuild, so
   `scripts/ios-release.sh` exports the edition for the whole run and refuses an export whose embedded config is not the
   edition's (build 1 showed "Team AX" inside the app because only prebuild had the edition).
+- **Android release** (`mobile/scripts/android-release.sh`): prebuild and `./gradlew bundleRelease` on this Mac, signed by
+  the upload key that `plugins/release-signing.js` makes Gradle read from the environment (keystore outside the
+  repository, no secret in any file); the script checks the bundle's embedded config and its signer against the key.
+  targetSdk 36; compileSdk 37 because the SDK 58 modules (expo-application, expo-asset) refuse to compile against 36.
+  Camera and microphone are declared on Android too, for the same uses as on iOS: Android's
+  WebView has no per-origin grant (react-native-webview grants any page once the app holds the permission), but only the
+  team's origin is ever a top-level page and a cross-origin frame cannot ask without the team page's Permissions-Policy
+  delegation. SYSTEM_ALERT_WINDOW (Expo's default) is blocked. Without `google-services.json` Android has no push and
+  never prompts; notification setup is guarded so it cannot stop the app.
 - Known limits: an iOS build made in Xcode with a development profile but Release configuration reports sandbox only if
   its profile says so; a removal owed to a team whose server stays unreachable for 30 days is dropped, and that team
   keeps the device until the session ends (its pushes show generic text, a tap opens nothing because of the tag).

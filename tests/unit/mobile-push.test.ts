@@ -118,7 +118,11 @@ test('the Trina edition builds app.trina.ax for iPhone only, with usage strings,
     expect((c.locales?.ko as { ios: Record<string, string> }).ios[key]).toMatch(/[가-힣]/)
   }
   expect(c.android).toMatchObject({ package: 'app.trina.ax', versionCode: 1 })
-  expect(JSON.stringify(c.plugins)).toContain('"targetSdkVersion":36')
+  // camera and microphone for the team page as on iOS; no overlay windows
+  expect(c.android?.permissions).toEqual(['android.permission.CAMERA', 'android.permission.RECORD_AUDIO'])
+  expect(c.android?.blockedPermissions).toEqual(['android.permission.SYSTEM_ALERT_WINDOW'])
+  expect(JSON.stringify(c.plugins)).toContain('"targetSdkVersion":36,"compileSdkVersion":37')
+  expect(c.plugins).toContain('./plugins/release-signing.js')
   expect(JSON.stringify(c.plugins)).toContain('expo-notifications')
   expect(c.extra?.pushEnabled).toEqual({ ios: true, android: false })
   for (const asset of [c.icon, c.android?.adaptiveIcon?.foregroundImage]) {
@@ -185,4 +189,16 @@ test('leaving a team removes the device there; an unreachable team is retried at
   expect(m.store.has('pending')).toBe(false)
   for (let i = 0; i < 6; i++) { await rememberDevice(m.deps, dev(`https://t${i}.example`, `dev_${i}`)); await leaveTeam(m.deps, `https://t${i}.example`) }
   expect(JSON.parse(m.store.get('pending')!).map((d: TeamDevice) => d.deviceId)).toEqual(['dev_2', 'dev_3', 'dev_4', 'dev_5'])
+})
+
+test('Android release signing comes from the environment only: no key, path or password is written into the build file', async () => {
+  const { applyReleaseSigning } = await import('../../mobile/plugins/release-signing-gradle.js')
+  const template = `android {\n    signingConfigs {\n        debug {\n            storeFile file('debug.keystore')\n        }\n    }\n    buildTypes {\n        debug {\n            signingConfig signingConfigs.debug\n        }\n        release {\n            // Caution!\n            signingConfig signingConfigs.debug\n            minifyEnabled false\n        }\n    }\n}\n`
+  const out = applyReleaseSigning(template)
+  expect(out).toContain("storeFile file(System.getenv('ANDROID_KEYSTORE_PATH'))")
+  expect(out).toContain("storePassword System.getenv('ANDROID_KEYSTORE_PASSWORD')")
+  expect(out).toContain("signingConfig System.getenv('ANDROID_KEYSTORE_PATH') ? signingConfigs.release : signingConfigs.debug")
+  expect(out.match(/signingConfig signingConfigs\.debug/g)).toHaveLength(1) // the debug build type keeps the debug key
+  expect(applyReleaseSigning(out)).toBe(out)
+  expect(() => applyReleaseSigning('android {}')).toThrow()
 })
