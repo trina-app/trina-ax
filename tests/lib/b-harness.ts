@@ -68,7 +68,27 @@ export const testSessions: SessionService = {
   },
   async verifyPassword() { return false },
 }
-const sessionModule: RouteModule = { name: 'test-sessions', owner: 'A', init(ctx) { ctx.services.sessions = testSessions }, register() {} }
+/** Each test session is also a stored session row, as a real sign-in makes one: routes that read the caller's own
+ * session (GET /api/me, and PATCH /api/me answering with it; Drive's flows bound to a session) see it exist. Without
+ * it those answered 401 after their change was saved, which no real server does. */
+const sessionModule: RouteModule = {
+  name: 'test-sessions', owner: 'A',
+  init(ctx) {
+    ctx.services.sessions = {
+      async resolve(req, info) {
+        const a = await testSessions.resolve(req, info)
+        if (a) {
+          const now = new Date().toISOString()
+          ctx.db.query('INSERT OR IGNORE INTO sessions (id, user_id, token_hash, client, user_agent, created_at, last_seen_at, expires_at) VALUES (?, ?, ?, ?, NULL, ?, ?, ?)')
+            .run(a.session.id, a.user.id, `test-session-${a.session.id}`, a.session.client, now, now, new Date(Date.now() + 365 * 86400_000).toISOString())
+        }
+        return a
+      },
+      verifyPassword: testSessions.verifyPassword,
+    }
+  },
+  register() {},
+}
 
 export interface Harness {
   ctx: AppContext

@@ -39,6 +39,7 @@ const GROUP_TITLES: Record<keyof typeof API_GROUPS, string> = {
   PEOPLE: 'People directory and profiles',
   ROOMS: 'Team chat rooms',
   ACCOUNT_DELETION: 'Account deletion request',
+  SLACK: 'Slack connector',
 }
 
 const WHO: Record<Endpoint['auth'], string> = {

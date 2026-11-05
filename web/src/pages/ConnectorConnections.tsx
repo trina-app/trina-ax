@@ -6,6 +6,7 @@ import { formatDateTime } from '../lib/format'
 import { useLocale, useT } from '../i18n'
 import { accessChanged, reloadAsked } from '../store/live'
 import { Button, EmptyState, ErrorNote, Skeleton } from '../components/ui'
+import { SlackAccount } from '../components/settings/SlackAccount'
 
 export default function ConnectorConnections() {
   const t = useT(), locale = useLocale()
@@ -55,5 +56,6 @@ export default function ConnectorConnections() {
       </li>)}</ul>}
       {configured && <p className="text-xs text-muted">{t('connectors.sessionBound')}</p>}
     </>}
+    <SlackAccount />
   </section>
 }

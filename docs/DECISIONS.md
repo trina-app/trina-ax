@@ -8342,3 +8342,135 @@ The phone app (mobile/, Expo SDK 58 WebView of a team's HTTPS web app) goes to T
   `server/src/notifications/push-events.ts`), only while the person is still in that room and it is not archived;
   otherwise the app opens its start page. The room page checks membership again. Web Push keeps its own way (the room
   id from the signed-in fetch at show time, never from the payload).
+
+## Slack 커넥터 (feat/slack-connector, 2026-11-05)
+
+People ask the team's AI from Slack (`@app` in a channel, a DM to the app). Guide: [SLACK.md](SLACK.md).
+
+- **Distribution: an internal app per workspace, in Socket Mode.** The owner makes it in their own workspace from a
+  manifest the server generates (Admin › Slack opens Slack's "create app" with it filled in,
+  `https://api.slack.com/apps?new_app=1&manifest_json=…`, docs.slack.dev "Configuring apps with app manifests"). Socket
+  Mode needs no public address, so an office Mac behind NAT works like a hosted server. A distributed (Marketplace) app
+  was left out: Marketplace apps may not use Socket Mode, so a NAT server would need a relay we run, and unlisted
+  distributed apps got 1 request a minute for conversation history (Slack changelog 2025-05-29).
+- **Tokens.** The bot token (`xoxb-`) and the app-level token (`xapp-`, `connections:write`) are sealed in the browser for
+  their own purpose `slack.token` and kept with their own key directory `<secrets>/integrations/slack` (the same
+  `SecretBox` checks as the connections' directory). Saving checks them with Slack first (`auth.test`, the scopes in
+  `X-OAuth-Scopes`, `apps.connections.open`). Owner only, for every Admin › Slack route: the app answers as every linked
+  person, which is more than an admin's own reach.
+- **Scopes:** `app_mentions:read`, `im:history`, `chat:write`, and `users:read`. `users:read` was added beyond the first
+  plan: the link page has to name the Slack account (the design asks for both names), "Asked by" needs a name without
+  pinging the asker, and `users.info` says whether the asker is a bot or of another workspace. No channel history (so no
+  thread context: other people's messages would be untrusted input), no files, no slash command, no user token.
+- **Who asked** is the event's `user`, the envelope's `team_id` and `enterprise_id`; the envelope must name the connected
+  workspace and the app id Slack's hello gave. Socket Mode has no request signature; every shape is checked with zod
+  (`envelope.ts`) and anything else is dropped. A person of another workspace (`user_team`, or `users.info` `team_id`)
+  is never offered a link or answered. An organization-wide install is refused.
+- **The one-time link** is a random 32-byte token (stored as its SHA-256), not a signed one: a row we look up is as
+  strong and is single-use by an atomic `UPDATE … WHERE used_at IS NULL AND expires_at > now`. 10 minutes, the newest of
+  a Slack account only, at most one a minute and 10 an hour. It travels in `/slack/link?t=` (the request log writes paths
+  only, and a signed-out visitor keeps it through `/login?next=`) and reaches the API only in POST bodies. Opening it
+  needs a sign-in; it binds the Slack account it was sent to, never one named in the request. "Send the victim my link":
+  the page names both accounts and warns that whoever uses the Slack account asks with your permissions; an account
+  linked to another Slack account cannot confirm (unlink first, 409), and a Slack account linked to someone else cannot
+  be taken (409). One Slack account per person and one person per Slack account.
+- **Unlink**: from Settings › App connectors, and by a trigger on `users` (status not active, or deleted), so it holds
+  whichever path disables an account; the trigger writes `slack.unlinked` with `account_disabled`. A temporary password
+  to change keeps the link and answers "sign in first".
+- **A question is a normal turn** (`runtime.createTurn`, `clientKind: 'slack'`, the person's engine choice and budget
+  checks, the chat's queue rules). One chat per (workspace, conversation, thread root, person): a top-level message's own
+  `ts` is the root, so each new thread is a new chat and replies in it continue it. The chat is made inside the
+  admission transaction, so a refused question (queue full, a running answer, a used-up budget) leaves no empty chat.
+  The `clientMessageId` comes from the message's ts, so a resend is the same turn.
+- **Where answers go.** DM: "working…" is a message of its own in the DM thread, replaced by the answer (`chat.update`).
+  Channel: "working…" and the answer are ephemeral to the asker (in the thread only when the question was asked in a
+  thread: Slack shows ephemeral messages in a thread only when it already exists), with one button, Post to channel. It
+  posts the answer alone, "Asked by <Slack name>", to the thread, once (`posted` claimed atomically), by the asker only
+  (the button's value is checked against the request's Slack user, the link and the account). Nothing the channel sees
+  carries steps, file names, sources or the chat's link. Ephemeral messages are not kept by Slack, so every message to the
+  asker links to the chat. Answers are converted from Markdown to mrkdwn with `&`, `<`, `>` written out, so an answer can
+  never mention `@channel` or a person or hide a link; at most 4 sections of 2,900 characters ephemeral and 10 posted.
+- **Delivery** is a poll of `slack_requests` against `turns.status` (1 s), not a hook in the turn code: it survives a
+  restart (an interrupted turn is delivered as interrupted), needs no change in B's files, and a row is claimed before it
+  is sent. A 429 or a network failure puts it back for the next tick. A turn waiting for a card tells the asker once to
+  answer it in the app (`openRequests()`); questions wait 2 hours at most.
+- **Retries and dedupe.** The socket acknowledges every envelope before anything else (Slack resends after 3 seconds).
+  `slack_events` keeps event ids and `channel:ts` of messages for a day, so a resent event and the same message seen as
+  two events run once, across restarts and processes (`INSERT OR IGNORE`). The Web API client waits out `Retry-After`
+  (at most 30 s, twice).
+- **Not in this step:** files, thread context, a slash command, streaming answers (`chat.startStream`), Slack's AI app
+  surface (`assistant:write`), Enterprise Grid org installs, more than one workspace, telling the person in the app that
+  their account was linked (they confirmed it themselves on the page).
+- **Review (2026-11-05), what changed:** the notification `text` of every message is escaped plain text (it carried the
+  raw Markdown, so `<!channel>` or a disguised link could reach a channel through "Post to channel"); a Markdown link
+  whose text reads like an address is shown as `text (<address>)`, `|` in an address is `%7C`; NUL characters are
+  dropped before conversion (one crashed it after the row was claimed); an answer is sent only while the asker's Slack
+  account is still linked to the person and that person may use the app (`slack_requests.enterprise_id` kept for it);
+  finished answers are taken before waiting ones (20 running turns no longer hold them back); a 30-second ping finds a
+  dead connection; Socket Mode turned off in Slack keeps its reason instead of a reconnect wiping it; no link when
+  `users.info` fails or names another workspace (it failed open); `bots.info` and the socket address's `app_id` must
+  name one app (tokens of two apps are refused, `app_mismatch`), the saved app id is what envelopes must carry and
+  nothing is handled without one; at most `max` sections; DM answers are a new message (notified) and "working…" is
+  deleted; posting from a chat deleted in the app is refused; a stopped connection's late attempt writes no state; the
+  clean-up runs once a minute; two quick link requests make one link; a request past 2 hours tells the asker.
+- **"Send the victim my link" is closed with an e-mail proof (2026-11-05, before shipping).** An attacker's Slack account
+  bound to someone else's account would ask with that person's permissions, so names on a page were not enough. Confirm
+  now binds only when Slack's e-mail of the Slack account the link was sent to (`users.info` with `users:read.email`,
+  read by the server at confirm time, from the Slack id bound in the link, never from the request) equals the confirming
+  person's e-mail: Unicode NFC, trimmed, lower case. NFKC was rejected: it would make a full-width look-alike equal to a
+  real address. No e-mail on either side (Slack hides it, a bot, a guest without one, an account here without one),
+  another workspace, or the same e-mail on another active account here: refused, nothing bound, `slack.link_refused`
+  audited. The preview says `emailCheck` so the page shows the reason ("이 Slack 계정의 이메일이 … 계정과 달라요.
+  팀장에게 연결을 부탁하세요") instead of a Link button. Sign in with Slack was not chosen: it needs a redirect address
+  registered per team and a second OAuth flow, while the e-mail is already verified by Slack.
+- **Residual:** the e-mail here is self-set (Settings › Profile) and not verified. Someone could set theirs to a
+  colleague's Slack e-mail, but would still need that colleague's own one-time link (only their Slack account gets it,
+  ephemeral); the same e-mail on two accounts is refused; and Slack tells the Slack account which account it was linked
+  to. Verified e-mails here would close this too.
+- **The owner proposes, the member accepts** (second review, 2026-11-05). A link the owner made directly let the owner
+  bind their own Slack account to a member and ask as that member (their personal folder, connections and memories):
+  impersonation, against "personal connections are their owner's only" and "no sign-in as someone else". Now Admin ›
+  Slack › People only *proposes* (`slack_link_proposals`, 7 days, one waiting per member and per Slack person, audited
+  `slack.proposed`); nothing is answered for that Slack account until the member accepts in Settings › App connectors
+  with their own session (`POST /api/slack/proposals/:id/accept`: only the member it is for finds it, the owner gets
+  404). Slack is asked again at accept time. The member gets an in-app notice (realtime, linking to Settings); the Slack
+  person gets one DM at the proposal naming no account, and one after the accept naming it and how to undo it. The owner
+  can withdraw a waiting proposal; a disabled account's proposals are cancelled by the same trigger that unlinks it.
+- **A proposal proves the Slack side too** (third review, 2026-11-05). Accepting in the app alone let an owner propose
+  an unlinked colleague's Slack account for the owner's own account and accept it (squatting), or propose a renamed Slack
+  account. Now a proposal only stands in for the e-mail check: it completes when the member accepts it in the app
+  (`member_accepted_at`) and confirms the one-time link that Slack account got in Slack (`slack_confirmed_at`), in either
+  order, both within the 7 days, which are checked again in the transaction that links. The Slack account's DM at the
+  proposal says how (ask the app once, open the link signed in as that account). Someone else holding that link meets
+  the plain e-mail check and is refused.
+- **An e-mail someone else set proves nothing for 7 days.** Admins set e-mails (Admin › Members: a new member, a change),
+  so an admin could give a member a colleague's Slack e-mail. Triggers on `users` record when each e-mail was last set
+  (`slack_email_changes`); who set it is the audit log (`user.create`, `user.update` with `email`, actor not the
+  person, at or after that time less a second's margin). Such an e-mail is not taken as proof for 7 days, unless the
+  person set it again themselves since (Settings › Profile writes no audit entry). Those people use the proposal. The
+  link page shows the compared e-mail (the person's own; Slack's is never shown there). The migration seeds the times of
+  e-mails admins set before it from the audit log (an e-mail changed back by its person before the migration counts as
+  the admin's until they set it again). The person is told in the app when an admin changes their e-mail (the poll
+  reads new `user.update` entries), and Settings says the e-mail proves nothing for now.
+- **Slack Connect channels** (`is_ext_shared_channel`): the flag is kept with the question and the answer has no Post to
+  channel there, saying why; a replayed button is refused too. The button asks Slack again (`conversations.info`, scopes
+  `channels:read` and `groups:read`): shared since, or no `is_ext_shared` in the answer, and nothing is posted.
+- Smaller: "Asked by" never falls back to a mention (`<@U…>` would ping): the Slack name, or "a teammate". A 429 keeps a
+  not-before time per answer (Slack's `Retry-After`, up to an hour); a network failure waits 15 s. A DM answer tried
+  again after a timeout first reads the DM thread (`conversations.replies`, `im:history`) so it is not posted twice;
+  only the app's messages written after the question count (an earlier answer with the same words does not). A
+  person counts as of the workspace only by its own `team_id` (users.list, users.info and a question's `user_team`
+  agree; another workspace of the same Enterprise Grid organization is not).
+- Scopes are now `app_mentions:read`, `channels:read`, `chat:write`, `groups:read`, `im:history`, `im:write`,
+  `users:read`, `users:read.email`; the token check refuses a bot token without any of them.
+- Tests: `tests/unit/c-slack.test.ts` with `tests/lib/fake-slack.ts` (owner only; wrong tokens, missing scopes, a seal
+  for another purpose; the link prompt to the asker only; somebody else's link refused by the e-mail check, no e-mail on
+  either side refused, the matching e-mail binds (case and spaces aside), NFC and full-width e-mails, an admin-set e-mail
+  refused until the person sets it again; the owner's People list and proposals: owner only, no bots, deactivated people
+  or other workspaces, already linked either way, a proposal links nothing (the owner's own Slack account gets no answer
+  as the member), only the member accepts, withdraw, decline, 7-day expiry, the audit and the DMs; a Slack Connect
+  channel without the button; both names, used once, expiry, cancel, linked elsewhere;
+  Slack Connect; a turn as the linked person answered ephemerally with the button; posting once, not by someone else; a
+  thread follow-up in the same chat; a DM; dedupe; other workspace or app and malformed events; a refresh; the tokens in
+  no log, row or answer; unlink and a disabled account; off and remove), the permission matrix
+  (`tests/security/lib/slack-cases.ts`, 63 cases) and `web/test/unit/slack-link.test.tsx`. Nothing reaches Slack.
