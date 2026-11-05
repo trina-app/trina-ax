@@ -118,8 +118,9 @@ export function startFakeSlack(): FakeSlack {
       const bot = token === fake.botToken, app = token === fake.appToken || (!!token && fake.otherAppTokens.includes(token))
       switch (method) {
         case 'auth.test':
+          // `user` is the bot's user name, not the display name people see (real Slack: `trinaax` for `trina-ax`)
           if (!bot && !app) return json({ ok: false, error: 'invalid_auth' })
-          return json({ ok: true, url: 'https://acme.slack.com/', team: fake.team.name, user: 'trina-ax', team_id: fake.team.id, user_id: fake.botUserId, bot_id: 'B0BOT', is_enterprise_install: false, ...(fake.enterpriseId ? { enterprise_id: fake.enterpriseId } : {}) }, { 'x-oauth-scopes': fake.scopes.join(',') })
+          return json({ ok: true, url: 'https://acme.slack.com/', team: fake.team.name, user: 'trinaax', team_id: fake.team.id, user_id: fake.botUserId, bot_id: 'B0BOT', is_enterprise_install: false, ...(fake.enterpriseId ? { enterprise_id: fake.enterpriseId } : {}) }, { 'x-oauth-scopes': fake.scopes.join(',') })
         case 'apps.connections.open':
           if (bot) return json({ ok: false, error: 'not_allowed_token_type' })
           if (!app) return json({ ok: false, error: 'invalid_auth' })

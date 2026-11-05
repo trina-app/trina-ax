@@ -8748,7 +8748,8 @@ People ask the team's AI from Slack (`@app` in a channel, a DM to the app). Guid
   notification `text` is the answer as plain text (no markers, a link as its text, `&`, `<`, `>` written out). Slack
   documents no size for a rich text block: blocks keep the 2,900 characters a section had (4 ephemeral, 10 posted), and
   when Slack refuses them (`invalid_blocks`, `msg_blocks_too_long`, …) the answer goes again once as plain text in one
-  block.
+  block. Admin › Slack names the bot by its display name from the manifest (`/invite @trina-ax`); `auth.test` gives the
+  user name (`trinaax`), which Slack's `@` and `/invite` do not find.
 
 ## S — The lead's way becomes a team skill (feat/onboarding-s, 2026-11-05)
 

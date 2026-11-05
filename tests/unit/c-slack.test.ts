@@ -139,6 +139,7 @@ describe('setup (the owner)', () => {
     expect(saved.status).toBe(200)
     // both tokens of one app (bots.info and the app token's prefix agree): the app id kept is that app's A… id
     expect(saved.json.appId).toBe('A0APP')
+    // the bot's name as people find it in Slack (the manifest's display name), not auth.test's user name `trinaax`
     expect(saved.json).toMatchObject({ enabled: false, tokens: true, workspace: { teamId: 'T0ACME', name: 'Acme' }, botName: 'trina-ax', linkOrigin: h.url, state: 'off' })
     const on = await call('dana', 'POST', '/api/admin/slack/enabled', { enabled: true })
     expect(on.json.enabled).toBe(true)
