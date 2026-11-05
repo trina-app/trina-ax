@@ -187,6 +187,7 @@ export function noteGoalRun(ctx: AppContext, turnId: string, now = new Date()): 
       for (const owner of owners) notificationsOf(ctx).goalFirstRun(owner, { turnId: turn.id, memberId: turn.userId, skillPath: run.path, runners: Math.max(1, n) }, now.toISOString())
     }
   } catch (e) {
-    ctx.log.warn('onboarding goal notice failed', { err: e, turn: turnId })
+    // a context without a logger (some tests build a minimal one) must not turn a skipped notice into a failed turn
+    ctx.log?.warn('onboarding goal notice failed', { err: e, turn: turnId })
   }
 }

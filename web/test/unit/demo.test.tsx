@@ -36,8 +36,10 @@ function Probe() {
   return <p data-testid="probe">{`${ready}:${info ? info.company : 'none'}`}</p>
 }
 
+let localeBefore = useLocaleStore.getState().locale
 beforeAll(() => {
   installDom()
+  localeBefore = useLocaleStore.getState().locale
   useLocaleStore.setState({ locale: 'ko' })
   Object.assign(globalThis, { location: { assign: (u: string) => void assigned.push(u), origin: 'http://team.localhost', href: 'http://team.localhost/' } })
   globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
@@ -51,6 +53,8 @@ beforeAll(() => {
 afterAll(() => {
   globalThis.fetch = realFetch
   delete (globalThis as { location?: unknown }).location
+  // the files after this one start from the language they had before it
+  useLocaleStore.setState({ locale: localeBefore })
   removeDom()
 })
 beforeEach(() => {
