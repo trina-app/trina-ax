@@ -33,6 +33,7 @@ const Skills = lazy(() => import('./pages/Skills'))
 const ScheduledList = lazy(() => import('./pages/Scheduled').then((m) => ({ default: m.ScheduledList })))
 const ScheduledTask = lazy(() => import('./pages/Scheduled').then((m) => ({ default: m.ScheduledTask })))
 const ConnectorConsent = lazy(() => import('./pages/ConnectorConsent'))
+const SlackLink = lazy(() => import('./pages/SlackLink'))
 const Welcome = lazy(() => import('./pages/Welcome'))
 
 function Splash() {
@@ -183,6 +184,8 @@ function Gate() {
           {/* the welcome steps after /setup (owner only; pages/Welcome.tsx) */}
           <Route path="welcome" element={<Welcome />} />
           <Route path="connectors/authorize" element={<ConnectorConsent key={`${status.me.user.id}:${status.me.session.id}`} />} />
+          {/* the one-time link from Slack (docs/SLACK.md): signed out, the sign-in comes back here with it */}
+          <Route path="slack/link" element={<SlackLink key={`${status.me.user.id}:${status.me.session.id}`} />} />
           {/* an unknown address: say so (with a way home) instead of opening Home without a word */}
           <Route path="*" element={<NotFound />} />
         </Route>
