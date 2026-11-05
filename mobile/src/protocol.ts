@@ -27,12 +27,16 @@ export type MobileMessage = FileMessage | (Envelope & (
   | { type: 'session-reset' }
   | { type: 'external-open'; url: string; purpose: 'google-oauth' }
   | { type: 'push-token' }
+  // the page registered the token with its team: the app keeps the device id (taps from other teams are ignored) and
+  // the removal key (to remove the device from this team when the person switches team)
+  | { type: 'push-registered'; deviceId: string; removeKey: string }
 ))
 export interface MobileReply extends Envelope { type: 'mobile-result'; for: MobileMessage['type']; ok: boolean; seq?: number; error?: string; nextGeneration?: number; push?: PushToken }
 const object = (v: unknown): v is Record<string, unknown> => !!v && typeof v === 'object' && !Array.isArray(v)
 const generation = (v: unknown): v is number => typeof v === 'number' && Number.isSafeInteger(v) && v > 0 && v < 0x7fffffff
 const id = (v: unknown): v is string => typeof v === 'string' && /^[A-Za-z0-9_-]{8,80}$/.test(v)
 const nonce = (v: unknown): v is string => typeof v === 'string' && /^[a-f0-9]{64}$/.test(v)
+const deviceId = (v: unknown): v is string => typeof v === 'string' && /^[A-Za-z0-9_-]{1,100}$/.test(v)
 const seq = (v: unknown): v is number => typeof v === 'number' && Number.isSafeInteger(v) && v >= 0 && v <= MAX_FILE_BYTES
 export function sameTeam(origin: string, url: string): boolean {
   try { const u = new URL(url); return u.protocol === 'https:' && !u.username && !u.password && u.origin === origin } catch { return false }
@@ -69,6 +73,7 @@ export function parseMessage(raw: string): MobileMessage | null {
     case 'file-chunk': if (!seq(m.seq) || base64Size(m.b64) === null) return null; break
     case 'file-end': if (!seq(m.seq)) return null; break
     case 'file-abort': case 'session-reset': case 'push-token': break
+    case 'push-registered': if (!deviceId(m.deviceId) || typeof m.removeKey !== 'string' || !/^[A-Za-z0-9_-]{43}$/.test(m.removeKey)) return null; break
     case 'external-open': if (m.purpose !== 'google-oauth' || typeof m.url !== 'string' || !googleOAuthUrl(m.url)) return null; break
     default: return null
   }
@@ -86,10 +91,12 @@ export function notificationPath(v: unknown): string | null {
   return typeof v === 'string' && v.length <= 200 && /^\/(?:[A-Za-z0-9_-]+(?:\/[A-Za-z0-9_-]+)*)?$/.test(v) ? v : null
 }
 /** The path a tapped notification opens, or null. date: iOS reports seconds, Android milliseconds. A notification
- * delivered before the current team was chosen (teamSince, ms) opens nothing: it may belong to the previous team. */
-export function tappedNotificationPath(data: unknown, date: unknown, teamSince: number): string | null {
-  if (typeof date !== 'number' || !Number.isFinite(date) || (date < 1e11 ? date * 1000 : date) < teamSince) return null
-  return object(data) ? notificationPath(data.path) : null
+ * delivered before the current team was chosen (teamSince, ms) opens nothing, and neither does one whose tag (the
+ * team's device id) is not the device this app registered with the current team: it belongs to another team. */
+export function tappedNotificationPath(data: unknown, date: unknown, teamSince: number, device?: string | null): string | null {
+  if (typeof date !== 'number' || !Number.isFinite(date) || (date < 1e11 ? date * 1000 : date) < teamSince || !object(data)) return null
+  if (device && typeof data.tag === 'string' && data.tag !== device) return null
+  return notificationPath(data.path)
 }
 export function validConfig(v: unknown): v is MobileConfig {
   return object(v) && v.protocol === MOBILE_PROTOCOL && (v.platform === 'ios' || v.platform === 'android')

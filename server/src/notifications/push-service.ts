@@ -2,7 +2,7 @@ import crypto from 'node:crypto'
 import fs from 'node:fs'
 import path from 'node:path'
 import type { z } from 'zod'
-import type { PushDeviceInput, PushSubscriptionInput, PushEventType } from '@mycel/shared/api'
+import type { PushDeviceInput, PushDeviceRemoveInput, PushSubscriptionInput, PushEventType } from '@mycel/shared/api'
 import type { AppContext } from '../context'
 import { newId } from '../db'
 import { HttpError } from '../http/errors'
@@ -93,23 +93,33 @@ export class PushService {
     const config=this.o.native();if(!config)throw new HttpError('unavailable')
     const device=validNativeDevice(input);this.safeSecrets(true)
     const tokenHash=crypto.createHash('sha256').update(`native|${device.platform}|${device.token}`).digest('hex'),configKey=nativeConfigKey(config)
+    const removeKey=crypto.randomBytes(32).toString('base64url'),removeHash=crypto.createHash('sha256').update(removeKey).digest('hex')
     const result=this.ctx.db.transaction(()=>{
       const other=this.ctx.db.query('SELECT * FROM push_subscriptions WHERE endpoint_hash=?').get(tokenHash) as Subscription|null
       if(other&&other.kind==='native'&&other.user_id===userId&&other.session_id===sessionId&&other.config_key===configKey){
         const old=this.vault.decrypt(`${userId}|${sessionId}|${other.id}`,'native-push',other.secret_enc,other.key_version) as NativeDevice
-        if(old.environment===device.environment)return{id:other.id,moved:null}
+        // the same device again: a fresh removal key (the app keeps only the latest)
+        if(old.environment===device.environment){this.ctx.db.query('UPDATE push_subscriptions SET remove_hash=? WHERE id=?').run(removeHash,other.id);return{id:other.id,moved:null}}
       }
       if(other)this.ctx.db.query('DELETE FROM push_subscriptions WHERE id=?').run(other.id)
       const count=this.ctx.db.query('SELECT COUNT(*) n FROM push_subscriptions WHERE user_id=? AND session_id<>?').get(userId,sessionId) as {n:number}
       if(count.n>=MAX_SUBSCRIPTIONS)throw new HttpError('plan_limit')
       this.ctx.db.query('DELETE FROM push_subscriptions WHERE session_id=?').run(sessionId)
       const id=newId(),encrypted=this.vault.encrypt(`${userId}|${sessionId}|${id}`,'native-push',device)
-      this.ctx.db.query("INSERT INTO push_subscriptions(id,user_id,session_id,endpoint_hash,secret_enc,key_version,config_key,created_at,kind) VALUES(?,?,?,?,?,?,?,?,'native')").run(id,userId,sessionId,tokenHash,encrypted.enc,encrypted.keyVersion,configKey,this.iso())
+      this.ctx.db.query("INSERT INTO push_subscriptions(id,user_id,session_id,endpoint_hash,secret_enc,key_version,config_key,created_at,kind,remove_hash) VALUES(?,?,?,?,?,?,?,?,'native',?)").run(id,userId,sessionId,tokenHash,encrypted.enc,encrypted.keyVersion,configKey,this.iso(),removeHash)
       this.ctx.db.query('INSERT INTO push_preferences(user_id,enabled,enabled_at) VALUES(?,1,?) ON CONFLICT(user_id) DO UPDATE SET enabled=1,enabled_at=CASE WHEN enabled=0 THEN excluded.enabled_at ELSE enabled_at END').run(userId,this.iso())
       return{id,moved:other&&other.user_id!==userId?other.user_id:null}
     })()
     if(result.moved)cancelPushUser(this.ctx,result.moved)
-    return{id:result.id}
+    return{id:result.id,removeKey}
+  }
+  /** The phone app leaves this team (team switch): no session, the removal key from registration is the proof. Says
+   * nothing about whether the device existed. */
+  removeDevice(id:string,input:z.infer<typeof PushDeviceRemoveInput>){
+    const row=this.ctx.db.query("SELECT user_id,remove_hash FROM push_subscriptions WHERE id=? AND kind='native'").get(id) as {user_id:string;remove_hash:string|null}|null
+    const given=crypto.createHash('sha256').update(input.key).digest()
+    if(!row?.remove_hash||!crypto.timingSafeEqual(Buffer.from(row.remove_hash,'hex'),given))return
+    if(this.ctx.db.query("DELETE FROM push_subscriptions WHERE id=? AND kind='native' AND remove_hash=?").run(id,row.remove_hash).changes)cancelPushUser(this.ctx,row.user_id)
   }
   setEnabled(userId:string,sessionId:string,enabled:boolean,consent?:true){
     this.requireSession(userId,sessionId);if(enabled&&consent!==true)throw new HttpError('validation')
@@ -178,7 +188,8 @@ export class PushService {
             const device=this.vault.decrypt(aad,'native-push',allowed.sub.secret_enc,allowed.sub.key_version) as NativeDevice
             // The gateway gets ids, the event code and the recipient's language; it picks generic words itself.
             const locale=getUser(this.ctx.db,allowed.sub.user_id)?.locale??teamDefaultLocale(this.ctx.db),path=pushPathOf(this.ctx,allowed.event,row.notification_id)
-            status=(await bounded(this.o.nativeTransport({device,payload:{notificationId:row.notification_id,code:allowed.event,locale,...(path?{path}:{})},config:native,signal:abort.signal,beforeSend,ttlSeconds}),abort.signal,timeout)).statusCode
+            // tag: this device's id on this team; the app ignores a tap whose tag is not the device it registered last
+            status=(await bounded(this.o.nativeTransport({device,payload:{notificationId:row.notification_id,code:allowed.event,locale,tag:row.subscription_id,...(path?{path}:{})},config:native,signal:abort.signal,beforeSend,ttlSeconds}),abort.signal,timeout)).statusCode
           }else{
             const config=this.o.config();if(!config)throw new Error('push_web_off')
             const sub=this.vault.decrypt(aad,'web-push',allowed.sub.secret_enc,allowed.sub.key_version) as PushSubscription

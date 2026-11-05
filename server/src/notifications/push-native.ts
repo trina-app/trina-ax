@@ -18,7 +18,7 @@ import { postPinned, type PushLookup } from './push-transport'
 /** The gateway address (AppConfig push.gatewayUrl: the edition's default, MYCEL_PUSH_GATEWAY, server.json; unset = off). */
 export interface NativePushConfig { url: string }
 export interface NativeDevice { platform: PushPlatform; token: string; environment: PushEnvironment }
-export interface NativePayload { notificationId: string; code: PushEventType; locale: PushLocale; path?: string }
+export interface NativePayload { notificationId: string; code: PushEventType; locale: PushLocale; tag?: string; path?: string }
 export interface NativeSend { device: NativeDevice; payload: NativePayload; config: NativePushConfig; signal: AbortSignal; beforeSend: () => boolean; ttlSeconds: number }
 export type NativeTransport = (input: NativeSend) => Promise<{ statusCode: number }>
 
@@ -64,6 +64,7 @@ export function createNativeTransport(o: { dataDir: string; lookup?: PushLookup;
       v: 1, platform: device.platform, environment: device.environment, token: device.token,
       notificationId: input.payload.notificationId, code: input.payload.code, locale: input.payload.locale,
       ...(input.payload.path && validPushPath(input.payload.path) ? { path: input.payload.path } : {}),
+      ...(input.payload.tag && /^[A-Za-z0-9_-]{1,100}$/.test(input.payload.tag) ? { tag: input.payload.tag } : {}),
       ttlSeconds: Math.max(0, Math.min(PUSH_GATEWAY_MAX_TTL_SECONDS, Math.floor(input.ttlSeconds))),
     }
     if (input.signal.aborted || !input.beforeSend()) throw new Error('push_cancelled')

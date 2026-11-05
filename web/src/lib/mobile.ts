@@ -151,6 +151,16 @@ export async function requestPushToken(): Promise<PushToken> {
   if (!validPushToken(reply.push)) throw new Error('push_unavailable')
   return reply.push
 }
+/** Tells the app which device id this team gave it (taps from other teams are ignored) and the removal key the app
+ * uses to remove the device when the person switches team. */
+export async function confirmPushDevice(deviceId: string, removeKey: string): Promise<void> {
+  const turn = epoch
+  await barrier
+  if (turn !== epoch) throw cancelled()
+  const config = mobileApp()
+  if (!config?.capabilities.includes(PUSH_CAPABILITY)) throw new Error('push_unavailable')
+  await request({ ...envelope(config), type: 'push-registered', deviceId, removeKey }, config)
+}
 export function initMobile(errorHandler?: (error: unknown) => void): void {
   if (typeof window === 'undefined' || initialized) return
   initialized = true; onError = errorHandler ?? onError

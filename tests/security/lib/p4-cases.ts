@@ -22,6 +22,8 @@ export const P4_SPECS: Record<string, Spec> = {
   unsubscribePush: { build: c => c.del('/api/push/subscriptions/00000000-0000-7000-8000-000000000000'), scope: 'nobody' },
   registerPushDevice: { build: c => c.post('/api/push/devices', { consent: true, platform: 'ios', environment: 'production', token: 'ab'.repeat(32) }), scope: 'self' },
   unregisterPushDevice: { build: c => c.del('/api/push/devices/00000000-0000-7000-8000-000000000000'), scope: 'nobody' },
+  // public by design (the app removes its device after a team switch, without the old team's session); 204 for anyone
+  removePushDevice: { build: c => c.post('/api/push/devices/00000000-0000-7000-8000-000000000000/remove', { key: 'A'.repeat(43) }), scope: 'byLevel' },
   myDriveConnection: { build: c => c.get('/api/integrations/google-drive?userId=alice'), scope: 'self' },
   authorizeDrive: { build: c => c.post('/api/integrations/google-drive/authorize', {}), scope: 'self' },
   driveFlow: { build: c => c.get('/api/integrations/google-drive/flows/00000000-0000-7000-8000-000000000000'), scope: 'nobody' },

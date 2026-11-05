@@ -2,6 +2,7 @@ import { afterEach, expect, test } from 'bun:test'
 import fs from 'node:fs'
 import path from 'node:path'
 import { FileTransfers, MobileReceiver, PushRefused, type TransferIO } from '../../mobile/src/bridge'
+import { currentDevice, leaveTeam, rememberDevice, retryRemovals, type DeviceDeps, type TeamDevice } from '../../mobile/src/device'
 import { MOBILE_CAPABILITIES, PUSH_CAPABILITY, notificationPath, parseMessage, tappedNotificationPath, validConfig, validPushToken, type MobileConfig, type PushToken } from '../../mobile/src/protocol'
 import { IOS_USAGE, offlineError, stringsFor } from '../../mobile/src/strings'
 import appConfig from '../../mobile/app.config'
@@ -11,9 +12,12 @@ const ios: PushToken = { platform: 'ios', token: 'ab'.repeat(32), environment: '
 const io: TransferIO = { async create() {}, async append() {}, async inspect() { return { size: 0, sha256: '' } }, async share() {}, async remove() {} }
 function make(source: (() => Promise<PushToken>) | undefined, capabilities = config.capabilities) {
   let asked = 0
-  const receiver = new MobileReceiver('https://team.example', { ...config, capabilities }, new FileTransfers(io), async () => {}, source && (async () => { asked++; return source() }))
+  const registered: { deviceId: string; removeKey: string }[] = []
+  const receiver = new MobileReceiver('https://team.example', { ...config, capabilities }, new FileTransfers(io), async () => {}, source && {
+    token: async () => { asked++; return source() }, registered: async d => { registered.push(d) },
+  })
   const request = (over: object = {}) => JSON.stringify({ v: 1, nonce: config.nonce, generation: 1, id: 'push-request-1', type: 'push-token', ...over })
-  return { receiver, request, asked: () => asked }
+  return { receiver, request, asked: () => asked, registered }
 }
 
 test('push-token-v1 is optional: a protocol 1 bridge without it stays valid, and the message has no payload', () => {
@@ -132,4 +136,53 @@ test('without an edition the neutral Team AX defaults stay; an edition name cann
   expect(c.name).toBe('Team AX'); expect(c.ios?.bundleIdentifier).toBe('app.teamax.mobile.dev'); expect(c.icon).toBeUndefined()
   expect(JSON.stringify(c)).not.toContain('Trina')
   for (const bad of ['../trina', 'Trina', 'trina/../x']) { process.env.MYCEL_MOBILE_EDITION = bad; expect(() => appConfig({ config: {}, projectRoot: mobileRoot } as never)).toThrow() }
+})
+
+test('push-registered: the page hands over its device id and removal key through the same checks', async () => {
+  const f = make(async () => ios)
+  const msg = (over: object = {}) => f.request({ type: 'push-registered', deviceId: 'dev_1', removeKey: 'k'.repeat(43), ...over })
+  expect(await f.receiver.receive(msg(), 'https://evil.example')).toBeNull()
+  expect(await f.receiver.receive(msg({ nonce: 'b'.repeat(64) }), 'https://team.example')).toBeNull()
+  for (const bad of [{ removeKey: 'short' }, { deviceId: '../x' }, { deviceId: 42 }]) expect(await f.receiver.receive(msg(bad), 'https://team.example')).toBeNull()
+  expect(f.registered).toHaveLength(0)
+  expect((await f.receiver.receive(msg(), 'https://team.example/'))?.ok).toBe(true)
+  expect(f.registered).toEqual([{ deviceId: 'dev_1', removeKey: 'k'.repeat(43) }])
+  const old = make(async () => ios, [...MOBILE_CAPABILITIES])
+  expect((await old.receiver.receive(old.request({ type: 'push-registered', deviceId: 'dev_1', removeKey: 'k'.repeat(43) }), 'https://team.example'))?.error).toBe('push_unavailable')
+})
+
+test('a tap whose tag is another device (another team) opens nothing; no tag (older server) still opens', () => {
+  const since = Date.UTC(2026, 10, 5), at = since + 5000
+  expect(tappedNotificationPath({ path: '/rooms/r1', tag: 'dev_now' }, at, since, 'dev_now')).toBe('/rooms/r1')
+  expect(tappedNotificationPath({ path: '/rooms/r1', tag: 'dev_old_team' }, at, since, 'dev_now')).toBeNull()
+  expect(tappedNotificationPath({ path: '/rooms/r1' }, at, since, 'dev_now')).toBe('/rooms/r1')
+  expect(tappedNotificationPath({ path: '/rooms/r1', tag: 'dev_x' }, at, since, null)).toBe('/rooms/r1')
+})
+
+function memory(remove: (d: TeamDevice) => Promise<boolean>) {
+  const store = new Map<string, string>(); let t = Date.UTC(2026, 10, 5)
+  const slot = (k: string) => ({ get: async () => store.get(k) ?? null, set: async (v: string | null) => { if (v === null) store.delete(k); else store.set(k, v) } })
+  const deps: DeviceDeps = { current: slot('current'), pending: slot('pending'), remove, now: () => t }
+  return { deps, store, advance: (ms: number) => { t += ms } }
+}
+const dev = (origin: string, deviceId: string): TeamDevice => ({ origin, deviceId, removeKey: 'r'.repeat(43), at: 0 })
+test('leaving a team removes the device there; an unreachable team is retried at the next start, for 30 days at most', async () => {
+  const calls: string[] = []; let online = false
+  const m = memory(async d => { calls.push(d.deviceId); return online })
+  await rememberDevice(m.deps, dev('https://a.example', 'dev_a'))
+  expect((await currentDevice(m.deps, 'https://a.example'))?.deviceId).toBe('dev_a')
+  expect(await currentDevice(m.deps, 'https://b.example')).toBeNull()
+  await leaveTeam(m.deps, 'https://a.example')
+  expect(calls).toEqual(['dev_a'])
+  expect(await currentDevice(m.deps, 'https://a.example')).toBeNull()
+  expect(JSON.parse(m.store.get('pending')!)).toHaveLength(1)
+  online = true; await retryRemovals(m.deps)
+  expect(calls).toEqual(['dev_a', 'dev_a']); expect(m.store.has('pending')).toBe(false)
+  online = false
+  await rememberDevice(m.deps, dev('https://b.example', 'dev_b')); await leaveTeam(m.deps, 'https://b.example')
+  m.advance(31 * 86_400_000); await retryRemovals(m.deps)
+  expect(calls.filter(c => c === 'dev_b')).toHaveLength(1)
+  expect(m.store.has('pending')).toBe(false)
+  for (let i = 0; i < 6; i++) { await rememberDevice(m.deps, dev(`https://t${i}.example`, `dev_${i}`)); await leaveTeam(m.deps, `https://t${i}.example`) }
+  expect(JSON.parse(m.store.get('pending')!).map((d: TeamDevice) => d.deviceId)).toEqual(['dev_2', 'dev_3', 'dev_4', 'dev_5'])
 })

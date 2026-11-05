@@ -11,7 +11,8 @@ import { FileTransfers, MobileReceiver } from './src/bridge'
 import { clearDownloadCache, fileTransferIO } from './src/files'
 import { MOBILE_CAPABILITIES, PUSH_CAPABILITY, googleOAuthUrl, navigationDecision, sameTeam, type MobileConfig } from './src/protocol'
 import { accentInk, mobileProduct } from './src/product'
-import { devicePushToken, forgetDelivered, onNotificationTap, quietForeground } from './src/push'
+import { devicePushToken, devices, forgetDelivered, onNotificationTap, quietForeground } from './src/push'
+import { currentDevice, leaveTeam, rememberDevice, retryRemovals } from './src/device'
 import { offlineError, stringsFor } from './src/strings'
 import { checkTeam, parseTeamAddress, savedTeamSince, savedTeamUrl, saveTeamUrl } from './src/team'
 import type { TeamAddress } from './src/address'
@@ -29,22 +30,30 @@ export default function App() {
   const [team, setTeam] = useState<TeamAddress | null | undefined>()
   // A tapped notification's path on the current team, with a counter so the same path can be opened twice.
   const [opened, setOpened] = useState<{ path: string; n: number } | null>(null)
-  const since = useRef(Date.now()), hasTeam = useRef(false)
+  const since = useRef(Date.now()), hasTeam = useRef(false), device = useRef<string | null>(null)
   useEffect(() => {
     try { clearDownloadCache() } catch { /* a later operation reports an inaccessible cache */ }
     let off = () => {}
-    void Promise.all([savedTeamUrl(), savedTeamSince()]).then(([origin, chosen]) => {
+    // removals owed to teams left while their server could not be reached
+    void retryRemovals(devices).catch(() => {})
+    void Promise.all([savedTeamUrl(), savedTeamSince()]).then(async ([origin, chosen]) => {
       since.current = chosen; hasTeam.current = !!origin
+      device.current = origin ? (await currentDevice(devices, origin).catch(() => null))?.deviceId ?? null : null
       setTeam(origin ? { origin, entryPath: '/' } : null)
-      off = onNotificationTap(() => since.current, path => { if (hasTeam.current) setOpened(o => ({ path, n: (o?.n ?? 0) + 1 })) })
+      off = onNotificationTap(() => since.current, () => device.current, path => { if (hasTeam.current) setOpened(o => ({ path, n: (o?.n ?? 0) + 1 })) })
     })
     return () => off()
   }, [])
   return <SafeAreaProvider><StatusBar style="auto" />
     {team === undefined ? <Center><ActivityIndicator color={product.accent} /></Center>
       : team === null ? <Setup onDone={async address => { await saveTeamUrl(address.origin); since.current = Date.now(); hasTeam.current = true; setOpened(null); setTeam(address) }} />
-      : <TeamWeb key={team.origin} address={team} opened={opened}
-        onChangeTeam={async () => { hasTeam.current = false; forgetDelivered(); await saveTeamUrl(null); setOpened(null); setTeam(null) }} />}
+      : <TeamWeb key={team.origin} address={team} opened={opened} onDevice={id => { device.current = id }}
+        onChangeTeam={async () => {
+          hasTeam.current = false; device.current = null; forgetDelivered()
+          // remove this phone from the team it leaves (now, or at a later start if that server cannot be reached)
+          void leaveTeam(devices, team.origin).catch(() => {})
+          await saveTeamUrl(null); setOpened(null); setTeam(null)
+        }} />}
   </SafeAreaProvider>
 }
 function Center({ children }: { children: ReactNode }) { return <SafeAreaView style={[s.fill, s.center]}>{children}</SafeAreaView> }
@@ -72,14 +81,17 @@ function Setup({ onDone }: { onDone: (address: TeamAddress) => Promise<void> }) 
   </KeyboardAvoidingView></SafeAreaView>
 }
 type Failure = 'offline' | 'unreachable'
-function TeamWeb({ address, opened, onChangeTeam }: { address: TeamAddress; opened: { path: string; n: number } | null; onChangeTeam: () => Promise<void> }) {
+function TeamWeb({ address, opened, onDevice, onChangeTeam }: { address: TeamAddress; opened: { path: string; n: number } | null; onDevice: (id: string) => void; onChangeTeam: () => Promise<void> }) {
   const web = useRef<WebHandle>(null), navigation = useRef(0), loadFailed = useRef(false), cleanup = useRef(Promise.resolve()), ready = useRef(false)
   const [canBack, setCanBack] = useState(false), [pathname, setPathname] = useState(address.entryPath), [failed, setFailed] = useState<Failure | null>(null)
   const [source, setSource] = useState(address.origin + address.entryPath)
   const receiver = useRef<MobileReceiver | null>(null)
   if (!receiver.current) {
     const config: MobileConfig = { protocol: 1, appVersion: VERSION, platform: Platform.OS === 'ios' ? 'ios' : 'android', nonce: '0'.repeat(64), generation: 1, capabilities: [...MOBILE_CAPABILITIES, PUSH_CAPABILITY] }
-    receiver.current = new MobileReceiver(address.origin, config, new FileTransfers(fileTransferIO()), async url => { await Linking.openURL(url) }, () => devicePushToken(t.channelName))
+    receiver.current = new MobileReceiver(address.origin, config, new FileTransfers(fileTransferIO()), async url => { await Linking.openURL(url) }, {
+      token: () => devicePushToken(t.channelName),
+      async registered({ deviceId, removeKey }) { await rememberDevice(devices, { origin: address.origin, deviceId, removeKey, at: Date.now() }); onDevice(deviceId) },
+    })
     void receiver.current.disable()
   }
   const r = receiver.current

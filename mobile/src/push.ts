@@ -1,10 +1,14 @@
 // Native push: the OS permission prompt and the phone's APNs/FCM device token. Nothing here talks to a server; the
 // signed-in web page receives the token through the bridge (push-token-v1) and registers it with its own team.
 import Constants from 'expo-constants'
+import { fetch } from 'expo/fetch'
+import * as SecureStore from 'expo-secure-store'
 import * as Application from 'expo-application'
 import * as Notifications from 'expo-notifications'
 import { Platform } from 'react-native'
 import { PushRefused } from './bridge'
+import { parseTeamAddress } from './address'
+import type { DeviceDeps, Slot } from './device'
 import { tappedNotificationPath, type PushEnvironment, type PushToken } from './protocol'
 
 export const CHANNEL_ID = 'default'
@@ -53,22 +57,44 @@ export function quietForeground() {
   Notifications.setNotificationHandler({ handleNotification: async () => ({ shouldShowBanner: false, shouldShowList: true, shouldPlaySound: false, shouldSetBadge: false }) })
 }
 
-function tappedPath(response: Notifications.NotificationResponse | null, teamSince: number): string | null {
+function tappedPath(response: Notifications.NotificationResponse | null, teamSince: number, device: string | null): string | null {
   if (!response || response.actionIdentifier !== Notifications.DEFAULT_ACTION_IDENTIFIER) return null
-  return tappedNotificationPath(response.notification.request.content.data, response.notification.date, teamSince)
+  return tappedNotificationPath(response.notification.request.content.data, response.notification.date, teamSince, device)
 }
 
-export function onNotificationTap(teamSince: () => number, open: (path: string) => void): () => void {
+export function onNotificationTap(teamSince: () => number, device: () => string | null, open: (path: string) => void): () => void {
   const sub = Notifications.addNotificationResponseReceivedListener(response => {
-    const path = tappedPath(response, teamSince())
+    const path = tappedPath(response, teamSince(), device())
     if (path) open(path)
     Notifications.clearLastNotificationResponse()
   })
   // Cold start: the tap that launched the app.
-  const launched = tappedPath(Notifications.getLastNotificationResponse(), teamSince())
+  const launched = tappedPath(Notifications.getLastNotificationResponse(), teamSince(), device())
   if (launched) { Notifications.clearLastNotificationResponse(); open(launched) }
   return () => sub.remove()
 }
 
 /** Changing team: notifications of the previous team must not stay on screen. */
 export function forgetDelivered() { void Notifications.dismissAllNotificationsAsync().catch(() => {}) }
+
+const slot = (key: string): Slot => ({
+  get: () => SecureStore.getItemAsync(key),
+  set: value => value === null ? SecureStore.deleteItemAsync(key) : SecureStore.setItemAsync(key, value),
+})
+/** The device registered with the current team and the removals owed to teams left (src/device.ts). */
+export const devices: DeviceDeps = {
+  current: slot('team-ax.push-device'), pending: slot('team-ax.push-pending'), now: Date.now,
+  // POST /api/push/devices/<id>/remove with the removal key: no session (the team was left), done unless the server
+  // could not be reached or failed (5xx / 429), which leaves it owed for the next app start.
+  async remove(d) {
+    if (parseTeamAddress(d.origin)?.origin !== d.origin) return true
+    const abort = new AbortController(), timer = setTimeout(() => abort.abort(), 8000)
+    try {
+      const r = await fetch(`${d.origin}/api/push/devices/${encodeURIComponent(d.deviceId)}/remove`, {
+        method: 'POST', redirect: 'error', signal: abort.signal,
+        headers: { 'content-type': 'application/json', 'x-mycel-csrf': '1' }, body: JSON.stringify({ key: d.removeKey }),
+      })
+      return r.status < 500 && r.status !== 429
+    } catch { return false } finally { clearTimeout(timer) }
+  },
+}

@@ -1,5 +1,5 @@
 import { api, API } from './api'
-import { mobileApp, requestPushToken } from './mobile'
+import { confirmPushDevice, mobileApp, requestPushToken } from './mobile'
 import { PUSH_CAPABILITY } from '../../../mobile/src/protocol'
 
 let session: string | null = null, epoch = 0
@@ -26,6 +26,8 @@ export function setMobilePushSession(next: string | null): void {
 export async function registerMobilePush(turn = epoch): Promise<string> {
   const token = await requestPushToken()
   if (turn !== epoch) throw new DOMException('Mobile operation cancelled', 'AbortError')
-  const { id } = await api.call(API.registerPushDevice, { body: { consent: true, ...token } })
+  const { id, removeKey } = await api.call(API.registerPushDevice, { body: { consent: true, ...token } })
+  // an older app without push-registered support still gets push; it only cannot remove itself on a team switch
+  await confirmPushDevice(id, removeKey).catch(() => {})
   return id
 }

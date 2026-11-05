@@ -81,12 +81,13 @@ export class FileTransfers {
 
 /** The only push failures the web page learns: the person said no, or this build/device cannot receive push. */
 export class PushRefused extends Error { constructor(readonly code: 'push_denied' | 'push_unavailable') { super(code) } }
-export type PushTokenSource = () => Promise<PushToken>
+/** token: ask the OS (permission prompt) for the device token; registered: the page registered it with its team. */
+export interface PushBridge { token(): Promise<PushToken>; registered(device: { deviceId: string; removeKey: string }): Promise<void> }
 
 /** Native side: source URL plus a top-frame-only capability nonce bind requests to this WebView document. */
 export class MobileReceiver {
   private enabled = true
-  constructor(readonly origin: string, public config: MobileConfig, private files: FileTransfers, private external: (url: string) => Promise<void>, private push?: PushTokenSource) {}
+  constructor(readonly origin: string, public config: MobileConfig, private files: FileTransfers, private external: (url: string) => Promise<void>, private push?: PushBridge) {}
   async disable() { this.enabled = false; this.config = { ...this.config, generation: this.config.generation + 1 }; await this.files.clear() }
   activate(config: MobileConfig) { this.config = config; this.enabled = true }
   async receive(raw: string, sourceUrl: string): Promise<MobileReply | null> {
@@ -105,9 +106,12 @@ export class MobileReceiver {
       else if (m.type === 'push-token') {
         // Same origin/nonce/generation checks as files; the token goes only to the document that asked.
         if (!this.push || !current.capabilities.includes(PUSH_CAPABILITY)) throw new PushRefused('push_unavailable')
-        const token = await this.push()
+        const token = await this.push.token()
         if (!validPushToken(token)) throw new PushRefused('push_unavailable')
         reply.push = { platform: token.platform, token: token.token, environment: token.environment }
+      } else if (m.type === 'push-registered') {
+        if (!this.push || !current.capabilities.includes(PUSH_CAPABILITY)) throw new PushRefused('push_unavailable')
+        await this.push.registered({ deviceId: m.deviceId, removeKey: m.removeKey })
       } else await this.files.receive(m)
     } catch (error) { reply.ok = false; reply.error = error instanceof PushRefused ? error.code : 'mobile_operation_failed' }
     return this.enabled && this.config === current ? reply : null
