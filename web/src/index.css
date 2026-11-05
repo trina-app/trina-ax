@@ -233,8 +233,9 @@ input[type="checkbox"], input[type="radio"] { accent-color: var(--c-accent); }
   --tw-prose-td-borders: var(--c-line);
 }
 
-/* highlight.js tokens (code blocks are always dark) */
-.hljs-comment, .hljs-quote { color: #8b8579; font-style: italic; }
+/* highlight.js tokens (code blocks are always dark). Comments are upright: Hangul has no italic, and the browser's
+   slanted Hangul reads badly. */
+.hljs-comment, .hljs-quote { color: #8b8579; }
 .hljs-keyword, .hljs-selector-tag, .hljs-literal, .hljs-type { color: #e8a87c; }
 .hljs-string, .hljs-regexp, .hljs-addition, .hljs-attribute, .hljs-meta .hljs-string { color: #a6d189; }
 .hljs-number, .hljs-symbol, .hljs-bullet { color: #ef9f76; }
