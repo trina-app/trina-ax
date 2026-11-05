@@ -290,6 +290,17 @@ func lookupHome() string {
 // `-D CHAT_DIR=…`: sandbox-exec's argv is readable by every process of the account until it exec()s the engine. The
 // returned cleanup removes that copy; call it when the engine has exited.
 func engineCommand(cmdPath string, args []string, chat, sessDir string) (*exec.Cmd, func(), error) {
+	return engineCommandWith(cmdPath, args, chat, sessDir, sbOpts{})
+}
+
+// sbOpts: what a sign-in changes in the profile (claudelogin.go): the one terminal it may use (LOGIN_TTY; empty for
+// every turn) and never the account's own login, whatever --local-login says.
+type sbOpts struct {
+	tty          string
+	noLocalLogin bool
+}
+
+func engineCommandWith(cmdPath string, args []string, chat, sessDir string, so sbOpts) (*exec.Cmd, func(), error) {
 	if *sandboxProfile == "" {
 		return exec.Command(cmdPath, args...), func() {}, nil
 	}
@@ -298,7 +309,7 @@ func engineCommand(cmdPath string, args []string, chat, sessDir string) (*exec.C
 		return nil, nil, fmt.Errorf("engine: %v", err)
 	}
 	ll, lc := "0", "0"
-	if *localLogin {
+	if *localLogin && !so.noLocalLogin {
 		ll = "1"
 		if *localCodex {
 			lc = "1"
@@ -315,6 +326,7 @@ func engineCommand(cmdPath string, args []string, chat, sessDir string) (*exec.C
 		"LOCAL_CODEX": lc,
 		"USER_HOME":   resolvePath(accountHome),
 		"SESSION_DIR": resolvePath(filepath.Clean(sessDir)),
+		"LOGIN_TTY":   so.tty,
 	}
 	text, err := os.ReadFile(*sandboxProfile)
 	if err != nil {
@@ -530,6 +542,32 @@ func serve(c *net.UnixConn) {
 		return
 	case "codex-export":
 		codexExport(o)
+		return
+	case "claude-login": // claudelogin.go
+		stop := make(chan struct{})
+		codes := make(chan string, 1)
+		go func() { // the server closed the connection or sent kill: stop the sign-in; a code goes to the program
+			for {
+				l, err := r.ReadBytes('\n')
+				var m struct {
+					Op   string `json:"op"`
+					Code string `json:"code"`
+				}
+				if err != nil || (json.Unmarshal(l, &m) == nil && m.Op == "kill") {
+					close(stop)
+					return
+				}
+				if m.Op == "code" {
+					select {
+					case codes <- m.Code:
+					default: // one at a time; the sign-in answers the first
+					}
+				}
+			}
+		}()
+		if err := claudeLogin(line, o, claudeControl{stop: stop, codes: codes}); err != nil {
+			o.send(map[string]any{"ev": "error", "message": err.Error()})
+		}
 		return
 	case "codex-login":
 		stop := make(chan struct{})

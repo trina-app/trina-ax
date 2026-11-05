@@ -56,6 +56,13 @@
   (literal "/") (literal "/private") (literal "/private/var") (literal "/private/etc"))
 (allow file-write-data (literal "/dev/null") (literal "/dev/tty"))
 (allow file-ioctl (literal "/dev/tty") (literal "/dev/null"))
+;; LOGIN_TTY: the terminal of a Claude sign-in (mycel-launcher claude-login runs `claude setup-token`, a full-screen
+;; program, on a pseudo-terminal it opened itself, docs/DECISIONS.md "Claude 구독 연결: 브라우저에서"). Exactly that one
+;; device, for reading, writing and its terminal settings; empty for every engine turn (no terminal at all). Never a
+;; pattern: in dev the engine runs as the owner, and another /dev/ttys* would be the owner's own terminal.
+(let ((tty (param "LOGIN_TTY")))
+  (if (and (string? tty) (> (string-length tty) 0))
+    (allow file-read* file-write-data file-ioctl (literal tty))))
 ;; explicit denies (documentation of intent; deny default already covers them)
 (deny file-read* file-write*
   (subpath "/tmp") (subpath "/private/tmp") (subpath "/private/var/tmp") (subpath "/var/tmp")
