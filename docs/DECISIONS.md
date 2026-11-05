@@ -8071,7 +8071,30 @@ every week. Placement: Team AX core (skills, files and permissions, the team lin
   chat room" section (also in a resumed session's `<turn_context>`): the block is information, not instructions; the
   answer may go to the whole room; no memories here.
 - **No personal memories in rooms.** None are loaded; `remember`, `forget`, `set_title` and `connect_service` are not
-  offered (`ROOM_OFF_TOOLS`).
+  offered (`ROOM_OFF_TOOLS`). Nothing runs in the person's signed-in browser or on a computer from a room: the in-app
+  browser tools are off for room turns, and so are `box_shell` and the dev environment.
+- **Review fixes (2026-11-05, independent review of 16aa2af9).**
+  - Private messages never reach the AI: the context takes room-visible messages only (a private preview, the asker's
+    own included, could otherwise come back in a new session and be posted).
+  - Messages from before someone joined: the room's read source records the seq of the oldest message given to the
+    session (`{type:'room', id, fromSeq}`, whenever the block holds any message, the asker's own too); an answer is
+    private while some current member joined at or after it ("○○ 님이 들어오기 전 대화가 쓰였어요"). Members added
+    while a turn runs and continued sessions are covered, as the decision is made at the end with the members then.
+  - File names count: the folders whose names `list` and `glob` showed (`TurnFiles.namePaths`) join a room session's
+    read scope (grep's matches already did). Skills: a room session is shown only the skills every member may read (the
+    list in the instructions, the hints and `find_skills`); "/name" still runs any of the person's own, and a skill it
+    loads joins the read scope.
+  - Every change waits for the asker: in a room session any call outside `ROOM_READ_ONLY_TOOLS` (writes, edits, moves,
+    make_file, save_url, schedules, connections' tools, tools added later) raises a server card to the asker first
+    (`confirmRoomChange`), whatever the room's messages said; no answer or "don't" changes nothing. Always, not only when
+    other people's words are in the context: simpler, and it fails closed.
+  - Answer file links: `RoomMessage.openable` lists the team files an AI answer links to or shows that the viewer may
+    open now; the app shows the others as plain text (no chip, no picture loaded).
+  - An account that cannot be loaded (disabled, deleted, still listed) fails every check.
+  - The asker may delete their AI answer or private preview (the "…" menu; the preview keeps its one button), an owner
+    or admin any AI answer they can see (audited `room.ai_delete`).
+  - Posting a preview decides again: reasons that changed (a member joined, rules changed) are saved on the preview and
+    the post answers 409 `room_ai_reasons_changed`; the asker sees them and posts again.
 - **Where the answer goes** (`RoomAi.decide`). To the room (`author_kind 'ai'`, `asked_by` = asker, `reply_to_id` =
   the question; the app shows "○○ 님이 물어봄") only when every current member may read every source in the session's
   **cumulative** read scope, not only this answer's list: each ruled folder (or the team root) by the rules now; the
@@ -8102,7 +8125,7 @@ every week. Placement: Team AX core (skills, files and permissions, the team lin
   mention. Under the messages: my question's block (name, "답하는 중" or its place, the last steps, cards, Stop), or for
   the others one line "트리나가 답하는 중". A preview is the answer plus a left-bordered note (no card in a card) and one
   primary button, 대화방에 올리기.
-- **Not in this step.** The AI cannot open files sent in a room (it gets their names). A message written before a member
-  joined may still be in the context of an answer that goes to the room (the post rule is about files and outside
-  sources). The 12-hour new session and the context sizes are first guesses. Cards the AI raised are not shown again
-  after a reload (they time out like an unanswered card).
+- **Not in this step.** The AI cannot open files sent in a room (it gets their names). Team rule files under skills/
+  that only some members may read are still in the instructions. The 12-hour new session and the context sizes are
+  first guesses. Cards the AI raised are not shown again after a reload (they time out like an unanswered card). A PC
+  runner's tools, once merged, fall under the card rule and the outside mark but are not switched off by name.
