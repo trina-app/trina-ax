@@ -14,6 +14,7 @@ import Steps from '../../src/components/chat/Steps'
 import { SkillFormDialog } from '../../src/components/skills/SkillForm'
 import { forgetStarters, heldMadeBy, holdMadeBy, holdStarter } from '../../src/lib/starter'
 import { forgetTeamAttach } from '../../src/lib/teamAttach'
+import { forgetSkillList } from '../../src/lib/skillTitles'
 import { teamLinkMessage } from '../../src/lib/team-link'
 import { fileLabel } from '../../src/components/onboarding/SkillShareCard'
 import { translate } from '../../src/i18n'
@@ -47,6 +48,8 @@ const called = (key: string) => calls.filter((c) => c.key === key)
 const realFetch = globalThis.fetch
 const before = { locale: useLocaleStore.getState().locale, status: useSession.getState().status, signedIn: useSession.getState().signedIn }
 beforeAll(() => {
+  // another file can leave its skill list in memory; this file's receipt needs the titles from its own /api/skills
+  forgetSkillList()
   installDom()
   useLocaleStore.setState({ locale: 'ko' })
   globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
@@ -68,9 +71,11 @@ afterEach(() => {
 })
 afterAll(() => {
   globalThis.fetch = realFetch
-  removeDom()
+  // the stores first: a component still on the page re-renders on their change and needs the window
   useLocaleStore.setState({ locale: before.locale })
   useSession.setState({ status: before.status, signedIn: before.signedIn })
+  forgetSkillList()
+  removeDom()
 })
 function Where() { const l = useLocation(); return <p data-testid="where">{`${l.pathname}${l.search}`}</p> }
 

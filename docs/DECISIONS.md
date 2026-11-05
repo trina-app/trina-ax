@@ -8342,15 +8342,13 @@ chat tools); the hosting side only hands over the image key.
 - **Not done**: a PDF or PNG of the cards (above); the AI still sometimes puts a customer's portrait on a card about the
   product when a site's pictures are mostly case studies; a draft started from Admin › Team settings collects pictures
   that are placed only by a later first result; staged pictures of drafts that never reach a first result stay in
-  the data folder; Home's meeting notes line (`readNotesHint`) is left unused; the Go hosting daemon side of
-  `hosted-image-key-set` beyond mycel-ctl (private).
+  the data folder; Home's meeting notes line (`readNotesHint`) is left unused. (The Higgsfield items of this section were taken out
+  before the merge: see "N, Higgsfield taken out; type-only cards" below.)
 - Tests: `tests/unit/b-onboarding-cardnews.test.ts` (what a page offers, colour ranking, pictures by bytes, profile
   colours and the facts line, 회사 소개.md, a hostile page in one pass; with the real web_fetch and a stand-in photo
   service: the collected pictures, the CDN picture, never another site's style sheet; the first result owner-only,
-  placed once, 회사 소개.md kept, files checked; an old row gets "카드뉴스" once; brand_image only in a first-result
-  chat with the key, the prompt rules, a failed job given back, four a team; the picture folder of a team skill),
-  `tests/unit/c-onboarding-image-key.test.ts` (the hosted key: stored encrypted, removed, refused off hosted, never in
-  output, export, restore, rekey, strict stdin), `cloud-protocol` vectors, mycel-ctl `TestTenantHostedImageKeySet`,
+  placed once, 회사 소개.md kept, files checked; an old row gets "카드뉴스" once; the picture folder of a team skill;
+  the Higgsfield tests went with the photos, see below),
   `b-onboarding-draft` and `b-onboarding-team-space` (the `assets` field, the third general skill),
   `web/test/unit/welcome.test.tsx`, `profile-step.test.tsx`, `web/test/e2e/welcome-notes.spec.ts`.
 
