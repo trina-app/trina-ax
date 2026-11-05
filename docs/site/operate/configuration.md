@@ -58,7 +58,7 @@ Claude Code can answer with other companies' models through an address that spea
 With a gateway, every Claude Code request goes to the gateway provider and the model's vendor. Claude subscription connections are off while it is set. Check both providers' terms and tell the team.
 :::
 
-Then add the gateway's key in **Admin › AI connections**. Full rules: [Configuration](../../CONFIGURATION.md).
+Then add the gateway's key in **Admin › AI providers** (Add account under Claude Code). Full rules: [Configuration](../../CONFIGURATION.md).
 
 ## Names you will see
 

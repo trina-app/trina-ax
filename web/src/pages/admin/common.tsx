@@ -7,7 +7,7 @@ import { toast } from '../../store/ui'
 import { Button, ErrorNote, Field, Modal, Skeleton, StickyHeader, inputCls } from '../../components/ui'
 
 /** AI engines › Team provider settings, scrolled to Usage limits (Engines.tsx reads focus=limits). */
-export const USAGE_LIMITS_LINK = '/admin/engines?tab=team&focus=limits'
+export const USAGE_LIMITS_LINK = '/admin/providers?tab=team&focus=limits'
 
 export function useLoad<T>(fn: () => Promise<T>, deps: unknown[] = []) {
   const t = useT()
@@ -123,11 +123,18 @@ export function useOneAtATime<K>() {
  * go under it. Engines, Usage and Activity log started this pattern; the other pages use it too now, so all admin
  * pages look the same.
  */
+/** "For the whole team": every Admin page says so next to its title (Settings pages say "Just for you", SettingsDialog.tsx) */
+export function PageScope() {
+  const t = useT()
+  return <span className="text-xs text-faint" data-testid="page-scope">{t('scope.team')}</span>
+}
+
 export function AdminPageHeader({ title, desc, actions, children, testId, className, still }: { title: ReactNode; desc?: ReactNode; actions?: ReactNode; children?: ReactNode; testId?: string; className?: string; still?: boolean }) {
   const body = (
     <>
       <div className="flex flex-wrap items-center gap-x-4 gap-y-3">
         <h2 className="text-lg font-semibold tracking-tight">{title}</h2>
+        <PageScope />
         {children}
         {actions && <div className="ml-auto flex flex-wrap items-center gap-2">{actions}</div>}
       </div>

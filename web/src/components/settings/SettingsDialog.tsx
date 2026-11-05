@@ -1,5 +1,5 @@
 // Settings as a dialog over the page it was opened from, like Claude's: the sections on the left (a search filters them
-// by name, hairlines separate the groups of pages/settingsTabs.ts) and the open section on the right. /settings and
+// by name, named groups of pages/settingsTabs.ts) and the open section on the right. /settings and
 // /settings/<section> still work: App.tsx keeps the page behind it (Home when the address was opened directly) and
 // `onClose` goes back to that page. On a phone it fills the screen: the list first, then a section with a way back.
 // Admin stays its own page.
@@ -10,7 +10,7 @@ import { Navigate, NavLink, useNavigate, useParams } from 'react-router-dom'
 import { api, API } from '../../lib/api'
 import { browserSettingsBridge } from '../../lib/desktop'
 import { useT } from '../../i18n'
-import { settingsTabs } from '../../pages/settingsTabs'
+import { SETTINGS_GROUPS, settingsTabs } from '../../pages/settingsTabs'
 import { IconButton, Spinner, inputCls, menuOpener, useFocusTrap } from '../ui'
 
 const SettingsPane = lazy(() => import('../../pages/Settings'))
@@ -47,11 +47,13 @@ export default function SettingsDialog({ onClose }: { onClose: () => void }) {
   const searchRef = useRef<HTMLInputElement>(null)
   const q = query.trim().toLowerCase()
   const shown = tabs.filter((x) => !q || [t(x.label), ...(x.keywords ?? [])].some((w) => w.toLowerCase().includes(q)))
-  const groups = [1, 2, 3].map((g) => shown.filter((x) => x.group === g)).filter((g) => g.length)
-  const waiting = tab === 'credentials' && own === null
+  const groups = SETTINGS_GROUPS.map((g) => shown.filter((x) => x.group === g)).filter((g) => g.length)
+  const waiting = tab === 'providers' && own === null
   // an old or mistyped address (/settings/devices), or /settings/browser outside the desktop app: the profile instead
   // Google Drive was a section of its own: it is in App connectors now, with its dialog open
   if (tab === 'drive') return <Navigate to="/settings/connectors?drive=1" replace />
+  // AI connections are now AI providers (the same accounts, by provider)
+  if (tab === 'credentials') return <Navigate to="/settings/providers" replace />
   if (tab && !waiting && !tabs.some((x) => x.id === tab)) return <Navigate to="/settings" replace />
   const current = tab ?? 'profile'
 
@@ -97,7 +99,8 @@ export default function SettingsDialog({ onClose }: { onClose: () => void }) {
             </div>
             <nav aria-label={t('settings.title')} className="scroll-thin min-h-0 flex-1 overflow-y-auto px-3 pb-3" data-testid="settings-menu">
               {groups.map((g, i) => (
-                <div key={g[0]!.group} className={clsx('space-y-0.5', i > 0 && 'mt-2 border-t border-line pt-2')}>
+                <div key={g[0]!.group} role="group" aria-labelledby={`settings-group-${g[0]!.group}`} className={clsx('space-y-0.5', i > 0 && 'mt-3')} data-testid={`settings-group-${g[0]!.group}`}>
+                  <p id={`settings-group-${g[0]!.group}`} className="px-3 pb-1 text-xs text-faint">{t(`settings.group.${g[0]!.group}`)}</p>
                   {g.map((x) => (
                     <NavLink
                       key={x.id}
@@ -125,6 +128,8 @@ export default function SettingsDialog({ onClose }: { onClose: () => void }) {
                 <Spinner />
               ) : (
                 <Suspense fallback={<Spinner />}>
+                  {/* every section here is just for you (Admin pages say "For the whole team", admin/common.tsx) */}
+                  <p className="mb-2 text-xs text-faint" data-testid="page-scope">{t('scope.you')}</p>
                   <SettingsPane tab={current} />
                 </Suspense>
               )}

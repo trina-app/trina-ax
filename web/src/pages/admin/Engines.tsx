@@ -1,25 +1,28 @@
-// AI engines, in two tabs (?tab=team for the second, so a link opens either):
+// Admin › AI providers (/admin/providers; it was "AI engines" plus a separate "AI connections" page, and /admin/engines
+// and /admin/credentials lead here), in two tabs (?tab=team for the second, so a link opens either):
 // - Providers: one quiet row per engine (Claude Code, Codex, API, …): its state as a chip, one dim line (how it signs
-//   in · its models · when it was checked), what is missing in one line, check again and the on/off switch. The row
-//   opens in place for the rest: the longer explanation, the version and every model, and the owner's API engine form
-//   (address, model, key; ?engine=api opens that row).
+//   in · its models · when it was checked), what is missing in one line, check again and the on/off switch. Under it,
+//   the provider's accounts in the order they are used, with Add account (the owner; the AI connection dialogs of
+//   Credentials.tsx, for this provider's kinds only). The row opens in place for the rest: the longer explanation, the
+//   version and every model, and the owner's API engine form (address, model, key; ?engine=api opens that row).
 // - Team provider settings: settings rows (words on the left, the control on the right): team defaults (engine, model, turns at
 //   the same time); who else may pick the engine ("팀원이 엔진 고르기 허용", off: owner and admins only) and the optional
 //   Claude-limit fallback to Codex (off; warns that data then also goes to OpenAI; unavailable while Codex is off);
 //   usage limits. A section shows Save only once something in it changed.
-// The accounts the engines use (Claude subscription tokens, API keys, ChatGPT sign-ins) are on Admin > AI connections
-// (Credentials.tsx); company keys moved there.
+//   Members' own accounts: whether members may add their own, whether subscriptions may be shared, and the list.
 import clsx from 'clsx'
 import { AlertTriangle, ChevronRight, Plus, RefreshCw, Trash2 } from 'lucide-react'
 import { useEffect, useId, useRef, useState, type ReactNode, type Ref } from 'react'
-import { Link, useSearchParams } from 'react-router-dom'
+import { useSearchParams } from 'react-router-dom'
 import type { Budget, EngineId, EnginesResponse, EngineStatus, Group, MemberEngineChoice, User } from '@mycel/shared/api'
 import { api, API } from '../../lib/api'
 import { formatDateTime, formatNumber, formatUsd } from '../../lib/format'
 import { useLocale, useT } from '../../i18n'
 import { isOwner, useMeStrict } from '../../store/session'
-import { Badge, Button, Field, IconButton, Modal, Switch, TabPanel, Tabs, inputCls, noKeyRepeat } from '../../components/ui'
+import { Badge, Button, Field, IconButton, Modal, Switch, TabPanel, Tabs, confirmDialog, inputCls, noKeyRepeat } from '../../components/ui'
 import { AdminPageHeader, Loadable, OneLine, useAction, useActionOk, useFocusAfterRemove, useLoad, useOneAtATime } from './common'
+import { ENGINE_FAMILY, PersonalCredentialList, ProviderAccounts, useTeamCredentials, type TeamCredentials } from './Credentials'
+import { TrialCreditBar } from '../../components/TrialCreditBar'
 import { useEngines } from '../../store/engines'
 
 type EnginesTab = 'providers' | 'team'
@@ -44,6 +47,7 @@ export default function Engines() {
     )
   const panels = useId()
   const state = useLoad(() => api.call(API.engines))
+  const tc = useTeamCredentials()
   const [checking, setChecking] = useState<EngineId | null>(null)
 
   const check = async (id: EngineId) => {
@@ -59,12 +63,12 @@ export default function Engines() {
 
   return (
     <>
-      <AdminPageHeader title={t('admin.engines')} testId="engines-header" className="!mb-2">
+      <AdminPageHeader title={t('admin.providers')} desc={t('providers.desc')} testId="engines-header" className="!mb-2">
         <Tabs
           segmented
           value={tab}
           onChange={setTab}
-          label={t('admin.engines')}
+          label={t('admin.providers')}
           panels={panels}
           items={[{ id: 'providers', label: t('engines.tab.providers') }, { id: 'team', label: t('engines.tab.team') }]}
         />
@@ -73,11 +77,14 @@ export default function Engines() {
         <Loadable state={state}>
           {(d) =>
             tab === 'providers' ? (
+              <>
+              {tc.trial.data?.credit && <TrialCreditBar credit={tc.trial.data.credit} timeZone={me.server.timeZone} className="mb-4" />}
               <ul className="-mx-2 divide-y divide-line" data-testid="engine-list">
                 {d.engines.map((e) => (
                   <EngineRow
                     key={e.id}
                     e={e}
+                    accounts={ENGINE_FAMILY[e.id] && <ProviderAccounts tc={tc} fam={ENGINE_FAMILY[e.id]!} />}
                     owner={isOwner(me)}
                     initiallyOpen={params.get('engine') === e.id}
                     checking={checking === e.id}
@@ -90,23 +97,27 @@ export default function Engines() {
                   />
                 ))}
               </ul>
+              {tc.state.data && <p className="mt-3 text-xs text-faint">{t('credentials.order')} {t('credentials.costNote', { date: tc.state.data.pricesAsOf })}</p>}
+              </>
             ) : (
               <>
                 <Defaults data={d} onSaved={(r) => state.setData(r)} />
                 <MemberChoice data={d} onSaved={(r) => state.setData(r)} />
+                <MemberAccounts tc={tc} />
                 <Budgets openHere={params.get('focus') === 'limits'} />
               </>
             )
           }
         </Loadable>
       </TabPanel>
+      {tc.dialogs}
     </>
   )
 }
 
 /** One engine: name and state on the first line, one dim line under it, what is missing in one line (it opens with
  * "More"); check again and the switch on the right. The name opens the rest in place. */
-function EngineRow({ e, owner, initiallyOpen, checking, onCheck, onToggle, onApiSaved }: { e: EngineStatus; owner: boolean; initiallyOpen: boolean; checking: boolean; onCheck: () => void; onToggle: (v: boolean) => void; onApiSaved: () => void }) {
+function EngineRow({ e, accounts, owner, initiallyOpen, checking, onCheck, onToggle, onApiSaved }: { e: EngineStatus; accounts?: ReactNode; owner: boolean; initiallyOpen: boolean; checking: boolean; onCheck: () => void; onToggle: (v: boolean) => void; onApiSaved: () => void }) {
   const t = useT()
   const locale = useLocale()
   const [open, setOpen] = useState(initiallyOpen)
@@ -166,9 +177,6 @@ function EngineRow({ e, owner, initiallyOpen, checking, onCheck, onToggle, onApi
               ) : (
                 <p className="min-w-0 flex-1 text-xs break-words text-warn" data-testid="engine-detail"><CodeText text={e.detail} /></p>
               )}
-              {e.authMode === 'managed' && e.status === 'not_logged_in' && (
-                <Link to="/admin/credentials" className="shrink-0 text-xs font-medium text-accent-text underline" data-testid="engine-go-credentials">{t('engines.goCredentials')}</Link>
-              )}
             </div>
           )}
         </div>
@@ -179,6 +187,7 @@ function EngineRow({ e, owner, initiallyOpen, checking, onCheck, onToggle, onApi
           <Switch checked={e.enabled} onChange={onToggle} label={t('engines.enableNamed', { name: e.label })} hideLabel testId={`engine-switch-${e.id}`} />
         </div>
       </div>
+      {accounts}
       {open && (
         <div id={details} className="mt-3 space-y-3 pl-5" data-testid="engine-details">
           {hint && <p className="text-xs leading-relaxed text-muted" data-testid={e.beta ? 'engine-beta' : undefined}>{hint}</p>}
@@ -238,6 +247,39 @@ function SaveBar({ busy, onSave, onCancel, testId }: { busy?: boolean; onSave: (
         {t('common.save')}
       </Button>
     </>
+  )
+}
+
+/** Members' own accounts (was on Admin > AI connections): whether members may add their own Claude or Codex account,
+ * whether a subscription may be shared with the team (it warns first), and the accounts members connected. The switches
+ * are the owner's; admins see them and the list. */
+function MemberAccounts({ tc }: { tc: TeamCredentials }) {
+  const t = useT()
+  const d = tc.state.data
+  if (!d) return null
+  return (
+    <SettingsSection title={t('providers.memberAccounts')} testId="member-accounts">
+      <SettingRow label={t('credentials.memberOwn')} hint={t('credentials.memberOwnHint')}>
+        <Switch checked={d.memberOwn} disabled={!tc.owner} label={t('credentials.memberOwn')} hideLabel testId="member-own-switch" onChange={async (v) => {
+          const r = await tc.act(() => api.call(API.updateCredentialSettings, { body: { memberOwn: v } }))
+          if (r) tc.state.setData({ ...d, memberOwn: r.memberOwn })
+        }} />
+      </SettingRow>
+      <SettingRow label={t('credentials.sharedSubscriptions')} hint={d.sharedSubscriptions ? <span className="text-warn">{t('credentials.sharedRiskWarning')}</span> : undefined}>
+        <div data-testid="shared-subscriptions-setting">
+          <Switch checked={d.sharedSubscriptions} disabled={!tc.owner} label={t('credentials.sharedSubscriptions')} hideLabel onChange={async (v) => {
+            if (v && !(await confirmDialog({ title: t('credentials.sharedRiskTitle'), body: t('credentials.sharedRiskWarning'), confirm: t('credentials.sharedRiskConfirm'), danger: true }))) return
+            const r = await tc.act(() => api.call(API.updateCredentialSettings, { body: { sharedSubscriptions: v, ...(v ? { acknowledgedSharedSubscriptionRisk: true } : {}) } }))
+            if (r) void tc.state.reload()
+          }} />
+        </div>
+      </SettingRow>
+      {d.items.some((x) => x.scope === 'personal') && (
+        <SettingRow label={t('credentials.personalList')} stacked>
+          <PersonalCredentialList tc={tc} />
+        </SettingRow>
+      )}
+    </SettingsSection>
   )
 }
 

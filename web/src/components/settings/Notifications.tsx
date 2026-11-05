@@ -92,7 +92,7 @@ export function Notifications() {
           {item.review && <Link className="text-sm text-accent-text hover:underline" to="/scheduled" onClick={() => void read(item)} data-testid="notification-review-link">{t('settings.schedules')}</Link>}
           {item.link === 'connections' && <Link className="text-sm text-accent-text hover:underline" to="/settings/connectors?drive=1" onClick={() => void read(item)}>{t('drive.title')}</Link>}
           {item.link === 'integrations' && <Link className="text-sm text-accent-text hover:underline" to={`/settings/integrations?request=${encodeURIComponent(item.sourceId)}`} onClick={() => void read(item)} data-testid="notification-request-link">{t('integrations.title')}</Link>}
-          {item.link === 'admin_credentials' && <Link className="text-sm text-accent-text hover:underline" to="/admin/credentials" onClick={() => void read(item)} data-testid="notification-ai-request-link">{t('aiAccess.connectTeam')}</Link>}
+          {item.link === 'admin_credentials' && <Link className="text-sm text-accent-text hover:underline" to="/admin/providers" onClick={() => void read(item)} data-testid="notification-ai-request-link">{t('aiAccess.connectTeam')}</Link>}
           {item.code === 'team.joined' && <Link className="text-sm text-accent-text hover:underline" to="/admin/members" onClick={() => void read(item)} data-testid="notification-joined-link">{t('admin.members')}</Link>}
           {item.link === 'skills' && <Link className="text-sm text-accent-text hover:underline" to={skillsLink(item)} onClick={() => void read(item)}>{t('skills.title')}</Link>}
         </div>

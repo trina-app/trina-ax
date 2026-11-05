@@ -7,8 +7,8 @@ Use fictional data when you report a problem. Never paste keys, setup or invite 
 
 | Symptom | Check | Next step |
 |---|---|---|
-| Files open, AI does not answer | **Admin › AI engines**: missing program, sign-in, version or network error | Fix the reported cause. Never turn isolation off. The demo has AI off on purpose. |
-| AI connection unavailable | **Admin › AI connections**: kind, state, assignment and consent | Reconnect privately over HTTPS. |
+| Files open, AI does not answer | **Admin › AI providers**: missing program, sign-in, version or network error | Fix the reported cause. Never turn isolation off. The demo has AI off on purpose. |
+| AI connection unavailable | **Admin › AI providers**, the engine's accounts: kind, state, assignment and consent | Reconnect privately over HTTPS. |
 | Sign-in repeats or origin rejected | Host name, scheme and port in the browser | Use one address. `localhost` and `127.0.0.1` are different origins. Check `MYCEL_PUBLIC_ORIGINS`. |
 | Address already in use | The port the demo or installer prints | Stop only your own process, or pick a free port. |
 | Socket path too long | The data folder path | Use a short folder in your home directory. |

@@ -3,7 +3,7 @@
 // screen, components/settings/InstallGuide.tsx, in a web browser only / desktop app download, none inside a Mac App
 // Store build: only the App Store line),
 // about (version, license, source code), the member's own AI connections when the team allows them (the team's
-// connections are made by the owner in Admin > AI connections), and the MCP connections the AI may use with the
+// accounts are added by the owner in Admin > AI providers), and the MCP connections the AI may use with the
 // member's own accounts (Integrations.tsx).
 import clsx from 'clsx'
 import { Brain, Download, Laptop, Monitor, Pencil, Plus, ShieldAlert, Smartphone, Trash2 } from 'lucide-react'
@@ -53,7 +53,7 @@ export default function SettingsPane({ tab }: { tab: string }) {
       {tab === 'ai-apps' && <AiApps key={`${me.user.id}:${me.session.id}`} />}
       {tab === 'notifications' && <Notifications key={`${me.user.id}:${me.session.id}`} />}
       {tab === 'apps' && <Apps />}
-      {tab === 'credentials' && <MyCredentials />}
+      {tab === 'providers' && <MyCredentials />}
       {tab === 'about' && <About />}
     </>
   )

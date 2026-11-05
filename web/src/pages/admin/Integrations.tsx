@@ -18,7 +18,7 @@ import { afterAdded, ConnectorDiscover, ConnectorsHeader, matchesQuery, type Con
 import { IntegrationDialog } from '../../components/integrations/IntegrationDialog'
 import { TeamRequests } from '../../components/integrations/RequestDialog'
 import { IntegrationRow, useIntegrationActions } from '../../components/integrations/IntegrationRow'
-import { Loadable, useLoad } from './common'
+import { Loadable, PageScope, useLoad } from './common'
 
 export default function AdminIntegrations() {
   const t = useT()
@@ -41,7 +41,7 @@ export default function AdminIntegrations() {
   const panels = useId()
   return (
     <>
-      <ConnectorsHeader title={t('admin.integrations')} tab={tab} onTab={setTab} query={query} onQuery={setQuery} onAdd={() => setDialog({})} panels={panels} />
+      <ConnectorsHeader title={t('admin.integrations')} scope={<PageScope />} tab={tab} onTab={setTab} query={query} onQuery={setQuery} onAdd={() => setDialog({})} panels={panels} />
       {/* what this page is for, right under its title (not lost between the list and the requests) */}
       {tab === 'connected' && <p className="mb-4 text-sm text-muted" data-testid="team-integrations-note">{t('integrations.admin.desc')}</p>}
       <TabPanel base={panels} value={tab}>

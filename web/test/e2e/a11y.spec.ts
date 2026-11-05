@@ -142,10 +142,10 @@ for (const scheme of ['light', 'dark'] as const) {
     await page.goto('/admin')
     await expect(page.getByTestId('admin-attention').or(page.getByTestId('admin-all-good'))).toBeVisible()
     await audit(page, 'admin home')
-    await page.goto('/admin/engines?engine=api')
+    await page.goto('/admin/providers?engine=api')
     await expect(page.getByTestId('engine-details')).toBeVisible()
     await audit(page, 'admin engines')
-    await page.goto('/admin/engines?tab=team')
+    await page.goto('/admin/providers?tab=team')
     await expect(page.getByTestId('engine-choice')).toBeVisible()
     await audit(page, 'admin engines (team settings)')
     await page.goto('/admin/members')
@@ -221,13 +221,13 @@ for (const scheme of ['light', 'dark'] as const) {
     await page.emulateMedia({ colorScheme: scheme })
     await reset(page)
     await signIn(page)
-    for (const s of ['groups', 'folders', 'engines', 'usage', 'audit', 'settings', 'system']) {
+    for (const s of ['groups', 'folders', 'providers', 'usage', 'audit', 'settings', 'system']) {
       await page.goto(`/admin/${s}`)
       await expect(page.getByRole('heading', { level: 2 }).first()).toBeVisible()
       await page.waitForTimeout(300)
       await audit(page, `admin/${s}`)
     }
-    for (const s of ['security', 'memory', 'apps']) {
+    for (const s of ['security', 'providers', 'memory', 'apps']) {
       await page.goto(`/settings/${s}`)
       await page.waitForTimeout(300)
       await audit(page, `settings/${s}`)

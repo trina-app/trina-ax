@@ -112,7 +112,7 @@ test('admin screens: members, groups, folder rules with "who sees what", engines
   await expect(folderTree.locator('[data-path="finance"]').getByTestId('tree-who')).toContainText('모두 · 읽기')
 
   // engines: what is missing, in plain words
-  await page.getByRole('link', { name: 'AI 엔진' }).click()
+  await page.getByRole('link', { name: 'AI 제공자' }).click()
   await expect(page.getByTestId('engine-card').first()).toContainText('연결됨')
   await expect(page.locator('[data-engine="codex"]').getByTestId('engine-detail')).toContainText('codex login --device-auth')
 
@@ -249,7 +249,7 @@ test('system: storage use with what uses it; Team AX Cloud shows the plan and le
   await expect(page.getByTestId('update-managed')).toBeVisible()
   await expect(page.getByTestId('connected-list')).toHaveCount(0)
   // the plan's maximum for answers at the same time (AI engines > Team provider settings)
-  await page.goto('/admin/engines?tab=team')
+  await page.goto('/admin/providers?tab=team')
   await expect(page.getByTestId('engines-concurrency')).toHaveAttribute('max', '3')
   expect(realErrors(errors)).toEqual([])
 })

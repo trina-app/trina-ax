@@ -402,11 +402,11 @@ export function MemberMenu({ name, items }: { name: string; items: MemberMenuIte
 }
 
 /** "No AI": this person cannot use any AI connection now (none of their own, none of the team's for them). Opens
- * Admin › AI connections, where the owner adds one or assigns one to them. */
+ * Admin › AI providers, where the owner adds one or assigns one to them. */
 function NoAiBadge() {
   const t = useT()
   return (
-    <Link to="/admin/credentials" title={t('members.noAiHint')} className="ml-1 inline-flex" data-testid="member-no-ai">
+    <Link to="/admin/providers" title={t('members.noAiHint')} className="ml-1 inline-flex" data-testid="member-no-ai">
       <Badge tone="warn">{t('members.noAi')}</Badge>
       <span className="sr-only">{t('members.noAiHint')}</span>
     </Link>

@@ -10,8 +10,8 @@ export type AiButton =
 
 export function aiButton(action: AiAction, requested: boolean): AiButton {
   switch (action) {
-    case 'connect_team': return { kind: 'link', to: '/admin/credentials', label: 'aiAccess.connectTeam' }
-    case 'connect_own': return { kind: 'link', to: '/settings/credentials', label: 'aiAccess.connectOwn' }
+    case 'connect_team': return { kind: 'link', to: '/admin/providers', label: 'aiAccess.connectTeam' }
+    case 'connect_own': return { kind: 'link', to: '/settings/providers', label: 'aiAccess.connectOwn' }
     case 'ask_owner': return { kind: 'ask', label: requested ? 'aiAccess.asked' : 'aiAccess.askOwner', done: requested }
   }
 }

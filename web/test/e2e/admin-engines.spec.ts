@@ -15,7 +15,7 @@ async function start(page: Page) {
 test('Providers: one row per engine with its state, what is missing, check again and the switch; a row opens in place', async ({ page }) => {
   const errors = watchConsole(page)
   await start(page)
-  await page.goto('/admin/engines')
+  await page.goto('/admin/providers')
   await expect(page.getByRole('tab', { name: t['engines.tab.providers'], exact: true })).toHaveAttribute('aria-selected', 'true')
   const rows = page.getByTestId('engine-card')
   await expect(rows).toHaveCount(3)
@@ -54,7 +54,7 @@ test('Providers: one row per engine with its state, what is missing, check again
 
 test('the owner sets up the API engine from its row; ?engine=api opens it', async ({ page }) => {
   await start(page)
-  await page.goto('/admin/engines?engine=api')
+  await page.goto('/admin/providers?engine=api')
   const api = page.locator('[data-engine="api"]')
   await expect(api.getByTestId('engine-open')).toHaveAttribute('aria-expanded', 'true')
   await expect(api.getByTestId('engine-experimental')).toBeVisible()
@@ -70,9 +70,9 @@ test('the owner sets up the API engine from its row; ?engine=api opens it', asyn
 test('the tabs have their own address; Team provider settings shows Save only once something changed', async ({ page }) => {
   const errors = watchConsole(page)
   await start(page)
-  await page.goto('/admin/engines')
+  await page.goto('/admin/providers')
   await page.getByRole('tab', { name: t['engines.tab.team'], exact: true }).click()
-  await expect(page).toHaveURL(/\/admin\/engines\?tab=team$/)
+  await expect(page).toHaveURL(/\/admin\/providers\?tab=team$/)
   await page.reload()
   await expect(page.getByRole('tab', { name: t['engines.tab.team'], exact: true })).toHaveAttribute('aria-selected', 'true')
 
@@ -108,19 +108,19 @@ test('the tabs have their own address; Team provider settings shows Save only on
 
   // back to Providers: the address loses ?tab
   await page.getByRole('tab', { name: t['engines.tab.providers'], exact: true }).click()
-  await expect(page).toHaveURL(/\/admin\/engines$/)
+  await expect(page).toHaveURL(/\/admin\/providers$/)
   expect(realErrors(errors)).toEqual([])
 })
 
 test('both tabs fit a phone: nothing runs off the side, the switches and Save stay in reach', async ({ page }) => {
   await start(page)
   await page.setViewportSize({ width: 390, height: 800 })
-  for (const url of ['/admin/engines?engine=api', '/admin/engines?tab=team']) {
+  for (const url of ['/admin/providers?engine=api', '/admin/providers?tab=team']) {
     await page.goto(url)
     await expect(page.getByTestId('engines-header')).toBeVisible()
     const content = page.getByTestId('admin-content')
     await expect.poll(() => content.evaluate((el) => el.scrollWidth <= el.clientWidth + 1)).toBe(true)
   }
-  await page.goto('/admin/engines')
+  await page.goto('/admin/providers')
   for (const id of ['claude-code', 'codex', 'api']) await expect(page.locator(`[data-engine="${id}"] label`).filter({ has: page.getByTestId(`engine-switch-${id}`) })).toBeInViewport()
 })

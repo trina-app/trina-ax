@@ -27,7 +27,7 @@ export const skillsChanged = new Emitter<void>()
 export const notificationsChanged = new Emitter<void>()
 /** this window changed a scheduled task (resumed one from its card): the "paused for review" banner recounts */
 export const schedulesChanged = new Emitter<void>()
-/** a ChatGPT sign-in this person started (Admin / Settings > AI connections): its address, code and result */
+/** a ChatGPT sign-in this person started (Admin / Settings > AI providers): its address, code and result */
 export const credentialLogin = new Emitter<CredentialLogin>()
 /** the server could not resume us: screens that hold REST data reload it */
 export const reloadAsked = new Emitter<'reset' | 'resync'>()
