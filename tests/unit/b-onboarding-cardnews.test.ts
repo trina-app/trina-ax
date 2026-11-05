@@ -376,6 +376,15 @@ describe('the skill files (docs/DECISIONS.md "W2": the result in front, the answ
     // the brand-folder hint for cards made without a photo, numbers only as written, never a made picture
     expect(answer(ko)).toContain('브랜드 폴더의 이미지 폴더에 사진을 넣고 다시 만들어 달라고 하시면 사진을 넣어 드려요')
     expect(answer(en)).toContain('Add photos to the brand images folder and ask me again to put them in')
+    // docs/DECISIONS.md "W3": only for a type-only card, named; the number and closing cards never count; cards that
+    // all have photos get no photo line (a walk got it under cards with photos)
+    for (const md of [answer(ko), answer(en)]) for (const v of ['`type-cover`', '`type-statement`', '`type-points`']) expect(md).toContain(v)
+    expect(answer(ko)).toContain('있을 때만 한 문장을 더해요: "(n)장은 어울리는 사진이 없어 글자로만 만들었어요.')
+    expect(answer(ko)).toContain('4장(숫자)과 5장(마무리)은 원래 사진이 없는 판이라 세지 않아요. 1~3장이 모두 사진을 쓴 판이면 사진 이야기는 하지 않아요.')
+    expect(answer(en)).toContain('Only when one of cards 1–3 uses its type-only version')
+    expect(answer(en)).toContain('"Card (n) had no fitting photo, so it is type only.')
+    expect(answer(en)).toContain('When cards 1–3 all use a photo, say nothing about photos.')
+    expect(answer(ko)).not.toContain('사진 없이 만든 장이 있으면')
     expect(ko).toContain('숫자는 자료에 숫자로 적힌 것만, 적힌 그대로 써요')
     expect(en).toContain('Use only numbers written as numbers in the material, exactly as written')
     expect(ko).toContain('사진을 새로 만들거나, 인터넷·스톡 사진을 가져오거나')

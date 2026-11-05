@@ -8596,4 +8596,10 @@ Placement: Team AX core (onboarding, web reading, skills, chat). Each fix is its
   leaves out a line another page said already. A row kept before this (only on dev servers: N is unreleased) is
   tidied by the same lines. All of it in one pass with bounded patterns (the N review's hostile pages, plus menus and
   endless lines: test).
+- **The photo line under cards that had photos.** The card news answer said "브랜드 폴더의 이미지 폴더에 사진을 넣고 다시
+  만들어 달라고 하시면 사진을 넣어 드려요" under cards whose photos were plain to see: the rule was "a card made without a
+  photo", and cards 4 (the number) and 5 (the next step) never have one. The skill (ko, en) now adds the line only when
+  one of cards 1–3 used its type-only version (`type-cover`, `type-statement`, `type-points`), names that card ("2장은
+  어울리는 사진이 없어 글자로만 만들었어요.") so the reader knows which one, says that 4 and 5 never count, and says
+  nothing about photos when 1–3 all have one. It stays a rule the AI follows (no server check of the answer's words).
 
