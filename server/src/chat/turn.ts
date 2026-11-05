@@ -23,7 +23,8 @@ import { CoreUnavailableError } from '../context'
 import type { Running } from '../server'
 import type { LaunchHandle } from '../native'
 import type { LaunchRequest } from '@mycel/shared'
-import type { Principal } from '../policy/access'
+import { atLeast, type Principal } from '../policy/access'
+import { parseInput, walk } from '../policy/resolve'
 import { TurnFiles } from '../files/service'
 import { saveSources } from '../files/sources'
 import { buildSubagentPrompt, buildTurnContext, buildTurnPrompt, continuationBlock, historyTrimmed, instructionFiles, neutralizeTags, skillBlock, skillHintsBlock, type PromptInput } from './prompt'
@@ -1201,9 +1202,42 @@ export class TurnExec {
     for (const k of PATH_ARGS) {
       for (const v of Array.isArray(a[k]) ? a[k] as unknown[] : [a[k]]) {
         if (typeof v !== 'string' || /^[a-z][a-z0-9+.-]*:/i.test(v)) continue
-        this.files.namePaths.add(v.split('/').filter((x) => x && x !== '.').join('/'))
+        for (const p of this.roomNames(v)) this.files.namePaths.add(p)
       }
     }
+    // a search looks in every folder under where it starts (the whole team folder without a path) that the person may
+    // read, so even "no match" says something about each of them: those folders count as name reads too
+    // (the person's own folder is left to what the search found there: it is theirs, not a folder of the room)
+    // (the engine's own start of a call comes without its input: only the server's call, chat/tools.ts, counts here)
+    if (input !== undefined && (tool === 'grep' || tool === 'glob' || tool === 'search')) {
+      const base = typeof a.path === 'string' ? this.roomNames(a.path).at(-1) ?? '' : ''
+      const rules = this.rt.files.rules()
+      let me: Principal | null = null
+      try { me = this.livePrincipal() } catch { /* a disabled account: the call fails anyway */ }
+      for (const f of ['', ...rules.ruleFolders()]) {
+        if ((base !== '' && f !== base && !f.startsWith(base + '/')) || f.split('/')[0] === 'users') continue
+        if (me && atLeast(rules.access(me, f ? f.split('/') : []), 'read')) this.files.namePaths.add(f)
+      }
+    }
+  }
+
+  /**
+   * A team path as a room session records it (docs/DECISIONS.md "대화방의 트리나"): the names that exist on disk in their
+   * real spelling (another case on a case-insensitive disk, another Unicode form), the rest as typed in NFC, so a
+   * ruled folder is found by its own name whatever spelling the AI used. The path as typed is kept too (one more
+   * source only ever keeps more answers private).
+   */
+  private roomNames(v: string): string[] {
+    const typed = v.split('/').filter((x) => x && x !== '.').map((x) => x.normalize('NFC')).join('/')
+    const out = new Set([typed])
+    try {
+      const fx = this.rt.files.fx
+      const w = walk(fx.root, parseInput(typed), fx.caseInsensitive)
+      const real = [...w.actual, ...w.missing.map((x) => x.normalize('NFC'))].join('/')
+      out.add(real)
+      out.add(real.normalize('NFC'))
+    } catch { /* not a team path (absolute, "..", too deep): the tool refuses it, nothing was read */ }
+    return [...out]
   }
 
   /**

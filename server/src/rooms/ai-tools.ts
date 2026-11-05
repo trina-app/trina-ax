@@ -37,4 +37,4 @@ export const ROOM_READ_ONLY_TOOLS: ReadonlySet<string> = new Set([
 ])
 
 /** The arguments of our tools that name a team path (a room session counts each as a name read, chat/turn.ts). */
-export const PATH_ARGS: readonly string[] = ['file_path', 'path', 'source', 'output', 'template', 'from', 'to', 'destination', 'file_paths', 'paths', 'sources', 'images']
+export const PATH_ARGS: readonly string[] = ['file_path', 'path', 'source', 'output', 'template', 'from', 'to', 'to_folder', 'destination', 'file_paths', 'paths', 'sources', 'images']

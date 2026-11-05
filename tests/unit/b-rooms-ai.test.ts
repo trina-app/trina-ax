@@ -592,3 +592,82 @@ describe('the instructions of a room session', () => {
     } finally { for (const f of files) fs.rmSync(f, { force: true }) }
   })
 })
+
+// ---------------- the fourth review (2026-11-05): other spellings, whole-drive searches, copy targets ----------------
+describe('names the AI used in a room count by their real spelling', () => {
+  /** shared/r4-hr (shared is everyone's) that erin may not see, a Korean one, and a file everyone may read */
+  const setup = () => {
+    const db = h.ctx.db
+    fs.mkdirSync(path.join(h.team, 'shared/r4-hr/layoffs'), { recursive: true })
+    fs.mkdirSync(path.join(h.team, 'shared/r4-hr/empty'), { recursive: true })
+    fs.writeFileSync(path.join(h.team, 'shared/r4-hr/x.md'), 'hr\n')
+    db.query("INSERT OR IGNORE INTO folders (id, path) VALUES ('f_r4hr', 'shared/r4-hr')").run()
+    db.query("INSERT OR IGNORE INTO folder_rules (id, folder_id, subject_type, subject_id, access) VALUES ('r4hr', 'f_r4hr', 'user', 'erin', 'none')").run()
+    const ko = 'shared/r4-인사'.normalize('NFC')
+    fs.mkdirSync(path.join(h.team, ko, '감원'.normalize('NFC')), { recursive: true })
+    db.query("INSERT OR IGNORE INTO folders (id, path) VALUES ('f_r4ko', ?)").run(ko)
+    db.query("INSERT OR IGNORE INTO folder_rules (id, folder_id, subject_type, subject_id, access) VALUES ('r4ko', 'f_r4ko', 'user', 'erin', 'none')").run()
+    fs.writeFileSync(path.join(h.team, 'shared/r4-pub.md'), 'pub\n')
+  }
+  const cleanup = () => {
+    h.ctx.db.query("DELETE FROM folder_rules WHERE id IN ('r4hr', 'r4ko')").run()
+    for (const p of ['shared/r4-hr', 'shared/r4-인사'.normalize('NFC'), 'shared/r4-pub.md']) fs.rmSync(path.join(h.team, p), { recursive: true, force: true })
+  }
+  const posted = async (call: unknown) => {
+    const roomId = await room(['alice', 'erin'])
+    const { q } = await ask('alice', roomId, `@트리나 x\n${fake(call)}`)
+    return !!(await answerTo('erin', roomId, q))
+  }
+
+  test('another case of a restricted folder (a case-insensitive disk finds the folder by it) keeps the answer private', async () => {
+    setup()
+    try {
+      const sameFolder = h.ctx.files.fx.caseInsensitive
+      expect(await posted({ tool: 'read', args: { file_path: 'shared/r4-hr/layoffs' }, sayResult: true })).toBe(false)
+      for (const call of [
+        { tool: 'read', args: { file_path: 'shared/R4-HR/layoffs' }, sayResult: true },
+        { tool: 'grep', args: { pattern: 'NOPE-zzz', path: 'shared/R4-HR' }, sayResult: true },
+        { tool: 'list', args: { path: 'shared/R4-HR/empty' }, sayResult: true },
+        { tool: 'glob', args: { pattern: '*.nope', path: 'shared/R4-HR' }, sayResult: true },
+      ]) {
+        // on a case-sensitive disk "R4-HR" is another folder that does not exist: the AI learned nothing about r4-hr
+        if (sameFolder) expect({ call: call.args, posted: await posted(call) }).toEqual({ call: call.args, posted: false })
+      }
+    } finally { cleanup() }
+  })
+
+  test('the NFD spelling of a restricted Korean folder keeps the answer private', async () => {
+    setup()
+    try {
+      expect(await posted({ tool: 'read', args: { file_path: 'shared/r4-인사/감원'.normalize('NFD') }, sayResult: true })).toBe(false)
+    } finally { cleanup() }
+  })
+
+  test('a search of the whole team folder counts every folder the asker may read, so "no match" stays private too', async () => {
+    setup()
+    try {
+      for (const call of [
+        { tool: 'grep', args: { pattern: 'R4-NOPE-zzz' }, sayResult: true },
+        { tool: 'glob', args: { pattern: '**/*r4-nope*' }, sayResult: true },
+        // a search of a folder everyone may read that holds one erin may not
+        { tool: 'grep', args: { pattern: 'R4-NOPE-zzz', path: 'shared' }, sayResult: true },
+      ]) expect({ call: call.args, posted: await posted(call) }).toEqual({ call: call.args, posted: false })
+      // a search where everyone may read everything still goes to the room
+      expect(await posted({ tool: 'grep', args: { pattern: 'R4-NOPE-zzz', path: 'groups/marketing' }, sayResult: true })).toBe(true)
+    } finally { cleanup() }
+  })
+
+  test('the folder copy_files or move_files copies into counts as a name read', async () => {
+    setup()
+    try {
+      const roomId = await room(['alice', 'erin'])
+      const q = await send('alice', roomId, `@트리나 cp\n${fake({ tool: 'copy_files', args: { paths: ['shared/r4-pub.md'], to_folder: 'projects/falcon' }, sayResult: true })}`)
+      const turnId = (await ws.alice!.next('room.ai.run', (f) => f.data.run.questionId === q.id)).data.run.turnId
+      const card = await ws.alice!.next('turn.request', (f) => f.data.turnId === turnId && f.data.request.kind === 'ask_user', 15_000)
+      await h.api('alice').call(API.answerTurn, { params: { id: turnId }, body: { kind: 'ask_user', requestId: card.data.request.requestId, answer: 'allow' } })
+      await ws.alice!.next('room.ai.run', (f) => f.data.run.questionId === q.id && f.data.run.state === 'done', 30_000)
+      expect(await answerTo('erin', roomId, q)).toBeUndefined()
+      expect(await answerTo('alice', roomId, q)).toMatchObject({ visibility: 'private', preview: { folders: expect.arrayContaining(['projects/falcon']) } })
+    } finally { cleanup(); fs.rmSync(path.join(h.team, 'projects/falcon/r4-pub.md'), { force: true }) }
+  })
+})
