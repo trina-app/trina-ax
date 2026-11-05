@@ -84,7 +84,7 @@ export default function SettingsDialog({ onClose, page }: { onClose: () => void;
         aria-modal="true"
         aria-labelledby={titleId}
         tabIndex={-1}
-        className="flex h-full w-full flex-col bg-surface text-ink shadow-xl outline-none [--sticky-bg:var(--c-surface)] max-md:pt-[var(--safe-top)] md:h-[min(760px,100%)] md:max-w-[1040px] md:rounded-2xl"
+        className="flex h-full w-full flex-col bg-surface text-ink shadow-xl outline-none [--sticky-bg:var(--c-surface)] max-md:bg-canvas max-md:[--sticky-bg:var(--c-canvas)] max-md:pt-[var(--safe-top)] md:h-[min(760px,100%)] md:max-w-[1040px] md:rounded-2xl"
         onMouseDown={(e) => e.stopPropagation()}
         data-testid="settings-dialog"
       >
@@ -118,7 +118,7 @@ export default function SettingsDialog({ onClose, page }: { onClose: () => void;
                 )}
               </div>
             </div>
-            <nav aria-label={t('settings.title')} className="scroll-thin min-h-0 flex-1 overflow-y-auto px-3 pb-3" data-testid="settings-menu">
+            <nav aria-label={t('settings.title')} className="scroll-thin min-h-0 flex-1 overflow-y-auto px-3 pb-3 max-md:px-1" data-testid="settings-menu">
               {/* phones: who is signed in, on top; it opens the profile (in place of the list's "프로필" row) */}
               <Link to="/settings/profile" replace className="mt-2 mb-2 flex items-center gap-3 rounded-lg px-3 py-2 hover:bg-hover focus-visible:-outline-offset-2 md:hidden" data-testid="settings-me">
                 <Avatar user={me.user} size={48} />

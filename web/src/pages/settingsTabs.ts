@@ -5,7 +5,7 @@
 // has nothing to show, and /settings/browser there opens the profile instead. "AI connections" is there while the team
 // lets members add their own (or one is still there). "MCP" (the AI using other services with the person's own
 // accounts) is always there: it also lists the team connections they may use.
-import { Bell, Brain, Cable, Download, Gauge, Globe, Info, KeyRound, Laptop, Plug, User } from 'lucide-react'
+import { Bell, Brain, Cable, Download, Gauge, Globe, HardDrive, Info, KeyRound, Laptop, Plug, User } from 'lucide-react'
 import type { MessageKey } from '../i18n'
 
 export interface SettingsTab {
@@ -23,7 +23,7 @@ const TABS: SettingsTab[] = [
   { id: 'usage', label: 'settings.usage', icon: Gauge, group: 1 },
   { id: 'memory', label: 'settings.memory', icon: Brain, group: 2 },
   { id: 'credentials', label: 'settings.credentials', icon: KeyRound, group: 2 },
-  { id: 'drive', label: 'drive.title', icon: Download, group: 2 },
+  { id: 'drive', label: 'drive.title', icon: HardDrive, group: 2 },
   { id: 'integrations', label: 'integrations.title', icon: Cable, group: 2 },
   { id: 'connectors', label: 'connectors.title', icon: Plug, group: 2 },
   { id: 'notifications', label: 'notifications.title', icon: Bell, group: 3 },
