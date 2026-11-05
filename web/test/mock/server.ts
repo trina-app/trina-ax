@@ -1543,7 +1543,7 @@ export class MockServer {
     // a promo video's state (server/src/promo-video/render.ts): the mock never makes the MP4, so no button
     getPromoVideo: (c) => {
       const a = this.artifacts.find((x) => x.id === c.params.id && x.key === PROMO_ARTIFACT_KEY) ?? fail('not_found', 404)
-      return { artifactId: a.id, chatId: a.chatId, title: a.title, style: PROMO_STYLES[0], duration: 14.2, mp4: { available: false, state: 'none' as const, seconds: null, bytes: null } }
+      return { artifactId: a.id, chatId: a.chatId, title: a.title, style: PROMO_STYLES[0], duration: 18.5, mp4: { available: false, state: 'none' as const, seconds: null, bytes: null } }
     },
     getJob: (c) => this.jobs.get(c.params.id!) ?? fail('not_found', 404),
     cancelJob: (c) => {

@@ -3,44 +3,48 @@
 // "promo-video" (a new version each time), with the checked slots in promo_videos for the MP4 (render.ts).
 // A failed check is one answer listing every problem; the AI may try once more in the same answer. A second failure
 // tells it to stop and say in one plain sentence why there is no video (no third try in that answer).
-import { PROMO_ARTIFACT_KEY, PROMO_TOOL, PromoVideoInput, type Locale } from '@mycel/shared/api'
+import { PROMO_ARTIFACT_KEY, PROMO_TOOL, PromoVideoInput, type Locale, type PromoStyle } from '@mycel/shared/api'
 import type { AppContext } from '../context'
 import type { ToolCtx } from '../files/service'
 import { teamDefaultLocale } from '../admin/settings'
 import { Denied, ToolError } from '../policy/errors'
 import { componentC } from '../team-files/component'
 import type { ToolRegistry } from '../tools/registry'
-import { sceneTimes } from './layout'
+import { audioCues } from './audio'
+import { DURATION } from './layout'
 import { checkPromoInput } from './spec'
 import { artifactDocument, type PlayerText } from './template'
 
 /** The font face file the artifact page loads from this server (web/scripts/build-vendor.ts writes it). */
 export const PROMO_FONT_CSS = '/vendor/fonts/promo-video.css'
+/** The sounds, as scripts holding data: addresses (the only way a sound reaches the artifact frame). */
+export const PROMO_AUDIO_BASE = '/vendor/promo-video/'
 
 /** What people call the styles (the answer names the style this way, never by its id). */
-const STYLE_NAME: Record<Locale, Record<'bold' | 'editorial' | 'night', string>> = {
-  ko: { bold: '임팩트', editorial: '매거진', night: '시네마틱' },
-  en: { bold: 'Bold', editorial: 'Editorial', night: 'Cinematic' },
-  id: { bold: 'Tegas', editorial: 'Editorial', night: 'Sinematik' },
-  ja: { bold: 'インパクト', editorial: 'マガジン', night: 'シネマティック' },
-  es: { bold: 'Impacto', editorial: 'Editorial', night: 'Cinemático' },
+export const STYLE_NAME: Record<Locale, Record<PromoStyle, string>> = {
+  ko: { ink: '임팩트', deep: '에디토리얼', mono: '모노' },
+  en: { ink: 'Bold', deep: 'Editorial', mono: 'Mono' },
+  id: { ink: 'Tegas', deep: 'Editorial', mono: 'Mono' },
+  ja: { ink: 'インパクト', deep: 'エディトリアル', mono: 'モノ' },
+  es: { ink: 'Impacto', deep: 'Editorial', mono: 'Mono' },
 }
 
-const PLAYER: Record<Locale, PlayerText & { title: string }> = {
-  ko: { title: '홍보 영상', play: '재생', pause: '일시정지', replay: '처음부터', stills: '장면 {n}', scene: (n) => `장면 ${n}` },
-  en: { title: 'Promo video', play: 'Play', pause: 'Pause', replay: 'From the start', stills: 'Scene {n}', scene: (n) => `Scene ${n}` },
-  id: { title: 'Video promosi', play: 'Putar', pause: 'Jeda', replay: 'Dari awal', stills: 'Adegan {n}', scene: (n) => `Adegan ${n}` },
-  ja: { title: 'プロモーション動画', play: '再生', pause: '一時停止', replay: '最初から', stills: 'シーン {n}', scene: (n) => `シーン ${n}` },
-  es: { title: 'Vídeo promocional', play: 'Reproducir', pause: 'Pausa', replay: 'Desde el inicio', stills: 'Escena {n}', scene: (n) => `Escena ${n}` },
+const PLAYER: Record<Locale, PlayerText> = {
+  ko: { play: '재생', pause: '일시정지', soundOn: '소리 켜기', soundOff: '소리 끄기', stills: '장면 {n}' },
+  en: { play: 'Play', pause: 'Pause', soundOn: 'Turn sound on', soundOff: 'Turn sound off', stills: 'Scene {n}' },
+  id: { play: 'Putar', pause: 'Jeda', soundOn: 'Nyalakan suara', soundOff: 'Matikan suara', stills: 'Adegan {n}' },
+  ja: { play: '再生', pause: '一時停止', soundOn: '音をオン', soundOff: '音をオフ', stills: 'シーン {n}' },
+  es: { play: 'Reproducir', pause: 'Pausa', soundOn: 'Activar sonido', soundOff: 'Silenciar', stills: 'Escena {n}' },
 }
 
 export const PROMO_TOOL_DESCRIPTION =
-  'Make the company\'s promo video (about 14 s, 1080×1350) from one of our templates. You never write HTML or CSS for it: you fill the slots below, ' +
+  `Make the company's promo video (${DURATION} s, 1080×1350, five beats with music) from our template. You never write HTML or CSS for it: you fill the slots below, ` +
   'the server checks them and builds the video, which shows next to the chat (artifact "promo-video"; calling again makes a new version). ' +
-  'Read the material first (the files you name in `sources`), look at the photos in the brand images folder, then call this once with every slot. ' +
-  'Rules the server checks: every number on screen is written in the sources (the proof number exactly as written, with its unit); each headline line ' +
-  'fits (about 12 Korean characters or 22 Latin letters; a line too wide comes back as a problem); photos come only from the team\'s brand images folder, ' +
-  'each at most once, at least 600 px on the short side; a scene without a fitting photo is made type-only (leave `picture` out). ' +
+  'Read the material first (the files you name in `sources`), look at the pictures in the brand images folder, then call this once with every slot. ' +
+  'The story: 1 hook — the customer\'s outcome as before → after (e.g. "time to write one quote": "half a day" → "14 s"); 2 promise — what the company gives, over a brand picture; ' +
+  '3 work — what it does, on its own picture in a window; 4 proof — one or two numbers written in the material (or, without any, the most concrete fact); 5 end card — logo, one line, the site\'s real offer, the website. ' +
+  'Rules the server checks: every number on screen is written in the sources (proof numbers exactly as written, with sign and unit); every line fits (about 11 Korean characters or 20 Latin letters per headline line; a line too wide comes back as a problem); ' +
+  'pictures come only from the team\'s brand images folder, each at most once, at least 600 px on the short side; a beat without a fitting picture is made with type and light (leave `picture` out; never invent one). ' +
   'If the result lists problems, fix all of them and call once more; if it fails again, stop and tell the person why in one plain sentence.'
 
 /** Calls per turn: the first try and one rewrite. */
@@ -70,23 +74,22 @@ export async function makePromoVideo(ctx: AppContext, a: PromoVideoInput, t: Too
     throw new ToolError(`Nothing was made yet. Fix every problem below and call promo_video once more with all the slots:\n${list}`)
   }
   const { doc } = checked.spec
-  const text = PLAYER[lang]
-  const html = artifactDocument(doc, { fontCss: PROMO_FONT_CSS, text, title: a.title })
+  const html = artifactDocument(doc, { fontCss: PROMO_FONT_CSS, audioBase: PROMO_AUDIO_BASE, cues: audioCues(doc), text: PLAYER[lang], title: a.title })
   const c = componentC(ctx)
   const prev = ctx.db.query('SELECT 1 FROM artifacts WHERE chat_id = ? AND key = ? LIMIT 1').get(turn.chatId, PROMO_ARTIFACT_KEY)
   const s = c.artifacts.apply({ userId: t.user.id, ...turn }, { action: prev ? 'rewrite' : 'create', key: PROMO_ARTIFACT_KEY, type: 'html', title: a.title, content: html } as Parameters<typeof c.artifacts.apply>[1])
   ctx.db.query('INSERT INTO promo_videos (artifact_id, chat_id, user_id, spec, created_at) VALUES (?,?,?,?,?)')
     .run(s.id, turn.chatId, t.user.id, JSON.stringify({ title: a.title, sources: checked.spec.sources, doc }), new Date().toISOString())
   tries.delete(key)
-  const { duration } = sceneTimes()
-  const withPhoto = doc.scenes.filter((x) => x.picture).map((x) => x.kind)
-  const typeOnly = doc.scenes.filter((x) => !x.picture).map((x) => x.kind)
+  const style = STYLE_NAME[lang][doc.family]
+  const typeOnly = [doc.promise.picture ? '' : 'promise', doc.work.picture ? '' : 'work'].filter(Boolean)
+  const changed = a.style && a.style !== doc.family ? ` (the "${a.style}" style does not fit this brand colour, so the server used "${doc.family}")` : ''
   return {
-    text: `Made the promo video "${a.title}" (${duration} s, the "${STYLE_NAME[lang][a.style]}" style; scenes with a photo: ${withPhoto.join(', ') || 'none'}; type-only: ${typeOnly.join(', ') || 'none'}). ` +
-      'It opens by itself next to the chat. Your answer is one short line in the person\'s language: that the video is made and that they can say which scene or words to change; ' +
-      'if some scenes are type-only, one more sentence that photos added to the brand images folder can go in next time. ' +
-      'Nothing else: no tool, skill or slot names, no style ids, colour codes or file paths, no list of the scenes, no HTML.',
-    summary: `${PROMO_TOOL} ${a.style} -> artifact ${s.key} v${s.version}`,
+    text: `Made the promo video "${a.title}" (${DURATION} s with music, the "${style}" style${changed}; beats made with type and light instead of a picture: ${typeOnly.join(', ') || 'none'}). ` +
+      'It opens by itself next to the chat (muted until the person turns the sound on). Your answer is one short line in the person\'s language: that the video is made and that they can say which scene or words to change; ' +
+      'if a beat was made with type and light, one more sentence that pictures added to the brand images folder can go in next time. ' +
+      'Nothing else: no tool, skill or slot names, no style ids, colour codes or file paths, no list of the beats, no HTML.',
+    summary: `${PROMO_TOOL} ${doc.family} -> artifact ${s.key} v${s.version}`,
     structured: { key: s.key, version: s.version, artifactId: s.id },
   }
 }
@@ -96,7 +99,7 @@ export function registerPromoVideo(ctx: AppContext, reg: ToolRegistry): void {
     name: PROMO_TOOL,
     description: PROMO_TOOL_DESCRIPTION,
     input: PromoVideoInput,
-    describe: (a) => `${PROMO_TOOL} ${a.style}`,
+    describe: (a) => `${PROMO_TOOL} ${a.style ?? 'auto'}`,
     run: (a, t) => makePromoVideo(ctx, a, t),
   })
 }

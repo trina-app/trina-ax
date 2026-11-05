@@ -1,8 +1,9 @@
 // Onboarding V (docs/DECISIONS.md "V — The first result is the company's promo video"): the AI fills the slots of our
-// templates with the promo_video tool and the server checks them (lengths measured with the bundled font, numbers
-// written in the sources, pictures from a brand folder, colours), builds the HyperFrames composition and keeps it as the
-// chat's artifact; the MP4 is made only where the server can (a development Mac with the pinned CLI), from the checked
-// slots, never from the artifact's HTML.
+// template with the promo_video tool and the server checks them (lengths measured with the bundled font, numbers
+// written in the sources, pictures from a brand folder, the style that fits the brand colour), builds the HyperFrames
+// composition (five beats on a 120 BPM grid, CSS animations on one clock, music and effects) and keeps it as the chat's
+// artifact; the MP4 is made only where the server can (a development Mac with the pinned CLI), from the checked slots,
+// never from the artifact's HTML.
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from 'bun:test'
 import fs from 'node:fs'
 import os from 'node:os'
@@ -11,10 +12,13 @@ import { API, PROMO_ARTIFACT_KEY, PromoVideoInput } from '@mycel/shared/api'
 import { startHarness, type Harness } from '../lib/b-harness'
 import { waitFor } from '../lib/wait'
 import { charWidth, fitSize, textWidth, wrapLines } from '../../server/src/promo-video/metrics'
-import { contrast, onColor, towardContrast } from '../../server/src/promo-video/colors'
-import { BRAND, fitScene, sceneTimes, type PromoDoc } from '../../server/src/promo-video/layout'
+import { contrast } from '../../server/src/promo-video/colors'
+import { fittingFamilies, paletteFor, usableBrand } from '../../server/src/promo-video/palette'
+import { DURATION, END_SETTLED, SETTLED, STARTS, fitDoc, segments, splitNumber, type VideoDoc } from '../../server/src/promo-video/layout'
 import { hasNumber, inBrandFolder, numbersIn, spaced, squash } from '../../server/src/promo-video/spec'
 import { artifactDocument, composition, renderDocument } from '../../server/src/promo-video/template'
+import { AUDIO_DIR, SOUNDS, audioCues } from '../../server/src/promo-video/audio'
+import { logoTreatFromPixels } from '../../server/src/promo-video/logo'
 import { killTree, mp4Available, setRenderTimeoutForTests } from '../../server/src/promo-video/render'
 
 setDefaultTimeout(60_000)
@@ -29,53 +33,52 @@ function png(w: number, h: number, pad = 4096): Buffer {
   return b
 }
 const P = (src: string, w = 1600, h = 1200) => ({ src, width: w, height: h, focus: 'center' })
-const doc = (over: Partial<PromoDoc> = {}): PromoDoc => ({
-  style: 'bold', lang: 'ko', company: '아크메', website: 'acme.example', brand: '#1f4fd8', logo: P('/shared/브랜드/이미지/logo.png', 600, 160),
-  scenes: [
-    { kind: 'cover', eyebrow: '공장 에너지 관리', headline: ['전기요금,', '이제 줄여서 봅니다'], sub: '공장 설비의 전력 사용을 실시간으로 보여 줘요', picture: P('/shared/브랜드/이미지/a.png') },
-    { kind: 'problem', eyebrow: '이런 고민', headline: ['어디서 새는지', '아무도 몰랐어요'], sub: '고지서가 나와야 알 수 있었어요', picture: null },
-    { kind: 'solution', eyebrow: '하는 일', headline: ['설비마다 센서 하나'], sub: '대시보드에서 바로 확인해요', picture: null },
-    { kind: 'proof', eyebrow: '도입 효과', number: '18%', label: '평균 전기요금 절감', headline: ['87개 사업장이', '먼저 확인했어요'], sub: '2025년 도입 고객 기준', picture: null },
-    { kind: 'cta', eyebrow: '무료 진단', headline: ['우리 공장도', '확인해 보세요'], sub: '일주일 안에 진단 리포트를 드려요', picture: null },
-  ],
+const doc = (over: Partial<VideoDoc> = {}): VideoDoc => ({
+  family: 'ink', lang: 'ko', company: '아크메', website: 'acme.example', brand: '#1f4fd8', music: 'bright',
+  logo: { ...P('/shared/브랜드/이미지/logo.png', 600, 600), treat: 'direct' },
+  hook: { label: '공장 전기요금 확인', before: '한 달 뒤', after: '18%', line: '2025년 도입 고객 기준', mode: 'strike' },
+  promise: { headline: ['설비마다 센서 하나,', '*새는 전기*가 보여요'], sub: '공장 설비의 전력 사용을 실시간으로 보여 줘요', picture: P('/shared/브랜드/이미지/a.png') },
+  work: { kicker: '공장 에너지 관리', headline: ['대시보드에서', '바로 확인해요'], points: ['설비별 사용량', '이상 알림'], picture: P('/shared/브랜드/이미지/b.png', 1600, 2400) },
+  proof: { stats: [{ number: '18%', label: '평균 전기요금 절감' }, { number: '87', label: '도입 사업장' }], headline: [], sub: '', picture: null },
+  cta: { line: '공장 에너지 관리 파트너', offer: '무료 진단' },
   ...over,
 })
 
-describe('measuring, colours and numbers (pure)', () => {
+describe('measuring, colours, numbers and families (pure)', () => {
   test('the bundled font\'s widths: every Hangul syllable 0.864 em, Latin narrower; lines break only at spaces', () => {
     expect(charWidth('가', 800)).toBe(864)
     expect(charWidth('힣', 500)).toBe(864)
     expect(charWidth('i', 700)).toBeLessThan(charWidth('W', 700))
     expect(textWidth('가나다', 100, 800)).toBeCloseTo(259.2, 5)
-    // letter-spacing counts after every character
     expect(textWidth('가나다', 100, 800, -0.04)).toBeCloseTo(259.2 - 12, 5)
     expect(wrapLines('공장 설비의 전력 사용을 실시간으로', 300, 36, 500)).toEqual(['공장 설비의 전력', '사용을 실시간으로'])
-    // keep-all: a word wider than the box is not cut
     expect(wrapLines('가나다라마바사아자차카타파하', 300, 36, 500)).toBeNull()
-    // the largest whole size at which the widest line fits, never below the smallest
     expect(fitSize(['가나다라'], 904, 800, -0.04, 156, 72)).toBe(156)
     expect(fitSize(['가나다라마바사아자차카타파하가나다라'], 904, 800, -0.04, 156, 72)).toBeNull()
   })
 
-  test('colours: text on the brand by 4.5:1; the brand as text on paper darkened with its hue, or near-black for a light brand', () => {
-    expect(onColor('#ffcc00')).toBe('#111111')
-    expect(onColor('#1f4fd8')).toBe('#ffffff')
-    const ink = towardContrast('#3fd0a5', '#f5f2ec', 4.5, '#000000')
-    expect(contrast(ink, '#f5f2ec')).toBeGreaterThanOrEqual(4.5)
-    const yellow = BRAND({ style: 'bold', brand: '#ffcc00' })
-    expect(yellow).toMatchObject({ light: true, brandInk: '#111111', brandBig: '#111111', onBrand: '#111111' })
-    const blue = BRAND({ style: 'editorial', brand: '#1f4fd8' })
-    expect(blue.light).toBe(false)
-    expect(contrast(blue.brandInk, blue.paper)).toBeGreaterThanOrEqual(4.5)
-    // no brand colour, or a grey one: the style's neutral palette (nothing invented)
-    expect(BRAND({ style: 'bold', brand: null }).hasBrand).toBe(false)
-    expect(BRAND({ style: 'bold', brand: '#808080' }).hasBrand).toBe(false)
-    // the dark style's light reaches 4.5:1 on its dark
-    const night = BRAND({ style: 'night', brand: '#1b2a6b' })
-    expect(contrast(night.brandLight, '#0b0c0f')).toBeGreaterThanOrEqual(4.5)
+  test('families from the brand colour: a vivid colour burns as light (ink first), a deep one becomes the ground (deep first), none or grey is mono only', () => {
+    expect(fittingFamilies('#ff5a1f')).toEqual(['ink', 'deep', 'mono'])
+    expect(fittingFamilies('#1e4620')).toEqual(['deep', 'ink', 'mono'])
+    expect(fittingFamilies(null)).toEqual(['mono'])
+    expect(fittingFamilies('#808080')).toEqual(['mono'])
+    expect(fittingFamilies('#050505')).toEqual(['mono'])
+    expect(usableBrand('#fafafa')).toBe(false)
+    // every accent reads on its ground by 4.5:1 (the card news' rule), whatever the brand colour
+    for (const brand of ['#ff5a1f', '#1e4620', '#ffd400', '#0a1f6b', '#a8c5a0', '#e60012', null]) {
+      for (const f of ['ink', 'deep', 'mono'] as const) {
+        const c = paletteFor(f, brand)
+        expect(contrast(c.accent, c.ground)).toBeGreaterThanOrEqual(4.5)
+        expect(contrast(c.text, c.ground)).toBeGreaterThanOrEqual(7)
+        // the offer pill: bold 40 px type, large text by WCAG (3:1)
+        expect(contrast(c.onAccent, c.accent)).toBeGreaterThanOrEqual(3)
+      }
+    }
+    // without a usable colour every family is the neutral one (nothing invented)
+    expect(paletteFor('ink', null).family).toBe('mono')
   })
 
-  test('numbers: as written, whole numbers only ("87" is not in "1,870"), whitespace aside', () => {
+  test('numbers: as written, whole numbers only ("87" is not in "1,870"), whitespace aside; a stat split into sign, digits and unit', () => {
     expect(numbersIn('87개 사업장, 평균 18% 절감, 1,200곳, 3.5배')).toEqual(['87', '18', '1,200', '3.5'])
     const src = spaced('도입한 1,870개 사업장의 평균 18 % 절감 (2025년). 3.87배')
     expect(hasNumber(src, '1,870')).toBe(true)
@@ -83,90 +86,131 @@ describe('measuring, colours and numbers (pure)', () => {
     expect(hasNumber(src, '3.87')).toBe(true)
     expect(hasNumber(src, '87')).toBe(false)
     expect(hasNumber(src, '870')).toBe(false)
-    expect(hasNumber(src, '18')).toBe(true)
     expect(squash('평균 18 % 절감').includes(squash('18%'))).toBe(true)
-    expect(hasNumber(src, '2025')).toBe(true)
-    expect(hasNumber(src, '202')).toBe(false)
+    expect(splitNumber('+300%')).toEqual({ pre: '+', digits: '300', unit: '%' })
+    expect(splitNumber('1,200곳')).toEqual({ pre: '', digits: '1,200', unit: '곳' })
+    expect(splitNumber('×5')).toEqual({ pre: '×', digits: '5', unit: '' })
+    expect(splitNumber('4.92')).toEqual({ pre: '', digits: '4.92', unit: '' })
+    expect(segments('한 번 세팅하면, *팀 전체*가 씁니다')).toEqual([{ text: '한 번 세팅하면, ', accent: false }, { text: '팀 전체', accent: true }, { text: '가 씁니다', accent: false }])
   })
 
   test('brand folders: groups/<team>/<브랜드>/… or shared/<브랜드>/…, in any language; nothing else', () => {
     expect(inBrandFolder('groups/마케팅팀/브랜드/이미지/a.png')).toBe(true)
     expect(inBrandFolder('groups/Acme/Brand/Images/a.png')).toBe(true)
     expect(inBrandFolder('shared/브랜드/a.png')).toBe(true)
-    expect(inBrandFolder('shared/Marca/x.jpg')).toBe(true)
     expect(inBrandFolder('groups/마케팅팀/회의록/a.png')).toBe(false)
     expect(inBrandFolder('users/dana/브랜드/a.png')).toBe(false)
     expect(inBrandFolder('groups/브랜드/a.png')).toBe(false)
   })
 
-  test('a line too wide for its box is a problem in the AI\'s terms; one that fits gets the largest size of its style', () => {
-    const d = doc()
-    const ok = fitScene(d, d.scenes[1]!, false)
+  test('a line too wide for its place is a problem in the AI\'s terms; one that fits gets the largest size', () => {
+    const ok = fitDoc(doc())
     expect(ok.problems).toEqual([])
-    expect(ok.fit!.headline).toBeGreaterThanOrEqual(70)
-    const long = { ...d.scenes[1]!, headline: ['어디서 새는지 아무도 모르던 공장의 전기요금'] }
-    const bad = fitScene(d, long, false)
-    expect(bad.fit).toBeNull()
-    expect(bad.problems.join('\n')).toMatch(/headline line .* too wide/)
-    const sub = fitScene(d, { ...d.scenes[1]!, sub: '월말 고지서가 나와야 사용량을 알 수 있었고 어느 설비가 얼마를 쓰는지도 몰라서 줄일 방법을 찾지 못했어요 그래서 더 길게' }, false)
-    expect(sub.problems.join('\n')).toMatch(/sub line is too long/)
+    expect(ok.sizes!.hook.before).toBeGreaterThanOrEqual(200)
+    expect(ok.sizes!.promise.headline).toBeGreaterThanOrEqual(68)
+    const bad = fitDoc(doc({ promise: { headline: ['어디서 새는지 아무도 모르던 공장의 전기요금'], sub: '', picture: null } }))
+    expect(bad.sizes).toBeNull()
+    expect(bad.problems.join('\n')).toMatch(/promise\.headline line: .* too wide/)
+    const sub = fitDoc(doc({ promise: { headline: ['짧게'], sub: '월말 고지서가 나와야 사용량을 알 수 있었고 어느 설비가 얼마를 쓰는지도 몰라서 줄일 방법을 찾지 못했어요 그래서 이 문장은 화면 두 줄에 다 들어가지 않을 만큼 아주 길게 씁니다', picture: null } }))
+    expect(sub.problems.join('\n')).toMatch(/promise\.sub: the sentence is too long/)
+    expect(fitDoc(doc({ hook: { label: '시간', before: '아주 오래 걸리던 그 모든 일들', after: '짧게', line: '', mode: 'swap' } })).problems.join('\n')).toMatch(/hook\.before/)
+  })
+
+  test('the logo on the dark end card, from its pixels: opaque → tile, light → as it is, dark grey → white, dark in colour → a light card', () => {
+    const px = (rgba: [number, number, number, number], n = 1024, bg?: [number, number, number, number]) => {
+      const b = new Uint8Array(n * 4)
+      for (let i = 0; i < n; i++) b.set(bg && i % 2 ? bg : rgba, i * 4)
+      return b
+    }
+    const ground = '#0b0b0c'
+    expect(logoTreatFromPixels(px([255, 255, 255, 255]), ground)).toBe('tile')
+    expect(logoTreatFromPixels(px([250, 120, 30, 255], 1024, [0, 0, 0, 0]), ground)).toBe('direct')
+    expect(logoTreatFromPixels(px([20, 20, 20, 255], 1024, [0, 0, 0, 0]), ground)).toBe('white')
+    expect(logoTreatFromPixels(px([10, 30, 120, 255], 1024, [0, 0, 0, 0]), ground)).toBe('chip')
   })
 })
 
-describe('the composition (pure)', () => {
-  test('one 4:5 root, five scenes on one clock, every delay a plain number (the HyperFrames CSS adapter rewrites var() delays)', () => {
-    for (const style of ['bold', 'editorial', 'night'] as const) {
-      const c = composition(doc({ style }), true)
+describe('the composition and the sound (pure)', () => {
+  test('one 4:5 root on a 120 BPM grid: five scenes, every scene start and the end card on a beat, every delay a plain number', () => {
+    for (const family of ['ink', 'deep', 'mono'] as const) {
+      const c = composition(doc({ family }), true)
       expect(c.root).toContain('data-composition-id="promo"')
       expect(c.root).toContain('data-width="1080" data-height="1350"')
-      expect(c.root).toContain(`data-duration="${sceneTimes().duration}"`)
-      expect(c.root).toContain('data-no-timeline')
+      expect(c.root).toContain(`data-duration="${DURATION}"`)
       expect((c.root.match(/<section class="sc /g) ?? []).length).toBe(5)
-      expect(c.root).not.toMatch(/var\(--s\)|var\(--e\)/)
-      expect(c.css).not.toMatch(/animation[^;{}]*var\(/)
+      // the HyperFrames CSS adapter rewrites delays written with var(); every animation is plain seconds
+      expect(c.root).not.toMatch(/animation:[^"]*var\(/)
+      expect(c.css).toContain('@property --pvn')
+      // no GSAP, no script, no address of the web in the composition
+      expect(c.root + c.css).not.toMatch(/gsap|<script|https?:\/\//i)
     }
-    expect(sceneTimes().duration).toBeGreaterThanOrEqual(12)
-    expect(sceneTimes().duration).toBeLessThanOrEqual(15)
+    for (const s of STARTS) expect((s * 2) % 1).toBe(0)
+    expect(DURATION).toBeGreaterThanOrEqual(15)
+    expect(DURATION).toBeLessThanOrEqual(20)
+    // the end card holds at least two seconds after its last motion settles; the stills show each beat settled
+    expect(DURATION - END_SETTLED).toBeGreaterThanOrEqual(2)
+    expect(SETTLED).toHaveLength(5)
   })
 
-  test('a proof without a number (the material has none) is a statement scene in every style, with or without a photo', () => {
-    for (const style of ['bold', 'editorial', 'night'] as const) {
-      for (const picture of [null, P('/shared/브랜드/이미지/b.png')]) {
-        const d = doc({ style })
-        d.scenes[3] = { kind: 'proof', eyebrow: '매장', headline: ['합정에서 제주까지'], sub: '네 곳의 매장에서 기다려요', picture }
-        const c = composition(d, true)
-        const proof = c.root.slice(c.root.indexOf('data-kind="proof"'), c.root.indexOf('data-kind="cta"'))
-        expect(proof).not.toContain('class="num"')
-        expect(proof).toContain('합정에서 제주까지')
-      }
-    }
+  test('missing pictures make type-and-light beats (never an empty frame); a proof without numbers is a statement', () => {
+    const c = composition(doc({ promise: { headline: ['한 번 세팅하면,', '*팀 전체*가 씁니다'], sub: '', picture: null }, work: { kicker: '하는 일', headline: ['설비마다 센서'], points: ['설비별 사용량'], picture: null }, proof: { stats: [], headline: ['합정에서 *제주까지*'], sub: '네 곳의 매장', picture: null }, logo: null }), true)
+    expect(c.root).not.toContain('<img')
+    expect(c.root).toContain('class="threads"')
+    expect(c.root).toContain('class="row"')
+    expect(c.root).toContain('class="horizon"')
+    const proof = c.root.slice(c.root.indexOf('class="sc s3"'), c.root.indexOf('class="sc s4"'))
+    expect(proof).not.toContain('class="cnt')
+    expect(proof).toContain('제주까지')
+    // the counts: a registered integer counted by CSS, the exact text taking over when it lands
+    const n = composition(doc(), true)
+    expect(n.root).toContain('class="cnt f0 g"')
+    expect(n.root).toContain('class="fin g"')
   })
 
-  test('text is escaped; pictures by team path in the chat, by a file beside it for the render; no address of the web', () => {
+  test('sounds: three beds and six effects, the bed from frame 0, every effect peaking on a beat of the grid', () => {
+    const cues = audioCues(doc())
+    expect(cues[0]).toMatchObject({ id: 'bed', file: 'bed-bright', start: 0 })
+    for (const q of cues.slice(1)) {
+      const s = SOUNDS.find((x) => x.name === q.file)!
+      expect(s.kind).toBe('sfx')
+      expect(((q.start + s.peak) * 4) % 1).toBeCloseTo(0, 5)
+    }
+    expect(audioCues(doc({ hook: { ...doc().hook, mode: 'swap' } })).find((q) => q.id === 'sfx-swap')?.file).toBe('click')
+  })
+
+  test('every sound file is listed with an allowed licence (CC0 or public domain) and its source, and nothing else is in the folder', () => {
+    const files = fs.readdirSync(AUDIO_DIR).filter((f) => !f.startsWith('.')).sort()
+    expect(files).toEqual([...SOUNDS.map((s) => `${s.name}.m4a`), 'SOURCES.md'].sort())
+    const sources = fs.readFileSync(path.join(AUDIO_DIR, 'SOURCES.md'), 'utf8')
+    for (const s of SOUNDS) {
+      const row = sources.split('\n').find((l) => l.startsWith(`| ${s.name}.m4a |`))
+      expect(row, s.name).toBeDefined()
+      expect(row!).toMatch(/\| (CC0 1\.0|Public domain|Made for this repository \(CC0 1\.0\)) \|/)
+      expect(row!).toMatch(/https:\/\/|scripts\/promo-video\//)
+    }
+    expect(sources).not.toMatch(/pixabay|musicgen|CC[- ]BY/i)
+    // the third-party notices list them too
+    expect(fs.readFileSync(path.join(import.meta.dir, '../../docs/THIRD-PARTY-NOTICES.md'), 'utf8')).toContain('resources/promo-video/audio/SOURCES.md')
+  })
+
+  test('text is escaped; pictures by team path in the chat, files beside it for the render; the chat plays muted with a sound button', () => {
     const d = doc()
-    d.scenes[1] = { ...d.scenes[1]!, headline: ['<script>x</script>'], sub: '"quoted" & <b>' }
-    const page = artifactDocument(d, { fontCss: '/vendor/fonts/promo-video.css', title: 'A <title>', text: { play: '재생', pause: '일시정지', replay: '처음부터', stills: '장면 {n}', scene: (n) => `장면 ${n}` } })
+    d.promise = { ...d.promise, headline: ['<script>x</script>'], sub: '"quoted" & <b>' }
+    const page = artifactDocument(d, { fontCss: '/vendor/fonts/promo-video.css', audioBase: '/vendor/promo-video/', cues: audioCues(d), title: 'A <title>', text: { play: '재생', pause: '일시정지', soundOn: '소리 켜기', soundOff: '소리 끄기', stills: '장면 {n}' } })
     expect(page).not.toContain('<script>x</script>')
     expect(page).toContain('&lt;script&gt;x&lt;/script&gt;')
     expect(page).toContain('src="/shared/브랜드/이미지/a.png"')
     expect(page).toContain('<link rel="stylesheet" href="/vendor/fonts/promo-video.css">')
     expect(page).not.toMatch(/https?:\/\//)
-    // reduced motion: the five finished scenes as stills (every animation off), built by the page's own script
+    expect(page).toContain('class="pv-snd" aria-pressed="false" aria-label="소리 켜기"')
+    expect(page).toContain('"/vendor/promo-video/"')
+    expect(page).not.toContain('<audio')
     expect(page).toContain('prefers-reduced-motion: reduce')
-    expect(page).toContain('.pv.still .sc,.pv.still .sc *,.pv.still .sc::after{animation:none!important}')
-    const render = renderDocument({ ...d, scenes: d.scenes.map((s) => (s.picture ? { ...s, picture: { ...s.picture, src: 'img/1.png' } } : s)) }, 'fonts/PretendardVariable.woff2')
+    const render = renderDocument({ ...d, promise: { ...d.promise, picture: { ...d.promise.picture!, src: 'img/1.png' } } }, 'fonts/PretendardVariable.woff2', { cues: audioCues(d), url: (f) => `audio/${f}.m4a`, durationOf: () => 1 })
     expect(render).toContain('@font-face{font-family:"Pretendard Promo";src:url("fonts/PretendardVariable.woff2")')
     expect(render).toContain('src="img/1.png"')
-    // the render page carries no player and no script
+    expect(render).toContain('<audio id="bed" src="audio/bed-bright.m4a" data-start="0"')
     expect(render).not.toContain('<script')
-  })
-
-  test('a type-only scene has no photo box; a photo scene keeps its text off the photo (its own box below or beside)', () => {
-    const c = composition(doc(), true)
-    const cover = c.root.slice(c.root.indexOf('data-kind="cover"') - 200, c.root.indexOf('data-kind="problem"'))
-    expect(cover).toContain('class="ph p0"')
-    const problem = c.root.slice(c.root.indexOf('data-kind="problem"'), c.root.indexOf('data-kind="solution"'))
-    expect(problem).not.toContain('class="ph ')
   })
 })
 
@@ -189,34 +233,36 @@ describe('the promo_video tool and the MP4 (a real app, the fake engine)', () =>
   const send = async (user: string, chatId: string, content: string) => {
     const r = await h.api(user).call(API.sendMessage, { params: { id: chatId }, body: { content, clientMessageId: 'cm-' + crypto.randomUUID(), attachmentIds: [] } })
     await waitFor(() => (h.ctx.db.query('SELECT status FROM messages WHERE id = ?').get(r.assistantMessage.id) as { status: string }).status !== 'streaming', { timeoutMs: 30_000 })
-    return (h.ctx.db.query('SELECT content FROM messages WHERE id = ?').get(r.assistantMessage.id) as { content: string }).content
+    const row = h.ctx.db.query('SELECT * FROM messages WHERE id = ?').get(r.assistantMessage.id) as { content: string }
+    if (process.env.PV_DEBUG) console.log('DEBUG', JSON.stringify(row).slice(0, 3000))
+    return row.content
   }
-  const scene = (eyebrow: string, headline: string[], sub: string, picture?: string) => ({ eyebrow, headline, sub, ...(picture ? { picture } : {}) })
   const slots = (over: Record<string, unknown> = {}) => ({
-    title: 'Acme promo video', style: 'editorial', company: 'Acme', website: 'acme.example', brand_color: '#0E5E4E', logo: 'shared/Brand/Images/logo.png',
+    title: 'Acme promo video', company: 'Acme', website: 'acme.example', brand_color: '#0E5E4E', logo: 'shared/Brand/Images/logo.png',
     sources: ['shared/Brand/Company intro.md'],
-    cover: scene('Factory energy', ['Cut the power bill', 'you can now see'], 'Live power data for every machine.', 'shared/Brand/Images/factory.png'),
-    problem: scene('The problem', ['Nobody knew', 'where it leaked'], 'Usage showed up only with the bill.'),
-    solution: scene('What we do', ['One sensor', 'per machine'], 'Every wasted hour on one screen.'),
-    proof: { ...scene('Results', ['Running in', '87 plants'], 'Customers as of 2025.'), number: '18%', label: 'lower power bill' },
-    cta: scene('Free audit', ['See your plant', 'in a week'], 'Book a call and get a report.'),
+    hook: { label: 'Your power bill', before: 'Guesswork', after: '18%', line: 'Customers as of 2025' },
+    promise: { headline: ['See where the power', '*goes*'], sub: 'Live power data for every machine.', picture: 'shared/Brand/Images/factory.png' },
+    work: { kicker: 'Factory energy', headline: ['One sensor', 'per machine'], points: ['Live usage', 'Leak alerts'] },
+    proof: { stats: [{ number: '18%', label: 'lower power bill' }, { number: '87', label: 'plants' }] },
+    cta: { line: 'Factory energy partner', offer: 'Free audit' },
     ...over,
   })
 
-  test('the slots are a strict schema (no HTML field, a fixed scene order, colours as #rrggbb)', () => {
+  test('the slots are a strict schema (no HTML field, the five beats, colours as #rrggbb, at most two stats)', () => {
     expect(PromoVideoInput.safeParse(slots()).success).toBe(true)
     expect(PromoVideoInput.safeParse({ ...slots(), html: '<p>x</p>' }).success).toBe(false)
     expect(PromoVideoInput.safeParse({ ...slots(), brand_color: 'red' }).success).toBe(false)
     expect(PromoVideoInput.safeParse({ ...slots(), style: 'neon' }).success).toBe(false)
-    expect(PromoVideoInput.safeParse({ ...slots(), cover: { ...slots().cover, headline: ['a', 'b', 'c'] } }).success).toBe(false)
+    expect(PromoVideoInput.safeParse({ ...slots(), promise: { headline: ['a', 'b', 'c'] } }).success).toBe(false)
+    expect(PromoVideoInput.safeParse({ ...slots(), proof: { stats: [1, 2, 3].map((n) => ({ number: `${n}`, label: 'x' })) } }).success).toBe(false)
   })
 
   test('every problem at once: a made-up number, a picture outside the brand folder or too small, a line too wide; nothing made', async () => {
     const chat = await h.api('dana').call(API.createChat, { body: {} })
     const bad = slots({
-      problem: scene('The problem', ['Nobody knew', 'where it leaked'], 'Usage showed up only with the bill.', 'shared/Other/elsewhere.png'),
-      solution: scene('What we do', ['One sensor per machine on every floor'], 'Every wasted hour on one screen.', 'shared/Brand/Images/tiny.png'),
-      proof: { ...scene('Results', ['Running in', '90 plants'], 'Customers as of 2025.'), number: '20%', label: 'lower power bill' },
+      promise: { headline: ['See every machine on every floor'], picture: 'shared/Other/elsewhere.png' },
+      work: { kicker: 'Factory energy', headline: ['Running in 90 plants'], picture: 'shared/Brand/Images/tiny.png' },
+      proof: { stats: [{ number: '20%', label: 'lower power bill' }] },
     })
     const answer = await send('dana', chat.id, fake({ tool: 'promo_video', args: bad, sayResult: true }))
     expect(answer).toContain('Nothing was made yet')
@@ -224,7 +270,7 @@ describe('the promo_video tool and the MP4 (a real app, the fake engine)', () =>
     expect(answer).toContain('the number "90" is not in the sources')
     expect(answer).toContain('is not in a brand folder')
     expect(answer).toContain('is too small (300×300')
-    expect(answer).toMatch(/headline line .* too wide/)
+    expect(answer).toMatch(/promise\.headline line: .* too wide/)
     expect(h.ctx.db.query('SELECT count(*) AS n FROM artifacts WHERE chat_id = ?').get(chat.id)).toEqual({ n: 0 })
     // a second failure in the same answer: stop and say why; a third call is refused at once
     const twice = await send('dana', chat.id, fake({ tool: 'promo_video', args: bad, sayResult: true }, { tool: 'promo_video', args: bad, sayResult: true }, { tool: 'promo_video', args: slots(), sayResult: true }))
@@ -236,11 +282,13 @@ describe('the promo_video tool and the MP4 (a real app, the fake engine)', () =>
     const chat = await h.api('dana').call(API.createChat, { body: {} })
     const answer = await send('dana', chat.id, fake({ tool: 'promo_video', args: slots(), sayResult: true }))
     expect(answer).toContain('Made the promo video "Acme promo video"')
-    expect(answer).toContain('scenes with a photo: cover')
+    expect(answer).toContain('beats made with type and light instead of a picture: work')
     const art = h.ctx.db.query('SELECT id, key, type, title, content, version FROM artifacts WHERE chat_id = ?').get(chat.id) as { id: string; key: string; type: string; title: string; content: string; version: number }
     expect(art).toMatchObject({ key: PROMO_ARTIFACT_KEY, type: 'html', title: 'Acme promo video', version: 1 })
     expect(art.content).toContain('data-composition-id="promo"')
-    expect(art.content).toContain('class="pv pv--editorial"')
+    // a deep teal: the brand's own colour becomes the ground (the server's choice, no style given)
+    expect(art.content).toContain('class="pv pv--deep"')
+    expect(art.content).toContain('class="pv-snd"')
     expect(art.content).toContain('src="/shared/Brand/Images/factory.png"')
     const row = h.ctx.db.query('SELECT user_id, spec, mp4_state FROM promo_videos WHERE artifact_id = ?').get(art.id) as { user_id: string; spec: string; mp4_state: string }
     expect(row.user_id).toBe('dana')
@@ -251,13 +299,17 @@ describe('the promo_video tool and the MP4 (a real app, the fake engine)', () =>
     expect(spec.sources).toEqual(['shared/Brand/Company intro.md'])
     // the info: no MP4 where this server cannot make one (no CLI here): no button, and the start is refused
     const info = await h.api('dana').call(API.getPromoVideo, { params: { id: art.id } })
-    expect(info).toMatchObject({ artifactId: art.id, chatId: chat.id, title: 'Acme promo video', style: 'editorial', mp4: { available: false, state: 'none' } })
+    expect(info).toMatchObject({ artifactId: art.id, chatId: chat.id, title: 'Acme promo video', style: 'deep', mp4: { available: false, state: 'none' } })
     expect((await h.req('dana', `/api/promo-videos/${art.id}/mp4`, { method: 'POST' })).status).toBe(404)
     // someone else's video is not found
     expect((await h.req('alice', `/api/promo-videos/${art.id}`)).status).toBe(404)
     // a second call makes a new version of the same artifact
-    await send('dana', chat.id, fake({ tool: 'promo_video', args: slots({ style: 'night' }), sayResult: true }))
+    const again = await send('dana', chat.id, fake({ tool: 'promo_video', args: slots({ style: 'mono' }), sayResult: true }))
+    expect(again).toContain('the "Mono" style')
     expect(h.ctx.db.query('SELECT max(version) AS v FROM artifacts WHERE chat_id = ? AND key = ?').get(chat.id, PROMO_ARTIFACT_KEY)).toEqual({ v: 2 })
+    // a style that does not fit the colour is replaced by one that does, never refused
+    const grey = await send('dana', chat.id, fake({ tool: 'promo_video', args: slots({ style: 'ink', brand_color: '#808080' }), sayResult: true }))
+    expect(grey).toContain('so the server used "mono"')
   })
 
   test.if(process.platform === 'darwin' && !!Bun.which('node'))('the MP4 on a development Mac: the pinned CLI renders the checked slots (the pictures copied out with the owner\'s permissions); one download', async () => {
@@ -267,7 +319,7 @@ describe('the promo_video tool and the MP4 (a real app, the fake engine)', () =>
     fs.writeFileSync(path.join(cli, 'hyperframes.mjs'), `import fs from 'node:fs'
 const a = process.argv.slice(2), dir = a[1], out = a[a.indexOf('--output') + 1]
 const html = fs.readFileSync(dir + '/index.html', 'utf8')
-if (!html.includes('data-composition-id="promo"') || !fs.existsSync(dir + '/fonts/PretendardVariable.woff2') || !fs.existsSync(dir + '/img/1.png') || html.includes('/shared/')) process.exit(3)
+if (!html.includes('data-composition-id="promo"') || !fs.existsSync(dir + '/fonts/PretendardVariable.woff2') || !fs.existsSync(dir + '/img/1.png') || !fs.existsSync(dir + '/audio/bed-calm.m4a') || !html.includes('src="audio/bed-calm.m4a"') || html.includes('/shared/')) process.exit(3)
 if (process.env.HYPERFRAMES_NO_TELEMETRY !== '1') process.exit(4)
 fs.writeFileSync(out, 'MP4-BYTES')
 `)

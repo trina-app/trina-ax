@@ -1,48 +1,81 @@
 // The company's promo video (docs/DECISIONS.md "V — The first result is the company's promo video"). The AI never
 // writes the video: it fills the slots below with the `promo_video` tool, the server checks them (lengths that fit,
-// numbers that are written in the material, pictures from a brand folder, colours) and builds a HyperFrames
-// composition from one of our templates (server/src/promo-video/). The chat shows it as an artifact that plays in the
-// browser; [영상 파일로 받기] renders the same composition to an MP4 where the server can (a development Mac today).
+// numbers that are written in the material, pictures from a brand folder, the style that fits the brand colour) and
+// builds a HyperFrames composition from our template (server/src/promo-video/): five beats on a 120 BPM grid with
+// music. The chat shows it as an artifact that plays in the browser (muted until the person turns the sound on);
+// [영상 파일로 받기] renders the same composition with its sound to an MP4 where the server can (a development Mac today).
 import { z } from 'zod'
 import { endpoint, stream } from './endpoint'
 
-/** The three templates: brand-coloured panels and heavy type · paper and a running header · dark with a brand glow */
-export const PROMO_STYLES = ['bold', 'editorial', 'night'] as const
+/**
+ * The style families: ink (near-black, the brand colour as a bright accent and light), deep (a ground of the brand's
+ * own hue at night depth, a soft tint of it as the accent), mono (graphite and white). The server decides which fit
+ * the brand colour (no usable colour: mono only); the AI picks among those.
+ */
+export const PROMO_STYLES = ['ink', 'deep', 'mono'] as const
 export const PromoStyle = z.enum(PROMO_STYLES)
 export type PromoStyle = z.infer<typeof PromoStyle>
+
+/** The music beds (all on the same 120 BPM grid): bright and driving · calm and premium · a dark cinematic pulse. */
+export const PROMO_MUSIC = ['bright', 'calm', 'pulse'] as const
+export const PromoMusic = z.enum(PROMO_MUSIC)
+export type PromoMusic = z.infer<typeof PromoMusic>
 
 /** The artifact key the promo video is stored under (one per chat; a new call replaces it as a new version). */
 export const PROMO_ARTIFACT_KEY = 'promo-video'
 export const PROMO_TOOL = 'promo_video'
 
 const Text = (max: number, what: string) => z.string().trim().max(max).describe(what)
-const PromoScene = z.object({
-  eyebrow: Text(40, 'A short label above the headline (about 2 to 14 characters), e.g. "도입 효과". Not the headline again.'),
-  headline: z.array(z.string().trim().min(1).max(40)).min(1).max(2)
-    .describe('One or two short lines, as they will break on screen: each line at most about 12 Korean characters (spaces count) or 22 Latin letters. No full stop at the end.'),
-  sub: Text(120, 'One plain sentence under the headline that fits two lines (about 40 Korean or 70 Latin characters).'),
-  picture: z.string().trim().min(1).max(1000).optional()
-    .describe('The team path of a photo from the team\'s brand images folder (…/브랜드/이미지/…) that shows this scene\'s subject; leave it out for a type-only scene. Never the same photo twice.'),
-  focus: z.enum(['center', 'top', 'bottom', 'left', 'right']).optional().describe('Which part of the photo must stay in view when it is cropped (default center).'),
-}).strict()
+const Line = (max: number, what: string) => z.string().trim().min(1).max(max).describe(what)
+const Headline = (what: string) => z.array(z.string().trim().min(1).max(40)).min(1).max(2)
+  .describe(`${what} One or two lines, split where the line should break on screen: at most about 11 Korean characters (spaces count) or 20 Latin letters per line. No full stop at the end. Mark the one key phrase with *stars* (once, e.g. "*팀 전체*가 씁니다"); it is shown in the accent colour.`)
+const Picture = z.string().trim().min(1).max(1000).optional()
+const Focus = z.enum(['center', 'top', 'bottom', 'left', 'right']).optional().describe('Which part of the picture must stay in view when it is cropped (default center).')
 
 export const PromoVideoInput = z.object({
   title: z.string().trim().min(1).max(80).describe('The video\'s name, e.g. "(회사 이름) 홍보 영상".'),
-  style: PromoStyle.describe('bold: brand-coloured panels and heavy type (strong, consumer-facing). editorial: paper, a running header, calm (B2B, services, craft). night: dark with a brand glow (premium, tech).'),
   company: z.string().trim().min(1).max(40).describe('The company name as the material writes it.'),
-  website: z.string().trim().max(200).optional().describe('The company website from the material or the company profile, shown on the last scene.'),
+  website: z.string().trim().max(200).optional().describe('The company website from the material or the company profile, shown at the end.'),
   brand_color: z.string().regex(/^#[0-9a-fA-F]{6}$/).optional().describe('The brand colour "#rrggbb": the first of the company profile\'s brand colours, else one the material uses for the brand. Leave out when none is known.'),
-  logo: z.string().trim().min(1).max(1000).optional().describe('The team path of the company logo in the brand images folder (a PNG, JPG or WebP), shown on the last scene.'),
+  logo: z.string().trim().min(1).max(1000).optional().describe('The team path of the company logo in the brand images folder (PNG, JPG or WebP), shown on the end card.'),
+  style: PromoStyle.optional().describe('ink: near-black with the brand colour as bright light (bold, energetic, consumer and tech). deep: a dark ground of the brand\'s own colour, calm and editorial (B2B, services, craft). mono: black and white, premium. Leave out to let the server choose from the brand colour; a style that does not fit the colour is replaced by one that does.'),
+  music: PromoMusic.optional().describe('bright: upbeat and driving. calm: light and premium. pulse: dark and cinematic. Leave out to match the style.'),
   sources: z.array(z.string().trim().min(1).max(1000)).min(1).max(5)
     .describe('The team files the words came from (the attached company intro, deck or 회사 소개.md). Every number on screen must be written in them.'),
-  cover: PromoScene.describe('Scene 1: the strongest claim of the material (what the company gives its customers).'),
-  problem: PromoScene.describe('Scene 2: the customer\'s problem or situation (or who the company is for).'),
-  solution: PromoScene.describe('Scene 3: what the company does about it.'),
-  proof: PromoScene.extend({
-    number: z.string().trim().min(1).max(24).optional().describe('One number exactly as the material writes it, with its unit (e.g. "18%", "1,200곳", "7년"). Never counted, computed or rounded. Leave it out only when the material has no number at all: the headline is then the most concrete fact, shown large.'),
-    label: Text(40, 'What the number is, in a few words (e.g. "평균 전기요금 절감"); empty without a number.').optional(),
-  }).strict().describe('Scene 4: one number from the material, shown large (or, without any number in the material, the most concrete fact).'),
-  cta: PromoScene.describe('Scene 5: the next step (contact, visit, try) with the logo.'),
+  hook: z.object({
+    label: Line(40, 'One short line above the big words saying what is measured or who it is about, in the customer\'s words, e.g. "견적 한 건 작성 시간".'),
+    before: Line(16, 'The old state the customer knows, one to three words shown huge, e.g. "반나절" or "빈 폴더". At most about 6 Korean characters.'),
+    after: Line(16, 'The new state the company gives, one to three words shown huge in the accent colour, e.g. "14초" or "팀의 지식". A number here must be written in the material.'),
+    line: Text(40, 'One short line under it that finishes the thought or names where the number comes from, e.g. "운영 환경에서 직접 측정". Optional.').optional(),
+    mode: z.enum(['strike', 'swap']).optional().describe('strike: the old words are struck through and the new ones slam in under them (best for a number or a big contrast). swap: the new words replace the old ones in the same place (best for words). Default: strike when "after" has a number, else swap.'),
+  }).strict().describe('Beat 1, the hook: the customer\'s outcome as a before → after.'),
+  promise: z.object({
+    headline: Headline('Beat 2: the promise, what the company gives, in one sentence.'),
+    sub: Text(60, 'One plain sentence under it (about 30 Korean characters). Optional.').optional(),
+    picture: Picture.describe('The team path of a wide brand picture from the brand images folder (a product, a place, the service in use) shown full bleed under the words; leave it out for a type-and-light version.'),
+    focus: Focus,
+  }).strict(),
+  work: z.object({
+    kicker: Line(24, 'A short label above the headline naming what it is, e.g. "자동차 부품 견적 AI".'),
+    headline: Headline('Beat 3: what the company does or makes, concretely.'),
+    points: z.array(z.string().trim().min(1).max(20)).max(3).optional().describe('Up to three very short items (about 10 Korean characters each), e.g. features or services, written in the material.'),
+    picture: Picture.describe('The team path of the company\'s own picture that shows the work (a product screen, the product, the place, the service) from the brand images folder, shown in a floating window; leave it out for a type-and-light version.'),
+    focus: Focus,
+  }).strict(),
+  proof: z.object({
+    stats: z.array(z.object({
+      number: z.string().trim().min(1).max(16).describe('A number exactly as the material writes it, with its unit or sign, e.g. "+300%", "1,200곳", "4.92", "×5". Never counted, computed or rounded.'),
+      label: Line(30, 'What the number is, in a few words, e.g. "구매 전환율 · 영업 챗봇".'),
+    }).strict()).max(2).optional().describe('Beat 4: one or two numbers from the material that prove the promise (results, customers, years). Leave it out when the material has no such number.'),
+    headline: z.array(z.string().trim().min(1).max(40)).max(2).optional().describe('Without numbers: the most concrete fact as a statement in one or two lines (*stars* mark the key phrase). With one number: an optional short line under it.'),
+    sub: Text(60, 'One plain sentence under it. Optional.').optional(),
+    picture: Picture.describe('Optional: a picture from the brand images folder shown dimmed behind the numbers.'),
+    focus: Focus,
+  }).strict(),
+  cta: z.object({
+    line: Line(30, 'What the company is, in one short line under its name, e.g. "AI 개발·AX 전문 파트너".'),
+    offer: Text(20, 'The site\'s real offer or next step as written there, e.g. "14일 무료 체험", "초기 상담 무료", "매장 방문 예약". Leave it out when the material has none.').optional(),
+  }).strict().describe('Beat 5, the end card: the logo (or the name), this line, the offer and the website.'),
 }).strict()
 export type PromoVideoInput = z.infer<typeof PromoVideoInput>
 

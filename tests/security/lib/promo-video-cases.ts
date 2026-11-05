@@ -19,7 +19,7 @@ function alicePromo(w: World): string {
   if (!fs.existsSync(file)) fs.writeFileSync(file, `MP4 ${C.aliceArtifact}`)
   const now = new Date().toISOString()
   ctx.db.query("INSERT OR IGNORE INTO promo_videos (artifact_id, chat_id, user_id, spec, mp4_state, mp4_ms, mp4_bytes, rendered_at, created_at) VALUES (?, ?, 'alice', ?, 'done', 1, ?, ?, ?)")
-    .run(id, w.ids.chatA, JSON.stringify({ title: `promo ${C.aliceArtifact}`, sources: [], doc: { style: PROMO_STYLES[0] } }), fs.statSync(file).size, now, now)
+    .run(id, w.ids.chatA, JSON.stringify({ title: `promo ${C.aliceArtifact}`, sources: [], doc: { family: PROMO_STYLES[0] } }), fs.statSync(file).size, now, now)
   return id
 }
 

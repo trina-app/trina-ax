@@ -7,7 +7,7 @@
 //   image carries chrome-headless-shell and the CLI (the handoff in DECISIONS "V"). Until then the button is not shown.
 // The render is built from the checked slots in promo_videos (never from the artifact's HTML, which `artifact update`
 // could change): the pictures are copied out of the team folder with the chat owner's own permissions at render time,
-// the font from the repository. One render at a time on the server; a finished MP4 is kept next to the data and given
+// the font and the sounds from the repository. One render at a time on the server; a finished MP4 is kept next to the data and given
 // again until the video changes. It goes when its chat is purged (chat/forget.ts → forgetPromoVideos).
 // The CLI runs in a process group of its own; at the time limit, and when the server shuts down, that group and the
 // group of every process under it (Chrome starts in its own) are killed by process id, never by a name pattern.
@@ -15,13 +15,14 @@ import { spawn, spawnSync, type ChildProcess } from 'node:child_process'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
-import type { PromoMp4State, PromoStyle, PromoVideoInfo } from '@mycel/shared/api'
+import type { PromoMp4State, PromoVideoInfo } from '@mycel/shared/api'
 import type { AppContext } from '../context'
 import { REPO_ROOT } from '../app-config'
 import { HttpError } from '../http/errors'
 import { authorize } from '../policy/authorize'
 import { readRegular } from '../files/store'
-import { sceneTimes, type PromoDoc } from './layout'
+import { AUDIO_DIR, audioCues, soundDuration } from './audio'
+import { DURATION, type VideoDoc } from './layout'
 import { pictureExt, teamPathOf } from './spec'
 import { PROMO_FONT_FILE, renderDocument } from './template'
 
@@ -36,13 +37,13 @@ export const hyperframesDir = () => process.env.MYCEL_HYPERFRAMES_DIR || path.jo
 const cliPath = () => path.join(hyperframesDir(), 'node_modules', 'hyperframes', 'bin', 'hyperframes.mjs')
 
 interface Row { artifact_id: string; chat_id: string; user_id: string; spec: string; mp4_state: PromoMp4State; mp4_ms: number | null; mp4_bytes: number | null; created_at: string }
-export interface StoredSpec { title: string; sources: string[]; doc: PromoDoc }
+export interface StoredSpec { title: string; sources: string[]; doc: VideoDoc }
 
 /** Can this server make the MP4? (Read for every info answer: an install or a removal shows without a restart.) */
 export function mp4Available(ctx: Pick<AppContext, 'config'>): boolean {
   if (ctx.config.mode !== 'dev' || ctx.config.office || ctx.config.deployment === 'hosted') return false
   if (process.platform !== 'darwin') return false
-  return !!Bun.which('node') && fs.existsSync(cliPath()) && fs.existsSync(PROMO_FONT_PATH)
+  return !!Bun.which('node') && fs.existsSync(cliPath()) && fs.existsSync(PROMO_FONT_PATH) && fs.existsSync(AUDIO_DIR)
 }
 
 const videoDir = (ctx: AppContext) => path.join(ctx.engineConfig.dataDir, 'promo-videos')
@@ -61,7 +62,7 @@ function info(ctx: AppContext, r: Row): PromoVideoInfo {
   // a render that a restart cut off is not running any more
   const state: PromoMp4State = r.mp4_state === 'rendering' && !running.has(r.artifact_id) ? 'failed' : r.mp4_state === 'done' && !fs.existsSync(videoFile(ctx, r.artifact_id)) ? 'none' : r.mp4_state
   return {
-    artifactId: r.artifact_id, chatId: r.chat_id, title: spec.title, style: spec.doc.style as PromoStyle, duration: sceneTimes().duration,
+    artifactId: r.artifact_id, chatId: r.chat_id, title: spec.title, style: spec.doc.family, duration: DURATION,
     mp4: { available: mp4Available(ctx), state, seconds: r.mp4_ms === null ? null : Math.round(r.mp4_ms / 100) / 10, bytes: r.mp4_bytes },
   }
 }
@@ -120,16 +121,20 @@ async function renderNow(ctx: AppContext, r: Row): Promise<void> {
         return name
       } catch { return null }
     }
-    const doc: PromoDoc = {
-      ...spec.doc,
-      logo: spec.doc.logo ? (() => { const s = local(spec.doc.logo!.src); return s ? { ...spec.doc.logo!, src: s } : null })() : null,
-      scenes: spec.doc.scenes.map((s) => {
-        if (!s.picture) return s
-        const src = local(s.picture.src)
-        return { ...s, picture: src ? { ...s.picture, src } : null }
-      }),
+    const pic = <T extends { src: string }>(p: T | null): T | null => { if (!p) return null; const src = local(p.src); return src ? { ...p, src } : null }
+    const d = spec.doc
+    const doc: VideoDoc = {
+      ...d,
+      logo: pic(d.logo),
+      promise: { ...d.promise, picture: pic(d.promise.picture) },
+      work: { ...d.work, picture: pic(d.work.picture) },
+      proof: { ...d.proof, picture: pic(d.proof.picture) },
     }
-    fs.writeFileSync(path.join(work, 'index.html'), renderDocument(doc, `fonts/${PROMO_FONT_FILE}`))
+    // the sounds this video uses, from the repository
+    const cues = audioCues(doc)
+    fs.mkdirSync(path.join(work, 'audio'))
+    for (const name of new Set(cues.map((c) => c.file))) fs.copyFileSync(path.join(AUDIO_DIR, `${name}.m4a`), path.join(work, 'audio', `${name}.m4a`))
+    fs.writeFileSync(path.join(work, 'index.html'), renderDocument(doc, `fonts/${PROMO_FONT_FILE}`, { cues, url: (f) => `audio/${f}.m4a`, durationOf: soundDuration }))
     const out = videoFile(ctx, r.artifact_id)
     const part = `${out}.part.mp4`
     fs.rmSync(part, { force: true })

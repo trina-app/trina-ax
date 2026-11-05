@@ -12,7 +12,7 @@ const ID = '01900000-0000-7000-8000-0000000000a1'
 const realFetch = globalThis.fetch
 const json = (v: unknown, status = 200) => new Response(JSON.stringify(v), { status, headers: { 'content-type': 'application/json' } })
 const info = (mp4: Partial<PromoVideoInfo['mp4']> = {}): PromoVideoInfo => ({
-  artifactId: ID, chatId: '01900000-0000-7000-8000-0000000000c1', title: 'Acme promo video', style: 'editorial', duration: 14.2,
+  artifactId: ID, chatId: '01900000-0000-7000-8000-0000000000c1', title: 'Acme promo video', style: 'deep', duration: 18.5,
   mp4: { available: true, state: 'none', seconds: null, bytes: null, ...mp4 },
 })
 const say = (k: 'promo.mp4.get' | 'promo.mp4.making') => translate(useLocaleStore.getState().locale, k)

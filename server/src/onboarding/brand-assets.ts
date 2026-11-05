@@ -371,10 +371,16 @@ export async function downsize(img: { bytes: Buffer; ext: string; width: number;
   return size ? { bytes: jpeg, ext: 'jpg', ...size } : null
 }
 
+/** A picture as size×size RGBA pixels (stretched), by the isolated ffmpeg; null without ffmpeg or on failure. */
+export async function rawRgba(bytes: Buffer, ext: string, size = 32): Promise<Uint8Array | null> {
+  const raw = await ffmpegPipe(bytes, ext, ['-frames:v', '1', '-vf', `scale=${size}:${size}`, '-f', 'rawvideo', '-pix_fmt', 'rgba', 'pipe:1'], size * size * 4 + 1024)
+  return raw && raw.length >= size * size * 4 ? raw.subarray(0, size * size * 4) : null
+}
+
 /** The logo's dominant colours (opaque pixels that are not white, black or grey), strongest first. */
 export async function logoColors(bytes: Buffer, ext: string): Promise<ColorHit[]> {
-  const raw = await ffmpegPipe(bytes, ext, ['-frames:v', '1', '-vf', 'scale=32:32', '-f', 'rawvideo', '-pix_fmt', 'rgba', 'pipe:1'], 64 * 1024)
-  if (!raw || raw.length < 32 * 32 * 4) return []
+  const raw = await rawRgba(bytes, ext, 32)
+  if (!raw) return []
   const buckets = new Map<string, { n: number; r: number; g: number; b: number }>()
   for (let i = 0; i + 3 < raw.length; i += 4) {
     if (raw[i + 3]! < 160) continue
