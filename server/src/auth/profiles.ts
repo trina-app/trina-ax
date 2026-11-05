@@ -29,6 +29,10 @@ const refuse = (problem: AvatarProblem, locale: Locale): never =>
 
 /** Realtime notice: someone's profile or photo changed. Open windows ask GET /api/people again. The message carries nothing. */
 export const PROFILE_CHANGED = { type: 'notice', data: { level: 'info', code: 'profile_changed', message: '' } } as const
+/** The same to the person who changed it: their windows also read their own account again (GET /api/me). */
+export const MY_PROFILE_CHANGED = { type: 'notice', data: { level: 'info', code: 'my_profile_changed', message: '' } } as const
+/** publishEach builder: MY_PROFILE_CHANGED to `userId`, PROFILE_CHANGED to everyone else. */
+export const profileChangedFor = (userId: string) => (to: string) => (to === userId ? MY_PROFILE_CHANGED : PROFILE_CHANGED)
 
 interface ProfileRow { title: string; status_text: string; avatar_version: number | null }
 const person = (id: string, name: string, p: ProfileRow | null): Person => ({

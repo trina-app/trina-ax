@@ -29,3 +29,17 @@ test('a JPEG whose scan never ends is refused', () => {
   const cut = jpegWithTail('')
   expect(prepareAvatar(cut.subarray(0, cut.length - 2), 'image/jpeg')).toEqual({ ok: false, problem: 'broken' })
 })
+
+test('a JPEG that ends exactly at its end-of-image marker, or one byte after it, is taken (Safari writes these)', () => {
+  const exact = jpegWithTail('')
+  const r = prepareAvatar(exact, 'image/jpeg')
+  expect(r.ok).toBe(true)
+  if (r.ok) expect([...r.bytes.subarray(-2)]).toEqual([0xff, 0xd9])
+  for (const tail of [[0x00], [0x00, 0x00]]) {
+    const more = prepareAvatar(new Uint8Array([...exact, ...tail]), 'image/jpeg')
+    expect(more.ok).toBe(true)
+    if (more.ok) expect(more.bytes.length).toBe(r.ok ? r.bytes.length : -1)
+  }
+  // a header with no scan, ending at the marker too
+  expect(prepareAvatar(makeJpeg(64, 64), 'image/jpeg').ok).toBe(true)
+})

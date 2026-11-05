@@ -118,10 +118,10 @@ export function dispatch(ev: ServerEvent) {
         void useSession.getState().refreshMe()
         return
       }
-      if (ev.data.code === 'profile_changed') {
-        // someone changed their name, title, status or photo (routes/people.ts): the own profile and the people list (when
-        // a screen has read it) follow, quietly: the notice carries no text to show
-        void useSession.getState().refreshMe()
+      if (ev.data.code === 'profile_changed' || ev.data.code === 'my_profile_changed') {
+        // someone changed their name, title, status or photo (routes/people.ts): the people list (when a screen has read
+        // it) follows, and my own account when it was me (another window or device), quietly: the notice carries no text
+        if (ev.data.code === 'my_profile_changed') void useSession.getState().refreshMe()
         if (usePeople.getState().loaded) void usePeople.getState().load(true)
         return
       }

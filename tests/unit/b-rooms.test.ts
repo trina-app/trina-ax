@@ -349,15 +349,42 @@ test('backups: room files are in the team archive and come back with a restore; 
   copy.close()
   h.ctx.db.query(`INSERT INTO room_files (${Object.keys(aRow).join(', ')}) VALUES (${Object.keys(aRow).map(() => '?').join(', ')})`).run(...Object.values(aRow))
   h.ctx.db.query('DELETE FROM room_files WHERE id = ?').run(b.file.id)
+  const sys = path.join(h.ctx.config.teamRoot, '.system')
   const r = roomFilesOf(h.ctx).reconcile()
-  expect(r).toMatchObject({ rowsRemoved: 1, filesRemoved: 1 })
-  expect(h.ctx.db.query('SELECT id FROM room_files WHERE id IN (?, ?)').all(a.file.id, b.file.id)).toEqual([])
-  expect(fs.existsSync(path.join(h.ctx.config.teamRoot, '.system', 'rooms', dm.id, b.file.id))).toBe(false)
-  // files of the first layout (<data dir>/rooms) move to the team folder at the next start
+  // a's row stays (its file is gone: 404, counted only); b's file is set aside, not deleted
+  expect(r).toMatchObject({ missingFiles: 1, orphansMoved: 1 })
+  expect(h.ctx.db.query('SELECT id FROM room_files WHERE id = ?').get(a.file.id)).toEqual({ id: a.file.id })
+  expect((await h.fetch(`/api/rooms/${dm.id}/files/${a.file.id}`, { headers: { cookie: nora.client.cookie! } })).status).toBe(404)
+  expect(fs.existsSync(path.join(sys, 'rooms', dm.id, b.file.id))).toBe(false)
+  const [batch] = fs.readdirSync(path.join(sys, 'rooms-orphans'))
+  expect(fs.readFileSync(path.join(sys, 'rooms-orphans', batch!, dm.id, b.file.id), 'utf8')).toBe('second file')
+  expect(batch).toMatch(/^\d{8}T\d{6}Z-\d+-0$/)
+  // a second start changes nothing more; a clock earlier than the newest room file purges nothing; after 30 days (by the
+  // name and the folder's time) the set-aside batch goes
+  expect(roomFilesOf(h.ctx).reconcile()).toMatchObject({ orphansMoved: 0, orphanBatchesPurged: 0 })
+  expect(roomFilesOf(h.ctx).reconcile(Date.now() - 86400_000)).toMatchObject({ orphanBatchesPurged: 0 })
+  // a name 40 days old on a folder made now (a clock that was wrong when it was made) is not enough either
+  const aged = new Date(Date.now() - 40 * 86400_000).toISOString().replace(/[-:]/g, '').replace(/\.\d+Z$/, 'Z') + '-1-0'
+  fs.renameSync(path.join(sys, 'rooms-orphans', batch!), path.join(sys, 'rooms-orphans', aged))
+  expect(roomFilesOf(h.ctx).reconcile()).toMatchObject({ orphanBatchesPurged: 0 })
+  expect(roomFilesOf(h.ctx).reconcile(Date.now() + 31 * 86400_000)).toMatchObject({ orphanBatchesPurged: 1 })
+  expect(fs.readdirSync(path.join(sys, 'rooms-orphans'))).toEqual([])
+  // the folder missing (a share not mounted yet) or unreadable: nothing is touched
   const c = await upload('c.txt', 'third file')
+  fs.renameSync(path.join(sys, 'rooms'), path.join(sys, 'rooms-away'))
+  expect(roomFilesOf(h.ctx).reconcile()).toMatchObject({ skipped: true, orphansMoved: 0 })
+  fs.renameSync(path.join(sys, 'rooms-away'), path.join(sys, 'rooms'))
+  fs.chmodSync(path.join(sys, 'rooms'), 0o000)
+  try { expect(roomFilesOf(h.ctx).reconcile()).toMatchObject({ skipped: true }) } finally { fs.chmodSync(path.join(sys, 'rooms'), 0o700) }
+  expect(h.ctx.db.query('SELECT COUNT(*) n FROM room_files').get()).toEqual({ n: 2 })
+  // files of the first layout (<data dir>/rooms) move to the team folder file by file; a copy cut short is not kept
   fs.mkdirSync(path.join(h.ctx.config.dataDir, 'rooms'), { recursive: true })
-  fs.renameSync(path.join(h.ctx.config.teamRoot, '.system', 'rooms', dm.id), path.join(h.ctx.config.dataDir, 'rooms', dm.id))
-  expect(roomFilesOf(h.ctx).reconcile()).toMatchObject({ movedRooms: 1, rowsRemoved: 0 })
+  fs.renameSync(path.join(sys, 'rooms', dm.id), path.join(h.ctx.config.dataDir, 'rooms', dm.id))
+  fs.mkdirSync(path.join(sys, 'rooms', dm.id), { recursive: true })
+  fs.writeFileSync(path.join(sys, 'rooms', dm.id, `${c.file.id}.moving`), 'half')
+  expect(roomFilesOf(h.ctx).reconcile()).toMatchObject({ movedFiles: 1, orphansMoved: 0 })
+  expect(fs.existsSync(path.join(h.ctx.config.dataDir, 'rooms'))).toBe(false)
+  expect(fs.readdirSync(path.join(sys, 'rooms', dm.id))).toEqual([c.file.id])
   const got = await h.fetch(`/api/rooms/${dm.id}/files/${c.file.id}`, { headers: { cookie: nora.client.cookie! } })
   expect(await got.text()).toBe('third file')
 })

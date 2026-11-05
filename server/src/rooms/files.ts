@@ -6,8 +6,8 @@
 // through GET /api/rooms/:id/files/:fileId, which checks on every read that the caller is in the room now and may see
 // the message the file was sent with. The upload path and its limits are the chat attachments' (multipart ≤ 50 MB, the
 // storage check, the temp file and its sha256, the image size and thumbnail helpers, the quarantine list).
-// reconcile() runs at every start: after a restore the database and the folder may be from different moments, and a
-// file without its row, or a row without its file, is removed.
+// reconcile() runs at every start: after a restore the database and the folder may be from different moments; a file
+// without its row is set aside in .system/rooms-orphans/ for 30 days, a row without its file is only counted.
 import fs from 'node:fs'
 import path from 'node:path'
 import { PRODUCT } from '@mycel/shared'
@@ -25,6 +25,16 @@ import { canSee, fileOut, memberRow, messageRow, roomRow, type FileRow } from '.
 
 /** An upload not sent in a message within a day is removed. */
 export const UNSENT_FILE_MS = 24 * 3600_000
+/** Room files without a database row are kept this long in .system/rooms-orphans/ (reconcile). */
+export const ORPHAN_KEEP_MS = 30 * 86400_000
+const THUMB = '.thumb.jpg'
+const MOVING = '.moving'
+const stamp = (ms: number) => new Date(ms).toISOString().replace(/[-:]/g, '').replace(/\.\d+Z$/, 'Z')
+/** the time in an orphan batch's name (<stamp>-<pid>-<n>; a bare <stamp> from before is read too) */
+const parseStamp = (s: string): number | null => {
+  const m = /^(\d{4})(\d{2})(\d{2})T(\d{2})(\d{2})(\d{2})Z(?:-\d+-\d+)?$/.exec(s)
+  return m ? Date.UTC(+m[1]!, +m[2]! - 1, +m[3]!, +m[4]!, +m[5]!, +m[6]!) : null
+}
 const services = new WeakMap<AppContext, RoomFiles>()
 
 export class RoomFiles {
@@ -97,49 +107,122 @@ export class RoomFiles {
   }
 
   /**
-   * At start: the files on disk and the rows in room_files are made to match. A database restored from a backup (Admin ›
-   * Backups) is older than the folder: files sent since have no row (removed), and a row whose file was removed since
-   * (a deleted message) has no file (the row goes; the message keeps its text). Files of the first room-files layout
-   * (<data dir>/rooms/, before they were kept with the team folder) are moved over first. Runs before requests are
-   * served, so no upload is half-way.
+   * At start: the files on disk and the rows in room_files are compared. Nothing is deleted on a guess:
+   * - a row whose file is not there is kept (GET answers 404 for it) and only counted in the log: the team folder may be
+   *   a share that is not mounted yet, unreadable, or put in place after the first start;
+   * - a file without a row (a database restored from a backup is older than the folder: files sent since have no row) is
+   *   moved to <team>/.system/rooms-orphans/<time>/<room id>/, so going back to the newer database stays possible, and
+   *   such batches are deleted after ORPHAN_KEEP_MS;
+   * - files of the first layout (<data dir>/rooms/, before room files were kept with the team folder) are moved over,
+   *   file by file through a temporary name, so an interrupted start leaves no half file under a real name.
+   * When <team>/.system/rooms is missing or cannot be read, nothing else is done. Runs before requests are served.
    */
-  reconcile(): { movedRooms: number; filesRemoved: number; rowsRemoved: number } {
-    const out = { movedRooms: 0, filesRemoved: 0, rowsRemoved: 0 }
-    const legacy = path.join(this.ctx.config.dataDir, 'rooms')
-    if (fs.existsSync(legacy)) {
-      fs.mkdirSync(this.root(), { recursive: true, mode: 0o700 })
-      for (const r of fs.readdirSync(legacy)) {
-        const to = path.join(this.root(), r)
-        if (fs.existsSync(to)) continue
-        try { fs.renameSync(path.join(legacy, r), to) } catch { fs.cpSync(path.join(legacy, r), to, { recursive: true }); fs.rmSync(path.join(legacy, r), { recursive: true, force: true }) }
-        out.movedRooms++
-      }
-      try { fs.rmdirSync(legacy) } catch { /* something could not move: left for a look */ }
+  reconcile(now = Date.now()): { movedFiles: number; missingFiles: number; orphansMoved: number; orphanBatchesPurged: number; skipped?: true } {
+    const out = { movedFiles: 0, missingFiles: 0, orphansMoved: 0, orphanBatchesPurged: 0 }
+    // the first layout moves over only into a team folder that is there: an empty mount point of a share that is not
+    // mounted yet gets no .system/rooms of its own
+    if (this.teamFolderPresent()) out.movedFiles = this.moveLegacy()
+    const root = this.root()
+    let rooms: string[]
+    try {
+      if (!fs.statSync(root).isDirectory()) throw new Error('not a folder')
+      fs.accessSync(root, fs.constants.R_OK | fs.constants.W_OK | fs.constants.X_OK)
+      rooms = fs.readdirSync(root)
+    } catch {
+      const n = (this.ctx.db.query('SELECT COUNT(*) n FROM room_files').get() as { n: number }).n
+      if (n) this.ctx.log.warn('room files folder missing or unreadable; room files are not checked at this start', { rows: n })
+      return { ...out, skipped: true }
     }
-    const rows = this.ctx.db.query('SELECT id, room_id, thumb FROM room_files').all() as Pick<FileRow, 'id' | 'room_id' | 'thumb'>[]
+    const rows = this.ctx.db.query('SELECT id, room_id FROM room_files').all() as Pick<FileRow, 'id' | 'room_id'>[]
     const known = new Set(rows.map((r) => `${r.room_id}/${r.id}`))
-    for (const r of rows) {
-      if (fs.existsSync(this.abs(r))) continue
-      this.ctx.db.query('DELETE FROM room_files WHERE id = ?').run(r.id)
-      known.delete(`${r.room_id}/${r.id}`)
-      out.rowsRemoved++
-    }
-    let rooms: string[] = []
-    try { rooms = fs.readdirSync(this.root()) } catch { return out }
+    for (const r of rows) if (!fs.existsSync(this.abs(r))) out.missingFiles++
+    const batch = this.newBatch(now)
     for (const room of rooms) {
-      const dir = path.join(this.root(), room)
+      const dir = path.join(root, room)
       let names: string[] = []
       try { names = fs.readdirSync(dir) } catch { continue }
       for (const n of names) {
-        const id = n.endsWith('.thumb.jpg') ? n.slice(0, -'.thumb.jpg'.length) : n
+        if (n.endsWith(MOVING)) { fs.rmSync(path.join(dir, n), { force: true }); continue } // an interrupted copy
+        const id = n.endsWith(THUMB) ? n.slice(0, -THUMB.length) : n
         if (known.has(`${room}/${id}`)) continue
-        fs.rmSync(path.join(dir, n), { recursive: true, force: true })
-        out.filesRemoved++
+        fs.mkdirSync(path.join(batch, room), { recursive: true, mode: 0o700 })
+        fs.renameSync(path.join(dir, n), path.join(batch, room, n))
+        out.orphansMoved++
       }
       try { fs.rmdirSync(dir) } catch { /* not empty */ }
     }
-    if (out.movedRooms || out.filesRemoved || out.rowsRemoved) this.ctx.log.info('room files reconciled', out)
+    out.orphanBatchesPurged = this.purgeOrphans(now)
+    if (out.movedFiles || out.missingFiles || out.orphansMoved || out.orphanBatchesPurged) this.ctx.log.info('room files checked', out)
     return out
+  }
+
+  private orphansRoot() { return path.join(this.ctx.files.fx.root, PRODUCT.systemDir, 'rooms-orphans') }
+
+  /** A batch folder name no other start uses: the time, this process and a count (two starts in one second differ). */
+  private newBatch(now: number): string {
+    for (let i = 0; ; i++) {
+      const p = path.join(this.orphansRoot(), `${stamp(now)}-${process.pid}-${i}`)
+      if (!fs.existsSync(p)) return p
+    }
+  }
+
+  /** The team folder can be read and written and holds something (setup makes its folders; an unmounted share is empty). */
+  private teamFolderPresent(): boolean {
+    try {
+      const t = this.ctx.files.fx.root
+      fs.accessSync(t, fs.constants.R_OK | fs.constants.W_OK | fs.constants.X_OK)
+      return fs.readdirSync(t).length > 0
+    } catch { return false }
+  }
+
+  /** <data dir>/rooms/<room>/<file> → <team>/.system/rooms/<room>/<file>, each file copied to `<name>.moving` and renamed
+   * (a rename when both are on one disk), then the old one removed. A file already there is not copied again. */
+  private moveLegacy(): number {
+    const legacy = path.join(this.ctx.config.dataDir, 'rooms')
+    if (!fs.existsSync(legacy)) return 0
+    let moved = 0
+    for (const room of fs.readdirSync(legacy)) {
+      const from = path.join(legacy, room), to = this.dir(room)
+      fs.mkdirSync(to, { recursive: true, mode: 0o700 })
+      for (const n of fs.readdirSync(from)) {
+        const src = path.join(from, n), dst = path.join(to, n)
+        if (!fs.existsSync(dst)) {
+          try { fs.renameSync(src, dst) } catch {
+            fs.copyFileSync(src, dst + MOVING)
+            fs.chmodSync(dst + MOVING, 0o600)
+            fs.renameSync(dst + MOVING, dst)
+          }
+          moved++
+        }
+        fs.rmSync(src, { force: true })
+      }
+      try { fs.rmdirSync(from) } catch { /* something was left: looked at again next start */ }
+    }
+    try { fs.rmdirSync(legacy) } catch { /* the same */ }
+    return moved
+  }
+
+  /** Orphan batches older than ORPHAN_KEEP_MS by both the time in their name and their folder's time go. Not when the
+   * clock looks wrong (earlier than the newest room file: a Mac with a dead clock battery, a restored VM). */
+  private purgeOrphans(now: number): number {
+    const newest = (this.ctx.db.query('SELECT MAX(created_at) t FROM room_files').get() as { t: string | null }).t
+    if (newest && now < Date.parse(newest)) {
+      this.ctx.log.warn('the clock is earlier than the newest room file; set-aside room files are kept', { newest })
+      return 0
+    }
+    let n = 0
+    let batches: string[] = []
+    try { batches = fs.readdirSync(this.orphansRoot()) } catch { return 0 }
+    for (const b of batches) {
+      const at = parseStamp(b)
+      if (at === null || now - at < ORPHAN_KEEP_MS) continue
+      let mtime: number
+      try { mtime = fs.statSync(path.join(this.orphansRoot(), b)).mtimeMs } catch { continue }
+      if (now - mtime < ORPHAN_KEEP_MS) continue
+      fs.rmSync(path.join(this.orphansRoot(), b), { recursive: true, force: true })
+      n++
+    }
+    return n
   }
 
   /** Uploads never sent, and files of rooms that are gone. */

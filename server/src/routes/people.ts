@@ -4,7 +4,7 @@ import { API } from '@mycel/shared/api'
 import type { RouteModule } from './module'
 import { audit } from '../admin/audit'
 import { fail } from '../http/errors'
-import { listPeople, PROFILE_CHANGED, profileOf, readAvatar, removeAvatar, saveAvatar, updateProfile } from '../auth/profiles'
+import { listPeople, profileChangedFor, profileOf, readAvatar, removeAvatar, saveAvatar, updateProfile } from '../auth/profiles'
 
 // the photo is an image only, never a document that runs anything (the same headers as the team logo)
 const IMAGE_HEADERS = { 'x-content-type-options': 'nosniff', 'content-security-policy': "default-src 'none'; sandbox", 'content-disposition': 'inline' }
@@ -30,7 +30,7 @@ export const peopleRoutes: RouteModule = {
       const changes = updateProfile(ctx.db, auth.user.id, body)
       if (Object.keys(changes).length) {
         audit(ctx.db, { actor: auth.user.id, action: 'profile.update', target: auth.user.id, detail: { fields: Object.keys(changes), ...(changes.name ? { name: changes.name } : {}) } })
-        ctx.services.realtime.publishEach(() => PROFILE_CHANGED)
+        ctx.services.realtime.publishEach(profileChangedFor(auth.user.id))
       }
       const name = (ctx.db.query('SELECT name FROM users WHERE id = ?').get(auth.user.id) as { name: string }).name
       return { id: auth.user.id, name, ...profileOf(ctx.db, auth.user.id) }
@@ -39,7 +39,7 @@ export const peopleRoutes: RouteModule = {
     kit.handle(API.putMyAvatar, async ({ c, query, body, auth }) => {
       const r = await saveAvatar(ctx.db, auth.user.id, body, query.type, c.get('locale'))
       audit(ctx.db, { actor: auth.user.id, action: 'profile.avatar_set', target: auth.user.id, detail: { size: r.size, before: r.before } })
-      ctx.services.realtime.publishEach(() => PROFILE_CHANGED)
+      ctx.services.realtime.publishEach(profileChangedFor(auth.user.id))
       return { avatarVersion: r.version }
     })
 
@@ -47,7 +47,7 @@ export const peopleRoutes: RouteModule = {
       const before = removeAvatar(ctx.db, auth.user.id)
       if (before === null) return
       audit(ctx.db, { actor: auth.user.id, action: 'profile.avatar_remove', target: auth.user.id, detail: { before } })
-      ctx.services.realtime.publishEach(() => PROFILE_CHANGED)
+      ctx.services.realtime.publishEach(profileChangedFor(auth.user.id))
     })
   },
 }

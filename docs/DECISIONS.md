@@ -7977,8 +7977,13 @@ every week. Placement: Team AX core (skills, files and permissions, the team lin
   are in `<team>/.system/rooms/<room id>/<file id>` (0700 / 0600, with a `.thumb.jpg` preview): `.system/` is closed to
   every person, the AI's tools, the dev environment and the owner's export, and it is part of every team-folder backup,
   archive, off-site copy and restore (a first version kept them in `<data dir>/rooms/`, which no backup covered; such
-  files move over at the next start). At every start `RoomFiles.reconcile()` removes files without a row and rows
-  without a file, so a database restored from a backup and the newer folder match again. They count as team storage.
+  files move over at the next start, file by file through a temporary name). With the team folder on a network share or
+  another disk, room files are there too. At every start `RoomFiles.reconcile()` compares files and rows and deletes
+  nothing on a guess: a file without a row (a database restored from a backup is older than the folder) moves to
+  `.system/rooms-orphans/<time>/` and is deleted after 30 days, so going back to the newer database stays possible; a
+  row without its file is kept (the file answers 404) and counted in the log, because the folder may be a share not
+  mounted yet, unreadable, or put in place after the first start; when `.system/rooms/` is missing or unreadable the
+  whole check is skipped. They count as team storage.
   They are reached only through `GET /api/rooms/:id/files/:fileId`, which checks
   on every read that the caller is in the room now and may see the message it was sent with (before sending: the
   uploader only). The upload is the chat attachment's path and limits (multipart ≤ 50 MB, the storage check, the temp
@@ -8003,8 +8008,9 @@ every week. Placement: Team AX core (skills, files and permissions, the team lin
   (`roomMessages`), turns both off; per room there is mute. An edit notifies nobody.
 - **People directory.** The room screens use `GET /api/people` and the photo address from feat/profile (merged into this
   branch): one `Avatar` (feat/profile's, `web/src/components/Avatar.tsx`), one people store (`web/src/store/people.ts`,
-  with the lookups the rooms need) and one quiet `profile_changed` handler (no toast; my profile and, once read, the
-  people list load again).
+  with the lookups the rooms need) and one quiet handler for `profile_changed` (no toast; the people list, once read,
+  loads again). The person who changed it gets `my_profile_changed` instead, so only their own windows read their
+  account (GET /api/me) again.
 - **Web.** Desktop and web: a foldable "대화방" group in the sidebar above the AI chats (team rooms, 전체, DMs; one count
   pill per room, "@" in front when one mentions me; "+" opens the people list for a DM); a room opens in the main area at
   `/rooms/:roomId` (the mobile app deep-links there), the list at `/rooms`. The room screen groups consecutive messages

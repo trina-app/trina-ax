@@ -16,7 +16,7 @@ export function Avatar({ user, size = 24, className }: { user: AvatarUser; size?
   }
   return (
     <span style={style} className={clsx('flex shrink-0 items-center justify-center rounded-full bg-accent font-semibold text-accent-ink', className)} aria-hidden>
-      {user.name.slice(0, 1).toUpperCase()}
+      {Array.from(user.name.trim())[0]?.toUpperCase() ?? '?'}
     </span>
   )
 }
