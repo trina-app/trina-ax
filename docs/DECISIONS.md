@@ -8332,6 +8332,13 @@ every week. Placement: Team AX core (skills, files and permissions, the team lin
     `chat/turn.ts`; a tool without its own lines shows its arguments one per line). Nothing is behind a toggle: the
     card is for deciding, and the preview is enough to see what it is. A detail without text (a rename) shows no
     empty box.
+  - **Why a preview is private, in short sentences** (supersedes the one sentence of the UX review). "올리면 이 폴더를
+    못 여는 사람도 이 내용을 봐요: 재무, 내 폴더, 다른 사람이 못 여는 폴더" mixed reasons into a list, and "다른 사람이
+    못 여는" was wrong when the asker cannot open the folder either. Now one plain sentence per reason, in this order:
+    "방 사람 중 일부가 열 수 없는 폴더(재무)를 읽었어요." (named only when the asker may open them, never `skills/`;
+    without a name to give: "방 사람 중 일부가 열 수 없는 폴더를 읽었어요."), "내 폴더를 읽었어요.", "○○ 님이 들어오기
+    전 대화를 참고했어요.", "웹이나 연결된 서비스의 내용을 참고했어요."; an older preview without reasons keeps
+    "올리면 대화방 모두가 이 내용을 봐요." (`previewWhy`, `rooms.aiWhy*` in the five languages).
 - **Not in this step.** The AI cannot open files sent in a room (it gets their names). The 12-hour new session and the context sizes are
   first guesses. Cards the AI raised are not shown again after a reload (they time out like an unanswered card). A PC
   runner's tools, once merged, fall under the card rule and the outside mark but are not switched off by name.

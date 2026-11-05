@@ -280,23 +280,27 @@ function AskedBy({ m, onJump }: { m: RoomMessage; onJump?: () => void }) {
 }
 
 /** The folders of a private preview as people know them: the last part of each path ("마케팅팀", not
- * "shared/경영/팀별/마케팅팀/"), the top of the team folder in words, "내 폴더" for their own; never the skills
- * folders (the team rules and skills the AI was given: how it works, not what it found). */
-export function previewFolderNames(p: NonNullable<RoomMessage['preview']>, words: { root: string; mine: string }): string[] {
+ * "shared/경영/팀별/마케팅팀/"), the top of the team folder in words; never the skills folders (the team rules and
+ * skills the AI was given: how it works, not what it found). */
+export function previewFolderNames(p: NonNullable<RoomMessage['preview']>, words: { root: string }): string[] {
   const names = p.folders.filter((f) => f !== 'skills' && !f.startsWith('skills/')).map((f) => (f === '' ? words.root : f.split('/').filter(Boolean).at(-1) ?? f))
-  if (p.personal) names.push(words.mine)
   return [...new Set(names)]
 }
 
-/** The one sentence above "대화방에 올리기": who would see it once posted. */
+/** Why a private preview did not go to the room, one short sentence per reason (the folders it read that some members
+ * cannot open, named when the person may open them; their own folder; messages from before someone joined; the web or
+ * a connected service). Without a reason (an older preview): that everyone would see it. */
 export function previewWhy(p: RoomMessage['preview'], t: ReturnType<typeof useT>): string {
-  const folders = p ? previewFolderNames(p, { root: t('rooms.aiRootFolder'), mine: t('rooms.aiMyFolder') }) : []
-  // folders the person cannot open themselves are never named to them
-  if (p?.otherFolders) folders.push(t('rooms.aiOtherFolders'))
-  if (folders.length === 1 && p?.otherFolders) return t('rooms.aiPrivateOtherFolders')
-  if (folders.length) return t('rooms.aiPrivateFolders', { folders: folders.join(', ') })
-  if (p?.joinedLater?.length) return t('rooms.aiPrivateJoined', { names: p.joinedLater.join(', ') })
-  return p?.outside ? t('rooms.aiPrivateOutside') : t('rooms.aiPrivateAll')
+  if (!p) return t('rooms.aiPrivateAll')
+  const why: string[] = []
+  const folders = previewFolderNames(p, { root: t('rooms.aiRootFolder') })
+  // folders the person cannot open themselves, and the skills folders, are never named
+  if (folders.length) why.push(t('rooms.aiWhyFolders', { folders: folders.join(', ') }))
+  else if (p.folders.length || p.otherFolders) why.push(t('rooms.aiWhySomeFolders'))
+  if (p.personal) why.push(t('rooms.aiWhyMine'))
+  if (p.joinedLater?.length) why.push(t('rooms.aiWhyJoined', { names: p.joinedLater.join(', ') }))
+  if (p.outside) why.push(t('rooms.aiWhyOutside'))
+  return why.length ? why.join(' ') : t('rooms.aiPrivateAll')
 }
 
 /** My private preview of an AI answer (the top says it is mine only): one sentence on who would see it once posted,

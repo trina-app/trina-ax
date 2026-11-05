@@ -61,7 +61,7 @@ test('an AI answer is shown like a chat answer without its steps: Markdown, who 
   expect(html).not.toContain('data-testid="room-ai-preview"')
 })
 
-test('a private preview says at the top that only I see it, names the folders plainly in one sentence, and has one outline action', () => {
+test('a private preview says at the top that only I see it, says why in short sentences, and has one outline action', () => {
   const a = message({ roomId: R, seq: 3, authorKind: 'ai', author: null, askedBy: ME, visibility: 'private', body: 'mine only', preview: { folders: ['acme/finance', '', 'skills/marketing', 'shared/teams/finance'], personal: true, outside: true } })
   const html = render([a])
   expect(count(html, 'data-testid="room-ai-preview"')).toBe(1)
@@ -70,12 +70,12 @@ test('a private preview says at the top that only I see it, names the folders pl
   expect(html).toContain(translate('en', 'rooms.aiPrivate'))
   expect(html).not.toContain(translate('en', 'rooms.aiAskedBy', { name: 'Ada' }))
   expect(html.indexOf('room-ai-private')).toBeLessThan(html.indexOf('mine only'))
-  // one sentence: last parts of the paths, once each, no skills folder, never a full path
-  const folders = ['finance', translate('en', 'rooms.aiRootFolder'), translate('en', 'rooms.aiMyFolder')].join(', ')
-  expect(html).toContain(translate('en', 'rooms.aiPrivateFolders', { folders }))
+  // one short sentence per reason: the folders by the last parts of their paths, once each, no skills folder, never a
+  // full path; my own folder; the web
+  const folders = ['finance', translate('en', 'rooms.aiRootFolder')].join(', ')
+  expect(html).toContain([translate('en', 'rooms.aiWhyFolders', { folders }), translate('en', 'rooms.aiWhyMine'), translate('en', 'rooms.aiWhyOutside')].join(' '))
   expect(html).not.toContain('acme/finance')
   expect(html).not.toContain('marketing')
-  expect(html).not.toContain(translate('en', 'rooms.aiPrivateOutside'))
   // one action on the note itself, an outline button; putting the preview away is in the "…" menu
   const note = html.slice(html.indexOf('data-testid="room-ai-preview"'))
   const own = note.slice(0, note.indexOf('</div>'))
@@ -86,11 +86,21 @@ test('a private preview says at the top that only I see it, names the folders pl
   expect(count(html, 'data-testid="message-menu"')).toBe(1)
 })
 
-test('a private preview without a folder to name says the one other reason, or that everyone would see it', () => {
-  const reason = (preview: NonNullable<ReturnType<typeof message>['preview']>) => render([message({ roomId: R, seq: 3, authorKind: 'ai', author: null, askedBy: ME, visibility: 'private', body: 'x', preview })])
-  expect(reason({ folders: ['skills/marketing'], personal: false, outside: true })).toContain(translate('en', 'rooms.aiPrivateOutside'))
-  expect(reason({ folders: [], personal: false, outside: false, joinedLater: ['Cy Park'] })).toContain(translate('en', 'rooms.aiPrivateJoined', { names: 'Cy Park' }))
-  expect(reason({ folders: ['skills'], personal: false, outside: false })).toContain(translate('en', 'rooms.aiPrivateAll'))
+test('a private preview without a folder to name says so without names, or gives the other reasons', () => {
+  const reason = (preview: NonNullable<ReturnType<typeof message>['preview']>) => {
+    const html = render([message({ roomId: R, seq: 3, authorKind: 'ai', author: null, askedBy: ME, visibility: 'private', body: 'x', preview })])
+    const note = html.slice(html.indexOf('data-testid="room-ai-preview"'))
+    return note.slice(note.indexOf('<p'), note.indexOf('</p>'))
+  }
+  // a skills folder or one the person cannot open: "folders some people here cannot open", no name
+  expect(reason({ folders: ['skills/marketing'], personal: false, outside: true })).toContain([translate('en', 'rooms.aiWhySomeFolders'), translate('en', 'rooms.aiWhyOutside')].join(' '))
+  expect(reason({ folders: [], otherFolders: true, personal: false, outside: false })).toContain(translate('en', 'rooms.aiWhySomeFolders'))
+  expect(reason({ folders: [], personal: true, outside: false })).toContain(translate('en', 'rooms.aiWhyMine'))
+  expect(reason({ folders: [], personal: false, outside: false, joinedLater: ['Cy Park'] })).toContain(translate('en', 'rooms.aiWhyJoined', { names: 'Cy Park' }))
+  expect(reason({ folders: [], personal: false, outside: false })).toContain(translate('en', 'rooms.aiPrivateAll'))
+  // the Korean reads as plain short sentences, not a list after a colon
+  expect(translate('ko', 'rooms.aiWhySomeFolders')).toBe('방 사람 중 일부가 열 수 없는 폴더를 읽었어요.')
+  expect(translate('ko', 'rooms.aiWhyMine')).toBe('내 폴더를 읽었어요.')
 })
 
 test("an AI answer's team file links are chips only for files the viewer may open; the rest is plain text", () => {
@@ -195,6 +205,9 @@ test('a room badge: "@" alone when it mentions me, grey for a muted room; a lett
 
 test("a preview's folders the asker cannot open themselves are never named, only said to be there", () => {
   const why = (preview: NonNullable<ReturnType<typeof message>['preview']>) => render([message({ roomId: R, seq: 3, authorKind: 'ai', author: null, askedBy: ME, visibility: 'private', body: 'x', preview })])
-  expect(why({ folders: [], otherFolders: true, personal: false, outside: false })).toContain(translate('en', 'rooms.aiPrivateOtherFolders'))
-  expect(why({ folders: ['acme/finance'], otherFolders: true, personal: false, outside: false })).toContain(translate('en', 'rooms.aiPrivateFolders', { folders: `finance, ${translate('en', 'rooms.aiOtherFolders')}` }))
+  expect(why({ folders: [], otherFolders: true, personal: false, outside: false })).toContain(translate('en', 'rooms.aiWhySomeFolders'))
+  // with one the person may open: that one is named, the sentence already says "some folders", nothing more is hinted
+  const both = why({ folders: ['acme/finance'], otherFolders: true, personal: false, outside: false })
+  expect(both).toContain(translate('en', 'rooms.aiWhyFolders', { folders: 'finance' }))
+  expect(both).not.toContain(translate('en', 'rooms.aiWhySomeFolders'))
 })
