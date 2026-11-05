@@ -8760,7 +8760,7 @@ environment image (another developer; handoff below).
 ### Measured
 - **Final gate round** (2026-11-06, this Mac, real AI from its Claude Code login, development servers with their local
   relays, four teams at once and then two): the product's own site, a Korean AI studio, a café roastery, a Korean B2B
-  SaaS, a large Korean semiconductor maker and a fictional 20-page PDF deck without a website. Reading the website: 33–39
+  SaaS, a large manufacturer and a fictional 20-page PDF deck without a website. Reading the website: 33–39
   s. From "자료 없이 만들게요" (or the deck) to the video artifact: 18–24 s; the answer done at the same time or 3 s later
   (target 3 minutes). The MP4: 31–94 s (up to four renders at once on this Mac), 13–20 MB, H.264 + AAC, 18.5 s. Styles
   the server chose: ink twice (orange, violet), deep twice (green, navy), mono twice (a grey brand, no brand colour). Every
