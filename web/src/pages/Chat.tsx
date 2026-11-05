@@ -285,7 +285,7 @@ function ChatView({ chatId }: { chatId: string }) {
           {!chat?.deletedAt && <QueuedMessages chatId={chatId} onFocusComposer={() => composer.current?.focus()} />}
         </div>
       </div>
-      <div className="mx-auto w-full max-w-[780px] px-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] sm:px-4">
+      <div className="mx-auto w-full max-w-[780px] px-3 pb-[max(0.75rem,var(--safe-bottom))] sm:px-4">
         {chat?.deletedAt ? (
           <TrashedBanner chat={chat} onRestored={(c) => { setChat(c); upsertChat(c) }} />
         ) : (

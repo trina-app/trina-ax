@@ -285,7 +285,7 @@ export default function AccessEdit({ path, folder, users, groups, onClose, onSav
           <ArrowLeft size={15} aria-hidden /> {returnLabel}
         </button>
       )}
-      <header className={clsx('flex items-start gap-2', narrow ? 'border-b border-line py-2 pr-4 pl-2 pt-[max(0.5rem,env(safe-area-inset-top))]' : 'pb-1')}>
+      <header className={clsx('flex items-start gap-2', narrow ? 'border-b border-line py-2 pr-4 pl-2 pt-[max(0.5rem,var(--safe-top))]' : 'pb-1')}>
         {narrow && (
           <IconButton label={returnLabel ?? t('accessEdit.back')} onClick={() => void requestClose()} className="shrink-0" data-testid="edit-back">
             <ArrowLeft size={20} />
@@ -367,7 +367,7 @@ export default function AccessEdit({ path, folder, users, groups, onClose, onSav
         )}
       </div>
 
-      <footer className={clsx('flex flex-wrap items-center justify-end gap-2 border-t border-line bg-surface', narrow ? 'px-4 py-3 pb-[max(0.75rem,env(safe-area-inset-bottom))]' : 'sticky bottom-0 z-10 mt-5 py-3')}>
+      <footer className={clsx('flex flex-wrap items-center justify-end gap-2 border-t border-line bg-surface', narrow ? 'px-4 py-3 pb-[max(0.75rem,var(--safe-bottom))]' : 'sticky bottom-0 z-10 mt-5 py-3')}>
         {why && why !== 'keep' && (
           <p id={whyId} className="mr-auto min-w-0 text-xs text-faint" data-testid="edit-save-why">
             {t(why === 'same' ? 'accessEdit.why.same' : why === 'failed' ? 'accessEdit.why.failed' : 'accessEdit.why.waits')}

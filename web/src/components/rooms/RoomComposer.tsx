@@ -116,7 +116,7 @@ export function RoomComposer({ roomId, members, meId, reply, onCancelReply, onRe
   }
 
   return (
-    <div className="shrink-0 pb-[max(0.75rem,env(safe-area-inset-bottom))] max-sm:border-t max-sm:border-line max-sm:pt-1 sm:px-4">
+    <div className="shrink-0 pb-[max(0.75rem,var(--safe-bottom))] max-sm:border-t max-sm:border-line max-sm:pt-1 sm:px-4">
       <div
         className={clsx('mx-auto max-w-[780px] transition sm:rounded-2xl sm:border sm:bg-surface', drag ? 'sm:border-accent sm:ring-2 sm:ring-accent/30' : 'sm:border-field-border sm:focus-within:border-faint')}
         onDragOver={(e) => {

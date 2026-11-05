@@ -94,7 +94,18 @@
   --color-code-ink: var(--c-code-ink);
 }
 
+/* Safe areas (status bar, notch, home indicator, Android's navigation bar): the page draws under them and pads itself,
+   so its own backgrounds fill them in either look. env() is what iOS and recent Android WebViews report; the phone app
+   also sets --app-inset-* (CSS px) before the page loads, for WebViews that report nothing (mobile/App.tsx). While the
+   on-screen keyboard is open nothing sits under the home indicator (lib/viewport.ts sets .keyboard-open). */
+:root {
+  --safe-top: max(env(safe-area-inset-top, 0px), var(--app-inset-top, 0px));
+  --safe-bottom: max(env(safe-area-inset-bottom, 0px), var(--app-inset-bottom, 0px));
+}
+html.keyboard-open { --safe-bottom: 0px; }
 html, body { height: 100%; }
+/* the top inset: the page's own background runs under the status bar; full-screen layers pad themselves */
+#root { padding-top: var(--safe-top); }
 /* the signed-in app (components/Layout.tsx) is exactly the window: the page itself never scrolls or rubber-bands, only
    the areas inside it do (a hidden screen-reader label positioned against the page could otherwise make it scroll) */
 html.app-shell, html.app-shell body { overflow: hidden; overscroll-behavior: none; }

@@ -320,7 +320,7 @@ function SearchBox({ onClose }: { onClose: () => void }) {
         aria-modal="true"
         aria-label={t('search.title')}
         data-testid="search-palette"
-        className="relative flex h-full w-full flex-col overflow-hidden bg-surface shadow-2xl sm:h-auto sm:max-h-[80vh] sm:max-w-2xl sm:rounded-2xl sm:border sm:border-line"
+        className="relative flex h-full w-full flex-col overflow-hidden bg-surface pt-[var(--safe-top)] pb-[var(--safe-bottom)] shadow-2xl sm:h-auto sm:pt-0 sm:pb-0 sm:max-h-[80vh] sm:max-w-2xl sm:rounded-2xl sm:border sm:border-line"
         onMouseDown={(e) => e.stopPropagation()}
       >
         <div className="flex items-center gap-3 px-5 pt-4 pb-2">

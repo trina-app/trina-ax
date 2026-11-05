@@ -112,7 +112,7 @@ export default function Layout() {
         {drawer && (
           <div className="fixed inset-0 z-40 md:hidden" role="dialog" aria-modal="true" aria-label={t('sidebar.label')} data-drawer>
             <div className="absolute inset-0 bg-black/40" onClick={() => setDrawer(false)} />
-            <div className="absolute inset-y-0 left-0 w-[84vw] max-w-xs shadow-xl">
+            <div className="absolute inset-y-0 left-0 w-[84vw] max-w-xs bg-subtle pt-[var(--safe-top)] pb-[var(--safe-bottom)] shadow-xl">
               <Sidebar />
             </div>
           </div>
@@ -156,7 +156,7 @@ export default function Layout() {
             className={clsx(
               'min-w-0 border-l border-line bg-surface',
               // phones: a full-screen sheet over everything
-              'max-md:fixed max-md:inset-0 max-md:z-40',
+              'max-md:fixed max-md:inset-0 max-md:z-40 max-md:pt-[var(--safe-top)] max-md:pb-[var(--safe-bottom)]',
               'md:w-[46%] md:max-w-[880px] md:min-w-[360px]',
             )}
           >

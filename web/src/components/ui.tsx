@@ -248,7 +248,8 @@ export function Modal({ open, onClose, title, children, width = 480, footer, ret
         aria-modal="true"
         aria-labelledby={titleId}
         tabIndex={-1}
-        className="flex max-h-[92dvh] w-full flex-col rounded-t-2xl bg-surface text-ink shadow-xl outline-none [--sticky-bg:var(--c-surface)] sm:max-h-[calc(100dvh-2rem)] sm:rounded-2xl"
+        // phones: below the status bar; without a footer the body keeps clear of the home indicator itself
+        className={clsx('flex max-h-[min(92dvh,calc(100dvh-var(--safe-top)-0.5rem))] w-full flex-col rounded-t-2xl bg-surface text-ink shadow-xl outline-none [--sticky-bg:var(--c-surface)] sm:max-h-[calc(100dvh-2rem)] sm:rounded-2xl', !footer && 'max-sm:pb-[var(--safe-bottom)]')}
         style={{ maxWidth: width }}
         onMouseDown={(e) => e.stopPropagation()}
       >
@@ -261,7 +262,7 @@ export function Modal({ open, onClose, title, children, width = 480, footer, ret
           </IconButton>
         </div>
         <div className="scroll-thin min-h-0 overflow-y-auto overscroll-contain p-5">{children}</div>
-        {footer && <div className="flex shrink-0 flex-wrap items-center justify-end gap-2 border-t border-line px-5 py-3 pb-[max(0.75rem,env(safe-area-inset-bottom))]">{footer}</div>}
+        {footer && <div className="flex shrink-0 flex-wrap items-center justify-end gap-2 border-t border-line px-5 py-3 pb-[max(0.75rem,var(--safe-bottom))]">{footer}</div>}
       </div>
     </div>,
     typeof document === 'undefined' ? null : document.body,
@@ -352,7 +353,7 @@ export function Toaster() {
   const toasts = useUi((s) => s.toasts)
   const dismiss = useUi((s) => s.dismiss)
   return (
-    <div className="pointer-events-none fixed right-3 bottom-3 left-3 z-[60] flex flex-col items-end gap-2 sm:left-auto sm:w-96" aria-live="polite">
+    <div className="pointer-events-none fixed right-3 bottom-[calc(0.75rem+var(--safe-bottom))] left-3 z-[60] flex flex-col items-end gap-2 sm:left-auto sm:w-96" aria-live="polite">
       {toasts.map((x) => (
         <div
           key={x.id}

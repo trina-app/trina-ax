@@ -30,7 +30,7 @@ export function BottomTabs() {
   if (hidesTabs(path)) return null
   const current = tabOf(path)
   return (
-    <nav aria-label={t('tabs.label')} className="flex shrink-0 border-t border-line bg-canvas pb-[max(0.75rem,env(safe-area-inset-bottom))] md:hidden" data-testid="bottom-tabs">
+    <nav aria-label={t('tabs.label')} className="flex shrink-0 border-t border-line bg-canvas pb-[max(0.75rem,var(--safe-bottom))] md:hidden" data-testid="bottom-tabs">
       <TabLink to="/rooms" active={current === 'chats'} icon={<MessageCircle size={22} aria-hidden />} label={t('tabs.chats')} testId="tab-chats">
         {unread > 0 && (
           <span className="absolute -top-1 left-1/2 ml-2 min-w-4 rounded-full bg-accent px-1 text-center text-[10px] leading-4 font-medium text-accent-ink" data-testid="tab-chats-unread">

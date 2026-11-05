@@ -73,7 +73,7 @@ export default function SettingsDialog({ onClose, page }: { onClose: () => void;
         aria-modal="true"
         aria-labelledby={titleId}
         tabIndex={-1}
-        className="flex h-full w-full flex-col bg-surface text-ink shadow-xl outline-none [--sticky-bg:var(--c-surface)] md:h-[min(760px,100%)] md:max-w-[1040px] md:rounded-2xl"
+        className="flex h-full w-full flex-col bg-surface text-ink shadow-xl outline-none [--sticky-bg:var(--c-surface)] max-md:pt-[var(--safe-top)] md:h-[min(760px,100%)] md:max-w-[1040px] md:rounded-2xl"
         onMouseDown={(e) => e.stopPropagation()}
         data-testid="settings-dialog"
       >
