@@ -8172,8 +8172,8 @@ chat tools); the hosting side only hands over the image key.
   on imweb (8 pictures, its charcoal), a shipbuilding-parts maker (5 pictures,
   SVG logo so none, no colour), an English SaaS on an English team (the English skill and folders), and a
   fictional 20-page PDF deck with no website (three photos made). 4 rounds of the skill, each card looked at full size;
-  the answers took 70–170 s; no card overflowed its square; numbers were checked against the material. 10 brand photos
-  were tried in all and 7 made (0.15 credits each) plus 1.39 credits of model comparison: 2.44 credits.
+  the answers took 70–170 s; no card overflowed its square; numbers were checked against the material. 7 brand photos
+  were made, none failed (0.15 credits each), plus 1.39 credits of model comparison: 2.44 credits.
 - **Not done**: a PDF or PNG of the cards (above); the AI still sometimes puts a customer's portrait on a card about the
   product when a site's pictures are mostly case studies; a draft started from Admin › Team settings collects pictures
   that are placed only by a later first result; staged pictures of drafts that never reach a first result stay in
