@@ -5,7 +5,7 @@
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from 'bun:test'
 import fs from 'node:fs'
 import path from 'node:path'
-import { API, GENERAL_CARDNEWS_SKILL } from '@mycel/shared/api'
+import { API, CARD_NEWS_ARTIFACT_KEY, GENERAL_CARDNEWS_SKILL } from '@mycel/shared/api'
 import { startHarness, type Harness } from '../lib/b-harness'
 import { waitFor } from '../lib/wait'
 import { noteEgressIp } from '../../server/src/tools/egress'
@@ -255,6 +255,33 @@ describe('a hostile page does not stall the server', () => {
       extractPageAssets(page, base)
       expect(performance.now() - t0, page.slice(0, 20)).toBeLessThan(1500)
     }
+  })
+})
+
+describe('the skill files (docs/DECISIONS.md "W2": the result in front, the answer one line)', () => {
+  const skill = (l: 'ko' | 'en') => fs.readFileSync(path.join(import.meta.dir, `../../resources/skill-packs/general/${l}/card-news/SKILL.md`), 'utf8')
+  const answer = (md: string) => md.slice(md.search(/^## 6\. /m))
+  test('both languages save the cards under the key the web app opens by itself', () => {
+    for (const l of ['ko', 'en'] as const) expect(skill(l)).toContain(`key \`${CARD_NEWS_ARTIFACT_KEY}\``)
+  })
+  test('the answer is one line; the number\'s source is under the cards; the real rules stay', () => {
+    const ko = skill('ko'), en = skill('en')
+    expect(answer(ko)).toContain('한 줄만')
+    expect(answer(en)).toContain('the answer is one line')
+    // no more per-card lines or sources in the answer: they were the long answer under which the cards hid
+    expect(answer(ko)).not.toContain('장마다 한 줄')
+    expect(answer(en)).not.toContain('one line per card (what it says)')
+    for (const md of [ko, en]) {
+      expect(md).toContain('<p class="src">')
+      expect(md).toContain('.src{')
+    }
+    // the brand-folder hint for cards made without a photo, numbers only as written, never a made picture
+    expect(answer(ko)).toContain('브랜드 폴더의 이미지 폴더에 사진을 넣고 다시 만들어 달라고 하시면 사진을 넣어 드려요')
+    expect(answer(en)).toContain('Add photos to the brand images folder and ask me again to put them in')
+    expect(ko).toContain('숫자는 자료에 숫자로 적힌 것만, 적힌 그대로 써요')
+    expect(en).toContain('Use only numbers written as numbers in the material, exactly as written')
+    expect(ko).toContain('사진을 새로 만들거나, 인터넷·스톡 사진을 가져오거나')
+    expect(en).toContain('Never generate a photo, take one from the web or a stock library')
   })
 })
 
