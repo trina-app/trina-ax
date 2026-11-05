@@ -36,7 +36,7 @@ export function setRenderTimeoutForTests(ms: number | null) { renderTimeoutMs = 
 export const hyperframesDir = () => process.env.MYCEL_HYPERFRAMES_DIR || path.join(os.homedir(), '.cache', 'mycel', `hyperframes-${HYPERFRAMES_VERSION}`)
 const cliPath = () => path.join(hyperframesDir(), 'node_modules', 'hyperframes', 'bin', 'hyperframes.mjs')
 
-interface Row { artifact_id: string; chat_id: string; user_id: string; spec: string; mp4_state: PromoMp4State; mp4_ms: number | null; mp4_bytes: number | null; created_at: string }
+interface Row { artifact_id: string; chat_id: string; user_id: string; owner_id: string; spec: string; mp4_state: PromoMp4State; mp4_ms: number | null; mp4_bytes: number | null; created_at: string }
 export interface StoredSpec { title: string; sources: string[]; doc: VideoDoc }
 
 /** Can this server make the MP4? (Read for every info answer: an install or a removal shows without a restart.) */
@@ -51,7 +51,7 @@ const videoFile = (ctx: AppContext, id: string) => path.join(videoDir(ctx), `${i
 
 /** The caller's own promo video (by its artifact id), or 404. */
 function ownRow(ctx: AppContext, userId: string, id: string): Row {
-  const r = ctx.db.query(`SELECT p.artifact_id, p.chat_id, p.user_id, p.spec, p.mp4_state, p.mp4_ms, p.mp4_bytes, p.created_at
+  const r = ctx.db.query(`SELECT p.artifact_id, p.chat_id, p.user_id, c.user_id AS owner_id, p.spec, p.mp4_state, p.mp4_ms, p.mp4_bytes, p.created_at
     FROM promo_videos p JOIN chats c ON c.id = p.chat_id WHERE p.artifact_id = ? AND c.user_id = ? AND c.deleted_at IS NULL`).get(id, userId) as Row | null
   if (!r) throw new HttpError('not_found')
   return r
@@ -105,10 +105,13 @@ async function renderNow(ctx: AppContext, r: Row): Promise<void> {
   const spec = JSON.parse(r.spec) as StoredSpec
   fs.mkdirSync(videoDir(ctx), { recursive: true })
   const work = fs.mkdtempSync(path.join(videoDir(ctx), 'work-'))
-  const fail = (why: string) => ctx.db.query("UPDATE promo_videos SET mp4_state = 'failed', mp4_error = ?, mp4_ms = ? WHERE artifact_id = ?").run(why.slice(0, 500), Date.now() - started, r.artifact_id)
+  const part = `${videoFile(ctx, r.artifact_id)}.part.mp4`
+  // a failed render leaves no part file behind
+  const fail = (why: string) => { fs.rmSync(part, { force: true }); return ctx.db.query("UPDATE promo_videos SET mp4_state = 'failed', mp4_error = ?, mp4_ms = ? WHERE artifact_id = ?").run(why.slice(0, 500), Date.now() - started, r.artifact_id) }
   try {
-    // the pictures, read now with the chat owner's own permissions (a picture they can no longer read is left out)
-    const user = ctx.files.principal(r.user_id)
+    // the pictures, read now with the chat owner's own permissions (a picture they can no longer read is left out);
+    // the owner of the chat, not whoever's turn made the video (the same person today; a shared room may differ)
+    const user = ctx.files.principal(r.owner_id)
     fs.mkdirSync(path.join(work, 'img'))
     fs.mkdirSync(path.join(work, 'fonts'))
     fs.copyFileSync(PROMO_FONT_PATH, path.join(work, 'fonts', PROMO_FONT_FILE))
@@ -136,7 +139,6 @@ async function renderNow(ctx: AppContext, r: Row): Promise<void> {
     for (const name of new Set(cues.map((c) => c.file))) fs.copyFileSync(path.join(AUDIO_DIR, `${name}.m4a`), path.join(work, 'audio', `${name}.m4a`))
     fs.writeFileSync(path.join(work, 'index.html'), renderDocument(doc, `fonts/${PROMO_FONT_FILE}`, { cues, url: (f) => `audio/${f}.m4a`, durationOf: soundDuration }))
     const out = videoFile(ctx, r.artifact_id)
-    const part = `${out}.part.mp4`
     fs.rmSync(part, { force: true })
     const code = await runCli(['render', work, '--output', part, '--fps', '30', '--quiet'], ctx)
     if (code !== 0 || !fs.existsSync(part)) return void fail(`hyperframes exit ${code}`)

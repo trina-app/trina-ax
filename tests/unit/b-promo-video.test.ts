@@ -353,6 +353,36 @@ fs.writeFileSync(out, 'MP4-BYTES')
     process.env.MYCEL_HYPERFRAMES_DIR = path.join(hfDir, 'none')
   })
 
+  test.if(process.platform === 'darwin' && !!Bun.which('node'))('the render reads the pictures as the chat\'s owner; a failed render leaves no part file', async () => {
+    const make = async () => {
+      const chat = await h.api('dana').call(API.createChat, { body: {} })
+      await send('dana', chat.id, fake({ tool: 'promo_video', args: slots(), sayResult: true }))
+      return (h.ctx.db.query('SELECT artifact_id FROM promo_videos WHERE chat_id = ?').get(chat.id) as { artifact_id: string }).artifact_id
+    }
+    const dir = path.join(h.dataDir, 'promo-videos')
+    // the row names someone else as the maker (a shared room could): the pictures are still the chat owner's to read
+    process.env.MYCEL_HYPERFRAMES_DIR = path.join(hfDir, 'ok')
+    const id = await make()
+    h.ctx.db.query("UPDATE promo_videos SET user_id = 'nobody' WHERE artifact_id = ?").run(id)
+    await h.api('dana').call(API.renderPromoVideo, { params: { id } })
+    expect(await waitFor(async () => (await h.api('dana').call(API.getPromoVideo, { params: { id } })).mp4.state === 'done', { timeoutMs: 20_000 })).toBe(true)
+    // a CLI that writes part of the file and fails: the row says failed, nothing is left beside the data
+    const cli = path.join(hfDir, 'broken', 'node_modules', 'hyperframes', 'bin')
+    fs.mkdirSync(cli, { recursive: true })
+    fs.writeFileSync(path.join(cli, 'hyperframes.mjs'), `import fs from 'node:fs'
+const a = process.argv.slice(2)
+fs.writeFileSync(a[a.indexOf('--output') + 1], 'HALF')
+process.exit(1)
+`)
+    process.env.MYCEL_HYPERFRAMES_DIR = path.join(hfDir, 'broken')
+    try {
+      const bad = await make()
+      await h.api('dana').call(API.renderPromoVideo, { params: { id: bad } })
+      expect(await waitFor(async () => (await h.api('dana').call(API.getPromoVideo, { params: { id: bad } })).mp4.state === 'failed', { timeoutMs: 20_000 })).toBe(true)
+      expect(fs.readdirSync(dir).filter((f) => f.startsWith(bad))).toEqual([])
+    } finally { process.env.MYCEL_HYPERFRAMES_DIR = path.join(hfDir, 'none') }
+  })
+
   test('the trash keeps the MP4; purging the chat removes it and a cut-off part file, never another video\'s', async () => {
     const make = async () => {
       const chat = await h.api('dana').call(API.createChat, { body: {} })
