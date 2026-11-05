@@ -5,11 +5,11 @@ import { fetch } from 'expo/fetch'
 import * as SecureStore from 'expo-secure-store'
 import * as Application from 'expo-application'
 import * as Notifications from 'expo-notifications'
-import { Platform } from 'react-native'
+import { Linking, Platform } from 'react-native'
 import { PushRefused } from './bridge'
 import { parseTeamAddress } from './address'
 import type { DeviceDeps, Slot } from './device'
-import { tappedNotificationPath, type PushEnvironment, type PushToken } from './protocol'
+import { tappedNotificationPath, type PushEnvironment, type PushPermission, type PushToken } from './protocol'
 
 export const CHANNEL_ID = 'default'
 let asking: Promise<PushToken> | null = null
@@ -28,8 +28,20 @@ async function environment(): Promise<PushEnvironment> {
   return env === 'development' ? 'sandbox' : env === 'production' ? 'production' : __DEV__ ? 'sandbox' : 'production'
 }
 
+/** What the OS says about notifications for this app, without asking (push-permission-v1). Not 'granted' only:
+ * Android 13+ reports 'denied' with canAskAgain before the first question, and iOS 'undetermined' covers provisional. */
+export async function notificationPermission(): Promise<PushPermission> {
+  if (!pushBuilt()) throw new PushRefused('push_unavailable')
+  const status = await Notifications.getPermissionsAsync()
+  return status.status === 'granted' ? 'granted' : status.canAskAgain ? 'undetermined' : 'denied'
+}
+
+/** This app's page in the phone's Settings (notifications are switched on there once the person said no). */
+export async function openAppSettings(): Promise<void> { await Linking.openSettings() }
+
 /** Asks for permission (only when the person has not answered yet) and returns this phone's device token. One prompt
- * at a time: a second request while the dialog is open waits for the same answer. */
+ * at a time: a second request while the dialog is open waits for the same answer. The page sends this only when the
+ * person tapped its "turn on" button, or when the OS has already said yes (push-permission-v1). */
 export function devicePushToken(channelName: string): Promise<PushToken> {
   if (!pushBuilt()) {
     console.log('push: this build has no push configuration; push stays off')

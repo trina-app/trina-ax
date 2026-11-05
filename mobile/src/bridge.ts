@@ -1,4 +1,4 @@
-import { base64Size, MAX_FILE_BYTES, parseMessage, PUSH_CAPABILITY, PUSH_REGISTERED_CAPABILITY, sameTeam, TRANSFER_IDLE_MS, validPushToken, type FileMessage, type MobileConfig, type MobileReply, type PushToken } from './protocol'
+import { APPEARANCE_CAPABILITY, base64Size, MAX_FILE_BYTES, parseMessage, PUSH_CAPABILITY, PUSH_PERMISSION_CAPABILITY, PUSH_REGISTERED_CAPABILITY, pushPermission, sameTeam, TRANSFER_IDLE_MS, validPushToken, type FileMessage, type MobileConfig, type MobileReply, type PushPermission, type PushToken } from './protocol'
 export interface TransferIO {
   create(id: string, name: string, mime: string): Promise<void>
   append(id: string, b64: string): Promise<void>
@@ -81,13 +81,17 @@ export class FileTransfers {
 
 /** The only push failures the web page learns: the person said no, or this build/device cannot receive push. */
 export class PushRefused extends Error { constructor(readonly code: 'push_denied' | 'push_unavailable') { super(code) } }
-/** token: ask the OS (permission prompt) for the device token; registered: the page registered it with its team. */
-export interface PushBridge { token(): Promise<PushToken>; registered(device: { deviceId: string; removeKey: string }): Promise<void> }
+/** token: ask the OS (permission prompt) for the device token; registered: the page registered it with its team;
+ * permission: what the OS says so far, never a prompt; openSettings: this app's page in the phone's Settings. */
+export interface PushBridge {
+  token(): Promise<PushToken>; registered(device: { deviceId: string; removeKey: string }): Promise<void>
+  permission?(): Promise<PushPermission>; openSettings?(): Promise<void>
+}
 
 /** Native side: source URL plus a top-frame-only capability nonce bind requests to this WebView document. */
 export class MobileReceiver {
   private enabled = true
-  constructor(readonly origin: string, public config: MobileConfig, private files: FileTransfers, private external: (url: string) => Promise<void>, private push?: PushBridge) {}
+  constructor(readonly origin: string, public config: MobileConfig, private files: FileTransfers, private external: (url: string) => Promise<void>, private push?: PushBridge, private appearance?: (look: { dark: boolean; system: boolean }) => void) {}
   async disable() { this.enabled = false; this.config = { ...this.config, generation: this.config.generation + 1 }; await this.files.clear() }
   activate(config: MobileConfig) { this.config = config; this.enabled = true }
   async receive(raw: string, sourceUrl: string): Promise<MobileReply | null> {
@@ -112,6 +116,17 @@ export class MobileReceiver {
       } else if (m.type === 'push-registered') {
         if (!this.push || !current.capabilities.includes(PUSH_REGISTERED_CAPABILITY)) throw new PushRefused('push_unavailable')
         await this.push.registered({ deviceId: m.deviceId, removeKey: m.removeKey })
+      } else if (m.type === 'push-permission' || m.type === 'open-settings') {
+        if (!this.push?.permission || !this.push.openSettings || !current.capabilities.includes(PUSH_PERMISSION_CAPABILITY)) throw new PushRefused('push_unavailable')
+        if (m.type === 'open-settings') await this.push.openSettings()
+        else {
+          const permission = await this.push.permission()
+          if (!pushPermission(permission)) throw new PushRefused('push_unavailable')
+          reply.permission = permission
+        }
+      } else if (m.type === 'appearance') {
+        if (!this.appearance || !current.capabilities.includes(APPEARANCE_CAPABILITY)) throw new Error('unsupported')
+        this.appearance({ dark: m.dark, system: m.system === true })
       } else await this.files.receive(m)
     } catch (error) { reply.ok = false; reply.error = error instanceof PushRefused ? error.code : 'mobile_operation_failed' }
     return this.enabled && this.config === current ? reply : null

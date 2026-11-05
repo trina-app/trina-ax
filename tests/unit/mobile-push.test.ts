@@ -3,7 +3,8 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { FileTransfers, MobileReceiver, PushRefused, type TransferIO } from '../../mobile/src/bridge'
 import { currentDevice, leaveTeam, rememberDevice, retryRemovals, type DeviceDeps, type TeamDevice } from '../../mobile/src/device'
-import { MOBILE_CAPABILITIES, PUSH_CAPABILITY, PUSH_REGISTERED_CAPABILITY, notificationPath, parseMessage, tappedNotificationPath, validConfig, validPushToken, type MobileConfig, type PushToken } from '../../mobile/src/protocol'
+import { APPEARANCE_CAPABILITY, MOBILE_CAPABILITIES, PUSH_CAPABILITY, PUSH_PERMISSION_CAPABILITY, PUSH_REGISTERED_CAPABILITY, notificationPath, parseMessage, tappedNotificationPath, validConfig, validPushToken, type MobileConfig, type PushPermission, type PushToken } from '../../mobile/src/protocol'
+import { DARK, LIGHT, insetScript, isDark } from '../../mobile/src/look'
 import { IOS_USAGE, offlineError, stringsFor } from '../../mobile/src/strings'
 import appConfig from '../../mobile/app.config'
 
@@ -215,4 +216,68 @@ test('with MYCEL_MOBILE_GOOGLE_SERVICES Android has push, and the file path stay
     process.env.MYCEL_MOBILE_GOOGLE_SERVICES = path.join(dir, 'other.json')
     expect(() => appConfig({ config: {}, projectRoot: mobileRoot } as never)).toThrow()
   } finally { fs.rmSync(dir, { recursive: true, force: true }) }
+})
+
+function permissionApp(answer: PushPermission | (() => Promise<PushPermission>), capabilities: readonly string[] = [...config.capabilities, PUSH_PERMISSION_CAPABILITY, APPEARANCE_CAPABILITY]) {
+  const calls: string[] = [], looks: { dark: boolean; system: boolean }[] = []
+  const receiver = new MobileReceiver('https://team.example', { ...config, capabilities }, new FileTransfers(io), async () => {}, {
+    token: async () => { calls.push('token'); return ios }, registered: async () => {},
+    permission: async () => { calls.push('permission'); return typeof answer === 'function' ? answer() : answer },
+    openSettings: async () => { calls.push('settings') },
+  }, look => { looks.push(look) })
+  const send = (type: string, over: object = {}, source = 'https://team.example/rooms') => receiver.receive(JSON.stringify({ v: 1, nonce: config.nonce, generation: 1, id: 'permission-1', type, ...over }), source)
+  return { receiver, send, calls, looks }
+}
+
+test('push-permission-v1: the page learns the OS answer without a prompt, through the same origin and nonce checks', async () => {
+  for (const answer of ['granted', 'undetermined', 'denied'] as const) {
+    const f = permissionApp(answer)
+    expect(await f.send('push-permission')).toMatchObject({ ok: true, for: 'push-permission', permission: answer })
+    expect(f.calls).toEqual(['permission']) // never the token request, so never the OS prompt
+  }
+  const f = permissionApp('granted')
+  expect(await f.send('push-permission', {}, 'https://evil.example/')).toBeNull()
+  expect(await f.send('push-permission', { nonce: 'b'.repeat(64) })).toBeNull()
+  expect(f.calls).toEqual([])
+  expect(await f.send('open-settings')).toMatchObject({ ok: true, for: 'open-settings' })
+  expect(f.calls).toEqual(['settings'])
+  // an app without the capability (store builds 1 and 2) answers neither
+  const old = permissionApp('granted', config.capabilities)
+  expect((await old.send('push-permission'))?.error).toBe('push_unavailable')
+  expect((await old.send('open-settings'))?.error).toBe('push_unavailable')
+  expect(old.calls).toEqual([])
+  // a build without push says so; an odd native answer is not passed on
+  expect((await permissionApp(async () => { throw new PushRefused('push_unavailable') }).send('push-permission'))?.error).toBe('push_unavailable')
+  expect((await permissionApp(async () => 'provisional' as PushPermission).send('push-permission'))?.error).toBe('push_unavailable')
+})
+
+test('appearance-v1: only a boolean look (and whether it follows the phone), only with the capability', async () => {
+  for (const bad of [{ dark: 'yes' }, { dark: true, system: 'no' }]) expect(parseMessage(JSON.stringify({ v: 1, nonce: config.nonce, generation: 1, id: 'appearance-1', type: 'appearance', ...bad }))).toBeNull()
+  const f = permissionApp('granted')
+  expect((await f.send('appearance', { dark: true }))?.ok).toBe(true)
+  expect((await f.send('appearance', { dark: false, system: true }))?.ok).toBe(true)
+  expect(await f.send('appearance', { dark: true }, 'https://evil.example')).toBeNull()
+  expect(f.looks).toEqual([{ dark: true, system: false }, { dark: false, system: true }])
+  const old = permissionApp('granted', config.capabilities)
+  expect((await old.send('appearance', { dark: true }))?.ok).toBe(false)
+  expect(old.looks).toEqual([])
+})
+
+test('the look: the page says first, the phone before that; insets reach the page as CSS variables, even before it has a root', () => {
+  expect(isDark(null, 'dark')).toBe(true); expect(isDark(null, 'light')).toBe(false); expect(isDark(null, null)).toBe(false)
+  expect(isDark(false, 'dark')).toBe(false); expect(isDark(true, 'light')).toBe(true)
+  expect(Object.keys(DARK).sort()).toEqual(Object.keys(LIGHT).sort())
+  const css = fs.readFileSync(path.join(import.meta.dir, '../../web/src/theme.edition.css'), 'utf8')
+  expect(css).toContain(`--c-canvas: ${LIGHT.canvas};`); expect(css).toContain(`--c-canvas: ${DARK.canvas};`)
+  const set = new Map<string, string>()
+  let root: object | null = null, observer: (() => void) | null = null
+  const document = { get documentElement() { return root } }
+  class MutationObserver { constructor(cb: () => void) { observer = cb } observe() {} disconnect() { observer = null } }
+  const script = insetScript({ top: 59, right: 0, bottom: 34, left: Number.NaN })
+  new Function('document', 'MutationObserver', script)(document, MutationObserver)
+  expect(set.size).toBe(0); expect(observer).not.toBeNull()
+  root = { style: { setProperty: (k: string, v: string) => set.set(k, v) } }
+  observer!()
+  expect(Object.fromEntries(set)).toEqual({ '--app-inset-top': '59px', '--app-inset-right': '0px', '--app-inset-bottom': '34px', '--app-inset-left': '0px' })
+  expect(observer).toBeNull()
 })
