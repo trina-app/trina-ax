@@ -144,7 +144,7 @@ function ScheduleCard({ s }: { s: Schedule }) {
         <span className="min-w-0 truncate text-sm font-medium">{scheduleName(s, t)}</span>
         {waiting && <ShieldAlert size={14} className="shrink-0 text-warn" aria-hidden />}
       </span>
-      <span className="mt-1 line-clamp-2 text-[13px] leading-5 text-muted">{schedulePreview(s)}</span>
+      <span className="mt-1 line-clamp-2 text-label leading-5 text-muted">{schedulePreview(s)}</span>
       <span className={clsx('mt-1.5 block truncate text-xs', waiting ? 'text-warn' : 'text-faint')}>{cardLine(s, t, locale)}</span>
       {/* the last result in words beside its dot: phones have no hover title, and every failure is the same red */}
       {s.lastOutcome && (

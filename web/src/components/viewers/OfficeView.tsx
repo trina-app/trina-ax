@@ -175,7 +175,7 @@ export function SheetView({ blob, startSheet, range }: { blob: Blob; startSheet?
             <button key={i} role="tab" type="button" aria-selected={i === active} onClick={() => setActive(i)} title={s.hidden ? t('preview.sheetHiddenTitle') : undefined} className={clsx('inline-flex items-center gap-1.5 rounded px-2.5 py-1 text-xs whitespace-nowrap focus-visible:-outline-offset-2', i === active ? 'bg-surface font-semibold shadow-sm' : 'text-muted hover:bg-hover', s.hidden && 'italic')}>
               {s.name}
               {s.hidden && (
-                <span className="rounded border border-line px-1 text-[10px] font-normal not-italic text-faint" data-testid="sheet-hidden-badge">
+                <span className="rounded border border-line px-1 text-nano font-normal not-italic text-faint" data-testid="sheet-hidden-badge">
                   {t('preview.sheetHidden')}
                 </span>
               )}

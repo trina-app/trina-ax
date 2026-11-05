@@ -102,12 +102,12 @@ function SourceRow({ f, t }: { f: MessageSourceFile; t: T }) {
       </button>
       {folder && <span className="min-w-0 max-w-[40%] truncate text-xs text-faint" title={f.path}>{folder}/</span>}
       {f.locs.map((l, i) => (
-        <button key={i} type="button" onClick={() => openTeamFile(f.path, l)} className="max-w-[16rem] truncate rounded-md border border-line bg-subtle px-1.5 py-0.5 text-[11px] text-muted hover:bg-hover hover:text-ink" data-testid="answer-source-loc">
+        <button key={i} type="button" onClick={() => openTeamFile(f.path, l)} className="max-w-[16rem] truncate rounded-md border border-line bg-subtle px-1.5 py-0.5 text-micro text-muted hover:bg-hover hover:text-ink" data-testid="answer-source-loc">
           {locChip(t, l)}
         </button>
       ))}
-      {onlyPassages && <span className="text-[11px] text-faint">{t('sources.passagesOnly')}</span>}
-      {f.subagent && <span className="text-[11px] text-faint">{t('sources.subagent')}</span>}
+      {onlyPassages && <span className="text-micro text-faint">{t('sources.passagesOnly')}</span>}
+      {f.subagent && <span className="text-micro text-faint">{t('sources.subagent')}</span>}
     </li>
   )
 }

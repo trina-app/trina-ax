@@ -7,7 +7,7 @@ import { Link, useSearchParams } from 'react-router-dom'
 import { SLACK, type SlackLinkPreview } from '@mycel/shared/api'
 import { api, errorText } from '../lib/api'
 import { useLocale, useT } from '../i18n'
-import { Button, ErrorNote, Skeleton } from '../components/ui'
+import { Button, Skeleton } from '../components/ui'
 
 /** The display name, with the full name and the user name when they say more */
 const slackName = (s: SlackLinkPreview['slack']) => {
@@ -55,7 +55,8 @@ export default function SlackLink() {
         <h1 className="text-xl font-semibold">{t('slack.link.title')}</h1>
         {!done && <p className="mt-2 text-sm text-muted">{t('slack.link.desc')}</p>}
       </div>
-      {error && <ErrorNote>{error}</ErrorNote>}
+      {/* what went wrong, as a line like the outcome on /slack/done and in Settings: no box */}
+      {error && <p role="alert" className="text-sm text-warn" data-testid="slack-link-error">{error}</p>}
       {!info && !error && <Skeleton lines={4} />}
       {done && <p className="text-sm" data-testid="slack-link-done">{t(done === 'linked' ? 'slack.link.linked' : 'slack.link.cancelled')}</p>}
       {info && !done && (

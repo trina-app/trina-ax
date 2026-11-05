@@ -108,8 +108,7 @@ test('a server safety check is never answered from the box: the message waits an
   await expect(card).toBeVisible()
   expect(answers).toBe(0)
   // the card's own buttons decide; then the waiting message goes
-  await card.getByLabel('열지 않기').check()
-  await card.getByRole('button', { name: '답하기' }).click()
+  await card.getByRole('button', { name: '열지 않기', exact: true }).click()
   await expect(card).toHaveCount(0)
   await expect(page.getByTestId('user-text').last()).toHaveText('allow', { timeout: 20_000 })
   await expect(page.getByTestId('assistant-message').first()).toContainText('You chose "deny"')

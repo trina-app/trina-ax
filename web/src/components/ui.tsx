@@ -29,7 +29,7 @@ export function Button({ variant = 'secondary', size = 'md', busy, className, ch
       aria-busy={busy || props['aria-busy'] || undefined}
       className={clsx(
         'inline-flex items-center justify-center gap-1.5 rounded-lg font-medium whitespace-nowrap transition disabled:cursor-not-allowed disabled:opacity-50',
-        size === 'sm' ? 'h-8 px-2.5 text-[13px] max-sm:min-h-9' : 'h-9 px-3.5 text-sm max-sm:min-h-10',
+        size === 'sm' ? 'h-8 px-2.5 text-label max-sm:min-h-9' : 'h-9 px-3.5 text-sm max-sm:min-h-10',
         variant === 'primary' && 'bg-accent text-accent-ink hover:bg-accent-hover',
         // dark mode: the half-transparent accent turned a muddy brown with dim text; a disabled main button is neutral
         // (a busy one, with its spinner, keeps the accent: it is working, not off)
@@ -75,7 +75,7 @@ export function Field({ label, children, hint, error }: { label: string; childre
   return (
     <div className="block">
       <label className="block">
-        <span className="mb-1.5 block text-[13px] font-medium text-ink">{label}</span>
+        <span className="mb-1.5 block text-label font-medium text-ink">{label}</span>
         {control}
       </label>
       {hint && !error && (
@@ -147,7 +147,7 @@ export function Badge({ tone = 'neutral', children, className }: { tone?: 'neutr
   return (
     <span
       className={clsx(
-        'inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-[11px] font-medium whitespace-nowrap',
+        'inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-micro font-medium whitespace-nowrap',
         tone === 'neutral' && 'bg-subtle text-muted',
         tone === 'accent' && 'bg-accent-soft text-accent-text',
         tone === 'warn' && 'bg-warn-soft text-warn',
@@ -538,7 +538,7 @@ export function Tabs<T extends string>({ value, onChange, items, label, segmente
           onClick={() => onChange(it.id)}
           className={clsx(
             'rounded-md font-medium whitespace-nowrap focus-visible:-outline-offset-2',
-            segmented ? 'px-3 py-1 text-[13px]' : 'px-2.5 py-1 text-xs',
+            segmented ? 'px-3 py-1 text-label' : 'px-2.5 py-1 text-xs',
             segmented ? (value === it.id ? 'bg-surface text-ink shadow-sm ring-1 ring-line' : 'text-muted hover:text-ink') : value === it.id ? 'bg-ink text-canvas' : 'text-muted hover:bg-hover',
           )}
         >

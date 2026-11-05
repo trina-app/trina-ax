@@ -315,11 +315,11 @@ function TeamReach({ team, groupId }: { team: string; groupId: string | null }) 
   }
   return (
     <div className="space-y-1">
-      <p className="text-[13px] leading-5 text-muted" data-testid="welcome-files-who">
+      <p className="text-label leading-5 text-muted" data-testid="welcome-files-who">
         {reach ? t('welcome.files.whoCount', { team, n: reach.viewers }) : t('welcome.files.who', { team })}
       </p>
       {reach && reach.outside.length > 0 && (
-        <p className="text-[13px]">
+        <p className="text-label">
           <button type="button" className={quietLink} disabled={adding} onClick={() => void add()} data-testid="welcome-files-add-members">
             {t('welcome.files.addMembers', { n: reach.outside.length })}
           </button>
@@ -477,7 +477,7 @@ function FilesStep({ progress, busy: stepBusy, onRan }: { progress: WelcomeProgr
             ))}
           </ul>
         )}
-        {cut && <p className="text-[13px] text-muted" data-testid="welcome-files-cut">{t('welcome.files.max', { n: WELCOME_FILES_MAX })}</p>}
+        {cut && <p className="text-label text-muted" data-testid="welcome-files-cut">{t('welcome.files.max', { n: WELCOME_FILES_MAX })}</p>}
         {error && <ErrorNote onRetry={busy ? undefined : () => void run()}>{error}</ErrorNote>}
       </div>
       <p className="text-sm">

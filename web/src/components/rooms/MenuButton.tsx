@@ -1,6 +1,7 @@
 // A "…" button with a small menu (a message's reply / copy / edit / delete): arrow keys move, Esc closes and gives the
 // keyboard back, a click or a touch outside closes. Opens upward when it would run off the bottom. On a touch screen
-// the button is hidden and a long press on the message opens the same menu (`openSignal`, useLongPress).
+// the button is hidden and a long press on the message opens the same menu (`openSignal`, useLongPress). Below 768px the
+// menu is a bottom sheet with 48px rows.
 import clsx from 'clsx'
 import { MoreHorizontal } from 'lucide-react'
 import { useEffect, useRef, useState, type KeyboardEvent, type MouseEvent, type PointerEvent, type ReactNode } from 'react'
@@ -109,8 +110,20 @@ export function MenuButton({ label, items, className, buttonClassName, testId, o
       >
         <MoreHorizontal size={16} aria-hidden />
       </button>
+      {/* phones: a sheet from the bottom with 48px rows over a scrim (a tap on it closes), not a small menu by the finger */}
+      {/* (a finger held on it must not reach the message's own long press, which would open the sheet again) */}
+      {open && <div aria-hidden className="fixed inset-0 z-30 bg-black/40 md:hidden" onPointerDown={(e) => e.stopPropagation()} onClick={() => Date.now() - pressedAt.current > 400 && setOpen(null)} />}
       {open && (
-        <div ref={menu} role="menu" aria-label={label} className={clsx('absolute right-0 z-30 w-44 rounded-lg border border-line bg-surface p-1 shadow-lg', open === 'up' ? 'bottom-full mb-1' : 'top-full mt-1')}>
+        <div
+          ref={menu}
+          role="menu"
+          aria-label={label}
+          className={clsx(
+            'z-30 border border-line bg-surface shadow-lg md:absolute md:right-0 md:w-44 md:rounded-lg md:p-1',
+            'max-md:fixed max-md:inset-x-0 max-md:bottom-0 max-md:rounded-t-2xl max-md:px-2 max-md:pt-2 max-md:pb-[max(0.75rem,env(safe-area-inset-bottom))]',
+            open === 'up' ? 'md:bottom-full md:mb-1' : 'md:top-full md:mt-1',
+          )}
+        >
           {items.map((it) => (
             <button
               key={it.label}
@@ -121,7 +134,7 @@ export function MenuButton({ label, items, className, buttonClassName, testId, o
                 setOpen(null)
                 it.onSelect()
               }}
-              className={clsx('flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-sm max-sm:py-2', it.danger ? 'text-danger hover:bg-danger-soft' : 'text-ink hover:bg-hover')}
+              className={clsx('flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-sm max-md:min-h-12 max-md:gap-3 max-md:rounded-lg max-md:px-3', it.danger ? 'text-danger hover:bg-danger-soft' : 'text-ink hover:bg-hover')}
               data-testid={it.testId}
             >
               {it.icon}
