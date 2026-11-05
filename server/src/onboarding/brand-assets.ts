@@ -51,7 +51,44 @@ export interface Candidate { url: string; kind: 'logo' | 'image'; alt: string; w
 export interface ColorHit { hex: string; weight: number }
 export interface PageAssets { logos: Candidate[]; images: Candidate[]; colors: ColorHit[]; stylesheets: string[] }
 
-const TAG = /<(img|meta|link|source|body|header|section|div|a|figure)\b([^>]*)>/gi
+/** The tags looked at (the rest are skipped). */
+const TAGS = new Set(['img', 'meta', 'link', 'source', 'body', 'header', 'section', 'div', 'a', 'figure'])
+/** Attributes of one tag looked at, at most (a tag that never ends is cut here). */
+const TAG_ATTRS_MAX = 4000
+const nameChar = (c: number) => (c >= 97 && c <= 122) || (c >= 65 && c <= 90) || (c >= 48 && c <= 57) || c === 45
+
+/** The start tags of a page with their attribute text, in order. One forward pass with indexOf (pages come from anyone:
+ * a backtracking pattern over a page full of unclosed tags would stall the server, as web_fetch's htmlToText notes). */
+export function* startTags(page: string): Generator<{ name: string; attrs: string }> {
+  let i = 0
+  for (;;) {
+    const lt = page.indexOf('<', i)
+    if (lt < 0) return
+    let j = lt + 1
+    while (j < page.length && nameChar(page.charCodeAt(j))) j++
+    const gt = page.indexOf('>', j)
+    if (gt < 0) return
+    const name = page.slice(lt + 1, j).toLowerCase()
+    if (TAGS.has(name)) yield { name, attrs: page.slice(j, Math.min(gt, j + TAG_ATTRS_MAX)) }
+    i = name ? gt + 1 : lt + 1
+  }
+}
+
+/** The text of each <style> block (indexOf, no pattern), at most `max` characters each. */
+export function* styleBlocks(page: string, max = 200_000): Generator<string> {
+  const low = page.toLowerCase()
+  let i = 0
+  for (;;) {
+    const open = low.indexOf('<style', i)
+    if (open < 0) return
+    const gt = low.indexOf('>', open)
+    if (gt < 0) return
+    const close = low.indexOf('</style', gt)
+    if (close < 0) return
+    yield page.slice(gt + 1, Math.min(close, gt + 1 + max))
+    i = close + 7
+  }
+}
 const ATTR = /([a-zA-Z_:][-a-zA-Z0-9_:.]*)\s*(?:=\s*(?:"([^"]*)"|'([^']*)'|([^\s"'=<>`]+)))?/g
 
 /** The attributes of one tag (names lower case, values with entities decoded). */
@@ -184,10 +221,9 @@ export function extractPageAssets(html: string, base: URL): PageAssets {
   }
   const page = html.slice(0, 3 * 1024 * 1024)
   let order = 0
-  TAG.lastIndex = 0
-  for (let m = TAG.exec(page); m; m = TAG.exec(page)) {
-    const name = m[1]!.toLowerCase()
-    const a = attrsOf(m[2]!)
+  for (const tag of startTags(page)) {
+    const name = tag.name
+    const a = attrsOf(tag.attrs)
     order++
     if (name === 'meta') {
       const key = (a.property ?? a.name ?? a.itemprop ?? '').toLowerCase()
@@ -228,7 +264,7 @@ export function extractPageAssets(html: string, base: URL): PageAssets {
   // the JSON-LD organization's logo
   for (const m of page.matchAll(/"logo"\s*:\s*(?:\{[^{}]{0,400}?"url"\s*:\s*)?"(https?:[^"\s]{1,1000})"/gi)) add(logos, 'logo', m[1]!.replace(/\\\//g, '/'), 88)
   // the page's own style blocks (custom properties, often-used colours)
-  for (const m of page.matchAll(/<style\b[^>]*>([\s\S]{0,200000}?)<\/style>/gi)) colors.push(...cssColors(m[1]!))
+  for (const css of styleBlocks(page)) colors.push(...cssColors(css))
   const sort = (m: Map<string, Candidate>) => [...m.values()].sort((x, y) => y.weight - x.weight)
   return { logos: sort(logos), images: sort(images), colors, stylesheets }
 }

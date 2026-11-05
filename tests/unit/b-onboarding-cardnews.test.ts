@@ -268,3 +268,13 @@ describe('the website reading, the first result and the brand photo (the real we
     expect((h.ctx.db.query("SELECT count(*) AS n FROM onboarding_images WHERE status = 'done'").get() as { n: number }).n).toBe(BRAND_IMAGES_PER_TEAM)
   })
 })
+
+describe('a hostile page does not stall the server', () => {
+  test('thousands of unclosed tags and style blocks: one pass', () => {
+    const page = '<img src="a.jpg" '.repeat(150_000) + '<style>'.repeat(100_000)
+    const t0 = performance.now()
+    const a = extractPageAssets(page, new URL('https://acme.example/'))
+    expect(performance.now() - t0).toBeLessThan(1500)
+    expect(a.images.length).toBeLessThanOrEqual(1)
+  })
+})
