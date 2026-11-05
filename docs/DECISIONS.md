@@ -8330,6 +8330,8 @@ every week. Placement: Team AX core (skills, files and permissions, the team lin
     someone who joined after it still keeps the answer private ("들어오기 전 대화"). The history's answers are the
     room's copies (`room_messages.body`, cut at 60,000 characters with a line saying so), not the chat's full text:
     the history keeps the end of a long newest message, which the room may never have got (review of ae4c861c). The
+    questions are the room's too, as they read now: an edited question comes back edited, a deleted one not at all
+    (its answer stays while it is in the room) (re-review of 57ef7383). The
     12-hour rule now only starts a
     new conversation. What a question used is kept on its row (`room_ai_turns.scope`, migration 246) so that posting
     its preview later decides again on that question, not the latest one. A row from before has none: it is never

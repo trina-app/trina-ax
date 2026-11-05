@@ -930,6 +930,24 @@ describe('a skill or instruction file changes from a room only with all of its c
   })
 })
 
+describe("a room session's history: the questions as the room holds them", () => {
+  test('an edited question comes back edited, a deleted one not at all', async () => {
+    const roomId = await room(['alice', 'erin'])
+    const one = await ask('alice', roomId, `@트리나 ORIGINAL-QUESTION-TEXT\n${fake({ say: 'ONE-ANSWER' })}`)
+    await h.api('alice').call(API.editRoomMessage, { params: { id: roomId, messageId: one.q.id }, body: { body: '@트리나 EDITED-QUESTION-TEXT', mentions: [] } })
+    const two = await ask('alice', roomId, `@트리나 again\n${fake({ echo: 'system' })}`)
+    const seen = (await answerTo('alice', roomId, two.q))!.body
+    expect(seen).toMatch(/<previous_conversation>[\s\S]*EDITED-QUESTION-TEXT[\s\S]*ONE-ANSWER/)
+    expect(seen).not.toContain('ORIGINAL-QUESTION-TEXT')
+    await h.api('alice').call(API.deleteRoomMessage, { params: { id: roomId, messageId: one.q.id } })
+    const three = await ask('alice', roomId, `@트리나 and now\n${fake({ echo: 'system' })}`)
+    const later = (await answerTo('alice', roomId, three.q))!.body
+    // the history starts with the answer: its question is gone (the second answer, posted, quotes it as the room saw it)
+    expect(later).toMatch(/<previous_conversation>\nThe conversation so far[^\n]*\nAssistant: ONE-ANSWER\n/)
+    expect(later).not.toContain('ORIGINAL-QUESTION-TEXT')
+  })
+})
+
 // ---------------- the live test of 2026-11-05: a member with no group got only private previews ----------------
 describe('what makes an answer private: what some member could not see, per question', () => {
   /** bob without his groups for the test (a member with no group, like the live test's Noah; the rooms of the tests

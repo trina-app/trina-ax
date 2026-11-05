@@ -4,7 +4,7 @@
 // getChatRuntime(ctx).
 import fs from 'node:fs'
 import path from 'node:path'
-import { ANSWER_STEP_LIMIT_MAX, ANSWER_STEP_LIMIT_MIN, DEFAULT_ANSWER_STEP_LIMIT, DEFAULT_LOCALE, type ApiErrorBody, type Attachment, type ChatRunState, type ChatQueueSnapshot, type EngineId, type FileChange, type Locale, type Step, type TurnStarted } from '@mycel/shared/api'
+import { ANSWER_STEP_LIMIT_MAX, ANSWER_STEP_LIMIT_MIN, DEFAULT_ANSWER_STEP_LIMIT, DEFAULT_LOCALE, roomAiQuestion, type ApiErrorBody, type Attachment, type ChatRunState, type ChatQueueSnapshot, type EngineId, type FileChange, type Locale, type Step, type TurnStarted } from '@mycel/shared/api'
 import type { AppContext } from '../context'
 import type { Running } from '../server'
 import { atLeast, type Principal } from '../policy/access'
@@ -577,22 +577,36 @@ export class ChatRuntime {
   }
   /** Messages of a branch up to `leafId` (inclusive), for a fresh engine session. */
   history(leafId: string | null, room = false): { role: 'user' | 'assistant'; content: string }[] {
-    let rows = this.store.pathTo(leafId)
-    // a room's AI session (rooms/ai.ts) remembers only what went to the room: a question and its answer while that
-    // answer is a room message (posted, not deleted); a private preview, a stopped or failed answer is left out. The
-    // answer is the room's copy (room_messages.body: cut at ROOM_AI_ANSWER_MAX with a line saying so), never the
-    // chat's full text: every question decides on what it used itself, so a part the room never saw must not come back
-    const roomBody = new Map<string, string>()
-    if (room) {
-      const chatId = rows[0]?.chat_id
-      for (const r of chatId ? this.db.query(`SELECT a.turn_id, m.body FROM room_ai_turns a JOIN room_messages m ON m.id = a.answer_id
-        WHERE a.chat_id = ? AND m.visibility = 'room' AND m.deleted_at IS NULL`).all(chatId) as { turn_id: string; body: string }[] : []) roomBody.set(r.turn_id, r.body)
-      const keep = new Set<string>()
-      for (const m of rows) if (m.role === 'assistant' && m.turn_id && roomBody.has(m.turn_id)) { keep.add(m.id); if (m.parent_id) keep.add(m.parent_id) }
-      rows = rows.filter((m) => keep.has(m.id))
+    const rows = this.store.pathTo(leafId)
+    if (!room) return rows.filter((m) => m.content.trim() || m.role === 'user').map((m) => ({ role: m.role, content: m.role === 'user' ? composeMessage(m, this.store.attachmentsOf(m)) : m.content }))
+    // a room's AI session (rooms/ai.ts) remembers only what went to the room, as the room holds it now: a question and
+    // its answer while that answer is a room message (posted, not deleted); a private preview, a stopped or failed
+    // answer is left out. Both are the room's copies, never the chat's: the answer as the room got it
+    // (room_messages.body: cut at ROOM_AI_ANSWER_MAX with a line saying so), the question as it reads in the room now
+    // (edited: the new text; deleted: left out). Every question decides on what it used itself, so text the room
+    // never saw, or no longer shows, must not come back
+    const chatId = rows[0]?.chat_id
+    const posted = new Map<string, { answer: string; question: string | null }>()
+    const found = chatId ? this.db.query(`SELECT a.turn_id, m.body, q.body AS q_body, q.mentions AS q_mentions, q.deleted_at AS q_deleted FROM room_ai_turns a
+      JOIN room_messages m ON m.id = a.answer_id LEFT JOIN room_messages q ON q.id = a.question_id
+      WHERE a.chat_id = ? AND m.visibility = 'room' AND m.deleted_at IS NULL`).all(chatId) as { turn_id: string; body: string; q_body: string | null; q_mentions: string | null; q_deleted: string | null }[] : []
+    for (const r of found) {
+      // the people the question mentions: a person named like the AI is not a call of it (roomAiQuestion)
+      let ids: string[] = []
+      try { const v = JSON.parse(r.q_mentions ?? '[]'); if (Array.isArray(v)) ids = v.filter((x): x is string => typeof x === 'string') } catch {}
+      const names = ids.length ? (this.db.query(`SELECT name FROM users WHERE id IN (${ids.map(() => '?').join(',')})`).all(...ids) as { name: string }[]).map((u) => u.name) : []
+      posted.set(r.turn_id, { answer: r.body, question: r.q_body !== null && !r.q_deleted ? roomAiQuestion(r.q_body, names) : null })
     }
-    return rows.map((m) => ({ ...m, content: room && m.role === 'assistant' ? roomBody.get(m.turn_id!) ?? '' : m.content }))
-      .filter((m) => m.content.trim() || m.role === 'user').map((m) => ({ role: m.role, content: m.role === 'user' ? composeMessage(m, this.store.attachmentsOf(m)) : m.content }))
+    const out: { role: 'user' | 'assistant'; content: string }[] = []
+    for (const m of rows) {
+      if (m.role !== 'assistant' || !m.turn_id) continue
+      const p = posted.get(m.turn_id)
+      if (!p) continue
+      const asked = m.parent_id ? rows.find((x) => x.id === m.parent_id) : undefined
+      if (asked && p.question !== null) out.push({ role: 'user', content: composeMessage({ ...asked, content: p.question }, this.store.attachmentsOf(asked)) })
+      if (p.answer.trim()) out.push({ role: 'assistant', content: p.answer })
+    }
+    return out
   }
 
   siteGranted(userId: string, host: string): boolean {
