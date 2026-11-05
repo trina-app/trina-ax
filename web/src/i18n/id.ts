@@ -217,7 +217,7 @@ export const id: Record<MessageKey, string> = {
   'sidebar.older': 'Lebih lama',
 
   'search.title': 'Cari',
-  'search.placeholder': 'Cari chat, proyek, skill…',
+  'search.placeholder': 'Cari judul dan isi chat, nama file…',
   'search.none': 'Tidak ada yang cocok.',
   'search.inFiles': 'Cari “{q}” di isi file',
   'search.close': 'Tutup pencarian',

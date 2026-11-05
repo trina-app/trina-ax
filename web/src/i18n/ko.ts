@@ -216,7 +216,7 @@ export const ko = {
   'sidebar.older': '그 이전',
 
   'search.title': '검색',
-  'search.placeholder': '채팅, 프로젝트, 스킬 검색',
+  'search.placeholder': '채팅 제목·내용, 파일 이름, 프로젝트 등 검색',
   'search.none': '찾는 내용이 없어요.',
   'search.inFiles': '파일 내용에서 “{q}” 검색',
   'search.close': '검색 닫기',

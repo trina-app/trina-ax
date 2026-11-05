@@ -209,7 +209,7 @@ export const ja: Record<MessageKey, string> = {
   'sidebar.month': "過去30日間",
   'sidebar.older': "それ以前",
   'search.title': "検索",
-  'search.placeholder': "チャット、プロジェクト、スキルを検索",
+  'search.placeholder': "チャットのタイトル・内容やファイル名で検索",
   'search.none': "見つかりませんでした。",
   'search.inFiles': "ファイルの内容から“{q}”を検索",
   'search.close': "検索を閉じる",

@@ -217,7 +217,7 @@ export const en: Record<MessageKey, string> = {
   'sidebar.older': 'Older',
 
   'search.title': 'Search',
-  'search.placeholder': 'Search chats, projects, skills…',
+  'search.placeholder': 'Search chat titles and text, file names…',
   'search.none': 'Nothing found.',
   'search.inFiles': 'Search file contents for “{q}”',
   'search.close': 'Close search',

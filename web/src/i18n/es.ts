@@ -209,7 +209,7 @@ export const es: Record<MessageKey, string> = {
   'sidebar.month': "Últimos 30 días",
   'sidebar.older': "Anteriores",
   'search.title': "Buscar",
-  'search.placeholder': "Buscar chats, proyectos, habilidades…",
+  'search.placeholder': "Buscar chats por título o texto, archivos…",
   'search.none': "No se encontraron resultados.",
   'search.inFiles': "Buscar “{q}” en el contenido de los archivos",
   'search.close': "Cerrar la búsqueda",
