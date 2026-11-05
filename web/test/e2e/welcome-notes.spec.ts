@@ -1,15 +1,16 @@
 // The welcome steps' first result in a real browser against the mock (docs/DECISIONS.md "N — The first result is the
-// company's card news", "S — The lead's way becomes a team skill"): the owner drops a company intro on the first result;
-// it goes into the team's brand folder, the server starts the result and "/card-news …" runs on it in that chat; under
-// the answer one bar asks "마음에 드시나요? 팀 스킬로 저장하면 …", the card shows the team skill made from it (title, the
-// choice, the file), sharing it leads to the invite with that skill; someone joins with the link and lands on its form
-// with who made it, runs it, and gets their own chat. Without files, the server's 회사 소개.md is attached instead.
+// company's card news", "W2 — AI connection first"): the owner drops a company intro on the first result; it goes into
+// the team's brand folder, the server starts the result and "/card-news …" runs on it in that chat; under the answer one
+// bar asks "마음에 드시나요? 팀원도 같은 방식으로 바로 만들 수 있어요" [팀에 공유], which opens the invite with that same
+// skill (no draft, no copy: the goal counts one path) and the message ready to copy at once (the link made in advance);
+// someone joins with the link, lands on the card news form, runs it and gets their own chat. Without files, the
+// server's 회사 소개.md is attached instead.
 import { expect, test } from '@playwright/test'
 import { realErrors, reset, signIn, watchConsole } from './helpers'
 
 const doc = (name: string, text: string) => ({ name, mimeType: 'text/markdown', buffer: Buffer.from(text) })
 
-test('a company intro in, the card news out; the lead\'s way becomes a team skill; a member lands on its form', async ({ page, browser }) => {
+test('a company intro in, the card news out; [팀에 공유] invites with that skill, the message at once; a member lands on its form', async ({ page, browser }) => {
   const errors = watchConsole(page)
   await reset(page)
   await signIn(page)
@@ -40,21 +41,24 @@ test('a company intro in, the card news out; the lead\'s way becomes a team skil
   await panel.getByRole('button', { name: '닫기' }).click()
   await expect(panel).toHaveCount(0)
   await expect(page.getByTestId('artifact-card')).toContainText('Acme 카드뉴스')
-  // under the answer: one bar, one button: the lead's way becomes a team skill
-  await expect(page.getByTestId('welcome-invite-text')).toHaveText('마음에 드시나요? 팀 스킬로 저장하면 다른 분들도 같은 방식으로 만들 수 있어요')
-  await expect(page.getByTestId('skill-share-open')).toHaveText('팀 스킬로 저장')
-  await page.getByTestId('skill-share-open').click()
-  await expect(page.getByTestId('skill-share')).toHaveAttribute('data-state', 'ready')
-  await expect(page.getByTestId('skill-share-title')).toHaveText('홍보 카드뉴스')
-  await expect(page.getByTestId('skill-share-choice')).toContainText('인스타그램')
-  await expect(page.getByTestId('skill-share-files')).toHaveText('쓰는 자료:회사 소개서.md')
-  await expect(page.getByTestId('skill-share-note')).toHaveText('팀 전체 AI가 이 방식을 따라요 · 팀 스킬에서 언제든 고칠 수 있어요')
-  await expect(page.getByTestId('skill-share')).not.toContainText('juganhoeui')
-  await page.getByTestId('skill-share-share').click()
-  await page.getByTestId('team-link-create').click()
-  await expect(page.getByTestId('team-link-message')).toContainText("우리 팀 '홍보 카드뉴스' 스킬을 만들어 뒀어요. 링크 열면 같은 방식으로 바로 써요.")
-  const url = (await page.getByTestId('team-link-message').innerText()).trim().split('\n').at(-1)!
+  // under the answer: one bar, one button: share the skill that made it, as it is
+  const drafts: string[] = []
+  page.on('request', (r) => { if (r.url().includes('/api/onboarding/skill-draft')) drafts.push(r.url()) })
+  await expect(page.getByTestId('welcome-invite-text')).toHaveText('마음에 드시나요? 팀원도 같은 방식으로 바로 만들 수 있어요')
+  await expect(page.getByTestId('welcome-invite-open')).toHaveText('팀에 공유')
+  await page.getByTestId('welcome-invite-open').click()
+  // the message and its one copy button at once (no "초대 링크 만들기" to press); the link's details folded
+  await expect(page.getByTestId('team-link-message')).toContainText("'카드뉴스' 스킬을 같이 써 보자고 해요")
+  await expect(page.getByTestId('team-link-copy-message')).toHaveText('메시지 복사')
+  await expect(page.getByTestId('team-link-create')).toHaveCount(0)
+  await expect(page.getByTestId('team-link-manage')).toHaveAttribute('aria-expanded', 'false')
+  const url = (await page.getByTestId('team-link-message').innerText()).trim().split(' ').at(-1)!
   expect(url).toMatch(/\/join#t=tl[0-9a-f]+$/)
+  // the link names the pack's card news itself, and the team's group
+  const link = (await (await page.request.get('/api/admin/team-link')).json()).link
+  expect(link.skill.path).toBe('skills/general/card-news/SKILL.md')
+  expect(link.groupIds).toHaveLength(1)
+  expect(drafts).toEqual([])
 
   const other = await browser.newContext({ locale: 'ko-KR' })
   const p2 = await other.newPage()
@@ -64,13 +68,13 @@ test('a company intro in, the card news out; the lead\'s way becomes a team skil
   await p2.getByTestId('invite-username').fill('minji')
   await p2.getByTestId('invite-password').fill('another password 1')
   await p2.getByTestId('invite-submit').click()
-  // the skill's form, with who made it and who sees the chat; its one choice starts on 인스타그램
-  await expect(p2).toHaveURL(/\/skills\?run=/)
-  await expect(p2.getByTestId('skill-form-by')).toHaveText('Olga님이 만든 팀 스킬이에요 · 이 채팅은 민지님만 봐요')
+  // the card news form itself (a pack's skill names no maker); its one choice starts on 인스타그램
+  await expect(p2).toHaveURL(/\/skills\?run=skills%2Fgeneral%2Fcard-news%2FSKILL\.md$/)
+  await expect(p2.getByTestId('skill-form-by')).toHaveCount(0)
   await expect(p2.getByTestId('skill-choice-channel-instagram')).toHaveAttribute('data-on', 'true')
   await p2.getByTestId('skill-form-run').click()
   await expect(p2).toHaveURL(/\/c\/[0-9a-f-]+$/)
-  await expect(p2.getByTestId('user-message').first().getByTestId('skill-chip')).toHaveText('홍보 카드뉴스')
+  await expect(p2.getByTestId('user-message').first().getByTestId('skill-chip')).toHaveText('카드뉴스')
   await expect(p2.getByTestId('user-message').first()).toContainText('어디에 올릴까요: 인스타그램')
   expect(realErrors(errors2)).toEqual([])
   await other.close()
@@ -100,6 +104,6 @@ test('"자료 없이 만들게요" on a phone: the card news from the server\'s 
   await expect(panel.getByRole('button', { name: '닫기' })).toBeInViewport()
   await panel.getByRole('button', { name: '닫기' }).click()
   await expect(panel).toHaveCount(0)
-  await expect(page.getByTestId('welcome-invite-text')).toHaveText('마음에 드시나요? 팀 스킬로 저장하면 다른 분들도 같은 방식으로 만들 수 있어요')
+  await expect(page.getByTestId('welcome-invite-text')).toHaveText('마음에 드시나요? 팀원도 같은 방식으로 바로 만들 수 있어요')
   expect(realErrors(errors)).toEqual([])
 })

@@ -6,9 +6,9 @@
 // drops a company intro or a team deck into the team's brand folder (groups/<team>/브랜드/), or goes on without one
 // ("자료 없이 만들게요": the server writes 회사 소개.md there from the website reading); POST
 // /api/onboarding/welcome/first-result makes the chat and says which team files to attach, and the general skill
-// "/card-news" makes five cards from them in that chat. The chat offers to keep the way as a team skill
-// (components/onboarding/WelcomeInviteBar.tsx), then the invite. Every step can be put off; the progress is kept on the
-// server (store/welcome.ts), so the steps resume where they stopped, on any device, from the entry on Home.
+// "/card-news" makes five cards from them in that chat. Under the answer the chat offers to share that skill with the
+// team (components/onboarding/WelcomeInviteBar.tsx: the invite with it). Every step can be put off; the progress is
+// kept on the server (store/welcome.ts), so the steps resume where they stopped, on any device, from the entry on Home.
 //
 // Above the first step one quiet line says "팀 스킬을 넣어 둘게요 · 마케팅팀이에요": leaving the first step sets up every
 // team once (the general pack and a group named after the team with its folders, POST /api/onboarding/welcome/team),
@@ -25,7 +25,7 @@ import { joinPath } from '../lib/paths'
 import { setupSite } from '../lib/setupLink'
 import { rememberChat } from '../lib/teamAttach'
 import { uploadFile, type UploadProgress } from '../lib/upload'
-import { countedSteps, nextStep, packsRecorded, prevStep, resumeStep, skillNameOf, teamReach, wantsPack, wantsTeam } from '../lib/welcome'
+import { countedSteps, inviteSkill, nextStep, packsRecorded, prevStep, resumeStep, skillNameOf, teamReach, wantsPack, wantsTeam } from '../lib/welcome'
 import { useLocale, useT, type MessageKey } from '../i18n'
 import { useAiAccess } from '../store/aiAccess'
 import { useChats } from '../store/chats'
@@ -573,15 +573,15 @@ function FilesStep({ progress, busy: stepBusy, onRan }: { progress: WelcomeProgr
   )
 }
 
-/** Then the invite (stream E's step), when the first result was put off: people who join land on the ad copy when
- * the marketing pack is in, else on "할 일 정리" (no files yet, so no starter). */
+/** Then the invite (stream E's step) when the steps open on it (the bar under the first result was left for later):
+ * people who join land on the first result's skill, the card news, as it is (lib/welcome.ts inviteSkill). The link
+ * is made as the step opens, so the message and its one copy button are there at once (docs/DECISIONS.md "W2"); once
+ * the result was made, an open link that leads elsewhere is changed to that skill (same address). */
 function InviteWizardStep({ progress, onDone, onSkip }: { progress: WelcomeProgress; onDone: () => void; onSkip: () => void }) {
-  const t = useT()
   useEffect(() => {
     if (!progress.inviteShownAt) void useWelcome.getState().update({ inviteShown: true }).catch(() => {})
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
-  const skillPath = progress.pack?.skillPath ?? progress.general?.tasksPath ?? null
-  const title = progress.steps.result === 'done' && progress.pack ? t('welcome.invite.title', { skill: t('welcome.skillName') }) : undefined
-  return <InviteStep title={title} skillPath={skillPath} onDone={onDone} onSkip={onSkip} />
+  const skillPath = inviteSkill(progress)
+  return <InviteStep skillPath={skillPath} retarget={progress.steps.result === 'done' && !!skillPath} prepare onDone={onDone} onSkip={onSkip} />
 }

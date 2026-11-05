@@ -1,9 +1,8 @@
 // The welcome steps (pages/Welcome.tsx; docs/DECISIONS.md "W — Welcome steps", "X — Lean onboarding", "M — One meeting
 // note, everyone's own tasks", "W2 — AI connection first"): which step to open, what the Home entry counts, what
-// leaving the first step installs, what the invite under the first answer carries, and where the owner goes right after
-// /setup.
-import { GENERAL_TASKS_SKILL, LOCALE_ORDER, WELCOME_COUNTED, WELCOME_STEPS, type Message, type StarterKind, type User, type WelcomeProgress, type WelcomeStep } from '@mycel/shared/api'
-import { translate } from '../i18n'
+// leaving the first step installs, which skill the invite under the first answer shares, and where the owner goes
+// right after /setup.
+import { GENERAL_TASKS_SKILL, WELCOME_COUNTED, WELCOME_STEPS, type Message, type User, type WelcomeProgress, type WelcomeStep } from '@mycel/shared/api'
 
 /** The steps after the AI step, in order (the AI step is a gate, not a place in the order: docs/DECISIONS.md "W2"). */
 const AFTER_AI = WELCOME_STEPS.filter((s) => s !== 'ai')
@@ -81,34 +80,23 @@ export const showResume = (p: WelcomeProgress | null) => !!p && !p.finishedAt &&
 /** The invite bar on the first-result chat: until the invite is done or put off. */
 export const showInviteBar = (p: WelcomeProgress | null, chatId: string) => !!p && p.resultChatId === chatId && p.steps.invite === null
 
-/** Letters and digits only, lower case: the switch sentence is found whatever the punctuation, spaces or apostrophes. */
-const bare = (s: string) => s.normalize('NFC').toLowerCase().replace(/[^\p{L}\p{N}]+/gu, '')
-
 /**
- * The meeting-tasks skill's own words when the files were not meeting notes ("회의록이 아니라서 핵심만 정리했어요", "These
- * aren't meeting notes …"): it then gave a brief instead, and the invite says so. Looked for near the start of the
- * answer (its first line by the skill's rule), in every language the skill may answer in.
+ * The skill that made the first result, to share as it is (docs/DECISIONS.md "W2 — AI connection first"): the run the
+ * server recorded for the answer (`receipt`: the path the 7-day goal counts), else the first question's "/name" among
+ * the skills these steps recorded (the card news, the meeting notes skills, the ad copy); null when neither says.
  */
-export function isBriefSwitch(text: string): boolean {
-  const head = bare(text.slice(0, 300))
-  return LOCALE_ORDER.some((l) => {
-    const sentence = bare(translate(l, 'welcome.files.briefSwitch'))
-    return !!sentence && head.includes(sentence)
-  })
+export function resultSkill(messages: Pick<Message, 'role' | 'content' | 'receipt'>[], p: WelcomeProgress | null): string | null {
+  const ran = messages.find((m) => m.role === 'assistant' && m.receipt)?.receipt?.skill.path
+  if (ran) return ran
+  const name = /^\/([^\s/]+)/.exec(messages.find((m) => m.role === 'user')?.content.trim() ?? '')?.[1]
+  if (!name || !p) return null
+  const recorded = [p.general?.cardNewsPath, p.general?.tasksPath, p.general?.briefPath, p.pack?.skillPath]
+  return recorded.find((path): path is string => !!path && skillNameOf(path) === name) ?? null
 }
 
-/**
- * What the first answer's invite carries: the team files the lead put in (the first question's team-file references
- * that are still there) and what people who join get from them: their own tasks, or a brief when the skill said the
- * files were not meeting notes. null: no team files (the ad copy, or anything else).
- */
-export function resultStarter(messages: Pick<Message, 'role' | 'content' | 'attachments'>[]): { kind: StarterKind; files: string[] } | null {
-  const question = messages.find((m) => m.role === 'user')
-  const files = [...new Set((question?.attachments ?? []).filter((a) => a.source === 'team' && !a.unavailable && a.path).map((a) => a.path))]
-  if (!files.length) return null
-  const answer = messages.filter((m) => m.role === 'assistant').at(-1)
-  return { kind: answer && isBriefSwitch(answer.content) ? 'brief' : 'tasks', files }
-}
+/** The skill the welcome steps' own invite step carries (no chat to read it from): the first result's, the card news;
+ * else the marketing pack's ad copy, else the meeting notes skill (rows from before the card news). */
+export const inviteSkill = (p: WelcomeProgress): string | null => p.general?.cardNewsPath ?? p.pack?.skillPath ?? p.general?.tasksPath ?? null
 
 /** Home's one line after "자료 없이 해 볼게요" (router state): where meeting notes go. */
 export interface NotesHint { folder: string; team: string }

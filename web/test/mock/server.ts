@@ -108,6 +108,9 @@ const enc = new TextEncoder()
 const dec = new TextDecoder()
 
 const OWNER_PASSWORD = 'correct horse battery'
+/** the general pack's card news as the server installs it (resources/skill-packs/general/ko/card-news), its form included:
+ * a member who joins with the first result's invite lands on it */
+const CARDNEWS_TEXT = '---\nname: card-news\ndescription: 카드뉴스 — 회사 소개서나 자료를 읽고 정사각형 카드뉴스 5장을 만들어요.\nmetadata:\n  title: 카드뉴스\n  inputs: |\n    [{"name": "topic", "label": "주제", "placeholder": "비워 두면 회사 소개 전체"}, {"name": "channel", "label": "어디에 올릴까요", "type": "choice", "default": "instagram", "options": [{"value": "instagram", "label": "인스타그램"}, {"value": "linkedin", "label": "링크드인"}, {"value": "blog", "label": "블로그"}]}, {"name": "files", "label": "자료 파일", "placeholder": "비워 두면 팀 브랜드 폴더의 회사 소개", "advanced": true}]\n---\n# 카드뉴스\n'
 
 /** like server/src/admin/settings.ts LOCALE_CHANGED */
 const LOCALE_CHANGED = { type: 'notice', data: { level: 'info', code: 'locale_changed', message: '' } } as const
@@ -1694,7 +1697,7 @@ export class MockServer {
         const skills = [['meeting-tasks', GENERAL_TASKS_SKILL, '할 일 정리'], ['doc-brief', GENERAL_BRIEF_SKILL, '핵심 정리'], ['card-news', GENERAL_CARDNEWS_SKILL, '카드뉴스']] as const
         for (const [name, path, title] of skills) {
           for (const d of ['skills/general', `skills/general/${name}`]) this.files.set(d, this.files.get(d) ?? { type: 'folder', mtime: at })
-          if (!this.files.has(path)) this.putFile(path, `---\nname: ${name}\ndescription: ${title}\nmetadata:\n  title: ${title}\n---\n# ${title}\n`)
+          if (!this.files.has(path)) this.putFile(path, path === GENERAL_CARDNEWS_SKILL ? CARDNEWS_TEXT : `---\nname: ${name}\ndescription: ${title}\nmetadata:\n  title: ${title}\n---\n# ${title}\n`)
         }
         p.general = { at, tasksPath: GENERAL_TASKS_SKILL, briefPath: GENERAL_BRIEF_SKILL, cardNewsPath: GENERAL_CARDNEWS_SKILL }
         install = { pack: 'general' as const, locale: this.settings.defaultLocale, skills: skills.map(([name, path]) => ({ name, path, status: 'created' as const })), folders: [] }
@@ -1731,7 +1734,7 @@ export class MockServer {
       for (const f of files) if (this.files.get(f)?.type !== 'file' || !f.startsWith(g!.brandFolder! + '/')) fail('not_found', 404)
       if (!p!.general!.cardNewsPath) {
         for (const d of ['skills/general', 'skills/general/card-news']) this.files.set(d, this.files.get(d) ?? { type: 'folder', mtime: at })
-        if (!this.files.has(GENERAL_CARDNEWS_SKILL)) this.putFile(GENERAL_CARDNEWS_SKILL, '---\nname: card-news\ndescription: 카드뉴스\nmetadata:\n  title: 카드뉴스\n---\n# 카드뉴스\n')
+        if (!this.files.has(GENERAL_CARDNEWS_SKILL)) this.putFile(GENERAL_CARDNEWS_SKILL, CARDNEWS_TEXT)
         p!.general = { ...p!.general!, cardNewsPath: GENERAL_CARDNEWS_SKILL }
       }
       const imagesFolder = `${g!.brandFolder}/${this.localized(BRAND_IMAGES_FOLDER)}`

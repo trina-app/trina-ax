@@ -4,7 +4,8 @@
 // it), one line, what teammates are asked ("팀원에게 물어볼 것: 고객사 · 품목", read only; a choice as its chips), the
 // team files it uses, [팀에 공유] and "나중에", with one quiet line under them. No steps, no Markdown or YAML, no folder
 // name, no folder picker. [팀에 공유] is the owner's or admin's own save of the skill file; the invite comes next (the
-// caller shows it). On a phone the dialog is a bottom sheet (Modal).
+// caller shows it). On a phone the dialog is a bottom sheet (Modal). Its one entry was the bar under the welcome steps'
+// first result; that bar now shares the pack's skill itself (docs/DECISIONS.md "W2"), so nothing opens the card yet.
 import { Loader2, Pencil } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
 import { NOTES_FOLDER, SKILL_DRAFT_TITLE_MAX, isChoice, type SavedSkillDraft, type SkillDraft, type SkillDraftFile, type SkillDraftState } from '@mycel/shared/api'
