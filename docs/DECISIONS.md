@@ -8514,7 +8514,8 @@ ends and weight before the first result. Fixed here, each in its own commit:
   on screen opens it now (open: where to offer it in the lead's later chats).
 - **The invite opens ready.** For the owner walking the steps the link is made as the invite opens, only when no link
   could let anyone in (none, expired or used up) and a seat is left; an active link is reused or pointed at the skill at
-  the same address; a stopped link, or one whose address the server cannot show, is never replaced by itself. The
+  the same address; a stopped link, or one whose address the server cannot show, is never replaced by itself; the
+  link is read again right before one is made, so two screens of the owner do not end each other's link (review fix). The
   message and one "메시지 복사" show at once, "링크 관리" (link, QR, uses, expiry, replace) is folded. The goal card and
   Admin › Members keep their button.
 - **One simple connect dialog** (`components/onboarding/ConnectAi.tsx`) from every "AI 연결하기": the welcome step, the
@@ -8530,10 +8531,13 @@ ends and weight before the first result. Fixed here, each in its own commit:
   the owner adds team connections) "팀장이 AI를 연결하면 바로 쓸 수 있어요" with [팀장에게 알리기], and a quiet "내 AI
   연결하기" only where the team allows personal connections. No loop: the card stands in place of "시작 설정 이어하기";
   once AI answers the row comes back and Home records the put-off AI step done, so it reads 1/3 and opens 회사 소개.
+  Connecting on the AI step goes where the steps resume with AI (an open step, else a counted step put off), not only
+  to an open one, so an owner who came back for a put-off 회사 소개 is not sent Home (review fix).
 - **A failed answer without AI** tells the owner "아직 연결된 AI가 없어요. AI를 연결하면 바로 답할 수 있어요." with "AI
   연결하기" (and owner words for the trial credit's two texts), an admin "팀장에게 알려 주세요", members the server's words
-  (`lib/aiAccess.ts noAiErrorKey`; `shared/src/api/errors.ts` unchanged). The connect line above the composer hides
-  while the newest answer shows that error (one button on screen).
+  (`lib/aiAccess.ts noAiErrorKey`; `shared/src/api/errors.ts` unchanged), only while no AI answers the person: the
+  server says "no connection" per engine, so with another engine connected the server's words stay (review fix). The
+  connect line above the composer hides while the newest answer shows that error (one button on screen).
 - **The result in front.** The artifact panel was meant to open by itself, but only on a "writing" preview the team
   server never sends (only the e2e mock did). A saved artifact under the card news key (`CARD_NEWS_ARTIFACT_KEY`,
   "card-news") now opens it, in every run of the skill (the owner's first result and a member's run alike); other
