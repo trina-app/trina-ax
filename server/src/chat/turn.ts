@@ -25,6 +25,7 @@ import type { LaunchHandle } from '../native'
 import type { LaunchRequest } from '@mycel/shared'
 import { atLeast, type Principal } from '../policy/access'
 import { parseInput, walk } from '../policy/resolve'
+import { nameFromUrl } from '../tools/save-url'
 import { badSegment, hiddenEntry } from '../policy/names'
 import { TurnFiles } from '../files/service'
 import { saveSources } from '../files/sources'
@@ -1324,7 +1325,7 @@ export class TurnExec {
   async confirmRoomChange(tool: string, input: unknown): Promise<string | null> {
     if (!this.room || ROOM_READ_ONLY_TOOLS.has(tool)) return null
     // a skill, team rule or instruction file changes from a room only with all of its new content on the card
-    const w = roomChangeWrites(tool, input, (p) => this.visibleTree(p))
+    const w = roomChangeWrites(tool, input, (p) => this.visibleTree(p), this.spec.userId)
     if (!w.shown && w.targets.some(instructionLike)) {
       return `Not done (${tool}): in a team chat room, a skill, team rule or instruction file (skills/, a person's skills, CLAUDE.md, AGENTS.md, GEMINI.md, SKILL.md) is changed only when the user can see all of its new content on the confirmation card, and this call's content cannot be shown there (it comes from a file, a template or the web, or files are moved, copied or renamed into place). Nothing was changed. Tell the user so: they can do it in their own chat, or you can write the content out with write or edit.`
     }
@@ -1818,7 +1819,7 @@ export const ROOM_CHANGE_SCAN_MAX = 2000
  * edited copy saved as a new file, files moved, copied or renamed (their bytes stay as they are). A moved or renamed
  * folder brings its files along (`tree`: the names the person sees under it, null past ROOM_CHANGE_SCAN_MAX).
  */
-export function roomChangeWrites(tool: string, input: unknown, tree: (p: string) => string[] | null): { targets: string[]; shown: boolean } {
+export function roomChangeWrites(tool: string, input: unknown, tree: (p: string) => string[] | null, me = '-'): { targets: string[]; shown: boolean } {
   const a = input && typeof input === 'object' && !Array.isArray(input) ? input as Record<string, unknown> : {}
   const str = (v: unknown) => (typeof v === 'string' ? v : '')
   const list = (v: unknown) => (Array.isArray(v) ? v.filter((x): x is string => typeof x === 'string') : typeof v === 'string' ? [v] : [])
@@ -1829,12 +1830,21 @@ export function roomChangeWrites(tool: string, input: unknown, tree: (p: string)
     // too many names to look at: counted as holding an instruction file (it might)
     return under === null ? [at, `${at}/SKILL.md`] : [at, ...under.map((r) => `${at}/${r}`)]
   }
+  // the card carries at most ROOM_CHANGE_FULL characters of a text (roomChangeDetails): a longer one is not all shown
+  const fits = (t: string) => t.length <= ROOM_CHANGE_FULL
+  const hwpLines = (v: unknown) => (Array.isArray(v) ? v as Record<string, unknown>[] : []).map((c) => (c && typeof c === 'object' && typeof c.find === 'string' ? `${c.find} → ${str(c.replace)}` : '')).join('\n')
   switch (tool) {
-    case 'write': case 'edit': return { targets: [str(a.file_path)], shown: true }
-    case 'edit_files': return { targets: list(a.file_paths), shown: true }
-    case 'edit_hwp': return str(a.output) ? { targets: [str(a.output)], shown: false } : { targets: [str(a.file_path)], shown: true }
-    case 'make_file': return { targets: [str(a.output)], shown: !str(a.source) && !str(a.template) && !list(a.images).length }
-    case 'save_url': return { targets: [str(a.save_as)], shown: false }
+    case 'write': return { targets: [str(a.file_path)], shown: fits(str(a.content)) }
+    case 'edit': return { targets: [str(a.file_path)], shown: fits(`${str(a.old_string)}\n→\n${str(a.new_string)}`) }
+    case 'edit_files': return { targets: list(a.file_paths), shown: fits(`${str(a.old_string)}\n→\n${str(a.new_string)}`) }
+    case 'edit_hwp': return str(a.output) ? { targets: [str(a.output)], shown: false } : { targets: [str(a.file_path)], shown: fits(hwpLines(a.changes)) }
+    case 'make_file': return { targets: [str(a.output)], shown: !str(a.source) && !str(a.template) && !list(a.images).length && fits(str(a.content)) }
+    case 'save_url': {
+      // the file is named by save_as, or, for a folder ("…/") or none, by the address's last name (tools/save-url.ts)
+      const want = str(a.save_as).trim()
+      const folder = !want ? `users/${me}/downloads` : want.endsWith('/') ? want : null
+      return { targets: folder === null ? [want] : [want, `${folder.replace(/\/+$/, '')}/${nameFromUrl(str(a.url)) || 'download'}`].filter(Boolean), shown: false }
+    }
     case 'move_files': case 'copy_files': {
       const to = teamSegs(a.to_folder) ?? []
       return { targets: list(a.paths).flatMap((p) => { const segs = teamSegs(p); return segs?.length ? landing(p, to, segs.at(-1)!) : [] }), shown: false }

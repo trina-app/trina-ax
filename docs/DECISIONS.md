@@ -8353,6 +8353,8 @@ every week. Placement: Team AX core (skills, files and permissions, the team lin
     call, or a move, copy or rename (a folder brings every file in it), that would put content into a skill, team rule
     or instruction file is not made from a room at all, with no card: the AI is told why, and the person can do it in
     their own chat or have the content written out with write or edit (`roomChangeWrites`, re-review of 57ef7383).
+    A text longer than the card carries (100,000 characters) counts as not shown, and save_url into a folder (or
+    with no path) is checked under the name the address gives the file (final review of 0da5c721).
   - **Why a preview is private, in short sentences** (supersedes the one sentence of the UX review). "올리면 이 폴더를
     못 여는 사람도 이 내용을 봐요: 재무, 내 폴더, 다른 사람이 못 여는 폴더" mixed reasons into a list, and "다른 사람이
     못 여는" was wrong when the asker cannot open the folder either. Now one plain sentence per reason, in this order:

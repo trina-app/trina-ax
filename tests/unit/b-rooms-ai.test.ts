@@ -11,6 +11,7 @@ import path from 'node:path'
 import { chatUrls } from '../../server/src/tools/url-gate'
 import { roomAiOf } from '../../server/src/rooms/ai'
 import { loadPrincipal } from '../../server/src/policy/access'
+import { instructionLike, ROOM_CHANGE_FULL, roomChangeWrites } from '../../server/src/chat/turn'
 import { buildSubagentPrompt, buildTurnContext, buildTurnPrompt, ROOM_PROMPT_SECTIONS, subagentPromptSections, turnContextSections, turnPromptSections, type PromptInput } from '../../server/src/chat/prompt'
 
 setDefaultTimeout(60_000)
@@ -906,6 +907,9 @@ describe('a skill or instruction file changes from a room only with all of its c
         { tool: 'move_files', args: { paths: ['users/alice/r6-dir'], to_folder: 'shared' } },
         { tool: 'make_file', args: { source: 'users/alice/r6-src.md', format: 'docx', output: 'users/alice/skills/r6.docx' } },
         { tool: 'save_url', args: { url: 'https://example.com/a.md', save_as: 'users/alice/skills/r6.md' } },
+        // a folder (or none): the file is named after the address
+        { tool: 'save_url', args: { url: 'https://example.com/x/CLAUDE.md', save_as: 'projects/p/' } },
+        { tool: 'save_url', args: { url: 'https://example.com/x/SKILL.md' } },
       ]) {
         const r = await call(step)
         expect({ step: step.tool, card: r.card, refused: r.steps.some((x) => x.includes('not allowed by the user (room)')) }).toEqual({ step: step.tool, card: null, refused: true })
@@ -917,6 +921,26 @@ describe('a skill or instruction file changes from a room only with all of its c
       for (const f of files) fs.rmSync(f, { force: true })
       fs.rmSync(path.join(h.team, 'users/alice/r6-dir'), { recursive: true, force: true })
     }
+  })
+
+  test('a text longer than the card carries (ROOM_CHANGE_FULL) is not all shown: into an instruction file it is refused', () => {
+    // (a room message is at most 10,000 characters, so the fake engine cannot be told to write this much: checked here
+    // on the rule confirmRoomChange applies)
+    const none = () => []
+    const long = `${'x'.repeat(ROOM_CHANGE_FULL + 1)}\nPLANTED`
+    const refused = (tool: string, args: unknown) => { const w = roomChangeWrites(tool, args, none, 'alice'); return !w.shown && w.targets.some(instructionLike) }
+    for (const [tool, args] of [
+      ['write', { file_path: 'users/alice/skills/r6/SKILL.md', content: long }],
+      ['edit', { file_path: 'users/alice/skills/r6/SKILL.md', old_string: 'x', new_string: long }],
+      ['edit_files', { file_paths: ['shared/a.md', 'skills/r6.md'], old_string: long, new_string: 'y' }],
+      ['make_file', { content: long, format: 'docx', output: 'users/alice/skills/r6.docx' }],
+    ] as const) expect({ tool, refused: refused(tool, args) }).toEqual({ tool, refused: true })
+    // the same text elsewhere, and a short one into an instruction file, are not refused (the card shows them)
+    expect(refused('write', { file_path: 'shared/r6.md', content: long })).toBe(false)
+    expect(refused('write', { file_path: 'users/alice/skills/r6/SKILL.md', content: 'x'.repeat(ROOM_CHANGE_FULL) })).toBe(false)
+    // save_url into a folder or nowhere: the address names the file
+    expect(roomChangeWrites('save_url', { url: 'https://example.com/x/CLAUDE.md', save_as: 'projects/p/' }, none, 'alice').targets).toContain('projects/p/CLAUDE.md')
+    expect(roomChangeWrites('save_url', { url: 'https://example.com/x/SKILL.md' }, none, 'alice').targets).toEqual(['users/alice/downloads/SKILL.md'])
   })
 
   test('elsewhere such a call gets its card, which says plainly that its content is not on it', async () => {
