@@ -8494,8 +8494,69 @@ the first result stays the card news of "N" (no `promo_video` tool, no HyperFram
   "Claude 구독 연결" that opens Admin › AI connections' own `AddCredential` dialog with Claude chosen (`initialKind`,
   `initialLabel`; the browser sign-in of PR #70: approval link and the code), shown when the team allows a shared Claude
   subscription; "다른 방법" folded (open when there is no Claude button): the same dialog with every way and a link to
-  the AI engines page. No new connection logic. "나중에 하기" leaves the steps; Home shows the connect line as before.
+  the AI engines page. No new connection logic. "나중에 하기" leaves the steps; Home then shows its connect card (below).
   The first result's own no-AI state (A's button and "첫 결과를 만들려면 AI가 필요해요") is gone: the gate shows instead.
 - **Reading screen** of 회사 소개: "대화로 보기" and "직접 쓸게요" are gone, "나중에 하기" stays (Admin › Team settings,
   the same component, keeps its "취소"). A reading that fails still opens the pasted text and the three questions by
   itself, and "홈페이지가 없어요" still leads there.
+
+### After the UX walk (same day)
+An independent walk of the whole flow (no AI, then real AI, an owner and a member, 390 px and a computer) found dead
+ends and weight before the first result. Fixed here, each in its own commit:
+- **The first result shares our skill as it is.** Under the first result: "마음에 드시나요? 팀원도 같은 방식으로 바로
+  만들 수 있어요" [팀에 공유], which opens the invite with the skill that ran (the answer's receipt, the path the 7-day goal
+  counts; else the first "/name"). Before, "팀 스킬로 저장" (S) drafted a near-copy under another path, the invite carried
+  the copy, and a member's run never counted with the owner's (the goal stayed 1/3). No files go with the link: the pack
+  skills read the team's folders themselves, and the link puts people in the team's group. The welcome step's own
+  invite carries the card news too (no longer the ad copy). Tested on the real server: the owner's first result plus a
+  member who joins through the invite and runs it from its form give one skill with two people (2/3,
+  `tests/unit/b-welcome-share-goal.test.ts`). The S card and its endpoints stay, but this bar was its only entry: nothing
+  on screen opens it now (open: where to offer it in the lead's later chats).
+- **The invite opens ready.** For the owner walking the steps the link is made as the invite opens, only when no link
+  could let anyone in (none, expired or used up) and a seat is left; an active link is reused or pointed at the skill at
+  the same address; a stopped link, or one whose address the server cannot show, is never replaced by itself. The
+  message and one "메시지 복사" show at once, "링크 관리" (link, QR, uses, expiry, replace) is folded. The goal card and
+  Admin › Members keep their button.
+- **One simple connect dialog** (`components/onboarding/ConnectAi.tsx`) from every "AI 연결하기": the welcome step, the
+  chat's error, the connect line above the composer and Home's card, in place (no trip to Admin › AI connections); "내 AI
+  연결하기" opens the person's own dialog. It is `AddCredential` with `simple`: the whole team (no target field), named
+  after the kind (no name field), the provider's terms as one checkbox line (the server needs that yes:
+  `acknowledgedPlanNotice`, D23; the line keeps that {product} cannot grant the permission), "다른 방법" shows every way.
+  The password is asked again exactly as before: team connections are owner-reauth, checked on every call
+  (`http/route.ts`), and there is no "recently signed in" rule to reuse (the `recent` map in `auth/service.ts` only
+  throttles audit rows), so nothing was weakened. Admin › AI connections keeps the full dialog.
+- **Home without AI**: one card instead of the top row, the suggested questions (they would all fail) and the connect
+  line. The owner gets the welcome step's heading with "Claude 구독 연결" and "다른 방법"; everyone else (admins too: only
+  the owner adds team connections) "팀장이 AI를 연결하면 바로 쓸 수 있어요" with [팀장에게 알리기], and a quiet "내 AI
+  연결하기" only where the team allows personal connections. No loop: the card stands in place of "시작 설정 이어하기";
+  once AI answers the row comes back and Home records the put-off AI step done, so it reads 1/3 and opens 회사 소개.
+- **A failed answer without AI** tells the owner "아직 연결된 AI가 없어요. AI를 연결하면 바로 답할 수 있어요." with "AI
+  연결하기" (and owner words for the trial credit's two texts), an admin "팀장에게 알려 주세요", members the server's words
+  (`lib/aiAccess.ts noAiErrorKey`; `shared/src/api/errors.ts` unchanged). The connect line above the composer hides
+  while the newest answer shows that error (one button on screen).
+- **The result in front.** The artifact panel was meant to open by itself, but only on a "writing" preview the team
+  server never sends (only the e2e mock did). A saved artifact under the card news key (`CARD_NEWS_ARTIFACT_KEY`,
+  "card-news") now opens it, in every run of the skill (the owner's first result and a member's run alike); other
+  artifacts are unchanged. On a phone it is the full-screen sheet (✕, Esc) and it does not open over a draft in the
+  composer. The skill answers in one line ("(회사 이름) 카드뉴스 5장을 만들었어요. 바꾸고 싶은 장이 있으면 말해 주세요.",
+  plus the brand images hint when a card has no photo): no skill name, path, per-card line or photo list. Chat answers
+  do not render `<details>`, so the number's source moved into the artifact, one muted line under the cards.
+- **Folders by name in the step lines** (`stepPlace`, `shared/src/step-labels.ts`): "파일 읽기 · 브랜드 이미지 폴더 ›
+  홈페이지-6.jpg", not `groups/<team>/브랜드/이미지/…`, which a phone cut before the file's name. The brand images, brand,
+  meeting notes, team ("{team} 폴더"), own ("내 폴더": a personal folder is its owner's alone), attachments and shared
+  folders, matched in any language (NFC); the path stays in the row's tooltip; stored labels are unchanged.
+- **회사 소개 without the form first.** In the welcome steps a website reading whose draft has a one-line intro is saved
+  as it came, by the owner's own PUT with the form's body and rules (`tidyProfile`, the brand colours found; nothing the
+  pages did not say), and the steps go on to 첫 결과, which opens with one quiet line "이렇게 이해했어요: {한 줄 소개} ·
+  고치기" (고치기: the review form in a dialog; saving there updates the line). It sits on the result step because the card
+  news without files is made from that profile. A draft without a one-line intro, a failed reading, the pasted text, the
+  three questions and Admin › Team settings keep the review. The company name is saved as the draft found it (empty
+  reads as the team's name everywhere).
+- **No team line above step 1.** "팀 스킬을 넣어 둘게요 · 마케팅팀이에요" is gone with the team-type choice; leaving step 1
+  still sets up every team's start. The marketing pack is one quiet button under Team skills ("마케팅 스킬 7개 넣기",
+  owners and admins, while no team skill is under `skills/marketing/`); before, it was offered only on an empty page.
+  Stored team types stay readable; a dev row with `teamType: marketing` and no pack no longer installs it by itself.
+- **Draft chats are not conversations.** The website reading's chat and the team skill draft's chat stay out of the
+  chat list, its search, its realtime updates and Home's frequent questions (`server/src/chat/internal-chats.ts`), marked
+  by their existing tables (`onboarding_profile_drafts`, `onboarding_skill_drafts`; no migration). Their flows read them
+  by id as before and they still open by address. The reading hint no longer says the chat stays in the list.
