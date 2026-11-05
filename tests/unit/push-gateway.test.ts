@@ -10,13 +10,14 @@ import {
   pushGatewaySigningString, validPushPath, validPushToken,
 } from '../../shared/src/cloud-protocol/push-gateway.ts'
 import { TEXT } from '../../server/src/notifications/text.ts'
-import { createGateway, type GatewayEnv, type LogLine } from '../../push-gateway/src/gateway.ts'
+import { clientBucket, createGateway, type GatewayEnv, type LogLine } from '../../push-gateway/src/gateway.ts'
 import { memoryState } from '../../push-gateway/src/state.ts'
 import { EVENT_TEXT, alertBody } from '../../push-gateway/src/text.ts'
 
 // ------------------------------------------------------------------ fixtures
 
 const T0 = Date.UTC(2026, 0, 5) // a UTC day (and minute) boundary: the day window starts here
+const IP = '192.0.2.10'
 const IOS_TOKEN = 'ab'.repeat(32)
 const ANDROID_TOKEN = `fcm-token:${'Ab9_'.repeat(12)}`
 
@@ -81,9 +82,10 @@ function harness(o: { env?: Partial<GatewayEnv>; respond?: Responder; blocked?: 
     log: (l) => logs.push(l),
     state: mem.state,
   })
-  const send = (text: string, team: Team = TEAM, opts?: Parameters<typeof signedRequest>[3]) => gw.handle(signedRequest(team, text, clock.t, opts))
+  const handle = (req: Request, ip = IP) => gw.handle(req, ip)
+  const send = (text: string, team: Team = TEAM, opts?: Parameters<typeof signedRequest>[3]) => handle(signedRequest(team, text, clock.t, opts))
   const apnsCalls = () => calls.filter((c) => c.url.includes('push.apple.com'))
-  return { gw, calls, logs, clock, mem, send, apnsCalls }
+  return { gw, handle, calls, logs, clock, mem, send, apnsCalls }
 }
 
 async function expectError(r: Response, error: keyof typeof PUSH_GATEWAY_ERRORS) {
@@ -111,7 +113,7 @@ describe('push gateway contract', () => {
   const ok = JSON.parse(body())
   test('strict body: the fields and nothing else, each value checked', () => {
     expect(parsePushGatewaySend(ok)).toEqual(ok)
-    const full = JSON.parse(android({ path: '/rooms/abc123', ttlSeconds: 3600, locale: 'ko' }))
+    const full = JSON.parse(android({ path: '/rooms/abc123', ttlSeconds: 3600, locale: 'ko', tag: 'dev_42-a' }))
     expect(parsePushGatewaySend(full)).toEqual(full)
     expect(parsePushGatewaySend({ ...ok, path: '/' })?.path).toBe('/')
     const bad: Record<string, unknown>[] = [
@@ -120,7 +122,9 @@ describe('push gateway contract', () => {
       { code: 'a.b.c.d.e' }, { code: `a.${'b'.repeat(63)}` }, { code: 'room.' }, { locale: 'fr' }, { path: null }, { path: 'rooms/x' },
       { path: '//x' }, { path: '/rooms/../x' }, { path: '/rooms/x?y=1' }, { path: '/rooms/' }, { path: 'https://example.test/x' },
       { path: `/${'a'.repeat(200)}` }, { ttlSeconds: -1 }, { ttlSeconds: 86_401 }, { ttlSeconds: 1.5 }, { ttlSeconds: '60' }, { ttlSeconds: null },
+      { tag: '' }, { tag: 'dev 42' }, { tag: 'x'.repeat(101) }, { tag: 42 }, { tag: null }, { tag: 'dev/42' },
     ]
+    expect(parsePushGatewaySend({ ...ok, tag: 'x'.repeat(100) })?.tag).toBe('x'.repeat(100))
     for (const b of bad) expect(parsePushGatewaySend({ ...ok, ...b })).toBeNull()
     // android tokens are FCM registration tokens, always the production environment
     expect(parsePushGatewaySend(JSON.parse(android({ environment: 'sandbox' })))).toBeNull()
@@ -166,10 +170,10 @@ describe('push gateway contract', () => {
 
 describe('push gateway: routes, body and signature', () => {
   test('GET /health; everything but POST /v1/send is 404', async () => {
-    const { gw } = harness()
-    await expectOk(await gw.handle(new Request('https://push.example.test/health')))
+    const { handle } = harness()
+    await expectOk(await handle(new Request('https://push.example.test/health')))
     for (const [m, p] of [['GET', '/v1/send'], ['POST', '/v1/other'], ['POST', '/'], ['PUT', '/v1/send'], ['POST', '/health']]) {
-      await expectError(await gw.handle(new Request(`https://push.example.test${p}`, { method: m!, body: m === 'GET' ? undefined : '{}' })), 'not_found')
+      await expectError(await handle(new Request(`https://push.example.test${p}`, { method: m!, body: m === 'GET' ? undefined : '{}' })), 'not_found')
     }
   })
 
@@ -193,11 +197,11 @@ describe('push gateway: routes, body and signature', () => {
     const r = signedRequest(TEAM, body(), h.clock.t)
     const forged = pushGatewayAuthorization(TEAM.pub, h.clock.t + 1, parsePushGatewayAuthorization(r.headers.get('authorization'))!.sig)
     await expectError(await h.send(body(), TEAM, { header: forged }), 'unauthorized')
-    await expectError(await h.gw.handle(signedRequest(TEAM, body(), T0 - 300_001)), 'clock_skew')
-    await expectError(await h.gw.handle(signedRequest(TEAM, body(), T0 + 300_001)), 'clock_skew')
+    await expectError(await h.handle(signedRequest(TEAM, body(), T0 - 300_001)), 'clock_skew')
+    await expectError(await h.handle(signedRequest(TEAM, body(), T0 + 300_001)), 'clock_skew')
     expect(h.calls).toEqual([])
     // ±5 minutes is fine
-    await expectOk(await h.gw.handle(signedRequest(TEAM, body({ notificationId: 'edge' }), T0 - 300_000)))
+    await expectOk(await h.handle(signedRequest(TEAM, body({ notificationId: 'edge' }), T0 - 300_000)))
   })
 
   test('body: larger than 4096 bytes is 413 (streamed, Content-Length not trusted); bad JSON, bad UTF-8, schema: 400', async () => {
@@ -207,7 +211,7 @@ describe('push gateway: routes, body and signature', () => {
     const chunk = new TextEncoder().encode('x'.repeat(1024))
     const stream = new ReadableStream<Uint8Array>({ pull(c) { c.enqueue(chunk) } }) // endless, no Content-Length
     const sig = signedRequest(TEAM, '', h.clock.t).headers.get('authorization')!
-    await expectError(await h.gw.handle(new Request('https://push.example.test/v1/send', { method: 'POST', headers: { authorization: sig }, body: stream })), 'body_too_large')
+    await expectError(await h.handle(new Request('https://push.example.test/v1/send', { method: 'POST', headers: { authorization: sig }, body: stream })), 'body_too_large')
     // exactly 4096 bytes is read (and then refused for its content)
     const short = body({ extra: '' })
     const exact = short.replace('"extra":""', `"extra":"${'x'.repeat(4096 - short.length)}"`)
@@ -218,7 +222,7 @@ describe('push gateway: routes, body and signature', () => {
     await expectError(await h.send(body({ extra: true })), 'invalid_body')
     await expectError(await h.send(body({ path: '/rooms/../admin' })), 'invalid_body')
     const badUtf8 = new Uint8Array([...new TextEncoder().encode('{"v":1,"x":"'), 0xff, ...new TextEncoder().encode('"}')])
-    await expectError(await h.gw.handle(signedRequest(TEAM, badUtf8, h.clock.t)), 'invalid_body')
+    await expectError(await h.handle(signedRequest(TEAM, badUtf8, h.clock.t)), 'invalid_body')
     expect(h.calls).toEqual([])
   })
 })
@@ -229,7 +233,7 @@ describe('push gateway: trust on first use, limits, dedupe', () => {
   test('an unknown key is recorded with its first-seen time; a blocked key is 403', async () => {
     const h = harness({ blocked: new Set() })
     await expectOk(await h.send(body()))
-    expect(h.mem.shards.shards.get(`k:${TEAM.keyId}`)?.get('seen')).toEqual({ firstSeenMs: T0 })
+    expect(h.mem.shards.shards.get(`k:${TEAM.keyId}`)?.get('seen')).toEqual({ firstSeenMs: T0 }) // confirmed: delivered
     h.clock.t += 3600_000
     await expectOk(await h.send(body({ notificationId: 'n2' })))
     expect(h.mem.shards.shards.get(`k:${TEAM.keyId}`)?.get('seen')).toEqual({ firstSeenMs: T0 }) // kept, not moved
@@ -290,6 +294,56 @@ describe('push gateway: trust on first use, limits, dedupe', () => {
     expect(h.apnsCalls().length).toBe(3)
   })
 
+  test('a key that never had a delivered send is forgotten after 24 h; the first delivered send keeps it', async () => {
+    let down = true
+    const h = harness({ respond: (c, n) => (down ? new Response(null, { status: 500 }) : defaultResponder(c, n)) })
+    const shard = () => h.mem.shards.shards.get(`k:${TEAM.keyId}`)
+    await expectError(await h.send(body()), 'provider_error')
+    expect(shard()?.get('seen')).toEqual({ firstSeenMs: T0, until: T0 + 86_400_000 })
+    h.mem.shards.sweep(T0 + 86_400_000)
+    expect(shard()).toBeUndefined() // nothing of a key that never delivered stays
+    await expectError(await h.send(body()), 'provider_error')
+    // an expired record that was not swept yet counts as new too
+    h.clock.t = T0 + 86_400_000
+    down = false
+    await expectOk(await h.send(body()))
+    expect(shard()?.get('seen')).toEqual({ firstSeenMs: T0 + 86_400_000 })
+    h.mem.shards.sweep(T0 + 30 * 86_400_000)
+    expect([...shard()!.keys()]).toEqual(['seen'])
+  })
+
+  test('the device budget is per (key, token): one team server cannot use up a phone for another team', async () => {
+    const h = harness()
+    for (let i = 0; i < 20; i++) await expectOk(await h.send(body({ notificationId: `a${i}` })))
+    await expectError(await h.send(body({ notificationId: 'a20' })), 'rate_limited')
+    await expectOk(await h.send(body({ notificationId: 'b0' }), teamKey()))
+    const pair = createHash('sha256').update(`${TEAM.keyId}:${createHash('sha256').update(IOS_TOKEN).digest('hex')}`).digest('hex')
+    expect(h.mem.shards.shards.get(`t:${pair}`)?.get('b:min')).toEqual({ w: T0 / 60_000, n: 20, until: T0 + 60_000 })
+  })
+
+  test('a client address gets 600 send requests a minute, counted before the signature; IPv6 by its /64', async () => {
+    const h = harness()
+    const unsigned = () => new Request('https://push.example.test/v1/send', { method: 'POST', body: body() })
+    for (let i = 0; i < 600; i++) expect((await h.handle(unsigned(), '2001:db8:1:2::1')).status).toBe(401)
+    const r = await h.handle(signedRequest(TEAM, body(), h.clock.t), '2001:db8:1:2:ffff::9') // the same /64
+    await expectError(r, 'rate_limited')
+    expect(r.headers.get('retry-after')).toBe('60')
+    expect(h.calls).toEqual([])
+    await expectOk(await h.handle(signedRequest(TEAM, body(), h.clock.t), '2001:db8:1:3::1'))
+    await expectOk(await h.handle(new Request('https://push.example.test/health'), '2001:db8:1:2::1')) // not counted
+    h.clock.t += 60_000
+    await expectOk(await h.handle(signedRequest(TEAM, body({ notificationId: 'n2' }), h.clock.t), '2001:db8:1:2::1'))
+  })
+
+  test('client buckets: IPv4 as it is, IPv6 by /64, mapped IPv4 as IPv4, anything else shared', () => {
+    const cases: [string, string][] = [
+      ['192.0.2.1', '192.0.2.1'], ['::ffff:192.0.2.1', '192.0.2.1'], ['2001:db8::1', '2001:db8:0:0::/64'],
+      ['2001:0DB8:0000:0000:0001::', '2001:db8:0:0::/64'], ['fe80::1%en0', 'fe80:0:0:0::/64'], ['::1', '0:0:0:0::/64'],
+      ['1:2:3:4:5:6:7:8', '1:2:3:4::/64'], ['1:2:3:4:5:6:7:8:9', 'other'], ['1::2::3', 'other'], ['unknown', 'other'], ['', 'other'],
+    ]
+    for (const [a, want] of cases) expect(clientBucket(a)).toBe(want)
+  })
+
   test('a send that failed is not remembered: the retry sends', async () => {
     const h = harness({ respond: (c, n) => (n === 1 ? new Response('{"reason":"InternalServerError"}', { status: 500 }) : defaultResponder(c, n)) })
     await expectError(await h.send(body()), 'provider_error')
@@ -303,7 +357,7 @@ describe('push gateway: trust on first use, limits, dedupe', () => {
 describe('push gateway: APNs', () => {
   test('request shape: host by environment, headers, provider token, a body with no extra fields', async () => {
     const h = harness({ env: { APNS_SANDBOX: 'on' } })
-    await expectOk(await h.send(body({ path: '/rooms/abc123', ttlSeconds: 3600, locale: 'ko' })))
+    await expectOk(await h.send(body({ path: '/rooms/abc123', ttlSeconds: 3600, locale: 'ko', tag: 'dev_42' })))
     await expectOk(await h.send(body({ environment: 'sandbox', notificationId: 'n2', code: 'schedule.failure' })))
     const [prod, sandbox] = h.apnsCalls()
     expect(prod!.url).toBe(`https://api.push.apple.com/3/device/${IOS_TOKEN}`)
@@ -314,14 +368,21 @@ describe('push gateway: APNs', () => {
       'apns-expiration': String(T0 / 1000 + 3600), 'apns-collapse-id': 'n1', 'content-type': 'application/json',
     })
     expect(sandbox!.headers.get('apns-expiration')).toBe('0')
-    expect(JSON.parse(prod!.body)).toEqual({ aps: { alert: { title: 'Trina AX', body: '새 메시지가 있어요' }, sound: 'default' }, notificationId: 'n1', code: 'room.message', path: '/rooms/abc123' })
-    expect(JSON.parse(sandbox!.body)).toEqual({ aps: { alert: { title: 'Trina AX', body: 'A scheduled task needs your attention.' }, sound: 'default' }, notificationId: 'n2', code: 'schedule.failure' })
+    // only aps and body at the top level: expo-notifications reads the data from userInfo["body"] on iOS
+    expect(JSON.parse(prod!.body)).toEqual({
+      aps: { alert: { title: 'Trina AX', body: '새 메시지가 있어요' }, sound: 'default' },
+      body: { notificationId: 'n1', code: 'room.message', path: '/rooms/abc123', tag: 'dev_42' },
+    })
+    expect(JSON.parse(sandbox!.body)).toEqual({
+      aps: { alert: { title: 'Trina AX', body: 'A scheduled task needs your attention.' }, sound: 'default' },
+      body: { notificationId: 'n2', code: 'schedule.failure' },
+    })
     const auth = prod!.headers.get('authorization')!
     expect(auth).toMatch(/^bearer [\w-]+\.[\w-]+\.[\w-]+$/)
     const jwt = auth.slice('bearer '.length)
     const d = decodeJwt(jwt)
     expect(d.header).toEqual({ alg: 'ES256', kid: 'KEYID12345' })
-    expect(d.claims).toEqual({ iss: 'TEAMID1234', iat: T0 / 1000 - ((T0 / 1000) % 1200) })
+    expect(d.claims).toEqual({ iss: 'TEAMID1234', iat: T0 / 1000 })
     expect(verifyEs256(jwt, apnsKey.publicKey)).toBe(true)
     expect(verifyEs256(jwt, generateKeyPairSync('ec', { namedCurve: 'P-256' }).publicKey)).toBe(false)
     expect(sandbox!.headers.get('authorization')).toBe(auth) // the token is reused
@@ -341,6 +402,7 @@ describe('push gateway: APNs', () => {
     expect(verifyEs256(c!.headers.get('authorization')!.slice(7), apnsKey.publicKey)).toBe(true)
     expect(c!.headers.get('apns-collapse-id')).toBe(createHash('sha256').update(long).digest('hex'))
     expect(JSON.parse(c!.body).aps.alert.title).toBe('Acme')
+    expect(decodeJwt(c!.headers.get('authorization')!.slice(7)).claims.iat).toBe(h.clock.t / 1000)
   })
 
   test('410, Unregistered and BadDeviceToken: 410 so the team server deletes the device; other failures 502', async () => {
@@ -360,7 +422,6 @@ describe('push gateway: APNs', () => {
 
   test('403 ExpiredProviderToken: one new token, then the answer of that try', async () => {
     const expiredOnce = harness({ respond: (c, n) => (n === 1 ? json(403, { reason: 'ExpiredProviderToken' }) : defaultResponder(c, n)) })
-    expiredOnce.clock.t += 19 * 60_000 // the slot's iat is 19 minutes old; the fresh one is now
     await expectOk(await expiredOnce.send(body()))
     const [first, retry] = expiredOnce.apnsCalls()
     expect(retry!.headers.get('authorization')).not.toBe(first!.headers.get('authorization')!)
@@ -384,7 +445,7 @@ describe('push gateway: APNs', () => {
 describe('push gateway: FCM', () => {
   test('OAuth: an RS256 assertion exchanged at token_uri, cached until 60 s before expiry; send shape', async () => {
     const h = harness()
-    await expectOk(await h.send(android({ path: '/rooms/abc123', ttlSeconds: 600, locale: 'ja', code: 'connection.reconnect' })))
+    await expectOk(await h.send(android({ path: '/rooms/abc123', ttlSeconds: 600, locale: 'ja', code: 'connection.reconnect', tag: 'dev-7' })))
     const [oauth, send] = h.calls
     expect(oauth!.url).toBe('https://oauth2.googleapis.com/token')
     expect(oauth!.method).toBe('POST')
@@ -406,7 +467,8 @@ describe('push gateway: FCM', () => {
       message: {
         token: ANDROID_TOKEN,
         notification: { title: 'Trina AX', body: '接続のために再ログインが必要です。' },
-        data: { notificationId: 'n1', code: 'connection.reconnect', path: '/rooms/abc123' },
+        // flat strings and no key named "body" (Android would read a JSON "body" as expo-notifications' own format)
+        data: { notificationId: 'n1', code: 'connection.reconnect', path: '/rooms/abc123', tag: 'dev-7' },
         android: { priority: 'HIGH', ttl: '600s', collapse_key: 'n1', notification: { channel_id: 'default', tag: 'n1' } },
       },
     })
@@ -489,12 +551,12 @@ describe('push gateway: configuration, text and logs', () => {
     const requests = [body(), body(), body({ token: dead }), android(), android({ token: `broken:${'x'.repeat(40)}` }), body({ extra: 1 }), body({ environment: 'sandbox', notificationId: 's' })]
     for (const b of requests) await h.send(b)
     await h.send(body(), TEAM, { header: null })
-    await h.gw.handle(signedRequest(TEAM, body(), T0 - 999_999))
+    await h.handle(signedRequest(TEAM, body(), T0 - 999_999))
     expect(h.logs.map((l) => l.outcome)).toEqual(['sent', 'duplicate', 'token_invalid', 'sent', 'provider_error', 'invalid_body', 'sent', 'unauthorized', 'clock_skew'])
     for (const l of h.logs) for (const k of Object.keys(l)) expect(['evt', 'outcome', 'platform', 'status']).toContain(k)
     const text = JSON.stringify(h.logs)
     const tokenIds = [IOS_TOKEN, dead, ANDROID_TOKEN].map((t) => createHash('sha256').update(t).digest('hex'))
-    for (const s of [IOS_TOKEN, dead, ANDROID_TOKEN, 'broken', TEAM.pub, TEAM.keyId, 'ya29', 'room.message', 'n1', 'bearer', ...tokenIds, ...secrets]) expect(text).not.toContain(s)
+    for (const s of [IOS_TOKEN, dead, ANDROID_TOKEN, 'broken', TEAM.pub, TEAM.keyId, 'ya29', 'room.message', 'n1', 'bearer', IP, '192.0.2', ...tokenIds, ...secrets]) expect(text).not.toContain(s)
     for (const c of h.calls) if (c.headers.get('authorization')?.startsWith('bearer ')) expect(text).not.toContain(c.headers.get('authorization')!.slice(7, 40))
   })
 })

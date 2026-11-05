@@ -1,5 +1,5 @@
-// WebCrypto helpers (the same code runs in the Worker and in Bun): base64, PEM, sha256, Ed25519 team keys, and the
-// two JWTs the providers want (APNs ES256, Google OAuth RS256).
+// WebCrypto helpers: base64, PEM, sha256, Ed25519 team keys, and the two JWTs the providers want (APNs ES256, Google
+// OAuth RS256).
 
 const enc = new TextEncoder()
 

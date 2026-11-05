@@ -136,14 +136,14 @@ test('the gateway request is signed with the team key over the exact body; priva
     calls++; headers = options.headers; options.lookup(options.hostname, {}, (_e: any, a: any, f: any) => { pinned = { address: a, family: f } })
     const req = new EventEmitter() as any; req.destroy = () => {}; req.end = (b: Buffer) => { sentBody = b.toString(); queueMicrotask(() => cb({ statusCode: 200, destroy() {} })) }; return req
   }) as unknown as typeof https.request
-  const input: NativeSend = { device: { platform: 'ios', token: iosToken(), environment: 'production' }, payload: { notificationId: 'n-1', code: 'schedule.success', locale: 'en', path: '/rooms/r1' }, config: gateway, signal: new AbortController().signal, beforeSend: () => true, ttlSeconds: 90 }
+  const input: NativeSend = { device: { platform: 'ios', token: iosToken(), environment: 'production' }, payload: { notificationId: 'n-1', code: 'schedule.success', locale: 'en', path: '/rooms/r1', tag: 'device-1' }, config: gateway, signal: new AbortController().signal, beforeSend: () => true, ttlSeconds: 90 }
   const blocked = createNativeTransport({ dataDir: h.ctx.config.dataDir, request, lookup: async () => [{ address: '10.0.0.5', family: 4 }] })
   await expect(blocked(input)).rejects.toThrow(); expect(calls).toBe(0)
   const valid = createNativeTransport({ dataDir: h.ctx.config.dataDir, request, lookup: async () => [{ address: '8.8.8.8', family: 4 }] })
   expect(await valid(input)).toEqual({ statusCode: 200 }); expect(pinned).toEqual({ address: '8.8.8.8', family: 4 })
   const body = JSON.parse(sentBody)
   expect(parsePushGatewaySend(body)).toEqual(body)
-  expect(Object.keys(body).sort()).toEqual(['code', 'environment', 'locale', 'notificationId', 'path', 'platform', 'token', 'ttlSeconds', 'v'])
+  expect(Object.keys(body).sort()).toEqual(['code', 'environment', 'locale', 'notificationId', 'path', 'platform', 'tag', 'token', 'ttlSeconds', 'v'])
   const auth = parsePushGatewayAuthorization(headers.authorization)!
   const key = crypto.createPublicKey({ key: Buffer.from(auth.key, 'base64'), format: 'der', type: 'spki' })
   expect(crypto.verify(null, Buffer.from(pushGatewaySigningString(auth.ts, crypto.createHash('sha256').update(sentBody).digest('hex'))), key, Buffer.from(auth.sig, 'base64'))).toBe(true)

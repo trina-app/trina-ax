@@ -1,9 +1,20 @@
 // FCM HTTP v1 (firebase.google.com/docs/cloud-messaging/send/v1-api) with a service account: an RS256 JWT assertion
 // is exchanged for an OAuth access token at the account's token_uri, cached until 60 s before it expires.
+//
+// `data` is flat strings { notificationId, code, path?, tag? } and never has a key named "body" (expo-notifications on
+// Android would read a JSON "body" as its own format).
 import type { PushGatewaySend } from '../../shared/src/cloud-protocol/push-gateway.ts'
 import { importRs256, signJwt, type FetchLike } from './crypto.ts'
 
 export type SendOutcome = 'sent' | 'token_invalid' | 'provider_error'
+
+/** What the app reads from a notification (APNs: the payload's `body` object; FCM: `data`). Only these keys. */
+export function appData(msg: PushGatewaySend): Record<string, string> {
+  const data: Record<string, string> = { notificationId: msg.notificationId, code: msg.code }
+  if (msg.path !== undefined) data.path = msg.path
+  if (msg.tag !== undefined) data.tag = msg.tag
+  return data
+}
 
 export interface FcmConfig { projectId: string; clientEmail: string; privateKeyPem: string; tokenUri: string }
 
@@ -63,8 +74,6 @@ export function createFcm(cfg: FcmConfig, deps: FcmDeps) {
       try {
         const token = await accessToken()
         if (!token) return 'provider_error'
-        const data: Record<string, string> = { notificationId: msg.notificationId, code: msg.code }
-        if (msg.path !== undefined) data.path = msg.path
         const res = await deps.fetch(`${deps.origin ?? FCM_ORIGIN}/v1/projects/${cfg.projectId}/messages:send`, {
           method: 'POST',
           headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' },
@@ -72,7 +81,7 @@ export function createFcm(cfg: FcmConfig, deps: FcmDeps) {
             message: {
               token: msg.token,
               notification: alert,
-              data,
+              data: appData(msg),
               android: {
                 priority: 'HIGH',
                 ttl: `${msg.ttlSeconds ?? 0}s`,

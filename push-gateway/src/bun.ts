@@ -1,14 +1,12 @@
-// Bun entry: the same gateway on a small server, for when the Worker cannot reach APNs (APNs speaks only HTTP/2 and
-// Cloudflare does not document HTTP/2 for a Worker's outbound fetch; see README.md). APNs goes through node:http2,
-// FCM and Google OAuth through Bun's fetch. State in one SQLite file (bun:sqlite, built in).
+// The push gateway's server (README.md): Bun, APNs over node:http2 (APNs speaks only HTTP/2), FCM and Google OAuth
+// through fetch, state in one SQLite file (bun:sqlite, built in). Runs behind a TLS terminator.
 //
 //   bun push-gateway/src/bun.ts                 serve (PUSH_GATEWAY_HOST, default 127.0.0.1; PUSH_GATEWAY_PORT, 8787)
 //   bun push-gateway/src/bun.ts block <keyId>   block a team key (403); unblock <keyId> takes it back
 //   bun push-gateway/src/bun.ts key-id <spki>   the key id of a base64 SPKI public key
 //
-// Environment: as in wrangler.toml plus the secrets (APNS_PRIVATE_KEY and FCM_SERVICE_ACCOUNT may instead name a file
-// with APNS_PRIVATE_KEY_FILE / FCM_SERVICE_ACCOUNT_FILE), PUSH_GATEWAY_DB (default ./push-gateway.sqlite).
-// Put it behind TLS (a reverse proxy or a Cloudflare tunnel); it trusts no client address.
+// Environment (README.md): APP_TITLE, APNS_KEY_ID, APNS_TEAM_ID, APNS_TOPIC, APNS_PRIVATE_KEY (or _FILE), APNS_SANDBOX,
+// FCM_SERVICE_ACCOUNT (or _FILE), TRUST_PROXY_HEADER, PUSH_GATEWAY_DB (default ./push-gateway.sqlite).
 import { Database } from 'bun:sqlite'
 import fs from 'node:fs'
 import http2 from 'node:http2'
@@ -103,11 +101,28 @@ export function openSqlite(path: string) {
   }
 }
 
+const ADDRESS_RE = /^[0-9A-Fa-f.:]{2,45}$/
+
+/**
+ * The caller's address: the socket's, or with `trustHeader` (TRUST_PROXY_HEADER, for a TLS proxy in front) that
+ * header's right-most entry, the address the proxy itself saw (x-forwarded-for: "<what the client sent>, <peer>";
+ * cf-connecting-ip: one address). A missing or odd header falls back to the socket address.
+ */
+export function clientAddress(req: Request, socket: string | undefined, trustHeader: string | null): string {
+  if (trustHeader) {
+    const hop = (req.headers.get(trustHeader) ?? '').split(',').map((x) => x.trim()).filter(Boolean).pop()
+    if (hop && ADDRESS_RE.test(hop)) return hop
+  }
+  return socket ?? 'unknown'
+}
+
 export interface ServeOptions {
   env: GatewayEnv
   dbPath: string
   port?: number
   hostname?: string
+  /** a header the TLS proxy in front sets to the client address (x-forwarded-for, cf-connecting-ip); null = socket */
+  trustProxyHeader?: string | null
   /** tests: provider fetch and origins; default http2Fetch() and the real hosts */
   fetch?: FetchLike
   endpoints?: GatewayDeps['endpoints']
@@ -116,26 +131,30 @@ export interface ServeOptions {
 }
 
 export function serve(opts: ServeOptions) {
+  const trust = opts.trustProxyHeader || null
+  if (trust && !/^[A-Za-z0-9-]{1,64}$/.test(trust)) throw new Error('TRUST_PROXY_HEADER must be a header name')
   const store = openSqlite(opts.dbPath)
+  const state = new ShardedState(store.open, store.blocked)
   const now = opts.now ?? (() => Date.now())
   const h2 = opts.fetch ? null : http2Fetch()
   const gateway = createGateway(opts.env, {
     fetch: opts.fetch ?? (h2 as FetchLike),
     now,
     log: opts.log ?? ((line) => console.log(JSON.stringify(line))),
-    state: new ShardedState(store.open, store.blocked),
+    state,
     endpoints: opts.endpoints,
   })
-  const timer = setInterval(() => store.sweep(now()), 60_000)
+  const timer = setInterval(() => { store.sweep(now()); state.sweep(now()) }, 60_000)
   const server = Bun.serve({
     port: opts.port ?? 8787,
     hostname: opts.hostname ?? '127.0.0.1',
     maxRequestBodySize: 64 * 1024,
-    fetch: (req) => gateway.handle(req),
+    fetch: (req, srv) => gateway.handle(req, clientAddress(req, srv.requestIP(req)?.address, trust)),
   })
   return {
     server,
     store,
+    state,
     stop() {
       clearInterval(timer)
       h2?.close()
@@ -169,6 +188,7 @@ if (import.meta.main) {
       dbPath,
       port: Number(env.PUSH_GATEWAY_PORT || 8787),
       hostname: env.PUSH_GATEWAY_HOST || '127.0.0.1',
+      trustProxyHeader: env.TRUST_PROXY_HEADER || null,
       env: {
         APP_TITLE: env.APP_TITLE, APNS_KEY_ID: env.APNS_KEY_ID, APNS_TEAM_ID: env.APNS_TEAM_ID, APNS_TOPIC: env.APNS_TOPIC,
         APNS_SANDBOX: env.APNS_SANDBOX, APNS_PRIVATE_KEY: secret('APNS_PRIVATE_KEY'), FCM_SERVICE_ACCOUNT: secret('FCM_SERVICE_ACCOUNT'),

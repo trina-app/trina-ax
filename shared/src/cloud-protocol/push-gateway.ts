@@ -1,19 +1,23 @@
 // Push gateway API (`push-gateway/`): team servers ask the gateway to deliver a native push to the phone app, so no
 // team server ever holds the Apple (APNs) or Google (FCM) keys. MIT (see LICENSE in this folder).
 //
-// NO imports at all, erasable TypeScript only: the Cloudflare Worker, Node (type stripping) and Bun load this file as
-// it is. The caller computes sha256 itself (node:crypto on the team server, WebCrypto in the Worker).
+// NO imports at all, erasable TypeScript only: the gateway (Bun), the team server and Node (type stripping) load this
+// file as it is. The caller computes sha256 itself (node:crypto on the team server, WebCrypto in the gateway).
 //
 // Request:  POST /v1/send, body = JSON PushGatewaySend (at most PUSH_GATEWAY_MAX_BODY_BYTES bytes, strict: unknown keys
 //           are refused), header
 //           Authorization: MycelPush key=<base64 SPKI Ed25519 public key>, ts=<unix ms>, sig=<base64 Ed25519 signature>
 //           sig = Ed25519 over pushGatewaySigningString(ts, sha256 hex of the exact body bytes), UTF-8.
 // Identity: the team is its public key (key id = sha256 hex of the SPKI DER). Trust on first use: an unknown key is
-//           accepted and recorded with its first-seen time; an operator can block a key (403).
+//           accepted and recorded with its first-seen time (forgotten after 24 h if nothing was ever delivered for it);
+//           an operator can block a key (403).
 // Replay:   ts within ±PUSH_GATEWAY_MAX_SKEW_MS of the gateway clock; the same (key, token, notificationId) within
 //           PUSH_GATEWAY_DEDUPE_MS is answered 200 without sending again, so a replayed request sends nothing.
 // Content:  the notification never carries message content (App Review 4.5.4): the gateway picks a generic text from
 //           `code` and `locale` itself. `path` is where the app opens, made only of ids.
+// Data:     the app reads { notificationId, code, path?, tag? }: on iOS from the APNs payload's top-level `body` object
+//           (expo-notifications reads remote data from userInfo["body"]), on Android from FCM `data` (flat strings,
+//           never a key named "body").
 
 export const PUSH_GATEWAY_SEND_PATH = '/v1/send'
 export const PUSH_GATEWAY_HEALTH_PATH = '/health'
@@ -37,7 +41,7 @@ export interface PushGatewaySend {
   environment: PushEnvironment
   /** ios: APNs device token (hex); android: FCM registration token */
   token: string
-  /** the team server's id for this notification: dedupe key, APNs collapse id, FCM collapse key / tag */
+  /** the team server's id for this notification: dedupe key, APNs collapse id, FCM collapse_key and Android notification tag */
   notificationId: string
   /** what happened, e.g. 'schedule.success', 'room.message': picks the generic text */
   code: string
@@ -46,6 +50,9 @@ export interface PushGatewaySend {
   path?: string
   /** how long the provider may keep the notification for an offline phone; absent = deliver now or never (0) */
   ttlSeconds?: number
+  /** the team server's id of the device row: the app ignores a tap whose tag is not the id it registered (a previous
+   * team's notification) */
+  tag?: string
 }
 
 /** Error codes and their HTTP status. Every answer is JSON: { ok: true } (200) or { ok: false, error: <code> }. */
@@ -64,7 +71,7 @@ export const PUSH_GATEWAY_ERRORS = {
   token_invalid: 410,
   /** body larger than PUSH_GATEWAY_MAX_BODY_BYTES */
   body_too_large: 413,
-  /** per-key or per-token limit; the answer has Retry-After (seconds) */
+  /** per client address, per key, or per (key, token) limit; the answer has Retry-After (seconds) */
   rate_limited: 429,
   /** the provider failed (5xx, 429, network, an answer the gateway does not expect): try again later */
   provider_error: 502,
@@ -85,7 +92,7 @@ const CODE_RE = /^[a-z][a-z0-9_]*(\.[a-z][a-z0-9_]*){1,3}$/
 const CODE_MAX = 64
 const PATH_RE = /^\/(?:[A-Za-z0-9_-]+(?:\/[A-Za-z0-9_-]+)*)?$/
 const PATH_MAX = 200
-const SEND_KEYS = ['v', 'platform', 'environment', 'token', 'notificationId', 'code', 'locale', 'path', 'ttlSeconds']
+const SEND_KEYS = ['v', 'platform', 'environment', 'token', 'notificationId', 'code', 'locale', 'path', 'ttlSeconds', 'tag']
 
 export function validPushToken(platform: PushPlatform, token: unknown): boolean {
   if (typeof token !== 'string') return false
@@ -129,6 +136,10 @@ export function parsePushGatewaySend(raw: unknown): PushGatewaySend | null {
     const t = o.ttlSeconds
     if (typeof t !== 'number' || !Number.isInteger(t) || t < 0 || t > PUSH_GATEWAY_MAX_TTL_SECONDS) return null
     out.ttlSeconds = t
+  }
+  if ('tag' in o) {
+    if (typeof o.tag !== 'string' || !NOTIFICATION_ID_RE.test(o.tag)) return null
+    out.tag = o.tag
   }
   return out
 }
