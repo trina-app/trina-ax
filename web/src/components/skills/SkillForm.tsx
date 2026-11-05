@@ -122,7 +122,9 @@ export function SkillForm({ path, skill: given, onDone, onSkip, skipLabel, onCom
     if (left.length) {
       // a required field folded away opens the fold first
       if (inputs.some((i) => i.advanced && left.includes(i.name))) setMore(true)
-      requestAnimationFrame(() => document.getElementById(`${formId}-${left[0]}`)?.focus())
+      // the frame can come after the page (or a test's page) is gone: then there is nothing to focus
+      const doc = document
+      requestAnimationFrame(() => { if (globalThis.document === doc) doc.getElementById(`${formId}-${left[0]}`)?.focus() })
       return
     }
     const message = composeSkillMessage(skill.name, inputs, values, free)
