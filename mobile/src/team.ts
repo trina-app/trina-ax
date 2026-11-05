@@ -38,3 +38,15 @@ export async function checkTeam(origin: string): Promise<boolean> {
     return JSON.parse(text + decoder.decode())?.ok === true
   } catch { return false } finally { clearTimeout(timer) }
 }
+
+// the team whose last page padded itself (src/look.ts padding): its next launch starts edge to edge, with no jump
+const PADS = 'team-ax.self-padded'
+export async function selfPaddedTeam(): Promise<string | null> {
+  try { return await SecureStore.getItemAsync(PADS) } catch { return null }
+}
+export async function rememberSelfPadded(origin: string, pads: boolean): Promise<void> {
+  try {
+    if (pads) await SecureStore.setItemAsync(PADS, origin)
+    else if ((await SecureStore.getItemAsync(PADS)) === origin) await SecureStore.deleteItemAsync(PADS)
+  } catch { /* the app then starts padded and the page confirms */ }
+}

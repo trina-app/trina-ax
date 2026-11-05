@@ -31,3 +31,18 @@ export function frame(o: { selfPadded: boolean; android: boolean; footer: boolea
   if (o.android && o.keyboard > 0) return { top, bottom: o.keyboard + o.insets.bottom }
   return { top, bottom: o.selfPadded || o.footer || !o.android ? 0 : o.insets.bottom }
 }
+
+/** Whether the page on screen pads itself. The app predicts it from the team's last page (a new full load of the same
+ * team pads itself if the last one did) and the page confirms it (appearance-v1). A load start changes nothing (on
+ * iOS it fires while the old page is still on screen); a fully loaded page that did not confirm within a few seconds
+ * gets the app's padding back (a team server that went back to an older web app). */
+export type Padding = { selfPadded: boolean; confirmed: boolean }
+export function padding(s: Padding, e: 'load-start' | 'appearance' | 'unconfirmed'): Padding {
+  if (e === 'appearance') return { selfPadded: true, confirmed: true }
+  if (e === 'load-start') return s.confirmed ? { ...s, confirmed: false } : s
+  return s.confirmed || !s.selfPadded ? s : { selfPadded: false, confirmed: false }
+}
+export const NO_INSETS: Insets = { top: 0, right: 0, bottom: 0, left: 0 }
+/** The inset variables a page gets: the real ones while it pads itself, zero while the app pads it (so a page that
+ * reads them never pads twice). */
+export const pageInsets = (selfPadded: boolean, insets: Insets): Insets => selfPadded ? insets : NO_INSETS

@@ -13,10 +13,10 @@ import { clearDownloadCache, fileTransferIO } from './src/files'
 import { APPEARANCE_CAPABILITY, MOBILE_CAPABILITIES, PUSH_CAPABILITY, PUSH_PERMISSION_CAPABILITY, PUSH_REGISTERED_CAPABILITY, googleOAuthUrl, navigationDecision, sameTeam, type MobileConfig } from './src/protocol'
 import { accentInk, mobileProduct } from './src/product'
 import { devicePushToken, devices, forgetDelivered, notificationPermission, onNotificationTap, openAppSettings, quietForeground } from './src/push'
-import { DARK, LIGHT, frame, insetScript, isDark, type Palette } from './src/look'
+import { DARK, LIGHT, frame, insetScript, isDark, padding, pageInsets, type Insets, type Padding, type Palette } from './src/look'
 import { currentDevice, leaveTeam, rememberDevice, retryRemovals } from './src/device'
 import { offlineError, stringsFor } from './src/strings'
-import { checkTeam, parseTeamAddress, savedTeamSince, savedTeamUrl, saveTeamUrl } from './src/team'
+import { checkTeam, parseTeamAddress, rememberSelfPadded, savedTeamSince, savedTeamUrl, saveTeamUrl, selfPaddedTeam } from './src/team'
 import type { TeamAddress } from './src/address'
 
 const product = mobileProduct(Constants.expoConfig?.extra?.teamAxEdition)
@@ -42,7 +42,7 @@ export default function App() {
   const [team, setTeam] = useState<TeamAddress | null | undefined>()
   // A tapped notification's path on the current team, with a counter so the same path can be opened twice.
   const [opened, setOpened] = useState<{ path: string; n: number } | null>(null)
-  const since = useRef(Date.now()), hasTeam = useRef(false), device = useRef<string | null>(null)
+  const since = useRef(Date.now()), hasTeam = useRef(false), device = useRef<string | null>(null), padsAtLaunch = useRef<string | null>(null)
   // the page's look (appearance-v1): status bar text and the native screens follow it; null until a page said
   const [page, setPage] = useState<PageLook | null>(null)
   const dark = isDark(page?.dark ?? null, useColorScheme())
@@ -52,8 +52,8 @@ export default function App() {
     let off = () => {}
     // removals owed to teams left while their server could not be reached
     void retryRemovals(devices).catch(() => {})
-    void Promise.all([savedTeamUrl(), savedTeamSince()]).then(async ([origin, chosen]) => {
-      since.current = chosen; hasTeam.current = !!origin
+    void Promise.all([savedTeamUrl(), savedTeamSince(), selfPaddedTeam()]).then(async ([origin, chosen, pads]) => {
+      since.current = chosen; hasTeam.current = !!origin; padsAtLaunch.current = pads
       device.current = origin ? (await currentDevice(devices, origin).catch(() => null))?.deviceId ?? null : null
       setTeam(origin ? { origin, entryPath: '/' } : null)
       off = onNotificationTap(() => since.current, () => device.current, path => { if (hasTeam.current) setOpened(o => ({ path, n: (o?.n ?? 0) + 1 })) })
@@ -65,7 +65,7 @@ export default function App() {
   return <SafeAreaProvider><Look.Provider value={dark ? DARK : LIGHT}>{Platform.OS === 'android' && <><StatusBar style={dark ? 'light' : 'dark'} /><NavigationBar style={dark ? 'light' : 'dark'} /></>}
     {team === undefined ? <Center><ActivityIndicator color={product.accent} /></Center>
       : team === null ? <Setup onDone={async address => { await saveTeamUrl(address.origin); since.current = Date.now(); hasTeam.current = true; setOpened(null); setTeam(address) }} />
-      : <TeamWeb key={team.origin} address={team} opened={opened} onDevice={id => { device.current = id }} onAppearance={look => setPage(p => p?.dark === look.dark && p.system === look.system ? p : look)}
+      : <TeamWeb key={team.origin} address={team} pads={padsAtLaunch.current === team.origin} opened={opened} onDevice={id => { device.current = id }} onAppearance={look => setPage(p => p?.dark === look.dark && p.system === look.system ? p : look)}
         onChangeTeam={async () => {
           hasTeam.current = false; device.current = null; forgetDelivered()
           // remove this phone from the team it leaves (now, or at a later start if that server cannot be reached)
@@ -106,14 +106,18 @@ function Setup({ onDone }: { onDone: (address: TeamAddress) => Promise<void> }) 
   </KeyboardAvoidingView></View>
 }
 type Failure = 'offline' | 'unreachable'
-function TeamWeb({ address, opened, onDevice, onAppearance, onChangeTeam }: { address: TeamAddress; opened: { path: string; n: number } | null; onDevice: (id: string) => void; onAppearance: (look: PageLook) => void; onChangeTeam: () => Promise<void> }) {
+function TeamWeb({ address, pads, opened, onDevice, onAppearance, onChangeTeam }: { address: TeamAddress; pads: boolean; opened: { path: string; n: number } | null; onDevice: (id: string) => void; onAppearance: (look: PageLook) => void; onChangeTeam: () => Promise<void> }) {
   const web = useRef<WebHandle>(null), navigation = useRef(0), loadFailed = useRef(false), cleanup = useRef(Promise.resolve()), ready = useRef(false)
   const [canBack, setCanBack] = useState(false), [pathname, setPathname] = useState(address.entryPath), [failed, setFailed] = useState<Failure | null>(null)
   const [source, setSource] = useState(address.origin + address.entryPath)
   const insets = useSafeAreaInsets(), c = useContext(Look)
-  // the page on screen pads itself (it reported its look, appearance-v1): until then, and again after every full load,
-  // the app keeps its own padding, so a team server that has not updated still fits between the system bars
-  const [selfPadded, setSelfPadded] = useState(false)
+  // Does the page on screen pad itself (src/look.ts padding)? Predicted from this team's last page, confirmed by the
+  // page (appearance-v1). Until a page of this team has said so, the app keeps its own padding, so a team server that
+  // has not updated still fits between the system bars.
+  const [pad, setPad] = useState<Padding>({ selfPadded: pads, confirmed: false })
+  const padRef = useRef(pad), insetsRef = useRef<Insets>(insets), stuck = useRef<ReturnType<typeof setTimeout> | null>(null)
+  padRef.current = pad; insetsRef.current = insets
+  const selfPadded = pad.selfPadded
   const receiver = useRef<MobileReceiver | null>(null)
   if (!receiver.current) {
     const config: MobileConfig = { protocol: 1, appVersion: VERSION, platform: Platform.OS === 'ios' ? 'ios' : 'android', nonce: '0'.repeat(64), generation: 1, capabilities: [...MOBILE_CAPABILITIES, PUSH_CAPABILITY, PUSH_REGISTERED_CAPABILITY, PUSH_PERMISSION_CAPABILITY, APPEARANCE_CAPABILITY] }
@@ -121,7 +125,14 @@ function TeamWeb({ address, opened, onDevice, onAppearance, onChangeTeam }: { ad
       token: () => devicePushToken(t.channelName),
       async registered({ deviceId, removeKey }) { await rememberDevice(devices, { origin: address.origin, deviceId, removeKey, at: Date.now() }); onDevice(deviceId) },
       permission: notificationPermission, openSettings: openAppSettings,
-    }, look => { onAppearance(look); setSelfPadded(true) })
+    }, look => {
+      onAppearance(look)
+      if (padRef.current.confirmed) return
+      // the insets first, then the app's padding goes: the page never sits under the status bar in between
+      web.current?.injectJavaScript(insetScript(insetsRef.current))
+      setPad(p => padding(p, 'appearance'))
+      if (!padRef.current.selfPadded) void rememberSelfPadded(address.origin, true)
+    })
     void receiver.current.disable()
   }
   const r = receiver.current
@@ -139,10 +150,11 @@ function TeamWeb({ address, opened, onDevice, onAppearance, onChangeTeam }: { ad
     if (ready.current) web.current?.injectJavaScript(`window.location.assign(${JSON.stringify(opened.path)});true;`)
     else setSource(target)
   }, [opened, address.origin])
-  // a page that pads itself draws under the status bar and the home indicator / navigation bar (web/src/index.css); it
-  // gets the insets as CSS variables when it said so, and again when they change (Android's navigation mode)
-  const insetJs = insetScript(insets)
-  useEffect(() => { if (selfPadded) web.current?.injectJavaScript(insetJs) }, [selfPadded, insetJs])
+  // A page that pads itself draws under the status bar and the home indicator / navigation bar (web/src/index.css) and
+  // gets the insets as CSS variables: before each load while the app expects it to, and again when they change
+  // (Android's navigation mode). While the app pads the page it sends zero, so the page never pads twice.
+  const insetJs = insetScript(pageInsets(selfPadded, insets))
+  useEffect(() => { web.current?.injectJavaScript(insetJs) }, [insetJs])
   // Android draws edge to edge (target SDK 36), so the window no longer shrinks for the keyboard and the page's message
   // box stayed under it. The app lifts the page by the keyboard (React Native reports its height without the navigation
   // bar under it); the page then sees a short viewport and drops its own bottom inset (web/src/lib/viewport.ts).
@@ -177,6 +189,17 @@ function TeamWeb({ address, opened, onDevice, onAppearance, onChangeTeam }: { ad
     } catch { /* opaque/local schemes never leave the WebView */ }
   }
   const fail = (kind: Failure) => { ready.current = false; void clear(); setFailed(kind) }
+  /** The page has arrived: install the bridge; a page that does not confirm it pads itself gets the app's padding. */
+  function settle(url: string) {
+    void loaded(url).then(() => {
+      ready.current = !loadFailed.current
+      const page = navigation.current
+      setTimeout(() => {
+        if (page !== navigation.current || !ready.current || padRef.current.confirmed || !padRef.current.selfPadded) return
+        setPad(p => padding(p, 'unconfirmed')); void rememberSelfPadded(address.origin, false)
+      }, 3000)
+    }, () => fail('unreachable'))
+  }
   // Offline / cannot reach the team: a native screen (the web page is not there to explain), retry reloads the page.
   if (failed) return <Center>
     <Text style={[s.title, s.centerText, { color: c.ink }]} accessibilityRole="header">{failed === 'offline' ? t.offlineTitle : t.unreachableTitle}</Text>
@@ -188,9 +211,10 @@ function TeamWeb({ address, opened, onDevice, onAppearance, onChangeTeam }: { ad
   // navigation bar in its own colours (env(safe-area-inset-*), and --app-inset-* from insetScript for WebViews that
   // report none). Any other page keeps the app's padding (src/look.ts frame). The sign-in pages end above the app's own
   // "another team" footer.
-  const pad = frame({ selfPadded, android: Platform.OS === 'android', footer: showFooter, keyboard, insets })
-  return <View style={[s.fill, { backgroundColor: c.canvas, paddingTop: pad.top, paddingLeft: insets.left, paddingRight: insets.right, paddingBottom: pad.bottom }]}><View style={s.fill}>
+  const edges = frame({ selfPadded, android: Platform.OS === 'android', footer: showFooter, keyboard, insets })
+  return <View style={[s.fill, { backgroundColor: c.canvas, paddingTop: edges.top, paddingLeft: insets.left, paddingRight: insets.right, paddingBottom: edges.bottom }]}><View style={s.fill}>
     <WebView ref={web} source={{ uri: source }} style={[s.fill, { backgroundColor: c.canvas }]}
+      injectedJavaScriptBeforeContentLoaded={insetJs}
       originWhitelist={['*']} applicationNameForUserAgent={`${product.userAgent}/${VERSION}`}
       sharedCookiesEnabled thirdPartyCookiesEnabled={false} mixedContentMode="never" allowFileAccess={false}
       allowFileAccessFromFileURLs={false} allowUniversalAccessFromFileURLs={false}
@@ -210,8 +234,17 @@ function TeamWeb({ address, opened, onDevice, onAppearance, onChangeTeam }: { ad
       // Android also reports a same-document navigation (history.pushState: the web app moving to its next page, as
       // after sign-in) as a load start, with no load end after it. The document and its bridge stay then, so nothing
       // is fenced: fencing it left the bridge off until the next full load (no session reset, push or file share).
-      onLoadStart={event => { if (Platform.OS === 'android' && !event.nativeEvent.loading) return; loadFailed.current = false; ready.current = false; setSelfPadded(false); void clear() }}
-      onLoadEnd={event => { void loaded(event.nativeEvent.url).then(() => { ready.current = !loadFailed.current }, () => fail('unreachable')) }}
+      onLoadStart={event => {
+        if (Platform.OS === 'android' && !event.nativeEvent.loading) return
+        loadFailed.current = false; ready.current = false; void clear()
+        // the old page stays on screen until the new one arrives: its frame stays too (no padding change here)
+        setPad(p => padding(p, 'load-start'))
+        // Android: a same-document navigation reported as loading gets no load end; the bridge must not stay off
+        if (stuck.current) clearTimeout(stuck.current)
+        const url = event.nativeEvent.url
+        if (Platform.OS === 'android') stuck.current = setTimeout(() => { if (!ready.current && !loadFailed.current) settle(url) }, 10_000)
+      }}
+      onLoadEnd={event => { if (stuck.current) clearTimeout(stuck.current); settle(event.nativeEvent.url) }}
       onNavigationStateChange={state => { setCanBack(state.canGoBack); if (sameTeam(address.origin, state.url)) setPathname(new URL(state.url).pathname) }}
       onMessage={event => {
         void r.receive(event.nativeEvent.data, event.nativeEvent.url).then(reply => {

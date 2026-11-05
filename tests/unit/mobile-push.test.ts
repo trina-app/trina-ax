@@ -4,7 +4,7 @@ import path from 'node:path'
 import { FileTransfers, MobileReceiver, onceEvery, PushRefused, type TransferIO } from '../../mobile/src/bridge'
 import { currentDevice, leaveTeam, rememberDevice, retryRemovals, type DeviceDeps, type TeamDevice } from '../../mobile/src/device'
 import { APPEARANCE_CAPABILITY, MOBILE_CAPABILITIES, PUSH_CAPABILITY, PUSH_PERMISSION_CAPABILITY, PUSH_REGISTERED_CAPABILITY, notificationPath, parseMessage, tappedNotificationPath, validConfig, validPushToken, type MobileConfig, type PushPermission, type PushToken } from '../../mobile/src/protocol'
-import { DARK, LIGHT, frame, insetScript, isDark } from '../../mobile/src/look'
+import { DARK, LIGHT, NO_INSETS, frame, insetScript, isDark, padding, pageInsets } from '../../mobile/src/look'
 import { IOS_USAGE, offlineError, stringsFor } from '../../mobile/src/strings'
 import appConfig from '../../mobile/app.config'
 
@@ -306,4 +306,24 @@ test('open-settings: at most once every few seconds, whatever the page sends', (
   t += 100; expect(once()).toBe(false)
   t += 2899; expect(once()).toBe(false)
   t += 1; expect(once()).toBe(true)
+})
+
+test('padding on full loads: the old page keeps its frame at load start; no padding back while the team pads itself', () => {
+  const predicted = { selfPadded: true, confirmed: false }
+  const confirmed = padding(predicted, 'appearance')
+  expect(confirmed).toEqual({ selfPadded: true, confirmed: true })
+  // a reload: the old page is still on screen, the frame stays edge to edge (iOS fires load start before the page)
+  const reloading = padding(confirmed, 'load-start')
+  expect(reloading.selfPadded).toBe(true)
+  expect(padding(reloading, 'appearance')).toEqual(confirmed) // the new page says so again: nothing moved
+  // a page that never said it pads itself (an older web app came back): the app pads it again
+  expect(padding(reloading, 'unconfirmed')).toEqual({ selfPadded: false, confirmed: false })
+  expect(padding(confirmed, 'unconfirmed')).toEqual(confirmed) // a confirmed page is never padded twice
+  // a team server that has not updated: padded throughout
+  const old = { selfPadded: false, confirmed: false }
+  expect(padding(padding(old, 'load-start'), 'unconfirmed')).toEqual(old)
+  // the page's inset variables: real ones only while it pads itself, zero while the app pads it
+  const insets = { top: 24, right: 0, bottom: 48, left: 0 }
+  expect(pageInsets(true, insets)).toEqual(insets)
+  expect(pageInsets(false, insets)).toEqual(NO_INSETS)
 })
