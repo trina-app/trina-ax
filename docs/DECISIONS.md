@@ -7973,7 +7973,7 @@ The phone app (mobile/, Expo SDK 58 WebView of a team's HTTPS web app) goes to T
   notification goes to the list without a banner (the web app is live). On iOS, expo-notifications reads remote data
   from the APNs payload's `body` dictionary, so the gateway puts `{ notificationId, code, path, device }` there; FCM
   data stays flat.
-- **Server: a native device is a `push_subscriptions` row of kind `native`** (migration 240: `kind`; 242: `remove_hash`), not
+- **Server: a native device is a `push_subscriptions` row of kind `native`** (migration 243: `kind`; 245: `remove_hash`), not
   a second table. Every event the push service delivers, including codes other branches add, reaches phones through the
   same `push_deliveries`, session binding (`ON DELETE CASCADE`: logout removes the device), opt-out, beforeSend
   re-check after DNS, retry budget and expiry. The token is vault-encrypted (kind `native-push`, so an older build
@@ -8009,7 +8009,7 @@ The phone app (mobile/, Expo SDK 58 WebView of a team's HTTPS web app) goes to T
   person confirms and the owner (only the owner: admins cannot act on it) gets an in-app notice (no OS push) that opens
   Admin › Members at that person. Removing that person works as for anyone: the account goes and the personal files
   are archived for the owner (they are not deleted). The owner cannot ask (409; hand over the role first). Requests are
-  idempotent, audited, at most five a day (migration 241).
+  idempotent, audited, at most five a day (migration 244).
 - **Release build**: Expo's "Generate app.config" build phase runs `expo config` again inside xcodebuild, so
   `scripts/ios-release.sh` exports the edition for the whole run and refuses an export whose embedded config is not the
   edition's (build 1 showed "Team AX" inside the app because only prebuild had the edition).

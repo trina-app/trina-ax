@@ -32,7 +32,7 @@ const tableOf = (e: NotificationEventType) => isSkillEvent(e) ? 'skill_notices' 
 /** One inbox over the tables: skill notices (migration 211, R2-SKILL-12), dev environment notices (migration 219),
  * requests to connect a service (migration 220), a member's request for an AI connection (migration 231), joins
  * through the team invite link (migration 111), a member's first run of a team skill during the 7-day team goal
- * (migration 223) and a person's request to have their account deleted (migration 241) have their own tables, because
+ * (migration 223) and a person's request to have their account deleted (migration 244) have their own tables, because
  * notification_inbox has a fixed event_type CHECK list and tables are never rebuilt. */
 const NOTICE_TABLES = ['notification_inbox', 'skill_notices', 'dev_env_notices', 'integration_request_notices', 'onboarding_notices', 'team_join_notices', 'onboarding_goal_notices', 'account_deletion_notices'] as const
 const INBOX = `(${NOTICE_TABLES.map((t) => `SELECT id,user_id,event_type,source_id,created_at,read_at,suppressed FROM ${t}`).join(' UNION ALL ')})`
@@ -97,7 +97,7 @@ export class Notifications {
     this.record(userId, 'team.joined', joinedUserId, createdAt, true)
   }
   /** A person asks this owner to delete their account (auth/deletion-requests.ts). The source is the person's id only;
-   * one row per owner and person (UNIQUE, migration 241): asking again after a cancel re-arms it (unread, new time)
+   * one row per owner and person (UNIQUE, migration 244): asking again after a cancel re-arms it (unread, new time)
    * instead of adding one, so asking and cancelling over and over never fills the inbox. Shown always: there is no
    * setting for it, and someone waits for the owner. Never the owner's own request. */
   deletionRequest(ownerId: string, requesterId: string, createdAt = new Date().toISOString()) {

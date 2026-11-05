@@ -1,6 +1,6 @@
 // A person asks for their own account to be deleted ("계정 삭제 요청", Settings › Profile; App Store review 5.1.1(v):
 // an app with accounts lets people start the deletion inside the app). Owner: A (server/src/auth/deletion-requests.ts,
-// registered by server/src/routes/auth.ts; tables: server/migrations/241_b_account_deletion_requests.sql).
+// registered by server/src/routes/auth.ts; tables: server/migrations/244_b_account_deletion_requests.sql).
 //
 // Team admins make the accounts and only the team owner deletes them (Admin › Members, DELETE /api/admin/users/:id),
 // so this does not delete anything: it tells the owner in their inbox (event 'account.deletion_request', not an OS

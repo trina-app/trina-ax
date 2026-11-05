@@ -1,5 +1,5 @@
 // A person asks the team owner to delete their own account (contract: shared/src/api/account-deletion.ts; tables:
-// server/migrations/241_b_account_deletion_requests.sql; App Store review 5.1.1(v)). Team admins make the accounts and
+// server/migrations/244_b_account_deletion_requests.sql; App Store review 5.1.1(v)). Team admins make the accounts and
 // only the owner deletes them (admin/users.ts deleteUser), so this deletes nothing itself:
 //   - the request is one row per person (one open request at most); asking while one is open changes nothing
 //   - it is told to the owner(s) in their inbox only (notifications/service.ts deletionRequest: the person's id, the

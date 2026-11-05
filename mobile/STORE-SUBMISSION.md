@@ -23,7 +23,7 @@ What the owner provides or decides before each store step. Engineering steps and
 - Run the push gateway (push-gateway/README.md): `bun push-gateway/src/bun.ts` behind TLS at `push.trina.app`, with
   `APNS_PRIVATE_KEY`, `APNS_KEY_ID` (and later `FCM_SERVICE_ACCOUNT`) in its environment. A Cloudflare Worker cannot
   reach APNs (HTTP/2 only).
-- Team servers need the release with migration 240 (`/api/push/devices`) and `push.gatewayUrl: "https://push.trina.app"`
+- Team servers need the release with migrations 243 and 245 (`/api/push/devices`) and `push.gatewayUrl: "https://push.trina.app"`
   in server.json (or `MYCEL_PUSH_GATEWAY`): phone push is off until then. Owners see it in Settings › Notifications.
 
 ## App Store review (owner)
