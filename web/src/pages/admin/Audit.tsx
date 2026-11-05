@@ -5,6 +5,7 @@ import clsx from 'clsx'
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { ChevronDown, FileText, LogIn, Search, ShieldCheck, SlidersHorizontal, Wrench, type LucideIcon } from 'lucide-react'
+import { BROWSER_STEP_VERB, FILE_STEP_VERB } from '@mycel/shared'
 import type { AuditEntry } from '@mycel/shared/api'
 import { api, API, errorText } from '../../lib/api'
 import { intlTag } from '../../lib/format'
@@ -12,7 +13,7 @@ import {
   ACTIVITY_KINDS, ACTIVITY_RANGES, NO_FILTERS, dayLabel, filtersActive, groupActivity, inSentence, matchesQuery, pathQuery,
   rangeBounds, readFilters, writeFilters, type ActivityFilters, type ActivityKind, type ActivityRun,
 } from '../../lib/activity'
-import { DICTS, useLocale, useT, type MessageKey } from '../../i18n'
+import { currentLocale, DICTS, useLocale, useT, type MessageKey } from '../../i18n'
 import { Badge, Button, ErrorNote, Skeleton, StickyHeader } from '../../components/ui'
 import { useLoad } from './common'
 
@@ -224,24 +225,61 @@ function Row({ run }: { run: ActivityRun }) {
   )
 }
 
-/** "signed in", "changed a team skill · skills/x/SKILL.md", "AI used read · read groups/x -> denied". The action id
- * stays in the tooltip for anyone matching it with the server log. */
+/** "signed in", "changed a team skill · skills/x/SKILL.md", "프로젝트 만듦 · 출시 준비", "AI가 파일 읽기 사용 ·
+ * groups/x/a.csv". The action id stays in the tooltip for anyone matching it with the server log; ids and the tool's
+ * summary as the server wrote it are in the row's details. */
 function Sentence({ e }: { e: AuditEntry }) {
   const t = useT()
   const label = actionLabel(t, e)
-  const summary = e.source === 'tool' && typeof e.detail?.summary === 'string' ? e.detail.summary : ''
-  // a sign-in's item is the username, already the person on the row
-  const item = e.source === 'auth' ? null : e.target
+  const item = rowItem(e)
   return (
     <>
       {e.source === 'tool' && <span className="text-faint">· </span>}
       <span className="text-muted" title={e.action}>
         {e.source === 'tool' ? t('activity.aiUsed', { tool: label }) : inSentence(label)}
       </span>
-      {item && <span className="text-faint"> · <span className="font-mono text-xs">{item}</span></span>}
-      {summary && <span className="text-faint"> · {arrows(summary)}</span>}
+      {item && <span className="text-faint"> · <span className={clsx(item.code && 'font-mono text-xs')}>{item.text}</span></span>}
+      {item?.confirmed && <span className="text-faint"> · {t('activity.confirmedByUser')}</span>}
     </>
   )
+}
+
+const ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+/**
+ * What the row names after the action, when it reads as words: the item (a path, a username, a skill folder); for an
+ * item that is an id (a project's, a room's, an invite's) its name when the entry has one; for an AI tool, the path or
+ * address it worked on ("read shared/a.csv -> 4 lines" → shared/a.csv). A sign-in's item is the username, already the
+ * person on the row. The rest (the id, the whole summary, the process behind a tool connection) is in the details.
+ */
+export function rowItem(e: AuditEntry): { text: string; code: boolean; confirmed?: true } | null {
+  if (e.source === 'auth') return null
+  if (e.source === 'tool') {
+    const summary = typeof e.detail?.summary === 'string' ? e.detail.summary : ''
+    const [head = '', ...rest] = summary.split(' -> ')
+    const tail = rest.join(' -> ')
+    // "(confirmed by the user)", "(address confirmed by the user)", …: the person allowed it on a card
+    const confirmed = /confirmed by the user/.test(summary) ? ({ confirmed: true } as const) : {}
+    const item = head.startsWith(`${e.action} `) ? head.slice(e.action.length + 1).trim() : ''
+    // a web address (web_fetch …): host and path, and "?…" when a query was left out (the query is where data that
+    // leaves would be: an admin needs to see that there was one)
+    const url = /^https?:\/\/\S+/i.exec(item)?.[0]
+    if (url) {
+      try {
+        const u = new URL(url)
+        return { text: `${u.host}${u.pathname === '/' ? '' : u.pathname}${u.search ? '?…' : ''}`, code: true, ...confirmed }
+      } catch { /* not an address after all */ }
+    }
+    // a file the tool saved (make_file pdf -> users/a/b.pdf 12B, save_url -> users/a/b.png (…)): the saved path
+    if (e.action === 'make_file' || e.action === 'save_url') {
+      const saved = /^(\S+\/\S+)/.exec(tail)?.[1]
+      return saved ? { text: saved, code: true, ...confirmed } : null
+    }
+    return item.includes('/') && !/[{}"=]/.test(item) ? { text: item, code: true, ...confirmed } : null
+  }
+  if (!e.target) return null
+  if (!ID.test(e.target)) return { text: e.target, code: true }
+  const name = e.detail?.name
+  return typeof name === 'string' && name.trim() ? { text: name, code: false } : null
 }
 
 /** Everything the row knows: exact time, who (and their id), the action id, the item, where from, and the rest as is. */
@@ -318,12 +356,18 @@ const who = (t: ReturnType<typeof useT>, e: AuditEntry) => e.actor?.name ?? t(e.
 
 /**
  * What happened, in words: admin and sign-in actions ("auth.login" → "로그인"), file events ("conflict" → "충돌 사본
- * 만듦"). Tool calls keep the tool's name (read, write, web_fetch: the summary next to it says what it did); the id
- * stays in the tooltip for anyone matching it with the server log. Unknown ids are shown as they are.
+ * 만듦"), and the AI's own tools in the words of the steps under an answer ("read" → "파일 읽기", shared/step-labels.ts).
+ * The id stays in the tooltip for anyone matching it with the server log. Unknown ids (another service's tool) are
+ * shown as they are.
  */
 export function actionLabel(t: ReturnType<typeof useT>, e: AuditEntry): string {
-  const key = e.source === 'file' ? `audit.file.${e.action}` : e.source === 'tool' ? (e.action === '(connect)' ? 'audit.tool.connect' : '') : `audit.act.${e.action}`
-  return key && key in DICTS.ko ? t(key as MessageKey) : e.action
+  if (e.source === 'tool') {
+    if (e.action === '(connect)') return t('audit.tool.connect')
+    const words = Object.hasOwn(FILE_STEP_VERB, e.action) ? FILE_STEP_VERB[e.action] : Object.hasOwn(BROWSER_STEP_VERB, e.action) ? BROWSER_STEP_VERB[e.action] : undefined
+    return words?.[currentLocale()] ?? e.action
+  }
+  const key = e.source === 'file' ? `audit.file.${e.action}` : `audit.act.${e.action}`
+  return key in DICTS.ko ? t(key as MessageKey) : e.action
 }
 
 /** Tool calls: whether the call was refused (permission) or failed. */

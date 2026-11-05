@@ -166,8 +166,9 @@ function CopyableTable({ children }: { children: ReactNode }) {
     setTimeout(() => setCopied(false), 1500)
   }
   return (
-    // phones (button always shown): the button sits under the table instead of on its top border, over the header row
-    <div className="group relative my-3 max-sm:flex max-sm:flex-col">
+    // the button sits under the table on the right, over nothing (on its top border it covered the last header cell);
+    // phones: always shown, screens with a pointer: on hover or focus, like a quote's copy button
+    <div className="group relative my-3 flex flex-col">
       <div className="relative">
         {/* a wider fade than the tab rows, and a round arrow at the cut edge: the mask alone is faint on the dark page */}
         <div ref={scroller} className="edge-fade peer overflow-x-auto rounded-lg border border-line [--fade:3rem]!" data-testid="md-table-scroll">
@@ -183,7 +184,7 @@ function CopyableTable({ children }: { children: ReactNode }) {
         type="button"
         onClick={copy}
         title={t('md.copyTableHint')}
-        className="absolute -top-2.5 right-2 flex items-center gap-1 max-sm:static max-sm:mt-1.5 max-sm:self-end rounded-md border border-line bg-surface px-1.5 py-0.5 text-xs font-medium text-muted shadow-sm transition hover:text-ink sm:opacity-0 sm:group-hover:opacity-100 sm:focus-visible:opacity-100"
+        className="mt-1 flex items-center gap-1 self-end rounded-md px-1.5 py-0.5 text-xs font-medium text-muted transition hover:bg-hover hover:text-ink sm:opacity-0 sm:group-hover:opacity-100 sm:focus-visible:opacity-100"
       >
         {copied ? <Check size={12} className="text-ok" aria-hidden /> : <Copy size={12} aria-hidden />}
         {copied ? t('common.copied') : t('md.copyTable')}

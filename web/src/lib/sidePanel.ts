@@ -39,3 +39,9 @@ export const openFilePreview = (file: PreviewFile) => setSidePanel({ kind: 'file
 export const openTeamFile = (path: string, at?: SourceLoc | null) => openFilePreview({ source: 'team', path, name: path.slice(path.lastIndexOf('/') + 1), ...(at ? { at } : {}) })
 export const openArtifact = (chatId: string, artifactKey: string, versionId?: string) => setSidePanel({ kind: 'artifact', chatId, artifactKey, versionId })
 export const closeSidePanel = () => setSidePanel(null)
+
+/** A file panel belongs to the page it was opened on (components/Layout.tsx). Moving from there (`from`) to `to` keeps
+ * it only for the Files page (open in folder, a file link) or a new-chat page (Home, a project's page) becoming the chat
+ * its first message made; another chat, a new chat or any other page closes it. */
+export const keepsFilePanel = (from: string, to: string) =>
+  to === '/files' || to.startsWith('/files/') || ((from === '/' || from.startsWith('/projects/')) && to.startsWith('/c/'))

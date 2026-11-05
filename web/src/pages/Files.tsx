@@ -457,7 +457,9 @@ export default function Files() {
   }
 
   const rename = async (e: FileEntry) => {
-    const name = await promptDialog({ title: t('files.rename'), label: t('files.newName'), initial: e.name, confirm: t('common.save'), validate: (v) => (nameProblem(v) ? t(`files.name.${nameProblem(v)!}`) : null) })
+    // a file's name starts selected without its extension (".bashrc" and a folder: all of it)
+    const dot = e.type === 'folder' ? -1 : e.name.lastIndexOf('.')
+    const name = await promptDialog({ title: t('files.rename'), label: t('files.newName'), initial: e.name, select: dot > 0 ? dot : e.name.length, confirm: t('common.save'), validate: (v) => (nameProblem(v) ? t(`files.name.${nameProblem(v)!}`) : null) })
     if (!name || name === e.name) return
     try {
       if (await moveConfirmed({ from: e.path, to: joinPath(parentPath(e.path), name), onExists: 'fail' })) void load()

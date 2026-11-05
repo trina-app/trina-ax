@@ -400,7 +400,7 @@ test('version history with restore; start a chat with a file', async ({ page }) 
   await expect(list).toContainText('Bob')
   await list.locator('[data-version="1"]').getByRole('button', { name: '되돌리기' }).click()
   await page.getByTestId('dialog-confirm').click()
-  await expect(page.getByText('v1으로 되돌렸어요.')).toBeVisible()
+  await expect(page.getByText('v1로 되돌렸어요.')).toBeVisible()
 
   // a file goes into a new chat as an attached team file (a folder is still named in the prompt)
   await rowMenu(page, 'notes.txt', 'AI에게 이 파일 물어보기')
@@ -420,7 +420,7 @@ test('version history: every earlier version can be restored, the newest too; on
   for (const v of ['1', '2']) await expect(list.locator(`[data-version="${v}"]`).getByRole('button', { name: '되돌리기' })).toBeVisible()
   await list.locator('[data-version="2"]').getByRole('button', { name: '되돌리기' }).click()
   await page.getByTestId('dialog-confirm').click()
-  await expect(page.getByText('v2으로 되돌렸어요.')).toBeVisible()
+  await expect(page.getByText('v2로 되돌렸어요.')).toBeVisible()
 
   // finance is read-only for this person: the history shows, versions download, nothing restores
   await page.goto('/files?path=finance/2026')
