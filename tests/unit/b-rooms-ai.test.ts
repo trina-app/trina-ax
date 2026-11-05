@@ -837,6 +837,31 @@ describe("a room session's history is what the room holds", () => {
   })
 })
 
+describe('a preview from before each question kept its own scope', () => {
+  test("is never decided from the session (a later question's scope): its reasons stand; without any, it is not posted", async () => {
+    const roomId = await room(['alice', 'erin'])
+    const one = await ask('alice', roomId, `@트리나 falcon\n${fake({ tool: 'read', args: { file_path: 'projects/falcon/plan.md' } }, { say: 'plan' })}`)
+    const preview = (await answerTo('alice', roomId, one.q))!
+    expect(preview.preview).toMatchObject({ folders: ['projects/falcon'] })
+    // as a row written before migration 246: no scope of its own
+    h.ctx.db.query('UPDATE room_ai_turns SET scope = NULL WHERE answer_id = ?').run(preview.id)
+    const stored = (h.ctx.db.query('SELECT decision FROM room_ai_turns WHERE answer_id = ?').get(preview.id) as { decision: string }).decision
+    // a later question with other reasons (alice's own folder) is the session's scope now
+    const two = await ask('alice', roomId, `@트리나 todo\n${fake({ tool: 'read', args: { file_path: 'users/alice/todo.md' } }, { say: 'todo' })}`)
+    expect((await answerTo('alice', roomId, two.q))?.preview).toMatchObject({ personal: true, folders: [] })
+    const shared = await h.api('alice').call(API.shareRoomMessage, { params: { id: roomId, messageId: preview.id } })
+    expect(shared.visibility).toBe('room')
+    expect((h.ctx.db.query('SELECT decision FROM room_ai_turns WHERE answer_id = ?').get(preview.id) as { decision: string }).decision).toBe(stored)
+    // no scope and no reasons kept: it cannot be checked, so it is not posted; the person is told to ask again
+    const second = (await answerTo('alice', roomId, two.q))!
+    h.ctx.db.query('UPDATE room_ai_turns SET scope = NULL, decision = NULL WHERE answer_id = ?').run(second.id)
+    const r = await h.req('alice', `/api/rooms/${roomId}/messages/${second.id}/share`, { method: 'POST' })
+    expect(r.status).toBe(409)
+    expect((await r.json()).error.params.reason).toBe('room_ai_ask_again')
+    expect(await answerTo('erin', roomId, two.q)).toBeUndefined()
+  })
+})
+
 // ---------------- the live test of 2026-11-05: a member with no group got only private previews ----------------
 describe('what makes an answer private: what some member could not see, per question', () => {
   /** bob without his groups for the test (a member with no group, like the live test's Noah; the rooms of the tests

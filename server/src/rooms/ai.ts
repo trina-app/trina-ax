@@ -353,19 +353,24 @@ export class RoomAi implements RoomTurns {
     // does not exist, also once it is in the room
     if (!m || m.author_kind !== 'ai' || m.asked_by !== userId || m.deleted_at || !canSee(m, me)) return fail('not_found')
     if (m.visibility === 'room') return messagesOut(db, [m], me)[0]!
-    // why it is private is decided again now (members and rules may have changed): new reasons are shown to the person
-    // first, and they post it with those in sight (the same call again)
+    // why it is private is decided again now, on what its own question used (members and rules may have changed): new
+    // reasons are shown to the person first, and they post it with those in sight (the same call again)
     const t = db.query('SELECT * FROM room_ai_turns WHERE answer_id = ?').get(m.id) as TurnRow | null
-    if (t) {
-      // on what its own question used (a preview from before the scope was kept per question: the session's now)
-      const d = this.decide(roomId, t.chat_id, storedScope(t.scope))
+    const scope = t ? storedScope(t.scope) : undefined
+    if (t && scope) {
+      const d = this.decide(roomId, t.chat_id, scope)
       const now = d.post ? null : decisionJson(d)
       if (now && now !== t.decision) {
         db.query('UPDATE room_ai_turns SET decision = ? WHERE turn_id = ?').run(now, t.turn_id)
         rooms.messageEvent('room.message.updated', m)
         return fail('conflict', tr('roomAiReasonsChanged', this.rt().userLocale(userId)), { params: { reason: 'room_ai_reasons_changed' } })
       }
+    } else if (!t?.decision) {
+      // nothing says what it used (no row, or a row without reasons): it cannot be checked, so it is not posted
+      return fail('conflict', tr('roomAiAskAgain', this.rt().userLocale(userId)), { params: { reason: 'room_ai_ask_again' } })
     }
+    // else a preview from before each question kept its own scope (migration 246): the session's scope now is a later
+    // question's, so it is never decided from that; the reasons the person was shown stand, and are not overwritten
     const people = this.readers(roomId).map((r) => r.who)
     const rules = this.ctx.files.rules(), fx = this.ctx.files.fx
     const readable = (p: Principal | null, rel: string) => { if (!p) return false; try { const a = authorize(fx, rules, p, rel, 'read'); return !a.st?.isDirectory() && !!visiblePath(fx, rules, p, a.rel) } catch { return false } }
@@ -487,7 +492,7 @@ function ruledFolderOf(rules: RuleSet, segs: readonly string[]): string {
   return best
 }
 
-/** A question's scope as kept on its row (null or unreadable: none kept, decide() reads the session's). */
+/** A question's scope as kept on its row (null or unreadable: none kept). */
 function storedScope(v: string | null): TurnScope | undefined {
   if (!v) return undefined
   try {

@@ -8332,8 +8332,10 @@ every week. Placement: Team AX core (skills, files and permissions, the team lin
     the history keeps the end of a long newest message, which the room may never have got (review of ae4c861c). The
     12-hour rule now only starts a
     new conversation. What a question used is kept on its row (`room_ai_turns.scope`, migration 246) so that posting
-    its preview later decides again on that question, not the latest one; a row from before has none and is decided
-    on the session's scope. Kept as they were: previews never return as context, the pre-join check, the card for
+    its preview later decides again on that question, not the latest one. A row from before has none: it is never
+    decided from the session (whose scope is now a later question's); the reasons the person was shown stand and are
+    not overwritten, and a preview with no reasons kept either is not posted (409 `room_ai_ask_again`, "다시 물어봐
+    주세요") (review of ae4c861c). Kept as they were: previews never return as context, the pre-join check, the card for
     every change, the room prompt and tool allowlists.
   - **The change card in words.** Under "바꿀 내용" the card showed the call's JSON (`{"file_path":…,"content":…}`).
     It now shows what the call does (the step verb: 파일 저장, 파일 수정, 파일 옮기기, …), the file or folder, and the
