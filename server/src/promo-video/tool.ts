@@ -88,7 +88,7 @@ export async function makePromoVideo(ctx: AppContext, a: PromoVideoInput, t: Too
   return {
     text: `Made the promo video "${a.title}" (${DURATION} s with music, the "${style}" style${changed}; beats made with type and light instead of a picture: ${typeOnly.join(', ') || 'none'}). ` +
       'It opens by itself next to the chat (muted until the person turns the sound on). Your answer is one short line in the person\'s language: that the video is made and that they can say which scene or words to change; ' +
-      'only if scene 2 or 3 is listed above as made with type and light, one more sentence that names that scene (in plain words, e.g. "두 번째 장면") and says pictures added to the brand images folder can go in next time; scenes 1, 4 and 5 never count. ' +
+      'only if scene 2 or 3 is listed above as made with type and light, one more sentence that names that scene (in plain words in their language, e.g. "the second scene") and says pictures added to the brand images folder can go in next time; scenes 1, 4 and 5 never count. ' +
       'Nothing else: no tool, skill or slot names, no style ids, colour codes or file paths, no list of the beats, no HTML.',
     summary: `${PROMO_TOOL} ${doc.family} -> artifact ${s.key} v${s.version}`,
     structured: { key: s.key, version: s.version, artifactId: s.id },
