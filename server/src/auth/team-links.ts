@@ -33,6 +33,7 @@ import { fail } from '../http/errors'
 import { audit } from '../admin/audit'
 import { getTeamSettings } from '../admin/settings'
 import { readSkill } from '../chat/skills'
+import { skillMakerName } from '../skills/author'
 import { Vault } from '../credentials/vault'
 import { notifyTeamJoined } from '../notifications/service'
 import type { Principal } from '../policy/access'
@@ -112,9 +113,9 @@ const newMember = (groups: string[]): Principal => ({ id: '\u0000new-person', na
 
 /** A team skill (skills/…, never a personal one) this person can open, or null. `title`: the name people read (its
  * metadata title, else its name), for the card, the join page and the ready-made message. */
-function teamSkill(ctx: AppContext, who: Principal, p: string): { path: string; name: string; title: string } | null {
+function teamSkill(ctx: AppContext, who: Principal, p: string): { path: string; name: string; title: string; form: boolean } | null {
   const s = readSkill(ctx.files, who, p)
-  return s && s.path.split('/')[0] === 'skills' ? { path: s.path, name: s.name, title: skillTitle(s) } : null
+  return s && s.path.split('/')[0] === 'skills' ? { path: s.path, name: s.name, title: skillTitle(s), form: !!s.inputs?.length } : null
 }
 
 /** The link's skill as the viewer may read it now: name and title null when they cannot. */
@@ -371,10 +372,16 @@ export async function joinTeamLink(c: Context<AppEnv>, ctx: AppContext, b: z.out
   notifyTeamJoined(ctx, r.created_by ? [...owners, r.created_by] : owners, id)
   // the skill the link names, only when the new member can open it now (the folder rules decide, not the link)
   const me = viewerOf(ctx, id)
-  const skill = r.skill_path && me ? teamSkill(ctx, me, r.skill_path) : null
-  const starter = skill && me ? joinStarter(ctx, me, r, skill) : null
+  const found = r.skill_path && me ? teamSkill(ctx, me, r.skill_path) : null
+  const skill = found ? { path: found.path, name: found.name, title: found.title } : null
+  // who made the skill (its file's first version; none for a starter pack's own text): the line above its form, or the
+  // arrival's line for a skill without a form (docs/DECISIONS.md "S — The lead's way becomes a team skill")
+  const maker = skill ? skillMakerName(ctx.db, skill.path) : null
+  const skillBy = maker?.name ?? null
+  // the link's files (M), else a skill made by someone without a form: a new chat with its title and one question
+  const starter = skill && me ? (joinStarter(ctx, me, r, skill) ?? (maker && !found!.form ? { kind: 'skill' as const, skill, files: [], by: skillBy } : null)) : null
   const signed = a.signIn(c, id, b.client, b.tokenMode)
-  return { ...signed, next: skill ? `/skills?run=${encodeURIComponent(skill.path)}` : null, starter }
+  return { ...signed, next: skill ? `/skills?run=${encodeURIComponent(skill.path)}` : null, starter, skillBy }
 }
 
 /** The link's starter for the member who just joined: the files they can open now (one they cannot is left out

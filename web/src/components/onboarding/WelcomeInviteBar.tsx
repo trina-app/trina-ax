@@ -1,13 +1,14 @@
 // On the chat the welcome steps' first result ran in (pages/Welcome.tsx), once its answer is in, one slim bar with one
-// button [팀원 초대]. With the lead's team files in that chat (docs/DECISIONS.md "M — One meeting note, everyone's own
-// tasks"): "팀원도 이 회의록에서 각자 할 일을 바로 받아요", or, when the skill said the files were not meeting notes and
-// gave a brief, "팀원도 이 자료에서 각자 필요한 것만 바로 봐요"; the invite then carries those files as its starter, so
-// people who join land on a new chat with them and their own question. With the ad copy (no files): "팀원도 이 스킬을
-// 바로 써 볼 수 있어요" and people land on its form. Closing the bar asks the soft "most teams start with one or two"
-// first, as the invite step does. Only the owner sees it, and only until the invite is done or put off.
-import { UserPlus, X } from 'lucide-react'
+// button. With the lead's team files in that chat (docs/DECISIONS.md "S — The lead's way becomes a team skill"): "팀원
+// AI도 이 방식대로 하게 할까요?" [팀 스킬로 만들기]; the skill card (SkillShareCard) drafts a team skill from that answer
+// and its files, the lead shares it, and the invite step follows with that skill: people who join land on its form, or
+// on a new chat with its title when it asks nothing. Its X puts the invite off. With the ad copy (no files, our own
+// skill: making a team skill of it would only copy ours): "팀원도 이 스킬을 바로 써 볼 수 있어요" [팀원 초대], people land
+// on its form, and closing the bar asks the soft "most teams start with one or two" first, as the invite step does.
+// Only the owner sees it, and only until the invite is done or put off.
+import { Sparkles, UserPlus, X } from 'lucide-react'
 import { useEffect, useMemo, useState } from 'react'
-import type { Message, TeamLinkStarter, WelcomeStepState } from '@mycel/shared/api'
+import type { Message, SavedSkillDraft, WelcomeStepState } from '@mycel/shared/api'
 import { resultStarter, showInviteBar } from '../../lib/welcome'
 import { useT } from '../../i18n'
 import { isOwner, useMe } from '../../store/session'
@@ -15,6 +16,7 @@ import { toast } from '../../store/ui'
 import { useWelcome } from '../../store/welcome'
 import { Button, IconButton, Modal } from '../ui'
 import { InviteStep, SkipDialog } from './InviteStep'
+import { SkillShareCard } from './SkillShareCard'
 
 type ChatMessage = Pick<Message, 'role' | 'content' | 'attachments'>
 
@@ -25,6 +27,9 @@ export function WelcomeInviteBar({ chatId, answered, messages = [] }: { chatId: 
   const progress = useWelcome((s) => s.progress)
   const [open, setOpen] = useState(false)
   const [asking, setAsking] = useState(false)
+  // the skill card, then the invite with the skill it shared
+  const [card, setCard] = useState(false)
+  const [shared, setShared] = useState<SavedSkillDraft | null>(null)
   useEffect(() => {
     if (owner) void useWelcome.getState().load().catch(() => {})
   }, [owner])
@@ -39,23 +44,45 @@ export function WelcomeInviteBar({ chatId, answered, messages = [] }: { chatId: 
   const finish = (state: WelcomeStepState) => {
     setOpen(false)
     setAsking(false)
+    setCard(false)
     void useWelcome.getState().update({ step: { id: 'invite', state } }).then(
       (p) => { if (p.finishedAt) toast({ level: 'success', text: t('welcome.finished') }) },
       () => toast({ level: 'error', text: t('error.network') }),
     )
   }
-  // the team files: "할 일 정리" for their own tasks, or "핵심 정리" when the answer was a brief; else the ad copy
-  const skillPath = found
-    ? (found.kind === 'brief' ? (progress.general?.briefPath ?? progress.general?.tasksPath) : progress.general?.tasksPath) ?? null
-    : (progress.pack?.skillPath ?? null)
-  // a starter goes with a skill (the server needs one); the files are checked again when someone joins
-  const starter: TeamLinkStarter | null = found && skillPath ? { kind: found.kind, files: found.files.slice(0, 20) } : null
-  const text = found ? t(found.kind === 'brief' ? 'welcome.bar.brief' : 'welcome.bar.tasks') : t('welcome.bar.skill')
-  const title = found || !skillPath ? t('teamLink.stepTitle') : t('welcome.invite.title', { skill: t('welcome.skillName') })
+  // the lead's own files: their way of working becomes a team skill first ("S")
+  if (found)
+    return (
+      <>
+        {answered && (
+          <div className="mb-2 flex flex-wrap items-center gap-2 rounded-xl border border-line bg-subtle py-1.5 pr-1.5 pl-3 text-sm" data-testid="welcome-invite-bar" data-kind="skill-share">
+            <Sparkles size={15} className="shrink-0 text-accent-text" aria-hidden />
+            <span className="min-w-0 flex-[1_1_12rem] leading-6" data-testid="welcome-invite-text">{t('skillShare.bar')}</span>
+            <span className="flex items-center gap-1">
+              <Button size="sm" variant="primary" onClick={() => { setCard(true); if (!progress.inviteShownAt) void useWelcome.getState().update({ inviteShown: true }).catch(() => {}) }} data-testid="skill-share-open">{t('skillShare.make')}</Button>
+              <IconButton label={t('welcome.bar.later')} onClick={() => finish('skipped')} data-testid="welcome-invite-close">
+                <X size={15} />
+              </IconButton>
+            </span>
+          </div>
+        )}
+        {card && (
+          <Modal open onClose={() => setCard(false)} width={520} title={shared ? t('teamLink.stepTitle') : t('skillShare.cardTitle')}>
+            {shared
+              ? <InviteStep title={null} skillPath={shared.path} made onDone={() => finish('done')} onSkip={() => finish('skipped')} />
+              : <SkillShareCard chatId={chatId} onShared={setShared} onLater={() => setCard(false)} />}
+          </Modal>
+        )}
+      </>
+    )
+  // the ad copy (no files)
+  const skillPath = progress.pack?.skillPath ?? null
+  const text = t('welcome.bar.skill')
+  const title = !skillPath ? t('teamLink.stepTitle') : t('welcome.invite.title', { skill: t('welcome.skillName') })
   return (
     <>
       {answered && (
-        <div className="mb-2 flex flex-wrap items-center gap-2 rounded-xl border border-line bg-subtle py-1.5 pr-1.5 pl-3 text-sm" data-testid="welcome-invite-bar" data-kind={found?.kind ?? 'skill'}>
+        <div className="mb-2 flex flex-wrap items-center gap-2 rounded-xl border border-line bg-subtle py-1.5 pr-1.5 pl-3 text-sm" data-testid="welcome-invite-bar" data-kind="skill">
           <UserPlus size={15} className="shrink-0 text-accent-text" aria-hidden />
           <span className="min-w-0 flex-[1_1_12rem] leading-6" data-testid="welcome-invite-text">{text}</span>
           <span className="flex items-center gap-1">
@@ -69,7 +96,7 @@ export function WelcomeInviteBar({ chatId, answered, messages = [] }: { chatId: 
       {open && (
         // the dialog's own title is the step's question: no second heading inside it
         <Modal open onClose={() => setOpen(false)} width={560} title={title}>
-          <InviteStep title={null} skillPath={skillPath} starter={starter} onDone={() => finish('done')} onSkip={() => finish('skipped')} />
+          <InviteStep title={null} skillPath={skillPath} onDone={() => finish('done')} onSkip={() => finish('skipped')} />
         </Modal>
       )}
       {asking && <SkipDialog onInvite={invite} onLater={() => finish('skipped')} />}

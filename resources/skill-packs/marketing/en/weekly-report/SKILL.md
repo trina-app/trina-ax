@@ -9,6 +9,7 @@ metadata:
       {"name": "notes", "label": "What was done this week, with numbers", "placeholder": "Pasting rough notes is fine", "required": true, "multiline": true},
       {"name": "files", "label": "Team files to use", "placeholder": "e.g. shared/Reports/november-ad-spend.xlsx"}
     ]
+  recurring: weekly
 ---
 
 # Weekly report

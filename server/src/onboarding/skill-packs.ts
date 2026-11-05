@@ -16,7 +16,7 @@ import { Locale, PACK_FOLDER_KINDS, PACK_FOLDERS, type PackItemStatus, type Skil
 import type { AppContext } from '../context'
 import { audit } from '../admin/audit'
 import { teamDefaultLocale } from '../admin/settings'
-import { readRegular } from '../files/store'
+import { readRegular, sha256 } from '../files/store'
 import { HttpError } from '../http/errors'
 import { authorize } from '../policy/authorize'
 import { Denied, ToolError } from '../policy/errors'
@@ -73,12 +73,34 @@ export const SKILL_PACKS: Record<SkillPackId, SkillPack> = {
 export const packLocale = (pack: SkillPack, team: Locale): Locale => (pack.skills[team] ? team : 'en')
 
 /** The texts an earlier release of the pack wrote for this one: the same file without its metadata `title` line (the
- * titles came after the first install on some teams). A file holding exactly such bytes was never edited, so it is
- * `present`, not `kept`; it is not replaced (no file is), and it shows the skill's name until someone adds the line. */
+ * titles came after the first install on some teams), without its `recurring` line (docs/DECISIONS.md "S"), or without
+ * both. A file holding exactly such bytes was never edited, so it is `present`, not `kept`; it is not replaced (no file
+ * is), and it shows the skill's name until someone adds the line. */
 export function earlierPackTexts(text: string): string[] {
-  const before = text.replace(/^(metadata:\r?\n)[ \t]+title:[^\r\n]*\r?\n/m, '$1')
-  return before !== text ? [before] : []
+  const noTitle = (t: string) => t.replace(/^(metadata:\r?\n)[ \t]+title:[^\r\n]*\r?\n/m, '$1')
+  const noRecurring = (t: string) => t.replace(/^[ \t]+recurring:[^\r\n]*\r?\n(?=---)/m, '')
+  return [...new Set([noTitle(text), noRecurring(text), noTitle(noRecurring(text))])].filter((t) => t !== text)
 }
+
+/** Pack skills whose work comes back every week (their metadata says `recurring: weekly`): a copy installed before that
+ * line existed has no `recurring` key and is read as the pack says (onboarding/suggestions.ts). */
+export const RECURRING_PACK_SKILLS: ReadonlySet<string> = new Set(['skills/general/meeting-tasks/SKILL.md', 'skills/marketing/weekly-report/SKILL.md', 'skills/marketing/competitor-brief/SKILL.md'])
+
+let packHashes: Set<string> | null = null
+/** sha256 of every text a pack writes or wrote (any language, earlier releases too): a skill file whose first version
+ * is one of them was installed from a pack, not made by a person (skills/author.ts). */
+export function packTextHashes(): ReadonlySet<string> {
+  if (packHashes) return packHashes
+  const out = new Set<string>()
+  for (const pack of Object.values(SKILL_PACKS))
+    for (const texts of Object.values(pack.skills))
+      for (const t of Object.values(texts ?? {}))
+        for (const v of [t, ...earlierPackTexts(t)]) out.add(sha256(v))
+  return (packHashes = out)
+}
+
+/** Every skill name a pack has (any pack, any language): a team skill made later never takes one (skill-draft.ts). */
+export const packSkillNames = (): string[] => [...new Set(Object.values(SKILL_PACKS).flatMap((p) => Object.values(p.skills).flatMap((t) => Object.keys(t ?? {}))))]
 
 const refused = (e: unknown) => e instanceof Denied || e instanceof ToolError || e instanceof FileError || e instanceof HttpError
 

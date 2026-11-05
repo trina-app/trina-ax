@@ -9,6 +9,7 @@ metadata:
       {"name": "notes", "label": "이번 주 한 일과 숫자", "placeholder": "메모를 그대로 붙여 넣어도 돼요", "required": true, "multiline": true},
       {"name": "files", "label": "함께 볼 팀 파일", "placeholder": "예: shared/보고서/11월-광고비.xlsx"}
     ]
+  recurring: weekly
 ---
 
 # 주간 보고

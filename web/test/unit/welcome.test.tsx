@@ -8,7 +8,8 @@
 // - the first result for every team: files into the team's meeting notes folder, then "/meeting-tasks …" with them in
 //   a new chat; "자료 없이 해 볼게요": the ad copy form with the marketing pack, else the steps end and Home says where
 //   meeting notes go; without a usable AI, A's connect button instead;
-// - the chat of the first result offers the invite: with the team files (their own tasks, or a brief), or the skill;
+// - the chat of the first result: with the lead's team files, "팀원 AI도 이 방식대로 하게 할까요?" and the team skill card
+//   (docs/DECISIONS.md "S"), then the invite with that skill; with the ad copy, the invite;
 //   Home offers to continue until finished or hidden;
 // - the company profile step (D) shows A's connect button instead of starting a draft that cannot run.
 import { afterAll, afterEach, beforeAll, describe, expect, test } from 'bun:test'
@@ -20,6 +21,7 @@ import Welcome from '../../src/pages/Welcome'
 import { Setup } from '../../src/pages/Auth'
 import { AfterSetup } from '../../src/App'
 import { WelcomeInviteBar } from '../../src/components/onboarding/WelcomeInviteBar'
+import { forgetSkillDrafts } from '../../src/components/onboarding/SkillShareCard'
 import { WelcomeResume } from '../../src/components/onboarding/WelcomeResume'
 import ProfileStep from '../../src/components/onboarding/ProfileStep'
 import { doneCount, isBriefSwitch, nextStep, packsRecorded, readNotesHint, resultStarter, resumeStep, showInviteBar, showResume, skillNameOf, stepTotal, teamReach, wantsPack, wantsTeam } from '../../src/lib/welcome'
@@ -419,8 +421,8 @@ describe('/welcome', () => {
     const m = await app()
     try {
       await m.until(() => m.find('welcome-files-pick'), 'the files step')
-      expect(m.html()).toContain('최근 회의록이나 업무 파일을 놓아 주세요')
-      expect(m.html()).toContain('몇 개면 충분해요')
+      expect(m.html()).toContain('평소 일에 쓰는 파일을 놓아 주세요')
+      expect(m.html()).toContain('회의록, 견적서, 보고서 · 몇 개면 충분해요')
       // one primary: pick files; who sees what in one quiet line; a text link without files
       expect(m.get('welcome-files-pick').textContent).toContain('파일 고르기')
       expect(m.get('welcome-files-who').textContent).toBe('여기 올린 파일은 Acme만 봐요 · 채팅은 각자만 봐요')
@@ -447,7 +449,7 @@ describe('/welcome', () => {
       expect(called('POST /api/chats')).toHaveLength(1)
       expect(called('POST /api/attachments/team-file').map((c) => c.body)).toEqual([{ chatId: CHAT, path: 'groups/Acme/회의록/11월 1주 회의.md' }, { chatId: CHAT, path: 'groups/Acme/회의록/11월 2주 회의.md' }])
       const sent = called(`POST /api/chats/${CHAT}/messages`)[0]?.body as { content: string; attachmentIds: string[] } | undefined
-      expect(sent?.content).toBe('/meeting-tasks 이 회의록으로 이번 주 할 일, 사람별로 정리해 줘')
+      expect(sent?.content).toBe('/meeting-tasks 이 파일로 정리해 줘')
       expect(sent?.attachmentIds).toHaveLength(2)
       expect(progress!.steps.result).toBe('done')
       expect(progress!.resultChatId).toBe(CHAT)
@@ -614,43 +616,117 @@ describe('after the first result', () => {
   const withGroup = () => { routes['GET /api/admin/groups'] = () => json(200, { items: [{ id: TEAM.id, name: 'Acme', description: null, memberIds: ['olga'] }] }) }
   afterEach(() => { routes['GET /api/admin/groups'] = () => json(200, { items: [] }) })
 
-  test('meeting notes: "팀원도 이 회의록에서 각자 할 일을 바로 받아요"; the link carries the files, the tasks skill and the team\'s group', async () => {
+  const DRAFT = '01900000-0000-7000-8000-0000000000d1'
+  const SHARED = { path: 'skills/general/juganhoeui-hal-il/SKILL.md', name: 'juganhoeui-hal-il', title: '주간 회의 할 일' }
+  const CARD = {
+    title: '주간회의 할 일', description: '팀 회의록에서 사람마다 할 일을 정리해요', recurring: true,
+    inputs: [{ name: 'scope', label: '누구 할 일', type: 'choice', default: 'mine', options: [{ value: 'mine', label: '내 할 일' }, { value: 'all', label: '사람별' }] }],
+    files: [{ path: 'groups/Acme/회의록', latest: true }],
+  }
+  /** the server's draft: running for the first read, then the card (or a failure) */
+  const drafting = (end: { status: 'done' | 'failed'; draft?: unknown; problem?: string }) => {
+    let reads = 0
+    routes['POST /api/onboarding/skill-draft'] = () => json(201, { draftChatId: DRAFT })
+    routes[`GET /api/onboarding/skill-draft/${DRAFT}`] = () => json(200, ++reads < 2 ? { status: 'running', draft: null, problem: null, saved: null } : { status: end.status, draft: end.draft ?? null, problem: end.problem ?? null, saved: null })
+    routes[`POST /api/onboarding/skill-draft/${DRAFT}/save`] = () => json(200, SHARED)
+  }
+  afterEach(() => {
+    forgetSkillDrafts()
+    for (const k of Object.keys(routes)) if (k.includes('/skill-draft')) delete routes[k]
+    routes['GET /api/admin/team-link'] = () => json(200, { link: null, seats: { used: 1, limit: null } })
+  })
+
+  test('the lead\'s files: "팀원 AI도 이 방식대로 하게 할까요?"; the card: six things, the title changed by a tap; shared, then the invite with that skill', async () => {
     signIn('owner')
     progress = ran()
     withGroup()
+    drafting({ status: 'done', draft: CARD })
     const messages = [ask(FILES), { role: 'assistant' as const, content: '## 민지\n- 시안 금요일까지', attachments: [] }]
     const m = await mount(<MemoryRouter><WelcomeInviteBar chatId={CHAT} answered messages={messages} /></MemoryRouter>)
     try {
       await m.until(() => m.find('welcome-invite-bar'), 'the bar')
-      expect(m.get('welcome-invite-text').textContent).toBe('팀원도 이 회의록에서 각자 할 일을 바로 받아요')
-      expect(m.get('welcome-invite-open').textContent).toBe('팀원 초대')
-      await m.click('welcome-invite-open')
+      // the bar asks about the lead's way, not about inviting: one button and its X
+      expect(m.get('welcome-invite-text').textContent).toBe('팀원 AI도 이 방식대로 하게 할까요?')
+      expect(m.get('skill-share-open').textContent).toBe('팀 스킬로 만들기')
+      expect(m.find('welcome-invite-open')).toBeNull()
+      await m.click('skill-share-open')
+      expect(called('POST /api/onboarding/skill-draft').map((c) => c.body)).toEqual([{ chatId: CHAT }])
+      await m.until(() => m.find('skill-share')?.getAttribute('data-state') === 'drafting', 'drafting')
+      expect(m.get('skill-share').textContent).toContain('팀 스킬로 정리하는 중…')
+      await m.until(() => m.find('skill-share')?.getAttribute('data-state') === 'ready', 'the card', 6000)
+      // 1 the title (tap), 2 one line, 3 what teammates are asked (a choice: its chips, the default first), 4 the files
+      expect(m.get('skill-share-title').textContent).toBe('주간회의 할 일')
+      expect(m.get('skill-share-description').textContent).toBe('팀 회의록에서 사람마다 할 일을 정리해요')
+      expect(m.find('skill-share-asks')).toBeNull()
+      expect(m.get('skill-share-choice').textContent).toBe('누구 할 일내 할 일사람별')
+      expect(m.get('skill-share-files').textContent).toBe('쓰는 자료:Acme 회의록 폴더의 가장 최근 회의록')
+      // 5 [팀에 공유] 6 나중에, then the quiet line; no steps, no folder name, no slug
+      expect(m.get('skill-share-share').textContent).toBe('팀에 공유')
+      expect(m.get('skill-share-later').textContent).toBe('나중에')
+      expect(m.get('skill-share-note').textContent).toBe('팀 전체 AI가 이 방식을 따라요 · 팀 스킬에서 언제든 고칠 수 있어요')
+      expect(m.get('skill-share').textContent).not.toContain('juganhoeui')
+      expect(m.get('skill-share').textContent).not.toContain('SKILL.md')
+      await m.click('skill-share-title')
+      await m.type('skill-share-title-input', '주간 회의 할 일')
+      const input = m.get('skill-share-title-input')
+      await act(async () => { input.dispatchEvent(new FakeEvent('keydown', { bubbles: true, key: 'Enter' })) })
+      await m.until(() => m.find('skill-share-title'), 'the title back')
+      await m.click('skill-share-share')
       await m.until(() => m.find('team-link-create'), 'the invite step')
-      expect(m.html()).toContain(translate('ko', 'teamLink.stepTitle'))
+      expect(called(`POST /api/onboarding/skill-draft/${DRAFT}/save`).map((c) => c.body)).toEqual([{ title: '주간 회의 할 일' }])
+      // the link carries the new skill, no file list
       await m.click('team-link-create')
       await m.until(() => called('POST /api/admin/team-link').length, 'the link made')
-      expect(called('POST /api/admin/team-link')[0]!.body).toEqual({ groupIds: [TEAM.id], expiresInDays: 14, skillPath: GENERAL_TASKS_SKILL, starter: { kind: 'tasks', files: FILES } })
-      // the message says what is waiting, in the lead's voice
-      await m.until(() => m.find('team-link-message'), 'the message')
-      expect(m.get('team-link-message').textContent).toBe('이번 주 팀 회의록 올려 뒀어요. 링크 열면 내 할 일이 바로 나와요.\nhttps://acme.example/join#t=x')
+      expect(called('POST /api/admin/team-link')[0]!.body).toEqual({ groupIds: [TEAM.id], expiresInDays: 14, skillPath: SHARED.path })
     } finally { await m.unmount() }
   })
 
-  test('not meeting notes (the skill gave a brief): "팀원도 이 자료에서 각자 필요한 것만 바로 봐요" and the brief skill', async () => {
+  test('the invite after sharing: an open link that led elsewhere is changed to the skill (no files); the message says it was made', async () => {
     signIn('owner')
     progress = ran()
-    const messages = [ask(FILES.slice(0, 1)), { role: 'assistant' as const, content: '회의록이 아니라서 핵심만 정리했어요.\n\n- 가격 정책', attachments: [] }]
-    const m = await mount(<MemoryRouter><WelcomeInviteBar chatId={CHAT} answered messages={messages} /></MemoryRouter>)
+    withGroup()
+    drafting({ status: 'done', draft: { ...CARD, inputs: [{ name: 'customer', label: '고객사', required: true }, { name: 'items', label: '품목' }], files: [{ path: 'groups/Acme/회의록/견적서_양식.xlsx', latest: false }], recurring: false } })
+    const open = { id: '01900000-0000-7000-8000-000000000001', url: 'https://acme.example/join#t=x', groupIds: [TEAM.id], skill: { path: GENERAL_TASKS_SKILL, name: 'meeting-tasks', title: '할 일 정리' }, starter: { kind: 'tasks', files: 2, paths: FILES }, maxUses: 20, uses: 0, createdBy: { id: 'olga', name: '올가' }, createdAt: '2026-11-04T00:00:00.000Z', expiresAt: '2026-11-18T00:00:00.000Z', state: 'active' }
+    routes['GET /api/admin/team-link'] = () => json(200, { link: open, seats: { used: 1, limit: null } })
+    routes['PATCH /api/admin/team-link'] = (b) => json(200, { link: { ...open, skill: { path: b.skillPath, name: SHARED.name, title: SHARED.title }, starter: null }, seats: { used: 1, limit: null } })
+    const m = await mount(<MemoryRouter><WelcomeInviteBar chatId={CHAT} answered messages={[ask(FILES.slice(0, 1)), { role: 'assistant' as const, content: '이렇게 읽었어요: 견적서 양식', attachments: [] }]} /></MemoryRouter>)
     try {
-      await m.until(() => m.find('welcome-invite-bar'), 'the bar')
-      expect(m.get('welcome-invite-text').textContent).toBe('팀원도 이 자료에서 각자 필요한 것만 바로 봐요')
-      await m.click('welcome-invite-open')
-      await m.until(() => m.find('team-link-create'), 'the invite step')
-      await m.click('team-link-create')
-      await m.until(() => called('POST /api/admin/team-link').length, 'the link made')
-      expect(called('POST /api/admin/team-link')[0]!.body).toMatchObject({ skillPath: GENERAL_BRIEF_SKILL, starter: { kind: 'brief', files: FILES.slice(0, 1) } })
+      await m.until(() => m.find('skill-share-open'), 'the bar')
+      await m.click('skill-share-open')
+      await m.until(() => m.find('skill-share')?.getAttribute('data-state') === 'ready', 'the card', 6000)
+      expect(m.get('skill-share-asks').textContent).toBe('팀원에게 물어볼 것:고객사 · 품목')
+      expect(m.get('skill-share-files').textContent).toBe('쓰는 자료:견적서_양식.xlsx')
+      expect(m.find('skill-share-choice')).toBeNull()
+      await m.click('skill-share-share')
       await m.until(() => m.find('team-link-message'), 'the message')
-      expect(m.get('team-link-message').textContent).toContain('팀 자료 올려 뒀어요. 링크 열면 나한테 필요한 것만 바로 볼 수 있어요.')
+      expect(called('PATCH /api/admin/team-link').map((c) => c.body)).toEqual([{ skillPath: SHARED.path, starter: null, addGroupIds: [TEAM.id] }])
+      expect(m.get('team-link-message').textContent).toBe("우리 팀 '주간 회의 할 일' 스킬을 만들어 뒀어요. 링크 열면 같은 방식으로 바로 써요.\nhttps://acme.example/join#t=x")
+      await m.click('invite-step-done')
+      await m.until(() => !m.find('welcome-invite-bar'), 'the bar gone')
+      expect(progress!.steps.invite).toBe('done')
+    } finally { await m.unmount() }
+  })
+
+  test('no card when the draft could not be made: "지금은 정리하지 못했어요"; 나중에 closes it, the bar stays; its X puts the invite off', async () => {
+    signIn('owner')
+    progress = ran()
+    drafting({ status: 'failed', problem: 'specific' })
+    const m = await mount(<MemoryRouter><WelcomeInviteBar chatId={CHAT} answered messages={[ask(FILES), { role: 'assistant' as const, content: '## 민지', attachments: [] }]} /></MemoryRouter>)
+    try {
+      await m.until(() => m.find('skill-share-open'), 'the bar')
+      await m.click('skill-share-open')
+      await m.until(() => m.find('skill-share')?.getAttribute('data-state') === 'failed', 'no card', 6000)
+      expect(m.get('skill-share').textContent).toContain('지금은 정리하지 못했어요')
+      expect(m.find('skill-share-share')).toBeNull()
+      await m.click('skill-share-later')
+      await m.until(() => !m.find('skill-share'), 'closed')
+      expect(m.find('welcome-invite-bar')).not.toBeNull()
+      expect(called(`POST /api/onboarding/skill-draft/${DRAFT}/save`)).toEqual([])
+      // the bar's X: the invite is put off, without the soft question (it asked about a skill, not an invite)
+      await m.click('welcome-invite-close')
+      await m.until(() => !m.find('welcome-invite-bar'), 'the bar gone')
+      expect(m.html()).not.toContain(translate('ko', 'teamLink.skipTitle'))
+      expect(progress!.steps.invite).toBe('skipped')
     } finally { await m.unmount() }
   })
 

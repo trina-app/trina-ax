@@ -18,12 +18,15 @@ export interface InviteStepProps {
   /** the lead's team files and what people who join get from them (needs `skillPath`): a new link carries it, and an
    * open link is changed to carry it (TeamLinkPanel) */
   starter?: TeamLinkStarter | null
+  /** `skillPath` is a team skill the lead just made from their own work (docs/DECISIONS.md "S"): an open link is changed
+   * to lead there, and the message says the skill was made for the team */
+  made?: boolean
   /** the heading in place of "팀원을 초대해요" (the welcome steps name the skill just used); null: none, the dialog
    * around it already names the step (one heading on a phone, not two) */
   title?: string | null
 }
 
-export function InviteStep({ onDone, onSkip, skillPath, starter, title }: InviteStepProps) {
+export function InviteStep({ onDone, onSkip, skillPath, starter, made, title }: InviteStepProps) {
   const t = useT()
   const [asking, setAsking] = useState(false)
   return (
@@ -33,7 +36,7 @@ export function InviteStep({ onDone, onSkip, skillPath, starter, title }: Invite
         <p className="text-sm text-muted">{t('teamLink.stepDesc')}</p>
       </div>
       {/* folded: the message and "메시지 복사"; the link and its settings wait under "링크 관리" (no "링크 끄기" here) */}
-      <TeamLinkPanel skillPicker={false} skillPath={skillPath} starter={starter} folded />
+      <TeamLinkPanel skillPicker={false} skillPath={skillPath} starter={starter} made={made} folded />
       <div className="flex flex-wrap justify-end gap-2 border-t border-line pt-4">
         {onSkip && (
           <Button variant="ghost" onClick={() => setAsking(true)} data-testid="invite-step-skip">

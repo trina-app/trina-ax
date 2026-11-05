@@ -32,7 +32,7 @@ import { z } from 'zod'
 const hwpEngine = import('../../../server/src/files/' + 'hwp-engine.ts').then(m => new m.NativeHwpEngine())
 import {
   ApiErrorResponse, CSRF_HEADER, TeamGoal, type SkillChange, type SkillManagerGrant, type SkillSuggestion, DEV_SESSION_COOKIE, CHAT_ERROR_MESSAGES, type ChatErrorReason, ERROR_MESSAGES, LOCALE_HEADER, Locale, ServerEvent, UPLOAD_CHUNK_SIZE, WS_PATH, WsClose, isSchema, listEndpoints, uuidv7,
-  type ApiName, type Artifact, type Attachment, type DevEnvRun, type Chat, type Endpoint, type ErrorCode, type FileEntry, type FileVersion, type Folder, type Group, type Invite, type Job, type Me, type Message,
+  type ApiName, type Artifact, type Attachment, type SkillInput, type DevEnvRun, type Chat, type Endpoint, type ErrorCode, type FileEntry, type FileVersion, type Folder, type Group, type Invite, type Job, type Me, type Message,
   MemberEngineChoice, WELCOME_RESULT_SKILL, GENERAL_TASKS_SKILL, GENERAL_BRIEF_SKILL, NOTES_FOLDER, type TeamLinkStarter, type WelcomeProgress, type Project, type ConnectionStatus, type ServerEventInput, type Step, type TrashItem, type TurnRequest, type UploadSession, type User, type Memory, type Budget, type TeamSettings, type AuditEntry, type Schedule,
 } from '@mycel/shared/api'
 import fs from 'node:fs'
@@ -138,6 +138,10 @@ export class MockServer {
   /** the suggestion under answers a test set, and the ones closed */
   resultSuggestion: import('@mycel/shared/api').ResultSuggestion | null = null
   closedSuggestions = new Set<string>()
+  /** team skill drafts (server/src/onboarding/skill-draft.ts, short): the source chat, reads so far, where it was saved */
+  skillDrafts = new Map<string, { userId: string; sourceChatId: string; reads: number; saved: string | null }>()
+  /** who made a team skill (server/src/skills/author.ts: its file's first version); pack skills have none */
+  skillMakers = new Map<string, string>()
   folders: Folder[] = []
   chats: Chat[] = []
   messages: Message[] = []
@@ -263,6 +267,8 @@ export class MockServer {
     this.welcome = null
     this.resultSuggestion = null
     this.closedSuggestions = new Set()
+    this.skillDrafts = new Map()
+    this.skillMakers = new Map()
     this.chats = []
     this.sources.clear()
     this.messages = []
@@ -557,11 +563,22 @@ export class MockServer {
       seats: { used, limit: null },
     }
   }
+  /** the card the mock's draft shows for a source chat: meeting notes in a team notes folder, else a template */
+  skillCard(chatId: string): { title: string; description: string; inputs: SkillInput[]; files: { path: string; latest: boolean }[]; recurring: boolean } {
+    const asked = this.messages.filter((m) => m.chatId === chatId && m.role === 'user').flatMap((m) => m.attachments.map((a) => a.path ?? ''))
+    const notes = asked.find((p) => /\/(회의록|Meeting notes)\//.test(p))
+    if (notes) return {
+      title: '주간회의 할 일', description: '팀 회의록에서 사람마다 할 일을 정리해요', recurring: true,
+      inputs: [{ name: 'scope', label: '누구 할 일', type: 'choice', default: 'mine', options: [{ value: 'mine', label: '내 할 일' }, { value: 'all', label: '사람별' }] }],
+      files: [{ path: notes.slice(0, notes.lastIndexOf('/')), latest: true }],
+    }
+    return { title: '견적서 쓰기', description: '팀 양식으로 새 견적서를 만들어요', recurring: false, inputs: [], files: asked.slice(0, 1).map((p) => ({ path: p, latest: false })) }
+  }
   /** like server/src/chat/skills.ts listSkills: skills/**.md and the caller's own users/<id>/skills/ with a name header,
    * only where the caller can read */
-  skillsFor(u: User): { path: string; name: string; description: string; title?: string; personal?: true }[] {
+  skillsFor(u: User): { path: string; name: string; description: string; title?: string; inputs?: SkillInput[]; personal?: true }[] {
     const mine = `users/${u.id}/skills/`
-    const out: { path: string; name: string; description: string; title?: string; personal?: true }[] = []
+    const out: { path: string; name: string; description: string; title?: string; inputs?: SkillInput[]; personal?: true }[] = []
     for (const [p, n] of this.files) {
       if (n.type !== 'file' || !p.endsWith('.md') || !(p.startsWith('skills/') || p.startsWith(mine)) || this.access(p, u) === 'none') continue
       const head = /^---\n([\s\S]*?)\n---/.exec(dec.decode(n.data!))?.[1]
@@ -569,7 +586,11 @@ export class MockServer {
       if (!name) continue
       // a SKILL.md's metadata title (the name people read), as the server reads it
       const title = p.endsWith('/SKILL.md') ? /^metadata:\n(?:[ \t]+.*\n)*?[ \t]+title:[ \t]*(.+)$/m.exec(head!)?.[1]?.trim().replace(/^(["'])(.*)\1$/, '$2') : undefined
-      out.push({ path: p, name, description: /^description:\s*(.+)$/m.exec(head!)?.[1]?.trim() ?? '', ...(title ? { title } : {}), ...(p.startsWith(mine) ? { personal: true as const } : {}) })
+      // its form (metadata inputs: one JSON text under "inputs: |"), as the server reads it
+      const form = p.endsWith('/SKILL.md') ? /^[ \t]+inputs:[ \t]*\|\n((?:[ \t]{4,}.*\n?)+)/m.exec(head!)?.[1] : undefined
+      let inputs: SkillInput[] | undefined
+      try { inputs = form ? (JSON.parse(form) as SkillInput[]) : undefined } catch { inputs = undefined }
+      out.push({ path: p, name, description: /^description:\s*(.+)$/m.exec(head!)?.[1]?.trim().replace(/^"(.*)"$/, '$1') ?? '', ...(title ? { title } : {}), ...(inputs?.length ? { inputs } : {}), ...(p.startsWith(mine) ? { personal: true as const } : {}) })
     }
     return out.sort((a, b) => a.name.localeCompare(b.name) || a.path.localeCompare(b.path))
   }
@@ -1591,8 +1612,11 @@ export class MockServer {
       const skill = l!.skillPath ? this.skillsFor(u).find((x) => x.path === l!.skillPath && !x.personal) : undefined
       const files = (l!.starter?.files ?? []).filter((f) => this.files.get(f)?.type === 'file' && this.access(f, u) !== 'none').map((f) => ({ path: f, name: f.slice(f.lastIndexOf('/') + 1) }))
       const by = this.users.find((x) => x.id === l!.createdBy.id)?.name ?? null
-      const starter = l!.starter && skill && files.length ? { kind: l!.starter.kind, skill: { path: skill.path, name: skill.name, title: skill.title ?? skill.name }, files, by } : null
-      return { status: 201, cookie: this.startSession(u), body: { me: this.me(u, ''), next, starter } }
+      // who made the link's skill (S): the line above its form, or Home's arrival for a skill that asks nothing
+      const maker = l!.skillPath ? this.users.find((x) => x.id === this.skillMakers.get(l!.skillPath!))?.name ?? null : null
+      const filesStarter = l!.starter && skill && files.length ? { kind: l!.starter.kind, skill: { path: skill.path, name: skill.name, title: skill.title ?? skill.name }, files, by } : null
+      const starter = filesStarter ?? (skill && maker && !skill.inputs?.length ? { kind: 'skill' as const, skill: { path: skill.path, name: skill.name, title: skill.title ?? skill.name }, files: [], by: maker } : null)
+      return { status: 201, cookie: this.startSession(u), body: { me: this.me(u, ''), next, starter, skillBy: maker } }
     },
     // onboarding A, B, D: the scripted AI answers everyone, there is no hosting trial credit and no company profile yet
     // (the composer's "no AI" line, Admin › AI connections and the skill forms ask for these on their own)
@@ -1669,6 +1693,39 @@ export class MockServer {
     },
     // the one suggestion under a result (server/src/onboarding/suggestions.ts): none unless a test sets one
     // (/__test/result-suggestion); closing one keeps it closed
+    // a team skill from the lead's answer (server/src/onboarding/skill-draft.ts, short): a draft chat of the caller,
+    // running for its first read, then a card made from the source answer's files (meeting notes: "주간회의 할 일", the
+    // notes folder and "the latest", the choice 내 할 일 / 사람별); sharing writes the skill as the caller
+    startSkillDraft: (c) => {
+      // (the mock's chats carry no owner: every chat is the signed-in person's)
+      if (!this.chats.some((x) => x.id === c.body.chatId)) fail('not_found', 404)
+      const had = [...this.skillDrafts].find(([, d]) => d.sourceChatId === c.body.chatId && d.userId === c.user.id && !d.saved)
+      if (had) return { status: 201, body: { draftChatId: had[0] } }
+      const id = uuidv7()
+      this.skillDrafts.set(id, { userId: c.user.id, sourceChatId: c.body.chatId, reads: 0, saved: null })
+      return { status: 201, body: { draftChatId: id } }
+    },
+    getSkillDraft: (c) => {
+      const d = this.skillDrafts.get(c.params.chatId)
+      if (!d || d.userId !== c.user.id) fail('not_found', 404)
+      const saved = d!.saved ? { path: d!.saved, name: d!.saved.split('/').at(-2)!, title: this.skillsFor(c.user).find((x) => x.path === d!.saved)?.title ?? '' } : null
+      if (++d!.reads < 2) return { status: 'running', draft: null, problem: null, saved }
+      return { status: 'done', draft: this.skillCard(d!.sourceChatId), problem: null, saved }
+    },
+    saveSkillDraft: (c) => {
+      const d = this.skillDrafts.get(c.params.chatId)
+      if (!d || d.userId !== c.user.id) fail('not_found', 404)
+      if (d!.saved) return { path: d!.saved, name: d!.saved.split('/').at(-2)!, title: c.body.title }
+      const card = this.skillCard(d!.sourceChatId)
+      const name = card.inputs.length ? 'juganhoeui-hal-il' : 'gyeonjeokseo-sseugi'
+      const rel = `skills/general/${name}/SKILL.md`
+      for (const dir of ['skills', 'skills/general', `skills/general/${name}`]) this.files.set(dir, this.files.get(dir) ?? { type: 'folder', mtime: now() })
+      const inputs = card.inputs.length ? `  inputs: |\n    ${JSON.stringify(card.inputs)}\n` : ''
+      this.putFile(rel, `---\nname: ${name}\ndescription: "${c.body.title} — ${card.description}"\nmetadata:\n  title: "${c.body.title}"\n${inputs}${card.recurring ? '  recurring: weekly\n' : ''}---\n# ${c.body.title}\n`)
+      this.skillMakers.set(rel, c.user.id)
+      d!.saved = rel
+      return { path: rel, name, title: c.body.title }
+    },
     getResultSuggestion: () => ({ suggestion: this.resultSuggestion && !this.closedSuggestions.has(this.resultSuggestion.key) ? this.resultSuggestion : null }),
     dismissSuggestion: (c) => { this.closedSuggestions.add((c.body as { key: string }).key) },
     // onboarding G: no 7-day team goal card unless a test sets one (/__test/team-goal); Home then shows the owner checklist

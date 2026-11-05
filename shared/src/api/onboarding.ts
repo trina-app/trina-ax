@@ -5,6 +5,7 @@
 // they typed (at most 4 pages); the person checks, edits and saves it with PUT.
 import { z } from 'zod'
 import { endpoint } from './endpoint'
+import { SKILL_SHARE } from './onboarding-skill'
 
 /** The fields of a profile that reach the AI (website besides). Skill inputs read them as `company.<field>`. `name`
  * (the company's name) is optional: profiles saved before it have none, and an empty one reads as the team's name. */
@@ -154,4 +155,6 @@ export const ONBOARDING = {
     summary: 'Draft the company profile in a new chat of the caller: the AI reads the website (that host or platform path, at most 4 pages) or the pasted text.' }),
   getProfileDraft: endpoint({ method: 'GET', path: '/api/onboarding/profile/draft/:chatId', auth: 'admin', owner: 'B', response: ProfileDraftState,
     summary: 'The state of a profile draft chat of the caller: the draft read from its latest answer, and the pages the server opened or refused for it (addresses, titles and outcomes, no page text).' }),
+  // the lead's way of working becomes a team skill (onboarding-skill.ts)
+  ...SKILL_SHARE,
 } as const

@@ -9,6 +9,7 @@ metadata:
       {"name": "ours", "label": "Our product or service", "placeholder": "e.g. a scheduling app for small teams", "prefill": "company.products"},
       {"name": "focus", "label": "What to look at most", "placeholder": "e.g. pricing, claimed strengths, customer stories"}
     ]
+  recurring: weekly
 ---
 
 # Competitor brief
