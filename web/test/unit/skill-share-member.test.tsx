@@ -15,6 +15,7 @@ import { SkillFormDialog } from '../../src/components/skills/SkillForm'
 import { forgetStarters, heldMadeBy, holdMadeBy, holdStarter } from '../../src/lib/starter'
 import { forgetTeamAttach } from '../../src/lib/teamAttach'
 import { teamLinkMessage } from '../../src/lib/team-link'
+import { fileLabel } from '../../src/components/onboarding/SkillShareCard'
 import { translate } from '../../src/i18n'
 import { useAiAccess } from '../../src/store/aiAccess'
 import { useChats } from '../../src/store/chats'
@@ -158,5 +159,13 @@ describe('a member and a team skill someone made', () => {
     expect(teamLinkMessage(ko, { name: '올가', url: 'u', skill: '견적서 쓰기', made: true })).toBe("우리 팀 '견적서 쓰기' 스킬을 만들어 뒀어요. 링크 열면 같은 방식으로 바로 써요.\nu")
     // not made here: the usual invitation
     expect(teamLinkMessage(ko, { name: '올가', url: 'u', skill: '견적서 쓰기' })).toContain('올가님이')
+  })
+
+  test('the card names a team file, or a folder\'s newest file of the kind the run used', () => {
+    const t = (k: Parameters<typeof translate>[1], p?: Record<string, string | number>) => translate('ko', k, p)
+    expect(fileLabel({ path: 'groups/Acme/회의록/견적서_양식.xlsx', latest: false }, t)).toBe('견적서_양식.xlsx')
+    expect(fileLabel({ path: 'groups/Acme/회의록', latest: true }, t)).toBe('Acme 회의록 폴더의 가장 최근 회의록')
+    expect(fileLabel({ path: 'groups/Acme/회의록', latest: true, like: '월간보고' }, t)).toBe('Acme 회의록 폴더의 가장 최근 월간보고')
+    expect(fileLabel({ path: 'shared/보고서', latest: true }, t)).toBe('보고서 폴더의 가장 최근 파일')
   })
 })

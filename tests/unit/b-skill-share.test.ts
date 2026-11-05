@@ -37,7 +37,7 @@ describe('reading a draft (no server)', () => {
     const r = parseSkillDraft(json(good), material(), NAMES)
     expect(r.ok).toBe(true)
     if (!r.ok) return
-    expect(r.draft).toMatchObject({ title: '주간회의 할 일', recurring: true, files: [{ path: 'groups/Acme/회의록', latest: true }] })
+    expect(r.draft).toMatchObject({ title: '주간회의 할 일', recurring: true, files: [{ path: 'groups/Acme/회의록', latest: true, like: '주간회의' }] })
     expect(r.draft.inputs).toEqual(good.inputs as never)
     expect(r.draft.steps).toContain('사람마다')
   })
@@ -46,11 +46,16 @@ describe('reading a draft (no server)', () => {
     const used = [NOTES, QUOTE, 'users/olga/메모.md', 'shared/보고서/월간 보고 2026-10.docx', 'skills/x/SKILL.md']
     expect(draftFiles([QUOTE, 'users/olga/메모.md', 'shared/other.xlsx', '/shared/보고서/월간 보고 2026-10.docx', { path: NOTES }, { path: QUOTE, latest: false }, 'skills/x/SKILL.md'], used)).toEqual([
       { path: QUOTE, latest: false },
-      { path: 'shared/보고서', latest: true },
-      { path: 'groups/Acme/회의록', latest: true },
+      { path: 'shared/보고서', latest: true, like: '월간 보고' },
+      { path: 'groups/Acme/회의록', latest: true, like: '주간회의' },
     ])
     // a folder the run's files are in may be named as it is; a file and its folder: the folder covers it
-    expect(draftFiles(['groups/Acme/회의록', NOTES], used)).toEqual([{ path: 'groups/Acme/회의록', latest: true }])
+    expect(draftFiles(['groups/Acme/회의록', NOTES], used)).toEqual([{ path: 'groups/Acme/회의록', latest: true, like: '주간회의' }])
+    // a template in the notes folder (the welcome step puts every file there) stays itself
+    expect(draftFiles(['groups/Acme/회의록/견적서_양식.xlsx'], ['groups/Acme/회의록/견적서_양식.xlsx'])).toEqual([{ path: 'groups/Acme/회의록/견적서_양식.xlsx', latest: false }])
+    // a stem holding a specific of the run is left out (the folder's newest file then)
+    const named = parseSkillDraft(json({ ...good, files: ['groups/Acme/회의록/2026-11-03 ㈜에이스상사 견적.md'] }), material({ files: ['groups/Acme/회의록/2026-11-03 ㈜에이스상사 견적.md'] }), NAMES)
+    expect(named.ok && named.draft.files).toEqual([{ path: 'groups/Acme/회의록', latest: true }])
     expect(draftFiles([{ path: QUOTE, latest: true }], used)).toEqual([{ path: 'shared', latest: true }])
     expect(draftFiles('nope', used)).toEqual([])
   })
@@ -117,7 +122,7 @@ describe('reading a draft (no server)', () => {
     expect(s).toMatchObject({ name: 'juganhoeui-hal-il', title: '주간 회의 할 일', inputs: good.inputs, recurring: 'weekly' })
     expect(isRecurring(s)).toBe(true)
     expect(s.description).toBe('주간 회의 할 일 — 팀 회의록에서 사람마다 할 일을 정리해요')
-    expect(s.body).toContain('## 쓰는 자료\n- `groups/Acme/회의록/` 폴더의 가장 최근 파일')
+    expect(s.body).toContain("## 쓰는 자료\n- `groups/Acme/회의록/` 폴더에서 이름에 '주간회의'가 들어간 가장 최근 파일")
     expect(s.body).toContain('## 하는 방법\n1. 쓰는 자료의 회의록을 읽어요.')
     expect(s.body).toContain('## 지킬 것')
     const once = parseSkill(skillFileOf({ ...d, recurring: false, inputs: [], files: [] }, { name: 'gyeonjeokseo-sseugi', title: '견적서 "쓰기": #1', locale: 'en' }), 'skills/general/gyeonjeokseo-sseugi/SKILL.md')!

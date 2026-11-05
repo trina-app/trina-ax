@@ -72,3 +72,11 @@ export function leftoversIn(d: { title: string; description: string; steps: stri
   const all = [...found]
   return all.filter((x) => !all.some((y) => y !== x && y.includes(x))).slice(0, 12)
 }
+
+/** The words of a dated file's name without the date, the extension or a copy number: "2026-11-03_주간회의.md" →
+ * "주간회의", "월간 보고 2026-10 (2).docx" → "월간 보고"; "" when nothing is left. */
+export function nameStem(name: string): string {
+  return name.normalize('NFC').replace(/\.[A-Za-z0-9]{1,8}$/, '').replace(/\s*\(\d+\)$/, '')
+    .replace(/\d{4}[-._ ]?\d{1,2}(?:[-._ ]?\d{1,2})?|\d{1,2}[-.]\d{1,2}|\d{1,2}월(?:\s?\d{1,2}일)?|\d{4}년|\d{6,8}|\d{1,2}주(?:차)?/g, ' ')
+    .replace(/[\s_.\-()[\]]+/g, ' ').trim().slice(0, 60)
+}

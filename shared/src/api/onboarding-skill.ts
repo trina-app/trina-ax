@@ -19,8 +19,10 @@ export const SKILL_DRAFT_FILES_MAX = 5
 export const SKILL_DRAFT_VISIBLE_INPUTS = 3
 
 /** A team file the skill uses: one file, or (`latest`) the newest file of a folder: dated files such as this week's
- * meeting notes are named by their folder, so next week only the new file is dropped there. */
-export const SkillDraftFile = z.object({ path: z.string().min(1).max(1024), latest: z.boolean() }).strict()
+ * meeting notes are named by their folder, so next week only the new file is dropped there. `like`: the words of the
+ * file's name without its date ("주간회의" of "2026-11-03_주간회의.md"), so the newest file of THAT kind is read in a
+ * folder that holds other files too. */
+export const SkillDraftFile = z.object({ path: z.string().min(1).max(1024), latest: z.boolean(), like: z.string().max(60).optional() }).strict()
 export type SkillDraftFile = z.infer<typeof SkillDraftFile>
 
 /** What the card shows (the steps stay on the server). */

@@ -22,13 +22,15 @@ export const forgetSkillDrafts = () => started.clear()
 
 const notesNames = new Set((Object.values(NOTES_FOLDER) as string[]).map((n) => n.normalize('NFC')))
 
-/** "견적서_양식.xlsx", or for a folder "Acme 회의록 폴더의 가장 최근 회의록" (a team folder named with its team). */
+/** "견적서_양식.xlsx", or for a folder "Acme 회의록 폴더의 가장 최근 회의록" (a team folder named with its team; the kind is
+ * the words of the file's name when it had any besides its date: "가장 최근 월간보고"). */
 export function fileLabel(f: SkillDraftFile, t: ReturnType<typeof useT>): string {
   const parts = f.path.split('/')
   const name = parts.at(-1) ?? f.path
   if (!f.latest) return name
   const folder = parts[0] === 'groups' && parts.length >= 3 ? `${parts[1]} ${name}` : name
-  return t('skillShare.latest', { folder, kind: notesNames.has(name.normalize('NFC')) ? name : t('skillShare.latestFile') })
+  const kind = f.like || (notesNames.has(name.normalize('NFC')) ? name : t('skillShare.latestFile'))
+  return t('skillShare.latest', { folder, kind })
 }
 
 export function SkillShareCard({ chatId, onShared, onLater }: { chatId: string; onShared: (saved: SavedSkillDraft) => void; onLater: () => void }) {
