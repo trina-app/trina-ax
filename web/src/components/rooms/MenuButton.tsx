@@ -55,7 +55,8 @@ export function MenuButton({ label, items, className, buttonClassName, testId, o
   const pressedAt = useRef(0)
   useEffect(() => {
     if (!open) return
-    menu.current?.querySelector<HTMLElement>('[role="menuitem"]')?.focus({ preventScroll: true })
+    // the keyboard goes into the menu; a finger that opened it does not need a focus ring on the first item
+    if (Date.now() - pressedAt.current > 1000) menu.current?.querySelector<HTMLElement>('[role="menuitem"]')?.focus({ preventScroll: true })
     const h = (e: Event) => !box.current?.contains(e.target as Node) && setOpen(null)
     document.addEventListener('pointerdown', h)
     return () => document.removeEventListener('pointerdown', h)
