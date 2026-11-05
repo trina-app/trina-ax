@@ -7725,8 +7725,11 @@ The owner: "좀 더 화려한 것들을 잘 보여줘야 할 것 같은데 … �
   again. Prompts that made the AI ask first were made more decisive ("구성은 예산 안에서 알아서 정해 줘"), because a run
   with a question is refused. The team's time zone is Asia/Seoul (a schedule answer had named this Mac's). The CEO also
   reads the marketing skills, so a marketing answer saved in the marketing folder raises no "wider audience" card in a
-  replay. What the model wrote between tool calls stays, including a short English line before it looks at images:
-  it is what the product produced.
+  replay. What the model wrote between tool calls is never edited. The new hire's card news first opened with a short
+  English line before the AI looked at the images; the new hire now has a seeded memory ("작업 중간에 나오는 안내까지
+  모두 한국어로 받는 걸 좋아해요"), the scene was recorded again with it, and a test checks that every recorded text block
+  is Korean. A copy into a folder that must already exist (copy_files into the person's own folder) is never renamed
+  on a second replay; only the files it makes are.
 - Rejected: a fake answer typed in (not something the product produced); copying recorded output files into place
   (the replay would not show the product making them, and their sources would not be checked against the person's
   permissions now); replays for any message on any server (a production server must never answer without its AI).

@@ -59,6 +59,13 @@ describe('the recordings in the repository', () => {
       // never a sub-agent; a past chat names itself so the seed can tell it is there
       expect(r.events.some((e) => e.type === 'tool' && ['Agent', 'Task'].includes(e.name)), n).toBe(false)
       if (r.kind === 'history') expect(recordedTitle(r), n).toBeTruthy()
+      // every visible line is Korean: no English narration between tool calls ("Let me view the images.")
+      for (const e of r.events) {
+        if (e.type !== 'text') continue
+        const hangul = (e.text.match(/[가-힣]/g) ?? []).length
+        const latin = (e.text.replace(/\(\/files\/view[^)]*\)/g, '').match(/[A-Za-z]/g) ?? []).length
+        expect(hangul >= 5 && latin <= hangul, `${n}: ${e.text.slice(0, 60)}`).toBe(true)
+      }
     }
   })
 })

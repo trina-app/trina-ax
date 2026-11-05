@@ -72,6 +72,11 @@ describe('runReplay (no server)', () => {
     const { calls, text } = await run(r, { exists: (p) => there.has(p) })
     expect(calls.map((c) => c.params.arguments.file_path ?? c.params.arguments.to_folder)).toEqual(['users/alice/카드뉴스-2/images/.keep', 'users/alice/카드뉴스-2/images', 'users/alice/카드뉴스-2/카드.html'])
     expect(text).toBe('[카드](users/alice/카드뉴스-2/카드.html)')
+    // copying into the person's own folder (it is always there) keeps that folder
+    const intoOwn = await run(rec({ events: [
+      { type: 'tool', t: 0, name: `${T}copy_files`, input: { paths: ['groups/m/a.png'], to_folder: 'users/alice' }, ok: true },
+      { type: 'tool', t: 1, name: `${T}write`, input: { file_path: 'users/alice/카드.html', content: 'x' }, ok: true }] }), { exists: (p) => p === 'users/alice' || p === 'users/alice/카드.html' })
+    expect(intoOwn.calls.map((c) => c.params.arguments.to_folder ?? c.params.arguments.file_path)).toEqual(['users/alice', 'users/alice/카드-2.html'])
     // a file straight in the person's folder or in a team folder keeps its folder
     const flat = await run(rec(), { exists: (p) => p === 'users/alice/카드뉴스.md' })
     expect(flat.calls[1].params.arguments.file_path).toBe('users/alice/카드뉴스-2.md')

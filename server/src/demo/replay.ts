@@ -18,9 +18,11 @@ import type { AppContext } from '../context'
 
 export const DEMO_REPLAY_TOOL = 'demo_replay'
 
-/** the team tools whose call makes a file (or fills a folder): the target is renamed when it is already there (a
- * second replay) */
-const TARGETS: Record<string, string> = { write: 'file_path', make_file: 'output', copy_files: 'to_folder' }
+/** the team tools whose call makes a file: the file is renamed when it is already there (a second replay) */
+const FILE_TARGETS: Record<string, string> = { write: 'file_path', make_file: 'output' }
+/** the team tools that fill a folder that must exist already: never renamed themselves, only moved along when they are
+ * inside a folder the answer made (below) */
+const FOLDER_TARGETS: Record<string, string> = { copy_files: 'to_folder' }
 
 const norm = (s: string) => s.normalize('NFC').replace(/\s+/g, ' ').trim()
 
@@ -99,17 +101,21 @@ export async function runReplay(rec: DemoRecording, io: ReplayIo): Promise<{ fai
   const swapDeep = (v: unknown): unknown => JSON.parse(swap(JSON.stringify(v ?? {})))
   // files the answer makes that are there already (the same showcase a second time): the next free name, before the
   // first word of the answer, so the text that names a file before making it says the new name too
-  const targets: string[] = []
+  const files: string[] = []
+  const folders: string[] = []
   for (const e of rec.events) {
     if (e.type !== 'tool' || !e.name.startsWith(TEAM_TOOL_PREFIX)) continue
-    const key = TARGETS[e.name.slice(TEAM_TOOL_PREFIX.length)]
-    const target = key && e.input && typeof e.input === 'object' ? (e.input as Record<string, unknown>)[key] : undefined
-    if (typeof target === 'string') targets.push(target)
+    const bare = e.name.slice(TEAM_TOOL_PREFIX.length)
+    const input = e.input && typeof e.input === 'object' ? (e.input as Record<string, unknown>) : {}
+    const file = FILE_TARGETS[bare] ? input[FILE_TARGETS[bare]] : undefined
+    const folder = FOLDER_TARGETS[bare] ? input[FOLDER_TARGETS[bare]] : undefined
+    if (typeof file === 'string') files.push(file)
+    if (typeof folder === 'string') folders.push(`${folder.replace(/\/+$/, '')}/x`)
   }
   // a folder the answer made in the person's own folder (users/<id>/<folder>/…: personal folders start empty in the
   // demo) that is there already: the whole folder gets the next free name
   const own = `users/${io.userId}/`
-  for (const t of targets) {
+  for (const t of [...files, ...folders]) {
     const now = swap(t)
     if (!now.startsWith(own)) continue
     const parts = now.slice(own.length).split('/')
@@ -119,7 +125,7 @@ export async function runReplay(rec: DemoRecording, io: ReplayIo): Promise<{ fai
     swaps.set(`${folder}/`, `${freeName(folder, io.exists)}/`)
   }
   const planned = new Set<string>()
-  for (const target of targets) {
+  for (const target of files) {
     const now = swap(target)
     if (planned.has(now)) continue
     const free = freeName(now, (rel) => io.exists(rel) || (rel !== now && planned.has(rel)))
