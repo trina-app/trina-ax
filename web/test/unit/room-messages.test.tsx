@@ -222,3 +222,24 @@ test("a preview's folders the asker cannot open themselves are never named, only
   expect(both).toContain(translate('en', 'rooms.aiWhyFolders', { folders: 'finance' }))
   expect(both).not.toContain(translate('en', 'rooms.aiWhySomeFolders'))
 })
+
+test("a photo's thumbnail takes its own shape once loaded (an older row with a landscape size, a portrait thumbnail)", async () => {
+  const { act } = await import('react')
+  const { FakeEvent: Ev } = await import('./dom-host')
+  const file = { id: uuidv7(), name: 'IMG_0001.jpg', size: 1000, mime: 'image/jpeg', kind: 'image', width: 1600, height: 1200, thumb: true }
+  const m0 = message({ roomId: R, seq: 1, author: BEN, body: '', files: [file] as never })
+  installDom()
+  const m = await mount(<RoomMessages roomId={R} messages={[m0]} pending={[]} meId={ME.id} members={[ME, BEN]} onReply={() => {}} />)
+  try {
+    const img = m.get('room-image').querySelector('img')!
+    // before it loads: the box from the stored size (landscape)
+    expect([img.style.width, img.style.height]).toEqual(['320px', '240px'])
+    // the thumbnail ffmpeg made is upright: 480 x 640
+    Object.assign(img, { naturalWidth: 480, naturalHeight: 640 })
+    await act(async () => { img.dispatchEvent(new Ev('load')) })
+    expect([img.style.width, img.style.height]).toEqual(['180px', '240px'])
+  } finally {
+    await m.unmount()
+    removeDom()
+  }
+})

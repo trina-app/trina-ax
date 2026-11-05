@@ -15,7 +15,7 @@ import { publishChanges } from '../team-files/changes'
 import { fileError } from '../team-files/errors'
 import { checkRegular, freeName, installFile } from '../team-files/place'
 import { mimeOf, type TeamFiles } from '../team-files/service'
-import { imageSize, makeThumbnail } from './image'
+import { displaySize, makeThumbnail } from './image'
 import type { TeamFileRefs } from './team-refs'
 
 export const ATTACHMENTS_DIR = '.attachments'
@@ -74,7 +74,7 @@ export class Attachments {
     const quarantined = this.ctx.files.quarantine.hasHash(sha256)
     const kind = attachmentKind(final)
     const id = newId()
-    const dims = kind === 'image' && !quarantined ? imageSize(head.subarray(0, headLen)) : null
+    const dims = kind === 'image' && !quarantined ? displaySize(head.subarray(0, headLen)) : null
     let thumb: string | null = null
     if (kind === 'image' && !quarantined) {
       const dst = path.join(this.thumbsDir(), `${id}.jpg`)

@@ -8,6 +8,7 @@
 // storage check, the temp file and its sha256, the image size and thumbnail helpers, the quarantine list).
 // reconcile() runs at every start: after a restore the database and the folder may be from different moments; a file
 // without its row is set aside in .system/rooms-orphans/ for 30 days, a row without its file is only counted.
+import { createHash } from 'node:crypto'
 import fs from 'node:fs'
 import path from 'node:path'
 import { PRODUCT } from '@mycel/shared'
@@ -20,7 +21,10 @@ import { badSegment } from '../policy/names'
 import { checkRegular } from '../team-files/place'
 import { mimeOf } from '../team-files/service'
 import { attachmentKind } from '../uploads/attachments'
-import { imageSize, makeThumbnail } from '../uploads/image'
+import { displaySize, makeThumbnail } from '../uploads/image'
+import { cleanImage, imageFormat, PHOTO } from '../uploads/metadata'
+import { personLocale } from '../files/media-text'
+import { tr } from '../chat/i18n'
 import { canSee, fileOut, memberRow, messageRow, roomRow, type FileRow } from './store'
 
 /** An upload not sent in a message within a day is removed. */
@@ -63,19 +67,30 @@ export class RoomFiles {
     const fd = fs.openSync(src, 'r')
     let headLen = 0
     try { headLen = fs.readSync(fd, head, 0, head.length, 0) } finally { fs.closeSync(fd) }
-    const size = fs.statSync(src).size
-    try { fs.renameSync(src, dst) } catch { fs.copyFileSync(src, dst); fs.rmSync(src, { force: true }) }
-    fs.chmodSync(dst, 0o600)
+    let size = fs.statSync(src).size
     const kind = attachmentKind(clean)
     // a file on the team's quarantine list (safe-ops) is kept as a file: no preview is made from it
     const quarantined = this.ctx.files.quarantine.hasHash(sha256)
-    const dims = kind === 'image' && !quarantined ? imageSize(head.subarray(0, headLen)) : null
+    // the size it is shown at (a portrait phone photo stored landscape stands upright): from the photo as sent
+    const dims = kind === 'image' && !quarantined ? displaySize(head.subarray(0, headLen)) : null
+    // every member gets the photo: like a messenger, the place it was taken, the camera and other metadata are cut out
+    // first (JPEG, PNG, WebP, HEIC; uploads/metadata.ts PHOTO keeps the colours, an animation and which way up it is)
+    let stored = sha256
+    if (kind === 'image' && !quarantined && imageFormat(head.subarray(0, headLen))) {
+      const cleaned = cleanImage(fs.readFileSync(src), PHOTO)
+      if (!(cleaned instanceof Uint8Array)) { fs.rmSync(src, { force: true }); return fail('validation', tr('roomPhotoUnreadable', personLocale(this.ctx.db, userId))) }
+      fs.writeFileSync(src, cleaned)
+      size = cleaned.byteLength
+      stored = createHash('sha256').update(cleaned).digest('hex')
+    }
+    try { fs.renameSync(src, dst) } catch { fs.copyFileSync(src, dst); fs.rmSync(src, { force: true }) }
+    fs.chmodSync(dst, 0o600)
     let thumb = false
     if (kind === 'image' && !quarantined) {
       try { thumb = await makeThumbnail(dst, this.thumbAbs({ room_id: roomId, id }), 640, path.join(this.ctx.config.dataDir, 'work')) } catch (e) { this.ctx.log.debug('room thumbnail failed', { err: e }) }
     }
     this.ctx.db.query(`INSERT INTO room_files (id, room_id, user_id, name, size, mime, kind, width, height, sha256, thumb, created_at)
-      VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`).run(id, roomId, userId, clean, size, mimeOf(clean) ?? 'application/octet-stream', kind, dims?.width ?? null, dims?.height ?? null, sha256, thumb ? 1 : 0, nowIso())
+      VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`).run(id, roomId, userId, clean, size, mimeOf(clean) ?? 'application/octet-stream', kind, dims?.width ?? null, dims?.height ?? null, stored, thumb ? 1 : 0, nowIso())
     return fileOut(this.ctx.db.query('SELECT * FROM room_files WHERE id = ?').get(id) as FileRow)
   }
 

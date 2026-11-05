@@ -36,10 +36,30 @@ const dayOf = (iso: string, locale: Locale) => new Intl.DateTimeFormat(intlTag(l
 export const messageDomId = (id: string) => `room-msg-${id}`
 
 /** the largest box a thumbnail takes, so the list does not jump while it loads */
-function thumbBox(f: RoomFile): { width: number; height: number } | undefined {
+export function thumbBox(f: { width?: number | null; height?: number | null }): { width: number; height: number } | undefined {
   if (!f.width || !f.height) return undefined
   const k = Math.min(1, 320 / f.width, 240 / f.height)
   return { width: Math.round(f.width * k), height: Math.round(f.height * k) }
+}
+
+/** A photo's thumbnail: in the box its stored size gives until it loads, then in its own shape when that differs. The
+ * thumbnail is always upright; a photo sent before the server stored the upright size (a portrait phone photo stored
+ * landscape with EXIF orientation 6) has a landscape size, which would crop it to its middle band. */
+function RoomThumb({ f, src }: { f: RoomFile; src: string }) {
+  const [own, setOwn] = useState<{ width: number; height: number } | null>(null)
+  return (
+    <img
+      src={src}
+      alt=""
+      loading="lazy"
+      style={thumbBox(own ?? f)}
+      onLoad={(e) => {
+        const { naturalWidth: width, naturalHeight: height } = e.currentTarget
+        if (width && height && (!f.width || !f.height || Math.abs(width / height - f.width / f.height) > 0.05)) setOwn({ width, height })
+      }}
+      className="block max-h-60 max-w-full object-cover"
+    />
+  )
 }
 
 export function RoomMessages({ roomId, messages, pending, meId, members, onReply }: { roomId: string; messages: RoomMessage[]; pending: PendingSend[]; meId: string | null; members: UserRef[]; onReply: (q: RoomQuote) => void }) {
@@ -376,7 +396,7 @@ function Files({ roomId, files }: { roomId: string; files: RoomFile[] }) {
       {files.map((f) =>
         f.kind === 'image' && f.thumb ? (
           <button key={f.id} type="button" onClick={() => void preview(f)} aria-label={t('rooms.openImage', { name: f.name })} title={f.name} className="overflow-hidden rounded-lg border border-line bg-subtle" data-testid="room-image">
-            <img src={url(f, { thumb: '1' })} alt="" loading="lazy" style={thumbBox(f)} className="block max-h-60 max-w-full object-cover" />
+            <RoomThumb f={f} src={url(f, { thumb: '1' })} />
           </button>
         ) : (
           <button key={f.id} type="button" onClick={() => startDownload(url(f, { download: '1' }), f.name)} aria-label={t('rooms.download', { name: f.name })} className="inline-flex max-w-full items-center gap-2 rounded-xl border border-line bg-surface py-1.5 pr-2.5 pl-2.5 text-xs hover:bg-hover" data-testid="room-file">

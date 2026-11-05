@@ -8092,6 +8092,18 @@ every week. Placement: Team AX core (skills, files and permissions, the team lin
   uploader only). The upload is the chat attachment's path and limits (multipart ≤ 50 MB, the storage check, the temp
   file and its sha256, the image size and thumbnail helpers, no preview of a quarantined file). A deleted message's files
   are removed from disk; uploads never sent are swept after a day. The AI step reads them from there, with the same check.
+- **Photos: upright, and without where they were taken (end-to-end run, 2026-11-06).** A phone's portrait photo is
+  often stored landscape with EXIF orientation 6: the thumbnail (ffmpeg) and the browser show it upright, but its
+  stored size was the landscape one, so the room's 320×240 box cropped it to the middle band. The size is now the
+  shown one (`displaySize` in `uploads/image.ts`: orientations 5–8 swap width and height; chat attachments too). Rows
+  from before keep their size; the web shows a thumbnail in its own shape once it has loaded (`RoomThumb`), so no
+  backfill. Every member gets the original, so a photo's metadata is cut out on upload, as messengers do
+  (`uploads/metadata.ts`, the profile photo's cleaner with a messenger's settings): EXIF (with GPS, camera, times),
+  XMP, comments, PNG text chunks, other cameras' extras and anything after a JPEG's end; JPEG, PNG, WebP and HEIC
+  (its EXIF and XMP items are blanked in place). Kept: the picture byte for byte, its colour profile, an animation,
+  and its orientation, written back as the only EXIF tag, so it still stands upright. A file that claims one of these
+  formats but cannot be read is refused with a reason. Not cleaned: GIF and TIFF (rare from phones) and files sent
+  before; profile photos stay as strict as before (no colour profile, no animation, no orientation tag).
 - **Realtime to members only.** Every room event goes through `publishEach` with the room's member rows (and `canSee`
   for a message), so a person outside the room never gets one. Payloads are one message (≤ 10,000 characters, ≤ 10
   files) or a few ids, well under the per-user buffer. Reconnect: the hub's replay check (`stillVisible`) now also
