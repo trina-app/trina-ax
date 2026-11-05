@@ -1,4 +1,4 @@
-# CI: typecheck (incl. web + desktop), native build, unit tests, fast fuzz, web tests + build, relay suite, and the Linux job with unprivileged accounts in Docker.
+# CI: typecheck (incl. web + desktop; the phone app in its own job), native build, unit tests, fast fuzz, web tests + build, relay suite, and the Linux job with unprivileged accounts in Docker.
 # Real-engine tests (Claude Code / Codex logins, model calls) never run here: they need the owner's accounts and
 # run locally with `bun run test:stage1`.
 # The release workflow (release.yml) calls this one with the tagged commit (`ref`) and publishes only when every job
@@ -94,8 +94,6 @@ jobs:
         with:
           # the production relay's runtime (versions.json node-relay; relay/deploy/install-node.sh pins the tarball)
           node-version: 26.12.1
-      - name: Mobile app typecheck (mobile/ has its own npm lockfile; the root typecheck leaves it out)
-        run: bun run typecheck:mobile
       - name: Relay conformance and hardening (real Node 26 relay)
         run: bun run test:relay
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
@@ -106,6 +104,35 @@ jobs:
             native/bin/
             !native/bin/hwp/**
           retention-days: 7
+
+  mobile:
+    # The phone app (mobile/) has its own npm lockfile, and the root typecheck leaves it out. Its own job, so it never
+    # delays the main one. npm's download cache is keyed on mobile/package-lock.json; the install retries, and a
+    # registry that stays unreachable only warns (it says nothing about the code): a type error still fails the job.
+    name: Mobile app typecheck
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          ref: ${{ inputs.ref }}
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          # within React Native 0.88's range (mobile/README.md), the relay's Node like the check job
+          node-version: 26.12.1
+          cache: npm
+          cache-dependency-path: mobile/package-lock.json
+      - name: Install (locked, no install scripts)
+        id: install
+        continue-on-error: true
+        run: npm ci --prefix mobile --ignore-scripts --no-audit --no-fund --fetch-retries=4 --fetch-retry-mintimeout=10000 --fetch-retry-maxtimeout=60000
+      - name: Typecheck
+        if: steps.install.outcome == 'success'
+        run: npm --prefix mobile run typecheck
+      - name: Registry unreachable
+        if: steps.install.outcome != 'success'
+        run: echo "::warning::npm could not install mobile/ dependencies; the mobile typecheck did not run"
 
   linux-docker:
     name: Linux attack suite (T1, bwrap + nftables + cgroups in Docker)
