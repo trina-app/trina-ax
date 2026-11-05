@@ -46,8 +46,20 @@ async function roomOf(memberIds: string[]): Promise<{ roomId: string; groupId: s
   if (!r) throw new Error('no team room')
   return { roomId: r.id, groupId: g.id }
 }
-const send = (user: string, roomId: string, body: string) =>
-  h.api(user).call(API.sendRoomMessage, { params: { id: roomId }, body: { body, clientMessageId: cm(), mentions: [], fileIds: [] } })
+/** a message to the room; sending is rate limited per person (a burst of 20, then one a second), and the fake engine
+ * answers faster than a person types: a 429 waits the seconds it names and sends again */
+const send = async (user: string, roomId: string, body: string): Promise<RoomMessage> => {
+  const clientMessageId = cm()
+  for (let i = 0; ; i++) {
+    try {
+      return await h.api(user).call(API.sendRoomMessage, { params: { id: roomId }, body: { body, clientMessageId, mentions: [], fileIds: [] } })
+    } catch (e) {
+      const err = e as { status?: number; body?: { retryAfter?: number } }
+      if (err.status !== 429 || i >= 5) throw e
+      await Bun.sleep(1000 * (err.body?.retryAfter ?? 1))
+    }
+  }
+}
 /** ask and wait for the end of the answer (the asker's room.ai.run) */
 async function ask(user: string, roomId: string, body: string): Promise<{ q: RoomMessage; run: RoomAiRun }> {
   const q = await send(user, roomId, body)
