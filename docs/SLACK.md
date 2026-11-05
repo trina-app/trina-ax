@@ -40,8 +40,11 @@ of the old one.
 
 ## Using it (everyone)
 
-- **Link with "Sign in with Slack"** (Settings › App connectors › Slack, or the link page): the button sends your own
-  browser to Slack; you sign in to Slack (or are signed in already) and come back to Settings, linked. The Slack account
+- **Link with "Sign in with Slack"** (Settings › App connectors › Slack, or the link page): the button sends your
+  browser to Slack; you sign in to Slack (or are signed in already) and come back, linked. From the desktop app Slack
+  opens in your system browser and from the phone app in an in-app browser: if that browser is not signed in here, it
+  asks you to sign in first and then finishes; at the end it says you can go back to the app, whose Settings line shows
+  the link when you return. Signed in there as someone else, it is refused ("다른 계정으로 로그인돼 있어요"). The Slack account
   you signed in to is the one linked: no e-mail is needed, and nobody else's Slack account can be linked to you, nor
   yours to anybody else. Slack's DM then says which account it is linked to, and every "working…" names the account it
   answers as.
@@ -76,8 +79,10 @@ of the old one.
 | `im:write` | `conversations.open` for the one DM telling a Slack account which account it was linked to by "Sign in with Slack" |
 | `channels:read`, `groups:read` | `conversations.info` just before *Post to channel*: a channel shared with another organization since the question (or one Slack says nothing about) gets nothing |
 
-User scopes `openid` and `profile`, with the redirect URL: "Sign in with Slack" (OpenID Connect; docs.slack.dev
-"Sign in with Slack"). The user token that sign-in gives the server is revoked at once and never kept. The app-level
+The redirect URL is for "Sign in with Slack" (OpenID Connect; docs.slack.dev "Sign in with Slack"), which asks for
+`openid` and `profile` in its own flow: they are not in the app's user scopes (Slack does not let them be asked for
+together with other scopes, and the manifest's user scopes are asked for at install). The user token that sign-in gives
+the server is revoked at once and never kept. The app-level
 token needs `connections:write` (Socket Mode). No channel history, no files, no slash command.
 
 ## Limits
@@ -105,9 +110,9 @@ after 1, 2, 4 … seconds (at most a minute).
   AES-256-GCM encrypted with their own key directory `<secrets>/integrations/slack` (owned by the server account,
   0700). No response, log line, audit entry, engine or chat ever gets them; the screen only knows whether they are
   saved. The client id is not a secret.
-- "Sign in with Slack": the state and nonce are random and stored hashed, bound to the person and the session that
-  started it, 10 minutes, used once; only that person's browser with that session finishes it (another browser or
-  person changes nothing and does not spend it). The server exchanges the code itself (`openid.connect.token` with the
+- "Sign in with Slack": the state and nonce are random and stored hashed, bound to the person who started it, 10
+  minutes, used once; only a browser signed in as that person finishes it (another person's session refuses and ends
+  it; a browser with no session is sent to sign in, and only to the fixed return page with the state and the code). The server exchanges the code itself (`openid.connect.token` with the
   client secret, over TLS) and checks the id_token's issuer (`https://slack.com`), audience (the client id), time and
   nonce; the Slack user and workspace it names must be of this workspace and a person (`users.info`).
 - Who asked comes from Slack's own event (workspace, organization and user ids), never from the message text. Socket

@@ -8151,7 +8151,8 @@ People ask the team's AI from Slack (`@app` in a channel, a DM to the app). Guid
   so an admin could give a member a colleague's Slack e-mail. Triggers on `users` record when each e-mail was last set
   (`slack_email_changes`); who set it is the audit log (`user.create`, `user.update` with `email`, actor not the
   person, at or after that time less a second's margin). Such an e-mail is not taken as proof for 7 days, unless the
-  person set it again themselves since (Settings › Profile writes no audit entry). Those people use the proposal. The
+  person set it again themselves since (Settings › Profile writes no audit entry). Those people link with Sign in with
+  Slack (below; it was the owner's proposal until that decision). The
   link page shows the compared e-mail (the person's own; Slack's is never shown there). The migration seeds the times of
   e-mails admins set before it from the audit log (an e-mail changed back by its person before the migration counts as
   the admin's until they set it again). The person is told in the app when an admin changes their e-mail (the poll
@@ -8170,10 +8171,9 @@ People ask the team's AI from Slack (`@app` in a channel, a DM to the app). Guid
 - Tests: `tests/unit/c-slack.test.ts` with `tests/lib/fake-slack.ts` (owner only; wrong tokens, missing scopes, a seal
   for another purpose; the link prompt to the asker only; somebody else's link refused by the e-mail check, no e-mail on
   either side refused, the matching e-mail binds (case and spaces aside), NFC and full-width e-mails, an admin-set e-mail
-  refused until the person sets it again; the owner's People list and proposals: owner only, no bots, deactivated people
-  or other workspaces, already linked either way, a proposal links nothing (the owner's own Slack account gets no answer
-  as the member), only the member accepts, withdraw, decline, 7-day expiry, the audit and the DMs; a Slack Connect
-  channel without the button; both names, used once, expiry, cancel, linked elsewhere;
+  refused until the person sets it again; Sign in with Slack (see its own entry: no e-mail needed, back without a
+  session, another account, expiry, reuse, the checked claims, Grid); a Slack Connect channel without the button; both
+  names, used once, expiry, cancel, linked elsewhere;
   Slack Connect; a turn as the linked person answered ephemerally with the button; posting once, not by someone else; a
   thread follow-up in the same chat; a DM; dedupe; other workspace or app and malformed events; a refresh; the tokens in
   no log, row or answer; unlink and a disabled account; off and remove), the permission matrix
@@ -8183,9 +8183,38 @@ People ask the team's AI from Slack (`@app` in a channel, a DM to the app). Guid
   it), and the last step saves the tokens and turns it on. A refused token is said under its field until the next try,
   never in a toast. `SlackAdmin.appId` (not secret) lets a problem link to the app's own settings page in Slack
   (`api.slack.com/apps/<id>/socket-mode`, `/oauth`, `/install-on-team`, `/general`); before the app id is known the link
-  is the list of the owner's apps. Remove is behind Replace tokens; People rows open one dialog (propose, or withdraw).
+  is the list of the owner's apps. Remove is behind Replace tokens. (People rows opened one dialog to propose a link;
+  gone with the proposals.)
   Settings › App connectors shows the Slack line instead of the "admin has to set up connectors" card while the team
   uses Slack. The link page is two plain lines; the Slack user id is no longer shown there (the display name, full name
   and @handle are; the e-mail proof decides). In Slack, reason codes in "could not start / could not answer" are
-  plain sentences. No security rule changed: the e-mail proof, the two halves of a proposal, ephemeral answers first
-  and no Post to channel in shared channels stay as above. Tests: `web/test/unit/slack-screens.test.tsx`.
+  plain sentences. No security rule changed: the e-mail proof, ephemeral answers first and no Post to channel in shared
+  channels stay as above. Tests: `web/test/unit/slack-screens.test.tsx`.
+- **Sign in with Slack from the desktop and phone apps; review of 65fc2dec (2026-11-05).**
+  - The desktop app opens slack.com in the system browser and the phone app in an in-app browser with its own cookies,
+    so the browser Slack sends back has no session of the app, and a flow bound to the session that started it could
+    never finish there (nor on another address of the team than the saved one). The flow is now bound to the person,
+    not the session: a browser signed in as that person finishes it; signed in as somebody else, it is refused and
+    ends ("다른 계정으로 로그인돼 있어요 …"); with no session, the flow waits and the browser goes to the sign-in page,
+    whose next page (the existing internal-only `next`, which takes a path starting with one `/`) is a fixed page of the
+    app, `/slack/signin-return`, with only the state and the code, both checked by their shape; that page sends the
+    browser to the callback again with only those two. No address from the request is ever followed. A flow started in
+    the desktop or phone app ends on `/slack/done` ("이 창을 닫고 앱으로 돌아가도 돼요"); one started on the web ends in
+    Settings. The app's Settings line reads the link again when its window is focused or shown again. No change in the
+    desktop or phone app (both are in store review).
+  - Enterprise Grid: Slack's id_token has no enterprise claim; links now keep the workspace's enterprise id from
+    auth.test (events carry the same), and a link is one per workspace and Slack user (`UNIQUE (team_id,
+    slack_user_id)`), with one check used by the one-time link and by Sign in with Slack (`bindable`): before, the two
+    disagreed on the enterprise id and the same Slack user could be linked twice.
+  - Smaller: the outcome in Settings is looked up with `Object.hasOwn` (`?slack=constructor` no longer breaks the page)
+    and taken out of the address once shown; signing in again with the same Slack account records and says nothing new;
+    the user token is revoked even when the id_token is not one; the manifest's redirect URL and the address links open
+    at come from one value (the page's own address, sent with the GET that shows the manifest and the PUT that saves).
+  - The manifest no longer lists `openid` and `profile` as user scopes. docs.slack.dev "Sign in with Slack": "A scope
+    conflict occurs when attempting to combine Sign in with Slack user scopes with non-Sign in with Slack scopes in the
+    same OAuth flow. Each set of scopes must be requested in separate OAuth flows." Its app setup asks only to "configure
+    a Redirect URL"; the scopes go in the authorization request ("You request the OpenID scopes—openid, email, and
+    profile"). The manifest reference says `oauth_config.scopes.user` are "user scopes to request upon app
+    installation", so listing them would add them to the owner's "Install to Workspace" flow with the bot scopes.
+  - Migration `335_c_slack.sql` was changed in place again (the link key, the flow's `client`): no server outside this
+    Mac's throwaway development databases ever ran it.
