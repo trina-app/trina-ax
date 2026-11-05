@@ -69,6 +69,16 @@
   --font-sans: -apple-system, BlinkMacSystemFont, "Apple SD Gothic Neo", "Noto Sans KR", "Segoe UI", Roboto, system-ui, sans-serif;
   --font-mono: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
 
+  /* The app's own type sizes next to Tailwind's text-xs / text-sm / text-base: reading (answers, messages, the message
+     boxes), label (field labels, steps, small buttons), micro (tab labels, dates, counts) and nano (badges). No
+     --line-height companions: each keeps the line height around it, as the px sizes they replace did. leading-reading is
+     the line of room messages and the message boxes. */
+  --text-reading: 15px;
+  --text-label: 13px;
+  --text-micro: 11px;
+  --text-nano: 10px;
+  --leading-reading: 1.5rem;
+
   --color-canvas: var(--c-canvas);
   --color-surface: var(--c-surface);
   --color-subtle: var(--c-subtle);

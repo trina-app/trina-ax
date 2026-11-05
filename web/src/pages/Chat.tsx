@@ -312,7 +312,7 @@ function ChatView({ chatId }: { chatId: string }) {
           />
           </>
         )}
-        {chat?.deletedAt && <p className="pt-2 text-center text-[11px] text-faint">{t('chat.footer')}</p>}
+        {chat?.deletedAt && <p className="pt-2 text-center text-micro text-faint">{t('chat.footer')}</p>}
       </div>
       {movingProject && chat && (
         <MoveToProjectDialog

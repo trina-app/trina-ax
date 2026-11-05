@@ -444,7 +444,7 @@ export function DraftActivity({ source, site, steps, writing, assets }: { source
   }
   const idle = steps.length === 0 && !writing
   return (
-    <ul className="space-y-1.5 text-[13px]" aria-label={t('onboarding.profile.activity.label')} aria-live="polite" data-testid="profile-activity">
+    <ul className="space-y-1.5 text-label" aria-label={t('onboarding.profile.activity.label')} aria-live="polite" data-testid="profile-activity">
       {source === 'website'
         ? line('intro', idle ? spin : <Globe size={14} className="text-faint" aria-hidden />, t('onboarding.profile.activity.intro', { site: site ?? '', max }), 'text-muted', 'profile-activity-intro')
         : line('text', spin, t('onboarding.profile.activity.text'), 'text-ink')}
@@ -469,7 +469,7 @@ function ReviewField({ field, value, source, hint, onClear, children }: { field:
   return (
     <div>
       <div className="mb-1.5 flex min-h-8 items-center justify-between gap-2">
-        <label htmlFor={id} className="text-[13px] font-medium text-ink">
+        <label htmlFor={id} className="text-label font-medium text-ink">
           {name}
         </label>
         {value.trim() && (
@@ -494,13 +494,13 @@ function ToneField({ tone, source, onChange }: { tone: string[]; source: Profile
   const add = () => { if (next.trim()) { onChange(toneChips(next, tone)); setNext('') } }
   return (
     <div role="group" aria-labelledby={`${id}-label`}>
-      <p id={`${id}-label`} className="mb-1.5 text-[13px] font-medium text-ink">
+      <p id={`${id}-label`} className="mb-1.5 text-label font-medium text-ink">
         {t('onboarding.profile.f.tone')}
       </p>
       {tone.length > 0 && (
         <ul className="mb-2 flex flex-wrap gap-1.5">
           {tone.map((x) => (
-            <li key={x} className="inline-flex items-center gap-0.5 rounded-lg border border-line bg-subtle py-0.5 pr-0.5 pl-2.5 text-[13px] text-ink">
+            <li key={x} className="inline-flex items-center gap-0.5 rounded-lg border border-line bg-subtle py-0.5 pr-0.5 pl-2.5 text-label text-ink">
               {x}
               <IconButton label={t('onboarding.profile.remove', { name: x })} onClick={() => onChange(tone.filter((y) => y !== x))}>
                 <X size={13} />
@@ -544,7 +544,7 @@ function ColorsField({ colors, onChange }: { colors: string[]; onChange: (colors
   if (!colors.length) return null
   return (
     <div role="group" aria-labelledby={`${id}-label`} data-testid="profile-colors">
-      <p id={`${id}-label`} className="mb-1.5 text-[13px] font-medium text-ink">
+      <p id={`${id}-label`} className="mb-1.5 text-label font-medium text-ink">
         {t('onboarding.profile.f.colors')}
       </p>
       <ul className="flex flex-wrap gap-1.5">

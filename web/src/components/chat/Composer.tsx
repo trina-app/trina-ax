@@ -490,7 +490,7 @@ export default function Composer({
                     <span className="max-w-[180px] truncate font-medium">{f.name}</span>
                   )}
                   {/* the team folder it is in, visible without hovering (phones) */}
-                  {f.source === 'team' && <span className="max-w-[180px] truncate text-[10px] leading-tight text-faint" data-testid="chip-folder">{folderOf(f.attachment?.path ?? f.path ?? '') || t('files.root')}</span>}
+                  {f.source === 'team' && <span className="max-w-[180px] truncate text-nano leading-tight text-faint" data-testid="chip-folder">{folderOf(f.attachment?.path ?? f.path ?? '') || t('files.root')}</span>}
                 </span>
                 {/* both stay through the whole upload, so a screen reader hears each change */}
                 <span className="flex items-center">
@@ -592,7 +592,7 @@ export default function Composer({
                 }}
                 placeholder={hint}
                 disabled={transcribing}
-                className={clsx('block max-h-[240px] min-w-0 flex-1 resize-none bg-transparent pb-3 pl-5 text-[15px] leading-6 outline-none placeholder:text-faint', answering ? 'pt-1.5' : 'pt-3')}
+                className={clsx('block max-h-[240px] min-w-0 flex-1 resize-none bg-transparent pb-3 pl-5 text-reading leading-reading outline-none placeholder:text-faint', answering ? 'pt-1.5' : 'pt-3')}
                 data-testid="composer-input"
               />
               <div className="flex shrink-0 items-center gap-1 pb-2">
@@ -756,7 +756,7 @@ export default function Composer({
             </IconButton>
           )}
         </div>
-        {footer && <p className="hidden min-w-0 text-center text-[11px] text-faint sm:block">{footer}</p>}
+        {footer && <p className="hidden min-w-0 text-center text-micro text-faint sm:block">{footer}</p>}
         <div className="flex flex-1 basis-0 items-center justify-end">
           {onEngine && (
             <div className="relative">
@@ -780,7 +780,7 @@ export default function Composer({
           )}
         </div>
       </div>
-      {footer && <p className="px-2 pt-1 text-center text-[11px] text-faint sm:hidden">{footer}</p>}
+      {footer && <p className="px-2 pt-1 text-center text-micro text-faint sm:hidden">{footer}</p>}
       {error && (
         <p role="alert" className="mt-2 px-2 text-sm text-danger">
           {error}

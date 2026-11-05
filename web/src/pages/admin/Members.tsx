@@ -492,7 +492,7 @@ function InviteDialog({ groups, onClose, onCreated }: { groups: Group[]; onClose
           <RoleSelect value={role} onChange={setRole} disabled={!isOwner(me)} />
         </Field>
         <div>
-          <p className="mb-1.5 text-[13px] font-medium">{t('admin.groups')}</p>
+          <p className="mb-1.5 text-label font-medium">{t('admin.groups')}</p>
           <GroupChecks groups={groups} value={groupIds} onChange={setGroupIds} />
         </div>
         <Field label={t('members.validDays')}>
@@ -595,7 +595,7 @@ function TempPasswordField({ value, onChange, serverError, hint }: { value: stri
   const error = problem ? t(problem) : serverError ?? null
   return (
     <div>
-      <label htmlFor={`${id}-input`} className="mb-1.5 block text-[13px] font-medium text-ink">
+      <label htmlFor={`${id}-input`} className="mb-1.5 block text-label font-medium text-ink">
         {t('members.tempPassword')}
       </label>
       <div className="flex items-center gap-1">
@@ -771,7 +771,7 @@ function AddMember({ groups, onClose, onCreated }: { groups: Group[]; onClose: (
           <RoleSelect value={f.role} onChange={(role) => set({ role })} disabled={!isOwner(me)} />
         </Field>
         <div>
-          <p className="mb-1.5 text-[13px] font-medium">{t('admin.groups')}</p>
+          <p className="mb-1.5 text-label font-medium">{t('admin.groups')}</p>
           <GroupChecks groups={groups} value={f.groupIds} onChange={(groupIds) => set({ groupIds })} />
         </div>
         <NewPersonPreview role={f.role} groupIds={f.groupIds} groups={groups} />
@@ -836,7 +836,7 @@ function EditMember({ user, groups, canChangeRole, onClose, onSaved }: { user: U
           </select>
         </Field>
         <div>
-          <p className="mb-1.5 text-[13px] font-medium">{t('admin.groups')}</p>
+          <p className="mb-1.5 text-label font-medium">{t('admin.groups')}</p>
           <GroupChecks groups={groups} value={groupIds} onChange={setGroupIds} />
         </div>
       </div>

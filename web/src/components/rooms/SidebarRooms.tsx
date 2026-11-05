@@ -82,7 +82,7 @@ export function UnreadBadge({ room, className, testId }: { room: Room; className
   const t = useT()
   if (room.unreadCount <= 0) return null
   return (
-    <span className={clsx('shrink-0 rounded-full px-1.5 text-[11px] font-medium', room.muted ? 'bg-hover text-muted' : 'bg-accent text-accent-ink', className)} data-testid={testId} data-muted={room.muted ? '' : undefined}>
+    <span className={clsx('shrink-0 rounded-full px-1.5 text-micro font-medium', room.muted ? 'bg-hover text-muted' : 'bg-accent text-accent-ink', className)} data-testid={testId} data-muted={room.muted ? '' : undefined}>
       <span aria-hidden>{roomBadge(room)}</span>
       <span className="sr-only">
         {t('rooms.unread', { n: room.unreadCount })}

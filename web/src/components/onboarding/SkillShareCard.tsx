@@ -163,7 +163,7 @@ export function SkillShareCard({ chatId, onShared, onLater }: { chatId: string; 
           <div key={c.name} className="flex flex-wrap gap-1.5" data-testid="skill-share-choice">
             <dt className="sr-only">{c.label}</dt>
             {c.options.map((o) => (
-              <dd key={o.value} className={o.value === (c.default ?? c.options[0]!.value) ? 'rounded-full bg-accent-soft px-2.5 py-0.5 text-[13px] font-medium text-accent-text' : 'rounded-full border border-line px-2.5 py-0.5 text-[13px] text-muted'}>
+              <dd key={o.value} className={o.value === (c.default ?? c.options[0]!.value) ? 'rounded-full bg-accent-soft px-2.5 py-0.5 text-label font-medium text-accent-text' : 'rounded-full border border-line px-2.5 py-0.5 text-label text-muted'}>
                 {o.label}
               </dd>
             ))}

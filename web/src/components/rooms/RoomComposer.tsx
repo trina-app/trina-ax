@@ -205,7 +205,7 @@ export function RoomComposer({ roomId, members, meId, reply, onCancelReply, onRe
                 submit()
               }
             }}
-            className="block max-h-[200px] min-w-0 flex-1 resize-none bg-transparent px-1.5 py-2 text-[15px] leading-6 text-ink outline-none placeholder:text-faint"
+            className="block max-h-[200px] min-w-0 flex-1 resize-none bg-transparent px-1.5 py-2 text-reading leading-reading text-ink outline-none placeholder:text-faint"
             data-testid="room-input"
           />
           <button

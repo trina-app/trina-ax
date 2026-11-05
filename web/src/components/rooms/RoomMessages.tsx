@@ -79,7 +79,7 @@ export function RoomMessages({ roomId, messages, pending, meId, members, onReply
         return (
           <Fragment key={run.key}>
             {run.newDay && (
-              <div role="separator" className="flex items-center gap-3 py-3 text-[11px] font-medium text-faint">
+              <div role="separator" className="flex items-center gap-3 py-3 text-micro font-medium text-faint">
                 <span className="h-px flex-1 bg-line" aria-hidden />
                 {dayOf(first.createdAt, locale)}
                 <span className="h-px flex-1 bg-line" aria-hidden />
@@ -149,7 +149,7 @@ function Unread({ n }: { n: number }) {
   const t = useT()
   if (n <= 0) return null
   return (
-    <span className="ml-1.5 text-[11px] font-medium text-accent-text tabular-nums" data-testid="message-unread">
+    <span className="ml-1.5 text-micro font-medium text-accent-text tabular-nums" data-testid="message-unread">
       <span aria-hidden>{n}</span>
       <span className="sr-only">{t('rooms.unreadBy', { n })}</span>
     </span>
@@ -214,11 +214,11 @@ function MessageRow({ roomId, m, mine, names, members, meId, editing, flash, onE
       ) : editing ? (
         <EditForm roomId={roomId} m={m} initial={mentioned.filter((x) => x.name)} members={members} meId={meId} onDone={onEditDone} />
       ) : deleted ? (
-        <p className="text-[15px] leading-6 text-faint">{t('rooms.deleted')}</p>
+        <p className="text-reading leading-reading text-faint">{t('rooms.deleted')}</p>
       ) : (
         <>
           {m.body && (
-            <p className="text-[15px] leading-6 break-words whitespace-pre-wrap text-ink">
+            <p className="text-reading leading-reading break-words whitespace-pre-wrap text-ink">
               {parts.map((p, i) =>
                 p.userId ? (
                   <span key={i} className={clsx('font-medium text-accent-text', p.userId === meId && 'rounded bg-accent-soft px-0.5')}>
@@ -451,7 +451,7 @@ function PendingRow({ roomId, p }: { roomId: string; p: PendingSend }) {
   const t = useT()
   return (
     <div className="py-0.5" data-testid="room-pending-message" data-state={p.state}>
-      {p.body && <p className="text-[15px] leading-6 break-words whitespace-pre-wrap text-muted">{p.body}</p>}
+      {p.body && <p className="text-reading leading-reading break-words whitespace-pre-wrap text-muted">{p.body}</p>}
       {p.files.length > 0 && <p className="truncate text-xs text-muted">{p.files.map((f) => f.name).join(', ')}</p>}
       {p.state === 'sending' ? (
         <p className="text-xs text-faint" role="status">

@@ -53,7 +53,7 @@ function StepRow({ step, live, kids = [] }: { step: Step; live: boolean; kids?: 
   // while a sub-agent works, its latest step shows under its row (like Claude Code)
   const latest = subtask && running && !open ? kids[kids.length - 1] : undefined
   return (
-    <li className="text-[13px] text-muted" {...(subtask ? { 'data-testid': 'subtask', 'data-step-id': step.id } : {})}>
+    <li className="text-label text-muted" {...(subtask ? { 'data-testid': 'subtask', 'data-step-id': step.id } : {})}>
       <button type="button" disabled={!expandable} aria-expanded={expandable ? open : undefined} aria-label={subtask && expandable ? `${words.label}${cut ? ` · ${cut}` : ''} · ${t('steps.subtaskShow')}` : undefined}
         onClick={() => setOpen((v) => !v)} className={clsx('flex w-full items-center gap-2 rounded px-1 py-0.5 text-left', expandable && 'hover:bg-hover')}>
         {running ? <Loader2 size={13} className="shrink-0 animate-spin" aria-label={t('steps.running')} /> : step.tool === 'attachment' ? (
@@ -97,7 +97,7 @@ function StepRow({ step, live, kids = [] }: { step: Step; live: boolean; kids?: 
                   ) : (
                     <span className="text-xs text-muted">{s.title || s.url}</span>
                   )}
-                  <span className="ml-1.5 text-[11px] text-faint">{hostOf(s.url)}</span>
+                  <span className="ml-1.5 text-micro text-faint">{hostOf(s.url)}</span>
                 </li>
               ))}
             </ul>
@@ -145,7 +145,7 @@ export default function Steps({ steps: all, streaming, receipt }: { steps: Step[
   const skill = useSkillTitle(rec?.skill.path ?? null, rec?.skill.name ?? '')
   // a skill someone else made ("S"): "김지훈님의 팀 스킬 '견적서 쓰기' · 팀 파일 1개"
   const receiptText = rec ? (rec.skill.by ? t('steps.receiptBy', { by: rec.skill.by, skill, n: rec.teamFiles }) : t('steps.receipt', { skill, n: rec.teamFiles })) : null
-  if (!steps.length) return receiptText ? <p className="mb-3 px-1 text-[13px] text-faint" data-testid="steps-receipt">{receiptText}</p> : null
+  if (!steps.length) return receiptText ? <p className="mb-3 px-1 text-label text-faint" data-testid="steps-receipt">{receiptText}</p> : null
   const { top, kids } = groupSteps(steps)
   // images the AI chose to show (shared browser screenshots) stay visible even when the list is folded
   const shown = steps.flatMap((s) => (s.kind === 'browser' ? s.images ?? [] : []))
@@ -162,7 +162,7 @@ export default function Steps({ steps: all, streaming, receipt }: { steps: Step[
   }
   return (
     <div className="mb-3" data-testid="steps">
-      <button type="button" aria-expanded={open} onClick={() => setOpen((v) => !v)} className="flex items-center gap-1 rounded px-1 py-0.5 text-[13px] text-faint hover:bg-hover hover:text-ink">
+      <button type="button" aria-expanded={open} onClick={() => setOpen((v) => !v)} className="flex items-center gap-1 rounded px-1 py-0.5 text-label text-faint hover:bg-hover hover:text-ink">
         {open ? <ChevronDown size={13} aria-hidden /> : <ChevronRight size={13} aria-hidden />}
         {receiptText ? <span data-testid="steps-receipt">{receiptText}</span> : t('steps.summary', { n: top.length })}
         {steps.some((s) => s.status === 'error' && !s.paused && !s.stopped) && <CircleAlert size={13} className="text-danger" aria-label={t('steps.someFailed')} data-testid="steps-failed" />}

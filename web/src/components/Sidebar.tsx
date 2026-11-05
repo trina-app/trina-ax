@@ -169,11 +169,11 @@ export default function Sidebar() {
           data-testid="new-chat"
         >
           <MessageSquarePlus size={16} className="text-accent-text" aria-hidden /> {t('sidebar.newChat')}
-          <kbd className="ml-auto hidden font-sans text-[11px] text-faint lg:inline">{onMac() ? '⇧⌘O' : 'Ctrl+Shift+O'}</kbd>
+          <kbd className="ml-auto hidden font-sans text-micro text-faint lg:inline">{onMac() ? '⇧⌘O' : 'Ctrl+Shift+O'}</kbd>
         </button>
         <button type="button" className={clsx(nav, 'w-full')} onClick={() => setSearchOpen(true)}>
           <Search size={16} aria-hidden /> {t('sidebar.search')}
-          <kbd className="ml-auto hidden font-sans text-[11px] text-faint lg:inline">{onMac() ? '⌘K' : 'Ctrl+K'}</kbd>
+          <kbd className="ml-auto hidden font-sans text-micro text-faint lg:inline">{onMac() ? '⌘K' : 'Ctrl+K'}</kbd>
         </button>
         <NavLink to="/projects" className={active} onClick={close}>
           <FolderKanban size={16} aria-hidden /> {t('sidebar.projects')}
@@ -193,7 +193,7 @@ export default function Sidebar() {
           <Bell size={16} aria-hidden /> {t('inbox.title')}
           {unread > 0 && (
             // aria-label on a plain span is not read: the number is hidden from screen readers and the words are sr-only
-            <span className="ml-auto rounded-full bg-accent px-1.5 text-[11px] font-medium text-accent-ink" data-testid="inbox-unread">
+            <span className="ml-auto rounded-full bg-accent px-1.5 text-micro font-medium text-accent-ink" data-testid="inbox-unread">
               <span aria-hidden>{unread > 99 ? '99+' : unread}</span>
               <span className="sr-only">{t('notifications.unread', { count: unread })}</span>
             </span>
@@ -205,7 +205,7 @@ export default function Sidebar() {
         <NavLink to="/skills" className={active} onClick={close} data-testid="nav-skills">
           <BookMarked size={16} aria-hidden /> {t('sidebar.skills')}
           {pendingSkills > 0 && (
-            <span className="ml-auto rounded-full bg-accent px-1.5 text-[11px] font-medium text-accent-ink" data-testid="skills-pending" aria-label={t('skills.tabReview')}>
+            <span className="ml-auto rounded-full bg-accent px-1.5 text-micro font-medium text-accent-ink" data-testid="skills-pending" aria-label={t('skills.tabReview')}>
               {pendingSkills}
             </span>
           )}
@@ -251,7 +251,7 @@ export default function Sidebar() {
           )}
           {groups.map(([key, { label, items }]) => (
             <div key={key || 'all'} className="mb-2">
-              {label && <h3 className="px-3 pt-2 pb-1 text-[11px] font-medium text-faint">{label}</h3>}
+              {label && <h3 className="px-3 pt-2 pb-1 text-micro font-medium text-faint">{label}</h3>}
               <ul>
                 {items.map((c) => (
                   <ChatItem key={c.id} chat={c} onNavigate={close} peek={peek} />
@@ -324,7 +324,7 @@ function ChatItem({ chat, onNavigate, peek }: { chat: Chat; onNavigate: () => vo
         )}
         <span className="truncate">{chat.title || t('chat.untitled')}</span>
         {needsAnswer && (
-          <span className="shrink-0 text-[11px] font-medium text-warn" data-testid="needs-answer">
+          <span className="shrink-0 text-micro font-medium text-warn" data-testid="needs-answer">
             {t('chat.needsAnswer')}
           </span>
         )}
@@ -712,7 +712,7 @@ function useChatPeek() {
             {!d ? (
               <span className="block h-3 w-2/3 animate-pulse rounded bg-hover" />
             ) : d.file ? (
-              <span className="inline-flex max-w-full items-center rounded-md border border-line bg-surface px-2 py-0.5 text-[11px] text-ink">
+              <span className="inline-flex max-w-full items-center rounded-md border border-line bg-surface px-2 py-0.5 text-micro text-ink">
                 <span className="truncate">{d.file}</span>
               </span>
             ) : (

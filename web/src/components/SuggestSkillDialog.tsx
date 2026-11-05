@@ -95,7 +95,7 @@ export default function SuggestSkillDialog({ source, initialName = '', initialCo
           <input className={inputCls} value={description} onChange={(e) => setDescription(e.target.value)} maxLength={300} data-testid="suggest-description" />
         </Field>
         <Field label={t('suggest.content')}>
-          <textarea className={`${inputCls} h-auto min-h-48 resize-y py-2 font-mono text-[13px]`} value={content} onChange={(e) => setContent(e.target.value)} maxLength={16000} data-testid="suggest-content" />
+          <textarea className={`${inputCls} h-auto min-h-48 resize-y py-2 font-mono text-label`} value={content} onChange={(e) => setContent(e.target.value)} maxLength={16000} data-testid="suggest-content" />
         </Field>
         {error && (
           <p role="alert" className="text-sm text-danger" data-testid="suggest-error">

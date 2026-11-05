@@ -410,10 +410,10 @@ export function urlTransform(url: string): string {
 }
 
 // A size is chosen here, not overridden through className: Tailwind orders the built stylesheet by its own rules, not by
-// the order in the class attribute, and .text-[15px] comes after .text-xs and .text-sm, so a smaller size put next to it
-// loses (leading-7 and prose-h3:text-[15px] the same way).
+// the order in the class attribute, so of two sizes on one element either may win (leading-7 and prose-h3:text-reading
+// the same way). text-reading is 15px, 17px on phones (index.css).
 const SIZES = {
-  answer: 'text-[15px] leading-7 prose-h1:text-lg prose-h2:text-base prose-h3:text-[15px]',
+  answer: 'text-reading leading-7 prose-h1:text-lg prose-h2:text-base prose-h3:text-reading',
   small: 'text-xs leading-5 prose-h1:text-sm prose-h2:text-sm prose-h3:text-xs',
 }
 

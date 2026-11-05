@@ -104,7 +104,7 @@ export default function Home() {
           {extras && !projectId && !starter && <PopularSkills key={`skills-${me.user.id}`} limit={3} min={2} className="mt-6" onChoose={(text) => setPreset({ text, n: (preset?.n ?? 0) + 1 })} />}
         </div>
       </div>
-      <p className="px-4 pb-3 text-center text-[11px] text-faint">{t('chat.footer')}</p>
+      <p className="px-4 pb-3 text-center text-micro text-faint">{t('chat.footer')}</p>
     </div>
   )
 }

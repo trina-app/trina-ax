@@ -33,7 +33,7 @@ export function BottomTabs() {
     <nav aria-label={t('tabs.label')} className="flex shrink-0 border-t border-line bg-canvas pb-[max(0.75rem,env(safe-area-inset-bottom))] md:hidden" data-testid="bottom-tabs">
       <TabLink to="/rooms" active={current === 'chats'} icon={<MessageCircle size={22} aria-hidden />} label={t('tabs.chats')} testId="tab-chats">
         {unread > 0 && (
-          <span className="absolute -top-1 left-1/2 ml-2 min-w-4 rounded-full bg-accent px-1 text-center text-[10px] leading-4 font-medium text-accent-ink" data-testid="tab-chats-unread">
+          <span className="absolute -top-1 left-1/2 ml-2 min-w-4 rounded-full bg-accent px-1 text-center text-nano leading-4 font-medium text-accent-ink" data-testid="tab-chats-unread">
             <span aria-hidden>{badgeText(unread)}</span>
             <span className="sr-only">{t('rooms.unread', { n: unread })}</span>
           </span>
@@ -51,7 +51,7 @@ function TabLink({ to, active, icon, label, testId, onClick, children }: { to: s
       to={to}
       aria-current={active ? 'page' : undefined}
       onClick={(e) => onClick?.(e.currentTarget)}
-      className={clsx('flex min-h-12 flex-1 flex-col items-center justify-center gap-0.5 pt-2 text-[11px]', active ? 'font-medium text-ink' : 'text-faint')}
+      className={clsx('flex min-h-12 flex-1 flex-col items-center justify-center gap-0.5 pt-2 text-micro', active ? 'font-medium text-ink' : 'text-faint')}
       data-testid={testId}
     >
       <span className="relative">

@@ -123,7 +123,7 @@ function MyRun({ roomId, run }: { roomId: string; run: RoomAiRun }) {
           </Button>
         </p>
         {now && (
-          <p className="truncate text-[13px] text-muted" data-testid="room-ai-step">
+          <p className="truncate text-label text-muted" data-testid="room-ai-step">
             {now}
           </p>
         )}
