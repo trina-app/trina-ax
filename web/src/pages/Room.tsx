@@ -9,6 +9,7 @@ import { Link, useParams } from 'react-router-dom'
 import { isUuid7, type RoomMember, type RoomMessage, type RoomQuote } from '@mycel/shared/api'
 import { errorText, isApiError } from '../lib/api'
 import { newestSeq } from '../lib/rooms'
+import { stickToBottom } from '../lib/stickToBottom'
 import { useLocale, useT } from '../i18n'
 import { usePeopleList } from '../store/people'
 import { useRooms, type PendingSend } from '../store/rooms'
@@ -88,16 +89,11 @@ function RoomView({ roomId }: { roomId: string }) {
     const el = scroller.current
     if (el && stick.current) el.scrollTop = el.scrollHeight
   }, [last?.id, messages.length, pending.length, aiKey])
-  // thumbnails load after the text: stay at the bottom if we were there
+  // thumbnails load after the text, and a phone's keyboard shrinks the list: stay at the bottom if we were there
   useEffect(() => {
-    const el = content.current
-    if (!el || typeof ResizeObserver === 'undefined') return
-    const ro = new ResizeObserver(() => {
-      const s = scroller.current
-      if (s && stick.current) s.scrollTop = s.scrollHeight
-    })
-    ro.observe(el)
-    return () => ro.disconnect()
+    const s = scroller.current, c = content.current
+    if (!s || !c) return
+    return stickToBottom(s, c, () => stick.current)
   }, [])
 
   const tryRead = useCallback(() => {

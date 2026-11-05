@@ -8104,6 +8104,11 @@ every week. Placement: Team AX core (skills, files and permissions, the team lin
   and its orientation, written back as the only EXIF tag, so it still stands upright. A file that claims one of these
   formats but cannot be read is refused with a reason. Not cleaned: GIF and TIFF (rare from phones) and files sent
   before; profile photos stay as strict as before (no colour profile, no animation, no orientation tag).
+- **The keyboard keeps the newest message in sight (end-to-end run, 2026-11-06).** The page uses
+  `interactive-widget=resizes-content`, so a phone's keyboard shrinks the message list from below with its scroll
+  position unchanged and no scroll event; the list followed only its content's size, so the newest messages went
+  behind the message box. The list now also follows its own size: when it gets shorter and the reader was at the
+  bottom, it stays at the bottom (`lib/stickToBottom.ts`, the room and the AI chat alike).
 - **Realtime to members only.** Every room event goes through `publishEach` with the room's member rows (and `canSee`
   for a message), so a person outside the room never gets one. Payloads are one message (≤ 10,000 characters, ≤ 10
   files) or a few ids, well under the per-user buffer. Reconnect: the hub's replay check (`stillVisible`) now also
