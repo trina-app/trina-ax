@@ -1,8 +1,8 @@
 import { afterAll, beforeAll, beforeEach, expect, test } from 'bun:test'
 import { createHash } from 'node:crypto'
-import { initMobile, mobileApp, sendFileToApp, setMobileSession, openExternal, downloadToApp, readMobileDownload, MobileFileTooLarge } from '../../src/lib/mobile'
+import { initMobile, mobileApp, sendFileToApp, setMobileSession, openExternal, downloadToApp, readMobileDownload, requestPushToken, MobileFileTooLarge } from '../../src/lib/mobile'
 import { clientKind } from '../../src/lib/desktop'
-import { MAX_CHUNK_BYTES, MAX_FILE_BYTES, MOBILE_CAPABILITIES, type MobileConfig, type MobileMessage, type MobileReply } from '../../../mobile/src/protocol'
+import { MAX_CHUNK_BYTES, MAX_FILE_BYTES, MOBILE_CAPABILITIES, PUSH_CAPABILITY, type MobileConfig, type MobileMessage, type MobileReply } from '../../../mobile/src/protocol'
 const config: MobileConfig = { protocol: 1, appVersion: '0.2.2', platform: 'ios', nonce: 'c'.repeat(64), generation: 1, capabilities: MOBILE_CAPABILITIES }
 const win = Object.assign(new EventTarget(), { self: null as unknown, top: null as unknown, mycelMobile: { ...config }, ReactNativeWebView: { postMessage: (_raw: string) => {} } })
 win.self = win; win.top = win
@@ -97,4 +97,25 @@ test('downloads enforce both declared and streaming byte limits and cancel overs
   expect(cancelled).toBe(true)
   expect(reads).toBeLessThanOrEqual(52)
   expect(await (await readMobileDownload(new Response('exact body', { headers: { 'content-type': 'text/plain' } }))).text()).toBe('exact body')
+})
+
+test('push-token-v1: the page gets the device token only from an app that offers it, and learns denied vs unavailable', async () => {
+  await expect(requestPushToken()).rejects.toThrow('push_unavailable')
+  expect(messages.filter(m => m.type === 'push-token')).toHaveLength(0)
+  win.mycelMobile = { ...config, capabilities: [...MOBILE_CAPABILITIES, PUSH_CAPABILITY] }
+  const token = { platform: 'ios' as const, token: 'cd'.repeat(32), environment: 'production' as const }
+  handler = m => { if (m.type === 'push-token') reply(m, { push: token }); else reply(m) }
+  expect(await requestPushToken()).toEqual(token)
+  handler = m => reply(m, { ok: false, error: 'push_denied' })
+  await expect(requestPushToken()).rejects.toThrow('push_denied')
+  handler = m => reply(m, { push: { ...token, token: 'not-a-token' } })
+  await expect(requestPushToken()).rejects.toThrow('push_unavailable')
+})
+test('a token requested before logout is not handed to the next session', async () => {
+  win.mycelMobile = { ...config, capabilities: [...MOBILE_CAPABILITIES, PUSH_CAPABILITY] }
+  handler = m => { if (m.type === 'session-reset') { win.mycelMobile = { ...win.mycelMobile, generation: m.generation + 1 }; reply(m, { nextGeneration: m.generation + 1 }) } }
+  const pending = requestPushToken().then(() => null, error => error)
+  for (let i = 0; i < 20 && !messages.some(m => m.type === 'push-token'); i++) await tick()
+  setMobileSession('session-after-logout-push')
+  expect(await pending).toBeInstanceOf(DOMException)
 })

@@ -924,6 +924,7 @@ export const ko = {
   'push.enable': '이 기기에서 알림 받기',
   'push.disable': '모든 기기 푸시 끄기',
   'push.denied': '브라우저에서 알림이 차단됐어요. 브라우저의 사이트 설정에서 허용한 뒤 다시 시도해 주세요.',
+  'push.deniedApp': '이 앱의 알림이 꺼져 있어요. 휴대폰 설정에서 알림을 허용한 뒤 다시 시도해 주세요.',
   'push.failed': '푸시 설정을 저장하지 못했어요. 연결 상태를 확인하고 다시 시도해 주세요.',
   'notifications.description': '최근 30일의 내 알림이에요. 알림에는 파일 내용이나 대화 내용을 넣지 않아요.',
   'notifications.preferences': '받을 알림',
@@ -2795,7 +2796,6 @@ export const ko = {
   "teamLink.problem.missing": "열 수 없는 초대 링크예요. 링크를 끝까지 복사했는지 확인하거나, 보낸 분께 새 링크를 부탁해 주세요.",
   "teamLink.joinedNotice": "{name}님이 팀 초대 링크로 들어왔어요.",
   "teamLink.joinedNoticeGone": "누군가 팀 초대 링크로 들어왔어요.",
-  "teamLink.limited": "최근에 틀린 시도가 많아 링크가 {time}까지 잠시 막혔어요. 링크를 바꾸면 바로 풀려요.",
   // account deletion request (components/settings/AccountDeletion.tsx, pages/admin/Members.tsx, the owners' inbox)
   "accountDeletion.row": "계정 삭제",
   "accountDeletion.rowHint": "계정은 팀장이 삭제해요.",
@@ -2816,6 +2816,7 @@ export const ko = {
   "notifications.event.account.deletion_request": "팀원이 계정 삭제를 요청했어요.",
   "audit.act.account.deletion_request": "계정 삭제 요청",
   "audit.act.account.deletion_cancel": "계정 삭제 요청 취소",
+  "teamLink.limited": "최근에 틀린 시도가 많아 링크가 {time}까지 잠시 막혔어요. 링크를 바꾸면 바로 풀려요.",
   "teamLink.adminHint": "이 관리자는 팀 초대 링크를 볼 수 있었어요. 링크가 퍼졌을 수 있다면 멤버 화면의 팀 초대 링크에서 새 링크로 바꿔 주세요.",
   "teamLink.manage": "링크 관리",
   "audit.act.team_link.create": "팀 초대 링크 만듦",

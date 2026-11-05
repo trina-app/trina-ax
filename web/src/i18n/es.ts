@@ -901,6 +901,7 @@ export const es: Record<MessageKey, string> = {
   'push.enable': "Recibir avisos en este dispositivo",
   'push.disable': "Desactivar push en todos los dispositivos",
   'push.denied': "El navegador bloquea las notificaciones. Permítalas en la configuración del sitio y vuelva a intentarlo.",
+  'push.deniedApp': 'Las notificaciones de esta app están desactivadas. Actívelas en los Ajustes del teléfono y vuelva a intentarlo.',
   'push.failed': "No se pudo guardar la configuración push. Revise su conexión y vuelva a intentarlo.",
   'notifications.description': "Sus notificaciones de los últimos 30 días. No contienen información de archivos ni conversaciones.",
   'notifications.preferences': "Notificaciones que desea recibir",
@@ -2756,7 +2757,6 @@ export const es: Record<MessageKey, string> = {
   "teamLink.problem.missing": "Este enlace de invitación no funciona. Compruebe que lo copió completo o pida uno nuevo a quien se lo envió.",
   "teamLink.joinedNotice": "{name} se unió con el enlace de invitación del equipo.",
   "teamLink.joinedNoticeGone": "Alguien se unió con el enlace de invitación del equipo.",
-  "teamLink.limited": "Demasiados intentos fallidos últimamente: el enlace está bloqueado hasta el {time}. Cambiar el enlace lo desbloquea enseguida.",
   // account deletion request (components/settings/AccountDeletion.tsx, pages/admin/Members.tsx, the owners' inbox)
   "accountDeletion.row": "Eliminar la cuenta",
   "accountDeletion.rowHint": "El propietario del equipo elimina las cuentas.",
@@ -2777,6 +2777,7 @@ export const es: Record<MessageKey, string> = {
   "notifications.event.account.deletion_request": "Un miembro del equipo pidió que se elimine su cuenta.",
   "audit.act.account.deletion_request": "Pidió eliminar la cuenta",
   "audit.act.account.deletion_cancel": "Canceló la solicitud de eliminar la cuenta",
+  "teamLink.limited": "Demasiados intentos fallidos últimamente: el enlace está bloqueado hasta el {time}. Cambiar el enlace lo desbloquea enseguida.",
   "teamLink.adminHint": "Este administrador podía ver el enlace de invitación del equipo. Si puede haberse difundido, cámbielo por uno nuevo en la tarjeta del enlace de invitación del equipo en Miembros.",
   "teamLink.manage": "Gestionar enlace",
   "audit.act.team_link.create": "Creó el enlace de invitación del equipo",

@@ -925,6 +925,7 @@ export const en: Record<MessageKey, string> = {
   'push.enable': 'Receive alerts on this device',
   'push.disable': 'Turn off push on all devices',
   'push.denied': 'Notifications are blocked in your browser. Allow them in the browser’s site settings and try again.',
+  'push.deniedApp': "Notifications are off for this app. Allow them in the phone's Settings and try again.",
   'push.failed': 'Could not save push settings. Check your connection and try again.',
   'notifications.description': 'Your notifications from the last 30 days. Notifications contain no file or conversation content.',
   'notifications.preferences': 'Notifications to receive',
@@ -2796,7 +2797,6 @@ export const en: Record<MessageKey, string> = {
   "teamLink.problem.missing": "This invite link doesn't work. Check that you copied all of it, or ask the person who sent it for a new link.",
   "teamLink.joinedNotice": "{name} joined through the team invite link.",
   "teamLink.joinedNoticeGone": "Someone joined through the team invite link.",
-  "teamLink.limited": "Too many failed attempts lately: the link is blocked until {time}. Replacing the link lifts it at once.",
   // account deletion request (components/settings/AccountDeletion.tsx, pages/admin/Members.tsx, the owners' inbox)
   "accountDeletion.row": "Delete account",
   "accountDeletion.rowHint": "The team owner deletes accounts.",
@@ -2817,6 +2817,7 @@ export const en: Record<MessageKey, string> = {
   "notifications.event.account.deletion_request": "A team member asked to have their account deleted.",
   "audit.act.account.deletion_request": "Requested account deletion",
   "audit.act.account.deletion_cancel": "Cancelled the account deletion request",
+  "teamLink.limited": "Too many failed attempts lately: the link is blocked until {time}. Replacing the link lifts it at once.",
   "teamLink.adminHint": "This admin could see the team invite link. If it may have spread, replace it with a new link in the team invite link card on Members.",
   "teamLink.manage": "Manage link",
   "audit.act.team_link.create": "Made the team invite link",

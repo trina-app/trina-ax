@@ -925,6 +925,7 @@ export const id: Record<MessageKey, string> = {
   'push.enable': 'Terima notifikasi di perangkat ini',
   'push.disable': 'Nonaktifkan push di semua perangkat',
   'push.denied': 'Notifikasi diblokir oleh browser. Izinkan di pengaturan situs browser, lalu coba lagi.',
+  'push.deniedApp': 'Notifikasi untuk aplikasi ini mati. Izinkan di Pengaturan ponsel, lalu coba lagi.',
   'push.failed': 'Pengaturan push gagal disimpan. Periksa koneksi dan coba lagi.',
   'notifications.description': 'Notifikasimu selama 30 hari terakhir. Tidak memuat isi file atau percakapan.',
   'notifications.preferences': 'Notifikasi yang diterima',
@@ -2796,7 +2797,6 @@ export const id: Record<MessageKey, string> = {
   "teamLink.problem.missing": "Tautan undangan ini tidak berfungsi. Periksa apakah tautan tersalin utuh, atau minta tautan baru ke orang yang mengirimnya.",
   "teamLink.joinedNotice": "{name} bergabung lewat tautan undangan tim.",
   "teamLink.joinedNoticeGone": "Seseorang bergabung lewat tautan undangan tim.",
-  "teamLink.limited": "Terlalu banyak percobaan gagal belakangan ini: tautan diblokir sampai {time}. Mengganti tautan langsung membukanya lagi.",
   // account deletion request (components/settings/AccountDeletion.tsx, pages/admin/Members.tsx, the owners' inbox)
   "accountDeletion.row": "Hapus akun",
   "accountDeletion.rowHint": "Owner tim yang menghapus akun.",
@@ -2817,6 +2817,7 @@ export const id: Record<MessageKey, string> = {
   "notifications.event.account.deletion_request": "Seorang anggota tim meminta akunnya dihapus.",
   "audit.act.account.deletion_request": "Meminta penghapusan akun",
   "audit.act.account.deletion_cancel": "Membatalkan permintaan penghapusan akun",
+  "teamLink.limited": "Terlalu banyak percobaan gagal belakangan ini: tautan diblokir sampai {time}. Mengganti tautan langsung membukanya lagi.",
   "teamLink.adminHint": "Admin ini bisa melihat tautan undangan tim. Jika tautan itu mungkin sudah tersebar, ganti dengan tautan baru di kartu tautan undangan tim pada halaman Anggota.",
   "teamLink.manage": "Kelola tautan",
   "audit.act.team_link.create": "Membuat tautan undangan tim",

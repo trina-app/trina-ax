@@ -901,6 +901,7 @@ export const ja: Record<MessageKey, string> = {
   'push.enable': "この端末で通知を受信",
   'push.disable': "すべての端末でプッシュ通知をオフ",
   'push.denied': "ブラウザーで通知がブロックされています。サイトの設定で許可してから再試行してください。",
+  'push.deniedApp': 'このアプリの通知はオフになっています。端末の設定で通知を許可してから、もう一度お試しください。',
   'push.failed': "プッシュ通知の設定を保存できませんでした。接続を確認して再試行してください。",
   'notifications.description': "過去30日間の通知です。通知にはファイルや会話の内容は含まれません。",
   'notifications.preferences': "受信する通知",
@@ -2756,7 +2757,6 @@ export const ja: Record<MessageKey, string> = {
   "teamLink.problem.missing": "この招待リンクは使えません。リンクを最後までコピーしたか確認するか、送ってくれた人に新しいリンクを頼んでください。",
   "teamLink.joinedNotice": "{name}さんがチーム招待リンクから参加しました。",
   "teamLink.joinedNoticeGone": "チーム招待リンクから誰かが参加しました。",
-  "teamLink.limited": "最近失敗した試行が多いため、リンクは{time}まで一時的にブロックされています。リンクを切り替えるとすぐに解除されます。",
   // account deletion request (components/settings/AccountDeletion.tsx, pages/admin/Members.tsx, the owners' inbox)
   "accountDeletion.row": "アカウントの削除",
   "accountDeletion.rowHint": "アカウントはチームのオーナーが削除します。",
@@ -2777,6 +2777,7 @@ export const ja: Record<MessageKey, string> = {
   "notifications.event.account.deletion_request": "チームメンバーがアカウントの削除を依頼しました。",
   "audit.act.account.deletion_request": "アカウントの削除を依頼",
   "audit.act.account.deletion_cancel": "アカウント削除の依頼を取り消し",
+  "teamLink.limited": "最近失敗した試行が多いため、リンクは{time}まで一時的にブロックされています。リンクを切り替えるとすぐに解除されます。",
   "teamLink.adminHint": "この管理者はチーム招待リンクを見ることができました。リンクが広まった可能性がある場合は、メンバー画面のチーム招待リンクで新しいリンクに切り替えてください。",
   "teamLink.manage": "リンクの管理",
   "audit.act.team_link.create": "チーム招待リンクを作成",
