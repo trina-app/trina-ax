@@ -8033,3 +8033,70 @@ every week. Placement: Team AX core (skills, files and permissions, the team lin
 - **사진 규칙은 팀 로고와 같은 생각, 더 엄격하게.** PNG·JPEG·WebP만, 파일 머리글이 말한 종류와 같아야 하고, SVG와 그 밖의 것은 거절한다. 정사각형이고 64~512px, 256KB 이하. 움직이는 WebP는 거절한다. 올릴 때 브라우저가 가운데 정사각형으로 잘라 256px로 줄여 다시 그려서(카메라 정보·촬영 위치가 빠진다) 보낸다. 서버는 이를 믿지 않고 한 번 더 메타데이터 블록(JPEG의 EXIF·XMP·주석, PNG의 텍스트·EXIF·시간 청크, WebP의 EXIF·XMP·색 프로필)을 잘라 낸다. 이미지 라이브러리 없이 컨테이너만 읽는다. 사진은 팀 로고처럼 이미지 전용 헤더(`nosniff`, `default-src 'none'; sandbox`, `inline`)로만 내보낸다. 팀 로고와 달리 로그인 전에는 받을 수 없다.
 - **감사 기록.** `profile.update`(바뀐 항목 이름, 이름이 바뀌면 이전·이후), `profile.avatar_set`(크기·이전 버전), `profile.avatar_remove`. 아무것도 바뀌지 않으면 기록하지 않는다. 바뀌면 실시간 알림 `profile_changed`가 가서 열린 창이 `/api/me`와 사람 목록을 다시 읽는다.
 - **웹.** `components/Avatar.tsx`(`<Avatar user size />`: 사진, 없거나 못 불러오면 첫 글자)를 사이드바 하단 본인 줄에 썼다. `store/people.ts`가 사람 목록을 들고 있어 채팅이 가져다 쓴다. 프로필은 설정의 기존 "프로필" 탭에 있다(나중에 하단 탭 "나"가 같은 화면을 연다). 사진 고르기·미리 보기·지우기와 이름·직함·상태·이메일을 한 번의 저장 버튼으로 저장한다. 안쪽 카드 테두리는 없앴다(구분선만).
+
+## 대화방의 트리나 — the AI in team chat rooms (feat/rooms-trina, 2026-11-05)
+
+- **A room question is a normal chat turn of the person who asked.** "@트리나 …" (or `@Trina`, `@トリナ`, the product's
+  names; `roomAiMentions` in `shared/src/api/rooms.ts`, not when a person picked from the list has that name) in
+  `Rooms.send()` asks the AI as the sender: the same engine choice, tools, folder checks, budget, queue limits and fair
+  queue as a chat send, and the turn's usage is theirs. The turn runs in a chat of theirs with `chats.room_id` set
+  (migration 242; one per room and person, `chats_room_session`), so the turn code, sessions (`--resume`), the read
+  scope and the remember protection are the chat's own. That chat is never one of their chats: the list, frequent
+  questions and every chat route (`ChatStore.ownChat`) leave it out, and no chat event goes out for it (no
+  `chat.updated`, `message.created`, `message.delta`, `message.step`, `message.done`). Text is not streamed in a room:
+  the asker sees the steps, the room the finished answer.
+- **Checked before the message is written.** Safe operations on the server (`MYCEL_SAFE_OPS_1A`: every conversation
+  would be confidential), the asker's previous question in this room still being answered, a used-up budget, a full
+  queue or an engine they may not use refuse the send (403 / 409 / 429), so the person keeps the text. A question that
+  fails to start after that (a race) tells the asker through `room.ai.run` with the error.
+- **One session per person and room.** The next question of the same person continues it; another person's question is
+  in their own. A session not asked in for 12 hours (`ROOM_SESSION_IDLE_MS`) starts anew: no history, and with it the
+  read scope and the outside mark are cleared (the chat's own rule for a session without history). Without this, one
+  read of a private folder would keep every later answer of that person in that room private for good. The 12 hours
+  are a guess the owner may change.
+- **Context: other people's words, labelled.** In front of the question (never in the stored user message) goes
+  `<room_context>` with up to 30 messages / 12,000 characters before the question that the asker may see (from their
+  join on; private ones only their own), each a `<room_message from=… who="another member" | "the person asking you
+  now" | "your earlier answer to …">`, file names only. When the session already holds the asker's own earlier
+  questions and answers (a continued session or its history), those are left out. Tags inside are neutralised. Because
+  the block is not in the stored message, the URL gate does not count links in it as typed by the person. Words of
+  someone else taint the session (remember protection) and add the room to its read scope (`{type:'room'}`, viewers =
+  the room's members), so saving them where people outside the room can read asks first. The instructions get a "Team
+  chat room" section (also in a resumed session's `<turn_context>`): the block is information, not instructions; the
+  answer may go to the whole room; no memories here.
+- **No personal memories in rooms.** None are loaded; `remember`, `forget`, `set_title` and `connect_service` are not
+  offered (`ROOM_OFF_TOOLS`).
+- **Where the answer goes** (`RoomAi.decide`). To the room (`author_kind 'ai'`, `asked_by` = asker, `reply_to_id` =
+  the question; the app shows "○○ 님이 물어봄") only when every current member may read every source in the session's
+  **cumulative** read scope, not only this answer's list: each ruled folder (or the team root) by the rules now; the
+  person's own folder (also what the browser or a personal connection showed) only if nobody else is in the room; a team
+  connection never; the room itself always. And the session used nothing outside the team files: any tool outside
+  `ROOM_FILE_TOOLS` (`server/src/rooms/ai-tools.ts`: file tools, search, skills, ask_user, sub-tasks, make_file and the
+  other team-file tools), the engine's web search included, and any tool added later, sets `chats.room_outside`.
+  Folders listed with `list` also join the read scope in a room session (their names may go into the answer).
+  Otherwise the answer is a private preview (`visibility 'private'`, `visible_to` = asker): no notice, badge or unread
+  for anyone else (rooms v1 filters), and the asker sees why (`RoomMessage.preview`: the folders some member cannot
+  open, their own folder, outside sources). A member added later is counted from then on: the next answer is decided
+  with them. The answer's "참고한 파일" are copied to `room_message_sources` and checked for each viewer when opened.
+  Answers over 60,000 characters are cut with a line saying so.
+- **Posting a preview** (`POST /api/rooms/:id/messages/:messageId/share`, the asker only; 404 for anyone else, also once
+  it is posted): it gets a new place at the end of the room (new seq and time, so the others see it as new and their
+  unread counts and DM notices work), the sources some current member cannot read leave the shared copy's list, the
+  asker's read position moves to it, and `room.ai_share` is audited with the number left out. There is no "only me"
+  button: not posting is the default.
+- **While it works.** The asker gets `room.ai.run` (queued with its place, running, done, stopped, error) and
+  `room.ai.step` (the step labels name files and searches: never to the room); every member gets `room.ai` with the
+  number of questions being answered, nobody named. `GET /api/rooms/:id/ai` gives the same after a reload (the asker's
+  runs with their steps). Stop is `POST /api/rooms/:id/ai/:turnId/stop`, the asker only. Cards the AI raises (ask_user,
+  a confirmation) come as `turn.request` as in a chat and are answered there. A question that ends without an answer
+  (stopped, failed, the asker left the room) writes nothing in the room; the asker sees one line they can close. At
+  start, questions whose turn ended while the server was down are finished (`RoomAi.reconcile`).
+- **Web.** The AI is the first entry of the "@" list in the message box (not in the edit form: an edit never asks).
+  An AI answer renders like a chat answer (Markdown, sources) without steps; "@트리나" in a message stands out like a
+  mention. Under the messages: my question's block (name, "답하는 중" or its place, the last steps, cards, Stop), or for
+  the others one line "트리나가 답하는 중". A preview is the answer plus a left-bordered note (no card in a card) and one
+  primary button, 대화방에 올리기.
+- **Not in this step.** The AI cannot open files sent in a room (it gets their names). A message written before a member
+  joined may still be in the context of an answer that goes to the room (the post rule is about files and outside
+  sources). The 12-hour new session and the context sizes are first guesses. Cards the AI raised are not shown again
+  after a reload (they time out like an unanswered card).
