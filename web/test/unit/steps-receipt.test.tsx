@@ -138,6 +138,29 @@ describe('a question that runs a skill', () => {
       expect(m.get('user-form-answers').innerHTML).toContain('title="어디에 올릴까요"')
       expect(m.find('user-text')).toBeNull()
     } finally { await m.unmount() }
+    // short answers show in full, with nothing to unfold
+    m = await mount(at('/card-news\n어디에 올릴까요: 인스타그램'))
+    try {
+      await m.until(() => m.find('user-form-run'), 'the run')
+      expect(m.get('user-form-answers').className).not.toContain('line-clamp')
+      expect(m.find('user-form-answers-toggle')).toBeNull()
+    } finally { await m.unmount() }
+    // long answers (or several lines) fold to two lines; "전체 보기" lists each answer under its label, "접기" folds again
+    const long = '/card-news\n주제: ' + '신제품 출시 소식과 고객 사례를 함께 '.repeat(8).trim() + '\n\n어디에 올릴까요: 블로그\n\n더 넣을 말:\n첫 줄\n둘째 줄'
+    m = await mount(at(long))
+    try {
+      await m.until(() => m.find('user-form-run'), 'the run')
+      expect(m.get('user-form-answers').className).toContain('line-clamp-2')
+      expect(m.get('user-form-answers-toggle').textContent).toBe('전체 보기')
+      expect(m.get('user-form-answers-toggle').getAttribute('aria-expanded')).toBe('false')
+      await m.click('user-form-answers-toggle')
+      expect(m.get('user-form-answers').getAttribute('data-open')).toBe('true')
+      expect(m.get('user-form-answers').textContent).toBe('주제' + '신제품 출시 소식과 고객 사례를 함께 '.repeat(8).trim() + '어디에 올릴까요블로그더 넣을 말첫 줄\n둘째 줄')
+      expect(m.get('user-form-answers-toggle').textContent).toBe('접기')
+      await m.click('user-form-answers-toggle')
+      expect(m.get('user-form-answers').getAttribute('data-open')).toBeNull()
+    } finally { await m.unmount() }
+    for (const l of ['ko', 'en', 'id', 'ja', 'es'] as const) expect([translate(l, 'chat.showAll'), translate(l, 'chat.showLess')].every((x) => x && !x.startsWith('chat.'))).toBe(true)
     m = await mount(at('/card-news 인스타그램용으로 5장'))
     try {
       await m.until(() => m.find('skill-chip'), 'the chip')

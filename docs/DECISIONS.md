@@ -8617,7 +8617,9 @@ Placement: Team AX core (onboarding, web reading, skills, chat). Each fix is its
   chip), as if typed. The chat now reads such a message back (`formAnswers`: every line after the command is one of
   the skill's form labels, "label: value", a multi-line value under "label:"; anything else is typed text and keeps
   its bubble) and shows the run without a bubble: the skill's chip and one quiet line of the answers ("신제품 출시 ·
-  인스타그램"; each label is the answer's tooltip and is read out). The message sent is unchanged (the AI and the
+  인스타그램"; each label is the answer's tooltip and is read out). Short answers show in full; from 140 characters, or
+  with a value of several lines, two lines and "전체 보기" (the chat's own key for long messages, five languages), which
+  lists each answer under its label as sent ("접기" folds them; review fix). The message sent is unchanged (the AI and the
   transcript get the same lines; copy and edit keep them).
 - **"팀 스킬로 만들기" is back (S).** Since W2's first result shares the pack's own skill (PR #80), nothing opened S's
   card (W2 left "where to offer it in the lead's later chats" open). It is now the one suggestion under an answer
