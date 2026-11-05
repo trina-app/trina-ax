@@ -51,6 +51,8 @@ Promo video templates use unchanged Pretendard Variable 1.3.9 (OFL-1.1), see
 resources/notices/pretendard/. The MP4 render runs the HyperFrames CLI 0.9.15
 (Apache-2.0), installed outside this repository's dependencies on a development
 machine only (scripts/promo-video/).
+The promo video's music and sound effects are CC0 1.0 or public domain; their
+sources and licences are listed in resources/promo-video/audio/SOURCES.md.
 
 HWP previews use rhwp 0.8.7 (MIT) and unchanged Noto Sans KR Regular (OFL-1.1).
 Exact pins, upstream notices and source-offer details: resources/hwp/.
