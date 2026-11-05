@@ -1,0 +1,28 @@
+# Push gateway Worker (README.md). Not deployed yet: the ids below are placeholders the owner replaces.
+# Secrets (never here): wrangler secret put APNS_PRIVATE_KEY / APNS_KEY_ID / FCM_SERVICE_ACCOUNT
+name = "push-gateway"
+main = "src/worker.ts"
+compatibility_date = "2026-10-01"
+workers_dev = false
+
+# routes = [{ pattern = "push.example.test", custom_domain = true }]
+
+[vars]
+APP_TITLE = "Trina AX"
+APNS_TEAM_ID = "YWW96288YY"
+APNS_TOPIC = "app.trina.ax"
+# "on" also sends to the APNs sandbox (development builds); the production .p8 key does not need it
+APNS_SANDBOX = "off"
+
+# the operator's blocklist: key = team key id (sha256 hex of the SPKI DER), any value = blocked
+[[kv_namespaces]]
+binding = "BLOCKED"
+id = "00000000000000000000000000000000"
+
+# one instance per team key and per device token: first-seen time, rate-limit windows, dedupe
+[durable_objects]
+bindings = [{ name = "LIMITER", class_name = "PushLimiter" }]
+
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["PushLimiter"]
