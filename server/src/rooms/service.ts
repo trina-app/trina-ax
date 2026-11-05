@@ -4,9 +4,10 @@
 // Events (shared/src/api/ws.ts room.*) go to the room's members only, through the hub's publishEach: a person who is
 // not in the room never gets one, and a message only to those who may see it (canSee).
 //
-// Where the AI step hooks in later: send() is the one place a room message is written; an answer would be another
-// writer of room_messages with author_kind 'ai' and asked_by, and a private preview (visibility 'private',
-// visible_to = who asked) is already filtered everywhere (canSee / SEE_SQL) and makes no notice (notify()).
+// The AI (rooms/ai.ts, docs/DECISIONS.md "대화방의 트리나"): send() is the one place a person's message is written,
+// and a message that calls the AI ("@트리나 …") starts its turn there, checked before the message is written. The
+// answer is the other writer of room_messages (author_kind 'ai', asked_by = who asked); a private preview (visibility
+// 'private', visible_to = who asked) is filtered everywhere (canSee / SEE_SQL) and makes no notice (notify()).
 import type { Database } from 'bun:sqlite'
 import type { Room, RoomMember, RoomMessage, RoomReadState, ServerEventInput } from '@mycel/shared/api'
 import { decodeCursor, encodeCursor } from '../chat/store'
@@ -20,6 +21,8 @@ import {
   type MemberRow, type MessageRow, type RoomRow,
 } from './store'
 import { roomFilesOf } from './files'
+import { roomAiOf, type AskOptions } from './ai'
+import { roomAiCalled } from '@mycel/shared/api'
 
 const services = new WeakMap<AppContext, Rooms>()
 
@@ -32,7 +35,7 @@ export class Rooms {
 
   // ---------------- access ----------------
   /** The room and my member row, or 404 (not in it, archived, unknown: all the same). */
-  private mine(userId: string, roomId: string): { room: RoomRow; me: MemberRow } {
+  mine(userId: string, roomId: string): { room: RoomRow; me: MemberRow } {
     const room = roomRow(this.db, roomId)
     const me = room && !room.archived_at ? memberRow(this.db, roomId, userId) : null
     if (!room || !me) return fail('not_found')
@@ -41,14 +44,14 @@ export class Rooms {
 
   // ---------------- events ----------------
   /** Send to the room's members; `build` gets each member's row (null = not to them). */
-  private fanout(roomId: string, build: (m: MemberRow) => ServerEventInput | null, ms = members(this.db, roomId)) {
+  fanout(roomId: string, build: (m: MemberRow) => ServerEventInput | null, ms = members(this.db, roomId)) {
     const by = new Map(ms.map((m) => [m.user_id, m]))
     this.ctx.services.realtime.publishEach((uid) => {
       const m = by.get(uid)
       return m ? build(m) : null
     })
   }
-  private messageEvent(type: 'room.message' | 'room.message.updated', row: MessageRow) {
+  messageEvent(type: 'room.message' | 'room.message.updated', row: MessageRow) {
     const ms = members(this.db, row.room_id)
     this.fanout(row.room_id, (m) => canSee(row, m) ? { type, data: { roomId: row.room_id, message: messagesOut(this.db, [row], m, ms)[0]! } } : null, ms)
   }
@@ -134,8 +137,9 @@ export class Rooms {
     return { items: messagesOut(this.db, page, me), nextCursor: rows.length > limit && page[0] ? encodeCursor({ s: String(page[0].seq) }) : null }
   }
 
-  /** Send as `userId` (the author is always the signed-in person). Same clientMessageId again: the first message. */
-  send(userId: string, roomId: string, b: SendInput): RoomMessage {
+  /** Send as `userId` (the author is always the signed-in person). Same clientMessageId again: the first message. A
+   * message that calls the AI is checked for that first (rooms/ai.ts precheck: a refusal sends nothing), then asks it. */
+  send(userId: string, roomId: string, b: SendInput, o: AskOptions = {}): RoomMessage {
     const { me } = this.mine(userId, roomId)
     const again = this.db.query(`SELECT ${MSG_COLS} FROM room_messages WHERE room_id = ? AND author_id = ? AND client_id = ?`).get(roomId, userId, b.clientMessageId) as MessageRow | null
     if (again) return messagesOut(this.db, [again], memberRow(this.db, roomId, userId)!)[0]!
@@ -149,6 +153,9 @@ export class Rooms {
       const n = (this.db.query(`SELECT COUNT(*) n FROM room_files WHERE room_id = ? AND user_id = ? AND message_id IS NULL AND id IN (${fileIds.map(() => '?').join(',')})`).get(roomId, userId, ...fileIds) as { n: number }).n
       if (n !== fileIds.length) fail('validation', undefined, { fields: { 'body.fileIds': 'unknown file' } })
     }
+    // "@트리나 …" (a person picked from the list under the same name wins); anything that stops the question stops the send
+    const people = mentions.length ? (this.db.query(`SELECT name FROM users WHERE id IN (${mentions.map(() => '?').join(',')})`).all(...mentions) as { name: string }[]).map((r) => r.name) : []
+    const ask = roomAiCalled(b.body, people) ? roomAiOf(this.ctx).precheck(userId, roomId, o) : null
     const now = nowIso(), id = newId()
     let fromSeq = 0, seq = 0
     this.db.transaction(() => {
@@ -165,6 +172,7 @@ export class Rooms {
     const row = messageRow(this.db, roomId, id)!
     this.messageEvent('room.message', row)
     this.notify(row)
+    if (ask) roomAiOf(this.ctx).ask(userId, roomId, row, ask, people)
     return messagesOut(this.db, [row], memberRow(this.db, roomId, userId)!)[0]!
   }
 
@@ -222,12 +230,12 @@ export class Rooms {
   }
 
   /** Someone read fromSeq < seq <= toSeq: the others are not told who; my own windows recount my badge. */
-  private readEvent(roomId: string, userId: string, fromSeq: number, toSeq: number) {
+  readEvent(roomId: string, userId: string, fromSeq: number, toSeq: number) {
     this.fanout(roomId, (m) => ({ type: 'room.read', data: { roomId, fromSeq, toSeq, mine: m.user_id === userId } }))
   }
 
   /** My notices of this room up to `seq` count as read (the inbox and a pending push follow). */
-  private markNoticesRead(userId: string, roomId: string, seq: number) {
+  markNoticesRead(userId: string, roomId: string, seq: number) {
     const r = this.db.query(`UPDATE room_notices SET read_at = ? WHERE user_id = ? AND room_id = ? AND read_at IS NULL
       AND source_id IN (SELECT id FROM room_messages WHERE room_id = ? AND seq <= ?)`).run(nowIso(), userId, roomId, roomId, seq)
     if (r.changes) this.notifySignal(userId)
@@ -235,12 +243,13 @@ export class Rooms {
 
   // ---------------- notices ----------------
   /** A DM message notifies the other person (unless they muted the DM), an @mention each person mentioned (muted or
-   * not). Private messages (the AI step's previews) notify nobody. The notice is the message id only. */
-  private notify(row: MessageRow) {
+   * not). Private messages (the AI's previews) notify nobody; an AI answer not the person who asked. The notice is the
+   * message id only. */
+  notify(row: MessageRow) {
     if (row.visibility !== 'room' || row.deleted_at) return
     const room = roomRow(this.db, row.room_id)
     if (!room) return
-    const ms = members(this.db, row.room_id).filter((m) => m.user_id !== row.author_id && canSee(row, m))
+    const ms = members(this.db, row.room_id).filter((m) => m.user_id !== row.author_id && !(row.author_kind === 'ai' && m.user_id === row.asked_by) && canSee(row, m))
     const mentioned = new Set(JSON.parse(row.mentions) as string[])
     const n = notificationsOf(this.ctx)
     for (const m of ms) {

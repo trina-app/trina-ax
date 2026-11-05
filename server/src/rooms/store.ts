@@ -80,6 +80,17 @@ export function messagesOut(db: Database, rows: readonly MessageRow[], viewer: M
   const quoteFiles = new Map<string, number>()
   if (quotes.size) for (const r of db.query(`SELECT message_id, COUNT(*) n FROM room_files WHERE message_id IN (${[...quotes.keys()].map(() => '?').join(',')}) GROUP BY message_id`).all(...quotes.keys()) as { message_id: string; n: number }[]) quoteFiles.set(r.message_id, r.n)
   const people = refsOf(db, [...rows.flatMap((r) => [r.author_id, r.asked_by]), ...[...quotes.values()].map((q) => q.author_id)])
+  // AI answers (rooms/ai.ts): their source count, and for the person who asked a private preview, why it is private
+  const ai = rows.filter((r) => r.author_kind === 'ai').map((r) => r.id)
+  const sourceCounts = new Map<string, number>()
+  const previews = new Map<string, NonNullable<RoomMessage['preview']>>()
+  if (ai.length) {
+    const marks = ai.map(() => '?').join(',')
+    for (const c of db.query(`SELECT message_id, COUNT(*) n FROM room_message_sources WHERE message_id IN (${marks}) GROUP BY message_id`).all(...ai) as { message_id: string; n: number }[]) sourceCounts.set(c.message_id, c.n)
+    for (const t of db.query(`SELECT answer_id, decision FROM room_ai_turns WHERE answer_id IN (${marks})`).all(...ai) as { answer_id: string; decision: string | null }[]) {
+      try { const d = JSON.parse(t.decision ?? 'null'); if (d) previews.set(t.answer_id, { folders: Array.isArray(d.folders) ? d.folders.filter((x: unknown): x is string => typeof x === 'string') : [], personal: !!d.personal, outside: !!d.outside }) } catch { /* no reason shown */ }
+    }
+  }
   return rows.map((r) => {
     let replyTo: RoomQuote | null = null
     if (r.reply_to_id) {
@@ -99,6 +110,9 @@ export function messagesOut(db: Database, rows: readonly MessageRow[], viewer: M
       files: r.deleted_at ? [] : files.get(r.id) ?? [],
       unread: unreadOf(r, all),
       createdAt: r.created_at, editedAt: r.edited_at, deletedAt: r.deleted_at,
+      ...(r.author_kind === 'ai' && !r.deleted_at ? { sourceCount: sourceCounts.get(r.id) ?? 0 } : {}),
+      // only the person it is private to ever gets this (canSee: nobody else is sent a private message at all)
+      ...(r.author_kind === 'ai' && r.visibility === 'private' && r.visible_to === viewer.user_id && previews.has(r.id) ? { preview: previews.get(r.id)! } : {}),
     }
   })
 }
