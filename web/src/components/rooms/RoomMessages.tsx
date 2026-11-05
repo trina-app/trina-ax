@@ -20,7 +20,7 @@ import { Markdown } from '../Markdown'
 import SourcesList from '../chat/SourcesList'
 import { openFilePreview } from '../../lib/sidePanel'
 import { useLocale, useT } from '../../i18n'
-import { useAvatarOf, usePeople } from '../../store/people'
+import { useAvatarOf, useNameOf, usePeople } from '../../store/people'
 import { useMe } from '../../store/session'
 import { quoteOf, useRooms, type PendingSend } from '../../store/rooms'
 import { toast } from '../../store/ui'
@@ -73,10 +73,12 @@ export function RoomMessages({ roomId, messages, pending, meId, members, onReply
   /** a mentioned person's name: the room's member list, else the directory */
   const names = useMemo(() => {
     const map = new Map<string, string>()
-    for (const p of Object.values(byId)) map.set(p.id, p.name)
+    // the directory last: it has a name changed since the member list was read
     for (const m of members) map.set(m.id, m.name)
+    for (const p of Object.values(byId)) map.set(p.id, p.name)
     return map
   }, [byId, members])
+  const nameOf = useNameOf()
   const jump = (id: string) => {
     document.getElementById(messageDomId(id))?.scrollIntoView({ block: 'center', behavior: 'smooth' })
     setFlash(id)
@@ -88,7 +90,7 @@ export function RoomMessages({ roomId, messages, pending, meId, members, onReply
   const ended = useRooms(useShallow((s) => (s.ai[roomId]?.runs ?? NO_RUNS).filter((r) => !runActive(r))))
   const after = (m: RoomMessage) => [
     ...ended.filter((r) => r.questionId === m.id).map((r) => <EndedRun key={r.turnId} roomId={roomId} run={r} />),
-    ...(m.answeredPrivately ? [<PrivateAnswered key={`private-${m.id}`} name={m.author?.name ?? t('rooms.goneUser')} />] : []),
+    ...(m.answeredPrivately ? [<PrivateAnswered key={`private-${m.id}`} name={nameOf(m.author) ?? t('rooms.goneUser')} />] : []),
   ]
   const orphans = ended.filter((r) => !loaded.has(r.questionId)).map((r) => <EndedRun key={r.turnId} roomId={roomId} run={r} />)
 
@@ -109,7 +111,7 @@ export function RoomMessages({ roomId, messages, pending, meId, members, onReply
               <RunAvatar m={first} />
               <div className="min-w-0 flex-1">
                 <p className="flex items-baseline gap-2">
-                  <span className="truncate text-sm font-medium text-ink">{first.authorKind === 'ai' ? t('rooms.aiName') : (first.author?.name ?? t('rooms.goneUser'))}</span>
+                  <span className="truncate text-sm font-medium text-ink">{first.authorKind === 'ai' ? t('rooms.aiName') : (nameOf(first.author) ?? t('rooms.goneUser'))}</span>
                   <time dateTime={first.createdAt} title={formatDateTime(first.createdAt, locale)} className="shrink-0 text-xs text-faint">
                     {timeOf(first.createdAt, locale)}
                   </time>
@@ -187,7 +189,9 @@ function MessageRow({ roomId, m, mine, names, members, meId, editing, flash, onE
   // an AI answer: the person who asked puts it (or their preview) away; an owner or admin any answer they see
   const removable = mine || (ai && !!meId && (m.askedBy?.id === meId || me?.user.role === 'owner' || me?.user.role === 'admin'))
   const openable = useMemo(() => (ai ? new Set(m.openable ?? []) : undefined), [ai, m.openable])
-  const mentioned = useMemo(() => m.mentions.map((id) => ({ id, name: names.get(id) ?? '' })), [m.mentions, names])
+  // a mention is the name as it was typed: the person's name now (the directory) and as the member list has it, so
+  // "@Ben" still stands out after Ben renamed himself
+  const mentioned = useMemo(() => m.mentions.flatMap((id) => [...new Set([names.get(id) ?? '', members.find((x) => x.id === id)?.name ?? ''])].map((name) => ({ id, name }))), [m.mentions, names, members])
   // "@트리나" stands out like a person's name (the server asked the AI for it)
   const parts = useMemo(() => mentionParts(m.body, ai ? mentioned : [...mentioned, ...aiMentionNames(m.body, mentioned)]), [m.body, mentioned, ai])
   const [press, setPress] = useState(0)
@@ -280,8 +284,9 @@ function MessageRow({ roomId, m, mine, names, members, meId, editing, flash, onE
  * "나만 볼 수 있어요" there instead: whose question it answers is clear, who sees it is not (PreviewLine). */
 function AskedBy({ roomId, m, onJump }: { roomId: string; m: RoomMessage; onJump?: () => void }) {
   const t = useT()
+  const nameOf = useNameOf()
   if (m.visibility === 'private') return <PreviewLine roomId={roomId} m={m} />
-  const text = t('rooms.aiAskedBy', { name: m.askedBy?.name ?? t('rooms.goneUser') })
+  const text = t('rooms.aiAskedBy', { name: nameOf(m.askedBy) ?? t('rooms.goneUser') })
   return onJump ? (
     <button type="button" onClick={onJump} className="mb-0.5 block max-w-full truncate text-left text-xs text-faint hover:text-ink hover:underline" data-testid="room-ai-asked-by">
       {text}
@@ -360,10 +365,11 @@ function PreviewLine({ roomId, m }: { roomId: string; m: RoomMessage }) {
 
 function Quote({ q, onJump }: { q: RoomQuote; onJump?: () => void }) {
   const t = useT()
+  const nameOf = useNameOf()
   const what = q.deleted ? t('rooms.deleted') : q.excerpt || (q.fileCount ? t('rooms.lastFiles', { n: q.fileCount }) : '')
   const inner = (
     <>
-      <span className="block truncate font-medium text-muted">{q.author?.name ?? t('rooms.goneUser')}</span>
+      <span className="block truncate font-medium text-muted">{nameOf(q.author) ?? t('rooms.goneUser')}</span>
       <span className="block truncate text-faint">{what}</span>
     </>
   )

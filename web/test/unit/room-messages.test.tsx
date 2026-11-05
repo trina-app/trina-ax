@@ -243,3 +243,26 @@ test("a photo's thumbnail takes its own shape once loaded (an older row with a l
     removeDom()
   }
 })
+
+test('a name changed since the messages were read shows at once: the directory has it (author, quote, @mention)', async () => {
+  const { usePeople } = await import('../../src/store/people')
+  const q = message({ roomId: R, seq: 1, author: BEN, body: 'first' })
+  const reply = message({ roomId: R, seq: 2, author: CY, body: 'hi @Ben', mentions: [BEN.id], replyTo: { id: q.id, author: BEN, excerpt: 'first', fileCount: 0, deleted: false } })
+  installDom()
+  const m = await mount(<RoomMessages roomId={R} messages={[q, reply]} pending={[]} meId={ME.id} members={[ME, BEN, CY]} onReply={() => {}} />)
+  try {
+    expect(m.html()).toMatch(/>Ben</)
+    // Ben renames himself: the directory reloads (profile_changed), the messages and the members still say "Ben"
+    const { act } = await import('react')
+    await act(async () => { usePeople.setState({ byId: { [BEN.id]: { id: BEN.id, name: 'Benjamin Park' } } as never }) })
+    const html = m.html()
+    // the run's name and the quote's; the @mention keeps the words Cy typed, still marked as a mention
+    expect(count(html, 'Benjamin Park')).toBe(2)
+    expect(html).not.toMatch(/>Ben</)
+    expect(html).toMatch(/<span class="[^"]*font-medium[^"]*">@Ben<\/span>/)
+  } finally {
+    await m.unmount()
+    usePeople.getState().reset()
+    removeDom()
+  }
+})

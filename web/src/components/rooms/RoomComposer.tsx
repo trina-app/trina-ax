@@ -11,6 +11,7 @@ import { api, API, errorText } from '../../lib/api'
 import { formatSize } from '../../lib/format'
 import { useLocale, useT } from '../../i18n'
 import { roomDrafts as drafts, useRooms } from '../../store/rooms'
+import { useNameOf } from '../../store/people'
 import { toast } from '../../store/ui'
 import { IconButton } from '../ui'
 import { useMentionMenu } from './useMentionMenu'
@@ -28,6 +29,7 @@ let uploadKey = 0
 
 export function RoomComposer({ roomId, members, meId, reply, onCancelReply, onReply, onSent, gone, empty = false }: { roomId: string; members: UserRef[]; meId: string | null; reply: RoomQuote | null; onCancelReply: () => void; onReply: (q: RoomQuote) => void; onSent: () => void; gone: string; empty?: boolean }) {
   const t = useT()
+  const nameOf = useNameOf()
   const locale = useLocale()
   const [text, setTextState] = useState(() => drafts.get(roomId) ?? '')
   const [files, setFiles] = useState<Upload[]>([])
@@ -139,7 +141,7 @@ export function RoomComposer({ roomId, members, meId, reply, onCancelReply, onRe
           <div className="flex items-center gap-2 pt-2 pr-1.5 pl-3 text-xs" data-testid="reply-chip">
             <CornerUpLeft size={13} className="shrink-0 text-faint" aria-hidden />
             <span className="min-w-0 flex-1 truncate text-muted">
-              <span className="font-medium text-ink">{t('rooms.replyTo', { name: reply.author?.name ?? gone })}</span>
+              <span className="font-medium text-ink">{t('rooms.replyTo', { name: nameOf(reply.author) ?? gone })}</span>
               {reply.excerpt && <span> · {reply.excerpt}</span>}
             </span>
             <IconButton label={t('rooms.cancelReply')} onClick={onCancelReply} className="touch-hit p-1">

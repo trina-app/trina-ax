@@ -16,6 +16,7 @@ import { PeoplePicker } from '../components/rooms/PeoplePicker'
 import { RoomIcon, useRoomTitle } from '../components/rooms/RoomIcon'
 import { UnreadBadge } from '../components/rooms/SidebarRooms'
 import { Button, ErrorNote, PageHeader, Skeleton } from '../components/ui'
+import { useNameOf } from '../store/people'
 
 /** today: the time; yesterday: the word; before: the date */
 export function listTime(iso: string, locale: Locale, yesterday: string): string {
@@ -87,7 +88,8 @@ function RoomListRow({ room, className }: { room: Room; className: string }) {
   // an AI answer (no author) is Markdown: one plain line of it
   const line = !m ? '' : m.author ? m.excerpt.replace(/\s+/g, ' ').trim() : plainLine(m.excerpt)
   const what = !m ? '' : m.deleted ? t('rooms.deleted') : line || (m.fileCount ? t('rooms.lastFiles', { n: m.fileCount }) : '')
-  const who = !m ? null : m.author?.id === me?.user.id ? t('rooms.you') : room.kind === 'dm' ? null : (m.author?.name ?? null)
+  const nameOf = useNameOf()
+  const who = !m ? null : m.author?.id === me?.user.id ? t('rooms.you') : room.kind === 'dm' ? null : nameOf(m.author)
   const unread = room.unreadCount
   return (
     <Link to={`/rooms/${room.id}`} className={className} data-testid="rooms-row">
