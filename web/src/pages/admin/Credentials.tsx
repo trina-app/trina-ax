@@ -7,7 +7,7 @@
 // the browser (one button; docs/DECISIONS.md "Claude 구독 연결: 브라우저에서"); the old terminal paste for Claude stays
 // folded under a small disclosure.
 import { ArrowDown, ArrowUp, ExternalLink, KeyRound, MoreHorizontal, Plus, RefreshCw, Trash2 } from 'lucide-react'
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { DuplicateCredentialParams, type Credential, type CredentialAssignment, type CredentialKind, type CredentialLogin, type CredentialLoginKind, type CredentialsResponse, type Group, type User } from '@mycel/shared/api'
 import { api, API, errorText, isApiError } from '../../lib/api'
@@ -282,6 +282,8 @@ export function AddCredential({ allowedKinds, gateway, groups, users, replace, p
   /** Claude: the code the person pastes after approving */
   const [loginCode, setLoginCode] = useState('')
   const [codeBusy, setCodeBusy] = useState(false)
+  /** a code is on its way (Enter twice, a double click: one request, the second would only hear "not waiting") */
+  const sending = useRef(false)
   /** the token is already a personal connection the owner may move to the team (409 params.movable) */
   const [move, setMove] = useState<DuplicateCredentialParams | null>(null)
   const secure = canSeal()
@@ -339,7 +341,8 @@ export function AddCredential({ allowedKinds, gateway, groups, users, replace, p
   }
   /** Claude: the pasted code, sealed like a token, to the sign-in that waits for it */
   const sendCode = async () => {
-    if (!login || !CLAUDE_CODE_RE.test(loginCode.trim())) return
+    if (!login || login.state !== 'code' || sending.current || !CLAUDE_CODE_RE.test(loginCode.trim())) return
+    sending.current = true
     setCodeBusy(true); setError(null)
     try {
       const key = await api.call(API.sealingKey)
@@ -348,11 +351,15 @@ export function AddCredential({ allowedKinds, gateway, groups, users, replace, p
       setLoginCode('')
     } catch (e) {
       setError(errorText(e, locale, t('error.network')))
-    } finally { setCodeBusy(false) }
+    } finally { setCodeBusy(false); sending.current = false }
   }
   const cancelLogin = async () => {
     if (login && !FINISHED.includes(login.state)) {
-      try { await api.call(personal ? API.cancelMyCredentialLogin : API.cancelCredentialLogin, { params: { id: login.loginId } }) } catch { /* gone already */ }
+      try { await api.call(personal ? API.cancelMyCredentialLogin : API.cancelCredentialLogin, { params: { id: login.loginId } }) } catch (e) {
+        // the new token is being saved right now: the dialog stays and shows how it ends
+        if (isApiError(e, 'conflict')) { setError(errorText(e, locale, t('error.network'))); return }
+        /* else: gone already */
+      }
     }
     onClose()
   }

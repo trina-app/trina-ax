@@ -68,13 +68,22 @@ test('owner adds a Claude subscription, an API key and a ChatGPT plan; orders th
   await page.getByTestId('claude-code-input').fill('not a code')
   await expect(dialog).toContainText('중간에 #가 있어요')
   await page.getByTestId('claude-code-input').fill('good-code#good-state')
-  const sent = page.waitForRequest((r) => /\/api\/admin\/credential-logins\/[^/]+\/code$/.test(r.url()))
-  await page.getByTestId('claude-code-submit').click()
+  const codeRequests: string[] = []
+  page.on('request', (r) => { if (/\/api\/admin\/credential-logins\/[^/]+\/code$/.test(r.url())) codeRequests.push(r.postData() ?? '') })
+  // Enter twice in a row: one request, no "not waiting for a code" error
+  await page.getByTestId('claude-code-input').press('Enter')
+  await page.getByTestId('claude-code-input').press('Enter')
+  await expect(page.getByTestId('claude-code-submit')).toHaveText('확인 중…')
+  expect(codeRequests).toHaveLength(1)
   // sealed in the browser: the request carries no plain code
-  const body = (await sent).postData() ?? ''
-  expect(body).not.toContain('good-code')
-  expect(JSON.parse(body)).toHaveProperty('sealed.ct')
+  expect(codeRequests[0]).not.toContain('good-code')
+  expect(JSON.parse(codeRequests[0]!)).toHaveProperty('sealed.ct')
+  // cancelling while the new token is saved: the dialog stays, says so, and then shows the result
+  await dialog.getByRole('button', { name: '취소' }).click()
+  await expect(dialog).toContainText('저장하는 중')
   await expect(page.getByTestId('claude-done')).toHaveText('연결했어요 · Claude 구독')
+  expect(codeRequests).toHaveLength(1)
+  await expect(dialog.getByTestId('dialog-error')).toHaveCount(0)
   await dialog.getByRole('button', { name: '완료' }).click()
   await expect(dialog).toHaveCount(0)
   await expect(page.getByTestId('credentials-claude')).toContainText('대표 Max')
@@ -113,7 +122,8 @@ test('owner adds a Claude subscription, an API key and a ChatGPT plan; orders th
   await expect(sharing).not.toBeChecked()
   await expect(page.getByTestId('credentials-claude')).toContainText('공유 꺼짐')
   await expect(page.getByTestId('credentials-codex')).toContainText('공유 꺼짐')
-  expect(realErrors(errors)).toEqual([])
+  // the one 409 is the cancel while the token was saved (above), which the dialog shows
+  expect(realErrors(errors).filter((e) => !/status of 409/.test(e))).toEqual([])
 })
 
 test('personal connections are available by default, prefer subscriptions, and preserve an owner opt-out', async ({ page }) => {

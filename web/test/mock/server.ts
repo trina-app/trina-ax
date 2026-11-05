@@ -2286,7 +2286,7 @@ export class MockServer {
       if (l.reconnectId) { const x = this.credentials.find((y) => y.id === l.reconnectId); if (x) { x.state = 'ok'; x.detail = null; l.credential = x } }
       else { const c = this.newCredential(user, 'anthropic-oauth', l.label, l.personal, 'ok'); this.credentials.push(c); l.credential = c }
       l.state = 'done'; pub()
-    }, 400)
+    }, 1500)
     return this.loginView(l)
   }
   loginOf(id: string, user: User): CredentialLogin {
@@ -2297,6 +2297,8 @@ export class MockServer {
   cancelLogin(id: string, user: User) {
     const l = this.credLogins.get(id)
     if (!l || l.userId !== user.id) fail('not_found', 404)
+    // like the server while it saves the new token: 409 (here for the whole check)
+    if (l!.state === 'checking') fail('conflict', 409, '새 토큰을 확인하고 저장하는 중이에요. 곧 끝나요.')
     if (l!.state === 'starting' || l!.state === 'code') { l!.state = 'cancelled'; this.publish({ type: 'credential.login', data: this.loginView(l!) }) }
   }
 
