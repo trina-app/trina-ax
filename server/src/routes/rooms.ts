@@ -23,6 +23,8 @@ export const roomsRoutes: RouteModule = {
     // existing groups get their team rooms and everyone gets the everyone room at the first start with rooms; after
     // that groups and accounts are followed at once (admin/folders.ts afterAccessChange) and on this tick
     try { rooms.sync() } catch (e) { ctx.log.error('room sync failed', { err: e }) }
+    // after a restore the database and the team folder can be from different moments: rows and files are matched
+    try { roomFilesOf(ctx).reconcile() } catch (e) { ctx.log.error('room file reconcile failed', { err: e }) }
     // the AI in rooms (rooms/ai.ts): the chat runtime's room hooks, and the questions that ended while it was down
     try {
       getChatRuntime(ctx).rooms = roomAiOf(ctx)

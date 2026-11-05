@@ -60,11 +60,12 @@ export class Notifications {
     this.record(userId, event, suggestionId, createdAt)
   }
   /** A DM message or an @mention in a room (rooms/service.ts notify). The source is the message id only, never its
-   * text. A DM adds no second notice while one of that room is still unread (one per unread run: a burst of messages
-   * is one notice and one push); reading the room marks them read. Follows the person's room setting. */
+   * text. No second notice of the same kind while one of that room is still unread (one per unread run: a burst of
+   * messages or mentions is one notice and one push); reading the room marks them read. Follows the person's room
+   * setting. */
   roomNotice(userId: string, event: RoomNoticeEvent, messageId: string, roomId: string, at = new Date().toISOString()) {
     if (!this.active(userId) || at < this.cutoff()) return
-    if (event === 'room.dm' && this.ctx.db.query("SELECT 1 FROM room_notices WHERE user_id=? AND room_id=? AND event_type='room.dm' AND read_at IS NULL AND suppressed=0 AND created_at>=?").get(userId, roomId, this.cutoff())) return
+    if (this.ctx.db.query('SELECT 1 FROM room_notices WHERE user_id=? AND room_id=? AND event_type=? AND read_at IS NULL AND suppressed=0 AND created_at>=?').get(userId, roomId, event, this.cutoff())) return
     const enabled = eventEnabled(this.preferences(userId), event)
     const r = this.ctx.db.query('INSERT INTO room_notices(id,user_id,event_type,source_id,room_id,created_at,suppressed) VALUES(?,?,?,?,?,?,?) ON CONFLICT(user_id,event_type,source_id) DO NOTHING')
       .run(newId(), userId, event, messageId, roomId, at, enabled ? 0 : 1)

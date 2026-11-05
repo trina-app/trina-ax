@@ -8,7 +8,6 @@ import path from 'node:path'
 import type { RealtimeConn } from '../../server/src/services'
 import { Hub } from '../../server/src/realtime/hub'
 import { notificationsOf } from '../../server/src/notifications/service'
-import { roomsOf } from '../../server/src/rooms/service'
 import { unreadOf } from '../../server/src/rooms/store'
 import { newId } from '../../server/src/db'
 import { addMember, harness, RecordingHub, withOwner, type Client, type Harness } from './a-lib'
@@ -60,10 +59,17 @@ test('team rooms follow their group, everyone has the everyone room, and the cha
   expect((await teamRoom(otto.client))?.id).toBe(team.id)
   expect(await teamRoom(nora.client)).toBeUndefined()
   expect((await nora.client.try('GET', `/api/rooms/${team.id}`)).status).toBe(404)
-  // a disabled account leaves the rooms
+  // a disabled account leaves the rooms at once; enabled again, it is back and sees messages from then on
   await owner.call('PATCH', `/api/admin/users/${otto.id}`, { status: 'disabled' })
-  roomsOf(h.ctx).sync()
   expect((await mia.client.call('GET', `/api/rooms/${team.id}`)).memberCount).toBe(1)
+  expect(h.ctx.db.query('SELECT COUNT(*) n FROM room_members WHERE user_id = ?').get(otto.id)).toEqual({ n: 0 })
+  await mia.client.call('POST', `/api/rooms/${team.id}/messages`, { body: 'while otto was away', clientMessageId: cm() })
+  await owner.call('PATCH', `/api/admin/users/${otto.id}`, { status: 'active' })
+  expect(h.ctx.db.query('SELECT COUNT(*) n FROM room_members WHERE user_id = ? AND room_id = ?').get(otto.id, team.id)).toEqual({ n: 1 })
+  const back = h.client()
+  await back.login('otto', otto.password)
+  expect((await back.call('GET', `/api/rooms/${team.id}/messages`)).items).toEqual([])
+  await owner.call('PATCH', `/api/admin/users/${otto.id}`, { status: 'disabled' })
   const actions = (h.ctx.db.query("SELECT action FROM audit_log WHERE action LIKE 'room.%'").all() as { action: string }[]).map((r) => r.action)
   expect(actions).toContain('room.create')
   expect(actions).toContain('room.members')
@@ -136,7 +142,9 @@ test('one DM per pair, from either side; never with oneself or a disabled accoun
   await owner.call('PATCH', `/api/admin/users/${otto.id}`, { status: 'disabled' })
   expect((await mia.client.try('POST', '/api/rooms', { kind: 'dm', userId: otto.id })).status).toBe(404)
   expect((await mia.client.try('POST', '/api/rooms', { kind: 'group', memberIds: [nora.id] })).status).toBe(400)
-  expect(h.ctx.db.query("SELECT COUNT(*) n FROM audit_log WHERE action = 'room.create' AND target = ?").get(a.id)).toEqual({ n: 1 })
+  // admins read the audit log: who opened a DM with whom is not in it
+  const rows = h.ctx.db.query('SELECT action, target, detail FROM audit_log').all() as { action: string; target: string | null; detail: string | null }[]
+  expect(rows.filter((r) => r.target === a.id || (r.detail ?? '').includes(a.id) || (r.detail ?? '').includes('"dm"'))).toEqual([])
 })
 
 test('unread: each message counts the members who have not read it; reads move forward only', async () => {
@@ -209,7 +217,7 @@ test('realtime: room events reach the room\'s members only, and a read names nob
   expect(hub.to('room.message.updated').map((e) => e.target).sort()).toEqual([mia.id, nora.id].sort())
 })
 
-test('notices: a DM (one per unread run) and an @mention; muted rooms keep mentions; reading clears them; no text', async () => {
+test('notices: a DM or an @mention, one unread notice of each per room; muted rooms are quiet; reading clears them; no text', async () => {
   const { mia, nora, teamRoom, send } = await setup()
   const n = notificationsOf(h.ctx)
   const dm = await mia.client.call('POST', '/api/rooms', { kind: 'dm', userId: nora.id })
@@ -224,22 +232,29 @@ test('notices: a DM (one per unread run) and an @mention; muted rooms keep menti
   const last = (await nora.client.call('GET', `/api/rooms/${dm.id}`)).lastSeq
   await nora.client.call('POST', `/api/rooms/${dm.id}/read`, { seq: last })
   expect(n.list(nora.id, {}).unreadCount).toBe(0)
-  // muted: no DM notice, but a mention still comes
-  await nora.client.call('PATCH', `/api/rooms/${dm.id}`, { muted: true })
-  await send(mia.client, dm.id, 'quiet')
-  expect(n.list(nora.id, {}).unreadCount).toBe(0)
-  await send(mia.client, dm.id, '@NORA look', { mentions: [nora.id] })
-  inbox = n.list(nora.id, {})
-  expect(inbox.unreadCount).toBe(1)
-  expect(inbox.items[0]).toMatchObject({ code: 'room.mention' })
-  // a team room message notifies only those mentioned
+  // a team room message notifies only those mentioned, and mentions too come once per unread run
   const team = await teamRoom(mia.client)
   await send(mia.client, team.id, 'for everyone')
-  expect(n.list(nora.id, {}).unreadCount).toBe(1)
+  expect(n.list(nora.id, {}).unreadCount).toBe(0)
+  await send(mia.client, team.id, '@NORA look', { mentions: [nora.id] })
+  await send(mia.client, team.id, '@NORA and this', { mentions: [nora.id] })
+  inbox = n.list(nora.id, {})
+  expect(inbox.unreadCount).toBe(1)
+  expect(inbox.items[0]).toMatchObject({ code: 'room.mention', room: { id: team.id } })
+  await nora.client.call('POST', `/api/rooms/${team.id}/read`, { seq: 999 })
+  expect(n.list(nora.id, {}).unreadCount).toBe(0)
+  // muted: neither DM messages nor mentions make a notice
+  await nora.client.call('PATCH', `/api/rooms/${dm.id}`, { muted: true })
+  await nora.client.call('PATCH', `/api/rooms/${team.id}`, { muted: true })
+  await send(mia.client, dm.id, 'quiet')
+  await send(mia.client, dm.id, '@NORA look', { mentions: [nora.id] })
+  await send(mia.client, team.id, '@NORA in the team room', { mentions: [nora.id] })
+  expect(n.list(nora.id, {}).unreadCount).toBe(0)
+  await nora.client.call('PATCH', `/api/rooms/${team.id}`, { muted: false })
   // the person's setting turns room notices off
   n.setPreferences(nora.id, { roomMessages: false })
   await send(mia.client, team.id, '@NORA again', { mentions: [nora.id] })
-  expect(n.list(nora.id, {}).unreadCount).toBe(1)
+  expect(n.list(nora.id, {}).unreadCount).toBe(0)
   // a deleted message takes its notice with it
   n.setPreferences(nora.id, { roomMessages: true })
   await nora.client.call('PATCH', `/api/rooms/${dm.id}`, { muted: false })
@@ -248,6 +263,21 @@ test('notices: a DM (one per unread run) and an @mention; muted rooms keep menti
   expect(n.list(nora.id, {}).unreadCount).toBe(1)
   await mia.client.call('DELETE', `/api/rooms/${dm.id}/messages/${gone.id}`)
   expect(n.list(nora.id, {}).unreadCount).toBe(0)
+})
+
+test('sending is rate limited per person; a resend of the same message is free', async () => {
+  const { mia, nora } = await setup()
+  const { SEND_BURST } = await import('../../server/src/rooms/service')
+  const dm = await mia.client.call('POST', '/api/rooms', { kind: 'dm', userId: nora.id })
+  const first = { body: 'one', clientMessageId: cm() }
+  for (let i = 0; i < SEND_BURST; i++) await mia.client.call('POST', `/api/rooms/${dm.id}/messages`, i === 0 ? first : { body: `m${i}`, clientMessageId: cm() })
+  const over = await mia.client.try('POST', `/api/rooms/${dm.id}/messages`, { body: 'one too many', clientMessageId: cm() })
+  expect(over.status).toBe(429)
+  expect(over.body.error).toMatchObject({ code: 'rate_limited', retryAfter: expect.any(Number) })
+  // the same message again (a reconnect) is answered, not counted
+  expect((await mia.client.try('POST', `/api/rooms/${dm.id}/messages`, first)).status).toBe(201)
+  // another person has their own budget
+  expect((await nora.client.try('POST', `/api/rooms/${dm.id}/messages`, { body: 'hi', clientMessageId: cm() })).status).toBe(201)
 })
 
 test('files: kept outside the team folder, readable by the room\'s members only, gone with their message', async () => {
@@ -271,13 +301,65 @@ test('files: kept outside the team folder, readable by the room\'s members only,
   expect(r.status).toBe(200)
   expect(await r.text()).toBe('quarterly numbers')
   for (const c of [ada.client, owner, otto.client]) expect((await get(c)).status).toBe(404)
-  // stored under the data folder, nowhere in the team folder
-  expect(fs.existsSync(path.join(h.ctx.config.dataDir, 'rooms', dm.id, file.id))).toBe(true)
-  const inTeam = (dir: string): boolean => fs.readdirSync(dir, { withFileTypes: true }).some((e) => e.isDirectory() ? inTeam(path.join(dir, e.name)) : e.name.includes(file.id) || e.name === 'plan.txt')
-  expect(inTeam(h.ctx.config.teamRoot)).toBe(false)
+  // kept in .system/rooms (with the team folder, so in its backups), which no person reaches through the files API,
+  // the owner included; and nowhere else in the team folder
+  const stored = path.join(h.ctx.config.teamRoot, '.system', 'rooms', dm.id, file.id)
+  expect(fs.existsSync(stored)).toBe(true)
+  for (const c of [owner, ada.client, mia.client]) {
+    expect((await c.try('GET', `/api/files/download?path=${encodeURIComponent(`.system/rooms/${dm.id}/${file.id}`)}`)).status).toBe(404)
+  }
+  const elsewhere = (dir: string): boolean => fs.readdirSync(dir, { withFileTypes: true }).some((e) => e.isDirectory() ? e.name !== '.system' && elsewhere(path.join(dir, e.name)) : e.name.includes(file.id) || e.name === 'plan.txt')
+  expect(elsewhere(h.ctx.config.teamRoot)).toBe(false)
   await mia.client.call('DELETE', `/api/rooms/${dm.id}/messages/${msg.id}`)
   expect((await get(nora.client)).status).toBe(404)
-  expect(fs.existsSync(path.join(h.ctx.config.dataDir, 'rooms', dm.id, file.id))).toBe(false)
+  expect(fs.existsSync(stored)).toBe(false)
+})
+
+test('backups: room files are in the team archive and come back with a restore; rows and files match after it', async () => {
+  const { mia, nora } = await setup()
+  const { BackupManager } = await import('../../server/src/system/backup')
+  const { resolveLayout } = await import('../../server/src/system/layout')
+  const { roomFilesOf } = await import('../../server/src/rooms/files')
+  const dm = await mia.client.call('POST', '/api/rooms', { kind: 'dm', userId: nora.id })
+  const upload = async (name: string, text: string) => {
+    const form = new FormData()
+    form.set('file', new File([new TextEncoder().encode(text)], name, { type: 'text/plain' }))
+    const r = await h.fetch(`/api/rooms/${dm.id}/files`, { method: 'POST', body: form, headers: { cookie: mia.client.cookie!, 'x-mycel-csrf': '1' } })
+    const f = await r.json()
+    const m = await mia.client.call('POST', `/api/rooms/${dm.id}/messages`, { body: name, fileIds: [f.id], clientMessageId: cm() })
+    return { file: f, msg: m }
+  }
+  const a = await upload('a.txt', 'first file')
+  const layout = resolveLayout(h.ctx.config)
+  const mgr = new BackupManager({ db: h.ctx.db, dbFile: path.join(h.ctx.config.dataDir, 'app.db'), layout, log: h.ctx.log, version: '0.0.0' })
+  const meta = await mgr.run({ kind: 'manual', scope: 'full' })
+  const manifest = JSON.parse(fs.readFileSync(path.join(mgr.teamDir(meta.id), 'manifest.json'), 'utf8')) as Record<string, unknown>
+  expect(Object.keys(manifest)).toContain(`.system/rooms/${dm.id}/${a.file.id}`)
+  // the team folder rebuilt from the backup holds the room file, byte for byte
+  const dest = path.join(h.ctx.config.dataDir, 'restored-team')
+  await mgr.restoreTeamTo(meta.id, dest)
+  expect(fs.readFileSync(path.join(dest, '.system', 'rooms', dm.id, a.file.id), 'utf8')).toBe('first file')
+  // after the backup: a new file, and the first message deleted (its file goes)
+  const b = await upload('b.txt', 'second file')
+  await mia.client.call('DELETE', `/api/rooms/${dm.id}/messages/${a.msg.id}`)
+  // the database of the backup comes back (Admin › Backups): it has a's row and not b's. Put the rows that way.
+  const old = (await import('bun:sqlite')).Database
+  const copy = new old(mgr.dbFileOf(meta.id)!, { readonly: true })
+  const aRow = copy.query('SELECT * FROM room_files WHERE id = ?').get(a.file.id) as Record<string, string | number | null>
+  copy.close()
+  h.ctx.db.query(`INSERT INTO room_files (${Object.keys(aRow).join(', ')}) VALUES (${Object.keys(aRow).map(() => '?').join(', ')})`).run(...Object.values(aRow))
+  h.ctx.db.query('DELETE FROM room_files WHERE id = ?').run(b.file.id)
+  const r = roomFilesOf(h.ctx).reconcile()
+  expect(r).toMatchObject({ rowsRemoved: 1, filesRemoved: 1 })
+  expect(h.ctx.db.query('SELECT id FROM room_files WHERE id IN (?, ?)').all(a.file.id, b.file.id)).toEqual([])
+  expect(fs.existsSync(path.join(h.ctx.config.teamRoot, '.system', 'rooms', dm.id, b.file.id))).toBe(false)
+  // files of the first layout (<data dir>/rooms) move to the team folder at the next start
+  const c = await upload('c.txt', 'third file')
+  fs.mkdirSync(path.join(h.ctx.config.dataDir, 'rooms'), { recursive: true })
+  fs.renameSync(path.join(h.ctx.config.teamRoot, '.system', 'rooms', dm.id), path.join(h.ctx.config.dataDir, 'rooms', dm.id))
+  expect(roomFilesOf(h.ctx).reconcile()).toMatchObject({ movedRooms: 1, rowsRemoved: 0 })
+  const got = await h.fetch(`/api/rooms/${dm.id}/files/${c.file.id}`, { headers: { cookie: nora.client.cookie! } })
+  expect(await got.text()).toBe('third file')
 })
 
 test('replay after a reconnect: room events are replayed only while the person is still in the room', async () => {

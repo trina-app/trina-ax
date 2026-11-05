@@ -21,6 +21,7 @@ import { afterAccessChange, captureState, resetEngineSessions } from './folders'
 import { stopTurnsOf } from '../chat/runtime'
 import { getTeamSettings, LOCALE_CHANGED } from './settings'
 import { revokeTeamLinksBy } from '../auth/team-links'
+import { syncRoomsNow } from '../rooms/service'
 
 type In<T extends z.ZodType> = z.output<T>
 
@@ -134,6 +135,9 @@ export function updateUser(c: Context<AppEnv>, ctx: AppContext, id: string, b: I
   }
   if (changed.status === 'disabled' || changed.role === 'member') { revokeInvitesBy(ctx, id); revokeResetLinksBy(ctx, id); revokeTeamLinksBy(ctx, id) }
   if (changed.role !== undefined || changed.groupIds !== undefined) afterAccessChange(ctx, before, { actor: auth.user.id, target: id })
+  // disabled: out of the team rooms and the everyone room now; enabled again: back in, seeing messages from now on
+  // (afterAccessChange syncs the rooms too, so only a status change on its own needs this)
+  else if (changed.status !== undefined) syncRoomsNow(ctx)
   return toUser(ctx.db, getUser(ctx.db, id)!)
 }
 

@@ -7949,7 +7949,8 @@ every week. Placement: Team AX core (skills, files and permissions, the team lin
   their `GET /api/rooms` (a new account from an invite or the team link), and once a minute. A disabled or deleted
   account leaves the rooms (its unread count would never go down otherwise); turned on again it joins again, from then
   on. A group deleted: its room is archived with nobody in it (rows kept; nobody can read them; a purge is for later).
-  Member changes and room creation are audited (`room.create`, `room.members`, `room.archive`); a message's text never.
+  Team and everyone rooms' creation and member changes are audited (`room.create`, `room.members`, `room.archive`); a
+  DM is not (admins read the audit log and must not learn who talks to whom), and a message's text never is.
 - **A later member sees from their join on.** `room_members.visible_from_seq` is the room's `last_seq` when they
   joined (0 for the first members at the first start): messages, the last-message line, unread counts, quotes of earlier
   messages ("deleted" for them) and room files all go by it. Their read position starts there too.
@@ -7971,9 +7972,14 @@ every week. Placement: Team AX core (skills, files and permissions, the team lin
   it), no badge and no unread count for anyone else. Where a turn would hook in: `Rooms.send()` is the one writer of
   room messages; an AI answer is a second writer with `author_kind 'ai'`, `asked_by` = who asked, first as a private
   preview to that person (`visibility 'private'`, `visible_to`), and sharing it turns it to `'room'` (and notifies then).
-- **Room files outside the team folder.** Owners and admins can read everything in the team folder outside
-  `users/<id>/` (`server/src/policy/access.ts`), so room files are not stored there: `<data dir>/rooms/<room id>/<file
-  id>` (0700 / 0600, with a `.thumb.jpg` preview), reached only through `GET /api/rooms/:id/files/:fileId`, which checks
+- **Room files where no person reaches them, but in every backup.** Owners and admins can read everything in the team
+  folder outside `users/<id>/` (`server/src/policy/access.ts`), so room files are not in a folder people can open. They
+  are in `<team>/.system/rooms/<room id>/<file id>` (0700 / 0600, with a `.thumb.jpg` preview): `.system/` is closed to
+  every person, the AI's tools, the dev environment and the owner's export, and it is part of every team-folder backup,
+  archive, off-site copy and restore (a first version kept them in `<data dir>/rooms/`, which no backup covered; such
+  files move over at the next start). At every start `RoomFiles.reconcile()` removes files without a row and rows
+  without a file, so a database restored from a backup and the newer folder match again. They count as team storage.
+  They are reached only through `GET /api/rooms/:id/files/:fileId`, which checks
   on every read that the caller is in the room now and may see the message it was sent with (before sending: the
   uploader only). The upload is the chat attachment's path and limits (multipart ≤ 50 MB, the storage check, the temp
   file and its sha256, the image size and thumbnail helpers, no preview of a quarantined file). A deleted message's files
@@ -7984,17 +7990,21 @@ every week. Placement: Team AX core (skills, files and permissions, the team lin
   replays `room.*` only while the person is still in that room, else `resync`; a person removed from a room also loses
   their replay buffer (`forgetReplay`) and gets `room.updated removed`. The app reloads its rooms after any reset or
   resync (gaps are not patched from events).
-- **Notices: a DM message or an @mention.** `room.dm` (the other person, unless they muted the DM) and `room.mention`
-  (each member picked as a mention, muted or not; only people in the room count). A DM adds no second notice while one
-  of that room is unread, so a burst of messages is one notice and one push; reading the room marks its notices read and
-  a deleted message takes its notice with it. They live in `room_notices` (notification_inbox has a fixed event_type
+- **Notices: a DM message or an @mention.** `room.dm` (the other person) and `room.mention` (each member picked as a
+  mention; only people in the room count); nobody who muted the room gets either. No second notice of the same kind
+  while one of that room is unread, so a burst of messages or mentions is one notice and one push; reading the room
+  marks its notices read and a deleted message takes its notice with it. Sending is rate limited per person (a burst of
+  20, then one a second, all rooms together; 429 with the seconds to wait; a resend of the same clientMessageId is
+  free). They live in `room_notices` (notification_inbox has a fixed event_type
   list and is never rebuilt) and are part of the one inbox; the inbox entry names the room and who wrote it, never the
   text. Push: `room.dm` and `room.mention` joined `PushEventType`, and the push service sends from two sources,
   `notification_inbox`/`push_deliveries` and `room_notices`/`room_push_deliveries`, with the same checks (payload: the
   notice id, the subscription id and the event code; the lock screen text is generic). One switch, "Room messages"
   (`roomMessages`), turns both off; per room there is mute. An edit notifies nobody.
 - **People directory.** The room screens use `GET /api/people` and the photo address from feat/profile (merged into this
-  branch); the web `Avatar` here is a minimal one with the same props, for that branch's fuller one to replace.
+  branch): one `Avatar` (feat/profile's, `web/src/components/Avatar.tsx`), one people store (`web/src/store/people.ts`,
+  with the lookups the rooms need) and one quiet `profile_changed` handler (no toast; my profile and, once read, the
+  people list load again).
 - **Web.** Desktop and web: a foldable "대화방" group in the sidebar above the AI chats (team rooms, 전체, DMs; one count
   pill per room, "@" in front when one mentions me; "+" opens the people list for a DM); a room opens in the main area at
   `/rooms/:roomId` (the mobile app deep-links there), the list at `/rooms`. The room screen groups consecutive messages
@@ -8003,8 +8013,8 @@ every week. Placement: Team AX core (skills, files and permissions, the team lin
   @mention autocomplete of the room's members, files and images, and one primary action, Send. A message's unread
   number only ever goes down, so the app keeps the lower of two copies (the answer to my own send can arrive after the
   other person already read it). Text is plain text with line breaks, never Markdown or HTML.
-- **Phones.** Below 768 px a bottom tab bar with three tabs, 대화 (`/rooms`) · 파일 · 나 (Settings for now; the profile
-  page comes from feat/profile), hairline above, one unread count on 대화. The 대화 list starts with a pinned row for the
+- **Phones.** Below 768 px a bottom tab bar with three tabs, 대화 (`/rooms`) · 파일 · 나 (Settings, with the profile
+  page from feat/profile), hairline above, one unread count on 대화. The 대화 list starts with a pinned row for the
   AI chat (the product's name; it opens Home), like KakaoTalk's "나와의 채팅"; the AI chat has no tab of its own. Inside
   a room and inside an AI chat there is no tab bar (their message box needs the bottom), and inside a room the room's
   header with its back arrow replaces the phone top bar. Rows are separated by hairlines, no cards near the edge. The
@@ -8012,3 +8022,14 @@ every week. Placement: Team AX core (skills, files and permissions, the team lin
 - **Notices on a device.** The service worker shows a room push with the generic text, and a click opens `/rooms/<id>`
   with the room id taken from the signed-in fetch of the notice at show time, never from the payload (the room page
   checks membership again); other pushes still open Settings › Notifications.
+
+## 프로필과 사람 목록 (feat/profile, 2026-11-05)
+
+팀 채팅이 "누가 말했는지"를 보여 주려면 사람 목록과 프로필이 먼저 있어야 해서, 둘을 코어에 먼저 넣었다.
+
+- **사람 목록** `GET /api/people`은 로그인한 모든 구성원이 부른다. 줄 수 있는 것은 `id`, 이름, 직함, 한 줄 상태, 사진 버전뿐이다. 이메일·역할·그룹·아이디(username)는 넣지 않는다(이메일은 지금처럼 관리자만). 비활성화·삭제된 사람은 빠진다. 사진 주소는 `/api/people/:id/avatar?v=<버전>`이고 구성원만 받는다. 현재 버전이 주소에 있으면 1년 캐시(`immutable`), 아니면 매번 확인한다. 사진이 없으면 404이고 웹은 첫 글자 아바타를 그린다.
+- **이름은 본인이 바꿀 수 있다.** 지금도 `PATCH /api/me`로 본인 이름을 바꿀 수 있어서(관리자만 바꾸는 규칙이 없었다) 그 규칙을 그대로 두고, 같은 일을 `PATCH /api/me/profile`(`name`, `title`, `status`)에서도 한다. 직함은 60자, 상태는 80자까지. 비워서 보내면 지워진다. 아무도 다른 사람의 프로필을 바꿀 수 없다: 대상은 항상 세션의 사람이고 요청에 아이디를 받지 않는다.
+- **저장 위치.** 새 테이블 `user_profiles`(마이그레이션 115): 사람마다 한 줄, 직함·상태·사진 바이트·사진 종류·사진 버전. `users`는 건드리지 않는다. 사진을 파일이 아니라 DB에 두는 이유는 256KB 이하의 작은 정사각형이라 백업·복원과 사람 삭제가 따로 챙길 것 없이 함께 가기 때문이다. 사진 버전은 밀리초 시계로 올라가기만 해서(지웠다가 다시 올려도 같은 주소가 다른 사진을 가리키지 않는다) 긴 캐시가 안전하다.
+- **사진 규칙은 팀 로고와 같은 생각, 더 엄격하게.** PNG·JPEG·WebP만, 파일 머리글이 말한 종류와 같아야 하고, SVG와 그 밖의 것은 거절한다. 정사각형이고 64~512px, 256KB 이하. 움직이는 WebP는 거절한다. 올릴 때 브라우저가 가운데 정사각형으로 잘라 256px로 줄여 다시 그려서(카메라 정보·촬영 위치가 빠진다) 보낸다. 서버는 이를 믿지 않고 한 번 더 메타데이터 블록(JPEG의 EXIF·XMP·주석, PNG의 텍스트·EXIF·시간 청크, WebP의 EXIF·XMP·색 프로필)을 잘라 낸다. 이미지 라이브러리 없이 컨테이너만 읽는다. 사진은 팀 로고처럼 이미지 전용 헤더(`nosniff`, `default-src 'none'; sandbox`, `inline`)로만 내보낸다. 팀 로고와 달리 로그인 전에는 받을 수 없다.
+- **감사 기록.** `profile.update`(바뀐 항목 이름, 이름이 바뀌면 이전·이후), `profile.avatar_set`(크기·이전 버전), `profile.avatar_remove`. 아무것도 바뀌지 않으면 기록하지 않는다. 바뀌면 실시간 알림 `profile_changed`가 가서 열린 창이 `/api/me`와 사람 목록을 다시 읽는다.
+- **웹.** `components/Avatar.tsx`(`<Avatar user size />`: 사진, 없거나 못 불러오면 첫 글자)를 사이드바 하단 본인 줄에 썼다. `store/people.ts`가 사람 목록을 들고 있어 채팅이 가져다 쓴다. 프로필은 설정의 기존 "프로필" 탭에 있다(나중에 하단 탭 "나"가 같은 화면을 연다). 사진 고르기·미리 보기·지우기와 이름·직함·상태·이메일을 한 번의 저장 버튼으로 저장한다. 안쪽 카드 테두리는 없앴다(구분선만).

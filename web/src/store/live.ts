@@ -13,6 +13,7 @@ import { useChats } from './chats'
 import { useAiAccess } from './aiAccess'
 import { useEngines } from './engines'
 import { useJobs } from './jobs'
+import { usePeople } from './people'
 import { useRooms } from './rooms'
 import { useSession } from './session'
 import { toast, useUi } from './ui'
@@ -108,6 +109,13 @@ export function dispatch(ev: ServerEvent) {
       if (ev.data.code === 'team_icon_changed') {
         // an admin set or removed the team logo: the tab icon follows (GET /api/me carries its version)
         void useSession.getState().refreshMe()
+        return
+      }
+      if (ev.data.code === 'profile_changed') {
+        // someone changed their name, title, status or photo (routes/people.ts): the own profile and the people list (when
+        // a screen has read it) follow, quietly: the notice carries no text to show
+        void useSession.getState().refreshMe()
+        if (usePeople.getState().loaded) void usePeople.getState().load(true)
         return
       }
       if (ev.data.code === 'speech_changed') {

@@ -25,11 +25,16 @@ import { roomAiOf, type AskOptions } from './ai'
 import { roomAiCalled } from '@mycel/shared/api'
 
 const services = new WeakMap<AppContext, Rooms>()
+/** Sending: a burst of SEND_BURST messages, then SEND_PER_SECOND a second (per person, all rooms together). More than
+ * people type; a script that floods a room gets 429 with the seconds to wait. */
+export const SEND_BURST = 20
+export const SEND_PER_SECOND = 1
 
 export interface SendInput { body: string; replyToId?: string | null; mentions: string[]; fileIds: string[]; clientMessageId: string }
 
 export class Rooms {
   private lastSync = 0
+  private sendBudget = new Map<string, { tokens: number; at: number }>()
   constructor(readonly ctx: AppContext) {}
   private get db(): Database { return this.ctx.db }
 
@@ -82,7 +87,7 @@ export class Rooms {
     return roomOut(this.db, room, me)
   }
 
-  /** The DM with `otherId` (made when there is none yet; audited). Only an active person other than me. */
+  /** The DM with `otherId` (made when there is none yet; not audited). Only an active person other than me. */
   openDm(userId: string, otherId: string): Room {
     if (otherId === userId) fail('validation', undefined, { fields: { 'body.userId': 'yourself' } })
     const other = this.db.query("SELECT id FROM users WHERE id = ? AND status = 'active' AND deleted_at IS NULL").get(otherId)
@@ -98,7 +103,7 @@ export class Rooms {
           const add = this.db.query('INSERT INTO room_members (room_id, user_id, joined_at) VALUES (?, ?, ?)')
           add.run(id, userId, now)
           add.run(id, otherId, now)
-          audit(this.db, { actor: userId, action: 'room.create', target: id, detail: { kind: 'dm', memberIds: [userId, otherId].sort() } })
+          // not audited: the audit log is the admins' to read, and they must not learn who talks to whom
         })()
       } catch (e) {
         // the other person opened the same DM at the same moment (UNIQUE dm_key): theirs is the one
@@ -143,6 +148,7 @@ export class Rooms {
     const { me } = this.mine(userId, roomId)
     const again = this.db.query(`SELECT ${MSG_COLS} FROM room_messages WHERE room_id = ? AND author_id = ? AND client_id = ?`).get(roomId, userId, b.clientMessageId) as MessageRow | null
     if (again) return messagesOut(this.db, [again], memberRow(this.db, roomId, userId)!)[0]!
+    this.takeSendToken(userId)
     if (b.replyToId) {
       const q = messageRow(this.db, roomId, b.replyToId)
       if (!q || !canSee(q, me)) fail('validation', undefined, { fields: { 'body.replyToId': 'not in this room' } })
@@ -201,6 +207,17 @@ export class Rooms {
     this.messageEvent('room.message.updated', messageRow(this.db, roomId, messageId)!)
   }
 
+  /** One token per new message (a resend of the same clientMessageId above costs none). */
+  private takeSendToken(userId: string) {
+    const now = Date.now()
+    const b = this.sendBudget.get(userId) ?? { tokens: SEND_BURST, at: now }
+    b.tokens = Math.min(SEND_BURST, b.tokens + ((now - b.at) / 1000) * SEND_PER_SECOND)
+    b.at = now
+    this.sendBudget.set(userId, b)
+    if (b.tokens < 1) fail('rate_limited', undefined, { retryAfter: Math.max(1, Math.ceil((1 - b.tokens) / SEND_PER_SECOND)) })
+    b.tokens -= 1
+  }
+
   private own(roomId: string, messageId: string, userId: string): MessageRow {
     const m = messageRow(this.db, roomId, messageId)
     if (!m) return fail('not_found')
@@ -242,9 +259,9 @@ export class Rooms {
   }
 
   // ---------------- notices ----------------
-  /** A DM message notifies the other person (unless they muted the DM), an @mention each person mentioned (muted or
-   * not). Private messages (the AI's previews) notify nobody; an AI answer not the person who asked. The notice is the
-   * message id only. */
+  /** A DM message notifies the other person, an @mention each person mentioned; nobody who muted the room. One unread
+   * notice of each kind per room and person (Notifications.roomNotice). Private messages (the AI's previews) notify
+   * nobody; an AI answer not the person who asked. The notice is the message id only. */
   notify(row: MessageRow) {
     if (row.visibility !== 'room' || row.deleted_at) return
     const room = roomRow(this.db, row.room_id)
@@ -253,9 +270,10 @@ export class Rooms {
     const mentioned = new Set(JSON.parse(row.mentions) as string[])
     const n = notificationsOf(this.ctx)
     for (const m of ms) {
+      if (m.muted) continue
       try {
         if (mentioned.has(m.user_id)) n.roomNotice(m.user_id, 'room.mention', row.id, row.room_id, row.created_at)
-        else if (room.kind === 'dm' && !m.muted) n.roomNotice(m.user_id, 'room.dm', row.id, row.room_id, row.created_at)
+        else if (room.kind === 'dm') n.roomNotice(m.user_id, 'room.dm', row.id, row.room_id, row.created_at)
       } catch (e) { this.ctx.log.warn('room notice not recorded', { err: e }) }
     }
   }

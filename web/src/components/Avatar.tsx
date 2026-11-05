@@ -1,27 +1,22 @@
-// A person's round picture: their profile photo (Settings › Profile) when they have one, else the first letter of their
-// name on a quiet round tile, as the account avatar in the sidebar. Decorative: the name is always written beside it.
+// A person's picture: their photo when they set one, otherwise the first letter of the name on the accent colour.
+// The photo's address carries its version (shared/src/avatar.ts avatarUrl), so the browser keeps it for good and a new
+// photo is a new address. A photo that does not load falls back to the letter.
 import clsx from 'clsx'
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { avatarUrl } from '@mycel/shared'
 
-export interface AvatarUser {
-  id: string
-  name: string
-  avatarVersion?: number
-}
+export interface AvatarUser { id: string; name: string; avatarVersion?: number | null }
 
-export function Avatar({ user, size = 32, className }: { user: AvatarUser; size?: number; className?: string }) {
-  // a photo that cannot be loaded (removed a moment ago, offline) falls back to the letter
-  const [broken, setBroken] = useState<string | null>(null)
-  const src = user.avatarVersion ? avatarUrl(user.id, user.avatarVersion) : null
-  const box = { width: size, height: size }
-  if (src && broken !== src)
-    return <img src={src} alt="" aria-hidden width={size} height={size} style={box} onError={() => setBroken(src)} className={clsx('shrink-0 rounded-full bg-hover object-cover', className)} />
+export function Avatar({ user, size = 24, className }: { user: AvatarUser; size?: number; className?: string }) {
+  const [broken, setBroken] = useState(false)
+  useEffect(() => setBroken(false), [user.id, user.avatarVersion])
+  const style = { width: size, height: size, fontSize: Math.max(10, Math.round(size * 0.45)) }
+  if (user.avatarVersion && !broken) {
+    return <img src={avatarUrl(user.id, user.avatarVersion)} alt="" aria-hidden width={size} height={size} style={style} className={clsx('shrink-0 rounded-full bg-hover object-cover', className)} onError={() => setBroken(true)} draggable={false} />
+  }
   return (
-    <span aria-hidden style={{ ...box, fontSize: Math.max(10, Math.round(size * 0.42)) }} className={clsx('flex shrink-0 items-center justify-center rounded-full bg-hover leading-none font-semibold text-ink select-none', className)}>
-      {Array.from(user.name.trim())[0]?.toUpperCase() ?? '?'}
+    <span style={style} className={clsx('flex shrink-0 items-center justify-center rounded-full bg-accent font-semibold text-accent-ink', className)} aria-hidden>
+      {user.name.slice(0, 1).toUpperCase()}
     </span>
   )
 }
-
-export default Avatar

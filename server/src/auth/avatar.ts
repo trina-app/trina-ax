@@ -29,7 +29,8 @@ function cleanPng(b: Uint8Array): Uint8Array | null {
   return seenEnd ? join(out) : null
 }
 
-/** JPEG: keep the markers that draw the picture; drop APP1 (EXIF, XMP), the other APPn (except JFIF and Adobe) and comments. */
+/** JPEG: keep the markers that draw the picture; drop APP1 (EXIF, XMP), the other APPn (except JFIF and Adobe) and comments.
+ * Nothing after the end-of-image marker is kept (bytes appended to a JPEG are not part of the picture). */
 function cleanJpeg(b: Uint8Array): Uint8Array | null {
   const out: Uint8Array[] = [b.subarray(0, 2)]
   let i = 2
@@ -45,7 +46,15 @@ function cleanJpeg(b: Uint8Array): Uint8Array | null {
     const metadata = (m >= 0xe1 && m <= 0xef && m !== 0xee) || m === 0xfe
     if (!metadata) out.push(seg)
     i += 2 + len
-    if (m === 0xda) { out.push(b.subarray(i)); return join(out) } // the picture data runs to the end
+    if (m === 0xda) {
+      // the picture data runs to the next marker: a 0xff that is not a stuffed 0xff00, a restart marker or a fill byte.
+      // That marker is the end of the image (kept, and the rest dropped) or the next table or scan of a progressive file
+      let j = i
+      while (j + 1 < b.length && !(b[j] === 0xff && b[j + 1] !== 0x00 && b[j + 1] !== 0xff && !(b[j + 1]! >= 0xd0 && b[j + 1]! <= 0xd7))) j++
+      if (j + 1 >= b.length) return null // no end-of-image marker
+      out.push(b.subarray(i, j))
+      i = j
+    }
   }
   return null
 }

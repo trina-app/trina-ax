@@ -1,13 +1,17 @@
-// The team's people directory (GET /api/people: name, title, status, photo version), read once per sign-in and again
-// after the server could not resume this window (components/rooms/useRoomsSync.ts). The rooms use it for photos (a
-// room's members and authors carry a name only) and the "new 1:1 chat" list.
+// The team's people directory (GET /api/people: name, title, status, photo version), read when a screen first needs it,
+// again after the server could not resume this window (components/rooms/useRoomsSync.ts) and when someone changes their
+// profile (the quiet profile_changed notice, store/live.ts). The rooms use it for photos (a room's members and authors
+// carry a name only) and the "new 1:1 chat" list.
 import { useEffect } from 'react'
 import { create } from 'zustand'
 import type { Person, UserRef } from '@mycel/shared/api'
 import { api, API } from '../lib/api'
 
 interface PeopleState {
+  /** null until the first answer */
   people: Person[] | null
+  /** a screen has read the list (a profile change then reads it again; before, nobody needs it) */
+  loaded: boolean
   byId: Record<string, Person>
   failed: boolean
   load: (force?: boolean) => Promise<void>
@@ -18,6 +22,7 @@ let inflight: Promise<void> | null = null
 
 export const usePeople = create<PeopleState>((set, get) => ({
   people: null,
+  loaded: false,
   byId: {},
   failed: false,
   load(force) {
@@ -26,15 +31,15 @@ export const usePeople = create<PeopleState>((set, get) => ({
     inflight = api
       .call(API.listPeople)
       .then(
-        (r) => set({ people: r.people, byId: Object.fromEntries(r.people.map((p) => [p.id, p])), failed: false }),
-        () => set((s) => ({ failed: true, people: s.people ?? [] })),
+        (r) => set({ people: r.people, loaded: true, byId: Object.fromEntries(r.people.map((p) => [p.id, p])), failed: false }),
+        () => set((s) => ({ failed: true, loaded: true, people: s.people ?? [] })),
       )
       .finally(() => {
         inflight = null
       })
     return inflight
   },
-  reset: () => set({ people: null, byId: {}, failed: false }),
+  reset: () => set({ people: null, loaded: false, byId: {}, failed: false }),
 }))
 
 /** The directory, asked for the first time a screen needs it. */
