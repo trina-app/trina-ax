@@ -73,6 +73,8 @@ let queue: Promise<void> = Promise.resolve()
 /** the CLI processes running now, each with the end of its exit */
 const live = new Map<ChildProcess, Promise<void>>()
 const hooked = new WeakSet<object>()
+/** servers shutting down: renders still waiting in the queue do not start */
+const stopping = new WeakSet<object>()
 
 /** Start the MP4 (one render at a time on the server); a finished one is kept. */
 export function renderPromoVideo(ctx: AppContext, userId: string, id: string): PromoVideoInfo {
@@ -84,6 +86,7 @@ export function renderPromoVideo(ctx: AppContext, userId: string, id: string): P
   if (!hooked.has(ctx)) {
     hooked.add(ctx)
     ctx.onClose(async () => {
+      stopping.add(ctx)
       const exits = [...live.entries()].map(([p, done]) => { if (p.pid) killTree(p.pid); return done })
       await Promise.race([Promise.all(exits), Bun.sleep(3000)])
     })
@@ -95,6 +98,8 @@ export function renderPromoVideo(ctx: AppContext, userId: string, id: string): P
 }
 
 async function renderNow(ctx: AppContext, r: Row): Promise<void> {
+  // the server is shutting down: left as it is (after a restart the row reads as failed, nothing runs it)
+  if (stopping.has(ctx)) return
   const started = Date.now()
   const spec = JSON.parse(r.spec) as StoredSpec
   fs.mkdirSync(videoDir(ctx), { recursive: true })
@@ -198,7 +203,9 @@ function descendants(root: number): { pid: number; pgid: number }[] {
   for (const line of r.stdout.split('\n')) {
     const [pid, ppid, pgid] = line.trim().split(/\s+/).map(Number)
     if (!pid || ppid === undefined || pgid === undefined || !Number.isInteger(ppid) || !Number.isInteger(pgid)) continue
-    byParent.set(ppid, [...(byParent.get(ppid) ?? []), { pid, pgid }])
+    const kids = byParent.get(ppid)
+    if (kids) kids.push({ pid, pgid })
+    else byParent.set(ppid, [{ pid, pgid }])
   }
   const out: { pid: number; pgid: number }[] = []
   const seen = new Set([root])
