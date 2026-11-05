@@ -115,6 +115,9 @@ test('who can edit, in words (the tree and the panel); the Members switch on thr
   await page.reload()
   await expect(bob.getByTestId('skill-manager-via')).toHaveText('모두에게 열려 있어서 켜져 있어요')
   await page.setViewportSize({ width: 375, height: 800 })
+  // narrow, the table becomes cards (useMediaQuery): wait for the card list, or the scroll hits the row being replaced
+  await expect(page.getByTestId('members-list')).toBeVisible()
+  await expect(page.getByTestId('members-list').getByTestId('skill-manager-user-bob')).toBeVisible()
   await bob.scrollIntoViewIfNeeded()
   await shot('members-switch-everyone-375')
   await page.setViewportSize({ width: 1360, height: 860 })
