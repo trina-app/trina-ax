@@ -175,5 +175,10 @@ describe('a member and a team skill someone made', () => {
     expect(fileLabel({ path: 'shared/Reports', latest: true }, en)).toBe('the newest file in Reports')
     // Spanish no longer reads "el Actas de reuniones más reciente"
     expect(fileLabel({ path: 'groups/Acme/Actas de reuniones', latest: true }, (k, p) => translate('es', k, p))).toBe('las actas de reunión más recientes de la carpeta Acme › Actas de reuniones')
+    // the card news' brand images folder (docs/DECISIONS.md "N"): the whole folder, its team joined as each language
+    // reads it; the company intro beside it stays a file
+    expect(fileLabel({ path: 'groups/마케팅팀/브랜드/이미지', latest: false }, t)).toBe('마케팅팀 이미지 폴더의 사진')
+    expect(fileLabel({ path: 'groups/Acme Marketing/Brand/Images', latest: false }, en)).toBe('the photos in Acme Marketing › Images')
+    expect(fileLabel({ path: 'groups/Acme Marketing/Brand/Company intro.md', latest: false }, en)).toBe('Company intro.md')
   })
 })
