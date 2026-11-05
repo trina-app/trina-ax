@@ -8400,6 +8400,70 @@ The phone app (mobile/, Expo SDK 58 WebView of a team's HTTPS web app) goes to T
   otherwise the app opens its start page. The room page checks membership again. Web Push keeps its own way (the room
   id from the signed-in fetch at show time, never from the payload).
 
+## 휴대폰 알림 허용과 안전 영역 (fix/mobile-permission-safearea, 2026-11-05)
+
+The owner on TestFlight build 2: no notification permission prompt ("앱 내 퍼미션을 요청해야하는거 아니야?"), and the
+status bar and home indicator areas were not in the page's colours (the bottom inset looked missing).
+
+- **Why no prompt.** The app showed the OS prompt only inside `push-token`, which the page sent by itself as soon as it
+  was signed in, and only while the OS had no answer (expo-notifications reports iOS `.authorized` as granted, `.denied`
+  as denied, everything else as undetermined). The test server registered the owner's phone 2 s after sign-in, so iOS
+  already said yes for app.trina.ax: it keeps the answer across TestFlight updates, logouts and team changes (only
+  deleting the app resets it), and the app had asked before (build 1, or an earlier sign-in). A first ask was no
+  better: it popped up over the page the moment sign-in ended, with no word from the app (simulator: sign-in
+  13:45:17.4, prompt over the rooms list; after Allow, signing in again registered 0.4 s later with no prompt). A
+  prompt left unanswered (the app closed while it was up) came back by itself at the next launch, even after a
+  reinstall, so a load-time ask also resurfaced at odd moments. On Android the prompt never
+  came at all: react-native-webview reports every `history.pushState` as a load start (`doUpdateVisitedHistory`) with
+  no load end, and the app fenced its bridge on every load start, so after the sign-in navigation the session reset,
+  the token request and file shares got no answer until the next full page load. The app now ignores a load start
+  that is not loading (`nativeEvent.loading`), on Android only.
+- **The app's own question first; the OS prompt only from its button.** Signed in, push available on the server, not
+  turned off by the person, and the OS not asked yet: one card above the tab bar (not in a room or an AI chat, whose
+  message box needs the bottom), "새 메시지와 @트리나 답을 알림으로 받을까요?" [알림 켜기] [나중에]. Only [알림 켜기]
+  (or Settings › Notifications) sends `push-token`. Already granted: the page registers without a word, as before.
+  Denied: no card; Settings › Notifications and the 나 list's 알림 row say so with [설정에서 켜기].
+- **Not nagging: [나중에] puts the card away for a week; after the second [나중에] it does not come back by itself.**
+  Settings › Notifications always keeps [알림 켜기]. The answers live in the team page's storage on that phone
+  (granted, denied, later), so a reinstalled app starts over like the OS permission does; another team asks once more.
+  A "no" from the OS prompt stands even where Android would let the app ask once more; turning it on in the phone's
+  Settings is seen when the app comes back to the foreground, and the page then registers by itself.
+- **`push-permission-v1` (new build).** `push-permission` answers `granted` / `undetermined` / `denied` without ever
+  prompting (Android 13+ "denied with canAskAgain" before the first question is undetermined; iOS provisional too);
+  `open-settings` opens the app's page in the phone's Settings (`Linking.openSettings`). Same origin, nonce and
+  generation checks as every message. **Store builds 1 and 2** lack it: the page cannot tell granted from not asked
+  without prompting, so it shows the card until that phone has given a token once (remembered as granted), then
+  registers quietly at later sign-ins; a "no" shows the old "allow it in the phone's Settings" text without a button.
+  Nothing waits on a message an old build would not answer.
+- **Safe areas: edge to edge, the page's own colours.** The app draws the WebView over the whole screen (no native
+  bands) and the page pads itself: `--safe-top` / `--safe-bottom` in `web/src/index.css` are the larger of
+  `env(safe-area-inset-*)` and `--app-inset-*`, which the app sets before every page loads (Android's WebView 133
+  reports no insets). The page's root pads the top, so its canvas runs under the status bar; full-screen layers on
+  phones (Settings, the drawer, side panels, search, sheets) pad themselves in their own colour; the tab bar, the room
+  and AI chat message boxes, sheet footers and toasts keep clear of the home indicator / navigation bar with their
+  background continuing under it. While the keyboard is open the bottom inset is 0 (`.keyboard-open`, from the visual
+  viewport). Rejected: the page reporting its top and bottom colours for native bands (every overlay, sheet and dim
+  layer would need reporting, and a band never matches a scrolling or dimmed page).
+- **`appearance-v1` (new build).** The page reports its look (dark or light) and whether it follows the phone's
+  (theme "system"): when the bridge comes, when the theme changes, and again after every session reset (the first
+  send was often fenced off by the sign-in's reset). Android: React Native's StatusBar and expo-navigation-bar
+  (58.0.4) set the status bar icons and the three-button bar's contrast scrim to the page's look (React Native set
+  the scrim once, from the phone's look at launch). iOS: in the simulator (iOS 26) React Native's StatusBar style
+  kept the launch look, so iOS sets none; the status bar's default style follows the windows' look, and a page
+  with a theme of its own sets that look on the windows (`Appearance.setColorScheme`), while a page that follows the
+  phone leaves them to the phone (else the page would never see the phone's look change again). Native screens
+  (team address, offline, cannot reach) use the web app's light and dark tokens (`mobile/src/look.ts`).
+- **Keyboard.** Android: edge to edge (target SDK 36) the window no longer shrinks for the keyboard, and the room's
+  message box sat under it; the app lifts the page by the keyboard's height plus the navigation bar. iOS: the page
+  kept its home-indicator padding above the keyboard, and the WebView's ^ v ✓ bar sat between; `.keyboard-open`
+  drops the inset and the app hides that bar (`hideKeyboardAccessoryView`), so the message box sits on the keyboard.
+- **Which build.** The question, the settings texts and every CSS change ship with the server and work in store builds
+  1 and 2 (on iOS their tab bar and message boxes already kept clear of the home indicator through env(); the
+  drawer, side panels, search, sheets and toasts did not, and do now). Those builds still paint their fixed light band
+  under the status bar and keep the status bar text at the launch look, so the top in dark mode, the keyboard
+  accessory bar and Android's bottom need build 3 (edge to edge, `appearance-v1`, `push-permission-v1`, the Android
+  fixes).
+
 ## Slack 커넥터 (feat/slack-connector, 2026-11-05)
 
 People ask the team's AI from Slack (`@app` in a channel, a DM to the app). Guide: [SLACK.md](SLACK.md).
