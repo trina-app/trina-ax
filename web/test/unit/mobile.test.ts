@@ -2,6 +2,7 @@ import { afterAll, beforeAll, beforeEach, expect, test } from 'bun:test'
 import { createHash } from 'node:crypto'
 import { initMobile, mobileApp, sendFileToApp, setMobileSession, openExternal, downloadToApp, readMobileDownload, requestPushToken, confirmPushDevice, MobileFileTooLarge } from '../../src/lib/mobile'
 import { clientKind } from '../../src/lib/desktop'
+import { setMobilePushSession } from '../../src/lib/mobile-push'
 import { MAX_CHUNK_BYTES, MAX_FILE_BYTES, MOBILE_CAPABILITIES, PUSH_CAPABILITY, PUSH_REGISTERED_CAPABILITY, type MobileConfig, type MobileMessage, type MobileReply } from '../../../mobile/src/protocol'
 const config: MobileConfig = { protocol: 1, appVersion: '0.2.2', platform: 'ios', nonce: 'c'.repeat(64), generation: 1, capabilities: MOBILE_CAPABILITIES }
 const win = Object.assign(new EventTarget(), { self: null as unknown, top: null as unknown, mycelMobile: { ...config }, ReactNativeWebView: { postMessage: (_raw: string) => {} } })
@@ -128,4 +129,31 @@ test('push-registered goes only to an app that offers push-registered-v1; the fi
   win.mycelMobile = { ...config, capabilities: [...MOBILE_CAPABILITIES, PUSH_CAPABILITY, PUSH_REGISTERED_CAPABILITY] }
   expect(await confirmPushDevice('device-1', 'k'.repeat(43))).toBe(true)
   expect(messages.at(-1)).toMatchObject({ type: 'push-registered', deviceId: 'device-1', removeKey: 'k'.repeat(43) })
+})
+
+test('a session known before the app installed its bridge registers the phone once the bridge is ready', async () => {
+  const realFetch = globalThis.fetch, calls: string[] = []
+  globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+    const url = String(input), method = init?.method ?? 'GET'
+    calls.push(`${method} ${new URL(url, 'https://team.example').pathname}`)
+    if (url.endsWith('/api/push') && method === 'GET') return Response.json({ configured: false, enabled: false, publicKey: null, subscriptionId: null, native: { available: true, deviceId: null, gateway: 'push.example.test' }, optedOut: false })
+    if (url.endsWith('/api/push/devices')) return Response.json({ id: 'device-9', removeKey: 'k'.repeat(43) })
+    return new Response('{}', { status: 404 })
+  }) as typeof fetch
+  try {
+    const token = { platform: 'android' as const, token: 'fcm:' + 'A'.repeat(140), environment: 'production' as const }
+    handler = m => { if (m.type === 'push-token') reply(m, { push: token }); else reply(m) }
+    win.mycelMobile = undefined as unknown as MobileConfig // the page loaded, the bridge is not there yet
+    setMobilePushSession('user:session-before-bridge')
+    for (let i = 0; i < 5; i++) await tick()
+    expect(calls).toHaveLength(0)
+    win.mycelMobile = { ...config, capabilities: [...MOBILE_CAPABILITIES, PUSH_CAPABILITY, PUSH_REGISTERED_CAPABILITY] }
+    win.dispatchEvent(new Event('mycel:mobile-ready'))
+    for (let i = 0; i < 50 && !messages.some(m => m.type === 'push-registered'); i++) await tick()
+    expect(calls).toEqual(['GET /api/push', 'POST /api/push/devices'])
+    expect(messages.map(m => m.type)).toEqual(['push-token', 'push-registered'])
+    win.dispatchEvent(new Event('mycel:mobile-ready')) // another page load of the same session: not again
+    for (let i = 0; i < 5; i++) await tick()
+    expect(calls).toHaveLength(2)
+  } finally { globalThis.fetch = realFetch; setMobilePushSession(null) }
 })

@@ -39,7 +39,9 @@ export function devicePushToken(channelName: string): Promise<PushToken> {
     // Android 13+ shows the permission dialog only once a channel exists.
     if (Platform.OS === 'android') await Notifications.setNotificationChannelAsync(CHANNEL_ID, { name: channelName, importance: Notifications.AndroidImportance.HIGH })
     let status = await Notifications.getPermissionsAsync()
-    if (status.status === 'undetermined' && status.canAskAgain) status = await Notifications.requestPermissionsAsync({ ios: { allowAlert: true, allowBadge: false, allowSound: true } })
+    // Not 'undetermined' only: Android 13+ reports 'denied' (canAskAgain) before the first question, because
+    // notifications are off until the person allows them. iOS says canAskAgain=false once the person has answered.
+    if (status.status !== 'granted' && status.canAskAgain) status = await Notifications.requestPermissionsAsync({ ios: { allowAlert: true, allowBadge: false, allowSound: true } })
     if (status.status !== 'granted') throw new PushRefused('push_denied')
     let token: Notifications.DevicePushToken
     try { token = await Notifications.getDevicePushTokenAsync() } catch {

@@ -2,19 +2,26 @@ import { api, API } from './api'
 import { confirmPushDevice, mobileApp, requestPushToken } from './mobile'
 import { PUSH_CAPABILITY } from '../../../mobile/src/protocol'
 
-let session: string | null = null, epoch = 0
+let session: string | null = null, epoch = 0, tried: string | null = null, listening = false
 
 /** Inside the phone app: true when it can hand over a push token (push-token-v1). */
 export function mobilePushApp(): boolean { return !!mobileApp()?.capabilities.includes(PUSH_CAPABILITY) }
 
 /** Signed in inside the phone app: ask the app for its device token (the OS prompt appears then, once, never at first
  * launch) and register it with this team for this session. Skipped when this server has no push gateway or the person
- * turned push off. Logout needs no call: the server drops the device with the session. */
+ * turned push off. Logout needs no call: the server drops the device with the session. The session is often known
+ * before the app has installed its bridge (it does that when the page has loaded), so the bridge's ready event tries
+ * again for a session that has not been tried. */
 export function setMobilePushSession(next: string | null): void {
+  if (typeof window !== 'undefined' && !listening) { listening = true; window.addEventListener('mycel:mobile-ready', () => tryRegister()) }
   if (next === session) return
-  session = next
-  const turn = ++epoch
-  if (!next || !mobilePushApp()) return
+  session = next; tried = null; epoch++
+  tryRegister()
+}
+function tryRegister() {
+  const key = session, turn = epoch
+  if (!key || tried === key || !mobilePushApp()) return
+  tried = key
   void (async () => {
     const settings = await api.call(API.getPushSettings)
     if (turn !== epoch || !settings.native?.available || settings.optedOut) return
