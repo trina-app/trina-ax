@@ -1,4 +1,5 @@
-// A person's picture: their photo when they set one, otherwise the first letter of the name on the accent colour.
+// A person's picture: their photo when they set one, otherwise the first letter of the name on a neutral tile (the
+// accent colour is for the one thing to do on a screen, not for every face).
 // The photo's address carries its version (shared/src/avatar.ts avatarUrl), so the browser keeps it for good and a new
 // photo is a new address. A photo that does not load falls back to the letter.
 import clsx from 'clsx'
@@ -15,7 +16,7 @@ export function Avatar({ user, size = 24, className }: { user: AvatarUser; size?
     return <img src={avatarUrl(user.id, user.avatarVersion)} alt="" aria-hidden width={size} height={size} style={style} className={clsx('shrink-0 rounded-full bg-hover object-cover', className)} onError={() => setBroken(true)} draggable={false} />
   }
   return (
-    <span style={style} className={clsx('flex shrink-0 items-center justify-center rounded-full bg-accent font-semibold text-accent-ink', className)} aria-hidden>
+    <span style={style} className={clsx('flex shrink-0 items-center justify-center rounded-full bg-hover font-semibold text-muted', className)} aria-hidden>
       {Array.from(user.name.trim())[0]?.toUpperCase() ?? '?'}
     </span>
   )

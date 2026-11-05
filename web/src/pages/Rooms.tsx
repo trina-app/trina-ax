@@ -8,12 +8,13 @@ import { PRODUCT } from '@mycel/shared'
 import { PRODUCT_NAMED_AFTER_AI, type Locale, type Room } from '@mycel/shared/api'
 import { errorText } from '../lib/api'
 import { dateBucket, formatDate, intlTag } from '../lib/format'
-import { badgeText } from '../lib/rooms'
+import { plainLine } from '../lib/rooms'
 import { useLocale, useT } from '../i18n'
 import { useRooms } from '../store/rooms'
 import { useMe } from '../store/session'
 import { PeoplePicker } from '../components/rooms/PeoplePicker'
 import { RoomIcon, useRoomTitle } from '../components/rooms/RoomIcon'
+import { UnreadBadge } from '../components/rooms/SidebarRooms'
 import { Button, ErrorNote, PageHeader, Skeleton } from '../components/ui'
 
 /** today: the time; yesterday: the word; before: the date */
@@ -78,7 +79,9 @@ function RoomListRow({ room, className }: { room: Room; className: string }) {
   const me = useMe()
   const title = useRoomTitle()(room)
   const m = room.lastMessage
-  const what = !m ? '' : m.deleted ? t('rooms.deleted') : m.excerpt.replace(/\s+/g, ' ').trim() || (m.fileCount ? t('rooms.lastFiles', { n: m.fileCount }) : '')
+  // an AI answer (no author) is Markdown: one plain line of it
+  const line = !m ? '' : m.author ? m.excerpt.replace(/\s+/g, ' ').trim() : plainLine(m.excerpt)
+  const what = !m ? '' : m.deleted ? t('rooms.deleted') : line || (m.fileCount ? t('rooms.lastFiles', { n: m.fileCount }) : '')
   const who = !m ? null : m.author?.id === me?.user.id ? t('rooms.you') : room.kind === 'dm' ? null : (m.author?.name ?? null)
   const unread = room.unreadCount
   return (
@@ -99,18 +102,7 @@ function RoomListRow({ room, className }: { room: Room; className: string }) {
       </span>
       <span className="flex shrink-0 flex-col items-end gap-1 self-start pt-0.5">
         {m && <span className="text-xs text-faint">{listTime(m.createdAt, locale, t('sidebar.yesterday'))}</span>}
-        {unread > 0 && (
-          <span className="rounded-full bg-accent px-1.5 text-[11px] font-medium text-accent-ink" data-testid="rooms-row-unread">
-            <span aria-hidden>
-              {room.mentioned && '@'}
-              {badgeText(unread)}
-            </span>
-            <span className="sr-only">
-              {t('rooms.unread', { n: unread })}
-              {room.mentioned && `, ${t('rooms.mentionedYou')}`}
-            </span>
-          </span>
-        )}
+        <UnreadBadge room={room} testId="rooms-row-unread" />
       </span>
     </Link>
   )

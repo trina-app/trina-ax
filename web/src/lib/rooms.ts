@@ -112,9 +112,30 @@ export function newestSeq(messages: RoomMessage[]): number {
   return messages.at(-1)?.seq ?? 0
 }
 
-/** The total for the 대화 tab: every room's own badge, added. */
-export function totalUnread(rooms: Pick<Room, 'unreadCount'>[]): number {
-  return rooms.reduce((n, r) => n + r.unreadCount, 0)
+/** The total for the 대화 tab: every room's own badge, added; a muted room's never (its badge is grey). */
+export function totalUnread(rooms: Pick<Room, 'unreadCount' | 'muted'>[]): number {
+  return rooms.reduce((n, r) => n + (r.muted ? 0 : r.unreadCount), 0)
+}
+
+/** A room's badge: "@" when one of the unread messages mentions me (the count would read as a count of mentions),
+ * else the count. */
+export const roomBadge = (r: Pick<Room, 'unreadCount' | 'mentioned'>) => (r.mentioned ? '@' : badgeText(r.unreadCount))
+
+/** An AI answer's Markdown as one plain line for the rooms list: no #, **, list marks, backticks or link addresses (the
+ * excerpt may end inside a link). */
+export function plainLine(md: string): string {
+  return md
+    .replace(/!\[([^\]]*)\]\([^)]*\)?/g, '$1')
+    .replace(/\[([^\]]+)\]\([^)]*\)?/g, '$1')
+    .replace(/^[ \t]{0,3}(#{1,6}[ \t]+|>[ \t]?|[-*+][ \t]+|\d+[.)][ \t]+)/gm, '')
+    .replace(/(\*\*|__|~~)(.+?)\1/g, '$2')
+    .replace(/\*\*|__|~~/g, '')
+    .replace(/(^|[^\p{L}\p{N}*_])[*_]([^*_\n]+)[*_](?![\p{L}\p{N}])/gu, '$1$2')
+    .replace(/`+/g, '')
+    .replace(/^[ \t]*\|?[ \t]*:?-{2,}.*$/gm, '')
+    .replace(/[ \t]*\|[ \t]*/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
 }
 
 /** "99+" past 99, like the Inbox count. */
