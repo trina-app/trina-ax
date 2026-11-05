@@ -37,7 +37,7 @@ let bob: TestSocket
 const logins = () => credentialLogins(credentialsOf(h.ctx), {
   async launcher() {
     const core = await h.ctx.core()
-    return { sock: (core.launcher as SocketLauncher).path, codexBin, proxyPort: core.proxy!.port }
+    return { sock: (core.launcher as SocketLauncher).path, bin: codexBin, proxyPort: core.proxy!.port }
   },
 })
 beforeAll(async () => {

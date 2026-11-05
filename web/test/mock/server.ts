@@ -44,7 +44,7 @@ import { msg as serverMsg } from '../../../server/src/auth/messages'
 import { folderKeep, isParkedRow, isTeamDefaultFolder } from '../../../server/src/admin/folder-keep'
 import { checkTeamIcon, TEAM_ICON_MAX_BYTES, type TeamIconFile } from '@mycel/shared'
 import { Sealer } from '../../../server/src/credentials/seal'
-import type { Credential, CredentialKind, CredentialLogin, MessageSourceFile } from '@mycel/shared/api'
+import type { Credential, CredentialKind, CredentialLogin, MessageSourceFile, SealedSecret } from '@mycel/shared/api'
 import type { Integration, IntegrationAccess, IntegrationFlow, IntegrationInput, IntegrationPatch, IntegrationRequest, IntegrationTool } from '@mycel/shared/api'
 import { SkillsOverview, type AccessFolderKind, type AccessTreeResponse, type FolderAccessResponse, type FolderEditPreview, type PersonAccessResponse } from '@mycel/shared/api'
 import { RuleSet, type Access } from '../../../server/src/policy/access'
@@ -65,6 +65,8 @@ class Fail extends Error {
     super(msg ?? ERROR_MESSAGES[code].ko)
   }
 }
+/** the Claude sign-in's authorize address (tests/lib/fake-claude-login.ts has the same shape) */
+const MOCK_CLAUDE_AUTHORIZE = 'https://claude.com/cai/oauth/authorize?code=true&client_id=mock&response_type=code&redirect_uri=https%3A%2F%2Fplatform.claude.com%2Foauth%2Fcode%2Fcallback&scope=user%3Ainference&code_challenge=mock&code_challenge_method=S256&state=good-state'
 const fail = (code: ErrorCode, status: number, msg?: string, fields?: Record<string, string>): never => {
   throw new Fail(code, status, msg, fields)
 }
@@ -186,7 +188,7 @@ export class MockServer {
   credentials: Credential[] = []
   credMemberOwn = true
   credSharedSubscriptions = false
-  credLogins = new Map<string, CredentialLogin & { userId: string; personal: boolean; label: string }>()
+  credLogins = new Map<string, CredentialLogin & { userId: string; personal: boolean; label: string; reconnectId?: string }>()
   sealer = new Sealer(fs.mkdtempSync(path.join(os.tmpdir(), 'mycel-mock-seal-')))
   /** External services (like server/src/integrations): personal and team connections. Keys and tokens are kept apart
    * and never go back out (only `hasSecret`). */
@@ -2009,12 +2011,14 @@ export class MockServer {
     startCredentialLogin: (c) => {
       if (!this.credSharedSubscriptions) fail('forbidden', 403)
       if (c.body.password !== OWNER_PASSWORD) fail('forbidden', 403)
-      return { status: 202, body: this.startLogin(c.user, c.body.label, false, c.body.reconnectId) }
+      return { status: 202, body: this.startLogin(c.user, c.body.label, false, c.body.reconnectId, c.body.kind) }
     },
     startMyCredentialLogin: (c) => {
       if (!this.credMemberOwn) fail('forbidden', 403)
-      return { status: 202, body: this.startLogin(c.user, c.body.label, true) }
+      return { status: 202, body: this.startLogin(c.user, c.body.label, true, c.body.reconnectId, c.body.kind) }
     },
+    submitCredentialLoginCode: (c) => this.loginCode(c.params.id, c.user, c.body.sealed),
+    submitMyCredentialLoginCode: (c) => this.loginCode(c.params.id, c.user, c.body.sealed),
     getCredentialLogin: (c) => this.loginOf(c.params.id, c.user),
     getMyCredentialLogin: (c) => this.loginOf(c.params.id, c.user),
     cancelCredentialLogin: (c) => { this.cancelLogin(c.params.id, c.user); return undefined },
@@ -2241,12 +2245,17 @@ export class MockServer {
       spendLimit: { usd: null, tokens: null, action: 'block' }, month: { usd: 0, tokens: 0, requests: 0 }, createdAt: now(),
     }
   }
-  /** a ChatGPT sign-in: the code after a moment, then the connection */
-  startLogin(user: User, label: string, personal: boolean, reconnectId?: string): CredentialLogin {
+  /** a ChatGPT sign-in: the code after a moment, then the connection. A Claude sign-in: the authorize address after a
+   * moment, then it waits for the pasted code (good-code#good-state connects, anything else is a wrong code). */
+  startLogin(user: User, label: string, personal: boolean, reconnectId?: string, kind: CredentialLogin['kind'] = 'chatgpt'): CredentialLogin {
     const loginId = 'login' + uuidv7().replace(/-/g, '')
-    const l = { loginId, state: 'starting' as CredentialLogin['state'], url: null as string | null, code: null as string | null, expiresAt: new Date(Date.now() + 16 * 60_000).toISOString(), credential: null as Credential | null, reason: null as string | null, userId: user.id, personal, label }
+    const l = { loginId, kind, state: 'starting' as CredentialLogin['state'], url: null as string | null, code: null as string | null, expiresAt: new Date(Date.now() + 16 * 60_000).toISOString(), credential: null as Credential | null, reason: null as string | null, userId: user.id, personal, label, reconnectId }
     this.credLogins.set(loginId, l)
-    const pub = () => { const { userId: _u, personal: _p, label: _l, ...data } = l; this.publish({ type: 'credential.login', data }) }
+    const pub = () => this.publish({ type: 'credential.login', data: this.loginView(l) })
+    if (kind === 'anthropic-oauth') {
+      setTimeout(() => { if (l.state !== 'starting') return; l.state = 'code'; l.url = MOCK_CLAUDE_AUTHORIZE; pub() }, 150)
+      return this.loginView(l)
+    }
     setTimeout(() => { if (l.state !== 'starting') return; l.state = 'code'; l.url = 'https://auth.openai.com/codex/device'; l.code = 'WXYZ-12AB3'; pub() }, 150)
     setTimeout(() => {
       if (l.state !== 'code') return
@@ -2255,19 +2264,40 @@ export class MockServer {
       else { const c = this.newCredential(user, 'chatgpt', label, personal, 'ok'); this.credentials.push(c); l.credential = c }
       l.state = 'done'; pub()
     }, 1200)
-    const { userId: _u, personal: _p, label: _l, ...data } = l
+    return this.loginView(l)
+  }
+  loginView(l: CredentialLogin & { userId: string; personal: boolean; label: string; reconnectId?: string }): CredentialLogin {
+    const { userId: _u, personal: _p, label: _l, reconnectId: _r, ...data } = l
     return data
+  }
+  /** the Claude code the person pasted (sealed like a token, opened with the server's real sealing code) */
+  async loginCode(id: string, user: User, sealed: SealedSecret): Promise<CredentialLogin> {
+    const l = this.credLogins.get(id)
+    if (!l || l.userId !== user.id) return fail('not_found', 404)
+    const code = (await this.sealer.unseal(sealed, 'credential.login-code').catch(() => fail('validation', 400, '보낸 값을 열 수 없어요.'))).trim()
+    if (l.kind !== 'anthropic-oauth' || l.state !== 'code') return fail('conflict', 409, '이 로그인은 지금 코드를 받지 않아요. 다시 시작해 주세요.')
+    if (!/^[A-Za-z0-9._~-]{1,512}#[A-Za-z0-9._~-]{1,512}$/.test(code)) return fail('validation', 400, 'Claude가 승인 뒤에 보여 준 코드 전체를 붙여 넣어 주세요(중간에 #가 있어요).')
+    l.state = 'checking'
+    const pub = () => this.publish({ type: 'credential.login', data: this.loginView(l) })
+    pub()
+    setTimeout(() => {
+      if (l.state !== 'checking') return
+      if (code !== 'good-code#good-state') { l.state = 'failed'; l.reason = 'bad_code'; pub(); return }
+      if (l.reconnectId) { const x = this.credentials.find((y) => y.id === l.reconnectId); if (x) { x.state = 'ok'; x.detail = null; l.credential = x } }
+      else { const c = this.newCredential(user, 'anthropic-oauth', l.label, l.personal, 'ok'); this.credentials.push(c); l.credential = c }
+      l.state = 'done'; pub()
+    }, 400)
+    return this.loginView(l)
   }
   loginOf(id: string, user: User): CredentialLogin {
     const l = this.credLogins.get(id)
     if (!l || l.userId !== user.id) return fail('not_found', 404)
-    const { userId: _u, personal: _p, label: _l, ...data } = l
-    return data
+    return this.loginView(l)
   }
   cancelLogin(id: string, user: User) {
     const l = this.credLogins.get(id)
     if (!l || l.userId !== user.id) fail('not_found', 404)
-    if (l!.state === 'starting' || l!.state === 'code') { l!.state = 'cancelled'; const { userId: _u, personal: _p, label: _l, ...data } = l!; this.publish({ type: 'credential.login', data }) }
+    if (l!.state === 'starting' || l!.state === 'code') { l!.state = 'cancelled'; this.publish({ type: 'credential.login', data: this.loginView(l!) }) }
   }
 
   // ---------------- external services ----------------

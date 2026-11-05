@@ -1,54 +1,79 @@
-// Connecting a ChatGPT plan from the browser (docs/DECISIONS.md "AI 연결" D8). The owner (or a member, for their own
-// connection) presses "start"; the server asks the launcher to run the official `codex login --device-auth` as the
-// engine account in a one-off folder, through the model proxy with a one-time token that only the login process may
-// use and only towards auth.openai.com:443. The device address and code go to the person who started it, over the
-// WebSocket (credential.login) and GET .../credential-logins/:id. When the login ends, the launcher hands the
-// resulting auth.json to the server and deletes the folder; the server checks it, encrypts it and stores the
-// connection. The tokens never pass the browser or the relay and nothing stays on the engine account.
-// One sign-in at a time per team; 16 minutes (the code lasts 15); a server restart forgets running sign-ins.
+// Connecting a subscription from the browser (docs/DECISIONS.md "AI 연결" D8 and "Claude 구독 연결: 브라우저에서"). The
+// owner (or a member, for their own connection) presses "start"; the server asks the launcher to run the official CLI
+// as the engine account in a one-off folder, through the model proxy with a one-time token that only the sign-in
+// process may use and only towards its provider's sign-in host:
+//   - ChatGPT: `codex login --device-auth` (auth.openai.com:443). The device address and code go to the person who
+//     started it; when the login ends, the launcher hands the resulting auth.json to the server.
+//   - Claude: `claude setup-token` on a terminal the launcher opened (platform.claude.com:443). The authorize address
+//     goes to the person who started it; they approve in their own browser and paste the code Claude shows back here
+//     (sealed in the browser, like a token); the launcher types it into the program and hands back the token it prints.
+//     The server checks the token like a pasted one (count_tokens) and stores it through the same code.
+// Progress goes over the WebSocket (credential.login) and GET .../credential-logins/:id, to the starter only. The
+// tokens never pass the browser or the relay and nothing stays on the engine account (the folder goes in every case).
+// One sign-in at a time per team (either kind); 16 minutes; a server restart forgets running sign-ins.
 import crypto from 'node:crypto'
-import type { CredentialAssignment, CredentialLogin, Locale } from '@mycel/shared/api'
+import type { CredentialAssignment, CredentialLogin, CredentialLoginKind, Locale } from '@mycel/shared/api'
 import { audit } from '../admin/audit'
 import type { AppContext } from '../context'
+import { turnProxyUrl } from '../engine/claude'
 import { codexProxyUrl } from '../engine/codex'
-import { fail } from '../http/errors'
-import { codexSignIn, type SocketLauncher } from '../native'
-import { CODEX_LOGIN_BOUND, CODEX_LOGIN_PENDING } from '../proxy/connect'
+import { fail, HttpError } from '../http/errors'
+import { claudeSignIn, codexSignIn, type SocketLauncher } from '../native'
+import { CLAUDE_LOGIN_BOUND, CLAUDE_LOGIN_PENDING, CODEX_LOGIN_BOUND, CODEX_LOGIN_PENDING } from '../proxy/connect'
 import { issueProxyToken, revokeProxyTokens } from '../proxy/model-proxy'
 import { parseDeviceLogin } from '../system/codex-login'
 import { ct } from './i18n'
 import { memberOwnAllowed, sharedSubscriptionsAllowed } from './policy'
 import { accessExpiry, accountRef, idClaims, maskEmail } from './openai-oauth'
-import { duplicateOf, insertRow } from './service'
+import { createCredential, duplicateOf, insertRow, replaceSecret } from './service'
 import { fingerprintOf, getRow, metaOf, toCredential, writeSecret, type CredCtx, type Secrets } from './store'
 
 export const LOGIN_TIMEOUT_MS = 16 * 60_000
 /** forget finished sign-ins after this (GET of an old one = 404) */
 const KEEP_FINISHED_MS = 30 * 60_000
+/** the code the Claude page shows after approval: <authorization code>#<state> (the launcher checks the same) */
+export const CLAUDE_LOGIN_CODE_RE = /^[A-Za-z0-9._~-]{1,512}#[A-Za-z0-9._~-]{1,512}$/
+
+/** Anthropic's own authorize page with the manual redirect (the page that shows the code to paste), nothing else */
+export function isClaudeAuthorizeUrl(s: string): boolean {
+  try {
+    const u = new URL(s)
+    return u.protocol === 'https:' && !u.username && !u.password && !u.port && ['claude.com', 'claude.ai', 'platform.claude.com'].includes(u.hostname)
+      && u.pathname.endsWith('/oauth/authorize') && u.searchParams.get('redirect_uri') === 'https://platform.claude.com/oauth/code/callback'
+  } catch {
+    return false
+  }
+}
 
 interface Login {
-  loginId: string; userId: string; locale: Locale; personal: boolean
+  loginId: string; kind: CredentialLoginKind; userId: string; locale: Locale; personal: boolean
   label: string; assignments: CredentialAssignment[]; priority: number; reconnectId: string | null
   state: CredentialLogin['state']; url: string | null; code: string | null; expiresAt: string
   credentialId: string | null; reason: string | null; endedAt: number | null
+  /** the token is being checked and stored: a cancel now would not stop it */
+  storing: boolean
   cancel(): void
+  /** Claude: type the pasted code into the program */
+  sendCode(code: string): void
 }
 
 export interface LoginDeps {
-  /** the launcher socket and the Codex binary; null = cannot sign in here */
-  launcher(): Promise<{ sock: string; codexBin: string; proxyPort: number } | null>
+  /** the launcher socket, the CLI of this kind (codex / claude) and the proxy; null = cannot sign in here */
+  launcher(kind: CredentialLoginKind): Promise<{ sock: string; bin: string; proxyPort: number } | null>
+  /** how long a sign-in may take (default LOGIN_TIMEOUT_MS; tests) */
+  timeoutMs?: number
 }
 
-/** Where the launcher, the Codex binary and the proxy are, for a running server. */
-export function serverLoginDeps(ctx: AppContext, codexBin: () => string | null): LoginDeps {
+/** Where the launcher, the CLI and the proxy are, for a running server. */
+export function serverLoginDeps(ctx: AppContext, bin: (kind: CredentialLoginKind) => string | null): LoginDeps {
   return {
-    async launcher() {
-      const bin = codexBin()
-      if (!bin) return null
+    async launcher(kind) {
+      const b = bin(kind)
+      if (!b) return null
       const core = await ctx.core().catch(() => null)
       const l = core?.launcher as SocketLauncher | null | undefined
       if (!core || !l?.path || !core.proxy?.ready) return null
-      return { sock: l.path, codexBin: bin, proxyPort: core.proxy.port }
+      return { sock: l.path, bin: b, proxyPort: core.proxy.port }
     },
   }
 }
@@ -57,9 +82,10 @@ class Logins {
   readonly all = new Map<string, Login>()
   constructor(private cc: CredCtx, private deps: LoginDeps) {}
 
+  private timeout() { return this.deps.timeoutMs ?? LOGIN_TIMEOUT_MS }
   private api(l: Login): CredentialLogin {
     const row = l.credentialId ? getRow(this.cc.db, l.credentialId) : null
-    return { loginId: l.loginId, state: l.state, url: l.url, code: l.code, expiresAt: l.expiresAt, credential: row ? toCredential(this.cc, row, l.locale) : null, reason: l.reason }
+    return { loginId: l.loginId, kind: l.kind, state: l.state, url: l.url, code: l.code, expiresAt: l.expiresAt, credential: row ? toCredential(this.cc, row, l.locale) : null, reason: l.reason }
   }
   private send(l: Login) { this.cc.publish(l.userId, { type: 'credential.login', data: this.api(l) }) }
   private prune() {
@@ -68,37 +94,45 @@ class Logins {
   private end(l: Login, state: CredentialLogin['state'], reason: string | null) {
     if (l.endedAt !== null) return
     l.state = state; l.reason = reason; l.endedAt = this.cc.now()
-    audit(this.cc.db, { actor: l.userId, action: 'credential.login', target: l.loginId, detail: { state, ...(reason ? { reason } : {}) } })
+    audit(this.cc.db, { actor: l.userId, action: 'credential.login', target: l.loginId, detail: { kind: l.kind, state, ...(reason ? { reason } : {}) } })
     this.send(l)
   }
 
-  async start(i: { userId: string; locale: Locale; personal: boolean; label: string; assignments: CredentialAssignment[]; priority: number; reconnectId?: string }): Promise<CredentialLogin> {
+  async start(i: { userId: string; locale: Locale; personal: boolean; label: string; assignments: CredentialAssignment[]; priority: number; reconnectId?: string; kind?: CredentialLoginKind }): Promise<CredentialLogin> {
     const { cc } = this
+    const kind = i.kind ?? 'chatgpt'
     this.prune()
-    if (!cc.allowedKinds.has('chatgpt')) fail('validation', ct('kindNotAllowed', i.locale), { fields: { 'body.kind': 'not allowed on this server' } })
+    if (!cc.allowedKinds.has(kind)) fail('validation', ct('kindNotAllowed', i.locale), { fields: { 'body.kind': 'not allowed on this server' } })
     if (i.personal ? !memberOwnAllowed(cc.db) : !sharedSubscriptionsAllowed(cc.db)) fail('forbidden', ct(i.personal ? 'memberOwnOff' : 'sharedSubscriptionsOff', i.locale))
     if (i.reconnectId) {
       const r = getRow(cc.db, i.reconnectId)
-      if (!r || r.kind !== 'chatgpt' || (i.personal && r.owner_user_id !== i.userId) || (!i.personal && r.owner_user_id !== null)) fail('not_found')
+      if (!r || r.kind !== kind || (i.personal && r.owner_user_id !== i.userId) || (!i.personal && r.owner_user_id !== null)) fail('not_found')
     }
     if ([...this.all.values()].some((l) => l.endedAt === null)) fail('busy', ct('loginBusy', i.locale))
-    const where = await this.deps.launcher()
-    if (!where) return fail('engine_unavailable', ct('loginUnavailable', i.locale))
+    const where = await this.deps.launcher(kind)
+    if (!where) return fail('engine_unavailable', ct(kind === 'chatgpt' ? 'loginUnavailable' : 'claudeLoginUnavailable', i.locale))
     const loginId = crypto.randomBytes(18).toString('base64url')
     const l: Login = {
-      loginId, userId: i.userId, locale: i.locale, personal: i.personal, label: i.label, assignments: i.personal ? [] : i.assignments, priority: i.priority,
-      reconnectId: i.reconnectId ?? null, state: 'starting', url: null, code: null, expiresAt: new Date(cc.now() + LOGIN_TIMEOUT_MS).toISOString(),
-      credentialId: null, reason: null, endedAt: null, cancel: () => {},
+      loginId, kind, userId: i.userId, locale: i.locale, personal: i.personal, label: i.label, assignments: i.personal ? [] : i.assignments, priority: i.priority,
+      reconnectId: i.reconnectId ?? null, state: 'starting', url: null, code: null, expiresAt: new Date(cc.now() + this.timeout()).toISOString(),
+      credentialId: null, reason: null, endedAt: null, storing: false, cancel: () => {}, sendCode: () => {},
     }
     this.all.set(loginId, l)
-    audit(cc.db, { actor: i.userId, action: 'credential.login', target: loginId, detail: { state: 'starting', ...(i.reconnectId ? { reconnect: i.reconnectId } : {}) } })
+    audit(cc.db, { actor: i.userId, action: 'credential.login', target: loginId, detail: { kind, state: 'starting', ...(i.reconnectId ? { reconnect: i.reconnectId } : {}) } })
+    if (kind === 'chatgpt') this.runChatgpt(l, where)
+    else this.runClaude(l, where)
+    return this.api(l)
+  }
+
+  private runChatgpt(l: Login, where: { sock: string; bin: string; proxyPort: number }) {
+    const { cc } = this
     // the one-time proxy token: valid only once bound to the login process (connect.ts), only to auth.openai.com:443
-    const pending = CODEX_LOGIN_PENDING + loginId
+    const pending = CODEX_LOGIN_PENDING + l.loginId
     let bound: string | null = null
-    const token = issueProxyToken(cc.db, pending, i.userId, { ttlMs: LOGIN_TIMEOUT_MS + 60_000 })
+    const token = issueProxyToken(cc.db, pending, l.userId, { ttlMs: this.timeout() + 60_000 })
     let out = ''
     let authJson: string | null = null
-    const run = codexSignIn(where.sock, { cmd: where.codexBin, proxy: codexProxyUrl(where.proxyPort, token), loginId, timeoutMs: LOGIN_TIMEOUT_MS }, {
+    const run = codexSignIn(where.sock, { cmd: where.bin, proxy: codexProxyUrl(where.proxyPort, token), loginId: l.loginId, timeoutMs: this.timeout() }, {
       started: (pid) => { bound = CODEX_LOGIN_BOUND + pid; cc.db.query('UPDATE proxy_tokens SET turn_id = ? WHERE turn_id = ?').run(bound, pending) },
       output: (text) => {
         if (l.state !== 'starting') return
@@ -119,7 +153,7 @@ class Logins {
       try {
         if (l.endedAt !== null) return
         if (authJson && r.code === 0) {
-          const result = this.store(l, authJson)
+          const result = this.storeChatgpt(l, authJson)
           if (result.ok) { l.credentialId = result.id; this.end(l, 'done', null) } else this.end(l, 'failed', result.reason)
         } else if (r.message === 'timeout') this.end(l, 'expired', 'timeout')
         else if (r.message === 'stopped' || r.message === 'cancelled') this.end(l, 'cancelled', null)
@@ -133,11 +167,56 @@ class Logins {
         authJson = null
       }
     })
-    return this.api(l)
+  }
+
+  private runClaude(l: Login, where: { sock: string; bin: string; proxyPort: number }) {
+    const { cc } = this
+    // the one-time proxy token: valid only once bound to the sign-in process (connect.ts), only to
+    // platform.claude.com:443 (the token exchange)
+    const pending = CLAUDE_LOGIN_PENDING + l.loginId
+    let bound: string | null = null
+    const proxyToken = issueProxyToken(cc.db, pending, l.userId, { ttlMs: this.timeout() + 60_000 })
+    let token: string | null = null
+    let failed: string | null = null
+    const run = claudeSignIn(where.sock, { cmd: where.bin, proxy: turnProxyUrl(where.proxyPort, proxyToken), loginId: l.loginId, timeoutMs: this.timeout() }, {
+      started: (pid) => { bound = CLAUDE_LOGIN_BOUND + pid; cc.db.query('UPDATE proxy_tokens SET turn_id = ? WHERE turn_id = ?').run(bound, pending) },
+      url: (u) => {
+        if (l.endedAt !== null || l.state !== 'starting') return
+        // only Anthropic's own authorize page is shown to the person (a changed CLI printing another address is not)
+        if (!isClaudeAuthorizeUrl(u)) { l.cancel(); this.end(l, 'failed', 'unexpected_url'); return }
+        l.url = u; l.state = 'code'
+        this.send(l)
+      },
+      failed: (reason) => { failed = reason },
+      token: (t) => { token = t },
+    })
+    l.cancel = run.cancel
+    l.sendCode = run.sendCode
+    void run.done.then(async (r) => {
+      try {
+        if (l.endedAt !== null) return
+        if (token) {
+          l.storing = true
+          const result = await this.storeClaude(l, token)
+          if (result.ok) { l.credentialId = result.id; this.end(l, 'done', null) } else this.end(l, 'failed', result.reason)
+        } else if (failed) this.end(l, 'failed', failed)
+        else if (r.message === 'timeout') this.end(l, 'expired', 'timeout')
+        else if (r.message === 'stopped' || r.message === 'cancelled') this.end(l, 'cancelled', null)
+        else this.end(l, 'failed', r.code === null ? 'launcher' : `exit_${r.code}`)
+      } catch (e) {
+        cc.log.error('storing a Claude sign-in failed', { err: e })
+        this.end(l, 'failed', 'store')
+      } finally {
+        l.storing = false
+        revokeProxyTokens(cc.db, pending)
+        if (bound) revokeProxyTokens(cc.db, bound)
+        token = null
+      }
+    })
   }
 
   /** check the login file and store (or reconnect) the connection */
-  private store(l: Login, json: string): { ok: true; id: string } | { ok: false; reason: string } {
+  private storeChatgpt(l: Login, json: string): { ok: true; id: string } | { ok: false; reason: string } {
     const { cc } = this
     if (!cc.allowedKinds.has('chatgpt') || (l.personal ? !memberOwnAllowed(cc.db) : !sharedSubscriptionsAllowed(cc.db))) return { ok: false, reason: 'policy_changed' }
     let a: { tokens?: { id_token?: unknown; access_token?: unknown; refresh_token?: unknown; account_id?: unknown }; last_refresh?: unknown }
@@ -165,6 +244,42 @@ class Logins {
     return { ok: true, id }
   }
 
+  /** The token setup-token printed, stored exactly like a pasted one (service.ts: format, the plan notice the start
+   * asked for, the policies again, the count_tokens check, duplicates, the Activity log): a new connection, or the new
+   * secret of the connection being reconnected. Its errors become the sign-in's reason, never a message with the token. */
+  private async storeClaude(l: Login, token: string): Promise<{ ok: true; id: string } | { ok: false; reason: string }> {
+    const { cc } = this
+    try {
+      if (l.reconnectId) return { ok: true, id: (await replaceSecret(cc, l.reconnectId, token, l.userId, l.locale)).id }
+      const c = await createCredential(cc, {
+        kind: 'anthropic-oauth', label: l.label, secret: token, assignments: l.assignments, priority: l.priority,
+        ownerUserId: l.personal ? l.userId : null, actor: l.userId, acknowledgedPlanNotice: true,
+      }, l.locale)
+      return { ok: true, id: c.id }
+    } catch (e) {
+      if (!(e instanceof HttpError)) throw e
+      if (e.code === 'conflict') return { ok: false, reason: 'duplicate' }
+      if (e.code === 'forbidden') return { ok: false, reason: 'policy_changed' }
+      if (e.code === 'not_found') return { ok: false, reason: 'gone' }
+      if (e.code === 'validation' && e.extra.fields?.['body.sealed'] === 'refused by the provider') return { ok: false, reason: 'refused' }
+      if (e.code === 'validation' && e.extra.fields?.['body.kind']) return { ok: false, reason: 'policy_changed' }
+      return { ok: false, reason: 'unreadable' }
+    }
+  }
+
+  /** The code Claude showed after approval (already unsealed): typed into the program once, while it waits for it. */
+  submitCode(loginId: string, userId: string, code: string, locale: Locale): CredentialLogin {
+    const l = this.all.get(loginId)
+    if (!l || l.userId !== userId) return fail('not_found')
+    if (l.kind !== 'anthropic-oauth' || l.endedAt !== null || l.state !== 'code') return fail('conflict', ct('loginNotWaiting', locale))
+    const c = code.trim()
+    if (!CLAUDE_LOGIN_CODE_RE.test(c)) return fail('validation', ct('badLoginCode', locale), { fields: { 'body.sealed': 'not the code Claude shows' } })
+    l.state = 'checking'
+    l.sendCode(c)
+    this.send(l)
+    return this.api(l)
+  }
+
   get(loginId: string, userId: string): CredentialLogin {
     this.prune()
     const l = this.all.get(loginId)
@@ -175,7 +290,8 @@ class Logins {
   cancel(loginId: string, userId: string): void {
     const l = this.all.get(loginId)
     if (!l || l.userId !== userId) return fail('not_found')
-    if (l.endedAt === null) { l.cancel(); this.end(l, 'cancelled', null) }
+    // a token that is being checked and stored right now finishes (the result comes in a moment)
+    if (l.endedAt === null && !l.storing) { l.cancel(); this.end(l, 'cancelled', null) }
   }
 }
 
