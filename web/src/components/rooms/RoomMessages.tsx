@@ -293,6 +293,17 @@ export function previewFolderNames(p: NonNullable<RoomMessage['preview']>, words
   return [...new Set(names)]
 }
 
+/** The one sentence above "대화방에 올리기": who would see it once posted. */
+export function previewWhy(p: RoomMessage['preview'], t: ReturnType<typeof useT>): string {
+  const folders = p ? previewFolderNames(p, { root: t('rooms.aiRootFolder'), mine: t('rooms.aiMyFolder') }) : []
+  // folders the person cannot open themselves are never named to them
+  if (p?.otherFolders) folders.push(t('rooms.aiOtherFolders'))
+  if (folders.length === 1 && p?.otherFolders) return t('rooms.aiPrivateOtherFolders')
+  if (folders.length) return t('rooms.aiPrivateFolders', { folders: folders.join(', ') })
+  if (p?.joinedLater?.length) return t('rooms.aiPrivateJoined', { names: p.joinedLater.join(', ') })
+  return p?.outside ? t('rooms.aiPrivateOutside') : t('rooms.aiPrivateAll')
+}
+
 /** My private preview of an AI answer (the top says it is mine only): one sentence on who would see it once posted,
  * and the way to post it, an outline button (not posting is the default). Posting leaves out the sources some member
  * cannot read; the server decides that again. */
@@ -300,15 +311,7 @@ function PreviewNote({ roomId, m }: { roomId: string; m: RoomMessage }) {
   const t = useT()
   const locale = useLocale()
   const [busy, setBusy] = useState(false)
-  const p = m.preview
-  const folders = p ? previewFolderNames(p, { root: t('rooms.aiRootFolder'), mine: t('rooms.aiMyFolder') }) : []
-  const why = folders.length
-    ? t('rooms.aiPrivateFolders', { folders: folders.join(', ') })
-    : p?.joinedLater?.length
-      ? t('rooms.aiPrivateJoined', { names: p.joinedLater.join(', ') })
-      : p?.outside
-        ? t('rooms.aiPrivateOutside')
-        : t('rooms.aiPrivateAll')
+  const why = previewWhy(m.preview, t)
   const share = async () => {
     setBusy(true)
     try {

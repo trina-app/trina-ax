@@ -98,7 +98,7 @@ export function messagesOut(db: Database, rows: readonly MessageRow[], viewer: M
       try {
         const d = JSON.parse(t.decision ?? 'null')
         const strings = (v: unknown) => (Array.isArray(v) ? v.filter((x: unknown): x is string => typeof x === 'string') : [])
-        if (d) previews.set(t.answer_id, { folders: strings(d.folders), personal: !!d.personal, outside: !!d.outside, joinedLater: strings(d.joinedLater) })
+        if (d) previews.set(t.answer_id, { folders: strings(d.folders), ...(d.otherFolders ? { otherFolders: true } : {}), personal: !!d.personal, outside: !!d.outside, joinedLater: strings(d.joinedLater) })
       } catch { /* no reason shown */ }
     }
   }

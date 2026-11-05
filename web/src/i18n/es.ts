@@ -3028,6 +3028,8 @@ export const es: Record<MessageKey, string> = {
   "rooms.aiPrivateJoined": "Si lo publica, {names} también verá conversaciones de antes de unirse.",
   "rooms.aiRootFolder": "Carpeta del equipo",
   "rooms.aiMyFolder": "su carpeta",
+  "rooms.aiOtherFolders": "carpetas que otros no pueden abrir",
+  "rooms.aiPrivateOtherFolders": "Si lo publica, todos verán también lo que vino de carpetas que otros no pueden abrir.",
   "rooms.aiPrivateAll": "Si lo publica, todos en la sala lo verán.",
   "rooms.aiShare": "Publicar en la sala",
   "rooms.aiMention": "Pregunte a la IA · responde con los archivos que usted puede abrir",

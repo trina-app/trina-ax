@@ -85,10 +85,11 @@ describe('the AI in a room', () => {
     expect(forAlice?.body).toContain('Autumn Upgrade')
     expect(forAlice).toMatchObject({ visibility: 'private', askedBy: { id: 'alice' }, author: null, unread: 0, preview: { folders: ['groups/marketing'], personal: false, outside: false } })
     // bob's turn ran with bob's access: the same read was refused. A refused path and a missing one answer alike, and
-    // either may name a folder someone cannot see, so that answer is bob's private preview too
+    // either may name a folder someone cannot see, so that answer is bob's private preview too; it does not name the
+    // folder bob cannot open himself
     expect(forBob?.body).not.toContain('Autumn Upgrade')
     expect(forBob?.body).toContain('no access')
-    expect(forBob).toMatchObject({ visibility: 'private', askedBy: { id: 'bob' }, preview: { folders: ['groups/marketing'] } })
+    expect(forBob).toMatchObject({ visibility: 'private', askedBy: { id: 'bob' }, preview: { folders: [], otherFolders: true } })
     // bob never sees alice's preview, nor anything from it
     const bobsView = await messages('bob', roomId)
     expect(bobsView.some((m) => m.id === forAlice!.id)).toBe(false)
@@ -669,5 +670,56 @@ describe('names the AI used in a room count by their real spelling', () => {
       expect(await answerTo('erin', roomId, q)).toBeUndefined()
       expect(await answerTo('alice', roomId, q)).toMatchObject({ visibility: 'private', preview: { folders: expect.arrayContaining(['projects/falcon']) } })
     } finally { cleanup(); fs.rmSync(path.join(h.team, 'projects/falcon/r4-pub.md'), { force: true }) }
+  })
+})
+
+// ---------------- the fifth review (2026-11-05) ----------------
+describe('a search start in another spelling, and folders the asker cannot open', () => {
+  test('a search started at another case of a folder whose names are NFD on disk counts the ruled folder below it', async () => {
+    const db = h.ctx.db
+    const NFD_KO = '인사'.normalize('NFD')
+    const deep = `shared/R5-Docs/${NFD_KO}/secret`
+    fs.mkdirSync(path.join(h.team, deep), { recursive: true })
+    fs.writeFileSync(path.join(h.team, deep, 'a.md'), 'secret\n')
+    db.query("INSERT OR IGNORE INTO folders (id, path) VALUES ('f_r5deep', ?)").run(deep)
+    db.query("INSERT OR IGNORE INTO folder_rules (id, folder_id, subject_type, subject_id, access) VALUES ('r5deep', 'f_r5deep', 'user', 'erin', 'none')").run()
+    try {
+      const posted = async (call: unknown) => {
+        const roomId = await room(['alice', 'erin'])
+        const { q } = await ask('alice', roomId, `@트리나 x\n${fake(call)}`)
+        return !!(await answerTo('erin', roomId, q))
+      }
+      // the right case, typed in NFC over NFD names on disk
+      expect(await posted({ tool: 'grep', args: { pattern: 'NOPE-zzz', path: 'shared/R5-Docs/인사' }, sayResult: true })).toBe(false)
+      // another case (a case-insensitive disk finds the same folder by it)
+      if (h.ctx.files.fx.caseInsensitive) {
+        expect(await posted({ tool: 'grep', args: { pattern: 'NOPE-zzz', path: 'shared/r5-docs/인사' }, sayResult: true })).toBe(false)
+        expect(await posted({ tool: 'glob', args: { pattern: '*.nope', path: 'shared/r5-docs/인사' }, sayResult: true })).toBe(false)
+      }
+    } finally {
+      db.query("DELETE FROM folder_rules WHERE id = 'r5deep'").run()
+      fs.rmSync(path.join(h.team, 'shared/R5-Docs'), { recursive: true, force: true })
+    }
+  })
+
+  test('a preview names only the folders the asker may open; the others are "folders others cannot open", without names', async () => {
+    const db = h.ctx.db
+    fs.mkdirSync(path.join(h.team, 'shared/r5-sealed'), { recursive: true })
+    fs.writeFileSync(path.join(h.team, 'shared/r5-sealed/plan.md'), 'sealed\n')
+    db.query("INSERT OR IGNORE INTO folders (id, path) VALUES ('f_r5sealed', 'shared/r5-sealed')").run()
+    db.query("INSERT OR IGNORE INTO folder_rules (id, folder_id, subject_type, subject_id, access) VALUES ('r5sealed-a', 'f_r5sealed', 'user', 'alice', 'none')").run()
+    db.query("INSERT OR IGNORE INTO folder_rules (id, folder_id, subject_type, subject_id, access) VALUES ('r5sealed-e', 'f_r5sealed', 'user', 'erin', 'none')").run()
+    try {
+      const roomId = await room(['alice', 'erin'])
+      // a folder alice may open (erin may not) and one neither may open
+      const { q } = await ask('alice', roomId, `@트리나 x\n${fake({ tool: 'read', args: { file_path: 'projects/falcon/plan.md' } }, { tool: 'read', args: { file_path: 'shared/r5-sealed/plan.md' }, sayResult: true })}`)
+      expect(await answerTo('erin', roomId, q)).toBeUndefined()
+      const mine = (await answerTo('alice', roomId, q))!
+      expect(mine.preview).toMatchObject({ folders: ['projects/falcon'], otherFolders: true })
+      expect(JSON.stringify(mine.preview)).not.toContain('r5-sealed')
+    } finally {
+      db.query("DELETE FROM folder_rules WHERE id IN ('r5sealed-a', 'r5sealed-e')").run()
+      fs.rmSync(path.join(h.team, 'shared/r5-sealed'), { recursive: true, force: true })
+    }
   })
 })

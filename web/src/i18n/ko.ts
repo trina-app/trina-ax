@@ -3067,6 +3067,8 @@ export const ko = {
   "rooms.aiPrivateJoined": "올리면 {names} 님도 들어오기 전 대화 내용을 봐요.",
   "rooms.aiRootFolder": "팀 폴더",
   "rooms.aiMyFolder": "내 폴더",
+  "rooms.aiOtherFolders": "다른 사람이 못 여는 폴더",
+  "rooms.aiPrivateOtherFolders": "올리면 다른 사람이 못 여는 폴더의 내용도 모두가 봐요.",
   "rooms.aiPrivateAll": "올리면 대화방 모두가 이 내용을 봐요.",
   "rooms.aiShare": "대화방에 올리기",
   "rooms.aiMention": "AI에게 물어보기 · 내가 열 수 있는 파일로 답해요",

@@ -3068,6 +3068,8 @@ export const id: Record<MessageKey, string> = {
   "rooms.aiPrivateJoined": "Jika diposting, {names} juga akan melihat percakapan dari sebelum mereka bergabung.",
   "rooms.aiRootFolder": "Folder tim",
   "rooms.aiMyFolder": "folder Anda",
+  "rooms.aiOtherFolders": "folder yang tidak bisa dibuka orang lain",
+  "rooms.aiPrivateOtherFolders": "Jika diposting, semua orang juga melihat isi dari folder yang tidak bisa dibuka orang lain.",
   "rooms.aiPrivateAll": "Jika diposting, semua orang di ruang ini akan melihatnya.",
   "rooms.aiShare": "Kirim ke ruang",
   "rooms.aiMention": "Tanya AI · menjawab dari berkas yang bisa Anda buka",

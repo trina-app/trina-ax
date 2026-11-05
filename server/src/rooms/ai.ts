@@ -54,9 +54,10 @@ export interface AskOptions { windowId?: string | null; clientKind?: string | nu
 /** What precheck found before the message is written. */
 export interface Prepared extends AskOptions { chatId: string | null; engine: EngineModel }
 
-/** Where an answer may go (decide). folders: team folders some member cannot read ('' = the top of the team folder);
- * joinedLater: members who were not in the room yet when a message given to the AI was written. */
-export interface Decision { post: boolean; folders: string[]; personal: boolean; outside: boolean; joinedLater: string[] }
+/** Where an answer may go (decide). folders: team folders some member cannot read ('' = the top of the team folder) that
+ * the person who asked may open (their preview names them); otherFolders: more such folders they cannot open themselves
+ * (never named to them); joinedLater: members who were not in the room yet when a message given to the AI was written. */
+export interface Decision { post: boolean; folders: string[]; otherFolders: boolean; personal: boolean; outside: boolean; joinedLater: string[] }
 /** A member as decide() sees them: null = an account that cannot read anything now (disabled, deleted). */
 type Reader = { member: MemberRow; who: Principal | null }
 
@@ -286,7 +287,12 @@ export class RoomAi implements RoomTurns {
       if (!people.every((p) => !!p && atLeast(rules.access(p, segs), 'read'))) folders.add(path)
     }
     const joinedLater = [...this.names([...joined]).values()].sort()
-    return { post: !outside && !personal && folders.size === 0 && joined.size === 0, folders: [...folders].sort(), personal, outside, joinedLater }
+    // the preview names to the person who asked only the folders they may open themselves (a path the AI named, or a
+    // rule changed since, can be one they cannot): the others are "folders other people cannot open", without names
+    const askerId = (db.query('SELECT user_id FROM chats WHERE id = ?').get(chatId) as { user_id: string } | null)?.user_id
+    const asker = askerId ? loadPrincipal(db, askerId) : null
+    const named = [...folders].filter((p) => !!asker && atLeast(rules.access(asker, p === '' ? [] : p.split('/')), 'read')).sort()
+    return { post: !outside && !personal && folders.size === 0 && joined.size === 0, folders: named, otherFolders: named.length < folders.size, personal, outside, joinedLater }
   }
 
   // ---------------- the person's actions ----------------
@@ -424,7 +430,7 @@ export class RoomAi implements RoomTurns {
 }
 
 /** The reasons of a private preview as stored (and compared when it is posted). */
-const decisionJson = (d: Decision) => JSON.stringify({ folders: d.folders, personal: d.personal, outside: d.outside, joinedLater: d.joinedLater })
+const decisionJson = (d: Decision) => JSON.stringify({ folders: d.folders, otherFolders: d.otherFolders, personal: d.personal, outside: d.outside, joinedLater: d.joinedLater })
 
 export function roomAiOf(ctx: AppContext): RoomAi {
   let s = services.get(ctx)

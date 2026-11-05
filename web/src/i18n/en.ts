@@ -3068,6 +3068,8 @@ export const en: Record<MessageKey, string> = {
   "rooms.aiPrivateJoined": "If you post it, {names} will also see talk from before they joined.",
   "rooms.aiRootFolder": "Team folder",
   "rooms.aiMyFolder": "your folder",
+  "rooms.aiOtherFolders": "folders others cannot open",
+  "rooms.aiPrivateOtherFolders": "If you post it, everyone also sees what came from folders others cannot open.",
   "rooms.aiPrivateAll": "If you post it, everyone in the room will see it.",
   "rooms.aiShare": "Post to the room",
   "rooms.aiMention": "Ask the AI · it answers from files you can open",

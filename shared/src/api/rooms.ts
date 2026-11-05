@@ -118,7 +118,9 @@ export const RoomMessage = z.object({
   /** a private preview of an AI answer, to the person who asked only: why it did not go to the room. folders: team
    * folders some member cannot read ('' = the top of the team folder); personal: their own folder (or what only they
    * see: the in-app browser, a personal connection); outside: web pages, connected services or other tools */
-  preview: z.object({ folders: z.array(z.string()), personal: z.boolean(), outside: z.boolean(),
+  preview: z.object({ folders: z.array(z.string()),
+    /** more such folders the person who asked cannot open themselves: never named to them */
+    otherFolders: z.boolean().optional(), personal: z.boolean(), outside: z.boolean(),
     /** members who were not in the room yet when a message the AI was given was written (their names) */
     joinedLater: z.array(z.string()).optional() }).optional(),
   /** an AI answer: the team files it links to or shows that the viewer may open now; the app shows the others as plain
