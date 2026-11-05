@@ -1000,6 +1000,10 @@ export class MockServer {
     },
     logout: () => ({ cookie: `${DEV_SESSION_COOKIE}=; Path=/; Max-Age=0`, body: undefined }),
     me: (c) => this.me(c.user, ''),
+    // team chat rooms and the people directory (the sidebar and the phone's 대화 tab read them on every page): like a
+    // server whose people are in no room yet, and the active people by name only (server/src/routes/people.ts)
+    listRooms: () => ({ items: [] }),
+    listPeople: () => ({ people: this.users.filter((u) => u.status === 'active').map((u) => ({ id: u.id, name: u.name })) }),
     updateMe: (c) => {
       const u = c.user as User & { prefs?: Me['user']['prefs'] }
       if (c.body.name) u.name = c.body.name
