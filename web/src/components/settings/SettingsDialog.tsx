@@ -1,10 +1,11 @@
 // Settings as a dialog over the page it was opened from, like Claude's: the sections on the left (a search filters them
 // by name, hairlines separate the groups of pages/settingsTabs.ts) and the open section on the right. /settings and
 // /settings/<section> still work: App.tsx keeps the page behind it (Home when the address was opened directly) and
-// `onClose` goes back to that page. On a phone it fills the screen: the list first, then a section with a way back.
-// Admin stays its own page.
+// `onClose` goes back to that page. On a phone it is the 나 tab: it fills the screen above the tab bar (the bar is the
+// way out, no ✕), opens on the profile, and its list (no search box) keeps MCP, app connectors and AI connections behind
+// one "더 보기" row. Admin stays its own page.
 import clsx from 'clsx'
-import { ArrowLeft, Search, X } from 'lucide-react'
+import { ArrowLeft, ChevronDown, Search, X } from 'lucide-react'
 import { lazy, Suspense, useEffect, useId, useRef, useState } from 'react'
 import { Navigate, NavLink, useNavigate, useParams } from 'react-router-dom'
 import { api, API } from '../../lib/api'
@@ -12,8 +13,11 @@ import { browserSettingsBridge } from '../../lib/desktop'
 import { useT } from '../../i18n'
 import { settingsTabs } from '../../pages/settingsTabs'
 import { IconButton, Spinner, inputCls, menuOpener, useFocusTrap } from '../ui'
+import { BottomTabs } from '../BottomTabs'
 
 const SettingsPane = lazy(() => import('../../pages/Settings'))
+/** sections few people need on a phone: behind "더 보기" in the phone's list */
+const ADVANCED = new Set(['integrations', 'connectors', 'credentials'])
 
 let openedFrom: HTMLElement | null = null
 /** What gets the keyboard back when the dialog closes, said by whatever opens it when that is not what has focus by
@@ -44,6 +48,7 @@ export default function SettingsDialog({ onClose }: { onClose: () => void }) {
   // the desktop app's site setting: only inside a desktop app that offers it (the value lives there)
   const tabs = settingsTabs(Boolean(browserSettingsBridge()), Boolean(own))
   const [query, setQuery] = useState('')
+  const [more, setMore] = useState(false)
   const searchRef = useRef<HTMLInputElement>(null)
   const q = query.trim().toLowerCase()
   const shown = tabs.filter((x) => !q || t(x.label).toLowerCase().includes(q))
@@ -74,14 +79,14 @@ export default function SettingsDialog({ onClose }: { onClose: () => void }) {
           <h2 id={titleId} className="min-w-0 flex-1 truncate px-1 font-semibold">
             {t('settings.title')}
           </h2>
-          <IconButton label={t('common.close')} onClick={onClose} data-testid="settings-close">
+          <IconButton label={t('common.close')} className="max-md:hidden" onClick={onClose} data-testid="settings-close">
             <X size={18} />
           </IconButton>
         </div>
         <div className="flex min-h-0 flex-1">
           {/* phones: the list on its own until a section is open */}
           <div className={clsx('flex w-full shrink-0 flex-col md:w-64 md:border-r md:border-line', tab && 'max-md:hidden')}>
-            <div className="px-3 pt-3 pb-2">
+            <div className="px-3 pt-3 pb-2 max-md:hidden">
               <div className="relative">
                 <Search size={15} className="pointer-events-none absolute top-1/2 left-3 -translate-y-1/2 text-faint" aria-hidden />
                 <input ref={searchRef} type="search" value={query} onChange={(e) => setQuery(e.target.value)} placeholder={t('settings.search')} aria-label={t('settings.search')} className={`${inputCls} pl-9 ${query ? 'pr-9' : ''}`} data-testid="settings-search" data-own-clear />
@@ -102,7 +107,7 @@ export default function SettingsDialog({ onClose }: { onClose: () => void }) {
                       to={`/settings/${x.id}`}
                       replace
                       className={({ isActive }) =>
-                        clsx('flex h-9 items-center gap-2.5 rounded-lg px-3 text-sm hover:bg-hover focus-visible:-outline-offset-2 max-md:h-11', (isActive || (x.id === 'profile' && !tab)) && 'md:bg-hover md:font-medium', isActive && 'bg-hover font-medium')
+                        clsx('flex h-9 items-center gap-2.5 rounded-lg px-3 text-sm hover:bg-hover focus-visible:-outline-offset-2 max-md:h-11', (isActive || (x.id === 'profile' && !tab)) && 'md:bg-hover md:font-medium', isActive && 'bg-hover font-medium', ADVANCED.has(x.id) && !more && 'max-md:hidden')
                       }
                     >
                       <x.icon size={16} className="shrink-0 text-muted" aria-hidden /> {t(x.label)}
@@ -110,6 +115,13 @@ export default function SettingsDialog({ onClose }: { onClose: () => void }) {
                   ))}
                 </div>
               ))}
+              {!more && shown.some((x) => ADVANCED.has(x.id)) && (
+                <div className="mt-2 border-t border-line pt-2 md:hidden">
+                  <button type="button" onClick={() => setMore(true)} className="flex h-11 w-full items-center gap-2.5 rounded-lg px-3 text-sm text-muted hover:bg-hover" data-testid="settings-more">
+                    <ChevronDown size={16} className="shrink-0" aria-hidden /> {t('common.more')}
+                  </button>
+                </div>
+              )}
               {!shown.length && (
                 <p className="px-3 py-2 text-sm text-muted" data-testid="settings-no-match">
                   {t('settings.noMatch', { q: query.trim() })}
@@ -129,6 +141,8 @@ export default function SettingsDialog({ onClose }: { onClose: () => void }) {
             </div>
           </div>
         </div>
+        {/* phones: the tab bar stays (대화 · 파일 · 나): it is the way out of here */}
+        <BottomTabs />
       </div>
     </div>
   )
