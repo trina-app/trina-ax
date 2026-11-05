@@ -6,7 +6,7 @@ import clsx from 'clsx'
 import type { Element, ElementContent, Root, RootContent } from 'hast'
 import { fromHtml } from 'hast-util-from-html'
 import { Check, ChevronRight, Copy, Download, Eye, FileText, ImageOff, ExternalLink } from 'lucide-react'
-import { memo, useEffect, useRef, useState, type ReactNode } from 'react'
+import { createContext, memo, useContext, useEffect, useRef, useState, type ReactNode } from 'react'
 import ReactMarkdown, { type Components } from 'react-markdown'
 import { Link } from 'react-router-dom'
 import rehypeKatex from 'rehype-katex'
@@ -227,10 +227,17 @@ const cellText = (n: Element | ElementContent | undefined): string =>
 const isNumberCell = (text: string) => /^[-+−(]?[$€£¥₩]?\s?\d[\d.,:/\s-]*(%|[A-Za-z]{1,3})?\)?$/.test(text.trim())
 
 // ---------------- links and images ----------------
+/** Team files this viewer may open, where the text is shown to people with different access (an AI answer in a team
+ * chat room: RoomMessage.openable). Inside it, a link or picture of any other team file is plain text: no chip to
+ * click, no picture loaded. Absent (null), as in the person's own chats, every team link is a chip. */
+const OpenableFiles = createContext<ReadonlySet<string> | null>(null)
+const openableOk = (set: ReadonlySet<string> | null, path: string) => !set || set.has(path.replace(/^\/+|\/+$/g, ''))
+
 /** A file the AI made or mentioned: a chip that opens the preview panel. A file without a viewer opens the panel
  *  too, which shows the "can't be previewed" notice and a download button. */
 function TeamFileLink({ path, at, children }: { path: string; at?: SourceLoc; children: ReactNode }) {
   const t = useT()
+  if (!openableOk(useContext(OpenableFiles), path)) return <span data-testid="team-file-text">{children}</span>
   const canPreview = previewKind(path) !== null
   return (
     <span className="not-prose my-1 inline-flex max-w-full items-stretch overflow-hidden rounded-xl border border-line bg-surface align-middle text-sm font-medium text-ink shadow-sm">
@@ -249,6 +256,8 @@ function TeamFileLink({ path, at, children }: { path: string; at?: SourceLoc; ch
 export function TeamImage({ path, alt, className }: { path: string; alt?: string; className?: string }) {
   const t = useT()
   const [failed, setFailed] = useState(false)
+  const openable = useContext(OpenableFiles)
+  if (!openableOk(openable, path)) return <span className="text-faint" data-testid="team-file-text">[{alt || baseName(path) || t('md.image')}]</span>
   if (!isDisplayableImagePath(path) || failed)
     return (
       <button type="button" className="not-prose inline-flex items-center gap-1.5 rounded-lg border border-line px-2 py-1 text-xs text-muted" onClick={() => openTeamFile(path)}>
@@ -407,7 +416,8 @@ const SIZES = {
 }
 
 /** `copyQuotes`: an assistant answer in the chat, where each top-level quote copies on its own (ad options, drafts). */
-export const Markdown = memo(function Markdown({ text, streaming, className, size = 'answer', copyQuotes }: { text: string; streaming?: boolean; className?: string; size?: keyof typeof SIZES; copyQuotes?: boolean }) {
+export const Markdown = memo(function Markdown({ text, streaming, className, size = 'answer', copyQuotes, openable }: { text: string; streaming?: boolean; className?: string; size?: keyof typeof SIZES; copyQuotes?: boolean; openable?: ReadonlySet<string> }) {
+  if (openable) return <OpenableFiles.Provider value={openable}><Markdown text={text} streaming={streaming} className={className} size={size} copyQuotes={copyQuotes} /></OpenableFiles.Provider>
   return (
     <div
       className={clsx(

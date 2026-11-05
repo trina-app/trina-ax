@@ -67,8 +67,21 @@ test('a private preview says why only I see it, names the folders, and has exact
   expect(html).toContain(translate('en', 'rooms.aiPrivateFolders', { folders: `acme/finance/, ${translate('en', 'rooms.aiRootFolder')}` }))
   expect(html).toContain(translate('en', 'rooms.aiPrivateOutside'))
   expect(html).not.toContain(translate('en', 'rooms.aiPrivatePersonal'))
-  expect(count(html, '<button')).toBe(1)
+  // one action on the note itself; putting the preview away is in the "…" menu (delete only: no reply, no edit)
+  const note = html.slice(html.indexOf('data-testid="room-ai-preview"'))
+  expect(count(note.slice(0, note.indexOf('</div>')), '<button')).toBe(1)
   expect(html).toContain(translate('en', 'rooms.aiShare'))
-  // no reply, edit or delete menu on a preview
-  expect(html).not.toContain('data-testid="message-menu"')
+  expect(count(html, 'data-testid="message-menu"')).toBe(1)
+})
+
+test("an AI answer's team file links are chips only for files the viewer may open; the rest is plain text", () => {
+  const body = 'See [plan](/api/files/download?path=acme%2Fplan.md) and [notes](/files/view?path=acme/notes.md) ![chart](/api/files/download?path=acme%2Fchart.png)'
+  const a = message({ roomId: R, seq: 4, authorKind: 'ai', author: null, askedBy: BEN, body, openable: ['acme/notes.md'] })
+  const html = render([a])
+  expect(count(html, 'data-testid="team-file-text"')).toBe(2)
+  expect(html).not.toContain('acme%2Fchart.png')
+  expect(html).not.toContain('<img')
+  expect(html).toContain('>notes<')
+  // someone else's answer: no delete for a member
+  expect(html).not.toContain('data-testid="message-delete"')
 })

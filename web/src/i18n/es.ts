@@ -2986,6 +2986,7 @@ export const es: Record<MessageKey, string> = {
   "rooms.aiPrivateFolders": "Algunas personas aquí no pueden abrir carpetas que usó esta respuesta: {folders}",
   "rooms.aiPrivatePersonal": "Usó su carpeta personal o algo que solo usted puede ver.",
   "rooms.aiPrivateOutside": "Usó algo fuera de los archivos del equipo, como páginas web o un servicio conectado.",
+  "rooms.aiPrivateJoined": "Usó mensajes de antes de que {names} se uniera a la sala.",
   "rooms.aiRootFolder": "la raíz de la carpeta del equipo",
   "rooms.aiShare": "Publicar en la sala",
   "rooms.aiMention": "Pregunte a la IA · responde con su acceso",
@@ -3003,4 +3004,5 @@ export const es: Record<MessageKey, string> = {
   "audit.act.room.members": "Modificó los miembros de una sala de chat",
   "audit.act.room.archive": "Archivó una sala de chat",
   "audit.act.room.ai_share": "Publicó una respuesta de la IA en una sala",
+  "audit.act.room.ai_delete": "Eliminó una respuesta de la IA en una sala",
 }

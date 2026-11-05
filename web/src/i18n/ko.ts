@@ -3025,6 +3025,7 @@ export const ko = {
   "rooms.aiPrivateFolders": "몇몇 사람은 이 답에 쓴 폴더를 열 수 없어요: {folders}",
   "rooms.aiPrivatePersonal": "내 개인 폴더나 나만 볼 수 있는 내용을 썼어요.",
   "rooms.aiPrivateOutside": "웹 페이지나 연결된 서비스처럼 팀 파일이 아닌 내용을 썼어요.",
+  "rooms.aiPrivateJoined": "{names} 님이 들어오기 전 대화가 쓰였어요.",
   "rooms.aiRootFolder": "팀 폴더 맨 위",
   "rooms.aiShare": "대화방에 올리기",
   "rooms.aiMention": "AI에게 물어보기 · 내 권한으로 답해요",
@@ -3042,6 +3043,7 @@ export const ko = {
   "audit.act.room.members": "대화방 멤버 변경",
   "audit.act.room.archive": "대화방 보관",
   "audit.act.room.ai_share": "트리나 답을 대화방에 올림",
+  "audit.act.room.ai_delete": "트리나 답 삭제",
 } as const
 
 export type MessageKey = keyof typeof ko

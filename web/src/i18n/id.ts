@@ -3026,6 +3026,7 @@ export const id: Record<MessageKey, string> = {
   "rooms.aiPrivateFolders": "Beberapa orang di sini tidak bisa membuka folder yang dipakai jawaban ini: {folders}",
   "rooms.aiPrivatePersonal": "Jawaban ini memakai folder pribadi Anda atau sesuatu yang hanya bisa Anda lihat.",
   "rooms.aiPrivateOutside": "Jawaban ini memakai sesuatu di luar berkas tim, seperti halaman web atau layanan terhubung.",
+  "rooms.aiPrivateJoined": "Jawaban ini memakai pesan dari sebelum {names} bergabung.",
   "rooms.aiRootFolder": "bagian atas folder tim",
   "rooms.aiShare": "Kirim ke ruang",
   "rooms.aiMention": "Tanya AI · menjawab dengan akses Anda",
@@ -3043,4 +3044,5 @@ export const id: Record<MessageKey, string> = {
   "audit.act.room.members": "Mengubah anggota ruang obrolan",
   "audit.act.room.archive": "Mengarsipkan ruang obrolan",
   "audit.act.room.ai_share": "Mengirim jawaban AI ke ruang obrolan",
+  "audit.act.room.ai_delete": "Menghapus jawaban AI di ruang obrolan",
 }

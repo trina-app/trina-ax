@@ -20,6 +20,7 @@ import SourcesList from '../chat/SourcesList'
 import { openFilePreview } from '../../lib/sidePanel'
 import { useLocale, useT } from '../../i18n'
 import { useAvatarOf, usePeople } from '../../store/people'
+import { useMe } from '../../store/session'
 import { quoteOf, useRooms, type PendingSend } from '../../store/rooms'
 import { toast } from '../../store/ui'
 import { Avatar } from '../Avatar'
@@ -131,6 +132,10 @@ function MessageRow({ roomId, m, mine, names, members, meId, editing, flash, onE
   const locale = useLocale()
   const deleted = !!m.deletedAt
   const ai = m.authorKind === 'ai'
+  const me = useMe()
+  // an AI answer: the person who asked puts it (or their preview) away; an owner or admin any answer they see
+  const removable = mine || (ai && !!meId && (m.askedBy?.id === meId || me?.user.role === 'owner' || me?.user.role === 'admin'))
+  const openable = useMemo(() => (ai ? new Set(m.openable ?? []) : undefined), [ai, m.openable])
   const mentioned = useMemo(() => m.mentions.map((id) => ({ id, name: names.get(id) ?? '' })), [m.mentions, names])
   // "@트리나" stands out like a person's name (the server asked the AI for it)
   const parts = useMemo(() => mentionParts(m.body, ai ? mentioned : [...mentioned, ...aiMentionNames(m.body, mentioned)]), [m.body, mentioned, ai])
@@ -158,7 +163,7 @@ function MessageRow({ roomId, m, mine, names, members, meId, editing, flash, onE
       {ai ? <AskedBy m={m} onJump={onJump} /> : m.replyTo && <Quote q={m.replyTo} onJump={onJump} />}
       {ai && !deleted ? (
         <>
-          <Markdown text={m.body} className="min-w-0" />
+          <Markdown text={m.body} className="min-w-0" openable={openable} />
           {(m.unread > 0 || m.editedAt) && <p className="leading-5">{meta}</p>}
           {!!m.sourceCount && (
             <SourcesList chatId={roomId} messageId={m.id} count={m.sourceCount} load={(signal) => api.call(API.roomMessageSources, { params: { id: roomId, messageId: m.id }, signal })} />
@@ -189,20 +194,17 @@ function MessageRow({ roomId, m, mine, names, members, meId, editing, flash, onE
           {!m.body && (m.unread > 0 || m.editedAt) && <p className="leading-5">{meta}</p>}
         </>
       )}
-      {!deleted && !editing && m.visibility === 'room' && (
+      {!deleted && !editing && (m.visibility === 'room' || removable) && (
         <MenuButton
           label={t('rooms.messageMenu')}
           className="absolute top-0 right-1"
           buttonClassName="opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 focus-visible:opacity-100 pointer-coarse:opacity-100 max-sm:opacity-100 aria-expanded:opacity-100"
           testId="message-menu"
           items={[
-            { label: t('rooms.reply'), icon: <CornerUpLeft size={14} aria-hidden />, onSelect: onReply, testId: 'message-reply' },
-            ...(mine
-              ? [
-                  { label: t('common.edit'), icon: <Pencil size={14} aria-hidden />, onSelect: onEdit, testId: 'message-edit' },
-                  { label: t('common.delete'), icon: <Trash2 size={14} aria-hidden />, onSelect: () => void del(), danger: true, testId: 'message-delete' },
-                ]
-              : []),
+            // a private preview has one action on it (post it); putting it away is in this menu, like any message
+            ...(m.visibility === 'room' ? [{ label: t('rooms.reply'), icon: <CornerUpLeft size={14} aria-hidden />, onSelect: onReply, testId: 'message-reply' }] : []),
+            ...(mine && !ai ? [{ label: t('common.edit'), icon: <Pencil size={14} aria-hidden />, onSelect: onEdit, testId: 'message-edit' }] : []),
+            ...(removable ? [{ label: t('common.delete'), icon: <Trash2 size={14} aria-hidden />, onSelect: () => void del(), danger: true, testId: 'message-delete' }] : []),
           ]}
         />
       )}
@@ -251,6 +253,7 @@ function PreviewNote({ roomId, m }: { roomId: string; m: RoomMessage }) {
       {folders && <p className="mt-0.5 text-muted">{t('rooms.aiPrivateFolders', { folders })}</p>}
       {p?.personal && <p className="mt-0.5 text-muted">{t('rooms.aiPrivatePersonal')}</p>}
       {p?.outside && <p className="mt-0.5 text-muted">{t('rooms.aiPrivateOutside')}</p>}
+      {!!p?.joinedLater?.length && <p className="mt-0.5 text-muted">{t('rooms.aiPrivateJoined', { names: p.joinedLater.join(', ') })}</p>}
       <Button size="sm" variant="primary" className="mt-2" busy={busy} onClick={() => void share()} data-testid="room-ai-share">
         {t('rooms.aiShare')}
       </Button>

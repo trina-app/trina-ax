@@ -3026,6 +3026,7 @@ export const en: Record<MessageKey, string> = {
   "rooms.aiPrivateFolders": "Some people here cannot open folders this answer used: {folders}",
   "rooms.aiPrivatePersonal": "It used your personal folder or something only you can see.",
   "rooms.aiPrivateOutside": "It used something outside the team files, such as web pages or a connected service.",
+  "rooms.aiPrivateJoined": "It used messages from before {names} joined the room.",
   "rooms.aiRootFolder": "the top of the team folder",
   "rooms.aiShare": "Post to the room",
   "rooms.aiMention": "Ask the AI · it answers with your access",
@@ -3043,4 +3044,5 @@ export const en: Record<MessageKey, string> = {
   "audit.act.room.members": "Changed chat room members",
   "audit.act.room.archive": "Archived a chat room",
   "audit.act.room.ai_share": "Posted an AI answer to a room",
+  "audit.act.room.ai_delete": "Deleted an AI answer in a room",
 }

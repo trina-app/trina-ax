@@ -2986,6 +2986,7 @@ export const ja: Record<MessageKey, string> = {
   "rooms.aiPrivateFolders": "この回答が使ったフォルダーを開けない人がいます：{folders}",
   "rooms.aiPrivatePersonal": "自分の個人フォルダーか、自分だけが見られる内容を使いました。",
   "rooms.aiPrivateOutside": "ウェブページや接続サービスなど、チームのファイル以外の内容を使いました。",
+  "rooms.aiPrivateJoined": "{names}さんが参加する前の会話を使いました。",
   "rooms.aiRootFolder": "チームフォルダーの最上位",
   "rooms.aiShare": "ルームに投稿",
   "rooms.aiMention": "AIに聞く · 自分の権限で回答します",
@@ -3003,4 +3004,5 @@ export const ja: Record<MessageKey, string> = {
   "audit.act.room.members": "トークルームのメンバーを変更",
   "audit.act.room.archive": "トークルームをアーカイブ",
   "audit.act.room.ai_share": "AIの回答をトークルームに投稿",
+  "audit.act.room.ai_delete": "ルームのAIの回答を削除",
 }
