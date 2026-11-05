@@ -8,7 +8,7 @@ import { createContext, useContext, useEffect, useRef, useState, type ComponentT
 import { ActivityIndicator, Alert, Appearance, AppState, BackHandler, Keyboard, KeyboardAvoidingView, Linking, Platform, Pressable, StyleSheet, Text, TextInput, useColorScheme, View } from 'react-native'
 import { SafeAreaProvider, useSafeAreaInsets } from 'react-native-safe-area-context'
 import { WebView as NativeWebView, type WebViewProps } from 'react-native-webview'
-import { FileTransfers, MobileReceiver } from './src/bridge'
+import { FileTransfers, MobileReceiver, StuckLoad, stillStuck } from './src/bridge'
 import { clearDownloadCache, fileTransferIO } from './src/files'
 import { APPEARANCE_CAPABILITY, MOBILE_CAPABILITIES, PUSH_CAPABILITY, PUSH_PERMISSION_CAPABILITY, PUSH_REGISTERED_CAPABILITY, googleOAuthUrl, navigationDecision, sameTeam, type MobileConfig } from './src/protocol'
 import { accentInk, mobileProduct } from './src/product'
@@ -115,7 +115,9 @@ function TeamWeb({ address, pads, opened, onDevice, onAppearance, onChangeTeam }
   // page (appearance-v1). Until a page of this team has said so, the app keeps its own padding, so a team server that
   // has not updated still fits between the system bars.
   const [pad, setPad] = useState<Padding>({ selfPadded: pads, confirmed: false })
-  const padRef = useRef(pad), insetsRef = useRef<Insets>(insets), stuck = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const padRef = useRef(pad), insetsRef = useRef<Insets>(insets), stuck = useRef(new StuckLoad(10_000))
+  // the top-level URL on screen: every load start and navigation state change (the stuck-load check compares it)
+  const currentUrl = useRef(address.origin + address.entryPath)
   padRef.current = pad; insetsRef.current = insets
   const selfPadded = pad.selfPadded
   const receiver = useRef<MobileReceiver | null>(null)
@@ -136,7 +138,7 @@ function TeamWeb({ address, pads, opened, onDevice, onAppearance, onChangeTeam }
     void receiver.current.disable()
   }
   const r = receiver.current
-  useEffect(() => () => { navigation.current++; void r.disable() }, [r])
+  useEffect(() => () => { navigation.current++; stuck.current.cancel(); void r.disable() }, [r])
   useEffect(() => {
     const back = BackHandler.addEventListener('hardwareBackPress', () => { if (!canBack) return false; web.current?.goBack(); return true })
     return () => back.remove()
@@ -188,7 +190,7 @@ function TeamWeb({ address, pads, opened, onDevice, onAppearance, onChangeTeam }
       void (googleOAuthUrl(url) ? Linking.openURL(url) : WebBrowser.openBrowserAsync(url)).catch(() => Alert.alert(product.name, t.browserFailed))
     } catch { /* opaque/local schemes never leave the WebView */ }
   }
-  const fail = (kind: Failure) => { ready.current = false; void clear(); setFailed(kind) }
+  const fail = (kind: Failure) => { ready.current = false; stuck.current.cancel(); void clear(); setFailed(kind) }
   /** The page has arrived: install the bridge; a page that does not confirm it pads itself gets the app's padding. */
   function settle(url: string) {
     void loaded(url).then(() => {
@@ -235,17 +237,17 @@ function TeamWeb({ address, pads, opened, onDevice, onAppearance, onChangeTeam }
       // after sign-in) as a load start, with no load end after it. The document and its bridge stay then, so nothing
       // is fenced: fencing it left the bridge off until the next full load (no session reset, push or file share).
       onLoadStart={event => {
+        currentUrl.current = event.nativeEvent.url; stuck.current.cancel()
         if (Platform.OS === 'android' && !event.nativeEvent.loading) return
         loadFailed.current = false; ready.current = false; void clear()
         // the old page stays on screen until the new one arrives: its frame stays too (no padding change here)
         setPad(p => padding(p, 'load-start'))
         // Android: a same-document navigation reported as loading gets no load end; the bridge must not stay off
-        if (stuck.current) clearTimeout(stuck.current)
-        const url = event.nativeEvent.url
-        if (Platform.OS === 'android') stuck.current = setTimeout(() => { if (!ready.current && !loadFailed.current) settle(url) }, 10_000)
+        if (Platform.OS === 'android') stuck.current.arm(event.nativeEvent.url,
+          saved => stillStuck({ saved, current: currentUrl.current, origin: address.origin, ready: ready.current, failed: loadFailed.current }), settle)
       }}
-      onLoadEnd={event => { if (stuck.current) clearTimeout(stuck.current); settle(event.nativeEvent.url) }}
-      onNavigationStateChange={state => { setCanBack(state.canGoBack); if (sameTeam(address.origin, state.url)) setPathname(new URL(state.url).pathname) }}
+      onLoadEnd={event => { stuck.current.cancel(); settle(event.nativeEvent.url) }}
+      onNavigationStateChange={state => { currentUrl.current = state.url; setCanBack(state.canGoBack); if (sameTeam(address.origin, state.url)) setPathname(new URL(state.url).pathname) }}
       onMessage={event => {
         void r.receive(event.nativeEvent.data, event.nativeEvent.url).then(reply => {
           if (!reply) return

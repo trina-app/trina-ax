@@ -79,6 +79,23 @@ export class FileTransfers {
   }
 }
 
+/** Android: a same-document navigation reported as loading gets no load end, and the bridge would stay off. After
+ * `ms` the app installs it again, but only on the page that was loading then: the top-level URL on screen is still that
+ * one and on the team's origin, and that page is neither ready nor failed. Cancelled on every load start, on load end,
+ * on the failure screen and when the team page goes away. */
+export class StuckLoad {
+  private timer: ReturnType<typeof setTimeout> | null = null
+  constructor(private ms: number, private set: typeof setTimeout = setTimeout, private unset: typeof clearTimeout = clearTimeout) {}
+  arm(url: string, still: (url: string) => boolean, reinstall: (url: string) => void) {
+    this.cancel()
+    this.timer = this.set(() => { this.timer = null; if (still(url)) reinstall(url) }, this.ms)
+  }
+  cancel() { if (this.timer) this.unset(this.timer); this.timer = null }
+  get armed() { return this.timer !== null }
+}
+export const stillStuck = (o: { saved: string; current: string; origin: string; ready: boolean; failed: boolean }) =>
+  o.current === o.saved && sameTeam(o.origin, o.current) && !o.ready && !o.failed
+
 /** True at most once per `ms`: open-settings, so a page cannot keep sending the person to the phone's Settings. */
 export function onceEvery(ms: number, now: () => number = Date.now): () => boolean {
   let last = -Infinity

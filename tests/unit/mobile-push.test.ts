@@ -1,7 +1,7 @@
 import { afterEach, expect, test } from 'bun:test'
 import fs from 'node:fs'
 import path from 'node:path'
-import { FileTransfers, MobileReceiver, onceEvery, PushRefused, type TransferIO } from '../../mobile/src/bridge'
+import { FileTransfers, MobileReceiver, onceEvery, PushRefused, StuckLoad, stillStuck, type TransferIO } from '../../mobile/src/bridge'
 import { currentDevice, leaveTeam, rememberDevice, retryRemovals, type DeviceDeps, type TeamDevice } from '../../mobile/src/device'
 import { APPEARANCE_CAPABILITY, MOBILE_CAPABILITIES, PUSH_CAPABILITY, PUSH_PERMISSION_CAPABILITY, PUSH_REGISTERED_CAPABILITY, notificationPath, parseMessage, tappedNotificationPath, validConfig, validPushToken, type MobileConfig, type PushPermission, type PushToken } from '../../mobile/src/protocol'
 import { DARK, LIGHT, NO_INSETS, frame, insetScript, isDark, padding, pageInsets } from '../../mobile/src/look'
@@ -326,4 +326,29 @@ test('padding on full loads: the old page keeps its frame at load start; no padd
   const insets = { top: 24, right: 0, bottom: 48, left: 0 }
   expect(pageInsets(true, insets)).toEqual(insets)
   expect(pageInsets(false, insets)).toEqual(NO_INSETS)
+})
+
+test('Android stuck load: the bridge comes back only on the page that was loading, and never after it was cancelled', () => {
+  // fake timers: what was armed, and its callback
+  let pending: (() => void) | null = null
+  const set = ((fn: () => void) => { pending = fn; return 1 as unknown as ReturnType<typeof setTimeout> }) as unknown as typeof setTimeout
+  const unset = (() => { pending = null }) as unknown as typeof clearTimeout
+  const origin = 'https://team.example', page = 'https://team.example/rooms'
+  let current = page, ready = false, failed = false
+  const reinstalled: string[] = []
+  const stuck = new StuckLoad(10_000, set, unset)
+  const arm = () => stuck.arm(page, saved => stillStuck({ saved, current, origin, ready, failed }), url => reinstalled.push(url))
+  arm(); pending!()
+  expect(reinstalled).toEqual([page]) // still that page, not ready: installed again
+  arm(); current = 'https://team.example/rooms/r1'; pending!() // a later navigation (reported as not loading) moved on
+  arm(); current = 'https://other.example/'; pending!()
+  current = page; arm(); ready = true; pending!() // its load end came after all
+  ready = false; arm(); failed = true; pending!() // the failure screen is up
+  expect(reinstalled).toEqual([page])
+  // cancelled on the next load start, on load end, on the failure screen and when the team page goes away
+  failed = false; arm(); expect(stuck.armed).toBe(true)
+  stuck.cancel(); expect(stuck.armed).toBe(false); expect(pending).toBeNull()
+  // the URL check alone
+  expect(stillStuck({ saved: page, current: page, origin, ready: false, failed: false })).toBe(true)
+  expect(stillStuck({ saved: 'https://evil.example/', current: 'https://evil.example/', origin, ready: false, failed: false })).toBe(false)
 })
