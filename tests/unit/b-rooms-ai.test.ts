@@ -410,7 +410,9 @@ describe('changes asked for in a room', () => {
     const plain = await card('shared/room-ai-long.md')
     expect(plain.fields?.map((f) => f.value)).toEqual(['Save', 'shared/room-ai-long.md'])
     expect(plain).toMatchObject({ text: long, collapsedAt: 400 })
-    for (const file of ['skills/room-ai-rule.md', 'users/alice/skills/room-ai.md', 'shared/CLAUDE.md']) {
+    for (const file of ['skills/room-ai-rule.md', 'users/alice/skills/room-ai.md', 'shared/CLAUDE.md',
+      // other spellings of the same places (the file layer drops empty and "." names)
+      './users/alice/skills/notes.md', 'users/alice/./skills/notes.md', 'users/alice//skills/notes.md', 'shared/CLAUDE.md/', 'Skills/room-ai-rule.md']) {
       const d = await card(file)
       expect({ file, text: d.text === long, collapsedAt: d.collapsedAt }).toEqual({ file, text: true, collapsedAt: undefined })
     }
@@ -865,6 +867,66 @@ describe('a preview from before each question kept its own scope', () => {
     expect(r.status).toBe(409)
     expect((await r.json()).error.params.reason).toBe('room_ai_ask_again')
     expect(await answerTo('erin', roomId, two.q)).toBeUndefined()
+  })
+})
+
+describe('a skill or instruction file changes from a room only with all of its content on the card', () => {
+  /** alice's call in a room of her own with erin: the tool's answer to the AI, and whether a card came */
+  const call = async (step: unknown) => {
+    const roomId = await room(['alice', 'erin'])
+    const q = await send('alice', roomId, `@트리나 do it\n${fake(step, { say: 'ok' })}`)
+    const turnId = (await ws.alice!.next('room.ai.run', (f) => f.data.run.questionId === q.id)).data.run.turnId
+    // every card is answered "no"; the first one is kept
+    const got: { card: { details?: { text: string; collapsedAt?: number }[]; requestId: string } | null } = { card: null }
+    const answered = new Set<string>()
+    for (let waited = 0; ; waited += 100) {
+      if (waited > 30_000) throw new Error('the answer did not end')
+      for (const f of ws.alice!.frames) {
+        if (f.type !== 'turn.request' || f.data.turnId !== turnId || answered.has(f.data.request.requestId)) continue
+        answered.add(f.data.request.requestId)
+        got.card ??= f.data.request as NonNullable<typeof got.card>
+        await h.api('alice').call(API.answerTurn, { params: { id: turnId }, body: { kind: 'ask_user', requestId: f.data.request.requestId, answer: 'skip' } })
+      }
+      if (ws.alice!.frames.some((f) => f.type === 'room.ai.run' && f.data.run.turnId === turnId && f.data.run.state === 'done')) break
+      await Bun.sleep(100)
+    }
+    const steps = (h.ctx.db.query("SELECT summary FROM tool_events WHERE turn_id = ? AND tool <> '(connect)'").all(turnId) as { summary: string }[]).map((r) => r.summary)
+    return { card: got.card, steps }
+  }
+  const mine = (rel: string, body = 'x\n') => { const abs = path.join(h.team, rel); fs.mkdirSync(path.dirname(abs), { recursive: true }); fs.writeFileSync(abs, body); return abs }
+
+  test('moved, copied or renamed into one, made from a source or template, or saved from the web: not done, no card', async () => {
+    const files = [mine('users/alice/r6-notes.md'), mine('users/alice/r6-dir/CLAUDE.md'), mine('users/alice/r6-src.md')]
+    try {
+      for (const step of [
+        { tool: 'rename_file', args: { path: 'users/alice/r6-notes.md', new_name: 'CLAUDE.md' } },
+        { tool: 'move_files', args: { paths: ['users/alice/r6-notes.md'], to_folder: 'users/alice/skills' } },
+        { tool: 'copy_files', args: { paths: ['users/alice/r6-notes.md'], to_folder: './users/alice//skills' } },
+        // a folder that holds an instruction file
+        { tool: 'move_files', args: { paths: ['users/alice/r6-dir'], to_folder: 'shared' } },
+        { tool: 'make_file', args: { source: 'users/alice/r6-src.md', format: 'docx', output: 'users/alice/skills/r6.docx' } },
+        { tool: 'save_url', args: { url: 'https://example.com/a.md', save_as: 'users/alice/skills/r6.md' } },
+      ]) {
+        const r = await call(step)
+        expect({ step: step.tool, card: r.card, refused: r.steps.some((x) => x.includes('not allowed by the user (room)')) }).toEqual({ step: step.tool, card: null, refused: true })
+      }
+      expect(fs.existsSync(path.join(h.team, 'users/alice/CLAUDE.md'))).toBe(false)
+      expect(fs.existsSync(path.join(h.team, 'users/alice/r6-notes.md'))).toBe(true)
+      expect(fs.existsSync(path.join(h.team, 'shared/r6-dir'))).toBe(false)
+    } finally {
+      for (const f of files) fs.rmSync(f, { force: true })
+      fs.rmSync(path.join(h.team, 'users/alice/r6-dir'), { recursive: true, force: true })
+    }
+  })
+
+  test('elsewhere such a call gets its card, which says plainly that its content is not on it', async () => {
+    const src = mine('users/alice/r6-src2.md')
+    try {
+      const made = await call({ tool: 'make_file', args: { source: 'users/alice/r6-src2.md', format: 'docx', output: 'shared/r6.docx' } })
+      expect(made.card?.details?.[0]?.text).toBe('Not all of what it saves is on this card: it comes from users/alice/r6-src2.md.')
+      const moved = await call({ tool: 'move_files', args: { paths: ['users/alice/r6-src2.md'], to_folder: 'shared' } })
+      expect(moved.card?.details?.[0]?.text).toBe('users/alice/r6-src2.md')
+    } finally { fs.rmSync(src, { force: true }) }
   })
 })
 

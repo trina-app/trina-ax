@@ -8343,8 +8343,14 @@ every week. Placement: Team AX core (skills, files and permissions, the team lin
     click away ("전체 보기", `ConfirmDetail.collapsedAt`; the size above counts all of it). The review of ae4c861c
     noted that a 400-character cut alone let a planted write hide its payload after the preview. For skills/, a
     person's skills and instruction files by name (CLAUDE.md, AGENTS.md, GEMINI.md, SKILL.md) all of it shows from the
-    start (`instructionLike`). `roomChangeDetails` in `chat/turn.ts`; a tool without its own lines shows its
-    arguments one per line. A detail without text (a rename) shows no empty box.
+    start (`instructionLike`, matched on the path as the file layer reads it: `./users/a/skills/x.md`,
+    `users/a//skills/x.md`, `shared/CLAUDE.md/` and other spellings count). `roomChangeDetails` in `chat/turn.ts`;
+    a tool without its own lines shows its arguments one per line. A detail without text (a rename) shows no empty
+    box. Content a card cannot show (a file made from a source or template, a file saved from the web, an edited copy
+    saved as a new file) is said plainly on it ("저장될 내용은 이 카드에 다 보이지 않아요. …에서 가져와요."). Such a
+    call, or a move, copy or rename (a folder brings every file in it), that would put content into a skill, team rule
+    or instruction file is not made from a room at all, with no card: the AI is told why, and the person can do it in
+    their own chat or have the content written out with write or edit (`roomChangeWrites`, re-review of 57ef7383).
   - **Why a preview is private, in short sentences** (supersedes the one sentence of the UX review). "올리면 이 폴더를
     못 여는 사람도 이 내용을 봐요: 재무, 내 폴더, 다른 사람이 못 여는 폴더" mixed reasons into a list, and "다른 사람이
     못 여는" was wrong when the asker cannot open the folder either. Now one plain sentence per reason, in this order:

@@ -25,6 +25,7 @@ import type { LaunchHandle } from '../native'
 import type { LaunchRequest } from '@mycel/shared'
 import { atLeast, type Principal } from '../policy/access'
 import { parseInput, walk } from '../policy/resolve'
+import { badSegment, hiddenEntry } from '../policy/names'
 import { TurnFiles } from '../files/service'
 import { saveSources } from '../files/sources'
 import { buildSubagentPrompt, buildTurnContext, buildTurnPrompt, continuationBlock, historyTrimmed, instructionFiles, neutralizeTags, skillBlock, skillHintsBlock, type PromptInput } from './prompt'
@@ -1284,6 +1285,36 @@ export class TurnExec {
     return [...out]
   }
 
+  /** The names under a folder the person may see (as `list` shows them, relative to it), for a room change that would
+   * carry them along; [] for a file or a path they cannot open, null past ROOM_CHANGE_SCAN_MAX. A folder with something
+   * they cannot see does not move at all (team-files hiddenInside), so what they see is what would move. */
+  private visibleTree(p: string): string[] | null {
+    const fx = this.rt.files.fx, rules = this.rt.files.rules()
+    let me: Principal, root: { abs: string; segs: string[] }
+    try {
+      me = this.livePrincipal()
+      const r = authorize(fx, rules, me, p, 'list')
+      if (!r.st?.isDirectory()) return []
+      root = { abs: r.abs, segs: r.segs }
+    } catch { return [] }
+    const out: string[] = []
+    const todo: { abs: string; segs: string[]; rel: string[] }[] = [{ ...root, rel: [] }]
+    while (todo.length) {
+      const d = todo.pop()!
+      let ents: fs.Dirent[]
+      try { ents = fs.readdirSync(d.abs, { withFileTypes: true }) } catch { continue }
+      for (const e of ents) {
+        if (hiddenEntry(e.name, d.segs.length) || badSegment(e.name) || e.isSymbolicLink()) continue
+        const segs = [...d.segs, e.name], rel = [...d.rel, e.name]
+        if (e.isDirectory() ? !rules.canList(me, segs) : !atLeast(rules.access(me, segs), 'read')) continue
+        out.push(rel.join('/'))
+        if (out.length > ROOM_CHANGE_SCAN_MAX) return null
+        if (e.isDirectory()) todo.push({ abs: path.join(d.abs, e.name), segs, rel })
+      }
+    }
+    return out
+  }
+
   /**
    * A room's AI session: a call that may change something (any tool outside rooms/ai-tools.ts ROOM_READ_ONLY_TOOLS,
    * connections and later tools included) waits for the person who asked to allow it on a server card, whatever
@@ -1292,6 +1323,11 @@ export class TurnExec {
    */
   async confirmRoomChange(tool: string, input: unknown): Promise<string | null> {
     if (!this.room || ROOM_READ_ONLY_TOOLS.has(tool)) return null
+    // a skill, team rule or instruction file changes from a room only with all of its new content on the card
+    const w = roomChangeWrites(tool, input, (p) => this.visibleTree(p))
+    if (!w.shown && w.targets.some(instructionLike)) {
+      return `Not done (${tool}): in a team chat room, a skill, team rule or instruction file (skills/, a person's skills, CLAUDE.md, AGENTS.md, GEMINI.md, SKILL.md) is changed only when the user can see all of its new content on the confirmation card, and this call's content cannot be shown there (it comes from a file, a template or the web, or files are moved, copied or renamed into place). Nothing was changed. Tell the user so: they can do it in their own chat, or you can write the content out with write or edit.`
+    }
     let args = ''
     try { args = JSON.stringify(input ?? null) } catch { args = String(input) }
     const key = `${tool}\u0000${args}`
@@ -1757,11 +1793,59 @@ export const ROOM_CHANGE_PREVIEW = 400
 /** at most this much of it is sent at all (with the whole length said): a card is read, not a file viewer */
 export const ROOM_CHANGE_FULL = 100_000
 
-/** Files that tell an AI what to do: team skills and rules (skills/), a person's skills, and instruction files by name.
- * What a call would write there is shown in full on a room's change card. */
+/** A team path as the file layer reads it (policy/resolve.ts parseInput: no empty or "." names), NFC; null when it is
+ * not one (the tool refuses it). */
+function teamSegs(p: unknown): string[] | null {
+  try { return parseInput(p).map((x) => x.normalize('NFC')) } catch { return null }
+}
+
+/** Files that tell an AI what to do: team skills and rules (skills/), a person's skills, and instruction files by name,
+ * matched on the path as the file layer resolves it (any spelling: "./", "//", "a/./b", a trailing "/", letter case).
+ * What a call would write there is shown in full on a room's change card, or the call is not made from a room. */
 export function instructionLike(rel: string): boolean {
-  const p = rel.normalize('NFC').replace(/^\/+/, '')
-  return inSkills(p) || /^users\/[^/]+\/skills(\/|$)/i.test(p) || /(^|\/)(CLAUDE|AGENTS|GEMINI|SKILL)\.md$/i.test(p)
+  const segs = teamSegs(rel)
+  if (!segs?.length) return false
+  const p = segs.join('/')
+  return inSkills(p) || /^users\/[^/]+\/skills(\/|$)/i.test(p) || /^(CLAUDE|AGENTS|GEMINI|SKILL)\.md$/i.test(segs.at(-1)!)
+}
+
+/** at most this many names of a folder a room change would carry are looked at (more: treated as unknown) */
+export const ROOM_CHANGE_SCAN_MAX = 2000
+
+/**
+ * Where a room change would put content, and whether its card can show all of that content. `shown` is false when the
+ * call carries content the card cannot show: a file made from a source or template, a page or file from the web, an
+ * edited copy saved as a new file, files moved, copied or renamed (their bytes stay as they are). A moved or renamed
+ * folder brings its files along (`tree`: the names the person sees under it, null past ROOM_CHANGE_SCAN_MAX).
+ */
+export function roomChangeWrites(tool: string, input: unknown, tree: (p: string) => string[] | null): { targets: string[]; shown: boolean } {
+  const a = input && typeof input === 'object' && !Array.isArray(input) ? input as Record<string, unknown> : {}
+  const str = (v: unknown) => (typeof v === 'string' ? v : '')
+  const list = (v: unknown) => (Array.isArray(v) ? v.filter((x): x is string => typeof x === 'string') : typeof v === 'string' ? [v] : [])
+  // what lands under `folder` when `from` goes there with the name `name` (a folder: everything in it too)
+  const landing = (from: string, folder: string[], name: string) => {
+    const at = [...folder, name].join('/')
+    const under = tree(from)
+    // too many names to look at: counted as holding an instruction file (it might)
+    return under === null ? [at, `${at}/SKILL.md`] : [at, ...under.map((r) => `${at}/${r}`)]
+  }
+  switch (tool) {
+    case 'write': case 'edit': return { targets: [str(a.file_path)], shown: true }
+    case 'edit_files': return { targets: list(a.file_paths), shown: true }
+    case 'edit_hwp': return str(a.output) ? { targets: [str(a.output)], shown: false } : { targets: [str(a.file_path)], shown: true }
+    case 'make_file': return { targets: [str(a.output)], shown: !str(a.source) && !str(a.template) && !list(a.images).length }
+    case 'save_url': return { targets: [str(a.save_as)], shown: false }
+    case 'move_files': case 'copy_files': {
+      const to = teamSegs(a.to_folder) ?? []
+      return { targets: list(a.paths).flatMap((p) => { const segs = teamSegs(p); return segs?.length ? landing(p, to, segs.at(-1)!) : [] }), shown: false }
+    }
+    case 'rename_file': {
+      const segs = teamSegs(a.path)
+      return { targets: segs?.length ? landing(str(a.path), segs.slice(0, -1), str(a.new_name)) : [], shown: false }
+    }
+  }
+  // any other change (a tool added later): every string it is given may be a place it writes
+  return { targets: Object.values(a).flatMap(list), shown: false }
 }
 
 /**
@@ -1796,16 +1880,22 @@ function roomChangeDetails(tool: string, input: unknown, L: Locale): { label: st
       return detail([field('roomAiChangeFile', str(a.file_path))], str(a.content) || tr('roomAiChangeEmpty', L), [str(a.file_path)])
     case 'edit':
       return detail([field('roomAiChangeFile', str(a.file_path))], `${str(a.old_string)}\n→\n${str(a.new_string) || tr('roomAiChangeEmpty', L)}`, [str(a.file_path)])
-    case 'make_file':
+    case 'make_file': {
+      // made from a file (a source, a template, pictures): what those hold is not on the card, and the card says so
+      const from = [str(a.source), str(a.template), ...(Array.isArray(a.images) ? a.images.filter((x): x is string => typeof x === 'string') : [])].filter(Boolean)
+      const notShown = from.length ? tr('roomAiChangeNotShown', L, { from: from.join(', ') }) : ''
       return detail([
         field('roomAiChangeFile', str(a.output)),
         ...(str(a.source) ? [field('roomAiChangeSource', str(a.source))] : []),
         ...(str(a.template) ? [field('roomAiChangeTemplate', str(a.template))] : []),
-      ], str(a.content), [str(a.output)])
+      ], [notShown, str(a.content)].filter(Boolean).join('\n\n'), [str(a.output)])
+    }
     case 'edit_hwp': {
       const changes = Array.isArray(a.changes) ? a.changes as Record<string, unknown>[] : []
       const lines = changes.map((c) => (c && typeof c === 'object' && typeof c.find === 'string' ? `${c.find} → ${str(c.replace)}` : tr('roomAiChangeCell', L)))
-      return detail([field('roomAiChangeFile', str(a.file_path)), ...(str(a.output) ? [field('roomAiChangeSaveAs', str(a.output))] : [])], lines.join('\n'), [str(a.file_path), str(a.output)])
+      // saved as a new file: the rest of the document it copies is not on the card
+      const notShown = str(a.output) ? tr('roomAiChangeNotShown', L, { from: str(a.file_path) }) : ''
+      return detail([field('roomAiChangeFile', str(a.file_path)), ...(str(a.output) ? [field('roomAiChangeSaveAs', str(a.output))] : [])], [notShown, lines.join('\n')].filter(Boolean).join('\n\n'), [str(a.file_path), str(a.output)])
     }
     case 'move_files':
     case 'copy_files':
@@ -1813,7 +1903,7 @@ function roomChangeDetails(tool: string, input: unknown, L: Locale): { label: st
     case 'rename_file':
       return detail([field('roomAiChangeFile', str(a.path)), field('roomAiChangeNewName', str(a.new_name))], '')
     case 'save_url':
-      return detail([field('roomAiChangeAddress', str(a.url)), ...(str(a.save_as) ? [field('roomAiChangeSaveAs', str(a.save_as))] : [])], '', [str(a.save_as)])
+      return detail([field('roomAiChangeAddress', str(a.url)), ...(str(a.save_as) ? [field('roomAiChangeSaveAs', str(a.save_as))] : [])], tr('roomAiChangeNotShown', L, { from: str(a.url) }), [str(a.save_as)])
   }
   // any other change (a tool added later): its arguments one per line
   const plain = (v: unknown): string => (typeof v === 'string' ? v : Array.isArray(v) ? v.map(plain).join(', ') : v && typeof v === 'object' ? Object.entries(v).map(([k, x]) => `${k}: ${plain(x)}`).join(', ') : String(v))

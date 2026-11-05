@@ -139,6 +139,7 @@ export const TEXT = {
   roomAiChangeSaveAs: t('저장할 곳', 'Save as', 'Simpan sebagai', "保存先", "Guardar como"),
   roomAiChangeAddress: t('주소', 'Address', 'Alamat', "アドレス", "Dirección"),
   roomAiChangeCell: t('표 칸 고치기', 'A table cell', 'Sel tabel', "表のセル", "Una celda de tabla"),
+  roomAiChangeNotShown: t('저장될 내용은 이 카드에 다 보이지 않아요. {from}에서 가져와요.', 'Not all of what it saves is on this card: it comes from {from}.', 'Tidak semua yang disimpan ada di kartu ini: isinya diambil dari {from}.', "保存される内容の一部はこのカードに表示されません。{from} から取り込みます。", "No todo lo que guarda aparece en esta tarjeta: viene de {from}."),
   roomAiChangeEmpty: t('(빈 내용)', '(empty)', '(kosong)', "（空）", "(vacío)"),
   roomAiChangeCut: t('(모두 {n}자 중 앞부분)', '(the start of {n} characters)', '(awal dari {n} karakter)', "（全{n}文字のうち最初の部分）", "(el inicio de {n} caracteres)"),
   roomAiReasonsChanged: t('그 사이에 대화방 멤버나 권한이 바뀌었어요. 바뀐 이유를 확인하고 다시 올려 주세요.', 'The room\'s members or access changed in the meantime. Check the new reasons and post it again.', 'Anggota atau akses ruang berubah sementara itu. Periksa alasan barunya lalu kirim lagi.', "その間にルームのメンバーや権限が変わりました。新しい理由を確認して、もう一度投稿してください。", "Los miembros o el acceso de la sala cambiaron mientras tanto. Revise los nuevos motivos y publíquela de nuevo."),
