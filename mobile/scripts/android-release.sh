@@ -37,6 +37,8 @@ export ANDROID_HOME="${ANDROID_HOME:-$ANDROID_SDK_ROOT}"
 if [[ -z "${JAVA_HOME:-}" && -x /usr/libexec/java_home ]]; then JAVA_HOME="$(/usr/libexec/java_home -v 17 2>/dev/null || true)"; export JAVA_HOME; fi
 out="${OUT:-$here/build/android-$BUILD_NUMBER}"
 mkdir -p "$out"
+# never leave the upload certificate listing or the resource dump behind, also when a check below fails
+trap 'rm -f "$out/upload-cert.txt" "$out/resources.pb" "$out/bundle-files.txt"' EXIT
 
 cd "$here"
 # For the whole run: Gradle's "createExpoConfig" step runs expo config again, and that config is what the app reads.
@@ -52,6 +54,10 @@ cp android/app/build/outputs/bundle/release/app-release.aab "$aab"
 # 1. The app reads the edition's config at runtime (name, package), not the neutral one.
 unzip -p "$aab" base/assets/app.config > "$out/app.config.json"
 node -e "const c=JSON.parse(require('fs').readFileSync(process.argv[1],'utf8')),want=require(process.argv[2]);if(c.name!==want.name||c.extra?.teamAxEdition?.bundleId!==want.bundleId||c.android?.package!==want.bundleId||String(c.android?.versionCode)!==process.argv[3]){console.error('embedded app.config is not the edition build ('+c.name+', '+c.android?.package+', '+c.android?.versionCode+')');process.exit(1)}" "$out/app.config.json" "$edition_json" "$BUILD_NUMBER"
+# 1a. No local-test trust (plugins/test-ca.js writes it into android/app/src/main/res; a hand build with
+# MYCEL_MOBILE_TEST_CA exported would carry it into the bundle).
+unzip -l "$aab" > "$out/bundle-files.txt"
+if grep -q 'mycel_test' "$out/bundle-files.txt"; then echo "the bundle contains the local-test CA (mycel_test_*): rebuild without MYCEL_MOBILE_TEST_CA" >&2; exit 1; fi
 # 1b. With Firebase: the bundle carries that project's config for this package (values are compared, never printed).
 if [[ -n "${MYCEL_MOBILE_GOOGLE_SERVICES:-}" ]]; then
   unzip -p "$aab" base/resources.pb > "$out/resources.pb"
