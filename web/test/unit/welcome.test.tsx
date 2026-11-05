@@ -601,6 +601,25 @@ describe('/welcome', () => {
     } finally { await m.unmount() }
   })
 
+  test('the owner alone: "지금은 나만 봐요", not "Acme 1명만 봐요" (docs/DECISIONS.md "W3")', async () => {
+    signIn('owner')
+    progress = atResult()
+    const saved = { groups: routes['GET /api/admin/groups']! }
+    routes['GET /api/admin/users'] = () => json(200, { items: [{ id: 'olga', username: 'olga', name: 'olga', email: null, role: 'owner', status: 'active', mustChangePassword: false, locale: 'ko', localeChoice: null, groupIds: [TEAM.id], createdAt: '2026-11-04T00:00:00.000Z', lastSeenAt: null }], noAi: [] })
+    routes['GET /api/admin/groups'] = () => json(200, { items: [{ id: TEAM.id, name: 'Acme', description: null, memberIds: ['olga'] }] })
+    const m = await app()
+    try {
+      await m.until(() => m.get('welcome-files-who')?.textContent === '여기 올린 파일은 지금은 나만 봐요 · 팀원을 초대하면 Acme 모두가 봐요', 'the line')
+      expect(m.get('welcome-files-who').textContent).not.toContain('1명')
+      expect(m.find('welcome-files-add-members')).toBeFalsy()
+    } finally {
+      await m.unmount()
+      delete routes['GET /api/admin/users']
+      routes['GET /api/admin/groups'] = saved.groups
+    }
+    for (const l of ['ko', 'en', 'id', 'ja', 'es'] as const) expect(translate(l, 'welcome.files.whoAlone', { team: 'Acme' })).toContain('Acme')
+  })
+
   test('the line says how many see the team folder; members who joined before can be added in one quiet click', async () => {
     signIn('owner')
     progress = atResult()
@@ -1060,8 +1079,9 @@ describe('after the first result', () => {
     } finally { await m.unmount() }
   })
 
-  // ---- the team skill card ("S") on its own: the bar under the first result shares the pack's skill now, and nothing
-  // else opens the card yet; it keeps working with the invite after it, as the bar showed it before
+  // ---- the team skill card ("S") on its own: the bar under the first result shares the pack's skill now, and the card
+  // opens from the one suggestion under a later answer (result-suggestion.test.tsx, "W3"); it keeps working with the
+  // invite after it, as the bar showed it before
   const DRAFT = '01900000-0000-7000-8000-0000000000d1'
   const SHARED = { path: 'skills/general/juganhoeui-hal-il/SKILL.md', name: 'juganhoeui-hal-il', title: '주간 회의 할 일' }
   const CARD = {
@@ -1143,7 +1163,7 @@ describe('after the first result', () => {
       await m.click('skill-share-share')
       await m.until(() => m.find('team-link-message'), 'the message')
       expect(called('PATCH /api/admin/team-link').map((c) => c.body)).toEqual([{ skillPath: SHARED.path, starter: null, addGroupIds: [TEAM.id] }])
-      expect(m.get('team-link-message').textContent).toBe("우리 팀 '주간 회의 할 일' 스킬을 만들어 뒀어요. 링크 열면 같은 방식으로 바로 써요.\nhttps://acme.example/join#t=open")
+      expect(m.get('team-link-message').textContent).toBe("Acme에 '주간 회의 할 일' 스킬을 만들어 뒀어요. 링크 열면 같은 방식으로 바로 써요.\nhttps://acme.example/join#t=open")
     } finally { await m.unmount() }
   })
 

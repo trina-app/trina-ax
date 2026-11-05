@@ -211,6 +211,6 @@ p.body{font-size:3.5cqw;line-height:1.55;margin-top:2.8cqw;opacity:.88}
 
 ## 6. The answer
 - The cards open by themselves beside the chat, so the answer is one line, written after the artifact: "I made five promo cards for (Company name). Tell me which card you would like changed."
-- Cards made without a photo: add one sentence, "Add photos to the brand images folder and ask me again to put them in."
+- Only when one of cards 1–3 uses its type-only version (`type-cover`, `type-statement`, `type-points`), add one sentence: "Card (n) had no fitting photo, so it is type only. Add photos to the brand images folder and ask me again to put them in." Cards 4 (the number) and 5 (the next step) have no photo by design and never count. When cards 1–3 all use a photo, say nothing about photos.
 - Nothing else in the answer: no skill name, no file path or file name, no line per card, no number sources (they are on the source line), no list of the photos you used or left out. Write nothing before the artifact either.
 - Make the cards only: never post, send or share them, and never say you did.

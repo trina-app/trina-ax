@@ -475,6 +475,30 @@ function sourceRefusal(ctx: AppContext, locale: Locale, chatId: string, use: { u
   return closed.length ? refuse(locale, 'private', closed) : null
 }
 
+/**
+ * The one suggestion under an answer may offer "이 방식대로 팀 스킬로 만들까요?" (docs/DECISIONS.md "W3": S's card had
+ * no entry since the welcome's first result shares the pack's own skill). Only for an owner's or admin's own finished
+ * answer whose conversation used team files and ran no team skill (its way is a team skill already), not the welcome
+ * steps' first result, not a draft chat, not an answer a skill was already shared from, and only when the draft would
+ * start: the same refusals as startSkillDraft (confidential, outside content, unverified reads, a file the team cannot
+ * open). Cheap checks first: this runs for every answer such a person reads.
+ */
+export function teamSkillOffer(ctx: AppContext, rt: ChatRuntime, userId: string, chatId: string, messageId: string): boolean {
+  const role = (ctx.db.query('SELECT role FROM users WHERE id = ?').get(userId) as { role: string } | null)?.role
+  if (role !== 'owner' && role !== 'admin') return false
+  const src = rt.store.ownChat(userId, chatId)
+  if (!src || readWelcome(ctx)?.resultChatId === src.id) return false
+  if (draftScopeOf(ctx.db, src.id) || skillDraftOf(ctx.db, src.id)) return false
+  const leaf = rt.store.messageRow(messageId)
+  if (!leaf || leaf.chat_id !== src.id || leaf.role !== 'assistant' || leaf.status !== 'done' || !leaf.parent_id) return false
+  if (ctx.db.query('SELECT 1 FROM onboarding_skill_drafts WHERE user_id = ? AND source_message_id = ? AND saved_path IS NOT NULL LIMIT 1').get(userId, leaf.id)) return false
+  const path = rt.store.pathTo(leaf.id)
+  if (path.some((m) => m.role === 'assistant' && m.turn_id && ctx.db.query('SELECT 1 FROM turn_skill_runs WHERE turn_id = ? LIMIT 1').get(m.turn_id))) return false
+  const use = conversationUse(ctx, rt, leaf.id)
+  if (!use.team.length) return false
+  return sourceRefusal(ctx, 'en', src.id, use) === null
+}
+
 /** A draft's state as its latest answer says, without changing anything. `rewrite`: that answer did not pass and the
  * one rewrite was not asked yet (the start asks for it). */
 function evaluate(ctx: AppContext, rt: ChatRuntime, userId: string, d: SkillDraftScope): { state: SkillDraftState; answerId: string | null; read: SkillDraftRead | null } {

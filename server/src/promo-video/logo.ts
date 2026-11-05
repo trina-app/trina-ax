@@ -1,5 +1,5 @@
 // How the logo sits on the dark end card of the promo video (docs/DECISIONS.md "V"): the whole logo, never split into
-// parts. From its pixels (32×32 RGBA by the isolated ffmpeg, the same way the website reading finds a logo's colour):
+// parts. From its pixels (64×64 point-sampled RGBA by the isolated ffmpeg, the same way the website reading finds a logo's colour):
 //   tile   — (almost) no transparency: the logo with its own background, rounded, as an app icon;
 //   direct — transparent and light or bright enough to read on the dark ground: as it is;
 //   white  — transparent, dark and without colour (a black wordmark): drawn white;
@@ -33,7 +33,7 @@ export function logoTreatFromPixels(raw: Uint8Array, ground: string): LogoTreat 
 }
 
 export async function logoTreat(bytes: Buffer, ext: 'png' | 'jpg' | 'webp', ground: string): Promise<LogoTreat> {
-  const raw = await rawRgba(bytes, ext, 32)
+  const raw = await rawRgba(bytes, ext, 64)
   if (!raw) return ext === 'jpg' ? 'tile' : 'chip'
   return logoTreatFromPixels(raw, ground)
 }

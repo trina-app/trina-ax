@@ -27,7 +27,7 @@ import type { Logger } from '../log'
 import { which } from '../config'
 import { imageSize } from '../uploads/image'
 import { makeWorkDir, runIsolated } from '../tools/isolate'
-import { decode, decodeEntities, pinnedGet, resolveTarget, type ResolveOptions } from '../tools/web-fetch'
+import { decode, decodeEntities, htmlToText, pinnedGet, resolveTarget, type ResolveOptions } from '../tools/web-fetch'
 
 /** Images kept aside per draft chat (the logo among them). */
 export const BRAND_IMAGES_MAX = 8
@@ -39,6 +39,8 @@ const STYLESHEETS_MAX = 2
 const STYLESHEET_BYTES = 512 * 1024
 /** Characters of each page's text kept for 회사 소개.md. */
 export const BRAND_PAGE_TEXT_MAX = 4000
+/** A line of page text shorter than this (letters and digits) says nothing ("›", "01", "+"). */
+const LINE_MIN_CHARS = 2
 const FETCH_TIMEOUT_MS = 12_000
 /** A content picture smaller than this on its short side is an icon, a thumbnail or a badge. */
 const MIN_SIDE = 300
@@ -308,6 +310,122 @@ export function extractPageAssets(html: string, base: URL): PageAssets {
   return { logos: sort(logos), images: sort(images), colors, stylesheets }
 }
 
+// ---------------- the page's own words (회사 소개.md) ----------------
+
+/** A phrase said again right after itself ("조용한 바람 조용한 바람": a site's phone, tablet and computer
+ * versions of one heading) once. Bounded: at most 200 words and phrases of at most 20 words are looked at. */
+export function dropRepeats(line: string): string {
+  const w = line.split(' ')
+  if (w.length < 2 || w.length > 200) return line
+  const same = (i: number, j: number, k: number) => { for (let x = 0; x < k; x++) if (w[i + x] !== w[j + x]) return false; return true }
+  for (let i = 0; i < w.length; i++) {
+    let chars = 0
+    for (let k = 1; k <= 20 && i + 2 * k <= w.length; k++) {
+      chars += w[i + k - 1]!.length
+      // a phrase of at least four characters ("하하 하하", "a a" stay)
+      if (chars < 4) continue
+      while (i + 2 * k <= w.length && same(i, i + k, k)) w.splice(i + k, k)
+    }
+  }
+  return w.join(' ')
+}
+
+/** Lines of a page looked at, at most (a page of endless short lines stops here). */
+const PAGE_LINES_MAX = 3000
+/** Characters of one line looked at, at most (more could never be kept: a page keeps at most BRAND_PAGE_TEXT_MAX). */
+const LINE_MAX = 8000
+const SPACE = /\s/g
+
+/**
+ * The "[label](address)" links of web_fetch's text reduced to their labels, in one pass: pages come from anyone, and a
+ * pattern tried at every "[" of a line of thousands of them took seconds (review). Each "](" is looked at once, the
+ * "[" before it is the last one seen (at most 300 characters back), and the ")" and the first space after it are kept
+ * from the last search, so every character is looked at a bounded number of times. `words`: the line with the labels,
+ * `outside`: the line without the links, `links`: how many.
+ */
+export function unlink(line: string): { words: string; outside: string; links: number } {
+  if (!line.includes('](')) return { words: line, outside: line, links: 0 }
+  let words = '', outside = '', links = 0
+  // the text before `from` is done; `lastOpen` is the last "[" before `seen`
+  let from = 0, lastOpen = -1, seen = 0
+  // the next ")" and the next space at or after the last place asked (-1: none left; -2: not looked yet)
+  let paren = -2, space = -2
+  const parenFrom = (at: number) => { if (paren !== -1 && paren < at) paren = line.indexOf(')', at); return paren }
+  const spaceFrom = (at: number) => {
+    if (space !== -1 && space < at) { SPACE.lastIndex = at; const m = SPACE.exec(line); space = m ? m.index : -1 }
+    return space
+  }
+  for (let pos = line.indexOf(']('); pos >= 0; pos = line.indexOf('](', pos + 2)) {
+    for (; seen < pos; seen++) if (line.charCodeAt(seen) === 91 /* [ */) lastOpen = seen
+    if (lastOpen < from || pos - lastOpen > 301) continue
+    const end = parenFrom(pos + 2)
+    if (end < 0) break
+    const sp = spaceFrom(pos + 2)
+    if (end - pos > 2002 || (sp >= 0 && sp < end)) continue
+    words += line.slice(from, lastOpen) + line.slice(lastOpen + 1, pos)
+    outside += line.slice(from, lastOpen)
+    from = end + 1
+    links++
+    // the next "](" after this link
+    pos = end - 1
+  }
+  return { words: words + line.slice(from), outside: outside + line.slice(from), links }
+}
+
+/** A line without its list or heading marks and table bars, in one pass (no pattern that could backtrack). */
+function unmark(s: string): string {
+  let a = 0, b = s.length
+  for (;;) {
+    const c = s[a]
+    if (c === '|' || c === ' ' || c === '\t') { a++; continue }
+    if ((c === '-' || c === '*' || c === '•') && /\s/.test(s[a + 1] ?? '')) { a += 2; continue }
+    if (c === '#') { let h = a; while (h < b && h - a < 6 && s[h] === '#') h++; if (/\s/.test(s[h] ?? '')) { a = h + 1; continue } }
+    break
+  }
+  while (b > a && (s[b - 1] === '|' || /\s/.test(s[b - 1]!))) b--
+  return s.slice(a, b)
+}
+
+/**
+ * A page's text as lines worth quoting (docs/DECISIONS.md "W3"): one line per heading, paragraph or list item, links
+ * reduced to their words, a phrase said twice in a row once, and none of these: an empty line, a line that is only
+ * links (a menu), a line without two letters or digits, a line the page already said. At most `max` characters, cut at
+ * a line (a first line longer than that is cut with "…"). Also tidies text kept before this (web_fetch's text: CRLF
+ * lines, the site menu). Linear in the text: hostile pages are in the tests.
+ */
+export function pageLines(text: string, max = BRAND_PAGE_TEXT_MAX): string[] {
+  const out: string[] = []
+  const seen = new Set<string>()
+  let used = 0
+  let looked = 0
+  for (const raw of text.replace(/\r\n?/g, '\n').split('\n')) {
+    if (used >= max || looked >= PAGE_LINES_MAX) break
+    const line = raw.slice(0, LINE_MAX).trim()
+    if (!line) continue
+    looked++
+    // a line that is only links and marks is a menu
+    const { words, outside, links } = unlink(line)
+    if (links && !/[\p{L}\p{N}]/u.test(outside)) continue
+    const tidy = unmark(words).replace(/\s+/g, ' ').trim()
+    if ((tidy.match(/[\p{L}\p{N}]/gu) ?? []).length < LINE_MIN_CHARS) continue
+    const clean = dropRepeats(tidy)
+    const key = clean.normalize('NFC').toLowerCase()
+    // said already: the same line, or part of one of the last few (a heading and then its paragraph)
+    if (seen.has(key) || out.slice(-3).some((o) => o.includes(clean))) continue
+    seen.add(key)
+    const room = max - used
+    if (clean.length > room) { if (!out.length) out.push(clean.slice(0, room - 1).trimEnd() + '…'); break }
+    out.push(clean)
+    used += clean.length + 1
+  }
+  return out
+}
+
+/** The text of a page for 회사 소개.md: its own content without the site's frame (htmlToText's prose mode), as lines. */
+export function introText(html: string, base: URL, max = BRAND_PAGE_TEXT_MAX): string {
+  return pageLines(htmlToText(html.slice(0, 3 * 1024 * 1024), base, { prose: true }).text, max).join('\n')
+}
+
 // ---------------- fetching ----------------
 
 export interface FetchedImage { bytes: Buffer; ext: 'png' | 'jpg' | 'webp'; width: number; height: number; url: string }
@@ -371,20 +489,32 @@ export async function downsize(img: { bytes: Buffer; ext: string; width: number;
   return size ? { bytes: jpeg, ext: 'jpg', ...size } : null
 }
 
-/** A picture as size×size RGBA pixels (stretched), by the isolated ffmpeg; null without ffmpeg or on failure. */
+/** A picture as size×size RGBA pixels (stretched, point-sampled like logoColors so thin strokes keep their colour and
+ * opacity), by the isolated ffmpeg; null without ffmpeg or on failure. The promo video reads a logo's look from it. */
 export async function rawRgba(bytes: Buffer, ext: string, size = 32): Promise<Uint8Array | null> {
-  const raw = await ffmpegPipe(bytes, ext, ['-frames:v', '1', '-vf', `scale=${size}:${size}`, '-f', 'rawvideo', '-pix_fmt', 'rgba', 'pipe:1'], size * size * 4 + 1024)
+  const raw = await ffmpegPipe(bytes, ext, ['-frames:v', '1', '-vf', `scale=${size}:${size}:flags=neighbor`, '-f', 'rawvideo', '-pix_fmt', 'rgba', 'pipe:1'], size * size * 4 + 1024)
   return raw && raw.length >= size * size * 4 ? raw.subarray(0, size * size * 4) : null
 }
 
-/** The logo's dominant colours (opaque pixels that are not white, black or grey), strongest first. */
+/** The logo is looked at this many pixels on its long side, at most. */
+const LOGO_SAMPLE_SIDE = 128
+
+/**
+ * The logo's dominant colours (opaque pixels that are not white, black or grey), strongest first. The logo is
+ * point-sampled (nearest neighbour, its own shape kept), never averaged: squeezing a wide logo of thin letters into a
+ * small square blended every letter with the white around it, so a deep blue came out a muted indigo and became the
+ * brand colour (docs/DECISIONS.md "W3"). Buckets of close colours are
+ * merged after averaging, so one colour on a bucket edge (JPEG noise around 160) counts once.
+ */
 export async function logoColors(bytes: Buffer, ext: string): Promise<ColorHit[]> {
-  const raw = await rawRgba(bytes, ext, 32)
-  if (!raw) return []
+  const side = LOGO_SAMPLE_SIDE
+  const raw = await ffmpegPipe(bytes, ext, ['-frames:v', '1', '-vf', `scale=${side}:${side}:force_original_aspect_ratio=decrease:flags=neighbor`, '-f', 'rawvideo', '-pix_fmt', 'rgba', 'pipe:1'], side * side * 4 + 1024)
+  const pixels = raw ? Math.floor(raw.length / 4) : 0
+  if (pixels < 64) return []
   const buckets = new Map<string, { n: number; r: number; g: number; b: number }>()
-  for (let i = 0; i + 3 < raw.length; i += 4) {
-    if (raw[i + 3]! < 160) continue
-    const r = raw[i]!, g = raw[i + 1]!, b = raw[i + 2]!
+  for (let i = 0; i + 3 < raw!.length; i += 4) {
+    if (raw![i + 3]! < 160) continue
+    const r = raw![i]!, g = raw![i + 1]!, b = raw![i + 2]!
     const hex = '#' + hex2(r) + hex2(g) + hex2(b)
     if (!brandish(hex)) continue
     const key = `${r >> 5}-${g >> 5}-${b >> 5}`
@@ -392,8 +522,17 @@ export async function logoColors(bytes: Buffer, ext: string): Promise<ColorHit[]
     k.n++; k.r += r; k.g += g; k.b += b
     buckets.set(key, k)
   }
-  return [...buckets.values()].filter((k) => k.n >= 12).sort((a, b) => b.n - a.n).slice(0, 2)
-    .map((k, i) => ({ hex: '#' + hex2(k.r / k.n) + hex2(k.g / k.n) + hex2(k.b / k.n), weight: i === 0 ? 150 : 60 }))
+  // close buckets are one colour (the biggest one's sums take the others in)
+  const merged: { n: number; r: number; g: number; b: number }[] = []
+  const avg = (k: { n: number; r: number; g: number; b: number }) => '#' + hex2(k.r / k.n) + hex2(k.g / k.n) + hex2(k.b / k.n)
+  for (const k of [...buckets.values()].sort((a, b) => b.n - a.n)) {
+    const into = merged.find((m) => close(avg(m), avg(k)))
+    if (into) { into.n += k.n; into.r += k.r; into.g += k.g; into.b += k.b } else merged.push({ ...k })
+  }
+  // at least about 1 % of the picture (12 of the 32 × 32 the logo was once squeezed into)
+  const least = Math.max(6, Math.round(pixels * 0.012))
+  return merged.filter((k) => k.n >= least).sort((a, b) => b.n - a.n).slice(0, 2)
+    .map((k, i) => ({ hex: avg(k), weight: i === 0 ? 150 : 60 }))
 }
 
 // ---------------- the collector of one draft answer ----------------
@@ -446,7 +585,11 @@ export class BrandCollector {
     // the same page again (a second answer): its text once, its pictures already looked at
     if (this.pages.has(r.url)) return
     this.pages.add(r.url)
-    this.insert({ kind: 'page', url: r.url, page_url: r.url, title: r.title ?? null, text: r.text.slice(0, BRAND_PAGE_TEXT_MAX), weight: 0 })
+    // the page's own words (no site menu, footer or blank lines); without its markup, web_fetch's text tidied
+    let text = ''
+    try { text = r.html ? introText(r.html, new URL(r.url)) : '' } catch { text = '' }
+    if (!text) text = pageLines(r.text).join('\n')
+    this.insert({ kind: 'page', url: r.url, page_url: r.url, title: r.title ?? null, text, weight: 0 })
     if (!r.html) return
     let found: PageAssets
     try { found = extractPageAssets(r.html, new URL(r.url)) } catch { return }

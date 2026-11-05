@@ -87,8 +87,8 @@ export function AvailableSkillsList({ items, query = '' }: { items: Skill[] | nu
   const offerMarketing = admin && !q && !items.some((s) => !s.personal && s.path.startsWith(MARKETING_FOLDER))
   return (
     <div className="space-y-6" data-testid="skill-list">
-      <SkillSection title={t('skills.fromTeam')} items={shown.filter((s) => !s.personal)} onRun={setRunning} />
-      <SkillSection title={t('skills.personal')} items={shown.filter((s) => s.personal)} onRun={setRunning} />
+      <SkillSection title={t('skills.fromTeam')} items={shown.filter((s) => !s.personal)} folders={admin} onRun={setRunning} />
+      <SkillSection title={t('skills.personal')} items={shown.filter((s) => s.personal)} folders={admin} onRun={setRunning} />
       {offerMarketing && <MarketingPackLine />}
       {running && <SkillFormDialog path={running.path} skill={running} onClose={() => setRunning(null)} />}
     </div>
@@ -155,7 +155,9 @@ function NoSkills() {
   )
 }
 
-function SkillSection({ title, items, onRun }: { title: string; items: Skill[]; onRun: (s: Skill) => void }) {
+/** `folders`: each team skill's folder before its line ("skills/marketing/ · …"), for owners and admins, who manage the
+ * folders; a member reads the title and the line only (a raw path told them nothing: docs/DECISIONS.md "W3"). */
+function SkillSection({ title, items, folders, onRun }: { title: string; items: Skill[]; folders: boolean; onRun: (s: Skill) => void }) {
   if (!items.length) return null
   return (
     <section aria-label={title}>
@@ -164,17 +166,17 @@ function SkillSection({ title, items, onRun }: { title: string; items: Skill[]; 
         <span className="rounded-full bg-subtle px-1.5 text-xs text-muted tabular-nums" data-testid="skill-count">{items.length}</span>
       </h2>
       <ul className="-mx-2 divide-y divide-line">
-        {items.map((s) => <SkillRow key={s.path} skill={s} onRun={onRun} />)}
+        {items.map((s) => <SkillRow key={s.path} skill={s} folder={folders} onRun={onRun} />)}
       </ul>
     </section>
   )
 }
 
-function SkillRow({ skill: s, onRun }: { skill: Skill; onRun: (s: Skill) => void }) {
+function SkillRow({ skill: s, folder, onRun }: { skill: Skill; folder: boolean; onRun: (s: Skill) => void }) {
   const t = useT()
   // the name people read (its title, else its name); the description without a lead that repeats the title
   const title = skillTitle(s)
-  const line = [s.personal ? '' : `${skillHome(s.path)}/`, skillSummary(s)].filter(Boolean).join(' · ')
+  const line = [s.personal || !folder ? '' : `${skillHome(s.path)}/`, skillSummary(s)].filter(Boolean).join(' · ')
   // a skill with a form opens it; any other starts a chat with "/<name> " in the message box, as before
   const use = () => (s.inputs?.length ? onRun(s) : navigateTo(skillChatLink(s.name)))
   return (
@@ -182,7 +184,7 @@ function SkillRow({ skill: s, onRun }: { skill: Skill; onRun: (s: Skill) => void
       <button
         type="button"
         className="flex min-w-0 flex-1 items-center gap-3 rounded-lg p-2 text-left hover:bg-hover"
-        title={s.description || s.path}
+        title={s.description || (folder ? s.path : title)}
         onClick={use}
         data-testid="skill-use"
       >

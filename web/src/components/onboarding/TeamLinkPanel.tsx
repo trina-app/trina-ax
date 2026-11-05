@@ -158,6 +158,7 @@ export function TeamLinkPanel({ withGroups = true, skillPicker = true, skillPath
         <TeamLinkView
           data={data}
           inviter={me?.user.name ?? ''}
+          team={me?.team.name ?? ''}
           groups={groups.data ?? []}
           skills={skillPicker ? (skills.data ?? []) : null}
           fixedSkillPath={skillPath}
@@ -178,13 +179,15 @@ export interface TeamLinkViewProps {
   data: TeamLinkResponse
   /** the person copying the message: they are the one who sends it */
   inviter: string
+  /** the team's name: the message says which team the link leads to */
+  team: string
   groups: Group[]
   /** the skills to pick from; null: no picker (fixedSkillPath, else the skill the link had) */
   skills: SkillInfo[] | null
   fixedSkillPath?: string | null
   /** goes with a new link that has a skill (the lead's files and what people who join get from them) */
   starter?: TeamLinkStarter | null
-  /** `fixedSkillPath` is a team skill the lead just made: the message says so ("우리 팀 '…' 스킬을 만들어 뒀어요") */
+  /** `fixedSkillPath` is a team skill the lead just made: the message says so ("{팀}에 '…' 스킬을 만들어 뒀어요") */
   made?: boolean
   /** the groups a new link starts with (the team's own group); a link before keeps its own */
   defaultGroupIds?: string[]
@@ -205,7 +208,7 @@ const STALE = {
 } as const satisfies Record<TeamLinkState | 'unreadable', MessageKey | null>
 
 /** What the panel shows, without loading anything (tests render it as it is). */
-export function TeamLinkView({ data, inviter, groups, skills, fixedSkillPath, starter, made = false, defaultGroupIds = [], busy, folded = false, onCreate, onRevoke }: TeamLinkViewProps) {
+export function TeamLinkView({ data, inviter, team, groups, skills, fixedSkillPath, starter, made = false, defaultGroupIds = [], busy, folded = false, onCreate, onRevoke }: TeamLinkViewProps) {
   const t = useT()
   const locale = useLocale()
   const [editing, setEditing] = useState(false)
@@ -250,7 +253,7 @@ export function TeamLinkView({ data, inviter, groups, skills, fixedSkillPath, st
   const skillName = link.skill ? (link.skill.title ?? link.skill.name) : null
   // a starter with no file left that a newcomer could read leads nowhere: the usual message
   const waiting = link.starter && link.starter.files > 0 ? link.starter : null
-  const message = teamLinkMessage(t, { name: inviter, url, skill: skillName, starter: waiting?.kind, made: made && !!fixedSkillPath && link.skill?.path === fixedSkillPath })
+  const message = teamLinkMessage(t, { name: inviter, team, url, skill: skillName, starter: waiting?.kind, made: made && !!fixedSkillPath && link.skill?.path === fixedSkillPath })
   const groupNames = link.groupIds.map((id) => groups.find((g) => g.id === id)?.name).filter((x): x is string => !!x)
   // the groups line: always when the link puts people in groups; "그룹 없음" only on a team that has groups
   const showGroups = link.groupIds.length > 0 || groups.length > 0

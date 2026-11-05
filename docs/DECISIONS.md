@@ -8570,6 +8570,79 @@ ends and weight before the first result. Fixed here, each in its own commit:
   by their existing tables (`onboarding_profile_drafts`, `onboarding_skill_drafts`; no migration). Their flows read them
   by id as before and they still open by address. The reading hint no longer says the chat stays in the list.
 
+## W3 — Fixes from a walk with a large company's website (fix/onboarding-walk, 2026-11-06)
+
+A walk of the whole onboarding on a dev server (Claude Code login, 390 px and a computer) with a large company's real
+website, an owner and a member, found what the smaller sites of the earlier gate runs did not.
+Placement: Team AX core (onboarding, web reading, skills, chat). Each fix is its own commit with its tests.
+
+- **The brand colour was a blend.** The site has no theme-color and its style sheets only UI blues; its logo is a wide
+  JPEG of thin deep-blue letters on white. `logoColors` squeezed the logo into 32 × 32 pixels, which averaged every
+  letter with the white around it: a muted indigo came out as the logo's colour (150) and won over the brand's own
+  deep blue. The logo is now point-sampled (nearest neighbour, at most 128 px on its long side, its shape kept), so a
+  pixel is the logo's own colour; close buckets are merged after averaging (one colour on a bucket edge counts once);
+  the share a colour needs stays about 1 % of the picture. Nothing else in the ranking changed. Test: a generated
+  logo of the same shape (a made-up blue) gives exactly its blue, and the page's UI blues do not beat it.
+- **회사 소개.md quoted only the site menu.** Its "홈페이지에서 읽은 글" held the menu and hundreds of empty `>` lines,
+  the same for every page, and none of the page's words: the page row kept web_fetch's text cut at 4,000 characters,
+  the site's markup is CRLF (htmlToText only collapsed `\n`, so every `\r` line stayed and became an empty quote line)
+  and its first 4,000 characters were the menu. Now: htmlToText reads `\r\n` and `\r` as line breaks (the AI's
+  web_fetch too); the page row keeps `introText`, htmlToText's new `prose` mode (no nav, footer, aside, button or
+  dialog, no header outside main or article (a form stays: ASP.NET Web Forms put the whole page in one), no element whose role, class or id names a menu, breadcrumb, skip link or
+  cookie bar; markup line breaks and `<br>` are spaces), as lines (`pageLines`: links reduced to their words, a line of
+  only links dropped, a phrase repeated in a row once (a heading's phone, tablet and computer versions), a line said
+  already or inside one of the last three dropped, no line without two letters or digits). 회사 소개.md quotes each line
+  as its own quote (a blank line between, never an empty `> `), at most 2,000 characters per page and 12,000 in all, and
+  leaves out a line another page said already. A row kept before this (only on dev servers: N is unreleased) is
+  tidied by the same lines. All of it in one pass: the review found the first link patterns tried at every "[" (a
+  page of endless "[" took 2.9 s, of "[!](" 1.5 s), so links are now read by `unlink` (each "](" once, the "[" before it
+  remembered, the next ")" and space kept from the last search) and the marks by a loop, at most 8,000 characters a
+  line (test: those pages and the N review's, each well under its bound).
+- **The photo line under cards that had photos.** The card news answer said "브랜드 폴더의 이미지 폴더에 사진을 넣고 다시
+  만들어 달라고 하시면 사진을 넣어 드려요" under cards whose photos were plain to see: the rule was "a card made without a
+  photo", and cards 4 (the number) and 5 (the next step) never have one. The skill (ko, en) now adds the line only when
+  one of cards 1–3 used its type-only version (`type-cover`, `type-statement`, `type-points`), names that card ("2장은
+  어울리는 사진이 없어 글자로만 만들었어요.") so the reader knows which one, says that 4 and 5 never count, and says
+  nothing about photos when 1–3 all have one. It stays a rule the AI follows (no server check of the answer's words).
+- **Copy.** Step 2's line read "여기 올린 파일은 {팀} 1명만 봐요" for an owner still alone; with one viewer it now reads
+  "여기 올린 파일은 지금은 나만 봐요 · 팀원을 초대하면 {팀} 모두가 봐요" (`welcome.files.whoAlone`, five languages; the
+  chat clause is left out to keep it short: the chat's own line under the box says it). The invite message names the
+  team it leads to: "{이름}님이 {product}에서 {팀}에 함께하자고 초대했어요. …" (and with a skill), and S's "우리 팀
+  '{스킬}' 스킬을 …" became "{팀}에 '{스킬}' 스킬을 만들어 뒀어요. …" (`teamLinkMessage` takes `team`, the team's name
+  from the session; the goal card's copy too). The starter messages of old links (meeting notes, team files) are
+  unchanged.
+- **The member's side.** Team skills showed a member "skills/general/ · 회사 소개서나 …": the folder is now only for
+  owners and admins, who manage the folders (a member reads the title and the line; the row's tooltip is the
+  description). A form run appeared as the member's own message ("어디에 올릴까요: 인스타그램" in their bubble, under the
+  chip), as if typed. The chat now reads such a message back (`formAnswers`: every line after the command is one of
+  the skill's form labels, "label: value", a multi-line value under "label:"; anything else is typed text and keeps
+  its bubble) and shows the run without a bubble: the skill's chip and one quiet line of the answers ("신제품 출시 ·
+  인스타그램"; each label is the answer's tooltip and is read out). Short answers show in full; from 140 characters, or
+  with a value of several lines, two lines and "전체 보기" (the chat's own key for long messages, five languages), which
+  lists each answer under its label as sent ("접기" folds them; review fix). The message sent is unchanged (the AI and the
+  transcript get the same lines; copy and edit keep them).
+- **"팀 스킬로 만들기" is back (S).** Since W2's first result shares the pack's own skill (PR #80), nothing opened S's
+  card (W2 left "where to offer it in the lead's later chats" open). It is now the one suggestion under an answer
+  (`ResultSuggestion` kind `team-skill`, key `team-skill`; `skill-draft.ts teamSkillOffer`): "이 방식대로 팀 스킬로
+  만들까요?" [팀 스킬로 만들기] ×, only for an owner's or admin's own finished answer whose conversation used team files
+  and ran no team skill anywhere (its way is a team skill already; that also leaves out every card news run), not the
+  welcome steps' first result, not a draft chat, not an answer a skill was already shared from, and only when the draft
+  would start: S's own refusals (`conversationUse` and `sourceRefusal`: confidential, web or outside content, unverified
+  reads, a file the team's stand-in cannot open). The button opens the card in a dialog (a bottom sheet on a phone):
+  the draft, [팀에 공유], then the invite with that skill (`InviteStep made`), as before; the card's draft of this page
+  load is kept per answer (`answerId`), not per chat, so a later answer of the same chat gets its own. Order in the slot: the weekly
+  schedule (needs a skill run, so never together with this), then this, then the PPT (both can apply to a long answer
+  from team files; making it the team's way is the landing's promise, and it is the rarer one). Closing it is for good
+  for that person, like the others. The check runs on every such answer the person reads, cheap checks first.
+- Not done: a member's improvement still goes through "스킬로 제안"; the photo line is a rule the AI follows; the
+  welcome step's AI still reads web_fetch's text (only CR was fixed there), the prose mode is used for 회사 소개.md alone.
+- Tests: `b-onboarding-cardnews` (the wordmark's colour, the prose text of a menu-heavy CRLF page, page lines, 회사
+  소개.md without empty quote lines, hostile pages, the skill's photo rule), `c-webfetch` and `c-review` (unchanged,
+  pass), `b-skill-share` (the suggestion: who, which answers, every refusal, closed for good), `b-result-suggestions`,
+  web `welcome.test.tsx` (the owner alone), `team-link`, `onboarding-polish`, `skill-share-member` (the team in every
+  message), `available-skills` (no folder for a member), `steps-receipt` (a form run read back and shown quietly),
+  `result-suggestion` (the line, the card, the invite, closed for good).
+
 ## V — The first result is the company's promo video (feat/onboarding-video, 2026-11-06)
 
 The owner, after the card news: "왜 아직도 카드 뉴스 만드는거야? 너가 hyperframe쓴다매?", "퀄리티 개 좋아야해". A first set of

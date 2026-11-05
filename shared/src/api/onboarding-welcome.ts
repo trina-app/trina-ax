@@ -157,12 +157,17 @@ export type FirstResultStarted = z.infer<typeof FirstResultStarted>
  * lead's first result has the invite bar instead, decided in the web app):
  * - `schedule`: the person ran this team skill for at least the 2nd time (successful answers, not scheduled runs) and
  *   has no scheduled task that runs it: "매주 이 시간에 자동으로 받을까요?" [예약하기];
+ * - `team-skill`: an owner's or admin's answer that used team files and ran no team skill, which S's rules let become a
+ *   team skill (not the welcome steps' first result, not confidential, nothing from the web or an outside service,
+ *   every file readable by the team): "이 방식대로 팀 스킬로 만들까요?" [팀 스킬로 만들기] opens the skill card
+ *   (docs/DECISIONS.md "S", "W3");
  * - `ppt`: a long report-like answer (the weekly report, or over PPT_SUGGEST_CHARS of prose): [PPT로 만들기].
  * A suggestion the person closed never comes back for them (`key`, stored per person on the server).
  */
-export const SuggestionKey = z.string().max(500).regex(/^(ppt|schedule:skills\/[^\r\n]+)$/)
+export const SuggestionKey = z.string().max(500).regex(/^(ppt|team-skill|schedule:skills\/[^\r\n]+)$/)
 export const ResultSuggestion = z.discriminatedUnion('kind', [
   z.object({ kind: z.literal('schedule'), key: SuggestionKey, skill: z.object({ path: z.string(), name: z.string() }) }),
+  z.object({ kind: z.literal('team-skill'), key: z.literal('team-skill') }),
   z.object({ kind: z.literal('ppt'), key: z.literal('ppt') }),
 ])
 export type ResultSuggestion = z.infer<typeof ResultSuggestion>
@@ -184,7 +189,7 @@ export const WELCOME = {
     summary: 'Start the welcome steps\' first result, the company\'s promo video (owner): the website\'s images into the brand folder, a company intro file (named in the team\'s language) when no file was given, and a new chat of the owner for it.' }),
   getResultSuggestion: endpoint({ method: 'GET', path: '/api/onboarding/suggestion', auth: 'user', owner: 'B',
     query: z.object({ chatId: z.string().min(1).max(64), messageId: z.string().min(1).max(64) }), response: z.object({ suggestion: ResultSuggestion.nullable() }),
-    summary: 'The one suggestion under an answer of the caller\'s own chat (schedule a skill run for the 2nd time, or a report as a PPT), or null; none the caller closed.' }),
+    summary: 'The one suggestion under an answer of the caller\'s own chat (schedule a skill run for the 2nd time, make a team skill of an owner\'s or admin\'s work with team files, or a report as a PPT), or null; none the caller closed.' }),
   dismissSuggestion: endpoint({ method: 'POST', path: '/api/onboarding/suggestion/dismiss', auth: 'user', owner: 'B', body: z.object({ key: SuggestionKey }).strict(), response: empty, status: 204,
     summary: 'Close a suggestion under answers for good (for the caller only).' }),
 } as const
