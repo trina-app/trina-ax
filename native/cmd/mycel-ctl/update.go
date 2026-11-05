@@ -837,7 +837,7 @@ func (u *updater) updateRoot(dir, v string) error {
 	}()
 	for _, rel := range diff {
 		dest := u.e.root(rel)
-		if err := os.MkdirAll(filepath.Dir(dest), 0o755); err != nil {
+		if err := mkdirAll755(filepath.Dir(dest)); err != nil {
 			return err
 		}
 		if filepath.Dir(rel) == "safe-ops" {
@@ -1018,7 +1018,7 @@ func copyFile(src, dest string) error {
 	if st.Mode()&0o111 != 0 {
 		mode = 0o755
 	}
-	if err := os.MkdirAll(filepath.Dir(dest), 0o755); err != nil {
+	if err := mkdirAll755(filepath.Dir(dest)); err != nil {
 		return err
 	}
 	in, err := os.Open(src)
@@ -1175,6 +1175,11 @@ func (u *updater) updateApp(dir, v string) error {
 			if err := os.RemoveAll(dest); err != nil {
 				return err
 			}
+		} else if st.IsDir() {
+			// an older update with umask 077 left 0700 folders: the launcher account cannot enter them
+			if err := repairTree(dest, srv); err != nil {
+				return fmt.Errorf("repair modes of %s: %v", dest, err)
+			}
 		}
 	}
 	if _, err := os.Lstat(dest); errors.Is(err, fs.ErrNotExist) {
@@ -1255,6 +1260,64 @@ func (u *updater) rolledBack(v string) string {
 	return ""
 }
 
+// mkdirAll755 creates dir and every missing parent with mode 755 whatever the process umask (os.MkdirAll alone
+// applies the umask, so a `mycel-ctl update` run with umask 077 would leave folders the other accounts cannot enter).
+// Folders that exist already keep their mode.
+func mkdirAll755(dir string) error {
+	var missing []string
+	for d := dir; ; d = filepath.Dir(d) {
+		if _, err := os.Lstat(d); err == nil {
+			break
+		} else if !errors.Is(err, fs.ErrNotExist) {
+			return err
+		}
+		missing = append(missing, d)
+		if filepath.Dir(d) == d {
+			break
+		}
+	}
+	for i := len(missing) - 1; i >= 0; i-- {
+		if err := os.Mkdir(missing[i], 0o755); err != nil && !errors.Is(err, fs.ErrExist) {
+			return err
+		}
+		if err := os.Chmod(missing[i], 0o755); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// repairTree sets the modes and the owner copyTree gives on a version folder that exists already: folders 755, files
+// 755 when the owner can execute them and 644 otherwise. Servers that updated with umask 077 have 0700 folders that
+// the launcher (another account) cannot enter; this heals them. Links are left alone.
+func repairTree(root string, owner account) error {
+	return filepath.WalkDir(root, func(p string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		var mode os.FileMode
+		switch {
+		case d.IsDir():
+			mode = 0o755
+		case d.Type().IsRegular():
+			info, err := d.Info()
+			if err != nil {
+				return err
+			}
+			mode = 0o644
+			if info.Mode()&0o111 != 0 {
+				mode = 0o755
+			}
+		default:
+			return nil
+		}
+		if err := os.Lchown(p, owner.uid, owner.gid); err != nil {
+			return err
+		}
+		return os.Chmod(p, mode)
+	})
+}
+
 // copyTree copies a verified bundle folder to dest, owned by the server account (folders 755, files 755/644).
 func copyTree(src, dest string, owner account) error {
 	return filepath.WalkDir(src, func(p string, d fs.DirEntry, err error) error {
@@ -1266,6 +1329,10 @@ func copyTree(src, dest string, owner account) error {
 		switch {
 		case d.IsDir():
 			if err := os.Mkdir(t, 0o755); err != nil && !(rel == "." && errors.Is(err, fs.ErrExist)) {
+				return err
+			}
+			// Mkdir applies the umask (077 under mycel-link): set the mode again so it does not depend on the process
+			if err := os.Chmod(t, 0o755); err != nil {
 				return err
 			}
 		case d.Type().IsRegular():
