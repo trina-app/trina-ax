@@ -59,19 +59,36 @@ test('an AI answer is shown like a chat answer without its steps: Markdown, who 
   expect(html).not.toContain('data-testid="room-ai-preview"')
 })
 
-test('a private preview says why only I see it, names the folders, and has exactly one action', () => {
-  const a = message({ roomId: R, seq: 3, authorKind: 'ai', author: null, askedBy: ME, visibility: 'private', body: 'mine only', preview: { folders: ['acme/finance', ''], personal: false, outside: true } })
+test('a private preview says at the top that only I see it, names the folders plainly in one sentence, and has one outline action', () => {
+  const a = message({ roomId: R, seq: 3, authorKind: 'ai', author: null, askedBy: ME, visibility: 'private', body: 'mine only', preview: { folders: ['acme/finance', '', 'skills/marketing', 'shared/teams/finance'], personal: true, outside: true } })
   const html = render([a])
   expect(count(html, 'data-testid="room-ai-preview"')).toBe(1)
+  // the top line: mine only, in place of "asked by"
+  expect(html).toContain('data-testid="room-ai-private"')
   expect(html).toContain(translate('en', 'rooms.aiPrivate'))
-  expect(html).toContain(translate('en', 'rooms.aiPrivateFolders', { folders: `acme/finance/, ${translate('en', 'rooms.aiRootFolder')}` }))
-  expect(html).toContain(translate('en', 'rooms.aiPrivateOutside'))
-  expect(html).not.toContain(translate('en', 'rooms.aiPrivatePersonal'))
-  // one action on the note itself; putting the preview away is in the "…" menu (delete only: no reply, no edit)
+  expect(html).not.toContain(translate('en', 'rooms.aiAskedBy', { name: 'Ada' }))
+  expect(html.indexOf('room-ai-private')).toBeLessThan(html.indexOf('mine only'))
+  // one sentence: last parts of the paths, once each, no skills folder, never a full path
+  const folders = ['finance', translate('en', 'rooms.aiRootFolder'), translate('en', 'rooms.aiMyFolder')].join(', ')
+  expect(html).toContain(translate('en', 'rooms.aiPrivateFolders', { folders }))
+  expect(html).not.toContain('acme/finance')
+  expect(html).not.toContain('marketing')
+  expect(html).not.toContain(translate('en', 'rooms.aiPrivateOutside'))
+  // one action on the note itself, an outline button; putting the preview away is in the "…" menu
   const note = html.slice(html.indexOf('data-testid="room-ai-preview"'))
-  expect(count(note.slice(0, note.indexOf('</div>')), '<button')).toBe(1)
+  const own = note.slice(0, note.indexOf('</div>'))
+  expect(count(own, '<button')).toBe(1)
+  expect(own).not.toContain('bg-accent')
+  expect(own).toContain('border-field-border')
   expect(html).toContain(translate('en', 'rooms.aiShare'))
   expect(count(html, 'data-testid="message-menu"')).toBe(1)
+})
+
+test('a private preview without a folder to name says the one other reason, or that everyone would see it', () => {
+  const reason = (preview: NonNullable<ReturnType<typeof message>['preview']>) => render([message({ roomId: R, seq: 3, authorKind: 'ai', author: null, askedBy: ME, visibility: 'private', body: 'x', preview })])
+  expect(reason({ folders: ['skills/marketing'], personal: false, outside: true })).toContain(translate('en', 'rooms.aiPrivateOutside'))
+  expect(reason({ folders: [], personal: false, outside: false, joinedLater: ['Cy Park'] })).toContain(translate('en', 'rooms.aiPrivateJoined', { names: 'Cy Park' }))
+  expect(reason({ folders: ['skills'], personal: false, outside: false })).toContain(translate('en', 'rooms.aiPrivateAll'))
 })
 
 test("an AI answer's team file links are chips only for files the viewer may open; the rest is plain text", () => {

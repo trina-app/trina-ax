@@ -6,8 +6,8 @@
 // files are chips that download.
 // The AI's answers (docs/DECISIONS.md "대화방의 트리나") are the one exception to plain text: written by the AI, shown
 // like an answer in the AI chat (Markdown, the files it used) without its steps, with who asked ("○○ 님이 물어봄", a
-// click goes to the question). A private preview, seen only by the person who asked, says why it is private and has
-// one action: post it to the room.
+// click goes to the question). A private preview, seen only by the person who asked, says so at the top ("나만 볼 수
+// 있어요"), and above its one action (post it to the room, an outline button) who would see it then.
 import clsx from 'clsx'
 import { CornerUpLeft, Download, FileText, Lock, Pencil, Sparkles, Trash2 } from 'lucide-react'
 import { Fragment, useMemo, useRef, useState } from 'react'
@@ -212,9 +212,17 @@ function MessageRow({ roomId, m, mine, names, members, meId, editing, flash, onE
   )
 }
 
-/** "○○ 님이 물어봄" above an AI answer; a click goes to the question when it is loaded. */
+/** "○○ 님이 물어봄" above an AI answer; a click goes to the question when it is loaded. My private preview says
+ * "나만 볼 수 있어요" there instead: whose question it answers is clear, who sees it is not. */
 function AskedBy({ m, onJump }: { m: RoomMessage; onJump?: () => void }) {
   const t = useT()
+  if (m.visibility === 'private')
+    return (
+      <p className="mb-0.5 flex items-center gap-1 text-xs text-faint" data-testid="room-ai-private">
+        <Lock size={12} className="shrink-0" aria-hidden />
+        {t('rooms.aiPrivate')}
+      </p>
+    )
   const text = t('rooms.aiAskedBy', { name: m.askedBy?.name ?? t('rooms.goneUser') })
   return onJump ? (
     <button type="button" onClick={onJump} className="mb-0.5 block max-w-full truncate text-left text-xs text-faint hover:text-ink hover:underline" data-testid="room-ai-asked-by">
@@ -227,14 +235,31 @@ function AskedBy({ m, onJump }: { m: RoomMessage; onJump?: () => void }) {
   )
 }
 
-/** My private preview of an AI answer: why only I see it (the folders some member cannot open, named to me only), and
- * its one action. Posting leaves out the sources some member cannot read; the server decides that again. */
+/** The folders of a private preview as people know them: the last part of each path ("마케팅팀", not
+ * "shared/경영/팀별/마케팅팀/"), the top of the team folder in words, "내 폴더" for their own; never the skills
+ * folders (the team rules and skills the AI was given: how it works, not what it found). */
+export function previewFolderNames(p: NonNullable<RoomMessage['preview']>, words: { root: string; mine: string }): string[] {
+  const names = p.folders.filter((f) => f !== 'skills' && !f.startsWith('skills/')).map((f) => (f === '' ? words.root : f.split('/').filter(Boolean).at(-1) ?? f))
+  if (p.personal) names.push(words.mine)
+  return [...new Set(names)]
+}
+
+/** My private preview of an AI answer (the top says it is mine only): one sentence on who would see it once posted,
+ * and the way to post it, an outline button (not posting is the default). Posting leaves out the sources some member
+ * cannot read; the server decides that again. */
 function PreviewNote({ roomId, m }: { roomId: string; m: RoomMessage }) {
   const t = useT()
   const locale = useLocale()
   const [busy, setBusy] = useState(false)
   const p = m.preview
-  const folders = p?.folders.length ? p.folders.map((f) => (f === '' ? t('rooms.aiRootFolder') : `${f}/`)).join(', ') : ''
+  const folders = p ? previewFolderNames(p, { root: t('rooms.aiRootFolder'), mine: t('rooms.aiMyFolder') }) : []
+  const why = folders.length
+    ? t('rooms.aiPrivateFolders', { folders: folders.join(', ') })
+    : p?.joinedLater?.length
+      ? t('rooms.aiPrivateJoined', { names: p.joinedLater.join(', ') })
+      : p?.outside
+        ? t('rooms.aiPrivateOutside')
+        : t('rooms.aiPrivateAll')
   const share = async () => {
     setBusy(true)
     try {
@@ -245,16 +270,9 @@ function PreviewNote({ roomId, m }: { roomId: string; m: RoomMessage }) {
     }
   }
   return (
-    <div className="mt-2 mb-1 border-l-2 border-accent pl-3 text-sm" role="note" data-testid="room-ai-preview">
-      <p className="flex items-center gap-1.5 font-medium text-ink">
-        <Lock size={13} className="shrink-0 text-faint" aria-hidden />
-        {t('rooms.aiPrivate')}
-      </p>
-      {folders && <p className="mt-0.5 text-muted">{t('rooms.aiPrivateFolders', { folders })}</p>}
-      {p?.personal && <p className="mt-0.5 text-muted">{t('rooms.aiPrivatePersonal')}</p>}
-      {p?.outside && <p className="mt-0.5 text-muted">{t('rooms.aiPrivateOutside')}</p>}
-      {!!p?.joinedLater?.length && <p className="mt-0.5 text-muted">{t('rooms.aiPrivateJoined', { names: p.joinedLater.join(', ') })}</p>}
-      <Button size="sm" variant="primary" className="mt-2" busy={busy} onClick={() => void share()} data-testid="room-ai-share">
+    <div className="mt-2 mb-1 text-sm" role="note" data-testid="room-ai-preview">
+      <p className="text-muted">{why}</p>
+      <Button size="sm" variant="secondary" className="mt-2" busy={busy} onClick={() => void share()} data-testid="room-ai-share">
         {t('rooms.aiShare')}
       </Button>
     </div>
