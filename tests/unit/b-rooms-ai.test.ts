@@ -385,7 +385,7 @@ describe('changes asked for in a room', () => {
     const turnId = (await ws.alice!.next('room.ai.run', (f) => f.data.run.questionId === q.id)).data.run.turnId
     const card = await ws.alice!.next('turn.request', (f) => f.data.turnId === turnId && f.data.request.kind === 'ask_user' && f.data.request.question.includes(target), 15_000)
     // the card says it in words: what it does, the file, what it writes; never the call's JSON
-    const details = (card.data.request as { details?: { label: string; text: string; fields?: { name: string; value: string }[] }[] }).details
+    const details = (card.data.request as { details?: { label: string; text: string; fields?: { name: string; value: string }[]; collapsedAt?: number }[] }).details
     expect(details).toEqual([{ label: 'What it would change', fields: [{ name: 'Action', value: 'Save' }, { name: 'File', value: target }], text: 'written with a yes\n', collapsedAt: 400 }])
     await h.api('alice').call(API.answerTurn, { params: { id: card.data.turnId }, body: { kind: 'ask_user', requestId: card.data.request.requestId, answer: 'allow' } })
     await ws.alice!.next('room.ai.run', (f) => f.data.run.questionId === q.id && f.data.run.state === 'done', 30_000)
