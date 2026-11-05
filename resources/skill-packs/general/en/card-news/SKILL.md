@@ -1,6 +1,6 @@
 ---
 name: card-news
-description: Promo cards — reads a company intro or other material and makes five square promo cards with the photos in the team's brand folder and the brand colors. Use it for "make promo cards about our company", "5 promo cards from this deck".
+description: Promo cards — reads a company intro or other material and makes five square promo cards with the photos in the team's brand folder (type-only designs when photos run short) and the brand colors. Use it for "make promo cards about our company", "5 promo cards from this deck".
 metadata:
   title: Promo cards
   inputs: |
@@ -23,12 +23,10 @@ Make five square promo cards that look like an agency made them, as one HTML art
 - Use only numbers written as numbers in the material, exactly as written. Never count a list or calculate to make a number (not even in words: "four services", "three cities"). Never round up, and keep a qualifier such as "over" or "more than" (22,000+). Customer names, awards and years only as written.
 
 ## 2. Pick the photos
-- `list` the images folder in the brand folder (groups/(team name)/Brand/Images/, named in the team's language) and open each photo with `read` to see what it shows.
+- Usable photos come only from the images folder in the brand folder (groups/(team name)/Brand/Images/, named in the team's language) and from photo files (jpg, png, webp) attached to the message. `list` them and open each one with `read` to see what it shows.
 - Usable: real photos with little or no text (products, places, people at work, scenery). Not usable: banners or ads with a lot of text, screenshots, blurry or small pictures, icons. Use the logo only as the logo.
 - Give each card a photo that fits its message (the problem card: a scene or place of the customer's work; the what-we-do card: the product). The cover gets the best photo that shows this company's own product, place or work at a glance. A customer's portrait, a customer's product or another company's brand belongs only on a card about that case. Never use one photo twice.
-- Fewer than 3 usable photos and `brand_image` in your tool list: make the missing ones with it (4 in all at most), one per call.
-  - Prompt in English: a scene that fits that card's message, the brand colors as subtle accents in props, light or background, photorealistic and premium, a calm empty area on one side. Never people, faces, hands, text, numbers, logos, signs or text on screens.
-  - No `brand_image`: make none. A card without a fitting photo is designed with a color panel and big type (`solo`).
+- Never generate a photo, take one from the web or a stock library, or fill a photo slot with an illustration or icon. A card without a fitting photo uses its type-only version (`type`, see section 5). Make all five cards even with no photo at all.
 
 ## 3. The five cards
 1. **Cover**: the strongest line in the material (what the company gives its customers). The company name small.
@@ -49,12 +47,17 @@ Make five square promo cards that look like an agency made them, as one HTML art
 ## 5. Design (use the template below as it is; only fill in the content)
 - One `artifact`: type `html`, key `card-news`, title "(Company name) promo cards". To change it, update the same key.
 - Colors: `--brand` is the first brand color (none: a deep color from the logo or the photos), `--accent` a second color that reads well on --brand (the second brand color when it does, else a lighter --brand), `--paper` a very light background (a warm white like #F7F5F0, or --brand mixed very light).
-  - When --brand is light (yellow, sky blue, light green: lightness 60% or more) the text on it, `--on-brand`, is #111111; otherwise #FFFFFF. Weak contrast between text and background is never fine.
+  - When --brand is light (yellow, sky blue, light green: lightness 60% or more) the text on it, `--on-brand`, is #111111; otherwise #FFFFFF. `--brand-text`, for headlines and small lines on the light background, is --brand when --brand is dark and #111111 when it is light. Weak contrast between text and background is never fine.
 - No text on photos, page numbers included: all text sits on solid panels. Photos and text split the card top/bottom or left/right.
 - Cropping: look at each photo and set `object-position` so its subject (the product, the center of the scene) is not cut (`center 35%`, `30% center`).
 - Image addresses are team paths with a leading `/`: `<img src="/groups/(team name)/Brand/Images/file.jpg">`. No web addresses, web fonts or scripts.
 - The logo: card 5, bottom right. A square app icon gets `class="logo icon"` (rounded square). No logo, or one made for a dark background that would not show: `<span class="wordmark">Company name</span>` instead.
-- The layouts are fixed: card 1 `photo-top`, 2 `panel-top`, 3 `split` (photo right), 4 `number` (or `number fact` without a number), 5 `cta`. Cards 1–3 without a fitting photo drop `.ph` and add `solo` (the panel fills the card).
+- The layouts are fixed: card 1 `photo-top`, 2 `panel-top`, 3 `split` (photo right), 4 `number` (or `number fact` without a number), 5 `cta`.
+- Cards 1–3 without a fitting photo use the type-only version in the comment under each of them. Never leave an empty photo slot.
+  - Card 1 `type type-cover`: the brand color, the logo top left (on a white tile) or, without a logo, the company name; one disc top right; the headline low and large. When the company name is the mark, leave out the eyebrow.
+  - Card 2 `type type-statement`: the light background, a short bar, the headline large (about 24 characters a line), a disc in the lower right corner.
+  - Card 3 `type type-points`: the brand panel above with the product name and the headline; below, 2 or 3 short points numbered 01, 02, 03 (one line each, about 32 characters, each saying something different, only from the material). With only one point in the material: `<div class="points"><p>(two lines at most, about 40 characters a line)</p></div>` instead of the `<ol>`.
+  - The only shapes are the template's disc (`.shape`) and bar (`.bar`). No other decoration, icon or illustration, and no text on a shape.
 - A number of 5 characters or more (252,413): `<div class="big long">`.
 
 ```html
@@ -62,7 +65,7 @@ Make five square promo cards that look like an agency made them, as one HTML art
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
 <title>(Company name) promo cards</title>
 <style>
-:root{--brand:#1F4E79;--on-brand:#FFFFFF;--accent:#F2B84B;--paper:#F7F5F0;--ink:#16181D;--muted:#5B6270;
+:root{--brand:#1F4E79;--on-brand:#FFFFFF;--accent:#F2B84B;--paper:#F7F5F0;--brand-text:#1F4E79;--ink:#16181D;--muted:#5B6270;
   --font:"Inter","Helvetica Neue","Segoe UI",system-ui,"Apple SD Gothic Neo","Noto Sans KR",sans-serif}
 *{box-sizing:border-box;margin:0;padding:0;word-break:keep-all;overflow-wrap:break-word}
 body{font-family:var(--font);background:#ECEAE4;color:var(--ink);padding:28px 16px 48px;display:flex;flex-direction:column;align-items:center;gap:14px}
@@ -78,8 +81,8 @@ h2{font-size:6.2cqw;font-weight:800;line-height:1.28;letter-spacing:-.025em}
 p.body{font-size:3.5cqw;line-height:1.55;margin-top:2.8cqw;opacity:.88}
 .on-brand{background:var(--brand);color:var(--on-brand)}
 .on-paper{background:var(--paper);color:var(--ink)}
-.on-paper h1,.on-paper h2{color:var(--brand)}
-.on-paper .eyebrow{color:var(--brand);opacity:.75}
+.on-paper h1,.on-paper h2{color:var(--brand-text)}
+.on-paper .eyebrow{color:var(--brand-text);opacity:.75}
 /* 1 photo-top: photo above, color panel below */
 .photo-top{flex-direction:column}.photo-top .ph{height:55%}.photo-top .panel{height:45%;padding:5.5cqw 7cqw 7cqw;justify-content:flex-start}
 /* 2 panel-top: light panel above (as tall as its text), photo below (the rest) */
@@ -105,9 +108,35 @@ p.body{font-size:3.5cqw;line-height:1.55;margin-top:2.8cqw;opacity:.88}
 .contact{font-size:3cqw;margin-top:3.2cqw;color:var(--muted);line-height:1.6}
 .logo{position:absolute;right:7cqw;bottom:7cqw;max-width:24cqw;max-height:11cqw;object-fit:contain}
 .logo.icon{width:12cqw;height:12cqw;border-radius:2.8cqw}
-.wordmark{position:absolute;left:8cqw;bottom:7cqw;font-size:4cqw;font-weight:800;letter-spacing:-.01em;color:var(--brand)}
+.wordmark{position:absolute;left:8cqw;bottom:7cqw;font-size:4cqw;font-weight:800;letter-spacing:-.01em;color:var(--brand-text)}
 .cta .page{top:5.5cqw;bottom:auto}
-.solo .panel{width:100%;height:100%;padding:10cqw 8cqw}
+/* type-only versions of cards 1-3 (no fitting photo): no photo frame; color, type, one shape */
+.type .page{top:5.5cqw;bottom:auto;right:6cqw;left:auto}
+.type-cover .page{top:auto;bottom:5.5cqw}
+.type .shape{position:absolute;border-radius:50%;background:var(--accent);pointer-events:none}
+/* 1 type-cover: brand color, the logo on a white tile top left, one disc top right, the headline low */
+.type-cover .panel{width:100%;padding:8cqw 7cqw 9cqw;justify-content:flex-end}
+.type-cover .shape{width:56cqw;height:56cqw;right:-16cqw;top:-16cqw}
+.type-cover .mark{position:absolute;left:7cqw;top:7cqw;max-width:42cqw}
+.type-cover .mark img{display:block;height:11cqw;max-width:42cqw;object-fit:contain;background:#FFFFFF;border-radius:2.2cqw;padding:2cqw 2.6cqw}
+.type-cover .mark span{display:block;font-size:4.2cqw;font-weight:800;letter-spacing:-.01em}
+.type-cover .eyebrow{color:var(--on-brand);opacity:.72}
+.type-cover h1{line-height:1.22}
+.type-cover p.body{font-size:3.7cqw;margin-top:3.6cqw}
+/* 2 type-statement: light paper, a brand bar, the line large, a quarter disc in the lower right corner */
+.type-statement .panel{width:100%;padding:16cqw 8cqw 8cqw;justify-content:flex-start}
+.type-statement .bar{width:12cqw;height:1.4cqw;background:var(--brand);margin-bottom:5cqw}
+.type-statement h2{font-size:6.8cqw;line-height:1.28}
+.type-statement p.body{font-size:3.8cqw;max-width:80cqw}
+.type-statement .shape{width:44cqw;height:44cqw;right:-22cqw;bottom:-22cqw;background:var(--brand)}
+/* 3 type-points: the brand panel above (name and line), two or three numbered points below on paper */
+.type-points{flex-direction:column}
+.type-points .panel{flex:none;padding:9cqw 7cqw 7cqw;justify-content:flex-start}
+.type-points .points{flex:1;display:flex;flex-direction:column;justify-content:center;padding:4cqw 7cqw 6cqw;list-style:none;background:var(--paper);color:var(--ink)}
+.type-points .points li{display:flex;gap:3.6cqw;align-items:baseline;padding:3.4cqw 0;font-size:4.4cqw;font-weight:700;line-height:1.35;letter-spacing:-.02em}
+.type-points .points li+li{border-top:.3cqw solid rgba(22,24,29,.12)}
+.type-points .points b{flex:none;width:6cqw;font-size:3.3cqw;font-weight:800;color:var(--brand-text);font-variant-numeric:tabular-nums;letter-spacing:.02em}
+.type-points .points p{font-size:4.4cqw;font-weight:600;line-height:1.5}
 </style></head><body>
 
 <div class="cap">1/5 · Cover</div>
@@ -120,6 +149,8 @@ p.body{font-size:3.5cqw;line-height:1.55;margin-top:2.8cqw;opacity:.88}
     <span class="page">1 / 5</span>
   </div>
 </section>
+<!-- without a fitting photo, card 1: <section class="card type type-cover"><div class="panel on-brand"><div class="shape"></div><div class="mark"><img src="/groups/(team)/Brand/Images/(logo).png" alt="(Company name) logo"></div><div class="eyebrow">(Company name)</div><h1>(The strongest line,<br>two lines at most)</h1><p class="body">(One supporting line)</p><span class="page">1 / 5</span></div></section>
+     without a logo: <div class="mark"><span>(Company name)</span></div> and no eyebrow -->
 
 <div class="cap">2/5 · The problem</div>
 <section class="card panel-top">
@@ -131,6 +162,7 @@ p.body{font-size:3.5cqw;line-height:1.55;margin-top:2.8cqw;opacity:.88}
   </div>
   <div class="ph"><img class="photo" src="..." alt="..." style="object-position:center 50%"></div>
 </section>
+<!-- without a fitting photo, card 2: <section class="card type type-statement"><div class="panel on-paper"><div class="shape"></div><div class="bar"></div><div class="eyebrow">(Who it is for)</div><h2>(The customer's problem,<br>two lines at most)</h2><p class="body">(One line about it)</p><span class="page">2 / 5</span></div></section> -->
 
 <div class="cap">3/5 · What we do</div>
 <section class="card split">
@@ -142,6 +174,7 @@ p.body{font-size:3.5cqw;line-height:1.55;margin-top:2.8cqw;opacity:.88}
   </div>
   <div class="ph"><img class="photo" src="..." alt="..." style="object-position:center center"></div>
 </section>
+<!-- without a fitting photo, card 3: <section class="card type type-points"><div class="panel on-brand"><div class="eyebrow">(Product or service)</div><h2>(What it does,<br>two lines at most)</h2><span class="page">3 / 5</span></div><ol class="points"><li><b>01</b>(A point, one line)</li><li><b>02</b>(A point)</li><li><b>03</b>(A point)</li></ol></section> -->
 
 <div class="cap">4/5 · In numbers</div>
 <section class="card number">
@@ -171,9 +204,9 @@ p.body{font-size:3.5cqw;line-height:1.55;margin-top:2.8cqw;opacity:.88}
 </body></html>
 ```
 
-- Check before you finish: every line within the counts above, all text on solid panels, the layouts as in the template, each photo fits its card, every image path is a real file, every number is in the material as written. Fix anything that is not.
+- Check before you finish: every line within the counts above, all text on solid panels, the layouts as in the template, each photo fits its card, every image path is a real file, no empty photo slot, every number is in the material as written. Fix anything that is not.
 
 ## 6. The answer
-- After the artifact: one line per card (what it says) and the source of each number (the page or sentence of the material). New photos made: one line, "I made n new photos in the brand folder".
+- After the artifact: one line per card (what it says) and the source of each number (the page or sentence of the material). Cards made without a photo: one line, "Add photos to the brand images folder and ask me again to put them in."
 - End with one line: "Tell me which card's text or photo you would like changed."
 - Make the cards only: never post, send or share them, and never say you did.
