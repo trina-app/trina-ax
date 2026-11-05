@@ -185,6 +185,16 @@ input[type="checkbox"], input[type="radio"] { accent-color: var(--c-accent); }
 
 .scroll-thin { scrollbar-width: thin; scrollbar-color: var(--c-line) transparent; }
 
+/* touch-hit: on phones a control smaller than 44px (Apple's minimum touch target) takes taps from a 44px box around its
+   middle; it looks the same. Not for a control placed with absolute/fixed (this makes it relative), nor one whose
+   ::after draws something. */
+@utility touch-hit {
+  @media (max-width: 767.98px) {
+    position: relative;
+    &::after { content: ""; position: absolute; top: 50%; left: 50%; width: max(100%, 44px); height: max(100%, 44px); transform: translate(-50%, -50%); }
+  }
+}
+
 /* A row that scrolls sideways (useEdgeFade in components/ui.tsx): an edge with more behind it fades out, in both
    themes (a mask, not a colour), and a tab scrolled into view keeps a margin from the edge instead of sitting cut. */
 .edge-fade { --fade: 1.75rem; scroll-padding-inline: 2rem; }
