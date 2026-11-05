@@ -17,7 +17,7 @@
 import type { Database } from 'bun:sqlite'
 import path from 'node:path'
 import { PRODUCT } from '@mycel/shared'
-import { NOTES_FOLDER, SKILL_DRAFT_DESCRIPTION_MAX, SKILL_DRAFT_FILES_MAX, SKILL_DRAFT_TITLE_MAX, SKILL_DRAFT_VISIBLE_INPUTS, SkillInputs, skillTitle, type Locale, type SavedSkillDraft, type SkillDraft, type SkillDraftFile, type SkillDraftProblem, type SkillDraftStarted, type SkillDraftState, type SkillInput } from '@mycel/shared/api'
+import { SKILL_DRAFT_DESCRIPTION_MAX, SKILL_DRAFT_FILES_MAX, SKILL_DRAFT_TITLE_MAX, SKILL_DRAFT_VISIBLE_INPUTS, SkillInputs, skillTitle, type Locale, type SavedSkillDraft, type SkillDraft, type SkillDraftFile, type SkillDraftProblem, type SkillDraftStarted, type SkillDraftState, type SkillInput } from '@mycel/shared/api'
 import type { AppContext } from '../context'
 import type { AuthInfo } from '../services'
 import type { ChatRuntime } from '../chat/runtime'
@@ -86,12 +86,12 @@ export const SKILL_DRAFT_FILE_REFUSAL = 'This chat only turns one finished piece
 const cut = (s: string, n: number) => (s.length > n ? `${s.slice(0, n)}\n[…]` : s)
 
 /** The examples the instructions give, in the language the skill is written in. */
-const EXAMPLES: Record<Locale, { title1: string; title2: string; changes: string; customer: string; placeholder: string; scope: string; mine: string; all: string }> = {
-  ko: { title1: '견적서 쓰기', title2: '주간회의 할 일', changes: '고객사, 품목', customer: '고객사', placeholder: '받는 회사 이름', scope: '누구 할 일', mine: '내 할 일', all: '사람별' },
-  en: { title1: 'Write a quote', title2: 'Weekly meeting tasks', changes: 'customer, items', customer: 'Customer', placeholder: 'The company it goes to', scope: 'Whose tasks', mine: 'My tasks', all: 'By person' },
-  id: { title1: 'Buat penawaran', title2: 'Tugas rapat mingguan', changes: 'pelanggan, barang', customer: 'Pelanggan', placeholder: 'Perusahaan tujuan', scope: 'Tugas siapa', mine: 'Tugas saya', all: 'Per orang' },
-  ja: { title1: '見積書づくり', title2: '週次会議のタスク', changes: '顧客、品目', customer: '顧客', placeholder: '送り先の会社名', scope: '誰のタスク', mine: '自分のタスク', all: '人ごと' },
-  es: { title1: 'Redactar un presupuesto', title2: 'Tareas de la reunión semanal', changes: 'cliente, artículos', customer: 'Cliente', placeholder: 'La empresa a la que va', scope: 'Tareas de quién', mine: 'Mis tareas', all: 'Por persona' },
+const EXAMPLES: Record<Locale, { title1: string; title2: string; changes: string; customer: string; placeholder: string; scope: string; mine: string; all: string; style: string }> = {
+  ko: { title1: '견적서 쓰기', title2: '주간회의 할 일', changes: '고객사, 품목', customer: '고객사', placeholder: '받는 회사 이름', scope: '누구 할 일', mine: '내 할 일', all: '사람별', style: '해요체로 짧게 써요(예: 팀 양식으로 새 견적서를 만들어요).' },
+  en: { title1: 'Write a quote', title2: 'Weekly meeting tasks', changes: 'customer, items', customer: 'Customer', placeholder: 'The company it goes to', scope: 'Whose tasks', mine: 'My tasks', all: 'By person', style: '' },
+  id: { title1: 'Buat penawaran', title2: 'Tugas rapat mingguan', changes: 'pelanggan, barang', customer: 'Pelanggan', placeholder: 'Perusahaan tujuan', scope: 'Tugas siapa', mine: 'Tugas saya', all: 'Per orang', style: '' },
+  ja: { title1: '見積書づくり', title2: '週次会議のタスク', changes: '顧客、品目', customer: '顧客', placeholder: '送り先の会社名', scope: '誰のタスク', mine: '自分のタスク', all: '人ごと', style: 'です・ます調で短く書きます。' },
+  es: { title1: 'Redactar un presupuesto', title2: 'Tareas de la reunión semanal', changes: 'cliente, artículos', customer: 'Cliente', placeholder: 'La empresa a la que va', scope: 'Tareas de quién', mine: 'Mis tareas', all: 'Por persona', style: '' },
 }
 
 /** The instructions of a skill draft turn (fixed, English like every instruction; the skill in the team's language). */
@@ -116,6 +116,7 @@ export function skillDraftSystemPrompt(d: SkillDraftScope, o: { history?: { role
     '',
     '## What a team skill is',
     '- The team\'s way of working is in its files and in the shape of the answer: what to read, what to produce, in which order and format. Keep that.',
+    `- The skill does the work itself, next time, for any teammate. When the answer only read a template document (a quote, a letter, a report or a form: its frame, the fields filled in each time and what stays), the skill makes a NEW document of that kind from that template: the fields filled in each time are what teammates are asked (the most important ones as inputs, the rest worked out or asked once in the chat), the template is in "files", and the title says so (like "${ex.title1}"). When it read meeting notes, the skill gives the tasks from the newest notes.`,
     `- Nothing that belonged to this one run may stay: names of people, customers, companies or products of this order, dates, amounts, quantities, prices, links, and the contents of the files. What changes every time becomes an input a teammate fills in (for example ${ex.changes}); what is fixed lives in the team files (name them in "files"); everything else is left out. Never copy such a value into the steps, not even as an example.`,
     `- At most ${SKILL_DRAFT_VISIBLE_INPUTS} text inputs, only for what really changes from run to run. None when nothing does (meeting notes: the newest notes are read each time).`,
     `- A way of doing it that a teammate may pick (only my own part, or everyone's) is one choice input with a default (for meeting notes: options mine "${ex.mine}" (the default) and all "${ex.all}").`,
@@ -129,7 +130,7 @@ export function skillDraftSystemPrompt(d: SkillDraftScope, o: { history?: { role
     '{"title": "", "description": "", "inputs": [], "files": [{"path": "", "latest": false}], "recurring": "", "steps": ""}',
     '```',
     `- title: what the skill does, two to five words in ${lang} (at most ${SKILL_DRAFT_TITLE_MAX} characters), like "${ex.title1}" or "${ex.title2}".`,
-    `- description: one line in ${lang} (at most ${SKILL_DRAFT_DESCRIPTION_MAX} characters): what it makes from what.`,
+    `- description: one line in ${lang} (at most ${SKILL_DRAFT_DESCRIPTION_MAX} characters): what it makes from what.${ex.style ? ` ${ex.style}` : ''}`,
     `- inputs: a list of objects. A text input: {"name": "customer", "label": "${ex.customer}", "required": true, "placeholder": "${ex.placeholder}"}. A choice input: {"name": "scope", "label": "${ex.scope}", "type": "choice", "default": "mine", "options": [{"value": "mine", "label": "${ex.mine}"}, {"value": "all", "label": "${ex.all}"}]}. name: lowercase ASCII letters, digits and _ (at most 32); label: one line, at most 60 characters; placeholder: one line, at most 200, never a value of this run; option value: lowercase ASCII letters, digits, _ and -; two to eight options. No other keys.`,
     'If the user asks for a change in a later message, answer again with the whole JSON object.',
   ]
@@ -146,11 +147,10 @@ export type SkillDraftRead = { ok: true; draft: ParsedSkillDraft } | { ok: false
 const oneLine = (v: unknown, max: number) => (typeof v === 'string' ? [...v.replace(/[\r\n\v\f\u0085\u2028\u2029]+/g, ' ').replace(/\s+/g, ' ').trim()].slice(0, max).join('') : '')
 
 const parentOf = (p: string) => p.slice(0, p.lastIndexOf('/'))
-/** a team notes folder (groups/<team>/회의록 in any language) */
-const notesFolder = (p: string) => (Object.values(NOTES_FOLDER) as string[]).some((n) => p.normalize('NFC').endsWith(`/${n.normalize('NFC')}`))
 
 /** "쓰는 자료": only the team files the run used (or their folders), never a personal folder, skills/ or .system/. A dated
- * file or a file of a notes folder is its folder and "the latest". */
+ * file (or one the model marks `latest`: this week's notes) is its folder and "the latest"; a template stays itself, even
+ * in the notes folder the welcome step puts every file in. */
 export function draftFiles(raw: unknown, used: readonly string[]): SkillDraftFile[] {
   const out: SkillDraftFile[] = []
   const add = (f: SkillDraftFile) => {
@@ -168,7 +168,7 @@ export function draftFiles(raw: unknown, used: readonly string[]): SkillDraftFil
     const latest = !!(item && typeof item === 'object' && (item as { latest?: unknown }).latest === true)
     if (used.includes(p)) {
       const dir = parentOf(p)
-      if (dir && (latest || DATED.test(path.posix.basename(p)) || notesFolder(dir))) add({ path: dir, latest: true })
+      if (dir && (latest || DATED.test(path.posix.basename(p)))) add({ path: dir, latest: true })
       else add({ path: p, latest: false })
     } else if (folders.has(p)) add({ path: p, latest: true })
   }

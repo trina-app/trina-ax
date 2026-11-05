@@ -7930,3 +7930,106 @@ every week. Placement: Team AX core (skills, files and permissions, the team lin
   so its data folder is deleted and made again (the demos keep their data folder between runs; deleting it starts over).
   No released server ever had our 222.
 
+
+## S — The lead's way becomes a team skill (feat/onboarding-s, 2026-11-05)
+
+The owner: "회의록이 아닐 수도 있고 … 이렇게 스킬을 만들어서 팀과 공유할까요? 이런 느낌으로 가는 건?" The landing's promise (one
+way of working for everyone) was not felt: the lead only used skills we pre-installed, and a "team skill" copied from
+that first chat would copy ours. The lead's way lives in the files they drop (a quote template, a notes folder, a
+report), so a team skill is the team's files plus only what changes each time, asked as inputs. A cut review removed
+the "3 proposals" step and the bar after sharing. Placement: Team AX core (skills, files, chat, team link).
+
+- **Step 2 asks for any work files**: "평소 일에 쓰는 파일을 놓아 주세요 / 회의록, 견적서, 보고서 · 몇 개면 충분해요"; the upload
+  runs at once as before (into the team's notes folder) and sends "/meeting-tasks 이 파일로 정리해 줘". The general pack's
+  `doc-brief` gains a template mode (견적서 · 공문 · 보고서 · 신청서: the frame, the fields filled in each time, what stays,
+  never the file's own values), and `meeting-tasks` sends a template there too: its first line says what it read
+  ("이렇게 읽었어요: 견적서 양식"); the lead types a correction when it is wrong. Meeting notes keep the tasks path. No
+  server-side guess from names (M's reason holds).
+- **One bar under the lead's first answer** (with their files; owner, until the invite is answered): "팀원 AI도 이 방식대로
+  하게 할까요?" [팀 스킬로 만들기] ×. It replaces M's invite text ("팀원도 이 회의록에서 …"); its X puts the invite off without
+  the soft question (it asked about a skill). The ad copy's first result keeps its invite bar: the ad copy is our own
+  skill, and a team skill made of it would only copy ours.
+- **The draft is a turn** (`onboarding/skill-draft.ts`; there is no AI call outside `chat/turn.ts`): `POST
+  /api/onboarding/skill-draft` (owners and admins) makes a chat of the caller ("팀 스킬 초안 · …") marked in
+  `onboarding_skill_drafts` (migration 232) with a snapshot of the source answer: the question, the answer (cut at
+  12,000 characters), the team files it used (team-file references and sources, `isTeamFilePath`), the skill it ran,
+  the team's language and pack folder. Every turn of such a chat runs like a profile draft from pasted text: no tool at
+  all (the always-listed file tools are refused, `SKILL_DRAFT_FILE_REFUSAL`), no team rules, skills, memories,
+  project, attachments, browser, sub-agents or web search, nobody asked (`TurnExec.restricted`). Its instructions put
+  the snapshot inside `<material>` as data and ask for JSON `{title, description, inputs, files, recurring, steps}`:
+  what belonged to that run (names, customers, dates, amounts, prices, links, file contents) becomes an input or goes;
+  at most three text inputs; a way to pick (mine / everyone's) is one choice input; dated files are their folder and
+  "latest"; `recurring: "weekly"` for weekly work. The same source answer again reuses the unsaved draft.
+- **The server reads it** (`parseSkillDraft`): the form must pass `SkillInputs` (strict, as any SKILL.md); more than three
+  visible fields fold (`advanced`); "쓰는 자료" only from the files the run used, never a personal folder, `skills/` or
+  `.system/` (teammates cannot read `users/<me>/`); a file whose name carries a date, or that sits in a team notes
+  folder, becomes its folder and "the latest" ("{팀} 회의록 폴더의 가장 최근 회의록"), so next week only the new notes are
+  dropped. **Specifics** (`onboarding/specifics.ts`): from the run's question, answer and file names, the team's account
+  names found there (and a Korean given name), names before 님/씨, family name + job title ("이 대리"), the per-person
+  headings of the answer, names with a company suffix (㈜, 주식회사, Inc …), dates (11/6, 2026-11-03, 11월 6일, 6(금)),
+  amounts (₩, 원, 만원, thousands separators) and every link; the team's and the company's own names are not specifics.
+  Any of them in the title, line, steps or form words: the server asks once for a rewrite (a follow-up message naming
+  them; `rewrite_at` taken once, keyed to the answer; a turn still closing is asked on the next read); still there,
+  or no usable JSON after it: no card ("지금은 정리하지 못했어요"). A heuristic: a name the patterns miss can stay, which is
+  why the card says "팀 스킬에서 언제든 고칠 수 있어요".
+- **The card** (`SkillShareCard`, a bottom sheet on phones): "팀 스킬로 정리하는 중…", then six things: the title (tap to
+  change), one line, "팀원에게 물어볼 것: 고객사 · 품목" (read only; a choice as its chips with the default filled), "쓰는 자료:
+  …", [팀에 공유], 나중에, and one quiet line "팀 전체 AI가 이 방식을 따라요 · 팀 스킬에서 언제든 고칠 수 있어요". No steps, no
+  Markdown or YAML, no folder name or picker. **Accepted risk, recorded**: the steps teammates' AI follows are not shown
+  before sharing (the owner's call: the quiet line is the consent of a human save). Limits around it: the draft turn
+  has no tool and gets the material as data, steps are capped at 6,000 characters, links in them stop the card, the
+  file is an ordinary skill in `skills/` (the skill change audit, the owner/admin notices, version history; any skill
+  manager reads and edits it), and the run's specifics are checked.
+- **Sharing is a human save** (`POST …/skill-draft/:chatId/save`, owners and admins): the draft read again from the
+  answer (the card's copy is never trusted; only the title comes from it), written with `FileService.humanSave` like an
+  approved suggestion (folder rules, versions, audit, notices; no "last seen" hash, so a file that appeared meanwhile is
+  a 409, never replaced) to `skills/<marketing|general>/<name>/SKILL.md` (marketing when the team chose it) with
+  `metadata.title`, `metadata.inputs` and `recurring: weekly` when weekly, then "쓰는 자료", "하는 방법" (the steps) and fixed
+  rules in the team's language; the server's own reader must accept it first. `skillFileText` (suggestions:
+  `skills/<name>.md`, name and description only) is not reused: no form, no title. **The name** is the server's and
+  never shown: the title romanized (Hangul by the Revised Romanization table, accents dropped; "team-skill" when
+  nothing is left), and "-2", "-3" … when any team skill, the caller's own, any pack skill (installed or not: a later
+  install would be `blocked`) or a folder already has it. Saved again: the same answer. Audited `onboarding.skill_share`.
+  Goals count by path, so the new skill counts from its own runs (no backdating of the lead's meeting-tasks run).
+- **The invite carries the skill**: [팀에 공유] opens the existing invite step with that skill (`InviteStep made`); a new
+  link names it, an open link that led elsewhere (M's starter with files) is changed to it with no files (PATCH, same
+  address), and the message is "우리 팀 '{스킬}' 스킬을 만들어 뒀어요. 링크 열면 같은 방식으로 바로 써요." No file list
+  travels with the link (the skill names its files).
+- **Who made it** (`skills/author.ts`): the person whose save made the skill file's first version, read from the file's
+  own history (`files/timeline.ts`, back through edits and moves to the event that made the file), never from its
+  text. The spec named `file_versions.author_id`, but that table keeps content a save replaced (its `author_id` is the
+  replacer): a file nobody edited has no row, so the history's first content event is that first version. A first
+  version that is a pack's text (any language, earlier releases) has no maker: the owner who pressed install did not
+  write it. Used three ways: the join answer's new `skillBy` (and `starter.by` for a skill without a form), the receipt
+  (`Message.receipt.skill.by`, only when the maker is not the asker; cached a minute per path), nothing else.
+- **The member**: a skill with a form opens on `/skills?run=` as before, with one line on top in place of its description:
+  "{팀장}님이 만든 팀 스킬이에요 · 이 채팅은 {이름}님만 봐요" (`skillBy`, held in this tab until the form goes away,
+  `lib/starter.ts holdMadeBy`). A skill without a form gets M's arrival on Home with a new starter kind `skill` (no
+  files): "{팀장}님이 만든 팀 스킬이에요", its title as the box's chip and "이 방식대로 해 줘". The answer's step line reads
+  "김지훈님의 팀 스킬 '견적서 쓰기' · 팀 파일 1개". Members keep "스킬로 제안" for improvements; nothing new for them here.
+- **Meeting notes fold in**: the card for notes reads "주간회의 할 일", asks nothing, shows the chips "내 할 일 · 사람별" (the
+  default 내 할 일) and "쓰는 자료: Acme 회의록 폴더의 가장 최근 회의록"; the link needs no file list.
+- **Side fix: the weekly suggestion only for weekly work.** "매주 이 시간에 자동으로 받을까요?" (X) now also needs the skill's
+  metadata `recurring: weekly`: set on the pack's weekly report, competitor brief and meeting tasks (ko, en), and on a
+  drafted skill when the draft judged the work weekly; never ad copy or a quote. A file without the key (installed
+  before the line, or unreadable now) reads as the pack says (`RECURRING_PACK_SKILLS`); `recurring: "no"` turns it off.
+  `earlierPackTexts` knows the texts without the line, so an untouched install stays `present`. `SkillInfo.recurring`
+  is server-side only (listings leave it out).
+- **Removed**: M's invite bar texts for the lead's files ("팀원도 이 회의록에서 …", "팀원도 이 자료에서 …"; `welcome.bar.tasks`,
+  `welcome.bar.brief`) and the starter the bar made; the "3 proposals" idea; no slug anywhere on screen.
+- **Not done**: the upload still goes into the team's notes folder whatever the file is (a quote template then sits in
+  회의록/); a member's improvement still goes through "스킬로 제안"; the hosted trial engine was not used for the
+  acceptance runs (no key on this Mac): Claude Code (local login).
+- Tests: `tests/unit/b-skill-share.test.ts` (reading a draft: card, folded inputs, files and folders, unreadable and its
+  reasons, specifics of a run and what is left, the name and clashes, the file the reader takes back, pack texts with
+  `recurring` and their earlier texts; real turns with the fake engine: owners and admins, own finished answers, a
+  draft chat is no source, the fixed request and the snapshot, one rewrite then no card, the instructions and the tool
+  list, files refused, no attachments, a JSON answer as the card without steps, a leftover named in the rewrite, the
+  save with a free name, the history and audit, saved again, a member lists it with its form),
+  `tests/unit/a-skill-maker.test.ts` (the first version's maker after another admin's edit, none for a pack text or a
+  file from outside, `skillBy` and the `skill` starter at the join, the receipt for others only),
+  `tests/unit/b-result-suggestions.test.ts` (weekly work only), `web/test/unit/welcome.test.tsx` (the bar, the six things,
+  the title edit, share then invite with the skill, the PATCH of an open link and the message, no card, X),
+  `web/test/unit/skill-share-member.test.tsx` (the maker held at the join, the form's line, the arrival without a form,
+  the receipt, the message in five languages), `web/test/e2e/welcome-notes.spec.ts` (notes in, the card, share, invite,
+  a member on the form with the line).
