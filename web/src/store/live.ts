@@ -111,15 +111,16 @@ export function dispatch(ev: ServerEvent) {
         void useSession.getState().refreshMe()
         return
       }
+      if (ev.data.code === 'profile_changed') {
+        // someone changed their name, title, status or photo (routes/people.ts): the own profile and the people list
+        // follow, quietly (the notice carries no text to show)
+        void useSession.getState().refreshMe()
+        void usePeople.getState().load(true)
+        return
+      }
       if (ev.data.code === 'speech_changed') {
         // an admin turned voice input on or off: the composer shows or hides the mic (Me.team.voiceInput)
         void useSession.getState().refreshMe()
-        return
-      }
-      if (ev.data.code === 'profile_changed') {
-        // someone changed their name, line or photo (routes/people.ts): the people list (names, photos) is read again,
-        // quietly; it carries no text to show
-        void usePeople.getState().load(true)
         return
       }
       if (ev.data.code === 'locale_changed') {
