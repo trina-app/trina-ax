@@ -18,7 +18,13 @@ export function SlackAccount() {
     api.call(SLACK.mySlack).then((v) => { if (live) setMe(v) }, () => {})
     return () => { live = false }
   }, [])
-  if (!me || (!me.available && !me.link)) return null
+  if (!me || (!me.available && !me.link && !me.proposal)) return null
+  const answer = async (accept: boolean) => {
+    if (!me.proposal) return
+    setBusy(true); setError(null)
+    try { setMe(await api.call(accept ? SLACK.acceptSlackProposal : SLACK.declineSlackProposal, { params: { id: me.proposal.id }, body: {} })) }
+    catch (e) { setError(errorText(e, locale, t('error.network'))) } finally { setBusy(false) }
+  }
   const unlink = async () => {
     if (!(await confirmDialog({ title: t('slack.mine.unlinkTitle'), body: t('slack.mine.unlinkBody'), confirm: t('slack.mine.unlink'), danger: true }))) return
     setBusy(true); setError(null)
@@ -28,6 +34,19 @@ export function SlackAccount() {
     <div className="space-y-2 border-t border-line pt-5" data-testid="slack-account">
       <h3 className="text-sm font-semibold">Slack</h3>
       {error && <ErrorNote>{error}</ErrorNote>}
+      {!me.link && me.proposal && (
+        // the owner proposed a Slack account: linked only when I accept it here
+        <div className="rounded-xl border border-line p-3" data-testid="slack-proposal">
+          <p className="text-sm">{t('slack.mine.proposal')}</p>
+          <p className="mt-1 text-sm font-medium">{me.proposal.slack.name ?? me.proposal.slack.realName ?? me.proposal.slack.handle ?? me.proposal.slack.userId}</p>
+          <p className="text-xs text-muted">{[me.proposal.slack.realName, me.proposal.slack.handle ? `@${me.proposal.slack.handle}` : null, me.proposal.slack.email ?? t('slack.people.noEmail')].filter(Boolean).join(' · ')}</p>
+          <p className="mt-2 text-xs text-warn">{t('slack.mine.proposalWarning')}</p>
+          <div className="mt-3 flex gap-2">
+            <Button variant="primary" size="sm" busy={busy} disabled={busy} onClick={() => void answer(true)} data-testid="slack-proposal-accept">{t('slack.link.confirm')}</Button>
+            <Button size="sm" disabled={busy} onClick={() => void answer(false)} data-testid="slack-proposal-decline">{t('slack.mine.decline')}</Button>
+          </div>
+        </div>
+      )}
       {me.link ? (
         <div className="flex items-start gap-3">
           <p className="min-w-0 flex-1 text-sm">

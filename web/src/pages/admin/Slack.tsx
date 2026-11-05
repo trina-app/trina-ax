@@ -127,8 +127,8 @@ function TokenForm({ onSaved }: { onSaved: (s: SlackAdmin) => void }) {
   )
 }
 
-/** The workspace's people and whom each is linked to; one action: link someone whose Slack and app e-mails differ (the
- * person cannot link it themselves then). Slack tells them which account it is and how to undo it. */
+/** The workspace's people and whom each is linked to; one action: propose linking someone whose Slack and app e-mails
+ * differ (the person cannot link it themselves then). Nothing is linked until that member accepts it in the app. */
 function People() {
   const t = useT()
   const ok = useActionOk()
@@ -154,7 +154,10 @@ function People() {
                     </div>
                     {x.linkedTo
                       ? <span className="shrink-0 text-xs text-muted">→ {x.linkedTo.name}</span>
-                      : <Button size="sm" onClick={() => setLinking(x)} data-testid="slack-person-link">{t('slack.people.link')}</Button>}
+                      : x.pending
+                        ? <span className="shrink-0 text-xs text-muted" data-testid="slack-person-pending">{t('slack.people.waiting', { name: x.pending.name })}{' '}
+                            <button type="button" className="text-danger underline-offset-2 hover:underline" onClick={async () => { if (await ok(() => api.call(SLACK.cancelSlackProposal, { params: { id: x.pending!.proposalId } }))) void members.reload() }}>{t('common.cancel')}</button></span>
+                        : <Button size="sm" onClick={() => setLinking(x)} data-testid="slack-person-link">{t('slack.people.link')}</Button>}
                   </li>
                 ))}
               </ul>
@@ -166,7 +169,7 @@ function People() {
       {linking && (
         <LinkDialog member={linking} users={users.data ?? []} onClose={() => setLinking(null)}
           onLink={async (userId) => {
-            if (await ok(() => api.call(SLACK.linkSlackMember, { body: { slackUserId: linking.slackUserId, userId } }), t('slack.people.linked'))) { setLinking(null); void members.reload() }
+            if (await ok(() => api.call(SLACK.proposeSlackLink, { body: { slackUserId: linking.slackUserId, userId } }), t('slack.people.proposed'))) { setLinking(null); void members.reload() }
           }} />
       )}
     </Card>

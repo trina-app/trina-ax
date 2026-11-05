@@ -58,11 +58,13 @@ export default function SlackLink() {
             </div>
             <div>
               <dt className="text-muted">{t('slack.link.meAccount')}</dt>
-              <dd className="break-words font-medium" data-testid="slack-link-me">{info.me.name} <span className="text-xs text-faint">@{info.me.username}</span></dd>
+              <dd className="break-words font-medium" data-testid="slack-link-me">{info.me.name} <span className="text-xs text-faint">@{info.me.username}</span>
+                {/* the e-mail that was compared with the Slack account's (Slack's own is not shown) */}
+                <span className="mt-0.5 block text-xs font-normal text-muted" data-testid="slack-link-email-compared">{info.email ? t('slack.link.compared', { email: info.email }) : t('slack.people.noEmail')}</span></dd>
             </div>
           </dl>
           {info.emailCheck !== 'match' && !info.linkedElsewhere ? (
-            <p className="text-sm text-warn" data-testid="slack-link-email">{t(info.emailCheck === 'mismatch' ? 'slack.link.emailMismatch' : info.emailCheck === 'missing' ? 'slack.link.emailMissing' : 'slack.link.emailUnavailable')}</p>
+            <p className="text-sm text-warn" data-testid="slack-link-email">{t(info.emailCheck === 'mismatch' ? 'slack.link.emailMismatch' : info.emailCheck === 'missing' ? 'slack.link.emailMissing' : info.emailCheck === 'recent' ? 'slack.link.emailRecent' : 'slack.link.emailUnavailable')}</p>
           ) : info.linkedElsewhere ? (
             <p className="text-sm text-warn" data-testid="slack-link-elsewhere">
               {t('slack.link.elsewhere')} <Link to="/settings/connectors" className="text-accent underline-offset-2 hover:underline">{t('slack.link.toSettings')}</Link>

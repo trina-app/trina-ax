@@ -18,12 +18,12 @@ beforeAll(() => { installDom(); useLocaleStore.setState({ locale: 'en' }) })
 afterAll(() => removeDom())
 beforeEach(() => {
   calls = []
-  preview = { workspace: 'Acme', slack: { userId: 'U0ALICE', name: 'alice.slack', realName: 'Alice in Slack', handle: 'alice' }, me: { name: 'Bob Lee', username: 'bob' }, expiresAt: new Date(Date.now() + 600_000).toISOString(), linkedElsewhere: false, emailCheck: 'match' }
+  preview = { workspace: 'Acme', slack: { userId: 'U0ALICE', name: 'alice.slack', realName: 'Alice in Slack', handle: 'alice' }, me: { name: 'Bob Lee', username: 'bob' }, expiresAt: new Date(Date.now() + 600_000).toISOString(), linkedElsewhere: false, emailCheck: 'match', email: 'bob@acme.example' }
   globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
     const url = new URL(String(input), 'http://team.localhost')
     calls.push({ method: init?.method ?? 'GET', path: url.pathname, url: url.href, raw: typeof init?.body === 'string' ? init.body : '' })
     if (url.pathname === '/api/slack/link/preview') return json(preview)
-    if (url.pathname === '/api/slack/link/confirm') return json({ available: true, workspace: 'Acme', link: { slackUserId: 'U0ALICE', slackName: 'alice.slack', linkedAt: new Date().toISOString() } })
+    if (url.pathname === '/api/slack/link/confirm') return json({ available: true, workspace: 'Acme', link: { slackUserId: 'U0ALICE', slackName: 'alice.slack', linkedAt: new Date().toISOString() }, proposal: null })
     if (url.pathname === '/api/slack/link/cancel') return new Response(null, { status: 204 })
     return json({ error: { code: 'not_found', message: 'not here' } }, 404)
   }) as typeof fetch
@@ -41,6 +41,7 @@ describe('the Slack link page', () => {
     expect(m.get('slack-link-slack').textContent).toContain('Alice in Slack · @alice')
     expect(m.get('slack-link-me').textContent).toContain('Bob Lee')
     expect(m.get('slack-link-me').textContent).toContain('@bob')
+    expect(m.get('slack-link-email-compared').textContent).toContain('bob@acme.example')
     expect(calls.map((c) => `${c.method} ${c.path}`)).toEqual(['POST /api/slack/link/preview'])
     await m.click('slack-link-confirm')
     await m.until(() => m.find('slack-link-done'), 'linked')
