@@ -9,7 +9,7 @@ import { sealSecret } from '../../web/src/lib/seal'
 import { createLogger } from '../../server/src/log'
 import { credentialsOf } from '../../server/src/credentials/store'
 import { normEmail, slackOf } from '../../server/src/integrations/slack/service'
-import { questionText, toMrkdwn } from '../../server/src/integrations/slack/text'
+import { questionText, refusal, say as sayText, toMrkdwn } from '../../server/src/integrations/slack/text'
 import { slackManifest } from '../../server/src/integrations/slack/manifest'
 import { startHarness, type Harness } from '../lib/b-harness'
 import { nextTs, startFakeSlack, type FakeSlack } from '../lib/fake-slack'
@@ -170,7 +170,7 @@ describe('linking', () => {
     expect(refused.status).toBe(409)
     expect(refused.json.error.params.reason).toBe('email_mismatch')
     // bob reads the app in Korean
-    expect(refused.json.error.message).toBe('이 Slack 계정의 이메일이 Trina AX 계정과 달라요. 팀장에게 연결을 부탁하세요.')
+    expect(refused.json.error.message).toBe('이 Slack 계정의 이메일이 Trina AX 계정과 달라서 바로 연결할 수 없어요. 팀장에게 관리자 › Slack › 사람 연결에서 나에게 연결을 제안해 달라고 하세요.')
     expect(h.ctx.db.query('SELECT count(*) n FROM slack_links').get()).toEqual({ n: 0 })
     expect(h.ctx.db.query("SELECT detail FROM audit_log WHERE action = 'slack.link_refused'").get()).toEqual({ detail: JSON.stringify({ slackUser: 'U0ALICE', reason: 'email_mismatch' }) })
   })
@@ -203,7 +203,7 @@ describe('linking', () => {
     expect((await call('bob', 'GET', '/api/slack/me')).json.link).toBeNull()
     // Slack is told, to alice only, where she asked
     // the Slack account is told which account it now asks as
-    expect(await waitFor(() => ephemeralsTo('U0ALICE').some((c) => (c.args.text ?? '').includes('is connected to the Trina AX account Alice Kim (@alice)')))).toBe(true)
+    expect(await waitFor(() => ephemeralsTo('U0ALICE').some((c) => (c.args.text ?? '').includes('Linked to the Trina AX account Alice Kim (@alice)')))).toBe(true)
     expect(h.ctx.db.query("SELECT target, detail FROM audit_log WHERE action = 'slack.linked'").all()).toEqual([{ target: 'alice', detail: JSON.stringify({ slackUser: 'U0ALICE', team: 'T0ACME' }) }])
   })
 
@@ -265,6 +265,8 @@ describe('the owner proposes a link for e-mails that differ; only the member can
     const outsider = await propose('dana', 'U0GUEST', 'erin')
     expect(outsider.status).toBe(400)
     expect(outsider.json.error.params.reason).toBe('outsider')
+    // the owner reads the words the outsider reads in Slack
+    expect(outsider.json.error.message).toBe(sayText('outsider', 'ko'))
     expect((await propose('dana', 'U0ROBOT', 'erin')).json.error.params.reason).toBe('outsider')
     expect((await propose('dana', 'U0ALICE', 'bob')).json.error.params.reason).toBe('slack_taken')
     expect((await propose('dana', 'U0NOMAIL', 'alice')).json.error.params.reason).toBe('linked_elsewhere')
@@ -707,5 +709,15 @@ describe('text', () => {
       .toBe('look at the doc (https://acme.example/a?b=1&c=2) with @bob in #general <now>')
     expect(toMrkdwn('# Title\n**bold** and [link](https://acme.example) <!channel> <@U1>\n- item\n```ts\na < b && c\n```'))
       .toBe('*Title*\n*bold* and <https://acme.example|link> &lt;!channel&gt; &lt;@U1&gt;\n• item\n```\na &lt; b &amp;&amp; c\n```')
+  })
+
+  test('a reason code is a plain sentence in Slack; a sentence stays; one wording for an outsider', () => {
+    expect(sayText('failed', 'en', { reason: 'gone' })).toBe('Could not answer. The chat was deleted.')
+    expect(sayText('failed', 'en', { reason: 'error' })).toBe('Could not answer. Something went wrong while answering.')
+    expect(sayText('cannotStart', 'en', { reason: 'internal' })).toBe('Could not start the answer. Something went wrong on the server. Ask again in a moment.')
+    expect(sayText('cannotStart', 'ko', { reason: 'forbidden' })).not.toContain('forbidden')
+    expect(sayText('cannotStart', 'en', { reason: 'You used up this month\'s budget.' })).toBe('Could not start the answer. You used up this month\'s budget.')
+    for (const l of ['ko', 'en', 'id', 'ja', 'es'] as const) expect(refusal('outsider', l)).toBe(sayText('outsider', l))
+    expect(refusal('missing_scope', 'ko', { scopes: 'users:read' })).not.toContain('매니페스트')
   })
 })

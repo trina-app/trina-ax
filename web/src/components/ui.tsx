@@ -68,7 +68,7 @@ export const inputCls =
 
 /** A labelled field. The hint / error sit outside the <label> (so they are not part of the field's name) and are
  * tied to the control with aria-describedby. */
-export function Field({ label, children, hint, error }: { label: string; children: ReactNode; hint?: string; error?: string | null }) {
+export function Field({ label, children, hint, error }: { label: string; children: ReactNode; hint?: string; error?: ReactNode }) {
   const id = useId()
   const note = error || hint
   const control = note && isValidElement(children) ? cloneElement(children as React.ReactElement<{ 'aria-describedby'?: string; 'aria-invalid'?: boolean }>, { 'aria-describedby': id, 'aria-invalid': error ? true : undefined }) : children

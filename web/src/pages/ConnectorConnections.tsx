@@ -12,6 +12,8 @@ export default function ConnectorConnections() {
   const t = useT(), locale = useLocale()
   const [items, setItems] = useState<RemoteConnectionInfo[] | null>(null), [configured, setConfigured] = useState(false), [resource, setResource] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null), [busy, setBusy] = useState<string | null>(null)
+  // the team uses Slack: its line is there, so no empty card saying the server has no connectors
+  const [slack, setSlack] = useState(false)
   const life = useRef(0), sequence = useRef(0), writing = useRef(false)
   useEffect(() => { life.current++; return () => { life.current++ } }, [])
   const load = useCallback(async () => {
@@ -44,18 +46,20 @@ export default function ConnectorConnections() {
     {items && <>
       {!configured && items.length > 0 && <p className="text-sm text-muted">{t('connectors.disabled')}</p>}
       {resource && <div className="rounded-xl border border-line p-4"><p className="mb-1 text-sm font-medium">{t('connectors.address')}</p><code className="break-all text-sm">{resource}</code></div>}
-      {/* no connected app: the same dashed empty card as the MCP tab; when the server has no connectors, it says why */}
-      {items.length === 0 && <div className="rounded-xl border border-dashed border-line" data-testid="connectors-empty">
+      {/* no connected app: the same dashed empty card as the MCP tab; when the server has no connectors, it says why.
+          With the Slack line under it, only how to add one (when the server has connectors) */}
+      {items.length === 0 && !slack && <div className="rounded-xl border border-dashed border-line" data-testid="connectors-empty">
         <EmptyState icon={<Plug size={26} aria-hidden />} title={t('connectors.empty')}>
           <p>{t(configured ? 'connectors.emptyHint' : 'connectors.disabled')}</p>
         </EmptyState>
       </div>}
+      {items.length === 0 && slack && configured && <p className="text-sm text-muted">{t('connectors.emptyHint')}</p>}
       {items.length > 0 && <ul className="divide-y divide-line">{items.map(item => <li key={item.id} className="flex items-start gap-3 py-4" data-testid="connector-item">
         <div className="min-w-0 flex-1"><p className="break-words text-sm font-medium">{item.clientName}</p><p className="mt-1 text-xs text-muted">{item.scopes.map(label).join(' · ')}</p><p className="mt-1 text-xs text-faint">{t('connectors.expires', { date: formatDateTime(item.expiresAt, locale) })}</p>{item.currentSession && <p className="mt-1 text-xs text-faint">{t('connectors.currentSession')}</p>}</div>
         <Button variant="danger" size="sm" disabled={busy !== null} busy={busy === item.id} onClick={() => void disconnect(item.id)}>{t('connectors.disconnect')}</Button>
       </li>)}</ul>}
       {configured && <p className="text-xs text-muted">{t('connectors.sessionBound')}</p>}
     </>}
-    <SlackAccount />
+    <SlackAccount onShown={setSlack} />
   </section>
 }

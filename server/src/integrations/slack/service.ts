@@ -170,7 +170,7 @@ export class SlackConnector {
     return {
       enabled: !!cfg?.enabled, tokens: !!cfg?.secret_enc,
       workspace: cfg?.team_id ? { teamId: cfg.team_id, name: cfg.team_name ?? cfg.team_id, url: cfg.team_url } : null,
-      botName: cfg?.bot_name ?? null, state, lastError: state === 'connected' ? null : lastError,
+      botName: cfg?.bot_name ?? null, appId: cfg?.app_id ?? null, state, lastError: state === 'connected' ? null : lastError,
       linkOrigin: cfg?.link_origin ?? null, linked, manifest: JSON.stringify(manifest, null, 2), createUrl: createAppUrl(manifest),
     }
   }
