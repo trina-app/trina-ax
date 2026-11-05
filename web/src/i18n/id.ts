@@ -2701,6 +2701,7 @@ export const id: Record<MessageKey, string> = {
   "onboarding.profile.later": "Nanti saja",
   "onboarding.profile.readingHint": "Biasanya kurang dari semenit.",
   "skillPack.addMarketing": "Tambahkan {n} skill pemasaran",
+  "onboarding.profile.understood": "Ini yang kami pahami: {line}",
   "onboarding.profile.unreadable": "Kami tidak bisa membaca profil perusahaan dari situs web.",
   "onboarding.profile.fallbackTitle": "Buat dengan cara lain",
   "onboarding.profile.fallbackDesc": "Tempel teks tentang perusahaan Anda, atau jawab tiga pertanyaan.",

@@ -2700,6 +2700,7 @@ export const ko = {
   "onboarding.profile.later": "나중에 할게요",
   "onboarding.profile.readingHint": "보통 1분 안에 끝나요.",
   "skillPack.addMarketing": "마케팅 스킬 {n}개 넣기",
+  "onboarding.profile.understood": "이렇게 이해했어요: {line}",
   "onboarding.profile.unreadable": "홈페이지에서 회사 소개를 읽지 못했어요.",
   "onboarding.profile.fallbackTitle": "다른 방법으로 만들어요",
   "onboarding.profile.fallbackDesc": "회사 소개 글을 붙여 넣거나, 세 가지 질문에 답해 주세요.",

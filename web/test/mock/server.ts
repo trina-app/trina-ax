@@ -46,7 +46,7 @@ import { checkTeamIcon, TEAM_ICON_MAX_BYTES, type TeamIconFile } from '@mycel/sh
 import { Sealer } from '../../../server/src/credentials/seal'
 import type { Credential, CredentialKind, CredentialLogin, MessageSourceFile, SealedSecret } from '@mycel/shared/api'
 import type { Integration, IntegrationAccess, IntegrationFlow, IntegrationInput, IntegrationPatch, IntegrationRequest, IntegrationTool } from '@mycel/shared/api'
-import { SkillsOverview, type AccessFolderKind, type AccessTreeResponse, type FolderAccessResponse, type FolderEditPreview, type PersonAccessResponse } from '@mycel/shared/api'
+import { normalizeWebsite, SkillsOverview, type AccessFolderKind, type AccessTreeResponse, type FolderAccessResponse, type FolderEditPreview, type PersonAccessResponse } from '@mycel/shared/api'
 import { RuleSet, type Access } from '../../../server/src/policy/access'
 import { byPerson, folderInput, MAX_VIA, navigation, pageByPath, pageByPerson, ruleFolderOf, segsOf, shownPath, shownSegs, summarize, withoutOwnFolder } from '../../../server/src/admin/access-rows'
 import { ruledAnswer, treeAnswer, type TreeMark, type TreeSource } from '../../../server/src/admin/access-tree'
@@ -140,6 +140,9 @@ export class MockServer {
   revokedTeamLinks = new Set<string>()
   /** the welcome steps' progress (server/src/onboarding/welcome.ts) */
   welcome: WelcomeProgress | null = null
+  /** the saved company profile, and the website readings (server/src/onboarding/draft.ts, short: no chat of the list) */
+  companyProfile: import('@mycel/shared/api').CompanyProfile | null = null
+  profileDrafts = new Map<string, { userId: string; website: string; reads: number }>()
   /** the suggestion under answers a test set, and the ones closed */
   resultSuggestion: import('@mycel/shared/api').ResultSuggestion | null = null
   closedSuggestions = new Set<string>()
@@ -270,6 +273,8 @@ export class MockServer {
     this.teamLink = null
     this.revokedTeamLinks.clear()
     this.welcome = null
+    this.companyProfile = null
+    this.profileDrafts = new Map()
     this.resultSuggestion = null
     this.closedSuggestions = new Set()
     this.skillDrafts = new Map()
@@ -1648,7 +1653,26 @@ export class MockServer {
     getAiAccess: (c) => ({ usable: true, action: c.user.role === 'owner' ? 'connect_team' : 'ask_owner', requested: false }),
     requestAiAccess: () => fail('forbidden', 403, '이미 AI를 쓸 수 있어요.'),
     trialCredit: () => ({ credit: null }),
-    getCompanyProfile: () => ({ profile: null }),
+    getCompanyProfile: () => ({ profile: this.companyProfile }),
+    saveCompanyProfile: (c) => (this.companyProfile = { ...(c.body as import('@mycel/shared/api').CompanyProfileInput), updatedAt: now() }),
+    // the website reading (server/src/onboarding/draft.ts, short): running for its first read, then a draft made from the
+    // team's name; like the server, its chat is not in the chat list (server/src/chat/internal-chats.ts)
+    startProfileDraft: (c) => {
+      const b = c.body as import('@mycel/shared/api').StartProfileDraft
+      const website = b.website ? normalizeWebsite(b.website) ?? '' : ''
+      const id = uuidv7()
+      this.profileDrafts.set(id, { userId: c.user.id, website, reads: 0 })
+      return { status: 201, body: { chatId: id, website, site: website ? new URL(website).host.replace(/^www\./, '') : null } }
+    },
+    getProfileDraft: (c) => {
+      const d = this.profileDrafts.get(c.params.chatId)
+      if (!d || d.userId !== c.user.id) fail('not_found', 404)
+      const base = { website: d!.website, error: null, steps: [], writing: false, assets: { images: 0, logo: false, colors: ['#1b6e3a'] } }
+      if (++d!.reads < 2) return { ...base, status: 'running', draft: null, writing: true }
+      const team = this.settings.teamName
+      return { ...base, status: 'done', draft: { website: d!.website, name: team, oneLine: `${team}는 조용한 책상 선풍기를 만들어요`, products: '책상 선풍기', audience: '작은 사무실', tone: ['친근한'], avoid: '',
+        sources: d!.website ? [{ field: 'oneLine', url: d!.website, excerpt: '조용한 책상 선풍기' }] : [] } }
+    },
     // the welcome steps (server/src/onboarding/welcome.ts, the same rules in short): one record, the pack once
     getWelcome: () => ({ progress: this.welcome }),
     updateWelcome: (c) => {

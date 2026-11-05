@@ -4,7 +4,8 @@
 // bar asks "마음에 드시나요? 팀원도 같은 방식으로 바로 만들 수 있어요" [팀에 공유], which opens the invite with that same
 // skill (no draft, no copy: the goal counts one path) and the message ready to copy at once (the link made in advance);
 // someone joins with the link, lands on the card news form, runs it and gets their own chat. Without files, the
-// server's 회사 소개.md is attached instead.
+// server's 회사 소개.md is attached instead. A website reading with a one-line intro is saved without the review: the
+// first result opens with "이렇게 이해했어요: … · 고치기", and 고치기 opens the review in a dialog.
 import { expect, test } from '@playwright/test'
 import { realErrors, reset, signIn, watchConsole } from './helpers'
 
@@ -107,5 +108,32 @@ test('"자료 없이 만들게요" on a phone: the card news from the server\'s 
   await panel.getByRole('button', { name: '닫기' }).click()
   await expect(panel).toHaveCount(0)
   await expect(page.getByTestId('welcome-invite-text')).toHaveText('마음에 드시나요? 팀원도 같은 방식으로 바로 만들 수 있어요')
+  expect(realErrors(errors)).toEqual([])
+})
+
+test('the website read: saved without the review; the first result opens with "이렇게 이해했어요: … · 고치기", which opens the review', async ({ page }) => {
+  const errors = watchConsole(page)
+  await reset(page)
+  await signIn(page)
+  await page.goto('/welcome')
+  await page.getByLabel('홈페이지 주소').fill('acme.example')
+  await page.getByRole('button', { name: '읽어 오기' }).click()
+  // the hint no longer promises the chat list
+  await expect(page.getByTestId('profile-step-reading')).toContainText('보통 1분 안에 끝나요.')
+  await expect(page.getByTestId('profile-step-reading')).not.toContainText('채팅 목록')
+  // straight on to the first result: no review form, one line of what was saved on top
+  await expect(page.getByTestId('welcome-profile-line')).toHaveText('이렇게 이해했어요: Acme는 조용한 책상 선풍기를 만들어요 · 고치기', { timeout: 15_000 })
+  await expect(page.getByTestId('profile-step-review')).toHaveCount(0)
+  await expect(page.getByTestId('welcome-files-pick')).toBeVisible()
+  const saved = await (await page.request.get('/api/onboarding/profile')).json()
+  expect(saved.profile).toMatchObject({ website: 'https://acme.example/', oneLine: 'Acme는 조용한 책상 선풍기를 만들어요', colors: ['#1b6e3a'] })
+  // 고치기: the full review in a dialog; saving there changes the line
+  await page.getByTestId('welcome-profile-fix').click()
+  const dialog = page.getByRole('dialog')
+  await expect(dialog.getByTestId('profile-step-review')).toBeVisible()
+  await dialog.getByRole('textbox', { name: '한 줄 소개' }).fill('Acme는 작은 사무실용 선풍기를 만들어요')
+  await dialog.getByRole('button', { name: '저장', exact: true }).click()
+  await expect(dialog).toHaveCount(0)
+  await expect(page.getByTestId('welcome-profile-line')).toHaveText('이렇게 이해했어요: Acme는 작은 사무실용 선풍기를 만들어요 · 고치기')
   expect(realErrors(errors)).toEqual([])
 })

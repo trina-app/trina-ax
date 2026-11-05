@@ -8,6 +8,9 @@
 // When the site can't be read (or there is none): paste a text (the same draft, from the text) or answer three
 // questions (무엇을 파나요 / 누구에게 / 어떤 말투로), which go straight to the same review. While it reads, the step
 // offers nothing but "later" (docs/DECISIONS.md "W2"): a reading that fails opens that fallback by itself.
+// `autoSave` (the welcome steps): a website reading whose draft has a one-line intro is saved as it came, with the
+// same body as the review's save, and the step is done; the welcome page then shows one line of it with "고치기", which
+// opens this review. Pasted text, a draft without a one-line intro and a save that fails keep the review.
 // A draft is an AI answer: with no AI the person can use (GET /api/me/ai-access, stream A), the step says so with A's
 // connect button instead of starting one, and the three questions (no AI needed) stay open.
 import { useEffect, useId, useRef, useState, type ReactNode } from 'react'
@@ -33,11 +36,13 @@ export interface ProfileStepProps {
   initial?: CompanyProfile | null
   /** the website to start with; default: the one the setup link carried in this tab */
   initialWebsite?: string | null
+  /** save a website draft that has a one-line intro without the review (the welcome steps) */
+  autoSave?: boolean
 }
 
 type Phase =
   | { kind: 'site' }
-  | { kind: 'reading'; chatId: string; source: 'website' | 'text'; site: string | null }
+  | { kind: 'reading'; chatId: string; source: 'website' | 'text'; site: string | null; website: string }
   | { kind: 'fallback'; unreadable: boolean; error: string | null }
   | { kind: 'paste' }
   | { kind: 'questions' }
@@ -89,7 +94,7 @@ export function tidyProfile(p: CompanyProfileInput): CompanyProfileInput {
   return out
 }
 
-export default function ProfileStep({ onDone, onSkip, skipLabel, initial, initialWebsite }: ProfileStepProps) {
+export default function ProfileStep({ onDone, onSkip, skipLabel, initial, initialWebsite, autoSave }: ProfileStepProps) {
   const t = useT()
   const locale = useLocale()
   const [phase, setPhase] = useState<Phase>(initial ? { kind: 'review' } : { kind: 'site' })
@@ -103,6 +108,9 @@ export default function ProfileStep({ onDone, onSkip, skipLabel, initial, initia
   const [answers, setAnswers] = useState({ what: '', who: '', tone: '' })
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  // the latest props for the reading loop (it starts once per reading)
+  const latest = useRef({ onDone, autoSave })
+  latest.current = { onDone, autoSave }
   // while reading: the pages the server opened or skipped so far, and whether the AI is writing the profile
   const [activity, setActivity] = useState<{ steps: ProfileDraftPage[]; writing: boolean; assets: DraftAssets | null }>({ steps: [], writing: false, assets: null })
   const heading = useRef<HTMLHeadingElement>(null)
@@ -127,7 +135,7 @@ export default function ProfileStep({ onDone, onSkip, skipLabel, initial, initia
       const r = await api.call(API.startProfileDraft, { body })
       if (r.website) setDraft((d) => ({ ...d, website: r.website }))
       setActivity({ steps: [], writing: false, assets: null })
-      setPhase({ kind: 'reading', chatId: r.chatId, source: 'website' in body ? 'website' : 'text', site: r.site })
+      setPhase({ kind: 'reading', chatId: r.chatId, source: 'website' in body ? 'website' : 'text', site: r.site, website: r.website })
     } catch (e) {
       setError(errorText(e, locale, t('error.network')))
     } finally {
@@ -159,7 +167,15 @@ export default function ProfileStep({ onDone, onSkip, skipLabel, initial, initia
           const d = s.draft
           // the brand colours the server found on the pages it opened (a pasted text has none: the draft's own, if any)
           const colors = brandColors(s.assets?.colors.length ? s.assets.colors : d.colors)
-          setDraft((prev) => named({ ...d, website: d.website || prev.website, colors }))
+          const read: CompanyProfileInput = { ...d, website: d.website || phase.website, colors }
+          if (latest.current.autoSave && phase.source === 'website' && d.oneLine.trim()) {
+            // no more reads of this draft (a late step event must not save it twice)
+            stopped = true
+            clearTimeout(timer)
+            await saveAsRead(read)
+            return
+          }
+          setDraft((prev) => named({ ...read, website: read.website || prev.website }))
           setPhase({ kind: 'review' })
           return
         }
@@ -183,6 +199,25 @@ export default function ProfileStep({ onDone, onSkip, skipLabel, initial, initia
     if (!w) return setSiteError(t('onboarding.profile.siteInvalid'))
     setSiteError(null)
     void start({ website: w })
+  }
+
+  /** The welcome steps: the website draft saved as it came (only what the pages said: no name is filled in, an empty one
+   * reads as the team's name everywhere), with the save's own body and checks; the step is then done. A save that fails
+   * opens the review with the draft and the reason. */
+  const saveAsRead = async (read: CompanyProfileInput) => {
+    const body = tidyProfile(read)
+    setBusy(true)
+    try {
+      if (body.website && !normalizeWebsite(body.website)) throw new Error(t('onboarding.profile.siteInvalid'))
+      const saved = await api.call(API.saveCompanyProfile, { body })
+      latest.current.onDone(saved)
+    } catch (e) {
+      setDraft(named(read))
+      setError(errorText(e, locale, t('error.network')))
+      setPhase({ kind: 'review' })
+    } finally {
+      setBusy(false)
+    }
   }
 
   const save = async () => {

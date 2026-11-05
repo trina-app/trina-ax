@@ -2,7 +2,9 @@
 // onboarding", "M — One meeting note, everyone's own tasks", "N — The first result is the company's card news", "W2 —
 // AI connection first"): AI 연결 (only while no AI answers the owner) → 회사 소개 → 첫 결과, then the team invite.
 // 회사 소개 and 첫 결과 need AI, so without it the AI step opens in front of them, never in front of the invite; "나중에
-// 하기" there leaves the steps (Home shows its connect card). The first result is the company's own card news: the lead
+// 하기" there leaves the steps (Home shows its connect card). 회사 소개 saves a website reading with a one-line intro by
+// itself (ProfileStep autoSave) and goes on; 첫 결과 opens with one line of what was saved, "이렇게 이해했어요: … · 고치기",
+// whose 고치기 opens the full review in a dialog. The first result is the company's own card news: the lead
 // drops a company intro or a team deck into the team's brand folder (groups/<team>/브랜드/), or goes on without one
 // ("자료 없이 만들게요": the server writes 회사 소개.md there from the website reading); POST
 // /api/onboarding/welcome/first-result makes the chat and says which team files to attach, and the general skill
@@ -35,7 +37,7 @@ import { ConnectAiPanel } from '../components/onboarding/ConnectAi'
 import { InviteStep } from '../components/onboarding/InviteStep'
 import ProfileStep from '../components/onboarding/ProfileStep'
 import { UploadLabel } from '../components/UploadLabel'
-import { Button, ErrorNote, Skeleton } from '../components/ui'
+import { Button, ErrorNote, Modal, Skeleton } from '../components/ui'
 
 export default function Welcome() {
   const me = useMeStrict()
@@ -62,6 +64,8 @@ function WelcomeSteps() {
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [loadError, setLoadError] = useState<unknown>(null)
+  // the saved company profile as the first result's line shows it (undefined: not read yet)
+  const [profile, setProfile] = useState<CompanyProfile | null | undefined>(undefined)
   const region = useRef<HTMLDivElement>(null)
 
   const open = async () => {
@@ -162,8 +166,8 @@ function WelcomeSteps() {
       )}
       <div ref={region} tabIndex={-1} className={back ? 'mt-2 outline-none' : 'mt-8 outline-none'} data-step={gate ? 'ai' : step}>
         {gate && <AiStep busy={busy} onLater={() => navigate('/')} />}
-        {!gate && step === 'profile' && <ProfileWizardStep progress={progress} onDone={() => void leaveProfile('done')} onSkip={() => void leaveProfile('skipped')} />}
-        {!gate && step === 'result' && <ResultStep progress={progress} busy={busy} onRan={(id) => void ran(id)} onSkip={() => void mark('result', 'skipped')} />}
+        {!gate && step === 'profile' && <ProfileWizardStep progress={progress} onDone={(p) => { setProfile(p); void leaveProfile('done') }} onSkip={() => void leaveProfile('skipped')} />}
+        {!gate && step === 'result' && <ResultStep progress={progress} busy={busy} profile={profile} onProfile={setProfile} onRan={(id) => void ran(id)} onSkip={() => void mark('result', 'skipped')} />}
         {!gate && step === 'invite' && <InviteWizardStep progress={progress} onDone={() => void mark('invite', 'done')} onSkip={() => void mark('invite', 'skipped')} />}
       </div>
       {error && <div className="mt-4"><ErrorNote>{error}</ErrorNote></div>}
@@ -226,8 +230,9 @@ function Later({ onClick, disabled }: { onClick: () => void; disabled?: boolean 
 
 const quietLink = 'font-medium text-ink underline decoration-line-strong underline-offset-4 hover:decoration-ink disabled:opacity-50'
 
-/** 1/2 the company profile (stream D's step), starting from the saved profile or the setup link's website. */
-function ProfileWizardStep({ progress, onDone, onSkip }: { progress: WelcomeProgress; onDone: () => void; onSkip: () => void }) {
+/** 1/2 the company profile (stream D's step), starting from the saved profile or the setup link's website. A website
+ * reading with a one-line intro is saved without the review (autoSave): the first result shows it and offers 고치기. */
+function ProfileWizardStep({ progress, onDone, onSkip }: { progress: WelcomeProgress; onDone: (p: CompanyProfile) => void; onSkip: () => void }) {
   const t = useT()
   const [saved, setSaved] = useState<CompanyProfile | null | undefined>(undefined)
   useEffect(() => {
@@ -238,19 +243,59 @@ function ProfileWizardStep({ progress, onDone, onSkip }: { progress: WelcomeProg
   if (saved === undefined) return <Skeleton lines={4} />
   return (
     <div data-testid="welcome-profile">
-      <ProfileStep initial={saved} initialWebsite={progress.site ?? setupSite()} onDone={onDone} onSkip={onSkip} skipLabel={t('welcome.later')} />
+      <ProfileStep initial={saved} initialWebsite={progress.site ?? setupSite()} onDone={onDone} onSkip={onSkip} skipLabel={t('welcome.later')} autoSave />
     </div>
   )
 }
 
 /** The first result, for every team: the company's card news, from the files the lead drops into the team's brand
  * folder or, without any, from the website reading. AI is asked for again here (a run without it would only fail in
- * the chat): without it the AI step comes back (WelcomeSteps' gate). */
-function ResultStep({ progress, busy, onRan }: { progress: WelcomeProgress; busy: boolean; onRan: (chatId: string) => void; onSkip: () => void }) {
+ * the chat): without it the AI step comes back (WelcomeSteps' gate). On top, the line of the saved profile. */
+function ResultStep({ progress, busy, profile, onProfile, onRan }: { progress: WelcomeProgress; busy: boolean; profile: CompanyProfile | null | undefined; onProfile: (p: CompanyProfile | null) => void; onRan: (chatId: string) => void; onSkip: () => void }) {
   const ai = useAiAccess()
   useEffect(() => { void ai.load(true) }, [ai.load])
-  if (!ai.loaded) return <Skeleton lines={4} />
-  return <FilesStep progress={progress} busy={busy} onRan={onRan} />
+  // the profile saved before (another visit, another device): read once; none or a failed read: no line
+  useEffect(() => {
+    if (profile !== undefined) return
+    let live = true
+    api.call(API.getCompanyProfile).then((r) => live && onProfile(r.profile), () => live && onProfile(null))
+    return () => { live = false }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+  if (!ai.loaded || profile === undefined) return <Skeleton lines={4} />
+  return (
+    <>
+      {profile && <ProfileLine profile={profile} onSaved={onProfile} />}
+      <FilesStep progress={progress} busy={busy} onRan={onRan} />
+    </>
+  )
+}
+
+/**
+ * Above the first result, one quiet line of what the company profile says: "이렇게 이해했어요: {한 줄 소개} · 고치기".
+ * Here because the website reading went straight on (saved without the review), and the card news without files is
+ * made from that profile: the owner sees what was kept before anything is made from it. 고치기 opens the full review
+ * (the same step as Admin › Team settings) in a dialog; saving there changes the line. No one-line intro: no line.
+ */
+function ProfileLine({ profile, onSaved }: { profile: CompanyProfile; onSaved: (p: CompanyProfile) => void }) {
+  const t = useT()
+  const [open, setOpen] = useState(false)
+  const line = profile.oneLine.trim()
+  if (!line) return null
+  return (
+    <>
+      <p className="mb-5 text-sm break-words text-muted" data-testid="welcome-profile-line">
+        <span data-testid="welcome-profile-understood">{t('onboarding.profile.understood', { line })}</span>
+        <span aria-hidden> · </span>
+        <button type="button" className={quietLink} onClick={() => setOpen(true)} aria-haspopup="dialog" data-testid="welcome-profile-fix">
+          {t('onboarding.profile.edit')}
+        </button>
+      </p>
+      <Modal open={open} onClose={() => setOpen(false)} title={t('onboarding.profile.title')} width={640}>
+        <ProfileStep initial={profile} onDone={(p) => { onSaved(p); setOpen(false) }} onSkip={() => setOpen(false)} skipLabel={t('onboarding.profile.cancel')} />
+      </Modal>
+    </>
+  )
 }
 
 /**

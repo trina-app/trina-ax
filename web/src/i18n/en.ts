@@ -2701,6 +2701,7 @@ export const en: Record<MessageKey, string> = {
   "onboarding.profile.later": "Later",
   "onboarding.profile.readingHint": "This usually takes under a minute.",
   "skillPack.addMarketing": "Add {n} marketing skills",
+  "onboarding.profile.understood": "Here's what we found: {line}",
   "onboarding.profile.unreadable": "We couldn't read a company profile from the website.",
   "onboarding.profile.fallbackTitle": "Try another way",
   "onboarding.profile.fallbackDesc": "Paste a description of your company, or answer three questions.",

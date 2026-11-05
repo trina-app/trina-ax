@@ -13,7 +13,10 @@
 // - the chat of the first result: "마음에 드시나요? 팀원도 같은 방식으로 바로 만들 수 있어요" [팀에 공유], the invite with the
 //   skill that made it as it is (no draft, no copy; docs/DECISIONS.md "W2"), the link made in advance so the message and
 //   its one copy button show at once; the welcome step's own invite the same; a link that may still work is never
-//   replaced; the team skill card ("S") on its own; Home offers to continue until finished or hidden;
+//   replaced; the team skill card ("S") on its own;
+// - the website reading with a one-line intro is saved without the review and the first result opens with
+//   "이렇게 이해했어요: … · 고치기" (고치기: the review in a dialog);
+//   Home offers to continue until finished or hidden;
 // - the company profile step (D) shows A's connect button instead of starting a draft that cannot run.
 import { afterAll, afterEach, beforeAll, describe, expect, test } from 'bun:test'
 import { act, useState } from 'react'
@@ -33,6 +36,7 @@ import ProfileStep from '../../src/components/onboarding/ProfileStep'
 import { countedSteps, doneCount, inviteSkill, nextStep, prevStep, readNotesHint, resultSkill, resumeStep, showInviteBar, showResume, skillNameOf, stepTotal, teamReach, wantsTeam } from '../../src/lib/welcome'
 import { rememberSetupSite, setupSite } from '../../src/lib/setupLink'
 import { useAiAccess } from '../../src/store/aiAccess'
+import { chatActivity } from '../../src/store/live'
 import { useSession } from '../../src/store/session'
 import { useWelcome } from '../../src/store/welcome'
 import { FakeEvent, installDom, mount, removeDom, type FakeElement, type Mounted } from './dom-host'
@@ -468,6 +472,79 @@ describe('/welcome', () => {
       useWelcome.getState().reset()
       calls = []
     }
+  })
+
+  test('the website read with a one-line intro: saved without the review, on to the first result with "이렇게 이해했어요: … · 고치기"; 고치기 opens the review in a dialog and saving there changes the line', async () => {
+    signIn('owner')
+    rememberSetupSite('https://acme.example/')
+    const DRAFT = '01900000-0000-7000-8000-0000000000d9'
+    let saved: Record<string, unknown> | null = null
+    const before = routes['GET /api/onboarding/profile']!
+    routes['POST /api/onboarding/profile/draft'] = () => json(201, { chatId: DRAFT, website: 'https://acme.example/', site: 'acme.example' })
+    routes[`GET /api/onboarding/profile/draft/${DRAFT}`] = () => json(200, { status: 'done', website: 'https://acme.example/', error: null, steps: [], assets: { images: 0, logo: false, colors: ['#37ee6a'] },
+      draft: { website: 'https://acme.example/', name: 'Acme', oneLine: 'Acme makes quiet desk fans.', products: 'Desk fans', audience: '', tone: [], avoid: '', sources: [] } })
+    routes['PUT /api/onboarding/profile'] = (b) => json(200, (saved = { ...b, updatedAt: '2026-11-05T00:00:00.000Z' }))
+    routes['GET /api/onboarding/profile'] = () => json(200, { profile: saved })
+    const body = () => (globalThis.document as any).body
+    const m = await app()
+    try {
+      await m.until(() => m.find('profile-step-site'), 'step 1')
+      await m.click(m.get('profile-step-site').querySelector('button[type="submit"]')!)
+      await m.until(() => m.find('profile-step-reading'), 'reading')
+      chatActivity.emit(DRAFT)
+      await m.until(() => stepOf(m) === 'result', 'on to the first result')
+      // saved as it came (with the colours the server found), once; the review never showed; the team's start ran
+      expect(called('PUT /api/onboarding/profile').map((c) => c.body)).toEqual([{ website: 'https://acme.example/', name: 'Acme', oneLine: 'Acme makes quiet desk fans.', products: 'Desk fans', audience: '', tone: [], avoid: '', sources: [], colors: ['#37ee6a'] }])
+      expect(m.find('profile-step-review')).toBeNull()
+      expect(progress!.steps.profile).toBe('done')
+      expect(called('POST /api/onboarding/welcome/team')).toHaveLength(1)
+      // one quiet line on top; the step's one primary is still picking files
+      await m.until(() => m.find('welcome-profile-line'), 'the line')
+      expect(m.get('welcome-profile-line').textContent).toBe('이렇게 이해했어요: Acme makes quiet desk fans. · 고치기')
+      expect(m.html().indexOf('welcome-profile-line')).toBeLessThan(m.html().indexOf('welcome-files-pick'))
+      expect(m.container.querySelectorAll('button').filter((b) => (b.getAttribute('class') ?? '').includes('bg-accent ')).length).toBe(1)
+      // 고치기: the full review in a dialog, with what was saved
+      await m.click('welcome-profile-fix')
+      const review = await m.until(() => body().querySelector('[role="dialog"]') && m.find('profile-step-review'), 'the review in a dialog')
+      expect(review.closest('[role="dialog"]')).toBeTruthy()
+      const oneLine = review.querySelectorAll('input').find((i: any) => i.value === 'Acme makes quiet desk fans.')
+      expect(oneLine).toBeTruthy()
+      await m.type(oneLine, 'Acme makes quiet fans for small offices.')
+      await m.click(review.querySelectorAll('button').find((b: any) => b.textContent === '저장'))
+      await m.until(() => m.get('welcome-profile-line').textContent === '이렇게 이해했어요: Acme makes quiet fans for small offices. · 고치기', 'the line changed')
+      expect(body().querySelector('[role="dialog"]')).toBeNull()
+      expect(called('PUT /api/onboarding/profile')).toHaveLength(2)
+      expect(called('PUT /api/onboarding/profile')[1]!.body.oneLine).toBe('Acme makes quiet fans for small offices.')
+      expect(stepOf(m)).toBe('result')
+    } finally {
+      await m.unmount()
+      delete routes['POST /api/onboarding/profile/draft']
+      delete routes[`GET /api/onboarding/profile/draft/${DRAFT}`]
+      delete routes['PUT /api/onboarding/profile']
+      routes['GET /api/onboarding/profile'] = before
+    }
+  }, 30_000)
+
+  test('the first result on another visit: the line of the saved profile; none without a one-line intro or a profile', async () => {
+    const before = routes['GET /api/onboarding/profile']!
+    try {
+      for (const [profile, line] of [
+        [{ website: 'https://acme.example/', name: '', oneLine: 'Acme makes quiet desk fans.', products: '', audience: '', tone: [], avoid: '', sources: [], updatedAt: '2026-11-05T00:00:00.000Z' }, '이렇게 이해했어요: Acme makes quiet desk fans. · 고치기'],
+        [{ website: '', name: '', oneLine: '', products: '책상 선풍기', audience: '', tone: [], avoid: '', sources: [], updatedAt: '2026-11-05T00:00:00.000Z' }, null],
+        [null, null],
+      ] as const) {
+        signIn('owner')
+        progress = atResult()
+        routes['GET /api/onboarding/profile'] = () => json(200, { profile })
+        const m = await app()
+        try {
+          await m.until(() => m.find('welcome-files-pick'), 'the files step')
+          expect(m.find('welcome-profile-line')?.textContent ?? null).toBe(line)
+        } finally { await m.unmount() }
+        useWelcome.getState().reset()
+        calls = []
+      }
+    } finally { routes['GET /api/onboarding/profile'] = before }
   })
 
   test('the first result: the files go into the team\'s brand folder, the server starts the card news, "/card-news …" goes into its chat with the files, recorded', async () => {
