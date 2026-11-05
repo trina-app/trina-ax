@@ -56,7 +56,8 @@ export class SlackApi {
   get testing(): boolean { return this.deps.base !== undefined }
 
   /** One Web API method. `scopes`: the token's scopes as Slack lists them in X-OAuth-Scopes (when it does). */
-  async call(method: string, token: string, body: Record<string, unknown> = {}): Promise<CallResult & { scopes: string[] | null }> {
+  /** `noAuth`: no Authorization header (openid.connect.token takes the app's client id and secret in the body) */
+  async call(method: string, token: string, body: Record<string, unknown> = {}, o: { noAuth?: boolean } = {}): Promise<CallResult & { scopes: string[] | null }> {
     if (!/^[a-z]+(\.[a-zA-Z]+)+$/.test(method)) throw new SlackApiError('invalid_method')
     let retries = 0
     for (;;) {
@@ -64,7 +65,7 @@ export class SlackApi {
       try {
         r = await fetch(`${this.base}/api/${method}`, {
           method: 'POST', redirect: 'manual', signal: AbortSignal.timeout(this.deps.timeoutMs ?? TIMEOUT_MS),
-          headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/x-www-form-urlencoded; charset=utf-8' },
+          headers: { ...(o.noAuth ? {} : { Authorization: `Bearer ${token}` }), 'Content-Type': 'application/x-www-form-urlencoded; charset=utf-8' },
           body: form(body),
         })
       } catch { throw new SlackApiError('unreachable') }

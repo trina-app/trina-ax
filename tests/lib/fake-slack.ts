@@ -13,6 +13,11 @@ export interface FakeSlack {
   team: { id: string; name: string }
   botUserId: string
   appId: string
+  /** the app's credentials for "Sign in with Slack" */
+  clientId: string
+  clientSecret: string
+  /** codes Slack's "Sign in with Slack" gave a browser, and what their id_token says */
+  codes: Record<string, { user: string; team?: string; nonce: string; aud?: string; iss?: string; exp?: number; enterprise?: string }>
   /** the app the socket address names (another app's app-level token) */
   socketAppId?: string
   users: Record<string, FakeUser>
@@ -54,7 +59,7 @@ export function startFakeSlack(): FakeSlack {
   let envelopes = 0
   const fake: FakeSlack = {
     url: '', botToken: 'xoxb-111-222-' + 'b'.repeat(24), appToken: 'xapp-1-A0APP-333-' + 'a'.repeat(32),
-    team: { id: 'T0ACME', name: 'Acme' }, botUserId: 'U0BOT', appId: 'A0APP',
+    team: { id: 'T0ACME', name: 'Acme' }, botUserId: 'U0BOT', appId: 'A0APP', clientId: '1111111111.2222222222', clientSecret: 'f'.repeat(32), codes: {},
     users: {}, calls: [], acks: [], responses: [], opens: 0, failNext: {}, sharedChannels: new Set(), unknownChannels: new Set(),
     scopes: ['app_mentions:read', 'channels:read', 'chat:write', 'groups:read', 'im:history', 'im:write', 'users:read', 'users:read.email'],
     sockets: () => open.size,
@@ -141,6 +146,19 @@ export function startFakeSlack(): FakeSlack {
           const ch = args.channel ?? ''
           return json({ ok: true, channel: { id: ch, ...(fake.unknownChannels.has(ch) ? {} : { is_ext_shared: fake.sharedChannels.has(ch), is_pending_ext_shared: false }) } })
         }
+        case 'openid.connect.token': {
+          // the app's credentials in the body (no bearer token), a code used once
+          if (token || args.client_id !== fake.clientId) return json({ ok: false, error: 'invalid_client_id' })
+          if (args.client_secret !== fake.clientSecret) return json({ ok: false, error: 'bad_client_secret' })
+          const c = fake.codes[args.code ?? '']
+          if (!c || args.grant_type !== 'authorization_code') return json({ ok: false, error: 'invalid_code' })
+          delete fake.codes[args.code!]
+          const b64 = (o: unknown) => Buffer.from(JSON.stringify(o)).toString('base64url')
+          const claims = { iss: c.iss ?? 'https://slack.com', sub: c.user, aud: c.aud ?? fake.clientId, exp: c.exp ?? Math.floor(Date.now() / 1000) + 600, iat: Math.floor(Date.now() / 1000), nonce: c.nonce,
+            'https://slack.com/user_id': c.user, 'https://slack.com/team_id': c.team ?? fake.team.id, ...(c.enterprise ? { 'https://slack.com/enterprise_id': c.enterprise } : {}), name: c.user }
+          return json({ ok: true, access_token: `xoxp-user-${c.user}`, token_type: 'Bearer', id_token: `${b64({ alg: 'RS256', typ: 'JWT' })}.${b64(claims)}.c2ln` })
+        }
+        case 'auth.revoke': return json({ ok: true, revoked: true })
         case 'conversations.open': return bot && /^U[A-Z0-9]+$/.test(args.users ?? '') ? json({ ok: true, channel: { id: 'D' + args.users!.slice(1) } }) : json({ ok: false, error: 'invalid_arguments' })
         case 'chat.postMessage': return bot ? json({ ok: true, channel: args.channel, ts: nextTs() }) : json({ ok: false, error: 'invalid_auth' })
         case 'chat.postEphemeral': return bot ? json({ ok: true, message_ts: nextTs() }) : json({ ok: false, error: 'invalid_auth' })
