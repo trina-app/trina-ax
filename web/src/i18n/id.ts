@@ -3045,7 +3045,7 @@ export const id: Record<MessageKey, string> = {
   "audit.act.slack.proposal_declined": "Menolak usulan tautan Slack",
   "slack.link.proposal": "Pemilik tim mengusulkan tautan ini. Tautkan memastikan akun Slack ini milik Anda; akun tertaut setelah juga diterima di Pengaturan.",
   "slack.link.half": "Akun Slack sudah dipastikan. Akan tertaut setelah Anda menerima usulan di Pengaturan › Konektor aplikasi.",
-  "slack.mine.proposalSlackHalf": "Diterima. Sekarang tanyakan sesuatu ke aplikasi di Slack sekali dan buka tautan yang Anda terima untuk memastikan akun Slack ini milik Anda.",
+  "slack.mine.proposalSlackHalf": "Berikutnya: tanyakan sesuatu ke {product} di Slack sekali, lalu buka tautan yang dikirim {product} di sana.",
   "slack.mine.emailSetByOther": "Admin baru saja mengubah e-mail Anda. Selama 7 hari e-mail itu tidak bisa memastikan akun Slack. Simpan sendiri lagi di Profil, atau minta pemilik tim mengusulkan tautan.",
   "slack.err.missing_scopes": "Aplikasi kekurangan izin ({scopes}). Tambahkan di [Pengaturan aplikasi Slack › OAuth & Permissions] lalu pasang ulang aplikasinya.",
   "slack.err.not_bot_token": "Ini bukan token bot. Salin Bot User OAuth Token dari [Pengaturan aplikasi Slack › Install App].",

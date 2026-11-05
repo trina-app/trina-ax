@@ -3045,7 +3045,7 @@ export const en: Record<MessageKey, string> = {
   "audit.act.slack.proposal_declined": "Declined a Slack link proposal",
   "slack.link.proposal": "Your team owner proposed this link. Link confirms this Slack account is yours; it is linked once it is also accepted in Settings.",
   "slack.link.half": "The Slack account is confirmed. It is linked once you accept the proposal in Settings › App connectors.",
-  "slack.mine.proposalSlackHalf": "Accepted. Now ask the app something in Slack once and open the link you get, to confirm this Slack account is yours.",
+  "slack.mine.proposalSlackHalf": "Next: ask {product} something in Slack once, then open the link {product} sends you there.",
   "slack.mine.emailSetByOther": "An admin recently changed your e-mail. For 7 days it cannot confirm a Slack account. Save it again yourself in Profile, or ask your team owner to propose the link.",
   "slack.err.missing_scopes": "The app is missing permissions ({scopes}). Add them in [Slack app settings › OAuth & Permissions] and reinstall the app.",
   "slack.err.not_bot_token": "This is not a bot token. Copy the Bot User OAuth Token from [Slack app settings › Install App].",

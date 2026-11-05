@@ -3005,7 +3005,7 @@ export const ja: Record<MessageKey, string> = {
   "audit.act.slack.proposal_declined": "Slack連携の提案を拒否",
   "slack.link.proposal": "チームのオーナーが提案した連携です。「連携する」を押すとこのSlackアカウントがあなたのものだと確認します。設定でも承認すると連携されます。",
   "slack.link.half": "Slackアカウントを確認しました。設定 › アプリコネクタで提案を承認すると連携されます。",
-  "slack.mine.proposalSlackHalf": "承認しました。次にSlackでアプリに一度質問し、届いたリンクを開いてこのSlackアカウントがあなたのものだと確認してください。",
+  "slack.mine.proposalSlackHalf": "次にすること：Slackで{product}に一度質問し、{product}がSlackで送るリンクを開いてください。",
   "slack.mine.emailSetByOther": "管理者が最近あなたのメールアドレスを変更しました。7日間はメールアドレスでSlackアカウントを確認できません。プロフィールで自分で保存し直すか、チームのオーナーに連携の提案を依頼してください。",
   "slack.err.missing_scopes": "アプリに権限が不足しています（{scopes}）。[Slackアプリの設定 › OAuth & Permissions]で追加し、アプリを再インストールしてください。",
   "slack.err.not_bot_token": "ボットトークンではありません。[Slackアプリの設定 › Install App]でBot User OAuth Tokenをコピーしてください。",

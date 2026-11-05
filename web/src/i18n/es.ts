@@ -3005,7 +3005,7 @@ export const es: Record<MessageKey, string> = {
   "audit.act.slack.proposal_declined": "Rechazó una propuesta de vínculo de Slack",
   "slack.link.proposal": "El propietario del equipo propuso este vínculo. Vincular confirma que esta cuenta de Slack es suya; queda vinculada cuando también se acepta en Configuración.",
   "slack.link.half": "La cuenta de Slack está confirmada. Se vincula cuando acepte la propuesta en Configuración › Conectores de aplicaciones.",
-  "slack.mine.proposalSlackHalf": "Aceptada. Ahora pregunte algo a la aplicación en Slack una vez y abra el enlace que reciba para confirmar que esta cuenta de Slack es suya.",
+  "slack.mine.proposalSlackHalf": "Siguiente paso: pregunte algo a {product} en Slack una vez y abra el enlace que {product} le envíe allí.",
   "slack.mine.emailSetByOther": "Un administrador cambió hace poco su correo. Durante 7 días no sirve para confirmar una cuenta de Slack. Guárdelo de nuevo usted en Perfil o pida al propietario del equipo que proponga el vínculo.",
   "slack.err.missing_scopes": "A la aplicación le faltan permisos ({scopes}). Añádalos en [Configuración de la aplicación de Slack › OAuth & Permissions] y vuelva a instalarla.",
   "slack.err.not_bot_token": "No es un token de bot. Copie el Bot User OAuth Token en [Configuración de la aplicación de Slack › Install App].",
