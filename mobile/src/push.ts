@@ -39,7 +39,9 @@ export function devicePushToken(channelName: string): Promise<PushToken> {
     // Android 13+ shows the permission dialog only once a channel exists.
     if (Platform.OS === 'android') await Notifications.setNotificationChannelAsync(CHANNEL_ID, { name: channelName, importance: Notifications.AndroidImportance.HIGH })
     let status = await Notifications.getPermissionsAsync()
-    if (status.status === 'undetermined' && status.canAskAgain) status = await Notifications.requestPermissionsAsync({ ios: { allowAlert: true, allowBadge: false, allowSound: true } })
+    // Not 'undetermined' only: Android 13+ reports 'denied' (canAskAgain) before the first question, because
+    // notifications are off until the person allows them. iOS says canAskAgain=false once the person has answered.
+    if (status.status !== 'granted' && status.canAskAgain) status = await Notifications.requestPermissionsAsync({ ios: { allowAlert: true, allowBadge: false, allowSound: true } })
     if (status.status !== 'granted') throw new PushRefused('push_denied')
     let token: Notifications.DevicePushToken
     try { token = await Notifications.getDevicePushTokenAsync() } catch {
@@ -54,7 +56,9 @@ export function devicePushToken(channelName: string): Promise<PushToken> {
 
 /** In the foreground the web app already shows new things live: keep the notification in the list, no banner/sound. */
 export function quietForeground() {
-  Notifications.setNotificationHandler({ handleNotification: async () => ({ shouldShowBanner: false, shouldShowList: true, shouldPlaySound: false, shouldSetBadge: false }) })
+  // Never let notifications break the app (an Android build without FCM has no push at all).
+  try { Notifications.setNotificationHandler({ handleNotification: async () => ({ shouldShowBanner: false, shouldShowList: true, shouldPlaySound: false, shouldSetBadge: false }) }) }
+  catch { console.log('push: notification handler unavailable') }
 }
 
 function tappedPath(response: Notifications.NotificationResponse | null, teamSince: number, device: string | null): string | null {
@@ -63,6 +67,9 @@ function tappedPath(response: Notifications.NotificationResponse | null, teamSin
 }
 
 export function onNotificationTap(teamSince: () => number, device: () => string | null, open: (path: string) => void): () => void {
+  try { return listenForTaps(teamSince, device, open) } catch { console.log('push: notification taps unavailable'); return () => {} }
+}
+function listenForTaps(teamSince: () => number, device: () => string | null, open: (path: string) => void): () => void {
   const sub = Notifications.addNotificationResponseReceivedListener(response => {
     const path = tappedPath(response, teamSince(), device())
     if (path) open(path)

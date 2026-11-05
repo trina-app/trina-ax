@@ -5,7 +5,7 @@ import * as WebBrowser from 'expo-web-browser'
 import { getLocales } from 'expo-localization'
 import { useEffect, useRef, useState, type ComponentType, type RefAttributes, type ReactNode } from 'react'
 import { ActivityIndicator, Alert, AppState, BackHandler, KeyboardAvoidingView, Linking, Platform, Pressable, StyleSheet, Text, TextInput, View } from 'react-native'
-import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context'
+import { SafeAreaProvider, useSafeAreaInsets } from 'react-native-safe-area-context'
 import { WebView as NativeWebView, type WebViewProps } from 'react-native-webview'
 import { FileTransfers, MobileReceiver } from './src/bridge'
 import { clearDownloadCache, fileTransferIO } from './src/files'
@@ -56,7 +56,12 @@ export default function App() {
         }} />}
   </SafeAreaProvider>
 }
-function Center({ children }: { children: ReactNode }) { return <SafeAreaView style={[s.fill, s.center]}>{children}</SafeAreaView> }
+// Insets as explicit padding on every native screen: with edge-to-edge (Android, targetSdk 36) the app draws under the
+// status bar and the gesture bar, and buttons must stay clear of both.
+function Center({ children }: { children: ReactNode }) {
+  const i = useSafeAreaInsets()
+  return <View style={[s.fill, s.center, { paddingTop: i.top + 24, paddingBottom: i.bottom + 24, paddingLeft: i.left + 24, paddingRight: i.right + 24 }]}>{children}</View>
+}
 function Setup({ onDone }: { onDone: (address: TeamAddress) => Promise<void> }) {
   const [value, setValue] = useState(''), [busy, setBusy] = useState(false), [error, setError] = useState('')
   async function connect() {
@@ -70,7 +75,8 @@ function Setup({ onDone }: { onDone: (address: TeamAddress) => Promise<void> }) 
     } catch { setError(t.saveFailed) }
     finally { setBusy(false) }
   }
-  return <SafeAreaView style={s.fill}><KeyboardAvoidingView style={[s.fill, s.setup]} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
+  const i = useSafeAreaInsets()
+  return <View style={[s.fill, { paddingTop: i.top, paddingBottom: i.bottom, paddingLeft: i.left, paddingRight: i.right }]}><KeyboardAvoidingView style={[s.fill, s.setup]} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
     <Text style={s.title}>{product.name}</Text><Text style={s.hint}>{t.setupHint}</Text>
     <TextInput style={s.input} value={value} onChangeText={setValue} placeholder={t.setupPlaceholder} autoCapitalize="none" autoCorrect={false}
       keyboardType="url" returnKeyType="go" onSubmitEditing={() => void connect()} editable={!busy} testID="team-url" />
@@ -78,13 +84,14 @@ function Setup({ onDone }: { onDone: (address: TeamAddress) => Promise<void> }) 
     <Pressable style={s.button} onPress={() => void connect()} disabled={busy} testID="team-connect">
       {busy ? <ActivityIndicator color={accentInk(product.accent)} /> : <Text style={s.buttonText}>{t.connect}</Text>}
     </Pressable>
-  </KeyboardAvoidingView></SafeAreaView>
+  </KeyboardAvoidingView></View>
 }
 type Failure = 'offline' | 'unreachable'
 function TeamWeb({ address, opened, onDevice, onChangeTeam }: { address: TeamAddress; opened: { path: string; n: number } | null; onDevice: (id: string) => void; onChangeTeam: () => Promise<void> }) {
   const web = useRef<WebHandle>(null), navigation = useRef(0), loadFailed = useRef(false), cleanup = useRef(Promise.resolve()), ready = useRef(false)
   const [canBack, setCanBack] = useState(false), [pathname, setPathname] = useState(address.entryPath), [failed, setFailed] = useState<Failure | null>(null)
   const [source, setSource] = useState(address.origin + address.entryPath)
+  const insets = useSafeAreaInsets()
   const receiver = useRef<MobileReceiver | null>(null)
   if (!receiver.current) {
     const config: MobileConfig = { protocol: 1, appVersion: VERSION, platform: Platform.OS === 'ios' ? 'ios' : 'android', nonce: '0'.repeat(64), generation: 1, capabilities: [...MOBILE_CAPABILITIES, PUSH_CAPABILITY, PUSH_REGISTERED_CAPABILITY] }
@@ -139,7 +146,10 @@ function TeamWeb({ address, opened, onDevice, onChangeTeam }: { address: TeamAdd
     <Text style={[s.hint, s.centerText]}>{failed === 'offline' ? t.offlineHint : t.unreachableHint}</Text>
     <Pressable style={s.button} onPress={() => setFailed(null)} testID="retry"><Text style={s.buttonText}>{t.retry}</Text></Pressable>
     <Pressable style={s.link} onPress={() => void changeTeam()} testID="failed-change-team"><Text style={s.linkText}>{t.changeTeam}</Text></Pressable></Center>
-  return <View style={s.fill}><SafeAreaView edges={['top', 'left', 'right']} style={s.fill}>
+  const showFooter = pathname === '/login' || pathname.startsWith('/invite')
+  // iOS: the page runs under the home indicator and pads itself (env(safe-area-inset-bottom)); Android's WebView does
+  // not report that inset, so the app keeps the page above the gesture bar.
+  return <View style={[s.fill, { paddingTop: insets.top, paddingLeft: insets.left, paddingRight: insets.right, paddingBottom: showFooter || Platform.OS === 'ios' ? 0 : insets.bottom }]}><View style={s.fill}>
     <WebView ref={web} source={{ uri: source }} style={s.fill}
       originWhitelist={['*']} applicationNameForUserAgent={`${product.userAgent}/${VERSION}`}
       sharedCookiesEnabled thirdPartyCookiesEnabled={false} mixedContentMode="never" allowFileAccess={false}
@@ -171,10 +181,10 @@ function TeamWeb({ address, opened, onDevice, onChangeTeam }: { address: TeamAdd
       onContentProcessDidTerminate={() => fail('unreachable')} onRenderProcessGone={() => fail('unreachable')}
       startInLoadingState renderLoading={() => <View style={[StyleSheet.absoluteFill, s.center]}><ActivityIndicator color={product.accent} /></View>}
       testID="team-web" />
-    </SafeAreaView>
-    {(pathname === '/login' || pathname.startsWith('/invite')) && <SafeAreaView edges={['bottom']} style={s.footer}>
-      <Pressable onPress={() => void changeTeam()} testID="change-team"><Text style={s.linkText}>{t.otherTeam}</Text></Pressable>
-    </SafeAreaView>}
+    </View>
+    {showFooter && <View style={[s.footer, { paddingBottom: insets.bottom + 8 }]}>
+      <Pressable onPress={() => void changeTeam()} style={s.footerButton} testID="change-team"><Text style={s.linkText}>{t.otherTeam}</Text></Pressable>
+    </View>}
   </View>
 }
 // the web app's light tokens (web/src/theme.edition.css): canvas, ink, muted, field edge (>= 3:1), danger
@@ -183,6 +193,6 @@ const s = StyleSheet.create({
   setup: { justifyContent: 'center', paddingHorizontal: 24 }, title: { fontSize: 24, fontWeight: '600', color: '#14110f', marginBottom: 8 },
   hint: { fontSize: 15, color: '#514b45', marginBottom: 16, lineHeight: 21 }, input: { borderWidth: 1, borderColor: '#8c8378', borderRadius: 10, padding: 14, fontSize: 16, backgroundColor: '#fff' },
   error: { color: '#b42318', marginTop: 10, lineHeight: 20 }, button: { marginTop: 16, backgroundColor: product.accent, borderRadius: 10, padding: 14, alignItems: 'center', minWidth: 160 },
-  buttonText: { color: accentInk(product.accent), fontSize: 16, fontWeight: '600' }, link: { marginTop: 16, padding: 8 }, footer: { alignItems: 'center', paddingVertical: 8 },
+  buttonText: { color: accentInk(product.accent), fontSize: 16, fontWeight: '600' }, link: { marginTop: 16, padding: 8 }, footer: { alignItems: 'center', paddingTop: 8 }, footerButton: { paddingVertical: 8, paddingHorizontal: 16 },
   linkText: { color: '#14110f', fontSize: 15 }, centerText: { textAlign: 'center' },
 })

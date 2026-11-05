@@ -26,6 +26,16 @@ The key stays where it is; the script only passes its path. `BUILD_NUMBER` must 
 
 Exact versions are locked in `package.json`/`package-lock.json`. The selected SDK 58 modules match the installed Expo package's `bundledNativeModules.json` compatibility ranges. SDK documentation may recommend a newer patch; this package does not claim to track latest versions automatically.
 
+### Android App Bundle for Google Play
+
+`scripts/android-release.sh` builds the signed `.aab` locally (Android SDK in `ANDROID_HOME`, JDK 17):
+
+```sh
+ANDROID_KEYSTORE_PATH=<outside the repo>/upload.jks ANDROID_KEYSTORE_PASSWORD=… ANDROID_KEY_ALIAS=… ANDROID_KEY_PASSWORD=… BUILD_NUMBER=<n> scripts/android-release.sh
+```
+
+It exports the edition and build number for the whole run, prebuilds, runs `./gradlew bundleRelease`, and stops unless the bundle's embedded app.config is the edition (name, package, versionCode) and the bundle is signed by that upload key (certificate SHA-256). The signing config comes from `plugins/release-signing.js`, which makes Gradle read the four variables; no key, path or password is written into a file, and the keystore must lie outside the repository. versionName is 1.0.0, versionCode is `BUILD_NUMBER`, target SDK 36 (compile SDK 37, which the SDK 58 modules require; Gradle downloads that platform if it is missing). Without `MYCEL_MOBILE_GOOGLE_SERVICES` the Android app has no push: no permission prompt, no token request (`pushBuilt()`), nothing else changes.
+
 ## Native/web contract
 
 `window.mycelMobile` is installed only in the top document after a trusted page load. Protocol `1` requires both `file-share-v1` and `external-oauth-v1`, an app version, platform, random 256-bit document nonce, and generation. `push-token-v1` is optional: an app or page without it keeps working with push off. Unsupported/legacy bridge objects do not grant native capabilities. Web login sends `client: mobile` only when this contract is present.
@@ -46,7 +56,7 @@ Tapping a notification opens its `path` on the current team only if it is an id 
 
 ## Native screens and permissions
 
-Setup, offline ("인터넷에 연결되어 있지 않아요") and cannot-reach-team screens use Korean when the phone's first language is Korean and English otherwise (`src/strings.ts`); both have Try again and Change team address. The web app keeps its own locales. iOS has camera, microphone and photo library usage strings in both languages (attachments and voice input in chat); the WebView grants camera/microphone only to the team's own host. Android still blocks camera and microphone (not shipping on Android yet).
+Setup, offline ("인터넷에 연결되어 있지 않아요") and cannot-reach-team screens use Korean when the phone's first language is Korean and English otherwise (`src/strings.ts`); both have Try again and Change team address. The web app keeps its own locales. iOS has camera, microphone and photo library usage strings in both languages (attachments and voice input in chat); the WebView grants camera/microphone only to the team's own host. Android declares CAMERA and RECORD_AUDIO for the same uses: its WebView has no per-origin grant, but only the team's origin is ever a top-level page and a cross-origin frame cannot ask unless the team page delegates it (Permissions Policy). SYSTEM_ALERT_WINDOW is blocked.
 
 ## Google Drive connection
 

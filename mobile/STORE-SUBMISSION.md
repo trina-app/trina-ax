@@ -44,12 +44,17 @@ What the owner provides or decides before each store step. Engineering steps and
   notifications, with the fictional data. No iPad (iPhone only in v1).
 - Age rating, content rights and export compliance (answered by `ITSAppUsesNonExemptEncryption=false`).
 
-## Google Play (not set up yet)
+## Google Play
 
-- A Play Console organization account (D-U-N-S; USD 25). A personal account created after 2023-11-13 needs a closed
-  test with 12 testers for 14 days before production.
-- A Firebase project for `app.trina.ax`: `google-services.json` for the build (`MYCEL_MOBILE_GOOGLE_SERVICES`) and the
-  service-account JSON for the gateway (`FCM_SERVICE_ACCOUNT`).
-- An upload keystore (kept outside the repository), the Data safety form, the privacy policy link, and the first `.aab`
-  uploaded by hand in Play Console. Camera and microphone are still blocked in the Android build; test them there before
-  allowing them.
+- The Play developer account exists. Create the app `app.trina.ax` in Play Console and turn on Play App Signing.
+- An upload keystore kept outside the repository (and backed up); its SHA-256 is printed by the build.
+- Build: `cd mobile && ANDROID_HOME=<sdk> ANDROID_KEYSTORE_PATH=… ANDROID_KEYSTORE_PASSWORD=… ANDROID_KEY_ALIAS=…
+  ANDROID_KEY_PASSWORD=… BUILD_NUMBER=<n> scripts/android-release.sh` → `mobile/build/android-<n>/Trina-AX-1.0.0-<n>.aab`.
+  Upload the first `.aab` by hand (internal testing); the Play API refuses the first upload of a new app.
+- Push on Android needs a Firebase project for `app.trina.ax`: `google-services.json` for the build
+  (`MYCEL_MOBILE_GOOGLE_SERVICES`) and the service-account JSON for the gateway (`FCM_SERVICE_ACCOUNT`). Without them
+  the app works without push.
+- Data safety form (camera and microphone for chat attachments and voice input, the push token, what the team server
+  holds), the privacy policy link, content rating, target audience, and the reviewer account on
+  `https://qa-test.trina.app`. A personal account created after 2023-11-13 needs a closed test with 12 testers for
+  14 days before production; an organization account does not, according to third-party reports.

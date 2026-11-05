@@ -158,7 +158,10 @@ test('the gateway request is signed with the team key over the exact body; priva
 
 test('gateway address setting: https host only; off by default, server.json or MYCEL_PUSH_GATEWAY turn it on', () => {
   for (const ok of ['https://push.trina.app', 'https://push.example.test/']) expect(validGatewayUrl(ok)).toBe(ok.replace(/\/$/, ''))
-  for (const bad of ['http://push.example.test', 'https://u@push.example.test', 'https://push.example.test:444', 'https://push.example.test/v1', 'https://push.example.test?x', 'https://localhost', 42]) expect(validGatewayUrl(bad)).toBeNull()
+  for (const bad of ['http://push.example.test', 'https://u@push.example.test', 'https://push.example.test:444', 'https://push.example.test/v1', 'https://push.example.test?x', 'https://localhost', 42,
+    'http://127.0.0.1', 'http://10.0.0.5:8787', 'http://push.example.test:8787', 'http://127.0.0.1:8787/v1', 'http://u@127.0.0.1:8787']) expect(validGatewayUrl(bad)).toBeNull()
+  // a gateway on this machine (next to the server, or a local test) over plain http
+  for (const ok of ['http://127.0.0.1:8787', 'http://localhost:8787', 'http://[::1]:8787']) expect(validGatewayUrl(ok)).toBe(ok)
   const dir = path.join(WORK, 'push-native-config'); fs.mkdirSync(dir, { recursive: true })
   const file = (o: object) => { const f = path.join(dir, `server-${Math.random().toString(36).slice(2)}.json`); fs.writeFileSync(f, JSON.stringify(o)); return f }
   const load = (extra: Record<string, string>, o: object = {}) => { try { return loadAppConfig({ argv: ['--config', file(o)], env: extra }).push } catch (e) { return (e as Error).name } }
@@ -168,6 +171,8 @@ test('gateway address setting: https host only; off by default, server.json or M
   expect(load({ MYCEL_PUSH_GATEWAY: '' })).toEqual({ gatewayUrl: null })
   expect(load({ MYCEL_PUSH_GATEWAY: 'https://push.example.test' })).toEqual({ gatewayUrl: 'https://push.example.test' })
   expect(load({ MYCEL_PUSH_GATEWAY: 'http://push.example.test' })).toBe('ConfigError')
+  expect(load({ MYCEL_PUSH_GATEWAY: 'http://127.0.0.1:8787' })).toEqual({ gatewayUrl: 'http://127.0.0.1:8787' })
+  expect(load({ MYCEL_PUSH_GATEWAY: 'http://10.0.0.5:8787' })).toBe('ConfigError')
 })
 
 test('the app removes its device after a team switch with the key from registration, without a session; nothing else does', async () => {
@@ -195,4 +200,21 @@ test('registering the same token again rotates the removal key', async () => {
   expect(h.ctx.db.query('SELECT COUNT(*) n FROM push_subscriptions').get()).toEqual({ n: 1 })
   p.removeDevice(two.id, { key: two.removeKey })
   expect(h.ctx.db.query('SELECT COUNT(*) n FROM push_subscriptions').get()).toEqual({ n: 0 })
+})
+
+test('a gateway on this machine gets the same signed request over loopback http; a late cancellation sends nothing', async () => {
+  h = await harness('push-native-loopback')
+  const seen: { body: string; auth: string | null; path: string }[] = []
+  const server = Bun.serve({ port: 0, hostname: '127.0.0.1', fetch: async req => { seen.push({ body: await req.text(), auth: req.headers.get('authorization'), path: new URL(req.url).pathname }); return Response.json({ ok: true }) } })
+  try {
+    const transport = createNativeTransport({ dataDir: h.ctx.config.dataDir })
+    const input: NativeSend = { device: { platform: 'android', token: 'fcm:' + 'A'.repeat(140), environment: 'production' }, payload: { notificationId: 'n-2', code: 'room.dm' as never, locale: 'ko', tag: 'device-2' }, config: { url: `http://127.0.0.1:${server.port}` }, signal: new AbortController().signal, beforeSend: () => true, ttlSeconds: 60 }
+    expect(await transport(input)).toEqual({ statusCode: 200 })
+    expect(seen).toHaveLength(1); expect(seen[0]!.path).toBe('/v1/send')
+    const auth = parsePushGatewayAuthorization(seen[0]!.auth)!
+    const key = crypto.createPublicKey({ key: Buffer.from(auth.key, 'base64'), format: 'der', type: 'spki' })
+    expect(crypto.verify(null, Buffer.from(pushGatewaySigningString(auth.ts, crypto.createHash('sha256').update(seen[0]!.body).digest('hex'))), key, Buffer.from(auth.sig, 'base64'))).toBe(true)
+    await expect(transport({ ...input, beforeSend: () => false })).rejects.toThrow()
+    expect(seen).toHaveLength(1)
+  } finally { server.stop(true) }
 })
