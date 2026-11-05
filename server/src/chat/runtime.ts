@@ -81,7 +81,11 @@ export interface RoomTurnContext {
   block: string
   /** the block holds words someone else wrote (another member, or the AI for them) */
   others: boolean
+  /** the seq of the oldest room message in the block (null: none): what the room's read source names */
+  fromSeq: number | null
   prompt: RoomPrompt
+  /** may every member of the room (at the start of the turn) read this team path? (which skills the AI is shown) */
+  readable(rel: string): boolean
 }
 
 const pendingOptions = new WeakMap<AppContext, ChatRuntimeOptions>()

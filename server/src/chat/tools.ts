@@ -135,7 +135,10 @@ export function buildToolSet(exec: TurnExec): ChatToolSet {
       }
       const t = tools.get(name)!
       exec.noteTaint(name, args)
-      exec.noteRoomTool(name, args)
+      exec.noteRoomTool(name)
+      // a room's AI session: anything that may change something waits for the person's yes (rooms/ai-tools.ts)
+      const roomNo = await exec.confirmRoomChange(name, args)
+      if (roomNo) return { ...text(roomNo, true), summary: `${name} -> not allowed by the user (room)` }
       // what the AI sends leaves marks, so an address that a connection repeats back is not taken as the service's own
       // (tools/connection-urls.ts; before the call: its own answer is checked against them)
       recordSent(exec.rt.db, exec.spec.chatId, args)
@@ -166,7 +169,7 @@ export function buildToolSet(exec: TurnExec): ChatToolSet {
       return { content: out.content, isError: out.isError, summary: exec.redact(out.summary ?? `${name} -> ${out.isError ? 'error' : 'ok'}`) }
     },
     afterFileTool: (name, isError, args) => {
-      exec.noteTaint(name, args); exec.noteRoomTool(name, args, !isError); exec.noteReads(); exec.afterTool()
+      exec.noteTaint(name, args); exec.noteRoomTool(name); exec.noteReads(); exec.afterTool()
       const filePath = (args as { file_path?: unknown } | null)?.file_path
       if (!isError && name === 'read' && typeof filePath === 'string')
         recordSkillRead(exec.rt.db, exec.rt.files, exec.livePrincipal(), exec.id, filePath)
@@ -176,6 +179,9 @@ export function buildToolSet(exec: TurnExec): ChatToolSet {
       const refusal = templateToolRefusal(exec.rt.ctx, exec.spec.userId, exec.id, name, args, templateWrites)
       if (refusal) return { refusal, summary: 'scheduled template scope refused' }
       recordSent(exec.rt.db, exec.spec.chatId, args)
+      // a room's AI session: a write or edit waits for the person's yes on a card first (rooms/ai-tools.ts)
+      const roomNo = await exec.confirmRoomChange(name, args)
+      if (roomNo) return { refusal: roomNo, summary: `${name} -> not allowed by the user (room)` }
       if (name !== 'write' && name !== 'edit') return null
       // skills/ first (team skills and rules: the person confirms what changes), then the wider-audience check
       const no = await exec.confirmSkillWrite(name, args, caller?.files)
@@ -284,7 +290,8 @@ function skillTools(exec: TurnExec): Tool[] {
         if (!a.success) return text(zodText(a.error), true)
         const user = person()
         if (!user) return { ...text('Access denied: this account is disabled.', true), summary: 'find_skills -> denied: account disabled' }
-        const skills = listSkills(rt.files, user)
+        // in a room only the skills everyone there may read (their names and descriptions may reach the room)
+        const skills = listSkills(rt.files, user).filter((s) => !exec.roomReadable || exec.roomReadable(s.path))
         const scores = usageScores(rt.db, spec.userId, skills.map((s) => s.path))
         const hits = matchSkills(skills, a.data.query, { scores, projectFolder: exec.projectFolder })
         const q = neutralizeTags(clipName(a.data.query, 80))

@@ -15,5 +15,18 @@ export const ROOM_FILE_TOOLS: ReadonlySet<string> = new Set([
 ])
 
 /** Tools a room session does not get: memories are not part of a room (none are loaded there, none are kept from one),
- * the session has no title, and connecting a service needs a card the room does not show. */
-export const ROOM_OFF_TOOLS: ReadonlySet<string> = new Set(['remember', 'forget', 'set_title', 'connect_service'])
+ * the session has no title, connecting a service needs a card the room does not show, and nothing runs on a person's
+ * computer or in their signed-in browser from a room (box_shell; the in-app browser is off for room turns as a whole,
+ * chat/turn.ts). */
+export const ROOM_OFF_TOOLS: ReadonlySet<string> = new Set(['remember', 'forget', 'set_title', 'connect_service', 'box_shell'])
+
+/**
+ * Tools that change nothing (they read, search, ask the person, or answer in the session's own chat). In a room every
+ * other tool of ours, connections' tools and tools added later included (fails closed), waits for the person who
+ * asked to allow that one call on a card first (chat/turn.ts confirmRoomChange): the room's messages are other
+ * people's words, and one of them may tell the AI to change something.
+ */
+export const ROOM_READ_ONLY_TOOLS: ReadonlySet<string> = new Set([
+  'list', 'glob', 'grep', 'read', 'search', 'skill', 'find_skills', 'ask_user', 'hwp_render', 'share_file', 'artifact',
+  'web_fetch', 'drive_list', 'drive_read', 'drive_search', 'schedule_list',
+])
