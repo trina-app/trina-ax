@@ -29,10 +29,10 @@ import { budgetBlock } from '../admin/budgets'
 import { newChatEngine, turnEngine } from '../admin/engine-choice'
 import { historyBlock, LANGUAGE } from '../chat/prompt'
 import { checkSkill, listSkills, readSkill, sameSkillName } from '../chat/skills'
-import { isTeamFilePath } from '../files/sources'
+import { isTeamFilePath, SOURCE_FILES_MAX } from '../files/sources'
 import { newMember, readableFile } from '../auth/team-links'
 import { confidentialChat } from '../safe-ops/confidential'
-import { BROWSER_TOOL_NAMES } from '../realtime/browser-tools'
+import { bareToolName, outsideContentTool } from '../chat/team-content-tools'
 import { authorize as authorizePath } from '../policy/authorize'
 import { Denied, ToolError } from '../policy/errors'
 import { FileError } from '../team-files/errors'
@@ -313,7 +313,14 @@ export function freeSkillName(base: string, taken: (name: string) => boolean): s
 
 // ---------------------------------------------------------------- the routes
 
-const TEXT: Record<'ask' | 'title' | 'notDone' | 'notReady' | 'noAttachments' | 'rewriteSpecific' | 'rewriteUnreadable' | 'private' | 'outside' | 'confidential', Record<Locale, string>> = {
+const TEXT: Record<'ask' | 'title' | 'notDone' | 'notReady' | 'noAttachments' | 'rewriteSpecific' | 'rewriteUnreadable' | 'private' | 'outside' | 'confidential' | 'unverified', Record<Locale, string>> = {
+  unverified: {
+    ko: '이 대화가 읽은 파일을 모두 확인할 수 없어서 팀 스킬로 만들 수 없어요.',
+    en: 'Not every file this conversation read can be checked, so it cannot become a team skill.',
+    id: 'Tidak semua berkas yang dibaca percakapan ini bisa diperiksa, jadi tidak bisa dijadikan skill tim.',
+    ja: 'この会話が読んだファイルをすべて確認できないため、チームのスキルにできません。',
+    es: 'No se pueden comprobar todos los archivos que leyó esta conversación, así que no puede ser una habilidad del equipo.',
+  },
   private: {
     ko: '팀원이 모두 볼 수는 없는 파일을 쓴 답이라 팀 스킬로 만들 수 없어요: {files}',
     en: 'This answer used files not everyone on the team can open, so it cannot become a team skill: {files}',
@@ -400,31 +407,37 @@ function sharedWith(ctx: AppContext) {
   return newMember(exists ? [g!] : [])
 }
 
-/** Steps that brought in what someone outside the team wrote: web search, web pages, the browser, a saved web page,
- * an outside service (connections and their api_request). */
-const OUTSIDE_STEP_TOOLS = new Set(['web_fetch', 'WebFetch', 'web_search', 'WebSearch', 'save_url', 'api_request', ...BROWSER_TOOL_NAMES])
+/** A step that brought in content the team does not own: a web search or the browser, a tool not on the team-content
+ * list (chat/team-content-tools.ts: Drive, web pages, connections, plugins, …; fails closed), or web sources. */
 function outsideStep(st: { kind?: string; tool?: string; sources?: { url?: string }[] }): boolean {
   if (st.kind === 'web_search' || st.kind === 'browser') return true
-  const tool = (st.tool ?? '').replace(/^mcp__[^_]+(?:_[^_]+)*?__/, '')
-  if (OUTSIDE_STEP_TOOLS.has(tool) || /(?:^|__)(?:my|team)_[a-z0-9-]+__/.test(st.tool ?? '')) return true
+  if (st.tool && outsideContentTool(st.tool)) return true
   return (st.sources ?? []).some((x) => /^https?:/i.test(x.url ?? ''))
 }
+/** reading steps that always leave a sources row when they work */
+const READS_RECORDED = new Set(['read', 'hwp_render'])
 
 /** What the conversation up to `leafId` used: every file attached or read (personal ones too, as recorded), the team
- * files among them, and whether any step brought in outside content. */
-function conversationUse(ctx: AppContext, rt: ChatRuntime, leafId: string): { used: string[]; team: string[]; outside: boolean } {
+ * files among them, whether any step brought in outside content, and `unverified`: an answer whose files cannot all be
+ * known (a read that worked but no sources row: the save failed; or as many rows as the cap keeps). */
+function conversationUse(ctx: AppContext, rt: ChatRuntime, leafId: string): { used: string[]; team: string[]; outside: boolean; unverified?: boolean } {
   const used = new Set<string>()
   let outside = false
+  let unverified = false
   for (const m of rt.store.pathTo(leafId)) {
     if (m.role === 'user') {
       try { for (const a of JSON.parse(m.attachments ?? '[]') as { path?: string }[]) if (typeof a.path === 'string' && a.path) used.add(a.path.normalize('NFC')) } catch { /* none */ }
       continue
     }
-    for (const r of ctx.db.query('SELECT path FROM message_sources WHERE message_id = ? ORDER BY ord').all(m.id) as { path: string }[]) used.add(r.path.normalize('NFC'))
-    try { if ((JSON.parse(m.steps ?? '[]') as { kind?: string; tool?: string; sources?: { url?: string }[] }[]).some(outsideStep)) outside = true } catch { /* none */ }
+    const rows = ctx.db.query('SELECT path FROM message_sources WHERE message_id = ? ORDER BY ord').all(m.id) as { path: string }[]
+    for (const r of rows) used.add(r.path.normalize('NFC'))
+    let steps: { kind?: string; tool?: string; status?: string; sources?: { url?: string }[] }[] = []
+    try { steps = JSON.parse(m.steps ?? '[]') } catch { unverified = true }
+    if (steps.some(outsideStep)) outside = true
+    if (rows.length >= SOURCE_FILES_MAX || (!rows.length && steps.some((st) => st.status === 'ok' && !!st.tool && READS_RECORDED.has(bareToolName(st.tool))))) unverified = true
   }
   const all = [...used]
-  return { used: all, team: all.filter(isTeamFilePath).slice(0, MATERIAL_FILES_MAX), outside }
+  return { used: all, team: all.filter(isTeamFilePath).slice(0, MATERIAL_FILES_MAX), outside, unverified }
 }
 
 /** The files someone the skill is shared with could not open now (by name, for the message); [] when all are fine. */
@@ -440,15 +453,16 @@ function narrower(ctx: AppContext, paths: readonly string[]): string[] {
   return out
 }
 
-const refuse = (locale: Locale, reason: 'private' | 'outside' | 'confidential', files: string[] = []) =>
+const refuse = (locale: Locale, reason: 'private' | 'outside' | 'confidential' | 'unverified', files: string[] = []) =>
   new HttpError('conflict', fill(TEXT[reason][locale], { files: files.slice(0, 5).join(', ') }), { params: { reason } })
 
 /** Why this conversation cannot become a team skill now, or null: a confidential conversation (1A), content from the
  * web or an outside service anywhere in it, or a file the people it is shared with cannot open (its content is in the
  * answer: leaving the path out would not take it out). */
-function sourceRefusal(ctx: AppContext, locale: Locale, chatId: string, use: { used: string[]; outside: boolean }): HttpError | null {
+function sourceRefusal(ctx: AppContext, locale: Locale, chatId: string, use: { used: string[]; outside: boolean; unverified?: boolean }): HttpError | null {
   if (confidentialChat(ctx.db, chatId)) return refuse(locale, 'confidential')
   if (use.outside) return refuse(locale, 'outside')
+  if (use.unverified) return refuse(locale, 'unverified')
   const closed = narrower(ctx, use.used)
   return closed.length ? refuse(locale, 'private', closed) : null
 }

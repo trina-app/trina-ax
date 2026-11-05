@@ -8074,6 +8074,12 @@ the "3 proposals" step and the bar after sharing. Placement: Team AX core (skill
   folder (the hash comparison missed packs whose text changed). The first version is read with direct queries (the
   first content event after the name was last freed, back through the file's moves and trash trips), the timeline walk
   only when a folder above was moved.
+- **Outside content, fail closed (second review)**: the step check missed Google Drive. It is now an allowlist,
+  `chat/team-content-tools.ts`: only tools whose results are the team's files or the person's own data (built from the
+  tools' exported name lists where they have one); any other tool in the conversation (Drive, web pages, the browser,
+  generated video, connections, plugins, the dev box, a Codex command, a tool added later) refuses the draft as
+  outside content. Also refused, as `unverified`: an answer with a read that worked but no sources row (the save
+  failed) or as many rows as the cap keeps (500): what it read cannot all be known.
 - CHANGELOG: the feature, and that older team skills no longer get the weekly suggestion without `recurring: weekly`.
 - Tests: `b-skill-share` (refusals: a group file, a personal file, web, confidential, and at the save; the guard and
   the escaped material; the false positives; reading queues nothing, the rewrite on start, a failed draft not reused),

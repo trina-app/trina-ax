@@ -11,6 +11,7 @@ import { waitFor } from '../lib/wait'
 import { draftFiles, freeSkillName, parseSkillDraft, skillDraftSystemPrompt, skillFileOf, slugBase, type ParsedSkillDraft, type SkillMaterial } from '../../server/src/onboarding/skill-draft'
 import { leftoversIn, specificsOf } from '../../server/src/onboarding/specifics'
 import { checkSkill, isRecurring, parseSkill } from '../../server/src/chat/skills'
+import { outsideContentTool } from '../../server/src/chat/team-content-tools'
 import { earlierPackTexts, SKILL_PACKS } from '../../server/src/onboarding/skill-packs'
 
 setDefaultTimeout(60_000)
@@ -117,6 +118,13 @@ describe('reading a draft (no server)', () => {
     ] as const) expect(has(steps), steps).toContain(x)
     // the files it uses, a file's own name, and words that only describe the work are fine
     expect(has('쓰는 자료의 `groups/Acme/회의록/` 폴더와 shared/견적서_양식.xlsx 를 읽고, report.md 처럼 이름을 붙여요. 고객사에 보낼 견적서를 만들어요. Find the totals.')).toEqual([])
+  })
+
+  test('tools: only those whose results are the team\'s own count as inside; any other is outside (fails closed)', () => {
+    for (const t of ['read', 'mcp__team__read', 'grep', 'list', 'write', 'edit_files', 'make_file', 'edit_hwp', 'hwp_render', 'share_file', 'artifact', 'search', 'skill', 'find_skills', 'remember', 'ask_user', 'move_files', 'schedule_create', 'agent', 'engine', 'attachment'])
+      expect({ t, outside: outsideContentTool(t) }).toEqual({ t, outside: false })
+    for (const t of ['drive_read', 'drive_search', 'drive_list', 'mcp__team__drive_read', 'web_fetch', 'save_url', 'WebSearch', 'web_search', 'navigate', 'browser_batch', 'generate_video', 'box_shell', 'api_request', 'team_notion__search', 'my_aipm__list', 'mcp__other__read', 'codex:command_execution', 'some_plugin_tool'])
+      expect({ t, outside: outsideContentTool(t) }).toEqual({ t, outside: true })
   })
 
   test('the material cannot close its own block', () => {
@@ -252,6 +260,18 @@ describe('draft turns and the save', () => {
     const ans = h.ctx.db.query("SELECT id, steps FROM messages WHERE chat_id = ? AND role = 'assistant'").get(web) as { id: string; steps: string }
     h.ctx.db.query('UPDATE messages SET steps = ? WHERE id = ?').run(JSON.stringify([...JSON.parse(ans.steps), { id: 'w1', kind: 'web_search', label: 'search', status: 'ok' }]), ans.id)
     expect((await refusal(web)).body.error.params?.reason).toBe('outside')
+    // the person's Google Drive (a tool that is not the team's own content)
+    const drive = await source()
+    const da = h.ctx.db.query("SELECT id, steps FROM messages WHERE chat_id = ? AND role = 'assistant'").get(drive) as { id: string; steps: string }
+    h.ctx.db.query('UPDATE messages SET steps = ? WHERE id = ?').run(JSON.stringify([...JSON.parse(da.steps), { id: 'd1', kind: 'tool', tool: 'drive_read', label: 'Drive', status: 'ok' }]), da.id)
+    expect((await refusal(drive)).body.error.params?.reason).toBe('outside')
+    // a read that worked but left no sources row (the save failed): what was read cannot be known
+    const lost = await source()
+    const la = h.ctx.db.query("SELECT id FROM messages WHERE chat_id = ? AND role = 'assistant'").get(lost) as { id: string }
+    h.ctx.db.query('DELETE FROM message_sources WHERE message_id = ?').run(la.id)
+    const u = await refusal(lost)
+    expect(u.body.error.params?.reason).toBe('unverified')
+    expect(u.body.error.message).toBe('이 대화가 읽은 파일을 모두 확인할 수 없어서 팀 스킬로 만들 수 없어요.')
     // a confidential conversation (1A)
     const conf = await source()
     h.ctx.db.query('INSERT INTO safe_ops_chats (chat_id, material) VALUES (?, 1)').run(conf)
