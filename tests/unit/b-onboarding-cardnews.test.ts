@@ -9,7 +9,7 @@ import { API, CARD_NEWS_ARTIFACT_KEY, GENERAL_CARDNEWS_SKILL } from '@mycel/shar
 import { startHarness, type Harness } from '../lib/b-harness'
 import { waitFor } from '../lib/wait'
 import { noteEgressIp } from '../../server/src/tools/egress'
-import { acceptImage, cssColors, dropRepeats, extractPageAssets, imageKind, introText, largestSrc, logoColors, normColor, pageLines, rankColors } from '../../server/src/onboarding/brand-assets'
+import { acceptImage, cssColors, dropRepeats, extractPageAssets, imageKind, introText, largestSrc, logoColors, normColor, pageLines, rankColors, unlink } from '../../server/src/onboarding/brand-assets'
 import { htmlToText } from '../../server/src/tools/web-fetch'
 import { which } from '../../server/src/config'
 import { pngOf } from '../lib/images'
@@ -157,6 +157,11 @@ describe('what a page offers (pure)', () => {
     // a page builder that wraps the whole page in one form (ASP.NET Web Forms) keeps its words
     expect(introText('<body><form id="form1" method="post"><div id="content"><h1>회사 소개</h1><p>1990년에 세웠어요.</p><button>검색</button></div></form></body>', base).split('\n')).toEqual(['회사 소개', '1990년에 세웠어요.'])
   })
+  test('links in one pass: labels kept, addresses gone; a "[" without its link stays text', () => {
+    expect(unlink('[제품](https://a.example/p) 소개와 [채용](https://a.example/c)')).toEqual({ words: '제품 소개와 채용', outside: ' 소개와 ', links: 2 })
+    expect(unlink('[[x](https://a.example/x) [y] (z) [a](b c)')).toEqual({ words: '[x [y] (z) [a](b c)', outside: '[ [y] (z) [a](b c)', links: 1 })
+    expect(unlink('no links here').links).toBe(0)
+  })
   test('page lines: links-only lines (a menu) dropped, links reduced to their words, repeats once, a sane length', () => {
     expect(pageLines('- [제품](https://a.example/p)\r\n\r\n\r\n- [뉴스](https://a.example/n) | [채용](https://a.example/c)\r\n# 소개\r\n[링크 글](https://a.example/x) 2019년에 세웠어요.\r\n›\r\n01\r\n# 소개')).toEqual(['소개', '링크 글 2019년에 세웠어요.'])
     expect(dropRepeats('조용한 바람 조용한 바람 조용한 바람 더 나은')).toBe('조용한 바람 더 나은')
@@ -199,6 +204,16 @@ describe('what a page offers (pure)', () => {
       `<div class="${'gnb '.repeat(1000)}">`.repeat(500),
       ('<p>' + 'a b '.repeat(150) + '</p>').repeat(3000),
       ('[x](y) ' + '- '.repeat(50) + '\n').repeat(50_000),
+      // the review's pages: endless "[" (a pattern tried at every "[" took 2.9 s) and "[!](" (1.5 s), in paragraphs and
+      // as lines, plus links that never close, addresses with no ")" and table bars with no end
+      '<p>' + '['.repeat(3 * 1024 * 1024) + '</p>',
+      ('<p>' + '['.repeat(20_000) + '</p>').repeat(150),
+      '<p>' + '[!]('.repeat(700_000) + '</p>',
+      ('[!]('.repeat(5000) + '\n').repeat(150),
+      ('['.repeat(20_000) + '\n').repeat(150),
+      '[' + '](x'.repeat(1_000_000) + ')',
+      ('| '.repeat(10_000) + 'x\n').repeat(150),
+      ('# '.repeat(10_000) + 'x\n').repeat(150),
     ]
     for (const page of pages) {
       const t0 = performance.now()

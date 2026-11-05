@@ -8594,8 +8594,10 @@ Placement: Team AX core (onboarding, web reading, skills, chat). Each fix is its
   already or inside one of the last three dropped, no line without two letters or digits). 회사 소개.md quotes each line
   as its own quote (a blank line between, never an empty `> `), at most 2,000 characters per page and 12,000 in all, and
   leaves out a line another page said already. A row kept before this (only on dev servers: N is unreleased) is
-  tidied by the same lines. All of it in one pass with bounded patterns (the N review's hostile pages, plus menus and
-  endless lines: test).
+  tidied by the same lines. All of it in one pass: the review found the first link patterns tried at every "[" (a
+  page of endless "[" took 2.9 s, of "[!](" 1.5 s), so links are now read by `unlink` (each "](" once, the "[" before it
+  remembered, the next ")" and space kept from the last search) and the marks by a loop, at most 8,000 characters a
+  line (test: those pages and the N review's, each well under its bound).
 - **The photo line under cards that had photos.** The card news answer said "브랜드 폴더의 이미지 폴더에 사진을 넣고 다시
   만들어 달라고 하시면 사진을 넣어 드려요" under cards whose photos were plain to see: the rule was "a card made without a
   photo", and cards 4 (the number) and 5 (the next step) never have one. The skill (ko, en) now adds the line only when

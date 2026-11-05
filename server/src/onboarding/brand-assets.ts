@@ -332,13 +332,66 @@ export function dropRepeats(line: string): string {
 
 /** Lines of a page looked at, at most (a page of endless short lines stops here). */
 const PAGE_LINES_MAX = 3000
+/** Characters of one line looked at, at most (more could never be kept: a page keeps at most BRAND_PAGE_TEXT_MAX). */
+const LINE_MAX = 8000
+const SPACE = /\s/g
+
+/**
+ * The "[label](address)" links of web_fetch's text reduced to their labels, in one pass: pages come from anyone, and a
+ * pattern tried at every "[" of a line of thousands of them took seconds (review). Each "](" is looked at once, the
+ * "[" before it is the last one seen (at most 300 characters back), and the ")" and the first space after it are kept
+ * from the last search, so every character is looked at a bounded number of times. `words`: the line with the labels,
+ * `outside`: the line without the links, `links`: how many.
+ */
+export function unlink(line: string): { words: string; outside: string; links: number } {
+  if (!line.includes('](')) return { words: line, outside: line, links: 0 }
+  let words = '', outside = '', links = 0
+  // the text before `from` is done; `lastOpen` is the last "[" before `seen`
+  let from = 0, lastOpen = -1, seen = 0
+  // the next ")" and the next space at or after the last place asked (-1: none left; -2: not looked yet)
+  let paren = -2, space = -2
+  const parenFrom = (at: number) => { if (paren !== -1 && paren < at) paren = line.indexOf(')', at); return paren }
+  const spaceFrom = (at: number) => {
+    if (space !== -1 && space < at) { SPACE.lastIndex = at; const m = SPACE.exec(line); space = m ? m.index : -1 }
+    return space
+  }
+  for (let pos = line.indexOf(']('); pos >= 0; pos = line.indexOf('](', pos + 2)) {
+    for (; seen < pos; seen++) if (line.charCodeAt(seen) === 91 /* [ */) lastOpen = seen
+    if (lastOpen < from || pos - lastOpen > 301) continue
+    const end = parenFrom(pos + 2)
+    if (end < 0) break
+    const sp = spaceFrom(pos + 2)
+    if (end - pos > 2002 || (sp >= 0 && sp < end)) continue
+    words += line.slice(from, lastOpen) + line.slice(lastOpen + 1, pos)
+    outside += line.slice(from, lastOpen)
+    from = end + 1
+    links++
+    // the next "](" after this link
+    pos = end - 1
+  }
+  return { words: words + line.slice(from), outside: outside + line.slice(from), links }
+}
+
+/** A line without its list or heading marks and table bars, in one pass (no pattern that could backtrack). */
+function unmark(s: string): string {
+  let a = 0, b = s.length
+  for (;;) {
+    const c = s[a]
+    if (c === '|' || c === ' ' || c === '\t') { a++; continue }
+    if ((c === '-' || c === '*' || c === '•') && /\s/.test(s[a + 1] ?? '')) { a += 2; continue }
+    if (c === '#') { let h = a; while (h < b && h - a < 6 && s[h] === '#') h++; if (/\s/.test(s[h] ?? '')) { a = h + 1; continue } }
+    break
+  }
+  while (b > a && (s[b - 1] === '|' || /\s/.test(s[b - 1]!))) b--
+  return s.slice(a, b)
+}
 
 /**
  * A page's text as lines worth quoting (docs/DECISIONS.md "W3"): one line per heading, paragraph or list item, links
  * reduced to their words, a phrase said twice in a row once, and none of these: an empty line, a line that is only
  * links (a menu), a line without two letters or digits, a line the page already said. At most `max` characters, cut at
  * a line (a first line longer than that is cut with "…"). Also tidies text kept before this (web_fetch's text: CRLF
- * lines, the site menu).
+ * lines, the site menu). Linear in the text: hostile pages are in the tests.
  */
 export function pageLines(text: string, max = BRAND_PAGE_TEXT_MAX): string[] {
   const out: string[] = []
@@ -347,14 +400,13 @@ export function pageLines(text: string, max = BRAND_PAGE_TEXT_MAX): string[] {
   let looked = 0
   for (const raw of text.replace(/\r\n?/g, '\n').split('\n')) {
     if (used >= max || looked >= PAGE_LINES_MAX) break
-    const line = raw.trim().slice(0, 20_000)
+    const line = raw.slice(0, LINE_MAX).trim()
     if (!line) continue
     looked++
     // a line that is only links and marks is a menu
-    const words = line.replace(/\[([^\]\n]{0,500})\]\([^)\s]{0,2000}\)/g, '$1')
-    const outside = line.replace(/\[[^\]\n]{0,500}\]\([^)\s]{0,2000}\)/g, '')
-    if (outside !== line && !/[\p{L}\p{N}]/u.test(outside)) continue
-    const tidy = words.replace(/^(?:#{1,6}\s+|[-*•]\s+|\|\s*)+/, '').replace(/(?:\s*\|)+\s*$/, '').replace(/\s+/g, ' ').trim()
+    const { words, outside, links } = unlink(line)
+    if (links && !/[\p{L}\p{N}]/u.test(outside)) continue
+    const tidy = unmark(words).replace(/\s+/g, ' ').trim()
     if ((tidy.match(/[\p{L}\p{N}]/gu) ?? []).length < LINE_MIN_CHARS) continue
     const clean = dropRepeats(tidy)
     const key = clean.normalize('NFC').toLowerCase()
