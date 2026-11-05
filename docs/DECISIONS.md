@@ -8465,3 +8465,37 @@ same kind of thing.
 - Rejected: keeping the 트리나 content here behind a flag (the brand content would still be public); a content folder
   with a `company.ts` (code from another repository running in this checkout); copying the private content into
   `editions/trina/` of this repository (only `branding/` belongs here).
+
+## W2 — AI connection first (feat/onboarding-ai-first, 2026-11-05)
+
+The owner: "온보딩을 할때는, AI연결부터 해야하는거 아니야?". Every demo had run on one Mac's Claude Code login, which hid
+the wall a real new team hits: the hosting side that issues the trial key ("Z") is not built yet, so a real new team
+has no AI, and the website reading and the first result fail without it. Placement: Team AX core (onboarding and AI
+connection). Taken from feat/onboarding-motion (its "V") without the promo video, whose quality is being reworked:
+the first result stays the card news of "N" (no `promo_video` tool, no HyperFrames, no fonts, no migration).
+
+- **Order**: AI 연결 → 회사 소개 → 첫 결과 → invite. The AI step shows only while no AI answers the owner: `GET
+  /api/me/ai-access`, the same state as the chat's connect line and Admin › Home; a hosted trial credit, a managed
+  engine or any working connection skips it. `ai` is in `WELCOME_STEPS` but is a gate, not a place in the order:
+  `nextStep(p, 'ai')` goes to the first open later step, `prevStep` never returns it. The page is the owner's, as
+  before (admins and members are sent Home), so members never see the step.
+- **Resume** (`web/src/lib/welcome.ts resumeStep(p, aiReady)`): the step the owner would resume at with AI; without AI,
+  the AI step in front of 회사 소개 and 첫 결과 (both are AI answers), never in front of the invite: with only the invite
+  left (AI gone after the first result, a trial credit used up) the steps open on the invite. The source branch returned
+  the AI step whatever was open, including that case (found in review; tested in lib and on the page). AI going away
+  while a step is on screen shows the AI step in its place, except on the invite.
+- **Progress**: "1/3 AI 연결 · 2/3 회사 소개 · 3/3 첫 결과" when the steps would open on the AI step or it was shown
+  before, else "1/2 회사 소개 · 2/2 첫 결과" (`countedSteps`; Home's "시작 설정 이어하기 (0/3)" counts the same). Shown,
+  the step is recorded `skipped`; once AI answers (the dialog, another tab, Home's connect line, a trial credit) the
+  page records `done` and goes on by itself, so the bar does not jump from 3 to 2. The server reads `ai` like any step
+  (done stays done), leaves it absent until it is recorded (rows from before read as they did) and never puts it off
+  when the steps finish.
+- **The step**: one reason line ("{product}의 AI가 팀 파일을 읽고 일하려면 AI 연결이 필요해요"), one primary button
+  "Claude 구독 연결" that opens Admin › AI connections' own `AddCredential` dialog with Claude chosen (`initialKind`,
+  `initialLabel`; the browser sign-in of PR #70: approval link and the code), shown when the team allows a shared Claude
+  subscription; "다른 방법" folded (open when there is no Claude button): the same dialog with every way and a link to
+  the AI engines page. No new connection logic. "나중에 하기" leaves the steps; Home shows the connect line as before.
+  The first result's own no-AI state (A's button and "첫 결과를 만들려면 AI가 필요해요") is gone: the gate shows instead.
+- **Reading screen** of 회사 소개: "대화로 보기" and "직접 쓸게요" are gone, "나중에 하기" stays (Admin › Team settings,
+  the same component, keeps its "취소"). A reading that fails still opens the pasted text and the three questions by
+  itself, and "홈페이지가 없어요" still leads there.
