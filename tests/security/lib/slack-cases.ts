@@ -12,6 +12,9 @@ export const SLACK_SPECS: Record<string, Spec> = {
   saveSlackTokens: { build: c => c.put('/api/admin/slack/tokens', { botToken: FAKE_SEALED, appToken: FAKE_SEALED }), scope: 'byLevel' },
   setSlackEnabled: { build: c => c.post('/api/admin/slack/enabled', { enabled: false }), scope: 'byLevel' },
   removeSlack: { build: c => c.del('/api/admin/slack'), scope: 'byLevel' },
+  // the owner linking a Slack person (here: Slack not set up, so the owner passes the permission check and gets 409)
+  slackMembers: { build: c => c.get('/api/admin/slack/members'), scope: 'byLevel' },
+  linkSlackMember: { build: c => c.post('/api/admin/slack/links', { slackUserId: 'U0NOBODY', userId: 'nobody' }), scope: 'byLevel' },
   mySlack: { build: c => c.get('/api/slack/me'), scope: 'self' },
   unlinkSlack: { build: c => c.del('/api/slack/me'), scope: 'self' },
   previewSlackLink: { build: c => c.post('/api/slack/link/preview', NO_TOKEN), scope: 'nobody' },

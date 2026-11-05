@@ -1,11 +1,13 @@
 // The Slack app the owner makes in their own workspace (https://docs.slack.dev/reference/app-manifest): an internal app
 // in Socket Mode, so the server needs no public address. Only what the connector uses:
-//   app_mentions:read  @app in a channel                 im:history  messages in the app's DM
-//   chat:write         answers, ephemeral ones included   users:read  the asker's name (the link page, "asked by")
+//   app_mentions:read  @app in a channel                 im:history        messages in the app's DM
+//   chat:write         answers, ephemeral ones included   users:read        the asker's name (the link page, "asked by")
+//   users:read.email   the proof a link needs: the Slack   im:write          the one DM telling a person the owner
+//                      account's e-mail is the person's                       linked their Slack account
 // No channel history, no files, no slash command, no user token.
 import { PRODUCT } from '@mycel/shared'
 
-export const BOT_SCOPES = ['app_mentions:read', 'chat:write', 'im:history', 'users:read'] as const
+export const BOT_SCOPES = ['app_mentions:read', 'chat:write', 'im:history', 'im:write', 'users:read', 'users:read.email'] as const
 export const BOT_EVENTS = ['app_mention', 'message.im'] as const
 
 /** a bot user name Slack takes: a-z, 0-9, -, _ and . (at most 80) */

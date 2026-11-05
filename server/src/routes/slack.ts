@@ -39,6 +39,8 @@ export const slackRoutes: RouteModule = {
       return slack().saveTokens(auth.user.id, bot, app, linkBase(c, ctx))
     }))
     kit.handle(API.setSlackEnabled, ({ c, body, auth }) => safe(c.get('locale'), () => slack().setEnabled(auth.user.id, body.enabled)))
+    kit.handle(API.slackMembers, ({ c }) => safe(c.get('locale'), () => slack().members()))
+    kit.handle(API.linkSlackMember, ({ c, body, auth }) => safe(c.get('locale'), () => slack().ownerLink(auth.user.id, body.slackUserId, body.userId)))
     kit.handle(API.removeSlack, ({ c, auth }) => safe(c.get('locale'), () => slack().remove(auth.user.id)))
     kit.handle(API.mySlack, ({ auth }) => slack().mine(auth.user.id))
     kit.handle(API.unlinkSlack, ({ auth }) => slack().unlink(auth.user.id))

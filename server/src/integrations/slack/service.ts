@@ -62,9 +62,30 @@ interface RequestRow {
 interface Question { team: string; enterprise: string; user: string; channel: string; kind: 'im' | 'channel'; ts: string; threadTs: string | null; text: string; userTeam: string | null }
 
 const ID = /^[A-Z0-9]{2,40}$/
+interface SlackPerson { id: string; ours: boolean; name: string | null; realName: string | null; handle: string | null; email: string | null }
+export interface SlackMembers { available: boolean; truncated: boolean; members: { slackUserId: string; name: string | null; realName: string | null; handle: string | null; email: string | null; linkedTo: { id: string; name: string; username: string } | null }[] }
+/** An e-mail address as compared: Unicode NFC, no surrounding space, lower case. Never NFKC: that would make a
+ * look-alike (full-width) address equal to a real one. */
+export const normEmail = (e: unknown): string | null => {
+  if (typeof e !== 'string') return null
+  const n = e.normalize('NFC').trim().toLowerCase()
+  return n.length >= 3 && n.length <= 320 && n.includes('@') ? n : null
+}
 const sha = (s: string) => crypto.createHash('sha256').update(s).digest('hex')
 const cleanName = (s: unknown) => typeof s === 'string' ? s.replace(/[\u0000-\u001f\u007f-\u009f​-‏‪-‮⁦-⁩]/g, '').trim().slice(0, 80) || null : null
 const iso = (ms: number) => new Date(ms).toISOString()
+/** A Slack user object (users.info, users.list) as we use it; `ours`: a person of the connected workspace (not a bot,
+ * not deactivated, not of another workspace in a shared channel). null: not a user object. */
+function memberOf(raw: unknown, cfg: Pick<ConfigRow, 'team_id' | 'enterprise_id'>): SlackPerson | null {
+  const u = raw as { id?: unknown; team_id?: unknown; is_bot?: unknown; deleted?: unknown; name?: unknown; real_name?: unknown; enterprise_user?: { enterprise_id?: unknown }; profile?: { display_name?: unknown; real_name?: unknown; email?: unknown } } | null
+  if (!u || typeof u !== 'object' || typeof u.id !== 'string' || !ID.test(u.id)) return null
+  const sameTeam = u.team_id === cfg.team_id || (!!cfg.enterprise_id && u.enterprise_user?.enterprise_id === cfg.enterprise_id)
+  return {
+    id: u.id, ours: sameTeam && u.is_bot !== true && u.deleted !== true && u.id !== 'USLACKBOT',
+    name: cleanName(u.profile?.display_name), realName: cleanName(u.profile?.real_name) ?? cleanName(u.real_name), handle: cleanName(u.name),
+    email: normEmail(u.profile?.email),
+  }
+}
 const BOT_TOKEN = /^xoxb-[A-Za-z0-9-]{10,250}$/
 const APP_TOKEN = /^xapp-[A-Za-z0-9-]{10,250}$/
 
@@ -270,21 +291,58 @@ export class SlackConnector {
     return this.db.query("SELECT id, name, username, role FROM users WHERE id = ? AND status = 'active' AND deleted_at IS NULL AND must_change_password = 0").get(userId) as { id: string; name: string; username: string; role: string } | null
   }
 
-  preview(userId: string, token: string): SlackLinkPreview {
+  /** The Slack account as Slack says it now (users.info): of this workspace, a person (no bot, not deactivated), and its
+   * e-mail (scope users:read.email; null when Slack has none or hides it). null: Slack did not answer. */
+  private async slackMember(bot: string, slackUserId: string, cfg: ConfigRow): Promise<SlackPerson | null> {
+    try {
+      const info = await this.api.call('users.info', bot, { user: slackUserId })
+      return memberOf(info.user, cfg)
+    } catch (e) { this.log.info('slack user unavailable', { reason: e instanceof SlackApiError ? e.code : 'unknown' }); return null }
+  }
+
+  /** Whether the Slack account may be linked to this person: of this workspace, and its e-mail is the person's own (the
+   * proof that the one who confirms owns the Slack account; docs/DECISIONS.md "Slack 커넥터"). */
+  private emailProof(slack: SlackPerson | null, userId: string): 'match' | 'mismatch' | 'missing' | 'shared' | 'outsider' | 'unavailable' {
+    if (!slack) return 'unavailable'
+    if (!slack.ours) return 'outsider'
+    const mine = normEmail((this.db.query('SELECT email FROM users WHERE id = ?').get(userId) as { email: string | null } | null)?.email)
+    if (!slack.email || !mine) return 'missing'
+    if (slack.email !== mine) return 'mismatch'
+    // an address another active account also gives: it proves nobody in particular
+    const others = this.db.query("SELECT email FROM users WHERE id != ? AND status = 'active' AND deleted_at IS NULL AND email IS NOT NULL").all(userId) as { email: string }[]
+    return others.some((o) => normEmail(o.email) === mine) ? 'shared' : 'match'
+  }
+
+  async preview(userId: string, token: string): Promise<SlackLinkPreview> {
     const { r, cfg } = this.tokenRow(token)
     const me = this.person(userId)
     if (!me) throw new SlackError('link_expired', 'not_found')
     const mine = this.db.query('SELECT * FROM slack_links WHERE user_id = ?').get(userId) as LinkRow | null
+    const tk = this.tokens(cfg)
+    const proof = tk ? this.emailProof(await this.slackMember(tk.bot, r.slack_user_id, cfg), userId) : 'unavailable'
     return {
       workspace: cfg.team_name ?? cfg.team_id!, slack: { userId: r.slack_user_id, name: r.slack_name, realName: r.slack_real_name, handle: r.slack_handle }, me: { name: me.name, username: me.username },
       expiresAt: r.expires_at, linkedElsewhere: !!mine && !(mine.team_id === r.team_id && mine.enterprise_id === r.enterprise_id && mine.slack_user_id === r.slack_user_id),
+      emailCheck: proof === 'match' ? 'match' : proof === 'unavailable' ? 'unavailable' : proof === 'mismatch' || proof === 'shared' || proof === 'outsider' ? 'mismatch' : 'missing',
     }
   }
 
   async confirm(userId: string, token: string): Promise<MySlack> {
-    const { r } = this.tokenRow(token)
+    const { r, cfg } = this.tokenRow(token)
     const me = this.person(userId)
     if (!me) throw new SlackError('link_expired', 'not_found')
+    const tk = this.tokens(cfg)
+    if (!tk) throw new SlackError('unreachable', 'unavailable')
+    // already linked to another Slack account: said first (checked again below, where it counts)
+    const before = this.db.query('SELECT * FROM slack_links WHERE user_id = ?').get(userId) as LinkRow | null
+    if (before && !(before.team_id === r.team_id && before.enterprise_id === r.enterprise_id && before.slack_user_id === r.slack_user_id)) throw new SlackError('linked_elsewhere', 'conflict')
+    // the proof: Slack's own e-mail of the Slack account this link was sent to is the confirming person's e-mail
+    const proof = this.emailProof(await this.slackMember(tk.bot, r.slack_user_id, cfg), userId)
+    if (proof === 'unavailable') throw new SlackError('unreachable', 'unavailable')
+    if (proof !== 'match') {
+      audit(this.db, { actor: userId, action: 'slack.link_refused', target: userId, detail: { slackUser: r.slack_user_id, reason: `email_${proof}` } })
+      throw new SlackError(proof === 'missing' ? 'email_missing' : 'email_mismatch', 'conflict')
+    }
     const now = iso(this.now())
     let made = false
     this.db.transaction(() => {
@@ -305,15 +363,70 @@ export class SlackConnector {
     })()
     if (made) {
       audit(this.db, { actor: userId, action: 'slack.linked', target: userId, detail: { slackUser: r.slack_user_id, team: r.team_id } })
-      // tell the Slack account, where it asked (only it sees this), which account it now asks as: a Slack account linked
-      // by somebody else (a link sent on) shows it at once
-      const tk = this.tokens()
-      if (tk && r.channel_id) {
+      // tell the Slack account, where it asked (only it sees this), which account it now asks as
+      if (r.channel_id) {
         const locale = this.localeOf(userId)
         void this.api.call('chat.postEphemeral', tk.bot, { channel: r.channel_id, user: r.slack_user_id, ...(r.thread_ts ? { thread_ts: r.thread_ts } : {}), text: say('linked', locale, { name: plain(`${me.name} (@${me.username})`) }) }).catch(() => {})
       }
     }
     return this.mine(userId)
+  }
+
+  // ---------------------------------------------------------------- the owner links someone (Slack and app e-mails differ)
+  private membersCache: { at: number; teamId: string; members: SlackPerson[]; truncated: boolean } | null = null
+
+  /** The people of the connected workspace (users.list, at most 2,000; a minute in memory), with whom each is linked to. */
+  async members(): Promise<SlackMembers> {
+    const cfg = this.config(), tk = this.tokens(cfg)
+    if (!cfg || !tk || !this.available(cfg)) return { available: false, members: [], truncated: false }
+    if (!this.membersCache || this.membersCache.teamId !== cfg.team_id || this.now() - this.membersCache.at > 60_000) {
+      const members: SlackPerson[] = []
+      let cursor = '', pages = 0
+      try {
+        do {
+          const r = await this.api.call('users.list', tk.bot, { limit: 200, ...(cursor ? { cursor } : {}) })
+          for (const u of Array.isArray(r.members) ? r.members : []) { const m = memberOf(u, cfg); if (m?.ours) members.push(m) }
+          const next = (r.response_metadata as { next_cursor?: unknown } | undefined)?.next_cursor
+          cursor = typeof next === 'string' && next.length <= 512 ? next : ''
+        } while (cursor && ++pages < 10)
+      } catch (e) { throw new SlackError(errorCode(e), 'unavailable') }
+      this.membersCache = { at: this.now(), teamId: cfg.team_id!, members, truncated: !!cursor }
+    }
+    const links = new Map((this.db.query("SELECT l.slack_user_id, u.id, u.name, u.username FROM slack_links l JOIN users u ON u.id = l.user_id WHERE l.team_id = ?").all(cfg.team_id) as { slack_user_id: string; id: string; name: string; username: string }[]).map((l) => [l.slack_user_id, l]))
+    return {
+      available: true, truncated: this.membersCache.truncated,
+      members: this.membersCache.members.map((m) => { const l = links.get(m.id); return { slackUserId: m.id, name: m.name, realName: m.realName, handle: m.handle, email: m.email, linkedTo: l ? { id: l.id, name: l.name, username: l.username } : null } }),
+    }
+  }
+
+  /** The owner links a Slack person of this workspace to a member (their e-mails differ, so the person cannot). Slack
+   * is asked again now; the Slack person gets one DM saying which account it is and how to undo it. */
+  async ownerLink(actor: string, slackUserId: string, userId: string): Promise<void> {
+    const cfg = this.config(), tk = this.tokens(cfg)
+    if (!cfg || !tk || !this.available(cfg)) throw new SlackError('no_tokens', 'conflict')
+    const who = this.person(userId) ?? (this.account(userId) ? this.db.query('SELECT id, name, username, role FROM users WHERE id = ?').get(userId) as { id: string; name: string; username: string; role: string } : null)
+    if (!who) throw new SlackError('no_member', 'not_found')
+    const slack = await this.slackMember(tk.bot, slackUserId, cfg)
+    if (!slack) throw new SlackError('unreachable', 'unavailable')
+    if (!slack.ours) throw new SlackError('outsider', 'validation')
+    const enterprise = cfg.enterprise_id ?? ''
+    const now = iso(this.now())
+    this.db.transaction(() => {
+      if (this.db.query('SELECT 1 FROM slack_links WHERE user_id = ?').get(userId)) throw new SlackError('linked_elsewhere', 'conflict')
+      if (this.db.query('SELECT 1 FROM slack_links WHERE team_id = ? AND slack_user_id = ?').get(cfg.team_id, slackUserId)) throw new SlackError('slack_taken', 'conflict')
+      this.db.query('UPDATE slack_link_tokens SET used_at = ? WHERE team_id = ? AND slack_user_id = ? AND used_at IS NULL').run(now, cfg.team_id, slackUserId)
+      this.db.query('INSERT INTO slack_links (id, user_id, team_id, enterprise_id, slack_user_id, slack_name, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)')
+        .run(newId(), userId, cfg.team_id, enterprise, slackUserId, slack.name ?? slack.realName ?? slack.handle, now)
+    })()
+    audit(this.db, { actor, action: 'slack.mapped', target: userId, detail: { slackUser: slackUserId, team: cfg.team_id } })
+    // one DM to the Slack person: which account, and how to undo it
+    const owner = this.db.query('SELECT name FROM users WHERE id = ?').get(actor) as { name: string } | null
+    const locale = this.localeOf(userId)
+    try {
+      const im = await this.api.call('conversations.open', tk.bot, { users: slackUserId })
+      const channel = (im.channel as { id?: unknown } | undefined)?.id
+      if (typeof channel === 'string' && ID.test(channel)) await this.api.call('chat.postMessage', tk.bot, { channel, text: say('mapped', locale, { owner: plain(owner?.name ?? ''), name: plain(`${who.name} (@${who.username})`) }) })
+    } catch (e) { this.log.warn('slack link notice could not be sent', { reason: e instanceof SlackApiError ? e.code : 'unknown' }) }
   }
 
   cancel(userId: string, token: string) {
@@ -458,18 +571,10 @@ export class SlackConnector {
     if (tooSoon()) { await this.ephemeral(bot, q, say('linkWait', locale)); return }
     // who this Slack account is, as Slack says: shown on the link page next to the person who confirms. No answer from
     // Slack: no link (we could not check the account is of this workspace)
-    let names: { display: string | null; real: string | null; handle: string | null }
-    try {
-      const info = await this.api.call('users.info', bot, { user: q.user })
-      const u = (info.user ?? {}) as { team_id?: unknown; is_bot?: unknown; deleted?: unknown; name?: unknown; real_name?: unknown; enterprise_user?: { enterprise_id?: unknown }; profile?: { display_name?: unknown; real_name?: unknown } }
-      const sameTeam = u.team_id === q.team || (!!q.enterprise && u.enterprise_user?.enterprise_id === q.enterprise)
-      if (u.is_bot === true || u.deleted === true || !sameTeam) { await this.ephemeral(bot, q, say('outsider', locale)); return }
-      names = { display: cleanName(u.profile?.display_name), real: cleanName(u.profile?.real_name) ?? cleanName(u.real_name), handle: cleanName(u.name) }
-    } catch (e) {
-      this.log.info('slack user unavailable', { reason: e instanceof SlackApiError ? e.code : 'unknown' })
-      await this.ephemeral(bot, q, say('queueFull', locale))
-      return
-    }
+    const m = await this.slackMember(bot, q.user, cfg)
+    if (!m) { await this.ephemeral(bot, q, say('queueFull', locale)); return }
+    if (!m.ours) { await this.ephemeral(bot, q, say('outsider', locale)); return }
+    const names = { display: m.name, real: m.realName, handle: m.handle }
     const token = crypto.randomBytes(32).toString('base64url')
     let made = false
     this.db.transaction(() => {

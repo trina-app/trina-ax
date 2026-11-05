@@ -8,7 +8,7 @@ import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from '
 import { sealSecret } from '../../web/src/lib/seal'
 import { createLogger } from '../../server/src/log'
 import { credentialsOf } from '../../server/src/credentials/store'
-import { slackOf } from '../../server/src/integrations/slack/service'
+import { normEmail, slackOf } from '../../server/src/integrations/slack/service'
 import { questionText, toMrkdwn } from '../../server/src/integrations/slack/text'
 import { slackManifest } from '../../server/src/integrations/slack/manifest'
 import { startHarness, type Harness } from '../lib/b-harness'
@@ -54,12 +54,20 @@ async function newLink(user: string, text = 'hi') {
 beforeAll(async () => {
   fake = startFakeSlack()
   fake.users = {
-    U0ALICE: { name: 'alice.slack', team_id: 'T0ACME', real_name: 'Alice in Slack' },
-    U0BOB: { name: 'bob.slack', team_id: 'T0ACME' },
-    U0MALLORY: { name: 'mallory', team_id: 'T0ACME' },
-    U0GUEST: { name: 'guest', team_id: 'T0OTHER' },
+    // Slack's address in another case and with spaces: still alice's
+    U0ALICE: { name: 'alice.slack', team_id: 'T0ACME', real_name: 'Alice in Slack', email: ' Alice@ACME.example ' },
+    U0BOB: { name: 'bob.slack', team_id: 'T0ACME', email: 'bob@acme.example' },
+    U0MALLORY: { name: 'mallory', team_id: 'T0ACME', email: 'mallory@acme.example' },
+    U0ERIN: { name: 'erin.slack', team_id: 'T0ACME', email: 'erin@acme.example' },
+    U0CAROL: { name: 'carol.slack', team_id: 'T0ACME', email: 'carol@acme.example' },
+    U0NOMAIL: { name: 'no.mail', team_id: 'T0ACME' },
+    U0GUEST: { name: 'guest', team_id: 'T0OTHER', email: 'guest@other.example' },
+    U0ROBOT: { name: 'robot', team_id: 'T0ACME', is_bot: true },
+    U0GONE: { name: 'gone', team_id: 'T0ACME', email: 'gone@acme.example', deleted: true },
   }
   h = await startHarness({ name: 'c-slack', log: createLogger({ level: 'debug', sink: (l) => lines.push(l) }) })
+  // the accounts' own e-mails (carol has none)
+  for (const [id, email] of [['alice', 'alice@acme.example'], ['bob', 'bob@acme.example'], ['erin', 'erin@acme.example'], ['dana', 'dana@acme.example']]) h.ctx.db.query('UPDATE users SET email = ? WHERE id = ?').run(email, id)
   slackOf(h.ctx, { base: fake.url, pollMs: 30, retryMs: 50, now: () => Date.now() + skew })
 })
 afterAll(async () => { await h?.close(); fake?.close() })
@@ -88,8 +96,8 @@ describe('setup (the owner)', () => {
     expect(revoked.json.error.params.reason).toBe('invalid_auth')
     fake.scopes = ['chat:write']
     const scopes = await call('dana', 'PUT', '/api/admin/slack/tokens', { botToken: await seal(fake.botToken), appToken: await seal(fake.appToken) })
-    expect(scopes.json.error.params).toMatchObject({ reason: 'missing_scope', scopes: 'app_mentions:read, im:history, users:read' })
-    fake.scopes = ['app_mentions:read', 'chat:write', 'im:history', 'users:read']
+    expect(scopes.json.error.params).toMatchObject({ reason: 'missing_scope', scopes: 'app_mentions:read, im:history, im:write, users:read, users:read.email' })
+    fake.scopes = ['app_mentions:read', 'chat:write', 'im:history', 'im:write', 'users:read', 'users:read.email']
     const other = await call('dana', 'PUT', '/api/admin/slack/tokens', { botToken: await seal(fake.botToken, 'integration.secret'), appToken: await seal(fake.appToken) })
     expect(other.status).toBe(400)
     // the app-level token of another app than the bot token's
@@ -139,11 +147,37 @@ describe('linking', () => {
     expect(linkTokenFrom(ephemeralsTo('U0ALICE').at(-1)!)).toBeNull()
   })
 
-  test('another person signed in sees both names; the link binds the Slack account it was sent to, once', async () => {
-    // bob opens alice's link: the page names the Slack account (alice's) and bob, so bob can see it is not his
+  test('somebody else\'s link cannot bind: the Slack e-mail must be the account\'s own', async () => {
+    // "send the victim my link": alice's Slack link opened by bob. The page names both accounts and says the e-mails
+    // differ; confirming is refused and binds nothing, and the link still works for alice
     const asBob = await call('bob', 'POST', '/api/slack/link/preview', { token: aliceToken })
     expect(asBob.status).toBe(200)
-    expect(asBob.json).toMatchObject({ workspace: 'Acme', slack: { userId: 'U0ALICE', name: 'alice.slack' }, me: { name: 'Bob Lee', username: 'bob' }, linkedElsewhere: false })
+    expect(asBob.json).toMatchObject({ workspace: 'Acme', slack: { userId: 'U0ALICE', name: 'alice.slack' }, me: { name: 'Bob Lee', username: 'bob' }, linkedElsewhere: false, emailCheck: 'mismatch' })
+    const refused = await call('bob', 'POST', '/api/slack/link/confirm', { token: aliceToken })
+    expect(refused.status).toBe(409)
+    expect(refused.json.error.params.reason).toBe('email_mismatch')
+    // bob reads the app in Korean
+    expect(refused.json.error.message).toBe('이 Slack 계정의 이메일이 Trina AX 계정과 달라요. 팀장에게 연결을 부탁하세요.')
+    expect(h.ctx.db.query('SELECT count(*) n FROM slack_links').get()).toEqual({ n: 0 })
+    expect(h.ctx.db.query("SELECT detail FROM audit_log WHERE action = 'slack.link_refused'").get()).toEqual({ detail: JSON.stringify({ slackUser: 'U0ALICE', reason: 'email_mismatch' }) })
+  })
+
+  test('no e-mail on either side refuses too', async () => {
+    // a Slack account without an e-mail, opened by dana (who has one)
+    const nomail = await newLink('U0NOMAIL')
+    expect((await call('dana', 'POST', '/api/slack/link/preview', { token: nomail })).json.emailCheck).toBe('missing')
+    const a = await call('dana', 'POST', '/api/slack/link/confirm', { token: nomail })
+    expect(a.status).toBe(409)
+    expect(a.json.error.params.reason).toBe('email_missing')
+    // carol's own Slack account, but carol's account here has no e-mail
+    const carol = await newLink('U0CAROL')
+    const b = await call('carol', 'POST', '/api/slack/link/confirm', { token: carol })
+    expect(b.json.error.params.reason).toBe('email_missing')
+    expect(h.ctx.db.query('SELECT count(*) n FROM slack_links').get()).toEqual({ n: 0 })
+  })
+
+  test('the matching account sees both names; the link binds the Slack account it was sent to, once', async () => {
+    expect((await call('alice', 'POST', '/api/slack/link/preview', { token: aliceToken })).json.emailCheck).toBe('match')
     // a malformed token never reaches the store; an unknown one is not found
     expect((await call('alice', 'POST', '/api/slack/link/preview', { token: 'short' })).status).toBe(400)
     expect((await call('alice', 'POST', '/api/slack/link/preview', { token: 'x'.repeat(43) })).status).toBe(404)
@@ -187,6 +221,42 @@ describe('linking', () => {
     expect(c.args.user).toBe('U0GUEST')
     expect(linkTokenFrom(c)).toBeNull()
     expect(h.ctx.db.query("SELECT count(*) n FROM slack_link_tokens WHERE slack_user_id = 'U0GUEST'").get()).toEqual({ n: 0 })
+  })
+})
+
+describe('the owner links someone whose e-mails differ', () => {
+  test('owner only; the workspace\'s people without bots, the deactivated or other workspaces', async () => {
+    expect((await call('carol', 'GET', '/api/admin/slack/members')).status).toBe(403)
+    expect((await call('alice', 'POST', '/api/admin/slack/links', { slackUserId: 'U0NOMAIL', userId: 'alice' })).status).toBe(403)
+    expect((await call('carol', 'POST', '/api/admin/slack/links', { slackUserId: 'U0NOMAIL', userId: 'carol' })).status).toBe(403)
+    const r = await call('dana', 'GET', '/api/admin/slack/members')
+    expect(r.status).toBe(200)
+    const ids = (r.json.members as { slackUserId: string }[]).map((m) => m.slackUserId).sort()
+    expect(ids).toEqual(['U0ALICE', 'U0BOB', 'U0CAROL', 'U0ERIN', 'U0MALLORY', 'U0NOMAIL'])
+    expect(r.json.members.find((m: { slackUserId: string }) => m.slackUserId === 'U0ALICE')).toMatchObject({ email: 'alice@acme.example', linkedTo: { id: 'alice', name: 'Alice Kim' } })
+    expect(r.json.members.find((m: { slackUserId: string }) => m.slackUserId === 'U0NOMAIL')).toMatchObject({ email: null, linkedTo: null })
+  })
+
+  test('linking: both checked again, audited, and the Slack person told in one DM; never someone of another workspace', async () => {
+    const outsider = await call('dana', 'POST', '/api/admin/slack/links', { slackUserId: 'U0GUEST', userId: 'erin' })
+    expect(outsider.status).toBe(400)
+    expect(outsider.json.error.params.reason).toBe('outsider')
+    expect((await call('dana', 'POST', '/api/admin/slack/links', { slackUserId: 'U0ROBOT', userId: 'erin' })).json.error.params.reason).toBe('outsider')
+    // a Slack account already linked, and an account already linked
+    expect((await call('dana', 'POST', '/api/admin/slack/links', { slackUserId: 'U0ALICE', userId: 'bob' })).json.error.params.reason).toBe('slack_taken')
+    expect((await call('dana', 'POST', '/api/admin/slack/links', { slackUserId: 'U0NOMAIL', userId: 'alice' })).json.error.params.reason).toBe('linked_elsewhere')
+    const ok = await call('dana', 'POST', '/api/admin/slack/links', { slackUserId: 'U0NOMAIL', userId: 'carol' })
+    expect(ok.status).toBe(204)
+    expect(h.ctx.db.query("SELECT slack_user_id FROM slack_links WHERE user_id = 'carol'").get()).toEqual({ slack_user_id: 'U0NOMAIL' })
+    expect(h.ctx.db.query("SELECT actor_id, target, detail FROM audit_log WHERE action = 'slack.mapped'").get()).toEqual({ actor_id: 'dana', target: 'carol', detail: JSON.stringify({ slackUser: 'U0NOMAIL', team: 'T0ACME' }) })
+    expect(fake.of('conversations.open').at(-1)!.args.users).toBe('U0NOMAIL')
+    const dm = await waitFor(() => fake.of('chat.postMessage').find((c) => c.args.channel === 'D0NOMAIL'))
+    expect(dm!.args.text).toContain('Carol Park (@carol)')
+    expect(dm!.args.text).toContain('Dana Choi')
+    expect(fake.of('chat.postMessage').filter((c) => c.args.channel === 'D0NOMAIL').length).toBe(1)
+    // the list says so
+    const list = await call('dana', 'GET', '/api/admin/slack/members')
+    expect(list.json.members.find((m: { slackUserId: string }) => m.slackUserId === 'U0NOMAIL').linkedTo).toMatchObject({ id: 'carol' })
   })
 })
 
@@ -356,11 +426,9 @@ describe('secrets and accounts', () => {
   })
 
   test('unlink from Settings; a disabled account is unlinked at once and gets a link prompt again', async () => {
-    // erin links, then unlinks herself (past the "link sent a moment ago" wait)
-    skew = 2 * 60_000
-    const et = await newLink('U0MALLORY', 'hi again')
+    // erin links, then unlinks herself
+    const et = await newLink('U0ERIN', 'hi again')
     expect((await call('erin', 'POST', '/api/slack/link/confirm', { token: et })).status).toBe(200)
-    skew = 0
     const off = await call('erin', 'DELETE', '/api/slack/me')
     expect(off.json.link).toBeNull()
     expect(h.ctx.db.query("SELECT count(*) n FROM slack_links WHERE user_id = 'erin'").get()).toEqual({ n: 0 })
@@ -389,6 +457,14 @@ describe('secrets and accounts', () => {
 })
 
 describe('text', () => {
+  test('e-mails compare in NFC, trimmed, in lower case; a full-width look-alike is another address', () => {
+    expect(normEmail(' Jose\u0301@Acme.Example ')).toBe(normEmail('jos\u00e9@acme.example'))
+    expect(normEmail('ａｌｉｃｅ@acme.example')).not.toBe(normEmail('alice@acme.example'))
+    expect(normEmail('')).toBeNull()
+    expect(normEmail('no-at-sign')).toBeNull()
+    expect(normEmail(null)).toBeNull()
+  })
+
   test('Slack markup to the question; the answer to mrkdwn without mentions or hidden links', () => {
     expect(questionText('<@U0BOT> look at <https://acme.example/a?b=1&amp;c=2|the doc> with <@U0BOB|bob> in <#C1|general> &lt;now&gt;', 'U0BOT'))
       .toBe('look at the doc (https://acme.example/a?b=1&c=2) with @bob in #general <now>')

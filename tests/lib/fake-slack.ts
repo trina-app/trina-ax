@@ -1,10 +1,11 @@
 // A stand-in for Slack (tests of the Slack connector, docs/SLACK.md): the Web API methods the connector calls
-// (auth.test, apps.connections.open, bots.info, users.info, chat.postMessage, chat.postEphemeral, chat.update, chat.delete), a Socket Mode
+// (auth.test, apps.connections.open, bots.info, users.info, users.list, conversations.open, chat.postMessage,
+// chat.postEphemeral, chat.update, chat.delete), a Socket Mode
 // WebSocket that says hello and records every acknowledgement, and response URLs. Nothing reaches the real Slack.
 import type { ServerWebSocket } from 'bun'
 
 export interface Call { method: string; token: string | null; args: Record<string, string> }
-export interface FakeUser { name: string; team_id: string; real_name?: string; is_bot?: boolean; deleted?: boolean }
+export interface FakeUser { name: string; team_id: string; real_name?: string; email?: string; is_bot?: boolean; deleted?: boolean }
 export interface FakeSlack {
   url: string
   botToken: string
@@ -37,6 +38,12 @@ export interface FakeSlack {
 let tsCounter = 0
 export const nextTs = () => `${1_700_000_000 + Math.floor(Date.now() / 1000) % 1_000_000}.${String(++tsCounter).padStart(6, '0')}`
 
+/** a Slack user object the way users.info and users.list give it (the e-mail only with users:read.email) */
+function userObject(id: string, x: FakeUser) {
+  return { id, team_id: x.team_id, name: x.name, real_name: x.real_name ?? x.name, deleted: !!x.deleted, is_bot: !!x.is_bot,
+    profile: { display_name: x.name, real_name: x.real_name ?? x.name, ...(x.email !== undefined ? { email: x.email } : {}) } }
+}
+
 export function startFakeSlack(): FakeSlack {
   const open = new Set<ServerWebSocket<{ at: number }>>()
   const sent = new Map<string, number>()
@@ -45,7 +52,7 @@ export function startFakeSlack(): FakeSlack {
     url: '', botToken: 'xoxb-111-222-' + 'b'.repeat(24), appToken: 'xapp-1-A0APP-333-' + 'a'.repeat(32),
     team: { id: 'T0ACME', name: 'Acme' }, botUserId: 'U0BOT', appId: 'A0APP',
     users: {}, calls: [], acks: [], responses: [], opens: 0, failNext: {},
-    scopes: ['app_mentions:read', 'chat:write', 'im:history', 'users:read'],
+    scopes: ['app_mentions:read', 'chat:write', 'im:history', 'im:write', 'users:read', 'users:read.email'],
     sockets: () => open.size,
     async connected() {
       const end = Date.now() + 10_000
@@ -110,8 +117,16 @@ export function startFakeSlack(): FakeSlack {
           if (!bot) return json({ ok: false, error: 'invalid_auth' })
           const x = fake.users[args.user ?? '']
           if (!x) return json({ ok: false, error: 'user_not_found' })
-          return json({ ok: true, user: { id: args.user, team_id: x.team_id, name: x.name, real_name: x.real_name ?? x.name, deleted: !!x.deleted, is_bot: !!x.is_bot, profile: { display_name: x.name, real_name: x.real_name ?? x.name } } })
+          return json({ ok: true, user: userObject(args.user!, x) })
         }
+        case 'users.list': {
+          if (!bot) return json({ ok: false, error: 'invalid_auth' })
+          // two pages, so the connector has to follow the cursor
+          const all = Object.entries(fake.users).map(([id, x]) => userObject(id, x))
+          const half = Math.ceil(all.length / 2)
+          return args.cursor === 'page2' ? json({ ok: true, members: all.slice(half), response_metadata: { next_cursor: '' } }) : json({ ok: true, members: all.slice(0, half), response_metadata: { next_cursor: 'page2' } })
+        }
+        case 'conversations.open': return bot && /^U[A-Z0-9]+$/.test(args.users ?? '') ? json({ ok: true, channel: { id: 'D' + args.users!.slice(1) } }) : json({ ok: false, error: 'invalid_arguments' })
         case 'chat.postMessage': return bot ? json({ ok: true, channel: args.channel, ts: nextTs() }) : json({ ok: false, error: 'invalid_auth' })
         case 'chat.postEphemeral': return bot ? json({ ok: true, message_ts: nextTs() }) : json({ ok: false, error: 'invalid_auth' })
         case 'chat.update': return bot ? json({ ok: true, channel: args.channel, ts: args.ts }) : json({ ok: false, error: 'invalid_auth' })
