@@ -61,6 +61,19 @@ export const connectorLogo = (c: Connector) => `/icons/connectors/${c.logo}`
 export const BUILT_IN = [{ id: 'google-drive', name: 'Google Drive', logo: 'google-drive.svg' }] as const
 export const builtInLogo = (id: (typeof BUILT_IN)[number]['id']) => `/icons/connectors/${BUILT_IN.find((b) => b.id === id)!.logo}`
 
+/** Outside AI apps that can use this server's MCP connector (Settings › App connectors, components/integrations/
+ * AiAppConnect.tsx). Only apps whose sign-in the server accepts are named: the connector's OAuth takes claude.ai's
+ * callback (Claude on the web, desktop and phone) and a loopback http://localhost/…/callback (Claude Code and other
+ * apps that sign in on the computer); server/src/connectors/remote-mcp/policy.ts redirectAllowed. `logo: null` is the
+ * generic card for any other MCP app. */
+export const AI_APPS = [
+  { id: 'claude', name: 'Claude', logo: 'claude.svg' },
+  { id: 'claude-code', name: 'Claude Code', logo: 'claude.svg' },
+  { id: 'other', name: null, logo: null },
+] as const
+export type AiApp = (typeof AI_APPS)[number]
+export const aiAppLogo = (a: AiApp) => (a.logo ? `/icons/connectors/${a.logo}` : null)
+
 /** The listed service at this address, if there is one (a connection added by hand shows its logo too). */
 export const connectorFor = (url: string): Connector | undefined => CONNECTORS.find((c) => canonicalService(c.url) === canonicalService(url))
 

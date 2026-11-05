@@ -5,20 +5,21 @@
 //  - AI apps such as Claude use the server's MCP connector (installer --app-connectors, server.json appConnectors with a
 //    public host, or MYCEL_REMOTE_MCP_ORIGIN; docs/site/agents/mcp-connector.md); GET /api/connectors/remote says whether
 //    it is on and its address. Per-member counts of connected apps are not in the API, so they are not shown.
+import { useState } from 'react'
 import { ExternalLink, Plug } from 'lucide-react'
 import { REMOTE_MCP } from '@mycel/shared/api'
-import { SOURCE_CODE } from '@mycel/shared'
 import { api, API } from '../../lib/api'
+import type { AiApp } from '../../lib/connectors'
 import { useT } from '../../i18n'
 import { Badge } from '../../components/ui'
 import { DRIVE_SETUP_GUIDE, DriveLogo } from '../../components/integrations/DriveConnector'
+import { AiAppDialog, AiAppRows, CONNECTOR_GUIDE, ConnectorOff } from '../../components/integrations/AiAppConnect'
 import { ConnectorAddress } from '../ConnectorConnections'
 import { AdminPageHeader, Loadable, useLoad } from './common'
 
-const CONNECTOR_GUIDE = `${SOURCE_CODE.repository}/blob/main/docs/site/agents/mcp-connector.md`
-
 export default function AppConnectors() {
   const t = useT()
+  const [openApp, setOpenApp] = useState<AiApp | null>(null)
   const state = useLoad(async () => {
     const [remote, drive] = await Promise.all([api.call(REMOTE_MCP.listRemoteConnectors), api.call(API.myDriveConnection)])
     return { remote, drive }
@@ -51,6 +52,11 @@ export default function AppConnectors() {
                   </p>
                   <p className="mt-0.5 text-xs text-muted">{t(remote.configured ? 'appConnectors.appsMembers' : 'appConnectors.appsOff')}</p>
                   {remote.configured && remote.resource && <div className="mt-2"><ConnectorAddress resource={remote.resource} /></div>}
+                  {!(remote.configured && remote.resource) && <div className="mt-2"><ConnectorOff admin /></div>}
+                  <ul className="mt-2 -mx-2 divide-y divide-line" data-testid="admin-ai-app-list">
+                    <AiAppRows on={remote.configured && !!remote.resource} onConnect={setOpenApp} />
+                  </ul>
+                  {openApp && remote.resource && <AiAppDialog app={openApp} resource={remote.resource} known={remote.items.map((x) => x.id)} onClose={() => setOpenApp(null)} />}
                 </div>
                 <Guide href={CONNECTOR_GUIDE} testId="admin-ai-apps-guide" />
               </li>

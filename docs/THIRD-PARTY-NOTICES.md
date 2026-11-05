@@ -32,7 +32,7 @@ AI가 만드는 한글 문서(.hwpx, make_file, 2026-11-03)는 이 저장소의 
   받음, 목록은 mcpservers.org 기준"이었고 `docs/INTEGRATIONS.md`는 "svgl.app과 Simple Icons"만 적었다. 커밋 메시지와 PR
   본문에는 출처가 없다. 어느 파일이 어디서 왔는지는 어디에도 기록되지 않았다.
 - 그래서 처음 넣은 39개 중 출처가 확인된 파일은 0개, 미확인 39개다. 2026-11-05에 더한 `google-drive.svg`(앱 커넥터의
-  Google Drive)는 받은 곳과 날짜를 표에 적었다. 그중 13개는 파일 형식(`role="img"`,
+  Google Drive)와 `claude.svg`(앱 커넥터의 Claude·Claude Code)는 받은 곳과 날짜를 표에 적었다. 그중 13개는 파일 형식(`role="img"`,
   `viewBox="0 0 24 24"`, 서비스 이름의 `<title>`, 한 가지 `fill` 색)이 Simple Icons의 배포 형식과 같다. 이것은 추정이고
   출처 확인이 아니다. `higgsfield.png`, `monday.png`, `calendly.svg`를 포함한 나머지는 파일에서도 단서가 없다.
 - 이용 조건은 출처를 알아야 적을 수 있어서 모두 "미확인"이다. 출처와 무관하게 각 로고는 그 소유자의 상표다.
@@ -47,6 +47,7 @@ AI가 만드는 한글 문서(.hwpx, make_file, 2026-11-03)는 이 저장소의 
 | `brex.svg` | 미확인 | 미확인 | viewBox `0 0 24 24`; `<title>Brex</title>`; Simple Icons 배포 형식과 같음(추정) |
 | `calendly.svg` | 미확인 | 미확인 | viewBox `0 0 841.89 595.28`; Adobe Illustrator 27.5.0(으)로 내보낸 파일(파일 안 주석), 어디서 받았는지는 없음 |
 | `canva.svg` | 미확인 | 미확인 | viewBox `0 0 80 80`; 만든 곳을 알려 주는 메타데이터 없음 |
+| `claude.svg` | https://svgl.app/library/claude-ai-icon.svg (2026-11-05 받음) | svgl 사이트·저장소의 이용 조건은 확인하지 않음. Claude 로고는 Anthropic의 상표이고 Anthropic 브랜드 지침을 따른다 | viewBox `0 0 256 257`; 한 가지 `fill`(`#D97757`) path, 스크립트·외부 참조 없음; Settings › App connectors와 Admin › App connectors의 Claude와 Claude Code에 쓴다 |
 | `clickup.svg` | 미확인 | 미확인 | viewBox `0 0 64 64`; 만든 곳을 알려 주는 메타데이터 없음 |
 | `cloudflare.svg` | 미확인 | 미확인 | viewBox `0 0 256 116`; 만든 곳을 알려 주는 메타데이터 없음 |
 | `cloudinary.svg` | 미확인 | 미확인 | viewBox `0 0 256 168`; 만든 곳을 알려 주는 메타데이터 없음 |
