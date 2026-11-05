@@ -15,7 +15,7 @@ import { contrast, onColor, towardContrast } from '../../server/src/promo-video/
 import { BRAND, fitScene, sceneTimes, type PromoDoc } from '../../server/src/promo-video/layout'
 import { hasNumber, inBrandFolder, numbersIn, spaced, squash } from '../../server/src/promo-video/spec'
 import { artifactDocument, composition, renderDocument } from '../../server/src/promo-video/template'
-import { mp4Available } from '../../server/src/promo-video/render'
+import { killTree, mp4Available, setRenderTimeoutForTests } from '../../server/src/promo-video/render'
 
 setDefaultTimeout(60_000)
 
@@ -291,5 +291,114 @@ fs.writeFileSync(out, 'MP4-BYTES')
     expect(mp4Available({ config: { ...h.ctx.config, office: true } })).toBe(false)
     expect(mp4Available({ config: { ...h.ctx.config, mode: 'prod' } })).toBe(false)
     process.env.MYCEL_HYPERFRAMES_DIR = path.join(hfDir, 'none')
+  })
+
+  test('the trash keeps the MP4; purging the chat removes it and a cut-off part file, never another video\'s', async () => {
+    const make = async () => {
+      const chat = await h.api('dana').call(API.createChat, { body: {} })
+      await send('dana', chat.id, fake({ tool: 'promo_video', args: slots(), sayResult: true }))
+      return { chat: chat.id, id: (h.ctx.db.query('SELECT artifact_id FROM promo_videos WHERE chat_id = ?').get(chat.id) as { artifact_id: string }).artifact_id }
+    }
+    const gone = await make(), kept = await make()
+    const dir = path.join(h.dataDir, 'promo-videos')
+    fs.mkdirSync(dir, { recursive: true })
+    const files = [`${gone.id}.mp4`, `${gone.id}.mp4.part.mp4`, `${kept.id}.mp4`]
+    for (const f of files) fs.writeFileSync(path.join(dir, f), 'MP4')
+    await h.api('dana').call(API.deleteChat, { params: { id: gone.chat } })
+    h.rt().purgeTrash()
+    await h.rt().lastForget
+    expect(files.filter((f) => fs.existsSync(path.join(dir, f)))).toEqual(files)
+    h.ctx.db.query('UPDATE chats SET deleted_at = ? WHERE id = ?').run(new Date(Date.now() - 40 * 86400_000).toISOString(), gone.chat)
+    expect(h.rt().purgeTrash()).toBeGreaterThanOrEqual(1)
+    await h.rt().lastForget
+    expect(h.ctx.db.query('SELECT count(*) AS n FROM promo_videos WHERE chat_id = ?').get(gone.chat)).toEqual({ n: 0 })
+    expect(files.filter((f) => fs.existsSync(path.join(dir, f)))).toEqual([`${kept.id}.mp4`])
+  })
+
+  // a stand-in for the CLI that starts a "browser" in a process group of its own (as puppeteer starts Chrome), writes
+  // both process ids next to it and never ends
+  const hanging = (name: string) => {
+    const root = path.join(hfDir, name)
+    fs.mkdirSync(path.join(root, 'node_modules', 'hyperframes', 'bin'), { recursive: true })
+    fs.writeFileSync(path.join(root, 'node_modules', 'hyperframes', 'bin', 'hyperframes.mjs'), `import fs from 'node:fs'
+import { spawn } from 'node:child_process'
+const browser = spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)'], { detached: true, stdio: 'ignore' })
+fs.writeFileSync('pids.tmp', JSON.stringify({ cli: process.pid, browser: browser.pid }))
+fs.renameSync('pids.tmp', 'pids.json')
+setInterval(() => {}, 1000)
+`)
+    return root
+  }
+  const alive = (pid: number) => { try { process.kill(pid, 0); return true } catch (e) { return (e as NodeJS.ErrnoException).code === 'EPERM' } }
+  const pidsOf = async (root: string) => {
+    expect(await waitFor(() => fs.existsSync(path.join(root, 'pids.json')), { timeoutMs: 20_000 })).toBe(true)
+    return JSON.parse(fs.readFileSync(path.join(root, 'pids.json'), 'utf8')) as { cli: number; browser: number }
+  }
+  /** what a failed test leaves running: stopped by the process ids the stand-in wrote */
+  const stop = (root: string) => {
+    let p: { cli?: number; browser?: number } = {}
+    try { p = JSON.parse(fs.readFileSync(path.join(root, 'pids.json'), 'utf8')) } catch { return }
+    for (const pid of [p.cli, p.browser]) if (pid && alive(pid)) try { process.kill(pid, 'SIGKILL') } catch { /* gone */ }
+  }
+
+  test('killTree: the process, its group and the group of a child that started its own, by process id', async () => {
+    const root = hanging('tree')
+    const { spawn } = await import('node:child_process')
+    const cli = spawn(process.execPath, [path.join(root, 'node_modules', 'hyperframes', 'bin', 'hyperframes.mjs')], { cwd: root, detached: true, stdio: 'ignore' })
+    try {
+      const p = await pidsOf(root)
+      expect(p.cli).toBe(cli.pid!)
+      expect([alive(p.cli), alive(p.browser)]).toEqual([true, true])
+      killTree(cli.pid!)
+      expect(await waitFor(() => !alive(p.browser), { timeoutMs: 10_000 })).toBe(true)
+      await new Promise<void>((r) => (cli.exitCode !== null || cli.signalCode !== null ? r() : cli.on('exit', () => r())))
+      expect(cli.signalCode).toBe('SIGKILL')
+    } finally {
+      stop(root)
+      if (cli.pid && alive(cli.pid)) cli.kill('SIGKILL')
+    }
+  })
+
+  test.if(process.platform === 'darwin' && !!Bun.which('node'))('the time limit ends the render and the browser it started in a group of its own; the row says failed', async () => {
+    const root = hanging('slow')
+    process.env.MYCEL_HYPERFRAMES_DIR = root
+    setRenderTimeoutForTests(1500)
+    try {
+      const chat = await h.api('dana').call(API.createChat, { body: {} })
+      await send('dana', chat.id, fake({ tool: 'promo_video', args: slots(), sayResult: true }))
+      const id = (h.ctx.db.query('SELECT artifact_id FROM promo_videos WHERE chat_id = ?').get(chat.id) as { artifact_id: string }).artifact_id
+      expect((await h.api('dana').call(API.renderPromoVideo, { params: { id } })).mp4.state).toBe('rendering')
+      const p = await pidsOf(root)
+      expect(await waitFor(async () => (await h.api('dana').call(API.getPromoVideo, { params: { id } })).mp4.state === 'failed', { timeoutMs: 20_000 })).toBe(true)
+      expect(await waitFor(() => !alive(p.cli) && !alive(p.browser), { timeoutMs: 10_000 })).toBe(true)
+      expect(fs.existsSync(path.join(h.dataDir, 'promo-videos', `${id}.mp4`))).toBe(false)
+    } finally {
+      stop(root)
+      setRenderTimeoutForTests(null)
+      process.env.MYCEL_HYPERFRAMES_DIR = path.join(hfDir, 'none')
+    }
+  })
+
+  test.if(process.platform === 'darwin' && !!Bun.which('node'))('a server that shuts down ends a running render and its browser', async () => {
+    const root = hanging('shutdown')
+    process.env.MYCEL_HYPERFRAMES_DIR = root
+    const h2 = await startHarness({ name: 'b-promo-video-close' })
+    try {
+      fs.mkdirSync(path.join(h2.team, 'shared/Brand/Images'), { recursive: true })
+      fs.copyFileSync(path.join(h.team, 'shared/Brand/Company intro.md'), path.join(h2.team, 'shared/Brand/Company intro.md'))
+      for (const f of ['factory.png', 'logo.png']) fs.copyFileSync(path.join(h.team, 'shared/Brand/Images', f), path.join(h2.team, 'shared/Brand/Images', f))
+      const chat = await h2.api('dana').call(API.createChat, { body: {} })
+      const r = await h2.api('dana').call(API.sendMessage, { params: { id: chat.id }, body: { content: fake({ tool: 'promo_video', args: slots(), sayResult: true }), clientMessageId: 'cm-' + crypto.randomUUID(), attachmentIds: [] } })
+      await waitFor(() => (h2.ctx.db.query('SELECT status FROM messages WHERE id = ?').get(r.assistantMessage.id) as { status: string }).status !== 'streaming', { timeoutMs: 30_000 })
+      const id = (h2.ctx.db.query('SELECT artifact_id FROM promo_videos WHERE chat_id = ?').get(chat.id) as { artifact_id: string }).artifact_id
+      await h2.api('dana').call(API.renderPromoVideo, { params: { id } })
+      const p = await pidsOf(root)
+      await h2.close()
+      expect(await waitFor(() => !alive(p.cli) && !alive(p.browser), { timeoutMs: 10_000 })).toBe(true)
+    } finally {
+      stop(root)
+      await h2.close().catch(() => {})
+      process.env.MYCEL_HYPERFRAMES_DIR = path.join(hfDir, 'none')
+    }
   })
 })

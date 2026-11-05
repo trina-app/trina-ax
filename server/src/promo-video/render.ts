@@ -8,8 +8,10 @@
 // The render is built from the checked slots in promo_videos (never from the artifact's HTML, which `artifact update`
 // could change): the pictures are copied out of the team folder with the chat owner's own permissions at render time,
 // the font from the repository. One render at a time on the server; a finished MP4 is kept next to the data and given
-// again until the video changes.
-import { spawn } from 'node:child_process'
+// again until the video changes. It goes when its chat is purged (chat/forget.ts → forgetPromoVideos).
+// The CLI runs in a process group of its own; at the time limit, and when the server shuts down, that group and the
+// group of every process under it (Chrome starts in its own) are killed by process id, never by a name pattern.
+import { spawn, spawnSync, type ChildProcess } from 'node:child_process'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
@@ -26,7 +28,9 @@ import { PROMO_FONT_FILE, renderDocument } from './template'
 /** The pinned HyperFrames release (versions.json "hyperframes"; scripts/promo-video/hyperframes/package-lock.json). */
 export const HYPERFRAMES_VERSION = '0.9.15'
 export const PROMO_FONT_PATH = path.join(REPO_ROOT, 'resources', 'promo-video', 'fonts', PROMO_FONT_FILE)
-const RENDER_TIMEOUT_MS = 4 * 60_000
+let renderTimeoutMs = 4 * 60_000
+/** Tests shorten the time limit (null: back to 4 minutes). */
+export function setRenderTimeoutForTests(ms: number | null) { renderTimeoutMs = ms ?? 4 * 60_000 }
 
 export const hyperframesDir = () => process.env.MYCEL_HYPERFRAMES_DIR || path.join(os.homedir(), '.cache', 'mycel', `hyperframes-${HYPERFRAMES_VERSION}`)
 const cliPath = () => path.join(hyperframesDir(), 'node_modules', 'hyperframes', 'bin', 'hyperframes.mjs')
@@ -66,6 +70,9 @@ export const promoVideoInfo = (ctx: AppContext, userId: string, id: string) => i
 
 const running = new Set<string>()
 let queue: Promise<void> = Promise.resolve()
+/** the CLI processes running now, each with the end of its exit */
+const live = new Map<ChildProcess, Promise<void>>()
+const hooked = new WeakSet<object>()
 
 /** Start the MP4 (one render at a time on the server); a finished one is kept. */
 export function renderPromoVideo(ctx: AppContext, userId: string, id: string): PromoVideoInfo {
@@ -73,6 +80,14 @@ export function renderPromoVideo(ctx: AppContext, userId: string, id: string): P
   if (!mp4Available(ctx)) throw new HttpError('not_found')
   const now = info(ctx, r)
   if (now.mp4.state === 'done' || now.mp4.state === 'rendering') return now
+  // a shutdown ends a render and its browser with the server (they run in process groups of their own)
+  if (!hooked.has(ctx)) {
+    hooked.add(ctx)
+    ctx.onClose(async () => {
+      const exits = [...live.entries()].map(([p, done]) => { if (p.pid) killTree(p.pid); return done })
+      await Promise.race([Promise.all(exits), Bun.sleep(3000)])
+    })
+  }
   ctx.db.query("UPDATE promo_videos SET mp4_state = 'rendering', mp4_error = NULL WHERE artifact_id = ?").run(id)
   running.add(id)
   queue = queue.then(() => renderNow(ctx, r)).catch(() => {}).finally(() => running.delete(id))
@@ -116,8 +131,10 @@ async function renderNow(ctx: AppContext, r: Row): Promise<void> {
     const code = await runCli(['render', work, '--output', part, '--fps', '30', '--quiet'], ctx)
     if (code !== 0 || !fs.existsSync(part)) return void fail(`hyperframes exit ${code}`)
     fs.renameSync(part, out)
-    ctx.db.query("UPDATE promo_videos SET mp4_state = 'done', mp4_ms = ?, mp4_bytes = ?, rendered_at = ? WHERE artifact_id = ?")
+    const saved = ctx.db.query("UPDATE promo_videos SET mp4_state = 'done', mp4_ms = ?, mp4_bytes = ?, rendered_at = ? WHERE artifact_id = ?")
       .run(Date.now() - started, fs.statSync(out).size, new Date().toISOString(), r.artifact_id)
+    // its chat was purged meanwhile: nothing would ever give or remove this file
+    if (!saved.changes) fs.rmSync(out, { force: true })
     ctx.log.info('promo video rendered', { artifact: r.artifact_id, ms: Date.now() - started })
   } catch (err) {
     ctx.log.warn('promo video render failed', { err })
@@ -135,19 +152,75 @@ function runCli(args: string[], ctx: AppContext): Promise<number | null> {
       cwd: hyperframesDir(),
       env: { PATH: process.env.PATH ?? '/usr/bin:/bin', HOME: process.env.HOME ?? os.homedir(), HYPERFRAMES_NO_TELEMETRY: '1', DO_NOT_TRACK: '1', HYPERFRAMES_NO_UPDATE_CHECK: '1', HYPERFRAMES_SKIP_SKILLS: '1', ...(process.env.HYPERFRAMES_BROWSER_PATH ? { HYPERFRAMES_BROWSER_PATH: process.env.HYPERFRAMES_BROWSER_PATH } : {}) },
       stdio: ['ignore', 'pipe', 'pipe'],
+      // its own process group: the time limit and a shutdown end it with everything it started
+      detached: true,
     })
     let tail = ''
     const keep = (b: Buffer) => { tail = (tail + b.toString('utf8')).slice(-4000) }
-    p.stdout.on('data', keep)
-    p.stderr.on('data', keep)
-    const timer = setTimeout(() => p.kill('SIGKILL'), RENDER_TIMEOUT_MS)
-    p.on('close', (code) => {
+    p.stdout?.on('data', keep)
+    p.stderr?.on('data', keep)
+    let exited!: () => void
+    live.set(p, new Promise<void>((r) => { exited = r }))
+    const end = (code: number | null) => {
       clearTimeout(timer)
-      if (code !== 0) ctx.log.warn('hyperframes render failed', { code, tail: tail.slice(-1500) })
+      live.delete(p)
+      exited()
       resolve(code)
+    }
+    const timer = setTimeout(() => {
+      ctx.log.warn('hyperframes render timed out', { ms: renderTimeoutMs })
+      if (p.pid) killTree(p.pid)
+    }, renderTimeoutMs)
+    p.on('close', (code) => {
+      if (code !== 0) ctx.log.warn('hyperframes render failed', { code, tail: tail.slice(-1500) })
+      end(code)
     })
-    p.on('error', () => { clearTimeout(timer); resolve(null) })
+    p.on('error', () => end(null))
   })
+}
+
+/** Kill a process and everything under it, by process id: its own group (it was started detached) and the group of
+ * each process under it that leads one (puppeteer starts Chrome in a group of its own, so killing the CLI's group
+ * alone would leave the browser running), then each of those processes. The tree is read once, before any kill (a
+ * killed parent's children move to init and could not be found after). Never by a name pattern. */
+export function killTree(pid: number): void {
+  const tree = descendants(pid)
+  const groups = new Set([pid, ...tree.filter((x) => x.pgid === x.pid).map((x) => x.pid)])
+  for (const g of groups) { try { process.kill(-g, 'SIGKILL') } catch { /* gone */ } }
+  for (const x of [{ pid }, ...tree]) { try { process.kill(x.pid, 'SIGKILL') } catch { /* gone */ } }
+}
+
+/** Every process under `root` (children, their children…), from one `ps` listing. */
+function descendants(root: number): { pid: number; pgid: number }[] {
+  const r = spawnSync('ps', ['-A', '-o', 'pid=,ppid=,pgid='], { encoding: 'utf8', timeout: 5000 })
+  if (r.status !== 0 || !r.stdout) return []
+  const byParent = new Map<number, { pid: number; pgid: number }[]>()
+  for (const line of r.stdout.split('\n')) {
+    const [pid, ppid, pgid] = line.trim().split(/\s+/).map(Number)
+    if (!pid || ppid === undefined || pgid === undefined || !Number.isInteger(ppid) || !Number.isInteger(pgid)) continue
+    byParent.set(ppid, [...(byParent.get(ppid) ?? []), { pid, pgid }])
+  }
+  const out: { pid: number; pgid: number }[] = []
+  const seen = new Set([root])
+  for (let i = -1; i < out.length; i++) {
+    for (const c of byParent.get(i < 0 ? root : out[i]!.pid) ?? []) if (!seen.has(c.pid)) { seen.add(c.pid); out.push(c) }
+  }
+  return out
+}
+
+/** What purged chats left of their promo videos (chat/forget.ts, after their rows are gone: a promo_videos row goes
+ * with its artifact and its chat): every MP4, and a cut-off render's part file, whose row is not there any more. A
+ * render running now keeps its files; one that ends after its chat went removes its MP4 itself (renderNow). */
+export function forgetPromoVideos(ctx: AppContext): void {
+  const dir = videoDir(ctx)
+  let names: string[]
+  try { names = fs.readdirSync(dir) } catch { return }
+  const known = ctx.db.query('SELECT 1 FROM promo_videos WHERE artifact_id = ?')
+  for (const name of names) {
+    const id = /^(.+?)\.mp4(?:\.part\.mp4)?$/.exec(name)?.[1]
+    if (!id || running.has(id) || known.get(id)) continue
+    try { fs.rmSync(path.join(dir, name), { force: true }) } catch (err) { ctx.log.warn('promo video file not removed', { name, err }) }
+  }
 }
 
 /** The finished MP4 of the caller's promo video. */

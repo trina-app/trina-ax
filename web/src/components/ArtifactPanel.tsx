@@ -256,7 +256,7 @@ function StaticArtifact({ type, content, title, files }: { type: ArtifactType; c
  * so; never a button that cannot work). The first press makes it (about half a minute; the button says so meanwhile)
  * and the download starts when it is ready; a later press downloads the one made before.
  */
-function PromoMp4Button({ id }: { id: string }) {
+export function PromoMp4Button({ id }: { id: string }) {
   const t = useT()
   const locale = useLocale()
   const [info, setInfo] = useState<PromoVideoInfo | null>(null)
