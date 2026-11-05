@@ -2,7 +2,7 @@ import { afterAll, beforeAll, beforeEach, expect, test } from 'bun:test'
 import { createHash } from 'node:crypto'
 import { initMobile, mobileApp, sendFileToApp, setMobileSession, openExternal, downloadToApp, readMobileDownload, requestPushToken, confirmPushDevice, MobileFileTooLarge } from '../../src/lib/mobile'
 import { clientKind } from '../../src/lib/desktop'
-import { askLater, laterHides, LATER_MS, registerMobilePush, setMobilePushSession, usePhonePush } from '../../src/lib/mobile-push'
+import { askLater, laterHides, LATER_MS, phonePushView, registerMobilePush, setMobilePushSession, usePhonePush } from '../../src/lib/mobile-push'
 import { APPEARANCE_CAPABILITY, MAX_CHUNK_BYTES, MAX_FILE_BYTES, MOBILE_CAPABILITIES, PUSH_CAPABILITY, PUSH_PERMISSION_CAPABILITY, PUSH_REGISTERED_CAPABILITY, type MobileConfig, type MobileMessage, type MobileReply, type PushPermission } from '../../../mobile/src/protocol'
 const config: MobileConfig = { protocol: 1, appVersion: '0.2.2', platform: 'ios', nonce: 'c'.repeat(64), generation: 1, capabilities: MOBILE_CAPABILITIES }
 const win = Object.assign(new EventTarget(), { self: null as unknown, top: null as unknown, mycelMobile: { ...config }, ReactNativeWebView: { postMessage: (_raw: string) => {} } })
@@ -284,4 +284,76 @@ test('appearance-v1: the page tells the app its look when the bridge is ready an
     win.dispatchEvent(new Event('mycel:theme')); await settle()
     expect(messages).toHaveLength(0)
   } finally { Reflect.deleteProperty(doc, 'documentElement') }
+})
+
+test('store builds 1 and 2: a session that already has a registered phone gets no question and registers again quietly', async () => {
+  const server = pushServer({ enabled: true, native: { available: true, deviceId: 'device-1', gateway: 'push.example.test' } })
+  try {
+    handler = withPermission('granted') // an old app never gets push-permission
+    win.mycelMobile = { ...config, capabilities: [...MOBILE_CAPABILITIES, PUSH_CAPABILITY, PUSH_REGISTERED_CAPABILITY] }
+    setMobilePushSession('user:old-build-registered')
+    await settle(() => messages.some(m => m.type === 'push-registered'))
+    expect(usePhonePush.getState()).toMatchObject({ permission: 'granted', ask: false })
+    expect(messages.map(m => m.type)).toEqual(['push-token', 'push-registered'])
+    expect(server.stored.get('mycel.phonePush.granted')).toBe('1') // the next sign-in registers quietly too
+  } finally { server.restore() }
+})
+
+test('store builds 1 and 2 after a "no": Settings keeps [알림 켜기]; once the phone allows it, it registers', async () => {
+  expect(phonePushView({ permission: 'denied', on: false, canOpenSettings: false })).toEqual({ status: 'push.deniedApp', action: 'enable' })
+  expect(phonePushView({ permission: 'denied', on: false, canOpenSettings: true })).toEqual({ status: 'push.deniedPhone', action: 'open-settings' })
+  expect(phonePushView({ permission: 'granted', on: true, canOpenSettings: false })).toEqual({ status: 'push.on', action: 'disable' })
+  expect(phonePushView({ permission: null, on: false, canOpenSettings: false })).toEqual({ status: 'push.off', action: 'enable' })
+  const server = pushServer()
+  try {
+    win.mycelMobile = { ...config, capabilities: [...MOBILE_CAPABILITIES, PUSH_CAPABILITY, PUSH_REGISTERED_CAPABILITY] }
+    handler = m => { if (m.type === 'push-token') reply(m, { ok: false, error: 'push_denied' }); else reply(m) }
+    setMobilePushSession('user:old-build-denied')
+    await settle(() => usePhonePush.getState().ask)
+    await expect(registerMobilePush()).rejects.toThrow('push_denied') // Don't Allow
+    expect(usePhonePush.getState().permission).toBe('denied')
+    handler = withPermission('granted') // turned on in the phone's Settings; the button asks again, no prompt
+    await registerMobilePush()
+    expect(usePhonePush.getState().permission).toBe('granted')
+    expect(server.stored.has('mycel.phonePush.denied')).toBe(false)
+  } finally { server.restore() }
+})
+
+test('one registration at a time: coming back from the OS prompt does not register the phone twice', async () => {
+  const server = pushServer()
+  try {
+    let answer!: () => void
+    handler = m => {
+      if (m.type === 'push-permission') reply(m, { permission: 'undetermined' })
+      else if (m.type === 'push-token') answer = () => reply(m, { push: androidToken }) // the OS prompt is up
+      else reply(m)
+    }
+    win.mycelMobile = { ...config, capabilities: today }
+    setMobilePushSession('user:one-at-a-time')
+    await settle(() => usePhonePush.getState().ask)
+    const first = registerMobilePush() // [알림 켜기]
+    await settle(() => messages.some(m => m.type === 'push-token'))
+    handler = m => { if (m.type === 'push-permission') reply(m, { permission: 'granted' }); else if (m.type === 'push-token') reply(m, { push: androidToken }); else reply(m) }
+    win.dispatchEvent(new Event('mycel:mobile-foreground')) // the app is back while the first one still waits
+    const second = registerMobilePush()
+    await settle(() => messages.filter(m => m.type === 'push-permission').length > 1)
+    answer()
+    expect(await first).toBe(await second)
+    await settle(() => messages.some(m => m.type === 'push-registered'))
+    await settle()
+    expect(messages.filter(m => m.type === 'push-token')).toHaveLength(1)
+    expect(server.calls.filter(c => c === 'POST /api/push/devices')).toHaveLength(1)
+  } finally { server.restore() }
+})
+
+test('a build without push (Android without Firebase): the question goes away after its button', async () => {
+  const server = pushServer()
+  try {
+    handler = m => { if (m.type === 'push-token') reply(m, { ok: false, error: 'push_unavailable' }); else reply(m) }
+    win.mycelMobile = { ...config, capabilities: [...MOBILE_CAPABILITIES, PUSH_CAPABILITY, PUSH_REGISTERED_CAPABILITY] }
+    setMobilePushSession('user:no-firebase')
+    await settle(() => usePhonePush.getState().ask)
+    await expect(registerMobilePush()).rejects.toThrow('push_unavailable')
+    expect(usePhonePush.getState().ask).toBe(false)
+  } finally { server.restore() }
 })

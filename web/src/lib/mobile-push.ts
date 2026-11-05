@@ -4,6 +4,8 @@ import { confirmPushDevice, mobileApp, requestPushPermission, requestPushToken }
 import { PUSH_CAPABILITY, type PushPermission } from '../../../mobile/src/protocol'
 
 let session: string | null = null, epoch = 0, tried: string | null = null, registered: string | null = null, listening = false
+// one registration at a time (the OS prompt sends the app to the background and back, and coming back checks again)
+let inFlight: { turn: number; promise: Promise<string> } | null = null
 
 /** Inside the phone app: true when it can hand over a push token (push-token-v1). */
 export function mobilePushApp(): boolean { return !!mobileApp()?.capabilities.includes(PUSH_CAPABILITY) }
@@ -84,18 +86,42 @@ export async function refreshPhonePush(): Promise<void> {
     throw error
   }
   if (turn !== epoch) return
-  const permission = effective(os)
+  // An app that cannot tell (store builds 1 and 2) whose session already has a phone registered: the OS said yes, as
+  // the page registered it before this change at every sign-in. Remembered, so later sign-ins register quietly too.
+  const hasDevice = !!(settings.enabled && settings.native.deviceId)
+  if (os === null && hasDevice) write(GRANTED, '1')
+  const permission = effective(os ?? (hasDevice ? 'granted' : null))
   usePhonePush.setState({ permission, ask: !settings.optedOut && permission !== 'granted' && permission !== 'denied' && !laterHides(read(LATER), Date.now()) })
   if (permission === 'granted' && !settings.optedOut && registered !== key) await registerMobilePush(turn)
 }
 
+/** Settings › Notifications in the phone app: one status line and one action. After a "no" from the OS: the way to the
+ * phone's Settings where the app can open it (push-permission-v1); an older app keeps [알림 켜기], which asks the OS
+ * again without a prompt (it answers push_denied at once while notifications stay off there, and registers once they
+ * are on), so turning it on in the phone's Settings is never a dead end. */
+export type PhonePushView = { status: 'push.on' | 'push.off' | 'push.deniedPhone' | 'push.deniedApp'; action: 'disable' | 'enable' | 'open-settings' }
+export function phonePushView(o: { permission: PushPermission | null; on: boolean; canOpenSettings: boolean }): PhonePushView {
+  if (o.permission === 'denied') return o.canOpenSettings ? { status: 'push.deniedPhone', action: 'open-settings' } : { status: 'push.deniedApp', action: 'enable' }
+  return o.on ? { status: 'push.on', action: 'disable' } : { status: 'push.off', action: 'enable' }
+}
+
 /** The question's [알림 켜기] and Settings' "turn on" (an explicit choice, so an earlier opt-out does not stop it). The
- * app shows the OS prompt here if the person has not answered yet. */
-export async function registerMobilePush(turn = epoch): Promise<string> {
+ * app shows the OS prompt here if the person has not answered yet. One at a time: a second call while one runs gets
+ * the same result (two would leave the team two removal keys for one phone). */
+export function registerMobilePush(turn = epoch): Promise<string> {
+  if (inFlight?.turn === turn) return inFlight.promise
+  const promise: Promise<string> = register(turn).finally(() => { if (inFlight?.promise === promise) inFlight = null })
+  inFlight = { turn, promise }
+  return promise
+}
+async function register(turn: number): Promise<string> {
   const key = session
   let token
   try { token = await requestPushToken() } catch (error) {
-    if ((error as Error)?.message === 'push_denied' && turn === epoch) { write(DENIED, '1'); write(GRANTED, null); usePhonePush.setState({ permission: 'denied', ask: false }) }
+    const code = (error as Error)?.message
+    if (code === 'push_denied' && turn === epoch) { write(DENIED, '1'); write(GRANTED, null); usePhonePush.setState({ permission: 'denied', ask: false }) }
+    // this build or phone has no push (an Android build without Firebase): the question has nothing to offer
+    if (code === 'push_unavailable' && turn === epoch) usePhonePush.setState({ ask: false })
     throw error
   }
   if (turn !== epoch) throw new DOMException('Mobile operation cancelled', 'AbortError')

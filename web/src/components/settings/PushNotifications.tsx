@@ -4,7 +4,7 @@ import type { z } from 'zod'
 import type { PushSettings } from '@mycel/shared/api'
 import { api, API } from '../../lib/api'
 import { disablePush, enablePush, pushRegistration, pushSupported } from '../../lib/push'
-import { askLater, mobilePushApp, refreshPhonePush, registerMobilePush, usePhonePush } from '../../lib/mobile-push'
+import { askLater, mobilePushApp, phonePushView, refreshPhonePush, registerMobilePush, usePhonePush } from '../../lib/mobile-push'
 import { canOpenAppSettings, openAppSettings } from '../../lib/mobile'
 import { pushNeedsInstall } from '../../lib/pwa'
 import { useRealPath } from '../../lib/realPath'
@@ -66,21 +66,19 @@ export function PushNotifications() {
       if (generation === life.current && !(app && (error as Error)?.message === 'push_denied')) { setFailed(true); setDenied(!app && typeof Notification !== 'undefined' && Notification.permission === 'denied') }
     } finally { if (generation === life.current) setBusy(false) }
   }
-  const phoneOn = !!(settings?.enabled && settings.native?.deviceId) && phone.permission !== 'denied'
+  const view = phonePushView({ permission: phone.permission, on: !!(settings?.enabled && settings.native?.deviceId), canOpenSettings: canOpenAppSettings() })
   // Phones: no frame inside the Settings card, and hints as large as the status line (they are read on a small screen).
   return <section className="space-y-3 md:rounded-xl md:border md:border-line md:p-4" data-testid="push-notifications">
     <h3 className="text-sm font-semibold">{t('push.title')}</h3>
     {/* the description is about the browser's push service: the phone app's status line says what matters there */}
     {!app && <p className="text-xs text-muted max-md:text-sm">{t('push.description')}</p>}
     {/* the phone app: one status line and one action */}
-    {settings && app && (settings.native?.available ? (phone.permission === 'denied' ? <>
-      <p className="text-sm" data-testid="phone-push-status">{t(canOpenAppSettings() ? 'push.deniedPhone' : 'push.deniedApp')}</p>
-      {canOpenAppSettings() && <Button onClick={() => void openAppSettings().catch(() => setFailed(true))} data-testid="phone-push-settings">{t('push.openSettings')}</Button>}
-    </> : <>
-      <p className="text-sm" data-testid="phone-push-status">{t(phoneOn ? 'push.on' : 'push.off')}</p>
-      {phoneOn ? <Button busy={busy} onClick={() => void change(false)}>{t('push.disable')}</Button>
-        : <Button variant="primary" busy={busy} onClick={() => void change(true)} data-testid="phone-push-enable">{t('push.turnOn')}</Button>}
-    </>) : <p className="text-sm text-muted">{t('push.notConfigured')}</p>)}
+    {settings && app && (settings.native?.available ? <>
+      <p className="text-sm" data-testid="phone-push-status">{t(view.status)}</p>
+      {view.action === 'open-settings' ? <Button onClick={() => void openAppSettings().catch(() => setFailed(true))} data-testid="phone-push-settings">{t('push.openSettings')}</Button>
+        : view.action === 'disable' ? <Button busy={busy} onClick={() => void change(false)}>{t('push.disable')}</Button>
+          : <Button variant="primary" busy={busy} onClick={() => void change(true)} data-testid="phone-push-enable">{t('push.turnOn')}</Button>}
+    </> : <p className="text-sm text-muted">{t('push.notConfigured')}</p>)}
     {settings && !app && !settings.configured && <p className="text-sm text-muted">{t('push.notConfigured')}</p>}
     {settings?.configured && !app && <>
       {needsInstall ? <p className="text-sm text-muted">{t('push.installIos')}{' '}<Link to="/settings/apps" className="text-accent-text underline">{t('push.installGuide')}</Link></p> : !supported ? <p className="text-sm text-muted">{t('push.unsupported')}</p> : <>
@@ -107,9 +105,10 @@ export function PhonePushAsk() {
     setBusy(true); setFailed(false)
     try { await registerMobilePush() }
     catch (error) {
-      // a "no" in the OS prompt closes the question (Settings says so); a cancelled one (logout) says nothing
+      // a "no" in the OS prompt closes the question (Settings says so), and so does a build without push; a cancelled
+      // one (logout) says nothing
       const code = (error as Error)?.message
-      if (code !== 'push_denied' && !(error instanceof DOMException && error.name === 'AbortError')) setFailed(true)
+      if (code !== 'push_denied' && code !== 'push_unavailable' && !(error instanceof DOMException && error.name === 'AbortError')) setFailed(true)
     } finally { setBusy(false) }
   }
   return <div role="region" aria-label={t('push.title')} className="mx-3 mb-2 shrink-0 rounded-xl border border-line bg-surface p-3 shadow-sm" data-testid="phone-push-ask">
