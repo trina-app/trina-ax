@@ -7,7 +7,6 @@ import { Link, useNavigate, useParams } from 'react-router-dom'
 import { PRODUCT } from '@mycel/shared'
 import type { InviteInfo, Locale, PasswordResetInfo, TeamLinkInfo } from '@mycel/shared/api'
 import { api, API, errorText, isApiError } from '../lib/api'
-import { ERROR_MESSAGES } from '@mycel/shared/api'
 import { formatDateTime } from '../lib/format'
 import { browserLocale, LOCALES, storedLocale, storeLocale, useLocale, useLocaleStore, useT, type MessageKey } from '../i18n'
 import { useMe, useSession } from '../store/session'
@@ -104,7 +103,9 @@ function AuthFrame({ title, children, sub, switcher = true }: { title: string; c
   )
 }
 
-/** An error on screen: a text key of ours, or what the server said. Drawn in the language on screen. */
+/** An error on screen: a text key of ours, or what the server said. Drawn in the language on screen: our own texts,
+ * network errors and the server's default messages follow a language switch (errorText); a server's own sentence
+ * ("Wrong username or password.") stays as it was said, so the error does not vanish. */
 type Shown = { key: MessageKey } | { e: unknown }
 
 function useSubmit() {
@@ -112,12 +113,6 @@ function useSubmit() {
   const locale = useLocale()
   const [busy, setBusy] = useState(false)
   const [shown, setShown] = useState<Shown | null>(null)
-  // a server's own sentence can't be redrawn in another language: after a switch it goes (our own texts follow)
-  const [shownIn, setShownIn] = useState(locale)
-  if (shownIn !== locale) {
-    setShownIn(locale)
-    if (shown && 'e' in shown && !followsLocale(shown.e)) setShown(null)
-  }
   const run = async (fn: () => Promise<void>) => {
     setBusy(true)
     setShown(null)
@@ -132,9 +127,6 @@ function useSubmit() {
   const error = !shown ? null : 'key' in shown ? t(shown.key) : errorText(shown.e, locale, t('error.network'))
   return { busy, error, run, setError: (key: MessageKey) => setShown({ key }), setFailure: (e: unknown) => setShown({ e }) }
 }
-
-/** errorText() draws network errors and the server's default messages in the screen language. */
-const followsLocale = (e: unknown) => !isApiError(e) || Object.values(ERROR_MESSAGES[e.code] ?? {}).includes(e.message)
 
 export function Login() {
   const t = useT()
@@ -592,6 +584,13 @@ export function ChangePasswordForm({ onDone, forced }: { onDone: () => void; for
   )
 }
 
+/** Where a signed-in person lands (after the sign-in page, and after the forced password change): Home, or on a phone
+ * (where the 대화 tab is) the 대화 list, with the AI chat pinned on top of it. */
+export function signedInHome(): string {
+  const phone = typeof window !== 'undefined' && !!window.matchMedia && !window.matchMedia('(min-width: 768px)').matches
+  return phone ? '/rooms' : '/'
+}
+
 export function ForcedPassword() {
   const t = useT()
   const load = useSession((s) => s.load)
@@ -613,7 +612,7 @@ export function ForcedPassword() {
         forced
         onDone={async () => {
           await load()
-          navigate('/', { replace: true })
+          navigate(signedInHome(), { replace: true })
         }}
       />
       <button type="button" onClick={() => void otherAccount()} className="mt-4 block text-sm text-accent-text underline" data-testid="forced-other-account">

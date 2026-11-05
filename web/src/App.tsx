@@ -17,7 +17,7 @@ import { useSession } from './store/session'
 import Layout from './components/Layout'
 import { ChunkErrorBoundary } from './components/ChunkErrorBoundary'
 import { AnnounceProvider, Button, DialogHost, Spinner, Toaster } from './components/ui'
-import { AcceptInvite, ForcedPassword, Login, ResetPassword, Setup, TeamJoin } from './pages/Auth'
+import { AcceptInvite, ForcedPassword, Login, ResetPassword, Setup, signedInHome, TeamJoin } from './pages/Auth'
 import Home from './pages/Home'
 import SettingsDialog from './components/settings/SettingsDialog'
 import { RealPath } from './lib/realPath'
@@ -208,7 +208,8 @@ function Gate() {
         <Route path="/login" element={<AfterSignIn />} />
         {/* right after making the team: the welcome steps (lib/welcome.ts), else Home */}
         <Route path="/setup" element={<AfterSetup />} />
-        <Route path="/password" element={<Navigate to="/" replace />} />
+        {/* right after the forced password change: where a sign-in lands (a phone: the 대화 list) */}
+        <Route path="/password" element={<AfterSignIn />} />
         <Route path="/invite/:token" element={<Navigate to="/" replace />} />
         {/* right after joining with the team link: the skill it names, else Home */}
         <Route path="/join" element={<AfterJoin />} />
@@ -270,11 +271,10 @@ function NotFound() {
   )
 }
 
-/** Signed in while on /login: go where the person was heading (?next=, same-site paths only); otherwise Home, or on a
- * phone (where the 대화 tab is) the 대화 list, with the AI chat pinned on top of it. */
+/** Signed in while on /login (or /password): go where the person was heading (?next=, same-site paths only); otherwise
+ * Home, or on a phone the 대화 list (signedInHome). */
 function AfterSignIn() {
   const location = useLocation()
   const next = new URLSearchParams(location.search).get('next')
-  const phone = typeof window !== 'undefined' && !!window.matchMedia && !window.matchMedia('(min-width: 768px)').matches
-  return <Navigate to={next && next.startsWith('/') && !next.startsWith('//') && !next.startsWith('/\\') ? next : phone ? '/rooms' : '/'} replace />
+  return <Navigate to={next && next.startsWith('/') && !next.startsWith('//') && !next.startsWith('/\\') ? next : signedInHome()} replace />
 }

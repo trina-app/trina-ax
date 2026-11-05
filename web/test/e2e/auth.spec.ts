@@ -211,7 +211,7 @@ test('a language picked before sign-in becomes the account’s own, also through
   await expect(page.getByTestId('locale-ko')).toHaveAttribute('aria-checked', 'true')
 })
 
-test('an error on the sign-in page follows a language switch; signing out shows the team default again', async ({ page }) => {
+test('an error on the sign-in page stays after a language switch; signing out shows the team default again', async ({ page }) => {
   // olga has her own language (Korean); the team default is English
   await reset(page, { teamLocale: 'en' })
   await page.goto('/login')
@@ -219,10 +219,10 @@ test('an error on the sign-in page follows a language switch; signing out shows 
   await page.getByTestId('login-password').fill('nope')
   await page.getByTestId('login-submit').click()
   await expect(page.getByRole('alert')).toHaveText('Wrong username or password.')
-  // the server's sentence can't be redrawn in Korean: it goes instead of staying in English
+  // the server's sentence can't be redrawn in Korean: it stays as it was said instead of vanishing
   await page.getByTestId('auth-locale').selectOption('ko')
   await expect(page.getByRole('heading', { name: '로그인' })).toBeVisible()
-  await expect(page.getByRole('alert')).toHaveCount(0)
+  await expect(page.getByRole('alert')).toHaveText('Wrong username or password.')
   // back to English for this browser, then sign in: olga's own Korean wins
   await page.getByTestId('auth-locale').selectOption('en')
   await page.getByTestId('login-password').fill(OWNER.password)
