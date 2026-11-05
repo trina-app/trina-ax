@@ -12,7 +12,7 @@ import { PRODUCT } from '@mycel/shared'
 import type { Chat, Theme } from '@mycel/shared/api'
 import { api, API } from '../lib/api'
 import { dateBucket, formatRelative, type DateBucket } from '../lib/format'
-import { clearLocalData } from '../lib/localData'
+import { useLogout } from '../lib/logout'
 import { platform } from '../lib/pwa'
 import { useLocale, useT, type MessageKey } from '../i18n'
 import { useChats } from '../store/chats'
@@ -199,7 +199,9 @@ export default function Sidebar() {
             </span>
           )}
         </NavLink>
-        <NavLink to="/files" className={active} onClick={close}>
+        {/* the phone drawer is for the chats: 파일 and the account are the 파일 and 나 tabs there. Deleted chats, which
+            the account menu holds, are here on a phone instead. */}
+        <NavLink to="/files" className={(s) => clsx(active(s), 'max-md:hidden')} onClick={close}>
           <FolderOpen size={16} aria-hidden /> {t('sidebar.files')}
         </NavLink>
         <NavLink to="/skills" className={active} onClick={close} data-testid="nav-skills">
@@ -215,6 +217,9 @@ export default function Sidebar() {
             <Shield size={16} aria-hidden /> {t('sidebar.admin')}
           </NavLink>
         )}
+        <NavLink to="/trash" className={(s) => clsx(active(s), 'md:hidden')} onClick={close} data-testid="nav-trash">
+          <Trash2 size={16} aria-hidden /> {t('sidebar.trash')}
+        </NavLink>
       </div>
 
       <div className="scroll-thin mt-4 min-h-0 flex-1 overflow-y-auto overscroll-contain px-2 pb-2" onScroll={peek.hide}>
@@ -276,7 +281,9 @@ export default function Sidebar() {
         </div>
       </div>
       {peek.card}
-      <AccountMenu />
+      <div className="max-md:hidden">
+        <AccountMenu />
+      </div>
     </nav>
   )
 }
@@ -361,7 +368,6 @@ function AccountMenu() {
   const me = useMeStrict()
   const [open, setOpen] = useState(false)
   const [appearance, setAppearance] = useState(false)
-  const signedOut = useSession((s) => s.signedOut)
   const setTheme = useSession((s) => s.setTheme)
   const setDrawer = useUi((s) => s.setDrawer)
   const navigate = useNavigate()
@@ -401,12 +407,7 @@ function AccountMenu() {
     else if (e.key === 'Home') go(0)
     else if (e.key === 'End') go(-1)
   }
-  const logout = async () => {
-    await api.call(API.logout).catch(() => {})
-    clearLocalData()
-    signedOut()
-    navigate('/login')
-  }
+  const logout = useLogout()
   const item = 'flex h-9 w-full items-center gap-2.5 rounded-lg px-2.5 text-left text-sm text-ink hover:bg-hover focus-visible:-outline-offset-2'
   return (
     <div ref={ref} className="relative border-t border-line p-2" onKeyDown={onKey}>

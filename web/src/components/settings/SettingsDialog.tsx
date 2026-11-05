@@ -9,7 +9,7 @@
 // /settings/account/delete, the account deletion request under the profile) keeps its section marked in the list, and
 // its way back goes to that section. Admin stays its own page.
 import clsx from 'clsx'
-import { ArrowLeft, ChevronDown, Search, X } from 'lucide-react'
+import { ArrowLeft, ChevronDown, LogOut, Search, X } from 'lucide-react'
 import { lazy, Suspense, useEffect, useId, useRef, useState } from 'react'
 import { Link, Navigate, NavLink, useNavigate, useParams } from 'react-router-dom'
 import { api, API } from '../../lib/api'
@@ -20,6 +20,7 @@ import { useMeStrict } from '../../store/session'
 import { IconButton, Spinner, inputCls, menuOpener, useFocusTrap, useMediaQuery } from '../ui'
 import { Avatar } from '../Avatar'
 import { BottomTabs } from '../BottomTabs'
+import { useLogout } from '../../lib/logout'
 
 const SettingsPane = lazy(() => import('../../pages/Settings'))
 /** sections few people need on a phone: behind "더 보기" in the phone's list */
@@ -39,6 +40,7 @@ const PAGE_SECTION: Record<SettingsPage, string> = { 'account-delete': 'profile'
 export default function SettingsDialog({ onClose, page }: { onClose: () => void; page?: SettingsPage }) {
   const t = useT()
   const me = useMeStrict()
+  const logout = useLogout()
   // phones (below 768 px, the width of the phone top bar and tabs): the list first, its photo row, no search box
   const phone = useMediaQuery('(max-width: 767.98px)')
   const params = useParams()
@@ -148,6 +150,12 @@ export default function SettingsDialog({ onClose, page }: { onClose: () => void;
                   </button>
                 </div>
               )}
+              {/* phones: signing out lives here (the drawer has no account menu there) */}
+              <div className="mt-2 border-t border-line pt-2 md:hidden">
+                <button type="button" onClick={() => void logout()} className="flex h-11 w-full items-center gap-2.5 rounded-lg px-3 text-sm hover:bg-hover" data-testid="settings-logout">
+                  <LogOut size={16} className="shrink-0 text-muted" aria-hidden /> {t('auth.logout')}
+                </button>
+              </div>
               {!shown.length && (
                 <p className="px-3 py-2 text-sm text-muted" data-testid="settings-no-match">
                   {t('settings.noMatch', { q: query.trim() })}
