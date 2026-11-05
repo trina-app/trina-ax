@@ -30,7 +30,6 @@ import { MenuButton, useLongPress } from './MenuButton'
 import { EndedRun, PrivateAnswered } from './RoomAiStatus'
 import { useMentionMenu } from './useMentionMenu'
 
-const NO_PRIVATES: { questionId: string; askedBy: UserRef }[] = []
 const NO_RUNS: RoomAiRun[] = []
 const timeOf = (iso: string, locale: Locale) => new Intl.DateTimeFormat(intlTag(locale), { timeStyle: 'short' }).format(new Date(iso))
 const dayOf = (iso: string, locale: Locale) => new Intl.DateTimeFormat(intlTag(locale), { dateStyle: 'full' }).format(new Date(iso))
@@ -65,17 +64,13 @@ export function RoomMessages({ roomId, messages, pending, meId, members, onReply
   }
   const lastMine = runs.at(-1)?.messages[0]?.author?.id === meId && meId !== null
   // what the AI did with a question, under that question: my answer that stopped or failed, someone else's answer that
-  // stayed theirs only
+  // stayed theirs only (the question says so, also after a reload)
   const ended = useRooms(useShallow((s) => (s.ai[roomId]?.runs ?? NO_RUNS).filter((r) => !runActive(r))))
-  const privates = useRooms((s) => s.ai[roomId]?.privates) ?? NO_PRIVATES
-  const after = (id: string) => [
-    ...ended.filter((r) => r.questionId === id).map((r) => <EndedRun key={r.turnId} roomId={roomId} run={r} />),
-    ...privates.filter((p) => p.questionId === id).map((p) => <PrivateAnswered key={p.questionId} name={p.askedBy.name} />),
+  const after = (m: RoomMessage) => [
+    ...ended.filter((r) => r.questionId === m.id).map((r) => <EndedRun key={r.turnId} roomId={roomId} run={r} />),
+    ...(m.answeredPrivately ? [<PrivateAnswered key={`private-${m.id}`} name={m.author?.name ?? t('rooms.goneUser')} />] : []),
   ]
-  const orphans = [
-    ...ended.filter((r) => !loaded.has(r.questionId)).map((r) => <EndedRun key={r.turnId} roomId={roomId} run={r} />),
-    ...privates.filter((p) => !loaded.has(p.questionId)).map((p) => <PrivateAnswered key={p.questionId} name={p.askedBy.name} />),
-  ]
+  const orphans = ended.filter((r) => !loaded.has(r.questionId)).map((r) => <EndedRun key={r.turnId} roomId={roomId} run={r} />)
 
   return (
     <div data-testid="room-messages">
@@ -118,7 +113,7 @@ export function RoomMessages({ roomId, messages, pending, meId, members, onReply
                       onJump={m.replyTo && loaded.has(m.replyTo.id) ? () => jump(m.replyTo!.id) : undefined}
                       headed={m === first}
                     />
-                    {after(m.id)}
+                    {after(m)}
                   </Fragment>
                 ))}
               </div>
@@ -285,23 +280,27 @@ function AskedBy({ m, onJump }: { m: RoomMessage; onJump?: () => void }) {
 }
 
 /** The folders of a private preview as people know them: the last part of each path ("마케팅팀", not
- * "shared/경영/팀별/마케팅팀/"), the top of the team folder in words, "내 폴더" for their own; never the skills
- * folders (the team rules and skills the AI was given: how it works, not what it found). */
-export function previewFolderNames(p: NonNullable<RoomMessage['preview']>, words: { root: string; mine: string }): string[] {
+ * "shared/경영/팀별/마케팅팀/"), the top of the team folder in words; never the skills folders (the team rules and
+ * skills the AI was given: how it works, not what it found). */
+export function previewFolderNames(p: NonNullable<RoomMessage['preview']>, words: { root: string }): string[] {
   const names = p.folders.filter((f) => f !== 'skills' && !f.startsWith('skills/')).map((f) => (f === '' ? words.root : f.split('/').filter(Boolean).at(-1) ?? f))
-  if (p.personal) names.push(words.mine)
   return [...new Set(names)]
 }
 
-/** The one sentence above "대화방에 올리기": who would see it once posted. */
+/** Why a private preview did not go to the room, one short sentence per reason (the folders it read that some members
+ * cannot open, named when the person may open them; their own folder; messages from before someone joined; the web or
+ * a connected service). Without a reason (an older preview): that everyone would see it. */
 export function previewWhy(p: RoomMessage['preview'], t: ReturnType<typeof useT>): string {
-  const folders = p ? previewFolderNames(p, { root: t('rooms.aiRootFolder'), mine: t('rooms.aiMyFolder') }) : []
-  // folders the person cannot open themselves are never named to them
-  if (p?.otherFolders) folders.push(t('rooms.aiOtherFolders'))
-  if (folders.length === 1 && p?.otherFolders) return t('rooms.aiPrivateOtherFolders')
-  if (folders.length) return t('rooms.aiPrivateFolders', { folders: folders.join(', ') })
-  if (p?.joinedLater?.length) return t('rooms.aiPrivateJoined', { names: p.joinedLater.join(', ') })
-  return p?.outside ? t('rooms.aiPrivateOutside') : t('rooms.aiPrivateAll')
+  if (!p) return t('rooms.aiPrivateAll')
+  const why: string[] = []
+  const folders = previewFolderNames(p, { root: t('rooms.aiRootFolder') })
+  // folders the person cannot open themselves, and the skills folders, are never named
+  if (folders.length) why.push(t('rooms.aiWhyFolders', { folders: folders.join(', ') }))
+  else if (p.folders.length || p.otherFolders) why.push(t('rooms.aiWhySomeFolders'))
+  if (p.personal) why.push(t('rooms.aiWhyMine'))
+  if (p.joinedLater?.length) why.push(t('rooms.aiWhyJoined', { names: p.joinedLater.join(', ') }))
+  if (p.outside) why.push(t('rooms.aiWhyOutside'))
+  return why.length ? why.join(' ') : t('rooms.aiPrivateAll')
 }
 
 /** My private preview of an AI answer (the top says it is mine only): one sentence on who would see it once posted,

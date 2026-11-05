@@ -227,22 +227,22 @@ describe('the AI in a room', () => {
     store.reset()
   })
 
-  test("someone else's answer that stayed private: one line per question, gone once it is posted", () => {
+  test("someone else's answer that stayed private: the question says so, and stops saying so once it is posted", () => {
     const r = room()
     const q = message({ roomId: r.id, seq: 1, author: BEN, body: '@Trina budget?' })
+    useRooms.setState({ rooms: [r], thread: { roomId: r.id, messages: [q], nextCursor: null, loading: false, error: null } })
     const store = useRooms.getState()
-    store.reset()
     store.handleEvent({ seq: 1, at: 1, type: 'room.ai', data: { roomId: r.id, answering: 1 } })
-    store.handleEvent({ seq: 2, at: 1, type: 'room.ai', data: { roomId: r.id, answering: 0, privateAnswer: { questionId: q.id, askedBy: BEN } } })
-    store.handleEvent({ seq: 3, at: 1, type: 'room.ai', data: { roomId: r.id, answering: 0, privateAnswer: { questionId: q.id, askedBy: BEN } } })
-    expect(useRooms.getState().ai[r.id]).toMatchObject({ answering: 0, privates: [{ questionId: q.id, askedBy: BEN }] })
-    // a later count keeps it
-    store.handleEvent({ seq: 4, at: 1, type: 'room.ai', data: { roomId: r.id, answering: 1 } })
-    expect(useRooms.getState().ai[r.id]!.privates).toHaveLength(1)
-    // Ben posts it: the answer comes to the room as a reply to the question, and the line goes
+    // the answer stayed Ben's: the server sends the question again, marked (a reload lists it marked too)
+    store.handleEvent({ seq: 2, at: 1, type: 'room.message.updated', data: { roomId: r.id, message: { ...q, answeredPrivately: true } } })
+    store.handleEvent({ seq: 3, at: 1, type: 'room.ai', data: { roomId: r.id, answering: 0 } })
+    expect(useRooms.getState().thread!.messages[0]).toMatchObject({ id: q.id, answeredPrivately: true })
+    expect(useRooms.getState().ai[r.id]).toEqual({ answering: 0, runs: [] })
+    // Ben posts it: the answer comes to the room and the question loses the mark
     const posted = message({ roomId: r.id, seq: 3, authorKind: 'ai', author: null, askedBy: BEN, body: 'it is 30', replyTo: { id: q.id, author: BEN, excerpt: q.body, fileCount: 0, deleted: false } })
-    store.handleEvent({ seq: 5, at: 1, type: 'room.message', data: { roomId: r.id, message: posted } })
-    expect(useRooms.getState().ai[r.id]!.privates).toEqual([])
+    store.handleEvent({ seq: 4, at: 1, type: 'room.message', data: { roomId: r.id, message: posted } })
+    store.handleEvent({ seq: 5, at: 1, type: 'room.message.updated', data: { roomId: r.id, message: q } })
+    expect(useRooms.getState().thread!.messages.map((m) => [m.id, !!m.answeredPrivately])).toEqual([[q.id, false], [posted.id, false]])
     store.reset()
   })
 })

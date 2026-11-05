@@ -8136,12 +8136,13 @@ every week. Placement: Team AX core (skills, files and permissions, the team lin
 
 팀 채팅이 "누가 말했는지"를 보여 주려면 사람 목록과 프로필이 먼저 있어야 해서, 둘을 코어에 먼저 넣었다.
 
-- **사람 목록** `GET /api/people`은 로그인한 모든 구성원이 부른다. 줄 수 있는 것은 `id`, 이름, 직함, 한 줄 상태, 사진 버전뿐이다. 이메일·역할·그룹·아이디(username)는 넣지 않는다(이메일은 지금처럼 관리자만). 비활성화·삭제된 사람은 빠진다. 사진 주소는 `/api/people/:id/avatar?v=<버전>`이고 구성원만 받는다. 현재 버전이 주소에 있으면 1년 캐시(`immutable`), 아니면 매번 확인한다. 사진이 없으면 404이고 웹은 첫 글자 아바타를 그린다.
-- **이름은 본인이 바꿀 수 있다.** 지금도 `PATCH /api/me`로 본인 이름을 바꿀 수 있어서(관리자만 바꾸는 규칙이 없었다) 그 규칙을 그대로 두고, 같은 일을 `PATCH /api/me/profile`(`name`, `title`, `status`)에서도 한다. 직함은 60자, 상태는 80자까지. 비워서 보내면 지워진다. 아무도 다른 사람의 프로필을 바꿀 수 없다: 대상은 항상 세션의 사람이고 요청에 아이디를 받지 않는다.
-- **저장 위치.** 새 테이블 `user_profiles`(마이그레이션 115): 사람마다 한 줄, 직함·상태·사진 바이트·사진 종류·사진 버전. `users`는 건드리지 않는다. 사진을 파일이 아니라 DB에 두는 이유는 256KB 이하의 작은 정사각형이라 백업·복원과 사람 삭제가 따로 챙길 것 없이 함께 가기 때문이다. 사진 버전은 밀리초 시계로 올라가기만 해서(지웠다가 다시 올려도 같은 주소가 다른 사진을 가리키지 않는다) 긴 캐시가 안전하다.
+- **사람 목록** `GET /api/people`은 로그인한 모든 구성원이 부른다. 줄 수 있는 것은 `id`, 이름, 직함, 사진 버전뿐이다(한 줄 상태 `status`는 아래 "한 줄 상태는 쓰지 않는다" 참고). 이메일·역할·그룹·아이디(username)는 넣지 않는다(이메일은 지금처럼 관리자만). 비활성화·삭제된 사람은 빠진다. 사진 주소는 `/api/people/:id/avatar?v=<버전>`이고 구성원만 받는다. 현재 버전이 주소에 있으면 1년 캐시(`immutable`), 아니면 매번 확인한다. 사진이 없으면 404이고 웹은 첫 글자 아바타를 그린다.
+- **이름은 본인이 바꿀 수 있다.** 지금도 `PATCH /api/me`로 본인 이름을 바꿀 수 있어서(관리자만 바꾸는 규칙이 없었다) 그 규칙을 그대로 두고, 같은 일을 `PATCH /api/me/profile`(`name`, `title`)에서도 한다. 직함은 60자까지. 비워서 보내면 지워진다. 아무도 다른 사람의 프로필을 바꿀 수 없다: 대상은 항상 세션의 사람이고 요청에 아이디를 받지 않는다.
+- **저장 위치.** 새 테이블 `user_profiles`(마이그레이션 115): 사람마다 한 줄, 직함·상태(쓰지 않음)·사진 바이트·사진 종류·사진 버전. `users`는 건드리지 않는다. 사진을 파일이 아니라 DB에 두는 이유는 256KB 이하의 작은 정사각형이라 백업·복원과 사람 삭제가 따로 챙길 것 없이 함께 가기 때문이다. 사진 버전은 밀리초 시계로 올라가기만 해서(지웠다가 다시 올려도 같은 주소가 다른 사진을 가리키지 않는다) 긴 캐시가 안전하다.
 - **사진 규칙은 팀 로고와 같은 생각, 더 엄격하게.** PNG·JPEG·WebP만, 파일 머리글이 말한 종류와 같아야 하고, SVG와 그 밖의 것은 거절한다. 정사각형이고 64~512px, 256KB 이하. 움직이는 WebP는 거절한다. 올릴 때 브라우저가 가운데 정사각형으로 잘라 256px로 줄여 다시 그려서(카메라 정보·촬영 위치가 빠진다) 보낸다. 서버는 이를 믿지 않고 한 번 더 메타데이터 블록(JPEG의 EXIF·XMP·주석, PNG의 텍스트·EXIF·시간 청크, WebP의 EXIF·XMP·색 프로필)을 잘라 낸다. 이미지 라이브러리 없이 컨테이너만 읽는다. 사진은 팀 로고처럼 이미지 전용 헤더(`nosniff`, `default-src 'none'; sandbox`, `inline`)로만 내보낸다. 팀 로고와 달리 로그인 전에는 받을 수 없다.
 - **감사 기록.** `profile.update`(바뀐 항목 이름, 이름이 바뀌면 이전·이후), `profile.avatar_set`(크기·이전 버전), `profile.avatar_remove`. 아무것도 바뀌지 않으면 기록하지 않는다. 바뀌면 실시간 알림 `profile_changed`가 가서 열린 창이 `/api/me`와 사람 목록을 다시 읽는다.
-- **웹.** `components/Avatar.tsx`(`<Avatar user size />`: 사진, 없거나 못 불러오면 첫 글자)를 사이드바 하단 본인 줄에 썼다. `store/people.ts`가 사람 목록을 들고 있어 채팅이 가져다 쓴다. 프로필은 설정의 기존 "프로필" 탭에 있다(나중에 하단 탭 "나"가 같은 화면을 연다). 사진 고르기·미리 보기·지우기와 이름·직함·상태·이메일을 한 번의 저장 버튼으로 저장한다. 안쪽 카드 테두리는 없앴다(구분선만).
+- **웹.** `components/Avatar.tsx`(`<Avatar user size />`: 사진, 없거나 못 불러오면 첫 글자)를 사이드바 하단 본인 줄에 썼다. `store/people.ts`가 사람 목록을 들고 있어 채팅이 가져다 쓴다. 프로필은 설정의 기존 "프로필" 탭에 있다(나중에 하단 탭 "나"가 같은 화면을 연다). 사진 고르기·미리 보기·지우기와 이름·직함·이메일을 한 번의 저장 버튼으로 저장한다. 안쪽 카드 테두리는 없앴다(구분선만).
+- **한 줄 상태는 쓰지 않는다**(fde814b2, 대화방 UX 검토에서 대표 결정). 프로필은 상태를 묻지 않고, 사람 목록·사람 고르기·대화방 어디에도 보이지 않는다. 테이블은 다시 만들지 않으므로 `user_profiles.status_text` 열은 남고, API도 예전 앱을 위해 `status`를 계속 받고(80자) 값이 있으면 돌려준다. 새 화면은 이 값을 읽지 않는다.
 
 ## 대화방의 트리나 — the AI in team chat rooms (feat/rooms-trina, 2026-11-05)
 
@@ -8159,10 +8160,9 @@ every week. Placement: Team AX core (skills, files and permissions, the team lin
   queue or an engine they may not use refuse the send (403 / 409 / 429), so the person keeps the text. A question that
   fails to start after that (a race) tells the asker through `room.ai.run` with the error.
 - **One session per person and room.** The next question of the same person continues it; another person's question is
-  in their own. A session not asked in for 12 hours (`ROOM_SESSION_IDLE_MS`) starts anew: no history, and with it the
-  read scope and the outside mark are cleared (the chat's own rule for a session without history). Without this, one
-  read of a private folder would keep every later answer of that person in that room private for good. The 12 hours
-  are a guess the owner may change.
+  in their own. A session not asked in for 12 hours (`ROOM_SESSION_IDLE_MS`) starts a new conversation (no history).
+  The 12 hours are a guess the owner may change. (Until the live test fixes below, the read scope and the outside mark
+  were the session's, cumulative, and only this reset cleared them; now every question starts with both empty.)
 - **Context: other people's words, labelled.** In front of the question (never in the stored user message) goes
   `<room_context>` with up to 30 messages / 12,000 characters before the question that the asker may see (from their
   join on; private ones only their own), each a `<room_message from=… who="another member" | "the person asking you
@@ -8226,14 +8226,16 @@ every week. Placement: Team AX core (skills, files and permissions, the team lin
     questions whose answers went to the room (posted, not deleted): no private preview, stopped or failed answer.
   - Every team path a call names (file_path, path, output, paths, …) counts as a name read in a room, whatever the
     call answers: a folder someone cannot see ("is a folder"), a path that does not exist ("not found") and a search
-    with no result there keep the answer private alike. share_file also records the path as the server resolved it
+    with no result there keep the answer private alike (a path the asker cannot open themselves no longer counts:
+    live test fixes below). share_file also records the path as the server resolved it
     (actual case, NFC). The skill tool answers as if skills only the person may read did not exist when several share
     the name. The edit_files card lists every file and the replacement.
 - **Where the answer goes** (`RoomAi.decide`). To the room (`author_kind 'ai'`, `asked_by` = asker, `reply_to_id` =
-  the question; the app shows "○○ 님이 물어봄") only when every current member may read every source in the session's
-  **cumulative** read scope, not only this answer's list: each ruled folder (or the team root) by the rules now; the
+  the question; the app shows "○○ 님이 물어봄") only when every current member may read every source in the question's
+  read scope (not only this answer's list; the live test fixes below say what a source is and that the scope is per
+  question): each ruled folder (or the team root) by the rules now; the
   person's own folder (also what the browser or a personal connection showed) only if nobody else is in the room; a team
-  connection never; the room itself always. And the session used nothing outside the team files: any tool outside
+  connection never; the room itself always. And the question used nothing outside the team files: any tool outside
   `ROOM_FILE_TOOLS` (`server/src/rooms/ai-tools.ts`: file tools, search, skills, ask_user, sub-tasks, make_file and the
   other team-file tools), the engine's web search included, and any tool added later, sets `chats.room_outside`.
   Folders listed with `list` also join the read scope in a room session (their names may go into the answer).
@@ -8264,8 +8266,11 @@ every week. Placement: Team AX core (skills, files and permissions, the team lin
     이 폴더를 못 여는 사람도 이 내용을 봐요: 마케팅팀" (the last part of each folder path, never `skills/`; 내 폴더 for the
     person's own; else the one other reason). 대화방에 올리기 is an outline button: not posting is the default.
   - The others: "트리나가 답하는 중" ends as "○○ 님에게만 답했어요" under the question when the answer stays private
-    (`room.ai.privateAnswer`: the question id and who asked, to the members who see the question, never to the asker;
-    nothing of the answer or why), and simply goes when it is posted. The room section no longer tells the AI where its
+    (the question's `RoomMessage.answeredPrivately`, from its `room_ai_turns` row with status `private`: for the
+    members who see the question, never for the asker; nothing of the answer or why; sent live as
+    `room.message.updated` of the question and listed with it after a reload; first it was a live-only
+    `room.ai.privateAnswer`, so after a reload the question looked ignored), and goes when it is posted (the question
+    is sent again without it). The room section no longer tells the AI where its
     answer goes; one allowed sentence instead: it may also search folders only the asker can open (named nowhere), such
     answers stay private and the screen says so, and it does not write about who can see the answer.
   - My question's progress is one plain line ("파일 찾는 중", "'예산' 문서 읽는 중": a file by its name only, no search
@@ -8288,6 +8293,81 @@ every week. Placement: Team AX core (skills, files and permissions, the team lin
   argument. grep, glob and search count the folder they start in and every ruled folder under it the asker may read
   (the whole team folder without a path; the asker's own folder is left to what was found there), so a search that
   found nothing stays private too.
+- **Live test fixes (2026-11-05, fix/room-ai-ux): what makes an answer private.** In the live test a member with no
+  group (Noah) got only private previews, in the everyone room and in a DM, saying "내 폴더, 다른 사람이 못 여는
+  폴더". The copied database showed why. Everyone room: Mia's posted answer linked `groups/재무/budget-2027.txt`; Noah's
+  AI tried to read that path (refused: "not found or no access"), and the path rule above recorded its folder
+  `groups/재무`, which Noah cannot open (decision `otherFolders: true`). His next question ("make shared/메모.txt")
+  stayed private only because the scope was cumulative. DM: `list .`, `list users` and the refused `list groups`
+  recorded the team root (`users/` and `groups` have no ruled folder above them, so they mapped to the root, which a
+  member may list but not read), and `users/noah` recorded his own folder (`personal`; that one was right: he asked about
+  his folder). Rule files and the company profile were not the cause (`skills/` is everyone's in that team).
+  - **The rule.** A source keeps an answer private only when some member of the room now could not see what the
+    answer could reveal from it, and what it can reveal is bounded by what the asker's own tools answered:
+    - *content* (a file read, a grep hit, a listing that showed files, a search's folders, a path the asker may read
+      that a call named): every member must be able to read its folder, as before;
+    - *a name* (a sub-folder a listing showed; a path a call named that the asker may only list, such as the team
+      root for a member, `users/`, or a folder on the way to theirs): every member must be able to list it
+      (`RuleSet.canList`), because then they would see the same name. New source `{type:'name', path}` in
+      `chat/read-scope.ts`, recorded only in room sessions (`TurnFiles.listedNames`);
+    - *a path the asker can neither read nor list*: the tools answer it "not found or no access", the same for a
+      folder hidden from them and for a name that does not exist (`policy/authorize.ts` checks access before it looks
+      at the disk). It counts exactly as a missing name in the same place would, or where the answer goes would tell
+      which it was (independent review of ae4c861c: `groups/marketing/salaries/…`, hidden from marketing members,
+      was posted while `groups/marketing/nosuch/…` was private, so the outcome said that salaries/ exists). The nearest
+      folder above it that the asker may list decides: one they may read counts as read (only its readers can tell a
+      name is not there); one they may only list (the team root for a member, `users/`) counts for nothing, because
+      anyone without access gets that same answer and it carries no more than the path the AI typed (a guess, or a
+      name from the room's messages or the question, which the room has seen).
+    This only stops over-counting: content still needs read for everyone, a missing path in a folder the asker may
+    read still counts (only readers can tell it is missing), a search still counts every folder it looked in, and a
+    folder the asker read and can no longer open (a rule changed since) still counts, unnamed to them.
+  - **Per question, not per session.** A room session never resumes an engine session (third review) and its history
+    holds only questions whose answers went to the room; private previews never return as context. So a later
+    question carries nothing private from an earlier one: what it carries is the room's (the posted answers, the
+    room's messages). The read scope and the outside mark are emptied when each room question starts
+    (`chat/turn.ts`), and the history counts as the room from its oldest question (`{type:'room', fromSeq}`), so
+    someone who joined after it still keeps the answer private ("들어오기 전 대화"). The history's answers are the
+    room's copies (`room_messages.body`, cut at 60,000 characters with a line saying so), not the chat's full text:
+    the history keeps the end of a long newest message, which the room may never have got (review of ae4c861c). The
+    questions are the room's too, as they read now: an edited question comes back edited, a deleted one not at all
+    (its answer stays while it is in the room) (re-review of 57ef7383). The
+    12-hour rule now only starts a
+    new conversation. What a question used is kept on its row (`room_ai_turns.scope`, migration 246) so that posting
+    its preview later decides again on that question, not the latest one. A row from before has none: it is never
+    decided from the session (whose scope is now a later question's); the reasons the person was shown stand and are
+    not overwritten, and a preview with no reasons kept either is not posted (409 `room_ai_ask_again`, "다시 물어봐
+    주세요") (review of ae4c861c). Kept as they were: previews never return as context, the pre-join check, the card for
+    every change, the room prompt and tool allowlists.
+  - **The change card in words.** Under "바꿀 내용" the card showed the call's JSON (`{"file_path":…,"content":…}`).
+    It now shows what the call does (the step verb: 파일 저장, 파일 수정, 파일 옮기기, …), the file or folder, and
+    what it writes: the first 400 characters, with all of it (up to 100,000, the whole length said beyond that) one
+    click away ("전체 보기", `ConfirmDetail.collapsedAt`; the size above counts all of it). The review of ae4c861c
+    noted that a 400-character cut alone let a planted write hide its payload after the preview. For skills/, a
+    person's skills and instruction files by name (CLAUDE.md, AGENTS.md, GEMINI.md, SKILL.md) all of it shows from the
+    start (`instructionLike`, matched on the path as the file layer reads it: `./users/a/skills/x.md`,
+    `users/a//skills/x.md`, `shared/CLAUDE.md/` and other spellings count). `roomChangeDetails` in `chat/turn.ts`;
+    a tool without its own lines shows its arguments one per line. A detail without text (a rename) shows no empty
+    box. Content a card cannot show (a file made from a source or template, a file saved from the web, an edited copy
+    saved as a new file) is said plainly on it ("저장될 내용은 이 카드에 다 보이지 않아요. …에서 가져와요."). Such a
+    call, or a move, copy or rename (a folder brings every file in it), that would put content into a skill, team rule
+    or instruction file is not made from a room at all, with no card: the AI is told why, and the person can do it in
+    their own chat or have the content written out with write or edit (`roomChangeWrites`, re-review of 57ef7383).
+    A text longer than the card carries (100,000 characters) counts as not shown, and save_url into a folder (or
+    with no path) is checked under the name the address gives the file (final review of 0da5c721).
+  - **Why a preview is private, in short sentences** (supersedes the one sentence of the UX review). "올리면 이 폴더를
+    못 여는 사람도 이 내용을 봐요: 재무, 내 폴더, 다른 사람이 못 여는 폴더" mixed reasons into a list, and "다른 사람이
+    못 여는" was wrong when the asker cannot open the folder either. Now one plain sentence per reason, in this order:
+    "방 사람 중 일부가 열 수 없는 폴더(재무)를 읽었어요." (named only when the asker may open them, never `skills/`;
+    without a name to give: "방 사람 중 일부가 열 수 없는 폴더를 읽었어요."), "내 폴더를 읽었어요.", "○○ 님이 들어오기
+    전 대화를 참고했어요.", "웹이나 연결된 서비스의 내용을 참고했어요."; an older preview without reasons keeps
+    "올리면 대화방 모두가 이 내용을 봐요." (`previewWhy`, `rooms.aiWhy*` in the five languages).
+  - **A file chip sits in the sentence like a word** (AI chat and room answers, `TeamFileLink` in
+    `components/Markdown.tsx`): 0.9em text on a 20px line with a 1px border, no vertical margin or padding, so it is
+    22px in the answer's 28px line and the line it is on keeps the paragraph's spacing (it was 34px plus margins, a
+    visibly taller line). Checked at 1280px and 390px with a real answer. Not changed here: Chrome still wraps Korean
+    after a closing parenthesis ("…(473,000,000원)" / "입니다.") even with `word-break: keep-all`; that is the text's
+    own wrapping, not the chip's.
 - **Not in this step.** The AI cannot open files sent in a room (it gets their names). The 12-hour new session and the context sizes are
   first guesses. Cards the AI raised are not shown again after a reload (they time out like an unanswered card). A PC
   runner's tools, once merged, fall under the card rule and the outside mark but are not switched off by name.

@@ -12,16 +12,22 @@
 //   {type:'room', id, fromSeq}  messages of a team chat room the AI got as context there (rooms/ai.ts), the oldest of
 //                        them at seq fromSeq: its viewers are the room's members today who could see that message
 //                        (they were in the room before it)
+//   {type:'name', path}  a room session only (chat/turn.ts noteRoomTool): a team path whose name the tools showed or
+//                        answered about (a sub-folder in a listing, a path a call named: there, a folder, not there),
+//                        nothing of its content. Its viewers are the people who would see the same name in a listing
+//                        (RuleSet.canList: they may read it, or something below it). Kept as the path: it lives for
+//                        one question (rooms/ai.ts), and a folder renamed meanwhile is judged by the rules at its
+//                        old path
 // null (no sources yet) = no limit. read and grep results count; list / glob (names only), skills, memories and the
-// person's own messages do not.
+// person's own messages do not (in a room session names count too, rooms/ai.ts).
 import type { Database } from 'bun:sqlite'
 import { atLeast, loadPrincipal, RuleSet, type Principal } from '../policy/access'
 import { getRow, usersOf } from '../integrations/connections/store'
 
-export type ReadSource = { type: 'folder'; id: string } | { type: 'user'; id: string } | { type: 'root' } | { type: 'integration'; id: string } | { type: 'room'; id: string; fromSeq?: number }
+export type ReadSource = { type: 'folder'; id: string } | { type: 'user'; id: string } | { type: 'root' } | { type: 'integration'; id: string } | { type: 'room'; id: string; fromSeq?: number } | { type: 'name'; path: string }
 
 /** One string per source (deduplication, and what the person already allowed for a folder in this turn). */
-export const sourceKey = (s: ReadSource) => (s.type === 'root' ? 'root' : s.type === 'room' ? `room:${s.id}:${s.fromSeq ?? 0}` : `${s.type}:${s.id}`)
+export const sourceKey = (s: ReadSource) => (s.type === 'root' ? 'root' : s.type === 'room' ? `room:${s.id}:${s.fromSeq ?? 0}` : s.type === 'name' ? `name:${s.path}` : `${s.type}:${s.id}`)
 const key = sourceKey
 
 /** The source of a team-folder file (relative path with actual names). */
@@ -73,6 +79,7 @@ function viewersOf(db: Database, rules: RuleSet, s: ReadSource, people: Principa
   if (s.type === 'user') return new Set(people.some((p) => p.id === s.id) ? [s.id] : [])
   if (s.type === 'integration') return usersOf(db, s.id)
   if (s.type === 'room') return roomViewers(db, s.id, people, s.fromSeq)
+  if (s.type === 'name') { const segs = nameSegs(s.path); return new Set(people.filter((p) => rules.canList(p, segs)).map((p) => p.id)) }
   let segs: string[] = []
   if (s.type === 'folder') {
     const row = db.query('SELECT path FROM folders WHERE id = ?').get(s.id) as { path: string } | null
@@ -81,6 +88,9 @@ function viewersOf(db: Database, rules: RuleSet, s: ReadSource, people: Principa
   }
   return new Set(people.filter((p) => atLeast(rules.access(p, segs), 'read')).map((p) => p.id))
 }
+
+/** A name source's path as the rules compare it. */
+export const nameSegs = (p: string) => p.split('/').filter(Boolean)
 
 /** The active people in a room now (an archived room: nobody); with `fromSeq`, only those who can see the room's
  * message at that seq (who were in the room before it). */
@@ -118,6 +128,7 @@ export function sourceLabel(db: Database, s: ReadSource, me: string, text: { min
   if (s.type === 'root') return text.root
   if (s.type === 'room') return (text.room ?? 'room {name}').replace('{name}', roomName(db, s.id))
   if (s.type === 'user') return s.id === me ? text.mine : `users/${s.id}/`
+  if (s.type === 'name') { const segs = nameSegs(s.path); return segs[0] === 'users' && segs[1] === me ? text.mine : segs.length ? segs.join('/') : text.root }
   if (s.type === 'integration') return getRow(db, s.id)?.name ?? '?'
   const row = db.query('SELECT path FROM folders WHERE id = ?').get(s.id) as { path: string } | null
   return row ? (row.path === '' ? text.root : row.path + '/') : '?'
