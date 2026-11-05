@@ -8118,21 +8118,37 @@ People ask the team's AI from Slack (`@app` in a channel, a DM to the app). Guid
   colleague's Slack e-mail, but would still need that colleague's own one-time link (only their Slack account gets it,
   ephemeral); the same e-mail on two accounts is refused; and Slack tells the Slack account which account it was linked
   to. Verified e-mails here would close this too.
-- **The owner links people whose e-mails differ** (Admin › Slack › People): one list of the workspace's people
-  (`users.list`, at most 2,000, a minute in memory; no bots, no deactivated people, no one of another workspace), one
-  action, Link: choose a member, see both names and e-mails, confirm. The server asks Slack about that Slack person again
-  (`users.info`) and refuses one of another workspace or a bot; one Slack account per person and one person per Slack
-  account still hold. Audited `slack.mapped` (actor, member, Slack id). The Slack person gets one DM
-  (`conversations.open`, scope `im:write`, then `chat.postMessage`) naming the owner, the account and how to undo it
-  (Settings › App connectors, or the owner). Owner only, like the rest of Admin › Slack. No owner unlink yet: the person
-  unlinks, or the owner disables the account or removes Slack.
+- **The owner proposes, the member accepts** (second review, 2026-11-05). A link the owner made directly let the owner
+  bind their own Slack account to a member and ask as that member (their personal folder, connections and memories):
+  impersonation, against "personal connections are their owner's only" and "no sign-in as someone else". Now Admin ›
+  Slack › People only *proposes* (`slack_link_proposals`, 7 days, one waiting per member and per Slack person, audited
+  `slack.proposed`); nothing is answered for that Slack account until the member accepts in Settings › App connectors
+  with their own session (`POST /api/slack/proposals/:id/accept`: only the member it is for finds it, the owner gets
+  404). Slack is asked again at accept time. The member gets an in-app notice (realtime, linking to Settings); the Slack
+  person gets one DM at the proposal naming no account, and one after the accept naming it and how to undo it. The owner
+  can withdraw a waiting proposal; a disabled account's proposals are cancelled by the same trigger that unlinks it.
+- **An e-mail someone else set proves nothing for 7 days.** Admins set e-mails (Admin › Members: a new member, a change),
+  so an admin could give a member a colleague's Slack e-mail. Triggers on `users` record when each e-mail was last set
+  (`slack_email_changes`); who set it is the audit log (`user.create`, `user.update` with `email`, actor not the
+  person, at or after that time less a second's margin). Such an e-mail is not taken as proof for 7 days, unless the
+  person set it again themselves since (Settings › Profile writes no audit entry). Those people use the proposal. The
+  link page shows the compared e-mail (the person's own; Slack's is never shown there).
+- **Slack Connect channels** (`is_ext_shared_channel`): the flag is kept with the question and the answer has no Post to
+  channel there, saying why; a replayed button is refused too.
+- Smaller: "Asked by" never falls back to a mention (`<@U…>` would ping): the Slack name, or "a teammate". A 429 keeps a
+  not-before time per answer (Slack's `Retry-After`, up to an hour); a network failure waits 15 s. A DM answer tried
+  again after a timeout first reads the DM thread (`conversations.replies`, `im:history`) so it is not posted twice. A
+  person counts as of the workspace only by its own `team_id` (users.list, users.info and a question's `user_team`
+  agree; another workspace of the same Enterprise Grid organization is not).
 - Scopes are now `app_mentions:read`, `chat:write`, `im:history`, `im:write`, `users:read`, `users:read.email`; the token
   check refuses a bot token without any of them.
 - Tests: `tests/unit/c-slack.test.ts` with `tests/lib/fake-slack.ts` (owner only; wrong tokens, missing scopes, a seal
   for another purpose; the link prompt to the asker only; somebody else's link refused by the e-mail check, no e-mail on
-  either side refused, the matching e-mail binds (case and spaces aside), NFC and full-width e-mails; the owner's People
-  list and link: owner only, no bots, deactivated people or other workspaces, already linked either way, the audit and
-  the one DM; both names, used once, expiry, cancel, linked elsewhere;
+  either side refused, the matching e-mail binds (case and spaces aside), NFC and full-width e-mails, an admin-set e-mail
+  refused until the person sets it again; the owner's People list and proposals: owner only, no bots, deactivated people
+  or other workspaces, already linked either way, a proposal links nothing (the owner's own Slack account gets no answer
+  as the member), only the member accepts, withdraw, decline, 7-day expiry, the audit and the DMs; a Slack Connect
+  channel without the button; both names, used once, expiry, cancel, linked elsewhere;
   Slack Connect; a turn as the linked person answered ephemerally with the button; posting once, not by someone else; a
   thread follow-up in the same chat; a DM; dedupe; other workspace or app and malformed events; a refresh; the tokens in
   no log, row or answer; unlink and a disabled account; off and remove), the permission matrix
