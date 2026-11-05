@@ -2,19 +2,25 @@ import { StatusBar } from 'expo-status-bar'
 import Constants from 'expo-constants'
 import * as Crypto from 'expo-crypto'
 import * as WebBrowser from 'expo-web-browser'
+import { getLocales } from 'expo-localization'
 import { useEffect, useRef, useState, type ComponentType, type RefAttributes, type ReactNode } from 'react'
 import { ActivityIndicator, Alert, AppState, BackHandler, KeyboardAvoidingView, Linking, Platform, Pressable, StyleSheet, Text, TextInput, View } from 'react-native'
 import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context'
 import { WebView as NativeWebView, type WebViewProps } from 'react-native-webview'
 import { FileTransfers, MobileReceiver } from './src/bridge'
 import { clearDownloadCache, fileTransferIO } from './src/files'
-import { MOBILE_CAPABILITIES, googleOAuthUrl, navigationDecision, sameTeam, type MobileConfig } from './src/protocol'
+import { MOBILE_CAPABILITIES, PUSH_CAPABILITY, PUSH_REGISTERED_CAPABILITY, googleOAuthUrl, navigationDecision, sameTeam, type MobileConfig } from './src/protocol'
 import { accentInk, mobileProduct } from './src/product'
-import { checkTeam, parseTeamAddress, savedTeamUrl, saveTeamUrl } from './src/team'
+import { devicePushToken, devices, forgetDelivered, onNotificationTap, quietForeground } from './src/push'
+import { currentDevice, leaveTeam, rememberDevice, retryRemovals } from './src/device'
+import { offlineError, stringsFor } from './src/strings'
+import { checkTeam, parseTeamAddress, savedTeamSince, savedTeamUrl, saveTeamUrl } from './src/team'
 import type { TeamAddress } from './src/address'
 
 const product = mobileProduct(Constants.expoConfig?.extra?.teamAxEdition)
-const VERSION = '0.2.2'
+const VERSION = Constants.expoConfig?.version ?? '1.0.0'
+const t = stringsFor(getLocales()[0]?.languageCode)
+quietForeground()
 type WebHandle = { goBack(): void; reload(): void; injectJavaScript(script: string): void }
 // WebView 14's public component declaration omits the forwarded ref; native implementations expose these methods.
 const WebView = NativeWebView as unknown as ComponentType<WebViewProps & RefAttributes<WebHandle>>
@@ -22,14 +28,32 @@ const bootstrap = (config: MobileConfig, ready = false) => `if(window.top===wind
 
 export default function App() {
   const [team, setTeam] = useState<TeamAddress | null | undefined>()
+  // A tapped notification's path on the current team, with a counter so the same path can be opened twice.
+  const [opened, setOpened] = useState<{ path: string; n: number } | null>(null)
+  const since = useRef(Date.now()), hasTeam = useRef(false), device = useRef<string | null>(null)
   useEffect(() => {
     try { clearDownloadCache() } catch { /* a later operation reports an inaccessible cache */ }
-    void savedTeamUrl().then(origin => setTeam(origin ? { origin, entryPath: '/' } : null))
+    let off = () => {}
+    // removals owed to teams left while their server could not be reached
+    void retryRemovals(devices).catch(() => {})
+    void Promise.all([savedTeamUrl(), savedTeamSince()]).then(async ([origin, chosen]) => {
+      since.current = chosen; hasTeam.current = !!origin
+      device.current = origin ? (await currentDevice(devices, origin).catch(() => null))?.deviceId ?? null : null
+      setTeam(origin ? { origin, entryPath: '/' } : null)
+      off = onNotificationTap(() => since.current, () => device.current, path => { if (hasTeam.current) setOpened(o => ({ path, n: (o?.n ?? 0) + 1 })) })
+    })
+    return () => off()
   }, [])
   return <SafeAreaProvider><StatusBar style="auto" />
     {team === undefined ? <Center><ActivityIndicator color={product.accent} /></Center>
-      : team === null ? <Setup onDone={async address => { await saveTeamUrl(address.origin); setTeam(address) }} />
-      : <TeamWeb key={team.origin} address={team} onChangeTeam={async () => { await saveTeamUrl(null); setTeam(null) }} />}
+      : team === null ? <Setup onDone={async address => { await saveTeamUrl(address.origin); since.current = Date.now(); hasTeam.current = true; setOpened(null); setTeam(address) }} />
+      : <TeamWeb key={team.origin} address={team} opened={opened} onDevice={id => { device.current = id }}
+        onChangeTeam={async () => {
+          hasTeam.current = false; device.current = null; forgetDelivered()
+          // remove this phone from the team it leaves (now, or at a later start if that server cannot be reached)
+          void leaveTeam(devices, team.origin).catch(() => {})
+          await saveTeamUrl(null); setOpened(null); setTeam(null)
+        }} />}
   </SafeAreaProvider>
 }
 function Center({ children }: { children: ReactNode }) { return <SafeAreaView style={[s.fill, s.center]}>{children}</SafeAreaView> }
@@ -38,31 +62,36 @@ function Setup({ onDone }: { onDone: (address: TeamAddress) => Promise<void> }) 
   async function connect() {
     if (busy) return
     const address = parseTeamAddress(value)
-    if (!address) { setError('Enter an HTTPS team address or invitation link.'); return }
+    if (!address) { setError(t.invalidAddress); return }
     setBusy(true); setError('')
     try {
-      if (!(await checkTeam(address.origin))) { setError('Could not reach the team server. Check the address, connection and HTTPS certificate.'); return }
+      if (!(await checkTeam(address.origin))) { setError(t.unreachableSetup); return }
       await onDone(address)
-    } catch { setError('Could not save the team address. Try again.') }
+    } catch { setError(t.saveFailed) }
     finally { setBusy(false) }
   }
   return <SafeAreaView style={s.fill}><KeyboardAvoidingView style={[s.fill, s.setup]} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
-    <Text style={s.title}>{product.name}</Text><Text style={s.hint}>Enter the team address or invitation link your team shared with you.</Text>
-    <TextInput style={s.input} value={value} onChangeText={setValue} placeholder="https://team.example.com" autoCapitalize="none" autoCorrect={false}
+    <Text style={s.title}>{product.name}</Text><Text style={s.hint}>{t.setupHint}</Text>
+    <TextInput style={s.input} value={value} onChangeText={setValue} placeholder={t.setupPlaceholder} autoCapitalize="none" autoCorrect={false}
       keyboardType="url" returnKeyType="go" onSubmitEditing={() => void connect()} editable={!busy} testID="team-url" />
     {!!error && <Text accessibilityRole="alert" style={s.error}>{error}</Text>}
     <Pressable style={s.button} onPress={() => void connect()} disabled={busy} testID="team-connect">
-      {busy ? <ActivityIndicator color={accentInk(product.accent)} /> : <Text style={s.buttonText}>Connect</Text>}
+      {busy ? <ActivityIndicator color={accentInk(product.accent)} /> : <Text style={s.buttonText}>{t.connect}</Text>}
     </Pressable>
   </KeyboardAvoidingView></SafeAreaView>
 }
-function TeamWeb({ address, onChangeTeam }: { address: TeamAddress; onChangeTeam: () => Promise<void> }) {
-  const web = useRef<WebHandle>(null), navigation = useRef(0), loadFailed = useRef(false), cleanup = useRef(Promise.resolve())
-  const [canBack, setCanBack] = useState(false), [pathname, setPathname] = useState(address.entryPath), [failed, setFailed] = useState(false)
+type Failure = 'offline' | 'unreachable'
+function TeamWeb({ address, opened, onDevice, onChangeTeam }: { address: TeamAddress; opened: { path: string; n: number } | null; onDevice: (id: string) => void; onChangeTeam: () => Promise<void> }) {
+  const web = useRef<WebHandle>(null), navigation = useRef(0), loadFailed = useRef(false), cleanup = useRef(Promise.resolve()), ready = useRef(false)
+  const [canBack, setCanBack] = useState(false), [pathname, setPathname] = useState(address.entryPath), [failed, setFailed] = useState<Failure | null>(null)
+  const [source, setSource] = useState(address.origin + address.entryPath)
   const receiver = useRef<MobileReceiver | null>(null)
   if (!receiver.current) {
-    const config: MobileConfig = { protocol: 1, appVersion: VERSION, platform: Platform.OS === 'ios' ? 'ios' : 'android', nonce: '0'.repeat(64), generation: 1, capabilities: MOBILE_CAPABILITIES }
-    receiver.current = new MobileReceiver(address.origin, config, new FileTransfers(fileTransferIO()), async url => { await Linking.openURL(url) })
+    const config: MobileConfig = { protocol: 1, appVersion: VERSION, platform: Platform.OS === 'ios' ? 'ios' : 'android', nonce: '0'.repeat(64), generation: 1, capabilities: [...MOBILE_CAPABILITIES, PUSH_CAPABILITY, PUSH_REGISTERED_CAPABILITY] }
+    receiver.current = new MobileReceiver(address.origin, config, new FileTransfers(fileTransferIO()), async url => { await Linking.openURL(url) }, {
+      token: () => devicePushToken(t.channelName),
+      async registered({ deviceId, removeKey }) { await rememberDevice(devices, { origin: address.origin, deviceId, removeKey, at: Date.now() }); onDevice(deviceId) },
+    })
     void receiver.current.disable()
   }
   const r = receiver.current
@@ -71,6 +100,15 @@ function TeamWeb({ address, onChangeTeam }: { address: TeamAddress; onChangeTeam
     const back = BackHandler.addEventListener('hardwareBackPress', () => { if (!canBack) return false; web.current?.goBack(); return true })
     return () => back.remove()
   }, [canBack])
+  useEffect(() => {
+    // A tapped notification: same-origin path only (checked in src/push.ts), opened in this team's page.
+    if (!opened) return
+    const target = address.origin + opened.path
+    if (!sameTeam(address.origin, target)) return
+    setFailed(null)
+    if (ready.current) web.current?.injectJavaScript(`window.location.assign(${JSON.stringify(opened.path)});true;`)
+    else setSource(target)
+  }, [opened, address.origin])
   useEffect(() => {
     const sub = AppState.addEventListener('change', state => {
       if (state === 'active') web.current?.injectJavaScript("window.dispatchEvent(new Event('focus'));window.dispatchEvent(new Event('mycel:mobile-foreground'));true;")
@@ -91,27 +129,34 @@ function TeamWeb({ address, onChangeTeam }: { address: TeamAddress; onChangeTeam
     try {
       const u = new URL(url)
       if (u.protocol !== 'https:' || u.username || u.password) return
-      void (googleOAuthUrl(url) ? Linking.openURL(url) : WebBrowser.openBrowserAsync(url)).catch(() => Alert.alert(product.name, 'Could not open the browser.'))
+      void (googleOAuthUrl(url) ? Linking.openURL(url) : WebBrowser.openBrowserAsync(url)).catch(() => Alert.alert(product.name, t.browserFailed))
     } catch { /* opaque/local schemes never leave the WebView */ }
   }
-  if (failed) return <Center><Text style={s.title}>Could not connect</Text><Text style={s.hint}>Check your connection and the team server's HTTPS certificate.</Text>
-    <Pressable style={s.button} onPress={() => setFailed(false)}><Text style={s.buttonText}>Try again</Text></Pressable>
-    <Pressable style={s.link} onPress={() => void changeTeam()}><Text>Change team address</Text></Pressable></Center>
+  const fail = (kind: Failure) => { ready.current = false; void clear(); setFailed(kind) }
+  // Offline / cannot reach the team: a native screen (the web page is not there to explain), retry reloads the page.
+  if (failed) return <Center>
+    <Text style={[s.title, s.centerText]} accessibilityRole="header">{failed === 'offline' ? t.offlineTitle : t.unreachableTitle}</Text>
+    <Text style={[s.hint, s.centerText]}>{failed === 'offline' ? t.offlineHint : t.unreachableHint}</Text>
+    <Pressable style={s.button} onPress={() => setFailed(null)} testID="retry"><Text style={s.buttonText}>{t.retry}</Text></Pressable>
+    <Pressable style={s.link} onPress={() => void changeTeam()} testID="failed-change-team"><Text style={s.linkText}>{t.changeTeam}</Text></Pressable></Center>
   return <View style={s.fill}><SafeAreaView edges={['top', 'left', 'right']} style={s.fill}>
-    <WebView ref={web} source={{ uri: address.origin + address.entryPath }} style={s.fill}
+    <WebView ref={web} source={{ uri: source }} style={s.fill}
       originWhitelist={['*']} applicationNameForUserAgent={`${product.userAgent}/${VERSION}`}
       sharedCookiesEnabled thirdPartyCookiesEnabled={false} mixedContentMode="never" allowFileAccess={false}
       allowFileAccessFromFileURLs={false} allowUniversalAccessFromFileURLs={false}
       injectedJavaScriptForMainFrameOnly injectedJavaScriptBeforeContentLoadedForMainFrameOnly
       javaScriptCanOpenWindowsAutomatically={false} setSupportMultipleWindows
       allowsBackForwardNavigationGestures pullToRefreshEnabled allowsInlineMediaPlayback
+      // Camera (photo attachment) and microphone (voice input) for the team's own page only; iOS asks once per app.
+      mediaCapturePermissionGrantType="grantIfSameHostElseDeny"
       onShouldStartLoadWithRequest={request => {
         const decision = navigationDecision(address.origin, request.url, request.isTopFrame)
         if (decision === 'external') external(request.url)
         return decision === 'internal'
       }}
       onOpenWindow={event => external(event.nativeEvent.targetUrl)}
-      onLoadStart={() => { loadFailed.current = false; void clear() }} onLoadEnd={event => { void loaded(event.nativeEvent.url).catch(() => setFailed(true)) }}
+      onLoadStart={() => { loadFailed.current = false; ready.current = false; void clear() }}
+      onLoadEnd={event => { void loaded(event.nativeEvent.url).then(() => { ready.current = !loadFailed.current }, () => fail('unreachable')) }}
       onNavigationStateChange={state => { setCanBack(state.canGoBack); if (sameTeam(address.origin, state.url)) setPathname(new URL(state.url).pathname) }}
       onMessage={event => {
         void r.receive(event.nativeEvent.data, event.nativeEvent.url).then(reply => {
@@ -121,13 +166,14 @@ function TeamWeb({ address, onChangeTeam }: { address: TeamAddress; onChangeTeam
         }).catch(() => {})
       }}
       onFileDownload={event => { const url = event.nativeEvent.downloadUrl; if (sameTeam(address.origin, url)) web.current?.injectJavaScript(`window.dispatchEvent(new CustomEvent('mycel:download',{detail:{url:${JSON.stringify(url)}}}));true;`) }}
-      onError={() => { loadFailed.current = true; void clear(); setFailed(true) }} onHttpError={event => { if (event.nativeEvent.statusCode >= 500) { void clear(); setFailed(true) } }}
-      onContentProcessDidTerminate={() => { void clear(); setFailed(true) }} onRenderProcessGone={() => { void clear(); setFailed(true) }}
+      onError={event => { loadFailed.current = true; fail(offlineError(event.nativeEvent.code, event.nativeEvent.description) ? 'offline' : 'unreachable') }}
+      onHttpError={event => { if (event.nativeEvent.statusCode >= 500) fail('unreachable') }}
+      onContentProcessDidTerminate={() => fail('unreachable')} onRenderProcessGone={() => fail('unreachable')}
       startInLoadingState renderLoading={() => <View style={[StyleSheet.absoluteFill, s.center]}><ActivityIndicator color={product.accent} /></View>}
       testID="team-web" />
     </SafeAreaView>
     {(pathname === '/login' || pathname.startsWith('/invite')) && <SafeAreaView edges={['bottom']} style={s.footer}>
-      <Pressable onPress={() => void changeTeam()} testID="change-team"><Text>Connect to another team</Text></Pressable>
+      <Pressable onPress={() => void changeTeam()} testID="change-team"><Text style={s.linkText}>{t.otherTeam}</Text></Pressable>
     </SafeAreaView>}
   </View>
 }
@@ -138,4 +184,5 @@ const s = StyleSheet.create({
   hint: { fontSize: 15, color: '#514b45', marginBottom: 16, lineHeight: 21 }, input: { borderWidth: 1, borderColor: '#8c8378', borderRadius: 10, padding: 14, fontSize: 16, backgroundColor: '#fff' },
   error: { color: '#b42318', marginTop: 10, lineHeight: 20 }, button: { marginTop: 16, backgroundColor: product.accent, borderRadius: 10, padding: 14, alignItems: 'center', minWidth: 160 },
   buttonText: { color: accentInk(product.accent), fontSize: 16, fontWeight: '600' }, link: { marginTop: 16, padding: 8 }, footer: { alignItems: 'center', paddingVertical: 8 },
+  linkText: { color: '#14110f', fontSize: 15 }, centerText: { textAlign: 'center' },
 })

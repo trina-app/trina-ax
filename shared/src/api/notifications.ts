@@ -15,12 +15,13 @@ export type PushEventType = z.infer<typeof PushEventType>
  * an admin's request to connect a service as one's own connection (integration_request_notices), a member's request
  * for an AI connection (onboarding_notices) and, for the owners, someone who joined through the team invite link
  * (team_join_notices; shared/src/api/team-links.ts), and during the 7-day team goal a member's first run of a team skill
- * (onboarding_goal_notices; shared/src/api/onboarding-goal.ts). */
-export const NotificationEventType = z.enum([...PushEventType.options, 'skill.suggested', 'skill.reviewed', 'dev_env.job', 'dev_env.box', 'integration.request', 'onboarding.ai_request', 'team.joined', 'onboarding.first_run'])
+ * (onboarding_goal_notices; shared/src/api/onboarding-goal.ts), and for the owners a person who asks for their account
+ * to be deleted (account_deletion_notices; shared/src/api/account-deletion.ts). */
+export const NotificationEventType = z.enum([...PushEventType.options, 'skill.suggested', 'skill.reviewed', 'dev_env.job', 'dev_env.box', 'integration.request', 'onboarding.ai_request', 'team.joined', 'onboarding.first_run', 'account.deletion_request'])
 export type NotificationEventType = z.infer<typeof NotificationEventType>
 export const InboxNotification = z.object({
   id: z.string(), eventType: NotificationEventType, sourceId: z.string(), code: NotificationEventType,
-  createdAt: z.string(), readAt: z.string().nullable(), chatId: z.string().nullable(), link: z.enum(['chat', 'connections', 'skills', 'project', 'integrations', 'admin_credentials', 'room']).nullable(),
+  createdAt: z.string(), readAt: z.string().nullable(), chatId: z.string().nullable(), link: z.enum(['chat', 'connections', 'skills', 'project', 'integrations', 'admin_credentials', 'room', 'admin_members']).nullable(),
   /** scheduled runs only: succeeded / finished with problems / failed (the inbox text follows it; older servers omit it) */
   outcome: ScheduleRunOutcome.nullable().optional(),
   /** 'integration.request' only, while the request is there: the service's name and the host of its address (where the
@@ -31,6 +32,11 @@ export const InboxNotification = z.object({
   /** 'team.joined' only: the name of the person who joined through the team invite link, while the account is there;
    * older servers omit it */
   joined: z.object({ name: z.string() }).optional(),
+  /** 'account.deletion_request' only (owners): who asked for their account to be deleted, by display name while the
+   * account is there (null once it is deleted), and where the request is now: open (waits for the owner; link
+   * 'admin_members' opens that person in Admin › Members, sourceId is their id), cancelled (they took it back) or
+   * handled (the account was deleted); older servers omit it */
+  deletionRequest: z.object({ name: z.string().nullable(), state: z.enum(['open', 'cancelled', 'handled']) }).optional(),
   /** 'onboarding.first_run' only (owners, during the 7-day team goal): who ran which team skill for the first time
    * (member null once the account is deleted; skill: its plain name), and how many people had run it then, of the
    * goal's target; older servers omit it */

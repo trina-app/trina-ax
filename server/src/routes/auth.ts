@@ -1,6 +1,7 @@
 // Route module "auth" — owner: component A (docs/WORKPLAN.md).
-// Implements: AUTH (setup, login, logout, password, me, sessions, invite info/accept, password reset links)
-// Contract: shared/src/api/auth.ts
+// Implements: AUTH (setup, login, logout, password, me, sessions, invite info/accept, password reset links) and
+// ACCOUNT_DELETION (a person's request to have their account deleted: routes/account-deletion.ts)
+// Contract: shared/src/api/auth.ts, shared/src/api/account-deletion.ts
 import { API } from '@mycel/shared/api'
 import { LOCALE_CHANGED } from '../admin/settings'
 import { audit } from '../admin/audit'
@@ -13,6 +14,7 @@ import { getUser, setUserLocale } from '../auth/users'
 import type { RouteModule } from './module'
 import { canChooseEngine, filterEnginePrefs } from '../admin/engine-choice'
 import { myUsage } from '../admin/my-usage'
+import { registerAccountDeletionRoutes } from './account-deletion'
 
 export const authRoutes: RouteModule = {
   name: 'auth',
@@ -100,5 +102,6 @@ export const authRoutes: RouteModule = {
     kit.handle(API.acceptInvite, ({ c, params, body }) => acceptInvite(c, ctx, params.token, body))
     kit.handle(API.passwordResetInfo, ({ c, params }) => resetInfo(c, ctx, params.token))
     kit.handle(API.completePasswordReset, ({ c, params, body }) => completeReset(c, ctx, params.token, body))
+    registerAccountDeletionRoutes(kit, ctx)
   },
 }

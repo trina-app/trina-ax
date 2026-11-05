@@ -17,3 +17,18 @@ export function cancelDisabledPushDeliveries(ctx: AppContext, userId: string, pr
   if (preferences.roomMessages === false) ctx.db.query(`UPDATE room_push_deliveries SET state='cancelled',lease_until=NULL WHERE state IN ('pending','sending') AND notification_id IN
     (SELECT id FROM room_notices WHERE user_id=?)`).run(userId)
 }
+
+/** Where a tapped phone notification opens on the team (the app refuses anything but an id path, and so does the
+ * gateway). An event code may register its own resolver, e.g. a room message: `/rooms/<roomId>`. None: the app's
+ * start page. Resolvers read ids only; they never put names or text into the path. */
+type PushPath = (ctx: AppContext, notificationId: string) => string | null | undefined
+const PATH = /^\/(?:[A-Za-z0-9_-]+(?:\/[A-Za-z0-9_-]+)*)?$/
+// the existing events open the inbox, as a Web Push click does (web/pwa/sw.js)
+const pushPaths = new Map<string, PushPath>(['schedule.success', 'schedule.failure', 'connection.reconnect'].map(code => [code, () => '/settings/notifications']))
+export function registerPushPath(code: string, path: PushPath) { pushPaths.set(code, path) }
+export function pushPathOf(ctx: AppContext, code: string, notificationId: string): string | undefined {
+  try {
+    const p = pushPaths.get(code)?.(ctx, notificationId)
+    return typeof p === 'string' && p.length <= 200 && PATH.test(p) ? p : undefined
+  } catch { return undefined }
+}

@@ -212,6 +212,8 @@ function Gate() {
         <Routes>
           {/* scheduled tasks moved to the sidebar: old links (banners, notifications, bookmarks) go there */}
           <Route path="/settings/schedules" element={<Navigate to="/scheduled" replace />} />
+          {/* the account deletion request, a page under the profile (components/settings/AccountDeletion.tsx) */}
+          <Route path="/settings/account/delete" element={<SettingsDialog onClose={settings.close} page="account-delete" />} />
           <Route path="/settings/:tab?" element={<SettingsDialog onClose={settings.close} />} />
         </Routes>
       )}

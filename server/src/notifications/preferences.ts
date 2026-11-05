@@ -27,5 +27,7 @@ export function eventEnabled(p: NotificationPreferences, event: NotificationEven
     case 'team.joined': return true
     // a DM message or an @mention in a room (Notifications.roomNotice)
     case 'room.dm': case 'room.mention': return p.roomMessages !== false
+    // a person asks the owner to delete their account (shown always, Notifications.deletionRequest)
+    case 'account.deletion_request': return true
   }
 }

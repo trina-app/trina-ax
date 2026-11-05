@@ -8243,3 +8243,89 @@ every week. Placement: Team AX core (skills, files and permissions, the team lin
 - **Not in this step.** The AI cannot open files sent in a room (it gets their names). The 12-hour new session and the context sizes are
   first guesses. Cards the AI raised are not shown again after a reload (they time out like an unanswered card). A PC
   runner's tools, once merged, fall under the card rule and the outside mark but are not switched off by name.
+
+## 모바일 앱 출시와 네이티브 푸시 (feat/mobile-app, 2026-11-05)
+
+The phone app (mobile/, Expo SDK 58 WebView of a team's HTTPS web app) goes to TestFlight / the App Store as
+"Trina AX", and phones get native push. There is no Expo account and none is made.
+
+- **Identity through the edition, not the neutral defaults.** `MYCEL_MOBILE_EDITION=trina` makes `app.config.ts` read
+  `editions/trina/branding/mobile.json` (the fields `src/product.ts` already validated, plus `background` and
+  `appleTeamId`) and the fixed asset names in `editions/trina/branding/mobile/` (icon 1024 px without alpha, adaptive
+  icon foreground, launch image, all made from the web mark `web/public/favicon.svg`; the SVG sources sit next to them).
+  Without the variable the neutral "Team AX" app and `app.teamax.mobile.dev` stay. Asset paths in the config are
+  relative, because the resolved config is embedded in the app.
+- **Store build**: bundle id `app.trina.ax` (the same App Store Connect record as the Mac App Store app, team
+  YWW96288YY), version 1.0.0, build number from `MYCEL_MOBILE_BUILD_NUMBER` (default 1), iPhone only (no iPad
+  screenshots for v1), `ITSAppUsesNonExemptEncryption=false` (HTTPS only), React Native's privacy-manifest reasons, the
+  `aps-environment` entitlement from expo-notifications (development in the project; Xcode's App Store export signs it
+  as production). Camera, microphone and photo library usage strings in Korean and English, because the web app opens
+  the camera (photo attachment) and the microphone (voice input) inside the WebView and iOS stops an app that asks
+  without them. The WebView grants capture to the team's own host only (`grantIfSameHostElseDeny`); iOS asks the person
+  once. Android keeps blocking camera and microphone until the app ships there. Android target SDK 36 is set explicitly
+  (expo-build-properties; also React Native 0.88's default).
+- **Local iOS build** (`mobile/scripts/ios-release.sh`): expo prebuild → `xcodebuild archive` with automatic signing and
+  an App Store Connect API key (`-allowProvisioningUpdates -authenticationKey…`) → export (`app-store-connect`) →
+  `altool --validate-app` / `--upload-app` with `--p8-file-path`. The key comes from environment variables, is never
+  copied or printed, and must lie outside the repository. eas.json is kept for later and is not needed.
+- **Push permission after sign-in, never at first launch.** The signed-in web page asks the app for its token through a
+  new optional bridge capability, `push-token-v1` (message `push-token`; reply `push: { platform, token, environment }`
+  or `push_denied` / `push_unavailable`). It goes through the same receiver as `file-share-v1`: trusted top-level origin,
+  document nonce and generation; a token that arrives after logout or navigation is dropped. The capability is
+  optional, so an older app or page keeps working with push off. The OS prompt appears on that first request; a person
+  who turned push off (`optedOut`) is not asked again by the app, only from Settings.
+- **Native device tokens, not Expo tokens.** `getDevicePushTokenAsync`: APNs hex token (lower case) on iOS, FCM token on
+  Android. The environment comes from the embedded provisioning profile (development → sandbox); App Store and TestFlight
+  installs have none and use production. Android push needs the owner's `google-services.json`
+  (`MYCEL_MOBILE_GOOGLE_SERVICES`); without it an Android build logs one line and push stays off.
+- **A tap opens only an id path on the current team** (`/rooms/<id>` style, no scheme, host, `//`, `..`, query or
+  fragment; the same rule as the gateway's `validPushPath`, a test keeps them equal), and only when the notification's
+  `device` (the team's device id; the request field is `tag`, the data key is `device` because expo-notifications on
+  Android uses `data.tag` as the notification id) is the device the app registered with the current team; a notification delivered before
+  the current team was chosen opens nothing either. Changing team clears delivered notifications. In the foreground a
+  notification goes to the list without a banner (the web app is live). On iOS, expo-notifications reads remote data
+  from the APNs payload's `body` dictionary, so the gateway puts `{ notificationId, code, path, device }` there; FCM
+  data stays flat.
+- **Server: a native device is a `push_subscriptions` row of kind `native`** (migration 243: `kind`; 245: `remove_hash`), not
+  a second table. Every event the push service delivers, including codes other branches add, reaches phones through the
+  same `push_deliveries`, session binding (`ON DELETE CASCADE`: logout removes the device), opt-out, beforeSend
+  re-check after DNS, retry budget and expiry. The token is vault-encrypted (kind `native-push`, so an older build
+  cannot misread it as Web Push). `POST /api/push/devices` / `DELETE /api/push/devices/:id`; `GET /api/push` adds
+  `native: { available, deviceId, gateway }` and `optedOut`. A token belongs to the latest session that registered it,
+  also for another account: on a reinstalled phone the previous account's row is replaced, never kept delivering.
+- **Leaving a team removes the phone there.** Registration returns a removal key (only its sha256 is stored); the page
+  hands device id and key to the app (`push-registered`), only when the app offers `push-registered-v1`: the first
+  store build (1.0.0 build 1) has push-token-v1 but would never answer that message, so it gets push without the
+  removal and the device check. On a team switch, also from the cannot-reach screen, the app
+  calls the public `POST /api/push/devices/:id/remove` with the key (always 204, no session: the person is leaving that
+  team). If that server cannot be reached, the removal is kept (at most four, 30 days) and retried at each app start.
+- **Off until the operator chooses a gateway.** Team servers never get Apple's .p8 key or Google's service account;
+  they POST `{ v, platform, environment, token, notificationId, code, locale, tag?, path?, ttlSeconds }` to
+  `<gateway>/v1/send` (contract `shared/src/cloud-protocol/push-gateway.ts`, MIT), signed with the team's Ed25519 key:
+  the relay's `<data>/relay/team-key.pem`, created the same way when missing (enrolment reuses an existing file). There
+  is no built-in default: phone tokens go nowhere until `MYCEL_PUSH_GATEWAY` or `push.gatewayUrl` in server.json names a
+  gateway (the Trina hosted service writes `https://push.trina.app`). Owners and admins see one line in Settings ›
+  Notifications: phone push off, or on through `<host>`. `push` and `push-gateway` are reserved relay team names, so
+  nobody can take `push.<domain>` under the relay wildcard. The request goes through the Web Push transport's pinned
+  public-address HTTPS post; only 410 deletes a device (the gateway's 404 means a wrong address). `path` comes from
+  `registerPushPath(code, resolver)`; the three existing codes open the inbox, as a Web Push click does.
+- **The gateway** (`push-gateway/`) runs on Bun (`src/bun.ts`), behind a TLS terminator: APNs requires HTTP/2 and a
+  Cloudflare Worker's outbound fetch speaks HTTP/1.1, so there is no Worker. Trust on first use per team public key (a
+  key that never sent successfully is forgotten after a day), a per-client-IP limit before signature checks, per-key
+  limits (120/min for a key younger than a day, 1200/min after), per-(key, token) limits (20/min, 200/day, so one server
+  cannot use up a phone's budget for other teams), a 10-minute dedupe that is also the replay guard, generic text from
+  code and locale only (App Review 4.5.4; room codes say "새 메시지가 있어요"), APNs token auth (production only unless
+  `APNS_SANDBOX=on`: the owner's key is production-only) and FCM HTTP v1. Not deployed.
+- **App Review screens**: a native "offline" / "cannot reach your team" screen with Try again and Change team address
+  (Korean and English by the phone's language). Account deletion starts inside the app: Settings › Profile › 계정 삭제
+  opens `/settings/account/delete` ("계정 삭제 요청"). Admins create accounts and only the owner deletes them, so the
+  person confirms and the owner (only the owner: admins cannot act on it) gets an in-app notice (no OS push) that opens
+  Admin › Members at that person. Removing that person works as for anyone: the account goes and the personal files
+  are archived for the owner (they are not deleted). The owner cannot ask (409; hand over the role first). Requests are
+  idempotent, audited, at most five a day (migration 244).
+- **Release build**: Expo's "Generate app.config" build phase runs `expo config` again inside xcodebuild, so
+  `scripts/ios-release.sh` exports the edition for the whole run and refuses an export whose embedded config is not the
+  edition's (build 1 showed "Team AX" inside the app because only prebuild had the edition).
+- Known limits: an iOS build made in Xcode with a development profile but Release configuration reports sandbox only if
+  its profile says so; a removal owed to a team whose server stays unreachable for 30 days is dropped, and that team
+  keeps the device until the session ends (its pushes show generic text, a tap opens nothing because of the tag).

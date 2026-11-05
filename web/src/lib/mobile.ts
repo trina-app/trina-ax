@@ -1,4 +1,4 @@
-import { MAX_CHUNK_BYTES, MAX_FILE_BYTES, safeFileName, sameTeam, googleOAuthUrl, validConfig, type MobileConfig, type MobileMessage, type MobileReply } from '../../../mobile/src/protocol'
+import { MAX_CHUNK_BYTES, MAX_FILE_BYTES, PUSH_CAPABILITY, PUSH_REGISTERED_CAPABILITY, safeFileName, sameTeam, googleOAuthUrl, validConfig, validPushToken, type MobileConfig, type MobileMessage, type MobileReply, type PushToken } from '../../../mobile/src/protocol'
 
 type PhoneWindow = Window & { mycelMobile?: unknown; ReactNativeWebView?: { postMessage(raw: string): void } }
 export function mobileApp(): MobileConfig | null {
@@ -26,13 +26,13 @@ function receive(event: Event) {
   const p = pending.get(keyOf(reply.id, reply.for, reply.seq))
   if (!p || reply.v !== 1 || reply.type !== 'mobile-result' || reply.nonce !== p.config.nonce || reply.generation !== p.config.generation || typeof reply.ok !== 'boolean') return
   pending.delete(keyOf(reply.id, reply.for, reply.seq)); clearTimeout(p.timer)
-  if (reply.ok) p.resolve(reply); else p.reject(new Error('mobile_operation_failed'))
+  if (reply.ok) p.resolve(reply); else p.reject(new Error(reply.error === 'push_denied' || reply.error === 'push_unavailable' ? reply.error : 'mobile_operation_failed'))
 }
-function request(message: MobileMessage, config: MobileConfig): Promise<MobileReply> {
+function request(message: MobileMessage, config: MobileConfig, timeoutMs = 60_000): Promise<MobileReply> {
   if (!current(config)) return Promise.reject(cancelled())
   return new Promise((resolve, reject) => {
     const seq = 'seq' in message ? message.seq : undefined, key = keyOf(message.id, message.type, seq)
-    const timer = setTimeout(() => { pending.delete(key); reject(new Error('mobile_timeout')) }, 60_000)
+    const timer = setTimeout(() => { pending.delete(key); reject(new Error('mobile_timeout')) }, timeoutMs)
     pending.set(key, { config, type: message.type, seq, resolve, reject, timer })
     try { (window as PhoneWindow).ReactNativeWebView!.postMessage(JSON.stringify(message)) }
     catch { clearTimeout(timer); pending.delete(key); reject(new Error('mobile_unavailable')) }
@@ -136,6 +136,32 @@ export async function openExternal(url: string, options: { purpose: 'google-oaut
   if (options.purpose !== 'google-oauth' || !googleOAuthUrl(url)) throw new Error('mobile_external_refused')
   const config = mobileApp(); if (!config) throw new Error('mobile_unavailable')
   await request({ ...envelope(config), type: 'external-open', url, purpose: options.purpose }, config)
+}
+/** The phone's APNs/FCM device token (push-token-v1). The app shows the OS permission prompt here if the person has not
+ * answered yet, so this is only called for a signed-in session. Rejects with push_denied / push_unavailable. */
+export async function requestPushToken(): Promise<PushToken> {
+  const turn = epoch
+  await barrier
+  if (turn !== epoch) throw cancelled()
+  const config = mobileApp()
+  if (!config?.capabilities.includes(PUSH_CAPABILITY)) throw new Error('push_unavailable')
+  // The OS dialog waits for the person: allow it five minutes.
+  const reply = await request({ ...envelope(config), type: 'push-token' }, config, 300_000)
+  if (turn !== epoch) throw cancelled()
+  if (!validPushToken(reply.push)) throw new Error('push_unavailable')
+  return reply.push
+}
+/** Tells the app which device id this team gave it (taps from other teams are ignored) and the removal key the app
+ * uses to remove the device when the person switches team. Only an app offering push-registered-v1 gets it: an older
+ * build would never answer. Returns whether the app took it. */
+export async function confirmPushDevice(deviceId: string, removeKey: string): Promise<boolean> {
+  const turn = epoch
+  await barrier
+  if (turn !== epoch) throw cancelled()
+  const config = mobileApp()
+  if (!config?.capabilities.includes(PUSH_REGISTERED_CAPABILITY)) return false
+  await request({ ...envelope(config), type: 'push-registered', deviceId, removeKey }, config)
+  return true
 }
 export function initMobile(errorHandler?: (error: unknown) => void): void {
   if (typeof window === 'undefined' || initialized) return

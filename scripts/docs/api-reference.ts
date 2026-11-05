@@ -38,6 +38,7 @@ const GROUP_TITLES: Record<keyof typeof API_GROUPS, string> = {
   DEMO: 'Demo mode (development demo server only)',
   PEOPLE: 'People directory and profiles',
   ROOMS: 'Team chat rooms',
+  ACCOUNT_DELETION: 'Account deletion request',
 }
 
 const WHO: Record<Endpoint['auth'], string> = {
