@@ -1,7 +1,8 @@
 // The onboarding wizard's invite step (after the welcome steps' first result). Standalone: it shows the ready-made
 // message with the team invite link and one "메시지 복사", or makes the link in one press; the link itself, its settings
-// and "새 링크로 바꾸기" are folded under "링크 관리" (TeamLinkPanel `folded`). Skipping asks once, softly, whether to
-// invite one or two people first, because a team skill is only a team's once others use it.
+// and "새 링크로 바꾸기" are folded under "링크 관리" (TeamLinkPanel `folded`). For the owner walking the welcome steps
+// (`prepare`) the link is made as the step opens, so the message is there at once (docs/DECISIONS.md "W2"). Skipping
+// asks once, softly, whether to invite one or two people first, because a team skill is only a team's once others use it.
 import { useState } from 'react'
 import type { TeamLinkStarter } from '@mycel/shared/api'
 import { useT } from '../../i18n'
@@ -21,12 +22,18 @@ export interface InviteStepProps {
   /** `skillPath` is a team skill the lead just made from their own work (docs/DECISIONS.md "S"): an open link is changed
    * to lead there, and the message says the skill was made for the team */
   made?: boolean
+  /** `skillPath` is the skill that made the welcome steps' first result, shared as it is: an open link that leads
+   * elsewhere is changed to lead there alone (no files), keeping its address */
+  retarget?: boolean
+  /** the owner walking the welcome steps: with no link that could let anyone in, one is made as the step opens (the
+   * message and its copy button at once); never a link that still works replaced. Ignored for anyone but an owner. */
+  prepare?: boolean
   /** the heading in place of "팀원을 초대해요" (the welcome steps name the skill just used); null: none, the dialog
    * around it already names the step (one heading on a phone, not two) */
   title?: string | null
 }
 
-export function InviteStep({ onDone, onSkip, skillPath, starter, made, title }: InviteStepProps) {
+export function InviteStep({ onDone, onSkip, skillPath, starter, made, retarget, prepare, title }: InviteStepProps) {
   const t = useT()
   const [asking, setAsking] = useState(false)
   return (
@@ -36,14 +43,14 @@ export function InviteStep({ onDone, onSkip, skillPath, starter, made, title }: 
         <p className="text-sm text-muted">{t('teamLink.stepDesc')}</p>
       </div>
       {/* folded: the message and "메시지 복사"; the link and its settings wait under "링크 관리" (no "링크 끄기" here) */}
-      <TeamLinkPanel skillPicker={false} skillPath={skillPath} starter={starter} made={made} folded />
+      <TeamLinkPanel skillPicker={false} skillPath={skillPath} starter={starter} made={made} retarget={retarget} prepare={prepare} folded />
       <div className="flex flex-wrap justify-end gap-2 border-t border-line pt-4">
         {onSkip && (
           <Button variant="ghost" onClick={() => setAsking(true)} data-testid="invite-step-skip">
             {t('teamLink.later')}
           </Button>
         )}
-        {/* not primary: the panel's own action (make the link, then copy the message) is the one primary here */}
+        {/* not primary: the panel's own action (copy the message, or make the link first) is the one primary here */}
         <Button onClick={onDone} data-testid="invite-step-done">
           {t('teamLink.stepDone')}
         </Button>
