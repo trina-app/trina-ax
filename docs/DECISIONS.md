@@ -8033,3 +8033,68 @@ every week. Placement: Team AX core (skills, files and permissions, the team lin
   so its data folder is deleted and made again (the demos keep their data folder between runs; deleting it starts over).
   No released server ever had our 222.
 
+
+## Slack 커넥터 (feat/slack-connector, 2026-11-05)
+
+People ask the team's AI from Slack (`@app` in a channel, a DM to the app). Guide: [SLACK.md](SLACK.md).
+
+- **Distribution: an internal app per workspace, in Socket Mode.** The owner makes it in their own workspace from a
+  manifest the server generates (Admin › Slack opens Slack's "create app" with it filled in,
+  `https://api.slack.com/apps?new_app=1&manifest_json=…`, docs.slack.dev "Configuring apps with app manifests"). Socket
+  Mode needs no public address, so an office Mac behind NAT works like a hosted server. A distributed (Marketplace) app
+  was left out: Marketplace apps may not use Socket Mode, so a NAT server would need a relay we run, and unlisted
+  distributed apps got 1 request a minute for conversation history (Slack changelog 2025-05-29).
+- **Tokens.** The bot token (`xoxb-`) and the app-level token (`xapp-`, `connections:write`) are sealed in the browser for
+  their own purpose `slack.token` and kept with their own key directory `<secrets>/integrations/slack` (the same
+  `SecretBox` checks as the connections' directory). Saving checks them with Slack first (`auth.test`, the scopes in
+  `X-OAuth-Scopes`, `apps.connections.open`). Owner only, for every Admin › Slack route: the app answers as every linked
+  person, which is more than an admin's own reach.
+- **Scopes:** `app_mentions:read`, `im:history`, `chat:write`, and `users:read`. `users:read` was added beyond the first
+  plan: the link page has to name the Slack account (the design asks for both names), "Asked by" needs a name without
+  pinging the asker, and `users.info` says whether the asker is a bot or of another workspace. No channel history (so no
+  thread context: other people's messages would be untrusted input), no files, no slash command, no user token.
+- **Who asked** is the event's `user`, the envelope's `team_id` and `enterprise_id`; the envelope must name the connected
+  workspace and the app id Slack's hello gave. Socket Mode has no request signature; every shape is checked with zod
+  (`envelope.ts`) and anything else is dropped. A person of another workspace (`user_team`, or `users.info` `team_id`)
+  is never offered a link or answered. An organization-wide install is refused.
+- **The one-time link** is a random 32-byte token (stored as its SHA-256), not a signed one: a row we look up is as
+  strong and is single-use by an atomic `UPDATE … WHERE used_at IS NULL AND expires_at > now`. 10 minutes, the newest of
+  a Slack account only, at most one a minute and 10 an hour. It travels in `/slack/link?t=` (the request log writes paths
+  only, and a signed-out visitor keeps it through `/login?next=`) and reaches the API only in POST bodies. Opening it
+  needs a sign-in; it binds the Slack account it was sent to, never one named in the request. "Send the victim my link":
+  the page names both accounts and warns that whoever uses the Slack account asks with your permissions; an account
+  linked to another Slack account cannot confirm (unlink first, 409), and a Slack account linked to someone else cannot
+  be taken (409). One Slack account per person and one person per Slack account.
+- **Unlink**: from Settings › App connectors, and by a trigger on `users` (status not active, or deleted), so it holds
+  whichever path disables an account; the trigger writes `slack.unlinked` with `account_disabled`. A temporary password
+  to change keeps the link and answers "sign in first".
+- **A question is a normal turn** (`runtime.createTurn`, `clientKind: 'slack'`, the person's engine choice and budget
+  checks, the chat's queue rules). One chat per (workspace, conversation, thread root, person): a top-level message's own
+  `ts` is the root, so each new thread is a new chat and replies in it continue it. The chat is made inside the
+  admission transaction, so a refused question (queue full, a running answer, a used-up budget) leaves no empty chat.
+  The `clientMessageId` comes from the message's ts, so a resend is the same turn.
+- **Where answers go.** DM: "working…" is a message of its own in the DM thread, replaced by the answer (`chat.update`).
+  Channel: "working…" and the answer are ephemeral to the asker (in the thread only when the question was asked in a
+  thread: Slack shows ephemeral messages in a thread only when it already exists), with one button, Post to channel. It
+  posts the answer alone, "Asked by <Slack name>", to the thread, once (`posted` claimed atomically), by the asker only
+  (the button's value is checked against the request's Slack user, the link and the account). Nothing the channel sees
+  carries steps, file names, sources or the chat's link. Ephemeral messages are not kept by Slack, so every message to the
+  asker links to the chat. Answers are converted from Markdown to mrkdwn with `&`, `<`, `>` written out, so an answer can
+  never mention `@channel` or a person or hide a link; at most 4 sections of 2,900 characters ephemeral and 10 posted.
+- **Delivery** is a poll of `slack_requests` against `turns.status` (1 s), not a hook in the turn code: it survives a
+  restart (an interrupted turn is delivered as interrupted), needs no change in B's files, and a row is claimed before it
+  is sent. A 429 or a network failure puts it back for the next tick. A turn waiting for a card tells the asker once to
+  answer it in the app (`openRequests()`); questions wait 2 hours at most.
+- **Retries and dedupe.** The socket acknowledges every envelope before anything else (Slack resends after 3 seconds).
+  `slack_events` keeps event ids and `channel:ts` of messages for a day, so a resent event and the same message seen as
+  two events run once, across restarts and processes (`INSERT OR IGNORE`). The Web API client waits out `Retry-After`
+  (at most 30 s, twice).
+- **Not in this step:** files, thread context, a slash command, streaming answers (`chat.startStream`), Slack's AI app
+  surface (`assistant:write`), Enterprise Grid org installs, more than one workspace, telling the person in the app that
+  their account was linked (they confirmed it themselves on the page).
+- Tests: `tests/unit/c-slack.test.ts` with `tests/lib/fake-slack.ts` (owner only; wrong tokens, missing scopes, a seal
+  for another purpose; the link prompt to the asker only; both names, used once, expiry, cancel, linked elsewhere;
+  Slack Connect; a turn as the linked person answered ephemerally with the button; posting once, not by someone else; a
+  thread follow-up in the same chat; a DM; dedupe; other workspace or app and malformed events; a refresh; the tokens in
+  no log, row or answer; unlink and a disabled account; off and remove), the permission matrix
+  (`tests/security/lib/slack-cases.ts`, 63 cases) and `web/test/unit/slack-link.test.tsx`. Nothing reaches Slack.
