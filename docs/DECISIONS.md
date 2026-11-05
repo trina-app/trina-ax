@@ -8609,4 +8609,12 @@ Placement: Team AX core (onboarding, web reading, skills, chat). Each fix is its
   '{스킬}' 스킬을 …" became "{팀}에 '{스킬}' 스킬을 만들어 뒀어요. …" (`teamLinkMessage` takes `team`, the team's name
   from the session; the goal card's copy too). The starter messages of old links (meeting notes, team files) are
   unchanged.
+- **The member's side.** Team skills showed a member "skills/general/ · 회사 소개서나 …": the folder is now only for
+  owners and admins, who manage the folders (a member reads the title and the line; the row's tooltip is the
+  description). A form run appeared as the member's own message ("어디에 올릴까요: 인스타그램" in their bubble, under the
+  chip), as if typed. The chat now reads such a message back (`formAnswers`: every line after the command is one of
+  the skill's form labels, "label: value", a multi-line value under "label:"; anything else is typed text and keeps
+  its bubble) and shows the run without a bubble: the skill's chip and one quiet line of the answers ("신제품 출시 ·
+  인스타그램"; each label is the answer's tooltip and is read out). The message sent is unchanged (the AI and the
+  transcript get the same lines; copy and edit keep them).
 

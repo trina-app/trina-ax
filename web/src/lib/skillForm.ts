@@ -59,6 +59,24 @@ export function composeSkillMessage(name: string, inputs: readonly SkillInput[] 
   return parts.length ? `/${name}\n${parts.join('\n\n')}` : `/${name} `
 }
 
+/** The answers of a form run, read back from its message (composeSkillMessage: "label: value" lines, a multi-line value
+ * under "label:"), so the chat shows the run as the skill and its answers, not as words the person typed
+ * (docs/DECISIONS.md "W3"). null when the text after the command is anything else (typed text), or empty. */
+export function formAnswers(rest: string, inputs: readonly SkillInput[] | undefined): { label: string; value: string }[] | null {
+  if (!inputs?.length || !rest.trim()) return null
+  const labels = [...new Set(inputs.map((i) => i.label.trim()).filter(Boolean))].sort((a, b) => b.length - a.length)
+  const out: { label: string; lines: string[] }[] = []
+  for (const line of rest.replace(/\r\n?/g, '\n').split('\n')) {
+    const label = labels.find((l) => line.startsWith(`${l}:`))
+    if (label) { out.push({ label, lines: [line.slice(label.length + 1)] }); continue }
+    // a line before any label: typed text, not a form
+    if (!out.length) { if (line.trim()) return null; continue }
+    out.at(-1)!.lines.push(line)
+  }
+  const answers = out.map((a) => ({ label: a.label, value: a.lines.join('\n').trim() }))
+  return answers.length && answers.every((a) => a.value) ? answers : null
+}
+
 /** The skill "/<name>" runs for this person, from their list (GET /api/skills), as the server picks it
  * (server/src/chat/skills.ts invokedSkill): the same name, a personal skill first, then the first path. A form runs by
  * name, so a form whose skill is not this one would run another skill. */

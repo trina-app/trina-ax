@@ -12,6 +12,7 @@ import { useShallow } from 'zustand/react/shallow'
 import { chatErrorReason, ERROR_MESSAGES, isDefaultErrorMessage, skillTitle, type Attachment, type EngineId, type Step } from '@mycel/shared/api'
 import { thumbnailUrl } from '../../lib/api'
 import { answerHtml } from '../../lib/richCopy'
+import { formAnswers } from '../../lib/skillForm'
 import { skillByName, splitCommand, useSkillList } from '../../lib/skillTitles'
 import { formatSize } from '../../lib/format'
 import { openArtifact, openTeamFile, useSidePanel } from '../../lib/sidePanel'
@@ -136,6 +137,36 @@ export function UserText({ content, clamp }: { content: string; clamp: boolean }
   )
 }
 
+/** A form run (a skill's form sent its answers: "/card-news" and "어디에 올릴까요: 인스타그램"), or null: the skill's
+ * chip and the answers. The person picked them, they did not write them, so they are not shown as a message they
+ * typed (docs/DECISIONS.md "W3"). */
+function useFormRun(content: string) {
+  const cmd = splitCommand(content)
+  const items = useSkillList(!!cmd)
+  const skill = cmd && items ? skillByName(items, cmd.name) : null
+  const answers = cmd && skill ? formAnswers(cmd.rest, skill.inputs) : null
+  return skill && answers ? { skill, answers } : null
+}
+
+/** The skill as a chip, the answers as one quiet line under it ("인스타그램 · 신제품 출시"; each answer's label is its
+ * tooltip and is read out), right-aligned like the person's messages, with no bubble. */
+export function FormRun({ run, sending = false }: { run: NonNullable<ReturnType<typeof useFormRun>>; sending?: boolean }) {
+  return (
+    <div className={clsx('flex max-w-[85%] min-w-0 flex-col items-end gap-1 sm:max-w-[80%]', sending && 'opacity-70')} data-testid="user-form-run">
+      <SkillChip title={skillTitle(run.skill)} name={run.skill.name} />
+      <p className="line-clamp-3 text-right text-[13px] leading-5 text-muted [overflow-wrap:anywhere]" data-testid="user-form-answers">
+        {run.answers.map((a, i) => (
+          <span key={i} title={a.label}>
+            {i > 0 && <span aria-hidden> · </span>}
+            <span className="sr-only">{a.label}: </span>
+            {a.value.replace(/\s+/g, ' ')}
+          </span>
+        ))}
+      </p>
+    </div>
+  )
+}
+
 export function UserMessage({ m, chatId, busy, onEdit, onSelectBranch }: { m: ViewMessage; chatId: string; busy: boolean; onEdit: (m: ViewMessage, text: string) => void; onSelectBranch: (id: string) => void }) {
   const t = useT()
   const [editing, setEditing] = useState(false)
@@ -151,6 +182,7 @@ export function UserMessage({ m, chatId, busy, onEdit, onSelectBranch }: { m: Vi
   const discard = useChats((s) => s.discardLocal)
   const long = m.content.length > 1200 || m.content.split('\n').length > 18
   const [open, setOpen] = useState(!long)
+  const run = useFormRun(m.content)
   return (
     <div className="group flex min-w-0 flex-col items-end gap-2" data-testid="user-message" data-message-id={m.id}>
       {m.attachments.length > 0 && (
@@ -200,6 +232,8 @@ export function UserMessage({ m, chatId, busy, onEdit, onSelectBranch }: { m: Vi
             </Button>
           </div>
         </form>
+      ) : run ? (
+        <FormRun run={run} sending={!!m.local} />
       ) : (
         m.content && (
           <div className={clsx('max-w-[85%] min-w-0 rounded-3xl bg-subtle px-4 py-2.5 text-[15px] leading-7 sm:max-w-[80%]', m.local && 'opacity-70')} data-testid="user-text">
