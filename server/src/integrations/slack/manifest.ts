@@ -6,9 +6,9 @@
 //                      account's e-mail is the person's                       which account it was linked to
 //   channels:read, groups:read   whether a channel is shared with another organization, checked again before
 //                                "Post to channel" (conversations.info)
-// User scopes openid and profile, and the redirect URL: "Sign in with Slack" (docs.slack.dev "Sign in with Slack"), with
-// which a person proves the Slack account they link. Its user token is never kept. No channel history, no files, no
-// slash command.
+// The redirect URL: "Sign in with Slack" (docs.slack.dev "Sign in with Slack"), with which a person proves the Slack
+// account they link; it asks for openid and profile in its own flow, so no user scopes here. Its user token is never
+// kept. No channel history, no files, no slash command.
 import { PRODUCT } from '@mycel/shared'
 
 export const BOT_SCOPES = ['app_mentions:read', 'channels:read', 'chat:write', 'groups:read', 'im:history', 'im:write', 'users:read', 'users:read.email'] as const
@@ -16,8 +16,6 @@ export const BOT_EVENTS = ['app_mention', 'message.im'] as const
 
 /** a bot user name Slack takes: a-z, 0-9, -, _ and . (at most 80) */
 const botName = (s: string) => (s.toLowerCase().replace(/[^a-z0-9._-]+/g, '-').replace(/^-+|-+$/g, '') || 'assistant').slice(0, 80)
-
-export const USER_SCOPES = ['openid', 'profile'] as const
 
 /** `redirectUrl`: the team's https address for "Sign in with Slack" (none without one: Slack takes https only) */
 export function slackManifest(name = PRODUCT.displayName, redirectUrl: string | null = null) {
@@ -29,7 +27,9 @@ export function slackManifest(name = PRODUCT.displayName, redirectUrl: string | 
       app_home: { home_tab_enabled: false, messages_tab_enabled: true, messages_tab_read_only_enabled: false },
       bot_user: { display_name: botName(app), always_online: true },
     },
-    oauth_config: { ...(redirectUrl ? { redirect_urls: [redirectUrl] } : {}), scopes: { bot: [...BOT_SCOPES], user: [...USER_SCOPES] } },
+    // no user scopes: "Sign in with Slack" asks for openid and profile in its own flow (they may not be combined with
+    // others in one OAuth flow, and the manifest's user scopes are asked for when the app is installed)
+    oauth_config: { ...(redirectUrl ? { redirect_urls: [redirectUrl] } : {}), scopes: { bot: [...BOT_SCOPES] } },
     settings: {
       event_subscriptions: { bot_events: [...BOT_EVENTS] },
       interactivity: { is_enabled: true },

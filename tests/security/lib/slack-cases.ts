@@ -9,7 +9,9 @@ const FAKE_SEALED = { kid: '0123456789abcdef', epk: 'A'.repeat(87), iv: 'B'.repe
 const NO_TOKEN = { token: 'n'.repeat(43) }
 export const SLACK_SPECS: Record<string, Spec> = {
   slackAdmin: { build: c => c.get('/api/admin/slack'), scope: 'byLevel' },
-  saveSlackTokens: { build: c => c.put('/api/admin/slack/tokens', { botToken: FAKE_SEALED, appToken: FAKE_SEALED }), scope: 'byLevel' },
+  saveSlackTokens: { build: c => c.put('/api/admin/slack/tokens', { botToken: FAKE_SEALED, appToken: FAKE_SEALED, clientId: '1111111111.2222222222', clientSecret: FAKE_SEALED }), scope: 'byLevel',
+    // the body has every field: the owner reaches the handler, which refuses the seal (not the request's shape)
+    check: (r, _w, who) => { if (who === 'owner' && !r.text.includes('body.sealed')) throw new Error(`the owner case stopped before the handler: ${r.status} ${r.text.slice(0, 160)}`) } },
   setSlackEnabled: { build: c => c.post('/api/admin/slack/enabled', { enabled: false }), scope: 'byLevel' },
   removeSlack: { build: c => c.del('/api/admin/slack'), scope: 'byLevel' },
   mySlack: { build: c => c.get('/api/slack/me'), scope: 'self' },

@@ -17,7 +17,9 @@ export interface FakeSlack {
   clientId: string
   clientSecret: string
   /** codes Slack's "Sign in with Slack" gave a browser, and what their id_token says */
-  codes: Record<string, { user: string; team?: string; nonce: string; aud?: string; iss?: string; exp?: number; enterprise?: string }>
+  codes: Record<string, { user: string; team?: string; nonce: string; aud?: string; iss?: string; exp?: number; enterprise?: string; badIdToken?: boolean }>
+  /** the workspace is part of an Enterprise Grid organization (auth.test says so) */
+  enterpriseId?: string
   /** the app the socket address names (another app's app-level token) */
   socketAppId?: string
   users: Record<string, FakeUser>
@@ -116,7 +118,7 @@ export function startFakeSlack(): FakeSlack {
       switch (method) {
         case 'auth.test':
           if (!bot && !app) return json({ ok: false, error: 'invalid_auth' })
-          return json({ ok: true, url: 'https://acme.slack.com/', team: fake.team.name, user: 'trina-ax', team_id: fake.team.id, user_id: fake.botUserId, bot_id: 'B0BOT', is_enterprise_install: false }, { 'x-oauth-scopes': fake.scopes.join(',') })
+          return json({ ok: true, url: 'https://acme.slack.com/', team: fake.team.name, user: 'trina-ax', team_id: fake.team.id, user_id: fake.botUserId, bot_id: 'B0BOT', is_enterprise_install: false, ...(fake.enterpriseId ? { enterprise_id: fake.enterpriseId } : {}) }, { 'x-oauth-scopes': fake.scopes.join(',') })
         case 'apps.connections.open':
           if (bot) return json({ ok: false, error: 'not_allowed_token_type' })
           if (!app) return json({ ok: false, error: 'invalid_auth' })
@@ -158,7 +160,7 @@ export function startFakeSlack(): FakeSlack {
           const b64 = (o: unknown) => Buffer.from(JSON.stringify(o)).toString('base64url')
           const claims = { iss: c.iss ?? 'https://slack.com', sub: c.user, aud: c.aud ?? fake.clientId, exp: c.exp ?? Math.floor(Date.now() / 1000) + 600, iat: Math.floor(Date.now() / 1000), nonce: c.nonce,
             'https://slack.com/user_id': c.user, 'https://slack.com/team_id': c.team ?? fake.team.id, ...(c.enterprise ? { 'https://slack.com/enterprise_id': c.enterprise } : {}), name: c.user }
-          return json({ ok: true, access_token: `xoxp-user-${c.user}`, token_type: 'Bearer', id_token: `${b64({ alg: 'RS256', typ: 'JWT' })}.${b64(claims)}.c2ln` })
+          return json({ ok: true, access_token: `xoxp-user-${c.user}`, token_type: 'Bearer', id_token: c.badIdToken ? 'not-a-jwt' : `${b64({ alg: 'RS256', typ: 'JWT' })}.${b64(claims)}.c2ln` })
         }
         case 'auth.revoke': return json({ ok: true, revoked: true })
         case 'conversations.open': return bot && /^U[A-Z0-9]+$/.test(args.users ?? '') ? json({ ok: true, channel: { id: 'D' + args.users!.slice(1) } }) : json({ ok: false, error: 'invalid_arguments' })

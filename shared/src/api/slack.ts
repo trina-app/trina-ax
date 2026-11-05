@@ -55,6 +55,9 @@ export const SlackTokensBody = z.object({
   /** Basic Information › App Credentials: the Client ID (not a secret) and the Client Secret, sealed for 'slack.token' */
   clientId: z.string().max(64),
   clientSecret: SealedSecret,
+  /** the address the page is open at (window.location.origin), as with GET /api/admin/slack: where links open and the
+   * redirect URL of "Sign in with Slack", the same one the manifest showed */
+  origin: z.string().max(200).optional(),
 })
 
 export const MySlack = z.object({
@@ -93,7 +96,7 @@ export const SlackLinkPreview = z.object({
 export type SlackLinkPreview = z.infer<typeof SlackLinkPreview>
 
 export const SLACK = {
-  slackAdmin: endpoint({ method: 'GET', path: '/api/admin/slack', auth: 'owner', owner: 'C', response: SlackAdmin, summary: 'The Slack connector: state, workspace, the manifest to create the app with. Never a token.' }),
+  slackAdmin: endpoint({ method: 'GET', path: '/api/admin/slack', auth: 'owner', owner: 'C', query: z.object({ origin: z.string().max(200).optional() }), response: SlackAdmin, summary: 'The Slack connector: state, workspace, the manifest to create the app with. Never a token.' }),
   saveSlackTokens: endpoint({ method: 'PUT', path: '/api/admin/slack/tokens', auth: 'owner', owner: 'C', body: SlackTokensBody, response: SlackAdmin, summary: 'Check and save the bot and app-level tokens (sealed in the browser). Another workspace than before removes every link.' }),
   setSlackEnabled: endpoint({ method: 'POST', path: '/api/admin/slack/enabled', auth: 'owner', owner: 'C', body: z.object({ enabled: z.boolean() }), response: SlackAdmin, summary: 'Turn the connector on (needs saved tokens) or off.' }),
   removeSlack: endpoint({ method: 'DELETE', path: '/api/admin/slack', auth: 'owner', owner: 'C', response: SlackAdmin, summary: 'Remove the tokens and every link; the connector is off.' }),

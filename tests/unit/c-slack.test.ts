@@ -4,6 +4,7 @@
 // is answered to them only in a channel, in the thread in a DM; "Post to channel" once, by the asker only; the same
 // event or message twice runs once; Slack's refresh; the tokens nowhere in logs, rows or answers; a disabled account
 // unlinked at once. No real Slack is contacted.
+import { createHash } from 'node:crypto'
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from 'bun:test'
 import { sealSecret } from '../../web/src/lib/seal'
 import { createLogger } from '../../server/src/log'
@@ -256,12 +257,14 @@ describe('Enterprise Grid', () => {
 describe('Sign in with Slack: the person proves the Slack account, no e-mail needed', () => {
   const start = (who: string) => call(who, 'POST', '/api/slack/signin', {})
   const params = (url: string) => Object.fromEntries(new URL(url).searchParams)
-  /** Slack sends the browser back (as that person's browser, with its session) */
-  const back = async (who: string, q: Record<string, string>) => {
+  /** Slack sends the browser back: that person's browser with a session (or `null`: a browser with none). The page it
+   * is sent to. */
+  const backTo = async (who: string | null, q: Record<string, string>) => {
     const r = await h.req(who, `/api/integrations/slack/oauth/callback?${new URLSearchParams(q)}`, { redirect: 'manual' })
     expect(r.status).toBe(303)
-    return new URL(r.headers.get('location')!, 'http://x').searchParams.get('slack')
+    return r.headers.get('location')!
   }
+  const back = async (who: string | null, q: Record<string, string>) => new URL(await backTo(who, q), 'http://x').searchParams.get('slack')
   /** start as `who`, Slack signs them in as `slackUser` (or with the claims given), the browser comes back */
   const signIn = async (who: string, slackUser: string, o: { team?: string; nonce?: string; aud?: string; iss?: string; exp?: number; browser?: string } = {}) => {
     const p = params((await start(who)).json.authorizationUrl)
@@ -281,7 +284,9 @@ describe('Sign in with Slack: the person proves the Slack account, no e-mail nee
     h.ctx.db.query("UPDATE slack_config SET link_origin = 'https://team.acme.example'").run()
     const admin = (await call('dana', 'GET', '/api/admin/slack')).json
     expect(admin.redirectUrl).toBe('https://team.acme.example/api/integrations/slack/oauth/callback')
-    expect(JSON.parse(admin.manifest).oauth_config).toMatchObject({ redirect_urls: ['https://team.acme.example/api/integrations/slack/oauth/callback'], scopes: { user: ['openid', 'profile'] } })
+    expect(JSON.parse(admin.manifest).oauth_config.redirect_urls).toEqual(['https://team.acme.example/api/integrations/slack/oauth/callback'])
+    // no user scopes in the app: Sign in with Slack asks for its own in its own flow
+    expect(JSON.parse(admin.manifest).oauth_config.scopes.user).toBeUndefined()
     expect((await call('carol', 'GET', '/api/slack/me')).json.signIn).toBe(true)
     const url = new URL((await start('carol')).json.authorizationUrl)
     expect(url.origin + url.pathname).toBe('https://slack.com/openid/connect/authorize')
@@ -292,10 +297,8 @@ describe('Sign in with Slack: the person proves the Slack account, no e-mail nee
 
   test('carol, whose account has no e-mail, signs in to Slack and is linked; the Slack account is told; the user token is not kept', async () => {
     const p = params((await start('carol')).json.authorizationUrl)
-    const code = 'code-carol'
+    const code = 'code-carol-0001'
     fake.codes[code] = { user: 'U0NOMAIL', nonce: p.nonce! }
-    // another person's browser (bob's session) cannot finish carol's sign-in, nor spend it
-    expect(await back('bob', { state: p.state!, code: 'unused' })).toBe('signin_other_session')
     expect(await back('carol', { state: p.state!, code })).toBe('linked')
     expect(h.ctx.db.query("SELECT slack_user_id FROM slack_links WHERE user_id = 'carol'").get()).toEqual({ slack_user_id: 'U0NOMAIL' })
     expect((h.ctx.db.query("SELECT detail FROM audit_log WHERE action = 'slack.linked' AND target = 'carol'").get() as { detail: string }).detail).toContain('"via":"slack_signin"')
@@ -305,7 +308,13 @@ describe('Sign in with Slack: the person proves the Slack account, no e-mail nee
     expect(dm!.args.text).toContain('Carol Park (@carol)')
     expect(JSON.stringify(h.ctx.db.query('SELECT * FROM slack_links').all())).not.toContain('xoxp-')
     // the same state again: used
-    expect(await back('carol', { state: p.state!, code: 'again' })).toBe('signin_expired')
+    expect(await back('carol', { state: p.state!, code: 'code-again-0001' })).toBe('signin_expired')
+    // signed in again with the same Slack account: linked, nothing new recorded or said
+    const audits = (h.ctx.db.query("SELECT count(*) n FROM audit_log WHERE action = 'slack.linked' AND target = 'carol'").get() as { n: number }).n
+    const dms = fake.of('chat.postMessage').filter((c) => c.args.channel === 'D0NOMAIL').length
+    expect(await signIn('carol', 'U0NOMAIL')).toBe('linked')
+    expect((h.ctx.db.query("SELECT count(*) n FROM audit_log WHERE action = 'slack.linked' AND target = 'carol'").get() as { n: number }).n).toBe(audits)
+    expect(fake.of('chat.postMessage').filter((c) => c.args.channel === 'D0NOMAIL').length).toBe(dms)
     // and carol asks from Slack as herself
     mention('U0NOMAIL', say('carol asks'))
     expect(await waitFor(() => h.ctx.db.query("SELECT 1 FROM turns WHERE user_id = 'carol' AND client_kind = 'slack'").get(), { timeoutMs: 10_000 })).toBeTruthy()
@@ -331,6 +340,56 @@ describe('Sign in with Slack: the person proves the Slack account, no e-mail nee
     const p2 = params((await start('erin')).json.authorizationUrl)
     expect(await back('erin', { state: p2.state!, error: 'access_denied' })).toBe('signin_cancelled')
     expect(links()).toBe(0)
+  })
+
+  test('back in a browser with no session (the desktop or phone app): sign in there, then it goes on and links', async () => {
+    const p = params((await h.req('erin', '/api/slack/signin', { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}', client: 'desktop' }).then((r) => r.json()) as { authorizationUrl: string }).authorizationUrl)
+    const code = 'code-erin-0001'
+    fake.codes[code] = { user: 'U0ERIN', nonce: p.nonce! }
+    // no session: to the sign-in page, whose next page is the fixed return page with only the state and the code;
+    // other parameters of the request go nowhere
+    const loc = await backTo(null, { state: p.state!, code, next: 'https://evil.example/', return: '//evil.example' })
+    expect(loc).toBe(`/login?next=${encodeURIComponent(`/slack/signin-return?state=${p.state}&code=${code}`)}`)
+    expect((h.ctx.db.query("SELECT state FROM slack_signin_flows WHERE user_id = 'erin' ORDER BY created_at DESC").get() as { state: string }).state).toBe('pending')
+    // signed in, the return page sends the browser to the callback again: linked, and the end page is the one for an app
+    const done = await backTo('erin', { state: p.state!, code })
+    expect(done).toBe('/slack/done?slack=linked')
+    expect(h.ctx.db.query("SELECT slack_user_id FROM slack_links WHERE user_id = 'erin'").get()).toEqual({ slack_user_id: 'U0ERIN' })
+    // used: the same address again (another tab, after signing in again) changes nothing
+    expect(await back('erin', { state: p.state!, code })).toBe('signin_expired')
+    expect((await call('erin', 'DELETE', '/api/slack/me')).json.link).toBeNull()
+  })
+
+  test('signed in as somebody else, or too late after signing in: refused; a code that is not one goes nowhere', async () => {
+    let p = params((await start('erin')).json.authorizationUrl)
+    fake.codes['code-erin-0002'] = { user: 'U0ERIN', nonce: p.nonce! }
+    expect(await back(null, { state: p.state!, code: 'code-erin-0002' })).toBeNull() // sent to sign in
+    // ... and signs in as bob: refused, and the flow ends
+    expect(await back('bob', { state: p.state!, code: 'code-erin-0002' })).toBe('signin_other_user')
+    expect(await back('erin', { state: p.state!, code: 'code-erin-0002' })).toBe('signin_expired')
+    expect(h.ctx.db.query("SELECT count(*) n FROM slack_links WHERE user_id IN ('erin', 'bob')").get()).toEqual({ n: 0 })
+    // signing in took more than the 10 minutes
+    p = params((await start('erin')).json.authorizationUrl)
+    fake.codes['code-erin-0003'] = { user: 'U0ERIN', nonce: p.nonce! }
+    expect(await back(null, { state: p.state!, code: 'code-erin-0003' })).toBeNull()
+    skew = 11 * 60_000
+    expect(await back('erin', { state: p.state!, code: 'code-erin-0003' })).toBe('signin_expired')
+    skew = 0
+    // a "code" that is an address or a path: no sign-in page with it, the flow ends
+    p = params((await start('erin')).json.authorizationUrl)
+    const loc = await backTo(null, { state: p.state!, code: 'https://evil.example/x' })
+    expect(loc).toBe('/settings/connectors?slack=signin_failed')
+    expect(await back('erin', { state: p.state!, code: 'code-erin-0004' })).toBe('signin_expired')
+    expect(h.ctx.db.query("SELECT count(*) n FROM slack_links WHERE user_id = 'erin'").get()).toEqual({ n: 0 })
+  })
+
+  test('the user token is revoked even when the id_token is not one', async () => {
+    const p = params((await start('erin')).json.authorizationUrl)
+    fake.codes['code-erin-0005'] = { user: 'U0ERIN', nonce: p.nonce!, badIdToken: true }
+    const n = fake.of('auth.revoke').length
+    expect(await back('erin', { state: p.state!, code: 'code-erin-0005' })).toBe('signin_failed')
+    expect(await waitFor(() => fake.of('auth.revoke').length > n)).toBe(true)
+    expect(fake.of('auth.revoke').at(-1)!.token).toBe('xoxp-user-U0ERIN')
   })
 
   test('a Slack account linked to someone else, or an account linked to another Slack account: refused', async () => {
@@ -637,6 +696,43 @@ describe('asking', () => {
     expect(fake.sockets()).toBe(1)
     mention('U0ALICE', say('after refresh'))
     expect(await waitFor(() => ephemeralsTo('U0ALICE').some((c) => blocksOf(c).includes('after refresh')), { timeoutMs: 30_000 })).toBe(true)
+  })
+})
+
+describe('Enterprise Grid: one link per Slack user, whatever the enterprise id', () => {
+  test('a link made by signing in carries the workspace\'s enterprise id; questions with it are answered; no second link for the same Slack user', async () => {
+    // the workspace is part of an organization: the tokens are saved again (same workspace: the links stay)
+    fake.enterpriseId = 'E0ORG'
+    expect((await call('dana', 'PUT', '/api/admin/slack/tokens', await tokens())).status).toBe(200)
+    expect(await waitFor(async () => (await call('dana', 'GET', '/api/admin/slack')).json.state === 'connected', { timeoutMs: 10_000 })).toBe(true)
+    h.ctx.db.query("UPDATE slack_config SET link_origin = 'https://team.acme.example'").run()
+    try {
+      // a one-time link for that Slack user, from before (its event had no enterprise id)
+      const t = await newLink('U0MALLORY')
+      const p = Object.fromEntries(new URL((await call('bob', 'POST', '/api/slack/signin', {})).json.authorizationUrl).searchParams)
+      fake.codes['code-bob-grid-01'] = { user: 'U0MALLORY', nonce: p.nonce! } // the id_token says nothing of the organization
+      const r = await h.req('bob', `/api/integrations/slack/oauth/callback?${new URLSearchParams({ state: p.state!, code: 'code-bob-grid-01' })}`, { redirect: 'manual' })
+      expect(r.headers.get('location')).toBe('/settings/connectors?slack=linked')
+      expect(h.ctx.db.query("SELECT enterprise_id FROM slack_links WHERE user_id = 'bob'").get()).toEqual({ enterprise_id: 'E0ORG' })
+      // a question from that Slack user, with the organization in the event: answered as bob
+      const ts = nextTs()
+      fake.event({ type: 'app_mention', user: 'U0MALLORY', text: `<@U0BOT> ${say('grid answer')}`, ts, channel: C, event_ts: ts }, { enterprise: 'E0ORG' })
+      expect(await waitFor(() => h.ctx.db.query("SELECT 1 FROM turns WHERE user_id = 'bob' AND client_kind = 'slack'").get(), { timeoutMs: 15_000 })).toBeTruthy()
+      // the one-time link of the same Slack user, confirmed by another account with the same e-mail: used up by the link
+      h.ctx.db.query("UPDATE users SET email = 'mallory@acme.example' WHERE id = 'carol'").run()
+      expect((await call('carol', 'POST', '/api/slack/link/confirm', { token: t })).status).toBe(404)
+      // one still open (made in the same instant): the same check as signing in, so refused
+      const open = 'G'.repeat(43)
+      h.ctx.db.query("INSERT INTO slack_link_tokens (token_hash, team_id, enterprise_id, slack_user_id, slack_name, expires_at, created_at) VALUES (?, 'T0ACME', '', 'U0MALLORY', 'mallory', ?, ?)")
+        .run(createHash('sha256').update(open).digest('hex'), new Date(Date.now() + 600_000).toISOString(), new Date().toISOString())
+      const refused = await call('carol', 'POST', '/api/slack/link/confirm', { token: open })
+      expect(refused.status).toBe(409)
+      expect(refused.json.error.params.reason).toBe('slack_taken')
+      expect(h.ctx.db.query("SELECT count(*) n FROM slack_links WHERE slack_user_id = 'U0MALLORY'").get()).toEqual({ n: 1 })
+    } finally {
+      h.ctx.db.query('UPDATE slack_config SET link_origin = ?').run(h.url)
+      h.ctx.db.query("UPDATE users SET email = 'Carol@acme.example' WHERE id = 'carol'").run()
+    }
   })
 })
 

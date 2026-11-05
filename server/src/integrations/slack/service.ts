@@ -101,6 +101,10 @@ function idTokenClaims(raw: unknown): Record<string, unknown> {
 const BOT_TOKEN = /^xoxb-[A-Za-z0-9-]{10,250}$/
 const CLIENT_ID = /^\d{3,20}\.\d{3,20}$/
 const CLIENT_SECRET = /^[A-Za-z0-9]{16,128}$/
+const STATE = /^[A-Za-z0-9_-]{43}$/
+/** an authorization code as Slack sends it back (dot-separated parts) */
+export const SIGNIN_CODE = /^[A-Za-z0-9._-]{8,512}$/
+const CODE = SIGNIN_CODE
 const APP_TOKEN = /^xapp-[A-Za-z0-9-]{10,250}$/
 
 export class SlackConnector {
@@ -364,7 +368,7 @@ export class SlackConnector {
     const proof = tk ? this.emailProof(await this.slackMember(tk.bot, r.slack_user_id, cfg), userId) : 'unavailable'
     return {
       workspace: cfg.team_name ?? cfg.team_id!, slack: { userId: r.slack_user_id, name: r.slack_name, realName: r.slack_real_name, handle: r.slack_handle }, me: { name: me.name, username: me.username },
-      expiresAt: r.expires_at, linkedElsewhere: !!mine && !(mine.team_id === r.team_id && mine.enterprise_id === r.enterprise_id && mine.slack_user_id === r.slack_user_id),
+      expiresAt: r.expires_at, linkedElsewhere: !!mine && !(mine.team_id === r.team_id && mine.slack_user_id === r.slack_user_id),
       emailCheck: proof === 'match' ? 'match' : proof === 'unavailable' ? 'unavailable' : proof === 'recent' ? 'recent' : proof === 'mismatch' || proof === 'shared' || proof === 'outsider' ? 'mismatch' : 'missing',
       email: (this.db.query('SELECT email FROM users WHERE id = ?').get(userId) as { email: string | null } | null)?.email ?? null,
       signIn: this.signInReady(cfg),
@@ -379,7 +383,7 @@ export class SlackConnector {
     if (!tk) throw new SlackError('unreachable', 'unavailable')
     // already linked to another Slack account: said first (checked again below, where it counts)
     const before = this.db.query('SELECT * FROM slack_links WHERE user_id = ?').get(userId) as LinkRow | null
-    if (before && !(before.team_id === r.team_id && before.enterprise_id === r.enterprise_id && before.slack_user_id === r.slack_user_id)) throw new SlackError('linked_elsewhere', 'conflict')
+    if (before && !(before.team_id === r.team_id && before.slack_user_id === r.slack_user_id)) throw new SlackError('linked_elsewhere', 'conflict')
     // the proof: Slack's own e-mail of the Slack account this link was sent to is the confirming person's e-mail
     const proof = this.emailProof(await this.slackMember(tk.bot, r.slack_user_id, cfg), userId)
     if (proof === 'unavailable') throw new SlackError('unreachable', 'unavailable')
@@ -390,20 +394,10 @@ export class SlackConnector {
     const now = iso(this.now())
     let made = false
     this.db.transaction(() => {
-      const mine = this.db.query('SELECT * FROM slack_links WHERE user_id = ?').get(userId) as LinkRow | null
-      const same = !!mine && mine.team_id === r.team_id && mine.enterprise_id === r.enterprise_id && mine.slack_user_id === r.slack_user_id
-      if (mine && !same) throw new SlackError('linked_elsewhere', 'conflict')
-      const taken = this.db.query('SELECT user_id FROM slack_links WHERE team_id = ? AND enterprise_id = ? AND slack_user_id = ?').get(r.team_id, r.enterprise_id, r.slack_user_id) as { user_id: string } | null
-      if (taken && taken.user_id !== userId) throw new SlackError('slack_taken', 'conflict')
+      const same = this.bindable(userId, r.team_id, r.slack_user_id)
       // used once: a second confirm of the same link (another tab, another person) finds it gone
       if (!this.db.query('UPDATE slack_link_tokens SET used_at = ? WHERE token_hash = ? AND used_at IS NULL AND expires_at > ?').run(now, r.token_hash, now).changes) throw new SlackError('link_expired', 'not_found')
-      // every other open link of this Slack account goes too
-      this.db.query('UPDATE slack_link_tokens SET used_at = ? WHERE team_id = ? AND slack_user_id = ? AND used_at IS NULL').run(now, r.team_id, r.slack_user_id)
-      if (!same) {
-        this.db.query('INSERT INTO slack_links (id, user_id, team_id, enterprise_id, slack_user_id, slack_name, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)')
-          .run(newId(), userId, r.team_id, r.enterprise_id, r.slack_user_id, r.slack_name, now)
-        made = true
-      }
+      if (!same) { this.bind(userId, r.team_id, r.slack_user_id, r.slack_name, now); made = true }
     })()
     if (made) {
       audit(this.db, { actor: userId, action: 'slack.linked', target: userId, detail: { slackUser: r.slack_user_id, team: r.team_id } })
@@ -432,9 +426,31 @@ export class SlackConnector {
     try { const u = new URL(origin); return u.protocol === 'https:' && !u.username && !u.password ? `${u.origin}${SLACK_CALLBACK_PATH}` : null } catch { return null }
   }
 
+  /** One check for every way a link is made (the one-time link, Sign in with Slack): this person is not linked to another
+   * Slack account, and this Slack user of the workspace not to another person. true: already this very link. Inside the
+   * caller's transaction. */
+  private bindable(userId: string, team: string, slackUser: string): boolean {
+    const mine = this.db.query('SELECT * FROM slack_links WHERE user_id = ?').get(userId) as LinkRow | null
+    const same = !!mine && mine.team_id === team && mine.slack_user_id === slackUser
+    if (mine && !same) throw new SlackError('linked_elsewhere', 'conflict')
+    const owner = this.ownerOf(team, slackUser)
+    if (owner && owner.user_id !== userId) throw new SlackError('slack_taken', 'conflict')
+    return same
+  }
+
+  /** The link itself: the workspace's enterprise id as auth.test gave it (events carry the same), the person's open
+   * one-time links used up. Inside the caller's transaction. */
+  private bind(userId: string, team: string, slackUser: string, name: string | null, now: string) {
+    this.db.query('UPDATE slack_link_tokens SET used_at = ? WHERE team_id = ? AND slack_user_id = ? AND used_at IS NULL').run(now, team, slackUser)
+    this.db.query('INSERT INTO slack_links (id, user_id, team_id, enterprise_id, slack_user_id, slack_name, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)')
+      .run(newId(), userId, team, this.config()?.enterprise_id ?? '', slackUser, name, now)
+  }
+
   /** Start "Sign in with Slack" for the signed-in person (docs.slack.dev "Sign in with Slack"): state and nonce random,
-   * stored hashed, bound to this person and this session, 10 minutes. The person's own browser goes to Slack. */
-  startSignIn(userId: string, sessionId: string): { authorizationUrl: string } {
+   * stored hashed, bound to this person, 10 minutes. The person's browser goes to Slack: in the desktop app the system
+   * browser, in the phone app an in-app browser, so it may come back without the app's session (then the person signs
+   * in there and it goes on). `client`: where it started, for the page at the end. */
+  startSignIn(userId: string, sessionId: string, client: string = 'web'): { authorizationUrl: string } {
     const cfg = this.config(), creds = this.tokens(cfg)
     if (!cfg || !this.available(cfg) || !cfg.client_id || !creds?.clientSecret) throw new SlackError('signin_off', 'conflict')
     const redirect = this.redirectUri(cfg.link_origin)
@@ -447,8 +463,8 @@ export class SlackConnector {
     this.db.transaction(() => {
       // only the newest flow of this person works
       this.db.query("UPDATE slack_signin_flows SET state = 'failed', reason = 'superseded' WHERE user_id = ? AND state = 'pending'").run(userId)
-      this.db.query("INSERT INTO slack_signin_flows (id, user_id, session_id, state_hash, nonce_hash, redirect_uri, state, created_at, expires_at) VALUES (?, ?, ?, ?, ?, ?, 'pending', ?, ?)")
-        .run(newId(), userId, sessionId, sha(state), sha(nonce), redirect, iso(now), iso(now + LINK_TTL_MS))
+      this.db.query("INSERT INTO slack_signin_flows (id, user_id, session_id, state_hash, nonce_hash, redirect_uri, client, state, created_at, expires_at) VALUES (?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?)")
+        .run(newId(), userId, sessionId, sha(state), sha(nonce), redirect, client === 'desktop' || client === 'mobile' ? client : 'web', iso(now), iso(now + LINK_TTL_MS))
     })()
     const u = new URL(SLACK_AUTHORIZE)
     // `team`: this workspace (an app that is not distributed signs in to its own workspace only)
@@ -456,56 +472,61 @@ export class SlackConnector {
     return { authorizationUrl: u.href }
   }
 
-  /** Slack sent the browser back. Only the person and the session that started it may finish it; the code is exchanged
-   * by the server (openid.connect.token, with the client secret) and the id_token's claims checked (issuer, audience,
-   * time, nonce); the Slack user it names is the one who signed in to Slack, so it is linked. A reason code otherwise. */
-  async finishSignIn(input: { state?: string; code?: string; error?: string }, browser: { userId: string; sessionId: string } | null): Promise<'linked' | string> {
-    if (!input.state || !/^[A-Za-z0-9_-]{43}$/.test(input.state)) return 'signin_expired'
-    const f = this.db.query('SELECT * FROM slack_signin_flows WHERE state_hash = ?').get(sha(input.state)) as { id: string; user_id: string; session_id: string; nonce_hash: string; redirect_uri: string; state: string; expires_at: string } | null
-    if (!f || f.state !== 'pending' || f.expires_at <= iso(this.now())) return 'signin_expired'
-    // another browser or another person's session never finishes it (nor spends it)
-    if (!browser || browser.userId !== f.user_id || browser.sessionId !== f.session_id) return 'signin_other_session'
-    if (!this.db.query("UPDATE slack_signin_flows SET state = 'failed', reason = 'used' WHERE id = ? AND state = 'pending'").run(f.id).changes) return 'signin_expired'
-    const fail = (reason: string) => { this.db.query('UPDATE slack_signin_flows SET reason = ? WHERE id = ?').run(reason, f.id); return reason }
-    if (input.error || !input.code || input.code.length > 512) return fail('signin_cancelled')
+  /** Slack sent the browser back. Only a browser signed in as the person who started it finishes it (any of their
+   * sessions); a browser with no session is sent to sign in first, and the flow waits (`signin_needed`); another
+   * person's session refuses and ends it. The code is exchanged by the server (openid.connect.token, with the client
+   * secret) and the id_token's claims checked (issuer, audience, time, nonce); the Slack user it names is the one who
+   * signed in to Slack, so it is linked. `client`: where the flow started. */
+  async finishSignIn(input: { state?: string; code?: string; error?: string }, browser: { userId: string } | null): Promise<{ result: string; client: string }> {
+    if (!input.state || !STATE.test(input.state)) return { result: 'signin_expired', client: 'web' }
+    const f = this.db.query('SELECT * FROM slack_signin_flows WHERE state_hash = ?').get(sha(input.state)) as { id: string; user_id: string; nonce_hash: string; redirect_uri: string; client: string; state: string; expires_at: string } | null
+    if (!f || f.state !== 'pending' || f.expires_at <= iso(this.now())) return { result: 'signin_expired', client: f?.client ?? 'web' }
+    const out = (result: string) => ({ result, client: f.client })
+    const end = (reason: string) => { this.db.query("UPDATE slack_signin_flows SET state = 'failed', reason = ? WHERE id = ? AND state = 'pending'").run(reason, f.id); return out(reason) }
+    if (input.error) return end('signin_cancelled')
+    if (!input.code || !CODE.test(input.code)) return end('signin_failed')
+    // no session in this browser (the desktop app's system browser, the phone app's in-app browser, another address):
+    // sign in here first, then this same address again; the flow waits
+    if (!browser) return out('signin_needed')
+    // signed in as somebody else: never that person's link
+    if (browser.userId !== f.user_id) return end('signin_other_user')
+    if (!this.db.query("UPDATE slack_signin_flows SET state = 'failed', reason = 'used' WHERE id = ? AND state = 'pending'").run(f.id).changes) return out('signin_expired')
+    const fail = (reason: string) => { this.db.query('UPDATE slack_signin_flows SET reason = ? WHERE id = ?').run(reason, f.id); return out(reason) }
     const cfg = this.config(), creds = this.tokens(cfg)
     const me = this.person(f.user_id)
     if (!cfg || !this.available(cfg) || !cfg.client_id || !creds?.clientSecret || !me) return fail('signin_off')
-    let claims: Record<string, unknown>, userToken: string | null = null
-    try {
-      const r = await this.api.call('openid.connect.token', '', { client_id: cfg.client_id, client_secret: creds.clientSecret, code: input.code, grant_type: 'authorization_code', redirect_uri: f.redirect_uri }, { noAuth: true })
-      userToken = typeof r.access_token === 'string' ? r.access_token : null
-      claims = idTokenClaims(r.id_token)
-    } catch (e) { this.log.warn('slack sign-in exchange failed', { reason: e instanceof SlackApiError ? e.code : 'unknown' }); return fail('signin_failed') }
-    finally { /* the person's Slack user token is not kept */ }
-    if (userToken) void this.api.call('auth.revoke', userToken).catch(() => {})
+    let r: Record<string, unknown>
+    try { r = await this.api.call('openid.connect.token', '', { client_id: cfg.client_id, client_secret: creds.clientSecret, code: input.code, grant_type: 'authorization_code', redirect_uri: f.redirect_uri }, { noAuth: true }) }
+    catch (e) { this.log.warn('slack sign-in exchange failed', { reason: e instanceof SlackApiError ? e.code : 'unknown' }); return fail('signin_failed') }
+    // the person's Slack user token is never kept: revoked whatever the id_token turns out to be
+    const userToken = typeof r.access_token === 'string' ? r.access_token : null
+    let claims: Record<string, unknown>
+    try { claims = idTokenClaims(r.id_token) } catch { return fail('signin_failed') }
+    finally { if (userToken) void this.api.call('auth.revoke', userToken).catch(() => {}) }
     const nowS = this.now() / 1000
     if (claims.iss !== 'https://slack.com' || claims.aud !== cfg.client_id || typeof claims.exp !== 'number' || claims.exp < nowS - 60 || typeof claims.nonce !== 'string' || sha(claims.nonce) !== f.nonce_hash) return fail('signin_failed')
-    const slackUser = claims['https://slack.com/user_id'], claimedTeam = claims['https://slack.com/team_id']
-    const enterprise = typeof claims['https://slack.com/enterprise_id'] === 'string' ? claims['https://slack.com/enterprise_id'] as string : ''
-    if (typeof slackUser !== 'string' || !ID.test(slackUser) || claimedTeam !== cfg.team_id) return fail('outsider')
+    const slackUser = claims['https://slack.com/user_id']
+    if (typeof slackUser !== 'string' || !ID.test(slackUser) || claims['https://slack.com/team_id'] !== cfg.team_id) return fail('outsider')
     const team = cfg.team_id!
     // Slack says now who this is: a person of this workspace (no bot, not deactivated), as for every link
     const m = await this.slackMember(creds.bot, slackUser, cfg)
     if (!m) return fail('signin_failed')
     if (!m.ours) return fail('outsider')
     const now = iso(this.now())
+    let made = false
     try {
       this.db.transaction(() => {
-        const mine = this.db.query('SELECT * FROM slack_links WHERE user_id = ?').get(f.user_id) as LinkRow | null
-        if (mine && mine.slack_user_id === slackUser && mine.team_id === team) return
-        if (mine) throw new SlackError('linked_elsewhere', 'conflict')
-        if (this.db.query('SELECT 1 FROM slack_links WHERE team_id = ? AND slack_user_id = ?').get(team, slackUser)) throw new SlackError('slack_taken', 'conflict')
-        this.db.query('UPDATE slack_link_tokens SET used_at = ? WHERE team_id = ? AND slack_user_id = ? AND used_at IS NULL').run(now, team, slackUser)
-        this.db.query('INSERT INTO slack_links (id, user_id, team_id, enterprise_id, slack_user_id, slack_name, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)')
-          .run(newId(), f.user_id, team, enterprise, slackUser, m.name ?? m.realName ?? m.handle, now)
+        if (!this.bindable(f.user_id, team, slackUser)) { this.bind(f.user_id, team, slackUser, m.name ?? m.realName ?? m.handle, now); made = true }
         this.db.query("UPDATE slack_signin_flows SET state = 'done', reason = NULL WHERE id = ?").run(f.id)
       })()
     } catch (e) { if (e instanceof SlackError) return fail(e.reason); throw e }
-    audit(this.db, { actor: f.user_id, action: 'slack.linked', target: f.user_id, detail: { slackUser, team, via: 'slack_signin' } })
-    // the Slack account is told which account it now asks as, and how to undo it
-    await this.dm(creds.bot, slackUser, say('mapped', this.localeOf(f.user_id), { name: plain(`${me.name} (@${me.username})`) }))
-    return 'linked'
+    // already this very link (signed in again): nothing new to record or say
+    if (made) {
+      audit(this.db, { actor: f.user_id, action: 'slack.linked', target: f.user_id, detail: { slackUser, team, via: 'slack_signin' } })
+      // the Slack account is told which account it now asks as, and how to undo it
+      await this.dm(creds.bot, slackUser, say('mapped', this.localeOf(f.user_id), { name: plain(`${me.name} (@${me.username})`) }))
+    }
+    return out('linked')
   }
 
   cancel(userId: string, token: string) {
@@ -561,8 +582,9 @@ export class SlackConnector {
     return this.db.query('INSERT OR IGNORE INTO slack_events (key, seen_at) VALUES (?, ?)').run(key, iso(this.now())).changes === 1
   }
 
-  private linkOf(team: string, enterprise: string, user: string): LinkRow | null {
-    return this.db.query('SELECT * FROM slack_links WHERE team_id = ? AND enterprise_id = ? AND slack_user_id = ?').get(team, enterprise, user) as LinkRow | null
+  /** The person this Slack user of the workspace is linked to (the enterprise id is not part of the match) */
+  private ownerOf(team: string, slackUser: string): LinkRow | null {
+    return this.db.query('SELECT * FROM slack_links WHERE team_id = ? AND slack_user_id = ?').get(team, slackUser) as LinkRow | null
   }
 
   private async ephemeral(bot: string, q: Pick<Question, 'channel' | 'user' | 'threadTs'>, text: string, blocks?: unknown[]) {
@@ -577,7 +599,7 @@ export class SlackConnector {
     if (!tk) return
     // a person of another workspace (Slack Connect): never linked, never answered
     if (q.userTeam && q.userTeam !== q.team) { await this.ephemeral(tk.bot, q, say('outsider', this.localeOf(null))); return }
-    const link = this.linkOf(q.team, q.enterprise, q.user)
+    const link = this.ownerOf(q.team, q.user)
     const account = link ? this.account(link.user_id) : null
     if (!link || !account) { await this.offerLink(cfg, tk.bot, q, link); return }
     const locale = this.localeOf(account.id)
@@ -732,7 +754,7 @@ export class SlackConnector {
 
   /** The Slack account that asked is still linked to the person the turn ran as, who may still use the app. */
   private stillLinked(r: Pick<RequestRow, 'team_id' | 'enterprise_id' | 'slack_user_id' | 'user_id'>): boolean {
-    const link = this.linkOf(r.team_id, r.enterprise_id, r.slack_user_id)
+    const link = this.ownerOf(r.team_id, r.slack_user_id)
     return !!link && link.user_id === r.user_id && !!this.person(r.user_id)
   }
 
@@ -833,7 +855,7 @@ export class SlackConnector {
     if (!this.db.query('SELECT 1 FROM chats WHERE id = ? AND user_id = ? AND deleted_at IS NULL').get(r.chat_id, r.user_id)) { await reply(say('postGone', locale)); return }
     const a = this.answerOf(r, locale)
     if (!a.ok) { await reply(say('postGone', locale)); return }
-    const link = this.linkOf(r.team_id, r.enterprise_id, r.slack_user_id)!
+    const link = this.ownerOf(r.team_id, r.slack_user_id)!
     const body = sections(toMrkdwn(a.text), 10)
     // a name as text, never a mention (no ping)
     const asker = link.slack_name ? plain(link.slack_name) : say('teammate', locale)

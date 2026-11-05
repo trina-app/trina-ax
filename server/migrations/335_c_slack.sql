@@ -11,7 +11,9 @@
 --     posted to the channel once.
 --   slack_events: event ids and message ids already handled (Slack sends an event again when it was not acknowledged).
 --   slack_signin_flows: "Sign in with Slack" (OpenID Connect) started by a signed-in person to link the Slack account
---     they sign in to: state and nonce stored hashed, bound to that person and that session, 10 minutes, used once.
+--     they sign in to: state and nonce stored hashed, bound to that person (any of their sessions: the browser that
+--     comes back from Slack may not be the app that started it), 10 minutes, used once. `client`: where it started
+--     (web, desktop, mobile), so the end page fits.
 --   slack_email_changes: when each account's e-mail was last set (triggers below). Who set it is in the audit log for
 --     admins (user.create, user.update); a change with no admin entry is the person's own. The e-mail proof of a link
 --     is not trusted for 7 days after someone else set it.
@@ -41,7 +43,9 @@ CREATE TABLE slack_links (
   slack_user_id TEXT NOT NULL,
   slack_name TEXT,
   created_at TEXT NOT NULL,
-  UNIQUE (enterprise_id, team_id, slack_user_id)
+  -- one link per Slack user of the workspace (a Slack user id is the same in every workspace of an Enterprise Grid
+  -- organization; the enterprise id is kept, never part of the match)
+  UNIQUE (team_id, slack_user_id)
 );
 CREATE TABLE slack_link_tokens (
   token_hash TEXT PRIMARY KEY,
@@ -98,6 +102,7 @@ CREATE TABLE slack_signin_flows (
   state_hash TEXT NOT NULL UNIQUE,
   nonce_hash TEXT NOT NULL,
   redirect_uri TEXT NOT NULL,
+  client TEXT NOT NULL DEFAULT 'web',
   state TEXT NOT NULL CHECK (state IN ('pending', 'done', 'failed')),
   reason TEXT,
   created_at TEXT NOT NULL,
