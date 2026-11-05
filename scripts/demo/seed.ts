@@ -50,6 +50,8 @@ export interface DemoCompany {
   profile?: CompanyProfileInput
   /** team settings the owner sets (Admin › 팀 설정) */
   settings?: Partial<TeamSettings>
+  /** what a person's AI remembers about them (Settings › 메모리), saved as that person */
+  memories?: { username: string; text: string }[]
 }
 
 export const DEMO_PEOPLE: DemoPerson[] = [
@@ -255,6 +257,14 @@ export async function seedDemo(o: SeedOptions): Promise<SeedResult> {
 
   // 8. team settings
   if (co.settings && Object.keys(co.settings).length) await owner.call(API.updateSettings, { body: co.settings })
+
+  // 9. memories, as their person (kept when the same text is there)
+  for (const m of co.memories ?? []) {
+    const token = tokens.get(m.username)
+    if (!token) continue
+    const mine = as(token)
+    if (!(await mine.call(API.listMemories, { query: { limit: 100 } })).items.some((x) => x.text === m.text)) await mine.call(API.createMemory, { body: { text: m.text } })
+  }
 
   // sign the script's own sessions out again (people sign in themselves in the browser)
   for (const t of tokens.values()) await as(t).call(API.logout).catch(() => {})

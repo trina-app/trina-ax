@@ -90,6 +90,9 @@ export const TRINA: DemoCompany = {
   // answers without sub-agents: quicker on a phone, and every recorded answer is one agent's (record.ts); a Korean
   // company's clock, whatever the Mac's
   settings: { aiSubagents: false, timeZone: 'Asia/Seoul' },
+  // the new hire's answers in Korean from the first word: without it the AI wrote a short English line before looking at
+  // images ("Let me view the images."), the first thing a viewer read in the card news scene (recorded with this memory)
+  memories: [{ username: TRINA_NEW_HIRE, text: '한지우는 작업 중간에 나오는 안내까지 모두 한국어로 받는 걸 좋아해요. 영어 문장은 읽기 어려워해요.' }],
   profile: {
     website: 'https://trina-box.example',
     name: '트리나',

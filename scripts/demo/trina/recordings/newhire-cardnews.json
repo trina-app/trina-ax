@@ -4,169 +4,174 @@
  "userId": "jiwoo",
  "prompt": "11월 캠페인 카드뉴스 5장을 우리 제품 이미지로 만들어 줘",
  "kind": "showcase",
- "recordedAt": "2026-11-05T01:04:49.347Z",
+ "recordedAt": "2026-11-05T01:24:51.963Z",
  "engine": "claude-code",
  "model": "claude-opus-5-5",
  "events": [
   {
    "type": "tool",
-   "t": 2144,
+   "t": 16173,
    "name": "mcp__team__set_title",
    "input": {
     "title": "11월 캠페인 카드뉴스 5장 제작"
-   },
-   "ok": true,
-   "ms": 21
-  },
-  {
-   "type": "tool",
-   "t": 2693,
-   "name": "mcp__team__grep",
-   "input": {
-    "pattern": "11월|캠페인",
-    "output_mode": "files_with_matches"
-   },
-   "ok": true,
-   "ms": 49
-  },
-  {
-   "type": "tool",
-   "t": 3115,
-   "name": "mcp__team__glob",
-   "input": {
-    "pattern": "**/*.{png,jpg,jpeg,webp,PNG,JPG}"
-   },
-   "ok": true,
-   "ms": 32
-  },
-  {
-   "type": "tool",
-   "t": 4341,
-   "name": "mcp__team__read",
-   "input": {
-    "file_path": "groups/마케팅팀/2026-11-캠페인-기획.md"
-   },
-   "ok": true,
-   "ms": 35
-  },
-  {
-   "type": "tool",
-   "t": 4791,
-   "name": "mcp__team__read",
-   "input": {
-    "file_path": "groups/마케팅팀/브랜드-가이드.md"
-   },
-   "ok": true,
-   "ms": 13
-  },
-  {
-   "type": "tool",
-   "t": 5223,
-   "name": "mcp__team__read",
-   "input": {
-    "file_path": "groups/마케팅팀/회의록/2026-11-03-마케팅-주간회의.md"
-   },
-   "ok": true,
-   "ms": 29
-  },
-  {
-   "type": "text",
-   "t": 6101,
-   "text": "Let me view the images."
-  },
-  {
-   "type": "tool",
-   "t": 6607,
-   "name": "mcp__team__read",
-   "input": {
-    "file_path": "groups/마케팅팀/브랜드/캠페인-키비주얼.png"
-   },
-   "ok": true,
-   "ms": 76
-  },
-  {
-   "type": "tool",
-   "t": 7052,
-   "name": "mcp__team__read",
-   "input": {
-    "file_path": "groups/마케팅팀/브랜드/제품-베이직.png"
-   },
-   "ok": true,
-   "ms": 64
-  },
-  {
-   "type": "tool",
-   "t": 7508,
-   "name": "mcp__team__read",
-   "input": {
-    "file_path": "groups/마케팅팀/브랜드/제품-플러스.png"
-   },
-   "ok": true,
-   "ms": 50
-  },
-  {
-   "type": "tool",
-   "t": 8003,
-   "name": "mcp__team__read",
-   "input": {
-    "file_path": "groups/마케팅팀/브랜드/제품-시즌박스.png"
-   },
-   "ok": true,
-   "ms": 55
-  },
-  {
-   "type": "tool",
-   "t": 8385,
-   "name": "mcp__team__read",
-   "input": {
-    "file_path": "groups/마케팅팀/브랜드/트리나-로고.png"
-   },
-   "ok": true,
-   "ms": 27
-  },
-  {
-   "type": "tool",
-   "t": 62240,
-   "name": "mcp__team__write",
-   "input": {
-    "file_path": "users/jiwoo/카드뉴스/11월-캠페인-카드뉴스.html",
-    "content": "<!DOCTYPE html>\n<html lang=\"ko\">\n<head>\n<meta charset=\"utf-8\">\n<title>11월 캠페인 카드뉴스 — 연말 사무실 간식 박스</title>\n<style>\n  :root{--green:#2F6B4F;--cream:#F6F1E7;--orange:#F29E4C;--ink:#2b2b2b;--sub:#6b6458;}\n  *{box-sizing:border-box;margin:0;padding:0}\n  body{background:#e9e4da;font-family:\"Pretendard\",\"Apple SD Gothic Neo\",\"Noto Sans KR\",\"Malgun Gothic\",sans-serif;color:var(--ink);padding:32px 16px}\n  h1.page{font-size:18px;color:var(--green);text-align:center;margin-bottom:6px}\n  p.note{font-size:13px;color:var(--sub);text-align:center;margin-bottom:24px}\n  .deck{display:flex;flex-wrap:wrap;gap:24px;justify-content:center}\n  .card{width:540px;height:540px;background:var(--cream);border-radius:6px;box-shadow:0 4px 18px rgba(0,0,0,.08);\n        position:relative;overflow:hidden;padding:34px 38px;display:flex;flex-direction:column}\n  .top{display:flex;justify-content:space-between;align-items:center;margin-bottom:18px}\n  .logo{height:38px;display:block}\n  .num{font-size:13px;color:var(--sub);letter-spacing:1px}\n  .tag{display:inline-block;align-self:flex-start;background:var(--green);color:#fff;font-size:14px;font-weight:700;\n       padding:6px 16px;border-radius:999px;margin-bottom:14px}\n  .head{font-size:31px;line-height:1.3;font-weight:800;color:var(--green);letter-spacing:-.5px}\n  .sub{font-size:16px;line-height:1.55;color:var(--sub);margin-top:10px}\n  .visual{flex:1;display:flex;align-items:flex-end;justify-content:center;min-height:0}\n  /* 제품 이미지(800x800)에서 아래 초록 띠를 빼고 박스 부분만 잘라 보여 줘요 */\n  .crop{width:var(--w);height:calc(var(--w)*.56);overflow:hidden}\n  .crop img{width:100%;display:block;margin-top:calc(var(--w)*-.235)}\n  /* 키비주얼(1200x630)에서 오른쪽 그림 부분만 */\n  .crop-kv{width:440px;height:260px;overflow:hidden;position:relative}\n  .crop-kv img{position:absolute;width:900px;left:-450px;top:-170px}\n  .price-row{display:flex;align-items:center;gap:12px;margin-top:14px}\n  .price{background:var(--orange);color:#3a2410;font-weight:800;font-size:19px;padding:9px 20px;border-radius:999px}\n  .vat{font-size:13px;color:var(--sub)}\n  .cta{display:inline-block;background:var(--orange);color:#3a2410;font-weight:800;font-size:18px;padding:11px 24px;border-radius:999px}\n  .cta-row{display:flex;align-items:center;gap:14px;margin-top:14px}\n  .url{font-size:14px;color:var(--green);font-weight:700}\n  .period{font-size:13px;color:var(--sub);margin-top:6px}\n</style>\n</head>\n<body>\n<h1 class=\"page\">11월 캠페인 카드뉴스 초안 (5장)</h1>\n<p class=\"note\">연말 사무실 간식 박스 · 11월 16일(월) – 12월 13일(일) · 브랜드 가이드 기준 · 초안(최유나 님 검수 전)</p>\n\n<div class=\"deck\">\n\n  <!-- 1. 표지 -->\n  <section class=\"card\">\n    <div class=\"top\"><img class=\"logo\" src=\"트리나-로고.png\" alt=\"트리나 박스\"><span class=\"num\">1 / 5</span></div>\n    <span class=\"tag\">연말 사무실 간식 박스</span>\n    <h2 class=\"head\">올해 마지막 한 달,<br>사무실 간식은<br>트리나 박스에 맡기세요</h2>\n    <p class=\"period\">11월 16일(월) – 12월 13일(일)</p>\n    <div class=\"visual\"><div class=\"crop\" style=\"--w:340px\"><img src=\"제품-플러스.png\" alt=\"트리나 박스 플러스\"></div></div>\n  </section>\n\n  <!-- 2. 체험 박스 무료 -->\n  <section class=\"card\">\n    <div class=\"top\"><img class=\"logo\" src=\"트리나-로고.png\" alt=\"트리나 박스\"><span class=\"num\">2 / 5</span></div>\n    <span class=\"tag\">체험 박스 무료</span>\n    <h2 class=\"head\">먼저 받아 보고<br>정하세요</h2>\n    <p class=\"sub\">체험 박스를 무료로 보내 드려요.<br>우리 팀 취향에 맞는지 가볍게 확인해 보세요.</p>\n    <div class=\"visual\"><div class=\"crop-kv\"><img src=\"캠페인-키비주얼.png\" alt=\"트리나 박스와 연말 선물 상자\"></div></div>\n  </section>\n\n  <!-- 3. 베이직 -->\n  <section class=\"card\">\n    <div class=\"top\"><img class=\"logo\" src=\"트리나-로고.png\" alt=\"트리나 박스\"><span class=\"num\">3 / 5</span></div>\n    <span class=\"tag\">트리나 박스 베이직</span>\n    <h2 class=\"head\">커피와 기본 간식을<br>정기적으로</h2>\n    <div class=\"price-row\"><span class=\"price\">월 19만 원부터</span><span class=\"vat\">(부가세 별도)</span></div>\n    <div class=\"visual\"><div class=\"crop\" style=\"--w:380px\"><img src=\"제품-베이직.png\" alt=\"트리나 박스 베이직\"></div></div>\n  </section>\n\n  <!-- 4. 플러스 -->\n  <section class=\"card\">\n    <div class=\"top\"><img class=\"logo\" src=\"트리나-로고.png\" alt=\"트리나 박스\"><span class=\"num\">4 / 5</span></div>\n    <span class=\"tag\">트리나 박스 플러스</span>\n    <h2 class=\"head\">과일과 월 1회<br>테마 박스까지</h2>\n    <div class=\"price-row\"><span class=\"price\">월 39만 원부터</span><span class=\"vat\">(부가세 별도)</span></div>\n    <div class=\"visual\"><div class=\"crop\" style=\"--w:380px\"><img src=\"제품-플러스.png\" alt=\"트리나 박스 플러스\"></div></div>\n  </section>\n\n  <!-- 5. 시즌 박스 + 신청 -->\n  <section class=\"card\">\n    <div class=\"top\"><img class=\"logo\" src=\"트리나-로고.png\" alt=\"트리나 박스\"><span class=\"num\">5 / 5</span></div>\n    <span class=\"tag\">사전 주문 11월 16일(월)부터</span>\n    <h2 class=\"head\">송년회 간식은<br>연말 시즌 박스로</h2>\n    <p class=\"sub\">12월 1일(화) – 24일(목) 발송 · 한 번만 주문해요</p>\n    <div class=\"cta-row\"><span class=\"cta\">체험 박스 신청하기</span><span class=\"url\">trina-box.example/year-end</span></div>\n    <div class=\"visual\"><div class=\"crop\" style=\"--w:300px\"><img src=\"제품-시즌박스.png\" alt=\"연말 시즌 박스\"></div></div>\n  </section>\n\n</div>\n</body>\n</html>\n"
    },
    "ok": true,
    "ms": 9
   },
   {
    "type": "tool",
-   "t": 64315,
-   "name": "mcp__team__copy_files",
+   "t": 16773,
+   "name": "mcp__team__grep",
    "input": {
-    "paths": [
-     "groups/마케팅팀/브랜드/트리나-로고.png",
-     "groups/마케팅팀/브랜드/캠페인-키비주얼.png",
-     "groups/마케팅팀/브랜드/제품-베이직.png",
-     "groups/마케팅팀/브랜드/제품-플러스.png",
-     "groups/마케팅팀/브랜드/제품-시즌박스.png"
-    ],
-    "to_folder": "users/jiwoo/카드뉴스"
+    "pattern": "11월.*캠페인|캠페인.*11월",
+    "-i": true
    },
    "ok": true,
-   "ms": 30
+   "ms": 37
   },
   {
    "type": "tool",
-   "t": 65628,
+   "t": 17144,
+   "name": "mcp__team__glob",
+   "input": {
+    "pattern": "**/*.{png,jpg,jpeg,webp,PNG,JPG}"
+   },
+   "ok": true,
+   "ms": 11
+  },
+  {
+   "type": "tool",
+   "t": 27071,
+   "name": "mcp__team__read",
+   "input": {
+    "file_path": "groups/마케팅팀/2026-11-캠페인-기획.md"
+   },
+   "ok": true,
+   "ms": 12
+  },
+  {
+   "type": "tool",
+   "t": 27523,
+   "name": "mcp__team__read",
+   "input": {
+    "file_path": "groups/마케팅팀/회의록/2026-11-03-마케팅-주간회의.md"
+   },
+   "ok": true,
+   "ms": 11
+  },
+  {
+   "type": "tool",
+   "t": 27808,
+   "name": "mcp__team__list",
+   "input": {
+    "path": "groups/마케팅팀/브랜드"
+   },
+   "ok": true,
+   "ms": 15
+  },
+  {
+   "type": "tool",
+   "t": 29749,
+   "name": "mcp__team__read",
+   "input": {
+    "file_path": "groups/마케팅팀/브랜드-가이드.md"
+   },
+   "ok": true,
+   "ms": 12
+  },
+  {
+   "type": "tool",
+   "t": 30203,
+   "name": "mcp__team__read",
+   "input": {
+    "file_path": "groups/마케팅팀/브랜드/캠페인-키비주얼.png"
+   },
+   "ok": true,
+   "ms": 74
+  },
+  {
+   "type": "tool",
+   "t": 30699,
+   "name": "mcp__team__read",
+   "input": {
+    "file_path": "groups/마케팅팀/브랜드/제품-시즌박스.png"
+   },
+   "ok": true,
+   "ms": 61
+  },
+  {
+   "type": "tool",
+   "t": 31104,
+   "name": "mcp__team__read",
+   "input": {
+    "file_path": "groups/마케팅팀/브랜드/제품-베이직.png"
+   },
+   "ok": true,
+   "ms": 53
+  },
+  {
+   "type": "tool",
+   "t": 31553,
+   "name": "mcp__team__read",
+   "input": {
+    "file_path": "groups/마케팅팀/브랜드/제품-플러스.png"
+   },
+   "ok": true,
+   "ms": 62
+  },
+  {
+   "type": "tool",
+   "t": 31951,
+   "name": "mcp__team__read",
+   "input": {
+    "file_path": "groups/마케팅팀/브랜드/트리나-로고.png"
+   },
+   "ok": true,
+   "ms": 34
+  },
+  {
+   "type": "tool",
+   "t": 53933,
+   "name": "mcp__team__copy_files",
+   "input": {
+    "paths": [
+     "groups/마케팅팀/브랜드/제품-베이직.png",
+     "groups/마케팅팀/브랜드/제품-플러스.png",
+     "groups/마케팅팀/브랜드/제품-시즌박스.png",
+     "groups/마케팅팀/브랜드/캠페인-키비주얼.png",
+     "groups/마케팅팀/브랜드/트리나-로고.png"
+    ],
+    "to_folder": "users/jiwoo"
+   },
+   "ok": true,
+   "ms": 24
+  },
+  {
+   "type": "tool",
+   "t": 79350,
+   "name": "mcp__team__write",
+   "input": {
+    "file_path": "users/jiwoo/11월-캠페인-카드뉴스.html",
+    "content": "<!DOCTYPE html>\n<html lang=\"ko\">\n<head>\n<meta charset=\"utf-8\">\n<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">\n<title>11월 캠페인 카드뉴스 — 연말 사무실 간식 박스 (초안)</title>\n<style>\n  :root{--green:#2F6B4F;--cream:#F6F1E7;--orange:#F29E4C;--ink:#2b2b2b;--sub:#5f5a52;}\n  *{box-sizing:border-box;margin:0;padding:0}\n  body{background:#e9e4da;font-family:\"Pretendard\",\"Apple SD Gothic Neo\",\"Noto Sans KR\",\"Malgun Gothic\",sans-serif;color:var(--ink);padding:32px 16px}\n  h1.page{font-size:20px;text-align:center;color:var(--green);margin-bottom:6px}\n  p.note{font-size:13px;text-align:center;color:var(--sub);margin-bottom:28px}\n  .grid{display:flex;flex-wrap:wrap;gap:28px;justify-content:center}\n  .card{width:540px;height:540px;background:var(--cream);border-radius:6px;position:relative;overflow:hidden;\n        box-shadow:0 6px 20px rgba(0,0,0,.08);display:flex;flex-direction:column}\n  .top{display:flex;justify-content:space-between;align-items:center;padding:26px 30px 0}\n  .brand{font-weight:800;color:var(--green);font-size:17px;letter-spacing:-.2px}\n  .num{font-size:13px;color:var(--sub);font-weight:600}\n  .tag{display:inline-block;background:var(--green);color:#fff;font-size:13px;font-weight:700;padding:6px 14px;border-radius:20px}\n  .txt{padding:14px 30px 0}\n  .h{font-size:30px;line-height:1.3;font-weight:800;color:var(--green);letter-spacing:-.6px;margin-top:10px}\n  .s{font-size:15px;color:var(--sub);margin-top:8px;line-height:1.5}\n  .img{flex:1;display:flex;align-items:flex-end;justify-content:center;overflow:hidden}\n  /* 제품 이미지 아래 초록 띠(글자)는 잘라 내고 그림만 보여요 */\n  .crop{width:330px;aspect-ratio:800/640;overflow:hidden}\n  .crop img{width:100%;display:block}\n  .foot{background:var(--green);color:#fff;padding:16px 30px;display:flex;justify-content:space-between;align-items:center}\n  .foot .l{font-size:14px;line-height:1.5}\n  .price{background:var(--orange);color:#3a2a14;font-weight:800;font-size:17px;padding:9px 18px;border-radius:24px;white-space:nowrap}\n  .price small{font-size:11px;font-weight:600}\n  /* 1장 표지 */\n  .cover .kv{width:100%;height:260px;overflow:hidden;display:flex;justify-content:flex-end}\n  .cover .kv img{height:100%;width:auto;object-fit:cover;object-position:100% 50%;margin-right:-10px}\n  .cover .h{font-size:34px}\n  /* 5장 마무리 */\n  .cta{justify-content:space-between}\n  .cta .logo{width:250px;margin:24px auto 0;display:block}\n  .cta .center{text-align:center;padding:0 30px}\n  .cta .btn{display:inline-block;background:var(--orange);color:#3a2a14;font-weight:800;font-size:20px;padding:14px 34px;border-radius:30px;margin-top:18px}\n  .cta .list{margin:18px auto 0;font-size:15px;color:var(--ink);line-height:1.8;text-align:left;display:inline-block}\n  .cta .list b{color:var(--green)}\n  .cta .url{font-size:13px;color:var(--sub);text-align:center;padding-bottom:26px}\n</style>\n</head>\n<body>\n<h1 class=\"page\">11월 캠페인 카드뉴스 5장 — 연말 사무실 간식 박스</h1>\n<p class=\"note\">초안 · 인스타그램 정사각(1:1) 기준 · 문구는 브랜드 가이드 기준, 최유나 님 최종 검수 전</p>\n\n<div class=\"grid\">\n\n  <!-- 1장: 표지 -->\n  <section class=\"card cover\">\n    <div class=\"top\"><span class=\"brand\">트리나 박스</span><span class=\"num\">1 / 5</span></div>\n    <div class=\"txt\">\n      <span class=\"tag\">연말 사무실 간식 박스</span>\n      <p class=\"h\">올해 마지막 한 달,<br>사무실 간식은 맡기세요</p>\n      <p class=\"s\">11월 16일(월) ~ 12월 13일(일) · 체험 박스 무료</p>\n    </div>\n    <div class=\"kv\"><img src=\"캠페인-키비주얼.png\" alt=\"트리나 박스 플러스와 연말 선물 상자\"></div>\n  </section>\n\n  <!-- 2장: 베이직 -->\n  <section class=\"card\">\n    <div class=\"top\"><span class=\"brand\">트리나 박스</span><span class=\"num\">2 / 5</span></div>\n    <div class=\"txt\">\n      <p class=\"h\">커피와 간식,<br>정기적으로 채워 드려요</p>\n      <p class=\"s\">총무 담당자님, 탕비실 채우기는 저희가 할게요.</p>\n    </div>\n    <div class=\"img\"><div class=\"crop\"><img src=\"제품-베이직.png\" alt=\"트리나 박스 베이직\"></div></div>\n    <div class=\"foot\">\n      <div class=\"l\"><b>트리나 박스 베이직</b><br>커피와 기본 간식을 정기적으로</div>\n      <div class=\"price\">월 19만 원부터 <small>(부가세 별도)</small></div>\n    </div>\n  </section>\n\n  <!-- 3장: 플러스 -->\n  <section class=\"card\">\n    <div class=\"top\"><span class=\"brand\">트리나 박스</span><span class=\"num\">3 / 5</span></div>\n    <div class=\"txt\">\n      <p class=\"h\">과일도, 테마 박스도<br>한 번에 받아요</p>\n      <p class=\"s\">우리 팀 취향에 맞춰 골라요.</p>\n    </div>\n    <div class=\"img\"><div class=\"crop\"><img src=\"제품-플러스.png\" alt=\"트리나 박스 플러스\"></div></div>\n    <div class=\"foot\">\n      <div class=\"l\"><b>트리나 박스 플러스</b><br>과일과 월 1회 테마 박스까지</div>\n      <div class=\"price\">월 39만 원부터 <small>(부가세 별도)</small></div>\n    </div>\n  </section>\n\n  <!-- 4장: 연말 시즌 박스 -->\n  <section class=\"card\">\n    <div class=\"top\"><span class=\"brand\">트리나 박스</span><span class=\"num\">4 / 5</span></div>\n    <div class=\"txt\">\n      <p class=\"h\">송년회 간식,<br>미리 주문해 두세요</p>\n      <p class=\"s\">연말·송년회 선물용, 한 번만 주문하면 돼요.</p>\n    </div>\n    <div class=\"img\"><div class=\"crop\"><img src=\"제품-시즌박스.png\" alt=\"연말 시즌 박스\"></div></div>\n    <div class=\"foot\">\n      <div class=\"l\"><b>연말 시즌 박스</b><br>12월 1일(화) ~ 24일(목) 발송</div>\n      <div class=\"price\">사전 주문 11월 16일(월)부터</div>\n    </div>\n  </section>\n\n  <!-- 5장: 체험 신청 -->\n  <section class=\"card cta\">\n    <img class=\"logo\" src=\"트리나-로고.png\" alt=\"트리나 박스 로고\">\n    <div class=\"center\">\n      <p class=\"h\" style=\"font-size:28px\">먼저 맛보고 정하세요</p>\n      <div class=\"list\">\n        <b>체험 박스 무료</b> · 11월 16일(월) ~ 12월 13일(일)<br>\n        <b>연말 시즌 박스</b> · 사전 주문 받아요\n      </div><br>\n      <span class=\"btn\">체험 박스 신청하기</span>\n    </div>\n    <p class=\"url\">trina-box.example/year-end</p>\n  </section>\n\n</div>\n</body>\n</html>\n"
+   },
+   "ok": true,
+   "ms": 7
+  },
+  {
+   "type": "tool",
+   "t": 81098,
    "name": "mcp__team__share_file",
    "input": {
-    "path": "users/jiwoo/카드뉴스/11월-캠페인-카드뉴스.html",
+    "path": "users/jiwoo/11월-캠페인-카드뉴스.html",
     "mode": "preview"
    },
    "ok": true,
-   "ms": 14
+   "ms": 16
   },
   {
    "type": "text",
-   "t": 78631,
-   "text": "11월 캠페인 카드뉴스 5장 초안을 만들었어요. 팀 브랜드 폴더에 있는 제품 이미지 4장과 로고를 썼고, 문구는 [11월 캠페인 기획](/files/view?path=groups%2F%EB%A7%88%EC%BC%80%ED%8C%85%ED%8C%80%2F2026-11-%EC%BA%A0%ED%8E%98%EC%9D%B8-%EA%B8%B0%ED%9A%8D.md)과 [브랜드 가이드](/files/view?path=groups%2F%EB%A7%88%EC%BC%80%ED%8C%85%ED%8C%80%2F%EB%B8%8C%EB%9E%9C%EB%93%9C-%EA%B0%80%EC%9D%B4%EB%93%9C.md)에 있는 내용만 옮겼어요.\n\n👉 [11월-캠페인-카드뉴스.html](/files/view?path=users%2Fjiwoo%2F%EC%B9%B4%EB%93%9C%EB%89%B4%EC%8A%A4%2F11%EC%9B%94-%EC%BA%A0%ED%8E%98%EC%9D%B8-%EC%B9%B4%EB%93%9C%EB%89%B4%EC%8A%A4.html)\n\n| 장 | 문구 | 이미지 |\n|---|---|---|\n| 1. 표지 | 올해 마지막 한 달, 사무실 간식은 트리나 박스에 맡기세요 · 11월 16일(월) – 12월 13일(일) | 플러스 박스 |\n| 2. 체험 | 먼저 받아 보고 정하세요 · 체험 박스를 무료로 보내 드려요 | 캠페인 키비주얼의 그림 부분 |\n| 3. 베이직 | 커피와 기본 간식을 정기적으로 · **월 19만 원부터** (부가세 별도) | 베이직 박스 |\n| 4. 플러스 | 과일과 월 1회 테마 박스까지 · **월 39만 원부터** (부가세 별도) | 플러스 박스 |\n| 5. 시즌 박스와 신청 | 송년회 간식은 연말 시즌 박스로 · 12월 1일(화) – 24일(목) 발송 · [체험 박스 신청하기] | 시즌 박스 |\n\n**브랜드 가이드에 맞춘 부분**\n- 숲 초록과 크림 색을 쓰고, 귤색은 가격과 신청 버튼에만 썼어요.\n- 로고는 크림 배경 위에만 올렸어요.\n- \"최고\", \"1등\" 같은 표현이나 건강 효능은 넣지 않았어요.\n- 제품 이미지는 아래쪽 글자 띠를 잘라 내고 박스 그림만 보이게 했어요.\n\n**확인할 점**\n- 저는 화면을 직접 볼 수 없어서 이미지 자르기 위치가 맞는지 확인하지 못했어요. 미리보기를 열어 이미지가 어색하게 잘리지 않았는지 한 번 봐 주세요.\n- 체험 박스에 수량 제한 같은 신청 조건이 있는지는 기획안에 없어서 적지 않았어요. 조건이 있다면 2장에 넣어야 해요.\n- 지금은 HTML 시안이에요. 카드 한 장은 540px 정사각형이에요. 실제로 게시할 1080px 이미지는 디자인 담당인 김도윤 님께 넘겨야 해요. 문구는 팀 규칙대로 올리기 전에 최유나 님이 검수해야 해요.\n\n카드 파일과 이미지 사본 5장은 `users/jiwoo/카드뉴스/`에 저장했어요. 원하시면 이 카드뉴스에 맞춘 인스타그램 피드 캡션 초안도 써 드릴게요. 피드 캡션 초안은 11월 12일(목)까지인 지우 님 할 일이에요."
+   "t": 95762,
+   "text": "11월 캠페인 카드뉴스 5장 초안을 웹 페이지(HTML) 파일 하나로 만들었어요. 팀 브랜드 폴더에 있는 제품 이미지 5개를 썼어요.\n\n**파일:** [11월-캠페인-카드뉴스.html](/files/view?path=users%2Fjiwoo%2F11%EC%9B%94-%EC%BA%A0%ED%8E%98%EC%9D%B8-%EC%B9%B4%EB%93%9C%EB%89%B4%EC%8A%A4.html) (내 폴더 `users/jiwoo/`)\n\n| 장 | 제목 문구 | 이미지 | 아래쪽 정보 |\n|---|---|---|---|\n| 1 표지 | 올해 마지막 한 달, 사무실 간식은 맡기세요 | 캠페인 키비주얼 | 11월 16일(월) ~ 12월 13일(일) · 체험 박스 무료 |\n| 2 | 커피와 간식, 정기적으로 채워 드려요 | 제품-베이직 | 트리나 박스 베이직 · 월 19만 원부터(부가세 별도) |\n| 3 | 과일도, 테마 박스도 한 번에 받아요 | 제품-플러스 | 트리나 박스 플러스 · 월 39만 원부터(부가세 별도) |\n| 4 | 송년회 간식, 미리 주문해 두세요 | 제품-시즌박스 | 사전 주문 11월 16일(월)부터 · 12월 1일(화) ~ 24일(목) 발송 |\n| 5 마무리 | 먼저 맛보고 정하세요 | 트리나 로고 | 체험 박스 신청하기 · trina-box.example/year-end |\n\n**만든 기준**\n- 내용(기간, 가격, 제안)은 [11월 캠페인 기획](/files/view?path=groups%2F%EB%A7%88%EC%BC%80%ED%8C%85%ED%8C%80%2F2026-11-%EC%BA%A0%ED%8E%98%EC%9D%B8-%EA%B8%B0%ED%9A%8D.md)과 제품 이미지에 적힌 내용 그대로예요.\n- 문구와 색은 [브랜드 가이드](/files/view?path=groups%2F%EB%A7%88%EC%BC%80%ED%8C%85%ED%8C%80%2F%EB%B8%8C%EB%9E%9C%EB%93%9C-%EA%B0%80%EC%9D%B4%EB%93%9C.md)를 따랐어요. 해요체로 짧게 썼고, \"최고\"나 \"1등\" 같은 말과 이모지는 넣지 않았어요. 귤색은 버튼과 가격에만 썼고, 로고는 크림색 배경 위에만 올렸어요.\n- 제품 이미지 아래쪽 초록 띠에 있던 글자는 잘라 냈어요. 같은 내용을 카드 아래쪽에 다시 넣어서 글자가 두 번 나오지 않게 했어요.\n\n**확인해 주세요**\n- 화면에서 어떻게 보이는지는 제가 직접 열어 보지 못했어요. 링크로 열어서 이미지가 잘 잘렸는지, 글자가 넘치지 않는지 봐 주세요.\n- 페이지에서 쓰는 이미지 5개를 `users/jiwoo/`에 복사해 두었어요. 이미지 파일은 HTML 파일과 같은 폴더에 있어야 보여요.\n- 이 파일은 초안이에요. 회의에서 캠페인 문구는 모두 최유나 님이 마지막에 검수하기로 했어요. 피드 이미지 최종본은 김도윤 님 담당이니, 실제로 올리는 이미지는 두 분과 맞춰 주세요.\n\n장마다 문구를 2~3안씩 더 뽑아 드릴 수도 있어요. 다른 비율도 만들 수 있어요. 예를 들어 인스타그램 세로형(4:5)이요."
   }
  ]
 }

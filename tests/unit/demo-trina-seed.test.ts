@@ -61,6 +61,8 @@ describe('트리나 seed', () => {
     // the CEO is a member: the public password reaches nothing an owner or admin could do
     const ceo = await as(TRINA_CEO)
     expect((await ceo.call(API.me)).user.role).toBe('member')
+    // the new hire's AI keeps to Korean (the card news scene was recorded with this memory)
+    expect((await (await as(TRINA_NEW_HIRE)).call(API.listMemories, { query: { limit: 10 } })).items.map((m) => m.text)).toEqual(TRINA.memories!.map((m) => m.text))
     await expect(ceo.call(API.listUsers)).rejects.toThrow()
     // the owner's password is not the public one
     await expect(new ApiClient({ baseUrl: BASE, fetch: appFetch }).call(API.login, { body: { username: TRINA_OWNER, password: DEMO_PASSWORD, client: 'web', tokenMode: 'bearer' } })).rejects.toThrow()
@@ -110,6 +112,7 @@ describe('트리나 seed', () => {
     expect(r.people.every((p) => !p.created)).toBe(true)
     expect(r.files.every((f) => !f.uploaded)).toBe(true)
     expect(r.profile).toBe(false)
+    expect((await (await as(TRINA_NEW_HIRE)).call(API.listMemories, { query: { limit: 10 } })).items.length).toBe(1)
     expect((await (await as(TRINA_OWNER)).call(API.listUsers)).items.length).toBe(16)
     // without its owner password a second run stops (an older demo folder whose owner was the CEO, say)
     await expect(seedDemo({ baseUrl: BASE, setupToken: null, fetch: appFetch, company: TRINA })).rejects.toThrow(/cannot sign in/)
