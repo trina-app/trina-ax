@@ -4,14 +4,15 @@ import type { AiAccessResponse, ChatErrorReason } from '@mycel/shared/api'
 import type { MessageKey } from '../i18n'
 
 export type AiAction = AiAccessResponse['action']
+/** connect: the simple "AI 연결" dialog in place (components/onboarding/ConnectAi.tsx), the team's or one's own */
 export type AiButton =
-  | { kind: 'link'; to: string; label: MessageKey }
+  | { kind: 'connect'; personal: boolean; label: MessageKey }
   | { kind: 'ask'; label: MessageKey; done: boolean }
 
 export function aiButton(action: AiAction, requested: boolean): AiButton {
   switch (action) {
-    case 'connect_team': return { kind: 'link', to: '/admin/credentials', label: 'aiAccess.connectTeam' }
-    case 'connect_own': return { kind: 'link', to: '/settings/credentials', label: 'aiAccess.connectOwn' }
+    case 'connect_team': return { kind: 'connect', personal: false, label: 'aiAccess.connectTeam' }
+    case 'connect_own': return { kind: 'connect', personal: true, label: 'aiAccess.connectOwn' }
     case 'ask_owner': return { kind: 'ask', label: requested ? 'aiAccess.asked' : 'aiAccess.askOwner', done: requested }
   }
 }

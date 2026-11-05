@@ -2981,6 +2981,9 @@ export const ko = {
   "welcome.ai.otherOpen": "다른 방법으로 연결",
   "welcome.ai.engines": "AI 엔진 화면",
   "welcome.ai.notYet": "연결은 저장했지만 아직 AI가 답할 수 없어요. 연결 상태를 확인하거나 다른 방법으로 연결해 주세요.",
+  // AI 연결 wherever no AI answers (components/onboarding/ConnectAi.tsx; docs/DECISIONS.md "W2")
+  "aiConnect.terms": "이 계정·요금제를 이렇게 써도 되는지 제공사 약관을 확인했어요. {product}에서 그 허가를 줄 수는 없어요.",
+  "aiConnect.password": "팀 전체가 쓰는 연결이라 비밀번호를 한 번 더 확인해요",
   "welcome.cardnews.question": "우리 회사 홍보 카드뉴스 5장 만들어 줘",
   "onboarding.profile.activity.images": "이미지 {n}개 가져옴",
   "onboarding.profile.activity.logoImages": "로고와 이미지 {n}개 가져옴",

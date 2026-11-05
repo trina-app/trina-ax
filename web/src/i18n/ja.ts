@@ -2942,6 +2942,8 @@ export const ja: Record<MessageKey, string> = {
   "welcome.ai.otherOpen": "ほかの方法で接続",
   "welcome.ai.engines": "AIエンジン画面",
   "welcome.ai.notYet": "接続は保存しましたが、まだAIが応答できません。接続を確認するか、ほかの方法で接続してください。",
+  "aiConnect.terms": "このアカウントとプランをこの用途で使うことが提供元の規約で認められているか確認しました。{product}がその許可を与えることはできません。",
+  "aiConnect.password": "チーム全体で使う接続なので、パスワードをもう一度確認します",
   "welcome.cardnews.question": "うちの会社のPRカードニュースを5枚作って",
   "onboarding.profile.activity.images": "画像を{n, plural, one {#枚} other {#枚}}取り込みました",
   "onboarding.profile.activity.logoImages": "ロゴと画像{n, plural, one {#枚} other {#枚}}を取り込みました",

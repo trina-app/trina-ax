@@ -17,8 +17,8 @@
 import clsx from 'clsx'
 import { ArrowLeft, Check, CircleAlert, Loader2, Upload } from 'lucide-react'
 import { useEffect, useRef, useState, type DragEvent, type ReactNode } from 'react'
-import { Link, Navigate, useNavigate } from 'react-router-dom'
-import { FIRST_RESULT_FILES_MAX, uuidv7, WELCOME_PACK_SKILLS, type CompanyProfile, type CredentialsResponse, type FirstResultStarted, type TeamType, type WelcomeProgress, type WelcomeStep, type WelcomeStepState } from '@mycel/shared/api'
+import { Navigate, useNavigate } from 'react-router-dom'
+import { FIRST_RESULT_FILES_MAX, uuidv7, WELCOME_PACK_SKILLS, type CompanyProfile, type FirstResultStarted, type TeamType, type WelcomeProgress, type WelcomeStep, type WelcomeStepState } from '@mycel/shared/api'
 import { api, API, errorText } from '../lib/api'
 import { markBusy } from '../lib/busy'
 import { joinPath } from '../lib/paths'
@@ -32,7 +32,7 @@ import { useChats } from '../store/chats'
 import { canChooseEngine, isOwner, useMeStrict } from '../store/session'
 import { toast } from '../store/ui'
 import { useWelcome } from '../store/welcome'
-import { AddCredential } from './admin/Credentials'
+import { ConnectAiPanel } from '../components/onboarding/ConnectAi'
 import { InviteStep } from '../components/onboarding/InviteStep'
 import ProfileStep from '../components/onboarding/ProfileStep'
 import { UploadLabel } from '../components/UploadLabel'
@@ -296,69 +296,18 @@ function ResultStep({ progress, busy, onRan }: { progress: WelcomeProgress; busy
 
 /**
  * AI 연결, only while no AI answers the owner (GET /api/me/ai-access; a hosted trial credit, a managed engine or any
- * working connection skips it). One reason line, one primary way (the Claude subscription signed in from the
- * browser: approval link + the code, the same dialog as Admin › AI connections), the other ways folded under
- * "다른 방법" (ChatGPT, API keys in the same dialog; OpenRouter and other providers on the API engine page). No new
- * connection logic: the dialog is AddCredential. "나중에 하기" leaves the steps: nothing after this works without AI.
+ * working connection skips it). One reason line, then the shared way to connect (components/onboarding/ConnectAi.tsx:
+ * one primary "Claude 구독 연결", the other ways folded under "다른 방법"; the same panel is Home's card and the same
+ * dialog opens from "AI 연결하기" anywhere). When AI answers, the steps move on by themselves (WelcomeSteps). "나중에
+ * 하기" leaves the steps: nothing after this works without AI.
  */
 function AiStep({ busy, onLater }: { busy: boolean; onLater: () => void }) {
   const t = useT()
-  const locale = useLocale()
-  const [conf, setConf] = useState<CredentialsResponse | null>(null)
-  const [open, setOpen] = useState<'claude' | 'other' | null>(null)
-  const [checking, setChecking] = useState(false)
-  const [error, setError] = useState<string | null>(null)
-  useEffect(() => {
-    let live = true
-    api.call(API.listCredentials).then((r) => live && setConf(r), (e) => live && setError(errorText(e, locale, t('error.network'))))
-    return () => { live = false }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [])
-  const claude = !!conf && conf.allowedKinds.includes('anthropic-oauth') && conf.sharedSubscriptions
-  /** the dialog said done: AI answers now? (a key the provider could not check yet counts: it is tried at the first
-   * question). When it does, the steps move on by themselves (WelcomeSteps). */
-  const done = async () => {
-    setOpen(null)
-    setChecking(true)
-    setError(null)
-    try {
-      await useAiAccess.getState().load(true)
-      if (!useAiAccess.getState().usable) setError(t('welcome.ai.notYet'))
-    } finally {
-      setChecking(false)
-    }
-  }
   return (
     <div className="space-y-5" data-testid="welcome-ai">
       <StepHead title={t('welcome.ai.title')} desc={t('welcome.ai.why')} />
-      {!conf && !error ? <Skeleton lines={2} /> : (
-        <div className="space-y-4">
-          {claude && (
-            <Button variant="primary" className="max-sm:w-full" busy={checking} disabled={busy} onClick={() => setOpen('claude')} data-testid="welcome-ai-claude">
-              {t('welcome.ai.claude')}
-            </Button>
-          )}
-          <details className="group text-sm" open={!claude || undefined} data-testid="welcome-ai-other">
-            <summary className="cursor-pointer text-muted select-none hover:text-ink">{t('welcome.ai.other')}</summary>
-            <div className="mt-3 space-y-3 border-l border-line pl-3">
-              <p className="text-[13px] text-muted">{t('welcome.ai.otherDesc')}</p>
-              <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
-                <Button size="sm" variant={claude ? 'secondary' : 'primary'} disabled={!conf || busy} onClick={() => setOpen('other')} data-testid="welcome-ai-other-open">
-                  {t('welcome.ai.otherOpen')}
-                </Button>
-                <Link to="/admin/engines" className={quietLink} data-testid="welcome-ai-engines">{t('welcome.ai.engines')}</Link>
-              </div>
-            </div>
-          </details>
-        </div>
-      )}
-      {error && <ErrorNote>{error}</ErrorNote>}
-      <div className="flex justify-end"><Later onClick={onLater} disabled={busy || checking} /></div>
-      {open && conf && (
-        <AddCredential allowedKinds={conf.allowedKinds} gateway={conf.anthropicGateway ?? undefined} sharedSubscriptions={conf.sharedSubscriptions} groups={[]} users={[]}
-          initialKind={open === 'claude' ? 'anthropic-oauth' : undefined} initialLabel={open === 'claude' ? 'Claude' : undefined}
-          onClose={() => setOpen(null)} onDone={() => void done()} />
-      )}
+      <ConnectAiPanel disabled={busy} />
+      <div className="flex justify-end"><Later onClick={onLater} disabled={busy} /></div>
     </div>
   )
 }

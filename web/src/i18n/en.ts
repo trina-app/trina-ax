@@ -2982,6 +2982,8 @@ export const en: Record<MessageKey, string> = {
   "welcome.ai.otherOpen": "Connect another way",
   "welcome.ai.engines": "AI engines page",
   "welcome.ai.notYet": "The connection is saved, but AI can't answer yet. Check the connection or connect another way.",
+  "aiConnect.terms": "I checked that the provider's terms allow this account and plan to be used this way. {product} cannot grant that permission.",
+  "aiConnect.password": "This connection is for the whole team, so your password is checked once more",
   "welcome.cardnews.question": "Make five promo cards for our company",
   "onboarding.profile.activity.images": "Found {n, plural, one {# image} other {# images}}",
   "onboarding.profile.activity.logoImages": "Found the logo and {n, plural, one {# image} other {# images}}",

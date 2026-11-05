@@ -2942,6 +2942,8 @@ export const es: Record<MessageKey, string> = {
   "welcome.ai.otherOpen": "Conectar de otra forma",
   "welcome.ai.engines": "Página de motores de IA",
   "welcome.ai.notYet": "La conexión se guardó, pero la IA aún no puede responder. Revise la conexión o conecte de otra forma.",
+  "aiConnect.terms": "Comprobé que los términos del proveedor permiten usar esta cuenta y plan de esta forma. {product} no puede conceder esa autorización.",
+  "aiConnect.password": "Esta conexión es para todo el equipo, por eso se vuelve a comprobar su contraseña",
   "welcome.cardnews.question": "Haz 5 tarjetas promocionales de nuestra empresa",
   "onboarding.profile.activity.images": "{n, plural, one {# imagen guardada} other {# imágenes guardadas}}",
   "onboarding.profile.activity.logoImages": "Logotipo y {n, plural, one {# imagen guardados} other {# imágenes guardados}}",

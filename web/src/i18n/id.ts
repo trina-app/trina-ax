@@ -2982,6 +2982,8 @@ export const id: Record<MessageKey, string> = {
   "welcome.ai.otherOpen": "Hubungkan dengan cara lain",
   "welcome.ai.engines": "Halaman mesin AI",
   "welcome.ai.notYet": "Koneksi tersimpan, tetapi AI belum bisa menjawab. Periksa koneksinya atau hubungkan dengan cara lain.",
+  "aiConnect.terms": "Saya sudah memastikan ketentuan penyedia mengizinkan akun dan paket ini dipakai dengan cara ini. {product} tidak dapat memberi izin tersebut.",
+  "aiConnect.password": "Koneksi ini untuk seluruh tim, jadi kata sandi Anda diperiksa sekali lagi",
   "welcome.cardnews.question": "Buatkan 5 kartu promosi perusahaan kami",
   "onboarding.profile.activity.images": "{n} gambar diambil",
   "onboarding.profile.activity.logoImages": "Logo dan {n} gambar diambil",
