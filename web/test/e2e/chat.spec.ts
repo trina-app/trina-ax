@@ -251,7 +251,7 @@ test('search (⌘K) finds chats by content', async ({ page }) => {
   await expect(lastAnswer(page)).toHaveAttribute('data-status', 'done')
   await page.getByTestId('new-chat').click()
   await page.keyboard.press('ControlOrMeta+k')
-  await page.getByPlaceholder('채팅, 프로젝트, 스킬 검색').fill('banana')
+  await page.getByPlaceholder('채팅 제목·내용, 파일 이름, 프로젝트 등 검색').fill('banana')
   await expect(page.getByRole('option', { name: /banana bread recipe/ })).toBeVisible()
   await page.keyboard.press('Enter')
   await expect(page.getByTestId('user-text')).toHaveText('banana bread recipe')
