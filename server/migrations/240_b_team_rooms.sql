@@ -1,9 +1,10 @@
 -- min_compatible_reader: 1
 -- Team chat rooms ("대화방" v1, docs/DECISIONS.md "대화방 v1"): people talking to people, apart from the one-person AI
 -- chats (chats / messages). Additive only: an older build does not know these tables.
---   rooms: kind 'team' (mirrors the members of group_id; kept by server/src/rooms/sync.ts), 'all' (everyone; one per
---     team), 'dm' (exactly two people; dm_key = the two user ids sorted, one room per pair). last_seq counts the room's
---     messages. A team room whose group was deleted keeps its row with archived_at set and no members.
+--   rooms: kind 'team' (mirrors the members of group_id; kept by Rooms.sync in server/src/rooms/service.ts), 'all'
+--     (everyone; one per team), 'dm' (exactly two people; dm_key = the two user ids sorted, one room per pair). 'group'
+--     (people picked by a creator) is reserved: v1 writes no such room, and tables are never rebuilt. last_seq counts
+--     the room's messages. A team room whose group was deleted keeps its row with archived_at set and no members.
 --   room_members: who is in a room now. last_read_seq: read position. visible_from_seq: the member sees messages with a
 --     higher seq only (the room's last_seq when they joined: a later member sees history from their join on). muted.
 --   room_messages: seq within the room; author_id is the signed-in sender, never taken from the request. Reserved for
@@ -14,7 +15,7 @@
 --     admins can read the team folder outside users/<id>/); served only to the room's current members.
 CREATE TABLE rooms (
   id TEXT PRIMARY KEY,
-  kind TEXT NOT NULL CHECK(kind IN ('team','all','dm')),
+  kind TEXT NOT NULL CHECK(kind IN ('team','all','dm','group')),
   group_id TEXT REFERENCES groups(id) ON DELETE SET NULL,
   dm_key TEXT,
   created_by TEXT REFERENCES users(id) ON DELETE SET NULL,
