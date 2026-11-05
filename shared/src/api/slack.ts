@@ -40,6 +40,10 @@ export const SlackAdmin = z.object({
   /** the app manifest to paste in Slack (JSON), and the address that opens Slack's "create app" with it filled in */
   manifest: z.string(),
   createUrl: z.string().url(),
+  /** the app's client id and secret are saved ("Sign in with Slack") */
+  signIn: z.boolean(),
+  /** where Slack sends people back after "Sign in with Slack" (in the manifest); null: the team has no https address */
+  redirectUrl: z.string().nullable(),
 })
 export type SlackAdmin = z.infer<typeof SlackAdmin>
 
@@ -48,27 +52,21 @@ export const SlackTokensBody = z.object({
   botToken: SealedSecret,
   /** App-Level Token with connections:write (xapp-), sealed for 'slack.token' */
   appToken: SealedSecret,
+  /** Basic Information › App Credentials: the Client ID (not a secret) and the Client Secret, sealed for 'slack.token' */
+  clientId: z.string().max(64),
+  clientSecret: SealedSecret,
+  /** the address the page is open at (window.location.origin), as with GET /api/admin/slack: where links open and the
+   * redirect URL of "Sign in with Slack", the same one the manifest showed */
+  origin: z.string().max(200).optional(),
 })
 
-/** The owner proposes linking a Slack person to a member whose e-mails differ: nothing is linked until the member
- * accepts it here (their own session); 7 days. */
-export const SlackProposal = z.object({
-  id: z.string(),
-  slack: z.object({ userId: z.string(), name: z.string().nullable(), realName: z.string().nullable(), handle: z.string().nullable(), email: z.string().nullable() }),
-  proposedBy: z.string().nullable(),
-  expiresAt: IsoTime,
-  /** the two halves, either order: accepted here, and the Slack person's one-time link (from Slack) confirmed here */
-  memberAccepted: z.boolean(),
-  slackConfirmed: z.boolean(),
-})
-export type SlackProposal = z.infer<typeof SlackProposal>
 export const MySlack = z.object({
   /** the team uses Slack (turned on, tokens saved) */
   available: z.boolean(),
   workspace: z.string().nullable(),
   link: z.object({ slackUserId: z.string(), slackName: z.string().nullable(), linkedAt: IsoTime }).nullable(),
-  /** a link the owner proposed, waiting for this person */
-  proposal: SlackProposal.nullable(),
+  /** "Sign in with Slack" can be used to link (the app's client id and secret saved, an https address) */
+  signIn: z.boolean(),
   /** someone else set this account's e-mail in the last 7 days: the e-mail proves nothing until then */
   emailSetByOther: z.boolean(),
 })
@@ -87,47 +85,25 @@ export const SlackLinkPreview = z.object({
   /** this account is linked to another Slack account already: unlink that one first (confirm answers 409) */
   linkedElsewhere: z.boolean(),
   /** the proof (docs/DECISIONS.md "Slack 커넥터"): the Slack account's e-mail, as Slack gives it, is this account's.
-   * mismatch / missing / recent: confirm is refused and the team owner proposes the link instead (Admin › Slack);
-   * proposal: the owner proposed this Slack account for this person, so confirming is the Slack half of it;
+   * mismatch / missing / recent: confirm is refused; the person links with "Sign in with Slack" instead (`signIn`);
    * unavailable: Slack did not answer now. */
-  emailCheck: z.enum(['match', 'mismatch', 'missing', 'recent', 'unavailable', 'proposal']),
+  emailCheck: z.enum(['match', 'mismatch', 'missing', 'recent', 'unavailable']),
+  /** "Sign in with Slack" can be used here instead */
+  signIn: z.boolean(),
   /** the e-mail of this account that was compared (the person's own; Slack's is not shown) */
   email: z.string().nullable(),
 })
 export type SlackLinkPreview = z.infer<typeof SlackLinkPreview>
 
-/** Admin › Slack: the people of the connected workspace, for the owner to link one whose e-mails differ */
-export const SlackMember = z.object({
-  slackUserId: z.string(), name: z.string().nullable(), realName: z.string().nullable(), handle: z.string().nullable(),
-  /** as Slack gives it (scope users:read.email); null when Slack has none or hides it */
-  email: z.string().nullable(),
-  linkedTo: z.object({ id: z.string(), name: z.string(), username: z.string() }).nullable(),
-  /** a proposal waiting for that member to accept */
-  pending: z.object({ proposalId: z.string(), id: z.string(), name: z.string(), username: z.string(), expiresAt: IsoTime }).nullable(),
-})
-export type SlackMember = z.infer<typeof SlackMember>
-export const SlackMembers = z.object({
-  /** turned on with tokens saved; otherwise the list is empty */
-  available: z.boolean(),
-  members: z.array(SlackMember),
-  /** more than the 2,000 people listed */
-  truncated: z.boolean(),
-})
-export type SlackMembers = z.infer<typeof SlackMembers>
-
 export const SLACK = {
-  slackAdmin: endpoint({ method: 'GET', path: '/api/admin/slack', auth: 'owner', owner: 'C', response: SlackAdmin, summary: 'The Slack connector: state, workspace, the manifest to create the app with. Never a token.' }),
+  slackAdmin: endpoint({ method: 'GET', path: '/api/admin/slack', auth: 'owner', owner: 'C', query: z.object({ origin: z.string().max(200).optional() }), response: SlackAdmin, summary: 'The Slack connector: state, workspace, the manifest to create the app with. Never a token.' }),
   saveSlackTokens: endpoint({ method: 'PUT', path: '/api/admin/slack/tokens', auth: 'owner', owner: 'C', body: SlackTokensBody, response: SlackAdmin, summary: 'Check and save the bot and app-level tokens (sealed in the browser). Another workspace than before removes every link.' }),
   setSlackEnabled: endpoint({ method: 'POST', path: '/api/admin/slack/enabled', auth: 'owner', owner: 'C', body: z.object({ enabled: z.boolean() }), response: SlackAdmin, summary: 'Turn the connector on (needs saved tokens) or off.' }),
-  slackMembers: endpoint({ method: 'GET', path: '/api/admin/slack/members', auth: 'owner', owner: 'C', response: SlackMembers, summary: 'The people of the connected Slack workspace (no bots, no other workspaces) and whom each is linked to.' }),
-  proposeSlackLink: endpoint({ method: 'POST', path: '/api/admin/slack/proposals', auth: 'owner', owner: 'C', status: 204, body: z.object({ slackUserId: z.string().regex(/^[A-Z0-9]{2,40}$/), userId: z.string().min(1).max(64) }), response: empty, summary: 'The owner proposes linking a Slack person of this workspace to a member (e-mails differ). Nothing is linked until the member accepts.' }),
-  cancelSlackProposal: endpoint({ method: 'DELETE', path: '/api/admin/slack/proposals/:id', auth: 'owner', owner: 'C', status: 204, response: empty, summary: 'The owner withdraws a proposal still waiting.' }),
-  acceptSlackProposal: endpoint({ method: 'POST', path: '/api/slack/proposals/:id/accept', auth: 'user', owner: 'C', body: z.object({}), response: MySlack, summary: 'The member accepts the owner\'s proposal: the Slack account is linked to them.' }),
-  declineSlackProposal: endpoint({ method: 'POST', path: '/api/slack/proposals/:id/decline', auth: 'user', owner: 'C', body: z.object({}), response: MySlack, summary: 'The member declines the owner\'s proposal.' }),
   removeSlack: endpoint({ method: 'DELETE', path: '/api/admin/slack', auth: 'owner', owner: 'C', response: SlackAdmin, summary: 'Remove the tokens and every link; the connector is off.' }),
   mySlack: endpoint({ method: 'GET', path: '/api/slack/me', auth: 'user', owner: 'C', response: MySlack, summary: 'Whether the team uses Slack and the Slack account linked to me.' }),
   unlinkSlack: endpoint({ method: 'DELETE', path: '/api/slack/me', auth: 'user', owner: 'C', response: MySlack, summary: 'Unlink my Slack account.' }),
   previewSlackLink: endpoint({ method: 'POST', path: '/api/slack/link/preview', auth: 'user', owner: 'C', body: SlackLinkBody, response: SlackLinkPreview, summary: 'What confirming this one-time link would link: the Slack account and me. Changes nothing.' }),
   confirmSlackLink: endpoint({ method: 'POST', path: '/api/slack/link/confirm', auth: 'user', owner: 'C', body: SlackLinkBody, response: MySlack, summary: 'Link the Slack account of this one-time link to me (used up).' }),
+  startSlackSignIn: endpoint({ method: 'POST', path: '/api/slack/signin', auth: 'user', owner: 'C', body: z.object({}), response: z.object({ authorizationUrl: z.string().url() }), summary: 'Start "Sign in with Slack" to link the Slack account I sign in to (10 minutes, this session only).' }),
   cancelSlackLink: endpoint({ method: 'POST', path: '/api/slack/link/cancel', auth: 'user', owner: 'C', body: SlackLinkBody, response: empty, status: 204, summary: 'Throw this one-time link away without linking.' }),
 } as const

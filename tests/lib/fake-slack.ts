@@ -3,6 +3,7 @@
 // chat.postEphemeral, chat.update, chat.delete), a Socket Mode
 // WebSocket that says hello and records every acknowledgement, and response URLs. Nothing reaches the real Slack.
 import type { ServerWebSocket } from 'bun'
+import { createHash } from 'node:crypto'
 
 export interface Call { method: string; token: string | null; args: Record<string, string>; at: number }
 export interface FakeUser { name: string; team_id: string; real_name?: string; email?: string; is_bot?: boolean; deleted?: boolean; enterprise_id?: string }
@@ -13,17 +14,24 @@ export interface FakeSlack {
   team: { id: string; name: string }
   botUserId: string
   appId: string
-  /** the app the socket address names (another app's app-level token) */
-  socketAppId?: string
+  /** the app's credentials for "Sign in with Slack" */
+  clientId: string
+  clientSecret: string
+  /** codes Slack's "Sign in with Slack" gave a browser, and what their id_token says */
+  codes: Record<string, { user: string; team?: string; nonce: string; aud?: string; iss?: string; exp?: number; enterprise?: string; badIdToken?: boolean }>
+  /** the workspace is part of an Enterprise Grid organization (auth.test says so) */
+  enterpriseId?: string
+  /** app-level tokens apps.connections.open takes besides appToken (another app's, for the mismatch case) */
+  otherAppTokens: string[]
   users: Record<string, FakeUser>
   calls: Call[]
   acks: { id: string; ms: number }[]
   responses: { path: string; body: Record<string, unknown> }[]
   scopes: string[]
   opens: number
-  /** the next call of a method fails like this; hang: answer nothing for that long (the client times out), recorded
-   * as a call (it reached Slack) unless `lost` */
-  failNext: Record<string, { error?: string; status?: number; retryAfter?: number; hang?: number; lost?: boolean }>
+  /** the next call of a method (the next one `match` accepts) fails like this; hang: no answer until the client gives up
+   * (recorded as a call, it reached Slack, unless `lost`: it never arrived) */
+  failNext: Record<string, { error?: string; status?: number; retryAfter?: number; hang?: boolean; lost?: boolean; match?: (args: Record<string, string>) => boolean }>
   /** channels conversations.info calls shared with another organization; `unknown`: no is_ext_shared in the answer */
   sharedChannels: Set<string>
   unknownChannels: Set<string>
@@ -54,8 +62,8 @@ export function startFakeSlack(): FakeSlack {
   let envelopes = 0
   const fake: FakeSlack = {
     url: '', botToken: 'xoxb-111-222-' + 'b'.repeat(24), appToken: 'xapp-1-A0APP-333-' + 'a'.repeat(32),
-    team: { id: 'T0ACME', name: 'Acme' }, botUserId: 'U0BOT', appId: 'A0APP',
-    users: {}, calls: [], acks: [], responses: [], opens: 0, failNext: {}, sharedChannels: new Set(), unknownChannels: new Set(),
+    team: { id: 'T0ACME', name: 'Acme' }, botUserId: 'U0BOT', appId: 'A0APP', clientId: '1111111111.2222222222', clientSecret: 'f'.repeat(32), codes: {},
+    users: {}, calls: [], acks: [], responses: [], opens: 0, failNext: {}, otherAppTokens: [], sharedChannels: new Set(), unknownChannels: new Set(),
     scopes: ['app_mentions:read', 'channels:read', 'chat:write', 'groups:read', 'im:history', 'im:write', 'users:read', 'users:read.email'],
     sockets: () => open.size,
     async connected() {
@@ -97,24 +105,27 @@ export function startFakeSlack(): FakeSlack {
       const method = m[1]!
       const token = /^Bearer (.+)$/.exec(req.headers.get('authorization') ?? '')?.[1] ?? null
       const args = Object.fromEntries(new URLSearchParams(await req.text()))
-      const f = fake.failNext[method]
+      const armed = fake.failNext[method]
+      const f = armed && (!armed.match || armed.match(args)) ? armed : undefined
       if (!f?.lost) fake.calls.push({ method, token, args, at: Date.now() })
       if (f) {
         delete fake.failNext[method]
-        if (f.hang) { await Bun.sleep(f.hang); return json({ ok: true, channel: args.channel, ts: nextTs() }) }
+        // held until the client gives up (its own time limit), then nothing is answered
+        if (f.hang) { await new Promise<void>((done) => { req.signal.addEventListener('abort', () => done()); setTimeout(done, 60_000) }); return new Response('', { status: 504 }) }
         if (f.status === 429) return new Response('', { status: 429, headers: { 'retry-after': String(f.retryAfter ?? 1) } })
         return json({ ok: false, error: f.error ?? 'internal_error' })
       }
-      const bot = token === fake.botToken, app = token === fake.appToken
+      const bot = token === fake.botToken, app = token === fake.appToken || (!!token && fake.otherAppTokens.includes(token))
       switch (method) {
         case 'auth.test':
           if (!bot && !app) return json({ ok: false, error: 'invalid_auth' })
-          return json({ ok: true, url: 'https://acme.slack.com/', team: fake.team.name, user: 'trina-ax', team_id: fake.team.id, user_id: fake.botUserId, bot_id: 'B0BOT', is_enterprise_install: false }, { 'x-oauth-scopes': fake.scopes.join(',') })
+          return json({ ok: true, url: 'https://acme.slack.com/', team: fake.team.name, user: 'trina-ax', team_id: fake.team.id, user_id: fake.botUserId, bot_id: 'B0BOT', is_enterprise_install: false, ...(fake.enterpriseId ? { enterprise_id: fake.enterpriseId } : {}) }, { 'x-oauth-scopes': fake.scopes.join(',') })
         case 'apps.connections.open':
           if (bot) return json({ ok: false, error: 'not_allowed_token_type' })
           if (!app) return json({ ok: false, error: 'invalid_auth' })
           fake.opens++
-          return json({ ok: true, url: `ws://${u.host}/link?ticket=${fake.opens}&app_id=${fake.socketAppId ?? fake.appId}` })
+          // as real Slack: the address's app_id is a hash, not the app's A… id (that is in the token's prefix and in hello)
+          return json({ ok: true, url: `ws://${u.host}/link?ticket=${fake.opens}&app_id=${createHash('sha256').update(token!).digest('hex')}` })
         case 'bots.info':
           if (!bot) return json({ ok: false, error: 'invalid_auth' })
           return json({ ok: true, bot: { id: args.bot, app_id: fake.appId, user_id: fake.botUserId, name: 'trina-ax' } })
@@ -141,6 +152,19 @@ export function startFakeSlack(): FakeSlack {
           const ch = args.channel ?? ''
           return json({ ok: true, channel: { id: ch, ...(fake.unknownChannels.has(ch) ? {} : { is_ext_shared: fake.sharedChannels.has(ch), is_pending_ext_shared: false }) } })
         }
+        case 'openid.connect.token': {
+          // the app's credentials in the body (no bearer token), a code used once
+          if (token || args.client_id !== fake.clientId) return json({ ok: false, error: 'invalid_client_id' })
+          if (args.client_secret !== fake.clientSecret) return json({ ok: false, error: 'bad_client_secret' })
+          const c = fake.codes[args.code ?? '']
+          if (!c || args.grant_type !== 'authorization_code') return json({ ok: false, error: 'invalid_code' })
+          delete fake.codes[args.code!]
+          const b64 = (o: unknown) => Buffer.from(JSON.stringify(o)).toString('base64url')
+          const claims = { iss: c.iss ?? 'https://slack.com', sub: c.user, aud: c.aud ?? fake.clientId, exp: c.exp ?? Math.floor(Date.now() / 1000) + 600, iat: Math.floor(Date.now() / 1000), nonce: c.nonce,
+            'https://slack.com/user_id': c.user, 'https://slack.com/team_id': c.team ?? fake.team.id, ...(c.enterprise ? { 'https://slack.com/enterprise_id': c.enterprise } : {}), name: c.user }
+          return json({ ok: true, access_token: `xoxp-user-${c.user}`, token_type: 'Bearer', id_token: c.badIdToken ? 'not-a-jwt' : `${b64({ alg: 'RS256', typ: 'JWT' })}.${b64(claims)}.c2ln` })
+        }
+        case 'auth.revoke': return json({ ok: true, revoked: true })
         case 'conversations.open': return bot && /^U[A-Z0-9]+$/.test(args.users ?? '') ? json({ ok: true, channel: { id: 'D' + args.users!.slice(1) } }) : json({ ok: false, error: 'invalid_arguments' })
         case 'chat.postMessage': return bot ? json({ ok: true, channel: args.channel, ts: nextTs() }) : json({ ok: false, error: 'invalid_auth' })
         case 'chat.postEphemeral': return bot ? json({ ok: true, message_ts: nextTs() }) : json({ ok: false, error: 'invalid_auth' })

@@ -1,15 +1,16 @@
 // Admin › Slack (the owner's; docs/SLACK.md). Not set up: four steps, each linking to its Slack page (make the app from
-// our manifest, install it, make the app-level token, paste both tokens: sealed in this browser for 'slack.token',
-// never shown again, then turned on). Set up: one status line with one button (turn on / off); a problem says the one
+// our manifest, install it, make the app-level token and copy the app's credentials, paste them: the tokens and the
+// client secret sealed in this browser for 'slack.token', never shown again, then turned on). Without the team's https
+// address one line says "Sign in with Slack" needs it. Set up: one status line with one button (turn on / off); a problem says the one
 // place to fix it. Replacing the tokens, and removing it, are behind "Replace tokens".
-import { useMemo, useState, type ReactNode } from 'react'
-import { ChevronRight, ExternalLink } from 'lucide-react'
-import { ApiError, SLACK, type SlackAdmin, type SlackErrorCode, type SlackMember, type User } from '@mycel/shared/api'
+import { useState, type ReactNode } from 'react'
+import { ExternalLink } from 'lucide-react'
+import { ApiError, SLACK, type SlackAdmin, type SlackErrorCode } from '@mycel/shared/api'
 import { api, API, errorText } from '../../lib/api'
 import { canSeal, sealSecret } from '../../lib/seal'
 import { useLocale, useT, type MessageKey } from '../../i18n'
-import { Badge, Button, Field, Modal, confirmDialog, inputCls } from '../../components/ui'
-import { AdminPageHeader, Card, Loadable, useAction, useActionOk, useLoad } from './common'
+import { Badge, Button, Field, confirmDialog, inputCls } from '../../components/ui'
+import { AdminPageHeader, Card, Loadable, useAction, useLoad } from './common'
 
 const STATE: Record<SlackAdmin['state'], { key: MessageKey; tone: 'neutral' | 'ok' | 'warn' | 'danger' }> = {
   off: { key: 'slack.state.off', tone: 'neutral' },
@@ -35,7 +36,8 @@ const FIX: Record<SlackErrorCode, { key: MessageKey; page?: Page | 'replace' }> 
   unreachable: { key: 'slack.err.unreachable' }, ratelimited: { key: 'slack.err.unreachable' }, key_unsafe: { key: 'slack.err.key_unsafe' },
 }
 /** A token Slack refused while saving: shown under that token's field (the server names the field) */
-const SAVE_FIX: Record<'bot' | 'app', Partial<Record<string, { key: MessageKey; page: Page }>>> = {
+type FieldName = 'bot' | 'app' | 'clientId' | 'clientSecret'
+const SAVE_FIX: Record<FieldName, Partial<Record<string, { key: MessageKey; page: Page }>>> = {
   bot: {
     invalid_auth: { key: 'slack.err.botRejected', page: 'install' }, token_revoked: { key: 'slack.err.botRejected', page: 'install' },
     not_bot_token: { key: 'slack.err.not_bot_token', page: 'install' }, missing_scope: { key: 'slack.err.missing_scopes', page: 'oauth' },
@@ -46,6 +48,8 @@ const SAVE_FIX: Record<'bot' | 'app', Partial<Record<string, { key: MessageKey; 
     not_app_token: { key: 'slack.err.not_app_token', page: 'general' }, app_mismatch: { key: 'slack.err.app_mismatch', page: 'general' },
     socket_mode_off: { key: 'slack.err.socket_mode_off', page: 'socket' },
   },
+  clientId: { not_client_id: { key: 'slack.err.not_client_id', page: 'general' } },
+  clientSecret: { not_client_secret: { key: 'slack.err.not_client_secret', page: 'general' } },
 }
 
 /** A sentence whose part in [ ] is a link: to a Slack page, or a button doing `onClick` */
@@ -68,7 +72,8 @@ function CodeText({ text }: { text: string }) {
 
 export default function AdminSlack() {
   const t = useT()
-  const state = useLoad(() => api.call(SLACK.slackAdmin))
+  // the page's own address: the manifest's redirect URL and where links open both come from it (and are the same)
+  const state = useLoad(() => api.call(SLACK.slackAdmin, { query: { origin: window.location.origin } }))
   const act = useAction()
   const [replacing, setReplacing] = useState(false)
   const set = (v: SlackAdmin | undefined) => { if (v) state.setData(v) }
@@ -100,6 +105,7 @@ export default function AdminSlack() {
                   ) : s.enabled && s.botName ? (
                     <p className="mt-2 text-sm text-muted" data-testid="slack-invite"><CodeText text={t('slack.admin.invite', { bot: s.botName })} /></p>
                   ) : null}
+                  {!s.redirectUrl && <p className="mt-2 text-sm text-warn" data-testid="slack-https-needed">{t('slack.admin.httpsNeeded')}</p>}
                   <p className="mt-3 flex flex-wrap gap-x-3 gap-y-1 text-xs text-muted">
                     <span>{t('slack.admin.linked', { n: s.linked })}</span>
                     {origin && <span>{t('slack.admin.linksOpen', { origin })}</span>}
@@ -114,6 +120,7 @@ export default function AdminSlack() {
                     <Step n={2} title={t('slack.admin.install')} href={slackPage(s.appId, 'install')}>{t('slack.admin.installHint')}</Step>
                     <Step n={3} title={t('slack.admin.appTokenStep')} href={slackPage(s.appId, 'general')}>{t('slack.admin.appTokenStepHint')}</Step>
                     <Step n={4} title={t('slack.admin.pasteStep')}>
+                      {!s.redirectUrl && <p className="mb-2 text-warn" data-testid="slack-https-needed">{t('slack.admin.httpsNeeded')}</p>}
                       <TokenForm appId={s.appId} enabled={s.enabled} onSaved={(v) => { state.setData(v); setReplacing(false) }} />
                     </Step>
                   </ol>
@@ -127,7 +134,6 @@ export default function AdminSlack() {
                   )}
                 </Card>
               )}
-              {s.enabled && s.tokens && <People />}
             </>
           )
         }}
@@ -155,15 +161,17 @@ function TokenForm({ appId, enabled, onSaved }: { appId: string | null; enabled:
   const t = useT(), locale = useLocale()
   const [bot, setBot] = useState('')
   const [app, setApp] = useState('')
+  const [clientId, setClientId] = useState('')
+  const [clientSecret, setClientSecret] = useState('')
   const [busy, setBusy] = useState(false)
   // what went wrong at the last try, under the field it concerns (or the button); kept until the next try
-  const [error, setError] = useState<{ field: 'bot' | 'app' | null; text: ReactNode } | null>(null)
+  const [error, setError] = useState<{ field: FieldName | null; text: ReactNode } | null>(null)
   const secure = canSeal()
-  const ready = /^xoxb-\S{10,}$/.test(bot.trim()) && /^xapp-\S{10,}$/.test(app.trim())
-  const why = (e: unknown): { field: 'bot' | 'app' | null; text: ReactNode } => {
+  const ready = /^xoxb-\S{10,}$/.test(bot.trim()) && /^xapp-\S{10,}$/.test(app.trim()) && clientId.trim().length > 0 && clientSecret.trim().length > 0
+  const why = (e: unknown): { field: FieldName | null; text: ReactNode } => {
     if (e instanceof ApiError) {
       const fields = e.body.fields ?? {}, reason = String(e.body.params?.reason ?? '')
-      const field = 'body.botToken' in fields ? 'bot' : 'body.appToken' in fields ? 'app' : null
+      const field: FieldName | null = 'body.botToken' in fields ? 'bot' : 'body.appToken' in fields ? 'app' : 'body.clientId' in fields ? 'clientId' : 'body.clientSecret' in fields ? 'clientSecret' : null
       const fix = field ? SAVE_FIX[field][reason] : undefined
       if (field && fix) return { field, text: <FixText text={t(fix.key, { scopes: String(e.body.params?.scopes ?? '') })} href={slackPage(appId, fix.page)} /> }
     }
@@ -174,9 +182,10 @@ function TokenForm({ appId, enabled, onSaved }: { appId: string | null; enabled:
     setBusy(true); setError(null)
     try {
       const key = await api.call(API.sealingKey)
-      const body = { botToken: await sealSecret(key, bot.trim(), 'slack.token'), appToken: await sealSecret(key, app.trim(), 'slack.token') }
+      const body = { botToken: await sealSecret(key, bot.trim(), 'slack.token'), appToken: await sealSecret(key, app.trim(), 'slack.token'),
+        clientId: clientId.trim(), clientSecret: await sealSecret(key, clientSecret.trim(), 'slack.token'), origin: window.location.origin }
       const saved = await api.call(SLACK.saveSlackTokens, { body })
-      setBot(''); setApp('')
+      setBot(''); setApp(''); setClientId(''); setClientSecret('')
       // step 4 turns it on too (already on: it stays on with the new tokens)
       let on = saved
       if (!enabled && !saved.enabled) { try { on = await api.call(SLACK.setSlackEnabled, { body: { enabled: true } }) } catch { /* saved, still off: the status line's button turns it on */ } }
@@ -191,103 +200,18 @@ function TokenForm({ appId, enabled, onSaved }: { appId: string | null; enabled:
       <Field label={t('slack.admin.appToken')} error={error?.field === 'app' ? error.text : null}>
         <input className={inputCls} type="password" autoComplete="off" spellCheck={false} value={app} onChange={(e) => setApp(e.target.value)} placeholder="xapp-…" data-testid="slack-app-token" />
       </Field>
+      {/* Basic Information › App Credentials: for "Sign in with Slack", with which people link their own Slack account */}
+      <div className="grid gap-3 sm:grid-cols-2">
+        <Field label={t('slack.admin.clientId')} error={error?.field === 'clientId' ? error.text : null}>
+          <input className={inputCls} autoComplete="off" spellCheck={false} value={clientId} onChange={(e) => setClientId(e.target.value)} data-testid="slack-client-id" />
+        </Field>
+        <Field label={t('slack.admin.clientSecret')} error={error?.field === 'clientSecret' ? error.text : null}>
+          <input className={inputCls} type="password" autoComplete="off" spellCheck={false} value={clientSecret} onChange={(e) => setClientSecret(e.target.value)} data-testid="slack-client-secret" />
+        </Field>
+      </div>
       {!secure && <p className="text-sm text-warn">{t('credentials.httpsOnly')}</p>}
       {error && !error.field && <p role="alert" className="text-sm text-danger" data-testid="slack-save-error">{error.text}</p>}
       <Button variant="primary" busy={busy} disabled={!ready || !secure || busy} onClick={() => void save()} data-testid="slack-save">{t('slack.admin.save')}</Button>
     </div>
-  )
-}
-
-/** The workspace's people and whom each is linked to. A row not linked yet opens one dialog: propose linking that Slack
- * account to a member whose e-mails differ (the person cannot link it themselves then), or withdraw the proposal
- * waiting for them. Nothing is linked until that member accepts it in the app. */
-function People() {
-  const t = useT()
-  const ok = useActionOk()
-  const members = useLoad(() => api.call(SLACK.slackMembers))
-  const users = useLoad(async () => (await api.call(API.listUsers, { query: {} })).items.filter((u) => u.status === 'active'))
-  const [q, setQ] = useState('')
-  const [open, setOpen] = useState<SlackMember | null>(null)
-  const done = (yes: boolean) => { if (yes) { setOpen(null); void members.reload() } }
-  return (
-    <Card title={t('slack.people.title')} desc={t('slack.people.desc')} testId="slack-people">
-      <Loadable state={members}>
-        {(m) => {
-          const words = q.trim().toLowerCase()
-          const shown = m.members.filter((x) => !words || [x.name, x.realName, x.handle, x.email, x.linkedTo?.name].some((v) => v?.toLowerCase().includes(words)))
-          return (
-            <>
-              <input className={inputCls} value={q} onChange={(e) => setQ(e.target.value)} placeholder={t('slack.people.search')} aria-label={t('slack.people.search')} data-testid="slack-people-search" />
-              <ul className="mt-2 divide-y divide-line">
-                {shown.map((x) => {
-                  const who = (
-                    <div className="min-w-0 flex-1">
-                      <p className="truncate text-sm">{x.name ?? x.realName ?? x.handle ?? x.slackUserId}</p>
-                      <p className="truncate text-xs text-muted">{x.email ?? t('slack.people.noEmail')}</p>
-                    </div>
-                  )
-                  return (
-                    <li key={x.slackUserId} data-testid="slack-person">
-                      {x.linkedTo
-                        ? <div className="flex items-center gap-3 py-2">{who}<span className="shrink-0 text-xs text-muted">→ {x.linkedTo.name}</span></div>
-                        : <button type="button" className="flex w-full items-center gap-3 py-2 text-left hover:bg-subtle" onClick={() => setOpen(x)} data-testid="slack-person-open">
-                            {who}
-                            {x.pending && <span className="shrink-0 text-xs text-muted" data-testid="slack-person-pending">{t('slack.people.waiting', { name: x.pending.name })}</span>}
-                            <ChevronRight size={16} className="shrink-0 text-faint" aria-hidden />
-                          </button>}
-                    </li>
-                  )
-                })}
-              </ul>
-              {m.truncated && <p className="mt-2 text-xs text-muted">{t('slack.people.truncated')}</p>}
-            </>
-          )
-        }}
-      </Loadable>
-      {open && (
-        <LinkDialog member={open} users={users.data ?? []} onClose={() => setOpen(null)}
-          onLink={async (userId) => done(await ok(() => api.call(SLACK.proposeSlackLink, { body: { slackUserId: open.slackUserId, userId } }), t('slack.people.proposed')))}
-          onWithdraw={async (proposalId) => done(await ok(() => api.call(SLACK.cancelSlackProposal, { params: { id: proposalId } })))} />
-      )}
-    </Card>
-  )
-}
-
-function LinkDialog({ member, users, onClose, onLink, onWithdraw }: { member: SlackMember; users: User[]; onClose: () => void; onLink: (userId: string) => Promise<void>; onWithdraw: (proposalId: string) => Promise<void> }) {
-  const t = useT()
-  const [userId, setUserId] = useState('')
-  const [busy, setBusy] = useState(false)
-  const chosen = useMemo(() => users.find((u) => u.id === userId) ?? null, [users, userId])
-  const run = async (fn: () => Promise<void>) => { setBusy(true); try { await fn() } finally { setBusy(false) } }
-  const pending = member.pending
-  return (
-    <Modal open onClose={onClose} title={t('slack.people.dialogTitle')}
-      footer={<>
-        <Button onClick={onClose}>{t('common.cancel')}</Button>
-        {pending
-          ? <Button variant="danger" busy={busy} disabled={busy} data-testid="slack-proposal-withdraw" onClick={() => void run(() => onWithdraw(pending.proposalId))}>{t('slack.people.withdraw')}</Button>
-          : <Button variant="primary" busy={busy} disabled={!chosen || busy} data-testid="slack-link-member-confirm" onClick={() => void run(() => onLink(userId))}>{t('slack.people.confirm')}</Button>}
-      </>}>
-      <dl className="space-y-3 text-sm">
-        <div>
-          <dt className="text-muted">Slack</dt>
-          <dd><span className="font-medium">{member.name ?? member.realName ?? member.handle ?? member.slackUserId}</span>
-            <span className="block text-xs text-muted">{[member.realName, member.handle ? `@${member.handle}` : null, member.email ?? t('slack.people.noEmail')].filter(Boolean).join(' · ')}</span></dd>
-        </div>
-        <div>
-          <dt className="text-muted">{t('slack.people.member')}</dt>
-          {pending
-            ? <dd>{t('slack.people.waiting', { name: pending.name })}</dd>
-            : <dd>
-                <select className={inputCls} value={userId} onChange={(e) => setUserId(e.target.value)} data-testid="slack-link-member-user" aria-label={t('slack.people.member')}>
-                  <option value="">{t('slack.people.choose')}</option>
-                  {users.map((u) => <option key={u.id} value={u.id}>{u.name} (@{u.username})</option>)}
-                </select>
-                {chosen && <span className="mt-1 block text-xs text-muted">{chosen.email ?? t('slack.people.noEmail')}</span>}
-              </dd>}
-        </div>
-      </dl>
-      {!pending && <p className="mt-3 text-sm text-warn">{t('slack.people.warning')}</p>}
-    </Modal>
   )
 }

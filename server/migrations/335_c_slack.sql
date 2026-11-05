@@ -1,7 +1,8 @@
 -- min_compatible_reader: 1
 -- Component C: the Slack connector (server/src/integrations/slack/, docs/SLACK.md, docs/DECISIONS.md "Slack 커넥터").
---   slack_config: the one workspace of this team server. Off by default; the owner saves the two tokens (sealed with
---     the key directory <secrets>/integrations/slack, never in plain text here) and turns it on.
+--   slack_config: the one workspace of this team server. Off by default; the owner saves the two tokens and the app's
+--     client secret (sealed with the key directory <secrets>/integrations/slack, never in plain text here; the client id
+--     is not a secret) and turns it on.
 --   slack_links: one Slack account per person and one person per Slack account, keyed by what Slack's own event
 --     envelope says (enterprise, workspace, user), never by message text.
 --   slack_link_tokens: the one-time links an unlinked Slack user gets (stored hashed; 10 minutes; used once).
@@ -9,9 +10,10 @@
 --   slack_requests: a question asked in Slack whose answer is still to be delivered, or was delivered and may still be
 --     posted to the channel once.
 --   slack_events: event ids and message ids already handled (Slack sends an event again when it was not acknowledged).
---   slack_link_proposals: the owner proposes linking a Slack person to a member (their e-mails differ). It stands in for
---     the e-mail check only: it completes when the member accepts it in the app with their own session AND confirms the
---     one-time link that Slack person got in Slack (either order), both within its 7 days.
+--   slack_signin_flows: "Sign in with Slack" (OpenID Connect) started by a signed-in person to link the Slack account
+--     they sign in to: state and nonce stored hashed, bound to that person (any of their sessions: the browser that
+--     comes back from Slack may not be the app that started it), 10 minutes, used once. `client`: where it started
+--     (web, desktop, mobile), so the end page fits.
 --   slack_email_changes: when each account's e-mail was last set (triggers below). Who set it is in the audit log for
 --     admins (user.create, user.update); a change with no admin entry is the person's own. The e-mail proof of a link
 --     is not trusted for 7 days after someone else set it.
@@ -25,6 +27,7 @@ CREATE TABLE slack_config (
   bot_user_id TEXT,
   bot_name TEXT,
   app_id TEXT,
+  client_id TEXT,
   secret_enc TEXT,
   key_version INTEGER,
   link_origin TEXT,
@@ -40,7 +43,9 @@ CREATE TABLE slack_links (
   slack_user_id TEXT NOT NULL,
   slack_name TEXT,
   created_at TEXT NOT NULL,
-  UNIQUE (enterprise_id, team_id, slack_user_id)
+  -- one link per Slack user of the workspace (a Slack user id is the same in every workspace of an Enterprise Grid
+  -- organization; the enterprise id is kept, never part of the match)
+  UNIQUE (team_id, slack_user_id)
 );
 CREATE TABLE slack_link_tokens (
   token_hash TEXT PRIMARY KEY,
@@ -90,25 +95,20 @@ CREATE TABLE slack_requests (
   posted_at TEXT
 );
 CREATE INDEX slack_requests_state ON slack_requests(state, created_at);
-CREATE TABLE slack_link_proposals (
+CREATE TABLE slack_signin_flows (
   id TEXT PRIMARY KEY,
   user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-  team_id TEXT NOT NULL,
-  enterprise_id TEXT NOT NULL DEFAULT '',
-  slack_user_id TEXT NOT NULL,
-  slack_name TEXT,
-  slack_real_name TEXT,
-  slack_handle TEXT,
-  slack_email TEXT,
-  proposed_by TEXT REFERENCES users(id) ON DELETE SET NULL,
-  state TEXT NOT NULL CHECK (state IN ('pending', 'accepted', 'declined', 'cancelled', 'expired')),
-  member_accepted_at TEXT,
-  slack_confirmed_at TEXT,
+  session_id TEXT NOT NULL,
+  state_hash TEXT NOT NULL UNIQUE,
+  nonce_hash TEXT NOT NULL,
+  redirect_uri TEXT NOT NULL,
+  client TEXT NOT NULL DEFAULT 'web',
+  state TEXT NOT NULL CHECK (state IN ('pending', 'done', 'failed')),
+  reason TEXT,
   created_at TEXT NOT NULL,
-  expires_at TEXT NOT NULL,
-  decided_at TEXT
+  expires_at TEXT NOT NULL
 );
-CREATE INDEX slack_link_proposals_user ON slack_link_proposals(user_id, state);
+CREATE INDEX slack_signin_flows_user ON slack_signin_flows(user_id, created_at);
 CREATE TABLE slack_email_changes (
   user_id TEXT PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
   changed_at TEXT NOT NULL
@@ -142,5 +142,5 @@ BEGIN
     WHERE EXISTS (SELECT 1 FROM slack_links WHERE user_id = NEW.id);
   DELETE FROM slack_links WHERE user_id = NEW.id;
   DELETE FROM slack_threads WHERE user_id = NEW.id;
-  UPDATE slack_link_proposals SET state = 'cancelled', decided_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE user_id = NEW.id AND state = 'pending';
+  DELETE FROM slack_signin_flows WHERE user_id = NEW.id;
 END;

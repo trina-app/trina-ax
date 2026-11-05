@@ -56,15 +56,17 @@ export class SlackApi {
   get testing(): boolean { return this.deps.base !== undefined }
 
   /** One Web API method. `scopes`: the token's scopes as Slack lists them in X-OAuth-Scopes (when it does). */
-  async call(method: string, token: string, body: Record<string, unknown> = {}): Promise<CallResult & { scopes: string[] | null }> {
+  /** `noAuth`: no Authorization header (openid.connect.token takes the app's client id and secret in the body) */
+  async call(method: string, token: string, body: Record<string, unknown> = {}, o: { noAuth?: boolean } = {}): Promise<CallResult & { scopes: string[] | null }> {
     if (!/^[a-z]+(\.[a-zA-Z]+)+$/.test(method)) throw new SlackApiError('invalid_method')
     let retries = 0
     for (;;) {
       let r: Response
+      const signal = AbortSignal.timeout(this.deps.timeoutMs ?? TIMEOUT_MS)
       try {
         r = await fetch(`${this.base}/api/${method}`, {
-          method: 'POST', redirect: 'manual', signal: AbortSignal.timeout(this.deps.timeoutMs ?? TIMEOUT_MS),
-          headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/x-www-form-urlencoded; charset=utf-8' },
+          method: 'POST', redirect: 'manual', signal,
+          headers: { ...(o.noAuth ? {} : { Authorization: `Bearer ${token}` }), 'Content-Type': 'application/x-www-form-urlencoded; charset=utf-8' },
           body: form(body),
         })
       } catch { throw new SlackApiError('unreachable') }
@@ -77,7 +79,8 @@ export class SlackApi {
       if (r.status >= 500 && retries < 1) { retries++; try { await r.body?.cancel() } catch {}; await Bun.sleep(1000); continue }
       if (r.status !== 200) { try { await r.body?.cancel() } catch {}; throw new SlackApiError(r.status >= 300 && r.status < 400 ? 'redirected' : 'http_error', r.status) }
       let j: Record<string, unknown>
-      try { j = JSON.parse(await readCapped(r)) } catch (e) { if (e instanceof SlackApiError) throw e; throw new SlackApiError('invalid_response', r.status) }
+      // cut by the time limit while it was being read: a network problem (tried again), not a bad answer
+      try { j = JSON.parse(await readCapped(r)) } catch (e) { if (e instanceof SlackApiError) throw e; throw new SlackApiError(signal.aborted ? 'unreachable' : 'invalid_response', r.status) }
       if (!j || typeof j !== 'object') throw new SlackApiError('invalid_response', r.status)
       if (j.ok !== true) throw new SlackApiError(typeof j.error === 'string' && CODE.test(j.error) ? j.error : 'unknown', r.status)
       const sc = r.headers.get('x-oauth-scopes')
