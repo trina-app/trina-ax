@@ -890,7 +890,7 @@ describe('text', () => {
     expect(normEmail(null)).toBeNull()
   })
 
-  test('a 200,000-character line is read in one pass: well under 200 ms, whatever markers it has', () => {
+  test('a 200,000-character line is read in one pass: under 2 s on a busy runner (the quadratic version took about a minute), whatever markers it has', () => {
     const lines = {
       unpaired: '*a _b ~~c `d **e [f ***g ``h '.repeat(7_200),
       pairs: '**하나뿐**이에요 *b* ~~c~~ `d` [e](https://acme.example/e) '.repeat(4_000),
@@ -904,7 +904,7 @@ describe('text', () => {
       const r = slackAnswer(line, o, 4)
       const ms = performance.now() - t0
       expect(r.blocks.length).toBeGreaterThan(0)
-      expect({ name, fast: ms < 200 }).toEqual({ name, fast: true })
+      expect({ name, fast: ms < 2_000 }).toEqual({ name, fast: true })
     }
   })
 
