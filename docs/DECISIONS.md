@@ -8569,3 +8569,144 @@ ends and weight before the first result. Fixed here, each in its own commit:
   chat list, its search, its realtime updates and Home's frequent questions (`server/src/chat/internal-chats.ts`), marked
   by their existing tables (`onboarding_profile_drafts`, `onboarding_skill_drafts`; no migration). Their flows read them
   by id as before and they still open by address. The reading hint no longer says the chat stays in the list.
+
+## V — The first result is the company's promo video (feat/onboarding-video, 2026-11-06)
+
+The owner, after the card news: "왜 아직도 카드 뉴스 만드는거야? 너가 hyperframe쓴다매?", "퀄리티 개 좋아야해". A first set of
+templates (beige slides, a circle, fades, no camera, no music; branch feat/onboarding-motion) was rejected. Two
+reference videos made by hand with HyperFrames' product-launch workflow (about 55 minutes and ten AI workers each) were
+approved as the bar: "괜찮네 ㄱㄱ 저렇게 가자". This version reaches that look from a template the server fills in about a
+minute. Placement: Team AX core (onboarding, the chat tool, the artifact panel); the Linux render belongs to the srt dev
+environment image (another developer; handoff below).
+
+### What the reference taught (and the template now does)
+- **One camera idea per beat** (push-in, pull-back, a pan or scroll inside a window, a push-through between two
+  numbers), finishing before the beat's last third and then holding.
+- **Three or more depth planes every beat**: a dark brand ground with a vignette and a radial glow in the brand colour →
+  a picture full bleed or the company's own picture in a floating window (3D tilt that flattens, a deep soft shadow) →
+  type → light (bloom on hits, a light leak, a horizon line, light threads) and a 6 % film grain over everything.
+- **Type is the motion**: per-word cuts out of a mask, an in-place swap or a strike-through then an inverse-zoom slam,
+  counts that decelerate into the written value, a typed footnote; Korean display at weight 800–900, tight tracking,
+  numbers 140–330 px.
+- **Seams matched to velocity, never a plain fade**: zoom-through (hook → promise, proof → end card), push-slide
+  (promise → work), blur crossfade (work → proof).
+- **A 120 BPM grid**: one beat 0.5 s; scenes start at 0, 3.5, 7, 10.5 and 14 s; every reveal and hit lands on the grid;
+  the end card's last motion ends at 16.4 s and it holds to 18.5 s; the first frame is already a thumbnail (the label and the "before" words).
+- **The story order**: the customer's outcome first (before → after), the promise over a brand picture, what the
+  company does on its own picture, proof (a number written in the material, or the most concrete fact), the end card
+  with the logo, the site's real offer and its address.
+- What was not taken: logos assembled from their parts (needs a per-logo path split; the whole logo is revealed by scale
+  and blur), text typed into a measured UI, lines traced from a hero image, a website screenshot (below).
+
+### Slots, not HTML
+- `promo_video` (C's registry, offered in every chat; the pack skill "홍보 영상" uses it), input `PromoVideoInput`
+  (`shared/src/api/promo-video.ts`, strict): company, website, brand colour, logo, style, music, `sources`, and the five
+  beats `hook` (label, before, after, line, strike or swap), `promise` (headline, sub, picture), `work` (kicker,
+  headline, up to three points, picture), `proof` (up to two stats as written, or a statement), `cta` (line, offer).
+  One key phrase per headline line may be marked with *stars* (the accent colour).
+- **Checks** (`promo-video/spec.ts`, every problem at once): every line measured with the bundled font's real advance
+  widths (`metrics.ts`) against its place (`layout.ts fitDoc`); every number on screen written in the sources as a whole
+  number, each stat exactly as written with its sign and unit; pictures and the logo readable by the person, inside a
+  brand folder, PNG/JPEG/WebP by their bytes, ≥ 600 px on the short side (logo ≥ 64), each once; the website written in
+  the sources or the saved profile. First failure: fix every problem and call once more; second: stop and say why in one
+  sentence; a third call is refused.
+- **Style families, chosen from the brand colour** (`palette.ts`): `ink` (near-black warmed by the brand, the brand as a
+  fire-bright accent and glow; first for a vivid colour), `deep` (a ground of the brand's own hue at night depth, a soft
+  tint of it as the accent; first for a deep or muted colour), `mono` (graphite and white; the only one without a usable
+  brand colour — grey, near-black or near-white). The AI may pick among the families that fit; another pick is replaced,
+  not refused. Accents reach 4.5:1 on their ground (the card news' contrast rule). Light grounds were left out: no
+  light family looked premium next to the references.
+- **Missing pictures**: the promise and the work beat each have a type-and-light version (light threads rising behind
+  the words; glass rows for the points and a light sweep); never an empty frame or a made-up picture.
+- **The logo** is revealed whole (scale 0.62 → 1 and blur 26 → 0, locking on the grid with a bloom and a flare). How it
+  sits on the dark ground comes from its pixels (`logo.ts`, 32×32 RGBA by the isolated ffmpeg, like the website
+  reading's logo colour): a filled shape (at least 80 % opaque, an app icon with rounded corners) → a rounded tile; transparent and readable on the dark → as it is; dark and
+  without colour → drawn white; dark and in colour → on a light card. A logo wider than 2.2:1 is the wordmark and
+  replaces the name.
+
+### Motion runtime: CSS animations seeked through the Web Animations API, not GSAP
+- The references used GSAP 3.15 from jsDelivr. GSAP's licence (the "Standard 'No Charge' GSAP License", Webflow,
+  effective 2025-04-30, read at https://gsap.com/standard-license on 2026-11-06) grants use, reproduction, display and
+  implementation "solely for Permitted Uses", forbids "Prohibited Uses" — use "in tools that allow users to build visual
+  animations without code" that compete with Webflow — keeps termination and one-sided amendment, and grants no right
+  to distribute or sublicense. AGPL-3.0 does not allow further restrictions on the people we pass the code to (§7, §10),
+  so GSAP cannot be bundled in this repository or in customers' self-hosted servers; and this very feature is a tool
+  that makes animations without code. Loading it from a CDN is out anyway (the artifact frame and hosted servers make no
+  network calls).
+- So every motion is a CSS keyframe animation with an absolute delay on one clock (`template.ts` compiles a few
+  timeline stops per element into keyframes with an easing per segment; the root is the only `data-start`). HyperFrames'
+  CSS adapter seeks them for the MP4; the chat's player seeks the same animations with `document.getAnimations()`. Counts
+  are a registered integer property (`@property --pvn`) shown through CSS counters, so every frame shows whole digits;
+  when the count lands, the number exactly as written ("1,200곳") takes over.
+
+### Sound
+- Three music beds (bright, calm, pulse), cut to 18.5 s on the 120 BPM grid with a downbeat on frame 0, and six effects
+  (whoosh into a zoom-through, short whoosh on a push, click on the swap, hit on the slam, impact and chime on the logo
+  lock). Licences: CC0 or public domain only, each file's source and licence in `resources/promo-video/audio/SOURCES.md`
+  and the third-party notices; the test checks the folder against that list. Not used: MusicGen outputs (the reference's music; its weights are
+  CC-BY-NC), Pixabay files (no standalone redistribution), anything CC-BY (credit inside customers' videos).
+- The style picks the bed (ink → bright, deep → calm, mono → pulse) unless the AI names one. The MP4 mixes them
+  (HyperFrames `<audio>` with `data-start` and `data-volume`). In the chat the video plays muted (browsers allow muted
+  autoplay); the sound button loads the bed and the effects from `/vendor/promo-video/*.js` (each sound as a data:
+  address in a script, the only way a sound reaches the frame, whose CSP allows media from data: only and scripts from
+  /vendor/) and keeps them on the player's clock.
+
+### The chat
+- The composition is the chat's artifact "promo-video" (a new version per call), the checked slots in `promo_videos`
+  (migration 234). The page plays it in a 4:5 stage with a slim bar (play/pause, progress, time, sound) on a loop,
+  starting once the font is in (at most 1.5 s); with `prefers-reduced-motion` it shows the five settled beats as stills.
+  The font comes from `/vendor/fonts/promo-video.css`, pictures by team path (inlined by the panel). The panel shows no
+  code tab, copy or page download for it; the message card says "영상".
+- The first result (welcome step 3) runs the pack skill "/promo-video" with 회사 소개.md (or the owner's files) and the
+  brand images folder with the website's pictures and logo; the video opens beside the chat by itself; the answer is one
+  line; [팀에 공유] invites with that pack skill, so the 7-day goal counts it. The card news skill stays installed.
+
+### The MP4
+- [영상 파일로 받기] in the panel header, only when `GET /api/promo-videos/:id` says `available` (a development server on
+  macOS with the pinned CLI; never a button that cannot work). One render at a time per server,
+  `<data>/promo-videos/<artifact>.mp4`, kept and given again; removed with its chat. The CLI runs in a process group of
+  its own and the whole group is ended on the time limit and on shutdown (Chrome children included), by process id.
+- **Vendored, not a dependency**: HyperFrames 0.9.15 (Apache-2.0) with its own lock file in `scripts/promo-video/
+  hyperframes/`, installed by `bun scripts/promo-video/install-hyperframes.ts` into `~/.cache/mycel/hyperframes-0.9.15`
+  (or `MYCEL_HYPERFRAMES_DIR`); run with Node 22+ and an environment of PATH and HOME only, telemetry, update checks and
+  skill installs off. The render page is built from the stored slots (never the artifact's HTML): pictures copied out
+  with the chat owner's permissions at render time, the font and the sounds from the repository, no script.
+- **Linux team server: not in this round.** Handoff for the srt dev environment image (scripts/image): bake
+  chrome-headless-shell (x86_64 and arm64) and the pinned CLI tree (`npm ci` from the lock file) into the image; set
+  `HYPERFRAMES_BROWSER_PATH`; drop Debian `chromium` (it cannot start under srt: seccomp blocks AF_UNIX); then offer the
+  MP4 when the dev environment's runner reports a usable headless shell and submit the render as a queued srt job (the
+  same work folder: index.html, fonts/, img/, audio/), reading the MP4 back from the job's folder.
+- **Next step: a website screenshot as the "real product screen"** of the work beat. Not this round: a headless browser
+  opening arbitrary pages needs its own SSRF design (the same rules as web_fetch for every request the page makes, no
+  private addresses, no downloads, a time and memory limit). Until then the work beat uses the pictures the website
+  reading collected.
+
+### Measured
+- **Final gate round** (2026-11-06, this Mac, real AI from its Claude Code login, development servers with their local
+  relays, four teams at once and then two): the product's own site, a Korean AI studio, a café roastery, a Korean B2B
+  SaaS, a large Korean semiconductor maker and a fictional 20-page PDF deck without a website. Reading the website: 33–39
+  s. From "자료 없이 만들게요" (or the deck) to the video artifact: 18–24 s; the answer done at the same time or 3 s later
+  (target 3 minutes). The MP4: 31–94 s (up to four renders at once on this Mac), 13–20 MB, H.264 + AAC, 18.5 s. Styles
+  the server chose: ink twice (orange, violet), deep twice (green, navy), mono twice (a grey brand, no brand colour). Every
+  number on screen was in the material; one site had no number worth a stat (a statement proof), one deck hook was
+  "3–6개월 → 2주".
+- **A browser walk at 390 px** (a fresh team, AI on): setup → the website → "자료 없이 만들게요" → the video playing in the
+  sheet 21 s later; the sound button loaded the bed and the effects from /vendor/promo-video/ (all 200); close →
+  [팀에 공유] → the invite message for the "홍보 영상" skill.
+- **Found by looking at the sheets next to the references, fixed**: an app-icon logo (a dark rounded square) was read as
+  a dark logo and drawn as a white square (a filled shape is now a tile); the logo card shared a class with the work
+  beat's chips; a stat with a comma ("252,475") touched the frame's edges (measured with proportional figures; the count
+  is set in tabular figures, 0.6816 em); a statement split "*성과*로" into "성과 로"; a hook from 3.7 to 81 counted down.
+- **Tests**: `tests/unit/b-promo-video.test.ts` (widths, families and contrast, numbers, brand folders, fitting, logo
+  treatment, the 120 BPM grid and the 2 s hold, type-and-light beats, counts, the sound cues on the grid, the sound
+  licence list against the folder, escaping and the muted player, the tool's problems and second failure, the style
+  replaced when it does not fit, the MP4 with a stand-in CLI, the purge, the time limit and shutdown ending the browser's
+  process group), `b-onboarding-cardnews`, `b-onboarding-team-space`, `b-welcome-share-goal` (the goal counts runs of the
+  promo skill), `web/test/unit/promo-mp4.test.tsx` (no MP4 button where the server says it cannot), the permission
+  matrix's promo cases, `web/test/e2e/welcome-notes.spec.ts`.
+- **Still weaker than the references**: no real product screen of the company's own software (the website screenshot
+  is the next step above; today the work beat shows what the website reading collected, sometimes a banner with text);
+  the logo is revealed whole, on a light card when its colours do not read on the dark (the references assembled theirs
+  from its parts); a proof without a picture is type and light (the references had a real chart and real customer
+  messages); one AI pass writes the copy (the references' copy was edited by hand); the beds are library music cut to
+  the grid, not scored to the edit, and no person has listened to the nine sounds in the videos yet.
