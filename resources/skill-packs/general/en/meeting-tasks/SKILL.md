@@ -59,7 +59,7 @@ Meeting notes have things like attendees, an agenda, discussion, decisions, acti
 - Mark anything that contradicts itself as "to check".
 
 ## Output
-- The top line says what you used: Based on 2 meeting notes (11-03 weekly meeting, 11-05 campaign kickoff). When one of the fixed first-line sentences above applies, this goes on the second line.
+- The top line says what you used: Based on 2 meeting notes (11-03 weekly meeting, 11-05 campaign kickoff). When one of the fixed first-line sentences above applies, leave one blank line after it and put this line below.
 - Short and easy to read on a phone. No tables.
 - Do not invent people, tasks or dates.
 - Do not end with an offer such as "Anything else?".

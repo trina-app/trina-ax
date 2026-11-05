@@ -16,6 +16,7 @@ import { clearLocalData } from '../lib/localData'
 import { readSetupLink, rememberSetupSite } from '../lib/setupLink'
 import { setAfterSetup } from '../lib/welcome'
 import { joinNext, readJoinToken, setAfterJoin } from '../lib/team-link'
+import { holdStarter } from '../lib/starter'
 import { SourceCodeLink } from '../components/SourceCodeLink'
 import { Button, Field, IconButton, inputCls } from '../components/ui'
 import { browserTimeZone } from '../lib/time-zones'
@@ -362,7 +363,9 @@ export function TeamJoin() {
   const submit = (v: JoinValues) =>
     void run(async () => {
       const r = await api.call(API.joinTeamLink, { body: { token: link.token!, ...v, locale: storedLocale() ?? undefined, client: clientKind(), tokenMode: 'cookie' } })
-      const next = joinNext(r.next)
+      // the lead's files waiting for them (docs/DECISIONS.md "M"): Home fills the box with them and the question
+      if (r.starter) holdStarter(r.me.user.id, r.starter)
+      const next = r.starter ? '/' : joinNext(r.next)
       setAfterJoin(next)
       signedIn(r.me)
       navigate(next, { replace: true })

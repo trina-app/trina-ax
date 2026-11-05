@@ -1,6 +1,6 @@
 // One suggestion under a result, above the message box (docs/DECISIONS.md "X — Lean onboarding"): at most one line,
 // chosen by state, never two at once.
-//   - the lead's first result: the welcome invite bar (WelcomeInviteBar), nothing else;
+//   - the lead's first result: the welcome invite bar (WelcomeInviteBar, which reads the chat's team files), nothing else;
 //   - else what the server says for the newest answer (server/src/onboarding/suggestions.ts): the same person ran the
 //     same team skill for the 2nd time → "매주 이 시간에 자동으로 받을까요?" [예약하기], which asks the AI in this chat to
 //     schedule the same request every week at this time (the AI's schedule card is how tasks are made: the person sees
@@ -51,7 +51,7 @@ export function ResultSuggestion({ chatId, messages, busy, onSend }: { chatId: s
     return () => { live = false }
   }, [chatId, lastId, inviteHere])
 
-  const bar = <WelcomeInviteBar chatId={chatId} answered={answered} />
+  const bar = <WelcomeInviteBar chatId={chatId} answered={answered} messages={messages} />
   if (inviteHere || !lastId || got?.messageId !== lastId || !got.suggestion || done === lastId) return bar
   const s = got.suggestion
   const act = () => {

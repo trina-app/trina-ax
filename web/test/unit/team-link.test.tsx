@@ -2,7 +2,7 @@
 // bar, sent only in a POST body; the join form with no password confirmation (an eye button instead); the ready-made
 // message in every language; where a new member lands; the Members card and the wizard's InviteStep with its soft
 // "later" dialog.
-import { afterAll, beforeAll, describe, expect, test } from 'bun:test'
+import { afterAll, afterEach, beforeAll, describe, expect, test } from 'bun:test'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { MemoryRouter, Route, Routes, useLocation } from 'react-router-dom'
 import { PRODUCT } from '@mycel/shared'
@@ -10,9 +10,10 @@ import type { TeamLinkResponse } from '@mycel/shared/api'
 import { DICTS, LOCALES, translate, useLocaleStore, type MessageKey } from '../../src/i18n'
 import { joinNext, readJoinToken, teamLinkMessage } from '../../src/lib/team-link'
 import { JoinForm, TeamJoin } from '../../src/pages/Auth'
-import { TeamLinkView } from '../../src/components/onboarding/TeamLinkPanel'
+import { TeamLinkPanel, TeamLinkView } from '../../src/components/onboarding/TeamLinkPanel'
 import { InviteStep } from '../../src/components/onboarding/InviteStep'
 import { useSession } from '../../src/store/session'
+import { useWelcome } from '../../src/store/welcome'
 import { installDom, mount, removeDom, type Mounted } from './dom-host'
 
 const TOKEN = 'AbCdEfGhIjKlMnOpQrStUvWxYz0123456789_-abcde'
@@ -354,5 +355,131 @@ describe('on screen', () => {
     await m.click('invite-step-done')
     expect(done).toBe(1)
     } finally { await m.unmount() }
+  })
+})
+
+// docs/DECISIONS.md "M — One meeting note, everyone's own tasks": a link can carry the lead's files (a starter); its
+// message then says what is waiting; the team's own group (from the welcome steps) is a new link's default group; the
+// invite with files changes an open link that leads elsewhere (PATCH, same address).
+describe('the starter and the team\'s group', () => {
+  const GROUP = '01900000-0000-7000-8000-0000000000e1'
+  const TASKS = 'skills/general/meeting-tasks/SKILL.md'
+  const FILES = ['groups/Acme/회의록/a.md', 'groups/Acme/회의록/b.md']
+  const STARTER = { kind: 'tasks' as const, files: FILES }
+
+  test('the message of a link with a starter: what is waiting, in the lead\'s own voice, the link on its own line', () => {
+    const ko = (k: MessageKey, p?: Record<string, string | number>) => translate('ko', k, p)
+    expect(teamLinkMessage(ko, { name: '김하나', url: URL_, skill: '할 일 정리', starter: 'tasks' })).toBe(`이번 주 팀 회의록 올려 뒀어요. 링크 열면 내 할 일이 바로 나와요.\n${URL_}`)
+    expect(teamLinkMessage(ko, { name: '김하나', url: URL_, skill: '핵심 정리', starter: 'brief' })).toBe(`팀 자료 올려 뒀어요. 링크 열면 나한테 필요한 것만 바로 볼 수 있어요.\n${URL_}`)
+    for (const { id } of LOCALES) {
+      const t = (k: MessageKey, p?: Record<string, string | number>) => translate(id, k, p)
+      for (const starter of ['tasks', 'brief'] as const) expect({ id, starter, ok: teamLinkMessage(t, { name: 'Ana', url: URL_, starter }).endsWith(`\n${URL_}`) }).toEqual({ id, starter, ok: true })
+    }
+  })
+
+  test('the panel shows the starter\'s message and one quiet line; a starter with no file left is the usual message', () => {
+    const html = view({ ...LINK, link: { ...LINK.link!, starter: { kind: 'tasks', files: 2 } } })
+    expect(html).toContain('I&#x27;ve put up this week&#x27;s team meeting notes. Open the link to see your own tasks right away.')
+    expect(html).toContain('data-testid="team-link-starter">On joining: their own tasks · 2 files<')
+    const none = view({ ...LINK, link: { ...LINK.link!, starter: { kind: 'tasks', files: 0 } } })
+    expect(none).toContain('invited you to work together')
+    expect(none).not.toContain('data-testid="team-link-starter"')
+  })
+
+  describe('on screen', () => {
+    const realFetch = globalThis.fetch
+    const before = { locale: useLocaleStore.getState().locale, status: useSession.getState().status }
+    let routes: Record<string, (body: any) => Response> = {}
+    let calls: { key: string; body: any }[] = []
+    const json = (status: number, body: unknown) => new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json' } })
+    const owner = { user: { id: 'olga', username: 'olga', name: 'Olga', email: null, role: 'owner', locale: 'ko', localeChoice: null, mustChangePassword: false, prefs: {} }, groups: [], team: { name: 'Acme', defaultLocale: 'ko' } }
+    const progress = {
+      startedAt: '2026-11-04T00:00:00.000Z', updatedAt: '2026-11-04T00:00:00.000Z', teamType: null, steps: { profile: 'done', result: 'done', invite: null }, pack: null, resultChatId: null, inviteShownAt: null, site: null, dismissedAt: null, finishedAt: null,
+      general: { at: '2026-11-04T00:00:00.000Z', tasksPath: TASKS, briefPath: null }, teamGroup: { id: GROUP, name: 'Acme', folder: 'groups/Acme', notesFolder: 'groups/Acme/회의록' },
+    }
+    const groups = [{ id: GROUP, name: 'Acme', description: null, memberIds: ['olga'] }]
+    beforeAll(() => {
+      installDom()
+      useLocaleStore.setState({ locale: 'ko' })
+      useSession.setState({ status: { kind: 'signed-in', me: owner } } as never)
+      globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+        const key = `${init?.method ?? 'GET'} ${String(input).split('?')[0]}`
+        const body = typeof init?.body === 'string' ? JSON.parse(init.body) : undefined
+        calls.push({ key, body })
+        return routes[key]?.(body) ?? json(404, { error: { code: 'not_found', message: `no route ${key}` } })
+      }) as unknown as typeof fetch
+    })
+    afterEach(() => { calls = []; useWelcome.getState().reset() })
+    afterAll(() => {
+      globalThis.fetch = realFetch
+      removeDom()
+      useLocaleStore.setState({ locale: before.locale })
+      useSession.setState({ status: before.status })
+    })
+    const called = (key: string) => calls.filter((c) => c.key === key)
+
+    test('a new link starts with the team\'s group and carries the starter; a link before keeps its own groups', async () => {
+      const made: unknown[] = []
+      let m = await mount(<TeamLinkView data={{ link: null, seats: { used: 1, limit: null } }} inviter="Olga" groups={groups} skills={null} fixedSkillPath={TASKS} starter={STARTER} defaultGroupIds={[GROUP]} busy={false} folded onCreate={(b) => made.push(b)} onRevoke={noop} />)
+      try {
+        await m.click('team-link-create')
+        expect(made).toEqual([{ groupIds: [GROUP], expiresInDays: 14, skillPath: TASKS, starter: STARTER }])
+      } finally { await m.unmount() }
+      made.length = 0
+      m = await mount(<TeamLinkView data={{ ...LINK, link: { ...LINK.link!, state: 'expired' } }} inviter="Olga" groups={groups} skills={null} defaultGroupIds={[GROUP]} busy={false} onCreate={(b) => made.push(b)} onRevoke={noop} />)
+      try {
+        await m.click('team-link-create')
+        expect(made).toEqual([{ groupIds: [], expiresInDays: 14, skillPath: 'skills/marketing/ad-copy/SKILL.md' }])
+      } finally { await m.unmount() }
+    })
+
+    test('Admin › Members: no link yet, the team\'s group is checked; nothing is changed by itself', async () => {
+      let link: TeamLinkResponse = { link: null, seats: { used: 1, limit: null } }
+      routes = {
+        'GET /api/onboarding/welcome': () => json(200, { progress }),
+        'GET /api/admin/groups': () => json(200, { items: groups }),
+        'GET /api/skills': () => json(200, { items: [] }),
+        'GET /api/admin/team-link': () => json(200, link),
+        'POST /api/admin/team-link': (b) => { link = { ...LINK, link: { ...LINK.link!, groupIds: b.groupIds, skill: null } }; return json(201, link) },
+      }
+      const m = await mount(<MemoryRouter><TeamLinkPanel /></MemoryRouter>)
+      try {
+        await m.until(() => m.find('team-link-create'), 'the form')
+        // (a checkbox's checked is a property React sets)
+        await m.until(() => (m.container.querySelector('input[type="checkbox"]') as unknown as { checked: boolean } | null)?.checked, 'the team\'s group checked')
+        await m.click('team-link-create')
+        await m.until(() => called('POST /api/admin/team-link').length, 'made')
+        expect(called('POST /api/admin/team-link')[0]!.body).toEqual({ groupIds: [GROUP], expiresInDays: 14 })
+        expect(called('PATCH /api/admin/team-link')).toEqual([])
+      } finally { await m.unmount() }
+    })
+
+    test('the invite with the lead\'s files and an open link that leads elsewhere: changed once (same address), then its message', async () => {
+      let link: TeamLinkResponse = LINK
+      routes = {
+        'GET /api/onboarding/welcome': () => json(200, { progress }),
+        'GET /api/admin/groups': () => json(200, { items: groups }),
+        'GET /api/admin/team-link': () => json(200, link),
+        'PATCH /api/admin/team-link': (b) => {
+          link = { ...LINK, link: { ...LINK.link!, groupIds: [...LINK.link!.groupIds, ...b.addGroupIds], skill: { path: b.skillPath, name: 'meeting-tasks', title: '할 일 정리' }, starter: { kind: b.starter.kind, files: b.starter.files.length } } }
+          return json(200, link)
+        },
+      }
+      let m = await mount(<MemoryRouter><InviteStep title={null} skillPath={TASKS} starter={STARTER} onDone={noop} /></MemoryRouter>)
+      try {
+        await m.until(() => m.find('team-link-message'), 'the message')
+        expect(called('PATCH /api/admin/team-link').map((c) => c.body)).toEqual([{ skillPath: TASKS, starter: STARTER, addGroupIds: [GROUP] }])
+        expect(m.get('team-link-message').textContent).toBe(`이번 주 팀 회의록 올려 뒀어요. 링크 열면 내 할 일이 바로 나와요.\n${URL_}`)
+        expect(called('POST /api/admin/team-link')).toEqual([])
+      } finally { await m.unmount() }
+      // opened again: the link already leads there, nothing to change
+      calls = []
+      m = await mount(<MemoryRouter><InviteStep title={null} skillPath={TASKS} starter={STARTER} onDone={noop} /></MemoryRouter>)
+      try {
+        await m.until(() => m.find('team-link-message'), 'the message')
+        await m.settle(30)
+        expect(called('PATCH /api/admin/team-link')).toEqual([])
+      } finally { await m.unmount() }
+    })
   })
 })

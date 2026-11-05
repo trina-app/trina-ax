@@ -2,18 +2,26 @@
 // their folder names, no engine call). Owners and admins get ONE thing at the top: the welcome steps' "continue" row
 // while they are unfinished, else the 7-day goal card (docs/DECISIONS.md "Y — Home shows one thing at a time"); the
 // owner's setup checklist is on Admin › Home.
+// Two moments of the meeting-notes start (docs/DECISIONS.md "M — One meeting note, everyone's own tasks") show here as
+// one line each, with nothing else added:
+//   - a member who just joined with a link that carries the lead's files (lib/starter.ts): "민지님이 이번 주 팀 회의록
+//     2개를 올려 뒀어요" above the box, the box filled with "/meeting-tasks 내 할 일 정리해 줘" and the files attached,
+//     the box's own send button as the one action, and who sees the chat under it; nothing else on Home until it is sent;
+//   - the owner who ended the welcome steps without files: "회의록이 생기면 {팀} 폴더에 놓아 주세요".
 import { Folder, Lock, Pencil } from 'lucide-react'
 import { useEffect, useMemo, useState } from 'react'
-import { Link, useSearchParams } from 'react-router-dom'
+import { Link, useLocation, useSearchParams } from 'react-router-dom'
 import { useRealNavigationType } from '../lib/realPath'
-import type { FileEntry, Project } from '@mycel/shared/api'
+import type { FileEntry, JoinStarter, Project } from '@mycel/shared/api'
 import { api, API } from '../lib/api'
+import { clearStarter, heldStarter, markStarterAttached, starterAttached } from '../lib/starter'
+import { sendToComposer } from '../lib/teamAttach'
 import { visibleFolders } from '../lib/visibleFolders'
 import { useT, type MessageKey } from '../i18n'
 import { useChats } from '../store/chats'
 import { isAdmin, isOwner, useMeStrict } from '../store/session'
 import { useWelcome } from '../store/welcome'
-import { showResume } from '../lib/welcome'
+import { readNotesHint, showResume, type NotesHint } from '../lib/welcome'
 import { NewChatComposer } from '../components/chat/NewChatComposer'
 import { FrequentQuestions } from '../components/FrequentQuestions'
 import { PopularSkills } from '../components/PopularSkills'
@@ -30,7 +38,15 @@ export default function Home() {
   const chats = useChats((s) => s.chats)
   const chatsLoaded = useChats((s) => s.chatsLoaded)
   const [project, setProject] = useState<Project | null>(null)
-  const [preset, setPreset] = useState<{ text: string; n: number } | null>(prompt ? { text: prompt, n: 0 } : null)
+  // a member who just joined: the lead's files and their question, until the first message is sent
+  const starter = useMemo(() => (projectId ? null : heldStarter(me.user.id)), [me.user.id, projectId])
+  const notes = readNotesHint(useLocation().state)
+  const [preset, setPreset] = useState<{ text: string; n: number } | null>(() => (starter ? { text: starterQuestion(starter, t), n: 0 } : prompt ? { text: prompt, n: 0 } : null))
+  useEffect(() => {
+    if (!starter || starterAttached(me.user.id)) return
+    // once: the box keeps its chips across a reload by itself
+    void sendToComposer('new', starter.files.map((f) => f.path)).then((r) => { if (r.added > 0) markStarterAttached(me.user.id) })
+  }, [starter, me.user.id])
 
   useEffect(() => {
     if (!projectId) return setProject(null)
@@ -47,7 +63,7 @@ export default function Home() {
     <div className="flex h-full flex-col overflow-y-auto">
       <div className="flex flex-1 flex-col items-center justify-center px-4 py-10">
         <div className="w-full max-w-[720px]">
-          {isAdmin(me) && <HomeTop owner={isOwner(me)} />}
+          {isAdmin(me) && !starter && <HomeTop owner={isOwner(me)} />}
           {project && (
             <p className="mb-2 text-center text-sm text-muted">
               <Link to={`/projects/${project.id}`} className="font-medium text-accent-text hover:underline">
@@ -57,22 +73,58 @@ export default function Home() {
             </p>
           )}
           <h1 className="mb-6 text-center text-[26px] font-semibold tracking-tight sm:text-[28px]">{t('home.greeting', { name: me.user.name })}</h1>
+          {starter ? <StarterLine starter={starter} /> : notes && !projectId && <NotesLine notes={notes} />}
           <NewChatComposer
             projectId={projectId}
             initialText={preset?.text}
             resetKey={preset?.n ?? 0}
             // Only in-app PUSH navigation or a chosen preset requests focus; a document load keeps the skip link first.
             autoFocus={navigationType === 'PUSH' || (preset?.n ?? 0) > 0}
+            onSent={starter ? () => clearStarter(me.user.id) : undefined}
           />
-          {firstTime && !projectId && <FirstTime onExample={(text) => setPreset({ text, n: (preset?.n ?? 0) + 1 })} />}
-          {!projectId && <FrequentQuestions key={me.user.id} onChoose={(text) => setPreset({ text, n: (preset?.n ?? 0) + 1 })} />}
+          {starter && (
+            <p className="mt-2 text-center text-xs text-faint" data-testid="starter-private">
+              {starter.by ? t('starter.privateBy', { name: me.user.name, by: starter.by }) : t('starter.private', { name: me.user.name })}
+            </p>
+          )}
+          {firstTime && !projectId && !starter && <FirstTime onExample={(text) => setPreset({ text, n: (preset?.n ?? 0) + 1 })} />}
+          {!projectId && !starter && <FrequentQuestions key={me.user.id} onChoose={(text) => setPreset({ text, n: (preset?.n ?? 0) + 1 })} />}
           {/* B-W7-7: the team's top skills, once two or more were used. A different key from FrequentQuestions: same-key
               siblings render twice */}
-          {!projectId && <PopularSkills key={`skills-${me.user.id}`} limit={3} min={2} className="mt-6" onChoose={(text) => setPreset({ text, n: (preset?.n ?? 0) + 1 })} />}
+          {!projectId && !starter && <PopularSkills key={`skills-${me.user.id}`} limit={3} min={2} className="mt-6" onChoose={(text) => setPreset({ text, n: (preset?.n ?? 0) + 1 })} />}
         </div>
       </div>
       <p className="px-4 pb-3 text-center text-[11px] text-faint">{t('chat.footer')}</p>
     </div>
+  )
+}
+
+/** "/meeting-tasks 내 할 일 정리해 줘": the link's skill and the member's own question (the name is not translated). */
+export function starterQuestion(s: JoinStarter, t: ReturnType<typeof useT>): string {
+  return `/${s.skill.name} ${t(s.kind === 'brief' ? 'starter.askBrief' : 'starter.askTasks')}`
+}
+
+/** "민지님이 이번 주 팀 회의록 2개를 올려 뒀어요" (the files are in the box below). */
+function StarterLine({ starter }: { starter: JoinStarter }) {
+  const t = useT()
+  const n = starter.files.length
+  const key: MessageKey = starter.kind === 'brief' ? (starter.by ? 'starter.briefBy' : 'starter.brief') : starter.by ? 'starter.tasksBy' : 'starter.tasks'
+  return <p className="mb-3 text-center text-sm text-muted" data-testid="starter-line">{t(key, { n, by: starter.by ?? '' })}</p>
+}
+
+/** "회의록이 생기면 {팀} 폴더에 놓아 주세요", the folder a link to the file screen. */
+function NotesLine({ notes }: { notes: NotesHint }) {
+  const t = useT()
+  const MARK = '\u0000'
+  const [before, after] = t('welcome.files.homeLine', { folder: MARK }).split(MARK)
+  return (
+    <p className="mb-3 text-center text-sm text-muted" data-testid="welcome-notes-line">
+      {before}
+      <Link to={`/files?path=${encodeURIComponent(notes.folder)}`} className="font-medium text-accent-text hover:underline" data-testid="welcome-notes-folder">
+        {t('welcome.files.homeFolder', { team: notes.team })}
+      </Link>
+      {after}
+    </p>
   )
 }
 
