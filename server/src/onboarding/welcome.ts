@@ -63,7 +63,9 @@ function view(raw: Raw, now: string): WelcomeProgress {
     startedAt: pick(str, raw.startedAt, now),
     updatedAt: pick(str, raw.updatedAt, now),
     teamType: pick(TeamType.nullable(), raw.teamType, null),
-    steps: Object.fromEntries(WELCOME_STEPS.map((s) => [s, pick(WelcomeStepState.nullable(), steps[s], null)])) as WelcomeProgress['steps'],
+    // the AI step only when it was ever recorded (a row from before it, or an owner whose AI answered from the start,
+    // reads as it did)
+    steps: Object.fromEntries(WELCOME_STEPS.map((s) => [s, pick(WelcomeStepState.nullable(), steps[s], null)]).filter(([s, v]) => s !== 'ai' || v !== null)) as WelcomeProgress['steps'],
     // recorded in any shape: installed (the steps never install again because of a field they cannot read)
     pack: rawPack === null || rawPack === undefined ? null : pick(PackShape, rawPack, {
       id: 'marketing',
@@ -128,7 +130,8 @@ export function updateWelcome(ctx: Pick<AppContext, 'db'>, userId: string, u: We
   }
   if (u.teamType) raw.teamType = u.teamType
   if (u.step) {
-    // done stays done: going back to a step and putting it off again does not undo it
+    // done stays done: going back to a step and putting it off again does not undo it. The AI step: `skipped` when it
+    // was shown (AI was needed), `done` once AI answers the owner after that (docs/DECISIONS.md "W2")
     if (u.step.state === 'done' || p.steps[u.step.id] !== 'done') steps[u.step.id] = u.step.state
     // the invite put off before there was a result comes back once there is one (the bar on the result chat)
     if (u.step.id === 'result' && u.step.state === 'done' && p.steps.invite === 'skipped') steps.invite = null
@@ -141,7 +144,7 @@ export function updateWelcome(ctx: Pick<AppContext, 'db'>, userId: string, u: We
   if (u.dismissed !== undefined) raw.dismissedAt = u.dismissed ? (p.dismissedAt ?? now) : null
   if (u.finish) {
     // "자료 없이 해 볼게요" without the marketing pack: what is still open is put off, and the steps are over
-    for (const s of WELCOME_STEPS) if (p.steps[s] === null) steps[s] = 'skipped'
+    for (const s of WELCOME_STEPS) if (s !== 'ai' && p.steps[s] === null) steps[s] = 'skipped'
     if (!p.finishedAt) raw.finishedAt = now
   }
   return save(ctx, raw, now)

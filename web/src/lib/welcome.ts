@@ -1,15 +1,23 @@
 // The welcome steps (pages/Welcome.tsx; docs/DECISIONS.md "W — Welcome steps", "X — Lean onboarding", "M — One meeting
-// note, everyone's own tasks"): which step to open, what the Home entry counts, what leaving the first step installs,
-// what the invite under the first answer carries, and where the owner goes right after /setup.
+// note, everyone's own tasks", "W2 — AI connection first"): which step to open, what the Home entry counts, what
+// leaving the first step installs, what the invite under the first answer carries, and where the owner goes right after
+// /setup.
 import { GENERAL_TASKS_SKILL, LOCALE_ORDER, WELCOME_COUNTED, WELCOME_STEPS, type Message, type StarterKind, type User, type WelcomeProgress, type WelcomeStep } from '@mycel/shared/api'
 import { translate } from '../i18n'
 
-/** Where the steps resume: the first step not yet done or put off; with none left, the first counted step that was
- * put off ("later" is now); null when everything is done (or finished). */
-export function resumeStep(p: WelcomeProgress | null): WelcomeStep | null {
-  if (!p) return WELCOME_STEPS[0]
-  if (p.finishedAt) return null
-  const open = WELCOME_STEPS.find((s) => p.steps[s] === null)
+/** The steps after the AI step, in order (the AI step is a gate, not a place in the order: docs/DECISIONS.md "W2"). */
+const AFTER_AI = WELCOME_STEPS.filter((s) => s !== 'ai')
+
+/**
+ * Where the steps resume. Without an AI that answers the owner (`aiReady` false: GET /api/me/ai-access), the AI step,
+ * whatever else is open: every later step needs AI. Else the first step not yet done or put off; with none left, the
+ * first counted step that was put off ("later" is now); null when everything is done (or finished).
+ */
+export function resumeStep(p: WelcomeProgress | null, aiReady = true): WelcomeStep | null {
+  if (p?.finishedAt) return null
+  if (!aiReady) return 'ai'
+  if (!p) return AFTER_AI[0]!
+  const open = AFTER_AI.find((s) => p.steps[s] === null)
   if (open) return open
   return WELCOME_COUNTED.find((s) => p.steps[s] !== 'done') ?? null
 }
@@ -17,18 +25,26 @@ export function resumeStep(p: WelcomeProgress | null): WelcomeStep | null {
 /** After a step: the next one in order that is still open; null (back to Home) when none is left after it, so a step
  * put off never comes straight back. */
 export function nextStep(p: WelcomeProgress, from: WelcomeStep): WelcomeStep | null {
-  return WELCOME_STEPS.slice(WELCOME_STEPS.indexOf(from) + 1).find((s) => p.steps[s] === null) ?? null
+  const order: readonly WelcomeStep[] = from === 'ai' ? AFTER_AI : AFTER_AI.slice(AFTER_AI.indexOf(from) + 1)
+  return order.find((s) => p.steps[s] === null) ?? null
 }
 
+/** The step before (the AI step is never gone back to: it is over once AI answers). */
 export function prevStep(from: WelcomeStep): WelcomeStep | null {
-  return WELCOME_STEPS[WELCOME_STEPS.indexOf(from) - 1] ?? null
+  return from === 'ai' ? null : AFTER_AI[AFTER_AI.indexOf(from) - 1] ?? null
+}
+
+/** The steps the progress counts: the AI step while it is needed or once it was shown (recorded), then 회사 소개 and 첫
+ * 결과; an owner whose AI answered from the start never sees it (two steps). */
+export function countedSteps(p: WelcomeProgress | null, aiReady = true): WelcomeStep[] {
+  return !aiReady || (p?.steps.ai ?? null) !== null ? ['ai', ...WELCOME_COUNTED] : [...WELCOME_COUNTED]
 }
 
 /** "1/2" on the Home entry: the counted steps done */
-export const doneCount = (p: WelcomeProgress | null) => (p ? WELCOME_COUNTED.filter((s) => p.steps[s] === 'done').length : 0)
+export const doneCount = (p: WelcomeProgress | null, aiReady = true) => (p ? countedSteps(p, aiReady).filter((s) => p.steps[s] === 'done').length : 0)
 
-/** How many steps the progress counts (the "/2"): read it from here, never as a number of its own. */
-export const stepTotal = () => WELCOME_COUNTED.length
+/** How many steps the progress counts (the "/2", "/3" with the AI step): read it from here, never as a number of its own. */
+export const stepTotal = (p: WelcomeProgress | null = null, aiReady = true) => countedSteps(p, aiReady).length
 
 /** Leaving the first step installs the marketing pack only when the owner said "마케팅팀이에요" and it is not in yet.
  * No answer (null) is the general pack only; a type from before (영업, 기타 …) reads as "not marketing". */

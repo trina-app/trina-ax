@@ -11,12 +11,16 @@ import { z } from 'zod'
 import { empty, endpoint } from './endpoint'
 import { SkillPackId, SkillPackInstallResult } from './onboarding-packs'
 
-/** In order. `invite` comes after the two counted steps (the progress bar shows profile, result). A row written before
- * may still hold a `team` step: it is kept as it is and no longer read. */
-export const WELCOME_STEPS = ['profile', 'result', 'invite'] as const
+/** In order. `ai` (connect an AI) opens the steps only while the owner has no AI that answers them (docs/DECISIONS.md
+ * "W2 — AI connection first"), in front of profile and result, never in front of the invite; it is recorded once it
+ * was shown, so the progress keeps showing it. `invite` comes after the counted steps (the progress bar shows ai when
+ * it was needed, profile, result). A row written before may still hold a `team` step: it is kept as it is and no
+ * longer read. */
+export const WELCOME_STEPS = ['ai', 'profile', 'result', 'invite'] as const
 export const WelcomeStep = z.enum(WELCOME_STEPS)
 export type WelcomeStep = z.infer<typeof WelcomeStep>
-/** the steps the progress bar counts ("1/2") */
+/** the steps the progress bar always counts ("1/2"); `ai` is counted too while it is needed or once it was shown
+ * (web/src/lib/welcome.ts countedSteps) */
 export const WELCOME_COUNTED = ['profile', 'result'] as const satisfies readonly WelcomeStep[]
 
 export const WelcomeStepState = z.enum(['done', 'skipped'])
@@ -47,7 +51,12 @@ export const WelcomeProgress = z.object({
   startedAt: z.string(),
   updatedAt: z.string(),
   teamType: TeamType.nullable(),
-  steps: z.object({ profile: WelcomeStepState.nullable(), result: WelcomeStepState.nullable(), invite: WelcomeStepState.nullable() }),
+  steps: z.object({
+    /** absent on rows from before the AI step, and for an owner whose AI answered from the start; `skipped` once it was
+     * shown (no AI answered), `done` when AI answered after that */
+    ai: WelcomeStepState.nullable().optional(),
+    profile: WelcomeStepState.nullable(), result: WelcomeStepState.nullable(), invite: WelcomeStepState.nullable(),
+  }),
   /** the pack these steps installed, once (never again by themselves), and the path of its first-result skill */
   pack: z.object({ id: SkillPackId, at: z.string(), skillPath: z.string() }).nullable(),
   /** the chat the first result ran in (one of the owner's): it shows the invite bar */

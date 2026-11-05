@@ -263,13 +263,16 @@ function TargetPicker({ value, onChange, groups, users }: { value: CredentialAss
  * ChatGPT plan or the Claude subscription in again (replace of a subscription connection). Subscriptions connect with
  * a sign-in in the browser; a Claude token made in a terminal can still be pasted (the folded "in a terminal" part).
  */
-export function AddCredential({ allowedKinds, gateway, groups, users, replace, personal, sharedSubscriptions = false, onClose, onDone }: {
-  allowedKinds: CredentialKind[]; gateway?: Gateway; groups: Group[]; users: User[]; replace?: Credential; personal?: boolean; sharedSubscriptions?: boolean; onClose: () => void; onDone: () => void
+export function AddCredential({ allowedKinds, gateway, groups, users, replace, personal, sharedSubscriptions = false, initialKind, initialLabel, onClose, onDone }: {
+  allowedKinds: CredentialKind[]; gateway?: Gateway; groups: Group[]; users: User[]; replace?: Credential; personal?: boolean; sharedSubscriptions?: boolean
+  /** one way chosen already (the welcome steps' "Claude 구독 연결"): the list of ways is not shown */
+  initialKind?: CredentialKind; initialLabel?: string
+  onClose: () => void; onDone: () => void
 }) {
   const t = useT()
   const locale = useLocale()
-  const [kind, setKind] = useState<CredentialKind | null>(replace?.kind ?? null)
-  const [label, setLabel] = useState(replace?.label ?? '')
+  const [kind, setKind] = useState<CredentialKind | null>(replace?.kind ?? initialKind ?? null)
+  const [label, setLabel] = useState(replace?.label ?? initialLabel ?? '')
   const [secret, setSecret] = useState('')
   const [assignments, setAssignments] = useState<CredentialAssignment[]>([])
   const [ack, setAck] = useState(false)
@@ -400,7 +403,7 @@ export function AddCredential({ allowedKinds, gateway, groups, users, replace, p
           <div className="space-y-4">
             {personal && <p className="text-sm text-muted">{t('credentials.personalFirst')}</p>}
             {!personal && !sharedSubscriptions && <p className="text-sm text-warn" data-testid="shared-subscriptions-off">{t('credentials.sharedSubscriptionsOff')}</p>}
-            {!replace && (
+            {!replace && !initialKind && (
               <fieldset className="space-y-2">
                 <legend className="text-sm font-medium">{t('credentials.chooseKind')}</legend>
                 {kinds.map((k) => {

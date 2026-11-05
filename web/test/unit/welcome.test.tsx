@@ -1,14 +1,16 @@
 // The welcome steps (docs/DECISIONS.md "W — Welcome steps", "X — Lean onboarding", "M — One meeting note, everyone's
-// own tasks", "N — The first result is the company's card news"), rendered and clicked against a small fake of the
-// server's rules (tests/unit/b-onboarding-welcome.test.ts checks the server itself):
+// own tasks", "N — The first result is the company's card news", "W2 — AI connection first"), rendered and clicked
+// against a small fake of the server's rules (tests/unit/b-onboarding-welcome.test.ts checks the server itself):
 // - /welcome is the owner's: members and admins are sent Home; right after /setup the owner lands there;
-// - two steps (회사 소개 → 첫 결과); one quiet line above the first: "팀 스킬을 넣어 둘게요 · 마케팅팀이에요" (the tap adds
+// - without an AI that answers the owner, the AI step first (1/3 AI 연결: Claude 구독 연결, the other ways folded,
+//   나중에 leaves the steps); with one, two steps (회사 소개 → 첫 결과); one quiet line
+//   above the first: "팀 스킬을 넣어 둘게요 · 마케팅팀이에요" (the tap adds
 //   the marketing pack, 취소 takes it back); leaving the first step sets the team up once (the general pack, the team's
 //   group and folders) and installs the marketing pack once, only when asked; resuming never installs again;
 // - the first result for every team, the company card news: files into the team's brand folder, the server starts the
 //   result (its chat, the files to attach), then "/card-news …" with them in that chat; "자료 없이 만들게요": the same
-//   without files (the server's 회사 소개.md attached); the server's refusal in its own words; without a usable AI, A's
-//   connect button instead;
+//   without files (the server's 회사 소개.md attached); the server's refusal in its own words; AI gone by then: the AI
+//   step comes back;
 // - the chat of the first result: with the lead's team files, "마음에 드시나요? 팀 스킬로 저장하면 …" and the team skill
 //   card (docs/DECISIONS.md "S"), then the invite with that skill; with the ad copy, the invite;
 //   Home offers to continue until finished or hidden;
@@ -26,7 +28,7 @@ import { WelcomeInviteBar } from '../../src/components/onboarding/WelcomeInviteB
 import { forgetSkillDrafts } from '../../src/components/onboarding/SkillShareCard'
 import { WelcomeResume } from '../../src/components/onboarding/WelcomeResume'
 import ProfileStep from '../../src/components/onboarding/ProfileStep'
-import { doneCount, isBriefSwitch, nextStep, packsRecorded, readNotesHint, resultStarter, resumeStep, showInviteBar, showResume, skillNameOf, stepTotal, teamReach, wantsPack, wantsTeam } from '../../src/lib/welcome'
+import { countedSteps, doneCount, isBriefSwitch, nextStep, packsRecorded, prevStep, readNotesHint, resultStarter, resumeStep, showInviteBar, showResume, skillNameOf, stepTotal, teamReach, wantsPack, wantsTeam } from '../../src/lib/welcome'
 import { rememberSetupSite, setupSite } from '../../src/lib/setupLink'
 import { useAiAccess } from '../../src/store/aiAccess'
 import { useSession } from '../../src/store/session'
@@ -122,6 +124,8 @@ const routes: Record<string, (body: any) => Response> = {
   },
   'POST /api/attachments/team-file': (b) => failAttach-- > 0 ? json(500, { error: { code: 'internal', message: '붙이지 못했어요' } }) : json(201, { id: uuidv7(), name: b.path.slice(b.path.lastIndexOf('/') + 1), path: b.path, size: 10, mime: 'text/markdown', kind: 'text', source: 'team' } satisfies Attachment),
   'GET /api/me/ai-access': () => json(200, ai),
+  // the AI step's dialog reads the team's ways to connect (Admin › AI connections)
+  'GET /api/admin/credentials': () => json(200, { items: [], memberOwn: false, sharedSubscriptions: true, allowedKinds: ['anthropic-oauth', 'anthropic-api-key', 'chatgpt', 'openai-api-key'], pricesAsOf: '2026-11-01', anthropicGateway: null }),
   'GET /api/onboarding/profile': () => json(200, { profile: null }),
   'GET /api/skills': () => json(200, { items: [adCopy] }),
   'POST /api/chats': () => json(201, { id: CHAT, projectId: null, title: '', engine: 'claude-code', model: null, createdAt: '2026-11-04T00:00:00.000Z', updatedAt: '2026-11-04T00:00:00.000Z', deletedAt: null, runState: 'idle' }),
@@ -254,6 +258,36 @@ describe('where the steps go', () => {
     expect(showInviteBar({ ...p, resultChatId: CHAT, steps: { ...p.steps, invite: null } }, CHAT)).toBe(true)
     expect(showInviteBar({ ...p, resultChatId: CHAT }, CHAT)).toBe(false)
     expect(showInviteBar({ ...p, resultChatId: CHAT, steps: { ...p.steps, invite: null } }, 'other')).toBe(false)
+  })
+
+  test('the AI step: first while no AI answers the owner, whatever else is open; counted then, and after it was done there', () => {
+    // no AI: the AI step, from the very first visit and from any step left open
+    expect(resumeStep(null, false)).toBe('ai')
+    const p = fresh()
+    expect(resumeStep(p, false)).toBe('ai')
+    p.steps = { profile: 'done', result: null, invite: null }
+    expect(resumeStep(p, false)).toBe('ai')
+    expect(countedSteps(p, false)).toEqual(['ai', 'profile', 'result'])
+    expect(stepTotal(p, false)).toBe(3)
+    expect(doneCount(p, false)).toBe(1)
+    // a finished row stays finished
+    expect(resumeStep({ ...p, finishedAt: 'x' }, false)).toBeNull()
+    // after the AI step: the first open step after it; never back to it
+    const q = fresh()
+    q.steps = { ai: 'done', profile: null, result: null, invite: null }
+    expect(nextStep(q, 'ai')).toBe('profile')
+    expect(prevStep('profile')).toBeNull()
+    expect(prevStep('ai')).toBeNull()
+    expect(prevStep('result')).toBe('profile')
+    // connected there: still counted ("1/3 AI 연결" stays done), two steps left; shown and not connected yet: counted
+    expect(countedSteps(q, true)).toEqual(['ai', 'profile', 'result'])
+    expect(countedSteps({ ...q, steps: { ...q.steps, ai: 'skipped' } }, true)).toEqual(['ai', 'profile', 'result'])
+    expect(doneCount(q, true)).toBe(1)
+    expect(resumeStep(q, true)).toBe('profile')
+    // AI from the start (a hosted trial credit, a managed engine, a working connection): two steps, no AI step
+    expect(countedSteps(fresh(), true)).toEqual(['profile', 'result'])
+    expect(resumeStep(fresh(), true)).toBe('profile')
+    expect(stepTotal(fresh(), true)).toBe(2)
   })
 
   test('who sees the team folder: its group and the owners and admins, active ones; members outside it can be added', () => {
@@ -587,24 +621,93 @@ describe('/welcome', () => {
     } finally { await m.unmount() }
   })
 
-  test('the first result with no usable AI (self-hosted, no trial key): A\'s connect button, no picker', async () => {
+  test('no AI that answers the owner (self-hosted, no trial key): the AI step comes first (1/3), Claude 구독 연결 opens the browser sign-in, the other ways are folded; 나중에 leaves the steps', async () => {
+    signIn('owner')
+    ai = { usable: false, action: 'connect_team', requested: false }
+    progress = fresh()
+    const m = await app()
+    try {
+      await m.until(() => m.find('welcome-ai-claude'), 'the AI step')
+      expect(stepOf(m)).toBe('ai')
+      expect(m.html()).toContain(translate('ko', 'welcome.ai.title'))
+      expect(m.html()).toContain(translate('ko', 'welcome.ai.why', { product: 'Trina AX' }).slice(-12))
+      // three steps on the bar, the first one current
+      const items = m.get('welcome-progress').querySelectorAll('li')
+      expect(items.map((li: any) => li.getAttribute('data-progress-step'))).toEqual(['ai', 'profile', 'result'])
+      expect(items[0]!.getAttribute('aria-current')).toBe('step')
+      expect(items[0]!.textContent).toContain(translate('ko', 'welcome.progress.item', { n: 1, total: 3, label: translate('ko', 'welcome.progress.ai') }))
+      // the other ways folded; nothing of the steps after it
+      expect(m.get('welcome-ai-other').hasAttribute('open')).toBe(false)
+      expect(m.find('welcome-files-pick')).toBeNull()
+      expect(m.find('profile-step-site')).toBeNull()
+      expect(m.find('welcome-back')).toBeNull()
+      // the one button: the Claude sign-in dialog (Admin › AI connections' own), Claude already chosen
+      await m.click('welcome-ai-claude')
+      await m.until(() => (globalThis.document as any).body.querySelector('[data-testid="claude-login-how"]'), 'the Claude sign-in dialog')
+      expect((globalThis.document as any).body.querySelector('[data-testid="kind-chatgpt"]')).toBeNull()
+      // shown: recorded as needed, so the progress keeps the step once AI is connected anywhere
+      await m.until(() => progress!.steps.ai === 'skipped', 'the AI step recorded as needed')
+      // 나중에: out of the steps (Home keeps its connect line); nothing recorded for the step
+      await act(async () => { (globalThis.document as any).body.querySelectorAll('button').find((b: any) => b.textContent === translate('ko', 'common.cancel'))?.click() })
+      await m.click('welcome-later')
+      await m.until(() => at(m) === '/', 'Home')
+      expect(progress!.steps.ai).toBe('skipped')
+      expect(progress!.steps.profile).toBeNull()
+    } finally { await m.unmount() }
+  })
+
+  test('AI connected in the AI step: recorded once, then on to 회사 소개 (2/3); an owner with AI from the start sees two steps', async () => {
+    signIn('owner')
+    ai = { usable: false, action: 'connect_team', requested: false }
+    progress = fresh()
+    const m = await app()
+    try {
+      await m.until(() => m.find('welcome-ai-claude'), 'the AI step')
+      // what the dialog's "done" leads to: AI answers now
+      ai = { usable: true, action: 'connect_team', requested: false }
+      await act(async () => { await useAiAccess.getState().load(true) })
+      await m.until(() => stepOf(m) === 'profile', 'on to 회사 소개')
+      expect(progress!.steps.ai).toBe('done')
+      expect(called('PATCH /api/onboarding/welcome').filter((c) => c.body?.step?.id === 'ai').map((c) => c.body.step.state)).toEqual(['skipped', 'done'])
+      // the bar keeps the AI step, done, and 2/3 is current
+      const items = m.get('welcome-progress').querySelectorAll('li')
+      expect(items.map((li: any) => li.getAttribute('data-progress-step'))).toEqual(['ai', 'profile', 'result'])
+      expect(items[1]!.getAttribute('aria-current')).toBe('step')
+    } finally { await m.unmount() }
+    // AI connected elsewhere (Home's line, Admin) after the step was shown: opening the steps records it done
+    progress = { ...fresh(), steps: { ai: 'skipped', profile: null, result: null, invite: null } }
+    const m1 = await app()
+    try {
+      await m1.until(() => stepOf(m1) === 'profile', 'the profile step')
+      expect(progress!.steps.ai).toBe('done')
+    } finally { await m1.unmount() }
+    // the same owner later, with AI: the bar keeps the AI step done once it was recorded
+    progress = { ...fresh(), steps: { ai: 'done', profile: null, result: null, invite: null } }
+    const m2 = await app()
+    try {
+      await m2.until(() => stepOf(m2) === 'profile', 'the profile step')
+      const items = m2.get('welcome-progress').querySelectorAll('li')
+      expect(items.map((li: any) => li.getAttribute('data-progress-step'))).toEqual(['ai', 'profile', 'result'])
+      expect(items[1]!.getAttribute('aria-current')).toBe('step')
+    } finally { await m2.unmount() }
+    progress = fresh()
+    const m3 = await app()
+    try {
+      await m3.until(() => stepOf(m3) === 'profile', 'the profile step')
+      expect(m3.get('welcome-progress').querySelectorAll('li').map((li: any) => li.getAttribute('data-progress-step'))).toEqual(['profile', 'result'])
+    } finally { await m3.unmount() }
+  })
+
+  test('AI gone by the first result (the trial credit used): the AI step holds the steps back, no picker', async () => {
     signIn('owner')
     ai = { usable: false, action: 'connect_team', requested: false }
     progress = atResult({ teamType: 'marketing', pack: PACK })
     const m = await app()
     try {
-      await m.until(() => m.find('welcome-result-no-ai'), 'the no-AI step')
-      expect(m.html()).toContain(translate('ko', 'welcome.cardnews.title'))
-      expect(m.get('ai-access-button').getAttribute('data-action')).toBe('connect_team')
-      expect(m.get('ai-access-button').textContent).toBe(translate('ko', 'aiAccess.connectTeam'))
+      await m.until(() => m.find('welcome-ai-claude'), 'the AI step')
+      expect(stepOf(m)).toBe('ai')
       expect(m.find('welcome-files-pick')).toBeNull()
-      expect(m.find('skill-form')).toBeNull()
       expect(called('POST /api/onboarding/welcome/first-result')).toEqual([])
-      await m.click('welcome-later')
-      await m.until(() => stepOf(m) === 'invite', 'on to the invite')
-      expect(progress!.steps.result).toBe('skipped')
-      // no result yet: E's own words, but people who join still land on the ad copy
-      expect(m.html()).toContain(translate('ko', 'teamLink.stepTitle'))
     } finally { await m.unmount() }
   })
 
