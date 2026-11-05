@@ -2,7 +2,7 @@
 // of a sent text.
 import { describe, expect, test } from 'bun:test'
 import { uuidv7 } from '@mycel/shared/api'
-import { aiMatches, aiMentionNames, groupRuns, insertMention, keptMentions, matchMembers, mentionAt, mentionParts, roomTitle, runActive, totalUnread, withRun, withRunPosition, withRunStep } from '../../src/lib/rooms'
+import { aiMatches, aiMentionNames, groupRuns, insertMention, keptMentions, matchMembers, mentionAt, mentionParts, roomTitle, runActive, totalUnread, withRun, withRunPosition, withRunStep, roomStepWords } from '../../src/lib/rooms'
 import { at, BEN, CY, ME, message, room } from './rooms-fixtures'
 
 const R = uuidv7()
@@ -99,4 +99,16 @@ describe('the AI in a room', () => {
     expect(runs[0]).toMatchObject({ state: 'stopped', steps: [{ ...step, status: 'ok' }] })
     expect(runActive(runs[0]!)).toBe(false)
   })
+})
+
+test('what my question is doing, in plain words: no search pattern or path, a document by its name only', () => {
+  const s = (tool: string, label: string, kind: 'tool' | 'web_search' | 'thinking' = 'tool') => roomStepWords({ kind, tool, label })
+  expect(s('glob', 'Find files "**/*경쟁*"')).toEqual({ kind: 'find' })
+  expect(s('grep', 'Search "budget" · groups/marketing')).toEqual({ kind: 'find' })
+  expect(s('read', '파일 읽기 · groups/마케팅팀/경쟁사/경쟁사-동향.md')).toEqual({ kind: 'read', name: '경쟁사-동향' })
+  expect(s('read', 'Read · 예산.xlsx')).toEqual({ kind: 'read', name: '예산' })
+  expect(s('read', 'Read')).toEqual({ kind: 'find' })
+  expect(s('web_fetch', 'Fetch page · https://example.com/a')).toEqual({ kind: 'web' })
+  expect(s('', 'Web search: q', 'web_search')).toEqual({ kind: 'web' })
+  expect(s('make_file', 'Make file · users/a/x.docx')).toEqual({ kind: 'work' })
 })

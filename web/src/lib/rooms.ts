@@ -159,3 +159,20 @@ export function withRunPosition(runs: RoomAiRun[], turnId: string, position: num
 
 /** Is the run still working (its block shows the steps and Stop)? */
 export const runActive = (r: Pick<RoomAiRun, 'state'>) => r.state === 'queued' || r.state === 'running'
+
+/** What my question's answer is doing now, in plain words (the room shows no search patterns or paths): finding files,
+ * reading a document (its name without folders or extension), looking at the web, or working. */
+export type RoomStepWords = { kind: 'find' } | { kind: 'read'; name: string } | { kind: 'web' } | { kind: 'work' }
+const FIND_TOOLS = new Set(['glob', 'grep', 'list', 'search', 'find_skills'])
+export function roomStepWords(step: Pick<Step, 'kind' | 'tool' | 'label'>): RoomStepWords {
+  if (step.kind === 'web_search' || step.tool === 'web_fetch' || step.tool === 'save_url') return { kind: 'web' }
+  if (step.tool && FIND_TOOLS.has(step.tool)) return { kind: 'find' }
+  if (step.tool === 'read') {
+    // "<verb> · <path>": the file's own name, without its folders and extension
+    const i = step.label.lastIndexOf(' · ')
+    const file = i < 0 ? '' : (step.label.slice(i + 3).split('/').filter(Boolean).at(-1) ?? '')
+    const name = file.replace(/\.[A-Za-z0-9]{1,8}$/, '').trim()
+    return name ? { kind: 'read', name } : { kind: 'find' }
+  }
+  return { kind: 'work' }
+}

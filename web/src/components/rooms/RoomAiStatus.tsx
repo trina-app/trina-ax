@@ -1,5 +1,6 @@
 // The AI at work in a room (docs/DECISIONS.md "대화방의 트리나"), under the messages. My own question: the AI's name,
-// "답하는 중" (or its place in the queue), its latest steps, a card it asks me (ask_user, a confirmation) and Stop; when it
+// "답하는 중" (or its place in the queue), what it does now in plain words ("파일 찾는 중", "'예산' 문서 읽는 중": no
+// search patterns or paths), a card it asks me (ask_user, a confirmation) and Stop; when it
 // stopped or failed, one line I can close. Anyone else's question: only "트리나가 답하는 중", nobody named and no steps
 // (step labels name files and searches). A finished answer is a message of the room (or my private preview); one that
 // stayed private to someone else ends as "○○ 님에게만 답했어요" under their question (RoomMessages, PrivateAnswered).
@@ -8,13 +9,12 @@ import { useState } from 'react'
 import { useShallow } from 'zustand/react/shallow'
 import type { RoomAiRun } from '@mycel/shared/api'
 import { errorText } from '../../lib/api'
-import { runActive } from '../../lib/rooms'
+import { roomStepWords, runActive } from '../../lib/rooms'
 import { useLocale, useT } from '../../i18n'
 import { useChats } from '../../store/chats'
 import { useRooms, type RoomAi } from '../../store/rooms'
 import { toast } from '../../store/ui'
 import AskCard from '../chat/AskCard'
-import Steps from '../chat/Steps'
 import { Button, IconButton } from '../ui'
 
 const NONE: RoomAi = { answering: 0, runs: [] }
@@ -76,6 +76,10 @@ function MyRun({ roomId, run }: { roomId: string; run: RoomAiRun }) {
   const [stopping, setStopping] = useState(false)
   // a card the AI raised while answering me (a question, a confirmation): answered here like in the AI chat
   const requests = useChats(useShallow((s) => Object.values(s.requests).filter((r) => r.turnId === run.turnId)))
+  // what it does now, in plain words: no search patterns or paths (a file by its name only)
+  const last = run.steps.at(-1)
+  const words = last ? roomStepWords(last) : null
+  const now = !words ? '' : words.kind === 'read' ? t('rooms.aiStepRead', { name: words.name }) : words.kind === 'find' ? t('rooms.aiStepFind') : words.kind === 'web' ? t('rooms.aiStepWeb') : t('rooms.aiStepWork')
   if (!runActive(run)) {
     const failed = run.state === 'error'
     return (
@@ -112,7 +116,11 @@ function MyRun({ roomId, run }: { roomId: string; run: RoomAiRun }) {
             <Square size={11} className="fill-current" aria-hidden /> {t('rooms.aiStop')}
           </Button>
         </p>
-        <Steps steps={run.steps} streaming />
+        {now && (
+          <p className="truncate text-[13px] text-muted" data-testid="room-ai-step">
+            {now}
+          </p>
+        )}
         {requests.map((r) => (r.request.kind === 'connect_service' ? null : <AskCard key={r.request.requestId} req={r} />))}
       </div>
     </div>
