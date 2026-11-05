@@ -151,14 +151,18 @@ export class Integrations {
   }
 
   // ---------------- creating and changing ----------------
-  async create(viewer: Viewer, input: IntegrationInput, scope: 'personal' | 'team', locale: Locale): Promise<Integration> {
+  /** `templateId`: a member's own connection made from an admin's template (templates.ts connect, which checked that
+   * the template is for them and filled in its address, sign-in method and header). The team's switch for members' own
+   * connections and their limit of MAX_PERSONAL do not apply to it: the admin registered the service. */
+  async create(viewer: Viewer, input: IntegrationInput, scope: 'personal' | 'team', locale: Locale, templateId?: string): Promise<Integration> {
     const L = locale
-    if (scope === 'personal' && !getTeamSettings(this.db).personalIntegrations) fail('forbidden', say('personalOff', L))
+    if (templateId && scope !== 'personal') fail('validation')
+    if (scope === 'personal' && !templateId && !getTeamSettings(this.db).personalIntegrations) fail('forbidden', say('personalOff', L))
     if (scope === 'personal' && input.access) fieldError(L, 'access', 'accessTeamOnly')
     // sending without asking is the team's choice (an admin's), never one person's for their own connection
     if (scope === 'personal' && input.writePolicy === 'allow') fieldError(L, 'writePolicy', 'allowTeamOnly')
-    const count = scope === 'personal'
-      ? (this.db.query("SELECT count(*) AS n FROM integrations WHERE scope = 'personal' AND owner_user_id = ?").get(viewer.id) as { n: number }).n
+    const count = templateId ? 0 : scope === 'personal'
+      ? (this.db.query("SELECT count(*) AS n FROM integrations WHERE scope = 'personal' AND owner_user_id = ? AND template_id IS NULL").get(viewer.id) as { n: number }).n
       : (this.db.query("SELECT count(*) AS n FROM integrations WHERE scope = 'team'").get() as { n: number }).n
     const max = scope === 'personal' ? MAX_PERSONAL : MAX_TEAM
     if (count >= max) fail('conflict', say('tooMany', L, { n: max }))
@@ -176,7 +180,7 @@ export class Integrations {
       id, scope, owner_user_id: owner, created_by: viewer.id, kind: input.kind, name: oneLine(input.name), slug, url, auth: input.auth, auth_header: authHeader,
       secret_enc: null, key_version: 1, account: null, notes: cleanNotes(input.notes), write_policy: input.writePolicy ?? 'ask',
       status: input.auth === 'oauth' ? 'needs_auth' : 'error', last_error: input.auth === 'oauth' ? 'sign_in' : input.auth === 'none' ? null : 'no_secret', tools_rev: 0, tools_updated_at: null,
-      last_used_at: null, version: 1, created_at: now, updated_at: now, disabled_tools: '[]',
+      last_used_at: null, version: 1, created_at: now, updated_at: now, disabled_tools: '[]', template_id: templateId ?? null,
     }
     if (input.secret !== undefined) {
       const sealed = this.sealFor(row, { type: 'key', key: input.secret } satisfies KeySecret, L)
@@ -184,12 +188,12 @@ export class Integrations {
     }
     this.db.transaction(() => {
       this.db.query(`INSERT INTO integrations (id, scope, owner_user_id, created_by, kind, name, slug, url, auth, auth_header, secret_enc, key_version, account, notes,
-        write_policy, status, last_error, tools_json, tools_updated_at, last_used_at, version, created_at, updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,'[]',?,?,?,?,?)`)
+        write_policy, status, last_error, tools_json, tools_updated_at, last_used_at, version, created_at, updated_at, template_id) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,'[]',?,?,?,?,?,?)`)
         .run(row.id, row.scope, row.owner_user_id, row.created_by, row.kind, row.name, row.slug, row.url, row.auth, row.auth_header, row.secret_enc, row.key_version,
-          row.account, row.notes, row.write_policy, row.status, row.last_error, row.tools_updated_at, row.last_used_at, row.version, row.created_at, row.updated_at)
+          row.account, row.notes, row.write_policy, row.status, row.last_error, row.tools_updated_at, row.last_used_at, row.version, row.created_at, row.updated_at, row.template_id ?? null)
       if (scope === 'team') setAccess(this.db, id, input.access ?? { everyone: false, groups: [], users: [] })
     })()
-    audit(this.db, { actor: viewer.id, action: 'integration.create', target: id, detail: auditDetail(row, { slug, writePolicy: row.write_policy, access: scope === 'team' ? accessOf(this.db, id) : undefined }) })
+    audit(this.db, { actor: viewer.id, action: 'integration.create', target: id, detail: auditDetail(row, { slug, writePolicy: row.write_policy, access: scope === 'team' ? accessOf(this.db, id) : undefined, ...(templateId ? { template: templateId } : {}) }) })
     const checked = await this.check(getRow(this.db, id)!)
     return view(this.db, checked, viewer, L)
   }
@@ -197,6 +201,11 @@ export class Integrations {
   async update(viewer: Viewer, id: string, patch: IntegrationPatch, locale: Locale): Promise<Integration> {
     const L = locale
     const row = this.manageable(viewer, id)
+    // made from an admin's template: the address, sign-in method, header, name and notes are the template's (a key
+    // must only ever go where the admin registered); the member changes only their key and the write rule
+    if (row.template_id) {
+      for (const k of ['name', 'url', 'auth', 'authHeader', 'notes', 'access'] as const) if (patch[k] !== undefined) fieldError(L, k, 'fromTemplate')
+    }
     const next: Row = { ...row }
     const changed: string[] = []
     if (patch.name !== undefined && oneLine(patch.name) !== row.name) { next.name = oneLine(patch.name); changed.push('name') }
@@ -293,6 +302,24 @@ export class Integrations {
     toolListsOf(this.db).drop(id)
     audit(this.db, { actor: viewer.id, action: 'integration.delete', target: id, detail: auditDetail(row) })
     if (old?.type === 'oauth') await this.revokeTokens(old)
+  }
+
+  /** Delete connections made from an admin's template (templates.ts: the template moved to another address or sign-in,
+   * was deleted, or no longer covers their member). Local first, then each OAuth sign-in is revoked at its service.
+   * `actor`: who caused it (null: nobody, e.g. a group change); `why` goes into the activity log. */
+  async dropFromTemplate(rows: Row[], actor: string | null, why: 'template_moved' | 'template_deleted' | 'not_covered'): Promise<void> {
+    const olds: Secret[] = []
+    for (const row of rows) {
+      if (!row.template_id) continue
+      const old = row.secret_enc ? this.tryOpen(row) : null
+      if (!this.db.query('DELETE FROM integrations WHERE id = ? AND template_id = ?').run(row.id, row.template_id).changes) continue
+      this.dropClient(row.id)
+      this.recent.delete(row.id)
+      toolListsOf(this.db).drop(row.id)
+      audit(this.db, { actor, action: 'integration.delete', target: row.id, detail: { ...auditDetail(row), template: row.template_id, user: row.owner_user_id, why } })
+      if (old?.type === 'oauth') olds.push(old)
+    }
+    await Promise.all(olds.map((o) => this.revokeTokens(o).catch(() => false)))
   }
 
   async refresh(viewer: Viewer, id: string, locale: Locale): Promise<Integration> {

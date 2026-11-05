@@ -62,6 +62,26 @@ Reads run at once. Everything else is a write, and follows the connection's writ
 
 What a service returns is treated as outside data, never as instructions. In a scheduled run nobody can say yes, so writes are refused, except to an **Allow** team connection approved for that schedule.
 
+## Templates: each member uses their own key
+
+Many services give a key its owner's rights and log every call under that person's name. For those, an admin can add a **template** instead of a team connection: the service is registered once, and each member connects it with their own key or sign-in.
+
+:::steps
+#### Add a template
+In **Admin › MCP**, choose **Add connection** (or a Discover card's **+**), then **Template: each member connects their own**. Fill in the address, the sign-in method and who it is for. There is no key field.
+
+#### Members connect
+The members it is for see it in **Settings › MCP** under **From your team**, and choose **Connect**. They enter their own key or sign in. It becomes their own connection, used only in their chats.
+:::
+
+| | Team connection (one key) | Template |
+|---|---|---|
+| Key | One, added by the admin | Each member's own |
+| Whose rights the AI uses | The key owner's, for everyone | Each member's own |
+| What the admin sees | The connection | "Template · N connected", never a key |
+
+A member can change only their key or sign-in and the write rule, and can disconnect at any time. If the admin changes a template's address or sign-in method, every member's key is deleted and they connect again. Deleting the template deletes the members' connections.
+
 ## Ask a member to connect
 
 Some services log calls as the key's owner. Then the key belongs in the member's own connection. An admin can send a member a request with the service filled in. The member connects with their own key, or declines.

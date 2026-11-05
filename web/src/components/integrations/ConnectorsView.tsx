@@ -66,7 +66,7 @@ export const matchesQuery = (i: Integration, query: string) => {
 }
 
 export function ConnectorDiscover({ connected, query, onAdd, onCustom }: {
-  connected: Integration[]
+  connected: Pick<Integration, 'url'>[]
   query: string
   onAdd: (c: Connector) => void
   /** add one that is not listed, by its address */

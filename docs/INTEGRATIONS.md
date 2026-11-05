@@ -48,6 +48,38 @@ back), `server/src/routes/integrations.ts`, migration
   ones are left out of chats; they stay listed so their owners can delete them. Team connections are not affected.
 - Deleting a member deletes their personal connections (keys included) and removes them from team connections' rules.
 
+## Templates: each member connects their own key
+
+A template is a service an admin registers once for the team, without a key; each member it is for connects it with
+their own key or sign-in. One shared team key would let everyone's AI act with the key owner's rights, and the service
+would log every call under that one person; a template keeps each call under its member's own rights. In Admin › MCP,
+"Add connection" (and a Discover card's +) asks who connects: **For the team (one key)**, a team connection as above,
+the default; or **Template: each member connects their own**, which takes the kind, name, address, sign-in method (an
+API key with its header, or OAuth), who it is for (everyone, groups, people; admins only when named) and an optional
+note, and never a key or a write rule.
+
+- The members it is for see it in Settings › MCP under **From your team**. **Connect** opens the same dialog as an
+  admin's request: the address, where the key goes (the host in bold), their key or a sign-in next, and the write rule
+  (ask or refuse). It becomes their own (personal) connection, made through the same create path as one they add
+  themselves (`template_id` set), used only in their chats with their key. They may change only their key or sign-in
+  and the write rule; the address, sign-in method, header, name and note are the template's, so a key only ever goes
+  to the address the admin registered. They can disconnect (delete it) at any time.
+- It is usable only while the template covers its member (`store.ts mayUse`, `templateCovers`), whatever
+  `personalIntegrations` says (the admin registered the service), and it does not count toward a member's 20.
+- The admin sees "Template · N connected" (members with a key or sign-in now), never a key or who connected.
+- A new address, sign-in method or header on the template deletes every member's connection made from it (keys and
+  sign-ins; OAuth tokens are revoked): they connect again. A new name or note is copied to their connections. A rule
+  that no longer covers a member deletes that member's connection; a group change is refused at once and swept when
+  the templates are next listed. Deleting the template deletes them all. Deleting a member deletes theirs.
+- At most 50 templates. Audit: `integration_template.create / update / delete / connect`, and `integration.delete`
+  with `template` and `why` (`template_moved`, `template_deleted`, `not_covered`) for each member connection dropped.
+- Not yet: an inbox notice when a template is shared, the chat's connect card for a template, a per-person list for
+  the admin, and choosing a default by sign-in method.
+
+Code: `server/src/integrations/connections/templates.ts`, migration `333_c_integration_templates.sql`; web:
+`web/src/components/integrations/TemplatesView.tsx`. Tests: `tests/unit/c-integration-templates.test.ts`,
+`web/test/e2e/integration-templates.spec.ts`.
+
 ## Asking a member to connect
 
 Some services log every call as the person whose key it is, so that key belongs in the member's personal connection.

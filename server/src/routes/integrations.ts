@@ -8,6 +8,7 @@ import type { AppContextC } from '../http/env'
 import { linkBase } from '../auth/accounts'
 import { integrationsOf } from '../integrations/connections/service'
 import { requestsOf } from '../integrations/connections/requests'
+import { templatesOf } from '../integrations/connections/templates'
 import type { AuthInfo } from '../services'
 import { say } from '../integrations/connections/text'
 
@@ -38,6 +39,14 @@ export function registerIntegrationRoutes(kit: RouteKit, ctx: AppContext) {
   kit.handle(API.listTeamIntegrationRequests, ({ c }) => ({ items: reqs().listTeam(linkBase(c, ctx)) }))
   kit.handle(API.createIntegrationRequest, ({ c, auth, body }) => reqs().create(viewer(auth), body, linkBase(c, ctx), c.get('locale')))
   kit.handle(API.withdrawIntegrationRequest, ({ c, auth, params }) => reqs().withdraw(viewer(auth), params.id, linkBase(c, ctx), c.get('locale')))
+  // an admin's template: each member it is for connects it with their own key (integrations/connections/templates.ts)
+  const tpl = () => templatesOf(ctx)
+  kit.handle(API.listIntegrationTemplates, async ({ c, auth }) => ({ items: await tpl().listMine(viewer(auth), c.get('locale')) }))
+  kit.handle(API.connectIntegrationTemplate, ({ c, auth, params, body }) => tpl().connect(viewer(auth), params.id, body, c.get('locale')))
+  kit.handle(API.listTeamIntegrationTemplates, async ({ auth }) => ({ items: await tpl().listTeam(viewer(auth)) }))
+  kit.handle(API.createIntegrationTemplate, ({ c, auth, body }) => tpl().create(viewer(auth), body, c.get('locale')))
+  kit.handle(API.updateIntegrationTemplate, ({ c, auth, params, body }) => tpl().update(viewer(auth), params.id, body, c.get('locale')))
+  kit.handle(API.deleteIntegrationTemplate, async ({ auth, params }) => { await tpl().remove(viewer(auth), params.id) })
   kit.raw('GET', INTEGRATION_CALLBACK, async (c) => {
     let ok = false
     const cc = c as unknown as AppContextC

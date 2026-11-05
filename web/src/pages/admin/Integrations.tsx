@@ -3,10 +3,11 @@
 // the whole team, groups, people. Admins manage them all but use one in their own chats only when the rule includes
 // them, so each row says so. Members' personal connections are not listed (nobody but the owner can use those); below,
 // the requests that ask a member to connect a service as their own (components/integrations/RequestDialog.tsx).
-// "Discover" adds a known service by name; "Add connection" takes any MCP server or API by its address.
+// "Discover" adds a known service by name; "Add connection" takes any MCP server or API by its address, either for the
+// team with one key or as a template each member connects with their own key (components/integrations/TemplatesView.tsx).
 import { Cable } from 'lucide-react'
 import { useCallback, useEffect, useId, useState } from 'react'
-import type { Group, Integration, User } from '@mycel/shared/api'
+import type { Group, Integration, IntegrationTemplate, User } from '@mycel/shared/api'
 import { api, API } from '../../lib/api'
 import type { Connector } from '../../lib/connectors'
 import { covers, isEmptyAccess, NOBODY } from '../../lib/integrations'
@@ -18,6 +19,8 @@ import { afterAdded, ConnectorDiscover, ConnectorsHeader, matchesQuery, type Con
 import { IntegrationDialog } from '../../components/integrations/IntegrationDialog'
 import { TeamRequests } from '../../components/integrations/RequestDialog'
 import { IntegrationRow, useIntegrationActions } from '../../components/integrations/IntegrationRow'
+import { TemplateRow } from '../../components/integrations/TemplatesView'
+import { toast } from '../../store/ui'
 import { Loadable, useLoad } from './common'
 
 export default function AdminIntegrations() {
@@ -26,7 +29,9 @@ export default function AdminIntegrations() {
   const state = useLoad(async () => (await api.call(API.listTeamIntegrations)).items)
   const groups = useLoad(async () => (await api.call(API.listGroups)).items)
   const users = useLoad(async () => (await api.call(API.listUsers)).items)
-  const [dialog, setDialog] = useState<{ existing?: Integration; connector?: Connector } | null>(null)
+  // an older server has no templates: the page works without them
+  const templates = useLoad(async () => { try { return (await api.call(API.listTeamIntegrationTemplates)).items } catch { return [] as IntegrationTemplate[] } })
+  const [dialog, setDialog] = useState<{ existing?: Integration; template?: IntegrationTemplate; connector?: Connector } | null>(null)
   const [tab, setTab] = useState<ConnectorTab>('connected')
   const [query, setQuery] = useState('')
   const reloadList = state.reload
@@ -47,8 +52,9 @@ export default function AdminIntegrations() {
       <TabPanel base={panels} value={tab}>
       <Loadable state={state}>
         {(list) => {
-          if (tab === 'discover') return <ConnectorDiscover connected={list} query={query} onAdd={(c) => setDialog({ connector: c })} onCustom={() => setDialog({})} />
-          if (!list.length) {
+          const tpls = templates.data ?? []
+          if (tab === 'discover') return <ConnectorDiscover connected={[...list, ...tpls]} query={query} onAdd={(c) => setDialog({ connector: c })} onCustom={() => setDialog({})} />
+          if (!list.length && !tpls.length) {
             return (
               <EmptyState icon={<Cable size={26} />} title={t('integrations.admin.empty')}>
                 <p>{t('integrations.admin.emptyHint')}</p>
@@ -56,9 +62,14 @@ export default function AdminIntegrations() {
             )
           }
           const shown = [...list].filter((i) => matchesQuery(i, query)).sort((a, b) => a.name.localeCompare(b.name))
-          if (!shown.length) return <EmptyState title={t('integrations.noMatch', { q: query.trim() })} />
+          const q = query.trim().toLocaleLowerCase()
+          const shownTpls = tpls.filter((x) => !q || x.name.toLocaleLowerCase().includes(q)).sort((a, b) => a.name.localeCompare(b.name))
+          if (!shown.length && !shownTpls.length) return <EmptyState title={t('integrations.noMatch', { q: query.trim() })} />
           return (
             <ul className="-mx-2 divide-y divide-line" data-testid="team-integrations">
+              {shownTpls.map((x) => (
+                <TemplateRow key={x.id} tpl={x} groups={groups.data ?? []} users={users.data ?? []} onEdit={() => setDialog({ template: x })} onDeleted={() => void templates.reload()} />
+              ))}
               {shown.map((i) => {
                 // what needs the admin's attention stays on the line: nobody may use it, or the admin cannot
                 const nobody = isEmptyAccess(i.access ?? NOBODY)
@@ -88,8 +99,16 @@ export default function AdminIntegrations() {
         <IntegrationDialog
           scope="team"
           existing={dialog.existing}
+          template={dialog.template}
           connector={dialog.connector}
           onClose={() => setDialog(null)}
+          onSavedTemplate={() => {
+            const made = !dialog.template
+            setDialog(null)
+            void templates.reload()
+            toast({ level: 'success', text: t(made ? 'integrations.template.made' : 'common.saved') })
+            if (tab === 'discover') afterAdded(setTab, setQuery)
+          }}
           onSaved={(i, next) => {
             setDialog(null)
             actions.saved(i, next, !dialog.existing)
