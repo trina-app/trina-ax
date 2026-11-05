@@ -38,6 +38,9 @@ export function settingsOpenedFrom(el: HTMLElement | null) {
 /** pages under a section, by their address (App.tsx routes them here) */
 export type SettingsPage = 'account-delete'
 const PAGE_SECTION: Record<SettingsPage, string> = { 'account-delete': 'profile' }
+/** The hairline between groups of the list: on a phone it starts where the rows' icons do, 16px in from each edge (the
+ * list keeps 4px around the rows' own tap area). */
+const Rule = ({ className }: { className?: string }) => <hr className={clsx('my-2 border-line max-md:mx-3', className)} />
 
 export default function SettingsDialog({ onClose, page }: { onClose: () => void; page?: SettingsPage }) {
   const t = useT()
@@ -78,14 +81,14 @@ export default function SettingsDialog({ onClose, page }: { onClose: () => void;
   const current = tab ?? 'profile'
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 md:p-6" onMouseDown={onClose}>
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 md:p-6 dark:bg-black/60" onMouseDown={onClose}>
       <div
         ref={ref}
         role="dialog"
         aria-modal="true"
         aria-labelledby={titleId}
         tabIndex={-1}
-        className="flex h-full w-full flex-col bg-surface text-ink shadow-xl outline-none [--sticky-bg:var(--c-surface)] max-md:bg-canvas max-md:[--sticky-bg:var(--c-canvas)] max-md:pt-[var(--safe-top)] md:h-[min(760px,100%)] md:max-w-[1040px] md:rounded-2xl"
+        className="flex h-full w-full flex-col bg-surface text-ink shadow-xl outline-none [--sticky-bg:var(--c-surface)] max-md:bg-canvas max-md:[--sticky-bg:var(--c-canvas)] max-md:pt-[var(--safe-top)] md:h-[min(760px,100%)] md:max-w-[1040px] md:rounded-2xl md:dark:ring-1 md:dark:ring-line"
         onMouseDown={(e) => e.stopPropagation()}
         data-testid="settings-dialog"
       >
@@ -130,33 +133,38 @@ export default function SettingsDialog({ onClose, page }: { onClose: () => void;
                 <span className="sr-only">{t('settings.profile')}</span>
               </Link>
               {groups.map((g, i) => (
-                <div key={g[0]!.group} className={clsx('space-y-0.5', i > 0 ? 'mt-2 border-t border-line pt-2' : 'max-md:border-t max-md:border-line max-md:pt-2')}>
-                  {g.map((x) => (
-                    <Fragment key={x.id}>
-                      <NavLink
-                        to={`/settings/${x.id}`}
-                        replace
-                        className={({ isActive }) =>
-                          clsx('flex h-9 items-center gap-2.5 rounded-lg px-3 text-sm hover:bg-hover focus-visible:-outline-offset-2 max-md:h-11', (isActive || (x.id === 'profile' && !tab) || x.id === tab) && 'md:bg-hover md:font-medium', isActive && 'bg-hover font-medium', ((ADVANCED.has(x.id) && !more) || x.id === 'profile') && 'max-md:hidden')
-                        }
-                      >
-                        <x.icon size={16} className="shrink-0 text-muted" aria-hidden /> {t(x.label)}
-                      </NavLink>
-                      {/* the phone app with its notifications off in the phone's Settings: says so, with the way there */}
-                      {x.id === 'notifications' && <PhonePushLine />}
-                    </Fragment>
-                  ))}
-                </div>
+                <Fragment key={g[0]!.group}>
+                  <Rule className={i === 0 ? 'md:hidden' : undefined} />
+                  <div className="space-y-0.5">
+                    {g.map((x) => (
+                      <Fragment key={x.id}>
+                        <NavLink
+                          to={`/settings/${x.id}`}
+                          replace
+                          className={({ isActive }) =>
+                            clsx('flex h-9 items-center gap-2.5 rounded-lg px-3 text-sm hover:bg-hover focus-visible:-outline-offset-2 max-md:h-11', (isActive || (x.id === 'profile' && !tab) || x.id === tab) && 'md:bg-hover md:font-medium', isActive && 'bg-hover font-medium', ((ADVANCED.has(x.id) && !more) || x.id === 'profile') && 'max-md:hidden')
+                          }
+                        >
+                          <x.icon size={16} className="shrink-0 text-muted" aria-hidden /> {t(x.label)}
+                        </NavLink>
+                        {/* the phone app with its notifications off in the phone's Settings: says so, with the way there */}
+                        {x.id === 'notifications' && <PhonePushLine />}
+                      </Fragment>
+                    ))}
+                  </div>
+                </Fragment>
               ))}
               {!more && shown.some((x) => ADVANCED.has(x.id)) && (
-                <div className="mt-2 border-t border-line pt-2 md:hidden">
+                <div className="md:hidden">
+                  <Rule />
                   <button type="button" onClick={() => setMore(true)} className="flex h-11 w-full items-center gap-2.5 rounded-lg px-3 text-sm text-muted hover:bg-hover" data-testid="settings-more">
                     <ChevronDown size={16} className="shrink-0" aria-hidden /> {t('common.more')}
                   </button>
                 </div>
               )}
               {/* phones: signing out lives here (the drawer has no account menu there) */}
-              <div className="mt-2 border-t border-line pt-2 md:hidden">
+              <div className="md:hidden">
+                <Rule />
                 <button type="button" onClick={() => void logout()} className="flex h-11 w-full items-center gap-2.5 rounded-lg px-3 text-sm hover:bg-hover" data-testid="settings-logout">
                   <LogOut size={16} className="shrink-0 text-muted" aria-hidden /> {t('auth.logout')}
                 </button>
