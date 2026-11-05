@@ -8118,7 +8118,7 @@ People ask the team's AI from Slack (`@app` in a channel, a DM to the app). Guid
   colleague's Slack e-mail, but would still need that colleague's own one-time link (only their Slack account gets it,
   ephemeral); the same e-mail on two accounts is refused; and Slack tells the Slack account which account it was linked
   to. Verified e-mails here would close this too.
-- **The owner proposes, the member accepts** (second review, 2026-11-05). A link the owner made directly let the owner
+- **The owner proposes, the member accepts** (second review, 2026-11-05; removed later for Sign in with Slack, below). A link the owner made directly let the owner
   bind their own Slack account to a member and ask as that member (their personal folder, connections and memories):
   impersonation, against "personal connections are their owner's only" and "no sign-in as someone else". Now Admin ›
   Slack › People only *proposes* (`slack_link_proposals`, 7 days, one waiting per member and per Slack person, audited
@@ -8127,7 +8127,20 @@ People ask the team's AI from Slack (`@app` in a channel, a DM to the app). Guid
   404). Slack is asked again at accept time. The member gets an in-app notice (realtime, linking to Settings); the Slack
   person gets one DM at the proposal naming no account, and one after the accept naming it and how to undo it. The owner
   can withdraw a waiting proposal; a disabled account's proposals are cancelled by the same trigger that unlinks it.
-- **A proposal proves the Slack side too** (third review, 2026-11-05). Accepting in the app alone let an owner propose
+- **Sign in with Slack replaces the owner's proposal** (2026-11-05, the owner: many people's Slack e-mail differs from
+  theirs here, and e-mails here are optional and often empty, so propose → accept → Slack link was too much). Checked
+  first on docs.slack.dev: "Sign in with Slack" (OpenID Connect: `https://slack.com/openid/connect/authorize`,
+  `openid.connect.token`, id_token claims `https://slack.com/user_id` / `https://slack.com/team_id`, nonce) is not limited
+  to distributed apps; an app that is not distributed authorizes on the workspace that created it only
+  (`invalid_team_for_non_distributed_app`), which is ours; the redirect URL must be https and match one registered in
+  the app (manifest `oauth_config.redirect_urls`); the browser follows it, so the server needs no inbound access, and
+  Socket Mode and the bot token are untouched. PKCE was not used: enabling it makes the app a public client for good;
+  this is a confidential client (the secret stays on the server) with state and nonce. Not verified: whether Slack
+  accepts a private (office LAN) host name as a redirect URL. Now each person links their own account by signing in to
+  Slack (Settings, or the link page when the e-mails differ); the e-mail match stays as the zero-click shortcut with the
+  admin-set e-mail rule. The owner's proposals, Admin › Slack › People, their DMs, routes, table and texts are gone. The
+  owner pastes the app's Client ID and Client Secret with the tokens (step 4; the secret sealed like them).
+- **A proposal proves the Slack side too** (third review, 2026-11-05; removed by the decision above). Accepting in the app alone let an owner propose
   an unlinked colleague's Slack account for the owner's own account and accept it (squatting), or propose a renamed Slack
   account. Now a proposal only stands in for the e-mail check: it completes when the member accepts it in the app
   (`member_accepted_at`) and confirms the one-time link that Slack account got in Slack (`slack_confirmed_at`), in either
