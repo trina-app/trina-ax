@@ -248,7 +248,8 @@ export const IntegrationTemplateInput = z.object({
   auth: z.enum(['bearer', 'header', 'oauth']),
   authHeader: HeaderName.nullable().optional(),
   notes: Notes.nullable().optional(),
-  access: IntegrationAccess,
+  // who sees it to connect with their own key; left out = the whole team (a template carries no key)
+  access: IntegrationAccess.optional(),
   // strict: a key sent with a template is refused, not quietly dropped
 }).strict().refine((v) => v.auth !== 'oauth' || v.kind === 'mcp', { message: 'sign-in (oauth) is for MCP servers', path: ['auth'] })
   .refine((v) => v.auth !== 'header' || !!v.authHeader, { message: 'give the header name', path: ['authHeader'] })

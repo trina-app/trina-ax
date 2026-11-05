@@ -2249,7 +2249,7 @@ export class MockServer {
       if (privateHost(new URL(c.body.url).hostname)) fail('validation', 400, '사내망이나 이 컴퓨터의 주소는 쓸 수 없어요.', { 'body.url': 'private or local address' })
       const t = {
         id: uuidv7(), kind: c.body.kind, name: c.body.name, url: c.body.url, auth: c.body.auth, authHeader: c.body.auth === 'header' ? c.body.authHeader ?? null : null,
-        notes: c.body.notes ?? null, access: c.body.access, createdBy: { id: c.user.id, name: c.user.name }, createdAt: now(), updatedAt: now(), version: 1,
+        notes: c.body.notes ?? null, access: c.body.access ?? { everyone: true, groups: [], users: [] }, createdBy: { id: c.user.id, name: c.user.name }, createdAt: now(), updatedAt: now(), version: 1,
       }
       this.integrationTemplates.push(t)
       return { status: 201, body: this.templateView(t) }

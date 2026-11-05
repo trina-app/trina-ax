@@ -71,6 +71,13 @@ describe('making a template', () => {
     expect(list.map((x: any) => x.id)).toContain(t.id)
     await ada.call('DELETE', `/api/admin/integration-templates/${t.id}`)
   })
+  test('a template made without saying who it is for is for the whole team: every member sees it at once', async () => {
+    const { access: _access, ...noAudience } = tpl({ name: 'Wiki' })
+    const t = await make(noAudience as ReturnType<typeof tpl>)
+    expect(t.access).toEqual({ everyone: true, groups: [], users: [] })
+    for (const who of [bob, cara]) expect((await mine(who)).map((x) => x.id)).toContain(t.id)
+    await ada.call('DELETE', `/api/admin/integration-templates/${t.id}`)
+  })
 })
 
 describe('members connect their own key', () => {

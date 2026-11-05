@@ -124,7 +124,8 @@ export class ConnectionTemplates {
     this.db.transaction(() => {
       this.db.query(`INSERT INTO integration_templates (${COLUMNS}) VALUES (?,?,?,?,?,?,?,?,?,?,?)`)
         .run(t.id, t.created_by, t.kind, t.name, t.url, t.auth, t.auth_header, t.notes, t.version, t.created_at, t.updated_at)
-      setTemplateAccess(this.db, t.id, input.access)
+      // no audience given: the whole team (a template carries no key; each member adds their own)
+      setTemplateAccess(this.db, t.id, input.access ?? { everyone: true, groups: [], users: [] })
     })()
     audit(this.db, { actor: viewer.id, action: 'integration_template.create', target: t.id, detail: auditDetail(t, { access: templateAccess(this.db, t.id) }) })
     return this.adminView(t)
