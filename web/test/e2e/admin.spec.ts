@@ -106,6 +106,7 @@ test('admin screens: members, groups, folder rules with "who sees what", engines
   await panel.getByTestId('edit-basic-read').click()
   const result = panel.getByTestId('edit-result')
   await expect(result).toHaveAttribute('data-ready', 'true')
+  await result.getByTestId('edit-show-people').click()
   await expect(result.getByTestId('edit-more')).toContainText('Bob')
   await expect(panel.getByTestId('edit-save')).toContainText('권한 늘어남')
   await panel.getByTestId('edit-save').click()
