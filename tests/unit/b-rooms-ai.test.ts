@@ -822,6 +822,21 @@ describe('a hidden folder and a missing name give the same answer', () => {
   })
 })
 
+describe("a room session's history is what the room holds", () => {
+  test("an answer longer than the room took comes back as the room's copy, never the part the room did not get", async () => {
+    const roomId = await room(['alice', 'erin'])
+    const one = await ask('alice', roomId, `@트리나 first\n${fake({ say: 'FIRST-ANSWER as posted' })}`)
+    expect((await answerTo('erin', roomId, one.q))?.visibility).toBe('room')
+    // the chat keeps the whole answer; the room got it cut (ROOM_AI_ANSWER_MAX): here, a tail only the chat has
+    const turn = (h.ctx.db.query('SELECT turn_id FROM room_ai_turns WHERE question_id = ?').get(one.q.id) as { turn_id: string }).turn_id
+    h.ctx.db.query("UPDATE messages SET content = content || '\n\nTAIL-THE-ROOM-NEVER-SAW' WHERE turn_id = ? AND role = 'assistant'").run(turn)
+    const two = await ask('alice', roomId, `@트리나 again\n${fake({ echo: 'system' })}`)
+    const body = (await answerTo('alice', roomId, two.q))!.body
+    expect(body).toMatch(/<previous_conversation>[\s\S]*FIRST-ANSWER as posted/)
+    expect(body).not.toContain('TAIL-THE-ROOM-NEVER-SAW')
+  })
+})
+
 // ---------------- the live test of 2026-11-05: a member with no group got only private previews ----------------
 describe('what makes an answer private: what some member could not see, per question', () => {
   /** bob without his groups for the test (a member with no group, like the live test's Noah; the rooms of the tests

@@ -578,17 +578,21 @@ export class ChatRuntime {
   /** Messages of a branch up to `leafId` (inclusive), for a fresh engine session. */
   history(leafId: string | null, room = false): { role: 'user' | 'assistant'; content: string }[] {
     let rows = this.store.pathTo(leafId)
+    // a room's AI session (rooms/ai.ts) remembers only what went to the room: a question and its answer while that
+    // answer is a room message (posted, not deleted); a private preview, a stopped or failed answer is left out. The
+    // answer is the room's copy (room_messages.body: cut at ROOM_AI_ANSWER_MAX with a line saying so), never the
+    // chat's full text: every question decides on what it used itself, so a part the room never saw must not come back
+    const roomBody = new Map<string, string>()
     if (room) {
-      // a room's AI session (rooms/ai.ts) remembers only what went to the room: a question and its answer while that
-      // answer is a room message (posted, not deleted); a private preview, a stopped or failed answer is left out
       const chatId = rows[0]?.chat_id
-      const posted = new Set(chatId ? (this.db.query(`SELECT a.turn_id FROM room_ai_turns a JOIN room_messages m ON m.id = a.answer_id
-        WHERE a.chat_id = ? AND m.visibility = 'room' AND m.deleted_at IS NULL`).all(chatId) as { turn_id: string }[]).map((r) => r.turn_id) : [])
+      for (const r of chatId ? this.db.query(`SELECT a.turn_id, m.body FROM room_ai_turns a JOIN room_messages m ON m.id = a.answer_id
+        WHERE a.chat_id = ? AND m.visibility = 'room' AND m.deleted_at IS NULL`).all(chatId) as { turn_id: string; body: string }[] : []) roomBody.set(r.turn_id, r.body)
       const keep = new Set<string>()
-      for (const m of rows) if (m.role === 'assistant' && m.turn_id && posted.has(m.turn_id)) { keep.add(m.id); if (m.parent_id) keep.add(m.parent_id) }
+      for (const m of rows) if (m.role === 'assistant' && m.turn_id && roomBody.has(m.turn_id)) { keep.add(m.id); if (m.parent_id) keep.add(m.parent_id) }
       rows = rows.filter((m) => keep.has(m.id))
     }
-    return rows.filter((m) => m.content.trim() || m.role === 'user').map((m) => ({ role: m.role, content: m.role === 'user' ? composeMessage(m, this.store.attachmentsOf(m)) : m.content }))
+    return rows.map((m) => ({ ...m, content: room && m.role === 'assistant' ? roomBody.get(m.turn_id!) ?? '' : m.content }))
+      .filter((m) => m.content.trim() || m.role === 'user').map((m) => ({ role: m.role, content: m.role === 'user' ? composeMessage(m, this.store.attachmentsOf(m)) : m.content }))
   }
 
   siteGranted(userId: string, host: string): boolean {

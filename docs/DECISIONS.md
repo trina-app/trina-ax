@@ -8327,7 +8327,10 @@ every week. Placement: Team AX core (skills, files and permissions, the team lin
     question carries nothing private from an earlier one: what it carries is the room's (the posted answers, the
     room's messages). The read scope and the outside mark are emptied when each room question starts
     (`chat/turn.ts`), and the history counts as the room from its oldest question (`{type:'room', fromSeq}`), so
-    someone who joined after it still keeps the answer private ("들어오기 전 대화"). The 12-hour rule now only starts a
+    someone who joined after it still keeps the answer private ("들어오기 전 대화"). The history's answers are the
+    room's copies (`room_messages.body`, cut at 60,000 characters with a line saying so), not the chat's full text:
+    the history keeps the end of a long newest message, which the room may never have got (review of ae4c861c). The
+    12-hour rule now only starts a
     new conversation. What a question used is kept on its row (`room_ai_turns.scope`, migration 246) so that posting
     its preview later decides again on that question, not the latest one; a row from before has none and is decided
     on the session's scope. Kept as they were: previews never return as context, the pre-join check, the card for
