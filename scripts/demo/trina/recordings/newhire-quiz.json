@@ -1,0 +1,62 @@
+{
+ "v": 1,
+ "username": "jiwoo",
+ "userId": "jiwoo",
+ "prompt": "사내 용어집으로 혼자 풀어 볼 퀴즈 5문제를 화면에서 바로 풀 수 있게 만들어 줘",
+ "kind": "history",
+ "daysAgo": 0,
+ "recordedAt": "2026-11-05T00:50:15.705Z",
+ "engine": "claude-code",
+ "model": "claude-opus-5-5",
+ "events": [
+  {
+   "type": "tool",
+   "t": 2926,
+   "name": "mcp__team__set_title",
+   "input": {
+    "title": "사내 용어집 퀴즈 만들기"
+   },
+   "ok": true,
+   "ms": 12
+  },
+  {
+   "type": "tool",
+   "t": 2933,
+   "name": "mcp__team__grep",
+   "input": {
+    "pattern": "용어"
+   },
+   "ok": true,
+   "ms": 42
+  },
+  {
+   "type": "tool",
+   "t": 3992,
+   "name": "mcp__team__read",
+   "input": {
+    "file_path": "shared/사내-용어집.md"
+   },
+   "ok": true,
+   "ms": 6
+  },
+  {
+   "type": "tool",
+   "t": 35058,
+   "name": "mcp__team__artifact",
+   "input": {
+    "action": "create",
+    "key": "glossary-quiz",
+    "type": "html",
+    "title": "사내 용어집 퀴즈 5문제",
+    "content": "<!DOCTYPE html>\n<html lang=\"ko\">\n<head>\n<meta charset=\"UTF-8\">\n<meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0\">\n<title>사내 용어집 퀴즈</title>\n<style>\n  * { box-sizing: border-box; }\n  body { margin: 0; font-family: -apple-system, \"Apple SD Gothic Neo\", \"Noto Sans KR\", sans-serif; background: #f6f3ee; color: #2b2b2b; }\n  .wrap { max-width: 560px; margin: 32px auto; padding: 0 16px; }\n  .card { background: #fff; border-radius: 16px; padding: 28px 24px; box-shadow: 0 4px 16px rgba(0,0,0,.06); }\n  .top { display: flex; justify-content: space-between; align-items: center; font-size: 14px; color: #8a7f72; margin-bottom: 8px; }\n  .bar { height: 6px; background: #eee6db; border-radius: 3px; overflow: hidden; margin-bottom: 24px; }\n  .bar span { display: block; height: 100%; background: #b5651d; transition: width .3s; }\n  h2 { font-size: 20px; line-height: 1.5; margin: 0 0 20px; }\n  .opt { display: block; width: 100%; text-align: left; padding: 14px 16px; margin-bottom: 10px; border: 2px solid #eee6db; border-radius: 12px; background: #fff; font-size: 16px; cursor: pointer; transition: border-color .15s, background .15s; }\n  .opt:hover:not(:disabled) { border-color: #b5651d; }\n  .opt:disabled { cursor: default; }\n  .opt.correct { border-color: #2e8b57; background: #eaf6ef; }\n  .opt.wrong { border-color: #d0453b; background: #fcecea; }\n  .feedback { margin-top: 12px; padding: 14px 16px; border-radius: 12px; background: #faf6f0; font-size: 15px; line-height: 1.6; display: none; }\n  .feedback b { display: block; margin-bottom: 4px; }\n  .next { margin-top: 18px; width: 100%; padding: 14px; border: 0; border-radius: 12px; background: #b5651d; color: #fff; font-size: 16px; font-weight: 600; cursor: pointer; display: none; }\n  .result { text-align: center; }\n  .score { font-size: 44px; font-weight: 700; color: #b5651d; margin: 8px 0 4px; }\n  .review { text-align: left; margin: 20px 0; font-size: 14px; line-height: 1.6; }\n  .review div { padding: 10px 0; border-bottom: 1px solid #f0ebe3; }\n  .src { margin-top: 16px; font-size: 12px; color: #a39889; text-align: center; }\n</style>\n</head>\n<body>\n<div class=\"wrap\">\n  <div class=\"card\" id=\"app\"></div>\n  <p class=\"src\">출처: shared/사내-용어집.md</p>\n</div>\n<script>\nconst quiz = [\n  {\n    q: \"체험 박스를 받은 고객사에는 언제까지 계약 여부를 확인할까요?\",\n    options: [\"받은 뒤 3일 안에\", \"받은 뒤 1주 안에\", \"받은 뒤 2주 안에\", \"받은 뒤 한 달 안에\"],\n    answer: 2,\n    explain: \"체험 박스는 계약 전에 한 번 무료로 보내는 박스예요. 받은 뒤 2주 안에 계약 여부를 확인해요.\"\n  },\n  {\n    q: \"베이직에 과일·건강 간식과 월 1회 테마 박스를 더한 플랜은 무엇일까요?\",\n    options: [\"베이직\", \"플러스\", \"시즌 박스\", \"체험 박스\"],\n    answer: 1,\n    explain: \"플러스 플랜이에요. 월 39만 원부터예요. (베이직은 커피·기본 간식 위주, 월 19만 원부터)\"\n  },\n  {\n    q: \"MRR(월 반복 매출)에 들어가지 않는 것은?\",\n    options: [\"베이직 플랜 구독료\", \"플러스 플랜 구독료\", \"2주 1회 배송 고객사의 구독료\", \"시즌 박스 매출\"],\n    answer: 3,\n    explain: \"MRR은 그달 청구하는 구독료 합계예요. 한 번만 주문하는 시즌 박스는 빼요.\"\n  },\n  {\n    q: \"이탈률은 어떻게 계산할까요?\",\n    options: [\"그달 해지한 고객사 수 ÷ 월초 고객사 수\", \"그달 해지한 고객사 수 ÷ 월말 고객사 수\", \"그달 신규 고객사 수 ÷ 월초 고객사 수\", \"시즌 박스를 다시 산 고객사 수 ÷ 시즌 박스 구매 고객사 수\"],\n    answer: 0,\n    explain: \"이탈률 = 그달 해지한 고객사 수 ÷ 월초 고객사 수예요. 마지막 보기는 재구매율에 가까운 설명이에요.\"\n  },\n  {\n    q: \"주간 보고는 언제까지, 누구에게 낼까요?\",\n    options: [\"월요일 10:00까지 대표에게\", \"금요일 17:00까지 팀장에게\", \"금요일 18:00까지 팀장에게\", \"목요일 17:00까지 인사팀에게\"],\n    answer: 1,\n    explain: \"주간 보고는 팀마다 금요일 17:00까지 팀장에게 내는 한 주 정리예요.\"\n  }\n];\n\nlet idx = 0, score = 0;\nconst picks = [];\nconst app = document.getElementById(\"app\");\n\nfunction render() {\n  const item = quiz[idx];\n  app.innerHTML = `\n    <div class=\"top\"><span>문제 ${idx + 1} / ${quiz.length}</span><span>맞힌 문제 ${score}</span></div>\n    <div class=\"bar\"><span style=\"width:${(idx / quiz.length) * 100}%\"></span></div>\n    <h2>${item.q}</h2>\n    <div id=\"opts\">${item.options.map((o, i) => `<button class=\"opt\" data-i=\"${i}\">${o}</button>`).join(\"\")}</div>\n    <div class=\"feedback\" id=\"fb\"></div>\n    <button class=\"next\" id=\"next\">${idx === quiz.length - 1 ? \"결과 보기\" : \"다음 문제\"}</button>\n  `;\n  app.querySelectorAll(\".opt\").forEach(btn => btn.addEventListener(\"click\", () => choose(+btn.dataset.i)));\n  document.getElementById(\"next\").addEventListener(\"click\", () => {\n    idx++;\n    idx < quiz.length ? render() : showResult();\n  });\n}\n\nfunction choose(i) {\n  const item = quiz[idx];\n  const ok = i === item.answer;\n  if (ok) score++;\n  picks.push(i);\n  app.querySelectorAll(\".opt\").forEach((btn, j) => {\n    btn.disabled = true;\n    if (j === item.answer) btn.classList.add(\"correct\");\n    else if (j === i) btn.classList.add(\"wrong\");\n  });\n  const fb = document.getElementById(\"fb\");\n  fb.innerHTML = `<b>${ok ? \"✅ 정답이에요!\" : \"❌ 아쉬워요.\"}</b>${item.explain}`;\n  fb.style.display = \"block\";\n  document.getElementById(\"next\").style.display = \"block\";\n  app.querySelector(\".top span:last-child\").textContent = `맞힌 문제 ${score}`;\n}\n\nfunction showResult() {\n  const msg = score === 5 ? \"완벽해요! 용어집을 잘 알고 있어요.\" :\n              score >= 3 ? \"잘했어요. 틀린 용어만 한 번 더 볼까요?\" :\n              \"용어집을 한 번 읽고 다시 풀어 봐요.\";\n  app.innerHTML = `\n    <div class=\"result\">\n      <div class=\"top\"><span>결과</span><span></span></div>\n      <div class=\"bar\"><span style=\"width:100%\"></span></div>\n      <div class=\"score\">${score} / ${quiz.length}</div>\n      <p>${msg}</p>\n      <div class=\"review\">\n        ${quiz.map((item, k) => `<div>${picks[k] === item.answer ? \"✅\" : \"❌\"} <b>Q${k + 1}.</b> ${item.q}<br><span style=\"color:#2e8b57\">정답: ${item.options[item.answer]}</span></div>`).join(\"\")}\n      </div>\n      <button class=\"next\" style=\"display:block\" id=\"retry\">다시 풀기</button>\n    </div>\n  `;\n  document.getElementById(\"retry\").addEventListener(\"click\", () => { idx = 0; score = 0; picks.length = 0; render(); });\n}\n\nrender();\n</script>\n</body>\n</html>\n"
+   },
+   "ok": true,
+   "ms": 7
+  },
+  {
+   "type": "text",
+   "t": 39846,
+   "text": "[사내 용어집](/files/view?path=shared%2F%EC%82%AC%EB%82%B4-%EC%9A%A9%EC%96%B4%EC%A7%91.md) 내용으로 퀴즈 5문제를 만들었어요. 오른쪽 화면에서 바로 풀 수 있어요.\n\n**문제 범위**\n1. 체험 박스를 받은 뒤 계약 여부를 확인하는 기한\n2. 플러스 플랜이 무엇인지\n3. MRR에 들어가지 않는 매출\n4. 이탈률 계산식\n5. 주간 보고 마감 시각과 받는 사람\n\n**푸는 방법**\n- 보기를 누르면 바로 정답인지 알려 주고, 용어집 내용으로 해설을 보여 줘요.\n- 다 풀면 점수와 문제마다 맞혔는지 정리해서 보여 주고, \"다시 풀기\"로 처음부터 풀 수 있어요.\n\n문제를 더 넣거나(용어집에 용어가 15개 있어요) 팀원에게 보낼 수 있게 HTML 파일로 저장하고 싶으면 말해 주세요."
+  }
+ ]
+}

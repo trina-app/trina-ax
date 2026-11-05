@@ -10,6 +10,37 @@ import { endpoint } from './endpoint'
 export const DemoPersonaKey = z.enum(['newHire', 'lead', 'ceo'])
 export type DemoPersonaKey = z.infer<typeof DemoPersonaKey>
 
+/**
+ * A recorded real answer (`scripts/demo/trina/record.ts`): one prompt of one demo person, run once by the real AI on a
+ * development server, written down from the engine's own transcript: the answer's text and every tool call with its
+ * input, in order, with the time since the start. In demo mode the same prompt from the same person replays it
+ * (server/src/demo/replay.ts): the text again, and every team tool call made again through the turn's own tools with
+ * the person's permissions, so the files and artifacts it shows are made by the product, now.
+ */
+export const DemoRecordingEvent = z.discriminatedUnion('type', [
+  z.object({ type: z.literal('text'), t: z.number().int().min(0), text: z.string().max(40_000) }).strict(),
+  z.object({ type: z.literal('tool'), t: z.number().int().min(0), name: z.string().min(1).max(200), input: z.unknown(), ok: z.boolean(),
+    /** what the tool answered in the recorded run (only replayed for the engine's own tools, never for team tools) */
+    output: z.string().max(4000).optional(), ms: z.number().int().min(0).optional() }).strict(),
+])
+export type DemoRecordingEvent = z.infer<typeof DemoRecordingEvent>
+export const DemoRecording = z.object({
+  v: z.literal(1),
+  /** the demo person's account (replays only for them) and their id when it was recorded (paths in users/<id>/) */
+  username: z.string().min(1).max(64),
+  userId: z.string().min(1).max(64),
+  prompt: z.string().min(1).max(2000),
+  /** showcase: suggested on Home, replayed with its pace; history: seeded as a past chat, replayed at once */
+  kind: z.enum(['showcase', 'history']),
+  /** history: how many days ago the seeded chat says it was */
+  daysAgo: z.number().int().min(0).max(60).optional(),
+  recordedAt: z.string(),
+  engine: z.string().max(40),
+  model: z.string().max(100).nullable(),
+  events: z.array(DemoRecordingEvent).min(1).max(400),
+}).strict()
+export type DemoRecording = z.infer<typeof DemoRecording>
+
 /** The demo file (MYCEL_DEMO). Written by scripts/demo/trina/start.ts from the seeded company; its texts are the
  * scenario's data in the company's own language, like the sample files. */
 export const DemoFile = z.object({
@@ -18,13 +49,15 @@ export const DemoFile = z.object({
   password: z.string().min(8).max(200),
   /** the question to ask as each person ("같은 질문, 사람마다 다른 답") */
   sameQuestion: z.string().min(1).max(200).optional(),
+  /** a folder of recorded real answers (DemoRecording JSON files) the demo replays */
+  replays: z.string().min(1).max(1000).optional(),
   personas: z.array(z.object({
     key: DemoPersonaKey,
     username: z.string().min(1).max(64),
     /** one line at the top of Home: "오늘 트리나 마케팅팀에 입사한 한지우예요" */
     intro: z.string().min(1).max(200),
     /** suggested first questions (a tap sends one) */
-    questions: z.array(z.string().min(1).max(200)).max(4),
+    questions: z.array(z.string().min(1).max(200)).max(6),
   }).strict()).min(1).max(3)
     .refine((ps) => new Set(ps.map((p) => p.key)).size === ps.length, 'each persona key once'),
 }).strict()

@@ -22,7 +22,7 @@
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
-import { API, ApiClient, ApiError, type CompanyProfileInput, type FolderRuleInput, type Group, type Locale, type User } from '../../shared/src/api'
+import { API, ApiClient, ApiError, type CompanyProfileInput, type FolderRuleInput, type Group, type Locale, type TeamSettings, type User } from '../../shared/src/api'
 
 export const DEMO_PASSWORD = 'teamax-demo-1'
 export const DEMO_TEAM_NAME = '데모 팀'
@@ -48,6 +48,8 @@ export interface DemoCompany {
   project?: { name: string; folderPath: string; instructions: string }
   /** the company profile (회사 소개), saved by the owner as the admin screen does */
   profile?: CompanyProfileInput
+  /** team settings the owner sets (Admin › 팀 설정) */
+  settings?: Partial<TeamSettings>
 }
 
 export const DEMO_PEOPLE: DemoPerson[] = [
@@ -250,6 +252,9 @@ export async function seedDemo(o: SeedOptions): Promise<SeedResult> {
     result.profile = true
     log('company profile saved')
   }
+
+  // 8. team settings
+  if (co.settings && Object.keys(co.settings).length) await owner.call(API.updateSettings, { body: co.settings })
 
   // sign the script's own sessions out again (people sign in themselves in the browser)
   for (const t of tokens.values()) await as(t).call(API.logout).catch(() => {})

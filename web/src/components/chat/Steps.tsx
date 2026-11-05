@@ -129,9 +129,17 @@ export function groupSteps(steps: Step[]): { top: Step[]; kids: Map<string, Step
   return { top, kids }
 }
 
-export default function Steps({ steps, streaming, receipt }: { steps: Step[]; streaming: boolean; receipt?: Message['receipt'] }) {
+/** A demo server's replayed answer (server/src/demo/replay.ts) carries this step: not a step of the work, but one small
+ * line in the opened list ("데모용으로 미리 준비한 결과예요"), never counted, never in the live tail. */
+export const DEMO_REPLAY_STEP = 'demo_replay'
+
+export default function Steps({ steps: all, streaming, receipt }: { steps: Step[]; streaming: boolean; receipt?: Message['receipt'] }) {
   const t = useT()
+  const locale = useLocale()
   const [open, setOpen] = useState(false)
+  // a demo server's replayed answer: its note is no step of the work (shown in the opened list only)
+  const note = all.find((s) => s.tool === DEMO_REPLAY_STEP)
+  const steps = note ? all.filter((s) => s !== note) : all
   // a team skill on team files, once the answer is done
   const rec = !streaming && receipt && receipt.teamFiles > 0 ? receipt : null
   const skill = useSkillTitle(rec?.skill.path ?? null, rec?.skill.name ?? '')
@@ -160,6 +168,7 @@ export default function Steps({ steps, streaming, receipt }: { steps: Step[]; st
       </button>
       {open && (
         <ul className="mt-1 space-y-0.5" aria-label={t('steps.label')}>
+          {note && <li className="px-1 text-xs text-faint" data-testid="demo-replay-note">{localizeStep(note, locale).label}</li>}
           {top.map((s) => (
             <StepRow key={s.id} step={s} live={false} kids={kids.get(s.id)} />
           ))}

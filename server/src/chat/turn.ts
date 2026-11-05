@@ -71,6 +71,8 @@ import { afterUsage } from '../admin/budget-watch'
 import type { QueueTiming } from './fair-queue'
 import { RedactingText, redactorFor, type Redactor } from '../integrations/connections/redact'
 import { DraftPages, draftScopeOf, draftSystemPrompt, type DraftTurn } from '../onboarding/draft'
+import { backdateChat, DEMO_REPLAY_TOOL, demoReplayFor, runReplay } from '../demo/replay'
+import { getUser } from '../auth/users'
 
 /** Turn time limit (tab 3: 20 minutes, paused while waiting for a person). */
 export const TURN_TIMEOUT_MS = 20 * 60_000
@@ -132,6 +134,8 @@ export class TurnExec {
   /** a company profile draft chat (onboarding/draft.ts): its own instructions, web_fetch only on the typed site, at
    * most 4 pages per answer, no card for anyone; null for every other chat */
   profileDraft: DraftTurn | null = null
+  /** a seeded past chat of the demo replayed this turn: how many days ago it says it was (demo/replay.ts) */
+  private replayDaysAgo = 0
   /** office-network hosts the person allowed "once" in this turn */
   readonly allowedHosts = new Set<string>()
   readonly files = new TurnFiles()
@@ -233,6 +237,8 @@ export class TurnExec {
       // office mode: the engine could write the Mac user's ~/.claude.json; MCP servers planted there are removed
       if (this.spec.engine === 'claude-code') guardOfficeClaudeJson(this.rt.ctx, 'turn')
       await this.finish()
+      // a seeded past chat of the demo (demo/replay.ts) says when it was
+      if (this.replayDaysAgo) { try { backdateChat(this.rt.db, this.spec.chatId, this.replayDaysAgo) } catch (e) { this.rt.log.warn('demo backdate failed', { err: e, turn: this.id }) } }
     }
   }
 
@@ -304,7 +310,14 @@ export class TurnExec {
     const claude = !trial && engine === 'claude-code' ? confs.claude : null
     const codex = !trial && engine === 'codex' ? confs.codex : null
     const api = trial ? hostedChatConf(rt.ctx.config) : engine === 'api' ? confs.api ?? null : null
-    if (problem || (!claude && !codex && !api)) { this.error = engineError(problem ?? 'engine_missing', spec.locale); return }
+    // demo mode only (demo/replay.ts): a demo person's first message that is exactly one of their recorded prompts
+    // plays that recorded real answer again (its team tool calls made again here, as this person), no engine needed
+    const asked = this.profileDraft ? null : rt.store.messageRow(spec.userMessageId)
+    const replay = asked ? demoReplayFor(rt.ctx, {
+      username: getUser(rt.db, spec.userId)?.username ?? '', content: asked.content, first: asked.parent_id === null,
+      scheduled: spec.clientKind === 'schedule', attachments: hasAttachments(asked),
+    }) : null
+    if (!replay && (problem || (!claude && !codex && !api))) { this.error = engineError(problem ?? 'engine_missing', spec.locale); return }
     const core = await rt.core()
     this.activeCore = core
     if (this.stopReason) return
@@ -432,6 +445,23 @@ export class TurnExec {
     turn.files = this.files
     turn.tools = toolSet
     const chatDir = path.join(core.cfg.agentRoot, spec.chatId)
+
+    if (replay) {
+      const handler = makeHandler(rt.files, rt.db, { user: this.principal!, turnId: spec.turnId, files: turn.files, signal: turn.abort.signal }, toolSet)
+      const errors: EngineEvent[] = []
+      this.attemptHadOutput = false
+      this.addStep({ kind: 'tool', tool: DEMO_REPLAY_TOOL, label: tr('demoReplay', spec.locale), status: 'ok' })
+      if (replay.model) rt.db.query('UPDATE messages SET model = ? WHERE id = ?').run(replay.model, spec.assistantId)
+      const root = rt.files.fx.root
+      const r = await runReplay(replay, {
+        rpc: handler, emit: (e) => this.onEvent(e, errors), signal: this.abort.signal, userId: spec.userId,
+        exists: (rel) => fs.existsSync(path.join(root, ...rel.split('/'))), fast: replay.kind === 'history',
+      })
+      this.closeThinking()
+      if (r.failed) rt.log.warn('demo replay: team tool calls failed', { turn: this.id, failed: r.failed })
+      if (replay.kind === 'history' && replay.daysAgo) this.replayDaysAgo = replay.daysAgo
+      return
+    }
 
     if (claude) {
       if (claude.modelProxy && core.proxy) {

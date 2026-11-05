@@ -13,7 +13,7 @@
 //                                     인사팀's 급여표 and 평가 are for 인사팀 and the CEO
 //   shared/경영/                      the CEO only (write): the company-wide budget
 //   shared/경영/팀별/<team>/          that team's lead (read) and the CEO: each lead sees their own team's budget sheet
-//   skills/marketing/                 마케팅팀 only (read): the two skills from the marketing pack
+//   skills/marketing/                 마케팅팀 and the CEO (read): the two skills from the marketing pack
 import crypto from 'node:crypto'
 import fs from 'node:fs'
 import path from 'node:path'
@@ -67,7 +67,9 @@ export const TRINA: DemoCompany = {
     { path: 'groups', rules: [{ user: 'haeon', access: 'read' }], why: 'the CEO (haeon): read every team folder' },
     { path: 'shared/경영', rules: [{ everyone: true, access: 'none' }, { user: 'haeon', access: 'write' }], why: 'everyone: none, the CEO (haeon): write' },
     ...TRINA_TEAMS.map((t) => ({ path: `shared/경영/팀별/${t}`, rules: [{ user: TRINA_LEADS[t], access: 'read' as const }], why: `${t} lead (${TRINA_LEADS[t]}): read` })),
-    { path: 'skills/marketing', rules: [{ everyone: true, access: 'none' }, { group: '마케팅팀', access: 'read' }], why: '마케팅팀: read, everyone else: none' },
+    // the CEO too: what the marketing skills say may then be saved in the marketing folder, which the CEO reads, without
+    // a "wider audience" card in the middle of a marketing answer
+    { path: 'skills/marketing', rules: [{ everyone: true, access: 'none' }, { group: '마케팅팀', access: 'read' }, { user: 'haeon', access: 'read' }], why: '마케팅팀 and the CEO: read, everyone else: none' },
   ],
   filesDir: path.join(import.meta.dir, 'files'),
   uploaderOf(rel) {
@@ -85,6 +87,9 @@ export const TRINA: DemoCompany = {
   },
   // two skills of the marketing pack, where the pack installs them (server/src/onboarding/skill-packs.ts)
   extraFiles: ['weekly-report', 'ad-copy'].map((name) => ({ rel: `skills/marketing/${name}/SKILL.md`, source: path.join(PACK, name, 'SKILL.md') })),
+  // answers without sub-agents: quicker on a phone, and every recorded answer is one agent's (record.ts); a Korean
+  // company's clock, whatever the Mac's
+  settings: { aiSubagents: false, timeZone: 'Asia/Seoul' },
   profile: {
     website: 'https://trina-box.example',
     name: '트리나',
@@ -106,25 +111,44 @@ export const copula = (word: string) => {
 }
 
 /** The demo file the server reads with MYCEL_DEMO (shared/src/api/demo.ts DemoFile). */
-export function trinaDemoFile(): DemoFile {
+/** the showcase prompts (scripts/demo/trina/scenarios.ts records them; Home suggests them once recorded) */
+export const SHOWCASE = {
+  cardNews: '11월 캠페인 카드뉴스 5장을 우리 제품 이미지로 만들어 줘',
+  proposal: 'A사 제안서 형식으로 B사 제안서 만들어 줘. 구성은 예산 안에서 알아서 정해 줘',
+  report: '10월 채널별 성과를 보고서용 엑셀로 정리하고 차트로도 보여 줘',
+  letter: '협회에서 온 한글 공문 읽고 회신 초안을 워드 파일로 만들어 줘',
+} as const
+
+/** where the recorded real answers are (record.ts writes them, the demo server replays them) */
+export const TRINA_RECORDINGS = path.join(import.meta.dir, 'recordings')
+
+/**
+ * The demo file the server reads with MYCEL_DEMO (shared/src/api/demo.ts DemoFile). `replays`: the folder of recorded
+ * answers (none while recording); a showcase prompt is suggested only when that person's recording of it is there.
+ */
+export function trinaDemoFile(o: { replays?: string | null } = {}): DemoFile {
   const name = (u: string) => TRINA_PEOPLE.find((p) => p.username === u)!.name
   const lead = TRINA_LEADS.마케팅팀
+  const recorded = (slug: string) => !!o.replays && fs.existsSync(path.join(o.replays, `${slug}.json`))
+  const show = (pairs: [string, string][]) => pairs.filter(([slug]) => recorded(slug)).map(([, prompt]) => prompt)
   return {
     company: TRINA.teamName,
     password: DEMO_PASSWORD,
     sameQuestion: SAME_QUESTION,
+    ...(o.replays ? { replays: o.replays } : {}),
     personas: [
       {
         key: 'newHire',
         username: TRINA_NEW_HIRE,
         intro: `오늘 트리나 ${teamOf(TRINA_NEW_HIRE)}에 입사한 ${name(TRINA_NEW_HIRE)}${copula(name(TRINA_NEW_HIRE))}`,
-        questions: ['우리 회사 휴가 규정 알려줘', '이번 주 마케팅팀 회의록에서 내 할 일 정리해 줘', '신입 첫 주에 뭘 하면 돼?'],
+        questions: ['우리 회사 휴가 규정 알려줘', '이번 주 마케팅팀 회의록에서 내 할 일 정리해 줘', '신입 첫 주에 뭘 하면 돼?',
+          ...show([['newhire-cardnews', SHOWCASE.cardNews], ['newhire-proposal', SHOWCASE.proposal]])],
       },
       {
         key: 'lead',
         username: lead,
         intro: `트리나 ${teamOf(lead)} 팀장 ${name(lead)}${copula(name(lead))}`,
-        questions: [SAME_QUESTION, '이번 주 마케팅팀 회의록에서 내 할 일 정리해 줘'],
+        questions: [SAME_QUESTION, ...show([['lead-proposal', SHOWCASE.proposal], ['lead-report', SHOWCASE.report], ['lead-letter', SHOWCASE.letter]])],
       },
       {
         key: 'ceo',

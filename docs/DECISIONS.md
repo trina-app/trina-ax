@@ -7680,6 +7680,58 @@ phone, a viewer should feel the permissions, the shared files, the team skills a
   (nothing asked or shown off a development server or on a 404, the bar and sheet with the network line, Home's
   questions, the sign-in start).
 
+### T, round 2 — showcase scenes and past chats from recorded real answers (feat/demo-trina, 2026-11-05)
+
+The owner: "좀 더 화려한 것들을 잘 보여줘야 할 것 같은데 … 이전 세션 기록들도 만들어 두면 … 미리 이미지들도 넣어 둬서 … AI 쓰는 척하는
+부분도 넣어서". The landing shows proposals, quotes, reports and replies made in seconds; a live AI answer takes minutes.
+
+- **Assets, all generated** (`tests/demo/make-trina-assets.ts`): brand and product images and a campaign key visual
+  rendered from HTML/CSS with Playwright, a proposal template and A사's proposal (pptx, pandoc) with its quote (xlsx),
+  B사's meeting notes, October's channel numbers, a competitor memo, and a fictional association's letter as .hwpx
+  (the product's own .hwpx writer). No stock photos, no real brands.
+- **Recorded real answers** (`scripts/demo/trina/record.ts`, scenarios in `scenarios.ts`): each scenario ran once with
+  the real AI on a development server started with `--record` (no replays), as its demo person, in a new chat, through
+  the public API. The recording is read from Claude Code's own transcript of that turn (the session file the server
+  keeps): the text blocks and every tool call with its input, in order, with the time since the start. Nothing is
+  written by hand. A run that used a sub-agent, met a question from the AI, or did not finish is refused. Team tool
+  results are not kept (they are made again on replay; the recording holds no file contents read under someone's
+  permissions besides what the answer itself says).
+- **Replays, demo mode only** (`server/src/demo/replay.ts`, hooked in `chat/turn.ts` before an engine is chosen): a demo
+  person's first message in a new chat that is exactly one of their recorded prompts replays it: the text streams in
+  small pieces, the steps come with about a third of the recorded pauses, and every team tool call is made again
+  through the turn's own tool handler (the one the API engine uses) as this person, now. So what the answer reads is
+  read with their permissions, and the pptx, xlsx, docx, artifact or scheduled task it shows is made by the product
+  during the replay, in their folders; only the model's choices come from the recording. A file the answer makes that
+  is already there (the same scene a second time) gets the next free name, in the call and in the text. The engine's
+  own tools (a to-do list) show what they answered. No AI is called, so it takes seconds and works without a usable
+  engine. Anything else, and anything after the first message, goes to the real AI as before. Never without
+  MYCEL_DEMO, never in production, hosted or office mode (the same check as the demo routes), never for another
+  person or another message, never for a scheduled run or a message with attachments.
+- **Honesty**: the replay adds a `demo_replay` step whose label is "데모용으로 미리 준비한 결과예요" (shared step text, five
+  locales). The web shows it as one small line in the opened step list only: not counted in "작업 N단계", not in the
+  live tail, not on the answer. Only recorded outputs are replayed, and the repository's recordings are checked to be
+  recordings of their scenarios from a real engine.
+- **Past chats** (`scripts/demo/trina/history.ts`): `bun run demo:trina` sends each history recording as its person
+  in a new chat; the server replays it at once and the chat then says it was `daysAgo` days ago (`backdateChat`). Oldest
+  first; a chat whose recorded title is there is not made again. Each person's past chats use only files they can open
+  (they run as them).
+- **Home**: the new hire and the lead get the showcase prompts as more suggested questions (one line each, no new
+  cards), only for scenes recorded for them; the new hire keeps the three plain questions, the lead the same question.
+- **Replaying a second time**: a file the answer makes that is already there gets the next free name, a folder it made
+  in the person's own folder (users/<id>/<folder>/, which start empty in the demo) gets a free folder name, and the
+  answer's words follow: full paths, their URL-encoded form in file links, and the bare file name. Separate text blocks
+  get the blank line the Claude stream parser puts between them.
+- **Recording, in practice**: scenes share one recording server, so a file one scene made could change the next answer
+  (the new hire's proposal found the lead's and made none). The earlier outputs are removed and the scene recorded
+  again. Prompts that made the AI ask first were made more decisive ("구성은 예산 안에서 알아서 정해 줘"), because a run
+  with a question is refused. The team's time zone is Asia/Seoul (a schedule answer had named this Mac's). The CEO also
+  reads the marketing skills, so a marketing answer saved in the marketing folder raises no "wider audience" card in a
+  replay. What the model wrote between tool calls stays, including a short English line before it looks at images:
+  it is what the product produced.
+- Rejected: a fake answer typed in (not something the product produced); copying recorded output files into place
+  (the replay would not show the product making them, and their sources would not be checked against the person's
+  permissions now); replays for any message on any server (a production server must never answer without its AI).
+
 ## M — One meeting note, everyone's own tasks (feat/onboarding-m, 2026-11-05)
 
 The owner's theme after three reviews: "팀 회의록 하나로, 각자 할 일이 바로 나온다". Onboarding must let a team feel
