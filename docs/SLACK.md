@@ -40,13 +40,17 @@ Slack. Saving tokens of another workspace removes every link of the old one.
 - **E-mails that differ** (or none on either side, or your e-mail was set by someone else in the last 7 days): the page
   says why ("이 Slack 계정의 이메일이 … 계정과 달라요. 팀장에게 연결을 부탁하세요") and links nothing. The owner then
   *proposes* the link in Admin › Slack › People (the workspace's people: no bots, no deactivated people, no one of another
-  workspace; *Propose link*, choose the member, check both names and e-mails). **Nothing is linked yet:** the member gets
-  a notice and accepts or declines it in Settings › App connectors with their own sign-in. A proposal waits 7 days; the
-  owner can withdraw it. Once accepted, the Slack person gets one DM saying which account it is and how to undo it.
+  workspace; *Propose link*, choose the member, check both names and e-mails). **Nothing is linked yet.** The proposal
+  stands in for the e-mail check only; it needs both halves, in either order, within its 7 days: the member accepts it in
+  Settings › App connectors (they get a notice), and the member opens the one-time link that Slack account gets in Slack
+  (ask the app once; the Slack account gets a DM saying so) and presses *Link*. So the owner cannot take a colleague's
+  Slack account for their own account, nor link a Slack account the member does not hold. The owner can withdraw a
+  waiting proposal. Once linked, the Slack person gets one DM saying which account it is and how to undo it.
 - **In a channel** the answer is shown to you only, with *Post to channel*. Pressing it posts the answer to the thread,
   "Asked by <you>", without the steps, the files it read or the link to your chat. Each answer can be posted once, and
   only by the person who asked.
 - **In a channel shared with another organization** (Slack Connect) there is no *Post to channel*; the answer says why.
+  Slack is asked again when the button is pressed.
 - **In a DM** the answer comes in the thread of your message (a new message, so Slack notifies you; "working…" goes).
 - **Follow-ups**: mention the app again in the same thread (or reply in the DM thread); they continue the same chat.
   A new thread is a new chat.
@@ -61,7 +65,8 @@ Slack. Saving tokens of another workspace removes every link of the old one.
 | `chat:write` | "working…", answers, the link prompt (ephemeral messages included), posting to the thread |
 | `users:read` | the asker's Slack name on the link page and in "Asked by"; refusing bots and people of other workspaces; the People list (`users.list`) |
 | `users:read.email` | the Slack account's e-mail: the proof a self-made link needs, and what the owner checks before linking someone |
-| `im:write` | `conversations.open` for the DMs about a proposal: one when it is made (naming no account), one when it is accepted |
+| `im:write` | `conversations.open` for the DMs about a proposal: one when it is made (naming no account), one when it is linked |
+| `channels:read`, `groups:read` | `conversations.info` just before *Post to channel*: a channel shared with another organization since the question (or one Slack says nothing about) gets nothing |
 
 The app-level token needs `connections:write` (Socket Mode). No user token, no channel history, no files, no slash
 command.
@@ -106,11 +111,13 @@ after 1, 2, 4 … seconds (at most a minute).
   Slack. Someone who sets their e-mail here to another person's Slack e-mail still needs that person's link, which only
   that person's Slack account gets; the same e-mail on two accounts here proves nothing and is refused. An e-mail an
   admin set (Admin › Members: a new member or a change) proves nothing for 7 days, unless the person set it again
-  themselves since.
+  themselves since; the person is told in the app when an admin changes it, and Settings says so. E-mails admins set
+  before this connector existed count from that time too (from the audit log).
 - The owner never asks as someone else: a proposal links nothing until that member accepts it with their own session
   (the owner and other people get 404 for it).
 - Audit log: `slack.tokens`, `slack.enabled`, `slack.disabled`, `slack.removed`, `slack.linked`, `slack.link_refused`,
-  `slack.proposed`, `slack.proposal_cancelled`, `slack.proposal_declined`, `slack.unlinked`, `slack.posted`.
+  `slack.proposed`, `slack.proposal_accepted`, `slack.proposal_confirmed` (the Slack half), `slack.proposal_cancelled`,
+  `slack.proposal_declined`, `slack.unlinked`, `slack.posted`.
 
 ## Code and tests
 

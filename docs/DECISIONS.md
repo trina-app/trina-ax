@@ -8127,21 +8127,33 @@ People ask the team's AI from Slack (`@app` in a channel, a DM to the app). Guid
   404). Slack is asked again at accept time. The member gets an in-app notice (realtime, linking to Settings); the Slack
   person gets one DM at the proposal naming no account, and one after the accept naming it and how to undo it. The owner
   can withdraw a waiting proposal; a disabled account's proposals are cancelled by the same trigger that unlinks it.
+- **A proposal proves the Slack side too** (third review, 2026-11-05). Accepting in the app alone let an owner propose
+  an unlinked colleague's Slack account for the owner's own account and accept it (squatting), or propose a renamed Slack
+  account. Now a proposal only stands in for the e-mail check: it completes when the member accepts it in the app
+  (`member_accepted_at`) and confirms the one-time link that Slack account got in Slack (`slack_confirmed_at`), in either
+  order, both within the 7 days, which are checked again in the transaction that links. The Slack account's DM at the
+  proposal says how (ask the app once, open the link signed in as that account). Someone else holding that link meets
+  the plain e-mail check and is refused.
 - **An e-mail someone else set proves nothing for 7 days.** Admins set e-mails (Admin › Members: a new member, a change),
   so an admin could give a member a colleague's Slack e-mail. Triggers on `users` record when each e-mail was last set
   (`slack_email_changes`); who set it is the audit log (`user.create`, `user.update` with `email`, actor not the
   person, at or after that time less a second's margin). Such an e-mail is not taken as proof for 7 days, unless the
   person set it again themselves since (Settings › Profile writes no audit entry). Those people use the proposal. The
-  link page shows the compared e-mail (the person's own; Slack's is never shown there).
+  link page shows the compared e-mail (the person's own; Slack's is never shown there). The migration seeds the times of
+  e-mails admins set before it from the audit log (an e-mail changed back by its person before the migration counts as
+  the admin's until they set it again). The person is told in the app when an admin changes their e-mail (the poll
+  reads new `user.update` entries), and Settings says the e-mail proves nothing for now.
 - **Slack Connect channels** (`is_ext_shared_channel`): the flag is kept with the question and the answer has no Post to
-  channel there, saying why; a replayed button is refused too.
+  channel there, saying why; a replayed button is refused too. The button asks Slack again (`conversations.info`, scopes
+  `channels:read` and `groups:read`): shared since, or no `is_ext_shared` in the answer, and nothing is posted.
 - Smaller: "Asked by" never falls back to a mention (`<@U…>` would ping): the Slack name, or "a teammate". A 429 keeps a
   not-before time per answer (Slack's `Retry-After`, up to an hour); a network failure waits 15 s. A DM answer tried
-  again after a timeout first reads the DM thread (`conversations.replies`, `im:history`) so it is not posted twice. A
+  again after a timeout first reads the DM thread (`conversations.replies`, `im:history`) so it is not posted twice;
+  only the app's messages written after the question count (an earlier answer with the same words does not). A
   person counts as of the workspace only by its own `team_id` (users.list, users.info and a question's `user_team`
   agree; another workspace of the same Enterprise Grid organization is not).
-- Scopes are now `app_mentions:read`, `chat:write`, `im:history`, `im:write`, `users:read`, `users:read.email`; the token
-  check refuses a bot token without any of them.
+- Scopes are now `app_mentions:read`, `channels:read`, `chat:write`, `groups:read`, `im:history`, `im:write`,
+  `users:read`, `users:read.email`; the token check refuses a bot token without any of them.
 - Tests: `tests/unit/c-slack.test.ts` with `tests/lib/fake-slack.ts` (owner only; wrong tokens, missing scopes, a seal
   for another purpose; the link prompt to the asker only; somebody else's link refused by the e-mail check, no e-mail on
   either side refused, the matching e-mail binds (case and spaces aside), NFC and full-width e-mails, an admin-set e-mail
