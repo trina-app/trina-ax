@@ -8742,13 +8742,18 @@ People ask the team's AI from Slack (`@app` in a channel, a DM to the app). Guid
   parse, in DMs, ephemeral messages and posted thread replies alike. Our own Markdown reading pairs `**`, `*`, `_`, `~~`
   and backticks whatever letter comes next (`_` not inside a word), so bold before a particle works; headings are bold
   lines, lists are `rich_text_list` (nesting by `indent`, numbers by `offset`), quotes and code blocks their elements.
-  A text element shows `<!channel>` as text, so nothing needs escaping in the blocks. A link's text is shown alone
-  unless it reads as a web address (a scheme, `www.`, an IP or a host name, not a file name like `budget-2027.txt`) of
-  another host than the link's, which shows the real address next to it; the app's own links never do. The
+  A text element shows `<!channel>` as text, so nothing needs escaping in the blocks. A link to the app's own page on
+  the team's address shows its text alone (`budget-2027.txt`); any other link shows its host next to its text
+  ("급여명세서.pdf (evil.example)", punycode for a look-alike letter) unless the text names that same host, because an
+  answer can carry words from a page or a file the AI read; a text that names another address is shown as text, with
+  the host as the link. The first version showed the address only when the whole text was one, which let
+  `[bank.example.]`, `[Log in at bank.example]`, `[토스.com]` or `[급여명세서.pdf]` hide it (review of 864989cd). The
   notification `text` is the answer as plain text (no markers, a link as its text, `&`, `<`, `>` written out). Slack
   documents no size for a rich text block: blocks keep the 2,900 characters a section had (4 ephemeral, 10 posted), and
   when Slack refuses them (`invalid_blocks`, `msg_blocks_too_long`, …) the answer goes again once as plain text in one
-  block. Admin › Slack names the bot by its display name from the manifest (`/invite @trina-ax`); `auth.test` gives the
+  block. Marker pairing finds each closing run by a binary search in the line's runs, so a line costs its length once
+  (it was a scan to the line's end for each unpaired marker: 54 s for 200,000 characters; now about 15 ms).
+  Admin › Slack names the bot by its display name from the manifest (`/invite @trina-ax`); `auth.test` gives the
   user name (`trinaax`), which Slack's `@` and `/invite` do not find.
 
 ## S — The lead's way becomes a team skill (feat/onboarding-s, 2026-11-05)

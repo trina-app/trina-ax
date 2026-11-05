@@ -648,7 +648,7 @@ describe('asking', () => {
     expect(answer!.args.text).toContain('&lt;!here&gt;')
     expect(answer!.args.text).not.toContain('<!here>')
     const shown = (JSON.parse(answer!.args.blocks!) as any[]).find((b) => b.type === 'rich_text').elements[0].elements
-    expect(shown).toEqual([{ type: 'text', text: 'Hello from the DM. <!here> https://bank.example (' }, { type: 'link', url: 'https://evil.example' }, { type: 'text', text: ')' }])
+    expect(shown).toEqual([{ type: 'text', text: 'Hello from the DM. <!here> https://bank.example (' }, { type: 'link', url: 'https://evil.example', text: 'evil.example' }, { type: 'text', text: ')' }])
     expect(JSON.stringify(shown)).not.toMatch(/"type":"(broadcast|user|channel)"/)
     expect(await waitFor(() => fake.of('chat.delete').some((c) => c.args.channel === 'D0ALICE'))).toBe(true)
     // the bot's own messages and edits in the DM are not questions
@@ -824,6 +824,24 @@ describe('text', () => {
     expect(normEmail(null)).toBeNull()
   })
 
+  test('a 200,000-character line is read in one pass: well under 200 ms, whatever markers it has', () => {
+    const lines = {
+      unpaired: '*a _b ~~c `d **e [f ***g ``h '.repeat(7_200),
+      pairs: '**하나뿐**이에요 *b* ~~c~~ `d` [e](https://acme.example/e) '.repeat(4_000),
+      heading: '# a' + ' '.repeat(200_000) + 'b',
+      code: '` ' + 'a'.repeat(200_000) + '`',
+      address: 'https://acme.example/' + ')'.repeat(200_000),
+    }
+    for (const [name, line] of Object.entries(lines)) {
+      expect(line.length).toBeGreaterThanOrEqual(200_000)
+      const t0 = performance.now()
+      const r = slackAnswer(line, o, 4)
+      const ms = performance.now() - t0
+      expect(r.blocks.length).toBeGreaterThan(0)
+      expect({ name, fast: ms < 200 }).toEqual({ name, fast: true })
+    }
+  })
+
   test('Slack markup to the question', () => {
     expect(questionText('<@U0BOT> look at <https://acme.example/a?b=1&amp;c=2|the doc> with <@U0BOB|bob> in <#C1|general> &lt;now&gt;', 'U0BOT'))
       .toBe('look at the doc (https://acme.example/a?b=1&c=2) with @bob in #general <now>')
@@ -848,31 +866,45 @@ describe('text', () => {
 
   test('mixed Korean and English; markers that do not pair, snake_case and arithmetic stay text', () => {
     expect(one('**Trina AX**는 *team* 단위로 동작해요. See [the docs](https://acme.example/docs) for **more**.')).toEqual([
-      t('Trina AX', { bold: true }), t('는 '), t('team', { italic: true }), t(' 단위로 동작해요. See '), a('https://acme.example/docs', 'the docs'), t(' for '), t('more', { bold: true }), t('.'),
+      t('Trina AX', { bold: true }), t('는 '), t('team', { italic: true }), t(' 단위로 동작해요. See '), a('https://acme.example/docs', 'the docs'), t(' (acme.example) for '), t('more', { bold: true }), t('.'),
     ])
     expect(one('file_name_here 와 2 * 3 * 4, **안 닫힘, 1~3일, \\*별표\\*')).toEqual([t('file_name_here 와 2 * 3 * 4, **안 닫힘, 1~3일, *별표*')])
   })
 
-  test('a file link shows its name only; the address is shown next to a text only when that text is another web address', () => {
+  test('a file link of the app shows its name only; any other link shows its host, unless its text names that host', () => {
     const path = '/files/view?path=groups%2F%EC%9E%AC%EB%AC%B4%2Fbudget-2027.txt'
     expect(one(`[budget-2027.txt](${path})를 열어 보세요.`)).toEqual([a(o + path, 'budget-2027.txt'), t('를 열어 보세요.')])
     expect(JSON.stringify(richText(`[budget-2027.txt](${path})`, o))).not.toContain('(https://')
     expect(plainOf(richText(`[budget-2027.txt](${path})를 열어 보세요.`, o))).toBe('budget-2027.txt를 열어 보세요.')
-    // a file name linking elsewhere, and an address linking to the same host: the text alone
-    expect(one('[report.pdf](https://files.acme.example/r.pdf) [acme.example](https://www.acme.example/refunds)')).toEqual([
-      a('https://files.acme.example/r.pdf', 'report.pdf'), t(' '), a('https://www.acme.example/refunds', 'acme.example'),
+    // an answer can carry words from a page or a file the AI read: a link's text is no proof of where it goes
+    const evil = 'https://evil.example/login'
+    for (const label of ['급여명세서.pdf', 'Log in at bank.example', 'bank.example 로그인', '토스.com', 'budget-2027.txt']) {
+      expect(one(`[${label}](${evil})`)).toEqual([a(evil, label), t(' (evil.example)')])
+    }
+    expect(plainOf(richText(`[급여명세서.pdf](${evil})`, o))).toBe('급여명세서.pdf (evil.example)')
+    // a text that names another address is not the link: the host is ("bank.example." with its sentence's full stop too)
+    expect(one(`[bank.example.](${evil})`)).toEqual([t('bank.example. ('), a(evil, 'evil.example'), t(')')])
+    expect(one('[https://bank.example](https://evil.example)')).toEqual([t('https://bank.example ('), a('https://evil.example', 'evil.example'), t(')')])
+    expect(one(`[bank.example/login](${evil})`)).toEqual([t('bank.example/login ('), a(evil, 'evil.example'), t(')')])
+    // a look-alike letter: the host as Slack shows it, in punycode
+    const lookalike = new URL('https://аpple.example/login').hostname
+    expect(lookalike).toStartWith('xn--')
+    expect(one('[apple.example](https://аpple.example/login)')).toEqual([t('apple.example ('), a('https://аpple.example/login', lookalike), t(')')])
+    // the text names the link's own host: nothing more; another site's file: its host
+    expect(one('[acme.example](https://www.acme.example/refunds) [https://acme.example/docs](https://acme.example/docs)')).toEqual([
+      a('https://www.acme.example/refunds', 'acme.example'), t(' '), a('https://acme.example/docs', 'https://acme.example/docs'),
     ])
-    // a text that names another address: the real one next to it
-    expect(one('[https://bank.example](https://evil.example)')).toEqual([t('https://bank.example ('), a('https://evil.example'), t(')')])
-    expect(one('[bank.example/login](https://evil.example)')).toEqual([t('bank.example/login ('), a('https://evil.example'), t(')')])
+    expect(one('[report.pdf](https://files.acme.example/r.pdf)')).toEqual([a('https://files.acme.example/r.pdf', 'report.pdf'), t(' (files.acme.example)')])
+    // the team's address written out is the app's own too
+    expect(one(`[budget.txt](${o}/files/view?path=b)`)).toEqual([a(`${o}/files/view?path=b`, 'budget.txt')])
     for (const f of ['budget-2027.txt', '보고서.hwpx', 'Q3 결산.xlsx', 'notes.md', 'setup.zip']) expect(isWebAddress(f)).toBe(false)
     for (const w of ['https://bank.example', 'www.bank.example', 'bank.example', 'bank.example/login', '10.0.0.1', 'files.acme.example:8443']) expect(isWebAddress(w)).toBe(true)
   })
 
   test('bold inside and around links; the app\'s own links open at the team\'s address; other kinds stay as written', () => {
     expect(one('[**budget-2027.txt**](/files/view?path=a) 와 **[보고서](https://acme.example/r)**를 [**굵게** 링크](https://acme.example/b)')).toEqual([
-      a(o + '/files/view?path=a', 'budget-2027.txt', { bold: true }), t(' 와 '), a('https://acme.example/r', '보고서', { bold: true }), t('를 '),
-      a('https://acme.example/b', '굵게', { bold: true }), a('https://acme.example/b', ' 링크'),
+      a(o + '/files/view?path=a', 'budget-2027.txt', { bold: true }), t(' 와 '), a('https://acme.example/r', '보고서', { bold: true }), t(' (acme.example)', { bold: true }), t('를 '),
+      a('https://acme.example/b', '굵게', { bold: true }), a('https://acme.example/b', ' 링크'), t(' (acme.example)'),
     ])
     expect(one('[`budget`](/files/view?path=b)')).toEqual([a(o + '/files/view?path=b', 'budget')])
     // & < > need no escaping in rich text: the label, the address and the text around are as written
@@ -946,7 +978,7 @@ describe('text', () => {
     const pieces = para.blocks.map((b) => plainOf(b.elements))
     for (const x of pieces.slice(0, -1)) expect(x.endsWith('단어')).toBe(true)
     for (const x of pieces.slice(1)) expect(x.startsWith('단어')).toBe(true)
-    expect((para.blocks.at(-1)!.elements.at(-1) as { elements: unknown[] }).elements.at(-1)).toEqual(a('https://acme.example/end', '끝'))
+    expect((para.blocks.at(-1)!.elements.at(-1) as { elements: unknown[] }).elements.slice(-2)).toEqual([a('https://acme.example/end', '끝'), t(' (acme.example)')])
   })
 
   test('a reason code is a plain sentence in Slack; a sentence stays; one wording for an outsider', () => {

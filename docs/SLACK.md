@@ -120,8 +120,9 @@ after 1, 2, 4 … seconds (at most a minute).
   with the tokens (nothing is handled while the app id is unknown).
 - An answer goes out only while the Slack account is still linked to the person it ran as; unlinked or disabled
   meanwhile, it stays in the chat only. Answers go as Slack rich text (bold, italic, lists and links are fields Slack
-  does not parse), so they never mention `@here`, `@channel` or a person, and a link whose text reads as another web
-  address shows the real address (a file name does not). The notification text is plain, with `&`, `<`, `>` written out.
+  does not parse), so they never mention `@here`, `@channel` or a person. A link to a page of the app shows its text
+  only; any other link shows its host next to its text ("급여명세서.pdf (evil.example)") unless the text names that host.
+  The notification text is plain, with `&`, `<`, `>` written out.
 - The connection is pinged every 30 seconds; one that stops answering (the Mac slept, the network dropped it) is opened
   again.
 - A link is bound to the Slack account it was sent to, and binds only when that account's e-mail (Slack's, read by the

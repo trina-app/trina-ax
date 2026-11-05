@@ -40,7 +40,7 @@ export function isWebAddress(s: string): boolean {
   return !!m[2] || /:\d+$/.test(t) || !FILE_END.test(m[1]!)
 }
 
-/** the host a web address names (no `www.`, lower case) */
+/** the host a web address names (no `www.`, lower case; a name in another script as Slack's punycode, `xn--…`) */
 const hostOf = (s: string): string | null => {
   const t = s.trim()
   try { return new URL(/^[a-z][a-z0-9+.-]*:\/\//i.test(t) ? t : `https://${t}`).hostname.replace(/^www\./, '').toLowerCase() } catch { return null }
@@ -49,9 +49,25 @@ const hostOf = (s: string): string | null => {
 /** Where a Markdown link goes: an http(s) address, the app's own page (a path from the root) at the team's address,
  * `'text'` (the app's page with no team address: its text alone) or null (another kind: kept as written) */
 function targetOf(url: string, home: string | null): string | 'text' | null {
-  if (/^https?:\/\//i.test(url)) { try { new URL(url); return url } catch { return null } }
+  if (/^https?:\/\//i.test(url)) return URL.canParse(url) ? url : null
   if (/^\/(?!\/)/.test(url)) return home ? home + url : 'text'
   return null
+}
+
+/** A bare address's end: punctuation after it, and a ) or ] it did not open, belong to the text around it
+ * ("(https://acme.example/a_(b))."). One pass from the end. */
+function trimAddress(u: string): string {
+  const count = (ch: string) => u.split(ch).length - 1
+  const open: Record<string, number> = { ')': count('('), ']': count('[') }
+  const close: Record<string, number> = { ')': count(')'), ']': count(']') }
+  let end = u.length
+  while (end > 0) {
+    const ch = u[end - 1]!
+    if (".,;:!?*_~'\"".includes(ch)) { end--; continue }
+    if ((ch === ')' || ch === ']') && close[ch]! > open[ch]!) { close[ch]!--; end--; continue }
+    break
+  }
+  return u.slice(0, end)
 }
 
 // ---------------- inline ----------------
@@ -72,48 +88,63 @@ function push(out: RichInline[], el: RichInline) {
   out.push(el)
 }
 const text = (t: string, style: Style): RichInline => ({ type: 'text', text: t, ...(Object.keys(style).length ? { style: { ...style } } : {}) })
-
-/** the next run of exactly `n` × `ch` from `from` that `ok` accepts; -1 if none */
-function findRun(s: string, from: number, ch: string, n: number, ok: (start: number, end: number) => boolean): number {
-  let j = s.indexOf(ch, from)
-  while (j !== -1) {
-    let k = j
-    while (s[k] === ch) k++
-    if (k - j === n && ok(j, k)) return j
-    j = s.indexOf(ch, k)
-  }
-  return -1
-}
+const link = (url: string, label: string | undefined, style: Style | undefined): RichInline =>
+  ({ type: 'link', url, ...(label !== undefined ? { text: label } : {}), ...(linkStyle(style) ? { style: linkStyle(style) } : {}) })
 
 const ESCAPABLE = /[!-/:-@[-`{-~]/
 const WORD = /[A-Za-z0-9]/
 const SPACE = /\s/
-/** the address ends with a ) or ] it did not open */
-const unopened = (u: string) => {
-  const [close, open] = u.endsWith(')') ? [')', '('] : u.endsWith(']') ? [']', '['] : ['', '']
-  return !!close && u.split(close).length > u.split(open).length
-}
 const LINK = /\[((?:[^[\]\n\\]|\\.|\[[^[\]\n]*\]){0,500})\]\(\s*([^\s()]{0,2000}(?:\([^\s()]*\)[^\s()]*)*)(?:\s+"[^"\n]*")?\s*\)/y
 const AUTOLINK = /<(https?:\/\/[^\s<>]{1,2000})>/y
 const BARE = /https?:\/\/[!#-;=?-~]{1,2000}/iy // ASCII without spaces, ", < and >; text after it (Hangul) is not part of it
 
-/** One line of Markdown as rich text elements (`style`: what the text around it has). Delimiters pair by themselves,
- * whatever letter comes after them (CommonMark's rule would not close `**하나뿐**이에요`); one that does not pair stays as
- * text. `_` does not start or end inside a word (`file_name`). */
-function inline(s: string, style: Style, home: string | null, out: RichInline[] = []): RichInline[] {
+/** The runs of `*`, `_`, `~` and backticks in a line that can close one opened before them, by character and length,
+ * in order: a closing run is found with a binary search, so a line costs its length once (an unpaired marker no longer
+ * means a scan to the end of the line for each). */
+type Closers = Map<string, number[]>
+function closersOf(s: string): Closers {
+  const runs: Closers = new Map()
+  for (let i = 0; i < s.length;) {
+    const c = s[i]!
+    if (c !== '*' && c !== '_' && c !== '~' && c !== '`') { i++; continue }
+    let k = i
+    while (s[k] === c) k++
+    // after something that is not a space; `_` not inside a word (`file_name`)
+    if (c === '`' || (i > 0 && !SPACE.test(s[i - 1]!) && !(c === '_' && k < s.length && WORD.test(s[k]!)))) {
+      const key = c + (k - i)
+      const list = runs.get(key)
+      if (list) list.push(i); else runs.set(key, [i])
+    }
+    i = k
+  }
+  return runs
+}
+/** the first run of exactly `n` × `c` that can close, starting at `from` or later and ending by `to`; -1 if none */
+function closer(runs: Closers, c: string, n: number, from: number, to: number): number {
+  const list = runs.get(c + n)
+  if (!list) return -1
+  let lo = 0, hi = list.length
+  while (lo < hi) { const mid = (lo + hi) >> 1; if (list[mid]! < from) lo = mid + 1; else hi = mid }
+  return lo < list.length && list[lo]! + n <= to ? list[lo]! : -1
+}
+
+/** One line of Markdown as rich text elements (`style`: what the text around it has; `from`, `to`: the part of the
+ * line read). Delimiters pair by themselves, whatever letter comes after them (CommonMark's rule would not close
+ * `**하나뿐**이에요`); one that does not pair stays as text. */
+function inline(s: string, style: Style, home: string | null, out: RichInline[] = [], from = 0, to = s.length, runs = closersOf(s)): RichInline[] {
   let buf = ''
   const flush = () => { if (buf) { push(out, text(buf, style)); buf = '' } }
-  let i = 0
-  while (i < s.length) {
+  let i = from
+  while (i < to) {
     const c = s[i]!
-    if (c === '\\' && i + 1 < s.length && ESCAPABLE.test(s[i + 1]!)) { buf += s[i + 1]; i += 2; continue }
+    if (c === '\\' && i + 1 < to && ESCAPABLE.test(s[i + 1]!)) { buf += s[i + 1]; i += 2; continue }
     if (c === '`') {
       let n = 0
-      while (s[i + n] === '`') n++
-      const j = findRun(s, i + n, '`', n, () => true)
+      while (i + n < to && s[i + n] === '`') n++
+      const j = closer(runs, '`', n, i + n, to)
       if (j === -1) { buf += s.slice(i, i + n); i += n; continue }
       let code = s.slice(i + n, j)
-      if (/^ .*[^ ].* $/.test(code)) code = code.slice(1, -1)
+      if (code.length > 2 && code[0] === ' ' && code[code.length - 1] === ' ' && code.trim()) code = code.slice(1, -1)
       flush()
       push(out, text(code, { ...style, code: true }))
       i = j + n
@@ -122,50 +153,40 @@ function inline(s: string, style: Style, home: string | null, out: RichInline[] 
     if (c === '[') {
       LINK.lastIndex = i
       const m = LINK.exec(s)
-      const target = m ? targetOf(m[2]!, home) : null
-      if (m && target !== null) {
+      const end = LINK.lastIndex
+      if (m && end <= to) {
+        const target = targetOf(m[2]!, home)
+        if (target === null) { buf += m[0]; i = end; continue } // another kind of link: as written
         flush()
-        const label = inline(m[1]!, style, home).map((e): RichInline => e.type === 'link' ? text(e.text ?? e.url, (e.style ?? {}) as Style) : e)
+        const label = inline(s, style, home, [], i + 1, i + 1 + m[1]!.length, runs).map((e): RichInline => e.type === 'link' ? text(e.text ?? e.url, (e.style ?? {}) as Style) : e)
         if (target === 'text') for (const e of label) push(out, e)
-        else {
-          const shown = label.map((e) => e.type === 'text' ? e.text : '').join('')
-          const own = !!home && (target === home || target.startsWith(home + '/'))
-          // a text that reads as another address than the link's: the real address is shown next to it
-          if (!own && isWebAddress(shown) && hostOf(shown) !== hostOf(target)) {
-            for (const e of label) push(out, e)
-            push(out, text(' (', style)); push(out, { type: 'link', url: target, ...(linkStyle(style) ? { style: linkStyle(style) } : {}) }); push(out, text(')', style))
-          } else if (!label.length) push(out, { type: 'link', url: target, ...(linkStyle(style) ? { style: linkStyle(style) } : {}) })
-          else for (const e of label) if (e.type === 'text') push(out, { type: 'link', url: target, text: e.text, ...(linkStyle(e.style) ? { style: linkStyle(e.style) } : {}) })
-        }
-        i = LINK.lastIndex
+        else linkTo(out, target, label, style, home)
+        i = end
         continue
       }
-      if (m) { buf += m[0]; i = LINK.lastIndex; continue } // another kind of link: as written
     }
     if (c === '<') {
       AUTOLINK.lastIndex = i
       const m = AUTOLINK.exec(s)
-      if (m) { flush(); push(out, { type: 'link', url: m[1]!, ...(linkStyle(style) ? { style: linkStyle(style) } : {}) }); i = AUTOLINK.lastIndex; continue }
+      if (m && AUTOLINK.lastIndex <= to) { flush(); push(out, link(m[1]!, undefined, style)); i = AUTOLINK.lastIndex; continue }
     }
     if ((c === 'h' || c === 'H') && (i === 0 || !WORD.test(s[i - 1]!))) {
       BARE.lastIndex = i
       const m = BARE.exec(s)
       if (m) {
-        // punctuation after it, and a closing bracket it did not open, belong to the text: (https://acme.example).
-        let url = m[0]
-        for (let before = ''; before !== url;) { before = url; url = url.replace(/[.,;:!?*_~'"]+$/, ''); if (unopened(url)) url = url.slice(0, -1) }
-        if (/^https?:\/\/[^/?#]/i.test(url) && URL.canParse(url)) { flush(); push(out, { type: 'link', url, ...(linkStyle(style) ? { style: linkStyle(style) } : {}) }); i += url.length; continue }
+        const url = trimAddress(m[0].slice(0, to - i))
+        if (/^https?:\/\/[^/?#]/i.test(url) && URL.canParse(url)) { flush(); push(out, link(url, undefined, style)); i += url.length; continue }
       }
     }
     if (c === '*' || c === '_' || c === '~') {
       let n = 0
-      while (s[i + n] === c) n++
+      while (i + n < to && s[i + n] === c) n++
       const add: Style | null = c === '~' ? (n === 2 ? { strike: true } : null) : n === 1 ? { italic: true } : n === 2 ? { bold: true } : n === 3 ? { bold: true, italic: true } : null
-      const opens = add && i + n < s.length && !SPACE.test(s[i + n]!) && !(c === '_' && i > 0 && WORD.test(s[i - 1]!))
-      const j = opens ? findRun(s, i + n + 1, c, n, (a, b) => !SPACE.test(s[a - 1]!) && !(c === '_' && b < s.length && WORD.test(s[b]!))) : -1
+      const opens = add && i + n < to && !SPACE.test(s[i + n]!) && !(c === '_' && i > 0 && WORD.test(s[i - 1]!))
+      const j = opens ? closer(runs, c, n, i + n + 1, to) : -1
       if (j === -1) { buf += s.slice(i, i + n); i += n; continue }
       flush()
-      inline(s.slice(i + n, j), { ...style, ...add }, home, out)
+      inline(s, { ...style, ...add }, home, out, i + n, j, runs)
       i = j + n
       continue
     }
@@ -176,11 +197,31 @@ function inline(s: string, style: Style, home: string | null, out: RichInline[] 
   return out
 }
 
+/** A Markdown link to an http(s) address. The app's own pages on the team's address show their text alone. Any other
+ * link shows its host next to the text ("급여명세서.pdf (evil.example)"), unless the text names that same host: an
+ * answer can carry words from a page or a file the AI read, and its link text is not proof of where it goes. A text
+ * that names another address is not the link itself; the host is ("https://bank.example (evil.example)"). */
+function linkTo(out: RichInline[], target: string, label: RichInline[], style: Style, home: string | null) {
+  if (!label.length) { push(out, link(target, undefined, style)); return } // Slack shows the address itself
+  const own = !!home && (target === home || target.startsWith(home + '/'))
+  const host = hostOf(target)
+  const shown = label.map((e) => e.type === 'text' ? e.text : '').join('').trim().replace(/\.$/, '')
+  const named = isWebAddress(shown) ? hostOf(shown) : null
+  if (own || (host && named === host)) { for (const e of label) if (e.type === 'text') push(out, link(target, e.text, e.style)); return }
+  if (named) {
+    for (const e of label) push(out, e)
+    push(out, text(' (', style)); push(out, link(target, host ?? target, style)); push(out, text(')', style))
+    return
+  }
+  for (const e of label) if (e.type === 'text') push(out, link(target, e.text, e.style))
+  push(out, text(` (${host ?? target})`, style))
+}
+
 // ---------------- blocks ----------------
 
 const FENCE = /^ {0,3}(`{3,}|~{3,})/
 const QUOTE = /^ {0,3}>\s?(.*)$/
-const HEADING = /^ {0,3}#{1,6}\s+(.*?)(?:\s+#+)?\s*$/
+const HEADING = /^ {0,3}#{1,6}[ \t]+(.*)$/
 const ITEM = /^(\s*)([-*+]|(\d{1,9})[.)])\s+(.*)$/
 const RULE = /^ {0,3}([-*_])( *\1){2,} *$/
 const widthOf = (ws: string) => ws.replace(/\t/g, '    ').length
@@ -263,7 +304,15 @@ export function richText(md: string, origin: string | null = null): RichElement[
     }
     levels = null
     const heading = HEADING.exec(line)
-    if (heading) { addLine(inline(heading[1]!, { bold: true }, home)); continue }
+    if (heading) {
+      // closing #s ("## 요약 ##") go, cut in one pass
+      let h = heading[1]!.trimEnd()
+      let end = h.length
+      while (end > 0 && h[end - 1] === '#') end--
+      if (end < h.length && (end === 0 || /\s/.test(h[end - 1]!))) h = h.slice(0, end).trimEnd()
+      addLine(inline(h, { bold: true }, home))
+      continue
+    }
     addLine(inline(line.trimEnd(), {}, home))
   }
   endPara()
