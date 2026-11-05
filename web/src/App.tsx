@@ -259,9 +259,11 @@ function NotFound() {
   )
 }
 
-/** Signed in while on /login: go where the person was heading (?next=, same-site paths only). */
+/** Signed in while on /login: go where the person was heading (?next=, same-site paths only); otherwise Home, or on a
+ * phone (where the 대화 tab is) the 대화 list, with the AI chat pinned on top of it. */
 function AfterSignIn() {
   const location = useLocation()
   const next = new URLSearchParams(location.search).get('next')
-  return <Navigate to={next && next.startsWith('/') && !next.startsWith('//') && !next.startsWith('/\\') ? next : '/'} replace />
+  const phone = typeof window !== 'undefined' && !!window.matchMedia && !window.matchMedia('(min-width: 768px)').matches
+  return <Navigate to={next && next.startsWith('/') && !next.startsWith('//') && !next.startsWith('/\\') ? next : phone ? '/rooms' : '/'} replace />
 }

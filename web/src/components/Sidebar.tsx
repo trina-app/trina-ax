@@ -218,8 +218,11 @@ export default function Sidebar() {
       </div>
 
       <div className="scroll-thin mt-4 min-h-0 flex-1 overflow-y-auto overscroll-contain px-2 pb-2" onScroll={peek.hide}>
-        {/* the team chat rooms (people with people), above the AI chats */}
-        <SidebarRooms onNavigate={close} />
+        {/* the team chat rooms (people with people), above the AI chats; not in the phone drawer: the 대화 tab is
+            where they are there */}
+        <div className="max-md:hidden">
+          <SidebarRooms onNavigate={close} />
+        </div>
         <div className="group/recents flex items-center gap-1 pr-1 pl-3">
           <h2 className="text-xs font-medium text-faint">
             <button type="button" aria-expanded={recentsOpen} aria-controls={listId} onClick={() => setRecentsOpen((v) => (remember(OPEN_KEY, v ? 'closed' : 'open'), !v))} className="flex items-center gap-1 rounded py-1 hover:text-muted" data-testid="recents-toggle">

@@ -130,9 +130,14 @@ export default function Layout() {
               {unread > 0 && <span className="absolute top-1 right-1 size-2.5 rounded-full bg-accent ring-2 ring-canvas" aria-hidden data-testid="menu-unread" />}
             </IconButton>
             <span className="flex-1 truncate text-center text-sm font-semibold">{PRODUCT.displayName}</span>
-            <IconButton label={t('sidebar.newChat')} onClick={() => navigate('/')}>
-              <MessageSquarePlus size={20} />
-            </IconButton>
+            {/* the 대화 list has the AI chat pinned on top: no second way to it there (the empty box keeps the name centred) */}
+            {location.pathname === '/rooms' ? (
+              <span className="size-8 shrink-0 max-sm:size-9" aria-hidden />
+            ) : (
+              <IconButton label={t('sidebar.newChat')} onClick={() => navigate('/')} data-testid="topbar-new-chat">
+                <MessageSquarePlus size={20} />
+              </IconButton>
+            )}
           </div>
           <div className="min-h-0 flex-1">
             {/* a page that cannot be loaded after a server update: here, with the sidebar still there (another page resets it) */}
