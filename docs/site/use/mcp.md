@@ -68,7 +68,7 @@ Many services give a key its owner's rights and log every call under that person
 
 :::steps
 #### Add a template
-In **Admin › MCP**, choose **Add connection** (or a Discover card's **+**), then **Template: each member connects their own**. Fill in the address, the sign-in method and who it is for. There is no key field.
+In **Admin › MCP**, choose **Add connection** (or a Discover card's **+**), then **Template: each member connects their own**. Fill in the address, the sign-in method and who it is for. There is no key field, and the address can't have a query (`?…`): a key there would reach every member.
 
 #### Members connect
 The members it is for see it in **Settings › MCP** under **From your team**, and choose **Connect**. They enter their own key or sign in. It becomes their own connection, used only in their chats.
@@ -78,9 +78,9 @@ The members it is for see it in **Settings › MCP** under **From your team**, a
 |---|---|---|
 | Key | One, added by the admin | Each member's own |
 | Whose rights the AI uses | The key owner's, for everyone | Each member's own |
-| What the admin sees | The connection | "Template · N connected", never a key |
+| What the admin sees | The connection | "Template · N connected", never a key or who connected |
 
-A member can change only their key or sign-in and the write rule, and can disconnect at any time. If the admin changes a template's address or sign-in method, every member's key is deleted and they connect again. Deleting the template deletes the members' connections.
+A member can change only their key or sign-in and the write rule, and can disconnect at any time. If the admin changes a template's address or sign-in method, every member's key is deleted and they connect again; a new name or note keeps everyone connected. If a template changes while a member is connecting, they're asked to check it and connect again. Deleting the template, or removing someone from it, deletes their connections.
 
 ## Ask a member to connect
 

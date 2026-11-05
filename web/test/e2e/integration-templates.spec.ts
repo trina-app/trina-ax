@@ -66,7 +66,8 @@ test('admin makes a template; the member connects their own key; the admin sees 
   await page.getByTestId('integration-answer-key').fill(KEY)
   const sent = page.waitForRequest((r) => /\/api\/integration-templates\/[^/]+\/connect$/.test(r.url()))
   await page.getByTestId('integration-answer-connect').click()
-  expect((await sent).postDataJSON()).toEqual({ secret: KEY, writePolicy: 'ask' })
+  // the template's version as Bob saw it goes along: changed since, the server refuses (409)
+  expect((await sent).postDataJSON()).toEqual({ secret: KEY, writePolicy: 'ask', version: 1 })
   // it is Bob's own connection now, in the same group (not under his own list)
   const conn = group.getByTestId('integration-row').filter({ hasText: 'Tasks' })
   await expect(conn).toHaveAttribute('data-scope', 'personal')
@@ -189,3 +190,32 @@ for (const scheme of ['light', 'dark'] as const) {
     expect(await axe()).toEqual([])
   })
 }
+
+test('a template that changed while the dialog was open is refused, then shown as it is now', async ({ page, browser }) => {
+  await reset(page, { teamLocale: 'en', usersFollowTeam: true })
+  await signIn(page)
+  await makeTemplate(page)
+  const tid = (await (await page.request.get('/api/admin/integration-templates')).json()).items.find((x: { name: string }) => x.name === 'Tasks').id
+  // the admin keeps a window open to change the template while Bob connects
+  const admin = await browser.newContext()
+  const ap = await admin.newPage()
+  await signIn(ap)
+  await page.context().clearCookies()
+  await signIn(page, BOB)
+  await page.goto('/settings/integrations')
+  await page.getByTestId('integrations-from-team').getByTestId('template-row').filter({ hasText: 'Tasks' }).getByTestId('template-connect').click()
+  await expect(page.getByTestId('integration-answer-host-warning')).toContainText('mcp.tasks.example')
+  const moved = await ap.request.patch(`/api/admin/integration-templates/${tid}`, { data: { url: 'https://mcp.other.example/mcp' }, headers: { 'x-mycel-csrf': '1' } })
+  expect(moved.ok()).toBe(true)
+  await page.getByTestId('integration-answer-key').fill(KEY)
+  await page.getByTestId('integration-answer-connect').click()
+  // refused, and the dialog now says where the key would go
+  await expect(modal(page)).toContainText('바뀌었어요')
+  await expect(page.getByTestId('integration-answer-host-warning')).toContainText('mcp.other.example')
+  await expect(page.getByTestId('integrations-from-team').getByTestId('integration-row')).toHaveCount(0)
+  // connecting again, to the address Bob has now seen, works
+  await page.getByTestId('integration-answer-key').fill(KEY)
+  await page.getByTestId('integration-answer-connect').click()
+  await expect(page.getByTestId('integrations-from-team').getByTestId('integration-row').filter({ hasText: 'Tasks' })).toHaveCount(1)
+  await admin.close()
+})

@@ -56,23 +56,36 @@ would log every call under that one person; a template keeps each call under its
 "Add connection" (and a Discover card's +) asks who connects: **For the team (one key)**, a team connection as above,
 the default; or **Template: each member connects their own**, which takes the kind, name, address, sign-in method (an
 API key with its header, or OAuth), who it is for (everyone, groups, people; admins only when named) and an optional
-note, and never a key or a write rule.
+note, and never a key or a write rule. The address may not have a query or a fragment (`?…`, `#…`): it goes with every
+member's key, so a key there would reach every member and the service would log their calls under its owner.
 
 - The members it is for see it in Settings › MCP under **From your team**. **Connect** opens the same dialog as an
   admin's request: the address, where the key goes (the host in bold), their key or a sign-in next, and the write rule
-  (ask or refuse). It becomes their own (personal) connection, made through the same create path as one they add
+  (ask or refuse). The app sends back the template's version as the member saw it: a template that changed since is
+  refused (409, "This template changed") and shown again as it is now. It becomes their own (personal) connection, made through the same create path as one they add
   themselves (`template_id` set), used only in their chats with their key. They may change only their key or sign-in
   and the write rule; the address, sign-in method, header, name and note are the template's, so a key only ever goes
-  to the address the admin registered. They can disconnect (delete it) at any time.
+  to the address the admin registered (even its owner sees the address without a query). They can disconnect (delete
+  it) at any time.
 - It is usable only while the template covers its member (`store.ts mayUse`, `templateCovers`), whatever
   `personalIntegrations` says (the admin registered the service), and it does not count toward a member's 20.
-- The admin sees "Template · N connected" (members with a key or sign-in now), never a key or who connected.
+- The admin sees "Template · N connected" (members with a key or sign-in now), never a key or who connected; the
+  activity log does not say either (below).
 - A new address, sign-in method or header on the template deletes every member's connection made from it (keys and
-  sign-ins; OAuth tokens are revoked): they connect again. A new name or note is copied to their connections. A rule
-  that no longer covers a member deletes that member's connection; a group change is refused at once and swept when
-  the templates are next listed. Deleting the template deletes them all. Deleting a member deletes theirs.
-- At most 50 templates. Audit: `integration_template.create / update / delete / connect`, and `integration.delete`
-  with `template` and `why` (`template_moved`, `template_deleted`, `not_covered`) for each member connection dropped.
+  sign-ins; OAuth tokens are revoked): they connect again. A new name or note is copied to their connections without
+  touching their version, so a sign-in, a token refresh or a write waiting for a yes is not thrown away. A rule that no
+  longer covers a member deletes that member's connection; a group change is refused at once and swept when the
+  templates are next listed (the sweep does not wait for the services to be told, and also drops a connection whose
+  address, sign-in method or header is not the template's). Deleting the template deletes them all. Deleting a member
+  deletes theirs and revokes their sign-ins; deleting a member or a group also removes them from every template's rule
+  (and a group from team connections' rules), so the rule can still be changed.
+- At most 50 templates. Audit: `integration_template.create / update / delete` (the admin's changes). A member's
+  connection made from one is logged like any member's own connection, `integration.create` and `integration.delete`
+  with only its scope, kind and sign-in method (and `why`: `template_moved`, `template_deleted`, `not_covered`, when a
+  template change dropped it), never which template, service or member.
+- An admin's note on a template is the admin's: the AI reads it as "Note from your team admin".
+- The chat's connect card does not count template connections toward a member's 20, and does not call one the
+  template no longer covers "already connected".
 - Not yet: an inbox notice when a template is shared, the chat's connect card for a template, a per-person list for
   the admin, and choosing a default by sign-in method.
 

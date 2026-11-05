@@ -288,10 +288,10 @@ The API serves the Trina AX apps. It is not yet a stable public API for other pr
 | `GET` | `/api/admin/integration-requests` | Admin | Requests admins sent to members, with their state. Never a key. |
 | `POST` | `/api/admin/integration-requests` | Admin | Ask a member to connect a service as their own connection (a notice and a link for them; waits 7 days). |
 | `GET` | `/api/integration-templates` | Signed in | Templates an admin shared with me, each with my connection made from it (or null). Never a key. |
-| `POST` | `/api/integration-templates/:id/connect` | Signed in | Connect a template shared with me as my own connection, with my key, or made for signing in next (MCP OAuth). Again with a key: replaces my key. 404 when it is not shared with me. |
+| `POST` | `/api/integration-templates/:id/connect` | Signed in | Connect a template shared with me as my own connection, with my key, or made for signing in next (MCP OAuth). Again with a key: replaces my key. 404 when it is not shared with me; 409 when it changed since the version I send. |
 | `GET` | `/api/admin/integration-templates` | Admin | Every template, with who it is for and how many members connected it. Never a key. |
 | `POST` | `/api/admin/integration-templates` | Admin | Register a service once for the team; each member it is for connects it with their own key or sign-in. |
-| `PATCH` | `/api/admin/integration-templates/:id` | Admin | Change a template. A new address, sign-in method or header deletes every member's connection made from it (and its key); they connect again. |
+| `PATCH` | `/api/admin/integration-templates/:id` | Admin | Change a template. A new address, sign-in method or header deletes every member's connection made from it (and its key); they connect again. The address may not have a query (a key there would reach every member). |
 | `DELETE` | `/api/admin/integration-templates/:id` | Admin | Delete a template and every member's connection made from it (OAuth: revocation is tried, the local tokens go first). |
 | `POST` | `/api/admin/integration-requests/:id/withdraw` | Admin | Withdraw a waiting request. |
 
