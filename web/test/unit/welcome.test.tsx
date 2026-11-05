@@ -3,7 +3,7 @@
 // against a small fake of the server's rules (tests/unit/b-onboarding-welcome.test.ts checks the server itself):
 // - /welcome is the owner's: members and admins are sent Home; right after /setup the owner lands there;
 // - without an AI that answers the owner, the AI step first (1/3 AI 연결: Claude 구독 연결, the other ways folded,
-//   나중에 leaves the steps); with one, two steps (회사 소개 → 첫 결과); one quiet line
+//   나중에 leaves the steps), never in front of the invite; with one, two steps (회사 소개 → 첫 결과); one quiet line
 //   above the first: "팀 스킬을 넣어 둘게요 · 마케팅팀이에요" (the tap adds
 //   the marketing pack, 취소 takes it back); leaving the first step sets the team up once (the general pack, the team's
 //   group and folders) and installs the marketing pack once, only when asked; resuming never installs again;
@@ -288,6 +288,24 @@ describe('where the steps go', () => {
     expect(countedSteps(fresh(), true)).toEqual(['profile', 'result'])
     expect(resumeStep(fresh(), true)).toBe('profile')
     expect(stepTotal(fresh(), true)).toBe(2)
+  })
+
+  test('without AI, only the invite left: the invite, never the AI step in front of it; the bar has two steps', () => {
+    // 회사 소개 and 첫 결과 answered (done or put off), the invite open: AI is not needed for it
+    for (const steps of [{ profile: 'done', result: 'done', invite: null }, { profile: 'skipped', result: 'skipped', invite: null }, { profile: 'done', result: 'skipped', invite: null }] as const) {
+      const p = { ...fresh(), steps: { ...steps } }
+      expect(resumeStep(p, false)).toBe('invite')
+      expect(resumeStep(p, true)).toBe('invite')
+      expect(countedSteps(p, false)).toEqual(['profile', 'result'])
+      expect(stepTotal(p, false)).toBe(2)
+    }
+    // shown before: the bar keeps it
+    expect(countedSteps({ ...fresh(), steps: { ai: 'skipped', profile: 'done', result: 'done', invite: null } }, false)).toEqual(['ai', 'profile', 'result'])
+    // everything answered, a counted step put off: "later" is now, and that step needs AI
+    expect(resumeStep({ ...fresh(), steps: { profile: 'done', result: 'skipped', invite: 'skipped' } }, false)).toBe('ai')
+    expect(resumeStep({ ...fresh(), steps: { profile: 'done', result: 'skipped', invite: 'skipped' } }, true)).toBe('result')
+    // all done: nothing to resume, with or without AI
+    expect(resumeStep({ ...fresh(), steps: { profile: 'done', result: 'done', invite: 'done' } }, false)).toBeNull()
   })
 
   test('who sees the team folder: its group and the owners and admins, active ones; members outside it can be added', () => {
@@ -708,6 +726,22 @@ describe('/welcome', () => {
       expect(stepOf(m)).toBe('ai')
       expect(m.find('welcome-files-pick')).toBeNull()
       expect(called('POST /api/onboarding/welcome/first-result')).toEqual([])
+    } finally { await m.unmount() }
+  })
+
+  test('without AI, only the invite left (AI gone after the first result): the steps open on the invite, not the AI step', async () => {
+    signIn('owner')
+    ai = { usable: false, action: 'connect_team', requested: false }
+    progress = atResult({ steps: { profile: 'done', result: 'done', invite: null }, resultChatId: CHAT })
+    const m = await app()
+    try {
+      await m.until(() => stepOf(m) === 'invite', 'the invite')
+      expect(m.find('welcome-ai')).toBeNull()
+      expect(m.get('welcome-progress').querySelectorAll('li').map((li: any) => li.getAttribute('data-progress-step'))).toEqual(['profile', 'result'])
+      // nothing recorded for the AI step: it was not shown
+      await act(async () => { await new Promise((r) => setTimeout(r, 30)) })
+      expect(progress!.steps.ai).toBeUndefined()
+      expect(called('PATCH /api/onboarding/welcome').filter((c) => c.body?.step?.id === 'ai')).toEqual([])
     } finally { await m.unmount() }
   })
 

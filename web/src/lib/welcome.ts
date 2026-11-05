@@ -8,18 +8,26 @@ import { translate } from '../i18n'
 /** The steps after the AI step, in order (the AI step is a gate, not a place in the order: docs/DECISIONS.md "W2"). */
 const AFTER_AI = WELCOME_STEPS.filter((s) => s !== 'ai')
 
-/**
- * Where the steps resume. Without an AI that answers the owner (`aiReady` false: GET /api/me/ai-access), the AI step,
- * whatever else is open: every later step needs AI. Else the first step not yet done or put off; with none left, the
- * first counted step that was put off ("later" is now); null when everything is done (or finished).
- */
-export function resumeStep(p: WelcomeProgress | null, aiReady = true): WelcomeStep | null {
+/** Where the steps resume once AI answers: the first step after the AI step not yet done or put off; with none left,
+ * the first counted step that was put off ("later" is now); null when everything is done (or finished). */
+function resumeWithAi(p: WelcomeProgress | null): WelcomeStep | null {
   if (p?.finishedAt) return null
-  if (!aiReady) return 'ai'
   if (!p) return AFTER_AI[0]!
   const open = AFTER_AI.find((s) => p.steps[s] === null)
   if (open) return open
   return WELCOME_COUNTED.find((s) => p.steps[s] !== 'done') ?? null
+}
+
+/** The steps the AI step holds back: 회사 소개 and 첫 결과 need AI, the invite does not. */
+const needsAi = (s: WelcomeStep | null) => s === 'profile' || s === 'result'
+
+/**
+ * Where the steps resume. Without an AI that answers the owner (`aiReady` false: GET /api/me/ai-access), the AI step
+ * in front of 회사 소개 and 첫 결과, never in front of the invite: with only the invite left it is the invite.
+ */
+export function resumeStep(p: WelcomeProgress | null, aiReady = true): WelcomeStep | null {
+  const s = resumeWithAi(p)
+  return !aiReady && needsAi(s) ? 'ai' : s
 }
 
 /** After a step: the next one in order that is still open; null (back to Home) when none is left after it, so a step
@@ -34,10 +42,11 @@ export function prevStep(from: WelcomeStep): WelcomeStep | null {
   return from === 'ai' ? null : AFTER_AI[AFTER_AI.indexOf(from) - 1] ?? null
 }
 
-/** The steps the progress counts: the AI step while it is needed or once it was shown (recorded), then 회사 소개 and 첫
- * 결과; an owner whose AI answered from the start never sees it (two steps). */
+/** The steps the progress counts: the AI step while it is needed (the steps would open on it) or once it was shown
+ * (recorded), then 회사 소개 and 첫 결과; an owner whose AI answered from the start never sees it (two steps). */
 export function countedSteps(p: WelcomeProgress | null, aiReady = true): WelcomeStep[] {
-  return !aiReady || (p?.steps.ai ?? null) !== null ? ['ai', ...WELCOME_COUNTED] : [...WELCOME_COUNTED]
+  const ai = (p?.steps.ai ?? null) !== null || resumeStep(p, aiReady) === 'ai'
+  return ai ? ['ai', ...WELCOME_COUNTED] : [...WELCOME_COUNTED]
 }
 
 /** "1/2" on the Home entry: the counted steps done */

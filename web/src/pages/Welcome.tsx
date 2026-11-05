@@ -203,7 +203,9 @@ function Page({ children }: { children: ReactNode }) {
  * start): filled up to the step on screen (all of them on the invite). */
 function Progress({ progress, step, aiReady }: { progress: WelcomeProgress; step: WelcomeStep; aiReady: boolean }) {
   const t = useT()
-  const counted = countedSteps(progress, aiReady)
+  const list = countedSteps(progress, aiReady)
+  // the AI step on screen is on the bar even before it is recorded (gone back from the invite to a step that needs AI)
+  const counted = step === 'ai' && !list.includes('ai') ? ['ai' as const, ...list] : list
   const at = step === 'invite' ? counted.length : counted.indexOf(step)
   return (
     <ol className={clsx('mt-3 grid gap-2', counted.length === 3 ? 'grid-cols-3' : 'grid-cols-2')} aria-label={t('welcome.progress.label')} data-testid="welcome-progress">
