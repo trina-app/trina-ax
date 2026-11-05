@@ -34,12 +34,14 @@ function cleanPng(b: Uint8Array): Uint8Array | null {
 function cleanJpeg(b: Uint8Array): Uint8Array | null {
   const out: Uint8Array[] = [b.subarray(0, 2)]
   let i = 2
-  while (i + 4 <= b.length) {
+  // a marker is two bytes (the end-of-image marker can be the file's last two bytes); a segment adds a 2-byte length
+  while (i + 2 <= b.length) {
     if (b[i] !== 0xff) return null
     const m = b[i + 1]!
     if (m === 0xff) { i++; continue } // fill byte
     if (m === 0xd9) { out.push(b.subarray(i, i + 2)); return join(out) }
     if (m === 0x01 || (m >= 0xd0 && m <= 0xd7)) { out.push(b.subarray(i, i + 2)); i += 2; continue }
+    if (i + 4 > b.length) return null
     const len = (b[i + 2]! << 8) | b[i + 3]!
     if (len < 2 || i + 2 + len > b.length) return null
     const seg = b.subarray(i, i + 2 + len)
