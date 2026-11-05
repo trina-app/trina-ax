@@ -25,6 +25,16 @@ export function bannerText(action: AiAction, requested: boolean): MessageKey {
 /** the first line above the composer when the hosting service's trial AI credit is used up or over */
 export const trialLine = (trial: 'used' | 'ended'): MessageKey => trial === 'used' ? 'aiAccess.banner.trialUsed' : 'aiAccess.banner.trialEnded'
 
+/** A failed answer's words for "no AI", by who reads it: the owner, who can connect, hears that (with "AI 연결하기"
+ * beside it); an admin, who cannot add the team's connections (owner-reauth), is told to tell the owner; null: the
+ * server's words for a member ("관리자에게 알려 주세요"), or an error that is not about AI access. */
+export function noAiErrorKey(reason: ChatErrorReason | null, role: 'owner' | 'admin' | 'member' | undefined): MessageKey | null {
+  if (!reason || !isNoAiReason(reason)) return null
+  if (role === 'owner') return `aiConnect.error.${reason as 'no_credential' | 'credential_unusable' | 'trial_credit_used' | 'trial_ended'}`
+  if (role === 'admin' && (reason === 'no_credential' || reason === 'credential_unusable')) return `aiConnect.error.admin.${reason}`
+  return null
+}
+
 /** the chat errors that get the button: no AI connection, none usable, and the trial AI credit used up or over (stream
  * B: the same way out, the error text already says the credit is gone) */
 export const isNoAiReason = (r: ChatErrorReason | null) =>

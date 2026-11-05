@@ -19,11 +19,12 @@ import { TEAM_FILE_DRAG_TYPE } from '../../lib/teamAttach'
 import { useChatArtifacts } from '../../lib/useArtifacts'
 import { useLocale, useT } from '../../i18n'
 import { useChats, useQueuePosition } from '../../store/chats'
+import { useMe } from '../../store/session'
 import type { ViewMessage } from '../../store/thread'
 import { TYPE_LABEL } from '../artifactLabels'
 import { Markdown } from '../Markdown'
 import AiAccessButton from './AiAccessButton'
-import { isNoAiReason } from '../../lib/aiAccess'
+import { isNoAiReason, noAiErrorKey } from '../../lib/aiAccess'
 import { Button, CopyButton, IconButton, inputCls } from '../ui'
 import AskCard from './AskCard'
 import ConnectCard from './ConnectCard'
@@ -394,8 +395,10 @@ export function AssistantMessage({
   const thinking = streaming && !m.content && !waitingForYou
   const known = m.error ? ERROR_MESSAGES[m.error.code] : undefined
   const reason = m.error ? chatErrorReason(m.error) : null
+  // "no AI": the owner hears what they can do, next to the button (lib/aiAccess.ts noAiErrorKey)
+  const role = useMe()?.user.role
   const errText = m.error
-    ? reason ? t(`chat.error.${reason}`) + (typeof m.error.params?.status === 'number' ? ` (HTTP ${m.error.params.status})` : '')
+    ? reason ? t(noAiErrorKey(reason, role) ?? `chat.error.${reason}`) + (typeof m.error.params?.status === 'number' ? ` (HTTP ${m.error.params.status})` : '')
       : m.error.params?.reason === undefined && known && isDefaultErrorMessage(m.error.code, m.error.message) ? known[locale] : m.error.message
     : null
   const [suggesting, setSuggesting] = useState(false)

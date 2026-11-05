@@ -1,7 +1,7 @@
 // Onboarding stream A: which button the chat error and the banner above the composer show (web/src/lib/aiAccess.ts);
 // a connect button opens the simple "AI 연결" dialog in place (docs/DECISIONS.md "W2").
 import { expect, test } from 'bun:test'
-import { aiButton, bannerText, isNoAiReason, trialLine } from '../../web/src/lib/aiAccess'
+import { aiButton, bannerText, isNoAiReason, noAiErrorKey, trialLine } from '../../web/src/lib/aiAccess'
 
 test('owner and own-connection people connect in place (the simple dialog, the team\'s or their own); everyone else asks once', () => {
   expect(aiButton('connect_team', false)).toEqual({ kind: 'connect', personal: false, label: 'aiAccess.connectTeam' })
@@ -22,6 +22,20 @@ test('the no-AI errors get the button: no connection, none usable, the trial AI 
   expect(isNoAiReason('rate_limit')).toBe(false)
   expect(isNoAiReason('auth')).toBe(false)
   expect(isNoAiReason(null)).toBe(false)
+})
+test('a failed answer\'s words by who reads it: the owner can connect, an admin tells the owner, a member keeps the server\'s', () => {
+  expect(noAiErrorKey('no_credential', 'owner')).toBe('aiConnect.error.no_credential')
+  expect(noAiErrorKey('credential_unusable', 'owner')).toBe('aiConnect.error.credential_unusable')
+  expect(noAiErrorKey('trial_credit_used', 'owner')).toBe('aiConnect.error.trial_credit_used')
+  expect(noAiErrorKey('trial_ended', 'owner')).toBe('aiConnect.error.trial_ended')
+  expect(noAiErrorKey('no_credential', 'admin')).toBe('aiConnect.error.admin.no_credential')
+  expect(noAiErrorKey('credential_unusable', 'admin')).toBe('aiConnect.error.admin.credential_unusable')
+  // the trial texts already say "the owner can connect …": right for an admin
+  expect(noAiErrorKey('trial_ended', 'admin')).toBeNull()
+  expect(noAiErrorKey('no_credential', 'member')).toBeNull()
+  expect(noAiErrorKey('no_credential', undefined)).toBeNull()
+  expect(noAiErrorKey('rate_limit', 'owner')).toBeNull()
+  expect(noAiErrorKey(null, 'owner')).toBeNull()
 })
 test('the banner\'s first line when the trial AI credit is gone', () => {
   expect(trialLine('used')).toBe('aiAccess.banner.trialUsed')

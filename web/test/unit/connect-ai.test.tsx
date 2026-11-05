@@ -6,23 +6,28 @@
 // - Admin › AI connections keeps the full dialog (name, target, the whole notice).
 import { afterAll, afterEach, beforeAll, describe, expect, test } from 'bun:test'
 import { MemoryRouter } from 'react-router-dom'
+import { CHAT_ERROR_MESSAGES } from '@mycel/shared/api'
 import { translate, useLocaleStore } from '../../src/i18n'
 import AiAccessButton from '../../src/components/chat/AiAccessButton'
+import { AssistantMessage } from '../../src/components/chat/Messages'
 import { ConnectAiButton } from '../../src/components/onboarding/ConnectAi'
 import { AddCredential } from '../../src/pages/admin/Credentials'
 import { useAiAccess } from '../../src/store/aiAccess'
+import { useSession } from '../../src/store/session'
+import { CHAT, msg } from './fixtures'
 import { installDom, mount, removeDom, type FakeElement } from './dom-host'
 
 const json = (status: number, body: unknown) => new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json' } })
 const ko = (k: Parameters<typeof translate>[1], p?: Parameters<typeof translate>[2]) => translate('ko', k, p)
 const KINDS = ['anthropic-oauth', 'anthropic-api-key', 'chatgpt', 'openai-api-key']
 let shared = true
+let access = { usable: false, action: 'connect_team', requested: false }
 let calls: { key: string; body: any }[] = []
 const LOGIN = { loginId: 'login-0123456789abcdef', kind: 'anthropic-oauth', state: 'starting', url: null, code: null, expiresAt: '2026-11-05T01:00:00.000Z', credential: null, reason: null }
 const routes: Record<string, (body: any) => Response> = {
   'GET /api/admin/credentials': () => json(200, { items: [], memberOwn: false, sharedSubscriptions: shared, allowedKinds: KINDS, pricesAsOf: '2026-11-01', anthropicGateway: null }),
   'GET /api/me/credentials': () => json(200, { allowed: true, allowedKinds: KINDS, items: [], anthropicGateway: null }),
-  'GET /api/me/ai-access': () => json(200, { usable: false, action: 'connect_team', requested: false }),
+  'GET /api/me/ai-access': () => json(200, access),
   'POST /api/admin/credential-logins': () => json(202, LOGIN),
   'POST /api/me/credential-logins': () => json(202, LOGIN),
   'POST /api/me/ai-access/request': () => json(200, { requested: true, already: false }),
@@ -39,8 +44,13 @@ beforeAll(() => {
     return routes[key]?.(body) ?? json(404, { error: { code: 'not_found', message: `no route ${key}` } })
   }) as unknown as typeof fetch
 })
-afterEach(() => { shared = true; calls = []; useAiAccess.getState().reset() })
-afterAll(() => { globalThis.fetch = realFetch; useLocaleStore.setState({ locale: localeBefore }); removeDom() })
+const sessionBefore = useSession.getState().status
+afterEach(() => { shared = true; access = { usable: false, action: 'connect_team', requested: false }; calls = []; useAiAccess.getState().reset() })
+afterAll(() => { globalThis.fetch = realFetch; useLocaleStore.setState({ locale: localeBefore }); useSession.setState({ status: sessionBefore }); removeDom() })
+const signIn = (role: 'owner' | 'admin' | 'member') => useSession.setState({ status: { kind: 'signed-in', me: {
+  user: { id: 'olga', username: 'olga', name: '올가', email: null, role, locale: 'ko', localeChoice: null, mustChangePassword: false, prefs: {} },
+  groups: [], team: { name: 'Acme', defaultLocale: 'ko' }, session: { id: '01900000-0000-7000-8000-00000000000a', client: 'web', expiresAt: '2026-12-04T00:00:00.000Z' }, server: { version: '0', dev: true },
+} } } as never)
 
 const body = () => (globalThis.document as any).body as FakeElement
 const q = (id: string) => body().querySelector(`[data-testid="${id}"]`)
@@ -146,6 +156,50 @@ describe('the simple dialog', () => {
       expect(m.get('ai-access-button').getAttribute('data-action')).toBe('connect_team')
       await m.click('ai-access-button')
       await m.until(() => q('claude-login-how'), 'the dialog')
+    } finally { await m.unmount() }
+  })
+})
+
+describe('a failed answer without AI', () => {
+  const failed = async (reason: keyof typeof CHAT_ERROR_MESSAGES) => {
+    const error = { code: CHAT_ERROR_MESSAGES[reason].code, message: CHAT_ERROR_MESSAGES[reason].ko, params: { reason } }
+    const m = await mount(
+      <MemoryRouter>
+        <AssistantMessage m={msg({ role: 'assistant', content: '', status: 'error', error } as never)} chatId={CHAT} isLast busy={false} switchedFrom={null} onRegenerate={() => {}} onSelectBranch={() => {}} onAskOwnFolder={() => {}} />
+      </MemoryRouter>,
+    )
+    await m.until(() => m.find('ai-access-button'), 'the button')
+    return m
+  }
+  test('the owner hears what they can do, and "AI 연결하기" opens the dialog in place', async () => {
+    signIn('owner')
+    const m = await failed('no_credential')
+    try {
+      expect(m.get('answer-error').textContent).toContain(ko('aiConnect.error.no_credential'))
+      expect(m.get('answer-error').textContent).not.toContain(CHAT_ERROR_MESSAGES.no_credential.ko)
+      expect(m.get('ai-access-button').textContent).toBe(ko('aiAccess.connectTeam'))
+      await m.click('ai-access-button')
+      await m.until(() => q('claude-login-how'), 'the dialog')
+    } finally { await m.unmount() }
+  })
+  test('an admin is told to tell the owner; a member keeps the server\'s words; the trial texts fit the owner too', async () => {
+    signIn('admin')
+    access = { usable: false, action: 'ask_owner', requested: false }
+    let m = await failed('credential_unusable')
+    try {
+      expect(m.get('answer-error').textContent).toContain(ko('aiConnect.error.admin.credential_unusable'))
+      expect(m.get('ai-access-button').textContent).toBe(ko('aiAccess.askOwner'))
+    } finally { await m.unmount() }
+    signIn('member')
+    m = await failed('no_credential')
+    try {
+      expect(m.get('answer-error').textContent).toContain(CHAT_ERROR_MESSAGES.no_credential.ko)
+    } finally { await m.unmount() }
+    signIn('owner')
+    access = { usable: false, action: 'connect_team', requested: false }
+    m = await failed('trial_credit_used')
+    try {
+      expect(m.get('answer-error').textContent).toContain(ko('aiConnect.error.trial_credit_used'))
     } finally { await m.unmount() }
   })
 })

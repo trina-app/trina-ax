@@ -2984,6 +2984,12 @@ export const ko = {
   // AI 연결 wherever no AI answers (components/onboarding/ConnectAi.tsx; docs/DECISIONS.md "W2")
   "aiConnect.terms": "이 계정·요금제를 이렇게 써도 되는지 제공사 약관을 확인했어요. {product}에서 그 허가를 줄 수는 없어요.",
   "aiConnect.password": "팀 전체가 쓰는 연결이라 비밀번호를 한 번 더 확인해요",
+  "aiConnect.error.no_credential": "아직 연결된 AI가 없어요. AI를 연결하면 바로 답할 수 있어요.",
+  "aiConnect.error.credential_unusable": "AI 연결을 쓸 수 없어요(거절되었거나 다시 연결이 필요해요). 새로 연결하거나 관리 › AI 연결에서 다시 연결해 주세요.",
+  "aiConnect.error.trial_credit_used": "체험 AI 크레딧을 다 썼어요. 팀의 AI를 연결하면 이어서 쓸 수 있어요.",
+  "aiConnect.error.trial_ended": "체험 AI 크레딧을 더 쓸 수 없어요(체험 기간이 끝났거나 꺼졌어요). 팀의 AI를 연결하면 이어서 쓸 수 있어요.",
+  "aiConnect.error.admin.no_credential": "이 엔진에 쓸 AI 연결이 없어요. 팀장에게 알려 주세요.",
+  "aiConnect.error.admin.credential_unusable": "AI 연결을 쓸 수 없어요(거절되었거나 다시 연결이 필요해요). 팀장에게 알려 주세요.",
   "welcome.cardnews.question": "우리 회사 홍보 카드뉴스 5장 만들어 줘",
   "onboarding.profile.activity.images": "이미지 {n}개 가져옴",
   "onboarding.profile.activity.logoImages": "로고와 이미지 {n}개 가져옴",
