@@ -1,5 +1,6 @@
 // The phone tab bar (below 768 px; Layout.tsx, and the Settings dialog, which is the 나 tab): 대화 (the rooms list,
-// with the AI chat pinned first), 파일, 나 (Settings, opened on the profile). A hairline above, no frame; the tab on screen in ink and medium weight; my unread room messages as one
+// with the AI chat pinned first), 파일, 나 (Settings, opened on its list: the person's photo row on top opens the
+// profile). A hairline above, no frame; the tab on screen in ink and medium weight; my unread room messages as one
 // count on 대화. Not shown inside a conversation (a room, an AI chat): their message box needs the bottom.
 import clsx from 'clsx'
 import { FolderOpen, MessageCircle, UserRound } from 'lucide-react'
@@ -40,7 +41,7 @@ export function BottomTabs() {
         )}
       </TabLink>
       <TabLink to="/files" active={current === 'files'} icon={<FolderOpen size={22} aria-hidden />} label={t('tabs.files')} testId="tab-files" />
-      <TabLink to="/settings/profile" active={current === 'me'} icon={<UserRound size={22} aria-hidden />} label={t('tabs.me')} testId="tab-me" onClick={(el) => settingsOpenedFrom(el)} />
+      <TabLink to="/settings" active={current === 'me'} icon={<UserRound size={22} aria-hidden />} label={t('tabs.me')} testId="tab-me" onClick={(el) => settingsOpenedFrom(el)} />
     </nav>
   )
 }
