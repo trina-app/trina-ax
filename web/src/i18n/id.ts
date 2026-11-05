@@ -2859,6 +2859,8 @@ export const id: Record<MessageKey, string> = {
   "resultTip.ppt.text": "Jadikan ini slide juga?",
   "resultTip.ppt.act": "Buat PPT",
   "resultTip.ppt.message": "Jadikan isi ini PPT",
+  "resultTip.teamSkill.text": "Jadikan cara kerja ini skill tim?",
+  "resultTip.teamSkill.act": "Jadikan skill tim",
   "resultTip.close": "Jangan tampilkan lagi",
   "demo.bar": "Demo · perusahaan fiktif {company}",
   "demo.switch": "Ganti orang",

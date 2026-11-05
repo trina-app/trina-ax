@@ -1,11 +1,13 @@
-// "팀원 AI도 이 방식대로 하게 할까요?" → this card (docs/DECISIONS.md "S — The lead's way becomes a team skill"). The
+// "이 방식대로 팀 스킬로 만들까요?" → this card (docs/DECISIONS.md "S — The lead's way becomes a team skill"). The
 // server drafts a team skill from the lead's answer in a draft chat of theirs (POST /api/onboarding/skill-draft, a turn
 // without tools; server/src/onboarding/skill-draft.ts) and the card shows only six things: the title (tap to change
 // it), one line, what teammates are asked ("팀원에게 물어볼 것: 고객사 · 품목", read only; a choice as its chips), the
 // team files it uses, [팀에 공유] and "나중에", with one quiet line under them. No steps, no Markdown or YAML, no folder
 // name, no folder picker. [팀에 공유] is the owner's or admin's own save of the skill file; the invite comes next (the
-// caller shows it). On a phone the dialog is a bottom sheet (Modal). Its one entry was the bar under the welcome steps'
-// first result; that bar now shares the pack's skill itself (docs/DECISIONS.md "W2"), so nothing opens the card yet.
+// caller shows it). On a phone the dialog is a bottom sheet (Modal). Its entry is the one suggestion under an owner's
+// or admin's answer that used team files and ran no team skill, "이 방식대로 팀 스킬로 만들까요?" [팀 스킬로 만들기]
+// (ResultSuggestion, docs/DECISIONS.md "W3"; the bar under the welcome steps' first result shares the pack's skill
+// itself since "W2").
 import { Loader2, Pencil } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
 import { NOTES_FOLDER, SKILL_DRAFT_TITLE_MAX, isChoice, type SavedSkillDraft, type SkillDraft, type SkillDraftFile, type SkillDraftState } from '@mycel/shared/api'

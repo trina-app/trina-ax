@@ -31,7 +31,7 @@ export const onboardingWelcomeRoutes: RouteModule = {
       try { ctx.files.principal(auth.user.id) } catch { return fail('forbidden') }
       return startFirstResult(ctx, getChatRuntime(ctx), auth, c.get('locale'), body)
     })
-    kit.handle(API.getResultSuggestion, ({ query, auth }) => ({ suggestion: resultSuggestion(ctx, auth.user.id, query.chatId, query.messageId) }))
+    kit.handle(API.getResultSuggestion, ({ query, auth }) => ({ suggestion: resultSuggestion(ctx, auth.user.id, query.chatId, query.messageId, getChatRuntime(ctx)) }))
     kit.handle(API.dismissSuggestion, ({ body, auth }) => { dismissSuggestion(ctx, auth.user.id, body.key) })
   },
 }

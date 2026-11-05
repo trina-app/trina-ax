@@ -1073,8 +1073,9 @@ describe('after the first result', () => {
     } finally { await m.unmount() }
   })
 
-  // ---- the team skill card ("S") on its own: the bar under the first result shares the pack's skill now, and nothing
-  // else opens the card yet; it keeps working with the invite after it, as the bar showed it before
+  // ---- the team skill card ("S") on its own: the bar under the first result shares the pack's skill now, and the card
+  // opens from the one suggestion under a later answer (result-suggestion.test.tsx, "W3"); it keeps working with the
+  // invite after it, as the bar showed it before
   const DRAFT = '01900000-0000-7000-8000-0000000000d1'
   const SHARED = { path: 'skills/general/juganhoeui-hal-il/SKILL.md', name: 'juganhoeui-hal-il', title: '주간 회의 할 일' }
   const CARD = {

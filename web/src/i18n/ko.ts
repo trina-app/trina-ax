@@ -2858,6 +2858,8 @@ export const ko = {
   "resultTip.ppt.text": "이 내용을 발표 자료로도 만들까요?",
   "resultTip.ppt.act": "PPT로 만들기",
   "resultTip.ppt.message": "이 내용을 PPT로 만들어 줘",
+  "resultTip.teamSkill.text": "이 방식대로 팀 스킬로 만들까요?",
+  "resultTip.teamSkill.act": "팀 스킬로 만들기",
   "resultTip.close": "다시 보지 않기",
   "demo.bar": "데모 · 가상 회사 {company}",
   "demo.switch": "사람 바꾸기",

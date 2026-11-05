@@ -2819,6 +2819,8 @@ export const ja: Record<MessageKey, string> = {
   "resultTip.ppt.text": "この内容をスライドにもしますか？",
   "resultTip.ppt.act": "PPTにする",
   "resultTip.ppt.message": "この内容をPPTにして",
+  "resultTip.teamSkill.text": "このやり方をチームのスキルにしますか？",
+  "resultTip.teamSkill.act": "チームのスキルにする",
   "resultTip.close": "今後表示しない",
   "demo.bar": "デモ · 架空の会社 {company}",
   "demo.switch": "人を切り替える",

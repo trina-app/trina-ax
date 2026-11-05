@@ -2819,6 +2819,8 @@ export const es: Record<MessageKey, string> = {
   "resultTip.ppt.text": "¿Convertir esto también en diapositivas?",
   "resultTip.ppt.act": "Crear PPT",
   "resultTip.ppt.message": "Convierte este contenido en un PPT",
+  "resultTip.teamSkill.text": "¿Convertir esta forma de trabajar en una habilidad del equipo?",
+  "resultTip.teamSkill.act": "Crear habilidad del equipo",
   "resultTip.close": "No volver a mostrar",
   "demo.bar": "Demo · empresa ficticia {company}",
   "demo.switch": "Cambiar de persona",

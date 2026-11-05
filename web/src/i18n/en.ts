@@ -2859,6 +2859,8 @@ export const en: Record<MessageKey, string> = {
   "resultTip.ppt.text": "Turn this into slides too?",
   "resultTip.ppt.act": "Make slides",
   "resultTip.ppt.message": "Turn this into a PowerPoint deck",
+  "resultTip.teamSkill.text": "Make this way of working a team skill?",
+  "resultTip.teamSkill.act": "Make a team skill",
   "resultTip.close": "Don't show again",
   "demo.bar": "Demo · fictional company {company}",
   "demo.switch": "Switch person",

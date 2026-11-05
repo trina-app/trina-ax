@@ -8617,4 +8617,24 @@ Placement: Team AX core (onboarding, web reading, skills, chat). Each fix is its
   its bubble) and shows the run without a bubble: the skill's chip and one quiet line of the answers ("신제품 출시 ·
   인스타그램"; each label is the answer's tooltip and is read out). The message sent is unchanged (the AI and the
   transcript get the same lines; copy and edit keep them).
+- **"팀 스킬로 만들기" is back (S).** Since W2's first result shares the pack's own skill (PR #80), nothing opened S's
+  card (W2 left "where to offer it in the lead's later chats" open). It is now the one suggestion under an answer
+  (`ResultSuggestion` kind `team-skill`, key `team-skill`; `skill-draft.ts teamSkillOffer`): "이 방식대로 팀 스킬로
+  만들까요?" [팀 스킬로 만들기] ×, only for an owner's or admin's own finished answer whose conversation used team files
+  and ran no team skill anywhere (its way is a team skill already; that also leaves out every card news run), not the
+  welcome steps' first result, not a draft chat, not an answer a skill was already shared from, and only when the draft
+  would start: S's own refusals (`conversationUse` and `sourceRefusal`: confidential, web or outside content, unverified
+  reads, a file the team's stand-in cannot open). The button opens the card in a dialog (a bottom sheet on a phone):
+  the draft, [팀에 공유], then the invite with that skill (`InviteStep made`), as before. Order in the slot: the weekly
+  schedule (needs a skill run, so never together with this), then this, then the PPT (both can apply to a long answer
+  from team files; making it the team's way is the landing's promise, and it is the rarer one). Closing it is for good
+  for that person, like the others. The check runs on every such answer the person reads, cheap checks first.
+- Not done: a member's improvement still goes through "스킬로 제안"; the photo line is a rule the AI follows; the
+  welcome step's AI still reads web_fetch's text (only CR was fixed there), the prose mode is used for 회사 소개.md alone.
+- Tests: `b-onboarding-cardnews` (the wordmark's colour, the prose text of a menu-heavy CRLF page, page lines, 회사
+  소개.md without empty quote lines, hostile pages, the skill's photo rule), `c-webfetch` and `c-review` (unchanged,
+  pass), `b-skill-share` (the suggestion: who, which answers, every refusal, closed for good), `b-result-suggestions`,
+  web `welcome.test.tsx` (the owner alone), `team-link`, `onboarding-polish`, `skill-share-member` (the team in every
+  message), `available-skills` (no folder for a member), `steps-receipt` (a form run read back and shown quietly),
+  `result-suggestion` (the line, the card, the invite, closed for good).
 

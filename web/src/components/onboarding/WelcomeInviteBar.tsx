@@ -8,7 +8,8 @@
 // folder), and the link puts people in the team's group. Closing the bar asks the soft "most teams start with one or
 // two" first, as the invite step does. Only the owner sees it, and only until the invite is done or put off.
 // (Before, the bar drafted a team skill from the answer, "S": a near-copy of the pack's skill under another path, so a
-// member's run of it never counted with the owner's. The skill card, components/onboarding/SkillShareCard.tsx, stays.)
+// member's run of it never counted with the owner's. The skill card, components/onboarding/SkillShareCard.tsx, opens
+// from the one suggestion under the lead's later answers instead: ResultSuggestion, docs/DECISIONS.md "W3".)
 import { UserPlus, X } from 'lucide-react'
 import { useEffect, useMemo, useState } from 'react'
 import type { Message, WelcomeStepState } from '@mycel/shared/api'
