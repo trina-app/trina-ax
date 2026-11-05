@@ -73,7 +73,7 @@ export default function Engines() {
         <Loadable state={state}>
           {(d) =>
             tab === 'providers' ? (
-              <ul className="-mx-2 divide-y divide-line" data-testid="engine-list">
+              <ul className="divide-y divide-line" data-testid="engine-list">
                 {d.engines.map((e) => (
                   <EngineRow
                     key={e.id}
@@ -123,7 +123,7 @@ function EngineRow({ e, owner, initiallyOpen, checking, onCheck, onToggle, onApi
   // so the row says "Not set up" and offers to open it (the server's text points "below", where nothing is yet)
   const apiNotSet = e.id === 'api' && e.status === 'not_installed'
   return (
-    <li className="px-2 py-3" data-testid="engine-card" data-engine={e.id}>
+    <li className="py-3" data-testid="engine-card" data-engine={e.id}>
       <div className="flex items-start gap-3">
         <div className="min-w-0 flex-1">
           <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1">

@@ -136,7 +136,7 @@ export default function Members() {
       <Card title={t('members.title')}>
         <Loadable state={users}>
           {({ items: list, noAi }) => phone ? (
-            <ul className="divide-y divide-line" data-testid="members-list">
+            <ul className="-my-3 divide-y divide-line" data-testid="members-list">
               {list.map((u) => (
                 <li key={u.id} ref={u.id === focusId ? focusRow : undefined} className={clsx('flex items-start gap-2 py-3 text-sm', u.status === 'disabled' && 'opacity-60', u.id === focusId && 'bg-accent-soft')} data-testid={`member-card-${u.username}`}>
                   <div className="min-w-0 flex-1">
