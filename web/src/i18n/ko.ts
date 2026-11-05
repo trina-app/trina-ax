@@ -2072,6 +2072,8 @@ export const ko = {
   'ask.skillLines': '+{added} −{removed}줄',
   'ask.skillTruncated': '길어서 앞부분만 보여요.',
   'ask.detailSize': '{n}자',
+  'ask.detailAll': "전체 보기",
+  'ask.detailLess': "접기",
   'notice.openHistory': '버전 기록 보기',
   'notice.openSkills': '팀 스킬 열기',
   'notice.open': '열기',

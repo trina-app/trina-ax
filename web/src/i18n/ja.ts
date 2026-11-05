@@ -2036,6 +2036,8 @@ export const ja: Record<MessageKey, string> = {
   'ask.skillLines': "+{added} −{removed}行",
   'ask.skillTruncated': "長いため先頭部分のみ表示しています。",
   'ask.detailSize': "{n, plural, one {#文字} other {#文字}}",
+  'ask.detailAll': "すべて表示",
+  'ask.detailLess': "折りたたむ",
   'notice.openHistory': "バージョン履歴",
   'notice.openSkills': "チームスキルを開く",
   'notice.open': "開く",

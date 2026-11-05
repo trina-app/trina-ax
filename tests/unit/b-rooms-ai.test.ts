@@ -386,28 +386,34 @@ describe('changes asked for in a room', () => {
     const card = await ws.alice!.next('turn.request', (f) => f.data.turnId === turnId && f.data.request.kind === 'ask_user' && f.data.request.question.includes(target), 15_000)
     // the card says it in words: what it does, the file, what it writes; never the call's JSON
     const details = (card.data.request as { details?: { label: string; text: string; fields?: { name: string; value: string }[] }[] }).details
-    expect(details).toEqual([{ label: 'What it would change', fields: [{ name: 'Action', value: 'Save' }, { name: 'File', value: target }], text: 'written with a yes\n' }])
+    expect(details).toEqual([{ label: 'What it would change', fields: [{ name: 'Action', value: 'Save' }, { name: 'File', value: target }], text: 'written with a yes\n', collapsedAt: 400 }])
     await h.api('alice').call(API.answerTurn, { params: { id: card.data.turnId }, body: { kind: 'ask_user', requestId: card.data.request.requestId, answer: 'allow' } })
     await ws.alice!.next('room.ai.run', (f) => f.data.run.questionId === q.id && f.data.run.state === 'done', 30_000)
     expect(fs.readFileSync(abs(), 'utf8')).toBe('written with a yes\n')
     fs.rmSync(abs(), { force: true })
   })
 
-  test('the card shows the start of a long text and says how long it is', async () => {
+  test('the card shows the start of a long text with all of it one click away; for an instruction file all of it at once', async () => {
     const roomId = await room(['alice', 'erin'])
-    const long = 'Lorem ipsum dolor sit amet. '.repeat(100)
-    const q = await send('alice', roomId, `@트리나 note\n${fake({ tool: 'write', args: { file_path: 'shared/room-ai-long.md', content: long } }, { say: 'ok' })}`)
-    const turnId = (await ws.alice!.next('room.ai.run', (f) => f.data.run.questionId === q.id)).data.run.turnId
-    const card = await ws.alice!.next('turn.request', (f) => f.data.turnId === turnId && f.data.request.kind === 'ask_user', 15_000)
-    const d = (card.data.request as { details?: { text: string; fields?: { value: string }[] }[] }).details![0]!
-    expect(d.fields?.map((f) => f.value)).toEqual(['Save', 'shared/room-ai-long.md'])
-    expect(d.text.length).toBeLessThan(500)
-    expect(d.text).toStartWith('Lorem ipsum dolor sit amet.')
-    expect(d.text).toEndWith(`(the start of ${long.length} characters)`)
-    expect(d.text).not.toContain('{')
-    await h.api('alice').call(API.answerTurn, { params: { id: turnId }, body: { kind: 'ask_user', requestId: card.data.request.requestId, answer: 'skip' } })
-    await ws.alice!.next('room.ai.run', (f) => f.data.run.questionId === q.id && f.data.run.state === 'done', 30_000)
-    expect(fs.existsSync(path.join(h.team, 'shared/room-ai-long.md'))).toBe(false)
+    // a planted instruction past the preview is still in the card: behind "Show all" for an ordinary file, open from the
+    // start for a team rule or skill file
+    const long = 'Lorem ipsum dolor sit amet. '.repeat(100) + 'PLANTED-PAST-THE-PREVIEW'
+    const card = async (file: string) => {
+      const q = await send('alice', roomId, `@트리나 note\n${fake({ tool: 'write', args: { file_path: file, content: long } }, { say: 'ok' })}`)
+      const turnId = (await ws.alice!.next('room.ai.run', (f) => f.data.run.questionId === q.id)).data.run.turnId
+      const c = await ws.alice!.next('turn.request', (f) => f.data.turnId === turnId && f.data.request.kind === 'ask_user', 15_000)
+      await h.api('alice').call(API.answerTurn, { params: { id: turnId }, body: { kind: 'ask_user', requestId: c.data.request.requestId, answer: 'skip' } })
+      await ws.alice!.next('room.ai.run', (f) => f.data.run.questionId === q.id && f.data.run.state === 'done', 30_000)
+      expect(fs.existsSync(path.join(h.team, file))).toBe(false)
+      return (c.data.request as { details?: { text: string; fields?: { value: string }[]; collapsedAt?: number }[] }).details![0]!
+    }
+    const plain = await card('shared/room-ai-long.md')
+    expect(plain.fields?.map((f) => f.value)).toEqual(['Save', 'shared/room-ai-long.md'])
+    expect(plain).toMatchObject({ text: long, collapsedAt: 400 })
+    for (const file of ['skills/room-ai-rule.md', 'users/alice/skills/room-ai.md', 'shared/CLAUDE.md']) {
+      const d = await card(file)
+      expect({ file, text: d.text === long, collapsedAt: d.collapsedAt }).toEqual({ file, text: true, collapsedAt: undefined })
+    }
   })
 })
 

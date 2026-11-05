@@ -2073,6 +2073,8 @@ export const en: Record<MessageKey, string> = {
   'ask.skillLines': '+{added} −{removed} lines',
   'ask.skillTruncated': 'Long: only the beginning is shown.',
   'ask.detailSize': '{n, plural, one {# character} other {# characters}}',
+  'ask.detailAll': "Show all",
+  'ask.detailLess': "Show less",
   'notice.openHistory': 'Version history',
   'notice.openSkills': 'Open team skills',
   'notice.open': 'Open',

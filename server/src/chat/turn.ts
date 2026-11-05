@@ -1751,54 +1751,72 @@ function subtaskOf(st: AgentStats): NonNullable<Step['subtask']> {
   return { ...(st.toolUses !== undefined ? { toolUses: st.toolUses } : {}), ...(st.ms !== undefined ? { ms: Math.round(st.ms) } : {}) }
 }
 
-/** the content a room's change card shows, at most (the person sees what it is, not every character) */
+/** a room's change card shows this much of what a call writes at first; the rest is one click away (the card's "전체
+ * 보기"), and for skills, rule files and other instruction files all of it is shown from the start */
 export const ROOM_CHANGE_PREVIEW = 400
+/** at most this much of it is sent at all (with the whole length said): a card is read, not a file viewer */
+export const ROOM_CHANGE_FULL = 100_000
+
+/** Files that tell an AI what to do: team skills and rules (skills/), a person's skills, and instruction files by name.
+ * What a call would write there is shown in full on a room's change card. */
+export function instructionLike(rel: string): boolean {
+  const p = rel.normalize('NFC').replace(/^\/+/, '')
+  return inSkills(p) || /^users\/[^/]+\/skills(\/|$)/i.test(p) || /(^|\/)(CLAUDE|AGENTS|GEMINI|SKILL)\.md$/i.test(p)
+}
 
 /**
  * What a room's change card shows (TurnExec.confirmRoomChange), in words, never the call's JSON: what it does, the
- * file or folder, and a short preview of what it writes (cut, with the full length said). edit_files lists every file
- * and the replacement. A tool without its own lines shows its arguments one per line.
+ * file or folder, and what it writes: the first ROOM_CHANGE_PREVIEW characters with the rest behind "전체 보기"
+ * (`collapsedAt`), or all of it at once when it goes into an instruction file (a planted instruction must not hide
+ * after the preview). edit_files lists every file and the replacement. A tool without its own lines shows its
+ * arguments one per line.
  */
-function roomChangeDetails(tool: string, input: unknown, L: Locale): { label: string; text: string; fields?: { name: string; value: string }[] }[] {
+function roomChangeDetails(tool: string, input: unknown, L: Locale): { label: string; text: string; fields?: { name: string; value: string }[]; collapsedAt?: number }[] {
   const a = input && typeof input === 'object' && !Array.isArray(input) ? input as Record<string, unknown> : {}
   const str = (v: unknown) => (typeof v === 'string' ? v : '')
   const paths = (v: unknown) => (Array.isArray(v) ? v.map(String) : typeof v === 'string' ? [v] : [])
-  const cut = (t: string, n = ROOM_CHANGE_PREVIEW) => (t.length > n ? `${t.slice(0, n - 1).trimEnd()}…\n${tr('roomAiChangeCut', L, { n: String(t.length) })}` : t)
+  const full = (t: string) => (t.length > ROOM_CHANGE_FULL ? `${t.slice(0, ROOM_CHANGE_FULL - 1).trimEnd()}…\n${tr('roomAiChangeCut', L, { n: String(t.length) })}` : t)
   const verb = FILE_STEP_VERB[tool]?.[L] ?? tool
   const field = (name: Parameters<typeof tr>[0], value: string) => ({ name: tr(name, L), value })
-  const detail = (fields: { name: string; value: string }[], text: string) => [{ label: tr('roomAiConfirmInput', L), fields: [field('roomAiChangeAction', verb), ...fields], text }]
+  // targets: where it writes; an instruction file among them shows the text in full from the start
+  const detail = (fields: { name: string; value: string }[], text: string, targets: string[] = []) => [{
+    label: tr('roomAiConfirmInput', L), fields: [field('roomAiChangeAction', verb), ...fields], text: full(text),
+    ...(targets.some(instructionLike) ? {} : { collapsedAt: ROOM_CHANGE_PREVIEW }),
+  }]
   switch (tool) {
     case 'edit_files': {
       if (!Array.isArray(a.file_paths)) break
+      const files = a.file_paths.map(String)
       return [
-        { label: tr('roomAiConfirmFiles', L), text: a.file_paths.map(String).join('\n') },
-        { label: tr('roomAiConfirmInput', L), text: `${cut(str(a.old_string), 2000)}\n→\n${cut(str(a.new_string), 2000)}` },
+        { label: tr('roomAiConfirmFiles', L), text: files.join('\n') },
+        { label: tr('roomAiConfirmInput', L), text: full(`${str(a.old_string)}\n→\n${str(a.new_string)}`), ...(files.some(instructionLike) ? {} : { collapsedAt: ROOM_CHANGE_PREVIEW }) },
       ]
     }
     case 'write':
-      return detail([field('roomAiChangeFile', str(a.file_path))], cut(str(a.content)) || tr('roomAiChangeEmpty', L))
+      return detail([field('roomAiChangeFile', str(a.file_path))], str(a.content) || tr('roomAiChangeEmpty', L), [str(a.file_path)])
     case 'edit':
-      return detail([field('roomAiChangeFile', str(a.file_path))], `${cut(str(a.old_string))}\n→\n${cut(str(a.new_string)) || tr('roomAiChangeEmpty', L)}`)
+      return detail([field('roomAiChangeFile', str(a.file_path))], `${str(a.old_string)}\n→\n${str(a.new_string) || tr('roomAiChangeEmpty', L)}`, [str(a.file_path)])
     case 'make_file':
       return detail([
         field('roomAiChangeFile', str(a.output)),
         ...(str(a.source) ? [field('roomAiChangeSource', str(a.source))] : []),
         ...(str(a.template) ? [field('roomAiChangeTemplate', str(a.template))] : []),
-      ], cut(str(a.content)))
+      ], str(a.content), [str(a.output)])
     case 'edit_hwp': {
       const changes = Array.isArray(a.changes) ? a.changes as Record<string, unknown>[] : []
       const lines = changes.map((c) => (c && typeof c === 'object' && typeof c.find === 'string' ? `${c.find} → ${str(c.replace)}` : tr('roomAiChangeCell', L)))
-      return detail([field('roomAiChangeFile', str(a.file_path)), ...(str(a.output) ? [field('roomAiChangeSaveAs', str(a.output))] : [])], cut(lines.join('\n')))
+      return detail([field('roomAiChangeFile', str(a.file_path)), ...(str(a.output) ? [field('roomAiChangeSaveAs', str(a.output))] : [])], lines.join('\n'), [str(a.file_path), str(a.output)])
     }
     case 'move_files':
     case 'copy_files':
-      return detail([field('roomAiChangeFolder', str(a.to_folder))], paths(a.paths).join('\n'))
+      return detail([field('roomAiChangeFolder', str(a.to_folder))], paths(a.paths).join('\n'), [str(a.to_folder)])
     case 'rename_file':
       return detail([field('roomAiChangeFile', str(a.path)), field('roomAiChangeNewName', str(a.new_name))], '')
     case 'save_url':
-      return detail([field('roomAiChangeAddress', str(a.url)), ...(str(a.save_as) ? [field('roomAiChangeSaveAs', str(a.save_as))] : [])], '')
+      return detail([field('roomAiChangeAddress', str(a.url)), ...(str(a.save_as) ? [field('roomAiChangeSaveAs', str(a.save_as))] : [])], '', [str(a.save_as)])
   }
-  // any other change (a tool added later): its arguments one per line, each cut
+  // any other change (a tool added later): its arguments one per line
   const plain = (v: unknown): string => (typeof v === 'string' ? v : Array.isArray(v) ? v.map(plain).join(', ') : v && typeof v === 'object' ? Object.entries(v).map(([k, x]) => `${k}: ${plain(x)}`).join(', ') : String(v))
-  return detail(Object.entries(a).map(([k, v]) => ({ name: k, value: cut(plain(v)) })), '')
+  const entries = Object.entries(a)
+  return detail([], entries.map(([k, v]) => `${k}: ${plain(v)}`).join('\n'), entries.flatMap(([, v]) => (typeof v === 'string' ? [v] : [])))
 }

@@ -2073,6 +2073,8 @@ export const id: Record<MessageKey, string> = {
   'ask.skillLines': '+{added} −{removed} baris',
   'ask.skillTruncated': 'Panjang: hanya bagian awal yang ditampilkan.',
   'ask.detailSize': '{n} karakter',
+  'ask.detailAll': "Lihat semua",
+  'ask.detailLess': "Ciutkan",
   'notice.openHistory': 'Riwayat versi',
   'notice.openSkills': 'Buka skill tim',
   'notice.open': 'Buka',

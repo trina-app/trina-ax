@@ -2036,6 +2036,8 @@ export const es: Record<MessageKey, string> = {
   'ask.skillLines': "+{added} −{removed} líneas",
   'ask.skillTruncated': "Es largo: solo se muestra el principio.",
   'ask.detailSize': "{n, plural, one {# carácter} other {# caracteres}}",
+  'ask.detailAll': "Ver todo",
+  'ask.detailLess': "Ver menos",
   'notice.openHistory': "Historial de versiones",
   'notice.openSkills': "Abrir habilidades del equipo",
   'notice.open': "Abrir",

@@ -8338,11 +8338,13 @@ every week. Placement: Team AX core (skills, files and permissions, the team lin
     주세요") (review of ae4c861c). Kept as they were: previews never return as context, the pre-join check, the card for
     every change, the room prompt and tool allowlists.
   - **The change card in words.** Under "바꿀 내용" the card showed the call's JSON (`{"file_path":…,"content":…}`).
-    It now shows what the call does (the step verb: 파일 저장, 파일 수정, 파일 옮기기, …), the file or folder, and the
-    first 400 characters of what it writes with "(모두 n자 중 앞부분)" when cut (`roomChangeDetails` in
-    `chat/turn.ts`; a tool without its own lines shows its arguments one per line). Nothing is behind a toggle: the
-    card is for deciding, and the preview is enough to see what it is. A detail without text (a rename) shows no
-    empty box.
+    It now shows what the call does (the step verb: 파일 저장, 파일 수정, 파일 옮기기, …), the file or folder, and
+    what it writes: the first 400 characters, with all of it (up to 100,000, the whole length said beyond that) one
+    click away ("전체 보기", `ConfirmDetail.collapsedAt`; the size above counts all of it). The review of ae4c861c
+    noted that a 400-character cut alone let a planted write hide its payload after the preview. For skills/, a
+    person's skills and instruction files by name (CLAUDE.md, AGENTS.md, GEMINI.md, SKILL.md) all of it shows from the
+    start (`instructionLike`). `roomChangeDetails` in `chat/turn.ts`; a tool without its own lines shows its
+    arguments one per line. A detail without text (a rename) shows no empty box.
   - **Why a preview is private, in short sentences** (supersedes the one sentence of the UX review). "올리면 이 폴더를
     못 여는 사람도 이 내용을 봐요: 재무, 내 폴더, 다른 사람이 못 여는 폴더" mixed reasons into a list, and "다른 사람이
     못 여는" was wrong when the asker cannot open the folder either. Now one plain sentence per reason, in this order:

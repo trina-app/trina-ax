@@ -97,6 +97,8 @@ export type SkillWritePreview = z.infer<typeof SkillWritePreview>
 export const ConfirmDetail = z.object({
   label: z.string(),
   text: z.string(),
+  /** show the first this many characters of `text` and the rest on request ("전체 보기"); absent: all of it */
+  collapsedAt: z.number().int().positive().optional(),
   fields: z.array(z.object({ name: z.string(), value: z.string() })).optional(),
   marks: z.array(z.string()).optional(),
 })

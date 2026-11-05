@@ -240,19 +240,42 @@ function Details({ items }: { items: ConfirmDetail[] }) {
             </div>
           ) : null}
           {/* a detail of named fields only (a room change card's rename: the file and its new name) has no text */}
-          {d.text && (
-            <pre
-              className="scroll-thin max-h-64 overflow-auto px-3 py-2 font-mono text-[12px] leading-5 whitespace-pre-wrap [overflow-wrap:anywhere]"
-              tabIndex={0}
-              aria-label={d.label}
-              data-testid="ask-detail-text"
-            >
-              <Marked text={d.text} marks={d.marks} />
-            </pre>
-          )}
+          {d.text && <DetailText d={d} />}
         </div>
       ))}
     </div>
+  )
+}
+
+/** A detail's text: all of it, or with `collapsedAt` its start and the rest one click away (a room change card's
+ * preview of what a call writes; the size above always counts all of it). */
+function DetailText({ d }: { d: ConfirmDetail }) {
+  const t = useT()
+  const [open, setOpen] = useState(false)
+  const long = d.collapsedAt !== undefined && d.text.length > d.collapsedAt
+  const text = long && !open ? `${d.text.slice(0, d.collapsedAt).trimEnd()}…` : d.text
+  return (
+    <>
+      <pre
+        className="scroll-thin max-h-64 overflow-auto px-3 py-2 font-mono text-[12px] leading-5 whitespace-pre-wrap [overflow-wrap:anywhere]"
+        tabIndex={0}
+        aria-label={d.label}
+        data-testid="ask-detail-text"
+      >
+        <Marked text={text} marks={d.marks} />
+      </pre>
+      {long && (
+        <button
+          type="button"
+          onClick={() => setOpen((v) => !v)}
+          aria-expanded={open}
+          className="block w-full border-t border-line px-3 py-1.5 text-left text-xs font-medium text-muted hover:bg-hover hover:text-ink"
+          data-testid="ask-detail-more"
+        >
+          {open ? t('ask.detailLess') : t('ask.detailAll')}
+        </button>
+      )}
+    </>
   )
 }
 
