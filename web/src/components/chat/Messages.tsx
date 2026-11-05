@@ -479,16 +479,16 @@ export function AssistantMessage({
           </p>
         )}
         {!streaming && (
-          <div className={clsx('mt-1.5 -ml-1.5 flex flex-wrap items-center gap-1', !isLast && ON_HOVER)} data-testid="answer-actions">
-            {m.content && <CopyButton text={m.content} html={() => answerHtml(m.content)} label={t('chat.copyAnswer')} />}
+          <div className={clsx('mt-1.5 -ml-1.5 flex flex-wrap items-center gap-1 max-md:gap-3', !isLast && ON_HOVER)} data-testid="answer-actions">
+            {m.content && <CopyButton text={m.content} html={() => answerHtml(m.content)} label={t('chat.copyAnswer')} className="touch-hit" />}
             {/* the newest failed answer has "Try again" in its error box: one control for one action */}
             {!(m.status === 'error' && isLast) && (
-              <IconButton label={t('chat.regenerate')} disabled={busy} onClick={() => onRegenerate(m)} data-testid="regenerate">
+              <IconButton label={t('chat.regenerate')} disabled={busy} onClick={() => onRegenerate(m)} className="touch-hit" data-testid="regenerate">
                 <RotateCcw size={13} />
               </IconButton>
             )}
             {m.content && m.status === 'done' && (
-              <IconButton label={t('suggest.button')} onClick={() => setSuggesting(true)} data-testid="suggest-skill">
+              <IconButton label={t('suggest.button')} onClick={() => setSuggesting(true)} className="touch-hit" data-testid="suggest-skill">
                 <BookmarkPlus size={13} />
               </IconButton>
             )}

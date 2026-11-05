@@ -126,12 +126,12 @@ export function CodeBlock({ lang, code }: { lang: string | null; code: string })
     <div className="not-prose group my-3 overflow-hidden rounded-lg bg-code-bg text-code-ink">
       <div className="flex items-center justify-between border-b border-white/10 px-3 py-1 text-xs text-[#b9b3a8]">
         <span>{lang ?? t('md.code')}</span>
-        <span className="flex items-center gap-1">
-          <button type="button" className="flex items-center gap-1 rounded px-1.5 py-0.5 hover:bg-white/10 hover:text-white" onClick={() => void copy(code)} aria-label={copied ? t('common.copied') : t('md.copyCode')}>
+        <span className="flex items-center gap-1 max-md:gap-3">
+          <button type="button" className="touch-hit flex items-center gap-1 rounded px-1.5 py-0.5 hover:bg-white/10 hover:text-white" onClick={() => void copy(code)} aria-label={copied ? t('common.copied') : t('md.copyCode')}>
             {copied ? <Check size={13} aria-hidden /> : <Copy size={13} aria-hidden />}
             <span>{copied ? t('common.copied') : t('common.copy')}</span>
           </button>
-          <button type="button" className="rounded p-1 hover:bg-white/10 hover:text-white" aria-label={t('md.downloadCode')} title={t('md.downloadCode')} onClick={() => saveBlob(new Blob([code], { type: 'text/plain;charset=utf-8' }), `code.${LANG_EXT[lang ?? ''] ?? 'txt'}`)}>
+          <button type="button" className="touch-hit rounded p-1 hover:bg-white/10 hover:text-white" aria-label={t('md.downloadCode')} title={t('md.downloadCode')} onClick={() => saveBlob(new Blob([code], { type: 'text/plain;charset=utf-8' }), `code.${LANG_EXT[lang ?? ''] ?? 'txt'}`)}>
             <Download size={13} aria-hidden />
           </button>
         </span>

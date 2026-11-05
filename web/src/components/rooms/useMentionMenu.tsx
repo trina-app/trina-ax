@@ -98,7 +98,7 @@ export function useMentionMenu({ text, setText, input, members, meId, initial = 
               onMouseDown={(e) => e.preventDefault()}
               onClick={() => pick(u)}
               onMouseMove={() => i !== active && setActive(i)}
-              className={clsx('flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left text-sm', i === active && 'bg-accent-soft')}
+              className={clsx('flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left text-sm max-md:min-h-11', i === active && 'bg-accent-soft')}
               data-testid="mention-option"
               data-ai={u.id === AI_MENTION_ID ? '' : undefined}
             >

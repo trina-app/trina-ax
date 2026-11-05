@@ -123,7 +123,7 @@ export default function Layout() {
             <IconButton
               label={unread > 0 ? `${t('sidebar.open')} (${t('notifications.unread', { count: unread })})` : t('sidebar.open')}
               onClick={() => setDrawer(true)}
-              className="relative"
+              className="touch-hit relative"
               data-testid="menu-open"
             >
               <Menu size={20} />
@@ -133,11 +133,11 @@ export default function Layout() {
                 chat (the AI chat is pinned on top of the list) */}
             <span className="flex-1 truncate text-center text-sm font-semibold">{location.pathname === '/rooms' ? t('tabs.chats') : PRODUCT.displayName}</span>
             {location.pathname === '/rooms' ? (
-              <IconButton label={t('rooms.newDm')} onClick={() => navigate('/rooms?new=1', { replace: true })} data-testid="topbar-new-dm">
+              <IconButton label={t('rooms.newDm')} onClick={() => navigate('/rooms?new=1', { replace: true })} className="touch-hit" data-testid="topbar-new-dm">
                 <MessageCirclePlus size={20} />
               </IconButton>
             ) : (
-              <IconButton label={t('sidebar.newChat')} onClick={() => navigate('/')} data-testid="topbar-new-chat">
+              <IconButton label={t('sidebar.newChat')} onClick={() => navigate('/')} className="touch-hit" data-testid="topbar-new-chat">
                 <MessageSquarePlus size={20} />
               </IconButton>
             )}
