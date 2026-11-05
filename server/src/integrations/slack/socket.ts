@@ -157,8 +157,10 @@ export class SlackSocket {
       if (hello.success) {
         greeted = true; clearTimeout(helloTimer)
         const app = hello.data.connection_info?.app_id ?? null
-        // the app-level token of another app than the bot token's: its events would be answered as the wrong bot
-        if (this.o.expectedAppId && app !== this.o.expectedAppId) { this.o.log.warn('slack app-level token is of another app'); this.retire(ws, 'app_mismatch', 5 * 60_000); return }
+        // the app-level token of another app than the bot token's: its events would be answered as the wrong bot. Real
+        // Slack's hello names the app (connection_info.app_id, A…); a hello naming none is not taken as another app
+        // (envelopes must still carry the saved app id)
+        if (this.o.expectedAppId && app && app !== this.o.expectedAppId) { this.o.log.warn('slack app-level token is of another app'); this.retire(ws, 'app_mismatch', 5 * 60_000); return }
         this.failures = 0
         this.appId = app ?? this.o.expectedAppId ?? null
         // the new connection is up: the older ones (a refresh) go

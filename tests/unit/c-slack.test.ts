@@ -9,7 +9,7 @@ import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from '
 import { sealSecret } from '../../web/src/lib/seal'
 import { createLogger } from '../../server/src/log'
 import { credentialsOf } from '../../server/src/credentials/store'
-import { normEmail, slackOf } from '../../server/src/integrations/slack/service'
+import { appIdOfToken, normEmail, slackOf } from '../../server/src/integrations/slack/service'
 import { questionText, refusal, say as sayText, toMrkdwn } from '../../server/src/integrations/slack/text'
 import { slackManifest } from '../../server/src/integrations/slack/manifest'
 import { startHarness, type Harness } from '../lib/b-harness'
@@ -120,17 +120,24 @@ describe('setup (the owner)', () => {
     fake.scopes = ['app_mentions:read', 'channels:read', 'chat:write', 'groups:read', 'im:history', 'im:write', 'users:read', 'users:read.email']
     const other = await call('dana', 'PUT', '/api/admin/slack/tokens', await tokens(fake.botToken, fake.appToken, { purpose: 'integration.secret' }))
     expect(other.status).toBe(400)
-    // the app-level token of another app than the bot token's
-    fake.socketAppId = 'A0OTHERAPP'
-    const mixed = await call('dana', 'PUT', '/api/admin/slack/tokens', await tokens())
+    // the app-level token of another app than the bot token's (its prefix names that app; the socket address's app_id
+    // is a hash, as from real Slack, and says nothing)
+    const otherApp = 'xapp-1-A0OTHERAPP-444-' + 'o'.repeat(32)
+    fake.otherAppTokens.push(otherApp)
+    const mixed = await call('dana', 'PUT', '/api/admin/slack/tokens', await tokens(fake.botToken, otherApp))
+    expect(mixed.status).toBe(400)
     expect(mixed.json.error.params.reason).toBe('app_mismatch')
-    delete fake.socketAppId
+    // a token whose prefix names no app: no check here (the connection's hello names the app)
+    expect(appIdOfToken('xapp-other-format')).toBeNull()
+    expect(appIdOfToken(fake.appToken)).toBe('A0APP')
     expect(h.ctx.db.query('SELECT count(*) n FROM slack_config').get()).toEqual({ n: 0 })
   })
 
   test('saved and turned on: one Socket Mode connection, connected', async () => {
     const saved = await call('dana', 'PUT', '/api/admin/slack/tokens', await tokens())
     expect(saved.status).toBe(200)
+    // both tokens of one app (bots.info and the app token's prefix agree): the app id kept is that app's A… id
+    expect(saved.json.appId).toBe('A0APP')
     expect(saved.json).toMatchObject({ enabled: false, tokens: true, workspace: { teamId: 'T0ACME', name: 'Acme' }, botName: 'trina-ax', linkOrigin: h.url, state: 'off' })
     const on = await call('dana', 'POST', '/api/admin/slack/enabled', { enabled: true })
     expect(on.json.enabled).toBe(true)

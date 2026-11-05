@@ -3,6 +3,7 @@
 // chat.postEphemeral, chat.update, chat.delete), a Socket Mode
 // WebSocket that says hello and records every acknowledgement, and response URLs. Nothing reaches the real Slack.
 import type { ServerWebSocket } from 'bun'
+import { createHash } from 'node:crypto'
 
 export interface Call { method: string; token: string | null; args: Record<string, string>; at: number }
 export interface FakeUser { name: string; team_id: string; real_name?: string; email?: string; is_bot?: boolean; deleted?: boolean; enterprise_id?: string }
@@ -20,8 +21,8 @@ export interface FakeSlack {
   codes: Record<string, { user: string; team?: string; nonce: string; aud?: string; iss?: string; exp?: number; enterprise?: string; badIdToken?: boolean }>
   /** the workspace is part of an Enterprise Grid organization (auth.test says so) */
   enterpriseId?: string
-  /** the app the socket address names (another app's app-level token) */
-  socketAppId?: string
+  /** app-level tokens apps.connections.open takes besides appToken (another app's, for the mismatch case) */
+  otherAppTokens: string[]
   users: Record<string, FakeUser>
   calls: Call[]
   acks: { id: string; ms: number }[]
@@ -62,7 +63,7 @@ export function startFakeSlack(): FakeSlack {
   const fake: FakeSlack = {
     url: '', botToken: 'xoxb-111-222-' + 'b'.repeat(24), appToken: 'xapp-1-A0APP-333-' + 'a'.repeat(32),
     team: { id: 'T0ACME', name: 'Acme' }, botUserId: 'U0BOT', appId: 'A0APP', clientId: '1111111111.2222222222', clientSecret: 'f'.repeat(32), codes: {},
-    users: {}, calls: [], acks: [], responses: [], opens: 0, failNext: {}, sharedChannels: new Set(), unknownChannels: new Set(),
+    users: {}, calls: [], acks: [], responses: [], opens: 0, failNext: {}, otherAppTokens: [], sharedChannels: new Set(), unknownChannels: new Set(),
     scopes: ['app_mentions:read', 'channels:read', 'chat:write', 'groups:read', 'im:history', 'im:write', 'users:read', 'users:read.email'],
     sockets: () => open.size,
     async connected() {
@@ -114,7 +115,7 @@ export function startFakeSlack(): FakeSlack {
         if (f.status === 429) return new Response('', { status: 429, headers: { 'retry-after': String(f.retryAfter ?? 1) } })
         return json({ ok: false, error: f.error ?? 'internal_error' })
       }
-      const bot = token === fake.botToken, app = token === fake.appToken
+      const bot = token === fake.botToken, app = token === fake.appToken || (!!token && fake.otherAppTokens.includes(token))
       switch (method) {
         case 'auth.test':
           if (!bot && !app) return json({ ok: false, error: 'invalid_auth' })
@@ -123,7 +124,8 @@ export function startFakeSlack(): FakeSlack {
           if (bot) return json({ ok: false, error: 'not_allowed_token_type' })
           if (!app) return json({ ok: false, error: 'invalid_auth' })
           fake.opens++
-          return json({ ok: true, url: `ws://${u.host}/link?ticket=${fake.opens}&app_id=${fake.socketAppId ?? fake.appId}` })
+          // as real Slack: the address's app_id is a hash, not the app's A… id (that is in the token's prefix and in hello)
+          return json({ ok: true, url: `ws://${u.host}/link?ticket=${fake.opens}&app_id=${createHash('sha256').update(token!).digest('hex')}` })
         case 'bots.info':
           if (!bot) return json({ ok: false, error: 'invalid_auth' })
           return json({ ok: true, bot: { id: args.bot, app_id: fake.appId, user_id: fake.botUserId, name: 'trina-ax' } })

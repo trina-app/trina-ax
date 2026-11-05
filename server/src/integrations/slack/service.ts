@@ -102,6 +102,8 @@ const BOT_TOKEN = /^xoxb-[A-Za-z0-9-]{10,250}$/
 const CLIENT_ID = /^\d{3,20}\.\d{3,20}$/
 const CLIENT_SECRET = /^[A-Za-z0-9]{16,128}$/
 const STATE = /^[A-Za-z0-9_-]{43}$/
+/** The app an app-level token belongs to, from its prefix (xapp-1-A0CF4QNBQ1Y-…), or null when it does not read so */
+export const appIdOfToken = (token: string): string | null => /^xapp-\d+-(A[A-Z0-9]{2,40})-/.exec(token)?.[1] ?? null
 /** an authorization code as Slack sends it back (dot-separated parts) */
 export const SIGNIN_CODE = /^[A-Za-z0-9._-]{8,512}$/
 const CODE = SIGNIN_CODE
@@ -207,21 +209,22 @@ export class SlackConnector {
       const missing = BOT_SCOPES.filter((s) => !who.scopes!.includes(s))
       if (missing.length) throw new SlackError('missing_scope', 'validation', { field: 'botToken', scopes: missing.join(', ') })
     }
-    let socketUrl: unknown
-    try { socketUrl = (await this.api.call('apps.connections.open', app)).url } catch (e) {
+    try { await this.api.call('apps.connections.open', app) } catch (e) {
       const code = errorCode(e)
       throw new SlackError(code === 'invalid_auth' || code === 'unknown' ? 'not_app_token' : code, 'validation', { field: 'appToken' })
     }
-    // both tokens of one app: the bot's app (bots.info) and the app the socket address names, when it names one
+    // both tokens of one app: the bot's app (bots.info) and the app the app-level token names in its prefix
+    // (xapp-<n>-<A…>-…). Not the socket address's app_id: real Slack puts a hash there, not the app id.
     let appId: string | null = null
     try {
       const b = await this.api.call('bots.info', bot, { bot: who.bot_id })
       const id = (b.bot as { app_id?: unknown } | undefined)?.app_id
       if (typeof id === 'string' && ID.test(id)) appId = id
     } catch {}
-    let socketApp: string | null = null
-    try { socketApp = typeof socketUrl === 'string' ? new URL(socketUrl).searchParams.get('app_id') : null } catch {}
-    if (appId && socketApp && socketApp !== appId) throw new SlackError('app_mismatch', 'validation', { field: 'appToken' })
+    const tokenApp = appIdOfToken(app)
+    // either one unknown: no check here (the connection's hello names the app, and envelopes must carry it)
+    if (appId && tokenApp && tokenApp !== appId) throw new SlackError('app_mismatch', 'validation', { field: 'appToken' })
+    appId = appId ?? tokenApp
     let sealed: { enc: string; keyVersion: number }
     try { sealed = this.box.seal(AAD, { bot, app, clientSecret } satisfies Tokens) } catch { throw new SlackError('key_unsafe', 'unavailable') }
     const before = this.config()
