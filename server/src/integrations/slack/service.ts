@@ -765,8 +765,10 @@ export class SlackConnector {
         // a new message (Slack notifies for it, not for an edit); the "working…" one goes. A try that timed out may
         // have reached Slack: the thread is read first, so the answer is never there twice
         const blocks = [...body.blocks, ...(notes ? [{ type: 'context', elements: [{ type: 'mrkdwn', text: notes }] }] : [])]
-        if (!(r.attempts > 0 && await this.alreadyInThread(tk.bot, cfg, r, fallback)))
-          await this.api.call('chat.postMessage', tk.bot, { channel: r.channel_id, thread_ts: r.thread_ts, text: fallback, blocks, unfurl_links: false, unfurl_media: false })
+        const there = r.attempts > 0 ? await this.alreadyInThread(tk.bot, cfg, r, fallback) : false
+        // Slack did not say whether it is there: tried again later rather than risk a second copy (after 3 tries it is sent)
+        if (there === null && r.attempts < 4) throw new SlackApiError('unreachable')
+        if (!there) await this.api.call('chat.postMessage', tk.bot, { channel: r.channel_id, thread_ts: r.thread_ts, text: fallback, blocks, unfurl_links: false, unfurl_media: false })
         if (r.progress_ts) await this.api.call('chat.delete', tk.bot, { channel: r.channel_id, ts: r.progress_ts }).catch(() => {})
       } else {
         // a channel shared with another organization (Slack Connect): no button; it says why
@@ -794,14 +796,14 @@ export class SlackConnector {
 
   /** Our answer to this request is in its DM thread already (conversations.replies, scope im:history): a message of
    * the app with this text, written after the request was made (an earlier answer with the same words does not count).
-   * Unknown: false (sent again). */
-  private async alreadyInThread(bot: string, cfg: ConfigRow, req: RequestRow, text: string): Promise<boolean> {
+   * null: Slack did not answer (the caller waits and asks again). */
+  private async alreadyInThread(bot: string, cfg: ConfigRow, req: RequestRow, text: string): Promise<boolean | null> {
     const since = Date.parse(req.created_at) / 1000
     try {
       const r = await this.api.call('conversations.replies', bot, { channel: req.channel_id, ts: req.thread_ts, limit: 200 })
       const msgs = Array.isArray(r.messages) ? r.messages as { user?: unknown; bot_id?: unknown; text?: unknown; ts?: unknown }[] : []
       return msgs.some((m) => (m.user === cfg.bot_user_id || typeof m.bot_id === 'string') && m.text === text && typeof m.ts === 'string' && Number(m.ts) > since)
-    } catch { return false }
+    } catch { return null }
   }
 
   /** "Post to channel": the asker's answer alone, in the thread, once. */

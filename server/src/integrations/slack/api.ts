@@ -62,9 +62,10 @@ export class SlackApi {
     let retries = 0
     for (;;) {
       let r: Response
+      const signal = AbortSignal.timeout(this.deps.timeoutMs ?? TIMEOUT_MS)
       try {
         r = await fetch(`${this.base}/api/${method}`, {
-          method: 'POST', redirect: 'manual', signal: AbortSignal.timeout(this.deps.timeoutMs ?? TIMEOUT_MS),
+          method: 'POST', redirect: 'manual', signal,
           headers: { ...(o.noAuth ? {} : { Authorization: `Bearer ${token}` }), 'Content-Type': 'application/x-www-form-urlencoded; charset=utf-8' },
           body: form(body),
         })
@@ -78,7 +79,8 @@ export class SlackApi {
       if (r.status >= 500 && retries < 1) { retries++; try { await r.body?.cancel() } catch {}; await Bun.sleep(1000); continue }
       if (r.status !== 200) { try { await r.body?.cancel() } catch {}; throw new SlackApiError(r.status >= 300 && r.status < 400 ? 'redirected' : 'http_error', r.status) }
       let j: Record<string, unknown>
-      try { j = JSON.parse(await readCapped(r)) } catch (e) { if (e instanceof SlackApiError) throw e; throw new SlackApiError('invalid_response', r.status) }
+      // cut by the time limit while it was being read: a network problem (tried again), not a bad answer
+      try { j = JSON.parse(await readCapped(r)) } catch (e) { if (e instanceof SlackApiError) throw e; throw new SlackApiError(signal.aborted ? 'unreachable' : 'invalid_response', r.status) }
       if (!j || typeof j !== 'object') throw new SlackApiError('invalid_response', r.status)
       if (j.ok !== true) throw new SlackApiError(typeof j.error === 'string' && CODE.test(j.error) ? j.error : 'unknown', r.status)
       const sc = r.headers.get('x-oauth-scopes')

@@ -81,7 +81,7 @@ beforeAll(async () => {
   h = await startHarness({ name: 'c-slack', log: createLogger({ level: 'debug', sink: (l) => lines.push(l) }) })
   // the accounts' own e-mails (carol has none)
   for (const [id, email] of [['alice', 'alice@acme.example'], ['bob', 'bob@acme.example'], ['erin', 'erin@acme.example'], ['dana', 'dana@acme.example']]) h.ctx.db.query('UPDATE users SET email = ? WHERE id = ?').run(email, id)
-  slackOf(h.ctx, { base: fake.url, pollMs: 30, retryMs: 50, timeoutMs: 400, now: () => Date.now() + skew })
+  slackOf(h.ctx, { base: fake.url, pollMs: 30, retryMs: 50, timeoutMs: 2000, now: () => Date.now() + skew })
   // in-app notices, as published
   const publish = h.ctx.services.realtime.publish.bind(h.ctx.services.realtime)
   h.ctx.services.realtime.publish = (userId: string, ev: Parameters<typeof publish>[1]) => { notices.push({ userId, ev: ev as { type: string; data: { code?: string } } }); return publish(userId, ev) }
@@ -508,30 +508,44 @@ describe('asking', () => {
   })
 
   test('a DM answer whose post timed out is not posted again when it reached Slack; an older answer with the same words does not count', async () => {
+    // Every step waits for the thing itself to happen, never for an amount of time: the answer's post is held by
+    // the fake Slack until the server's own time limit gives up on it, and the clock only moves past the row's own
+    // not-before time. (Before: the fake was armed after "some post to the DM", which under load could be the answer
+    // itself, and every call had 400 ms, which ordinary calls lost under load.)
     const ts = nextTs()
-    const dm = (text: string, thread?: string) => fake.event({ type: 'message', channel_type: 'im', user: 'U0ALICE', text: `@fake ${JSON.stringify({ sleep: 600 })}\n${say(text)}`, ts: thread ? nextTs() : ts, channel: 'D0ALICE2', ...(thread ? { thread_ts: thread } : {}) })
-    const answers = () => fake.of('chat.postMessage').filter((c) => c.args.channel === 'D0ALICE2' && blocksOf(c).includes('Same words.'))
-    dm('Same words.')
-    await waitFor(() => fake.of('chat.postMessage').some((c) => c.args.channel === 'D0ALICE2'))
-    // the answer's post reaches Slack, but the answer to it never comes back
-    fake.failNext['chat.postMessage'] = { hang: 1500 }
-    await waitFor(() => h.ctx.db.query("SELECT 1 FROM slack_requests WHERE channel_id = 'D0ALICE2' AND attempts > 0").get(), { timeoutMs: 30_000 })
-    skew = 16_000
-    // (a row is marked delivered when it is taken, before it is sent: wait for the thread to have been read and the
-    // working message to go)
-    const deletes = fake.of('chat.delete').length
-    await waitFor(() => fake.of('conversations.replies').length > 0 && fake.of('chat.delete').length > deletes, { timeoutMs: 10_000 })
-    expect(fake.of('conversations.replies').length).toBeGreaterThan(0)
-    expect(answers().length).toBe(1)
-    // the same words again in the thread: this post is lost on the way, so it must be sent again
-    skew = 0
-    dm('Same words.', ts)
-    await waitFor(() => fake.of('chat.postMessage').filter((c) => c.args.channel === 'D0ALICE2').length >= 3)
-    fake.failNext['chat.postMessage'] = { hang: 1500, lost: true }
-    await waitFor(() => h.ctx.db.query("SELECT 1 FROM slack_requests WHERE channel_id = 'D0ALICE2' AND attempts > 0 AND state = 'waiting'").get(), { timeoutMs: 30_000 })
-    skew = 32_000
-    expect(await waitFor(() => answers().length === 2, { timeoutMs: 10_000 })).toBe(true)
-    skew = 0
+    const dm = (thread?: string) => fake.event({ type: 'message', channel_type: 'im', user: 'U0ALICE', text: `@fake ${JSON.stringify({ sleep: 300 })}\n${say('Same words.')}`, ts: thread ? nextTs() : ts, channel: 'D0ALICE2', ...(thread ? { thread_ts: thread } : {}) })
+    const isAnswer = (a: Record<string, string>) => a.channel === 'D0ALICE2' && (a.blocks ?? '').includes('Same words.')
+    const answers = () => fake.of('chat.postMessage').filter((c) => isAnswer(c.args))
+    const row = (n: number) => h.ctx.db.query("SELECT * FROM slack_requests WHERE channel_id = 'D0ALICE2' ORDER BY created_at, id LIMIT 1 OFFSET ?").get(n) as { attempts: number; state: string; not_before: string | null; progress_ts: string | null } | null
+    /** Move the clock past the row's not-before time each time it is set again, until `done` holds */
+    const retryUntil = async (n: number, done: () => boolean) => {
+      const end = Date.now() + 60_000
+      while (!done() && Date.now() < end) {
+        const nb = row(n)?.not_before
+        if (nb && Date.parse(nb) > Date.now() + skew) skew = Date.parse(nb) - Date.now() + 1000
+        await waitFor(done, { timeoutMs: 1000 })
+      }
+      return done()
+    }
+    try {
+      // armed before the question: only the answer's post is held, whenever it comes
+      fake.failNext['chat.postMessage'] = { hang: true, match: isAnswer }
+      dm()
+      expect(await waitFor(() => answers().length === 1, { timeoutMs: 30_000 })).toBe(true) // it reached Slack
+      expect(await waitFor(() => (row(0)?.attempts ?? 0) > 0 && row(0)?.state === 'waiting', { timeoutMs: 30_000 })).toBe(true) // the server gave up on it
+      const progress = row(0)!.progress_ts
+      // tried again: the thread is read first, the answer is found, the working message goes
+      expect(await retryUntil(0, () => fake.of('chat.delete').some((c) => c.args.ts === progress))).toBe(true)
+      expect(fake.of('conversations.replies').length).toBeGreaterThan(0)
+      expect(answers().length).toBe(1)
+      expect(row(0)!.state).toBe('delivered')
+      // the same words again in the thread: this post is lost on the way, so it is sent again
+      fake.failNext['chat.postMessage'] = { hang: true, lost: true, match: isAnswer }
+      dm(ts)
+      expect(await waitFor(() => (row(1)?.attempts ?? 0) > 0 && row(1)?.state === 'waiting', { timeoutMs: 30_000 })).toBe(true)
+      expect(answers().length).toBe(1)
+      expect(await retryUntil(1, () => answers().length === 2)).toBe(true)
+    } finally { skew = 0; delete fake.failNext['chat.postMessage'] }
   })
 
   test('a follow-up in the thread continues the same chat', async () => {

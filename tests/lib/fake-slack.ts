@@ -26,9 +26,9 @@ export interface FakeSlack {
   responses: { path: string; body: Record<string, unknown> }[]
   scopes: string[]
   opens: number
-  /** the next call of a method fails like this; hang: answer nothing for that long (the client times out), recorded
-   * as a call (it reached Slack) unless `lost` */
-  failNext: Record<string, { error?: string; status?: number; retryAfter?: number; hang?: number; lost?: boolean }>
+  /** the next call of a method (the next one `match` accepts) fails like this; hang: no answer until the client gives up
+   * (recorded as a call, it reached Slack, unless `lost`: it never arrived) */
+  failNext: Record<string, { error?: string; status?: number; retryAfter?: number; hang?: boolean; lost?: boolean; match?: (args: Record<string, string>) => boolean }>
   /** channels conversations.info calls shared with another organization; `unknown`: no is_ext_shared in the answer */
   sharedChannels: Set<string>
   unknownChannels: Set<string>
@@ -102,11 +102,13 @@ export function startFakeSlack(): FakeSlack {
       const method = m[1]!
       const token = /^Bearer (.+)$/.exec(req.headers.get('authorization') ?? '')?.[1] ?? null
       const args = Object.fromEntries(new URLSearchParams(await req.text()))
-      const f = fake.failNext[method]
+      const armed = fake.failNext[method]
+      const f = armed && (!armed.match || armed.match(args)) ? armed : undefined
       if (!f?.lost) fake.calls.push({ method, token, args, at: Date.now() })
       if (f) {
         delete fake.failNext[method]
-        if (f.hang) { await Bun.sleep(f.hang); return json({ ok: true, channel: args.channel, ts: nextTs() }) }
+        // held until the client gives up (its own time limit), then nothing is answered
+        if (f.hang) { await new Promise<void>((done) => { req.signal.addEventListener('abort', () => done()); setTimeout(done, 60_000) }); return new Response('', { status: 504 }) }
         if (f.status === 429) return new Response('', { status: 429, headers: { 'retry-after': String(f.retryAfter ?? 1) } })
         return json({ ok: false, error: f.error ?? 'internal_error' })
       }
