@@ -13,7 +13,7 @@ import { pushMessages } from './text'
 import { eventEnabled, getPreferences } from './preferences'
 import { onPushCancellation, cancelPushUser, pushPathOf } from './push-events'
 import { readPushConfig, pushConfigKey, type PushConfig } from './push-config'
-import { bounded, createPushTransport, validatePushSubscription, type PushSubscription, type PushTransport } from './push-transport'
+import { bounded, createPushTransport, pushFailure, validatePushSubscription, type PushSubscription, type PushTransport } from './push-transport'
 import { createNativeTransport, nativeConfigKey, readNativePushConfig, validNativeDevice, type NativeDevice, type NativePushConfig, type NativeTransport } from './push-native'
 /** config: Web Push (VAPID); native: the push gateway for the phone app. Either may be off; both share one queue. */
 export interface PushOptions {config:()=>PushConfig|null;transport:PushTransport;native:()=>NativePushConfig|null;nativeTransport:NativeTransport;now:()=>number;requestTimeoutMs?:number}
@@ -188,12 +188,12 @@ export class PushService {
       const changed=this.ctx.db.query(`UPDATE ${src.deliveries} SET state='sending',attempts=attempts+1,lease_until=? WHERE notification_id=? AND subscription_id=? AND state='pending'`).run(this.iso(this.o.now()+35_000),row.notification_id,row.subscription_id)
       if(!changed.changes)continue
       const abort=new AbortController(),r=row,from=src;this.flight={abort,src,userId:allowed.sub.user_id,sessionId:allowed.sub.session_id,subscriptionId:row.subscription_id,notificationId:row.notification_id,configKey:key}
-      let status=0
+      let status=0,failure:ReturnType<typeof pushFailure>|null=null,timedOut=false
       try{
         this.safeSecrets()
         const aad=`${allowed.sub.user_id}|${allowed.sub.session_id}|${allowed.sub.id}`
         const timeout=Math.min(this.o.requestTimeoutMs??10_000,Math.max(1,30_000-(performance.now()-started)))
-        const timer=setTimeout(()=>abort.abort(),timeout)
+        const timer=setTimeout(()=>{timedOut=true;abort.abort()},timeout)
         const beforeSend=()=>!abort.signal.aborted&&!!this.eligible(from,r.subscription_id,r.notification_id,key),ttlSeconds=Math.max(0,Math.floor((Date.parse(r.expires_at)-this.o.now())/1000))
         try{
           if(allowed.sub.kind==='native'){
@@ -209,8 +209,13 @@ export class PushService {
             status=(await bounded(this.o.transport({subscription:sub,payload:{notificationId:r.notification_id,subscriptionId:r.subscription_id,code:allowed.event},config,signal:abort.signal,beforeSend,ttlSeconds}),abort.signal,timeout)).statusCode
           }
         }finally{clearTimeout(timer)}
-      }catch{/* No provider body, endpoint, key, or raw error is logged. */}
+      }catch(e){failure=pushFailure(e);if(timedOut&&failure.outcome==='push_cancelled')failure.outcome='push_timeout'}
       finally{abort.abort();this.flight=null}
+      // One line per attempt with the outcome code only: the status, or our transport code with the phase, the system
+      // error code and the address families tried. No provider body, endpoint, token, key, address or raw error.
+      const outcome={kind:allowed.sub.kind,attempt:row.attempts+1,...(failure??{status})}
+      if(failure?.outcome!=='push_cancelled'&&!(status>=200&&status<300))this.ctx.log.warn('push delivery failed',outcome)
+      else this.ctx.log.debug(failure?'push delivery cancelled':'push delivered',outcome)
       if(this.stopped){this.ctx.db.query(`UPDATE ${src.deliveries} SET state='pending',next_at=?,lease_until=NULL WHERE notification_id=? AND subscription_id=? AND state='sending'`).run(this.iso(this.o.now()+30_000),row.notification_id,row.subscription_id);return}
       // Web Push: the provider says the subscription is gone (404/410). The gateway answers 410 only for a dead token
       // (its 404 means a wrong address, which must not delete phones).
