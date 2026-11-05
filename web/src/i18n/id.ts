@@ -1412,6 +1412,7 @@ export const id: Record<MessageKey, string> = {
   'accessView.summaryInOwn': "Di dalam {path} hanya ada folder pribadi {name}. Hanya ia dan AI-nya yang bisa melihatnya.",
   'accessTree.title': "Siapa yang bisa melihat tiap folder",
   'accessTree.desc': "Buka folder tim dari puncak untuk melihat siapa yang bisa melihat tiap folder, dan dari aturan folder mana itu berasal. Pilih folder untuk melihat akses tiap orang dan alasannya.",
+  'accessTree.how': "Cara kerjanya",
   'accessTree.label': "Pohon folder tim",
   'accessTree.who.adminsOnly': "Hanya owner dan admin",
   'accessTree.who.allMembers': "Semua anggota",

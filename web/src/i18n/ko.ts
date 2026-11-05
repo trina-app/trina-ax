@@ -1411,6 +1411,7 @@ export const ko = {
   'accessView.summaryInOwn': "{path} 안에는 {name} 님의 개인 폴더만 있어요. 본인과 그 AI만 볼 수 있어요.",
   'accessTree.title': "폴더마다 볼 수 있는 사람",
   'accessTree.desc': "팀 폴더를 맨 위부터 펼쳐 폴더마다 누가 볼 수 있는지, 그 권한이 어느 폴더의 규칙에서 오는지 보여 줘요. 폴더를 고르면 사람마다 권한과 이유가 나와요.",
+  'accessTree.how': "이 화면 읽는 법",
   'accessTree.label': "팀 폴더 트리",
   'accessTree.who.adminsOnly': "팀장과 관리자만",
   'accessTree.who.allMembers': "팀원 전체",

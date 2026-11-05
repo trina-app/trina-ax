@@ -1383,6 +1383,7 @@ export const ja: Record<MessageKey, string> = {
   'accessView.summaryInOwn': "{path} の中には {name} さんの個人フォルダーだけがあります。本人とその AI だけが見られます。",
   'accessTree.title': "フォルダーごとに見られる人",
   'accessTree.desc': "チームフォルダーを最上位から開いて、フォルダーごとに誰が見られるか、その権限がどのフォルダーのルールから来るかを表示します。フォルダーを選ぶと、人ごとの権限と理由が出ます。",
+  'accessTree.how': "見方",
   'accessTree.label': "チームフォルダーのツリー",
   'accessTree.who.adminsOnly': "オーナーと管理者だけ",
   'accessTree.who.allMembers': "メンバー全員",

@@ -1412,6 +1412,7 @@ export const en: Record<MessageKey, string> = {
   'accessView.summaryInOwn': "Within {path} there is only {name}'s personal folder. Only they and their AI can see it.",
   'accessTree.title': "Who can see each folder",
   'accessTree.desc': "Open the team folder from the top to see who can see each folder, and from which folder's rules that comes. Choose a folder to see each person's access and why.",
+  'accessTree.how': "How this works",
   'accessTree.label': "Team folder tree",
   'accessTree.who.adminsOnly': "Owner and admins only",
   'accessTree.who.allMembers': "All members",

@@ -1383,6 +1383,7 @@ export const es: Record<MessageKey, string> = {
   'accessView.summaryInOwn': "Dentro de {path} solo está la carpeta personal de {name}. Solo esa persona y su IA pueden verla.",
   'accessTree.title': "Quién puede ver cada carpeta",
   'accessTree.desc': "Abre la carpeta del equipo desde la raíz para ver quién puede ver cada carpeta y de qué reglas viene. Elige una carpeta para ver el acceso de cada persona y por qué.",
+  'accessTree.how': "Cómo funciona",
   'accessTree.label': "Árbol de la carpeta del equipo",
   'accessTree.who.adminsOnly': "Solo el propietario y los administradores",
   'accessTree.who.allMembers': "Todos los miembros",
